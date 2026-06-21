@@ -21,8 +21,11 @@ export function parsePolicy(raw: RawPolicy | null | undefined): Policy {
   const r = raw ?? {};
   return {
     version: 1,
-    protected: r.protected ?? base.protected,
-    rules: r.rules ?? base.rules,
+    // Merge with the baseline, never replace. For an integrity tool, a config that sets
+    // one rule's severity must NOT silently drop the other nine (nor a single protected
+    // category wipe out the rest). Omission keeps the baseline; opt out explicitly.
+    protected: { ...base.protected, ...(r.protected ?? {}) },
+    rules: { ...base.rules, ...(r.rules ?? {}) },
     ignore: r.ignore ?? base.ignore,
     signoff: {
       requiredFor: r.signoff?.required_for ?? r.signoff?.requiredFor ?? base.signoff.requiredFor,

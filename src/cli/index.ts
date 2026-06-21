@@ -4,6 +4,19 @@
 
 import { runCheck, CheckOpts } from './check';
 import { runHookClaude, runSweepClaude } from './hook';
+import { runAllow, AllowOpts } from './allow';
+
+function parseAllow(args: string[]): AllowOpts {
+  const o: AllowOpts = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--file') o.file = args[++i];
+    else if (a === '--reason') o.reason = args[++i];
+    else if (a === '--cwd') o.cwd = args[++i];
+    else if (!a.startsWith('--') && !o.rule) o.rule = a;
+  }
+  return o;
+}
 
 function runAgentCommand(kind: 'hook' | 'sweep', args: string[]): number {
   const agent = args[0];
@@ -40,6 +53,7 @@ Usage:
   holdfast check ... --json               machine-readable output
   holdfast hook claude                    PreToolUse gate (reads hook JSON on stdin)
   holdfast sweep claude                   Stop sweep (re-scan the turn's working tree)
+  holdfast allow <rule> --reason "..."    record a human sign-off (local audit ledger)
 
 Exit code: check → 1 if any blocking finding. hook/sweep → 2 (deny) or 0 (allow).
 `);
@@ -54,6 +68,8 @@ function main(argv: string[]): number {
       return runAgentCommand('hook', rest);
     case 'sweep':
       return runAgentCommand('sweep', rest);
+    case 'allow':
+      return runAllow(parseAllow(rest));
     case undefined:
     case '-h':
     case '--help':

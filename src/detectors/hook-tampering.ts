@@ -7,6 +7,7 @@ import { Change, Detector, Finding } from '../types';
 import { addedLines, removedLines } from '../diff/select';
 import { isProtected } from '../policy';
 import { makeFinding } from './finding';
+import { policyWeakening } from './policy-diff';
 import { segments, tokens, unquote } from './command';
 
 const RULE = 'hook-tampering';
@@ -43,12 +44,26 @@ export const hookTampering: Detector = {
               remediation: 'Renaming a hook out of place disables it. Restore the original path.',
             }),
           );
+        } else if (c.path.endsWith('.holdfast.yml') && c.before != null && c.after != null) {
+          // Full content available → compare the policy SEMANTICALLY, catching every
+          // weakening move (added ignore globs, narrowed protected, lowered/disabled/
+          // removed rules incl. the multiline form, weakened sign-off).
+          for (const reason of policyWeakening(c.before, c.after)) {
+            out.push(
+              makeFinding(RULE, policy, {
+                file: c.path,
+                message: `The policy was weakened: ${reason}.`,
+                evidence: reason,
+                remediation:
+                  'A change that weakens the guardrail is a high-risk edit requiring human sign-off, not an automated pass.',
+              }),
+            );
+          }
         } else {
-          // Pair severity by RULE NAME (inline form: `rule: { severity: block }`), so
-          // reformatting the file — which removes block lines and adds warn lines for
-          // unrelated rules — does not read as a lowering. Only the same rule going
-          // block → warn fires. (The multiline `severity:` form is a known gap until a
-          // YAML-aware policy differ lands; a block rule must not false-fire here.)
+          // Fallback when full content isn't available: pair severity by RULE NAME
+          // (inline form: `rule: { severity: block }`), so reformatting — which removes
+          // block lines and adds warn lines for unrelated rules — does not read as a
+          // lowering. Only the same rule going block → warn fires.
           const INLINE = /^\s*([A-Za-z0-9_-]+):\s*\{[^}]*\bseverity:\s*(block|warn)\b/;
           const removedSeverity = new Map<string, string>();
           for (const l of removedLines(c)) {

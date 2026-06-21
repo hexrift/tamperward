@@ -99,13 +99,18 @@ export const testDeletion: Detector = {
           let why: string | null = null;
           let evidence = seg;
 
+          // a redirect only tampers if its TARGET is the test (`cat x.spec.ts > /tmp/y`
+          // reads the test and writes elsewhere — not a tamper)
+          const redirectTarget = seg.match(/>\s*(\S+)/)?.[1];
+          const redirectsOntoTest = redirectTarget ? isProtected(unquote(redirectTarget), policy, 'tests') : false;
+
           if (/\brm\b/.test(seg)) {
             why = 'rm deletes a test file';
           } else if (/\bsed\b/.test(seg) && /(?:^|\s)-i\b/.test(seg)) {
             why = 'sed -i rewrites a test file in place';
           } else if (/\btruncate\b/.test(seg)) {
             why = 'truncate empties a test file';
-          } else if (/(?:^|\s)>\s*\S/.test(seg)) {
+          } else if (redirectsOntoTest) {
             why = 'a redirect overwrites/empties a test file';
           } else if (/\bmv\b/.test(seg)) {
             const dest = toks[toks.length - 1];

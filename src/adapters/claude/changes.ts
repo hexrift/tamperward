@@ -5,7 +5,7 @@
 // one normalization, four producers.
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, existsSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, isAbsolute } from 'node:path';
 import { Change, FileChange, FileOp } from '../../types';
@@ -40,7 +40,9 @@ function relForDisplay(path: string, cwd: string): string {
 
 function applyEdit(content: string | null, oldStr: string, newStr: string): string {
   if (content === null) return newStr;
-  return content.replace(oldStr, newStr); // first occurrence, matching Edit semantics
+  // Function replacer so `$&`, `$1`, `` $` `` in newStr are inserted literally, not
+  // interpreted as replacement patterns. Still replaces the first occurrence only.
+  return content.replace(oldStr, () => newStr);
 }
 
 /** before/after full content → a FileChange with hunks, via the same diff parser. */
@@ -52,18 +54,21 @@ export function synthFileChange(displayPath: string, before: string | null, afte
   else op = 'modify';
 
   const dir = mkdtempSync(join(tmpdir(), 'hf-'));
-  const a = join(dir, 'a');
-  const b = join(dir, 'b');
-  writeFileSync(a, before ?? '');
-  writeFileSync(b, after ?? '');
-
   let raw = '';
   try {
-    raw = execFileSync('git', ['diff', '--no-index', '--no-color', a, b], { encoding: 'utf8' });
-  } catch (e) {
-    // git diff --no-index exits 1 when the files differ; the patch is on stdout
-    const err = e as { stdout?: string | Buffer };
-    raw = err.stdout ? String(err.stdout) : '';
+    const a = join(dir, 'a');
+    const b = join(dir, 'b');
+    writeFileSync(a, before ?? '');
+    writeFileSync(b, after ?? '');
+    try {
+      raw = execFileSync('git', ['diff', '--no-index', '--no-color', a, b], { encoding: 'utf8' });
+    } catch (e) {
+      // git diff --no-index exits 1 when the files differ; the patch is on stdout
+      const err = e as { stdout?: string | Buffer };
+      raw = err.stdout ? String(err.stdout) : '';
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 
   const first = parseDiff(raw)[0];
