@@ -85,6 +85,13 @@ export interface Policy {
   /** Named globs for the safety nets treated as protected assets. */
   protected: Record<string, string[]>;
   rules: Record<string, RuleConfig>;
+  /**
+   * Globs for file paths excluded from file-surface detection. Necessary when a repo
+   * legitimately contains the very patterns the rules look for (a security tool's own
+   * rule definitions, docs, fixtures). The count ignored is always reported, never
+   * silent — an ignore is a visible blind spot, not a hidden one.
+   */
+  ignore?: string[];
   signoff: { requiredFor: Severity[]; ledger: string };
 }
 

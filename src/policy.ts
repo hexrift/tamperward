@@ -33,6 +33,11 @@ export function isProtected(path: string, policy: Policy, category?: string): bo
   return protectedCategory(path, policy) !== null;
 }
 
+/** Whether a file path is excluded from file-surface detection by policy.ignore. */
+export function isIgnored(path: string, policy: Policy): boolean {
+  return matchesAny(path, policy.ignore);
+}
+
 /** The baseline policy — mirrors the committed .holdfast.yml. */
 export function defaultPolicy(): Policy {
   return {
@@ -63,6 +68,7 @@ export function defaultPolicy(): Policy {
       'assertion-weakening': { severity: 'warn' },
       'guard-removal': { severity: 'warn' },
     },
+    ignore: [],
     signoff: { requiredFor: ['block'], ledger: '.holdfast/ledger.jsonl' },
   };
 }

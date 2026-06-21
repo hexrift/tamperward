@@ -45,8 +45,10 @@ export const ciTampering: Detector = {
         }
       }
 
+      // A line removed AND re-added (a reformat or reorder) is not a deletion.
+      const stillPresent = new Set(addedLines(c).map((l) => l.content.trim()));
       for (const l of removedLines(c)) {
-        if (STEP.test(l.content) && CHECK.test(l.content)) {
+        if (STEP.test(l.content) && CHECK.test(l.content) && !stillPresent.has(l.content.trim())) {
           out.push(
             makeFinding(RULE, policy, {
               file: c.path,

@@ -11,13 +11,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # full history so the range diff has a merge-base
+          fetch-depth: 0 # full history so the range diff has both endpoints
       - uses: actions/setup-node@v4
         with:
           node-version: 20
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      # TODO (phase 2): dogfood — gate this repo with Holdfast itself, e.g.
-      #   npx holdfast check --diff "origin/${{ github.base_ref }}...HEAD"
-      # Once the CLI exists, this step becomes the authority for what reaches main.
+      - run: npm run build
+
+      # Dogfood: Holdfast gates its own repo with the same engine it ships.
+      - name: Holdfast self-gate
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            RANGE="${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}"
+          else
+            BEFORE="${{ github.event.before }}"
+            if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              echo "No before-sha (first push); nothing to range-check."
+              exit 0
+            fi
+            RANGE="$BEFORE...${{ github.sha }}"
+          fi
+          echo "Checking range: $RANGE"
+          node dist/cli/index.js check --diff "$RANGE"

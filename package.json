@@ -5,19 +5,28 @@
   "type": "module",
   "description": "The deterministic agent-integrity gate. One ruleset, evaluated on the actual diff/commands as a verdict, enforced everywhere a change can be made.",
   "license": "Apache-2.0",
+  "bin": {
+    "holdfast": "dist/cli/index.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "esbuild src/cli/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/cli/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "check": "node dist/cli/index.js check"
   },
   "dependencies": {
     "picomatch": "^4.0.2",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "yaml": "^2.6.1"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "@types/picomatch": "^3.0.1",
+    "esbuild": "^0.24.0",
     "vitest": "^2.1.8"
   }
 }

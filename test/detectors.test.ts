@@ -226,14 +226,14 @@ index 1..0
     expect(run(hookTampering, d)).toHaveLength(1);
   });
 
-  it('flags lowering a severity in the policy', () => {
+  it('flags lowering a severity in the policy (inline form)', () => {
     const d = fromDiff(`diff --git a/.holdfast.yml b/.holdfast.yml
 index 1..2 100644
 --- a/.holdfast.yml
 +++ b/.holdfast.yml
 @@ -5,1 +5,1 @@ rules:
--    severity: block
-+    severity: warn`);
+-  test-skip: { severity: block }
++  test-skip: { severity: warn }`);
     expect(run(hookTampering, d)).toHaveLength(1);
   });
 
@@ -304,5 +304,56 @@ rename to src/a.spec.bak`);
 
   it.each(['cat src/a.spec.ts', 'rm src/app.ts'])('does not flag: %s', (c) => {
     expect(run(testDeletion, [cmd(c)])).toHaveLength(0);
+  });
+});
+
+// ── self-hosting precision: no false-fire on non-code files / reformatting ──
+describe('precision (self-hosting false positives)', () => {
+  it('ts-any-cast ignores "as any" in a non-code file (yaml comment)', () => {
+    const d = fromDiff(`diff --git a/.holdfast.yml b/.holdfast.yml
+index 1..2 100644
+--- a/.holdfast.yml
++++ b/.holdfast.yml
+@@ -1,0 +1,1 @@
++# the rules look for patterns like as any and it.skip`);
+    expect(run(tsAnyCast, d)).toHaveLength(0);
+  });
+
+  it('hook-tampering does not fire when reformatting keeps each rule\'s severity', () => {
+    const d = fromDiff(`diff --git a/.holdfast.yml b/.holdfast.yml
+index 1..2 100644
+--- a/.holdfast.yml
++++ b/.holdfast.yml
+@@ -1,2 +1,2 @@ rules:
+-  test-deletion:   { severity: block }
+-  assertion-weakening:   { severity: warn }
++  test-deletion: { severity: block }
++  assertion-weakening: { severity: warn }`);
+    expect(run(hookTampering, d)).toHaveLength(0);
+  });
+
+  it('hook-tampering DOES fire when a rule actually goes block → warn', () => {
+    const d = fromDiff(`diff --git a/.holdfast.yml b/.holdfast.yml
+index 1..2 100644
+--- a/.holdfast.yml
++++ b/.holdfast.yml
+@@ -1,1 +1,1 @@ rules:
+-  no-verify: { severity: block }
++  no-verify: { severity: warn }`);
+    const f = run(hookTampering, d) as Array<{ message: string }>;
+    expect(f).toHaveLength(1);
+    expect(f[0].message).toContain('no-verify');
+  });
+
+  it('ci-tampering does not fire when a check step is removed AND re-added', () => {
+    const d = fromDiff(`diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 1..2 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -1,2 +1,2 @@ jobs:
+-      - run: npm test
+       - run: npm run build
++      - run: npm test`);
+    expect(run(ciTampering, d)).toHaveLength(0);
   });
 });

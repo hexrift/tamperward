@@ -3,6 +3,7 @@
 
 import { Change, Detector, Finding } from '../types';
 import { addedLines } from '../diff/select';
+import { isCodeFile } from './files';
 import { makeFinding } from './finding';
 
 const RULE = 'lint-suppression';
@@ -20,7 +21,7 @@ export const lintSuppression: Detector = {
   run(changes: Change[], policy): Finding[] {
     const out: Finding[] = [];
     for (const c of changes) {
-      if (c.kind !== 'file') continue;
+      if (c.kind !== 'file' || !isCodeFile(c.path)) continue;
       for (const l of addedLines(c)) {
         for (const p of PATTERNS) {
           if (p.re.test(l.content)) {

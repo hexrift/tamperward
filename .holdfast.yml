@@ -2,24 +2,40 @@ version: 1
 
 # The safety nets, treated as protected assets whose weakening is the signal.
 protected:
-  tests:  ['**/*.test.ts', '**/*.spec.ts', '**/__tests__/**']
-  config: ['jest.config.*', 'vitest.config.*', 'tsconfig*.json', '.eslintrc*', 'eslint.config.*']
-  ci:     ['.github/workflows/**']
-  hooks:  ['.husky/**', 'lefthook.*', '.holdfast.yml']
+  tests: ['**/*.test.ts', '**/*.spec.ts', '**/__tests__/**']
+  config:
+    - '**/jest.config.*'
+    - '**/vitest.config.*'
+    - '**/tsconfig*.json'
+    - '**/.eslintrc*'
+    - '**/eslint.config.*'
+    - '**/package.json'
+  ci: ['.github/workflows/**']
+  hooks: ['.husky/**', '**/lefthook.*', '.holdfast.yml', '**/.holdfast.yml']
+
+# Excluded from file-surface detection. This is a SELF-HOSTING exception, reported and
+# not silent: Holdfast's own rule definitions and docs literally contain the patterns
+# the rules look for (`as any`, `it.skip`, `--no-verify`) as data, not as real bypasses.
+# A consumer repo would not need this. The command surface (no-verify, shell mutation)
+# is never path-scoped, so it still runs everywhere.
+ignore:
+  - '**/*.md' # docs describe the bypasses by name
+  - 'src/detectors/**' # the rules contain the patterns they detect
+  - 'test/**' # fixtures and cases are bypass examples by design
 
 rules:
   # mechanical — 100% deterministic, may block
-  test-deletion:        { severity: block }    # AST (count-based) + rename-out-of-glob + rm/sed/>
-  test-skip:            { severity: block }
-  ts-any-cast:          { severity: block }
-  lint-suppression:     { severity: block }
-  coverage-lowering:    { severity: block }
-  ci-tampering:         { severity: block }
-  hook-tampering:       { severity: block }
-  no-verify:            { severity: block }
+  test-deletion: { severity: block } # AST (count-based) + rename-out-of-glob + rm/sed/>
+  test-skip: { severity: block }
+  ts-any-cast: { severity: block }
+  lint-suppression: { severity: block }
+  coverage-lowering: { severity: block }
+  ci-tampering: { severity: block }
+  hook-tampering: { severity: block }
+  no-verify: { severity: block }
   # heuristic — ship as warn; graduate to block only when precision clears the bar
-  assertion-weakening:  { severity: warn }     # AST · includes the sly-genie literal swap
-  guard-removal:        { severity: warn }
+  assertion-weakening: { severity: warn } # AST · includes the sly-genie literal swap
+  guard-removal: { severity: warn }
 
 signoff:
   required_for: [block]

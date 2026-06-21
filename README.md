@@ -15,29 +15,44 @@ shortcut is enough.
 
 ## Status
 
-Phase 1 — the engine. The load-bearing piece is built and verified: the `Change`
-normalization every adapter manufactures and every detector consumes.
+Phase 1 — the engine, the eight mechanical detectors, and the `check` CLI. Holdfast
+gates its own repo in CI with the same engine it ships.
 
-- `src/types.ts` — the `Change` model (the one decision the codebase inherits).
+- `src/types.ts` — the `Change` model every adapter manufactures and every detector
+  consumes (the one decision the codebase inherits).
 - `src/diff/parse.ts` — pure `git diff` → `Change[]` parser. Handles add / modify /
   delete / **rename (as one change carrying `oldPath`)** / rename+edit / binary, with
   per-line old/new line numbers correct across multiple hunks.
-- `src/diff/select.ts` — `addedLines` / `removedLines` selectors for detectors.
 - `src/git/build.ts` — the git adapter: range / staged / worktree views, enriching
   `before`/`after` with full file content for the AST detectors.
-- `test/parse.test.ts` — proves every awkward case above. `npm test`.
+- `src/detectors/` — the **eight mechanical rules**: `no-verify`, `ts-any-cast`,
+  `lint-suppression`, `test-skip`, `coverage-lowering`, `ci-tampering`,
+  `hook-tampering`, `test-deletion` (the last counts `it()/test()` via the TS AST,
+  and handles delete / rename-out-of-glob / shell mutation).
+- `src/engine.ts` — runs the enabled rules over `Change[]`; honours `policy.ignore`.
+- `src/cli/` — `holdfast check --staged | --worktree | --diff <base>...<head>`,
+  exit 1 on any blocking finding.
+- `test/` — 71 tests, including the AST-vs-regex and self-hosting precision cases.
 
-Next: the eight mechanical detectors against a harvested negatives corpus, then the
-Claude Code agent layer (PreToolUse + Stop sweep) and the bypass-to-fix harness.
+Next: the negatives corpus to graduate the two heuristic rules, then the Claude Code
+agent layer (PreToolUse hook + Stop sweep) and the bypass-to-fix harness.
 
 See **[SPEC.md](./SPEC.md)** for the full build spec, the detector table, the
 enforcement-point wiring, and the proof harness.
 
-## Develop
+## Use
 
 ```bash
 npm install
-npm test         # vitest — the parser/normalization suite
+npm run build                                   # bundles the CLI to dist/cli/index.js
+node dist/cli/index.js check --staged           # pre-commit view
+node dist/cli/index.js check --diff "main...HEAD"  # CI view
+```
+
+## Develop
+
+```bash
+npm test           # vitest — parser, detectors, engine, policy
 npm run typecheck
 ```
 

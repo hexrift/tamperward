@@ -5,9 +5,16 @@
 import { Change, Detector, Finding, Policy } from './types';
 import { allDetectors } from './detectors';
 import { isEnabled } from './detectors/finding';
+import { isIgnored } from './policy';
 
 function key(f: Finding): string {
   return `${f.rule}|${f.file ?? ''}|${f.line ?? ''}|${f.evidence}`;
+}
+
+/** File changes whose path is ignored by policy are dropped before detection.
+ *  Command changes are never path-scoped, so they always run. */
+export function activeChanges(changes: Change[], policy: Policy): Change[] {
+  return changes.filter((c) => c.kind !== 'file' || !isIgnored(c.path, policy));
 }
 
 export function evaluate(
@@ -15,10 +22,11 @@ export function evaluate(
   policy: Policy,
   detectors: Detector[] = allDetectors,
 ): Finding[] {
+  const active = activeChanges(changes, policy);
   const out: Finding[] = [];
   for (const d of detectors) {
     if (!isEnabled(d.id, policy)) continue;
-    out.push(...d.run(changes, policy));
+    out.push(...d.run(active, policy));
   }
   // de-duplicate identical findings (e.g. a command both rm-ing and matching a path)
   const seen = new Set<string>();

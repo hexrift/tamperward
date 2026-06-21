@@ -44,14 +44,25 @@ export const hookTampering: Detector = {
             }),
           );
         } else {
-          const loweredFromBlock = removedLines(c).some((l) => /severity:\s*block\b/.test(l.content));
+          // Pair severity by RULE NAME (inline form: `rule: { severity: block }`), so
+          // reformatting the file — which removes block lines and adds warn lines for
+          // unrelated rules — does not read as a lowering. Only the same rule going
+          // block → warn fires. (The multiline `severity:` form is a known gap until a
+          // YAML-aware policy differ lands; a block rule must not false-fire here.)
+          const INLINE = /^\s*([A-Za-z0-9_-]+):\s*\{[^}]*\bseverity:\s*(block|warn)\b/;
+          const removedSeverity = new Map<string, string>();
+          for (const l of removedLines(c)) {
+            const m = l.content.match(INLINE);
+            if (m) removedSeverity.set(m[1], m[2]);
+          }
           for (const l of addedLines(c)) {
-            if (loweredFromBlock && /severity:\s*warn\b/.test(l.content)) {
+            const m = l.content.match(INLINE);
+            if (m && m[2] === 'warn' && removedSeverity.get(m[1]) === 'block') {
               out.push(
                 makeFinding(RULE, policy, {
                   file: c.path,
                   line: l.newLine ?? undefined,
-                  message: 'A rule severity was lowered from block to warn in the policy.',
+                  message: `Rule "${m[1]}" was lowered from block to warn in the policy.`,
                   evidence: l.content.trim(),
                   remediation: 'Do not weaken the policy to pass. Lowering a gate is a human sign-off decision.',
                 }),
