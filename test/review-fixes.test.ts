@@ -11,7 +11,8 @@ import { changesFromClaudeHook } from '../src/adapters/claude/changes';
 import { diffWorktree } from '../src/git/build';
 import { loadPolicy } from '../src/policy-load';
 import { evaluate } from '../src/engine';
-import type { Change, CommandChange, FileChange } from '../src/types';
+import { noVerify } from '../src/detectors/no-verify';
+import type { Change, CommandChange, FileChange, Detector } from '../src/types';
 
 const P = defaultPolicy();
 const cmd = (raw: string): CommandChange => ({ kind: 'command', raw, argv: raw.split(/\s+/) });
@@ -27,28 +28,42 @@ describe('policyWeakening', () => {
     'ignore: []',
   ].join('\n');
 
+  const reasons = (b: string, a: string) => policyWeakening(b, a) ?? [];
+
   it('flags an added ignore glob (the ignore:["**"] kill)', () => {
     const after = base.replace('ignore: []', "ignore: ['**']");
-    expect(policyWeakening(base, after).some((r) => /ignore/.test(r))).toBe(true);
+    expect(reasons(base, after).some((r) => /ignore/.test(r))).toBe(true);
   });
   it('flags narrowed protected globs', () => {
     const after = base.replace("tests: ['**/*.test.ts']", 'tests: []');
-    expect(policyWeakening(base, after).some((r) => /protected/.test(r))).toBe(true);
+    expect(reasons(base, after).some((r) => /protected/.test(r))).toBe(true);
   });
   it('flags severity lowered in the MULTILINE form (the old gap)', () => {
     const b = 'rules:\n  no-verify:\n    severity: block\n';
     const a = 'rules:\n  no-verify:\n    severity: warn\n';
-    expect(policyWeakening(b, a).some((r) => /no-verify/.test(r))).toBe(true);
+    expect(reasons(b, a).some((r) => /no-verify/.test(r))).toBe(true);
   });
   it('flags a removed rule and a disabled rule', () => {
     const removed = base.replace('  test-deletion: { severity: block }\n', '');
-    expect(policyWeakening(base, removed).some((r) => /removed/.test(r))).toBe(true);
+    expect(reasons(base, removed).some((r) => /removed/.test(r))).toBe(true);
     const disabled = base.replace('test-deletion: { severity: block }', 'test-deletion: { severity: block, enabled: false }');
-    expect(policyWeakening(base, disabled).some((r) => /disabled/.test(r))).toBe(true);
+    expect(reasons(base, disabled).some((r) => /disabled/.test(r))).toBe(true);
   });
   it('does NOT flag a strengthening edit (a protected glob ADDED)', () => {
     const after = base.replace("tests: ['**/*.test.ts']", "tests: ['**/*.test.ts', '**/*.spec.ts']");
-    expect(policyWeakening(base, after)).toHaveLength(0);
+    expect(reasons(base, after)).toHaveLength(0);
+  });
+
+  // fail-closed / fail-safe on broken YAML — the failure mode the semantic upgrade added
+  it('FAILS CLOSED when the after-policy is emptied or corrupted', () => {
+    expect(reasons(base, 'rules: [this is : not valid').some((r) => /corrupted|emptied/.test(r))).toBe(true);
+    expect(reasons(base, '').some((r) => /corrupted|emptied/.test(r))).toBe(true);
+  });
+  it('returns null (defer to fallback) when the BEFORE has no baseline to compare', () => {
+    expect(policyWeakening('!!!not yaml::', base)).toBeNull();
+  });
+  it('never throws on malformed input', () => {
+    expect(() => policyWeakening('{[}', '}{]')).not.toThrow();
   });
 });
 
@@ -64,6 +79,26 @@ describe('parsePolicy merge', () => {
     const p = parsePolicy({ protected: { tests: ['**/*.test.js'] } });
     expect(p.protected.tests).toEqual(['**/*.test.js']);
     expect(p.protected.ci).toBeDefined();
+  });
+});
+
+// ── engine isolates a throwing detector (must not fail open at the hook) ────
+describe('engine resilience', () => {
+  it('a detector that throws is skipped, not allowed to crash the verdict', () => {
+    const boom: Detector = {
+      id: 'boom',
+      surface: ['command'],
+      certainty: 'mechanical',
+      run() {
+        throw new Error('deliberate');
+      },
+    };
+    let findings: ReturnType<typeof evaluate> = [];
+    expect(() => {
+      findings = evaluate([cmd('git commit --no-verify')], P, [boom, noVerify]);
+    }).not.toThrow();
+    // the healthy detector's verdict still stands
+    expect(findings.some((f) => f.rule === 'no-verify')).toBe(true);
   });
 });
 

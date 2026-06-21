@@ -44,11 +44,17 @@ export const hookTampering: Detector = {
               remediation: 'Renaming a hook out of place disables it. Restore the original path.',
             }),
           );
-        } else if (c.path.endsWith('.holdfast.yml') && c.before != null && c.after != null) {
-          // Full content available → compare the policy SEMANTICALLY, catching every
-          // weakening move (added ignore globs, narrowed protected, lowered/disabled/
-          // removed rules incl. the multiline form, weakened sign-off).
-          for (const reason of policyWeakening(c.before, c.after)) {
+        } else if (
+          c.path.endsWith('.holdfast.yml') &&
+          c.before != null &&
+          c.after != null &&
+          policyWeakening(c.before, c.after) !== null
+        ) {
+          // Full content available and parseable → compare the policy SEMANTICALLY,
+          // catching every weakening move (added ignore globs, narrowed protected,
+          // lowered/disabled/removed rules incl. the multiline form, weakened sign-off).
+          // A null result (unparseable baseline) drops through to the line-regex below.
+          for (const reason of policyWeakening(c.before, c.after) ?? []) {
             out.push(
               makeFinding(RULE, policy, {
                 file: c.path,

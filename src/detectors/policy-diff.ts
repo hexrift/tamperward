@@ -12,18 +12,32 @@ interface RawPolicyShape {
   signoff?: { required_for?: string[]; requiredFor?: string[] };
 }
 
-function asPolicy(src: string): RawPolicyShape {
+/** Parse to a policy object, or null if it isn't valid YAML / isn't a mapping. Never
+ *  throws — a malformed `.holdfast.yml` must not be able to crash the gate. */
+function safeParse(src: string): RawPolicyShape | null {
   try {
-    return (parse(src) ?? {}) as RawPolicyShape;
+    const v = parse(src);
+    if (v && typeof v === 'object' && !Array.isArray(v)) return v as RawPolicyShape;
+    return null; // empty doc / scalar / list → not a policy
   } catch {
-    return {};
+    return null;
   }
 }
 
-/** Reasons the after-policy is weaker than before. Empty if it's equal or stronger. */
-export function policyWeakening(before: string, after: string): string[] {
-  const b = asPolicy(before);
-  const a = asPolicy(after);
+/**
+ * Reasons the after-policy is weaker than before.
+ *  - [] when it's equal or stronger.
+ *  - null when `before` can't be parsed (no baseline to compare) → caller should fall
+ *    back to the line-regex path rather than guess.
+ *  - a finding when `after` won't parse but `before` did — emptying or corrupting the
+ *    policy is itself a tamper, so this fails CLOSED.
+ */
+export function policyWeakening(before: string, after: string): string[] | null {
+  const b = safeParse(before);
+  if (b === null) return null;
+  const a = safeParse(after);
+  if (a === null) return ['the policy no longer parses as a valid policy (emptied or corrupted)'];
+
   const reasons: string[] = [];
 
   // rules: lowered, disabled, or removed

@@ -26,7 +26,15 @@ export function evaluate(
   const out: Finding[] = [];
   for (const d of detectors) {
     if (!isEnabled(d.id, policy)) continue;
-    out.push(...d.run(active, policy));
+    // Backstop: a single detector throwing must not crash the whole verdict. At the
+    // PreToolUse hook a crash exits non-(0|2), which Claude treats as a non-blocking
+    // error — i.e. it would fail OPEN. Isolate each detector; surface the failure loudly
+    // on stderr but keep the other rules' verdicts intact.
+    try {
+      out.push(...d.run(active, policy));
+    } catch (e) {
+      process.stderr.write(`holdfast: detector "${d.id}" errored and was skipped: ${String(e)}\n`);
+    }
   }
   // de-duplicate identical findings (e.g. a command both rm-ing and matching a path)
   const seen = new Set<string>();
