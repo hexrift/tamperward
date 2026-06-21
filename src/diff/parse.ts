@@ -1,0 +1,134 @@
+// Pure unified-diff parser: `git diff` text in, `Change[]` out. No shelling, no I/O,
+// so it is exhaustively unit-testable. Full before/after content is NOT available here
+// (a diff only carries hunks) — the git builder enriches that on top. What this layer
+// owns and must get exactly right: file op, the old path on a rename, and the per-line
+// old/new line numbers, since every Finding.line downstream inherits them.
+
+import { Change, FileChange, FileOp, Hunk, DiffLine } from '../types';
+
+const HUNK_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+const HEADER_RE = /^diff --git a\/(.*) b\/(.*)$/;
+
+function stripAB(p: string | null): string | null {
+  if (p === null || p === '/dev/null') return null;
+  return p.replace(/^[ab]\//, '');
+}
+
+export function parseDiff(diff: string): Change[] {
+  const lines = diff.split('\n');
+  const changes: Change[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    if (!lines[i].startsWith('diff --git ')) {
+      i++;
+      continue;
+    }
+
+    const hm = lines[i].match(HEADER_RE);
+    const headerOld = hm ? hm[1] : null;
+    const headerNew = hm ? hm[2] : null;
+    i++;
+
+    let op: FileOp = 'modify';
+    let binary = false;
+    let renameFrom: string | null = null;
+    let renameTo: string | null = null;
+    let minusPath: string | null = null;
+    let plusPath: string | null = null;
+    const hunks: Hunk[] = [];
+
+    while (i < lines.length && !lines[i].startsWith('diff --git ')) {
+      const l = lines[i];
+
+      if (l.startsWith('@@')) {
+        const parsed = parseHunk(lines, i);
+        if (parsed) {
+          hunks.push(parsed.hunk);
+          i = parsed.next;
+          continue;
+        }
+        i++;
+        continue;
+      }
+
+      if (l.startsWith('new file mode')) op = 'add';
+      else if (l.startsWith('deleted file mode')) op = 'delete';
+      else if (l.startsWith('rename from ')) { renameFrom = l.slice(12); op = 'rename'; }
+      else if (l.startsWith('rename to ')) { renameTo = l.slice(10); op = 'rename'; }
+      else if (l.startsWith('copy from ')) { renameFrom = l.slice(10); if (op === 'modify') op = 'rename'; }
+      else if (l.startsWith('copy to ')) { renameTo = l.slice(8); if (op === 'modify') op = 'rename'; }
+      else if (l.startsWith('Binary files ') || l.startsWith('GIT binary patch')) binary = true;
+      else if (l.startsWith('--- ')) minusPath = l.slice(4);
+      else if (l.startsWith('+++ ')) plusPath = l.slice(4);
+
+      i++;
+    }
+
+    let path: string;
+    let oldPath: string | null = null;
+
+    if (op === 'rename') {
+      oldPath = renameFrom ?? stripAB(minusPath) ?? headerOld;
+      path = renameTo ?? stripAB(plusPath) ?? headerNew ?? oldPath ?? '';
+    } else if (op === 'delete') {
+      path = stripAB(minusPath) ?? headerOld ?? '';
+    } else {
+      path = stripAB(plusPath) ?? headerNew ?? headerOld ?? '';
+    }
+
+    const change: FileChange = {
+      kind: 'file',
+      path,
+      oldPath,
+      op,
+      before: null,
+      after: null,
+      binary,
+      hunks,
+    };
+    changes.push(change);
+  }
+
+  return changes;
+}
+
+function parseHunk(lines: string[], start: number): { hunk: Hunk; next: number } | null {
+  const m = lines[start].match(HUNK_RE);
+  if (!m) return null;
+
+  const oldStart = Number(m[1]);
+  const oldLines = m[2] !== undefined ? Number(m[2]) : 1;
+  const newStart = Number(m[3]);
+  const newLines = m[4] !== undefined ? Number(m[4]) : 1;
+
+  const out: DiffLine[] = [];
+  let oldLine = oldStart;
+  let newLine = newStart;
+  let i = start + 1;
+
+  for (; i < lines.length; i++) {
+    const l = lines[i];
+    if (l.startsWith('@@') || l.startsWith('diff --git ')) break;
+    if (l.startsWith('\\')) continue; // "\ No newline at end of file"
+
+    const tag = l[0];
+    const content = l.slice(1);
+
+    if (tag === '+') {
+      out.push({ type: 'add', content, oldLine: null, newLine });
+      newLine++;
+    } else if (tag === '-') {
+      out.push({ type: 'del', content, oldLine, newLine: null });
+      oldLine++;
+    } else if (tag === ' ') {
+      out.push({ type: 'context', content, oldLine, newLine });
+      oldLine++;
+      newLine++;
+    } else {
+      break; // trailing blank line or end of patch
+    }
+  }
+
+  return { hunk: { oldStart, oldLines, newStart, newLines, lines: out }, next: i };
+}

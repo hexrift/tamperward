@@ -1,0 +1,28 @@
+version: 1
+
+# The safety nets, treated as protected assets whose weakening is the signal.
+protected:
+  tests:  ['**/*.test.ts', '**/*.spec.ts', '**/__tests__/**']
+  config: ['jest.config.*', 'vitest.config.*', 'tsconfig*.json', '.eslintrc*', 'eslint.config.*']
+  ci:     ['.github/workflows/**']
+  hooks:  ['.husky/**', 'lefthook.*', '.holdfast.yml']
+
+rules:
+  # mechanical — 100% deterministic, may block
+  test-deletion:        { severity: block }    # AST (count-based) + rename-out-of-glob + rm/sed/>
+  test-skip:            { severity: block }
+  ts-any-cast:          { severity: block }
+  lint-suppression:     { severity: block }
+  coverage-lowering:    { severity: block }
+  ci-tampering:         { severity: block }
+  hook-tampering:       { severity: block }
+  no-verify:            { severity: block }
+  # heuristic — ship as warn; graduate to block only when precision clears the bar
+  assertion-weakening:  { severity: warn }     # AST · includes the sly-genie literal swap
+  guard-removal:        { severity: warn }
+
+signoff:
+  required_for: [block]
+  # LOCAL ONLY. In CI, sign-off is out-of-band (PR label + branch protection +
+  # CODEOWNERS on protected paths) — never a committed file. See SPEC.md §5.4.
+  ledger: .holdfast/ledger.jsonl

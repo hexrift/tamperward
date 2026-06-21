@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: holdfast
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so the range diff has a merge-base
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      # TODO (phase 2): dogfood — gate this repo with Holdfast itself, e.g.
+      #   npx holdfast check --diff "origin/${{ github.base_ref }}...HEAD"
+      # Once the CLI exists, this step becomes the authority for what reaches main.
