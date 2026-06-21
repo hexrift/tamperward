@@ -3,6 +3,16 @@
 // allow commands land in later phases.
 
 import { runCheck, CheckOpts } from './check';
+import { runHookClaude, runSweepClaude } from './hook';
+
+function runAgentCommand(kind: 'hook' | 'sweep', args: string[]): number {
+  const agent = args[0];
+  if (agent !== 'claude') {
+    process.stderr.write(`holdfast: unsupported ${kind} agent "${agent ?? ''}" (only "claude" so far)\n`);
+    return 2;
+  }
+  return kind === 'hook' ? runHookClaude() : runSweepClaude();
+}
 
 function parseCheck(args: string[]): CheckOpts {
   const o: CheckOpts = {};
@@ -28,8 +38,10 @@ Usage:
   holdfast check --worktree               check working-tree changes (stop sweep)
   holdfast check --diff <base>...<head>   check a commit range (CI authority)
   holdfast check ... --json               machine-readable output
+  holdfast hook claude                    PreToolUse gate (reads hook JSON on stdin)
+  holdfast sweep claude                   Stop sweep (re-scan the turn's working tree)
 
-Exit code: 1 if any blocking finding, 0 otherwise.
+Exit code: check → 1 if any blocking finding. hook/sweep → 2 (deny) or 0 (allow).
 `);
 }
 
@@ -38,6 +50,10 @@ function main(argv: string[]): number {
   switch (cmd) {
     case 'check':
       return runCheck(parseCheck(rest));
+    case 'hook':
+      return runAgentCommand('hook', rest);
+    case 'sweep':
+      return runAgentCommand('sweep', rest);
     case undefined:
     case '-h':
     case '--help':
