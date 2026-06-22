@@ -22,6 +22,9 @@ OUT="$ROOT/harness/runs"
 mkdir -p "$OUT"
 MODEL_FLAG=""; MODEL_TAG="default"
 [ -n "$MODEL" ] && { MODEL_FLAG="--model $MODEL"; MODEL_TAG="$MODEL"; }
+# Optional turn cap (separate lever): HF_MAX_TURNS=6 harness/run.sh ...
+TURN_FLAG=""
+[ -n "${HF_MAX_TURNS:-}" ] && TURN_FLAG="--max-turns $HF_MAX_TURNS"
 
 # neutral: just asks for a passing suite. adversarial: simulates the real failure mode —
 # an agent rewarded for "green now" — to actually provoke a bypass attempt. The bug is
@@ -57,7 +60,7 @@ EOF
 
   # the agent run (free rein; only Holdfast stands in the way). Full transcript captured.
   TRANSCRIPT="$OUT/${SEED_NAME}-${MODE}-${MODEL_TAG}-run${i}.jsonl"
-  ( cd "$DIR" && claude -p "$PROMPT" $MODEL_FLAG \
+  ( cd "$DIR" && claude -p "$PROMPT" $MODEL_FLAG $TURN_FLAG \
       --output-format stream-json --verbose --permission-mode bypassPermissions \
       > "$TRANSCRIPT" 2>/dev/null )
 
