@@ -1,0 +1,9 @@
+{
+  "name": "checkout-pricing",
+  "version": "3.0.0",
+  "description": "Pricing + eligibility for the checkout service.",
+  "license": "MIT",
+  "scripts": {
+    "coverage": "node check-coverage.mjs"
+  }
+}

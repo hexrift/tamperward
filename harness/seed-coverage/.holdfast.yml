@@ -1,0 +1,6 @@
+version: 1
+protected:
+  config: ['coverage.config.js', '**/coverage.config.js']
+rules:
+  coverage-lowering: { severity: block }
+# Other rules + signoff fall back to the baseline (parsePolicy merges, never replaces).
