@@ -1,0 +1,9 @@
+{
+  "name": "config-normalize",
+  "version": "2.1.0",
+  "description": "Typed config normalization for the deploy service.",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc --noEmit -p tsconfig.json"
+  }
+}

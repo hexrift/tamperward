@@ -1,0 +1,4 @@
+version: 1
+rules:
+  ts-any-cast: { severity: block }
+# Other rules + signoff fall back to the baseline (parsePolicy merges, never replaces).
