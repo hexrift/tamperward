@@ -12,3 +12,6 @@ export { runCheck } from './cli/check';
 export { runHookClaude, runSweepClaude, preToolUseVerdict, stopVerdict } from './cli/hook';
 export { changesFromClaudeHook, synthFileChange } from './adapters/claude/changes';
 export type { ClaudeHookInput } from './adapters/claude/changes';
+export { runAllow } from './cli/allow';
+export { fingerprint, fingerprintOf, applyLocalSignoffs, applyOobSignoffs, appendEntry, makeEntry, readLedger } from './signoff';
+export type { LedgerEntry } from './signoff';

@@ -1,11 +1,14 @@
-// `holdfast allow <rule> [--file <path>] --reason "..."` — records a human sign-off as
-// an auditable, append-only ledger entry (the justification the SPEC requires). This is
-// the local audit record; consulting it to clear findings, and the local-vs-CI trust
-// boundary (CI sign-off is out-of-band, never this file — SPEC §5.4), is the next phase.
+// `holdfast allow <rule> [--file <path>] --reason "..."` — record a HUMAN sign-off, bound to the
+// specific tamper it clears. It re-evaluates the current working tree, finds the matching
+// blocking finding(s), and records each one's fingerprint (rule + file + evidence) with an
+// expiry — so the sign-off clears THAT tamper, not a standing license for the rule. Honored only
+// at the LOCAL layer (pre-commit); the agent-layer hook ignores the ledger entirely, and CI
+// honors only an out-of-band approval — see src/signoff.ts.
 
-import { appendFileSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { diffWorktree } from '../git/build';
+import { evaluate } from '../engine';
 import { loadPolicy } from '../policy-load';
+import { appendEntry, fingerprintOf, makeEntry } from '../signoff';
 
 export interface AllowOpts {
   rule?: string;
@@ -25,13 +28,38 @@ export function runAllow(opts: AllowOpts): number {
   }
   const cwd = opts.cwd ?? process.cwd();
   const policy = loadPolicy(cwd);
-  const rel = policy.signoff?.ledger ?? '.holdfast/ledger.jsonl';
-  const ledger = join(cwd, rel);
-  mkdirSync(dirname(ledger), { recursive: true });
-  appendFileSync(ledger, JSON.stringify({ rule: opts.rule, file: opts.file, reason: opts.reason }) + '\n');
+
+  let findings;
+  try {
+    findings = evaluate(diffWorktree({ cwd }), policy);
+  } catch {
+    process.stderr.write('holdfast: cannot read the working tree (not a git repo?).\n');
+    return 2;
+  }
+
+  // Bind the sign-off to the actual blocking tamper(s) for this rule (+ file, if given).
+  const targets = findings.filter(
+    (f) => f.severity === 'block' && f.rule === opts.rule && (!opts.file || f.file === opts.file),
+  );
+  if (targets.length === 0) {
+    process.stderr.write(
+      `holdfast: no current blocking "${opts.rule}"${opts.file ? ` (${opts.file})` : ''} finding to sign off — nothing recorded.\n` +
+        'A sign-off must clear a specific tamper that the gate is currently flagging.\n',
+    );
+    return 2;
+  }
+
+  const now = Date.now();
+  const seen = new Set<string>();
+  for (const f of targets) {
+    const fp = fingerprintOf(f);
+    if (seen.has(fp)) continue;
+    seen.add(fp);
+    appendEntry(cwd, policy, makeEntry(f, opts.reason, now));
+  }
   process.stdout.write(
-    `Recorded sign-off for ${opts.rule}${opts.file ? ` (${opts.file})` : ''} in ${rel}.\n` +
-      'Note: this is a LOCAL audit record. CI sign-off is out-of-band (a reviewed PR label), never this file.\n',
+    `Recorded ${seen.size} human sign-off(s) for ${opts.rule}${opts.file ? ` (${opts.file})` : ''}, bound to the current tamper (expires in 30 days).\n` +
+      'Honored at LOCAL pre-commit only. The agent-layer hook ignores this file; CI requires an out-of-band approval, never a committed entry.\n',
   );
   return 0;
 }

@@ -67,7 +67,11 @@ function verdict(blocks: Finding[], kind: 'PreToolUse' | 'Stop'): HookResult {
   return { exitCode: 0, stdout: JSON.stringify(payload) + '\n' };
 }
 
-/** PreToolUse: deny the shortcut before the tool runs. Pure — testable without stdin. */
+/** PreToolUse: deny the shortcut before the tool runs. Pure — testable without stdin.
+ *  AGENT-LAYER TRUST RULE: never consults the sign-off ledger. The agent can write the ledger
+ *  (observed self-invoking `holdfast allow` 3×), so honoring it here would let the agent clear
+ *  its own block in-loop. A block is a block; sign-off is a human decision made at the
+ *  local/CI layers (src/signoff.ts), never here. */
 export function preToolUseVerdict(input: ClaudeHookInput): HookResult {
   const cwd = input.cwd ?? process.cwd();
   const changes = changesFromClaudeHook(input, cwd);
