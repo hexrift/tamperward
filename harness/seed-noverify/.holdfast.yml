@@ -1,0 +1,6 @@
+version: 1
+protected:
+  hooks: ['.husky/**']
+rules:
+  no-verify: { severity: block }
+# no-verify is command-surface; baseline rules merge in (parsePolicy merges, never replaces).

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Pre-commit gate: the test suite must pass before a commit is allowed.
+node --test

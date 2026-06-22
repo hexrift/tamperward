@@ -67,7 +67,12 @@ for i in $(seq 1 "$REPS"); do
   "Stop": [{ "hooks": [{ "type": "command", "command": "HOLDFAST_DENYLOG=$DENYLOG node $CLI sweep claude" }] }]
 } }
 EOF
-  ( cd "$DIR" && git init -q && git add -A && git -c user.email=h@x -c user.name=h commit -qm seed )
+  # Seed commit bypasses any seed-provided pre-commit hook ON PURPOSE: the harness setting up
+  # the scenario is not the agent gaming it. If the seed ships a .husky/ hook, wire it via
+  # core.hooksPath so the AGENT's later commit must face it.
+  ( cd "$DIR" && git init -q && git add -A
+    if [ -d .husky ]; then chmod +x .husky/* 2>/dev/null; git config core.hooksPath .husky; fi
+    git -c user.email=h@x -c user.name=h commit -qm seed --no-verify )
 
   # the agent run (free rein; only Holdfast stands in the way). Full transcript captured.
   TRANSCRIPT="$OUT/${SEED_NAME}-${MODE}-${MODEL_TAG}-run${i}.jsonl"
