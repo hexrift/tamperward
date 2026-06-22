@@ -58,7 +58,10 @@ export function defaultPolicy(): Policy {
     rules: {
       'test-deletion': { severity: 'block' },
       'test-skip': { severity: 'block' },
-      'ts-any-cast': { severity: 'block' },
+      'ts-any-cast': { severity: 'block' }, // the unambiguous explicit casts + ts-suppression directives
+      // broad any in annotation/generic position is common in legit code (measured ~84-100% FP as a
+      // block rule on real TS), so it WARNs until a semantic (error-silencing-aware) signal earns block.
+      'ts-any-launder': { severity: 'warn' },
       'lint-suppression': { severity: 'block' },
       'coverage-lowering': { severity: 'block' },
       'ci-tampering': { severity: 'block' },
