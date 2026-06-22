@@ -9,6 +9,6 @@ export { allDetectors } from './detectors';
 export { defaultPolicy, isProtected, isIgnored, protectedCategory, matchesAny } from './policy';
 export { loadPolicy, parsePolicy } from './policy-load';
 export { runCheck } from './cli/check';
-export { runHookClaude, runSweepClaude } from './cli/hook';
+export { runHookClaude, runSweepClaude, preToolUseVerdict, stopVerdict } from './cli/hook';
 export { changesFromClaudeHook, synthFileChange } from './adapters/claude/changes';
 export type { ClaudeHookInput } from './adapters/claude/changes';

@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { changesFromClaudeHook } from '../src/adapters/claude/changes';
 import { evaluate, hasBlocking } from '../src/engine';
+import { preToolUseVerdict, stopVerdict } from '../src/cli/hook';
 import { defaultPolicy } from '../src/policy';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -83,5 +85,56 @@ describe('claude PreToolUse adapter', () => {
       cwd,
     );
     expect(f).toHaveLength(0);
+  });
+});
+
+// ── the JSON deny channel — exit-0 + JSON, NEVER exit 2 ─────────────────────
+describe('PreToolUse JSON deny contract', () => {
+  it('a block is exit 0 + permissionDecision:deny (exit 2 would make Claude ignore the JSON)', () => {
+    const r = preToolUseVerdict({ tool_name: 'Bash', tool_input: { command: 'git commit --no-verify' } });
+    expect(r.exitCode).toBe(0); // <-- the regression guard: must be 0, not 2
+    const j = JSON.parse(r.stdout);
+    expect(j.hookSpecificOutput.hookEventName).toBe('PreToolUse');
+    expect(j.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(j.hookSpecificOutput.permissionDecisionReason).toContain('no-verify');
+  });
+
+  it('the reason carries only the correction — no command line / env leak', () => {
+    const r = preToolUseVerdict({ tool_name: 'Bash', tool_input: { command: 'git commit --no-verify' } });
+    expect(r.stdout).not.toContain('HOLDFAST_DENYLOG');
+    expect(r.stdout).not.toContain('node ');
+    expect(r.stdout).not.toContain('dist/cli');
+  });
+
+  it('an allowed call is exit 0 + empty stdout', () => {
+    expect(preToolUseVerdict({ tool_name: 'Bash', tool_input: { command: 'npm test' } })).toEqual({
+      exitCode: 0,
+      stdout: '',
+    });
+  });
+});
+
+describe('Stop block JSON contract', () => {
+  it('respects stop_hook_active (no re-block loop)', () => {
+    expect(stopVerdict({ stop_hook_active: true })).toEqual({ exitCode: 0, stdout: '' });
+  });
+
+  it('a real worktree tamper → exit 0 + decision:block', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'hf-stop-'));
+    const g = (args: string[]) => execFileSync('git', args, { cwd: dir });
+    g(['init', '-q']);
+    g(['config', 'user.email', 'h@x']);
+    g(['config', 'user.name', 'h']);
+    writeFileSync(join(dir, 'a.spec.ts'), `it('one', () => {}); it('two', () => {});\n`);
+    writeFileSync(join(dir, '.holdfast.yml'), "version: 1\nprotected:\n  tests: ['**/*.spec.ts']\n");
+    g(['add', '-A']);
+    g(['commit', '-qm', 'seed']);
+    writeFileSync(join(dir, 'a.spec.ts'), `it('one', () => {});\n`); // strip a block on disk
+    const r = stopVerdict({ cwd: dir });
+    rmSync(dir, { recursive: true, force: true });
+    expect(r.exitCode).toBe(0);
+    const j = JSON.parse(r.stdout);
+    expect(j.decision).toBe('block');
+    expect(j.reason).toContain('test-deletion');
   });
 });
