@@ -22,6 +22,7 @@
 import ts from 'typescript';
 import { Change, Detector, Finding } from '../types';
 import { addedLines } from '../diff/select';
+import { protectedCategory } from '../policy';
 import { isCodeFile } from './files';
 import { makeFinding } from './finding';
 
@@ -76,6 +77,12 @@ export const tsAnyCast: Detector = {
     const out: Finding[] = [];
     for (const c of changes) {
       if (c.kind !== 'file' || !isCodeFile(c.path)) continue;
+      // Scope the narrow BLOCK to non-test source. Adjudicating 151 real zod diffs, 15/21
+      // narrow-cast fires were in test files — all legitimate test infrastructure (@ts-expect-error
+      // to assert a type error, casting to exercise error paths, stubbing globals). Tests are
+      // already governed by test-deletion/skip and aren't the agent-tamper surface (casting in a
+      // test doesn't make source typecheck), so a narrow cast in a test WARNs instead of blocking.
+      const inTest = protectedCategory(c.path, policy) === 'tests';
 
       if (c.after != null && c.op !== 'delete') {
         const before = c.before ?? '';
@@ -93,12 +100,14 @@ export const tsAnyCast: Detector = {
         if (dSuppr > 0) blockReasons.push('@ts-ignore/@ts-expect-error/@ts-nocheck suppression');
         if (blockReasons.length) {
           out.push(
-            makeFinding(BLOCK_RULE, policy, {
+            makeFinding(inTest ? WARN_RULE : BLOCK_RULE, policy, {
               file: c.path,
-              message: `Type safety discarded: ${blockReasons.join('; ')}.`,
+              message: inTest
+                ? `Type-checker escape in a test file: ${blockReasons.join('; ')} (test infrastructure — flagged, not blocked).`
+                : `Type safety discarded: ${blockReasons.join('; ')}.`,
               evidence: blockReasons[0],
-              remediation: BLOCK_REMEDIATION,
-              defaultSeverity: 'block',
+              remediation: inTest ? WARN_REMEDIATION : BLOCK_REMEDIATION,
+              defaultSeverity: inTest ? 'warn' : 'block',
             }),
           );
         }
@@ -121,13 +130,15 @@ export const tsAnyCast: Detector = {
       for (const l of addedLines(c)) {
         if (NARROW_LINE.test(l.content)) {
           out.push(
-            makeFinding(BLOCK_RULE, policy, {
+            makeFinding(inTest ? WARN_RULE : BLOCK_RULE, policy, {
               file: c.path,
               line: l.newLine ?? undefined,
-              message: 'Type safety discarded: an explicit cast/suppression was added.',
+              message: inTest
+                ? 'Type-checker escape in a test file (test infrastructure — flagged, not blocked).'
+                : 'Type safety discarded: an explicit cast/suppression was added.',
               evidence: l.content.trim(),
-              remediation: BLOCK_REMEDIATION,
-              defaultSeverity: 'block',
+              remediation: inTest ? WARN_REMEDIATION : BLOCK_REMEDIATION,
+              defaultSeverity: inTest ? 'warn' : 'block',
             }),
           );
         } else if (BROAD_LINE.test(l.content)) {

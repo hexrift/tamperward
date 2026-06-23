@@ -49,6 +49,13 @@ describe('ts-any-cast — precision-split: BLOCK unambiguous casts, WARN broad a
     expect(run(withAny, withAny.replace('return 1;', 'return 2;'))).toHaveLength(0);
   });
 
+  it('SCOPES narrow casts in TEST files to warn, not block (15/21 zod fires were legit test casts)', () => {
+    const c: FileChange = { kind: 'file', path: 'src/foo.test.ts', oldPath: null, op: 'modify', before: BASE, after: BASE.replace('return raw;', 'return raw as any;'), hunks: [], binary: false };
+    const fs = tsAnyCast.run([c], P);
+    expect(block(fs)).toHaveLength(0); // a cast in a test file is test infrastructure, not a tamper
+    expect(warn(fs)).toHaveLength(1); // still surfaced
+  });
+
   it('diff-only fallback: added `as any` line is BLOCK; added `: any` line is WARN', () => {
     const cast = parseDiff('diff --git a/src/y.ts b/src/y.ts\nindex 1..2 100644\n--- a/src/y.ts\n+++ b/src/y.ts\n@@ -1,1 +1,1 @@\n-const v = read();\n+const v = read() as any;');
     expect(block(tsAnyCast.run(cast, P))).toHaveLength(1);
