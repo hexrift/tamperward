@@ -43,7 +43,11 @@ export function defaultPolicy(): Policy {
   return {
     version: 1,
     protected: {
-      tests: ['**/*.test.ts', '**/*.spec.ts', '**/__tests__/**'],
+      // Cover every JS/TS test extension, not just .test.ts — the multi-repo FP study found
+      // .test.tsx/.spec.tsx (hono, zustand) slipped the glob, so legit test-file casts blocked
+      // instead of warning. Kept ADDITIVE (originals + new extensions) so the policy-diff sees a
+      // strengthening, not a narrowing. picomatch expands the brace.
+      tests: ['**/*.test.ts', '**/*.spec.ts', '**/*.{test,spec}.{tsx,cts,mts,js,jsx,cjs,mjs}', '**/__tests__/**'],
       config: [
         '**/jest.config.*',
         '**/vitest.config.*',

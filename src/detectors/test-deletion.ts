@@ -41,6 +41,19 @@ export function countTestBlocks(src: string): number {
   return n;
 }
 
+/** Significant content lines (test bodies/assertions), ignoring imports/comments/bare braces.
+ *  Used to detect a RELOCATION: a deleted test whose content reappears in a test file ADDED in
+ *  the same changeset is a move, not a tamper (multi-repo FP study: hono#59, nest#25 were real
+ *  relocations git didn't link). Line-overlap resists the empty-stub dodge (a stub shares ~none). */
+function significantLines(src: string): Set<string> {
+  const out = new Set<string>();
+  for (const raw of src.split('\n')) {
+    const l = raw.trim();
+    if (l.length >= 10 && !/^(import\b|export\s|\/\/|\*|\/\*|}\)?;?$)/.test(l)) out.add(l);
+  }
+  return out;
+}
+
 export const testDeletion: Detector = {
   id: RULE,
   surface: ['file', 'command'],
@@ -48,11 +61,31 @@ export const testDeletion: Detector = {
   run(changes: Change[], policy): Finding[] {
     const out: Finding[] = [];
 
+    // Pool test files ADDED in this changeset, to recognize relocations of deleted tests.
+    const addedTestLines = new Set<string>();
+    let addedTestBlocks = 0;
+    for (const c of changes) {
+      if (c.kind === 'file' && c.op === 'add' && c.after != null && isProtected(c.path, policy, 'tests')) {
+        for (const l of significantLines(c.after)) addedTestLines.add(l);
+        addedTestBlocks += countTestBlocks(c.after);
+      }
+    }
+    const isRelocation = (before: string): boolean => {
+      const sig = significantLines(before);
+      if (sig.size === 0 || addedTestLines.size === 0) return false;
+      let hit = 0;
+      for (const l of sig) if (addedTestLines.has(l)) hit++;
+      // ≥60% of the deleted test's body reappears in added tests AND no blocks were dropped in
+      // the move (the block-count guard stops a "move that guts assertions" from being excused).
+      return hit / sig.size >= 0.6 && addedTestBlocks >= countTestBlocks(before);
+    };
+
     for (const c of changes) {
       if (c.kind === 'file') {
         const isTest = isProtected(c.path, policy, 'tests');
 
         if (c.op === 'delete' && isTest) {
+          if (c.before != null && isRelocation(c.before)) continue; // moved, not deleted
           out.push(
             makeFinding(RULE, policy, {
               file: c.path,

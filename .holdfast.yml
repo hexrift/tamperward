@@ -2,7 +2,7 @@ version: 1
 
 # The safety nets, treated as protected assets whose weakening is the signal.
 protected:
-  tests: ['**/*.test.ts', '**/*.spec.ts', '**/__tests__/**']
+  tests: ['**/*.test.ts', '**/*.spec.ts', '**/*.{test,spec}.{tsx,cts,mts,js,jsx,cjs,mjs}', '**/__tests__/**']
   config:
     - '**/jest.config.*'
     - '**/vitest.config.*'
