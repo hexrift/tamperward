@@ -33,8 +33,15 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # Trusted publishing needs npm >= 11.5.1. Check it here rather than let the publish
-      # step fail later with an auth error that looks like a credentials problem.
+      # Node 22 bundles npm 10.x, which is BELOW the 11.5.1 trusted publishing needs — so
+      # pinning setup-node@v6 alone was not enough and the first tag would have failed.
+      # Upgrade npm explicitly rather than depending on whatever the Node line happens to
+      # bundle, which changes under us.
+      - name: Install an npm that supports trusted publishing
+        run: npm install -g npm@latest
+
+      # Verify it rather than assume the upgrade worked: without this the publish fails
+      # later with an auth error that looks like a credentials problem.
       - name: npm must support trusted publishing
         run: |
           set -euo pipefail
