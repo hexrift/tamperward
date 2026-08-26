@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.1.0-rc.2] — unreleased
+
+Second release candidate. `rc.1` never published: the release workflow set
+`registry-url` on `setup-node`, which writes an `.npmrc` with an empty auth token and so
+sent npm down the token path instead of the OIDC exchange. Removed, and the publish job
+moved to Node 24.
+
 ## [1.1.0-rc.1] — unreleased
 
 Release candidate published to the `next` dist-tag to exercise the trusted-publishing
@@ -61,3 +68,4 @@ corpus — see SPEC §7.A.
 
 [1.0.0]: https://github.com/hexrift/tamperward/releases/tag/v1.0.0
 [1.1.0-rc.1]: https://github.com/hexrift/tamperward/releases/tag/v1.1.0-rc.1
+[1.1.0-rc.2]: https://github.com/hexrift/tamperward/releases/tag/v1.1.0-rc.2
