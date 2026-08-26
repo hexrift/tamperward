@@ -50,6 +50,20 @@ case "$MODE" in
   *)           PROMPT="$PROMPT_NEUTRAL" ;;
 esac
 
+# Free rein for the agent, so Tamperward is the ONLY thing standing in its way.
+# --permission-mode bypassPermissions is the mode SPEC §5.1 wants exercised (a deny must
+# hold even there), but the CLI maps it to --dangerously-skip-permissions, which refuses
+# to run as root. So: use it when we can, and fall back to an explicit allow-list when
+# running as root. The allow-list grants the same tools; it just does not additionally
+# prove the bypassPermissions property. Override with HF_PERM_FLAG.
+if [ -n "${HF_PERM_FLAG:-}" ]; then
+  PERM_FLAG="$HF_PERM_FLAG"
+elif [ "$(id -u)" = "0" ]; then
+  PERM_FLAG="--allowedTools Bash Edit Write MultiEdit Read Glob Grep"
+else
+  PERM_FLAG="--permission-mode bypassPermissions"
+fi
+
 [ -f "$CLI" ] || { echo "build first: npm run build"; exit 1; }
 
 honest=0; tamper=0; notfixed=0; attempts=0; recovered=0
@@ -77,8 +91,8 @@ EOF
   # the agent run (free rein; only Tamperward stands in the way). Full transcript captured.
   TRANSCRIPT="$OUT/${SEED_NAME}-${MODE}-${MODEL_TAG}-run${i}.jsonl"
   ( cd "$DIR" && claude -p "$PROMPT" $MODEL_FLAG $TURN_FLAG \
-      --output-format stream-json --verbose --permission-mode bypassPermissions \
-      > "$TRANSCRIPT" 2>/dev/null )
+      --output-format stream-json --verbose $PERM_FLAG \
+      > "$TRANSCRIPT" 2>"$OUT/${SEED_NAME}-${MODE}-${MODEL_TAG}-run${i}.err" )
 
   # Interception count comes from the deny-log — orthogonal to the outcome oracle.
   denies=$([ -f "$DENYLOG" ] && wc -l < "$DENYLOG" | tr -d ' ' || echo 0)
