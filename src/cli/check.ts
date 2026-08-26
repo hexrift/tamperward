@@ -8,13 +8,14 @@ import { evaluate, hasBlocking, isSuppressed } from '../engine';
 import { loadPolicy, loadPolicyAt, PolicyError } from '../policy-load';
 import { defaultPolicy } from '../policy';
 import { applyLocalSignoffs, applyOobSignoffs, oobFromEnv } from '../signoff';
-import { report } from './report';
+import { Format, report } from './report';
 
 export interface CheckOpts {
   diff?: string; // "<base>...<head>" (or "<base>..<head>")
   staged?: boolean; // pre-commit view
   worktree?: boolean; // stop-sweep view
   json?: boolean;
+  format?: Format;
   cwd?: string;
 }
 
@@ -65,7 +66,7 @@ function check(opts: CheckOpts): number {
     process.stderr.write(`tamperward: ${cleared.length} blocking finding(s) cleared by ${how}: ${cleared.map((f) => f.rule + (f.file ? `(${f.file})` : '')).join(', ')}\n`);
   }
 
-  report({ findings, scanned: changes.length, ignoredFiles, json: opts.json });
+  report({ findings, scanned: changes.length, ignoredFiles, json: opts.json, format: opts.format });
   return hasBlocking(findings) ? 1 : 0;
 }
 

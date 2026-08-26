@@ -99,8 +99,8 @@ with the same engine it ships.
 - `src/engine.ts` — runs the enabled rules over `Change[]`; honours `policy.ignore`.
 - `src/cli/` — `tamperward check --staged | --worktree | --diff <base>...<head>`,
   exit 1 on any blocking finding.
-- `test/` — 158 tests, including the AST-vs-regex, self-hosting precision, and
-  pre-go-live audit regression cases.
+- `test/` — 211 tests, including the AST-vs-regex, self-hosting precision, and
+  pre-go-live audit regression cases, and the renderer accessibility contract.
 
 - `src/adapters/claude/` + `src/cli/hook.ts` — the agent layer: `tamperward hook claude`
   (PreToolUse deny, fail-closed) and `tamperward sweep claude` (Stop sweep, compared against
@@ -119,6 +119,24 @@ enforcement-point wiring, and the proof harness.
 npx tamperward check --staged                # pre-commit view
 npx tamperward check --diff "main...HEAD"    # CI view — the authority for main
 ```
+
+### Reading the verdict
+
+One verdict, rendered for whoever is reading it. `--format` picks the view; the default,
+`auto`, picks `github` when `GITHUB_ACTIONS=true` and `text` otherwise, so the CI wiring
+stays a single line.
+
+| Format | Where it goes |
+| --- | --- |
+| `text` | The terminal. Blocking findings first, then by file and line, wrapped to the terminal width. |
+| `github` | An inline annotation per finding — so it lands **on the line** in *Files changed*, not four clicks deep in a job log — plus a job-summary table on the run page. The full text output still goes to the log. |
+| `json` | The findings verbatim, plus a summary count. |
+
+Severity is always spelled out (`BLOCK` / `warn`) and never carried by colour or a glyph
+alone, so the output reads the same piped, in a CI log, on a colour-blind reader's
+terminal, and through a screen reader. Colour honours
+[`NO_COLOR`](https://no-color.org) and `FORCE_COLOR`, and is off whenever stdout is not a
+terminal.
 
 From a clone:
 

@@ -298,6 +298,25 @@ Same engine, dumber adapters.
   The authority for `main`. A `block` fails the check; it clears only via the
   out-of-band label of §5.4, never via the agent or a committed ledger.
 
+### 6.1 Presentation
+
+The engine emits exactly one thing — `Finding[]` — and rendering never changes it. What
+the audience gets does change, because a verdict nobody reads gates nothing:
+
+- **Terminal** — blocking findings first, wrapped to the terminal, `path:line` kept intact
+  so terminals linkify it.
+- **GitHub Actions** (auto-selected on `GITHUB_ACTIONS=true`) — a workflow annotation per
+  finding, which GitHub places inline on the diff in *Files changed*, plus a job-summary
+  table on the run page. Annotations were chosen over SARIF deliberately: they need no
+  `security-events: write` and no Advanced Security, so they work on every repo. The text
+  output still goes to the log unchanged.
+- **JSON** — the findings verbatim for downstream tooling.
+
+Severity is carried by the word `BLOCK` / `warn` in every format. Colour, where it exists,
+is decoration over text that already says the same thing — so the verdict survives being
+piped, logged, read by a screen reader, or read by someone who cannot distinguish the
+colours. `NO_COLOR` and `FORCE_COLOR` are honoured.
+
 ---
 
 ## 7. Proof harness — how you know it works

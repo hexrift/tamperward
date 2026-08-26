@@ -22,8 +22,26 @@ export interface GitOpts {
 
 type Reader = (path: string) => string | null;
 
+/**
+ * `execFileSync` inherits the parent's stderr by default, so every probe that git answers
+ * with "path does not exist in <rev>" printed a `fatal:` line to the user's terminal even
+ * though the caller went on to handle the absence perfectly well. Piping stderr keeps the
+ * probes quiet; folding it into the thrown Error keeps a real failure just as diagnosable
+ * as it was, since that text is now on the exception instead of on the terminal.
+ */
 function git(args: string[], cwd?: string): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  try {
+    return execFileSync('git', args, {
+      cwd,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (e) {
+    const err = e as { stderr?: string | Buffer; message?: string };
+    const detail = String(err.stderr ?? '').trim();
+    throw new Error(detail ? `git ${args[0]}: ${detail}` : (err.message ?? `git ${args[0]} failed`));
+  }
 }
 
 /** Content of `path` at a revision (or `:path` for the index). null if absent. */
