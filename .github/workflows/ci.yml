@@ -1,8 +1,15 @@
 name: ci
 
+# PULL REQUESTS ONLY. A push-to-main trigger would re-run the same suite on a commit
+# that is, in the ordinary case, identical in content to the one just verified: the
+# ruleset requires a branch to be up to date with main before it can merge, so every
+# PR head is tested against current main immediately before landing. Paying for that
+# answer twice bought a signal on main itself, and nothing here reads that signal —
+# no badge, no downstream workflow, no deployment gate keys off it.
+#
+# What this gives up, stated plainly: a squash merge creates a commit no run has tested
+# verbatim, so if main ever does break, CI will not be what tells you.
 on:
-  push:
-    branches: [main]
   pull_request:
 
 # Least privilege: this pipeline reads the repo and runs tests. Nothing in it needs a
