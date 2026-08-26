@@ -1,48 +1,75 @@
+// Verdict presentation. One verdict, several audiences.
+//
+// The engine produces exactly one thing — Finding[] — and nothing below this file may
+// change it. Rendering is the only place where the audience matters: a developer at a
+// terminal, a reviewer looking at a PR, and a script parsing output want the same facts
+// laid out three different ways.
+//
+// FORMAT IS AUTO-DETECTED so the CI wiring stays one line. Running under Actions
+// (GITHUB_ACTIONS=true) selects the GitHub renderer, which is the case where the default
+// was worst: the verdict existed only inside a collapsed job log. `--format` overrides
+// the detection when you want a specific view.
+
 import { Finding } from '../types';
+import { colourEnabled, renderText, terminalWidth } from './render/text';
+import { annotations, isGitHubActions, renderSummary, writeSummary } from './render/github';
+
+export type Format = 'auto' | 'text' | 'json' | 'github';
+
+export const FORMATS: Format[] = ['auto', 'text', 'json', 'github'];
+
+export function isFormat(s: string): s is Format {
+  return (FORMATS as string[]).includes(s);
+}
 
 export interface ReportInput {
   findings: Finding[];
   scanned: number;
   ignoredFiles: number;
+  format?: Format;
+  /** Deprecated alias for `format: 'json'`, kept so `--json` never changes meaning. */
   json?: boolean;
+}
+
+/** `--json` wins outright; then an explicit `--format`; then the environment. */
+export function resolveFormat(
+  input: Pick<ReportInput, 'format' | 'json'>,
+  env: NodeJS.ProcessEnv = process.env,
+): Exclude<Format, 'auto'> {
+  if (input.json) return 'json';
+  if (input.format && input.format !== 'auto') return input.format;
+  return isGitHubActions(env) ? 'github' : 'text';
 }
 
 /** Human- (and CI-log-) readable rendering of the verdict. */
 export function report(input: ReportInput): void {
   const { findings, scanned, ignoredFiles } = input;
+  const format = resolveFormat(input);
 
-  if (input.json) {
-    process.stdout.write(JSON.stringify({ findings, scanned, ignoredFiles }, null, 2) + '\n');
-    return;
-  }
-
-  const ignoredNote = ignoredFiles > 0 ? `, ${ignoredFiles} file(s) ignored by policy` : '';
-
-  if (findings.length === 0) {
-    process.stdout.write(`tamperward: clean — no integrity findings (${scanned} change(s) scanned${ignoredNote}).\n`);
-    return;
-  }
-
-  const blocks = findings.filter((f) => f.severity === 'block');
-  const warns = findings.filter((f) => f.severity === 'warn');
-
-  for (const f of findings) {
-    const mark = f.severity === 'block' ? 'BLOCK' : 'warn';
-    const loc = f.file ? ` ${f.file}${f.line ? `:${f.line}` : ''}` : '';
-    process.stdout.write(`\n[${mark}] ${f.rule}${loc}\n`);
-    process.stdout.write(`  ${f.message}\n`);
-    process.stdout.write(`  evidence: ${f.evidence}\n`);
-    process.stdout.write(`  fix:      ${f.remediation}\n`);
-    if (f.signoff.required) process.stdout.write(`  sign-off: ${f.signoff.command}\n`);
-  }
-
-  process.stdout.write(
-    `\ntamperward: ${blocks.length} blocking, ${warns.length} warning (${scanned} change(s) scanned${ignoredNote}).\n`,
-  );
-  if (blocks.length > 0) {
+  if (format === 'json') {
+    const blocks = findings.filter((f) => f.severity === 'block').length;
     process.stdout.write(
-      'A blocking finding clears only with a human sign-off. In CI, sign-off is out-of-band ' +
-        '(a reviewed PR label), never a committed file — see SPEC §5.4.\n',
+      JSON.stringify(
+        // `findings`, `scanned` and `ignoredFiles` keep their exact prior shape; `summary`
+        // is additive, so an existing consumer reading only the old keys is unaffected.
+        { findings, scanned, ignoredFiles, summary: { block: blocks, warn: findings.length - blocks } },
+        null,
+        2,
+      ) + '\n',
     );
+    return;
   }
+
+  const text = renderText(
+    { findings, scanned, ignoredFiles },
+    { colour: colourEnabled(), width: terminalWidth() },
+  );
+
+  if (format === 'github') {
+    // Annotations first: they land at the top of the failing step, where the eye goes.
+    for (const a of annotations(findings)) process.stdout.write(a + '\n');
+    writeSummary(renderSummary({ findings, scanned, ignoredFiles }));
+  }
+
+  process.stdout.write(text);
 }

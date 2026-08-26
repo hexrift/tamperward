@@ -81,6 +81,21 @@ function underCoverageKey(node: ts.Node): boolean {
 }
 
 /**
+ * A JSON config is not valid TypeScript at the statement level: `{ "jest": { … } }` parses
+ * as a BLOCK, not an object literal, so no PropertyAssignment node ever appears and the
+ * walk below finds nothing. That silently unprotected `package.json` — one of the two
+ * places Jest's `coverageThreshold` actually lives, and a path the default policy has
+ * always listed as protected config. Wrapping in parentheses forces the expression
+ * reading. A real JS/TS config never begins with `{` at the top level (it opens with
+ * `module.exports`, `export default`, `import`, or a call), so the test is unambiguous,
+ * and it covers JSONC too — which `JSON.parse` would have rejected over its comments.
+ */
+function asExpression(src: string): string {
+  const t = src.trim();
+  return t.startsWith('{') ? `(${t})` : src;
+}
+
+/**
  * Parse the coverage gate from a JS/TS config. Never throws. Handles BOTH shapes:
  *   Jest    → coverageThreshold: { global: { lines, branches, … }, "<path>": { … } }
  *   Vitest  → test.coverage.thresholds: { lines, branches, …, "<glob>": { … } }
@@ -90,7 +105,7 @@ function underCoverageKey(node: ts.Node): boolean {
 function parseThresholds(src: string): Thresholds {
   const res: Thresholds = { paths: new Map(), present: false };
   try {
-    const sf = ts.createSourceFile('cfg.ts', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const sf = ts.createSourceFile('cfg.ts', asExpression(src), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
     const visit = (node: ts.Node): void => {
       if (ts.isPropertyAssignment(node) && ts.isObjectLiteralExpression(node.initializer)) {
         const key = keyName(node.name);
