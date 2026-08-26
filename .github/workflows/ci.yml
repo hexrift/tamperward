@@ -20,8 +20,28 @@ jobs:
       - run: npm test
       - run: npm run build
 
+      # SPEC §5.4: in CI a sign-off must be OUT OF BAND — never a file the same PR can
+      # commit, because then the change being blocked could authorise itself. The channel
+      # is a PR label `tamperward:allow:<rule>`, which only someone with write access can
+      # apply, further gated by branch protection + CODEOWNERS.
+      #
+      # Label text is user-controlled, so it is passed through env and parsed with jq —
+      # never interpolated into the shell, which would be a command-injection hole in the
+      # one workflow that must not have one.
+      - name: Resolve out-of-band sign-off from PR labels
+        id: oob
+        if: github.event_name == 'pull_request'
+        env:
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          RULES="$(printf '%s' "$LABELS" | jq -r '.[] | select(startswith("tamperward:allow:")) | sub("^tamperward:allow:"; "")' | paste -sd, -)"
+          echo "rules=$RULES" >> "$GITHUB_OUTPUT"
+          [ -n "$RULES" ] && echo "out-of-band approval present for: $RULES" || echo "no out-of-band approval on this PR"
+
       # Dogfood: Tamperward gates its own repo with the same engine it ships.
       - name: Tamperward self-gate
+        env:
+          TAMPERWARD_OOB_SIGNOFF: ${{ steps.oob.outputs.rules }}
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             RANGE="${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}"
