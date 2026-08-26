@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # v6 (not v4/v5) ships an npm new enough for trusted publishing. Pinning an older
       # setup-node is the usual reason OIDC silently falls back to looking for a token.
       - uses: actions/setup-node@v6
