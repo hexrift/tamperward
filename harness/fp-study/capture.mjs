@@ -6,7 +6,7 @@ import { execSync } from 'node:child_process';
 import { writeFileSync, appendFileSync } from 'node:fs';
 
 const [label, repo, out] = process.argv.slice(2);
-const CLI = '/Users/hamsajama/projects/ballast/holdfast/dist/cli/index.js';
+const CLI = '/Users/hamsajama/projects/ballast/tamperward/dist/cli/index.js';
 const sh = (c) => { try { return execSync(c, { cwd: repo, encoding: 'utf8', maxBuffer: 128e6 }); } catch (e) { return String(e.stdout || ''); } };
 const commits = sh('git rev-list --reverse HEAD').split('\n').filter(Boolean);
 writeFileSync(out, '');

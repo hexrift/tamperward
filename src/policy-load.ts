@@ -1,4 +1,4 @@
-// Load .holdfast.yml into a Policy, falling back to the baseline when absent. The
+// Load .tamperward.yml into a Policy, falling back to the baseline when absent. The
 // YAML file uses snake_case (signoff.required_for) per convention; this maps it onto
 // the camelCase Policy shape. parsePolicy is pure so it can be tested without disk I/O.
 
@@ -61,7 +61,7 @@ export function loadPolicy(cwd: string = process.cwd()): Policy {
 /**
  * The policy as of a TRUSTED revision, or null when that revision has no policy file.
  *
- * The head of a branch is agent-authorable, so its `.holdfast.yml` must not govern its own
+ * The head of a branch is agent-authorable, so its `.tamperward.yml` must not govern its own
  * verdict — the same principle SPEC §5.4 already applies to sign-off. At the CI layer the
  * governing policy is read from the merge-base instead, which is what the branch forked
  * from and therefore nothing on the branch can have altered. A weakening edit still shows

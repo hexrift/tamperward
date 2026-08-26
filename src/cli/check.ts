@@ -1,4 +1,4 @@
-// `holdfast check` — the one engine, three views. Manufactures Change[] from the
+// `tamperward check` — the one engine, three views. Manufactures Change[] from the
 // requested git view, runs the engine, prints the verdict, and exits non-zero on a
 // blocking finding so it can serve as a gate at pre-commit and in CI.
 
@@ -33,20 +33,20 @@ function check(opts: CheckOpts): number {
   } else if (opts.diff) {
     const [base, head] = opts.diff.split(/\.{2,3}/);
     if (!base || !head) {
-      process.stderr.write(`holdfast: invalid --diff range "${opts.diff}" (expected <base>...<head>)\n`);
+      process.stderr.write(`tamperward: invalid --diff range "${opts.diff}" (expected <base>...<head>)\n`);
       return 2;
     }
     changes = diffRange(base, head, { cwd: opts.cwd });
     layer = 'ci'; // authority for main: out-of-band approval ONLY, never the committed ledger
     // TRUSTED-BASE POLICY. Everything on the head is agent-authorable, so the head's own
-    // .holdfast.yml cannot decide the head's verdict — otherwise one line (`ignore: ['**']`,
+    // .tamperward.yml cannot decide the head's verdict — otherwise one line (`ignore: ['**']`,
     // a lowered severity, a narrowed protected glob) switches the gate off for the very
     // change that added it. Govern by the merge-base's policy; if the base has none, govern
     // by the baseline, never by the branch's. The edit is still REPORTED (hook-tampering) —
     // it just takes effect only once a human has merged it.
     policy = loadPolicyAt(mergeBaseOf(base, head, { cwd: opts.cwd }), opts.cwd) ?? defaultPolicy();
   } else {
-    process.stderr.write('holdfast: specify --staged, --worktree, or --diff <base>...<head>\n');
+    process.stderr.write('tamperward: specify --staged, --worktree, or --diff <base>...<head>\n');
     return 2;
   }
 
@@ -62,7 +62,7 @@ function check(opts: CheckOpts): number {
   findings = remaining;
   if (cleared.length) {
     const how = layer === 'local' ? 'local human sign-off (ledger)' : 'out-of-band approval';
-    process.stderr.write(`holdfast: ${cleared.length} blocking finding(s) cleared by ${how}: ${cleared.map((f) => f.rule + (f.file ? `(${f.file})` : '')).join(', ')}\n`);
+    process.stderr.write(`tamperward: ${cleared.length} blocking finding(s) cleared by ${how}: ${cleared.map((f) => f.rule + (f.file ? `(${f.file})` : '')).join(', ')}\n`);
   }
 
   report({ findings, scanned: changes.length, ignoredFiles, json: opts.json });
@@ -76,7 +76,7 @@ export function runCheck(opts: CheckOpts): number {
     if (e instanceof PolicyError) {
       // Fail CLOSED with a clean diagnostic. Never fall back to the baseline on a policy
       // the author may have meant to be stricter.
-      process.stderr.write(`holdfast: ${e.message}\n`);
+      process.stderr.write(`tamperward: ${e.message}\n`);
       return 2;
     }
     throw e;

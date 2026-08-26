@@ -1,11 +1,11 @@
 // Policy helpers: deterministic glob matching of the protected assets, plus the
-// baseline policy `npx holdfast init` would write. Detectors ask "is this path a
+// baseline policy `npx tamperward init` would write. Detectors ask "is this path a
 // test / config / ci / hook?" through here so the globs live in exactly one place.
 
 import picomatch from 'picomatch';
 import { Policy } from './types';
 
-export const POLICY_FILE = '.holdfast.yml';
+export const POLICY_FILE = '.tamperward.yml';
 
 const cache = new Map<string, (s: string) => boolean>();
 
@@ -70,7 +70,7 @@ export function mergeProtected(
   return out;
 }
 
-/** The baseline policy — mirrors the committed .holdfast.yml. */
+/** The baseline policy — mirrors the committed .tamperward.yml. */
 export function defaultPolicy(): Policy {
   return {
     version: 1,
@@ -89,7 +89,7 @@ export function defaultPolicy(): Policy {
         '**/package.json',
       ],
       ci: ['.github/workflows/**'],
-      hooks: ['.husky/**', '**/lefthook.*', '.holdfast.yml', '**/.holdfast.yml'],
+      hooks: ['.husky/**', '**/lefthook.*', '.tamperward.yml', '**/.tamperward.yml'],
     },
     rules: {
       'test-deletion': { severity: 'block' },
@@ -108,6 +108,6 @@ export function defaultPolicy(): Policy {
       'guard-removal': { severity: 'warn' },
     },
     ignore: [],
-    signoff: { requiredFor: ['block'], ledger: '.holdfast/ledger.jsonl' },
+    signoff: { requiredFor: ['block'], ledger: '.tamperward/ledger.jsonl' },
   };
 }

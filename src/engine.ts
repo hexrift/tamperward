@@ -42,7 +42,7 @@ export function evaluate(
     try {
       out.push(...d.run(active, policy));
     } catch (e) {
-      process.stderr.write(`holdfast: detector "${d.id}" errored and was skipped: ${String(e)}\n`);
+      process.stderr.write(`tamperward: detector "${d.id}" errored and was skipped: ${String(e)}\n`);
     }
   }
   // de-duplicate identical findings (e.g. a command both rm-ing and matching a path)

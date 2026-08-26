@@ -9,11 +9,11 @@ import { makeFinding } from './finding';
 
 const RULE = 'ci-tampering';
 const STEP = /^\s*-?\s*(?:run|uses):/;
-const CHECK = /\b(test|tests|lint|typecheck|type-check|tsc|eslint|jest|vitest|playwright|coverage|holdfast)\b/i;
+const CHECK = /\b(test|tests|lint|typecheck|type-check|tsc|eslint|jest|vitest|playwright|coverage|tamperward)\b/i;
 /** A line that is a YAML mapping key rather than a shell command in a `run:` body. */
 const YAML_KEY = /^\s*-?\s*[A-Za-z_][\w-]*:\s*(?:$|\S)/;
 /** A command that actually runs a check — used to tell a `run: |` body line from prose. */
-const RUNNER = /\b(npm|npx|pnpm|yarn|bun|make|cargo|pytest|python|jest|vitest|eslint|tsc|playwright|holdfast|gradle|mvn|dotnet)\b/;
+const RUNNER = /\b(npm|npx|pnpm|yarn|bun|make|cargo|pytest|python|jest|vitest|eslint|tsc|playwright|tamperward|gradle|mvn|dotnet)\b/;
 
 const uncommented = (v: string) => v.replace(/\s+#.*$/, '').trim();
 

@@ -29,5 +29,5 @@ printf '%s\n' "$CAST" > "$D/src/parse.ts"; ( cd "$D" && git add -A )
 ( cd "$D" && node "$CLI" check --staged >/dev/null 2>"$D/.e"; echo "STEP 3  LOCAL pre-commit (human sign-off honored): exit $? $(sed -n 's/.*\(cleared by local.*\)/(\1)/p' "$D/.e")" )
 ( cd "$D" && git -c user.email=h@x -c user.name=h commit -qm "cast+ledger" )
 ( cd "$D" && node "$CLI" check --diff HEAD~1...HEAD >/dev/null 2>&1; echo "STEP 4  CI authority (committed ledger IGNORED): exit $? (1=still blocked)" )
-( cd "$D" && HOLDFAST_OOB_SIGNOFF=ts-any-cast node "$CLI" check --diff HEAD~1...HEAD >/dev/null 2>"$D/.e2"; echo "STEP 5  CI + out-of-band approval: exit $? $(sed -n 's/.*\(cleared by out-of-band.*\)/(\1)/p' "$D/.e2")" )
+( cd "$D" && TAMPERWARD_OOB_SIGNOFF=ts-any-cast node "$CLI" check --diff HEAD~1...HEAD >/dev/null 2>"$D/.e2"; echo "STEP 5  CI + out-of-band approval: exit $? $(sed -n 's/.*\(cleared by out-of-band.*\)/(\1)/p' "$D/.e2")" )
 rm -rf "$D"

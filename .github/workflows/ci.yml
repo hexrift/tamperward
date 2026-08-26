@@ -20,8 +20,8 @@ jobs:
       - run: npm test
       - run: npm run build
 
-      # Dogfood: Holdfast gates its own repo with the same engine it ships.
-      - name: Holdfast self-gate
+      # Dogfood: Tamperward gates its own repo with the same engine it ships.
+      - name: Tamperward self-gate
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             RANGE="${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}"

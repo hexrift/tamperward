@@ -222,15 +222,15 @@ index 1..0
 --- a/.husky/pre-commit
 +++ /dev/null
 @@ -1,1 +0,0 @@
--npx holdfast check --staged`);
+-npx tamperward check --staged`);
     expect(run(hookTampering, d)).toHaveLength(1);
   });
 
   it('flags lowering a severity in the policy (inline form)', () => {
-    const d = fromDiff(`diff --git a/.holdfast.yml b/.holdfast.yml
+    const d = fromDiff(`diff --git a/.tamperward.yml b/.tamperward.yml
 index 1..2 100644
---- a/.holdfast.yml
-+++ b/.holdfast.yml
+--- a/.tamperward.yml
++++ b/.tamperward.yml
 @@ -5,1 +5,1 @@ rules:
 -  test-skip: { severity: block }
 +  test-skip: { severity: warn }`);
@@ -310,20 +310,20 @@ rename to src/a.spec.bak`);
 // ── self-hosting precision: no false-fire on non-code files / reformatting ──
 describe('precision (self-hosting false positives)', () => {
   it('ts-any-cast ignores "as any" in a non-code file (yaml comment)', () => {
-    const d = fromDiff(`diff --git a/.holdfast.yml b/.holdfast.yml
+    const d = fromDiff(`diff --git a/.tamperward.yml b/.tamperward.yml
 index 1..2 100644
---- a/.holdfast.yml
-+++ b/.holdfast.yml
+--- a/.tamperward.yml
++++ b/.tamperward.yml
 @@ -1,0 +1,1 @@
 +# the rules look for patterns like as any and it.skip`);
     expect(run(tsAnyCast, d)).toHaveLength(0);
   });
 
   it('hook-tampering does not fire when reformatting keeps each rule\'s severity', () => {
-    const d = fromDiff(`diff --git a/.holdfast.yml b/.holdfast.yml
+    const d = fromDiff(`diff --git a/.tamperward.yml b/.tamperward.yml
 index 1..2 100644
---- a/.holdfast.yml
-+++ b/.holdfast.yml
+--- a/.tamperward.yml
++++ b/.tamperward.yml
 @@ -1,2 +1,2 @@ rules:
 -  test-deletion:   { severity: block }
 -  assertion-weakening:   { severity: warn }
@@ -333,10 +333,10 @@ index 1..2 100644
   });
 
   it('hook-tampering DOES fire when a rule actually goes block → warn', () => {
-    const d = fromDiff(`diff --git a/.holdfast.yml b/.holdfast.yml
+    const d = fromDiff(`diff --git a/.tamperward.yml b/.tamperward.yml
 index 1..2 100644
---- a/.holdfast.yml
-+++ b/.holdfast.yml
+--- a/.tamperward.yml
++++ b/.tamperward.yml
 @@ -1,1 +1,1 @@ rules:
 -  no-verify: { severity: block }
 +  no-verify: { severity: warn }`);

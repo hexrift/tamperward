@@ -1,16 +1,16 @@
 {
-  "name": "holdfast",
+  "name": "tamperward",
   "version": "0.1.0",
   "description": "The deterministic agent-integrity gate. One ruleset, evaluated on the actual diff/commands as a verdict, enforced everywhere a change can be made.",
   "license": "Apache-2.0",
   "author": "hexrift",
-  "homepage": "https://github.com/hexrift/holdfast#readme",
+  "homepage": "https://github.com/hexrift/tamperward#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hexrift/holdfast.git"
+    "url": "git+https://github.com/hexrift/tamperward.git"
   },
   "bugs": {
-    "url": "https://github.com/hexrift/holdfast/issues"
+    "url": "https://github.com/hexrift/tamperward/issues"
   },
   "keywords": [
     "ai-agents",
@@ -26,7 +26,7 @@
   ],
   "type": "module",
   "bin": {
-    "holdfast": "dist/cli/index.js"
+    "tamperward": "dist/cli/index.js"
   },
   "files": [
     "dist",

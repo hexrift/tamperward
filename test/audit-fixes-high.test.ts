@@ -85,14 +85,14 @@ describe('H2 · coverage-lowering understands Vitest thresholds', () => {
 // ── H3 · gutting a hook body ──────────────────────────────────────────────────────
 describe('H3 · hook-tampering sees a hook gutted in place', () => {
   it('flags an inserted early exit 0', () => {
-    const m = msgs(hookTampering, diffed('.husky/pre-commit', '#!/bin/sh\nnpx holdfast check --staged\n', '#!/bin/sh\nexit 0\nnpx holdfast check --staged\n'));
+    const m = msgs(hookTampering, diffed('.husky/pre-commit', '#!/bin/sh\nnpx tamperward check --staged\n', '#!/bin/sh\nexit 0\nnpx tamperward check --staged\n'));
     expect(m.some((x) => /exit 0/.test(x))).toBe(true);
   });
 
   it('flags the gate invocation being removed or commented out', () => {
-    const removed = msgs(hookTampering, diffed('.husky/pre-commit', '#!/bin/sh\nnpx holdfast check --staged\n', '#!/bin/sh\n'));
+    const removed = msgs(hookTampering, diffed('.husky/pre-commit', '#!/bin/sh\nnpx tamperward check --staged\n', '#!/bin/sh\n'));
     expect(removed.some((x) => /removed from a protected hook/.test(x))).toBe(true);
-    const commented = msgs(hookTampering, diffed('.husky/pre-commit', '#!/bin/sh\nnpx holdfast check --staged\n', '#!/bin/sh\n# npx holdfast check --staged\n'));
+    const commented = msgs(hookTampering, diffed('.husky/pre-commit', '#!/bin/sh\nnpx tamperward check --staged\n', '#!/bin/sh\n# npx tamperward check --staged\n'));
     expect(commented.some((x) => /removed from a protected hook/.test(x))).toBe(true);
   });
 
@@ -100,7 +100,7 @@ describe('H3 · hook-tampering sees a hook gutted in place', () => {
     const cmd = (raw: string): Change[] => [{ kind: 'command', raw, argv: raw.split(/\s+/) }];
     expect(msgs(hookTampering, cmd('chmod 644 .husky/pre-commit')).length).toBeGreaterThan(0);
     expect(msgs(hookTampering, cmd("printf 'exit 0' | tee .husky/pre-commit")).length).toBeGreaterThan(0);
-    expect(msgs(hookTampering, cmd("sed -i 's/holdfast/true/' .husky/pre-commit")).length).toBeGreaterThan(0);
+    expect(msgs(hookTampering, cmd("sed -i 's/tamperward/true/' .husky/pre-commit")).length).toBeGreaterThan(0);
     // chmod that KEEPS the execute bit is not a tamper signal on its own
     expect(msgs(hookTampering, cmd('chmod 755 .husky/pre-commit'))).toHaveLength(0);
   });

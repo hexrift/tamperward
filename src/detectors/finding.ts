@@ -35,7 +35,7 @@ export function makeFinding(rule: string, policy: Policy, input: FindingInput): 
     remediation: input.remediation,
     signoff: {
       required,
-      command: `holdfast allow ${rule}${input.file ? ` --file ${input.file}` : ''} --reason "..."`,
+      command: `tamperward allow ${rule}${input.file ? ` --file ${input.file}` : ''} --reason "..."`,
     },
   };
 }

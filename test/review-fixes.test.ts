@@ -133,7 +133,7 @@ describe('Stop sweep reads after-content from disk', () => {
     g(['config', 'user.email', 'h@x']);
     g(['config', 'user.name', 'h']);
     writeFileSync(join(dir, 'a.spec.ts'), `it('one', () => {}); it('two', () => {});\n`);
-    writeFileSync(join(dir, '.holdfast.yml'), "version: 1\nprotected:\n  tests: ['**/*.spec.ts']\n");
+    writeFileSync(join(dir, '.tamperward.yml'), "version: 1\nprotected:\n  tests: ['**/*.spec.ts']\n");
     g(['add', '-A']);
     g(['commit', '-qm', 'seed']);
     // agent strips one it() ON DISK, unstaged — the index still has both

@@ -1,4 +1,4 @@
-# Holdfast — MVP Build Spec v0.2
+# Tamperward — MVP Build Spec v0.2
 
 > The deterministic agent-integrity gate. One ruleset, evaluated on the actual
 > diff/commands as a verdict (not a probability), enforced at four points so the
@@ -100,12 +100,12 @@ nicety — it *is* the "block the class, not the flag" promise.
 
 ## 3. The rule schema
 
-Two files. A **policy** (`.holdfast.yml`, user-facing, in the repo) and a **Finding**
+Two files. A **policy** (`.tamperward.yml`, user-facing, in the repo) and a **Finding**
 (engine output, also the hook's wire format). Detectors are TS functions in the
 open-core package — the open "rule format" is the policy schema + the `Detector`
 interface, so third parties add detectors without forking.
 
-**`.holdfast.yml`** (copy the committed file — `holdfast init` is not yet shipped):
+**`.tamperward.yml`** (copy the committed file — `tamperward init` is not yet shipped):
 
 ```yaml
 version: 1
@@ -113,7 +113,7 @@ protected:                         # the safety nets, as first-class assets
   tests:  ['**/*.test.ts', '**/*.spec.ts', '**/__tests__/**']
   config: ['jest.config.*', 'tsconfig*.json', '.eslintrc*', 'eslint.config.*']
   ci:     ['.github/workflows/**']
-  hooks:  ['.husky/**', 'lefthook.*', '.holdfast.yml']
+  hooks:  ['.husky/**', 'lefthook.*', '.tamperward.yml']
 rules:
   test-deletion:        { severity: block }    # AST
   test-skip:            { severity: block }
@@ -128,7 +128,7 @@ rules:
 signoff:
   required_for: [block]
   # LOCAL ONLY. In CI, sign-off is out-of-band (§5.4) — never this file.
-  ledger: .holdfast/ledger.jsonl
+  ledger: .tamperward/ledger.jsonl
 ```
 
 **Finding** — the verdict object and the hook's return payload (see `src/types.ts`):
@@ -165,7 +165,7 @@ heuristic, and the spec must not pretend otherwise.
 | 5 | `lint-suppression` | file | added `eslint-disable[-next-line]`, `/* eslint-disable */`, `// prettier-ignore` | mechanical | regex |
 | 6 | `coverage-lowering` | file | `coverageThreshold` numbers reduced; `--coverage` stripped from test script; `--passWithNoTests` added | mechanical | regex/JSON |
 | 7 | `ci-tampering` | file | in `protected.ci`: removed/commented test/lint/typecheck step, `continue-on-error: true`, `if: false` | mechanical | regex/YAML |
-| 8 | `hook-tampering` | file/cmd | edit/delete in `protected.hooks`/`protected.config`; `chmod -x` on a hook; edit to `.holdfast.yml` lowering severities | mechanical | regex |
+| 8 | `hook-tampering` | file/cmd | edit/delete in `protected.hooks`/`protected.config`; `chmod -x` on a hook; edit to `.tamperward.yml` lowering severities | mechanical | regex |
 | 9 | `no-verify` | command | `git commit -n/--no-verify`, `git push --no-verify`, `HUSKY=0`, `HUSKY_SKIP_HOOKS=1`, `--no-hooks` | mechanical | regex |
 | 10 | `guard-removal` | file | deletion of lines matching auth/validation patterns (`requireAuth`, `checkPermission`, `if (!user`, `authorize`, zod `.parse(`, `csrf`) | heuristic | regex |
 
@@ -182,7 +182,7 @@ which require matching "the same test" across the two versions) are deferred —
 the part that quietly eats a week. Regex is genuinely fine for the additive-token
 detectors (4, 5, 9) and adequate for 6–8 against known config shapes.
 
-**`holdfast allow` granularity:** a sign-off is keyed on `rule + file + hash(evidence)`
+**`tamperward allow` granularity:** a sign-off is keyed on `rule + file + hash(evidence)`
 and expires — never a session-wide blanket on a whole rule.
 
 ---
@@ -202,10 +202,10 @@ every way a file gets mutated.
   "hooks": {
     "PreToolUse": [{
       "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
-      "hooks": [{ "type": "command", "command": "holdfast hook claude" }]
+      "hooks": [{ "type": "command", "command": "tamperward hook claude" }]
     }],
     "Stop": [{
-      "hooks": [{ "type": "command", "command": "holdfast sweep claude" }]
+      "hooks": [{ "type": "command", "command": "tamperward sweep claude" }]
     }]
   }
 }
@@ -217,7 +217,7 @@ every way a file gets mutated.
 > inner-loop gate. Re-confirm the live edit-tool set on each Claude Code release; anything
 > not matched here is caught only by the Stop sweep (§5.2), one step later.
 
-`holdfast hook claude` reads the tool call on stdin → builds `Change[]` from
+`tamperward hook claude` reads the tool call on stdin → builds `Change[]` from
 `tool_input` → runs the engine. On a `block` finding it **denies**, and the deny reason
 *is* the correction signal.
 
@@ -239,7 +239,7 @@ Structured form (used once the exit-2 path is proven):
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
     "permissionDecision": "deny",
-    "permissionDecisionReason": "Holdfast blocked: test-deletion. You are deleting src/auth/session.spec.ts while its assertions are failing — this weakens a protected safety net to pass checks.\n\nFix the underlying failure in the code under test, not the test. Other bypass paths are also blocked: --no-verify, editing the hook, lowering the coverage gate, editing the CI workflow, and rewriting the file via shell (sed/tee) will each be denied too. If the deletion is genuinely correct, a human must sign off: `holdfast allow test-deletion --reason \"...\"`."
+    "permissionDecisionReason": "Tamperward blocked: test-deletion. You are deleting src/auth/session.spec.ts while its assertions are failing — this weakens a protected safety net to pass checks.\n\nFix the underlying failure in the code under test, not the test. Other bypass paths are also blocked: --no-verify, editing the hook, lowering the coverage gate, editing the CI workflow, and rewriting the file via shell (sed/tee) will each be denied too. If the deletion is genuinely correct, a human must sign off: `tamperward allow test-deletion --reason \"...\"`."
   }
 }
 ```
@@ -276,13 +276,13 @@ the backstops only stop, they don't teach.
 
 ### 5.4 Sign-off must be out-of-band in CI
 
-`.holdfast/ledger.jsonl` lives in the repo. Locally that's fine — it's the dev's own
+`.tamperward/ledger.jsonl` lives in the repo. Locally that's fine — it's the dev's own
 machine. In CI it's fatal: the same PR that triggers a block can append its own
 sign-off. The escape valve would guard nothing.
 
 CI sign-off is therefore **out-of-band**: a PR **label** applied by someone with write
 access, gated by **branch protection** plus **`CODEOWNERS`** on the protected paths and
-on `.holdfast.yml`. Never a committed file. This is the "who guards the guardrail"
+on `.tamperward.yml`. Never a committed file. This is the "who guards the guardrail"
 problem turned on us — getting it right is on-thesis; getting it wrong quietly
 undermines the whole pitch.
 
@@ -292,10 +292,10 @@ undermines the whole pitch.
 
 Same engine, dumber adapters.
 
-- **Pre-commit** (husky): `holdfast check --staged` → exit 1 on any `block`, printing
+- **Pre-commit** (husky): `tamperward check --staged` → exit 1 on any `block`, printing
   the Finding messages. Catches what the agent layer missed (human commits, another
   agent).
-- **CI** (GitHub Action): `holdfast check --diff "origin/${{ github.base_ref }}...HEAD"`.
+- **CI** (GitHub Action): `tamperward check --diff "origin/${{ github.base_ref }}...HEAD"`.
   The authority for `main`. A `block` fails the check; it clears only via the
   out-of-band label of §5.4, never via the agent or a committed ledger.
 
@@ -361,20 +361,20 @@ why this is the right first build.
 ## 8. Repo layout
 
 ```
-holdfast/
+tamperward/
   src/types.ts          the Change / Finding / Detector / Policy contracts
   src/diff/             pure diff parser + selectors
   src/git/              git adapter (range / staged / worktree)
   src/detectors/        the rules (phase 1, in progress)
-  src/cli/              holdfast init | check | hook | sweep | allow (phase 2–3)
+  src/cli/              tamperward init | check | hook | sweep | allow (phase 2–3)
   src/adapters/claude/  stdin→Change[] (PreToolUse + Stop), Finding→deny (phase 3)
   fixtures/bypasses/    detection corpus
   fixtures/legitimate/  negatives — the precision gate for heuristics
   harness/e2e/          the agent-correction proof
-  .github/workflows/    Holdfast running on itself
+  .github/workflows/    Tamperward running on itself
 ```
 
-Dogfood from commit #1: Holdfast gates its own repo. The first external signal of
+Dogfood from commit #1: Tamperward gates its own repo. The first external signal of
 credibility is that the integrity tool's own CI *is* the integrity tool.
 
 ---
@@ -386,8 +386,8 @@ credibility is that the integrity tool's own CI *is* the integrity tool.
    count-based AST half — budget for the parser work, defer node-alignment.
    *Status: the `Change` model, diff parser, and git adapter are built and green.*
 2. **CLI + git adapter + pre-commit & CI wiring**, incl. the out-of-band CI sign-off.
-   Holdfast now gates itself. First shippable open-source artifact.
-3. **Claude PreToolUse hook + Stop sweep + the correction message.** `npx holdfast
+   Tamperward now gates itself. First shippable open-source artifact.
+3. **Claude PreToolUse hook + Stop sweep + the correction message.** `npx tamperward
    init` writes all configs. Start exit-2 + stderr; add JSON behind it.
 4. **E2E harness + bypass-to-fix measurement.** The two heuristics land as `warn`;
    promote per measured precision. ← *thesis validated or refuted here.*
@@ -411,5 +411,5 @@ recruits a cofounder and opens design-partner conversations.
 
 *v0.2 · folds in: Stop-sweep fourth touchpoint, out-of-band CI sign-off, AST for the
 two structure detectors, the expected-value-tampering move, the rename-out-of-glob and
-`holdfast allow` granularity fixes, the negatives-corpus sizing, and the harness
+`tamperward allow` granularity fixes, the negatives-corpus sizing, and the harness
 invariant. All product/brand names are placeholders. Market figures are directional.*
