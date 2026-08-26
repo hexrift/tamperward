@@ -5,6 +5,8 @@
 import picomatch from 'picomatch';
 import { Policy } from './types';
 
+export const POLICY_FILE = '.holdfast.yml';
+
 const cache = new Map<string, (s: string) => boolean>();
 
 function matcher(glob: string): (s: string) => boolean {
@@ -31,6 +33,14 @@ export function protectedCategory(path: string, policy: Policy): string | null {
 export function isProtected(path: string, policy: Policy, category?: string): boolean {
   if (category) return matchesAny(path, policy.protected?.[category]);
   return protectedCategory(path, policy) !== null;
+}
+
+/** The policy file itself, at any depth. `ignore` may never suppress a change to it:
+ *  an ignore glob that hides its own introduction makes the gate self-erasing, which is
+ *  the cheapest total bypass there is. Kept as a path test (not a glob) so no policy can
+ *  redefine it. */
+export function isPolicyFile(path: string): boolean {
+  return path === POLICY_FILE || path.endsWith('/' + POLICY_FILE);
 }
 
 /** Whether a file path is excluded from file-surface detection by policy.ignore. */

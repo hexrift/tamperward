@@ -5,16 +5,25 @@
 import { Change, Detector, Finding, Policy } from './types';
 import { allDetectors } from './detectors';
 import { isEnabled } from './detectors/finding';
-import { isIgnored } from './policy';
+import { isIgnored, isPolicyFile } from './policy';
 
 function key(f: Finding): string {
   return `${f.rule}|${f.file ?? ''}|${f.line ?? ''}|${f.evidence}`;
 }
 
-/** File changes whose path is ignored by policy are dropped before detection.
- *  Command changes are never path-scoped, so they always run. */
+/** Whether policy.ignore suppresses this change from file-surface detection.
+ *  A change to the POLICY FILE is never suppressible: `ignore` is read from the same file
+ *  it would be hiding, so allowing it to cover itself lets one edit switch the whole gate
+ *  off — including the detection of that edit. Command changes are never path-scoped. */
+export function isSuppressed(c: Change, policy: Policy): boolean {
+  if (c.kind !== 'file') return false;
+  if (isPolicyFile(c.path) || (c.oldPath != null && isPolicyFile(c.oldPath))) return false;
+  return isIgnored(c.path, policy);
+}
+
+/** File changes suppressed by policy.ignore are dropped before detection. */
 export function activeChanges(changes: Change[], policy: Policy): Change[] {
-  return changes.filter((c) => c.kind !== 'file' || !isIgnored(c.path, policy));
+  return changes.filter((c) => !isSuppressed(c, policy));
 }
 
 export function evaluate(

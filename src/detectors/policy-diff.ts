@@ -2,14 +2,30 @@
 // core. Parsing before/after YAML catches every weakening move regardless of formatting:
 // lowered/disabled/removed rules (inline OR multiline), added ignore globs, narrowed
 // protected globs, and weakened sign-off. A line regex can't see any of these reliably.
+//
+// The comparison is between EFFECTIVE policies, not raw file texts. `parsePolicy` layers
+// every override on top of the baseline, so a key OMITTED from the before-file inherits a
+// strong default. Diffing the texts alone therefore missed the cheapest self-authorization
+// there is: ADD `test-deletion: { severity: warn }` (or `enabled: false`, or a narrow
+// `protected.tests`) for a rule that was inheriting the baseline, then gut the tests.
+// Both sides are merged onto the baseline first, so an inherited value is compared like a
+// written one and only a real drop in effective strength is reported.
 
 import { parse } from 'yaml';
+import { defaultPolicy } from '../policy';
 
 interface RawPolicyShape {
   rules?: Record<string, { severity?: string; enabled?: boolean }>;
   ignore?: string[];
   protected?: Record<string, string[]>;
   signoff?: { required_for?: string[]; requiredFor?: string[] };
+}
+
+interface EffectivePolicy {
+  rules: Record<string, { severity?: string; enabled?: boolean }>;
+  ignore: string[];
+  protected: Record<string, string[]>;
+  requiredFor: string[];
 }
 
 /** Parse to a policy object, or null if it isn't valid YAML / isn't a mapping. Never
@@ -22,6 +38,18 @@ function safeParse(src: string): RawPolicyShape | null {
   } catch {
     return null;
   }
+}
+
+/** What the file actually means once the baseline is layered underneath it — the same
+ *  merge `parsePolicy` performs, so the comparison sees what the engine will enforce. */
+function effective(raw: RawPolicyShape): EffectivePolicy {
+  const base = defaultPolicy();
+  return {
+    rules: { ...base.rules, ...(raw.rules ?? {}) },
+    ignore: raw.ignore ?? base.ignore ?? [],
+    protected: { ...base.protected, ...(raw.protected ?? {}) },
+    requiredFor: raw.signoff?.required_for ?? raw.signoff?.requiredFor ?? base.signoff.requiredFor,
+  };
 }
 
 /**
@@ -38,13 +66,16 @@ export function policyWeakening(before: string, after: string): string[] | null 
   const a = safeParse(after);
   if (a === null) return ['the policy no longer parses as a valid policy (emptied or corrupted)'];
 
+  const be = effective(b);
+  const ae = effective(a);
   const reasons: string[] = [];
 
-  // rules: lowered, disabled, or removed
-  const bRules = b.rules ?? {};
-  const aRules = a.rules ?? {};
-  for (const [name, br] of Object.entries(bRules)) {
-    const ar = aRules[name];
+  // rules: lowered, disabled, or removed — over the UNION of names, so a rule that was
+  // inheriting the baseline is compared at its inherited strength, not skipped.
+  for (const name of new Set([...Object.keys(be.rules), ...Object.keys(ae.rules)])) {
+    const br = be.rules[name];
+    const ar = ae.rules[name];
+    if (!br) continue; // newly added rule — not a weakening
     if (!ar) {
       reasons.push(`rule "${name}" removed from policy`);
       continue;
@@ -58,25 +89,22 @@ export function policyWeakening(before: string, after: string): string[] | null 
   }
 
   // ignore: any glob added disables file detection on those paths
-  const beforeIgnore = new Set(b.ignore ?? []);
-  const addedIgnore = (a.ignore ?? []).filter((g) => !beforeIgnore.has(g));
+  const beforeIgnore = new Set(be.ignore);
+  const addedIgnore = ae.ignore.filter((g) => !beforeIgnore.has(g));
   if (addedIgnore.length) {
     reasons.push(`ignore globs added (${addedIgnore.join(', ')}) — disables detection on those paths`);
   }
 
-  // protected: any glob removed narrows the safety net
-  const bProt = b.protected ?? {};
-  const aProt = a.protected ?? {};
-  for (const [cat, globs] of Object.entries(bProt)) {
-    const stillThere = new Set(aProt[cat] ?? []);
-    const removed = (globs ?? []).filter((g) => !stillThere.has(g));
+  // protected: any glob removed narrows the safety net. Categories merge per key, so
+  // REPLACING a category with a shorter list reads as the narrowing it is.
+  for (const cat of new Set([...Object.keys(be.protected), ...Object.keys(ae.protected)])) {
+    const stillThere = new Set(ae.protected[cat] ?? []);
+    const removed = (be.protected[cat] ?? []).filter((g) => !stillThere.has(g));
     if (removed.length) reasons.push(`protected.${cat} narrowed (removed ${removed.join(', ')})`);
   }
 
   // signoff: block no longer requires sign-off
-  const bReq = b.signoff?.required_for ?? b.signoff?.requiredFor ?? [];
-  const aReq = new Set(a.signoff?.required_for ?? a.signoff?.requiredFor ?? []);
-  if (bReq.includes('block') && !aReq.has('block')) {
+  if (be.requiredFor.includes('block') && !new Set(ae.requiredFor).has('block')) {
     reasons.push('sign-off no longer required for blocking findings');
   }
 
