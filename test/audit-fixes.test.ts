@@ -1,4 +1,4 @@
-// Regressions earned by the pre-go-live audit (docs/pre-golive-audit.md).
+// Regressions earned by the pre-go-live security audit.
 // Each test below is an exploit that WORKED against the shipped engine. They exist so a
 // refactor cannot quietly reopen a total bypass.
 
