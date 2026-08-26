@@ -5,3 +5,7 @@ dist/
 .tamperward/ledger.jsonl
 
 harness/runs/
+
+# private working notes — strategy, audits, anything not for the repo
+*.private.md
+NOTES.private.md

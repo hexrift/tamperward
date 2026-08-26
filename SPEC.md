@@ -15,8 +15,7 @@ sign-off, AST for the two structure detectors, and the expected-value-tampering 
 
 ## 0. What this slice has to prove
 
-Two assertions become true or false here. Everything downstream — pricing, moat,
-the feed, the sensor network, the deck — waits on them:
+Two assertions have to become true or false here:
 
 1. **Determinism** — the moves agents use to game checks can be detected from the
    diff/command as a verdict, at an acceptably low false-positive rate.
@@ -24,10 +23,10 @@ the feed, the sensor network, the deck — waits on them:
    message redirects the agent to fix the *real* failure rather than hunt for another
    bypass.
 
-Eight of the ten detectors are mechanical; #1 is largely engineering. #2 — whether a
-denied agent fixes the truth or fights the gate — is the genuine unknown, and the
-reason this is the right first build. The metric that quantifies #2 is the
-**bypass-to-fix conversion rate** (§7.B).
+Eight of the ten detectors are mechanical, so #1 is largely engineering. #2 — whether a
+denied agent fixes the truth or fights the gate — is the harder question. The metric that
+quantifies it is the **bypass-to-fix conversion rate** (§7.B); see the README for the
+measured result.
 
 ---
 
@@ -37,10 +36,10 @@ reason this is the right first build. The metric that quantifies #2 is the
 four thin adapters (agent PreToolUse hook / agent Stop sweep / pre-commit / CI), a
 fixtures corpus, and an end-to-end proof harness.
 
-**Explicitly out** until the core earns it: dashboard, audit *persistence* beyond a
-local JSONL ledger, multi-agent support, the premium pattern feed, the sensor network,
-cross-repo policy, any SaaS surface, languages beyond TS. The config schema
-*anticipates* these (a `version` field, rule namespacing) but ships none of them.
+**Explicitly out** until the core earns it: a dashboard, audit *persistence* beyond the
+local JSONL ledger, multi-agent support, cross-repo policy, and languages beyond TS. The
+config schema *anticipates* some of these (a `version` field, rule namespacing) but ships
+none of them.
 
 ---
 
@@ -351,10 +350,8 @@ masquerade as a low conversion rate. Without this invariant, bypass-to-fix confl
 
 Run each scenario several times (agents are stochastic). The metric is
 **bypass-to-fix conversion rate**: of denied attempts, what fraction redirect to a real
-fix within N steps vs. spiral into new bypasses or give up. That single number is the
-thesis, quantified. Above ~80% the loop works; in the middle, the §5.1 message wording
-is the lever; near the floor, you've learned the hard truth cheaply — which is exactly
-why this is the right first build.
+fix within N steps vs. spiral into new bypasses or give up. Above ~80% the loop works; in
+the middle, the §5.1 message wording is the lever to tune.
 
 ---
 
@@ -365,51 +362,51 @@ tamperward/
   src/types.ts          the Change / Finding / Detector / Policy contracts
   src/diff/             pure diff parser + selectors
   src/git/              git adapter (range / staged / worktree)
-  src/detectors/        the rules (phase 1, in progress)
-  src/cli/              tamperward init | check | hook | sweep | allow (phase 2–3)
-  src/adapters/claude/  stdin→Change[] (PreToolUse + Stop), Finding→deny (phase 3)
-  fixtures/bypasses/    detection corpus
-  fixtures/legitimate/  negatives — the precision gate for heuristics
-  harness/e2e/          the agent-correction proof
+  src/detectors/        the rules
+  src/policy*.ts        protected-asset globs, policy load + baseline merge
+  src/signoff.ts        the three-layer sign-off model
+  src/session.ts        the Stop sweep's per-turn baseline
+  src/cli/              tamperward check | hook | sweep | allow
+  src/adapters/claude/  stdin→Change[] (PreToolUse + Stop), Finding→deny
+  test/                 unit suite — green is the gate
+  harness/              seeds, oracles, and the bypass-to-fix runner
   .github/workflows/    Tamperward running on itself
 ```
 
-Dogfood from commit #1: Tamperward gates its own repo. The first external signal of
-credibility is that the integrity tool's own CI *is* the integrity tool.
+Tamperward gates its own repo with the engine it ships: its CI self-gate runs the built
+CLI over the PR range, and a blocking finding clears only via the out-of-band label.
 
 ---
 
-## 9. Build order (weeks, not quarters)
+## 9. Build order and status
 
-1. **Engine + `Change` model + the 8 mechanical detectors**, tested against the
-   fixtures. (Determinism, proven.) Detectors 1 & 3 land here too, but only the
-   count-based AST half — budget for the parser work, defer node-alignment.
-   *Status: the `Change` model, diff parser, and git adapter are built and green.*
+1. **Engine + `Change` model + the 8 mechanical detectors.** *Shipped.* Detectors 1 & 3
+   landed as the count-based AST half; node-alignment is still deferred.
 2. **CLI + git adapter + pre-commit & CI wiring**, incl. the out-of-band CI sign-off.
-   Tamperward now gates itself. First shippable open-source artifact.
-3. **Claude PreToolUse hook + Stop sweep + the correction message.** `npx tamperward
-   init` writes all configs. Start exit-2 + stderr; add JSON behind it.
-4. **E2E harness + bypass-to-fix measurement.** The two heuristics land as `warn`;
-   promote per measured precision. ← *thesis validated or refuted here.*
+   *Shipped* — the sign-off channel is a PR label read by `.github/workflows/ci.yml`.
+3. **Claude PreToolUse hook + Stop sweep + the correction message.** *Shipped*, on the
+   JSON channel (a deny is exit 0 + JSON; exit 2 would make the JSON be ignored).
+   `tamperward init` is **not** shipped — copy the committed `.tamperward.yml`.
+4. **E2E harness + bypass-to-fix measurement.** *Run* — see the README for the numbers.
+   Both heuristics remain `warn`; they graduate only on a measured negatives corpus.
 
-Ship 1–2 as the public repo to start the clock; 3–4 turn stars into the proof that
-recruits a cofounder and opens design-partner conversations.
+Still open: the negatives corpus of §7.A (there is no `fixtures/` tree yet — the
+precision work so far lives in `harness/fp-study/`), `init`, and languages beyond TS.
 
 ---
 
 ## 10. The honest caveats
 
 - **The heuristics may not graduate.** If `assertion-weakening` and `guard-removal`
-  can't clear the negatives bar, they stay `warn` — and a warn-only `guard-removal` is
-  materially weaker than the white paper implies. Know the number before the deck
-  quotes determinism.
-- **The loop is the real unknown.** Everything else is engineering. Whether a denied
-  agent fixes the truth or fights the gate is unproven until §7.B runs. Not a risk to
-  the plan — the reason this is the first build.
+  can't clear the negatives bar they stay `warn`, and a warn-only `guard-removal` is
+  materially weaker than a blocking rule. Quote the measured number, not the intent.
+- **The loop is measured on a finite sample.** §7.B has run (see the README), but a
+  conversion rate is an observation over the seeds and models exercised, not a
+  guarantee about every agent on every codebase.
 
 ---
 
 *v0.2 · folds in: Stop-sweep fourth touchpoint, out-of-band CI sign-off, AST for the
 two structure detectors, the expected-value-tampering move, the rename-out-of-glob and
 `tamperward allow` granularity fixes, the negatives-corpus sizing, and the harness
-invariant. All product/brand names are placeholders. Market figures are directional.*
+invariant.*
