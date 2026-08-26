@@ -26,12 +26,22 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
-      # v6 (not v4/v5) ships an npm new enough for trusted publishing. Pinning an older
-      # setup-node is the usual reason OIDC silently falls back to looking for a token.
+      # NO registry-url. Setting it makes setup-node write an .npmrc containing
+      #   //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}
+      # and with no NODE_AUTH_TOKEN in the environment that expands to an EMPTY token.
+      # npm then sees auth already configured, takes the token path, never attempts the
+      # OIDC exchange, and the publish fails as an unauthenticated write — which the
+      # registry reports as E404 ("not found or you do not have permission"), because it
+      # will not disclose whether a package exists to a caller lacking rights. That is
+      # exactly how v1.1.0-rc.1 failed. registry.npmjs.org is npm's default anyway, so
+      # the line bought nothing but the broken .npmrc.
+      #
+      # Node 24: npm 12 is what `npm@latest` installs, and trusted publishing is only
+      # supported on the current Node line. The docs still say 22.14+, but publishing is
+      # not the place to sit on the older of two answers.
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
+          node-version: 24
 
       # Node 22 bundles npm 10.x, which is BELOW the 11.5.1 trusted publishing needs — so
       # pinning setup-node@v6 alone was not enough and the first tag would have failed.
