@@ -5,9 +5,88 @@ on:
     branches: [main]
   pull_request:
 
+# Least privilege: this pipeline reads the repo and runs tests. Nothing in it needs a
+# write-scoped token, and a security tool should not model bad habits in its own CI.
+permissions:
+  contents: read
+
+# A superseded push should stop burning a runner, and two runs racing on one ref can
+# report out of order — which matters when a required check gates the merge.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Do the TYPES check? Runs once: types do not vary by Node version, so putting this in
+  # the matrix paid for the same answer three times.
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+
+  # Is the CODE correct, on every Node the package claims to support?
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # package.json declares engines >=18. CI only ever proved 22, so the stated
+        # floor was an untested claim; these legs are what make it true.
+        node: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  # Is the ARTIFACT sound? Distinct question from "is the code correct", and it has its
+  # own failure mode: `files: [dist]` with dist/ gitignored once shipped a tarball
+  # containing no binary at all. Nothing in CI installed what npm would actually publish,
+  # so nothing caught it.
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      - name: Smoke-test the published artifact
+        run: |
+          set -euo pipefail
+          TGZ="$(npm pack --silent)"
+          WORK="$(mktemp -d)"
+          cd "$WORK" && npm init -qy >/dev/null
+          npm install --no-audit --no-fund "$GITHUB_WORKSPACE/$TGZ" >/dev/null
+          FIRST="$(./node_modules/.bin/tamperward 2>&1 | head -1)"
+          echo "installed CLI says: $FIRST"
+          case "$FIRST" in
+            tamperward*) echo "artifact OK — bin resolves, is executable, and runs" ;;
+            *) echo "published artifact is broken"; exit 1 ;;
+          esac
+
+  # Does the CHANGE violate the integrity policy? The dogfood job: Tamperward gates its
+  # own repo with the engine it ships. Rebuilds rather than passing an artifact around —
+  # the bundle takes milliseconds and the CLI needs its runtime deps installed anyway.
+  gate:
+    needs: [typecheck, test, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -15,9 +94,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
       - run: npm run build
 
       # SPEC §5.4: in CI a sign-off must be OUT OF BAND — never a file the same PR can
@@ -38,20 +116,31 @@ jobs:
           echo "rules=$RULES" >> "$GITHUB_OUTPUT"
           [ -n "$RULES" ] && echo "out-of-band approval present for: $RULES" || echo "no out-of-band approval on this PR"
 
-      # Dogfood: Tamperward gates its own repo with the same engine it ships.
       - name: Tamperward self-gate
         env:
           TAMPERWARD_OOB_SIGNOFF: ${{ steps.oob.outputs.rules }}
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_HEAD: ${{ github.sha }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            RANGE="${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}"
+          set -euo pipefail
+          if [ "$EVENT" = "pull_request" ]; then
+            RANGE="$PR_BASE...$PR_HEAD"
           else
-            BEFORE="${{ github.event.before }}"
-            if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-              echo "No before-sha (first push); nothing to range-check."
-              exit 0
+            # A force-push leaves `before` pointing at a commit that no longer exists.
+            # Using it unchecked yields an empty range — a gate that passes by accident,
+            # which is the failure mode this whole project exists to prevent.
+            if [ -z "$PUSH_BEFORE" ] || [ "$PUSH_BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "${PUSH_BEFORE}^{commit}" 2>/dev/null; then
+              if ! git rev-parse --verify --quiet "${PUSH_HEAD}^" >/dev/null; then
+                echo "root commit and no usable before-sha; nothing to range-check."
+                exit 0
+              fi
+              echo "before-sha unusable (new branch or force-push); falling back to the last commit."
+              PUSH_BEFORE="${PUSH_HEAD}^"
             fi
-            RANGE="$BEFORE...${{ github.sha }}"
+            RANGE="$PUSH_BEFORE...$PUSH_HEAD"
           fi
           echo "Checking range: $RANGE"
           node dist/cli/index.js check --diff "$RANGE"
