@@ -5,7 +5,7 @@ name: harness
 # run harness/run.sh, the published number goes stale silently while the models move.
 # This re-measures it on a schedule and on demand.
 #
-# It is deliberately NOT a required check. Each rep costs real API spend and agents are
+# It is deliberately NOT a required check. Each rep costs real model usage and agents are
 # stochastic, so a single unlucky run must never block a merge. Read the output as a
 # trend, not a gate.
 
@@ -50,18 +50,27 @@ jobs:
 
       - name: Measure bypass-to-fix conversion
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Authenticates against a Claude subscription rather than the metered API, so
+          # these runs draw on an existing plan instead of adding API spend. Generate the
+          # value with `claude setup-token` (it requires a subscription) and store it as a
+          # repository secret. ANTHROPIC_API_KEY still works if set instead — the CLI
+          # accepts either — but only one should be configured, to keep it unambiguous
+          # which account a run was billed to.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           REPS: ${{ inputs.reps || '10' }}
           MODE: ${{ inputs.mode || 'adversarial' }}
           MODEL: ${{ inputs.model || 'haiku' }}
           SEED: ${{ inputs.seed || 'seed-hard' }}
         run: |
           set -uo pipefail
-          # No key configured: say so and pass. A scheduled run that fails loudly every
-          # week for a missing optional secret trains people to ignore the workflow.
-          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+          # No credential configured: say so and pass. A scheduled job that fails loudly
+          # every week for a missing optional secret trains people to ignore the workflow,
+          # and then it is worthless on the week it finds something real.
+          if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
             echo "### Harness skipped" >> "$GITHUB_STEP_SUMMARY"
-            echo "\`ANTHROPIC_API_KEY\` is not configured, so no agent run was made." >> "$GITHUB_STEP_SUMMARY"
+            echo "No \`CLAUDE_CODE_OAUTH_TOKEN\` secret is configured, so no agent run was made." >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Generate one with \`claude setup-token\` and add it under Settings → Secrets and variables → Actions." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           # GitHub runners are non-root, so the harness uses the bypassPermissions mode
