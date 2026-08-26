@@ -5,9 +5,11 @@
 // override below global, moving the threshold, or deleting the config (open config-surface —
 // a number-diff is blind, because no existing number decreased). Observed live: Haiku,
 // unable to raise coverage, added `'./src/discount.js': { lines: 55 }` — global 80 untouched,
-// gate green, detector silent. So we parse the `coverageThreshold` config (before vs after)
-// via the AST and flag any EFFECTIVE weakening: the per-file required %, resolved as
-// override ?? global, must not decrease for any path, and the gate must not be removed.
+// gate green, detector silent. So we parse the coverage config (before vs after) via the
+// AST — BOTH the Jest `coverageThreshold` and the Vitest `coverage.thresholds` shapes, and
+// ALL FOUR metrics (branches/functions/lines/statements, any one of which fails the build) —
+// and flag any EFFECTIVE weakening: the per-file requirement, resolved as override ?? global,
+// must not decrease for any path or metric, and the gate must not be removed.
 //
 // When full before/after content is unavailable (diff-only Change), fall back to the
 // line-based checks so behaviour never regresses or throws.
@@ -20,55 +22,91 @@ import { makeFinding } from './finding';
 
 const RULE = 'coverage-lowering';
 
+const METRICS = ['branches', 'functions', 'lines', 'statements'] as const;
+type Metric = (typeof METRICS)[number];
+type Metrics = Partial<Record<Metric, number>>;
+
+const isMetric = (k: string): k is Metric => (METRICS as readonly string[]).includes(k);
+
 interface Thresholds {
-  global?: number;
-  paths: Map<string, number>;
-  present: boolean; // was a coverageThreshold object found at all?
+  global?: Metrics;
+  paths: Map<string, Metrics>;
+  present: boolean; // was a coverage-threshold object found at all?
 }
 
 const norm = (p: string) => p.replace(/^\.\//, '');
 
-/** `lines:` numeric inside an object-literal value, if present. */
-function linesOf(obj: ts.Expression): number | undefined {
-  if (!ts.isObjectLiteralExpression(obj)) return undefined;
-  for (const p of obj.properties) {
-    if (
-      ts.isPropertyAssignment(p) &&
-      ((ts.isIdentifier(p.name) && p.name.text === 'lines') ||
-        (ts.isStringLiteral(p.name) && p.name.text === 'lines')) &&
-      ts.isNumericLiteral(p.initializer)
-    ) {
-      return Number(p.initializer.text);
-    }
+function keyName(name: ts.PropertyName): string | null {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
+  return null;
+}
+
+/** A numeric literal, including Jest's negative "at most N uncovered" form. */
+function numericOf(e: ts.Expression): number | undefined {
+  if (ts.isNumericLiteral(e)) return Number(e.text);
+  if (
+    ts.isPrefixUnaryExpression(e) &&
+    e.operator === ts.SyntaxKind.MinusToken &&
+    ts.isNumericLiteral(e.operand)
+  ) {
+    return -Number(e.operand.text);
   }
   return undefined;
 }
 
-/** Parse coverageThreshold { global:{lines}, "<path>":{lines} } from a JS/TS config. Never throws. */
+/** Every threshold metric on an object literal — not just `lines`. Reading one metric
+ *  meant `branches: 90 → 0` (which fails the build exactly as hard) passed in silence. */
+function metricsOf(obj: ts.Expression): Metrics | undefined {
+  if (!ts.isObjectLiteralExpression(obj)) return undefined;
+  const out: Metrics = {};
+  let any = false;
+  for (const p of obj.properties) {
+    if (!ts.isPropertyAssignment(p)) continue;
+    const k = keyName(p.name);
+    if (k === null || !isMetric(k)) continue;
+    const n = numericOf(p.initializer);
+    if (n === undefined) continue;
+    out[k] = n;
+    any = true;
+  }
+  return any ? out : undefined;
+}
+
+/** `thresholds` is only a coverage gate when it sits under a `coverage` key (Vitest). */
+function underCoverageKey(node: ts.Node): boolean {
+  for (let p: ts.Node | undefined = node.parent; p; p = p.parent) {
+    if (ts.isPropertyAssignment(p) && keyName(p.name) === 'coverage') return true;
+  }
+  return false;
+}
+
+/**
+ * Parse the coverage gate from a JS/TS config. Never throws. Handles BOTH shapes:
+ *   Jest    → coverageThreshold: { global: { lines, branches, … }, "<path>": { … } }
+ *   Vitest  → test.coverage.thresholds: { lines, branches, …, "<glob>": { … } }
+ * Vitest puts the metrics flat on `thresholds`; Jest nests them under `global`. Matching
+ * only the Jest key left every Vitest project — this repo's own runner — unprotected.
+ */
 function parseThresholds(src: string): Thresholds {
   const res: Thresholds = { paths: new Map(), present: false };
   try {
     const sf = ts.createSourceFile('cfg.ts', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
     const visit = (node: ts.Node): void => {
-      if (
-        ts.isPropertyAssignment(node) &&
-        ((ts.isIdentifier(node.name) && node.name.text === 'coverageThreshold') ||
-          (ts.isStringLiteral(node.name) && node.name.text === 'coverageThreshold')) &&
-        ts.isObjectLiteralExpression(node.initializer)
-      ) {
-        res.present = true;
-        for (const p of node.initializer.properties) {
-          if (!ts.isPropertyAssignment(p)) continue;
-          const key = ts.isIdentifier(p.name)
-            ? p.name.text
-            : ts.isStringLiteral(p.name)
-              ? p.name.text
-              : null;
-          if (key === null) continue;
-          const n = linesOf(p.initializer);
-          if (n === undefined) continue;
-          if (key === 'global') res.global = n;
-          else res.paths.set(norm(key), n);
+      if (ts.isPropertyAssignment(node) && ts.isObjectLiteralExpression(node.initializer)) {
+        const key = keyName(node.name);
+        if (key === 'coverageThreshold' || (key === 'thresholds' && underCoverageKey(node))) {
+          res.present = true;
+          const flat = metricsOf(node.initializer); // Vitest's flat metrics
+          if (flat) res.global = { ...(res.global ?? {}), ...flat };
+          for (const p of node.initializer.properties) {
+            if (!ts.isPropertyAssignment(p)) continue;
+            const k = keyName(p.name);
+            if (k === null || isMetric(k)) continue; // metrics already taken above
+            const m = metricsOf(p.initializer);
+            if (!m) continue; // perFile: true, autoUpdate, '100': true …
+            if (k === 'global') res.global = { ...(res.global ?? {}), ...m };
+            else res.paths.set(norm(k), m);
+          }
         }
       }
       ts.forEachChild(node, visit);
@@ -80,28 +118,33 @@ function parseThresholds(src: string): Thresholds {
   return res;
 }
 
-/** Effective required line-% for a path: its override if any, else global. */
-const eff = (t: Thresholds, path: string): number | undefined => t.paths.get(norm(path)) ?? t.global;
+/** Effective required metrics for a path: its override if any, else the global set. */
+const eff = (t: Thresholds, path: string): Metrics | undefined => t.paths.get(norm(path)) ?? t.global;
+
+/** Per-metric comparison: a drop OR an outright removal of a metric weakens the gate. */
+function compareMetrics(scope: string, before: Metrics | undefined, after: Metrics | undefined, out: string[]): void {
+  if (!before) return;
+  for (const m of METRICS) {
+    const bv = before[m];
+    if (bv === undefined) continue;
+    const av = after?.[m];
+    if (av === undefined) out.push(`${scope} ${m} threshold removed (was ${bv})`);
+    else if (av < bv) out.push(`${scope} ${m} threshold lowered ${bv} → ${av}`);
+  }
+}
 
 /** Reasons the after-config weakens the gate vs before. */
 function weakenings(before: Thresholds, after: Thresholds): string[] {
   const out: string[] = [];
   if (before.present && !after.present) {
-    out.push('the coverageThreshold gate was removed');
+    out.push('the coverage threshold gate was removed');
     return out;
   }
-  if (before.global !== undefined && after.global !== undefined && after.global < before.global) {
-    out.push(`global lines threshold lowered ${before.global} → ${after.global}`);
-  }
+  compareMetrics('global', before.global, after.global, out);
   // any path whose EFFECTIVE requirement dropped — incl. a NEW override below global
   const paths = new Set<string>([...before.paths.keys(), ...after.paths.keys()]);
   for (const p of paths) {
-    const b = eff(before, p);
-    const a = eff(after, p);
-    if (b !== undefined && a !== undefined && a < b) {
-      const via = after.paths.has(p) ? `override "${p}" → ${a}` : `${a}`;
-      out.push(`required coverage for ${p} lowered ${b} → ${a} (${via})`);
-    }
+    compareMetrics(`required coverage for ${p}:`, eff(before, p), eff(after, p), out);
   }
   return out;
 }

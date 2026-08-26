@@ -48,6 +48,28 @@ export function isIgnored(path: string, policy: Policy): boolean {
   return matchesAny(path, policy.ignore);
 }
 
+/**
+ * Merge user-declared protected globs ON TOP of the baseline, additively, per category.
+ *
+ * Replacing per category looked like "set your test globs" but actually meant "drop the
+ * other baseline ones": adding a single `tests` entry silently unprotected `*.spec.ts`,
+ * `*.test.tsx` and `__tests__/`, so test-deletion and test-skip stopped firing on them —
+ * a large false-negative surface opened by ordinary, well-intentioned config. A protected
+ * category can therefore only ever GROW here. To exclude a path from detection, use
+ * `ignore` (which is reported, and cannot cover the policy file itself).
+ */
+export function mergeProtected(
+  base: Record<string, string[]>,
+  user?: Record<string, string[]>,
+): Record<string, string[]> {
+  const out: Record<string, string[]> = { ...base };
+  for (const [cat, globs] of Object.entries(user ?? {})) {
+    const have = new Set(out[cat] ?? []);
+    out[cat] = [...(out[cat] ?? []), ...(globs ?? []).filter((g) => !have.has(g))];
+  }
+  return out;
+}
+
 /** The baseline policy — mirrors the committed .holdfast.yml. */
 export function defaultPolicy(): Policy {
   return {

@@ -77,6 +77,34 @@ export function isGitRepo(cwd?: string): boolean {
   }
 }
 
+/** The absolute .git directory, or null outside a repo. */
+export function gitDir(cwd?: string): string | null {
+  try {
+    return git(['rev-parse', '--absolute-git-dir'], cwd).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** The current HEAD sha, or null (unborn branch / not a repo). */
+export function headSha(cwd?: string): string | null {
+  try {
+    return git(['rev-parse', 'HEAD'], cwd).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Everything that changed since `rev`, COMMITTED OR NOT — the honest Stop-sweep view.
+ *  `git diff <rev>` compares that commit to the working tree, so a mid-turn commit can no
+ *  longer launder a tamper out of sight the way `git diff HEAD` allowed. */
+export function diffSince(rev: string, opts: GitOpts = {}): Change[] {
+  const raw = git(['diff', '--no-color', '-M', rev], opts.cwd);
+  return parseDiff(raw).map((c) =>
+    enrich(c, (p) => blobAt(rev, p, opts.cwd), (p) => fromDisk(p, opts.cwd)),
+  );
+}
+
 /** Changes on `head` since its merge-base with `base` — the CI authority view. */
 export function diffRange(base: string, head: string, opts: GitOpts = {}): Change[] {
   const raw = git(['diff', '--no-color', '-M', `${base}...${head}`], opts.cwd);
