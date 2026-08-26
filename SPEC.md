@@ -105,7 +105,7 @@ Two files. A **policy** (`.holdfast.yml`, user-facing, in the repo) and a **Find
 open-core package — the open "rule format" is the policy schema + the `Detector`
 interface, so third parties add detectors without forking.
 
-**`.holdfast.yml`** (written by `npx holdfast init`; see the committed file):
+**`.holdfast.yml`** (copy the committed file — `holdfast init` is not yet shipped):
 
 ```yaml
 version: 1
