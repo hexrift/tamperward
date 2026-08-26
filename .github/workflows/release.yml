@@ -8,9 +8,17 @@ on:
   push:
     tags: ['v*']
 
+# No NPM_TOKEN. Authentication is npm TRUSTED PUBLISHING: npm trusts this repository's
+# workflow directly, and GitHub mints a short-lived OIDC credential per run. That removes
+# the long-lived secret entirely — nothing to leak, rotate or expire — which matters here
+# beyond hygiene, since npm is withdrawing publish rights from bypass-2FA tokens.
+#
+# The trust relationship is configured on npmjs.com, not here: Packages -> tamperward ->
+# Settings -> Trusted publishing, naming this repo and the workflow FILENAME (release.yml).
+# Rename this file and publishing stops until that entry is updated to match.
 permissions:
   contents: read
-  id-token: write # required for npm provenance
+  id-token: write # mints the OIDC token npm exchanges for publish rights
 
 jobs:
   publish:
@@ -18,10 +26,25 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # v6 (not v4/v5) ships an npm new enough for trusted publishing. Pinning an older
+      # setup-node is the usual reason OIDC silently falls back to looking for a token.
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm >= 11.5.1. Check it here rather than let the publish
+      # step fail later with an auth error that looks like a credentials problem.
+      - name: npm must support trusted publishing
+        run: |
+          set -euo pipefail
+          NPM_V="$(npm --version)"
+          echo "npm $NPM_V, node $(node --version)"
+          node -e '
+            const [a,b,c] = process.argv[1].split(".").map(Number);
+            const ok = a > 11 || (a === 11 && (b > 5 || (b === 5 && c >= 1)));
+            if (!ok) { console.error("npm " + process.argv[1] + " is older than 11.5.1; trusted publishing needs 11.5.1+"); process.exit(1); }
+          ' "$NPM_V"
 
       - run: npm ci
 
@@ -50,5 +73,3 @@ jobs:
             *)   echo "release $VERSION -> dist-tag latest";  TAG=latest ;;
           esac
           npm publish --provenance --access public --tag "$TAG"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
