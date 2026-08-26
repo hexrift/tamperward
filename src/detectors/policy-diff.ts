@@ -12,7 +12,7 @@
 // written one and only a real drop in effective strength is reported.
 
 import { parse } from 'yaml';
-import { defaultPolicy } from '../policy';
+import { defaultPolicy, mergeProtected } from '../policy';
 
 interface RawPolicyShape {
   rules?: Record<string, { severity?: string; enabled?: boolean }>;
@@ -47,7 +47,7 @@ function effective(raw: RawPolicyShape): EffectivePolicy {
   return {
     rules: { ...base.rules, ...(raw.rules ?? {}) },
     ignore: raw.ignore ?? base.ignore ?? [],
-    protected: { ...base.protected, ...(raw.protected ?? {}) },
+    protected: mergeProtected(base.protected, raw.protected),
     requiredFor: raw.signoff?.required_for ?? raw.signoff?.requiredFor ?? base.signoff.requiredFor,
   };
 }

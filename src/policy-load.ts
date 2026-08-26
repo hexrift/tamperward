@@ -6,7 +6,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse } from 'yaml';
 import { Policy, Severity } from './types';
-import { defaultPolicy, POLICY_FILE } from './policy';
+import { defaultPolicy, mergeProtected, POLICY_FILE } from './policy';
 import { fileAt } from './git/build';
 
 /** A policy file that exists but cannot be understood. Never swallowed into the
@@ -27,9 +27,9 @@ export function parsePolicy(raw: RawPolicy | null | undefined): Policy {
   return {
     version: 1,
     // Merge with the baseline, never replace. For an integrity tool, a config that sets
-    // one rule's severity must NOT silently drop the other nine (nor a single protected
-    // category wipe out the rest). Omission keeps the baseline; opt out explicitly.
-    protected: { ...base.protected, ...(r.protected ?? {}) },
+    // one rule's severity must NOT silently drop the other nine — nor may naming one
+    // protected glob wipe out the rest of its category (see mergeProtected).
+    protected: mergeProtected(base.protected, r.protected),
     rules: { ...base.rules, ...(r.rules ?? {}) },
     ignore: r.ignore ?? base.ignore,
     signoff: {

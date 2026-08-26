@@ -34,9 +34,11 @@ describe('policyWeakening', () => {
     const after = base.replace('ignore: []', "ignore: ['**']");
     expect(reasons(base, after).some((r) => /ignore/.test(r))).toBe(true);
   });
-  it('flags narrowed protected globs', () => {
-    const after = base.replace("tests: ['**/*.test.ts']", 'tests: []');
-    expect(reasons(base, after).some((r) => /protected/.test(r))).toBe(true);
+  it('flags narrowed protected globs (a CUSTOM glob dropped)', () => {
+    // A baseline glob can no longer be narrowed away at all — the merge restores it — so
+    // the case that still needs DETECTING is a repo-specific glob being removed.
+    const withCustom = base.replace("tests: ['**/*.test.ts']", "tests: ['**/*.test.ts', 'e2e/**']");
+    expect(reasons(withCustom, base).some((r) => /protected.*e2e/.test(r))).toBe(true);
   });
   it('flags severity lowered in the MULTILINE form (the old gap)', () => {
     const b = 'rules:\n  no-verify:\n    severity: block\n';
@@ -82,10 +84,13 @@ describe('parsePolicy merge', () => {
     expect(p.rules['test-deletion'].severity).toBe('block');
     expect(Object.keys(p.rules).length).toBeGreaterThan(5);
   });
-  it('setting one protected category keeps the others', () => {
+  it('setting one protected category keeps the others AND the baseline globs in it', () => {
     const p = parsePolicy({ protected: { tests: ['**/*.test.js'] } });
-    expect(p.protected.tests).toEqual(['**/*.test.js']);
     expect(p.protected.ci).toBeDefined();
+    // additive: naming one test glob must not unprotect *.spec.ts / __tests__/ etc.
+    expect(p.protected.tests).toContain('**/*.test.js');
+    expect(p.protected.tests).toContain('**/*.spec.ts');
+    expect(p.protected.tests).toContain('**/__tests__/**');
   });
 });
 
