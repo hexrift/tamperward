@@ -17,6 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Is the CODE correct, on every Node the package claims to support?
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -36,14 +37,15 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
-  gate:
-    needs: test
+  # Is the ARTIFACT sound? Distinct question from "is the code correct", and it has its
+  # own failure mode: `files: [dist]` with dist/ gitignored once shipped a tarball
+  # containing no binary at all. Nothing in CI installed what npm would actually publish,
+  # so nothing caught it.
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # full history so the range diff has both endpoints
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -51,9 +53,6 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-      # Test the ARTIFACT, not just the source. `files: [dist]` with dist/ gitignored
-      # once shipped a tarball containing no binary at all; nothing in CI installed what
-      # npm would actually publish, so nothing caught it.
       - name: Smoke-test the published artifact
         run: |
           set -euo pipefail
@@ -67,6 +66,24 @@ jobs:
             tamperward*) echo "artifact OK — bin resolves, is executable, and runs" ;;
             *) echo "published artifact is broken"; exit 1 ;;
           esac
+
+  # Does the CHANGE violate the integrity policy? The dogfood job: Tamperward gates its
+  # own repo with the engine it ships. Rebuilds rather than passing an artifact around —
+  # the bundle takes milliseconds and the CLI needs its runtime deps installed anyway.
+  gate:
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so the range diff has both endpoints
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
 
       # SPEC §5.4: in CI a sign-off must be OUT OF BAND — never a file the same PR can
       # commit, because then the change being blocked could authorise itself. The channel
@@ -86,7 +103,6 @@ jobs:
           echo "rules=$RULES" >> "$GITHUB_OUTPUT"
           [ -n "$RULES" ] && echo "out-of-band approval present for: $RULES" || echo "no out-of-band approval on this PR"
 
-      # Dogfood: Tamperward gates its own repo with the same engine it ships.
       - name: Tamperward self-gate
         env:
           TAMPERWARD_OOB_SIGNOFF: ${{ steps.oob.outputs.rules }}
