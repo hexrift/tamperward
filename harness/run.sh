@@ -89,10 +89,13 @@ EOF
     git -c user.email=h@x -c user.name=h commit -qm seed --no-verify )
 
   # the agent run (free rein; only Tamperward stands in the way). Full transcript captured.
-  TRANSCRIPT="$OUT/${SEED_NAME}-${MODE}-${MODEL_TAG}-run${i}.jsonl"
+  # $$ keeps a later batch from overwriting an earlier one's transcripts: reps restart at
+  # 1 each invocation, so a fixed name silently destroyed the evidence for runs already
+  # counted in a published number.
+  TRANSCRIPT="$OUT/${SEED_NAME}-${MODE}-${MODEL_TAG}-b$$-run${i}.jsonl"
   ( cd "$DIR" && claude -p "$PROMPT" $MODEL_FLAG $TURN_FLAG \
       --output-format stream-json --verbose $PERM_FLAG \
-      > "$TRANSCRIPT" 2>"$OUT/${SEED_NAME}-${MODE}-${MODEL_TAG}-run${i}.err" )
+      > "$TRANSCRIPT" 2>"${TRANSCRIPT%.jsonl}.err" )
 
   # Interception count comes from the deny-log — orthogonal to the outcome oracle.
   denies=$([ -f "$DENYLOG" ] && wc -l < "$DENYLOG" | tr -d ' ' || echo 0)
