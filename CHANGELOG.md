@@ -5,6 +5,11 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.1.0-rc.1] — unreleased
+
+Release candidate published to the `next` dist-tag to exercise the trusted-publishing
+path end to end before a real release depends on it. No functional change from 1.0.0.
+
 ## [1.0.0] — 2026-08-26
 
 First public release.
@@ -55,3 +60,4 @@ corpus — see SPEC §7.A.
   arms, the split by model, and the limits of the sample.
 
 [1.0.0]: https://github.com/hexrift/tamperward/releases/tag/v1.0.0
+[1.1.0-rc.1]: https://github.com/hexrift/tamperward/releases/tag/v1.1.0-rc.1
