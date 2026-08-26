@@ -7,11 +7,90 @@
 import { Change, FileChange, FileOp, Hunk, DiffLine } from '../types';
 
 const HUNK_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
-const HEADER_RE = /^diff --git a\/(.*) b\/(.*)$/;
+
+const C_ESCAPES: Record<string, number> = { a: 7, b: 8, f: 12, n: 10, r: 13, t: 9, v: 11, '\\': 92, '"': 34 };
+
+/**
+ * Decode a path the way git wrote it. With `core.quotePath` (ON by default) git wraps any
+ * path containing non-ASCII or control characters in double quotes and C-escapes its BYTES:
+ *
+ *     diff --git "a/caf\303\251.spec.ts" "b/caf\303\251.spec.ts"
+ *
+ * Left encoded, that path matches no protected glob, so `café.spec.ts` could be deleted,
+ * renamed out, or gutted with EVERY path-based detector silent — on all three git views.
+ * Decode the escapes back to bytes, then read them as UTF-8.
+ */
+export function unquotePath(p: string): string {
+  if (p.length < 2 || !p.startsWith('"') || !p.endsWith('"')) return p;
+  const body = p.slice(1, -1);
+  const bytes: number[] = [];
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] !== '\\') {
+      for (const b of Buffer.from(body[i], 'utf8')) bytes.push(b);
+      continue;
+    }
+    const oct = body.slice(i + 1, i + 4);
+    if (/^[0-7]{3}$/.test(oct)) {
+      bytes.push(parseInt(oct, 8));
+      i += 3;
+      continue;
+    }
+    const esc = C_ESCAPES[body[i + 1]];
+    if (esc !== undefined) {
+      bytes.push(esc);
+      i += 1;
+      continue;
+    }
+    bytes.push(92); // a lone backslash git did not escape
+  }
+  return Buffer.from(bytes).toString('utf8');
+}
+
+function endOfQuoted(s: string): number {
+  for (let i = 1; i < s.length; i++) {
+    if (s[i] === '\\') {
+      i++;
+      continue;
+    }
+    if (s[i] === '"') return i;
+  }
+  return -1;
+}
+
+/** The two path tokens of a `diff --git` header. Either side may be quoted independently,
+ *  and an unquoted path may itself contain spaces, so a quoted token is read as a unit and
+ *  only the all-unquoted case falls back to splitting on the last ` b/`. */
+function headerPaths(line: string): [string | null, string | null] {
+  let rest = line.slice('diff --git '.length);
+  let first: string | null = null;
+
+  if (rest.startsWith('"')) {
+    const end = endOfQuoted(rest);
+    if (end > 0) {
+      first = rest.slice(0, end + 1);
+      rest = rest.slice(end + 1).trimStart();
+    }
+  }
+  if (first === null) {
+    const q = rest.indexOf(' "b/');
+    if (q >= 0) {
+      first = rest.slice(0, q);
+      rest = rest.slice(q + 1);
+    } else {
+      const m = rest.match(/^(.*) (b\/.*)$/);
+      if (!m) return [null, null];
+      first = m[1];
+      rest = m[2];
+    }
+  }
+  return [stripAB(first), stripAB(rest)];
+}
 
 function stripAB(p: string | null): string | null {
-  if (p === null || p === '/dev/null') return null;
-  return p.replace(/^[ab]\//, '');
+  if (p === null) return null;
+  const u = unquotePath(p);
+  if (u === '/dev/null') return null;
+  return u.replace(/^[ab]\//, '');
 }
 
 export function parseDiff(diff: string): Change[] {
@@ -25,9 +104,7 @@ export function parseDiff(diff: string): Change[] {
       continue;
     }
 
-    const hm = lines[i].match(HEADER_RE);
-    const headerOld = hm ? hm[1] : null;
-    const headerNew = hm ? hm[2] : null;
+    const [headerOld, headerNew] = headerPaths(lines[i]);
     i++;
 
     let op: FileOp = 'modify';
@@ -54,10 +131,10 @@ export function parseDiff(diff: string): Change[] {
 
       if (l.startsWith('new file mode')) op = 'add';
       else if (l.startsWith('deleted file mode')) op = 'delete';
-      else if (l.startsWith('rename from ')) { renameFrom = l.slice(12); op = 'rename'; }
-      else if (l.startsWith('rename to ')) { renameTo = l.slice(10); op = 'rename'; }
-      else if (l.startsWith('copy from ')) { renameFrom = l.slice(10); if (op === 'modify') op = 'rename'; }
-      else if (l.startsWith('copy to ')) { renameTo = l.slice(8); if (op === 'modify') op = 'rename'; }
+      else if (l.startsWith('rename from ')) { renameFrom = unquotePath(l.slice(12)); op = 'rename'; }
+      else if (l.startsWith('rename to ')) { renameTo = unquotePath(l.slice(10)); op = 'rename'; }
+      else if (l.startsWith('copy from ')) { renameFrom = unquotePath(l.slice(10)); if (op === 'modify') op = 'rename'; }
+      else if (l.startsWith('copy to ')) { renameTo = unquotePath(l.slice(8)); if (op === 'modify') op = 'rename'; }
       else if (l.startsWith('Binary files ') || l.startsWith('GIT binary patch')) binary = true;
       else if (l.startsWith('--- ')) minusPath = l.slice(4);
       else if (l.startsWith('+++ ')) plusPath = l.slice(4);

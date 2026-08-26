@@ -1,6 +1,6 @@
 // Claude Code agent adapter: turn a PreToolUse tool call into Change[] BEFORE it runs,
-// so the cheat path never opens. A Bash call is a command Change; an Edit/Write/MultiEdit
-// is reconstructed into before/after content (the change hasn't touched disk yet) and run
+// so the cheat path never opens. A Bash call is a command Change; an Edit/Write/MultiEdit/
+// NotebookEdit is reconstructed into before/after content (it hasn't touched disk yet) and run
 // through `git diff --no-index` so it reuses the same tested parser the git views use —
 // one normalization, four producers.
 
@@ -16,6 +16,8 @@ export interface ClaudeHookInput {
   tool_input?: Record<string, unknown>;
   cwd?: string;
   stop_hook_active?: boolean;
+  /** Claude Code's per-session id — anchors the Stop sweep's turn baseline. */
+  session_id?: string;
 }
 
 function asStr(v: unknown): string {
@@ -109,7 +111,21 @@ export function changesFromClaudeHook(input: ClaudeHookInput, cwd: string): Chan
       }
       return synthFileChange(relForDisplay(abs(fp, cwd), cwd), before, after);
     }
+    case 'NotebookEdit': {
+      const fp = asStr(ti.notebook_path);
+      const src = asStr(ti.new_source);
+      if (!fp || !src) return [];
+      // Model the cell's new source as content being ADDED to the notebook. before is ''
+      // rather than the notebook JSON on purpose: the additive detectors (skip / any /
+      // suppression) get the text about to be written, while the AST count detectors see
+      // no phantom "blocks removed" from diffing a cell against a whole notebook.
+      return synthFileChange(relForDisplay(abs(fp, cwd), cwd), '', src);
+    }
     default:
+      // Anything we do not model produces no Change — including read-only tools, which is
+      // correct. A tool that mutates files by some path we cannot reconstruct (an arbitrary
+      // Bash-driven write, a future edit tool) is NOT silently trusted: it is the Stop
+      // sweep's job (SPEC §5.2), which re-derives the turn's real net diff from git.
       return [];
   }
 }
