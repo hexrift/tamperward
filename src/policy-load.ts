@@ -6,7 +6,12 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse } from 'yaml';
 import { Policy, Severity } from './types';
-import { defaultPolicy } from './policy';
+import { defaultPolicy, POLICY_FILE } from './policy';
+import { fileAt } from './git/build';
+
+/** A policy file that exists but cannot be understood. Never swallowed into the
+ *  baseline: falling back silently would run a WEAKER gate than the author wrote. */
+export class PolicyError extends Error {}
 
 type RawPolicy = {
   version?: number;
@@ -34,8 +39,36 @@ export function parsePolicy(raw: RawPolicy | null | undefined): Policy {
   };
 }
 
+function parseOrThrow(src: string, where: string): Policy {
+  let raw: unknown;
+  try {
+    raw = parse(src);
+  } catch (e) {
+    throw new PolicyError(`${where} is not valid YAML: ${(e as Error).message}`);
+  }
+  if (raw !== null && raw !== undefined && (typeof raw !== 'object' || Array.isArray(raw))) {
+    throw new PolicyError(`${where} is not a policy mapping`);
+  }
+  return parsePolicy(raw as RawPolicy);
+}
+
 export function loadPolicy(cwd: string = process.cwd()): Policy {
-  const path = join(cwd, '.holdfast.yml');
+  const path = join(cwd, POLICY_FILE);
   if (!existsSync(path)) return defaultPolicy();
-  return parsePolicy(parse(readFileSync(path, 'utf8')) as RawPolicy);
+  return parseOrThrow(readFileSync(path, 'utf8'), POLICY_FILE);
+}
+
+/**
+ * The policy as of a TRUSTED revision, or null when that revision has no policy file.
+ *
+ * The head of a branch is agent-authorable, so its `.holdfast.yml` must not govern its own
+ * verdict — the same principle SPEC §5.4 already applies to sign-off. At the CI layer the
+ * governing policy is read from the merge-base instead, which is what the branch forked
+ * from and therefore nothing on the branch can have altered. A weakening edit still shows
+ * up as a finding (hook-tampering); it simply doesn't take effect until a human merges it.
+ */
+export function loadPolicyAt(rev: string, cwd?: string): Policy | null {
+  const src = fileAt(rev, POLICY_FILE, { cwd });
+  if (src == null) return null;
+  return parseOrThrow(src, `${POLICY_FILE} at ${rev}`);
 }
