@@ -1,7 +1,7 @@
 # Pre-registered adjudication criteria (written BEFORE opening the hunks)
 
-These are real zod-maintainer commits with **no Holdfast in the loop**, so by construction none
-are "tampers crafted to evade Holdfast." The FP question is therefore: *would the BLOCK rule have
+These are real zod-maintainer commits with **no Tamperward in the loop**, so by construction none
+are "tampers crafted to evade Tamperward." The FP question is therefore: *would the BLOCK rule have
 wrongly stopped legitimate human work?* — the "does this annoy a real developer" measure.
 
 ## test-deletion (4 fires) — DONE on the relocation axis

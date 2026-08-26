@@ -17,7 +17,7 @@ import { Change } from '../src/types';
 function policyEdit(before: string, after: string): Change {
   return {
     kind: 'file',
-    path: '.holdfast.yml',
+    path: '.tamperward.yml',
     oldPath: null,
     op: 'modify',
     before,
@@ -98,7 +98,7 @@ describe('C1b · trusted-base policy at the CI layer', () => {
     g('init', '-q');
     g('config', 'user.email', 't@t.co');
     g('config', 'user.name', 't');
-    writeFileSync(join(dir, '.holdfast.yml'), 'version: 1\nignore: []\n');
+    writeFileSync(join(dir, '.tamperward.yml'), 'version: 1\nignore: []\n');
     writeFileSync(join(dir, 'a.spec.ts'), `it('one', () => {});\n`);
     g('add', '-A');
     g('commit', '-qm', 'init');
@@ -109,7 +109,7 @@ describe('C1b · trusted-base policy at the CI layer', () => {
     const dir = repo();
     const base = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim();
     const g = (...a: string[]) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
-    writeFileSync(join(dir, '.holdfast.yml'), "version: 1\nignore:\n  - '**'\n");
+    writeFileSync(join(dir, '.tamperward.yml'), "version: 1\nignore:\n  - '**'\n");
     g('rm', '-q', 'a.spec.ts');
     g('add', '-A');
     g('commit', '-qm', 'refactor');
@@ -125,7 +125,7 @@ describe('C2 · hook fail-closed', () => {
   function brokenPolicyCwd(): string {
     const dir = mkdtempSync(join(tmpdir(), 'hf-failclosed-'));
     // a merge-conflicted policy file: valid on disk, unparseable as YAML
-    writeFileSync(join(dir, '.holdfast.yml'), '<<<<<<< HEAD\nrules: {}\n=======\nrules: {}\n>>>>>>> other\n');
+    writeFileSync(join(dir, '.tamperward.yml'), '<<<<<<< HEAD\nrules: {}\n=======\nrules: {}\n>>>>>>> other\n');
     return dir;
   }
 

@@ -6,7 +6,7 @@ import { Finding } from '../../types';
 
 export function formatDenial(blocks: Finding[]): string {
   const lead = blocks[0];
-  const lines: string[] = ['Holdfast blocked this change — it weakens a protected safety net to pass checks.', ''];
+  const lines: string[] = ['Tamperward blocked this change — it weakens a protected safety net to pass checks.', ''];
 
   for (const f of blocks) {
     const loc = f.file ? ` (${f.file}${f.line ? `:${f.line}` : ''})` : '';

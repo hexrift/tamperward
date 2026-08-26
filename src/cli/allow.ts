@@ -1,4 +1,4 @@
-// `holdfast allow <rule> [--file <path>] --reason "..."` — record a HUMAN sign-off, bound to the
+// `tamperward allow <rule> [--file <path>] --reason "..."` — record a HUMAN sign-off, bound to the
 // specific tamper it clears. It re-evaluates the current working tree, finds the matching
 // blocking finding(s), and records each one's fingerprint (rule + file + evidence) with an
 // expiry — so the sign-off clears THAT tamper, not a standing license for the rule. Honored only
@@ -19,11 +19,11 @@ export interface AllowOpts {
 
 export function runAllow(opts: AllowOpts): number {
   if (!opts.rule) {
-    process.stderr.write('holdfast allow <rule> [--file <path>] --reason "<why>"\n');
+    process.stderr.write('tamperward allow <rule> [--file <path>] --reason "<why>"\n');
     return 2;
   }
   if (!opts.reason) {
-    process.stderr.write('holdfast: a --reason is required — sign-offs must be justified.\n');
+    process.stderr.write('tamperward: a --reason is required — sign-offs must be justified.\n');
     return 2;
   }
   const cwd = opts.cwd ?? process.cwd();
@@ -33,7 +33,7 @@ export function runAllow(opts: AllowOpts): number {
   try {
     findings = evaluate(diffWorktree({ cwd }), policy);
   } catch {
-    process.stderr.write('holdfast: cannot read the working tree (not a git repo?).\n');
+    process.stderr.write('tamperward: cannot read the working tree (not a git repo?).\n');
     return 2;
   }
 
@@ -43,7 +43,7 @@ export function runAllow(opts: AllowOpts): number {
   );
   if (targets.length === 0) {
     process.stderr.write(
-      `holdfast: no current blocking "${opts.rule}"${opts.file ? ` (${opts.file})` : ''} finding to sign off — nothing recorded.\n` +
+      `tamperward: no current blocking "${opts.rule}"${opts.file ? ` (${opts.file})` : ''} finding to sign off — nothing recorded.\n` +
         'A sign-off must clear a specific tamper that the gate is currently flagging.\n',
     );
     return 2;

@@ -101,7 +101,7 @@ describe('PreToolUse JSON deny contract', () => {
 
   it('the reason carries only the correction — no command line / env leak', () => {
     const r = preToolUseVerdict({ tool_name: 'Bash', tool_input: { command: 'git commit --no-verify' } });
-    expect(r.stdout).not.toContain('HOLDFAST_DENYLOG');
+    expect(r.stdout).not.toContain('TAMPERWARD_DENYLOG');
     expect(r.stdout).not.toContain('node ');
     expect(r.stdout).not.toContain('dist/cli');
   });
@@ -126,7 +126,7 @@ describe('Stop block JSON contract', () => {
     g(['config', 'user.email', 'h@x']);
     g(['config', 'user.name', 'h']);
     writeFileSync(join(dir, 'a.spec.ts'), `it('one', () => {}); it('two', () => {});\n`);
-    writeFileSync(join(dir, '.holdfast.yml'), "version: 1\nprotected:\n  tests: ['**/*.spec.ts']\n");
+    writeFileSync(join(dir, '.tamperward.yml'), "version: 1\nprotected:\n  tests: ['**/*.spec.ts']\n");
     g(['add', '-A']);
     g(['commit', '-qm', 'seed']);
     writeFileSync(join(dir, 'a.spec.ts'), `it('one', () => {});\n`); // strip a block on disk

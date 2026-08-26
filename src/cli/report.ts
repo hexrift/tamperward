@@ -19,7 +19,7 @@ export function report(input: ReportInput): void {
   const ignoredNote = ignoredFiles > 0 ? `, ${ignoredFiles} file(s) ignored by policy` : '';
 
   if (findings.length === 0) {
-    process.stdout.write(`holdfast: clean — no integrity findings (${scanned} change(s) scanned${ignoredNote}).\n`);
+    process.stdout.write(`tamperward: clean — no integrity findings (${scanned} change(s) scanned${ignoredNote}).\n`);
     return;
   }
 
@@ -37,7 +37,7 @@ export function report(input: ReportInput): void {
   }
 
   process.stdout.write(
-    `\nholdfast: ${blocks.length} blocking, ${warns.length} warning (${scanned} change(s) scanned${ignoredNote}).\n`,
+    `\ntamperward: ${blocks.length} blocking, ${warns.length} warning (${scanned} change(s) scanned${ignoredNote}).\n`,
   );
   if (blocks.length > 0) {
     process.stdout.write(

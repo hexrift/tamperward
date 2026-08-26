@@ -2,7 +2,7 @@
 // the party it protects against CANNOT forge.
 //
 //   AGENT  (PreToolUse + Stop hook): honors NOTHING — never consults the ledger at all. The
-//          agent can write the ledger (observed self-invoking `holdfast allow` 3×), so an
+//          agent can write the ledger (observed self-invoking `tamperward allow` 3×), so an
 //          in-loop sign-off is forgeable → ignored, always.
 //   LOCAL  (pre-commit / `check --staged`): MAY honor a ledger entry, but bound to the SPECIFIC
 //          triggering tamper (rule + file + evidence fingerprint) and an expiry — a one-time
@@ -39,7 +39,7 @@ export function fingerprint(rule: string, file: string | undefined, evidence: st
 export const fingerprintOf = (f: Finding): string => fingerprint(f.rule, f.file, f.evidence);
 
 export function ledgerPath(cwd: string, policy: Policy): string {
-  return join(cwd, policy.signoff?.ledger ?? '.holdfast/ledger.jsonl');
+  return join(cwd, policy.signoff?.ledger ?? '.tamperward/ledger.jsonl');
 }
 
 export function readLedger(cwd: string, policy: Policy): LedgerEntry[] {
@@ -101,5 +101,5 @@ export function applyOobSignoffs(findings: Finding[], oob: string[]): SignoffRes
 
 /** Parse the out-of-band approval env the CI workflow sets (only after verifying a trusted label). */
 export function oobFromEnv(env: NodeJS.ProcessEnv = process.env): string[] {
-  return (env.HOLDFAST_OOB_SIGNOFF ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  return (env.TAMPERWARD_OOB_SIGNOFF ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 }

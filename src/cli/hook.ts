@@ -1,4 +1,4 @@
-// `holdfast hook claude` (PreToolUse) and `holdfast sweep claude` (Stop).
+// `tamperward hook claude` (PreToolUse) and `tamperward sweep claude` (Stop).
 //
 // Output contract (verified against current Claude Code docs):
 //   PreToolUse deny → {"hookSpecificOutput":{"hookEventName":"PreToolUse",
@@ -41,7 +41,7 @@ function parseInput(raw: string): ClaudeHookInput {
 }
 
 function recordDenylog(blocks: Finding[]): void {
-  const log = process.env.HOLDFAST_DENYLOG;
+  const log = process.env.TAMPERWARD_DENYLOG;
   if (!log) return;
   try {
     appendFileSync(log, blocks.map((b) => b.rule).join(',') + '\n');
@@ -58,10 +58,10 @@ function errText(e: unknown): string {
 }
 
 /**
- * FAIL CLOSED. If Holdfast cannot evaluate a change, the change is DENIED.
+ * FAIL CLOSED. If Tamperward cannot evaluate a change, the change is DENIED.
  *
  * The engine isolates each detector, but everything around it — loading the policy
- * (a malformed or merge-conflicted .holdfast.yml throws on parse), the adapter's own
+ * (a malformed or merge-conflicted .tamperward.yml throws on parse), the adapter's own
  * file work — ran unguarded. An exception there exited non-(0|2), which Claude Code
  * treats as a NON-BLOCKING hook error: the tool call proceeds. A crashed gate became an
  * absent gate, silently, for every tool call while the condition lasted. SPEC §5.1's
@@ -70,13 +70,13 @@ function errText(e: unknown): string {
  */
 function failClosed(kind: 'PreToolUse' | 'Stop', detail: string): HookResult {
   const f: Finding = {
-    rule: 'holdfast-unavailable',
+    rule: 'tamperward-unavailable',
     severity: 'block',
-    message: `Holdfast could not evaluate this change (${detail}), so it is denied rather than allowed.`,
+    message: `Tamperward could not evaluate this change (${detail}), so it is denied rather than allowed.`,
     evidence: detail,
     remediation:
-      'Repair the Holdfast setup — most often an unparseable .holdfast.yml (check for merge-conflict markers) — then retry. Do not work around the gate while it is down.',
-    signoff: { required: true, command: 'holdfast allow --reason "..."' },
+      'Repair the Tamperward setup — most often an unparseable .tamperward.yml (check for merge-conflict markers) — then retry. Do not work around the gate while it is down.',
+    signoff: { required: true, command: 'tamperward allow --reason "..."' },
   };
   return verdict([f], kind);
 }
@@ -101,7 +101,7 @@ function verdict(blocks: Finding[], kind: 'PreToolUse' | 'Stop'): HookResult {
 
 /** PreToolUse: deny the shortcut before the tool runs. Pure — testable without stdin.
  *  AGENT-LAYER TRUST RULE: never consults the sign-off ledger. The agent can write the ledger
- *  (observed self-invoking `holdfast allow` 3×), so honoring it here would let the agent clear
+ *  (observed self-invoking `tamperward allow` 3×), so honoring it here would let the agent clear
  *  its own block in-loop. A block is a block; sign-off is a human decision made at the
  *  local/CI layers (src/signoff.ts), never here. */
 export function preToolUseVerdict(input: ClaudeHookInput): HookResult {

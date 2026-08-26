@@ -11,10 +11,10 @@ protected:
     - '**/eslint.config.*'
     - '**/package.json'
   ci: ['.github/workflows/**']
-  hooks: ['.husky/**', '**/lefthook.*', '.holdfast.yml', '**/.holdfast.yml']
+  hooks: ['.husky/**', '**/lefthook.*', '.tamperward.yml', '**/.tamperward.yml']
 
 # Excluded from file-surface detection. This is a SELF-HOSTING exception, reported and
-# not silent: Holdfast's own rule definitions and docs literally contain the patterns
+# not silent: Tamperward's own rule definitions and docs literally contain the patterns
 # the rules look for (`as any`, `it.skip`, `--no-verify`) as data, not as real bypasses.
 # A consumer repo would not need this. The command surface (no-verify, shell mutation)
 # is never path-scoped, so it still runs everywhere.
@@ -41,4 +41,4 @@ signoff:
   required_for: [block]
   # LOCAL ONLY. In CI, sign-off is out-of-band (PR label + branch protection +
   # CODEOWNERS on protected paths) — never a committed file. See SPEC.md §5.4.
-  ledger: .holdfast/ledger.jsonl
+  ledger: .tamperward/ledger.jsonl

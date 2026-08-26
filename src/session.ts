@@ -20,7 +20,7 @@ const SHA = /^[0-9a-f]{7,40}$/;
 function baselinePath(cwd: string, sessionId: string): string | null {
   const gd = gitDir(cwd);
   if (!gd) return null;
-  return join(gd, 'holdfast', `session-${sessionId.replace(UNSAFE, '')}`);
+  return join(gd, 'tamperward', `session-${sessionId.replace(UNSAFE, '')}`);
 }
 
 /**

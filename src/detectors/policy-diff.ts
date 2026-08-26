@@ -29,7 +29,7 @@ interface EffectivePolicy {
 }
 
 /** Parse to a policy object, or null if it isn't valid YAML / isn't a mapping. Never
- *  throws — a malformed `.holdfast.yml` must not be able to crash the gate. */
+ *  throws — a malformed `.tamperward.yml` must not be able to crash the gate. */
 function safeParse(src: string): RawPolicyShape | null {
   try {
     const v = parse(src);

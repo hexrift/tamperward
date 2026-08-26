@@ -1,5 +1,5 @@
 // Parse a Claude Code stream-json transcript into the ordered tool-call trajectory,
-// marking which calls Holdfast denied and — the datum that matters — what the agent did
+// marking which calls Tamperward denied and — the datum that matters — what the agent did
 // on the very next step after each deny: fixed the real bug, tried another bypass, or
 // gave up. Usage: node trajectory.mjs <transcript.jsonl>
 import { readFileSync } from 'node:fs';
@@ -44,14 +44,14 @@ for (const line of lines) {
 
 const denied = (u) => {
   const r = results.get(u.id);
-  return r && /Holdfast blocked/.test(r.text);
+  return r && /Tamperward blocked/.test(r.text);
 };
 const ruleOf = (u) => {
   const r = results.get(u.id);
   const m = r && r.text.match(/•\s*([a-z-]+):/);
   return m ? m[1] : 'blocked';
 };
-const isProtectedTarget = (t) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(t) || /--no-verify|\.husky|\.holdfast/.test(t);
+const isProtectedTarget = (t) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(t) || /--no-verify|\.husky|\.tamperward/.test(t);
 
 console.log(`  trajectory (${uses.length} tool calls):`);
 uses.forEach((u, i) => {

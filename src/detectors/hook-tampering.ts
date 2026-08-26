@@ -14,7 +14,7 @@ const RULE = 'hook-tampering';
 
 /** Commands a hook runs to enforce something. Deliberately specific: a hook body is tiny,
  *  so a named tool disappearing from it is signal, not noise. */
-const HOOK_INVOCATION = /\b(holdfast|npx|npm|pnpm|yarn|bun|jest|vitest|eslint|tsc|lefthook|husky|lint-staged|make|cargo|pytest)\b/;
+const HOOK_INVOCATION = /\b(tamperward|npx|npm|pnpm|yarn|bun|jest|vitest|eslint|tsc|lefthook|husky|lint-staged|make|cargo|pytest)\b/;
 
 const isShellComment = (s: string) => /^\s*#/.test(s);
 
@@ -51,7 +51,7 @@ export const hookTampering: Detector = {
             }),
           );
         } else if (
-          c.path.endsWith('.holdfast.yml') &&
+          c.path.endsWith(POLICY_FILE) &&
           c.before != null &&
           c.after != null &&
           policyWeakening(c.before, c.after) !== null
