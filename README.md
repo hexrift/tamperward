@@ -15,8 +15,9 @@ shortcut is enough.
 
 ## Status
 
-Phase 1 — the engine, the eight mechanical detectors, and the `check` CLI. Holdfast
-gates its own repo in CI with the same engine it ships.
+Phase 1 — the engine, the eight mechanical detectors, the `check` CLI, and the Claude Code
+agent layer (PreToolUse hook + Stop sweep + `allow`). Holdfast gates its own repo in CI
+with the same engine it ships.
 
 - `src/types.ts` — the `Change` model every adapter manufactures and every detector
   consumes (the one decision the codebase inherits).
@@ -32,10 +33,16 @@ gates its own repo in CI with the same engine it ships.
 - `src/engine.ts` — runs the enabled rules over `Change[]`; honours `policy.ignore`.
 - `src/cli/` — `holdfast check --staged | --worktree | --diff <base>...<head>`,
   exit 1 on any blocking finding.
-- `test/` — 71 tests, including the AST-vs-regex and self-hosting precision cases.
+- `test/` — 158 tests, including the AST-vs-regex, self-hosting precision, and
+  pre-go-live audit regression cases.
 
-Next: the negatives corpus to graduate the two heuristic rules, then the Claude Code
-agent layer (PreToolUse hook + Stop sweep) and the bypass-to-fix harness.
+- `src/adapters/claude/` + `src/cli/hook.ts` — the agent layer: `holdfast hook claude`
+  (PreToolUse deny, fail-closed) and `holdfast sweep claude` (Stop sweep, compared against
+  the turn's starting commit so a mid-turn commit can't launder a tamper past it).
+- `src/signoff.ts` — the three-layer sign-off model: the agent honours nothing it can author.
+
+Next: the negatives corpus to graduate the two heuristic rules, and the bypass-to-fix
+harness that measures the correction loop (SPEC §7.B).
 
 See **[SPEC.md](./SPEC.md)** for the full build spec, the detector table, the
 enforcement-point wiring, and the proof harness.
@@ -43,10 +50,17 @@ enforcement-point wiring, and the proof harness.
 ## Use
 
 ```bash
+npx holdfast check --staged                # pre-commit view
+npx holdfast check --diff "main...HEAD"    # CI view — the authority for main
+```
+
+From a clone:
+
+```bash
 npm install
-npm run build                                   # bundles the CLI to dist/cli/index.js
-node dist/cli/index.js check --staged           # pre-commit view
-node dist/cli/index.js check --diff "main...HEAD"  # CI view
+npm run build                                      # bundles the CLI to dist/cli/index.js
+node dist/cli/index.js check --staged
+node dist/cli/index.js check --diff "main...HEAD"
 ```
 
 ## Develop
