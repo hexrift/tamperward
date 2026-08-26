@@ -5,12 +5,18 @@
 
 import { Change, Detector, Finding } from '../types';
 import { addedLines, removedLines } from '../diff/select';
-import { isProtected } from '../policy';
+import { isProtected, POLICY_FILE } from '../policy';
 import { makeFinding } from './finding';
 import { policyWeakening } from './policy-diff';
 import { segments, tokens, unquote } from './command';
 
 const RULE = 'hook-tampering';
+
+/** Commands a hook runs to enforce something. Deliberately specific: a hook body is tiny,
+ *  so a named tool disappearing from it is signal, not noise. */
+const HOOK_INVOCATION = /\b(holdfast|npx|npm|pnpm|yarn|bun|jest|vitest|eslint|tsc|lefthook|husky|lint-staged|make|cargo|pytest)\b/;
+
+const isShellComment = (s: string) => /^\s*#/.test(s);
 
 export const hookTampering: Detector = {
   id: RULE,
@@ -65,6 +71,43 @@ export const hookTampering: Detector = {
               }),
             );
           }
+        } else if (!c.path.endsWith(POLICY_FILE)) {
+          // A hook SCRIPT. Deleting it fires above; the cheaper tamper is to leave the file
+          // in place and gut its body — prepend `exit 0`, or drop the line that runs the
+          // gate — after which the hook passes everything and nothing else inspects it.
+          const added = addedLines(c);
+          const removed = removedLines(c);
+          const live = added.filter((l) => !isShellComment(l.content));
+
+          const earlyExit = added.find((l) => /^\s*exit\s+0\s*$/.test(l.content));
+          if (earlyExit) {
+            out.push(
+              makeFinding(RULE, policy, {
+                file: c.path,
+                line: earlyExit.newLine ?? undefined,
+                message: 'An early `exit 0` was inserted into a protected hook — it now passes everything.',
+                evidence: earlyExit.content.trim(),
+                remediation: 'Remove the early exit. A hook that always succeeds is a disabled hook.',
+              }),
+            );
+          }
+
+          for (const l of removed) {
+            if (isShellComment(l.content) || !l.content.trim()) continue;
+            const m = l.content.match(HOOK_INVOCATION);
+            if (!m) continue;
+            // still invoked somewhere in the new body? (a comment does not count as invoking)
+            if (live.some((a) => a.content.includes(m[0]))) continue;
+            out.push(
+              makeFinding(RULE, policy, {
+                file: c.path,
+                message: `A check invocation (\`${m[0]}\`) was removed from a protected hook.`,
+                evidence: l.content.trim(),
+                remediation: 'Restore the check. Removing or commenting out the gate\'s invocation disables it just as surely as deleting the hook.',
+              }),
+            );
+            break; // one finding per hook is the signal; don't spam per line
+          }
         } else {
           // Fallback when full content isn't available: pair severity by RULE NAME
           // (inline form: `rule: { severity: block }`), so reformatting — which removes
@@ -106,13 +149,20 @@ export const hookTampering: Detector = {
           const hitsHook = tokens(seg).map(unquote).some((t) => isProtected(t, policy, 'hooks'));
           if (!hitsHook) continue;
 
+          // an octal mode whose OWNER digit has no execute bit (644, 000 …) strips +x just
+          // as effectively as `chmod -x`, which the symbolic test alone missed
+          const octal = seg.match(/\bchmod\b[^|;&]*?(?:^|\s)([0-7]{3,4})(?:\s|$)/);
+          const octalDropsExec = octal ? (Number(octal[1].slice(-3)[0]) & 1) === 0 : false;
+
           let why: string | null = null;
-          if (/\bchmod\b/.test(seg) && /(?:^|\s)[-+=]?[a-z]*x/i.test(seg)) {
+          if (/\bchmod\b/.test(seg) && (/(?:^|\s)[-+=]?[a-z]*x/i.test(seg) || octalDropsExec)) {
             why = 'chmod alters execute permission on a hook, which can disable it';
           } else if (/\brm\b/.test(seg)) {
             why = 'rm deletes a protected hook';
           } else if (/\btruncate\b/.test(seg) || /(?:^|\s)>\s*\S/.test(seg)) {
             why = 'a redirect/truncate empties a protected hook';
+          } else if (/\b(tee|sed|cp|dd|install|mv)\b/.test(seg)) {
+            why = 'a shell rewrite (tee/sed/cp/dd/install/mv) replaces a protected hook in place';
           }
 
           if (why) {

@@ -55,7 +55,8 @@ Usage:
   holdfast sweep claude                   Stop sweep (re-scan the turn's working tree)
   holdfast allow <rule> --reason "..."    record a human sign-off (local audit ledger)
 
-Exit code: check → 1 if any blocking finding. hook/sweep → 2 (deny) or 0 (allow).
+Exit code: check → 1 if any blocking finding. hook/sweep → always 0; a deny is
+           emitted as JSON on stdout (exit 2 makes Claude Code ignore the JSON).
 `);
 }
 

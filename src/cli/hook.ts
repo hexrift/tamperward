@@ -14,7 +14,8 @@ import { changesFromClaudeHook, ClaudeHookInput } from '../adapters/claude/chang
 import { formatDenial } from '../adapters/claude/deny';
 import { evaluate } from '../engine';
 import { loadPolicy } from '../policy-load';
-import { diffWorktree, isGitRepo } from '../git/build';
+import { diffSince, diffWorktree, isGitRepo } from '../git/build';
+import { advanceTurnBaseline, turnBaseline } from '../session';
 import { Finding } from '../types';
 
 export interface HookResult {
@@ -106,6 +107,8 @@ function verdict(blocks: Finding[], kind: 'PreToolUse' | 'Stop'): HookResult {
 export function preToolUseVerdict(input: ClaudeHookInput): HookResult {
   try {
     const cwd = input.cwd ?? process.cwd();
+    // First tool call of the session pins the commit the Stop sweep will compare against.
+    turnBaseline(cwd, input.session_id);
     const changes = changesFromClaudeHook(input, cwd);
     const blocks = evaluate(changes, loadPolicy(cwd)).filter((f) => f.severity === 'block');
     return verdict(blocks, 'PreToolUse');
@@ -124,10 +127,15 @@ export function stopVerdict(input: ClaudeHookInput): HookResult {
   if (!isGitRepo(cwd)) return { exitCode: 0, stdout: '' };
   let blocks: Finding[];
   try {
-    blocks = evaluate(diffWorktree({ cwd }), loadPolicy(cwd)).filter((f) => f.severity === 'block');
+    // Compare against the turn's starting commit, not HEAD: a tamper the agent COMMITTED
+    // mid-turn is still the turn's work, and `git diff HEAD` could not see it.
+    const base = turnBaseline(cwd, input.session_id);
+    const changes = base ? diffSince(base, { cwd }) : diffWorktree({ cwd });
+    blocks = evaluate(changes, loadPolicy(cwd)).filter((f) => f.severity === 'block');
   } catch (e) {
     return failClosed('Stop', errText(e));
   }
+  if (blocks.length === 0) advanceTurnBaseline(cwd, input.session_id);
   return verdict(blocks, 'Stop');
 }
 

@@ -1,4 +1,4 @@
-// Regressions earned by the pre-go-live audit (docs/pre-golive-audit.md).
+// Regressions earned by the pre-go-live security audit.
 // Each test below is an exploit that WORKED against the shipped engine. They exist so a
 // refactor cannot quietly reopen a total bypass.
 
@@ -74,9 +74,14 @@ describe('C3 · policy-diff baseline blindness', () => {
     expect(reasons(before, after).some((r) => /test-deletion.*disabled/.test(r))).toBe(true);
   });
 
-  it('catches gutting a protected category the before-file never mentioned', () => {
+  it('makes gutting a protected category impossible rather than merely detectable (H8)', () => {
     const after = before + "protected:\n  tests: ['no-such-glob/**']\n";
-    expect(reasons(before, after).some((r) => /protected\.tests narrowed/.test(r))).toBe(true);
+    // the merge is additive, so the baseline globs survive the "replacement" outright
+    const eff = parsePolicy({ protected: { tests: ['no-such-glob/**'] } });
+    expect(eff.protected.tests).toContain('**/*.spec.ts');
+    expect(eff.protected.tests).toContain('no-such-glob/**');
+    // and with nothing actually narrowed, there is no weakening left to report
+    expect(reasons(before, after).some((r) => /protected\.tests narrowed/.test(r))).toBe(false);
   });
 
   it('catches dropping sign-off when the before-file inherited it', () => {

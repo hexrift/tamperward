@@ -105,7 +105,7 @@ Two files. A **policy** (`.holdfast.yml`, user-facing, in the repo) and a **Find
 open-core package — the open "rule format" is the policy schema + the `Detector`
 interface, so third parties add detectors without forking.
 
-**`.holdfast.yml`** (written by `npx holdfast init`; see the committed file):
+**`.holdfast.yml`** (copy the committed file — `holdfast init` is not yet shipped):
 
 ```yaml
 version: 1
@@ -201,7 +201,7 @@ every way a file gets mutated.
 {
   "hooks": {
     "PreToolUse": [{
-      "matcher": "Bash|Edit|Write",
+      "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
       "hooks": [{ "type": "command", "command": "holdfast hook claude" }]
     }],
     "Stop": [{
@@ -211,8 +211,11 @@ every way a file gets mutated.
 }
 ```
 
-> `MultiEdit` was in v0.1's matcher; current docs only exercise `Edit|Write`. Confirm
-> the live edit-tool set before shipping and add back if present.
+> The matcher must name EVERY file-mutating tool the adapter models. `MultiEdit` was
+> dropped from v0.1's matcher while `changesFromClaudeHook` still handled it — so that
+> branch was dead at the enforcement point and a MultiEdit test-strip walked past the
+> inner-loop gate. Re-confirm the live edit-tool set on each Claude Code release; anything
+> not matched here is caught only by the Stop sweep (§5.2), one step later.
 
 `holdfast hook claude` reads the tool call on stdin → builds `Change[]` from
 `tool_input` → runs the engine. On a `block` finding it **denies**, and the deny reason

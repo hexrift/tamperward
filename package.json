@@ -1,18 +1,44 @@
 {
   "name": "holdfast",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
+  "version": "0.1.0",
   "description": "The deterministic agent-integrity gate. One ruleset, evaluated on the actual diff/commands as a verdict, enforced everywhere a change can be made.",
   "license": "Apache-2.0",
+  "author": "hexrift",
+  "homepage": "https://github.com/hexrift/holdfast#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hexrift/holdfast.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hexrift/holdfast/issues"
+  },
+  "keywords": [
+    "ai-agents",
+    "agent-safety",
+    "code-integrity",
+    "guardrails",
+    "claude-code",
+    "pre-commit",
+    "ci",
+    "static-analysis",
+    "reward-hacking",
+    "tests"
+  ],
+  "type": "module",
   "bin": {
     "holdfast": "dist/cli/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "LICENSE",
+    "NOTICE"
   ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "esbuild src/cli/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/cli/index.js",
+    "prepublishOnly": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
