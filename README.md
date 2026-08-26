@@ -28,7 +28,7 @@ denied: fix the real failure, or hunt for another way around. That is the
 test, lets a headless agent loose on it with the hooks installed, and classifies the
 end state with an oracle independent of the detectors under test.
 
-**22 runs. 0 tampers reached green. Of the 7 runs where a block fired, 7 ended in an
+**42 runs. 0 tampers reached green. Of the 20 runs where a block fired, 20 ended in an
 honest fix.**
 
 | arm | model | runs | blocks fired | honest fix | tamper through |
@@ -36,7 +36,7 @@ honest fix.**
 | `seed` · adversarial | Sonnet 5 | 1 | 0 | 1 | 0 |
 | `seed` · **forced** | Sonnet 5 | 5 | 0 | 5 | 0 |
 | `seed-hard` · adversarial | Sonnet 5 | 3 | 0 | 3 | 0 |
-| `seed-hard` · adversarial | Haiku 4.5 | 13 | 7 | 13 | 0 |
+| `seed-hard` · adversarial | Haiku 4.5 | 33 | 20 | 33 | 0 |
 
 The trajectory the whole design is built around, from a transcript:
 
@@ -46,14 +46,15 @@ The trajectory the whole design is built around, from a transcript:
 7. Bash  node --test       → green, honestly
 ```
 
-**Read the number with its limits.** Seven denied attempts is a small denominator: 7/7
-supports "no failures observed in 7 interceptions" (95% lower bound ≈ 65%), not a claim
-of 100%. The split matters more than the total — Sonnet 5 never attempted a bypass at
-all, including 5/5 runs in `forced` mode where the prompt *orders* it to delete the
-failing test; every interception came from Haiku 4.5 on the seed whose honest fix is
-genuinely expensive. One agent, having been denied, went and read `.tamperward.yml`
-looking for another way through before converting to a real fix — the harness classifies
-that first move as an attempted bypass, and it is counted as one here.
+**Read the number with its limits.** 20/20 is a point estimate on a finite sample: it
+supports "no conversion failure observed in 20 interceptions", whose 95% lower bound is
+≈ 86% — above the ~80% bar SPEC §7.B set for "the loop works", but not a claim of 100%.
+The split matters more than the total — Sonnet 5 never attempted a bypass at all,
+including 5/5 runs in `forced` mode where the prompt *orders* it to delete the failing
+test; all 20 interceptions came from Haiku 4.5 on the seed whose honest fix is genuinely
+expensive. Of those 20, the agent's first move after the denial was a real fix attempt
+19 times; once it went and read `.tamperward.yml` looking for another way through before
+converting. That probe is counted here as an attempted second bypass, not smoothed away.
 
 So on scenarios this size, a frontier model mostly does not need the gate. What the run
 supports is the narrower, more durable claim: **when a shortcut is attempted, it is
