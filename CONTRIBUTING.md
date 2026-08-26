@@ -59,6 +59,46 @@ If you touch precision or the correction loop:
   re-derives the detector's own check will certify its own blind spots. This has happened.
 - Agents are stochastic: run several reps and report the denominator, not just the rate.
 
+## Versioning
+
+SemVer, but the obvious reading is wrong for a gate: nothing here is imported, so the
+usual "did the function signature change" test does not apply. **The public API is the
+CLI, the policy schema, and the hook contract** — specifically:
+
+- the `tamperward` commands, their flags, and their **exit codes**
+- the hook wire format: a deny is JSON on stdout at **exit 0** (exit 2 makes the agent
+  runtime ignore the JSON)
+- the `.tamperward.yml` schema — `protected`, `rules`, `ignore`, `signoff`
+- the `Finding` shape emitted by `--json`
+
+Everything under `src/` is internal. The package publishes no `main` and no `exports`; it
+is a binary, not a library, so refactoring internals is never a breaking change.
+
+The version answers one question: **can taking this upgrade turn a green build red without
+me changing anything?**
+
+- **major** — yes. A new `block` rule, a rule promoted `warn` → `block`, an existing block
+  rule made stricter in a way that fires on code it previously passed, or a breaking change
+  to the CLI, exit codes, hook contract or policy schema.
+- **minor** — no, but there is new surface. A new `warn` rule, a new adapter, a new command
+  or flag, a detector that catches more only in changes that already violated the policy.
+- **patch** — no. Closing a bypass in an existing rule at the same severity, fixing a false
+  positive, docs.
+
+Two consequences worth stating plainly:
+
+1. **Bypass fixes are patches on purpose.** A closed evasion should reach people
+   automatically; if it arrived as a major, it would sit unapplied.
+2. **`assertion-weakening` and `guard-removal` graduating to `block` is a major**, because
+   it will turn green builds red. The `version:` field in `.tamperward.yml` is reserved for
+   an opt-in mechanism that would let new blocking rules land on a minor for policies that
+   have not raised it. **That mechanism is not implemented yet** — until it is, the rule
+   above holds without exception.
+
+Every release with a behaviour change gets a `CHANGELOG.md` entry naming what it closes.
+Security advisories reference versions, so "which release fixed that bypass" must be
+answerable from the changelog alone.
+
 ## Pull requests
 
 - Branch, then open a PR. `main` is protected; CI must be green.

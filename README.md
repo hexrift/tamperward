@@ -19,6 +19,22 @@ shortcut is enough.
 
 > Apache-2.0 core · `github.com/hexrift/tamperward`
 
+## Stability
+
+`1.0.0` commits to the surface you actually depend on: the CLI and its **exit codes**, the
+hook wire format, the `.tamperward.yml` schema, and the `--json` `Finding` shape. The
+package publishes no `main` and no `exports` — it is a binary, not a library — so nothing
+under `src/` is public and internal refactors will never break you.
+
+The version answers one question: *can taking this upgrade turn a green build red without
+me changing anything?* **Patch never can** — bypass fixes and false-positive fixes ship as
+patches so they reach you automatically. **Major can**, and only ever will alongside a
+changelog entry saying which rule changed. See
+[CONTRIBUTING](./CONTRIBUTING.md#versioning) for the full rule.
+
+Two rules ship as `warn` and do not block: `assertion-weakening` and `guard-removal`. They
+are heuristic, and they stay non-blocking until their precision is measured (SPEC §7.A).
+
 ## Does the loop actually work?
 
 The gate is only half the claim. The other half is what an agent does *after* it is

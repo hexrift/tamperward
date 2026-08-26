@@ -38,6 +38,17 @@ jobs:
           fi
           echo "publishing $PKG"
 
-      - run: npm publish --provenance --access public
+      # A prerelease must not become `latest`, or `npm install tamperward` starts handing
+      # people a release candidate. Anything with a hyphen (1.1.0-rc.1) publishes under
+      # the `next` dist-tag instead.
+      - name: Publish
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          case "$VERSION" in
+            *-*) echo "prerelease $VERSION -> dist-tag next"; TAG=next ;;
+            *)   echo "release $VERSION -> dist-tag latest";  TAG=latest ;;
+          esac
+          npm publish --provenance --access public --tag "$TAG"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
