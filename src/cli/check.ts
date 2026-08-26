@@ -2,11 +2,11 @@
 // requested git view, runs the engine, prints the verdict, and exits non-zero on a
 // blocking finding so it can serve as a gate at pre-commit and in CI.
 
-import { Change } from '../types';
-import { diffRange, diffStaged, diffWorktree } from '../git/build';
-import { evaluate, hasBlocking } from '../engine';
-import { loadPolicy } from '../policy-load';
-import { isIgnored } from '../policy';
+import { Change, Policy } from '../types';
+import { diffRange, diffStaged, diffWorktree, mergeBaseOf } from '../git/build';
+import { evaluate, hasBlocking, isSuppressed } from '../engine';
+import { loadPolicy, loadPolicyAt, PolicyError } from '../policy-load';
+import { defaultPolicy } from '../policy';
 import { applyLocalSignoffs, applyOobSignoffs, oobFromEnv } from '../signoff';
 import { report } from './report';
 
@@ -18,8 +18,8 @@ export interface CheckOpts {
   cwd?: string;
 }
 
-export function runCheck(opts: CheckOpts): number {
-  const policy = loadPolicy(opts.cwd);
+function check(opts: CheckOpts): number {
+  let policy: Policy = loadPolicy(opts.cwd);
   const cwd = opts.cwd ?? process.cwd();
 
   let changes: Change[];
@@ -38,12 +38,19 @@ export function runCheck(opts: CheckOpts): number {
     }
     changes = diffRange(base, head, { cwd: opts.cwd });
     layer = 'ci'; // authority for main: out-of-band approval ONLY, never the committed ledger
+    // TRUSTED-BASE POLICY. Everything on the head is agent-authorable, so the head's own
+    // .holdfast.yml cannot decide the head's verdict — otherwise one line (`ignore: ['**']`,
+    // a lowered severity, a narrowed protected glob) switches the gate off for the very
+    // change that added it. Govern by the merge-base's policy; if the base has none, govern
+    // by the baseline, never by the branch's. The edit is still REPORTED (hook-tampering) —
+    // it just takes effect only once a human has merged it.
+    policy = loadPolicyAt(mergeBaseOf(base, head, { cwd: opts.cwd }), opts.cwd) ?? defaultPolicy();
   } else {
     process.stderr.write('holdfast: specify --staged, --worktree, or --diff <base>...<head>\n');
     return 2;
   }
 
-  const ignoredFiles = changes.filter((c) => c.kind === 'file' && isIgnored(c.path, policy)).length;
+  const ignoredFiles = changes.filter((c) => isSuppressed(c, policy)).length;
   let findings = evaluate(changes, policy);
 
   // Sign-off, per layer. LOCAL consults the (fingerprint-bound) ledger; CI honors ONLY an
@@ -60,4 +67,18 @@ export function runCheck(opts: CheckOpts): number {
 
   report({ findings, scanned: changes.length, ignoredFiles, json: opts.json });
   return hasBlocking(findings) ? 1 : 0;
+}
+
+export function runCheck(opts: CheckOpts): number {
+  try {
+    return check(opts);
+  } catch (e) {
+    if (e instanceof PolicyError) {
+      // Fail CLOSED with a clean diagnostic. Never fall back to the baseline on a policy
+      // the author may have meant to be stricter.
+      process.stderr.write(`holdfast: ${e.message}\n`);
+      return 2;
+    }
+    throw e;
+  }
 }

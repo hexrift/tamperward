@@ -50,17 +50,39 @@ function enrich(c: Change, beforeReader: Reader, afterReader: Reader): Change {
   return { ...c, before, after };
 }
 
+/** The merge-base of `base` and `head`, or `base` when git can't compute one.
+ *  This is the TRUSTED revision for a range: it is what the head branched from, so
+ *  nothing on the head can have altered it. */
+export function mergeBaseOf(base: string, head: string, opts: GitOpts = {}): string {
+  try {
+    return git(['merge-base', base, head], opts.cwd).trim() || base;
+  } catch {
+    return base;
+  }
+}
+
+/** Content of `path` at a revision, or null when it doesn't exist there. */
+export function fileAt(rev: string, path: string, opts: GitOpts = {}): string | null {
+  return blobAt(rev, path, opts.cwd);
+}
+
+/** Whether `cwd` is inside a git work tree. Lets a caller tell "nothing to compare"
+ *  apart from "the comparison failed" — the two must not share a fail-open path. */
+export function isGitRepo(cwd?: string): boolean {
+  try {
+    git(['rev-parse', '--git-dir'], cwd);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Changes on `head` since its merge-base with `base` — the CI authority view. */
 export function diffRange(base: string, head: string, opts: GitOpts = {}): Change[] {
   const raw = git(['diff', '--no-color', '-M', `${base}...${head}`], opts.cwd);
   // `base...head` diffs from the merge-base, so `before` must come from the merge-base
   // too (not base's tip), or it misaligns whenever base advanced past the branch point.
-  let mergeBase = base;
-  try {
-    mergeBase = git(['merge-base', base, head], opts.cwd).trim() || base;
-  } catch {
-    /* fall back to base */
-  }
+  const mergeBase = mergeBaseOf(base, head, opts);
   return parseDiff(raw).map((c) =>
     enrich(c, (p) => blobAt(mergeBase, p, opts.cwd), (p) => blobAt(head, p, opts.cwd)),
   );

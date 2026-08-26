@@ -43,11 +43,18 @@ describe('policyWeakening', () => {
     const a = 'rules:\n  no-verify:\n    severity: warn\n';
     expect(reasons(b, a).some((r) => /no-verify/.test(r))).toBe(true);
   });
-  it('flags a removed rule and a disabled rule', () => {
-    const removed = base.replace('  test-deletion: { severity: block }\n', '');
-    expect(reasons(base, removed).some((r) => /removed/.test(r))).toBe(true);
+  it('flags a disabled rule', () => {
     const disabled = base.replace('test-deletion: { severity: block }', 'test-deletion: { severity: block, enabled: false }');
     expect(reasons(base, disabled).some((r) => /disabled/.test(r))).toBe(true);
+  });
+  it('flags a removed rule ONLY when the baseline does not restore it', () => {
+    // Deleting the line for a baseline rule leaves it inheriting `block` — the effective
+    // policy is unchanged, so reporting a "removal" here was a false positive.
+    const removedBaseline = base.replace('  test-deletion: { severity: block }\n', '');
+    expect(reasons(base, removedBaseline)).toHaveLength(0);
+    // A rule with no baseline entry genuinely disappears when its line goes.
+    const withCustom = base.replace('  test-deletion: { severity: block }', '  test-deletion: { severity: block }\n  house-rule: { severity: block }');
+    expect(reasons(withCustom, base).some((r) => /house-rule.*removed/.test(r))).toBe(true);
   });
   it('does NOT flag a strengthening edit (a protected glob ADDED)', () => {
     const after = base.replace("tests: ['**/*.test.ts']", "tests: ['**/*.test.ts', '**/*.spec.ts']");
