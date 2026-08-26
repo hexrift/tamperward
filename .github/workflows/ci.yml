@@ -17,6 +17,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Do the TYPES check? Runs once: types do not vary by Node version, so putting this in
+  # the matrix paid for the same answer three times.
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+
   # Is the CODE correct, on every Node the package claims to support?
   test:
     runs-on: ubuntu-latest
@@ -34,7 +48,6 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
-      - run: npm run typecheck
       - run: npm test
 
   # Is the ARTIFACT sound? Distinct question from "is the code correct", and it has its
@@ -71,7 +84,7 @@ jobs:
   # own repo with the engine it ships. Rebuilds rather than passing an artifact around —
   # the bundle takes milliseconds and the CLI needs its runtime deps installed anyway.
   gate:
-    needs: [test, build]
+    needs: [typecheck, test, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
