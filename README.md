@@ -1,4 +1,10 @@
-# Tamperward
+<p align="center">
+  <img src="assets/logo.svg" width="76" height="76" alt="">
+</p>
+
+<h1 align="center">Tamperward</h1>
+
+<p align="center"><em>A ward is the obstruction inside a lock that blocks the wrong key.</em></p>
 
 **The deterministic agent-integrity gate.** One ruleset, evaluated on the actual
 diff and commands as a verdict — not a probability — enforced everywhere a change can
