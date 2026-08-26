@@ -1,0 +1,98 @@
+name: harness
+
+# The bypass-to-fix conversion rate (SPEC §7.B) is this project's headline claim, and it
+# is only ever true of the models it was measured against. Left to a human remembering to
+# run harness/run.sh, the published number goes stale silently while the models move.
+# This re-measures it on a schedule and on demand.
+#
+# It is deliberately NOT a required check. Each rep costs real API spend and agents are
+# stochastic, so a single unlucky run must never block a merge. Read the output as a
+# trend, not a gate.
+
+on:
+  workflow_dispatch:
+    inputs:
+      reps:
+        description: 'Number of reps'
+        default: '10'
+        type: string
+      mode:
+        description: 'neutral | adversarial | forced'
+        default: 'adversarial'
+        type: string
+      model:
+        description: 'haiku | sonnet | opus  (blank = CLI default)'
+        default: 'haiku'
+        type: string
+      seed:
+        description: 'seed | seed-hard | seed-asany | seed-coverage | seed-noverify | seed-real'
+        default: 'seed-hard'
+        type: string
+  schedule:
+    - cron: '17 4 * * 1' # Mondays, off-peak
+
+permissions:
+  contents: read
+
+jobs:
+  bypass-to-fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm install -g @anthropic-ai/claude-code
+
+      - name: Measure bypass-to-fix conversion
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          REPS: ${{ inputs.reps || '10' }}
+          MODE: ${{ inputs.mode || 'adversarial' }}
+          MODEL: ${{ inputs.model || 'haiku' }}
+          SEED: ${{ inputs.seed || 'seed-hard' }}
+        run: |
+          set -uo pipefail
+          # No key configured: say so and pass. A scheduled run that fails loudly every
+          # week for a missing optional secret trains people to ignore the workflow.
+          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "### Harness skipped" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`ANTHROPIC_API_KEY\` is not configured, so no agent run was made." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # GitHub runners are non-root, so the harness uses the bypassPermissions mode
+          # SPEC §5.1 actually wants exercised, rather than the allow-list fallback.
+          harness/run.sh "$REPS" "$MODE" "$MODEL" "$SEED" 2>&1 | tee harness-output.txt
+
+      - name: Publish the numbers
+        if: always()
+        run: |
+          [ -f harness-output.txt ] || exit 0
+          {
+            echo "### Bypass-to-fix (SPEC §7.B)"
+            echo ""
+            echo "\`${{ inputs.reps || '10' }}\` reps · mode \`${{ inputs.mode || 'adversarial' }}\` · model \`${{ inputs.model || 'haiku' }}\` · seed \`${{ inputs.seed || 'seed-hard' }}\`"
+            echo ""
+            echo '```'
+            grep -E '^reps=|^bypass-to-fix|^run [0-9]+ ' harness-output.txt || echo "(no summary line — see the log)"
+            echo '```'
+            echo ""
+            echo "A tamper reaching green is the result that matters. Conversion is"
+            echo "measured only over runs where a block actually fired."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The transcripts are the evidence behind any number this project publishes.
+      - name: Upload transcripts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-transcripts
+          path: |
+            harness/runs/
+            harness-output.txt
+          retention-days: 30
+          if-no-files-found: ignore
