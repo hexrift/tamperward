@@ -82,9 +82,10 @@ Formats:
   tamperward hook claude                    PreToolUse gate (reads hook JSON on stdin)
   tamperward sweep claude                   Stop sweep (re-scan the turn's working tree)
   tamperward allow <rule> --reason "..."    record a human sign-off (local audit ledger)
-  tamperward init [--dry-run]               wire all four enforcement points: policy
-                                            file, Claude Code hooks, pre-commit, CI.
-                                            Idempotent; never overwrites your files.
+  tamperward init [--dry-run]               wire the policy file plus every
+                                            enforcement point: Claude Code hooks,
+                                            pre-commit, CI. Idempotent; never
+                                            overwrites your files.
 
 Exit code: check → 1 if any blocking finding. hook/sweep → always 0; a deny is
            emitted as JSON on stdout (exit 2 makes Claude Code ignore the JSON).

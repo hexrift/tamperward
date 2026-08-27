@@ -19,7 +19,8 @@ lowering coverage gates, rewriting snapshots, editing CI, or bypassing hooks wit
 `--no-verify`. Tamperward treats the safety nets themselves as protected assets and
 blocks the **class** of bypass — one ruleset, evaluated on the actual diff and commands
 as a verdict, not a probability, enforced everywhere a change can be made: **inside the
-agent's loop, at the commit, and at the merge.**
+agent's loop (a deny before the tool runs, and a sweep at end of turn), at the commit,
+and at the merge.**
 
 > Apache-2.0 · zero runtime model calls · every headline claim below is measured, with
 > the pre-registered predictions (including the refuted ones) committed to this repo
@@ -30,8 +31,8 @@ agent's loop, at the commit, and at the merge.**
 npx tamperward init
 ```
 
-One idempotent command wires all four enforcement points — it never overwrites anything
-you wrote, and `--dry-run` shows the plan first:
+One idempotent command wires the policy and every enforcement point — it never
+overwrites anything you wrote, and `--dry-run` shows the plan first:
 
 | point | what it wires |
 | --- | --- |

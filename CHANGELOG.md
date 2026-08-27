@@ -5,6 +5,14 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.4.3] — 2026-08-27
+
+Docs only. "Wires all four enforcement points" stopped counting: the policy file is
+configuration, not an enforcement point, and the SPEC's four adapters (PreToolUse deny,
+Stop sweep, pre-commit, CI) group into the three stages the prose describes — two
+taxonomies were sharing the word "points". `init` now says what it wires by role: the
+policy plus every enforcement point.
+
 ## [1.4.2] — 2026-08-27
 
 Docs only. The README's two harness numbers now carry their scopes — "0 tampers reached
@@ -200,3 +208,4 @@ corpus — see SPEC §7.A.
 [1.4.0]: https://github.com/hexrift/tamperward/releases/tag/v1.4.0
 [1.4.1]: https://github.com/hexrift/tamperward/releases/tag/v1.4.1
 [1.4.2]: https://github.com/hexrift/tamperward/releases/tag/v1.4.2
+[1.4.3]: https://github.com/hexrift/tamperward/releases/tag/v1.4.3
