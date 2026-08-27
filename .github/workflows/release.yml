@@ -90,6 +90,35 @@ jobs:
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
+      # A typo in a version-bump PR must not move `latest` BACKWARDS. npm points `latest`
+      # at whatever `--tag latest` publishes, even a LOWER version — so 1.0.2 published
+      # after 1.1.0 would hand every fresh `npm install` the older code, with six green
+      # checks and nothing comparing against what is already out. New versions must move
+      # forward: a stable release must exceed the current `latest`; a prerelease must
+      # exceed the current `next` as well. A stable is deliberately NOT compared against
+      # `next` — shipping a 1.x stable while a 2.0 rc sits on `next` is legitimate.
+      # `-p` (include-prerelease) is load-bearing: without it semver ranges exclude
+      # prereleases and `1.2.0-rc.1 > 1.1.0` would wrongly fail. Backporting to an old
+      # line would need this loosened; that is a problem to design for when it exists.
+      - name: Version must move forward
+        if: steps.plan.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.plan.outputs.version }}"
+          TAGS="$(npm view tamperward dist-tags --json 2>/dev/null || echo '{}')"
+          LATEST="$(printf '%s' "$TAGS" | jq -r '.latest // empty')"
+          NEXT="$(printf '%s' "$TAGS" | jq -r '.next // empty')"
+          forward() {
+            [ -z "$2" ] && return 0
+            if ! npx --yes semver@7 -p "$1" -r ">$2" >/dev/null; then
+              echo "::error::${1} is not greater than the current ${3} (${2}) — refusing to publish a downgrade. If the bump is a typo, fix package.json; a deliberate re-publish of an older line needs this guard loosened first."
+              exit 1
+            fi
+          }
+          forward "$VERSION" "$LATEST" "latest"
+          case "$VERSION" in *-*) forward "$VERSION" "$NEXT" "next";; esac
+          echo "version $VERSION moves forward (latest=${LATEST:-none}, next=${NEXT:-none})"
+
       # The gate ships only if its own checks are green. prepublishOnly builds dist/.
       - if: steps.plan.outputs.publish == 'true'
         run: npm ci
