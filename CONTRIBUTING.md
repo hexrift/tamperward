@@ -90,10 +90,15 @@ Two consequences worth stating plainly:
 1. **Bypass fixes are patches on purpose.** A closed evasion should reach people
    automatically; if it arrived as a major, it would sit unapplied.
 2. **`assertion-weakening` and `guard-removal` graduating to `block` is a major**, because
-   it will turn green builds red. The `version:` field in `.tamperward.yml` is reserved for
-   an opt-in mechanism that would let new blocking rules land on a minor for policies that
-   have not raised it. **That mechanism is not implemented yet** — until it is, the rule
-   above holds without exception.
+   it will turn green builds red — **unless the repo has opted in**. The `version:` field
+   in `.tamperward.yml` gates rule graduations: a rule graduated to `block` at policy
+   version N blocks only for policies declaring `version: >= N` and stays `warn` below.
+   A missing `version:` (or no policy file at all) means 1 — nobody is opted in to
+   anything they didn't write down — and an explicit `severity:` a user wrote wins over
+   the gate in either direction. So a graduation ships in a **minor**: opted-in repos get
+   the block, everyone else keeps the warn, and no green build turns red uninvited.
+   Changing a rule's severity for **version 1** policies remains a major, without
+   exception. Lowering `version:` is itself reported by the policy-diff detector.
 
 ## Releasing
 

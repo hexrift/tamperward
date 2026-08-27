@@ -102,7 +102,7 @@ with the same engine it ships.
 - `src/engine.ts` — runs the enabled rules over `Change[]`; honours `policy.ignore`.
 - `src/cli/` — `tamperward check --staged | --worktree | --diff <base>...<head>`,
   exit 1 on any blocking finding.
-- `test/` — 235 tests, including the AST-vs-regex, self-hosting precision, and
+- `test/` — 259 tests, including the AST-vs-regex, self-hosting precision, and
   pre-go-live audit regression cases, and the renderer accessibility contract.
 
 - `src/adapters/claude/` + `src/cli/hook.ts` — the agent layer: `tamperward hook claude`
@@ -119,6 +119,11 @@ enforcement-point wiring, and the proof harness.
 ## Use
 
 ```bash
+npx tamperward init                          # wire all four enforcement points in one
+                                             # command: policy file, Claude Code hooks,
+                                             # pre-commit, CI. Idempotent; --dry-run to
+                                             # preview; never overwrites your files.
+
 npx tamperward check --staged                # pre-commit view
 npx tamperward check --diff "main...HEAD"    # CI view — the authority for main
 ```

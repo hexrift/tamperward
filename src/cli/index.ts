@@ -6,6 +6,7 @@ import { runCheck, CheckOpts } from './check';
 import { FORMATS, isFormat } from './report';
 import { runHookClaude, runSweepClaude } from './hook';
 import { runAllow, AllowOpts } from './allow';
+import { runInit, InitOpts } from './init';
 
 function parseAllow(args: string[]): AllowOpts {
   const o: AllowOpts = {};
@@ -26,6 +27,16 @@ function runAgentCommand(kind: 'hook' | 'sweep', args: string[]): number {
     return 2;
   }
   return kind === 'hook' ? runHookClaude() : runSweepClaude();
+}
+
+function parseInit(args: string[]): InitOpts {
+  const o: InitOpts = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--cwd') o.cwd = args[++i];
+    else if (a === '--dry-run') o.dryRun = true;
+  }
+  return o;
 }
 
 function parseCheck(args: string[]): CheckOpts {
@@ -71,6 +82,9 @@ Formats:
   tamperward hook claude                    PreToolUse gate (reads hook JSON on stdin)
   tamperward sweep claude                   Stop sweep (re-scan the turn's working tree)
   tamperward allow <rule> --reason "..."    record a human sign-off (local audit ledger)
+  tamperward init [--dry-run]               wire all four enforcement points: policy
+                                            file, Claude Code hooks, pre-commit, CI.
+                                            Idempotent; never overwrites your files.
 
 Exit code: check → 1 if any blocking finding. hook/sweep → always 0; a deny is
            emitted as JSON on stdout (exit 2 makes Claude Code ignore the JSON).
@@ -88,6 +102,8 @@ function main(argv: string[]): number {
       return runAgentCommand('sweep', rest);
     case 'allow':
       return runAllow(parseAllow(rest));
+    case 'init':
+      return runInit(parseInit(rest));
     case undefined:
     case '-h':
     case '--help':
