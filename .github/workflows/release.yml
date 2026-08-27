@@ -1,24 +1,40 @@
 name: release
 
-# Publishing runs from CI, never a laptop: that is what lets npm attach PROVENANCE —
-# a signed, verifiable link from the published tarball back to this repo, this commit,
-# and this workflow. For a tool whose whole claim is verifiable integrity, publishing
-# without it would be off-message.
+# RELEASES ARE VERSION-DRIVEN, NOT TAG-DRIVEN. On every push to main, the version in
+# package.json is compared against the registry: if the registry does not have it, this
+# workflow publishes it and THEN creates the tag and GitHub release as the record of what
+# shipped. Merging a version-bump PR is the release act — protected by the same branch
+# rules as any other merge. A merge that does not change the version is a no-op here.
+#
+# Why not tags: a tag push was a second, manual, out-of-band step (and some environments
+# cannot push tags at all). It also inverted the record: the tag asserted what WOULD be
+# published, rather than recording what WAS. Order here is publish first, tag on success —
+# a failed publish leaves no tag behind. Tags created by GITHUB_TOKEN do not trigger
+# workflows, which is fine: nothing hangs off tags any more.
+#
+# Publishing runs from CI, never a laptop: that is what lets npm attach PROVENANCE — a
+# signed, verifiable link from the published tarball back to this repo, this commit, and
+# this workflow. For a tool whose whole claim is verifiable integrity, publishing without
+# it would be off-message.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+  workflow_dispatch: # re-run a failed release for the same version; the guard makes it idempotent
 
 # No NPM_TOKEN. Authentication is npm TRUSTED PUBLISHING: npm trusts this repository's
-# workflow directly, and GitHub mints a short-lived OIDC credential per run. That removes
-# the long-lived secret entirely — nothing to leak, rotate or expire — which matters here
-# beyond hygiene, since npm is withdrawing publish rights from bypass-2FA tokens.
-#
-# The trust relationship is configured on npmjs.com, not here: Packages -> tamperward ->
-# Settings -> Trusted publishing, naming this repo and the workflow FILENAME (release.yml).
-# Rename this file and publishing stops until that entry is updated to match.
+# workflow directly, and GitHub mints a short-lived OIDC credential per run. The trust
+# relationship is configured on npmjs.com (Package -> Settings -> Trusted publishing) and
+# matches this file by FILENAME — rename release.yml and publishing stops until that
+# entry is updated to match.
 permissions:
-  contents: read
+  contents: write # create the tag + GitHub release after a successful publish
   id-token: write # mints the OIDC token npm exchanges for publish rights
+
+# One release at a time, and never cancel one mid-publish: a cancelled run could leave a
+# published version with no tag. Queued runs re-check the registry and no-op.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -26,27 +42,20 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
+
       # NO registry-url. Setting it makes setup-node write an .npmrc containing
       #   //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}
       # and with no NODE_AUTH_TOKEN in the environment that expands to an EMPTY token.
       # npm then sees auth already configured, takes the token path, never attempts the
-      # OIDC exchange, and the publish fails as an unauthenticated write — which the
-      # registry reports as E404 ("not found or you do not have permission"), because it
-      # will not disclose whether a package exists to a caller lacking rights. That is
-      # exactly how v1.1.0-rc.1 failed. registry.npmjs.org is npm's default anyway, so
-      # the line bought nothing but the broken .npmrc.
-      #
-      # Node 24: npm 12 is what `npm@latest` installs, and trusted publishing is only
-      # supported on the current Node line. The docs still say 22.14+, but publishing is
-      # not the place to sit on the older of two answers.
+      # OIDC exchange, and the publish fails as an unauthenticated write — reported as
+      # E404, because the registry will not disclose whether a package exists to a caller
+      # lacking rights. That is exactly how the v1.1.0-rc.1 release failed.
       - uses: actions/setup-node@v6
         with:
           node-version: 24
 
-      # Node 22 bundles npm 10.x, which is BELOW the 11.5.1 trusted publishing needs — so
-      # pinning setup-node@v6 alone was not enough and the first tag would have failed.
-      # Upgrade npm explicitly rather than depending on whatever the Node line happens to
-      # bundle, which changes under us.
+      # Node's bundled npm lags what trusted publishing needs — upgrade explicitly rather
+      # than depending on whatever the Node line happens to bundle, which changes under us.
       - name: Install an npm that supports trusted publishing
         run: npm install -g npm@latest
 
@@ -63,30 +72,66 @@ jobs:
             if (!ok) { console.error("npm " + process.argv[1] + " is older than 11.5.1; trusted publishing needs 11.5.1+"); process.exit(1); }
           ' "$NPM_V"
 
-      - run: npm ci
-
-      # The gate ships only if its own checks are green. prepublishOnly builds dist/.
-      - run: npm run typecheck
-      - run: npm test
-
-      - name: Tag must match package.json
-        run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          PKG="$(node -p "require('./package.json').version")"
-          if [ "$TAG" != "$PKG" ]; then
-            echo "tag v$TAG does not match package.json version $PKG"; exit 1
-          fi
-          echo "publishing $PKG"
-
-      # A prerelease must not become `latest`, or `npm install tamperward` starts handing
-      # people a release candidate. Anything with a hyphen (1.1.0-rc.1) publishes under
-      # the `next` dist-tag instead.
-      - name: Publish
+      # The release gate: does the registry already have this version? Exit 0 from
+      # `npm view pkg@version` means yes -> nothing to do. If this check fails
+      # TRANSIENTLY (network), we proceed and the publish itself fails loudly on the
+      # conflict — a wasted run, never a wrong publish: the registry rejects overwrites.
+      - name: Decide whether this push releases
+        id: plan
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
+          if npm view "tamperward@${VERSION}" version >/dev/null 2>&1; then
+            echo "tamperward@${VERSION} is already on the registry — nothing to release."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "tamperward@${VERSION} is not on the registry — releasing it."
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      # The gate ships only if its own checks are green. prepublishOnly builds dist/.
+      - if: steps.plan.outputs.publish == 'true'
+        run: npm ci
+      - if: steps.plan.outputs.publish == 'true'
+        run: npm run typecheck
+      - if: steps.plan.outputs.publish == 'true'
+        run: npm test
+
+      # A prerelease must not become `latest`, or `npm install tamperward` starts handing
+      # people a release candidate. Anything with a hyphen (1.1.0-rc.2) publishes under
+      # the `next` dist-tag instead.
+      - name: Publish
+        if: steps.plan.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.plan.outputs.version }}"
           case "$VERSION" in
             *-*) echo "prerelease $VERSION -> dist-tag next"; TAG=next ;;
             *)   echo "release $VERSION -> dist-tag latest";  TAG=latest ;;
           esac
           npm publish --provenance --access public --tag "$TAG"
+
+      # The tag is the RECORD, cut only after the registry accepted the publish. The tag
+      # ruleset (release tags) forbids deleting or moving v* tags, so the record is
+      # append-only; it permits creation, which is all this needs.
+      - name: Tag the published commit
+        if: steps.plan.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.plan.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898270+github-actions[bot]@users.noreply.github.com"
+          git tag "v${VERSION}"
+          git push origin "v${VERSION}"
+
+      - name: GitHub release
+        if: steps.plan.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.plan.outputs.version }}"
+          EXTRA=""
+          case "$VERSION" in *-*) EXTRA="--prerelease";; esac
+          gh release create "v${VERSION}" --title "v${VERSION}" --generate-notes $EXTRA
