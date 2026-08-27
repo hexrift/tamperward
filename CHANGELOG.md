@@ -5,6 +5,24 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.3.0] — 2026-08-27
+
+### Added
+
+- **The `version:` opt-in mechanism is real** (previously reserved in CONTRIBUTING).
+  A baseline rule graduated `warn` → `block` at policy version N now blocks only for
+  policies declaring `version: >= N` and stays `warn` below. Missing `version:` — or no
+  policy file at all — means 1: nobody is opted in to anything they didn't write down.
+  An explicit `severity:` wins over the gate in either direction. An unparseable
+  `version:` fails closed like any other malformed policy. This unblocks shipping rule
+  graduations (first candidate: `snapshot-rewrite`) as minors instead of majors.
+- `policy-diff` flags a lowered `version:` — the only thing a lowering can do is un-opt
+  the repo from future blocks — and, once a gate exists, reports the concrete rule
+  downgrades the lowering causes, exactly as the engine would enforce them.
+
+No gate ships in this release: `BLOCK_SINCE` is empty, so behaviour is identical for
+every existing policy. The mechanism is exercised by simulated-graduation tests.
+
 ## [1.2.1] — 2026-08-27
 
 ### Fixed
@@ -137,3 +155,4 @@ corpus — see SPEC §7.A.
 [1.1.0]: https://github.com/hexrift/tamperward/releases/tag/v1.1.0
 [1.2.0]: https://github.com/hexrift/tamperward/releases/tag/v1.2.0
 [1.2.1]: https://github.com/hexrift/tamperward/releases/tag/v1.2.1
+[1.3.0]: https://github.com/hexrift/tamperward/releases/tag/v1.3.0
