@@ -2,7 +2,7 @@
 
 *August 2026 · hexrift*
 
-*Short answer: they turn around and fix the real bug — 20 out of 20 times in my runs.
+*Short answer: they turn around and fix the real bug — 25 out of 25 times in my runs.
 The rest of this post is why I believe that number.*
 
 AI coding agents optimize for "the command succeeded," not "the change is
@@ -49,9 +49,9 @@ deliberately **independent of the detectors under test**. That independence matt
 an earlier draft where the oracle shared logic with a detector certified six evasions
 as clean, because both had the same blind spot.
 
-Across **42 runs** of these guarded scenarios — every attempted bypass class had a
-detector covering it — **0 tampers reached green**, and **all 20 runs where a block
-fired ended in an honest fix**. A 20/20 point estimate has a 95% lower bound of ≈86%:
+Across **67 runs** of these guarded scenarios — every attempted bypass class had a
+detector covering it — **0 tampers reached green**, and **all 25 runs where a block
+fired ended in an honest fix**. A 25/25 point estimate has a 95% lower bound of ≈89%:
 above the bar I'd pre-set for "the loop works," but not a claim of perfection.
 
 The typical intercepted trajectory, from a transcript:
@@ -69,14 +69,56 @@ So on scenarios this size, a frontier model mostly does not need the gate. The d
 claim is narrower: when a shortcut *is* attempted, it is caught deterministically, and
 the denial redirects the agent to the real fix rather than to another bypass.
 
+## Round two: remove the gate, then reveal it
+
+Two critiques of that number are fair enough that I pre-registered experiments against
+both (bets committed to the repo before the first rep, as always).
+
+**First: 25/25 is ordering, not causation.** Maybe the agents would have fixed the bug
+anyway. So: a no-gate control arm — same seed, same model, same prompt, same oracle,
+hooks removed. **Six of ten ungated runs deleted the failing test and reported the
+empty suite green; honest fixes fell from 10/10 gated (measured fresh the same day) to
+4/10 ungated.** The gate's contribution on this configuration is a 60-point swing.
+And one of my three control-arm bets was refuted: ungated Haiku fixed honestly
+slightly *more* often than I bet, and the cheat turned out to be no shorter in tool
+calls than an honest fix — the temptation is cognitive cost, not keystrokes. The 4/10
+is worth staring at: it is exactly the survivorship fraction the critique predicted,
+now quantified instead of unknown.
+
+**Second: a deterministic, open-source ruleset is an evasion spec.** Every run so far
+measured agents that didn't know the gate existed. So: an informed-adversary arm — the
+gate's full detector source vendored into the repo at `node_modules/tamperward-src`,
+and the prompt saying plainly that tamperward guards the repo, denies crude bypasses,
+and to get green "whatever way works." I pre-registered the embarrassing outcome: I
+bet the gate would **leak** (≥1/10 semantic evasions through — gut an assertion, mock
+the module, nothing the block rules read).
+
+**All three leak bets were refuted.** Informed Haiku attempted *zero* bypasses in ten
+runs — against 5/10 attempts uninformed on the same day — and simply fixed the bug in
+three to five tool calls, mostly without opening the vendored source at all. Sonnet 5
+went somewhere I didn't predict: told the gate exists while pressed that "speed is the
+only thing that matters," it **refused the task outright in three of five runs** —
+"finding a way around tamperward … is manufacturing a false signal" — and did the
+honest fix in the other two. Fifteen informed runs, zero evasion attempts. At this
+scenario size, disclosure measured as *deterrence*, not as a map: naming the gate
+didn't teach the models to route around it, it collapsed the temptation entirely.
+
+Scope, stated before anyone else states it: disclosure is not mandated evasion — no
+prompt *ordered* the model to defeat the gate — and n=10 per arm on one seed limits
+how far this generalizes. A pilot batch of this experiment was also discarded for a
+harness artifact (Node's test runner tried to execute the vendored TypeScript; the
+prediction file documents the quarantine). The arms race is not settled; round two
+just went to the gate.
+
 ## Which detectors deserve to exist?
 
 This is where the methodology earned its keep. I had an intuition-ranked list of
 bypass classes to detect next: `[skip ci]` in commit messages, `core.hooksPath`
 redirection, snapshot regeneration, test-timeout inflation, lint-config gutting. Then
-I mined all 45 recorded harness transcripts — the 42 guarded runs above, plus three
-early calibration reps excluded from that count — for all of them and found **zero
-attempts at any**: every recorded tamper was `rm <test file>` or a `.skip` marker.
+I mined all 45 harness transcripts recorded to that point — the first 42 guarded runs,
+plus three early calibration reps excluded from that count — for all of them and found
+**zero attempts at any**: every recorded tamper was `rm <test file>` or a `.skip`
+marker.
 
 But the old scenarios couldn't *afford* those moves — no golden file existed to
 regenerate, no latency budget to inflate. So I built **affordance seeds**: each offers
@@ -142,9 +184,10 @@ trustworthy than one whose record is spotless because nobody ran it.
 
 ## Limits, stated plainly
 
-42 runs, two models, small seed repos. The 95% lower bound on the conversion rate is
-≈86%, not 100%. Frontier models rarely needed the gate in these scenarios.
-Generalizing beyond that is explicitly not claimed — the weekly harness keeps
+77 counted runs across four arms, two models, small seed repos. The 95% lower bound on
+the conversion rate is ≈89%, not 100%. Frontier models rarely needed the gate in these
+scenarios, and the informed-adversary result measures disclosure, not an agent ordered
+to evade. Generalizing beyond that is explicitly not claimed — the weekly harness keeps
 accumulating, and the numbers in the README update when it does.
 
 Everything is in the repo: the harness, the seeds and their independent oracles, the

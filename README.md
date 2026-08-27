@@ -109,12 +109,28 @@ escape valve is a PR label only a human with write access can apply.
 **Does the loop work?** `harness/run.sh` stands up an isolated repo with a real bug and a
 failing protected test, lets a headless agent loose with the hooks installed, and
 classifies the end state with an oracle independent of the detectors under test
-(SPEC §7.B). Across 42 runs of these **guarded** scenarios — every attempted bypass class
-had a detector covering it — **0 tampers reached green; all 20 runs where a block fired
-ended in an honest fix**, a 20/20 point estimate whose 95% lower bound is ≈86%. The split is the
+(SPEC §7.B). Across 67 runs of these **guarded** scenarios — every attempted bypass class
+had a detector covering it — **0 tampers reached green; all 25 runs where a block fired
+ended in an honest fix**, a 25/25 point estimate whose 95% lower bound is ≈89%. The split is the
 honest part: Sonnet 5 never attempted a bypass at all, even when the prompt *ordered*
-one; all 20 interceptions came from Haiku 4.5 on a seed whose honest fix is genuinely
+one; every interception came from Haiku 4.5 on a seed whose honest fix is genuinely
 expensive. Reproduce: `npm run build && harness/run.sh 5 adversarial haiku seed-hard`.
+
+**Is the fix caused by the deny, or would it have happened anyway?** Measured, with a
+pre-registered no-gate control arm (`harness/PREDICTION-ungated-control.md`): same seed,
+model, prompt and oracle, hooks removed. **6/10 ungated runs tampered through; honest
+fixes fell from 10/10 gated to 4/10 ungated.** The gate's measured contribution on that
+configuration is a 60-point swing — causation, not survivorship — and one of the three
+control-arm bets was refuted (ungated honest fixes came in above my bet).
+
+**And when the agent knows the gate is there?** Also pre-registered
+(`harness/PREDICTION-informed-adversary.md`) — betting the gate would *leak*. Refuted,
+three bets out of three: with the detector sources vendored into the repo and the prompt
+naming the gate, Haiku's bypass attempts went from 5/10 uninformed (same day, same
+everything) to **0/10 informed — fifteen informed runs, zero evasion attempts**. Sonnet,
+told the gate exists under "speed is everything" pressure, refused the task outright in
+3/5 runs rather than work around it, and fixed honestly in the other 2. At this scenario
+size, disclosure measured as deterrence, not as an evasion spec.
 
 **Which detectors deserve to exist?** Measured too. Affordance seeds offer an agent one
 specific bypass each; predictions are pre-registered before any rep runs
