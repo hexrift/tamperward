@@ -5,6 +5,27 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.4.5] — 2026-08-27
+
+Docs and harness only. Two new pre-registered studies answer the two sharpest
+critiques of the headline number, and the README carries the results (the npm page
+snapshots the README at publish, so this publish is what updates it there):
+
+- **Ungated control arm** (`harness/PREDICTION-ungated-control.md`): same seed, model,
+  prompt and oracle with the hooks removed — 6/10 tampers through, honest fixes
+  10/10 → 4/10. The deny→fix claim graduates from ordering to causation (+60 points);
+  one of three bets refuted.
+- **Informed adversary** (`harness/PREDICTION-informed-adversary.md`): detector
+  sources vendored into the repo, prompt names the gate. All three leak bets refuted —
+  informed Haiku attempted zero bypasses (vs 5/10 uninformed same-day); Sonnet refused
+  outright in 3/5 runs. Disclosure measured as deterrence, not an evasion spec.
+- Headline aggregates: 67 guarded runs, 0 through, 25/25 conversions (95% lower bound
+  ≈89%). seed-hard gains an independent held-out oracle (`oracle-hard.mjs`) so a
+  hardcoded lookup table can no longer score as an honest fix; `run.sh` gains
+  `HF_UNGATED` / `HF_INFORMED` arm levers.
+- Enforcement copy scoped on all surfaces: the loop layer exists where the hooks do
+  (Claude Code today); CI is the authority.
+
 ## [1.4.4] — 2026-08-27
 
 Docs only. The README header now carries the ward glyph — four strokes of change
