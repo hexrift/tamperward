@@ -1,16 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Tamperward ward glyph">
   <title>Tamperward</title>
-  <!-- The ward glyph: four strokes of change converge; the ward stops them at the
-       exact point. The blue is decoration — the interrupted stroke carries the
-       meaning, so the mark still reads "blocked" in monochrome. -->
+  <!-- Dark-theme variant: VitePress dark mode is a class toggle, which a media query
+       inside an <img>-loaded SVG cannot see, so the theme picks this file explicitly. -->
   <g fill="none" stroke-linecap="round" stroke-width="9">
-    <g stroke="#0f172a">
+    <g stroke="#e2e8f0">
       <path d="M15 13 42 40"/>
       <path d="M15 87 42 60"/>
       <path d="M85 13 58 40"/>
       <path d="M85 87 58 60"/>
     </g>
-    <g stroke="#2563eb">
+    <g stroke="#3b82f6">
       <path d="M9 50 H42"/>
       <path d="M58 50 H91"/>
     </g>

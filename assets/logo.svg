@@ -1,14 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Tamperward">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Tamperward ward glyph">
   <title>Tamperward</title>
-  <!-- The gate: a closed boundary every change must pass through. -->
-  <rect x="6" y="6" width="52" height="52" rx="13"
-        fill="none" stroke="#64748B" stroke-width="4"/>
-  <!-- The warded keyway. A ward is the obstruction inside a lock that blocks
-       the wrong key — the shape only admits a change that genuinely fits. -->
-  <g fill="#3B82F6">
-    <circle cx="32" cy="25" r="6.5"/>
-    <path d="M29 30 L35 30 L36.5 46 L27.5 46 Z"/>
-    <rect x="23.5" y="34.5" width="5.5" height="3.5" rx="1"/>
-    <rect x="35" y="34.5" width="5.5" height="3.5" rx="1"/>
+  <!-- The ward glyph: four strokes of change converge; the ward stops them at the
+       exact point. Rendered via <img> on GitHub, so the media query follows the
+       reader's OS scheme — the closest an inline README image can get to dark mode. -->
+  <style>
+    .ink { stroke: #0f172a; }
+    @media (prefers-color-scheme: dark) { .ink { stroke: #e2e8f0; } }
+  </style>
+  <g fill="none" stroke-linecap="round" stroke-width="9">
+    <g class="ink">
+      <path d="M15 13 42 40"/>
+      <path d="M15 87 42 60"/>
+      <path d="M85 13 58 40"/>
+      <path d="M85 87 58 60"/>
+    </g>
+    <g stroke="#2563eb">
+      <path d="M9 50 H42"/>
+      <path d="M58 50 H91"/>
+    </g>
   </g>
 </svg>
