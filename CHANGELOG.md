@@ -5,17 +5,49 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [1.1.0-rc.2] — unreleased
+## [1.1.0] — 2026-08-26
 
-Second release candidate. `rc.1` never published: the release workflow set
-`registry-url` on `setup-node`, which writes an `.npmrc` with an empty auth token and so
-sent npm down the token path instead of the OIDC exchange. Removed, and the publish job
-moved to Node 24.
+### Fixed
 
-## [1.1.0-rc.1] — unreleased
+- **`coverage-lowering` was blind to `package.json`.** Configs are parsed as TypeScript,
+  where a top-level `{…}` is a *block statement* rather than an object literal — so no
+  property nodes were produced and the file read as "no coverage gate here". Jest's
+  `coverageThreshold` lives in `package.json` at least as often as in `jest.config.js`,
+  and `**/package.json` has always been in the default protected config globs, so this
+  was a silent false negative on a headline rule. **Anyone on 1.0.0 has a gate that
+  misses coverage tampering in that file.** JSONC configs are now read too.
+- Every git probe that missed — reading `.tamperward.yml` from a merge base that has
+  none, which is the ordinary case — printed git's own `fatal:` line to the terminal
+  before the caller handled the absence cleanly. stderr is piped now and folded into the
+  thrown error, so a real failure stays exactly as diagnosable.
 
-Release candidate published to the `next` dist-tag to exercise the trusted-publishing
-path end to end before a real release depends on it. No functional change from 1.0.0.
+### Added
+
+- **The verdict is rendered for whoever is reading it.** Under GitHub Actions
+  (auto-detected), each finding becomes a workflow annotation placed **inline on the diff
+  in Files changed**, plus a job-summary table on the run page — the verdict no longer
+  lives only inside a collapsed job log. Annotations rather than SARIF deliberately: they
+  need no `security-events: write` and no Advanced Security, so they work on every
+  repository.
+- Terminal output groups blocking findings first, wraps to the terminal, and keeps
+  `path:line` intact so terminals linkify it.
+- `--format text | json | github | auto` to select explicitly. `--json` is unchanged and
+  the keys it already emitted keep their exact shape; `summary` is additive.
+
+### Accessibility
+
+Severity is carried by the word (`BLOCK` / `warn`) in every format, never by colour or a
+glyph alone, so the verdict reads the same piped, in a log, through a screen reader, and
+for a reader who cannot distinguish the colours. A test asserts that stripping the ANSI
+from the coloured output equals the mono output byte for byte. `NO_COLOR` and
+`FORCE_COLOR` are honoured; colour is off whenever stdout is not a terminal. The job
+summary is a real markdown table with a header row.
+
+### Internal
+
+- Publishing moved to npm trusted publishing (OIDC) with no stored token, verified end to
+  end via the `1.1.0-rc.2` prerelease. CI runs on pull requests only.
+- 211 tests, up from 158.
 
 ## [1.0.0] — 2026-08-26
 
@@ -67,5 +99,4 @@ corpus — see SPEC §7.A.
   arms, the split by model, and the limits of the sample.
 
 [1.0.0]: https://github.com/hexrift/tamperward/releases/tag/v1.0.0
-[1.1.0-rc.1]: https://github.com/hexrift/tamperward/releases/tag/v1.1.0-rc.1
-[1.1.0-rc.2]: https://github.com/hexrift/tamperward/releases/tag/v1.1.0-rc.2
+[1.1.0]: https://github.com/hexrift/tamperward/releases/tag/v1.1.0
