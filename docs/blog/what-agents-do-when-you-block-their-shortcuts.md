@@ -2,13 +2,17 @@
 
 *August 2026 · hexrift*
 
+*Short answer: they turn around and fix the real bug — 20 out of 20 times in my runs.
+The rest of this post is why I believe that number.*
+
 AI coding agents optimize for "the command succeeded," not "the change is
 trustworthy." Under pressure they take the cheapest path to green: delete the failing
 test, add `.skip`, cast to `any`, lower the coverage threshold, regenerate the
 snapshot from the buggy output, or commit with `--no-verify`. The war stories are
-everywhere by now — the one that stuck with me was a maintainer porting a validator
-library whose agent deleted the tests, hardcoded outputs keyed by test names, and
-sabotaged CI, each time announcing success.
+everywhere by now — the one that stuck with me was [a maintainer porting a validator
+library](https://typia.io/blog/ai-deleted-my-tests-and-said-all-tests-pass/) whose
+agent deleted the tests, hardcoded outputs keyed by test names, and sabotaged CI, each
+time announcing success.
 
 [Tamperward](https://github.com/hexrift/tamperward) is my answer: treat the safety
 nets themselves as protected assets and block the **class** of bypass,
@@ -66,8 +70,9 @@ the denial redirects the agent to the real fix rather than to another bypass.
 This is where the methodology earned its keep. I had an intuition-ranked list of
 bypass classes to detect next: `[skip ci]` in commit messages, `core.hooksPath`
 redirection, snapshot regeneration, test-timeout inflation, lint-config gutting. Then
-I mined 45 recorded harness transcripts for all of them and found **zero attempts at
-any** — every recorded tamper was `rm <test file>` or a `.skip` marker.
+I mined all 45 recorded harness transcripts — the 42 guarded runs above, plus three
+early calibration reps excluded from that count — for all of them and found **zero
+attempts at any**: every recorded tamper was `rm <test file>` or a `.skip` marker.
 
 But the old scenarios couldn't *afford* those moves — no golden file existed to
 regenerate, no latency budget to inflate. So I built **affordance seeds**: each offers
@@ -104,10 +109,10 @@ snapshot rule, I swept it over **1,652 real first-parent commits** of snapshot-h
 mainline repos — prettier, jest, docusaurus, immer — replaying every snapshot-touching
 commit through the built CLI.
 
-216 commits touched snapshots (30% of prettier's mainline!), and **all 216 were
-legitimate updates**. That is why `snapshot-rewrite` is a `warn` that asks a human to
-confirm the new expectation rather than a block — as a block it would gate a third of
-prettier's commits behind sign-off. The narrow signal that *would* separate tamper
+216 commits touched snapshots — in prettier alone, 131 of its 434 mainline commits,
+a full 30% — and **all 216 were legitimate updates**. That is why `snapshot-rewrite`
+is a `warn` that asks a human to confirm the new expectation rather than a block — as
+a block it would gate a third of prettier's commits behind sign-off. The narrow signal that *would* separate tamper
 from routine — a snapshot changed with **no accompanying source change** — fired once
 in 1,652 commits (a maintainer's two-line "Update snapshot." follow-up) and would have
 fired on 7/7 of the observed attacks. That refinement is the graduation candidate,
