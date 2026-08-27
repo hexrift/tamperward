@@ -192,7 +192,9 @@ accumulating, and the numbers in the README update when it does.
 
 Everything is in the repo: the harness, the seeds and their independent oracles, the
 transcripts tooling, the pre-registered predictions with their outcomes, and the FP
-study row by row.
+study row by row. The running tally across the three pre-registered studies: **seven
+of twelve bets refuted**, committed next to the four that held and the one the data
+couldn't resolve. I keep losing my own bets, and the tool is better for every loss.
 
 ```bash
 npx tamperward init
