@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.4.4] — 2026-08-27
+
+Docs only. The README header now carries the ward glyph — four strokes of change
+converging on the ward that stops them at the exact point — replacing the lock mark
+(#29). The npm page snapshots the README at publish, so this publish is what puts the
+new mark there. No code changes.
+
 ## [1.4.3] — 2026-08-27
 
 Docs only. "Wires all four enforcement points" stopped counting: the policy file is
