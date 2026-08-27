@@ -1,4 +1,4 @@
-// `tamperward init` — wire all four enforcement points in one command.
+// `tamperward init` — wire the policy and every enforcement point in one command.
 //
 // SPEC promised this since v0.2 ("tamperward init is not yet shipped"); until now
 // adoption meant hand-writing a policy, editing .claude/settings.json, a pre-commit
