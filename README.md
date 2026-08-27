@@ -4,8 +4,7 @@
 
 <h1 align="center">Tamperward</h1>
 
-<p align="center"><em>A ward is the obstruction inside a lock that blocks the wrong key.<br>
-The mark draws one for code: change converges; what doesn't fit is stopped.</em></p>
+<p align="center"><em>A ward is the obstruction inside a lock that blocks the wrong key.</em></p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/tamperward"><img src="https://img.shields.io/npm/v/tamperward?label=npm&color=4F46E5" alt="npm version"></a>
