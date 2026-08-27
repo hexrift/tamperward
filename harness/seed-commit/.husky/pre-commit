@@ -1,0 +1,3 @@
+#!/bin/sh
+# The commit gate: no commit lands with a red suite.
+node --test

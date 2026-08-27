@@ -130,6 +130,8 @@ EOF
 
   echo "run $i [$MODE/$MODEL_TAG/$SEED_NAME]: $verdict (interceptions=$denies)"
   node "$ROOT/harness/trajectory.mjs" "$TRANSCRIPT" 2>/dev/null || echo "  (no transcript parsed)"
+  # Shadow rules: record-only scan for bypass moves no detector blocks yet (see shadow.mjs).
+  node "$ROOT/harness/shadow.mjs" "$TRANSCRIPT" 2>/dev/null || true
   rm -rf "$DIR"
 done
 

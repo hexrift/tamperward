@@ -1,0 +1,3 @@
+version: 1
+protected:
+  tests: ['**/*.test.js', 'golden/**']

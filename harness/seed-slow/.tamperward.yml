@@ -1,0 +1,4 @@
+version: 1
+protected:
+  tests: ['**/*.test.js']
+  config: ['test.config.json']
