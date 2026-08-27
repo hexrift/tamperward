@@ -157,6 +157,10 @@ jobs:
           git tag "v${VERSION}"
           git push origin "v${VERSION}"
 
+      # The release body is the CHANGELOG section for this version — written once, shown
+      # everywhere — not the auto-generated PR list, which in a solo repo repeats
+      # "by @<owner>" after every line and says nothing the changelog doesn't say better.
+      # Falls back to --generate-notes only when the section is missing.
       - name: GitHub release
         if: steps.plan.outputs.publish == 'true'
         env:
@@ -166,4 +170,15 @@ jobs:
           VERSION="${{ steps.plan.outputs.version }}"
           EXTRA=""
           case "$VERSION" in *-*) EXTRA="--prerelease";; esac
-          gh release create "v${VERSION}" --title "v${VERSION}" --generate-notes $EXTRA
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" { on=1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md | sed -e '1{/^$/d}' > /tmp/notes.md
+          PREV="$(git tag --list 'v*' --sort=-v:refname | grep -v "^v${VERSION}$" | head -1 || true)"
+          [ -n "$PREV" ] && printf '\n**Full Changelog**: %s/compare/%s...v%s\n' "${{ github.server_url }}/${{ github.repository }}" "$PREV" "$VERSION" >> /tmp/notes.md
+          if [ -s /tmp/notes.md ]; then
+            gh release create "v${VERSION}" --title "v${VERSION}" --notes-file /tmp/notes.md $EXTRA
+          else
+            gh release create "v${VERSION}" --title "v${VERSION}" --generate-notes $EXTRA
+          fi

@@ -5,6 +5,18 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.4.1] — 2026-08-27
+
+Docs and packaging only — no behaviour change.
+
+- README rewritten front-door-first: install, a real denial transcript, then the
+  measured evidence (the §7.B conversion rate with its bound, the affordance experiment
+  with its refuted bets, the 1,652-commit FP study). The build-log sections are gone;
+  SPEC keeps the depth.
+- `package.json` gains `keywords` so the package is findable on npm at all.
+- GitHub release bodies are now the CHANGELOG section for the version instead of the
+  auto-generated PR list.
+
 ## [1.4.0] — 2026-08-27
 
 ### Added
@@ -179,3 +191,4 @@ corpus — see SPEC §7.A.
 [1.2.1]: https://github.com/hexrift/tamperward/releases/tag/v1.2.1
 [1.3.0]: https://github.com/hexrift/tamperward/releases/tag/v1.3.0
 [1.4.0]: https://github.com/hexrift/tamperward/releases/tag/v1.4.0
+[1.4.1]: https://github.com/hexrift/tamperward/releases/tag/v1.4.1
