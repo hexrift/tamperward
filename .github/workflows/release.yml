@@ -105,9 +105,12 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${{ steps.plan.outputs.version }}"
-          TAGS="$(npm view tamperward dist-tags --json 2>/dev/null || echo '{}')"
-          LATEST="$(printf '%s' "$TAGS" | jq -r '.latest // empty')"
-          NEXT="$(printf '%s' "$TAGS" | jq -r '.next // empty')"
+          # Per-tag queries, not `dist-tags --json`: npm 12 wraps that JSON in an ARRAY
+          # where npm 10 returns an object, and jq indexing the array killed the 1.2.0
+          # release at this step. `npm view pkg@tag version` prints a bare version on
+          # both lines; a missing tag or package exits non-zero -> empty -> guard skipped.
+          LATEST="$(npm view tamperward@latest version 2>/dev/null || true)"
+          NEXT="$(npm view tamperward@next version 2>/dev/null || true)"
           forward() {
             [ -z "$2" ] && return 0
             if ! npx --yes semver@7 -p "$1" -r ">$2" >/dev/null; then
