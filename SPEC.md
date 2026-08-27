@@ -107,11 +107,6 @@ interface, so third parties add detectors without forking.
 **`.tamperward.yml`** (copy the committed file — `tamperward init` is not yet shipped):
 
 ```yaml
-# version gates rule GRADUATIONS: a baseline rule promoted warn -> block at policy
-# version N blocks only for policies declaring version >= N, and stays warn below.
-# Missing version (or no policy file) = 1: opted in to nothing. An explicit severity
-# written here wins over the gate in either direction. Lowering version is itself a
-# policy-diff finding. This is what lets a graduation ship in a minor (CONTRIBUTING).
 version: 1
 protected:                         # the safety nets, as first-class assets
   tests:  ['**/*.test.ts', '**/*.spec.ts', '**/__tests__/**']

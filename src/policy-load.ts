@@ -21,26 +21,11 @@ type RawPolicy = {
   signoff?: { required_for?: Severity[]; requiredFor?: Severity[]; ledger?: string };
 };
 
-/** `version:` opts in to rule graduations, so a value that cannot be understood must
- *  fail CLOSED like any other unparseable policy — silently reading garbage as 1 would
- *  run a weaker gate than the author may have meant to write. */
-function normalizeVersion(v: unknown, where = POLICY_FILE): number {
-  if (v === undefined || v === null) return 1; // launch version: opted in to nothing
-  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) {
-    throw new PolicyError(`${where}: version must be a positive integer, got ${JSON.stringify(v)}`);
-  }
-  return v; // a version newer than this build passes every gate it knows — see POLICY_VERSION
-}
-
 export function parsePolicy(raw: RawPolicy | null | undefined): Policy {
+  const base = defaultPolicy();
   const r = raw ?? {};
-  const version = normalizeVersion(r.version);
-  // The baseline is gated by the DECLARED version before user rules overlay it, so a
-  // gated graduation applies only to opted-in policies while an explicit severity —
-  // written by the user, in either direction — always wins.
-  const base = defaultPolicy(version);
   return {
-    version,
+    version: 1,
     // Merge with the baseline, never replace. For an integrity tool, a config that sets
     // one rule's severity must NOT silently drop the other nine — nor may naming one
     // protected glob wipe out the rest of its category (see mergeProtected).

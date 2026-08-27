@@ -1,0 +1,4 @@
+{"repo":"immer","sha":"d38a9d046b","snapFiles":2,"ops":"MM","coTouch":true,"touchesTest":true,"fires":2,"sample":{"file":"__tests__/__prod_snapshots__/base.js.snap","message":"A recorded expected output was rewritten."}}
+{"repo":"immer","sha":"d6c12028c0","snapFiles":1,"ops":"M","coTouch":true,"touchesTest":true,"fires":1,"sample":{"file":"__tests__/__snapshots__/base.js.snap","message":"A recorded expected output was rewritten."}}
+{"repo":"immer","sha":"4b8bcc57a2","snapFiles":14,"ops":"MMMMMMMMMMMMMM","coTouch":true,"touchesTest":true,"fires":14,"sample":{"file":"__tests__/__prod_snapshots__/base.js.snap","message":"A recorded expected output was rewritten."}}
+{"repo":"immer","sha":"e6aa92c141","snapFiles":2,"ops":"MM","coTouch":true,"touchesTest":false,"fires":2,"sample":{"file":"__tests__/__prod_snapshots__/base.js.snap","message":"A recorded expected output was rewritten."}}
