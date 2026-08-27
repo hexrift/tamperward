@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Tamperward">
+  <title>Tamperward</title>
+  <!-- Favicon cut: same geometry at heavier weight — at 16px the standard stroke
+       thins to ~1.4 physical pixels and the center gap closes. The browser tab
+       follows the OS scheme, so the media query is correct here. -->
+  <style>
+    .ink { stroke: #0f172a; }
+    @media (prefers-color-scheme: dark) { .ink { stroke: #e2e8f0; } }
+  </style>
+  <g fill="none" stroke-linecap="round" stroke-width="14">
+    <g class="ink">
+      <path d="M13 11 40 38"/>
+      <path d="M13 89 40 62"/>
+      <path d="M87 11 60 38"/>
+      <path d="M87 89 60 62"/>
+    </g>
+    <g stroke="#2563eb">
+      <path d="M8 50 H40"/>
+      <path d="M60 50 H92"/>
+    </g>
+  </g>
+</svg>
