@@ -1,6 +1,6 @@
 {
   "name": "tamperward",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "The deterministic agent-integrity gate. One ruleset, evaluated on the actual diff/commands as a verdict, enforced everywhere a change can be made.",
   "license": "Apache-2.0",
   "author": "hexrift",
@@ -14,15 +14,18 @@
   },
   "keywords": [
     "ai-agents",
+    "claude-code",
+    "coding-agents",
     "agent-safety",
+    "reward-hacking",
     "code-integrity",
     "guardrails",
-    "claude-code",
+    "test-integrity",
     "pre-commit",
     "ci",
-    "static-analysis",
-    "reward-hacking",
-    "tests"
+    "hooks",
+    "llm",
+    "devsecops"
   ],
   "type": "module",
   "bin": {
