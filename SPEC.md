@@ -104,9 +104,15 @@ Two files. A **policy** (`.tamperward.yml`, user-facing, in the repo) and a **Fi
 open-core package — the open "rule format" is the policy schema + the `Detector`
 interface, so third parties add detectors without forking.
 
-**`.tamperward.yml`** (copy the committed file — `tamperward init` is not yet shipped):
+**`.tamperward.yml`** (written by `tamperward init`, which wires all four enforcement
+points — policy, agent hooks, pre-commit, CI — idempotently, never overwriting yours):
 
 ```yaml
+# version gates rule GRADUATIONS: a baseline rule promoted warn -> block at policy
+# version N blocks only for policies declaring version >= N, and stays warn below.
+# Missing version (or no policy file) = 1: opted in to nothing. An explicit severity
+# written here wins over the gate in either direction. Lowering version is itself a
+# policy-diff finding. This is what lets a graduation ship in a minor (CONTRIBUTING).
 version: 1
 protected:                         # the safety nets, as first-class assets
   tests:  ['**/*.test.ts', '**/*.spec.ts', '**/__tests__/**']
@@ -406,7 +412,8 @@ CLI over the PR range, and a blocking finding clears only via the out-of-band la
    *Shipped* — the sign-off channel is a PR label read by `.github/workflows/ci.yml`.
 3. **Claude PreToolUse hook + Stop sweep + the correction message.** *Shipped*, on the
    JSON channel (a deny is exit 0 + JSON; exit 2 would make the JSON be ignored).
-   `tamperward init` is **not** shipped — copy the committed `.tamperward.yml`.
+   `tamperward init` wires the policy, the agent hooks, pre-commit, and CI in one
+   idempotent command; `--dry-run` prints the plan first.
 4. **E2E harness + bypass-to-fix measurement.** *Run* — see the README for the numbers.
    Both heuristics remain `warn`; they graduate only on a measured negatives corpus.
 

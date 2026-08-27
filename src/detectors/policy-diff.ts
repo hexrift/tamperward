@@ -15,6 +15,7 @@ import { parse } from 'yaml';
 import { defaultPolicy, mergeProtected } from '../policy';
 
 interface RawPolicyShape {
+  version?: unknown;
   rules?: Record<string, { severity?: string; enabled?: boolean }>;
   ignore?: string[];
   protected?: Record<string, string[]>;
@@ -22,6 +23,7 @@ interface RawPolicyShape {
 }
 
 interface EffectivePolicy {
+  version: number;
   rules: Record<string, { severity?: string; enabled?: boolean }>;
   ignore: string[];
   protected: Record<string, string[]>;
@@ -43,8 +45,16 @@ function safeParse(src: string): RawPolicyShape | null {
 /** What the file actually means once the baseline is layered underneath it — the same
  *  merge `parsePolicy` performs, so the comparison sees what the engine will enforce. */
 function effective(raw: RawPolicyShape): EffectivePolicy {
-  const base = defaultPolicy();
+  // A malformed version is read as 1 here rather than thrown: this detector must never
+  // crash the gate (see safeParse). The loader path (policy-load) does fail closed on it.
+  const v = raw.version;
+  const version = typeof v === 'number' && Number.isInteger(v) && v >= 1 ? v : 1;
+  // The baseline is gated by each side's OWN declared version, so lowering `version:`
+  // surfaces as the concrete rule downgrades it causes — compared exactly as the engine
+  // would enforce them — not as an abstract number change alone.
+  const base = defaultPolicy(version);
   return {
+    version,
     rules: { ...base.rules, ...(raw.rules ?? {}) },
     ignore: raw.ignore ?? base.ignore ?? [],
     protected: mergeProtected(base.protected, raw.protected),
@@ -69,6 +79,15 @@ export function policyWeakening(before: string, after: string): string[] | null 
   const be = effective(b);
   const ae = effective(a);
   const reasons: string[] = [];
+
+  // version: lowering it un-opts the repo from every graduation gated above the new
+  // value. Flagged even while no gate exists yet — the ONLY thing a lowering can ever
+  // do is weaken, and catching the preparation beats catching the exploitation.
+  if (ae.version < be.version) {
+    reasons.push(
+      `policy version lowered ${be.version} → ${ae.version} — un-opts this repo from rule graduations gated above ${ae.version}`,
+    );
+  }
 
   // rules: lowered, disabled, or removed — over the UNION of names, so a rule that was
   // inheriting the baseline is compared at its inherited strength, not skipped.
