@@ -10,7 +10,13 @@ name: ci
 # What this gives up, stated plainly: a squash merge creates a commit no run has tested
 # verbatim, so if main ever does break, CI will not be what tells you.
 on:
+  # labeled/unlabeled: the tamperward gate reads its out-of-band sign-off from the PR's
+  # labels via the EVENT PAYLOAD, and a re-run reuses the original payload — so a label
+  # applied after the run could never be seen by re-running. Labeling re-evaluates the
+  # gate; so does UN-labeling, because revoking a sign-off must re-block, not linger
+  # green until the next push.
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 # Least privilege: this pipeline reads the repo and runs tests. Nothing in it needs a
 # write-scoped token, and a security tool should not model bad habits in its own CI.

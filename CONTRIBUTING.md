@@ -95,6 +95,16 @@ Two consequences worth stating plainly:
    have not raised it. **That mechanism is not implemented yet** — until it is, the rule
    above holds without exception.
 
+## Releasing
+
+Releases are **version-driven**. Merging a PR that bumps `package.json` to a version the
+registry does not have *is* the release: on every push to `main`, `release.yml` compares
+the version against npm and, when it is new, publishes via trusted publishing (OIDC, no
+stored token, provenance attached) and then creates the `v<version>` tag and GitHub
+release as the record of what shipped. A merge that does not change the version is a
+no-op. A version with a prerelease component (`1.2.0-rc.1`) publishes to the `next`
+dist-tag; anything else goes to `latest`. Nobody pushes tags by hand.
+
 Every release with a behaviour change gets a `CHANGELOG.md` entry naming what it closes.
 Security advisories reference versions, so "which release fixed that bypass" must be
 answerable from the changelog alone.
