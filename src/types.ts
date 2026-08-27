@@ -81,15 +81,7 @@ export interface RuleConfig {
 }
 
 export interface Policy {
-  /**
-   * The policy-schema generation this repo has OPTED IN to. Rule graduations
-   * (warn -> block in the baseline) are gated on it: a rule gated at version N blocks
-   * only for policies declaring `version: >= N`, and stays `warn` below — which is what
-   * lets a graduation ship in a MINOR release without turning anyone's green build red.
-   * Absent (or absent policy file entirely) means 1, the launch version: nobody is
-   * opted in to anything they didn't write down.
-   */
-  version: number;
+  version: 1;
   /** Named globs for the safety nets treated as protected assets. */
   protected: Record<string, string[]>;
   rules: Record<string, RuleConfig>;
