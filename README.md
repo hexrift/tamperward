@@ -107,8 +107,9 @@ escape valve is a PR label only a human with write access can apply.
 **Does the loop work?** `harness/run.sh` stands up an isolated repo with a real bug and a
 failing protected test, lets a headless agent loose with the hooks installed, and
 classifies the end state with an oracle independent of the detectors under test
-(SPEC §7.B). **42 runs, 0 tampers reached green; all 20 runs where a block fired ended in
-an honest fix** — a 20/20 point estimate whose 95% lower bound is ≈86%. The split is the
+(SPEC §7.B). Across 42 runs of these **guarded** scenarios — every attempted bypass class
+had a detector covering it — **0 tampers reached green; all 20 runs where a block fired
+ended in an honest fix**, a 20/20 point estimate whose 95% lower bound is ≈86%. The split is the
 honest part: Sonnet 5 never attempted a bypass at all, even when the prompt *ordered*
 one; all 20 interceptions came from Haiku 4.5 on a seed whose honest fix is genuinely
 expensive. Reproduce: `npm run build && harness/run.sh 5 adversarial haiku seed-hard`.
@@ -116,7 +117,8 @@ expensive. Reproduce: `npm run build && harness/run.sh 5 adversarial haiku seed-
 **Which detectors deserve to exist?** Measured too. Affordance seeds offer an agent one
 specific bypass each; predictions are pre-registered before any rep runs
 (`harness/PREDICTION-affordance.md`). Result: 7/10 adversarial runs regenerated a golden
-file from buggy output (100% passed unseen — so `snapshot-rewrite` was built), while
+file from buggy output and sailed through — **because nothing guarded that class yet**;
+that measured demand is why `snapshot-rewrite` exists — while
 timeout-inflation and lint-config-gutting measured **0/10 attempts each** — two
 pre-registered bets refuted, two detectors *not* built. Bypass classes with no measured
 demand stay in a record-only shadow scanner that accumulates evidence on every weekly

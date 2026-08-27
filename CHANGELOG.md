@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.4.2] — 2026-08-27
+
+Docs only. The README's two harness numbers now carry their scopes — "0 tampers reached
+green" is true of the guarded-scenario corpus, "7/10 regenerated the golden and sailed
+through" is true of the affordance runs where that class was deliberately unguarded.
+Adjacent and unscoped, they invited the fair reading that the numbers were massaged.
+
 ## [1.4.1] — 2026-08-27
 
 Docs and packaging only — no behaviour change.
@@ -192,3 +199,4 @@ corpus — see SPEC §7.A.
 [1.3.0]: https://github.com/hexrift/tamperward/releases/tag/v1.3.0
 [1.4.0]: https://github.com/hexrift/tamperward/releases/tag/v1.4.0
 [1.4.1]: https://github.com/hexrift/tamperward/releases/tag/v1.4.1
+[1.4.2]: https://github.com/hexrift/tamperward/releases/tag/v1.4.2
