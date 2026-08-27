@@ -5,6 +5,20 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.2.1] — 2026-08-27
+
+### Fixed
+
+- **`ci-tampering` no longer flags moved or argument-position "checks"** (#15). Both
+  false positives the rule ever produced were the same mistake from two directions:
+  `- run: npm test` re-added indented under a new `if:` read as a deletion (the check
+  had *moved*), and `npm view tamperward dist-tags` read as a removed check (the check
+  keyword was a *package name* in argument position). A removal now means the command's
+  core no longer exists anywhere in the after-file, and check keywords only count in
+  invocation position. A check moved behind a literal `if: false` (any spelling) is
+  still caught by the added-line scan; genuine deletions still block — verified by
+  replaying both historical false-positive diffs (clean) and a real deletion (blocked).
+
 ## [1.2.0] — 2026-08-27
 
 ### Added
@@ -122,3 +136,4 @@ corpus — see SPEC §7.A.
 [1.0.0]: https://github.com/hexrift/tamperward/releases/tag/v1.0.0
 [1.1.0]: https://github.com/hexrift/tamperward/releases/tag/v1.1.0
 [1.2.0]: https://github.com/hexrift/tamperward/releases/tag/v1.2.0
+[1.2.1]: https://github.com/hexrift/tamperward/releases/tag/v1.2.1

@@ -1,6 +1,9 @@
 // #7 ci-tampering (file surface, mechanical).
 // On a protected workflow file: neutering a job (continue-on-error / if:false) or
-// deleting a check step (test/lint/typecheck).
+// deleting a check step (test/lint/typecheck). "Deleting" means the command no longer
+// exists in the after-file — a check MOVED (reindented, put behind an `if:`) is not a
+// removal, and a check keyword only counts in invocation position (issue #15: both
+// false positives this rule has produced were a move and an argument-position match).
 
 import { Change, Detector, Finding } from '../types';
 import { addedLines, removedLines } from '../diff/select';
@@ -8,12 +11,35 @@ import { isProtected } from '../policy';
 import { makeFinding } from './finding';
 
 const RULE = 'ci-tampering';
-const STEP = /^\s*-?\s*(?:run|uses):/;
+const USES = /^\s*-\s*uses:/;
 const CHECK = /\b(test|tests|lint|typecheck|type-check|tsc|eslint|jest|vitest|playwright|coverage|tamperward)\b/i;
 /** A line that is a YAML mapping key rather than a shell command in a `run:` body. */
 const YAML_KEY = /^\s*-?\s*[A-Za-z_][\w-]*:\s*(?:$|\S)/;
-/** A command that actually runs a check — used to tell a `run: |` body line from prose. */
-const RUNNER = /\b(npm|npx|pnpm|yarn|bun|make|cargo|pytest|python|jest|vitest|eslint|tsc|playwright|tamperward|gradle|mvn|dotnet)\b/;
+
+// A check keyword only counts in INVOCATION POSITION. Matching it anywhere on the line
+// flagged `TAGS="$(npm view tamperward dist-tags ...)"` as a removed check — the word
+// "tamperward" was a PACKAGE NAME in argument position, and the line queries the
+// registry, it checks nothing. Two invocation shapes:
+//   a tool run directly (start of command, or after ; | && $( ` npx/yarn/pnpm) ...
+const INVOKES_TOOL =
+  /(?:^\s*|[;&|`]\s*|\$\(\s*|\b(?:npx|yarn|pnpm|bunx?)\s+)(?:jest|vitest|eslint|tsc|playwright|pytest|tamperward)\b/;
+//   ... or a check script through a package runner / build tool.
+const INVOKES_SCRIPT =
+  /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|tests|lint|typecheck|type-check|coverage)\b|\b(?:make|cargo|go)\s+test\b|\bgradle\w*\s+(?:test|check)\b/;
+
+const invokesCheck = (line: string): boolean => INVOKES_TOOL.test(line) || INVOKES_SCRIPT.test(line);
+
+/** Reduce a line to the command it carries: step-item dash, `run:` key, and spacing are
+ *  presentation, not identity — `- run: npm test` and an indented `run: npm test` under a
+ *  new `if:` are the SAME check in a different position. */
+function commandCore(line: string): string {
+  return line
+    .trim()
+    .replace(/^-\s*/, '')
+    .replace(/^(?:run|uses):\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 const uncommented = (v: string) => v.replace(/\s+#.*$/, '').trim();
 
@@ -75,20 +101,28 @@ export const ciTampering: Detector = {
         }
       }
 
-      // A line removed AND re-added (a reformat or reorder) is not a deletion.
-      const stillPresent = new Set(addedLines(c).map((l) => l.content.trim()));
+      // A REMOVAL is a command that no longer exists anywhere in the after-file — not a
+      // command that moved. Comparing raw lines called `- run: npm test` re-added as an
+      // indented `run: npm test` under a new `if:` a deletion, and blocked the very
+      // workflow refactor that CONDITIONALISED checks without dropping one. So compare
+      // command cores against the whole after-content. A check moved behind a literal
+      // `if: false` (any spelling isAlwaysFalse knows) is still caught by the added-line
+      // scan above; a move behind an obscure-but-reachable condition is accepted as
+      // conditionalisation — the same exposure as authoring a new guarded step, which no
+      // diff-based rule ever saw.
+      const afterCores = new Set(
+        (c.after != null ? c.after.split('\n') : addedLines(c).map((l) => l.content)).map(commandCore),
+      );
       for (const l of removedLines(c)) {
-        if (stillPresent.has(l.content.trim())) continue;
-        const isStepLine = STEP.test(l.content) && CHECK.test(l.content);
-        // A check is usually invoked from a multi-line `run: |` body, where the `run:` line
-        // carries no check keyword and the command lines are not `run:`/`uses:` lines — so
-        // requiring both on ONE line missed the most common way workflows run tests at all.
-        const isRunBodyLine = !YAML_KEY.test(l.content) && RUNNER.test(l.content) && CHECK.test(l.content);
-        if (!isStepLine && !isRunBodyLine) continue;
+        const isUsesLine = USES.test(l.content) && CHECK.test(l.content);
+        const isCheckCommand = !isUsesLine && !/^\s*-?\s*uses:/.test(l.content) &&
+          (YAML_KEY.test(l.content) ? /^\s*-?\s*run:/.test(l.content) : true) && invokesCheck(l.content);
+        if (!isUsesLine && !isCheckCommand) continue;
+        if (afterCores.has(commandCore(l.content))) continue; // moved or reformatted, not removed
         out.push(
           makeFinding(RULE, policy, {
             file: c.path,
-            message: isStepLine
+            message: isUsesLine
               ? 'A CI check step (test/lint/typecheck) was removed.'
               : 'A CI check command was removed from a run block.',
             evidence: l.content.trim(),

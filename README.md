@@ -102,7 +102,7 @@ with the same engine it ships.
 - `src/engine.ts` — runs the enabled rules over `Change[]`; honours `policy.ignore`.
 - `src/cli/` — `tamperward check --staged | --worktree | --diff <base>...<head>`,
   exit 1 on any blocking finding.
-- `test/` — 226 tests, including the AST-vs-regex, self-hosting precision, and
+- `test/` — 235 tests, including the AST-vs-regex, self-hosting precision, and
   pre-go-live audit regression cases, and the renderer accessibility contract.
 
 - `src/adapters/claude/` + `src/cli/hook.ts` — the agent layer: `tamperward hook claude`
