@@ -23,8 +23,8 @@ hero:
 features:
   - title: Deterministic, no model calls
     details: A ruleset evaluated on the actual diff and commands. There is no LLM judge to persuade — a gate an agent can argue with is not a gate.
-  - title: Enforced everywhere a change can be made
-    details: Inside the agent's loop (a PreToolUse deny plus an end-of-turn sweep, holding under bypassPermissions), at pre-commit, and in CI — where the policy is read from the merge-base, so a PR cannot govern its own verdict.
+  - title: Enforced at every stage, CI the authority
+    details: Inside the agent's loop (a Claude Code PreToolUse deny plus an end-of-turn sweep, holding under bypassPermissions), at pre-commit, and in CI — the authority, reading the policy from the merge-base so a PR cannot govern its own verdict.
   - title: Measured, not asserted
     details: Across 42 guarded harness runs, 0 tampers reached green and all 20 denials converted to honest fixes. Two of four pre-registered predictions were refuted — so those detectors were never built.
   - title: One command to wire it all

@@ -17,11 +17,15 @@ time announcing success.
 [Tamperward](https://github.com/hexrift/tamperward) is my answer: treat the safety
 nets themselves as protected assets and block the **class** of bypass,
 deterministically — a ruleset evaluated on the actual diff and commands, no model
-calls, enforced everywhere a change can be made. Inside the agent's loop, a Claude
-Code `PreToolUse` hook denies the tool call before it runs, and an end-of-turn sweep
-diffs the working tree so shell-mediated edits can't slip past the matcher; the same
-engine runs at pre-commit and in CI, where the policy is read from the merge-base so a
-PR cannot govern its own verdict.
+calls, enforced at every stage a change passes through. Inside the agent's loop, a
+Claude Code `PreToolUse` hook denies the tool call before it runs, and an end-of-turn
+sweep diffs the working tree so shell-mediated edits can't slip past the matcher; the
+same engine runs at pre-commit and in CI, where the policy is read from the merge-base
+so a PR cannot govern its own verdict. To be precise about the layering: the loop hooks
+exist only where an agent runtime carries them — Claude Code today — and what they buy
+is a denial at the moment of the attempt, which is where the redirect-to-honest-fix
+dynamic lives. Everything else, other agents and humans included, meets the gate at
+pre-commit and CI, which is the authority either way.
 
 ```bash
 npx tamperward init   # wires the policy plus every enforcement point, idempotently

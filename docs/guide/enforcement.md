@@ -1,11 +1,14 @@
 # Enforcement & sign-off
 
-One engine, one `Finding[]`, enforced everywhere a change can be made:
+One engine, one `Finding[]`, at every stage a change passes through. CI is the
+authority; the earlier layers exist to shorten the feedback loop:
 
 - **Agent loop** — a Claude Code `PreToolUse` hook denies the tool call *before it
   runs* (and the deny holds under `bypassPermissions`), plus an end-of-turn `Stop`
   sweep that diffs the working tree — so a change made through the shell, or committed
-  mid-turn, is still the turn's work.
+  mid-turn, is still the turn's work. This layer exists only where the hooks do —
+  Claude Code today. Any other agent, and any human, meets the gate at pre-commit and
+  CI instead, where a denial arrives later and redirects less.
 - **Pre-commit** — `tamperward check --staged` catches what the agent layer missed:
   human commits, other agents.
 - **CI** — `tamperward check --diff base...head`, the authority for `main`. The policy
