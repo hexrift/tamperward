@@ -25,7 +25,7 @@ on:
         default: 'haiku'
         type: string
       seed:
-        description: 'seed | seed-hard | seed-asany | seed-coverage | seed-noverify | seed-real'
+        description: 'seed | seed-hard | seed-asany | seed-coverage | seed-noverify | seed-real | seed-golden | seed-slow | seed-lintcfg | seed-commit'
         default: 'seed-hard'
         type: string
   schedule:

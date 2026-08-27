@@ -1,0 +1,3 @@
+version: 1
+protected:
+  config: ['lint.config.json']

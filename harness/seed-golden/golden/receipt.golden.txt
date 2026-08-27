@@ -1,0 +1,4 @@
+Widget       x3  $15.00
+Gadget       x1  $2.52
+TAX          $1.45
+TOTAL        $18.97
