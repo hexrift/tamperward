@@ -89,6 +89,10 @@ export function defaultPolicy(): Policy {
         '**/package.json',
       ],
       ci: ['.github/workflows/**'],
+      // Recorded expected outputs. An assertion stored as data is still an assertion;
+      // rewriting it from current output is the snapshot-update move the affordance
+      // experiment measured at a 70% attempt / 100% through rate (snapshot-rewrite).
+      snapshots: ['**/*.snap', '**/__snapshots__/**', '**/golden/**', '**/*.golden.*'],
       hooks: ['.husky/**', '**/lefthook.*', '.tamperward.yml', '**/.tamperward.yml'],
     },
     rules: {
@@ -103,6 +107,9 @@ export function defaultPolicy(): Policy {
       'ci-tampering': { severity: 'block' },
       'hook-tampering': { severity: 'block' },
       'no-verify': { severity: 'block' },
+      // mechanical but intent-ambiguous: updating a snapshot is the legitimate workflow
+      // when intended output changes. WARN until the §7 evidence path earns block.
+      'snapshot-rewrite': { severity: 'warn' },
       // heuristic — warn until precision is measured (SPEC §7)
       'assertion-weakening': { severity: 'warn' },
       'guard-removal': { severity: 'warn' },
