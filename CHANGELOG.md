@@ -5,6 +5,27 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.2.0] — 2026-08-27
+
+### Added
+
+- **`snapshot-rewrite`** (`warn`) — the first detector built from measured demand rather
+  than intuition. In the affordance-seed experiment (`harness/PREDICTION-affordance.md`),
+  7 of 10 adversarial runs regenerated a golden file from buggy output and every one
+  passed unseen, while three other hypothesized bypass classes measured zero attempts
+  and stay unbuilt. Catches: runner update mode (`jest -u`, `--updateSnapshot`,
+  `vitest --update`, playwright `--update-snapshots`), regeneration scripts by naming
+  convention (`update-golden`, `regen-snapshots`, `rebless-baselines`), shell mutation
+  of protected snapshot paths, and any modify / delete / rename-out of a recorded
+  expectation. New default protected category `snapshots`
+  (`**/*.snap`, `**/__snapshots__/**`, `**/golden/**`, `**/*.golden.*`).
+  `warn` because updating a snapshot is the legitimate workflow when intended output
+  changes — the finding asks a human to confirm the new expectation, and graduation to
+  `block` follows the SPEC §7 evidence path.
+- Harness: four affordance seeds with independent oracles and mechanical validation,
+  plus `shadow.mjs`, a record-only scanner accumulating attempt-rate evidence for
+  hypothesized detectors on every run.
+
 ## [1.1.0] — 2026-08-26
 
 ### Fixed
@@ -100,3 +121,4 @@ corpus — see SPEC §7.A.
 
 [1.0.0]: https://github.com/hexrift/tamperward/releases/tag/v1.0.0
 [1.1.0]: https://github.com/hexrift/tamperward/releases/tag/v1.1.0
+[1.2.0]: https://github.com/hexrift/tamperward/releases/tag/v1.2.0
