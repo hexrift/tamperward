@@ -92,14 +92,17 @@ with the same engine it ships.
   per-line old/new line numbers correct across multiple hunks.
 - `src/git/build.ts` — the git adapter: range / staged / worktree views, enriching
   `before`/`after` with full file content for the AST detectors.
-- `src/detectors/` — the **eight mechanical rules**: `no-verify`, `ts-any-cast`,
+- `src/detectors/` — the **nine mechanical rules**: `no-verify`, `ts-any-cast`,
   `lint-suppression`, `test-skip`, `coverage-lowering`, `ci-tampering`,
   `hook-tampering`, `test-deletion` (the last counts `it()/test()` via the TS AST,
-  and handles delete / rename-out-of-glob / shell mutation).
+  and handles delete / rename-out-of-glob / shell mutation), and `snapshot-rewrite`
+  (a `warn`: re-recording a snapshot/golden expectation from current output — the one
+  rule built from measured demand, after the affordance experiment put the move at a
+  70% attempt and 100% through rate; see `harness/PREDICTION-affordance.md`).
 - `src/engine.ts` — runs the enabled rules over `Change[]`; honours `policy.ignore`.
 - `src/cli/` — `tamperward check --staged | --worktree | --diff <base>...<head>`,
   exit 1 on any blocking finding.
-- `test/` — 211 tests, including the AST-vs-regex, self-hosting precision, and
+- `test/` — 226 tests, including the AST-vs-regex, self-hosting precision, and
   pre-go-live audit regression cases, and the renderer accessibility contract.
 
 - `src/adapters/claude/` + `src/cli/hook.ts` — the agent layer: `tamperward hook claude`

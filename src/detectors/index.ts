@@ -7,6 +7,7 @@ import { coverageLowering } from './coverage-lowering';
 import { ciTampering } from './ci-tampering';
 import { hookTampering } from './hook-tampering';
 import { testDeletion } from './test-deletion';
+import { snapshotRewrite } from './snapshot-rewrite';
 
 /** The eight mechanical detectors. Heuristic rules (assertion-weakening,
  *  guard-removal) are added in a later phase as `warn`. */
@@ -19,6 +20,7 @@ export const allDetectors: Detector[] = [
   ciTampering,
   hookTampering,
   testDeletion,
+  snapshotRewrite,
 ];
 
 export {
@@ -30,4 +32,5 @@ export {
   ciTampering,
   hookTampering,
   testDeletion,
+  snapshotRewrite,
 };

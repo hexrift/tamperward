@@ -167,6 +167,7 @@ heuristic, and the spec must not pretend otherwise.
 | 8 | `hook-tampering` | file/cmd | edit/delete in `protected.hooks`/`protected.config`; `chmod -x` on a hook; edit to `.tamperward.yml` lowering severities | mechanical | regex |
 | 9 | `no-verify` | command | `git commit -n/--no-verify`, `git push --no-verify`, `HUSKY=0`, `HUSKY_SKIP_HOOKS=1`, `--no-hooks` | mechanical | regex |
 | 10 | `guard-removal` | file | deletion of lines matching auth/validation patterns (`requireAuth`, `checkPermission`, `if (!user`, `authorize`, zod `.parse(`, `csrf`) | heuristic | regex |
+| 11 | `snapshot-rewrite` | command+file | runner update mode (`jest -u`, `--updateSnapshot`, `vitest --update`), regeneration scripts by name (`update-golden`, `regen-snapshots`), shell mutation of protected snapshot paths, and any modify/delete/rename-out of `**/*.snap`, `__snapshots__/`, `golden/` | mechanical, **warn** (updating a snapshot is legitimate when intended output changes; built from measured demand — harness/PREDICTION-affordance.md) | regex + glob |
 
 The eight mechanical rules are where determinism is real and the demo is honest. The
 two heuristics (3, 10) are the research surface — ship as `warn`, measure precision on
