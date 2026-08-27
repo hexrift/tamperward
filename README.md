@@ -18,9 +18,10 @@ path: deleting failing tests, skipping them, casting to `any`, suppressing lint 
 lowering coverage gates, rewriting snapshots, editing CI, or bypassing hooks with
 `--no-verify`. Tamperward treats the safety nets themselves as protected assets and
 blocks the **class** of bypass — one ruleset, evaluated on the actual diff and commands
-as a verdict, not a probability, enforced everywhere a change can be made: **inside the
-agent's loop (a deny before the tool runs, and a sweep at end of turn), at the commit,
-and at the merge.**
+as a verdict, not a probability, enforced at every stage a change passes through:
+**inside the agent's loop (a Claude Code hook today — a deny before the tool runs, and
+a sweep at end of turn), at the commit, and at the merge.** CI is the authority; the
+earlier layers shorten the feedback loop for agents that carry them.
 
 > Apache-2.0 · zero runtime model calls · every headline claim below is measured, with
 > the pre-registered predictions (including the refuted ones) committed to this repo
