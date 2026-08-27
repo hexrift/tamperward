@@ -9,3 +9,7 @@ harness/runs/
 # private working notes — strategy, audits, anything not for the repo
 *.private.md
 NOTES.private.md
+
+# VitePress build output + cache
+docs/.vitepress/dist/
+docs/.vitepress/cache/

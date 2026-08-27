@@ -1,0 +1,47 @@
+name: docs
+
+# Builds the VitePress site under docs/ and deploys it to GitHub Pages
+# (hexrift.github.io/tamperward). Docs only — nothing here touches the npm package,
+# the release pipeline, or the gate.
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**', '.github/workflows/docs.yml', 'package-lock.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write # deploy to Pages
+  id-token: write # OIDC token for the Pages deployment
+
+# One deploy at a time; never cancel a deploy mid-flight.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx vitepress build docs
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: docs/.vitepress/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
