@@ -110,7 +110,7 @@ export function preToolUseVerdict(input: ClaudeHookInput): HookResult {
     // First tool call of the session pins the commit the Stop sweep will compare against.
     turnBaseline(cwd, input.session_id);
     const changes = changesFromClaudeHook(input, cwd);
-    const blocks = evaluate(changes, loadPolicy(cwd)).filter((f) => f.severity === 'block');
+    const blocks = evaluate(changes, loadPolicy(cwd), undefined, 'tool-call').filter((f) => f.severity === 'block');
     return verdict(blocks, 'PreToolUse');
   } catch (e) {
     return failClosed('PreToolUse', errText(e));
@@ -131,7 +131,7 @@ export function stopVerdict(input: ClaudeHookInput): HookResult {
     // mid-turn is still the turn's work, and `git diff HEAD` could not see it.
     const base = turnBaseline(cwd, input.session_id);
     const changes = base ? diffSince(base, { cwd }) : diffWorktree({ cwd });
-    blocks = evaluate(changes, loadPolicy(cwd)).filter((f) => f.severity === 'block');
+    blocks = evaluate(changes, loadPolicy(cwd), undefined, 'turn').filter((f) => f.severity === 'block');
   } catch (e) {
     return failClosed('Stop', errText(e));
   }

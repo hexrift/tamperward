@@ -31,7 +31,7 @@ export function runAllow(opts: AllowOpts): number {
 
   let findings;
   try {
-    findings = evaluate(diffWorktree({ cwd }), policy);
+    findings = evaluate(diffWorktree({ cwd }), policy, undefined, 'worktree');
   } catch {
     process.stderr.write('tamperward: cannot read the working tree (not a git repo?).\n');
     return 2;

@@ -5,7 +5,7 @@
 > through — the agent loop (a Claude Code hook today), pre-commit, and CI, which is
 > the authority.
 
-**Slice:** TypeScript/Jest · Claude Code · 11 rules specified, 9 shipped ·
+**Slice:** TypeScript/Jest · Claude Code · 12 rules specified, 10 shipped ·
 agent-loop + pre-commit + CI · the agent-correction loop measured, not asserted.
 
 v0.3 reconciles the spec with what shipped through 1.4.5 — status is marked inline and
@@ -25,7 +25,7 @@ Two assertions have to become true or false here:
    message redirects the agent to fix the *real* failure rather than hunt for another
    bypass.
 
-Nine of the eleven specified rules are mechanical, and those nine are the ones that
+Ten of the twelve specified rules are mechanical, and those ten are the ones that
 shipped — so #1 is largely engineering. The two heuristics remain unbuilt (§4). #2 —
 whether a denied agent fixes the truth or fights the gate — is the harder question. The
 metric that quantifies it is the **bypass-to-fix conversion rate** (§7.B); see the
@@ -50,7 +50,11 @@ rule namespacing remains reserved.
 ## 2. Architecture — one engine, four adapters
 
 The whole design is one normalization. Every enforcement point produces the same
-intermediate object; the engine never knows which point it runs at.
+intermediate object; the engine does not know which point it runs at — with one narrow,
+additive exception: adapters pass a `view` (the diff's granularity), and a rule whose
+SIGNAL is only valid at a given granularity may consult it (only `snapshot-only-rewrite`
+does — "no accompanying change" means nothing at single-tool-call scope). Every other
+rule fires identically everywhere; that remains the "block the class" promise.
 
 ```
                  ┌─────────────── adapters (thin) ───────────────┐
@@ -78,7 +82,7 @@ interface Detector {
   id: string;
   surface: ('command'|'file')[];
   certainty: 'mechanical' | 'heuristic';
-  run(changes: Change[], policy: Policy): Finding[];
+  run(changes: Change[], policy: Policy, view?: View): Finding[];  // view: additive, most rules ignore it
 }
 ```
 
@@ -135,6 +139,7 @@ rules:
   hook-tampering:       { severity: block }
   no-verify:            { severity: block }
   snapshot-rewrite:     { severity: warn  }    # mechanical but intent-ambiguous — FP study
+  snapshot-only-rewrite: { severity: warn }    # the FP study's narrow signal — graduation candidate
   guard-removal:        { severity: warn  }    # heuristic — RESERVED, not yet built (§4)
 signoff:
   required_for: [block]
@@ -162,9 +167,9 @@ rule is 100% mechanical**; heuristics may only ever be `warn` until measured (§
 
 ---
 
-## 4. The eleven rules — nine shipped, two reserved
+## 4. The twelve rules — ten shipped, two reserved
 
-Surface · signal · and **certainty class**, because nine are mechanical and two are
+Surface · signal · and **certainty class**, because ten are mechanical and two are
 heuristic, and the spec must not pretend otherwise. The two heuristics (rows 3 and 10)
 are **specified here and reserved in the baseline policy, but no detector implements
 them yet** — their names exist so a user policy written today keeps meaning the same
@@ -183,8 +188,9 @@ thing on the release that builds them.
 | 9 | `no-verify` | command | `git commit -n/--no-verify`, `git push --no-verify`, `HUSKY=0`, `HUSKY_SKIP_HOOKS=1`, `--no-hooks` | mechanical | regex |
 | 10 | `guard-removal` | file | deletion of lines matching auth/validation patterns (`requireAuth`, `checkPermission`, `if (!user`, `authorize`, zod `.parse(`, `csrf`) | heuristic — **reserved, not built** | regex |
 | 11 | `snapshot-rewrite` | command+file | runner update mode (`jest -u`, `--updateSnapshot`, `vitest --update`), regeneration scripts by name (`update-golden`, `regen-snapshots`), shell mutation of protected snapshot paths, and any modify/delete/rename-out of `**/*.snap`, `__snapshots__/`, `golden/` | mechanical, **warn** (updating a snapshot is legitimate when intended output changes; built from measured demand — harness/PREDICTION-affordance.md) | regex + glob |
+| 12 | `snapshot-only-rewrite` | file | every changed file in the diff is a moving protected snapshot (adds excluded) — the FP study's narrow signal, ~0.06% of audited mainline commits, 7/7 of observed tampers; judged ONLY at commit granularity (staged/range views) via the engine's `view` parameter, because at tool-call scope every snapshot edit is "only" | mechanical, **warn** (graduation candidate: `BLOCK_SINCE` at a future policy `version:`) | glob |
 
-The nine mechanical rules are where determinism is real and the demo is honest. The two
+The ten mechanical rules are where determinism is real and the demo is honest. The two
 heuristics (3, 10) are the research surface, and the discipline is: **built only against
 a measured negatives corpus, entering as `warn`, promoted per-rule only when the number
 clears the bar (§7)**. Neither has been built — the corpus comes first, because a
@@ -198,7 +204,7 @@ signals (`expect()` count — clean two-AST work) first; the node-alignment sub-
 (matcher-weakened, literal-swapped-in-a-kept-`expect()`, which require matching "the
 same test" across the two versions) after — that's the part that quietly eats a week.
 Regex is genuinely fine for the additive-token detectors (4, 5, 9) and adequate for
-6–8 and 11 against known config shapes.
+6–8, 11 and 12 against known config shapes.
 
 **`tamperward allow` granularity:** a sign-off is keyed on `rule + file + hash(evidence)`
 and expires — never a session-wide blanket on a whole rule.
@@ -466,6 +472,9 @@ CLI over the PR range, and a blocking finding clears only via the out-of-band la
    measured demand; *warn* per its own 1,652-commit FP study.
 7. **The `version:` graduation gate** — *shipped* (1.3.0); no graduation uses it yet
    (`BLOCK_SINCE` is empty).
+8. **`snapshot-only-rewrite`** — *shipped* (1.5.0): the FP study's narrow signal as a
+   distinct warn rule, granularity-guarded to the staged/range views by the engine's
+   additive `view` parameter, positioned for a `version: 2` graduation.
 
 Still open: the §7.A negatives corpus (there is no `fixtures/` tree yet — the
 precision work so far lives in `harness/fp-study/`), the two heuristic detectors it

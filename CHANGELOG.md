@@ -5,6 +5,25 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.5.0] — 2026-08-28
+
+New rule, `warn`: **`snapshot-only-rewrite`** — the FP study's narrow signal (a
+snapshot moved with no accompanying change; ~0.06% of 1,652 audited mainline commits,
+7/7 of observed harness tampers) as its own rule, distinct from the broad
+`snapshot-rewrite` warn so a future policy `version:` can graduate it to `block`
+without touching the broad rule (`BLOCK_SINCE` stays empty in this release; nobody's
+severity changes).
+
+Granularity is load-bearing and enforced: the rule fires only on the staged and range
+views — pre-commit and CI, the granularity the FP corpus measured — never at the
+PreToolUse hook or Stop sweep, where "no accompanying change" is meaningless. This
+rides a new additive `view` parameter through `evaluate()` and `Detector.run`;
+third-party detectors written against the two-argument shape keep working.
+
+Also: the round-three studies (assert-affordance demand measured at a real zero,
+frontier-model matrix completed at four models) shipped to the docs and README in
+#38/#39. Minor per CONTRIBUTING: a new warn rule is new surface. 272 tests.
+
 ## [1.4.6] — 2026-08-27
 
 Docs only. The README stopped claiming the two heuristic rules ship: no detector
