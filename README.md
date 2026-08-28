@@ -93,13 +93,16 @@ Under GitHub Actions each finding also lands as an **inline annotation on the di
 
 ## The rules
 
-Nine mechanical rules, deterministic by construction — eight `block`, one `warn`:
+Ten mechanical rules, deterministic by construction — eight `block`, two `warn`:
 `test-deletion` (AST block-count, rename-out-of-glob, shell mutation), `test-skip`
 (including `.only`, which narrows the suite), `ts-any-cast`, `lint-suppression`,
 `coverage-lowering` (Jest and Vitest shapes, all four metrics, `package.json` included),
 `ci-tampering` (a **moved** check is not a removed one), `hook-tampering`, `no-verify`
-(flags and the env-var escape hatches), and `snapshot-rewrite` (`warn` — see the FP study
-below for why).
+(flags and the env-var escape hatches), `snapshot-rewrite` (`warn` — see the FP study below
+for why), and `snapshot-only-rewrite` (`warn` — the FP study's narrow signal, a
+snapshot moved with **no accompanying change**, as its own rule so it can graduate to
+`block` at a later policy `version:` without touching the broad rule; it fires only at
+commit granularity, where "no accompanying change" means something).
 
 Two heuristic rule names — `assertion-weakening` and `guard-removal` — are **reserved
 in the baseline policy but not yet built**: they get detectors only once a measured
@@ -162,7 +165,10 @@ weekly harness run.
 **What about false positives?** `snapshot-rewrite` was swept over **1,652 real mainline
 commits** (prettier, jest, docusaurus, immer): 216 touched snapshots, all legitimately —
 which is exactly why that rule is a `warn` asking for human confirmation, not a block,
-and why the study is committed (`harness/fp-study/`) rather than summarized away.
+and why the study is committed (`harness/fp-study/`) rather than summarized away. The
+study's narrow signal — snapshot-only diffs, ~0.06% of audited mainline commits but
+7/7 of observed tampers — now ships as the distinct `snapshot-only-rewrite` warn, the
+graduation candidate.
 
 ## Stability
 

@@ -103,9 +103,16 @@ export interface Policy {
   signoff: { requiredFor: Severity[]; ledger: string };
 }
 
+/** Which git view manufactured the Change[] — i.e. the diff's granularity. Most rules
+ *  ignore this (one ruleset, identical everywhere); a rule whose SIGNAL is only valid
+ *  at a given granularity (snapshot-only-rewrite: "no accompanying change" means
+ *  nothing at single-tool-call scope) may consult it. Optional and additive, so
+ *  third-party detectors written against the two-argument shape keep working. */
+export type View = 'tool-call' | 'turn' | 'staged' | 'worktree' | 'range';
+
 export interface Detector {
   id: string;
   surface: Array<'command' | 'file'>;
   certainty: 'mechanical' | 'heuristic';
-  run(changes: Change[], policy: Policy): Finding[];
+  run(changes: Change[], policy: Policy, view?: View): Finding[];
 }
