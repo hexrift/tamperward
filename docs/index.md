@@ -26,7 +26,7 @@ features:
   - title: Enforced at every stage, CI the authority
     details: Inside the agent's loop (a Claude Code PreToolUse deny plus an end-of-turn sweep, holding under bypassPermissions), at pre-commit, and in CI — the authority, reading the policy from the merge-base so a PR cannot govern its own verdict.
   - title: Measured, not asserted
-    details: Across 67 guarded harness runs, 0 tampers reached green and all 25 denials converted to honest fixes — and a pre-registered no-gate control arm shows 6/10 tampers without it, so the gate causes the difference. Refuted bets ship in the repo next to the confirmed ones.
+    details: Across 77 guarded harness runs and four models, 0 tampers reached green and all 25 denials converted to honest fixes — and a pre-registered no-gate control arm shows 6/10 tampers without it, so the gate causes the difference. Refuted bets ship in the repo next to the confirmed ones.
   - title: One command to wire it all
     details: npx tamperward init writes the policy and every enforcement point, idempotently, without overwriting anything you wrote.
 ---
