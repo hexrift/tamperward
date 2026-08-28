@@ -5,6 +5,11 @@
 *Short answer: they turn around and fix the real bug — 25 out of 25 times in my runs.
 The rest of this post is why I believe that number.*
 
+*Follow-up, August 28: [What AI coding agents do when nothing is
+watching](./what-agents-do-when-nothing-is-watching) — the ungated frontier arms, the
+assertion trap that caught nobody, and the rule that shipped from the FP study. The
+numbers below are as published; the README carries the running totals.*
+
 AI coding agents optimize for "the command succeeded," not "the change is
 trustworthy." Under pressure they take the cheapest path to green: delete the failing
 test, add `.skip`, cast to `any`, lower the coverage threshold, regenerate the
@@ -49,7 +54,7 @@ deliberately **independent of the detectors under test**. That independence matt
 an earlier draft where the oracle shared logic with a detector certified six evasions
 as clean, because both had the same blind spot.
 
-Across **77 runs** of these guarded scenarios — every attempted bypass class had a
+Across **67 runs** of these guarded scenarios — every attempted bypass class had a
 detector covering it — **0 tampers reached green**, and **all 25 runs where a block
 fired ended in an honest fix**. A 25/25 point estimate has a 95% lower bound of ≈89%:
 above the bar I'd pre-set for "the loop works," but not a claim of perfection.
@@ -62,11 +67,8 @@ The typical intercepted trajectory, from a transcript:
 7. Bash  node --test       → green, honestly
 ```
 
-The honest split: **no frontier model ever attempted a bypass** — Sonnet 5, Opus 5,
-and Fable 5, gated or not, including five runs where the prompt explicitly *ordered*
-deleting the failing test, and thirty ungated runs with nothing watching at all
-(`harness/PREDICTION-frontier-models.md`; the Fable rows are a Fable-driven harness
-measuring Fable — self-graded homework, bounded by the held-out oracle). Every
+The honest split: **Sonnet 5 never attempted a bypass at all** — including five runs
+where the prompt explicitly *ordered* it to delete the failing test. Every
 interception came from Haiku 4.5, on a seed whose honest fix is genuinely expensive.
 So on scenarios this size, a frontier model mostly does not need the gate. The durable
 claim is narrower: when a shortcut *is* attempted, it is caught deterministically, and
@@ -187,19 +189,16 @@ trustworthy than one whose record is spotless because nobody ran it.
 
 ## Limits, stated plainly
 
-117 counted runs across the guarded and control arms, four models — all of them Claude
-models, on a Claude Code harness — and small seed repos. The 95% lower bound on the
-conversion rate is ≈89%, not 100%. Frontier models didn't need the gate in these
-scenarios (measured ungated now, not inferred), the informed-adversary result measures
-disclosure rather than an agent ordered to evade, and the assertion-weakening zero is
-a zero at a fix cost that proved cheap. Generalizing beyond that — other vendors'
-agents above all — is explicitly not claimed; the weekly harness keeps accumulating,
-and the numbers in the README update when it does.
+77 counted runs across four arms, two models, small seed repos. The 95% lower bound on
+the conversion rate is ≈89%, not 100%. Frontier models rarely needed the gate in these
+scenarios, and the informed-adversary result measures disclosure, not an agent ordered
+to evade. Generalizing beyond that is explicitly not claimed — the weekly harness keeps
+accumulating, and the numbers in the README update when it does.
 
 Everything is in the repo: the harness, the seeds and their independent oracles, the
 transcripts tooling, the pre-registered predictions with their outcomes, and the FP
-study row by row. The running tally across the five pre-registered studies: **nine of
-twenty bets refuted**, committed next to the nine that held and the two the data
+study row by row. The running tally across the three pre-registered studies: **seven
+of twelve bets refuted**, committed next to the four that held and the one the data
 couldn't resolve. I keep losing my own bets, and the tool is better for every loss.
 
 ```bash

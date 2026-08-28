@@ -35,6 +35,7 @@ export default defineConfig({
           text: 'Blog',
           items: [
             { text: 'All posts', link: '/blog/' },
+            { text: 'What agents do when nothing is watching', link: '/blog/what-agents-do-when-nothing-is-watching' },
             { text: 'What agents do when you block their shortcuts', link: '/blog/what-agents-do-when-you-block-their-shortcuts' },
           ],
         },
