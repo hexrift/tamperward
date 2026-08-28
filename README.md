@@ -97,8 +97,10 @@ Nine mechanical rules, deterministic by construction, `block` by default:
 (flags and the env-var escape hatches), and `snapshot-rewrite` (`warn` — see the FP study
 below for why).
 
-Three heuristics ship as `warn` and never block until their precision clears the bar:
-`assertion-weakening`, `guard-removal`, `ts-any-launder`.
+Two heuristic rule names — `assertion-weakening` and `guard-removal` — are **reserved
+in the baseline policy but not yet built**: they get detectors only once a measured
+negatives corpus exists (SPEC §7.A), enter as `warn`, and never block until their
+precision clears the bar.
 
 The policy file itself is un-ignorable, CI reads the policy from the **merge-base** (a PR
 cannot govern its own verdict), and the agent honours no sign-off it can author — the
