@@ -5,6 +5,17 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.4.6] — 2026-08-27
+
+Docs only. The README stopped claiming the two heuristic rules ship: no detector
+implements `assertion-weakening` or `guard-removal` — the names are reserved in the
+baseline policy until the SPEC §7.A negatives corpus exists — and `ts-any-launder`,
+which existed nowhere but that sentence, is gone. Also links the docs site and launch
+post from the header, fixes the init table's policy-as-enforcement-point taxonomy,
+makes the sample verdict match the real renderer (a sign-off line on every blocking
+finding), and reconciles SPEC to v0.3. The npm page snapshots the README at publish,
+so this publish is what corrects it there. No code changes.
+
 ## [1.4.5] — 2026-08-27
 
 Docs and harness only. Two new pre-registered studies answer the two sharpest
