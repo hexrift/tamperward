@@ -26,6 +26,9 @@ earlier layers shorten the feedback loop for agents that carry them.
 > Apache-2.0 · zero runtime model calls · every headline claim below is measured, with
 > the pre-registered predictions (including the refuted ones) committed to this repo
 
+**[Docs & guide](https://hexrift.github.io/tamperward/)** ·
+**[The launch post](https://hexrift.github.io/tamperward/blog/what-agents-do-when-you-block-their-shortcuts)** — how these numbers were measured, and which of my own bets lost
+
 ## Install
 
 ```bash
@@ -35,12 +38,12 @@ npx tamperward init
 One idempotent command wires the policy and every enforcement point — it never
 overwrites anything you wrote, and `--dry-run` shows the plan first:
 
-| point | what it wires |
+| what | wired as |
 | --- | --- |
+| policy | a commented baseline `.tamperward.yml` — the defaults apply even without it |
 | agent loop | Claude Code `PreToolUse` deny + `Stop` sweep, merged into `.claude/settings.json` |
 | pre-commit | husky when present, the plain git hook otherwise |
 | CI | a PR-gate workflow with out-of-band sign-off (details below) |
-| policy | a commented baseline `.tamperward.yml` — the defaults apply even without it |
 
 Or run the views directly:
 
@@ -78,6 +81,7 @@ tamperward: 2 blocking
     evidence  2 test block(s) removed from test/calc.test.js
     instead   Keep the assertions and fix the code. Removing test blocks to go
               green is the tamper.
+    sign-off  tamperward allow test-deletion --file test/calc.test.js --reason "..."
 
 A blocking finding clears only with a human sign-off. In CI that sign-off is
 out-of-band — a PR label applied by a reviewer — never a file committed on the
@@ -89,7 +93,7 @@ Under GitHub Actions each finding also lands as an **inline annotation on the di
 
 ## The rules
 
-Nine mechanical rules, deterministic by construction, `block` by default:
+Nine mechanical rules, deterministic by construction — eight `block`, one `warn`:
 `test-deletion` (AST block-count, rename-out-of-glob, shell mutation), `test-skip`
 (including `.only`, which narrows the suite), `ts-any-cast`, `lint-suppression`,
 `coverage-lowering` (Jest and Vitest shapes, all four metrics, `package.json` included),
