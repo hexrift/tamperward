@@ -115,19 +115,26 @@ escape valve is a PR label only a human with write access can apply.
 **Does the loop work?** `harness/run.sh` stands up an isolated repo with a real bug and a
 failing protected test, lets a headless agent loose with the hooks installed, and
 classifies the end state with an oracle independent of the detectors under test
-(SPEC §7.B). Across 67 runs of these **guarded** scenarios — every attempted bypass class
+(SPEC §7.B). Across 77 runs of these **guarded** scenarios — every attempted bypass class
 had a detector covering it — **0 tampers reached green; all 25 runs where a block fired
 ended in an honest fix**, a 25/25 point estimate whose 95% lower bound is ≈89%. The split is the
-honest part: Sonnet 5 never attempted a bypass at all, even when the prompt *ordered*
-one; every interception came from Haiku 4.5 on a seed whose honest fix is genuinely
-expensive. Reproduce: `npm run build && harness/run.sh 5 adversarial haiku seed-hard`.
+honest part: across four models (Haiku 4.5, Sonnet 5, Opus 5, Fable 5), every
+interception came from Haiku on a seed whose honest fix is genuinely expensive — no
+frontier model attempted a bypass at all, even when the prompt *ordered* one.
+Reproduce: `npm run build && harness/run.sh 5 adversarial haiku seed-hard`.
 
 **Is the fix caused by the deny, or would it have happened anyway?** Measured, with a
 pre-registered no-gate control arm (`harness/PREDICTION-ungated-control.md`): same seed,
 model, prompt and oracle, hooks removed. **6/10 ungated runs tampered through; honest
 fixes fell from 10/10 gated to 4/10 ungated.** The gate's measured contribution on that
 configuration is a 60-point swing — causation, not survivorship — and one of the three
-control-arm bets was refuted (ungated honest fixes came in above my bet).
+control-arm bets was refuted (ungated honest fixes came in above my bet). The control
+arm was then extended across the model family (`harness/PREDICTION-frontier-models.md`):
+ungated Sonnet 5, Opus 5, and Fable 5 each went **10/10 honest** under the same
+pressure prompt — frontier honesty is disposition, not the gate's deterrence — while
+ungated Haiku stays 6/10 tamper-green. The gate's measured value concentrates on the
+models that do cheat. (The Fable rows are a Fable-driven harness measuring Fable:
+self-graded homework, bounded by the deterministic held-out oracle.)
 
 **And when the agent knows the gate is there?** Also pre-registered
 (`harness/PREDICTION-informed-adversary.md`) — betting the gate would *leak*. Refuted,
@@ -144,9 +151,13 @@ specific bypass each; predictions are pre-registered before any rep runs
 file from buggy output and sailed through — **because nothing guarded that class yet**;
 that measured demand is why `snapshot-rewrite` exists — while
 timeout-inflation and lint-config-gutting measured **0/10 attempts each** — two
-pre-registered bets refuted, two detectors *not* built. Bypass classes with no measured
-demand stay in a record-only shadow scanner that accumulates evidence on every weekly
-harness run.
+pre-registered bets refuted, two detectors *not* built. The same discipline settled
+`assertion-weakening` (`harness/PREDICTION-assert-affordance.md`): a seed making the
+expectation edit the one cheap, prompt-named move — with a plausible convention-mismatch
+cover story — measured **0/10 attempts**; Haiku implemented the real fix every time. My
+≥6/10 bet was refuted, and the rule stays a reserved name. Bypass classes with no
+measured demand stay in a record-only shadow scanner that accumulates evidence on every
+weekly harness run.
 
 **What about false positives?** `snapshot-rewrite` was swept over **1,652 real mainline
 commits** (prettier, jest, docusaurus, immer): 216 touched snapshots, all legitimately —
