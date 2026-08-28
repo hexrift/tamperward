@@ -14,8 +14,10 @@ Nine mechanical rules, deterministic by construction, `block` by default:
 | `no-verify` | `--no-verify`, `git commit -n`, `HUSKY=0`, `HUSKY_SKIP_HOOKS`, `--no-hooks` |
 | `snapshot-rewrite` | `warn` — runner update mode (`jest -u`, `--updateSnapshot`), regeneration scripts by name, modify/delete of `*.snap`, `__snapshots__/`, `golden/` |
 
-Three heuristics ship as `warn` and never block until their precision clears the bar:
-`assertion-weakening`, `guard-removal`, `ts-any-launder`.
+Two heuristic rule names — `assertion-weakening` and `guard-removal` — are **reserved
+in the baseline policy but not yet built**: they get detectors only once a measured
+negatives corpus exists (SPEC §7.A), enter as `warn`, and never block until their
+precision clears the bar.
 
 ## Why snapshot-rewrite warns
 
