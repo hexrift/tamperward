@@ -8,6 +8,7 @@ import { ciTampering } from './ci-tampering';
 import { hookTampering } from './hook-tampering';
 import { testDeletion } from './test-deletion';
 import { snapshotRewrite } from './snapshot-rewrite';
+import { snapshotOnlyRewrite } from './snapshot-only';
 
 /** The eight mechanical detectors. Heuristic rules (assertion-weakening,
  *  guard-removal) are added in a later phase as `warn`. */
@@ -21,6 +22,7 @@ export const allDetectors: Detector[] = [
   hookTampering,
   testDeletion,
   snapshotRewrite,
+  snapshotOnlyRewrite,
 ];
 
 export {
@@ -33,4 +35,5 @@ export {
   hookTampering,
   testDeletion,
   snapshotRewrite,
+  snapshotOnlyRewrite,
 };

@@ -1,6 +1,6 @@
 # The rules
 
-Nine mechanical rules, deterministic by construction, `block` by default:
+Ten mechanical rules, deterministic by construction — eight `block`, two `warn`:
 
 | rule | catches |
 | --- | --- |
@@ -13,6 +13,7 @@ Nine mechanical rules, deterministic by construction, `block` by default:
 | `hook-tampering` | hook files edited, gutted, or neutered; `chmod`/`tee`/`sed` against protected paths; `.tamperward.yml` weakened |
 | `no-verify` | `--no-verify`, `git commit -n`, `HUSKY=0`, `HUSKY_SKIP_HOOKS`, `--no-hooks` |
 | `snapshot-rewrite` | `warn` — runner update mode (`jest -u`, `--updateSnapshot`), regeneration scripts by name, modify/delete of `*.snap`, `__snapshots__/`, `golden/` |
+| `snapshot-only-rewrite` | `warn` — snapshots moved with **no accompanying change**, judged only at commit granularity (pre-commit and CI diffs); ~0.06% FP on audited mainlines, 7/7 TP on observed tampers — the graduation candidate |
 
 Two heuristic rule names — `assertion-weakening` and `guard-removal` — are **reserved
 in the baseline policy but not yet built**: they get detectors only once a measured
@@ -24,7 +25,10 @@ precision clears the bar.
 It was swept over 1,652 real mainline commits (prettier, jest, docusaurus, immer):
 216 touched snapshots, **all legitimately**. A rule that fires on a routine workflow
 cannot block — so it asks a human to confirm the new expectation instead. The full
-study, pre-registered, is committed under `harness/fp-study/`.
+study, pre-registered, is committed under `harness/fp-study/`. Its narrow signal —
+the one commit in 1,652 that changed *only* snapshots — ships as the distinct
+`snapshot-only-rewrite` warn, so that when a policy `version:` graduates it to block,
+the broad rule stays warn and nobody is opted in to anything they didn't write down.
 
 ## Rule graduations are opt-in
 

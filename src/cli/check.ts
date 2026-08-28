@@ -2,7 +2,7 @@
 // requested git view, runs the engine, prints the verdict, and exits non-zero on a
 // blocking finding so it can serve as a gate at pre-commit and in CI.
 
-import { Change, Policy } from '../types';
+import { Change, Policy, View } from '../types';
 import { diffRange, diffStaged, diffWorktree, mergeBaseOf } from '../git/build';
 import { evaluate, hasBlocking, isSuppressed } from '../engine';
 import { loadPolicy, loadPolicyAt, PolicyError } from '../policy-load';
@@ -25,12 +25,15 @@ function check(opts: CheckOpts): number {
 
   let changes: Change[];
   let layer: 'local' | 'ci';
+  let view: View;
   if (opts.staged) {
     changes = diffStaged({ cwd: opts.cwd });
     layer = 'local'; // pre-commit: a human at their machine may sign off (ledger, fingerprint-bound)
+    view = 'staged';
   } else if (opts.worktree) {
     changes = diffWorktree({ cwd: opts.cwd });
     layer = 'local';
+    view = 'worktree';
   } else if (opts.diff) {
     const [base, head] = opts.diff.split(/\.{2,3}/);
     if (!base || !head) {
@@ -38,7 +41,8 @@ function check(opts: CheckOpts): number {
       return 2;
     }
     changes = diffRange(base, head, { cwd: opts.cwd });
-    layer = 'ci'; // authority for main: out-of-band approval ONLY, never the committed ledger
+    layer = 'ci';
+    view = 'range'; // authority for main: out-of-band approval ONLY, never the committed ledger
     // TRUSTED-BASE POLICY. Everything on the head is agent-authorable, so the head's own
     // .tamperward.yml cannot decide the head's verdict — otherwise one line (`ignore: ['**']`,
     // a lowered severity, a narrowed protected glob) switches the gate off for the very
@@ -52,7 +56,7 @@ function check(opts: CheckOpts): number {
   }
 
   const ignoredFiles = changes.filter((c) => isSuppressed(c, policy)).length;
-  let findings = evaluate(changes, policy);
+  let findings = evaluate(changes, policy, undefined, view);
 
   // Sign-off, per layer. LOCAL consults the (fingerprint-bound) ledger; CI honors ONLY an
   // out-of-band approval surfaced via env, never the committed ledger.

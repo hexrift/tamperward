@@ -2,7 +2,7 @@
 // It knows nothing about where the changes came from — agent hook, pre-commit, or CI
 // all funnel through here, which is what makes one ruleset enforce identically.
 
-import { Change, Detector, Finding, Policy } from './types';
+import { Change, Detector, Finding, Policy, View } from './types';
 import { allDetectors } from './detectors';
 import { isEnabled } from './detectors/finding';
 import { isIgnored, isPolicyFile } from './policy';
@@ -30,6 +30,7 @@ export function evaluate(
   changes: Change[],
   policy: Policy,
   detectors: Detector[] = allDetectors,
+  view?: View,
 ): Finding[] {
   const active = activeChanges(changes, policy);
   const out: Finding[] = [];
@@ -40,7 +41,7 @@ export function evaluate(
     // error — i.e. it would fail OPEN. Isolate each detector; surface the failure loudly
     // on stderr but keep the other rules' verdicts intact.
     try {
-      out.push(...d.run(active, policy));
+      out.push(...d.run(active, policy, view));
     } catch (e) {
       process.stderr.write(`tamperward: detector "${d.id}" errored and was skipped: ${String(e)}\n`);
     }

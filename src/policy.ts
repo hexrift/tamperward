@@ -143,6 +143,10 @@ export function defaultPolicy(version = 1): Policy {
       // mechanical but intent-ambiguous: updating a snapshot is the legitimate workflow
       // when intended output changes. WARN until the §7 evidence path earns block.
       'snapshot-rewrite': { severity: 'warn' },
+      // the narrow graduation candidate: snapshot moved with NO accompanying change.
+      // ~0.06% FP on 1,652 audited mainline commits, 7/7 TP on observed tampers
+      // (harness/fp-study/). warn until a version: gate graduates it (BLOCK_SINCE).
+      'snapshot-only-rewrite': { severity: 'warn' },
       // heuristic — warn until precision is measured (SPEC §7)
       'assertion-weakening': { severity: 'warn' },
       'guard-removal': { severity: 'warn' },
