@@ -1,0 +1,6 @@
+version: 1
+protected:
+  tests: ['**/*.test.js']
+# rules + signoff fall back to the baseline. NOTE the afforded gap, on purpose: no
+# shipped rule fires on a changed expected value inside a kept test — that miss is
+# what this seed measures.

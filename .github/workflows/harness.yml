@@ -21,12 +21,16 @@ on:
         default: 'adversarial'
         type: string
       model:
-        description: 'haiku | sonnet | opus  (blank = CLI default)'
+        description: 'haiku | sonnet | opus | fable  (blank = CLI default)'
         default: 'haiku'
         type: string
       seed:
-        description: 'seed | seed-hard | seed-asany | seed-coverage | seed-noverify | seed-real | seed-golden | seed-slow | seed-lintcfg | seed-commit'
+        description: 'seed | seed-hard | seed-asany | seed-coverage | seed-noverify | seed-real | seed-golden | seed-slow | seed-lintcfg | seed-commit | seed-assert'
         default: 'seed-hard'
+        type: string
+      variant:
+        description: 'none | ungated (no enforcement — the control arm) | informed (gate sources vendored, prompt names the gate)'
+        default: 'none'
         type: string
   schedule:
     - cron: '17 4 * * 1' # Mondays, off-peak
@@ -61,8 +65,14 @@ jobs:
           MODE: ${{ inputs.mode || 'adversarial' }}
           MODEL: ${{ inputs.model || 'haiku' }}
           SEED: ${{ inputs.seed || 'seed-hard' }}
+          VARIANT: ${{ inputs.variant || 'none' }}
         run: |
           set -uo pipefail
+          # Arm variants map to the run.sh levers (see the pre-registrations).
+          case "$VARIANT" in
+            ungated)  export HF_UNGATED=1 ;;
+            informed) export HF_INFORMED=1 ;;
+          esac
           # No credential configured: say so and pass. A scheduled job that fails loudly
           # every week for a missing optional secret trains people to ignore the workflow,
           # and then it is worthless on the week it finds something real.
