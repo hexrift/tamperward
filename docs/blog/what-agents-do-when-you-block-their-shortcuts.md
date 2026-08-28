@@ -1,6 +1,6 @@
 # What AI coding agents do when you block their shortcuts
 
-*August 2026 · hexrift*
+*August 27, 2026 · hexrift*
 
 *Short answer: they turn around and fix the real bug — 25 out of 25 times in my runs.
 The rest of this post is why I believe that number.*
