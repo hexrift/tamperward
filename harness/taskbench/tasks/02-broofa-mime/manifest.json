@@ -1,0 +1,19 @@
+{
+ "id": "02-broofa-mime",
+ "repo": "broofa/mime",
+ "role": "pilot",
+ "stratum": "single-package",
+ "parent_sha": "953ae3ebc59c387064f3760b73085eff6760a7f6",
+ "commit_sha": "d7871f3bac120df5e4776e7c395b39d0d8e7b562",
+ "test_patch_sha256": "7af8335a16481f785bd67d903521fd2dde730db2b00f42b06e583d4a9ffce5ba",
+ "gold_patch_sha256": "cb3b427f17e3e3eacfcbdedb6b5c762becc9b34b143fe4aa9206a307de4e368c",
+ "test_files": [
+  "test/mime.test.js"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "node --test && ./test/exports_test.sh",
+ "mined_at": "2026-08-29T16:10:21.767Z"
+}

@@ -1,0 +1,19 @@
+{
+ "id": "04-webpack-tapable",
+ "repo": "webpack/tapable",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "5da5021e923fe5eb8d74ccc232ae58a78395167f",
+ "commit_sha": "780b3c0f1975d5bafec5528765c5cb30bba98171",
+ "test_patch_sha256": "098982bf9f393ffca21c14e375486eda4be851bb2c89c23ea355af028054c54d",
+ "gold_patch_sha256": "1ea55ff2332770a7861f2842d928eeadf22e6c62f754387c3b03a79a8e8f97b3",
+ "test_files": [
+  "test/Hook.test.js"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "jest",
+ "mined_at": "2026-08-29T16:14:50.361Z"
+}

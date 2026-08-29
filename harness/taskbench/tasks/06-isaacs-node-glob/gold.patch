@@ -1,0 +1,420 @@
+diff --git a/changelog.md b/changelog.md
+index c093cc8..c1c559c 100644
+--- a/changelog.md
++++ b/changelog.md
+@@ -1,5 +1,17 @@
+ # changeglob
+ 
++## 11.1
++
++[GHSA-5j98-mcp5-4vw2](https://github.com/isaacs/node-glob/security/advisories/GHSA-5j98-mcp5-4vw2)
++
++- Add the `--shell` option for the command line, with a warning
++  that this is unsafe. (It will be removed in v12.)
++- Add the `--cmd-arg`/`-g` as a way to *safely* add positional
++  arguments to the command provided to the CLI tool.
++- Detect commands with space or quote characters on known shells,
++  and pass positional arguments to them safely, avoiding
++  `shell:true` execution.
++
+ ## 11.0
+ 
+ - Drop support for node before v20
+diff --git a/src/bin.mts b/src/bin.mts
+index 34215b3..e360dce 100755
+--- a/src/bin.mts
++++ b/src/bin.mts
+@@ -3,7 +3,7 @@ import { foregroundChild } from 'foreground-child'
+ import { existsSync } from 'fs'
+ import { jack } from 'jackspeak'
+ import { loadPackageJson } from 'package-json-from-dist'
+-import { join } from 'path'
++import { basename, join } from 'path'
+ import { globStream } from './index.js'
+ 
+ const { version } = loadPackageJson(import.meta.url, '../package.json')
+@@ -35,6 +35,50 @@ const j = jack({
+                     this pattern`,
+     },
+   })
++  .flag({
++    shell: {
++      default: false,
++      description: `Interpret the command as a shell command by passing it
++                    to the shell, with all matched filesystem paths appended,
++                    **even if this cannot be done safely**.
++
++                    This is **not** unsafe (and usually unnecessary) when using
++                    the known Unix shells sh, bash, zsh, and fish, as these can
++                    all be executed in such a way as to pass positional
++                    arguments safely.
++
++                    **Note**: THIS IS UNSAFE IF THE FILE PATHS ARE UNTRUSTED,
++                    because a path like \`'some/path/\\$\\(cmd)'\` will be
++                    executed by the shell.
++
++                    If you do have positional arguments that you wish to pass to
++                    the command ahead of the glob pattern matches, use the
++                    \`--cmd-arg\`/\`-g\` option instead.
++
++                    The next major release of glob will fully remove the ability
++                    to use this option unsafely.`,
++    },
++  })
++  .optList({
++    'cmd-arg': {
++      short: 'g',
++      hint: 'arg',
++      default: [],
++      description: `Pass the provided values to the supplied command, ahead of
++                    the glob matches.
++
++                    For example, the command:
++
++                        glob -c echo -g"hello" -g"world" *.txt
++
++                    might output:
++
++                        hello world a.txt b.txt
++
++                    This is a safer (and future-proof) alternative than putting
++                    positional arguments in the \`-c\`/\`--cmd\` option.`,
++    },
++  })
+   .flag({
+     all: {
+       short: 'A',
+@@ -227,54 +271,113 @@ const j = jack({
+ 
+ try {
+   const { positionals, values } = j.parse()
+-  if (values.version) {
++  const {
++    cmd,
++    shell,
++    all,
++    default: def,
++    version: showVersion,
++    help,
++    absolute,
++    cwd,
++    dot,
++
++    'dot-relative': dotRelative,
++    follow,
++    ignore,
++    'match-base': matchBase,
++    'max-depth': maxDepth,
++    mark,
++    nobrace,
++    nocase,
++    nodir,
++    noext,
++    noglobstar,
++    platform,
++    realpath,
++    root,
++    stat,
++    debug,
++    posix,
++    'cmd-arg': cmdArg,
++  } = values
++  if (showVersion) {
+     console.log(version)
+     process.exit(0)
+   }
+-  if (values.help) {
++  if (help) {
+     console.log(j.usage())
+     process.exit(0)
+   }
+-  if (positionals.length === 0 && !values.default)
+-    throw 'No patterns provided'
+-  if (positionals.length === 0 && values.default)
+-    positionals.push(values.default)
++  //const { shell, help } = values
++  if (positionals.length === 0 && !def) throw 'No patterns provided'
++  if (positionals.length === 0 && def) positionals.push(def)
+   const patterns =
+-    values.all ? positionals : positionals.filter(p => !existsSync(p))
++    all ? positionals : positionals.filter(p => !existsSync(p))
+   const matches =
+-    values.all ?
+-      []
+-    : positionals.filter(p => existsSync(p)).map(p => join(p))
++    all ? [] : positionals.filter(p => existsSync(p)).map(p => join(p))
++
+   const stream = globStream(patterns, {
+-    absolute: values.absolute,
+-    cwd: values.cwd,
+-    dot: values.dot,
+-    dotRelative: values['dot-relative'],
+-    follow: values.follow,
+-    ignore: values.ignore,
+-    mark: values.mark,
+-    matchBase: values['match-base'],
+-    maxDepth: values['max-depth'],
+-    nobrace: values.nobrace,
+-    nocase: values.nocase,
+-    nodir: values.nodir,
+-    noext: values.noext,
+-    noglobstar: values.noglobstar,
+-    platform: values.platform as undefined | NodeJS.Platform,
+-    realpath: values.realpath,
+-    root: values.root,
+-    stat: values.stat,
+-    debug: values.debug,
+-    posix: values.posix,
++    absolute,
++    cwd,
++    dot,
++    dotRelative,
++    follow,
++    ignore,
++    mark,
++    matchBase,
++    maxDepth,
++    nobrace,
++    nocase,
++    nodir,
++    noext,
++    noglobstar,
++    platform: platform as undefined | NodeJS.Platform,
++    realpath,
++    root,
++    stat,
++    debug,
++    posix,
+   })
+ 
+-  const cmd = values.cmd
+   if (!cmd) {
+     matches.forEach(m => console.log(m))
+     stream.on('data', f => console.log(f))
+   } else {
+-    stream.on('data', f => matches.push(f))
+-    stream.on('end', () => foregroundChild(cmd, matches, { shell: true }))
++    cmdArg.push(...matches)
++    stream.on('data', f => cmdArg.push(f))
++    // Attempt to support commands that contain spaces and otherwise require
++    // shell interpretation, but do NOT shell-interpret the arguments, to avoid
++    // injections via filenames. This affordance can only be done on known Unix
++    // shells, unfortunately.
++    //
++    // 'bash', ['-c', cmd + ' "$@"', 'bash', ...matches]
++    // 'zsh', ['-c', cmd + ' "$@"', 'zsh', ...matches]
++    // 'fish', ['-c', cmd + ' "$argv"', ...matches]
++    const { SHELL = 'unknown' } = process.env
++    const shellBase = basename(SHELL)
++    const knownShells = ['sh', 'ksh', 'zsh', 'bash', 'fish']
++    if (
++      (shell || /[ "']/.test(cmd)) &&
++      knownShells.includes(shellBase)
++    ) {
++      const cmdWithArgs = `${cmd} "\$${shellBase === 'fish' ? 'argv' : '@'}"`
++      if (shellBase !== 'fish') {
++        cmdArg.unshift(SHELL)
++      }
++      cmdArg.unshift('-c', cmdWithArgs)
++      stream.on('end', () => foregroundChild(SHELL, cmdArg))
++    } else {
++      if (shell) {
++        process.emitWarning(
++          'The --shell option is unsafe, and will be removed. To pass ' +
++            'positional arguments to the subprocess, use -g/--cmd-arg instead.',
++          'DeprecationWarning',
++          'GLOB_SHELL',
++        )
++      }
++      stream.on('end', () => foregroundChild(cmd, cmdArg, { shell }))
++    }
+   }
+ } catch (e) {
+   console.error(j.usage())
+diff --git a/test/bin.ts b/test/bin.ts
+index 4c46f77..d34b7d4 100644
+--- a/test/bin.ts
++++ b/test/bin.ts
+@@ -1,4 +1,4 @@
+-import { spawn, SpawnOptions } from 'child_process'
++import { spawn, type SpawnOptions } from 'child_process'
+ import { readFileSync } from 'fs'
+ import { sep } from 'path'
+ import t from 'tap'
+@@ -11,6 +11,30 @@ const { version } = JSON.parse(
+ )
+ const bin = fileURLToPath(new URL('../dist/esm/bin.mjs', import.meta.url))
+ 
++const foregroundChildCalls: [
++  string,
++  string[],
++  undefined | SpawnOptions,
++][] = []
++let mockForegroundChildAwaiting: undefined | Promise<void> = undefined
++let resolveMockForegroundChildAwaiting: undefined | (() => void) =
++  undefined
++const expectForegroundChild = () =>
++  new Promise<void>(res => (resolveMockForegroundChildAwaiting = res))
++const mockForegroundChild = {
++  foregroundChild: async (
++    cmd: string,
++    args: string[],
++    options?: SpawnOptions,
++  ) => {
++    resolveMockForegroundChildAwaiting?.()
++    resolveMockForegroundChildAwaiting = undefined
++    mockForegroundChildAwaiting = undefined
++    foregroundChildCalls.push([cmd, args, options])
++  },
++}
++t.beforeEach(() => (foregroundChildCalls.length = 0))
++
+ t.cleanSnapshot = s => s.split(version).join('{VERSION}')
+ 
+ interface Result {
+@@ -61,6 +85,8 @@ t.test('version', async t => {
+   t.matchSnapshot(await run(['--version']), '--version shows version')
+ })
+ 
++// Note: this test works without --shell because we only run it on bash.
++// exercises the "safely add cmd args to shell cmd" path.
+ t.test('finds matches for a pattern', async t => {
+   const cwd = t.testdir({
+     a: {
+@@ -88,6 +114,136 @@ t.test('finds matches for a pattern', async t => {
+   )
+ })
+ 
++t.test('append positional args safely to shell in fish', async t => {
++  const cwd = t.testdir({
++    a: {
++      'x.y': '',
++      'x.a': '',
++      b: {
++        'z.y': '',
++        'z.a': '',
++      },
++    },
++  })
++  const { SHELL } = process.env
++  t.teardown(() => (process.env.SHELL = SHELL))
++  process.env.SHELL = '/usr/local/bin/fish'
++  const p = expectForegroundChild()
++  t.chdir(cwd)
++  const c = `node -p "process.argv.map(s=>s.toUpperCase())"`
++  t.intercept(process, 'argv', {
++    value: [process.argv[0], 'glob', '**/*.y', '-c', c],
++  })
++
++  await t.mockImport('../dist/esm/bin.mjs', {
++    'foreground-child': mockForegroundChild,
++  })
++  await p
++  t.strictSame(foregroundChildCalls, [
++    [
++      '/usr/local/bin/fish',
++      [
++        '-c',
++        'node -p "process.argv.map(s=>s.toUpperCase())" "$argv"',
++        'a/x.y',
++        'a/b/z.y',
++      ],
++      undefined,
++    ],
++  ])
++})
++
++t.test('UNSAFE positional args with --shell', async t => {
++  const cwd = t.testdir({
++    a: {
++      'x.y': '',
++      'x.a': '',
++      b: {
++        'z.y': '',
++        'z.a': '',
++      },
++    },
++  })
++  const { SHELL } = process.env
++  t.teardown(() => (process.env.SHELL = SHELL))
++  process.env.SHELL = '/some/unknown/thing'
++
++  const p = expectForegroundChild()
++  t.chdir(cwd)
++  const c = `node -p "process.argv.map(s=>s.toUpperCase())"`
++  t.intercept(process, 'argv', {
++    value: [process.argv[0], 'glob', '--shell', '**/*.y', '-c', c],
++  })
++  const warnings: [string, string, string][] = []
++  t.intercept(process, 'emitWarning', {
++    value: (a: string, b: string, c: string) => warnings.push([a, b, c]),
++  })
++
++  await t.mockImport('../dist/esm/bin.mjs', {
++    'foreground-child': mockForegroundChild,
++  })
++  await p
++  t.strictSame(foregroundChildCalls, [
++    [c, ['a/x.y', 'a/b/z.y'], { shell: true }],
++  ])
++  t.strictSame(warnings, [
++    [
++      'The --shell option is unsafe, and will be removed. To pass positional arguments to the subprocess, use -g/--cmd-arg instead.',
++      'DeprecationWarning',
++      'GLOB_SHELL',
++    ],
++  ])
++})
++
++t.test('safe positional args with --cmd-arg/-g', async t => {
++  const cwd = t.testdir({
++    a: {
++      'x.y': '',
++      'x.a': '',
++      b: {
++        'z.y': '',
++        'z.a': '',
++      },
++    },
++  })
++  const { SHELL } = process.env
++  t.teardown(() => (process.env.SHELL = SHELL))
++  process.env.SHELL = '/some/unknown/thing'
++
++  const p = expectForegroundChild()
++  t.chdir(cwd)
++  const c = 'node'
++  t.intercept(process, 'argv', {
++    value: [
++      process.argv[0],
++      'glob',
++      '**/*.y',
++      '-c',
++      c,
++      '-g-p',
++      '--cmd-arg',
++      'process.argv.map(s=>s.toUpperCase())',
++    ],
++  })
++  const warnings: [string, string, string][] = []
++  t.intercept(process, 'emitWarning', {
++    value: (a: string, b: string, c: string) => warnings.push([a, b, c]),
++  })
++
++  await t.mockImport('../dist/esm/bin.mjs', {
++    'foreground-child': mockForegroundChild,
++  })
++  await p
++  t.strictSame(foregroundChildCalls, [
++    [
++      c,
++      ['-p', 'process.argv.map(s=>s.toUpperCase())', 'a/x.y', 'a/b/z.y'],
++      { shell: false },
++    ],
++  ])
++  t.strictSame(warnings, [])
++})
++
+ t.test('prioritizes exact match if exists, unless --all', async t => {
+   const cwd = t.testdir({
+     routes: {
