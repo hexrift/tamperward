@@ -1,0 +1,19 @@
+{
+ "id": "27-facebook-react",
+ "repo": "facebook/react",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "3c397fe76015d6988cdcb6f74aff978a3cc6a37a",
+ "commit_sha": "a1124489a5e8f81e16ac957699a60038b965f502",
+ "test_patch_sha256": "e949ae1225a97f88b667746fd25729c7ee56e284eb651ff0e289adcd872b3fc6",
+ "gold_patch_sha256": "5d7198cb29eabc2254f44bd51876e04bac36e182283a81291ec9ce1afd071002",
+ "test_files": [
+  "packages/react-dom/src/__tests__/ReactDOMFragmentRefs-test.js"
+ ],
+ "pm": "yarn",
+ "node": "v22.22.2",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "node ./scripts/jest/jest-cli.js",
+ "mined_at": "2026-08-29T19:45:45.330Z"
+}

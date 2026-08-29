@@ -1,0 +1,13 @@
+diff --git a/packages/react-dom-bindings/src/client/ReactFiberConfigDOM.js b/packages/react-dom-bindings/src/client/ReactFiberConfigDOM.js
+index 00e8e6ad4..00d082fec 100644
+--- a/packages/react-dom-bindings/src/client/ReactFiberConfigDOM.js
++++ b/packages/react-dom-bindings/src/client/ReactFiberConfigDOM.js
+@@ -3152,7 +3152,7 @@ function normalizeListenerOptions(
+   opts: ?EventListenerOptionsOrUseCapture,
+ ): string {
+   if (opts == null) {
+-    return '0';
++    return 'c=0';
+   }
+ 
+   if (typeof opts === 'boolean') {
