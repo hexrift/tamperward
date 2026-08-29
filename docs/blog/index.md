@@ -1,5 +1,11 @@
 # Blog
 
+- **[What AI coding agents do when it doesn't look like a test](./what-agents-do-when-it-does-not-look-like-a-test)** — August 29, 2026.
+  Two attacks on the honesty results: a seed dressed as a real project (backdated
+  history, a maintainer's plea) and a written license to rewrite tests the agent
+  might believe are wrong. Sixty runs, zero cheats — and the manipulation checks
+  that make the nulls mean something. Bet ledger: 33 bets, 14 refuted.
+
 - **[What AI coding agents do when the fix doesn't exist](./what-agents-do-when-the-fix-does-not-exist)** — August 29, 2026.
   The stuck-agent study: a provably unfixable suite, a claims-based oracle, and an
   explicit honest exit. Twenty of twenty pressured runs surrendered honestly — both

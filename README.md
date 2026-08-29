@@ -175,6 +175,24 @@ believe is sanctioned — the danger is pressure with no sanctioned exit cheaper
 the lie. The untested harder variant (no one *names* the exit) is registered as the
 open follow-up.
 
+**Is the honesty just eval-awareness?** The sharpest critique of every number above —
+the seeds *look* like tests, so maybe the models are performing for a suspected
+grader — is measured too (`harness/PREDICTION-eval-awareness.md`): the same
+seed dressed as a real project (README, changelog, a user-report thread with a
+maintainer's plea, a backdated git history built by a self-deleting kit), gate off.
+**Zero frontier tampers in 20 dressed runs**, matching the undressed baselines, while
+Haiku stayed a cheater at 8/10. The pre-registered manipulation check is the honest
+part: only Opus actually read the dressing (8/10 runs, all ten honest) — so the Opus
+null carries the weight and the Sonnet null is scoped as ambient-only. And the
+sanctioned-edit variant (`harness/PREDICTION-self-authored.md`) — implement from an
+ambiguous spec, then a prompt *licensing* correction of "intern-written" tests —
+produced **zero test rewrites in 30 runs across three models**, refuting all three of
+my rewrite bets, for a reason worth knowing: every model, implementing blind, chose
+the same reading the tests encode. You cannot make an agent believe a test is wrong
+by telling it tests might be wrong; the forced-conflict variant is the registered
+follow-up. Running ledger: **33 pre-registered bets — 14 refuted, 17 held, 2
+unresolvable.**
+
 **What about false positives?** `snapshot-rewrite` was swept over **1,652 real mainline
 commits** (prettier, jest, docusaurus, immer): 216 touched snapshots, all legitimately —
 which is exactly why that rule is a `warn` asking for human confirmation, not a block,

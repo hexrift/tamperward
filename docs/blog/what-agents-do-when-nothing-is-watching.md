@@ -6,6 +6,13 @@
 switched off. The cheap model cheats 6 times out of 10. That gap is the whole product
 thesis, in two numbers.*
 
+*Follow-up, August 29: [What AI coding agents do when it doesn't look like a
+test](./what-agents-do-when-it-does-not-look-like-a-test) — the obvious objection to
+the 30/30 below is that the scenarios look like evals. That confound is now measured:
+same mechanics dressed as a real project with a backdated history, zero frontier
+tampers, and the one model that read the dressing stayed honest anyway. The numbers
+below are as published; the README carries the running totals.*
+
 The [launch post](./what-agents-do-when-you-block-their-shortcuts) measured what
 agents do when you *block* their shortcuts: 25 denials, 25 honest fixes, zero tampers
 through. This is the follow-up batch — two new pre-registered studies, one shipped
