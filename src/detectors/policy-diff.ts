@@ -16,7 +16,7 @@ import { defaultPolicy, mergeProtected } from '../policy';
 
 interface RawPolicyShape {
   version?: unknown;
-  rules?: Record<string, { severity?: string; enabled?: boolean }>;
+  rules?: Record<string, { severity?: string; enabled?: boolean; exclude?: string[] }>;
   ignore?: string[];
   protected?: Record<string, string[]>;
   signoff?: { required_for?: string[]; requiredFor?: string[] };
@@ -24,7 +24,7 @@ interface RawPolicyShape {
 
 interface EffectivePolicy {
   version: number;
-  rules: Record<string, { severity?: string; enabled?: boolean }>;
+  rules: Record<string, { severity?: string; enabled?: boolean; exclude?: string[] }>;
   ignore: string[];
   protected: Record<string, string[]>;
   requiredFor: string[];
@@ -104,6 +104,14 @@ export function policyWeakening(before: string, after: string): string[] | null 
     }
     if (ar.enabled === false && br.enabled !== false) {
       reasons.push(`rule "${name}" disabled (enabled: false)`);
+    }
+    // exclude: a per-rule glob added blinds this one rule on those paths — the same
+    // weakening class as an added `ignore` glob, in its newer per-rule spelling. Added
+    // the day the feature shipped, not after an evasion measured the gap.
+    const beforeEx = new Set(br.exclude ?? []);
+    const addedEx = (ar.exclude ?? []).filter((g) => !beforeEx.has(g));
+    if (addedEx.length) {
+      reasons.push(`rule "${name}" exclude globs added (${addedEx.join(', ')}) — blinds this rule on those paths`);
     }
   }
 

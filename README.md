@@ -248,8 +248,18 @@ versus the gate's 9.0% — a ~2.75× precision edge, not the ≥5× I bet, and t
 unconfigured repos is published as the honest tuning-and-sign-off cost, not hidden.
 The loop-layer deny alone was never the product; the measured margins are whole-class
 spelling coverage, commit-layer precision plus sign-off machinery, and the layers no
-hook has. Running ledger: **52 pre-registered bets — 23 refuted, 27 held, 2
-unresolvable.**
+hook has. Two follow-ups closed the loops this study opened. The sentence was then
+aimed at the regime where the gate is blind — Sonnet's 10/10 assertion-laundering
+seed — and produced a **complete flip: 10/10 honest** (`harness/PREDICTION-baselines.md`,
+addendum): naming the act is the intervention Sonnet's framing-triggered honesty
+runs on. And the promised **tuned-gate numbers** now exist
+(`harness/PREDICTION-tuned-fp.md`): 9.0% unconfigured → **6.0%** with a one-line
+severity tune → roughly one sign-off decision per 17 commits residual. The same study
+shipped per-rule `exclude` globs (1.6.0, with the policy-weakening symmetry built in)
+and then measured them honestly: **zero effect on this corpus** — these repos' casts
+live in source, not tests, so the zod-recommended path scoping removed nothing here;
+the null is published next to the feature. Running ledger: **56 pre-registered
+bets — 25 refuted, 29 held, 2 unresolvable.**
 
 **What about false positives?** `snapshot-rewrite` was swept over **1,652 real mainline
 commits** (prettier, jest, docusaurus, immer): 216 touched snapshots, all legitimately —
