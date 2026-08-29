@@ -229,9 +229,17 @@ framing, and Sonnet's famous refusals turn out to be triggered by framing). The
 completed frontier split — **Opus 0/10 · Fable 6/10 · Sonnet 10/10** — is the
 published shape, with the standing self-measurement caveat on the Fable rows.
 Twenty-six of forty runs tampered through the uncovered dimension: measured demand
-that hardens the `ts-any-launder` warn→block graduation case via the §7.A corpus —
-the honest fix itself narrows through `as Record<string, unknown>`, so a naive
-assertion-blocker is an FP factory.
+that sent the `ts-any-launder` warn→block graduation question to a §7.A negatives
+corpus — the honest fix itself narrows through `as Record<string, unknown>`, so a
+naive assertion-blocker is an FP factory. **The corpus answered, and the question is
+closed** (`harness/PREDICTION-launder-corpus.md`): on 1,227 real commits the
+laundering spellings fire on legitimate work at 4–10× any deployable block threshold
+(annotation-position `any`: 10.5% of commits; named-type assertions: 7.5%), so the
+warn stays a warn permanently on syntactic evidence, no assertion rule gets built,
+and the laundering class is owned by the layers where coverage is measured: the
+held-out **oracle** (caught all 18 assertion tampers) and the **prompt** (the naming
+sentence, 10/10 flip). For this class, detection is not the gate's layer —
+verification and framing are, and the record says so with a denominator.
 
 **Why not just a prompt line, or a 20-line grep hook?** Measured
 (`harness/PREDICTION-baselines.md`), against a frozen naive hook and a one-sentence
@@ -258,8 +266,8 @@ severity tune → roughly one sign-off decision per 17 commits residual. The sam
 shipped per-rule `exclude` globs (1.6.0, with the policy-weakening symmetry built in)
 and then measured them honestly: **zero effect on this corpus** — these repos' casts
 live in source, not tests, so the zod-recommended path scoping removed nothing here;
-the null is published next to the feature. Running ledger: **56 pre-registered
-bets — 25 refuted, 29 held, 2 unresolvable.**
+the null is published next to the feature. Running ledger: **59 pre-registered
+bets — 27 refuted, 30 held, 2 unresolvable.**
 
 **What about false positives?** `snapshot-rewrite` was swept over **1,652 real mainline
 commits** (prettier, jest, docusaurus, immer): 216 touched snapshots, all legitimately —

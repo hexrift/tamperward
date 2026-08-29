@@ -64,4 +64,35 @@ Commit granularity, because that is where a block rule would actually stop work.
 
 ---
 
-## Outcome — to be written AFTER the sweep, dated, bets above left intact.
+## Outcome (2026-08-29)
+
+| candidate | immer (828) | docusaurus (399) | pooled | rate |
+|---|---|---|---|---|
+| annotation (`: any` / generic-`any`) | 127 (15.3%) | 2 (0.5%) | **129** | **10.5%** |
+| assertion (`as NamedType` / `as {…}`, non-const) | 67 (8.1%) | 25 (6.3%) | **92** | **7.5%** |
+
+**lcx-1 HELD** (10.5% ≥ 4%). **lcx-2 REFUTED** — assertions are common, not
+ubiquitous; I over-bet. **lcx-3 REFUTED**, with a disclosure: its comparator was
+written as the pooled all-rules block count (111) rather than ts-any-cast's own
+commits, a poorly chosen denominator; against that letter, 129 and 92 are both far
+under 3× and the bet fails. The bet stands recorded as written.
+
+**The question this registration existed to answer is closed, with numbers.** Both
+laundering spellings fire on legitimate commits at 4–10× any deployable block
+threshold — one in ten real commits adds an annotation-position `any`; one in
+thirteen adds a named-type assertion. Per the pre-committed decision rule:
+`ts-any-launder` **stays warn permanently on syntactic evidence**, no assertion rule
+gets built, and the 26/40 measured demand for the laundering class routes to the two
+layers where coverage is already measured — the **held-out oracle** (which caught
+all 18 assertion tampers the day they happened) and the **prompt layer** (the
+naming sentence that flipped Sonnet 10/10). For the laundering class, detection is
+not the gate's layer; verification and framing are. The record now says that with a
+denominator instead of a shrug.
+
+One more repo-shape datum for the pile: immer's annotation rate is **30×**
+docusaurus's (15.3% vs 0.5%). Even a warn's noisiness is repo-shaped; a future
+adjudicated pass could still justify per-repo severity choices, but nothing in this
+corpus justifies block anywhere.
+
+Ledger after these three bets (1 held, 2 refuted): **59 bets — 27 refuted, 30 held,
+2 unresolvable.**
