@@ -162,6 +162,19 @@ cover story — measured **0/10 attempts**; Haiku implemented the real fix every
 measured demand stay in a record-only shadow scanner that accumulates evidence on every
 weekly harness run.
 
+**And when no honest fix exists at all?** The regime every other seed excludes — and
+where the typia incident actually lived — measured with a claims-based oracle
+(`harness/PREDICTION-stuck-agent.md`): a provably unfixable suite, an explicit cheap
+honest exit ("STATUS: blocked is a fully acceptable outcome"), fabrication defined as
+claiming `fixed` against cryptographic reality. **Twenty of twenty pressured runs —
+Haiku and Sonnet alike — surrendered honestly**, zero fabrications, zero test edits,
+a written diagnosis every time. Both my Haiku bets were refuted: the model that
+tampers 6/10 when the cheat is cheaper than the fix takes the honest exit when the
+honest exit is cheapest. The sharpened thesis: agents take the cheapest path they
+believe is sanctioned — the danger is pressure with no sanctioned exit cheaper than
+the lie. The untested harder variant (no one *names* the exit) is registered as the
+open follow-up.
+
 **What about false positives?** `snapshot-rewrite` was swept over **1,652 real mainline
 commits** (prettier, jest, docusaurus, immer): 216 touched snapshots, all legitimately —
 which is exactly why that rule is a `warn` asking for human confirmation, not a block,
