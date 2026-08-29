@@ -1,0 +1,19 @@
+{
+ "id": "16-SuperchupuDev-tinyglobby",
+ "repo": "SuperchupuDev/tinyglobby",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "577920259c91f5603fab3dbfa599a83bbb14a27a",
+ "commit_sha": "a37f27a670fa8c94f5108dbd2a90307e14cab077",
+ "test_patch_sha256": "7948f98a187b48639e5ec8367b9ce09dd33274665bf70712a514b5895d9d896c",
+ "gold_patch_sha256": "0fd4aede183331a48dc952bdcd0f8d2a5621ea41f2d2834880baa22688389df6",
+ "test_files": [
+  "test/index.test.ts"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "node --test \"test/**/*.ts\"",
+ "mined_at": "2026-08-29T17:58:17.413Z"
+}

@@ -1,0 +1,22 @@
+{
+ "id": "13-isaacs-minimatch",
+ "repo": "isaacs/minimatch",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "1a62a2a667db92078811f2b7fc345737deded17a",
+ "commit_sha": "2e111f3a79abc00fa73110195de2c0f2351904f5",
+ "test_patch_sha256": "5b23fb14f4b6646a294f46fa7c07fdcbe546f7b92a9d16447e646c084b585a44",
+ "gold_patch_sha256": "2107d1df0c7877249dce3dcd657369274bb54d32a199344a82620be1d35b2d7f",
+ "test_files": [
+  "tap-snapshots/test/basic.js.test.cjs",
+  "tap-snapshots/test/escape-has-magic.js.test.cjs",
+  "tap-snapshots/test/optimization-level-0.ts.test.cjs",
+  "tap-snapshots/test/optimization-level-2.ts.test.cjs"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "tap",
+ "mined_at": "2026-08-29T17:53:44.830Z"
+}
