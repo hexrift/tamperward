@@ -1,0 +1,133 @@
+diff --git a/src/__fixtures__/tests.ts b/src/__fixtures__/tests.ts
+index bbf65e4..42b09cb 100644
+--- a/src/__fixtures__/tests.ts
++++ b/src/__fixtures__/tests.ts
+@@ -477,6 +477,48 @@ export const tests: [
+         ],
+         "class with escaped hash",
+     ],
++    [
++        String.raw`.\31 foo`,
++        [
++            [
++                {
++                    type: SelectorType.Attribute,
++                    namespace: null,
++                    action: AttributeAction.Element,
++                    name: "class",
++                    ignoreCase: IgnoreCaseMode.QuirksMode,
++                    value: "1foo",
++                },
++            ],
++        ],
++        "class with hex-escaped leading digit",
++    ],
++    [
++        String.raw`\0 a`,
++        [
++            [
++                {
++                    type: SelectorType.Tag,
++                    namespace: null,
++                    name: "\uFFFDa",
++                },
++            ],
++        ],
++        "null escape replaced with U+FFFD",
++    ],
++    [
++        String.raw`\110000 a`,
++        [
++            [
++                {
++                    type: SelectorType.Tag,
++                    namespace: null,
++                    name: "\uFFFDa",
++                },
++            ],
++        ],
++        "out-of-range escape replaced with U+FFFD",
++    ],
+ 
+     // Pseudo elements
+     [
+diff --git a/src/parse.ts b/src/parse.ts
+index 9d29d41..88ffbdb 100644
+--- a/src/parse.ts
++++ b/src/parse.ts
+@@ -106,21 +106,20 @@ export function isTraversal(selector: Selector): selector is Traversal {
+ 
+ const stripQuotesFromPseudos = new Set(["contains", "icontains"]);
+ 
+-// Unescape function taken from https://github.com/jquery/sizzle/blob/master/src/sizzle.js#L152
+ function funescape(_: string, escaped: string, escapedWhitespace?: string) {
+-    const high = Number.parseInt(escaped, 16) - 0x1_00_00;
+-
+-    // NaN means non-codepoint
+-    return Number.isNaN(high) || escapedWhitespace
+-        ? escaped
+-        : high < 0
+-          ? // BMP codepoint
+-            String.fromCharCode(high + 0x1_00_00)
+-          : // Supplemental Plane codepoint (surrogate pair)
+-            String.fromCharCode(
+-                (high >> 10) | 0xd8_00,
+-                (high & 0x3_ff) | 0xdc_00,
+-            );
++    const codePoint = Number.parseInt(escaped, 16);
++
++    // NaN means non-codepoint (e.g., \X where X is not hex)
++    if (Number.isNaN(codePoint) || escapedWhitespace) {
++        return escaped;
++    }
++
++    // Per CSS spec: U+0000 and out-of-range values → U+FFFD
++    if (codePoint === 0 || codePoint > 0x10_ff_ff) {
++        return "\uFFFD";
++    }
++
++    return String.fromCodePoint(codePoint);
+ }
+ 
+ function unescapeCSS(cssString: string) {
+diff --git a/src/stringify.ts b/src/stringify.ts
+index 4114ee7..8fbc04c 100644
+--- a/src/stringify.ts
++++ b/src/stringify.ts
+@@ -25,6 +25,7 @@ const charsToEscapeInName = new Set(
+         " ",
+         ".",
+         "%",
++        "'",
+         "#",
+         ">",
+         "<",
+@@ -201,8 +202,26 @@ function escapeName(name: string, charsToEscape: Set<number>): string {
+     let escapedName = "";
+ 
+     for (let index = 0; index < name.length; index++) {
+-        if (charsToEscape.has(name.charCodeAt(index))) {
+-            escapedName += `${name.slice(lastIndex, index)}\\${name.charAt(index)}`;
++        const code = name.charCodeAt(index);
++        const isDigit = code >= 0x30 && code <= 0x39;
++
++        // Hex-escape: null (as FFFD), control chars, DEL, and leading digit/lone hyphen cases
++        const needsHex =
++            code <= 0x1f ||
++            code === 0x7f ||
++            (isDigit &&
++                (index === 0 ||
++                    (index === 1 && name.charCodeAt(0) === 0x2d))) ||
++            (index === 0 && code === 0x2d && name.length === 1);
++
++        const escaped = needsHex
++            ? `\\${code === 0x00 ? "fffd" : code.toString(16)} `
++            : charsToEscape.has(code)
++              ? `\\${name.charAt(index)}`
++              : undefined;
++
++        if (escaped !== undefined) {
++            escapedName += name.slice(lastIndex, index) + escaped;
+             lastIndex = index + 1;
+         }
+     }

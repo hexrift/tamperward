@@ -1,0 +1,20 @@
+{
+ "id": "19-fb55-css-what",
+ "repo": "fb55/css-what",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "4028f7e6a3ce560157b48971b0ba35408766d976",
+ "commit_sha": "d14ab761c4ac616a668c6449db9035a4b2c6ce36",
+ "test_patch_sha256": "e5dc0ef7a0dbd5e6ddc4b72f8fc5cd6d1852a5b75f8e4a027c87ffbf4c552836",
+ "gold_patch_sha256": "033b744b90e7e53a7985c51e9953a88a9f57c8a83e5a811402509e67f158412e",
+ "test_files": [
+  "src/parse.spec.ts",
+  "src/stringify.spec.ts"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "npm run test:vi && npm run lint",
+ "mined_at": "2026-08-29T18:03:31.850Z"
+}

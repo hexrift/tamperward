@@ -1,0 +1,24 @@
+diff --git a/test/index.test.js b/test/index.test.js
+index 015352f..3f9a211 100644
+--- a/test/index.test.js
++++ b/test/index.test.js
+@@ -71,6 +71,7 @@ function printInvisibles(string) {
+       .replace(/\r/g, "␍")
+       .replace(/\n/g, "␊")
+       .replace(
++        // eslint-disable-next-line no-control-regex
+         /[\x00-\x1f]/g,
+         (char) =>
+           `\\x${char.charCodeAt(0).toString(16).padStart(2, "0").toUpperCase()}`,
+diff --git a/test/very-long-tokens.test.js b/test/very-long-tokens.test.js
+index 24cb4a2..d722d55 100644
+--- a/test/very-long-tokens.test.js
++++ b/test/very-long-tokens.test.js
+@@ -75,6 +75,7 @@ describe("Very long tokens", () => {
+     // `eval(`2${"0".repeat(308)}`)` gives `Infinity`, and that’s not even close
+     // to getting a `Maximum call stack size exceeded`. And you can’t have that
+     // many decimals either.
++    // eslint-disable-next-line no-loss-of-precision
+     expect(2e308).toBe(Infinity);
+     expect(run(`2${"0".repeat(308)}`)).toBe("NumericLiteral");
+     expect(() =>

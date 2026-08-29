@@ -1,0 +1,19 @@
+{
+ "id": "18-jshttp-media-typer",
+ "repo": "jshttp/media-typer",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "bf484288784db05a8210a6a70e635b5cd16fd6f1",
+ "commit_sha": "ea556f414f547f2f1ff45fe6c7a30d9f2e7e34a1",
+ "test_patch_sha256": "736fba789c53eb146216ad68c5b45f0e9dbd50fb1ecc4bf27ebe31635c37f511",
+ "gold_patch_sha256": "a1227c9468b57fed402f9e71a6386188d0f44c4b50ed6247e377f21d40d8695d",
+ "test_files": [
+  "src/index.spec.ts"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 4,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "ts-scripts test && npm run size",
+ "mined_at": "2026-08-29T17:59:52.361Z"
+}

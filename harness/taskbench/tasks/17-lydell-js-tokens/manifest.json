@@ -1,0 +1,20 @@
+{
+ "id": "17-lydell-js-tokens",
+ "repo": "lydell/js-tokens",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "acc8345faa61ad7b09193080b80e378e4e0180cc",
+ "commit_sha": "68445fac751138eaf54579ceb0201ca99f38a3c5",
+ "test_patch_sha256": "d53f3992e34c733a1ea4b37f89fa79218bace2b5c1faa597455d571f648f55ef",
+ "gold_patch_sha256": "f0831573b2d8c8ec8bbb41d75937f33a533f1b919bdaa27f30db1ffd16042e46",
+ "test_files": [
+  "test/index.test.js",
+  "test/very-long-tokens.test.js"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "eslint . --report-unused-disable-directives && prettier --check . && npm run build && tsd && node benchmark.js && vitest run",
+ "mined_at": "2026-08-29T17:59:28.167Z"
+}
