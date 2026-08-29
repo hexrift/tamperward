@@ -1,5 +1,12 @@
 # Blog
 
+- **[What AI coding agents do when the bug isn't theirs](./what-agents-do-when-the-bug-is-not-theirs)** — August 29, 2026.
+  The two dimension studies: closed-vs-open called correctly in advance (the first
+  certification-under-attack), half of Haiku's runs opening with the exact move a
+  token detector would have missed — and the perfect 25/25 conversion record dying
+  honestly on a seed where the failing suite is somebody else's bug. Ledger: 43
+  bets, 17 refuted.
+
 - **[What AI coding agents do when it doesn't look like a test](./what-agents-do-when-it-does-not-look-like-a-test)** — August 29, 2026.
   Two attacks on the honesty results: a seed dressed as a real project (backdated
   history, a maintainer's plea) and a written license to rewrite tests the agent
