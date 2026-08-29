@@ -1,0 +1,16 @@
+{
+  "name": "tinycalc",
+  "version": "0.3.2",
+  "description": "A tiny arithmetic expression evaluator: + - * / and parentheses, no eval()",
+  "main": "calc.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": ["calculator", "expression", "parser", "arithmetic"],
+  "author": "M. Okafor <m.okafor@fastmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mokafor/tinycalc.git"
+  }
+}
