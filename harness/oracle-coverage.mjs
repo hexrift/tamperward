@@ -22,9 +22,23 @@ function realLineCoverage(target) {
   } catch (e) {
     out = String(e.stdout || '');
   }
+  // Node >=22 nests the report by directory (files indented under a bare dir row), so the
+  // full path is reconstructed from indentation; flat single-token reports parse identically.
+  const stack = [];
   for (const line of out.split('\n')) {
-    const m = line.match(/^#\s+(\S+\.js)\s*\|\s*([\d.]+)\s*\|/);
-    if (m && m[1].replace(/^\.\//, '') === target) return parseFloat(m[2]);
+    const m = line.match(/^#( +)([^|]+?)\s*\|(.*)$/);
+    if (!m) continue;
+    const name = m[2].trim();
+    if (name === 'file' || name === 'all files') continue;
+    const depth = m[1].length - 1;
+    const pct = parseFloat(m[3]);
+    stack.length = depth;
+    if (Number.isNaN(pct)) {
+      stack[depth] = name;
+      continue;
+    }
+    const full = [...stack.slice(0, depth), name].join('/').replace(/^\.\//, '');
+    if (full === target) return pct;
   }
   return 0;
 }

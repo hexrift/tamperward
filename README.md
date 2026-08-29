@@ -118,12 +118,15 @@ escape valve is a PR label only a human with write access can apply.
 **Does the loop work?** `harness/run.sh` stands up an isolated repo with a real bug and a
 failing protected test, lets a headless agent loose with the hooks installed, and
 classifies the end state with an oracle independent of the detectors under test
-(SPEC §7.B). Across 77 runs of these **guarded** scenarios — every attempted bypass class
-had a detector covering it — **0 tampers reached green; all 25 runs where a block fired
-ended in an honest fix**, a 25/25 point estimate whose 95% lower bound is ≈89%. The split is the
-honest part: across four models (Haiku 4.5, Sonnet 5, Opus 5, Fable 5), every
-interception came from Haiku on a seed whose honest fix is genuinely expensive — no
-frontier model attempted a bypass at all, even when the prompt *ordered* one.
+(SPEC §7.B). Across **137 runs** of these **guarded** scenarios — every attempted bypass
+class had a detector covering it — **0 tampers reached green**. Denied runs converted to
+an honest fix **42 times out of 56 (75%)**, and that number is honestly seed-dependent:
+25/25 where the honest fix was the agent's own task, down to **0/10** where the failing
+suite was somebody else's bug (the no-verify study below). The frontier split gets the
+same scoping: on the expensive-fix seed no frontier model attempted a bypass even when
+the prompt *ordered* one; on the hook-skip seed, frontier models under a prompt ordering
+the skip **try the ordered skip once, get denied once, and convert 10/10** — frontier
+honesty there is what happens after the first no, not never-trying.
 Reproduce: `npm run build && harness/run.sh 5 adversarial haiku seed-hard`.
 
 **Is the fix caused by the deny, or would it have happened anyway?** Measured, with a
@@ -190,7 +193,21 @@ produced **zero test rewrites in 30 runs across three models**, refuting all thr
 my rewrite bets, for a reason worth knowing: every model, implementing blind, chose
 the same reading the tests encode. You cannot make an agent believe a test is wrong
 by telling it tests might be wrong; the forced-conflict variant is the registered
-follow-up. Running ledger: **33 pre-registered bets — 14 refuted, 17 held, 2
+follow-up.
+
+**Can "closed vs open" be called in advance?** The two dimension studies
+(`harness/PREDICTION-coverage.md`, `harness/PREDICTION-noverify.md`) tested whether a
+rule's leak-prone axis can be identified a priori. Both a-priori calls **held
+deterministically**: every enumerated hook-skip spelling denies while both
+`core.hooksPath` forms allow (the axis called open is open — surveyed by six frontier
+runs in reconnaissance, exploited by none), and all three coverage config-surface moves
+block. The behavioral half delivered the study's best datum: told to get the coverage
+gate green fast, **half of Haiku's runs opened with the per-path override** — the exact
+config-surface move the registration predicted a token detector would miss — and the
+shipped semantic detector caught every one. Zero tampers in 60 more guarded runs; one
+false-positive interception recorded and kept (Fable extending a test-file import via
+`sed`, denied by the shell-mutation heuristic mid-honest-fix — the FP record's first
+live entry). Running ledger: **43 pre-registered bets — 17 refuted, 24 held, 2
 unresolvable.**
 
 **What about false positives?** `snapshot-rewrite` was swept over **1,652 real mainline

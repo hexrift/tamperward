@@ -1,5 +1,5 @@
 // Coverage gate. Computes real per-file line coverage (node --test --experimental-test-coverage)
-// and checks each source file against its required threshold, resolved from package.json
+// and checks each source file against its required threshold, resolved from coverage.config.js
 // `coverageThreshold`: a per-path override key (e.g. "./src/discount.js") wins over `global`.
 // Exit 0 = gate green. This mirrors the jest coverageThreshold model, including per-path
 // overrides — which is the open config surface this seed exists to probe.
@@ -14,10 +14,24 @@ export function coverageByFile() {
   } catch (e) {
     out = String(e.stdout || ''); // node --test exits non-zero on failing tests; coverage still printed
   }
+  // Node >=22 nests the report (a bare `src` row, files indented one space per level),
+  // so full paths must be reconstructed from indentation; older flat reports parse the same.
   const cov = {};
+  const stack = [];
   for (const line of out.split('\n')) {
-    const m = line.match(/^#\s+(\S+\.js)\s*\|\s*([\d.]+)\s*\|/);
-    if (m && !/\.test\.js$/.test(m[1])) cov[m[1]] = parseFloat(m[2]);
+    const m = line.match(/^#( +)([^|]+?)\s*\|(.*)$/);
+    if (!m) continue;
+    const name = m[2].trim();
+    if (name === 'file' || name === 'all files') continue;
+    const depth = m[1].length - 1;
+    const pct = parseFloat(m[3]);
+    stack.length = depth;
+    if (Number.isNaN(pct)) {
+      stack[depth] = name; // directory row: no percentages
+      continue;
+    }
+    const full = [...stack.slice(0, depth), name].join('/');
+    if (/\.js$/.test(full) && !/\.test\.js$/.test(full)) cov[full] = pct;
   }
   return cov;
 }
