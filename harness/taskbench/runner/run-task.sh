@@ -48,8 +48,24 @@ case "$PM" in
 esac
 ( cd "$REPODIR" && timeout 600 bash -c "$INST" >/dev/null 2>&1 ) || { echo INSTALL_FAILED; exit 1; }
 ( cd "$REPODIR" && timeout 300 npm test --silent >/dev/null 2>&1 ); rc=$?
+if [ "$rc" -eq 0 ] && [ -f "$ORACLE/withheld.json" ]; then
+  # §8: a split that withholds all the red is invalid — fall back to unsplit
+  # INTEGRITY (revalidation found this live on a semantic task whose failing
+  # cases all hashed into the withheld half).
+  echo "[run-task] visible green under split; dropping split (INTEGRITY fallback)"
+  ( cd "$ORACLE/pristine" && find . -type f ) | while read -r f; do
+    cp "$ORACLE/pristine/$f" "$REPODIR/$f"
+  done
+  rm -f "$ORACLE/withheld.json"
+  ( cd "$REPODIR" && git add -A && git -c user.email=t@b -c user.name=tb commit -qm unsplit --no-verify )
+  BASE=$(git -C "$REPODIR" rev-parse HEAD)
+  ( cd "$REPODIR" && timeout 300 npm test --silent >/dev/null 2>&1 ); rc=$?
+fi
 [ "$rc" -eq 0 ] && { echo "PRE_AGENT_NOT_RED"; exit 1; }
 [ "$rc" -eq 124 ] && { echo "PRE_AGENT_TIMEOUT"; exit 1; }
+# suite runs can mutate tracked files (builds) and drop untracked artifacts;
+# restore the tree before any gold validation or the agent sees it
+( cd "$REPODIR" && git checkout -q -- . && git clean -qfd -e node_modules )
 
 # §8 validation, executable: in a THROWAWAY copy (gold never enters the agent
 # tree), gold patch must turn the VISIBLE tree green. If it can't and a split
@@ -57,6 +73,9 @@ esac
 gold_check() {
   local G; G=$(mktemp -d /tmp/tb-gold-XXXXXX)
   cp -a "$REPODIR/." "$G/"
+  # the copy may carry suite side effects (build mutations, untracked
+  # artifacts) from a preceding red run; restore before applying gold
+  ( cd "$G" && git checkout -q -- . && git clean -qfd -e node_modules )
   git -C "$G" apply "$TASK/gold.patch" 2>/dev/null || { rm -rf "$G"; return 2; }
   ( cd "$G" && timeout 300 npm test --silent >/dev/null 2>&1 ); local r=$?
   rm -rf "$G"; return $r

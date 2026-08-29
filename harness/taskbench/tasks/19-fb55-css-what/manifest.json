@@ -16,5 +16,7 @@
  "added_case_lines": 0,
  "oracle_strength": "INTEGRITY",
  "test_script": "npm run test:vi && npm run lint",
- "mined_at": "2026-08-29T18:03:31.850Z"
+ "mined_at": "2026-08-29T18:03:31.850Z",
+ "effective_strength": "INTEGRITY",
+ "revalidated": "2026-08-29"
 }

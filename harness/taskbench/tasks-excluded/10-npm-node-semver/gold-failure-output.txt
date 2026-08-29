@@ -1,0 +1,41 @@
+     schedule:
+       # "At 10:00 UTC (03:00 PT) on Monday" https://crontab.guru/#0_10_*_*_1
+       - cron: "0 10 * * 1"
+
+To correct it: npx template-oss-apply --force
+
+-------------------------------------------------------------------
+
+The repo file release.yml needs to be updated:
+
+  .github/workflows/release.yml
+  ========================================
+  @@ -5,8 +5,9 @@
+   on:
+     push:
+       branches:
+         - main
+  +      - latest
+         - release/v*
+   
+   permissions:
+     contents: write
+
+To correct it: npx template-oss-apply --force
+
+-------------------------------------------------------------------
+
+The module file package.json needs to be updated:
+
+  package.json
+  ========================================
+  "repository" is {
+    "type": "git",
+    "url": "git+https://github.com/npm/node-semver.git"
+  }, expected to be removed
+
+To correct it: npx template-oss-apply --force
+
+-------------------------------------------------------------------
+
+CAPTURE DONE

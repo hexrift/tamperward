@@ -15,5 +15,7 @@
  "added_case_lines": 1,
  "oracle_strength": "INTEGRITY",
  "test_script": "node ./scripts/jest/jest-cli.js",
- "mined_at": "2026-08-29T19:45:45.330Z"
+ "mined_at": "2026-08-29T19:45:45.330Z",
+ "effective_strength": "INTEGRITY",
+ "revalidated": "2026-08-29"
 }

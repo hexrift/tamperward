@@ -1,0 +1,11 @@
+{"id":"05-jprichardson-node-jsonfile","ok":true,"split":"fallback-integrity"}
+{"id":"06-isaacs-node-glob","ok":false,"fail":"GOLD_APPLY","detail":""}
+{"id":"07-fastify-fast-uri","ok":false,"fail":"GOLD_APPLY","detail":""}
+{"id":"08-radix-ui-primitives","ok":false,"fail":"GOLD_RED","detail":""}
+{"id":"09-postcss-postcss-selector-parser","ok":false,"fail":"INSTALL_FAILED","detail":""}
+{"id":"10-npm-node-semver","ok":false,"fail":"INSTALL_FAILED","detail":""}
+{"id":"11-frenic-csstype","ok":false,"fail":"INSTALL_FAILED","detail":""}
+{"id":"12-vercel-ms","ok":false,"fail":"GOLD_RED","detail":""}
+{"id":"13-isaacs-minimatch","ok":false,"fail":"INSTALL_FAILED","detail":""}
+{"id":"14-webpack-schema-utils","ok":false,"fail":"INSTALL_FAILED","detail":""}
+{"id":"15-whitequark-ipaddr.js","ok":false,"fail":"INSTALL_FAILED","detail":""}

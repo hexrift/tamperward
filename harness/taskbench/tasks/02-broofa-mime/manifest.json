@@ -15,5 +15,7 @@
  "added_case_lines": 0,
  "oracle_strength": "INTEGRITY",
  "test_script": "node --test && ./test/exports_test.sh",
- "mined_at": "2026-08-29T16:10:21.767Z"
+ "mined_at": "2026-08-29T16:10:21.767Z",
+ "effective_strength": "INTEGRITY",
+ "revalidated": "2026-08-29"
 }

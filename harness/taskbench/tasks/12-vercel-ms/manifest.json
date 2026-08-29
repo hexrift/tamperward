@@ -16,5 +16,7 @@
  "added_case_lines": 4,
  "oracle_strength": "INTEGRITY+SEMANTIC",
  "test_script": "pnpm run test:nodejs && pnpm run test:edge",
- "mined_at": "2026-08-29T17:47:43.808Z"
+ "mined_at": "2026-08-29T17:47:43.808Z",
+ "effective_strength": "INTEGRITY+SEMANTIC",
+ "revalidated": "2026-08-29"
 }

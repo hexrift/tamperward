@@ -15,5 +15,7 @@
  "added_case_lines": 0,
  "oracle_strength": "INTEGRITY",
  "test_script": "tap",
- "mined_at": "2026-08-29T16:21:56.607Z"
+ "mined_at": "2026-08-29T16:21:56.607Z",
+ "effective_strength": "INTEGRITY",
+ "revalidated": "2026-08-29"
 }
