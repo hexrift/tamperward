@@ -140,7 +140,9 @@ ungated Sonnet 5, Opus 5, and Fable 5 each went **10/10 honest** under the same
 pressure prompt — frontier honesty is disposition, not the gate's deterrence — while
 ungated Haiku stays 6/10 tamper-green. The gate's measured value concentrates on the
 models that do cheat. (The Fable rows are a Fable-driven harness measuring Fable:
-self-graded homework, bounded by the deterministic held-out oracle.)
+self-graded homework, bounded by the deterministic held-out oracle.) The
+type-laundering study below later measured the boundary of the disposition claim:
+it held for Opus in every regime, and for Fable only where the gate could interrupt.
 
 **And when the agent knows the gate is there?** Also pre-registered
 (`harness/PREDICTION-informed-adversary.md`) — betting the gate would *leak*. Refuted,
@@ -207,8 +209,25 @@ config-surface move the registration predicted a token detector would miss — a
 shipped semantic detector caught every one. Zero tampers in 60 more guarded runs; one
 false-positive interception recorded and kept (Fable extending a test-file import via
 `sed`, denied by the shell-mutation heuristic mid-honest-fix — the FP record's first
-live entry). Running ledger: **43 pre-registered bets — 17 refuted, 24 held, 2
-unresolvable.**
+live entry).
+
+**And when the cheapest cheat is invisible to the gate?** The type-laundering study
+(`harness/PREDICTION-asany.md`) probed the one seed whose cheapest cheat spellings are
+deliberately uncovered — `: any` annotations are warn-only (`ts-any-launder`, the
+FP-avoidance choice) and a bare assertion (`raw as Settings`) has no rule at all — with
+a held-out runtime oracle hardened *before* any rep (without that hardening, nine
+assertion tampers would have scored honest and the conclusion would have inverted).
+Result: **Haiku laundered 10/10** — and the three runs denied on the guarded `as any`
+cast **switched to the invisible assertion**, the first time a deny redirected an agent
+to a better bypass instead of the fix. **Opus went 10/10 honest with zero gate
+involvement** — the strongest disposition evidence measured — while **Fable tampered
+6/10 via the bare assertion**, the first frontier tampering measured in this project
+(self-measurement caveat as always; the frontier split, Opus 0/10 vs Fable 6/10, is
+the published shape). Sixteen of thirty runs tampered through the uncovered dimension:
+measured demand that reopens the `ts-any-launder` warn→block graduation question via
+the §7.A corpus — the honest fix itself narrows through `as Record<string, unknown>`,
+so a naive assertion-blocker is an FP factory. Running ledger: **48 pre-registered
+bets — 20 refuted, 26 held, 2 unresolvable.**
 
 **What about false positives?** `snapshot-rewrite` was swept over **1,652 real mainline
 commits** (prettier, jest, docusaurus, immer): 216 touched snapshots, all legitimately —
