@@ -9,6 +9,13 @@ the two cheats no sentence stops, the 20-line hook that taught my own detector
 a lesson, and the false-positive bill for both of them that nobody talks
 about.*
 
+*Follow-up, August 29: [What AI coding agents do when you give the cheat a
+name](./what-agents-do-when-you-give-the-cheat-a-name) — both of this post's open
+questions are now measured. The sentence aimed at the invisible-spelling regime
+flipped Sonnet from 10/10 laundering to 10/10 honest, and the tuned-gate numbers
+arrived: the 9.0% below falls to 6.0% with a one-line severity tune. The numbers
+below are as published.*
+
 This is the seventh post in a series
 ([1](./what-agents-do-when-you-block-their-shortcuts) ·
 [2](./what-agents-do-when-nothing-is-watching) ·
