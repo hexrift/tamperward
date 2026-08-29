@@ -1,0 +1,24 @@
+diff --git a/src/index.ts b/src/index.ts
+index 1d697c1..a4e6e97 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -168,6 +168,9 @@ function fmtShort(ms: number): StringValue {
+   if (msAbs >= mo) {
+     return `${Math.round(ms / mo)}mo`;
+   }
++  if (msAbs >= w) {
++    return `${Math.round(ms / w)}w`;
++  }
+   if (msAbs >= d) {
+     return `${Math.round(ms / d)}d`;
+   }
+@@ -194,6 +197,9 @@ function fmtLong(ms: number): StringValue {
+   if (msAbs >= mo) {
+     return plural(ms, msAbs, mo, 'month');
+   }
++  if (msAbs >= w) {
++    return plural(ms, msAbs, w, 'week');
++  }
+   if (msAbs >= d) {
+     return plural(ms, msAbs, d, 'day');
+   }

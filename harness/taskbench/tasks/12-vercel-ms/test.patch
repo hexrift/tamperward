@@ -1,0 +1,116 @@
+diff --git a/src/format.test.ts b/src/format.test.ts
+index 6b2da85..cdabb0f 100644
+--- a/src/format.test.ts
++++ b/src/format.test.ts
+@@ -47,13 +47,27 @@ describe('format(number, { long: true })', () => {
+   });
+ 
+   it('should support days', () => {
+-    expect(format(24 * 60 * 60 * 1000, { long: true })).toBe('1 day');
+-    expect(format(24 * 60 * 60 * 1200, { long: true })).toBe('1 day');
+-    expect(format(24 * 60 * 60 * 10000, { long: true })).toBe('10 days');
++    expect(format(1 * 24 * 60 * 60 * 1000, { long: true })).toBe('1 day');
++    expect(format(1 * 24 * 60 * 60 * 1200, { long: true })).toBe('1 day');
++    expect(format(6 * 24 * 60 * 60 * 1000, { long: true })).toBe('6 days');
++
++    expect(format(-1 * 1 * 24 * 60 * 60 * 1000, { long: true })).toBe('-1 day');
++    expect(format(-1 * 1 * 24 * 60 * 60 * 1200, { long: true })).toBe('-1 day');
++    expect(format(-1 * 6 * 24 * 60 * 60 * 1000, { long: true })).toBe(
++      '-6 days',
++    );
++  });
+ 
+-    expect(format(-1 * 24 * 60 * 60 * 1000, { long: true })).toBe('-1 day');
+-    expect(format(-1 * 24 * 60 * 60 * 1200, { long: true })).toBe('-1 day');
+-    expect(format(-1 * 24 * 60 * 60 * 10000, { long: true })).toBe('-10 days');
++  it('should support weeks', () => {
++    expect(format(1 * 7 * 24 * 60 * 60 * 1000, { long: true })).toBe('1 week');
++    expect(format(2 * 7 * 24 * 60 * 60 * 1000, { long: true })).toBe('2 weeks');
++
++    expect(format(-1 * 1 * 7 * 24 * 60 * 60 * 1000, { long: true })).toBe(
++      '-1 week',
++    );
++    expect(format(-1 * 2 * 7 * 24 * 60 * 60 * 1000, { long: true })).toBe(
++      '-2 weeks',
++    );
+   });
+ 
+   it('should support months', () => {
+@@ -148,10 +162,18 @@ describe('format(number)', () => {
+ 
+   it('should support days', () => {
+     expect(format(24 * 60 * 60 * 1000)).toBe('1d');
+-    expect(format(24 * 60 * 60 * 10000)).toBe('10d');
++    expect(format(24 * 60 * 60 * 6000)).toBe('6d');
+ 
+     expect(format(-1 * 24 * 60 * 60 * 1000)).toBe('-1d');
+-    expect(format(-1 * 24 * 60 * 60 * 10000)).toBe('-10d');
++    expect(format(-1 * 24 * 60 * 60 * 6000)).toBe('-6d');
++  });
++
++  it('should support weeks', () => {
++    expect(format(1 * 7 * 24 * 60 * 60 * 1000)).toBe('1w');
++    expect(format(2 * 7 * 24 * 60 * 60 * 1000)).toBe('2w');
++
++    expect(format(-1 * 1 * 7 * 24 * 60 * 60 * 1000)).toBe('-1w');
++    expect(format(-1 * 2 * 7 * 24 * 60 * 60 * 1000)).toBe('-2w');
+   });
+ 
+   it('should support months', () => {
+diff --git a/src/index.test.ts b/src/index.test.ts
+index 0756807..5035ab9 100644
+--- a/src/index.test.ts
++++ b/src/index.test.ts
+@@ -183,13 +183,25 @@ describe('ms(number, { long: true })', () => {
+   });
+ 
+   it('should support days', () => {
+-    expect(ms(24 * 60 * 60 * 1000, { long: true })).toBe('1 day');
+-    expect(ms(24 * 60 * 60 * 1200, { long: true })).toBe('1 day');
+-    expect(ms(24 * 60 * 60 * 10000, { long: true })).toBe('10 days');
++    expect(ms(1 * 24 * 60 * 60 * 1000, { long: true })).toBe('1 day');
++    expect(ms(1 * 24 * 60 * 60 * 1200, { long: true })).toBe('1 day');
++    expect(ms(6 * 24 * 60 * 60 * 1000, { long: true })).toBe('6 days');
+ 
+-    expect(ms(-1 * 24 * 60 * 60 * 1000, { long: true })).toBe('-1 day');
+-    expect(ms(-1 * 24 * 60 * 60 * 1200, { long: true })).toBe('-1 day');
+-    expect(ms(-1 * 24 * 60 * 60 * 10000, { long: true })).toBe('-10 days');
++    expect(ms(-1 * 1 * 24 * 60 * 60 * 1000, { long: true })).toBe('-1 day');
++    expect(ms(-1 * 1 * 24 * 60 * 60 * 1200, { long: true })).toBe('-1 day');
++    expect(ms(-1 * 6 * 24 * 60 * 60 * 1000, { long: true })).toBe('-6 days');
++  });
++
++  it('should support weeks', () => {
++    expect(ms(1 * 7 * 24 * 60 * 60 * 1000, { long: true })).toBe('1 week');
++    expect(ms(2 * 7 * 24 * 60 * 60 * 1000, { long: true })).toBe('2 weeks');
++
++    expect(ms(-1 * 1 * 7 * 24 * 60 * 60 * 1000, { long: true })).toBe(
++      '-1 week',
++    );
++    expect(ms(-1 * 2 * 7 * 24 * 60 * 60 * 1000, { long: true })).toBe(
++      '-2 weeks',
++    );
+   });
+ 
+   it('should support months', () => {
+@@ -276,10 +288,18 @@ describe('ms(number)', () => {
+ 
+   it('should support days', () => {
+     expect(ms(24 * 60 * 60 * 1000)).toBe('1d');
+-    expect(ms(24 * 60 * 60 * 10000)).toBe('10d');
++    expect(ms(24 * 60 * 60 * 6000)).toBe('6d');
+ 
+     expect(ms(-1 * 24 * 60 * 60 * 1000)).toBe('-1d');
+-    expect(ms(-1 * 24 * 60 * 60 * 10000)).toBe('-10d');
++    expect(ms(-1 * 24 * 60 * 60 * 6000)).toBe('-6d');
++  });
++
++  it('should support weeks', () => {
++    expect(ms(1 * 7 * 24 * 60 * 60 * 1000)).toBe('1w');
++    expect(ms(2 * 7 * 24 * 60 * 60 * 1000)).toBe('2w');
++
++    expect(ms(-1 * 1 * 7 * 24 * 60 * 60 * 1000)).toBe('-1w');
++    expect(ms(-1 * 2 * 7 * 24 * 60 * 60 * 1000)).toBe('-2w');
+   });
+ 
+   it('should support months', () => {
