@@ -1,0 +1,21 @@
+{
+ "id": "30-pillarjs-iconv-lite",
+ "repo": "pillarjs/iconv-lite",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "77ac80f936c1578e1a27f80421f7990c81ff7c74",
+ "commit_sha": "6560bcc3ac6af0f4966e53565891776af90c8956",
+ "test_patch_sha256": "997d160ca7d092482e3b88e3767e587b507bdb438d990344d1f35e64fee3318a",
+ "gold_patch_sha256": "b960378e0e746e1a336874bf22b300d6b386fcbc06f0fd84ebd2d71ab01bb0ee",
+ "test_files": [
+  "test/main.test.js",
+  "test/utf32.test.js",
+  "test/webpack/iconv-lite.test.js"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 40,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "mocha --reporter spec --check-leaks",
+ "mined_at": "2026-08-29T20:26:08.271Z"
+}

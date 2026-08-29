@@ -1,0 +1,19 @@
+{
+ "id": "31-Rich-Harris-magic-string",
+ "repo": "Rich-Harris/magic-string",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "b6a53f770f2ed60ecf143175ad8f38790702c0e8",
+ "commit_sha": "111b0309846a0a3c2fa6a21ea2c47ae21abdd79d",
+ "test_patch_sha256": "6deb47de18689710d1e7cb3fa669b75d40fef38ac2fc5dfe7440072bad5de7a8",
+ "gold_patch_sha256": "a41f4bead9fee943c43b4a51e4f9c702730107552ef332427d190124cb28e7b7",
+ "test_files": [
+  "test/Bundle.test.ts"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "vitest run",
+ "mined_at": "2026-08-29T20:40:37.018Z"
+}

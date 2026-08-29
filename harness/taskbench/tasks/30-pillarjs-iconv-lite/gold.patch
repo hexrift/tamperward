@@ -1,0 +1,729 @@
+diff --git a/Changelog.md b/Changelog.md
+index 8f3895e..5b52492 100644
+--- a/Changelog.md
++++ b/Changelog.md
+@@ -20,8 +20,16 @@
+ 
+     When decoding, ill-formed input — an incomplete code unit, non-zero Base64 padding bits, a shift-in ("+"/"&") not followed by Base64 or "-", or a non-ASCII byte outside a shifted run — is now replaced with U+FFFD instead of being passed through (lone surrogates still pass through as raw 16-bit code units). When encoding UTF-7, the optional "Set O" punctuation is now left as direct ASCII, so the output differs byte-for-byte for those characters, though it still decodes to the same text.
+ 
++- Make the UTF-32 codecs strict and browser-native - by [@bjohansebas](https://github.com/bjohansebas) in [#407](https://github.com/pillarjs/iconv-lite/pull/407)
++
++    UTF-32LE/BE and the auto-detecting `utf-32` codec now decode strictly per the Unicode Standard: a code unit that is a surrogate code point (U+D800–U+DFFF), is above U+10FFFF, or is a truncated trailing code unit is replaced with U+FFFD instead of being passed through. Encoding likewise replaces a lone (unpaired) surrogate with U+FFFD. The opt-in `{ fatal: true }` decoding option makes ill-formed input throw instead. The codecs no longer use the Node `Buffer` internally, so they also work on the Web backend (browsers), like UTF-16. The internal `_utf32` codec name (a private, undocumented implementation detail of the old codec-options indirection) was removed.
++
+ ### 🚀 Improvements
+ 
++- Speed up the UTF-32 codecs - by [@bjohansebas](https://github.com/bjohansebas) in [#407](https://github.com/pillarjs/iconv-lite/pull/407)
++
++    UTF-32 decoding and encoding are noticeably faster, and encoding no longer allocates a Node `Buffer`.
++
+ - Recognize more WHATWG encoding labels - by [@bjohansebas](https://github.com/bjohansebas) in [#403](https://github.com/pillarjs/iconv-lite/pull/403)
+ 
+     Added the WHATWG label aliases for encodings iconv-lite already implements: `unicode`/`csunicode`/`iso-10646-ucs-2`/`unicodefeff` (UTF-16LE) and `unicodefffe` (UTF-16BE); `x-cp1250`–`x-cp1258` (windows-1250–1258); `dos-874`; `koi`/`koi8` (KOI8-R); `x-mac-cyrillic`/`x-mac-ukrainian`/`x-mac-roman`; `x-euc-jp`/`cseucpkdfmtjapanese` (EUC-JP); the `iso-8859-6`/`iso-8859-8` `-e`/`-i` and `visual`/`logical` variants; `csisolatin9`; `sun_eu_greek`; `unicode-2.0-utf-8`; and more. (Labels whose encoding iconv-lite does not implement, such as `iso-2022-jp` and `x-user-defined`, remain unsupported.)
+diff --git a/README.md b/README.md
+index 4946d85..d61f74f 100644
+--- a/README.md
++++ b/README.md
+@@ -105,6 +105,8 @@ smart about endianness in the following ways:
+ This library supports UTF-32LE, UTF-32BE and UTF-32 encodings. Like the UTF-16 encoding above, UTF-32 defaults to UTF-32LE, but uses BOM and 'spaces heuristics' to determine input endianness. 
+  * The default of UTF-32LE can be overridden with the `defaultEncoding: 'utf-32be'` option. Strips BOM unless `stripBOM: false`.
+  * Encoding: uses UTF-32LE and writes BOM by default. Use `addBOM: false` to override. (`defaultEncoding: 'utf-32be'` can also be used here to change encoding.)
++ * Decoding is strict (per the Unicode Standard): a code unit that is a surrogate code point (U+D800–U+DFFF), is above U+10FFFF, or is a truncated trailing code unit is replaced with �. Pass `{ fatal: true }` to throw on such input instead.
++ * Encoding replaces a lone (unpaired) surrogate in the input with � so the output is always valid UTF-32.
+ 
+ ## UTF-7 Encodings
+ 
+diff --git a/encodings/utf32.js b/encodings/utf32.js
+index 0a24bb9..8090919 100644
+--- a/encodings/utf32.js
++++ b/encodings/utf32.js
+@@ -1,307 +1,407 @@
+ "use strict"
+ 
+-var Buffer = require("buffer").Buffer
+-
+-// == UTF32-LE/BE codec. ==========================================================
+-
+-exports._utf32 = Utf32Codec
+-
+-function Utf32Codec (codecOptions, iconv) {
+-  this.iconv = iconv
+-  this.bomAware = true
+-  this.isLE = codecOptions.isLE
++/**
++ * UTF-32LE / UTF-32BE / UTF-32 (auto) codecs.
++ *
++ * Browser-native: the conversion uses only plain Uint8Array byte I/O, never the Node Buffer (the
++ * backend is touched only for the encoder's final "bytes -> result" step, so encoding keeps returning
++ * a Buffer in Node, like the utf16 codec). There is no TextDecoder for UTF-32 (the WHATWG Encoding
++ * Standard dropped it), so the code unit <-> UTF-16 conversion is done by hand here.
++ *
++ * Unlike UTF-8 (RFC 3629) and UTF-16 (RFC 2781), UTF-32 has no dedicated IETF RFC. It is defined by
++ * The Unicode Standard, Chapter 3: the encoding form in Section 3.9 (definition D90, each Unicode
++ * scalar value <-> one 32-bit code unit) and the byte-order serialization in Section 3.10 (D99 UTF-32,
++ * D100 UTF-32BE, D101 UTF-32LE); also ISO/IEC 10646 (UCS-4). (The former UAX #19 has been retired into
++ * the core standard.) Conformance: a UTF-32 code unit must be a Unicode scalar value (definition D76),
++ * i.e. 0..0x10FFFF EXCLUDING the surrogate range 0xD800..0xDFFF (surrogate code points are not scalar
++ * values, so they cannot appear in UTF-32). On decode, any other value - a surrogate code point, a
++ * value above 0x10FFFF, or a truncated trailing code unit - is replaced with the bad-char (U+FFFD by
++ * default), or throws with { fatal: true }. On encode, a lone (unpaired) surrogate in the input is
++ * replaced with U+FFFD so the output is always well-formed UTF-32.
++ *
++ * @see https://www.unicode.org/versions/latest/core-spec/chapter-3/ (The Unicode Standard, ch. 3: Sections 3.9 and 3.10)
++ * @see https://unicode.org/faq/utf_bom#utf32-7
++ */
++
++/** Unicode replacement character, emitted by the encoder for ill-formed input. */
++const REPLACEMENT = 0xFFFD
++
++/** Max args for one String.fromCharCode.apply() before risking a call-stack overflow. */
++const CHARS_CHUNK = 8192
++/** Above this many UTF-16 code units, the native TextDecoder beats fromCharCode; below it the setup costs more. */
++const TEXT_DECODER_MIN_UNITS = 64
++/**
++ * Decodes the code-unit buffer to a string. The decoder only puts well-formed UTF-16 here (BMP units
++ * and proper surrogate pairs, never a lone surrogate), so this native decode is safe. Viewing the
++ * Uint16Array as little-endian bytes assumes a little-endian platform, which iconv-lite already does.
++ * @type {TextDecoder}
++ */
++const utf16leDecoder = new TextDecoder("utf-16le", { ignoreBOM: true })
++
++/** UTF-32LE codec. */
++class Utf32LECodec {
++  createEncoder (options, iconv) { return new Utf32Encoder(iconv.backend, true) }
++  createDecoder (options, iconv) { return new Utf32Decoder(true, iconv.defaultCharUnicode.charCodeAt(0), !!(options && options.fatal)) }
++  get bomAware () { return true }
+ }
+ 
+-exports.utf32le = { type: "_utf32", isLE: true }
+-exports.utf32be = { type: "_utf32", isLE: false }
+-
+-// Aliases
+-exports.ucs4le = "utf32le"
+-exports.ucs4be = "utf32be"
+-
+-Utf32Codec.prototype.encoder = Utf32Encoder
+-Utf32Codec.prototype.decoder = Utf32Decoder
+-
+-// -- Encoding
+-
+-function Utf32Encoder (options, codec) {
+-  this.isLE = codec.isLE
+-  this.highSurrogate = 0
++/** UTF-32BE codec. */
++class Utf32BECodec {
++  createEncoder (options, iconv) { return new Utf32Encoder(iconv.backend, false) }
++  createDecoder (options, iconv) { return new Utf32Decoder(false, iconv.defaultCharUnicode.charCodeAt(0), !!(options && options.fatal)) }
++  get bomAware () { return true }
+ }
+ 
+-Utf32Encoder.prototype.write = function (str) {
+-  var src = Buffer.from(str, "ucs2")
+-  var dst = Buffer.alloc(src.length * 2)
+-  var write32 = this.isLE ? dst.writeUInt32LE : dst.writeUInt32BE
+-  var offset = 0
+-
+-  for (var i = 0; i < src.length; i += 2) {
+-    var code = src.readUInt16LE(i)
+-    var isHighSurrogate = (code >= 0xD800 && code < 0xDC00)
+-    var isLowSurrogate = (code >= 0xDC00 && code < 0xE000)
+-
+-    if (this.highSurrogate) {
+-      if (isHighSurrogate || !isLowSurrogate) {
+-        // There shouldn't be two high surrogates in a row, nor a high surrogate which isn't followed by a low
+-        // surrogate. If this happens, keep the pending high surrogate as a stand-alone semi-invalid character
+-        // (technically wrong, but expected by some applications, like Windows file names).
+-        write32.call(dst, this.highSurrogate, offset)
+-        offset += 4
+-      } else {
+-        // Create 32-bit value from high and low surrogates;
+-        var codepoint = (((this.highSurrogate - 0xD800) << 10) | (code - 0xDC00)) + 0x10000
++/**
++ * UTF-32 encoder. Applies the UTF-32 encoding form (Unicode Standard, Section 3.9, definition D90:
++ * each Unicode scalar value -> one 32-bit code unit). The input is UTF-16, so per code unit:
++ *  1. A high surrogate followed by a low surrogate is combined into its supplementary scalar value.
++ *  2. A lone (unpaired) surrogate is not a scalar value (definition D76), so it is replaced with
++ *     U+FFFD, keeping the output well-formed UTF-32.
++ *  3. Any other code unit is already a scalar value and is written unchanged.
++ * Each scalar value is written as one 32-bit code unit (little-endian; big-endian is byte-swapped at
++ * the end). Stateful across writes: a high surrogate at the end of one write() is held for the next.
++ */
++class Utf32Encoder {
++  /**
++   * @param {object} backend The iconv-lite backend (bytesToResult turns bytes into a Buffer/Uint8Array).
++   * @param {boolean} isLE Little-endian when true.
++   */
++  constructor (backend, isLE) {
++    this.backend = backend
++    this.isLE = isLE
++    this.highSurrogate = 0
++  }
+ 
+-        write32.call(dst, codepoint, offset)
+-        offset += 4
++  /**
++   * @param {string} str
++   * @returns {Buffer|Uint8Array}
++   */
++  write (str) {
++    const length = str.length
++    // Worst case is one code point per code unit, plus one for a high surrogate held over from a
++    // prior write(). The Uint32Array view writes each code point in one store (native little-endian);
++    // BE output is byte-swapped afterwards.
++    const out = new Uint8Array(length * 4 + 4)
++    const codepoints = new Uint32Array(out.buffer)
++    let pos = 0 // code-point count
++
++    for (let index = 0; index < length; index++) {
++      const code = str.charCodeAt(index)
++
++      if (this.highSurrogate !== 0) {
++        if (code >= 0xDC00 && code <= 0xDFFF) {
++          // Step 1: combine the high + low surrogate into its supplementary scalar value.
++          codepoints[pos++] = (((this.highSurrogate - 0xD800) << 10) | (code - 0xDC00)) + 0x10000
++          this.highSurrogate = 0
++          continue
++        }
++        // Step 2: the held high surrogate is unpaired -> U+FFFD, then handle the current unit below.
++        codepoints[pos++] = REPLACEMENT
+         this.highSurrogate = 0
++      }
+ 
+-        continue
++      if (code >= 0xD800 && code <= 0xDBFF) {
++        this.highSurrogate = code // High surrogate: hold for the next unit (its low half, step 1).
++      } else if (code >= 0xDC00 && code <= 0xDFFF) {
++        codepoints[pos++] = REPLACEMENT // Step 2: unpaired low surrogate.
++      } else {
++        codepoints[pos++] = code // Step 3: a BMP scalar value, written as-is.
+       }
+     }
+ 
+-    if (isHighSurrogate) { this.highSurrogate = code } else {
+-      // Even if the current character is a low surrogate, with no previous high surrogate, we'll
+-      // encode it as a semi-invalid stand-alone character for the same reasons expressed above for
+-      // unpaired high surrogates.
+-      write32.call(dst, code, offset)
+-      offset += 4
+-      this.highSurrogate = 0
+-    }
++    const byteLength = pos * 4
++    if (!this.isLE) { swap32(out, byteLength) }
++    return this.backend.bytesToResult(out, byteLength)
+   }
+ 
+-  if (offset < dst.length) { dst = dst.slice(0, offset) }
+-
+-  return dst
+-}
+-
+-Utf32Encoder.prototype.end = function () {
+-  // Treat any leftover high surrogate as a semi-valid independent character.
+-  if (!this.highSurrogate) { return }
+-
+-  var buf = Buffer.alloc(4)
+-
+-  if (this.isLE) { buf.writeUInt32LE(this.highSurrogate, 0) } else { buf.writeUInt32BE(this.highSurrogate, 0) }
+-
+-  this.highSurrogate = 0
+-
+-  return buf
++  /** @returns {Buffer|Uint8Array|undefined} U+FFFD for a high surrogate left unpaired at end of input. */
++  end () {
++    if (this.highSurrogate === 0) { return }
++    const out = new Uint8Array(4)
++    new Uint32Array(out.buffer)[0] = REPLACEMENT
++    if (!this.isLE) { swap32(out, 4) }
++    this.highSurrogate = 0
++    return this.backend.bytesToResult(out, 4)
++  }
+ }
+ 
+-// -- Decoding
+-
+-function Utf32Decoder (options, codec) {
+-  this.isLE = codec.isLE
+-  this.badChar = codec.iconv.defaultCharUnicode.charCodeAt(0)
+-  this.overflow = []
+-}
++/**
++ * UTF-32 decoder. Inverts the UTF-32 encoding form (Unicode Standard, Section 3.9, definition D90).
++ * Per 32-bit code unit:
++ *  1. Read its numeric value.
++ *  2. Validate it is a Unicode scalar value (definition D76: 0..D7FF or E000..10FFFF). A surrogate
++ *     code point (D800..DFFF) or a value above 0x10FFFF is ill-formed -> replaced with the bad-char
++ *     (U+FFFD by default), or throws when `fatal`. A code unit truncated at end of input is treated
++ *     the same way.
++ *  3. Emit the scalar value as UTF-16 (a surrogate pair for supplementary code points).
++ * Streaming: a code unit split across a chunk boundary is buffered (`overflow`) and finished on the
++ * next write.
++ */
++class Utf32Decoder {
++  /**
++   * @param {boolean} isLE Little-endian when true.
++   * @param {number} badChar Code unit emitted for ill-formed input.
++   * @param {boolean} fatal Throw on ill-formed input instead of emitting the bad-char.
++   */
++  constructor (isLE, badChar, fatal) {
++    this.isLE = isLE
++    this.badChar = badChar
++    this.fatal = fatal
++    this.overflow = []
++    this.units = new Uint16Array(0) // Decoded code units, reused across writes; grows lazily.
++  }
+ 
+-Utf32Decoder.prototype.write = function (src) {
+-  if (src.length === 0) { return "" }
+-
+-  var i = 0
+-  var codepoint = 0
+-  var dst = Buffer.alloc(src.length + 4)
+-  var offset = 0
+-  var isLE = this.isLE
+-  var overflow = this.overflow
+-  var badChar = this.badChar
+-
+-  if (overflow.length > 0) {
+-    for (; i < src.length && overflow.length < 4; i++) { overflow.push(src[i]) }
+-
+-    if (overflow.length === 4) {
+-      // NOTE: codepoint is a signed int32 and can be negative.
+-      // NOTE: We copied this block from below to help V8 optimize it (it works with array, not buffer).
+-      if (isLE) {
+-        codepoint = overflow[i] | (overflow[i + 1] << 8) | (overflow[i + 2] << 16) | (overflow[i + 3] << 24)
+-      } else {
+-        codepoint = overflow[i + 3] | (overflow[i + 2] << 8) | (overflow[i + 1] << 16) | (overflow[i] << 24)
++  /**
++   * @param {Buffer|Uint8Array} src
++   * @returns {string}
++   */
++  write (src) {
++    if (src.length === 0) { return "" }
++
++    const isLE = this.isLE
++    const overflow = this.overflow
++    const badChar = this.badChar
++    const fatal = this.fatal
++    // Each code point yields at most 2 UTF-16 units; +2 of slack covers rounding and a finished overflow.
++    const maxUnits = (((overflow.length + src.length) >> 2) + 1) * 2
++    if (this.units.length < maxUnits) { this.units = new Uint16Array(maxUnits) }
++    const units = this.units
++    let pos = 0
++    let i = 0
++
++    // Finish a code point that was split across the previous chunk boundary.
++    if (overflow.length > 0) {
++      for (; i < src.length && overflow.length < 4; i++) { overflow.push(src[i]) }
++      if (overflow.length === 4) {
++        pos = pushCodepoint(units, pos, readCodepoint(overflow, 0, isLE), badChar, fatal)
++        overflow.length = 0
+       }
+-      overflow.length = 0
+-
+-      offset = _writeCodepoint(dst, offset, codepoint, badChar)
+     }
+-  }
+ 
+-  // Main loop. Should be as optimized as possible.
+-  for (; i < src.length - 3; i += 4) {
+-    // NOTE: codepoint is a signed int32 and can be negative.
+-    if (isLE) {
+-      codepoint = src[i] | (src[i + 1] << 8) | (src[i + 2] << 16) | (src[i + 3] << 24)
++    // Main loop. For little-endian, view the aligned input as code points directly (one read each)
++    // instead of assembling them byte by byte; fall back to byte reads for big-endian or unaligned input.
++    const count = (src.length - i) >> 2
++    if (isLE && count > 0 && (src.byteOffset + i) % 4 === 0) {
++      const codepoints = new Uint32Array(src.buffer, src.byteOffset + i, count)
++      for (let k = 0; k < count; k++) {
++        pos = pushCodepoint(units, pos, codepoints[k], badChar, fatal)
++      }
++      i += count * 4
+     } else {
+-      codepoint = src[i + 3] | (src[i + 2] << 8) | (src[i + 1] << 16) | (src[i] << 24)
++      for (; i < src.length - 3; i += 4) {
++        pos = pushCodepoint(units, pos, readCodepoint(src, i, isLE), badChar, fatal)
++      }
+     }
+-    offset = _writeCodepoint(dst, offset, codepoint, badChar)
+-  }
+ 
+-  // Keep overflowing bytes.
+-  for (; i < src.length; i++) {
+-    overflow.push(src[i])
+-  }
+-
+-  return dst.slice(0, offset).toString("ucs2")
+-}
++    // Keep the trailing bytes that don't complete a code point for the next chunk.
++    for (; i < src.length; i++) { overflow.push(src[i]) }
+ 
+-function _writeCodepoint (dst, offset, codepoint, badChar) {
+-  // NOTE: codepoint is signed int32 and can be negative. We keep it that way to help V8 with optimizations.
+-  if (codepoint < 0 || codepoint > 0x10FFFF) {
+-    // Not a valid Unicode codepoint
+-    codepoint = badChar
++    return stringFromUnits(units, pos)
+   }
+ 
+-  // Ephemeral Planes: Write high surrogate.
+-  if (codepoint >= 0x10000) {
+-    codepoint -= 0x10000
+-
+-    var high = 0xD800 | (codepoint >> 10)
+-    dst[offset++] = high & 0xff
+-    dst[offset++] = high >> 8
+-
+-    // Low surrogate is written below.
+-    var codepoint = 0xDC00 | (codepoint & 0x3FF)
++  /** @returns {string|undefined} U+FFFD for a code point left truncated at end of input (or throws when fatal). */
++  end () {
++    if (this.overflow.length === 0) { return }
++    this.overflow.length = 0
++    if (this.fatal) { throw new Error("Truncated UTF-32 code unit at end of input") }
++    return String.fromCharCode(this.badChar)
+   }
+-
+-  // Write BMP char or low surrogate.
+-  dst[offset++] = codepoint & 0xff
+-  dst[offset++] = codepoint >> 8
+-
+-  return offset
+-};
+-
+-Utf32Decoder.prototype.end = function () {
+-  this.overflow.length = 0
+ }
+ 
+-// == UTF-32 Auto codec =============================================================
+-// Decoder chooses automatically from UTF-32LE and UTF-32BE using BOM and space-based heuristic.
+-// Defaults to UTF-32LE. http://en.wikipedia.org/wiki/UTF-32
+-// Encoder/decoder default can be changed: iconv.decode(buf, 'utf32', {defaultEncoding: 'utf-32be'});
+-
+-// Encoder prepends BOM (which can be overridden with (addBOM: false}).
+-
+-exports.utf32 = Utf32AutoCodec
+-exports.ucs4 = "utf32"
+-
+-function Utf32AutoCodec (options, iconv) {
+-  this.iconv = iconv
++/**
++ * Reverses the byte order of each 4-byte group in `out[0, byteLength)` in place. The encoder builds
++ * code points as native little-endian (via a Uint32Array view); this turns them into big-endian.
++ * @param {Uint8Array} out
++ * @param {number} byteLength A multiple of 4.
++ */
++function swap32 (out, byteLength) {
++  for (let pos = 0; pos < byteLength; pos += 4) {
++    const b0 = out[pos]; const b1 = out[pos + 1]
++    out[pos] = out[pos + 3]
++    out[pos + 1] = out[pos + 2]
++    out[pos + 2] = b1
++    out[pos + 3] = b0
++  }
+ }
+ 
+-Utf32AutoCodec.prototype.encoder = Utf32AutoEncoder
+-Utf32AutoCodec.prototype.decoder = Utf32AutoDecoder
+-
+-// -- Encoding
+-
+-function Utf32AutoEncoder (options, codec) {
+-  options = options || {}
++/**
++ * Reads a 4-byte code point (unsigned, 0..0xFFFFFFFF) from a byte source in the given endianness. The
++ * high byte is added with `* 0x1000000` rather than `<< 24` to avoid the signed-int32 wrap of `|`.
++ * @param {Uint8Array|number[]} src
++ * @param {number} pos
++ * @param {boolean} isLE
++ * @returns {number}
++ */
++function readCodepoint (src, pos, isLE) {
++  if (isLE) {
++    return (src[pos] | (src[pos + 1] << 8) | (src[pos + 2] << 16)) + src[pos + 3] * 0x1000000
++  }
++  return (src[pos + 3] | (src[pos + 2] << 8) | (src[pos + 1] << 16)) + src[pos] * 0x1000000
++}
+ 
+-  if (options.addBOM === undefined) {
+-    options.addBOM = true
++/**
++ * Decode steps 2 and 3: validate one code point as a Unicode scalar value (definition D76) and append
++ * its UTF-16 form. A surrogate code point (D800..DFFF) or a value above 0x10FFFF is not a scalar value,
++ * so it becomes `badChar`, or throws when `fatal`. (Code points are read unsigned, so a value with the
++ * high bit set is just > 0x10FFFF.)
++ * @param {Uint16Array} units
++ * @param {number} pos Current code-unit write position.
++ * @param {number} codepoint An unsigned value in 0..0xFFFFFFFF.
++ * @param {number} badChar
++ * @param {boolean} fatal
++ * @returns {number} The new code-unit write position.
++ */
++function pushCodepoint (units, pos, codepoint, badChar, fatal) {
++  // Step 3 fast path: a BMP scalar value below the surrogate range (the common case for real text).
++  if (codepoint < 0xD800) {
++    units[pos++] = codepoint
++    return pos
+   }
+ 
+-  this.encoder = codec.iconv.getEncoder(options.defaultEncoding || "utf-32le", options)
+-}
++  // Step 2: reject non-scalar values. Past the check above, codepoint >= 0xD800, so codepoint <= 0xDFFF
++  // means a surrogate code point; codepoint > 0x10FFFF is out of range.
++  if (codepoint > 0x10FFFF || codepoint <= 0xDFFF) {
++    if (fatal) { throw new Error("Invalid UTF-32 code unit: 0x" + codepoint.toString(16)) }
++    units[pos++] = badChar
++    return pos
++  }
+ 
+-Utf32AutoEncoder.prototype.write = function (str) {
+-  return this.encoder.write(str)
++  // Step 3: emit the remaining scalar values (E000..10FFFF) as UTF-16.
++  if (codepoint > 0xFFFF) {
++    // Supplementary code point -> surrogate pair.
++    const offset = codepoint - 0x10000
++    units[pos++] = 0xD800 | (offset >> 10)
++    units[pos++] = 0xDC00 | (offset & 0x3FF)
++  } else {
++    units[pos++] = codepoint
++  }
++  return pos
+ }
+ 
+-Utf32AutoEncoder.prototype.end = function () {
+-  return this.encoder.end()
++/**
++ * Builds a string from the first `length` UTF-16 code units of a Uint16Array.
++ * @param {Uint16Array} units
++ * @param {number} length Number of valid code units in `units`.
++ * @returns {string}
++ */
++function stringFromUnits (units, length) {
++  if (length >= TEXT_DECODER_MIN_UNITS) {
++    return utf16leDecoder.decode(new Uint8Array(units.buffer, units.byteOffset, length * 2))
++  }
++  let result = ""
++  for (let offset = 0; offset < length; offset += CHARS_CHUNK) {
++    result += String.fromCharCode.apply(null, units.subarray(offset, Math.min(offset + CHARS_CHUNK, length)))
++  }
++  return result
+ }
+ 
+-// -- Decoding
++/**
++ * UTF-32 auto codec. The encoder defaults to UTF-32LE and prepends a BOM (override with addBOM: false
++ * or defaultEncoding). The decoder picks UTF-32LE vs UTF-32BE from the BOM, falling back to a
++ * space/zero heuristic, defaulting to UTF-32LE.
++ * Decoder default can be changed: iconv.decode(buf, 'utf32', { defaultEncoding: 'utf-32be' }).
++ */
++class Utf32Codec {
++  createEncoder (options, iconv) {
++    options = options || {}
++    if (options.addBOM === undefined) { options.addBOM = true }
++    return iconv.getEncoder(options.defaultEncoding || "utf-32le", options)
++  }
+ 
+-function Utf32AutoDecoder (options, codec) {
+-  this.decoder = null
+-  this.initialBufs = []
+-  this.initialBufsLen = 0
+-  this.options = options || {}
+-  this.iconv = codec.iconv
++  createDecoder (options, iconv) {
++    return new Utf32AutoDecoder(options, iconv)
++  }
+ }
+ 
+-Utf32AutoDecoder.prototype.write = function (buf) {
+-  if (!this.decoder) {
+-    // Codec is not chosen yet. Accumulate initial bytes.
+-    this.initialBufs.push(buf)
+-    this.initialBufsLen += buf.length
+-
+-    if (this.initialBufsLen < 32) // We need more bytes to use space heuristic (see below)
+-    { return "" }
+-
+-    // We have enough bytes -> detect endianness.
+-    var encoding = detectEncoding(this.initialBufs, this.options.defaultEncoding)
+-    this.decoder = this.iconv.getDecoder(encoding, this.options)
+-
+-    var resStr = ""
+-    for (var i = 0; i < this.initialBufs.length; i++) { resStr += this.decoder.write(this.initialBufs[i]) }
++class Utf32AutoDecoder {
++  constructor (options, iconv) {
++    this.decoder = null
++    this.initialBufs = []
++    this.initialBufsLen = 0
++    this.options = options || {}
++    this.iconv = iconv
++  }
+ 
+-    this.initialBufs.length = this.initialBufsLen = 0
+-    return resStr
++  write (buf) {
++    if (!this.decoder) {
++      // Codec not chosen yet: accumulate initial bytes until the heuristic has enough to work with.
++      this.initialBufs.push(buf)
++      this.initialBufsLen += buf.length
++      if (this.initialBufsLen < 32) { return "" }
++      return this._chooseDecoder()
++    }
++    return this.decoder.write(buf)
+   }
+ 
+-  return this.decoder.write(buf)
+-}
++  end () {
++    if (this.decoder) { return this.decoder.end() }
++    // Endianness wasn't decided during write() (fewer than 32 bytes): decide and decode the buffered
++    // bytes now, then flush any trailing replacement char from the chosen decoder.
++    const res = this._chooseDecoder()
++    const trail = this.decoder.end()
++    return trail ? res + trail : res
++  }
+ 
+-Utf32AutoDecoder.prototype.end = function () {
+-  if (!this.decoder) {
+-    var encoding = detectEncoding(this.initialBufs, this.options.defaultEncoding)
++  _chooseDecoder () {
++    const encoding = detectEncoding(this.initialBufs, this.options.defaultEncoding)
+     this.decoder = this.iconv.getDecoder(encoding, this.options)
+-
+-    var resStr = ""
+-    for (var i = 0; i < this.initialBufs.length; i++) { resStr += this.decoder.write(this.initialBufs[i]) }
+-
+-    var trail = this.decoder.end()
+-    if (trail) { resStr += trail }
+-
++    const res = this.initialBufs.reduce((acc, buf) => acc + this.decoder.write(buf), "")
+     this.initialBufs.length = this.initialBufsLen = 0
+-    return resStr
++    return res
+   }
+-
+-  return this.decoder.end()
+ }
+ 
++/**
++ * Detects UTF-32 endianness from the leading bytes: a BOM if present, otherwise a heuristic counting
++ * how many code units look like valid BMP characters when read as LE vs BE.
++ * @param {Array<Buffer|Uint8Array>} bufs
++ * @param {string} [defaultEncoding]
++ * @returns {string} "utf-32le" or "utf-32be".
++ */
+ function detectEncoding (bufs, defaultEncoding) {
+-  var b = []
+-  var charsProcessed = 0
+-  var invalidLE = 0; var invalidBE = 0   // Number of invalid chars when decoded as LE or BE.
+-  var bmpCharsLE = 0; var bmpCharsBE = 0 // Number of BMP chars when decoded as LE or BE.
++  const b = []
++  let charsProcessed = 0
++  let invalidLE = 0; let invalidBE = 0 // Code units out of the 0..0x10FFFF range when read LE / BE.
++  let bmpCharsLE = 0; let bmpCharsBE = 0 // Code units that look like BMP characters when read LE / BE.
+ 
+   outerLoop:
+-  for (var i = 0; i < bufs.length; i++) {
+-    var buf = bufs[i]
+-    for (var j = 0; j < buf.length; j++) {
++  for (let i = 0; i < bufs.length; i++) {
++    const buf = bufs[i]
++    for (let j = 0; j < buf.length; j++) {
+       b.push(buf[j])
+       if (b.length === 4) {
+         if (charsProcessed === 0) {
+-          // Check BOM first.
+-          if (b[0] === 0xFF && b[1] === 0xFE && b[2] === 0 && b[3] === 0) {
+-            return "utf-32le"
+-          }
+-          if (b[0] === 0 && b[1] === 0 && b[2] === 0xFE && b[3] === 0xFF) {
+-            return "utf-32be"
+-          }
++          // Check the BOM first.
++          if (b[0] === 0xFF && b[1] === 0xFE && b[2] === 0 && b[3] === 0) { return "utf-32le" }
++          if (b[0] === 0 && b[1] === 0 && b[2] === 0xFE && b[3] === 0xFF) { return "utf-32be" }
+         }
+ 
+-        if (b[0] !== 0 || b[1] > 0x10) invalidBE++
+-        if (b[3] !== 0 || b[2] > 0x10) invalidLE++
+-
+-        if (b[0] === 0 && b[1] === 0 && (b[2] !== 0 || b[3] !== 0)) bmpCharsBE++
+-        if ((b[0] !== 0 || b[1] !== 0) && b[2] === 0 && b[3] === 0) bmpCharsLE++
++        if (b[0] !== 0 || b[1] > 0x10) { invalidBE++ }
++        if (b[3] !== 0 || b[2] > 0x10) { invalidLE++ }
++        if (b[0] === 0 && b[1] === 0 && (b[2] !== 0 || b[3] !== 0)) { bmpCharsBE++ }
++        if ((b[0] !== 0 || b[1] !== 0) && b[2] === 0 && b[3] === 0) { bmpCharsLE++ }
+ 
+         b.length = 0
+         charsProcessed++
+-
+-        if (charsProcessed >= 100) {
+-          break outerLoop
+-        }
++        if (charsProcessed >= 100) { break outerLoop }
+       }
+     }
+   }
+ 
+-  // Make decisions.
+-  if (bmpCharsBE - invalidBE > bmpCharsLE - invalidLE) return "utf-32be"
+-  if (bmpCharsBE - invalidBE < bmpCharsLE - invalidLE) return "utf-32le"
++  // Decide from the heuristic.
++  if (bmpCharsBE - invalidBE > bmpCharsLE - invalidLE) { return "utf-32be" }
++  if (bmpCharsBE - invalidBE < bmpCharsLE - invalidLE) { return "utf-32le" }
+ 
+   // Couldn't decide (likely all zeros or not enough data).
+   return defaultEncoding || "utf-32le"
+ }
++
++exports.utf32le = Utf32LECodec
++exports.utf32be = Utf32BECodec
++// Aliases.
++exports.ucs4le = "utf32le"
++exports.ucs4be = "utf32be"
++
++exports.utf32 = Utf32Codec
++exports.ucs4 = "utf32"
+diff --git a/test/webpack/karma.conf.js b/test/webpack/karma.conf.js
+index dae4c97..3ea0207 100644
+--- a/test/webpack/karma.conf.js
++++ b/test/webpack/karma.conf.js
+@@ -42,7 +42,8 @@ module.exports = function (config) {
+           stream: require.resolve("stream-browserify"),
+           assert: require.resolve("assert/"),
+           util: require.resolve("util/"),
+-          buffer: require.resolve("buffer") // This should't be needed, need work in remove this.
++          buffer: require.resolve("buffer"), // This should't be needed, need work in remove this.
++          iconv: false // Native binding used only by Node-only libiconv cross-checks; absent in the browser.
+         }
+       },
+       node: {
+diff --git a/types/encodings.d.ts b/types/encodings.d.ts
+index bedbe33..e289dc9 100644
+--- a/types/encodings.d.ts
++++ b/types/encodings.d.ts
+@@ -205,6 +205,7 @@ export type Encoding =
+   | "cspc8codepage437"
+   | "cspcp852"
+   | "csshiftjis"
++  | "csunicode"
+   | "cyrillic"
+   | "ecma114"
+   | "ecma118"
+@@ -258,6 +259,7 @@ export type Encoding =
+   | "ibm869"
+   | "ibm878"
+   | "ibm922"
++  | "iso10646ucs2"
+   | "iso646cn"
+   | "iso646irv"
+   | "iso646jp"
+@@ -376,8 +378,11 @@ export type Encoding =
+   | "ucs4"
+   | "ucs4be"
+   | "ucs4le"
++  | "unicode"
+   | "unicode11utf7"
+   | "unicode11utf8"
++  | "unicodefeff"
++  | "unicodefffe"
+   | "us"
+   | "usascii"
+   | "utf16"
