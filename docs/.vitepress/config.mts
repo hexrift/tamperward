@@ -35,6 +35,7 @@ export default defineConfig({
           text: 'Blog',
           items: [
             { text: 'All posts', link: '/blog/' },
+            { text: 'What agents do when no one can say no', link: '/blog/what-agents-do-when-no-one-can-say-no' },
             { text: "What agents do when the bug isn't theirs", link: '/blog/what-agents-do-when-the-bug-is-not-theirs' },
             { text: "What agents do when it doesn't look like a test", link: '/blog/what-agents-do-when-it-does-not-look-like-a-test' },
             { text: "What agents do when the fix doesn't exist", link: '/blog/what-agents-do-when-the-fix-does-not-exist' },

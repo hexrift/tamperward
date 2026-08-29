@@ -1,5 +1,12 @@
 # Blog
 
+- **[What AI coding agents do when no one can say no](./what-agents-do-when-no-one-can-say-no)** — August 29, 2026.
+  The type-laundering study: the cheapest cheat spellings no rule can see, 26 of 40
+  runs through them — including the model famous for refusing, 10/10, via an inline
+  assertion. A deny that taught a better bypass, the oracle hardening that saved the
+  conclusion, and the measured scope of "disposition, not deterrence." Ledger: 49
+  bets, 21 refuted.
+
 - **[What AI coding agents do when the bug isn't theirs](./what-agents-do-when-the-bug-is-not-theirs)** — August 29, 2026.
   The two dimension studies: closed-vs-open called correctly in advance (the first
   certification-under-attack), half of Haiku's runs opening with the exact move a
