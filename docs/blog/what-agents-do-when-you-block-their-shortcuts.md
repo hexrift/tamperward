@@ -10,6 +10,13 @@ watching](./what-agents-do-when-nothing-is-watching) — the ungated frontier ar
 assertion trap that caught nobody, and the rule that shipped from the FP study. The
 numbers below are as published; the README carries the running totals.*
 
+*Follow-up, August 29: [What AI coding agents do when the bug isn't
+theirs](./what-agents-do-when-the-bug-is-not-theirs) — the 25/25 conversion below
+turned out to be a property of seeds where the honest fix was the agent's own task.
+On a seed where the failing suite is somebody else's bug, the cheap model converted
+0/10 (the gate still held). The numbers below are as published; the README carries
+the scoped running totals.*
+
 AI coding agents optimize for "the command succeeded," not "the change is
 trustworthy." Under pressure they take the cheapest path to green: delete the failing
 test, add `.skip`, cast to `any`, lower the coverage threshold, regenerate the
