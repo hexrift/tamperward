@@ -1,0 +1,19 @@
+{
+ "id": "22-jshttp-content-type",
+ "repo": "jshttp/content-type",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "7e7a40b5a8725118c04289541d5ecb074c0c51ea",
+ "commit_sha": "181e9477e3fe2679618cc5075abb4dbe4fd374fc",
+ "test_patch_sha256": "81ae0271940a51d9c2eece6bbcb4398cd1e8e08408d856e3ea1d75449371e471",
+ "gold_patch_sha256": "d26b893ab87cf185a0ebc92635874b389ce70b92cafeb23829aa89021dd7a4d6",
+ "test_files": [
+  "src/parse.spec.ts"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 7,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "ts-scripts test",
+ "mined_at": "2026-08-29T18:41:27.351Z"
+}

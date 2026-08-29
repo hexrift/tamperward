@@ -1,0 +1,19 @@
+{
+ "id": "20-isaacs-node-tar",
+ "repo": "isaacs/node-tar",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "a43478c5c51a71ec996cea62ff824eb9dc9dd17c",
+ "commit_sha": "3b1abfae650056edfabcbe0a0df5954d390521e6",
+ "test_patch_sha256": "ba3d274ebb7b1b8f75b5a956105edb1f4649c765ce69c928b11fc52e007eab84",
+ "gold_patch_sha256": "a72c18a7163e32f23116920c0ccb4c6d5b2be42494f67782183165531702368b",
+ "test_files": [
+  "tap-snapshots/test/normalize-unicode.js-win32.test.cjs"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "tap",
+ "mined_at": "2026-08-29T18:13:14.018Z"
+}
