@@ -1,5 +1,12 @@
 # Blog
 
+- **[What AI coding agents do when you just ask nicely](./what-agents-do-when-you-just-ask-nicely)** — August 29, 2026.
+  The cheap-baselines study: one instruction sentence cuts Haiku's cheating from
+  6/10 to 1/10, the 20-line strawman hook finds a live gap in the gate's flagship
+  rule (closed in 1.5.1), and the false-positive bill for both screens on 1,227
+  real commits — including the gate's own honest 9%. Two of three bets lost
+  against the product's framing. Ledger: 52 bets, 23 refuted.
+
 - **[What AI coding agents do when no one can say no](./what-agents-do-when-no-one-can-say-no)** — August 29, 2026.
   The type-laundering study: the cheapest cheat spellings no rule can see, 26 of 40
   runs through them — including the model famous for refusing, 10/10, via an inline
