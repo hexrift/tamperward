@@ -1,0 +1,62 @@
+diff --git a/test/baseline.test.js b/test/baseline.test.js
+index ac00fc2..41903fc 100644
+--- a/test/baseline.test.js
++++ b/test/baseline.test.js
+@@ -109,6 +109,40 @@ test('Selects proper downstream versions for baseline 2020', () => {
+   )
+ })
+ 
++// Test KaiOS without the other downstream browsers
++test('Adds KaiOS and nothing else when downstream is not requested', () => {
++  let core = browserslist('baseline 2020')
++  let withKaiOS = browserslist('baseline 2020 including kaios')
++  equal(
++    withKaiOS.filter(browser => core.indexOf(browser) === -1),
++    ['kaios 3.0-3.1']
++  )
++  equal(
++    core.filter(browser => withKaiOS.indexOf(browser) === -1),
++    []
++  )
++})
++
++test('Accepts "including kaios" without downstream in every baseline shape', () => {
++  let queries = [
++    'baseline widely available',
++    'baseline newly available',
++    'baseline 2020',
++    'baseline widely available on 2022-07-01'
++  ]
++  for (let query of queries) {
++    let core = browserslist(query)
++    let extra = browserslist(query + ' including kaios').filter(
++      browser => core.indexOf(browser) === -1
++    )
++    is(
++      extra.every(browser => browser.indexOf('kaios ') === 0),
++      true,
++      `${query} added ${extra}`
++    )
++  }
++})
++
+ // Test for errors
+ test('Throws an error when "newly available on YYYY-MM-DD" is used', () => {
+   throws(() => {
+@@ -118,14 +152,8 @@ test('Throws an error when "newly available on YYYY-MM-DD" is used', () => {
+ 
+ // Test case insensitivity
+ test('Treats "newly available" as case insensitive', () => {
+-  equal(
+-    browserslist('BASELINE NEWLY AVAILABLE'),
+-    browserslistBaselineNewly
+-  )
+-  equal(
+-    browserslist('baseline NEWLY available'),
+-    browserslistBaselineNewly
+-  )
++  equal(browserslist('BASELINE NEWLY AVAILABLE'), browserslistBaselineNewly)
++  equal(browserslist('baseline NEWLY available'), browserslistBaselineNewly)
+ })
+ 
+ test.run()

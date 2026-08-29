@@ -1,0 +1,19 @@
+{
+ "id": "29-unjs-pathe",
+ "repo": "unjs/pathe",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "55a21be8a14b70ec67098d3f68f54a34f3796fd4",
+ "commit_sha": "b52fcacc59717a1e4a8783d4bbfae7fa81b4db07",
+ "test_patch_sha256": "ff0ac1fd56976de5d0488714e24ac1a2d19ac994b3134ffbb7a622b7489c6b37",
+ "gold_patch_sha256": "2cb04540df9dd97f089ef469448b4676a1f6f33fc06df0d3e26ebd37236da87f",
+ "test_files": [
+  "test/index.spec.ts"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "pnpm lint && vitest run --coverage",
+ "mined_at": "2026-08-29T20:14:57.623Z"
+}

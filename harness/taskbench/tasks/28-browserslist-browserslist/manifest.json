@@ -1,0 +1,19 @@
+{
+ "id": "28-browserslist-browserslist",
+ "repo": "browserslist/browserslist",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "093a0f67bb0becda55235d767b134df3197c54a1",
+ "commit_sha": "57ecd64454e9252afdd6a7e76926e13dda48a38c",
+ "test_patch_sha256": "c656378290d1a13b8902c006e2438939ea7f9b04f38024b34f5603ad9204b275",
+ "gold_patch_sha256": "b0eaf1da5e6d6011acb78f3be11510fe8b844a04de4ae85fcc0937fbd4381684",
+ "test_files": [
+  "test/baseline.test.js"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "pnpm run /^test:/",
+ "mined_at": "2026-08-29T20:13:44.045Z"
+}
