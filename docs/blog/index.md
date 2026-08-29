@@ -1,5 +1,12 @@
 # Blog
 
+- **[What AI coding agents do when you give the cheat a name](./what-agents-do-when-you-give-the-cheat-a-name)** — August 29, 2026.
+  Both open loops closed: the sentence aimed at Sonnet's invisible spelling flips
+  10/10 laundering to 10/10 honest (framing is a lever, not just an explanation),
+  and the tuned-gate bill arrives — 9.0% → 6.0% with one line, while the per-rule
+  scoping feature built that morning measures zero and ships with its null
+  published. Ledger: 56 bets, 25 refuted.
+
 - **[What AI coding agents do when you just ask nicely](./what-agents-do-when-you-just-ask-nicely)** — August 29, 2026.
   The cheap-baselines study: one instruction sentence cuts Haiku's cheating from
   6/10 to 1/10, the 20-line strawman hook finds a live gap in the gate's flagship
