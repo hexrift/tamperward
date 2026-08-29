@@ -1,0 +1,412 @@
+diff --git a/packages/react/dialog/src/dialog.tsx b/packages/react/dialog/src/dialog.tsx
+index b27d0b32..586590f2 100644
+--- a/packages/react/dialog/src/dialog.tsx
++++ b/packages/react/dialog/src/dialog.tsx
+@@ -438,9 +438,9 @@ const DialogContentImpl = /* @__PURE__ */ React.forwardRef<
+       onOpenAutoFocus,
+       onCloseAutoFocus,
+       'aria-describedby': ariaDescribedby,
++      children,
+       ...contentProps
+     } = props;
+-    const { children, ...layerProps } = contentProps;
+     const context = useDialogContext(CONTENT_NAME, __scopeDialog);
+ 
+     // Make sure the whole tree has focus guards as our `Dialog` will be
+@@ -448,7 +448,7 @@ const DialogContentImpl = /* @__PURE__ */ React.forwardRef<
+     useFocusGuards();
+ 
+     return (
+-      <>
++      <FocusScopeBranchProvider registry={context.branchRegistry}>
+         <FocusScope
+           asChild
+           loop
+@@ -467,18 +467,15 @@ const DialogContentImpl = /* @__PURE__ */ React.forwardRef<
+                 : ariaDescribedby
+             }
+             data-state={getState(context.open)}
+-            {...layerProps}
++            {...contentProps}
+             ref={forwardedRef}
+             deferPointerDownOutside
+             onDismiss={() => context.onOpenChange(false)}
+           >
+-            {/* Lets nested, portalled layers register themselves as branches of this Dialog. */}
+-            <FocusScopeBranchProvider value={context.branchRegistry}>
+-              {children}
+-            </FocusScopeBranchProvider>
++            {children}
+           </DismissableLayer>
+         </FocusScope>
+-      </>
++      </FocusScopeBranchProvider>
+     );
+   },
+ );
+diff --git a/packages/react/focus-scope/src/focus-scope.tsx b/packages/react/focus-scope/src/focus-scope.tsx
+index d35cc474..ba3d115b 100644
+--- a/packages/react/focus-scope/src/focus-scope.tsx
++++ b/packages/react/focus-scope/src/focus-scope.tsx
+@@ -262,7 +262,24 @@ interface FocusScopeBranchRegistry {
+ 
+ const FocusScopeBranchContext = React.createContext<FocusScopeBranchRegistry | null>(null);
+ 
+-const FocusScopeBranchProvider = FocusScopeBranchContext.Provider;
++interface FocusScopeBranchProviderProps {
++  /**
++   * The registry nested layers should register themselves with. When nullish the provider is
++   * transparent, letting nested layers register against the next registry up the tree instead. This
++   * is the case for layers that don't trap focus or lock scroll, which have nothing to host.
++   */
++  registry: FocusScopeBranchRegistry | null | undefined;
++  children?: React.ReactNode;
++}
++
++function FocusScopeBranchProvider({ registry, children }: FocusScopeBranchProviderProps) {
++  if (!registry) {
++    return children;
++  }
++  return (
++    <FocusScopeBranchContext.Provider value={registry}>{children}</FocusScopeBranchContext.Provider>
++  );
++}
+ 
+ function useFocusScopeBranchRegistry() {
+   const [nodes, setNodes] = React.useState<HTMLElement[]>([]);
+@@ -446,4 +463,4 @@ export {
+   //
+   FocusScope as Root,
+ };
+-export type { FocusScopeProps, FocusScopeBranchRegistry };
++export type { FocusScopeProps, FocusScopeBranchProviderProps, FocusScopeBranchRegistry };
+diff --git a/packages/react/menu/src/menu.tsx b/packages/react/menu/src/menu.tsx
+index 809041df..cd20c3c1 100644
+--- a/packages/react/menu/src/menu.tsx
++++ b/packages/react/menu/src/menu.tsx
+@@ -396,7 +396,6 @@ const MenuContentImpl = /* @__PURE__ */ React.forwardRef<
+       onInteractOutside,
+       onDismiss,
+       disableOutsideScroll,
+-      children,
+       ...contentProps
+     } = props;
+     const context = useMenuContext(CONTENT_NAME, __scopeMenu);
+@@ -512,110 +511,105 @@ const MenuContentImpl = /* @__PURE__ */ React.forwardRef<
+           pointerGraceIntentRef.current = intent;
+         }, [])}
+       >
+-        <ScrollLockWrapper {...scrollLockWrapperProps}>
+-          <FocusScope
+-            asChild
+-            trapped={trapFocus}
+-            branches={branchNodes}
+-            onMountAutoFocus={composeEventHandlers(onOpenAutoFocus, (event) => {
+-              // when opening, explicitly focus the content area only and leave
+-              // `onEntryFocus` in  control of focusing first item
+-              event.preventDefault();
+-              contentRef.current?.focus({ preventScroll: true });
+-            })}
+-            onUnmountAutoFocus={onCloseAutoFocus}
+-          >
+-            <DismissableLayer
++        <FocusScopeBranchProvider registry={isModal ? branchRegistry : null}>
++          <ScrollLockWrapper {...scrollLockWrapperProps}>
++            <FocusScope
+               asChild
+-              disableOutsidePointerEvents={disableOutsidePointerEvents}
+-              onEscapeKeyDown={onEscapeKeyDown}
+-              onPointerDownOutside={onPointerDownOutside}
+-              onFocusOutside={onFocusOutside}
+-              onInteractOutside={onInteractOutside}
+-              onDismiss={onDismiss}
++              trapped={trapFocus}
++              branches={branchNodes}
++              onMountAutoFocus={composeEventHandlers(onOpenAutoFocus, (event) => {
++                // when opening, explicitly focus the content area only and leave
++                // `onEntryFocus` in  control of focusing first item
++                event.preventDefault();
++                contentRef.current?.focus({ preventScroll: true });
++              })}
++              onUnmountAutoFocus={onCloseAutoFocus}
+             >
+-              <RovingFocusGroup.Root
++              <DismissableLayer
+                 asChild
+-                {...rovingFocusGroupScope}
+-                dir={rootContext.dir}
+-                orientation="vertical"
+-                loop={loop}
+-                currentTabStopId={currentItemId}
+-                onCurrentTabStopIdChange={setCurrentItemId}
+-                onEntryFocus={composeEventHandlers(onEntryFocus, (event) => {
+-                  // only focus first item when using keyboard
+-                  if (!rootContext.isUsingKeyboardRef.current) event.preventDefault();
+-                })}
+-                preventScrollOnEntryFocus
++                disableOutsidePointerEvents={disableOutsidePointerEvents}
++                onEscapeKeyDown={onEscapeKeyDown}
++                onPointerDownOutside={onPointerDownOutside}
++                onFocusOutside={onFocusOutside}
++                onInteractOutside={onInteractOutside}
++                onDismiss={onDismiss}
+               >
+-                <PopperPrimitive.Content
+-                  role="menu"
+-                  aria-orientation="vertical"
+-                  data-state={getOpenState(context.open)}
+-                  data-radix-menu-content=""
++                <RovingFocusGroup.Root
++                  asChild
++                  {...rovingFocusGroupScope}
+                   dir={rootContext.dir}
+-                  {...popperScope}
+-                  {...contentProps}
+-                  ref={composedRefs}
+-                  style={{ outline: 'none', ...contentProps.style }}
+-                  onKeyDown={composeEventHandlers(contentProps.onKeyDown, (event) => {
+-                    // submenu key events bubble through portals. We only care about keys in this menu.
+-                    const target = event.target as HTMLElement;
+-                    const isKeyDownInside =
+-                      target.closest('[data-radix-menu-content]') === event.currentTarget;
+-                    const isModifierKey = event.ctrlKey || event.altKey || event.metaKey;
+-                    const isCharacterKey = event.key.length === 1;
+-                    if (isKeyDownInside) {
+-                      // menus should not be navigated using tab key so we prevent it
+-                      if (event.key === 'Tab') event.preventDefault();
+-                      if (!isModifierKey && isCharacterKey) handleTypeaheadSearch(event.key);
+-                    }
+-                    // focus first/last item based on key pressed
+-                    const content = contentRef.current;
+-                    if (event.target !== content) return;
+-                    if (!FIRST_LAST_KEYS.includes(event.key)) return;
+-                    event.preventDefault();
+-                    const items = getItems().filter((item) => !item.disabled);
+-                    const candidateNodes = items.map((item) => item.ref.current!);
+-                    if (LAST_KEYS.includes(event.key)) candidateNodes.reverse();
+-                    focusFirst(candidateNodes);
+-                  })}
+-                  onBlur={composeEventHandlers(props.onBlur, (event) => {
+-                    // clear search buffer when leaving the menu
+-                    if (!event.currentTarget.contains(event.target)) {
+-                      window.clearTimeout(timerRef.current);
+-                      searchRef.current = '';
+-                    }
++                  orientation="vertical"
++                  loop={loop}
++                  currentTabStopId={currentItemId}
++                  onCurrentTabStopIdChange={setCurrentItemId}
++                  onEntryFocus={composeEventHandlers(onEntryFocus, (event) => {
++                    // only focus first item when using keyboard
++                    if (!rootContext.isUsingKeyboardRef.current) event.preventDefault();
+                   })}
+-                  onPointerMove={composeEventHandlers(
+-                    props.onPointerMove,
+-                    whenMouse((event) => {
++                  preventScrollOnEntryFocus
++                >
++                  <PopperPrimitive.Content
++                    role="menu"
++                    aria-orientation="vertical"
++                    data-state={getOpenState(context.open)}
++                    data-radix-menu-content=""
++                    dir={rootContext.dir}
++                    {...popperScope}
++                    {...contentProps}
++                    ref={composedRefs}
++                    style={{ outline: 'none', ...contentProps.style }}
++                    onKeyDown={composeEventHandlers(contentProps.onKeyDown, (event) => {
++                      // submenu key events bubble through portals. We only care
++                      // about keys in this menu.
+                       const target = event.target as HTMLElement;
+-                      const pointerXHasChanged = lastPointerXRef.current !== event.clientX;
+-
+-                      // We don't use `event.movementX` for this check because Safari will
+-                      // always return `0` on a pointer event.
+-                      if (event.currentTarget.contains(target) && pointerXHasChanged) {
+-                        const newDir = event.clientX > lastPointerXRef.current ? 'right' : 'left';
+-                        pointerDirRef.current = newDir;
+-                        lastPointerXRef.current = event.clientX;
++                      const isKeyDownInside =
++                        target.closest('[data-radix-menu-content]') === event.currentTarget;
++                      const isModifierKey = event.ctrlKey || event.altKey || event.metaKey;
++                      const isCharacterKey = event.key.length === 1;
++                      if (isKeyDownInside) {
++                        // menus should not be navigated using tab key so we
++                        // prevent it
++                        if (event.key === 'Tab') event.preventDefault();
++                        if (!isModifierKey && isCharacterKey) handleTypeaheadSearch(event.key);
+                       }
+-                    }),
+-                  )}
+-                >
+-                  {/* Lets nested, portalled layers register themselves as branches of this menu. */}
+-                  {isModal ? (
+-                    <FocusScopeBranchProvider value={branchRegistry}>
+-                      {children}
+-                    </FocusScopeBranchProvider>
+-                  ) : (
+-                    children
+-                  )}
+-                </PopperPrimitive.Content>
+-              </RovingFocusGroup.Root>
+-            </DismissableLayer>
+-          </FocusScope>
+-        </ScrollLockWrapper>
++                      // focus first/last item based on key pressed
++                      const content = contentRef.current;
++                      if (event.target !== content) return;
++                      if (!FIRST_LAST_KEYS.includes(event.key)) return;
++                      event.preventDefault();
++                      const items = getItems().filter((item) => !item.disabled);
++                      const candidateNodes = items.map((item) => item.ref.current!);
++                      if (LAST_KEYS.includes(event.key)) candidateNodes.reverse();
++                      focusFirst(candidateNodes);
++                    })}
++                    onBlur={composeEventHandlers(props.onBlur, (event) => {
++                      // clear search buffer when leaving the menu
++                      if (!event.currentTarget.contains(event.target)) {
++                        window.clearTimeout(timerRef.current);
++                        searchRef.current = '';
++                      }
++                    })}
++                    onPointerMove={composeEventHandlers(
++                      props.onPointerMove,
++                      whenMouse((event) => {
++                        const target = event.target as HTMLElement;
++                        const pointerXHasChanged = lastPointerXRef.current !== event.clientX;
++
++                        // We don't use `event.movementX` for this check because
++                        // Safari will always return `0` on a pointer event.
++                        if (event.currentTarget.contains(target) && pointerXHasChanged) {
++                          const newDir = event.clientX > lastPointerXRef.current ? 'right' : 'left';
++                          pointerDirRef.current = newDir;
++                          lastPointerXRef.current = event.clientX;
++                        }
++                      }),
++                    )}
++                  />
++                </RovingFocusGroup.Root>
++              </DismissableLayer>
++            </FocusScope>
++          </ScrollLockWrapper>
++        </FocusScopeBranchProvider>
+       </MenuContentProvider>
+     );
+   },
+diff --git a/packages/react/popover/src/popover.tsx b/packages/react/popover/src/popover.tsx
+index ba0127dd..8b2526f1 100644
+--- a/packages/react/popover/src/popover.tsx
++++ b/packages/react/popover/src/popover.tsx
+@@ -450,7 +450,6 @@ const PopoverContentImpl = /* @__PURE__ */ React.forwardRef<
+       'aria-describedby': ariaDescribedby,
+       branchNodes,
+       branchRegistry,
+-      children,
+       ...contentProps
+     } = props;
+     const context = usePopoverContext(CONTENT_NAME, __scopePopover);
+@@ -470,57 +469,55 @@ const PopoverContentImpl = /* @__PURE__ */ React.forwardRef<
+     useFocusGuards();
+ 
+     return (
+-      <FocusScope
+-        asChild
+-        loop
+-        trapped={trapFocus}
+-        branches={branchNodes}
+-        onMountAutoFocus={onOpenAutoFocus}
+-        onUnmountAutoFocus={onCloseAutoFocus}
+-      >
+-        <DismissableLayer
++      <FocusScopeBranchProvider registry={branchRegistry}>
++        <FocusScope
+           asChild
+-          disableOutsidePointerEvents={disableOutsidePointerEvents}
+-          onInteractOutside={onInteractOutside}
+-          onEscapeKeyDown={onEscapeKeyDown}
+-          onPointerDownOutside={onPointerDownOutside}
+-          onFocusOutside={onFocusOutside}
+-          onDismiss={() => context.onOpenChange(false)}
+-          deferPointerDownOutside
++          loop
++          trapped={trapFocus}
++          branches={branchNodes}
++          onMountAutoFocus={onOpenAutoFocus}
++          onUnmountAutoFocus={onCloseAutoFocus}
+         >
+-          <PopperPrimitive.Content
+-            data-state={getState(context.open)}
+-            role="dialog"
+-            id={context.contentId}
+-            aria-labelledby={context.titlePresent ? context.titleId : undefined}
+-            aria-describedby={
+-              context.descriptionPresent
+-                ? concatAriaDescribedby(ariaDescribedby, context.descriptionId)
+-                : ariaDescribedby
+-            }
+-            {...popperScope}
+-            {...contentProps}
+-            ref={composedRefs}
+-            style={{
+-              ...contentProps.style,
+-              // re-namespace exposed content custom properties
+-              ...{
+-                '--radix-popover-content-transform-origin': 'var(--radix-popper-transform-origin)',
+-                '--radix-popover-content-available-width': 'var(--radix-popper-available-width)',
+-                '--radix-popover-content-available-height': 'var(--radix-popper-available-height)',
+-                '--radix-popover-trigger-width': 'var(--radix-popper-anchor-width)',
+-                '--radix-popover-trigger-height': 'var(--radix-popper-anchor-height)',
+-              },
+-            }}
++          <DismissableLayer
++            asChild
++            disableOutsidePointerEvents={disableOutsidePointerEvents}
++            onInteractOutside={onInteractOutside}
++            onEscapeKeyDown={onEscapeKeyDown}
++            onPointerDownOutside={onPointerDownOutside}
++            onFocusOutside={onFocusOutside}
++            onDismiss={() => context.onOpenChange(false)}
++            deferPointerDownOutside
+           >
+-            {branchRegistry ? (
+-              <FocusScopeBranchProvider value={branchRegistry}>{children}</FocusScopeBranchProvider>
+-            ) : (
+-              children
+-            )}
+-          </PopperPrimitive.Content>
+-        </DismissableLayer>
+-      </FocusScope>
++            <PopperPrimitive.Content
++              data-state={getState(context.open)}
++              role="dialog"
++              id={context.contentId}
++              aria-labelledby={context.titlePresent ? context.titleId : undefined}
++              aria-describedby={
++                context.descriptionPresent
++                  ? concatAriaDescribedby(ariaDescribedby, context.descriptionId)
++                  : ariaDescribedby
++              }
++              {...popperScope}
++              {...contentProps}
++              ref={composedRefs}
++              style={{
++                ...contentProps.style,
++                // re-namespace exposed content custom properties
++                ...{
++                  '--radix-popover-content-transform-origin':
++                    'var(--radix-popper-transform-origin)',
++                  '--radix-popover-content-available-width': 'var(--radix-popper-available-width)',
++                  '--radix-popover-content-available-height':
++                    'var(--radix-popper-available-height)',
++                  '--radix-popover-trigger-width': 'var(--radix-popper-anchor-width)',
++                  '--radix-popover-trigger-height': 'var(--radix-popper-anchor-height)',
++                },
++              }}
++            />
++          </DismissableLayer>
++        </FocusScope>
++      </FocusScopeBranchProvider>
+     );
+   },
+ );
