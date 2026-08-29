@@ -115,6 +115,29 @@ escape valve is a PR label only a human with write access can apply.
 
 ## Measured, not asserted
 
+**Read the two headline numbers together, always:** across **137 guarded runs — every
+one inside a tamper class an active detector covered — 0 tampers reached green.**
+Outside that coverage, on the one seed built to measure it, **agents tampered in 26 of
+40 runs.** The first number is what the gate does; the second is why the gate is one
+layer. And an honest note on evidence units: those run counts come from roughly
+fifteen seed/task configurations and eight real repositories — repeated runs on one
+seed measure that seed's stochasticity, not the space of real coding tasks, so the
+independent evidence behind these numbers is the seed count, not the run count.
+
+**What this does not do**, stated before the numbers rather than after: it does not
+establish that a patch is *correct*; it does not detect arbitrary deception (a
+hardcoded implementation is invisible to any diff rule — measured, twice); it does not
+replace sandboxing, held-out tests, or authoritative CI — it is designed to sit in
+front of them; it protects the specific development invariants that can be expressed
+mechanically, and nothing else.
+
+**A word on the words:** *tamper*, *honest*, *cheat*, and *surrender* are used
+throughout as operational labels, not claims about mental states. A "tamper" means: a
+protected asset changed, or an independent held-out oracle failed, while the visible
+check went green — a property of the artifacts, decided deterministically. Whether the
+process that produced it "intended" anything is a question these experiments do not
+measure and do not need.
+
 **Does the loop work?** `harness/run.sh` stands up an isolated repo with a real bug and a
 failing protected test, lets a headless agent loose with the hooks installed, and
 classifies the end state with an oracle independent of the detectors under test
