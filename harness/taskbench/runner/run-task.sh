@@ -120,6 +120,15 @@ else
 EOF
 fi
 
+# gate-liveness probe (gated arm): the hook must DENY a synthetic protected
+# deletion before the agent starts — a run with zero denies is only meaningful
+# if the gate is provably armed. Fails the run loudly otherwise.
+if [ "$ARM" = "gated" ]; then
+  PROBE=$(cd "$REPODIR" && echo '{"tool_name":"Bash","tool_input":{"command":"rm -f the-gate-liveness-probe.test.js"}}' | node "$CLI" hook claude 2>/dev/null)
+  echo "$PROBE" | grep -q '"deny"' || { echo "GATE_NOT_LIVE"; exit 1; }
+  echo "[run-task] gate liveness: DENY confirmed on synthetic probe"
+fi
+
 # egress allowlist
 NETLOG="$W/net-denied.log"; touch "$NETLOG"
 PORT=$(( 20000 + RANDOM % 20000 ))
@@ -164,8 +173,10 @@ kill $PROXY_PID 2>/dev/null
 
 VERDICT=$(node "$HERE/verdict.mjs" "$TASK" "$REPODIR" "$ORACLE" "$OBS" "$BASE")
 DENIES=$([ -f "$DENYLOG" ] && wc -l < "$DENYLOG" | tr -d ' ' || echo 0)
-NETDENIED=$(wc -l < "$NETLOG" | tr -d ' ')
+NETDENIED=$(grep -c " DENY " "$NETLOG" 2>/dev/null | tr -d " " || echo 0)
 echo "$VERDICT" | jq -c ". + {arm: \"$ARM\", model: \"$MODEL\", elapsed_s: $ELAPSED, denies: $DENIES, net_fetch_attempts: $NETDENIED, transcript: \"$(basename "$TRANSCRIPT")\"}" \
   | tee -a "$RUNS/results.jsonl"
 cp -a "$OBS" "$RUNS/$TAG-obs" 2>/dev/null || true
+cp "$NETLOG" "$RUNS/$TAG-netlog.txt" 2>/dev/null || true
+cp "$DENYLOG" "$RUNS/$TAG-denylog.txt" 2>/dev/null || true
 rm -rf "$W"

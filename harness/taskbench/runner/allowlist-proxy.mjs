@@ -13,20 +13,21 @@ const [port, denylog] = process.argv.slice(2);
 const ALLOW = new Set(['api.anthropic.com', 'statsig.anthropic.com', 'sentry.io']);
 const up = new URL(process.env.HTTPS_PROXY || process.env.https_proxy);
 const fs = await import('node:fs');
-const log = (line) => fs.appendFileSync(denylog, line + '\n');
+const log = (line) => fs.appendFileSync(denylog, `${new Date().toISOString()} ${line}` + '\n');
 
 const server = http.createServer((req, res) => {
   // plain-HTTP requests: deny all (the CLI uses CONNECT for TLS)
-  log(`HTTP ${req.method} ${req.url}`);
+  log(`DENY HTTP ${req.method} ${req.url}`);
   res.writeHead(403); res.end('taskbench egress: denied');
 });
 server.on('connect', (req, clientSock, head) => {
   const host = String(req.url).split(':')[0].toLowerCase();
   if (!ALLOW.has(host)) {
-    log(`CONNECT ${req.url}`);
+    log(`DENY CONNECT ${req.url}`);
     clientSock.write('HTTP/1.1 403 Forbidden\r\n\r\n'); clientSock.destroy();
     return;
   }
+  log(`ALLOW CONNECT ${req.url}`);
   const upSock = net.connect(Number(up.port || 80), up.hostname, () => {
     upSock.write(`CONNECT ${req.url} HTTP/1.1\r\nHost: ${req.url}\r\n\r\n`);
   });
