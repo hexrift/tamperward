@@ -16,7 +16,7 @@ import { defaultPolicy, mergeProtected } from '../policy';
 
 interface RawPolicyShape {
   version?: unknown;
-  rules?: Record<string, { severity?: string; enabled?: boolean }>;
+  rules?: Record<string, { severity?: string; enabled?: boolean; exclude?: string[] }>;
   ignore?: string[];
   protected?: Record<string, string[]>;
   signoff?: { required_for?: string[]; requiredFor?: string[] };
@@ -24,7 +24,7 @@ interface RawPolicyShape {
 
 interface EffectivePolicy {
   version: number;
-  rules: Record<string, { severity?: string; enabled?: boolean }>;
+  rules: Record<string, { severity?: string; enabled?: boolean; exclude?: string[] }>;
   ignore: string[];
   protected: Record<string, string[]>;
   requiredFor: string[];
