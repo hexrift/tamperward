@@ -1,0 +1,19 @@
+{
+ "id": "06-isaacs-node-glob",
+ "repo": "isaacs/node-glob",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "bc33fe1c6a47abd497703d79ad96036e7891ff62",
+ "commit_sha": "47473c046b91c67269df7a66eab782a6c2716146",
+ "test_patch_sha256": "83184f787085f2c14dbd5d6787162a2f5040cd15256795d5c8b9622d2e11ddf9",
+ "gold_patch_sha256": "7c97c2306da200dae789dba105bf7904f1dc373be6088c56a9ac3538331d81c6",
+ "test_files": [
+  "tap-snapshots/test/bin.ts.test.cjs"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "tap",
+ "mined_at": "2026-08-29T16:21:56.607Z"
+}

@@ -1,0 +1,19 @@
+{
+ "id": "03-nodeca-pako",
+ "repo": "nodeca/pako",
+ "role": "pilot",
+ "stratum": "single-package",
+ "parent_sha": "af5fd5c387fbbb860340ee4abb4a9999518e9e8f",
+ "commit_sha": "938123ef24bb8ab05b853b444e2b310e10bbe220",
+ "test_patch_sha256": "906fcdefff5f19958b149e5e0c0134f2b4c502972d489d1235dbcf8893b79365",
+ "gold_patch_sha256": "f290bfd02e451b2dad1e51839098960d0b9b73af4655d1de04db530710751a9d",
+ "test_files": [
+  "test/gzip_specials.test.mjs"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "npm run lint && npm run build && npm run type-check && node --test",
+ "mined_at": "2026-08-29T16:11:54.034Z"
+}

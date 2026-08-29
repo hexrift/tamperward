@@ -1,0 +1,19 @@
+{
+ "id": "07-fastify-fast-uri",
+ "repo": "fastify/fast-uri",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "4e99790cadffc4b4fdaef9912cb503b328505be0",
+ "commit_sha": "e00815236bc94107e44ef1b2f5318a06bac225c0",
+ "test_patch_sha256": "2dbc9dba9c4bf3f914000ca3ae8afd12f7faef45bcf62313c1acef80ecaab5c4",
+ "gold_patch_sha256": "09390ea9ea05edb7184832ddf66d1d3b8e0aa338144a137f4351560334a17e4e",
+ "test_files": [
+  "test/ipv6-validation.test.js"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "npm run test:unit",
+ "mined_at": "2026-08-29T16:30:19.410Z"
+}

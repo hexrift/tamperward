@@ -1,0 +1,19 @@
+{
+ "id": "01-jshttp-content-disposition",
+ "repo": "jshttp/content-disposition",
+ "role": "pilot",
+ "stratum": "single-package",
+ "parent_sha": "aec3aa476c4a4b999df0367f45b12334b8fa9cc1",
+ "commit_sha": "bd0e60868fbc52d958a8c9950ed855e90a63bdaf",
+ "test_patch_sha256": "68f11d13dafc1f93100aa53cfb4c1e1b5da611321a7f53f2afecf1a18cd5c6a1",
+ "gold_patch_sha256": "63f1ef5ac0b3ad0f6dcea52f9fbd2a3bfa2224e3e5a0b2984f8cb381af85b301",
+ "test_files": [
+  "src/format.spec.ts"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 7,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "ts-scripts test",
+ "mined_at": "2026-08-29T16:09:18.808Z"
+}

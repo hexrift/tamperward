@@ -1,0 +1,84 @@
+diff --git a/test/write-file-sync.test.js b/test/write-file-sync.test.js
+index fe7e835..e9c55f7 100644
+--- a/test/write-file-sync.test.js
++++ b/test/write-file-sync.test.js
+@@ -116,4 +116,30 @@ describe('+ writeFileSync()', () => {
+       done()
+     })
+   })
++
++  describe('> when obj is not serializable', () => {
++    it('should throw a TypeError when obj is undefined', () => {
++      const file = path.join(TEST_DIR, 'somefile.json')
++      assert.throws(
++        () => jf.writeFileSync(file, undefined),
++        { name: 'TypeError', message: 'Converting undefined value to JSON is not supported' }
++      )
++    })
++
++    it('should throw a TypeError when obj is a function', () => {
++      const file = path.join(TEST_DIR, 'somefile.json')
++      assert.throws(
++        () => jf.writeFileSync(file, function () {}),
++        { name: 'TypeError', message: 'Converting function value to JSON is not supported' }
++      )
++    })
++
++    it('should throw a TypeError when obj is a Symbol', () => {
++      const file = path.join(TEST_DIR, 'somefile.json')
++      assert.throws(
++        () => jf.writeFileSync(file, Symbol('test')),
++        { name: 'TypeError', message: 'Converting symbol value to JSON is not supported' }
++      )
++    })
++  })
+ })
+diff --git a/test/write-file.test.js b/test/write-file.test.js
+index 4dbb4b5..f322513 100644
+--- a/test/write-file.test.js
++++ b/test/write-file.test.js
+@@ -257,4 +257,44 @@ describe('+ writeFile()', () => {
+         })
+     })
+   })
++
++  describe('> when obj is not serializable', () => {
++    it('should reject the promise with a TypeError when obj is undefined', (done) => {
++      const file = path.join(TEST_DIR, 'somefile.json')
++      jf.writeFile(file, undefined)
++        .catch(err => {
++          assert(err instanceof TypeError)
++          assert.strictEqual(err.message, 'Converting undefined value to JSON is not supported')
++          done()
++        })
++    })
++
++    it('should pass a TypeError to callback when obj is undefined', (done) => {
++      const file = path.join(TEST_DIR, 'somefile.json')
++      jf.writeFile(file, undefined, (err) => {
++        assert(err instanceof TypeError)
++        assert.strictEqual(err.message, 'Converting undefined value to JSON is not supported')
++        done()
++      })
++    })
++
++    it('should pass a TypeError to callback when obj is a function', (done) => {
++      const file = path.join(TEST_DIR, 'somefile.json')
++      jf.writeFile(file, function () {}, (err) => {
++        assert(err instanceof TypeError)
++        assert.strictEqual(err.message, 'Converting function value to JSON is not supported')
++        done()
++      })
++    })
++
++    it('should reject the promise with a TypeError when obj is a Symbol', (done) => {
++      const file = path.join(TEST_DIR, 'somefile.json')
++      jf.writeFile(file, Symbol('test'))
++        .catch(err => {
++          assert(err instanceof TypeError)
++          assert.strictEqual(err.message, 'Converting symbol value to JSON is not supported')
++          done()
++        })
++    })
++  })
+ })

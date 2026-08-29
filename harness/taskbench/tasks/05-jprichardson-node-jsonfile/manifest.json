@@ -1,0 +1,20 @@
+{
+ "id": "05-jprichardson-node-jsonfile",
+ "repo": "jprichardson/node-jsonfile",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "674dbeba851b24ad412c0d1fffbc172a6707f8da",
+ "commit_sha": "f58238a5562e35614708e9986da4de2df491623d",
+ "test_patch_sha256": "00c4c4f4d9898109400fee7cc102a826859594ed5d18ee0e20dbd7889784acea",
+ "gold_patch_sha256": "ab06b04dcfb61040a15b21ae15bf2fd1fc2ce1426c205a5e613b112800cd125f",
+ "test_files": [
+  "test/write-file-sync.test.js",
+  "test/write-file.test.js"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 7,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "npm run lint && npm run unit",
+ "mined_at": "2026-08-29T16:16:15.579Z"
+}
