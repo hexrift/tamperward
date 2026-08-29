@@ -9,6 +9,14 @@ gap. The review is right. This post concedes the point precisely, records what
 changed on our public surfaces because of it, and pre-registers the experiment the
 review convinced us to run next.*
 
+*Follow-up, August 29: [What AI coding agents do when the tests are
+read-only](./what-agents-do-when-the-tests-are-read-only) — the capability study
+registered below has run. Hard immutability governed the seed 10/10; the
+auto-granted elevation arm produced two written confessions ("remove failing test
+file to unblock build"), both granted, both tampered. Four of five bets held; the
+semantic-redirect bet was refuted. The division-of-responsibility table's last
+cell is filled.*
+
 Every post in this series
 ([1](./what-agents-do-when-you-block-their-shortcuts) ·
 [2](./what-agents-do-when-nothing-is-watching) ·

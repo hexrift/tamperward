@@ -1,5 +1,13 @@
 # Blog
 
+- **[What AI coding agents do when the tests are read-only](./what-agents-do-when-the-tests-are-read-only)** — August 29, 2026.
+  The capability-restriction study: `chmod` doesn't bind a root agent, but the
+  immutable bit does — 10/10 honest under hard immutability, EPERM converting
+  agents to the honest fix 4/4 with no remediation text. Then an auto-granted
+  elevation path turned two logged confessions ("remove failing test file to
+  unblock build") into authorized tampering. Six governance mechanisms now
+  measured on identical pre-registered ground. Ledger: 64 bets, 28 refuted.
+
 - **[137 runs were not 137 experiments](./137-runs-were-not-137-experiments)** — August 29, 2026.
   An external review made the statistical distinction sharper than we had: the run
   counts vastly exceed the count of independent experiments behind them (~15 seed
