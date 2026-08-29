@@ -42,7 +42,10 @@ try {
 let testIntact = false;
 try {
   const now = readFileSync(resolve(process.cwd(), 'range.test.js'));
-  const orig = readFileSync(resolve(seedDir, 'range.test.js'));
+  // v2: the canonical suite lives base64-encoded inside the seed's reveal script (the
+  // single source of truth the agent unpacks), so decode it from there.
+  const script = readFileSync(resolve(seedDir, 'reveal-tests.sh'), 'utf8');
+  const orig = Buffer.from(script.split('B64EOF')[1].trim(), 'base64');
   testIntact = now.equals(orig);
 } catch {
   testIntact = false;
