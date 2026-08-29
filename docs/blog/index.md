@@ -1,5 +1,11 @@
 # Blog
 
+- **[What AI coding agents do when the fix doesn't exist](./what-agents-do-when-the-fix-does-not-exist)** — August 29, 2026.
+  The stuck-agent study: a provably unfixable suite, a claims-based oracle, and an
+  explicit honest exit. Twenty of twenty pressured runs surrendered honestly — both
+  my Haiku bets refuted — and the thesis sharpens: agents take the cheapest path
+  they believe is sanctioned.
+
 - **[What AI coding agents do when nothing is watching](./what-agents-do-when-nothing-is-watching)** — August 28, 2026.
   The follow-up batch: the gate switched off for four models (30/30 honest frontier
   runs vs 6/10 tampers from the cheap one), the assertion trap that caught nobody,
