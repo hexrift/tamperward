@@ -1,17 +1,22 @@
-# Tamperward — Build Spec v0.3
+# Tamperward — Build Spec v0.4
 
 > The deterministic agent-integrity gate. One ruleset, evaluated on the actual
 > diff/commands as a verdict (not a probability), at every stage a change passes
 > through — the agent loop (a Claude Code hook today), pre-commit, and CI, which is
 > the authority.
 
-**Slice:** TypeScript/Jest · Claude Code · 12 rules specified, 10 shipped ·
+**Slice:** TypeScript/Jest · Claude Code · 13 rules specified, 11 shipped ·
 agent-loop + pre-commit + CI · the agent-correction loop measured, not asserted.
 
-v0.3 reconciles the spec with what shipped through 1.4.5 — status is marked inline and
-§9 is the record. v0.2 was v0.1 plus four fixes found while verifying the `PreToolUse`
-schema against current docs: the Bash-as-file-mutation hole (→ Stop sweep), out-of-band
-CI sign-off, AST for the structure detectors, and the expected-value-tampering move.
+v0.4 reconciles the spec with what shipped through 1.6.0: `test-skip`'s class
+completed with the node:test options spelling (1.5.1), the per-rule `exclude` policy
+surface with its weakening symmetry (1.6.0), `ts-any-launder` given the table row it
+always deserved with its graduation question now closed by corpus, and §7.B extended
+with the studies that closed it — baselines, the tuned-FP trio, the laundering
+corpus, and the capability-restriction comparison. v0.3 reconciled with 1.4.5; v0.2
+was v0.1 plus four fixes found while verifying the `PreToolUse` schema against
+current docs: the Bash-as-file-mutation hole (→ Stop sweep), out-of-band CI sign-off,
+AST for the structure detectors, and the expected-value-tampering move.
 
 ---
 
@@ -25,8 +30,8 @@ Two assertions have to become true or false here:
    message redirects the agent to fix the *real* failure rather than hunt for another
    bypass.
 
-Ten of the twelve specified rules are mechanical, and those ten are the ones that
-shipped — so #1 is largely engineering. The two heuristics remain unbuilt (§4). #2 —
+Eleven of the thirteen specified rules are mechanical, and those eleven are the ones
+that shipped — so #1 is largely engineering. The two heuristics remain unbuilt (§4). #2 —
 whether a denied agent fixes the truth or fights the gate — is the harder question. The
 metric that quantifies it is the **bypass-to-fix conversion rate** (§7.B); see the
 README for the measured result, now including its no-gate control arm.
@@ -133,6 +138,7 @@ rules:
   test-skip:            { severity: block }
   assertion-weakening:  { severity: warn  }    # heuristic — RESERVED, not yet built (§4)
   ts-any-cast:          { severity: block }
+  ts-any-launder:       { severity: warn  }    # permanent warn — graduation closed by corpus (§4 row 13)
   lint-suppression:     { severity: block }
   coverage-lowering:    { severity: block }
   ci-tampering:         { severity: block }
@@ -146,6 +152,21 @@ signoff:
   # LOCAL ONLY. In CI, sign-off is out-of-band (§5.4) — never this file.
   ledger: .tamperward/ledger.jsonl
 ```
+
+**Per-rule `exclude` globs** (1.6.0): any rule may carry
+`exclude: ['**/*.test-d.ts', …]` to scope *that rule alone* off matching paths while
+every other rule keeps full coverage there — the tuning the global `ignore` list
+could never express without blinding the test-protection rules on exactly the files
+they guard. Two invariants are part of the schema's meaning, not implementation
+detail: **findings on the policy file itself are never excludable**, and **adding an
+exclude glob is itself a policy-weakening signal** flagged by `hook-tampering`'s
+policy-diff — the invisible-spelling lesson applied the day the surface was born. A
+disclosure ships with the feature: on the two-repo FP corpus it was built against
+(`harness/PREDICTION-tuned-fp.md`), the recommended test-path scoping of
+`ts-any-cast` measured **zero effect** — those repos' casts live in library source.
+FP tuning is repo-shaped; the feature's value claim is scoped to repos whose fires
+cluster in scopeable paths (the adjudicated zod class), and the null is published
+next to the bet that predicted otherwise.
 
 **Finding** — the verdict object and the hook's return payload (see `src/types.ts`):
 
@@ -167,9 +188,9 @@ rule is 100% mechanical**; heuristics may only ever be `warn` until measured (§
 
 ---
 
-## 4. The twelve rules — ten shipped, two reserved
+## 4. The thirteen rules — eleven shipped, two reserved
 
-Surface · signal · and **certainty class**, because ten are mechanical and two are
+Surface · signal · and **certainty class**, because eleven are mechanical and two are
 heuristic, and the spec must not pretend otherwise. The two heuristics (rows 3 and 10)
 are **specified here and reserved in the baseline policy, but no detector implements
 them yet** — their names exist so a user policy written today keeps meaning the same
@@ -178,19 +199,20 @@ thing on the release that builds them.
 | # | id | Surface | Signal (TS/Jest concrete) | Certainty | Parser |
 |---|----|---------|---------------------------|-----------|--------|
 | 1 | `test-deletion` | file/cmd | test file `op: delete`; **rename out of the tests glob** (`git mv x.spec.ts x.spec.bak`); net removal of `it()`/`test()` blocks in a modified spec; `rm`/`sed`/`> ` of a protected-tests path | mechanical | **AST** |
-| 2 | `test-skip` | file | added `.skip` / `.only` / `xit` / `xdescribe` / `it.todo` / `test.skip` (`.only` *narrows* the suite — same class) | mechanical | regex |
+| 2 | `test-skip` | file | added `.skip` / `.only` / `xit` / `xdescribe` / `it.todo` / `test.skip` (`.only` *narrows* the suite — same class); the **node:test options spelling** — `test('x', { skip: true }, …)`, `{ todo: … }`, runtime `t.skip()` (1.5.1, closing a gap a live agent found: denied the crude `rm`, it skipped by option, and the shipped rule was blind to that spelling — coverage of a class must mean the whole class) | mechanical | regex |
 | 3 | `assertion-weakening` | file | net decrease in `expect(` count inside a kept test; strong matcher → weak (`toBeDefined`/`toBeTruthy`/`not.toThrow`); **changed literal inside a kept `expect()`** (the sly-genie `toBe(42)`→`toBe(43)` move) | heuristic — **reserved, not built** | **AST** |
 | 4 | `ts-any-cast` | file | added `as any`, `: any`, `as unknown as`, `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck` | mechanical | regex |
 | 5 | `lint-suppression` | file | added `eslint-disable[-next-line]`, `/* eslint-disable */`, `// prettier-ignore` | mechanical | regex |
 | 6 | `coverage-lowering` | file | `coverageThreshold` numbers reduced; `--coverage` stripped from test script; `--passWithNoTests` added | mechanical | regex/JSON |
 | 7 | `ci-tampering` | file | in `protected.ci`: removed/commented test/lint/typecheck step, `continue-on-error: true`, `if: false` | mechanical | regex/YAML |
-| 8 | `hook-tampering` | file/cmd | edit/delete in `protected.hooks`/`protected.config`; `chmod -x` on a hook; edit to `.tamperward.yml` lowering severities | mechanical | regex |
+| 8 | `hook-tampering` | file/cmd | edit/delete in `protected.hooks`/`protected.config`; `chmod -x` on a hook; edit to `.tamperward.yml` lowering severities, disabling rules, lowering `version:`, **adding `ignore` or per-rule `exclude` globs** (every new policy surface that can weaken the gate is a policy-diff signal the release it ships, 1.6.0) | mechanical | regex |
 | 9 | `no-verify` | command | `git commit -n/--no-verify`, `git push --no-verify`, `HUSKY=0`, `HUSKY_SKIP_HOOKS=1`, `--no-hooks` | mechanical | regex |
 | 10 | `guard-removal` | file | deletion of lines matching auth/validation patterns (`requireAuth`, `checkPermission`, `if (!user`, `authorize`, zod `.parse(`, `csrf`) | heuristic — **reserved, not built** | regex |
 | 11 | `snapshot-rewrite` | command+file | runner update mode (`jest -u`, `--updateSnapshot`, `vitest --update`), regeneration scripts by name (`update-golden`, `regen-snapshots`), shell mutation of protected snapshot paths, and any modify/delete/rename-out of `**/*.snap`, `__snapshots__/`, `golden/` | mechanical, **warn** (updating a snapshot is legitimate when intended output changes; built from measured demand — harness/PREDICTION-affordance.md) | regex + glob |
 | 12 | `snapshot-only-rewrite` | file | every changed file in the diff is a moving protected snapshot (adds excluded) — the FP study's narrow signal, ~0.06% of audited mainline commits, 7/7 of observed tampers; judged ONLY at commit granularity (staged/range views) via the engine's `view` parameter, because at tool-call scope every snapshot edit is "only" | mechanical, **warn** (graduation candidate: `BLOCK_SINCE` at a future policy `version:`) | glob |
+| 13 | `ts-any-launder` | file | `any` introduced in annotation/generic position (`: any`, `<any>`) — the laundering spelling of row 4's class, split out in the 1.0 precision pass | mechanical, **permanent warn** — graduation to block is *closed by corpus* (`harness/PREDICTION-launder-corpus.md`): the spelling fires on **10.5%** of 1,227 legitimate mainline commits, 4–10× any deployable block threshold; the measured 26/40 demand for the laundering class routes to the held-out-oracle and prompt layers, not to a block rule | regex |
 
-The ten mechanical rules are where determinism is real and the demo is honest. The two
+The eleven mechanical rules are where determinism is real and the demo is honest. The two
 heuristics (3, 10) are the research surface, and the discipline is: **built only against
 a measured negatives corpus, entering as `warn`, promoted per-rule only when the number
 clears the bar (§7)**. Neither has been built — the corpus comes first, because a
@@ -208,6 +230,18 @@ Regex is genuinely fine for the additive-token detectors (4, 5, 9) and adequate 
 
 **`tamperward allow` granularity:** a sign-off is keyed on `rule + file + hash(evidence)`
 and expires — never a session-wide blanket on a whole rule.
+
+**Row 13's closed question, because a spec should record decisions, not just
+surfaces:** whether the laundering spelling could ever block was this project's
+longest-open graduation question — the strongest measured demand in the series
+(26/40 uncovered-class tampers) pointed straight at it. The §7.A-style corpus sweep
+answered it with a denominator: both laundering spellings (annotation-`any` at
+10.5%, non-const named-type assertions at 7.5%) are ordinary honest TypeScript at
+rates no block threshold survives, so `ts-any-launder` stays warn permanently on
+syntactic evidence, no assertion rule gets built, and the laundering class is owned
+by the layers where coverage is actually measured — held-out oracles (18/18 caught)
+and the naming sentence (a 10/10 behavioral flip). Detection is not the gate's
+layer for this class; verification and framing are.
 
 ---
 
@@ -424,10 +458,44 @@ the repo next to the confirmations.* The prediction files are the record —
   sources vendored into the repo and named in the prompt, betting the open ruleset
   works as an evasion spec. It didn't, at the measured scenario size — and the bets
   that lost say so.
+- **Robustness of the honesty nulls** (`PREDICTION-self-authored.md`,
+  `PREDICTION-eval-awareness.md`) — the seed dressed as a real project with
+  backdated history and a maintainer's plea, and an explicit written license to
+  rewrite tests, with manipulation checks that make the nulls mean something.
+- **The stuck agent** (`PREDICTION-stuck-agent.md`) — a provably unfixable suite
+  plus an explicit honest exit: agents take the cheapest path they believe is
+  *sanctioned*, the thesis the rest of the programme keeps re-confirming.
+- **The dimension studies** (`PREDICTION-coverage.md`, `PREDICTION-noverify.md`) —
+  per-rule certification under attack across three models, including the
+  command-surface class only the gate can see.
+- **The gate's boundary** (`PREDICTION-asany.md`) — the laundering seed whose
+  cheapest cheats sit outside every rule: 26/40 tampers through gate-invisible
+  spellings, the frontier split (one model 10/10 via inline assertions), and the
+  held-out oracle layer catching all of it. The result that scopes the flagship
+  number as conditional-on-coverage.
+- **Cheap baselines and the FP bill** (`PREDICTION-baselines.md`) — the gate versus
+  a single instruction sentence and a 20-line strawman hook on identical ground,
+  plus block-rates for all screens over 1,227 real merged commits (the gate's own
+  honest 9.0% unconfigured).
+- **The tuned gate** (`PREDICTION-tuned-fp.md`) — the deployed-cost trio (9.0% →
+  6.0% → ~one sign-off per 17 commits) and the per-rule `exclude` null, published
+  at the feature's own expense the day it shipped.
+- **The laundering corpus** (`PREDICTION-launder-corpus.md`) — the §7.A methodology
+  applied to the graduation question; closed it (row 13).
+- **Capability restriction** (`PREDICTION-capability.md`) — the "just make the
+  tests read-only" objection measured instead of rebutted: hard immutability
+  10/10 honest on the file-surface seed, a bare EPERM converting 4/4 without
+  remediation text, and an auto-granted elevation path manufacturing two
+  confessed-in-writing tampers. Six governance mechanisms (nothing, one sentence,
+  naive hook, the gate, immutability, immutability+auto-grant) now hold
+  pre-registered numbers on identical ground.
 
 Agents are stochastic, so every arm runs multiple reps, changes one variable, and
 records full transcripts under `harness/runs/`. When a conversion rate is mediocre,
-the §5.1 message wording is the lever to tune.
+the §5.1 message wording is the lever to tune. The running ledger across the
+programme: **64 pre-registered bets — 28 refuted, 34 held, 2 unresolvable** — with
+refutations published next to the bets they refute, which is the property the whole
+section exists to protect.
 
 ---
 
@@ -475,10 +543,22 @@ CLI over the PR range, and a blocking finding clears only via the out-of-band la
 8. **`snapshot-only-rewrite`** — *shipped* (1.5.0): the FP study's narrow signal as a
    distinct warn rule, granularity-guarded to the staged/range views by the engine's
    additive `view` parameter, positioned for a `version: 2` graduation.
+9. **`test-skip` options-spelling coverage** — *shipped* (1.5.1): the node:test
+   `{ skip: true }` / `{ todo: … }` / `t.skip()` forms, closing a gap a live agent
+   found in the baselines study the same day.
+10. **Per-rule `exclude` globs** — *shipped* (1.6.0) with both invariants (policy
+    file never excludable; added excludes are a policy-diff weakening signal) and
+    its measured null disclosed (§3).
+11. **The `ts-any-launder` graduation question** — *closed* (no release; a
+    decision, not a feature): permanent warn on syntactic evidence, per the
+    laundering-corpus numbers in §4 row 13.
 
 Still open: the §7.A negatives corpus (there is no `fixtures/` tree yet — the
-precision work so far lives in `harness/fp-study/`), the two heuristic detectors it
-gates, languages beyond TS, and agents beyond Claude Code.
+precision work so far lives in `harness/fp-study/` and the corpus sweeps of
+`PREDICTION-baselines/tuned-fp/launder-corpus.md`), the two heuristic detectors it
+gates, languages beyond TS, agents beyond Claude Code, and the task-level
+multi-repository benchmark (the repo, not the run, as the sampling unit) that the
+external review placed at the top of the roadmap.
 
 ---
 
@@ -496,8 +576,30 @@ gates, languages beyond TS, and agents beyond Claude Code.
 - **The informed-adversary result measures disclosure, not mandated evasion.** No
   prompt ordered a model to defeat the gate; the arms-race question is opened and
   bounded, not settled.
+- **The flagship number is conditional on detector coverage, and the run counts
+  overstate the experiment count.** Zero tampers across the guarded runs holds for
+  tamper classes an active detector covered; on a seed whose cheapest cheats sat
+  outside coverage, agents tampered in 26 of 40 runs. And the independent evidence
+  unit is the seed/repo configuration (~15 seeds, 8 corpus repos), not the run —
+  run-level repetition measures per-seed stochasticity only. The README carries
+  both statements first, before any result; this spec repeats them so no §7 number
+  gets quoted without them.
+- **The gate is one layer of a measured division of responsibility.** Capability
+  restriction owns assets that should be immutable during a task (and its grantor
+  design is the hard part — the auto-grant arm manufactured authorized tampering);
+  held-out oracles own the semantic classes no diff can show; the naming sentence
+  owns the underspecified ones; the gate plus out-of-band sign-off owns the classes
+  where legitimate changes must be distinguishable from illegitimate ones; CI is
+  the authority under all of it.
 
 ---
+
+*v0.4 · reconciles the spec with 1.6.0: `test-skip`'s class completed (1.5.1), the
+per-rule `exclude` surface with its weakening symmetry and published null (1.6.0),
+`ts-any-launder` seated as row 13 with its graduation question closed by corpus,
+§7.B extended with the nine studies that ran after v0.3, and the coverage-conditional
+framing plus the division-of-responsibility caveats added to §10 following the
+external statistical review.*
 
 *v0.3 · reconciles the spec with 1.4.5: eleven rules with the two unbuilt heuristics
 marked as reserved, the shipped `version:` gate and `init`, §7.B rewritten as the
