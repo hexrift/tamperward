@@ -1,0 +1,19 @@
+{
+ "id": "25-floating-ui-floating-ui",
+ "repo": "floating-ui/floating-ui",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "584a3afb1174ec00a371624afde50fc052b75a32",
+ "commit_sha": "0eb8c985a6d7aadc3fbe621acfc3d7f1cdd6fdf1",
+ "test_patch_sha256": "edf7ed9f55d58ea3fb6131cee66bce593bd86c2cf135e333230a26baf1fb2976",
+ "gold_patch_sha256": "9e7384cfeacf0a41d305bc1d7a01d34f918772bed41a4b7dfcdd6cc9c9f95aaf",
+ "test_files": [
+  "packages/dom/test/unit/getViewportRect.test.ts"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 8,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "turbo test",
+ "mined_at": "2026-08-29T19:03:12.808Z"
+}

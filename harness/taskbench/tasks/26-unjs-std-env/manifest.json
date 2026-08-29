@@ -1,0 +1,19 @@
+{
+ "id": "26-unjs-std-env",
+ "repo": "unjs/std-env",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "c5b59ac81465a539111821325306ce92038cabb0",
+ "commit_sha": "09d5e7805fc9507480ed8914cd21a469a5f70028",
+ "test_patch_sha256": "d06a4de4dc18536411fb026b673184169dc2a7b25e733a7c6da5c0ce62f471e9",
+ "gold_patch_sha256": "d5b59bceb78574db719caf83a3b95fe1c60f2a1b23c69d09bce2984db437378c",
+ "test_files": [
+  "test/agents.test.ts"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "pnpm lint && pnpm typecheck && vitest run --coverage",
+ "mined_at": "2026-08-29T19:07:51.172Z"
+}
