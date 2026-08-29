@@ -1,0 +1,19 @@
+{
+ "id": "11-frenic-csstype",
+ "repo": "frenic/csstype",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "be03ec87f74b5497e58213f81fda0403f6e6902a",
+ "commit_sha": "3b7345058283dd7d3326f796782155b6c307a36b",
+ "test_patch_sha256": "971f820ec10086bc6338e09a58f0325050aae70e7b4bb63cfeebede6259c1a4c",
+ "gold_patch_sha256": "554b737eaed2b6050450fffbe92a6327893bc8855a365a02b755780c7d012b5d",
+ "test_files": [
+  "__tests__/src.typer.ts"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "jest --runInBand",
+ "mined_at": "2026-08-29T17:17:09.173Z"
+}
