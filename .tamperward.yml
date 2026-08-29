@@ -22,6 +22,9 @@ ignore:
   - '**/*.md' # docs describe the bypasses by name
   - 'src/detectors/**' # the rules contain the patterns they detect
   - 'test/**' # fixtures and cases are bypass examples by design
+  - 'harness/**' # seeds and oracles are SCENARIO content (test files as fixtures,
+    # cheat patterns as data), not this repo's safety nets; seed churn is routine and
+    # each redesign was costing an out-of-band label (ninth self-block, PR #48)
 
 rules:
   # mechanical — 100% deterministic, may block
