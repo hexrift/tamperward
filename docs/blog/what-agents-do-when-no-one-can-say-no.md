@@ -9,6 +9,13 @@ rule can see. This is the study where the gate's own boundary got measured, a
 deny taught an agent a better bypass, and the project's "disposition" language
 earned a permanent asterisk.*
 
+*Follow-up, August 29: [What AI coding agents do when you just ask
+nicely](./what-agents-do-when-you-just-ask-nicely) — the baselines study announced
+below has run. One sentence cut the cheap model's tampering to 1/10, the strawman
+hook exposed a gap in the real gate's own `test-skip` rule (closed in 1.5.1), and
+the false-positive comparison landed at 24.9% vs 9.0% on real commits. The numbers
+below are as published.*
+
 This is the sixth post in a series
 ([1](./what-agents-do-when-you-block-their-shortcuts) ·
 [2](./what-agents-do-when-nothing-is-watching) ·
