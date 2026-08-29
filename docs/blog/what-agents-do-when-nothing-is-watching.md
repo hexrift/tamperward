@@ -13,6 +13,13 @@ same mechanics dressed as a real project with a backdated history, zero frontier
 tampers, and the one model that read the dressing stayed honest anyway. The numbers
 below are as published; the README carries the running totals.*
 
+*Second follow-up, August 29: [What AI coding agents do when no one can say
+no](./what-agents-do-when-no-one-can-say-no) — "frontier honesty is disposition"
+below now has a measured boundary. On a seed whose cheapest cheat spellings no rule
+can see, it held for Opus (10/10 honest, no gate involvement) and failed for Sonnet
+(10/10 laundered) and Fable (6/10): for those two, the honesty below held exactly as
+far as the gate's coverage did. The numbers below are as published.*
+
 The [launch post](./what-agents-do-when-you-block-their-shortcuts) measured what
 agents do when you *block* their shortcuts: 25 denials, 25 honest fixes, zero tampers
 through. This is the follow-up batch — two new pre-registered studies, one shipped
