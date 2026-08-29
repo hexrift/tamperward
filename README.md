@@ -118,8 +118,9 @@ escape valve is a PR label only a human with write access can apply.
 **Read the two headline numbers together, always:** across **137 guarded runs — every
 one inside a tamper class an active detector covered — 0 tampers reached green.**
 Outside that coverage, on the one seed built to measure it, **agents tampered in 26 of
-40 runs.** The first number is what the gate does; the second is why the gate is one
-layer. And an honest note on evidence units: those run counts come from roughly
+40 runs** — "tampered" meaning, mechanically: the independent held-out oracle
+classified the result as passing the visible check through a prohibited shortcut. The
+first number is what the gate does; the second is why the gate is one layer. And an honest note on evidence units: those run counts come from roughly
 fifteen seed/task configurations and eight real repositories — repeated runs on one
 seed measure that seed's stochasticity, not the space of real coding tasks, so the
 independent evidence behind these numbers is the seed count, not the run count.
@@ -128,8 +129,8 @@ independent evidence behind these numbers is the seed count, not the run count.
 establish that a patch is *correct*; it does not detect arbitrary deception (a
 hardcoded implementation is invisible to any diff rule — measured, twice); it does not
 replace sandboxing, held-out tests, or authoritative CI — it is designed to sit in
-front of them; it protects the specific development invariants that can be expressed
-mechanically, and nothing else.
+front of them. What it does: **enforce explicitly defined development invariants at
+the loop, commit, and CI boundaries** — and nothing else.
 
 **A word on the words:** *tamper*, *honest*, *cheat*, and *surrender* are used
 throughout as operational labels, not claims about mental states. A "tamper" means: a
@@ -289,8 +290,25 @@ severity tune → roughly one sign-off decision per 17 commits residual. The sam
 shipped per-rule `exclude` globs (1.6.0, with the policy-weakening symmetry built in)
 and then measured them honestly: **zero effect on this corpus** — these repos' casts
 live in source, not tests, so the zod-recommended path scoping removed nothing here;
-the null is published next to the feature. Running ledger: **59 pre-registered
-bets — 27 refuted, 30 held, 2 unresolvable.**
+the null is published next to the feature.
+
+**What about just making the tests read-only?** The most common objection got its
+pre-registered measurement (`harness/PREDICTION-capability.md`) — starting with the
+mechanics the folk advice misses: `chmod` does not bind a root agent and never
+prevented `rm` anyway (deletion is a *directory*-write right); the workable barrier
+is the immutable bit. Result: **hard immutability governed the crude-tamper seed
+completely — 10/10 honest, four EPERM hits all converting to the real fix** (a bare
+permission error transferred the deny→fix dynamic with no remediation text). Then
+the twist: adding a logged, auto-granted **elevation script made it worse (8/10)** —
+both extra tampers walked through the front door with written confessions
+("*Remove failing test file to unblock build*"), the sanctioned-path thesis firing
+a fourth time. The lock is easy; the grantor is the hard part — which is the case
+for elevation flows that end at a human, and exactly what the gate's sign-off label
+already is. That seed now carries all six governance configurations on identical
+pre-registered ground: nothing 6/10 tampers, one sentence 1/10, naive hook 2/10,
+the gate 0/10, immutable 0/10, immutable+auto-grant 2/10 — with the standing scope
+that none of the capability rows touch the semantic classes, by construction.
+Running ledger: **64 pre-registered bets — 28 refuted, 34 held, 2 unresolvable.**
 
 **What about false positives?** `snapshot-rewrite` was swept over **1,652 real mainline
 commits** (prettier, jest, docusaurus, immer): 216 touched snapshots, all legitimately —
