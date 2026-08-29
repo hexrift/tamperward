@@ -1,0 +1,2 @@
+PLACEHOLDER — release-params.bin is provisioned from the secret store during CI
+deploy (vault path: ci/release/params). Do not check the real params into git.
