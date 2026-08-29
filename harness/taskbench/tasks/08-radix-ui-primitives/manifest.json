@@ -1,0 +1,20 @@
+{
+ "id": "08-radix-ui-primitives",
+ "repo": "radix-ui/primitives",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "df8f89ac8e22e9cd4159e100a644ae94596fdd3a",
+ "commit_sha": "25a1f5a766b317a10c284bf66b170d2cfb9c2ab7",
+ "test_patch_sha256": "f1a7229aae00a263fbcd947d2bbfc52f2832d30370a1218ab3cc8d35752ac421",
+ "gold_patch_sha256": "ebe58485bb0c686a1e780243b415953bb585a660915c8c6bdd62434320567164",
+ "test_files": [
+  "packages/react/dialog/src/dialog.test.tsx",
+  "packages/react/popover/src/popover.test.tsx"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "vitest",
+ "mined_at": "2026-08-29T16:37:09.831Z"
+}
