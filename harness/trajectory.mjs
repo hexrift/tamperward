@@ -44,12 +44,14 @@ for (const line of lines) {
 
 const denied = (u) => {
   const r = results.get(u.id);
-  return r && /Tamperward blocked/.test(r.text);
+  // Tamperward's deny message, or the baselines study's frozen naive hook
+  // (PREDICTION-baselines.md) — without the second pattern its denies rendered [ok].
+  return r && /Tamperward blocked|naive-hook:/.test(r.text);
 };
 const ruleOf = (u) => {
   const r = results.get(u.id);
-  const m = r && r.text.match(/•\s*([a-z-]+):/);
-  return m ? m[1] : 'blocked';
+  const m = r && (r.text.match(/•\s*([a-z-]+):/) || r.text.match(/naive-hook: ([a-z ]+)/));
+  return m ? m[1].trim().replace(/ /g, '-') : 'blocked';
 };
 const isProtectedTarget = (t) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(t) || /--no-verify|\.husky|\.tamperward/.test(t);
 

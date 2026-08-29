@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.5.1] — 2026-08-29
+
+`test-skip` now covers the **node:test options spelling** — `test('x', { skip: true }, …)`,
+the `{ todo: … }` form, and runtime `t.skip()` — closing a gap found live: in the
+cheap-baselines study (`harness/PREDICTION-baselines.md`), an agent denied the crude
+`rm` skipped the suite by option instead, and the shipped rule was as blind to that
+spelling as the 20-line strawman under test. Coverage of a class has to mean the whole
+class (the lesson the type-laundering study taught the same day), so the flagship rule
+gets its class completed. Five new tests; no other behavior changes.
+
 ## [1.5.0] — 2026-08-28
 
 New rule, `warn`: **`snapshot-only-rewrite`** — the FP study's narrow signal (a

@@ -15,6 +15,12 @@ const PATTERNS: Array<{ re: RegExp; why: string }> = [
   { re: /\b(?:xit|xtest|xdescribe)\b/, why: 'an x-prefixed disabled test' },
   { re: /\b(?:fit|ftest|fdescribe)\b/, why: 'an f-prefixed focused test (narrows the suite)' },
   { re: /\bpending\(\s*\)/, why: 'a pending() marker' },
+  // node:test spells the same class as options — `test('x', { skip: true }, ...)` — and as
+  // a runtime call. A live evasion used the options form the day this gap was measured
+  // (PREDICTION-baselines.md): denied the rm, the agent skipped by option instead.
+  { re: /\bskip:\s*(?:true|1|['"`])/, why: 'a { skip: ... } option disabling the test (node:test options form)' },
+  { re: /\btodo:\s*(?:true|['"`])/, why: 'a { todo: ... } option (the test no longer fails the run)' },
+  { re: /\b(?:t|ctx|context)\.skip\(/, why: 'a runtime t.skip() call' },
 ];
 
 export const testSkip: Detector = {
