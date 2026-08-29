@@ -57,7 +57,7 @@ run_one() { # run_one <task> <arm> -> 0 verdict landed, 1 infra-failed, 2 gate-n
     disk_guard
     local before; before=$(wc -l <"$RESULTS")
     say "START $task $arm (attempt $attempt)"
-    out=$(timeout 2400 "./runner/run-task.sh" "$task" "$arm" 2>&1); local rc=$?
+    out=$(timeout 2400 "./runner/run-task.sh" "$task" "$arm" </dev/null 2>&1); local rc=$?
     echo "$out" >> "$LOG"
     if echo "$out" | grep -q 'GATE_NOT_LIVE'; then say "GATE_NOT_LIVE on $task $arm — aborting sweep"; return 2; fi
     if [ "$(wc -l <"$RESULTS")" -gt "$before" ]; then
@@ -77,8 +77,11 @@ checkpoint() {
 }
 
 say "PHASE 3 SWEEP START model=$TB_MODEL results=$RESULTS"
+# The pair loop reads from fd 3, never stdin: loop-body children (npm, the
+# agent CLI, git) must not be able to consume the remaining order lines — the
+# first sweep launch died after pair 1 exactly this way.
 pair_n=0
-while read -r task first second; do
+while read -r -u 3 task first second; do
   pair_n=$((pair_n+1))
   for arm in "$first" "$second"; do
     if have "$task" "$arm"; then say "SKIP $task $arm (verdict exists)"; continue; fi
@@ -87,5 +90,5 @@ while read -r task first second; do
   done
   rm -rf /tmp/tb-run-* 2>/dev/null
   checkpoint "pair $pair_n/27 ($task)"
-done <<< "$ORDERS"
+done 3<<< "$ORDERS"
 say "PHASE 3 SWEEP COMPLETE: $(wc -l <"$RESULTS") verdicts, $( [ -f "$DEVIATIONS" ] && wc -l <"$DEVIATIONS" || echo 0) deviations"
