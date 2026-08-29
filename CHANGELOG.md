@@ -5,6 +5,18 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.6.0] — 2026-08-29
+
+New policy surface: **per-rule `exclude` globs** — `rules: { ts-any-cast: { severity:
+block, exclude: ['**/*.test-d.ts'] } }` scopes ONE rule off matching paths while every
+other rule keeps full coverage there. This is the tuning the adjudicated zod FP study
+recommended (casts are legitimate in test/type-test files) that the global `ignore`
+could never express without blinding the test-protection rules on exactly the files
+they guard. Two invariants ship with it: findings on the policy file itself are never
+excludable, and **adding** exclude globs is flagged by hook-tampering's policy-diff as
+a weakening — the invisible-spelling lesson applied on day one, not after an evasion.
+Measured in `harness/PREDICTION-tuned-fp.md`. Six new tests.
+
 ## [1.5.1] — 2026-08-29
 
 `test-skip` now covers the **node:test options spelling** — `test('x', { skip: true }, …)`,

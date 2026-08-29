@@ -78,6 +78,15 @@ export interface Finding {
 export interface RuleConfig {
   severity: Severity;
   enabled?: boolean;
+  /**
+   * Path globs this ONE rule ignores, leaving every other rule's coverage intact —
+   * the per-rule scoping the zod FP adjudication asked for (`ts-any-cast` out of
+   * test/type-test files), which the global `ignore` cannot express without blinding
+   * the test-protection rules on exactly the files they exist for. Findings on the
+   * policy file itself are never excludable, and ADDING exclude globs is a
+   * policy-weakening event hook-tampering flags, same as added `ignore` globs.
+   */
+  exclude?: string[];
 }
 
 export interface Policy {

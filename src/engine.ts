@@ -5,7 +5,7 @@
 import { Change, Detector, Finding, Policy, View } from './types';
 import { allDetectors } from './detectors';
 import { isEnabled } from './detectors/finding';
-import { isIgnored, isPolicyFile } from './policy';
+import { isIgnored, isPolicyFile, matchesAny } from './policy';
 
 function key(f: Finding): string {
   return `${f.rule}|${f.file ?? ''}|${f.line ?? ''}|${f.evidence}`;
@@ -48,11 +48,20 @@ export function evaluate(
   }
   // de-duplicate identical findings (e.g. a command both rm-ing and matching a path)
   const seen = new Set<string>();
-  return out.filter((f) => {
+  const deduped = out.filter((f) => {
     const k = key(f);
     if (seen.has(k)) return false;
     seen.add(k);
     return true;
+  });
+  // Per-rule exclude globs: drop this ONE rule's findings on matching paths, leaving
+  // every other rule's coverage intact. The policy file itself is never excludable —
+  // a rule scoped off its own governing file is the self-switch-off this tool exists
+  // to block (the same exception `ignore` carries).
+  return deduped.filter((f) => {
+    const ex = policy.rules[f.rule]?.exclude;
+    if (!ex?.length || !f.file || isPolicyFile(f.file)) return true;
+    return !matchesAny(f.file, ex);
   });
 }
 
