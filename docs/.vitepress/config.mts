@@ -35,6 +35,7 @@ export default defineConfig({
           text: 'Blog',
           items: [
             { text: 'All posts', link: '/blog/' },
+            { text: 'Before we test Tamperward on 27 real repositories', link: '/blog/before-we-test-tamperward-on-27-real-repositories' },
             { text: 'What agents do when the tests are read-only', link: '/blog/what-agents-do-when-the-tests-are-read-only' },
             { text: '137 runs were not 137 experiments', link: '/blog/137-runs-were-not-137-experiments' },
             { text: 'What agents do when you give the cheat a name', link: '/blog/what-agents-do-when-you-give-the-cheat-a-name' },

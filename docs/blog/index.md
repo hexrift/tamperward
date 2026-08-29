@@ -1,5 +1,13 @@
 # Blog
 
+- **[Before we test Tamperward on 27 real repositories, here's what we think will happen](./before-we-test-tamperward-on-27-real-repositories)** — August 29, 2026.
+  The preregistration post, published before any counted trajectory: how the
+  27-task benchmark was mined from a frozen 500-repo frame, what Phase 0's
+  validation caught (and why each finding made the benchmark stricter), what the
+  pilot exercised without producing evidence, and six numeric bets — including
+  the three results that would count as Tamperward losing. The next post is the
+  answer; the git history proves this one came first.
+
 - **[What AI coding agents do when the tests are read-only](./what-agents-do-when-the-tests-are-read-only)** — August 29, 2026.
   The capability-restriction study: `chmod` doesn't bind a root agent, but the
   immutable bit does — 10/10 honest under hard immutability, EPERM converting
