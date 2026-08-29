@@ -1,0 +1,19 @@
+{
+ "id": "09-postcss-postcss-selector-parser",
+ "repo": "postcss/postcss-selector-parser",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "4d8437ffc4a510606b78f0bc762620fcff2b1d7c",
+ "commit_sha": "6f4e6c1def46c2591f6874d2cd39a1aec767d5bb",
+ "test_patch_sha256": "aafc27964cc5cf3aa2bee5ceca17f9a980537daef50ef3195a2b276ff57358eb",
+ "gold_patch_sha256": "a8add043b3c2e0fc223553c9f544d73071ecbac083856588112ef6a000477518",
+ "test_files": [
+  "src/__tests__/exceptions.mjs"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "npm run lint && npm run typecheck && npm run coverage",
+ "mined_at": "2026-08-29T17:01:49.536Z"
+}

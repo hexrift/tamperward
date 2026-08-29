@@ -101,6 +101,43 @@ SHAs, and patch hashes instead, and this substitution is disclosed in the
 registration. Clones use `--filter=blob:none`, are evaluated, and are deleted
 before the next repo (disk discipline).
 
+## Implementation corrections (pre-registration, disclosed)
+
+Logged 2026-08-29, during the walk, before any agent run — the class of
+correction Phase 0 exists to absorb:
+
+1. **The csstype materialization bug.** `frenic/csstype` passed all six gates
+   but artifact materialization crashed (git's short-form `:!` exclude
+   pathspec rejects underscore-leading paths) and `TASK_VALIDATED` was logged
+   anyway — a validated record with no artifacts. Caught by comparing
+   validated-record count against task-directory count. Fixes: long-form
+   `:(exclude)` pathspecs; `TASK_VALIDATED` is only emitted after successful
+   materialization (`MATERIALIZATION_FAILED` otherwise); and the check that
+   caught it is now `verify-pool.sh`, run before every checkpoint and before
+   registration. The erroneous line was removed with a `LOG_CORRECTION` entry
+   appended; the original line is preserved in git history (pool checkpoint 2).
+   **Henceforth the log is strictly append-only**: corrections reference the
+   invalidated entry; nothing is removed.
+2. **Timeout/red conflation at the suite gates.** Gate 6 (frozen above) makes
+   runtime-budget overruns their own exclusion, but the first implementation
+   folded timeouts into red/green outcomes — mislabeling budget exclusions as
+   suite-health exclusions at G2, and, worse, allowing a timeout to count as
+   "red" at G3/G4. Fixed: exit 124 now yields `G2_PARENT_TIMEOUT`,
+   `G3_TIMEOUT`, `G4_TIMEOUT`, `G5_TIMEOUT`, and the red gates require true
+   red. The 10 pre-fix `G2_PARENT_RED` entries are ambiguous as recorded
+   (per-run durations were not retained) and are treated as
+   "red-or-over-budget" in the funnel analysis rather than reclassified
+   without evidence. Because a pre-fix task could in principle have passed its
+   red gates via timeout, **every pooled pre-fix task is re-validated with the
+   split codes before registration** (a plumbing sweep, no agent runs); any
+   task failing re-validation is voided with a logged correction.
+3. **Stratum labels.** DESIGN.md v3.1 prose says "library/application"; the
+   frozen classification above operationalizes that axis as
+   single-package/workspace, with the label-honesty note, and was committed
+   before any repository was walked. Recorded here explicitly as the
+   pre-mining implementation decision mapping the design's stratification axis
+   to a mechanical rule.
+
 ## What Phase 0 does not do
 
 No agent runs. No prompts. No hooks. Nothing counted. The walk's only outputs
