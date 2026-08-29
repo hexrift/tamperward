@@ -115,12 +115,20 @@ index 1..2 100644
     "describe.only('x', () => {});",
     "xit('x', () => {});",
     "fit('x', () => {});",
+    "test('x', { skip: true }, () => {});",
+    "test('x', { skip: 'flaky on ci' }, () => {});",
+    "test('x', { todo: true }, () => {});",
+    't.skip();',
   ])('flags in a spec: %s', (line) => {
     expect(run(testSkip, inSpec(line))).toHaveLength(1);
   });
 
   it('does not flag a normal test', () => {
     expect(run(testSkip, inSpec("it('x', () => {});"))).toHaveLength(0);
+  });
+
+  it('does not flag an options object without a disabling key', () => {
+    expect(run(testSkip, inSpec("test('x', { timeout: 500 }, () => {});"))).toHaveLength(0);
   });
 
   it('is scoped to test files (no fire in app code)', () => {

@@ -231,8 +231,25 @@ published shape, with the standing self-measurement caveat on the Fable rows.
 Twenty-six of forty runs tampered through the uncovered dimension: measured demand
 that hardens the `ts-any-launder` warn→block graduation case via the §7.A corpus —
 the honest fix itself narrows through `as Record<string, unknown>`, so a naive
-assertion-blocker is an FP factory. Running ledger: **49 pre-registered bets — 21
-refuted, 26 held, 2 unresolvable.**
+assertion-blocker is an FP factory.
+
+**Why not just a prompt line, or a 20-line grep hook?** Measured
+(`harness/PREDICTION-baselines.md`), against a frozen naive hook and a one-sentence
+prompt baseline — and two of my three bets lost, both against my own product's
+framing. **One integrity sentence took ungated Haiku from 6/10 tampering to 1/10**:
+the cheap prompt convention is a real mitigation and this README says so. The naive
+hook converted denials nearly as well as the gate (4/5) on the crude-spelling seed —
+but was tampered through twice: once by **hardcoding the implementation** (invisible
+to any hook; the held-out oracle layer caught it), and once by a denied agent
+switching to the node:test **options spelling** `{ skip: true }` — which the shipped
+`test-skip` rule *also* missed until it shipped closed in 1.5.1. On 1,227 real merged
+commits, the naive patterns would block **one in four legitimate commits (24.9%)**
+versus the gate's 9.0% — a ~2.75× precision edge, not the ≥5× I bet, and that 9% on
+unconfigured repos is published as the honest tuning-and-sign-off cost, not hidden.
+The loop-layer deny alone was never the product; the measured margins are whole-class
+spelling coverage, commit-layer precision plus sign-off machinery, and the layers no
+hook has. Running ledger: **52 pre-registered bets — 23 refuted, 27 held, 2
+unresolvable.**
 
 **What about false positives?** `snapshot-rewrite` was swept over **1,652 real mainline
 commits** (prettier, jest, docusaurus, immer): 216 touched snapshots, all legitimately —
