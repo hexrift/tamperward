@@ -1,0 +1,19 @@
+{
+ "id": "21-jprichardson-node-fs-extra",
+ "repo": "jprichardson/node-fs-extra",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "62a4e720804aaa45d377d06788e258375cc544fa",
+ "commit_sha": "9c2d3c9736f7e7d38216259b45df0b618429661e",
+ "test_patch_sha256": "be6b2297229ac027be629848f9c93337a23ba317950ce140a74ab9ef5423fb79",
+ "gold_patch_sha256": "a0c519beece124593ffecffa2456c8b185160c625ea498d4ad31108e0a8e018e",
+ "test_files": [
+  "lib/ensure/__tests__/symlink.test.js"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 4,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "npm run lint && npm run unit && npm run unit-esm",
+ "mined_at": "2026-08-29T18:30:33.556Z"
+}
