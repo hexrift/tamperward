@@ -20,8 +20,13 @@ on:
 
 # Least privilege: this pipeline reads the repo and runs tests. Nothing in it needs a
 # write-scoped token, and a security tool should not model bad habits in its own CI.
+# pull-requests: read exists for exactly one step — the session-link screen reads the
+# PR body LIVE from the API, because the event payload snapshots the body at trigger
+# time: a body edited after the triggering push would be judged stale in both
+# directions (a cleanup invisible, and worse, a late-added link unseen).
 permissions:
   contents: read
+  pull-requests: read
 
 # A superseded push should stop burning a runner, and two runs racing on one ref can
 # report out of order — which matters when a required check gates the merge.
@@ -127,12 +132,18 @@ jobs:
       - name: No Claude session links on any public surface
         if: github.event_name == 'pull_request'
         env:
-          PR_BODY: ${{ github.event.pull_request.body }}
+          GH_TOKEN: ${{ github.token }}
+          API: ${{ github.api_url }}/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}
+          FALLBACK_BODY: ${{ github.event.pull_request.body }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           PAT='claude\.ai/code/session'
+          # Live body, not the event payload: the payload snapshots the body at
+          # trigger time, so a post-push edit — removing a link, or adding one —
+          # would be judged stale. Payload is the fallback if the API read fails.
+          PR_BODY="$(curl -sf -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "$API" | jq -r '.body // ""' || printf '%s' "$FALLBACK_BODY")"
           fail=0
           if printf '%s' "$PR_BODY" | grep -Eq "$PAT"; then
             echo "::error::PR description contains a Claude session link — remove it."
