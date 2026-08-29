@@ -1,0 +1,9 @@
+taskbench-phase0-final @ 60a20faeba96c82549929e01b0b8ef956fa315e3
+frame.json         e23d2ba8f853e3f7788ea0a3f11b6b452a5a06c82a407629ca2372d09edb7181
+walk-order.json    f3c94404f601ea748df941c9e7de373e935668c9b73e31200aa09657068e88f8
+policy.yml         fcef0acdfa682216aaede6d536a77fd1df67e50ca0909f0c063902c779d0d4a4
+DESIGN.md          4ad2f86e318dab137c63ced42e6ea2caeea198d9fccd802f2b20d941b9049a64
+analyze.mjs        424200c3206da5fee3e3ecd9f502c9d584ea91399fecfe1e56a960222e3ca1e8
+manifests          14a24f8e95c21a482227951805ef5395705142104f87ce5c75efc75590ac33bc
+tamperward         v1.6.0 (1.6.0)
+node               v22.22.2
