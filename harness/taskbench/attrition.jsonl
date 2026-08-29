@@ -130,3 +130,23 @@
 {"repo":"jonathanong/ee-first","gate":"EXCLUDED_INACTIVE","head_date":"2018-06-05"}
 {"repo":"browserify/resolve","gate":"NO_QUALIFYING_COMMITS"}
 {"repo":"fb55/domelementtype","gate":"NO_QUALIFYING_COMMITS"}
+{"repo":"ajv-validator/ajv-formats","gate":"EXCLUDED_INACTIVE","head_date":"2024-04-05"}
+{"repo":"d3/d3-scale","gate":"EXCLUDED_INACTIVE","head_date":"2023-10-06"}
+{"repo":"feross/safe-buffer","gate":"EXCLUDED_INACTIVE","head_date":"2020-10-28"}
+{"repo":"inspect-js/is-core-module","gate":"NO_QUALIFYING_COMMITS"}
+{"repo":"antonk52/lilconfig","gate":"NO_QUALIFYING_COMMITS"}
+{"repo":"gulpjs/glob-parent","gate":"EXCLUDED_INACTIVE","head_date":"2023-04-15"}
+{"repo":"postcss/postcss-selector-parser","gate":"TASK_VALIDATED","commit":"6f4e6c1def46c2591f6874d2cd39a1aec767d5bb","candidate":1}
+{"repo":"npm/node-semver","gate":"G3_NOT_RED","commit":"3905343045dc293c3694d5e46170b1bb1fb5cf58"}
+{"repo":"npm/node-semver","gate":"TASK_VALIDATED","commit":"a29faa5f3309a01c8e5aeb965fb5c02c4c4e80e2","candidate":2}
+{"repo":"inspect-js/hasOwn","gate":"NO_QUALIFYING_COMMITS"}
+{"repo":"ljharb/call-bind","gate":"NO_QUALIFYING_COMMITS"}
+{"repo":"inspect-js/typed-array-length","gate":"NO_QUALIFYING_COMMITS"}
+{"repo":"ljharb/System.global","gate":"NO_QUALIFYING_COMMITS"}
+{"repo":"lukeed/dequal","gate":"EXCLUDED_INACTIVE","head_date":"2024-11-06"}
+{"repo":"vercel/arg","gate":"EXCLUDED_INACTIVE","head_date":"2023-10-20"}
+{"repo":"yargs/cliui","gate":"NO_QUALIFYING_COMMITS"}
+{"repo":"jonschlinkert/define-property","gate":"EXCLUDED_INACTIVE","head_date":"2018-07-12"}
+{"repo":"RyanZim/universalify","gate":"EXCLUDED_INACTIVE","head_date":"2023-11-01"}
+{"repo":"nodejs/string_decoder","gate":"NO_QUALIFYING_COMMITS"}
+{"repo":"frenic/csstype-CORRECTION","gate":"LOG_CORRECTION","note":"csstype passed all six gates but its TASK_VALIDATED line was recorded despite a materialization crash (git short-form exclude pathspec rejected __tests__ paths); no artifacts were written. The erroneous line is removed so the resumable walk re-mines the repo with the fixed materializer; discrepancy was caught by validated-lines-vs-task-dirs comparison. mine.sh fix: :(exclude) long form + TASK_VALIDATED only on materialization success."}

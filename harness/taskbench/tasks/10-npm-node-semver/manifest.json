@@ -1,0 +1,19 @@
+{
+ "id": "10-npm-node-semver",
+ "repo": "npm/node-semver",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "1d28d5e82de16163daf721a7c76fff93e0d333ab",
+ "commit_sha": "a29faa5f3309a01c8e5aeb965fb5c02c4c4e80e2",
+ "test_patch_sha256": "9b198a2de1ef3b67457a75629569d7d8916242e588838e42259946e301b7a5c2",
+ "gold_patch_sha256": "3aa7e2c71aae322d6792c18c7fb3be7bf3834c4b9292558f6b51d07ef0d46485",
+ "test_files": [
+  "tap-snapshots/test/bin/semver.js.test.cjs"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "tap",
+ "mined_at": "2026-08-29T17:04:40.033Z"
+}

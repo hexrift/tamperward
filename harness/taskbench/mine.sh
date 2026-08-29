@@ -109,35 +109,48 @@ process_repo() {
       jlog "$repo" "G1_INSTALL_FAILED" "\"commit\":\"$c\",\"pm\":\"$pm\""; continue
     fi
     # gate 2: parent suite green
-    if ! run_suite "$dir"; then jlog "$repo" "G2_PARENT_RED" "\"commit\":\"$c\""; continue; fi
+    run_suite "$dir"; rc=$?
+    if [ "$rc" -eq 124 ]; then jlog "$repo" "G2_PARENT_TIMEOUT" "\"commit\":\"$c\""; continue; fi
+    if [ "$rc" -ne 0 ]; then jlog "$repo" "G2_PARENT_RED" "\"commit\":\"$c\""; continue; fi
     # gate 3: apply test patch -> red
     git -C "$dir" diff "$parent" "$c" -- $tfiles > "$WORK/test.patch" 2>/dev/null
     [ -s "$WORK/test.patch" ] || { jlog "$repo" "C_EMPTY_TEST_PATCH" "\"commit\":\"$c\""; continue; }
     if ! git -C "$dir" apply "$WORK/test.patch" 2>/dev/null; then
       jlog "$repo" "G3_PATCH_APPLY_FAILED" "\"commit\":\"$c\""; continue
     fi
-    if run_suite "$dir"; then
+    run_suite "$dir"; rc=$?
+    if [ "$rc" -eq 124 ]; then
+      git -C "$dir" checkout -q -- . ; jlog "$repo" "G3_TIMEOUT" "\"commit\":\"$c\""; continue
+    fi
+    if [ "$rc" -eq 0 ]; then
       git -C "$dir" checkout -q -- . ; jlog "$repo" "G3_NOT_RED" "\"commit\":\"$c\""; continue
     fi
-    # gate 4: red reproduces twice more
+    # gate 4: red (true red, not timeout) reproduces twice more
     local red_ok=1
-    for i in 1 2; do run_suite "$dir" && { red_ok=0; break; }; done
+    for i in 1 2; do
+      run_suite "$dir"; rc=$?
+      if [ "$rc" -eq 0 ] || [ "$rc" -eq 124 ]; then red_ok=0; break; fi
+    done
     if [ "$red_ok" -ne 1 ]; then
-      git -C "$dir" checkout -q -- . ; jlog "$repo" "G4_NONDETERMINISTIC" "\"commit\":\"$c\""; continue
+      git -C "$dir" checkout -q -- .
+      if [ "$rc" -eq 124 ]; then jlog "$repo" "G4_TIMEOUT" "\"commit\":\"$c\""; else jlog "$repo" "G4_NONDETERMINISTIC" "\"commit\":\"$c\""; fi
+      continue
     fi
     # gate 5: full commit tree green
     git -C "$dir" checkout -q -- .
     git -C "$dir" checkout -q --detach "$c" 2>/dev/null
-    if ! run_suite "$dir"; then jlog "$repo" "G5_COMMIT_RED" "\"commit\":\"$c\""; continue; fi
-    # PASS: materialize task artifacts
-    node - "$repo" "$c" "$WORK/test.patch" "$dir" "$stratum" "$pm" <<'EOF'
+    run_suite "$dir"; rc=$?
+    if [ "$rc" -eq 124 ]; then jlog "$repo" "G5_TIMEOUT" "\"commit\":\"$c\""; continue; fi
+    if [ "$rc" -ne 0 ]; then jlog "$repo" "G5_COMMIT_RED" "\"commit\":\"$c\""; continue; fi
+    # PASS: materialize task artifacts (TASK_VALIDATED only on materialization success)
+    if ! node - "$repo" "$c" "$WORK/test.patch" "$dir" "$stratum" "$pm" <<'EOF'
 const fs=require('fs'),cp=require('child_process'),crypto=require('crypto');
 const [repo,commit,testPatch,dir,stratum,pm]=process.argv.slice(2);
 const sha=f=>crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
 const parent=cp.execSync(`git -C ${dir} rev-parse ${commit}^`).toString().trim();
 const tglob=/(\.test\.[^/]+$|\.spec\.[^/]+$|(^|\/)__tests__\/)/;
 const tfiles=cp.execSync(`git -C ${dir} diff --name-only ${parent} ${commit}`).toString().trim().split('\n').filter(f=>tglob.test(f));
-const excl=tfiles.map(f=>`':!${f}'`).join(' ');
+const excl=tfiles.map(f=>`':(exclude)${f}'`).join(' ');
 cp.execSync(`git -C ${dir} diff ${parent} ${commit} -- . ${excl} > /tmp/tb-mine/gold.patch`,{shell:'/bin/bash'});
 const tp=fs.readFileSync(testPatch,'utf8');
 const cases=(tp.match(/^\+.*\b(test|it)\s*\(/gm)||[]).length;
@@ -161,6 +174,10 @@ const manifest={
 fs.writeFileSync(`tasks/${id}/manifest.json`,JSON.stringify(manifest,null,1));
 console.log(`TASK ${id} role=${manifest.role} stratum=${stratum} oracle=${manifest.oracle_strength} cases=${cases}`);
 EOF
+    then
+      jlog "$repo" "MATERIALIZATION_FAILED" "\"commit\":\"$c\",\"candidate\":$n"
+      continue
+    fi
     jlog "$repo" "TASK_VALIDATED" "\"commit\":\"$c\",\"candidate\":$n"
     return
   done
