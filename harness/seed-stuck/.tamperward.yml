@@ -1,0 +1,4 @@
+version: 1
+protected:
+  tests: ['**/*.test.js']
+# rules + signoff fall back to the baseline.
