@@ -1,0 +1,521 @@
+diff --git a/build.ts b/build.ts
+index b85126f..5e16647 100644
+--- a/build.ts
++++ b/build.ts
+@@ -5,6 +5,9 @@ import { FLOW_FILENAME, TYPESCRIPT_FILENAME, writeFileAsync } from './utils';
+ import { runCLI } from 'jest';
+ import { fileURLToPath } from 'url';
+ import { Config } from '@jest/types';
++import { declarator } from './src/declarator';
++import generateFlow from './src/flow';
++import generateTypescript from './src/typescript';
+ 
+ const __dirname = path.dirname(fileURLToPath(import.meta.url));
+ 
+@@ -53,15 +56,8 @@ export default async function trigger() {
+ }
+ 
+ async function create() {
+-  // const generatePath = path.resolve('./src');
+-  // for (const key in require.cache) {
+-  //   if (key.indexOf(generatePath) !== -1) {
+-  //     delete require.cache[key];
+-  //   }
+-  // }
+-  const { default: generateFlow } = await import('./src/flow');
+-  const { default: generateTypescript } = await import('./src/typescript');
+-  return { unformattedFlow: await generateFlow(), unformattedTypescript: await generateTypescript() };
++  const data = declarator(3);
++  return { unformattedFlow: await generateFlow(data), unformattedTypescript: await generateTypescript(data) };
+ }
+ 
+ async function format(output: string, parser: prettier.BuiltInParserName) {
+diff --git a/index.d.ts b/index.d.ts
+index b6e4f7b..da0affd 100644
+--- a/index.d.ts
++++ b/index.d.ts
+@@ -20223,7 +20223,7 @@ export namespace Property {
+ 
+   export type BackfaceVisibility = Globals | "hidden" | "visible";
+ 
+-  export type Background<TLength = (string & {}) | 0> = Globals | DataType.FinalBgLayer<TLength> | (string & {});
++  export type Background<TLength = (string & {}) | 0> = Globals | DataType.BgLayer<TLength> | DataType.FinalBgLayer<TLength> | (string & {});
+ 
+   export type BackgroundAttachment = Globals | DataType.Attachment | (string & {});
+ 
+@@ -22106,6 +22106,8 @@ export namespace DataType {
+ 
+   type BgClip = VisualBox | "border-area" | "text";
+ 
++  type BgLayer<TLength> = BgPosition<TLength> | RepeatStyle | Attachment | VisualBox | "none" | (string & {});
++
+   type BgPosition<TLength> = TLength | "bottom" | "center" | "left" | "right" | "top" | (string & {});
+ 
+   type BgSize<TLength> = TLength | "auto" | "contain" | "cover" | (string & {});
+diff --git a/index.js.flow b/index.js.flow
+index e2a96ad..49c11d1 100644
+--- a/index.js.flow
++++ b/index.js.flow
+@@ -4439,7 +4439,7 @@ export type Property$BackdropFilter = Globals | "none" | string;
+ 
+ export type Property$BackfaceVisibility = Globals | "hidden" | "visible";
+ 
+-export type Property$Background<TLength = string | 0> = Globals | DataType$FinalBgLayer<TLength> | string;
++export type Property$Background<TLength = string | 0> = Globals | DataType$BgLayer<TLength> | DataType$FinalBgLayer<TLength> | string;
+ 
+ export type Property$BackgroundAttachment = Globals | DataType$Attachment | string;
+ 
+@@ -6385,6 +6385,8 @@ type DataType$Autospace = "ideograph-alpha" | "ideograph-numeric" | "insert" | "
+ 
+ type DataType$BgClip = DataType$VisualBox | "border-area" | "text";
+ 
++type DataType$BgLayer<TLength> = DataType$BgPosition<TLength> | DataType$RepeatStyle | DataType$Attachment | DataType$VisualBox | "none" | string;
++
+ type DataType$BgPosition<TLength> = TLength | "bottom" | "center" | "left" | "right" | "top" | string;
+ 
+ type DataType$BgSize<TLength> = TLength | "auto" | "contain" | "cover" | string;
+diff --git a/src/collections/at-rules.ts b/src/collections/at-rules.ts
+index 542618f..5039480 100644
+--- a/src/collections/at-rules.ts
++++ b/src/collections/at-rules.ts
+@@ -30,7 +30,7 @@ export async function getAtRules(dataTypeDictionary: IDataTypeDictionary, minTyp
+ 
+     if ('descriptors' in atRule) {
+       const descriptors: IAtRuleDescriptors = {};
+-      const compatibilityData = await getAtRuleData(name);
++      const compatibilityData = getAtRuleData(name);
+       let hasSupportedProperties = false;
+ 
+       for (const descriptor in atRule.descriptors) {
+@@ -56,7 +56,7 @@ export async function getAtRules(dataTypeDictionary: IDataTypeDictionary, minTyp
+           );
+         }
+ 
+-        const types = await resolveDataTypes(dataTypeDictionary, typer(entities), minTypesInDataTypes);
++        const types = resolveDataTypes(dataTypeDictionary, typer(entities), minTypesInDataTypes);
+ 
+         for (const property of properties) {
+           hasSupportedProperties = true;
+diff --git a/src/collections/data-types.ts b/src/collections/data-types.ts
+index 0ae9166..7930bbc 100644
+--- a/src/collections/data-types.ts
++++ b/src/collections/data-types.ts
+@@ -14,7 +14,7 @@ export async function getDataTypesOf<TReturn>(dataTypeOf: (dataTypes: IDataTypeD
+   return [dictionary, result] as const;
+ }
+ 
+-export async function resolveDataTypes(
++export function resolveDataTypes(
+   dictionary: IDataTypeDictionary,
+   types: TypeType[],
+   minTypesInDataTypes: number,
+@@ -22,14 +22,14 @@ export async function resolveDataTypes(
+     dataTypes: IDataTypeDictionary,
+     dataType: IDataType,
+     min: number,
+-  ) => Promise<ResolvedType[]> = simpleDataTypeResolver,
+-): Promise<ResolvedType[]> {
++  ) => ResolvedType[] = simpleDataTypeResolver,
++): ResolvedType[] {
+   const resolvedDataTypes: ResolvedType[] = [];
+ 
+   for (const type of types) {
+     switch (type.type) {
+       case Type.DataType: {
+-        const resolvedDataType = await resolver(dictionary, type, minTypesInDataTypes);
++        const resolvedDataType = resolver(dictionary, type, minTypesInDataTypes);
+ 
+         if (resolvedDataType.length >= minTypesInDataTypes) {
+           // Dissolve data type if it's too small
+@@ -47,7 +47,7 @@ export async function resolveDataTypes(
+         break;
+       }
+       case Type.PropertyReference: {
+-        const resolvedProperty = await resolver(dictionary, type, minTypesInDataTypes);
++        const resolvedProperty = resolver(dictionary, type, minTypesInDataTypes);
+ 
+         // Dissolve property references completely
+         for (const resolvedType of resolvedProperty) {
+@@ -67,25 +67,22 @@ export async function resolveDataTypes(
+   return resolvedDataTypes;
+ }
+ 
+-async function simpleDataTypeResolver(
++function simpleDataTypeResolver(
+   dictionary: IDataTypeDictionary,
+   dataType: IDataType,
+   minTypesInDataTypes: number,
+-): Promise<ResolvedType[]> {
+-  const syntax = await getSyntax(dataType.name);
+-  return syntax
+-    ? resolveDataTypes(dictionary, typer(parse(syntax)), minTypesInDataTypes, simpleDataTypeResolver)
+-    : [{ type: Type.String }];
++): ResolvedType[] {
++  const syntax = getSyntax(dataType.name);
++  return syntax ? resolveDataTypes(dictionary, typer(parse(syntax)), minTypesInDataTypes) : [{ type: Type.String }];
+ }
+ 
+ export function createPropertyDataTypeResolver(data: Identifier | undefined) {
+-  const resolver: (
+-    dictionary: IDataTypeDictionary,
+-    dataType: IDataType,
+-    min: number,
+-  ) => Promise<ResolvedType[]> = async (dictionary, dataType, minTypesInDataTypes) => {
+-    const syntax =
+-      dataType.type === Type.DataType ? await getSyntax(dataType.name) : await getPropertySyntax(dataType.name);
++  const resolver: (dictionary: IDataTypeDictionary, dataType: IDataType, min: number) => ResolvedType[] = (
++    dictionary,
++    dataType,
++    minTypesInDataTypes,
++  ) => {
++    const syntax = dataType.type === Type.DataType ? getSyntax(dataType.name) : getPropertySyntax(dataType.name);
+     return syntax
+       ? resolveDataTypes(
+           dictionary,
+diff --git a/src/collections/properties.ts b/src/collections/properties.ts
+index f61a925..7cc64b6 100644
+--- a/src/collections/properties.ts
++++ b/src/collections/properties.ts
+@@ -35,8 +35,8 @@ interface IProperty {
+   types: ResolvedType[];
+ }
+ 
+-const getGlobalCompatibilityData = async () => {
+-  const data = await getTypesData('global_keywords');
++const getGlobalCompatibilityData = () => {
++  const data = getTypesData('global_keywords');
+ 
+   if (!data) {
+     throw new Error('Compatibility data for CSS-wide keywords is missing or may have been moved');
+@@ -51,9 +51,9 @@ export async function getGlobals(
+   dataTypeDictionary: IDataTypeDictionary,
+   minTypesInDataTypes: number,
+ ): Promise<ResolvedType[]> {
+-  const dataTypes = await resolveDataTypes(
++  const dataTypes = resolveDataTypes(
+     dataTypeDictionary,
+-    typer(compatSyntax(await getGlobalCompatibilityData(), parse(await getPropertySyntax(ALL)))),
++    typer(compatSyntax(getGlobalCompatibilityData(), parse(getPropertySyntax(ALL)))),
+     minTypesInDataTypes,
+   );
+ 
+@@ -65,8 +65,8 @@ const htmlPropertiesMap: { [name: string]: IProperty } = {};
+ const svgPropertiesMap: { [name: string]: IProperty } = {};
+ 
+ export async function getHtmlProperties(dataTypeDictionary: IDataTypeDictionary, minTypesInDataTypes: number) {
+-  const propertiesMap = await getProperties();
+-  const allPropertyData = await getPropertyData(ALL);
++  const propertiesMap = getProperties();
++  const allPropertyData = getPropertyData(ALL);
+ 
+   let getAllComment = async () => {
+     const comment = await composeCommentBlock(allPropertyData, propertiesMap[ALL]);
+@@ -96,12 +96,12 @@ export async function getHtmlProperties(dataTypeDictionary: IDataTypeDictionary,
+     const data = propertiesMap[originalName];
+ 
+     // Default values
+-    let entities = parse(await getPropertySyntax(originalName));
++    let entities = parse(getPropertySyntax(originalName));
+     let currentNames: string[] = [originalName];
+     let obsoleteNames: string[] = [];
+     let deprecated = isDeprecated(data);
+ 
+-    const compatibilityData = await getPropertyData(originalName);
++    const compatibilityData = getPropertyData(originalName);
+ 
+     if (compatibilityData) {
+       const compats = getCompats(compatibilityData);
+@@ -127,7 +127,7 @@ export async function getHtmlProperties(dataTypeDictionary: IDataTypeDictionary,
+       currentNames = [];
+     }
+ 
+-    const types = await resolveDataTypes(
++    const types = resolveDataTypes(
+       dataTypeDictionary,
+       typer(entities),
+       minTypesInDataTypes,
+@@ -180,7 +180,7 @@ export async function getHtmlProperties(dataTypeDictionary: IDataTypeDictionary,
+ 
+ export async function getSvgProperties(dataTypeDictionary: IDataTypeDictionary, minTypesInDataTypes: number) {
+   for (const name in rawSvgProperties) {
+-    const compatibilityData = await getPropertyData(name);
++    const compatibilityData = getPropertyData(name);
+     const syntax = rawSvgProperties[name].syntax;
+     if (syntax) {
+       svgPropertiesMap[name] = {
+@@ -189,7 +189,7 @@ export async function getSvgProperties(dataTypeDictionary: IDataTypeDictionary,
+         shorthand: false,
+         obsolete: false,
+         comment: () => Promise.resolve(undefined),
+-        types: await resolveDataTypes(
++        types: resolveDataTypes(
+           dataTypeDictionary,
+           typer(parse(syntax)),
+           minTypesInDataTypes,
+diff --git a/src/collections/syntaxes.ts b/src/collections/syntaxes.ts
+index 5a03294..107d712 100644
+--- a/src/collections/syntaxes.ts
++++ b/src/collections/syntaxes.ts
+@@ -9,13 +9,13 @@ import { getPropertyData, getTypesData } from '../utils/compat';
+ import { error, warn } from '../utils/logger';
+ import { createPropertyDataTypeResolver, resolveDataTypes } from './data-types';
+ 
+-export async function getProperties() {
++export function getProperties() {
+   const properties: { [property: string]: IExtendedProperty } = {};
+ 
+   for (const name in rawProperties) {
+     properties[name] = {
+       ...rawProperties[name],
+-      syntax: await getPropertySyntax(name),
++      syntax: getPropertySyntax(name),
+       shorthand:
+         name in patchedProperties && typeof patchedProperties[name].shorthand === 'boolean'
+           ? patchedProperties[name].shorthand
+@@ -44,13 +44,13 @@ export function isSyntax(name: string) {
+ 
+ const validatedPropertySyntaxes: string[] = [];
+ 
+-export async function getPropertySyntax(name: string) {
++export function getPropertySyntax(name: string) {
+   const patch = patchedProperties[name];
+   const rawSyntax = rawProperties[name] && rawProperties[name].syntax;
+ 
+   if (patch && patch.syntax) {
+     if (rawSyntax && !validatedPropertySyntaxes.includes(name)) {
+-      const compatibilityData = await getPropertyData(name);
++      const compatibilityData = getPropertyData(name);
+ 
+       if (compatibilityData && !validatePatch(compatibilityData, rawProperties[name].syntax, patch.syntax)) {
+         error(
+@@ -74,7 +74,7 @@ export async function getPropertySyntax(name: string) {
+ 
+ const validatedSyntaxes: string[] = [];
+ 
+-export async function getSyntax(name: string) {
++export function getSyntax(name: string) {
+   const patch = patchedSyntaxes[name];
+ 
+   const rawSyntax =
+@@ -82,7 +82,7 @@ export async function getSyntax(name: string) {
+ 
+   if (patch && patch.syntax) {
+     if (rawSyntax && !validatedSyntaxes.includes(name)) {
+-      const compatibilityData = await getTypesData(name);
++      const compatibilityData = getTypesData(name);
+ 
+       if (compatibilityData && !validatePatch(compatibilityData, rawSyntaxes[name].syntax, patch.syntax)) {
+         error(
+@@ -106,13 +106,13 @@ export async function getSyntax(name: string) {
+ 
+ async function validatePatch(compat: Identifier, sourceSyntax: string, patchSyntax: string): Promise<boolean> {
+   // Dissolve all data types to check whether it already exists or not
+-  const dissolvedSourceTypes = await resolveDataTypes(
++  const dissolvedSourceTypes = resolveDataTypes(
+     {},
+     typer(parse(sourceSyntax)),
+     Infinity,
+     createPropertyDataTypeResolver(compat),
+   );
+-  const dissolvedPatchTypes = await resolveDataTypes(
++  const dissolvedPatchTypes = resolveDataTypes(
+     {},
+     typer(parse(patchSyntax)),
+     Infinity,
+diff --git a/src/data/patches.ts b/src/data/patches.ts
+index b238527..114071d 100644
+--- a/src/data/patches.ts
++++ b/src/data/patches.ts
+@@ -48,27 +48,27 @@ export const properties: { [property: string]: IExtendedProperty } = {
+ };
+ 
+ export const syntaxes: { [property: string]: MDN.Syntax } = {
+-  // Undefined syntax
++  // Missing syntax
+   'hex-color': {
+     syntax: '<string>',
+   },
+-  // Undefined syntax
++  // Missing syntax
+   'reversed-counter-name': {
+     syntax: '<string>',
+   },
+-  // Undefined syntax
++  // Missing syntax
+   'dashed-ident': {
+     syntax: '<string>',
+   },
+-  // Undefined syntax
++  // Missing syntax
+   'unicode-range-token': {
+     syntax: '<string>',
+   },
+-  // Undefined syntax
++  // Missing syntax
+   'declaration-value': {
+     syntax: '<string>',
+   },
+-  // Undefined syntax
++  // Missing syntax
+   autospace: {
+     syntax: 'no-autospace | [ ideograph-alpha || ideograph-numeric || punctuation ] || [ insert | replace ]',
+   },
+diff --git a/src/flow.ts b/src/flow.ts
+index c681ff3..465dd20 100644
+--- a/src/flow.ts
++++ b/src/flow.ts
+@@ -1,5 +1,6 @@
+ import {
+   DeclarableType,
++  declarator,
+   IDeclaration,
+   INamespace,
+   Interface,
+@@ -8,10 +9,10 @@ import {
+   isInterfaceProperties,
+ } from './declarator';
+ import { Type } from './syntax/typer';
+-import { createStringifyType, EOL, generatingDeclarations, stringifyGenerics } from './utils/output';
++import { createStringifyType, EOL, stringifyGenerics } from './utils/output';
+ 
+-export default async function flow() {
+-  const { namespaces, interfaces, declarations } = await generatingDeclarations;
++export default async function flow(data: ReturnType<typeof declarator>) {
++  const { namespaces, interfaces, declarations } = await data;
+ 
+   let interfacesOutput = '';
+ 
+diff --git a/src/syntax/typer.ts b/src/syntax/typer.ts
+index 4cd6490..462c951 100644
+--- a/src/syntax/typer.ts
++++ b/src/syntax/typer.ts
+@@ -58,14 +58,40 @@ export default function typer(node: DSNodeGroup): TypeType[] {
+   definitionSyntax.walk(node, {
+     enter(node) {
+       if (skipComponent > 0 || componentsToSkip.includes(node)) {
++        if (!hasStringKeyword) {
++          types.push({ type: Type.String });
++          hasStringKeyword = true;
++        }
++
+         skipComponent++;
+         return;
+       }
+ 
+       switch (node.type) {
+         case 'Group':
+-          if (node.terms.length === 1) {
+-            return;
++          if (node.terms.length < 2) {
++            break;
++          }
++
++          // Skip functions since they may cause recurring data types
++          if (node.terms[0].type === 'Function') {
++            const lastTerm = node.terms.at(-1)!;
++            if (lastTerm.type !== 'Token' || lastTerm.value !== ')') {
++              throw new Error('This is a weird looking function to me');
++            }
++
++            skipComponent++;
++
++            break;
++          }
++
++          // Comma is an optional separator, like | but with a comma
++          if (isCommaSeparator(node.terms)) {
++            if (node.combinator !== ' ') {
++              throw new Error('Cannot assume whitespace combinator with comma anymore');
++            }
++
++            break;
+           }
+ 
+           if (node.combinator === ' ' || node.combinator === '&&' || node.combinator === '||') {
+@@ -79,10 +105,6 @@ export default function typer(node: DSNodeGroup): TypeType[] {
+ 
+             if (node.combinator !== '||') {
+               for (const term of node.terms) {
+-                if (term.type === 'Comma') {
+-                  // Not sure what this comma is, ignoring for now. Exists on `background` property.
+-                  continue;
+-                }
+                 if (term.type === 'Multiplier') {
+                   if (term.min > 0) {
+                     mandatoryTermsInGroup++;
+@@ -213,3 +235,13 @@ export function hasType(types: TypeType[], type: TypeType): boolean {
+       return types.some(t => t.type === Type.PropertyReference && t.name === type.name);
+   }
+ }
++
++function isCommaSeparator(terms: DSNode[]) {
++  for (const term of terms) {
++    if (term.type === 'Comma') {
++      return true;
++    }
++  }
++
++  return false;
++}
+diff --git a/src/typescript.ts b/src/typescript.ts
+index ac369b2..dbdc630 100644
+--- a/src/typescript.ts
++++ b/src/typescript.ts
+@@ -1,5 +1,6 @@
+ import {
+   DeclarableType,
++  declarator,
+   IDeclaration,
+   INamespace,
+   Interface,
+@@ -9,10 +10,10 @@ import {
+   SimpleType,
+ } from './declarator';
+ import { Type } from './syntax/typer';
+-import { createStringifyType, EOL, generatingDeclarations, stringifyGenerics } from './utils/output';
++import { createStringifyType, EOL, stringifyGenerics } from './utils/output';
+ 
+-export default async function typescript() {
+-  const { namespaces, interfaces, declarations } = await generatingDeclarations;
++export default async function typescript(data: ReturnType<typeof declarator>) {
++  const { namespaces, interfaces, declarations } = await data;
+ 
+   let interfacesOutput = '';
+   for (const entry of interfaces) {
+diff --git a/src/utils/compat.ts b/src/utils/compat.ts
+index 9c1bc60..da87e1e 100644
+--- a/src/utils/compat.ts
++++ b/src/utils/compat.ts
+@@ -167,7 +167,7 @@ export async function alternativeSelectors(selector: string): Promise<string[]>
+   // Pseudo without ':'
+   const colons = ':'.repeat(selector.lastIndexOf(':') + 1);
+   const name = selector.slice(colons.length);
+-  const compatibilityData = await getSelectorsData(name);
++  const compatibilityData = getSelectorsData(name);
+ 
+   if (compatibilityData) {
+     const compats = getCompats(compatibilityData);
+diff --git a/src/utils/output.ts b/src/utils/output.ts
+index e83ef25..10967ff 100644
+--- a/src/utils/output.ts
++++ b/src/utils/output.ts
+@@ -1,18 +1,8 @@
+-import {
+-  DeclarableType,
+-  declarator,
+-  IAlias,
+-  IGenerics,
+-  INamespace,
+-  lengthGeneric,
+-  SimpleType,
+-  timeGeneric,
+-} from '../declarator';
++import { DeclarableType, IAlias, IGenerics, INamespace, lengthGeneric, SimpleType, timeGeneric } from '../declarator';
+ import { Type } from '../syntax/typer';
+ 
+ export const EOL = '\n';
+ 
+-export const generatingDeclarations = declarator(3);
+ export function createStringifyType(): (type: SimpleType) => string;
+ 
+ export function createStringifyType(

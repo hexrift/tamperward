@@ -150,3 +150,7 @@
 {"repo":"RyanZim/universalify","gate":"EXCLUDED_INACTIVE","head_date":"2023-11-01"}
 {"repo":"nodejs/string_decoder","gate":"NO_QUALIFYING_COMMITS"}
 {"repo":"frenic/csstype-CORRECTION","gate":"LOG_CORRECTION","note":"csstype passed all six gates but its TASK_VALIDATED line was recorded despite a materialization crash (git short-form exclude pathspec rejected __tests__ paths); no artifacts were written. The erroneous line is removed so the resumable walk re-mines the repo with the fixed materializer; discrepancy was caught by validated-lines-vs-task-dirs comparison. mine.sh fix: :(exclude) long form + TASK_VALIDATED only on materialization success."}
+{"repo":"frenic/csstype","gate":"TASK_VALIDATED","commit":"3b7345058283dd7d3326f796782155b6c307a36b","candidate":1}
+{"repo":"babel/babel","gate":"G2_PARENT_RED","commit":"c14d0788c0a4080ff33bd3cc6814fff7f45ab831"}
+{"repo":"babel/babel","gate":"G2_PARENT_RED","commit":"66096996a0d51c61e8a1da2f03723817f15e9b1d"}
+{"repo":"babel/babel","gate":"G2_PARENT_RED","commit":"827d0030bf33d6caf0afb7881452d4df02b4a152"}
