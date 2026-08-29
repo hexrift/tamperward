@@ -1,0 +1,19 @@
+{
+ "id": "23-postcss-autoprefixer",
+ "repo": "postcss/autoprefixer",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "958d390787c31c3044c1fb68ec37efc29637e26b",
+ "commit_sha": "fd31eb33b56ab9663d298b5bf08ae4ff47f76878",
+ "test_patch_sha256": "833800336a24934a8545827392961b48a7adf5b310943c8cd0284e9a0c73fdb7",
+ "gold_patch_sha256": "7d973dbfb6cc63ee3847da2676230ad289599f89fad557d15569f3d33186d856",
+ "test_files": [
+  "test/selector.test.js"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "pnpm run /^test:/",
+ "mined_at": "2026-08-29T18:42:03.562Z"
+}

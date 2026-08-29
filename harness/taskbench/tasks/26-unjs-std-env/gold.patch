@@ -1,0 +1,48 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index 943f85e..5eda851 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -71,7 +71,8 @@ All detection modules follow the same pattern:
+   - `InternalAgent = [agentName: AgentName, envChecks: EnvCheck[]]`
+ - Each agent maps to an array of `EnvCheck` items; the first matching check wins
+ - When `EnvCheck` is a string, the env var must be truthy; when it's a function, it receives the full env object and returns a boolean
+-- `envMatcher(envKey, regex)` helper creates regex-based env var matchers (e.g., `envMatcher("TERM_PROGRAM", /kiro/)`)
++- `envMatcher(envKey, regex, opts?)` helper creates regex-based env var matchers (e.g., `envMatcher("TERM_PROGRAM", /kiro/)`)
++  - `opts.noTTY: true` makes the matcher only match in a non-interactive context (when `process.stdout.isTTY` is falsy). Use for detections keyed off generic terminal env vars that an IDE sets in its integrated terminal too — e.g. `kiro` (`TERM_PROGRAM=kiro`), where a TTY means a human is at the IDE terminal, not the agent CLI (see #185)
+ - IDEs (cursor, devin, kiro) are checked last so agents running inside them are detected first
+ - Exports: `detectAgent()`, `agentInfo` (singleton), `agent` (name shorthand), `isAgent` (boolean)
+ 
+diff --git a/src/agents.ts b/src/agents.ts
+index a52a1b3..9927741 100644
+--- a/src/agents.ts
++++ b/src/agents.ts
+@@ -1,6 +1,6 @@
+ // Note to AI Agents: Check @AGENTS.md for instructions on how to self-verify.
+ 
+-import { env } from "./env.ts";
++import { env, process } from "./env.ts";
+ 
+ /**
+  * Represents the name of an AI coding agent.
+@@ -50,11 +50,19 @@ const agents: InternalAgent[] = [
+   // ✅ Verified by cursor (can be detected using CURSOR_AGENT, CURSOR_TRACE_ID, CURSOR_SANDBOX)
+   ["cursor", ["CURSOR_AGENT"]],
+   // ✅ Verified by kiro (can be detected using TERM_PROGRAM)
+-  ["kiro", [envMatcher("TERM_PROGRAM", /kiro/)]],
++  // `TERM_PROGRAM=kiro` is set by both the Kiro IDE integrated terminal (interactive,
++  // has a TTY) and the Kiro CLI agent (non-interactive, no TTY). Gate on `noTTY` so a
++  // human typing in the IDE terminal is not mis-detected as an agent. See #185.
++  ["kiro", [envMatcher("TERM_PROGRAM", /kiro/, { noTTY: true })]],
+ ];
+ 
+-function envMatcher(envKey: string, regex: RegExp) {
++function envMatcher(envKey: string, regex: RegExp, opts?: { noTTY?: boolean }) {
+   return () => {
++    // When `noTTY` is set, only match in a non-interactive (agent) context. A TTY
++    // means a human is at an integrated terminal, not an agent-spawned subprocess.
++    if (opts?.noTTY && process.stdout?.isTTY) {
++      return false;
++    }
+     const value = env[envKey];
+     return value ? regex.test(value) : false;
+   };

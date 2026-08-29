@@ -1,0 +1,18 @@
+diff --git a/lib/selector.js b/lib/selector.js
+index 3aaa6ff..efc7ed2 100644
+--- a/lib/selector.js
++++ b/lib/selector.js
+@@ -38,10 +38,12 @@ class Selector extends Prefixer {
+         return false
+       }
+ 
++      let beforeSelector = list.comma(before.selector).join(', ')
++
+       let some = false
+       for (let key in prefixeds[this.name]) {
+         let prefixed = prefixeds[this.name][key]
+-        if (before.selector === prefixed) {
++        if (beforeSelector === prefixed) {
+           if (prefix === key) {
+             return true
+           } else {

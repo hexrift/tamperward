@@ -1,0 +1,636 @@
+diff --git a/README.ar.md b/README.ar.md
+index 996e0c2..57a0821 100644
+--- a/README.ar.md
++++ b/README.ar.md
+@@ -14,6 +14,7 @@
+ 
+ - **صغير الحجم.** 118 بايت فقط (بعد التصغير والضغط ببروتلي). بدون أيّ اعتماديات خارجية.
+   يتم التحكّم بالحجم عبر [Size Limit].
++- **سريع.** أسرع بنسبة 50% من `crypto.randomUUID()` الأصلية.
+ - **آمن.** يستخدم مُولِّد أرقام عشوائية على مستوى العتاد. يمكن استخدامه في بيئات الكلستر.
+ - **مُعرِّفات قصيرة.** يستخدم أبجدية أكبر من UUID وهي (`A-Za-z0-9_-`).
+   لذا تم تقليص حجم المُعرِّف من 36 إلى 21 رمزًا.
+@@ -77,8 +78,7 @@ Nano ID قابل للمقارنة مع UUID v4 (المبني على العشوا
+ 
+ 1. يستخدم Nano ID أبجدية أكبر، لذا يتم ضغط عدد مماثل من البتّات العشوائية
+    في 21 رمزًا فقط بدلاً من 36.
+-2. كود Nano ID أصغر بـ **4 مرات** من حزمة `uuid/v4`:
+-   118 بايت مقابل 423.
++2. Nano ID أسرع من `crypto.randomUUID` و`uuid/v4`.
+ 
+ ## اختبار الأداء
+ 
+@@ -86,22 +86,22 @@ Nano ID قابل للمقارنة مع UUID v4 (المبني على العشوا
+ 
+ ```rust
+ $ node ./test/benchmark.js
+-nope-id                 27,398,074 ops/sec
+-crypto.randomUUID       14,055,107 ops/sec
+-uuid v4                  9,256,301 ops/sec
+-@napi-rs/uuid            7,100,180 ops/sec
+-uid/secure               7,312,765 ops/sec
+-@lukeed/uuid             5,543,254 ops/sec
+-nanoid                   4,954,561 ops/sec
+-customAlphabet           6,708,339 ops/sec
+-nanoid for browser         497,980 ops/sec
+-secure-random-string       412,049 ops/sec
+-uid-safe.sync              420,669 ops/sec
++nope-id                 20,386,830 ops/sec
++nanoid                  20,434,827 ops/sec
++customAlphabet          20,544,476 ops/sec
++crypto.randomUUID       12,865,759 ops/sec
++uuid v4                  7,930,104 ops/sec
++@napi-rs/uuid            5,573,171 ops/sec
++uid/secure               6,308,267 ops/sec
++@lukeed/uuid             5,278,597 ops/sec
++nanoid for browser         311,497 ops/sec
++secure-random-string       301,667 ops/sec
++uid-safe.sync              297,815 ops/sec
+ 
+ Non-secure:
+-uid                     27,106,859 ops/sec
+-nanoid/non-secure        2,672,540 ops/sec
+-rndm                     2,666,518 ops/sec
++uid                     20,286,757 ops/sec
++nanoid/non-secure        2,397,594 ops/sec
++rndm                     2,445,462 ops/sec
+ ```
+ 
+ <div dir="rtl">
+diff --git a/README.id-ID.md b/README.id-ID.md
+index 4683fee..e3d402f 100644
+--- a/README.id-ID.md
++++ b/README.id-ID.md
+@@ -11,6 +11,7 @@ Sebuah generator ID yang unik dalam bentuk string yang ringan, aman, serta _URL-
+ > yang mana tidak mungkin untuk tidak dihormati."
+ 
+ - **Ringan.** Hanya 118 bytes (diperkecil dan brotlied). Tidak ada ketergantungan (dependencies) apapun. [Size Limit](https://github.com/ai/size-limit) mengatur ukuran dari generator ini.
++- **Cepat.** 50% lebih cepat ketimbang `crypto.randomUUID()` bawaan.
+ - **Aman.** Nano ID menggunakan RNG yang terdapat pada perangkat keras. Dapat digunakan dalam lingkungan seperti klaster.
+ - **ID yang pendek.** Nano ID menggunakan alfabet yang lebih banyak ketimbang UUID (`A-Za-z0-9_-`), karenanya ukuran ID menjadi berkurang dari 36 menjadi 21 simbol.
+ - **Portabel.** Nano ID telah dimigrasi untuk [20 bahasa pemrograman lainnya](#bahasa-pemrograman-lainnya).
+@@ -58,28 +59,28 @@ Nano ID dapat dibandingkan dengan UUID v4 (yang berbasis acak / _randomly genera
+ Ada dua buah perbedaan antara Nano ID dan UUID v4:
+ 
+ 1. Nano ID menggunakan alfabet yang lebih lebar, karenanya jumlah bita acak dapat 'dikemas' dalam 21 simbol, bukan 36 simbol.
+-2. Kode sumber Nano ID **empat kali lebih kecil** ketimbang `uuid/v4`: 118 bytes dibanding 423 bytes.
++2. Nano ID lebih cepat ketimbang `crypto.randomUUID` dan `uuid/v4`.
+ 
+ ## Benchmark
+ 
+ ```rust
+ $ node ./test/benchmark.js
+-nope-id                 27,398,074 ops/sec
+-crypto.randomUUID       14,055,107 ops/sec
+-uuid v4                  9,256,301 ops/sec
+-@napi-rs/uuid            7,100,180 ops/sec
+-uid/secure               7,312,765 ops/sec
+-@lukeed/uuid             5,543,254 ops/sec
+-nanoid                   4,954,561 ops/sec
+-customAlphabet           6,708,339 ops/sec
+-nanoid for browser         497,980 ops/sec
+-secure-random-string       412,049 ops/sec
+-uid-safe.sync              420,669 ops/sec
++nope-id                 20,386,830 ops/sec
++nanoid                  20,434,827 ops/sec
++customAlphabet          20,544,476 ops/sec
++crypto.randomUUID       12,865,759 ops/sec
++uuid v4                  7,930,104 ops/sec
++@napi-rs/uuid            5,573,171 ops/sec
++uid/secure               6,308,267 ops/sec
++@lukeed/uuid             5,278,597 ops/sec
++nanoid for browser         311,497 ops/sec
++secure-random-string       301,667 ops/sec
++uid-safe.sync              297,815 ops/sec
+ 
+ Non-secure:
+-uid                     27,106,859 ops/sec
+-nanoid/non-secure        2,672,540 ops/sec
+-rndm                     2,666,518 ops/sec
++uid                     20,286,757 ops/sec
++nanoid/non-secure        2,397,594 ops/sec
++rndm                     2,445,462 ops/sec
+ ```
+ 
+ Konfigurasi pengujian: Framework 13 7840U, Fedora 39, Node.js 21.6.
+diff --git a/README.ja.md b/README.ja.md
+index 7328e4c..8582b5f 100644
+--- a/README.ja.md
++++ b/README.ja.md
+@@ -12,6 +12,7 @@ JavaScriptのための小さく、安全で、URL友好的なユニークな文
+ 
+ - **小さい。** 118バイト（圧縮・brotli圧縮後）。依存関係なし。
+   [Size Limit]がサイズを管理。
++- **高速。** ネイティブの`crypto.randomUUID()`より50%高速。
+ - **安全。** ハードウェア乱数生成器を使用。クラスタでも利用可能。
+ - **短いID。** UUIDより大きなアルファベット（A-Za-z0-9\_-）を使用。
+   そのためID長は36から21文字に短縮されています。
+@@ -70,29 +71,28 @@ Nano IDとUUID v4の主な違いは2つあります：
+ 
+ 1. Nano IDはより大きなアルファベットを使用するため、同様のランダムビット数が
+    36文字ではなく21文字に詰め込まれています。
+-2. Nano IDのコードはuuid/v4パッケージより**4倍小さい**です：
+-   423バイトではなく118バイトです。
++2. Nano IDは`crypto.randomUUID`や`uuid/v4`よりも高速です。
+ 
+ ## ベンチマーク
+ 
+ ```rust
+ $ node ./test/benchmark.js
+-nope-id                 27,398,074 ops/sec
+-crypto.randomUUID       14,055,107 ops/sec
+-uuid v4                  9,256,301 ops/sec
+-@napi-rs/uuid            7,100,180 ops/sec
+-uid/secure               7,312,765 ops/sec
+-@lukeed/uuid             5,543,254 ops/sec
+-nanoid                   4,954,561 ops/sec
+-customAlphabet           6,708,339 ops/sec
+-nanoid for browser         497,980 ops/sec
+-secure-random-string       412,049 ops/sec
+-uid-safe.sync              420,669 ops/sec
++nope-id                 20,386,830 ops/sec
++nanoid                  20,434,827 ops/sec
++customAlphabet          20,544,476 ops/sec
++crypto.randomUUID       12,865,759 ops/sec
++uuid v4                  7,930,104 ops/sec
++@napi-rs/uuid            5,573,171 ops/sec
++uid/secure               6,308,267 ops/sec
++@lukeed/uuid             5,278,597 ops/sec
++nanoid for browser         311,497 ops/sec
++secure-random-string       301,667 ops/sec
++uid-safe.sync              297,815 ops/sec
+ 
+ Non-secure:
+-uid                     27,106,859 ops/sec
+-nanoid/non-secure        2,672,540 ops/sec
+-rndm                     2,666,518 ops/sec
++uid                     20,286,757 ops/sec
++nanoid/non-secure        2,397,594 ops/sec
++rndm                     2,445,462 ops/sec
+ ```
+ 
+ テスト構成：Framework 13 7840U, Fedora 39, Node.js 21.6.
+diff --git a/README.ko.md b/README.ko.md
+index 34c4cff..bf79a8e 100644
+--- a/README.ko.md
++++ b/README.ko.md
+@@ -12,6 +12,7 @@ JavaScript를 위한 가볍고 안전하며 URL 친화적인 고유 String ID 
+ 
+ - **가볍습니다.** 118 bytes (minified 및 brotli 적용 후). 다른 의존성이 없습니다.
+   [Size Limit] 의 기능으로 컨트롤합니다.
++- **빠릅니다.** 네이티브 `crypto.randomUUID()` 보다 50% 더 빠릅니다.
+ - **안전합니다.** 하드웨어의 랜덤 생성기를 사용합니다. 클러스터에서 사용할 수 있습니다.
+ - **짧은 ID를 생성합니다.** UUID와는 다르게 대소문자를 모두 사용하여 키를 생성하므로, 36 byte를 차지하는 UUID와 다르게 21 byte만으로도 고유 아이디를 생성할 수 있습니다.
+   So ID size was reduced from 36 to 21 symbols.
+@@ -69,29 +70,28 @@ Nano ID 는 (랜덤 기반의) UUID v4와 비교할 수 있습니다.
+ Nano ID와 UUID v4에는 두 가지의 주요한 차이점이 있습니다:
+ 
+ 1. Nano ID는 대문자를 사용합니다. 그래서 유사한 개수의 랜덤 값을 36개가 아닌 21개의 문자로 나타낼 수 있습니다.
+-2. Nano ID 코드는 `uuid/v4` 패키지보다 **4분의 1 사이즈**입니다:
+-   UUIDv4는 423 bytes, Nano ID는 118 bytes 입니다.
++2. Nano ID는 `crypto.randomUUID` 및 `uuid/v4` 보다 빠릅니다.
+ 
+ ## 벤치마크
+ 
+ ```rust
+ $ node ./test/benchmark.js
+-nope-id                 27,398,074 ops/sec
+-crypto.randomUUID       14,055,107 ops/sec
+-uuid v4                  9,256,301 ops/sec
+-@napi-rs/uuid            7,100,180 ops/sec
+-uid/secure               7,312,765 ops/sec
+-@lukeed/uuid             5,543,254 ops/sec
+-nanoid                   4,954,561 ops/sec
+-customAlphabet           6,708,339 ops/sec
+-nanoid for browser         497,980 ops/sec
+-secure-random-string       412,049 ops/sec
+-uid-safe.sync              420,669 ops/sec
++nope-id                 20,386,830 ops/sec
++nanoid                  20,434,827 ops/sec
++customAlphabet          20,544,476 ops/sec
++crypto.randomUUID       12,865,759 ops/sec
++uuid v4                  7,930,104 ops/sec
++@napi-rs/uuid            5,573,171 ops/sec
++uid/secure               6,308,267 ops/sec
++@lukeed/uuid             5,278,597 ops/sec
++nanoid for browser         311,497 ops/sec
++secure-random-string       301,667 ops/sec
++uid-safe.sync              297,815 ops/sec
+ 
+ Non-secure:
+-uid                     27,106,859 ops/sec
+-nanoid/non-secure        2,672,540 ops/sec
+-rndm                     2,666,518 ops/sec
++uid                     20,286,757 ops/sec
++nanoid/non-secure        2,397,594 ops/sec
++rndm                     2,445,462 ops/sec
+ ```
+ 
+ 테스트 환경: 프레임워크 13 7840U, 페도라 39, Node.js 21.6.
+diff --git a/README.md b/README.md
+index 3b7ec9e..deccb41 100644
+--- a/README.md
++++ b/README.md
+@@ -12,6 +12,7 @@ A tiny, secure, URL-friendly, unique string ID generator for JavaScript.
+ 
+ - **Small.** 118 bytes (minified and brotlied). No dependencies.
+   [Size Limit] controls the size.
++- **Fast.** 50% faster than native `crypto.randomUUID()`.
+ - **Safe.** It uses hardware random generator. Can be used in clusters.
+ - **Short IDs.** It uses a larger alphabet than UUID (`A-Za-z0-9_-`).
+   So ID size was reduced from 36 to 21 symbols.
+@@ -71,29 +72,28 @@ There are two main differences between Nano ID and UUID v4:
+ 
+ 1. Nano ID uses a bigger alphabet, so a similar number of random bits
+    are packed in just 21 symbols instead of 36.
+-2. Nano ID code is **4 times smaller** than `uuid/v4` package:
+-   118 bytes instead of 423.
++2. Nano ID is faster than `crypto.randomUUID` and `uuid/v4`.
+ 
+ ## Benchmark
+ 
+ ```rust
+ $ node ./test/benchmark.js
+-nope-id                 27,398,074 ops/sec
+-crypto.randomUUID       14,055,107 ops/sec
+-uuid v4                  9,256,301 ops/sec
+-@napi-rs/uuid            7,100,180 ops/sec
+-uid/secure               7,312,765 ops/sec
+-@lukeed/uuid             5,543,254 ops/sec
+-nanoid                   4,954,561 ops/sec
+-customAlphabet           6,708,339 ops/sec
+-nanoid for browser         497,980 ops/sec
+-secure-random-string       412,049 ops/sec
+-uid-safe.sync              420,669 ops/sec
++nope-id                 20,386,830 ops/sec
++nanoid                  20,434,827 ops/sec
++customAlphabet          20,544,476 ops/sec
++crypto.randomUUID       12,865,759 ops/sec
++uuid v4                  7,930,104 ops/sec
++@napi-rs/uuid            5,573,171 ops/sec
++uid/secure               6,308,267 ops/sec
++@lukeed/uuid             5,278,597 ops/sec
++nanoid for browser         311,497 ops/sec
++secure-random-string       301,667 ops/sec
++uid-safe.sync              297,815 ops/sec
+ 
+ Non-secure:
+-uid                     27,106,859 ops/sec
+-nanoid/non-secure        2,672,540 ops/sec
+-rndm                     2,666,518 ops/sec
++uid                     20,286,757 ops/sec
++nanoid/non-secure        2,397,594 ops/sec
++rndm                     2,445,462 ops/sec
+ ```
+ 
+ Test configuration: Framework 13 7840U, Fedora 39, Node.js 21.6.
+diff --git a/README.ru.md b/README.ru.md
+index fb008b0..0e1a9fd 100644
+--- a/README.ru.md
++++ b/README.ru.md
+@@ -13,6 +13,7 @@ ID можно применять в URL.
+ 
+ - **Лёгкий.** 118 байт (после минификации и Brotli). Без зависимостей.
+   [Size Limit] следит за размером.
++- **Быстрый.** На 50% быстрее нативного `crypto.randomUUID()`.
+ - **Безопасный.** Использует аппаратный генератор случайных чисел.
+   Можно использовать в кластерах машин.
+ - **Короткие ID.** Используется больший алфавит, чем у UUID (`A-Za-z0-9_-`).
+@@ -77,28 +78,28 @@ Nano ID похож на UUID v4 (случайный).
+ 1. Nano ID использует более широкий алфавит, и сравнимое количество
+    битов случайности будут упакованы в более короткую строку
+    (21 символ, против 36 у UUID).
+-2. Код Nano ID **в 4 раз меньше**, чем у `uuid/v4` — 118 байт против 423.
++2. Nano ID быстрее, чем `crypto.randomUUID` и `uuid/v4`.
+ 
+ ## Сравнение производительности
+ 
+ ```rust
+ $ node ./test/benchmark.js
+-nope-id                 27,398,074 ops/sec
+-crypto.randomUUID       14,055,107 ops/sec
+-uuid v4                  9,256,301 ops/sec
+-@napi-rs/uuid            7,100,180 ops/sec
+-uid/secure               7,312,765 ops/sec
+-@lukeed/uuid             5,543,254 ops/sec
+-nanoid                   4,954,561 ops/sec
+-customAlphabet           6,708,339 ops/sec
+-nanoid for browser         497,980 ops/sec
+-secure-random-string       412,049 ops/sec
+-uid-safe.sync              420,669 ops/sec
++nope-id                 20,386,830 ops/sec
++nanoid                  20,434,827 ops/sec
++customAlphabet          20,544,476 ops/sec
++crypto.randomUUID       12,865,759 ops/sec
++uuid v4                  7,930,104 ops/sec
++@napi-rs/uuid            5,573,171 ops/sec
++uid/secure               6,308,267 ops/sec
++@lukeed/uuid             5,278,597 ops/sec
++nanoid for browser         311,497 ops/sec
++secure-random-string       301,667 ops/sec
++uid-safe.sync              297,815 ops/sec
+ 
+ Non-secure:
+-uid                     27,106,859 ops/sec
+-nanoid/non-secure        2,672,540 ops/sec
+-rndm                     2,666,518 ops/sec
++uid                     20,286,757 ops/sec
++nanoid/non-secure        2,397,594 ops/sec
++rndm                     2,445,462 ops/sec
+ ```
+ 
+ Среда сравнения: Framework 13 7840U, Fedora 39, Node.js 21.6.
+diff --git a/README.zh-CN.md b/README.zh-CN.md
+index 7a49ace..7ca5815 100644
+--- a/README.zh-CN.md
++++ b/README.zh-CN.md
+@@ -10,6 +10,7 @@
+ > “一个惊人的无意义的完美主义水平，这简直让人无法不敬佩。”
+ 
+ - **小巧.** 118字节 (经过压缩和Brotli处理)。没有依赖。[Size Limit] 控制大小。
++- **快速.** 比原生 `crypto.randomUUID()` 快 50%。
+ - **安全.** 它使用硬件随机生成器。可在集群中使用。
+ - **紧凑.** 它使用比 UUID（`A-Za-z0-9_-`）更大的字母表。因此，ID 大小从36个符号减少到21个符号。
+ - **可移植.** Nano ID 已被移植到 [20种编程语言](#其他编程语言)。
+@@ -65,28 +66,28 @@ Nano ID 和 UUID v4之间有两个主要区别:
+ 
+ 1. Nano ID 使用更大的字母表，所以类似数量的随机位
+    被包装在21个符号中，而不是36个。
+-2. Nano ID 代码比 `uuid/v4` 包少 **4倍**: 118字节而不是423字节.
++2. Nano ID 比 `crypto.randomUUID` 和 `uuid/v4` 更快。
+ 
+ ## 基准值
+ 
+ ```rust
+ $ node ./test/benchmark.js
+-nope-id                 27,398,074 ops/sec
+-crypto.randomUUID       14,055,107 ops/sec
+-uuid v4                  9,256,301 ops/sec
+-@napi-rs/uuid            7,100,180 ops/sec
+-uid/secure               7,312,765 ops/sec
+-@lukeed/uuid             5,543,254 ops/sec
+-nanoid                   4,954,561 ops/sec
+-customAlphabet           6,708,339 ops/sec
+-nanoid for browser         497,980 ops/sec
+-secure-random-string       412,049 ops/sec
+-uid-safe.sync              420,669 ops/sec
++nope-id                 20,386,830 ops/sec
++nanoid                  20,434,827 ops/sec
++customAlphabet          20,544,476 ops/sec
++crypto.randomUUID       12,865,759 ops/sec
++uuid v4                  7,930,104 ops/sec
++@napi-rs/uuid            5,573,171 ops/sec
++uid/secure               6,308,267 ops/sec
++@lukeed/uuid             5,278,597 ops/sec
++nanoid for browser         311,497 ops/sec
++secure-random-string       301,667 ops/sec
++uid-safe.sync              297,815 ops/sec
+ 
+ Non-secure:
+-uid                     27,106,859 ops/sec
+-nanoid/non-secure        2,672,540 ops/sec
+-rndm                     2,666,518 ops/sec
++uid                     20,286,757 ops/sec
++nanoid/non-secure        2,397,594 ops/sec
++rndm                     2,445,462 ops/sec
+ ```
+ 
+ 测试配置: Framework 13 7840U, Fedora 39, Node.js 21.6.
+diff --git a/index.d.ts b/index.d.ts
+index 790977c..a7d10b2 100644
+--- a/index.d.ts
++++ b/index.d.ts
+@@ -70,14 +70,14 @@ export function customAlphabet<Type extends string>(
+  * ```
+  *
+  * @param alphabet Alphabet used to generate a random string.
+- * @param size Size of the random string.
++ * @param defaultSize Size of the random string.
+  * @param random A random bytes generator.
+  * @typeparam Type The ID type to replace `string` with some opaque type.
+  * @returns A random string generator.
+  */
+ export function customRandom<Type extends string>(
+   alphabet: string,
+-  size: number,
++  defaultSize: number,
+   random: (bytes: number) => Uint8Array
+ ): (size?: number) => Type
+ 
+diff --git a/index.js b/index.js
+index 0a451ba..55b52ea 100644
+--- a/index.js
++++ b/index.js
+@@ -1,40 +1,31 @@
+ import { webcrypto as crypto } from 'node:crypto'
+ 
+-import { urlAlphabet as scopedUrlAlphabet } from './url-alphabet/index.js'
++import { urlAlphabet } from './url-alphabet/index.js'
+ 
+-export { urlAlphabet } from './url-alphabet/index.js'
++export { urlAlphabet }
+ 
+-// It is best to make fewer, larger requests to the crypto module to
+-// avoid system call overhead. So, random numbers are generated in a
+-// pool. The pool is a Buffer that is larger than the initial random
+-// request size by this multiplier. The pool is enlarged if subsequent
+-// requests exceed the maximum buffer size.
+-const POOL_SIZE_MULTIPLIER = 128
+-let pool, poolOffset
++// `crypto.getRandomValues` rejects requests over 65536 bytes,
++// so bigger buffers are filled by chunks.
++const GET_RANDOM_LIMIT = 65536
+ 
+-function fillPool(bytes) {
+-  if (bytes < 0) throw new RangeError('Wrong ID size')
+-  try {
+-    if (!pool || pool.length < bytes) {
+-      pool = Buffer.allocUnsafe(bytes * POOL_SIZE_MULTIPLIER)
+-      crypto.getRandomValues(pool)
+-      poolOffset = 0
+-    } else if (poolOffset + bytes > pool.length) {
+-      crypto.getRandomValues(pool)
+-      poolOffset = 0
+-    }
+-  } catch (e) {
+-    pool = undefined
+-    throw e
++function fillRandom(buffer) {
++  let from = 0
++  while (from < buffer.length) {
++    let to = Math.min(from + GET_RANDOM_LIMIT, buffer.length)
++    crypto.getRandomValues(buffer.subarray(from, to))
++    from = to
+   }
+-  poolOffset += bytes
+ }
+ 
+ export function random(bytes) {
+   // `|=` convert `bytes` to number to prevent `valueOf` abusing
+-  // and pool pollution
+-  fillPool((bytes |= 0))
+-  return pool.subarray(poolOffset - bytes, poolOffset)
++  bytes |= 0
++  if (bytes < 0) throw new RangeError('Wrong ID size')
++  // `random()` is used rarely and not in hot paths, so it makes
++  // a direct crypto call instead of using a byte pool.
++  let buffer = Buffer.allocUnsafe(bytes)
++  fillRandom(buffer)
++  return buffer
+ }
+ 
+ export function customRandom(alphabet, defaultSize, getRandom) {
+@@ -97,21 +88,95 @@ export function customRandom(alphabet, defaultSize, getRandom) {
+   }
+ }
+ 
+-export function customAlphabet(alphabet, size = 21) {
+-  return customRandom(alphabet, size, random)
+-}
++// The string pool optimizations in `customAlphabet()` and `nanoid()`
++// were ported from the nope-id project by Orhan Aydoğdu:
++// https://github.com/orhanayd/nope-id
+ 
+-export function nanoid(size = 21) {
+-  // `|=` convert `size` to number to prevent `valueOf` abusing
+-  // and pool pollution
+-  fillPool((size |= 0))
+-
+-  let id = ''
+-  // We are reading directly from the random pool to avoid creating new array
+-  for (let i = poolOffset - size; i < poolOffset; i++) {
+-    // The following mask reduces the random byte in the 0-255 value
+-    // range to the 0-63 value range.
+-    id += scopedUrlAlphabet[pool[i] & 63]
++// Maximum size of the pre-generated string pool in `customAlphabet()`.
++const POOL_MAX = GET_RANDOM_LIMIT / 2
++
++export function customAlphabet(alphabet, defaultSize = 21) {
++  if (
++    typeof alphabet !== 'string' ||
++    !alphabet.length ||
++    alphabet.length > 256
++  ) {
++    return customRandom(alphabet, defaultSize, random)
++  }
++  for (let i = 0; i < alphabet.length; i++) {
++    if (alphabet.charCodeAt(i) > 255) {
++      // The fast path below writes char codes to a byte buffer,
++      // so it supports only single-byte characters.
++      return customRandom(alphabet, defaultSize, random)
++    }
++  }
++
++  // Alphabet char codes to write IDs into a byte buffer directly.
++  let charCodes = Uint8Array.from(alphabet, str => {
++    return str.charCodeAt(0)
++  })
++  let alphabetLen = alphabet.length
++  // The smallest `2^n - 1` covering all alphabet indexes. Rejecting
++  // `byte & mask >= alphabetLen` avoids modulo bias without `%` operation.
++  let mask = (2 << (31 - Math.clz32((alphabetLen - 1) | 1))) - 1
++
++  // IDs are pre-generated into a string pool: accepted alphabet chars are
++  // written to a byte buffer, converted to a string with one
++  // `Buffer#toString()` call, and every ID is a cheap `String#substring()`.
++  // It avoids per-character string concatenations and pays string
++  // allocation cost once per refill.
++  //
++  // The pool starts at the first requested size and grows geometrically,
++  // so short-living generators do not pay for a full pool.
++  let pool = ''
++  let poolOffset = 0
++  let poolNext = 0
++
++  return (size = defaultSize) => {
++    // `|=` convert `size` to number to prevent `valueOf` abusing
++    // and pool offset pollution
++    size |= 0
++    if (size < 0) throw new RangeError('Wrong ID size')
++    if (size === 0) return ''
++    if (poolOffset + size > pool.length) {
++      let target = Math.max(poolNext, size)
++      poolNext = Math.min(target * 16, POOL_MAX)
++      let buffer = Buffer.allocUnsafe(target)
++      if (mask === alphabetLen - 1) {
++        // Power-of-two alphabets like `urlAlphabet` accept every byte,
++        // so random bytes are translated in place without rejections.
++        fillRandom(buffer)
++        for (let i = 0; i < target; i++) {
++          buffer[i] = charCodes[buffer[i] & mask]
++        }
++      } else {
++        // Rejection sampling accepts `alphabetLen` of every `mask + 1`
++        // random bytes. `1.6` requests extra bytes to cover
++        // unlucky streaks in most fills.
++        let randomBytes = Buffer.allocUnsafe(
++          Math.ceil((1.6 * (mask + 1) * target) / alphabetLen)
++        )
++        let accepted = 0
++        while (accepted < target) {
++          fillRandom(randomBytes)
++          for (let i = 0; i < randomBytes.length; i++) {
++            let index = randomBytes[i] & mask
++            if (index < alphabetLen) {
++              buffer[accepted++] = charCodes[index]
++              if (accepted === target) break
++            }
++          }
++        }
++      }
++      pool = buffer.toString('latin1')
++      poolOffset = 0
++    }
++    poolOffset += size
++    return pool.substring(poolOffset - size, poolOffset)
+   }
+-  return id
+ }
++
++// `nanoid()` reuses the `customAlphabet()` string pool logic.
++// The URL-safe alphabet has 64 symbols, so the generator translates
++// random bytes in place without rejections.
++export const nanoid = customAlphabet(urlAlphabet)
+diff --git a/test/benchmark.js b/test/benchmark.js
+index b541b6d..0260433 100755
+--- a/test/benchmark.js
++++ b/test/benchmark.js
+@@ -14,17 +14,23 @@ import { uid as uidSecure } from 'uid/secure'
+ import { v4 as uuid4 } from 'uuid'
+ 
+ import { nanoid as browser } from '../index.browser.js'
+-import { customAlphabet, nanoid } from '../index.js'
++import { nanoid, customAlphabet } from '../index.js'
+ import { nanoid as nonSecure } from '../non-secure/index.js'
+ 
+ let bench = new Bench()
+ 
+-let nanoid2 = customAlphabet('1234567890abcdef-', 10)
++let nanoid2 = customAlphabet('1234567890abcdef-', 21)
+ 
+ bench
+   .add('nope-id', () => {
+     nopeid()
+   })
++  .add('nanoid', () => {
++    nanoid()
++  })
++  .add('customAlphabet', () => {
++    nanoid2()
++  })
+   .add('crypto.randomUUID', () => {
+     crypto.randomUUID()
+   })
+@@ -40,12 +46,6 @@ bench
+   .add('@lukeed/uuid', () => {
+     lukeed4()
+   })
+-  .add('nanoid', () => {
+-    nanoid()
+-  })
+-  .add('customAlphabet', () => {
+-    nanoid2()
+-  })
+   .add('nanoid for browser', () => {
+     browser()
+   })

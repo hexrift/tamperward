@@ -1,0 +1,19 @@
+{
+ "id": "24-ai-nanoid",
+ "repo": "ai/nanoid",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "a83bf659fc3cb2e153cd8a6dc599ade07e1b8220",
+ "commit_sha": "b1bb75fc112ca14004fd71e9b5884a2434fb7122",
+ "test_patch_sha256": "d1486fc05f075f6cced7f5bc6de335c13505a369cb4e9774e15f2628eac1ecc9",
+ "gold_patch_sha256": "ab2200e7b865567b5d74c0607a03d4b64ba0522736487aeaa3d5b8cc7aec0518",
+ "test_files": [
+  "test/index.test.js"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 7,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "pnpm run /^test:/",
+ "mined_at": "2026-08-29T18:52:59.968Z"
+}
