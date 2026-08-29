@@ -68,4 +68,44 @@ Three configs per repo, written down here before running:
 
 ---
 
-## Outcome — to be written AFTER the sweeps, dated, bets above left intact.
+## Outcome (2026-08-29)
+
+Sanity gate first: the initial engine-direct sweep failed it — baseline read 169
+pooled against the published 111 — and per the pre-committed rule nothing published.
+The discrepancy was the sweep's own diff construction (no rename detection, no blob
+enrichment); rebuilt on the CLI's `diffRange`, the baseline reproduces **exactly**
+(immer 88, docusaurus 23). Only then were the tuned configs read.
+
+| config | immer (828) | docusaurus (399) | pooled | rate |
+|---|---|---|---|---|
+| baseline (default policy) | 88 | 23 | **111** | 9.0% |
+| expressible tune (`ts-any-cast: warn`) | 57 | 17 | **74** | **6.0%** |
+| scoped tune (exclude test paths, still block) | 88 | 23 | **111** | 9.0% |
+
+**tf-1 HELD** (6.0% > 4%): one severity line helps but can't fix a tax spread across
+five rules. **tf-2 REFUTED — and the refutation is the study's headline, at my own
+feature's expense.** The scoped tune changed *nothing* on either repo: these corpora's
+`as any` casts live overwhelmingly in library and application source (immer: 49 of 88
+firing commits carry src-side cast fires even under scoping; docusaurus: 7 of 23),
+so the test-path blind spot the zod adjudication recommended removes fires these
+repos mostly don't have. The zod clustering did not generalize; immer-shaped repos
+are the *lib-plumbing* FP category, which no path scoping can express. The feature I
+built this morning on twice-measured demand measured **zero effect on the corpus it
+was measured against, the day it shipped.** It ships anyway — the invariants are
+sound, zod-shaped repos exist in the adjudicated record, and fixtures-style uses
+remain — but its value claim now carries this null, published next to the bet.
+(tf-2's src-clause held: the scoped rule retained real src-side protection — there
+was just nothing for the scoping to remove.) **tf-3 REFUTED** by the finding-level
+measure: residual scoped-config block findings pool to lint-suppression 177,
+ts-any-cast 126, test-skip 66, test-deletion 51, ci-tampering 15, hook-tampering 2 —
+the test rules are ~27%, not the majority; suppressions and casts are.
+
+The deployed-cost trio the decision rule promised: **9.0% unconfigured → 6.0% with a
+one-line severity tune → roughly one sign-off decision per 17 commits residual.**
+The honest generalization: commit-layer FP tuning is repo-shaped — severity choices
+help everywhere, path scoping helps only where the fires actually cluster in
+scopeable paths, and the adjudication that recommends a tune must come from the
+repo class it's applied to.
+
+Ledger after these three bets (1 held, 2 refuted): **56 bets — 25 refuted, 29 held,
+2 unresolvable.**
