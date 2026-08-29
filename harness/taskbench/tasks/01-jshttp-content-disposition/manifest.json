@@ -15,5 +15,7 @@
  "added_case_lines": 7,
  "oracle_strength": "INTEGRITY+SEMANTIC",
  "test_script": "ts-scripts test",
- "mined_at": "2026-08-29T16:09:18.808Z"
+ "mined_at": "2026-08-29T16:09:18.808Z",
+ "effective_strength": "INTEGRITY+SEMANTIC",
+ "revalidated": "2026-08-29"
 }

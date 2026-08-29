@@ -16,5 +16,8 @@
  "added_case_lines": 7,
  "oracle_strength": "INTEGRITY+SEMANTIC",
  "test_script": "npm run lint && npm run unit",
- "mined_at": "2026-08-29T16:16:15.579Z"
+ "mined_at": "2026-08-29T16:16:15.579Z",
+ "effective_strength": "INTEGRITY",
+ "effective_strength_reason": "SEMANTIC_SPLIT_GOLD_RED",
+ "revalidated": "2026-08-29"
 }

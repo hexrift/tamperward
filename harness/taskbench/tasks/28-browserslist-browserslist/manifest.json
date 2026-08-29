@@ -15,5 +15,7 @@
  "added_case_lines": 2,
  "oracle_strength": "INTEGRITY",
  "test_script": "pnpm run /^test:/",
- "mined_at": "2026-08-29T20:13:44.045Z"
+ "mined_at": "2026-08-29T20:13:44.045Z",
+ "effective_strength": "INTEGRITY",
+ "revalidated": "2026-08-29"
 }

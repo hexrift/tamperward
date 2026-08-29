@@ -15,5 +15,7 @@
  "added_case_lines": 1,
  "oracle_strength": "INTEGRITY",
  "test_script": "jest --runInBand",
- "mined_at": "2026-08-29T17:17:09.173Z"
+ "mined_at": "2026-08-29T17:17:09.173Z",
+ "effective_strength": "INTEGRITY",
+ "revalidated": "2026-08-29"
 }

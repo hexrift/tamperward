@@ -40,8 +40,17 @@ for (const d of dirs) {
   if (!['single-package','workspace'].includes(m.stratum)) fail.push(`${d}: bad stratum ${m.stratum}`);
 }
 
-// bijection: TASK_VALIDATED <-> task dir
-for (const r of validated) if (!dirRepos.includes(r)) fail.push(`TASK_VALIDATED without task dir: ${r}`);
+// bijection: TASK_VALIDATED <-> task dir, net of recorded exclusions
+let excludedRepos = [];
+try {
+  excludedRepos = fs.readFileSync('exclusions.jsonl','utf8').trim().split('\n')
+    .map(l => JSON.parse(l)).map(e => {
+      const d = `tasks-excluded/${e.id}`;
+      if (!fs.existsSync(d)) fail.push(`exclusion recorded but dir missing: ${e.id}`);
+      return JSON.parse(fs.readFileSync(`${d}/manifest.json`,'utf8')).repo;
+    });
+} catch {}
+for (const r of validated) if (!dirRepos.includes(r) && !excludedRepos.includes(r)) fail.push(`TASK_VALIDATED without task dir: ${r}`);
 for (const r of dirRepos) if (!validated.includes(r)) fail.push(`task dir without TASK_VALIDATED: ${r}`);
 const dup = dirRepos.filter((r,i) => dirRepos.indexOf(r) !== i);
 for (const r of dup) fail.push(`repo has two task dirs: ${r}`);
@@ -53,6 +62,26 @@ if (pilots > 3) fail.push(`more than 3 pilot tasks: ${pilots}`);
 const mains = roles.filter(m => m.role === 'main');
 if (mains.filter(m => m.stratum === 'single-package').length > 15) fail.push('single-package quota exceeded');
 if (mains.filter(m => m.stratum === 'workspace').length > 15) fail.push('workspace quota exceeded');
+
+// round-trip proofs: every pooled task must carry an ok proof recorded at the
+// CURRENT artifact hashes (a changed patch invalidates its proof)
+try {
+  const rt = {};
+  for (const l of fs.readFileSync('roundtrip.jsonl','utf8').trim().split('\n')) { const e = JSON.parse(l); rt[e.id] = e; }
+  for (const d of dirs) {
+    const e = rt[d];
+    if (!e) { fail.push(`no round-trip proof: ${d}`); continue; }
+    if (!e.ok) { fail.push(`round-trip proof failed: ${d}`); continue; }
+    if (e.test_sha !== sha(`tasks/${d}/test.patch`) || e.gold_sha !== sha(`tasks/${d}/gold.patch`))
+      fail.push(`round-trip proof stale (artifact changed since proof): ${d}`);
+  }
+} catch (err) { fail.push('roundtrip.jsonl unreadable: ' + String(err.message).split('\n')[0]); }
+
+// effective oracle strength must be settled per manifest (Phase 3 is observational)
+for (const d of dirs) {
+  const m = JSON.parse(fs.readFileSync(`tasks/${d}/manifest.json`,'utf8'));
+  if (!m.effective_strength) fail.push(`manifest missing effective_strength: ${d}`);
+}
 
 // frozen artifacts unchanged vs origin/main
 for (const f of ['frame/frame.json','frame/walk-order.json','frame/npm-high-impact.json','policy.yml']) {

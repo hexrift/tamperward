@@ -3,15 +3,61 @@
 Walk completed 2026-08-29. The frozen frame (FRAME.md) is exhausted: all 500
 repositories decided, every decision logged. No agent has run.
 
-## The pool
+## The denominators, unambiguously (final, post-revalidation)
 
-**31 validated tasks: 3 pilot + 28 main (15 single-package, 13 workspace).**
-The workspace quota did not fill: per DESIGN Appendix A.2 and FRAME.md, **N = 28**
-— the gates were never loosened to reach 30, and this shortfall is a finding, not
-a failure. Oracle strength: 10 of 31 tasks are `INTEGRITY+SEMANTIC` (9 of the 28
-main tasks), which is **below the pre-committed 15-task threshold: the HONEST_FIX
-endpoint will be descriptive-only** (DESIGN §9), with `OBSERVED_CORRECT_COMPLETION`
-carrying the utility comparison across all tasks.
+```
+Eligible frozen frame:            500 repositories
+Repos walked (decided):           500 (frame exhausted)
+Mined artifacts:                  31
+Independently revalidated:        30 (v3 from-scratch proof; see below)
+Excluded:                         1  (10-npm-node-semver — suite consults the
+                                      git remote via template-oss lint, which is
+                                      absent by design in the frozen synthetic
+                                      materialization; deterministic GOLD_RED
+                                      across run 2 + clean-state retry; frozen
+                                      retry spent; evidence in
+                                      tasks-excluded/.../gold-failure-output.txt)
+Pilot tasks:                      3   (first 3 validated in walk order)
+Main counted tasks:               27
+  Single-package stratum:         14  (15 mined − semver)
+  Workspace stratum:              13
+Effective INTEGRITY+SEMANTIC:     7 of 30 (6 of the 27 main) — three mined
+                                  semantic tasks downgraded by revalidation
+                                  (split-withheld-the-red ×1, gold-red-under-
+                                  split ×2), recorded per-manifest with reasons
+Effective INTEGRITY:              23 of 30
+Final planned Phase-3 N:          27  (27 repos × 2 arms × 1 trajectory)
+HONEST_FIX endpoint:              descriptive-only (semantic subset < 15,
+                                  per the pre-committed DESIGN §9 rule)
+```
+
+## Revalidation (the from-scratch proof, run after mining)
+
+Every artifact re-proved itself with nothing trusted from mining: manifest
+hashes → clean materialization → **round-trip invariant** (parent + test.patch
++ gold.patch must `write-tree` to exactly the historical commit tree) → install
+→ true-red → gold-on-visible green → semantic-oracle behavior. Results:
+**30 of 31 clean; 1 excluded** (above). Four laboratory defects were found and
+fixed as permanent invariants before any agent ran — a generator
+representation bug (binary-stub patches; `--binary --full-index` now default,
+task 14's artifact regenerated from the same frozen SHAs and tree-proven), a
+validation-stage contamination bug (suite runs mutate trees; restore-before-
+gold now everywhere, including the runner), the §8 split fallbacks
+(NOT_RED-under-split), and the round-trip gate itself. Run 1 was disk-
+contaminated and is preserved as revalidation-run1-diskcontaminated.jsonl;
+run 2 + the five-task re-judge are the record. No task was swapped, no
+selection rule changed, no prompt or endpoint touched, and zero agent
+trajectories existed throughout.
+
+## The pool (mining-time numbers; the denominator block above is the final word)
+
+Mining produced **31 artifacts: 3 pilot + 28 main (15 single-package, 13
+workspace)** — the workspace quota did not fill (frame exhausted at 13/15; per
+DESIGN Appendix A.2 the gates were never loosened, and the shortfall is a
+finding, not a failure). Revalidation then excluded one task and downgraded
+three oracle strengths, giving the final counted pool above: **N = 27**, with
+`OBSERVED_CORRECT_COMPLETION` carrying the utility comparison across all tasks
+and HONEST_FIX descriptive-only.
 
 ## The attrition funnel (repo level, 500 decided)
 

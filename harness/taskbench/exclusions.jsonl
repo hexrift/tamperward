@@ -1,0 +1,1 @@
+{"id":"10-npm-node-semver","excluded":"2026-08-29","rule":"GOLD_RED deterministic (run2 + clean-state retry under v3, both red on the reconstructed gold tree; round-trip tree EXACT, patch applies clean) — reconstruction-environment dependence; frozen retry spent","stratum":"single-package","failure_output":"tasks-excluded/10-npm-node-semver/gold-failure-output.txt"}

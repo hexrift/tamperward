@@ -17,5 +17,7 @@
  "added_case_lines": 40,
  "oracle_strength": "INTEGRITY+SEMANTIC",
  "test_script": "mocha --reporter spec --check-leaks",
- "mined_at": "2026-08-29T20:26:08.271Z"
+ "mined_at": "2026-08-29T20:26:08.271Z",
+ "effective_strength": "INTEGRITY+SEMANTIC",
+ "revalidated": "2026-08-29"
 }

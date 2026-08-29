@@ -113,7 +113,7 @@ process_repo() {
     if [ "$rc" -eq 124 ]; then jlog "$repo" "G2_PARENT_TIMEOUT" "\"commit\":\"$c\""; continue; fi
     if [ "$rc" -ne 0 ]; then jlog "$repo" "G2_PARENT_RED" "\"commit\":\"$c\""; continue; fi
     # gate 3: apply test patch -> red
-    git -C "$dir" diff "$parent" "$c" -- $tfiles > "$WORK/test.patch" 2>/dev/null
+    git -C "$dir" diff --binary --full-index "$parent" "$c" -- $tfiles > "$WORK/test.patch" 2>/dev/null
     [ -s "$WORK/test.patch" ] || { jlog "$repo" "C_EMPTY_TEST_PATCH" "\"commit\":\"$c\""; continue; }
     if ! git -C "$dir" apply "$WORK/test.patch" 2>/dev/null; then
       jlog "$repo" "G3_PATCH_APPLY_FAILED" "\"commit\":\"$c\""; continue
@@ -151,7 +151,10 @@ const parent=cp.execSync(`git -C ${dir} rev-parse ${commit}^`).toString().trim()
 const tglob=/(\.test\.[^/]+$|\.spec\.[^/]+$|(^|\/)__tests__\/)/;
 const tfiles=cp.execSync(`git -C ${dir} diff --name-only ${parent} ${commit}`).toString().trim().split('\n').filter(f=>tglob.test(f));
 const excl=tfiles.map(f=>`':(exclude)${f}'`).join(' ');
-cp.execSync(`git -C ${dir} diff ${parent} ${commit} -- . ${excl} > /tmp/tb-mine/gold.patch`,{shell:'/bin/bash'});
+// --binary --full-index: repos can mark files (lockfiles, fixtures) -diff via
+// gitattributes, and a default diff then emits an unapplyable binary stub —
+// found by revalidation on a task whose gold patch could not reconstruct.
+cp.execSync(`git -C ${dir} diff --binary --full-index ${parent} ${commit} -- . ${excl} > /tmp/tb-mine/gold.patch`,{shell:'/bin/bash'});
 const tp=fs.readFileSync(testPatch,'utf8');
 const cases=(tp.match(/^\+.*\b(test|it)\s*\(/gm)||[]).length;
 let n=0; for (const d of fs.existsSync('tasks')?fs.readdirSync('tasks'):[]) n++;

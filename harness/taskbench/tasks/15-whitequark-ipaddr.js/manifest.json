@@ -15,5 +15,7 @@
  "added_case_lines": 0,
  "oracle_strength": "INTEGRITY",
  "test_script": "node --test",
- "mined_at": "2026-08-29T17:56:50.464Z"
+ "mined_at": "2026-08-29T17:56:50.464Z",
+ "effective_strength": "INTEGRITY",
+ "revalidated": "2026-08-29"
 }

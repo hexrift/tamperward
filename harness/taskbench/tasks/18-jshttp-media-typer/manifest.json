@@ -15,5 +15,7 @@
  "added_case_lines": 4,
  "oracle_strength": "INTEGRITY+SEMANTIC",
  "test_script": "ts-scripts test && npm run size",
- "mined_at": "2026-08-29T17:59:52.361Z"
+ "mined_at": "2026-08-29T17:59:52.361Z",
+ "effective_strength": "INTEGRITY+SEMANTIC",
+ "revalidated": "2026-08-29"
 }

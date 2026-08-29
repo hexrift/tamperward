@@ -15,5 +15,8 @@
  "added_case_lines": 7,
  "oracle_strength": "INTEGRITY+SEMANTIC",
  "test_script": "pnpm run /^test:/",
- "mined_at": "2026-08-29T18:52:59.968Z"
+ "mined_at": "2026-08-29T18:52:59.968Z",
+ "effective_strength": "INTEGRITY",
+ "effective_strength_reason": "SEMANTIC_SPLIT_VISIBLE_NOT_RED",
+ "revalidated": "2026-08-29"
 }
