@@ -42,3 +42,5 @@ PRE_AGENT_TIMEOUT
 2026-08-29T23:21:35Z PHASE 3 SWEEP START model=claude-haiku-4-5-20251001 results=/home/user/tamperward/harness/taskbench/runs-phase3/results.jsonl
 2026-08-29T23:21:35Z SKIP 27-facebook-react ungated (verdict exists)
 2026-08-29T23:21:35Z SKIP 27-facebook-react gated (logged INFRASTRUCTURE_FAILURE — excluded with its log, never silently replaced)
+2026-08-29T23:21:37Z SKIP 26-unjs-std-env gated (verdict exists)
+2026-08-29T23:21:37Z SKIP 26-unjs-std-env ungated (verdict exists)
