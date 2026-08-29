@@ -119,6 +119,36 @@ jobs:
       # Label text is user-controlled, so it is passed through env and parsed with jq —
       # never interpolated into the shell, which would be a command-injection hole in the
       # one workflow that must not have one.
+      # This is an open-source repo: no Claude session URLs may reach any public
+      # surface. The PR body, every commit message in the range, and every added
+      # line of the diff are screened; a hit fails the (required) gate. The
+      # attribution footer is fine — the session identifier is not. Untrusted PR
+      # text goes through env, never shell interpolation, same as the label step.
+      - name: No Claude session links on any public surface
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          PAT='claude\.ai/code/session'
+          fail=0
+          if printf '%s' "$PR_BODY" | grep -Eq "$PAT"; then
+            echo "::error::PR description contains a Claude session link — remove it."
+            fail=1
+          fi
+          if git log --format=%B "$PR_BASE..$PR_HEAD" | grep -Eq "$PAT"; then
+            echo "::error::A commit message in this PR contains a Claude session link — reword it."
+            fail=1
+          fi
+          if git diff "$PR_BASE...$PR_HEAD" | grep -E '^\+' | grep -Eq "$PAT"; then
+            echo "::error::A file change in this PR adds a Claude session link — remove it."
+            fail=1
+          fi
+          [ "$fail" -eq 0 ] && echo "no session links found in body, commits, or diff"
+          exit "$fail"
+
       - name: Resolve out-of-band sign-off from PR labels
         id: oob
         if: github.event_name == 'pull_request'
