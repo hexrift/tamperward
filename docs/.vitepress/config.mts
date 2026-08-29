@@ -35,6 +35,7 @@ export default defineConfig({
           text: 'Blog',
           items: [
             { text: 'All posts', link: '/blog/' },
+            { text: '137 runs were not 137 experiments', link: '/blog/137-runs-were-not-137-experiments' },
             { text: 'What agents do when you give the cheat a name', link: '/blog/what-agents-do-when-you-give-the-cheat-a-name' },
             { text: 'What agents do when you just ask nicely', link: '/blog/what-agents-do-when-you-just-ask-nicely' },
             { text: 'What agents do when no one can say no', link: '/blog/what-agents-do-when-no-one-can-say-no' },

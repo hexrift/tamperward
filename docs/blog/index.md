@@ -1,5 +1,13 @@
 # Blog
 
+- **[137 runs were not 137 experiments](./137-runs-were-not-137-experiments)** — August 29, 2026.
+  An external review made the statistical distinction sharper than we had: the run
+  counts vastly exceed the count of independent experiments behind them (~15 seed
+  configurations, 8 repos). We agree. The concession stated precisely, the README
+  reframed so the two headline numbers travel together, the loaded vocabulary given
+  operational definitions — and the capability-restriction study pre-registered as
+  the answer to "just make the tests read-only."
+
 - **[What AI coding agents do when you give the cheat a name](./what-agents-do-when-you-give-the-cheat-a-name)** — August 29, 2026.
   Both open loops closed: the sentence aimed at Sonnet's invisible spelling flips
   10/10 laundering to 10/10 honest (framing is a lever, not just an explanation),

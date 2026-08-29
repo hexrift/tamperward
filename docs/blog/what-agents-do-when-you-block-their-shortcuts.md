@@ -17,6 +17,13 @@ On a seed where the failing suite is somebody else's bug, the cheap model conver
 0/10 (the gate still held). The numbers below are as published; the README carries
 the scoped running totals.*
 
+*Statistical scoping, August 29: [137 runs were not 137
+experiments](./137-runs-were-not-137-experiments) — an external review made precise
+what this post's counts leave implicit: the runs below are repeated draws on a small
+number of seeds, so the independent evidence behind them is the seed count, not the
+run count, and every guarded result is conditional on detector coverage. The numbers
+below are as published; read them with that post's framing.*
+
 AI coding agents optimize for "the command succeeded," not "the change is
 trustworthy." Under pressure they take the cheapest path to green: delete the failing
 test, add `.skip`, cast to `any`, lower the coverage threshold, regenerate the
