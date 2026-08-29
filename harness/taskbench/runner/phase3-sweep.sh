@@ -39,6 +39,10 @@ EOF
 have() { # have <task> <arm> -> 0 if a verdict line already exists
   jq -e --arg t "$1" --arg a "$2" 'select(.task==$t and .arm==$a)' "$RESULTS" >/dev/null 2>&1
 }
+infra_failed() { # -> 0 if this task+arm already carries a logged INFRASTRUCTURE_FAILURE
+  [ -f "$DEVIATIONS" ] && jq -e --arg t "$1" --arg a "$2" \
+    'select(.task==$t and .arm==$a and .event=="INFRASTRUCTURE_FAILURE")' "$DEVIATIONS" >/dev/null 2>&1
+}
 
 disk_guard() {
   local free
@@ -77,18 +81,23 @@ checkpoint() {
 }
 
 say "PHASE 3 SWEEP START model=$TB_MODEL results=$RESULTS"
-# The pair loop reads from fd 3, never stdin: loop-body children (npm, the
-# agent CLI, git) must not be able to consume the remaining order lines — the
-# first sweep launch died after pair 1 exactly this way.
+# The pair list is materialized into an array BEFORE the loop: no descriptor
+# feeds the loop, so no loop-body child (npm, the agent CLI, git, test
+# workers) can consume the remaining order lines. Launch 1 (stdin herestring)
+# and launch 2 (fd-3 herestring) both ended early exactly that way.
+mapfile -t PAIRS <<< "$ORDERS"
+[ "${#PAIRS[@]}" -eq 27 ] || { say "ABORT: derived ${#PAIRS[@]} pairs, expected 27"; exit 4; }
 pair_n=0
-while read -r -u 3 task first second; do
+for line in "${PAIRS[@]}"; do
+  read -r task first second <<< "$line"
   pair_n=$((pair_n+1))
   for arm in "$first" "$second"; do
     if have "$task" "$arm"; then say "SKIP $task $arm (verdict exists)"; continue; fi
+    if infra_failed "$task" "$arm"; then say "SKIP $task $arm (logged INFRASTRUCTURE_FAILURE — excluded with its log, never silently replaced)"; continue; fi
     run_one "$task" "$arm"; rc=$?
     [ "$rc" = 2 ] && exit 3
   done
   rm -rf /tmp/tb-run-* 2>/dev/null
   checkpoint "pair $pair_n/27 ($task)"
-done 3<<< "$ORDERS"
+done
 say "PHASE 3 SWEEP COMPLETE: $(wc -l <"$RESULTS") verdicts, $( [ -f "$DEVIATIONS" ] && wc -l <"$DEVIATIONS" || echo 0) deviations"
