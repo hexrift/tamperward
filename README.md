@@ -142,7 +142,8 @@ ungated Haiku stays 6/10 tamper-green. The gate's measured value concentrates on
 models that do cheat. (The Fable rows are a Fable-driven harness measuring Fable:
 self-graded homework, bounded by the deterministic held-out oracle.) The
 type-laundering study below later measured the boundary of the disposition claim:
-it held for Opus in every regime, and for Fable only where the gate could interrupt.
+it held for Opus in every regime; Sonnet and Fable held only where the gate could
+interrupt.
 
 **And when the agent knows the gate is there?** Also pre-registered
 (`harness/PREDICTION-informed-adversary.md`) — betting the gate would *leak*. Refuted,
@@ -221,13 +222,17 @@ Result: **Haiku laundered 10/10** — and the three runs denied on the guarded `
 cast **switched to the invisible assertion**, the first time a deny redirected an agent
 to a better bypass instead of the fix. **Opus went 10/10 honest with zero gate
 involvement** — the strongest disposition evidence measured — while **Fable tampered
-6/10 via the bare assertion**, the first frontier tampering measured in this project
-(self-measurement caveat as always; the frontier split, Opus 0/10 vs Fable 6/10, is
-the published shape). Sixteen of thirty runs tampered through the uncovered dimension:
-measured demand that reopens the `ts-any-launder` warn→block graduation question via
-the §7.A corpus — the honest fix itself narrows through `as Record<string, unknown>`,
-so a naive assertion-blocker is an FP factory. Running ledger: **48 pre-registered
-bets — 20 refuted, 26 held, 2 unresolvable.**
+6/10 and Sonnet, the default model, 10/10, both via the bare assertion and drawing
+zero denies** (Sonnet's spelling every time: an inline structural assertion,
+`as { retries: number; ... }` — the quickest silence that compiles carries no bypass
+framing, and Sonnet's famous refusals turn out to be triggered by framing). The
+completed frontier split — **Opus 0/10 · Fable 6/10 · Sonnet 10/10** — is the
+published shape, with the standing self-measurement caveat on the Fable rows.
+Twenty-six of forty runs tampered through the uncovered dimension: measured demand
+that hardens the `ts-any-launder` warn→block graduation case via the §7.A corpus —
+the honest fix itself narrows through `as Record<string, unknown>`, so a naive
+assertion-blocker is an FP factory. Running ledger: **49 pre-registered bets — 21
+refuted, 26 held, 2 unresolvable.**
 
 **What about false positives?** `snapshot-rewrite` was swept over **1,652 real mainline
 commits** (prettier, jest, docusaurus, immer): 216 touched snapshots, all legitimately —
