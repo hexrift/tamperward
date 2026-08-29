@@ -1,0 +1,65 @@
+diff --git a/src/ast.ts b/src/ast.ts
+index 2fb212f..0567173 100644
+--- a/src/ast.ts
++++ b/src/ast.ts
+@@ -633,6 +633,8 @@ export class AST {
+     let escaping = false
+     let re = ''
+     let uflag = false
++    // multiple stars that aren't globstars coalesce into one *
++    let inStar = false
+     for (let i = 0; i < glob.length; i++) {
+       const c = glob.charAt(i)
+       if (escaping) {
+@@ -640,6 +642,15 @@ export class AST {
+         re += (reSpecials.has(c) ? '\\' : '') + c
+         continue
+       }
++      if (c === '*') {
++        if (inStar) continue
++        inStar = true
++        re += noEmpty && /^[*]+$/.test(glob) ? starNoEmpty : star
++        hasMagic = true
++        continue
++      } else {
++        inStar = false
++      }
+       if (c === '\\') {
+         if (i === glob.length - 1) {
+           re += '\\\\'
+@@ -658,11 +669,6 @@ export class AST {
+           continue
+         }
+       }
+-      if (c === '*') {
+-        re += noEmpty && glob === '*' ? starNoEmpty : star
+-        hasMagic = true
+-        continue
+-      }
+       if (c === '?') {
+         re += qmark
+         hasMagic = true
+diff --git a/src/index.ts b/src/index.ts
+index 70588b0..22540d7 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -520,7 +520,7 @@ export class Minimatch {
+   // to the right as possible, even if it increases the number
+   // of patterns that we have to process.
+   preprocess(globParts: string[][]) {
+-    // if we're not in globstar mode, then turn all ** into *
++    // if we're not in globstar mode, then turn ** into *
+     if (this.options.noglobstar) {
+       for (let i = 0; i < globParts.length; i++) {
+         for (let j = 0; j < globParts[i].length; j++) {
+diff --git a/test/the-sky-is-full-of-stars-at-least-100.ts b/test/the-sky-is-full-of-stars-at-least-100.ts
+new file mode 100644
+index 0000000..ec2214d
+--- /dev/null
++++ b/test/the-sky-is-full-of-stars-at-least-100.ts
+@@ -0,0 +1,5 @@
++import t from 'tap'
++import { Minimatch } from '../src/index.js'
++const me = 'a/*/b'
++const sky = 'a/' + '*'.repeat(100) + '/b'
++t.strictSame(new Minimatch(sky).set, new Minimatch(me).set)

@@ -1,0 +1,330 @@
+diff --git a/.github/workflows/nodejs.yml b/.github/workflows/nodejs.yml
+index 756c8aa..99938f2 100644
+--- a/.github/workflows/nodejs.yml
++++ b/.github/workflows/nodejs.yml
+@@ -63,7 +63,7 @@ jobs:
+     strategy:
+       matrix:
+         os: [ubuntu-latest, windows-latest, macos-latest]
+-        node-version: [12.x, 14.x, 16.x, 18.x, 20.x, 22.x, 23.x]
++        node-version: [10.x, 12.x, 14.x, 16.x, 18.x, 20.x, 22.x, 23.x]
+ 
+     runs-on: ${{ matrix.os }}
+ 
+@@ -96,13 +96,20 @@ jobs:
+           architecture: ${{ steps.calculate_architecture.outputs.result }}
+           cache: "npm"
+ 
++      - name: Install dependencies
++        run: |
++          npm i del-cli@^3
++          npm i --ignore-engines
++        if: matrix.node-version == '10.x' || matrix.node-version == '12.x' || matrix.node-version == '14.x' || matrix.node-version == '16.x'
++
+       - name: Install dependencies
+         run: npm ci
++        if: matrix.node-version == '18.x' || matrix.node-version == '20.x' || matrix.node-version == '22.x' || matrix.node-version == '23.x'
+ 
+       - name: Run tests with coverage
+         run: npm run test:coverage -- --ci
+ 
+       - name: Submit coverage data to codecov
+-        uses: codecov/codecov-action@v3
++        uses: codecov/codecov-action@v4
+         with:
+           token: ${{ secrets.CODECOV_TOKEN }}
+diff --git a/declarations/keywords/limit.d.ts b/declarations/keywords/limit.d.ts
+new file mode 100644
+index 0000000..70e3715
+--- /dev/null
++++ b/declarations/keywords/limit.d.ts
+@@ -0,0 +1,14 @@
++export default addLimitKeyword;
++export type Ajv = import("ajv").default;
++export type Code = import("ajv").Code;
++export type Name = import("ajv").Name;
++export type KeywordErrorDefinition = import("ajv").KeywordErrorDefinition;
++/** @typedef {import("ajv").default} Ajv */
++/** @typedef {import("ajv").Code} Code */
++/** @typedef {import("ajv").Name} Name */
++/** @typedef {import("ajv").KeywordErrorDefinition} KeywordErrorDefinition */
++/**
++ * @param {Ajv} ajv
++ * @returns {Ajv}
++ */
++declare function addLimitKeyword(ajv: Ajv): Ajv;
+diff --git a/declarations/validate.d.ts b/declarations/validate.d.ts
+index fc5d2ff..800d717 100644
+--- a/declarations/validate.d.ts
++++ b/declarations/validate.d.ts
+@@ -3,10 +3,10 @@ export type JSONSchema6 = import("json-schema").JSONSchema6;
+ export type JSONSchema7 = import("json-schema").JSONSchema7;
+ export type ErrorObject = import("ajv").ErrorObject;
+ export type Extend = {
+-  formatMinimum?: string | undefined;
+-  formatMaximum?: string | undefined;
+-  formatExclusiveMinimum?: string | undefined;
+-  formatExclusiveMaximum?: string | undefined;
++  formatMinimum?: (string | number) | undefined;
++  formatMaximum?: (string | number) | undefined;
++  formatExclusiveMinimum?: (string | boolean) | undefined;
++  formatExclusiveMaximum?: (string | boolean) | undefined;
+   link?: string | undefined;
+   undefinedAsNull?: boolean | undefined;
+ };
+diff --git a/package-lock.json b/package-lock.json
+index 484f449..3a42c7a 100644
+Binary files a/package-lock.json and b/package-lock.json differ
+diff --git a/package.json b/package.json
+index e119e72..da69e1f 100644
+--- a/package.json
++++ b/package.json
+@@ -14,7 +14,7 @@
+   "main": "dist/index.js",
+   "types": "declarations/index.d.ts",
+   "engines": {
+-    "node": ">= 12.13.0"
++    "node": ">= 10.13.0"
+   },
+   "scripts": {
+     "start": "npm run build -- -w",
+@@ -71,7 +71,7 @@
+     "prettier": "^2.5.1",
+     "standard-version": "^9.3.2",
+     "typescript": "^4.9.5",
+-    "webpack": "^5.68.0"
++    "webpack": "^5.97.1"
+   },
+   "keywords": [
+     "webpack"
+diff --git a/src/keywords/limit.js b/src/keywords/limit.js
+new file mode 100644
+index 0000000..d428b7c
+--- /dev/null
++++ b/src/keywords/limit.js
+@@ -0,0 +1,158 @@
++/** @typedef {import("ajv").default} Ajv */
++/** @typedef {import("ajv").Code} Code */
++/** @typedef {import("ajv").Name} Name */
++/** @typedef {import("ajv").KeywordErrorDefinition} KeywordErrorDefinition */
++
++/**
++ * @param {Ajv} ajv
++ * @returns {Ajv}
++ */
++function addLimitKeyword(ajv) {
++  // eslint-disable-next-line global-require
++  const { _, str, KeywordCxt, nil, Name } = require("ajv");
++
++  /**
++   * @param {Code | Name} x
++   * @returns {Code | Name}
++   */
++  function par(x) {
++    return x instanceof Name ? x : _`(${x})`;
++  }
++
++  /**
++   * @param {Code} op
++   * @returns {function(Code, Code): Code}
++   */
++  function mappend(op) {
++    return (x, y) =>
++      x === nil ? y : y === nil ? x : _`${par(x)} ${op} ${par(y)}`;
++  }
++
++  const orCode = mappend(_`||`);
++
++  // boolean OR (||) expression with the passed arguments
++  /**
++   * @param {...Code} args
++   * @returns {Code}
++   */
++  function or(...args) {
++    return args.reduce(orCode);
++  }
++
++  /**
++   * @param {string | number} key
++   * @returns {Code}
++   */
++  function getProperty(key) {
++    return _`[${key}]`;
++  }
++
++  const keywords = {
++    formatMaximum: { okStr: "<=", ok: _`<=`, fail: _`>` },
++    formatMinimum: { okStr: ">=", ok: _`>=`, fail: _`<` },
++    formatExclusiveMaximum: { okStr: "<", ok: _`<`, fail: _`>=` },
++    formatExclusiveMinimum: { okStr: ">", ok: _`>`, fail: _`<=` },
++  };
++
++  /** @type {KeywordErrorDefinition} */
++  const error = {
++    message: ({ keyword, schemaCode }) =>
++      str`should be ${
++        keywords[/** @type {keyof typeof keywords} */ (keyword)].okStr
++      } ${schemaCode}`,
++    params: ({ keyword, schemaCode }) =>
++      _`{comparison: ${
++        keywords[/** @type {keyof typeof keywords} */ (keyword)].okStr
++      }, limit: ${schemaCode}}`,
++  };
++
++  for (const keyword of Object.keys(keywords)) {
++    ajv.addKeyword({
++      keyword,
++      type: "string",
++      schemaType: keyword.startsWith("formatExclusive")
++        ? ["string", "boolean"]
++        : ["string", "number"],
++      $data: true,
++      error,
++      code(cxt) {
++        const { gen, data, schemaCode, keyword, it } = cxt;
++        const { opts, self } = it;
++        if (!opts.validateFormats) return;
++        const fCxt = new KeywordCxt(
++          it,
++          /** @type {any} */
++          (self.RULES.all.format).definition,
++          "format"
++        );
++
++        /**
++         * @param {Name} fmt
++         * @returns {Code}
++         */
++        function compareCode(fmt) {
++          return _`${fmt}.compare(${data}, ${schemaCode}) ${
++            keywords[/** @type {keyof typeof keywords} */ (keyword)].fail
++          } 0`;
++        }
++
++        function validate$DataFormat() {
++          const fmts = gen.scopeValue("formats", {
++            ref: self.formats,
++            code: opts.code.formats,
++          });
++          const fmt = gen.const("fmt", _`${fmts}[${fCxt.schemaCode}]`);
++
++          cxt.fail$data(
++            or(
++              _`typeof ${fmt} != "object"`,
++              _`${fmt} instanceof RegExp`,
++              _`typeof ${fmt}.compare != "function"`,
++              compareCode(fmt)
++            )
++          );
++        }
++
++        function validateFormat() {
++          const format = fCxt.schema;
++          const fmtDef = self.formats[format];
++
++          if (!fmtDef || fmtDef === true) {
++            return;
++          }
++
++          if (
++            typeof fmtDef !== "object" ||
++            fmtDef instanceof RegExp ||
++            typeof fmtDef.compare !== "function"
++          ) {
++            throw new Error(
++              `"${keyword}": format "${format}" does not define "compare" function`
++            );
++          }
++
++          const fmt = gen.scopeValue("formats", {
++            key: format,
++            ref: fmtDef,
++            code: opts.code.formats
++              ? _`${opts.code.formats}${getProperty(format)}`
++              : undefined,
++          });
++
++          cxt.fail$data(compareCode(fmt));
++        }
++
++        if (fCxt.$data) {
++          validate$DataFormat();
++        } else {
++          validateFormat();
++        }
++      },
++      dependencies: ["format"],
++    });
++  }
++
++  return ajv;
++}
++
++export default addLimitKeyword;
+diff --git a/src/validate.js b/src/validate.js
+index 8b460f0..47e982c 100644
+--- a/src/validate.js
++++ b/src/validate.js
+@@ -21,7 +21,8 @@ const getAjv = memoize(() => {
+   });
+ 
+   ajvKeywords(ajv, ["instanceof", "patternRequired"]);
+-  addFormats(ajv, { keywords: true });
++  // TODO set `{ keywords: true }` for the next major release and remove `keywords/limit.js`
++  addFormats(ajv, { keywords: false });
+ 
+   // Custom keywords
+   // eslint-disable-next-line global-require
+@@ -29,6 +30,11 @@ const getAjv = memoize(() => {
+ 
+   addAbsolutePathKeyword(ajv);
+ 
++  // eslint-disable-next-line global-require
++  const addLimitKeyword = require("./keywords/limit").default;
++
++  addLimitKeyword(ajv);
++
+   const addUndefinedAsNullKeyword =
+     // eslint-disable-next-line global-require
+     require("./keywords/undefinedAsNull").default;
+@@ -45,10 +51,10 @@ const getAjv = memoize(() => {
+ 
+ /**
+  * @typedef {Object} Extend
+- * @property {string=} formatMinimum
+- * @property {string=} formatMaximum
+- * @property {string=} formatExclusiveMinimum
+- * @property {string=} formatExclusiveMaximum
++ * @property {(string | number)=} formatMinimum
++ * @property {(string | number)=} formatMaximum
++ * @property {(string | boolean)=} formatExclusiveMinimum
++ * @property {(string | boolean)=} formatExclusiveMaximum
+  * @property {string=} link
+  * @property {boolean=} undefinedAsNull
+  */
+diff --git a/test/fixtures/schema.json b/test/fixtures/schema.json
+index b22f0d4..8328d9e 100644
+--- a/test/fixtures/schema.json
++++ b/test/fixtures/schema.json
+@@ -2518,11 +2518,21 @@
+       "formatMinimum": "2016-02-06",
+       "formatExclusiveMinimum": "2016-02-06"
+     },
++    "formatExclusiveMinimumKeyword1": {
++      "format": "date",
++      "formatMinimum": "2016-02-06",
++      "formatExclusiveMinimum": true
++    },
+     "formatExclusiveMaximumKeyword": {
+       "format": "date",
+       "formatMaximum": "2016-02-06",
+       "formatExclusiveMaximum": "2016-02-06"
+     },
++    "formatExclusiveMaximumKeyword1": {
++      "format": "date",
++      "formatMaximum": "2016-02-06",
++      "formatExclusiveMaximum": true
++    },
+     "formatMinMaxExclusiveMinKeyword": {
+       "format": "date",
+       "formatMinimum": "2016-02-06",

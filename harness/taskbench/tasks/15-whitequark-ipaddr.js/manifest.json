@@ -1,0 +1,19 @@
+{
+ "id": "15-whitequark-ipaddr.js",
+ "repo": "whitequark/ipaddr.js",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "dc55282780d8702bac31ef012ca52e4a77fbca1f",
+ "commit_sha": "6a616fbfc63ab1dedd73a0407d11b7a062bce642",
+ "test_patch_sha256": "6963f621f7bf00444609288af56fdb09c3990537878be61d0a119acd078c7254",
+ "gold_patch_sha256": "c77a6ff97965065067f8196cc3a52d1710f97b00475fb88af67c70359634bfb9",
+ "test_files": [
+  "test/ipaddr.test.js"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "node --test",
+ "mined_at": "2026-08-29T17:56:50.464Z"
+}

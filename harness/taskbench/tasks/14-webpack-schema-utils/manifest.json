@@ -1,0 +1,20 @@
+{
+ "id": "14-webpack-schema-utils",
+ "repo": "webpack/schema-utils",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "4b8acf2b1a2bc787af24546c7039bd6102a8f038",
+ "commit_sha": "2e2ba9dd84575d11326d6fff3d795df2e33db935",
+ "test_patch_sha256": "7e21936960027ab68197ad8805b8a23f09bcd05ccae5bb09fba7d358561861bd",
+ "gold_patch_sha256": "37f31ae0b5e0ab22b2ea3a086cb80bea3d8070930504614437537298d0239719",
+ "test_files": [
+  "test/__snapshots__/index.test.js.snap",
+  "test/index.test.js"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "npm run test:coverage",
+ "mined_at": "2026-08-29T17:56:37.481Z"
+}
