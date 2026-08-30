@@ -144,3 +144,21 @@ correct"; every claim scoped to per-task `effective_strength`; three
 denominators — mined / revalidated / counted — never blurred; FALSE_GREEN
 with/without violation reported separately; one row per repo; no cross-repo
 pooling in any headline; cross-round comparisons descriptive only.
+
+## Erratum (2026-08-30 21:58Z, mid-sweep, logged as a protocol deviation)
+
+The §3 "realized assignment" arm-order lists were rendered with the wrong
+parity convention (first hex character = high nibble) when this document was
+generated. The binding commitment — the published seed and the formula
+"sha256(seed + ':' + task_id)[0] even → ungated-first" — is unchanged, and
+the executing driver implements it exactly as round 1's driver did:
+digest byte 0, `[0]%2`. The correct realized assignment under the frozen
+seed and the round-1 byte convention (10 ungated-first / 12 gated-first):
+ungated-first: 04, 05, 12, 13, 14, 15, 16, 18, 19, 20, 22, 24;
+gated-first: 06, 07, 08, 09, 10, 11, 17, 21, 23, 25.
+Every pair executed before this erratum (25, 19, 16, 22, 04, 10) matches the
+byte convention. The pair-order list in §3 is derivation-identical between
+document and driver (full-hex lexicographic sort) and is unaffected. Nothing
+about the executed experiment changed; the document's derived rendering was
+corrected here, append-only, with the discovery logged in
+runs-phase3/deviations.jsonl.
