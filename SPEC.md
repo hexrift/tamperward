@@ -497,10 +497,10 @@ the repo next to the confirmations.* The prediction files are the record —
   b=5 vs c=4, paired RD +3.8%, exact McNemar p=1.0) — agents routed through
   spellings outside shipped detector coverage, including the two
   documented-unfixed pilot gaps; no measurable completion cost (+7.7, CI spans
-  zero); the held-out pristine-suite oracle caught 100% of masked failures in
+  zero); the independent pristine-suite oracle caught every masked failure in
   all 53 trajectories. The division-of-responsibility caveat in §10 is now
   measured, not hypothesized: diff-time detection is coverage-bounded on real
-  repositories; held-out re-execution was not breached once.
+  repositories; pristine-suite re-execution was not breached once.
 
 Agents are stochastic, so every arm runs multiple reps, changes one variable, and
 records full transcripts under `harness/runs/`. When a conversion rate is mediocre,
