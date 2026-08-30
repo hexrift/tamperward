@@ -1,0 +1,55 @@
+diff --git a/index.js b/index.js
+index d8652db456eeafe4e0191e16060fc430258ae378..4b479b12324a643381317dcad463144df8019da8 100644
+--- a/index.js
++++ b/index.js
+@@ -75,35 +75,25 @@ function mergeSelectors(parent, child) {
+ /**
+  * Move a child and its preceding comment(s) to after "after"
+  */
+-function breakOut(child, parent) {
+-  let changeParent = true
+-  let lastNode = parent
+-
+-  for (let node of parent.nodes) {
+-    if (!node.nodes) continue
+-
+-    let prevNode = node.prev()
+-    if (prevNode?.type !== 'comment') continue
+-
+-    let parentRule = parent.toString()
++function breakOut(child, currentNode) {
++  if (child.prev()?.type !== 'comment') {
++    currentNode.after(child)
++    return child
++  }
+ 
+-    /* Checking that the comment "describes" the rule following. Like this:
+-      /* comment about the rule below /*
+-      .rule {}
+-    */
+-    let regexp = /[*]\/ *\n.*{/
++  let prevNode = child.prev()
+ 
+-    if (parentRule.match(regexp)) {
+-      changeParent = false
+-      lastNode.after(node).after(prevNode)
++  /* Checking that the comment "describes" the rule following. Like this:
++    /* comment about the rule below *\
++    .rule {}
++  */
++  let regexp = /[*]\/ *\n.*{/
+ 
+-      lastNode = node
+-    }
++  if (child.parent.toString().match(regexp)) {
++    currentNode.after(child).after(prevNode)
+   }
+-
+-  // It is necessary if the above child has never been moved
+-  if (changeParent) {
+-    parent.after(child)
++  else {
++    currentNode.after(child)
+   }
+ 
+   return child

@@ -1,0 +1,13 @@
+diff --git a/src/_format.ts b/src/_format.ts
+index a5eb7943e4a7102b4b127d6cf618a892a0db54ee..01e5395fcb90f27e40d68d426490d989939f4611 100644
+--- a/src/_format.ts
++++ b/src/_format.ts
+@@ -85,7 +85,7 @@ export function getFormat(
+   whitespace: { start: string; end: string };
+ } {
+   if (!obj || typeof obj !== "object" || !(ftmSymbol in obj)) {
+-    return { indent: opts?.indent, whitespace: { start: "", end: "" } };
++    return { indent: opts?.indent ?? 2, whitespace: { start: "", end: "" } };
+   }
+   const format = obj[ftmSymbol] as FormatInfo;
+   const indent = opts?.indent || detectIndent(format.sample || "").indent;

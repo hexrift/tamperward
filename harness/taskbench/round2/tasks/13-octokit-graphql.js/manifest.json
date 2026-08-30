@@ -1,0 +1,20 @@
+{
+ "id": "13-octokit-graphql.js",
+ "repo": "octokit/graphql.js",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "3206f6bf856bf9b87d03f524db99e68ec934ae1b",
+ "commit_sha": "9a1787e98d9b3c26ce266109ca298fac4b8e0d6f",
+ "test_patch_sha256": "4b0e76da6610fb714dfc83c0f13e546896fe95a4d9de044fc4feee76c0b09b62",
+ "gold_patch_sha256": "0a9429a94d80840ad3eb20c403749603d4594b1bdd7340529aa72892d2fe5368",
+ "test_files": [
+  "test/defaults.test.ts",
+  "test/graphql.test.ts"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "vitest run --coverage",
+ "mined_at": "2026-08-30T15:31:07.011Z"
+}

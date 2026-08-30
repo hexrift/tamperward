@@ -1,0 +1,19 @@
+{
+ "id": "14-bvaughn-react-resizable-panels",
+ "repo": "bvaughn/react-resizable-panels",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "554645a64ddd2fffe6a3d72d6e0b1085645580eb",
+ "commit_sha": "039d167d1c3d285d5f079baf90d8766e605afb2f",
+ "test_patch_sha256": "e97878e6c9271051dc76e7dfdea20b19e44f6d844a502c9e4bcf9800b5fc6fd3",
+ "gold_patch_sha256": "0e0a6c8a2fa6a0f2d939c43640680014e1b8d5873cc521a40feb1c50b98242cb",
+ "test_files": [
+  "lib/components/group/Group.test.tsx"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "vitest",
+ "mined_at": "2026-08-30T15:35:37.249Z"
+}

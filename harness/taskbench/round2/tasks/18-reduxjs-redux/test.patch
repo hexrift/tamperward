@@ -1,0 +1,18 @@
+diff --git a/test/createStore.spec.ts b/test/createStore.spec.ts
+index bba400bf6f0e5230ba6399e5208cab1bfdf53226..270665f328ab81c09c088ff7ca435e8a10e5c4b8 100644
+--- a/test/createStore.spec.ts
++++ b/test/createStore.spec.ts
+@@ -703,7 +703,12 @@ describe('createStore', () => {
+ 
+     // @ts-expect-error
+     expect(() => store.replaceReducer(undefined)).toThrow(
+-      'Expected the nextReducer to be a function.'
++      "Expected the nextReducer to be a function. Instead, received: 'undefined'"
++    )
++
++    // @ts-expect-error
++    expect(() => store.replaceReducer(null)).toThrow(
++      "Expected the nextReducer to be a function. Instead, received: 'null'"
+     )
+ 
+     expect(() => store.replaceReducer(() => [])).not.toThrow()

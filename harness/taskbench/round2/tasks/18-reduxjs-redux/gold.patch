@@ -1,0 +1,13 @@
+diff --git a/src/createStore.ts b/src/createStore.ts
+index 8b58fa05054210dcb42ae8e52ed98b784a2ffef9..8598448c67ad5f143752982195b4e734be840148 100644
+--- a/src/createStore.ts
++++ b/src/createStore.ts
+@@ -322,7 +322,7 @@ export function createStore<
+       throw new Error(
+         `Expected the nextReducer to be a function. Instead, received: '${kindOf(
+           nextReducer
+-        )}`
++        )}'`
+       )
+     }
+ 

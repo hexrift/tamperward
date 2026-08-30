@@ -1,0 +1,77 @@
+diff --git a/README.md b/README.md
+index 74ff3b51954ca02b0ac65c202cd0700b3114faf6..32df27f84bdb0aba15f94c0deaee3188273fa20e 100644
+--- a/README.md
++++ b/README.md
+@@ -82,6 +82,10 @@ stream, it emits the following events:
+ 
+ * `expectPinoConfig` a boolean that indicates if the transport expects Pino to add some of its configuration to the stream. Default: `false`.
+ 
++* `timeKey` the property key to use for extracting the time value from log lines, stored in `stream.lastTime` when metadata is enabled. Default: `"time"`.
++
++* `levelKey` the property key to use for extracting the level value from log lines, stored in `stream.lastLevel` when metadata is enabled. Default: `"level"`.
++
+ ## Example
+ 
+ ### custom parseLine
+diff --git a/index.d.ts b/index.d.ts
+index 1ac49a5c3b0d2476bb2dcdaae66afbf224a33ccf..d8859fc116447599f254bf79f2bad3a1b3296290 100644
+--- a/index.d.ts
++++ b/index.d.ts
+@@ -41,6 +41,18 @@ type BuildOptions = {
+    */
+   metadata?: false;
+ 
++  /**
++   * `timeKey` the property key to use for extracting the time value from log lines.
++   * @default "time"
++   */
++  timeKey?: string;
++
++  /**
++   * `levelKey` the property key to use for extracting the level value from log lines.
++   * @default "level"
++   */
++  levelKey?: string;
++
+   /**
+    * `expectPinoConfig` If set to true, the transport will wait for pino to send its
+    * configuration before starting to process logs.
+diff --git a/index.js b/index.js
+index 009d1f20dbbface72c7b61ee0165400dc78cc5fb..85014782a8a6371b2f58683e903a615f8d1bcba4 100644
+--- a/index.js
++++ b/index.js
+@@ -22,6 +22,8 @@ module.exports = function build (fn, opts = {}) {
+   const parseLines = opts.parse === 'lines'
+   const parseLine = typeof opts.parseLine === 'function' ? opts.parseLine : JSON.parse
+   const close = opts.close || defaultClose
++  const timeKey = opts.timeKey || 'time'
++  const levelKey = opts.levelKey || 'level'
+   const stream = split(function (line) {
+     let value
+ 
+@@ -45,8 +47,8 @@ module.exports = function build (fn, opts = {}) {
+     }
+ 
+     if (stream[metadata]) {
+-      stream.lastTime = value.time
+-      stream.lastLevel = value.level
++      stream.lastTime = value[timeKey]
++      stream.lastLevel = value[levelKey]
+       stream.lastObj = value
+     }
+ 
+diff --git a/test/types/index.test-d.ts b/test/types/index.test-d.ts
+index b5f6a8528e5d98d7ba175fd188a24ef58f0825d8..bdf6662f6062c56400abd2a4a820537207c5007c 100644
+--- a/test/types/index.test-d.ts
++++ b/test/types/index.test-d.ts
+@@ -29,3 +29,10 @@ expectType<(Promise<Transform & OnUnknown>)>(build((source) => {}, { expectPinoC
+  * build also accepts an async function
+  */
+ expectType<Transform  & OnUnknown>(build(async (source) => {}));
++
++/**
++ * timeKey and levelKey options can be set to customize metadata keys
++ */
++expectType<Transform & OnUnknown>(build((source) => {}, { timeKey: 'timestamp' }));
++expectType<Transform & OnUnknown>(build((source) => {}, { levelKey: 'severity' }));
++expectType<Transform & OnUnknown>(build((source) => {}, { timeKey: 'timestamp', levelKey: 'severity' }));

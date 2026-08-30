@@ -1,0 +1,19 @@
+{
+ "id": "15-pinojs-pino-abstract-transport",
+ "repo": "pinojs/pino-abstract-transport",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "11556d6e141366ca7cbe1138ce8ddef72eaa2558",
+ "commit_sha": "f9909091d8725c38eb4487cdf58d7eb71b302269",
+ "test_patch_sha256": "34846005f6cbc93cfd85f90f0f24adc70a72d5826f64a7af34d21c8735092b52",
+ "gold_patch_sha256": "abdf222b49ac1bf4e15d6210a6f87233e84ab4005099594acc343dfef7ed0b95",
+ "test_files": [
+  "test/base.test.js"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "standard | snazzy && borp --check-coverage 'test/*.test.js'  && tsd",
+ "mined_at": "2026-08-30T15:37:07.485Z"
+}

@@ -1,0 +1,51 @@
+diff --git a/package-lock.json b/package-lock.json
+index c5d13f377520be7457ac81f52b856cbab9c5b9da..30211fd5b2b9b19ad10e4390b6d8d0da03b95c98 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -10,7 +10,7 @@
+       "license": "MIT",
+       "dependencies": {
+         "@octokit/request": "^9.1.4",
+-        "@octokit/types": "^13.6.2",
++        "@octokit/types": "^13.8.0",
+         "universal-user-agent": "^7.0.0"
+       },
+       "devDependencies": {
+@@ -665,9 +665,9 @@
+       "license": "MIT"
+     },
+     "node_modules/@octokit/types": {
+-      "version": "13.7.0",
+-      "resolved": "https://registry.npmjs.org/@octokit/types/-/types-13.7.0.tgz",
+-      "integrity": "sha512-BXfRP+3P3IN6fd4uF3SniaHKOO4UXWBfkdR3vA8mIvaoO/wLjGN5qivUtW0QRitBHHMcfC41SLhNVYIZZE+wkA==",
++      "version": "13.8.0",
++      "resolved": "https://registry.npmjs.org/@octokit/types/-/types-13.8.0.tgz",
++      "integrity": "sha512-x7DjTIbEpEWXK99DMd01QfWy0hd5h4EN+Q7shkdKds3otGQP+oWE/y0A76i1OvH9fygo4ddvNf7ZvF0t78P98A==",
+       "license": "MIT",
+       "dependencies": {
+         "@octokit/openapi-types": "^23.0.1"
+diff --git a/package.json b/package.json
+index d0c209df150b426f99868c6e8e4aaa54ffc54c30..2977cc4f8bead4e1ef815500bbf9bed02b4c0e98 100644
+--- a/package.json
++++ b/package.json
+@@ -25,7 +25,7 @@
+   "license": "MIT",
+   "dependencies": {
+     "@octokit/request": "^9.1.4",
+-    "@octokit/types": "^13.6.2",
++    "@octokit/types": "^13.8.0",
+     "universal-user-agent": "^7.0.0"
+   },
+   "devDependencies": {
+diff --git a/src/graphql.ts b/src/graphql.ts
+index 38deed66e13bfafb6e0c796bb7be3020e6c61057..a61fdc1b86064f4fffe451d140241afbf563e0c1 100644
+--- a/src/graphql.ts
++++ b/src/graphql.ts
+@@ -16,6 +16,7 @@ const NON_VARIABLE_OPTIONS = [
+   "request",
+   "query",
+   "mediaType",
++  "operationName",
+ ];
+ 
+ const FORBIDDEN_VARIABLE_OPTIONS = ["query", "method", "url"];

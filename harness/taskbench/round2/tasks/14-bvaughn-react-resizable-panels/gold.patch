@@ -1,0 +1,149 @@
+diff --git a/lib/global/event-handlers/onDocumentContextMenu.ts b/lib/global/event-handlers/onDocumentContextMenu.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..5d5dd27a10269594444db322de8fced1298d2d22
+--- /dev/null
++++ b/lib/global/event-handlers/onDocumentContextMenu.ts
+@@ -0,0 +1,9 @@
++import { completeActivePointerResize } from "../utils/completeActivePointerResize.ts";
++
++export function onDocumentContextMenu(event: MouseEvent) {
++  if (event.defaultPrevented) {
++    return;
++  }
++
++  completeActivePointerResize(event.currentTarget as Document);
++}
+diff --git a/lib/global/event-handlers/onDocumentPointerUp.ts b/lib/global/event-handlers/onDocumentPointerUp.ts
+index a29f9e2723a3151d2e241f5a6453b3a9979c943d..37157984bd43d4586f121e6c07c400cc192ffbeb 100644
+--- a/lib/global/event-handlers/onDocumentPointerUp.ts
++++ b/lib/global/event-handlers/onDocumentPointerUp.ts
+@@ -1,12 +1,4 @@
+-import { updateCursorStyle } from "../cursor/updateCursorStyle";
+-import {
+-  getMountedGroupState,
+-  updateMountedGroup
+-} from "../mutable-state/groups";
+-import {
+-  getInteractionState,
+-  updateInteractionState
+-} from "../mutable-state/interactions";
++import { completeActivePointerResize } from "../utils/completeActivePointerResize.ts";
+ 
+ export function onDocumentPointerUp(event: PointerEvent) {
+   if (event.defaultPrevented) {
+@@ -15,31 +7,8 @@ export function onDocumentPointerUp(event: PointerEvent) {
+     return;
+   }
+ 
+-  const interactionState = getInteractionState();
+-
+-  switch (interactionState.state) {
+-    case "active": {
+-      updateInteractionState({
+-        cursorFlags: 0,
+-        state: "inactive"
+-      });
+-
+-      if (interactionState.hitRegions.length > 0) {
+-        updateCursorStyle(event.currentTarget as Document);
+-
+-        // Dispatch one more "change" event after the interaction state has been reset.
+-        // Groups use this as a signal to call onLayoutChanged.
+-        // This is the canonical user-pointer-up site, so flag the dispatch with
+-        // isUserInteraction: true. See #716.
+-        interactionState.hitRegions.forEach((hitRegion) => {
+-          const groupState = getMountedGroupState(hitRegion.group.id, true);
+-          updateMountedGroup(hitRegion.group, groupState, {
+-            isUserInteraction: true
+-          });
+-        });
+-
+-        event.preventDefault();
+-      }
+-    }
++  const matched = completeActivePointerResize(event.currentTarget as Document);
++  if (matched) {
++    event.preventDefault();
+   }
+ }
+diff --git a/lib/global/mountGroup.ts b/lib/global/mountGroup.ts
+index faceff0dea2620932de447669d8103c7b036cea9..cf7c53e4b028b8f6f81648a916743e39a415a79f 100644
+--- a/lib/global/mountGroup.ts
++++ b/lib/global/mountGroup.ts
+@@ -3,6 +3,7 @@ import { assert } from "../utils/assert";
+ import { calculateAvailableGroupSize } from "./dom/calculateAvailableGroupSize";
+ import { calculateHitRegions } from "./dom/calculateHitRegions";
+ import { calculatePanelConstraints } from "./dom/calculatePanelConstraints";
++import { onDocumentContextMenu } from "./event-handlers/onDocumentContextMenu";
+ import { onDocumentDoubleClick } from "./event-handlers/onDocumentDoubleClick";
+ import { onDocumentKeyDown } from "./event-handlers/onDocumentKeyDown";
+ import { onDocumentPointerDown } from "./event-handlers/onDocumentPointerDown";
+@@ -179,6 +180,7 @@ export function mountGroup(group: RegisteredGroup) {
+ 
+   // If this is the first group to be mounted, initialize event handlers
+   if (ownerDocumentReferenceCounts.get(ownerDocument) === 1) {
++    ownerDocument.addEventListener("contextmenu", onDocumentContextMenu, true);
+     ownerDocument.addEventListener("dblclick", onDocumentDoubleClick, true);
+     ownerDocument.addEventListener("pointerdown", onDocumentPointerDown, true);
+     ownerDocument.addEventListener("pointerleave", onDocumentPointerLeave);
+@@ -203,6 +205,11 @@ export function mountGroup(group: RegisteredGroup) {
+ 
+     // If this was the last group to be mounted, tear down event handlers
+     if (!ownerDocumentReferenceCounts.get(ownerDocument)) {
++      ownerDocument.removeEventListener(
++        "contextmenu",
++        onDocumentContextMenu,
++        true
++      );
+       ownerDocument.removeEventListener(
+         "dblclick",
+         onDocumentDoubleClick,
+diff --git a/lib/global/utils/completeActivePointerResize.ts b/lib/global/utils/completeActivePointerResize.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..937a3312ebaa105836c0d9019ebf3196d24acdc9
+--- /dev/null
++++ b/lib/global/utils/completeActivePointerResize.ts
+@@ -0,0 +1,43 @@
++import { updateCursorStyle } from "../cursor/updateCursorStyle.ts";
++import {
++  getMountedGroupState,
++  updateMountedGroup
++} from "../mutable-state/groups.ts";
++import {
++  getInteractionState,
++  updateInteractionState
++} from "../mutable-state/interactions.ts";
++
++export function completeActivePointerResize(document: Document) {
++  const interactionState = getInteractionState();
++
++  let match = false;
++
++  switch (interactionState.state) {
++    case "active": {
++      updateInteractionState({
++        cursorFlags: 0,
++        state: "inactive"
++      });
++
++      if (interactionState.hitRegions.length > 0) {
++        updateCursorStyle(document);
++
++        match = true;
++
++        // Dispatch one more "change" event after the interaction state has been reset.
++        // Groups use this as a signal to call onLayoutChanged.
++        // This is the canonical user-pointer-up site, so flag the dispatch with
++        // isUserInteraction: true. See #716.
++        interactionState.hitRegions.forEach((hitRegion) => {
++          const groupState = getMountedGroupState(hitRegion.group.id, true);
++          updateMountedGroup(hitRegion.group, groupState, {
++            isUserInteraction: true
++          });
++        });
++      }
++    }
++  }
++
++  return match;
++}

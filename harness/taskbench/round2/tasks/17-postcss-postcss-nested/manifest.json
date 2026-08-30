@@ -1,0 +1,19 @@
+{
+ "id": "17-postcss-postcss-nested",
+ "repo": "postcss/postcss-nested",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "9f75b3804d67ed80e91fdcb7fa36b113e5ddc93c",
+ "commit_sha": "64ff5c55b16851ed0dc186fda2772383673f464d",
+ "test_patch_sha256": "1a93a169a3cd615d023f73fc38663d2b777ee2702a4c6fb73566ce628614a819",
+ "gold_patch_sha256": "b5d37132bd44ec611ce7050fcefd5f2b55dd61757192c85ec642210c0b2610cc",
+ "test_files": [
+  "index.test.js"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "pnpm run /^test:/",
+ "mined_at": "2026-08-30T15:48:56.563Z"
+}
