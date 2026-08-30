@@ -35,6 +35,7 @@ export default defineConfig({
           text: 'Blog',
           items: [
             { text: 'All posts', link: '/blog/' },
+            { text: 'What losing the bet bought', link: '/blog/what-losing-the-bet-bought' },
             { text: 'We tested an AI coding agent across 27 real repositories', link: '/blog/we-tested-an-ai-coding-agent-on-27-real-repositories' },
             { text: 'Before we test Tamperward on 27 real repositories', link: '/blog/before-we-test-tamperward-on-27-real-repositories' },
             { text: 'What agents do when the tests are read-only', link: '/blog/what-agents-do-when-the-tests-are-read-only' },
