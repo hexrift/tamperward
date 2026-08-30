@@ -47,4 +47,22 @@ and the walk procedure above.
 
 ## Corrections (append-only)
 
-*(none yet)*
+1. **2026-08-30, ~35 minutes into the walk — FP-corpus repos excluded as
+   detector-development data.** The `test-content-removal` rule (1.7.0) was
+   corpus-priced on the mainline histories of immer, zustand, zod, and
+   prettier (`harness/fp-study/TCR-CORPUS.md`); its thresholds and the
+   snapshot-jurisdiction exclusion were chosen partly from adjudicating those
+   repos' commits. A round-2 task drawn from any of them is therefore not an
+   independent test of that rule. zod and prettier were round-1 frame repos
+   (already spent, never in frame2); **pmndrs/zustand and immerjs/immer are
+   in frame2** and are hereby excluded from the round-2 pool. This was
+   caught when zustand appeared in the walk (first corpus repo reached,
+   logged `MATERIALIZATION_FAILED` on candidate 1) and recorded before any
+   corpus-repo task was validated. Mechanically: the walk is not interrupted
+   (the miner is never edited live); if it validates a task from either repo,
+   the task moves to `tasks-excluded/` citing this correction, the
+   semver-precedent path. Root cause of the gap: FRAME2.md was frozen before
+   anyone cross-checked the frame against the FP corpus — the frame-1 overlap
+   check existed, the development-data overlap check did not. It does now,
+   in writing, for every future frame: **repos used to price or tune a
+   detector are spent for validation pools of that detector.**
