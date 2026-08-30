@@ -1,0 +1,207 @@
+diff --git a/.changeset/report-committed-event-ids.md b/.changeset/report-committed-event-ids.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..f2f31e1558494710c7245f1d65ff9231c3b90235
+--- /dev/null
++++ b/.changeset/report-committed-event-ids.md
+@@ -0,0 +1,6 @@
++---
++'eventsource-parser': minor
++---
++
++Added an `onId` callback that reports ID fields when an event block ends, including blocks without
++data.
+diff --git a/README.md b/README.md
+index 595f4658ea0e0fcc5ed6b67416d1cf09735b2aa7..916afd331957d5b29b5fa5cfa3f4ebf0b7596f81 100644
+--- a/README.md
++++ b/README.md
+@@ -47,6 +47,26 @@ parser.reset()
+ console.log('Done!')
+ ```
+ 
++### Event IDs
++
++Use `onId` if you need to track event IDs for reconnection. The parser calls it once when a blank
++line ends a block containing a valid `id` field. It runs for blocks with or without `data`, and it
++runs before `onEvent` when the same block produces an event. An empty `id` field is reported as an
++empty string. An `id` field containing U+0000 is ignored.
++
++```ts
++let lastEventId = ''
++
++const parser = createParser({
++  onId(id) {
++    lastEventId = id
++  },
++  onEvent(event) {
++    // …
++  },
++})
++```
++
+ ### Retry intervals
+ 
+ If the server sends a `retry` field in the event stream, the parser will call any `onRetry` callback specified to the `createParser` function:
+@@ -141,7 +161,7 @@ const eventStream = response.body
+   .pipeThrough(new EventSourceParserStream())
+ ```
+ 
+-The stream constructor accepts a subset of the `createParser` options (`onComment`, `onRetry`, `maxBufferSize`) plus an `onError` that can either be a function or set to `'terminate'` to error the stream on parse errors. Events are delivered through the stream itself rather than via an `onEvent` callback:
++The stream constructor accepts a subset of the `createParser` options (`onComment`, `onId`, `onRetry`, `maxBufferSize`) plus an `onError` that can either be a function or set to `'terminate'` to error the stream on parse errors. Events are delivered through the stream itself rather than via an `onEvent` callback:
+ 
+ ```ts
+ new EventSourceParserStream({
+diff --git a/src/parse.ts b/src/parse.ts
+index d46040df4f5020baf5364a474a788355f7de906c..9b81f8cdba14313dc903dc46bd7cefc70a3ebdcc 100644
+--- a/src/parse.ts
++++ b/src/parse.ts
+@@ -11,11 +11,6 @@ const CR = 13
+ const SPACE = 32
+ const MAX_FIELD_PREFIX_LENGTH = 6
+ 
+-// oxlint-disable-next-line no-unused-vars
+-function noop(_arg: unknown) {
+-  // intentional noop
+-}
+-
+ /**
+  * Creates a new EventSource parser.
+  *
+@@ -32,7 +27,7 @@ export function createParser(config: ParserConfig): EventSourceParser {
+     )
+   }
+ 
+-  const {onEvent = noop, onError = noop, onRetry = noop, onComment, maxBufferSize} = config
++  const {maxBufferSize, onComment, onError, onEvent, onId, onRetry} = config
+ 
+   // Trailing bytes from prior `feed()` calls that did not yet form a complete line.
+   // Stored as an array of fragments and only joined when a line terminator arrives.
+@@ -244,7 +239,7 @@ export function createParser(config: ParserConfig): EventSourceParser {
+     eventType = undefined
+     skippingLine = false
+     skipNextLineFeed = false
+-    onError(
++    onError?.(
+       new ParseError(`Buffered data exceeded max buffer size of ${maxBufferSize} characters`, {
+         type: 'max-buffer-size-exceeded',
+       }),
+@@ -274,8 +269,11 @@ export function createParser(config: ParserConfig): EventSourceParser {
+         // and reset the buffered fields. This is hoisted out of `parseLine` because
+         // it's the single most common line shape after `data:` lines.
+         if (searchIndex === lfIndex) {
++          if (id !== undefined) {
++            onId?.(id)
++          }
+           if (dataLines > 0) {
+-            onEvent({id, event: eventType, data})
++            onEvent?.({id, event: eventType, data})
+           }
+           id = undefined
+           data = ''
+@@ -298,7 +296,10 @@ export function createParser(config: ParserConfig): EventSourceParser {
+           // typical single-line SSE event (ChatGPT-style streams, etc.) and is
+           // hot enough to be worth the duplication.
+           if (dataLines === 0 && chunk.charCodeAt(lfIndex + 1) === LF) {
+-            onEvent({id, event: eventType, data: value})
++            if (id !== undefined) {
++              onId?.(id)
++            }
++            onEvent?.({id, event: eventType, data: value})
+             id = undefined
+             data = ''
+             eventType = undefined
+@@ -452,9 +453,9 @@ export function createParser(config: ParserConfig): EventSourceParser {
+         // integer in base ten, and set the event stream's reconnection time to that integer.
+         // Otherwise, ignore the field.
+         if (/^\d+$/.test(value)) {
+-          onRetry(parseInt(value, 10))
++          onRetry?.(parseInt(value, 10))
+         } else {
+-          onError(
++          onError?.(
+             new ParseError(`Invalid \`retry\` value: "${value}"`, {
+               type: 'invalid-retry',
+               value,
+@@ -465,7 +466,7 @@ export function createParser(config: ParserConfig): EventSourceParser {
+         break
+       default:
+         // Otherwise, the field is ignored.
+-        onError(
++        onError?.(
+           new ParseError(
+             `Unknown field "${field.length > 20 ? `${field.slice(0, 20)}…` : field}"`,
+             {type: 'unknown-field', field, value, line},
+@@ -476,8 +477,12 @@ export function createParser(config: ParserConfig): EventSourceParser {
+   }
+ 
+   function dispatchEvent() {
++    if (id !== undefined) {
++      onId?.(id)
++    }
++
+     if (dataLines > 0) {
+-      onEvent({
++      onEvent?.({
+         id,
+         event: eventType,
+         data,
+diff --git a/src/stream.ts b/src/stream.ts
+index a422f3ea68d6e094d8f9e46473c7bf96704290c8..bd4b29b3376785b48437835bd9845d43bd5a2a28 100644
+--- a/src/stream.ts
++++ b/src/stream.ts
+@@ -7,6 +7,17 @@ import type {EventSourceMessage, EventSourceParser} from './types.ts'
+  * @public
+  */
+ export interface StreamOptions {
++  /**
++   * Callback for an `id` field when a blank line ends an event block.
++   *
++   * Called once with the last valid `id` value in the block, whether or not the block contains a
++   * `data` field. When the block produces an event, `onId` is called before the event is enqueued.
++   * An empty `id` field is reported as an empty string. An `id` field containing U+0000 is ignored.
++   *
++   * @param id - The value of the last valid `id` field in the block
++   */
++  onId?: ((id: string) => void) | undefined
++
+   /**
+    * Behavior when a parsing error occurs.
+    *
+@@ -65,7 +76,7 @@ export interface StreamOptions {
+  * @public
+  */
+ export class EventSourceParserStream extends TransformStream<string, EventSourceMessage> {
+-  constructor({onError, onRetry, onComment, maxBufferSize}: StreamOptions = {}) {
++  constructor({onError, onRetry, onComment, onId, maxBufferSize}: StreamOptions = {}) {
+     let parser!: EventSourceParser
+ 
+     super({
+@@ -92,6 +103,7 @@ export class EventSourceParserStream extends TransformStream<string, EventSource
+           },
+           onRetry,
+           onComment,
++          onId,
+           maxBufferSize,
+         })
+       },
+diff --git a/src/types.ts b/src/types.ts
+index 184942854e60ccdcd982d31e44871666bb659937..b050c465d155b057640ad850f9379948d50d02da 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -64,6 +64,17 @@ export interface EventSourceMessage {
+  * @public
+  */
+ export interface ParserCallbacks {
++  /**
++   * Callback for an `id` field when a blank line ends an event block.
++   *
++   * Called once with the last valid `id` value in the block, whether or not the block contains a
++   * `data` field. When the block produces an event, `onId` is called before `onEvent`. An empty
++   * `id` field is reported as an empty string. An `id` field containing U+0000 is ignored.
++   *
++   * @param id - The value of the last valid `id` field in the block
++   */
++  onId?: ((id: string) => void) | undefined
++
+   /**
+    * Callback for when a new event/message is parsed from the stream.
+    * This is the main callback that clients will use to handle incoming messages.
