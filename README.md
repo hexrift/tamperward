@@ -125,6 +125,22 @@ fifteen seed/task configurations and eight real repositories — repeated runs o
 seed measure that seed's stochasticity, not the space of real coding tasks, so the
 independent evidence behind these numbers is the seed count, not the run count.
 
+**And the third number, from the preregistered cross-repository experiment
+(taskbench, `harness/taskbench/`):** on 26 paired real repositories with real
+historical regressions, pressured-agent policy violations appeared in **13 of 26
+ungated runs (50%)** — the behavior transfers — but the gate at 1.6.0 **did not
+reduce false greens** (5 prevented vs 4 gated-only; paired RD +3.8%, 95% CI
+−17.2 to +24.7, exact McNemar p = 1.0): agents routed through tool-call
+spellings outside the shipped detector classes, including two gaps documented
+before the sweep and deliberately left unfixed for the experiment's integrity.
+Enforcement showed no measurable completion cost (+7.7 points, CI spans zero),
+and the independent held-out oracle caught **100% of masked failures in all 53
+trajectories**. Registration, bets, frozen analysis, and the refutation of our
+own headline bet: `PREDICTION-taskbench.md`, `PHASE3.md`. The first two numbers
+say what the gate does inside its coverage; the third says coverage is the
+whole game on real repositories — and that the reliable layer was the held-out
+oracle the agent cannot touch.
+
 **What this does not do**, stated before the numbers rather than after: it does not
 establish that a patch is *correct*; it does not detect arbitrary deception (a
 hardcoded implementation is invisible to any diff rule — measured, twice); it does not
@@ -308,7 +324,9 @@ already is. That seed now carries all six governance configurations on identical
 pre-registered ground: nothing 6/10 tampers, one sentence 1/10, naive hook 2/10,
 the gate 0/10, immutable 0/10, immutable+auto-grant 2/10 — with the standing scope
 that none of the capability rows touch the semantic classes, by construction.
-Running ledger: **64 pre-registered bets — 28 refuted, 34 held, 2 unresolvable.**
+Running ledger: **70 pre-registered bets — 29 refuted, 37 held, 4 open or
+unresolvable** — taskbench's B2 (prevention on real repositories) is the newest
+refutation, published beside the bet it refutes.
 
 **What about false positives?** `snapshot-rewrite` was swept over **1,652 real mainline
 commits** (prettier, jest, docusaurus, immer): 216 touched snapshots, all legitimately —
