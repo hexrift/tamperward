@@ -67,6 +67,17 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      # The miner under a RANDOMIZED work root: a literal /tmp/tb-mine inside a node
+      # heredoc survived round 1 (default == literal) and broke round 2's walk. This
+      # selftest mines a local fixture, proves the exact round-trip, and fails if
+      # anything touches the default path — the class cannot come back silently.
+      - run: bash harness/taskbench/miner-selftest.sh
+      # Static half of the same guard: any /tmp/tb-mine literal in a miner must be on
+      # a line that derives from TB_WORK; a naked literal is the regression.
+      - name: no naked default-workdir literals in miners
+        run: |
+          bad=$(grep -n '/tmp/tb-mine' harness/taskbench/mine.sh harness/taskbench/round2/mine.sh | grep -vE ':[0-9]+:\s*(#|//)' | grep -v 'TB_WORK' || true)
+          if [ -n "$bad" ]; then echo "naked /tmp/tb-mine literal:"; echo "$bad"; exit 1; fi
 
   # Is the ARTIFACT sound? Distinct question from "is the code correct", and it has its
   # own failure mode: `files: [dist]` with dist/ gitignored once shipped a tarball

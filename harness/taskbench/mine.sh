@@ -5,9 +5,23 @@
 # attrition.jsonl or tasks/ are skipped). No agent runs happen here.
 set -uo pipefail
 cd "$(dirname "$0")"
+# Single resolved work-root; every derived path hangs off it and the roots are
+# logged once at startup. Born from the round-2 TB_WORK incident: a literal
+# /tmp/tb-mine inside a node heredoc survived round 1 only because the default
+# happened to equal it, then broke every candidate reaching patch generation
+# under a non-default TB_WORK. Any future literal must show up as a divergence
+# from this block — and CI's miner selftest runs under a randomized TB_WORK
+# precisely so it cannot survive silently.
 WORK="${TB_WORK:-/tmp/tb-mine}"
-mkdir -p "$WORK" tasks
+export TB_WORK="$WORK"                      # heredoc node children read the SAME root
+CLONE_ROOT="$WORK/repo"
+PATCH_ROOT="$WORK"                          # test.patch / gold.patch staging
+TASK_ROOT="$PWD/tasks"
 ATTR=attrition.jsonl
+LOG_PATH="$PWD/$ATTR"
+CLONE_BASE="${TB_CLONE_BASE:-https://github.com}"  # file:// base in the selftest
+echo "[mine] roots: WORK=$WORK CLONE=$CLONE_ROOT PATCH=$PATCH_ROOT TASKS=$TASK_ROOT LOG=$LOG_PATH CLONE_BASE=$CLONE_BASE"
+mkdir -p "$WORK" tasks
 touch "$ATTR"
 
 SINCE="2024-08-29"; UNTIL="2026-08-29"
@@ -44,7 +58,7 @@ run_suite() { # dir -> exit code of test script under timeout
 process_repo() {
   local repo="$1" dir="$WORK/repo"
   rm -rf "$dir"
-  if ! timeout 600 git clone --quiet --filter=blob:none "https://github.com/$repo.git" "$dir" 2>/dev/null; then
+  if ! timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2>/dev/null; then
     jlog "$repo" "CLONE_FAILED"; return
   fi
   # activity floor
