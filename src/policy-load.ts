@@ -19,6 +19,7 @@ type RawPolicy = {
   rules?: Policy['rules'];
   ignore?: string[];
   signoff?: { required_for?: Severity[]; requiredFor?: Severity[]; ledger?: string };
+  verify?: { command?: string; budget?: number };
 };
 
 /** `version:` opts in to rule graduations, so a value that cannot be understood must
@@ -51,6 +52,9 @@ export function parsePolicy(raw: RawPolicy | null | undefined): Policy {
       requiredFor: r.signoff?.required_for ?? r.signoff?.requiredFor ?? base.signoff.requiredFor,
       ledger: r.signoff?.ledger ?? base.signoff.ledger,
     },
+    ...(r.verify?.command
+      ? { verify: { command: r.verify.command, budget: r.verify.budget ?? 300 } }
+      : {}),
   };
 }
 

@@ -110,6 +110,15 @@ export interface Policy {
    */
   ignore?: string[];
   signoff: { requiredFor: Severity[]; ledger: string };
+  /**
+   * Pristine-suite verification (`tamperward verify`): the suite command re-run
+   * against the current source with protected files restored from a trusted rev.
+   * Optional — verify runs only when configured here or invoked with flags. This
+   * block is itself a guarded surface: policy-diff flags any change to `command`
+   * and any lowering of `budget` as policy weakening, because a verify command an
+   * agent can point at `true` is no verification at all.
+   */
+  verify?: { command: string; budget: number };
 }
 
 /** Which git view manufactured the Change[] — i.e. the diff's granularity. Most rules
