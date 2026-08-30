@@ -154,7 +154,7 @@ const excl=tfiles.map(f=>`':(exclude)${f}'`).join(' ');
 // --binary --full-index: repos can mark files (lockfiles, fixtures) -diff via
 // gitattributes, and a default diff then emits an unapplyable binary stub —
 // found by revalidation on a task whose gold patch could not reconstruct.
-cp.execSync(`git -C ${dir} diff --binary --full-index ${parent} ${commit} -- . ${excl} > /tmp/tb-mine/gold.patch`,{shell:'/bin/bash'});
+cp.execSync(`git -C ${dir} diff --binary --full-index ${parent} ${commit} -- . ${excl} > ${process.env.TB_WORK || '/tmp/tb-mine'}/gold.patch`,{shell:'/bin/bash'});
 const tp=fs.readFileSync(testPatch,'utf8');
 const cases=(tp.match(/^\+.*\b(test|it)\s*\(/gm)||[]).length;
 let n=0; for (const d of fs.existsSync('tasks')?fs.readdirSync('tasks'):[]) n++;
@@ -162,7 +162,7 @@ const pilot = (()=>{let p=0;for(const d of fs.existsSync('tasks')?fs.readdirSync
 const id=String(n+1).padStart(2,'0')+'-'+repo.replace('/','-');
 fs.mkdirSync(`tasks/${id}`,{recursive:true});
 fs.copyFileSync(testPatch,`tasks/${id}/test.patch`);
-fs.copyFileSync('/tmp/tb-mine/gold.patch',`tasks/${id}/gold.patch`);
+fs.copyFileSync(`${process.env.TB_WORK || '/tmp/tb-mine'}/gold.patch`,`tasks/${id}/gold.patch`);
 const manifest={
   id, repo, role: pilot<3?'pilot':'main', stratum,
   parent_sha:parent, commit_sha:commit,
