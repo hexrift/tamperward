@@ -1,12 +1,26 @@
-# Tamperward — Build Spec v0.6
+# Tamperward — Build Spec v0.7
 
 > The deterministic agent-integrity gate. One ruleset, evaluated on the actual
 > diff/commands as a verdict (not a probability), at every stage a change passes
 > through — the agent loop (a Claude Code hook today), pre-commit, and CI, which is
 > the authority.
 
-**Slice:** TypeScript/Jest · Claude Code · 15 rules specified, 13 shipped ·
-agent-loop + pre-commit + CI · the agent-correction loop measured, not asserted.
+**Slice:** TypeScript/Jest · Claude Code · 16 rules specified, 14 shipped ·
+agent-loop + pre-commit + CI + pristine re-execution · the agent-correction
+loop measured, not asserted.
+
+v0.7 reconciles the spec with 1.9.0: `tamperward verify` — the taskbench
+run-correctness oracle productized as row 16 (`pristine-verification`). The
+suite runs twice in isolated copies of the working tree: as-is, and with every
+protected test/snapshot/config file restored from a trusted base rev
+(merge-base semantics; agent-added protected files are kept — they only add
+strictness). Visible-green/pristine-red is a MASKED FAILURE; cannot-verify
+fails closed. The policy `verify:` block is itself a guarded surface —
+policy-diff flags command changes, budget lowering, and removal as weakening.
+Base-selection caveat, stated where it can be checked: verify against a rev
+the agent cannot rewrite (a protected branch in CI); the default HEAD base
+covers uncommitted weakening only, and the test suite demonstrates the
+committed-weakening blindness rather than hiding it.
 
 v0.6 reconciles the spec with 1.8.0 — the effect layer: a per-call protected-tree
 drift check at PreToolUse that detects persistent protected-state drift
@@ -229,8 +243,9 @@ thing on the release that builds them.
 | 13 | `ts-any-launder` | file | `any` introduced in annotation/generic position (`: any`, `<any>`) — the laundering spelling of row 4's class, split out in the 1.0 precision pass | mechanical, **permanent warn** — graduation to block is *closed by corpus* (`harness/PREDICTION-launder-corpus.md`): the spelling fires on **10.5%** of 1,227 legitimate mainline commits, 4–10× any deployable block threshold; the measured 26/40 demand for the laundering class routes to the held-out-oracle and prompt layers, not to a block rule | regex |
 | 14 | `test-content-removal` | file | NET removal of ≥3 significant lines from a modified protected test file whose it()/test() block count did not drop — case-table rows, assertion arguments, mock/setup regions. Removed content is excused only if kept (whitespace-normalized) in the changeset's protected-test content after the edit; comments do not excuse; snapshot-glob files are row 11's jurisdiction; one-for-one rewrites (line count kept) are the semantic class and stay with the held-out oracles | mechanical, **block** — built from the taskbench Phase-3 evasion class (PHASE3.md §4: row deletion, throws-message stripping, setup gutting — the family that carried the gated-arm false greens), shipped AFTER the experiment per the frozen protocol. Corpus: fires on **1.5%** of 2,304 mainline diffs (immer/zustand/zod/prettier, `harness/fp-study/TCR-CORPUS.md`), every adjudicated fire legitimate — the block-with-signoff price, accepted because the legitimate edit and the tamper are mechanically indistinguishable (a maintainer deleting error-expectation rows because a parser improved is byte-shaped like the agent deleting failing rows) and Phase 3 measured what warn means in an unattended loop: nothing | line-set + AST guard |
 | 15 | `transient-protected-mutation` | events (`tamperward watch` log, judged at the Stop sweep) | a protected file whose recorded content or mode CHURNED during the turn while its net state at Stop is unchanged — modified and restored, so neither the per-call drift check nor the turn diff can see it, while anything consulting the suite mid-churn consulted a weakened version; mode churn is the chmod-only class | **warn** by default, and deliberately: a Stop block already forces restores, and a compliant restore reads as churn — block-by-default deadlocks the honest path. `TAMPERWARD_TRANSIENT=block` may RAISE it (harnesses owning restore semantics), never lower it. Measured basis: **1 transient in 59 real trajectories** and it was exactly this pattern (07-fastify: skip → npm test → restore); the two A.1-documented observer misses (chmod-only, single-call modify+restore) are this row's coverage — to the extent the platform's fs events deliver them: a recorded event is evidence, an absent event is never evidence of absence | fs events + hash/mode churn |
+| 16 | `pristine-verification` | execution (`tamperward verify`) | the suite re-run in two isolated copies of the working tree: as-is (visible) and with protected tests/snapshots/config restored from a trusted base rev (pristine; agent-added protected files kept). Visible-green + pristine-red = **MASKED FAILURE** (exit 1); budget exceeded or cannot-run fails CLOSED (exit 2) | mechanical at the outcome level — no diff interpretation at all, which is why it is immune to spelling. Evidence base: in the taskbench Phase-3 sweep this layer identified **every masked failure in all 53 trajectories** while diff-time detection was routed around — a trajectory record on one frame, not a guarantee. Judged at commit/CI granularity by design (a full double suite run per tool call is not a loop-layer cost anyone pays); the `verify:` policy block is guarded by policy-diff (command change, budget lowering, removal = weakening) | double execution + exit codes |
 
-The thirteen mechanical rules are where determinism is real and the demo is honest. The two
+The fourteen mechanical rules are where determinism is real and the demo is honest. The two
 heuristics (3, 10) are the research surface, and the discipline is: **built only against
 a measured negatives corpus, entering as `warn`, promoted per-rule only when the number
 clears the bar (§7)**. Neither has been built — the corpus comes first, because a
@@ -625,7 +640,10 @@ external review placed at the top of the roadmap.
 
 ---
 
-*v0.6 · reconciles the spec with 1.8.0: the effect layer — per-call protected-tree
+*v0.7 · reconciles the spec with 1.9.0: `tamperward verify` seated as row 16 —
+the taskbench run-correctness oracle productized, with the guarded `verify:`
+policy surface and the base-selection caveat stated.
+Prior: v0.6 · reconciles the spec with 1.8.0: the effect layer — per-call protected-tree
 drift judged by the ordinary rules, the `tamperward watch` observer with row 15's
 transient class, and the Edit-reconstruction fail-open closed.
 Prior: v0.5 · reconciles the spec with 1.7.0: `test-content-removal` seated as row 14

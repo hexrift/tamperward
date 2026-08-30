@@ -20,6 +20,7 @@ interface RawPolicyShape {
   ignore?: string[];
   protected?: Record<string, string[]>;
   signoff?: { required_for?: string[]; requiredFor?: string[] };
+  verify?: { command?: string; budget?: number };
 }
 
 interface EffectivePolicy {
@@ -133,6 +134,30 @@ export function policyWeakening(before: string, after: string): string[] | null 
   // signoff: block no longer requires sign-off
   if (be.requiredFor.includes('block') && !new Set(ae.requiredFor).has('block')) {
     reasons.push('sign-off no longer required for blocking findings');
+  }
+
+  // verify: the pristine-suite re-execution config is itself a guarded surface.
+  // A verify whose command an agent can rewrite (to `true`, to a filtered runner)
+  // or whose budget can be starved is no verification at all, so ANY command
+  // change and any budget lowering read as weakening; removal likewise. Adding
+  // verify where none existed is a strengthening and passes.
+  const bv = b.verify;
+  const av = a.verify;
+  if (bv?.command) {
+    if (!av?.command) {
+      reasons.push('verify block removed — pristine-suite re-execution disabled');
+    } else {
+      if (av.command !== bv.command) {
+        reasons.push(
+          `verify.command changed ("${bv.command}" → "${av.command}") — the re-executed suite is no longer the one that was configured`,
+        );
+      }
+      const bb = bv.budget ?? 300;
+      const ab = av.budget ?? 300;
+      if (ab < bb) {
+        reasons.push(`verify.budget lowered ${bb}s → ${ab}s — starving the budget turns "cannot verify" into a pressure point`);
+      }
+    }
   }
 
   return reasons;

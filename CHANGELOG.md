@@ -5,6 +5,51 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.9.0] — 2026-08-30
+
+**`tamperward verify` — pristine-suite re-execution, productized.** The
+taskbench run-correctness oracle was the one layer nothing got past in the
+Phase-3 sweep: it identified every masked failure in all 53 trajectories while
+diff-time detection was routed around. That is a trajectory record on one
+frame, not a guarantee — and it is the strongest signal the programme has, so
+it is now a shipped command (SPEC row 16, `pristine-verification`).
+
+Mechanics: two isolated copies of the working tree (tracked + untracked
+non-ignored files, node_modules symlinked). The suite runs in one as-is (the
+visible run) and in the other with every protected test/snapshot/config file
+restored from a trusted base rev (merge-base semantics; protected files the
+agent ADDED are kept — they can only add strictness, and the visible run
+already required them green). Visible-green + pristine-red is a **MASKED
+FAILURE** (exit 1). Budget exceeded or cannot-run **fails closed** (exit 2) —
+"could not verify" is never "verified". Immune to spelling by construction:
+no diff is interpreted at all; only outcomes are compared.
+
+CI wiring (the layer's natural home — judged at commit granularity, not per
+tool call):
+
+```yaml
+- run: npx tamperward verify --base origin/main --cmd 'npm test' --budget 300
+```
+
+Configuration can live in policy — and that block is itself a guarded surface:
+
+```yaml
+verify:
+  command: npm test
+  budget: 300
+```
+
+policy-diff flags any `verify.command` change, any `budget` lowering, and the
+block's removal as policy weakening: a verify an agent can point at `true` is
+no verification at all.
+
+**Base selection, stated where it can be checked:** verify restores protected
+files from `--base` (default HEAD, merge-base semantics). The default covers
+UNCOMMITTED weakening only — a tamper the agent commits is inside HEAD and
+invisible to it; the test suite demonstrates that blindness rather than hiding
+it. In CI, point `--base` at a rev the agent cannot rewrite (the protected
+default branch), which is also where this layer belongs.
+
 ## [1.8.0] — 2026-08-30
 
 **The effect layer.** Spelling-level inspection has a floor: some mutation will

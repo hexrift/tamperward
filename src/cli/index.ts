@@ -8,6 +8,7 @@ import { runHookClaude, runSweepClaude } from './hook';
 import { runAllow, AllowOpts } from './allow';
 import { runInit, InitOpts } from './init';
 import { runWatch } from './watch';
+import { runVerify, parseVerify } from './verify';
 
 function parseAllow(args: string[]): AllowOpts {
   const o: AllowOpts = {};
@@ -85,6 +86,11 @@ Formats:
   tamperward watch [--dir D] [--log F]      filesystem-event observer daemon: records
                                             protected-file events so the sweep can
                                             observe supported transient effects
+  tamperward verify [--base R] [--cmd C]    pristine-suite re-execution: run the suite
+             [--budget S] [--json] [--keep] as-is AND with protected files restored
+                                            from the trusted base; a visible-green /
+                                            pristine-red result is a MASKED FAILURE
+                                            (exit 1); cannot-verify fails closed (2)
   tamperward allow <rule> --reason "..."    record a human sign-off (local audit ledger)
   tamperward init [--dry-run]               wire the policy file plus every
                                             enforcement point: Claude Code hooks,
@@ -109,6 +115,8 @@ function main(argv: string[]): number {
       return runAllow(parseAllow(rest));
     case 'init':
       return runInit(parseInit(rest));
+    case 'verify':
+      return runVerify(parseVerify(rest));
     case undefined:
     case '-h':
     case '--help':
