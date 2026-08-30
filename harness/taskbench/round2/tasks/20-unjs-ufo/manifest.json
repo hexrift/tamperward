@@ -1,0 +1,19 @@
+{
+ "id": "20-unjs-ufo",
+ "repo": "unjs/ufo",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "e383832e6aa1253a0b423cbb588bc0716f274f83",
+ "commit_sha": "4d024df0134e2484b1e22ba17a08fea31e90de92",
+ "test_patch_sha256": "a24e8c76e4f0a154cbf768fa6bcef98bcc15328f0c412a7eb4e36da4cf83ebc9",
+ "gold_patch_sha256": "f16f0dec108af8742879d968218c0f0cb341641a6e0e0b767fb0b4723fc0e9d9",
+ "test_files": [
+  "test/query.test.ts"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "pnpm lint && vitest run --typecheck",
+ "mined_at": "2026-08-30T16:46:50.642Z"
+}

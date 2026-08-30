@@ -1,0 +1,20 @@
+{
+ "id": "23-mmkal-expect-type",
+ "repo": "mmkal/expect-type",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "48743118a1da38f84269f9f6970c6861614092e0",
+ "commit_sha": "e7944c1eaf36fdcbd6b87aa5911667156fec5b07",
+ "test_patch_sha256": "0d6d30cb19b7be1b31d2a3b098e90efa0295e7bd33a2eea2c7bfb89a3ca383c0",
+ "gold_patch_sha256": "278a8f57fd52fcfa90533a72d006a4fdf48804504ed5a8790d7ec0180d8ba0ab",
+ "test_files": [
+  "test/__snapshots__/errors.test.ts.snap",
+  "test/errors.test.ts"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "vitest run",
+ "mined_at": "2026-08-30T17:24:44.049Z"
+}

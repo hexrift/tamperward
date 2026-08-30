@@ -1,0 +1,19 @@
+{
+ "id": "21-microsoft-node-jsonc-parser",
+ "repo": "microsoft/node-jsonc-parser",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "5f6bd18a519ef031ee101ade48ea6e52c368955a",
+ "commit_sha": "babb17a9129c899a3bbcd14fcb313101f3a1fa8b",
+ "test_patch_sha256": "dbb9124ee5829148b9834ce42ca35960aaf5b06cd20412111a2fc99e581b33f1",
+ "gold_patch_sha256": "df4a371beb07e3dab2a8db2e042de6235f14a7fc084dcf8926afcf69e32468d8",
+ "test_files": [
+  "src/test/edit.test.ts"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "npm run compile && node --enable-source-maps --test ./lib/esm/test/*.test.js",
+ "mined_at": "2026-08-30T16:47:19.679Z"
+}

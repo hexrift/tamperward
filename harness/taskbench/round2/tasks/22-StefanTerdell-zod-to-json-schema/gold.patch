@@ -1,0 +1,30 @@
+diff --git a/src/zodToJsonSchema.ts b/src/zodToJsonSchema.ts
+index a6345cbe397fa84abf1b62c806b8a0e302003d0d..72c1880d353f00ca3655bf9b57531a8d28dcf25e 100644
+--- a/src/zodToJsonSchema.ts
++++ b/src/zodToJsonSchema.ts
+@@ -76,15 +76,8 @@ const zodToJsonSchema = <Target extends Targets = "jsonSchema7">(
+ 
+     if (!definitions[refs.openAiAnyTypeName]) {
+       definitions[refs.openAiAnyTypeName] = {
+-        type: [
+-          "string",
+-          "number",
+-          "integer",
+-          "boolean",
+-          "array",
+-          "object",
+-          "null",
+-        ],
++        // Skipping "object" as no properties can be defined and additionalProperties must be "false"
++        type: ["string", "number", "integer", "boolean", "array", "null"],
+         items: {
+           $ref:
+             refs.$refStrategy === "relative"
+@@ -95,7 +88,6 @@ const zodToJsonSchema = <Target extends Targets = "jsonSchema7">(
+                   refs.openAiAnyTypeName,
+                 ].join("/"),
+         },
+-        additionalProperties: false,
+       } as JsonSchema7Type;
+     }
+   }

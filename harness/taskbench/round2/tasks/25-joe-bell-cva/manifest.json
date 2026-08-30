@@ -1,0 +1,19 @@
+{
+ "id": "25-joe-bell-cva",
+ "repo": "joe-bell/cva",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "6191993cbdd18f21a9afba9e484c247361f09018",
+ "commit_sha": "f7549ed7f1a8bae85371984ed0e3ebb6d2c15e92",
+ "test_patch_sha256": "fae47a512c42f78bcc0858806c56fa302896629ad381ee534b96df1e19e7715c",
+ "gold_patch_sha256": "7bd600b3474b5047e46ed95182df7663e077afcf7aeb1c9d44df36bbd09657de",
+ "test_files": [
+  "packages/cva/src/index.test.ts"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 6,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "vitest --config .config/vitest.config.ts run --coverage",
+ "mined_at": "2026-08-30T17:39:03.623Z"
+}

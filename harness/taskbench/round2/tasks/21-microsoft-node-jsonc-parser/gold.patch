@@ -1,0 +1,13 @@
+diff --git a/src/impl/edit.ts b/src/impl/edit.ts
+index 4ce554cccf658b8ba37255525cd658c4c4b04b11..37d3301c41e623a5bb74e9311a2f0acf3ee12ae7 100644
+--- a/src/impl/edit.ts
++++ b/src/impl/edit.ts
+@@ -109,7 +109,7 @@ export function setProperty(text: string, originalPath: JSONPath, value: any, op
+ 				let previous = parent.children[removalIndex - 1];
+ 				let offset = previous.offset + previous.length;
+ 				let parentEndOffset = parent.offset + parent.length;
+-				edit = { offset, length: parentEndOffset - 2 - offset, content: '' };
++				edit = { offset, length: parentEndOffset - 1 - offset, content: '' };
+ 			} else {
+ 				edit = { offset: toRemove.offset, length: parent.children[removalIndex + 1].offset - toRemove.offset, content: '' };
+ 			}
