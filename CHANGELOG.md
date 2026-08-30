@@ -5,7 +5,57 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [1.7.0] — 2026-08-30
+## [1.8.0] — 2026-08-30
+
+**The effect layer.** Spelling-level inspection has a floor: some mutation will
+always arrive by a path the matcher didn't see — taskbench Phase 3 measured one
+(run 07-fastify gated: a test-skip Edit landed without a PreToolUse deny, the
+same edit class denied at PreToolUse in eleven other runs, and the weakened
+suite was consulted for 51 seconds until the Stop sweep caught it). Three
+additions REDUCE that surface — reduce, not end; the residuals are stated at
+the bottom of this entry:
+
+- **Per-call protected-tree drift check** (PreToolUse): the hook snapshots the
+  protected files' content+mode and, when the tree drifts from the last
+  sanctioned state, runs the ordinary detector stack over the drift (diff vs
+  the turn baseline, scoped to the drifted paths) at the very next call.
+  Stated precisely: this **detects persistent protected-state drift
+  independently of the mutation's command spelling** — however it was produced
+  (a sed spelling, a generated script, a hook flake, a reconstruction miss) —
+  and judges it with the existing corpus-priced rules; a deny repeats until
+  the tree is restored. Benign drift (a first-run snapshot, a git restore that
+  evaluates clean) is absorbed silently. Verified end-to-end: an unseen
+  `sed -i 's/^test(/test.skip(/'` is denied at the next call by `test-skip`.
+- **`tamperward watch`** — the filesystem-event observer (DESIGN A.1's named
+  candidate): a daemon recording protected-file events (content hash + mode)
+  to `.git/tamperward/fsevents.jsonl`, consumed by the Stop sweep under the
+  new `transient-protected-mutation` rule (SPEC row 15). This is the layer
+  for what no per-call check can see: a protected file modified and restored
+  WITHIN one tool call — measured at 1 occurrence in 59 real trajectories,
+  and that one was the laundering pattern (skip → npm test → restore). Warn
+  by default (a Stop block already forces restores; a compliant restore reads
+  as churn — block-by-default would deadlock the honest path);
+  `TAMPERWARD_TRANSIENT=block` may raise it, never lower it. Chmod-only churn
+  — the other A.1 documented miss — is the same rule's attribute variant.
+- **Edit-reconstruction fail-open closed**: when an Edit's old_string cannot
+  be located in the disk read, the adapter previously produced ZERO changes —
+  and allowed the call. Now the incoming new_string is modeled as added
+  content (the NotebookEdit stance) and judged. The 07-fastify edit is this
+  release's regression test both ways: unreconstructable-Edit deny and
+  next-call drift deny.
+
+Warn-severity transients also append to the `TAMPERWARD_DENYLOG` audit trail
+(marked `warn:`) so an unattended loop's warnings are at least recorded — the
+schema-utils lesson, applied.
+
+**What the effect layer still does not do**, stated where it can be checked:
+within-call transients surface as warn unless a harness raises them; the drift
+check judges content only through the existing rules, so a mutation none of
+them prices (above all the semantic class — expected values rewritten in
+place) passes the effect check exactly as it passes the diff check; and the
+snapshot state and event log live in `.git/`, reachable by the agent — the
+loop layer's standing trust boundary. Held-out re-execution remains the layer
+that caught everything in Phase 3, and CI remains the authority.
 
 New detector: **`test-content-removal`** (SPEC row 14, block) — NET removal of
 ≥3 significant lines from a modified protected test file whose it()/test()

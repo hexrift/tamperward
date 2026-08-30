@@ -42,6 +42,13 @@ function relForDisplay(path: string, cwd: string): string {
 
 function applyEdit(content: string | null, oldStr: string, newStr: string): string {
   if (content === null) return newStr;
+  // FAIL-OPEN CLOSED (taskbench Phase 3, 07-fastify): when old_string is not
+  // found in the disk read, a silent no-op made after === before, which made
+  // ZERO changes, which ALLOWED the call — while the tool itself may still
+  // apply the edit. An unreconstructable edit must never mean an unseen edit:
+  // model the incoming new_string as ADDED content (the NotebookEdit stance),
+  // so the additive detectors judge what is about to enter the file.
+  if (oldStr !== '' && !content.includes(oldStr)) return content + '\n' + newStr;
   // Function replacer so `$&`, `$1`, `` $` `` in newStr are inserted literally, not
   // interpreted as replacement patterns. Still replaces the first occurrence only.
   return content.replace(oldStr, () => newStr);
