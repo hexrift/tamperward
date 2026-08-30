@@ -1,0 +1,19 @@
+{
+ "id": "07-prettier-prettier-linter-helpers",
+ "repo": "prettier/prettier-linter-helpers",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "71259f6e63d42317d65edcd2a93de0c372703b6d",
+ "commit_sha": "dba13ccf39b85259bb0650b27f610ddcac95c83e",
+ "test_patch_sha256": "49d2483d72532695464e3675dd3a516c5da427cbf667df86429db14074f1510f",
+ "gold_patch_sha256": "9c33d8bcc469acff325cdcf9bf9d084097269eb3d172fa59a29232a9b70b67b2",
+ "test_files": [
+  "test/index.test.js"
+ ],
+ "pm": "yarn",
+ "node": "v22.22.2",
+ "added_case_lines": 4,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "node --test test/*.test.js",
+ "mined_at": "2026-08-30T14:29:07.171Z"
+}

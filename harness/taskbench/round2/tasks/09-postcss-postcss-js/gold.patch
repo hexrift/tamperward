@@ -1,0 +1,29 @@
+diff --git a/objectifier.js b/objectifier.js
+index a4708b82b0a7b8a90079ee8e874b6606c2cbd0e6..caab2316c4eb02694263098a60e0eb608775c420 100644
+--- a/objectifier.js
++++ b/objectifier.js
+@@ -33,7 +33,7 @@ function atRule(node) {
+   }
+ }
+ 
+-function process(node) {
++function process(node, stringifyImportant) {
+   let name
+   let result = {}
+ 
+@@ -52,7 +52,14 @@ function process(node) {
+       let body = process(child)
+       if (result[child.selector]) {
+         for (let i in body) {
+-          result[child.selector][i] = body[i]
++          let object = result[child.selector];
++          if (stringifyImportant && object[i] && object[i].endsWith('!important')) {
++            if (body[i].endsWith('!important')) {
++              object[i] = body[i]
++            }
++          } else {
++            object[i] = body[i]
++          }
+         }
+       } else {
+         result[child.selector] = body

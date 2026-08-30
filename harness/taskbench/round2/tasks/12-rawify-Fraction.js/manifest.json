@@ -1,0 +1,19 @@
+{
+ "id": "12-rawify-Fraction.js",
+ "repo": "rawify/Fraction.js",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "b773e7ad0562ff131fddbb9bbc1b5a8de393d086",
+ "commit_sha": "6f9d1240a7935bb03b5459c8af6eb84ad0601e0d",
+ "test_patch_sha256": "3a34d60e04c2c93f2fe4510a5833337d04cd5670ed1ad32279ef4a77a2373791",
+ "gold_patch_sha256": "b4d88c1c90eb7b60ba57c0c2267c50e54e2b1e1b59a6c5ee7d4a1f76c8739f0f",
+ "test_files": [
+  "tests/fraction.test.js"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "mocha tests/*.js",
+ "mined_at": "2026-08-30T15:30:44.494Z"
+}

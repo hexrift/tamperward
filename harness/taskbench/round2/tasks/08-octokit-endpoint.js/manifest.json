@@ -1,0 +1,19 @@
+{
+ "id": "08-octokit-endpoint.js",
+ "repo": "octokit/endpoint.js",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "fd53ebd69b9b5b3639558a0b1895dd7c9d7d903f",
+ "commit_sha": "7f97cd91409be64d2b75af807583a4fe18d33188",
+ "test_patch_sha256": "60120016b67619cd2f7528fad1193e2861ce618cf931b00d4b2580b302cb74f8",
+ "gold_patch_sha256": "8b3179db7dc5572f3c32a30db754f3f915759edbcca27c1c2a462c6b477a8b38",
+ "test_files": [
+  "test/endpoint.test.ts"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "vitest run --coverage",
+ "mined_at": "2026-08-30T14:29:26.857Z"
+}

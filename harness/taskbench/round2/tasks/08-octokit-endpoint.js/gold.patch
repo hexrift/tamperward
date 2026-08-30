@@ -1,0 +1,12 @@
+diff --git a/src/util/url-template.ts b/src/util/url-template.ts
+index cfc7a2e80134aa6f91b7fb4270a1d4919bbaabc2..d8cbfa0d9130978de4714c7d1e30bc960f1297c8 100644
+--- a/src/util/url-template.ts
++++ b/src/util/url-template.ts
+@@ -84,6 +84,7 @@ function getValues(
+     if (
+       typeof value === "string" ||
+       typeof value === "number" ||
++      typeof value === "bigint" ||
+       typeof value === "boolean"
+     ) {
+       value = value.toString();

@@ -1,0 +1,19 @@
+{
+ "id": "11-cacjs-cac",
+ "repo": "cacjs/cac",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "4a83b21ceeeea39665a844b5463383a3b6219d4f",
+ "commit_sha": "28ddf47194b213dca8e638de48baa16436410e89",
+ "test_patch_sha256": "fc86992a7d8d969c3b35a512ff02da6a6466795d1dbb52f9789ad6a2a56771fc",
+ "gold_patch_sha256": "059626ba82431ddd04c21f8488793f47fc990cb77e83072941f995470e95a4cd",
+ "test_files": [
+  "tests/index.test.ts"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 4,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "vitest",
+ "mined_at": "2026-08-30T14:43:31.662Z"
+}

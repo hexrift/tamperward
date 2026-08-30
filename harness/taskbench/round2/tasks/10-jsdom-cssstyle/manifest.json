@@ -1,0 +1,20 @@
+{
+ "id": "10-jsdom-cssstyle",
+ "repo": "jsdom/cssstyle",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "2d6f8afac8ceadf5e5974dbc111ec884b3fbfc45",
+ "commit_sha": "4c03cba8c0e132c3fb0802c0a4d3ab0acfbc7d33",
+ "test_patch_sha256": "d810542759b862760d5dae4ce58f388bd362fd8875c52fb35ee890e5fdc5ae99",
+ "gold_patch_sha256": "b7f5f61c4f6eb3914a7ac99f95ddab6f78de0efafe4a2311590a4b41ee72ff0f",
+ "test_files": [
+  "test/CSSStyleDeclaration.test.js",
+  "test/properties.test.js"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "node --test",
+ "mined_at": "2026-08-30T14:38:56.435Z"
+}
