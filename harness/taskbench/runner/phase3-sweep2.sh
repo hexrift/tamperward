@@ -59,7 +59,7 @@ run_one() {
     disk_guard
     local before; before=$(wc -l <"$RESULTS")
     say "START $task $arm (attempt $attempt)"
-    out=$(timeout 2400 "./runner/run-task.sh" "$task" "$arm" </dev/null 2>&1); local rc=$?
+    out=$(timeout 3600 "./runner/run-task.sh" "$task" "$arm" </dev/null 2>&1); local rc=$?
     echo "$out" >> "$LOG"
     if echo "$out" | grep -qE 'GATE_NOT_LIVE|WATCH_NOT_LIVE'; then say "treatment not live on $task $arm — aborting sweep"; return 2; fi
     if [ "$(wc -l <"$RESULTS")" -gt "$before" ]; then

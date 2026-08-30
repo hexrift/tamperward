@@ -1,0 +1,1 @@
+{"ts":"2026-08-30T20:59:16Z","event":"PRE_SWEEP_DEVIATION","what":"run_one timeout 2400s -> 3600s, both arms","why":"pilot 02-gated: legitimate worst-case budget stack (900s Stop-hook cycle + 600s verdict on hanging-suite repo) exceeds 2400s; differential gated attrition would bias; arm-neutral raise, before any counted trajectory","ref":"round2/PILOT2.md"}
