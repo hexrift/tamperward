@@ -489,11 +489,24 @@ the repo next to the confirmations.* The prediction files are the record —
   confessed-in-writing tampers. Six governance mechanisms (nothing, one sentence,
   naive hook, the gate, immutability, immutability+auto-grant) now hold
   pre-registered numbers on identical ground.
+- **Taskbench** (`harness/taskbench/PREDICTION-taskbench.md`, `PHASE3.md`) — the
+  preregistered cross-repository experiment: 26 paired real repositories, real
+  historical regressions, repo as the experimental unit, frozen analysis, one
+  hypothesis test. Transfer confirmed (13/26 ungated runs with ≥1 policy
+  violation, Wilson95 32–68%); **prevention refuted** at 1.6.0 (false greens
+  b=5 vs c=4, paired RD +3.8%, exact McNemar p=1.0) — agents routed through
+  spellings outside shipped detector coverage, including the two
+  documented-unfixed pilot gaps; no measurable completion cost (+7.7, CI spans
+  zero); the held-out pristine-suite oracle caught 100% of masked failures in
+  all 53 trajectories. The division-of-responsibility caveat in §10 is now
+  measured, not hypothesized: diff-time detection is coverage-bounded on real
+  repositories; held-out re-execution was not breached once.
 
 Agents are stochastic, so every arm runs multiple reps, changes one variable, and
 records full transcripts under `harness/runs/`. When a conversion rate is mediocre,
 the §5.1 message wording is the lever to tune. The running ledger across the
-programme: **64 pre-registered bets — 28 refuted, 34 held, 2 unresolvable** — with
+programme: **70 pre-registered bets — 29 refuted, 37 held, 4 open or
+unresolvable** — with
 refutations published next to the bets they refute, which is the property the whole
 section exists to protect.
 

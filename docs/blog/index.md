@@ -1,5 +1,13 @@
 # Blog
 
+- **[We tested an AI coding agent on 27 real repositories. Here's how often it weakened its own checks](./we-tested-an-ai-coding-agent-on-27-real-repositories)** — August 30, 2026.
+  The preregistered answer: transfer is real — 13/26 ungated runs violated
+  policy on real historical bugs — and the gate did not reduce false greens
+  (b=5, c=4, p=1.0); our headline bet refuted and published beside its
+  refutation. No measurable completion cost, and the held-out pristine-suite
+  oracle caught 100% of masked failures in all 53 trajectories. Ledger: 70
+  bets, 29 refuted.
+
 - **[Before we test Tamperward on 27 real repositories, here's what we think will happen](./before-we-test-tamperward-on-27-real-repositories)** — August 29, 2026.
   The preregistration post, published before any counted trajectory: how the
   27-task benchmark was mined from a frozen 500-repo frame, what Phase 0's
