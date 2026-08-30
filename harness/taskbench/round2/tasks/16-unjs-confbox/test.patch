@@ -1,0 +1,17 @@
+diff --git a/test/index.test.ts b/test/index.test.ts
+index f6ad9b5a61eebbaccc2c3ada480d2e3cfcde32c5..8eaa325f15b3f61ecfd74126e485f6892e818756 100644
+--- a/test/index.test.ts
++++ b/test/index.test.ts
+@@ -68,6 +68,12 @@ describe("confbox", () => {
+         fixtures.json,
+       );
+     });
++
++    it("stringify from raw object", () => {
++      expect(confbox.stringifyJSON(JSON.parse(fixtures.json))).toBe(
++        fixtures.json.trim(),
++      );
++    });
+   });
+ 
+   describe("ini", () => {

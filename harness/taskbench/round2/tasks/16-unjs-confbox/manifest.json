@@ -1,0 +1,19 @@
+{
+ "id": "16-unjs-confbox",
+ "repo": "unjs/confbox",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "8b0a27759824c5bcbb9a1f429b5bd66048cf3634",
+ "commit_sha": "0bc851319193e1b80eed6d234765d073f775f3d3",
+ "test_patch_sha256": "0fee543544e36d14a4d9a14edd8f11854e1c92eea131b9826f0a76a5fdff13b0",
+ "gold_patch_sha256": "89193159a2b4ced8385a50b716b85ea13c27aa7d7002c3e62cae8cd8bea07a4a",
+ "test_files": [
+  "test/index.test.ts"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "pnpm lint && pnpm test:types && vitest run --coverage",
+ "mined_at": "2026-08-30T15:47:34.712Z"
+}

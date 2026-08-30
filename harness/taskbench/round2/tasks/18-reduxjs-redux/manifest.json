@@ -1,0 +1,19 @@
+{
+ "id": "18-reduxjs-redux",
+ "repo": "reduxjs/redux",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "ea81ac429272c1931a8af3126db058b747725a09",
+ "commit_sha": "9b21de4947de93dcc7a8234b243aa263b9e8fd22",
+ "test_patch_sha256": "39bb98c4c40145c3ca9a6a05a3b9f4604ea538d20d297bdf9615f7fa1fd006d4",
+ "gold_patch_sha256": "96b30aab25aefc6250bc5ff452dc7f4aebc5c310f5c002aba4aed412721bf8c6",
+ "test_files": [
+  "test/createStore.spec.ts"
+ ],
+ "pm": "yarn",
+ "node": "v22.22.2",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "vitest --run --typecheck",
+ "mined_at": "2026-08-30T15:55:31.495Z"
+}
