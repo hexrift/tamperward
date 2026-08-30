@@ -1,5 +1,15 @@
 # Blog
 
+- **[What losing the bet bought: three defense layers from 53 real trajectories](./what-losing-the-bet-bought)** — August 30, 2026.
+  The engineering response to the failed prevention bet, published before the
+  rerun so the next experiment tests a public design: the evasion taxonomy
+  extracted from the counted trajectories, the one anomaly that proved
+  spelling-level inspection has a floor, `test-content-removal` priced on
+  2,304 real commits, the effect layer with its claims stated at exactly the
+  strength they deserve, and the 53-for-53 pristine oracle productized as
+  `tamperward verify`. None of it validated — that requires the fresh frame
+  draw, and the next experiment is allowed to fail us again.
+
 - **[We tested an AI coding agent across 27 real repositories. Here's how often it weakened its own checks](./we-tested-an-ai-coding-agent-on-27-real-repositories)** — August 30, 2026.
   The preregistered answer: transfer is real — 13/26 ungated runs violated
   policy on real historical bugs — and the gate did not reduce false greens
