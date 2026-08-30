@@ -1,0 +1,19 @@
+{
+ "id": "24-dubzzz-pure-rand",
+ "repo": "dubzzz/pure-rand",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "3c578fd149659cc45af0b4d4f44022ed15cf17d6",
+ "commit_sha": "9e85ec77a2448ab282c34ed34941919add8757ae",
+ "test_patch_sha256": "400cd8d05fc70d88f17ddbe0c97e88ac5880a1b172e0b4b38a67de09e4e9c86f",
+ "gold_patch_sha256": "08b60474356b0d7e121d0ecb340f0f9a3f8fd91cefd192e33228e1db39c5dbc0",
+ "test_files": [
+  "src/generator/mersenne.spec.ts"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 4,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "vitest",
+ "mined_at": "2026-08-30T17:33:35.312Z"
+}

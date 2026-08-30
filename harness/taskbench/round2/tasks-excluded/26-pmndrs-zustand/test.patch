@@ -1,0 +1,48 @@
+diff --git a/tests/shallow.test.tsx b/tests/shallow.test.tsx
+index 6f65fb6ece9733682064f56e91229e3f60ce24b4..2e1ece8b903e75d7af97f0fe712fbdc035735f4a 100644
+--- a/tests/shallow.test.tsx
++++ b/tests/shallow.test.tsx
+@@ -120,9 +120,11 @@ describe('useShallow', () => {
+ 
+   it('only re-renders if selector output has changed according to shallow', () => {
+     let countRenders = 0
+-    const useMyStore = create(
+-      (): Record<string, unknown> => ({ a: 1, b: 2, c: 3 }),
+-    )
++    const useMyStore = create((): Record<string, unknown> => ({
++      a: 1,
++      b: 2,
++      c: 3,
++    }))
+     const TestShallow = ({
+       selector = (state) => Object.keys(state).sort(),
+     }: {
+@@ -156,9 +158,11 @@ describe('useShallow', () => {
+   })
+ 
+   it('does not cause stale closure issues', () => {
+-    const useMyStore = create(
+-      (): Record<string, unknown> => ({ a: 1, b: 2, c: 3 }),
+-    )
++    const useMyStore = create((): Record<string, unknown> => ({
++      a: 1,
++      b: 2,
++      c: 3,
++    }))
+     const TestShallowWithState = () => {
+       const [count, setCount] = useState(0)
+       const output = useMyStore(
+diff --git a/tests/types.test.tsx b/tests/types.test.tsx
+index 0487fdb2aac5c9e40e78e4cdf8db0cae8ce66183..3128f8c083cab3cf6f3515cb16fe7e554632b68d 100644
+--- a/tests/types.test.tsx
++++ b/tests/types.test.tsx
+@@ -71,8 +71,7 @@ it('can use exposed types', () => {
+   function checkAllTypes(
+     _getState: StoreApi<ExampleState>['getState'],
+     _partialState:
+-      | Partial<ExampleState>
+-      | ((s: ExampleState) => Partial<ExampleState>),
++      Partial<ExampleState> | ((s: ExampleState) => Partial<ExampleState>),
+     _setState: StoreApi<ExampleState>['setState'],
+     _state: object,
+     _stateListener: (state: ExampleState, previousState: ExampleState) => void,

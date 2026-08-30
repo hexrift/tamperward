@@ -1,0 +1,19 @@
+{
+ "id": "22-StefanTerdell-zod-to-json-schema",
+ "repo": "StefanTerdell/zod-to-json-schema",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "be0db7e859ff2ca5914b1f43aa5ae8cc2cf5ac85",
+ "commit_sha": "c83061dee0317668ad3bb0fd80ca22dc297c7c09",
+ "test_patch_sha256": "eea809516018d623d4aee894b213c640d5c909d33ace3e7776c201de29c35ee7",
+ "gold_patch_sha256": "0305c6e75bb11eabe0c8556bad66a3a0ecde35854ea31c4ee3690448441de6e7",
+ "test_files": [
+  "test/issues.test.ts"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "tsx test/index.ts",
+ "mined_at": "2026-08-30T17:21:32.483Z"
+}

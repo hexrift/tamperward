@@ -1,0 +1,18 @@
+diff --git a/test/issues.test.ts b/test/issues.test.ts
+index 867bfa8fb6714b2d95450242e56e8299b4570a1b..86ec550f1567b95009830aa88a4013b06f9a8a2b 100644
+--- a/test/issues.test.ts
++++ b/test/issues.test.ts
+@@ -37,13 +37,11 @@ suite("Issue tests", (test) => {
+             "integer",
+             "boolean",
+             "array",
+-            "object",
+             "null",
+           ],
+           items: {
+             $ref: "#/definitions/OpenAiAnyType",
+           },
+-          additionalProperties: false,
+         },
+       },
+     };

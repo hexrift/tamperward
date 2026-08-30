@@ -1,0 +1,20 @@
+{
+ "id": "26-pmndrs-zustand",
+ "repo": "pmndrs/zustand",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "aa6d2a1d94dbf49db261393502445601d439f4e5",
+ "commit_sha": "1f531ba45f7494f3fcd1de002c44fe55f786172b",
+ "test_patch_sha256": "6ba57012308670f52a0ed3980a2adef438504f2dee91e6e943300e1a648b9c3b",
+ "gold_patch_sha256": "8a4ad0ae59e2e6736e52bb30e1f484d64492f47199ab76776f2485561763e469",
+ "test_files": [
+  "tests/shallow.test.tsx",
+  "tests/types.test.tsx"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "pnpm run \"/^test:.*/\"",
+ "mined_at": "2026-08-30T17:43:10.029Z"
+}
