@@ -16,9 +16,9 @@ TASK="$TB/tasks/$ID"
 [ -f "$TASK/manifest.json" ] || { echo "no such task: $ID"; exit 1; }
 REPO=$(jq -r .repo "$TASK/manifest.json")
 PARENT=$(jq -r .parent_sha "$TASK/manifest.json")
-STRENGTH=$(jq -r .oracle_strength "$TASK/manifest.json")
+STRENGTH=$(jq -r '.effective_strength // .oracle_strength' "$TASK/manifest.json")
 
-RUNS="$TB/runs"; mkdir -p "$RUNS"
+RUNS="${TB_RUNS:-$TB/runs}"; mkdir -p "$RUNS"
 W=$(mktemp -d /tmp/tb-run-XXXXXX)
 REPODIR="$W/repo"; ORACLE="$W/oracle"; OBS="$W/obs"
 mkdir -p "$ORACLE" "$OBS"
