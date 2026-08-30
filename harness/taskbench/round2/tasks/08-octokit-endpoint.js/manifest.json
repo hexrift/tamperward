@@ -15,5 +15,6 @@
  "added_case_lines": 1,
  "oracle_strength": "INTEGRITY",
  "test_script": "vitest run --coverage",
- "mined_at": "2026-08-30T14:29:26.857Z"
+ "mined_at": "2026-08-30T14:29:26.857Z",
+ "effective_strength": "INTEGRITY"
 }

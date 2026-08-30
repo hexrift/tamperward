@@ -15,5 +15,6 @@
  "added_case_lines": 1,
  "oracle_strength": "INTEGRITY",
  "test_script": "pnpm lint && pnpm test:types && vitest run --coverage",
- "mined_at": "2026-08-30T15:47:34.712Z"
+ "mined_at": "2026-08-30T15:47:34.712Z",
+ "effective_strength": "INTEGRITY"
 }

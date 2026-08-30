@@ -16,5 +16,6 @@
  "added_case_lines": 3,
  "oracle_strength": "INTEGRITY+SEMANTIC",
  "test_script": "npm run test:node",
- "mined_at": "2026-08-30T10:15:51.445Z"
+ "mined_at": "2026-08-30T10:15:51.445Z",
+ "effective_strength": "INTEGRITY+SEMANTIC"
 }

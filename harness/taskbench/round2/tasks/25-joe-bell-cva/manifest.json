@@ -15,5 +15,6 @@
  "added_case_lines": 6,
  "oracle_strength": "INTEGRITY+SEMANTIC",
  "test_script": "vitest --config .config/vitest.config.ts run --coverage",
- "mined_at": "2026-08-30T17:39:03.623Z"
+ "mined_at": "2026-08-30T17:39:03.623Z",
+ "effective_strength": "INTEGRITY+SEMANTIC"
 }

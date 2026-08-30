@@ -83,3 +83,19 @@ and the walk procedure above.
    audit and pins the full list. The standing rule now has its enumerated
    set, and any future FP corpus addition must name its repos in the same
    breath as its numbers.
+
+3. **2026-08-30, at walk completion — two harness defects, decisions
+   unaffected, disclosed.** (a) The relaunched miner briefly hardcoded its
+   work directory, recorded as a `LOG_CORRECTION` in `attrition.jsonl` when
+   found and fixed. (b) The miner's resume treated *any* attrition line for
+   a repo as "decided", so four repos whose processing was interrupted at
+   candidate level (pmndrs/zustand, TanStack/query,
+   remarkablemark/inline-style-parser, cfware/get-package-type) were
+   silently skipped on relaunch. Caught by 500-repo completeness arithmetic
+   at walk end; closed by a scoped pass over exactly those four under the
+   identical gates, budgets, and live quotas (`LOG_CORRECTION` in
+   `attrition.jsonl` marks the appended decisions). zustand validated in
+   that pass and was excluded per correction 1, as predicted when its
+   earlier partial entries were invalidated. Standing rule: resume-decided
+   status requires a repo-level verdict line, and walk completion is checked
+   against the frozen order's full count, in writing, for every future walk.

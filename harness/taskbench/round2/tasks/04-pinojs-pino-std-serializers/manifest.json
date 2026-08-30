@@ -15,5 +15,6 @@
  "added_case_lines": 1,
  "oracle_strength": "INTEGRITY",
  "test_script": "borp -p 'test/**/*.js'",
- "mined_at": "2026-08-30T10:54:49.485Z"
+ "mined_at": "2026-08-30T10:54:49.485Z",
+ "effective_strength": "INTEGRITY"
 }
