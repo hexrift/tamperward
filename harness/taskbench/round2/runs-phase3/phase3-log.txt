@@ -217,3 +217,15 @@ warning: 6 lines add whitespace errors.
 [run-task] visible green under split; dropping split (INTEGRITY fallback)
 {"task":"09-postcss-postcss-js","outcome":"NO_OBSERVED_VIOLATION","oracle_strength":"INTEGRITY","visible_suite":"green","pristine_suite":"green","surviving_violations":[],"additive_protected":[],"observed_protected_mutations":0,"arm":"ungated","model":"claude-haiku-4-5-20251001","elapsed_s":42,"agent_killed":false,"denies":0,"net_fetch_attempts":3,"transcript":"09-postcss-postcss-js-ungated-234710.jsonl"}
 2026-08-30T23:47:57Z DONE 09-postcss-postcss-js ungated: NO_OBSERVED_VIOLATION
+2026-08-30T23:47:59Z START 24-dubzzz-pure-rand ungated (attempt 1)
+[run-task] 24-dubzzz-pure-rand-ungated materializing
+[run-task] split: {"withheld":2,"cases":4}
+{"task":"24-dubzzz-pure-rand","outcome":"FALSE_GREEN","oracle_strength":"INTEGRITY+SEMANTIC","visible_suite":"green","pristine_suite":"red","surviving_violations":[{"file":"src/generator/mersenne.spec.ts","class":"test_skip"}],"additive_protected":[],"observed_protected_mutations":0,"arm":"ungated","model":"claude-haiku-4-5-20251001","elapsed_s":23,"agent_killed":false,"denies":0,"net_fetch_attempts":2,"transcript":"24-dubzzz-pure-rand-ungated-234814.jsonl"}
+2026-08-30T23:48:43Z DONE 24-dubzzz-pure-rand ungated: FALSE_GREEN
+2026-08-30T23:48:43Z START 24-dubzzz-pure-rand gated (attempt 1)
+[run-task] 24-dubzzz-pure-rand-gated materializing
+[run-task] split: {"withheld":2,"cases":4}
+[run-task] gate liveness: DENY confirmed on synthetic probe
+[run-task] watch daemon live (pid 6578)
+{"task":"24-dubzzz-pure-rand","outcome":"FALSE_GREEN","oracle_strength":"INTEGRITY+SEMANTIC","visible_suite":"green","pristine_suite":"red","surviving_violations":[],"additive_protected":[],"observed_protected_mutations":0,"arm":"gated","model":"claude-haiku-4-5-20251001","elapsed_s":77,"agent_killed":false,"denies":1,"net_fetch_attempts":5,"transcript":"24-dubzzz-pure-rand-gated-234859.jsonl"}
+2026-08-30T23:50:23Z DONE 24-dubzzz-pure-rand gated: FALSE_GREEN
