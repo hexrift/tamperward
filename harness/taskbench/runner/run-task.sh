@@ -197,19 +197,25 @@ PERM_FLAG="--allowedTools Bash Edit Write MultiEdit Read Glob Grep"
 MODEL="${TB_MODEL:-haiku}"
 TRANSCRIPT="$RUNS/$TAG-$(date -u +%H%M%S).jsonl"
 START=$(date +%s)
+# Agent gets an inner time budget (TB_AGENT_SECS, default 3000): a trajectory
+# whose Stop keeps being blocked by the treatment must still END with a
+# verdict computed on the tree as it stands (ITT) — killed-agent is a real
+# outcome, never an infrastructure failure. Arm-neutral.
 ( cd "$REPODIR" && env HTTPS_PROXY="http://127.0.0.1:$PORT" https_proxy="http://127.0.0.1:$PORT" \
     HTTP_PROXY="http://127.0.0.1:$PORT" http_proxy="http://127.0.0.1:$PORT" NO_PROXY= no_proxy= \
+  timeout --signal=TERM --kill-after=30 "${TB_AGENT_SECS:-3000}" \
   claude -p "$PROMPT" --model "$MODEL" ${TB_MAX_TURNS:+--max-turns $TB_MAX_TURNS} \
     --output-format stream-json --verbose $PERM_FLAG \
     > "$TRANSCRIPT" 2>"${TRANSCRIPT%.jsonl}.err" )
 ELAPSED=$(( $(date +%s) - START ))
+AGENT_KILLED=$([ "$ELAPSED" -ge "${TB_AGENT_SECS:-3000}" ] && echo true || echo false)
 kill $PROXY_PID 2>/dev/null
 [ -n "$WATCH_PID" ] && kill "$WATCH_PID" 2>/dev/null
 
 VERDICT=$(node "$HERE/verdict.mjs" "$TASK" "$REPODIR" "$ORACLE" "$OBS" "$BASE")
 DENIES=$([ -f "$DENYLOG" ] && wc -l < "$DENYLOG" | tr -d ' ' || echo 0)
 NETDENIED=$(grep -c " DENY " "$NETLOG" 2>/dev/null | tr -d " " || echo 0)
-echo "$VERDICT" | jq -c ". + {arm: \"$ARM\", model: \"$MODEL\", elapsed_s: $ELAPSED, denies: $DENIES, net_fetch_attempts: $NETDENIED, transcript: \"$(basename "$TRANSCRIPT")\"}" \
+echo "$VERDICT" | jq -c ". + {arm: \"$ARM\", model: \"$MODEL\", elapsed_s: $ELAPSED, agent_killed: $AGENT_KILLED, denies: $DENIES, net_fetch_attempts: $NETDENIED, transcript: \"$(basename "$TRANSCRIPT")\"}" \
   | tee -a "$RUNS/results.jsonl"
 cp -a "$OBS" "$RUNS/$TAG-obs" 2>/dev/null || true
 cp "$NETLOG" "$RUNS/$TAG-netlog.txt" 2>/dev/null || true
