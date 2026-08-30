@@ -1,0 +1,2508 @@
+{
+ "seed": "taskbench-v2-2026-08-30",
+ "snapshot": "2026-08-30",
+ "source": "npm-high-impact@1.13.0 tranche from rank 608 (FRAME2.md)",
+ "count": 500,
+ "repos": [
+  {
+   "repo": "inspect-js/is-async-function",
+   "first_pkg": "is-async-function",
+   "pkg_rank": 608
+  },
+  {
+   "repo": "privatenumber/tsx",
+   "first_pkg": "tsx",
+   "pkg_rank": 609
+  },
+  {
+   "repo": "d3/d3-ease",
+   "first_pkg": "d3-ease",
+   "pkg_rank": 610
+  },
+  {
+   "repo": "brianloveswords/node-jwa",
+   "first_pkg": "jwa",
+   "pkg_rank": 611
+  },
+  {
+   "repo": "thenables/thenify-all",
+   "first_pkg": "thenify-all",
+   "pkg_rank": 614
+  },
+  {
+   "repo": "sindresorhus/decamelize",
+   "first_pkg": "decamelize",
+   "pkg_rank": 617
+  },
+  {
+   "repo": "sindresorhus/clean-stack",
+   "first_pkg": "clean-stack",
+   "pkg_rank": 618
+  },
+  {
+   "repo": "npm/abbrev-js",
+   "first_pkg": "abbrev",
+   "pkg_rank": 619
+  },
+  {
+   "repo": "chaijs/type-detect",
+   "first_pkg": "type-detect",
+   "pkg_rank": 621
+  },
+  {
+   "repo": "webpack/loader-utils",
+   "first_pkg": "loader-utils",
+   "pkg_rank": 624
+  },
+  {
+   "repo": "sindresorhus/mimic-response",
+   "first_pkg": "mimic-response",
+   "pkg_rank": 625
+  },
+  {
+   "repo": "es-shims/String.prototype.trim",
+   "first_pkg": "string.prototype.trim",
+   "pkg_rank": 626
+  },
+  {
+   "repo": "rawify/Fraction.js",
+   "first_pkg": "fraction.js",
+   "pkg_rank": 627
+  },
+  {
+   "repo": "benjamn/ast-types",
+   "first_pkg": "ast-types",
+   "pkg_rank": 628
+  },
+  {
+   "repo": "inspect-js/which-builtin-type",
+   "first_pkg": "which-builtin-type",
+   "pkg_rank": 629
+  },
+  {
+   "repo": "es-shims/array-includes",
+   "first_pkg": "array-includes",
+   "pkg_rank": 630
+  },
+  {
+   "repo": "bcoe/v8-coverage",
+   "first_pkg": "@bcoe/v8-coverage",
+   "pkg_rank": 631
+  },
+  {
+   "repo": "sindresorhus/cli-spinners",
+   "first_pkg": "cli-spinners",
+   "pkg_rank": 635
+  },
+  {
+   "repo": "alangpierce/sucrase",
+   "first_pkg": "sucrase",
+   "pkg_rank": 639
+  },
+  {
+   "repo": "inspect-js/typed-array-byte-length",
+   "first_pkg": "typed-array-byte-length",
+   "pkg_rank": 640
+  },
+  {
+   "repo": "theKashey/aria-hidden",
+   "first_pkg": "aria-hidden",
+   "pkg_rank": 642
+  },
+  {
+   "repo": "estools/escodegen",
+   "first_pkg": "escodegen",
+   "pkg_rank": 643
+  },
+  {
+   "repo": "indutny/bn.js",
+   "first_pkg": "bn.js",
+   "pkg_rank": 645
+  },
+  {
+   "repo": "mcollina/split2",
+   "first_pkg": "split2",
+   "pkg_rank": 646
+  },
+  {
+   "repo": "kornelski/http-cache-semantics",
+   "first_pkg": "http-cache-semantics",
+   "pkg_rank": 647
+  },
+  {
+   "repo": "jaredhanson/utils-merge",
+   "first_pkg": "utils-merge",
+   "pkg_rank": 648
+  },
+  {
+   "repo": "brianloveswords/buffer-crc32",
+   "first_pkg": "buffer-crc32",
+   "pkg_rank": 649
+  },
+  {
+   "repo": "fb55/boolbase",
+   "first_pkg": "boolbase",
+   "pkg_rank": 650
+  },
+  {
+   "repo": "ungap/structured-clone",
+   "first_pkg": "@ungap/structured-clone",
+   "pkg_rank": 653
+  },
+  {
+   "repo": "theKashey/react-remove-scroll-bar",
+   "first_pkg": "react-remove-scroll-bar",
+   "pkg_rank": 655
+  },
+  {
+   "repo": "mdn/data",
+   "first_pkg": "mdn-data",
+   "pkg_rank": 657
+  },
+  {
+   "repo": "expressjs/cors",
+   "first_pkg": "cors",
+   "pkg_rank": 658
+  },
+  {
+   "repo": "inspect-js/is-weakmap",
+   "first_pkg": "is-weakmap",
+   "pkg_rank": 660
+  },
+  {
+   "repo": "es-shims/Reflect.getPrototypeOf",
+   "first_pkg": "reflect.getprototypeof",
+   "pkg_rank": 661
+  },
+  {
+   "repo": "prettier/eslint-config-prettier",
+   "first_pkg": "eslint-config-prettier",
+   "pkg_rank": 663
+  },
+  {
+   "repo": "postcss/postcss-import",
+   "first_pkg": "postcss-import",
+   "pkg_rank": 664
+  },
+  {
+   "repo": "suguru03/neo-async",
+   "first_pkg": "neo-async",
+   "pkg_rank": 665
+  },
+  {
+   "repo": "sindresorhus/array-union",
+   "first_pkg": "array-union",
+   "pkg_rank": 666
+  },
+  {
+   "repo": "npm/ssri",
+   "first_pkg": "ssri",
+   "pkg_rank": 667
+  },
+  {
+   "repo": "ljharb/stop-iteration-iterator",
+   "first_pkg": "stop-iteration-iterator",
+   "pkg_rank": 673
+  },
+  {
+   "repo": "dmnd/dedent",
+   "first_pkg": "dedent",
+   "pkg_rank": 676
+  },
+  {
+   "repo": "inspect-js/is-data-view",
+   "first_pkg": "is-data-view",
+   "pkg_rank": 677
+  },
+  {
+   "repo": "sindresorhus/redent",
+   "first_pkg": "redent",
+   "pkg_rank": 679
+  },
+  {
+   "repo": "then/is-promise",
+   "first_pkg": "is-promise",
+   "pkg_rank": 681
+  },
+  {
+   "repo": "es-shims/Object.values",
+   "first_pkg": "object.values",
+   "pkg_rank": 682
+  },
+  {
+   "repo": "istanbuljs/schema",
+   "first_pkg": "@istanbuljs/schema",
+   "pkg_rank": 683
+  },
+  {
+   "repo": "sindresorhus/is",
+   "first_pkg": "@sindresorhus/is",
+   "pkg_rank": 684
+  },
+  {
+   "repo": "ljharb/own-keys",
+   "first_pkg": "own-keys",
+   "pkg_rank": 685
+  },
+  {
+   "repo": "ljharb/safe-push-apply",
+   "first_pkg": "safe-push-apply",
+   "pkg_rank": 687
+  },
+  {
+   "repo": "jsdom/cssstyle",
+   "first_pkg": "cssstyle",
+   "pkg_rank": 688
+  },
+  {
+   "repo": "stream-utils/destroy",
+   "first_pkg": "destroy",
+   "pkg_rank": 689
+  },
+  {
+   "repo": "reactjs/react-transition-group",
+   "first_pkg": "react-transition-group",
+   "pkg_rank": 691
+  },
+  {
+   "repo": "gristlabs/ts-interface-checker",
+   "first_pkg": "ts-interface-checker",
+   "pkg_rank": 693
+  },
+  {
+   "repo": "react-bootstrap/dom-helpers",
+   "first_pkg": "dom-helpers",
+   "pkg_rank": 694
+  },
+  {
+   "repo": "jonschlinkert/isobject",
+   "first_pkg": "isobject",
+   "pkg_rank": 697
+  },
+  {
+   "repo": "es-shims/Array.prototype.flatMap",
+   "first_pkg": "array.prototype.flatmap",
+   "pkg_rank": 698
+  },
+  {
+   "repo": "ljharb/es-shim-unscopables",
+   "first_pkg": "es-shim-unscopables",
+   "pkg_rank": 700
+  },
+  {
+   "repo": "es-shims/Array.prototype.flat",
+   "first_pkg": "array.prototype.flat",
+   "pkg_rank": 702
+  },
+  {
+   "repo": "googleapis/google-cloud-node",
+   "first_pkg": "gcp-metadata",
+   "pkg_rank": 704
+  },
+  {
+   "repo": "toyobayashi/emnapi",
+   "first_pkg": "@emnapi/runtime",
+   "pkg_rank": 705
+  },
+  {
+   "repo": "jsdom/js-symbol-tree",
+   "first_pkg": "symbol-tree",
+   "pkg_rank": 713
+  },
+  {
+   "repo": "thekashey/detect-node",
+   "first_pkg": "detect-node-es",
+   "pkg_rank": 714
+  },
+  {
+   "repo": "istanbuljs/test-exclude",
+   "first_pkg": "test-exclude",
+   "pkg_rank": 715
+  },
+  {
+   "repo": "developit/dlv",
+   "first_pkg": "dlv",
+   "pkg_rank": 716
+  },
+  {
+   "repo": "lddubeau/xmlchars",
+   "first_pkg": "xmlchars",
+   "pkg_rank": 719
+  },
+  {
+   "repo": "webpack/webpack-sources",
+   "first_pkg": "webpack-sources",
+   "pkg_rank": 720
+  },
+  {
+   "repo": "ljharb/shell-quote",
+   "first_pkg": "shell-quote",
+   "pkg_rank": 722
+  },
+  {
+   "repo": "JoshGlazebrook/smart-buffer",
+   "first_pkg": "smart-buffer",
+   "pkg_rank": 723
+  },
+  {
+   "repo": "ljharb/set-proto",
+   "first_pkg": "set-proto",
+   "pkg_rank": 724
+  },
+  {
+   "repo": "flmnt/graphemer",
+   "first_pkg": "graphemer",
+   "pkg_rank": 725
+  },
+  {
+   "repo": "jonschlinkert/is-extendable",
+   "first_pkg": "is-extendable",
+   "pkg_rank": 729
+  },
+  {
+   "repo": "vitejs/vite",
+   "first_pkg": "vite",
+   "pkg_rank": 731
+  },
+  {
+   "repo": "theKashey/get-nonce",
+   "first_pkg": "get-nonce",
+   "pkg_rank": 732
+  },
+  {
+   "repo": "mathiasbynens/is-potential-custom-element-name",
+   "first_pkg": "is-potential-custom-element-name",
+   "pkg_rank": 733
+  },
+  {
+   "repo": "npm/inflight",
+   "first_pkg": "inflight",
+   "pkg_rank": 736
+  },
+  {
+   "repo": "sindresorhus/leven",
+   "first_pkg": "leven",
+   "pkg_rank": 738
+  },
+  {
+   "repo": "tailwindlabs/tailwindcss",
+   "first_pkg": "@tailwindcss/oxide-linux-x64-musl",
+   "pkg_rank": 739
+  },
+  {
+   "repo": "TrySound/read-cache",
+   "first_pkg": "read-cache",
+   "pkg_rank": 741
+  },
+  {
+   "repo": "mafintosh/why-is-node-running",
+   "first_pkg": "why-is-node-running",
+   "pkg_rank": 745
+  },
+  {
+   "repo": "sindresorhus/aggregate-error",
+   "first_pkg": "aggregate-error",
+   "pkg_rank": 746
+  },
+  {
+   "repo": "yuzujs/setImmediate",
+   "first_pkg": "setimmediate",
+   "pkg_rank": 747
+  },
+  {
+   "repo": "sindresorhus/read-pkg",
+   "first_pkg": "read-pkg",
+   "pkg_rank": 748
+  },
+  {
+   "repo": "react-hook-form/react-hook-form",
+   "first_pkg": "react-hook-form",
+   "pkg_rank": 750
+  },
+  {
+   "repo": "jshttp/methods",
+   "first_pkg": "methods",
+   "pkg_rank": 751
+  },
+  {
+   "repo": "sinonjs/commons",
+   "first_pkg": "@sinonjs/commons",
+   "pkg_rank": 752
+  },
+  {
+   "repo": "es-shims/Object.entries",
+   "first_pkg": "object.entries",
+   "pkg_rank": 753
+  },
+  {
+   "repo": "sindresorhus/is-interactive",
+   "first_pkg": "is-interactive",
+   "pkg_rank": 756
+  },
+  {
+   "repo": "mysticatea/event-target-shim",
+   "first_pkg": "event-target-shim",
+   "pkg_rank": 757
+  },
+  {
+   "repo": "postcss/postcss-js",
+   "first_pkg": "postcss-js",
+   "pkg_rank": 759
+  },
+  {
+   "repo": "rollup/plugins",
+   "first_pkg": "@rollup/pluginutils",
+   "pkg_rank": 760
+  },
+  {
+   "repo": "remusao/tldts",
+   "first_pkg": "tldts-core",
+   "pkg_rank": 761
+  },
+  {
+   "repo": "joe-bell/cva",
+   "first_pkg": "class-variance-authority",
+   "pkg_rank": 762
+  },
+  {
+   "repo": "napi-rs/napi-rs",
+   "first_pkg": "@napi-rs/wasm-runtime",
+   "pkg_rank": 763
+  },
+  {
+   "repo": "openai/codex",
+   "first_pkg": "@openai/codex",
+   "pkg_rank": 764
+  },
+  {
+   "repo": "dubzzz/pure-rand",
+   "first_pkg": "pure-rand",
+   "pkg_rank": 767
+  },
+  {
+   "repo": "es-shims/Object.fromEntries",
+   "first_pkg": "object.fromentries",
+   "pkg_rank": 768
+  },
+  {
+   "repo": "istanbuljs/babel-plugin-istanbul",
+   "first_pkg": "babel-plugin-istanbul",
+   "pkg_rank": 769
+  },
+  {
+   "repo": "kevva/dir-glob",
+   "first_pkg": "dir-glob",
+   "pkg_rank": 770
+  },
+  {
+   "repo": "emilbayes/siginfo",
+   "first_pkg": "siginfo",
+   "pkg_rank": 771
+  },
+  {
+   "repo": "babel/babel-polyfills",
+   "first_pkg": "babel-plugin-polyfill-corejs3",
+   "pkg_rank": 774
+  },
+  {
+   "repo": "ljharb/async-function",
+   "first_pkg": "async-function",
+   "pkg_rank": 777
+  },
+  {
+   "repo": "blakeembrey/array-flatten",
+   "first_pkg": "array-flatten",
+   "pkg_rank": 778
+  },
+  {
+   "repo": "dcporter/didyoumean.js",
+   "first_pkg": "didyoumean",
+   "pkg_rank": 779
+  },
+  {
+   "repo": "sindresorhus/get-east-asian-width",
+   "first_pkg": "get-east-asian-width",
+   "pkg_rank": 781
+  },
+  {
+   "repo": "iamkun/dayjs",
+   "first_pkg": "dayjs",
+   "pkg_rank": 783
+  },
+  {
+   "repo": "recharts/recharts",
+   "first_pkg": "recharts",
+   "pkg_rank": 784
+  },
+  {
+   "repo": "octokit/types.ts",
+   "first_pkg": "@octokit/types",
+   "pkg_rank": 787
+  },
+  {
+   "repo": "TooTallNate/once",
+   "first_pkg": "@tootallnate/once",
+   "pkg_rank": 789
+  },
+  {
+   "repo": "dcodeIO/protobuf.js",
+   "first_pkg": "@protobufjs/codegen",
+   "pkg_rank": 791
+  },
+  {
+   "repo": "doowb/ansi-colors",
+   "first_pkg": "ansi-colors",
+   "pkg_rank": 799
+  },
+  {
+   "repo": "NV/CSSOM",
+   "first_pkg": "cssom",
+   "pkg_rank": 802
+  },
+  {
+   "repo": "Brightspace/node-ecdsa-sig-formatter",
+   "first_pkg": "ecdsa-sig-formatter",
+   "pkg_rank": 804
+  },
+  {
+   "repo": "import-js/eslint-plugin-import",
+   "first_pkg": "eslint-import-resolver-node",
+   "pkg_rank": 805
+  },
+  {
+   "repo": "stevenvachon/camelcase-css",
+   "first_pkg": "camelcase-css",
+   "pkg_rank": 806
+  },
+  {
+   "repo": "immerjs/immer",
+   "first_pkg": "immer",
+   "pkg_rank": 807
+  },
+  {
+   "repo": "FormidableLabs/victory",
+   "first_pkg": "victory-vendor",
+   "pkg_rank": 808
+  },
+  {
+   "repo": "shtylman/node-process",
+   "first_pkg": "process",
+   "pkg_rank": 814
+  },
+  {
+   "repo": "planttheidea/fast-equals",
+   "first_pkg": "fast-equals",
+   "pkg_rank": 817
+  },
+  {
+   "repo": "paulmillr/noble-hashes",
+   "first_pkg": "@noble/hashes",
+   "pkg_rank": 818
+  },
+  {
+   "repo": "sindresorhus/cli-truncate",
+   "first_pkg": "cli-truncate",
+   "pkg_rank": 822
+  },
+  {
+   "repo": "testing-library/dom-testing-library",
+   "first_pkg": "@testing-library/dom",
+   "pkg_rank": 824
+  },
+  {
+   "repo": "webpack/webpack",
+   "first_pkg": "webpack",
+   "pkg_rank": 825
+  },
+  {
+   "repo": "csstools/postcss-plugins",
+   "first_pkg": "@csstools/css-tokenizer",
+   "pkg_rank": 826
+  },
+  {
+   "repo": "yahoo/serialize-javascript",
+   "first_pkg": "serialize-javascript",
+   "pkg_rank": 828
+  },
+  {
+   "repo": "terkelg/sisteransi",
+   "first_pkg": "sisteransi",
+   "pkg_rank": 833
+  },
+  {
+   "repo": "postcss/postcss-nested",
+   "first_pkg": "postcss-nested",
+   "pkg_rank": 835
+  },
+  {
+   "repo": "calvinmetcalf/lie",
+   "first_pkg": "lie",
+   "pkg_rank": 837
+  },
+  {
+   "repo": "DABH/colors.js",
+   "first_pkg": "@colors/colors",
+   "pkg_rank": 839
+  },
+  {
+   "repo": "unshiftio/requires-port",
+   "first_pkg": "requires-port",
+   "pkg_rank": 840
+  },
+  {
+   "repo": "sindresorhus/string-length",
+   "first_pkg": "string-length",
+   "pkg_rank": 841
+  },
+  {
+   "repo": "MattiasBuelens/web-streams-polyfill",
+   "first_pkg": "web-streams-polyfill",
+   "pkg_rank": 842
+  },
+  {
+   "repo": "octokit/openapi-types.ts",
+   "first_pkg": "@octokit/openapi-types",
+   "pkg_rank": 845
+  },
+  {
+   "repo": "syntax-tree/unist-util-visit",
+   "first_pkg": "unist-util-visit",
+   "pkg_rank": 847
+  },
+  {
+   "repo": "mafintosh/tar-fs",
+   "first_pkg": "tar-fs",
+   "pkg_rank": 850
+  },
+  {
+   "repo": "mmkal/expect-type",
+   "first_pkg": "expect-type",
+   "pkg_rank": 851
+  },
+  {
+   "repo": "feross/is-buffer",
+   "first_pkg": "is-buffer",
+   "pkg_rank": 852
+  },
+  {
+   "repo": "testing-library/jest-dom",
+   "first_pkg": "@testing-library/jest-dom",
+   "pkg_rank": 853
+  },
+  {
+   "repo": "webpack/minimizer-webpack-plugin",
+   "first_pkg": "terser-webpack-plugin",
+   "pkg_rank": 855
+  },
+  {
+   "repo": "syntax-tree/unist-util-visit-parents",
+   "first_pkg": "unist-util-visit-parents",
+   "pkg_rank": 856
+  },
+  {
+   "repo": "TanStack/query",
+   "first_pkg": "@tanstack/query-core",
+   "pkg_rank": 857
+  },
+  {
+   "repo": "sindresorhus/file-type",
+   "first_pkg": "file-type",
+   "pkg_rank": 858
+  },
+  {
+   "repo": "webpack/watchpack",
+   "first_pkg": "watchpack",
+   "pkg_rank": 859
+  },
+  {
+   "repo": "un-ts/synckit",
+   "first_pkg": "synckit",
+   "pkg_rank": 861
+  },
+  {
+   "repo": "jsx-eslint/eslint-plugin-react",
+   "first_pkg": "eslint-plugin-react",
+   "pkg_rank": 866
+  },
+  {
+   "repo": "terkelg/prompts",
+   "first_pkg": "prompts",
+   "pkg_rank": 867
+  },
+  {
+   "repo": "sindresorhus/find-cache-dir",
+   "first_pkg": "find-cache-dir",
+   "pkg_rank": 869
+  },
+  {
+   "repo": "syntax-tree/unist-util-is",
+   "first_pkg": "unist-util-is",
+   "pkg_rank": 870
+  },
+  {
+   "repo": "npm/make-fetch-happen",
+   "first_pkg": "make-fetch-happen",
+   "pkg_rank": 871
+  },
+  {
+   "repo": "runk/node-chardet",
+   "first_pkg": "chardet",
+   "pkg_rank": 872
+  },
+  {
+   "repo": "brianloveswords/node-jws",
+   "first_pkg": "jws",
+   "pkg_rank": 875
+  },
+  {
+   "repo": "tapjs/stack-utils",
+   "first_pkg": "stack-utils",
+   "pkg_rank": 876
+  },
+  {
+   "repo": "sindresorhus/is-obj",
+   "first_pkg": "is-obj",
+   "pkg_rank": 877
+  },
+  {
+   "repo": "SBoudrias/Inquirer.js",
+   "first_pkg": "inquirer",
+   "pkg_rank": 882
+  },
+  {
+   "repo": "davidmarkclements/rfdc",
+   "first_pkg": "rfdc",
+   "pkg_rank": 883
+  },
+  {
+   "repo": "syntax-tree/unist-util-stringify-position",
+   "first_pkg": "unist-util-stringify-position",
+   "pkg_rank": 884
+  },
+  {
+   "repo": "sindresorhus/import-local",
+   "first_pkg": "import-local",
+   "pkg_rank": 885
+  },
+  {
+   "repo": "rvagg/through2",
+   "first_pkg": "through2",
+   "pkg_rank": 887
+  },
+  {
+   "repo": "jviereck/regjsparser",
+   "first_pkg": "regjsparser",
+   "pkg_rank": 890
+  },
+  {
+   "repo": "nodejs/node-gyp",
+   "first_pkg": "node-gyp",
+   "pkg_rank": 891
+  },
+  {
+   "repo": "es-shims/String.prototype.matchAll",
+   "first_pkg": "string.prototype.matchall",
+   "pkg_rank": 892
+  },
+  {
+   "repo": "unjs/unplugin",
+   "first_pkg": "unplugin",
+   "pkg_rank": 893
+  },
+  {
+   "repo": "micromark/micromark",
+   "first_pkg": "micromark-util-symbol",
+   "pkg_rank": 894
+  },
+  {
+   "repo": "Qix-/color",
+   "first_pkg": "color",
+   "pkg_rank": 895
+  },
+  {
+   "repo": "MikeMcl/decimal.js-light",
+   "first_pkg": "decimal.js-light",
+   "pkg_rank": 896
+  },
+  {
+   "repo": "dperini/nwsapi",
+   "first_pkg": "nwsapi",
+   "pkg_rank": 897
+  },
+  {
+   "repo": "mysticatea/abort-controller",
+   "first_pkg": "abort-controller",
+   "pkg_rank": 898
+  },
+  {
+   "repo": "jslicense/spdx-expression-parse.js",
+   "first_pkg": "spdx-expression-parse",
+   "pkg_rank": 899
+  },
+  {
+   "repo": "auth0/node-jsonwebtoken",
+   "first_pkg": "jsonwebtoken",
+   "pkg_rank": 904
+  },
+  {
+   "repo": "npm/unique-filename",
+   "first_pkg": "unique-filename",
+   "pkg_rank": 908
+  },
+  {
+   "repo": "JsCommunity/make-error",
+   "first_pkg": "make-error",
+   "pkg_rank": 909
+  },
+  {
+   "repo": "Qix-/color-string",
+   "first_pkg": "color-string",
+   "pkg_rank": 910
+  },
+  {
+   "repo": "react-hook-form/resolvers",
+   "first_pkg": "@hookform/resolvers",
+   "pkg_rank": 911
+  },
+  {
+   "repo": "fitzgen/glob-to-regexp",
+   "first_pkg": "glob-to-regexp",
+   "pkg_rank": 912
+  },
+  {
+   "repo": "petkaantonov/bluebird",
+   "first_pkg": "bluebird",
+   "pkg_rank": 913
+  },
+  {
+   "repo": "adobe/css-tools",
+   "first_pkg": "@adobe/css-tools",
+   "pkg_rank": 914
+  },
+  {
+   "repo": "TypeStrong/ts-node",
+   "first_pkg": "ts-node",
+   "pkg_rank": 916
+  },
+  {
+   "repo": "inspect-js/is-descriptor",
+   "first_pkg": "is-descriptor",
+   "pkg_rank": 918
+  },
+  {
+   "repo": "lupomontero/psl",
+   "first_pkg": "psl",
+   "pkg_rank": 920
+  },
+  {
+   "repo": "substack/node-wordwrap",
+   "first_pkg": "wordwrap",
+   "pkg_rank": 922
+  },
+  {
+   "repo": "sindresorhus/resolve-cwd",
+   "first_pkg": "resolve-cwd",
+   "pkg_rank": 925
+  },
+  {
+   "repo": "101arrowz/fflate",
+   "first_pkg": "fflate",
+   "pkg_rank": 933
+  },
+  {
+   "repo": "cfware/get-package-type",
+   "first_pkg": "get-package-type",
+   "pkg_rank": 934
+  },
+  {
+   "repo": "chaijs/pathval",
+   "first_pkg": "pathval",
+   "pkg_rank": 940
+  },
+  {
+   "repo": "BridgeAR/safe-stable-stringify",
+   "first_pkg": "safe-stable-stringify",
+   "pkg_rank": 941
+  },
+  {
+   "repo": "broofa/node-int64",
+   "first_pkg": "node-int64",
+   "pkg_rank": 942
+  },
+  {
+   "repo": "chaijs/loupe",
+   "first_pkg": "loupe",
+   "pkg_rank": 945
+  },
+  {
+   "repo": "Richienb/char-regex",
+   "first_pkg": "char-regex",
+   "pkg_rank": 946
+  },
+  {
+   "repo": "sindresorhus/decompress-response",
+   "first_pkg": "decompress-response",
+   "pkg_rank": 950
+  },
+  {
+   "repo": "mishoo/UglifyJS",
+   "first_pkg": "uglify-js",
+   "pkg_rank": 951
+  },
+  {
+   "repo": "mathiasbynens/regexpu-core",
+   "first_pkg": "regexpu-core",
+   "pkg_rank": 957
+  },
+  {
+   "repo": "pieroxy/lz-string",
+   "first_pkg": "lz-string",
+   "pkg_rank": 958
+  },
+  {
+   "repo": "thejameskyle/min-indent",
+   "first_pkg": "min-indent",
+   "pkg_rank": 959
+  },
+  {
+   "repo": "facebook/watchman",
+   "first_pkg": "fb-watchman",
+   "pkg_rank": 962
+  },
+  {
+   "repo": "chaijs/deep-eql",
+   "first_pkg": "deep-eql",
+   "pkg_rank": 965
+  },
+  {
+   "repo": "StefanTerdell/zod-to-json-schema",
+   "first_pkg": "zod-to-json-schema",
+   "pkg_rank": 968
+  },
+  {
+   "repo": "visionmedia/node-progress",
+   "first_pkg": "progress",
+   "pkg_rank": 969
+  },
+  {
+   "repo": "calvinmetcalf/immediate",
+   "first_pkg": "immediate",
+   "pkg_rank": 973
+  },
+  {
+   "repo": "sindresorhus/normalize-url",
+   "first_pkg": "normalize-url",
+   "pkg_rank": 976
+  },
+  {
+   "repo": "sysgears/webpack-virtual-modules",
+   "first_pkg": "webpack-virtual-modules",
+   "pkg_rank": 984
+  },
+  {
+   "repo": "dominictarr/through",
+   "first_pkg": "through",
+   "pkg_rank": 986
+  },
+  {
+   "repo": "browserify/node-util",
+   "first_pkg": "util",
+   "pkg_rank": 987
+  },
+  {
+   "repo": "npm/cacache",
+   "first_pkg": "cacache",
+   "pkg_rank": 989
+  },
+  {
+   "repo": "A11yance/axobject-query",
+   "first_pkg": "axobject-query",
+   "pkg_rank": 992
+  },
+  {
+   "repo": "un-ts/pkgr",
+   "first_pkg": "@pkgr/core",
+   "pkg_rank": 993
+  },
+  {
+   "repo": "sindresorhus/arrify",
+   "first_pkg": "arrify",
+   "pkg_rank": 995
+  },
+  {
+   "repo": "es-shims/Array.prototype.findLastIndex",
+   "first_pkg": "array.prototype.findlastindex",
+   "pkg_rank": 997
+  },
+  {
+   "repo": "sindresorhus/node-defaults",
+   "first_pkg": "defaults",
+   "pkg_rank": 1003
+  },
+  {
+   "repo": "jsx-eslint/jsx-ast-utils",
+   "first_pkg": "jsx-ast-utils",
+   "pkg_rank": 1004
+  },
+  {
+   "repo": "thejoshwolfe/yauzl",
+   "first_pkg": "yauzl",
+   "pkg_rank": 1005
+  },
+  {
+   "repo": "microsoft/node-jsonc-parser",
+   "first_pkg": "jsonc-parser",
+   "pkg_rank": 1006
+  },
+  {
+   "repo": "sindresorhus/detect-newline",
+   "first_pkg": "detect-newline",
+   "pkg_rank": 1007
+  },
+  {
+   "repo": "aws/aws-sdk-js-crypto-helpers",
+   "first_pkg": "@aws-crypto/sha256-js",
+   "pkg_rank": 1008
+  },
+  {
+   "repo": "nodejs/require-in-the-middle",
+   "first_pkg": "require-in-the-middle",
+   "pkg_rank": 1010
+  },
+  {
+   "repo": "xtuc/webassemblyjs",
+   "first_pkg": "@webassemblyjs/helper-wasm-bytecode",
+   "pkg_rank": 1011
+  },
+  {
+   "repo": "npm/fs",
+   "first_pkg": "@npmcli/fs",
+   "pkg_rank": 1014
+  },
+  {
+   "repo": "chaijs/check-error",
+   "first_pkg": "check-error",
+   "pkg_rank": 1016
+  },
+  {
+   "repo": "brianc/node-pg-types",
+   "first_pkg": "pg-types",
+   "pkg_rank": 1017
+  },
+  {
+   "repo": "istanbuljs/v8-to-istanbul",
+   "first_pkg": "v8-to-istanbul",
+   "pkg_rank": 1018
+  },
+  {
+   "repo": "testing-library/react-testing-library",
+   "first_pkg": "@testing-library/react",
+   "pkg_rank": 1021
+  },
+  {
+   "repo": "unshiftio/url-parse",
+   "first_pkg": "url-parse",
+   "pkg_rank": 1023
+  },
+  {
+   "repo": "rexxars/eventsource-parser",
+   "first_pkg": "eventsource-parser",
+   "pkg_rank": 1025
+  },
+  {
+   "repo": "MikeMcl/bignumber.js",
+   "first_pkg": "bignumber.js",
+   "pkg_rank": 1026
+  },
+  {
+   "repo": "sindresorhus/emittery",
+   "first_pkg": "emittery",
+   "pkg_rank": 1027
+  },
+  {
+   "repo": "es-shims/iterator-helpers",
+   "first_pkg": "es-iterator-helpers",
+   "pkg_rank": 1028
+  },
+  {
+   "repo": "timoxley/wcwidth",
+   "first_pkg": "wcwidth",
+   "pkg_rank": 1029
+  },
+  {
+   "repo": "wooorm/character-entities",
+   "first_pkg": "character-entities",
+   "pkg_rank": 1030
+  },
+  {
+   "repo": "tj/co",
+   "first_pkg": "co",
+   "pkg_rank": 1032
+  },
+  {
+   "repo": "express-rate-limit/express-rate-limit",
+   "first_pkg": "express-rate-limit",
+   "pkg_rank": 1033
+  },
+  {
+   "repo": "mathiasbynens/CSS.escape",
+   "first_pkg": "css.escape",
+   "pkg_rank": 1035
+  },
+  {
+   "repo": "wooorm/character-entities-legacy",
+   "first_pkg": "character-entities-legacy",
+   "pkg_rank": 1039
+  },
+  {
+   "repo": "unshiftio/querystringify",
+   "first_pkg": "querystringify",
+   "pkg_rank": 1042
+  },
+  {
+   "repo": "vfile/vfile-message",
+   "first_pkg": "vfile-message",
+   "pkg_rank": 1043
+  },
+  {
+   "repo": "jimmywarting/node-domexception",
+   "first_pkg": "node-domexception",
+   "pkg_rank": 1044
+  },
+  {
+   "repo": "unjs/pkg-types",
+   "first_pkg": "pkg-types",
+   "pkg_rank": 1046
+  },
+  {
+   "repo": "isaacs/minipass-collect",
+   "first_pkg": "minipass-collect",
+   "pkg_rank": 1047
+  },
+  {
+   "repo": "daaku/nodejs-tmpl",
+   "first_pkg": "tmpl",
+   "pkg_rank": 1048
+  },
+  {
+   "repo": "unjs/confbox",
+   "first_pkg": "confbox",
+   "pkg_rank": 1050
+  },
+  {
+   "repo": "vitejs/vite-plugin-react",
+   "first_pkg": "@vitejs/plugin-react",
+   "pkg_rank": 1051
+  },
+  {
+   "repo": "cure53/DOMPurify",
+   "first_pkg": "dompurify",
+   "pkg_rank": 1052
+  },
+  {
+   "repo": "mathiasbynens/regenerate-unicode-properties",
+   "first_pkg": "regenerate-unicode-properties",
+   "pkg_rank": 1054
+  },
+  {
+   "repo": "tinylibs/tinyspy",
+   "first_pkg": "tinyspy",
+   "pkg_rank": 1057
+  },
+  {
+   "repo": "vfile/vfile",
+   "first_pkg": "vfile",
+   "pkg_rank": 1058
+  },
+  {
+   "repo": "coveooss/exponential-backoff",
+   "first_pkg": "exponential-backoff",
+   "pkg_rank": 1059
+  },
+  {
+   "repo": "daaku/nodejs-walker",
+   "first_pkg": "walker",
+   "pkg_rank": 1060
+  },
+  {
+   "repo": "listr2/listr2",
+   "first_pkg": "listr2",
+   "pkg_rank": 1062
+  },
+  {
+   "repo": "es-shims/Object.groupBy",
+   "first_pkg": "object.groupby",
+   "pkg_rank": 1065
+  },
+  {
+   "repo": "jslicense/spdx-license-ids",
+   "first_pkg": "spdx-license-ids",
+   "pkg_rank": 1066
+  },
+  {
+   "repo": "unjs/ufo",
+   "first_pkg": "ufo",
+   "pkg_rank": 1067
+  },
+  {
+   "repo": "graphql/graphql-js",
+   "first_pkg": "graphql",
+   "pkg_rank": 1070
+  },
+  {
+   "repo": "webpack/loader-runner",
+   "first_pkg": "loader-runner",
+   "pkg_rank": 1071
+  },
+  {
+   "repo": "sindresorhus/yn",
+   "first_pkg": "yn",
+   "pkg_rank": 1077
+  },
+  {
+   "repo": "grpc/grpc-node",
+   "first_pkg": "@grpc/proto-loader",
+   "pkg_rank": 1078
+  },
+  {
+   "repo": "mathiasbynens/unicode-match-property-value-ecmascript",
+   "first_pkg": "unicode-match-property-value-ecmascript",
+   "pkg_rank": 1079
+  },
+  {
+   "repo": "immutable-js/immutable-js",
+   "first_pkg": "immutable",
+   "pkg_rank": 1081
+  },
+  {
+   "repo": "jshttp/on-headers",
+   "first_pkg": "on-headers",
+   "pkg_rank": 1085
+  },
+  {
+   "repo": "pillarjs/router",
+   "first_pkg": "router",
+   "pkg_rank": 1087
+  },
+  {
+   "repo": "bendrucker/postgres-date",
+   "first_pkg": "postgres-date",
+   "pkg_rank": 1088
+  },
+  {
+   "repo": "sindresorhus/p-retry",
+   "first_pkg": "p-retry",
+   "pkg_rank": 1089
+  },
+  {
+   "repo": "es-shims/Array.prototype.toSorted",
+   "first_pkg": "array.prototype.tosorted",
+   "pkg_rank": 1090
+  },
+  {
+   "repo": "isaacs/minipass-flush",
+   "first_pkg": "minipass-flush",
+   "pkg_rank": 1094
+  },
+  {
+   "repo": "kemitchell/spdx-exceptions.json",
+   "first_pkg": "spdx-exceptions",
+   "pkg_rank": 1095
+  },
+  {
+   "repo": "sindresorhus/unicorn-magic",
+   "first_pkg": "unicorn-magic",
+   "pkg_rank": 1097
+  },
+  {
+   "repo": "humanwhocodes/module-importer",
+   "first_pkg": "@humanwhocodes/module-importer",
+   "pkg_rank": 1098
+  },
+  {
+   "repo": "syntax-tree/mdast-util-to-string",
+   "first_pkg": "mdast-util-to-string",
+   "pkg_rank": 1101
+  },
+  {
+   "repo": "Stuk/jszip",
+   "first_pkg": "jszip",
+   "pkg_rank": 1103
+  },
+  {
+   "repo": "substack/text-table",
+   "first_pkg": "text-table",
+   "pkg_rank": 1104
+  },
+  {
+   "repo": "ArnaudBarre/eslint-plugin-react-refresh",
+   "first_pkg": "eslint-plugin-react-refresh",
+   "pkg_rank": 1105
+  },
+  {
+   "repo": "sindresorhus/log-update",
+   "first_pkg": "log-update",
+   "pkg_rank": 1106
+  },
+  {
+   "repo": "thysultan/stylis.js",
+   "first_pkg": "stylis",
+   "pkg_rank": 1107
+  },
+  {
+   "repo": "nicolo-ribaudo/babel-preset-current-node-syntax",
+   "first_pkg": "babel-preset-current-node-syntax",
+   "pkg_rank": 1109
+  },
+  {
+   "repo": "prettier/eslint-plugin-prettier",
+   "first_pkg": "eslint-plugin-prettier",
+   "pkg_rank": 1111
+  },
+  {
+   "repo": "mathiasbynens/String.prototype.repeat",
+   "first_pkg": "string.prototype.repeat",
+   "pkg_rank": 1112
+  },
+  {
+   "repo": "jimmywarting/FormData",
+   "first_pkg": "formdata-polyfill",
+   "pkg_rank": 1121
+  },
+  {
+   "repo": "npm/unique-slug",
+   "first_pkg": "unique-slug",
+   "pkg_rank": 1124
+  },
+  {
+   "repo": "yargs/set-blocking",
+   "first_pkg": "set-blocking",
+   "pkg_rank": 1126
+  },
+  {
+   "repo": "jhchen/fast-diff",
+   "first_pkg": "fast-diff",
+   "pkg_rank": 1127
+  },
+  {
+   "repo": "maxogden/concat-stream",
+   "first_pkg": "concat-stream",
+   "pkg_rank": 1128
+  },
+  {
+   "repo": "calvinmetcalf/minimalistic-assert",
+   "first_pkg": "minimalistic-assert",
+   "pkg_rank": 1131
+  },
+  {
+   "repo": "unclechu/node-deep-extend",
+   "first_pkg": "deep-extend",
+   "pkg_rank": 1134
+  },
+  {
+   "repo": "sindresorhus/read-pkg-up",
+   "first_pkg": "read-pkg-up",
+   "pkg_rank": 1136
+  },
+  {
+   "repo": "mathiasbynens/he",
+   "first_pkg": "he",
+   "pkg_rank": 1138
+  },
+  {
+   "repo": "IndigoUnited/js-err-code",
+   "first_pkg": "err-code",
+   "pkg_rank": 1139
+  },
+  {
+   "repo": "kriskowal/asap",
+   "first_pkg": "asap",
+   "pkg_rank": 1140
+  },
+  {
+   "repo": "bowser-js/bowser",
+   "first_pkg": "bowser",
+   "pkg_rank": 1141
+  },
+  {
+   "repo": "wooorm/property-information",
+   "first_pkg": "property-information",
+   "pkg_rank": 1142
+  },
+  {
+   "repo": "pacocoursey/cmdk",
+   "first_pkg": "cmdk",
+   "pkg_rank": 1143
+  },
+  {
+   "repo": "ljharb/Iterator.prototype",
+   "first_pkg": "iterator.prototype",
+   "pkg_rank": 1144
+  },
+  {
+   "repo": "holepunchto/b4a",
+   "first_pkg": "b4a",
+   "pkg_rank": 1146
+  },
+  {
+   "repo": "istanbuljs/load-nyc-config",
+   "first_pkg": "@istanbuljs/load-nyc-config",
+   "pkg_rank": 1148
+  },
+  {
+   "repo": "cacjs/cac",
+   "first_pkg": "cac",
+   "pkg_rank": 1151
+  },
+  {
+   "repo": "nfriedly/set-cookie-parser",
+   "first_pkg": "set-cookie-parser",
+   "pkg_rank": 1153
+  },
+  {
+   "repo": "sindresorhus/is-inside-container",
+   "first_pkg": "is-inside-container",
+   "pkg_rank": 1157
+  },
+  {
+   "repo": "SBoudrias/run-async",
+   "first_pkg": "run-async",
+   "pkg_rank": 1158
+  },
+  {
+   "repo": "sindresorhus/dot-prop",
+   "first_pkg": "dot-prop",
+   "pkg_rank": 1159
+  },
+  {
+   "repo": "sindresorhus/meow",
+   "first_pkg": "meow",
+   "pkg_rank": 1162
+  },
+  {
+   "repo": "daaku/nodejs-makeerror",
+   "first_pkg": "makeerror",
+   "pkg_rank": 1163
+  },
+  {
+   "repo": "sindresorhus/is-generator-fn",
+   "first_pkg": "is-generator-fn",
+   "pkg_rank": 1164
+  },
+  {
+   "repo": "crypto-browserify/randombytes",
+   "first_pkg": "randombytes",
+   "pkg_rank": 1165
+  },
+  {
+   "repo": "fastify/process-warning",
+   "first_pkg": "process-warning",
+   "pkg_rank": 1167
+  },
+  {
+   "repo": "es-shims/Array.prototype.findLast",
+   "first_pkg": "array.prototype.findlast",
+   "pkg_rank": 1168
+  },
+  {
+   "repo": "cspotcode/v8-compile-cache-lib",
+   "first_pkg": "v8-compile-cache-lib",
+   "pkg_rank": 1169
+  },
+  {
+   "repo": "blakeembrey/change-case",
+   "first_pkg": "lower-case",
+   "pkg_rank": 1170
+  },
+  {
+   "repo": "tsconfig/bases",
+   "first_pkg": "@tsconfig/node12",
+   "pkg_rank": 1171
+  },
+  {
+   "repo": "andris9/encoding",
+   "first_pkg": "encoding",
+   "pkg_rank": 1172
+  },
+  {
+   "repo": "isaacs/minipass-sized",
+   "first_pkg": "minipass-sized",
+   "pkg_rank": 1175
+  },
+  {
+   "repo": "node-fetch/fetch-blob",
+   "first_pkg": "fetch-blob",
+   "pkg_rank": 1176
+  },
+  {
+   "repo": "ampproject/remapping",
+   "first_pkg": "@ampproject/remapping",
+   "pkg_rank": 1178
+  },
+  {
+   "repo": "archiverjs/archiver-utils",
+   "first_pkg": "archiver-utils",
+   "pkg_rank": 1179
+  },
+  {
+   "repo": "mikeal/tunnel-agent",
+   "first_pkg": "tunnel-agent",
+   "pkg_rank": 1184
+  },
+  {
+   "repo": "sindresorhus/run-applescript",
+   "first_pkg": "run-applescript",
+   "pkg_rank": 1187
+  },
+  {
+   "repo": "andrewrk/node-pend",
+   "first_pkg": "pend",
+   "pkg_rank": 1189
+  },
+  {
+   "repo": "swc-project/pkgs",
+   "first_pkg": "@swc/counter",
+   "pkg_rank": 1190
+  },
+  {
+   "repo": "sindresorhus/p-timeout",
+   "first_pkg": "p-timeout",
+   "pkg_rank": 1191
+  },
+  {
+   "repo": "kemitchell/validate-npm-package-license.js",
+   "first_pkg": "validate-npm-package-license",
+   "pkg_rank": 1192
+  },
+  {
+   "repo": "lukeed/resolve.exports",
+   "first_pkg": "resolve.exports",
+   "pkg_rank": 1193
+  },
+  {
+   "repo": "unifiedjs/unified",
+   "first_pkg": "unified",
+   "pkg_rank": 1194
+  },
+  {
+   "repo": "samccone/chrome-trace-event",
+   "first_pkg": "chrome-trace-event",
+   "pkg_rank": 1195
+  },
+  {
+   "repo": "modelcontextprotocol/typescript-sdk",
+   "first_pkg": "@modelcontextprotocol/sdk",
+   "pkg_rank": 1196
+  },
+  {
+   "repo": "sindresorhus/default-browser-id",
+   "first_pkg": "default-browser-id",
+   "pkg_rank": 1199
+  },
+  {
+   "repo": "unjs/consola",
+   "first_pkg": "consola",
+   "pkg_rank": 1200
+  },
+  {
+   "repo": "pkrumins/node-tree-kill",
+   "first_pkg": "tree-kill",
+   "pkg_rank": 1201
+  },
+  {
+   "repo": "isaacs/minipass-pipeline",
+   "first_pkg": "minipass-pipeline",
+   "pkg_rank": 1202
+  },
+  {
+   "repo": "handlebars-lang/handlebars.js",
+   "first_pkg": "handlebars",
+   "pkg_rank": 1205
+  },
+  {
+   "repo": "dominictarr/rc",
+   "first_pkg": "rc",
+   "pkg_rank": 1206
+  },
+  {
+   "repo": "brianc/node-postgres",
+   "first_pkg": "pg-protocol",
+   "pkg_rank": 1207
+  },
+  {
+   "repo": "un-ts/napi-postinstall",
+   "first_pkg": "napi-postinstall",
+   "pkg_rank": 1210
+  },
+  {
+   "repo": "substack/node-commondir",
+   "first_pkg": "commondir",
+   "pkg_rank": 1212
+  },
+  {
+   "repo": "npm/minipass-fetch",
+   "first_pkg": "minipass-fetch",
+   "pkg_rank": 1213
+  },
+  {
+   "repo": "pngjs/pngjs",
+   "first_pkg": "pngjs",
+   "pkg_rank": 1214
+  },
+  {
+   "repo": "SimenB/collect-v8-coverage",
+   "first_pkg": "collect-v8-coverage",
+   "pkg_rank": 1216
+  },
+  {
+   "repo": "browserify/path-browserify",
+   "first_pkg": "path-browserify",
+   "pkg_rank": 1217
+  },
+  {
+   "repo": "holepunchto/bare-events",
+   "first_pkg": "bare-events",
+   "pkg_rank": 1218
+  },
+  {
+   "repo": "Leonidas-from-XIV/node-xml2js",
+   "first_pkg": "xml2js",
+   "pkg_rank": 1220
+  },
+  {
+   "repo": "sindresorhus/bundle-name",
+   "first_pkg": "bundle-name",
+   "pkg_rank": 1221
+  },
+  {
+   "repo": "NaturalIntelligence/fast-xml-builder",
+   "first_pkg": "fast-xml-builder",
+   "pkg_rank": 1223
+  },
+  {
+   "repo": "sindresorhus/got",
+   "first_pkg": "got",
+   "pkg_rank": 1225
+  },
+  {
+   "repo": "wooorm/space-separated-tokens",
+   "first_pkg": "space-separated-tokens",
+   "pkg_rank": 1226
+  },
+  {
+   "repo": "wooorm/is-alphabetical",
+   "first_pkg": "is-alphabetical",
+   "pkg_rank": 1227
+  },
+  {
+   "repo": "jslicense/spdx-correct.js",
+   "first_pkg": "spdx-correct",
+   "pkg_rank": 1228
+  },
+  {
+   "repo": "wooorm/is-decimal",
+   "first_pkg": "is-decimal",
+   "pkg_rank": 1229
+  },
+  {
+   "repo": "nexdrew/which-module",
+   "first_pkg": "which-module",
+   "pkg_rank": 1230
+  },
+  {
+   "repo": "davidjerleke/embla-carousel",
+   "first_pkg": "embla-carousel",
+   "pkg_rank": 1231
+  },
+  {
+   "repo": "isaacs/json-stringify-safe",
+   "first_pkg": "json-stringify-safe",
+   "pkg_rank": 1233
+  },
+  {
+   "repo": "microsoft/playwright",
+   "first_pkg": "playwright-core",
+   "pkg_rank": 1235
+  },
+  {
+   "repo": "rtsao/scc",
+   "first_pkg": "@rtsao/scc",
+   "pkg_rank": 1237
+  },
+  {
+   "repo": "jridgewell/set-array",
+   "first_pkg": "@jridgewell/set-array",
+   "pkg_rank": 1238
+  },
+  {
+   "repo": "sindresorhus/wsl-utils",
+   "first_pkg": "wsl-utils",
+   "pkg_rank": 1239
+  },
+  {
+   "repo": "mathiasbynens/unicode-canonical-property-names-ecmascript",
+   "first_pkg": "unicode-canonical-property-names-ecmascript",
+   "pkg_rank": 1240
+  },
+  {
+   "repo": "expressjs/compression",
+   "first_pkg": "compression",
+   "pkg_rank": 1242
+  },
+  {
+   "repo": "pmndrs/zustand",
+   "first_pkg": "zustand",
+   "pkg_rank": 1246
+  },
+  {
+   "repo": "dotenvx/dotenv-expand",
+   "first_pkg": "dotenv-expand",
+   "pkg_rank": 1249
+  },
+  {
+   "repo": "mafintosh/streamx",
+   "first_pkg": "streamx",
+   "pkg_rank": 1250
+  },
+  {
+   "repo": "unrs/unrs-resolver",
+   "first_pkg": "unrs-resolver",
+   "pkg_rank": 1253
+  },
+  {
+   "repo": "prebuild/node-gyp-build",
+   "first_pkg": "node-gyp-build",
+   "pkg_rank": 1256
+  },
+  {
+   "repo": "mafintosh/fast-fifo",
+   "first_pkg": "fast-fifo",
+   "pkg_rank": 1257
+  },
+  {
+   "repo": "wooorm/ccount",
+   "first_pkg": "ccount",
+   "pkg_rank": 1258
+  },
+  {
+   "repo": "inspect-js/is-arguments",
+   "first_pkg": "is-arguments",
+   "pkg_rank": 1259
+  },
+  {
+   "repo": "mafintosh/fs-constants",
+   "first_pkg": "fs-constants",
+   "pkg_rank": 1260
+  },
+  {
+   "repo": "arcanis/jest-pnp-resolver",
+   "first_pkg": "jest-pnp-resolver",
+   "pkg_rank": 1261
+  },
+  {
+   "repo": "wooorm/zwitch",
+   "first_pkg": "zwitch",
+   "pkg_rank": 1268
+  },
+  {
+   "repo": "jshttp/compressible",
+   "first_pkg": "compressible",
+   "pkg_rank": 1269
+  },
+  {
+   "repo": "emotion-js/emotion",
+   "first_pkg": "@emotion/memoize",
+   "pkg_rank": 1270
+  },
+  {
+   "repo": "syntax-tree/mdast-util-to-markdown",
+   "first_pkg": "mdast-util-to-markdown",
+   "pkg_rank": 1271
+  },
+  {
+   "repo": "wooorm/parse-entities",
+   "first_pkg": "parse-entities",
+   "pkg_rank": 1275
+  },
+  {
+   "repo": "streamich/memfs",
+   "first_pkg": "memfs",
+   "pkg_rank": 1277
+  },
+  {
+   "repo": "yargs/require-main-filename",
+   "first_pkg": "require-main-filename",
+   "pkg_rank": 1279
+  },
+  {
+   "repo": "syntax-tree/mdast-util-to-hast",
+   "first_pkg": "mdast-util-to-hast",
+   "pkg_rank": 1280
+  },
+  {
+   "repo": "honojs/hono",
+   "first_pkg": "hono",
+   "pkg_rank": 1282
+  },
+  {
+   "repo": "moment/moment",
+   "first_pkg": "moment",
+   "pkg_rank": 1284
+  },
+  {
+   "repo": "mathiasbynens/unicode-property-aliases-ecmascript",
+   "first_pkg": "unicode-property-aliases-ecmascript",
+   "pkg_rank": 1286
+  },
+  {
+   "repo": "bnjmnt4n/regjsgen",
+   "first_pkg": "regjsgen",
+   "pkg_rank": 1287
+  },
+  {
+   "repo": "syntax-tree/mdast-util-from-markdown",
+   "first_pkg": "mdast-util-from-markdown",
+   "pkg_rank": 1289
+  },
+  {
+   "repo": "humanwhocodes/object-schema",
+   "first_pkg": "@humanwhocodes/object-schema",
+   "pkg_rank": 1290
+  },
+  {
+   "repo": "sindresorhus/default-browser",
+   "first_pkg": "default-browser",
+   "pkg_rank": 1291
+  },
+  {
+   "repo": "mathiasbynens/unicode-match-property-ecmascript",
+   "first_pkg": "unicode-match-property-ecmascript",
+   "pkg_rank": 1292
+  },
+  {
+   "repo": "watson/module-details-from-path",
+   "first_pkg": "module-details-from-path",
+   "pkg_rank": 1295
+  },
+  {
+   "repo": "xtuc/acorn-import-attributes",
+   "first_pkg": "acorn-import-attributes",
+   "pkg_rank": 1296
+  },
+  {
+   "repo": "jsx-eslint/eslint-plugin-jsx-a11y",
+   "first_pkg": "eslint-plugin-jsx-a11y",
+   "pkg_rank": 1297
+  },
+  {
+   "repo": "davidmarkclements/fast-safe-stringify",
+   "first_pkg": "fast-safe-stringify",
+   "pkg_rank": 1300
+  },
+  {
+   "repo": "jamestalmage/normalize-range",
+   "first_pkg": "normalize-range",
+   "pkg_rank": 1302
+  },
+  {
+   "repo": "honojs/node-server",
+   "first_pkg": "@hono/node-server",
+   "pkg_rank": 1303
+  },
+  {
+   "repo": "mdevils/html-entities",
+   "first_pkg": "html-entities",
+   "pkg_rank": 1304
+  },
+  {
+   "repo": "cheeriojs/cheerio",
+   "first_pkg": "cheerio",
+   "pkg_rank": 1305
+  },
+  {
+   "repo": "remarkjs/remark",
+   "first_pkg": "remark-parse",
+   "pkg_rank": 1307
+  },
+  {
+   "repo": "EventSource/eventsource",
+   "first_pkg": "eventsource",
+   "pkg_rank": 1309
+  },
+  {
+   "repo": "pinojs/pino",
+   "first_pkg": "pino",
+   "pkg_rank": 1310
+  },
+  {
+   "repo": "sindresorhus/lowercase-keys",
+   "first_pkg": "lowercase-keys",
+   "pkg_rank": 1311
+  },
+  {
+   "repo": "digitalbazaar/forge",
+   "first_pkg": "node-forge",
+   "pkg_rank": 1313
+  },
+  {
+   "repo": "tad-lispy/node-damerau-levenshtein",
+   "first_pkg": "damerau-levenshtein",
+   "pkg_rank": 1315
+  },
+  {
+   "repo": "tinylibs/tinypool",
+   "first_pkg": "tinypool",
+   "pkg_rank": 1316
+  },
+  {
+   "repo": "prettier/prettier-linter-helpers",
+   "first_pkg": "prettier-linter-helpers",
+   "pkg_rank": 1317
+  },
+  {
+   "repo": "kevva/astral-regex",
+   "first_pkg": "astral-regex",
+   "pkg_rank": 1319
+  },
+  {
+   "repo": "lukeed/mrmime",
+   "first_pkg": "mrmime",
+   "pkg_rank": 1320
+  },
+  {
+   "repo": "kyldvs/ast-types-flow",
+   "first_pkg": "ast-types-flow",
+   "pkg_rank": 1323
+  },
+  {
+   "repo": "sindresorhus/p-cancelable",
+   "first_pkg": "p-cancelable",
+   "pkg_rank": 1324
+  },
+  {
+   "repo": "mde/ejs",
+   "first_pkg": "ejs",
+   "pkg_rank": 1325
+  },
+  {
+   "repo": "testing-library/user-event",
+   "first_pkg": "@testing-library/user-event",
+   "pkg_rank": 1326
+  },
+  {
+   "repo": "bvaughn/react-resizable-panels",
+   "first_pkg": "react-resizable-panels",
+   "pkg_rank": 1327
+  },
+  {
+   "repo": "wooorm/trough",
+   "first_pkg": "trough",
+   "pkg_rank": 1329
+  },
+  {
+   "repo": "mattcg/language-tags",
+   "first_pkg": "language-tags",
+   "pkg_rank": 1330
+  },
+  {
+   "repo": "wooorm/bail",
+   "first_pkg": "bail",
+   "pkg_rank": 1333
+  },
+  {
+   "repo": "npm/fs-minipass",
+   "first_pkg": "fs-minipass",
+   "pkg_rank": 1334
+  },
+  {
+   "repo": "remarkablemark/style-to-object",
+   "first_pkg": "style-to-object",
+   "pkg_rank": 1335
+  },
+  {
+   "repo": "guilhermerodz/input-otp",
+   "first_pkg": "input-otp",
+   "pkg_rank": 1338
+  },
+  {
+   "repo": "wooorm/comma-separated-tokens",
+   "first_pkg": "comma-separated-tokens",
+   "pkg_rank": 1340
+  },
+  {
+   "repo": "lquixada/cross-fetch",
+   "first_pkg": "cross-fetch",
+   "pkg_rank": 1341
+  },
+  {
+   "repo": "andrewrk/node-fd-slicer",
+   "first_pkg": "fd-slicer",
+   "pkg_rank": 1342
+  },
+  {
+   "repo": "bendrucker/postgres-interval",
+   "first_pkg": "postgres-interval",
+   "pkg_rank": 1343
+  },
+  {
+   "repo": "wooorm/longest-streak",
+   "first_pkg": "longest-streak",
+   "pkg_rank": 1345
+  },
+  {
+   "repo": "MikeMcl/big.js",
+   "first_pkg": "big.js",
+   "pkg_rank": 1346
+  },
+  {
+   "repo": "SheetJS/js-crc32",
+   "first_pkg": "crc-32",
+   "pkg_rank": 1347
+  },
+  {
+   "repo": "sindresorhus/map-obj",
+   "first_pkg": "map-obj",
+   "pkg_rank": 1349
+  },
+  {
+   "repo": "kriszyp/json-schema",
+   "first_pkg": "json-schema",
+   "pkg_rank": 1350
+  },
+  {
+   "repo": "octokit/request.js",
+   "first_pkg": "@octokit/request",
+   "pkg_rank": 1351
+  },
+  {
+   "repo": "npm/validate-npm-package-name",
+   "first_pkg": "validate-npm-package-name",
+   "pkg_rank": 1352
+  },
+  {
+   "repo": "sidorares/json-bigint",
+   "first_pkg": "json-bigint",
+   "pkg_rank": 1353
+  },
+  {
+   "repo": "wooorm/is-alphanumerical",
+   "first_pkg": "is-alphanumerical",
+   "pkg_rank": 1356
+  },
+  {
+   "repo": "reduxjs/reselect",
+   "first_pkg": "reselect",
+   "pkg_rank": 1358
+  },
+  {
+   "repo": "pinojs/sonic-boom",
+   "first_pkg": "sonic-boom",
+   "pkg_rank": 1359
+  },
+  {
+   "repo": "braveg1rl/performance-now",
+   "first_pkg": "performance-now",
+   "pkg_rank": 1360
+  },
+  {
+   "repo": "IndigoUnited/node-promise-retry",
+   "first_pkg": "promise-retry",
+   "pkg_rank": 1361
+  },
+  {
+   "repo": "sindresorhus/p-finally",
+   "first_pkg": "p-finally",
+   "pkg_rank": 1362
+  },
+  {
+   "repo": "humanwhocodes/config-array",
+   "first_pkg": "@humanwhocodes/config-array",
+   "pkg_rank": 1366
+  },
+  {
+   "repo": "andyperlitch/jsbn",
+   "first_pkg": "jsbn",
+   "pkg_rank": 1367
+  },
+  {
+   "repo": "pinojs/pino-abstract-transport",
+   "first_pkg": "pino-abstract-transport",
+   "pkg_rank": 1369
+  },
+  {
+   "repo": "vercel/styled-jsx",
+   "first_pkg": "styled-jsx",
+   "pkg_rank": 1370
+  },
+  {
+   "repo": "xmldom/xmldom",
+   "first_pkg": "@xmldom/xmldom",
+   "pkg_rank": 1372
+  },
+  {
+   "repo": "wooorm/devlop",
+   "first_pkg": "devlop",
+   "pkg_rank": 1374
+  },
+  {
+   "repo": "gulpjs/interpret",
+   "first_pkg": "interpret",
+   "pkg_rank": 1375
+  },
+  {
+   "repo": "syntax-tree/mdast-util-phrasing",
+   "first_pkg": "mdast-util-phrasing",
+   "pkg_rank": 1376
+  },
+  {
+   "repo": "babel/babel-plugin-proposal-private-property-in-object",
+   "first_pkg": "@babel/plugin-proposal-private-property-in-object",
+   "pkg_rank": 1377
+  },
+  {
+   "repo": "reduxjs/redux",
+   "first_pkg": "redux",
+   "pkg_rank": 1379
+  },
+  {
+   "repo": "svg/svgo",
+   "first_pkg": "svgo",
+   "pkg_rank": 1380
+  },
+  {
+   "repo": "wooorm/decode-named-character-reference",
+   "first_pkg": "decode-named-character-reference",
+   "pkg_rank": 1381
+  },
+  {
+   "repo": "wooorm/character-reference-invalid",
+   "first_pkg": "character-reference-invalid",
+   "pkg_rank": 1382
+  },
+  {
+   "repo": "mafintosh/duplexify",
+   "first_pkg": "duplexify",
+   "pkg_rank": 1383
+  },
+  {
+   "repo": "dchest/tweetnacl-js",
+   "first_pkg": "tweetnacl",
+   "pkg_rank": 1384
+  },
+  {
+   "repo": "es-shims/typedarray",
+   "first_pkg": "typedarray",
+   "pkg_rank": 1385
+  },
+  {
+   "repo": "benjamn/recast",
+   "first_pkg": "recast",
+   "pkg_rank": 1387
+  },
+  {
+   "repo": "sindresorhus/widest-line",
+   "first_pkg": "widest-line",
+   "pkg_rank": 1389
+  },
+  {
+   "repo": "mridgway/hoist-non-react-statics",
+   "first_pkg": "hoist-non-react-statics",
+   "pkg_rank": 1390
+  },
+  {
+   "repo": "mattcg/language-subtag-registry",
+   "first_pkg": "language-subtag-registry",
+   "pkg_rank": 1392
+  },
+  {
+   "repo": "remarkablemark/inline-style-parser",
+   "first_pkg": "inline-style-parser",
+   "pkg_rank": 1393
+  },
+  {
+   "repo": "google/node-gtoken",
+   "first_pkg": "gtoken",
+   "pkg_rank": 1396
+  },
+  {
+   "repo": "sindresorhus/mimic-function",
+   "first_pkg": "mimic-function",
+   "pkg_rank": 1398
+  },
+  {
+   "repo": "moment/luxon",
+   "first_pkg": "luxon",
+   "pkg_rank": 1400
+  },
+  {
+   "repo": "chalk/supports-hyperlinks",
+   "first_pkg": "supports-hyperlinks",
+   "pkg_rank": 1401
+  },
+  {
+   "repo": "jonschlinkert/is-windows",
+   "first_pkg": "is-windows",
+   "pkg_rank": 1402
+  },
+  {
+   "repo": "wooorm/is-hexadecimal",
+   "first_pkg": "is-hexadecimal",
+   "pkg_rank": 1403
+  },
+  {
+   "repo": "hughsk/is-typedarray",
+   "first_pkg": "is-typedarray",
+   "pkg_rank": 1405
+  },
+  {
+   "repo": "syntax-tree/hast-util-whitespace",
+   "first_pkg": "hast-util-whitespace",
+   "pkg_rank": 1407
+  },
+  {
+   "repo": "oxc-project/oxc",
+   "first_pkg": "@oxc-project/types",
+   "pkg_rank": 1408
+  },
+  {
+   "repo": "pinojs/pino-std-serializers",
+   "first_pkg": "pino-std-serializers",
+   "pkg_rank": 1409
+  },
+  {
+   "repo": "import-js/eslint-import-resolver-typescript",
+   "first_pkg": "eslint-import-resolver-typescript",
+   "pkg_rank": 1413
+  },
+  {
+   "repo": "alexreardon/memoize-one",
+   "first_pkg": "memoize-one",
+   "pkg_rank": 1414
+  },
+  {
+   "repo": "wooorm/character-entities-html4",
+   "first_pkg": "character-entities-html4",
+   "pkg_rank": 1416
+  },
+  {
+   "repo": "jonschlinkert/global-prefix",
+   "first_pkg": "global-prefix",
+   "pkg_rank": 1418
+  },
+  {
+   "repo": "charmander/pg-int8",
+   "first_pkg": "pg-int8",
+   "pkg_rank": 1420
+  },
+  {
+   "repo": "blakeembrey/pluralize",
+   "first_pkg": "pluralize",
+   "pkg_rank": 1421
+  },
+  {
+   "repo": "octokit/request-error.js",
+   "first_pkg": "@octokit/request-error",
+   "pkg_rank": 1422
+  },
+  {
+   "repo": "mccormicka/string-argv",
+   "first_pkg": "string-argv",
+   "pkg_rank": 1423
+  },
+  {
+   "repo": "vercel/next.js",
+   "first_pkg": "@next/env",
+   "pkg_rank": 1424
+  },
+  {
+   "repo": "motiondivision/motion",
+   "first_pkg": "motion-utils",
+   "pkg_rank": 1425
+  },
+  {
+   "repo": "octokit/endpoint.js",
+   "first_pkg": "@octokit/endpoint",
+   "pkg_rank": 1426
+  },
+  {
+   "repo": "wooorm/stringify-entities",
+   "first_pkg": "stringify-entities",
+   "pkg_rank": 1427
+  },
+  {
+   "repo": "image-size/image-size",
+   "first_pkg": "image-size",
+   "pkg_rank": 1430
+  },
+  {
+   "repo": "syntax-tree/unist-util-position",
+   "first_pkg": "unist-util-position",
+   "pkg_rank": 1432
+  },
+  {
+   "repo": "typicode/husky",
+   "first_pkg": "husky",
+   "pkg_rank": 1435
+  },
+  {
+   "repo": "cowboy/node-exit",
+   "first_pkg": "exit",
+   "pkg_rank": 1436
+  },
+  {
+   "repo": "hughsk/flat",
+   "first_pkg": "flat",
+   "pkg_rank": 1440
+  },
+  {
+   "repo": "octokit/core.js",
+   "first_pkg": "@octokit/core",
+   "pkg_rank": 1441
+  },
+  {
+   "repo": "cheeriojs/cheerio-select",
+   "first_pkg": "cheerio-select",
+   "pkg_rank": 1442
+  },
+  {
+   "repo": "rrweb-io/CSSOM",
+   "first_pkg": "rrweb-cssom",
+   "pkg_rank": 1445
+  },
+  {
+   "repo": "webdiscus/ansis",
+   "first_pkg": "ansis",
+   "pkg_rank": 1446
+  },
+  {
+   "repo": "ardatan/graphql-tools",
+   "first_pkg": "@graphql-tools/utils",
+   "pkg_rank": 1448
+  },
+  {
+   "repo": "rbuckton/reflect-metadata",
+   "first_pkg": "reflect-metadata",
+   "pkg_rank": 1451
+  },
+  {
+   "repo": "lukeed/sirv",
+   "first_pkg": "sirv",
+   "pkg_rank": 1453
+  },
+  {
+   "repo": "sindresorhus/component-emitter",
+   "first_pkg": "component-emitter",
+   "pkg_rank": 1454
+  },
+  {
+   "repo": "mathiasbynens/regenerate",
+   "first_pkg": "regenerate",
+   "pkg_rank": 1455
+  },
+  {
+   "repo": "wooorm/trim-lines",
+   "first_pkg": "trim-lines",
+   "pkg_rank": 1457
+  },
+  {
+   "repo": "remarkjs/remark-rehype",
+   "first_pkg": "remark-rehype",
+   "pkg_rank": 1459
+  },
+  {
+   "repo": "jsdom/domexception",
+   "first_pkg": "domexception",
+   "pkg_rank": 1460
+  },
+  {
+   "repo": "sxzz/obug",
+   "first_pkg": "obug",
+   "pkg_rank": 1463
+  },
+  {
+   "repo": "enquirer/enquirer",
+   "first_pkg": "enquirer",
+   "pkg_rank": 1464
+  },
+  {
+   "repo": "qix-/node-simple-swizzle",
+   "first_pkg": "simple-swizzle",
+   "pkg_rank": 1465
+  },
+  {
+   "repo": "npm/npm-package-arg",
+   "first_pkg": "npm-package-arg",
+   "pkg_rank": 1466
+  },
+  {
+   "repo": "gr2m/universal-user-agent",
+   "first_pkg": "universal-user-agent",
+   "pkg_rank": 1467
+  },
+  {
+   "repo": "faye/faye-websocket-node",
+   "first_pkg": "faye-websocket",
+   "pkg_rank": 1471
+  },
+  {
+   "repo": "then/promise",
+   "first_pkg": "promise",
+   "pkg_rank": 1472
+  },
+  {
+   "repo": "jonschlinkert/global-modules",
+   "first_pkg": "global-modules",
+   "pkg_rank": 1474
+  },
+  {
+   "repo": "babel/preset-modules",
+   "first_pkg": "@babel/preset-modules",
+   "pkg_rank": 1475
+  },
+  {
+   "repo": "nodejs/nan",
+   "first_pkg": "nan",
+   "pkg_rank": 1476
+  },
+  {
+   "repo": "octokit/graphql.js",
+   "first_pkg": "@octokit/graphql",
+   "pkg_rank": 1477
+  },
+  {
+   "repo": "gulpjs/rechoir",
+   "first_pkg": "rechoir",
+   "pkg_rank": 1480
+  },
+  {
+   "repo": "jsdom/abab",
+   "first_pkg": "abab",
+   "pkg_rank": 1481
+  },
+  {
+   "repo": "sindresorhus/responselike",
+   "first_pkg": "responselike",
+   "pkg_rank": 1483
+  },
+  {
+   "repo": "octokit/auth-token.js",
+   "first_pkg": "@octokit/auth-token",
+   "pkg_rank": 1486
+  },
+  {
+   "repo": "nuxt-contrib/create-require",
+   "first_pkg": "create-require",
+   "pkg_rank": 1489
+  },
+  {
+   "repo": "RemyRylan/json-schema-typed",
+   "first_pkg": "json-schema-typed",
+   "pkg_rank": 1490
+  },
+  {
+   "repo": "mcollina/thread-stream",
+   "first_pkg": "thread-stream",
+   "pkg_rank": 1491
+  }
+ ]
+}
