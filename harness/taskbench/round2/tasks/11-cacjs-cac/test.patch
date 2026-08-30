@@ -1,0 +1,31 @@
+diff --git a/tests/index.test.ts b/tests/index.test.ts
+index a2bc4e71dd53765152191900bc02718c940d68ea..bbb176b4a70da29c9bb3a3cb83316a462e8bf147 100644
+--- a/tests/index.test.ts
++++ b/tests/index.test.ts
+@@ -186,3 +186,26 @@ describe('--version in help message', () => {
+     expect(output).toContain(`--version`)
+   })
+ })
++
++describe('default commands', () => {
++  test('simple: empty call', async () => {
++    const output = await getOutput('default-command.ts', [])
++    expect(output).toContain('Did something!')
++  })
++
++  test('simple: name alias call', async () => {
++    const output = await getOutput('default-command.ts', ['something'])
++    expect(output).toContain('Did something!')
++  })
++
++  // See https://github.com/cacjs/cac/issues/151
++  test('inverted: empty call', async () => {
++    const output = await getOutput('default-command-inverted.ts', [])
++    expect(output).toContain('Did something!')
++  })
++
++  test('inverted: name alias call', async () => {
++    const output = await getOutput('default-command-inverted.ts', ['something'])
++    expect(output).toContain('Did something!')
++  })
++})

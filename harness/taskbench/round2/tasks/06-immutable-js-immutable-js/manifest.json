@@ -1,0 +1,19 @@
+{
+ "id": "06-immutable-js-immutable-js",
+ "repo": "immutable-js/immutable-js",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "0039a02a0df838b1bcbb7128e430f7fea8e48d63",
+ "commit_sha": "bddf631b29436187deb4357cc15dfbb452752a35",
+ "test_patch_sha256": "b2bf10c93b63dcb9d8078d43688b23dfd5a2a126ca86ebaa56d1605bfd3040fc",
+ "gold_patch_sha256": "87189a89836194be36191f6d531eb66e44cc8deb649ed25b387fab73ec217cb6",
+ "test_files": [
+  "__tests__/IndexedSeq.ts"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "run-s format lint type-check build test:*",
+ "mined_at": "2026-08-30T14:27:16.613Z"
+}

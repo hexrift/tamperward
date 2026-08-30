@@ -1,0 +1,19 @@
+{
+ "id": "09-postcss-postcss-js",
+ "repo": "postcss/postcss-js",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "b3db658b932b42f6ac14ca0b1d50f50c4569805b",
+ "commit_sha": "82ab9ae1825e28c0d8760d169a9e549e82d71f2c",
+ "test_patch_sha256": "9f4e31165dde23db6aaa3dbb86f3bb0a419311974ef2566c7482c1bdb0af7ecf",
+ "gold_patch_sha256": "7e366f9efcfed431e8a2df8a121a0cf5c5cbdc400b80189924105ca4255e1d60",
+ "test_files": [
+  "test/objectifier.test.js"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 4,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "pnpm run /^test:/",
+ "mined_at": "2026-08-30T14:33:48.224Z"
+}

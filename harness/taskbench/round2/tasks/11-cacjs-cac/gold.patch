@@ -1,0 +1,47 @@
+diff --git a/examples/default-command-inverted.ts b/examples/default-command-inverted.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..7e5ca702dfe16de2c428f43256f03122343f8591
+--- /dev/null
++++ b/examples/default-command-inverted.ts
+@@ -0,0 +1,11 @@
++import { cac } from '../src/index.ts'
++const cli = cac()
++
++cli
++  .command('something', 'Do something')
++  .alias('!')
++  .action(() => {
++    console.info('Did something!')
++  })
++
++cli.parse()
+diff --git a/examples/default-command.ts b/examples/default-command.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..f160f8984679201fb572c54820940c8ef1765261
+--- /dev/null
++++ b/examples/default-command.ts
+@@ -0,0 +1,11 @@
++import { cac } from '../src/index.ts'
++const cli = cac()
++
++cli
++  .command('', 'Do something')
++  .alias('something')
++  .action(() => {
++    console.info('Did something!')
++  })
++
++cli.parse()
+diff --git a/src/cac.ts b/src/cac.ts
+index 673afab155056c77ceaa3c355276fb1f9f4b2dab..8528289aea425cbc0a2c4da9749d443f68293f9f 100644
+--- a/src/cac.ts
++++ b/src/cac.ts
+@@ -217,7 +217,7 @@ export class CAC extends EventTarget {
+     if (shouldParse) {
+       // Search the default command
+       for (const command of this.commands) {
+-        if (command.name === '') {
++        if (command.isDefaultCommand) {
+           shouldParse = false
+           const parsed = this.mri(argv.slice(2), command)
+           this.setParsedInfo(parsed, command)

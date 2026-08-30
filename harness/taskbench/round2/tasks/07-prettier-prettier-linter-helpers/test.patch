@@ -1,0 +1,39 @@
+diff --git a/test/index.test.js b/test/index.test.js
+index 61091617dc04c750d41c3c7e36c00c87591009b7..14d96ef979fea098ba7c358b81506cc666ccc6b3 100644
+--- a/test/index.test.js
++++ b/test/index.test.js
+@@ -1,26 +1,29 @@
++const {describe, test} = require('node:test');
++const assert = require('node:assert/strict');
+ const {showInvisibles, generateDifferences} = require('..');
+-const assert = require('assert');
+ 
+ describe('showInvisibles', () => {
+-  it('shows invisibles', () => {
++  test('shows invisibles', () => {
+     assert.strictEqual(showInvisibles('1 2\n3\t4\r5'), '1·2⏎3↹4␍5');
+   });
+ });
+ 
+ describe('generateDifferences', () => {
+-  it('operation: insert', () => {
++  test('operation: insert', () => {
+     const differences = generateDifferences('abc', 'abcdef');
+     assert.deepStrictEqual(differences, [
+       {operation: 'insert', offset: 3, insertText: 'def'},
+     ]);
+   });
+-  it('operation: delete', () => {
++
++  test('operation: delete', () => {
+     const differences = generateDifferences('abcdef', 'abc');
+     assert.deepStrictEqual(differences, [
+       {operation: 'delete', offset: 3, deleteText: 'def'},
+     ]);
+   });
+-  it('operation: replace', () => {
++
++  test('operation: replace', () => {
+     const differences = generateDifferences('abc', 'def');
+     assert.deepStrictEqual(differences, [
+       {operation: 'replace', offset: 0, deleteText: 'abc', insertText: 'def'},

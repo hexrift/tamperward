@@ -1,0 +1,92 @@
+diff --git a/package-lock.json b/package-lock.json
+index 67e0a9c6152db0e1457b2b44f790436024b1a290..465280669164358a615cbeedae2c9cf23186c826 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -2989,9 +2989,6 @@
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3009,9 +3006,6 @@
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3029,9 +3023,6 @@
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3049,9 +3040,6 @@
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+diff --git a/src/Operations.js b/src/Operations.js
+index 3abc10ba6235b9ccfd8bf1bac8e6d1949de9921d..bd804adffad14681442358a7c51f9da5cc5a313a 100644
+--- a/src/Operations.js
++++ b/src/Operations.js
+@@ -297,17 +297,27 @@ export function reverseFactory(collection, useKeys) {
+   reversedSequence.cacheResult = cacheResultThrough;
+   reversedSequence.__iterate = function (fn, reverse) {
+     let i = 0;
+-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- TODO enable eslint here
+-    reverse && ensureSize(collection);
++
++    // Reversed keys count down from the sequence's size, which may still be
++    // unknown when wrapping a lazy seq. The reversed sequence is the same
++    // size as `collection`, so use the size `ensureSize` materializes.
++    // size is ignored when not reversed, so it can be set to NaN to avoid TS report.
++    const size = reverse ? ensureSize(collection) : NaN;
++
+     return collection.__iterate(
+-      (v, k) => fn(v, useKeys ? k : reverse ? this.size - ++i : i++, this),
++      (v, k) => fn(v, useKeys ? k : reverse ? size - ++i : i++, this),
+       !reverse
+     );
+   };
+   reversedSequence.__iterator = (type, reverse) => {
+     let i = 0;
+-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- TODO enable eslint here
+-    reverse && ensureSize(collection);
++
++    // Same as `__iterate` above: reversed keys count down from the
++    // materialized size of `collection` (the reversed sequence's own `size`
++    // may be undefined when wrapping a lazy seq).
++    // size is ignored when not reversed, so it can be set to NaN to avoid TS report.
++    const size = reverse ? ensureSize(collection) : NaN;
++
+     const iterator = collection.__iterator(ITERATE_ENTRIES, !reverse);
+     return new Iterator(() => {
+       const step = iterator.next();
+@@ -317,9 +327,7 @@ export function reverseFactory(collection, useKeys) {
+       const entry = step.value;
+       return iteratorValue(
+         type,
+-        // `__iterator` is an arrow function, so `this` is not the reversed
+-        // sequence here — read `reversedSequence.size` explicitly.
+-        useKeys ? entry[0] : reverse ? reversedSequence.size - ++i : i++,
++        useKeys ? entry[0] : reverse ? size - ++i : i++,
+         entry[1],
+         step
+       );

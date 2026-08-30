@@ -1,0 +1,28 @@
+diff --git a/test/endpoint.test.ts b/test/endpoint.test.ts
+index a665178be935ff800f0eace07506f984cfae0b85..c12117ebe5b62f08472ee68b9b01fe1877ffd0cc 100644
+--- a/test/endpoint.test.ts
++++ b/test/endpoint.test.ts
+@@ -531,6 +531,23 @@ describe("endpoint()", () => {
+     });
+   });
+ 
++  it("bigint placeholder value", () => {
++    const options = endpoint(
++      "POST /app/hook/deliveries/{delivery_id}/attempts",
++      {
++        delivery_id: 123n,
++      },
++    );
++    expect(options).toEqual({
++      method: "POST",
++      url: "https://api.github.com/app/hook/deliveries/123/attempts",
++      headers: {
++        accept: "application/vnd.github.v3+json",
++        "user-agent": userAgent,
++      },
++    });
++  });
++
+   it("Trailing slash in URL in expression is encoded", () => {
+     const options1 = endpoint(
+       "GET /repos/{owner}/{repo}/git/matching-refs/{ref}",
