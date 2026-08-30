@@ -1,0 +1,19 @@
+{
+ "id": "05-svg-svgo",
+ "repo": "svg/svgo",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "3b47945780ecaa10e9bc4279cbf0637026d2f6cd",
+ "commit_sha": "68c0660ad3c95f3a6f2aa7fd24e7236bb9ed61ce",
+ "test_patch_sha256": "c3e29ca84b1f76468cfc712ab502355f9c408f020000bf443ea31f1c877f07a0",
+ "gold_patch_sha256": "67b69bb04c184273bffda424b093a44052dec372e3d6df16a196075a20562238",
+ "test_files": [
+  "lib/style.test.js"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "vitest run",
+ "mined_at": "2026-08-30T11:04:12.442Z"
+}

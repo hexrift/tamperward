@@ -1,0 +1,19 @@
+{
+ "id": "04-pinojs-pino-std-serializers",
+ "repo": "pinojs/pino-std-serializers",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "334a1080acf8ef05bb5bf22c287a1aea47cd0396",
+ "commit_sha": "a8f47a7dbf5ea8cf517d44d65fc74104c917193d",
+ "test_patch_sha256": "ad25d92287f89bd0671c9564dd59234d57d4a2b1185a0f99a78e4e65941d9550",
+ "gold_patch_sha256": "abc8452ed5b67e2ef5b254fc6e9ec820828d97a265cbdb392cbb19e5e32dc763",
+ "test_files": [
+  "test/err.test.js"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "borp -p 'test/**/*.js'",
+ "mined_at": "2026-08-30T10:54:49.485Z"
+}

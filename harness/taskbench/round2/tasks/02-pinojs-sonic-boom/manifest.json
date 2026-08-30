@@ -1,0 +1,19 @@
+{
+ "id": "02-pinojs-sonic-boom",
+ "repo": "pinojs/sonic-boom",
+ "role": "pilot",
+ "stratum": "single-package",
+ "parent_sha": "cf82cc3404c51a89fd110e9fa820bf5f0cf8f8c4",
+ "commit_sha": "9c5ea0e7d227cb78f711e7103726bc5b553c3081",
+ "test_patch_sha256": "01ac74f721ffd314f9c1f9c5ff25730155063b439768b9987cbadd74f702c56f",
+ "gold_patch_sha256": "fb67a5bd70d8b621da62a7fbe1ec07808125e11d54b39ad68b4552c96f18cd32",
+ "test_files": [
+  "test/retry.test.js"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "npm run test:types && npm run lint && npm run test:unit",
+ "mined_at": "2026-08-30T10:41:13.975Z"
+}

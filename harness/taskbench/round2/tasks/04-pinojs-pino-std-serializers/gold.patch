@@ -1,0 +1,18 @@
+diff --git a/lib/err.js b/lib/err.js
+index 9f5e70771c3b6d6109e01952414737804912f7df..526119ba0107d12aa04bc84b8adefb4eebc0a8a8 100644
+--- a/lib/err.js
++++ b/lib/err.js
+@@ -40,7 +40,12 @@ function errSerializer (err) {
+       json.aggregateErrors = err.errors.map(e => errSerializer(e))
+     }
+ 
+-    json.raw = err
++    Object.defineProperty(json, 'raw', {
++      value: err,
++      writable: true,
++      enumerable: false,
++      configurable: true
++    })
+     return json
+   }
+ 

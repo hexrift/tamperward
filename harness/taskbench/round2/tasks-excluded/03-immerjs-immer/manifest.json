@@ -1,0 +1,19 @@
+{
+ "id": "03-immerjs-immer",
+ "repo": "immerjs/immer",
+ "role": "pilot",
+ "stratum": "single-package",
+ "parent_sha": "eea464ff07d4f8e28423d16b9305c0320e46b922",
+ "commit_sha": "9491138b112c01ef0042d374e1553135e3819057",
+ "test_patch_sha256": "891f65773f43a11ddc9b2d857740c0292854885c05ce54a2d8034aab81c2006c",
+ "gold_patch_sha256": "65e8b00ce61c66d9d649f0b3a1783948eab24664c962f5fab771f33f77cb7897",
+ "test_files": [
+  "__tests__/base.js"
+ ],
+ "pm": "yarn",
+ "node": "v22.22.2",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "vitest run && yarn test:build && yarn test:flow",
+ "mined_at": "2026-08-30T10:53:09.122Z"
+}
