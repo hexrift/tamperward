@@ -1,0 +1,19 @@
+{
+ "id": "19-reduxjs-reselect",
+ "repo": "reduxjs/reselect",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "533178db4cb213732ce3ae1ebe18bbbcd6de7ade",
+ "commit_sha": "3822fb85029c9b7d05b64e189b3f05a75c1b64bf",
+ "test_patch_sha256": "26a12dc370014d2ed5d72787b0ce0a46f7b6ffa0c0232356750741fd95e3ae6b",
+ "gold_patch_sha256": "aa70e5a1c4f77d7f2861cabd7377b97c0eb2538134b0959c413cee76a02a6a73",
+ "test_files": [
+  "test/lruMemoize.test.ts"
+ ],
+ "pm": "yarn",
+ "node": "v22.22.2",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "node --expose-gc ./node_modules/vitest/dist/cli-wrapper.js --run && yarn type-check",
+ "mined_at": "2026-08-30T16:13:19.027Z"
+}

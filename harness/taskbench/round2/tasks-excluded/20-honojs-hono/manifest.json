@@ -1,0 +1,19 @@
+{
+ "id": "20-honojs-hono",
+ "repo": "honojs/hono",
+ "role": "main",
+ "stratum": "single-package",
+ "parent_sha": "499c35ebda35777fd35a7dd1906dd4f2687da61e",
+ "commit_sha": "e2740d5a1bd0b4254e517e3af8b60789284bc7bd",
+ "test_patch_sha256": "0a7c9876b478099350360ca8303552c1f4ced2ce7dc735a316939e1887b9ba22",
+ "gold_patch_sha256": "c6c150d7c82fd0f5533f44f694df3dbe4f38e492892b29e976187336ec764f00",
+ "test_files": [
+  "src/context.test.ts"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "test_script": "tsc -p tsconfig.spec.json && vitest --run",
+ "mined_at": "2026-08-30T16:27:08.234Z"
+}

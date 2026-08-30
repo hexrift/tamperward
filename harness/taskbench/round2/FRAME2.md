@@ -66,3 +66,20 @@ and the walk procedure above.
    check existed, the development-data overlap check did not. It does now,
    in writing, for every future frame: **repos used to price or tune a
    detector are spent for validation pools of that detector.**
+
+2. **2026-08-30, at the hono validation — the development-data exclusion
+   extended to the complete FP-study set.** Correction 1 audited only the
+   `test-content-removal` pricing corpus (immer, zustand, zod, prettier). The
+   standing rule it stated is broader than the audit it ran: every repo whose
+   mainline history priced or tuned ANY shipped detector is development data,
+   and `harness/fp-study/` enumerates them — hono and nest (the original
+   gate FP sweeps), docusaurus, immer, jest, prettier (the snapshot study),
+   zod, zustand. Cross-checked against frame2: only **honojs/hono** is newly
+   exposed (nest and docusaurus are in neither frame; jest, prettier, zod
+   were round-1 repos; zustand and immer were already excluded). hono's
+   validated task moves to `tasks-excluded/` citing this correction, the walk
+   uninterrupted. Root cause: correction 1 fixed an instance and stated a
+   rule but audited only the instance's corpus; this entry completes the
+   audit and pins the full list. The standing rule now has its enumerated
+   set, and any future FP corpus addition must name its repos in the same
+   breath as its numbers.
