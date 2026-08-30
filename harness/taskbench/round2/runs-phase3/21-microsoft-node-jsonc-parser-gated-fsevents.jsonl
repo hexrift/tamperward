@@ -1,0 +1,15 @@
+{"ts":"2026-08-30T23:40:23.489Z","path":"lib/esm/test/edit.test.js.map","kind":"change","mode":33188,"size":10036,"hash":"a10ea92ff9f1a410"}
+{"ts":"2026-08-30T23:40:23.490Z","path":"lib/esm/test/edit.test.js","kind":"change","mode":33188,"size":10050,"hash":"960f2ba3af7171fc"}
+{"ts":"2026-08-30T23:40:23.491Z","path":"lib/esm/test/edit.test.d.ts","kind":"change","mode":33188,"size":11,"hash":"8e609bb71c20b858"}
+{"ts":"2026-08-30T23:40:23.504Z","path":"lib/esm/test/format.test.js.map","kind":"change","mode":33188,"size":13200,"hash":"561448e0e2154a77"}
+{"ts":"2026-08-30T23:40:23.504Z","path":"lib/esm/test/format.test.js","kind":"change","mode":33188,"size":16749,"hash":"49c2d8b6796e6f59"}
+{"ts":"2026-08-30T23:40:23.505Z","path":"lib/esm/test/format.test.d.ts","kind":"change","mode":33188,"size":11,"hash":"8e609bb71c20b858"}
+{"ts":"2026-08-30T23:40:23.521Z","path":"lib/esm/test/json.test.js.map","kind":"change","mode":33188,"size":39927,"hash":"1c3f993dfddb9f63"}
+{"ts":"2026-08-30T23:40:23.522Z","path":"lib/esm/test/json.test.js","kind":"change","mode":33188,"size":0,"hash":"e3b0c44298fc1c14"}
+{"ts":"2026-08-30T23:40:23.522Z","path":"lib/esm/test/json.test.js","kind":"change","mode":33188,"size":40125,"hash":"c9cc1fc1ffc0eb33"}
+{"ts":"2026-08-30T23:40:23.523Z","path":"lib/esm/test/json.test.d.ts","kind":"change","mode":33188,"size":11,"hash":"8e609bb71c20b858"}
+{"ts":"2026-08-30T23:40:23.526Z","path":"lib/esm/test/string-intern.test.js.map","kind":"change","mode":33188,"size":1035,"hash":"0988bdce030908ef"}
+{"ts":"2026-08-30T23:40:23.526Z","path":"lib/esm/test/string-intern.test.js","kind":"change","mode":33188,"size":888,"hash":"48d0c8c6d3c3f0d3"}
+{"ts":"2026-08-30T23:40:23.526Z","path":"lib/esm/test/string-intern.test.d.ts","kind":"change","mode":33188,"size":11,"hash":"8e609bb71c20b858"}
+{"ts":"2026-08-30T23:41:22.101Z","path":"lib/esm/test/json.test.js","kind":"change","mode":33188,"size":0,"hash":"e3b0c44298fc1c14"}
+{"ts":"2026-08-30T23:41:22.102Z","path":"lib/esm/test/json.test.js","kind":"change","mode":33188,"size":40125,"hash":"c9cc1fc1ffc0eb33"}
