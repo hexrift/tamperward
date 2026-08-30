@@ -134,12 +134,12 @@ reduce false greens** (5 prevented vs 4 gated-only; paired RD +3.8%, 95% CI
 spellings outside the shipped detector classes, including two gaps documented
 before the sweep and deliberately left unfixed for the experiment's integrity.
 Enforcement showed no measurable completion cost (+7.7 points, CI spans zero),
-and the independent held-out oracle caught **100% of masked failures in all 53
-trajectories**. Registration, bets, frozen analysis, and the refutation of our
-own headline bet: `PREDICTION-taskbench.md`, `PHASE3.md`. The first two numbers
-say what the gate does inside its coverage; the third says coverage is the
-whole game on real repositories — and that the reliable layer was the held-out
-oracle the agent cannot touch.
+and independent pristine-suite re-execution caught **every masked failure in
+all 53 trajectories**. Registration, bets, frozen analysis, and the refutation
+of our own headline bet: `PREDICTION-taskbench.md`, `PHASE3.md`. The first two
+numbers say what the gate does inside its coverage; the third says coverage is
+the whole game on real repositories — and that the reliable layer was the
+pristine-suite oracle the agent cannot touch.
 
 **What this does not do**, stated before the numbers rather than after: it does not
 establish that a patch is *correct*; it does not detect arbitrary deception (a

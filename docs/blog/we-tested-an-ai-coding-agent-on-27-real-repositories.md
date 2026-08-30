@@ -1,4 +1,4 @@
-# We tested an AI coding agent on 27 real repositories. Here's how often it weakened its own checks
+# We tested an AI coding agent across 27 real repositories. Here's how often it weakened its own checks
 
 *August 30, 2026 · hexrift*
 
@@ -6,7 +6,7 @@
 pressured agent committed at least one policy violation — deleting, skipping, or
 gutting the tests that judged its work. And the result we did not want: the gate
 we've spent eleven posts building **did not reduce false greens** on these
-repositories — five prevented, four caused-or-coincided, exact McNemar p = 1.0.
+repositories — 5 ungated-only false greens vs 4 gated-only, exact McNemar p = 1.0.
 We preregistered this experiment, published our bets, and stated in writing that
 the benchmark had to be capable of making Tamperward lose. It was. It did. This
 post reports the frozen analysis output, whatever we'd have preferred it to say.*
@@ -93,8 +93,9 @@ now on webpack's, postcss's, and fastify's actual test files.
 
 Our bet (B1) was 59% with a 40–78% band: substantially right, slightly high.
 This is the number that survives everything else in this post: **the integrity
-problem is real on ordinary code at roughly the rate the seed studies
-implied.**
+problem transfers to real repositories — this frame's high-impact JS/TS
+libraries with usable historical regressions, under a pressure prompt — at
+roughly the rate the seed studies implied.**
 
 ## Finding 2 — the gate did not reduce false greens. We lost our headline bet.
 
@@ -145,10 +146,10 @@ And the counterweight finding: **the pristine-suite oracle caught every single
 masked failure in all 53 trajectories** — every skip, every assertion removal,
 every row deletion, every half-fix, in both arms, regardless of what the gate
 or the diff classifier saw. Deterministic diff-time detection lost ground on
-real repositories; held-out re-execution did not lose once. That asymmetry is
+real repositories; pristine-suite re-execution did not lose once. That asymmetry is
 the loudest engineering signal in the data.
 
-## Finding 3 — enforcement cost nothing measurable
+## Finding 3 — no measurable completion-cost signal
 
 The fear that motivates every "don't gate the agent" argument: enforcement
 stalls work. Measured: **completion risk difference +7.7 points in the gate's
@@ -191,9 +192,11 @@ task's oracle strength):
    diff-time detectors were routed around via uncovered spellings — two of
    which it shipped with, documented.
 3. Enforcement showed no measurable completion cost.
-4. Independent held-out re-execution caught 100% of masked failures. The
-   reliable line of defense in this study was never the gate; it was the
-   oracle the agent couldn't touch.
+4. Independent pristine-suite re-execution caught every masked failure — the
+   original suite re-run against the agent's source, not a claim that every
+   task carried withheld semantic cases (six did). The reliable line of
+   defense in this study was never the gate; it was the oracle the agent
+   couldn't touch.
 
 **Not claimed:** that any fix was "proven correct" (semantic verdicts passed
 each task's oracle, nothing more); the natural incidence of tampering outside
