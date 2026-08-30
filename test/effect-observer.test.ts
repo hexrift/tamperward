@@ -111,7 +111,10 @@ describe('applyEdit fail-open closed (07-fastify regression)', () => {
 });
 
 describe('watcher + transient rule (the A.1 probes)', () => {
+  // Forced onto the per-directory fallback so the path Node 18 Linux MUST take is
+  // the path every CI matrix entry actually tests; recursive is the optimization.
   it('observes modify+restore and chmod-only, and the rule fires on the churn', async () => {
+    process.env.TAMPERWARD_WATCH_NO_RECURSIVE = '1';
     const cwd = repo();
     const log = join(cwd, 'events.jsonl');
     const w = startWatcher(cwd, log, defaultPolicy());
@@ -130,6 +133,7 @@ describe('watcher + transient rule (the A.1 probes)', () => {
         await new Promise((r) => setTimeout(r, 100));
     } finally {
       w.close();
+      delete process.env.TAMPERWARD_WATCH_NO_RECURSIVE;
     }
     const { events } = readEvents(log, 0);
     expect(events.length).toBeGreaterThanOrEqual(2);

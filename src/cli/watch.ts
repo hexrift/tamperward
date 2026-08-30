@@ -18,7 +18,7 @@
 // reach. The loop layer has always been the correction layer, not the
 // authority; CI is the authority.
 
-import { appendFileSync, mkdirSync, readFileSync, statSync, watch } from 'node:fs';
+import { appendFileSync, mkdirSync, readdirSync, readFileSync, statSync, watch } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { loadPolicy } from '../policy-load';
@@ -55,6 +55,65 @@ export interface Watcher {
   close(): void;
 }
 
+type TreeCb = (kind: string, rel: string) => void;
+
+/** Recursive watch where the platform has it (Linux needs Node >= 20); otherwise a
+ *  per-directory fallback that adds watchers for directories as they appear. The
+ *  fallback is force-selectable (TAMPERWARD_WATCH_NO_RECURSIVE=1) so CI exercises
+ *  it on every platform, not only the ones that lack the feature. */
+function watchTree(dir: string, cb: TreeCb): Watcher {
+  if (process.env.TAMPERWARD_WATCH_NO_RECURSIVE !== '1') {
+    try {
+      const w = watch(dir, { recursive: true }, (kind, fname) => {
+        if (fname) cb(kind, String(fname));
+      });
+      return { close: () => w.close() };
+    } catch {
+      /* ERR_FEATURE_UNAVAILABLE_ON_PLATFORM -> per-directory fallback */
+    }
+  }
+  const watchers = new Map<string, ReturnType<typeof watch>>();
+  const addDir = (rel: string): void => {
+    if (watchers.has(rel) || SKIP.test(rel + '/')) return;
+    let w: ReturnType<typeof watch>;
+    try {
+      w = watch(rel ? join(dir, rel) : dir, (kind, fname) => {
+        if (!fname) return;
+        const child = rel ? `${rel}/${String(fname)}` : String(fname);
+        cb(kind, child);
+        try {
+          if (statSync(join(dir, child)).isDirectory()) addDir(child); // new directory: extend coverage
+        } catch {
+          /* gone already */
+        }
+      });
+    } catch {
+      return; // directory vanished between walk and watch
+    }
+    watchers.set(rel, w);
+  };
+  const walk = (rel: string): void => {
+    addDir(rel);
+    let names: string[] = [];
+    try {
+      names = readdirSync(rel ? join(dir, rel) : dir);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const child = rel ? `${rel}/${name}` : name;
+      if (SKIP.test(child + '/')) continue;
+      try {
+        if (statSync(join(dir, child)).isDirectory()) walk(child);
+      } catch {
+        /* raced */
+      }
+    }
+  };
+  walk('');
+  return { close: () => { for (const w of watchers.values()) w.close(); } };
+}
+
 /** Start watching. Exported (rather than CLI-only) so tests drive it in-process. */
 export function startWatcher(dir: string, log: string, policy: Policy): Watcher {
   try {
@@ -63,9 +122,7 @@ export function startWatcher(dir: string, log: string, policy: Policy): Watcher 
     /* the append below will surface a real failure */
   }
   const last = new Map<string, string>(); // path -> hash|mode dedupe key
-  const w = watch(dir, { recursive: true }, (kind, fname) => {
-    if (!fname) return;
-    const rel = String(fname);
+  return watchTree(dir, (kind, rel) => {
     if (SKIP.test(rel) || !isProtected(rel, policy)) return;
     const s = snap(join(dir, rel));
     const key = `${s.hash}:${s.mode}`;
@@ -78,7 +135,6 @@ export function startWatcher(dir: string, log: string, policy: Policy): Watcher 
       /* best effort */
     }
   });
-  return { close: () => w.close() };
 }
 
 export function runWatch(args: string[]): number {

@@ -10,8 +10,8 @@ agent-loop + pre-commit + CI · the agent-correction loop measured, not asserted
 
 v0.6 reconciles the spec with 1.8.0 — the effect layer: a per-call protected-tree
 drift check at PreToolUse (unjudged mutations are denied at the next call by the
-ordinary rules, from their filesystem effect — the 07-fastify anomaly's structural
-answer), the `tamperward watch` filesystem-event observer with row 15
+ordinary rules, from their filesystem effect — narrowing, not closing, the
+07-fastify anomaly's class), the `tamperward watch` filesystem-event observer with row 15
 (`transient-protected-mutation`) consuming its log at the Stop sweep, and the
 Edit-reconstruction fail-open closed (an unlocatable old_string is judged from its
 incoming content, never silently allowed).

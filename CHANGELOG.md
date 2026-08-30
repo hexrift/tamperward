@@ -12,7 +12,8 @@ always arrive by a path the matcher didn't see — taskbench Phase 3 measured on
 (run 07-fastify gated: a test-skip Edit landed without a PreToolUse deny, the
 same edit class denied at PreToolUse in eleven other runs, and the weakened
 suite was consulted for 51 seconds until the Stop sweep caught it). Three
-additions answer that structurally:
+additions REDUCE that surface — reduce, not end; the residuals are stated at
+the bottom of this entry:
 
 - **Per-call protected-tree drift check** (PreToolUse): the hook snapshots the
   protected files' content+mode and, when the tree drifts from the last
@@ -44,6 +45,15 @@ additions answer that structurally:
 Warn-severity transients also append to the `TAMPERWARD_DENYLOG` audit trail
 (marked `warn:`) so an unattended loop's warnings are at least recorded — the
 schema-utils lesson, applied.
+
+**What the effect layer still does not do**, stated where it can be checked:
+within-call transients surface as warn unless a harness raises them; the drift
+check judges content only through the existing rules, so a mutation none of
+them prices (above all the semantic class — expected values rewritten in
+place) passes the effect check exactly as it passes the diff check; and the
+snapshot state and event log live in `.git/`, reachable by the agent — the
+loop layer's standing trust boundary. Held-out re-execution remains the layer
+that caught everything in Phase 3, and CI remains the authority.
 
 New detector: **`test-content-removal`** (SPEC row 14, block) — NET removal of
 ≥3 significant lines from a modified protected test file whose it()/test()
