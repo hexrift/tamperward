@@ -7,6 +7,7 @@ import { FORMATS, isFormat } from './report';
 import { runHookClaude, runSweepClaude } from './hook';
 import { runAllow, AllowOpts } from './allow';
 import { runInit, InitOpts } from './init';
+import { runWatch } from './watch';
 
 function parseAllow(args: string[]): AllowOpts {
   const o: AllowOpts = {};
@@ -81,6 +82,9 @@ Formats:
   auto    github when GITHUB_ACTIONS=true, otherwise text.
   tamperward hook claude                    PreToolUse gate (reads hook JSON on stdin)
   tamperward sweep claude                   Stop sweep (re-scan the turn's working tree)
+  tamperward watch [--dir D] [--log F]      filesystem-event observer daemon: records
+                                            protected-file events (any spelling, incl.
+                                            within-call modify+restore) for the sweep
   tamperward allow <rule> --reason "..."    record a human sign-off (local audit ledger)
   tamperward init [--dry-run]               wire the policy file plus every
                                             enforcement point: Claude Code hooks,
@@ -117,4 +121,10 @@ function main(argv: string[]): number {
   }
 }
 
-process.exit(main(process.argv.slice(2)));
+const argv = process.argv.slice(2);
+if (argv[0] === 'watch') {
+  // Daemon: the fs watcher keeps the event loop alive; exit is via signal.
+  runWatch(argv.slice(1));
+} else {
+  process.exit(main(argv));
+}

@@ -149,6 +149,11 @@ export function defaultPolicy(version = 1): Policy {
       // mechanical but intent-ambiguous: updating a snapshot is the legitimate workflow
       // when intended output changes. WARN until the §7 evidence path earns block.
       'snapshot-rewrite': { severity: 'warn' },
+      // the watcher's transient class (modified-and-restored within a turn). WARN by
+      // default: a Stop block already forces restores, and a compliant restore reads
+      // as churn — block-by-default would deadlock the honest path. Harnesses that own
+      // that semantics raise it via TAMPERWARD_TRANSIENT=block.
+      'transient-protected-mutation': { severity: 'warn' },
       // the narrow graduation candidate: snapshot moved with NO accompanying change.
       // ~0.06% FP on 1,652 audited mainline commits, 7/7 TP on observed tampers
       // (harness/fp-study/). warn until a version: gate graduates it (BLOCK_SINCE).
