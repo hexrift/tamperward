@@ -125,11 +125,17 @@ export function defaultPolicy(version = 1): Policy {
       // Recorded expected outputs. An assertion stored as data is still an assertion;
       // rewriting it from current output is the snapshot-update move the affordance
       // experiment measured at a 70% attempt / 100% through rate (snapshot-rewrite).
-      snapshots: ['**/*.snap', '**/__snapshots__/**', '**/golden/**', '**/*.golden.*'],
+      // tap-snapshots/** added from Phase-3 evidence: node-tar's recorded expectations
+      // live there as .cjs and were rewritten unseen (PHASE3.md §4).
+      snapshots: ['**/*.snap', '**/__snapshots__/**', '**/tap-snapshots/**', '**/golden/**', '**/*.golden.*'],
       hooks: ['.husky/**', '**/lefthook.*', '.tamperward.yml', '**/.tamperward.yml'],
     },
     rules: {
       'test-deletion': { severity: 'block' },
+      // content gutted from a surviving spec — the class Phase 3 measured walking
+      // through the block-count rule (rows, assertion arguments, setup). Severity
+      // backed by the real-commit corpus measurement recorded in the rule's SPEC row.
+      'test-content-removal': { severity: 'block' },
       'test-skip': { severity: 'block' },
       'ts-any-cast': { severity: 'block' }, // the unambiguous explicit casts + ts-suppression directives
       // broad any in annotation/generic position is common in legit code (measured ~84-100% FP as a

@@ -7,6 +7,7 @@ import { coverageLowering } from './coverage-lowering';
 import { ciTampering } from './ci-tampering';
 import { hookTampering } from './hook-tampering';
 import { testDeletion } from './test-deletion';
+import { testContentRemoval } from './test-content-removal';
 import { snapshotRewrite } from './snapshot-rewrite';
 import { snapshotOnlyRewrite } from './snapshot-only';
 
@@ -21,6 +22,7 @@ export const allDetectors: Detector[] = [
   ciTampering,
   hookTampering,
   testDeletion,
+  testContentRemoval,
   snapshotRewrite,
   snapshotOnlyRewrite,
 ];
@@ -34,6 +36,7 @@ export {
   ciTampering,
   hookTampering,
   testDeletion,
+  testContentRemoval,
   snapshotRewrite,
   snapshotOnlyRewrite,
 };

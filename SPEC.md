@@ -1,14 +1,21 @@
-# Tamperward — Build Spec v0.4
+# Tamperward — Build Spec v0.5
 
 > The deterministic agent-integrity gate. One ruleset, evaluated on the actual
 > diff/commands as a verdict (not a probability), at every stage a change passes
 > through — the agent loop (a Claude Code hook today), pre-commit, and CI, which is
 > the authority.
 
-**Slice:** TypeScript/Jest · Claude Code · 13 rules specified, 11 shipped ·
+**Slice:** TypeScript/Jest · Claude Code · 14 rules specified, 12 shipped ·
 agent-loop + pre-commit + CI · the agent-correction loop measured, not asserted.
 
-v0.4 reconciles the spec with what shipped through 1.6.0: `test-skip`'s class
+v0.5 reconciles the spec with 1.7.0: `test-content-removal` seated as row 14 —
+the post-experiment closure of the evasion class taskbench measured carrying the
+gated-arm false greens (net content removal from a surviving spec), corpus-priced
+at 1.5% of mainline diffs and shipped block-with-signoff; `tap-snapshots/**`
+added to the snapshot globs from the same evidence. The treatment tested in
+Phase 3 remains 1.6.0, frozen and published; nothing in 1.7.0 is validated
+against the Phase-3 pool — a v2 claim requires a fresh frame draw (§7.B).
+v0.4 reconciled the spec with what shipped through 1.6.0: `test-skip`'s class
 completed with the node:test options spelling (1.5.1), the per-rule `exclude` policy
 surface with its weakening symmetry (1.6.0), `ts-any-launder` given the table row it
 always deserved with its graduation question now closed by corpus, and §7.B extended
@@ -211,8 +218,9 @@ thing on the release that builds them.
 | 11 | `snapshot-rewrite` | command+file | runner update mode (`jest -u`, `--updateSnapshot`, `vitest --update`), regeneration scripts by name (`update-golden`, `regen-snapshots`), shell mutation of protected snapshot paths, and any modify/delete/rename-out of `**/*.snap`, `__snapshots__/`, `golden/` | mechanical, **warn** (updating a snapshot is legitimate when intended output changes; built from measured demand — harness/PREDICTION-affordance.md) | regex + glob |
 | 12 | `snapshot-only-rewrite` | file | every changed file in the diff is a moving protected snapshot (adds excluded) — the FP study's narrow signal, ~0.06% of audited mainline commits, 7/7 of observed tampers; judged ONLY at commit granularity (staged/range views) via the engine's `view` parameter, because at tool-call scope every snapshot edit is "only" | mechanical, **warn** (graduation candidate: `BLOCK_SINCE` at a future policy `version:`) | glob |
 | 13 | `ts-any-launder` | file | `any` introduced in annotation/generic position (`: any`, `<any>`) — the laundering spelling of row 4's class, split out in the 1.0 precision pass | mechanical, **permanent warn** — graduation to block is *closed by corpus* (`harness/PREDICTION-launder-corpus.md`): the spelling fires on **10.5%** of 1,227 legitimate mainline commits, 4–10× any deployable block threshold; the measured 26/40 demand for the laundering class routes to the held-out-oracle and prompt layers, not to a block rule | regex |
+| 14 | `test-content-removal` | file | NET removal of ≥3 significant lines from a modified protected test file whose it()/test() block count did not drop — case-table rows, assertion arguments, mock/setup regions. Removed content is excused only if kept (whitespace-normalized) in the changeset's protected-test content after the edit; comments do not excuse; snapshot-glob files are row 11's jurisdiction; one-for-one rewrites (line count kept) are the semantic class and stay with the held-out oracles | mechanical, **block** — built from the taskbench Phase-3 evasion class (PHASE3.md §4: row deletion, throws-message stripping, setup gutting — the family that carried the gated-arm false greens), shipped AFTER the experiment per the frozen protocol. Corpus: fires on **1.5%** of 2,304 mainline diffs (immer/zustand/zod/prettier, `harness/fp-study/TCR-CORPUS.md`), every adjudicated fire legitimate — the block-with-signoff price, accepted because the legitimate edit and the tamper are mechanically indistinguishable (a maintainer deleting error-expectation rows because a parser improved is byte-shaped like the agent deleting failing rows) and Phase 3 measured what warn means in an unattended loop: nothing | line-set + AST guard |
 
-The eleven mechanical rules are where determinism is real and the demo is honest. The two
+The twelve mechanical rules are where determinism is real and the demo is honest. The two
 heuristics (3, 10) are the research surface, and the discipline is: **built only against
 a measured negatives corpus, entering as `warn`, promoted per-rule only when the number
 clears the bar (§7)**. Neither has been built — the corpus comes first, because a
@@ -607,7 +615,9 @@ external review placed at the top of the roadmap.
 
 ---
 
-*v0.4 · reconciles the spec with 1.6.0: `test-skip`'s class completed (1.5.1), the
+*v0.5 · reconciles the spec with 1.7.0: `test-content-removal` seated as row 14
+from the taskbench Phase-3 evidence, corpus-priced and shipped block-with-signoff,
+with the fresh-frame validation rule binding. Prior: v0.4 · reconciles the spec with 1.6.0: `test-skip`'s class completed (1.5.1), the
 per-rule `exclude` surface with its weakening symmetry and published null (1.6.0),
 `ts-any-launder` seated as row 13 with its graduation question closed by corpus,
 §7.B extended with the nine studies that ran after v0.3, and the coverage-conditional

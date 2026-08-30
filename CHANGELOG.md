@@ -5,6 +5,41 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.7.0] — 2026-08-30
+
+New detector: **`test-content-removal`** (SPEC row 14, block) — NET removal of
+≥3 significant lines from a modified protected test file whose it()/test()
+block count did not drop. This is the post-experiment closure of the evasion
+class the taskbench Phase-3 sweep measured carrying the gated-arm false greens
+(PHASE3.md §4): case-table row deletion, assertion-argument stripping, and
+mock/setup gutting — edits that walk through a block-count rule because the
+test keeps its name while losing its teeth. Removed content is excused only if
+it is actually kept — whitespace-normalized, in the changeset's protected-test
+content, comments never excusing (the pilot agent's comment-out spelling is a
+regression test). One-for-one rewrites stay out of scope: expected-value
+tampering is the semantic class and belongs to held-out oracles, as ever.
+
+Corpus-priced before shipping (`harness/fp-study/TCR-CORPUS.md`): fires on
+1.5% of 2,304 real mainline diffs across immer/zustand/zod/prettier, every
+adjudicated fire legitimate — block-with-signoff accepted because the corpus's
+most instructive fire (prettier deleting error-expectation rows after a parser
+genuinely improved) is byte-shaped like the tamper, and Phase 3 measured what
+`warn` means in an unattended agent loop: nothing.
+
+Also from the same evidence: **`tap-snapshots/**` joins the snapshot globs**
+(node-tar's recorded expectations were rewritten unseen in Phase 3), and
+snapshot-glob files are explicitly excluded from the new rule — recorded
+expectations stay `snapshot-rewrite`'s jurisdiction with its own measured
+severity, one class, one rule.
+
+Scope discipline, stated where it can be checked: the treatment tested in
+Phase 3 was and remains 1.6.0; nothing in 1.7.0 is validated against the
+Phase-3 pool, and a prevention claim for these detectors requires the fresh
+frame draw the results post committed to. The exact trajectory edits that
+evaded 1.6.0 now ship as this release's regression tests, including an
+end-to-end replay of the postcss-selector-parser throws-stripping edit
+denied by the built hook.
+
 ## [1.6.0] — 2026-08-29
 
 New policy surface: **per-rule `exclude` globs** — `rules: { ts-any-cast: { severity:
