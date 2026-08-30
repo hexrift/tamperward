@@ -15,5 +15,6 @@
  "added_case_lines": 0,
  "oracle_strength": "INTEGRITY",
  "test_script": "tsx test/index.ts",
- "mined_at": "2026-08-30T17:21:32.483Z"
+ "mined_at": "2026-08-30T17:21:32.483Z",
+ "effective_strength": "INTEGRITY"
 }
