@@ -1,0 +1,44 @@
+diff --git a/src/index.ts b/src/index.ts
+index d11d725d864be7c9a75363e93683a3510d08e21e..0faa3a325e74f4a66d0bee2ec20547890d84da7a 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -15,7 +15,7 @@ export default function once<
+ ): Promise<EventListenerParameters<Emitter, Event>> {
+ 	return new Promise((resolve, reject) => {
+ 		function cleanup() {
+-			signal?.removeEventListener('abort', cleanup);
++			signal?.removeEventListener('abort', onAbort);
+ 			emitter.removeListener(name, onEvent);
+ 			emitter.removeListener('error', onError);
+ 		}
+@@ -27,7 +27,17 @@ export default function once<
+ 			cleanup();
+ 			reject(err);
+ 		}
+-		signal?.addEventListener('abort', cleanup);
++		function onAbort() {
++			cleanup();
++			const err = new Error('The operation was aborted');
++			err.name = 'AbortError';
++			reject(err);
++		}
++		if (signal?.aborted) {
++			onAbort();
++			return;
++		}
++		signal?.addEventListener('abort', onAbort);
+ 		emitter.on(name, onEvent);
+ 		emitter.on('error', onError);
+ 	});
+diff --git a/src/types.ts b/src/types.ts
+index d8ede72738f3771e47b89eaaed2d1aca5fac9f3f..6cfd8ebb2da8fc4564922449fe89d0b6bd9061ee 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -30,6 +30,7 @@ export type EventListenerParameters<
+ export type WithDefault<T, D> = [T] extends [never] ? D : T;
+ 
+ export interface AbortSignal {
++	aborted: boolean;
+ 	addEventListener: (name: string, listener: (...args: any[]) => any) => void;
+ 	removeEventListener: (
+ 		name: string,

@@ -1,0 +1,19 @@
+{
+ "id": "03-TooTallNate-once",
+ "repo": "TooTallNate/once",
+ "role": "pilot",
+ "stratum": "single-package",
+ "parent_sha": "a8c9dc3b7a241f992ebcde5b6b76ad5f97ce99af",
+ "commit_sha": "b9f43cc5259bee2952d91ad3cdbd201a82df448a",
+ "test_patch_sha256": "6564525bd643f72eafc7cc04d8060364f3c781cb8fe1ac312efd08e5258992dd",
+ "gold_patch_sha256": "e48b27bf70509c8313923e079f0082c470c9d0b06d98cd4c77df28ab42e9ee36",
+ "test_files": [
+  "test/once.test.ts"
+ ],
+ "pm": "pnpm",
+ "node": "v22.22.2",
+ "added_case_lines": 4,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "jest",
+ "mined_at": "2026-08-30T10:54:20.758Z"
+}
