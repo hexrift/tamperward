@@ -1,0 +1,1 @@
+warn:transient-protected-mutation:tsconfig.vitest-temp.json
