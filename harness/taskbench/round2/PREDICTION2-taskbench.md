@@ -153,7 +153,7 @@ generated. The binding commitment — the published seed and the formula
 "sha256(seed + ':' + task_id)[0] even → ungated-first" — is unchanged, and
 the executing driver implements it exactly as round 1's driver did:
 digest byte 0, `[0]%2`. The correct realized assignment under the frozen
-seed and the round-1 byte convention (10 ungated-first / 12 gated-first):
+seed and the round-1 byte convention (12 ungated-first / 10 gated-first):
 ungated-first: 04, 05, 12, 13, 14, 15, 16, 18, 19, 20, 22, 24;
 gated-first: 06, 07, 08, 09, 10, 11, 17, 21, 23, 25.
 Every pair executed before this erratum (25, 19, 16, 22, 04, 10) matches the
