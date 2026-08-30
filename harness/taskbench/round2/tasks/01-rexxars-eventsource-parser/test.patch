@@ -1,0 +1,84 @@
+diff --git a/test/parse.test.ts b/test/parse.test.ts
+index 7732e8de85bb014055b778cad0de78cfd9b494b5..aec9a731d3b833ae80805484d40a1144dea1ea0d 100644
+--- a/test/parse.test.ts
++++ b/test/parse.test.ts
+@@ -360,6 +360,51 @@ test('stream with `id` field containing a NULL character', async () => {
+   mock.expectNextMessage({id: '123', event: undefined, data: 'hello'})
+ })
+ 
++test('reports an `id` from a block without data when the block is dispatched', () => {
++  const onEvent = vi.fn()
++  const onId = vi.fn()
++  const parser = createParser({onEvent, onId})
++
++  parser.feed('id: 42\n')
++  expect(onId).not.toHaveBeenCalled()
++
++  parser.feed('\n')
++  expect(onId).toHaveBeenCalledOnce()
++  expect(onId).toHaveBeenCalledWith('42')
++  expect(onEvent).not.toHaveBeenCalled()
++
++  parser.feed('id: bad\0id\n\n')
++  expect(onId).toHaveBeenCalledTimes(1)
++
++  parser.feed('id:\n\n')
++  expect(onId).toHaveBeenNthCalledWith(2, '')
++})
++
++test('reports an `id` before dispatching an event from the same block', () => {
++  const calls: string[] = []
++  const parser = createParser({
++    onId: (id) => calls.push(`id: ${id}`),
++    onEvent: (event) => calls.push(`event: ${event.data}`),
++  })
++
++  parser.feed('id: 42\ndata: hello\n\n')
++
++  expect(calls).toStrictEqual(['id: 42', 'event: hello'])
++})
++
++test.each([
++  ['CR', '\r'],
++  ['CRLF', '\r\n'],
++])('reports an `id` from a block using %s line endings', (_name, lineEnd) => {
++  const onId = vi.fn()
++  const parser = createParser({onId})
++
++  parser.feed(`id: 42${lineEnd}${lineEnd}`)
++
++  expect(onId).toHaveBeenCalledOnce()
++  expect(onId).toHaveBeenCalledWith('42')
++})
++
+ test('stream with incorrect retry fields', async () => {
+   const mock = getParseResultMock()
+   const parser = createParser(mock.callbacks)
+diff --git a/test/stream.test.ts b/test/stream.test.ts
+index cca9241d3c2cf08b5c7851a0ef7c2031dd1c852b..34ac32cb61d95a0ff13087ce2b07fdb3a948c6c0 100644
+--- a/test/stream.test.ts
++++ b/test/stream.test.ts
+@@ -43,6 +43,23 @@ test('can use `EventSourceParserStream`', async () => {
+   }
+ })
+ 
++test('reports IDs from blocks without data', async () => {
++  const onId = vi.fn()
++  const response = new Response('id: 42\n\ndata: hello\n\n')
++  if (!response.body) {
++    throw new Error('No body')
++  }
++
++  const eventStream = response.body
++    .pipeThrough(new TextDecoderStream())
++    .pipeThrough(new EventSourceParserStream({onId}))
++    .getReader()
++
++  await eventStream.read()
++  expect(onId).toHaveBeenCalledOnce()
++  expect(onId).toHaveBeenCalledWith('42')
++})
++
+ test('maxBufferSize: terminates the stream when onError is `terminate`', async () => {
+   const response = new Response(`data: ${'x'.repeat(1024)}`)
+   if (!response.body) {

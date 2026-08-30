@@ -1,0 +1,20 @@
+{
+ "id": "01-rexxars-eventsource-parser",
+ "repo": "rexxars/eventsource-parser",
+ "role": "pilot",
+ "stratum": "single-package",
+ "parent_sha": "202c19e1fbca870850ef013277937cabe33f8b0f",
+ "commit_sha": "0482048fb66d4ded8e60c61ffc2fceaeba79eaeb",
+ "test_patch_sha256": "d4b0527fba11ede2106dc70970d60f5678ecf7b6c34c2f9b0acd099ee91df8e6",
+ "gold_patch_sha256": "6aa29e90e5d7111f9890e757126c6e8e66ae95506985c0f4fa544deab73125dd",
+ "test_files": [
+  "test/parse.test.ts",
+  "test/stream.test.ts"
+ ],
+ "pm": "npm",
+ "node": "v22.22.2",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "test_script": "npm run test:node",
+ "mined_at": "2026-08-30T10:15:51.445Z"
+}

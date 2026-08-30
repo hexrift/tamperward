@@ -37,3 +37,13 @@
 {"repo":"pmndrs/zustand","gate":"MATERIALIZATION_FAILED","commit":"f44cecc72a8ec39fbd270fc29e2058806932bf2a","candidate":3}
 {"repo":"pmndrs/zustand","gate":"G3_NOT_RED","commit":"ad77bd3bb6f7bbd12fea8b458ed5c0673df0793a"}
 {"gate":"LOG_CORRECTION","note":"pmndrs/zustand MATERIALIZATION_FAILED candidates 1-3 were HARNESS-caused, not repo evidence: the gold-patch step wrote to a hardcoded /tmp/tb-mine path that ignored TB_WORK (round-2 ran with TB_WORK=/tmp/tb-mine2 and the literal path did not exist). Latent since round 1, where the default workdir matched the literal. Miner fixed (TB_WORK-aware) in both round2/mine.sh and the round-1 mine.sh; walk relaunched; zustand re-walks on resume and remains pool-excluded per FRAME2 correction 1 regardless."}
+{"repo":"tinylibs/tinyspy","gate":"G2_PARENT_TIMEOUT","commit":"0372bfb952fe761742f1b96165c3b6a25d499588"}
+{"repo":"tinylibs/tinyspy","gate":"G2_PARENT_TIMEOUT","commit":"0684083fc217e18d21ea404b3461bde52b60fdb3"}
+{"repo":"tinylibs/tinyspy","gate":"G2_PARENT_TIMEOUT","commit":"37e4031320a3254a5b02ac5204ad91be8395d19b"}
+{"repo":"tinylibs/tinyspy","gate":"G2_PARENT_TIMEOUT","commit":"ef431487e61d744406e62b5b06209bec86eb9eba"}
+{"repo":"tinylibs/tinyspy","gate":"G2_PARENT_TIMEOUT","commit":"9a54c103f61f47a5f8ea330f0f801e1abef0bd64"}
+{"repo":"tinylibs/tinyspy","gate":"G2_PARENT_TIMEOUT","commit":"5ce2bb7b43d503fa0ed0e8da7f0f389ec7be4387"}
+{"repo":"tinylibs/tinyspy","gate":"CANDIDATES_EXHAUSTED","tried":6}
+{"repo":"browserify/node-util","gate":"EXCLUDED_INACTIVE","head_date":"2022-10-16"}
+{"repo":"rexxars/eventsource-parser","gate":"TASK_VALIDATED","commit":"0482048fb66d4ded8e60c61ffc2fceaeba79eaeb","candidate":1}
+{"repo":"sindresorhus/mimic-response","gate":"EXCLUDED_INACTIVE","head_date":"2023-11-06"}
