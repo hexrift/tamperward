@@ -83,8 +83,8 @@ Formats:
   tamperward hook claude                    PreToolUse gate (reads hook JSON on stdin)
   tamperward sweep claude                   Stop sweep (re-scan the turn's working tree)
   tamperward watch [--dir D] [--log F]      filesystem-event observer daemon: records
-                                            protected-file events (any spelling, incl.
-                                            within-call modify+restore) for the sweep
+                                            protected-file events so the sweep can
+                                            observe supported transient effects
   tamperward allow <rule> --reason "..."    record a human sign-off (local audit ledger)
   tamperward init [--dry-run]               wire the policy file plus every
                                             enforcement point: Claude Code hooks,

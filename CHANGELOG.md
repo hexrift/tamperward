@@ -18,10 +18,12 @@ the bottom of this entry:
 - **Per-call protected-tree drift check** (PreToolUse): the hook snapshots the
   protected files' content+mode and, when the tree drifts from the last
   sanctioned state, runs the ordinary detector stack over the drift (diff vs
-  the turn baseline, scoped to the drifted paths) at the very next call —
-  sed spellings, generated scripts, hook flakes, and reconstruction misses all
-  land on the existing corpus-priced rules, and the deny repeats until the
-  tree is restored. Benign drift (a first-run snapshot, a git restore that
+  the turn baseline, scoped to the drifted paths) at the very next call.
+  Stated precisely: this **detects persistent protected-state drift
+  independently of the mutation's command spelling** — however it was produced
+  (a sed spelling, a generated script, a hook flake, a reconstruction miss) —
+  and judges it with the existing corpus-priced rules; a deny repeats until
+  the tree is restored. Benign drift (a first-run snapshot, a git restore that
   evaluates clean) is absorbed silently. Verified end-to-end: an unseen
   `sed -i 's/^test(/test.skip(/'` is denied at the next call by `test-skip`.
 - **`tamperward watch`** — the filesystem-event observer (DESIGN A.1's named

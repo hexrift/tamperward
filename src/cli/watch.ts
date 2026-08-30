@@ -7,7 +7,10 @@
 // restore — the A.1 probe class the neutral observer documented missing, and
 // the exact shape of the one transient measured in 59 real trajectories
 // (fastify: skip → npm test → restore). This daemon watches the filesystem
-// itself, so the mutation is recorded as an event even when no state survives.
+// itself, so SUPPORTED transient effects are recorded as events even when no
+// state survives. "Supported" is a real qualifier: fs-event delivery is
+// platform-dependent and can coalesce or drop under load — a recorded event is
+// evidence; an absent event is never evidence of absence.
 //
 // Events append as JSONL to .git/tamperward/fsevents.jsonl (override: --log or
 // TAMPERWARD_FSEVENTS). The Stop sweep consumes them (src/detectors/fs-events)

@@ -1,5 +1,7 @@
-// Effect-level protected-tree state: what the protected files ACTUALLY are on
-// disk, independent of any tool-call spelling.
+// Effect-level protected-tree state: detects PERSISTENT protected-state drift
+// independently of the mutation's command spelling. (Transient effects that
+// leave no state behind are the watcher's surface, to the extent the
+// platform's fs events deliver them — src/cli/watch.ts.)
 //
 // Why this exists (taskbench Phase 3, run 07-fastify gated): one test-skip Edit
 // landed without a PreToolUse deny — same edit class that was denied at
