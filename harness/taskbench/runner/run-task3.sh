@@ -206,17 +206,31 @@ if [ "$ARM" = "gated" ]; then
   echo "[run-task3] gate liveness: DENY confirmed on synthetic probe"
 fi
 
-# egress allowlist
+# egress allowlist + enforcement jail (Amendment 3). TB_NETJAIL=1 (set by the
+# counted driver) puts the agent in a network namespace whose only routable
+# address is the proxy's veth IP — direct egress is closed at the kernel, so
+# NETWORK_EXPOSURE is 0 by construction and measurable. Fail-closed when
+# requested; without it, the proxy binds loopback as before (smoke/dev).
 NETLOG="$W/net-denied.log"; touch "$NETLOG"
 PORT=$(( 20000 + RANDOM % 20000 ))
-node "$HERE/allowlist-proxy.mjs" "$PORT" "$NETLOG" > "$W/proxy.log" 2>&1 &
+NETNS=""; PROXY_HOST="127.0.0.1"; NETRUN=()
+if [ "${TB_NETJAIL:-0}" = "1" ]; then
+  if ! read -r PROXY_HOST NETNS < <(bash "$HERE/net-jail.sh" setup "$TAG-$$"); then
+    echo "NETJAIL_SETUP_FAILED"; exit 9
+  fi
+  NETRUN=(ip netns exec "$NETNS")
+  echo "[run-task3] net-jail: agent confined to $NETNS, egress only via $PROXY_HOST:$PORT"
+fi
+teardown_net() { kill "${PROXY_PID:-0}" 2>/dev/null; [ -n "$NETNS" ] && bash "$HERE/net-jail.sh" teardown "$TAG-$$"; }
+trap teardown_net EXIT
+node "$HERE/allowlist-proxy.mjs" "$PORT" "$NETLOG" "$PROXY_HOST" > "$W/proxy.log" 2>&1 &
 PROXY_PID=$!
 sleep 1
 
 if [ -n "$SMOKE" ]; then
   echo "[run-task3] SMOKE: synthetic probes instead of an agent"
-  ( cd "$REPODIR" && env HTTPS_PROXY="http://127.0.0.1:$PORT" https_proxy="http://127.0.0.1:$PORT" \
-      HTTP_PROXY="http://127.0.0.1:$PORT" http_proxy="http://127.0.0.1:$PORT" NO_PROXY= no_proxy= \
+  ( cd "$REPODIR" && "${NETRUN[@]}" env HTTPS_PROXY="http://$PROXY_HOST:$PORT" https_proxy="http://$PROXY_HOST:$PORT" \
+      HTTP_PROXY="http://$PROXY_HOST:$PORT" http_proxy="http://$PROXY_HOST:$PORT" NO_PROXY= no_proxy= \
       curl -sS -m 10 "https://github.com/$REPO" -o /dev/null 2>/dev/null ) \
     && echo "PROBE_NET: leak!" || echo "PROBE_NET: denied ok ($(wc -l < "$NETLOG")) logged"
   TF=$(cd "$REPODIR" && git ls-files | grep -E '((^|/)test_[^/]*\.py$|(^|/)[^/]*_test\.py$)' | head -1)
@@ -228,7 +242,7 @@ if [ -n "$SMOKE" ]; then
   git -C "$REPODIR" apply "$TASK/gold.patch" || echo "PROBE_GOLD: apply failed"
   V2=$(node "$HERE/verdict3.mjs" "$TASK" "$REPODIR" "$ORACLE" "$OBS" "$BASE")
   echo "PROBE_GOLD verdict: $V2"
-  kill $PROXY_PID 2>/dev/null; rm -rf "$W"
+  teardown_net; rm -rf "$W"
   exit 0
 fi
 
@@ -257,9 +271,9 @@ ENV_REPORT="$W/envelope.json"
 if [ "$ARM" = "gated" ]; then
   # the declared platform: the v1.14.0 enforcement envelope owns the boundary.
   # Agent exit is untrusted; the envelope re-adjudicates the tree it left.
-  ( cd "$REPODIR" && env PATH="$VENV/bin:$PATH" \
-      HTTPS_PROXY="http://127.0.0.1:$PORT" https_proxy="http://127.0.0.1:$PORT" \
-      HTTP_PROXY="http://127.0.0.1:$PORT" http_proxy="http://127.0.0.1:$PORT" NO_PROXY= no_proxy= \
+  ( cd "$REPODIR" && "${NETRUN[@]}" env PATH="$VENV/bin:$PATH" \
+      HTTPS_PROXY="http://$PROXY_HOST:$PORT" https_proxy="http://$PROXY_HOST:$PORT" \
+      HTTP_PROXY="http://$PROXY_HOST:$PORT" http_proxy="http://$PROXY_HOST:$PORT" NO_PROXY= no_proxy= \
     node "$CLI" run --base "$BASE" --cmd "$SUITE_CMD_STR" --budget 300 -- \
       "${AGENT_CMD[@]}" $PERM_FLAG \
       > "$TRANSCRIPT" 2>"${TRANSCRIPT%.jsonl}.err" )
@@ -267,9 +281,9 @@ if [ "$ARM" = "gated" ]; then
   # the envelope's own verdict lines land on stderr/stdout tail; keep the exit
   echo "{\"envelope_exit\":$ERC}" > "$ENV_REPORT"
 else
-  ( cd "$REPODIR" && env PATH="$VENV/bin:$PATH" \
-      HTTPS_PROXY="http://127.0.0.1:$PORT" https_proxy="http://127.0.0.1:$PORT" \
-      HTTP_PROXY="http://127.0.0.1:$PORT" http_proxy="http://127.0.0.1:$PORT" NO_PROXY= no_proxy= \
+  ( cd "$REPODIR" && "${NETRUN[@]}" env PATH="$VENV/bin:$PATH" \
+      HTTPS_PROXY="http://$PROXY_HOST:$PORT" https_proxy="http://$PROXY_HOST:$PORT" \
+      HTTP_PROXY="http://$PROXY_HOST:$PORT" http_proxy="http://$PROXY_HOST:$PORT" NO_PROXY= no_proxy= \
     "${AGENT_CMD[@]}" $PERM_FLAG \
       > "$TRANSCRIPT" 2>"${TRANSCRIPT%.jsonl}.err" )
   ERC=$?
@@ -277,7 +291,7 @@ else
 fi
 ELAPSED=$(( $(date +%s) - START ))
 AGENT_KILLED=$([ "$ELAPSED" -ge "${TB_AGENT_SECS:-3000}" ] && echo true || echo false)
-kill $PROXY_PID 2>/dev/null
+teardown_net
 [ -n "$WATCH_PID" ] && kill "$WATCH_PID" 2>/dev/null
 
 VERDICT=$(node "$HERE/verdict3.mjs" "$TASK" "$REPODIR" "$ORACLE" "$OBS" "$BASE")

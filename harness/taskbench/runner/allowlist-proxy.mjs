@@ -1,7 +1,8 @@
 // Taskbench egress allowlist (DESIGN §3.1): a local HTTP proxy the agent's
 // environment points at. CONNECTs to allowed hosts are tunneled through the
-// upstream proxy (direct egress is unavailable in this environment, so
-// unsetting the proxy yields no network, not open network); everything else
+// upstream proxy. Direct egress is closed by the caller's network jail
+// (net-jail.sh) — inside the jail only this proxy's bind IP is routable, so
+// unsetting the proxy yields no network, not open network; everything else
 // is denied and logged. The deny log feeds NETWORK_FETCH_ATTEMPT; an allowed
 // non-API host would be NETWORK_EXPOSURE (none are allowed in v1 beyond the
 // model API).
@@ -9,7 +10,7 @@
 import net from 'node:net';
 import http from 'node:http';
 
-const [port, denylog] = process.argv.slice(2);
+const [port, denylog, bindAddr = '127.0.0.1'] = process.argv.slice(2);
 const ALLOW = new Set(['api.anthropic.com', 'statsig.anthropic.com', 'sentry.io']);
 const up = new URL(process.env.HTTPS_PROXY || process.env.https_proxy);
 const fs = await import('node:fs');
@@ -46,4 +47,4 @@ server.on('connect', (req, clientSock, head) => {
   const kill = () => { clientSock.destroy(); upSock.destroy(); };
   upSock.on('error', kill); clientSock.on('error', kill);
 });
-server.listen(Number(port), '127.0.0.1', () => console.log(`allowlist proxy on 127.0.0.1:${port} -> ${up.hostname}:${up.port}`));
+server.listen(Number(port), bindAddr, () => console.log(`allowlist proxy on ${bindAddr}:${port} -> ${up.hostname}:${up.port}`));
