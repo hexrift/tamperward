@@ -1,0 +1,2508 @@
+{
+ "seed": "taskbench-v3-2026-08-31",
+ "snapshot": "2026-08-01",
+ "source": "hugovk/top-pypi-packages@e9354550 (FRAME3.md)",
+ "count": 500,
+ "repos": [
+  {
+   "repo": "boto/boto3",
+   "first_pkg": "boto3",
+   "pkg_rank": 1
+  },
+  {
+   "repo": "pypa/packaging",
+   "first_pkg": "packaging",
+   "pkg_rank": 2
+  },
+  {
+   "repo": "python/typing_extensions",
+   "first_pkg": "typing-extensions",
+   "pkg_rank": 3
+  },
+  {
+   "repo": "certifi/python-certifi",
+   "first_pkg": "certifi",
+   "pkg_rank": 4
+  },
+  {
+   "repo": "urllib3/urllib3",
+   "first_pkg": "urllib3",
+   "pkg_rank": 5
+  },
+  {
+   "repo": "kjd/idna",
+   "first_pkg": "idna",
+   "pkg_rank": 6
+  },
+  {
+   "repo": "psf/requests",
+   "first_pkg": "requests",
+   "pkg_rank": 7
+  },
+  {
+   "repo": "jawah/charset_normalizer",
+   "first_pkg": "charset-normalizer",
+   "pkg_rank": 8
+  },
+  {
+   "repo": "pypa/setuptools",
+   "first_pkg": "setuptools",
+   "pkg_rank": 9
+  },
+  {
+   "repo": "boto/botocore",
+   "first_pkg": "botocore",
+   "pkg_rank": 10
+  },
+  {
+   "repo": "pyca/cryptography",
+   "first_pkg": "cryptography",
+   "pkg_rank": 11
+  },
+  {
+   "repo": "python-cffi/cffi",
+   "first_pkg": "cffi",
+   "pkg_rank": 12
+  },
+  {
+   "repo": "pygments/pygments",
+   "first_pkg": "pygments",
+   "pkg_rank": 14
+  },
+  {
+   "repo": "yaml/pyyaml",
+   "first_pkg": "pyyaml",
+   "pkg_rank": 15
+  },
+  {
+   "repo": "dateutil/dateutil",
+   "first_pkg": "python-dateutil",
+   "pkg_rank": 16
+  },
+  {
+   "repo": "benjaminp/six",
+   "first_pkg": "six",
+   "pkg_rank": 17
+  },
+  {
+   "repo": "aio-libs/aiobotocore",
+   "first_pkg": "aiobotocore",
+   "pkg_rank": 18
+  },
+  {
+   "repo": "numpy/numpy",
+   "first_pkg": "numpy",
+   "pkg_rank": 19
+  },
+  {
+   "repo": "eliben/pycparser",
+   "first_pkg": "pycparser",
+   "pkg_rank": 20
+  },
+  {
+   "repo": "sponsors/samuelcolvin",
+   "first_pkg": "pydantic",
+   "pkg_rank": 21
+  },
+  {
+   "repo": "pytest-dev/pytest",
+   "first_pkg": "pytest",
+   "pkg_rank": 22
+  },
+  {
+   "repo": "pallets/click",
+   "first_pkg": "click",
+   "pkg_rank": 23
+  },
+  {
+   "repo": "pytest-dev/iniconfig",
+   "first_pkg": "iniconfig",
+   "pkg_rank": 24
+  },
+  {
+   "repo": "agronholm/anyio",
+   "first_pkg": "anyio",
+   "pkg_rank": 25
+  },
+  {
+   "repo": "sponsors/hynek",
+   "first_pkg": "attrs",
+   "pkg_rank": 28
+  },
+  {
+   "repo": "boto/s3transfer",
+   "first_pkg": "s3transfer",
+   "pkg_rank": 29
+  },
+  {
+   "repo": "python-hyper/h11",
+   "first_pkg": "h11",
+   "pkg_rank": 30
+  },
+  {
+   "repo": "fsspec/filesystem_spec",
+   "first_pkg": "fsspec",
+   "pkg_rank": 31
+  },
+  {
+   "repo": "annotated-types/annotated-types",
+   "first_pkg": "annotated-types",
+   "pkg_rank": 32
+  },
+  {
+   "repo": "pallets/markupsafe",
+   "first_pkg": "markupsafe",
+   "pkg_rank": 34
+  },
+  {
+   "repo": "encode/httpx",
+   "first_pkg": "httpx",
+   "pkg_rank": 35
+  },
+  {
+   "repo": "encode/httpcore",
+   "first_pkg": "httpcore",
+   "pkg_rank": 36
+  },
+  {
+   "repo": "pydantic/typing-inspection",
+   "first_pkg": "typing-inspection",
+   "pkg_rank": 37
+  },
+  {
+   "repo": "pandas-dev/pandas",
+   "first_pkg": "pandas",
+   "pkg_rank": 38
+  },
+  {
+   "repo": "tox-dev/platformdirs",
+   "first_pkg": "platformdirs",
+   "pkg_rank": 39
+  },
+  {
+   "repo": "cpburnz/python-pathspec",
+   "first_pkg": "pathspec",
+   "pkg_rank": 40
+  },
+  {
+   "repo": "theskumar/python-dotenv",
+   "first_pkg": "python-dotenv",
+   "pkg_rank": 41
+  },
+  {
+   "repo": "pallets/jinja",
+   "first_pkg": "jinja2",
+   "pkg_rank": 42
+  },
+  {
+   "repo": "tox-dev/py-filelock",
+   "first_pkg": "filelock",
+   "pkg_rank": 43
+  },
+  {
+   "repo": "jpadilla/pyjwt",
+   "first_pkg": "pyjwt",
+   "pkg_rank": 44
+  },
+  {
+   "repo": "fsspec/s3fs",
+   "first_pkg": "s3fs",
+   "pkg_rank": 45
+  },
+  {
+   "repo": "BerriAI/litellm",
+   "first_pkg": "litellm",
+   "pkg_rank": 46
+  },
+  {
+   "repo": "jmespath/jmespath.py",
+   "first_pkg": "jmespath",
+   "pkg_rank": 47
+  },
+  {
+   "repo": "tqdm/tqdm",
+   "first_pkg": "tqdm",
+   "pkg_rank": 48
+  },
+  {
+   "repo": "aio-libs/aiohttp",
+   "first_pkg": "aiohttp",
+   "pkg_rank": 49
+  },
+  {
+   "repo": "aio-libs/yarl",
+   "first_pkg": "yarl",
+   "pkg_rank": 50
+  },
+  {
+   "repo": "pypa/pip",
+   "first_pkg": "pip",
+   "pkg_rank": 51
+  },
+  {
+   "repo": "Textualize/rich",
+   "first_pkg": "rich",
+   "pkg_rank": 52
+  },
+  {
+   "repo": "executablebooks/markdown-it-py",
+   "first_pkg": "markdown-it-py",
+   "pkg_rank": 53
+  },
+  {
+   "repo": "sponsors/Julian",
+   "first_pkg": "rpds-py",
+   "pkg_rank": 54
+  },
+  {
+   "repo": "sponsors/encode",
+   "first_pkg": "uvicorn",
+   "pkg_rank": 55
+  },
+  {
+   "repo": "sponsors/Kludex",
+   "first_pkg": "starlette",
+   "pkg_rank": 56
+  },
+  {
+   "repo": "python-jsonschema/jsonschema",
+   "first_pkg": "jsonschema",
+   "pkg_rank": 57
+  },
+  {
+   "repo": "pypa/wheel",
+   "first_pkg": "wheel",
+   "pkg_rank": 58
+  },
+  {
+   "repo": "aio-libs/multidict",
+   "first_pkg": "multidict",
+   "pkg_rank": 59
+  },
+  {
+   "repo": "googleapis/google-cloud-python",
+   "first_pkg": "google-auth",
+   "pkg_rank": 60
+  },
+  {
+   "repo": "aio-libs/propcache",
+   "first_pkg": "propcache",
+   "pkg_rank": 61
+  },
+  {
+   "repo": "pyasn1/pyasn1",
+   "first_pkg": "pyasn1",
+   "pkg_rank": 62
+  },
+  {
+   "repo": "fastapi/fastapi",
+   "first_pkg": "fastapi",
+   "pkg_rank": 63
+  },
+  {
+   "repo": "aio-libs/aiohappyeyeballs",
+   "first_pkg": "aiohappyeyeballs",
+   "pkg_rank": 64
+  },
+  {
+   "repo": "aio-libs/frozenlist",
+   "first_pkg": "frozenlist",
+   "pkg_rank": 65
+  },
+  {
+   "repo": "stub42/pytz",
+   "first_pkg": "pytz",
+   "pkg_rank": 66
+  },
+  {
+   "repo": "executablebooks/mdurl",
+   "first_pkg": "mdurl",
+   "pkg_rank": 67
+  },
+  {
+   "repo": "python-pillow/Pillow",
+   "first_pkg": "pillow",
+   "pkg_rank": 68
+  },
+  {
+   "repo": "python/importlib_metadata",
+   "first_pkg": "importlib-metadata",
+   "pkg_rank": 70
+  },
+  {
+   "repo": "python-websockets/websockets",
+   "first_pkg": "websockets",
+   "pkg_rank": 71
+  },
+  {
+   "repo": "open-telemetry/opentelemetry-python",
+   "first_pkg": "opentelemetry-semantic-conventions",
+   "pkg_rank": 72
+  },
+  {
+   "repo": "pypa/trove-classifiers",
+   "first_pkg": "trove-classifiers",
+   "pkg_rank": 73
+  },
+  {
+   "repo": "aio-libs/aiosignal",
+   "first_pkg": "aiosignal",
+   "pkg_rank": 75
+  },
+  {
+   "repo": "pypa/virtualenv",
+   "first_pkg": "virtualenv",
+   "pkg_rank": 76
+  },
+  {
+   "repo": "jaraco/zipp",
+   "first_pkg": "zipp",
+   "pkg_rank": 77
+  },
+  {
+   "repo": "python/tzdata",
+   "first_pkg": "tzdata",
+   "pkg_rank": 80
+  },
+  {
+   "repo": "GrahamDumpleton/wrapt",
+   "first_pkg": "wrapt",
+   "pkg_rank": 81
+  },
+  {
+   "repo": "python-trio/sniffio",
+   "first_pkg": "sniffio",
+   "pkg_rank": 82
+  },
+  {
+   "repo": "pypa/hatch",
+   "first_pkg": "hatchling",
+   "pkg_rank": 83
+  },
+  {
+   "repo": "python-greenlet/greenlet",
+   "first_pkg": "greenlet",
+   "pkg_rank": 85
+  },
+  {
+   "repo": "pyasn1/pyasn1-modules",
+   "first_pkg": "pyasn1-modules",
+   "pkg_rank": 87
+  },
+  {
+   "repo": "fastapi/annotated-doc",
+   "first_pkg": "annotated-doc",
+   "pkg_rank": 88
+  },
+  {
+   "repo": "pydantic/pydantic-settings",
+   "first_pkg": "pydantic-settings",
+   "pkg_rank": 89
+  },
+  {
+   "repo": "scipy/scipy",
+   "first_pkg": "scipy",
+   "pkg_rank": 90
+  },
+  {
+   "repo": "grpc/grpc",
+   "first_pkg": "grpcio",
+   "pkg_rank": 91
+  },
+  {
+   "repo": "Textualize/textual",
+   "first_pkg": "textual",
+   "pkg_rank": 92
+  },
+  {
+   "repo": "huggingface/huggingface_hub",
+   "first_pkg": "huggingface-hub",
+   "pkg_rank": 93
+  },
+  {
+   "repo": "mrabarnett/mrab-regex",
+   "first_pkg": "regex",
+   "pkg_rank": 94
+  },
+  {
+   "repo": "apache/arrow",
+   "first_pkg": "pyarrow",
+   "pkg_rank": 95
+  },
+  {
+   "repo": "tartley/colorama",
+   "first_pkg": "colorama",
+   "pkg_rank": 97
+  },
+  {
+   "repo": "jd/tenacity",
+   "first_pkg": "tenacity",
+   "pkg_rank": 98
+  },
+  {
+   "repo": "facelessuser/soupsieve",
+   "first_pkg": "soupsieve",
+   "pkg_rank": 99
+  },
+  {
+   "repo": "sqlalchemy/sqlalchemy",
+   "first_pkg": "sqlalchemy",
+   "pkg_rank": 100
+  },
+  {
+   "repo": "python-distro/distro",
+   "first_pkg": "distro",
+   "pkg_rank": 101
+  },
+  {
+   "repo": "lxml/lxml",
+   "first_pkg": "lxml",
+   "pkg_rank": 102
+  },
+  {
+   "repo": "pyparsing/pyparsing",
+   "first_pkg": "pyparsing",
+   "pkg_rank": 103
+  },
+  {
+   "repo": "Kludex/python-multipart",
+   "first_pkg": "python-multipart",
+   "pkg_rank": 104
+  },
+  {
+   "repo": "openai/openai-python",
+   "first_pkg": "openai",
+   "pkg_rank": 107
+  },
+  {
+   "repo": "hukkin/tomli",
+   "first_pkg": "tomli",
+   "pkg_rank": 108
+  },
+  {
+   "repo": "open-telemetry/opentelemetry-python-contrib",
+   "first_pkg": "opentelemetry-instrumentation",
+   "pkg_rank": 109
+  },
+  {
+   "repo": "pydantic/jiter",
+   "first_pkg": "jiter",
+   "pkg_rank": 110
+  },
+  {
+   "repo": "giampaolo/psutil",
+   "first_pkg": "psutil",
+   "pkg_rank": 111
+  },
+  {
+   "repo": "sarugaku/shellingham",
+   "first_pkg": "shellingham",
+   "pkg_rank": 112
+  },
+  {
+   "repo": "requests/requests-oauthlib",
+   "first_pkg": "requests-oauthlib",
+   "pkg_rank": 113
+  },
+  {
+   "repo": "fastapi/typer",
+   "first_pkg": "typer",
+   "pkg_rank": 114
+  },
+  {
+   "repo": "samuelcolvin/watchfiles",
+   "first_pkg": "watchfiles",
+   "pkg_rank": 115
+  },
+  {
+   "repo": "more-itertools/more-itertools",
+   "first_pkg": "more-itertools",
+   "pkg_rank": 116
+  },
+  {
+   "repo": "pfmoore/editables",
+   "first_pkg": "editables",
+   "pkg_rank": 118
+  },
+  {
+   "repo": "tkem/cachetools",
+   "first_pkg": "cachetools",
+   "pkg_rank": 119
+  },
+  {
+   "repo": "aws/aws-cli",
+   "first_pkg": "awscli",
+   "pkg_rank": 123
+  },
+  {
+   "repo": "python-poetry/tomlkit",
+   "first_pkg": "tomlkit",
+   "pkg_rank": 124
+  },
+  {
+   "repo": "coveragepy/coveragepy",
+   "first_pkg": "coverage",
+   "pkg_rank": 125
+  },
+  {
+   "repo": "oauthlib/oauthlib",
+   "first_pkg": "oauthlib",
+   "pkg_rank": 126
+  },
+  {
+   "repo": "agronholm/exceptiongroup",
+   "first_pkg": "exceptiongroup",
+   "pkg_rank": 127
+  },
+  {
+   "repo": "rthalley/dnspython",
+   "first_pkg": "dnspython",
+   "pkg_rank": 128
+  },
+  {
+   "repo": "pypa/distlib",
+   "first_pkg": "distlib",
+   "pkg_rank": 129
+  },
+  {
+   "repo": "modelcontextprotocol/python-sdk",
+   "first_pkg": "mcp",
+   "pkg_rank": 130
+  },
+  {
+   "repo": "python/mypy_extensions",
+   "first_pkg": "mypy-extensions",
+   "pkg_rank": 131
+  },
+  {
+   "repo": "astral-sh/ruff",
+   "first_pkg": "ruff",
+   "pkg_rank": 132
+  },
+  {
+   "repo": "langchain-ai/langchain",
+   "first_pkg": "langchain",
+   "pkg_rank": 133
+  },
+  {
+   "repo": "sysid/sse-starlette",
+   "first_pkg": "sse-starlette",
+   "pkg_rank": 135
+  },
+  {
+   "repo": "jquast/wcwidth",
+   "first_pkg": "wcwidth",
+   "pkg_rank": 136
+  },
+  {
+   "repo": "requests/toolbelt",
+   "first_pkg": "requests-toolbelt",
+   "pkg_rank": 137
+  },
+  {
+   "repo": "sybrenstuvel/python-rsa",
+   "first_pkg": "rsa",
+   "pkg_rank": 138
+  },
+  {
+   "repo": "googleapis/python-genai",
+   "first_pkg": "google-genai",
+   "pkg_rank": 139
+  },
+  {
+   "repo": "pyca/pyopenssl",
+   "first_pkg": "pyopenssl",
+   "pkg_rank": 140
+  },
+  {
+   "repo": "networkx/networkx",
+   "first_pkg": "networkx",
+   "pkg_rank": 141
+  },
+  {
+   "repo": "tox-dev/python-discovery",
+   "first_pkg": "python-discovery",
+   "pkg_rank": 142
+  },
+  {
+   "repo": "msgpack/msgpack-python",
+   "first_pkg": "msgpack",
+   "pkg_rank": 143
+  },
+  {
+   "repo": "pytest-dev/pytest-asyncio",
+   "first_pkg": "pytest-asyncio",
+   "pkg_rank": 146
+  },
+  {
+   "repo": "rr-/docstring_parser",
+   "first_pkg": "docstring-parser",
+   "pkg_rank": 147
+  },
+  {
+   "repo": "infopulse/pytest-common-test-report-json",
+   "first_pkg": "pytest-json-ctrf",
+   "pkg_rank": 148
+  },
+  {
+   "repo": "psycopg/psycopg2",
+   "first_pkg": "psycopg2-binary",
+   "pkg_rank": 149
+  },
+  {
+   "repo": "redis/redis-py",
+   "first_pkg": "redis",
+   "pkg_rank": 150
+  },
+  {
+   "repo": "pallets/werkzeug",
+   "first_pkg": "werkzeug",
+   "pkg_rank": 151
+  },
+  {
+   "repo": "gitpython-developers/GitPython",
+   "first_pkg": "gitpython",
+   "pkg_rank": 152
+  },
+  {
+   "repo": "huggingface/xet-core",
+   "first_pkg": "hf-xet",
+   "pkg_rank": 154
+  },
+  {
+   "repo": "MagicStack/uvloop",
+   "first_pkg": "uvloop",
+   "pkg_rank": 155
+  },
+  {
+   "repo": "googleapis/python-bigquery",
+   "first_pkg": "google-cloud-bigquery",
+   "pkg_rank": 156
+  },
+  {
+   "repo": "MagicStack/httptools",
+   "first_pkg": "httptools",
+   "pkg_rank": 157
+  },
+  {
+   "repo": "gitpython-developers/smmap",
+   "first_pkg": "smmap",
+   "pkg_rank": 158
+  },
+  {
+   "repo": "Azure/azure-sdk-for-python",
+   "first_pkg": "azure-core",
+   "pkg_rank": 159
+  },
+  {
+   "repo": "pyca/pynacl",
+   "first_pkg": "pynacl",
+   "pkg_rank": 161
+  },
+  {
+   "repo": "jaraco/keyring",
+   "first_pkg": "keyring",
+   "pkg_rank": 162
+  },
+  {
+   "repo": "tiran/defusedxml",
+   "first_pkg": "defusedxml",
+   "pkg_rank": 163
+  },
+  {
+   "repo": "astanin/python-tabulate",
+   "first_pkg": "tabulate",
+   "pkg_rank": 165
+  },
+  {
+   "repo": "florimondmanca/httpx-sse",
+   "first_pkg": "httpx-sse",
+   "pkg_rank": 166
+  },
+  {
+   "repo": "JoshData/python-email-validator",
+   "first_pkg": "email-validator",
+   "pkg_rank": 167
+  },
+  {
+   "repo": "fonttools/fonttools",
+   "first_pkg": "fonttools",
+   "pkg_rank": 168
+  },
+  {
+   "repo": "pytest-dev/pytest-cov",
+   "first_pkg": "pytest-cov",
+   "pkg_rank": 169
+  },
+  {
+   "repo": "prompt-toolkit/python-prompt-toolkit",
+   "first_pkg": "prompt-toolkit",
+   "pkg_rank": 170
+  },
+  {
+   "repo": "scikit-learn/scikit-learn",
+   "first_pkg": "scikit-learn",
+   "pkg_rank": 171
+  },
+  {
+   "repo": "openai/tiktoken",
+   "first_pkg": "tiktoken",
+   "pkg_rank": 172
+  },
+  {
+   "repo": "matplotlib/matplotlib",
+   "first_pkg": "matplotlib",
+   "pkg_rank": 173
+  },
+  {
+   "repo": "gweis/isodate",
+   "first_pkg": "isodate",
+   "pkg_rank": 174
+  },
+  {
+   "repo": "websocket-client/websocket-client",
+   "first_pkg": "websocket-client",
+   "pkg_rank": 175
+  },
+  {
+   "repo": "jaraco/jaraco.classes",
+   "first_pkg": "jaraco-classes",
+   "pkg_rank": 176
+  },
+  {
+   "repo": "jaraco/jaraco.functools",
+   "first_pkg": "jaraco-functools",
+   "pkg_rank": 177
+  },
+  {
+   "repo": "fastai/ghapi",
+   "first_pkg": "ghapi",
+   "pkg_rank": 180
+  },
+  {
+   "repo": "gitpython-developers/gitdb",
+   "first_pkg": "gitdb",
+   "pkg_rank": 181
+  },
+  {
+   "repo": "mitya57/secretstorage",
+   "first_pkg": "secretstorage",
+   "pkg_rank": 182
+  },
+  {
+   "repo": "regebro/tzlocal",
+   "first_pkg": "tzlocal",
+   "pkg_rank": 184
+  },
+  {
+   "repo": "AzureAD/microsoft-authentication-library-for-python",
+   "first_pkg": "msal",
+   "pkg_rank": 185
+  },
+  {
+   "repo": "huggingface/tokenizers",
+   "first_pkg": "tokenizers",
+   "pkg_rank": 186
+  },
+  {
+   "repo": "ijl/orjson",
+   "first_pkg": "orjson",
+   "pkg_rank": 187
+  },
+  {
+   "repo": "pallets/itsdangerous",
+   "first_pkg": "itsdangerous",
+   "pkg_rank": 188
+  },
+  {
+   "repo": "jaraco/jaraco.context",
+   "first_pkg": "jaraco-context",
+   "pkg_rank": 190
+  },
+  {
+   "repo": "sqlalchemy/alembic",
+   "first_pkg": "alembic",
+   "pkg_rank": 191
+  },
+  {
+   "repo": "weaviate/weaviate-python-client",
+   "first_pkg": "weaviate-client",
+   "pkg_rank": 193
+  },
+  {
+   "repo": "pyca/bcrypt",
+   "first_pkg": "bcrypt",
+   "pkg_rank": 194
+  },
+  {
+   "repo": "pallets/flask",
+   "first_pkg": "flask",
+   "pkg_rank": 195
+  },
+  {
+   "repo": "joblib/joblib",
+   "first_pkg": "joblib",
+   "pkg_rank": 196
+  },
+  {
+   "repo": "ydb-platform/ydb-python-sdk",
+   "first_pkg": "ydb",
+   "pkg_rank": 197
+  },
+  {
+   "repo": "uqfoundation/dill",
+   "first_pkg": "dill",
+   "pkg_rank": 198
+  },
+  {
+   "repo": "nucleic/kiwi",
+   "first_pkg": "kiwisolver",
+   "pkg_rank": 199
+  },
+  {
+   "repo": "pexpect/ptyprocess",
+   "first_pkg": "ptyprocess",
+   "pkg_rank": 200
+  },
+  {
+   "repo": "joblib/threadpoolctl",
+   "first_pkg": "threadpoolctl",
+   "pkg_rank": 201
+  },
+  {
+   "repo": "uqfoundation/multiprocess",
+   "first_pkg": "multiprocess",
+   "pkg_rank": 202
+  },
+  {
+   "repo": "sqlalchemy/mako",
+   "first_pkg": "mako",
+   "pkg_rank": 203
+  },
+  {
+   "repo": "ekalinin/nodeenv",
+   "first_pkg": "nodeenv",
+   "pkg_rank": 205
+  },
+  {
+   "repo": "pexpect/pexpect",
+   "first_pkg": "pexpect",
+   "pkg_rank": 206
+  },
+  {
+   "repo": "python/mypy",
+   "first_pkg": "mypy",
+   "pkg_rank": 207
+  },
+  {
+   "repo": "chardet/chardet",
+   "first_pkg": "chardet",
+   "pkg_rank": 208
+  },
+  {
+   "repo": "sympy/sympy",
+   "first_pkg": "sympy",
+   "pkg_rank": 209
+  },
+  {
+   "repo": "googleapis/python-crc32c",
+   "first_pkg": "google-crc32c",
+   "pkg_rank": 210
+  },
+  {
+   "repo": "indygreg/python-zstandard",
+   "first_pkg": "zstandard",
+   "pkg_rank": 211
+  },
+  {
+   "repo": "snowflakedb/snowflake-connector-python",
+   "first_pkg": "snowflake-connector-python",
+   "pkg_rank": 212
+  },
+  {
+   "repo": "pallets-eco/blinker",
+   "first_pkg": "blinker",
+   "pkg_rank": 214
+  },
+  {
+   "repo": "googleapis/google-api-python-client",
+   "first_pkg": "google-api-python-client",
+   "pkg_rank": 215
+  },
+  {
+   "repo": "contourpy/contourpy",
+   "first_pkg": "contourpy",
+   "pkg_rank": 216
+  },
+  {
+   "repo": "laurent-laporte-pro/deprecated",
+   "first_pkg": "deprecated",
+   "pkg_rank": 217
+  },
+  {
+   "repo": "astral-sh/uv",
+   "first_pkg": "uv",
+   "pkg_rank": 219
+  },
+  {
+   "repo": "huggingface/transformers",
+   "first_pkg": "transformers",
+   "pkg_rank": 220
+  },
+  {
+   "repo": "stefankoegl/python-json-pointer",
+   "first_pkg": "jsonpointer",
+   "pkg_rank": 221
+  },
+  {
+   "repo": "pre-commit/identify",
+   "first_pkg": "identify",
+   "pkg_rank": 222
+  },
+  {
+   "repo": "python-hyper/uritemplate",
+   "first_pkg": "uritemplate",
+   "pkg_rank": 223
+  },
+  {
+   "repo": "anthropics/anthropic-sdk-python",
+   "first_pkg": "anthropic",
+   "pkg_rank": 224
+  },
+  {
+   "repo": "rapidfuzz/RapidFuzz",
+   "first_pkg": "rapidfuzz",
+   "pkg_rank": 225
+  },
+  {
+   "repo": "docker/docker-py",
+   "first_pkg": "docker",
+   "pkg_rank": 226
+  },
+  {
+   "repo": "httplib2/httplib2",
+   "first_pkg": "httplib2",
+   "pkg_rank": 227
+  },
+  {
+   "repo": "psf/black",
+   "first_pkg": "black",
+   "pkg_rank": 228
+  },
+  {
+   "repo": "pre-commit/pre-commit",
+   "first_pkg": "pre-commit",
+   "pkg_rank": 229
+  },
+  {
+   "repo": "python-hyper/hpack",
+   "first_pkg": "hpack",
+   "pkg_rank": 230
+  },
+  {
+   "repo": "asottile/cfgv",
+   "first_pkg": "cfgv",
+   "pkg_rank": 232
+  },
+  {
+   "repo": "prometheus/client_python",
+   "first_pkg": "prometheus-client",
+   "pkg_rank": 233
+  },
+  {
+   "repo": "ifduyue/python-xxhash",
+   "first_pkg": "xxhash",
+   "pkg_rank": 235
+  },
+  {
+   "repo": "pytest-dev/pytest-xdist",
+   "first_pkg": "pytest-xdist",
+   "pkg_rank": 236
+  },
+  {
+   "repo": "matplotlib/cycler",
+   "first_pkg": "cycler",
+   "pkg_rank": 237
+  },
+  {
+   "repo": "uiri/toml",
+   "first_pkg": "toml",
+   "pkg_rank": 238
+  },
+  {
+   "repo": "python-hyper/h2",
+   "first_pkg": "h2",
+   "pkg_rank": 241
+  },
+  {
+   "repo": "googleapis/python-aiplatform",
+   "first_pkg": "google-cloud-aiplatform",
+   "pkg_rank": 243
+  },
+  {
+   "repo": "wbond/asn1crypto",
+   "first_pkg": "asn1crypto",
+   "pkg_rank": 244
+  },
+  {
+   "repo": "python-poetry/poetry",
+   "first_pkg": "poetry-core",
+   "pkg_rank": 245
+  },
+  {
+   "repo": "ipython/ipython",
+   "first_pkg": "ipython",
+   "pkg_rank": 246
+  },
+  {
+   "repo": "pypa/pyproject-hooks",
+   "first_pkg": "pyproject-hooks",
+   "pkg_rank": 247
+  },
+  {
+   "repo": "python-hyper/hyperframe",
+   "first_pkg": "hyperframe",
+   "pkg_rank": 249
+  },
+  {
+   "repo": "getsentry/sentry-python",
+   "first_pkg": "sentry-sdk",
+   "pkg_rank": 250
+  },
+  {
+   "repo": "AzureAD/microsoft-authentication-extensions-for-python",
+   "first_pkg": "msal-extensions",
+   "pkg_rank": 251
+  },
+  {
+   "repo": "mpmath/mpmath",
+   "first_pkg": "mpmath",
+   "pkg_rank": 252
+  },
+  {
+   "repo": "litl/backoff",
+   "first_pkg": "backoff",
+   "pkg_rank": 253
+  },
+  {
+   "repo": "aio-libs/async-timeout",
+   "first_pkg": "async-timeout",
+   "pkg_rank": 254
+  },
+  {
+   "repo": "Tinche/aiofiles",
+   "first_pkg": "aiofiles",
+   "pkg_rank": 255
+  },
+  {
+   "repo": "paramiko/paramiko",
+   "first_pkg": "paramiko",
+   "pkg_rank": 257
+  },
+  {
+   "repo": "pypa/build",
+   "first_pkg": "build",
+   "pkg_rank": 258
+  },
+  {
+   "repo": "stefankoegl/python-json-patch",
+   "first_pkg": "jsonpatch",
+   "pkg_rank": 259
+  },
+  {
+   "repo": "sponsors/authlib",
+   "first_pkg": "joserfc",
+   "pkg_rank": 260
+  },
+  {
+   "repo": "sponsors/lepture",
+   "first_pkg": "authlib",
+   "pkg_rank": 261
+  },
+  {
+   "repo": "pydantic/pydantic-ai",
+   "first_pkg": "pydantic-ai-slim",
+   "pkg_rank": 262
+  },
+  {
+   "repo": "horejsek/python-fastjsonschema",
+   "first_pkg": "fastjsonschema",
+   "pkg_rank": 263
+  },
+  {
+   "repo": "ipython/traitlets",
+   "first_pkg": "traitlets",
+   "pkg_rank": 264
+  },
+  {
+   "repo": "narwhals-dev/narwhals",
+   "first_pkg": "narwhals",
+   "pkg_rank": 265
+  },
+  {
+   "repo": "django/asgiref",
+   "first_pkg": "asgiref",
+   "pkg_rank": 266
+  },
+  {
+   "repo": "fsspec/gcsfs",
+   "first_pkg": "gcsfs",
+   "pkg_rank": 268
+  },
+  {
+   "repo": "andialbrecht/sqlparse",
+   "first_pkg": "sqlparse",
+   "pkg_rank": 270
+  },
+  {
+   "repo": "cloudpipe/cloudpickle",
+   "first_pkg": "cloudpickle",
+   "pkg_rank": 271
+  },
+  {
+   "repo": "mypyc/librt",
+   "first_pkg": "librt",
+   "pkg_rank": 272
+  },
+  {
+   "repo": "CourtBouillon/webencodings",
+   "first_pkg": "webencodings",
+   "pkg_rank": 274
+  },
+  {
+   "repo": "alexmojaki/executing",
+   "first_pkg": "executing",
+   "pkg_rank": 275
+  },
+  {
+   "repo": "python-babel/babel",
+   "first_pkg": "babel",
+   "pkg_rank": 276
+  },
+  {
+   "repo": "davidhalter/jedi",
+   "first_pkg": "jedi",
+   "pkg_rank": 278
+  },
+  {
+   "repo": "huggingface/datasets",
+   "first_pkg": "datasets",
+   "pkg_rank": 279
+  },
+  {
+   "repo": "benoitc/gunicorn",
+   "first_pkg": "gunicorn",
+   "pkg_rank": 281
+  },
+  {
+   "repo": "davidhalter/parso",
+   "first_pkg": "parso",
+   "pkg_rank": 282
+  },
+  {
+   "repo": "cython/cython",
+   "first_pkg": "cython",
+   "pkg_rank": 283
+  },
+  {
+   "repo": "gristlabs/asttokens",
+   "first_pkg": "asttokens",
+   "pkg_rank": 284
+  },
+  {
+   "repo": "pypa/setuptools-scm",
+   "first_pkg": "setuptools-scm",
+   "pkg_rank": 285
+  },
+  {
+   "repo": "PyCQA/isort",
+   "first_pkg": "isort",
+   "pkg_rank": 286
+  },
+  {
+   "repo": "ipython/matplotlib-inline",
+   "first_pkg": "matplotlib-inline",
+   "pkg_rank": 289
+  },
+  {
+   "repo": "tornadoweb/tornado",
+   "first_pkg": "tornado",
+   "pkg_rank": 290
+  },
+  {
+   "repo": "typeshed-internal/stub_uploader",
+   "first_pkg": "types-requests",
+   "pkg_rank": 291
+  },
+  {
+   "repo": "py-pdf/pypdf",
+   "first_pkg": "pypdf",
+   "pkg_rank": 292
+  },
+  {
+   "repo": "psf/cachecontrol",
+   "first_pkg": "cachecontrol",
+   "pkg_rank": 293
+  },
+  {
+   "repo": "martinblech/xmltodict",
+   "first_pkg": "xmltodict",
+   "pkg_rank": 295
+  },
+  {
+   "repo": "marshmallow-code/marshmallow",
+   "first_pkg": "marshmallow",
+   "pkg_rank": 296
+  },
+  {
+   "repo": "alexmojaki/stack_data",
+   "first_pkg": "stack-data",
+   "pkg_rank": 297
+  },
+  {
+   "repo": "alexmojaki/pure_eval",
+   "first_pkg": "pure-eval",
+   "pkg_rank": 298
+  },
+  {
+   "repo": "nhairs/python-json-logger",
+   "first_pkg": "python-json-logger",
+   "pkg_rank": 301
+  },
+  {
+   "repo": "Python-Markdown/markdown",
+   "first_pkg": "markdown",
+   "pkg_rank": 302
+  },
+  {
+   "repo": "dbt-labs/dbt-adapters",
+   "first_pkg": "dbt-adapters",
+   "pkg_rank": 303
+  },
+  {
+   "repo": "databricks/databricks-sql-python",
+   "first_pkg": "databricks-sql-connector",
+   "pkg_rank": 304
+  },
+  {
+   "repo": "mongodb/mongo-python-driver",
+   "first_pkg": "pymongo",
+   "pkg_rank": 305
+  },
+  {
+   "repo": "psycopg/psycopg",
+   "first_pkg": "psycopg",
+   "pkg_rank": 307
+  },
+  {
+   "repo": "langchain-ai/langsmith-sdk",
+   "first_pkg": "langsmith",
+   "pkg_rank": 308
+  },
+  {
+   "repo": "MagicStack/asyncpg",
+   "first_pkg": "asyncpg",
+   "pkg_rank": 309
+  },
+  {
+   "repo": "pymupdf/pymupdf",
+   "first_pkg": "pymupdf",
+   "pkg_rank": 310
+  },
+  {
+   "repo": "aws-cloudformation/cfn-lint",
+   "first_pkg": "cfn-lint",
+   "pkg_rank": 311
+  },
+  {
+   "repo": "kubernetes-client/python",
+   "first_pkg": "kubernetes",
+   "pkg_rank": 312
+  },
+  {
+   "repo": "dbt-labs/dbt-core",
+   "first_pkg": "dbt-core",
+   "pkg_rank": 313
+  },
+  {
+   "repo": "hynek/structlog",
+   "first_pkg": "structlog",
+   "pkg_rank": 314
+  },
+  {
+   "repo": "python-openxml/python-docx",
+   "first_pkg": "python-docx",
+   "pkg_rank": 315
+  },
+  {
+   "repo": "jmcnamara/XlsxWriter",
+   "first_pkg": "xlsxwriter",
+   "pkg_rank": 316
+  },
+  {
+   "repo": "Kozea/tinycss2",
+   "first_pkg": "tinycss2",
+   "pkg_rank": 317
+  },
+  {
+   "repo": "gorakhargosh/watchdog",
+   "first_pkg": "watchdog",
+   "pkg_rank": 318
+  },
+  {
+   "repo": "zeromq/pyzmq",
+   "first_pkg": "pyzmq",
+   "pkg_rank": 322
+  },
+  {
+   "repo": "tusharsadhwani/pytokens",
+   "first_pkg": "pytokens",
+   "pkg_rank": 323
+  },
+  {
+   "repo": "asweigart/pyperclip",
+   "first_pkg": "pyperclip",
+   "pkg_rank": 324
+  },
+  {
+   "repo": "microsoft/debugpy",
+   "first_pkg": "debugpy",
+   "pkg_rank": 325
+  },
+  {
+   "repo": "omnilib/aioitertools",
+   "first_pkg": "aioitertools",
+   "pkg_rank": 326
+  },
+  {
+   "repo": "huggingface/safetensors",
+   "first_pkg": "safetensors",
+   "pkg_rank": 327
+  },
+  {
+   "repo": "termcolor/termcolor",
+   "first_pkg": "termcolor",
+   "pkg_rank": 328
+  },
+  {
+   "repo": "pytest-dev/pytest-mock",
+   "first_pkg": "pytest-mock",
+   "pkg_rank": 329
+  },
+  {
+   "repo": "slackapi/python-slack-sdk",
+   "first_pkg": "slack-sdk",
+   "pkg_rank": 330
+  },
+  {
+   "repo": "python-lz4/python-lz4",
+   "first_pkg": "lz4",
+   "pkg_rank": 331
+  },
+  {
+   "repo": "python/importlib_resources",
+   "first_pkg": "importlib-resources",
+   "pkg_rank": 332
+  },
+  {
+   "repo": "erdewit/nest_asyncio",
+   "first_pkg": "nest-asyncio",
+   "pkg_rank": 333
+  },
+  {
+   "repo": "pytest-dev/pytest-timeout",
+   "first_pkg": "pytest-timeout",
+   "pkg_rank": 334
+  },
+  {
+   "repo": "pytorch/pytorch",
+   "first_pkg": "torch",
+   "pkg_rank": 335
+  },
+  {
+   "repo": "sgl-project/sglang",
+   "first_pkg": "sglang",
+   "pkg_rank": 336
+  },
+  {
+   "repo": "Legrandin/pycryptodome",
+   "first_pkg": "pycryptodome",
+   "pkg_rank": 337
+  },
+  {
+   "repo": "p1c2u/jsonschema-path",
+   "first_pkg": "jsonschema-path",
+   "pkg_rank": 338
+  },
+  {
+   "repo": "google/flatbuffers",
+   "first_pkg": "flatbuffers",
+   "pkg_rank": 340
+  },
+  {
+   "repo": "pandas-dev/pandas-stubs",
+   "first_pkg": "pandas-stubs",
+   "pkg_rank": 341
+  },
+  {
+   "repo": "snowflakedb/snowpark-python",
+   "first_pkg": "snowflake-snowpark-python",
+   "pkg_rank": 343
+  },
+  {
+   "repo": "jupyter/jupyter_core",
+   "first_pkg": "jupyter-core",
+   "pkg_rank": 344
+  },
+  {
+   "repo": "briancurtin/deprecation",
+   "first_pkg": "deprecation",
+   "pkg_rank": 347
+  },
+  {
+   "repo": "dulwich/dulwich",
+   "first_pkg": "dulwich",
+   "pkg_rank": 348
+  },
+  {
+   "repo": "beartype/beartype",
+   "first_pkg": "beartype",
+   "pkg_rank": 349
+  },
+  {
+   "repo": "hukkin/tomli-w",
+   "first_pkg": "tomli-w",
+   "pkg_rank": 350
+  },
+  {
+   "repo": "BrianPugh/cyclopts",
+   "first_pkg": "cyclopts",
+   "pkg_rank": 353
+  },
+  {
+   "repo": "p1c2u/pathable",
+   "first_pkg": "pathable",
+   "pkg_rank": 354
+  },
+  {
+   "repo": "PyMySQL/PyMySQL",
+   "first_pkg": "pymysql",
+   "pkg_rank": 355
+  },
+  {
+   "repo": "gazpachoking/jsonref",
+   "first_pkg": "jsonref",
+   "pkg_rank": 356
+  },
+  {
+   "repo": "jupyter/jupyter_client",
+   "first_pkg": "jupyter-client",
+   "pkg_rank": 357
+  },
+  {
+   "repo": "thedrow/fastuuid",
+   "first_pkg": "fastuuid",
+   "pkg_rank": 358
+  },
+  {
+   "repo": "google/brotli",
+   "first_pkg": "brotli",
+   "pkg_rank": 359
+  },
+  {
+   "repo": "executablebooks/mdit-py-plugins",
+   "first_pkg": "mdit-py-plugins",
+   "pkg_rank": 361
+  },
+  {
+   "repo": "pycqa/mccabe",
+   "first_pkg": "mccabe",
+   "pkg_rank": 364
+  },
+  {
+   "repo": "pypa/installer",
+   "first_pkg": "installer",
+   "pkg_rank": 366
+  },
+  {
+   "repo": "microsoft/playwright-python",
+   "first_pkg": "playwright",
+   "pkg_rank": 367
+  },
+  {
+   "repo": "pallets-eco/croniter",
+   "first_pkg": "croniter",
+   "pkg_rank": 368
+  },
+  {
+   "repo": "sphinx-doc/sphinx",
+   "first_pkg": "sphinx",
+   "pkg_rank": 369
+  },
+  {
+   "repo": "wasi-master/rich-rst",
+   "first_pkg": "rich-rst",
+   "pkg_rank": 370
+  },
+  {
+   "repo": "python-semver/python-semver",
+   "first_pkg": "semver",
+   "pkg_rank": 371
+  },
+  {
+   "repo": "dbt-labs/dbt-common",
+   "first_pkg": "dbt-common",
+   "pkg_rank": 372
+  },
+  {
+   "repo": "microsoft/onnxruntime",
+   "first_pkg": "onnxruntime",
+   "pkg_rank": 376
+  },
+  {
+   "repo": "un33k/python-slugify",
+   "first_pkg": "python-slugify",
+   "pkg_rank": 378
+  },
+  {
+   "repo": "python-hyper/wsproto",
+   "first_pkg": "wsproto",
+   "pkg_rank": 380
+  },
+  {
+   "repo": "kmike/text-unidecode",
+   "first_pkg": "text-unidecode",
+   "pkg_rank": 381
+  },
+  {
+   "repo": "tsutsu3/linkify-it-py",
+   "first_pkg": "linkify-it-py",
+   "pkg_rank": 382
+  },
+  {
+   "repo": "PrefectHQ/fastmcp",
+   "first_pkg": "fastmcp",
+   "pkg_rank": 384
+  },
+  {
+   "repo": "matthewwithanm/python-markdownify",
+   "first_pkg": "markdownify",
+   "pkg_rank": 385
+  },
+  {
+   "repo": "ilevkivskyi/typing_inspect",
+   "first_pkg": "typing-inspect",
+   "pkg_rank": 386
+  },
+  {
+   "repo": "aws/aws-sdk-pandas",
+   "first_pkg": "awswrangler",
+   "pkg_rank": 387
+  },
+  {
+   "repo": "jfhbrook/pyee",
+   "first_pkg": "pyee",
+   "pkg_rank": 388
+  },
+  {
+   "repo": "sethmlarson/truststore",
+   "first_pkg": "truststore",
+   "pkg_rank": 389
+  },
+  {
+   "repo": "pyinvoke/invoke",
+   "first_pkg": "invoke",
+   "pkg_rank": 392
+  },
+  {
+   "repo": "tsutsu3/uc.micro-py",
+   "first_pkg": "uc-micro-py",
+   "pkg_rank": 393
+  },
+  {
+   "repo": "shapely/shapely",
+   "first_pkg": "shapely",
+   "pkg_rank": 395
+  },
+  {
+   "repo": "python-poetry/poetry-plugin-export",
+   "first_pkg": "poetry-plugin-export",
+   "pkg_rank": 396
+  },
+  {
+   "repo": "kislyuk/argcomplete",
+   "first_pkg": "argcomplete",
+   "pkg_rank": 398
+  },
+  {
+   "repo": "graphql-python/graphql-core",
+   "first_pkg": "graphql-core",
+   "pkg_rank": 399
+  },
+  {
+   "repo": "jupyter/nbformat",
+   "first_pkg": "nbformat",
+   "pkg_rank": 400
+  },
+  {
+   "repo": "tobymao/sqlglot",
+   "first_pkg": "sqlglot",
+   "pkg_rank": 402
+  },
+  {
+   "repo": "sdispater/crashtest",
+   "first_pkg": "crashtest",
+   "pkg_rank": 403
+  },
+  {
+   "repo": "Azure/msrest-for-python",
+   "first_pkg": "msrest",
+   "pkg_rank": 405
+  },
+  {
+   "repo": "joke2k/faker",
+   "first_pkg": "faker",
+   "pkg_rank": 406
+  },
+  {
+   "repo": "mypyc/ast_serialize",
+   "first_pkg": "ast-serialize",
+   "pkg_rank": 407
+  },
+  {
+   "repo": "qlustered/deepdiff",
+   "first_pkg": "deepdiff",
+   "pkg_rank": 408
+  },
+  {
+   "repo": "pygithub/pygithub",
+   "first_pkg": "pygithub",
+   "pkg_rank": 410
+  },
+  {
+   "repo": "Delgan/loguru",
+   "first_pkg": "loguru",
+   "pkg_rank": 411
+  },
+  {
+   "repo": "naimetti/rfc3339-validator",
+   "first_pkg": "rfc3339-validator",
+   "pkg_rank": 412
+  },
+  {
+   "repo": "ipython/ipykernel",
+   "first_pkg": "ipykernel",
+   "pkg_rank": 413
+  },
+  {
+   "repo": "arrow-py/arrow",
+   "first_pkg": "arrow",
+   "pkg_rank": 418
+  },
+  {
+   "repo": "python-poetry/cleo",
+   "first_pkg": "cleo",
+   "pkg_rank": 419
+  },
+  {
+   "repo": "aminalaee/uuid-utils",
+   "first_pkg": "uuid-utils",
+   "pkg_rank": 420
+  },
+  {
+   "repo": "ipython/comm",
+   "first_pkg": "comm",
+   "pkg_rank": 423
+  },
+  {
+   "repo": "lark-parser/lark",
+   "first_pkg": "lark",
+   "pkg_rank": 426
+  },
+  {
+   "repo": "snowflakedb/snowflake-sqlalchemy",
+   "first_pkg": "snowflake-sqlalchemy",
+   "pkg_rank": 427
+  },
+  {
+   "repo": "pytest-dev/pytest-rerunfailures",
+   "first_pkg": "pytest-rerunfailures",
+   "pkg_rank": 429
+  },
+  {
+   "repo": "tree-sitter/py-tree-sitter",
+   "first_pkg": "tree-sitter",
+   "pkg_rank": 430
+  },
+  {
+   "repo": "mozilla/bleach",
+   "first_pkg": "bleach",
+   "pkg_rank": 433
+  },
+  {
+   "repo": "icholy/durationpy",
+   "first_pkg": "durationpy",
+   "pkg_rank": 434
+  },
+  {
+   "repo": "ipython/ipython-pygments-lexers",
+   "first_pkg": "ipython-pygments-lexers",
+   "pkg_rank": 435
+  },
+  {
+   "repo": "rogdham/backports.zstd",
+   "first_pkg": "backports-zstd",
+   "pkg_rank": 437
+  },
+  {
+   "repo": "agronholm/typeguard",
+   "first_pkg": "typeguard",
+   "pkg_rank": 439
+  },
+  {
+   "repo": "jaraco/backports.tarfile",
+   "first_pkg": "backports-tarfile",
+   "pkg_rank": 440
+  },
+  {
+   "repo": "omnilib/aiosqlite",
+   "first_pkg": "aiosqlite",
+   "pkg_rank": 442
+  },
+  {
+   "repo": "pypdfium2-team/pypdfium2",
+   "first_pkg": "pypdfium2",
+   "pkg_rank": 443
+  },
+  {
+   "repo": "chrisguidry/uncalled-for",
+   "first_pkg": "uncalled-for",
+   "pkg_rank": 445
+  },
+  {
+   "repo": "mosquito/aiofile",
+   "first_pkg": "aiofile",
+   "pkg_rank": 448
+  },
+  {
+   "repo": "sdispater/pendulum",
+   "first_pkg": "pendulum",
+   "pkg_rank": 449
+  },
+  {
+   "repo": "fastapi/fastapi-cli",
+   "first_pkg": "fastapi-cli",
+   "pkg_rank": 450
+  },
+  {
+   "repo": "hynek/argon2-cffi",
+   "first_pkg": "argon2-cffi",
+   "pkg_rank": 451
+  },
+  {
+   "repo": "plotly/plotly.py",
+   "first_pkg": "plotly",
+   "pkg_rank": 452
+  },
+  {
+   "repo": "hynek/argon2-cffi-bindings",
+   "first_pkg": "argon2-cffi-bindings",
+   "pkg_rank": 453
+  },
+  {
+   "repo": "nltk/nltk",
+   "first_pkg": "nltk",
+   "pkg_rank": 454
+  },
+  {
+   "repo": "python-attrs/cattrs",
+   "first_pkg": "cattrs",
+   "pkg_rank": 455
+  },
+  {
+   "repo": "hajimes/mmh3",
+   "first_pkg": "mmh3",
+   "pkg_rank": 456
+  },
+  {
+   "repo": "h2non/jsonpath-ng",
+   "first_pkg": "jsonpath-ng",
+   "pkg_rank": 457
+  },
+  {
+   "repo": "piskvorky/smart_open",
+   "first_pkg": "smart-open",
+   "pkg_rank": 458
+  },
+  {
+   "repo": "langchain-ai/langgraph",
+   "first_pkg": "langgraph",
+   "pkg_rank": 459
+  },
+  {
+   "repo": "pdfminer/pdfminer.six",
+   "first_pkg": "pdfminer-six",
+   "pkg_rank": 460
+  },
+  {
+   "repo": "mosquito/caio",
+   "first_pkg": "caio",
+   "pkg_rank": 461
+  },
+  {
+   "repo": "triton-lang/triton",
+   "first_pkg": "triton",
+   "pkg_rank": 462
+  },
+  {
+   "repo": "python-humanize/humanize",
+   "first_pkg": "humanize",
+   "pkg_rank": 463
+  },
+  {
+   "repo": "getsentry/responses",
+   "first_pkg": "responses",
+   "pkg_rank": 464
+  },
+  {
+   "repo": "PythonCharmers/python-future",
+   "first_pkg": "future",
+   "pkg_rank": 465
+  },
+  {
+   "repo": "pola-rs/polars",
+   "first_pkg": "polars",
+   "pkg_rank": 466
+  },
+  {
+   "repo": "DataDog/datadogpy",
+   "first_pkg": "datadog",
+   "pkg_rank": 468
+  },
+  {
+   "repo": "agronholm/cbor2",
+   "first_pkg": "cbor2",
+   "pkg_rank": 470
+  },
+  {
+   "repo": "pydantic/pydantic-extra-types",
+   "first_pkg": "pydantic-extra-types",
+   "pkg_rank": 471
+  },
+  {
+   "repo": "numba/llvmlite",
+   "first_pkg": "llvmlite",
+   "pkg_rank": 473
+  },
+  {
+   "repo": "Anorov/PySocks",
+   "first_pkg": "pysocks",
+   "pkg_rank": 474
+  },
+  {
+   "repo": "pylint-dev/pylint",
+   "first_pkg": "pylint",
+   "pkg_rank": 476
+  },
+  {
+   "repo": "lidatong/dataclasses-json",
+   "first_pkg": "dataclasses-json",
+   "pkg_rank": 480
+  },
+  {
+   "repo": "scanny/python-pptx",
+   "first_pkg": "python-pptx",
+   "pkg_rank": 481
+  },
+  {
+   "repo": "mike-oakley/openapi-pydantic",
+   "first_pkg": "openapi-pydantic",
+   "pkg_rank": 482
+  },
+  {
+   "repo": "zopefoundation/zope.interface",
+   "first_pkg": "zope-interface",
+   "pkg_rank": 484
+  },
+  {
+   "repo": "jupyter/nbclient",
+   "first_pkg": "nbclient",
+   "pkg_rank": 485
+  },
+  {
+   "repo": "PyCQA/pyflakes",
+   "first_pkg": "pyflakes",
+   "pkg_rank": 486
+  },
+  {
+   "repo": "borntyping/python-colorlog",
+   "first_pkg": "colorlog",
+   "pkg_rank": 487
+  },
+  {
+   "repo": "wolph/portalocker",
+   "first_pkg": "portalocker",
+   "pkg_rank": 489
+  },
+  {
+   "repo": "frostming/pbs-installer",
+   "first_pkg": "pbs-installer",
+   "pkg_rank": 490
+  },
+  {
+   "repo": "opencv/opencv-python",
+   "first_pkg": "opencv-python",
+   "pkg_rank": 491
+  },
+  {
+   "repo": "jupyterlab/jupyterlab_pygments",
+   "first_pkg": "jupyterlab-pygments",
+   "pkg_rank": 492
+  },
+  {
+   "repo": "confluentinc/confluent-kafka-python",
+   "first_pkg": "confluent-kafka",
+   "pkg_rank": 493
+  },
+  {
+   "repo": "ray-project/ray",
+   "first_pkg": "ray",
+   "pkg_rank": 494
+  },
+  {
+   "repo": "jsvine/pdfplumber",
+   "first_pkg": "pdfplumber",
+   "pkg_rank": 495
+  },
+  {
+   "repo": "pytoolz/toolz",
+   "first_pkg": "toolz",
+   "pkg_rank": 496
+  },
+  {
+   "repo": "simplejson/simplejson",
+   "first_pkg": "simplejson",
+   "pkg_rank": 497
+  },
+  {
+   "repo": "jgm/pandocfilters",
+   "first_pkg": "pandocfilters",
+   "pkg_rank": 499
+  },
+  {
+   "repo": "spulec/freezegun",
+   "first_pkg": "freezegun",
+   "pkg_rank": 500
+  },
+  {
+   "repo": "tlsfuzzer/python-ecdsa",
+   "first_pkg": "ecdsa",
+   "pkg_rank": 501
+  },
+  {
+   "repo": "jupyter/notebook",
+   "first_pkg": "notebook",
+   "pkg_rank": 502
+  },
+  {
+   "repo": "corydolphin/flask-cors",
+   "first_pkg": "flask-cors",
+   "pkg_rank": 504
+  },
+  {
+   "repo": "click-contrib/click-plugins",
+   "first_pkg": "click-plugins",
+   "pkg_rank": 505
+  },
+  {
+   "repo": "vmagamedov/grpclib",
+   "first_pkg": "grpclib",
+   "pkg_rank": 507
+  },
+  {
+   "repo": "seperman/orderly-set",
+   "first_pkg": "orderly-set",
+   "pkg_rank": 508
+  },
+  {
+   "repo": "jupyter-server/jupyter_server",
+   "first_pkg": "jupyter-server",
+   "pkg_rank": 510
+  },
+  {
+   "repo": "celery/kombu",
+   "first_pkg": "kombu",
+   "pkg_rank": 512
+  },
+  {
+   "repo": "modal-labs/modal-client",
+   "first_pkg": "modal",
+   "pkg_rank": 513
+  },
+  {
+   "repo": "pycqa/flake8",
+   "first_pkg": "flake8",
+   "pkg_rank": 515
+  },
+  {
+   "repo": "celery/celery",
+   "first_pkg": "celery",
+   "pkg_rank": 516
+  },
+  {
+   "repo": "youtype/types-awscrt",
+   "first_pkg": "types-awscrt",
+   "pkg_rank": 517
+  },
+  {
+   "repo": "abseil/abseil-py",
+   "first_pkg": "absl-py",
+   "pkg_rank": 518
+  },
+  {
+   "repo": "fastapilabs/fastapi-cloud-cli",
+   "first_pkg": "fastapi-cloud-cli",
+   "pkg_rank": 519
+  },
+  {
+   "repo": "duckdb/duckdb-python",
+   "first_pkg": "duckdb",
+   "pkg_rank": 521
+  },
+  {
+   "repo": "youtype/botocore-stubs",
+   "first_pkg": "botocore-stubs",
+   "pkg_rank": 522
+  },
+  {
+   "repo": "frostming/findpython",
+   "first_pkg": "findpython",
+   "pkg_rank": 523
+  },
+  {
+   "repo": "dpranke/pyjson5",
+   "first_pkg": "json5",
+   "pkg_rank": 524
+  },
+  {
+   "repo": "xflr6/graphviz",
+   "first_pkg": "graphviz",
+   "pkg_rank": 525
+  },
+  {
+   "repo": "prettytable/prettytable",
+   "first_pkg": "prettytable",
+   "pkg_rank": 526
+  },
+  {
+   "repo": "python-trio/trio",
+   "first_pkg": "trio",
+   "pkg_rank": 528
+  },
+  {
+   "repo": "pydantic/httpx2",
+   "first_pkg": "httpx2",
+   "pkg_rank": 530
+  },
+  {
+   "repo": "langchain-ai/agent-protocol",
+   "first_pkg": "langchain-protocol",
+   "pkg_rank": 531
+  },
+  {
+   "repo": "jupyterlab/jupyterlab",
+   "first_pkg": "jupyterlab",
+   "pkg_rank": 532
+  },
+  {
+   "repo": "elastic/elasticsearch-py",
+   "first_pkg": "elasticsearch",
+   "pkg_rank": 533
+  },
+  {
+   "repo": "opensearch-project/opensearch-py",
+   "first_pkg": "opensearch-py",
+   "pkg_rank": 534
+  },
+  {
+   "repo": "aws/amazon-redshift-python-driver",
+   "first_pkg": "redshift-connector",
+   "pkg_rank": 535
+  },
+  {
+   "repo": "django/django",
+   "first_pkg": "django",
+   "pkg_rank": 536
+  },
+  {
+   "repo": "pylint-dev/astroid",
+   "first_pkg": "astroid",
+   "pkg_rank": 537
+  },
+  {
+   "repo": "pymssql/pymssql",
+   "first_pkg": "pymssql",
+   "pkg_rank": 540
+  },
+  {
+   "repo": "awslabs/serverless-application-model",
+   "first_pkg": "aws-sam-translator",
+   "pkg_rank": 541
+  },
+  {
+   "repo": "vega/altair",
+   "first_pkg": "altair",
+   "pkg_rank": 543
+  },
+  {
+   "repo": "messense/nh3",
+   "first_pkg": "nh3",
+   "pkg_rank": 545
+  },
+  {
+   "repo": "celery/vine",
+   "first_pkg": "vine",
+   "pkg_rank": 546
+  },
+  {
+   "repo": "youtype/types-s3transfer",
+   "first_pkg": "types-s3transfer",
+   "pkg_rank": 547
+  },
+  {
+   "repo": "celery/py-amqp",
+   "first_pkg": "amqp",
+   "pkg_rank": 548
+  },
+  {
+   "repo": "celery/billiard",
+   "first_pkg": "billiard",
+   "pkg_rank": 550
+  },
+  {
+   "repo": "dmlc/xgboost",
+   "first_pkg": "xgboost",
+   "pkg_rank": 552
+  },
+  {
+   "repo": "rbarrois/python-semanticversion",
+   "first_pkg": "semantic-version",
+   "pkg_rank": 553
+  },
+  {
+   "repo": "ICRAR/ijson",
+   "first_pkg": "ijson",
+   "pkg_rank": 554
+  },
+  {
+   "repo": "browser-use/browser-use",
+   "first_pkg": "browser-use",
+   "pkg_rank": 555
+  },
+  {
+   "repo": "python-trio/outcome",
+   "first_pkg": "outcome",
+   "pkg_rank": 556
+  },
+  {
+   "repo": "ormsgpack/ormsgpack",
+   "first_pkg": "ormsgpack",
+   "pkg_rank": 557
+  },
+  {
+   "repo": "Kozea/cssselect2",
+   "first_pkg": "cssselect2",
+   "pkg_rank": 558
+  },
+  {
+   "repo": "click-contrib/click-didyoumean",
+   "first_pkg": "click-didyoumean",
+   "pkg_rank": 559
+  },
+  {
+   "repo": "untitaker/click-repl",
+   "first_pkg": "click-repl",
+   "pkg_rank": 561
+  },
+  {
+   "repo": "gevent/gevent",
+   "first_pkg": "gevent",
+   "pkg_rank": 562
+  },
+  {
+   "repo": "youtype/mypy_boto3_builder",
+   "first_pkg": "mypy-boto3-s3",
+   "pkg_rank": 563
+  },
+  {
+   "repo": "NVIDIA/cuda-python",
+   "first_pkg": "cuda-pathfinder",
+   "pkg_rank": 564
+  },
+  {
+   "repo": "Instagram/LibCST",
+   "first_pkg": "libcst",
+   "pkg_rank": 566
+  },
+  {
+   "repo": "coleifer/peewee",
+   "first_pkg": "peewee",
+   "pkg_rank": 567
+  },
+  {
+   "repo": "jpvanhal/inflection",
+   "first_pkg": "inflection",
+   "pkg_rank": 568
+  },
+  {
+   "repo": "ubernostrum/webcolors",
+   "first_pkg": "webcolors",
+   "pkg_rank": 569
+  },
+  {
+   "repo": "apache/spark",
+   "first_pkg": "pyspark",
+   "pkg_rank": 570
+  },
+  {
+   "repo": "agronholm/apscheduler",
+   "first_pkg": "apscheduler",
+   "pkg_rank": 571
+  },
+  {
+   "repo": "cunla/fakeredis-py",
+   "first_pkg": "fakeredis",
+   "pkg_rank": 572
+  },
+  {
+   "repo": "dvarrazzo/py-setproctitle",
+   "first_pkg": "setproctitle",
+   "pkg_rank": 573
+  },
+  {
+   "repo": "bolsote/isoduration",
+   "first_pkg": "isoduration",
+   "pkg_rank": 574
+  },
+  {
+   "repo": "talkiq/gcloud-aio",
+   "first_pkg": "gcloud-aio-auth",
+   "pkg_rank": 578
+  },
+  {
+   "repo": "mistralai/client-python",
+   "first_pkg": "mistralai",
+   "pkg_rank": 580
+  },
+  {
+   "repo": "mysql/mysql-connector-python",
+   "first_pkg": "mysql-connector-python",
+   "pkg_rank": 581
+  },
+  {
+   "repo": "posthog/posthog-python",
+   "first_pkg": "posthog",
+   "pkg_rank": 584
+  },
+  {
+   "repo": "ewels/rich-click",
+   "first_pkg": "rich-click",
+   "pkg_rank": 586
+  },
+  {
+   "repo": "mhammond/pywin32",
+   "first_pkg": "pywin32",
+   "pkg_rank": 587
+  },
+  {
+   "repo": "tedder/requests-aws4auth",
+   "first_pkg": "requests-aws4auth",
+   "pkg_rank": 588
+  },
+  {
+   "repo": "HypothesisWorks/hypothesis",
+   "first_pkg": "hypothesis",
+   "pkg_rank": 595
+  },
+  {
+   "repo": "aio-libs/async-lru",
+   "first_pkg": "async-lru",
+   "pkg_rank": 596
+  },
+  {
+   "repo": "scrapinghub/dateparser",
+   "first_pkg": "dateparser",
+   "pkg_rank": 597
+  },
+  {
+   "repo": "tableau/server-client-python",
+   "first_pkg": "tableauserverclient",
+   "pkg_rank": 598
+  },
+  {
+   "repo": "langchain-ai/langchain-community",
+   "first_pkg": "langchain-community",
+   "pkg_rank": 599
+  },
+  {
+   "repo": "getmoto/moto",
+   "first_pkg": "moto",
+   "pkg_rank": 600
+  },
+  {
+   "repo": "DataDog/dd-trace-py",
+   "first_pkg": "ddtrace",
+   "pkg_rank": 601
+  },
+  {
+   "repo": "python-openapi/openapi-spec-validator",
+   "first_pkg": "openapi-spec-validator",
+   "pkg_rank": 603
+  },
+  {
+   "repo": "ypcrts/fqdn",
+   "first_pkg": "fqdn",
+   "pkg_rank": 604
+  },
+  {
+   "repo": "AnswerDotAI/fastcore",
+   "first_pkg": "fastcore",
+   "pkg_rank": 608
+  },
+  {
+   "repo": "facelessuser/bracex",
+   "first_pkg": "bracex",
+   "pkg_rank": 610
+  },
+  {
+   "repo": "burnash/gspread",
+   "first_pkg": "gspread",
+   "pkg_rank": 611
+  },
+  {
+   "repo": "apache/airflow",
+   "first_pkg": "apache-airflow-providers-common-sql",
+   "pkg_rank": 613
+  },
+  {
+   "repo": "mpdavis/python-jose",
+   "first_pkg": "python-jose",
+   "pkg_rank": 614
+  },
+  {
+   "repo": "h5py/h5py",
+   "first_pkg": "h5py",
+   "pkg_rank": 615
+  },
+  {
+   "repo": "fastavro/fastavro",
+   "first_pkg": "fastavro",
+   "pkg_rank": 616
+  },
+  {
+   "repo": "statsmodels/statsmodels",
+   "first_pkg": "statsmodels",
+   "pkg_rank": 617
+  },
+  {
+   "repo": "h2non/filetype.py",
+   "first_pkg": "filetype",
+   "pkg_rank": 618
+  },
+  {
+   "repo": "alisaifee/limits",
+   "first_pkg": "limits",
+   "pkg_rank": 619
+  },
+  {
+   "repo": "mwaskom/seaborn",
+   "first_pkg": "seaborn",
+   "pkg_rank": 620
+  },
+  {
+   "repo": "arsenetar/send2trash",
+   "first_pkg": "send2trash",
+   "pkg_rank": 621
+  },
+  {
+   "repo": "naimetti/rfc3986-validator",
+   "first_pkg": "rfc3986-validator",
+   "pkg_rank": 623
+  },
+  {
+   "repo": "jupyterlab/jupyterlab_server",
+   "first_pkg": "jupyterlab-server",
+   "pkg_rank": 627
+  },
+  {
+   "repo": "AzureAD/azure-activedirectory-library-for-python",
+   "first_pkg": "adal",
+   "pkg_rank": 630
+  },
+  {
+   "repo": "startreedata/pinot-dbapi",
+   "first_pkg": "pinotdb",
+   "pkg_rank": 631
+  },
+  {
+   "repo": "jcrist/msgspec",
+   "first_pkg": "msgspec",
+   "pkg_rank": 632
+  },
+  {
+   "repo": "facelessuser/wcmatch",
+   "first_pkg": "wcmatch",
+   "pkg_rank": 633
+  },
+  {
+   "repo": "jupyter-widgets/ipywidgets",
+   "first_pkg": "jupyterlab-widgets",
+   "pkg_rank": 635
+  },
+  {
+   "repo": "pytorch/vision",
+   "first_pkg": "torchvision",
+   "pkg_rank": 636
+  },
+  {
+   "repo": "mlflow/mlflow",
+   "first_pkg": "mlflow-skinny",
+   "pkg_rank": 637
+  },
+  {
+   "repo": "ionelmc/python-lazy-object-proxy",
+   "first_pkg": "lazy-object-proxy",
+   "pkg_rank": 638
+  },
+  {
+   "repo": "imageio/imageio",
+   "first_pkg": "imageio",
+   "pkg_rank": 639
+  },
+  {
+   "repo": "mkleehammer/pyodbc",
+   "first_pkg": "pyodbc",
+   "pkg_rank": 641
+  },
+  {
+   "repo": "stripe/stripe-python",
+   "first_pkg": "stripe",
+   "pkg_rank": 643
+  },
+  {
+   "repo": "omry/omegaconf",
+   "first_pkg": "omegaconf",
+   "pkg_rank": 644
+  },
+  {
+   "repo": "jupyter/jupyter_events",
+   "first_pkg": "jupyter-events",
+   "pkg_rank": 648
+  },
+  {
+   "repo": "python-telegram-bot/python-telegram-bot",
+   "first_pkg": "python-telegram-bot",
+   "pkg_rank": 650
+  }
+ ]
+}
