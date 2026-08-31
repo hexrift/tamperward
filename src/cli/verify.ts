@@ -28,7 +28,7 @@
 // verification at all.
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
+import { chmodSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { loadPolicy } from '../policy-load';
@@ -85,7 +85,17 @@ function materialize(cwd: string, dest: string): void {
     if (!st.isFile()) continue;
     const out = join(dest, rel);
     mkdirSync(dirname(out), { recursive: true });
-    cpSync(src, out);
+    // statSync FOLLOWS links while cpSync preserves them, so a tracked path
+    // replaced by a symlink was copied as a link and then written and chmod'd
+    // THROUGH — landing base content and permissions on a file outside the
+    // sandbox entirely, whatever the verdict turned out to be. Never write
+    // through a link: drop it and materialise the real content. (P1-1, review.)
+    dropSymlink(out);
+    if (lstatSync(src).isSymbolicLink()) {
+      writeFileSync(out, readFileSync(src));
+    } else {
+      cpSync(src, out, { dereference: true });
+    }
     chmodSync(out, st.mode);
   }
   // ABSOLUTE target. A relative cwd (`--cwd .`, which the envelope passes
@@ -95,6 +105,16 @@ function materialize(cwd: string, dest: string): void {
   // always says red is one people switch off.
   const nm = resolve(cwd, 'node_modules');
   if (existsSync(nm)) symlinkSync(nm, join(dest, 'node_modules'), 'dir');
+}
+
+/** Remove `p` when it is a symlink, so a later write lands in the sandbox
+ *  rather than on the link's target. */
+function dropSymlink(p: string): void {
+  try {
+    if (lstatSync(p).isSymbolicLink()) rmSync(p, { force: true });
+  } catch {
+    /* absent: nothing to drop */
+  }
 }
 
 /** Restore protected files as they are at `base` into the copy. Returns
@@ -110,6 +130,7 @@ function overlayPristine(cwd: string, base: string, dest: string, policy: Policy
     const content = execFileSync('git', ['show', `${base}:${rel}`], { cwd, maxBuffer: 1 << 28 });
     const out = join(dest, rel);
     mkdirSync(dirname(out), { recursive: true });
+    dropSymlink(out);
     writeFileSync(out, content);
     restored++;
   }
