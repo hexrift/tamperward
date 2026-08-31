@@ -9,6 +9,16 @@ authority; the earlier layers exist to shorten the feedback loop:
   mid-turn, is still the turn's work. This layer exists only where the hooks do —
   Claude Code today. Any other agent, and any human, meets the gate at pre-commit and
   CI instead, where a denial arrives later and redirects less.
+- **Run envelope** — `tamperward run -- <agent command...>` wraps the whole agent
+  invocation and treats the runtime's exit as untrusted: the trusted base is
+  recorded before the agent starts, and whatever tree exists at termination —
+  committed or not — is re-adjudicated against it (policy over `base...HEAD`,
+  policy over the worktree, pristine verification). The measured reason this
+  layer exists: in our round-2 experiment, a hook denied 42 mutations and
+  rejected every one of 25 stop attempts, and the session still completed with
+  a masked-green tree, because hooks decide but runtimes terminate. The
+  envelope owns the boundary from outside; the hooks remain the in-session
+  fast path that steers the agent toward honest work.
 - **Pre-commit** — `tamperward check --staged` catches what the agent layer missed:
   human commits, other agents.
 - **CI** — `tamperward check --diff base...head`, the authority for `main`. The policy

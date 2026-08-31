@@ -5,6 +5,35 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.10.0] — 2026-08-31
+
+**`tamperward run` — the enforcement envelope (SPEC row 17).** Round 2's
+decisive negative finding, turned into architecture: a hook can be correct at
+every decision point and the system still fail, because the hook does not own
+termination. In the round-2 cssstyle-gated trajectory the gate denied 42
+mutations and pristine verification rejected all 25 stop attempts — including
+the final one, two seconds before the runtime completed the session anyway
+with a masked-green tree. Correct policy decisions are insufficient when the
+policy mechanism does not own the lifecycle boundary.
+
+`tamperward run [--base R] [--cmd C] [--budget S] [--allow-dirty] -- <agent
+command...>` closes that boundary from outside the runtime: it records the
+trusted base before the agent starts, treats the agent's exit as untrusted,
+and re-adjudicates the released tree against that entry-time base — policy
+check over `base...HEAD` (weakening the agent committed), policy check over
+the worktree (weakening left uncommitted), and pristine verification (masked
+failure, however produced). Exit contract, "green means green" as an exit
+code: the agent's own code when enforcement is clean; 1 on any blocking
+finding or masked failure, even if the agent claimed success; 2 when
+adjudication is impossible (dirty start, unresolvable base, no suite
+command) — failing closed, never open.
+
+The hooks remain the in-session fast path — round 2 measured them converting
+blocked shortcuts into honest work in eight of twelve denied trajectories.
+The envelope (or `check --diff` + `verify` in CI, which no runtime can
+override) is the boundary. Tests replay the cssstyle escape in miniature: a
+masking agent that exits 0 becomes a failing pipeline.
+
 ## [1.9.0] — 2026-08-30
 
 **`tamperward verify` — pristine-suite re-execution, productized.** The

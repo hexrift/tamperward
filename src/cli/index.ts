@@ -9,6 +9,7 @@ import { runAllow, AllowOpts } from './allow';
 import { runInit, InitOpts } from './init';
 import { runWatch } from './watch';
 import { runVerify, parseVerify } from './verify';
+import { runEnvelope, parseRun } from './run';
 
 function parseAllow(args: string[]): AllowOpts {
   const o: AllowOpts = {};
@@ -91,6 +92,14 @@ Formats:
                                             from the trusted base; a visible-green /
                                             pristine-red result is a MASKED FAILURE
                                             (exit 1); cannot-verify fails closed (2)
+  tamperward run [opts] -- <agent cmd...>   enforcement envelope: record the trusted
+             [--base R] [--cmd C]           base, run the agent, treat its exit as
+             [--budget S] [--allow-dirty]   untrusted, then re-adjudicate the tree it
+                                            left (policy over base...HEAD and the
+                                            worktree, plus verify). Exit: agent's code
+                                            when clean; 1 on any blocking finding or
+                                            masked failure; 2 when it cannot
+                                            adjudicate (fails closed)
   tamperward allow <rule> --reason "..."    record a human sign-off (local audit ledger)
   tamperward init [--dry-run]               wire the policy file plus every
                                             enforcement point: Claude Code hooks,
@@ -117,6 +126,8 @@ function main(argv: string[]): number {
       return runInit(parseInit(rest));
     case 'verify':
       return runVerify(parseVerify(rest));
+    case 'run':
+      return runEnvelope(parseRun(rest));
     case undefined:
     case '-h':
     case '--help':
