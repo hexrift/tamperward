@@ -33,6 +33,9 @@
 // envelope, or `check --diff` + `verify` in CI, is the boundary.
 
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { join } from 'node:path';
 import { runCheck } from './check';
 import { runVerify } from './verify';
 import { loadPolicy, loadPolicyAt } from '../policy-load';
@@ -45,6 +48,9 @@ export interface RunEnvelopeOpts {
   cmd?: string;
   budget?: number;
   allowDirty?: boolean;
+  /** Seconds to wait after adjudication before the final quiescence check, to
+   *  catch a background worker that sleeps through it. 0 = no wait. */
+  settle?: number;
   argv: string[];
 }
 
@@ -53,6 +59,89 @@ const err = (s: string) => process.stderr.write(s + '\n');
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 1 << 28 });
+}
+
+/** Content fingerprint of every non-ignored file (tracked + untracked). The
+ *  envelope adjudicates a LIVE tree across three sequential checks, so it must
+ *  be able to prove the tree it judged is the tree that still exists when it
+ *  answers. (P0-5, external review.) */
+function treeFingerprint(cwd: string): string {
+  const files = git(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd)
+    .split('\0')
+    .filter(Boolean)
+    .sort();
+  const h = createHash('sha256');
+  for (const rel of files) {
+    h.update(rel);
+    h.update('\0');
+    try {
+      h.update(readFileSync(join(cwd, rel)));
+    } catch {
+      h.update('<unreadable>');
+    }
+    h.update('\0');
+  }
+  return h.digest('hex');
+}
+
+/** Clock ticks since boot. FLOOR is load-bearing: /proc/uptime is fractional
+ *  and /proc/<pid>/stat starttime is an integer tick count, so comparing the
+ *  two unrounded lets a process spawned inside the same 10ms tick read as
+ *  "started before the agent". */
+function nowTicks(): number {
+  try {
+    return Math.floor(parseFloat(readFileSync('/proc/uptime', 'utf8').split(' ')[0]) * 100);
+  } catch {
+    return Number.POSITIVE_INFINITY; // unknown: convict nothing on start time
+  }
+}
+
+/** Processes still holding this working tree that started AFTER the agent did.
+ *
+ *  `run` owns the agent's exit code, not its descendants: a worker detached
+ *  with setsid/nohup survives every check and edits the tree afterwards. A
+ *  synchronous wrapper cannot reap a new session, so the envelope does the
+ *  honest thing — it declines to certify a tree something still holds.
+ *
+ *  Start time is the discriminator that keeps this from convicting the
+ *  caller's own shell pipeline, an editor, or a dev server: only what appeared
+ *  after the agent spawned can be the agent's doing. Linux-only (/proc);
+ *  elsewhere the fingerprint and --settle guards carry the load. */
+function survivorsHoldingTree(cwd: string, spawnedAfterTicks: number): number[] {
+  const out: number[] = [];
+  let real: string;
+  try {
+    real = realpathSync(cwd);
+  } catch {
+    return out;
+  }
+  let pids: string[];
+  try {
+    pids = readdirSync('/proc').filter((d) => /^\d+$/.test(d));
+  } catch {
+    return out;
+  }
+  for (const pid of pids) {
+    const n = Number(pid);
+    if (n === process.pid) continue;
+    let held: string;
+    try {
+      held = realpathSync(`/proc/${pid}/cwd`);
+    } catch {
+      continue; // exited, or not ours to inspect
+    }
+    if (held !== real && !held.startsWith(real + '/')) continue;
+    try {
+      // stat field 22 is starttime; comm can contain spaces and parens, so
+      // parse after the final ')'.
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+      const startTicks = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]);
+      if (Number.isFinite(startTicks) && startTicks >= spawnedAfterTicks) out.push(n);
+    } catch {
+      /* raced with exit */
+    }
+  }
+  return out;
 }
 
 export function runEnvelope(opts: RunEnvelopeOpts): number {
@@ -116,6 +205,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   }
 
   out(`tamperward run — trusted base ${base.slice(0, 10)}; agent exit is untrusted.`);
+  const spawnTicks = nowTicks(); // survivors are what appears after this
   const agent = spawnSync(opts.argv[0], opts.argv.slice(1), { cwd, stdio: 'inherit' });
   const agentExit = agent.status ?? 1; // killed-by-signal is not success
 
@@ -135,6 +225,9 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     return 1;
   }
 
+  // The tree under adjudication must not move while we adjudicate it.
+  const fpBefore = treeFingerprint(cwd);
+
   // Re-adjudicate the tree the runtime released, committed and uncommitted,
   // against the entry-time base. Order is cheap-to-expensive; every step
   // runs regardless so the report is complete.
@@ -148,12 +241,35 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   out('\n[envelope] pristine verification against the trusted base:');
   const verifyCode = runVerify({ cwd, base, cmd: frozenCmd, budget: frozenBudget, policyOverride: frozenPolicy });
 
+  // Quiescence. A survivor that edits the tree during — or after — the checks
+  // makes the verdict describe a tree that no longer exists: the masked-green
+  // escape one level up from the runtime hole this command closes.
+  if (opts.settle && opts.settle > 0) {
+    try {
+      execFileSync('sleep', [String(opts.settle)]);
+    } catch {
+      /* sleep unavailable; the checks below still run */
+    }
+  }
+  const mutatedDuringAdjudication = treeFingerprint(cwd) !== fpBefore;
+  if (mutatedDuringAdjudication) {
+    err('tamperward run: the working tree changed while it was being adjudicated —');
+    err('the verdict below would describe a tree that no longer exists.');
+  }
+  const survivors = survivorsHoldingTree(cwd, spawnTicks);
+  if (survivors.length) {
+    err(`tamperward run: ${survivors.length} process(es) started during this run still hold the`);
+    err(`working tree (pid ${survivors.join(', ')}). A verdict cannot outlive the tree it describes.`);
+  }
+  const notQuiescent = mutatedDuringAdjudication || survivors.length > 0;
+
   const cannot = diffCode === 2 || workCode === 2 || verifyCode === 2;
-  const blocked = diffCode === 1 || workCode === 1 || verifyCode === 1;
+  const blocked = diffCode === 1 || workCode === 1 || verifyCode === 1 || notQuiescent;
   const enforcement = cannot ? 2 : blocked ? 1 : 0;
 
   const verdict =
     enforcement === 2 ? 'CANNOT_ADJUDICATE (fail closed)'
+    : notQuiescent ? 'NOT_QUIESCENT — the tree moved, or something still holds it'
     : enforcement === 1 ? 'ENFORCEMENT_FAILED — the tree the runtime released does not stand'
     : agentExit !== 0 ? `agent exited ${agentExit} (enforcement clean)`
     : 'GREEN MEANS GREEN';
@@ -171,6 +287,7 @@ export function parseRun(args: string[]): RunEnvelopeOpts {
     else if (a === '--cmd') o.cmd = args[++i];
     else if (a === '--budget') o.budget = Number(args[++i]);
     else if (a === '--allow-dirty') o.allowDirty = true;
+    else if (a === '--settle') o.settle = Number(args[++i]);
     else if (a === '--cwd') o.cwd = args[++i];
     else { o.argv = args.slice(i); break; } // first non-flag starts the command
   }

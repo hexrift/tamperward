@@ -23,7 +23,7 @@ is only as honest as this table. REPRO = executed end-to-end; AUDIT = code path.
 
 | # | sev | finding | disposition |
 |---|-----|---------|-------------|
-| P0-5 | REPRO | `run` owns the child's exit, not its process group: a detached `setsid`/`nohup` worker mutates the tree AFTER the three checks (TOCTOU) | **Open, high.** Needs a process-group session + post-adjudication quiescence (spawn in a new pgid, kill the group, re-hash the tree after checks, or run the whole agent in a throwaway worktree adjudicated at rest). Roadmap 1c. Until then SPEC row 17 must not claim the tree is quiescent. |
+| P0-5 | REPRO | a detached `setsid`/`nohup` worker survived every check and mutated the tree afterwards — GREEN MEANS GREEN, then the suite gutted 6s later | **Closed 1.11.0** by refusing to certify rather than pretending to reap: the tree is fingerprinted across adjudication (portable) and processes started after the agent spawned that still hold the tree are detected (Linux /proc, keyed on spawn time so the caller's own pipeline is not convicted); either → NOT_QUIESCENT, exit 1. `--settle N` extends the window. Residual, stated in SPEC row 17: non-Linux hosts lack the survivor scan, and a worker that outwaits the run needs OS-level isolation.
 | P0-6 | REPRO | both suite runs execute the agent-writable, gitignored `node_modules` runner | **Open, documented out-of-TCB** (SPEC row 17 / roadmap 1b). The review is right that the SPEC caveat and the CI-consumed exit code are in tension; detect-only (entry-time dep hash) is patch-sized and should land before any "deps closed" claim. |
 | P1-1 | REPRO | verify writes through a symlinked protected file out of the sandbox (bounded to base blobs — destructive, not RCE) | Open. Materialize/overlay must refuse to follow symlinks for protected paths. |
 | P1-2 | AUDIT | `--allow-dirty` re-opens verifier injection (entry policy read from a pre-staged worktree) — mitigated by 1.10.2 using `loadPolicyAt(base)` for BOTH policy and verifier | Re-verify: 1.10.2 moved the verifier resolution to the base commit, which should close this; needs a test under `--allow-dirty`. |
@@ -75,3 +75,10 @@ the check below was run against them:
 run that fix's test file. Every exploit test must fail; every control test
 ("the honest version stays clean") must still pass. Both halves matter — a
 suite where the controls also go red is over-blocking, not security.
+
+Automated as `harness/mutation-check.sh <pre-fix-rev> <test-file> <source...>`,
+which **refuses to run when the target files have uncommitted changes**. It
+restores them with `git checkout HEAD --`, and doing that over an uncommitted
+fix once destroyed the P0-5 implementation mid-session: the tests then failed
+for the honest reason that the fix no longer existed on disk, and the next hour
+went into debugging code that had already been deleted. Commit first.

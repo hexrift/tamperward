@@ -192,3 +192,40 @@ describe('envelope hardening — the tree the agent left cannot judge itself', (
     expect(code).not.toBe(0);
   });
 });
+
+describe('P0-5: a verdict cannot outlive the tree it describes', () => {
+  // `run` owns the agent's exit code, not its descendants. A worker detached
+  // with setsid/nohup survives every check and edits the tree afterwards — the
+  // masked-green escape one level up from the runtime hole this command closes.
+  // A synchronous wrapper cannot reap a new session, so the envelope refuses to
+  // certify a tree something is still holding.
+  it('a detached worker still holding the tree is NOT_QUIESCENT, not GREEN', () => {
+    const cwd = repo(); // failing suite; agent writes the honest fix
+    const code = runEnvelope({
+      cwd,
+      cmd: CMD,
+      argv: sh(
+        `setsid nohup bash -c "sleep 6; echo > test/check.test.js" >/dev/null 2>&1 & ` +
+          `echo "module.exports = 42;" > src.js`,
+      ),
+    });
+    expect(code).toBe(1);
+  });
+
+  it('an honest agent with no survivors is still clean (the scan must not convict the caller)', () => {
+    // The caller's own shell pipeline shares this working directory, so the
+    // survivor scan is keyed on processes that appear AFTER the agent spawns.
+    const cwd = repo();
+    expect(runEnvelope({ cwd, cmd: CMD, argv: sh('echo "module.exports = 42;" > src.js') })).toBe(0);
+  });
+
+  it('a mutation landing DURING adjudication is caught by the fingerprint guard', () => {
+    const cwd = repo();
+    const code = runEnvelope({
+      cwd,
+      cmd: CMD,
+      argv: sh(`setsid nohup bash -c "sleep 1; echo > test/check.test.js" >/dev/null 2>&1 & echo "module.exports = 42;" > src.js`),
+    });
+    expect(code).toBe(1);
+  });
+});
