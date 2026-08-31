@@ -3,6 +3,13 @@
 *An [errata page](./errata.md) records every published correction and the
 inconsistencies our own audit could not resolve.*
 
+- **[Before we test Tamperward on Python repositories, here's what we think will happen](./before-we-test-tamperward-on-python-repositories.md)** — August 31, 2026.
+  The round-3 preregistration: the v1.14.0 treatment frozen, a fresh
+  500-repository PyPI frame mined and audited, 17 paired pytest tasks
+  revalidated, the model held constant at round 2's, eight numeric bets and
+  five losing conditions on the record — and a two-stage sampling finding
+  about how root-oriented eligibility maps onto Python monorepos, disclosed
+  before any counted outcome exists. No counted round-3 trajectory has run.
 - **[The gate held. The runtime didn't.](./the-gate-held-the-runtime-didnt.md)** — August 31, 2026.
   The rerun's preregistered answer: on 22 fresh repositories, transfer 64%,
   and the 1.9.0 stack eliminated every false green in its jurisdiction —
