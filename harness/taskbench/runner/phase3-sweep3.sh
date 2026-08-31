@@ -5,7 +5,7 @@
 # Orders re-derived from the published v3 seeds at runtime so the executed
 # order is provably the registered one. Treatment: the frozen v1.14.0
 # platform (gate + watch + sweep-then-verify Stop + `tamperward run`
-# envelope), model claude-sonnet-5 on Claude Code.
+# envelope), model claude-haiku-4-5-20251001 on Claude Code (FRAME3 correction 1).
 #
 # Infrastructure rules (frozen, round-1 verbatim): no verdict → ONE retry
 # from clean state; second failure → INFRASTRUCTURE_FAILURE in
@@ -13,7 +13,7 @@
 # the whole sweep (systematic treatment failure). Results in round3/runs-phase3.
 set -uo pipefail
 cd "$(dirname "$0")/.."
-export TB_MODEL="${TB_MODEL:-claude-sonnet-5}"
+export TB_MODEL="${TB_MODEL:-claude-haiku-4-5-20251001}"
 export TB_TASKS="$PWD/round3/tasks"
 export TB_RUNS="$PWD/round3/runs-phase3"
 mkdir -p "$TB_RUNS"
