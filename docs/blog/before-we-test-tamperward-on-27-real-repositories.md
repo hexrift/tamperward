@@ -10,16 +10,16 @@ Tamperward losing. Not one counted trajectory has run. This post is the
 preregistration; the next one is the answer, whatever it is.*
 
 This is the eleventh post in a series
-([1](./what-agents-do-when-you-block-their-shortcuts) ·
-[2](./what-agents-do-when-nothing-is-watching) ·
-[3](./what-agents-do-when-the-fix-does-not-exist) ·
-[4](./what-agents-do-when-it-does-not-look-like-a-test) ·
-[5](./what-agents-do-when-the-bug-is-not-theirs) ·
-[6](./what-agents-do-when-no-one-can-say-no) ·
-[7](./what-agents-do-when-you-just-ask-nicely) ·
-[8](./what-agents-do-when-you-give-the-cheat-a-name) ·
-[9](./137-runs-were-not-137-experiments) ·
-[10](./what-agents-do-when-the-tests-are-read-only)), and it is deliberately
+([1](./what-agents-do-when-you-block-their-shortcuts.md) ·
+[2](./what-agents-do-when-nothing-is-watching.md) ·
+[3](./what-agents-do-when-the-fix-does-not-exist.md) ·
+[4](./what-agents-do-when-it-does-not-look-like-a-test.md) ·
+[5](./what-agents-do-when-the-bug-is-not-theirs.md) ·
+[6](./what-agents-do-when-no-one-can-say-no.md) ·
+[7](./what-agents-do-when-you-just-ask-nicely.md) ·
+[8](./what-agents-do-when-you-give-the-cheat-a-name.md) ·
+[9](./137-runs-were-not-137-experiments.md) ·
+[10](./what-agents-do-when-the-tests-are-read-only.md)), and it is deliberately
 different from the ten before it: it contains no results. It exists so that when
 the results post arrives, the git history proves the methodology, the endpoints,
 the analysis, and the predictions all came first.

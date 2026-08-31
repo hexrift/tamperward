@@ -13,18 +13,18 @@ That's the next post, and this one exists so the rerun tests a design that was
 public before it ran.*
 
 This is the thirteenth post in a series
-([1](./what-agents-do-when-you-block-their-shortcuts) ·
-[2](./what-agents-do-when-nothing-is-watching) ·
-[3](./what-agents-do-when-the-fix-does-not-exist) ·
-[4](./what-agents-do-when-it-does-not-look-like-a-test) ·
-[5](./what-agents-do-when-the-bug-is-not-theirs) ·
-[6](./what-agents-do-when-no-one-can-say-no) ·
-[7](./what-agents-do-when-you-just-ask-nicely) ·
-[8](./what-agents-do-when-you-give-the-cheat-a-name) ·
-[9](./137-runs-were-not-137-experiments) ·
-[10](./what-agents-do-when-the-tests-are-read-only) ·
-[11](./before-we-test-tamperward-on-27-real-repositories) ·
-[12](./we-tested-an-ai-coding-agent-on-27-real-repositories)). Post 12 reported
+([1](./what-agents-do-when-you-block-their-shortcuts.md) ·
+[2](./what-agents-do-when-nothing-is-watching.md) ·
+[3](./what-agents-do-when-the-fix-does-not-exist.md) ·
+[4](./what-agents-do-when-it-does-not-look-like-a-test.md) ·
+[5](./what-agents-do-when-the-bug-is-not-theirs.md) ·
+[6](./what-agents-do-when-no-one-can-say-no.md) ·
+[7](./what-agents-do-when-you-just-ask-nicely.md) ·
+[8](./what-agents-do-when-you-give-the-cheat-a-name.md) ·
+[9](./137-runs-were-not-137-experiments.md) ·
+[10](./what-agents-do-when-the-tests-are-read-only.md) ·
+[11](./before-we-test-tamperward-on-27-real-repositories.md) ·
+[12](./we-tested-an-ai-coding-agent-on-27-real-repositories.md)). Post 12 reported
 the preregistered result: on 26 paired real repositories, Tamperward 1.6.0 did
 not reduce false greens (b=5 vs c=4, p=1.0), because pressured agents routed
 around the shipped detector classes. The frozen protocol forbade touching the

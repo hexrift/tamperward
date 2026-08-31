@@ -16,7 +16,7 @@ a detector miss: one walked out through the agent runtime's own exit, and
 three came through a blind spot we designed in on purpose.*
 
 This is the fourteenth post in the series, and the answer to
-[the thirteenth](./what-losing-the-bet-bought), which shipped the 1.7.0–1.9.0
+[the thirteenth](./what-losing-the-bet-bought.md), which shipped the 1.7.0–1.9.0
 stack as a public design before this experiment existed, and to the round-2
 registration (`harness/taskbench/round2/PREDICTION2-taskbench.md`), which
 froze the pool, the seeds, the analysis, and seven numeric bets before any

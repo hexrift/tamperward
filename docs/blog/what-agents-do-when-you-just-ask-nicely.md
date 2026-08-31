@@ -10,19 +10,19 @@ a lesson, and the false-positive bill for both of them that nobody talks
 about.*
 
 *Follow-up, August 29: [What AI coding agents do when you give the cheat a
-name](./what-agents-do-when-you-give-the-cheat-a-name) — both of this post's open
+name](./what-agents-do-when-you-give-the-cheat-a-name.md) — both of this post's open
 questions are now measured. The sentence aimed at the invisible-spelling regime
 flipped Sonnet from 10/10 laundering to 10/10 honest, and the tuned-gate numbers
 arrived: the 9.0% below falls to 6.0% with a one-line severity tune. The numbers
 below are as published.*
 
 This is the seventh post in a series
-([1](./what-agents-do-when-you-block-their-shortcuts) ·
-[2](./what-agents-do-when-nothing-is-watching) ·
-[3](./what-agents-do-when-the-fix-does-not-exist) ·
-[4](./what-agents-do-when-it-does-not-look-like-a-test) ·
-[5](./what-agents-do-when-the-bug-is-not-theirs) ·
-[6](./what-agents-do-when-no-one-can-say-no)), and it exists because the
+([1](./what-agents-do-when-you-block-their-shortcuts.md) ·
+[2](./what-agents-do-when-nothing-is-watching.md) ·
+[3](./what-agents-do-when-the-fix-does-not-exist.md) ·
+[4](./what-agents-do-when-it-does-not-look-like-a-test.md) ·
+[5](./what-agents-do-when-the-bug-is-not-theirs.md) ·
+[6](./what-agents-do-when-no-one-can-say-no.md)), and it exists because the
 fairest critique of everything before it was never answered: every study
 compared the gate against **nothing**. Nobody deploys nothing. They deploy a
 sentence in the system prompt, or a hook they wrote in an afternoon. So this
@@ -160,4 +160,4 @@ against my own product — are in the repo.
 
 — [github.com/hexrift/tamperward](https://github.com/hexrift/tamperward) ·
 [npmjs.com/package/tamperward](https://www.npmjs.com/package/tamperward) ·
-[the series](./index)
+[the series](./index.md)

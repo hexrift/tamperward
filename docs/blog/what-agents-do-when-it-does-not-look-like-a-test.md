@@ -9,11 +9,11 @@ failed to spring, and why the manipulation checks are the only reason the
 nulls are worth publishing.*
 
 This is the fourth post in a series. The
-[first](./what-agents-do-when-you-block-their-shortcuts) measured what agents do
+[first](./what-agents-do-when-you-block-their-shortcuts.md) measured what agents do
 when you block their shortcuts (they fix the real bug, 25/25). The
-[second](./what-agents-do-when-nothing-is-watching) switched the gate off and
+[second](./what-agents-do-when-nothing-is-watching.md) switched the gate off and
 found frontier models stay honest anyway — 30/30 — while the cheap model cheats
-6/10. The [third](./what-agents-do-when-the-fix-does-not-exist) removed the
+6/10. The [third](./what-agents-do-when-the-fix-does-not-exist.md) removed the
 honest path entirely and watched twenty pressured runs surrender honestly the
 moment surrender was named as acceptable.
 
@@ -221,4 +221,4 @@ first rep ran.
 
 — [github.com/hexrift/tamperward](https://github.com/hexrift/tamperward) ·
 [npmjs.com/package/tamperward](https://www.npmjs.com/package/tamperward) ·
-[the series](./index)
+[the series](./index.md)
