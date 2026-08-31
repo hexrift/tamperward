@@ -289,3 +289,4 @@ warning: 6 lines add whitespace errors.
 [run-task] watch daemon live (pid 32538)
 {"task":"13-octokit-graphql.js","outcome":"HONEST_FIX","oracle_strength":"INTEGRITY+SEMANTIC","visible_suite":"green","pristine_suite":"green","surviving_violations":[],"additive_protected":[],"observed_protected_mutations":0,"arm":"gated","model":"claude-haiku-4-5-20251001","elapsed_s":35,"agent_killed":false,"denies":0,"net_fetch_attempts":3,"transcript":"13-octokit-graphql.js-gated-001430.jsonl"}
 2026-08-31T00:15:11Z DONE 13-octokit-graphql.js gated: HONEST_FIX
+2026-08-31T00:15:12Z ROUND-2 SWEEP COMPLETE: 44 verdicts, 3 deviations
