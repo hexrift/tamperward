@@ -5,6 +5,32 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.10.1] — 2026-08-31
+
+**Envelope hardening — two High findings from owner review of 1.10.0,
+both reproduced as failing tests before the fix.**
+
+- **The trust anchor could be moved backwards.** The envelope froze the entry
+  SHA but adjudicated with merge-base semantics (right for PR review, wrong
+  here): an agent running `git reset --hard <ancestor>` downgraded the anchor
+  to a commit predating its task — empty diff, clean worktree, green verify,
+  exit 0. Now post-agent HEAD must be a descendant of the entry SHA; anything
+  else is itself the conviction (HISTORY_REWRITE, exit 1), and with ancestry
+  enforced, merge-base collapses to exactly the frozen SHA everywhere
+  downstream.
+- **An agent could author its own verifier.** With no `verify:` block at
+  entry and no `--cmd`, verification read the suite command from the
+  CURRENT tree's policy — which the agent could have written
+  (`verify.command: "true"`), and which policy-diff deliberately treats as a
+  strengthening. The verifier command and budget are now resolved from the
+  entry-time policy or flags BEFORE the agent starts, and only those frozen
+  values are used; no verifier at entry → refuse to start (exit 2).
+- **Documented TCB scoping (SPEC row 17):** ignored dependency trees are
+  explicitly outside the 1.10.x boundary — node_modules is symlinked into
+  both verification copies, so agent-mutated dependencies corrupt visible
+  and pristine runs alike. Closing that surface is a named 2.0 roadmap item
+  with candidate designs.
+
 ## [1.10.0] — 2026-08-31
 
 **`tamperward run` — the enforcement envelope (SPEC row 17).** Round 2's

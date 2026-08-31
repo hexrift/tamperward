@@ -99,3 +99,28 @@ describe('parseRun', () => {
     expect(parseRun(['--budget', '60', '--', 'sh', '--', '-c']).argv).toEqual(['sh', '--', '-c']);
   });
 });
+
+describe('envelope hardening — the trust anchor cannot move', () => {
+  it('EXPLOIT 1: agent resets HEAD to an ancestor predating the failing test → must fail, not pass', () => {
+    // commit1: green (src=42, weak suite). commit2 (entry HEAD): adds a strict
+    // failing test — the task. Agent resets to commit1: diff base...HEAD is
+    // empty (merge-base downgrades to commit1), worktree clean, verify green
+    // against the downgraded anchor. Without an ancestry guard: exit 0.
+    const cwd = repo(true); // commit1: green
+    const git = (...a: string[]) => execFileSync('git', a, { cwd });
+    writeFileSync(join(cwd, 'test', 'strict.test.js'), `const v = require('../src.js');\nif (v !== 43) process.exit(1);\n`);
+    git('add', '-A');
+    git('commit', '-qm', 'task: strict failing test');
+    const code = run(cwd, sh('git reset --hard -q HEAD~1'));
+    expect(code).not.toBe(0);
+  });
+
+  it('EXPLOIT 2: no verifier at entry; agent supplies verify.command "true" → must fail closed, not VERIFIED', () => {
+    const cwd = repo();
+    const code = runEnvelope({
+      cwd,
+      argv: sh(`printf 'version: 1\\nverify:\\n  command: "true"\\n' > .tamperward.yml && echo "" > test/check.test.js`),
+    });
+    expect(code).toBe(2); // no verifier existed at entry: refuse before trusting an agent-authored one
+  });
+});

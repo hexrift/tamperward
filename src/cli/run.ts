@@ -35,6 +35,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { runCheck } from './check';
 import { runVerify } from './verify';
+import { loadPolicy } from '../policy-load';
 
 export interface RunEnvelopeOpts {
   cwd?: string;
@@ -70,6 +71,29 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     return 2;
   }
 
+  // The verifier is part of the trust anchor: resolve the suite command and
+  // budget from the ENTRY-TIME policy (or flags) BEFORE the agent starts,
+  // and use only those frozen values afterwards. Otherwise an agent in a
+  // repo with no verify config could author its own verifier
+  // (verify.command: "true") and be adjudicated by it — policy-diff
+  // deliberately treats ADDING a verify block as a strengthening, which is
+  // right for PR review and wrong for this envelope.
+  let frozenCmd: string | undefined;
+  let frozenBudget: number | undefined;
+  try {
+    const entryPolicy = loadPolicy(cwd);
+    frozenCmd = opts.cmd ?? entryPolicy.verify?.command;
+    frozenBudget = opts.budget ?? entryPolicy.verify?.budget;
+  } catch (e) {
+    err(`tamperward run: cannot load the entry-time policy (${e instanceof Error ? e.message : String(e)}) — failing closed.`);
+    return 2;
+  }
+  if (!frozenCmd) {
+    err('tamperward run: no suite command at entry (policy `verify: { command: ... }` or --cmd) —');
+    err('refusing to start: a verifier that appears after the agent runs would be agent-authored.');
+    return 2;
+  }
+
   // A dirty start would attribute pre-existing changes to the agent (false
   // positives) or let real pre-staged weakening hide as "already there"
   // (false negatives). Refuse both unless the caller owns the risk.
@@ -86,10 +110,25 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   const agent = spawnSync(opts.argv[0], opts.argv.slice(1), { cwd, stdio: 'inherit' });
   const agentExit = agent.status ?? 1; // killed-by-signal is not success
 
+  // The trust anchor must not have moved: both the diff check and verify
+  // resolve bases with merge-base semantics (right for PR review), so an
+  // agent that rewrites history — `git reset --hard <ancestor>`, an orphan
+  // branch — would silently DOWNGRADE the anchor to the older commit and be
+  // adjudicated against a past that predates its task. Post-agent HEAD must
+  // be a descendant of the entry SHA (merge-base then collapses to exactly
+  // it); anything else is itself the conviction.
+  const head = git(['rev-parse', 'HEAD'], cwd).trim();
+  const isAncestor = spawnSync('git', ['merge-base', '--is-ancestor', base, head], { cwd });
+  if (isAncestor.status !== 0) {
+    err(`tamperward run: HEAD ${head.slice(0, 10)} is not a descendant of the trusted base ${base.slice(0, 10)} —`);
+    err('the agent rewrote history out from under the anchor. That is the finding.');
+    out(`\ntamperward run — agent exit ${agentExit}; HISTORY_REWRITE → ENFORCEMENT_FAILED`);
+    return 1;
+  }
+
   // Re-adjudicate the tree the runtime released, committed and uncommitted,
   // against the entry-time base. Order is cheap-to-expensive; every step
   // runs regardless so the report is complete.
-  const head = git(['rev-parse', 'HEAD'], cwd).trim();
   let diffCode = 0;
   if (head !== base) {
     out(`\n[envelope] policy check over committed changes (${base.slice(0, 10)}...${head.slice(0, 10)}):`);
@@ -98,7 +137,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   out('\n[envelope] policy check over the working tree:');
   const workCode = runCheck({ worktree: true, cwd });
   out('\n[envelope] pristine verification against the trusted base:');
-  const verifyCode = runVerify({ cwd, base, cmd: opts.cmd, budget: opts.budget });
+  const verifyCode = runVerify({ cwd, base, cmd: frozenCmd, budget: frozenBudget });
 
   const cannot = diffCode === 2 || workCode === 2 || verifyCode === 2;
   const blocked = diffCode === 1 || workCode === 1 || verifyCode === 1;

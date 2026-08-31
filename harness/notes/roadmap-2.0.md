@@ -19,6 +19,17 @@ mutually exclusive:
   block is honored until a configurable escalation, not until the model goes
   quiet.
 
+## 1b. Dependency-tree TCB for the envelope (owner review of #117)
+`verify` symlinks the repo's node_modules into both verification copies: an
+arbitrary-shell agent can mutate ignored dependencies (test runner, assertion
+library) and corrupt visible and pristine runs alike — invisible to git-diff
+policy checks. Pre-existing in 1.9.0's verify, but `run` promotes it into the
+security boundary. Scoped OUT explicitly in SPEC row 17 for 1.10.x. Candidate
+closures for 2.0: `--pristine-deps` (fresh install in the pristine copy, slow
+but sound), an entry-time dependency-tree content hash compared at
+adjudication (cheaper, detects rather than prevents), or lockfile-verified
+store reuse (pnpm content-addressed store + integrity check).
+
 ## 2. Escalating steering (product; owner's design sketch)
 `harness/notes/steering-vs-walling.md`. The cva run burned 42
 block-cycles saying the same thing. After N substantially-equivalent
