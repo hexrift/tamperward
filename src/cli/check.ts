@@ -7,7 +7,7 @@ import { diffRange, diffStaged, diffWorktree, diffWorktreeWithUntracked, mergeBa
 import { evaluate, hasBlocking, isSuppressed } from '../engine';
 import { loadPolicy, loadPolicyAt, PolicyError } from '../policy-load';
 import { defaultPolicy } from '../policy';
-import { applyLocalSignoffs, applyOobSignoffs, oobFromEnv } from '../signoff';
+import { applyLocalSignoffs, applyOobSignoffs, oobFromEnv, oobHeadFromEnv } from '../signoff';
 import { Format, report } from './report';
 
 export interface CheckOpts {
@@ -71,7 +71,7 @@ function check(opts: CheckOpts): number {
   const { findings: remaining, cleared } =
     layer === 'local'
       ? applyLocalSignoffs(findings, cwd, policy)
-      : applyOobSignoffs(findings, oobFromEnv());
+      : applyOobSignoffs(findings, oobFromEnv(), oobHeadFromEnv());
   findings = remaining;
   if (cleared.length) {
     const how = layer === 'local' ? 'local human sign-off (ledger)' : 'out-of-band approval';

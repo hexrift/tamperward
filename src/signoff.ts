@@ -87,16 +87,41 @@ export function applyLocalSignoffs(findings: Finding[], cwd: string, policy: Pol
 }
 
 /** CI layer: honor ONLY out-of-band approvals (rule or rule:file), NEVER the committed ledger. */
-export function applyOobSignoffs(findings: Finding[], oob: string[]): SignoffResult {
-  const set = new Set(oob.map((s) => s.trim()).filter(Boolean));
+export function applyOobSignoffs(findings: Finding[], oob: string[], head?: string): SignoffResult {
+  // A CI approval used to match on rule (or rule:file) alone, with nothing tying
+  // it to WHAT was approved or WHEN. Labels persist across `synchronize`, so a
+  // label earned for one benign deletion cleared every later one pushed to the
+  // same PR — the local ledger is fingerprint-bound, this channel was not.
+  // (P1-6, external review.)
+  //
+  // A token may now carry `@<head-sha>`. When the caller supplies the head it is
+  // running on (the shipped workflow does), an UNBOUND token no longer clears
+  // anything: the approval must name the commit it was granted for, so the next
+  // push re-blocks. Callers that pass no head keep the old behaviour, so
+  // workflows generated before this release are unaffected.
+  const tokens = oob.map((s) => s.trim()).filter(Boolean);
+  const matches = (want: string): boolean =>
+    tokens.some((t) => {
+      const at = t.lastIndexOf('@');
+      if (at === -1) return head ? false : t === want; // unbound: refused once a head is known
+      const [rule, sha] = [t.slice(0, at), t.slice(at + 1)];
+      if (rule !== want) return false;
+      return head ? head.startsWith(sha) && sha.length >= 7 : true;
+    });
   const cleared: Finding[] = [];
   const remaining: Finding[] = [];
   for (const f of findings) {
-    const ok = f.severity === 'block' && (set.has(f.rule) || (f.file ? set.has(`${f.rule}:${f.file}`) : false));
+    const ok = f.severity === 'block' && (matches(f.rule) || (f.file ? matches(`${f.rule}:${f.file}`) : false));
     if (ok) cleared.push(f);
     else remaining.push(f);
   }
   return { findings: remaining, cleared };
+}
+
+/** The head SHA the CI gate is adjudicating, when the workflow supplies it. */
+export function oobHeadFromEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const v = (env.TAMPERWARD_OOB_HEAD ?? '').trim();
+  return v.length >= 7 ? v : undefined;
 }
 
 /** Parse the out-of-band approval env the CI workflow sets (only after verifying a trusted label). */

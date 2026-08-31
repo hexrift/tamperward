@@ -42,6 +42,10 @@ export interface VerifyOpts {
   budget?: number;
   json?: boolean;
   keep?: boolean;
+  /** Refuse when the requested base is not an ancestor of HEAD — i.e. when
+   *  merge-base would silently anchor to something older. The envelope
+   *  enforces this itself; standalone CI wiring needs to ask for it. */
+  requireAncestor?: boolean;
   policyOverride?: Policy; // frozen entry-time policy (envelope): the overlay classes
                            // must not be widened by a policy the agent just wrote
 }
@@ -66,6 +70,17 @@ function resolveBase(base: string, cwd: string): string {
   } catch {
     return rev;
   }
+}
+
+/** Whether `base` is an ancestor of HEAD. When it is not, merge-base resolves
+ *  to something OLDER than the caller asked for — legitimate for a PR branched
+ *  from an older main, and an anchor downgrade when the history under review
+ *  was rewritten beneath the base. `run` enforces descendancy itself; the
+ *  documented standalone CI wiring (`verify --base <sha>`) could not, so it
+ *  gets an opt-in guard. (P1-3, external review.) */
+function baseIsAncestorOfHead(base: string, cwd: string): boolean {
+  const r = spawnSync('git', ['merge-base', '--is-ancestor', base, 'HEAD'], { cwd });
+  return r.status === 0;
 }
 
 /** Copy the working tree (tracked + untracked, not ignored) into dest; symlink
@@ -169,6 +184,16 @@ export function runVerify(opts: VerifyOpts): number {
     out(`verify: cannot load policy (${e instanceof Error ? e.message : String(e)}) — failing closed`);
     return 2;
   }
+  if (opts.requireAncestor) {
+    const requested = git(['rev-parse', '--verify', `${opts.base ?? 'HEAD'}^{commit}`], cwd).trim();
+    if (!baseIsAncestorOfHead(requested, cwd)) {
+      out(
+        `verify: --require-ancestor: ${requested.slice(0, 10)} is not an ancestor of HEAD — the anchor ` +
+          'would silently resolve to an older commit. Failing closed.',
+      );
+      return 2;
+    }
+  }
   const cmd = opts.cmd ?? policy.verify?.command;
   if (!cmd) {
     out('verify: no suite command — set policy `verify: { command: ... }` or pass --cmd');
@@ -259,6 +284,7 @@ export function parseVerify(args: string[]): VerifyOpts {
     else if (a === '--budget' && args[i + 1]) o.budget = Number(args[++i]);
     else if (a === '--json') o.json = true;
     else if (a === '--keep') o.keep = true;
+    else if (a === '--require-ancestor') o.requireAncestor = true;
     else if (a === '--cwd' && args[i + 1]) o.cwd = args[++i];
   }
   return o;
