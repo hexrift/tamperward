@@ -198,3 +198,14 @@ only round-3 commitments made here are the declared platform, the frame
 derivation, and the walk procedure above.
 
 ## Corrections (append-only)
+
+1. **2026-08-31, before PREDICTION3, before pilot agent trajectories, and
+   before any counted round-3 outcome existed — model axis.** FRAME3
+   originally declared `claude-sonnet-5`. The model is changed to
+   `claude-haiku-4-5-20251001` — the model used in rounds 1–2. The change
+   makes round 3 a cleaner test of transfer to the Python/pytest ecosystem by
+   holding the agent model constant, avoiding simultaneous model and
+   ecosystem changes (experimental identification; assay sensitivity is a
+   secondary consideration, not the rationale). The original declaration
+   remains in the record above. The model-transfer question moves to a
+   future round on this same frozen task population.

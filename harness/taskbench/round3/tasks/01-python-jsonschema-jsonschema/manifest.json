@@ -16,5 +16,6 @@
  "suite_cmd": "python -m pytest -q -p no:cacheprovider",
  "added_case_lines": 13,
  "oracle_strength": "INTEGRITY+SEMANTIC",
- "mined_at": "2026-08-31T12:02:27.690Z"
+ "mined_at": "2026-08-31T12:02:27.690Z",
+ "effective_strength": "INTEGRITY+SEMANTIC"
 }
