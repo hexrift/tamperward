@@ -5,6 +5,24 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.10.4] — 2026-08-31
+
+**The effect layer no longer trusts stat (P1-8).** `snapshotProtected` reused
+the previous entry whenever mtime, size and mode all matched, skipping the
+hash — and all three are writable by the agent being watched. Reproduced:
+`it('alpha_padding_here', ...)` → `it.skip('alpha_padding', ...)` is
+byte-identical in length, `touch -r` restores the mtime from any reference
+file, and the drift check then passed a file that carried the skip. This is
+the layer that exists *because* some mutation always arrives by a path the
+matcher did not see, so a cache keyed on data the mutation's author controls
+reintroduced exactly the blind spot it was built to close.
+
+Every protected file is now hashed on every snapshot. Measured A/B on a
+1000-file / 4MB protected tree: **4.0ms → 17.2ms per snapshot**, against the
+~450ms of node startup each hook invocation already pays — soundness at
+roughly 3% of a call. Regression tests cover the exploit and the
+no-false-positive case. Full suite 332/332.
+
 ## [1.10.3] — 2026-08-31
 
 **Rename semantics — two committed-diff exploits that the CI authority layer
