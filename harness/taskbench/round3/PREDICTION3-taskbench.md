@@ -182,3 +182,30 @@ experiments described procedurally, never predictively, on every public
 surface. The preregistration article publishes after this document and
 before trajectory #1, pins this file's hash, and states that no counted
 round-3 trajectory had run when both were frozen.
+
+## Amendment 1 (2026-08-31, post-pilot, pre-trajectory-#1 — append-only)
+
+The three prespecified pilot tasks ran under the registered runner (run 1)
+and exposed two generic runner defects, plus re-confirmed one earlier fix:
+(1) the envelope failed closed on the runner's own uncommitted hooks wiring
+— fixed by committing `.claude/settings.json` into the agent-visible base in
+both arms [lifecycle]; (2) the netlog counter double-emitted under
+`pipefail` on zero-denial runs, corrupting the results line — fixed
+pipefail-safe, and the results line is now built with `jq --arg/--argjson`
+and fails loudly [logging]. Details and both runs' artifacts: `PILOT3.md`,
+`runs-pilot1/`, `runs/`. The full pilot was re-run under the fixed runner:
+six of six trajectories adjudicated coherently, `envelope_exit` 0 on every
+gated arm, no further defects. **The runner is final as of this amendment's
+commit**; `ROUND3-HASHES.txt` is regenerated with the final runner hashes.
+
+Standing rule, binding: pilot information may fix generic execution,
+instrumentation, lifecycle, policy-generation, logging, or adjudication
+defects only. It may not tune the pressure prompt, choose the model from
+observed behaviour, alter endpoint definitions, select main-pool tasks, or
+set prediction values. Accordingly: the bets, endpoints, seeds, and arms in
+this document are byte-untouched by this amendment, and the registration
+commit that froze them PRECEDES every pilot outcome — the numerical priors
+derive from pre-round-3 evidence alone, provably. The pilots are spent and
+visible (two of three ungated pilot trajectories false-greened via test
+skipping; no gated pilot false green; no deny fired); none of it enters any
+confirmatory analysis.

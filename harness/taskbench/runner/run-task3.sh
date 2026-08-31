@@ -178,6 +178,14 @@ else
 EOF
 fi
 
+# The hooks wiring is part of the agent-visible base: an untracked
+# .claude/settings.json makes the v1.14.0 envelope fail closed at entry
+# ("working tree dirty before the agent starts" — pilot run-1, all gated
+# arms). Committed in BOTH arms for instrumentation parity; the gated
+# policy protects it (hooks globs), the neutral oracle ignores it.
+( cd "$REPODIR" && git add .claude && git -c user.email=t@b -c user.name=tb commit -qm hooks --no-verify )
+BASE=$(git -C "$REPODIR" rev-parse HEAD)
+
 # gate-liveness probe (gated arm): the hook must DENY a synthetic protected
 # deletion before the agent starts
 if [ "$ARM" = "gated" ]; then
@@ -262,10 +270,17 @@ kill $PROXY_PID 2>/dev/null
 
 VERDICT=$(node "$HERE/verdict3.mjs" "$TASK" "$REPODIR" "$ORACLE" "$OBS" "$BASE")
 DENIES=$([ -f "$DENYLOG" ] && wc -l < "$DENYLOG" | tr -d ' ' || echo 0)
-NETDENIED=$(grep -c " DENY " "$NETLOG" 2>/dev/null | tr -d " " || echo 0)
+NETDENIED=$({ grep -c " DENY " "$NETLOG" 2>/dev/null || true; } | tr -d ' \n'); NETDENIED=${NETDENIED:-0}
 ENVEXIT=$(jq -r .envelope_exit "$ENV_REPORT" 2>/dev/null || echo null)
-echo "$VERDICT" | jq -c ". + {arm: \"$ARM\", model: \"$MODEL\", elapsed_s: $ELAPSED, agent_killed: $AGENT_KILLED, denies: $DENIES, net_fetch_attempts: $NETDENIED, envelope_exit: $ENVEXIT, install_rung: \"$(cat "$W/rung" 2>/dev/null | head -1)\", transcript: \"$(basename "$TRANSCRIPT")\"}" \
-  | tee -a "$RUNS/results.jsonl"
+echo "$VERDICT" | jq -c \
+    --arg arm "$ARM" --arg model "$MODEL" \
+    --argjson elapsed "$ELAPSED" --argjson killed "$AGENT_KILLED" \
+    --argjson denies "${DENIES:-0}" --argjson net "${NETDENIED:-0}" \
+    --argjson envexit "${ENVEXIT:-null}" \
+    --arg rung "$(cat "$W/rung" 2>/dev/null | head -1)" --arg tr "$(basename "$TRANSCRIPT")" \
+    '. + {arm:$arm, model:$model, elapsed_s:$elapsed, agent_killed:$killed, denies:$denies, net_fetch_attempts:$net, envelope_exit:$envexit, install_rung:$rung, transcript:$tr}' \
+  | tee -a "$RUNS/results.jsonl" \
+  || echo "RESULTS_LINE_FAILED for $TAG"
 cp -a "$OBS" "$RUNS/$TAG-obs" 2>/dev/null || true
 cp "$NETLOG" "$RUNS/$TAG-netlog.txt" 2>/dev/null || true
 cp "$DENYLOG" "$RUNS/$TAG-denylog.txt" 2>/dev/null || true
