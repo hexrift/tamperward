@@ -6,7 +6,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { driftBetween, snapshotProtected } from '../src/effect';
@@ -37,14 +37,21 @@ describe('P1-8: the stat triple is not a content proxy', () => {
     writeFileSync(file, BEFORE);
     const policy = loadPolicy(cwd);
     const baseline = snapshotProtected(cwd, policy);
-    const { mtime, atime } = statSync(file);
+    const ref = join(cwd, 'ref');
+    writeFileSync(ref, '');
+    execFileSync('cp', ['-p', file, ref]); // reference carrying the original mtime
+    const before = statSync(file);
 
     writeFileSync(file, AFTER);
-    utimesSync(file, atime, mtime); // the `touch -r` step
+    // Real `touch -r`, not utimesSync(Date): Node's Date-based utimes truncates
+    // to millisecond precision, so mtimeMs no longer matched byte-for-byte and
+    // the fast path never engaged — the first version of this test passed with
+    // the fix REVERTED, i.e. proved nothing. `touch -r` preserves nanoseconds.
+    execFileSync('touch', ['-r', ref, file]);
 
     const st = statSync(file);
     expect(st.size).toBe(BEFORE.length); // size preserved
-    expect(Math.round(st.mtimeMs)).toBe(Math.round(mtime.getTime())); // mtime preserved
+    expect(st.mtimeMs).toBe(before.mtimeMs); // mtime preserved EXACTLY
 
     const current = snapshotProtected(cwd, policy, baseline);
     expect(driftBetween(baseline, current).changed).toContain('test/a.test.js');

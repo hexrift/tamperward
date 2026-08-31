@@ -49,3 +49,29 @@ Entry-SHA freeze + descendancy gate; frozen verify command; dirty-start
 refusal; the 1.10.2 entry-time policy freeze, CI-layer adjudication and
 untracked inclusion; detector isolation; engine dedupe; the policy-file
 exemption in `ignore`; escaped GitHub annotations.
+
+## Test integrity: the mutation check
+
+A regression test that passes with its fix reverted proves nothing. Three of
+the tests shipped with 1.10.2–1.10.4 did exactly that, and were rewritten once
+the check below was run against them:
+
+- **P1-8** (shipped vacuous in 1.10.4): the test restored the mtime with
+  `utimesSync(file, atime, mtimeDate)`, which truncates to millisecond
+  precision — so `mtimeMs` no longer matched byte-for-byte, the stat fast path
+  never engaged, and the test passed against the *unfixed* code. The reported
+  exploit uses `touch -r`, which preserves nanoseconds. The test now shells out
+  to real `touch -r` and asserts `st.mtimeMs === before.mtimeMs` exactly.
+- **P0-2**: the fixture used a red base, so restoring it kept the bug and
+  MASKED_FAILURE fired either way. The exploit needs a *green* base (whose
+  restoration hides the agent's new bug) and a *visible-green* tree. Now tested
+  at the verify layer, asserting both directions: the tree's own widened policy
+  reports VERIFIED (the hole), the entry-time policy reports MASKED_FAILURE.
+- **P0-3**: the fixture deleted a tracked test, which convicts with or without
+  untracked inclusion. Now tested at the builder — `diffWorktree` must not
+  contain the dropped file and `diffWorktreeWithUntracked` must.
+
+**Practice**: for each fix, restore the pre-fix source from git, rebuild, and
+run that fix's test file. Every exploit test must fail; every control test
+("the honest version stays clean") must still pass. Both halves matter — a
+suite where the controls also go red is over-blocking, not security.

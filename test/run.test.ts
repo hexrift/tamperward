@@ -10,6 +10,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runEnvelope, parseRun } from '../src/cli/run';
+import { runVerify } from '../src/cli/verify';
+import { loadPolicy } from '../src/policy-load';
+import { diffWorktree, diffWorktreeWithUntracked } from '../src/git/build';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -140,27 +143,39 @@ describe('envelope hardening — the tree the agent left cannot judge itself', (
   // P0-2: widening `protected` so the pristine overlay reverts the agent's own
   // source bug — scored a strengthening by policy-diff, so the agent's policy
   // must not reach verify. Frozen entry policy defines the overlay classes.
-  it('P0-2: agent broadens protected to mask its bug → MASKED_FAILURE still fires', () => {
-    const cwd = repo();
-    const widen = 'printf "version: 1\\nprotected:\\n  config: [\\"**\\"]\\n" >> .tamperward.yml';
-    // agent leaves src.js broken and guts the visible test, then widens protected
-    const code = runEnvelope({ cwd, cmd: CMD, argv: sh(`echo "" > test/check.test.js && ${widen}`) });
-    expect(code).not.toBe(0);
+  it('P0-2: a tree-authored `protected` glob must not decide what pristine means', () => {
+    // GREEN base: restoring it hides the bug the agent introduces. The agent
+    // breaks src.js and widens `protected` so the pristine overlay reverts
+    // src.js too — policy-diff scores ADDING globs a strengthening, so nothing
+    // else objects. With the tree's own policy, verify reports VERIFIED; with
+    // the entry-time policy it reports MASKED_FAILURE.
+    const cwd = repo(true);
+    const entry = loadPolicy(cwd); // frozen BEFORE the agent's edit
+    writeFileSync(join(cwd, 'src.js'), 'module.exports = 0; // bug\n');
+    writeFileSync(join(cwd, 'test', 'check.test.js'), ''); // visible suite made green
+    writeFileSync(join(cwd, '.tamperward.yml'), 'version: 1\nprotected:\n  config: ["**"]\n');
+
+    // the hole, demonstrated: the widened policy makes the bug invisible
+    expect(runVerify({ cwd, base: 'HEAD', cmd: CMD, budget: 30 })).toBe(0);
+    // the fix: adjudicate with the policy frozen at entry
+    expect(runVerify({ cwd, base: 'HEAD', cmd: CMD, budget: 30, policyOverride: entry })).toBe(1);
   });
 
-  // P0-3: untracked files are invisible to `git diff HEAD`. The envelope's
-  // worktree view must include untracked (not-ignored) files, so a dropped
-  // shadow file is at least SCANNED rather than silently absent.
-  it('P0-3: untracked file is included in the worktree scan (not 0 changes)', () => {
-    const cwd = repo(true); // green base
-    const untrackedPolicyDisable =
-      'printf "version: 1\\nrules:\\n  test-deletion:\\n    enabled: false\\n" > sneaky.yml';
-    // the point: an untracked file exists and is enumerated. We assert the
-    // envelope no longer green-lights a run whose only defense is that the
-    // change was never committed — here by deleting a tracked test under the
-    // frozen policy, with an untracked file also present.
-    const code = runEnvelope({ cwd, cmd: 'true', argv: sh(`${untrackedPolicyDisable} && rm test/check.test.js`) });
-    expect(code).not.toBe(0);
+  // P0-3: `git diff HEAD` never reports untracked files, so an agent could drop
+  // a whole new file and the worktree view scanned 0 changes. Tested at the
+  // builder, where the property actually lives — an envelope-level assertion
+  // passed with the fix reverted (a tracked deletion convicts either way).
+  it('P0-3: the untracked-inclusive worktree view sees a dropped file; the plain view does not', () => {
+    const cwd = repo(true);
+    mkdirSync(join(cwd, '.github', 'workflows'), { recursive: true });
+    writeFileSync(join(cwd, '.github', 'workflows', 'evil.yml'), 'on: push\n');
+
+    const tracked = diffWorktree({ cwd }).filter((c) => c.kind === 'file');
+    const withUntracked = diffWorktreeWithUntracked({ cwd }).filter((c) => c.kind === 'file');
+    const paths = (cs: typeof withUntracked) => cs.map((c) => (c as { path: string }).path);
+
+    expect(paths(tracked)).not.toContain('.github/workflows/evil.yml');
+    expect(paths(withUntracked)).toContain('.github/workflows/evil.yml');
   });
 
   // P0-4: the agent can run `tamperward allow`, writing the local ledger. The
