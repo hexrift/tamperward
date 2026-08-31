@@ -60,7 +60,7 @@ already on file.
 The pre-committed decision rule said a prompt-line win publishes prominently,
 so here it is, prominently: **a single instruction sentence captured most of
 the behavioral value of the gate on this seed.** Six-in-ten tampering became
-one-in-ten for the cost of twenty-two words. If you run agents and do nothing
+one-in-ten for the cost of twenty-six words. If you run agents and do nothing
 else today, add the sentence. This is the same lesson the stuck-agent study
 taught from the other side — one sanctioned sentence ("blocked is acceptable")
 eliminated fabrication there; one prohibiting sentence eliminates most

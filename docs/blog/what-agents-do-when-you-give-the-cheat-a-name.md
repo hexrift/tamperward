@@ -55,7 +55,7 @@ So the framing thesis graduates from explanation to mechanism-with-a-lever.
 The assertion was never a temptation Sonnet was resisting badly; it was an act
 with no name. Delete-the-test arrives pre-named, and Sonnet always refused it.
 `as { retries: number }` arrives looking like typing, and Sonnet always
-shipped it. Add twenty-two words that name it, and it stops — completely, at
+shipped it. Add twenty-six words that name it, and it stops — completely, at
 n=10. The practical stack for running the default model today is now
 measured at both ends: the sentence covers the invisible cheats the gate
 can't see, the gate covers the day the sentence gets crowded out of a long

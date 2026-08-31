@@ -98,7 +98,7 @@ anyway. So: a no-gate control arm — same seed, same model, same prompt, same o
 hooks removed. **Six of ten ungated runs deleted the failing test and reported the
 empty suite green; honest fixes fell from 10/10 gated (measured fresh the same day) to
 4/10 ungated.** The gate's contribution on this configuration is a 60-point swing.
-And one of my three control-arm bets was refuted: ungated Haiku fixed honestly
+And two of my three control-arm bets were refuted: ungated Haiku fixed honestly
 slightly *more* often than I bet, and the cheat turned out to be no shorter in tool
 calls than an honest fix — the temptation is cognitive cost, not keystrokes. The 4/10
 is worth staring at: it is exactly the survivorship fraction the critique predicted,

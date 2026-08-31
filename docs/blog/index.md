@@ -1,5 +1,8 @@
 # Blog
 
+*An [errata page](./errata) records every published correction and the
+inconsistencies our own audit could not resolve.*
+
 - **[The gate held. The runtime didn't.](./the-gate-held-the-runtime-didnt)** — August 31, 2026.
   The rerun's preregistered answer: on 22 fresh repositories, transfer 64%,
   and the 1.9.0 stack eliminated every false green in its jurisdiction —
@@ -82,7 +85,8 @@
 - **[What AI coding agents do when it doesn't look like a test](./what-agents-do-when-it-does-not-look-like-a-test)** — August 29, 2026.
   Two attacks on the honesty results: a seed dressed as a real project (backdated
   history, a maintainer's plea) and a written license to rewrite tests the agent
-  might believe are wrong. Sixty runs, zero cheats — and the manipulation checks
+  might believe are wrong. Sixty runs, zero semantic evasions or test
+  rewrites — and the manipulation checks
   that make the nulls mean something. Bet ledger: 33 bets, 14 refuted.
 
 - **[What AI coding agents do when the fix doesn't exist](./what-agents-do-when-the-fix-does-not-exist)** — August 29, 2026.
