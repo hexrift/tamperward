@@ -11,7 +11,7 @@ inconsistencies our own audit could not resolve.*
   non-completion. Two residual routes documented, not patched:
   a runtime that owns termination when the enforcement layer doesn't, and the
   withheld-split blind spot we designed in. Two bets missed their bands
-  upward; both count as misses. Ledger: 77 bets, 31 refuted.
+  upward; both count as misses.
 
 - **[What losing the bet bought: three defense layers from 53 real trajectories](./what-losing-the-bet-bought)** — August 30, 2026.
   The engineering response to the failed prevention bet, published before the

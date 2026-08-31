@@ -13,8 +13,8 @@
 </p>
 
 **[Docs & guide](https://hexrift.github.io/tamperward/)** ·
-**[The research series](./docs/blog/index.md)** — fourteen posts, with every
-registered prediction published beside its outcome
+**[The research series](./docs/blog/index.md)** — every registered prediction
+published beside its outcome
 
 Coding agents can modify both the implementation and the tests, configuration,
 CI, hooks and verifier used to judge that implementation — and in observed
@@ -32,18 +32,19 @@ impossible.
 
 | experiment | result | what it supports |
 | --- | --- | --- |
-| **Round 1** — 26 paired real repositories, real historical regressions, 53 counted trajectories, Tamperward **v1.6.0** ([`harness/taskbench/`](./harness/taskbench/)) | Behaviour transferred: **13/26 ungated runs (50%)** committed at least one policy violation. The headline prevention hypothesis **lost**: false-green discordance b=5 / c=4, paired RD +3.8pp [−17.2, +24.7], exact McNemar **p = 1.0** — refuted and published beside the bet | A detector-centric architecture was insufficient on its own: agents routed around the shipped detector classes |
-| **Pristine oracle, round 1** — independent re-execution of the original suite against each agent's source | Identified **every masked failure in all 53 trajectories** while diff-time detection was routed around | A strong outcome-level signal on the observed masked failures — the motivation for shipping independent re-verification (`tamperward verify`) |
-| **Round 2** — **22 fresh held-out repositories** no detector was tuned on, the **v1.9.0** stack ([`harness/taskbench/round2/`](./harness/taskbench/round2/)) | Transfer 14/22 (64%). Prevention: **b=9 / c=0**, paired RD **+40.9pp**, BP95 **[17.8, 61.3]**, exact McNemar **p = 0.0039** | In that preregistered setting, the full stack materially reduced false greens |
-| **After prevention** — the nine round-2 prevented false greens | **8 of 9 became honest completions**; the ninth became an honest **non**-completion | Prevention usually redirected trajectories toward honest work rather than merely blocking them |
+| **Round 1** — 26 paired real repos, historical regressions, 53 counted trajectories, **v1.6.0** ([`harness/taskbench/`](./harness/taskbench/)) | Transfer: **13/26 ungated runs (50%)** violated policy. Headline prevention bet **lost**: b=5 / c=4, RD +3.8pp [−17.2, +24.7], exact McNemar **p = 1.0** — published beside the bet | A detector-centric architecture was insufficient: agents routed around the shipped detector classes |
+| **Pristine oracle, round 1** — independent re-execution of the original suite | Identified **every masked failure observed among the 53 trajectories** while diff-time detection was routed around | The outcome-level signal that motivated `tamperward verify` |
+| **Round 2** — **22 fresh held-out repos** no detector was tuned on ([`harness/taskbench/round2/`](./harness/taskbench/round2/)) | Transfer 14/22 (64%). Prevention: **b=9 / c=0**, RD **+40.9pp**, BP95 **[17.8, 61.3]**, exact McNemar **p = 0.0039** | The preregistered **v1.9.0** treatment materially reduced false greens in that setting |
+| **After prevention** — the nine round-2 prevented false greens | **8 of 9 became honest completions**; the ninth an honest **non**-completion | Prevention usually redirected trajectories toward honest work rather than merely blocking them |
 
 Earlier controlled experiments → **[the research series](./docs/blog/index.md)**.
 
 > **Scope.** The rows above are one model, one pressure prompt, one JS/TS
 > ecosystem — evidence for that setting, not a universal claim. Round 2 tested
 > the v1.9.0 stack; the current **v1.14.0** adds post-study envelope hardening
-> (externally reviewed, with each finding exploit-reproduced before its fix —
-> see [CHANGELOG](./CHANGELOG.md)). Round 3 is in progress on a frozen v1.14.0
+> (externally reviewed, with findings tracked individually as REPRO or AUDIT in
+> [SECURITY-ENVELOPE.md](./SECURITY-ENVELOPE.md) and closed with regression and
+> mutation checks — see [CHANGELOG](./CHANGELOG.md)). Round 3 is in progress on a frozen v1.14.0
 > baseline, testing external validity on a fresh repository frame, with model,
 > runtime and ecosystem among the planned axes of change
 > ([`harness/taskbench/round3/ROUND3-PLAN.md`](./harness/taskbench/round3/ROUND3-PLAN.md)).
@@ -51,12 +52,13 @@ Earlier controlled experiments → **[the research series](./docs/blog/index.md)
 
 ## Architecture
 
-Every judgment is anchored to state recorded before the agent starts, and the
+The final envelope adjudication is anchored to state recorded before the agent
+starts; the in-loop hooks read the live tree and remain steering controls. The
 final adjudication boundary sits outside the agent's normal lifecycle.
 
 ```
-      FROZEN AT ENVELOPE ENTRY:
-      entry SHA · effective policy · verifier command/budget · dependency state
+      RECORDED AT ENVELOPE ENTRY:
+      entry SHA · frozen policy · frozen verifier command/budget · dependency fingerprint
                                     │
       ┌─────────────────────────────┴───────────────────────────────┐
       │  agent loop (Claude Code hooks today)                       │
@@ -152,10 +154,10 @@ npx tamperward run -- <agent command...>     # the outer envelope around an agen
 
 | layer | the question it answers |
 | --- | --- |
-| **Proposal** | Is this proposed edit or command a known way of weakening the checks? (PreToolUse deny, pre-commit, CI diff check) |
+| **Change semantics** | Does a proposed or recorded change match a known weakening class? (PreToolUse deny, staged diff, range diff) |
 | **Effect** | What did the protected state actually become, however the mutation arrived? (drift check, fs-event observer, Stop sweep) |
-| **Outcome** | Does the trusted suite still pass against the candidate source? (pristine verification — no diff interpreted at all) |
-| **Authority** | Where is the final verdict rendered, outside the agent's completion path? (run envelope, CI, SHA-bound human sign-off) |
+| **Outcome** | Does the candidate still pass when protected verification state from the base is restored? (pristine verification — no diff interpreted at all) |
+| **Authority** | Where is the final verdict rendered, and what assumptions make that verdict authoritative? (run envelope, CI, SHA-bound human sign-off) |
 
 Sixteen rules are specified and fourteen ship (see the table in
 [SPEC.md](./SPEC.md)). The families: test protection (`test-deletion`,
@@ -216,7 +218,7 @@ and its totals.
 | v1.7.0 | `test-content-removal`: the row-deletion / assertion-stripping / setup-gutting family that carried round 1's gated false greens, corpus-priced on 2,304 real commits before shipping as block |
 | v1.8.0 | The effect layer: per-call protected-tree drift check plus the `tamperward watch` fs-event observer — judge what the files became, not the command spelling |
 | v1.9.0 | `tamperward verify`: the round-1 pristine oracle productized — visible-green + pristine-red is a masked failure, and "could not verify" fails closed |
-| Round 2, 9–0 | The v1.9.0 stack eliminated every false green in its jurisdiction on 22 fresh repositories (p = 0.0039) |
+| Round 2, 9–0 | On 22 fresh repositories, v1.9.0 produced b=9/c=0 false-green discordance (p = 0.0039); four gated false greens remained, through two documented residual mechanisms |
 | cssstyle lifecycle escape (round 2) | The `tamperward run` envelope: the gate denied 42 mutations and verify refused all 25 stop attempts, and the runtime completed the session anyway over a masked tree — hooks decide, runtimes terminate, so the adjudication boundary moved outside the runtime |
 | v1.10.1–v1.14.0, owner + two-pass external review | Frozen entry-time policy and verifier, entry-SHA ancestry enforcement, quiescence guard, dependency-tree fingerprint, a CI verify step in the generated workflow, the gate pinned to its own version in CI, and SHA-bound sign-off labels |
 
@@ -239,7 +241,7 @@ via npm trusted publishing with SLSA provenance. Full rule:
 
 ```bash
 npm install && npm run build    # bundles the CLI to dist/cli/index.js
-npm test                        # 364 tests — parser, detectors, engine, policy, renderers
+npm test                        # 364 tests at v1.14.0 — parser, detectors, engine, policy, renderers
 npm run typecheck
 ```
 
