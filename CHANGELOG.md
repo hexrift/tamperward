@@ -5,6 +5,35 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.11.0] — 2026-08-31
+
+**Quiescence (P0-5): a verdict cannot outlive the tree it describes.** `run`
+owned the agent's exit code but not its descendants. A worker detached with
+`setsid`/`nohup` survived every check and edited the tree afterwards —
+reproduced: GREEN MEANS GREEN, exit 0, and six seconds later the test file was
+empty. The same escape as the runtime hole this command exists to close, one
+level up.
+
+A synchronous wrapper cannot reap a new session, so the envelope does the
+honest thing instead of pretending it can:
+
+- **Fingerprint guard (portable, always on).** Every non-ignored file is
+  hashed before and after adjudication; if the tree moved while it was being
+  judged, the verdict is `NOT_QUIESCENT` (exit 1) rather than a statement
+  about a tree that no longer exists.
+- **Survivor detection (Linux).** Processes that still hold the working tree
+  and *started after the agent spawned* are surfaced the same way. Start time
+  is the discriminator that keeps a developer's editor or dev server — and the
+  caller's own shell pipeline — from being convicted; an earlier version keyed
+  on envelope start and did exactly that, caught by the honest-run control.
+- **`--settle <secs>`** extends the window past workers that sleep through
+  the checks.
+
+Residual, stated in SPEC row 17 rather than implied away: non-Linux hosts have
+no survivor scan (fingerprint and `--settle` still apply), and a worker that
+outwaits the run entirely can only be contained by OS-level isolation. Full
+suite 335/335; both exploit tests verified to fail with the fix reverted.
+
 ## [1.10.4] — 2026-08-31
 
 **The effect layer no longer trusts stat (P1-8).** `snapshotProtected` reused
