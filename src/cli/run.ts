@@ -34,8 +34,8 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, realpathSync } from 'node:fs';
-import { join } from 'node:path';
+import { readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { runCheck } from './check';
 import { runVerify } from './verify';
 import { loadPolicy, loadPolicyAt } from '../policy-load';
@@ -51,6 +51,9 @@ export interface RunEnvelopeOpts {
   /** Seconds to wait after adjudication before the final quiescence check, to
    *  catch a background worker that sleeps through it. 0 = no wait. */
   settle?: number;
+  /** Accept the risk that the agent rewrote the installed dependencies the
+   *  suite runs through. Operator-owned, like --allow-dirty. */
+  allowDepDrift?: boolean;
   argv: string[];
 }
 
@@ -81,6 +84,59 @@ function treeFingerprint(cwd: string): string {
     }
     h.update('\0');
   }
+  return h.digest('hex');
+}
+
+/** Content fingerprint of the installed dependency tree.
+ *
+ *  `verify` symlinks node_modules into BOTH the visible and pristine copies —
+ *  it is gitignored, so no diff view sees it, and it is where the suite's own
+ *  runner lives. An agent that writes `node_modules/.bin/<runner>` replaces the
+ *  program that decides both verdicts: reproduced as VERIFIED with visible and
+ *  pristine both exit 0 while the source bug was untouched. Neither the policy
+ *  check (git-scoped) nor the tree fingerprint (ls-files, ignores excluded)
+ *  could see it. (P0-6, external review.)
+ *
+ *  Content-hashed, not stat-compared: P1-8 is the standing lesson that mtime
+ *  and size are the agent's to choose. Measured 3.4s over 145MB / 5.4k files,
+ *  inside a command that already runs the suite twice. */
+function depsFingerprint(cwd: string): string {
+  const root = join(cwd, 'node_modules');
+  const h = createHash('sha256');
+  const walk = (dir: string): void => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.isFile()) {
+        h.update(p);
+        try {
+          h.update(readFileSync(p));
+          h.update(String(statSync(p).mode)); // the exec bit is part of identity
+        } catch {
+          h.update('<unreadable>');
+        }
+      } else if (e.isSymbolicLink()) {
+        h.update(p);
+        try {
+          h.update(readlinkSync(p));
+        } catch {
+          h.update('<unreadable-link>');
+        }
+      }
+    }
+  };
+  try {
+    if (!statSync(root).isDirectory()) return 'none';
+  } catch {
+    return 'none'; // no installed tree: nothing to drift
+  }
+  walk(root);
   return h.digest('hex');
 }
 
@@ -145,7 +201,7 @@ function survivorsHoldingTree(cwd: string, spawnedAfterTicks: number): number[] 
 }
 
 export function runEnvelope(opts: RunEnvelopeOpts): number {
-  const cwd = opts.cwd ?? process.cwd();
+  const cwd = resolve(opts.cwd ?? process.cwd()); // absolute: relative cwds break the verify overlay
   if (!opts.argv.length) {
     err('tamperward run: no agent command given (usage: tamperward run [options] -- <command...>)');
     return 2;
@@ -205,6 +261,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   }
 
   out(`tamperward run — trusted base ${base.slice(0, 10)}; agent exit is untrusted.`);
+  const depsBefore = depsFingerprint(cwd); // the runner the suite will execute
   const spawnTicks = nowTicks(); // survivors are what appears after this
   const agent = spawnSync(opts.argv[0], opts.argv.slice(1), { cwd, stdio: 'inherit' });
   const agentExit = agent.status ?? 1; // killed-by-signal is not success
@@ -256,12 +313,17 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     err('tamperward run: the working tree changed while it was being adjudicated —');
     err('the verdict below would describe a tree that no longer exists.');
   }
+  const depsDrifted = !opts.allowDepDrift && depsFingerprint(cwd) !== depsBefore;
+  if (depsDrifted) {
+    err('tamperward run: the installed dependency tree changed during this run — the program that');
+    err('runs the suite is not the one we started with. Both verification runs execute it.');
+  }
   const survivors = survivorsHoldingTree(cwd, spawnTicks);
   if (survivors.length) {
     err(`tamperward run: ${survivors.length} process(es) started during this run still hold the`);
     err(`working tree (pid ${survivors.join(', ')}). A verdict cannot outlive the tree it describes.`);
   }
-  const notQuiescent = mutatedDuringAdjudication || survivors.length > 0;
+  const notQuiescent = mutatedDuringAdjudication || survivors.length > 0 || depsDrifted;
 
   const cannot = diffCode === 2 || workCode === 2 || verifyCode === 2;
   const blocked = diffCode === 1 || workCode === 1 || verifyCode === 1 || notQuiescent;
@@ -269,6 +331,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
 
   const verdict =
     enforcement === 2 ? 'CANNOT_ADJUDICATE (fail closed)'
+    : depsDrifted ? 'DEPENDENCY_DRIFT — the suite runner changed under the envelope'
     : notQuiescent ? 'NOT_QUIESCENT — the tree moved, or something still holds it'
     : enforcement === 1 ? 'ENFORCEMENT_FAILED — the tree the runtime released does not stand'
     : agentExit !== 0 ? `agent exited ${agentExit} (enforcement clean)`
@@ -288,6 +351,7 @@ export function parseRun(args: string[]): RunEnvelopeOpts {
     else if (a === '--budget') o.budget = Number(args[++i]);
     else if (a === '--allow-dirty') o.allowDirty = true;
     else if (a === '--settle') o.settle = Number(args[++i]);
+    else if (a === '--allow-dep-drift') o.allowDepDrift = true;
     else if (a === '--cwd') o.cwd = args[++i];
     else { o.argv = args.slice(i); break; } // first non-flag starts the command
   }

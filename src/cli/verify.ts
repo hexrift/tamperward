@@ -30,7 +30,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { loadPolicy } from '../policy-load';
 import { isProtected } from '../policy';
 import { Policy } from '../types';
@@ -88,7 +88,12 @@ function materialize(cwd: string, dest: string): void {
     cpSync(src, out);
     chmodSync(out, st.mode);
   }
-  const nm = join(cwd, 'node_modules');
+  // ABSOLUTE target. A relative cwd (`--cwd .`, which the envelope passes
+  // through) produced a symlink whose target resolved against the COPY's own
+  // directory — i.e. to itself — so every suite in both runs exited 127 and
+  // verify degraded to permanent SUITE_RED. Fails closed, but an oracle that
+  // always says red is one people switch off.
+  const nm = resolve(cwd, 'node_modules');
   if (existsSync(nm)) symlinkSync(nm, join(dest, 'node_modules'), 'dir');
 }
 
