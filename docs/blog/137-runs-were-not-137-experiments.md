@@ -2,7 +2,7 @@
 
 *August 29, 2026 · hexrift*
 
-*Short answer: an external review read this entire series and made a statistical
+*The short version: an external review read this entire series and made a statistical
 distinction more sharply than we had — our run counts are much larger than our count
 of independent experiments, and the headline numbers borrowed credibility from that
 gap. The review is right. This post concedes the point precisely, records what

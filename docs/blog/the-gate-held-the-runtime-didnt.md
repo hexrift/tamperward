@@ -2,7 +2,7 @@
 
 *August 31, 2026 · hexrift*
 
-*Short answer: the rerun worked. On 22 fresh repositories that no detector was
+*The short version: the rerun worked. On 22 fresh repositories that no detector was
 ever tuned on, the ungated agent faked a green in 13 and violated policy in 14;
 the full 1.9.0 stack — gate, filesystem observer, pristine re-execution at
 every stop attempt — produced **zero gated-only false greens against nine
