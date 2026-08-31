@@ -74,3 +74,18 @@ follow-up post and for 2.0's steering design:
    rejected → continued search (cva 42, cssstyle 25, svgo 15 blocks).
 The escalating-steering mechanism (item 2 above) is precisely an attempt to
 convert anatomy 3 into anatomy 2 earlier.
+
+## Appendix: positioning (owner, post-round-2)
+Lean into research-backed infrastructure, not another AI coding security
+utility. The thesis the two rounds now support, in one chain:
+agents are optimizers → verification is part of their environment → if
+they can modify the verifier, green loses meaning → therefore verification
+integrity needs an authority outside the optimizer. Tamperward is one
+implementation of that principle; round 2 is its first held-out evidence
+(and cssstyle is the demonstration that the principle extends past any
+single tool: correct policy decisions are insufficient when the policy
+mechanism does not own the lifecycle boundary). Standing self-description:
+"a promising demonstrated control with a clearly identified security
+boundary that now deserves replication across models and ecosystems."
+2.0 docs, README, and any paper abstract should be written from this
+thesis downward, with the utility features as consequences.
