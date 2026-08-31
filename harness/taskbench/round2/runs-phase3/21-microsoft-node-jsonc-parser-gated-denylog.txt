@@ -1,0 +1,2 @@
+test-skip,test-skip
+warn:transient-protected-mutation:lib/esm/test/json.test.js
