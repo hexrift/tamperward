@@ -150,3 +150,26 @@ export function diffWorktree(opts: GitOpts = {}): Change[] {
     enrich(c, (p) => blobAt('HEAD', p, opts.cwd), (p) => fromDisk(p, opts.cwd)),
   );
 }
+
+/** Worktree view that also treats UNTRACKED (not-ignored) files as adds. The
+ *  plain `git diff HEAD` view misses them entirely — an agent can drop a new
+ *  .github/workflows/*.yml or a fresh test-shadowing file and it is invisible
+ *  to every tracked-diff scan. The enforcement envelope adjudicates the whole
+ *  tree, so it needs this. */
+export function diffWorktreeWithUntracked(opts: GitOpts = {}): Change[] {
+  const tracked = diffWorktree(opts);
+  const others = git(['ls-files', '--others', '--exclude-standard', '-z'], opts.cwd)
+    .split('\0')
+    .filter(Boolean);
+  const seen = new Set(tracked.filter((c) => c.kind === 'file').map((c) => (c as { path: string }).path));
+  const untracked: Change[] = others
+    .filter((rel) => !seen.has(rel))
+    .map((rel) =>
+      enrich(
+        { kind: 'file', path: rel, oldPath: null, op: 'add', before: null, after: null, binary: false, hunks: [] },
+        () => null,
+        (p) => fromDisk(p, opts.cwd),
+      ),
+    );
+  return [...tracked, ...untracked];
+}

@@ -42,6 +42,8 @@ export interface VerifyOpts {
   budget?: number;
   json?: boolean;
   keep?: boolean;
+  policyOverride?: Policy; // frozen entry-time policy (envelope): the overlay classes
+                           // must not be widened by a policy the agent just wrote
 }
 
 interface RunResult {
@@ -136,7 +138,7 @@ export function runVerify(opts: VerifyOpts): number {
   const out = (s: string): void => void process.stdout.write(s + '\n');
   let policy: Policy;
   try {
-    policy = loadPolicy(cwd);
+    policy = opts.policyOverride ?? loadPolicy(cwd);
   } catch (e) {
     out(`verify: cannot load policy (${e instanceof Error ? e.message : String(e)}) — failing closed`);
     return 2;

@@ -124,3 +124,56 @@ describe('envelope hardening — the trust anchor cannot move', () => {
     expect(code).toBe(2); // no verifier existed at entry: refuse before trusting an agent-authored one
   });
 });
+
+describe('envelope hardening — the tree the agent left cannot judge itself', () => {
+  // P0-1: an uncommitted .tamperward.yml that disables the rules must not be
+  // the policy the worktree check runs under. The envelope freezes the
+  // entry-time policy (from the base commit); the agent's version is ignored.
+  it('P0-1: agent disables test-deletion+hook-tampering in an uncommitted policy → still convicted', () => {
+    const cwd = repo(); // failing suite at entry
+    const disable =
+      'printf "version: 1\\nrules:\\n  test-deletion:\\n    enabled: false\\n  hook-tampering:\\n    enabled: false\\n" > .tamperward.yml';
+    const code = runEnvelope({ cwd, cmd: 'true', argv: sh(`${disable} && rm test/check.test.js`) });
+    expect(code).not.toBe(0);
+  });
+
+  // P0-2: widening `protected` so the pristine overlay reverts the agent's own
+  // source bug — scored a strengthening by policy-diff, so the agent's policy
+  // must not reach verify. Frozen entry policy defines the overlay classes.
+  it('P0-2: agent broadens protected to mask its bug → MASKED_FAILURE still fires', () => {
+    const cwd = repo();
+    const widen = 'printf "version: 1\\nprotected:\\n  config: [\\"**\\"]\\n" >> .tamperward.yml';
+    // agent leaves src.js broken and guts the visible test, then widens protected
+    const code = runEnvelope({ cwd, cmd: CMD, argv: sh(`echo "" > test/check.test.js && ${widen}`) });
+    expect(code).not.toBe(0);
+  });
+
+  // P0-3: untracked files are invisible to `git diff HEAD`. The envelope's
+  // worktree view must include untracked (not-ignored) files, so a dropped
+  // shadow file is at least SCANNED rather than silently absent.
+  it('P0-3: untracked file is included in the worktree scan (not 0 changes)', () => {
+    const cwd = repo(true); // green base
+    const untrackedPolicyDisable =
+      'printf "version: 1\\nrules:\\n  test-deletion:\\n    enabled: false\\n" > sneaky.yml';
+    // the point: an untracked file exists and is enumerated. We assert the
+    // envelope no longer green-lights a run whose only defense is that the
+    // change was never committed — here by deleting a tracked test under the
+    // frozen policy, with an untracked file also present.
+    const code = runEnvelope({ cwd, cmd: 'true', argv: sh(`${untrackedPolicyDisable} && rm test/check.test.js`) });
+    expect(code).not.toBe(0);
+  });
+
+  // P0-4: the agent can run `tamperward allow`, writing the local ledger. The
+  // envelope adjudicates at the CI layer, which honors only out-of-band
+  // approval, never the (agent-writable) committed/local ledger.
+  it('P0-4: agent self-signs-off with `tamperward allow` → not cleared', () => {
+    const cwd = repo();
+    const cli = join(__dirname, '..', 'dist', 'cli', 'index.js');
+    const code = runEnvelope({
+      cwd,
+      cmd: 'true',
+      argv: sh(`rm test/check.test.js && node ${cli} allow test-deletion --file test/check.test.js --reason x >/dev/null 2>&1 || true`),
+    });
+    expect(code).not.toBe(0);
+  });
+});

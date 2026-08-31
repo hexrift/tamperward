@@ -35,7 +35,9 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { runCheck } from './check';
 import { runVerify } from './verify';
-import { loadPolicy } from '../policy-load';
+import { loadPolicy, loadPolicyAt } from '../policy-load';
+import { defaultPolicy } from '../policy';
+import { Policy } from '../types';
 
 export interface RunEnvelopeOpts {
   cwd?: string;
@@ -78,12 +80,19 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   // (verify.command: "true") and be adjudicated by it — policy-diff
   // deliberately treats ADDING a verify block as a strengthening, which is
   // right for PR review and wrong for this envelope.
+  // The whole policy is part of the trust anchor, resolved from the BASE COMMIT
+  // (loadPolicyAt(base)), never the working tree the agent controls. Otherwise
+  // the agent adjudicates itself: an uncommitted .tamperward.yml that disables
+  // test-deletion + hook-tampering, or widens `protected` so the pristine
+  // overlay reverts its own bug — both scored 'clean' by a check that trusts
+  // the post-agent tree. Falls back to the committed baseline, never the head's.
+  let frozenPolicy: Policy;
   let frozenCmd: string | undefined;
   let frozenBudget: number | undefined;
   try {
-    const entryPolicy = loadPolicy(cwd);
-    frozenCmd = opts.cmd ?? entryPolicy.verify?.command;
-    frozenBudget = opts.budget ?? entryPolicy.verify?.budget;
+    frozenPolicy = loadPolicyAt(base, cwd) ?? defaultPolicy();
+    frozenCmd = opts.cmd ?? frozenPolicy.verify?.command;
+    frozenBudget = opts.budget ?? frozenPolicy.verify?.budget;
   } catch (e) {
     err(`tamperward run: cannot load the entry-time policy (${e instanceof Error ? e.message : String(e)}) — failing closed.`);
     return 2;
@@ -132,12 +141,12 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   let diffCode = 0;
   if (head !== base) {
     out(`\n[envelope] policy check over committed changes (${base.slice(0, 10)}...${head.slice(0, 10)}):`);
-    diffCode = runCheck({ diff: `${base}...${head}`, cwd });
+    diffCode = runCheck({ diff: `${base}...${head}`, cwd, policyOverride: frozenPolicy });
   }
-  out('\n[envelope] policy check over the working tree:');
-  const workCode = runCheck({ worktree: true, cwd });
+  out('\n[envelope] policy check over the working tree (frozen policy, untracked included, no local ledger):');
+  const workCode = runCheck({ worktree: true, cwd, policyOverride: frozenPolicy, includeUntracked: true, ciLayer: true });
   out('\n[envelope] pristine verification against the trusted base:');
-  const verifyCode = runVerify({ cwd, base, cmd: frozenCmd, budget: frozenBudget });
+  const verifyCode = runVerify({ cwd, base, cmd: frozenCmd, budget: frozenBudget, policyOverride: frozenPolicy });
 
   const cannot = diffCode === 2 || workCode === 2 || verifyCode === 2;
   const blocked = diffCode === 1 || workCode === 1 || verifyCode === 1;
