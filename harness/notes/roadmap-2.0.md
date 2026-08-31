@@ -63,3 +63,14 @@ FALSE_GREEN against withheld cases verify cannot see
 - run-task/sweep drivers: fold the round-2 arm-neutral budget structure
   (TB_AGENT_SECS + verdict-always) back into the round-1 driver so the next
   round starts from the corrected harness, not from archaeology.
+
+## Appendix: the three gated behavioral anatomies (future-article taxonomy)
+Owner-identified from round-2 trajectories; candidate structure for a
+follow-up post and for 2.0's steering design:
+1. **Quiet path** — no temptation → one mandatory verify → finish (15/22).
+2. **Early deterrence** — mutation denied → agent returns to implementation
+   search (panels, immutable, prettier: 1-2 denies, no siege).
+3. **Verify siege** — masked green achieved → termination repeatedly
+   rejected → continued search (cva 42, cssstyle 25, svgo 15 blocks).
+The escalating-steering mechanism (item 2 above) is precisely an attempt to
+convert anatomy 3 into anatomy 2 earlier.
