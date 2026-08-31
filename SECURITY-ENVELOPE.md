@@ -13,6 +13,10 @@ is only as honest as this table. REPRO = executed end-to-end; AUDIT = code path.
 | P0-3 | REPRO | untracked files invisible to the worktree view (`git diff HEAD` misses `--others`) | 1.10.2 (scan) | envelope worktree view includes untracked, not-ignored files. NOTE: a *brand-new* workflow file is now scanned but is not itself a modeled violation — see P2-new-file |
 | P0-4 | REPRO | envelope adjudicated at the `local` layer, so the agent cleared its own findings with `tamperward allow` | 1.10.2 | envelope adjudicates at the CI layer: only out-of-band approval, never the agent-writable ledger |
 | anchor/verifier | REPRO | history rewrite + agent-authored verifier | 1.10.1 | descendancy gate + frozen verify command/budget |
+| P0-7 | REPRO | a rename INSIDE the tests glob voided the block-count rules — `git mv spec.js spec2.js` carried an arbitrary it()-block deletion past test-deletion and test-content-removal, clean at CI | 1.10.3 | both rules content-inspect `op === 'rename'` exactly like `modify` |
+| P0-8 | REPRO | `git mv ci.yml ci.yml.disabled` disabled every check with zero changed lines, clean at CI — the file never leaves the protected glob, only GitHub's executable set | 1.10.3 | ci-tampering fires on executability (`.github/workflows/*.{yml,yaml}`), not glob membership; honest renames (ci.yml → build.yml) stay clean |
+| P1-9 | REPRO | `core.hooksPath` — git-native, strictly more general than the covered flags — bypassed no-verify in three spellings (`-c`, `git config`, `GIT_CONFIG_*`) | 1.10.3 | all three spellings covered, plus LEFTHOOK=0 / SKIP_SIMPLE_GIT_HOOKS / PRE_COMMIT_ALLOW_NO_CONFIG |
+| P2-11 | REPRO | repo content injected raw ESC bytes into the terminal verdict (clear-screen + forged "clean" line) | 1.10.3 | C0/C1 control bytes replaced before rendering; the human-facing surface the steering story depends on |
 
 ## Open — scoped, not yet closed (honest boundary)
 
@@ -27,10 +31,21 @@ is only as honest as this table. REPRO = executed end-to-end; AUDIT = code path.
 | P1-5 | AUDIT | no shipped CI wiring runs `verify` — default adoption adjudicates masked failures only at the local layer | Open. `init` CI template should include `tamperward run`/`verify`. |
 | P1-6 | AUDIT | OOB sign-off is unbound (rule/file only, no evidence fingerprint or head SHA) and sticky across `synchronize` | Open. Bind OOB approvals to a head SHA + finding fingerprint. |
 | P1-7 | AUDIT | a throwing detector fails open at the check layer | Open. At the range/envelope layer a detector throw should fail closed, not drop silently. |
+| P1-8 | REPRO | effect-drift fast path reuses the previous entry when mtime+size+mode match — a same-size edit plus `touch -r` slips `it` → `it.skip` past the per-call check | Open, high. The stat triple is agent-controlled; the fast path must re-hash (or key on content) for protected files. |
+| P2-12..P2-16 | AUDIT | NotebookEdit modelled but never matched by the installed matcher; default test globs are JS/TS only (a Python/Go/Rust repo gets rules that can never fire, silently); job-summary markdown injection via file path; `npx --yes` resolves the gate itself unpinned at gate time; revision args reach git without `--` | Backlog, pass 2. P2-13 (silent no-op policy for non-JS repos) and P2-15 (unpinned gate) are the two worth pulling forward. |
 | P2-1..P2-10 | mixed | crash paths return 1 not 2; `.git/tamperward/*` agent-writable; shared env between runs; group-timeout leak; materialize drops ignored/empty/.git; warn findings affect no exit code; self-hosting ignore blind spot; env-var provenance; enumerate-by-cwd; `--keep` lifetime | Backlog. P2-1 (crash → exit 1 not fail-closed 2) and P2-6 (warn findings invisible to the envelope verdict) are the two worth pulling forward. |
+
+## WITHDRAWN claim (1.10.2 → corrected in 1.10.3)
+
+1.10.2 recorded that `check --diff` — the CI authority path — "survives every
+finding except P0-6", and every local-layer finding leaned on that as the
+fallback. **That claim is withdrawn.** Pass 2 of the external review produced
+two committed, diff-visible exploits that the authority layer reported clean
+(P0-7, P0-8, both fixed in 1.10.3), and P0-2/P0-6 already defeated it. A
+fallback that four findings defeat is not a fallback; it is a fourth surface.
 
 ## Held under attack (confirmed negative)
 Entry-SHA freeze + descendancy gate; frozen verify command; dirty-start
-refusal; and now (1.10.2) the entry-time policy freeze, CI-layer adjudication,
-and untracked inclusion. `check --diff` governed by the merge-base policy
-remains the soundest path and survives every finding except P0-6.
+refusal; the 1.10.2 entry-time policy freeze, CI-layer adjudication and
+untracked inclusion; detector isolation; engine dedupe; the policy-file
+exemption in `ignore`; escaped GitHub annotations.

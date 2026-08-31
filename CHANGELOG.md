@@ -5,6 +5,41 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.10.3] — 2026-08-31
+
+**Rename semantics — two committed-diff exploits that the CI authority layer
+called clean.** Pass 2 of the external review found the fallback every
+local-layer finding leaned on ("CI still catches it") was itself defeated.
+Both reproduced before the fix, both now regression-tested.
+
+- **P0-7**: `test-deletion` and `test-content-removal` gated their content
+  comparison on `op === 'modify'`. A rename is neither modify nor the
+  rename-OUT case they handle, so `git mv spec.js spec2.js` in the same
+  commit carried an arbitrary it()-block deletion past both rules — 10
+  blocks to 7, reported clean at CI. Both rules now content-inspect renames
+  exactly like modifications; an honest rename with unchanged content stays
+  clean.
+- **P0-8**: `git mv ci.yml ci.yml.disabled` disabled every check without
+  changing a line, and was reported clean — because the file never leaves
+  the protected glob (`.github/workflows/**` matches `.disabled` too), only
+  GitHub's executable set. For a `pull_request` event that disables CI for
+  the very merge ref performing it. ci-tampering now tests **executability**
+  (`.github/workflows/*.{yml,yaml}`), not glob membership; `ci.yml →
+  build.yml` remains clean.
+- **P1-9**: `core.hooksPath` — git-native and strictly more general than the
+  flags already covered, since it disables husky, lefthook and plain
+  `.git/hooks` alike — bypassed `no-verify` in all three spellings (`-c`,
+  `git config`, `GIT_CONFIG_*` injection). Now covered, with LEFTHOOK=0,
+  SKIP_SIMPLE_GIT_HOOKS and PRE_COMMIT_ALLOW_NO_CONFIG.
+- **P2-11**: evidence is repository content, and `\s` collapsing left ESC
+  intact — a crafted test line emitted clear-screen plus a forged "clean"
+  verdict into tamperward's own stdout. Control bytes are now replaced
+  before rendering.
+
+**Withdrawn claim.** 1.10.2's tracker recorded `check --diff` as surviving
+every finding but P0-6. Four findings defeat it (P0-2, P0-6, P0-7, P0-8);
+`SECURITY-ENVELOPE.md` now says so. Full suite 330/330.
+
 ## [1.10.2] — 2026-08-31
 
 **Envelope hardening — four executed P0 inversions from external review, each

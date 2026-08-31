@@ -72,7 +72,16 @@ function wrap(text: string, width: number): string[] {
 /** Evidence is the literal offending line, so it is clipped rather than wrapped: a
  *  reflowed source line no longer looks like the thing it quotes. */
 function clip(s: string, max: number): string {
-  const one = s.replace(/\s+/g, ' ').trim();
+  // Evidence is repository content. \s collapses \r\n\t but leaves ESC and the
+  // other C0/C1 bytes intact, so a crafted source line could emit ESC[2J ESC[1;1H
+  // — clear the screen and repaint a forged "clean" verdict in tamperward's own
+  // stdout. Strip control bytes before anything reaches a terminal; the human
+  // surface is exactly the one the steering story depends on. (P2-11, review.)
+  const one = s
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u0080-\u009f]/g, '\uFFFD')
+    .replace(/\s+/g, ' ')
+    .trim();
   return one.length > max ? one.slice(0, Math.max(1, max - 1)) + '…' : one;
 }
 

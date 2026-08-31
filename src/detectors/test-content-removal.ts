@@ -62,7 +62,10 @@ export const testContentRemoval: Detector = {
     }
 
     for (const c of changes) {
-      if (c.kind !== 'file' || c.op !== 'modify' || c.before == null || c.after == null) continue;
+      // 'rename' is included deliberately: a rename within the test glob is a
+      // content change wearing a different path, and gating on 'modify' let it
+      // launder line removals past this rule (P0-7, external review).
+      if (c.kind !== 'file' || (c.op !== 'modify' && c.op !== 'rename') || c.before == null || c.after == null) continue;
       if (!isProtected(c.path, policy, 'tests')) continue;
       // Recorded expectations (snap/golden files often live under __tests__/) are
       // snapshot-rewrite's jurisdiction with its own measured severity; one class,
