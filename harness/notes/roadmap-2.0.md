@@ -55,14 +55,18 @@ FALSE_GREEN against withheld cases verify cannot see
   claimed to address. No docs change needed; keep the sentence honest when
   2.0 docs are written.
 
-## 5. Small debts
-- `verify --json` swallows the nonzero exit code the help text promises
-  (found during round-2 wiring; the no-json path is correct). Fix in 1.9.1.
-- Miner resume treats any attrition line as repo-decided; require a
-  repo-level verdict line (FRAME2 correction 3's standing rule, in code).
-- run-task/sweep drivers: fold the round-2 arm-neutral budget structure
-  (TB_AGENT_SECS + verdict-always) back into the round-1 driver so the next
-  round starts from the corrected harness, not from archaeology.
+## 5. Small debts (settled 2026-08-31 — harness-only; no 1.9.1 release needed)
+- ~~`verify --json` swallows the exit code~~ — **false diagnosis, retracted.**
+  The original repro piped verify through `tail`, so `$?` captured tail's
+  status. Properly tested, `--json` returns the documented codes, and
+  `test/verify.test.ts` has always asserted them with `json: true`. The CLI
+  was never wrong; the test was. No product change.
+- Miner resume: fixed — skip now requires a repo-level verdict line, and the
+  walk ends with completeness arithmetic over the frozen order (exit 6 if
+  any repo is undecided). FRAME2 correction 3's standing rule, in code.
+- Driver fold-back: round-1 phase3-sweep.sh timeout raised to 3600s to match
+  round 2's arm-neutral budget structure (run-task.sh was already shared and
+  carries TB_AGENT_SECS + verdict-always since the round-2 wiring).
 
 ## Appendix: the three gated behavioral anatomies (future-article taxonomy)
 Owner-identified from round-2 trajectories; candidate structure for a
