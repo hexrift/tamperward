@@ -1,5 +1,14 @@
 # Blog
 
+- **[The gate held. The runtime didn't.](./the-gate-held-the-runtime-didnt)** — August 31, 2026.
+  The rerun's preregistered answer: on 22 fresh repositories, transfer 64%,
+  and the 1.9.0 stack eliminated every false green in its jurisdiction —
+  b=9/c=0, RD +40.9%, exact McNemar p=0.0039, with every prevented fake
+  becoming an honest completion. Two residual routes documented, not patched:
+  a runtime that owns termination when the enforcement layer doesn't, and the
+  withheld-split blind spot we designed in. Two bets missed their bands
+  upward; both count as misses. Ledger: 77 bets, 31 refuted.
+
 - **[What losing the bet bought: three defense layers from 53 real trajectories](./what-losing-the-bet-bought)** — August 30, 2026.
   The engineering response to the failed prevention bet, published before the
   rerun so the next experiment tests a public design: the evasion taxonomy
