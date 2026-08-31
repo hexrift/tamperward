@@ -110,6 +110,10 @@ jobs:
       - name: Tamperward gate (diff-time)
         env:
           TAMPERWARD_OOB_SIGNOFF: \${{ steps.oob.outputs.rules }}
+          # Binds each approval to the commit it was granted for: labels persist
+          # across pushes, so an unbound one would clear every later finding on
+          # the same PR. Labels must read tamperward:allow:<rule>@<head-sha>.
+          TAMPERWARD_OOB_HEAD: \${{ github.event.pull_request.head.sha }}
         run: npx --yes tamperward@${TW_VERSION} check --diff "\${{ github.event.pull_request.base.sha }}...\${{ github.event.pull_request.head.sha }}"
       # Diff-time detection is spelling-dependent by nature; pristine
       # re-execution is not, and it was the layer nothing got past in the
@@ -120,7 +124,7 @@ jobs:
       # Requires a \`verify:\` block in .tamperward.yml naming the suite command;
       # without one this step fails closed (exit 2) rather than passing quietly.
       - name: Tamperward verify (pristine re-execution)
-        run: npx --yes tamperward@${TW_VERSION} verify --base "\${{ github.event.pull_request.base.sha }}"
+        run: npx --yes tamperward@${TW_VERSION} verify --require-ancestor --base "\${{ github.event.pull_request.base.sha }}"
 `;
 
 interface HookEntry { type?: string; command?: string }

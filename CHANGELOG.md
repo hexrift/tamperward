@@ -5,6 +5,34 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.13.0] — 2026-08-31
+
+**The CI authority's own integrity: P1-3 and P1-6.**
+
+- **P1-3 — standalone `verify` could be anchor-downgraded.** `run` enforces
+  that HEAD descends from the trusted base; `verify --base <rev>` resolved
+  with merge-base semantics and had no such guard, so history rewritten
+  beneath the base silently anchored verification to an older commit. That
+  matters more since 1.12.0, which ships exactly this standalone wiring.
+  `--require-ancestor` fails closed (exit 2), and the generated workflow
+  passes it. Deliberately opt-in: a PR branched from an older main
+  legitimately has a non-ancestor base, so defaulting it on would break
+  ordinary PRs rather than catch attacks.
+- **P1-6 — a CI approval was unbound and sticky.** It matched on rule (or
+  rule:file) with nothing tying it to what was approved or when, and GitHub
+  labels persist across `synchronize` — so a label earned for one benign
+  deletion cleared every later one pushed to the same PR. The local ledger has
+  always been fingerprint-bound; this channel was not. Approvals may now carry
+  `@<head-sha>` (`tamperward:allow:test-deletion@a1b2c3d4`), and once the
+  workflow supplies the head it is adjudicating, an **unbound label clears
+  nothing** — the next push re-blocks. Workflows generated before this release
+  pass no head and keep the old behaviour, so upgrading breaks nobody;
+  re-running `tamperward init` opts a repository in.
+
+Full suite 349/349; each exploit test verified to fail with its fix reverted,
+with controls (honest history, different-head label, legacy behaviour) passing
+both ways.
+
 ## [1.12.0] — 2026-08-31
 
 **The P1 batch: four AUDIT-class findings, plus the supply-chain pin.**
