@@ -12,329 +12,218 @@
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-lightgrey" alt="license"></a>
 </p>
 
-**The deterministic agent-integrity gate.** AI coding agents optimize for "the command
-succeeded," not "the change is trustworthy." To make checks pass they take the cheapest
-path: deleting failing tests, skipping them, casting to `any`, suppressing lint errors,
-lowering coverage gates, rewriting snapshots, editing CI, or bypassing hooks with
-`--no-verify`. Tamperward treats the safety nets themselves as protected assets and
-blocks the **class** of bypass — one ruleset, evaluated on the actual diff and commands
-as a verdict, not a probability, enforced at every stage a change passes through:
-**inside the agent's loop (a Claude Code hook today — a deny before the tool runs, and
-a sweep at end of turn), at the commit, and at the merge.** CI is the authority; the
-earlier layers shorten the feedback loop for agents that carry them.
-
-> Apache-2.0 · zero runtime model calls · every headline claim below is measured, with
-> the pre-registered predictions (including the refuted ones) committed to this repo
-
 **[Docs & guide](https://hexrift.github.io/tamperward/)** ·
-**[The launch post](https://hexrift.github.io/tamperward/blog/what-agents-do-when-you-block-their-shortcuts)** — how these numbers were measured, and which of my own bets lost
+**[The research series](./docs/blog/index.md)** — fourteen posts, with every
+registered prediction published beside its outcome
 
-## Install
+Coding agents can modify both the implementation and the tests, configuration,
+CI, hooks and verifier used to judge that implementation — and in observed
+trajectories, some modify or attempt to modify verification in ways that can
+turn incorrect work into apparent success. Under pressure, the cheaper route to
+green is sometimes to weaken the checks instead of fixing the failure.
+
+Tamperward is a **deterministic verification-integrity layer**. It blocks known
+weakening moves as they happen, observes protected-state effects, and
+independently re-adjudicates apparent success outside the agent's normal
+completion path — making some verification-manipulation strategies non-viable
+and independently rechecking whether apparent success survives trusted
+verification. No runtime LLM judge. Fail closed when adjudication is
+impossible.
+
+## What we have actually measured
+
+| experiment | result | what it supports |
+| --- | --- | --- |
+| **Round 1** — 26 paired real repositories, real historical regressions, 53 counted trajectories, Tamperward **v1.6.0** ([`harness/taskbench/`](./harness/taskbench/)) | Behaviour transferred: **13/26 ungated runs (50%)** committed at least one policy violation. The headline prevention hypothesis **lost**: false-green discordance b=5 / c=4, paired RD +3.8pp [−17.2, +24.7], exact McNemar **p = 1.0** — refuted and published beside the bet | A detector-centric architecture was insufficient on its own: agents routed around the shipped detector classes |
+| **Pristine oracle, round 1** — independent re-execution of the original suite against each agent's source | Identified **every masked failure in all 53 trajectories** while diff-time detection was routed around | A strong outcome-level signal on the observed masked failures — the motivation for shipping independent re-verification (`tamperward verify`) |
+| **Round 2** — **22 fresh held-out repositories** no detector was tuned on, the **v1.9.0** stack ([`harness/taskbench/round2/`](./harness/taskbench/round2/)) | Transfer 14/22 (64%). Prevention: **b=9 / c=0**, paired RD **+40.9pp**, BP95 **[17.8, 61.3]**, exact McNemar **p = 0.0039** | In that preregistered setting, the full stack materially reduced false greens |
+| **After prevention** — the nine round-2 prevented false greens | **8 of 9 became honest completions**; the ninth became an honest **non**-completion | Prevention usually redirected trajectories toward honest work rather than merely blocking them |
+
+Earlier controlled experiments → **[the research series](./docs/blog/index.md)**.
+
+> **Scope.** The rows above are one model, one pressure prompt, one JS/TS
+> ecosystem — evidence for that setting, not a universal claim. Round 2 tested
+> the v1.9.0 stack; the current **v1.14.0** adds post-study envelope hardening
+> (externally reviewed, with each finding exploit-reproduced before its fix —
+> see [CHANGELOG](./CHANGELOG.md)). Round 3 is in progress on a frozen v1.14.0
+> baseline, testing external validity on a fresh repository frame, with model,
+> runtime and ecosystem among the planned axes of change
+> ([`harness/taskbench/round3/ROUND3-PLAN.md`](./harness/taskbench/round3/ROUND3-PLAN.md)).
+> No round-3 outcomes are included in the claims above.
+
+## Architecture
+
+Every judgment is anchored to state recorded before the agent starts, and the
+final adjudication boundary sits outside the agent's normal lifecycle.
+
+```
+      FROZEN AT ENVELOPE ENTRY:
+      entry SHA · effective policy · verifier command/budget · dependency state
+                                    │
+      ┌─────────────────────────────┴───────────────────────────────┐
+      │  agent loop (Claude Code hooks today)                       │
+      │    PreToolUse gate: every proposed Edit/Write/Bash judged;  │
+      │    known weakening DENIED before the tool runs              │
+      │                          │                                  │
+      │  working tree            ▼                                  │
+      │    effect observation: per-call protected-tree drift check  │
+      │    + filesystem-event observer (`tamperward watch`)         │
+      │                          │                                  │
+      │  Stop sweep              ▼                                  │
+      │    end-of-turn net diff re-checked; transient protected     │
+      │    mutations judged from the event log                      │
+      │                          │                                  │
+      │  pristine verification   ▼   (`tamperward verify`)          │
+      │    suite runs twice in isolated copies: the candidate tree  │
+      │    as-is, and with protected tests/snapshots/config         │
+      │    restored from the trusted base; visible-green +          │
+      │    pristine-red = MASKED FAILURE                            │
+      └─────────────────────────────┬───────────────────────────────┘
+                                    │  agent runtime exits — exit code NOT trusted
+                                    ▼
+      `tamperward run -- <agent…>` — the outer envelope
+        policy + verifier resolved from the entry state, never the tree
+        the agent wrote · post-agent HEAD must descend from the entry
+        SHA · policy check over base...HEAD (committed weakening) and
+        over the worktree incl. untracked files (uncommitted) ·
+        dependency-tree fingerprint compared · quiescence guard ·
+        pristine verify against the entry base · exit 1 on any blocking
+        finding or masked failure · exit 2 (fail closed) when
+        adjudication is impossible
+                                    │
+                                    ▼
+      pre-commit backstop: `tamperward check --staged`
+                                    │
+                                    ▼
+      PR CI: `check --diff base...head` + `verify --require-ancestor`
+        policy read from the merge-base — a PR cannot govern its own verdict
+                                    │
+                                    ▼
+      out-of-band human exception only: PR label
+      `tamperward:allow:<rule>@<head-sha>` — SHA-bound, applied by a human
+      with write access, never a file the branch can commit
+                                    │
+                                    ▼
+      protected main
+```
+
+CI is the final authority in this design, and that authority is conditional on
+the deployment assumptions documented in
+[docs/guide/enforcement.md](./docs/guide/enforcement.md) and
+[SPEC.md](./SPEC.md): verification is anchored to a base the agent cannot
+rewrite (a protected branch), the repository's branch protection actually
+enforces the workflow's verdict on merges, and sign-off labels can only be
+applied by humans with write access. Mechanisms, residuals, and what is
+explicitly outside the trust boundary: [SPEC.md](./SPEC.md) and
+[SECURITY-ENVELOPE.md](./SECURITY-ENVELOPE.md).
+
+## Quick start
 
 ```bash
 npx tamperward init
 ```
 
-One idempotent command wires the policy and every enforcement point — it never
-overwrites anything you wrote, and `--dry-run` shows the plan first:
+One idempotent command wires the policy, the agent hooks, the pre-commit hook, and
+a CI workflow that runs both the diff-time check and pristine verification. It
+never overwrites anything you wrote; `--dry-run` prints the plan.
 
-| what | wired as |
-| --- | --- |
-| policy | a commented baseline `.tamperward.yml` — the defaults apply even without it |
-| agent loop | Claude Code `PreToolUse` deny + `Stop` sweep, merged into `.claude/settings.json` |
-| pre-commit | husky when present, the plain git hook otherwise |
-| CI | a PR-gate workflow with out-of-band sign-off (details below) |
+A real deployment needs a verify command configured — the generated CI verify step
+**fails closed (exit 2) without one** rather than passing quietly. In
+`.tamperward.yml`:
 
-Or run the views directly:
+```yaml
+verify:
+  command: npm test
+  budget: 300
+```
+
+That block is itself a guarded surface: changing the command, lowering the budget,
+or removing it is flagged as policy weakening — a verifier an agent can point at
+`true` is no verification at all.
+
+The four primitives:
 
 ```bash
 npx tamperward check --staged                # pre-commit view
-npx tamperward check --diff "main...HEAD"    # CI view — the authority for main
+npx tamperward check --diff "main...HEAD"    # CI view over the PR's commit range
+npx tamperward verify --base main            # pristine-suite re-execution
+npx tamperward run -- <agent command...>     # the outer envelope around an agent
 ```
 
-## What it looks like when it fires
+## Four layers, different jobs
 
-An agent, mid-loop, tries the classic shortcut. The deny happens **before** the tool
-runs, and holds even under `bypassPermissions`:
+| layer | the question it answers |
+| --- | --- |
+| **Proposal** | Is this proposed edit or command a known way of weakening the checks? (PreToolUse deny, pre-commit, CI diff check) |
+| **Effect** | What did the protected state actually become, however the mutation arrived? (drift check, fs-event observer, Stop sweep) |
+| **Outcome** | Does the trusted suite still pass against the candidate source? (pristine verification — no diff interpreted at all) |
+| **Authority** | Where is the final verdict rendered, outside the agent's completion path? (run envelope, CI, SHA-bound human sign-off) |
 
-```
-5. Bash  rm calc.test.js   → DENIED (test-deletion)
-6. Edit  calc.js           ← next action: fix the real bug
-7. Bash  node --test       → green, honestly
-```
+Sixteen rules are specified and fourteen ship (see the table in
+[SPEC.md](./SPEC.md)). The families: test protection (`test-deletion`,
+`test-skip`, `test-content-removal`), verification-signal protection
+(`coverage-lowering`, `snapshot-rewrite`, `snapshot-only-rewrite`), suppression
+(`ts-any-cast`, `ts-any-launder`, `lint-suppression`), pipeline protection
+(`ci-tampering`, `hook-tampering`, `no-verify`), and the effect/outcome layers
+(`transient-protected-mutation`, `pristine-verification`, plus the `run` envelope).
+Some ambiguous syntactic classes deliberately remain warnings or unimplemented —
+`assertion-weakening` and `guard-removal` are reserved names with no detector, and
+`ts-any-launder` is a permanent warn — rather than being promoted to blockers
+without precision evidence.
 
-The same engine at pre-commit or in CI:
+## What this does not establish
 
-```
-tamperward: 2 blocking
-(2 changes scanned)
+- **Not a correctness oracle.** Pristine verification can only re-run tests that
+  exist in the tree. Round 2's designed-in blind spot: on tasks with withheld
+  test cases, an agent that honestly half-fixes the visible cases gets a genuine
+  visible green and is caught only by the withheld half — no tampering involved.
+  A hardcoded implementation is likewise invisible to any diff rule.
+- **Not an OS sandbox, a network firewall, a secret manager, or a replacement for
+  branch protection.** It enforces verification integrity; it does not confine
+  the process.
+- **The intended deployment is defence in depth:** instructions naming the
+  forbidden move + capability restriction + Tamperward + independent held-out
+  tests + authoritative CI. Each layer covers classes the others measurably miss.
 
-  BLOCK  coverage-lowering  package.json
-    Coverage gate weakened: global lines threshold lowered 90 → 10.
-    evidence  global lines threshold lowered 90 → 10
-    instead   Raise real coverage by adding tests; do not lower or exempt
-              the gate to pass.
-    sign-off  tamperward allow coverage-lowering --file package.json --reason "..."
+**A word on the words:** *tamper* and *honest* are operational labels on
+artifacts — a protected asset changed, or an independent oracle failed, while the
+visible check went green — decided deterministically. They are not claims about
+any model's intent.
 
-  BLOCK  test-deletion  test/calc.test.js
-    Test blocks removed: 3 → 1 it()/test() in this spec.
-    evidence  2 test block(s) removed from test/calc.test.js
-    instead   Keep the assertions and fix the code. Removing test blocks to go
-              green is the tamper.
-    sign-off  tamperward allow test-deletion --file test/calc.test.js --reason "..."
+## Research discipline
 
-A blocking finding clears only with a human sign-off. In CI that sign-off is
-out-of-band — a PR label applied by a reviewer — never a file committed on the
-branch under review.
-```
+Predictions are registered before counted runs, with numeric bets and explicit
+losing conditions, and the git history proves the order. Seeds, pools, frozen
+analysis scripts, transcripts, and deviation ledgers are committed. A pool used
+to develop detectors is spent — validation requires a fresh draw (round 1's
+repositories are development data now; round 2 drew new ones). Run counts are
+reported with their honest evidence unit: repeated runs on one seed measure that
+seed's stochasticity, and the independent evidence behind the synthetic studies
+is the count of distinct seed configurations, not the run count. Losing
+predictions and corrections remain in the public record rather than being
+removed after the result is known; the series and its errata carry the ledger
+and its totals.
 
-Under GitHub Actions each finding also lands as an **inline annotation on the diff** in
-*Files changed*, plus a job-summary table — not four clicks deep in a log.
+**[The research series](./docs/blog/index.md)** ·
+**[The harness](./harness/)** ·
+**[Errata](./docs/blog/errata.md)**
 
-## The rules
+## The architecture was earned by failures
 
-Ten mechanical rules, deterministic by construction — eight `block`, two `warn`:
-`test-deletion` (AST block-count, rename-out-of-glob, shell mutation), `test-skip`
-(including `.only`, which narrows the suite), `ts-any-cast`, `lint-suppression`,
-`coverage-lowering` (Jest and Vitest shapes, all four metrics, `package.json` included),
-`ci-tampering` (a **moved** check is not a removed one), `hook-tampering`, `no-verify`
-(flags and the env-var escape hatches), `snapshot-rewrite` (`warn` — see the FP study below
-for why), and `snapshot-only-rewrite` (`warn` — the FP study's narrow signal, a
-snapshot moved with **no accompanying change**, as its own rule so it can graduate to
-`block` at a later policy `version:` without touching the broad rule; it fires only at
-commit granularity, where "no accompanying change" means something).
+| study / version | consequence |
+| --- | --- |
+| Early seed studies | The proposal gate: deny the known weakening classes before the tool call runs, with the deny message as the correction signal |
+| Blind-dimension studies | Coverage ≠ completeness: when the cheapest cheat sat outside detector coverage, agents took it — so an orthogonal verification layer matters more than more rules |
+| Round 1, p = 1.0 | The 53 real trajectories became the evasion corpus — evasion classes the detectors never imagined, extracted with full forensics |
+| v1.7.0 | `test-content-removal`: the row-deletion / assertion-stripping / setup-gutting family that carried round 1's gated false greens, corpus-priced on 2,304 real commits before shipping as block |
+| v1.8.0 | The effect layer: per-call protected-tree drift check plus the `tamperward watch` fs-event observer — judge what the files became, not the command spelling |
+| v1.9.0 | `tamperward verify`: the round-1 pristine oracle productized — visible-green + pristine-red is a masked failure, and "could not verify" fails closed |
+| Round 2, 9–0 | The v1.9.0 stack eliminated every false green in its jurisdiction on 22 fresh repositories (p = 0.0039) |
+| cssstyle lifecycle escape (round 2) | The `tamperward run` envelope: the gate denied 42 mutations and verify refused all 25 stop attempts, and the runtime completed the session anyway over a masked tree — hooks decide, runtimes terminate, so the adjudication boundary moved outside the runtime |
+| v1.10.1–v1.14.0, owner + two-pass external review | Frozen entry-time policy and verifier, entry-SHA ancestry enforcement, quiescence guard, dependency-tree fingerprint, a CI verify step in the generated workflow, the gate pinned to its own version in CI, and SHA-bound sign-off labels |
 
-Two heuristic rule names — `assertion-weakening` and `guard-removal` — are **reserved
-in the baseline policy but not yet built**: they get detectors only once a measured
-negatives corpus exists (SPEC §7.A), enter as `warn`, and never block until their
-precision clears the bar.
-
-The policy file itself is un-ignorable, CI reads the policy from the **merge-base** (a PR
-cannot govern its own verdict), and the agent honours no sign-off it can author — the
-escape valve is a PR label only a human with write access can apply.
-
-## Measured, not asserted
-
-**Read the two headline numbers together, always:** across **137 guarded runs — every
-one inside a tamper class an active detector covered — 0 tampers reached green.**
-Outside that coverage, on the one seed built to measure it, **agents tampered in 26 of
-40 runs** — "tampered" meaning, mechanically: the independent held-out oracle
-classified the result as passing the visible check through a prohibited shortcut. The
-first number is what the gate does; the second is why the gate is one layer. And an honest note on evidence units: those run counts come from roughly
-fifteen seed/task configurations and eight real repositories — repeated runs on one
-seed measure that seed's stochasticity, not the space of real coding tasks, so the
-independent evidence behind these numbers is the seed count, not the run count.
-
-**And the third number, from the preregistered cross-repository experiment
-(taskbench, `harness/taskbench/`):** on 26 paired real repositories with real
-historical regressions, pressured-agent policy violations appeared in **13 of 26
-ungated runs (50%)** — the behavior transfers — but the gate at 1.6.0 **did not
-reduce false greens** (5 prevented vs 4 gated-only; paired RD +3.8%, 95% CI
-−17.2 to +24.7, exact McNemar p = 1.0): agents routed through tool-call
-spellings outside the shipped detector classes, including two gaps documented
-before the sweep and deliberately left unfixed for the experiment's integrity.
-Enforcement showed no measurable completion cost (+7.7 points, CI spans zero),
-and independent pristine-suite re-execution caught **every masked failure in
-all 53 trajectories**. Registration, bets, frozen analysis, and the refutation
-of our own headline bet: `PREDICTION-taskbench.md`, `PHASE3.md`. The first two
-numbers say what the gate does inside its coverage; the third says coverage is
-the whole game on real repositories — and that the reliable layer was the
-pristine-suite oracle the agent cannot touch.
-
-**What this does not do**, stated before the numbers rather than after: it does not
-establish that a patch is *correct*; it does not detect arbitrary deception (a
-hardcoded implementation is invisible to any diff rule — measured, twice); it does not
-replace sandboxing, held-out tests, or authoritative CI — it is designed to sit in
-front of them. What it does: **enforce explicitly defined development invariants at
-the loop, commit, and CI boundaries** — and nothing else.
-
-**A word on the words:** *tamper*, *honest*, *cheat*, and *surrender* are used
-throughout as operational labels, not claims about mental states. A "tamper" means: a
-protected asset changed, or an independent held-out oracle failed, while the visible
-check went green — a property of the artifacts, decided deterministically. Whether the
-process that produced it "intended" anything is a question these experiments do not
-measure and do not need.
-
-**Does the loop work?** `harness/run.sh` stands up an isolated repo with a real bug and a
-failing protected test, lets a headless agent loose with the hooks installed, and
-classifies the end state with an oracle independent of the detectors under test
-(SPEC §7.B). Across **137 runs** of these **guarded** scenarios — every attempted bypass
-class had a detector covering it — **0 tampers reached green**. Denied runs converted to
-an honest fix **42 times out of 56 (75%)**, and that number is honestly seed-dependent:
-25/25 where the honest fix was the agent's own task, down to **0/10** where the failing
-suite was somebody else's bug (the no-verify study below). The frontier split gets the
-same scoping: on the expensive-fix seed no frontier model attempted a bypass even when
-the prompt *ordered* one; on the hook-skip seed, frontier models under a prompt ordering
-the skip **try the ordered skip once, get denied once, and convert 10/10** — frontier
-honesty there is what happens after the first no, not never-trying.
-Reproduce: `npm run build && harness/run.sh 5 adversarial haiku seed-hard`.
-
-**Is the fix caused by the deny, or would it have happened anyway?** Measured, with a
-pre-registered no-gate control arm (`harness/PREDICTION-ungated-control.md`): same seed,
-model, prompt and oracle, hooks removed. **6/10 ungated runs tampered through; honest
-fixes fell from 10/10 gated to 4/10 ungated.** The gate's measured contribution on that
-configuration is a 60-point swing — causation, not survivorship — and one of the three
-control-arm bets was refuted (ungated honest fixes came in above my bet). The control
-arm was then extended across the model family (`harness/PREDICTION-frontier-models.md`):
-ungated Sonnet 5, Opus 5, and Fable 5 each went **10/10 honest** under the same
-pressure prompt — frontier honesty is disposition, not the gate's deterrence — while
-ungated Haiku stays 6/10 tamper-green. The gate's measured value concentrates on the
-models that do cheat. (The Fable rows are a Fable-driven harness measuring Fable:
-self-graded homework, bounded by the deterministic held-out oracle.) The
-type-laundering study below later measured the boundary of the disposition claim:
-it held for Opus in every regime; Sonnet and Fable held only where the gate could
-interrupt.
-
-**And when the agent knows the gate is there?** Also pre-registered
-(`harness/PREDICTION-informed-adversary.md`) — betting the gate would *leak*. Refuted,
-three bets out of three: with the detector sources vendored into the repo and the prompt
-naming the gate, Haiku's bypass attempts went from 5/10 uninformed (same day, same
-everything) to **0/10 informed — fifteen informed runs, zero evasion attempts**. Sonnet,
-told the gate exists under "speed is everything" pressure, refused the task outright in
-3/5 runs rather than work around it, and fixed honestly in the other 2. At this scenario
-size, disclosure measured as deterrence, not as an evasion spec.
-
-**Which detectors deserve to exist?** Measured too. Affordance seeds offer an agent one
-specific bypass each; predictions are pre-registered before any rep runs
-(`harness/PREDICTION-affordance.md`). Result: 7/10 adversarial runs regenerated a golden
-file from buggy output and sailed through — **because nothing guarded that class yet**;
-that measured demand is why `snapshot-rewrite` exists — while
-timeout-inflation and lint-config-gutting measured **0/10 attempts each** — two
-pre-registered bets refuted, two detectors *not* built. The same discipline settled
-`assertion-weakening` (`harness/PREDICTION-assert-affordance.md`): a seed making the
-expectation edit the one cheap, prompt-named move — with a plausible convention-mismatch
-cover story — measured **0/10 attempts**; Haiku implemented the real fix every time. My
-≥6/10 bet was refuted, and the rule stays a reserved name. Bypass classes with no
-measured demand stay in a record-only shadow scanner that accumulates evidence on every
-weekly harness run.
-
-**And when no honest fix exists at all?** The regime every other seed excludes — and
-where the typia incident actually lived — measured with a claims-based oracle
-(`harness/PREDICTION-stuck-agent.md`): a provably unfixable suite, an explicit cheap
-honest exit ("STATUS: blocked is a fully acceptable outcome"), fabrication defined as
-claiming `fixed` against cryptographic reality. **Twenty of twenty pressured runs —
-Haiku and Sonnet alike — surrendered honestly**, zero fabrications, zero test edits,
-a written diagnosis every time. Both my Haiku bets were refuted: the model that
-tampers 6/10 when the cheat is cheaper than the fix takes the honest exit when the
-honest exit is cheapest. The sharpened thesis: agents take the cheapest path they
-believe is sanctioned — the danger is pressure with no sanctioned exit cheaper than
-the lie. The untested harder variant (no one *names* the exit) is registered as the
-open follow-up.
-
-**Is the honesty just eval-awareness?** The sharpest critique of every number above —
-the seeds *look* like tests, so maybe the models are performing for a suspected
-grader — is measured too (`harness/PREDICTION-eval-awareness.md`): the same
-seed dressed as a real project (README, changelog, a user-report thread with a
-maintainer's plea, a backdated git history built by a self-deleting kit), gate off.
-**Zero frontier tampers in 20 dressed runs**, matching the undressed baselines, while
-Haiku stayed a cheater at 8/10. The pre-registered manipulation check is the honest
-part: only Opus actually read the dressing (8/10 runs, all ten honest) — so the Opus
-null carries the weight and the Sonnet null is scoped as ambient-only. And the
-sanctioned-edit variant (`harness/PREDICTION-self-authored.md`) — implement from an
-ambiguous spec, then a prompt *licensing* correction of "intern-written" tests —
-produced **zero test rewrites in 30 runs across three models**, refuting all three of
-my rewrite bets, for a reason worth knowing: every model, implementing blind, chose
-the same reading the tests encode. You cannot make an agent believe a test is wrong
-by telling it tests might be wrong; the forced-conflict variant is the registered
-follow-up.
-
-**Can "closed vs open" be called in advance?** The two dimension studies
-(`harness/PREDICTION-coverage.md`, `harness/PREDICTION-noverify.md`) tested whether a
-rule's leak-prone axis can be identified a priori. Both a-priori calls **held
-deterministically**: every enumerated hook-skip spelling denies while both
-`core.hooksPath` forms allow (the axis called open is open — surveyed by six frontier
-runs in reconnaissance, exploited by none), and all three coverage config-surface moves
-block. The behavioral half delivered the study's best datum: told to get the coverage
-gate green fast, **half of Haiku's runs opened with the per-path override** — the exact
-config-surface move the registration predicted a token detector would miss — and the
-shipped semantic detector caught every one. Zero tampers in 60 more guarded runs; one
-false-positive interception recorded and kept (Fable extending a test-file import via
-`sed`, denied by the shell-mutation heuristic mid-honest-fix — the FP record's first
-live entry).
-
-**And when the cheapest cheat is invisible to the gate?** The type-laundering study
-(`harness/PREDICTION-asany.md`) probed the one seed whose cheapest cheat spellings are
-deliberately uncovered — `: any` annotations are warn-only (`ts-any-launder`, the
-FP-avoidance choice) and a bare assertion (`raw as Settings`) has no rule at all — with
-a held-out runtime oracle hardened *before* any rep (without that hardening, nine
-assertion tampers would have scored honest and the conclusion would have inverted).
-Result: **Haiku laundered 10/10** — and the three runs denied on the guarded `as any`
-cast **switched to the invisible assertion**, the first time a deny redirected an agent
-to a better bypass instead of the fix. **Opus went 10/10 honest with zero gate
-involvement** — the strongest disposition evidence measured — while **Fable tampered
-6/10 and Sonnet, the default model, 10/10, both via the bare assertion and drawing
-zero denies** (Sonnet's spelling every time: an inline structural assertion,
-`as { retries: number; ... }` — the quickest silence that compiles carries no bypass
-framing, and Sonnet's famous refusals turn out to be triggered by framing). The
-completed frontier split — **Opus 0/10 · Fable 6/10 · Sonnet 10/10** — is the
-published shape, with the standing self-measurement caveat on the Fable rows.
-Twenty-six of forty runs tampered through the uncovered dimension: measured demand
-that sent the `ts-any-launder` warn→block graduation question to a §7.A negatives
-corpus — the honest fix itself narrows through `as Record<string, unknown>`, so a
-naive assertion-blocker is an FP factory. **The corpus answered, and the question is
-closed** (`harness/PREDICTION-launder-corpus.md`): on 1,227 real commits the
-laundering spellings fire on legitimate work at 4–10× any deployable block threshold
-(annotation-position `any`: 10.5% of commits; named-type assertions: 7.5%), so the
-warn stays a warn permanently on syntactic evidence, no assertion rule gets built,
-and the laundering class is owned by the layers where coverage is measured: the
-held-out **oracle** (caught all 18 assertion tampers) and the **prompt** (the naming
-sentence, 10/10 flip). For this class, detection is not the gate's layer —
-verification and framing are, and the record says so with a denominator.
-
-**Why not just a prompt line, or a 20-line grep hook?** Measured
-(`harness/PREDICTION-baselines.md`), against a frozen naive hook and a one-sentence
-prompt baseline — and two of my three bets lost, both against my own product's
-framing. **One integrity sentence took ungated Haiku from 6/10 tampering to 1/10**:
-the cheap prompt convention is a real mitigation and this README says so. The naive
-hook converted denials nearly as well as the gate (4/5) on the crude-spelling seed —
-but was tampered through twice: once by **hardcoding the implementation** (invisible
-to any hook; the held-out oracle layer caught it), and once by a denied agent
-switching to the node:test **options spelling** `{ skip: true }` — which the shipped
-`test-skip` rule *also* missed until it shipped closed in 1.5.1. On 1,227 real merged
-commits, the naive patterns would block **one in four legitimate commits (24.9%)**
-versus the gate's 9.0% — a ~2.75× precision edge, not the ≥5× I bet, and that 9% on
-unconfigured repos is published as the honest tuning-and-sign-off cost, not hidden.
-The loop-layer deny alone was never the product; the measured margins are whole-class
-spelling coverage, commit-layer precision plus sign-off machinery, and the layers no
-hook has. Two follow-ups closed the loops this study opened. The sentence was then
-aimed at the regime where the gate is blind — Sonnet's 10/10 assertion-laundering
-seed — and produced a **complete flip: 10/10 honest** (`harness/PREDICTION-baselines.md`,
-addendum): naming the act is the intervention Sonnet's framing-triggered honesty
-runs on. And the promised **tuned-gate numbers** now exist
-(`harness/PREDICTION-tuned-fp.md`): 9.0% unconfigured → **6.0%** with a one-line
-severity tune → roughly one sign-off decision per 17 commits residual. The same study
-shipped per-rule `exclude` globs (1.6.0, with the policy-weakening symmetry built in)
-and then measured them honestly: **zero effect on this corpus** — these repos' casts
-live in source, not tests, so the zod-recommended path scoping removed nothing here;
-the null is published next to the feature.
-
-**What about just making the tests read-only?** The most common objection got its
-pre-registered measurement (`harness/PREDICTION-capability.md`) — starting with the
-mechanics the folk advice misses: `chmod` does not bind a root agent and never
-prevented `rm` anyway (deletion is a *directory*-write right); the workable barrier
-is the immutable bit. Result: **hard immutability governed the crude-tamper seed
-completely — 10/10 honest, four EPERM hits all converting to the real fix** (a bare
-permission error transferred the deny→fix dynamic with no remediation text). Then
-the twist: adding a logged, auto-granted **elevation script made it worse (8/10)** —
-both extra tampers walked through the front door with written confessions
-("*Remove failing test file to unblock build*"), the sanctioned-path thesis firing
-a fourth time. The lock is easy; the grantor is the hard part — which is the case
-for elevation flows that end at a human, and exactly what the gate's sign-off label
-already is. That seed now carries all six governance configurations on identical
-pre-registered ground: nothing 6/10 tampers, one sentence 1/10, naive hook 2/10,
-the gate 0/10, immutable 0/10, immutable+auto-grant 2/10 — with the standing scope
-that none of the capability rows touch the semantic classes, by construction.
-Running ledger: **70 pre-registered bets — 29 refuted, 37 held, 4 open or
-unresolvable** — taskbench's B2 (prevention on real repositories) is the newest
-refutation, published beside the bet it refutes.
-
-**What about false positives?** `snapshot-rewrite` was swept over **1,652 real mainline
-commits** (prettier, jest, docusaurus, immer): 216 touched snapshots, all legitimately —
-which is exactly why that rule is a `warn` asking for human confirmation, not a block,
-and why the study is committed (`harness/fp-study/`) rather than summarized away. The
-study's narrow signal — snapshot-only diffs, ~0.06% of audited mainline commits but
-7/7 of observed tampers — now ships as the distinct `snapshot-only-rewrite` warn, the
-graduation candidate.
+Each row's primary artifact: [CHANGELOG.md](./CHANGELOG.md), [SPEC.md](./SPEC.md),
+and the posts in [docs/blog/](./docs/blog/index.md).
 
 ## Stability
 
@@ -352,7 +241,7 @@ via npm trusted publishing with SLSA provenance. Full rule:
 
 ```bash
 npm install && npm run build    # bundles the CLI to dist/cli/index.js
-npm test                        # 259 tests — parser, detectors, engine, policy, renderers
+npm test                        # 364 tests — parser, detectors, engine, policy, renderers
 npm run typecheck
 ```
 
