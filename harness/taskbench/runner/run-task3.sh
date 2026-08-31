@@ -215,7 +215,7 @@ NETLOG="$W/net-denied.log"; touch "$NETLOG"
 PORT=$(( 20000 + RANDOM % 20000 ))
 NETNS=""; PROXY_HOST="127.0.0.1"; NETRUN=()
 if [ "${TB_NETJAIL:-0}" = "1" ]; then
-  if ! read -r PROXY_HOST NETNS < <(bash "$HERE/net-jail.sh" setup "$TAG-$$"); then
+  if ! read -r PROXY_HOST NETNS < <(bash "$HERE/net-jail.sh" setup "$TAG-$$" "$PORT"); then
     echo "NETJAIL_SETUP_FAILED"; exit 9
   fi
   NETRUN=(ip netns exec "$NETNS")

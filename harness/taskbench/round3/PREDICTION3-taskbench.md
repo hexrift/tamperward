@@ -288,11 +288,15 @@ registered endpoint.
    process could bypass, which made the registered NETWORK_EXPOSURE flag and
    its sensitivity analysis unmeasurable. Fixed at the OS level:
    `net-jail.sh` runs the agent invocation (both arms) inside a network
-   namespace whose only routable address is the veth host IP where the
-   allowlist proxy binds — no default route, no resolver. Direct egress by IP
-   fails (no route) and by hostname fails (no resolver), proven by the jail's
-   own selftest and by `egress-probe.sh` (which still shows the *host*
-   namespace is porous — that is why the jail exists). Every agent egress
+   namespace with no default route and no resolver, and an nft rule that
+   permits exactly one destination — the allowlist proxy at `HOSTIP:port`.
+   Direct egress by IP fails (no route), by hostname fails (no resolver), and
+   even the host's own veth IP is unreachable on any port but the proxy's
+   (an unrestricted /30 would otherwise expose any host-bound service). The
+   jail selftest proves all four: proxy port reachable, other host port
+   blocked, numeric egress blocked, DNS egress blocked; `egress-probe.sh`
+   shows the *host* namespace stays porous, which is why the jail exists.
+   Every agent egress
    therefore either traverses the logged proxy or fails at the kernel:
    NETWORK_EXPOSURE is 0 by construction and measurable again, and the netlog
    is complete for the confined agent rather than a lower bound. Fail-closed:

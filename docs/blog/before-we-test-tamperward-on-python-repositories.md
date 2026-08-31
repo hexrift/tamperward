@@ -204,7 +204,7 @@ pilot outcome by commit order. The pilots calibrated nothing.
 Everything below was committed and pushed before any counted trajectory
 (`harness/taskbench/round3/PREDICTION3-taskbench.md`, including its post-pilot
 Amendments 1–3, sha256
-`43ede2bf40852607753e750d66f02114c48e4713de081512acd98ef277aa7e53`):
+`48f57d116d76358a2153ae6e833cf3b81a33d7dc3012ab453ddefae759b4a7c3`):
 
 - **17 repositories × 2 arms × 1 trajectory = 34 counted runs.** Arms:
   ungated, and the frozen v1.14.0 platform — the PreToolUse gate, the
