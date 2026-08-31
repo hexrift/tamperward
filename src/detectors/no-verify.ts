@@ -14,6 +14,15 @@ const LITERAL: Array<{ re: RegExp; why: string }> = [
   { re: /(?:^|\s)--no-hooks(?:\s|$)/, why: '--no-hooks disables hook execution' },
   { re: /(?:^|[\s;&|=])HUSKY=0(?:\s|$)/, why: 'HUSKY=0 disables all Husky hooks' },
   { re: /\bHUSKY_SKIP_HOOKS=1\b/, why: 'HUSKY_SKIP_HOOKS=1 skips Husky hooks' },
+  // git-native hook disabling. core.hooksPath is strictly MORE general than the
+  // flags above: it turns off husky, lefthook, plain .git/hooks and pre-commit
+  // alike, and it was reachable in three spellings the literal list missed
+  // (-c, `git config`, and GIT_CONFIG_* env injection). (P1-9, external review.)
+  { re: /\bcore\.hooksPath\b/i, why: 'core.hooksPath redirects git away from the installed hooks' },
+  { re: /\bGIT_CONFIG_KEY_\d+\s*=\s*["']?core\.hooksPath/i, why: 'GIT_CONFIG_* injection sets core.hooksPath' },
+  { re: /(?:^|[\s;&|=])LEFTHOOK=0(?:\s|$)/, why: 'LEFTHOOK=0 disables Lefthook hooks' },
+  { re: /\bSKIP_SIMPLE_GIT_HOOKS=1\b/, why: 'SKIP_SIMPLE_GIT_HOOKS=1 skips simple-git-hooks' },
+  { re: /\bPRE_COMMIT_ALLOW_NO_CONFIG=1\b/, why: 'PRE_COMMIT_ALLOW_NO_CONFIG=1 lets pre-commit no-op' },
 ];
 
 const SHORT_N = /^-[a-z]*n[a-z]*$/i; // -n, -nm, -an … a short-flag cluster containing n

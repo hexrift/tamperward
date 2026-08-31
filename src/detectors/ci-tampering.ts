@@ -27,6 +27,13 @@ const INVOKES_TOOL =
 const INVOKES_SCRIPT =
   /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|tests|lint|typecheck|type-check|coverage)\b|\b(?:make|cargo|go)\s+test\b|\bgradle\w*\s+(?:test|check)\b/;
 
+/** GitHub runs a workflow only when it sits directly under .github/workflows
+ *  with a .yml/.yaml extension. `ci.yml.disabled` is still inside the protected
+ *  glob and still never runs — so glob membership is the wrong question here. */
+function isActiveWorkflow(path: string): boolean {
+  return /(^|\/)\.github\/workflows\/[^/]+\.ya?ml$/.test(path);
+}
+
 const invokesCheck = (line: string): boolean => INVOKES_TOOL.test(line) || INVOKES_SCRIPT.test(line);
 
 /** Reduce a line to the command it carries: step-item dash, `run:` key, and spacing are
@@ -73,6 +80,25 @@ export const ciTampering: Detector = {
     const out: Finding[] = [];
     for (const c of changes) {
       if (c.kind !== 'file') continue;
+      // A workflow renamed so GitHub will no longer RUN it. The protected glob
+      // (.github/workflows/**) still matches `ci.yml.disabled`, so a
+      // glob-membership test sees nothing leave — but GitHub only executes
+      // *.yml / *.yaml directly under .github/workflows, so the rename disables
+      // every check while touching not one line, and for a pull_request event it
+      // does so from the very merge ref that performs it. The predicate is
+      // executability, not glob membership. (P0-8, external review.)
+      if (c.op === 'rename' && c.oldPath && isActiveWorkflow(c.oldPath) && !isActiveWorkflow(c.path)) {
+        out.push(
+          makeFinding(RULE, policy, {
+            file: c.path,
+            message: `A CI workflow was renamed so it no longer runs (${c.oldPath} → ${c.path}).`,
+            evidence: `${c.oldPath} → ${c.path}`,
+            remediation:
+              'Restore the path and extension. GitHub runs only *.yml/*.yaml directly under .github/workflows — renaming outside that disables the checks as surely as deleting them.',
+          }),
+        );
+        continue;
+      }
       if (!isProtected(c.path, policy, 'ci')) continue;
 
       for (const l of addedLines(c)) {

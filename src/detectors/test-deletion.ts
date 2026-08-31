@@ -109,7 +109,12 @@ export const testDeletion: Detector = {
               remediation: 'Restoring the path. Renaming a spec out of the glob silently removes it from the suite.',
             }),
           );
-        } else if (c.op === 'modify' && isTest && c.before != null && c.after != null) {
+        } else if ((c.op === 'modify' || c.op === 'rename') && isTest && c.before != null && c.after != null) {
+          // A rename WITHIN the glob is content-inspected exactly like a modify.
+          // Gating this on 'modify' alone let `git mv spec.js spec2.js` carry an
+          // arbitrary block deletion past the rule: git -M links the pair, the
+          // rename-out branch above does not fire (the new path is still a test),
+          // and nothing compared the bodies. (P0-7, external review.)
           const before = countTestBlocks(c.before);
           const after = countTestBlocks(c.after);
           if (after < before) {
