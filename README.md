@@ -25,9 +25,7 @@ green is sometimes to weaken the checks instead of fixing the failure.
 Tamperward is a **deterministic verification-integrity layer**. It blocks known
 weakening moves as they happen, observes protected-state effects, and
 independently re-adjudicates apparent success outside the agent's normal
-completion path — making some verification-manipulation strategies non-viable
-and independently rechecking whether apparent success survives trusted
-verification. No runtime LLM judge. Fail closed when adjudication is
+completion path. No runtime LLM judge. Fail closed when adjudication is
 impossible.
 
 ## What we have actually measured
