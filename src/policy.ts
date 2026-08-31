@@ -128,7 +128,20 @@ export function defaultPolicy(version = 1): Policy {
       // tap-snapshots/** added from Phase-3 evidence: node-tar's recorded expectations
       // live there as .cjs and were rewritten unseen (PHASE3.md §4).
       snapshots: ['**/*.snap', '**/__snapshots__/**', '**/tap-snapshots/**', '**/golden/**', '**/*.golden.*'],
-      hooks: ['.husky/**', '**/lefthook.*', '.tamperward.yml', '**/.tamperward.yml'],
+      // The wiring IS the enforcement: settings.json carries the PreToolUse and
+      // Stop hooks, and a pre-commit config carries the commit-time gate. These
+      // were installed by `init` and protected by nothing, so editing them out
+      // fired no rule at all. (.git/hooks/** is outside every git view and so
+      // cannot be covered here — noted in SECURITY-ENVELOPE.md.) (P1-4, review.)
+      hooks: [
+        '.husky/**',
+        '**/lefthook.*',
+        '.tamperward.yml',
+        '**/.tamperward.yml',
+        '.claude/settings.json',
+        '.claude/settings.local.json',
+        '**/.pre-commit-config.yaml',
+      ],
     },
     rules: {
       'test-deletion': { severity: 'block' },

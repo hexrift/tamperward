@@ -14,6 +14,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { POLICY_FILE } from '../policy';
 
 export interface InitOpts {
@@ -48,6 +49,28 @@ version: 1
 #   snapshot-rewrite: { severity: block }
 # ignore: []            # visible blind spots — the count is always reported
 `;
+
+// The gate resolves ITSELF from the registry at gate time, so it is pinned to
+// the version that wrote the workflow: an unpinned \`npx --yes tamperward\` is a
+// floating dependency in the one component whose job is integrity.
+// (P2-15, external review.)
+function shippedVersion(): string {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    for (const rel of ['../package.json', '../../package.json', '../../../package.json']) {
+      try {
+        const pkg = JSON.parse(readFileSync(join(here, rel), 'utf8')) as { name?: string; version?: string };
+        if (pkg.name === 'tamperward' && pkg.version) return pkg.version;
+      } catch {
+        /* keep looking */
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+  return 'latest'; // unknown: prefer a working gate over a broken pin
+}
+const TW_VERSION = shippedVersion();
 
 const WORKFLOW_CONTENT = `name: tamperward
 
@@ -84,10 +107,20 @@ jobs:
         run: |
           RULES="$(printf '%s' "$LABELS" | jq -r '.[] | select(startswith("tamperward:allow:")) | sub("^tamperward:allow:"; "")' | paste -sd, -)"
           echo "rules=$RULES" >> "$GITHUB_OUTPUT"
-      - name: Tamperward gate
+      - name: Tamperward gate (diff-time)
         env:
           TAMPERWARD_OOB_SIGNOFF: \${{ steps.oob.outputs.rules }}
-        run: npx --yes tamperward check --diff "\${{ github.event.pull_request.base.sha }}...\${{ github.event.pull_request.head.sha }}"
+        run: npx --yes tamperward@${TW_VERSION} check --diff "\${{ github.event.pull_request.base.sha }}...\${{ github.event.pull_request.head.sha }}"
+      # Diff-time detection is spelling-dependent by nature; pristine
+      # re-execution is not, and it was the layer nothing got past in the
+      # taskbench sweeps. Shipping a CI template WITHOUT it meant every
+      # masked-failure class was adjudicated only at the local layer — the
+      # layer an agent shares a filesystem with. (P1-5, external review.)
+      #
+      # Requires a \`verify:\` block in .tamperward.yml naming the suite command;
+      # without one this step fails closed (exit 2) rather than passing quietly.
+      - name: Tamperward verify (pristine re-execution)
+        run: npx --yes tamperward@${TW_VERSION} verify --base "\${{ github.event.pull_request.base.sha }}"
 `;
 
 interface HookEntry { type?: string; command?: string }

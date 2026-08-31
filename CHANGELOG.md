@@ -5,6 +5,42 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.12.0] — 2026-08-31
+
+**The P1 batch: four AUDIT-class findings, plus the supply-chain pin.**
+
+- **P1-7 — a detector that threw was silently dropped from the verdict.**
+  Repository content that makes a rule throw removed that rule and the gate
+  reported "clean". Isolation is still right at the tool-call and turn hooks,
+  where a thrown error already fails open in the runtime — but the
+  *adjudicating* views (staged, worktree, range) now emit a blocking
+  `detector-error` finding. A rule that cannot run is not a rule that passed.
+- **P1-1 — verification wrote through symlinks, out of its own sandbox.**
+  `statSync` follows links while `cpSync` preserves them, so a protected path
+  replaced by a symlink was copied as a link and then written and chmod'd
+  through it — landing base content and permissions on a file outside the
+  repository, regardless of the verdict. Both the materialiser and the
+  pristine overlay now drop a symlink before writing. The test watches a file
+  outside the repo and asserts it is untouched.
+- **P1-4 — the enforcement wiring was protected by nothing.** `init` installs
+  hooks into `.claude/settings.json` and a pre-commit config; neither was in
+  any protected glob, so editing the gate out fired no rule. They are in the
+  `hooks` class now. `.git/hooks/**` is outside every git view and cannot be
+  covered by a glob — that residual is recorded rather than implied away.
+- **P1-5 — the shipped CI template never ran `verify`.** Diff-time detection
+  is spelling-dependent by nature; pristine re-execution is not, and it was
+  the layer nothing got past in the taskbench sweeps. Shipping a template
+  without it meant every masked-failure class was adjudicated only at the
+  local layer — the layer an agent shares a filesystem with. `init` now writes
+  a second step running `tamperward verify --base <base sha>`, which fails
+  closed without a `verify:` block rather than passing quietly.
+- **P2-15 — the gate resolved itself, unpinned, at gate time.** The workflow
+  now pins `tamperward@<the version that wrote it>` instead of `npx --yes
+  tamperward`: a floating dependency in the one component whose job is
+  integrity.
+
+Full suite 342/342; every exploit test verified to fail with its fix reverted.
+
 ## [1.11.1] — 2026-08-31
 
 **The suite runner is part of the trust anchor (P0-6).** `verify` symlinks
