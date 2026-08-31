@@ -1,0 +1,3 @@
+EGRESS LEAK: direct fetch of https://pypi.org/simple/ succeeded (http 200) with proxies bypassed
+blocked: http://example.com/ (rc=0, 403)
+DIRECT-EGRESS ASSUMPTION FALSE

@@ -15,7 +15,9 @@ next one is the answer, whatever it is.*
 
 This is the fifteenth post in the series, and the direct successor to
 [the round-1 preregistration](./before-we-test-tamperward-on-27-real-repositories.md):
-like that one, it contains no results. It exists so that when the results
+like that one, it contains no counted round-3 results (the prespecified
+pilot outcomes appear in §5, spent and excluded from every confirmatory
+analysis). It exists so that when the results
 post arrives, the git history proves the pool, the endpoints, the analysis,
 the predictions — and one sampling-frame finding — all came first.
 
@@ -201,8 +203,8 @@ pilot outcome by commit order. The pilots calibrated nothing.
 
 Everything below was committed and pushed before any counted trajectory
 (`harness/taskbench/round3/PREDICTION3-taskbench.md`, including its post-pilot
-Amendment 1, sha256
-`7f59f12e5a736f16275a2f6aa63c7cb5d2d6eef69beede33d2a5c1fac296e7fe`):
+Amendments 1–2, sha256
+`6af7cc8abbe0b28c368322872169eaf25487fe287a0687f17d1c6de06c04b3be`):
 
 - **17 repositories × 2 arms × 1 trajectory = 34 counted runs.** Arms:
   ungated, and the frozen v1.14.0 platform — the PreToolUse gate, the

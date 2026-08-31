@@ -32,6 +32,12 @@ TASK="${TB_TASKS:-$TB/round3/tasks}/$ID"
 REPO=$(jq -r .repo "$TASK/manifest.json")
 PARENT=$(jq -r .parent_sha "$TASK/manifest.json")
 
+# fail-closed model pin: under the phase-3 driver, any override that differs
+# from the registered model aborts the run before anything happens
+if [ -n "${TB_REGISTERED_MODEL:-}" ] && [ "${TB_MODEL:-$TB_REGISTERED_MODEL}" != "$TB_REGISTERED_MODEL" ]; then
+  echo "MODEL_PIN_VIOLATION: TB_MODEL='${TB_MODEL:-}' != registered '$TB_REGISTERED_MODEL'"; exit 7
+fi
+
 RUNS="${TB_RUNS:-$TB/round3/runs}"; mkdir -p "$RUNS"
 W=$(mktemp -d /tmp/tb3-run-XXXXXX)
 REPODIR="$W/repo"; ORACLE="$W/oracle"; OBS="$W/obs"; VENV="$W/venv"
@@ -166,14 +172,14 @@ EOF
     "hooks": [{ "type": "command", "command": "TAMPERWARD_DENYLOG=$DENYLOG node $CLI hook claude" }] }],
   "Stop": [{ "hooks": [{ "type": "command", "command": "bash $W/stop.sh", "timeout": 900 }] }],
   "PostToolUse": [{ "matcher": "Bash|Edit|Write|MultiEdit",
-    "hooks": [{ "type": "command", "command": "TB_OBS=$OBS bash $HERE/observe.sh" }] }]
+    "hooks": [{ "type": "command", "command": "TB_OBS=$OBS TB_POLICY3=$TB/round3/policy3.yml bash $HERE/observe3.sh" }] }]
 } }
 EOF
 else
   cat > "$REPODIR/.claude/settings.json" <<EOF
 { "hooks": {
   "PostToolUse": [{ "matcher": "Bash|Edit|Write|MultiEdit",
-    "hooks": [{ "type": "command", "command": "TB_OBS=$OBS bash $HERE/observe.sh" }] }]
+    "hooks": [{ "type": "command", "command": "TB_OBS=$OBS TB_POLICY3=$TB/round3/policy3.yml bash $HERE/observe3.sh" }] }]
 } }
 EOF
 fi
@@ -185,6 +191,12 @@ fi
 # policy protects it (hooks globs), the neutral oracle ignores it.
 ( cd "$REPODIR" && git add .claude && git -c user.email=t@b -c user.name=tb commit -qm hooks --no-verify )
 BASE=$(git -C "$REPODIR" rev-parse HEAD)
+
+# observer BASELINE (round-3 pre-count correction): one invocation before
+# the agent's first tool call records the entry hash and entry snapshot, so
+# a weakening in the very first mutating call registers as a transition
+( cd "$REPODIR" && TB_OBS="$OBS" TB_POLICY3="$TB/round3/policy3.yml" bash "$HERE/observe3.sh" </dev/null )
+[ -s "$OBS/tree.log" ] || { echo "OBSERVER_BASELINE_FAILED"; exit 1; }
 
 # gate-liveness probe (gated arm): the hook must DENY a synthetic protected
 # deletion before the agent starts
