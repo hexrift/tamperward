@@ -171,6 +171,24 @@ jobs:
           [ "$fail" -eq 0 ] && echo "no session links found in body, commits, or diff"
           exit "$fail"
 
+      # Owner rule, permanent: no AI co-author trailers in this repository's
+      # history — ever. Enforced here, in the required gate, rather than in any
+      # agent's memory, because memory is exactly what a compacted session
+      # loses. Removing this step is itself a gated change (ci-tampering) and a
+      # CODEOWNERS review.
+      - name: No AI co-author trailers in commit messages
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if git log --format='%H %B%x00' "$PR_BASE..$PR_HEAD" | grep -iE '^co-authored-by:.*(claude|anthropic|copilot|gpt|gemini|[[:space:]]ai[[:space:]]|@ai\.)' ; then
+            echo "::error::A commit in this PR carries an AI co-author trailer — reword the commit. Owner rule: no AI co-author trailers in this repo, ever."
+            exit 1
+          fi
+          echo "no AI co-author trailers in the commit range"
+
       - name: Resolve out-of-band sign-off from PR labels
         id: oob
         if: github.event_name == 'pull_request'

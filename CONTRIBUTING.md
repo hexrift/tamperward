@@ -122,6 +122,11 @@ answerable from the changelog alone.
   `tamperward:allow:<rule>` label — never by weakening the policy to get past the gate.
 - Keep the diff to what the change needs. The detectors are the security boundary; a
   drive-by refactor in `src/detectors/` costs more review than it saves.
+- **No AI co-author trailers, ever.** Commit messages in this repository never
+  carry `Co-Authored-By:` trailers naming an AI tool (Claude, Copilot, or any
+  other). This is a permanent owner rule, enforced by the required `gate`
+  check on every PR's commit range; agent sessions must not add the trailer
+  regardless of their own platform conventions.
 - **No Claude session links on any public surface.** PR descriptions, commit messages,
   and file contents must not contain Claude Code session URLs (the ones with a
   session identifier in the path); the required `gate` check fails on any of the
