@@ -126,6 +126,13 @@ answerable from the changelog alone.
   and file contents must not contain Claude Code session URLs (the ones with a
   session identifier in the path); the required `gate` check fails on any of the
   three. Tool-attribution footers are fine — the session identifier is not.
+  - *Operational note for automated authors:* some tools append a
+    session-linked footer to the PR body at **creation** time, which trips this
+    gate on the first run. The reliable pattern is create-then-edit — open the
+    PR, then immediately overwrite the body with the plain footer before the
+    gate runs (the `gate` job reads the live body, not the creation payload). If
+    it already went red, rewrite the body and re-run the failed job; no code
+    change is needed.
 
 ## Reporting a bypass
 
