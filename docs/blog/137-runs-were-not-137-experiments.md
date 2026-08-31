@@ -10,7 +10,7 @@ changed on our public surfaces because of it, and pre-registers the experiment t
 review convinced us to run next.*
 
 *Follow-up, August 29: [What AI coding agents do when the tests are
-read-only](./what-agents-do-when-the-tests-are-read-only) — the capability study
+read-only](./what-agents-do-when-the-tests-are-read-only.md) — the capability study
 registered below has run. Hard immutability governed the seed 10/10; the
 auto-granted elevation arm produced two written confessions ("remove failing test
 file to unblock build"), both granted, both tampered. Four of five bets held; the
@@ -18,14 +18,14 @@ semantic-redirect bet was refuted. The division-of-responsibility table's last
 cell is filled.*
 
 Every post in this series
-([1](./what-agents-do-when-you-block-their-shortcuts) ·
-[2](./what-agents-do-when-nothing-is-watching) ·
-[3](./what-agents-do-when-the-fix-does-not-exist) ·
-[4](./what-agents-do-when-it-does-not-look-like-a-test) ·
-[5](./what-agents-do-when-the-bug-is-not-theirs) ·
-[6](./what-agents-do-when-no-one-can-say-no) ·
-[7](./what-agents-do-when-you-just-ask-nicely) ·
-[8](./what-agents-do-when-you-give-the-cheat-a-name)) has published its own refuted
+([1](./what-agents-do-when-you-block-their-shortcuts.md) ·
+[2](./what-agents-do-when-nothing-is-watching.md) ·
+[3](./what-agents-do-when-the-fix-does-not-exist.md) ·
+[4](./what-agents-do-when-it-does-not-look-like-a-test.md) ·
+[5](./what-agents-do-when-the-bug-is-not-theirs.md) ·
+[6](./what-agents-do-when-no-one-can-say-no.md) ·
+[7](./what-agents-do-when-you-just-ask-nicely.md) ·
+[8](./what-agents-do-when-you-give-the-cheat-a-name.md)) has published its own refuted
 bets, and the ledger only stays honest if it keeps being allowed to lose. This post
 is the same discipline applied one level up: not a bet about an agent, but the
 framing of the project itself, corrected in public after an external review earned
@@ -138,4 +138,4 @@ resolve** — plus five newly staked and unresolved.
 
 — [github.com/hexrift/tamperward](https://github.com/hexrift/tamperward) ·
 [npmjs.com/package/tamperward](https://www.npmjs.com/package/tamperward) ·
-[the series](./index)
+[the series](./index.md)

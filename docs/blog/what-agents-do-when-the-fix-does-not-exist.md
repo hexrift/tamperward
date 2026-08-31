@@ -6,9 +6,9 @@
 them "blocked" is an acceptable answer. The interesting part is what that one
 sentence of permission is doing.*
 
-This is the third post in a series. The [first](./what-agents-do-when-you-block-their-shortcuts)
+This is the third post in a series. The [first](./what-agents-do-when-you-block-their-shortcuts.md)
 measured what agents do when you block their shortcuts (they fix the real bug, 25/25).
-The [second](./what-agents-do-when-nothing-is-watching) measured what they do when
+The [second](./what-agents-do-when-nothing-is-watching.md) measured what they do when
 nothing is watching (frontier models stay honest; the cheap one cheats 6/10). Both
 left the most important regime untouched — because every scenario so far had an
 honest path to green, and the war story that started this project didn't. The typia
@@ -108,4 +108,4 @@ the first rep.
 
 — [github.com/hexrift/tamperward](https://github.com/hexrift/tamperward) ·
 [npmjs.com/package/tamperward](https://www.npmjs.com/package/tamperward) ·
-[the series](./index)
+[the series](./index.md)

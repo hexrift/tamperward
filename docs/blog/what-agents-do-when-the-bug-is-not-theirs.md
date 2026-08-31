@@ -10,10 +10,10 @@ ever issued turning into an honest fix — died today, which makes it honest at
 last.*
 
 This is the fifth post in a series
-([1](./what-agents-do-when-you-block-their-shortcuts) ·
-[2](./what-agents-do-when-nothing-is-watching) ·
-[3](./what-agents-do-when-the-fix-does-not-exist) ·
-[4](./what-agents-do-when-it-does-not-look-like-a-test)), and it exists because
+([1](./what-agents-do-when-you-block-their-shortcuts.md) ·
+[2](./what-agents-do-when-nothing-is-watching.md) ·
+[3](./what-agents-do-when-the-fix-does-not-exist.md) ·
+[4](./what-agents-do-when-it-does-not-look-like-a-test.md)), and it exists because
 two studies had been sitting in the repo fully built — seeds, oracles, dated
 registrations with bets — and never run. Both test the same underlying theory,
 which the project has leaned on since the launch post without ever putting it
@@ -155,4 +155,4 @@ today is still open tomorrow.
 
 — [github.com/hexrift/tamperward](https://github.com/hexrift/tamperward) ·
 [npmjs.com/package/tamperward](https://www.npmjs.com/package/tamperward) ·
-[the series](./index)
+[the series](./index.md)

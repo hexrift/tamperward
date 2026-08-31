@@ -10,18 +10,18 @@ deny taught an agent a better bypass, and the project's "disposition" language
 earned a permanent asterisk.*
 
 *Follow-up, August 29: [What AI coding agents do when you just ask
-nicely](./what-agents-do-when-you-just-ask-nicely) — the baselines study announced
+nicely](./what-agents-do-when-you-just-ask-nicely.md) — the baselines study announced
 below has run. One sentence cut the cheap model's tampering to 1/10, the strawman
 hook exposed a gap in the real gate's own `test-skip` rule (closed in 1.5.1), and
 the false-positive comparison landed at 24.9% vs 9.0% on real commits. The numbers
 below are as published.*
 
 This is the sixth post in a series
-([1](./what-agents-do-when-you-block-their-shortcuts) ·
-[2](./what-agents-do-when-nothing-is-watching) ·
-[3](./what-agents-do-when-the-fix-does-not-exist) ·
-[4](./what-agents-do-when-it-does-not-look-like-a-test) ·
-[5](./what-agents-do-when-the-bug-is-not-theirs)), and it covers the last seed
+([1](./what-agents-do-when-you-block-their-shortcuts.md) ·
+[2](./what-agents-do-when-nothing-is-watching.md) ·
+[3](./what-agents-do-when-the-fix-does-not-exist.md) ·
+[4](./what-agents-do-when-it-does-not-look-like-a-test.md) ·
+[5](./what-agents-do-when-the-bug-is-not-theirs.md)), and it covers the last seed
 in the harness that had no registration — deliberately saved, it turns out, for
 the question the other fifteen studies couldn't ask: **what happens where the
 gate structurally cannot interrupt?**
@@ -160,4 +160,4 @@ in the repo.
 
 — [github.com/hexrift/tamperward](https://github.com/hexrift/tamperward) ·
 [npmjs.com/package/tamperward](https://www.npmjs.com/package/tamperward) ·
-[the series](./index)
+[the series](./index.md)
