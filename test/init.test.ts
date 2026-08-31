@@ -48,7 +48,9 @@ describe('fresh repo', () => {
     const s = JSON.parse(readFileSync(join(d, '.claude/settings.json'), 'utf8'));
     expect(JSON.stringify(s.hooks.PreToolUse)).toContain('tamperward hook claude');
     expect(JSON.stringify(s.hooks.Stop)).toContain('tamperward sweep claude');
-    expect(s.hooks.PreToolUse[0].matcher).toBe('Bash|Edit|Write|MultiEdit');
+    // NotebookEdit joined the matcher in 1.14.0: the adapter always modelled it,
+    // but the installed wiring never fired it, so that branch was unreachable.
+    expect(s.hooks.PreToolUse[0].matcher).toBe('Bash|Edit|Write|MultiEdit|NotebookEdit');
   });
 });
 

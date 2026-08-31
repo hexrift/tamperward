@@ -5,6 +5,33 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.14.0] — 2026-08-31
+
+**The last P2s — and the one that matters is not a security bug.**
+
+- **P2-13 — test protection was silently absent outside JavaScript.**
+  `test-skip`, `test-deletion` and `test-content-removal` all gate on the
+  `tests` protected class, and the default globs matched only JS/TS. A Python,
+  Go, Rust, Ruby, Java, PHP or C# repository could run `tamperward init`, see
+  a policy file appear, and have those rules never fire once — with nothing
+  saying so. Protection that is silently absent is worse than protection you
+  know you do not have. Conventional test layouts for those ecosystems are now
+  in the default class, with a control asserting ordinary source that merely
+  mentions "test" is still unprotected.
+- **P2-12** — `NotebookEdit` was modelled by the adapter but missing from the
+  matcher `init` installs, so that branch was unreachable in the default
+  deployment. It is in the matcher now.
+- **P2-14** — a crafted file path broke out of the link and code span into the
+  rendered job summary. The label is neutralised for a code span and the URL
+  percent-encoded; ordinary paths render unchanged.
+- **P2-16** — revision arguments reached git unvalidated, so an argument
+  beginning with `-` would be parsed as an option. `assertRev` refuses that at
+  the range, merge-base and verify entry points. Operator-controlled in every
+  shipped wiring, so a guard rather than a demonstrated escape — free to fix.
+
+This closes every finding from both passes of the external review. Full suite
+364/364.
+
 ## [1.13.0] — 2026-08-31
 
 **The CI authority's own integrity: P1-3 and P1-6.**

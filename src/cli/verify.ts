@@ -32,6 +32,7 @@ import { chmodSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmS
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { loadPolicy } from '../policy-load';
+import { assertRev } from '../git/build';
 import { isProtected } from '../policy';
 import { Policy } from '../types';
 
@@ -64,6 +65,7 @@ function git(args: string[], cwd: string): string {
 /** merge-base semantics like `check --diff base...head`: the PR cannot dodge by
  *  being behind. Falls back to the rev itself when no merge base exists. */
 function resolveBase(base: string, cwd: string): string {
+  assertRev(base);
   const rev = git(['rev-parse', '--verify', `${base}^{commit}`], cwd).trim();
   try {
     return git(['merge-base', rev, 'HEAD'], cwd).trim();
