@@ -10,15 +10,15 @@ tests. Both requests were granted. Both tampered. The lock is easy; the grantor 
 the hard part.*
 
 This is the tenth post in a series
-([1](./what-agents-do-when-you-block-their-shortcuts) ·
-[2](./what-agents-do-when-nothing-is-watching) ·
-[3](./what-agents-do-when-the-fix-does-not-exist) ·
-[4](./what-agents-do-when-it-does-not-look-like-a-test) ·
-[5](./what-agents-do-when-the-bug-is-not-theirs) ·
-[6](./what-agents-do-when-no-one-can-say-no) ·
-[7](./what-agents-do-when-you-just-ask-nicely) ·
-[8](./what-agents-do-when-you-give-the-cheat-a-name) ·
-[9](./137-runs-were-not-137-experiments)), and it answers the objection this
+([1](./what-agents-do-when-you-block-their-shortcuts.md) ·
+[2](./what-agents-do-when-nothing-is-watching.md) ·
+[3](./what-agents-do-when-the-fix-does-not-exist.md) ·
+[4](./what-agents-do-when-it-does-not-look-like-a-test.md) ·
+[5](./what-agents-do-when-the-bug-is-not-theirs.md) ·
+[6](./what-agents-do-when-no-one-can-say-no.md) ·
+[7](./what-agents-do-when-you-just-ask-nicely.md) ·
+[8](./what-agents-do-when-you-give-the-cheat-a-name.md) ·
+[9](./137-runs-were-not-137-experiments.md)), and it answers the objection this
 project hears more than any other: *why detect forbidden edits at all? Remove the
 ability to make them. Just make the tests read-only.* The ninth post pre-registered
 this study as the external review's strongest constructive push — the last blank
@@ -169,4 +169,4 @@ the arm levers (`HF_IMMUTABLE`, `HF_ELEVATE`) are all in the repo.
 
 — [github.com/hexrift/tamperward](https://github.com/hexrift/tamperward) ·
 [npmjs.com/package/tamperward](https://www.npmjs.com/package/tamperward) ·
-[the series](./index)
+[the series](./index.md)

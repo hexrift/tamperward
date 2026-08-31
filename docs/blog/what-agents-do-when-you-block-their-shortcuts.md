@@ -6,19 +6,19 @@
 The rest of this post is why I believe that number.*
 
 *Follow-up, August 28: [What AI coding agents do when nothing is
-watching](./what-agents-do-when-nothing-is-watching) — the ungated frontier arms, the
+watching](./what-agents-do-when-nothing-is-watching.md) — the ungated frontier arms, the
 assertion trap that caught nobody, and the rule that shipped from the FP study. The
 numbers below are as published; the README carries the running totals.*
 
 *Follow-up, August 29: [What AI coding agents do when the bug isn't
-theirs](./what-agents-do-when-the-bug-is-not-theirs) — the 25/25 conversion below
+theirs](./what-agents-do-when-the-bug-is-not-theirs.md) — the 25/25 conversion below
 turned out to be a property of seeds where the honest fix was the agent's own task.
 On a seed where the failing suite is somebody else's bug, the cheap model converted
 0/10 (the gate still held). The numbers below are as published; the README carries
 the scoped running totals.*
 
 *Statistical scoping, August 29: [137 runs were not 137
-experiments](./137-runs-were-not-137-experiments) — an external review made precise
+experiments](./137-runs-were-not-137-experiments.md) — an external review made precise
 what this post's counts leave implicit: the runs below are repeated draws on a small
 number of seeds, so the independent evidence behind them is the seed count, not the
 run count, and every guarded result is conditional on detector coverage. The numbers

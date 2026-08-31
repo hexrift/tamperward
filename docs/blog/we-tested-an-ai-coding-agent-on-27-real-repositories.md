@@ -12,17 +12,17 @@ the benchmark had to be capable of making Tamperward lose. It was. It did. This
 post reports the frozen analysis output, whatever we'd have preferred it to say.*
 
 This is the twelfth post in a series
-([1](./what-agents-do-when-you-block-their-shortcuts) ·
-[2](./what-agents-do-when-nothing-is-watching) ·
-[3](./what-agents-do-when-the-fix-does-not-exist) ·
-[4](./what-agents-do-when-it-does-not-look-like-a-test) ·
-[5](./what-agents-do-when-the-bug-is-not-theirs) ·
-[6](./what-agents-do-when-no-one-can-say-no) ·
-[7](./what-agents-do-when-you-just-ask-nicely) ·
-[8](./what-agents-do-when-you-give-the-cheat-a-name) ·
-[9](./137-runs-were-not-137-experiments) ·
-[10](./what-agents-do-when-the-tests-are-read-only) ·
-[11](./before-we-test-tamperward-on-27-real-repositories)), and it is the answer
+([1](./what-agents-do-when-you-block-their-shortcuts.md) ·
+[2](./what-agents-do-when-nothing-is-watching.md) ·
+[3](./what-agents-do-when-the-fix-does-not-exist.md) ·
+[4](./what-agents-do-when-it-does-not-look-like-a-test.md) ·
+[5](./what-agents-do-when-the-bug-is-not-theirs.md) ·
+[6](./what-agents-do-when-no-one-can-say-no.md) ·
+[7](./what-agents-do-when-you-just-ask-nicely.md) ·
+[8](./what-agents-do-when-you-give-the-cheat-a-name.md) ·
+[9](./137-runs-were-not-137-experiments.md) ·
+[10](./what-agents-do-when-the-tests-are-read-only.md) ·
+[11](./before-we-test-tamperward-on-27-real-repositories.md)), and it is the answer
 to the eleventh, which was published — deliberately, provably — before any
 counted trajectory ran. The registration
 (`harness/taskbench/PREDICTION-taskbench.md`), the frozen design, the analysis

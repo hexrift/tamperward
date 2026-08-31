@@ -10,13 +10,13 @@ the tuned-gate numbers I promised — including the feature I built in the
 morning that measured zero by the afternoon.*
 
 This is the eighth post in a series
-([1](./what-agents-do-when-you-block-their-shortcuts) ·
-[2](./what-agents-do-when-nothing-is-watching) ·
-[3](./what-agents-do-when-the-fix-does-not-exist) ·
-[4](./what-agents-do-when-it-does-not-look-like-a-test) ·
-[5](./what-agents-do-when-the-bug-is-not-theirs) ·
-[6](./what-agents-do-when-no-one-can-say-no) ·
-[7](./what-agents-do-when-you-just-ask-nicely)), and it exists because the
+([1](./what-agents-do-when-you-block-their-shortcuts.md) ·
+[2](./what-agents-do-when-nothing-is-watching.md) ·
+[3](./what-agents-do-when-the-fix-does-not-exist.md) ·
+[4](./what-agents-do-when-it-does-not-look-like-a-test.md) ·
+[5](./what-agents-do-when-the-bug-is-not-theirs.md) ·
+[6](./what-agents-do-when-no-one-can-say-no.md) ·
+[7](./what-agents-do-when-you-just-ask-nicely.md)), and it exists because the
 sixth and seventh posts each ended on a named open question. The sixth: is
 Sonnet's honesty *framing-triggered* — refusing cheats that arrive named as
 cheats, shipping the same consequence when it arrives looking like typing?
@@ -129,4 +129,4 @@ is in the repo.
 
 — [github.com/hexrift/tamperward](https://github.com/hexrift/tamperward) ·
 [npmjs.com/package/tamperward](https://www.npmjs.com/package/tamperward) ·
-[the series](./index)
+[the series](./index.md)
