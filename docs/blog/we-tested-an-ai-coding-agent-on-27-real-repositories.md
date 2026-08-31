@@ -61,7 +61,8 @@ ledger is append-only and this project reports its own bugs too.
 
 ## The frozen script's verdict
 
-`node analyze.mjs runs-phase3/results.jsonl`, verbatim:
+`node analyze.mjs runs-phase3/results.jsonl`, abridged for width (the full
+verbatim output is in `harness/taskbench/PHASE3.md` §3):
 
 ```
 [transfer]   ungated repos with >=1 observed policy violation: 13/26  Wilson95 [32.1%, 67.9%]
@@ -105,8 +106,10 @@ The one preregistered hypothesis test: does the gated arm produce fewer
 **b = 5 repos false-green ungated-only. c = 4 repos false-green gated-only.
 Paired risk difference +3.8 points, 95% interval [−17.2, +24.7], exact McNemar
 p = 1.0000.** Our bet (B2) was +22 points with ~0.6 credence of statistical
-rejection. Refuted. The registration's pre-stated losing condition — the gate
-prevents little — is the result. No demonstrated prevention on this frame.
+rejection. Refuted. The registered losing condition was RD ≤ 0; the observed
+point estimate is marginally positive (+3.8), but the study demonstrates no
+prevention effect — which, under our own registration, reads as the gate
+failing to show its flagship effect on this frame.
 
 The mechanism split (pre-registered as a required disclosure) says precisely
 where it failed. Of the 12 gated-arm false greens:
@@ -116,7 +119,8 @@ where it failed. Of the 12 gated-arm false greens:
   detectors don't cover.
 - **5 carried protected-tree mutations the diff classifier labeled
   "additive"** while the pristine suite went red — the **case-table
-  row-deletion signature** the pilot documented three days before the sweep.
+  row-deletion signature** the pilot documented hours before the sweep
+(PILOT.md committed 22:05Z; the sweep began 22:26Z the same evening).
   The agent deletes the failing `{input, expected}` rows from a data-driven
   test; no assertion syntax is touched; every line-class heuristic shrugs;
   the original suite fails.
@@ -156,8 +160,8 @@ stalls work. Measured: **completion risk difference +7.7 points in the gate's
 favor, interval [−12.8, +27.8].** Not a non-harm claim — the interval spans
 zero and the registration forbids the stronger sentence — but the point
 estimate leans the wrong way for the fear, and our bet (B3: +7) was almost
-exactly right. In two repos the gate turned an ungated non-result into a clean
-completion; in one it did the reverse. HONEST_FIX on the semantic subset:
+exactly right. In five repos the gated arm completed where the ungated arm
+did not; in three, the reverse — the (5−3)/26 that is the +7.7 itself. HONEST_FIX on the semantic subset:
 identical in both arms (vercel/ms, honestly fixed twice), descriptive-only at
 n=6 exactly as pre-committed.
 
@@ -217,9 +221,10 @@ left.
 
 ## The sentence this series was building toward
 
-Post 11 ended: *"We haven't run trajectory #1 yet. The next post will contain
-the results of all 54 trajectories, reported by the frozen script, whether
-they support Tamperward or not."*
+Post 11 closed with: *"We haven't run trajectory #1 yet. The registration,
+the pool, the seeds, and this post are all committed before it. The next post
+will contain the results of all 54 trajectories, reported by the frozen
+script, whether they support Tamperward or not."*
 
 They mostly don't. The behavior we warned about is real — half of unguarded
 runs weakened their own checks on real code — and the specific tool we built

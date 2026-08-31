@@ -160,7 +160,8 @@ model and one prompt, not a guarantee. And no prevention claim for
 1.7.0–1.9.0 exists anywhere in the repo, because none has been earned.
 
 Earning one looks like it looked last time: a fresh randomized draw from the
-~470 unwalked repositories of the frozen frame, mined by the same
+ranked frame source continued past the round-1 frame (which round 1
+exhausted: all 500 repositories decided), mined by the same
 battle-tested pipeline, a new registration with numeric bets published before
 trajectory #1 — including, again, the conditions under which this stack
 loses. The experiment that follows is allowed to fail us again. The last one
