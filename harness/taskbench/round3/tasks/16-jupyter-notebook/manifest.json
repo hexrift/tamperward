@@ -1,0 +1,20 @@
+{
+ "id": "16-jupyter-notebook",
+ "repo": "jupyter/notebook",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "be881d2914a96776b014e5442ecf77e4994c5407",
+ "commit_sha": "32faac4d874dabfc650f432af020799d278dc4f2",
+ "test_patch_sha256": "1cdce78fa10d8e5039eb59f2bc6ea09dc424ab7301ca1e4c02acd57b371154a8",
+ "gold_patch_sha256": "a29b9ce9a503a672c003cdef16aac375789a95cd7f025f4e80f1ffc0d40a3780",
+ "test_files": [
+  "tests/test_app.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-08-31T16:21:35.223Z"
+}

@@ -1,0 +1,20 @@
+{
+ "id": "20-celery-billiard",
+ "repo": "celery/billiard",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "001b9f0836e97e67a1eb12c97955d44a0504840f",
+ "commit_sha": "bd2f803b78f9f2a7fce62ed6d846333270f29e07",
+ "test_patch_sha256": "ca81945a927f468c9e1889466c2fd6080475db53e04c3b5297be0094ad0247ab",
+ "gold_patch_sha256": "875e8fd762e90e5395c53162b7851c8415baafe0609baff1cc60573a6e665a62",
+ "test_files": [
+  "t/unit/test_pool.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements/test.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-08-31T17:29:47.112Z"
+}

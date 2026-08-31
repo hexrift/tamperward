@@ -1,0 +1,27 @@
+diff --git a/CHANGES.txt b/CHANGES.txt
+index 04410d73a958412c6d676a7152692f19b9a8186e..6531463b6db32d80106c9985892851b463307f0f 100644
+--- a/CHANGES.txt
++++ b/CHANGES.txt
+@@ -1,3 +1,9 @@
++Unreleased
++----------
++- Propagate `BaseException` raised in pool workers instead of raising
++  `WorkerLostError` (#427)
++
++
+ 4.3.0rc1 - 2026-02-26
+ --------------------
+ - Fix pytest deprecation warning (#440)
+diff --git a/billiard/pool.py b/billiard/pool.py
+index 9e6e54f7c09eecb94dcb01cd9e9b62703342ed63..5e5a8279b5af8c1eb88cd3a626d1912684d29cae 100644
+--- a/billiard/pool.py
++++ b/billiard/pool.py
+@@ -360,7 +360,7 @@ class Worker:
+                             continue  # received NACK
+                     try:
+                         result = (True, prepare_result(fun(*args, **kwargs)))
+-                    except Exception:
++                    except BaseException:
+                         result = (False, ExceptionInfo())
+                     try:
+                         put((READY, (job, i, result, inqW_fd)))

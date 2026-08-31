@@ -1,0 +1,20 @@
+{
+ "id": "03-tusharsadhwani-pytokens",
+ "repo": "tusharsadhwani/pytokens",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "7dd6c2ce6b8475815c7b8a78567c11fb14b79510",
+ "commit_sha": "7fe68dbfe58472865dafa94f761cbc5f690c6d48",
+ "test_patch_sha256": "8923b988ca5a9ea4abd6b51ace792c093f9bfff9a192b66857290be037326037",
+ "gold_patch_sha256": "a1a022b35e246fcfdc8842df6674e3701203d17a54f10b5a56ce091eafee6911",
+ "test_files": [
+  "tests/pytokens_test.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-08-31T12:05:24.659Z"
+}

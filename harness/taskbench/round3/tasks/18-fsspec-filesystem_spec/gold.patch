@@ -1,0 +1,88 @@
+diff --git a/docs/source/changelog.rst b/docs/source/changelog.rst
+index 702537d87fc97844a82385e5ecceff8255b38aaf..42ed4be42a1d655170f93e9aaa1c4f600fdfd763 100644
+--- a/docs/source/changelog.rst
++++ b/docs/source/changelog.rst
+@@ -9,6 +9,9 @@ Fixes
+ - Avoid mutating live ``BlockCache`` and ``BackgroundBlockCache`` instances
+   when pickling (#2102)
+ 
++- End the transaction even when a commit or discard raises, so the filesystem
++  is not left in transaction mode and deferred temporary files are cleaned up
++
+ 2026.7.0
+ --------
+ 
+diff --git a/fsspec/transaction.py b/fsspec/transaction.py
+index 77293f63ecc5f611e19d849ef236d53e9c258efc..70c5c0c070e1e13c4a5705b05b8773673871def3 100644
+--- a/fsspec/transaction.py
++++ b/fsspec/transaction.py
+@@ -1,5 +1,8 @@
++import logging
+ from collections import deque
+ 
++logger = logging.getLogger("fsspec")
++
+ 
+ class Transaction:
+     """Filesystem transaction write context
+@@ -38,15 +41,32 @@ class Transaction:
+ 
+     def complete(self, commit=True):
+         """Finish transaction: commit or discard all deferred files"""
+-        while self.files:
+-            f = self.files.popleft()
+-            if commit:
+-                f.commit()
+-            else:
+-                f.discard()
+-        self.fs._intrans = False
+-        self.fs._transaction = None
+-        self.fs = None
++        f = None
++        try:
++            while self.files:
++                f = self.files.popleft()
++                if commit:
++                    f.commit()
++                else:
++                    f.discard()
++                f = None
++        finally:
++            # the file being processed when the error was raised is already
++            # off the queue; put it back so its temporary file is cleaned up
++            if f is not None:
++                self.files.appendleft(f)
++            # A failed commit or discard must still end the transaction.
++            # Leaving _intrans set would defer every later write on this
++            # filesystem into a temporary file that nothing ever commits,
++            # and instances are cached, so that would persist process-wide.
++            while self.files:
++                try:
++                    self.files.popleft().discard()
++                except Exception:
++                    logger.debug("Discarding deferred file failed", exc_info=True)
++            self.fs._intrans = False
++            self.fs._transaction = None
++            self.fs = None
+ 
+ 
+ class FileActor:
+@@ -82,9 +102,12 @@ class DaskTransaction(Transaction):
+ 
+     def complete(self, commit=True):
+         """Finish transaction: commit or discard all deferred files"""
+-        if commit:
+-            self.files.commit().result()
+-        else:
+-            self.files.discard().result()
+-        self.fs._intrans = False
+-        self.fs = None
++        try:
++            if commit:
++                self.files.commit().result()
++            else:
++                self.files.discard().result()
++        finally:
++            self.fs._intrans = False
++            self.fs._transaction = None
++            self.fs = None

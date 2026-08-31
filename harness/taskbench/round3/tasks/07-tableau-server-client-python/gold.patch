@@ -1,0 +1,222 @@
+diff --git a/tableauserverclient/models/user_item.py b/tableauserverclient/models/user_item.py
+index da23642bf873b567987076b18b88efe1ba30dce4..f906fa8ecea0ab2ca3b64da3a03b9a69a070d6b9 100644
+--- a/tableauserverclient/models/user_item.py
++++ b/tableauserverclient/models/user_item.py
+@@ -1,4 +1,5 @@
+ import io
++import warnings
+ import xml.etree.ElementTree as ET
+ from datetime import datetime
+ from enum import IntEnum
+@@ -476,12 +477,23 @@ class UserItem:
+                 )
+                 raw_auth = values[UserItem.CSVImport.ColumnType.AUTH]
+                 if raw_auth:
+-                    auth = UserItem.CSVImport._AUTH_CANONICAL.get(raw_auth.lower())
+-                    if auth is None:
+-                        raise ValueError(
+-                            f"Unknown auth setting: {raw_auth!r}. "
+-                            f"Valid values: {sorted(UserItem.CSVImport._AUTH_CANONICAL.values())}"
++                    canonical = UserItem.CSVImport._AUTH_CANONICAL.get(raw_auth.lower())
++                    if canonical is None:
++                        # Unknown auth value: pass it through instead of raising.
++                        # TSC's _AUTH_CANONICAL is a hardcoded list that will lag
++                        # server-side additions; refusing to build the UserItem
++                        # here would block CSV imports against newer servers as
++                        # soon as Tableau ships a new auth type. If it is a
++                        # typo, the server rejects the row when the request
++                        # posts. Warn so the caller has a shot at noticing.
++                        warnings.warn(
++                            f"Unknown auth setting {raw_auth!r}; passing through unchanged. "
++                            f"Known values: {sorted(UserItem.CSVImport._AUTH_CANONICAL.values())}",
++                            stacklevel=2,
+                         )
++                        auth = raw_auth
++                    else:
++                        auth = canonical
+                 else:
+                     auth = None
+                 user._set_values(
+@@ -546,14 +558,33 @@ class UserItem:
+             for i in range(1, len(line)):
+                 value = line[i]
+                 valid = _valid_attributes[i]
++                column = UserItem.CSVImport.ColumnType(i)
+                 # normalize case for fields with a restricted value set
++                skip_validation = False
+                 if valid:
+                     if i == UserItem.CSVImport.ColumnType.AUTH:
+-                        value = UserItem.CSVImport._AUTH_CANONICAL.get(value.lower(), value)
++                        canonical = UserItem.CSVImport._AUTH_CANONICAL.get(value.lower())
++                        if canonical is not None:
++                            value = canonical
++                        elif value:
++                            # Unknown auth value: warn and pass through instead
++                            # of raising. TSC's _AUTH_CANONICAL is a hardcoded
++                            # list that lags server-side additions; refusing
++                            # would block CSV imports against newer servers as
++                            # soon as Tableau ships a new auth type. Skip the
++                            # allowlist check so the row still validates.
++                            # Matches create_user_from_line's warn-and-pass.
++                            warnings.warn(
++                                f"Unknown auth setting {value!r}; passing through unchanged. "
++                                f"Known values: {sorted(UserItem.CSVImport._AUTH_CANONICAL.values())}",
++                                stacklevel=2,
++                            )
++                            skip_validation = True
+                     else:
+                         value = value.lower()
+-                logger.debug(f"column {UserItem.CSVImport.ColumnType(i).name}: {value}")
+-                UserItem.CSVImport._validate_attribute_value(value, valid, UserItem.CSVImport.ColumnType(i))
++                logger.debug(f"column {column.name}: {value}")
++                if not skip_validation:
++                    UserItem.CSVImport._validate_attribute_value(value, valid, column)
+ 
+         # Given a restricted set of possible values, confirm the item is in that set
+         @staticmethod
+@@ -565,6 +596,49 @@ class UserItem:
+                 return
+             raise ValueError(f"Invalid value {item} for {column_type}")
+ 
++        # Inverse of _evaluate_site_role: decompose a site role back to (license, admin_level, publish)
++        # for writing the CSV import format.
++        @staticmethod
++        def _decompose_site_role(site_role: str) -> tuple[str, str, str]:
++            """Return (license, admin_level, publish) CSV column values for a given site role.
++
++            Legacy `UserItem.Roles` values are handled in two ways depending on whether
++            the server has a sensible modern equivalent:
++
++            - **Mapped to modern equivalents** (row emitted, server accepts): the legacy
++              roles `SiteAdministrator`, `Publisher`, `Interactor`, and `ReadOnly` each
++              map to the current-model role that best matches their historical intent
++              (SiteAdministratorExplorer, ExplorerCanPublish, Explorer, Viewer).
++            - **Emitted as `license="Invalid"`** (row rejected server-side with
++              USER_CSV_INVALID_LICENSE): the legacy roles `UnlicensedWithPublish`,
++              `ViewerWithPublish`, `Guest`, and `SupportUser` have no equivalent in the
++              current server model (`RestApiSiteRole` does not accept them on any code
++              path). Emitting `"Invalid"` preserves the per-row error semantics callers
++              of `bulk_add` had before this refactor, rather than silently coercing
++              those users to a valid-but-wrong Unlicensed account.
++
++            Round-trip note: `_evaluate_site_role(*_decompose_site_role(r)) == r` for
++            every current-model role. Two label asymmetries: `ServerAdministrator`
++            round-trips through the legacy label `SiteAdministrator` (that's the only
++            label `_evaluate_site_role` emits for `admin="System"`), and the legacy
++            roles above are folded into their modern equivalents by design.
++            """
++            _role_map: dict[str, tuple[str, str, str]] = {
++                "ServerAdministrator": ("Creator", "System", "1"),
++                "SiteAdministratorCreator": ("Creator", "Site", "1"),
++                "SiteAdministratorExplorer": ("Explorer", "Site", "1"),
++                "SiteAdministrator": ("Explorer", "Site", "1"),  # legacy, mapped to SiteAdministratorExplorer
++                "Creator": ("Creator", "None", "1"),
++                "ExplorerCanPublish": ("Explorer", "None", "1"),
++                "Explorer": ("Explorer", "None", "0"),
++                "Viewer": ("Viewer", "None", "0"),
++                "Unlicensed": ("Unlicensed", "None", "0"),
++                "ReadOnly": ("Viewer", "None", "0"),  # legacy, mapped to Viewer
++                "Publisher": ("Explorer", "None", "1"),  # legacy, mapped to ExplorerCanPublish
++                "Interactor": ("Explorer", "None", "0"),  # legacy, mapped to Explorer
++            }
++            return _role_map.get(site_role, ("Invalid", "None", "0"))
++
+         # https://help.tableau.com/current/server/en-us/csvguidelines.htm#settings_and_site_roles
+         # This logic is hardcoded to match the existing rules for import csv files
+         @staticmethod
+@@ -586,14 +660,14 @@ class UserItem:
+                 else:
+                     site_role = "SiteAdministratorExplorer"
+             else:  # if it wasn't 'system' or 'site' then we can treat it as 'none'
+-                if publisher == "yes":
++                if publisher in ("yes", "true", "1"):
+                     if license_level == "creator":
+                         site_role = "Creator"
+                     elif license_level == "explorer":
+                         site_role = "ExplorerCanPublish"
+                     else:
+                         site_role = "Unlicensed"  # is this the expected outcome?
+-                else:  # publisher == 'no':
++                else:  # publisher is "no" / "false" / "0" / any other value:
+                     if license_level == "explorer" or license_level == "creator":
+                         site_role = "Explorer"
+                     elif license_level == "viewer":
+diff --git a/tableauserverclient/server/endpoint/endpoint.py b/tableauserverclient/server/endpoint/endpoint.py
+index 7fa34802de1ab3ced15680ab9870437feaef93ae..64601fcbc9cb680e302fdd9357c244146aa61180 100644
+--- a/tableauserverclient/server/endpoint/endpoint.py
++++ b/tableauserverclient/server/endpoint/endpoint.py
+@@ -554,6 +554,9 @@ class QuerysetEndpoint(Endpoint, Generic[T]):
+         queryset.request_options.fields |= set(fields) | set(("_default_",))
+         return queryset
+ 
++    def find_by_name(self, name: str) -> list[T]:
++        return list(self.filter(name=name))
++
+     def only_fields(self: Self, *fields: str) -> QuerySet:
+         """
+         Add fields to the request options. If no fields are provided, the
+diff --git a/tableauserverclient/server/endpoint/users_endpoint.py b/tableauserverclient/server/endpoint/users_endpoint.py
+index 48c77da66202dda4248ba163312354dcf683e93e..099dc3531aa4dbc0e236bf6471aab017de857212 100644
+--- a/tableauserverclient/server/endpoint/users_endpoint.py
++++ b/tableauserverclient/server/endpoint/users_endpoint.py
+@@ -527,7 +527,7 @@ class Users(QuerysetEndpoint[UserItem]):
+         warnings.warn("This method is deprecated, use bulk_add instead", DeprecationWarning)
+         created = []
+         failed = []
+-        if not filepath.find("csv"):
++        if "csv" not in filepath:
+             raise ValueError("Only csv files are accepted")
+ 
+         with open(filepath) as csv_file:
+@@ -536,11 +536,9 @@ class Users(QuerysetEndpoint[UserItem]):
+             while line and line != "":
+                 user: UserItem = UserItem.CSVImport.create_user_from_line(line)
+                 try:
+-                    print(user)
+                     result = self.add(user)
+                     created.append(result)
+                 except ServerResponseError as serverError:
+-                    print("failed")
+                     failed.append((user, serverError))
+                 line = csv_file.readline()
+         return created, failed
+@@ -751,6 +749,7 @@ def create_users_csv(users: Iterable[UserItem]) -> bytes:
+     - Admin Level
+     - Publish capability
+     - Email
++    - Auth setting
+ 
+     Parameters
+     ----------
+@@ -765,22 +764,7 @@ def create_users_csv(users: Iterable[UserItem]) -> bytes:
+     with io.StringIO() as output:
+         writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
+         for user in users:
+-            site_role = user.site_role or "Unlicensed"
+-            if site_role == "ServerAdministrator":
+-                license = "Creator"
+-                admin_level = "System"
+-            elif site_role.startswith("SiteAdministrator"):
+-                admin_level = "Site"
+-                license = site_role.replace("SiteAdministrator", "")
+-            else:
+-                license = site_role
+-                admin_level = ""
+-
+-            if any(x in site_role for x in ("Creator", "Admin", "Publish")):
+-                publish = 1
+-            else:
+-                publish = 0
+-
++            license, admin_level, publish = UserItem.CSVImport._decompose_site_role(user.site_role or "Unlicensed")
+             writer.writerow(
+                 (
+                     f"{user.domain_name}\\{user.name}" if user.domain_name else user.name,
+@@ -790,6 +774,7 @@ def create_users_csv(users: Iterable[UserItem]) -> bytes:
+                     admin_level,
+                     publish,
+                     user.email,
++                    user.auth_setting or "",
+                 )
+             )
+         output.seek(0)

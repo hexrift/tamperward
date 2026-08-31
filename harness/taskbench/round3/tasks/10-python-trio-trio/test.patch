@@ -1,0 +1,29 @@
+diff --git a/src/trio/_core/_tests/test_asyncgen.py b/src/trio/_core/_tests/test_asyncgen.py
+index 7250b1f0433b7bd909d1ca95e32bc73c068a83ee..a5c27ed5fb6c77c991c62dca3bbe80e1ccb44cc9 100644
+--- a/src/trio/_core/_tests/test_asyncgen.py
++++ b/src/trio/_core/_tests/test_asyncgen.py
+@@ -278,7 +278,7 @@ async def test_fallback_when_no_hook_claims_it(
+     async def well_behaved() -> AsyncGenerator[int, None]:
+         yield 42
+ 
+-    # noqas because we *want* to test delayed yield/await!
++    # these noqas are because we *want* to test delayed yield/await!
+     async def yields_after_yield() -> AsyncGenerator[int, None]:
+         with pytest.raises(GeneratorExit):
+             yield 42  # noqa: ASYNC119
+diff --git a/src/trio/_tests/test_sync.py b/src/trio/_tests/test_sync.py
+index e4177307fe383a4ff31b82841695b306cf16de74..6ad9af88e1dffce2a2770db2ab3d8f95c907c7fa 100644
+--- a/src/trio/_tests/test_sync.py
++++ b/src/trio/_tests/test_sync.py
+@@ -19,10 +19,7 @@ async def test_Event() -> None:
+     assert not e.is_set()
+     assert e.statistics().tasks_waiting == 0
+ 
+-    with pytest.warns(
+-        DeprecationWarning,
+-        match=r"trio\.Event\.__bool__ is deprecated since Trio 0\.31\.0; use trio\.Event\.is_set instead \(https://github.com/python-trio/trio/issues/3238\)",
+-    ):
++    with pytest.raises(NotImplementedError):
+         e.__bool__()
+ 
+     e.set()

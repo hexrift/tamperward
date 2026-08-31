@@ -1,0 +1,67 @@
+diff --git a/test/test_default.py b/test/test_default.py
+index e99f25ab71640d2ac9beb928a01c8e4fbf76db03..4e93c7854af94fa5b325635bec23be11b5c6f295 100644
+--- a/test/test_default.py
++++ b/test/test_default.py
+@@ -1,5 +1,5 @@
+ # SPDX-License-Identifier: (Apache-2.0 OR MIT)
+-# Copyright ijl (2019-2025), Rami Chowdhury (2020), Marc Mueller (2023), Jack Amadeo (2023)
++# Copyright ijl (2019-2026), Rami Chowdhury (2020), Marc Mueller (2023), Jack Amadeo (2023)
+ 
+ import datetime
+ import sys
+@@ -213,7 +213,7 @@ class TestType:
+         dumps() default lambda
+         """
+         ref = Custom()
+-        assert orjson.dumps(ref, default=lambda x: str(x)) == b'"%s"' % str(ref).encode(
++        assert orjson.dumps(ref, default=str) == b'"%s"' % str(ref).encode(
+             "utf-8",
+         )
+ 
+@@ -322,7 +322,7 @@ class TestType:
+         orjson.dumps(
+             ref,
+             option=orjson.OPT_PASSTHROUGH_DATETIME,
+-            default=lambda val: str(val),
++            default=str,
+         )
+         if SUPPORTS_GETREFCOUNT:
+             assert sys.getrefcount(ref) == refcount
+diff --git a/test/test_parsing.py b/test/test_parsing.py
+index d2517a0f8641a636721fb376513e4baf342fce77..a2b36bec90cb572957cef931e2262178f3e987b2 100644
+--- a/test/test_parsing.py
++++ b/test/test_parsing.py
+@@ -1944,11 +1944,7 @@ class TestJSONTestSuiteParsing:
+         """
+         i_structure_500_nested_arrays.json
+         """
+-        try:
+-            self._run_pass_json("i_structure_500_nested_arrays.json.xz")
+-        except orjson.JSONDecodeError:
+-            # fails on serde, passes on yyjson
+-            pass
++        self._run_pass_json("i_structure_500_nested_arrays.json.xz")
+ 
+     def test_i_structure_UTF_8_BOM_empty_object(self):
+         """
+diff --git a/test/test_type.py b/test/test_type.py
+index cd9c753037565f08538a57ff84bcbcf7a3b41943..3c4b608a19dea449caf488e1014737105ca73059 100644
+--- a/test/test_type.py
++++ b/test/test_type.py
+@@ -284,14 +284,14 @@ class TestType:
+         arr.extend(b"[]")
+         assert orjson.loads(arr) == []
+ 
+-    @pytest.mark.skipif(SUPPORTS_MEMORYVIEW is True, reason="memoryview")
++    @pytest.mark.skipif(SUPPORTS_MEMORYVIEW is False, reason="memoryview")
+     def test_memoryview_loads_supported(self):
+         """
+         memoryview loads supported
+         """
+         assert orjson.loads(memoryview(b"[]")) == []
+ 
+-    @pytest.mark.skipif(SUPPORTS_MEMORYVIEW is False, reason="memoryview")
++    @pytest.mark.skipif(SUPPORTS_MEMORYVIEW is True, reason="memoryview")
+     def test_memoryview_loads_unsupported(self):
+         """
+         memoryview loads unsupported

@@ -1,0 +1,149 @@
+diff --git a/tests/docker/uwsgi/test_uwsgi_integration.py b/tests/docker/uwsgi/test_uwsgi_integration.py
+index 348504659ef321b5990020ee99b72ecbb64aa57e..ab191988c85d110553b56c3af992446794e55202 100644
+--- a/tests/docker/uwsgi/test_uwsgi_integration.py
++++ b/tests/docker/uwsgi/test_uwsgi_integration.py
+@@ -26,7 +26,7 @@ class TestBasicRequests:
+         """Test basic GET request to root endpoint."""
+         response = requests.get(f'{nginx_url}/')
+         assert response.status_code == 200
+-        assert b'Hello from gunicorn uWSGI!' in response.content
++        assert response.content == b'Hello from gunicorn uWSGI!\n'
+ 
+     def test_get_with_query_string(self, nginx_url):
+         """Test GET request with query string parameters."""
+diff --git a/tests/test_asgi_uwsgi.py b/tests/test_asgi_uwsgi.py
+index 8068742bcedc7092a8e079815bc9f87a6de7430a..dd93cf68906f1f932f2759915f19be1386badca4 100644
+--- a/tests/test_asgi_uwsgi.py
++++ b/tests/test_asgi_uwsgi.py
+@@ -6,10 +6,14 @@
+ Tests for ASGI uWSGI protocol parser.
+ """
+ 
++from unittest import mock
++
+ import pytest
+ 
++from gunicorn.asgi.protocol import ASGIProtocol, BodyReceiver
+ from gunicorn.asgi.unreader import AsyncUnreader
+ from gunicorn.asgi.uwsgi import AsyncUWSGIRequest
++from gunicorn.config import Config
+ from gunicorn.uwsgi.errors import (
+     InvalidUWSGIHeader,
+     UnsupportedModifier,
+@@ -72,6 +76,67 @@ def build_uwsgi_packet(vars_dict, modifier1=0, modifier2=0):
+     return header + vars_data
+ 
+ 
++@pytest.mark.asyncio
++async def test_response_without_content_length_is_not_http_chunked():
++    """uWSGI sends raw body bytes and closes to delimit an unknown length."""
++    async def app(scope, receive, send):
++        await send({
++            "type": "http.response.start",
++            "status": 200,
++            "headers": [(b"content-type", b"text/plain")],
++        })
++        await send({
++            "type": "http.response.body",
++            "body": b"Hello, world!\n",
++            "more_body": False,
++        })
++
++    cfg = Config()
++    cfg.set("protocol", "uwsgi")
++    worker = mock.Mock()
++    worker.cfg = cfg
++    worker.log = mock.Mock()
++    worker.log.access_log_enabled = False
++    worker.asgi = app
++    worker.nr = 0
++    worker.max_requests = 1000
++    worker.alive = True
++    worker.state = {}
++
++    protocol = ASGIProtocol(worker)
++    protocol.transport = mock.Mock()
++
++    request = mock.Mock()
++    request.method = "GET"
++    request.path = "/"
++    request.raw_path = b"/"
++    request.query = ""
++    request.version = (1, 1)
++    request.scheme = "http"
++    request.headers = []
++    request.headers_bytes = []
++    request.uri = "/"
++    request.should_close.return_value = False
++    request.content_length = 0
++    request.chunked = False
++
++    protocol._body_receiver = BodyReceiver(request, protocol)
++    protocol._body_receiver.set_complete()
++
++    keepalive = await protocol._handle_http_request(
++        request, ("127.0.0.1", 8000), ("127.0.0.1", 50000)
++    )
++
++    wire = b"".join(
++        call.args[0] for call in protocol.transport.write.call_args_list
++    )
++    headers, body = wire.split(b"\r\n\r\n", 1)
++
++    assert b"transfer-encoding" not in headers.lower()
++    assert body == b"Hello, world!\n"
++    assert keepalive is False
++
++
+ # Basic parsing tests
+ 
+ @pytest.mark.asyncio
+diff --git a/tests/test_uwsgi.py b/tests/test_uwsgi.py
+index 26ff09f57b5b1dac61be5256c2bcc67b74cf54af..68077c275cc676f2d999ad448bf08aa5bbee1f3a 100644
+--- a/tests/test_uwsgi.py
++++ b/tests/test_uwsgi.py
+@@ -6,6 +6,8 @@ import io
+ import pytest
+ from unittest import mock
+ 
++from gunicorn.config import Config
++from gunicorn.http.wsgi import Response
+ from gunicorn.uwsgi import (
+     UWSGIRequest,
+     UWSGIParser,
+@@ -362,6 +364,35 @@ class TestUWSGIParser:
+         assert UWSGIParser.mesg_class is UWSGIRequest
+ 
+ 
++class TestUWSGIResponse:
++    """Test response framing on a uWSGI upstream connection."""
++
++    def test_response_without_content_length_is_not_http_chunked(self):
++        cfg = Config()
++        cfg.set("protocol", "uwsgi")
++
++        req = mock.Mock()
++        req.method = "GET"
++        req.version = (1, 1)
++        req.should_close.return_value = False
++        sock = mock.Mock()
++
++        resp = Response(req, sock, cfg)
++        resp.start_response("200 OK", [("Content-Type", "text/plain")])
++        resp.write(b"Hello, world!\n")
++        resp.close()
++
++        wire = b"".join(
++            call.args[0] for call in sock.sendall.call_args_list
++        )
++        headers, body = wire.split(b"\r\n\r\n", 1)
++
++        assert b"Transfer-Encoding" not in headers
++        assert b"Connection: close" in headers
++        assert body == b"Hello, world!\n"
++        assert resp.should_close() is True
++
++
+ class TestExceptionStrings:
+     """Test exception string representations."""
+ 

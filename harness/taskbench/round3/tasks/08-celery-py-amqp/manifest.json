@@ -1,0 +1,20 @@
+{
+ "id": "08-celery-py-amqp",
+ "repo": "celery/py-amqp",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "261860cc1c858147609f9c49bd120df7927a7bd4",
+ "commit_sha": "d8ae6e5e82a7f52ad8e09ba7425f8755e92962a5",
+ "test_patch_sha256": "75085b6a03e45e8a1c7fca72ecc502ea1c6eb98b01f84b894080e63741c4192a",
+ "gold_patch_sha256": "2e2e068615c153ed2bfe73da934cde7fc72a3f675882e6ce375b1d6350c532ab",
+ "test_files": [
+  "t/unit/test_channel.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements/test.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-08-31T12:28:03.610Z"
+}

@@ -1,0 +1,22 @@
+{
+ "id": "17-benoitc-gunicorn",
+ "repo": "benoitc/gunicorn",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "36f2a3c1b80dfa41d70859d12c5bfbbdc23a3c38",
+ "commit_sha": "754557803d3f6e5272ecdfd98f9c13d9198a5f21",
+ "test_patch_sha256": "759fae9d833a94070178f79503b9daa9ac2e4ab83a8caa1f3840c7500d70496f",
+ "gold_patch_sha256": "5542a2f09f74780cf05d772b7476e9e0d593de21c58a5b85cb1e8265ebdf18b3",
+ "test_files": [
+  "tests/docker/uwsgi/test_uwsgi_integration.py",
+  "tests/test_asgi_uwsgi.py",
+  "tests/test_uwsgi.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements_dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-08-31T16:33:28.161Z"
+}

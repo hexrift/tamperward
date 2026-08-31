@@ -1,0 +1,3372 @@
+diff --git a/.github/workflows/artifact.yaml b/.github/workflows/artifact.yaml
+index bce0fa313b4abf3dafcfb9d36bef4f541daa45a2..3e14cc9e3450048fb17f3afa07d6b9c4b679f544 100644
+--- a/.github/workflows/artifact.yaml
++++ b/.github/workflows/artifact.yaml
+@@ -7,7 +7,7 @@ env:
+   FORCE_COLOR: "1"
+   ORJSON_BUILD_FREETHREADED: "1"
+   PIP_DISABLE_PIP_VERSION_CHECK: "1"
+-  RUST_TOOLCHAIN: "nightly-2026-01-28"
++  RUST_TOOLCHAIN: "nightly-2026-03-28"
+   RUST_TOOLCHAIN_STABLE: "1.89"
+   UNSAFE_PYO3_BUILD_FREE_THREADED: "1"
+   UNSAFE_PYO3_SKIP_VERSION_CHECK: "1"
+@@ -35,7 +35,7 @@ jobs:
+     - name: Cargo.toml and pyproject.toml version must match
+       run: ./script/check-version
+ 
+-    - run: python3 -m pip install --user --upgrade pip "maturin>=1.10,<2" wheel
++    - run: python3 -m pip install --user --upgrade pip "maturin>=1.12,<2" wheel
+ 
+     - name: Vendor dependencies
+       run: |
+@@ -63,7 +63,7 @@ jobs:
+     - run: ./integration/run typestubs
+ 
+     - name: Store sdist
+-      uses: actions/upload-artifact@v5
++      uses: actions/upload-artifact@v7
+       with:
+         name: orjson_sdist
+         path: dist
+@@ -82,6 +82,8 @@ jobs:
+       fail-fast: false
+       matrix:
+         python: [
++          { interpreter: 'python3.15', compatibility: "manylinux_2_39", publish: false },
++          { interpreter: 'python3.15t', compatibility: "manylinux_2_39", publish: false },
+           { interpreter: 'python3.14', compatibility: "manylinux_2_17", publish: true },
+           { interpreter: 'python3.13', compatibility: "manylinux_2_17", publish: true },
+           { interpreter: 'python3.12', compatibility: "manylinux_2_17", publish: true },
+@@ -118,7 +120,7 @@ jobs:
+ 
+       - name: Store wheels
+         if: matrix.python.publish == true
+-        uses: actions/upload-artifact@v5
++        uses: actions/upload-artifact@v7
+         with:
+           name: "orjson_manylinux_${{ matrix.arch.arch }}_${{ matrix.python.interpreter }}_${{ matrix.python.compatibility }}"
+           path: dist
+@@ -213,7 +215,7 @@ jobs:
+ 
+     - name: Store wheels
+       if: matrix.python.publish == true
+-      uses: actions/upload-artifact@v5
++      uses: actions/upload-artifact@v7
+       with:
+         name: "orjson_manylinux_${{ matrix.target.arch }}_${{ matrix.python.interpreter }}"
+         path: dist
+@@ -252,6 +254,7 @@ jobs:
+         pytest -v test
+ 
+   musllinux_amd64:
++    name: "musllinux_amd64_python${{ matrix.python.version }}"
+     runs-on: ubuntu-24.04
+     timeout-minutes: 10
+     strategy:
+@@ -298,7 +301,7 @@ jobs:
+     - name: Test
+       uses: addnab/docker-run-action@v3
+       with:
+-        image: "quay.io/pypa/musllinux_1_2_${{ matrix.platform.arch }}:2026.01.28-1"
++        image: "quay.io/pypa/musllinux_1_2_${{ matrix.platform.arch }}:2026.03.27-1"
+         options: -v ${{ github.workspace }}:/io -w /io
+         run: |
+           apk add tzdata
+@@ -317,7 +320,7 @@ jobs:
+ 
+     - name: Store wheels
+       if: matrix.python.publish == true
+-      uses: actions/upload-artifact@v5
++      uses: actions/upload-artifact@v7
+       with:
+         name: orjson_musllinux_${{ matrix.platform.arch }}_${{ matrix.python.version }}
+         path: dist
+@@ -327,6 +330,7 @@ jobs:
+         compression-level: 0
+ 
+   musllinux_aarch64:
++    name: "musllinux_aarch64_python${{ matrix.python.version }}"
+     runs-on: ubuntu-24.04-arm
+     timeout-minutes: 10
+     strategy:
+@@ -373,7 +377,7 @@ jobs:
+     - name: Test
+       uses: addnab/docker-run-action@v3
+       with:
+-        image: "quay.io/pypa/musllinux_1_2_${{ matrix.platform.arch }}:2026.01.28-1"
++        image: "quay.io/pypa/musllinux_1_2_${{ matrix.platform.arch }}:2026.03.27-1"
+         options: -v ${{ github.workspace }}:/io -w /io
+         run: |
+           apk add tzdata
+@@ -389,7 +393,7 @@ jobs:
+ 
+     - name: Store wheels
+       if: matrix.python.publish == true
+-      uses: actions/upload-artifact@v5
++      uses: actions/upload-artifact@v7
+       with:
+         name: orjson_musllinux_${{ matrix.platform.arch }}_${{ matrix.python.version }}
+         path: dist
+@@ -399,6 +403,7 @@ jobs:
+         compression-level: 0
+ 
+   macos_aarch64:
++    name: "macos_aarch64_python${{ matrix.python.version }}"
+     runs-on: macos-26
+     timeout-minutes: 10
+     strategy:
+@@ -442,7 +447,7 @@ jobs:
+ 
+         curl -LsSf https://astral.sh/uv/install.sh | sh
+         uv venv --python python${{ matrix.python.version }}
+-        uv pip install --upgrade "maturin>=1.10,<2" -r test/requirements.txt -r integration/requirements.txt
++        uv pip install --upgrade "maturin>=1.12,<2" -r test/requirements.txt -r integration/requirements.txt
+ 
+         mkdir .cargo
+         cp ci/config.toml .cargo/config.toml
+@@ -471,7 +476,7 @@ jobs:
+ 
+     - name: Store wheels
+       if: matrix.python.publish == true
+-      uses: actions/upload-artifact@v5
++      uses: actions/upload-artifact@v7
+       with:
+         name: orjson_macos_aarch64_${{ matrix.python.version }}
+         path: target/wheels
+@@ -481,6 +486,7 @@ jobs:
+         compression-level: 0
+ 
+   macos_universal2_aarch64:
++    name: "macos_universal2_python${{ matrix.python.version }}"
+     runs-on: macos-26
+     timeout-minutes: 10
+     strategy:
+@@ -527,7 +533,7 @@ jobs:
+ 
+         curl -LsSf https://astral.sh/uv/install.sh | sh
+         uv venv --python python${{ matrix.python.version }}
+-        uv pip install --upgrade "maturin>=1.10,<2" -r test/requirements.txt -r integration/requirements.txt
++        uv pip install --upgrade "maturin>=1.12,<2" -r test/requirements.txt -r integration/requirements.txt
+ 
+         mkdir .cargo
+         cp ci/config.toml .cargo/config.toml
+@@ -556,7 +562,7 @@ jobs:
+ 
+     - name: Store wheels
+       if: matrix.python.publish == true
+-      uses: actions/upload-artifact@v5
++      uses: actions/upload-artifact@v7
+       with:
+         name: orjson_universal2_aarch64_${{ matrix.python.version }}
+         path: target/wheels
+@@ -566,6 +572,7 @@ jobs:
+         compression-level: 0
+ 
+   windows_amd64:
++    name: "windows_amd64_python${{ matrix.python.version }}"
+     runs-on: windows-2025
+     timeout-minutes: 10
+     strategy:
+@@ -610,7 +617,7 @@ jobs:
+       run: |
+         cargo fetch --target "${{ matrix.platform.target }}" &
+ 
+-        python.exe -m pip install --upgrade pip "maturin>=1.10,<2" wheel
++        python.exe -m pip install --upgrade pip "maturin>=1.12,<2" wheel
+         python.exe -m pip install -r test\requirements.txt
+ 
+         mkdir .cargo
+@@ -627,7 +634,7 @@ jobs:
+ 
+     - name: Store wheels
+       if: matrix.python.publish == true
+-      uses: actions/upload-artifact@v5
++      uses: actions/upload-artifact@v7
+       with:
+         name: orjson_windows_amd64_${{ matrix.platform.arch }}_${{ matrix.python.version }}
+         path: target\wheels
+@@ -637,6 +644,7 @@ jobs:
+         compression-level: 0
+ 
+   windows_aarch64:
++    name: "windows_aarch64_python${{ matrix.python.version }}"
+     runs-on: windows-11-arm
+     timeout-minutes: 10
+     strategy:
+@@ -680,7 +688,7 @@ jobs:
+         cargo fetch --target "$" &
+ 
+         python.exe -m sysconfig
+-        python.exe -m pip install --upgrade pip "maturin>=1.10,<2" wheel
++        python.exe -m pip install --upgrade pip "maturin>=1.12,<2" wheel
+         python.exe -m pip install -r test\requirements.txt
+ 
+         mkdir .cargo
+@@ -697,7 +705,7 @@ jobs:
+ 
+     - name: Store wheels
+       if: matrix.python.publish == true
+-      uses: actions/upload-artifact@v5
++      uses: actions/upload-artifact@v7
+       with:
+         name: orjson_windows_aarch64_${{ matrix.python.version }}
+         path: target\wheels
+@@ -729,7 +737,7 @@ jobs:
+     steps:
+       - uses: actions/checkout@v6
+ 
+-      - uses: actions/download-artifact@v5
++      - uses: actions/download-artifact@v8
+         with:
+           merge-multiple: true
+           path: dist/
+diff --git a/.github/workflows/unusual.yaml b/.github/workflows/unusual.yaml
+index 09a0ed8296d53f29fd762aabc37e156f6101332c..3a14230cab13f24cef813ab406ab672baaa61351 100644
+--- a/.github/workflows/unusual.yaml
++++ b/.github/workflows/unusual.yaml
+@@ -26,7 +26,7 @@ jobs:
+         python-version: '${{ matrix.cfg.python }}'
+         allow-prereleases: true
+ 
+-    - run: python -m pip install --user --upgrade pip "maturin>=1.10,<2" wheel
++    - run: python -m pip install --user --upgrade pip "maturin>=1.12,<2" wheel
+ 
+     - uses: actions/checkout@v6
+ 
+diff --git a/Cargo.lock b/Cargo.lock
+index 84264060c6545750a77714dbcd25caa6e29256c0..fa2ef58950e3f15baa235c076f327123e565ef39 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -4,9 +4,9 @@ version = 4
+ 
+ [[package]]
+ name = "associative-cache"
+-version = "2.0.0"
++version = "3.0.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "b993cd767a2bc7307dd87622311ca22c44329cc7a21366206bfa0896827b2bad"
++checksum = "6104bd6fd778b62f638add0dd848dca9887cf016a343d15a21d27fb8a3965b98"
+ 
+ [[package]]
+ name = "bytecount"
+@@ -16,15 +16,15 @@ checksum = "175812e0be2bccb6abe50bb8d566126198344f707e304f45c648fd8f2cc0365e"
+ 
+ [[package]]
+ name = "bytes"
+-version = "1.11.0"
++version = "1.11.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "b35204fbdc0b3f4446b89fc1ac2cf84a8a68971995d0bf2e925ec7cd960f9cb3"
++checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
+ 
+ [[package]]
+ name = "cc"
+-version = "1.2.55"
++version = "1.2.58"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "47b26a0954ae34af09b50f0de26458fa95369a0d478d8236d3f93082b219bd29"
++checksum = "e1e928d4b69e3077709075a938a05ffbedfa53a84c8f766efbf8220bb1ff60e1"
+ dependencies = [
+  "find-msvc-tools",
+  "shlex",
+@@ -76,9 +76,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "itoa"
+-version = "1.0.17"
++version = "1.0.18"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
++checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+ 
+ [[package]]
+ name = "itoap"
+@@ -88,9 +88,9 @@ checksum = "9028f49264629065d057f340a86acb84867925865f73bbf8d47b4d149a7e88b8"
+ 
+ [[package]]
+ name = "jiff"
+-version = "0.2.18"
++version = "0.2.23"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "e67e8da4c49d6d9909fe03361f9b620f58898859f5c7aded68351e85e71ecf50"
++checksum = "1a3546dc96b6d42c5f24902af9e2538e82e39ad350b0c766eb3fbf2d8f3d8359"
+ dependencies = [
+  "jiff-static",
+  "portable-atomic",
+@@ -99,9 +99,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "jiff-static"
+-version = "0.2.18"
++version = "0.2.23"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "e0c84ee7f197eca9a86c6fd6cb771e55eb991632f15f2bc3ca6ec838929e6e78"
++checksum = "2a8c8b344124222efd714b73bb41f8b5120b27a7cc1c75593a6ff768d9d05aa4"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+@@ -110,15 +110,15 @@ dependencies = [
+ 
+ [[package]]
+ name = "libc"
+-version = "0.2.180"
++version = "0.2.183"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "bcc35a38544a891a5f7c865aca548a982ccb3b8650a5b06d0fd33a10283c56fc"
++checksum = "b5b646652bf6661599e1da8901b3b9522896f01e736bad5f723fe7a3a27f899d"
+ 
+ [[package]]
+ name = "memchr"
+-version = "2.7.6"
++version = "2.8.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
++checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
+ 
+ [[package]]
+ name = "no-panic"
+@@ -133,9 +133,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "once_cell"
+-version = "1.21.3"
++version = "1.21.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
++checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+ 
+ [[package]]
+ name = "orjson"
+@@ -155,7 +155,6 @@ dependencies = [
+  "serde",
+  "serde_json",
+  "simdutf8",
+- "smallvec",
+  "unwinding",
+  "uuid",
+  "version_check",
+@@ -171,9 +170,9 @@ checksum = "c33a9471896f1c69cecef8d20cbe2f7accd12527ce60845ff44c153bb2a21b49"
+ 
+ [[package]]
+ name = "portable-atomic-util"
+-version = "0.2.5"
++version = "0.2.6"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "7a9db96d7fa8782dd8c15ce32ffe8680bbd1e978a43bf51a34d39483540495f5"
++checksum = "091397be61a01d4be58e7841595bd4bfedb15f1cd54977d79b8271e94ed799a3"
+ dependencies = [
+  "portable-atomic",
+ ]
+@@ -189,18 +188,18 @@ dependencies = [
+ 
+ [[package]]
+ name = "pyo3-build-config"
+-version = "0.28.0"
++version = "0.28.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "972720a441c91fd9c49f212a1d2d74c6e3803b231ebc8d66c51efbd7ccab11c8"
++checksum = "8bf94ee265674bf76c09fa430b0e99c26e319c945d96ca0d5a8215f31bf81cf7"
+ dependencies = [
+  "target-lexicon",
+ ]
+ 
+ [[package]]
+ name = "pyo3-ffi"
+-version = "0.28.0"
++version = "0.28.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "5994456d9dab8934d600d3867571b6410f24fbd6002570ad56356733eb54859b"
++checksum = "491aa5fc66d8059dd44a75f4580a2962c1862a1c2945359db36f6c2818b748dc"
+ dependencies = [
+  "libc",
+  "pyo3-build-config",
+@@ -208,9 +207,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "quote"
+-version = "1.0.44"
++version = "1.0.45"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "21b2ebcf727b7760c461f091f9f0f539b77b8e87f2fd88131e7f1b433b3cece4"
++checksum = "41f2619966050689382d2b44f664f4bc593e129785a36d6ee376ddf37259b924"
+ dependencies = [
+  "proc-macro2",
+ ]
+@@ -269,17 +268,11 @@ version = "0.1.5"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+ 
+-[[package]]
+-name = "smallvec"
+-version = "1.15.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
+-
+ [[package]]
+ name = "syn"
+-version = "2.0.114"
++version = "2.0.117"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d4d107df263a3013ef9b1879b0df87d706ff80f65a86ea879bd9c31f9b307c2a"
++checksum = "e665b8803e7b1d2a727f4023456bbbbe74da67099c585258af0ad9c5013b9b99"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+@@ -288,15 +281,15 @@ dependencies = [
+ 
+ [[package]]
+ name = "target-lexicon"
+-version = "0.13.4"
++version = "0.13.5"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "b1dd07eb858a2067e2f3c7155d54e929265c264e6f37efe3ee7a8d1b5a1dd0ba"
++checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
+ 
+ [[package]]
+ name = "unicode-ident"
+-version = "1.0.22"
++version = "1.0.24"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "9312f7c4f6ff9069b165498234ce8be658059c6728633667c526e27dc2cf1df5"
++checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
+ 
+ [[package]]
+ name = "unwinding"
+@@ -309,9 +302,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "uuid"
+-version = "1.20.0"
++version = "1.23.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "ee48d38b119b0cd71fe4141b30f5ba9c7c5d9f4e7a3a8b4a674e4b6ef789976f"
++checksum = "5ac8b6f42ead25368cf5b098aeb3dc8a1a2c05a3eee8a9a1a68c640edbfc79d9"
+ 
+ [[package]]
+ name = "version_check"
+@@ -327,18 +320,18 @@ checksum = "fdd20c5420375476fbd4394763288da7eb0cc0b8c11deed431a91562af7335d3"
+ 
+ [[package]]
+ name = "zerocopy"
+-version = "0.8.37"
++version = "0.8.48"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "7456cf00f0685ad319c5b1693f291a650eaf345e941d082fc4e03df8a03996ac"
++checksum = "eed437bf9d6692032087e337407a86f04cd8d6a16a37199ed57949d415bd68e9"
+ dependencies = [
+  "zerocopy-derive",
+ ]
+ 
+ [[package]]
+ name = "zerocopy-derive"
+-version = "0.8.37"
++version = "0.8.48"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "1328722bbf2115db7e19d69ebcc15e795719e2d66b60827c6a69a117365e37a0"
++checksum = "70e3cd084b1788766f53af483dd21f93881ff30d7320490ec3ef7526d203bad4"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+@@ -347,9 +340,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "zmij"
+-version = "1.0.19"
++version = "1.0.21"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "3ff05f8caa9038894637571ae6b9e29466c1f4f829d26c9b28f869a29cbe3445"
++checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
+ dependencies = [
+  "no-panic",
+ ]
+diff --git a/Cargo.toml b/Cargo.toml
+index a738cdd3176664b8d0385b5586d94ce2c7c802f9..be97dd5645758ae66f336e17a6d9ee89c2c2771f 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -43,19 +43,18 @@ no_panic = ["zmij/no-panic"]
+ optimize = []
+ 
+ [dependencies]
+-associative-cache = { version = "2", default-features = false }
+-bytes = { version = "1", default-features = false }
++associative-cache = { version = "3", default-features = false }
+ bytecount = { version = "^0.6.7", default-features = false, features = ["runtime-dispatch-simd"] }
++bytes = { version = "1", default-features = false }
+ encoding_rs = { version = "0.8", default-features = false }
+ half = { version = "2", default-features = false }
+ itoap = { version = "1", default-features = false, features = ["std", "simd"] }
+-jiff = { version = "^0.2", default-features = false }
++jiff = { version = "^0.2", default-features = false, features = ["perf-inline"] }
+ once_cell = { version = "1", default-features = false, features = ["alloc", "race"] }
+ pyo3-ffi = { version = "0.28", default-features = false }
+ serde = { version = "1", default-features = false }
+ serde_json = { version = "1", default-features = false, features = ["std"] }
+ simdutf8 = { version = "0.1", default-features = false, features = ["std", "public_imp", "aarch64_neon"] }
+-smallvec = { version = "^1.11", default-features = false, features = ["union", "write"] }
+ unwinding = { version = "=0.2.8", default-features = false, features = ["unwinder"], optional = true }
+ uuid = { version = "1", default-features = false }
+ xxhash-rust = { version = "^0.8", default-features = false, features = ["xxh3"] }
+diff --git a/README.md b/README.md
+index daca080282d698e35da6217c919aa956b29cfc25..4c80e15cbc8a4e8930fa69890f4505462df4828a 100644
+--- a/README.md
++++ b/README.md
+@@ -1077,7 +1077,7 @@ The recommended build command is:
+ maturin build --release --strip
+ ```
+ 
+-The project's own CI tests against `nightly-2026-01-28` and stable 1.89. It
++The project's own CI tests against `nightly-2026-03-28` and stable 1.89. It
+ is prudent to pin the nightly version because that channel can introduce
+ breaking changes. There is a significant performance benefit to using
+ nightly.
+diff --git a/build.rs b/build.rs
+index 49a9a9a4e723a37552f6e23788132307997f34d8..2f9f3e8aee0fab507a73b4a95851238bae0ffdd3 100644
+--- a/build.rs
++++ b/build.rs
+@@ -14,8 +14,11 @@ fn main() {
+     match python_config.implementation {
+         pyo3_build_config::PythonImplementation::CPython => {
+             println!("cargo:rustc-cfg=CPython");
++            if python_config.abi3 {
++                println!("cargo:rustc-cfg=Py_LIMITED_ABI");
++            }
+             #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+-            if is_64_bit_python {
++            if is_64_bit_python && !python_config.abi3 {
+                 println!("cargo:rustc-cfg=feature=\"inline_int\"");
+                 #[cfg(target_endian = "little")]
+                 println!("cargo:rustc-cfg=feature=\"inline_str\"");
+@@ -47,6 +50,7 @@ fn main() {
+     println!("cargo:rustc-check-cfg=cfg(Py_3_14)");
+     println!("cargo:rustc-check-cfg=cfg(Py_3_15)");
+     println!("cargo:rustc-check-cfg=cfg(Py_GIL_DISABLED)");
++    println!("cargo:rustc-check-cfg=cfg(Py_LIMITED_ABI)");
+     println!("cargo:rustc-check-cfg=cfg(PyPy)");
+ 
+     #[cfg(all(target_arch = "x86_64", not(target_os = "macos")))]
+@@ -59,7 +63,9 @@ fn main() {
+         println!("cargo:rustc-cfg=feature=\"generic_simd\"");
+     }
+ 
+-    if version_check::supports_feature("cold_path").unwrap_or(false) {
++    if version_check::is_min_version("1.95.0")
++        .unwrap_or(version_check::supports_feature("cold_path").unwrap_or(false))
++    {
+         println!("cargo:rustc-cfg=feature=\"cold_path\"");
+     }
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 7906656b6456d8bf5721d15e3ffb5a015b3f2d4b..4dfb36416604ea47b9192a6e8a83b8116aee1de4 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -84,6 +84,7 @@ ignore = [
+     "F601", # Dictionary key literal ... repeated
+     "PIE810", # Call `startswith` once with a `tuple`
+     "PLR2004", # Magic value used in comparison
++    "RUF061", # Use context-manager form of `pytest.raises()`
+     "UP012", # Unnecessary call to encode as UTF-8
+ ]
+ 
+diff --git a/pysrc/orjson/__init__.py b/pysrc/orjson/__init__.py
+index 96b24c035e2f71aba24975f3c10e5ca9fb10e79b..c6a12ab65c6e434dbcf11a055cf271a946501250 100644
+--- a/pysrc/orjson/__init__.py
++++ b/pysrc/orjson/__init__.py
+@@ -1,5 +1,9 @@
+ # SPDX-License-Identifier: MPL-2.0
+-# Copyright ijl (2023)
++# Copyright ijl (2023-2026)
++
++"""
++Fast, correct Python JSON library supporting dataclasses, datetimes, and numpy
++"""
+ 
+ from .orjson import *
+ from .orjson import __version__
+diff --git a/requirements-lint.txt b/requirements-lint.txt
+index 914f805933617b70e23e2cf1fb0e76d8043b5089..c97b9884e91be12a5b43938e2304262e7daec091 100644
+--- a/requirements-lint.txt
++++ b/requirements-lint.txt
+@@ -1,2 +1,2 @@
+-mypy==1.18.2
+-ruff>=0.14,<0.15
++mypy==1.19.1;python_version<"3.15"
++ruff==0.15.8
+diff --git a/script/blame-to-header b/script/blame-to-header
+index 8a201246efe037d00f4fe80622c28dbca350d66e..47f858abf1f36a3e69edd131a44a3bca019ebf84 100755
+--- a/script/blame-to-header
++++ b/script/blame-to-header
+@@ -38,7 +38,6 @@ TO_EXCLUDE = {
+     "script/pybench",
+     "script/pytest",
+     "script/valgrind",
+-    "src/ffi/atomiculong.rs",
+ }
+ 
+ 
+diff --git a/src/deserialize/backend/ffi.rs b/src/deserialize/backend/ffi.rs
+index f2c0ab734328702a9c6c9fdfa8ceb47e63727a4d..73d737d09887eda2acd434cdd0cd117b15b1f781 100644
+--- a/src/deserialize/backend/ffi.rs
++++ b/src/deserialize/backend/ffi.rs
+@@ -1,5 +1,5 @@
+ // SPDX-License-Identifier: MPL-2.0
+-// Copyright ijl (2022-2025)
++// Copyright ijl (2022-2026)
+ 
+ #[repr(C)]
+ pub(crate) struct yyjson_alc {
+@@ -22,6 +22,7 @@ pub(crate) struct yyjson_alc {
+     pub ctx: *mut ::core::ffi::c_void,
+ }
+ 
++#[allow(non_camel_case_types)]
+ pub(crate) type yyjson_read_code = u32;
+ pub(crate) const YYJSON_READ_SUCCESS: yyjson_read_code = 0;
+ 
+diff --git a/src/deserialize/backend/yyjson.rs b/src/deserialize/backend/yyjson.rs
+index 915c2510a30316d5628f59da351dd3c5b3f74fdb..0956a7fd77f58a8a03ba3b05ca1d01990f3d6f92 100644
+--- a/src/deserialize/backend/yyjson.rs
++++ b/src/deserialize/backend/yyjson.rs
+@@ -7,7 +7,10 @@ use super::ffi::{
+ };
+ use crate::deserialize::DeserializeError;
+ use crate::deserialize::pyobject::get_unicode_key;
+-use crate::ffi::{PyBoolRef, PyDictRef, PyFloatRef, PyIntRef, PyListRef, PyNoneRef, PyStrRef};
++use crate::ffi::{
++    PyBoolRef, PyDictRef, PyFloatRef, PyIntRef, PyListRef, PyMem_Free, PyMem_Malloc, PyNoneRef,
++    PyStrRef,
++};
+ use core::ffi::c_char;
+ use core::ptr::{NonNull, null, null_mut};
+ use std::borrow::Cow;
+@@ -70,7 +73,7 @@ pub(crate) fn deserialize(
+ ) -> Result<NonNull<crate::ffi::PyObject>, DeserializeError<'static>> {
+     assume!(!data.is_empty());
+     let buffer_capacity = buffer_capacity_to_allocate(data.len());
+-    let buffer_ptr = ffi!(PyMem_Malloc(buffer_capacity));
++    let buffer_ptr = unsafe { PyMem_Malloc(buffer_capacity) };
+     if buffer_ptr.is_null() {
+         return Err(DeserializeError::from_yyjson(
+             Cow::Borrowed("Not enough memory to allocate buffer for parsing"),
+@@ -103,7 +106,9 @@ pub(crate) fn deserialize(
+         )
+     };
+     if doc.is_null() {
+-        ffi!(PyMem_Free(buffer_ptr));
++        unsafe {
++            PyMem_Free(buffer_ptr);
++        }
+         let msg: Cow<str> = unsafe { core::ffi::CStr::from_ptr(err.msg).to_string_lossy() };
+         #[allow(clippy::cast_possible_wrap)]
+         let pos = err.pos as i64;
+@@ -137,7 +142,9 @@ pub(crate) fn deserialize(
+             pyval.as_non_null_ptr()
+         }
+     };
+-    ffi!(PyMem_Free(buffer_ptr));
++    unsafe {
++        PyMem_Free(buffer_ptr);
++    }
+     Ok(pyval)
+ }
+ 
+diff --git a/src/deserialize/cache.rs b/src/deserialize/cache.rs
+index 6daafa0f7be17e53bfa70ed47a8e498b3115214c..ce20b0c2c4ae47c32b25ee142bbe247a44c94fc7 100644
+--- a/src/deserialize/cache.rs
++++ b/src/deserialize/cache.rs
+@@ -19,14 +19,18 @@ impl CachedKey {
+     }
+     pub fn get(&mut self) -> PyStrRef {
+         let ptr = self.ptr.as_ptr();
+-        unsafe { Py_INCREF(ptr) };
+-        self.ptr.clone()
++        unsafe {
++            Py_INCREF(ptr);
++        }
++        self.ptr
+     }
+ }
+ 
+ impl Drop for CachedKey {
+     fn drop(&mut self) {
+-        unsafe { Py_DECREF(self.ptr.as_ptr().cast::<crate::ffi::PyObject>()) };
++        unsafe {
++            Py_DECREF(self.ptr.as_ptr().cast::<crate::ffi::PyObject>());
++        }
+     }
+ }
+ 
+diff --git a/src/deserialize/deserializer.rs b/src/deserialize/deserializer.rs
+index 766e931a64183eaf84f74a06a3a0bea76bdc7fc5..6b06fd052c9d3aa033fc779f4cc394195f987ef3 100644
+--- a/src/deserialize/deserializer.rs
++++ b/src/deserialize/deserializer.rs
+@@ -3,7 +3,7 @@
+ 
+ use super::DeserializeError;
+ use super::input::Utf8Buffer;
+-use crate::ffi::PyStrRef;
++use crate::ffi::{PyDictRef, PyListRef, PyStrRef};
+ use core::ptr::NonNull;
+ 
+ #[repr(transparent)]
+@@ -26,15 +26,9 @@ impl Deserializer {
+         if self.buffer.len() == 2 {
+             cold_path!();
+             match self.buffer.as_bytes() {
+-                b"[]" => {
+-                    return Ok(nonnull!(ffi!(PyList_New(0))));
+-                }
+-                b"{}" => {
+-                    return Ok(nonnull!(unsafe { crate::ffi::PyDict_New(0) }));
+-                }
+-                b"\"\"" => {
+-                    return Ok(PyStrRef::empty().as_non_null_ptr());
+-                }
++                b"[]" => return Ok(PyListRef::with_capacity(0).as_non_null_ptr()),
++                b"{}" => return Ok(PyDictRef::new().as_non_null_ptr()),
++                b"\"\"" => return Ok(PyStrRef::empty().as_non_null_ptr()),
+                 _ => {}
+             }
+         }
+diff --git a/src/ffi/atomiculong.rs b/src/ffi/atomiculong.rs
+deleted file mode 100644
+index f5f719aceecf2678361d1d1fff285e847e19b6e6..0000000000000000000000000000000000000000
+--- a/src/ffi/atomiculong.rs
++++ /dev/null
+@@ -1,21 +0,0 @@
+-// SPDX-License-Identifier: (Apache-2.0 OR MIT)
+-// pyo3-ffi/src/impl_/mod.rs at 0.27.1
+-
+-mod atomic_c_ulong {
+-    pub struct GetAtomicCULong<const WIDTH: usize>();
+-
+-    pub trait AtomicCULongType {
+-        type Type;
+-    }
+-    impl AtomicCULongType for GetAtomicCULong<32> {
+-        type Type = core::sync::atomic::AtomicU32;
+-    }
+-    impl AtomicCULongType for GetAtomicCULong<64> {
+-        type Type = core::sync::atomic::AtomicU64;
+-    }
+-
+-    pub type TYPE =
+-        <GetAtomicCULong<{ core::mem::size_of::<core::ffi::c_ulong>() * 8 }> as AtomicCULongType>::Type;
+-}
+-
+-pub type AtomicCULong = atomic_c_ulong::TYPE;
+diff --git a/src/ffi/compat.rs b/src/ffi/compat.rs
+index 3410add2bbe3059c8caa34651b36d583e430959a..6974d19a198f3729cad9a4dca935484e294de9c3 100644
+--- a/src/ffi/compat.rs
++++ b/src/ffi/compat.rs
+@@ -203,6 +203,34 @@ pub(crate) unsafe fn PyTuple_SET_ITEM(
+     }
+ }
+ 
++#[cfg(not(Py_GIL_DISABLED))]
++#[inline(always)]
++#[allow(non_snake_case)]
++pub(crate) unsafe fn PyUnstable_Unicode_GET_CACHED_HASH(
++    op: *mut pyo3_ffi::PyObject,
++) -> pyo3_ffi::Py_hash_t {
++    unsafe {
++        let hash = (*op.cast::<pyo3_ffi::PyASCIIObject>()).hash;
++        debug_assert!(hash != -1);
++        hash
++    }
++}
++
++#[cfg(Py_GIL_DISABLED)]
++#[inline(always)]
++#[allow(non_snake_case)]
++pub(crate) unsafe fn PyUnstable_Unicode_GET_CACHED_HASH(
++    op: *mut pyo3_ffi::PyObject,
++) -> pyo3_ffi::Py_hash_t {
++    unsafe {
++        let hash =
++            core::sync::atomic::AtomicIsize::new((*op.cast::<pyo3_ffi::PyASCIIObject>()).hash)
++                .load(core::sync::atomic::Ordering::Relaxed);
++        debug_assert!(hash != -1);
++        hash
++    }
++}
++
+ #[cfg(CPython)]
+ #[inline(always)]
+ #[allow(non_snake_case)]
+@@ -217,23 +245,35 @@ pub(crate) unsafe fn PyObject_Type(o: *mut pyo3_ffi::PyObject) -> *mut pyo3_ffi:
+     unsafe { pyo3_ffi::Py_TYPE(o) }
+ }
+ 
+-unsafe extern "C" {
++#[cfg(all(not(Py_GIL_DISABLED), not(Py_LIMITED_ABI)))]
++#[allow(non_snake_case)]
++pub(crate) unsafe fn PyType_GetFlags(type_: *mut pyo3_ffi::PyTypeObject) -> core::ffi::c_ulong {
++    unsafe { (*type_).tp_flags }
++}
++
++#[cfg(Py_GIL_DISABLED)]
++#[allow(non_snake_case)]
++pub(crate) unsafe fn PyType_GetFlags(type_: *mut pyo3_ffi::PyTypeObject) -> core::ffi::c_ulong {
++    unsafe {
++        (*type_)
++            .tp_flags
++            .load(core::sync::atomic::Ordering::Relaxed)
++    }
++}
+ 
++#[cfg(Py_LIMITED_ABI)]
++#[allow(non_snake_case)]
++pub(crate) unsafe fn PyType_GetFlags(type_: *mut pyo3_ffi::PyTypeObject) -> core::ffi::c_ulong {
++    unsafe { pyo3_ffi::PyType_GetFlags(type_) }
++}
++
++unsafe extern "C" {
+     #[cfg(CPython)]
+     pub fn _PyBytes_Resize(
+         pv: *mut *mut pyo3_ffi::PyObject,
+         newsize: pyo3_ffi::Py_ssize_t,
+     ) -> core::ffi::c_int;
+ 
+-    #[cfg(CPython)]
+-    pub fn _PyDict_Next(
+-        mp: *mut pyo3_ffi::PyObject,
+-        pos: *mut pyo3_ffi::Py_ssize_t,
+-        key: *mut *mut pyo3_ffi::PyObject,
+-        value: *mut *mut pyo3_ffi::PyObject,
+-        hash: *mut pyo3_ffi::Py_hash_t,
+-    ) -> core::ffi::c_int;
+-
+     #[cfg(CPython)]
+     pub fn _PyDict_NewPresized(minused: pyo3_ffi::Py_ssize_t) -> *mut pyo3_ffi::PyObject;
+ 
+diff --git a/src/ffi/fragment.rs b/src/ffi/fragment.rs
+index 507cdb674d79bb0405e5e0262f50cb703cc60a2c..b26eeece44ba79fd4403dcc7735441c661bd5f66 100644
+--- a/src/ffi/fragment.rs
++++ b/src/ffi/fragment.rs
+@@ -1,16 +1,14 @@
+ // SPDX-License-Identifier: MPL-2.0
+ // Copyright ijl (2020-2026)
+ 
+-use core::ffi::c_char;
+-
+ use crate::ffi::{
+-    Py_DECREF, Py_INCREF, Py_TPFLAGS_DEFAULT, PyErr_SetObject, PyExc_TypeError, PyObject,
+-    PyTupleRef, PyType_Ready, PyType_Type, PyTypeObject, PyUnicode_FromStringAndSize, PyVarObject,
++    Py_DECREF, Py_INCREF, Py_TPFLAGS_DEFAULT, Py_TPFLAGS_IMMUTABLETYPE, Py_tp_dealloc, Py_tp_new,
++    PyErr_SetObject, PyExc_TypeError, PyObject, PyTupleRef, PyType_FromSpec, PyType_Slot,
++    PyType_Spec, PyTypeObject, PyUnicode_FromStringAndSize,
+ };
++use core::ffi::{c_char, c_void};
+ use core::ptr::null_mut;
+ 
+-#[cfg(Py_GIL_DISABLED)]
+-use super::atomiculong::AtomicCULong;
+ #[cfg(Py_GIL_DISABLED)]
+ use core::sync::atomic::{AtomicIsize, AtomicU32};
+ 
+@@ -116,95 +114,27 @@ pub(crate) unsafe extern "C" fn orjson_fragment_dealloc(object: *mut PyObject) {
+ #[cfg_attr(feature = "optimize", optimize(size))]
+ pub(crate) unsafe extern "C" fn orjson_fragmenttype_new() -> *mut PyTypeObject {
+     unsafe {
+-        #[cfg(Py_GIL_DISABLED)]
+-        let tp_flags: AtomicCULong =
+-            AtomicCULong::new(Py_TPFLAGS_DEFAULT | pyo3_ffi::Py_TPFLAGS_IMMUTABLETYPE);
+-        #[cfg(not(Py_GIL_DISABLED))]
+-        let tp_flags: core::ffi::c_ulong = Py_TPFLAGS_DEFAULT | pyo3_ffi::Py_TPFLAGS_IMMUTABLETYPE;
+-        let ob = Box::new(PyTypeObject {
+-            ob_base: PyVarObject {
+-                ob_base: PyObject {
+-                    #[cfg(Py_GIL_DISABLED)]
+-                    ob_tid: 0,
+-                    #[cfg(all(Py_GIL_DISABLED, Py_3_14))]
+-                    ob_flags: 0,
+-                    #[cfg(all(Py_GIL_DISABLED, not(Py_3_14)))]
+-                    _padding: 0,
+-                    #[cfg(Py_GIL_DISABLED)]
+-                    ob_mutex: pymutex_new!(),
+-                    #[cfg(Py_GIL_DISABLED)]
+-                    ob_gc_bits: 0,
+-                    #[cfg(Py_GIL_DISABLED)]
+-                    ob_ref_local: AtomicU32::new(crate::ffi::compat::_Py_IMMORTAL_REFCNT_LOCAL),
+-                    #[cfg(Py_GIL_DISABLED)]
+-                    ob_ref_shared: AtomicIsize::new(0),
+-                    #[cfg(all(Py_3_12, not(Py_GIL_DISABLED)))]
+-                    ob_refcnt: pyo3_ffi::PyObjectObRefcnt { ob_refcnt: 0 },
+-                    #[cfg(not(Py_3_12))]
+-                    ob_refcnt: 0,
+-                    #[cfg(PyPy)]
+-                    ob_pypy_link: 0,
+-                    ob_type: &raw mut PyType_Type,
+-                },
+-                #[cfg(not(GraalPy))]
+-                ob_size: 0,
+-                #[cfg(GraalPy)]
+-                _ob_size_graalpy: 0,
++        let mut slots = [
++            PyType_Slot {
++                slot: Py_tp_new,
++                pfunc: orjson_fragment_tp_new as *mut c_void,
++            },
++            PyType_Slot {
++                slot: Py_tp_dealloc,
++                pfunc: orjson_fragment_dealloc as *mut c_void,
++            },
++            PyType_Slot {
++                slot: 0,
++                pfunc: null_mut(),
+             },
+-            tp_name: c"orjson.Fragment".as_ptr(),
+-            tp_basicsize: core::mem::size_of::<Fragment>().cast_signed(),
+-            tp_itemsize: 0,
+-            tp_dealloc: Some(orjson_fragment_dealloc),
+-            tp_init: None,
+-            tp_new: Some(orjson_fragment_tp_new),
+-            tp_flags: tp_flags,
+-            // ...
+-            tp_bases: null_mut(),
+-            tp_cache: null_mut(),
+-            tp_del: None,
+-            tp_finalize: None,
+-            tp_free: None,
+-            tp_is_gc: None,
+-            tp_mro: null_mut(),
+-            tp_subclasses: null_mut(),
+-            tp_vectorcall: None,
+-            tp_version_tag: 0,
+-            tp_weaklist: null_mut(),
+-            tp_vectorcall_offset: 0,
+-            tp_getattr: None,
+-            tp_setattr: None,
+-            tp_as_async: null_mut(),
+-            tp_repr: None,
+-            tp_as_number: null_mut(),
+-            tp_as_sequence: null_mut(),
+-            tp_as_mapping: null_mut(),
+-            tp_hash: None,
+-            tp_call: None,
+-            tp_str: None,
+-            tp_getattro: None,
+-            tp_setattro: None,
+-            tp_as_buffer: null_mut(),
+-            tp_doc: core::ptr::null_mut(),
+-            tp_traverse: None,
+-            tp_clear: None,
+-            tp_richcompare: None,
+-            tp_weaklistoffset: 0,
+-            tp_iter: None,
+-            tp_iternext: None,
+-            tp_methods: null_mut(),
+-            tp_members: null_mut(),
+-            tp_getset: null_mut(),
+-            tp_base: null_mut(),
+-            tp_dict: null_mut(),
+-            tp_descr_get: None,
+-            tp_descr_set: None,
+-            tp_dictoffset: 0,
+-            tp_alloc: None,
+-            #[cfg(Py_3_12)]
+-            tp_watched: 0,
+-        });
+-        let ob_ptr = Box::into_raw(ob);
+-        PyType_Ready(ob_ptr);
+-        ob_ptr
++        ];
++        let mut spec = PyType_Spec {
++            name: c"orjson.Fragment".as_ptr(),
++            basicsize: core::mem::size_of::<Fragment>().cast_signed() as i32,
++            itemsize: 0,
++            flags: (Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE) as u32,
++            slots: &raw mut slots[0],
++        };
++        PyType_FromSpec(&raw mut spec).cast::<PyTypeObject>()
+     }
+ }
+diff --git a/src/ffi/mod.rs b/src/ffi/mod.rs
+index ecda942e20afbcaf00e7a7d0f47924cf18f38347..b33af1f11e9e411490c4c2df711e5cad20664e64 100644
+--- a/src/ffi/mod.rs
++++ b/src/ffi/mod.rs
+@@ -1,8 +1,6 @@
+ // SPDX-License-Identifier: MPL-2.0
+ // Copyright ijl (2022-2026)
+ 
+-#[cfg(Py_GIL_DISABLED)]
+-mod atomiculong;
+ #[cfg(all(CPython, not(Py_GIL_DISABLED)))]
+ mod buffer;
+ mod bytes;
+@@ -68,10 +66,11 @@ pub(crate) use {
+ #[allow(unused_imports)]
+ pub(crate) use pyo3_ffi::{
+     METH_FASTCALL, METH_KEYWORDS, METH_O, Py_DECREF, Py_False, Py_INCREF, Py_None, Py_REFCNT,
+-    Py_TPFLAGS_DEFAULT, Py_TPFLAGS_DICT_SUBCLASS, Py_TPFLAGS_LIST_SUBCLASS,
+-    Py_TPFLAGS_LONG_SUBCLASS, Py_TPFLAGS_TUPLE_SUBCLASS, Py_TPFLAGS_UNICODE_SUBCLASS, Py_TYPE,
+-    Py_True, Py_XDECREF, Py_buffer, Py_hash_t, Py_intptr_t, Py_mod_exec, Py_ssize_t, PyASCIIObject,
+-    PyBool_Type, PyBuffer_IsContiguous, PyByteArray_AsString, PyByteArray_Size, PyByteArray_Type,
++    Py_TPFLAGS_DEFAULT, Py_TPFLAGS_DICT_SUBCLASS, Py_TPFLAGS_IMMUTABLETYPE,
++    Py_TPFLAGS_LIST_SUBCLASS, Py_TPFLAGS_LONG_SUBCLASS, Py_TPFLAGS_TUPLE_SUBCLASS,
++    Py_TPFLAGS_UNICODE_SUBCLASS, Py_TYPE, Py_True, Py_XDECREF, Py_buffer, Py_hash_t, Py_intptr_t,
++    Py_mod_exec, Py_ssize_t, Py_tp_dealloc, Py_tp_new, PyASCIIObject, PyBool_Type,
++    PyBuffer_IsContiguous, PyByteArray_AsString, PyByteArray_Size, PyByteArray_Type,
+     PyBytes_FromStringAndSize, PyBytes_Type, PyCFunction_NewEx, PyCapsule_Import,
+     PyCompactUnicodeObject, PyDateTime_CAPI, PyDateTime_DATE_GET_HOUR,
+     PyDateTime_DATE_GET_MICROSECOND, PyDateTime_DATE_GET_MINUTE, PyDateTime_DATE_GET_SECOND,
+@@ -89,9 +88,9 @@ pub(crate) use pyo3_ffi::{
+     PyModule_AddObject, PyModuleDef, PyModuleDef_HEAD_INIT, PyModuleDef_Init, PyModuleDef_Slot,
+     PyObject, PyObject_CallFunctionObjArgs, PyObject_CallMethodObjArgs, PyObject_GenericGetDict,
+     PyObject_GetAttr, PyObject_HasAttr, PyObject_Hash, PyObject_Vectorcall, PyTuple_New,
+-    PyTuple_Type, PyTupleObject, PyType_Ready, PyType_Type, PyTypeObject, PyUnicode_AsUTF8AndSize,
+-    PyUnicode_FromStringAndSize, PyUnicode_InternFromString, PyUnicode_New, PyUnicode_Type,
+-    PyVarObject, PyVectorcall_NARGS,
++    PyTuple_Type, PyTupleObject, PyType_FromSpec, PyType_Slot, PyType_Spec, PyTypeObject,
++    PyUnicode_AsUTF8AndSize, PyUnicode_FromStringAndSize, PyUnicode_InternFromString,
++    PyUnicode_New, PyUnicode_Type, PyVarObject, PyVectorcall_NARGS,
+ };
+ 
+ #[allow(unused_imports, deprecated)]
+diff --git a/src/ffi/numpy/datetime.rs b/src/ffi/numpy/datetime.rs
+index 97dc8af70615599d718b75c19c290d1011f2d30d..ab3104a39303e8ef1660d72356b175d277450264 100644
+--- a/src/ffi/numpy/datetime.rs
++++ b/src/ffi/numpy/datetime.rs
+@@ -1,7 +1,7 @@
+ // SPDX-License-Identifier: (Apache-2.0 OR MIT)
+ // Copyright ijl (2022-2026), Ben Sully (2021)
+ 
+-use crate::ffi::{PyListRef, PyObject, PyStrRef, PyTupleRef};
++use crate::ffi::{Py_DECREF, PyListRef, PyObject, PyObject_GetAttr, PyStrRef, PyTupleRef};
+ use crate::opt::Opt;
+ use crate::typeref::{DESCR_STR, DTYPE_STR};
+ use jiff::Timestamp;
+@@ -85,8 +85,8 @@ impl NumpyDatetimeUnit {
+     #[cold]
+     #[inline(never)]
+     pub fn from_pyobject(ptr: *mut PyObject) -> Self {
+-        let dtype = ffi!(PyObject_GetAttr(ptr, DTYPE_STR));
+-        let descr = ffi!(PyObject_GetAttr(dtype, DESCR_STR));
++        let dtype = unsafe { PyObject_GetAttr(ptr, DTYPE_STR) };
++        let descr = unsafe { PyObject_GetAttr(dtype, DESCR_STR) };
+         let el0 = unsafe { PyListRef::from_ptr_unchecked(descr).get(0) };
+         let descr_str = unsafe { PyTupleRef::from_ptr_unchecked(el0).get(1) };
+         match PyStrRef::from_ptr(descr_str) {
+@@ -115,8 +115,10 @@ impl NumpyDatetimeUnit {
+                             "generic" => Self::Generic,
+                             _ => unreachable!(),
+                         };
+-                        ffi!(Py_DECREF(dtype));
+-                        ffi!(Py_DECREF(descr));
++                        unsafe {
++                            Py_DECREF(dtype);
++                            Py_DECREF(descr);
++                        };
+                         ret
+                     }
+                     None => Self::NaT,
+diff --git a/src/ffi/pyboolref.rs b/src/ffi/pyboolref.rs
+index 73eff9de3e422d23b7648c301308260d8088af56..bf780a195d0f6e0e33e491404a6b47f4771e0cea 100644
+--- a/src/ffi/pyboolref.rs
++++ b/src/ffi/pyboolref.rs
+@@ -21,7 +21,7 @@ impl PyBoolRef {
+     pub(crate) unsafe fn from_ptr_unchecked(ptr: *mut pyo3_ffi::PyObject) -> Self {
+         unsafe {
+             debug_assert!(!ptr.is_null());
+-            debug_assert!(ob_type!(ptr) == crate::typeref::BOOL_TYPE);
++            debug_assert!(crate::ffi::PyObject_Type(ptr) == crate::typeref::BOOL_TYPE);
+             Self {
+                 ptr: core::ptr::NonNull::new_unchecked(ptr),
+             }
+diff --git a/src/ffi/pybytearrayref.rs b/src/ffi/pybytearrayref.rs
+index 403c85108fd1df7f08fdf524aea4bb55367aec43..b873ed39b7834a8666a6af38956e7c76e6d6eeec 100644
+--- a/src/ffi/pybytearrayref.rs
++++ b/src/ffi/pybytearrayref.rs
+@@ -25,7 +25,7 @@ impl PyByteArrayRef {
+     pub fn from_ptr(ptr: *mut pyo3_ffi::PyObject) -> Result<Self, PyByteArrayRefError> {
+         unsafe {
+             debug_assert!(!ptr.is_null());
+-            if ob_type!(ptr) == &raw mut crate::ffi::PyByteArray_Type {
++            if crate::ffi::PyObject_Type(ptr) == &raw mut crate::ffi::PyByteArray_Type {
+                 Ok(Self {
+                     ptr: core::ptr::NonNull::new_unchecked(ptr),
+                 })
+diff --git a/src/ffi/pybytesref.rs b/src/ffi/pybytesref.rs
+index 3accbc92f20fa6d39f859f33e8d311c6dacbff93..d4f9e1d6044dcf7d6e2debb5a005852049139820 100644
+--- a/src/ffi/pybytesref.rs
++++ b/src/ffi/pybytesref.rs
+@@ -25,7 +25,7 @@ impl PyBytesRef {
+     pub fn from_ptr(ptr: *mut pyo3_ffi::PyObject) -> Result<Self, PyBytesRefError> {
+         unsafe {
+             debug_assert!(!ptr.is_null());
+-            if ob_type!(ptr) == crate::typeref::BYTES_TYPE {
++            if crate::ffi::PyObject_Type(ptr) == crate::typeref::BYTES_TYPE {
+                 Ok(Self {
+                     ptr: core::ptr::NonNull::new_unchecked(ptr),
+                 })
+diff --git a/src/ffi/pydictref.rs b/src/ffi/pydictref.rs
+index f1be092e251fc6dfaf1abfa01f97ef32c593aa04..e9d42be185650c25d0217abf5929db11fb89b903 100644
+--- a/src/ffi/pydictref.rs
++++ b/src/ffi/pydictref.rs
+@@ -2,7 +2,7 @@
+ // Copyright ijl (2025-2026)
+ 
+ #[allow(unused)]
+-use super::Py_TPFLAGS_DICT_SUBCLASS;
++use super::{Py_TPFLAGS_DICT_SUBCLASS, PyType_GetFlags};
+ 
+ #[derive(Clone)]
+ #[repr(transparent)]
+@@ -52,8 +52,11 @@ impl PyDictRef {
+         unsafe {
+             debug_assert!(!ptr.is_null());
+             debug_assert!(
+-                ob_type!(ptr) == crate::typeref::DICT_TYPE
+-                    || is_subclass_by_flag!(tp_flags!(ob_type!(ptr)), Py_TPFLAGS_DICT_SUBCLASS)
++                crate::ffi::PyObject_Type(ptr) == crate::typeref::DICT_TYPE
++                    || is_subclass_by_flag!(
++                        PyType_GetFlags(crate::ffi::PyObject_Type(ptr)),
++                        Py_TPFLAGS_DICT_SUBCLASS
++                    )
+             );
+             Self {
+                 ptr: core::ptr::NonNull::new_unchecked(ptr),
+@@ -81,7 +84,7 @@ impl PyDictRef {
+     #[cfg(CPython)]
+     #[inline]
+     pub fn set(&mut self, key: crate::ffi::PyStrRef, value: *mut crate::ffi::PyObject) {
+-        debug_assert!(ffi!(Py_REFCNT(self.as_ptr())) == 1);
++        debug_assert!(unsafe { crate::ffi::Py_REFCNT(self.as_ptr()) == 1 });
+         debug_assert!(key.hash() != -1);
+         #[cfg(not(Py_3_13))]
+         unsafe {
+diff --git a/src/ffi/pyfloatref.rs b/src/ffi/pyfloatref.rs
+index 1107dc1ca7077d1d5532af784f11e7f211b9da6e..f1f80e83e14ab8f083aa7d8672df636a02afe55d 100644
+--- a/src/ffi/pyfloatref.rs
++++ b/src/ffi/pyfloatref.rs
+@@ -21,7 +21,7 @@ impl PyFloatRef {
+     pub(crate) unsafe fn from_ptr_unchecked(ptr: *mut pyo3_ffi::PyObject) -> Self {
+         unsafe {
+             debug_assert!(!ptr.is_null());
+-            debug_assert!(ob_type!(ptr) == crate::typeref::FLOAT_TYPE);
++            debug_assert!(crate::ffi::PyObject_Type(ptr) == crate::typeref::FLOAT_TYPE);
+             Self {
+                 ptr: core::ptr::NonNull::new_unchecked(ptr),
+             }
+diff --git a/src/ffi/pyfragmentref.rs b/src/ffi/pyfragmentref.rs
+index d645b9b52845ace87a709f344ff98bfba96f8717..a6383885fc228701812ff5338fb5cdf8cac24ccb 100644
+--- a/src/ffi/pyfragmentref.rs
++++ b/src/ffi/pyfragmentref.rs
+@@ -27,7 +27,7 @@ impl PyFragmentRef {
+     pub(crate) unsafe fn from_ptr_unchecked(ptr: *mut pyo3_ffi::PyObject) -> Self {
+         unsafe {
+             debug_assert!(!ptr.is_null());
+-            debug_assert!(ob_type!(ptr) == crate::typeref::FRAGMENT_TYPE);
++            debug_assert!(crate::ffi::PyObject_Type(ptr) == crate::typeref::FRAGMENT_TYPE);
+             Self {
+                 ptr: core::ptr::NonNull::new_unchecked(ptr),
+             }
+diff --git a/src/ffi/pyintref.rs b/src/ffi/pyintref.rs
+index cfd222baddb86699e680b3e1a62289b458a3eafe..ad8775a994fc33ec499075a192b48b2a4dc0a32f 100644
+--- a/src/ffi/pyintref.rs
++++ b/src/ffi/pyintref.rs
+@@ -2,7 +2,7 @@
+ // Copyright ijl (2023-2026)
+ 
+ #[allow(unused)]
+-use super::Py_TPFLAGS_LONG_SUBCLASS;
++use super::{Py_TPFLAGS_LONG_SUBCLASS, PyType_GetFlags};
+ use super::{PyLong_FromLongLong, PyLong_FromUnsignedLongLong, PyObject};
+ use crate::opt::{MAX_OPT, Opt};
+ 
+@@ -79,7 +79,7 @@ impl PyIntRef {
+     pub fn from_ptr(ptr: *mut pyo3_ffi::PyObject) -> Result<Self, PyIntError> {
+         unsafe {
+             debug_assert!(!ptr.is_null());
+-            if ob_type!(ptr) == crate::typeref::INT_TYPE {
++            if crate::ffi::PyObject_Type(ptr) == crate::typeref::INT_TYPE {
+                 Ok(Self {
+                     ptr: core::ptr::NonNull::new_unchecked(ptr),
+                 })
+@@ -93,8 +93,11 @@ impl PyIntRef {
+         unsafe {
+             debug_assert!(!ptr.is_null());
+             debug_assert!(
+-                ob_type!(ptr) == crate::typeref::INT_TYPE
+-                    || is_subclass_by_flag!(tp_flags!(ob_type!(ptr)), Py_TPFLAGS_LONG_SUBCLASS)
++                crate::ffi::PyObject_Type(ptr) == crate::typeref::INT_TYPE
++                    || is_subclass_by_flag!(
++                        PyType_GetFlags(crate::ffi::PyObject_Type(ptr)),
++                        Py_TPFLAGS_LONG_SUBCLASS
++                    )
+             );
+             Self {
+                 ptr: core::ptr::NonNull::new_unchecked(ptr),
+@@ -188,7 +191,9 @@ impl PyIntRef {
+             if ret == -1 {
+                 cold_path!();
+                 #[cfg(not(Py_3_13))]
+-                ffi!(PyErr_Clear());
++                unsafe {
++                    crate::ffi::PyErr_Clear()
++                };
+                 Err(PyIntError::Exceeds64Bit)
+             } else {
+                 Ok(buffer)
+@@ -221,10 +226,10 @@ impl PyIntRef {
+     #[cfg(not(feature = "inline_int"))]
+     #[inline]
+     pub unsafe fn as_i64(&self) -> Result<i64, PyIntError> {
+-        let ival = ffi!(PyLong_AsLongLong(self.as_ptr()));
+-        if ival == -1 && !ffi!(PyErr_Occurred()).is_null() {
++        let ival = unsafe { crate::ffi::PyLong_AsLongLong(self.as_ptr()) };
++        if ival == -1 && unsafe { !crate::ffi::PyErr_Occurred().is_null() } {
+             cold_path!();
+-            ffi!(PyErr_Clear());
++            unsafe { crate::ffi::PyErr_Clear() };
+             Err(PyIntError::NotSigned)
+         } else {
+             Ok(ival)
+@@ -234,8 +239,8 @@ impl PyIntRef {
+     #[cfg(not(feature = "inline_int"))]
+     #[inline]
+     pub unsafe fn as_u64(&self) -> Result<u64, PyIntError> {
+-        let uval = ffi!(PyLong_AsUnsignedLongLong(self.as_ptr()));
+-        if uval == u64::MAX && !ffi!(PyErr_Occurred()).is_null() {
++        let uval = unsafe { crate::ffi::PyLong_AsUnsignedLongLong(self.as_ptr()) };
++        if uval == u64::MAX && unsafe { !crate::ffi::PyErr_Occurred().is_null() } {
+             cold_path!();
+             Err(PyIntError::Exceeds64Bit)
+         } else {
+diff --git a/src/ffi/pylistref.rs b/src/ffi/pylistref.rs
+index 43cbb00a169f1f025397c4300a865dafe66a101b..0ad1719cf1f57892920973144f01e968f91f234e 100644
+--- a/src/ffi/pylistref.rs
++++ b/src/ffi/pylistref.rs
+@@ -22,8 +22,11 @@ impl PyListRef {
+         unsafe {
+             debug_assert!(!ptr.is_null());
+             debug_assert!(
+-                is_type!(ob_type!(ptr), crate::typeref::LIST_TYPE)
+-                    || is_subclass_by_flag!(tp_flags!(ob_type!(ptr)), Py_TPFLAGS_LIST_SUBCLASS)
++                is_type!(crate::ffi::PyObject_Type(ptr), crate::typeref::LIST_TYPE)
++                    || is_subclass_by_flag!(
++                        crate::ffi::PyType_GetFlags(crate::ffi::PyObject_Type(ptr)),
++                        Py_TPFLAGS_LIST_SUBCLASS
++                    )
+             );
+             Self {
+                 ptr: core::ptr::NonNull::new_unchecked(ptr),
+diff --git a/src/ffi/pymemoryview.rs b/src/ffi/pymemoryview.rs
+index 0e786458083ce92eb625afaca07609f0d98144e7..90b463cd52f346ea839e2ed5da511a9ab359dfcf 100644
+--- a/src/ffi/pymemoryview.rs
++++ b/src/ffi/pymemoryview.rs
+@@ -30,12 +30,10 @@ impl PyMemoryViewRef {
+     pub fn from_ptr(ptr: *mut pyo3_ffi::PyObject) -> Result<Self, PyMemoryViewRefError> {
+         unsafe {
+             debug_assert!(!ptr.is_null());
+-            if ob_type!(ptr) == &raw mut crate::ffi::PyMemoryView_Type {
+-                let membuf = unsafe { crate::ffi::PyMemoryView_GET_BUFFER(ptr) };
++            if crate::ffi::PyObject_Type(ptr) == &raw mut crate::ffi::PyMemoryView_Type {
++                let membuf = crate::ffi::PyMemoryView_GET_BUFFER(ptr);
+                 #[allow(clippy::cast_possible_wrap)]
+-                if unsafe {
+-                    crate::ffi::PyBuffer_IsContiguous(membuf, b'C' as core::ffi::c_char) == 0
+-                } {
++                if crate::ffi::PyBuffer_IsContiguous(membuf, b'C' as core::ffi::c_char) == 0 {
+                     return Err(PyMemoryViewRefError::NotCContiguous);
+                 }
+                 Ok(Self {
+@@ -52,7 +50,7 @@ impl PyMemoryViewRef {
+     pub fn from_ptr(ptr: *mut pyo3_ffi::PyObject) -> Result<Self, PyMemoryViewRefError> {
+         unsafe {
+             debug_assert!(!ptr.is_null());
+-            if ob_type!(ptr) == &raw mut crate::ffi::PyMemoryView_Type {
++            if crate::ffi::PyObject_Type(ptr) == &raw mut crate::ffi::PyMemoryView_Type {
+                 Err(PyMemoryViewRefError::NotSupported)
+             } else {
+                 Err(PyMemoryViewRefError::NotType)
+diff --git a/src/ffi/pynoneref.rs b/src/ffi/pynoneref.rs
+index fa705e9b0628eccee739660e855bb47c14442c6f..0815e7fd4f1a358fb8ad86dd67bd5b613cc690bc 100644
+--- a/src/ffi/pynoneref.rs
++++ b/src/ffi/pynoneref.rs
+@@ -22,7 +22,7 @@ impl PyNoneRef {
+     pub(crate) unsafe fn from_ptr_unchecked(ptr: *mut pyo3_ffi::PyObject) -> Self {
+         unsafe {
+             debug_assert!(!ptr.is_null());
+-            debug_assert!(ob_type!(ptr) == crate::typeref::NONE_TYPE);
++            debug_assert!(crate::ffi::PyObject_Type(ptr) == crate::typeref::NONE_TYPE);
+             Self {
+                 ptr: core::ptr::NonNull::new_unchecked(ptr),
+             }
+diff --git a/src/ffi/pystrref/object.rs b/src/ffi/pystrref/object.rs
+index 17fadd7c300d18c495a4163f0cf52b58c08022ba..69f8d4da43d67ecc037dda7526933f535ad4f056 100644
+--- a/src/ffi/pystrref/object.rs
++++ b/src/ffi/pystrref/object.rs
+@@ -2,7 +2,10 @@
+ // Copyright ijl (2025-2026)
+ 
+ #[allow(unused)]
+-use crate::ffi::{Py_HashBuffer, Py_ssize_t, PyASCIIObject, PyCompactUnicodeObject, PyObject};
++use crate::ffi::{
++    Py_HashBuffer, Py_SIZE, Py_ssize_t, PyASCIIObject, PyCompactUnicodeObject, PyObject,
++    PyUnicode_AsUTF8AndSize,
++};
+ #[cfg(all(CPython, not(feature = "inline_str")))]
+ use crate::ffi::{PyUnicode_DATA, PyUnicode_KIND};
+ use crate::typeref::{EMPTY_UNICODE, STR_TYPE};
+@@ -10,7 +13,7 @@ use core::ptr::NonNull;
+ 
+ fn to_str_via_ffi(op: *mut PyObject) -> Option<&'static str> {
+     let mut str_size: Py_ssize_t = 0;
+-    let ptr = ffi!(PyUnicode_AsUTF8AndSize(op, &raw mut str_size)).cast::<u8>();
++    let ptr = unsafe { PyUnicode_AsUTF8AndSize(op, &raw mut str_size).cast::<u8>() };
+     if ptr.is_null() {
+         cold_path!();
+         None
+@@ -73,7 +76,7 @@ impl PyStrRef {
+     pub fn from_ptr(ptr: *mut pyo3_ffi::PyObject) -> Result<Self, PyStrRefError> {
+         unsafe {
+             debug_assert!(!ptr.is_null());
+-            if ob_type!(ptr) == crate::typeref::STR_TYPE {
++            if crate::ffi::PyObject_Type(ptr) == crate::typeref::STR_TYPE {
+                 Ok(Self {
+                     ptr: core::ptr::NonNull::new_unchecked(ptr),
+                 })
+@@ -88,7 +91,7 @@ impl PyStrRef {
+     pub unsafe fn from_ptr_unchecked(ptr: *mut pyo3_ffi::PyObject) -> Self {
+         unsafe {
+             debug_assert!(!ptr.is_null());
+-            debug_assert!(ob_type!(ptr) == crate::typeref::STR_TYPE);
++            debug_assert!(crate::ffi::PyObject_Type(ptr) == crate::typeref::STR_TYPE);
+             Self {
+                 ptr: core::ptr::NonNull::new_unchecked(ptr),
+             }
+@@ -160,10 +163,7 @@ impl PyStrRef {
+     #[cfg(CPython)]
+     #[allow(unused)]
+     pub fn hash(&self) -> crate::ffi::Py_hash_t {
+-        unsafe {
+-            debug_assert!((*self.as_ptr().cast::<PyASCIIObject>()).hash != -1);
+-            (*self.as_ptr().cast::<PyASCIIObject>()).hash
+-        }
++        unsafe { crate::ffi::PyUnstable_Unicode_GET_CACHED_HASH(self.as_ptr()) }
+     }
+ 
+     #[cfg(feature = "inline_str")]
+@@ -192,7 +192,7 @@ impl PyStrRef {
+         unsafe {
+             let data_ptr = PyUnicode_DATA(self.as_ptr());
+             #[allow(clippy::cast_possible_wrap)]
+-            let num_bytes = PyUnicode_KIND(self.as_ptr()) as isize * ffi!(Py_SIZE(self.as_ptr()));
++            let num_bytes = PyUnicode_KIND(self.as_ptr()) as isize * Py_SIZE(self.as_ptr());
+             let hash = Py_HashBuffer(data_ptr, num_bytes);
+             (*self.as_ptr().cast::<PyASCIIObject>()).hash = hash;
+             debug_assert!(self.hash() != -1);
+@@ -236,8 +236,8 @@ pub(crate) struct PyStrSubclassRef {
+ 
+ impl PyStrSubclassRef {
+     pub unsafe fn from_ptr_unchecked(ptr: *mut PyObject) -> PyStrSubclassRef {
+-        let ob_type = ob_type!(ptr);
+-        let tp_flags = tp_flags!(ob_type);
++        let ob_type = unsafe { crate::ffi::PyObject_Type(ptr) };
++        let tp_flags = unsafe { crate::ffi::PyType_GetFlags(ob_type) };
+         debug_assert!(!ptr.is_null());
+         debug_assert!(!is_class_by_type!(ob_type, STR_TYPE));
+         debug_assert!(is_subclass_by_flag!(tp_flags, Py_TPFLAGS_UNICODE_SUBCLASS));
+diff --git a/src/ffi/pystrref/pyunicode_new.rs b/src/ffi/pystrref/pyunicode_new.rs
+index 3da702883d14d4395f587cd3afc2ec41f6dda6f7..038c00f3409c2b115aa31619eda8e5348b6013d2 100644
+--- a/src/ffi/pystrref/pyunicode_new.rs
++++ b/src/ffi/pystrref/pyunicode_new.rs
+@@ -6,10 +6,8 @@ use crate::util::usize_to_isize;
+ 
+ macro_rules! validate_str {
+     ($ptr:expr) => {
+-        #[cfg(CPython)]
+-        unsafe {
+-            debug_assert!(pyo3_ffi::_PyUnicode_CheckConsistency($ptr.cast::<PyObject>(), 1) == 1)
+-        };
++        #[cfg(all(CPython, not(Py_LIMITED_ABI)))]
++        debug_assert!(pyo3_ffi::_PyUnicode_CheckConsistency($ptr.cast::<PyObject>(), 1) == 1)
+     };
+ }
+ 
+diff --git a/src/ffi/pytupleref.rs b/src/ffi/pytupleref.rs
+index 7a788febf6f46101331380c0db8785f035f8262b..c6dbd11f84a41b2d69de73e6738de1fcc450d437 100644
+--- a/src/ffi/pytupleref.rs
++++ b/src/ffi/pytupleref.rs
+@@ -31,8 +31,11 @@ impl PyTupleRef {
+         unsafe {
+             debug_assert!(!ptr.is_null());
+             debug_assert!(
+-                is_type!(ob_type!(ptr), crate::typeref::TUPLE_TYPE)
+-                    || is_subclass_by_flag!(tp_flags!(ob_type!(ptr)), Py_TPFLAGS_TUPLE_SUBCLASS)
++                is_type!(crate::ffi::PyObject_Type(ptr), crate::typeref::TUPLE_TYPE)
++                    || is_subclass_by_flag!(
++                        crate::ffi::PyType_GetFlags(crate::ffi::PyObject_Type(ptr)),
++                        Py_TPFLAGS_TUPLE_SUBCLASS
++                    )
+             );
+             Self {
+                 ptr: core::ptr::NonNull::new_unchecked(ptr),
+diff --git a/src/ffi/pyuuidref.rs b/src/ffi/pyuuidref.rs
+index 004ddfdde5488191b7e3d35ad4e5f2ece5bf1425..400ec337ba5247655337e7ea40bab31d209c8210 100644
+--- a/src/ffi/pyuuidref.rs
++++ b/src/ffi/pyuuidref.rs
+@@ -23,7 +23,7 @@ impl PyUuidRef {
+     pub(crate) unsafe fn from_ptr_unchecked(ptr: *mut pyo3_ffi::PyObject) -> Self {
+         unsafe {
+             debug_assert!(!ptr.is_null());
+-            debug_assert!(ob_type!(ptr) == crate::typeref::UUID_TYPE);
++            debug_assert!(crate::ffi::PyObject_Type(ptr) == crate::typeref::UUID_TYPE);
+             Self {
+                 ptr: core::ptr::NonNull::new_unchecked(ptr),
+             }
+diff --git a/src/lib.rs b/src/lib.rs
+index 03ab886bb08b47806670b2a30d8545754f2c93da..b31d662ad2b2f80b96bde4fd7a7b0bcf11545dae 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1,19 +1,21 @@
+ // SPDX-License-Identifier: MPL-2.0
+ // Copyright ijl (2018-2026)
+ 
+-#![cfg_attr(feature = "optimize", feature(optimize_attribute))]
+-#![cfg_attr(feature = "generic_simd", feature(portable_simd))]
+ #![cfg_attr(feature = "cold_path", feature(cold_path))]
+-#![allow(non_camel_case_types)]
++#![cfg_attr(feature = "generic_simd", feature(portable_simd))]
++#![cfg_attr(feature = "optimize", feature(optimize_attribute))]
++#![allow(unused_features)] // portable_simd on universal2 cross-compile
++#![allow(stable_features)] // MSRV 1.95, cold_path
+ #![allow(static_mut_refs)]
+ #![allow(unused_unsafe)]
+-#![warn(clippy::correctness)]
+-#![warn(clippy::suspicious)]
+ #![warn(clippy::complexity)]
++#![warn(clippy::correctness)]
+ #![warn(clippy::perf)]
+ #![warn(clippy::style)]
+-#![allow(clippy::inline_always)]
++#![warn(clippy::suspicious)]
+ #![allow(clippy::explicit_iter_loop)]
++#![allow(clippy::inline_always)]
++#![allow(clippy::missing_safety_doc)]
+ #![allow(clippy::redundant_field_names)]
+ #![allow(clippy::upper_case_acronyms)]
+ #![allow(clippy::zero_prefixed_literal)]
+@@ -61,8 +63,9 @@ use crate::exception::{
+ };
+ use crate::ffi::{
+     METH_KEYWORDS, METH_O, Py_SIZE, Py_ssize_t, PyCFunction_NewEx, PyIntRef, PyMethodDef,
+-    PyMethodDefPointer, PyModuleDef, PyModuleDef_HEAD_INIT, PyModuleDef_Slot, PyNoneRef, PyObject,
+-    PyTupleRef, PyUnicode_FromStringAndSize, PyUnicode_InternFromString, PyVectorcall_NARGS,
++    PyMethodDefPointer, PyModuleDef, PyModuleDef_HEAD_INIT, PyModuleDef_Init, PyModuleDef_Slot,
++    PyNoneRef, PyObject, PyTupleRef, PyUnicode_FromStringAndSize, PyUnicode_InternFromString,
++    PyVectorcall_NARGS,
+ };
+ use crate::serialize::serialize;
+ use crate::util::{isize_to_usize, usize_to_isize};
+@@ -179,14 +182,8 @@ pub(crate) unsafe extern "C" fn orjson_init_exec(mptr: *mut PyObject) -> c_int {
+ #[cold]
+ #[cfg_attr(feature = "optimize", optimize(size))]
+ pub(crate) unsafe extern "C" fn PyInit_orjson() -> *mut PyModuleDef {
+-    #[cfg(not(Py_3_12))]
+-    const PYMODULEDEF_LEN: usize = 2;
+-    #[cfg(all(Py_3_12, not(Py_3_13)))]
+-    const PYMODULEDEF_LEN: usize = 3;
+-    #[cfg(Py_3_13)]
+-    const PYMODULEDEF_LEN: usize = 4;
+     unsafe {
+-        let mod_slots: Box<[PyModuleDef_Slot; PYMODULEDEF_LEN]> = Box::new([
++        let mod_slots = Box::new([
+             PyModuleDef_Slot {
+                 slot: crate::ffi::Py_mod_exec,
+                 #[allow(clippy::fn_to_numeric_cast_any, clippy::as_conversions)]
+@@ -220,7 +217,7 @@ pub(crate) unsafe extern "C" fn PyInit_orjson() -> *mut PyModuleDef {
+             m_free: None,
+         });
+         let init_ptr = Box::into_raw(init);
+-        ffi!(PyModuleDef_Init(init_ptr));
++        PyModuleDef_Init(init_ptr);
+         init_ptr
+     }
+ }
+@@ -233,14 +230,14 @@ pub(crate) unsafe extern "C" fn loads(_self: *mut PyObject, obj: *mut PyObject)
+ #[cfg(CPython)]
+ macro_rules! matches_kwarg {
+     ($val:expr, $ref:expr) => {
+-        unsafe { core::ptr::eq($val, $ref) }
++        core::ptr::eq($val, $ref)
+     };
+ }
+ 
+ #[cfg(not(CPython))]
+ macro_rules! matches_kwarg {
+     ($val:expr, $ref:expr) => {
+-        unsafe { crate::ffi::PyObject_Hash($val) == crate::ffi::PyObject_Hash($ref) }
++        crate::ffi::PyObject_Hash($val) == crate::ffi::PyObject_Hash($ref)
+     };
+ }
+ 
+diff --git a/src/serialize/datetime.rs b/src/serialize/datetime.rs
+index eb8446f4f2d4927707525c626fe0b14a2d3fe84c..028d775de8b5c5e18ee015efff9d0eebd48163ec 100644
+--- a/src/serialize/datetime.rs
++++ b/src/serialize/datetime.rs
+@@ -49,9 +49,9 @@ where
+         }
+         write_integer_u32(buf, year);
+         buf.put_u8(b'-');
+-        write_double_digit!(buf, ob.month() as u32);
++        write_double_digit!(buf, ob.month());
+         buf.put_u8(b'-');
+-        write_double_digit!(buf, ob.day() as u32);
++        write_double_digit!(buf, ob.day());
+     }
+ }
+ 
+@@ -78,7 +78,7 @@ where
+                 buf.put_u8(b'0');
+             }
+         }
+-        write_integer_u32(buf, year as u32);
++        write_integer_u32(buf, year.cast_unsigned());
+     }
+     buf.put_u8(b'-');
+     write_double_digit!(buf, ob.month() as u32);
+@@ -119,7 +119,7 @@ where
+                     }
+                     let offset_minute = offset_second / 60;
+                     let offset_hour = offset_minute / 60;
+-                    write_double_digit!(buf, offset_hour as u32);
++                    write_double_digit!(buf, offset_hour.cast_unsigned());
+                     buf.put_u8(b':');
+                     let mut offset_minute_print = offset_minute % 60;
+                     // https://tools.ietf.org/html/rfc3339#section-5.8
+@@ -131,7 +131,7 @@ where
+                     if offset_excess_second >= 30 {
+                         offset_minute_print += 1;
+                     }
+-                    write_double_digit!(buf, offset_minute_print as u32);
++                    write_double_digit!(buf, offset_minute_print.cast_unsigned());
+                 }
+             }
+             None => {
+diff --git a/src/serialize/error.rs b/src/serialize/error.rs
+index a233649128bc5c9302c91a3a628d5dbda9be0d72..ee207bf33b3bf9133f8d6dc54a6d2db9beab7b04 100644
+--- a/src/serialize/error.rs
++++ b/src/serialize/error.rs
+@@ -67,8 +67,10 @@ impl core::fmt::Display for SerializeError {
+                 write!(f, "{}", msg.as_str().unwrap())
+             }
+             SerializeError::UnsupportedType(ptr) => {
+-                let name =
+-                    unsafe { CStr::from_ptr((*ob_type!(ptr.as_ptr())).tp_name).to_string_lossy() };
++                let name = unsafe {
++                    CStr::from_ptr((*crate::ffi::PyObject_Type(ptr.as_ptr())).tp_name)
++                        .to_string_lossy()
++                };
+                 write!(f, "Type is not JSON serializable: {name}")
+             }
+         }
+diff --git a/src/serialize/mod.rs b/src/serialize/mod.rs
+index d34865c0e0e2e508634d33bf7b1df00ff78a3e44..84796b27706e0382831f59d2cf43040b515a5862 100644
+--- a/src/serialize/mod.rs
++++ b/src/serialize/mod.rs
+@@ -1,7 +1,6 @@
+ // SPDX-License-Identifier: MPL-2.0
+ // Copyright ijl (2021-2026)
+ 
+-mod buffer;
+ pub(crate) mod datetime;
+ mod error;
+ mod numpy;
+@@ -12,3 +11,4 @@ mod state;
+ pub(crate) mod writer;
+ 
+ pub(crate) use serializer::serialize;
++pub(crate) use writer::set_str_formatter_fn;
+diff --git a/src/serialize/non_str.rs b/src/serialize/non_str.rs
+index 3e632cf48b81cad982b39eada7eea768357ad37d..aef782f542905e8939c1e32bff3b984b541dd50f 100644
+--- a/src/serialize/non_str.rs
++++ b/src/serialize/non_str.rs
+@@ -8,7 +8,6 @@ use crate::serialize::{
+     datetime::{write_date, write_datetime, write_time},
+     error::SerializeError,
+     obtype::ObType,
+-    uuid::write_uuid,
+     writer::{
+         SmallFixedBuffer, pyobject_to_obtype, write_float64, write_integer_i64, write_integer_u64,
+     },
+@@ -60,7 +59,7 @@ fn non_str_time(key: PyTimeRef, opts: crate::opt::Opt) -> Result<String, Seriali
+ #[allow(clippy::unnecessary_wraps)]
+ fn non_str_uuid(key: PyUuidRef) -> Result<String, SerializeError> {
+     let mut buf = SmallFixedBuffer::new();
+-    write_uuid(key, &mut buf);
++    UUID::new(key).write_buf(&mut buf);
+     Ok(buf.to_string())
+ }
+ 
+@@ -73,12 +72,12 @@ fn non_str_float(ob: PyFloatRef) -> Result<String, SerializeError> {
+ 
+ #[allow(clippy::unnecessary_wraps)]
+ fn non_str_int(key: *mut crate::ffi::PyObject) -> Result<String, SerializeError> {
+-    let ival = ffi!(PyLong_AsLongLong(key));
+-    if ival == -1 && !ffi!(PyErr_Occurred()).is_null() {
++    let ival = unsafe { crate::ffi::PyLong_AsLongLong(key) };
++    if ival == -1 && unsafe { !crate::ffi::PyErr_Occurred().is_null() } {
+         cold_path!();
+-        ffi!(PyErr_Clear());
+-        let uval = ffi!(PyLong_AsUnsignedLongLong(key));
+-        if uval == u64::MAX && !ffi!(PyErr_Occurred()).is_null() {
++        unsafe { crate::ffi::PyErr_Clear() };
++        let uval = unsafe { crate::ffi::PyLong_AsUnsignedLongLong(key) };
++        if uval == u64::MAX && unsafe { !crate::ffi::PyErr_Occurred().is_null() } {
+             cold_path!();
+             return Err(SerializeError::DictIntegerKey64Bit);
+         }
+@@ -115,10 +114,10 @@ pub(crate) fn pyobject_to_string(
+             ObType::Time => non_str_time(PyTimeRef::from_ptr_unchecked(key), opts),
+             ObType::Uuid => non_str_uuid(PyUuidRef::from_ptr_unchecked(key)),
+             ObType::Enum => {
+-                let value = ffi!(PyObject_GetAttr(key, VALUE_STR));
+-                debug_assert!(ffi!(Py_REFCNT(value)) >= 2);
++                let value = unsafe { crate::ffi::PyObject_GetAttr(key, VALUE_STR) };
++                debug_assert!(unsafe { crate::ffi::Py_REFCNT(value) >= 2 });
+                 let ret = pyobject_to_string(value, opts);
+-                ffi!(Py_DECREF(value));
++                unsafe { crate::ffi::Py_DECREF(value) };
+                 ret
+             }
+             ObType::Str => non_str_str(PyStrRef::from_ptr_unchecked(key)),
+diff --git a/src/serialize/numpy/array.rs b/src/serialize/numpy/array.rs
+index 8c709cca720ea72cea6d90e4ffdf23b92ea45a9f..47684d79b086c5905f23a5ecc78d26d05d87a309 100644
+--- a/src/serialize/numpy/array.rs
++++ b/src/serialize/numpy/array.rs
+@@ -3,8 +3,8 @@
+ 
+ use super::item::ItemType;
+ use crate::ffi::{
+-    NPY_ARRAY_C_CONTIGUOUS, NPY_ARRAY_NOTSWAPPED, NumpyDatetimeUnit, PyArrayInterface, PyCapsule,
+-    PyObject,
++    NPY_ARRAY_C_CONTIGUOUS, NPY_ARRAY_NOTSWAPPED, NumpyDatetimeUnit, Py_DECREF, PyArrayInterface,
++    PyCapsule, PyObject, PyObject_GetAttr,
+ };
+ use crate::opt::Opt;
+ use crate::typeref::ARRAY_STRUCT_STR;
+@@ -47,7 +47,7 @@ impl NumpyArray {
+     #[inline(never)]
+     #[cfg_attr(feature = "optimize", optimize(size))]
+     pub fn new(ptr: *mut PyObject, opts: Opt) -> Result<Self, PyArrayError> {
+-        let capsule = ffi!(PyObject_GetAttr(ptr, ARRAY_STRUCT_STR));
++        let capsule = unsafe { PyObject_GetAttr(ptr, ARRAY_STRUCT_STR) };
+         debug_assert!(!capsule.is_null());
+         let array = unsafe {
+             (*capsule.cast::<PyCapsule>())
+@@ -56,25 +56,35 @@ impl NumpyArray {
+         };
+         debug_assert!(!array.is_null());
+         if unsafe { (*array).two != 2 } {
+-            ffi!(Py_DECREF(capsule));
++            unsafe {
++                Py_DECREF(capsule);
++            }
+             Err(PyArrayError::Malformed)
+         } else if unsafe { (*array).flags } & NPY_ARRAY_C_CONTIGUOUS != NPY_ARRAY_C_CONTIGUOUS {
+-            ffi!(Py_DECREF(capsule));
++            unsafe {
++                Py_DECREF(capsule);
++            }
+             Err(PyArrayError::NotContiguous)
+         } else if unsafe { (*array).flags } & NPY_ARRAY_NOTSWAPPED != NPY_ARRAY_NOTSWAPPED {
+-            ffi!(Py_DECREF(capsule));
++            unsafe {
++                Py_DECREF(capsule);
++            }
+             Err(PyArrayError::NotNativeEndian)
+         } else {
+             debug_assert!(unsafe { (*array).nd >= 0 });
+             #[allow(clippy::cast_sign_loss)]
+             let num_dimensions = unsafe { (*array).nd as usize };
+             if num_dimensions == 0 {
+-                ffi!(Py_DECREF(capsule));
++                unsafe {
++                    Py_DECREF(capsule);
++                }
+                 return Err(PyArrayError::UnsupportedDataType);
+             }
+             match ItemType::find(array, ptr) {
+                 None => {
+-                    ffi!(Py_DECREF(capsule));
++                    unsafe {
++                        Py_DECREF(capsule);
++                    }
+                     Err(PyArrayError::UnsupportedDataType)
+                 }
+                 Some(kind) => {
+@@ -167,8 +177,10 @@ impl NumpyArray {
+ impl Drop for NumpyArray {
+     fn drop(&mut self) {
+         if self.depth == 0 {
+-            ffi!(Py_DECREF(self.array.cast::<PyObject>()));
+-            ffi!(Py_DECREF(self.capsule.cast::<PyObject>()));
++            unsafe {
++                Py_DECREF(self.array.cast::<PyObject>());
++                Py_DECREF(self.capsule.cast::<PyObject>());
++            };
+         }
+     }
+ }
+diff --git a/src/serialize/numpy/datetime.rs b/src/serialize/numpy/datetime.rs
+index f26c6aafe371005024df3fa6ce455605ffb47a5e..2bbdde21b7836e92471be3ef7311a1757d027159 100644
+--- a/src/serialize/numpy/datetime.rs
++++ b/src/serialize/numpy/datetime.rs
+@@ -4,19 +4,18 @@
+ use crate::ffi::{NumpyDateTimeError, NumpyDatetime64Repr, PyStrRef};
+ use crate::opt::{NAIVE_UTC, OMIT_MICROSECONDS, UTC_Z};
+ use crate::serialize::{
+-    buffer::SmallFixedBuffer,
+     error::SerializeError,
+-    writer::{WriteExt, write_integer_i64, write_integer_u32},
++    writer::{SmallFixedBuffer, WriteExt, write_integer_i64, write_integer_u32},
+ };
+ 
+ pub(crate) fn datetime_into_error(val: NumpyDateTimeError) -> SerializeError {
+     let err = match val {
+-        NumpyDateTimeError::UnsupportedUnit(unit) => unsafe {
++        NumpyDateTimeError::UnsupportedUnit(unit) => {
+             let mut msg = String::from("unsupported numpy.datetime64 unit: ");
+             msg.push_str(unit.as_str());
+             msg
+-        },
+-        NumpyDateTimeError::Unrepresentable { unit, val } => unsafe {
++        }
++        NumpyDateTimeError::Unrepresentable { unit, val } => {
+             let mut buf = SmallFixedBuffer::new();
+             write_integer_i64(&mut buf, val);
+             let val_str = str_from_slice!(buf.as_ptr(), buf.len());
+@@ -26,7 +25,7 @@ pub(crate) fn datetime_into_error(val: NumpyDateTimeError) -> SerializeError {
+             msg.push(' ');
+             msg.push_str(unit.as_str());
+             msg
+-        },
++        }
+     };
+     SerializeError::NumpyUnsupportedDatetimeUnit(PyStrRef::from_str(&err))
+ }
+@@ -49,7 +48,7 @@ where
+                 buf.put_u8(b'0');
+             }
+         }
+-        write_integer_u32(buf, year as u32);
++        write_integer_u32(buf, year.cast_unsigned());
+     }
+     buf.put_u8(b'-');
+     write_double_digit!(buf, ob.month() as u32);
+@@ -65,8 +64,8 @@ where
+         let microsecond = ob.microsecond();
+         if microsecond != 0 {
+             buf.put_u8(b'.');
+-            write_triple_digit!(buf, microsecond as u32 / 1_000);
+-            write_triple_digit!(buf, microsecond as u32 % 1_000);
++            write_triple_digit!(buf, microsecond / 1_000);
++            write_triple_digit!(buf, microsecond % 1_000);
+         }
+     }
+     if opt_enabled!(ob.opts, NAIVE_UTC) {
+diff --git a/src/serialize/obtype.rs b/src/serialize/obtype.rs
+index bcf600f32489aab36e947732f51ca7d0a27cb1ee..e792c4ea23453273e955c1403f40c9d9bff1d2a3 100644
+--- a/src/serialize/obtype.rs
++++ b/src/serialize/obtype.rs
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: (Apache-2.0 OR MIT)
+-// Copyright ijl (2020-2025), Aviram Hassan (2020)
++// Copyright ijl (2020-2026), Aviram Hassan (2020)
+ 
++use crate::ffi::PyType_GetFlags;
+ use crate::opt::{
+     Opt, PASSTHROUGH_DATACLASS, PASSTHROUGH_DATETIME, PASSTHROUGH_SUBCLASS, SERIALIZE_NUMPY,
+ };
+@@ -34,7 +35,7 @@ pub(crate) enum ObType {
+ }
+ 
+ pub(crate) fn pyobject_to_obtype(obj: *mut crate::ffi::PyObject, opts: Opt) -> ObType {
+-    let ob_type = ob_type!(obj);
++    let ob_type = unsafe { crate::ffi::PyObject_Type(obj) };
+     if is_class_by_type!(ob_type, STR_TYPE) {
+         ObType::Str
+     } else if is_class_by_type!(ob_type, INT_TYPE) {
+@@ -79,7 +80,7 @@ pub(crate) fn pyobject_to_obtype_unlikely(
+         }
+     }
+ 
+-    let tp_flags = tp_flags!(ob_type);
++    let tp_flags = unsafe { PyType_GetFlags(ob_type) };
+ 
+     if opt_disabled!(opts, PASSTHROUGH_SUBCLASS) {
+         if is_subclass_by_flag!(tp_flags, Py_TPFLAGS_UNICODE_SUBCLASS) {
+diff --git a/src/serialize/per_type/dataclass.rs b/src/serialize/per_type/dataclass.rs
+index 9ac8650318d1bcb8822123d1aa909c9b62576203..2aea1eb4c50d06bea8b8e924366559e8cfe9944f 100644
+--- a/src/serialize/per_type/dataclass.rs
++++ b/src/serialize/per_type/dataclass.rs
+@@ -36,7 +36,7 @@ impl Serialize for DataclassGenericSerializer<'_> {
+             err!(SerializeError::RecursionLimit)
+         }
+         let dict = ffi!(PyObject_GetAttr(self.previous.ptr, DICT_STR));
+-        let ob_type = ob_type!(self.previous.ptr);
++        let ob_type = unsafe { crate::ffi::PyObject_Type(self.previous.ptr) };
+         if dict.is_null() {
+             cold_path!();
+             ffi!(PyErr_Clear());
+@@ -102,26 +102,30 @@ impl Serialize for DataclassFastSerializer {
+         let mut next_key: *mut crate::ffi::PyObject = core::ptr::null_mut();
+         let mut next_value: *mut crate::ffi::PyObject = core::ptr::null_mut();
+ 
+-        pydict_next!(
+-            self.ptr,
+-            &raw mut pos,
+-            &raw mut next_key,
+-            &raw mut next_value
+-        );
++        unsafe {
++            crate::ffi::PyDict_Next(
++                self.ptr,
++                &raw mut pos,
++                &raw mut next_key,
++                &raw mut next_value,
++            );
++        }
+ 
+         for _ in 0..len {
+             let key = next_key;
+             let value = next_value;
+ 
+-            pydict_next!(
+-                self.ptr,
+-                &raw mut pos,
+-                &raw mut next_key,
+-                &raw mut next_value
+-            );
++            unsafe {
++                crate::ffi::PyDict_Next(
++                    self.ptr,
++                    &raw mut pos,
++                    &raw mut next_key,
++                    &raw mut next_value,
++                );
++            }
+ 
+             let key_as_str = {
+-                let key_ob_type = ob_type!(key);
++                let key_ob_type = unsafe { crate::ffi::PyObject_Type(key) };
+                 if !is_class_by_type!(key_ob_type, STR_TYPE) {
+                     cold_path!();
+                     err!(SerializeError::KeyMustBeStr)
+@@ -184,13 +188,21 @@ impl Serialize for DataclassFallbackSerializer {
+         let mut next_key: *mut crate::ffi::PyObject = core::ptr::null_mut();
+         let mut next_value: *mut crate::ffi::PyObject = core::ptr::null_mut();
+ 
+-        pydict_next!(fields, &raw mut pos, &raw mut next_key, &raw mut next_value);
++        unsafe {
++            crate::ffi::PyDict_Next(fields, &raw mut pos, &raw mut next_key, &raw mut next_value);
++        }
+ 
+         for _ in 0..len {
+             let attr = next_key;
+             let field = next_value;
+-
+-            pydict_next!(fields, &raw mut pos, &raw mut next_key, &raw mut next_value);
++            unsafe {
++                crate::ffi::PyDict_Next(
++                    fields,
++                    &raw mut pos,
++                    &raw mut next_key,
++                    &raw mut next_value,
++                );
++            }
+ 
+             let field_type = ffi!(PyObject_GetAttr(field, FIELD_TYPE_STR));
+             debug_assert!(ffi!(Py_REFCNT(field_type)) >= 2);
+diff --git a/src/serialize/per_type/datetime.rs b/src/serialize/per_type/datetime.rs
+index 6cbda203ebacce1c73806812c8910e3976fa0708..8a3b9e6d45454d9f7038fe9c47517deb78929118 100644
+--- a/src/serialize/per_type/datetime.rs
++++ b/src/serialize/per_type/datetime.rs
+@@ -3,9 +3,9 @@
+ 
+ use crate::ffi::{PyDateRef, PyDateTimeRef, PyTimeRef};
+ use crate::opt::Opt;
+-use crate::serialize::buffer::SmallFixedBuffer;
+ use crate::serialize::datetime::{write_date, write_datetime, write_time};
+ use crate::serialize::error::SerializeError;
++use crate::serialize::writer::SmallFixedBuffer;
+ use serde::ser::{Serialize, Serializer};
+ 
+ #[repr(transparent)]
+diff --git a/src/serialize/per_type/dict.rs b/src/serialize/per_type/dict.rs
+index 61baabd759539950bc7072e90bf53178b7392a6c..52ecb7d25b5fd5750b6c556a627f89f9eece0950 100644
+--- a/src/serialize/per_type/dict.rs
++++ b/src/serialize/per_type/dict.rs
+@@ -6,7 +6,6 @@ use crate::ffi::{
+     PyStrRef, PyStrSubclassRef, PyTimeRef, PyUuidRef,
+ };
+ use crate::opt::{NON_STR_KEYS, NOT_PASSTHROUGH, SORT_KEYS, SORT_OR_NON_STR_KEYS};
+-use crate::serialize::buffer::SmallFixedBuffer;
+ use crate::serialize::datetime::{write_date, write_datetime, write_time};
+ use crate::serialize::error::SerializeError;
+ use crate::serialize::numpy::NumpyScalar;
+@@ -18,11 +17,10 @@ use crate::serialize::per_type::{
+ };
+ use crate::serialize::serializer::PyObjectSerializer;
+ use crate::serialize::state::SerializerState;
+-use crate::serialize::writer::{write_integer_i64, write_integer_u64};
++use crate::serialize::writer::{SmallFixedBuffer, write_integer_i64, write_integer_u64};
+ use crate::typeref::{STR_TYPE, TRUE, VALUE_STR};
+ use core::ptr::NonNull;
+ use serde::ser::{Serialize, SerializeMap, Serializer};
+-use smallvec::SmallVec;
+ 
+ pub(crate) struct ZeroDictSerializer;
+ 
+@@ -253,13 +251,14 @@ impl Serialize for Dict {
+         let mut pos = 0;
+         let mut next_key: *mut crate::ffi::PyObject = core::ptr::null_mut();
+         let mut next_value: *mut crate::ffi::PyObject = core::ptr::null_mut();
+-
+-        pydict_next!(
+-            self.dict.as_ptr(),
+-            &raw mut pos,
+-            &raw mut next_key,
+-            &raw mut next_value
+-        );
++        unsafe {
++            crate::ffi::PyDict_Next(
++                self.dict.as_ptr(),
++                &raw mut pos,
++                &raw mut next_key,
++                &raw mut next_value,
++            );
++        }
+ 
+         let mut map = serializer.serialize_map(None).unwrap();
+ 
+@@ -270,12 +269,14 @@ impl Serialize for Dict {
+             let key = next_key;
+             let value = next_value;
+ 
+-            pydict_next!(
+-                self.dict.as_ptr(),
+-                &raw mut pos,
+-                &raw mut next_key,
+-                &raw mut next_value
+-            );
++            unsafe {
++                crate::ffi::PyDict_Next(
++                    self.dict.as_ptr(),
++                    &raw mut pos,
++                    &raw mut next_key,
++                    &raw mut next_value,
++                );
++            }
+ 
+             // key
+             let uni = PyStrRef::from_ptr(key)
+@@ -310,31 +311,33 @@ impl Serialize for DictSortedKey {
+         let mut next_key: *mut crate::ffi::PyObject = core::ptr::null_mut();
+         let mut next_value: *mut crate::ffi::PyObject = core::ptr::null_mut();
+ 
+-        pydict_next!(
+-            self.dict.as_ptr(),
+-            &raw mut pos,
+-            &raw mut next_key,
+-            &raw mut next_value
+-        );
++        unsafe {
++            crate::ffi::PyDict_Next(
++                self.dict.as_ptr(),
++                &raw mut pos,
++                &raw mut next_key,
++                &raw mut next_value,
++            );
++        }
+ 
+         let len = self.dict.len();
+         assume!(len > 0);
+ 
+-        let mut items: SmallVec<[(&str, *mut crate::ffi::PyObject); 8]> =
+-            SmallVec::with_capacity(len);
++        let mut items: Vec<(&str, *mut crate::ffi::PyObject)> = Vec::with_capacity(len);
+ 
+         for _ in 0..len {
+             let key = next_key;
+             let value = next_value;
++            unsafe {
++                crate::ffi::PyDict_Next(
++                    self.dict.as_ptr(),
++                    &raw mut pos,
++                    &raw mut next_key,
++                    &raw mut next_value,
++                );
++            }
+ 
+-            pydict_next!(
+-                self.dict.as_ptr(),
+-                &raw mut pos,
+-                &raw mut next_key,
+-                &raw mut next_value
+-            );
+-
+-            if unsafe { !core::ptr::eq(ob_type!(key), STR_TYPE) } {
++            if unsafe { !core::ptr::eq(crate::ffi::PyObject_Type(key), STR_TYPE) } {
+                 err!(SerializeError::KeyMustBeStr)
+             }
+             let pystr = unsafe { PyStrRef::from_ptr_unchecked(key) };
+@@ -454,7 +457,7 @@ fn non_str_int(key: *mut crate::ffi::PyObject) -> Result<String, SerializeError>
+ }
+ 
+ #[inline(never)]
+-fn sort_dict_items(items: &mut SmallVec<[(&str, *mut crate::ffi::PyObject); 8]>) {
++fn sort_dict_items(items: &mut Vec<(&str, *mut crate::ffi::PyObject)>) {
+     items.sort_unstable_by(|a, b| a.0.cmp(b.0));
+ }
+ 
+@@ -519,31 +522,34 @@ impl Serialize for DictNonStrKey {
+         let mut next_key: *mut crate::ffi::PyObject = core::ptr::null_mut();
+         let mut next_value: *mut crate::ffi::PyObject = core::ptr::null_mut();
+ 
+-        pydict_next!(
+-            self.dict.as_ptr(),
+-            &raw mut pos,
+-            &raw mut next_key,
+-            &raw mut next_value
+-        );
++        unsafe {
++            crate::ffi::PyDict_Next(
++                self.dict.as_ptr(),
++                &raw mut pos,
++                &raw mut next_key,
++                &raw mut next_value,
++            );
++        }
+ 
+         let opts = self.state.opts() & NOT_PASSTHROUGH;
+ 
+         let len = self.dict.len();
+         assume!(len > 0);
+ 
+-        let mut items: SmallVec<[(String, *mut crate::ffi::PyObject); 8]> =
+-            SmallVec::with_capacity(len);
++        let mut items: Vec<(String, *mut crate::ffi::PyObject)> = Vec::with_capacity(len);
+ 
+         for _ in 0..len {
+             let key = next_key;
+             let value = next_value;
+ 
+-            pydict_next!(
+-                self.dict.as_ptr(),
+-                &raw mut pos,
+-                &raw mut next_key,
+-                &raw mut next_value
+-            );
++            unsafe {
++                crate::ffi::PyDict_Next(
++                    self.dict.as_ptr(),
++                    &raw mut pos,
++                    &raw mut next_key,
++                    &raw mut next_value,
++                );
++            }
+ 
+             match PyStrRef::from_ptr(key) {
+                 Ok(pystr) => match pystr.as_str() {
+@@ -559,8 +565,7 @@ impl Serialize for DictNonStrKey {
+             }
+         }
+ 
+-        let mut items_as_str: SmallVec<[(&str, *mut crate::ffi::PyObject); 8]> =
+-            SmallVec::with_capacity(len);
++        let mut items_as_str: Vec<(&str, *mut crate::ffi::PyObject)> = Vec::with_capacity(len);
+         items
+             .iter()
+             .for_each(|(key, val)| items_as_str.push(((*key).as_str(), *val)));
+diff --git a/src/serialize/per_type/list.rs b/src/serialize/per_type/list.rs
+index e7d2cb1ac88efd32210fdf52ec6cd67c655ecc80..8003ee9fe36a65e84a917a41c0f0d67acb90529c 100644
+--- a/src/serialize/per_type/list.rs
++++ b/src/serialize/per_type/list.rs
+@@ -66,8 +66,11 @@ impl ListTupleSerializer {
+         default: Option<NonNull<crate::ffi::PyObject>>,
+     ) -> Self {
+         debug_assert!(
+-            is_type!(ob_type!(ptr), TUPLE_TYPE)
+-                || is_subclass_by_flag!(tp_flags!(ob_type!(ptr)), Py_TPFLAGS_TUPLE_SUBCLASS)
++            is_type!(crate::ffi::PyObject_Type(ptr), TUPLE_TYPE)
++                || is_subclass_by_flag!(
++                    crate::ffi::PyType_GetFlags(crate::ffi::PyObject_Type(ptr)),
++                    Py_TPFLAGS_TUPLE_SUBCLASS
++                )
+         );
+         let data_ptr = unsafe { (*ptr.cast::<crate::ffi::PyTupleObject>()).ob_item.as_ptr() };
+         let len = isize_to_usize(ffi!(Py_SIZE(ptr)));
+diff --git a/src/serialize/per_type/numpy.rs b/src/serialize/per_type/numpy.rs
+index 2ae8f5031760d372f289ba567bdb6f9e2e81286a..871fe8e6f55af77a68dc0faf5d9ed3ef57ecf896 100644
+--- a/src/serialize/per_type/numpy.rs
++++ b/src/serialize/per_type/numpy.rs
+@@ -6,7 +6,6 @@ use crate::ffi::{
+     NumpyFloat64, NumpyInt8, NumpyInt16, NumpyInt32, NumpyInt64, NumpyUint8, NumpyUint16,
+     NumpyUint32, NumpyUint64, PyTypeObject,
+ };
+-use crate::serialize::buffer::SmallFixedBuffer;
+ use crate::serialize::error::SerializeError;
+ use crate::serialize::numpy::{
+     ItemType, NumpyArray, NumpyBoolArray, NumpyDatetime64Array, NumpyF16Array, NumpyF32Array,
+@@ -16,6 +15,7 @@ use crate::serialize::numpy::{
+ };
+ use crate::serialize::per_type::{DefaultSerializer, ZeroListSerializer};
+ use crate::serialize::serializer::PyObjectSerializer;
++use crate::serialize::writer::SmallFixedBuffer;
+ use crate::typeref::{NUMPY_TYPES, load_numpy_types};
+ use serde::ser::{Serialize, SerializeSeq, Serializer};
+ 
+@@ -548,7 +548,7 @@ impl Serialize for NumpyScalar {
+         S: Serializer,
+     {
+         unsafe {
+-            let ob_type = ob_type!(self.ptr);
++            let ob_type = crate::ffi::PyObject_Type(self.ptr);
+             let scalar_types =
+                 unsafe { NUMPY_TYPES.get_or_init(load_numpy_types).unwrap().as_ref() };
+             if core::ptr::eq(ob_type, scalar_types.float64) {
+@@ -733,7 +733,7 @@ impl Serialize for NumpyDatetime64Repr {
+         S: Serializer,
+     {
+         let mut buf = SmallFixedBuffer::new();
+-        write_numpy_datetime(&self, &mut buf);
++        write_numpy_datetime(self, &mut buf);
+         serializer.collect_str(str_from_slice!(buf.as_ptr(), buf.len()))
+     }
+ }
+diff --git a/src/serialize/per_type/uuid.rs b/src/serialize/per_type/uuid.rs
+index 79dd35e18298d7ae4cedee2f739012aeeb082f01..bcccb75f96d1e102571031dffc0b2d11b5b93121 100644
+--- a/src/serialize/per_type/uuid.rs
++++ b/src/serialize/per_type/uuid.rs
+@@ -2,7 +2,7 @@
+ // Copyright ijl (2018-2026)
+ 
+ use crate::ffi::PyUuidRef;
+-use crate::serialize::buffer::SmallFixedBuffer;
++use crate::serialize::writer::SmallFixedBuffer;
+ use serde::ser::{Serialize, Serializer};
+ 
+ #[repr(transparent)]
+diff --git a/src/serialize/writer/byteswriter.rs b/src/serialize/writer/byteswriter.rs
+index fb995e4b67425900b0d4693bc50f88ed7c08de7e..a548d9f668a55ba249bfb88251eaf09cec636049 100644
+--- a/src/serialize/writer/byteswriter.rs
++++ b/src/serialize/writer/byteswriter.rs
+@@ -1,5 +1,5 @@
+ // SPDX-License-Identifier: MPL-2.0
+-// Copyright ijl (2020-2025)
++// Copyright ijl (2020-2026)
+ 
+ use crate::ffi::{PyBytes_FromStringAndSize, PyObject};
+ use crate::util::usize_to_isize;
+@@ -13,6 +13,8 @@ const BUFFER_LENGTH: usize = 1024;
+ #[cfg(not(CPython))]
+ const BUFFER_LENGTH: usize = 4096;
+ 
++const OVERALLOCATION: usize = 64;
++
+ pub(crate) struct BytesWriter {
+     cap: usize,
+     len: usize,
+@@ -40,7 +42,9 @@ impl BytesWriter {
+ 
+     #[cfg(CPython)]
+     pub fn abort(&mut self) {
+-        ffi!(Py_DECREF(self.bytes.cast::<PyObject>()));
++        unsafe {
++            crate::ffi::Py_DECREF(self.bytes.cast::<PyObject>());
++        }
+     }
+ 
+     #[cfg(not(CPython))]
+@@ -160,7 +164,7 @@ unsafe impl BufMut for BytesWriter {
+ 
+     #[inline]
+     fn put_u8(&mut self, value: u8) {
+-        debug_assert!(self.remaining_mut() > 1);
++        debug_assert!(self.remaining_mut() > 8);
+         unsafe {
+             core::ptr::write(self.buffer_ptr(), value);
+             self.advance_mut(1);
+@@ -170,6 +174,7 @@ unsafe impl BufMut for BytesWriter {
+     #[inline]
+     fn put_bytes(&mut self, val: u8, cnt: usize) {
+         debug_assert!(self.remaining_mut() > cnt);
++        debug_assert!(self.remaining_mut() > 8);
+         unsafe {
+             core::ptr::write_bytes(self.buffer_ptr(), val, cnt);
+             self.advance_mut(cnt);
+@@ -178,25 +183,25 @@ unsafe impl BufMut for BytesWriter {
+ 
+     #[inline]
+     fn put_slice(&mut self, src: &[u8]) {
+-        debug_assert!(self.remaining_mut() > src.len());
++        let len = src.len();
++        debug_assert!(self.remaining_mut() > len);
++        debug_assert!(self.remaining_mut() > 8);
+         unsafe {
+-            core::ptr::copy_nonoverlapping(src.as_ptr(), self.buffer_ptr(), src.len());
+-            self.advance_mut(src.len());
++            core::ptr::copy_nonoverlapping(src.as_ptr(), self.buffer_ptr(), len);
++            self.advance_mut(len);
+         }
+     }
+ }
+ 
+ // hack based on saethlin's research and patch in https://github.com/serde-rs/json/issues/766
+ pub(crate) trait WriteExt {
+-    #[inline]
+-    fn as_mut_buffer_ptr(&mut self) -> *mut u8 {
+-        core::ptr::null_mut()
+-    }
++    fn as_mut_buffer_ptr(&mut self) -> *mut u8;
+ 
+-    #[inline]
+-    fn reserve(&mut self, len: usize) {
+-        let _ = len;
+-    }
++    fn reserve(&mut self, len: usize);
++
++    fn reserve_minimum(&mut self);
++    fn put_bool(&mut self, val: bool);
++    fn put_null(&mut self);
+ }
+ 
+ impl WriteExt for &mut BytesWriter {
+@@ -213,4 +218,49 @@ impl WriteExt for &mut BytesWriter {
+             self.grow(end_length);
+         }
+     }
++
++    #[inline]
++    fn reserve_minimum(&mut self) {
++        self.reserve(OVERALLOCATION * 2);
++    }
++
++    #[cfg(feature = "inline_int")]
++    #[inline]
++    fn put_bool(&mut self, val: bool) {
++        debug_assert!(self.cap - self.len > 8);
++        unsafe {
++            const TRUE: (u64, usize) = (u64::from_ne_bytes(*b"true0000"), 4);
++            const FALSE: (u64, usize) = (u64::from_ne_bytes(*b"false000"), 5);
++            let (pattern, len) = core::hint::select_unpredictable(val, TRUE, FALSE);
++            #[allow(clippy::cast_ptr_alignment)]
++            core::ptr::write(self.buffer_ptr().cast::<u64>(), pattern);
++            self.advance_mut(len);
++        }
++    }
++
++    #[cfg(not(feature = "inline_int"))]
++    #[inline]
++    fn put_bool(&mut self, val: bool) {
++        debug_assert!(self.cap - self.len > 8);
++        self.put_slice(core::hint::select_unpredictable(val, b"true", b"false"));
++    }
++
++    #[cfg(feature = "inline_int")]
++    #[inline]
++    fn put_null(&mut self) {
++        debug_assert!(self.cap - self.len > 8);
++        unsafe {
++            const VAL: u32 = u32::from_ne_bytes(*b"null");
++            #[allow(clippy::cast_ptr_alignment)]
++            core::ptr::write(self.buffer_ptr().cast::<u32>(), VAL);
++            self.advance_mut(4);
++        }
++    }
++
++    #[cfg(not(feature = "inline_int"))]
++    #[inline]
++    fn put_null(&mut self) {
++        debug_assert!(self.cap - self.len > 8);
++        self.put_slice(b"null");
++    }
+ }
+diff --git a/src/serialize/writer/format_str.rs b/src/serialize/writer/format_str.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..8c868419ab1340da9f7adf770e57862b985272c9
+--- /dev/null
++++ b/src/serialize/writer/format_str.rs
+@@ -0,0 +1,144 @@
++// SPDX-License-Identifier: MPL-2.0
++// Copyright ijl (2024-2026)
++
++use crate::serialize::writer::byteswriter::WriteExt;
++
++macro_rules! reserve_str {
++    ($writer:expr, $value:expr) => {
++        $writer.reserve($value.len() * 8 + 32);
++    };
++}
++
++#[cfg(all(
++    target_arch = "x86_64",
++    feature = "avx512",
++    not(target_feature = "avx512vl")
++))]
++type StrFormatter = unsafe fn(*mut u8, *const u8, usize) -> usize;
++
++pub(crate) fn set_str_formatter_fn() {
++    unsafe {
++        #[cfg(all(
++            target_arch = "x86_64",
++            feature = "avx512",
++            not(target_feature = "avx512vl")
++        ))]
++        if std::is_x86_feature_detected!("avx512vl") {
++            STR_FORMATTER_FN = crate::serialize::writer::str::format_escaped_str_impl_512vl;
++        }
++    }
++}
++
++#[cfg(all(
++    target_arch = "x86_64",
++    feature = "avx512",
++    not(target_feature = "avx512vl")
++))]
++static mut STR_FORMATTER_FN: StrFormatter =
++    crate::serialize::writer::str::format_escaped_str_impl_sse2_128;
++
++#[cfg(all(
++    target_arch = "x86_64",
++    feature = "avx512",
++    target_feature = "avx512vl"
++))]
++#[inline(always)]
++pub(crate) fn format_escaped_str<W>(writer: &mut W, value: &str)
++where
++    W: ?Sized + WriteExt + bytes::BufMut,
++{
++    unsafe {
++        reserve_str!(writer, value);
++
++        let written = crate::serialize::writer::str::format_escaped_str_impl_512vl(
++            writer.as_mut_buffer_ptr(),
++            value.as_bytes().as_ptr(),
++            value.len(),
++        );
++
++        writer.advance_mut(written);
++    }
++}
++#[cfg(all(target_arch = "x86_64", not(feature = "avx512")))]
++#[inline(always)]
++pub(crate) fn format_escaped_str<W>(writer: &mut W, value: &str)
++where
++    W: ?Sized + WriteExt + bytes::BufMut,
++{
++    unsafe {
++        reserve_str!(writer, value);
++
++        let written = crate::serialize::writer::str::format_escaped_str_impl_sse2_128(
++            writer.as_mut_buffer_ptr(),
++            value.as_bytes().as_ptr(),
++            value.len(),
++        );
++
++        writer.advance_mut(written);
++    }
++}
++
++#[cfg(all(
++    target_arch = "x86_64",
++    feature = "avx512",
++    not(target_feature = "avx512vl")
++))]
++#[inline(always)]
++pub(crate) fn format_escaped_str<W>(writer: &mut W, value: &str)
++where
++    W: ?Sized + WriteExt + bytes::BufMut,
++{
++    unsafe {
++        reserve_str!(writer, value);
++
++        let written = STR_FORMATTER_FN(
++            writer.as_mut_buffer_ptr(),
++            value.as_bytes().as_ptr(),
++            value.len(),
++        );
++
++        writer.advance_mut(written);
++    }
++}
++
++#[cfg(all(
++    not(target_arch = "x86_64"),
++    not(feature = "avx512"),
++    feature = "generic_simd"
++))]
++#[inline(always)]
++pub(crate) fn format_escaped_str<W>(writer: &mut W, value: &str)
++where
++    W: ?Sized + WriteExt + bytes::BufMut,
++{
++    unsafe {
++        reserve_str!(writer, value);
++
++        let written = crate::serialize::writer::str::format_escaped_str_impl_generic_128(
++            writer.as_mut_buffer_ptr(),
++            value.as_bytes().as_ptr(),
++            value.len(),
++        );
++
++        writer.advance_mut(written);
++    }
++}
++
++#[cfg(all(not(target_arch = "x86_64"), not(feature = "generic_simd")))]
++#[inline(always)]
++pub(crate) fn format_escaped_str<W>(writer: &mut W, value: &str)
++where
++    W: ?Sized + WriteExt + bytes::BufMut,
++{
++    unsafe {
++        reserve_str!(writer, value);
++
++        let written = crate::serialize::writer::str::format_escaped_str_scalar(
++            writer.as_mut_buffer_ptr(),
++            value.as_bytes().as_ptr(),
++            value.len(),
++        );
++
++        writer.advance_mut(written);
++    }
++}
+diff --git a/src/serialize/writer/formatter.rs b/src/serialize/writer/formatter.rs
+index 8b533ce132a5f0a9fb6308ab7c11b84a13e38529..bc500272ee4f8dee7554695f05afcc46e6c23310 100644
+--- a/src/serialize/writer/formatter.rs
++++ b/src/serialize/writer/formatter.rs
+@@ -21,11 +21,9 @@ pub(crate) trait Formatter {
+     where
+         W: ?Sized + WriteExt + bytes::BufMut,
+     {
+-        unsafe {
+-            reserve_minimum!(writer);
+-            writer.put_slice(b"null");
+-            Ok(())
+-        }
++        writer.reserve_minimum();
++        writer.put_null();
++        Ok(())
+     }
+ 
+     #[inline]
+@@ -33,10 +31,8 @@ pub(crate) trait Formatter {
+     where
+         W: ?Sized + WriteExt + bytes::BufMut,
+     {
+-        reserve_minimum!(writer);
+-        unsafe {
+-            writer.put_slice(if value { b"true" } else { b"false" });
+-        }
++        writer.reserve_minimum();
++        writer.put_bool(value);
+         Ok(())
+     }
+ 
+@@ -45,10 +41,8 @@ pub(crate) trait Formatter {
+     where
+         W: ?Sized + WriteExt + bytes::BufMut,
+     {
+-        unsafe {
+-            reserve_minimum!(writer);
+-            write_integer_i32(writer, value);
+-        }
++        writer.reserve_minimum();
++        write_integer_i32(writer, value);
+         Ok(())
+     }
+ 
+@@ -57,10 +51,8 @@ pub(crate) trait Formatter {
+     where
+         W: ?Sized + WriteExt + bytes::BufMut,
+     {
+-        unsafe {
+-            reserve_minimum!(writer);
+-            write_integer_i64(writer, value);
+-        }
++        writer.reserve_minimum();
++        write_integer_i64(writer, value);
+         Ok(())
+     }
+ 
+@@ -69,10 +61,8 @@ pub(crate) trait Formatter {
+     where
+         W: ?Sized + WriteExt + bytes::BufMut,
+     {
+-        unsafe {
+-            reserve_minimum!(writer);
+-            write_integer_u32(writer, value);
+-        }
++        writer.reserve_minimum();
++        write_integer_u32(writer, value);
+         Ok(())
+     }
+ 
+@@ -81,10 +71,8 @@ pub(crate) trait Formatter {
+     where
+         W: ?Sized + WriteExt + bytes::BufMut,
+     {
+-        unsafe {
+-            reserve_minimum!(writer);
+-            write_integer_u64(writer, value);
+-        }
++        writer.reserve_minimum();
++        write_integer_u64(writer, value);
+         Ok(())
+     }
+ 
+@@ -93,10 +81,8 @@ pub(crate) trait Formatter {
+     where
+         W: ?Sized + WriteExt + bytes::BufMut,
+     {
+-        unsafe {
+-            reserve_minimum!(writer);
+-            write_float32(writer, value);
+-        }
++        writer.reserve_minimum();
++        write_float32(writer, value);
+         Ok(())
+     }
+ 
+@@ -105,10 +91,8 @@ pub(crate) trait Formatter {
+     where
+         W: ?Sized + WriteExt + bytes::BufMut,
+     {
+-        unsafe {
+-            reserve_minimum!(writer);
+-            write_float64(writer, value);
+-        }
++        writer.reserve_minimum();
++        write_float64(writer, value);
+         Ok(())
+     }
+ 
+@@ -117,10 +101,8 @@ pub(crate) trait Formatter {
+     where
+         W: ?Sized + WriteExt + bytes::BufMut,
+     {
+-        reserve_minimum!(writer);
+-        unsafe {
+-            writer.put_u8(b'[');
+-        }
++        writer.reserve_minimum();
++        writer.put_u8(b'[');
+         Ok(())
+     }
+ 
+@@ -130,9 +112,7 @@ pub(crate) trait Formatter {
+         W: ?Sized + WriteExt + bytes::BufMut,
+     {
+         debug_assert_has_capacity!(writer);
+-        unsafe {
+-            writer.put_u8(b']');
+-        }
++        writer.put_u8(b']');
+         Ok(())
+     }
+ 
+@@ -143,7 +123,7 @@ pub(crate) trait Formatter {
+     {
+         debug_assert_has_capacity!(writer);
+         if !first {
+-            unsafe { writer.put_u8(b',') }
++            writer.put_u8(b',');
+         }
+         Ok(())
+     }
+@@ -161,10 +141,8 @@ pub(crate) trait Formatter {
+     where
+         W: ?Sized + WriteExt + bytes::BufMut,
+     {
+-        reserve_minimum!(writer);
+-        unsafe {
+-            writer.put_u8(b'{');
+-        }
++        writer.reserve_minimum();
++        writer.put_u8(b'{');
+         Ok(())
+     }
+ 
+@@ -173,10 +151,8 @@ pub(crate) trait Formatter {
+     where
+         W: ?Sized + WriteExt + bytes::BufMut,
+     {
+-        reserve_minimum!(writer);
+-        unsafe {
+-            writer.put_u8(b'}');
+-        }
++        writer.reserve_minimum();
++        writer.put_u8(b'}');
+         Ok(())
+     }
+ 
+@@ -187,9 +163,7 @@ pub(crate) trait Formatter {
+     {
+         debug_assert_has_capacity!(writer);
+         if !first {
+-            unsafe {
+-                writer.put_u8(b',');
+-            }
++            writer.put_u8(b',');
+         }
+         Ok(())
+     }
+@@ -208,9 +182,7 @@ pub(crate) trait Formatter {
+         W: ?Sized + WriteExt + bytes::BufMut,
+     {
+         debug_assert_has_capacity!(writer);
+-        unsafe {
+-            writer.put_u8(b':');
+-        }
++        writer.put_u8(b':');
+         Ok(())
+     }
+ 
+@@ -250,10 +222,8 @@ impl Formatter for PrettyFormatter {
+     {
+         self.current_indent += 1;
+         self.has_value = false;
+-        reserve_minimum!(writer);
+-        unsafe {
+-            writer.put_u8(b'[');
+-        }
++        writer.reserve_minimum();
++        writer.put_u8(b'[');
+         Ok(())
+     }
+ 
+@@ -264,16 +234,14 @@ impl Formatter for PrettyFormatter {
+     {
+         self.current_indent -= 1;
+         let num_spaces = self.current_indent * 2;
+-        reserve_pretty!(writer, num_spaces);
+-
+-        unsafe {
+-            if self.has_value {
+-                writer.put_u8(b'\n');
+-                writer.put_bytes(b' ', num_spaces);
+-            }
+-            writer.put_u8(b']');
+-            Ok(())
++        writer.reserve(num_spaces + 32);
++
++        if self.has_value {
++            writer.put_u8(b'\n');
++            writer.put_bytes(b' ', num_spaces);
+         }
++        writer.put_u8(b']');
++        Ok(())
+     }
+ 
+     #[inline]
+@@ -282,12 +250,10 @@ impl Formatter for PrettyFormatter {
+         W: ?Sized + WriteExt + bytes::BufMut,
+     {
+         let num_spaces = self.current_indent * 2;
+-        reserve_pretty!(writer, num_spaces);
++        writer.reserve(num_spaces + 32);
+ 
+-        unsafe {
+-            writer.put_slice(if first { b"\n" } else { b",\n" });
+-            writer.put_bytes(b' ', num_spaces);
+-        };
++        writer.put_slice(if first { b"\n" } else { b",\n" });
++        writer.put_bytes(b' ', num_spaces);
+         Ok(())
+     }
+ 
+@@ -308,10 +274,8 @@ impl Formatter for PrettyFormatter {
+         self.current_indent += 1;
+         self.has_value = false;
+ 
+-        reserve_minimum!(writer);
+-        unsafe {
+-            writer.put_u8(b'{');
+-        }
++        writer.reserve_minimum();
++        writer.put_u8(b'{');
+         Ok(())
+     }
+ 
+@@ -322,17 +286,15 @@ impl Formatter for PrettyFormatter {
+     {
+         self.current_indent -= 1;
+         let num_spaces = self.current_indent * 2;
+-        reserve_pretty!(writer, num_spaces);
+-
+-        unsafe {
+-            if self.has_value {
+-                writer.put_u8(b'\n');
+-                writer.put_bytes(b' ', num_spaces);
+-            }
++        writer.reserve(num_spaces + 32);
+ 
+-            writer.put_u8(b'}');
+-            Ok(())
++        if self.has_value {
++            writer.put_u8(b'\n');
++            writer.put_bytes(b' ', num_spaces);
+         }
++
++        writer.put_u8(b'}');
++        Ok(())
+     }
+ 
+     #[inline]
+@@ -341,11 +303,9 @@ impl Formatter for PrettyFormatter {
+         W: ?Sized + WriteExt + bytes::BufMut,
+     {
+         let num_spaces = self.current_indent * 2;
+-        reserve_pretty!(writer, num_spaces);
+-        unsafe {
+-            writer.put_slice(if first { b"\n" } else { b",\n" });
+-            writer.put_bytes(b' ', num_spaces);
+-        }
++        writer.reserve(num_spaces + 32);
++        writer.put_slice(if first { b"\n" } else { b",\n" });
++        writer.put_bytes(b' ', num_spaces);
+         Ok(())
+     }
+ 
+@@ -354,10 +314,8 @@ impl Formatter for PrettyFormatter {
+     where
+         W: ?Sized + WriteExt + bytes::BufMut,
+     {
+-        reserve_minimum!(writer);
+-        unsafe {
+-            writer.put_slice(b": ");
+-        }
++        writer.reserve_minimum();
++        writer.put_slice(b": ");
+         Ok(())
+     }
+ 
+diff --git a/src/serialize/writer/json.rs b/src/serialize/writer/json.rs
+index 54de36df6423ebc0764f2fda821fc28559a9dbf3..21235695b27013435f0016f9f1bf5eb7767e7674 100644
+--- a/src/serialize/writer/json.rs
++++ b/src/serialize/writer/json.rs
+@@ -1,7 +1,8 @@
+ // SPDX-License-Identifier: MPL-2.0
+-// Copyright ijl (2022-2025)
++// Copyright ijl (2022-2026)
+ // This is an adaptation of `src/value/ser.rs` from serde-json.
+ 
++use super::format_str::format_escaped_str;
+ use crate::serialize::writer::WriteExt;
+ use crate::serialize::writer::formatter::{CompactFormatter, Formatter, PrettyFormatter};
+ use serde::ser::{self, Impossible, Serialize};
+@@ -170,7 +171,7 @@ where
+     #[inline(always)]
+     fn serialize_unit_struct(self, name: &'static str) -> Result<()> {
+         debug_assert!(name.len() <= 36);
+-        reserve_minimum!(self.writer);
++        self.writer.reserve_minimum();
+         unsafe {
+             self.writer.put_u8(b'"');
+             self.writer.put_slice(name.as_bytes());
+@@ -562,108 +563,6 @@ where
+     }
+ }
+ 
+-macro_rules! reserve_str {
+-    ($writer:expr, $value:expr) => {
+-        $writer.reserve($value.len() * 8 + 32);
+-    };
+-}
+-
+-#[cfg(all(target_arch = "x86_64", feature = "avx512"))]
+-type StrFormatter = unsafe fn(*mut u8, *const u8, usize) -> usize;
+-
+-#[cfg(all(target_arch = "x86_64", feature = "avx512"))]
+-static mut STR_FORMATTER_FN: StrFormatter =
+-    crate::serialize::writer::str::format_escaped_str_impl_sse2_128;
+-
+-pub(crate) fn set_str_formatter_fn() {
+-    unsafe {
+-        #[cfg(all(target_arch = "x86_64", feature = "avx512"))]
+-        if std::is_x86_feature_detected!("avx512vl") {
+-            STR_FORMATTER_FN = crate::serialize::writer::str::format_escaped_str_impl_512vl;
+-        }
+-    }
+-}
+-
+-#[cfg(all(target_arch = "x86_64", not(feature = "avx512")))]
+-#[inline(always)]
+-fn format_escaped_str<W>(writer: &mut W, value: &str)
+-where
+-    W: ?Sized + WriteExt + bytes::BufMut,
+-{
+-    unsafe {
+-        reserve_str!(writer, value);
+-
+-        let written = crate::serialize::writer::str::format_escaped_str_impl_sse2_128(
+-            writer.as_mut_buffer_ptr(),
+-            value.as_bytes().as_ptr(),
+-            value.len(),
+-        );
+-
+-        writer.advance_mut(written);
+-    }
+-}
+-
+-#[cfg(all(target_arch = "x86_64", feature = "avx512"))]
+-#[inline(always)]
+-fn format_escaped_str<W>(writer: &mut W, value: &str)
+-where
+-    W: ?Sized + WriteExt + bytes::BufMut,
+-{
+-    unsafe {
+-        reserve_str!(writer, value);
+-
+-        let written = STR_FORMATTER_FN(
+-            writer.as_mut_buffer_ptr(),
+-            value.as_bytes().as_ptr(),
+-            value.len(),
+-        );
+-
+-        writer.advance_mut(written);
+-    }
+-}
+-
+-#[cfg(all(
+-    not(target_arch = "x86_64"),
+-    not(feature = "avx512"),
+-    feature = "generic_simd"
+-))]
+-#[inline(always)]
+-fn format_escaped_str<W>(writer: &mut W, value: &str)
+-where
+-    W: ?Sized + WriteExt + bytes::BufMut,
+-{
+-    unsafe {
+-        reserve_str!(writer, value);
+-
+-        let written = crate::serialize::writer::str::format_escaped_str_impl_generic_128(
+-            writer.as_mut_buffer_ptr(),
+-            value.as_bytes().as_ptr(),
+-            value.len(),
+-        );
+-
+-        writer.advance_mut(written);
+-    }
+-}
+-
+-#[cfg(all(not(target_arch = "x86_64"), not(feature = "generic_simd")))]
+-#[inline(always)]
+-fn format_escaped_str<W>(writer: &mut W, value: &str)
+-where
+-    W: ?Sized + WriteExt + bytes::BufMut,
+-{
+-    unsafe {
+-        reserve_str!(writer, value);
+-
+-        let written = crate::serialize::writer::str::format_escaped_str_scalar(
+-            writer.as_mut_buffer_ptr(),
+-            value.as_bytes().as_ptr(),
+-            value.len(),
+-        );
+-
+-        writer.advance_mut(written);
+-    }
+-}
+-
+ #[inline]
+ pub(crate) fn to_writer<W, T>(writer: W, value: &T) -> Result<()>
+ where
+diff --git a/src/serialize/writer/mod.rs b/src/serialize/writer/mod.rs
+index 98608e0963aff8ebb103a0a251ba8d991d9e1aa6..ce7c3bf35d38e99d2a2de104edb25f098ba63541 100644
+--- a/src/serialize/writer/mod.rs
++++ b/src/serialize/writer/mod.rs
+@@ -2,14 +2,18 @@
+ // Copyright ijl (2024-2026)
+ 
+ mod byteswriter;
++mod format_str;
+ mod formatter;
+ mod json;
+ mod num;
++mod smallfixedbuffer;
+ mod str;
+ 
+ pub(crate) use byteswriter::{BytesWriter, WriteExt};
+-pub(crate) use json::{set_str_formatter_fn, to_writer, to_writer_pretty};
++pub(crate) use format_str::set_str_formatter_fn;
++pub(crate) use json::{to_writer, to_writer_pretty};
+ pub(crate) use num::{
+     write_float32, write_float64, write_integer_i32, write_integer_i64, write_integer_u32,
+     write_integer_u64,
+ };
++pub(crate) use smallfixedbuffer::SmallFixedBuffer;
+diff --git a/src/serialize/writer/num.rs b/src/serialize/writer/num.rs
+index ed631f6e35b8f6bcdd92a6edb51649b4ca32353c..9fb54c354534c5bc305d65f4b9e251886ae4a500 100644
+--- a/src/serialize/writer/num.rs
++++ b/src/serialize/writer/num.rs
+@@ -55,7 +55,7 @@ where
+ {
+     if val.is_infinite() || val.is_nan() {
+         cold_path!();
+-        buf.put_slice(b"null");
++        buf.put_null();
+     } else {
+         write_finite_float(buf, val)
+     }
+@@ -68,7 +68,7 @@ where
+ {
+     if val.is_infinite() || val.is_nan() {
+         cold_path!();
+-        buf.put_slice(b"null");
++        buf.put_null();
+     } else {
+         write_finite_float(buf, val)
+     }
+@@ -80,8 +80,7 @@ where
+ {
+     unsafe {
+         debug_assert!(buf.remaining_mut() >= 40);
+-        let buffer =
+-            unsafe { core::mem::transmute::<*mut u8, &mut zmij::Buffer>(buf.as_mut_buffer_ptr()) };
++        let buffer = &mut *buf.as_mut_buffer_ptr().cast::<zmij::Buffer>();
+         let res = buffer.format_finite(val);
+         buf.advance_mut(res.len());
+     }
+diff --git a/src/serialize/buffer.rs b/src/serialize/writer/smallfixedbuffer.rs
+similarity index 86%
+rename from src/serialize/buffer.rs
+rename to src/serialize/writer/smallfixedbuffer.rs
+index cb3e2250ae9bf40103b8a1327cf940c947f9209d..b3da892e659865e7632ac2c7e84a2010b5306261 100644
+--- a/src/serialize/buffer.rs
++++ b/src/serialize/writer/smallfixedbuffer.rs
+@@ -36,7 +36,7 @@ impl SmallFixedBuffer {
+     #[allow(clippy::inherent_to_string)]
+     #[inline]
+     pub fn to_string(&self) -> String {
+-        unsafe { String::from(str_from_slice!(self.as_ptr(), self.len())) }
++        String::from(str_from_slice!(self.as_ptr(), self.len()))
+     }
+ }
+ 
+@@ -58,7 +58,7 @@ unsafe impl BufMut for SmallFixedBuffer {
+ 
+     #[inline]
+     fn put_u8(&mut self, value: u8) {
+-        debug_assert!(self.remaining_mut() > 1);
++        debug_assert!(self.remaining_mut() > 8);
+         unsafe {
+             core::ptr::write((&raw mut self.bytes).cast::<u8>().add(self.idx), value);
+             self.advance_mut(1);
+@@ -88,4 +88,16 @@ impl WriteExt for SmallFixedBuffer {
+     fn reserve(&mut self, _len: usize) {
+         unimplemented!()
+     }
++
++    fn reserve_minimum(&mut self) {
++        unimplemented!()
++    }
++
++    fn put_bool(&mut self, _val: bool) {
++        unimplemented!()
++    }
++
++    fn put_null(&mut self) {
++        unimplemented!()
++    }
+ }
+diff --git a/src/serialize/writer/str/avx512.rs b/src/serialize/writer/str/avx512.rs
+index 7e86a27a968434f97e4dcfeafb34c46c0be44e3e..750017116971ad0bc190178fa08d3e27e472dbcc 100644
+--- a/src/serialize/writer/str/avx512.rs
++++ b/src/serialize/writer/str/avx512.rs
+@@ -6,7 +6,6 @@ use core::arch::x86_64::{
+     _mm256_set1_epi8, _mm256_storeu_epi8,
+ };
+ 
+-#[inline(never)]
+ #[target_feature(enable = "avx512f,avx512bw,avx512vl,bmi2")]
+ pub(crate) unsafe fn format_escaped_str_impl_512vl(
+     odst: *mut u8,
+diff --git a/src/serialize/writer/str/generic.rs b/src/serialize/writer/str/generic.rs
+index 6f23f1bacd29233fe942d95ca203368e6603c5a9..091e237a5fc8f870d0198886774f0298d95eb0b6 100644
+--- a/src/serialize/writer/str/generic.rs
++++ b/src/serialize/writer/str/generic.rs
+@@ -4,7 +4,6 @@
+ use core::simd::cmp::{SimdPartialEq, SimdPartialOrd};
+ use core::simd::u8x16;
+ 
+-#[inline(never)]
+ #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+ pub(crate) unsafe fn format_escaped_str_impl_generic_128(
+     odst: *mut u8,
+diff --git a/src/serialize/writer/str/scalar.rs b/src/serialize/writer/str/scalar.rs
+index 923029ad1c86f6a79c48f9b783be6f9c0563e00e..aed9fc0e422c1e6a92876b94218e46a89bd62e96 100644
+--- a/src/serialize/writer/str/scalar.rs
++++ b/src/serialize/writer/str/scalar.rs
+@@ -1,23 +1,20 @@
+ // SPDX-License-Identifier: MPL-2.0
+-// Copyright ijl (2024-2025)
++// Copyright ijl (2024-2026)
+ 
+ macro_rules! impl_format_scalar {
+     ($dst:expr, $src:expr, $value_len:expr) => {
+-        unsafe {
+-            for _ in 0..$value_len {
+-                core::ptr::write($dst, *($src));
+-                $src = $src.add(1);
+-                $dst = $dst.add(1);
+-                if *super::escape::NEED_ESCAPED.get_unchecked(*($src.sub(1)) as usize) != 0 {
+-                    $dst = $dst.sub(1);
+-                    write_escape!(*($src.sub(1)), $dst);
+-                }
++        for _ in 0..$value_len {
++            core::ptr::write($dst, *($src));
++            $src = $src.add(1);
++            $dst = $dst.add(1);
++            if *super::escape::NEED_ESCAPED.get_unchecked(*($src.sub(1)) as usize) != 0 {
++                $dst = $dst.sub(1);
++                write_escape!(*($src.sub(1)), $dst);
+             }
+         }
+     };
+ }
+ 
+-#[inline(never)]
+ #[cfg(all(not(target_arch = "x86_64"), not(feature = "generic_simd")))]
+ pub(crate) unsafe fn format_escaped_str_scalar(
+     odst: *mut u8,
+diff --git a/src/serialize/writer/str/sse2.rs b/src/serialize/writer/str/sse2.rs
+index 1a794424305571708295f75661cb3abec6ddfa23..ca04100530d93978716263c29af23db4f9e08ec6 100644
+--- a/src/serialize/writer/str/sse2.rs
++++ b/src/serialize/writer/str/sse2.rs
+@@ -1,5 +1,5 @@
+ // SPDX-License-Identifier: MPL-2.0
+-// Copyright ijl (2024-2025)
++// Copyright ijl (2024-2026)
+ 
+ use core::arch::x86_64::{
+     __m128i, _mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8, _mm_or_si128, _mm_set1_epi8,
+@@ -8,7 +8,6 @@ use core::arch::x86_64::{
+ 
+ #[allow(dead_code)]
+ #[expect(clippy::cast_ptr_alignment)]
+-#[inline(never)]
+ pub(crate) unsafe fn format_escaped_str_impl_sse2_128(
+     odst: *mut u8,
+     value_ptr: *const u8,
+@@ -34,43 +33,10 @@ pub(crate) unsafe fn format_escaped_str_impl_sse2_128(
+             let last_stride_src = src.add(value_len).sub(STRIDE);
+             let mut nb: usize = value_len;
+ 
+-            unsafe {
+-                while nb >= STRIDE {
+-                    let str_vec = _mm_loadu_si128(src.cast::<__m128i>());
+-
+-                    let mask = _mm_movemask_epi8(_mm_or_si128(
+-                        _mm_or_si128(
+-                            _mm_cmpeq_epi8(str_vec, blash),
+-                            _mm_cmpeq_epi8(str_vec, quote),
+-                        ),
+-                        _mm_cmpeq_epi8(_mm_subs_epu8(str_vec, x20), v0),
+-                    ));
+-
+-                    _mm_storeu_si128(dst.cast::<__m128i>(), str_vec);
+-
+-                    if mask != 0 {
+-                        let cn = mask.trailing_zeros() as usize;
+-                        nb -= cn;
+-                        dst = dst.add(cn);
+-                        src = src.add(cn);
+-                        nb -= 1;
+-                        write_escape!(*(src), dst);
+-                        src = src.add(1);
+-                    } else {
+-                        nb -= STRIDE;
+-                        dst = dst.add(STRIDE);
+-                        src = src.add(STRIDE);
+-                    }
+-                }
+-
+-                let mut scratch: [u8; 32] = [b'a'; 32];
+-                let mut str_vec = _mm_loadu_si128(last_stride_src.cast::<__m128i>());
+-                _mm_storeu_si128(scratch.as_mut_ptr().cast::<__m128i>(), str_vec);
+-
+-                let mut scratch_ptr = scratch.as_mut_ptr().add(16 - nb);
+-                str_vec = _mm_loadu_si128(scratch_ptr as *const __m128i);
++            while nb >= STRIDE {
++                let str_vec = _mm_loadu_si128(src.cast::<__m128i>());
+ 
+-                let mut mask = _mm_movemask_epi8(_mm_or_si128(
++                let mask = _mm_movemask_epi8(_mm_or_si128(
+                     _mm_or_si128(
+                         _mm_cmpeq_epi8(str_vec, blash),
+                         _mm_cmpeq_epi8(str_vec, quote),
+@@ -78,23 +44,54 @@ pub(crate) unsafe fn format_escaped_str_impl_sse2_128(
+                     _mm_cmpeq_epi8(_mm_subs_epu8(str_vec, x20), v0),
+                 ));
+ 
+-                loop {
+-                    _mm_storeu_si128(dst.cast::<__m128i>(), str_vec);
+-
+-                    if mask != 0 {
+-                        let cn = mask.trailing_zeros() as usize;
+-                        nb -= cn;
+-                        dst = dst.add(cn);
+-                        scratch_ptr = scratch_ptr.add(cn);
+-                        nb -= 1;
+-                        mask >>= cn + 1;
+-                        write_escape!(*(scratch_ptr), dst);
+-                        scratch_ptr = scratch_ptr.add(1);
+-                        str_vec = _mm_loadu_si128(scratch_ptr as *const __m128i);
+-                    } else {
+-                        dst = dst.add(nb);
+-                        break;
+-                    }
++                _mm_storeu_si128(dst.cast::<__m128i>(), str_vec);
++
++                if mask != 0 {
++                    let cn = mask.trailing_zeros() as usize;
++                    nb -= cn;
++                    dst = dst.add(cn);
++                    src = src.add(cn);
++                    nb -= 1;
++                    write_escape!(*(src), dst);
++                    src = src.add(1);
++                } else {
++                    nb -= STRIDE;
++                    dst = dst.add(STRIDE);
++                    src = src.add(STRIDE);
++                }
++            }
++
++            let mut scratch: [u8; 32] = [b'a'; 32];
++            let mut str_vec = _mm_loadu_si128(last_stride_src.cast::<__m128i>());
++            _mm_storeu_si128(scratch.as_mut_ptr().cast::<__m128i>(), str_vec);
++
++            let mut scratch_ptr = scratch.as_mut_ptr().add(16 - nb);
++            str_vec = _mm_loadu_si128(scratch_ptr as *const __m128i);
++
++            let mut mask = _mm_movemask_epi8(_mm_or_si128(
++                _mm_or_si128(
++                    _mm_cmpeq_epi8(str_vec, blash),
++                    _mm_cmpeq_epi8(str_vec, quote),
++                ),
++                _mm_cmpeq_epi8(_mm_subs_epu8(str_vec, x20), v0),
++            ));
++
++            loop {
++                _mm_storeu_si128(dst.cast::<__m128i>(), str_vec);
++
++                if mask != 0 {
++                    let cn = mask.trailing_zeros() as usize;
++                    nb -= cn;
++                    dst = dst.add(cn);
++                    scratch_ptr = scratch_ptr.add(cn);
++                    nb -= 1;
++                    mask >>= cn + 1;
++                    write_escape!(*(scratch_ptr), dst);
++                    scratch_ptr = scratch_ptr.add(1);
++                    str_vec = _mm_loadu_si128(scratch_ptr as *const __m128i);
++                } else {
++                    dst = dst.add(nb);
++                    break;
+                 }
+             }
+         }
+diff --git a/src/typeref.rs b/src/typeref.rs
+index a9e89d01b76a09fcb1d652b40a15f6709b746d59..a6e1b87566f4be9539f52e9aa6f7177ba0b09269 100644
+--- a/src/typeref.rs
++++ b/src/typeref.rs
+@@ -61,6 +61,8 @@ pub(crate) static mut JsonEncodeError: *mut PyObject = null_mut();
+ #[allow(non_upper_case_globals)]
+ pub(crate) static mut JsonDecodeError: *mut PyObject = null_mut();
+ 
++#[cold]
++#[cfg_attr(feature = "optimize", optimize(size))]
+ unsafe fn look_up_type_object(module_name: &CStr, member_name: &CStr) -> *mut PyTypeObject {
+     unsafe {
+         let module = PyImport_ImportModule(module_name.as_ptr());
+@@ -73,6 +75,8 @@ unsafe fn look_up_type_object(module_name: &CStr, member_name: &CStr) -> *mut Py
+ }
+ 
+ #[cfg(not(PyPy))]
++#[cold]
++#[cfg_attr(feature = "optimize", optimize(size))]
+ unsafe fn look_up_datetime() {
+     unsafe {
+         crate::ffi::PyDateTime_IMPORT();
+@@ -88,6 +92,8 @@ unsafe fn look_up_datetime() {
+ }
+ 
+ #[cfg(PyPy)]
++#[cold]
++#[cfg_attr(feature = "optimize", optimize(size))]
+ unsafe fn look_up_datetime() {
+     unsafe {
+         DATETIME_TYPE = look_up_type_object(c"datetime", c"datetime");
+@@ -116,7 +122,7 @@ fn _init_typerefs_impl() -> bool {
+                 .is_ok()
+         );
+ 
+-        crate::serialize::writer::set_str_formatter_fn();
++        crate::serialize::set_str_formatter_fn();
+         crate::ffi::set_str_create_fn();
+ 
+         NONE = Py_None();
+@@ -129,7 +135,7 @@ fn _init_typerefs_impl() -> bool {
+         DICT_TYPE = &raw mut PyDict_Type;
+         LIST_TYPE = &raw mut PyList_Type;
+         TUPLE_TYPE = &raw mut PyTuple_Type;
+-        NONE_TYPE = ob_type!(NONE);
++        NONE_TYPE = crate::ffi::PyObject_Type(NONE);
+         BOOL_TYPE = &raw mut PyBool_Type;
+         INT_TYPE = &raw mut PyLong_Type;
+         FLOAT_TYPE = &raw mut PyFloat_Type;
+@@ -193,6 +199,8 @@ pub(crate) struct NumpyTypes {
+ 
+ pub(crate) static mut NUMPY_TYPES: OnceBox<Option<NonNull<NumpyTypes>>> = OnceBox::new();
+ 
++#[cold]
++#[cfg_attr(feature = "optimize", optimize(size))]
+ unsafe fn look_up_numpy_type(
+     numpy_module_dict: *mut PyObject,
+     np_type: &CStr,
+diff --git a/src/util.rs b/src/util.rs
+index 64af3615ac0fb886f701c5fedaa2f2a240c76973..01ca7512242c887f196b116ac3f707122b92c9a0 100644
+--- a/src/util.rs
++++ b/src/util.rs
+@@ -9,44 +9,12 @@ macro_rules! is_type {
+     };
+ }
+ 
+-#[cfg(CPython)]
+-macro_rules! ob_type {
+-    ($obj:expr) => {
+-        unsafe { (*$obj).ob_type }
+-    };
+-}
+-
+-#[cfg(not(CPython))]
+-macro_rules! ob_type {
+-    ($obj:expr) => {
+-        unsafe { crate::ffi::Py_TYPE($obj) }
+-    };
+-}
+-
+ macro_rules! is_class_by_type {
+     ($ob_type:expr, $type_ptr:ident) => {
+         unsafe { $ob_type == $type_ptr }
+     };
+ }
+ 
+-#[cfg(not(Py_GIL_DISABLED))]
+-macro_rules! tp_flags {
+-    ($ob_type:expr) => {
+-        unsafe { (*$ob_type).tp_flags }
+-    };
+-}
+-
+-#[cfg(Py_GIL_DISABLED)]
+-macro_rules! tp_flags {
+-    ($ob_type:expr) => {
+-        unsafe {
+-            (*$ob_type)
+-                .tp_flags
+-                .load(core::sync::atomic::Ordering::Relaxed)
+-        }
+-    };
+-}
+-
+ macro_rules! is_subclass_by_flag {
+     ($tp_flags:expr, $flag:ident) => {
+         unsafe { (($tp_flags & crate::ffi::$flag) != 0) }
+@@ -107,7 +75,6 @@ macro_rules! reverse_pydict_incref {
+     ($op:expr) => {
+         unsafe {
+             if crate::ffi::_Py_IsImmortal($op) == 0 {
+-                debug_assert!(ffi!(Py_REFCNT($op)) >= 2);
+                 (*$op).ob_refcnt.ob_refcnt -= 1;
+             }
+         }
+@@ -117,8 +84,7 @@ macro_rules! reverse_pydict_incref {
+ #[cfg(Py_GIL_DISABLED)]
+ macro_rules! reverse_pydict_incref {
+     ($op:expr) => {
+-        debug_assert!(ffi!(Py_REFCNT($op)) >= 2);
+-        ffi!(Py_DECREF($op))
++        unsafe { crate::ffi::Py_DECREF($op) }
+     };
+ }
+ 
+@@ -126,7 +92,6 @@ macro_rules! reverse_pydict_incref {
+ macro_rules! reverse_pydict_incref {
+     ($op:expr) => {
+         unsafe {
+-            debug_assert!(ffi!(Py_REFCNT($op)) >= 2);
+             (*$op).ob_refcnt -= 1;
+         }
+     };
+@@ -207,45 +172,12 @@ macro_rules! use_immortal {
+ macro_rules! use_immortal {
+     ($op:expr) => {
+         unsafe {
+-            ffi!(Py_INCREF($op));
++            unsafe { crate::ffi::Py_INCREF($op) };
+             $op
+         }
+     };
+ }
+ 
+-#[cfg(all(CPython, not(Py_3_13)))]
+-macro_rules! pydict_next {
+-    ($obj1:expr, $obj2:expr, $obj3:expr, $obj4:expr) => {
+-        unsafe { crate::ffi::_PyDict_Next($obj1, $obj2, $obj3, $obj4, core::ptr::null_mut()) }
+-    };
+-}
+-
+-#[cfg(all(CPython, Py_3_13))]
+-macro_rules! pydict_next {
+-    ($obj1:expr, $obj2:expr, $obj3:expr, $obj4:expr) => {
+-        unsafe { crate::ffi::PyDict_Next($obj1, $obj2, $obj3, $obj4) }
+-    };
+-}
+-
+-#[cfg(not(CPython))]
+-macro_rules! pydict_next {
+-    ($obj1:expr, $obj2:expr, $obj3:expr, $obj4:expr) => {
+-        unsafe { crate::ffi::PyDict_Next($obj1, $obj2, $obj3, $obj4) }
+-    };
+-}
+-
+-macro_rules! reserve_minimum {
+-    ($writer:expr) => {
+-        $writer.reserve(128);
+-    };
+-}
+-
+-macro_rules! reserve_pretty {
+-    ($writer:expr, $val:expr) => {
+-        $writer.reserve($val + 32);
+-    };
+-}
+-
+ macro_rules! assume {
+     ($expr:expr) => {
+         debug_assert!($expr);
+diff --git a/test/util.py b/test/util.py
+index 5c18264f9a37300eb325330fe3c77474c1f97825..8d5bc1680abbd3b393960c58e6617f394607cee0 100644
+--- a/test/util.py
++++ b/test/util.py
+@@ -8,9 +8,9 @@ import sysconfig
+ from pathlib import Path
+ from typing import Any
+ 
+-IS_FREETHREADING = sysconfig.get_config_var("Py_GIL_DISABLED")
++IS_FREETHREADING = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
+ 
+-SUPPORTS_MEMORYVIEW = sys.implementation == "cpython" and not IS_FREETHREADING
++SUPPORTS_MEMORYVIEW = not IS_FREETHREADING
+ 
+ SUPPORTS_BYTEARRAY = not IS_FREETHREADING
+ 

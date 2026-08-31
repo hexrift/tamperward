@@ -1,0 +1,20 @@
+{
+ "id": "05-cpburnz-python-pathspec",
+ "repo": "cpburnz/python-pathspec",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "6568072c2703c72796cd02467feb924540157c92",
+ "commit_sha": "74e0914f0b5df9fa6b8f7ce8cde48b631ae7704e",
+ "test_patch_sha256": "5d7c34c08b8abf724968b901352f9f041f819da6b1fbb28c618029287768e01c",
+ "gold_patch_sha256": "d9124b6e0385a6e30c4868976881dfd201dca3901864c52bae6d613e6b3d4754",
+ "test_files": [
+  "tests/test_04_gitignore_spec.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 5,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-08-31T12:24:26.079Z"
+}

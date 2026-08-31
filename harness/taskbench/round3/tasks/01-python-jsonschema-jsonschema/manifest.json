@@ -1,0 +1,20 @@
+{
+ "id": "01-python-jsonschema-jsonschema",
+ "repo": "python-jsonschema/jsonschema",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "11455212a0ee246163b68aba586a865bda75142d",
+ "commit_sha": "9a957d770d6e63646f4fc874bf8df6be4593f8c8",
+ "test_patch_sha256": "e1357f24ddb093cd2a5ee1944145ad9b78dbf57bb702d0b8ce52cc292e924afa",
+ "gold_patch_sha256": "3b48806444e11ad447e4122870123d3363c19f3b4a0178389be6d88637512f4b",
+ "test_files": [
+  "jsonschema/tests/test_exceptions.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 13,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-08-31T12:02:27.690Z"
+}

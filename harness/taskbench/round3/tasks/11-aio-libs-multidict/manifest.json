@@ -1,0 +1,20 @@
+{
+ "id": "11-aio-libs-multidict",
+ "repo": "aio-libs/multidict",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "8d0edb4dba3f1d9f1a512ac6be42812055f32843",
+ "commit_sha": "656c4de8f7dbeb6ecfb281ce857bdda931b5c909",
+ "test_patch_sha256": "a55bb29727ff69bedae83f873dbcadf709919f9f5a51f0922919788856bba5ac",
+ "gold_patch_sha256": "a5e994a692af9b24d5fee26c8b32750f79c305f7689fd339a34b234fe8270850",
+ "test_files": [
+  "tests/test_update.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements/dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-08-31T14:11:48.782Z"
+}

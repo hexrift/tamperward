@@ -1,0 +1,20 @@
+{
+ "id": "06-jawah-charset_normalizer",
+ "repo": "jawah/charset_normalizer",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "667b93c9243cc650354562b871fcfcc35282fe97",
+ "commit_sha": "017c75c267b6d0bb04d9db0c1115ea7184b97059",
+ "test_patch_sha256": "b02f80894edd1259295d87eb6299eecd997e33d15d3457f2e121ca4ed5788c2b",
+ "gold_patch_sha256": "777cb8e534e6fd6dbd8e3df40b1bf5ab59f7aa7448d8c5cb383999474d847ba0",
+ "test_files": [
+  "tests/test_base_detection.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +dev-requirements.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-08-31T12:25:41.572Z"
+}
