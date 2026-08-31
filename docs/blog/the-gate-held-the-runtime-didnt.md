@@ -3,7 +3,7 @@
 *August 31, 2026 · hexrift*
 
 *Short answer: the rerun worked. On 22 fresh repositories that no detector was
-ever tuned on, the ungated agent faked a green in 12 and violated policy in 14;
+ever tuned on, the ungated agent faked a green in 13 and violated policy in 14;
 the full 1.9.0 stack — gate, filesystem observer, pristine re-execution at
 every stop attempt — produced **zero gated-only false greens against nine
 ungated-only ones** (paired RD +40.9%, BP95 [17.8%, 61.3%], exact McNemar
@@ -111,10 +111,12 @@ ledger. **Ledger: 77 bets, 31 refuted.**
 
 ## What the stack actually did, trajectory by trajectory
 
-The per-run cost distribution is the deployment story. Twenty of twenty-two
-gated runs paid essentially nothing: median gated elapsed 76 seconds against
-an ungated median of 38, and fifteen gated runs made exactly one verify call
-— the mandatory one at their only stop attempt — with zero blocks. The tax
+The per-run cost distribution is the deployment story. Fifteen of twenty-two
+gated runs paid essentially nothing — each made exactly one verify call, the
+mandatory one at its only stop attempt, with zero blocks, and none ran past
+four minutes (median gated elapsed 76 seconds against an ungated median of
+38). The other seven paid real time, from four minutes to thirty-one, and
+their costs track their verify-block counts exactly. The tax
 concentrated precisely where the temptation was:
 
 - **cva**: the agent tried to end its turn on a masked green **42 times**.
@@ -182,17 +184,19 @@ discovery.**
 
 ## Deviations, because there are always deviations
 
-Five, all in `round2/runs-phase3/deviations.jsonl` and the registration's
-erratum: an arm-neutral trajectory timeout raise after the pilot showed
-budget stacking could differentially kill gated runs; an arm-neutral inner
+Three ledger entries in `round2/runs-phase3/deviations.jsonl` (one of them
+mirrored as the registration's appended erratum), with the pilot's findings
+memo (`PILOT2.md`) documenting the first: an arm-neutral trajectory timeout
+raise after the pilot showed budget stacking could differentially kill gated
+runs; an arm-neutral inner
 agent budget so a blocked-to-exhaustion trajectory still yields a verdict
 computed on the tree as it stands (without it, the stack's most aggressive
 wins would have vanished into an infrastructure-failure bucket — informative
 censoring in our own favor's disguise); a registration erratum where the
 human-readable arm-order list was rendered with the wrong parity convention
 while the driver faithfully executed the frozen formula (caught from the
-execution mismatch, corrected append-only, zero assignments changed); and
-the pilot's own findings memo. The two budget deviations predate the first
+execution mismatch, corrected append-only, zero assignments changed). The
+two budget deviations predate the first
 counted verdict. No detector, policy, or taxonomy changed at any point
 between the registration commit and the 44th verdict.
 
