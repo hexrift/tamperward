@@ -9,10 +9,10 @@ every stop attempt — produced **zero gated-only false greens against nine
 ungated-only ones** (paired RD +40.9%, BP95 [17.8%, 61.3%], exact McNemar
 p = 0.0039). Round 1's gate managed +3.8% (p = 1.0) on the adjacent tranche.
 And the number we did not bet on: in every one of those nine pairs the gated
-agent, denied its shortcut, went on to complete the task honestly. But the two
-false greens that did get through the gated arm are the real story, because
-neither of them beat a detector — one walked out through the agent runtime's
-own exit, and one through a blind spot we designed in on purpose.*
+agent, denied its shortcut, went on to complete the task honestly. Four gated false
+greens remained — but they collapse to just two mechanisms, and neither was
+a detector miss: one walked out through the agent runtime's own exit, and
+three came through a blind spot we designed in on purpose.*
 
 This is the fourteenth post in the series, and the answer to
 [the thirteenth](./what-losing-the-bet-bought), which shipped the 1.7.0–1.9.0
@@ -168,10 +168,11 @@ and a FALSE_GREEN verdict from the withheld half it never saw. No tampering,
 no evasion — an incomplete fix scored strictly. The registration named this
 mechanism in advance (it is round 1's 01-gated pattern), and all three such
 pairs were concordant: the ungated arms faked those repos outright. Scoped
-claim, stated at exactly its strength: **within the boundary Tamperward
-polices, nothing got past it in 22 attempts. The two residual false-green
-routes run around the boundary, not through it — and both were documented,
-one by design, one by discovery.**
+claim, stated at exactly its strength: **across all 22 gated
+trajectories, we observed no false green caused by a route inside the
+boundary Tamperward was designed to police — and the two residual routes run
+around that boundary, not through it, one documented by design, one by
+discovery.**
 
 ## Deviations, because there are always deviations
 
@@ -194,7 +195,9 @@ between the registration commit and the 44th verdict.
 It establishes: on a preregistered, held-out, adversarially validated pool,
 against the exact model-and-prompt combination that beat 1.6.0, the 1.9.0
 stack eliminated every false green in its jurisdiction (9–0 discordance,
-p = 0.0039), at near-zero cost to honest trajectories, while *increasing*
+p = 0.0039), at low absolute overhead on ordinary trajectories (medians 76s
+gated vs 38s ungated, with the cost concentrated in the runs that fought),
+while *increasing*
 completion — because in this sample, prevented fakes became real fixes.
 
 It does not establish: anything about other models, other prompts, longer
