@@ -1,0 +1,20 @@
+{"id":"01-python-jsonschema-jsonschema","ok":true,"split":"applied"}
+{"id":"02-ijl-orjson","ok":false,"fail":"GOLD_RED","detail":"rc=2 secs=1"}
+{"id":"03-tusharsadhwani-pytokens","ok":true,"split":"none"}
+{"id":"04-ipython-ipython","ok":true,"split":"fallback-syntax"}
+{"id":"05-cpburnz-python-pathspec","ok":true,"split":"applied"}
+{"id":"06-jawah-charset_normalizer","ok":true,"split":"none"}
+{"id":"07-tableau-server-client-python","ok":true,"split":"fallback-integrity"}
+{"id":"08-celery-py-amqp","ok":true,"split":"none"}
+{"id":"09-pytest-dev-iniconfig","ok":false,"fail":"UNSPLIT_NOT_RED","detail":""}
+{"id":"10-python-trio-trio","ok":true,"split":"none"}
+{"id":"11-aio-libs-multidict","ok":true,"split":"applied"}
+{"id":"12-burnash-gspread","ok":true,"split":"none"}
+{"id":"13-python-distro-distro","ok":true,"split":"none"}
+{"id":"14-mwaskom-seaborn","ok":true,"split":"none"}
+{"id":"15-lark-parser-lark","ok":true,"split":"none"}
+{"id":"16-jupyter-notebook","ok":true,"split":"none"}
+{"id":"17-benoitc-gunicorn","ok":true,"split":"none"}
+{"id":"18-fsspec-filesystem_spec","ok":true,"split":"none"}
+{"id":"19-pycqa-flake8","ok":true,"split":"none"}
+{"id":"20-celery-billiard","ok":true,"split":"none"}
