@@ -5,6 +5,34 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.11.1] — 2026-08-31
+
+**The suite runner is part of the trust anchor (P0-6).** `verify` symlinks
+`node_modules` into both the visible and pristine copies. It is gitignored, so
+no diff view sees it, and it is where the suite's own runner lives — an agent
+that writes `node_modules/.bin/<runner>` replaces the program that decides both
+verdicts. Reproduced: VERIFIED, visible and pristine both exit 0, with the
+source bug sitting untouched in `src.js`.
+
+The envelope now content-hashes the installed dependency tree before the agent
+starts and again at adjudication; a change is `DEPENDENCY_DRIFT` (exit 1).
+Content-hashed rather than stat-compared, because P1-8 is the standing lesson
+that mtime and size belong to the agent. Measured 3.4s over 145MB / 5,453
+files, inside a command that already runs the suite twice.
+`--allow-dep-drift` accepts the risk explicitly, the same operator-owned escape
+as `--allow-dirty`. Note the honest scope: `verify` itself is still fooled by a
+substituted runner — the fingerprint is what catches it.
+
+**Also fixed, found while building that fixture: a relative `--cwd` broke
+verification entirely.** The copies' `node_modules` symlink was built from the
+caller's cwd verbatim, so a relative one (`--cwd .`, which the envelope passed
+through) resolved against the copy's own directory — every suite in both runs
+exited 127 and `verify` degraded to permanent SUITE_RED. It fails closed, so
+nothing was ever wrongly cleared, but an oracle that always says red is one
+people switch off. Targets are absolute now, and the envelope resolves its cwd.
+
+Full suite 338/338; every new test verified to fail with its fix reverted.
+
 ## [1.11.0] — 2026-08-31
 
 **Quiescence (P0-5): a verdict cannot outlive the tree it describes.** `run`

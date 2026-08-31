@@ -8,7 +8,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
 import { runEnvelope, parseRun } from '../src/cli/run';
 import { runVerify } from '../src/cli/verify';
 import { loadPolicy } from '../src/policy-load';
@@ -271,7 +271,12 @@ describe('P0-6: the suite runner lives outside every git view', () => {
     // suite exited 127 and verify degraded to permanent SUITE_RED — an oracle
     // that always says red is one people switch off.
     const cwd = repoWithRunner();
-    const rel = relative(process.cwd(), cwd);
-    expect(runEnvelope({ cwd: rel, cmd: RUNNER_CMD, argv: sh('echo "module.exports = 42;" > src.js') })).toBe(0);
+    const prev = process.cwd();
+    try {
+      process.chdir(cwd); // the observed case: `tamperward run --cwd .`
+      expect(runEnvelope({ cwd: '.', cmd: RUNNER_CMD, argv: sh('echo "module.exports = 42;" > src.js') })).toBe(0);
+    } finally {
+      process.chdir(prev);
+    }
   });
 });
