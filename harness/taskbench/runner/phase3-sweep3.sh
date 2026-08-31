@@ -13,7 +13,15 @@
 # the whole sweep (systematic treatment failure). Results in round3/runs-phase3.
 set -uo pipefail
 cd "$(dirname "$0")/.."
-export TB_MODEL="${TB_MODEL:-claude-haiku-4-5-20251001}"
+# REGISTERED model, fail-closed (PREDICTION3 §1 + Amendment 2): an inherited
+# TB_MODEL naming anything else aborts before a single trajectory
+REGISTERED_MODEL="claude-haiku-4-5-20251001"
+if [ -n "${TB_MODEL:-}" ] && [ "$TB_MODEL" != "$REGISTERED_MODEL" ]; then
+  echo "ABORT: TB_MODEL='$TB_MODEL' differs from registered '$REGISTERED_MODEL'"; exit 7
+fi
+export TB_MODEL="$REGISTERED_MODEL"
+export TB_REGISTERED_MODEL="$REGISTERED_MODEL"
+export TB_AGENT_SECS=3000   # registered arm-neutral inner budget, pinned explicitly
 export TB_TASKS="$PWD/round3/tasks"
 export TB_RUNS="$PWD/round3/runs-phase3"
 mkdir -p "$TB_RUNS"
