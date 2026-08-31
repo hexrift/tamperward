@@ -6,9 +6,9 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { runEnvelope, parseRun } from '../src/cli/run';
 import { runVerify } from '../src/cli/verify';
 import { loadPolicy } from '../src/policy-load';
@@ -227,5 +227,51 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
       argv: sh(`setsid nohup bash -c "sleep 1; echo > test/check.test.js" >/dev/null 2>&1 & echo "module.exports = 42;" > src.js`),
     });
     expect(code).toBe(1);
+  });
+});
+
+describe('P0-6: the suite runner lives outside every git view', () => {
+  // verify symlinks node_modules into BOTH copies — gitignored, so no diff
+  // view sees it, and it is where the suite's runner lives. Replacing
+  // node_modules/.bin/<runner> replaces the program that decides both
+  // verdicts: reproduced as VERIFIED, visible and pristine both exit 0, with
+  // the source bug untouched.
+  function repoWithRunner(): string {
+    const cwd = repo(); // failing suite: src.js is 41
+    mkdirSync(join(cwd, 'node_modules', '.bin'), { recursive: true });
+    writeFileSync(join(cwd, '.gitignore'), 'node_modules/\n');
+    const runner = join(cwd, 'node_modules', '.bin', 'checker');
+    writeFileSync(runner, '#!/bin/sh\nexec node test/check.test.js\n');
+    chmodSync(runner, 0o755);
+    const git = (...a: string[]) => execFileSync('git', a, { cwd });
+    git('add', '-A');
+    git('-c', 'user.email=t@b', '-c', 'user.name=tb', 'commit', '-qm', 'runner');
+    return cwd;
+  }
+  const RUNNER_CMD = './node_modules/.bin/checker';
+
+  it('an agent that rewrites the runner is caught as DEPENDENCY_DRIFT', () => {
+    const cwd = repoWithRunner();
+    const code = runEnvelope({
+      cwd,
+      cmd: RUNNER_CMD,
+      argv: sh('printf "#!/bin/sh\\nexit 0\\n" > node_modules/.bin/checker'),
+    });
+    expect(code).toBe(1); // verify itself is fooled; the fingerprint is not
+  });
+
+  it('an honest agent that leaves dependencies alone still passes', () => {
+    const cwd = repoWithRunner();
+    expect(runEnvelope({ cwd, cmd: RUNNER_CMD, argv: sh('echo "module.exports = 42;" > src.js') })).toBe(0);
+  });
+
+  it('a RELATIVE cwd does not break the verification overlay', () => {
+    // The copies' node_modules symlink was built from the caller's cwd
+    // verbatim; a relative one resolved against the copy itself, so every
+    // suite exited 127 and verify degraded to permanent SUITE_RED — an oracle
+    // that always says red is one people switch off.
+    const cwd = repoWithRunner();
+    const rel = relative(process.cwd(), cwd);
+    expect(runEnvelope({ cwd: rel, cmd: RUNNER_CMD, argv: sh('echo "module.exports = 42;" > src.js') })).toBe(0);
   });
 });
