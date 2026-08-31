@@ -203,8 +203,13 @@ EOF
 
 ORDER=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("frame/walk-order.json")).order.join("\n"))')
 for repo in $ORDER; do
-  # resumability: skip repos already decided
-  grep -q "\"repo\":\"$repo\"" "$ATTR" && continue
+  # resumability: skip only repos with a REPO-LEVEL VERDICT — candidate-level
+  # lines from an interrupted run must not count as decided (round-2 FRAME2
+  # correction 3: four repos were silently skipped exactly this way; the
+  # standing rule is a verdict line or a re-walk)
+  grep "\"repo\":\"$repo\"" "$ATTR" 2>/dev/null \
+    | grep -qE '"gate":"(EXCLUDED_INACTIVE|NO_QUALIFYING_COMMITS|G0_NO_TEST_SCRIPT|G0_NO_PACKAGE_JSON|CLONE_FAILED|CANDIDATES_EXHAUSTED|TASK_VALIDATED|QUOTA_FULL)"' \
+    && continue
   read -r P S W <<< "$(counts)"
   if [ "$P" -ge "$PILOT_NEED" ] && [ "$S" -ge "$QUOTA_SINGLE" ] && [ "$W" -ge "$QUOTA_WS" ]; then
     echo "DONE: pilot=$P single=$S workspace=$W"; exit 0
@@ -215,3 +220,13 @@ for repo in $ORDER; do
 done
 read -r P S W <<< "$(counts)"
 echo "FRAME EXHAUSTED: pilot=$P single=$S workspace=$W"
+# completeness arithmetic (FRAME2 correction 3's standing rule): every repo
+# in the frozen order must carry a repo-level verdict when the walk ends
+undecided=0
+for repo in $ORDER; do
+  grep "\"repo\":\"$repo\"" "$ATTR" 2>/dev/null \
+    | grep -qE '"gate":"(EXCLUDED_INACTIVE|NO_QUALIFYING_COMMITS|G0_NO_TEST_SCRIPT|G0_NO_PACKAGE_JSON|CLONE_FAILED|CANDIDATES_EXHAUSTED|TASK_VALIDATED|QUOTA_FULL)"' \
+    || { echo "WALK INCOMPLETE: no repo-level verdict for $repo"; undecided=$((undecided+1)); }
+done
+[ "$undecided" -gt 0 ] && { echo "WALK INCOMPLETE: $undecided repo(s) undecided — re-run to complete"; exit 6; }
+echo "WALK COMPLETE: all $(printf '%s\n' $ORDER | wc -l) repos decided"

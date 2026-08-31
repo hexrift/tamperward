@@ -61,7 +61,7 @@ run_one() { # run_one <task> <arm> -> 0 verdict landed, 1 infra-failed, 2 gate-n
     disk_guard
     local before; before=$(wc -l <"$RESULTS")
     say "START $task $arm (attempt $attempt)"
-    out=$(timeout 2400 "./runner/run-task.sh" "$task" "$arm" </dev/null 2>&1); local rc=$?
+    out=$(timeout 3600 "./runner/run-task.sh" "$task" "$arm" </dev/null 2>&1); local rc=$?
     echo "$out" >> "$LOG"
     if echo "$out" | grep -q 'GATE_NOT_LIVE'; then say "GATE_NOT_LIVE on $task $arm — aborting sweep"; return 2; fi
     if [ "$(wc -l <"$RESULTS")" -gt "$before" ]; then
