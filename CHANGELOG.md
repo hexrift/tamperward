@@ -5,6 +5,34 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.10.2] — 2026-08-31
+
+**Envelope hardening — four executed P0 inversions from external review, each
+reproduced then closed with a regression test.** #117/#118 froze the entry
+SHA, ancestry, and verifier; this freezes the rest of the trust anchor. The
+common root: the envelope adjudicated the post-agent tree using that tree's
+own policy, its tracked-only file view, and its local sign-off ledger — all
+agent-authorable.
+
+- **P0-1**: an uncommitted `.tamperward.yml` disabling test-deletion +
+  hook-tampering made the worktree check score a gutted suite "clean". The
+  whole policy (rules, protected globs, verifier) is now resolved from the
+  base commit via `loadPolicyAt(base)` — never the working tree.
+- **P0-2**: widening `protected` reverted the pristine overlay to base,
+  masking the agent's own source bug, and policy-diff scores adding globs a
+  strengthening. Verify's overlay classes now come from the frozen policy.
+- **P0-3**: untracked files were invisible to `git diff HEAD`. The worktree
+  view now includes untracked, not-ignored files.
+- **P0-4**: the agent cleared its own findings by running `tamperward
+  allow`. The envelope now adjudicates at the CI layer — only out-of-band
+  approval, never the agent-writable ledger.
+
+Honest boundary: P0-5 (a detached background worker can mutate the tree
+after the checks — a TOCTOU on a live tree) and P0-6 (the shared, gitignored
+`node_modules` runner) remain OPEN and are tracked, with every P1/P2 finding,
+in the new `SECURITY-ENVELOPE.md`. SPEC row 17 now names process quiescence
+as outside the current boundary. Full suite 325/325.
+
 ## [1.10.1] — 2026-08-31
 
 **Envelope hardening — two High findings from owner review of 1.10.0,

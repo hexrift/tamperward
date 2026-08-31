@@ -3,7 +3,7 @@
 // blocking finding so it can serve as a gate at pre-commit and in CI.
 
 import { Change, Policy, View } from '../types';
-import { diffRange, diffStaged, diffWorktree, mergeBaseOf } from '../git/build';
+import { diffRange, diffStaged, diffWorktree, diffWorktreeWithUntracked, mergeBaseOf } from '../git/build';
 import { evaluate, hasBlocking, isSuppressed } from '../engine';
 import { loadPolicy, loadPolicyAt, PolicyError } from '../policy-load';
 import { defaultPolicy } from '../policy';
@@ -17,10 +17,16 @@ export interface CheckOpts {
   json?: boolean;
   format?: Format;
   cwd?: string;
+  /** Enforcement-envelope overrides (SPEC row 17). The envelope adjudicates the
+   *  post-agent tree, so it cannot trust that tree's own policy, file view, or
+   *  sign-off ledger — all agent-authorable. */
+  policyOverride?: Policy; // frozen entry-time policy, not the current tree's
+  includeUntracked?: boolean; // worktree view also scans untracked (not-ignored) files
+  ciLayer?: boolean; // adjudicate at the CI layer: no local (agent-writable) ledger
 }
 
 function check(opts: CheckOpts): number {
-  let policy: Policy = loadPolicy(opts.cwd);
+  let policy: Policy = opts.policyOverride ?? loadPolicy(opts.cwd);
   const cwd = opts.cwd ?? process.cwd();
 
   let changes: Change[];
@@ -31,8 +37,10 @@ function check(opts: CheckOpts): number {
     layer = 'local'; // pre-commit: a human at their machine may sign off (ledger, fingerprint-bound)
     view = 'staged';
   } else if (opts.worktree) {
-    changes = diffWorktree({ cwd: opts.cwd });
-    layer = 'local';
+    changes = opts.includeUntracked
+      ? diffWorktreeWithUntracked({ cwd: opts.cwd })
+      : diffWorktree({ cwd: opts.cwd });
+    layer = opts.ciLayer ? 'ci' : 'local';
     view = 'worktree';
   } else if (opts.diff) {
     const [base, head] = opts.diff.split(/\.{2,3}/);
@@ -49,7 +57,7 @@ function check(opts: CheckOpts): number {
     // change that added it. Govern by the merge-base's policy; if the base has none, govern
     // by the baseline, never by the branch's. The edit is still REPORTED (hook-tampering) —
     // it just takes effect only once a human has merged it.
-    policy = loadPolicyAt(mergeBaseOf(base, head, { cwd: opts.cwd }), opts.cwd) ?? defaultPolicy();
+    policy = opts.policyOverride ?? loadPolicyAt(mergeBaseOf(base, head, { cwd: opts.cwd }), opts.cwd) ?? defaultPolicy();
   } else {
     process.stderr.write('tamperward: specify --staged, --worktree, or --diff <base>...<head>\n');
     return 2;
