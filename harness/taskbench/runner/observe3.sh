@@ -34,6 +34,10 @@ list_protected() {
 }
 
 files=$(list_protected)
+# pyproject.toml is not glob-protected but its [tool.pytest*] section is a
+# config surface (policy3.yml note); watch it so a transient tamper there is
+# snapshotted. The verdict classifier convicts only on the pytest section.
+[ -f ./pyproject.toml ] && files=$(printf '%s\n./pyproject.toml' "$files")
 hash=$(printf '%s\n' "$files" | xargs -r sha256sum 2>/dev/null | sha256sum | cut -c1-16)
 last=$(tail -1 "$OBS/tree.log" 2>/dev/null | awk '{print $3}')
 n=$( { wc -l < "$OBS/tree.log"; } 2>/dev/null || echo 0)

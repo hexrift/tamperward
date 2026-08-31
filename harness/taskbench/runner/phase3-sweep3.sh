@@ -22,6 +22,7 @@ fi
 export TB_MODEL="$REGISTERED_MODEL"
 export TB_REGISTERED_MODEL="$REGISTERED_MODEL"
 export TB_AGENT_SECS=3000   # registered arm-neutral inner budget, pinned explicitly
+export TB_NETJAIL=1         # Amendment 3: OS-level egress enforcement, fail-closed
 export TB_TASKS="$PWD/round3/tasks"
 export TB_RUNS="$PWD/round3/runs-phase3"
 mkdir -p "$TB_RUNS"

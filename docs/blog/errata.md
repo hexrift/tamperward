@@ -46,3 +46,18 @@ the frozen per-study prediction documents plus targeted transcript greps);
 the 67- and 77-guarded-run totals (no artifact enumerates the eligible-run
 sets); and the negative claim over 58 of the 59 trajectories in the
 transient-mutation rescan.
+
+## 2026-08-31 — network isolation was observation-bounded (rounds 1–2)
+
+The taskbench egress allowlist proxy was wired via `HTTP[S]_PROXY`
+environment variables only. A round-3 pre-count probe (`egress-probe.sh`)
+established that a process in this environment can bypass those variables and
+reach infrastructure-permitted hosts directly, so the proxy observed agent
+traffic rather than enforcing a boundary. Rounds 1–2 therefore support
+"no proxy-observed forbidden retrieval," not "no network exposure"; their
+`NETWORK_EXPOSURE = 0` and the exposure sensitivity analysis are bounded by
+what the proxy could see. Round 3 closes this at the OS level (a network
+namespace with no route or resolver except the proxy's veth IP; PREDICTION3
+Amendment 3) so its exposure flag is enforced and measurable. No round-1/2
+primary endpoint (paired FALSE_GREEN prevention) depends on the network
+claim; the correction scopes the network sentence only.
