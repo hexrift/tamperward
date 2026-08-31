@@ -17,6 +17,7 @@ is only as honest as this table. REPRO = executed end-to-end; AUDIT = code path.
 | P0-8 | REPRO | `git mv ci.yml ci.yml.disabled` disabled every check with zero changed lines, clean at CI — the file never leaves the protected glob, only GitHub's executable set | 1.10.3 | ci-tampering fires on executability (`.github/workflows/*.{yml,yaml}`), not glob membership; honest renames (ci.yml → build.yml) stay clean |
 | P1-9 | REPRO | `core.hooksPath` — git-native, strictly more general than the covered flags — bypassed no-verify in three spellings (`-c`, `git config`, `GIT_CONFIG_*`) | 1.10.3 | all three spellings covered, plus LEFTHOOK=0 / SKIP_SIMPLE_GIT_HOOKS / PRE_COMMIT_ALLOW_NO_CONFIG |
 | P2-11 | REPRO | repo content injected raw ESC bytes into the terminal verdict (clear-screen + forged "clean" line) | 1.10.3 | C0/C1 control bytes replaced before rendering; the human-facing surface the steering story depends on |
+| P1-8 | REPRO | effect-drift reused the previous snapshot entry when mtime+size+mode matched — a same-size edit (`it(` → `it.skip(` paid for by a shorter test name) plus `touch -r` slipped a skip past the per-call check | 1.10.4 | the stat fast path is removed: every protected file is hashed on every snapshot. Measured cost 4.0ms → 17.2ms on a 1000-file/4MB protected tree, against ~450ms of node startup per hook call |
 
 ## Open — scoped, not yet closed (honest boundary)
 
@@ -31,7 +32,6 @@ is only as honest as this table. REPRO = executed end-to-end; AUDIT = code path.
 | P1-5 | AUDIT | no shipped CI wiring runs `verify` — default adoption adjudicates masked failures only at the local layer | Open. `init` CI template should include `tamperward run`/`verify`. |
 | P1-6 | AUDIT | OOB sign-off is unbound (rule/file only, no evidence fingerprint or head SHA) and sticky across `synchronize` | Open. Bind OOB approvals to a head SHA + finding fingerprint. |
 | P1-7 | AUDIT | a throwing detector fails open at the check layer | Open. At the range/envelope layer a detector throw should fail closed, not drop silently. |
-| P1-8 | REPRO | effect-drift fast path reuses the previous entry when mtime+size+mode match — a same-size edit plus `touch -r` slips `it` → `it.skip` past the per-call check | Open, high. The stat triple is agent-controlled; the fast path must re-hash (or key on content) for protected files. |
 | P2-12..P2-16 | AUDIT | NotebookEdit modelled but never matched by the installed matcher; default test globs are JS/TS only (a Python/Go/Rust repo gets rules that can never fire, silently); job-summary markdown injection via file path; `npx --yes` resolves the gate itself unpinned at gate time; revision args reach git without `--` | Backlog, pass 2. P2-13 (silent no-op policy for non-JS repos) and P2-15 (unpinned gate) are the two worth pulling forward. |
 | P2-1..P2-10 | mixed | crash paths return 1 not 2; `.git/tamperward/*` agent-writable; shared env between runs; group-timeout leak; materialize drops ignored/empty/.git; warn findings affect no exit code; self-hosting ignore blind spot; env-var provenance; enumerate-by-cwd; `--keep` lifetime | Backlog. P2-1 (crash → exit 1 not fail-closed 2) and P2-6 (warn findings invisible to the envelope verdict) are the two worth pulling forward. |
 
@@ -49,3 +49,29 @@ Entry-SHA freeze + descendancy gate; frozen verify command; dirty-start
 refusal; the 1.10.2 entry-time policy freeze, CI-layer adjudication and
 untracked inclusion; detector isolation; engine dedupe; the policy-file
 exemption in `ignore`; escaped GitHub annotations.
+
+## Test integrity: the mutation check
+
+A regression test that passes with its fix reverted proves nothing. Three of
+the tests shipped with 1.10.2–1.10.4 did exactly that, and were rewritten once
+the check below was run against them:
+
+- **P1-8** (shipped vacuous in 1.10.4): the test restored the mtime with
+  `utimesSync(file, atime, mtimeDate)`, which truncates to millisecond
+  precision — so `mtimeMs` no longer matched byte-for-byte, the stat fast path
+  never engaged, and the test passed against the *unfixed* code. The reported
+  exploit uses `touch -r`, which preserves nanoseconds. The test now shells out
+  to real `touch -r` and asserts `st.mtimeMs === before.mtimeMs` exactly.
+- **P0-2**: the fixture used a red base, so restoring it kept the bug and
+  MASKED_FAILURE fired either way. The exploit needs a *green* base (whose
+  restoration hides the agent's new bug) and a *visible-green* tree. Now tested
+  at the verify layer, asserting both directions: the tree's own widened policy
+  reports VERIFIED (the hole), the entry-time policy reports MASKED_FAILURE.
+- **P0-3**: the fixture deleted a tracked test, which convicts with or without
+  untracked inclusion. Now tested at the builder — `diffWorktree` must not
+  contain the dropped file and `diffWorktreeWithUntracked` must.
+
+**Practice**: for each fix, restore the pre-fix source from git, rebuild, and
+run that fix's test file. Every exploit test must fail; every control test
+("the honest version stays clean") must still pass. Both halves matter — a
+suite where the controls also go red is over-blocking, not security.

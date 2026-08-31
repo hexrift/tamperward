@@ -78,18 +78,26 @@ export function snapshotProtected(cwd: string, policy: Policy, prev?: PTree): PT
       }
       if (st.isDirectory()) walk(r);
       else if (st.isFile() && isProtected(r, policy)) {
-        const p = prev?.[r];
-        if (p && p.mtimeMs === st.mtimeMs && p.size === st.size && p.mode === st.mode) {
-          out[r] = p;
-        } else {
-          let hash = '';
-          try {
-            hash = sha(readFileSync(join(cwd, r)));
-          } catch {
-            hash = 'unreadable';
-          }
-          out[r] = { hash, mode: st.mode, size: st.size, mtimeMs: st.mtimeMs };
+        // NO STAT FAST PATH. This used to reuse the previous entry when
+        // mtime + size + mode all matched, skipping the hash. Every one of
+        // those three is writable by the agent being watched: `it(` → `it.skip(`
+        // paid for by shortening the test name keeps the size identical, and
+        // `touch -r` restores the mtime from any reference file — so the
+        // measured effect of the edit was remembered by stat and the drift
+        // check passed a file that carried the skip. (P1-8, external review;
+        // reproduced before this change.)
+        //
+        // This layer exists BECAUSE some mutation always arrives by a path the
+        // matcher did not see; a cache keyed on data the mutation's author
+        // controls reintroduces exactly the blind spot it was built to close.
+        // Hash every protected file, every time.
+        let hash = '';
+        try {
+          hash = sha(readFileSync(join(cwd, r)));
+        } catch {
+          hash = 'unreadable';
         }
+        out[r] = { hash, mode: st.mode, size: st.size, mtimeMs: st.mtimeMs };
       }
     }
   };
