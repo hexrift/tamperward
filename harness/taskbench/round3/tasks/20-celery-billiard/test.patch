@@ -1,0 +1,32 @@
+diff --git a/t/unit/test_pool.py b/t/unit/test_pool.py
+index d1890ef30f5620161ecfb675a20bbab355eef3db..76874d3f6c233f948edd29363c999219fa36d5ae 100644
+--- a/t/unit/test_pool.py
++++ b/t/unit/test_pool.py
+@@ -18,6 +18,9 @@ def get_on_ready_count():
+ def simple_task(x):
+     return x * 2
+ 
++def raise_base_exception():
++    raise BaseException("base exception test")
++
+ class test_pool:
+     def test_memory_error_from_callback_propagates(self):
+         def callback(value):
+@@ -58,6 +61,17 @@ class test_pool:
+                 with pytest.raises(ValueError):
+                     res.get()
+ 
++    def test_base_exception_propagates(self):
++        pool = billiard.pool.Pool(1)
++        result = pool.apply_async(raise_base_exception)
++
++        with pytest.raises(BaseException, match="base exception test"):
++            result.get(timeout=10)
++
++        pool.close()
++        pool.join()
++        pool.terminate()
++
+     def test_on_ready_counter_is_synchronized(self):
+         for ctx in ('spawn', 'fork', 'forkserver'):
+             pool = billiard.pool.Pool(processes=1, context=get_context(ctx))

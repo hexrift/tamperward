@@ -1,0 +1,89 @@
+diff --git a/gunicorn/asgi/protocol.py b/gunicorn/asgi/protocol.py
+index 18b979f36597419d3aef593cbce3ee759da8c134..97c5897c88aba97d9eb3a926393e7d78b69029e2 100644
+--- a/gunicorn/asgi/protocol.py
++++ b/gunicorn/asgi/protocol.py
+@@ -1121,6 +1121,8 @@ class ASGIProtocol(asyncio.Protocol):
+         use_chunked = False
+         omits_body = False
+         omits_body_warned = False
++        response_requires_close = False
++        uses_uwsgi = getattr(self.cfg, "protocol", "http") == "uwsgi"
+ 
+         # Reset response buffer for write batching
+         self._response_buffer = None
+@@ -1136,7 +1138,7 @@ class ASGIProtocol(asyncio.Protocol):
+         async def send(message):
+             nonlocal response_started, response_complete, exc_to_raise
+             nonlocal response_status, response_headers, response_sent, use_chunked, omits_body
+-            nonlocal omits_body_warned
++            nonlocal omits_body_warned, response_requires_close
+ 
+             # If client disconnected, silently ignore send attempts
+             # This allows apps to finish cleanup without errors
+@@ -1171,6 +1173,20 @@ class ASGIProtocol(asyncio.Protocol):
+                         has_transfer_encoding = True
+                         use_chunked = True  # Framework already set chunked encoding
+ 
++                # Transfer-Encoding is HTTP hop-by-hop framing.  A uWSGI
++                # upstream response carries raw body bytes, so forwarding or
++                # applying it would make nginx expose the chunk markers as
++                # part of the application response.
++                if uses_uwsgi and has_transfer_encoding:
++                    response_headers = [
++                        (name, value) for name, value in response_headers
++                        if name.lower() not in (
++                            b"transfer-encoding", "transfer-encoding"
++                        )
++                    ]
++                    has_transfer_encoding = False
++                    use_chunked = False
++
+                 # No-body responses (HEAD/1xx/204/304) must not carry a body.
+                 # Always drop Transfer-Encoding (no chunked terminator without
+                 # a body); Content-Length is dropped only for statuses that
+@@ -1194,11 +1210,18 @@ class ASGIProtocol(asyncio.Protocol):
+                     and not has_transfer_encoding
+                     and request.version >= (1, 1)
+                     and not omits_body
++                    and not uses_uwsgi
+                 )
+                 if needs_chunked:
+                     use_chunked = True
+                     response_headers = list(response_headers) + [(b"transfer-encoding", b"chunked")]
+ 
++                # Without Content-Length, EOF delimits a uWSGI response body.
++                # Do not reuse the upstream connection for another request.
++                response_requires_close = (
++                    uses_uwsgi and not has_content_length and not omits_body
++                )
++
+                 self._send_response_start(response_status, response_headers, request)
+ 
+             elif msg_type == "http.response.body":
+@@ -1302,6 +1325,9 @@ class ASGIProtocol(asyncio.Protocol):
+                 self.log.exception("Exception in post_request hook")
+ 
+         # Determine keepalive
++        if response_requires_close:
++            return False
++
+         if request.should_close():
+             return False
+ 
+diff --git a/gunicorn/http/wsgi.py b/gunicorn/http/wsgi.py
+index eea62466c8b6269b818c424481b201ef9f7aa1fb..6f8a69ec79dda1d950cc95d6b79caacac558d1e2 100644
+--- a/gunicorn/http/wsgi.py
++++ b/gunicorn/http/wsgi.py
+@@ -411,6 +411,12 @@ class Response:
+         # Only use chunked responses when the client is
+         # speaking HTTP/1.1 or newer and there was
+         # no Content-Length header set.
++        #
++        # uWSGI response bodies are not HTTP message bodies: nginx treats
++        # them as opaque bytes and chooses the downstream HTTP framing.  If
++        # we add HTTP chunk markers here they leak into the application body.
++        if getattr(self.cfg, "protocol", "http") == "uwsgi":
++            return False
+         if self.response_length is not None:
+             return False
+         elif self.req.version <= (1, 0):

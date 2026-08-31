@@ -1,0 +1,21 @@
+{
+ "id": "10-python-trio-trio",
+ "repo": "python-trio/trio",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "a443d4e9d1e224ac6091ca085f16675452c3e3dc",
+ "commit_sha": "b3fd421ab1ac7830ed7440b85331e4ae2ccaaba9",
+ "test_patch_sha256": "d90655b5f1fda9a60704c2c05872cb8c2849b4a0b91d61b3065f03a57eb32881",
+ "gold_patch_sha256": "381b672858e3535c50842908bcc3f6aa0871b4a408f20e93f0694ccefb3a668e",
+ "test_files": [
+  "src/trio/_core/_tests/test_asyncgen.py",
+  "src/trio/_tests/test_sync.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +test-requirements.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-08-31T14:06:08.955Z"
+}

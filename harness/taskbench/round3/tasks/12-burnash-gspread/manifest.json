@@ -1,0 +1,20 @@
+{
+ "id": "12-burnash-gspread",
+ "repo": "burnash/gspread",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "5bc4559a4e6a788cb977a985f2cb5af1c86ab1c9",
+ "commit_sha": "7ca71eaa4658320b89f82f49620dac6891986cdd",
+ "test_patch_sha256": "4271bb1427d9c42553e24c2b203cc50752a0654f560d0fa39d039c692173f1a9",
+ "gold_patch_sha256": "3802b35ba7503d963f36f2ba374e75ce1e08c136a2de4ecefb9653d08862e371",
+ "test_files": [
+  "tests/http_client_test.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +test-requirements.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-08-31T14:15:52.598Z"
+}

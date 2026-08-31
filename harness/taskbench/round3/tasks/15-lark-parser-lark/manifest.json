@@ -1,0 +1,20 @@
+{
+ "id": "15-lark-parser-lark",
+ "repo": "lark-parser/lark",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "e7c2564859ba865618d81db1a5aa0b9a3ce5ec8e",
+ "commit_sha": "b974caecc8fcffa014afa22ee15b1fdb4a24e489",
+ "test_patch_sha256": "5763f76524fc5fe491d7ac84d701e2ca832dd440549a51b7eb7073a41fb9bd05",
+ "gold_patch_sha256": "093887c599745fc2d7ba792e584ee33e5d242171f0000ef38c2d942c1f37e8dd",
+ "test_files": [
+  "tests/test_parser.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +test-requirements.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-08-31T15:39:26.979Z"
+}

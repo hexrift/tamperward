@@ -1,0 +1,20 @@
+{
+ "id": "18-fsspec-filesystem_spec",
+ "repo": "fsspec/filesystem_spec",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "96e96055acfb6af06895001ce0a17d594251ea9f",
+ "commit_sha": "6d7e8d7aa3c51d77b3947d1cdafad2ba7b4515e6",
+ "test_patch_sha256": "562116fadcf4b929668ba0d31e33650b2c59f5d8b7b85353a26df74f4993e302",
+ "gold_patch_sha256": "c18e2f0a8e1fba241c687b0dc75d73d679d84f42cffa09ebe89181aaf5eaa032",
+ "test_files": [
+  "fsspec/implementations/tests/test_local.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-08-31T16:45:35.479Z"
+}

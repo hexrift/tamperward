@@ -1,0 +1,12 @@
+diff --git a/src/flake8/checker.py b/src/flake8/checker.py
+index 329a2cc3907db21adc2820df382bdaac671543d8..ff62679604d08b2adcab4b8091bbe04b5d1b6ab7 100644
+--- a/src/flake8/checker.py
++++ b/src/flake8/checker.py
+@@ -256,6 +256,7 @@ class Manager:
+                 exclude=self.exclude,
+             )
+         )
++        self.jobs = min(len(self.filenames), self.jobs)
+ 
+     def stop(self) -> None:
+         """Stop checking files."""

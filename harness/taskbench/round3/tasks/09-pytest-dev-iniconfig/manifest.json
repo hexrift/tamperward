@@ -1,0 +1,20 @@
+{
+ "id": "09-pytest-dev-iniconfig",
+ "repo": "pytest-dev/iniconfig",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "e2d89f5283cbeb4b4ca55fe88b1c353c343b4972",
+ "commit_sha": "6d0af4529e4375e49dc871aa3d5ce17fe1791afe",
+ "test_patch_sha256": "83f0004774bfd099b1ef4430209075d6d9ce3e4884597610af1208d38ed6cde2",
+ "gold_patch_sha256": "7a622b0511ff81b29fa5d79dec83822b32aa2c0b2c00c2dfe1df57a2c7b43d03",
+ "test_files": [
+  "testing/test_iniconfig.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-08-31T12:28:51.214Z"
+}

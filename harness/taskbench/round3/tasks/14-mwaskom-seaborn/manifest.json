@@ -1,0 +1,20 @@
+{
+ "id": "14-mwaskom-seaborn",
+ "repo": "mwaskom/seaborn",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "886c4a2c34e354ceb51b83e07eb4b9b854fd5386",
+ "commit_sha": "92d1a7e1b3e6adcb2a23c7e713b1c04e124cd128",
+ "test_patch_sha256": "72f95f300ce6c2e6cafe51fcbb8c054edd605807037b6791e7858e0a41f8f0a9",
+ "gold_patch_sha256": "d142084dbd906385c3810ece94439760835138e8b28f38b2af82992f5357ffd0",
+ "test_files": [
+  "tests/test_distributions.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-08-31T15:30:57.974Z"
+}

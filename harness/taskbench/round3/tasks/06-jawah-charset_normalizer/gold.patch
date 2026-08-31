@@ -1,0 +1,17 @@
+diff --git a/src/charset_normalizer/models.py b/src/charset_normalizer/models.py
+index be0e94b8a404afa05ee791ef58f4c697767630dc..061c8adb9abe4c256d013e5159300676b9d970a1 100644
+--- a/src/charset_normalizer/models.py
++++ b/src/charset_normalizer/models.py
+@@ -72,7 +72,11 @@ class CharsetMatch:
+ 
+     @property
+     def multi_byte_usage(self) -> float:
+-        return 1.0 - (len(str(self)) / len(self.raw))
++        # Empty payloads are valid (from_bytes(b"") returns a match); avoid /0.
++        raw_len = len(self.raw)
++        if raw_len == 0:
++            return 0.0
++        return 1.0 - (len(str(self)) / raw_len)
+ 
+     def __str__(self) -> str:
+         # Lazy Str Loading

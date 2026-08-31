@@ -1,0 +1,21 @@
+{
+ "id": "07-tableau-server-client-python",
+ "repo": "tableau/server-client-python",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "56aa33f9751f75b378bf24569bdf52fd8f2a3028",
+ "commit_sha": "68201912354bece1222ecdae620d5b4e25052eba",
+ "test_patch_sha256": "6852ce2b210effbba012ca08006379717d72286aa14db8ec589d49d93aff8e68",
+ "gold_patch_sha256": "29c1851ff0d247bc879103e30ff8e180ed185e6bcb7f3934de22819060ba0e5a",
+ "test_files": [
+  "test/test_user.py",
+  "test/test_user_model.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 5,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-08-31T12:26:40.769Z"
+}

@@ -1,0 +1,20 @@
+{
+ "id": "19-pycqa-flake8",
+ "repo": "pycqa/flake8",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "cf1542cefa3e766670b2066dd75c4571d682a649",
+ "commit_sha": "f35737a32d8283fd0d3456bd9919718ff2d1b077",
+ "test_patch_sha256": "0f1783701f8777d9b0b1155d4add6884db871a1c5c7daca0baa5037af0dd9ac2",
+ "gold_patch_sha256": "0b8e6d7112e0a1472806ae27159196c7cf1bb405d228f0ede95686d841bbe04c",
+ "test_files": [
+  "tests/unit/test_checker_manager.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +dev-requirements.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-08-31T17:00:14.939Z"
+}

@@ -1,0 +1,44 @@
+diff --git a/testing/test_iniconfig.py b/testing/test_iniconfig.py
+index 1ca458e9b4e05557eb5019e1e681d7e2dea143e1..85193c52698a6080c42b8c670ec90e61ca69956d 100644
+--- a/testing/test_iniconfig.py
++++ b/testing/test_iniconfig.py
+@@ -376,3 +376,39 @@ def test_constructor_preserves_inline_comments_for_backward_compatibility() -> N
+     )
+     assert config["section1"]["name1"] == "value1 # this is a comment"
+     assert config["section1"]["name2"] == "value2 ; this is also a comment"
++
++
++def test_unicode_whitespace_stripped() -> None:
++    """Test that Unicode whitespace is stripped (issue #4)."""
++    config = IniConfig(
++        "test.ini",
++        data="[section]\n"
++        + "name1 = \u00a0value1\u00a0\n"  # NO-BREAK SPACE
++        + "name2 = \u2000value2\u2000\n"  # EN QUAD
++        + "name3 = \u3000value3\u3000\n",  # IDEOGRAPHIC SPACE
++    )
++    assert config["section"]["name1"] == "value1"
++    assert config["section"]["name2"] == "value2"
++    assert config["section"]["name3"] == "value3"
++
++
++def test_unicode_whitespace_in_section_names_with_opt_in() -> None:
++    """Test that Unicode whitespace can be stripped from section names with opt-in (issue #4)."""
++    config = IniConfig.parse(
++        "test.ini",
++        data="[section\u00a0]\n"  # NO-BREAK SPACE at end
++        + "key = value\n",
++        strip_section_whitespace=True,
++    )
++    assert "section" in config
++    assert config["section"]["key"] == "value"
++
++
++def test_unicode_whitespace_in_key_names() -> None:
++    """Test that Unicode whitespace is stripped from key names (issue #4)."""
++    config = IniConfig(
++        "test.ini",
++        data="[section]\n" + "key\u00a0 = value\n",  # NO-BREAK SPACE after key
++    )
++    assert "key" in config["section"]
++    assert config["section"]["key"] == "value"

@@ -1,0 +1,20 @@
+{
+ "id": "04-ipython-ipython",
+ "repo": "ipython/ipython",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "14e7a5f9783fb324a6aa1e6855f3143c065aa6c6",
+ "commit_sha": "cab037e079451b4611b0613323b8005bdf988f9e",
+ "test_patch_sha256": "1110dd52f243b2b8d9d1ab33383c7d2e37bdceabdac11bb0e43a31eb369163ca",
+ "gold_patch_sha256": "72e668eb29d959778fac4bfb3eba5ccf730596b8f202c61e4535e771c91cfac2",
+ "test_files": [
+  "tests/test_kitty.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 5,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-08-31T12:24:08.337Z"
+}

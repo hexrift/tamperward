@@ -1,0 +1,22 @@
+{
+ "id": "02-ijl-orjson",
+ "repo": "ijl/orjson",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "4547234b681fac5e0e0734cf44c21e75f9654e43",
+ "commit_sha": "c84d9b4ba4853781af943fa5c493e261e2f82b84",
+ "test_patch_sha256": "32f8baf5945a15d00cd5e14b12842ab691e69938f5e308b8b15c70af5890b97e",
+ "gold_patch_sha256": "da367dbaa71a8cf38551800fcd2edb7d74fe8eb532e7a99caa69443de7e4ded0",
+ "test_files": [
+  "test/test_default.py",
+  "test/test_parsing.py",
+  "test/test_type.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-08-31T12:04:47.786Z"
+}
