@@ -112,7 +112,36 @@ export function defaultPolicy(version = 1): Policy {
       // .test.tsx/.spec.tsx (hono, zustand) slipped the glob, so legit test-file casts blocked
       // instead of warning. Kept ADDITIVE (originals + new extensions) so the policy-diff sees a
       // strengthening, not a narrowing. picomatch expands the brace.
-      tests: ['**/*.test.ts', '**/*.spec.ts', '**/*.{test,spec}.{tsx,cts,mts,js,jsx,cjs,mjs}', '**/__tests__/**'],
+      // test-skip, test-deletion and test-content-removal all gate on this
+      // class, so a repo it does not match gets rules that can NEVER fire —
+      // protection that is silently absent rather than visibly off. The JS/TS
+      // list shipped alone; these are the conventional layouts of the other
+      // ecosystems `init` is run in. (P2-13, external review.)
+      tests: [
+        // JavaScript / TypeScript
+        '**/*.test.ts',
+        '**/*.spec.ts',
+        '**/*.{test,spec}.{tsx,cts,mts,js,jsx,cjs,mjs}',
+        '**/__tests__/**',
+        // Python (pytest / unittest layouts)
+        '**/test_*.py',
+        '**/*_test.py',
+        '**/conftest.py',
+        // Go
+        '**/*_test.go',
+        // Rust (integration tests live in tests/, unit tests inline)
+        '**/tests/**/*.rs',
+        // Ruby (RSpec / minitest)
+        '**/*_spec.rb',
+        '**/*_test.rb',
+        // Java / Kotlin / Scala (Maven & Gradle convention)
+        '**/src/test/**',
+        // PHP (PHPUnit)
+        '**/*Test.php',
+        // C# (.NET)
+        '**/*Tests.cs',
+        '**/*Test.cs',
+      ],
       config: [
         '**/jest.config.*',
         '**/vitest.config.*',

@@ -62,15 +62,29 @@ function cell(s: string): string {
 
 /** Deep-link a finding to the exact line in the reviewed tree, when Actions tells us
  *  enough to build one. Falls back to a plain code span off CI. */
+/** Neutralise a path for display inside a markdown code span. */
+export function mdCode(s: string): string {
+  return s.replace(/`/g, "'").replace(/[\r\n]/g, ' ');
+}
+
+/** Percent-encode the characters that would terminate a markdown link target. */
+export function mdUrl(s: string): string {
+  return s.replace(/[()<> \r\n"'`\\]/g, (c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0').toUpperCase());
+}
+
 function locationCell(f: Finding, env: NodeJS.ProcessEnv): string {
   if (!f.file) return '`(command)`';
   const label = `${f.file}${f.line ? `:${f.line}` : ''}`;
   const server = env.GITHUB_SERVER_URL;
   const repo = env.GITHUB_REPOSITORY;
   const sha = env.GITHUB_SHA;
-  if (!server || !repo || !sha) return `\`${cell(label)}\``;
+  if (!server || !repo || !sha) return `\`${cell(mdCode(label))}\``;
   const frag = f.line ? `#L${f.line}` : '';
-  return `[\`${cell(label)}\`](${server}/${repo}/blob/${sha}/${f.file}${frag})`;
+  // The path is repository content. cell() escapes only `|`, so a path
+  // containing `)` or a backtick broke out of the link (or the code span) into
+  // the rendered job summary. Escape the label for a code span and percent-
+  // encode the URL. (P2-14, external review.)
+  return `[\`${cell(mdCode(label))}\`](${server}/${repo}/blob/${sha}/${mdUrl(f.file)}${frag})`;
 }
 
 export interface SummaryInput {

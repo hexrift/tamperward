@@ -68,12 +68,21 @@ function enrich(c: Change, beforeReader: Reader, afterReader: Reader): Change {
   return { ...c, before, after };
 }
 
+/** Reject a revision that git would read as an option. Every shipped wiring
+ *  passes operator-controlled revs, so this is a guard rather than a fix for a
+ *  demonstrated escape — but `git diff --output=...` from a rev argument is
+ *  free to prevent. (P2-16, external review.) */
+export function assertRev(rev: string): string {
+  if (rev.startsWith('-')) throw new Error(`refusing a revision that git would read as an option: ${rev}`);
+  return rev;
+}
+
 /** The merge-base of `base` and `head`, or `base` when git can't compute one.
  *  This is the TRUSTED revision for a range: it is what the head branched from, so
  *  nothing on the head can have altered it. */
 export function mergeBaseOf(base: string, head: string, opts: GitOpts = {}): string {
   try {
-    return git(['merge-base', base, head], opts.cwd).trim() || base;
+    return git(['merge-base', assertRev(base), assertRev(head)], opts.cwd).trim() || base;
   } catch {
     return base;
   }
@@ -125,6 +134,8 @@ export function diffSince(rev: string, opts: GitOpts = {}): Change[] {
 
 /** Changes on `head` since its merge-base with `base` — the CI authority view. */
 export function diffRange(base: string, head: string, opts: GitOpts = {}): Change[] {
+  assertRev(base);
+  assertRev(head);
   const raw = git(['diff', '--no-color', '-M', `${base}...${head}`], opts.cwd);
   // `base...head` diffs from the merge-base, so `before` must come from the merge-base
   // too (not base's tip), or it misaligns whenever base advanced past the branch point.

@@ -179,7 +179,9 @@ function planClaudeHooks(cwd: string): Action {
     apply: () => {
       if (needPre) {
         (hooks.PreToolUse ??= []).push({
-          matcher: 'Bash|Edit|Write|MultiEdit',
+          // NotebookEdit is modelled by the adapter but was absent here, so
+          // that branch was unreachable in the wiring we install. (P2-12.)
+          matcher: 'Bash|Edit|Write|MultiEdit|NotebookEdit',
           hooks: [{ type: 'command', command: HOOK_CMD }],
         });
       }
