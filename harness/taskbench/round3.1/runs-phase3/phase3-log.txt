@@ -416,3 +416,5 @@ hint: "git config advice.addIgnoredFile false"
 2026-09-01T20:03:16Z ROUND-3.1 SWEEP START model=claude-sonnet-5 driver-pass=6 results=/home/user/tamperward/harness/taskbench/round3.1/runs-phase3/results.jsonl
 2026-09-01T20:03:16Z SKIP 15-lark-parser-lark gated (verdict exists)
 2026-09-01T20:03:16Z SKIP 15-lark-parser-lark ungated (verdict exists)
+2026-09-01T20:03:18Z SKIP 06-jawah-charset_normalizer gated (verdict exists)
+2026-09-01T20:03:18Z SKIP 06-jawah-charset_normalizer ungated (verdict exists)
