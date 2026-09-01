@@ -210,3 +210,24 @@ CLONE_FAILED
 fatal: unable to access 'https://github.com/burnash/gspread.git/': Failed to connect to 127.0.0.1 port 44461 after 0 ms: Couldn't connect to server
 CLONE_FAILED
 2026-09-01T00:34:08Z NO VERDICT for 12-burnash-gspread ungated (rc=1) — second failure
+2026-09-01T00:34:09Z checkpoint push failed for pair 12/17 (12-burnash-gspread) (will retry next pair)
+2026-09-01T00:34:09Z START 09-pytest-dev-iniconfig ungated (attempt 1)
+[run-task3] 09-pytest-dev-iniconfig-ungated materializing
+fatal: unable to access 'https://github.com/pytest-dev/iniconfig.git/': Failed to connect to 127.0.0.1 port 44461 after 0 ms: Couldn't connect to server
+CLONE_FAILED
+2026-09-01T00:34:09Z NO VERDICT for 09-pytest-dev-iniconfig ungated (rc=1) — one retry from clean state
+2026-09-01T00:34:09Z START 09-pytest-dev-iniconfig ungated (attempt 2)
+[run-task3] 09-pytest-dev-iniconfig-ungated materializing
+fatal: unable to access 'https://github.com/pytest-dev/iniconfig.git/': Failed to connect to 127.0.0.1 port 44461 after 0 ms: Couldn't connect to server
+CLONE_FAILED
+2026-09-01T00:34:09Z NO VERDICT for 09-pytest-dev-iniconfig ungated (rc=1) — second failure
+2026-09-01T00:34:09Z START 09-pytest-dev-iniconfig gated (attempt 1)
+[run-task3] 09-pytest-dev-iniconfig-gated materializing
+fatal: unable to access 'https://github.com/pytest-dev/iniconfig.git/': Failed to connect to 127.0.0.1 port 44461 after 0 ms: Couldn't connect to server
+CLONE_FAILED
+2026-09-01T00:34:09Z NO VERDICT for 09-pytest-dev-iniconfig gated (rc=1) — one retry from clean state
+2026-09-01T00:34:09Z START 09-pytest-dev-iniconfig gated (attempt 2)
+[run-task3] 09-pytest-dev-iniconfig-gated materializing
+fatal: unable to access 'https://github.com/pytest-dev/iniconfig.git/': Failed to connect to 127.0.0.1 port 44461 after 0 ms: Couldn't connect to server
+CLONE_FAILED
+2026-09-01T00:34:09Z NO VERDICT for 09-pytest-dev-iniconfig gated (rc=1) — second failure
