@@ -222,6 +222,56 @@ The self-test is nineteen cases. Four fixes across the three passes are
 mutation-checked — reverting the process-group fix, the exit-code split, the
 set identity, or the overlap check each makes its own case fail.
 
+### Fourth correction record: the post-agent boundary
+
+17. **A trajectory that RAN could be silently re-rolled.** This is the most
+    serious defect found in the whole hygiene effort, and it was in the
+    original round-3 runner too. After the agent finished, the verdict was
+    piped straight into `results.jsonl` with `| tee -a … || echo
+    RESULTS_LINE_FAILED`, and the runner could still exit successfully. The
+    driver asked only whether the file had grown; if not, it performed an
+    ordinary "one retry from clean state". So a failure in `verdict3.mjs`, in
+    `jq`, in the disk write, or the driver's outer 4200-second timeout landing
+    after the agent's 3000-second budget, would have **discarded an observed
+    stochastic trajectory and sampled another one** — the exact reroll the
+    protocol exists to prevent, arrived at through an infrastructure path
+    rather than a deliberate one.
+
+    There is now a post-agent boundary to match the pre-agent one. A durable
+    trajectory-start marker is written immediately before the agent is invoked.
+    Every no-verdict path after that is `POST_START_FINALIZATION_FAILURE`
+    (exit 11): the artifacts — observer log, oracle, deny logs, envelope
+    report, verify log and a tar of the final repository tree — are preserved
+    beside the transcript, and the sweep **halts**. It is never retried, not on
+    that pass and not on any resume: the driver refuses to continue until a
+    human either appends the reconstructed verdict or records the exclusion by
+    creating `<task>-<arm>.adjudicated`. The runner refuses to start a
+    trajectory whose marker already exists.
+
+    This **scopes** the frozen "no verdict → ONE retry from clean state" rule
+    of rounds 1–3 rather than replacing it: the retry survives for failures
+    before the trajectory starts, which is what it was for. Recording it here
+    because it is a deliberate divergence from the earlier rounds' operational
+    rule, decided before registration and before any Sonnet trajectory.
+18. **Acceptance was line-count growth, not identity.** A partial or stray
+    append that happened to add a newline would have been read as this
+    trajectory's verdict. The runner now builds the line into a temp file,
+    validates it with `jq -e` (valid record, matching task and arm, non-empty
+    outcome), appends it atomically under a lock, and reads the exact record
+    back; the driver's acceptance test is an exact `(task, arm)` match.
+19. **The upstream proxy URL was on the proxy's argv.** The net-jail is a
+    network namespace only — no PID or user namespace — so the agent shares
+    `/proc` with the proxy and could have read a credential out of its cmdline.
+    Redacting logs prevents accidental printing, not that. Since the proxy also
+    sends no `Proxy-Authorization` header, a credentialed upstream would fail
+    the boundary probe anyway, so they are now **refused outright**, both when
+    inherited and when offered by a rotation. Credentialed upstream proxies are
+    declared unsupported rather than carried and hidden.
+
+Twenty-one behavioural cases. Five fixes are mutation-checked: reverting the
+process-group fix, the exit-code split, the set identity, the overlap check, or
+the post-start boundary each makes its own case fail.
+
 The two test seams this requires (`TB_FRESH_UPSTREAM` in the runner,
 `TB_HYGIENE_TEST` in the driver) are fail-closed: the runner refuses the
 rotation seam whenever a registered model is pinned, and the driver's test

@@ -22,6 +22,8 @@
 #  D5 a systemic jail failure DOES halt it; a one-off jail failure does not
 #  D7 a duplicated (task, arm) verdict fails the completion invariant
 #  D8 a second concurrent driver is refused
+#  D13 a trajectory that RAN is never re-rolled; the sweep halts for adjudication
+#  D14 acceptance is an exact (task,arm) match, not line-count growth
 #  D9  a persistent checkpoint failure stops the sweep before the next pair
 #  D10 the completion invariant is a set identity, not a count
 #  D11 a pair cannot be both a verdict and a terminal failure
@@ -42,7 +44,7 @@ cleanup() {
   # exact lock paths for THIS process's run dirs, computed the same way the
   # driver does — never a wildcard over /tmp/tb31-driver-*.lock
   local x
-  for x in a b c d e f g h i j; do
+  for x in a b c d e f g h i j k l; do
     rm -f "/tmp/tb31-driver-$(printf %s "/tmp/hyg-runs-$$-$x" | md5sum | cut -c1-12).lock"
   done
 }
@@ -128,10 +130,12 @@ rc=0
 out=$(HTTPS_PROXY="http://tbuser:tbs3cret@127.0.0.1:1" https_proxy="http://tbuser:tbs3cret@127.0.0.1:1" \
       TB_FRESH_UPSTREAM="http://tbuser:tbs3cret@127.0.0.1:1" TB_NETJAIL=0 \
       bash "$HERE/run-task31.sh" --netcheck 2>&1) || rc=$?
-[ "$rc" -eq 8 ] || fail "N5: expected the dead credentialed upstream to fail closed (rc=$rc)"
+[ "$rc" -eq 8 ] || fail "N5: a credentialed upstream was not refused (rc=$rc)"
 echo "$out" | grep -q 'tbs3cret' && fail "N5: upstream credentials reached the log: $out"
 echo "$out" | grep -q '<redacted>@127.0.0.1:1' || fail "N5: redacted form not printed: $out"
-echo "N5 OK: upstream credentials are redacted everywhere they are printed"
+echo "$out" | grep -q 'credentialed upstream proxies are not supported' \
+  || fail "N5: the credentialed upstream was not refused by name: $out"
+echo "N5 OK: credentialed upstreams are refused, and never printed in the clear"
 
 # N6: cleanup runs on a path where PROXY_PID was never assigned. `kill 0` there
 # would signal the whole process group — i.e. the sweep driver itself. Run the
@@ -171,6 +175,10 @@ case "$mode" in
   fail8)  echo "PREFLIGHT_NET_FAILED: stub";   exit 8 ;;
   fail9)  echo "NETJAIL_SETUP_FAILED";         exit 9 ;;
   fail10) echo "TASK_REPO_UNREACHABLE: stub";  exit 10 ;;
+  poststart)  # the agent ran, then finalization died before a verdict landed
+    : > "$TB_RUNS/$1-$2.started"; echo "stub: agent ran, finalization died"; exit 1 ;;
+  wrongpair)  # a line lands, but for a different trajectory
+    printf '{"task":"99-wrong","arm":"ungated","outcome":"STUB"}\n' >> "$TB_RUNS/results.jsonl"; exit 0 ;;
 esac
 printf '{"task":"%s","arm":"%s","outcome":"STUB","driver_pass":%s,"execution_attempt":%s}\n' \
   "$1" "$2" "${TB_DRIVER_PASS:-0}" "${TB_EXEC_ATTEMPT:-0}" >> "$TB_RUNS/results.jsonl"
@@ -324,6 +332,43 @@ grep -q 'SWEEP COMPLETE' "$TMP/d12.log" && fail "D12: the run was logged COMPLET
 grep -q 'FAILED COMPLETION INVARIANT' "$TMP/d12.log" || fail "D12: failed-invariant ending not logged"
 rm -rf "$R10"
 echo "D12 OK: a failed invariant is never logged as a complete sweep"
+
+# D13: THE post-start boundary. Once the agent has run, its outcome exists
+# scientifically; a "clean retry" would discard an observed trajectory and
+# sample another. The sweep must stop after exactly one execution and must
+# never invoke that task-arm again without human adjudication.
+R11="/tmp/hyg-runs-$$-k"; rm -rf "$R11"; L11="$TMP/launch11.log"; : > "$L11"
+drive "$R11" "$L11" poststart STUB_FAIL_PAIR="$P1TASK $P1A"; rc=$?
+[ "$rc" -eq 11 ] || fail "D13: a post-start failure did not halt the sweep (rc=$rc)"
+[ "$(wc -l < "$L11")" -eq 1 ] || fail "D13: the trajectory was executed $(wc -l < "$L11") times — it must run exactly once"
+[ "$(wc -l < "$R11/results.jsonl")" -eq 0 ] || fail "D13: a verdict was invented for a trajectory that never produced one"
+jq -e --arg t "$P1TASK" --arg a "$P1A" \
+   'select(.task==$t and .arm==$a and .event=="POST_START_FINALIZATION_FAILURE")' "$R11/deviations.jsonl" >/dev/null \
+  || fail "D13: no POST_START_FINALIZATION_FAILURE recorded"
+# resuming without adjudication must halt again and launch NOTHING
+: > "$L11"; drive "$R11" "$L11" ok; rc=$?
+[ "$rc" -eq 11 ] || fail "D13: resume did not halt on the unadjudicated failure (rc=$rc)"
+[ ! -s "$L11" ] || fail "D13: resume re-rolled the trajectory ($(cat "$L11"))"
+# once adjudicated as an exclusion, the sweep proceeds and the ledger balances
+: > "$R11/$P1TASK-$P1A.adjudicated"
+: > "$L11"; drive "$R11" "$L11" ok; rc=$?
+[ "$rc" -eq 0 ] || fail "D13: adjudicated exclusion did not let the sweep finish (rc=$rc)"
+grep -qx "$P1TASK $P1A" "$L11" && fail "D13: an adjudicated exclusion was still re-rolled"
+[ "$(wc -l < "$R11/results.jsonl")" -eq 33 ] || fail "D13: expected 33 verdicts, got $(wc -l < "$R11/results.jsonl")"
+grep -q 'COMPLETION INVARIANT OK' "$R11/phase3-log.txt" || fail "D13: the invariant did not accept the excluded trajectory"
+rm -rf "$R11"
+echo "D13 OK: a trajectory that ran is never re-rolled; the sweep halts for adjudication"
+
+# D14: acceptance must be an exact (task, arm) match, not line-count growth.
+R12="/tmp/hyg-runs-$$-l"; rm -rf "$R12"; L12="$TMP/launch12.log"; : > "$L12"
+drive "$R12" "$L12" wrongpair STUB_FAIL_PAIR="$P1TASK $P1A"; rc=$?
+[ "$(wc -l < "$L12")" -ge 2 ] || fail "D14: a line for another trajectory was accepted as this one's verdict"
+jq -e --arg t "$P1TASK" --arg a "$P1A" \
+   'select(.task==$t and .arm==$a and .event=="INFRASTRUCTURE_FAILURE")' "$R12/deviations.jsonl" >/dev/null \
+  || fail "D14: the unmatched trajectory was not recorded as a failure"
+[ "$rc" -eq 10 ] || fail "D14: the stray unregistered verdict passed the completion invariant (rc=$rc)"
+rm -rf "$R12"
+echo "D14 OK: only an exact (task,arm) verdict counts as that trajectory's result"
 
 # ---------------------------------------------------------------- S ----
 grep -q 'driver_pass:\$pass, execution_attempt:\$xattempt' "$HERE/run-task31.sh" \

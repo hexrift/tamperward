@@ -141,7 +141,26 @@ have() { jq -e --arg t "$1" --arg a "$2" 'select(.task==$t and .arm==$a)' "$RESU
 # work happened, so a resume must retry it.
 terminal_failure() {
   jq -e --arg t "$1" --arg a "$2" \
-    'select(.task==$t and .arm==$a and .event=="INFRASTRUCTURE_FAILURE")' "$DEVIATIONS" >/dev/null 2>&1
+    'select(.task==$t and .arm==$a and (.event=="INFRASTRUCTURE_FAILURE" or .event=="POST_START_FINALIZATION_FAILURE"))' \
+    "$DEVIATIONS" >/dev/null 2>&1
+}
+# The agent RAN for this trajectory: either the runner left its durable
+# trajectory-start marker, or a previous pass already recorded the failure. Its
+# outcome exists scientifically, so it is never re-rolled — the sweep halts
+# until a human adjudicates from the preserved artifacts.
+started_marker() { [ -f "$TB_RUNS/${1}-${2}.started" ]; }
+adjudicated()    { [ -f "$TB_RUNS/${1}-${2}.adjudicated" ]; }
+post_start_failed() {
+  jq -e --arg t "$1" --arg a "$2" \
+    'select(.task==$t and .arm==$a and .event=="POST_START_FINALIZATION_FAILURE")' "$DEVIATIONS" >/dev/null 2>&1 \
+    && return 0
+  started_marker "$1" "$2" && ! have "$1" "$2"
+}
+halt_post_start() {
+  say "HALT: $1 $2 RAN but never persisted a valid verdict. It must NOT be re-rolled — a clean retry would discard an observed trajectory and sample another."
+  say "  adjudicate from the preserved artifacts in $TB_RUNS/$1-$2-poststart-workdir, then either"
+  say "  (a) append the reconstructed verdict to $RESULTS, or"
+  say "  (b) record the exclusion by creating $TB_RUNS/$1-$2.adjudicated"
 }
 
 dev() {
@@ -157,9 +176,12 @@ breaker() {
 
 run_one() {
   local task="$1" arm="$2"
+  if post_start_failed "$task" "$arm"; then
+    dev "$task" "$arm" POST_START_FINALIZATION_FAILURE "trajectory-start marker present with no verdict on entry; TERMINAL — never re-rolled"
+    halt_post_start "$task" "$arm"; return 4
+  fi
   for attempt in 1 2; do
     disk_guard
-    local before; before=$(wc -l <"$RESULTS")
     say "START $task $arm (execution attempt $attempt, driver pass $DRIVER_PASS)"
     out=$(TB_EXEC_ATTEMPT="$attempt" timeout 4200 "$RUNNER" "$task" "$arm" </dev/null 2>&1); local rc=$?
     echo "$out" >> "$LOG"
@@ -193,9 +215,15 @@ run_one() {
       fi
       say "CLONE_FAILED on $task $arm but shared network reachable — trajectory-local, ordinary retry path"
     fi
-    if [ "$(wc -l <"$RESULTS")" -gt "$before" ]; then
-      say "DONE $task $arm: $(tail -1 "$RESULTS" | jq -r .outcome)"
+    # acceptance is an EXACT match on this (task, arm), not line-count growth
+    if have "$task" "$arm"; then
+      say "DONE $task $arm: $(jq -r --arg t "$task" --arg a "$arm" 'select(.task==$t and .arm==$a)|.outcome' "$RESULTS" | tail -1)"
       return 0
+    fi
+    # POST-START BOUNDARY: if the agent ran, this is never retried
+    if [ "$rc" -eq 11 ] || started_marker "$task" "$arm"; then
+      dev "$task" "$arm" POST_START_FINALIZATION_FAILURE "the agent ran but no valid verdict was persisted (rc=$rc); artifacts preserved; TERMINAL — never re-rolled"
+      halt_post_start "$task" "$arm"; return 4
     fi
     say "NO VERDICT for $task $arm (rc=$rc) — $([ "$attempt" = 1 ] && echo 'one retry from clean state' || echo 'second failure')"
   done
@@ -248,7 +276,7 @@ verify_completion() {
   [ "$dup" -eq 0 ] || { say "INVARIANT VIOLATION: $dup (task,arm) pair(s) carry more than one verdict"; return 1; }
   vuniq=$(printf '%s\n' "$vpairs" | grep -c .)
 
-  ipairs=$(jq -r 'select(.event=="INFRASTRUCTURE_FAILURE")|"\(.task)\t\(.arm)"' "$DEVIATIONS" 2>/dev/null | LC_ALL=C sort -u)
+  ipairs=$(jq -r 'select(.event=="INFRASTRUCTURE_FAILURE" or .event=="POST_START_FINALIZATION_FAILURE")|"\(.task)\t\(.arm)"' "$DEVIATIONS" 2>/dev/null | LC_ALL=C sort -u)
   icount=$(printf '%s\n' "$ipairs" | grep -c .)
   overlap=$(comm -12 <(printf '%s\n' "$vpairs" | grep .) <(printf '%s\n' "$ipairs" | grep .) | grep -c .)
   [ "$overlap" -eq 0 ] \
@@ -276,12 +304,18 @@ for line in "${PAIRS[@]}"; do
   pair_n=$((pair_n+1))
   for arm in "$first" "$second"; do
     if have "$task" "$arm"; then say "SKIP $task $arm (verdict exists)"; continue; fi
+    if post_start_failed "$task" "$arm" && ! adjudicated "$task" "$arm"; then
+      halt_post_start "$task" "$arm"
+      checkpoint "post-start finalization failure at pair $pair_n" || true
+      exit 11
+    fi
     if terminal_failure "$task" "$arm"; then
-      say "SKIP $task $arm (terminal INFRASTRUCTURE_FAILURE — excluded with its log, never silently replaced)"; continue
+      say "SKIP $task $arm (terminal failure — excluded with its log, never silently replaced)"; continue
     fi
     run_one "$task" "$arm"; rc=$?
     [ "$rc" = 2 ] && exit 3
     [ "$rc" = 3 ] && { checkpoint "circuit-breaker at pair $pair_n" || true; exit 4; }
+    [ "$rc" = 4 ] && { checkpoint "post-start finalization failure at pair $pair_n" || true; exit 11; }
   done
   rm -rf /tmp/tb3-run-* 2>/dev/null
   checkpoint "pair $pair_n/17 ($task)" \
