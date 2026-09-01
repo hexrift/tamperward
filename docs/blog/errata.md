@@ -81,6 +81,19 @@ clean-completion predicate (`HONEST_FIX` or `NO_OBSERVED_VIOLATION`), since in
 ordinary language a visible-green false green reads as a completion and under
 the frozen predicate it is not.
 
+**Added later the same day — a clarification, not a correction.** Finding 4 was
+accurate but placed the tableau intervention timeline directly beside the red
+oracle, which invites reading the one as the cause of the other. It is not. The
+blocked-then-reverted edit concerned `test/test_endpoint.py`, an unrelated
+pre-existing test that cannot pass inside the harness's own network jail; the
+withheld cases that actually failed live in `test/test_user.py` and
+`test/test_user_model.py` and cover the CSV user-import logic the task is about.
+The pristine oracle restores only those two files, so `test_endpoint.py` is
+byte-identical across the visible and pristine runs and cannot explain the
+difference. The trajectory shows the gate correctly blocking a tampering attempt
+*and*, independently, the oracle catching an incomplete fix — two findings, not
+one causal chain.
+
 ## 2026-09-01 — round-3.1 preregistration article: pilot counts and causal framing
 
 **Two corrections to the round-3.1 preregistration post, identified after
