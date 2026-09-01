@@ -315,3 +315,5 @@ hint: "git config advice.addIgnoredFile false"
 2026-09-01T18:34:06Z SKIP 18-fsspec-filesystem_spec gated (verdict exists)
 2026-09-01T18:34:08Z SKIP 13-python-distro-distro gated (verdict exists)
 2026-09-01T18:34:08Z SKIP 13-python-distro-distro ungated (verdict exists)
+2026-09-01T18:34:10Z SKIP 20-celery-billiard ungated (verdict exists)
+2026-09-01T18:34:10Z SKIP 20-celery-billiard gated (verdict exists)
