@@ -246,3 +246,77 @@ This is a clerical inconsistency in the frozen prose, not an implementation
 defect: the executed driver has always used 32. **No endpoint, prediction,
 pair or arm order, exclusion, hash or analysis step changes.** The original
 sentence is left in place above; this amendment is the correction of record.
+
+
+### Amendment 2 — 2026-09-01, artifact-locator correction, pre-adjudication
+
+**Recorded before the affected verdict was derived.**
+
+During `19-pycqa-flake8` gated, the sweep driver terminated after agent
+execution but before verdict persistence. The pre-registered post-start
+boundary of §1 correctly prevented re-running the trajectory. Adjudication then
+exposed a harness regression: rule **R2** still searched for the pristine oracle
+at `$WD/oracle`, its pre-hardening location, even though the control-plane
+correction had relocated it to a separate control directory. The artifact itself
+survived unchanged, together with the final repository tree, the task venv and
+the recorded base — so R2's *substantive* condition was satisfied while its
+*locator* returned false, which would have forced an unnecessary R3 exclusion.
+
+R2 was registered to reconstruct **when the surviving artifacts suffice**. This
+correction changes **artifact discovery only**. The R1/R2/R3 ordering, the
+verdict logic, the oracle contents, the base, the task, the treatment and every
+outcome definition are unchanged, and `verdict3.mjs` is untouched and still
+matches its registered hash.
+
+The oracle is bound to its trajectory deterministically, in this order: the
+marker's recorded `oracle_dir`; the legacy in-workspace path; the copy inside
+that trajectory's own frozen evidence directory; or — only if exactly one
+control oracle survives — that one. **Two or more candidates is an ambiguity and
+falls to R3.** An operator cannot hand an arbitrary oracle path to the
+adjudicator.
+
+Procedure followed, in order: the sweep was halted; the surviving artifacts were
+copied and hashed into the durable run area *before* any code change
+(`FREEZE-MANIFEST.md`); this record was appended; the locator fix and its
+regression tests were committed; and only then was the unchanged frozen verdict
+procedure run over the frozen artifacts. **No stochastic rerun occurred and the
+final repository tree was not inspected before the verdict was derived.**
+
+Deliberately **not** changed: `run-task31.sh` does not yet record `ctrl_dir` in
+the start marker. Adding it would alter the runner hash pinned in §2 partway
+through the counted sweep, so the 27 completed and 5 remaining trajectories
+would no longer share one runner. The locator's remaining rules cover every
+trajectory in this round; recording the path in the marker is a round-4 item.
+
+
+### Amendment 3 — 2026-09-01, process supervision, mid-run
+
+**Recorded before the final pair ran.**
+
+The sweep driver disappeared twice mid-trajectory under the same
+`nohup … &`-from-a-tool-call launch mechanism: once during `19-pycqa-flake8`
+gated after 2h49m, once during `10-python-trio-trio` gated after 18 minutes.
+In both cases there was no memory exhaustion, ample disk, no failure recorded by
+the runner, and stdout simply ended. The differing elapsed times rule out a
+timeout.
+
+**The precise external cause is not established.** What is demonstrated is that
+the previous supervision path is unreliable. Process supervision was therefore
+changed before the final untouched pair, so the driver runs in its own session
+and process group and a signal delivered to the invoking shell's group cannot
+reach it (`runner/launch-sweep31.sh`). A matching `stop-sweep31.sh` signals the
+driver's process group, so an intentional shutdown still reaps the runner, agent,
+proxy and jail it owns — detachment must not create immortal orphans. Both
+properties are behaviourally tested (`A5`, `A6`) and `A5` is mutation-checked.
+
+No completed or started trajectory was rerun. Both interrupted trajectories were
+adjudicated from frozen surviving artifacts under the already-frozen R2 ladder
+**before** this correction, so no infrastructure change sits between an observed
+trajectory and its verdict. No model, prompt, treatment, oracle, budget, outcome
+definition, task ordering or analysis rule changed.
+
+The counted study therefore did **not** run on one immutable harness
+implementation. The treatment (v1.14.0), the prompt, the oracles, the endpoints
+and `run-task31.sh` were frozen throughout; the sweep driver, the adjudicator and
+the launcher changed between trajectory 27 and trajectory 31. That distinction
+is stated in the results article, not buried here.

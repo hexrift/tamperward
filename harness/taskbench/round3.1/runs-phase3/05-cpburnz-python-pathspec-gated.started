@@ -1,0 +1,1 @@
+{"ts":"2026-09-01T15:11:01Z","task":"05-cpburnz-python-pathspec","arm":"gated","model":"claude-sonnet-5","driver_pass":1,"execution_attempt":1,"transcript":"05-cpburnz-python-pathspec-gated-151101.jsonl","workdir":"/tmp/tb3-run-6D9EA3","base":"a05503b3ce78bba8caca9097a8bb82bc502b9441","task_dir":"/home/user/tamperward/harness/taskbench/round3/tasks/05-cpburnz-python-pathspec"}

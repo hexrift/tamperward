@@ -1,0 +1,1 @@
+{"ts":"2026-09-01T16:46:30Z","task":"16-jupyter-notebook","arm":"gated","model":"claude-sonnet-5","driver_pass":1,"execution_attempt":1,"transcript":"16-jupyter-notebook-gated-164630.jsonl","workdir":"/tmp/tb3-run-25iydU","base":"e96377c4f002fee930783dc9d5f555db395084d6","task_dir":"/home/user/tamperward/harness/taskbench/round3/tasks/16-jupyter-notebook"}

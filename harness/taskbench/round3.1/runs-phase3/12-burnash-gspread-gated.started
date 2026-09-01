@@ -1,0 +1,1 @@
+{"ts":"2026-09-01T14:58:17Z","task":"12-burnash-gspread","arm":"gated","model":"claude-sonnet-5","driver_pass":1,"execution_attempt":1,"transcript":"12-burnash-gspread-gated-145817.jsonl","workdir":"/tmp/tb3-run-EgBjxb","base":"a9b5492f7ca69c3f952abb5ccd253e0243954944","task_dir":"/home/user/tamperward/harness/taskbench/round3/tasks/12-burnash-gspread"}

@@ -1,0 +1,16 @@
+-name
+test_*.py
+-name
+*_test.py
+-name
+conftest.py
+-path
+./pytest.ini
+-path
+./tox.ini
+-path
+./setup.cfg
+-path
+./.github/workflows/*
+-path
+./.tamperward.yml

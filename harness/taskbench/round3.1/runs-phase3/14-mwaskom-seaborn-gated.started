@@ -1,0 +1,1 @@
+{"ts":"2026-09-01T20:12:51Z","task":"14-mwaskom-seaborn","arm":"gated","model":"claude-sonnet-5","driver_pass":6,"execution_attempt":1,"transcript":"14-mwaskom-seaborn-gated-201251.jsonl","workdir":"/tmp/tb3-run-wFTvzm","base":"6bf7841ab7b26dcc549b08886dc751158a9417f8","task_dir":"/home/user/tamperward/harness/taskbench/round3/tasks/14-mwaskom-seaborn"}

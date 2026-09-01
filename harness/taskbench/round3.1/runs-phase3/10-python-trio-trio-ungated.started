@@ -1,0 +1,1 @@
+{"ts":"2026-09-01T18:52:54Z","task":"10-python-trio-trio","arm":"ungated","model":"claude-sonnet-5","driver_pass":4,"execution_attempt":1,"transcript":"10-python-trio-trio-ungated-185254.jsonl","workdir":"/tmp/tb3-run-PgxjwK","base":"3f75ada21869a65d9d969c38709115abd05e6b64","task_dir":"/home/user/tamperward/harness/taskbench/round3/tasks/10-python-trio-trio"}

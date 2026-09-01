@@ -1,0 +1,10 @@
+{
+  "frozen_at": "2026-09-01T18:23:33Z",
+  "task": "19-pycqa-flake8",
+  "arm": "gated",
+  "workdir": "/tmp/tb3-run-hWX7H0",
+  "ctrl_dir": "/tmp/tb31-ctrl-agLtsq",
+  "base": "44dd91820a80740cb991dcabc0a6c2aadd6ebbab",
+  "venv_backup_sha256": "c703638949f5561c05c1971483249126544f02a519cbea9735a688f053cf73cf",
+  "note": "Evidence frozen BEFORE any adjudication-code change. Verdict not yet derived; final repo not inspected."
+}

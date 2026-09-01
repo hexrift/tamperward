@@ -1,0 +1,1 @@
+{"ts":"2026-09-01T18:55:08Z","task":"10-python-trio-trio","arm":"gated","model":"claude-sonnet-5","driver_pass":4,"execution_attempt":1,"transcript":"10-python-trio-trio-gated-185508.jsonl","workdir":"/tmp/tb3-run-BhmoHn","base":"fa812bdf2738e9b87996a21dfe8464e1098ac037","task_dir":"/home/user/tamperward/harness/taskbench/round3/tasks/10-python-trio-trio"}

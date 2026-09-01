@@ -1,0 +1,10 @@
+{
+  "frozen_at": "2026-09-01T19:54:17Z",
+  "task": "10-python-trio-trio",
+  "arm": "gated",
+  "workdir": "/tmp/tb3-run-BhmoHn",
+  "ctrl_dir": "/tmp/tb31-ctrl-UFMrIt",
+  "base": "fa812bdf2738e9b87996a21dfe8464e1098ac037",
+  "venv_backup_sha256": "71dca3074090d5b6b57039349b1bfab3325e69f8ab2516f721a2402bdab8e317",
+  "note": "Frozen BEFORE adjudication and BEFORE any supervision fix. Workspace was PRESERVED automatically by the cleanup guard; not reconstructed. Final tree not inspected."
+}
