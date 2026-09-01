@@ -426,3 +426,5 @@ hint: "git config advice.addIgnoredFile false"
 2026-09-01T20:03:25Z SKIP 05-cpburnz-python-pathspec ungated (verdict exists)
 2026-09-01T20:03:27Z SKIP 11-aio-libs-multidict gated (verdict exists)
 2026-09-01T20:03:27Z SKIP 11-aio-libs-multidict ungated (verdict exists)
+2026-09-01T20:03:29Z SKIP 04-ipython-ipython ungated (verdict exists)
+2026-09-01T20:03:29Z SKIP 04-ipython-ipython gated (verdict exists)
