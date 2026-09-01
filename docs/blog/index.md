@@ -3,6 +3,19 @@
 *An [errata page](./errata.md) records every published correction and the
 inconsistencies our own audit could not resolve.*
 
+- **[The null we predicted, and the false green it could not stop](./the-null-we-predicted-and-the-false-green-it-could-not-stop.md)** — September 1, 2026.
+  The round-3.1 answer: on the same 16 Python repositories with the model moved
+  to `claude-sonnet-5` and the treatment byte-identical, false-green discordance
+  was 1–0 in the gate's favour (exact McNemar p = 1.0000). The null was
+  predicted and is reported as underpowered given the observed violation rate,
+  per the registered guard — not rescued by a one-sided test or by pooling.
+  Transfer fell from 9/17 to 4/16: the stronger model reached for the sanctioned
+  shortcut about half as often. Eight of ten bets landed; `b` and ungated
+  completions both missed low. The finding worth the round is one trajectory
+  where every layer fired, blocked the agent, accepted its revision, and still
+  certified a tree whose withheld oracle was red — the boundary between
+  guarding the tests and guarding correctness.
+
 - **[Before we test the same tasks on a stronger model, here's what we think will happen](./before-we-test-the-same-tasks-on-a-stronger-model.md)** — September 1, 2026.
   The round-3.1 preregistration: the frozen round-3 Python benchmark, the
   v1.14.0 treatment held byte-identical, the model as the intended factor —
