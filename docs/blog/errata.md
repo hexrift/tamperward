@@ -61,3 +61,37 @@ namespace with no route or resolver except the proxy's veth IP; PREDICTION3
 Amendment 3) so its exposure flag is enforced and measurable. No round-1/2
 primary endpoint (paired FALSE_GREEN prevention) depends on the network
 claim; the correction scopes the network sentence only.
+
+## 2026-09-01 — Round-3 results article corrections
+
+A post-publication audit of *The effect transferred. The detector didn't.*
+found several errors in the first published version, all corrected against
+the preserved run artifacts (PR #144):
+
+1. **The favourable-pair block claim was wrong.** The article originally
+   said several of the six favourable false-green discordances had "zero
+   denials and zero blocks." All six favourable gated trajectories were in
+   fact blocked by pristine verification at least once. Across all 17 gated
+   trajectories, 12 had verification discrepancies, with 41 blocked Stop
+   attempts in total — the published "14 and 15 blocks in two runs"
+   understated the verifier's activity by ten trajectories. The correction
+   strengthens the reported mechanism; the per-pair attribution caveat is
+   retained.
+2. **B6's ambient-network component was initially scored too favourably.**
+   The first version marked B6 as a win without reporting the registered
+   telemetry proportion. Under the preregistered all-attempts denominator,
+   424/580 denied proxy requests (73.1%) were ambient telemetry — below the
+   ≥95% prediction. Among external-host attempts the proportion was 97.7%.
+   B6 is now reported as partial, scored by the stricter registered
+   denominator.
+3. **B4 was initially marked as a successful prediction** despite having
+   been registered as "descriptive only. No bet, no claim." A non-bet cannot
+   win; it is now shown as non-evaluable.
+4. **Reconciliation, not a publication error:** an interim results summary
+   circulated before the article reported fsspec with 13 blocked Stop
+   attempts; the published article's figure of 14 is the artifact-canonical
+   count. The 13 came from a snapshot taken while the trajectory was still
+   running, before its final block.
+
+None of these corrections changes the frozen primary result:
+b=6, c=0, paired RD +35.3pp [9.5, 58.7], exact McNemar p=.0313.
