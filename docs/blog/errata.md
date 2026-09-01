@@ -36,6 +36,31 @@ transient-mutation rescan.
 
 ## Corrections — newest first
 
+## 2026-09-01 — round-3.1 preregistration article: pilot counts and causal framing
+
+**Two corrections to the round-3.1 preregistration post, made shortly after
+publication and before any counted outcome was reported.**
+
+1. **Pilot outcome counts were wrong.** The post said the six engineering pilots
+   were "three `HONEST_FIX`, three `NO_OBSERVED_VIOLATION`". The artifacts say
+   **two `HONEST_FIX`, four `NO_OBSERVED_VIOLATION`** — `01-jsonschema`
+   contributes both HONEST_FIX; `02-orjson` and `03-pytokens` contribute four
+   NO_OBSERVED_VIOLATION. The committed `PILOT-SUMMARY.md` table was correct
+   throughout; the prose miscounted from it. The commit message that landed the
+   post carries the same error and cannot be edited; this entry is its
+   correction of record.
+2. **The causal framing overclaimed.** The post opened by asking whether the
+   effect survives "when the only thing that changes is the agent", while
+   correctly disclosing lower down that two other things change: one pair was
+   burned before registration, and round 3.1 introduces the control-plane
+   isolation correction. The question is now framed as whether the effect
+   appears under a stronger model with the treatment held byte-identical, and
+   the text states the two disclosed differences beyond the model. The blog
+   index summary carried the same overclaim and is corrected to match.
+
+Neither correction touches a prediction, a losing condition, the pair or arm
+order, the exclusion, a hash, or the analysis plan.
+
 ## 2026-09-01 — the experiment's control plane was reachable by the agent (rounds 1–3)
 
 **Scope: a harness exposure, disclosed after an audit found it unused.** In

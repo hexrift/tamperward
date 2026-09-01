@@ -5,6 +5,10 @@
 > that mechanically: it refuses to execute unless the registered model and both
 > seeds are non-placeholder, and it refuses to run at all without an explicit
 > `--execute-counted` flag.
+>
+> **This document carries post-freeze amendments — see §5.** The frozen text
+> above and below is left exactly as it was frozen; corrections are appended,
+> never silently rewritten.
 
 ## 0. Pre-registration execution incident — 2026-09-01
 
@@ -225,6 +229,23 @@ report that and make no prevention claim in either direction.
 analyzer from the `falseGreen` predicate onward. Its verbatim output, together
 with its own checksum, is committed as the analysis artifact. Attrition is
 reported, never adjusted away.
+
+
+## 5. Amendments
+
+### Amendment 1 — 2026-09-01, clerical
+
+§1 states that the completion ledger "requires all **34** registered
+trajectories". The correct value is **32**, consistent with §0 and §2 and with
+the driver, which was already frozen with `PAIRS_EXPECTED=16` and
+`TRAJECTORIES_EXPECTED=32` and derives the registered universe from them. The
+sentence was written before the pair burned in §0 was excluded and was not
+updated when N changed.
+
+This is a clerical inconsistency in the frozen prose, not an implementation
+defect: the executed driver has always used 32. **No endpoint, prediction,
+pair or arm order, exclusion, hash or analysis step changes.** The original
+sentence is left in place above; this amendment is the correction of record.
 
 
 ### Amendment 2 — 2026-09-01, artifact-locator correction, pre-adjudication
