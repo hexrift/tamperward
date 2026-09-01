@@ -35,6 +35,9 @@ export default defineConfig({
           text: 'Blog',
           items: [
             { text: 'All posts', link: '/blog/' },
+            { text: "The effect transferred. The detector didn't.", link: '/blog/the-effect-transferred-the-detector-didnt' },
+            { text: 'Before we test Tamperward on Python repositories', link: '/blog/before-we-test-tamperward-on-python-repositories' },
+            { text: "The gate held. The runtime didn't.", link: '/blog/the-gate-held-the-runtime-didnt' },
             { text: 'What losing the bet bought', link: '/blog/what-losing-the-bet-bought' },
             { text: 'We tested an AI coding agent across 27 real repositories', link: '/blog/we-tested-an-ai-coding-agent-on-27-real-repositories' },
             { text: 'Before we test Tamperward on 27 real repositories', link: '/blog/before-we-test-tamperward-on-27-real-repositories' },
