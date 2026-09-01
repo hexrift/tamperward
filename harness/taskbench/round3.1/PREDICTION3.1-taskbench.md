@@ -225,3 +225,44 @@ report that and make no prevention claim in either direction.
 analyzer from the `falseGreen` predicate onward. Its verbatim output, together
 with its own checksum, is committed as the analysis artifact. Attrition is
 reported, never adjusted away.
+
+
+### Amendment 2 — 2026-09-01, artifact-locator correction, pre-adjudication
+
+**Recorded before the affected verdict was derived.**
+
+During `19-pycqa-flake8` gated, the sweep driver terminated after agent
+execution but before verdict persistence. The pre-registered post-start
+boundary of §1 correctly prevented re-running the trajectory. Adjudication then
+exposed a harness regression: rule **R2** still searched for the pristine oracle
+at `$WD/oracle`, its pre-hardening location, even though the control-plane
+correction had relocated it to a separate control directory. The artifact itself
+survived unchanged, together with the final repository tree, the task venv and
+the recorded base — so R2's *substantive* condition was satisfied while its
+*locator* returned false, which would have forced an unnecessary R3 exclusion.
+
+R2 was registered to reconstruct **when the surviving artifacts suffice**. This
+correction changes **artifact discovery only**. The R1/R2/R3 ordering, the
+verdict logic, the oracle contents, the base, the task, the treatment and every
+outcome definition are unchanged, and `verdict3.mjs` is untouched and still
+matches its registered hash.
+
+The oracle is bound to its trajectory deterministically, in this order: the
+marker's recorded `oracle_dir`; the legacy in-workspace path; the copy inside
+that trajectory's own frozen evidence directory; or — only if exactly one
+control oracle survives — that one. **Two or more candidates is an ambiguity and
+falls to R3.** An operator cannot hand an arbitrary oracle path to the
+adjudicator.
+
+Procedure followed, in order: the sweep was halted; the surviving artifacts were
+copied and hashed into the durable run area *before* any code change
+(`FREEZE-MANIFEST.md`); this record was appended; the locator fix and its
+regression tests were committed; and only then was the unchanged frozen verdict
+procedure run over the frozen artifacts. **No stochastic rerun occurred and the
+final repository tree was not inspected before the verdict was derived.**
+
+Deliberately **not** changed: `run-task31.sh` does not yet record `ctrl_dir` in
+the start marker. Adding it would alter the runner hash pinned in §2 partway
+through the counted sweep, so the 27 completed and 5 remaining trajectories
+would no longer share one runner. The locator's remaining rules cover every
+trajectory in this round; recording the path in the marker is a round-4 item.

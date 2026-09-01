@@ -55,10 +55,27 @@ fi
 WD=$(jq -r '.workdir // empty' "$MARKER" 2>/dev/null | tail -1)
 BASE=$(jq -r '.base // empty' "$MARKER" 2>/dev/null | tail -1)
 TASKDIR=$(jq -r '.task_dir // empty' "$MARKER" 2>/dev/null | tail -1)
-workspace_reconstructible() {
-  [ -n "$WD" ] && [ -d "$WD/repo" ] && [ -d "$WD/venv" ] && [ -d "$WD/oracle" ] && [ -n "$BASE" ]
+# Bind the pristine oracle to THIS trajectory, deterministically. The
+# control-plane correction moved the oracle out of the workspace, so the
+# original `$WD/oracle` test is no longer sufficient (Amendment 2). Discovery
+# only -- this cannot change which verdict is derived, and ambiguity is refused.
+locate_oracle() {
+  local o
+  o=$(jq -r '.oracle_dir // empty' "$MARKER" 2>/dev/null | tail -1)          # 1. recorded in the marker
+  [ -n "$o" ] && [ -d "$o" ] && { printf %s "$o"; return 0; }
+  [ -n "$WD" ] && [ -d "$WD/oracle" ] && { printf %s "$WD/oracle"; return 0; } # 2. legacy in-workspace
+  [ -d "$KEEP/oracle" ] && { printf %s "$KEEP/oracle"; return 0; }            # 3. this trajectory's frozen evidence
+  local c n                                                                   # 4. exactly ONE surviving control oracle
+  c=$(ls -d /tmp/tb31-ctrl-*/oracle 2>/dev/null || true)
+  n=$(printf '%s\n' "$c" | grep -c . || true)
+  if [ "$n" -eq 1 ]; then printf %s "$c"; return 0; fi
+  [ "$n" -gt 1 ] && echo "[adjudicate31] $n candidate control oracles survive — ambiguous, refusing to guess (falls to R3)" >&2
+  return 1
 }
-RULE=""; WHY=""
+workspace_reconstructible() {
+  [ -n "$WD" ] && [ -d "$WD/repo" ] && [ -d "$WD/venv" ] && [ -n "$BASE" ] && ORACLE_DIR=$(locate_oracle)
+}
+RULE=""; WHY=""; ORACLE_DIR=""
 # R1 requires a COMPLETE verdict, not merely a non-empty file: an outer timeout
 # can leave a torn verdict-line.json, and that must fall through to R2 rather
 # than dead-end the ladder at a record the schema check will reject.
@@ -69,7 +86,7 @@ elif workspace_reconstructible; then
   [ -s "$KEEP/verdict-line.json" ] && WHY="$WHY (a partial verdict line was present and disregarded)"
 else
   RULE=R3
-  WHY="unrecoverable: $( is_verdict_file "$KEEP/verdict-line.json" "$TASK" "$ARM" || printf 'no complete preserved verdict line; ' )$( [ -n "$WD" ] && [ -d "$WD/repo" ] || printf 'no final repository tree; ' )$( [ -n "$WD" ] && [ -d "$WD/venv" ] || printf 'no task venv; ' )$( [ -n "$WD" ] && [ -d "$WD/oracle" ] || printf 'no oracle; ' )$( [ -n "$BASE" ] || printf 'no recorded base; ' )"
+  WHY="unrecoverable: $( is_verdict_file "$KEEP/verdict-line.json" "$TASK" "$ARM" || printf 'no complete preserved verdict line; ' )$( [ -n "$WD" ] && [ -d "$WD/repo" ] || printf 'no final repository tree; ' )$( [ -n "$WD" ] && [ -d "$WD/venv" ] || printf 'no task venv; ' )$( locate_oracle >/dev/null 2>&1 || printf 'no bindable pristine oracle; ' )$( [ -n "$BASE" ] || printf 'no recorded base; ' )"
 fi
 echo "[adjudicate31] ladder: $RULE — $WHY"
 [ "$MODE" = ladder ] && exit 0
@@ -97,7 +114,8 @@ case "$RULE" in
   R1) LINE="$KEEP/verdict-line.json" ;;
   R2)
     echo "[adjudicate31] re-deriving the verdict with verdict3.mjs over the preserved workspace"
-    RAW=$(TB_VENV="$WD/venv" node "$HERE/verdict3.mjs" "$TASKDIR" "$WD/repo" "$WD/oracle" "$WD/obs" "$BASE") \
+    echo "[adjudicate31] oracle bound at $ORACLE_DIR"
+    RAW=$(TB_VENV="$WD/venv" node "$HERE/verdict3.mjs" "$TASKDIR" "$WD/repo" "$ORACLE_DIR" "$WD/obs" "$BASE") \
       || die "verdict3.mjs failed over the preserved workspace; the ladder cannot re-derive"
     LINE=$(mktemp); printf '%s' "$RAW" | jq -c \
       --arg arm "$ARM" --arg model "$(jq -r .model "$MARKER")" --arg ts "$(jq -r .ts "$MARKER")" \

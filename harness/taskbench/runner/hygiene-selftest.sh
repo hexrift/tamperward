@@ -35,6 +35,8 @@
 #  D10 the completion invariant is a set identity, not a count
 #  D11 a pair cannot be both a verdict and a terminal failure
 #  D12 a failed invariant is never logged as a complete sweep
+#  A1 R2 finds an oracle relocated out of the workspace (19-flake8 regression)
+#  A2 two candidate oracles = ambiguity = R3, never a discretionary pick
 #  M1 a bare invocation refuses; --check creates nothing and runs nothing
 #  E1 no TB_* reaches the agent; the withheld oracle is outside its workspace
 #  S  the verdict line stamps driver_pass and execution_attempt separately
@@ -53,7 +55,7 @@ cleanup() {
   # exact lock paths for THIS process's run dirs, computed the same way the
   # driver does — never a wildcard over /tmp/tb31-driver-*.lock
   local x
-  for x in a b c d e f g h i j k l m n o p q r s t; do
+  for x in a b c d e f g h i j k l m n o p q r s t u; do
     rm -f "/tmp/tb31-driver-$(printf %s "/tmp/hyg-runs-$$-$x" | md5sum | cut -c1-12).lock" \
           "/tmp/tb31-results-$(printf %s "/tmp/hyg-runs-$$-$x" | md5sum | cut -c1-12).lock"
   done
@@ -611,6 +613,37 @@ grep -q 'CHECK OK' "$TMP/m1c.out" || fail "M1: --check did not report OK"
 [ ! -s "$TMP/m1.log" ] || fail "M1: --check launched a trajectory"
 rm -rf "$M1R"
 echo "M1 OK: a bare invocation refuses; --check validates without creating or running anything"
+
+# A1: the actual 19-flake8 regression. A post-start failure whose oracle lives
+# OUTSIDE the workspace (the control-plane correction relocated it) must still
+# reach R2 and re-derive, not fall to R3 because of a stale pathname.
+A1R="/tmp/hyg-runs-$$-u"; rm -rf "$A1R"; mkdir -p "$A1R"
+A1WD=$(mktemp -d "$A1R/wd-XXXXXX"); A1CTRL=$(mktemp -d "$A1R/ctrl-XXXXXX")
+mkdir -p "$A1WD/repo" "$A1WD/venv" "$A1WD/obs" "$A1CTRL/oracle/pristine"
+echo "x" > "$A1CTRL/oracle/pristine/test_x.py"
+printf '{"ts":"x","task":"T","arm":"gated","event":"POST_START_FINALIZATION_FAILURE","note":"n"}\n' > "$A1R/deviations.jsonl"
+jq -nc --arg wd "$A1WD" '{ts:"x",task:"T",arm:"gated",model:"m",driver_pass:1,execution_attempt:1,
+  transcript:"t.jsonl",workdir:$wd,base:"deadbeef",task_dir:"/nonexistent"}' > "$A1R/T-gated.started"
+out=$(bash "$HERE/adjudicate31.sh" "$A1R" T gated ladder 2>&1)
+echo "$out" | grep -q 'ladder: R2' \
+  || fail "A1: a relocated oracle did not reach R2 — got: $(echo "$out" | head -1)"
+echo "A1 OK: R2 finds an oracle relocated out of the workspace (the 19-flake8 regression)"
+
+# A2: the locator must never become a discretionary "pick an oracle" escape
+# hatch. Two plausible candidates is ambiguity, and ambiguity falls to R3.
+A2CTRL1=$(mktemp -d /tmp/tb31-ctrl-hygA-XXXXXX); A2CTRL2=$(mktemp -d /tmp/tb31-ctrl-hygB-XXXXXX)
+mkdir -p "$A2CTRL1/oracle" "$A2CTRL2/oracle"
+A2WD=$(mktemp -d "$A1R/wd2-XXXXXX"); mkdir -p "$A2WD/repo" "$A2WD/venv" "$A2WD/obs"
+jq -nc --arg wd "$A2WD" '{ts:"x",task:"U",arm:"gated",model:"m",driver_pass:1,execution_attempt:1,
+  transcript:"t.jsonl",workdir:$wd,base:"deadbeef",task_dir:"/nonexistent"}' > "$A1R/U-gated.started"
+printf '{"ts":"x","task":"U","arm":"gated","event":"POST_START_FINALIZATION_FAILURE","note":"n"}\n' >> "$A1R/deviations.jsonl"
+out=$(bash "$HERE/adjudicate31.sh" "$A1R" U gated ladder 2>&1)
+rm -rf "$A2CTRL1" "$A2CTRL2"
+echo "$out" | grep -q 'ladder: R3' \
+  || fail "A2: ambiguous control oracles did not fall to R3 — got: $(echo "$out" | head -1)"
+echo "$out" | grep -q 'ambiguous, refusing to guess' || fail "A2: ambiguity was not reported"
+echo "A2 OK: two candidate oracles is ambiguity — R3, never a discretionary pick"
+rm -rf "$A1R"
 
 # ---------------------------------------------------------------- S ----
 grep -q 'driver_pass:\$pass, execution_attempt:\$xattempt' "$HERE/run-task31.sh" \
