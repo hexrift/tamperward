@@ -5,6 +5,51 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.14.1] — 2026-09-01
+
+**A bypass in `tamperward verify`: an added file could suppress the tests the
+pristine run had just restored.**
+
+`verify` materialises two copies of the tree and, in the pristine one, restores
+every protected file from the trusted base. Agent-**added** protected files were
+kept, on the stated premise that they "can only add strictness, and the visible
+run already required them to pass". That premise was false, and the gap was
+reachable without ever modifying or deleting a base-protected asset.
+
+An agent that adds `tests/conftest.py` gets it auto-loaded by pytest, and
+`pytest_collection_modifyitems` can deselect the restored base tests **by node
+id** — no skip spelling, so no detector could see it. The failing test then runs
+in neither copy, the pristine suite goes green, and a masked failure is reported
+`VERIFIED`. Through the enforcement envelope the whole stack printed
+`GREEN MEANS GREEN` over an unfixed bug.
+
+Agent-added protected files are now **removed** from the pristine copy: its
+protected surface is exactly the base's, never the base plus whatever the agent
+contributed. Added tests are not lost information — the visible run still
+executes them; the pristine run asks only whether the agent's source passes the
+*original* suite, to which an agent-authored file is not an input. The reported
+count changes from `added_protected_kept` to `added_protected_removed`.
+
+Reproduced on v1.9.0 (where `verify` was introduced) through v1.14.0 under one
+identical policy, with the control — weakening the protected test, nothing
+added — correctly blocked as `MASKED FAILURE` throughout. The PoC is committed
+at `harness/poc/verify-added-protected-bypass.sh` and the regression test is
+mutation-checked: it fails against the pre-fix behaviour.
+
+This is a bypass fix and therefore a **patch**, per CONTRIBUTING — a closed
+evasion should reach people automatically. It does make `verify` stricter: a
+repository whose suite command names an agent-added protected file may now see
+`MASKED_FAILURE` where it previously saw `VERIFIED`. Failing closed is the
+intended direction.
+
+Known limitation, deliberately not closed here: removing added protected files
+addresses files inside a protected class. Auto-loaded influence can also arrive
+via pytest plugins, `sitecustomize.py`, package entry points, new Jest/Vitest
+configuration, preload files, or shared mutable dependencies. The invariant we
+want — *the pristine run must not inherit agent-added files that can change test
+discovery, configuration, fixtures, setup, or execution authority* — needs its
+own threat model, and is tracked for the next round.
+
 ## [1.14.0] — 2026-08-31
 
 **The last P2s — and the one that matters is not a security bug.**
