@@ -35,6 +35,7 @@
 #  D10 the completion invariant is a set identity, not a count
 #  D11 a pair cannot be both a verdict and a terminal failure
 #  D12 a failed invariant is never logged as a complete sweep
+#  M1 a bare invocation refuses; --check creates nothing and runs nothing
 #  E1 no TB_* reaches the agent; the withheld oracle is outside its workspace
 #  S  the verdict line stamps driver_pass and execution_attempt separately
 set -uo pipefail
@@ -52,7 +53,7 @@ cleanup() {
   # exact lock paths for THIS process's run dirs, computed the same way the
   # driver does — never a wildcard over /tmp/tb31-driver-*.lock
   local x
-  for x in a b c d e f g h i j k l m n o p q r s; do
+  for x in a b c d e f g h i j k l m n o p q r s t; do
     rm -f "/tmp/tb31-driver-$(printf %s "/tmp/hyg-runs-$$-$x" | md5sum | cut -c1-12).lock" \
           "/tmp/tb31-results-$(printf %s "/tmp/hyg-runs-$$-$x" | md5sum | cut -c1-12).lock"
   done
@@ -60,28 +61,27 @@ cleanup() {
 trap cleanup EXIT
 
 # ---------------------------------------------------------------- G ----
-rc=0; ( cd "$TB" && bash runner/phase3-sweep31.sh >"$TMP/g0.out" 2>&1 ) || rc=$?
-[ "$rc" -eq 7 ] || fail "G: unregistered driver did not refuse (rc=$rc)"
-grep -q 'REGISTERED_MODEL is empty or still a placeholder' "$TMP/g0.out" \
-  || fail "G: refusal did not name REGISTERED_MODEL"
-# a HALF-registered driver (model filled, seeds not) must still refuse, and
-# must name the unfilled seed — the defect the review caught
-for filled in 'REGISTERED_MODEL' 'REGISTERED_MODEL PAIR_SEED'; do
+# The driver is REGISTERED now, so the gate is tested against copies with the
+# registered values put back to placeholders — one per value, to prove all
+# three are gated and that the refusal names the offender.
+mkprobe() {   # <names to blank back to placeholders>
   cp "$HERE/phase3-sweep31.sh" "$HERE/.hyg-gate-probe.sh"
-  for k in $filled; do
-    sed -i "s|^$k=\"__SET_AT_REGISTRATION__\"|$k=\"probe-value\"|" "$HERE/.hyg-gate-probe.sh"
+  local k
+  for k in $1; do
+    sed -i "s|^$k=\".*\"|$k=\"__SET_AT_REGISTRATION__\"|" "$HERE/.hyg-gate-probe.sh"
   done
-  rc=0; ( cd "$TB" && bash runner/.hyg-gate-probe.sh >"$TMP/g1.out" 2>&1 ) || rc=$?
+}
+for pair in "REGISTERED_MODEL PAIR_SEED ARM_SEED:REGISTERED_MODEL" \
+            "PAIR_SEED:PAIR_SEED" "ARM_SEED:ARM_SEED"; do
+  blanked="${pair%%:*}"; want="${pair##*:}"
+  mkprobe "$blanked"
+  rc=0; ( cd "$TB" && bash runner/.hyg-gate-probe.sh --check >"$TMP/g.out" 2>&1 ) || rc=$?
   rm -f "$HERE/.hyg-gate-probe.sh"
-  [ "$rc" -eq 7 ] || fail "G: driver with only [$filled] filled did not refuse (rc=$rc)"
-  case "$filled" in
-    'REGISTERED_MODEL') want=PAIR_SEED ;;
-    *) want=ARM_SEED ;;
-  esac
-  grep -q "$want is empty or still a placeholder" "$TMP/g1.out" \
-    || fail "G: refusal with [$filled] filled did not name $want"
+  [ "$rc" -eq 7 ] || fail "G: driver with [$blanked] unfilled did not refuse (rc=$rc)"
+  grep -q "$want is empty or still a placeholder" "$TMP/g.out" \
+    || fail "G: refusal with [$blanked] unfilled did not name $want"
 done
-echo "G OK: gate refuses until REGISTERED_MODEL, PAIR_SEED and ARM_SEED are all filled"
+echo "G OK: the gate refuses unless REGISTERED_MODEL, PAIR_SEED and ARM_SEED are all filled"
 
 # ---------------------------------------------------------------- N ----
 # The N cases need a live upstream proxy and (for N4) netns support. Where
@@ -161,12 +161,20 @@ res=$(setsid bash "$TMP/pg-probe.sh" "$HERE/run-task31.sh" 2>/dev/null)
 echo "N6 OK: cleanup before the proxy exists does not signal the process group"
 
 # ---------------------------------------------------------------- D ----
+# Counts and the registered exclusion come from the driver's own constants, so
+# the self-test cannot drift out of step with the registered N.
+NTRAJ=$(grep -m1 '^TRAJECTORIES_EXPECTED=' "$HERE/phase3-sweep31.sh" | cut -d= -f2)
+NLESS1=$((NTRAJ-1))
+EXCL=$(grep -m1 '^EXCLUDED_TASKS=' "$HERE/phase3-sweep31.sh" | cut -d'"' -f2)
+
 # The registered order under the TESTMODE seeds, derived independently here.
-read -r P1TASK P1A P1B < <(cd "$TB" && node - <<'NODE'
+read -r P1TASK P1A P1B < <(cd "$TB" && EXCLUDED="$EXCL" node - <<'NODE'
 const crypto=require('crypto'), fs=require('fs');
 const tasks=fs.readdirSync('round3/tasks').filter(d=>JSON.parse(fs.readFileSync(`round3/tasks/${d}/manifest.json`)).role==='main').sort();
 const PAIR='testmode-pair-seed', ARM='testmode-arm-seed';
-const t=tasks.map(t=>[crypto.createHash('sha256').update(`${PAIR}:${t}`).digest('hex'),t]).sort()[0][1];
+const excluded=new Set((process.env.EXCLUDED||'').split(/[\s,]+/).filter(Boolean));
+const t=tasks.map(t=>[crypto.createHash('sha256').update(`${PAIR}:${t}`).digest('hex'),t])
+  .sort().map(x=>x[1]).filter(x=>!excluded.has(x))[0];
 const b=crypto.createHash('sha256').update(`${ARM}:${t}`).digest()[0];
 console.log(`${t} ${b%2===0?'ungated gated':'gated ungated'}`);
 NODE
@@ -242,7 +250,7 @@ drive() {  # <runs-dir> <launchlog> <stub-mode> [extra env assignments...]
   rc=0
   ( cd "$TB" && env TB_HYGIENE_TEST=1 TB_TEST_RUNS="$runs" TB_TEST_RUNNER="$STUB" \
       SELFTEST_RUNNER_DIR="$HERE" LAUNCHLOG="$ll" STUB_MODE="$mode" "$@" \
-      bash runner/phase3-sweep31.sh >>"$TMP/drive.out" 2>&1 ) || rc=$?
+      bash runner/phase3-sweep31.sh --execute-counted >>"$TMP/drive.out" 2>&1 ) || rc=$?
   return $rc
 }
 
@@ -258,14 +266,14 @@ drive "$R1" "$L1" fail8; rc=$?
 jq -e 'select(.event=="INFRASTRUCTURE_FAILURE")' "$R1/deviations.jsonl" >/dev/null 2>&1 \
   && fail "D1: an outage burned a retry budget into a terminal INFRASTRUCTURE_FAILURE"
 [ "$(wc -l < "$R1/driver-passes.log")" -eq 1 ] || fail "D1: driver pass not counted once"
-echo "D1 OK: one launch, sweep aborted, retryable FAILED_LAUNCH, 33 trajectories left UNATTEMPTED"
+echo "D1 OK: one launch, sweep aborted, retryable FAILED_LAUNCH, N-1 trajectories left UNATTEMPTED"
 
 # D2: resume — the same trajectory is retried first, then the order completes
 : > "$L1"
 drive "$R1" "$L1" ok; rc=$?
 [ "$rc" -eq 0 ] || fail "D2: resume did not complete (rc=$rc)"
 [ "$(head -1 "$L1")" = "$P1TASK $P1A" ] || fail "D2: resume did not retry the failed launch first"
-[ "$(wc -l < "$R1/results.jsonl")" -eq 34 ] || fail "D2: expected 34 verdicts, got $(wc -l < "$R1/results.jsonl")"
+[ "$(wc -l < "$R1/results.jsonl")" -eq "$NTRAJ" ] || fail "D2: expected $NTRAJ verdicts, got $(wc -l < "$R1/results.jsonl")"
 [ "$(wc -l < "$R1/driver-passes.log")" -eq 2 ] || fail "D2: driver pass not incremented on resume"
 jq -e 'select(.driver_pass==2 and .execution_attempt==1)' "$R1/results.jsonl" >/dev/null \
   || fail "D2: driver_pass/execution_attempt not carried into the verdict"
@@ -280,7 +288,7 @@ drive "$R2" "$L2" ok; rc=$?
 [ "$rc" -eq 0 ] || fail "D3: driver did not complete (rc=$rc)"
 grep -qx "$P1TASK $P1A" "$L2" && fail "D3: a terminal INFRASTRUCTURE_FAILURE was re-attempted"
 [ "$(head -1 "$L2")" = "$P1TASK $P1B" ] || fail "D3: wrong next trajectory '$(head -1 "$L2")'"
-[ "$(wc -l < "$R2/results.jsonl")" -eq 33 ] || fail "D3: expected 33 verdicts, got $(wc -l < "$R2/results.jsonl")"
+[ "$(wc -l < "$R2/results.jsonl")" -eq "$NLESS1" ] || fail "D3: expected $NLESS1 verdicts, got $(wc -l < "$R2/results.jsonl")"
 rm -rf "$R2"
 echo "D3 OK: terminal infrastructure failures stay excluded across a resume"
 
@@ -290,7 +298,7 @@ echo "D3 OK: terminal infrastructure failures stay excluded across a resume"
 R3="/tmp/hyg-runs-$$-c"; rm -rf "$R3"; L3="$TMP/launch3.log"; : > "$L3"
 drive "$R3" "$L3" fail10 STUB_FAIL_PAIR="$P1TASK $P1A" TB_TEST_NET_OK=1; rc=$?
 [ "$rc" -eq 0 ] || fail "D4: a repo-local failure halted the sweep (rc=$rc)"
-[ "$(wc -l < "$R3/results.jsonl")" -eq 33 ] || fail "D4: expected 33 verdicts, got $(wc -l < "$R3/results.jsonl")"
+[ "$(wc -l < "$R3/results.jsonl")" -eq "$NLESS1" ] || fail "D4: expected $NLESS1 verdicts, got $(wc -l < "$R3/results.jsonl")"
 jq -e --arg t "$P1TASK" --arg a "$P1A" \
    'select(.task==$t and .arm==$a and .event=="INFRASTRUCTURE_FAILURE")' "$R3/deviations.jsonl" >/dev/null \
   || fail "D4: the unreachable repo was not recorded as a terminal failure"
@@ -308,7 +316,7 @@ rm -rf "$R4"
 R5="/tmp/hyg-runs-$$-e"; rm -rf "$R5"; L5="$TMP/launch5.log"; : > "$L5"
 drive "$R5" "$L5" fail9 STUB_FAIL_PAIR="$P1TASK $P1A" TB_TEST_JAIL_OK=1; rc=$?
 [ "$rc" -eq 0 ] || fail "D5: a one-off jail failure halted the sweep (rc=$rc)"
-[ "$(wc -l < "$R5/results.jsonl")" -eq 33 ] || fail "D5: expected 33 verdicts, got $(wc -l < "$R5/results.jsonl")"
+[ "$(wc -l < "$R5/results.jsonl")" -eq "$NLESS1" ] || fail "D5: expected $NLESS1 verdicts, got $(wc -l < "$R5/results.jsonl")"
 echo "D5 OK: jail failures are adjudicated by the jail self-test, not assumed"
 
 # D7: verdicts are written ONCE. A duplicate (task, arm) is now structurally
@@ -321,7 +329,7 @@ DT=$(jq -r .task "$TMP/dupe.json"); DA=$(jq -r .arm "$TMP/dupe.json")
 printf '%s\n' "$(cat "$TMP/dupe.json")" >> "$R5/results.jsonl"
 : > "$L5"; drive "$R5" "$L5" ok; rc=$?
 [ "$rc" -eq 0 ] || fail "D7: a poisoned derived ledger was not repaired (rc=$rc)"
-[ "$(wc -l < "$R5/results.jsonl")" -eq 33 ] || fail "D7: rebuild did not repair the ledger"
+[ "$(wc -l < "$R5/results.jsonl")" -eq "$NLESS1" ] || fail "D7: rebuild did not repair the ledger"
 rm -rf "$R5"
 echo "D7 OK: verdicts are written once; a poisoned derived ledger is repaired, not trusted"
 
@@ -364,7 +372,7 @@ jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" \
 [ "$rc" -eq 11 ] || [ "$rc" -eq 10 ] || fail "D10: an unregistered pair passed the completion invariant (rc=$rc)"
 grep -qE 'not the registered universe|HALT' "$R8/phase3-log.txt" || fail "D10: neither a set mismatch nor a halt was reported"
 rm -rf "$R8"
-echo "D10 OK: an unregistered pair fails the invariant even when the count is 34"
+echo "D10 OK: an unregistered pair fails the invariant even when the count is right"
 
 # D11: a pair recorded BOTH as a verdict and as a terminal failure must not
 # cancel out — the earlier count-based check silently excluded the overlap.
@@ -419,7 +427,7 @@ grep -q 'ladder: R3' "$TMP/adj13.out" || fail "D13: the ladder did not resolve t
 : > "$L11"; drive "$R11" "$L11" ok; rc=$?
 [ "$rc" -eq 0 ] || fail "D13: adjudicated exclusion did not let the sweep finish (rc=$rc)"
 grep -qx "$P1TASK $P1A" "$L11" && fail "D13: an adjudicated exclusion was still re-rolled"
-[ "$(wc -l < "$R11/results.jsonl")" -eq 33 ] || fail "D13: expected 33 verdicts, got $(wc -l < "$R11/results.jsonl")"
+[ "$(wc -l < "$R11/results.jsonl")" -eq "$NLESS1" ] || fail "D13: expected $NLESS1 verdicts, got $(wc -l < "$R11/results.jsonl")"
 grep -q 'COMPLETION INVARIANT OK' "$R11/phase3-log.txt" || fail "D13: the invariant did not accept the excluded trajectory"
 rm -rf "$R11"
 echo "D13 OK: a trajectory that ran is never re-rolled; the sweep halts for adjudication"
@@ -459,7 +467,7 @@ bash "$HERE/adjudicate31.sh" "$R13" "$P1TASK" "$P1A" auto >/dev/null 2>&1 \
 : > "$L13"; drive "$R13" "$L13" ok; rc=$?
 [ "$rc" -eq 0 ] || fail "D15: the sweep did not complete after reconstruction (rc=$rc)"
 grep -qx "$P1TASK $P1A" "$L13" && fail "D15: the reconstructed trajectory was re-run"
-[ "$(wc -l < "$R13/results.jsonl")" -eq 34 ] || fail "D15: expected 34 verdicts, got $(wc -l < "$R13/results.jsonl")"
+[ "$(wc -l < "$R13/results.jsonl")" -eq "$NTRAJ" ] || fail "D15: expected $NTRAJ verdicts, got $(wc -l < "$R13/results.jsonl")"
 grep -q 'COMPLETION INVARIANT OK' "$R13/phase3-log.txt" \
   || fail "D15: the reconstructed verdict is still incompatible with the completion invariant"
 rm -rf "$R13"
@@ -528,10 +536,10 @@ echo "D18 OK: a matching-but-malformed row is never a verdict, and never survive
 R17="/tmp/hyg-runs-$$-q"; rm -rf "$R17"; L17="$TMP/launch17.log"; : > "$L17"
 drive "$R17" "$L17" ok; rc=$?
 [ "$rc" -eq 0 ] || fail "D19: baseline sweep did not complete (rc=$rc)"
-[ "$(ls "$R17"/*.verdict.json 2>/dev/null | wc -l)" -eq 34 ] || fail "D19: per-trajectory verdict files missing"
+[ "$(ls "$R17"/*.verdict.json 2>/dev/null | wc -l)" -eq "$NTRAJ" ] || fail "D19: per-trajectory verdict files missing"
 printf 'not json at all\n' >> "$R17/results.jsonl"
 bash "$HERE/rebuild-results31.sh" "$R17" >/dev/null || fail "D19: the ledger could not be rebuilt"
-[ "$(wc -l < "$R17/results.jsonl")" -eq 34 ] || fail "D19: rebuild did not restore exactly 34 verdicts"
+[ "$(wc -l < "$R17/results.jsonl")" -eq "$NTRAJ" ] || fail "D19: rebuild did not restore exactly $NTRAJ verdicts"
 jq -e -s 'all(.outcome=="STUB")' "$R17/results.jsonl" >/dev/null || fail "D19: rebuilt ledger is not clean"
 rm -rf "$R17"
 echo "D19 OK: the ledger is derived from immutable per-trajectory files and is rebuildable"
@@ -585,6 +593,24 @@ grep -q 'ORACLE="$CTRL/oracle"' "$HERE/run-task31.sh" \
 grep -q 'ORACLE="$W/oracle"' "$HERE/run-task31.sh" \
   && fail "E1: the oracle is still assigned inside the workspace"
 echo "E1 OK: no TB_* reaches the agent; the withheld oracle is outside its workspace"
+
+# M1: a bare invocation must REFUSE, and --check must create nothing. On
+# 2026-09-01 a bare invocation meant to verify the registration gate started the
+# real sweep and executed a counted trajectory before the preregistration line.
+rc=0; ( cd "$TB" && bash runner/phase3-sweep31.sh >"$TMP/m1.out" 2>&1 ) || rc=$?
+[ "$rc" -eq 2 ] || fail "M1: a bare invocation did not refuse (rc=$rc)"
+grep -q 'requires an explicit mode' "$TMP/m1.out" || fail "M1: the refusal does not name the missing mode"
+grep -q 'never be re-rolled' "$TMP/m1.out" || fail "M1: --execute-counted is not described as creating counted trajectories"
+M1R="/tmp/hyg-runs-$$-t"; rm -rf "$M1R"
+rc=0; ( cd "$TB" && TB_HYGIENE_TEST=1 TB_TEST_RUNS="$M1R" TB_TEST_RUNNER="$STUB" \
+        SELFTEST_RUNNER_DIR="$HERE" LAUNCHLOG="$TMP/m1.log" STUB_MODE=ok \
+        bash runner/phase3-sweep31.sh --check >"$TMP/m1c.out" 2>&1 ) || rc=$?
+[ "$rc" -eq 0 ] || fail "M1: --check failed (rc=$rc): $(tail -2 "$TMP/m1c.out")"
+grep -q 'CHECK OK' "$TMP/m1c.out" || fail "M1: --check did not report OK"
+[ ! -e "$M1R" ] || fail "M1: --check created the results directory"
+[ ! -s "$TMP/m1.log" ] || fail "M1: --check launched a trajectory"
+rm -rf "$M1R"
+echo "M1 OK: a bare invocation refuses; --check validates without creating or running anything"
 
 # ---------------------------------------------------------------- S ----
 grep -q 'driver_pass:\$pass, execution_attempt:\$xattempt' "$HERE/run-task31.sh" \
