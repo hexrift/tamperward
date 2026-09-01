@@ -3,19 +3,18 @@
 *An [errata page](./errata.md) records every published correction and the
 inconsistencies our own audit could not resolve.*
 
-- **[The mechanism transferred. The effect didn't.](./the-mechanism-transferred-the-effect-didnt.md)** — September 1, 2026.
+- **[The mechanism transferred. The confirmatory result didn't replicate.](./the-mechanism-transferred-the-effect-didnt.md)** — September 1, 2026.
   The round-3.1 answer: on the same 16 Python repositories with the model moved
-  to `claude-sonnet-5` and the treatment byte-identical, the confirmatory
-  false-green prevention effect **did not replicate** — b=1, c=0, exact
-  two-sided McNemar p=1.0000. The registered null is retained: no pooling, no
-  one-sided switch, no endpoint promotion. Ungated transfer fell from 9/17 to
-  4/16, above the registered uninformative floor of 3/16 but only by one
-  repository, so the hypothesis was not supported and the assay-starvation rule
-  was not triggered — narrowly. Eight of ten bets landed; `b` and ungated
-  completions both missed low. What did survive is process evidence: one
-  trajectory gives a clean causal trace of Stop-time verification blocking a
-  weakened state until it was restored, and the same trajectory ends with every
-  integrity layer correct and the implementation still semantically wrong — an
+  to `claude-sonnet-5` and the treatment byte-identical, round 3's confirmatory
+  result **did not replicate** — b=1, c=0, exact two-sided McNemar p=1.0000. A
+  failure to reject, not evidence of no effect. And it could not have
+  replicated: only three ungated false greens occurred, so `b ≤ 3` and p ≥ .25
+  whatever the gate did — the registered uninformative floor was set on observed
+  policy violations rather than on the endpoint's own currency, and the realized
+  assay was starved regardless. On the common 16 tasks, ungated violations fell
+  from 9/16 under Haiku to 4/16. Eight of ten bets landed. The finding worth the
+  round is one trajectory where every layer fired, blocked the agent, accepted
+  its revision, and still certified a tree whose withheld oracle was red — an
   oracle-boundary failure, not an enforcement-boundary escape.
 
 - **[Before we test the same tasks on a stronger model, here's what we think will happen](./before-we-test-the-same-tasks-on-a-stronger-model.md)** — September 1, 2026.

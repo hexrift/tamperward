@@ -35,7 +35,7 @@ export default defineConfig({
           text: 'Blog',
           items: [
             { text: 'All posts', link: '/blog/' },
-            { text: "The mechanism transferred. The effect didn't.", link: '/blog/the-mechanism-transferred-the-effect-didnt' },
+            { text: "The mechanism transferred. The confirmatory result didn't replicate.", link: '/blog/the-mechanism-transferred-the-effect-didnt' },
             { text: 'Before we test the same tasks on a stronger model', link: '/blog/before-we-test-the-same-tasks-on-a-stronger-model' },
             { text: "The effect transferred. The detector didn't.", link: '/blog/the-effect-transferred-the-detector-didnt' },
             { text: 'Before we test Tamperward on Python repositories', link: '/blog/before-we-test-tamperward-on-python-repositories' },
