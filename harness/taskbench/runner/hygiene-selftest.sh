@@ -22,6 +22,8 @@
 #  D5 a systemic jail failure DOES halt it; a one-off jail failure does not
 #  D7 a duplicated (task, arm) verdict fails the completion invariant
 #  D8 a second concurrent driver is refused
+#  D20 a verdict is derived from artifacts, never substituted after the fact
+#  D21 a torn verdict line falls through to re-derivation, not a dead end
 #  D17 a killed runner's evidence is preserved by the driver
 #  D18 a matching-but-malformed row is never accepted as a verdict
 #  D19 results.jsonl is derived from immutable files and is rebuildable
@@ -49,7 +51,7 @@ cleanup() {
   # exact lock paths for THIS process's run dirs, computed the same way the
   # driver does — never a wildcard over /tmp/tb31-driver-*.lock
   local x
-  for x in a b c d e f g h i j k l m n o p q; do
+  for x in a b c d e f g h i j k l m n o p q r s; do
     rm -f "/tmp/tb31-driver-$(printf %s "/tmp/hyg-runs-$$-$x" | md5sum | cut -c1-12).lock" \
           "/tmp/tb31-results-$(printf %s "/tmp/hyg-runs-$$-$x" | md5sum | cut -c1-12).lock"
   done
@@ -183,6 +185,16 @@ case "$mode" in
   fail10) echo "TASK_REPO_UNREACHABLE: stub";  exit 10 ;;
   poststart)  # the agent ran, then finalization died before a verdict landed
     KEEP="$TB_RUNS/$1-$2-poststart-workdir"; mkdir -p "$KEEP"
+    if [ "${STUB_TORN_LINE:-0}" = "1" ]; then      # a nonempty but INCOMPLETE line
+      printf '{"task":"%s","arm":"%s","outco' "$1" "$2" > "$KEEP/verdict-line.json"
+      WD=$(mktemp -d "$TB_RUNS/torn-workspace-XXXXXX")
+      mkdir -p "$WD/repo" "$WD/venv" "$WD/oracle" "$WD/obs"
+      jq -nc --arg t "$1" --arg a "$2" --arg wd "$WD" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{ts:$ts,task:$t,arm:$a,model:"stub-model",driver_pass:1,execution_attempt:1,
+          transcript:"stub.jsonl",workdir:$wd,base:"deadbeef",task_dir:"/nonexistent"}' \
+        > "$TB_RUNS/$1-$2.started"
+      echo "stub: torn verdict line, workspace intact"; exit 1
+    fi
     if [ "${STUB_PRESERVE_LINE:-0}" = "1" ]; then   # R1: the verdict line survived
       jq -nc --arg t "$1" --arg a "$2" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" \
         '{task:$t,arm:$a,outcome:"NOT_FIXED",oracle_strength:"INTEGRITY",visible_suite:"red",
@@ -522,6 +534,41 @@ bash "$HERE/rebuild-results31.sh" "$R17" >/dev/null || fail "D19: the ledger cou
 jq -e -s 'all(.outcome=="STUB")' "$R17/results.jsonl" >/dev/null || fail "D19: rebuilt ledger is not clean"
 rm -rf "$R17"
 echo "D19 OK: the ledger is derived from immutable per-trajectory files and is rebuildable"
+
+# D20: the ladder DETERMINES the verdict; it is never chosen after seeing the
+# trajectory. A structurally valid record for the same trajectory but with a
+# different outcome is exactly the post-outcome substitution the ladder exists
+# to prevent, and `verdict` mode must refuse it.
+R18="/tmp/hyg-runs-$$-r"; rm -rf "$R18"; L18="$TMP/launch18.log"; : > "$L18"
+drive "$R18" "$L18" poststart STUB_FAIL_PAIR="$P1TASK $P1A" STUB_PRESERVE_LINE=1; rc=$?
+[ "$rc" -eq 11 ] || fail "D20: setup — post-start failure did not halt (rc=$rc)"
+CANON="$R18/$P1TASK-$P1A-poststart-workdir/verdict-line.json"
+jq -c '.outcome="HONEST_FIX"' "$CANON" > "$TMP/substituted.json"
+bash "$HERE/adjudicate31.sh" "$R18" "$P1TASK" "$P1A" verdict "$TMP/substituted.json" >/dev/null 2>&1 \
+  && fail "D20: a same-trajectory verdict with an altered outcome was accepted"
+[ ! -e "$R18/$P1TASK-$P1A.verdict.json" ] || fail "D20: the substituted verdict was persisted anyway"
+# the canonical record itself still verifies
+bash "$HERE/adjudicate31.sh" "$R18" "$P1TASK" "$P1A" verdict "$CANON" >/dev/null 2>&1 \
+  || fail "D20: the ladder's own record failed verification"
+jq -e --arg t "$P1TASK" --arg a "$P1A" \
+   'select(.task==$t and .arm==$a and .outcome=="NOT_FIXED")' "$R18/$P1TASK-$P1A.verdict.json" >/dev/null \
+  || fail "D20: the persisted verdict is not the canonical one"
+rm -rf "$R18"
+echo "D20 OK: a verdict is derived from the artifacts, never substituted after seeing them"
+
+# D21: R1 means a COMPLETE verdict survived, not merely some bytes. A torn line
+# must fall through to R2 rather than dead-end the ladder.
+R19="/tmp/hyg-runs-$$-s"; rm -rf "$R19"; L19="$TMP/launch19.log"; : > "$L19"
+drive "$R19" "$L19" poststart STUB_FAIL_PAIR="$P1TASK $P1A" STUB_TORN_LINE=1; rc=$?
+[ "$rc" -eq 11 ] || fail "D21: setup — post-start failure did not halt (rc=$rc)"
+bash "$HERE/adjudicate31.sh" "$R19" "$P1TASK" "$P1A" ladder > "$TMP/adj21.out" 2>&1 \
+  || fail "D21: the ladder diagnostic failed: $(cat "$TMP/adj21.out")"
+grep -q 'ladder: R2' "$TMP/adj21.out" \
+  || fail "D21: a torn verdict line did not fall through to R2: $(cat "$TMP/adj21.out")"
+grep -q 'partial verdict line was present and disregarded' "$TMP/adj21.out" \
+  || fail "D21: the disregarded partial line was not reported"
+rm -rf "$R19"
+echo "D21 OK: a torn verdict line falls through to re-derivation instead of dead-ending"
 
 # ---------------------------------------------------------------- S ----
 grep -q 'driver_pass:\$pass, execution_attempt:\$xattempt' "$HERE/run-task31.sh" \

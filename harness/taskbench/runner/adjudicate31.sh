@@ -23,8 +23,13 @@
 #
 # Usage:
 #   adjudicate31.sh <runs-dir> <task> <arm> auto            # the sanctioned path
+#   adjudicate31.sh <runs-dir> <task> <arm> ladder          # diagnostic: print the rule
 #   adjudicate31.sh <runs-dir> <task> <arm> exclusion ["reason"]
 #   adjudicate31.sh <runs-dir> <task> <arm> verdict <line.json> ["reason"]
+#
+# `verdict` VERIFIES a supplied record against what the ladder derives and
+# refuses anything that differs; it is an import/diagnostic interface, never a
+# way to substitute an outcome after seeing the trajectory.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; . "$HERE/verdict-record.sh"
 RUNS="${1:?runs directory}"; TASK="${2:?task id}"; ARM="${3:?ungated|gated}"; MODE="${4:-auto}"
@@ -39,31 +44,43 @@ case "$ARM" in ungated|gated) ;; *) die "arm must be ungated or gated, got '$ARM
 jq -e --arg t "$TASK" --arg a "$ARM" \
    'select(.task==$t and .arm==$a and .event=="POST_START_FINALIZATION_FAILURE")' "$DEV" >/dev/null 2>&1 \
   || die "$TASK/$ARM has no POST_START_FINALIZATION_FAILURE to adjudicate"
-jq -e --arg t "$TASK" --arg a "$ARM" \
-   'select(.task==$t and .arm==$a and (.event=="POST_START_ADJUDICATED_EXCLUSION" or .event=="POST_START_ADJUDICATED_VERDICT"))' \
-   "$DEV" >/dev/null 2>&1 \
-  && die "$TASK/$ARM is already adjudicated — dispositions are final and recorded once"
-[ -e "$(verdict_path "$RUNS" "$TASK" "$ARM")" ] && die "$TASK/$ARM already carries a verdict"
+if [ "$MODE" != ladder ]; then
+  jq -e --arg t "$TASK" --arg a "$ARM" \
+     'select(.task==$t and .arm==$a and (.event=="POST_START_ADJUDICATED_EXCLUSION" or .event=="POST_START_ADJUDICATED_VERDICT"))' \
+     "$DEV" >/dev/null 2>&1 \
+    && die "$TASK/$ARM is already adjudicated — dispositions are final and recorded once"
+  [ -e "$(verdict_path "$RUNS" "$TASK" "$ARM")" ] && die "$TASK/$ARM already carries a verdict"
+fi
 
 WD=$(jq -r '.workdir // empty' "$MARKER" 2>/dev/null | tail -1)
 BASE=$(jq -r '.base // empty' "$MARKER" 2>/dev/null | tail -1)
 TASKDIR=$(jq -r '.task_dir // empty' "$MARKER" 2>/dev/null | tail -1)
+workspace_reconstructible() {
+  [ -n "$WD" ] && [ -d "$WD/repo" ] && [ -d "$WD/venv" ] && [ -d "$WD/oracle" ] && [ -n "$BASE" ]
+}
 RULE=""; WHY=""
-if [ -s "$KEEP/verdict-line.json" ]; then
-  RULE=R1; WHY="the runner's own verdict line survived in $KEEP"
-elif [ -n "$WD" ] && [ -d "$WD/repo" ] && [ -d "$WD/venv" ] && [ -d "$WD/oracle" ] && [ -n "$BASE" ]; then
+# R1 requires a COMPLETE verdict, not merely a non-empty file: an outer timeout
+# can leave a torn verdict-line.json, and that must fall through to R2 rather
+# than dead-end the ladder at a record the schema check will reject.
+if is_verdict_file "$KEEP/verdict-line.json" "$TASK" "$ARM"; then
+  RULE=R1; WHY="the runner's own complete verdict line survived in $KEEP"
+elif workspace_reconstructible; then
   RULE=R2; WHY="the trajectory workspace survived at $WD; the verdict is re-derivable at $BASE"
+  [ -s "$KEEP/verdict-line.json" ] && WHY="$WHY (a partial verdict line was present and disregarded)"
 else
   RULE=R3
-  WHY="unrecoverable: $( [ -s "$KEEP/verdict-line.json" ] || printf 'no preserved verdict line; ' )$( [ -n "$WD" ] && [ -d "$WD/repo" ] || printf 'no final repository tree; ' )$( [ -n "$WD" ] && [ -d "$WD/venv" ] || printf 'no task venv; ' )$( [ -n "$WD" ] && [ -d "$WD/oracle" ] || printf 'no oracle; ' )$( [ -n "$BASE" ] || printf 'no recorded base; ' )"
+  WHY="unrecoverable: $( is_verdict_file "$KEEP/verdict-line.json" "$TASK" "$ARM" || printf 'no complete preserved verdict line; ' )$( [ -n "$WD" ] && [ -d "$WD/repo" ] || printf 'no final repository tree; ' )$( [ -n "$WD" ] && [ -d "$WD/venv" ] || printf 'no task venv; ' )$( [ -n "$WD" ] && [ -d "$WD/oracle" ] || printf 'no oracle; ' )$( [ -n "$BASE" ] || printf 'no recorded base; ' )"
 fi
 echo "[adjudicate31] ladder: $RULE — $WHY"
+[ "$MODE" = ladder ] && exit 0
 
 case "$MODE" in
   exclusion) [ "$RULE" = R3 ] || die "the ladder resolves to $RULE ($WHY); exclusion is only sanctioned at R3 — run 'auto'" ;;
-  verdict)   [ "$RULE" = R3 ] && die "the ladder resolves to R3 ($WHY); no verdict can be derived from these artifacts" ;;
+  verdict)   [ "$RULE" = R3 ] && die "the ladder resolves to R3 ($WHY); no verdict can be derived from these artifacts"
+             [ -n "${5:-}" ] || die "verdict mode needs the file to VERIFY against the ladder" ;;
   auto)      ;;
-  *) die "mode must be auto, exclusion or verdict, got '$MODE'" ;;
+  ladder)    ;;
+  *) die "mode must be auto, ladder, exclusion or verdict, got '$MODE'" ;;
 esac
 
 record() {  # <event> <reason> [verdict-sha]
@@ -97,8 +114,15 @@ if [ "$RULE" = R3 ]; then
   record POST_START_ADJUDICATED_EXCLUSION "${5:-$WHY}"
   echo "POST_START_ADJUDICATED_EXCLUSION recorded for $TASK $ARM under rule R3"
 else
-  [ "$MODE" = verdict ] && [ -n "${5:-}" ] && LINE="$5"
   is_verdict_file "$LINE" "$TASK" "$ARM" || die "the derived line is not a complete verdict record for $TASK/$ARM"
+  # `verdict` VERIFIES a supplied record against the ladder; it never substitutes
+  # one. A structurally valid record for the same trajectory but with a different
+  # outcome is exactly the post-outcome substitution the ladder exists to prevent.
+  if [ "$MODE" = verdict ]; then
+    [ -f "$5" ] || die "no such file: $5"
+    diff -q <(jq -S -c . "$LINE" 2>/dev/null) <(jq -S -c . "$5" 2>/dev/null) >/dev/null 2>&1 \
+      || die "the supplied record is NOT identical to the one rule $RULE derives from the artifacts. A verdict is determined by the trajectory, never chosen after seeing it — run 'auto'."
+  fi
   persist_verdict "$RUNS" "$TASK" "$ARM" "$LINE" || die "could not persist the reconstructed verdict"
   record POST_START_ADJUDICATED_VERDICT "${6:-$WHY}" "$(sha "$(verdict_path "$RUNS" "$TASK" "$ARM")")"
   echo "reconstructed verdict persisted and POST_START_ADJUDICATED_VERDICT recorded for $TASK $ARM under rule $RULE"

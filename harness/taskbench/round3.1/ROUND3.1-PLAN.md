@@ -351,6 +351,28 @@ boundary, the event/disposition split, the deterministic ladder, driver-side
 preservation, and the full-verdict predicate each make their own case fail when
 reverted.
 
+### Seventh correction record: the ladder had a hole through it
+
+26. **`adjudicate31.sh verdict <file>` substituted rather than verified.** When
+    the ladder resolved to R1 or R2, a supplied file replaced the
+    ladder-derived record, and the only remaining check was that it was
+    structurally complete for the same task and arm. An operator who had seen
+    the trajectory could therefore have supplied a valid record carrying
+    `HONEST_FIX` in place of a canonical `FALSE_GREEN` — precisely the
+    post-outcome substitution the ladder was added to prevent. `verdict` now
+    **verifies**: it compares the supplied record canonically against what the
+    ladder derives and refuses anything that differs. `auto` is the only route
+    that produces a verdict; `ladder` is a read-only diagnostic.
+27. **R1 triggered on bytes, not on a verdict.** It tested only that
+    `verdict-line.json` was non-empty, so an outer-timeout kill leaving a torn
+    line would select R1, fail the later schema check, and halt — even when the
+    intact workspace would have satisfied R2. R1 now requires a complete verdict
+    record by the shared predicate and otherwise falls through to R2, which also
+    makes the registered wording ("the runner's own verdict line survived") mean
+    what it says.
+
+Twenty-eight behavioural cases. Eleven fixes are mutation-checked.
+
 The two test seams this requires (`TB_FRESH_UPSTREAM` in the runner,
 `TB_HYGIENE_TEST` in the driver) are fail-closed: the runner refuses the
 rotation seam whenever a registered model is pinned, and the driver's test

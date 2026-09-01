@@ -68,6 +68,17 @@ with it:
 | **R2** | no verdict line, but the workspace survived with the final repository tree, the task venv, the oracle and the recorded base | **reconstruct** — re-derive with the same `verdict3.mjs` oracle over those artifacts, at that base |
 | **R3** | neither of the above | **exclude** — the only sanctioned exclusion |
 
+R1 means a **complete** verdict record survived, not merely a non-empty file: an
+outer-timeout kill can leave a torn `verdict-line.json`, and that falls through
+to R2 rather than dead-ending the ladder.
+
+`adjudicate31.sh` has no way to substitute a verdict. `auto` derives and
+persists; `ladder` only reports which rule applies; `verdict <file>` **verifies**
+a supplied record against what the ladder derives and refuses anything that
+differs, so an operator cannot supply a structurally valid record for the same
+trajectory carrying a different outcome. A verdict is determined by the
+trajectory, never chosen after seeing it.
+
 R3 is reached only for the enumerated unrecoverable conditions: no preserved
 verdict line **and** (no final repository tree, or no task venv, or no oracle,
 or no recorded base). Reconstruction is a deterministic re-derivation from the
