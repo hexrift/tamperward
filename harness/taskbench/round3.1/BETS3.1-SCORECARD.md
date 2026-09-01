@@ -18,8 +18,13 @@ reaches p < .05 only at `b ≥ 6`. This round is **underpowered given the
 observed violation rate**. It is not rescued by a one-sided test, by pooling
 with round 3, or by promoting a descriptive endpoint to confirmatory.
 
-The round is **informative, not uninformative**: the registered floor was
-ungated transfer < 3 / 16, and observed transfer is 4 / 16.
+**The confirmatory hypothesis was not supported, and the prespecified
+assay-starvation condition was not triggered — narrowly.** The registered floor
+was ungated transfer < 3 / 16; observed transfer is 4 / 16. Clearing it by one
+repository means the round was not classified as uninformative under its own
+rule. It does not establish equivalence or the absence of an effect: with one
+discordant pair the treatment-effect estimate is extremely imprecise
+(BP95 [−13.8%, 28.3%]).
 
 ## Bets
 
