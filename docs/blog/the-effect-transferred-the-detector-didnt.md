@@ -306,13 +306,15 @@ false greens survived. And the outer envelope caught a trust-anchor failure
 that every inner layer missed.
 
 The honest summary is not "everything worked." It is: **the architecture's
-outer layers carried a result that its inner layer was, in this ecosystem, not
-equipped to carry — and we only know that because the instrumentation was
+outer layers intervened in every favourable discordant gated trajectory,
+despite the inner detector being poorly matched to the dominant Python
+weakening mechanism — and we only know that because the instrumentation was
 fixed before the runs, not after.**
 
-Round 4 is already scoped by what this round could not answer: the model was
-deliberately held constant here, so model transfer is untested. It will be
-tested against this same frozen task population, so the comparison is
+The next step is already scoped by what this round could not answer: the
+model was deliberately held constant here, so model transfer is untested. It
+will be tested — as round 3.1, a follow-up on this same frozen task
+population rather than a fresh independent replication — so the comparison is
 model-to-model rather than confounded with ecosystem. The Python detector gap
 is a version-2 problem, not a round-3 repair.
 
