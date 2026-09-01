@@ -299,3 +299,5 @@ hint: "git config advice.addIgnoredFile false"
 2026-09-01T18:33:52Z SKIP 12-burnash-gspread ungated (verdict exists)
 2026-09-01T18:33:53Z SKIP 07-tableau-server-client-python ungated (verdict exists)
 2026-09-01T18:33:53Z SKIP 07-tableau-server-client-python gated (verdict exists)
+2026-09-01T18:33:55Z SKIP 05-cpburnz-python-pathspec gated (verdict exists)
+2026-09-01T18:33:55Z SKIP 05-cpburnz-python-pathspec ungated (verdict exists)
