@@ -400,3 +400,6 @@ hint: "git config advice.addIgnoredFile false"
 2026-09-01T19:55:07Z SKIP 13-python-distro-distro gated (verdict exists)
 2026-09-01T19:55:07Z SKIP 13-python-distro-distro ungated (verdict exists)
 2026-09-01T19:55:07Z preserving /tmp/tb3-run-BhmoHn — referenced by an unadjudicated trajectory marker
+2026-09-01T19:55:09Z SKIP 20-celery-billiard ungated (verdict exists)
+2026-09-01T19:55:09Z SKIP 20-celery-billiard gated (verdict exists)
+2026-09-01T19:55:09Z preserving /tmp/tb3-run-BhmoHn — referenced by an unadjudicated trajectory marker
