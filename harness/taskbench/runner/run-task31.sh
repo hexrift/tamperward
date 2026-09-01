@@ -7,6 +7,12 @@
 #      login shell at trajectory start and passed to the allowlist proxy
 #      explicitly (the round-3 outage: a sweep-launch env snapshot went stale
 #      when the platform rotated the proxy port under the running sweep)
+#   Exit contract consumed by the driver (round-3.1 review correction):
+#      8  = shared agent network path is down (systemic)  -> circuit breaker
+#      9  = net-jail could not be built                   -> driver re-runs the
+#           jail self-test; systemic only if that fails too
+#      10 = THIS task's repository is unreachable         -> driver re-checks
+#           the shared path; trajectory-local if that is healthy
 #   H2 per-trajectory network preflight: a dead upstream fails the trajectory
 #      as PREFLIGHT_NET_FAILED (exit 8) BEFORE any clone attempt burns the
 #      retry budget; the driver circuit-breaks on it
@@ -44,6 +50,11 @@ CLI="$ROOT/dist/cli/index.js"
 # round-3 outage). alive() therefore requires curl to SUCCEED: any transport
 # error at all means "not usable", not just refused/timeout/resolve-failure.
 UPSTREAM="${HTTPS_PROXY:-}"
+PROXY_PID=""; NETNS=""; JAIL_ATTEMPTED=0
+# Proxy URLs can carry user:password. Every trajectory line the driver captures
+# is committed and pushed to a public checkpoint branch, so nothing prints an
+# upstream URL without going through this first.
+redact() { printf %s "${1:-}" | sed -E 's#^([a-zA-Z][a-zA-Z0-9+.-]*://)[^/@]*@#\1<redacted>@#'; }
 # NO_PROXY in this platform's environment lists api.anthropic.com, which makes
 # curl IGNORE -x for exactly the host we are probing — a liveness check written
 # without clearing it returns "alive" for any string, including a dead port.
@@ -63,12 +74,28 @@ fresh_upstream() {
 resolve_upstream() {
   local fresh; fresh=$(fresh_upstream)
   if [ -n "$fresh" ] && [ "$fresh" != "$UPSTREAM" ] && alive "$fresh"; then
-    echo "[run-task31] upstream proxy rotated: ${UPSTREAM:-<unset>} -> $fresh (using fresh)"
+    echo "[run-task31] upstream proxy rotated: $(redact "${UPSTREAM:-<unset>}") -> $(redact "$fresh") (using fresh)"
     UPSTREAM="$fresh"; export HTTPS_PROXY="$fresh" https_proxy="$fresh"
   fi
 }
 
-teardown_net() { kill "${PROXY_PID:-0}" 2>/dev/null; [ -n "${NETNS:-}" ] && bash "$HERE/net-jail.sh" teardown "$TAG-$$"; }
+# `kill 0` signals the ENTIRE process group -- with the trap installed before
+# start_agent_network, an early failure (no upstream, jail setup) would have
+# killed the sweep driver itself and lost the orderly circuit-breaker record.
+# Only ever signal a real PID, and tear the jail down by TAG, because a partial
+# setup failure creates a namespace without ever returning its name.
+teardown_net() {
+  if [ -n "${PROXY_PID:-}" ]; then
+    kill "$PROXY_PID" 2>/dev/null || true
+    wait "$PROXY_PID" 2>/dev/null || true
+    PROXY_PID=""
+  fi
+  if [ "${JAIL_ATTEMPTED:-0}" = "1" ]; then
+    bash "$HERE/net-jail.sh" teardown "$TAG-$$" >/dev/null 2>&1
+    JAIL_ATTEMPTED=0; NETNS=""
+  fi
+  return 0
+}
 
 # ---- TRAJECTORY-START NETWORK BOUNDARY (H2, corrected) ------------------
 # Everything above the call to this function is infrastructure and cannot
@@ -87,6 +114,7 @@ start_agent_network() {
   PORT=$(( 20000 + RANDOM % 20000 ))
   NETNS=""; PROXY_HOST="127.0.0.1"; NETRUN=()
   if [ "${TB_NETJAIL:-0}" = "1" ]; then
+    JAIL_ATTEMPTED=1
     if ! read -r PROXY_HOST NETNS < <(bash "$HERE/net-jail.sh" setup "$TAG-$$" "$PORT"); then
       echo "NETJAIL_SETUP_FAILED"; return 9
     fi
@@ -115,13 +143,13 @@ start_agent_network() {
               -x "http://$PROXY_HOST:$PORT" "https://api.anthropic.com/" 2>/dev/null )
     if [ $? -eq 0 ]; then
       case "$code" in 2*|3*|4*)
-        echo "[run-task31] agent network path verified (api.anthropic.com http $code via $PROXY_HOST:$PORT -> $UPSTREAM)"
+        echo "[run-task31] agent network path verified (api.anthropic.com http $code via $PROXY_HOST:$PORT -> $(redact "$UPSTREAM"))"
         return 0 ;;
       esac
     fi
     [ "$t" = 1 ] && sleep 3
   done
-  echo "PREFLIGHT_NET_FAILED: no working agent network path (jail -> $PROXY_HOST:$PORT -> $UPSTREAM -> api.anthropic.com)"
+  echo "PREFLIGHT_NET_FAILED: no working agent network path (jail -> $PROXY_HOST:$PORT -> $(redact "$UPSTREAM") -> api.anthropic.com)"
   return 1
 }
 
@@ -132,7 +160,8 @@ if [ "${1:-}" = "--netcheck" ]; then
   NETLOG="$W/net-denied.log"; touch "$NETLOG"
   trap 'teardown_net; rm -rf "$W"' EXIT
   start_agent_network; nrc=$?
-  [ "$nrc" -eq 0 ] && { echo "NETCHECK_OK upstream=$UPSTREAM"; exit 0; }
+  [ "$nrc" -eq 0 ] && { echo "NETCHECK_OK upstream=$(redact "$UPSTREAM")"; exit 0; }
+  [ "$nrc" -eq 9 ] && exit 9
   exit 8
 fi
 
@@ -153,7 +182,11 @@ fi
 # trajectory-start boundary (start_agent_network) immediately before the agent.
 resolve_upstream
 if ! timeout 20 git ls-remote --heads "https://github.com/$REPO.git" >/dev/null 2>&1; then
-  echo "PREFLIGHT_NET_FAILED: cannot reach github via '$UPSTREAM'"; exit 8
+  # exit 10, NOT 8: one deleted/private/temporarily-unavailable task repository
+  # is not evidence that shared infrastructure is down. The driver re-checks
+  # the shared path and only circuit-breaks if that is failing too; otherwise
+  # this stays a trajectory-local failure on the ordinary retry path.
+  echo "TASK_REPO_UNREACHABLE: cannot reach github.com/$REPO via $(redact "$UPSTREAM")"; exit 10
 fi
 
 RUNS="${TB_RUNS:-$TB/round3/runs}"; mkdir -p "$RUNS"

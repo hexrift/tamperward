@@ -75,6 +75,14 @@ ATTEMPTS="$TB_RUNS/driver-passes.log"
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 say() { echo "$(ts) $*" | tee -a "$LOG"; }
 
+# Exactly one driver per results directory. `have()` and the deviation ledger
+# are read-then-act, so two simultaneous resumes would both see "no verdict"
+# for the same trajectory and both launch it, appending two verdicts for one
+# (task, arm) pair.
+DRIVER_LOCK="/tmp/tb31-driver-$(printf %s "$TB_RUNS" | md5sum | cut -c1-12).lock"
+exec 9>"$DRIVER_LOCK"
+flock -n 9 || { echo "ABORT: another driver already holds $DRIVER_LOCK for $TB_RUNS"; exit 6; }
+
 disk_guard() {
   local free_kb; free_kb=$(df --output=avail / | tail -1 | tr -d ' ')
   if [ "$free_kb" -lt 3000000 ]; then
@@ -89,6 +97,13 @@ disk_guard() {
 shared_net_ok() {
   [ "$TESTMODE" = 1 ] && { [ "${TB_TEST_NET_OK:-1}" = "1" ]; return $?; }
   timeout 20 git ls-remote --heads https://github.com/aio-libs/multidict.git >/dev/null 2>&1
+}
+
+# Is the jail itself buildable? Distinguishes a systemic netns/nft failure from
+# a one-off setup race on a single trajectory.
+jail_ok() {
+  [ "$TESTMODE" = 1 ] && { [ "${TB_TEST_JAIL_OK:-1}" = "1" ]; return $?; }
+  bash runner/net-jail.sh selftest jailcheck >/dev/null 2>&1
 }
 
 if [ "$TESTMODE" = 1 ]; then
@@ -149,11 +164,27 @@ run_one() {
     out=$(TB_EXEC_ATTEMPT="$attempt" timeout 4200 "$RUNNER" "$task" "$arm" </dev/null 2>&1); local rc=$?
     echo "$out" >> "$LOG"
     if echo "$out" | grep -qE 'GATE_NOT_LIVE|WATCH_NOT_LIVE'; then say "treatment not live on $task $arm — aborting sweep"; return 2; fi
-    # H4: the runner's rc=8 IS the dedicated shared-infrastructure preflight —
-    # break immediately, it says the agent network path is down for everyone.
-    if [ "$rc" -eq 8 ]; then
-      breaker "$task" "$arm" "runner preflight failed (rc=8)"; return 3
-    fi
+    # H4, per the runner's documented exit contract. Only a failure PROVEN to be
+    # shared infrastructure may halt the sweep; anything that could be local to
+    # one repository or one setup race takes the ordinary retry path, so a
+    # single dead task repository cannot block every remaining trajectory
+    # forever (each resume would otherwise reach it and abort again).
+    case "$rc" in
+      8)
+        breaker "$task" "$arm" "shared agent network path down (runner rc=8)"; return 3 ;;
+      9)
+        if jail_ok; then
+          say "NETJAIL_SETUP_FAILED on $task $arm but the jail self-test passes — trajectory-local, ordinary retry path"
+        else
+          breaker "$task" "$arm" "net-jail setup failed and the jail self-test fails too"; return 3
+        fi ;;
+      10)
+        if shared_net_ok; then
+          say "TASK_REPO_UNREACHABLE for $task but shared network is up — trajectory-local, ordinary retry path"
+        else
+          breaker "$task" "$arm" "task repository unreachable with the shared preflight also failing"; return 3
+        fi ;;
+    esac
     # A clone can fail for repo-local reasons; only systemic if the shared
     # preflight is failing at this moment too.
     if echo "$out" | grep -q 'CLONE_FAILED'; then
@@ -172,14 +203,44 @@ run_one() {
   return 1
 }
 
-checkpoint() {   # H5: non-protected ref, loud at every step
+# H5: non-protected ref, loud at every step, and FATAL when it stays broken.
+# Round 3's lesson was 8 pairs of results living only on a disposable container;
+# "logged but continued" would reproduce that outcome with better logging. A
+# transient push failure is absorbed by the retries; a persistent one stops the
+# sweep, which is recoverable (the untouched trajectories are UNATTEMPTED and
+# the results so far are intact on disk).
+checkpoint() {
   [ "$TESTMODE" = 1 ] && return 0
-  git add -A "$TB_RUNS" >/dev/null 2>&1 || { say "CHECKPOINT STAGE FAILED for $1 — results exist only locally"; return 0; }
+  git add -A "$TB_RUNS" >/dev/null 2>&1 || { say "CHECKPOINT STAGE FAILED for $1"; return 1; }
   git diff --cached --quiet -- "$TB_RUNS" && return 0     # nothing new is not a failure
   git commit -q -m "Taskbench round 3.1: checkpoint after $1" >/dev/null 2>&1 \
-    || { say "CHECKPOINT COMMIT FAILED for $1 — results exist only locally until a commit succeeds"; return 0; }
-  git push -q origin "HEAD:$CKPT_REF" 2>/dev/null \
-    || say "CHECKPOINT PUSH FAILED for $1 — results exist only locally until a push succeeds"
+    || { say "CHECKPOINT COMMIT FAILED for $1 — results exist only locally"; return 1; }
+  local d
+  for d in 0 2 4 8; do
+    [ "$d" -gt 0 ] && { say "checkpoint push failed for $1 — retrying in ${d}s"; sleep "$d"; }
+    git push -q origin "HEAD:$CKPT_REF" 2>/dev/null && return 0
+  done
+  say "CHECKPOINT PUSH FAILED for $1 after 4 attempts — results exist only locally"
+  return 1
+}
+
+# Exactly 34 registered trajectories, each accounted for exactly once: either a
+# verdict or a terminal INFRASTRUCTURE_FAILURE. A duplicated (task, arm) verdict
+# is always an error — it is what a second concurrent driver would produce.
+verify_completion() {
+  local total uniq vpairs ipairs infra
+  total=$(wc -l <"$RESULTS")
+  vpairs=$(jq -r '"\(.task)\t\(.arm)"' "$RESULTS" 2>/dev/null | sort -u)
+  uniq=$(printf '%s' "$vpairs" | grep -c . )
+  ipairs=$(jq -r 'select(.event=="INFRASTRUCTURE_FAILURE")|"\(.task)\t\(.arm)"' "$DEVIATIONS" 2>/dev/null | sort -u)
+  infra=$(comm -13 <(printf '%s\n' "$vpairs") <(printf '%s\n' "$ipairs") | grep -c . )
+  if [ "$uniq" -ne "$total" ]; then
+    say "INVARIANT VIOLATION: $total verdict lines but only $uniq unique (task,arm) — a trajectory was recorded twice"; return 1
+  fi
+  if [ $(( uniq + infra )) -ne 34 ]; then
+    say "INVARIANT VIOLATION: $uniq verdicts + $infra terminal infrastructure failures != 34 registered trajectories"; return 1
+  fi
+  say "COMPLETION INVARIANT OK: $uniq unique verdicts + $infra terminal infrastructure failures = 34"
 }
 
 say "ROUND-3.1 SWEEP START model=$TB_MODEL driver-pass=$DRIVER_PASS results=$RESULTS"
@@ -196,9 +257,11 @@ for line in "${PAIRS[@]}"; do
     fi
     run_one "$task" "$arm"; rc=$?
     [ "$rc" = 2 ] && exit 3
-    [ "$rc" = 3 ] && { checkpoint "circuit-breaker at pair $pair_n"; exit 4; }
+    [ "$rc" = 3 ] && { checkpoint "circuit-breaker at pair $pair_n" || true; exit 4; }
   done
   rm -rf /tmp/tb3-run-* 2>/dev/null
-  checkpoint "pair $pair_n/17 ($task)"
+  checkpoint "pair $pair_n/17 ($task)" \
+    || { say "ABORT: checkpoints are not reaching the remote — stopping rather than accumulating hours of local-only results (nothing is lost; fix the push and rerun this driver)"; exit 6; }
 done
 say "ROUND-3.1 SWEEP COMPLETE: $(wc -l <"$RESULTS") verdicts, $(wc -l <"$DEVIATIONS") deviations, driver passes: $DRIVER_PASS"
+verify_completion || exit 10

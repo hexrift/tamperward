@@ -137,6 +137,55 @@ infrastructure guarantees, and the review happened before registration:
    rediscovered at the boundary — inside the jail, where the platform's own
    direct route to the API does not exist.
 
+### Second correction record: review of the corrected implementation
+
+A second review of the corrected commit found four more issues. Three of them
+sit on the exact failure paths this work exists to harden:
+
+9. **Cleanup could kill the sweep driver.** `teardown_net` ran
+   `kill "${PROXY_PID:-0}"`, and `kill 0` signals the whole process group. The
+   EXIT trap is installed before the boundary runs, so a failure with no proxy
+   yet started — no upstream resolved, jail setup failed — would have killed
+   the driver itself, losing the orderly circuit-breaker record. It now signals
+   only a real PID, waits for it, and clears it. Jail teardown is keyed on the
+   TAG rather than the returned namespace name, so a partial setup failure —
+   which creates a namespace and returns nothing — is still cleaned up.
+10. **The runner/driver exit contract misclassified failures in both
+    directions.** A failure to reach *one task's repository* exited 8, which
+    the driver treats as proven systemic: a single deleted or private
+    repository would have aborted the sweep, and aborted it again on every
+    resume, forever. Meanwhile a net-jail setup failure exited 9, which the
+    driver did not break on at all, so a systemic jail failure would have
+    consumed two attempts on every remaining trajectory. The contract is now
+    explicit: **8** = shared agent network path down → immediate breaker;
+    **9** = net-jail failure → the driver re-runs the jail self-test and breaks
+    only if that also fails; **10** = this task's repository unreachable → the
+    driver re-checks the shared path and keeps it trajectory-local if that is
+    healthy. `CLONE_FAILED` is adjudicated the same way as 10.
+11. **Proxy credentials could reach public Git history.** The runner printed
+    the full upstream URL on rotation and on every successful boundary probe;
+    the driver captures that into `phase3-log.txt`, which it commits and pushes
+    to the checkpoint branch. If `HTTPS_PROXY` ever carries `user:password@`,
+    those credentials become public. Every printed upstream now goes through a
+    redactor that strips userinfo.
+12. **Checkpoint failures were loud but not fatal**, which reproduces round 3's
+    outcome — hours of results living only on a disposable container — with
+    better logging. A push is now retried four times with backoff; a persistent
+    failure stops the sweep. That is recoverable: the results so far are intact
+    on disk and the untouched trajectories are UNATTEMPTED.
+
+Two invariants were added at the same review's suggestion, before registration
+rather than after: a **single-driver lock**, because two concurrent resumes
+would both read "no verdict" for the same trajectory and both append one; and a
+**completion invariant** requiring that the 34 registered trajectories be
+accounted for exactly once each, as a verdict or a terminal
+`INFRASTRUCTURE_FAILURE`, with any duplicated `(task, arm)` verdict treated as
+an error.
+
+The self-test grew to fifteen cases covering all of the above, and the two most
+consequential — the process-group kill and the exit-code misclassification —
+were mutation-checked: reverting each fix makes its case fail.
+
 The two test seams this requires (`TB_FRESH_UPSTREAM` in the runner,
 `TB_HYGIENE_TEST` in the driver) are fail-closed: the runner refuses the
 rotation seam whenever a registered model is pinned, and the driver's test
