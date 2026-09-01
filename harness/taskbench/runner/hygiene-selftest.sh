@@ -35,6 +35,8 @@
 #  D10 the completion invariant is a set identity, not a count
 #  D11 a pair cannot be both a verdict and a terminal failure
 #  D12 a failed invariant is never logged as a complete sweep
+#  A5 a detached sweep survives loss of the invoking process group
+#  A6 an intentional stop still reaps the driver and its children
 #  A4 cleanup preserves unadjudicated evidence, still removes garbage
 #  A3 a resume-detected post-start failure is recorded once (no deadlock)
 #  A1 R2 finds an oracle relocated out of the workspace (19-flake8 regression)
@@ -702,6 +704,57 @@ jq -nc --arg wd "$A4WD" --arg t "$A4TASK" --arg a "$A4ARM" '{ts:"x",task:$t,arm:
 [ -d "$A4WD" ] || fail "A4: the cleanup deleted the workspace of an unadjudicated trajectory"
 rm -rf "$A4R" "$A4WD" "$A4OTHER"
 echo "A4 OK: unadjudicated evidence survives cleanup; unreferenced workspaces are still removed"
+
+# A5: the demonstrated supervision defect. A sweep launched through the wrapper
+# must survive destruction of the invoking shell's process group -- that is the
+# failure mode that killed the driver twice mid-trajectory.
+A5P=/tmp/tb31-selftest-sweep.pid; A5L=/tmp/tb31-selftest-launch.out
+cat > "$TMP/long-driver.sh" <<'DRV'
+#!/usr/bin/env bash
+for i in $(seq 1 60); do echo "tick $i"; sleep 1; done; echo "DRIVER COMPLETED"
+DRV
+cat > "$TMP/a5-parent.sh" <<PARENT
+#!/usr/bin/env bash
+TB_SWEEP_PIDFILE=$A5P TB_SWEEP_LAUNCH_LOG=$A5L TB_SWEEP_DRIVER="$TMP/long-driver.sh" \
+  bash "$HERE/launch-sweep31.sh" >/dev/null 2>&1
+sleep 30   # parent lingers; the harness kills its whole group below
+PARENT
+rm -f "$A5P" "$A5L"
+setsid bash "$TMP/a5-parent.sh" & PARENT_PID=$!
+sleep 3
+[ -f "$A5P" ] || fail "A5: launcher wrote no pidfile"
+SWEEP_PID=$(cat "$A5P")
+kill -0 "$SWEEP_PID" 2>/dev/null || fail "A5: driver not running after launch"
+# destroy the invoking shell's ENTIRE process group, as the platform apparently does
+PPGID=$(ps -o pgid= -p "$PARENT_PID" | tr -d ' ')
+kill -KILL -"$PPGID" 2>/dev/null; sleep 2
+kill -0 "$SWEEP_PID" 2>/dev/null \
+  || fail "A5: the driver died with its invoking process group — supervision still unreliable"
+# and it must go on to finish normally, not merely survive the signal
+for _ in $(seq 1 70); do grep -q 'DRIVER COMPLETED' "$A5L" 2>/dev/null && break; sleep 1; done
+grep -q 'DRIVER COMPLETED' "$A5L" || fail "A5: the detached driver survived but never completed"
+rm -f "$A5P" "$A5L"
+echo "A5 OK: a detached sweep survives destruction of the invoking process group and completes"
+
+# A6: the converse — detachment must not create immortal orphans. An
+# intentional stop must take the driver AND the children it owns.
+cat > "$TMP/spawner.sh" <<'SPW'
+#!/usr/bin/env bash
+sleep 300 &            # a stand-in for the runner/agent/proxy the driver owns
+echo "CHILD $!" 
+sleep 300
+SPW
+rm -f "$A5P" "$A5L"
+TB_SWEEP_PIDFILE=$A5P TB_SWEEP_LAUNCH_LOG=$A5L TB_SWEEP_DRIVER="$TMP/spawner.sh" \
+  bash "$HERE/launch-sweep31.sh" >/dev/null 2>&1
+sleep 2
+S6=$(cat "$A5P"); C6=$(grep -m1 '^CHILD ' "$A5L" | awk '{print $2}')
+[ -n "$C6" ] && kill -0 "$C6" 2>/dev/null || fail "A6: setup — child not running"
+TB_SWEEP_PIDFILE=$A5P bash "$HERE/stop-sweep31.sh" >/dev/null 2>&1; sleep 2
+kill -0 "$S6" 2>/dev/null && fail "A6: stop left the driver running"
+kill -0 "$C6" 2>/dev/null && { kill -9 "$C6" 2>/dev/null; fail "A6: stop left an orphaned child — detachment created an immortal process"; }
+[ -f "$A5P" ] && fail "A6: stop left a stale pidfile"
+echo "A6 OK: an intentional stop takes the driver and the children it owns — no orphans"
 
 # ---------------------------------------------------------------- S ----
 grep -q 'driver_pass:\$pass, execution_attempt:\$xattempt' "$HERE/run-task31.sh" \
