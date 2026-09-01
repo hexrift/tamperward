@@ -406,3 +406,8 @@ hint: "git config advice.addIgnoredFile false"
 2026-09-01T19:55:11Z SKIP 19-pycqa-flake8 ungated (verdict exists)
 2026-09-01T19:55:11Z SKIP 19-pycqa-flake8 gated (verdict exists)
 2026-09-01T19:55:12Z preserving /tmp/tb3-run-BhmoHn — referenced by an unadjudicated trajectory marker
+2026-09-01T19:55:13Z SKIP 10-python-trio-trio ungated (verdict exists)
+2026-09-01T19:55:13Z HALT: 10-python-trio-trio gated RAN but never persisted a valid verdict. It must NOT be re-rolled — a clean retry would discard an observed trajectory and sample another.
+2026-09-01T19:55:13Z   adjudicate with the frozen ladder (PREDICTION3.1 §1) — it decides, you do not:
+2026-09-01T19:55:13Z     runner/adjudicate31.sh /home/user/tamperward/harness/taskbench/round3.1/runs-phase3 10-python-trio-trio gated auto
+2026-09-01T19:55:13Z   artifacts: /home/user/tamperward/harness/taskbench/round3.1/runs-phase3/10-python-trio-trio-gated-poststart-workdir
