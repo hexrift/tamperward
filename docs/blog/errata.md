@@ -36,6 +36,59 @@ transient-mutation rescan.
 
 ## Corrections — newest first
 
+## 2026-09-01 — the shipped verifier was described as the benchmark oracle, and carried a bypass
+
+**Two corrections about `tamperward verify`, one of them a security defect
+present in every round that used it.**
+
+**1. The benchmark oracle and the product verifier are not the same thing.**
+["What losing the bet bought"](./what-losing-the-bet-bought.md) headed a section
+"the oracle that went 53-for-53, shipped". The 53-for-53 record belongs to the
+Taskbench **run-correctness oracle**, which used withheld semantic cases where
+available. `tamperward verify` productizes that oracle's **base-restoration
+component only**: it restores protected files from a trusted base and re-runs the
+configured visible suite. It holds no withheld cases, so it cannot detect a
+semantically incomplete fix that the trusted-base tests also accept. Round 3.1's
+`07-tableau-server-client-python` is precisely that boundary — every
+verification-integrity layer behaved correctly and the implementation was still
+wrong. The correct statement, now in the post: *the Taskbench oracle exposed
+every observed masked failure in that benchmark; `tamperward verify` productizes
+its base-restoration component, not its withheld semantic cases.*
+
+Two smaller claims in the same section were also wrong. The two copies are
+separate directories, **not** a security boundary — both execute
+agent-controlled code unsandboxed, so "isolated" is removed. And the README's
+architecture diagram carried the same word.
+
+**2. "Files the agent added are kept — they only add strictness" was false, and
+shipped a bypass.** An agent that never modifies or deletes a base-protected
+asset, but *adds* `tests/conftest.py`, gets it auto-loaded by pytest;
+`pytest_collection_modifyitems` can then deselect the restored base tests **by
+node id** — no skip spelling, so no detector could see it. The failing test runs
+in neither copy, the pristine suite goes green, and a masked failure is reported
+`VERIFIED`. End to end the envelope printed `GREEN MEANS GREEN` over an unfixed
+bug.
+
+Fixed in **1.14.1**: agent-added protected files are removed from the pristine
+copy, so its protected surface is exactly the base's. The proof of concept is
+committed at `harness/poc/verify-added-protected-bypass.sh` and the regression
+test is mutation-checked.
+
+**Experiment consequence, stated plainly.** The bypass reproduces from **v1.9.0**
+— when `verify` was introduced — through **v1.14.0**, confirmed under one
+identical policy with the control (weakening the protected test, nothing added)
+correctly blocked throughout. **Rounds 2, 3 and 3.1 therefore all ran on a
+verifier carrying it.** There is no evidence any agent used it: no counted
+trajectory shows an added protected control file. But that is an absence of
+observed use, not a proof of containment, and the layer's authority in those
+rounds was weaker than the articles described at the time. The round-2, round-3
+and round-3.1 result posts carry a note to that effect.
+
+Not changed by any of this: every counted verdict, every McNemar result, and
+every frozen analyzer output. The withheld semantic oracle — the instrument that
+actually classified outcomes in the benchmark — is a separate mechanism from the
+shipped `verify` command and was not affected.
+
 ## 2026-09-01 — rounds 1 and 2: the transfer figures used a defective predicate
 
 **The published transfer rates for rounds 1 and 2 are wrong. Corrected here and

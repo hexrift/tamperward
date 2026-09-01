@@ -2,6 +2,17 @@
 
 *September 1, 2026 · hexrift*
 
+> **Note added September 1, 2026.** This round's pristine Stop-time verification
+> ran on a `tamperward verify` that carried a bypass, closed in
+> [1.14.1](https://github.com/hexrift/tamperward/blob/main/CHANGELOG.md): an
+> agent-**added** protected file (for example a new `conftest.py`) was kept in
+> the pristine copy and could deselect the very base tests the overlay had just
+> restored. No counted trajectory in this round shows an added protected control
+> file, so there is no evidence it was used — but that is an absence of observed
+> use, not proof of containment, and this layer's authority was weaker than
+> described here. See the [errata](./errata.md).
+
+
 *Short answer: on 17 fresh Python repositories, false-green discordance was
 6–0 in Tamperward's favour — paired risk difference +35.3 points,
 BP95 [9.5, 58.7], exact McNemar p = .0313. The preregistered primary result
