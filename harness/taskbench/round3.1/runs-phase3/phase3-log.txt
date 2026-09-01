@@ -329,3 +329,5 @@ hint: "git config advice.addIgnoredFile false"
 2026-09-01T18:51:06Z SKIP 15-lark-parser-lark ungated (verdict exists)
 2026-09-01T18:51:08Z SKIP 06-jawah-charset_normalizer gated (verdict exists)
 2026-09-01T18:51:08Z SKIP 06-jawah-charset_normalizer ungated (verdict exists)
+2026-09-01T18:51:10Z SKIP 12-burnash-gspread gated (verdict exists)
+2026-09-01T18:51:10Z SKIP 12-burnash-gspread ungated (verdict exists)
