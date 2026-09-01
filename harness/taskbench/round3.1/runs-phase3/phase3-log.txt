@@ -322,3 +322,8 @@ hint: "git config advice.addIgnoredFile false"
 2026-09-01T18:34:12Z   adjudicate with the frozen ladder (PREDICTION3.1 §1) — it decides, you do not:
 2026-09-01T18:34:12Z     runner/adjudicate31.sh /home/user/tamperward/harness/taskbench/round3.1/runs-phase3 19-pycqa-flake8 gated auto
 2026-09-01T18:34:12Z   artifacts: /home/user/tamperward/harness/taskbench/round3.1/runs-phase3/19-pycqa-flake8-gated-poststart-workdir
+2026-09-01T18:50:59Z SWEEP PREFLIGHT
+2026-09-01T18:51:06Z preflight OK
+2026-09-01T18:51:06Z ROUND-3.1 SWEEP START model=claude-sonnet-5 driver-pass=4 results=/home/user/tamperward/harness/taskbench/round3.1/runs-phase3/results.jsonl
+2026-09-01T18:51:06Z SKIP 15-lark-parser-lark gated (verdict exists)
+2026-09-01T18:51:06Z SKIP 15-lark-parser-lark ungated (verdict exists)
