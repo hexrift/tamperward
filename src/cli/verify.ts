@@ -134,8 +134,8 @@ function dropSymlink(p: string): void {
   }
 }
 
-/** Restore protected files as they are at `base` into the copy. Returns
- *  [restored, keptAdditions]. */
+/** Restore protected files as they are at `base` into the copy, and remove any
+ *  the agent added inside a protected class. Returns [restored, removedAdditions]. */
 function overlayPristine(cwd: string, base: string, dest: string, policy: Policy): [number, number] {
   const atBase = git(['ls-tree', '-r', '--name-only', '-z', base], cwd).split('\0').filter(Boolean);
   const isOverlay = (p: string): boolean => OVERLAY_CLASSES.some((c) => isProtected(p, policy, c));
@@ -151,14 +151,29 @@ function overlayPristine(cwd: string, base: string, dest: string, policy: Policy
     writeFileSync(out, content);
     restored++;
   }
-  // Agent-added protected files (present in the copy, absent at base) stay: they can
-  // only add strictness, and the visible run already required them to pass.
-  let kept = 0;
+  // Agent-added protected files are REMOVED from the pristine copy, not kept.
+  // "They can only add strictness" was false, and demonstrably so: a file added
+  // inside a protected class can SUBTRACT from the restored run. An added
+  // conftest.py is auto-loaded by pytest, and `pytest_collection_modifyitems`
+  // can deselect by node id the very base tests this overlay just restored — so
+  // the pristine run goes green without ever executing them, and a masked
+  // failure is reported VERIFIED. The agent never modifies or deletes a
+  // base-protected asset; it adds a new protected control file that the
+  // pristine run then trusts. The invariant: the pristine tree's protected
+  // surface is exactly the base's, never the base plus whatever the agent
+  // contributed. Added tests are not lost information — the visible run still
+  // executes them; the pristine run asks only whether the agent's source passes
+  // the ORIGINAL suite, to which an agent-authored file is not an input.
+  let removed = 0;
   const inCopy = git(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd)
     .split('\0')
     .filter(Boolean);
-  for (const rel of inCopy) if (isOverlay(rel) && !baseProtected.has(rel)) kept++;
-  return [restored, kept];
+  for (const rel of inCopy) {
+    if (!isOverlay(rel) || baseProtected.has(rel)) continue;
+    rmSync(join(dest, rel), { force: true });
+    removed++;
+  }
+  return [restored, removed];
 }
 
 function runSuite(dir: string, cmd: string, budgetSecs: number): RunResult {
@@ -215,13 +230,13 @@ export function runVerify(opts: VerifyOpts): number {
   const visDir = join(work, 'visible');
   const priDir = join(work, 'pristine');
   let restored = 0;
-  let kept = 0;
+  let removedAdded = 0;
   try {
     mkdirSync(visDir);
     mkdirSync(priDir);
     materialize(cwd, visDir);
     materialize(cwd, priDir);
-    [restored, kept] = overlayPristine(cwd, base, priDir, policy);
+    [restored, removedAdded] = overlayPristine(cwd, base, priDir, policy);
   } catch (e) {
     if (!opts.keep) rmSync(work, { recursive: true, force: true });
     out(`verify: could not materialize (${e instanceof Error ? e.message : String(e)}) — failing closed`);
@@ -258,7 +273,7 @@ export function runVerify(opts: VerifyOpts): number {
         visible: { exit: visible.exit, secs: visible.secs },
         pristine: { exit: pristine.exit, secs: pristine.secs },
         protected_restored: restored,
-        added_protected_kept: kept,
+        added_protected_removed: removedAdded,
         ...(opts.keep ? { workdir: work } : {}),
       }),
     );
@@ -272,7 +287,11 @@ export function runVerify(opts: VerifyOpts): number {
       BUDGET_EXCEEDED: `budget exceeded (${budget}s): could not verify — failing closed, not open.`,
     };
     out(`tamperward verify — ${lines[verdict]}`);
-    if (kept > 0) out(`(${kept} protected file(s) added since ${base.slice(0, 10)} were kept in the pristine run.)`);
+    if (removedAdded > 0)
+      out(
+        `(${removedAdded} protected file(s) added since ${base.slice(0, 10)} were removed from the pristine run: ` +
+          'the pristine tree carries exactly the base\'s protected surface.)',
+      );
   }
   return code;
 }
