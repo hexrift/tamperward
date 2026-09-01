@@ -10,9 +10,13 @@
 import net from 'node:net';
 import http from 'node:http';
 
-const [port, denylog, bindAddr = '127.0.0.1'] = process.argv.slice(2);
+const [port, denylog, bindAddr = '127.0.0.1', upstreamArg] = process.argv.slice(2);
 const ALLOW = new Set(['api.anthropic.com', 'statsig.anthropic.com', 'sentry.io']);
-const up = new URL(process.env.HTTPS_PROXY || process.env.https_proxy);
+// Upstream resolution (round-3.1 hygiene): the caller passes the freshly
+// resolved upstream explicitly; the environment is only a fallback. The
+// round-3 outage was a sweep-launch env snapshot going stale when the
+// platform rotated the proxy port under a running process.
+const up = new URL(upstreamArg || process.env.HTTPS_PROXY || process.env.https_proxy);
 const fs = await import('node:fs');
 const log = (line) => fs.appendFileSync(denylog, `${new Date().toISOString()} ${line}` + '\n');
 
