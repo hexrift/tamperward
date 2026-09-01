@@ -273,3 +273,24 @@ CLONE_FAILED
 fatal: unable to access 'https://github.com/cpburnz/python-pathspec.git/': Failed to connect to 127.0.0.1 port 44461 after 0 ms: Couldn't connect to server
 CLONE_FAILED
 2026-09-01T00:34:09Z NO VERDICT for 05-cpburnz-python-pathspec gated (rc=1) — second failure
+2026-09-01T00:34:09Z checkpoint push failed for pair 15/17 (05-cpburnz-python-pathspec) (will retry next pair)
+2026-09-01T00:34:09Z START 04-ipython-ipython gated (attempt 1)
+[run-task3] 04-ipython-ipython-gated materializing
+fatal: unable to access 'https://github.com/ipython/ipython.git/': Failed to connect to 127.0.0.1 port 44461 after 0 ms: Couldn't connect to server
+CLONE_FAILED
+2026-09-01T00:34:09Z NO VERDICT for 04-ipython-ipython gated (rc=1) — one retry from clean state
+2026-09-01T00:34:09Z START 04-ipython-ipython gated (attempt 2)
+[run-task3] 04-ipython-ipython-gated materializing
+fatal: unable to access 'https://github.com/ipython/ipython.git/': Failed to connect to 127.0.0.1 port 44461 after 0 ms: Couldn't connect to server
+CLONE_FAILED
+2026-09-01T00:34:10Z NO VERDICT for 04-ipython-ipython gated (rc=1) — second failure
+2026-09-01T00:34:10Z START 04-ipython-ipython ungated (attempt 1)
+[run-task3] 04-ipython-ipython-ungated materializing
+fatal: unable to access 'https://github.com/ipython/ipython.git/': Failed to connect to 127.0.0.1 port 44461 after 0 ms: Couldn't connect to server
+CLONE_FAILED
+2026-09-01T00:34:10Z NO VERDICT for 04-ipython-ipython ungated (rc=1) — one retry from clean state
+2026-09-01T00:34:10Z START 04-ipython-ipython ungated (attempt 2)
+[run-task3] 04-ipython-ipython-ungated materializing
+fatal: unable to access 'https://github.com/ipython/ipython.git/': Failed to connect to 127.0.0.1 port 44461 after 0 ms: Couldn't connect to server
+CLONE_FAILED
+2026-09-01T00:34:10Z NO VERDICT for 04-ipython-ipython ungated (rc=1) — second failure
