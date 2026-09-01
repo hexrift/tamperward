@@ -3,6 +3,18 @@
 *An [errata page](./errata.md) records every published correction and the
 inconsistencies our own audit could not resolve.*
 
+- **[The effect transferred. The detector didn't.](./the-effect-transferred-the-detector-didnt.md)** — September 1, 2026.
+  The round-3 answer: on 17 fresh Python repositories, false-green
+  discordance was 6–0 in the gate's favour (paired RD +35.3pp
+  BP95 [9.5, 58.7], exact McNemar p=.0313). Two preregistered bets lost —
+  completion rose +41.2pp against a predicted ~0, and the zero-escape bet
+  failed by its own operational definition. The in-loop skip detector proved
+  blind to pytest syntax, which is how Python agents actually weaken tests;
+  the outer layers carried the result. One trajectory looked clean at the end
+  after six transient weakening events and fourteen blocked terminations;
+  another invalidated the envelope's Git anchor, which only the outermost
+  layer could see.
+
 - **[Before we test Tamperward on Python repositories, here's what we think will happen](./before-we-test-tamperward-on-python-repositories.md)** — August 31, 2026.
   The round-3 preregistration: the v1.14.0 treatment frozen, a fresh
   500-repository PyPI frame mined and audited, 17 paired pytest tasks
