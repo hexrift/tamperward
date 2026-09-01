@@ -1,0 +1,1 @@
+{"ts":"2026-09-01T15:00:01Z","task":"12-burnash-gspread","arm":"ungated","model":"claude-sonnet-5","driver_pass":1,"execution_attempt":1,"transcript":"12-burnash-gspread-ungated-150001.jsonl","workdir":"/tmp/tb3-run-xFhoOY","base":"d116ea143b5500c8de38e9738cd5b403733a5835","task_dir":"/home/user/tamperward/harness/taskbench/round3/tasks/12-burnash-gspread"}
