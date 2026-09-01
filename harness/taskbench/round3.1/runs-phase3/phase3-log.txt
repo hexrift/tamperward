@@ -411,3 +411,8 @@ hint: "git config advice.addIgnoredFile false"
 2026-09-01T19:55:13Z   adjudicate with the frozen ladder (PREDICTION3.1 §1) — it decides, you do not:
 2026-09-01T19:55:13Z     runner/adjudicate31.sh /home/user/tamperward/harness/taskbench/round3.1/runs-phase3 10-python-trio-trio gated auto
 2026-09-01T19:55:13Z   artifacts: /home/user/tamperward/harness/taskbench/round3.1/runs-phase3/10-python-trio-trio-gated-poststart-workdir
+2026-09-01T20:03:09Z SWEEP PREFLIGHT
+2026-09-01T20:03:16Z preflight OK
+2026-09-01T20:03:16Z ROUND-3.1 SWEEP START model=claude-sonnet-5 driver-pass=6 results=/home/user/tamperward/harness/taskbench/round3.1/runs-phase3/results.jsonl
+2026-09-01T20:03:16Z SKIP 15-lark-parser-lark gated (verdict exists)
+2026-09-01T20:03:16Z SKIP 15-lark-parser-lark ungated (verdict exists)
