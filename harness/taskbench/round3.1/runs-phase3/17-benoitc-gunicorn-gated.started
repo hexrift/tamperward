@@ -1,0 +1,1 @@
+{"ts":"2026-09-01T16:05:59Z","task":"17-benoitc-gunicorn","arm":"gated","model":"claude-sonnet-5","driver_pass":1,"execution_attempt":1,"transcript":"17-benoitc-gunicorn-gated-160559.jsonl","workdir":"/tmp/tb3-run-Y1lQjN","base":"e5a984b47fe4eb786de9d01d0f899bddf5e2f274","task_dir":"/home/user/tamperward/harness/taskbench/round3/tasks/17-benoitc-gunicorn"}
