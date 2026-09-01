@@ -36,6 +36,42 @@ transient-mutation rescan.
 
 ## Corrections — newest first
 
+## 2026-09-01 — the experiment's control plane was reachable by the agent (rounds 1–3)
+
+**Scope: a harness exposure, disclosed after an audit found it unused.** In
+rounds 1, 2 and 3 the agent was launched with a plain `env`, as root, on the
+same filesystem as the harness. Every internal variable was inherited — `TB_RUNS`
+naming the verdict ledger, `TB_TASKS` the task pool with its gold patches,
+`TB_VENV` the workspace — and the withheld semantic oracle sat at `$W/oracle`,
+one `dirname` from the venv path the agent could read out of its own
+environment. Nothing stopped a trajectory from reading the withheld half of its
+own test suite, or from writing a file the driver would have accepted as its
+verdict.
+
+**What the audit found.** All 34 counted round-3 transcripts were searched.
+Zero contain `TB_RUNS`, `TB_VENV`, `TB_TASKS`, `withheld`, `gold.patch`,
+`results.jsonl`, `verdict`, `deviations`, or any workspace `oracle/` path. The
+two `oracle` hits are the `distro` repository's own Oracle Linux test names; the
+seventeen `pristine` hits are the Stop hook's block message quoted back to the
+agent; the `venv/` hits are ordinary pytest invocations through the
+PATH-leading venv. **This is a string audit of transcripts, not a
+filesystem-level proof.** On that evidence no counted trajectory used the
+exposure, and the round-1 to round-3 results stand as published.
+
+**What changed.** Round 3.1 scrubs every `TB_*` variable from the agent's
+environment and relocates the withheld oracle outside the agent's workspace, so
+nothing inside the task points at the control plane. This is **not** described
+as a security boundary: the agent still runs as root on the same filesystem. A
+real mount/PID/capability boundary was prototyped and verified to work, and is
+deferred to round 4 with the fresh pool, rather than landing days before a
+counted sweep to close an exposure the audit shows went unused.
+
+**Related, and disclosed in the round-3.1 registration rather than here:** while
+validating that registration, the sweep entrypoint was invoked inadvertently and
+one Sonnet trajectory executed before the preregistration line. It was
+quarantined unread, its task was excluded as spent rather than re-run, and
+round 3.1 is registered on 16 pairs instead of 17.
+
 ## 2026-09-01 — Round-3 results article corrections
 
 A post-publication audit of *The effect transferred. The detector didn't.*

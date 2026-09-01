@@ -24,12 +24,44 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 . "$PWD/runner/verdict-record.sh"
 
+# EXPLICIT MODE, no default. On 2026-09-01 a bare invocation intended only to
+# check that the registration gate accepted its constants started the real
+# sweep and executed a counted trajectory before the preregistration line. The
+# gate passing IS the sweep starting, so "validate" and "run the experiment"
+# must not be the same command. --check creates nothing; only a flag that says
+# out loud what it does can create counted trajectories.
+MODE=""
+case "${1:-}" in
+  --check)            MODE=check ;;
+  --execute-counted)  MODE=execute ;;
+  *) cat >&2 <<'USAGE'
+REFUSING: phase3-sweep31.sh requires an explicit mode.
+
+  --check              validate registration, exclusions, derived order, hashes,
+                       infrastructure and results state. Creates nothing, mutates
+                       nothing, runs no trajectory.
+
+  --execute-counted    RUN THE COUNTED SWEEP. This creates counted scientific
+                       trajectories that can never be re-rolled.
+USAGE
+     exit 2 ;;
+esac
+
 # ---- REGISTRATION GATE: filled by PREDICTION3.1, before which this driver
 # will not execute a single trajectory. All three values are gated: a filled
 # model with unfilled seeds would derive a bogus order. ----
-REGISTERED_MODEL="__SET_AT_REGISTRATION__"
-PAIR_SEED="__SET_AT_REGISTRATION__"
-ARM_SEED="__SET_AT_REGISTRATION__"
+REGISTERED_MODEL="claude-sonnet-5"
+PAIR_SEED="taskbench31-phase3-pair-order-v1-2026-09-01"
+ARM_SEED="taskbench31-phase3-arm-order-v1-2026-09-01"
+# Registered exclusion (PREDICTION3.1 "Pre-registration execution incident").
+# 08-celery-py-amqp had its ungated arm executed by the accidental invocation
+# above, before the preregistration line. A trajectory that started is never
+# re-rolled, so the task is spent; the paired design means the whole PAIR is
+# excluded. No replacement is introduced. Round 3.1 is 16 pairs / 32 counted
+# trajectories.
+EXCLUDED_TASKS="08-celery-py-amqp"
+PAIRS_EXPECTED=16
+TRAJECTORIES_EXPECTED=32
 
 # ---- self-test mode (hygiene-selftest.sh only) ----
 # Loudly named; supplies its OWN model/seeds and its OWN runner, refuses to
@@ -68,21 +100,26 @@ if [ "$TESTMODE" = 1 ]; then
 fi
 export TB_RUNS
 CKPT_REF="refs/heads/round3.1/sweep-checkpoints"   # H5: non-protected
-mkdir -p "$TB_RUNS"
-RESULTS="$TB_RUNS/results.jsonl"; touch "$RESULTS"
-DEVIATIONS="$TB_RUNS/deviations.jsonl"; touch "$DEVIATIONS"
+RESULTS="$TB_RUNS/results.jsonl"
+DEVIATIONS="$TB_RUNS/deviations.jsonl"
+if [ "$MODE" = execute ]; then
+  mkdir -p "$TB_RUNS"; touch "$RESULTS" "$DEVIATIONS"
+fi
 LOG="$TB_RUNS/phase3-log.txt"
 ATTEMPTS="$TB_RUNS/driver-passes.log"
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
-say() { echo "$(ts) $*" | tee -a "$LOG"; }
+# --check never writes, not even to the log
+say() { if [ "$MODE" = execute ]; then echo "$(ts) $*" | tee -a "$LOG"; else echo "$(ts) $*"; fi; }
 
 # Exactly one driver per results directory. `have()` and the deviation ledger
 # are read-then-act, so two simultaneous resumes would both see "no verdict"
 # for the same trajectory and both launch it, appending two verdicts for one
 # (task, arm) pair.
 DRIVER_LOCK="/tmp/tb31-driver-$(printf %s "$TB_RUNS" | md5sum | cut -c1-12).lock"
-exec 9>"$DRIVER_LOCK"
-flock -n 9 || { echo "ABORT: another driver already holds $DRIVER_LOCK for $TB_RUNS"; exit 6; }
+if [ "$MODE" = execute ]; then
+  exec 9>"$DRIVER_LOCK"
+  flock -n 9 || { echo "ABORT: another driver already holds $DRIVER_LOCK for $TB_RUNS"; exit 6; }
+fi
 
 disk_guard() {
   local free_kb; free_kb=$(df --output=avail / | tail -1 | tr -d ' ')
@@ -119,15 +156,23 @@ fi
 
 # A driver pass is counted only once the shared preflight has passed, so a
 # sweep that never attempted anything does not inflate the pass number.
-echo "$(ts) driver-pass" >> "$ATTEMPTS"
-DRIVER_PASS=$(grep -c driver-pass "$ATTEMPTS")
+if [ "$MODE" = execute ]; then
+  echo "$(ts) driver-pass" >> "$ATTEMPTS"
+  DRIVER_PASS=$(grep -c driver-pass "$ATTEMPTS")
+else
+  DRIVER_PASS=$(grep -c driver-pass "$ATTEMPTS" 2>/dev/null || echo 0)
+fi
 export TB_DRIVER_PASS="$DRIVER_PASS"
 
-ORDERS=$(PAIR_SEED="$PAIR_SEED" ARM_SEED="$ARM_SEED" node - <<'NODE'
+ORDERS=$(PAIR_SEED="$PAIR_SEED" ARM_SEED="$ARM_SEED" EXCLUDED="$EXCLUDED_TASKS" node - <<'NODE'
 const crypto=require('crypto'), fs=require('fs');
 const tasks=fs.readdirSync('round3/tasks').filter(d=>JSON.parse(fs.readFileSync(`round3/tasks/${d}/manifest.json`)).role==='main').sort();
 const PAIR=process.env.PAIR_SEED, ARM=process.env.ARM_SEED;
-const order=tasks.map(t=>[crypto.createHash('sha256').update(`${PAIR}:${t}`).digest('hex'),t]).sort().map(x=>x[1]);
+const excluded=new Set((process.env.EXCLUDED||'').split(/[\s,]+/).filter(Boolean));
+// the exclusion is applied AFTER the seed-derived sort, so the remaining order
+// is exactly the registered one with the spent task removed
+const order=tasks.map(t=>[crypto.createHash('sha256').update(`${PAIR}:${t}`).digest('hex'),t])
+  .sort().map(x=>x[1]).filter(t=>!excluded.has(t));
 for(const t of order){
   const b=crypto.createHash('sha256').update(`${ARM}:${t}`).digest()[0];
   console.log(`${t} ${b%2===0?'ungated gated':'gated ungated'}`);
@@ -341,8 +386,8 @@ verify_completion() {
   local expected vpairs vuniq ipairs icount dup overlap unknown missing
   validate_deviations || return 1
   expected=$(printf '%s\n' "${PAIRS[@]}" | awk 'NF{print $1"\tungated"; print $1"\tgated"}' | LC_ALL=C sort)
-  [ "$(printf '%s\n' "$expected" | grep -c .)" -eq 34 ] \
-    || { say "INVARIANT VIOLATION: the registered universe is not 34 (task,arm) pairs"; return 1; }
+  [ "$(printf '%s\n' "$expected" | grep -c .)" -eq "$TRAJECTORIES_EXPECTED" ] \
+    || { say "INVARIANT VIOLATION: the registered universe is not $TRAJECTORIES_EXPECTED (task,arm) pairs"; return 1; }
 
   # every per-trajectory file must be a COMPLETE verdict by the shared schema
   local vf
@@ -379,14 +424,38 @@ verify_completion() {
       | head -10 | while IFS= read -r l; do say "  mismatch: $l"; done
     return 1
   fi
-  say "COMPLETION INVARIANT OK: $vuniq verdicts + $icount terminal dispositions = the 34 registered trajectories, each exactly once"
+  say "COMPLETION INVARIANT OK: $vuniq verdicts + $icount terminal dispositions = the $TRAJECTORIES_EXPECTED registered trajectories, each exactly once"
 }
 
 validate_deviations || { say "ABORT: the deviations ledger governs every exceptional case in this round and must be structurally valid before anything runs"; exit 12; }
 
-say "ROUND-3.1 SWEEP START model=$TB_MODEL driver-pass=$DRIVER_PASS results=$RESULTS"
 mapfile -t PAIRS <<< "$ORDERS"
-[ "${#PAIRS[@]}" -eq 17 ] || { say "ABORT: derived ${#PAIRS[@]} pairs, expected 17"; exit 4; }
+if [ "$MODE" = check ]; then
+  echo "=== ROUND-3.1 REGISTRATION CHECK (creates nothing, runs nothing) ==="
+  echo "model                 $REGISTERED_MODEL"
+  echo "pair seed             $PAIR_SEED"
+  echo "arm seed              $ARM_SEED"
+  echo "excluded (registered) ${EXCLUDED_TASKS:-none}"
+  echo "pairs derived         ${#PAIRS[@]} (expected $PAIRS_EXPECTED)"
+  echo "trajectories          $TRAJECTORIES_EXPECTED"
+  echo "task pool             $TB_TASKS"
+  echo "results directory     $TB_RUNS"
+  for f in runner/run-task31.sh runner/phase3-sweep31.sh runner/verdict3.mjs analyze3.mjs; do
+    [ -f "$f" ] && printf 'sha256 %-26s %s\n' "$(basename "$f")" "$(sha256sum "$f" | cut -c1-64)"
+  done
+  echo "prompt sha256         $(grep -m1 '^PROMPT=' runner/run-task31.sh | sed 's/^PROMPT="//; s/"$//' | sha256sum | cut -c1-64)"
+  n=$(ls "$TB_RUNS"/*.verdict.json 2>/dev/null | wc -l)
+  echo "existing verdicts     $n $([ "$n" -eq 0 ] && echo '(clean)' || echo '(NOT CLEAN)')"
+  echo "--- registered order ---"
+  i=0; for line in "${PAIRS[@]}"; do i=$((i+1)); read -r t a b <<< "$line"; printf '%2d %-34s %s,%s\n' "$i" "$t" "$a" "$b"; done
+  [ "${#PAIRS[@]}" -eq "$PAIRS_EXPECTED" ] || { echo "CHECK FAILED: derived ${#PAIRS[@]} pairs, expected $PAIRS_EXPECTED"; exit 4; }
+  validate_deviations || { echo "CHECK FAILED: deviations ledger invalid"; exit 12; }
+  echo "CHECK OK"
+  exit 0
+fi
+
+say "ROUND-3.1 SWEEP START model=$TB_MODEL driver-pass=$DRIVER_PASS results=$RESULTS"
+[ "${#PAIRS[@]}" -eq "$PAIRS_EXPECTED" ] || { say "ABORT: derived ${#PAIRS[@]} pairs, expected $PAIRS_EXPECTED"; exit 4; }
 pair_n=0
 for line in "${PAIRS[@]}"; do
   read -r task first second <<< "$line"
@@ -408,7 +477,7 @@ for line in "${PAIRS[@]}"; do
     [ "$rc" = 4 ] && { checkpoint "post-start finalization failure at pair $pair_n" || true; exit 11; }
   done
   rm -rf /tmp/tb3-run-* 2>/dev/null
-  checkpoint "pair $pair_n/17 ($task)" \
+  checkpoint "pair $pair_n/$PAIRS_EXPECTED ($task)" \
     || { say "ABORT: checkpoints are not reaching the remote — stopping rather than accumulating hours of local-only results (nothing is lost; fix the push and rerun this driver)"; exit 6; }
 done
 # Validate first: "COMPLETE" is a claim about the ledger, so it must not be
