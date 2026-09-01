@@ -2,6 +2,17 @@
 
 *September 1, 2026 · hexrift*
 
+> **Note added September 1, 2026.** This round's pristine Stop-time verification
+> ran on a `tamperward verify` that carried a bypass, closed in
+> [1.14.1](https://github.com/hexrift/tamperward/blob/main/CHANGELOG.md): an
+> agent-**added** protected file (for example a new `conftest.py`) was kept in
+> the pristine copy and could deselect the very base tests the overlay had just
+> restored. No counted trajectory in this round shows an added protected control
+> file, so there is no evidence it was used — but that is an absence of observed
+> use, not proof of containment, and this layer's authority was weaker than
+> described here. See the [errata](./errata.md).
+
+
 *Short answer: on 17 fresh Python repositories, false-green discordance was
 6–0 in Tamperward's favour — paired risk difference +35.3 points,
 BP95 [9.5, 58.7], exact McNemar p = .0313. The preregistered primary result
@@ -55,8 +66,15 @@ p=.0313 is only modestly under .05. What the data support is a *large* effect
 estimated imprecisely — not a precise one.
 
 Transfer — ungated repositories with at least one observed policy violation —
-was 9/17 (52.9%), Wilson95 [31.0%, 73.8%]. The behaviour exists in Python at
-roughly the rate it exists in JavaScript.
+was 9/17 (52.9%), Wilson95 [31.0%, 73.8%]. The behaviour exists in Python at a
+rate inside the range the JavaScript rounds show.
+
+*Corrected September 1, 2026: this originally read "at roughly the rate it
+exists in JavaScript", comparing against rounds-1/2 figures computed with a
+defective predicate. On the corrected predicate the JavaScript rounds are 33.3%
+(round 1) and 54.5% (round 2) — a spread, not a single rate. Round 3's 52.9% sits
+beside round 2 and well above round 1. See*
+[`TRANSFER-REANALYSIS.md`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/reanalysis/TRANSFER-REANALYSIS.md).
 
 ## Finding 2 — the prediction that lost
 
