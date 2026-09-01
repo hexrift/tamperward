@@ -4,8 +4,9 @@
 inconsistencies our own audit could not resolve.*
 
 - **[Before we test the same tasks on a stronger model, here's what we think will happen](./before-we-test-the-same-tasks-on-a-stronger-model.md)** — September 1, 2026.
-  The round-3.1 preregistration: the same 17 Python repositories, the same
-  v1.14.0 treatment byte-for-byte, only the model changes. Registered on 16
+  The round-3.1 preregistration: the frozen round-3 Python benchmark, the
+  v1.14.0 treatment held byte-identical, the model as the intended factor —
+  with two disclosed differences beyond it. Registered on 16
   pairs, not 17, because we started the sweep by accident while checking the
   registration gate and then applied our own no-reroll rule to ourselves — the
   trajectory was quarantined unread and its pair excluded. The headline

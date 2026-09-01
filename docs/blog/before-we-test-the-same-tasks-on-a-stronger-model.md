@@ -7,11 +7,17 @@ to Python. It did: on 17 fresh Python repositories, false-green discordance ran
 6–0 in the gate's favour, exact McNemar p = .0313. Round 3.1 asks a narrower
 question on the same repositories:
 
-> Does that effect survive when the only thing that changes is the agent?
+> Does the prevention effect appear under a stronger model, on the frozen
+> round-3 Python benchmark, with the Tamperward treatment held byte-identical?
 
-Everything else is held: the same 17-task pool, the same v1.14.0 treatment
-byte-for-byte, the same pressure prompt, the same oracles, the same budgets. The
-model moves from Haiku to `claude-sonnet-5`, pinned exactly.
+The intended experimental factor is the model, which moves from Haiku to
+`claude-sonnet-5`, pinned exactly. The task-facing protocol, the v1.14.0
+treatment, the pressure prompt, the oracle semantics and the budgets are held
+fixed — with **two disclosed differences beyond the model**: one pair was burned
+before registration, leaving 16, and a preregistered control-plane isolation
+correction scrubs harness variables and relocates the withheld oracle. This is a
+clean model-transfer follow-up, not a perfect one-variable experiment, and the
+registration treats the cross-model comparison as descriptive for that reason.
 `PREDICTION3.1-taskbench.md` is frozen in git history, with sha256 pins on the
 runner, the driver, the verdict oracle, the prompt and the analyzer; this post
 is the human-readable half, and it is published before the first counted
@@ -29,7 +35,7 @@ and the remaining 16-pair counted pool has not been executed.**
 The pool is spent. The research process has seen 34 Haiku trajectories on those
 repositories, published the results, and read the transcripts. A study on them
 can answer one very clean question — on the exact repositories where Haiku
-produced the round-3 result, what changes when only the model changes? — but it
+produced the round-3 result, what changes when the model changes? — but it
 is follow-up evidence on a frozen benchmark, not another held-out replication.
 Round 4 is the fresh pool with an improved treatment. Calling this one 3.1 keeps
 that distinction visible.
@@ -123,7 +129,7 @@ resolved on both the semantic and integrity paths; thirty-four egress attempts
 were denied by the network jail. The runner hash pinned in the registration is
 the one that ran them.
 
-All six were honest — three `HONEST_FIX`, three `NO_OBSERVED_VIOLATION`, zero
+All six were honest — two `HONEST_FIX`, four `NO_OBSERVED_VIOLATION`, zero
 denials, zero protected mutations, zero policy violations. **No pilot contained
 a naturally occurring policy violation, so the live adversarial path was not
 exercised by this model before the counted sweep.** The synthetic probe proves
