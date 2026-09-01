@@ -186,6 +186,42 @@ The self-test grew to fifteen cases covering all of the above, and the two most
 consequential — the process-group kill and the exit-code misclassification —
 were mutation-checked: reverting each fix makes its case fail.
 
+### Third correction record: review of the invariants themselves
+
+13. **The self-test could have defeated the production driver lock.** Its
+    cleanup trap deleted `/tmp/tb31-driver-*.lock` by wildcard. Unlinking a
+    lock file does not release the inode lock a running counted sweep holds,
+    but the next driver then creates a fresh file at that path and acquires
+    it — two concurrent drivers, which is exactly what the lock exists to
+    prevent. The trap now removes only the exact lock paths for its own run
+    directories, computed the same way the driver computes them.
+14. **The completion invariant counted rather than identified.** It proved
+    that verdict pairs were unique and that verdicts plus terminal failures
+    summed to 34 — which a run containing one unregistered `(task, arm)` and
+    missing one registered pair satisfies, and which a pair recorded both as
+    a verdict and as a terminal failure satisfies by cancellation. The
+    expected 34 pairs are now derived from the registered order and compared
+    as a **set**: every result line must be a verdict with a string task and a
+    valid arm; no duplicate verdict pairs; zero overlap between verdicts and
+    terminal failures; and the observed union must equal the registered
+    universe exactly.
+15. **The invariant outcome was not durable and "COMPLETE" preceded it.** The
+    last checkpoint ran before the invariant, so the remote carried the
+    results but no record of whether they were valid, and the log said
+    COMPLETE before completion had been checked. The order is now validate →
+    log → checkpoint the decision, with a failed invariant logged as such,
+    checkpointed, and exited non-zero.
+16. **Two cases were mis-scoped or missing.** The credential-redaction and
+    process-group cases needed no live upstream but sat inside the
+    live-proxy branch, so CI skipped them; they now always run. The
+    checkpoint-failure path was untested because the test mode returned early
+    from `checkpoint`; a simulated persistent push failure now proves the
+    sweep stops before the next pair launches.
+
+The self-test is nineteen cases. Four fixes across the three passes are
+mutation-checked — reverting the process-group fix, the exit-code split, the
+set identity, or the overlap check each makes its own case fail.
+
 The two test seams this requires (`TB_FRESH_UPSTREAM` in the runner,
 `TB_HYGIENE_TEST` in the driver) are fail-closed: the runner refuses the
 rotation seam whenever a registered model is pinned, and the driver's test

@@ -22,6 +22,10 @@
 #  D5 a systemic jail failure DOES halt it; a one-off jail failure does not
 #  D7 a duplicated (task, arm) verdict fails the completion invariant
 #  D8 a second concurrent driver is refused
+#  D9  a persistent checkpoint failure stops the sweep before the next pair
+#  D10 the completion invariant is a set identity, not a count
+#  D11 a pair cannot be both a verdict and a terminal failure
+#  D12 a failed invariant is never logged as a complete sweep
 #  S  the verdict line stamps driver_pass and execution_attempt separately
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -29,7 +33,20 @@ TB="$(cd "$HERE/.." && pwd)"
 fail() { echo "SELFTEST FAIL: $1"; exit 1; }
 DEAD="http://127.0.0.1:1"
 TMP=$(mktemp -d /tmp/hyg-selftest-XXXXXX)
-trap 'rm -rf "$TMP" /tmp/hyg-runs-$$-* /tmp/tb31-driver-*.lock' EXIT
+# NOTE: no wildcard over /tmp/tb31-driver-*.lock. Unlinking a lock file does not
+# release the inode lock a running counted sweep holds, but the next driver then
+# creates a new file at that path and acquires it — two concurrent drivers,
+# exactly what D8 exists to prevent. Only this process's own paths are removed.
+cleanup() {
+  rm -rf "$TMP" /tmp/hyg-runs-"$$"-*
+  # exact lock paths for THIS process's run dirs, computed the same way the
+  # driver does — never a wildcard over /tmp/tb31-driver-*.lock
+  local x
+  for x in a b c d e f g h i j; do
+    rm -f "/tmp/tb31-driver-$(printf %s "/tmp/hyg-runs-$$-$x" | md5sum | cut -c1-12).lock"
+  done
+}
+trap cleanup EXIT
 
 # ---------------------------------------------------------------- G ----
 rc=0; ( cd "$TB" && bash runner/phase3-sweep31.sh >"$TMP/g0.out" 2>&1 ) || rc=$?
@@ -103,6 +120,7 @@ if ip netns list >/dev/null 2>&1; then
 else
   echo "N4 SKIP: no netns support here (the counted sweep's own preflight runs net-jail selftest)"
 fi
+fi
 
 # N5: proxy URLs can carry user:password, and the driver commits its log to a
 # public checkpoint branch. Nothing may print the raw upstream.
@@ -128,8 +146,6 @@ PGEOF
 res=$(setsid bash "$TMP/pg-probe.sh" "$HERE/run-task31.sh" 2>/dev/null)
 [ "$res" = "SENTINEL_ALIVE" ] || fail "N6: cleanup signalled the process group ($res)"
 echo "N6 OK: cleanup before the proxy exists does not signal the process group"
-
-fi
 
 # ---------------------------------------------------------------- D ----
 # The registered order under the TESTMODE seeds, derived independently here.
@@ -255,6 +271,59 @@ kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null
 [ ! -s "$L6" ] || fail "D8: the refused driver still launched a trajectory"
 rm -rf "$R6" "$LOCKF"
 echo "D8 OK: a second concurrent driver is refused before it launches anything"
+
+# D9: a persistent checkpoint failure must STOP the sweep. Round 3's lesson was
+# hours of results living only on a disposable container; "logged and continued"
+# would reproduce it with better logging.
+R7="/tmp/hyg-runs-$$-g"; rm -rf "$R7"; L7="$TMP/launch7.log"; : > "$L7"
+drive "$R7" "$L7" ok TB_TEST_CKPT_FAIL=1; rc=$?
+[ "$rc" -eq 6 ] || fail "D9: a persistent checkpoint failure did not stop the sweep (rc=$rc)"
+[ "$(wc -l < "$L7")" -eq 2 ] || fail "D9: expected the sweep to stop after pair 1 (2 launches), got $(wc -l < "$L7")"
+rm -rf "$R7"
+echo "D9 OK: a persistent checkpoint failure stops the sweep before the next pair"
+
+# D10: the completion invariant is a SET identity over the registered universe,
+# not a count. A run with an unregistered pair and a missing registered one
+# counts to 34 and is still wrong.
+R8="/tmp/hyg-runs-$$-h"; rm -rf "$R8"; L8="$TMP/launch8.log"; : > "$L8"
+drive "$R8" "$L8" ok; rc=$?
+[ "$rc" -eq 0 ] || fail "D10: baseline sweep did not complete (rc=$rc)"
+grep -q 'COMPLETION INVARIANT OK' "$R8/phase3-log.txt" || fail "D10: baseline invariant did not pass"
+grep -v "\"task\":\"$P1TASK\",\"arm\":\"$P1A\"" "$R8/results.jsonl" > "$R8/r.tmp"
+printf '{"task":"99-not-registered","arm":"ungated","outcome":"STUB","driver_pass":1,"execution_attempt":1}\n' >> "$R8/r.tmp"
+mv "$R8/r.tmp" "$R8/results.jsonl"
+: > "$L8"; drive "$R8" "$L8" ok; rc=$?
+[ "$rc" -eq 10 ] || fail "D10: an unregistered pair passed the completion invariant (rc=$rc)"
+grep -q 'not the registered universe' "$R8/phase3-log.txt" || fail "D10: set mismatch not reported"
+rm -rf "$R8"
+echo "D10 OK: an unregistered pair fails the invariant even when the count is 34"
+
+# D11: a pair recorded BOTH as a verdict and as a terminal failure must not
+# cancel out — the earlier count-based check silently excluded the overlap.
+R9="/tmp/hyg-runs-$$-i"; rm -rf "$R9"; L9="$TMP/launch9.log"; : > "$L9"
+drive "$R9" "$L9" ok; rc=$?
+[ "$rc" -eq 0 ] || fail "D11: baseline sweep did not complete (rc=$rc)"
+printf '{"ts":"x","task":"%s","arm":"%s","event":"INFRASTRUCTURE_FAILURE","note":"seeded overlap"}\n' \
+  "$P1TASK" "$P1A" >> "$R9/deviations.jsonl"
+: > "$L9"; drive "$R9" "$L9" ok; rc=$?
+[ "$rc" -eq 10 ] || fail "D11: a verdict/terminal-failure overlap passed the invariant (rc=$rc)"
+grep -q 'BOTH as a verdict' "$R9/phase3-log.txt" || fail "D11: overlap not reported"
+rm -rf "$R9"
+echo "D11 OK: a pair cannot be both a verdict and a terminal failure"
+
+# D12: "COMPLETE" is a claim about the ledger and must not precede its check.
+R10="/tmp/hyg-runs-$$-j"; rm -rf "$R10"; L10="$TMP/launch10.log"; : > "$L10"
+drive "$R10" "$L10" ok
+head -1 "$R10/results.jsonl" >> "$R10/results.jsonl"
+# the log is append-only across driver passes, so assert on THIS pass's lines
+mark=$(wc -l < "$R10/phase3-log.txt")
+: > "$L10"; drive "$R10" "$L10" ok; rc=$?
+[ "$rc" -eq 10 ] || fail "D12: duplicate verdict did not fail the run (rc=$rc)"
+tail -n +$((mark+1)) "$R10/phase3-log.txt" > "$TMP/d12.log"
+grep -q 'SWEEP COMPLETE' "$TMP/d12.log" && fail "D12: the run was logged COMPLETE despite a failed invariant"
+grep -q 'FAILED COMPLETION INVARIANT' "$TMP/d12.log" || fail "D12: failed-invariant ending not logged"
+rm -rf "$R10"
+echo "D12 OK: a failed invariant is never logged as a complete sweep"
 
 # ---------------------------------------------------------------- S ----
 grep -q 'driver_pass:\$pass, execution_attempt:\$xattempt' "$HERE/run-task31.sh" \

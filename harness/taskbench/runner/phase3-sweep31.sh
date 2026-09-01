@@ -210,7 +210,11 @@ run_one() {
 # sweep, which is recoverable (the untouched trajectories are UNATTEMPTED and
 # the results so far are intact on disk).
 checkpoint() {
-  [ "$TESTMODE" = 1 ] && return 0
+  if [ "$TESTMODE" = 1 ]; then
+    # the self-test's stand-in for a persistent push failure
+    [ "${TB_TEST_CKPT_FAIL:-0}" = "1" ] && { say "CHECKPOINT PUSH FAILED for $1 (testmode simulation)"; return 1; }
+    return 0
+  fi
   git add -A "$TB_RUNS" >/dev/null 2>&1 || { say "CHECKPOINT STAGE FAILED for $1"; return 1; }
   git diff --cached --quiet -- "$TB_RUNS" && return 0     # nothing new is not a failure
   git commit -q -m "Taskbench round 3.1: checkpoint after $1" >/dev/null 2>&1 \
@@ -224,23 +228,43 @@ checkpoint() {
   return 1
 }
 
-# Exactly 34 registered trajectories, each accounted for exactly once: either a
-# verdict or a terminal INFRASTRUCTURE_FAILURE. A duplicated (task, arm) verdict
-# is always an error — it is what a second concurrent driver would produce.
+# Every one of the 34 REGISTERED trajectories accounted for exactly once, as a
+# verdict or as a terminal INFRASTRUCTURE_FAILURE. Counting alone is not enough:
+# 34 verdicts containing one unregistered (task, arm) and missing one registered
+# pair would count correctly and be wrong, and a pair recorded BOTH as a verdict
+# and as a terminal failure would cancel out. So the expected universe is
+# derived from the registered order and compared as a set.
 verify_completion() {
-  local total uniq vpairs ipairs infra
-  total=$(wc -l <"$RESULTS")
-  vpairs=$(jq -r '"\(.task)\t\(.arm)"' "$RESULTS" 2>/dev/null | sort -u)
-  uniq=$(printf '%s' "$vpairs" | grep -c . )
-  ipairs=$(jq -r 'select(.event=="INFRASTRUCTURE_FAILURE")|"\(.task)\t\(.arm)"' "$DEVIATIONS" 2>/dev/null | sort -u)
-  infra=$(comm -13 <(printf '%s\n' "$vpairs") <(printf '%s\n' "$ipairs") | grep -c . )
-  if [ "$uniq" -ne "$total" ]; then
-    say "INVARIANT VIOLATION: $total verdict lines but only $uniq unique (task,arm) — a trajectory was recorded twice"; return 1
+  local expected vpairs vuniq ipairs icount dup overlap unknown missing
+  expected=$(printf '%s\n' "${PAIRS[@]}" | awk 'NF{print $1"\tungated"; print $1"\tgated"}' | LC_ALL=C sort)
+  [ "$(printf '%s\n' "$expected" | grep -c .)" -eq 34 ] \
+    || { say "INVARIANT VIOLATION: the registered universe is not 34 (task,arm) pairs"; return 1; }
+
+  jq -e -s 'all((.task|type=="string") and (.arm=="ungated" or .arm=="gated"))' "$RESULTS" >/dev/null 2>&1 \
+    || { say "INVARIANT VIOLATION: results.jsonl holds a line that is not a verdict with a string task and a valid arm"; return 1; }
+
+  vpairs=$(jq -r '"\(.task)\t\(.arm)"' "$RESULTS" 2>/dev/null | LC_ALL=C sort)
+  dup=$(printf '%s\n' "$vpairs" | grep . | uniq -d | grep -c .)
+  [ "$dup" -eq 0 ] || { say "INVARIANT VIOLATION: $dup (task,arm) pair(s) carry more than one verdict"; return 1; }
+  vuniq=$(printf '%s\n' "$vpairs" | grep -c .)
+
+  ipairs=$(jq -r 'select(.event=="INFRASTRUCTURE_FAILURE")|"\(.task)\t\(.arm)"' "$DEVIATIONS" 2>/dev/null | LC_ALL=C sort -u)
+  icount=$(printf '%s\n' "$ipairs" | grep -c .)
+  overlap=$(comm -12 <(printf '%s\n' "$vpairs" | grep .) <(printf '%s\n' "$ipairs" | grep .) | grep -c .)
+  [ "$overlap" -eq 0 ] \
+    || { say "INVARIANT VIOLATION: $overlap (task,arm) pair(s) recorded BOTH as a verdict and as a terminal infrastructure failure"; return 1; }
+
+  local observed
+  observed=$(printf '%s\n%s\n' "$vpairs" "$ipairs" | grep . | LC_ALL=C sort -u)
+  unknown=$(comm -23 <(printf '%s\n' "$observed" | grep .) <(printf '%s\n' "$expected" | grep .) | grep -c .)
+  missing=$(comm -13 <(printf '%s\n' "$observed" | grep .) <(printf '%s\n' "$expected" | grep .) | grep -c .)
+  if [ "$unknown" -ne 0 ] || [ "$missing" -ne 0 ]; then
+    say "INVARIANT VIOLATION: the recorded set is not the registered universe ($unknown unregistered, $missing unaccounted)"
+    comm -3 <(printf '%s\n' "$observed" | grep .) <(printf '%s\n' "$expected" | grep .) \
+      | head -10 | while IFS= read -r l; do say "  mismatch: $l"; done
+    return 1
   fi
-  if [ $(( uniq + infra )) -ne 34 ]; then
-    say "INVARIANT VIOLATION: $uniq verdicts + $infra terminal infrastructure failures != 34 registered trajectories"; return 1
-  fi
-  say "COMPLETION INVARIANT OK: $uniq unique verdicts + $infra terminal infrastructure failures = 34"
+  say "COMPLETION INVARIANT OK: $vuniq verdicts + $icount terminal infrastructure failures = the 34 registered trajectories, each exactly once"
 }
 
 say "ROUND-3.1 SWEEP START model=$TB_MODEL driver-pass=$DRIVER_PASS results=$RESULTS"
@@ -263,5 +287,16 @@ for line in "${PAIRS[@]}"; do
   checkpoint "pair $pair_n/17 ($task)" \
     || { say "ABORT: checkpoints are not reaching the remote — stopping rather than accumulating hours of local-only results (nothing is lost; fix the push and rerun this driver)"; exit 6; }
 done
-say "ROUND-3.1 SWEEP COMPLETE: $(wc -l <"$RESULTS") verdicts, $(wc -l <"$DEVIATIONS") deviations, driver passes: $DRIVER_PASS"
-verify_completion || exit 10
+# Validate first: "COMPLETE" is a claim about the ledger, so it must not be
+# logged before the ledger has been checked. Either way the decision itself is
+# checkpointed, so the remote carries the verdict on the run and not just its
+# results.
+if verify_completion; then
+  say "ROUND-3.1 SWEEP COMPLETE: $(wc -l <"$RESULTS") verdicts, $(wc -l <"$DEVIATIONS") deviations, driver passes: $DRIVER_PASS"
+  checkpoint "sweep complete (completion invariant verified)" \
+    || { say "ABORT: the final checkpoint did not reach the remote"; exit 6; }
+else
+  say "ROUND-3.1 SWEEP ENDED WITH A FAILED COMPLETION INVARIANT — not marking this run complete"
+  checkpoint "sweep ended: COMPLETION INVARIANT FAILED" || true
+  exit 10
+fi
