@@ -1,2 +1,4 @@
 {"ts":"2026-09-01T00:34:08Z","task":"11-aio-libs-multidict","arm":"ungated","event":"INFRASTRUCTURE_FAILURE","note":"no verdict after one retry; log in phase3-log.txt"}
 {"ts":"2026-09-01T00:34:08Z","task":"11-aio-libs-multidict","arm":"gated","event":"INFRASTRUCTURE_FAILURE","note":"no verdict after one retry; log in phase3-log.txt"}
+{"ts":"2026-09-01T00:34:08Z","task":"12-burnash-gspread","arm":"gated","event":"INFRASTRUCTURE_FAILURE","note":"no verdict after one retry; log in phase3-log.txt"}
+{"ts":"2026-09-01T00:34:08Z","task":"12-burnash-gspread","arm":"ungated","event":"INFRASTRUCTURE_FAILURE","note":"no verdict after one retry; log in phase3-log.txt"}
