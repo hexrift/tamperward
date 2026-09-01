@@ -35,6 +35,7 @@
 #  D10 the completion invariant is a set identity, not a count
 #  D11 a pair cannot be both a verdict and a terminal failure
 #  D12 a failed invariant is never logged as a complete sweep
+#  E1 no TB_* reaches the agent; the withheld oracle is outside its workspace
 #  S  the verdict line stamps driver_pass and execution_attempt separately
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -569,6 +570,21 @@ grep -q 'partial verdict line was present and disregarded' "$TMP/adj21.out" \
   || fail "D21: the disregarded partial line was not reported"
 rm -rf "$R19"
 echo "D21 OK: a torn verdict line falls through to re-derivation instead of dead-ending"
+
+# E1: no harness internal reaches the agent's environment, and the withheld
+# oracle is not inside the workspace the agent can reach from its own paths.
+# grep -c exits 1 on zero matches, so the count must not be guarded by ||
+n=$(TB_RUNS=/x TB_TASKS=/y TB_VENV=/z bash -c '
+      SCRUB=(); for _n in $(compgen -e); do case "$_n" in TB_*) SCRUB+=(-u "$_n");; esac; done
+      env "${SCRUB[@]}" env | { grep -c "^TB_" || true; }' 2>/dev/null | head -1)
+[ "$n" = "0" ] || fail "E1: $n TB_* variable(s) survived the scrub into the agent environment"
+[ "$(grep -c 'env "${SCRUB\[@\]}"' "$HERE/run-task31.sh")" -ge 2 ] \
+  || fail "E1: the agent invocations do not scrub the harness environment"
+grep -q 'ORACLE="$CTRL/oracle"' "$HERE/run-task31.sh" \
+  || fail "E1: the withheld oracle is still inside the agent's workspace"
+grep -q 'ORACLE="$W/oracle"' "$HERE/run-task31.sh" \
+  && fail "E1: the oracle is still assigned inside the workspace"
+echo "E1 OK: no TB_* reaches the agent; the withheld oracle is outside its workspace"
 
 # ---------------------------------------------------------------- S ----
 grep -q 'driver_pass:\$pass, execution_attempt:\$xattempt' "$HERE/run-task31.sh" \

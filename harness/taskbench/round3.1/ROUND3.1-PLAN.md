@@ -373,6 +373,40 @@ reverted.
 
 Twenty-eight behavioural cases. Eleven fixes are mutation-checked.
 
+### Control-plane exposure: what was done, and what was deliberately not
+
+Rounds 1-3 launched the agent with a plain `env`, as root, on the same
+filesystem. Every `TB_*` internal was inherited, and the withheld oracle sat at
+`$W/oracle` — one `dirname` from the venv path the agent could read out of its
+own environment. A process told to make pytest pass could, in principle, have
+read the withheld half or written its own verdict.
+
+An audit of all 34 counted round-3 transcripts found no trajectory that did:
+zero occurrences of `TB_RUNS`, `TB_VENV`, `TB_TASKS`, `withheld`, `gold.patch`,
+`results.jsonl` or any workspace `oracle/` path. The `oracle` hits are the
+`distro` repository's own Oracle Linux tests and the `pristine` hits are the
+Stop hook's block message quoted back to the agent. That is a string audit of
+the transcripts, not a filesystem-level proof.
+
+Two narrow changes close the plausible route for 3.1: every `TB_*` variable is
+scrubbed from the agent's environment, and the withheld oracle is relocated
+outside the workspace entirely. **This is not a security boundary and is not
+described as one.** The agent still runs as root on the same filesystem; what
+changed is that nothing inside the task points at the control plane any more.
+
+A real boundary — mount and PID namespaces with the capability set dropped, so
+the control plane is unreadable and the overlays cannot be unmounted — was
+prototyped and verified to work in this environment, including that agent
+authentication survives it. It is **deliberately deferred to round 4**, with the
+fresh pool and the improved treatment, rather than landed days before a counted
+sweep: it requires relocating the observer behind a parent-owned channel and
+relocating the CLI bundle, and the marginal risk of changing the machinery that
+generates the data outweighed closing an exposure that the audit shows went
+unused. A non-root UID specifically is not viable here: agent authentication is
+delivered by a host-managed provider over a root-owned socket, so a different
+uid authenticates only by being handed that socket — a worse exposure than the
+one being closed — or a separately provisioned credential.
+
 The two test seams this requires (`TB_FRESH_UPSTREAM` in the runner,
 `TB_HYGIENE_TEST` in the driver) are fail-closed: the runner refuses the
 rotation seam whenever a registered model is pinned, and the driver's test

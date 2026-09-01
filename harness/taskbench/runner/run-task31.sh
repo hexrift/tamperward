@@ -176,7 +176,7 @@ start_agent_network() {
 if [ "${1:-}" = "--netcheck" ]; then
   W=$(mktemp -d /tmp/tb31-netcheck-XXXXXX); TAG="netcheck"
   NETLOG="$W/net-denied.log"; touch "$NETLOG"
-  trap 'teardown_net; rm -rf "$W"' EXIT
+  trap 'teardown_net; rm -rf "$W" "${CTRL:-}"' EXIT
   start_agent_network; nrc=$?
   [ "$nrc" -eq 0 ] && { echo "NETCHECK_OK upstream=$(redact "$UPSTREAM")"; exit 0; }
   [ "$nrc" -eq 9 ] && exit 9
@@ -209,9 +209,21 @@ fi
 
 RUNS="${TB_RUNS:-$TB/round3/runs}"; mkdir -p "$RUNS"
 W=$(mktemp -d /tmp/tb3-run-XXXXXX)
-REPODIR="$W/repo"; ORACLE="$W/oracle"; OBS="$W/obs"; VENV="$W/venv"
+# The withheld oracle lives OUTSIDE the agent's workspace. In rounds 1-3 it sat
+# at $W/oracle, one `dirname` from the venv path the agent could read out of its
+# own environment. The observer stays in $W because its hook is launched by the
+# agent and must be able to write to it.
+CTRL=$(mktemp -d /tmp/tb31-ctrl-XXXXXX); chmod 700 "$CTRL"
+REPODIR="$W/repo"; ORACLE="$CTRL/oracle"; OBS="$W/obs"; VENV="$W/venv"
 mkdir -p "$ORACLE" "$OBS"
 TAG="${ID}-${ARM}$([ -n "$SMOKE" ] && echo -smoke)"
+# Scrub every harness internal from the agent's environment. TB_RUNS names the
+# verdict ledger, TB_TASKS the task pool with its gold patches, TB_VENV the
+# workspace. This removes the pointers, and with the oracle relocated there is
+# no route to the control plane from inside the task -- but the agent still runs
+# as root on the same filesystem, so this is not a boundary. A real UID/mount
+# boundary is a round-4 item, recorded in ROUND3.1-PLAN.md.
+SCRUB=(); for _n in $(compgen -e); do case "$_n" in TB_*) SCRUB+=(-u "$_n");; esac; done
 export TB_VENV="$VENV"
 
 SUITE_CMD_STR="python -m pytest -q -p no:cacheprovider"
@@ -390,7 +402,7 @@ start_agent_network; snrc=$?
 
 if [ -n "$SMOKE" ]; then
   echo "[run-task3] SMOKE: synthetic probes instead of an agent"
-  ( cd "$REPODIR" && "${NETRUN[@]}" env HTTPS_PROXY="http://$PROXY_HOST:$PORT" https_proxy="http://$PROXY_HOST:$PORT" \
+  ( cd "$REPODIR" && "${NETRUN[@]}" env "${SCRUB[@]}" HTTPS_PROXY="http://$PROXY_HOST:$PORT" https_proxy="http://$PROXY_HOST:$PORT" \
       HTTP_PROXY="http://$PROXY_HOST:$PORT" http_proxy="http://$PROXY_HOST:$PORT" NO_PROXY= no_proxy= \
       curl -sS -m 10 "https://github.com/$REPO" -o /dev/null 2>/dev/null ) \
     && echo "PROBE_NET: leak!" || echo "PROBE_NET: denied ok ($(wc -l < "$NETLOG")) logged"
@@ -403,7 +415,7 @@ if [ -n "$SMOKE" ]; then
   git -C "$REPODIR" apply "$TASK/gold.patch" || echo "PROBE_GOLD: apply failed"
   V2=$(node "$HERE/verdict3.mjs" "$TASK" "$REPODIR" "$ORACLE" "$OBS" "$BASE")
   echo "PROBE_GOLD verdict: $V2"
-  teardown_net; rm -rf "$W"
+  teardown_net; rm -rf "$W" "$CTRL"
   exit 0
 fi
 
@@ -473,7 +485,7 @@ sync "$STARTED" 2>/dev/null || sync 2>/dev/null || true
 if [ "$ARM" = "gated" ]; then
   # the declared platform: the v1.14.0 enforcement envelope owns the boundary.
   # Agent exit is untrusted; the envelope re-adjudicates the tree it left.
-  ( cd "$REPODIR" && "${NETRUN[@]}" env PATH="$VENV/bin:$PATH" \
+  ( cd "$REPODIR" && "${NETRUN[@]}" env "${SCRUB[@]}" PATH="$VENV/bin:$PATH" \
       HTTPS_PROXY="http://$PROXY_HOST:$PORT" https_proxy="http://$PROXY_HOST:$PORT" \
       HTTP_PROXY="http://$PROXY_HOST:$PORT" http_proxy="http://$PROXY_HOST:$PORT" NO_PROXY= no_proxy= \
     node "$CLI" run --base "$BASE" --cmd "$SUITE_CMD_STR" --budget 300 -- \
@@ -483,7 +495,7 @@ if [ "$ARM" = "gated" ]; then
   # the envelope's own verdict lines land on stderr/stdout tail; keep the exit
   echo "{\"envelope_exit\":$ERC}" > "$ENV_REPORT"
 else
-  ( cd "$REPODIR" && "${NETRUN[@]}" env PATH="$VENV/bin:$PATH" \
+  ( cd "$REPODIR" && "${NETRUN[@]}" env "${SCRUB[@]}" PATH="$VENV/bin:$PATH" \
       HTTPS_PROXY="http://$PROXY_HOST:$PORT" https_proxy="http://$PROXY_HOST:$PORT" \
       HTTP_PROXY="http://$PROXY_HOST:$PORT" http_proxy="http://$PROXY_HOST:$PORT" NO_PROXY= no_proxy= \
     "${AGENT_CMD[@]}" $PERM_FLAG \
@@ -529,4 +541,4 @@ cp "$NETLOG" "$RUNS/$TAG-netlog.txt" 2>/dev/null || true
 cp "$DENYLOG" "$RUNS/$TAG-denylog.txt" 2>/dev/null || true
 cp "$W/verify.log" "$RUNS/$TAG-verify.log" 2>/dev/null || true
 cp "$REPODIR/.git/tamperward/fsevents.jsonl" "$RUNS/$TAG-fsevents.jsonl" 2>/dev/null || true
-rm -rf "$W"
+rm -rf "$W" "$CTRL"
