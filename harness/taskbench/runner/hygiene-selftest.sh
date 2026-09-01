@@ -22,6 +22,11 @@
 #  D5 a systemic jail failure DOES halt it; a one-off jail failure does not
 #  D7 a duplicated (task, arm) verdict fails the completion invariant
 #  D8 a second concurrent driver is refused
+#  D17 a killed runner's evidence is preserved by the driver
+#  D18 a matching-but-malformed row is never accepted as a verdict
+#  D19 results.jsonl is derived from immutable files and is rebuildable
+#  D15 failure -> reconstruction -> resume -> no rerun -> valid completion
+#  D16 the deviations ledger fails closed on structural corruption
 #  D13 a trajectory that RAN is never re-rolled; the sweep halts for adjudication
 #  D14 acceptance is an exact (task,arm) match, not line-count growth
 #  D9  a persistent checkpoint failure stops the sweep before the next pair
@@ -44,8 +49,9 @@ cleanup() {
   # exact lock paths for THIS process's run dirs, computed the same way the
   # driver does — never a wildcard over /tmp/tb31-driver-*.lock
   local x
-  for x in a b c d e f g h i j k l; do
-    rm -f "/tmp/tb31-driver-$(printf %s "/tmp/hyg-runs-$$-$x" | md5sum | cut -c1-12).lock"
+  for x in a b c d e f g h i j k l m n o p q; do
+    rm -f "/tmp/tb31-driver-$(printf %s "/tmp/hyg-runs-$$-$x" | md5sum | cut -c1-12).lock" \
+          "/tmp/tb31-results-$(printf %s "/tmp/hyg-runs-$$-$x" | md5sum | cut -c1-12).lock"
   done
 }
 trap cleanup EXIT
@@ -176,13 +182,45 @@ case "$mode" in
   fail9)  echo "NETJAIL_SETUP_FAILED";         exit 9 ;;
   fail10) echo "TASK_REPO_UNREACHABLE: stub";  exit 10 ;;
   poststart)  # the agent ran, then finalization died before a verdict landed
-    : > "$TB_RUNS/$1-$2.started"; echo "stub: agent ran, finalization died"; exit 1 ;;
-  wrongpair)  # a line lands, but for a different trajectory
-    printf '{"task":"99-wrong","arm":"ungated","outcome":"STUB"}\n' >> "$TB_RUNS/results.jsonl"; exit 0 ;;
+    KEEP="$TB_RUNS/$1-$2-poststart-workdir"; mkdir -p "$KEEP"
+    if [ "${STUB_PRESERVE_LINE:-0}" = "1" ]; then   # R1: the verdict line survived
+      jq -nc --arg t "$1" --arg a "$2" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" \
+        '{task:$t,arm:$a,outcome:"NOT_FIXED",oracle_strength:"INTEGRITY",visible_suite:"red",
+          pristine_suite:"red",model:"stub-model",transcript:"stub.jsonl",ts:$ts,
+          driver_pass:1,execution_attempt:1}' > "$KEEP/verdict-line.json"
+    fi
+    jq -nc --arg t "$1" --arg a "$2" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{ts:$ts,task:$t,arm:$a,model:"stub-model",driver_pass:1,execution_attempt:1,
+        transcript:"stub.jsonl",workdir:"/nonexistent",base:"",task_dir:""}' > "$TB_RUNS/$1-$2.started"
+    echo "stub: agent ran, finalization died"; exit 1 ;;
+  wrongpair)  # a verdict lands, but for a different trajectory
+    . "$SELFTEST_RUNNER_DIR/verdict-record.sh"
+    T=$(mktemp)
+    jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" \
+      '{task:"99-wrong",arm:"ungated",outcome:"STUB",oracle_strength:"INTEGRITY",visible_suite:"red",
+        pristine_suite:"red",model:"stub-model",transcript:"stub.jsonl",ts:$ts,driver_pass:1,execution_attempt:1}' > "$T"
+    persist_verdict "$TB_RUNS" "99-wrong" "ungated" "$T"; rm -f "$T"; exit 0 ;;
+  malformed)  # a row that MATCHES on task and arm but is not a verdict
+    printf '{"task":"%s","arm":"%s"}\n' "$1" "$2" >> "$TB_RUNS/results.jsonl"; exit 0 ;;
+  killed)     # the outer timeout kills the runner: marker + workspace, no cleanup
+    WD=$(mktemp -d "$TB_RUNS/killed-workdir-XXXXXX")   # self-cleaning with the run dir
+    mkdir -p "$WD/obs" "$WD/oracle" "$WD/repo"
+    echo "observer evidence" > "$WD/obs/tree.log"; echo "x" > "$WD/repo/f.py"
+    jq -nc --arg t "$1" --arg a "$2" --arg wd "$WD" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{ts:$ts,task:$t,arm:$a,model:"stub-model",driver_pass:1,execution_attempt:1,
+        transcript:"stub.jsonl",workdir:$wd,base:"deadbeef",task_dir:"/nonexistent"}' \
+      > "$TB_RUNS/$1-$2.started"
+    exit 137 ;;
 esac
-printf '{"task":"%s","arm":"%s","outcome":"STUB","driver_pass":%s,"execution_attempt":%s}\n' \
-  "$1" "$2" "${TB_DRIVER_PASS:-0}" "${TB_EXEC_ATTEMPT:-0}" >> "$TB_RUNS/results.jsonl"
-exit 0
+. "$SELFTEST_RUNNER_DIR/verdict-record.sh"
+T=$(mktemp)
+jq -nc --arg t "$1" --arg a "$2" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" \
+   --argjson p "${TB_DRIVER_PASS:-1}" --argjson x "${TB_EXEC_ATTEMPT:-1}" \
+   '{task:$t,arm:$a,outcome:"STUB",oracle_strength:"INTEGRITY",visible_suite:"red",
+     pristine_suite:"red",model:"stub-model",transcript:"stub.jsonl",ts:$ts,
+     driver_pass:$p,execution_attempt:$x}' > "$T"
+persist_verdict "$TB_RUNS" "$1" "$2" "$T" || { echo "stub: persist failed"; exit 1; }
+rm -f "$T"; exit 0
 STUBEOF
 chmod +x "$STUB"
 
@@ -190,7 +228,8 @@ drive() {  # <runs-dir> <launchlog> <stub-mode> [extra env assignments...]
   local runs="$1" ll="$2" mode="$3"; shift 3
   rc=0
   ( cd "$TB" && env TB_HYGIENE_TEST=1 TB_TEST_RUNS="$runs" TB_TEST_RUNNER="$STUB" \
-      LAUNCHLOG="$ll" STUB_MODE="$mode" "$@" bash runner/phase3-sweep31.sh >>"$TMP/drive.out" 2>&1 ) || rc=$?
+      SELFTEST_RUNNER_DIR="$HERE" LAUNCHLOG="$ll" STUB_MODE="$mode" "$@" \
+      bash runner/phase3-sweep31.sh >>"$TMP/drive.out" 2>&1 ) || rc=$?
   return $rc
 }
 
@@ -259,14 +298,19 @@ drive "$R5" "$L5" fail9 STUB_FAIL_PAIR="$P1TASK $P1A" TB_TEST_JAIL_OK=1; rc=$?
 [ "$(wc -l < "$R5/results.jsonl")" -eq 33 ] || fail "D5: expected 33 verdicts, got $(wc -l < "$R5/results.jsonl")"
 echo "D5 OK: jail failures are adjudicated by the jail self-test, not assumed"
 
-# D7: a duplicated (task, arm) verdict — what a second concurrent driver would
-# produce — must fail the completion invariant rather than reach analysis.
-head -1 "$R5/results.jsonl" >> "$R5/results.jsonl"
+# D7: verdicts are written ONCE. A duplicate (task, arm) is now structurally
+# impossible — one immutable file per trajectory — and a poisoned derived
+# ledger is repaired from those files rather than accepted.
+head -1 "$R5/results.jsonl" > "$TMP/dupe.json"
+DT=$(jq -r .task "$TMP/dupe.json"); DA=$(jq -r .arm "$TMP/dupe.json")
+( . "$HERE/verdict-record.sh"; persist_verdict "$R5" "$DT" "$DA" "$TMP/dupe.json" ) \
+  && fail "D7: a second verdict was written for a trajectory that already had one"
+printf '%s\n' "$(cat "$TMP/dupe.json")" >> "$R5/results.jsonl"
 : > "$L5"; drive "$R5" "$L5" ok; rc=$?
-[ "$rc" -eq 10 ] || fail "D7: a duplicated verdict passed the completion invariant (rc=$rc)"
-grep -q 'INVARIANT VIOLATION' "$R5/phase3-log.txt" || fail "D7: no invariant violation logged"
+[ "$rc" -eq 0 ] || fail "D7: a poisoned derived ledger was not repaired (rc=$rc)"
+[ "$(wc -l < "$R5/results.jsonl")" -eq 33 ] || fail "D7: rebuild did not repair the ledger"
 rm -rf "$R5"
-echo "D7 OK: duplicated verdicts and short counts fail the completion invariant"
+echo "D7 OK: verdicts are written once; a poisoned derived ledger is repaired, not trusted"
 
 # D8: exactly one driver per results directory.
 R6="/tmp/hyg-runs-$$-f"; rm -rf "$R6"; mkdir -p "$R6"; L6="$TMP/launch6.log"; : > "$L6"
@@ -297,12 +341,15 @@ R8="/tmp/hyg-runs-$$-h"; rm -rf "$R8"; L8="$TMP/launch8.log"; : > "$L8"
 drive "$R8" "$L8" ok; rc=$?
 [ "$rc" -eq 0 ] || fail "D10: baseline sweep did not complete (rc=$rc)"
 grep -q 'COMPLETION INVARIANT OK' "$R8/phase3-log.txt" || fail "D10: baseline invariant did not pass"
-grep -v "\"task\":\"$P1TASK\",\"arm\":\"$P1A\"" "$R8/results.jsonl" > "$R8/r.tmp"
-printf '{"task":"99-not-registered","arm":"ungated","outcome":"STUB","driver_pass":1,"execution_attempt":1}\n' >> "$R8/r.tmp"
-mv "$R8/r.tmp" "$R8/results.jsonl"
+rm -f "$R8/$P1TASK-$P1A.verdict.json"
+jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" \
+  '{task:"99-not-registered",arm:"ungated",outcome:"STUB",oracle_strength:"INTEGRITY",
+    visible_suite:"red",pristine_suite:"red",model:"stub-model",transcript:"s.jsonl",
+    ts:$ts,driver_pass:1,execution_attempt:1}' > "$R8/99-not-registered-ungated.verdict.json"
+: > "$R8/$P1TASK-$P1A.started"   # stop the driver re-running the removed one
 : > "$L8"; drive "$R8" "$L8" ok; rc=$?
-[ "$rc" -eq 10 ] || fail "D10: an unregistered pair passed the completion invariant (rc=$rc)"
-grep -q 'not the registered universe' "$R8/phase3-log.txt" || fail "D10: set mismatch not reported"
+[ "$rc" -eq 11 ] || [ "$rc" -eq 10 ] || fail "D10: an unregistered pair passed the completion invariant (rc=$rc)"
+grep -qE 'not the registered universe|HALT' "$R8/phase3-log.txt" || fail "D10: neither a set mismatch nor a halt was reported"
 rm -rf "$R8"
 echo "D10 OK: an unregistered pair fails the invariant even when the count is 34"
 
@@ -322,11 +369,14 @@ echo "D11 OK: a pair cannot be both a verdict and a terminal failure"
 # D12: "COMPLETE" is a claim about the ledger and must not precede its check.
 R10="/tmp/hyg-runs-$$-j"; rm -rf "$R10"; L10="$TMP/launch10.log"; : > "$L10"
 drive "$R10" "$L10" ok
-head -1 "$R10/results.jsonl" >> "$R10/results.jsonl"
+jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" \
+  '{task:"99-not-registered",arm:"gated",outcome:"STUB",oracle_strength:"INTEGRITY",
+    visible_suite:"red",pristine_suite:"red",model:"stub-model",transcript:"s.jsonl",
+    ts:$ts,driver_pass:1,execution_attempt:1}' > "$R10/99-not-registered-gated.verdict.json"
 # the log is append-only across driver passes, so assert on THIS pass's lines
 mark=$(wc -l < "$R10/phase3-log.txt")
 : > "$L10"; drive "$R10" "$L10" ok; rc=$?
-[ "$rc" -eq 10 ] || fail "D12: duplicate verdict did not fail the run (rc=$rc)"
+[ "$rc" -eq 10 ] || fail "D12: an unregistered verdict did not fail the run (rc=$rc)"
 tail -n +$((mark+1)) "$R10/phase3-log.txt" > "$TMP/d12.log"
 grep -q 'SWEEP COMPLETE' "$TMP/d12.log" && fail "D12: the run was logged COMPLETE despite a failed invariant"
 grep -q 'FAILED COMPLETION INVARIANT' "$TMP/d12.log" || fail "D12: failed-invariant ending not logged"
@@ -349,8 +399,10 @@ jq -e --arg t "$P1TASK" --arg a "$P1A" \
 : > "$L11"; drive "$R11" "$L11" ok; rc=$?
 [ "$rc" -eq 11 ] || fail "D13: resume did not halt on the unadjudicated failure (rc=$rc)"
 [ ! -s "$L11" ] || fail "D13: resume re-rolled the trajectory ($(cat "$L11"))"
-# once adjudicated as an exclusion, the sweep proceeds and the ledger balances
-: > "$R11/$P1TASK-$P1A.adjudicated"
+# once adjudicated as an EXCLUSION, the sweep proceeds and the ledger balances
+bash "$HERE/adjudicate31.sh" "$R11" "$P1TASK" "$P1A" auto > "$TMP/adj13.out" 2>&1 \
+  || fail "D13: the adjudication ladder failed: $(cat "$TMP/adj13.out")"
+grep -q 'ladder: R3' "$TMP/adj13.out" || fail "D13: the ladder did not resolve to R3 with no surviving workspace"
 : > "$L11"; drive "$R11" "$L11" ok; rc=$?
 [ "$rc" -eq 0 ] || fail "D13: adjudicated exclusion did not let the sweep finish (rc=$rc)"
 grep -qx "$P1TASK $P1A" "$L11" && fail "D13: an adjudicated exclusion was still re-rolled"
@@ -369,6 +421,107 @@ jq -e --arg t "$P1TASK" --arg a "$P1A" \
 [ "$rc" -eq 10 ] || fail "D14: the stray unregistered verdict passed the completion invariant (rc=$rc)"
 rm -rf "$R12"
 echo "D14 OK: only an exact (task,arm) verdict counts as that trajectory's result"
+
+# D15: THE RECONSTRUCTION ROUTE, driven by the frozen ladder. The failure event
+# is append-only; the disposition is separate; a reconstructed verdict is
+# counted once, never re-run, and compatible with the completion invariant.
+R13="/tmp/hyg-runs-$$-m"; rm -rf "$R13"; L13="$TMP/launch13.log"; : > "$L13"
+drive "$R13" "$L13" poststart STUB_FAIL_PAIR="$P1TASK $P1A" STUB_PRESERVE_LINE=1; rc=$?
+[ "$rc" -eq 11 ] || fail "D15: setup — post-start failure did not halt (rc=$rc)"
+# the ladder must resolve to R1 and reconstruct; exclusion must be REFUSED
+bash "$HERE/adjudicate31.sh" "$R13" "$P1TASK" "$P1A" exclusion "I would rather drop this one" >/dev/null 2>&1 \
+  && fail "D15: a discretionary exclusion was accepted while the artifacts sufficed"
+bash "$HERE/adjudicate31.sh" "$R13" "$P1TASK" "$P1A" auto > "$TMP/adj15.out" 2>&1 \
+  || fail "D15: the ladder refused a reconstructible trajectory: $(cat "$TMP/adj15.out")"
+grep -q 'ladder: R1' "$TMP/adj15.out" || fail "D15: the ladder did not resolve to R1"
+# the disposition is structured: rule, reviewer, timestamp, artifact hashes
+jq -e --arg t "$P1TASK" --arg a "$P1A" \
+   'select(.task==$t and .arm==$a and .event=="POST_START_ADJUDICATED_VERDICT")
+    | (.rule=="R1") and (.adjudicated_by|type=="string") and (.ts|type=="string")
+      and (.artifacts.verdict_sha256|length==64)' "$R13/deviations.jsonl" >/dev/null \
+  || fail "D15: the disposition record is not structured (rule/reviewer/ts/hashes)"
+# dispositions are recorded once
+bash "$HERE/adjudicate31.sh" "$R13" "$P1TASK" "$P1A" auto >/dev/null 2>&1 \
+  && fail "D15: a second disposition was accepted"
+: > "$L13"; drive "$R13" "$L13" ok; rc=$?
+[ "$rc" -eq 0 ] || fail "D15: the sweep did not complete after reconstruction (rc=$rc)"
+grep -qx "$P1TASK $P1A" "$L13" && fail "D15: the reconstructed trajectory was re-run"
+[ "$(wc -l < "$R13/results.jsonl")" -eq 34 ] || fail "D15: expected 34 verdicts, got $(wc -l < "$R13/results.jsonl")"
+grep -q 'COMPLETION INVARIANT OK' "$R13/phase3-log.txt" \
+  || fail "D15: the reconstructed verdict is still incompatible with the completion invariant"
+rm -rf "$R13"
+echo "D15 OK: the ladder reconstructs when artifacts suffice and refuses discretionary exclusion"
+
+# D16: the deviations ledger governs every exceptional case, so it fails closed.
+R14="/tmp/hyg-runs-$$-n"; L14="$TMP/launch14.log"
+ledger_rejects() {  # <description> <ledger-content>
+  rm -rf "$R14"; mkdir -p "$R14"; : > "$L14"
+  printf '%s\n' "$2" > "$R14/deviations.jsonl"
+  drive "$R14" "$L14" ok; local r=$?
+  [ "$r" -eq 12 ] || fail "D16: $1 was accepted (rc=$r)"
+  [ ! -s "$L14" ] || fail "D16: $1 still launched a trajectory"
+  grep -q 'DEVIATIONS LEDGER INVALID' "$R14/phase3-log.txt" || fail "D16: $1 not reported as invalid"
+}
+ledger_rejects "malformed JSON" '{"event":"NOTE","note":"unterminated'
+ledger_rejects "an unknown event" '{"ts":"x","task":"'"$P1TASK"'","arm":"ungated","event":"MYSTERY_EVENT"}'
+ledger_rejects "a trajectory event with no task" '{"ts":"x","arm":"ungated","event":"INFRASTRUCTURE_FAILURE"}'
+ledger_rejects "a trajectory event with a bad arm" '{"ts":"x","task":"'"$P1TASK"'","arm":"sideways","event":"INFRASTRUCTURE_FAILURE"}'
+ledger_rejects "a duplicate terminal disposition" \
+  '{"ts":"x","task":"'"$P1TASK"'","arm":"ungated","event":"INFRASTRUCTURE_FAILURE"}
+{"ts":"y","task":"'"$P1TASK"'","arm":"ungated","event":"INFRASTRUCTURE_FAILURE"}'
+ledger_rejects "contradictory terminal dispositions" \
+  '{"ts":"x","task":"'"$P1TASK"'","arm":"ungated","event":"INFRASTRUCTURE_FAILURE"}
+{"ts":"y","task":"'"$P1TASK"'","arm":"ungated","event":"POST_START_ADJUDICATED_EXCLUSION"}'
+# repeated non-disposition EVENTS remain legitimate
+rm -rf "$R14"; mkdir -p "$R14"; : > "$L14"
+printf '%s\n' '{"ts":"x","task":"'"$P1TASK"'","arm":"ungated","event":"FAILED_LAUNCH"}
+{"ts":"y","task":"'"$P1TASK"'","arm":"ungated","event":"FAILED_LAUNCH"}
+{"ts":"z","event":"NOTE","note":"free-form events need no identity"}' > "$R14/deviations.jsonl"
+drive "$R14" "$L14" ok; rc=$?
+[ "$rc" -eq 0 ] || fail "D16: repeated non-disposition events were rejected (rc=$rc)"
+rm -rf "$R14"
+echo "D16 OK: the ledger fails closed on malformed, unknown, unidentified and contradictory records"
+
+# D17: an outer-timeout kill leaves no chance for the runner to preserve its own
+# artifacts. The driver must preserve the marker's workspace itself, so the halt
+# message points at evidence that actually exists.
+R15="/tmp/hyg-runs-$$-o"; rm -rf "$R15"; L15="$TMP/launch15.log"; : > "$L15"
+drive "$R15" "$L15" killed STUB_FAIL_PAIR="$P1TASK $P1A"; rc=$?
+[ "$rc" -eq 11 ] || fail "D17: a killed runner did not halt the sweep (rc=$rc)"
+[ "$(wc -l < "$L15")" -eq 1 ] || fail "D17: the killed trajectory was re-rolled"
+KEEP15="$R15/$P1TASK-$P1A-poststart-workdir"
+[ -d "$KEEP15" ] || fail "D17: the halt message points at a directory that does not exist"
+[ -s "$KEEP15/obs/tree.log" ] || fail "D17: observer evidence was not preserved from the killed workspace"
+[ -s "$KEEP15/repo-final-tree.tar" ] || fail "D17: the final repository tree was not preserved"
+rm -rf "$R15"
+echo "D17 OK: a killed runner's evidence is preserved by the driver, not lost with it"
+
+# D18: a row that MATCHES on task and arm but is not a verdict must never be
+# accepted as one — this reported SWEEP COMPLETE with exit 0 before the fix.
+R16="/tmp/hyg-runs-$$-p"; rm -rf "$R16"; L16="$TMP/launch16.log"; : > "$L16"
+drive "$R16" "$L16" malformed STUB_FAIL_PAIR="$P1TASK $P1A"; rc=$?
+[ "$(wc -l < "$L16")" -ge 2 ] || fail "D18: the malformed row was accepted as this trajectory's verdict"
+jq -e --arg t "$P1TASK" --arg a "$P1A" \
+   'select(.task==$t and .arm==$a and .event=="INFRASTRUCTURE_FAILURE")' "$R16/deviations.jsonl" >/dev/null \
+  || fail "D18: the trajectory with only a malformed row was not recorded as unfinished"
+[ ! -e "$R16/$P1TASK-$P1A.verdict.json" ] || fail "D18: a malformed row became a verdict file"
+jq -e -s 'all((.outcome|type=="string") and ((.outcome|length)>0))' "$R16/results.jsonl" >/dev/null \
+  || fail "D18: the malformed row survived into the derived ledger"
+rm -rf "$R16"
+echo "D18 OK: a matching-but-malformed row is never a verdict, and never survives the ledger"
+
+# D19: results.jsonl is DERIVED from immutable per-trajectory files, so a torn
+# or poisoned ledger is always recoverable.
+R17="/tmp/hyg-runs-$$-q"; rm -rf "$R17"; L17="$TMP/launch17.log"; : > "$L17"
+drive "$R17" "$L17" ok; rc=$?
+[ "$rc" -eq 0 ] || fail "D19: baseline sweep did not complete (rc=$rc)"
+[ "$(ls "$R17"/*.verdict.json 2>/dev/null | wc -l)" -eq 34 ] || fail "D19: per-trajectory verdict files missing"
+printf 'not json at all\n' >> "$R17/results.jsonl"
+bash "$HERE/rebuild-results31.sh" "$R17" >/dev/null || fail "D19: the ledger could not be rebuilt"
+[ "$(wc -l < "$R17/results.jsonl")" -eq 34 ] || fail "D19: rebuild did not restore exactly 34 verdicts"
+jq -e -s 'all(.outcome=="STUB")' "$R17/results.jsonl" >/dev/null || fail "D19: rebuilt ledger is not clean"
+rm -rf "$R17"
+echo "D19 OK: the ledger is derived from immutable per-trajectory files and is rebuildable"
 
 # ---------------------------------------------------------------- S ----
 grep -q 'driver_pass:\$pass, execution_attempt:\$xattempt' "$HERE/run-task31.sh" \

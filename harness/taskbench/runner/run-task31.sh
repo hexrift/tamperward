@@ -46,6 +46,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 TB="$(cd "$HERE/.." && pwd)"
 ROOT="$(cd "$TB/../.." && pwd)"
 CLI="$ROOT/dist/cli/index.js"
+. "$HERE/verdict-record.sh"
 
 # ---- upstream proxy resolution (H1, corrected) --------------------------
 # The platform can rotate the upstream proxy port under a running sweep (the
@@ -461,10 +462,12 @@ AGENT_CMD=(timeout --signal=TERM --kill-after=30 "${TB_AGENT_SECS:-3000}"
   claude -p "$PROMPT" --model "$MODEL" ${TB_MAX_TURNS:+--max-turns $TB_MAX_TURNS}
   --output-format stream-json --verbose)
 ENV_REPORT="$W/envelope.json"
-jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg task "$ID" --arg arm "$ARM" \
+TRAJ_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+jq -nc --arg ts "$TRAJ_TS" --arg task "$ID" --arg arm "$ARM" \
    --arg tr "$(basename "$TRANSCRIPT")" --arg wd "$W" --arg model "$MODEL" \
    --argjson pass "${TB_DRIVER_PASS:-1}" --argjson xa "${TB_EXEC_ATTEMPT:-1}" \
-   '{ts:$ts,task:$task,arm:$arm,model:$model,driver_pass:$pass,execution_attempt:$xa,transcript:$tr,workdir:$wd}' \
+   --arg base "$BASE" --arg td "$TASK" \
+   '{ts:$ts,task:$task,arm:$arm,model:$model,driver_pass:$pass,execution_attempt:$xa,transcript:$tr,workdir:$wd,base:$base,task_dir:$td}' \
    > "$STARTED" || { echo "PRE_AGENT_MARKER_FAILED"; exit 1; }
 sync "$STARTED" 2>/dev/null || sync 2>/dev/null || true
 if [ "$ARM" = "gated" ]; then
@@ -505,20 +508,21 @@ printf '%s' "$VERDICT" | jq -c \
     --argjson denies "${DENIES:-0}" --argjson net "${NETDENIED:-0}" \
     --argjson envexit "${ENVEXIT:-null}" \
     --argjson pass "${TB_DRIVER_PASS:-1}" --argjson xattempt "${TB_EXEC_ATTEMPT:-1}" \
+    --arg ts "$TRAJ_TS" \
     --arg rung "$(cat "$W/rung" 2>/dev/null | head -1)" --arg tr "$(basename "$TRANSCRIPT")" \
-    '. + {arm:$arm, model:$model, elapsed_s:$elapsed, agent_killed:$killed, denies:$denies, net_fetch_attempts:$net, envelope_exit:$envexit, driver_pass:$pass, execution_attempt:$xattempt, install_rung:$rung, transcript:$tr}' \
+    '. + {arm:$arm, model:$model, elapsed_s:$elapsed, agent_killed:$killed, denies:$denies, net_fetch_attempts:$net, envelope_exit:$envexit, driver_pass:$pass, execution_attempt:$xattempt, ts:$ts, install_rung:$rung, transcript:$tr}' \
     > "$LINE" 2>"$W/verdict-line.err" \
   || post_start_failure "the verdict line could not be constructed ($(head -c 200 "$W/verdict-line.err" 2>/dev/null))"
 # the record must be VALID and must be THIS trajectory's -- line-count growth is
 # not evidence that the right verdict landed
-jq -e --arg t "$ID" --arg a "$ARM" \
-   '(.task==$t) and (.arm==$a) and (.outcome|type=="string") and (.outcome|length>0)' "$LINE" >/dev/null 2>&1 \
-  || post_start_failure "the constructed verdict line is not a valid record for $ID/$ARM"
-# single-line append under a lock (the lock lives outside RUNS so checkpoints
-# never commit it), then re-read the exact record back
-( flock 8; cat "$LINE" >> "$RUNS/results.jsonl" ) 8>"/tmp/tb31-results-$(printf %s "$RUNS" | md5sum | cut -c1-12).lock"
-jq -e --arg t "$ID" --arg a "$ARM" 'select(.task==$t and .arm==$a)' "$RUNS/results.jsonl" >/dev/null 2>&1 \
-  || post_start_failure "the verdict did not persist to results.jsonl"
+is_verdict_file "$LINE" "$ID" "$ARM" \
+  || post_start_failure "the constructed line is not a COMPLETE verdict record for $ID/$ARM (shared schema in verdict-record.sh)"
+# immutable per-trajectory file, written temp -> validate -> fsync -> rename;
+# results.jsonl is DERIVED from those files, so a torn write cannot poison it
+persist_verdict "$RUNS" "$ID" "$ARM" "$LINE" \
+  || post_start_failure "the verdict could not be persisted durably"
+is_verdict_file "$(verdict_path "$RUNS" "$ID" "$ARM")" "$ID" "$ARM" \
+  || post_start_failure "the persisted verdict did not read back"
 cat "$LINE"
 cp -a "$OBS" "$RUNS/$TAG-obs" 2>/dev/null || true
 cp "$NETLOG" "$RUNS/$TAG-netlog.txt" 2>/dev/null || true

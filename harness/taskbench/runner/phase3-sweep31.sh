@@ -22,6 +22,7 @@
 #      are exported separately and stamped natively by the runner.
 set -uo pipefail
 cd "$(dirname "$0")/.."
+. "$PWD/runner/verdict-record.sh"
 
 # ---- REGISTRATION GATE: filled by PREDICTION3.1, before which this driver
 # will not execute a single trajectory. All three values are gated: a filled
@@ -134,14 +135,21 @@ for(const t of order){
 NODE
 )
 
-have() { jq -e --arg t "$1" --arg a "$2" 'select(.task==$t and .arm==$a)' "$RESULTS" >/dev/null 2>&1; }
+# A row that merely carries a matching task and arm is NOT a verdict. One
+# shared predicate (runner/verdict-record.sh) decides, everywhere.
+have() { is_verdict_file "$(verdict_path "$TB_RUNS" "$1" "$2")" "$1" "$2"; }
 # TERMINAL: the registered retry budget was spent and no verdict came out. The
 # trajectory is excluded with its log and never re-attempted. FAILED_LAUNCH is
 # deliberately NOT terminal — the circuit breaker fired before any scientific
 # work happened, so a resume must retry it.
+# A TERMINAL DISPOSITION accounts for a trajectory that has no verdict. The
+# post-start FAILURE is an append-only EVENT, not a disposition: it is resolved
+# by adjudication into either a reconstructed verdict (accounted for by that
+# verdict) or an exclusion (accounted for here). Keeping the two apart is what
+# makes the reconstruction route compatible with the completion invariant.
 terminal_failure() {
   jq -e --arg t "$1" --arg a "$2" \
-    'select(.task==$t and .arm==$a and (.event=="INFRASTRUCTURE_FAILURE" or .event=="POST_START_FINALIZATION_FAILURE"))' \
+    'select(.task==$t and .arm==$a and (.event=="INFRASTRUCTURE_FAILURE" or .event=="POST_START_ADJUDICATED_EXCLUSION"))' \
     "$DEVIATIONS" >/dev/null 2>&1
 }
 # The agent RAN for this trajectory: either the runner left its durable
@@ -149,18 +157,83 @@ terminal_failure() {
 # outcome exists scientifically, so it is never re-rolled — the sweep halts
 # until a human adjudicates from the preserved artifacts.
 started_marker() { [ -f "$TB_RUNS/${1}-${2}.started" ]; }
-adjudicated()    { [ -f "$TB_RUNS/${1}-${2}.adjudicated" ]; }
+adjudicated() {
+  jq -e --arg t "$1" --arg a "$2" \
+    'select(.task==$t and .arm==$a and (.event=="POST_START_ADJUDICATED_VERDICT" or .event=="POST_START_ADJUDICATED_EXCLUSION"))' \
+    "$DEVIATIONS" >/dev/null 2>&1
+}
 post_start_failed() {
+  adjudicated "$1" "$2" && return 1
   jq -e --arg t "$1" --arg a "$2" \
     'select(.task==$t and .arm==$a and .event=="POST_START_FINALIZATION_FAILURE")' "$DEVIATIONS" >/dev/null 2>&1 \
     && return 0
   started_marker "$1" "$2" && ! have "$1" "$2"
 }
+# The runner preserves its own artifacts on an orderly post-start failure, but
+# the driver's outer timeout can SIGTERM/SIGKILL it first, in which case that
+# code never runs and the evidence sits only in the marker's workdir under /tmp,
+# one disk_guard away from deletion. The driver therefore preserves it itself.
+preserve_post_start() {
+  local task="$1" arm="$2" keep="$TB_RUNS/$1-$2-poststart-workdir" wd
+  [ -d "$keep" ] && [ -n "$(ls -A "$keep" 2>/dev/null)" ] && return 0
+  wd=$(jq -r '.workdir // empty' "$TB_RUNS/$1-$2.started" 2>/dev/null | tail -1)
+  mkdir -p "$keep"
+  if [ -n "$wd" ] && [ -d "$wd" ]; then
+    cp -a "$wd/obs" "$keep/obs" 2>/dev/null
+    cp -a "$wd/oracle" "$keep/oracle" 2>/dev/null
+    for f in net-denied.log denylog verify.log envelope.json verdict-line.json proxy.log; do
+      cp "$wd/$f" "$keep/$f" 2>/dev/null
+    done
+    [ -d "$wd/repo" ] && tar -cf "$keep/repo-final-tree.tar" -C "$wd/repo" . 2>/dev/null
+    say "preserved the killed runner's workspace for $task $arm from $wd into $keep"
+  else
+    say "WARNING: no preservable workspace for $task $arm (marker workdir '${wd:-none}' is gone) — only the transcript and the marker survive; the ladder will resolve to R3"
+  fi
+  jq -nc --arg ts "$(ts)" --arg t "$task" --arg a "$arm" --arg wd "${wd:-}" \
+     '{ts:$ts,task:$t,arm:$a,preserved_from:$wd,preserved_by:"driver"}' > "$keep/why.json" 2>/dev/null || true
+}
+
 halt_post_start() {
   say "HALT: $1 $2 RAN but never persisted a valid verdict. It must NOT be re-rolled — a clean retry would discard an observed trajectory and sample another."
-  say "  adjudicate from the preserved artifacts in $TB_RUNS/$1-$2-poststart-workdir, then either"
-  say "  (a) append the reconstructed verdict to $RESULTS, or"
-  say "  (b) record the exclusion by creating $TB_RUNS/$1-$2.adjudicated"
+  say "  adjudicate with the frozen ladder (PREDICTION3.1 §1) — it decides, you do not:"
+  say "    runner/adjudicate31.sh $TB_RUNS $1 $2 auto"
+  say "  artifacts: $TB_RUNS/$1-$2-poststart-workdir"
+}
+
+# Structural validation of the deviations ledger. It governs every exceptional
+# case in the round, so it fails closed: malformed JSON, an unknown event, a
+# trajectory event without a valid identity, or more than one terminal
+# disposition for the same (task, arm) — which covers both duplicates and
+# contradictions — all stop the sweep. Repeated non-disposition EVENTS stay
+# legitimate; only final dispositions are unique.
+validate_deviations() {
+  [ -s "$DEVIATIONS" ] || return 0
+  local out rc
+  out=$(jq -s -r '
+    def TRAJ: ["FAILED_LAUNCH","INFRASTRUCTURE_FAILURE","POST_START_FINALIZATION_FAILURE",
+               "POST_START_ADJUDICATED_EXCLUSION","POST_START_ADJUDICATED_VERDICT"];
+    def FREE: ["DEVIATION_CORRECTION","LOG_CORRECTION","NOTE"];
+    def DISP: ["INFRASTRUCTURE_FAILURE","POST_START_ADJUDICATED_EXCLUSION","POST_START_ADJUDICATED_VERDICT"];
+    ( to_entries[] | .key as $i | .value as $r
+      | if ($r.event? | type) != "string" then "line \($i+1): missing or non-string event"
+        elif ((TRAJ + FREE) | index($r.event)) == null then "line \($i+1): unknown event \"\($r.event)\""
+        elif (TRAJ | index($r.event)) != null and (($r.task? | type) != "string")
+          then "line \($i+1): \($r.event) requires a string task"
+        elif (TRAJ | index($r.event)) != null and ((["ungated","gated"] | index($r.arm?)) == null)
+          then "line \($i+1): \($r.event) requires arm ungated|gated"
+        else empty end ),
+    ( map(select(.event as $e | (DISP | index($e)) != null))
+      | group_by([.task, .arm])[] | select(length > 1)
+      | "\(.[0].task)/\(.[0].arm): \(length) terminal dispositions — \(map(.event) | join(", "))" )
+  ' "$DEVIATIONS" 2>&1); rc=$?
+  if [ "$rc" -ne 0 ]; then
+    say "DEVIATIONS LEDGER INVALID: not parseable as JSONL — $(printf %s "$out" | head -2 | tr '\n' ' ')"; return 1
+  fi
+  if [ -n "$out" ]; then
+    say "DEVIATIONS LEDGER INVALID:"
+    printf '%s\n' "$out" | head -20 | while IFS= read -r l; do say "  $l"; done
+    return 1
+  fi
 }
 
 dev() {
@@ -177,6 +250,7 @@ breaker() {
 run_one() {
   local task="$1" arm="$2"
   if post_start_failed "$task" "$arm"; then
+    preserve_post_start "$task" "$arm"
     dev "$task" "$arm" POST_START_FINALIZATION_FAILURE "trajectory-start marker present with no verdict on entry; TERMINAL — never re-rolled"
     halt_post_start "$task" "$arm"; return 4
   fi
@@ -222,6 +296,7 @@ run_one() {
     fi
     # POST-START BOUNDARY: if the agent ran, this is never retried
     if [ "$rc" -eq 11 ] || started_marker "$task" "$arm"; then
+      preserve_post_start "$task" "$arm"
       dev "$task" "$arm" POST_START_FINALIZATION_FAILURE "the agent ran but no valid verdict was persisted (rc=$rc); artifacts preserved; TERMINAL — never re-rolled"
       halt_post_start "$task" "$arm"; return 4
     fi
@@ -264,19 +339,31 @@ checkpoint() {
 # derived from the registered order and compared as a set.
 verify_completion() {
   local expected vpairs vuniq ipairs icount dup overlap unknown missing
+  validate_deviations || return 1
   expected=$(printf '%s\n' "${PAIRS[@]}" | awk 'NF{print $1"\tungated"; print $1"\tgated"}' | LC_ALL=C sort)
   [ "$(printf '%s\n' "$expected" | grep -c .)" -eq 34 ] \
     || { say "INVARIANT VIOLATION: the registered universe is not 34 (task,arm) pairs"; return 1; }
 
-  jq -e -s 'all((.task|type=="string") and (.arm=="ungated" or .arm=="gated"))' "$RESULTS" >/dev/null 2>&1 \
-    || { say "INVARIANT VIOLATION: results.jsonl holds a line that is not a verdict with a string task and a valid arm"; return 1; }
+  # every per-trajectory file must be a COMPLETE verdict by the shared schema
+  local vf
+  for vf in "$TB_RUNS"/*.verdict.json; do
+    [ -e "$vf" ] || continue
+    is_verdict_file "$vf" || { say "INVARIANT VIOLATION: $vf is not a complete verdict record"; return 1; }
+  done
+  # results.jsonl is DERIVED — rebuild it, then require it to agree exactly
+  rebuild_results "$TB_RUNS" || { say "INVARIANT VIOLATION: results.jsonl could not be derived from the per-trajectory verdicts"; return 1; }
+  jq -e -s "all($VERDICT_REQUIRED)" "$RESULTS" >/dev/null 2>&1 \
+    || { say "INVARIANT VIOLATION: results.jsonl holds a line that is not a complete verdict record"; return 1; }
+  local nfiles; nfiles=$(ls "$TB_RUNS"/*.verdict.json 2>/dev/null | wc -l)
+  [ "$(wc -l <"$RESULTS")" -eq "$nfiles" ] \
+    || { say "INVARIANT VIOLATION: results.jsonl has $(wc -l <"$RESULTS") lines but there are $nfiles per-trajectory verdicts"; return 1; }
 
   vpairs=$(jq -r '"\(.task)\t\(.arm)"' "$RESULTS" 2>/dev/null | LC_ALL=C sort)
   dup=$(printf '%s\n' "$vpairs" | grep . | uniq -d | grep -c .)
   [ "$dup" -eq 0 ] || { say "INVARIANT VIOLATION: $dup (task,arm) pair(s) carry more than one verdict"; return 1; }
   vuniq=$(printf '%s\n' "$vpairs" | grep -c .)
 
-  ipairs=$(jq -r 'select(.event=="INFRASTRUCTURE_FAILURE" or .event=="POST_START_FINALIZATION_FAILURE")|"\(.task)\t\(.arm)"' "$DEVIATIONS" 2>/dev/null | LC_ALL=C sort -u)
+  ipairs=$(jq -r 'select(.event=="INFRASTRUCTURE_FAILURE" or .event=="POST_START_ADJUDICATED_EXCLUSION")|"\(.task)\t\(.arm)"' "$DEVIATIONS" 2>/dev/null | LC_ALL=C sort -u)
   icount=$(printf '%s\n' "$ipairs" | grep -c .)
   overlap=$(comm -12 <(printf '%s\n' "$vpairs" | grep .) <(printf '%s\n' "$ipairs" | grep .) | grep -c .)
   [ "$overlap" -eq 0 ] \
@@ -292,8 +379,10 @@ verify_completion() {
       | head -10 | while IFS= read -r l; do say "  mismatch: $l"; done
     return 1
   fi
-  say "COMPLETION INVARIANT OK: $vuniq verdicts + $icount terminal infrastructure failures = the 34 registered trajectories, each exactly once"
+  say "COMPLETION INVARIANT OK: $vuniq verdicts + $icount terminal dispositions = the 34 registered trajectories, each exactly once"
 }
+
+validate_deviations || { say "ABORT: the deviations ledger governs every exceptional case in this round and must be structurally valid before anything runs"; exit 12; }
 
 say "ROUND-3.1 SWEEP START model=$TB_MODEL driver-pass=$DRIVER_PASS results=$RESULTS"
 mapfile -t PAIRS <<< "$ORDERS"
@@ -305,6 +394,7 @@ for line in "${PAIRS[@]}"; do
   for arm in "$first" "$second"; do
     if have "$task" "$arm"; then say "SKIP $task $arm (verdict exists)"; continue; fi
     if post_start_failed "$task" "$arm" && ! adjudicated "$task" "$arm"; then
+      preserve_post_start "$task" "$arm"
       halt_post_start "$task" "$arm"
       checkpoint "post-start finalization failure at pair $pair_n" || true
       exit 11

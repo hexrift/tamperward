@@ -272,6 +272,85 @@ Twenty-one behavioural cases. Five fixes are mutation-checked: reverting the
 process-group fix, the exit-code split, the set identity, the overlap check, or
 the post-start boundary each makes its own case fail.
 
+### Fifth correction record: the adjudication state machine
+
+20. **The reconstruction route contradicted the completion invariant.** The
+    post-start failure was counted as a terminal disposition, so appending the
+    reconstructed verdict the halt message advertised would have put that
+    `(task, arm)` in both the verdict set and the terminal set — and the
+    invariant's own overlap check would have rejected it. The advertised route
+    could not have been taken.
+
+    The append-only **event** and the final **disposition** are now separate.
+    `POST_START_FINALIZATION_FAILURE` stays in the ledger forever and is not a
+    disposition; `runner/adjudicate31.sh` resolves it into exactly one of
+    `POST_START_ADJUDICATED_VERDICT` (the verdict is reconstructed from the
+    preserved artifacts, appended, and accounted for as a verdict) or
+    `POST_START_ADJUDICATED_EXCLUSION` (terminally absent, accounted for as a
+    terminal disposition). Dispositions are recorded once and are mutually
+    exclusive; the tool refuses a record for the wrong trajectory, a second
+    disposition, or a verdict where one already exists.
+21. **The deviations ledger governs every exceptional case and was unvalidated.**
+    It now fails closed, before anything launches and again at completion, on:
+    malformed JSONL; an unknown event name; a trajectory event without a string
+    task or an arm outside `{ungated, gated}`; and more than one terminal
+    disposition for the same `(task, arm)` — which covers duplicates and
+    contradictions together. Repeated non-disposition **events** stay
+    legitimate, which is what keeps the ledger a history rather than a state
+    file. Scope is deliberately validation only; the ledger is not redesigned.
+
+The scoped retry boundary is frozen in `PREDICTION3.1-taskbench.md` §1 rather
+than only here, because it changes the experimental handling of missing
+verdicts relative to rounds 1–3. That document is open — every outcome-relevant
+field is still `__SET_AT_REGISTRATION__`, and the driver refuses to run until
+they are filled — but §1 is frozen now, ahead of the rest, in git history.
+
+Twenty-three behavioural cases. Six fixes are mutation-checked: reverting the
+process-group fix, the exit-code split, the set identity, the overlap check,
+the post-start boundary, or the event/disposition split each makes its own case
+fail.
+
+### Sixth correction record: determinism, durability and what counts as a verdict
+
+22. **Adjudication permitted an outcome-dependent exclusion.** With the failed
+    trajectory's artifacts in front of them, a human could choose reconstruction
+    or exclusion. Since the analyzer drops any repository lacking both arms, an
+    exclusion removes the whole pair from the McNemar comparison — a
+    discretionary post-outcome choice able to move the study's single p-value.
+    Adjudication is now a frozen ladder (PREDICTION3.1 §1): R1 the runner's own
+    verdict line survived → append it; R2 the workspace survived → re-derive with
+    the same oracle at the recorded base; R3 neither → exclude, the only
+    sanctioned exclusion, for enumerated conditions. `adjudicate31.sh` refuses a
+    manual disposition that disagrees with the ladder, and records the rule, the
+    reason, the adjudicator, the timestamp and artifact sha256s.
+23. **An outer-timeout kill destroyed the evidence it promised.** Artifact
+    preservation lived only inside the runner's own failure path, which never
+    runs when the driver's `timeout` kills it — so the halt message pointed at a
+    directory that did not exist while the evidence sat in `/tmp`, one
+    `disk_guard` from deletion. The driver now preserves the marker's workspace
+    itself, at every detection point.
+24. **A row that merely matched was accepted as a verdict.** `have()` checked
+    only task and arm, so `{"task":"…","arm":"ungated"}` was skipped as done and
+    the sweep reported COMPLETE with exit 0. There is now one shared full-verdict
+    predicate (`runner/verdict-record.sh`) used by the runner when it persists,
+    the driver when it accepts and completes, and the adjudication tool when it
+    reconstructs — requiring outcome, oracle strength, both suite results, model,
+    transcript, timestamp and attempt provenance.
+25. **Persistence was not atomic.** `flock` coordinates cooperating writers; it
+    does not make an append all-or-nothing, so a torn write could poison the
+    ledger. Each trajectory now writes an immutable
+    `<task>-<arm>.verdict.json` (temp → validate → fsync → rename, written once
+    and never replaced), and `results.jsonl` is **derived** from those files in
+    trajectory-start order. A duplicate verdict is structurally impossible, and a
+    poisoned ledger is repaired rather than trusted —
+    `runner/rebuild-results31.sh` regenerates it at any time.
+
+Twenty-six behavioural cases. Nine fixes are mutation-checked: the process-group
+fix, the exit-code split, the set identity, the overlap check, the post-start
+boundary, the event/disposition split, the deterministic ladder, driver-side
+preservation, and the full-verdict predicate each make their own case fail when
+reverted.
+
 The two test seams this requires (`TB_FRESH_UPSTREAM` in the runner,
 `TB_HYGIENE_TEST` in the driver) are fail-closed: the runner refuses the
 rotation seam whenever a registered model is pinned, and the driver's test
