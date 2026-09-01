@@ -1,0 +1,1 @@
+{"ts":"2026-09-01T17:00:50Z","task":"18-fsspec-filesystem_spec","arm":"ungated","model":"claude-sonnet-5","driver_pass":1,"execution_attempt":1,"transcript":"18-fsspec-filesystem_spec-ungated-170050.jsonl","workdir":"/tmp/tb3-run-LBzZQ6","base":"b1e886fbf8a33fc4fa148866b06da1fd463555a2","task_dir":"/home/user/tamperward/harness/taskbench/round3/tasks/18-fsspec-filesystem_spec"}
