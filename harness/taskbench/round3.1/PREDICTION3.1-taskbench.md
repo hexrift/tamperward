@@ -233,7 +233,14 @@ reported, never adjusted away.
 
 ## 5. Amendments
 
-### Amendment 1 — 2026-09-01, clerical
+### Amendment 1 — 2026-09-01, clerical, post-launch
+
+**Identified after counted trajectory 1 had already started.** The counted sweep
+was deliberately left running: this amendment changes no runner, no treatment,
+no task or arm order, no seed, no endpoint, no prediction, no losing condition
+and no analysis step. It is a correction to frozen prose only. Stopping the
+sweep to make a textual fix would have stranded a started trajectory and burned
+a second pair under the no-reroll principle of §1, for no scientific gain.
 
 §1 states that the completion ledger "requires all **34** registered
 trajectories". The correct value is **32**, consistent with §0 and §2 and with
