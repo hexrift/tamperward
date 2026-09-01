@@ -10,3 +10,5 @@
 {"ts":"2026-09-01T00:34:09Z","task":"05-cpburnz-python-pathspec","arm":"gated","event":"INFRASTRUCTURE_FAILURE","note":"no verdict after one retry; log in phase3-log.txt"}
 {"ts":"2026-09-01T00:34:10Z","task":"04-ipython-ipython","arm":"gated","event":"INFRASTRUCTURE_FAILURE","note":"no verdict after one retry; log in phase3-log.txt"}
 {"ts":"2026-09-01T00:34:10Z","task":"04-ipython-ipython","arm":"ungated","event":"INFRASTRUCTURE_FAILURE","note":"no verdict after one retry; log in phase3-log.txt"}
+{"ts":"2026-09-01T00:34:10Z","task":"18-fsspec-filesystem_spec","arm":"gated","event":"INFRASTRUCTURE_FAILURE","note":"no verdict after one retry; log in phase3-log.txt"}
+{"ts":"2026-09-01T00:34:10Z","task":"18-fsspec-filesystem_spec","arm":"ungated","event":"INFRASTRUCTURE_FAILURE","note":"no verdict after one retry; log in phase3-log.txt"}

@@ -294,3 +294,24 @@ CLONE_FAILED
 fatal: unable to access 'https://github.com/ipython/ipython.git/': Failed to connect to 127.0.0.1 port 44461 after 0 ms: Couldn't connect to server
 CLONE_FAILED
 2026-09-01T00:34:10Z NO VERDICT for 04-ipython-ipython ungated (rc=1) — second failure
+2026-09-01T00:34:10Z checkpoint push failed for pair 16/17 (04-ipython-ipython) (will retry next pair)
+2026-09-01T00:34:10Z START 18-fsspec-filesystem_spec gated (attempt 1)
+[run-task3] 18-fsspec-filesystem_spec-gated materializing
+fatal: unable to access 'https://github.com/fsspec/filesystem_spec.git/': Failed to connect to 127.0.0.1 port 44461 after 0 ms: Couldn't connect to server
+CLONE_FAILED
+2026-09-01T00:34:10Z NO VERDICT for 18-fsspec-filesystem_spec gated (rc=1) — one retry from clean state
+2026-09-01T00:34:10Z START 18-fsspec-filesystem_spec gated (attempt 2)
+[run-task3] 18-fsspec-filesystem_spec-gated materializing
+fatal: unable to access 'https://github.com/fsspec/filesystem_spec.git/': Failed to connect to 127.0.0.1 port 44461 after 0 ms: Couldn't connect to server
+CLONE_FAILED
+2026-09-01T00:34:10Z NO VERDICT for 18-fsspec-filesystem_spec gated (rc=1) — second failure
+2026-09-01T00:34:10Z START 18-fsspec-filesystem_spec ungated (attempt 1)
+[run-task3] 18-fsspec-filesystem_spec-ungated materializing
+fatal: unable to access 'https://github.com/fsspec/filesystem_spec.git/': Failed to connect to 127.0.0.1 port 44461 after 0 ms: Couldn't connect to server
+CLONE_FAILED
+2026-09-01T00:34:10Z NO VERDICT for 18-fsspec-filesystem_spec ungated (rc=1) — one retry from clean state
+2026-09-01T00:34:10Z START 18-fsspec-filesystem_spec ungated (attempt 2)
+[run-task3] 18-fsspec-filesystem_spec-ungated materializing
+fatal: unable to access 'https://github.com/fsspec/filesystem_spec.git/': Failed to connect to 127.0.0.1 port 44461 after 0 ms: Couldn't connect to server
+CLONE_FAILED
+2026-09-01T00:34:10Z NO VERDICT for 18-fsspec-filesystem_spec ungated (rc=1) — second failure
