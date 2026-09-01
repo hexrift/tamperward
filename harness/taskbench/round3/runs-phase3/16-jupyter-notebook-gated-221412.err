@@ -1,0 +1,2 @@
+tamperward run: HEAD 276f7f2808 is not a descendant of the trusted base 61c5c1696b —
+the agent rewrote history out from under the anchor. That is the finding.

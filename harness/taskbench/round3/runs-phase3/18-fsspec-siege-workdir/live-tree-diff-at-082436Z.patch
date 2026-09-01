@@ -1,0 +1,23 @@
+diff --git a/fsspec/transaction.py b/fsspec/transaction.py
+index 365025c..c3f32f6 100644
+--- a/fsspec/transaction.py
++++ b/fsspec/transaction.py
+@@ -60,9 +60,9 @@ class Transaction:
+                     pass
+             raise
+         finally:
+-            self.fs._intrans = False
+-            self.fs._transaction = None
+-            self.fs = None
++            if self.fs:
++                self.fs._intrans = False
++                self.fs._transaction = None
+ 
+ 
+ class FileActor:
+@@ -105,4 +105,4 @@ class DaskTransaction(Transaction):
+                 self.files.discard().result()
+         finally:
+             self.fs._intrans = False
+-            self.fs = None
++            self.fs._transaction = None

@@ -1,0 +1,5 @@
+{"ts":"2026-08-31T22:08:10.346Z","path":"tests/test_distro.py","kind":"change","mode":33188,"size":86302,"hash":"69a0cc5b1515e739"}
+{"ts":"2026-08-31T22:10:03.838Z","path":".claude/settings.json","kind":"rename","mode":null,"size":null,"hash":null}
+{"ts":"2026-08-31T22:10:03.839Z","path":".tamperward.yml","kind":"rename","mode":null,"size":null,"hash":null}
+{"ts":"2026-08-31T22:10:06.449Z","path":".claude/settings.json","kind":"rename","mode":33188,"size":627,"hash":"6847da7d2b302501"}
+{"ts":"2026-08-31T22:10:06.449Z","path":".tamperward.yml","kind":"rename","mode":33188,"size":267,"hash":"8380301be470ed2a"}
