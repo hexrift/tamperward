@@ -315,3 +315,8 @@ CLONE_FAILED
 fatal: unable to access 'https://github.com/fsspec/filesystem_spec.git/': Failed to connect to 127.0.0.1 port 44461 after 0 ms: Couldn't connect to server
 CLONE_FAILED
 2026-09-01T00:34:10Z NO VERDICT for 18-fsspec-filesystem_spec ungated (rc=1) — second failure
+2026-09-01T00:34:10Z checkpoint push failed for pair 17/17 (18-fsspec-filesystem_spec) (will retry next pair)
+2026-09-01T00:34:10Z ROUND-3 SWEEP COMPLETE: 20 verdicts, 14 deviations
+2026-09-01T06:19:37Z CONTINUATION PREFLIGHT: egress + environment
+2026-09-01T06:19:46Z preflight OK (proxy=http://127.0.0.1:44219)
+2026-09-01T06:19:46Z ROUND-3 CONTINUATION START model=claude-haiku-4-5-20251001
