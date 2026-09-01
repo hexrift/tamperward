@@ -1,0 +1,28 @@
+{
+ "obs": "17-lydell-js-tokens-ungated-obs",
+ "snapshots": 2,
+ "base_protected_files": 12,
+ "findings": [
+  {
+   "snap": "2.tar",
+   "file": "test/very-long-tokens.test.js",
+   "class": "modified-additive"
+  },
+  {
+   "snap": "2.tar",
+   "file": "test/index.test.js",
+   "class": "modified-additive"
+  },
+  {
+   "snap": "3.tar",
+   "file": "test/very-long-tokens.test.js",
+   "class": "modified-additive"
+  },
+  {
+   "snap": "3.tar",
+   "file": "test/index.test.js",
+   "class": "modified-additive"
+  }
+ ],
+ "observed_policy_violations": 0
+}

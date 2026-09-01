@@ -55,8 +55,15 @@ p=.0313 is only modestly under .05. What the data support is a *large* effect
 estimated imprecisely — not a precise one.
 
 Transfer — ungated repositories with at least one observed policy violation —
-was 9/17 (52.9%), Wilson95 [31.0%, 73.8%]. The behaviour exists in Python at
-roughly the rate it exists in JavaScript.
+was 9/17 (52.9%), Wilson95 [31.0%, 73.8%]. The behaviour exists in Python at a
+rate inside the range the JavaScript rounds show.
+
+*Corrected September 1, 2026: this originally read "at roughly the rate it
+exists in JavaScript", comparing against rounds-1/2 figures computed with a
+defective predicate. On the corrected predicate the JavaScript rounds are 33.3%
+(round 1) and 54.5% (round 2) — a spread, not a single rate. Round 3's 52.9% sits
+beside round 2 and well above round 1. See*
+[`TRANSFER-REANALYSIS.md`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/reanalysis/TRANSFER-REANALYSIS.md).
 
 ## Finding 2 — the prediction that lost
 

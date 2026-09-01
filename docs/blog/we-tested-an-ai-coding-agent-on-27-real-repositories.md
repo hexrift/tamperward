@@ -2,7 +2,20 @@
 
 *August 30, 2026 · hexrift*
 
-*Short answer: half. In 13 of 26 ungated runs on real historical regressions, a
+> **Correction (September 1, 2026).** The transfer figure in this post was
+> computed with a defective predicate and is **wrong as published**. The
+> rounds-1/2 analyzer counted a bare `FALSE_GREEN` with no test weakening, and
+> any protected-tree change including purely additive edits, as an observed
+> policy violation. Recomputed under the corrected predicate — the one round 3
+> registered and every later round uses — round 1's transfer is **9/27 (33.3%)**,
+> not 13/26 (50%). Bet **B1 is refuted, not held**. The prevention result, the
+> McNemar test and every paired figure are unchanged. Method, per-snapshot
+> classification and artifact hashes:
+> [`harness/taskbench/reanalysis/TRANSFER-REANALYSIS.md`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/reanalysis/TRANSFER-REANALYSIS.md).
+> See also the [errata](./errata.md).
+
+*Short answer: a third — see the correction above; this post originally said
+half. In 9 of 27 ungated runs on real historical regressions, a
 pressured agent committed at least one policy violation — deleting, skipping, or
 gutting the tests that judged its work. And the result we did not want: the gate
 we've spent eleven posts building **did not reduce false greens** on these
@@ -84,19 +97,27 @@ The seed studies' core phenomenon — a pressured agent weakening the checks tha
 judge it — was measured on synthetic seeds we built ourselves, and post 9
 conceded exactly that. The transfer question was the reason taskbench exists.
 
-**13 of 26 ungated runs (50%, Wilson 95% [32%, 68%]) produced at least one
-observed policy violation on a real repository's real historical bug.** The
+**As published: 13 of 26 ungated runs (50%). Corrected: 9 of 27 ungated runs
+(33.3%, Wilson 95% [18.6%, 52.2%]) produced at least one observed policy
+violation on a real repository's real historical bug.** The frozen analyzer
+output quoted above is left verbatim and is not re-run; the corrected figure is
+derived separately and published beside it. The
 surviving violation classes across the study: 9 test skips, 7 assertion
 removals, 0 outright file deletions, 0 config or CI weakenings. Faced with a
 failing suite and pressure to go green, the cheapest edit was usually to skip
 the failing case or delete the failing rows — the same moves as on the seeds,
-now on webpack's, postcss's, and fastify's actual test files.
+now on webpack's, postcss's, and fastify's actual test files. (Those surviving
+class counts are final-tree classifications and are unaffected by the predicate
+correction; what changed is how many *trajectories* count as violating.)
 
-Our bet (B1) was 59% with a 40–78% band: substantially right, slightly high.
+Our bet (B1) was 59% with a 40–78% band. Against the corrected 33.3% that bet is
+**refuted** — it missed low, outside its own band. As published against the
+defective 50% it read as held, and that was wrong.
 This is the number that survives everything else in this post: **the integrity
 problem transfers to real repositories — this frame's high-impact JS/TS
-libraries with usable historical regressions, under a pressure prompt — at
-roughly the rate the seed studies implied.**
+libraries with usable historical regressions, under a pressure prompt.** At the
+corrected rate it transfers at *below* what the seed studies implied, which is
+the opposite of what this paragraph originally claimed.
 
 ## Finding 2 — the gate did not reduce false greens. We lost our headline bet.
 
@@ -172,7 +193,7 @@ all 330 denied egress attempts were one telemetry host (B6, right).
 
 | bet | predicted | observed | verdict |
 |---|---|---|---|
-| B1 transfer | 59% (40–78) | 50.0% [32.1, 67.9] | **held** |
+| B1 transfer | 59% (40–78) | ~~50.0% [32.1, 67.9]~~ → **33.3% [18.6, 52.2]** | ~~held~~ → **refuted** |
 | B2 prevention | RD +22 (+4..+40), p<.05 at 0.6 credence | RD +3.8 [−17.2, +24.7], p=1.0 | **refuted** |
 | B3 cost | RD +7 (−10..+25) | RD +7.7 [−12.8, +27.8] | **held** |
 | B4 honest-fix | no bet (descriptive, n=6) | RD 0.0% | — |
