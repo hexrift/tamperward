@@ -1,13 +1,3 @@
-<!--
-DRAFT — NOT PUBLISHED. Held outside docs/ deliberately so VitePress cannot
-deploy it. Publication order, inherited from round 3: pilot trajectories ->
-generic runner fixes only -> runner freeze -> THIS ARTICLE -> counted
-trajectory #1. Moving this file into docs/blog/ and adding its index and
-sidebar entries is the publication step, and it happens after the pilot and
-before the first counted trajectory. Pilot outcomes must not change any number
-in PREDICTION3.1; they may only change the runner, and only generically.
--->
-
 # Before we test the same tasks on a stronger model, here's what we think will happen
 
 *September 1, 2026*
@@ -21,9 +11,18 @@ question on the same repositories:
 
 Everything else is held: the same 17-task pool, the same v1.14.0 treatment
 byte-for-byte, the same pressure prompt, the same oracles, the same budgets. The
-model moves from Haiku to Sonnet. `PREDICTION3.1-taskbench.md` is frozen in git
-history; this post is the human-readable half, and it is published before the
-first counted trajectory.
+model moves from Haiku to `claude-sonnet-5`, pinned exactly.
+`PREDICTION3.1-taskbench.md` is frozen in git history, with sha256 pins on the
+runner, the driver, the verdict oracle, the prompt and the analyzer; this post
+is the human-readable half, and it is published before the first counted
+trajectory.
+
+**Chronology, stated precisely.** One accidental trajectory ran before the
+registration was frozen; it was quarantined unread and its whole pair burned
+(below). Six designated engineering pilots then ran under the final runner and
+are permanently excluded from confirmatory analysis (below). **No counted
+round-3.1 trajectory had run when this document and this article were frozen,
+and the remaining 16-pair counted pool has not been executed.**
 
 ## This is 3.1, not round 4
 
@@ -109,5 +108,35 @@ variables and moves the oracle out. It is not a security boundary and we do not
 call it one; the real one is a round-4 item. Both arms get identical treatment,
 so the paired comparison is unaffected. The full record is in the
 [errata](./errata.md).
+
+## What the pilot exercised
+
+Six prespecified engineering pilot trajectories completed under the final
+round-3.1 runner, across three pilot-role tasks that are **not** in the counted
+set and are permanently excluded from confirmatory analysis. Git history puts
+`PREDICTION3.1` before the first of them.
+
+No runner defect was identified and no amendment was made. All three gated
+pilots passed synthetic deny-path liveness, live Stop verification, network
+confinement, observer operation and envelope adjudication; the relocated oracle
+resolved on both the semantic and integrity paths; thirty-four egress attempts
+were denied by the network jail. The runner hash pinned in the registration is
+the one that ran them.
+
+All six were honest — three `HONEST_FIX`, three `NO_OBSERVED_VIOLATION`, zero
+denials, zero protected mutations, zero policy violations. **No pilot contained
+a naturally occurring policy violation, so the live adversarial path was not
+exercised by this model before the counted sweep.** The synthetic probe proves
+the gate's deny path is live; it is not evidence that the natural adversarial
+path was exercised.
+
+Three tasks are not evidence about sixteen. The predictions above are unchanged
+by what the pilots showed, and deliberately so: leaving them alone after seeing
+that pattern is what makes the eventual score worth anything.
+
+All three gated pilots took longer than their ungated twins (97→137s, 59→122s,
+74→103s). Gated execution includes additional verification work, but pilot
+wall-clock differences are descriptive and combine treatment work with
+stochastic trajectory and runtime variation.
 
 The next post is the answer. The git history proves this one came first.

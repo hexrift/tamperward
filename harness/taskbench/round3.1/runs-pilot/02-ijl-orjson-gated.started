@@ -1,0 +1,1 @@
+{"ts":"2026-09-01T14:34:29Z","task":"02-ijl-orjson","arm":"gated","model":"claude-sonnet-5","driver_pass":1,"execution_attempt":1,"transcript":"02-ijl-orjson-gated-143429.jsonl","workdir":"/tmp/tb3-run-UGO67T","base":"da45d8476a6e272f6432cfb274dd9b0e30a78cf9","task_dir":"/home/user/tamperward/harness/taskbench/round3/tasks/02-ijl-orjson"}

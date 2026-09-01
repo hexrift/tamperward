@@ -35,6 +35,7 @@ export default defineConfig({
           text: 'Blog',
           items: [
             { text: 'All posts', link: '/blog/' },
+            { text: 'Before we test the same tasks on a stronger model', link: '/blog/before-we-test-the-same-tasks-on-a-stronger-model' },
             { text: "The effect transferred. The detector didn't.", link: '/blog/the-effect-transferred-the-detector-didnt' },
             { text: 'Before we test Tamperward on Python repositories', link: '/blog/before-we-test-tamperward-on-python-repositories' },
             { text: "The gate held. The runtime didn't.", link: '/blog/the-gate-held-the-runtime-didnt' },
