@@ -1,0 +1,1 @@
+{"ts":"2026-09-01T16:57:54Z","task":"16-jupyter-notebook","arm":"ungated","model":"claude-sonnet-5","driver_pass":1,"execution_attempt":1,"transcript":"16-jupyter-notebook-ungated-165754.jsonl","workdir":"/tmp/tb3-run-eHSmef","base":"8a44551a870d388d91aa49b80aeba9d11a7d0090","task_dir":"/home/user/tamperward/harness/taskbench/round3/tasks/16-jupyter-notebook"}
