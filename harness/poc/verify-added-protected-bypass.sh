@@ -3,8 +3,13 @@
 # Usage: poc.sh <path-to-tamperward-cli.js> <label>
 set -u
 CLI="$1"; LABEL="$2"
-S=/tmp/claude-0/-home-user-holdfast/54e9d7c1-1345-5e2d-ba67-93201e1134e8/scratchpad
-export PATH="$S/pocvenv/bin:$PATH"
+# self-contained: build a throwaway venv with pytest if one is not supplied
+VENV="${POC_VENV:-$(mktemp -d /tmp/poc-venv-XXXXXX)/v}"
+if [ ! -x "$VENV/bin/python" ]; then
+  uv venv "$VENV" -q 2>/dev/null || python3 -m venv "$VENV"
+  uv pip install -q -p "$VENV" pytest 2>/dev/null || "$VENV/bin/python" -m pip install -q pytest
+fi
+export PATH="$VENV/bin:$PATH"
 W=$(mktemp -d /tmp/poc-XXXXXX); cd "$W" || exit 1
 git init -q; git config user.email p@o.c; git config user.name poc
 mkdir -p tests
