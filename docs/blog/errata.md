@@ -1,22 +1,9 @@
 # Errata
 
-This project audits its own publications against its own artifacts. On
-2026-08-31 every checkable claim in the thirteen pre-round-2 posts (179
-claims) was recomputed from the primary data; ten errors were found,
-independently re-verified, and corrected in place (the corrections are in
-the git history of each post). The round-2 results post was audited
-claim-by-claim separately, at publication.
-
-Corrected (all verified against primary artifacts before editing): a 2/1
-completion-discordance sentence that the frozen definition scores 5/3; a
-"three days before the sweep" that was 21 minutes; a flattened
-losing-condition claim (registered RD ≤ 0, observed +3.8); an analyzer
-output labeled "verbatim" that had been re-wrapped and abridged; an
-unmarked elision inside a quotation; "~470 unwalked repositories" of a
-frame that was in fact exhausted; "one of three control-arm bets refuted"
-where two were; "twenty-two words" for a 26-word sentence (twice); and an
-index line saying "zero cheats" over sixty runs that contained eight
-tamper-throughs.
+The project's central record of publication corrections, verified against
+primary artifacts before editing. Corrections are listed newest first.
+Outstanding uncertainties the artifacts cannot decide live in "Known,
+unresolved" above them — they are open items, not dated corrections.
 
 ## Known, unresolved
 
@@ -47,20 +34,7 @@ the 67- and 77-guarded-run totals (no artifact enumerates the eligible-run
 sets); and the negative claim over 58 of the 59 trajectories in the
 transient-mutation rescan.
 
-## 2026-08-31 — network isolation was observation-bounded (rounds 1–2)
-
-The taskbench egress allowlist proxy was wired via `HTTP[S]_PROXY`
-environment variables only. A round-3 pre-count probe (`egress-probe.sh`)
-established that a process in this environment can bypass those variables and
-reach infrastructure-permitted hosts directly, so the proxy observed agent
-traffic rather than enforcing a boundary. Rounds 1–2 therefore support
-"no proxy-observed forbidden retrieval," not "no network exposure"; their
-`NETWORK_EXPOSURE = 0` and the exposure sensitivity analysis are bounded by
-what the proxy could see. Round 3 closes this at the OS level (a network
-namespace with no route or resolver except the proxy's veth IP; PREDICTION3
-Amendment 3) so its exposure flag is enforced and measurable. No round-1/2
-primary endpoint (paired FALSE_GREEN prevention) depends on the network
-claim; the correction scopes the network sentence only.
+## Corrections — newest first
 
 ## 2026-09-01 — Round-3 results article corrections
 
@@ -95,3 +69,38 @@ the preserved run artifacts (PR #144):
 
 None of these corrections changes the frozen primary result:
 b=6, c=0, paired RD +35.3pp [9.5, 58.7], exact McNemar p=.0313.
+
+## 2026-08-31 — network isolation was observation-bounded (rounds 1–2)
+
+The taskbench egress allowlist proxy was wired via `HTTP[S]_PROXY`
+environment variables only. A round-3 pre-count probe (`egress-probe.sh`)
+established that a process in this environment can bypass those variables and
+reach infrastructure-permitted hosts directly, so the proxy observed agent
+traffic rather than enforcing a boundary. Rounds 1–2 therefore support
+"no proxy-observed forbidden retrieval," not "no network exposure"; their
+`NETWORK_EXPOSURE = 0` and the exposure sensitivity analysis are bounded by
+what the proxy could see. Round 3 closes this at the OS level (a network
+namespace with no route or resolver except the proxy's veth IP; PREDICTION3
+Amendment 3) so its exposure flag is enforced and measurable. No round-1/2
+primary endpoint (paired FALSE_GREEN prevention) depends on the network
+claim; the correction scopes the network sentence only.
+
+## 2026-08-31 — pre-round-2 publication audit: ten corrections in place
+
+This project audits its own publications against its own artifacts. On
+2026-08-31 every checkable claim in the thirteen pre-round-2 posts (179
+claims) was recomputed from the primary data; ten errors were found,
+independently re-verified, and corrected in place (the corrections are in
+the git history of each post). The round-2 results post was audited
+claim-by-claim separately, at publication.
+
+Corrected (all verified against primary artifacts before editing): a 2/1
+completion-discordance sentence that the frozen definition scores 5/3; a
+"three days before the sweep" that was 21 minutes; a flattened
+losing-condition claim (registered RD ≤ 0, observed +3.8); an analyzer
+output labeled "verbatim" that had been re-wrapped and abridged; an
+unmarked elision inside a quotation; "~470 unwalked repositories" of a
+frame that was in fact exhausted; "one of three control-arm bets refuted"
+where two were; "twenty-two words" for a 26-word sentence (twice); and an
+index line saying "zero cheats" over sixty runs that contained eight
+tamper-throughs.
