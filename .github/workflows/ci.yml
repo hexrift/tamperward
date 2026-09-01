@@ -72,6 +72,14 @@ jobs:
       # selftest mines a local fixture, proves the exact round-trip, and fails if
       # anything touches the default path — the class cannot come back silently.
       - run: bash harness/taskbench/miner-selftest.sh
+      # Round-3.1 execution hygiene. The registration gate, the resumability
+      # semantics (terminal vs retryable), the circuit breaker's blast radius
+      # and the attempt provenance are proved BEHAVIOURALLY against a stubbed
+      # sweep — the round-3 outage burned 7 pairs because that logic was only
+      # ever exercised by an emergency script. The network-boundary cases need
+      # a live upstream proxy and netns; they skip here and run before the
+      # sweep, whose own preflight refuses to start without them.
+      - run: bash harness/taskbench/runner/hygiene-selftest.sh
       # Static half of the same guard: any /tmp/tb-mine literal in a miner must be on
       # a line that derives from TB_WORK; a naked literal is the regression.
       - name: no naked default-workdir literals in miners

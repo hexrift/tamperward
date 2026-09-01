@@ -1,56 +1,185 @@
 #!/usr/bin/env bash
-# Selftest for the round-3.1 execution-hygiene deltas (ROUND3.1-PLAN).
-# Proves, without running any agent:
-#  H1 the allowlist proxy uses an EXPLICIT upstream argument over stale env
-#  H2 a dead upstream fails a trajectory as PREFLIGHT_NET_FAILED (exit 8)
-#     before any clone attempt
-#  H3 TB_ATTEMPT is stamped into the verdict jq line (static check)
-#  H4 the driver's circuit-breaker path exists for rc=8/CLONE_FAILED and the
-#     registration gate refuses to run unregistered (behavioural check above
-#     is repeated here)
-set -euo pipefail
+# BEHAVIOURAL selftest for the round-3.1 execution-hygiene deltas
+# (ROUND3.1-PLAN + the review corrections on PR #147). Nothing here runs an
+# agent or writes to a counted results directory. Each case asserts an
+# OBSERVED behaviour, not the presence of a string in a script.
+#
+#  G  registration gate is fail-closed on ALL THREE registered values
+#  N1 upstream rotation is rediscovered AT THE TRAJECTORY-START BOUNDARY,
+#     i.e. immediately before the agent's network path is built
+#  N2 a dead upstream everywhere fails as PREFLIGHT_NET_FAILED / exit 8
+#  N3 the rotation test seam is refused inside a registered run
+#  D1 forcing the runner's rc=8 records EXACTLY ONE launch, aborts the sweep,
+#     writes a retryable FAILED_LAUNCH, and leaves every later trajectory
+#     untouched
+#  D2 resuming after that outage re-attempts the SAME trajectory first and
+#     then completes the registered order
+#  D3 a TERMINAL INFRASTRUCTURE_FAILURE is skipped on resume (the next
+#     trajectory in the registered order is attempted instead)
+#  S  the verdict line stamps driver_pass and execution_attempt separately
+set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+TB="$(cd "$HERE/.." && pwd)"
 fail() { echo "SELFTEST FAIL: $1"; exit 1; }
+DEAD="http://127.0.0.1:1"
+TMP=$(mktemp -d /tmp/hyg-selftest-XXXXXX)
+trap 'rm -rf "$TMP"' EXIT
 
-# H1: proxy honors explicit upstream arg even when env points at a dead port
-LOG=$(mktemp); PORT=$((21000 + RANDOM % 9000))
-HTTPS_PROXY="http://127.0.0.1:1" node "$HERE/allowlist-proxy.mjs" "$PORT" "$LOG" 127.0.0.1 "${HTTPS_PROXY:?need a live HTTPS_PROXY for the selftest}" >/tmp/hyg-proxy.out 2>&1 &
-PP=$!; sleep 1
-kill -0 $PP 2>/dev/null || fail "proxy did not start with explicit upstream + dead env"
-out=$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' -x "http://127.0.0.1:$PORT" https://api.anthropic.com/ 2>&1) || true
-kill $PP 2>/dev/null
-case "$out" in 2*|3*|4*) echo "H1 OK: explicit upstream carried a CONNECT (http $out) despite stale env";;
-  *) fail "H1: tunnel through explicit upstream failed ($out)";; esac
+# ---------------------------------------------------------------- G ----
+rc=0; ( cd "$TB" && bash runner/phase3-sweep31.sh >"$TMP/g0.out" 2>&1 ) || rc=$?
+[ "$rc" -eq 7 ] || fail "G: unregistered driver did not refuse (rc=$rc)"
+grep -q 'REGISTERED_MODEL is empty or still a placeholder' "$TMP/g0.out" \
+  || fail "G: refusal did not name REGISTERED_MODEL"
+# a HALF-registered driver (model filled, seeds not) must still refuse, and
+# must name the unfilled seed — the defect the review caught
+for filled in 'REGISTERED_MODEL' 'REGISTERED_MODEL PAIR_SEED'; do
+  cp "$HERE/phase3-sweep31.sh" "$HERE/.hyg-gate-probe.sh"
+  for k in $filled; do
+    sed -i "s|^$k=\"__SET_AT_REGISTRATION__\"|$k=\"probe-value\"|" "$HERE/.hyg-gate-probe.sh"
+  done
+  rc=0; ( cd "$TB" && bash runner/.hyg-gate-probe.sh >"$TMP/g1.out" 2>&1 ) || rc=$?
+  rm -f "$HERE/.hyg-gate-probe.sh"
+  [ "$rc" -eq 7 ] || fail "G: driver with only [$filled] filled did not refuse (rc=$rc)"
+  case "$filled" in
+    'REGISTERED_MODEL') want=PAIR_SEED ;;
+    *) want=ARM_SEED ;;
+  esac
+  grep -q "$want is empty or still a placeholder" "$TMP/g1.out" \
+    || fail "G: refusal with [$filled] filled did not name $want"
+done
+echo "G OK: gate refuses until REGISTERED_MODEL, PAIR_SEED and ARM_SEED are all filled"
 
-# H2: dead upstream -> PREFLIGHT_NET_FAILED exit 8, before any clone
-set +e
-out=$(cd "$HERE/.." && HTTPS_PROXY="http://127.0.0.1:1" https_proxy="http://127.0.0.1:1" \
-      TB_TASKS="$PWD/round3/tasks" bash - <<'INNER'
-# call just the preflight region by running run-task31 with a bogus proxy;
-# the fresh-shell resolver may rescue it, so also poison the login shell var
-export BASH_ENV=/dev/null
-HTTPS_PROXY="http://127.0.0.1:1" https_proxy="http://127.0.0.1:1" \
-  timeout 60 bash runner/run-task31.sh 03-tusharsadhwani-pytokens ungated smoke 2>&1
-INNER
-); rc=$?
-set -e
-if echo "$out" | grep -q 'PREFLIGHT_NET_FAILED'; then
-  echo "H2 OK: dead upstream fails closed as PREFLIGHT_NET_FAILED (rc=$rc)"
-elif echo "$out" | grep -q 'upstream proxy rotated'; then
-  echo "H2 OK (rescue path): stale env detected and fresh proxy adopted"
+# ---------------------------------------------------------------- N ----
+# The N cases need a live upstream proxy and (for N4) netns support. Where
+# there is none — CI — they are skipped and the G/D/S cases still run, which
+# is the half most likely to rot. The counted sweep never runs without them:
+# its own preflight refuses to start unless the shared network and the
+# net-jail selftest are both good.
+LIVE="${HTTPS_PROXY:-}"
+if [ -z "$LIVE" ]; then
+  echo "N SKIP: no live HTTPS_PROXY in this environment (network boundary cases not run)"
 else
-  fail "H2: neither preflight failure nor rescue observed: $(echo "$out" | head -2)"
+# N1: inherited upstream points at a dead port; the fresh lookup returns the
+# live one. The boundary must rediscover it and then prove the FULL path.
+rc=0
+out=$(HTTPS_PROXY="$DEAD" https_proxy="$DEAD" TB_FRESH_UPSTREAM="$LIVE" TB_NETJAIL=0 \
+        bash "$HERE/run-task31.sh" --netcheck 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "N1: boundary failed with a live fresh upstream (rc=$rc): $(echo "$out" | tail -3)"
+echo "$out" | grep -q 'upstream proxy rotated' || fail "N1: rotation not detected at the boundary"
+echo "$out" | grep -q 'agent network path verified' || fail "N1: full-path probe did not run"
+echo "N1 OK: rotation rediscovered at the boundary and the whole chain proven before agent launch"
+
+# N2: dead everywhere -> fail closed
+rc=0
+out=$(HTTPS_PROXY="$DEAD" https_proxy="$DEAD" TB_FRESH_UPSTREAM="$DEAD" TB_NETJAIL=0 \
+        bash "$HERE/run-task31.sh" --netcheck 2>&1) || rc=$?
+[ "$rc" -eq 8 ] || fail "N2: dead upstream did not exit 8 (rc=$rc)"
+echo "$out" | grep -q 'PREFLIGHT_NET_FAILED' || fail "N2: no PREFLIGHT_NET_FAILED marker"
+echo "N2 OK: a dead agent network path is PREFLIGHT_NET_FAILED (exit 8), no verdict possible"
+
+# N3: the seam is refused in a registered run
+rc=0
+out=$(TB_FRESH_UPSTREAM="$LIVE" TB_REGISTERED_MODEL=some-model TB_NETJAIL=0 \
+        bash "$HERE/run-task31.sh" --netcheck 2>&1) || rc=$?
+[ "$rc" -eq 7 ] || fail "N3: test seam was accepted inside a registered run (rc=$rc)"
+echo "N3 OK: the rotation seam is refused whenever a registered model is pinned"
+
+# N4: the counted configuration — the same boundary INSIDE the network jail,
+# where the platform's own direct route to the API does not exist. This is the
+# path the counted agent actually gets.
+if ip netns list >/dev/null 2>&1; then
+  rc=0
+  out=$(TB_NETJAIL=1 bash "$HERE/run-task31.sh" --netcheck 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] || fail "N4: boundary failed inside the jail (rc=$rc): $(echo "$out" | tail -3)"
+  echo "$out" | grep -q 'net-jail: agent confined' || fail "N4: jail was not used"
+  echo "$out" | grep -q 'agent network path verified' || fail "N4: jailed full-path probe did not succeed"
+  echo "N4 OK: the boundary proves the jailed agent path, not an ambient host route"
+else
+  echo "N4 SKIP: no netns support here (the counted sweep's own preflight runs net-jail selftest)"
 fi
 
-# H3: attempt stamped in the runner's verdict construction
-grep -q 'argjson attempt' "$HERE/run-task31.sh" && grep -q 'attempt:\$attempt' "$HERE/run-task31.sh" \
-  || fail "H3: attempt stamping missing from run-task31.sh"
-echo "H3 OK: attempt stamped natively"
+fi
 
-# H4: circuit breaker + registration gate in the driver
-grep -q 'circuit breaker' "$HERE/phase3-sweep31.sh" && grep -q 'rc" -eq 8' "$HERE/phase3-sweep31.sh" \
-  || fail "H4: circuit breaker missing"
-rc=0; ( cd "$HERE/.." && bash runner/phase3-sweep31.sh >/dev/null 2>&1 ) || rc=$?
-[ "$rc" -eq 7 ] || fail "H4: registration gate did not refuse (rc=$rc)"
-echo "H4 OK: circuit breaker present; unregistered driver refuses (exit 7)"
+# ---------------------------------------------------------------- D ----
+# The registered order under the TESTMODE seeds, derived independently here.
+read -r P1TASK P1A P1B < <(cd "$TB" && node - <<'NODE'
+const crypto=require('crypto'), fs=require('fs');
+const tasks=fs.readdirSync('round3/tasks').filter(d=>JSON.parse(fs.readFileSync(`round3/tasks/${d}/manifest.json`)).role==='main').sort();
+const PAIR='testmode-pair-seed', ARM='testmode-arm-seed';
+const t=tasks.map(t=>[crypto.createHash('sha256').update(`${PAIR}:${t}`).digest('hex'),t]).sort()[0][1];
+const b=crypto.createHash('sha256').update(`${ARM}:${t}`).digest()[0];
+console.log(`${t} ${b%2===0?'ungated gated':'gated ungated'}`);
+NODE
+)
+[ -n "$P1TASK" ] || fail "D: could not derive the testmode order"
+
+STUB="$TMP/stub-runner.sh"
+cat > "$STUB" <<'STUBEOF'
+#!/usr/bin/env bash
+echo "$1 $2" >> "$LAUNCHLOG"
+if [ "${STUB_MODE:-ok}" = "fail8" ]; then echo "PREFLIGHT_NET_FAILED: stub"; exit 8; fi
+printf '{"task":"%s","arm":"%s","outcome":"STUB","driver_pass":%s,"execution_attempt":%s}\n' \
+  "$1" "$2" "${TB_DRIVER_PASS:-0}" "${TB_EXEC_ATTEMPT:-0}" >> "$TB_RUNS/results.jsonl"
+exit 0
+STUBEOF
+chmod +x "$STUB"
+
+drive() {  # <runs-dir> <launchlog> <stub-mode>
+  rc=0
+  ( cd "$TB" && TB_HYGIENE_TEST=1 TB_TEST_RUNS="$1" TB_TEST_RUNNER="$STUB" \
+      LAUNCHLOG="$2" STUB_MODE="$3" bash runner/phase3-sweep31.sh >>"$TMP/drive.out" 2>&1 ) || rc=$?
+  return $rc
+}
+
+# D1: force rc=8 on the first trajectory
+R1="/tmp/hyg-runs-$$-a"; rm -rf "$R1"; L1="$TMP/launch1.log"; : > "$L1"
+drive "$R1" "$L1" fail8; rc=$?
+[ "$rc" -eq 4 ] || fail "D1: circuit breaker did not abort with exit 4 (rc=$rc)"
+[ "$(wc -l < "$L1")" -eq 1 ] || fail "D1: expected exactly 1 launch, got $(wc -l < "$L1")"
+[ "$(head -1 "$L1")" = "$P1TASK $P1A" ] || fail "D1: wrong first launch '$(head -1 "$L1")' (want '$P1TASK $P1A')"
+[ "$(wc -l < "$R1/results.jsonl")" -eq 0 ] || fail "D1: a verdict was written during an outage"
+[ "$(jq -r 'select(.event=="FAILED_LAUNCH")|.task' "$R1/deviations.jsonl" | wc -l)" -eq 1 ] \
+  || fail "D1: expected exactly one FAILED_LAUNCH record"
+jq -e 'select(.event=="INFRASTRUCTURE_FAILURE")' "$R1/deviations.jsonl" >/dev/null 2>&1 \
+  && fail "D1: an outage burned a retry budget into a terminal INFRASTRUCTURE_FAILURE"
+[ "$(wc -l < "$R1/driver-passes.log")" -eq 1 ] || fail "D1: driver pass not counted once"
+echo "D1 OK: one launch, sweep aborted, retryable FAILED_LAUNCH, 33 trajectories left UNATTEMPTED"
+
+# D2: resume — the same trajectory is retried first, then the order completes
+: > "$L1"
+drive "$R1" "$L1" ok; rc=$?
+[ "$rc" -eq 0 ] || fail "D2: resume did not complete (rc=$rc)"
+[ "$(head -1 "$L1")" = "$P1TASK $P1A" ] || fail "D2: resume did not retry the failed launch first"
+[ "$(wc -l < "$R1/results.jsonl")" -eq 34 ] || fail "D2: expected 34 verdicts, got $(wc -l < "$R1/results.jsonl")"
+[ "$(wc -l < "$R1/driver-passes.log")" -eq 2 ] || fail "D2: driver pass not incremented on resume"
+jq -e 'select(.driver_pass==2 and .execution_attempt==1)' "$R1/results.jsonl" >/dev/null \
+  || fail "D2: driver_pass/execution_attempt not carried into the verdict"
+rm -rf "$R1"
+echo "D2 OK: resume retries the aborted trajectory first and finishes the registered order"
+
+# D3: a terminal INFRASTRUCTURE_FAILURE is skipped, the next arm runs instead
+R2="/tmp/hyg-runs-$$-b"; rm -rf "$R2"; mkdir -p "$R2"; L2="$TMP/launch2.log"; : > "$L2"
+printf '{"ts":"x","task":"%s","arm":"%s","event":"INFRASTRUCTURE_FAILURE","note":"seeded"}\n' \
+  "$P1TASK" "$P1A" > "$R2/deviations.jsonl"
+drive "$R2" "$L2" ok; rc=$?
+[ "$rc" -eq 0 ] || fail "D3: driver did not complete (rc=$rc)"
+grep -qx "$P1TASK $P1A" "$L2" && fail "D3: a terminal INFRASTRUCTURE_FAILURE was re-attempted"
+[ "$(head -1 "$L2")" = "$P1TASK $P1B" ] || fail "D3: wrong next trajectory '$(head -1 "$L2")'"
+[ "$(wc -l < "$R2/results.jsonl")" -eq 33 ] || fail "D3: expected 33 verdicts, got $(wc -l < "$R2/results.jsonl")"
+rm -rf "$R2"
+echo "D3 OK: terminal infrastructure failures stay excluded across a resume"
+
+# ---------------------------------------------------------------- S ----
+grep -q 'driver_pass:\$pass, execution_attempt:\$xattempt' "$HERE/run-task31.sh" \
+  || fail "S: verdict line does not stamp driver_pass and execution_attempt separately"
+grep -q 'attempt:\$attempt' "$HERE/run-task31.sh" \
+  && fail 'S: the ambiguous single-field attempt stamp is still emitted'
+# the boundary must be the LAST thing before the agent invocation
+bl=$(grep -n 'start_agent_network; snrc=' "$HERE/run-task31.sh" | cut -d: -f1)
+al=$(grep -n '^AGENT_CMD=' "$HERE/run-task31.sh" | cut -d: -f1)
+gl=$(grep -n 'PRE_AGENT_GOLD_RED' "$HERE/run-task31.sh" | cut -d: -f1)
+{ [ -n "$bl" ] && [ -n "$al" ] && [ -n "$gl" ] && [ "$gl" -lt "$bl" ] && [ "$bl" -lt "$al" ]; } \
+  || fail "S: the network boundary is not between gold validation and the agent invocation"
+echo "S OK: attempt provenance split; boundary sits immediately before the agent"
+
 echo "hygiene selftest OK"

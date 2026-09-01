@@ -81,6 +81,68 @@ selftested before registration pins the runner:
   failed against branch protection until backed up manually; the driver
   pushes to a non-protected checkpoint branch).
 
+### Correction record: review of the first hygiene implementation
+
+The first implementation of the five items above was reviewed before merge
+and corrected. Recorded here because the corrections change what the
+infrastructure guarantees, and the review happened before registration:
+
+1. **The health check ran too early to protect anything.** The upstream proxy
+   was resolved and probed at the top of the runner, then clone, install,
+   parent-red and gold validation ran for minutes before the agent started.
+   That is exactly the window round 3's rotation landed in. The check is now
+   a **trajectory-start boundary**: the upstream is re-resolved, the
+   allowlist proxy is launched, its process and listener are asserted, and a
+   request is driven from inside the network namespace, through that exact
+   proxy, to the model API — as the last thing before the agent is invoked.
+   Anything failing there is `PREFLIGHT_NET_FAILED` / exit 8 with no verdict
+   written. Without it, a rotated proxy yields an agent that cannot reach the
+   API, does no work, and leaves an unchanged red tree that the verdict
+   oracle would have scored as a counted `NOT_FIXED`.
+2. **Both liveness probes were vacuous.** The platform's `NO_PROXY` lists
+   `api.anthropic.com`, so `curl -x <proxy> https://api.anthropic.com/`
+   ignores the proxy and goes direct — reporting "alive" for a dead port and
+   "path verified" for a broken chain. Both probes now clear `NO_PROXY`, and
+   the liveness test requires curl to exit 0 rather than accepting any error
+   other than refused/timeout/resolve-failure. The behavioural self-test
+   below is what exposed this.
+3. **Terminal failures were re-attempted on resume.** The driver skipped
+   trajectories that had a verdict but not those already logged as
+   `INFRASTRUCTURE_FAILURE`, which round 3's driver treated as terminal. The
+   two states are now distinct: `INFRASTRUCTURE_FAILURE` (the registered
+   retry budget was spent) is terminal and excluded with its log;
+   `FAILED_LAUNCH` (the circuit breaker fired before anything was attempted
+   scientifically) is a permanent, append-only record that is explicitly
+   retryable.
+4. **The registration gate checked only the model.** A filled model with
+   unfilled seeds would have derived a bogus pair/arm order. All three
+   values must now be non-empty and non-placeholder.
+5. **`attempt` conflated two things.** The verdict line now carries
+   `driver_pass` (which sweep invocation) and `execution_attempt` (which try
+   within it) as separate fields. A driver pass is counted only after the
+   shared preflight passes, so a sweep that attempted nothing does not
+   inflate the number.
+6. **The circuit breaker was too broad.** It is immediate on the runner's
+   dedicated shared-infrastructure exit (rc=8). A `CLONE_FAILED` is treated
+   as systemic only when the shared preflight is also failing at that moment;
+   otherwise it is trajectory-local and takes the ordinary retry path.
+7. **Checkpoint commits could fail silently** — staging, commit and push each
+   report failure now; "nothing new to commit" is not reported as a failure.
+8. **The self-test proved only that strings were present.** It is now
+   behavioural: it drives a stubbed sweep to prove that a forced outage
+   records exactly one launch, aborts, writes a retryable record and leaves
+   every later trajectory untouched; that a resume re-attempts that same
+   trajectory first and then completes the registered order; that a terminal
+   failure stays excluded across a resume; and that upstream rotation is
+   rediscovered at the boundary — inside the jail, where the platform's own
+   direct route to the API does not exist.
+
+The two test seams this requires (`TB_FRESH_UPSTREAM` in the runner,
+`TB_HYGIENE_TEST` in the driver) are fail-closed: the runner refuses the
+rotation seam whenever a registered model is pinned, and the driver's test
+mode refuses to write anywhere but `/tmp` and supplies its own model and
+seeds, so it cannot reach a counted results directory.
+
 ## Explicitly out of scope for 3.1 (reserved for round 4)
 
 Fixing pytest skip detection; the trajectory-integrity schema cleanup

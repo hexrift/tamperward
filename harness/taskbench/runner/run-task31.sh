@@ -10,8 +10,10 @@
 #   H2 per-trajectory network preflight: a dead upstream fails the trajectory
 #      as PREFLIGHT_NET_FAILED (exit 8) BEFORE any clone attempt burns the
 #      retry budget; the driver circuit-breaks on it
-#   H3 attempt stamping: TB_ATTEMPT (default 1) is recorded in the verdict
-#      line natively, replacing the continuation driver's post-edit
+#   H3 attempt stamping: driver_pass (which sweep invocation) and
+#      execution_attempt (which try WITHIN that invocation) are recorded as
+#      SEPARATE verdict fields, natively -- replacing round 3's single
+#      post-edited `attempt`, which conflated the two
 # Usage: runner/run-task31.sh <task-id> <ungated|gated> [smoke]
 #   smoke: materialize + oracles only, NO agent call (synthetic probes instead).
 #
@@ -37,6 +39,103 @@ TB="$(cd "$HERE/.." && pwd)"
 ROOT="$(cd "$TB/../.." && pwd)"
 CLI="$ROOT/dist/cli/index.js"
 
+# ---- upstream proxy resolution (H1, corrected) --------------------------
+# The platform can rotate the upstream proxy port under a running sweep (the
+# round-3 outage). alive() therefore requires curl to SUCCEED: any transport
+# error at all means "not usable", not just refused/timeout/resolve-failure.
+UPSTREAM="${HTTPS_PROXY:-}"
+# NO_PROXY in this platform's environment lists api.anthropic.com, which makes
+# curl IGNORE -x for exactly the host we are probing — a liveness check written
+# without clearing it returns "alive" for any string, including a dead port.
+# Both probes therefore clear NO_PROXY, the same way the agent is launched.
+alive() { [ -n "${1:-}" ] && env NO_PROXY= no_proxy= curl -sS --max-time 8 -o /dev/null -x "$1" "https://api.anthropic.com/" >/dev/null 2>&1; }
+# TB_FRESH_UPSTREAM is a hygiene-selftest seam ONLY: it substitutes for the
+# fresh-login-shell lookup so rotation can be exercised deterministically. It
+# is refused in any registered run (the counted driver exports
+# TB_REGISTERED_MODEL), so it cannot reach a counted trajectory.
+if [ -n "${TB_FRESH_UPSTREAM:-}" ] && [ -n "${TB_REGISTERED_MODEL:-}" ]; then
+  echo "ABORT: TB_FRESH_UPSTREAM is a self-test seam and must never be set in a registered run"; exit 7
+fi
+fresh_upstream() {
+  if [ -n "${TB_FRESH_UPSTREAM:-}" ]; then printf %s "$TB_FRESH_UPSTREAM"; return 0; fi
+  bash -lc 'printf %s "${HTTPS_PROXY:-}"' 2>/dev/null
+}
+resolve_upstream() {
+  local fresh; fresh=$(fresh_upstream)
+  if [ -n "$fresh" ] && [ "$fresh" != "$UPSTREAM" ] && alive "$fresh"; then
+    echo "[run-task31] upstream proxy rotated: ${UPSTREAM:-<unset>} -> $fresh (using fresh)"
+    UPSTREAM="$fresh"; export HTTPS_PROXY="$fresh" https_proxy="$fresh"
+  fi
+}
+
+teardown_net() { kill "${PROXY_PID:-0}" 2>/dev/null; [ -n "${NETNS:-}" ] && bash "$HERE/net-jail.sh" teardown "$TAG-$$"; }
+
+# ---- TRAJECTORY-START NETWORK BOUNDARY (H2, corrected) ------------------
+# Everything above the call to this function is infrastructure and cannot
+# produce a verdict. This is the LAST thing that happens before the agent is
+# invoked, so the path it proves is the path the agent gets:
+#     jail netns -> allowlist proxy (PROXY_HOST:PORT) -> upstream -> API
+# An early-only check is not enough: clone + install + parent-red + gold
+# validation take minutes, and a proxy rotation inside that window produces an
+# agent that cannot reach the model API, does no work, and leaves an unchanged
+# red tree that the verdict oracle would score as a counted NOT_FIXED. So:
+# re-resolve the upstream, launch the proxy, assert it is alive and listening,
+# then prove the whole chain end to end -- or exit 8 with no verdict written.
+start_agent_network() {
+  resolve_upstream
+  [ -n "$UPSTREAM" ] || { echo "PREFLIGHT_NET_FAILED: no upstream proxy resolved"; return 1; }
+  PORT=$(( 20000 + RANDOM % 20000 ))
+  NETNS=""; PROXY_HOST="127.0.0.1"; NETRUN=()
+  if [ "${TB_NETJAIL:-0}" = "1" ]; then
+    if ! read -r PROXY_HOST NETNS < <(bash "$HERE/net-jail.sh" setup "$TAG-$$" "$PORT"); then
+      echo "NETJAIL_SETUP_FAILED"; return 9
+    fi
+    NETRUN=(ip netns exec "$NETNS")
+    echo "[run-task31] net-jail: agent confined to $NETNS, egress only via $PROXY_HOST:$PORT"
+  fi
+  node "$HERE/allowlist-proxy.mjs" "$PORT" "$NETLOG" "$PROXY_HOST" "$UPSTREAM" > "$W/proxy.log" 2>&1 &
+  PROXY_PID=$!
+  local listening=0 i
+  for i in $(seq 1 20); do
+    kill -0 "$PROXY_PID" 2>/dev/null || break
+    if ( "${NETRUN[@]}" bash -c "exec 3<>/dev/tcp/$PROXY_HOST/$PORT" ) 2>/dev/null; then listening=1; break; fi
+    sleep 0.5
+  done
+  if ! kill -0 "$PROXY_PID" 2>/dev/null; then
+    echo "PREFLIGHT_NET_FAILED: allowlist proxy exited at launch"; sed -n 1,10p "$W/proxy.log"; return 1
+  fi
+  [ "$listening" = 1 ] || { echo "PREFLIGHT_NET_FAILED: allowlist proxy never accepted a connection on $PROXY_HOST:$PORT"; return 1; }
+  # full-path probe: from INSIDE the jail, through THIS proxy, to the model API.
+  # Marked in the netlog so the ALLOW line is not mistaken for agent traffic;
+  # net_fetch_attempts counts DENY lines only, so the count is unaffected.
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) PREFLIGHT runner probe (not agent traffic)" >> "$NETLOG"
+  local t code
+  for t in 1 2; do
+    code=$( "${NETRUN[@]}" env NO_PROXY= no_proxy= curl -sS --max-time 20 -o /dev/null -w '%{http_code}' \
+              -x "http://$PROXY_HOST:$PORT" "https://api.anthropic.com/" 2>/dev/null )
+    if [ $? -eq 0 ]; then
+      case "$code" in 2*|3*|4*)
+        echo "[run-task31] agent network path verified (api.anthropic.com http $code via $PROXY_HOST:$PORT -> $UPSTREAM)"
+        return 0 ;;
+      esac
+    fi
+    [ "$t" = 1 ] && sleep 3
+  done
+  echo "PREFLIGHT_NET_FAILED: no working agent network path (jail -> $PROXY_HOST:$PORT -> $UPSTREAM -> api.anthropic.com)"
+  return 1
+}
+
+# hygiene-selftest seam: run EXACTLY the boundary sequence above and exit with
+# its verdict. No task, no clone, no agent.
+if [ "${1:-}" = "--netcheck" ]; then
+  W=$(mktemp -d /tmp/tb31-netcheck-XXXXXX); TAG="netcheck"
+  NETLOG="$W/net-denied.log"; touch "$NETLOG"
+  trap 'teardown_net; rm -rf "$W"' EXIT
+  start_agent_network; nrc=$?
+  [ "$nrc" -eq 0 ] && { echo "NETCHECK_OK upstream=$UPSTREAM"; exit 0; }
+  exit 8
+fi
+
 ID="$1"; ARM="$2"; SMOKE="${3:-}"
 TASK="${TB_TASKS:-$TB/round3/tasks}/$ID"
 [ -f "$TASK/manifest.json" ] || { echo "no such task: $ID"; exit 1; }
@@ -49,18 +148,10 @@ if [ -n "${TB_REGISTERED_MODEL:-}" ] && [ "${TB_MODEL:-$TB_REGISTERED_MODEL}" !=
   echo "MODEL_PIN_VIOLATION: TB_MODEL='${TB_MODEL:-}' != registered '$TB_REGISTERED_MODEL'"; exit 7
 fi
 
-# H1: resolve the CURRENT upstream proxy from a fresh login shell; prefer it
-# over the (possibly stale) inherited value when they disagree and it is live
-FRESH_UP=$(bash -lc 'printf %s "${HTTPS_PROXY:-}"' 2>/dev/null)
-UPSTREAM="${HTTPS_PROXY:-}"
-alive() { [ -n "$1" ] && curl -sS --max-time 8 -o /dev/null -x "$1" "https://api.anthropic.com/" 2>/dev/null; rc=$?; [ "$rc" -ne 7 ] && [ "$rc" -ne 28 ] && [ "$rc" -ne 5 ]; }
-if [ -n "$FRESH_UP" ] && [ "$FRESH_UP" != "$UPSTREAM" ]; then
-  if alive "$FRESH_UP"; then
-    echo "[run-task31] upstream proxy rotated: $UPSTREAM -> $FRESH_UP (using fresh)"
-    UPSTREAM="$FRESH_UP"; export HTTPS_PROXY="$FRESH_UP" https_proxy="$FRESH_UP"
-  fi
-fi
-# H2: per-trajectory network preflight — fail closed BEFORE any attempt burns
+# EARLY preflight: fail closed before a clone/install burns the retry budget.
+# This is a cheap early-out only -- the authoritative check is the
+# trajectory-start boundary (start_agent_network) immediately before the agent.
+resolve_upstream
 if ! timeout 20 git ls-remote --heads "https://github.com/$REPO.git" >/dev/null 2>&1; then
   echo "PREFLIGHT_NET_FAILED: cannot reach github via '$UPSTREAM'"; exit 8
 fi
@@ -238,21 +329,13 @@ fi
 # address is the proxy's veth IP — direct egress is closed at the kernel, so
 # NETWORK_EXPOSURE is 0 by construction and measurable. Fail-closed when
 # requested; without it, the proxy binds loopback as before (smoke/dev).
+# ---- TRAJECTORY-START BOUNDARY ----
+# Nothing below this line may be reached without a proven agent network path.
 NETLOG="$W/net-denied.log"; touch "$NETLOG"
-PORT=$(( 20000 + RANDOM % 20000 ))
-NETNS=""; PROXY_HOST="127.0.0.1"; NETRUN=()
-if [ "${TB_NETJAIL:-0}" = "1" ]; then
-  if ! read -r PROXY_HOST NETNS < <(bash "$HERE/net-jail.sh" setup "$TAG-$$" "$PORT"); then
-    echo "NETJAIL_SETUP_FAILED"; exit 9
-  fi
-  NETRUN=(ip netns exec "$NETNS")
-  echo "[run-task3] net-jail: agent confined to $NETNS, egress only via $PROXY_HOST:$PORT"
-fi
-teardown_net() { kill "${PROXY_PID:-0}" 2>/dev/null; [ -n "$NETNS" ] && bash "$HERE/net-jail.sh" teardown "$TAG-$$"; }
 trap teardown_net EXIT
-node "$HERE/allowlist-proxy.mjs" "$PORT" "$NETLOG" "$PROXY_HOST" "$UPSTREAM" > "$W/proxy.log" 2>&1 &
-PROXY_PID=$!
-sleep 1
+start_agent_network; snrc=$?
+[ "$snrc" -eq 9 ] && exit 9
+[ "$snrc" -eq 0 ] || exit 8
 
 if [ -n "$SMOKE" ]; then
   echo "[run-task3] SMOKE: synthetic probes instead of an agent"
@@ -330,9 +413,9 @@ echo "$VERDICT" | jq -c \
     --argjson elapsed "$ELAPSED" --argjson killed "$AGENT_KILLED" \
     --argjson denies "${DENIES:-0}" --argjson net "${NETDENIED:-0}" \
     --argjson envexit "${ENVEXIT:-null}" \
-    --argjson attempt "${TB_ATTEMPT:-1}" \
+    --argjson pass "${TB_DRIVER_PASS:-1}" --argjson xattempt "${TB_EXEC_ATTEMPT:-1}" \
     --arg rung "$(cat "$W/rung" 2>/dev/null | head -1)" --arg tr "$(basename "$TRANSCRIPT")" \
-    '. + {arm:$arm, model:$model, elapsed_s:$elapsed, agent_killed:$killed, denies:$denies, net_fetch_attempts:$net, envelope_exit:$envexit, attempt:$attempt, install_rung:$rung, transcript:$tr}' \
+    '. + {arm:$arm, model:$model, elapsed_s:$elapsed, agent_killed:$killed, denies:$denies, net_fetch_attempts:$net, envelope_exit:$envexit, driver_pass:$pass, execution_attempt:$xattempt, install_rung:$rung, transcript:$tr}' \
   | tee -a "$RUNS/results.jsonl" \
   || echo "RESULTS_LINE_FAILED for $TAG"
 cp -a "$OBS" "$RUNS/$TAG-obs" 2>/dev/null || true
