@@ -38,8 +38,14 @@ transient-mutation rescan.
 
 ## 2026-09-01 — round-3.1 preregistration article: pilot counts and causal framing
 
-**Two corrections to the round-3.1 preregistration post, made shortly after
-publication and before any counted outcome was reported.**
+**Two corrections to the round-3.1 preregistration post, identified after
+counted trajectory 1 of the 32-trajectory sweep had already started, and made
+while it ran.** The sweep was deliberately left untouched: neither correction
+changes the runner, the treatment, the task or arm order, the seeds, the
+endpoints, the predictions, the losing conditions or the analysis plan, and no
+counted outcome had been reported. The corrections were prepared in a separate
+git worktree so the running sweep's own results directory and checkpoint branch
+were never touched, and trajectory 1 was not inspected while making them.
 
 1. **Pilot outcome counts were wrong.** The post said the six engineering pilots
    were "three `HONEST_FIX`, three `NO_OBSERVED_VIOLATION`". The artifacts say
