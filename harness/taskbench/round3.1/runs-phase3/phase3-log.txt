@@ -370,3 +370,6 @@ hint: "git config advice.addIgnoredFile false"
 2026-09-01T19:54:46Z SKIP 06-jawah-charset_normalizer gated (verdict exists)
 2026-09-01T19:54:46Z SKIP 06-jawah-charset_normalizer ungated (verdict exists)
 2026-09-01T19:54:46Z preserving /tmp/tb3-run-BhmoHn — referenced by an unadjudicated trajectory marker
+2026-09-01T19:54:48Z SKIP 12-burnash-gspread gated (verdict exists)
+2026-09-01T19:54:48Z SKIP 12-burnash-gspread ungated (verdict exists)
+2026-09-01T19:54:49Z preserving /tmp/tb3-run-BhmoHn — referenced by an unadjudicated trajectory marker
