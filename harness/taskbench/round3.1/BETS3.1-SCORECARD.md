@@ -18,13 +18,24 @@ reaches p < .05 only at `b ≥ 6`. This round is **underpowered given the
 observed violation rate**. It is not rescued by a one-sided test, by pooling
 with round 3, or by promoting a descriptive endpoint to confirmatory.
 
-**The confirmatory hypothesis was not supported, and the prespecified
-assay-starvation condition was not triggered — narrowly.** The registered floor
-was ungated transfer < 3 / 16; observed transfer is 4 / 16. Clearing it by one
-repository means the round was not classified as uninformative under its own
-rule. It does not establish equivalence or the absence of an effect: with one
-discordant pair the treatment-effect estimate is extremely imprecise
-(BP95 [−13.8%, 28.3%]).
+**The confirmatory hypothesis was not supported** — a failure to reject, not
+evidence of no effect. With one discordant pair the estimate is extremely
+imprecise (BP95 [−13.8%, 28.3%]).
+
+**The registered floor passed; the realized assay was starved anyway.** The
+floor was ungated transfer < 3 / 16 and observed transfer is 4 / 16, so the
+uninformative rule was not triggered — narrowly. But `b` can only be fed by
+ungated FALSE_GREEN, and there were **three** (the fourth violating repo,
+`18-fsspec-filesystem_spec`, is CORRECT_PLUS_VIOLATION and cannot contribute).
+So `b ≤ 3` and p ≥ .25: **significance was mathematically impossible in the
+realized dataset, even under perfect observed prevention.** The floor was set on
+observed policy violations, a broader class than the endpoint's own currency; a
+floor of six ungated false greens is the round-4 correction.
+
+**Sensitivity, descriptive only.** Excluding both pairs containing a post-start
+adjudicated trajectory leaves the confirmatory discordance unchanged at
+`b = 1`, `c = 0`, p = 1.0000 over 14 pairs (`ANALYSIS3.1-sensitivity-no-interrupted.txt`).
+Secondary quantities move: completion RD +18.8 → +28.6 pp, transfer 4/16 → 3/14.
 
 ## Bets
 

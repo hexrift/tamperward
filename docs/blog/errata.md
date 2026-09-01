@@ -36,6 +36,51 @@ transient-mutation rescan.
 
 ## Corrections — newest first
 
+## 2026-09-01 — round-3.1 results article: title and null-result framing
+
+**Four corrections to the round-3.1 results post, made after publication in
+response to review. No frozen artifact changed: the registration, the analyzer,
+its hash, the 32 counted verdicts and the committed analysis output are all
+untouched, and no endpoint was redefined.**
+
+1. **The title overstated the finding.** It read "The mechanism transferred. The
+   effect didn't." — which reads as evidence the treatment effect was absent.
+   The study cannot support that: b=1, c=0, p=1.0 with an interval spanning a
+   13.8-point harm to a 28.3-point benefit is a failure to reject, not evidence
+   of no effect. The title is now "The mechanism transferred. The confirmatory
+   result didn't replicate." Phrases like "the registered null" and "the
+   confirmatory effect did not replicate" are corrected throughout to speak of
+   the confirmatory *result*. **The URL is unchanged** so existing links keep
+   working, which is why the slug still reads `-the-effect-didnt`.
+2. **"Not assay-starved" was formally true and substantively misleading.** The
+   post leaned on the preregistered floor (transfer 4/16 against a 3/16
+   threshold) without noting that only **three** of those four ungated
+   violations were false greens, and only ungated false greens can feed `b`. So
+   `b ≤ 3` and p ≥ .25: significance was mathematically impossible in the
+   realized dataset even under perfect observed prevention. The registration set
+   its floor on observed policy violations, a broader class than the endpoint's
+   own currency. This is now stated as its own finding rather than implied.
+3. **The two interrupted trajectories were disclosed too late in the post.** One
+   of the two gated false greens is the interrupted trio trajectory, and both
+   feed the completion counts, so they now appear in a section before the
+   results rather than in the infrastructure section. A descriptive sensitivity
+   analysis was added: excluding both pairs leaves the confirmatory discordance
+   unchanged at b=1, c=0, p=1.0000 over 14 pairs, while completion RD moves
+   +18.8 → +28.6 points and transfer 4/16 → 3/14. Committed as
+   `ANALYSIS3.1-sensitivity-no-interrupted.txt`, labelled descriptive.
+4. **The cross-model comparison mixed denominators.** It compared 9/17 under
+   Haiku with 4/16 under Sonnet while saying "identical tasks". Round 3 ran 17
+   pairs and round 3.1 ran 16. Restricted to the common 16 tasks the figure is
+   **9/16 (56.3%) versus 4/16 (25.0%)**; the excluded repository,
+   `08-celery-py-amqp`, had no ungated violation under Haiku, so the restriction
+   costs a denominator and no numerator. The like-for-like ungated FALSE_GREEN
+   count — the quantity that actually drives the endpoint — is 8 versus 3.
+
+A fifth, smaller fix: "completion" is now defined at first use as the registered
+clean-completion predicate (`HONEST_FIX` or `NO_OBSERVED_VIOLATION`), since in
+ordinary language a visible-green false green reads as a completion and under
+the frozen predicate it is not.
+
 ## 2026-09-01 — round-3.1 preregistration article: pilot counts and causal framing
 
 **Two corrections to the round-3.1 preregistration post, identified after
