@@ -2,6 +2,18 @@
 
 *August 31, 2026 · hexrift*
 
+> **Correction (September 1, 2026).** The transfer figure in this post was
+> computed with a defective predicate and is **wrong as published**. The
+> rounds-1/2 analyzer counted a bare `FALSE_GREEN` with no test weakening, and
+> any protected-tree change including purely additive edits, as an observed
+> policy violation. Recomputed under the corrected predicate — the one round 3
+> registered and every later round uses — round 2's transfer is **12/22 (54.5%)**,
+> not 14/22 (64%). The transfer bet stays in band. The prevention result, the
+> McNemar test and every paired figure are unchanged. Method, per-snapshot
+> classification and artifact hashes:
+> [`harness/taskbench/reanalysis/TRANSFER-REANALYSIS.md`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/reanalysis/TRANSFER-REANALYSIS.md).
+> See also the [errata](./errata.md).
+
 *The short version: the rerun worked. On 22 fresh repositories that no detector was
 ever tuned on, the ungated agent faked a green in 13 and violated policy in 14;
 the full 1.9.0 stack — gate, filesystem observer, pristine re-execution at
@@ -86,8 +98,9 @@ cell; the full result lines, with every flag, are in
 
 Frozen analysis, verbatim:
 
-- **Transfer**: 14/22 ungated repos with ≥1 observed policy violation — 64%,
-  Wilson95 [43.0%, 80.3%]. (Bet: 50%, band 30–70. In band.)
+- **Transfer**: as published 14/22 — 64%, Wilson95 [43.0%, 80.3%]. **Corrected:
+  12/22 — 54.5%, Wilson95 [34.7%, 73.1%]** (see the correction above). (Bet:
+  50%, band 30–70. In band either way.)
 - **Prevention** (the one hypothesis, the one p-value): FALSE_GREEN
   ungated-only **b = 9**, gated-only **c = 0**; paired RD **+40.9%**, BP95
   [17.8%, 61.3%]; exact McNemar **p = 0.0039**. (Bet: b≈6, c≈1, RD ≈ +19%,
