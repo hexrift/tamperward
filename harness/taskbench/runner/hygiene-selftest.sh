@@ -35,6 +35,8 @@
 #  D10 the completion invariant is a set identity, not a count
 #  D11 a pair cannot be both a verdict and a terminal failure
 #  D12 a failed invariant is never logged as a complete sweep
+#  A4 cleanup preserves unadjudicated evidence, still removes garbage
+#  A3 a resume-detected post-start failure is recorded once (no deadlock)
 #  A1 R2 finds an oracle relocated out of the workspace (19-flake8 regression)
 #  A2 two candidate oracles = ambiguity = R3, never a discretionary pick
 #  M1 a bare invocation refuses; --check creates nothing and runs nothing
@@ -55,7 +57,7 @@ cleanup() {
   # exact lock paths for THIS process's run dirs, computed the same way the
   # driver does — never a wildcard over /tmp/tb31-driver-*.lock
   local x
-  for x in a b c d e f g h i j k l m n o p q r s t u; do
+  for x in a b c d e f g h i j k l m n o p q r s t u v w; do
     rm -f "/tmp/tb31-driver-$(printf %s "/tmp/hyg-runs-$$-$x" | md5sum | cut -c1-12).lock" \
           "/tmp/tb31-results-$(printf %s "/tmp/hyg-runs-$$-$x" | md5sum | cut -c1-12).lock"
   done
@@ -170,6 +172,16 @@ NLESS1=$((NTRAJ-1))
 EXCL=$(grep -m1 '^EXCLUDED_TASKS=' "$HERE/phase3-sweep31.sh" | cut -d'"' -f2)
 
 # The registered order under the TESTMODE seeds, derived independently here.
+mapfile -t PAIRS_ORDER < <(cd "$TB" && EXCLUDED="$EXCL" node - <<'ORDER'
+const crypto=require('crypto'), fs=require('fs');
+const tasks=fs.readdirSync('round3/tasks').filter(d=>JSON.parse(fs.readFileSync(`round3/tasks/${d}/manifest.json`)).role==='main').sort();
+const excluded=new Set((process.env.EXCLUDED||'').split(/[\s,]+/).filter(Boolean));
+const order=tasks.map(t=>[crypto.createHash('sha256').update(`testmode-pair-seed:${t}`).digest('hex'),t])
+  .sort().map(x=>x[1]).filter(x=>!excluded.has(x));
+for(const t of order){const b=crypto.createHash('sha256').update(`testmode-arm-seed:${t}`).digest()[0];
+  console.log(`${t} ${b%2===0?'ungated gated':'gated ungated'}`);}
+ORDER
+)
 read -r P1TASK P1A P1B < <(cd "$TB" && EXCLUDED="$EXCL" node - <<'NODE'
 const crypto=require('crypto'), fs=require('fs');
 const tasks=fs.readdirSync('round3/tasks').filter(d=>JSON.parse(fs.readFileSync(`round3/tasks/${d}/manifest.json`)).role==='main').sort();
@@ -617,14 +629,18 @@ echo "M1 OK: a bare invocation refuses; --check validates without creating or ru
 # A1: the actual 19-flake8 regression. A post-start failure whose oracle lives
 # OUTSIDE the workspace (the control-plane correction relocated it) must still
 # reach R2 and re-derive, not fall to R3 because of a stale pathname.
+# the oracle must sit where the RELOCATION actually puts it -- a control dir
+# outside the workspace -- or the test proves nothing about the regression
+[ "$(ls -d /tmp/tb31-ctrl-* 2>/dev/null | wc -l)" -eq 0 ] \
+  || fail "A1: a stray /tmp/tb31-ctrl-* exists; the fixture would not be testing its own oracle"
 A1R="/tmp/hyg-runs-$$-u"; rm -rf "$A1R"; mkdir -p "$A1R"
-A1WD=$(mktemp -d "$A1R/wd-XXXXXX"); A1CTRL=$(mktemp -d "$A1R/ctrl-XXXXXX")
+A1WD=$(mktemp -d "$A1R/wd-XXXXXX"); A1CTRL=$(mktemp -d /tmp/tb31-ctrl-hygA1XXXX)
 mkdir -p "$A1WD/repo" "$A1WD/venv" "$A1WD/obs" "$A1CTRL/oracle/pristine"
 echo "x" > "$A1CTRL/oracle/pristine/test_x.py"
 printf '{"ts":"x","task":"T","arm":"gated","event":"POST_START_FINALIZATION_FAILURE","note":"n"}\n' > "$A1R/deviations.jsonl"
 jq -nc --arg wd "$A1WD" '{ts:"x",task:"T",arm:"gated",model:"m",driver_pass:1,execution_attempt:1,
   transcript:"t.jsonl",workdir:$wd,base:"deadbeef",task_dir:"/nonexistent"}' > "$A1R/T-gated.started"
-out=$(bash "$HERE/adjudicate31.sh" "$A1R" T gated ladder 2>&1)
+out=$(bash "$HERE/adjudicate31.sh" "$A1R" T gated ladder 2>&1); rm -rf "$A1CTRL"
 echo "$out" | grep -q 'ladder: R2' \
   || fail "A1: a relocated oracle did not reach R2 — got: $(echo "$out" | head -1)"
 echo "A1 OK: R2 finds an oracle relocated out of the workspace (the 19-flake8 regression)"
@@ -644,6 +660,48 @@ echo "$out" | grep -q 'ladder: R3' \
 echo "$out" | grep -q 'ambiguous, refusing to guess' || fail "A2: ambiguity was not reported"
 echo "A2 OK: two candidate oracles is ambiguity — R3, never a discretionary pick"
 rm -rf "$A1R"
+
+# A3: a post-start failure detected on RESUME (driver died before recording it)
+# must write the ledger event, not just halt. Otherwise the driver halts without
+# a record and the adjudicator refuses for want of one — a deadlock.
+A3R="/tmp/hyg-runs-$$-v"; rm -rf "$A3R"; L3R="$TMP/launchA3.log"; : > "$L3R"
+drive "$A3R" "$L3R" poststart STUB_FAIL_PAIR="$P1TASK $P1A"; rc=$?
+[ "$rc" -eq 11 ] || fail "A3: setup — expected halt (rc=$rc)"
+# simulate the driver having died before recording: strip the event, keep marker
+: > "$A3R/deviations.jsonl"
+: > "$L3R"; drive "$A3R" "$L3R" ok; rc=$?
+[ "$rc" -eq 11 ] || fail "A3: resume did not halt on the orphaned marker (rc=$rc)"
+jq -e --arg t "$P1TASK" --arg a "$P1A" \
+   'select(.task==$t and .arm==$a and .event=="POST_START_FINALIZATION_FAILURE")' "$A3R/deviations.jsonl" >/dev/null \
+  || fail "A3: resume halted WITHOUT recording the event — adjudicator would deadlock"
+n1=$(jq -s 'length' "$A3R/deviations.jsonl")
+: > "$L3R"; drive "$A3R" "$L3R" ok >/dev/null 2>&1
+[ "$(jq -s 'length' "$A3R/deviations.jsonl")" -eq "$n1" ] || fail "A3: a second resume duplicated the event"
+rm -rf "$A3R"
+echo "A3 OK: a resume-detected post-start failure is recorded once, so adjudication can proceed"
+
+# A4: the inter-pair cleanup must NOT delete the workspace of a trajectory that
+# started but has no verdict and no disposition. In the 19-pycqa-flake8 incident
+# the marker was on a LATE pair, so the cleanup ran during the earlier skipped
+# pairs and destroyed the evidence before the driver reached it. The fixture
+# reproduces that shape: complete the sweep, then orphan one late trajectory.
+A4R="/tmp/hyg-runs-$$-w"; rm -rf "$A4R"; L4R="$TMP/launchA4.log"; : > "$L4R"
+drive "$A4R" "$L4R" ok >/dev/null 2>&1
+[ "$(ls "$A4R"/*.verdict.json 2>/dev/null | wc -l)" -eq "$NTRAJ" ] || fail "A4: setup sweep incomplete"
+# orphan the LAST pair in the registered order, so earlier pairs skip first
+read -r A4TASK A4ARM _ < <(printf '%s\n' "${PAIRS_ORDER[@]}" | tail -1)
+rm -f "$A4R/$A4TASK-$A4ARM.verdict.json"
+A4WD=$(mktemp -d /tmp/tb3-run-hygA4XXXX); echo evidence > "$A4WD/keepme"
+A4OTHER=$(mktemp -d /tmp/tb3-run-hygZZZZXX); echo garbage > "$A4OTHER/junk"
+jq -nc --arg wd "$A4WD" --arg t "$A4TASK" --arg a "$A4ARM" '{ts:"x",task:$t,arm:$a,model:"m",
+  driver_pass:1,execution_attempt:1,transcript:"t.jsonl",workdir:$wd,base:"deadbeef",task_dir:"/x"}' \
+  > "$A4R/$A4TASK-$A4ARM.started"
+: > "$L4R"; drive "$A4R" "$L4R" ok; rc=$?
+[ "$rc" -eq 11 ] || fail "A4: expected a post-start halt at the orphaned trajectory (rc=$rc)"
+[ ! -d "$A4OTHER" ] || fail "A4: cleanup never ran — the fixture is vacuous, it proves nothing"
+[ -d "$A4WD" ] || fail "A4: the cleanup deleted the workspace of an unadjudicated trajectory"
+rm -rf "$A4R" "$A4WD" "$A4OTHER"
+echo "A4 OK: unadjudicated evidence survives cleanup; unreferenced workspaces are still removed"
 
 # ---------------------------------------------------------------- S ----
 grep -q 'driver_pass:\$pass, execution_attempt:\$xattempt' "$HERE/run-task31.sh" \

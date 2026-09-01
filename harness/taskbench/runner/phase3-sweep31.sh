@@ -121,10 +121,37 @@ if [ "$MODE" = execute ]; then
   flock -n 9 || { echo "ABORT: another driver already holds $DRIVER_LOCK for $TB_RUNS"; exit 6; }
 fi
 
+# Workspaces belonging to a trajectory that started but has neither a verdict
+# nor an adjudicated disposition are EVIDENCE, not garbage. During the
+# 19-pycqa-flake8 incident the inter-pair cleanup deleted one while it awaited
+# adjudication. Every cleanup now goes through here.
+protected_workdirs() {
+  local m t a
+  for m in "$TB_RUNS"/*.started; do
+    [ -e "$m" ] || continue
+    t=$(jq -r '.task // empty' "$m" 2>/dev/null); a=$(jq -r '.arm // empty' "$m" 2>/dev/null)
+    [ -n "$t" ] && [ -n "$a" ] || continue
+    have "$t" "$a" && continue                 # finished normally
+    adjudicated "$t" "$a" && continue          # already resolved
+    jq -r '.workdir // empty' "$m" 2>/dev/null
+  done
+}
+sweep_workdirs() {
+  local keep w
+  keep=$(protected_workdirs)
+  for w in /tmp/tb3-run-* /tmp/tb31-ctrl-*; do
+    [ -e "$w" ] || continue
+    if printf '%s\n' "$keep" | grep -qxF "$w"; then
+      say "preserving $w — referenced by an unadjudicated trajectory marker"; continue
+    fi
+    rm -rf "$w" 2>/dev/null
+  done
+}
+
 disk_guard() {
   local free_kb; free_kb=$(df --output=avail / | tail -1 | tr -d ' ')
   if [ "$free_kb" -lt 3000000 ]; then
-    rm -rf /root/.cache/uv /root/.npm/_cacache /tmp/tb3-run-* 2>/dev/null
+    rm -rf /root/.cache/uv /root/.npm/_cacache 2>/dev/null; sweep_workdirs
     free_kb=$(df --output=avail / | tail -1 | tr -d ' ')
     [ "$free_kb" -lt 3000000 ] && { say "ABORT: disk below 3GB"; exit 5; }
   fi
@@ -206,6 +233,10 @@ adjudicated() {
   jq -e --arg t "$1" --arg a "$2" \
     'select(.task==$t and .arm==$a and (.event=="POST_START_ADJUDICATED_VERDICT" or .event=="POST_START_ADJUDICATED_EXCLUSION"))' \
     "$DEVIATIONS" >/dev/null 2>&1
+}
+post_start_event_recorded() {
+  jq -e --arg t "$1" --arg a "$2" \
+    'select(.task==$t and .arm==$a and .event=="POST_START_FINALIZATION_FAILURE")' "$DEVIATIONS" >/dev/null 2>&1
 }
 post_start_failed() {
   adjudicated "$1" "$2" && return 1
@@ -464,6 +495,8 @@ for line in "${PAIRS[@]}"; do
     if have "$task" "$arm"; then say "SKIP $task $arm (verdict exists)"; continue; fi
     if post_start_failed "$task" "$arm" && ! adjudicated "$task" "$arm"; then
       preserve_post_start "$task" "$arm"
+      post_start_event_recorded "$task" "$arm" \
+        || dev "$task" "$arm" POST_START_FINALIZATION_FAILURE "detected on resume: trajectory-start marker with no verdict; TERMINAL — never re-rolled"
       halt_post_start "$task" "$arm"
       checkpoint "post-start finalization failure at pair $pair_n" || true
       exit 11
@@ -476,7 +509,7 @@ for line in "${PAIRS[@]}"; do
     [ "$rc" = 3 ] && { checkpoint "circuit-breaker at pair $pair_n" || true; exit 4; }
     [ "$rc" = 4 ] && { checkpoint "post-start finalization failure at pair $pair_n" || true; exit 11; }
   done
-  rm -rf /tmp/tb3-run-* 2>/dev/null
+  sweep_workdirs
   checkpoint "pair $pair_n/$PAIRS_EXPECTED ($task)" \
     || { say "ABORT: checkpoints are not reaching the remote — stopping rather than accumulating hours of local-only results (nothing is lost; fix the push and rerun this driver)"; exit 6; }
 done
