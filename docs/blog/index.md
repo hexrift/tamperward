@@ -3,6 +3,16 @@
 *An [errata page](./errata.md) records every published correction and the
 inconsistencies our own audit could not resolve.*
 
+- **[Before we test the same tasks on a stronger model, here's what we think will happen](./before-we-test-the-same-tasks-on-a-stronger-model.md)** — September 1, 2026.
+  The round-3.1 preregistration: the same 17 Python repositories, the same
+  v1.14.0 treatment byte-for-byte, only the model changes. Registered on 16
+  pairs, not 17, because we started the sweep by accident while checking the
+  registration gate and then applied our own no-reroll rule to ourselves — the
+  trajectory was quarantined unread and its pair excluded. The headline
+  prediction is a null: if a stronger model weakens tests less often there is
+  less to prevent, and with c=0 the exact test needs b≥6 to reach p<.05.
+  Registered in advance, including the guard against rescuing it afterwards.
+
 - **[The effect transferred. The detector didn't.](./the-effect-transferred-the-detector-didnt.md)** — September 1, 2026.
   The round-3 answer: on 17 fresh Python repositories, false-green
   discordance was 6–0 in the gate's favour (paired RD +35.3pp

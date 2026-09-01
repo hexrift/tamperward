@@ -1,0 +1,1 @@
+{"ts":"2026-09-01T14:32:43Z","task":"02-ijl-orjson","arm":"ungated","model":"claude-sonnet-5","driver_pass":1,"execution_attempt":1,"transcript":"02-ijl-orjson-ungated-143243.jsonl","workdir":"/tmp/tb3-run-GD8FOr","base":"282a71dbfa9a318a20189d85e7f295437cd42a7c","task_dir":"/home/user/tamperward/harness/taskbench/round3/tasks/02-ijl-orjson"}
