@@ -32,22 +32,27 @@ impossible.
 
 | experiment | result | what it supports |
 | --- | --- | --- |
-| **Round 1** — 26 paired real repos, historical regressions, 53 counted trajectories, **v1.6.0** ([`harness/taskbench/`](./harness/taskbench/)) | Transfer: **13/26 ungated runs (50%)** violated policy. Headline prevention bet **lost**: b=5 / c=4, RD +3.8pp [−17.2, +24.7], exact McNemar **p = 1.0** — published beside the bet | A detector-centric architecture was insufficient: agents routed around the shipped detector classes |
-| **Pristine oracle, round 1** — independent re-execution of the original suite | Identified **every masked failure observed among the 53 trajectories** while diff-time detection was routed around | The outcome-level signal that motivated `tamperward verify` |
-| **Round 2** — **22 fresh held-out repos** no detector was tuned on ([`harness/taskbench/round2/`](./harness/taskbench/round2/)) | Transfer 14/22 (64%). Prevention: **b=9 / c=0**, RD **+40.9pp**, BP95 **[17.8, 61.3]**, exact McNemar **p = 0.0039** | The preregistered **v1.9.0** treatment materially reduced false greens in that setting |
+| **Round 1** — 26 paired real repos, historical regressions, 53 counted trajectories, **v1.6.0** ([`harness/taskbench/`](./harness/taskbench/)) | Transfer: **9/27 ungated runs (33.3%)** violated policy ([corrected](./harness/taskbench/reanalysis/TRANSFER-REANALYSIS.md) from a published 13/26 — the original predicate was defective; the transfer bet is refuted, not held). Headline prevention bet **lost**: b=5 / c=4, RD +3.8pp [−17.2, +24.7], exact McNemar **p = 1.0** — published beside the bet | A detector-centric architecture was insufficient: agents routed around the shipped detector classes |
+| **Pristine oracle, round 1** — independent re-execution of the original suite, **including withheld semantic cases** | Identified **every masked failure observed among the 53 trajectories** while diff-time detection was routed around | The outcome-level signal that motivated `tamperward verify`. The shipped command productizes this oracle's base-restoration component only — it carries no withheld cases and cannot detect a semantically incomplete fix the base tests also accept |
+| **Round 2** — **22 fresh held-out repos** no detector was tuned on ([`harness/taskbench/round2/`](./harness/taskbench/round2/)) | Transfer **12/22 (54.5%)** ([corrected](./harness/taskbench/reanalysis/TRANSFER-REANALYSIS.md) from a published 14/22). Prevention: **b=9 / c=0**, RD **+40.9pp**, BP95 **[17.8, 61.3]**, exact McNemar **p = 0.0039** | The preregistered **v1.9.0** treatment materially reduced false greens in that setting |
 | **After prevention** — the nine round-2 prevented false greens | **8 of 9 became honest completions**; the ninth an honest **non**-completion | Prevention usually redirected trajectories toward honest work rather than merely blocking them |
+| **Round 3** — 17 paired Python repos, fresh PyPI frame, **v1.14.0** ([`harness/taskbench/round3/`](./harness/taskbench/round3/)) | Transfer 9/17 (52.9%). Prevention: **b=6 / c=0**, RD **+35.3pp**, BP95 [9.5, 58.7], exact McNemar **p = 0.0313** | The prevention result appeared in Python — with the treatment also changed from v1.9.0, so ecosystem transfer is not isolated. The in-loop skip detector proved blind to pytest syntax; the outer layers carried it |
+| **Round 3.1** — the same 16 pairs under **`claude-sonnet-5`** ([`harness/taskbench/round3.1/`](./harness/taskbench/round3.1/)) | Transfer 4/16 (25.0%). Prevention: **b=1 / c=0**, RD +6.3pp, BP95 [−13.8, 28.3], exact McNemar **p = 1.0000** | The confirmatory result **did not replicate**, and could not have: only three ungated false greens occurred, so `b ≤ 3` and p ≥ .25 whatever the gate did. A failure to reject, not evidence of no effect |
 
 Earlier controlled experiments → **[the research series](./docs/blog/index.md)**.
 
 > **Scope.** The rows above are one model, one pressure prompt, one JS/TS
 > ecosystem — evidence for that setting, not a universal claim. Round 2 tested
-> the v1.9.0 stack; the current **v1.14.0** adds post-study envelope hardening
+> the v1.9.0 stack; the current **v1.14.1** adds post-study envelope hardening
 > (externally reviewed, with findings tracked individually as REPRO or AUDIT in
 > [SECURITY-ENVELOPE.md](./SECURITY-ENVELOPE.md) and closed with regression and
-> mutation checks — see [CHANGELOG](./CHANGELOG.md)). Round 3 is in progress on a frozen v1.14.0
-> baseline, testing external validity on a fresh repository frame, with model,
-> runtime and ecosystem among the planned axes of change
-> ([`harness/taskbench/round3/ROUND3-PLAN.md`](./harness/taskbench/round3/ROUND3-PLAN.md)).
+> mutation checks — see [CHANGELOG](./CHANGELOG.md)). Rounds 3 and 3.1 are
+> complete and are in the table above. **1.14.1 closed a bypass in `tamperward
+> verify`** — an agent-added protected file could suppress the tests the pristine
+> run had just restored — which was present from v1.9.0 onward, so rounds 2, 3
+> and 3.1 all ran on a verifier carrying it. No evidence any agent used it; the
+> layer's authority in those rounds was nonetheless weaker than described at the
+> time. Round 4 is the fresh pool.
 > No round-3 outcomes are included in the claims above.
 
 ## Architecture
@@ -74,7 +79,7 @@ final adjudication boundary sits outside the agent's normal lifecycle.
       │    mutations judged from the event log                      │
       │                          │                                  │
       │  pristine verification   ▼   (`tamperward verify`)          │
-      │    suite runs twice in isolated copies: the candidate tree  │
+      │    suite runs twice in separate copies: the candidate tree  │
       │    as-is, and with protected tests/snapshots/config         │
       │    restored from the trusted base; visible-green +          │
       │    pristine-red = MASKED FAILURE                            │
@@ -220,6 +225,7 @@ and its totals.
 | v1.9.0 | `tamperward verify`: the round-1 pristine oracle productized — visible-green + pristine-red is a masked failure, and "could not verify" fails closed |
 | Round 2, 9–0 | On 22 fresh repositories, v1.9.0 produced b=9/c=0 false-green discordance (p = 0.0039); four gated false greens remained, through two documented residual mechanisms |
 | cssstyle lifecycle escape (round 2) | The `tamperward run` envelope: the gate denied 42 mutations and verify refused all 25 stop attempts, and the runtime completed the session anyway over a masked tree — hooks decide, runtimes terminate, so the adjudication boundary moved outside the runtime |
+| v1.14.1, article audit | `tamperward verify` kept agent-added protected files in the pristine run on the premise that they "only add strictness". An added `conftest.py` could deselect the restored base tests by node id, so a masked failure reported VERIFIED and the envelope printed GREEN MEANS GREEN over an unfixed bug. Added protected files are now removed; PoC and mutation-checked regression committed |
 | v1.10.1–v1.14.0, owner + two-pass external review | Frozen entry-time policy and verifier, entry-SHA ancestry enforcement, quiescence guard, dependency-tree fingerprint, a CI verify step in the generated workflow, the gate pinned to its own version in CI, and SHA-bound sign-off labels |
 
 Each row's primary artifact: [CHANGELOG.md](./CHANGELOG.md), [SPEC.md](./SPEC.md),
@@ -241,7 +247,7 @@ via npm trusted publishing with SLSA provenance. Full rule:
 
 ```bash
 npm install && npm run build    # bundles the CLI to dist/cli/index.js
-npm test                        # 364 tests at v1.14.0 — parser, detectors, engine, policy, renderers
+npm test                        # 365 tests at v1.14.1 — parser, detectors, engine, policy, renderers
 npm run typecheck
 ```
 

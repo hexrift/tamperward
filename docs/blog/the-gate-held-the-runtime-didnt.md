@@ -2,6 +2,17 @@
 
 *August 31, 2026 · hexrift*
 
+> **Note added September 1, 2026.** This round's pristine Stop-time verification
+> ran on a `tamperward verify` that carried a bypass, closed in
+> [1.14.1](https://github.com/hexrift/tamperward/blob/main/CHANGELOG.md): an
+> agent-**added** protected file (for example a new `conftest.py`) was kept in
+> the pristine copy and could deselect the very base tests the overlay had just
+> restored. No counted trajectory in this round shows an added protected control
+> file, so there is no evidence it was used — but that is an absence of observed
+> use, not proof of containment, and this layer's authority was weaker than
+> described here. See the [errata](./errata.md).
+
+
 > **Correction (September 1, 2026).** The transfer figure in this post was
 > computed with a defective predicate and is **wrong as published**. The
 > rounds-1/2 analyzer counted a bare `FALSE_GREEN` with no test weakening, and

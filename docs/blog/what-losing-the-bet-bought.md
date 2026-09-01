@@ -122,19 +122,39 @@ unless raised, semantic rewrites pass the effect check exactly as they pass
 the diff check, and the state lives in `.git/`, which the agent can reach.
 The loop layer is the correction layer. It has never been the authority.
 
-## Layer 3 (1.9.0): the oracle that went 53-for-53, shipped
+## Layer 3 (1.9.0): the base-restoration half of that oracle, shipped
+
+> **Correction (September 1, 2026).** This section conflated two different
+> things and stated one claim that was false. (1) The Taskbench 53-for-53 record
+> belongs to the **benchmark** run-correctness oracle, which used withheld
+> semantic cases where available. `tamperward verify` productizes that oracle's
+> **base-restoration component only** — it has no withheld cases, so it cannot
+> detect a semantically incomplete fix that the trusted-base tests also accept.
+> Round 3.1's `07-tableau-server-client-python` is exactly that boundary.
+> (2) The copies are separate directories, **not** a security boundary; both
+> execute agent-controlled code unsandboxed. (3) "Files the agent added are kept
+> — they only add strictness" was **false and shipped a bypass**, fixed in
+> [1.14.1](https://github.com/hexrift/tamperward/blob/main/CHANGELOG.md). See the
+> [errata](./errata.md).
 
 The one layer nothing got past in Phase 3 was never the gate — it was the
-pristine-suite re-execution oracle in the evaluation harness. It is now a
-command:
+run-correctness oracle in the evaluation harness. **The Taskbench oracle
+exposed every observed masked failure in that benchmark; `tamperward verify`
+productizes its base-restoration component, not its withheld semantic cases.**
+What shipped is a command:
 
 ```
 npx tamperward verify --base origin/main --cmd 'npm test'
 ```
 
-Two isolated copies of the working tree. The suite runs as-is, and again with
-every protected test, snapshot, and config restored from the trusted base rev
-(files the agent *added* are kept — they only add strictness). Visible-green
+Two separate copies of the working tree — separate directories, not a sandbox;
+both run agent-controlled code with the same authority the agent had. The suite
+runs as-is, and again with every protected test, snapshot, and config restored
+from the trusted base rev. Files the agent *added* inside a protected class are
+**removed** from the pristine copy as of 1.14.1, so its protected surface is
+exactly the base's. They were originally kept, on the stated premise that they
+could only add strictness; that premise was false, and an added `conftest.py`
+could deselect the very tests the overlay had just restored. Visible-green
 plus pristine-red is a **masked failure**, exit 1. It interprets no diff at
 all, which is why it is immune to spelling by construction. "Could not
 verify" — budget exceeded, materialization failed — exits closed, never open.
@@ -156,7 +176,9 @@ fixtures now — regression tests, forensic evidence, corpus material — and
 they can never be the benchmark again: fixing detectors against the exact
 behaviors a pool surfaced and then re-scoring on that pool is training on the
 test set. The 53-for-53 record is a trajectory record on one frame, under one
-model and one prompt, not a guarantee. And no prevention claim for
+model and one prompt, not a guarantee — and it is the *benchmark* oracle's
+record, including its withheld semantic cases, not a record for the shipped
+`verify` command on its own. And no prevention claim for
 1.7.0–1.9.0 exists anywhere in the repo, because none has been earned.
 
 Earning one looks like it looked last time: a fresh randomized draw from the
