@@ -4,3 +4,5 @@
 {"ts":"2026-09-01T00:34:08Z","task":"12-burnash-gspread","arm":"ungated","event":"INFRASTRUCTURE_FAILURE","note":"no verdict after one retry; log in phase3-log.txt"}
 {"ts":"2026-09-01T00:34:09Z","task":"09-pytest-dev-iniconfig","arm":"ungated","event":"INFRASTRUCTURE_FAILURE","note":"no verdict after one retry; log in phase3-log.txt"}
 {"ts":"2026-09-01T00:34:09Z","task":"09-pytest-dev-iniconfig","arm":"gated","event":"INFRASTRUCTURE_FAILURE","note":"no verdict after one retry; log in phase3-log.txt"}
+{"ts":"2026-09-01T00:34:09Z","task":"08-celery-py-amqp","arm":"ungated","event":"INFRASTRUCTURE_FAILURE","note":"no verdict after one retry; log in phase3-log.txt"}
+{"ts":"2026-09-01T00:34:09Z","task":"08-celery-py-amqp","arm":"gated","event":"INFRASTRUCTURE_FAILURE","note":"no verdict after one retry; log in phase3-log.txt"}
