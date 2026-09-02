@@ -113,6 +113,8 @@ export function parseDiff(diff: string): Change[] {
     let renameTo: string | null = null;
     let minusPath: string | null = null;
     let plusPath: string | null = null;
+    let oldMode: string | undefined;
+    let newMode: string | undefined;
     const hunks: Hunk[] = [];
 
     while (i < lines.length && !lines[i].startsWith('diff --git ')) {
@@ -129,8 +131,10 @@ export function parseDiff(diff: string): Change[] {
         continue;
       }
 
-      if (l.startsWith('new file mode')) op = 'add';
-      else if (l.startsWith('deleted file mode')) op = 'delete';
+      if (l.startsWith('new file mode ')) { op = 'add'; newMode = l.slice(14).trim(); }
+      else if (l.startsWith('deleted file mode ')) { op = 'delete'; oldMode = l.slice(18).trim(); }
+      else if (l.startsWith('old mode ')) oldMode = l.slice(9).trim();
+      else if (l.startsWith('new mode ')) newMode = l.slice(9).trim();
       else if (l.startsWith('rename from ')) { renameFrom = unquotePath(l.slice(12)); op = 'rename'; }
       else if (l.startsWith('rename to ')) { renameTo = unquotePath(l.slice(10)); op = 'rename'; }
       else if (l.startsWith('copy from ')) { renameFrom = unquotePath(l.slice(10)); if (op === 'modify') op = 'rename'; }
@@ -163,6 +167,8 @@ export function parseDiff(diff: string): Change[] {
       after: null,
       binary,
       hunks,
+      ...(oldMode !== undefined ? { oldMode } : {}),
+      ...(newMode !== undefined ? { newMode } : {}),
     };
     changes.push(change);
   }

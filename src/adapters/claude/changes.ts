@@ -7,7 +7,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, isAbsolute } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { Change, FileChange, FileOp } from '../../types';
 import { parseDiff } from '../../diff/parse';
 
@@ -32,12 +32,20 @@ function readDisk(path: string): string | null {
   }
 }
 
+/** NORMALISED absolute path. The tool input is the model's own spelling of the
+ *  path, and `/repo/./.claude/settings.json` or `/repo/src/../.tamperward.yml`
+ *  reached the detectors as `./.claude/settings.json` / `src/../.tamperward.yml`
+ *  — which no protected glob matches. Every exact-path protected asset (the
+ *  policy, the Claude hooks, the workflows) could be edited unseen at the
+ *  PreToolUse layer by writing its path with one redundant segment. */
 function abs(path: string, cwd: string): string {
-  return isAbsolute(path) ? path : join(cwd, path);
+  return resolve(cwd, path);
 }
 
+/** The repo-relative path when the file is inside `cwd`; the absolute path otherwise. */
 function relForDisplay(path: string, cwd: string): string {
-  return path.startsWith(cwd + '/') ? path.slice(cwd.length + 1) : path;
+  const rel = relative(cwd, path);
+  return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : path;
 }
 
 function applyEdit(content: string | null, oldStr: string, newStr: string): string {
@@ -70,10 +78,24 @@ export function synthFileChange(displayPath: string, before: string | null, afte
     writeFileSync(a, before ?? '');
     writeFileSync(b, after ?? '');
     try {
-      raw = execFileSync('git', ['diff', '--no-index', '--no-color', a, b], { encoding: 'utf8' });
+      // maxBuffer: Node's default is 1 MiB. A Write whose diff exceeded it was
+      // killed mid-output, and the catch below read the TRUNCATED patch as if it
+      // were the whole edit — so `test.skip` appended to a large spec was
+      // allowed, because the hunk that carried it was past the cut. (Full-content
+      // detectors were unaffected; every hunk-based one was blind past 1 MiB.)
+      raw = execFileSync('git', ['diff', '--no-index', '--no-color', a, b], {
+        encoding: 'utf8',
+        maxBuffer: 256 * 1024 * 1024,
+      });
     } catch (e) {
-      // git diff --no-index exits 1 when the files differ; the patch is on stdout
-      const err = e as { stdout?: string | Buffer };
+      // git diff --no-index exits 1 when the files differ; the patch is on stdout.
+      // Anything else — the buffer overflowing, git missing, a signal — is not a
+      // diff: partial stdout would parse as a SMALLER change than the one about
+      // to land, and the hook would allow on that partial view. Fail closed.
+      const err = e as { stdout?: string | Buffer; status?: number | null; code?: string; message?: string };
+      if (err.status !== 1) {
+        throw new Error(`cannot diff the incoming edit to ${displayPath}: ${err.code ?? err.message ?? String(e)}`);
+      }
       raw = err.stdout ? String(err.stdout) : '';
     }
   } finally {

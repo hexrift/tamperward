@@ -33,9 +33,80 @@ function normalizeVersion(v: unknown, where = POLICY_FILE): number {
   return v; // a version newer than this build passes every gate it knows — see POLICY_VERSION
 }
 
-export function parsePolicy(raw: RawPolicy | null | undefined): Policy {
+const SEVERITIES: ReadonlyArray<Severity> = ['block', 'warn'];
+const isSeverity = (v: unknown): v is Severity => (SEVERITIES as readonly unknown[]).includes(v);
+const isStringList = (v: unknown): v is string[] => Array.isArray(v) && v.every((s) => typeof s === 'string');
+const isMapping = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * Validate every override the file may carry, failing CLOSED on anything not
+ * understood — the same stance `version:` already took.
+ *
+ * `rules.<name>.severity: BLOCK` (or `blocc`, or `blocking`) used to parse
+ * cleanly and produce findings that were neither `block` nor `warn`. Nothing
+ * treats such a finding as blocking, so the hook, the Stop sweep and the
+ * pre-commit check all allowed what the rule exists to deny — and policy-diff
+ * did not report the edit that introduced it, because it compared for `warn`
+ * only. One mistyped word switched a rule off at every local layer with no
+ * finding anywhere. A value that cannot be understood is now rejected exactly
+ * like invalid YAML: `check` exits 2, the hook denies until the file is fixed.
+ * Unknown RULE NAMES are still accepted (a policy written for a newer build
+ * must keep loading on an older one); it is the VALUES that must be exact.
+ */
+function validate(r: RawPolicy, where: string): void {
+  function bad(msg: string): never {
+    throw new PolicyError(`${where}: ${msg}`);
+  }
+  const show = (v: unknown): string => JSON.stringify(v) ?? String(v);
+
+  if (r.rules !== undefined) {
+    if (!isMapping(r.rules)) bad(`rules must be a mapping of rule name to { severity, enabled, exclude }, got ${show(r.rules)}`);
+    for (const [name, cfg] of Object.entries(r.rules as Record<string, unknown>)) {
+      if (!isMapping(cfg)) bad(`rules.${name} must be a mapping like { severity: block }, got ${show(cfg)}`);
+      if (cfg.severity !== undefined && !isSeverity(cfg.severity)) {
+        bad(`rules.${name}.severity must be "block" or "warn", got ${show(cfg.severity)}`);
+      }
+      if (cfg.enabled !== undefined && typeof cfg.enabled !== 'boolean') {
+        bad(`rules.${name}.enabled must be true or false, got ${show(cfg.enabled)}`);
+      }
+      if (cfg.exclude !== undefined && !isStringList(cfg.exclude)) {
+        bad(`rules.${name}.exclude must be a list of globs, got ${show(cfg.exclude)}`);
+      }
+    }
+  }
+  if (r.ignore !== undefined && !isStringList(r.ignore)) bad(`ignore must be a list of globs, got ${show(r.ignore)}`);
+  if (r.protected !== undefined) {
+    if (!isMapping(r.protected)) bad(`protected must be a mapping of category to a list of globs, got ${show(r.protected)}`);
+    for (const [cat, globs] of Object.entries(r.protected as Record<string, unknown>)) {
+      if (!isStringList(globs)) bad(`protected.${cat} must be a list of globs, got ${show(globs)}`);
+    }
+  }
+  if (r.signoff !== undefined) {
+    if (!isMapping(r.signoff)) bad(`signoff must be a mapping, got ${show(r.signoff)}`);
+    for (const key of ['required_for', 'requiredFor'] as const) {
+      const v = (r.signoff as Record<string, unknown>)[key];
+      if (v !== undefined && !(Array.isArray(v) && v.every(isSeverity))) {
+        bad(`signoff.${key} must be a list of "block" / "warn", got ${show(v)}`);
+      }
+    }
+    const ledger = (r.signoff as Record<string, unknown>).ledger;
+    if (ledger !== undefined && typeof ledger !== 'string') bad(`signoff.ledger must be a path, got ${show(ledger)}`);
+  }
+  if (r.verify !== undefined) {
+    if (!isMapping(r.verify)) bad(`verify must be a mapping like { command: "npm test" }, got ${show(r.verify)}`);
+    const v = r.verify as Record<string, unknown>;
+    if (v.command !== undefined && typeof v.command !== 'string') bad(`verify.command must be a string, got ${show(v.command)}`);
+    if (v.budget !== undefined && !(typeof v.budget === 'number' && Number.isFinite(v.budget) && v.budget > 0)) {
+      bad(`verify.budget must be a positive number of seconds, got ${show(v.budget)}`);
+    }
+    if (v.inputs !== undefined && !isStringList(v.inputs)) bad(`verify.inputs must be a list of globs, got ${show(v.inputs)}`);
+  }
+}
+
+export function parsePolicy(raw: RawPolicy | null | undefined, where: string = POLICY_FILE): Policy {
   const r = raw ?? {};
-  const version = normalizeVersion(r.version);
+  const version = normalizeVersion(r.version, where);
+  validate(r, where);
   // The baseline is gated by the DECLARED version before user rules overlay it, so a
   // gated graduation applies only to opted-in policies while an explicit severity —
   // written by the user, in either direction — always wins.
@@ -77,7 +148,7 @@ function parseOrThrow(src: string, where: string): Policy {
   if (raw !== null && raw !== undefined && (typeof raw !== 'object' || Array.isArray(raw))) {
     throw new PolicyError(`${where} is not a policy mapping`);
   }
-  return parsePolicy(raw as RawPolicy);
+  return parsePolicy(raw as RawPolicy, where);
 }
 
 export function loadPolicy(cwd: string = process.cwd()): Policy {
