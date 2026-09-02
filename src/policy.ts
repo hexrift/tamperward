@@ -67,6 +67,33 @@ export function mergeRules(base: Policy['rules'], user?: Policy['rules']): Polic
   return out;
 }
 
+/**
+ * A control character anywhere in a path is a path no glob will match: picomatch
+ * compiles `**` to a pattern that stops at a newline, so `n\nl/conftest.py` was
+ * unprotected in every category — dropped by the snapshot walk, by the untracked
+ * and ignored keep filters, by the hidden-tracked probe — and a conftest.py
+ * carrying `collect_ignore` passed every layer from a directory named with one
+ * newline. (Pass 3c, P2-3.) No honest path carries one; such a path is protected
+ * in EVERY category it is asked about, and shown escaped.
+ */
+const CONTROL = /[\u0000-\u001f\u007f]/;
+
+export function hasControlChar(path: string): boolean {
+  return CONTROL.test(path);
+}
+
+/** The path with each control character spelled out (`\n`, `\t`, `\x1b`), for
+ *  a message or a report. The finding's own `file` stays the real path. */
+export function escapeControl(path: string): string {
+  return path.replace(/[\u0000-\u001f\u007f]/g, (ch) => {
+    const c = ch.charCodeAt(0);
+    if (c === 0x0a) return '\\n';
+    if (c === 0x0d) return '\\r';
+    if (c === 0x09) return '\\t';
+    return `\\x${c.toString(16).padStart(2, '0')}`;
+  });
+}
+
 const cache = new Map<string, (s: string) => boolean>();
 
 function matcher(glob: string): (s: string) => boolean {
@@ -84,13 +111,18 @@ export function matchesAny(path: string, globs?: string[]): boolean {
 
 /** The first protected category whose globs match `path`, or null. */
 export function protectedCategory(path: string, policy: Policy): string | null {
-  for (const [cat, globs] of Object.entries(policy.protected ?? {})) {
+  const cats = Object.entries(policy.protected ?? {});
+  if (hasControlChar(path)) return cats[0]?.[0] ?? 'tests'; // protected in every category: the first one names it
+  for (const [cat, globs] of cats) {
     if (matchesAny(path, globs)) return cat;
   }
   return null;
 }
 
+/** Whether `path` is a protected asset — of `category` when given, of any otherwise.
+ *  A path carrying a control character is protected whatever is asked (see CONTROL). */
 export function isProtected(path: string, policy: Policy, category?: string): boolean {
+  if (hasControlChar(path)) return true;
   if (category) return matchesAny(path, policy.protected?.[category]);
   return protectedCategory(path, policy) !== null;
 }

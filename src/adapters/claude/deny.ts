@@ -2,6 +2,7 @@
 // redirects to the real fix, pre-empts the next shortcuts so the agent doesn't try them
 // in sequence, and offers the legitimate human escape. Fed back to Claude via stderr.
 
+import { escapeControl } from '../../policy';
 import { Finding } from '../../types';
 
 export function formatDenial(blocks: Finding[]): string {
@@ -9,7 +10,7 @@ export function formatDenial(blocks: Finding[]): string {
   const lines: string[] = ['Tamperward blocked this change — it weakens a protected safety net to pass checks.', ''];
 
   for (const f of blocks) {
-    const loc = f.file ? ` (${f.file}${f.line ? `:${f.line}` : ''})` : '';
+    const loc = f.file ? ` (${escapeControl(f.file)}${f.line ? `:${f.line}` : ''})` : '';
     lines.push(`  • ${f.rule}${loc}: ${f.message}`);
   }
 

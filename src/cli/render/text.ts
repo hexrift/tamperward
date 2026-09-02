@@ -11,6 +11,7 @@
 // group heading, because terminals linkify it — clicking straight to the offending line
 // is worth more than the few characters grouping would save.
 
+import { escapeControl } from '../../policy';
 import { Finding } from '../../types';
 
 export interface TextOpts {
@@ -159,7 +160,7 @@ export function renderText(input: TextInput, opts: TextOpts): string {
   for (const f of findings) {
     const isBlock = f.severity === 'block';
     const mark = paint(isBlock ? 'BLOCK' : 'warn ', isBlock ? BOLD + RED : YELLOW, c);
-    const loc = f.file ? `${stripControl(f.file)}${f.line ? `:${f.line}` : ''}` : '(command)';
+    const loc = f.file ? `${stripControl(escapeControl(f.file))}${f.line ? `:${f.line}` : ''}` : '(command)';
     out.push(`  ${mark}  ${paint(stripControl(f.rule), BOLD, c)}  ${paint(loc, DIM, c)}`);
 
     // The message is the finding, so it gets the shallowest indent and no label —
