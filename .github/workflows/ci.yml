@@ -104,6 +104,12 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+      # The site used to build only on push to main, so a page that broke the
+      # Vue template compile (2.6.0's rules row) merged and took the deploy down.
+      # Dead links fail it too (`ignoreDeadLinks: false`).
+      - name: Build the docs site
+        run: npx vitepress build docs
+
       - name: Smoke-test the published artifact
         run: |
           set -euo pipefail

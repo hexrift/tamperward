@@ -73,7 +73,8 @@ a one-time sign-off where it used to pass.**
   ci-tampering row carried `${{ <ctx> || true }}` inside a table cell: the
   unescaped `||` split the cell and the angle-bracket placeholder was then read
   as a tag, so the page broke the Vue template compile. The pipes are escaped
-  and the placeholder is spelled `context`.
+  and the placeholder is spelled `context`. The site now builds in the PR
+  workflow's `build` job as well, so a broken page cannot merge.
 
 ### Sign-off
 
