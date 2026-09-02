@@ -174,6 +174,13 @@ export function defaultPolicy(version = 1): Policy {
       config: [
         '**/jest.config.*',
         '**/vitest.config.*',
+        // A `vitest.workspace.*` file REPLACES the root config's selection with the
+        // union of its projects, and a `vite.config.*` carrying a `test:` key is the
+        // vitest config when no vitest.config exists — both are where a spec can be
+        // dropped from the suite without a line of it changing. ADDITIVE, like every
+        // baseline widening (the policy-diff reads it as a strengthening).
+        '**/vitest.workspace.*',
+        '**/vite.config.*',
         '**/tsconfig*.json',
         '**/.eslintrc*',
         '**/eslint.config.*',

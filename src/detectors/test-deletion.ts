@@ -16,6 +16,7 @@ import { segments, tokens, unquote } from './command';
 import { Lang, isSignificantLine, langOf } from './files';
 import { containsProtected, trackedFiles } from './repo';
 import { CANONICAL_SAMPLES, runnerOf, suiteNarrowings } from './suite-config';
+import { SUITE_NARROWING_FLAGS } from './ci-tampering';
 
 const RULE = 'test-deletion';
 
@@ -54,6 +55,27 @@ const isEachOf = (expr: ts.Expression): boolean =>
   (expr.expression.text === 'it' || expr.expression.text === 'test') &&
   expr.name.text === 'each';
 
+const isDescribeEach = (expr: ts.Expression): boolean =>
+  ts.isPropertyAccessExpression(expr) && ts.isIdentifier(expr.expression) && expr.expression.text === 'describe' && expr.name.text === 'each';
+
+/** Rows of an each-TEMPLATE table: the header row, then one test per data row. */
+function templateRows(node: ts.TaggedTemplateExpression): number {
+  const rows = node.template.getText().split('\n').filter((l) => /\S/.test(l.replace(/[`]/g, ''))).length - 1;
+  return Math.max(rows, 1);
+}
+
+/** Whether a test call carries a body with at least one significant line. A stub —
+ *  `it("noop", () => {})` — defines a test that tests nothing, and a relocation
+ *  that "moves" three tests into three stubs moved no test. A test whose body is
+ *  not a function literal (`it("x", fn)`) cannot be judged and counts as real. */
+function hasSubstantiveBody(call: ts.CallExpression): boolean {
+  const fn = call.arguments.find((a) => ts.isArrowFunction(a) || ts.isFunctionExpression(a));
+  if (!fn) return true;
+  const body = (fn as ts.ArrowFunction | ts.FunctionExpression).body;
+  const text = ts.isBlock(body) ? body.getText().slice(1, -1) : body.getText();
+  return text.split('\n').some((l) => isSignificantLine(l.trim(), 'js'));
+}
+
 /** How many tests an `it.each(table)` defines: one per row of a literal table.
  *  `open` when the table cannot be counted (an identifier, a spread, a call): the
  *  count is then a lower bound, and a comparison against it is not a comparison.
@@ -82,8 +104,11 @@ export interface TestCount {
 }
 
 /** Count test definitions — it()/test() via the AST for JS/TS, the language's own
- *  definition sites otherwise. Skips/onlys still count as present. */
-export function countTests(src: string, path = 'spec.ts'): TestCount {
+ *  definition sites otherwise. Skips/onlys still count as present. A test inside
+ *  `describe.each(table)` runs once per row, so it counts once per row: three rows
+ *  cut to one is two tests gone with no `it()` touched. With `substantiveOnly`, a
+ *  JS test whose function body has no significant line (a stub) is not counted. */
+export function countTests(src: string, path = 'spec.ts', substantiveOnly = false): TestCount {
   const lang = langOf(path);
   if (lang && lang !== 'js') {
     const re = TEST_DEFS[lang];
@@ -94,24 +119,36 @@ export function countTests(src: string, path = 'spec.ts'): TestCount {
   const sf = ts.createSourceFile('spec.ts', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   let n = 0;
   let open = false;
-  const visit = (node: ts.Node): void => {
+  const visit = (node: ts.Node, mult: number): void => {
     if (ts.isCallExpression(node)) {
+      // describe.each(table)(name, fn) / describe.each`…`(name, fn): the enclosed
+      // tests are multiplied by the row count
+      const head = node.expression;
+      if (ts.isCallExpression(head) && isDescribeEach(head.expression)) {
+        const r = eachRows(head);
+        if (r.open) open = true;
+        for (const a of node.arguments) visit(a, mult * r.n);
+        return;
+      }
+      if (ts.isTaggedTemplateExpression(head) && isDescribeEach(head.tag)) {
+        for (const a of node.arguments) visit(a, mult * templateRows(head));
+        return;
+      }
       if (isEachOf(node.expression)) {
         const r = eachRows(node);
-        n += r.n;
+        n += r.n * mult;
         if (r.open) open = true;
       } else {
         const name = calleeName(node.expression);
-        if (name === 'it' || name === 'test') n++;
+        if ((name === 'it' || name === 'test') && (!substantiveOnly || hasSubstantiveBody(node))) n += mult;
       }
     } else if (ts.isTaggedTemplateExpression(node) && isEachOf(node.tag)) {
       // it.each`a | b\n 1 | 2\n 3 | 4`: header row, then one test per data row
-      const rows = node.template.getText().split('\n').filter((l) => /\S/.test(l.replace(/[`]/g, ''))).length - 1;
-      n += Math.max(rows, 1);
+      n += templateRows(node) * mult;
     }
-    ts.forEachChild(node, visit);
+    ts.forEachChild(node, (c) => visit(c, mult));
   };
-  visit(sf);
+  visit(sf, 1);
   return { min: n, open };
 }
 
@@ -134,7 +171,9 @@ function significantLines(src: string, path: string): Set<string> {
   return out;
 }
 
-const OTHER_RUNNER_DIR = /(?:^|\/)(?:e2e|cypress|playwright)\//;
+// Specs under another runner's directory, or sample specs kept as fixtures / mocks
+// for the tooling under test: the runner is SUPPOSED to skip them.
+const OTHER_RUNNER_DIR = /(?:^|\/)(?:e2e|cypress|playwright|fixtures|__fixtures__|__mocks__)\//;
 
 /** The protected JS/TS test files a runner config governs, from the repository listing
  *  when one is available, else the conventional layouts. */
@@ -149,6 +188,45 @@ function runnerSamples(configPath: string, policy: Policy, ctx?: DetectorContext
     .filter((f) => f.startsWith(root) && langOf(f) === 'js' && isProtected(f, policy, 'tests') && !OTHER_RUNNER_DIR.test(f))
     .map((f) => f.slice(root.length));
   return own.length ? own : CANONICAL_SAMPLES;
+}
+
+interface ScriptNarrowing {
+  script: string;
+  flag: string;
+  before: string;
+  after: string;
+}
+
+/** A runner flag that selects fewer specs, newly present in a `scripts.test*` entry
+ *  of package.json that invokes jest or vitest. */
+function scriptNarrowings(before: string | null, after: string, path: string): ScriptNarrowing[] {
+  if ((path.split('/').pop() ?? path) !== 'package.json') return [];
+  const scriptsOf = (src: string | null): Record<string, string> => {
+    try {
+      const s = (JSON.parse(src ?? '{}') as { scripts?: Record<string, unknown> }).scripts ?? {};
+      return Object.fromEntries(Object.entries(s).filter((e): e is [string, string] => typeof e[1] === 'string'));
+    } catch {
+      return {};
+    }
+  };
+  const was = scriptsOf(before);
+  const now = scriptsOf(after);
+  const out: ScriptNarrowing[] = [];
+  for (const [name, cmd] of Object.entries(now)) {
+    if (!/^test(?:$|[:.-])/.test(name) || !/\b(?:jest|vitest)\b/.test(cmd)) continue;
+    const prev = was[name] ?? '';
+    const flags = new RegExp(SUITE_NARROWING_FLAGS.source, 'g');
+    for (const m of cmd.matchAll(flags)) {
+      const flag = m[0].trim();
+      if (!flag) continue;
+      const one = new RegExp(SUITE_NARROWING_FLAGS.source);
+      // the flag was there already (a reformat, an unrelated edit): not an addition
+      if (one.test(prev) && prev.includes(flag)) continue;
+      out.push({ script: name, flag, before: prev, after: cmd });
+      break;
+    }
+  }
+  return out;
 }
 
 /** `root` joined with a relative `cd` target, `..` resolved; null when it escapes. */
@@ -195,13 +273,16 @@ export const testDeletion: Detector = {
     let addedTestBlocks = 0;
     for (const c of changes) {
       if (c.kind !== 'file' || c.after == null || !isProtected(c.path, policy, 'tests')) continue;
+      // Only a block with a body counts as somewhere a test could have moved TO:
+      // three `it("noop", () => {})` stubs beside one real test satisfied the
+      // guard for a three-test deletion.
       if (c.op === 'add') {
         for (const l of significantLines(c.after, c.path)) addedTestLines.add(l);
-        addedTestBlocks += countTestBlocks(c.after, c.path);
+        addedTestBlocks += countTests(c.after, c.path, true).min;
       } else if (c.before != null) {
         const before = significantLines(c.before, c.path);
         for (const l of significantLines(c.after, c.path)) if (!before.has(l)) addedTestLines.add(l);
-        addedTestBlocks += Math.max(0, countTestBlocks(c.after, c.path) - countTestBlocks(c.before, c.path));
+        addedTestBlocks += Math.max(0, countTests(c.after, c.path, true).min - countTests(c.before, c.path, true).min);
       }
     }
     /** ≥60% of the removed lines reappear in added test content AND enough blocks were
@@ -266,7 +347,7 @@ export const testDeletion: Detector = {
               }),
             );
           }
-        } else if (c.op !== 'delete' && c.after != null && !isTest && isProtected(c.path, policy, 'config') && runnerOf(c.path)) {
+        } else if (c.op !== 'delete' && c.after != null && !isTest && isProtected(c.path, policy, 'config') && runnerOf(c.path, c.after)) {
           // The runner's selection config: a protected spec the runner opened before
           // and will not open after is out of the suite as surely as if deleted.
           for (const n of suiteNarrowings(c.before, c.after, c.path, runnerSamples(c.path, policy, ctx))) {
@@ -277,6 +358,19 @@ export const testDeletion: Detector = {
                 evidence: `${n.path} dropped from the suite by ${c.path}`,
                 remediation:
                   'Keep the runner pointed at the whole suite. Excluding a spec from the runner removes its tests without touching the file.',
+              }),
+            );
+          }
+          // The test SCRIPT told to run less: `jest --testPathPattern calc`, `-t`,
+          // `vitest run --exclude …` added to `scripts.test*` narrows the suite for
+          // everyone who runs `npm test` — the same class as the config keys above.
+          for (const n of scriptNarrowings(c.before, c.after, c.path)) {
+            out.push(
+              makeFinding(RULE, policy, {
+                file: c.path,
+                message: `The test script now narrows the suite: ${n.flag} added to scripts.${n.script}.`,
+                evidence: `"${n.script}": ${JSON.stringify(n.before)} → ${JSON.stringify(n.after)}`,
+                remediation: 'Keep the test script running the whole suite; a runner flag that selects fewer specs removes the rest from every run.',
               }),
             );
           }
@@ -302,22 +396,32 @@ export const testDeletion: Detector = {
           // no extension, not a tracked file): then the repository listing decides, so a
           // build output nobody protects is not the suite. (see ./repo.ts)
           const testToks = toks.filter((t) => {
-            if (!isProtected(t, policy, 'tests')) return false;
+            // a `..`/`./` token is resolved against the cwd first: from packages/a,
+            // `../../test/a.test.ts` is the root's spec
+            const resolved = root !== null && /(?:^|\/)\.{1,2}(?:\/|$)/.test(t) ? joinRoot(root, t) : null;
+            const probe = resolved ?? t;
+            if (!isProtected(probe, policy, 'tests')) return false;
             if (!listing || root === null) return true;
-            const looksLikeFile = /\.[A-Za-z0-9]+$/.test(t.split('/').pop() ?? '');
-            if (looksLikeFile || listing.includes(inRepo(t))) return true;
-            return containsProtected(inRepo(t), policy, 'tests', ctx);
+            const looksLikeFile = /\.[A-Za-z0-9]+$/.test(probe.split('/').pop() ?? '');
+            if (looksLikeFile || listing.includes(resolved ?? inRepo(t))) return true;
+            return containsProtected(resolved ?? inRepo(t), policy, 'tests', ctx);
           });
           // A directory token counts when a protected spec lives under it: `rm -rf test`
           // erases the suite while naming no spec; `rm -rf dist/__tests__` names an
-          // ignored build output and is left alone.
-          const dirToks = toks.filter(
-            (t) =>
-              !t.startsWith('-') &&
-              !testToks.includes(t) &&
-              !/[*?{}[\]]/.test(t) &&
-              (root === null ? containsProtected(t, policy, 'tests', ctx) : containsProtected(inRepo(t), policy, 'tests', ctx)),
-          );
+          // ignored build output and is left alone. `.`, `./`, `*` name the whole
+          // current directory, and a `..`-containing token is resolved against the
+          // cwd first — `git checkout v1 -- .` from the root restores every spec.
+          const rootHasProtected = () => (listing ? listing.some((f) => isProtected(f, policy, 'tests')) : true);
+          const dirToks = toks.filter((t) => {
+            if (t.startsWith('-') || testToks.includes(t)) return false;
+            const whole = /^(?:\.|\.\/|\*|\.\/\*)$/.test(t);
+            if (!whole && /[*?{}[\]]/.test(t)) return false;
+            if (root === null) return whole ? false : containsProtected(t, policy, 'tests', ctx);
+            const dir = whole ? root : joinRoot(root, t);
+            if (dir === null) return false; // escapes the repository: unknown
+            if (dir === '') return rootHasProtected();
+            return containsProtected(dir, policy, 'tests', ctx);
+          });
           if (testToks.length === 0 && dirToks.length === 0) continue;
           const named = [...testToks, ...dirToks];
           const cmd = toks[0] ?? '';
@@ -335,10 +439,14 @@ export const testDeletion: Detector = {
             /^git\s+(?:checkout|restore)\b/.test(seg) &&
             (() => {
               const src = seg.match(/--source[= ]\s*(\S+)/)?.[1];
-              const rev = src ?? toks.slice(2).find((t) => !t.startsWith('-') && !named.includes(t) && t !== '--');
+              const revIdx = toks.findIndex((t, i) => i >= 2 && !t.startsWith('-') && !named.includes(t) && t !== '--');
+              const rev = src ?? (revIdx >= 0 ? toks[revIdx] : undefined);
               // `git checkout -- x.test.ts` discards the agent's own edits; a REV
-              // other than HEAD puts back an older version of the spec.
-              return !!rev && rev !== 'HEAD' && (!!src || seg.includes(' -- '));
+              // other than HEAD puts back an older version of the spec — with or
+              // without the `--`: `git checkout v1 test/a.test.ts` restores it too.
+              if (!rev || rev === 'HEAD') return false;
+              if (src || seg.includes(' -- ')) return true;
+              return revIdx >= 0 && toks.some((t, i) => i > revIdx && named.includes(t));
             })();
 
           if (/\brm\b/.test(seg) && !/^(?:git|npm|yarn|pnpm|bun)\b/.test(seg)) {
