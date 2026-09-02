@@ -28,13 +28,24 @@
 // equivalent spelling of the removed one, and it is kept. A superset that carries a
 // neutraliser (`|| true`, `--passWithNoTests`, a narrowed `-t`, a spec path as a
 // positional, a `timeout` wrapper) is reported as such.
+//
+// The pass-3d sweep (2.7.1) named the honest edits this rule still blocked, each
+// now excused by the reading the runner itself applies: a `${{ }}` expression is
+// folded to its constant or read as one opaque token (`--shard=${{ matrix.shard }}/4`
+// is the matrix, not a narrowed suite); the mainstream runners and linters beyond
+// jest/vitest/eslint are checks (`node --test`, `biome ci`, `oxlint`, `tsgo`, `mocha`,
+// `deno test`); a path positional narrows a TEST, not a lint over `src/`; a
+// `cd dir &&` prefix places the check, it does not narrow it; `shell: bash -euo
+// pipefail {0}` keeps fail-fast; a reporter/upload action is not the check whose
+// `continue-on-error` matters; and `[master]` → `[main]` when `main` is a branch the
+// repository has is a rename, whatever a stale `origin/HEAD` still says.
 
 import { Change, Detector, DetectorContext, Finding } from '../types';
 import { addedLines, removedLines } from '../diff/select';
 import { isProtected } from '../policy';
 import { makeFinding } from './finding';
 import { langOf } from './files';
-import { defaultBranch, trackedFiles } from './repo';
+import { branchExists, defaultBranch, trackedFiles } from './repo';
 
 const RULE = 'ci-tampering';
 const USES = /^\s*-\s*uses:/;
@@ -48,7 +59,7 @@ const YAML_KEY = /^\s*-?\s*[A-Za-z_][\w-]*:\s*(?:$|\S)/;
 // registry, it checks nothing. Two invocation shapes:
 //   a tool run directly (start of command, or after ; | && $( ` npx/yarn/pnpm) ...
 const INVOKES_TOOL =
-  /(?:^\s*|[;&|`]\s*|\$\(\s*|\b(?:npx|yarn|pnpm|bunx?)\s+)(?:jest|vitest|eslint|tsc|playwright|pytest|tamperward)\b/;
+  /(?:^\s*|[;&|`]\s*|\$\(\s*|\b(?:npx|yarn|pnpm|bunx?)\s+)(?:jest|vitest|eslint|tsc|playwright|pytest|tamperward|mocha|ava|oxlint|tsgo|mypy|golangci-lint|node\s+--test|biome\s+(?:ci|check|lint)|deno\s+(?:test|lint|check)|ruff\s+check)\b/;
 //   ... or a check script through a package runner / build tool.
 const INVOKES_SCRIPT =
   /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|tests|lint|typecheck|type-check|coverage)\b|\b(?:make|cargo|go)\s+test\b|\bgradle\w*\s+(?:test|check)\b/;
@@ -74,11 +85,37 @@ function commandCore(line: string): string {
     .trim();
 }
 
+/** A `${{ }}` expression inside a command, read as the runner reads it: folded to
+ *  its constant when it has one (`${{ 'unit' }}` is the literal `unit`), otherwise a
+ *  single opaque token — one that says whether the value comes from the matrix, the
+ *  strategy or a workflow input (the job runs once per value; the whole set is run)
+ *  or from anywhere else. Tokenising the raw text read `}}/4` of
+ *  `--shard=${{ matrix.shard }}/4` as a path-shaped positional and
+ *  `--project=${{ matrix.project }}` as a project narrowed by hand. */
+export function foldExpressions(s: string): string {
+  return s.replace(/\$\{\{([^}]*)\}\}/g, (_m, e: string) => {
+    const v = foldConst(e.trim());
+    if (v !== undefined && v !== TRUTHY) return String(v);
+    return /\b(?:matrix|strategy|inputs)\./.test(e) ? MATRIX_TOKEN : EXPR_TOKEN;
+  });
+}
+const EXPR_TOKEN = '__expr__';
+const MATRIX_TOKEN = '__matrix__';
+/** A flag whose value is the matrix (`--project=${{ matrix.project }}`, `--shard
+ *  ${{ matrix.shard }}/${{ strategy.job-total }}`) selects the slice THIS job runs
+ *  of a suite the whole matrix covers — dropped before the narrowing flags are
+ *  read. A flag valued by any other expression (`-t ${{ github.sha }}`) keeps its
+ *  flag: a pattern nothing matches empties the suite. */
+const MATRIX_FLAG = new RegExp(`(?:^|\\s)-{1,2}[\\w-]+(?:=|\\s+)${MATRIX_TOKEN}(?:/\\S*)?(?=\\s|$)`, 'g');
+
 /** The command with its package-runner spelling normalised, so `npm test`, `npm run
  *  test`, `npm t`, `pnpm test`, `yarn test` and a quoted `'npm test'` are one check,
  *  and `npx jest`, `pnpm exec jest`, `yarn jest`, `bunx jest` another. */
 function canonical(core: string): string {
-  let s = core.replace(/^(['"])(.*)\1$/, '$2').trim();
+  let s = foldExpressions(core.replace(/^(['"])(.*)\1$/, '$2').trim()).replace(MATRIX_FLAG, ' ').replace(/\s+/g, ' ').trim();
+  // `cd apps/web && npm test` runs the same check from another directory: the prefix
+  // places it, and its path is not a positional of the check
+  s = s.replace(/^(?:cd|pushd)\s+\S+\s*&&\s*/, '');
   s = s.replace(/^(?:npx|pnpm\s+(?:exec|dlx)|yarn\s+(?:exec|dlx)|bunx|bun\s+x)\s+/, 'exec ');
   s = s.replace(/^(?:npm|pnpm|yarn|bun)\s+(?:run(?:-script)?\s+)?/, 'exec ');
   s = s.replace(/^exec\s+(?:t|tst)(?=\s|$)/, 'exec test');
@@ -128,8 +165,8 @@ function checkKind(core: string): Kind | null {
   if (!invokesCheck(core)) return null;
   const s = canonical(core);
   if (/\btamperward\b/.test(s)) return 'gate';
-  if (/\b(?:lint|eslint)\b/i.test(s)) return 'lint';
-  if (/\b(?:typecheck|type-check|tsc)\b/i.test(s)) return 'types';
+  if (/\b(?:lint|eslint|biome|oxlint|golangci-lint|ruff)\b/i.test(s)) return 'lint';
+  if (/\b(?:typecheck|type-check|tsc|tsgo|mypy)\b|\bdeno\s+check\b/i.test(s)) return 'types';
   return 'test';
 }
 
@@ -144,13 +181,17 @@ function survives(removedCore: string, isUses: boolean, afterCores: string[], ad
     return afterCores.some((a) => usesRef(a) === ref) ? { state: 'kept' } : { state: 'gone' };
   }
   const r = canonical(removedCore);
+  const kind = checkKind(removedCore);
+  // A path positional narrows a TEST suite (the runner opens only what it names); a
+  // lint or a typecheck given `src/` or a glob is told what to read, not what to skip.
+  const narrowed = (args: string) => kind === 'test' && narrowedByPositional(args);
   let neutralised: string | undefined;
   for (const raw of afterCores) {
     const a = canonical(raw);
     if (a === r) return { state: 'kept' };
     if (a.startsWith(r + ' ')) {
       const rest = a.slice(r.length);
-      if (NEUTRALISING_SUFFIX.test(rest) || narrowedByPositional(rest)) neutralised ??= raw;
+      if (NEUTRALISING_SUFFIX.test(rest) || narrowed(rest)) neutralised ??= raw;
       else return { state: 'kept' };
     } else if (r.startsWith(a + ' ') && invokesCheck(a)) {
       return { state: 'kept' }; // the check got shorter — arguments dropped, the invocation kept
@@ -159,7 +200,6 @@ function survives(removedCore: string, isUses: boolean, afterCores: string[], ad
       if (w && (canonical(w[1]) === r || canonical(w[1]).startsWith(r + ' '))) neutralised ??= raw;
     }
   }
-  const kind = checkKind(removedCore);
   let respelled = false;
   for (const raw of addedCores) {
     if (!kind || checkKind(raw) !== kind) continue;
@@ -169,7 +209,7 @@ function survives(removedCore: string, isUses: boolean, afterCores: string[], ad
       continue;
     }
     const args = a.slice(a.indexOf(' ') + 1 || a.length);
-    if (a.includes(' ') && (NEUTRALISING_SUFFIX.test(' ' + args) || narrowedByPositional(args))) neutralised ??= raw;
+    if (a.includes(' ') && (NEUTRALISING_SUFFIX.test(' ' + args) || narrowed(args))) neutralised ??= raw;
     else respelled = true;
   }
   if (respelled) return { state: 'kept' };
@@ -372,6 +412,10 @@ export function isTruthy(raw: string): boolean {
   return f !== undefined && truthy(f);
 }
 
+/** A `{0}` shell string that still fails fast: a short-option group carrying `e`
+ *  (`-e`, `-eo pipefail`, `-euxo`) or `-o errexit`. */
+const SHELL_ERREXIT = /(?:^|\s)-[a-zA-Z]*e[a-zA-Z]*(?:\s|$)|-o\s+errexit\b/;
+
 const indentOf = (l: string) => l.match(/^\s*/)![0].length;
 const STEP_START = /^\s*-\s+(?:name|uses|run|if|id|with|env|shell|continue-on-error|working-directory|timeout-minutes):/;
 
@@ -404,13 +448,20 @@ function jobOf(lines: string[], i: number): [number, number] | null {
   return [h, e];
 }
 
+/** An action that REPORTS a check's result — a junit reporter, a results publisher,
+ *  an artifact or coverage upload — is not the check. `continue-on-error: true` on
+ *  `dorny/test-reporter` (its documented idiom, with `if: always()`) decides nothing
+ *  about the tests; the word "test" in its name is not an invocation. */
+const REPORTER_ACTION = /^\s*-?\s*uses:\s*\S*?(?:[\w-]*-reporter|[\w-]*-results?[\w-]*|upload-[\w-]*|codecov[\w-]*|coveralls[\w-]*)(?:@|\s|$)/i;
+const usesCheck = (l: string): boolean => USES.test(l) && CHECK.test(l) && !REPORTER_ACTION.test(l);
+
 const stepHasCheck = (lines: string[], range: [number, number] | null): boolean =>
-  range === null || lines.slice(range[0], range[1]).some((l) => invokesCheck(l) || (USES.test(l) && CHECK.test(l)));
+  range === null || lines.slice(range[0], range[1]).some((l) => invokesCheck(l) || usesCheck(l));
 
 /** A job carries a check when any step does, or when it calls a reusable workflow
  *  (whose steps this rule cannot see — read as a check, never as none). */
 const jobHasCheck = (lines: string[], range: [number, number]): boolean =>
-  lines.slice(range[0], range[1]).some((l) => invokesCheck(l) || (USES.test(l) && CHECK.test(l)) || /^\s*uses:\s*\S/.test(l));
+  lines.slice(range[0], range[1]).some((l) => invokesCheck(l) || usesCheck(l) || /^\s*uses:\s*\S/.test(l));
 
 // ── run-block neutralisers ────────────────────────────────────────────────────
 interface RunBlock {
@@ -569,6 +620,9 @@ interface TriggerOpts {
   /** The repository's default branch, or null to accept main and master alike. */
   defaultBranch: string | null;
   sources: string[];
+  /** Whether a branch of that name exists in the repository (locally or on origin);
+   *  null when the repository cannot say. */
+  hasBranch: (name: string) => boolean | null;
 }
 
 function triggerNarrowings(before: Triggers, after: Triggers, opts: TriggerOpts): string[] {
@@ -604,8 +658,12 @@ function triggerNarrowings(before: Triggers, after: Triggers, opts: TriggerOpts)
     if (!now || !after.events.has(e)) continue; // filter dropped = wider, or the event itself is reported above
     if (now.some(ALL)) continue;
     // `[main]` → `[master]` is a rename of the default branch, not a narrowing, when
-    // master IS the default (or when the repository cannot say which name it uses)
-    const lostDefault = namesDefault(was) && !namesDefault(now);
+    // master IS the default, when the repository cannot say which name it uses, or
+    // when the name it now carries is a main/master branch the repository HAS:
+    // `origin/HEAD` is set once at clone and stays `master` long after the branch
+    // was renamed, so a stale remote head must not outvote a branch that exists.
+    const renamed = (b: string) => DEFAULT_BRANCH.test(b) && opts.hasBranch(b) !== false;
+    const lostDefault = namesDefault(was) && !namesDefault(now) && !now.some(renamed);
     const replaced = !namesDefault(was) && !namesDefault(now) && was.length > 0 && !was.some((b) => now.includes(b));
     if (lostDefault || replaced) out.push(`on.${e}.branches no longer names ${was.filter((b) => !now.includes(b)).join(', ')} (now [${now.join(', ')}])`);
   }
@@ -712,9 +770,13 @@ export const ciTampering: Detector = {
           }
         }
         // `shell: bash {0}` (or any `{0}` shell — no `-e`) added on a step with a check:
-        // the block's last command decides, and a trailing `true` decides green.
+        // the block's last command decides, and a trailing `true` decides green. A
+        // shell that keeps errexit (`bash -euo pipefail {0}`, the hardened idiom
+        // GitHub's own docs recommend) stops on the first failure exactly like the
+        // default and is not reported.
         for (const l of addedLines(c)) {
           if (!/^\s*-?\s*shell:\s*.*\{0\}/.test(l.content) || l.newLine == null) continue;
+          if (SHELL_ERREXIT.test(uncommented(l.content.replace(/^\s*-?\s*shell:\s*/, '')))) continue;
           const step = stepOf(afterLines, l.newLine - 1);
           if (step && !stepHasCheck(afterLines, step)) continue;
           out.push(
@@ -729,7 +791,7 @@ export const ciTampering: Detector = {
         }
         // `on:` narrowed so the workflow no longer runs where the check matters.
         if (c.before != null) {
-          triggerOpts ??= { defaultBranch: defaultBranch(ctx), sources: sourceProbes(ctx) };
+          triggerOpts ??= { defaultBranch: defaultBranch(ctx), sources: sourceProbes(ctx), hasBranch: (b) => branchExists(b, ctx) };
           for (const reason of triggerNarrowings(parseTriggers(c.before), parseTriggers(c.after!), triggerOpts)) {
             out.push(
               makeFinding(RULE, policy, {
@@ -769,7 +831,7 @@ export const ciTampering: Detector = {
         // removed", because the backtick before the word satisfied the
         // invocation-position test — the repo's own gate blocked a comment edit.
         if (/^\s*#/.test(l.content)) continue;
-        const isUsesLine = USES.test(l.content) && CHECK.test(l.content);
+        const isUsesLine = usesCheck(l.content);
         const isCheckCommand = !isUsesLine && !/^\s*-?\s*uses:/.test(l.content) &&
           (YAML_KEY.test(l.content) ? /^\s*-?\s*run:/.test(l.content) : true) && invokesCheck(l.content);
         if (!isUsesLine && !isCheckCommand) continue;

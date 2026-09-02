@@ -44,9 +44,44 @@ export function trackedFiles(ctx?: DetectorContext): string[] | null {
 export function resetTrackedFiles(): void {
   cache.clear();
   branchCache.clear();
+  refsCache.clear();
 }
 
 const branchCache = new Map<string, string | null>();
+const refsCache = new Map<string, Set<string> | null>();
+
+/** The short names of every local and remote-tracking branch (`main`,
+ *  `origin/main`), or null when the repository cannot be read. */
+function branchRefs(ctx?: DetectorContext): Set<string> | null {
+  if (!ctx?.cwd) return null;
+  const hit = refsCache.get(ctx.cwd);
+  if (hit !== undefined) return hit;
+  let refs: Set<string> | null = null;
+  try {
+    const out = execFileSync('git', ['for-each-ref', '--format=%(refname:short)', 'refs/heads', 'refs/remotes'], {
+      cwd: ctx.cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    refs = new Set(out.split('\n').map((l) => l.trim()).filter(Boolean));
+  } catch {
+    refs = null;
+  }
+  refsCache.set(ctx.cwd, refs);
+  return refs;
+}
+
+/** Whether a branch named `name` exists locally or on any remote; null when the
+ *  repository cannot say. `origin/HEAD` is written once at clone time and is not
+ *  moved by a rename, so a workflow that now names `main` is judged against the
+ *  branches the repository actually has, not only against that stale pointer. */
+export function branchExists(name: string, ctx?: DetectorContext): boolean | null {
+  const refs = branchRefs(ctx);
+  if (!refs) return null;
+  if (refs.has(name)) return true;
+  for (const r of refs) if (r.endsWith('/' + name)) return true;
+  return false;
+}
 
 /** The repository's default branch as the remote declares it
  *  (`refs/remotes/origin/HEAD` → `main`), or null when unknown — a caller then
