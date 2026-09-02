@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { parseDiff } from '../src/diff/parse';
 import { defaultPolicy } from '../src/policy';
 import { testDeletion, countTests } from '../src/detectors/test-deletion';
+import { testContentRemoval } from '../src/detectors/test-content-removal';
 import { coverageLowering } from '../src/detectors/coverage-lowering';
 import { ciTampering, foldExpressions } from '../src/detectors/ci-tampering';
 import { branchExists, resetTrackedFiles, revIsHead } from '../src/detectors/repo';
@@ -422,5 +423,32 @@ describe('coverage-lowering — generated code, migrations, boilerplate, the 100
     expect(reasons([diffed('packages/core/package.json', '{"name":"core","scripts":{"test":"jest"}}\n', pj)], mono)).toHaveLength(1);
     expect(reasons([diffed('package.json', '{"name":"x","scripts":{"test":"jest"}}\n', pj)], mono)).toHaveLength(1);
     expect(reasons([diffed('packages/newpkg/package.json', null, pj)])).toHaveLength(1);
+  });
+});
+
+// ── test-content-removal ──────────────────────────────────────────────────────
+describe('test-content-removal — rows moved into a fixture under test/ (t02)', () => {
+  const spec = (table: string) => `import {add} from "../src/calc";\n${table}("add(%i, %i) = %i", (a, b, e) => { expect(add(a, b)).toBe(e); });\n`;
+  const ROWS = '[\n  [1, 1, 2],\n  [2, 2, 4],\n  [3, 3, 6],\n]';
+  const before = spec(`it.each(${ROWS})`);
+  const after = 'import { addCases } from "./fixtures/add-cases";\n' + spec('it.each(addCases)');
+  const fixture = `export const addCases: Array<[number, number, number]> = ${ROWS};\n`;
+
+  it('the fixture file holds the rows: a relocation', () => {
+    expect(run(testContentRemoval, [diffed('test/calc.test.ts', before, after), diffed('test/fixtures/add-cases.ts', null, fixture)])).toHaveLength(0);
+  });
+
+  it('the rows nowhere in the change: the table was gutted behind an import', () => {
+    const r = run(testContentRemoval, [diffed('test/calc.test.ts', before, after)]);
+    expect(r).toHaveLength(1);
+    expect(r[0].message).toMatch(/Rows removed/);
+  });
+
+  it('test.for tables are read like it.each', () => {
+    const forBefore = spec(`test.for(${ROWS})`);
+    const forAfter = spec('test.for([...rows, [1, 1, 2]])');
+    const r = run(testContentRemoval, [diffed('test/calc.test.ts', forBefore, forAfter)]);
+    expect(r).toHaveLength(1);
+    expect(r[0].evidence).toBe('[2, 2, 4] | [3, 3, 6]');
   });
 });
