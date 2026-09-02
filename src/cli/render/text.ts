@@ -57,7 +57,10 @@ function paint(s: string, code: string, on: boolean): string {
 function wrap(text: string, width: number): string[] {
   const out: string[] = [];
   let cur = '';
-  for (const w of text.split(/\s+/).filter(Boolean)) {
+  // Message and remediation quote policy-derived strings (an `ignore` glob, a rule
+  // name, a verify command), which are repository content like evidence is — so
+  // they get the same control-byte stripping clip() gives evidence. (D-9.)
+  for (const w of stripControl(text).split(/\s+/).filter(Boolean)) {
     if (cur === '') cur = w;
     else if (cur.length + 1 + w.length <= width) cur += ' ' + w;
     else {
@@ -73,7 +76,7 @@ function wrap(text: string, width: number): string[] {
  *  than a regex literal on purpose: the character class needs `no-control-regex`
  *  suppressed, and this project's own gate blocks lint suppressions — correctly.
  *  \t \n \r are left for the \\s+ collapse below. */
-function stripControl(v: string): string {
+export function stripControl(v: string): string {
   let outStr = '';
   for (const ch of v) {
     const cp = ch.codePointAt(0) ?? 0;
@@ -156,8 +159,8 @@ export function renderText(input: TextInput, opts: TextOpts): string {
   for (const f of findings) {
     const isBlock = f.severity === 'block';
     const mark = paint(isBlock ? 'BLOCK' : 'warn ', isBlock ? BOLD + RED : YELLOW, c);
-    const loc = f.file ? `${f.file}${f.line ? `:${f.line}` : ''}` : '(command)';
-    out.push(`  ${mark}  ${paint(f.rule, BOLD, c)}  ${paint(loc, DIM, c)}`);
+    const loc = f.file ? `${stripControl(f.file)}${f.line ? `:${f.line}` : ''}` : '(command)';
+    out.push(`  ${mark}  ${paint(stripControl(f.rule), BOLD, c)}  ${paint(loc, DIM, c)}`);
 
     // The message is the finding, so it gets the shallowest indent and no label —
     // burying the one sentence that says what happened behind a label column reads
@@ -169,7 +172,7 @@ export function renderText(input: TextInput, opts: TextOpts): string {
     };
     row('evidence', [paint(clip(f.evidence, body), DIM, c)]);
     row('instead', wrap(f.remediation, body));
-    if (f.signoff.required) row('sign-off', [f.signoff.command]);
+    if (f.signoff.required) row('sign-off', [stripControl(f.signoff.command)]);
     out.push('');
   }
 

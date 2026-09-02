@@ -14,10 +14,11 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync, statSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { POLICY_FILE } from '../policy';
+import { loadPolicy } from '../policy-load';
 
 export interface InitOpts {
   cwd?: string;
@@ -32,7 +33,21 @@ interface Action {
   path: string;
   status: 'create' | 'update' | 'ok' | 'skip' | 'error';
   detail: string;
+  /** Something the operator must check even though the item applied — printed
+   *  after the plan, where it cannot hide inside a table row. */
+  warning?: string;
   apply?: () => void;
+}
+
+const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e)).replace(/\s+/g, ' ').trim();
+const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+function gitConfig(cwd: string, key: string): string | null {
+  try {
+    return execFileSync('git', ['config', '--get', key], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 // The tools whose calls the PreToolUse gate must see. NotebookEdit was added in
@@ -81,27 +96,43 @@ function coveredBy(existing: string, critical: string): boolean {
   for (const line of existing.split('\n')) {
     const t = line.trim();
     if (!t || t.startsWith('#')) continue;
-    const pattern = t.split(/\s+/)[0];
-    if (!t.slice(pattern.length).trim()) continue; // a pattern with no owner requires nobody
-    if (pattern === '*' || pattern === critical) return true;
-    if (pattern.endsWith('/') && critical.startsWith(pattern)) return true;
+    const raw = t.split(/\s+/)[0];
+    if (!t.slice(raw.length).trim()) continue; // a pattern with no owner requires nobody
+    if (raw === '*' || raw === '**') return true;
+    // `/.github/**` and `/.github/*` are the glob spellings of the directory rule
+    // `/.github/`; an unanchored pattern (`.github/`, `CODEOWNERS`) matches at any
+    // depth, so it covers the anchored path too. Re-runs used to miss both forms
+    // and append a second rule for a path that already had an owner. (D-10.)
+    const pattern = raw.replace(/\/\*{1,2}$/, '/');
+    if (pattern.includes('*')) continue; // other wildcards: not something this can vouch for
+    const anchored = pattern.startsWith('/') ? pattern : '/' + pattern;
+    if (anchored === critical) return true;
+    if (anchored.endsWith('/') && critical.startsWith(anchored)) return true;
+    if (!pattern.startsWith('/')) {
+      if (critical.endsWith('/' + pattern)) return true;
+      if (pattern.endsWith('/') && critical.includes('/' + pattern)) return true;
+    }
   }
   return false;
 }
 
-/** `@owner` from the origin remote, or null when it cannot be determined. */
-function inferOwner(cwd: string): string | null {
-  try {
-    const url = execFileSync('git', ['remote', 'get-url', 'origin'], {
-      cwd,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    const m = url.match(/github\.com[:/]+([^/]+)\//);
-    return m ? `@${m[1]}` : null;
-  } catch {
-    return null;
-  }
+/**
+ * `@owner` from the origin remote, or null when it cannot be determined.
+ *
+ * The first path segment of a GitHub remote is a user OR an organisation, and
+ * only a user is a valid CODEOWNERS owner on its own — an organisation must be
+ * spelled `@org/team`. GitHub does not say which it is offline, so `confirmed`
+ * is true only when the segment is the operator's own login (`github.user` or
+ * `user.name` in git config); otherwise the rule is written with a TODO and
+ * init warns, because a rule GitHub rejects protects nothing, silently. (D-10.)
+ */
+function inferOwner(cwd: string): { owner: string; confirmed: boolean } | null {
+  const url = gitConfig(cwd, 'remote.origin.url');
+  const m = url?.match(/github\.com[:/]+([^/]+)\//);
+  if (!m) return null;
+  const segment = m[1];
+  const self = [gitConfig(cwd, 'github.user'), gitConfig(cwd, 'user.name')].filter((v): v is string => v !== null);
+  return { owner: `@${segment}`, confirmed: self.some((v) => v.toLowerCase() === segment.toLowerCase()) };
 }
 
 const POLICY_CONTENT = `# Tamperward policy. The BASELINE (all rules, standard protected globs) applies even
@@ -285,9 +316,36 @@ function missingTools(matcher: string | undefined): string[] {
   return PRE_MATCHER.split('|').filter((t) => !have.has(t));
 }
 
+/** Why `hooks` is not the shape Claude Code reads, or null when it is. */
+function hooksShapeError(hooks: unknown): string | null {
+  if (hooks === undefined || hooks === null) return null;
+  if (!isPlainObject(hooks)) return 'hooks is not an object';
+  for (const [event, arr] of Object.entries(hooks)) {
+    if (arr === undefined || arr === null) continue;
+    if (!Array.isArray(arr)) return `hooks.${event} is not a list`;
+    for (const m of arr) {
+      if (!isPlainObject(m)) return `hooks.${event} contains an entry that is not an object`;
+      if (m.hooks !== undefined && m.hooks !== null && !(Array.isArray(m.hooks) && m.hooks.every(isPlainObject))) {
+        return `hooks.${event} has a "hooks" value that is not a list of { type, command }`;
+      }
+    }
+  }
+  return null;
+}
+
 function planPolicy(cwd: string): Action {
   const path = join(cwd, POLICY_FILE);
-  if (existsSync(path)) return { item: 'policy', path: POLICY_FILE, status: 'ok', detail: 'already present — left untouched' };
+  if (existsSync(path)) {
+    // "Present" is not "in force": a policy that does not load switches the gate
+    // off (check exits 2, the hook denies everything) — init used to report it as
+    // fine without reading it. Load it with the real loader and say what is wrong.
+    try {
+      loadPolicy(cwd);
+    } catch (e) {
+      return { item: 'policy', path: POLICY_FILE, status: 'error', detail: `present but does not load — ${errText(e)}; fix it, then re-run init (left untouched)` };
+    }
+    return { item: 'policy', path: POLICY_FILE, status: 'ok', detail: 'already present and loads — left untouched' };
+  }
   return {
     item: 'policy', path: POLICY_FILE, status: 'create',
     detail: 'baseline policy with commented overrides',
@@ -314,6 +372,14 @@ function planClaudeHooks(cwd: string): Action {
       return { item: 'agent', path: rel, status: 'error', detail: 'exists but is not a JSON object — refusing to overwrite' };
     }
     settings = parsed as ClaudeSettings;
+  }
+
+  // The shape Claude Code reads: hooks → event → [{ matcher, hooks: [{ type, command }] }].
+  // Anything else used to throw halfway through apply (after the policy was already
+  // written) — planned here, so a malformed file is an error row and nothing else.
+  const shapeError = hooksShapeError(settings.hooks);
+  if (shapeError) {
+    return { item: 'agent', path: rel, status: 'error', detail: `${shapeError} — fix it, then re-run init (refusing to overwrite)` };
   }
 
   const hooks = (settings.hooks ??= {});
@@ -375,49 +441,199 @@ function planClaudeHooks(cwd: string): Action {
   };
 }
 
-/** Husky when present; the plain git hook otherwise. Appending to an existing script is
- *  safe for shell (a new line at the end) and marked, so re-runs find it. */
-function planPreCommit(cwd: string): Action {
-  const line = `${MARKER}\n${PRECOMMIT_CMD}\n`;
-  const husky = join(cwd, '.husky');
-  const gitDir = join(cwd, '.git');
-  const target = existsSync(husky)
-    ? { rel: '.husky/pre-commit', note: 'husky' }
-    : existsSync(gitDir)
-      ? { rel: '.git/hooks/pre-commit', note: 'plain git hook (local-only: .git/hooks is not committed — consider husky to share it)' }
-      : null;
-  if (!target) return { item: 'pre-commit', path: '(none)', status: 'skip', detail: 'not a git repo and no .husky/ — nothing to wire' };
+// Hook MANAGERS that own the script in the hooks directory and regenerate it on
+// their next install: a line appended to their file lasts until then, and the
+// gate silently stops running. Their wiring belongs in their config, so init
+// reports the exact snippet instead of writing where it cannot stay.
+const MANAGED_HOOKS: ReadonlyArray<{ name: string; configs: string[]; hookRe: RegExp; hint: string }> = [
+  {
+    name: 'lefthook',
+    configs: ['lefthook.yml', 'lefthook.yaml', '.lefthook.yml', '.lefthook.yaml', 'lefthook-local.yml', 'lefthook-local.yaml'],
+    hookRe: /\blefthook\b/i,
+    hint: `add this under \`pre-commit:\` → \`commands:\` in lefthook.yml:\n` +
+      `        tamperward:\n          run: ${PRECOMMIT_CMD}`,
+  },
+  {
+    name: 'pre-commit',
+    configs: ['.pre-commit-config.yaml', '.pre-commit-config.yml'],
+    hookRe: /pre-commit\.com|File generated by pre-commit/i,
+    hint: `add this under \`repos:\` in .pre-commit-config.yaml:\n` +
+      `        - repo: local\n          hooks:\n            - id: tamperward\n              name: tamperward\n` +
+      `              entry: ${PRECOMMIT_CMD}\n              language: system\n              pass_filenames: false\n              always_run: true`,
+  },
+];
 
-  const path = join(cwd, target.rel);
-  const existing = existsSync(path) ? readFileSync(path, 'utf8') : null;
-  if (existing !== null && PRECOMMIT_RE.test(existing)) {
-    // Present. Re-pin the line init wrote if it carries another version (or
-    // none); a hand-written invocation is left exactly as it is.
-    const lines = existing.split('\n');
-    const staleAt = lines.findIndex((l) => PRECOMMIT_RE.test(l) && stalePin(l));
-    if (staleAt === -1) {
-      return { item: 'pre-commit', path: target.rel, status: 'ok', detail: 'already runs the staged check' };
+/**
+ * The hooks directory git will actually run from. `git rev-parse --git-path hooks`
+ * honours `core.hooksPath` (a committed `.githooks/`, simple-git-hooks, lefthook,
+ * husky), a worktree's shared git dir, and a submodule's — where a hard-wired
+ * `.git/hooks` used to write a hook git never ran and then report it as wired
+ * on every re-run. (D-3.) Falls back to `.git/hooks` when git is unavailable
+ * but a `.git` directory is present.
+ */
+function hooksDir(cwd: string): string | null {
+  try {
+    const out = execFileSync('git', ['rev-parse', '--git-path', 'hooks'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    if (out) return resolve(cwd, out);
+  } catch {
+    /* not a repo, or no git on PATH */
+  }
+  return existsSync(join(cwd, '.git')) ? join(cwd, '.git', 'hooks') : null;
+}
+
+/** A path for the plan table: repo-relative when it is inside the repo. */
+function display(cwd: string, path: string): string {
+  const rel = relative(cwd, path);
+  return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : path;
+}
+
+/**
+ * Index of the first line after which nothing in the script runs — an `exec` or
+ * `exit` at the TOP LEVEL (not inside if/case/loop/function, not after `&&` or
+ * `||`, not a comment, not the redirection-only `exec < /dev/tty`) — or -1.
+ * Appending the gate after such a line produced dead code that init then
+ * reported as wired. (D-4.) Kept deliberately conservative: a construct this
+ * does not understand reads as depth > 0, which means "append" — today's
+ * behaviour — never a wrong insertion in the middle of somebody's script.
+ */
+export function unconditionalExitAt(lines: string[]): number {
+  let depth = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (!t || t.startsWith('#')) continue;
+    if (depth === 0) {
+      if (/^exit(\s|$|;)/.test(t)) return i;
+      const exec = t.match(/^exec(?:\s+(.*))?$/);
+      // `exec` alone or followed only by redirections re-plumbs the shell; it does
+      // not replace it. `exec cmd …` does.
+      if (exec && exec[1] && !/^(\d*[<>]|&>)/.test(exec[1])) return i;
     }
-    const was = pinOf(lines[staleAt]) || 'unpinned';
+    const opens =
+      (t.match(/(?:^|[;(]\s*|&&\s*|\|\|\s*)(?:if|case|for|while|until)\s/g) ?? []).length +
+      (/(?:^|\s)\{\s*$/.test(t) ? 1 : 0);
+    const closes =
+      (t.match(/(?:^|[;]\s*)(?:fi|esac|done)(?:\s|;|$)/g) ?? []).length + (/^\}/.test(t) ? 1 : 0);
+    depth = Math.max(0, depth + opens - closes);
+  }
+  return -1;
+}
+
+/**
+ * Husky when present; otherwise the hooks directory git resolves; never a file
+ * a hook manager will regenerate. Appending to an existing script is safe for
+ * shell (a new line at the end) UNLESS an unconditional `exec`/`exit` precedes
+ * it, in which case the gate goes before that line. Marked, so re-runs find it.
+ */
+function planPreCommit(cwd: string): Action {
+  const block = [MARKER, PRECOMMIT_CMD];
+  const skip = (detail: string): Action => ({ item: 'pre-commit', path: '(none)', status: 'skip', detail });
+
+  let path: string;
+  let note: string;
+  if (existsSync(join(cwd, '.husky'))) {
+    path = join(cwd, '.husky', 'pre-commit');
+    note = 'husky';
+  } else {
+    const managed = MANAGED_HOOKS.find((m) => m.configs.some((c) => existsSync(join(cwd, c))));
+    if (managed) {
+      return skip(`${managed.name} manages this repository's hooks and regenerates them on install, so a line in the hooks directory would not last — ${managed.hint}`);
+    }
+    const dir = hooksDir(cwd);
+    if (!dir) return skip('not a git repo and no .husky/ — nothing to wire');
+    if (basename(dir) === '_' && basename(dirname(dir)) === '.husky') {
+      // husky v9 points core.hooksPath at its shim directory; the user's script is
+      // .husky/pre-commit, which the shim runs.
+      path = join(dirname(dir), 'pre-commit');
+      note = 'husky';
+    } else {
+      path = join(dir, 'pre-commit');
+      const rel = display(cwd, dir);
+      note = rel === join('.git', 'hooks')
+        ? 'plain git hook (local-only: .git/hooks is not committed — consider husky to share it)'
+        : `git hooks directory ${rel} (core.hooksPath)`;
+    }
+  }
+  const rel = display(cwd, path);
+
+  if (existsSync(path) && !statSync(path).isFile()) {
+    return { item: 'pre-commit', path: rel, status: 'error', detail: 'exists but is not a regular file — refusing to write' };
+  }
+  const existing = existsSync(path) ? readFileSync(path, 'utf8') : null;
+  if (existing === null) {
     return {
-      item: 'pre-commit', path: target.rel, status: 'update',
-      detail: `re-pin the staged check to tamperward@${TW_VERSION} (was ${was})`,
+      item: 'pre-commit', path: rel, status: 'create', detail: `create via ${note}`,
       apply: () => {
-        lines[staleAt] = PRECOMMIT_CMD;
-        writeFileSync(path, lines.join('\n'));
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, `#!/bin/sh\n${block.join('\n')}\n`);
         chmodSync(path, 0o755);
       },
     };
   }
+
+  const owner = MANAGED_HOOKS.find((m) => m.hookRe.test(existing));
+  if (owner) {
+    return { item: 'pre-commit', path: rel, status: 'skip', detail: `generated by ${owner.name}, which overwrites it on install — ${owner.hint}` };
+  }
+
+  const lines = existing.split('\n');
+  const dead = unconditionalExitAt(lines);
+  const at = lines.findIndex((l) => PRECOMMIT_RE.test(l));
+  const write = (out: string[]): void => {
+    writeFileSync(path, out.join('\n'));
+    chmodSync(path, 0o755);
+  };
+
+  if (at !== -1 && (dead === -1 || at < dead)) {
+    // Present AND reachable. Re-pin the line init wrote if it carries another
+    // version (or none); a hand-written invocation is left exactly as it is.
+    if (!stalePin(lines[at])) {
+      return { item: 'pre-commit', path: rel, status: 'ok', detail: 'already runs the staged check' };
+    }
+    const was = pinOf(lines[at]) || 'unpinned';
+    return {
+      item: 'pre-commit', path: rel, status: 'update',
+      detail: `re-pin the staged check to tamperward@${TW_VERSION} (was ${was})`,
+      apply: () => { lines[at] = PRECOMMIT_CMD; write(lines); },
+    };
+  }
+
+  if (at !== -1) {
+    // Present but UNREACHABLE: line `dead` ends the script before it. The block
+    // init wrote (marker + our own command) is moved above; anything else is
+    // somebody's script, so it is reported rather than rearranged.
+    const ours = pinOf(lines[at]) !== null && lines[at - 1]?.trim() === MARKER;
+    if (!ours) {
+      return {
+        item: 'pre-commit', path: rel, status: 'error',
+        detail: `the staged check on line ${at + 1} never runs: line ${dead + 1} (\`${lines[dead].trim()}\`) ends the script first — move the tamperward line above it`,
+      };
+    }
+    return {
+      item: 'pre-commit', path: rel, status: 'update',
+      detail: `move the staged check above line ${dead + 1} (\`${lines[dead].trim()}\`), which ended the script before it ran`,
+      apply: () => {
+        const out = lines.filter((_, i) => i !== at && i !== at - 1);
+        out.splice(dead, 0, ...block);
+        write(out);
+      },
+    };
+  }
+
+  if (dead !== -1) {
+    return {
+      item: 'pre-commit', path: rel, status: 'update',
+      detail: `insert the staged check above line ${dead + 1} (\`${lines[dead].trim()}\`), which ends the script — ${note}`,
+      apply: () => {
+        const out = [...lines];
+        out.splice(dead, 0, ...block);
+        write(out);
+      },
+    };
+  }
+
   return {
-    item: 'pre-commit', path: target.rel, status: existing === null ? 'create' : 'update',
-    detail: existing === null ? `create via ${target.note}` : `append the staged check (${target.note})`,
-    apply: () => {
-      mkdirSync(dirname(path), { recursive: true });
-      const content = existing === null ? `#!/bin/sh\n${line}` : existing.replace(/\n?$/, '\n') + line;
-      writeFileSync(path, content);
-      chmodSync(path, 0o755);
-    },
+    item: 'pre-commit', path: rel, status: 'update', detail: `append the staged check (${note})`,
+    apply: () => write([...existing.replace(/\n?$/, '\n').split('\n').slice(0, -1), ...block, '']),
   };
 }
 
@@ -460,7 +676,9 @@ function planCodeowners(cwd: string): Action {
     return { item: 'codeowners', path: existingRel!, status: 'ok', detail: 'gate paths already have code owners' };
   }
 
-  const owner = inferOwner(cwd);
+  const inferred = inferOwner(cwd);
+  const owner = inferred?.owner ?? null;
+  const unconfirmed = inferred !== null && !inferred.confirmed;
   const block =
     `\n${CODEOWNERS_MARK}\n` +
     '# A pull request that rewrites the workflow can keep the job name, replace the\n' +
@@ -468,7 +686,11 @@ function planCodeowners(cwd: string): Action {
     '# requirement on these paths prevents that.\n' +
     (owner === null
       ? '# REPLACE @OWNER BELOW with a real user or team — an unresolvable owner protects nothing.\n'
-      : '') +
+      : unconfirmed
+        ? `# TODO: replace ${owner} with ${owner}/<team> if "${owner.slice(1)}" is an organisation. GitHub\n` +
+          '# rejects a bare organisation as an owner, and a rule with an invalid owner protects\n' +
+          '# nothing. A user login is fine as written.\n'
+        : '') +
     missing.map((p) => `${p.padEnd(24)} ${owner ?? '@OWNER'}`).join('\n') +
     '\n';
 
@@ -479,7 +701,15 @@ function planCodeowners(cwd: string): Action {
     detail:
       (existing === null ? 'require a code owner on ' : 'add missing code-owner rules for ') +
       missing.join(', ') +
-      (owner === null ? ' — OWNER UNKNOWN, edit @OWNER before this does anything' : ` (${owner})`),
+      (owner === null ? ' — OWNER UNKNOWN, edit @OWNER before this does anything' : ` (${owner}${unconfirmed ? ', unconfirmed — see warning below' : ''})`),
+    ...(inferred && unconfirmed
+      ? {
+          warning:
+            `${inferred.owner} was inferred from the origin remote and is not confirmed to be a user. If "${inferred.owner.slice(1)}" is an ` +
+            `organisation, replace it with ${inferred.owner}/<team> in CODEOWNERS: GitHub rejects a bare organisation as an owner, ` +
+            'and a rule with an invalid owner protects nothing.',
+        }
+      : {}),
     apply: () => {
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, existing === null ? block.replace(/^\n/, '') : existing.replace(/\n?$/, '\n') + block);
@@ -540,8 +770,25 @@ function planWorkflow(cwd: string, force: boolean): Action {
   };
 }
 
+/** A planner that throws (a directory where a file was expected, an unreadable
+ *  file) becomes an error ROW, so the rest of the plan still exists and nothing is
+ *  applied before every item has been planned. (D-6.) */
+function planned(item: string, path: string, plan: () => Action): Action {
+  try {
+    return plan();
+  } catch (e) {
+    return { item, path, status: 'error', detail: `cannot plan this item — ${errText(e)}` };
+  }
+}
+
 export function planInit(cwd: string, opts: { forceWorkflow?: boolean } = {}): Action[] {
-  return [planPolicy(cwd), planClaudeHooks(cwd), planPreCommit(cwd), planWorkflow(cwd, opts.forceWorkflow ?? false), planCodeowners(cwd)];
+  return [
+    planned('policy', POLICY_FILE, () => planPolicy(cwd)),
+    planned('agent', '.claude/settings.json', () => planClaudeHooks(cwd)),
+    planned('pre-commit', '(hooks)', () => planPreCommit(cwd)),
+    planned('ci', '.github/workflows/tamperward.yml', () => planWorkflow(cwd, opts.forceWorkflow ?? false)),
+    planned('codeowners', '.github/CODEOWNERS', () => planCodeowners(cwd)),
+  ];
 }
 
 export function runInit(opts: InitOpts): number {
@@ -549,14 +796,30 @@ export function runInit(opts: InitOpts): number {
   const plan = planInit(cwd, { forceWorkflow: opts.forceWorkflow });
   const w = process.stdout;
 
+  // The plan is complete before the first write (planInit never throws). An apply
+  // that fails anyway is reported as its own error row and never as a crash that
+  // leaves the summary unprinted and the operator guessing what was written.
+  let applied = 0;
   for (const a of plan) {
+    if (!opts.dryRun && a.apply) {
+      try {
+        a.apply();
+        applied++;
+      } catch (e) {
+        a.status = 'error';
+        a.detail = `could not be written — ${errText(e)}`;
+        a.apply = undefined;
+      }
+    }
     const verb = opts.dryRun && (a.status === 'create' || a.status === 'update') ? `would ${a.status}` : a.status;
     w.write(`  ${a.item.padEnd(10)} ${verb.padEnd(12)} ${a.path}  — ${a.detail}\n`);
-    if (!opts.dryRun && a.apply) a.apply();
+  }
+  for (const a of plan) {
+    if (a.warning) w.write(`\nWARNING (${a.item}): ${a.warning}\n`);
   }
 
   const errors = plan.filter((a) => a.status === 'error');
-  const changed = plan.filter((a) => a.apply).length;
+  const changed = opts.dryRun ? plan.filter((a) => a.apply).length : applied;
   if (errors.length) {
     w.write(`\ntamperward init: ${errors.length} item(s) need your attention above; the rest ${opts.dryRun ? 'are planned' : 'were applied'}.\n`);
     return 2;

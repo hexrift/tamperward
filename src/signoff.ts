@@ -24,6 +24,7 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Finding, Policy } from './types';
+import { ledgerInsideRepo, PolicyError } from './policy-load';
 
 export interface LedgerEntry {
   rule: string;
@@ -42,8 +43,15 @@ export function fingerprint(rule: string, file: string | undefined, evidence: st
 }
 export const fingerprintOf = (f: Finding): string => fingerprint(f.rule, f.file, f.evidence);
 
+/** Where the LOCAL ledger lives. FAILS CLOSED on a path that escapes the repository:
+ *  the loader already refuses `../x.jsonl` and absolute paths, and this guard holds
+ *  for a Policy built any other way, so no caller can be handed a ledger outside cwd. */
 export function ledgerPath(cwd: string, policy: Policy): string {
-  return join(cwd, policy.signoff?.ledger ?? '.tamperward/ledger.jsonl');
+  const rel = policy.signoff?.ledger ?? '.tamperward/ledger.jsonl';
+  if (!ledgerInsideRepo(rel)) {
+    throw new PolicyError(`signoff.ledger must be a relative path inside the repository, got ${JSON.stringify(rel)}`);
+  }
+  return join(cwd, rel);
 }
 
 export function readLedger(cwd: string, policy: Policy): LedgerEntry[] {

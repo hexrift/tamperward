@@ -3,7 +3,7 @@
 // blocking finding so it can serve as a gate at pre-commit and in CI.
 
 import { Change, Policy, View } from '../types';
-import { diffRange, diffStaged, diffWorktree, diffWorktreeWithUntracked, mergeBaseOf } from '../git/build';
+import { diffRange, diffStaged, diffWorktree, diffWorktreeWithUntracked, isGitRepo, mergeBaseOf } from '../git/build';
 import { evaluate, hasBlocking, isSuppressed } from '../engine';
 import { loadPolicy, loadPolicyAt, PolicyError } from '../policy-load';
 import { defaultPolicy } from '../policy';
@@ -26,8 +26,14 @@ export interface CheckOpts {
 }
 
 function check(opts: CheckOpts): number {
-  let policy: Policy = opts.policyOverride ?? loadPolicy(opts.cwd);
   const cwd = opts.cwd ?? process.cwd();
+  if (!isGitRepo(cwd)) {
+    // Every view is a git view. Said plainly here rather than as whatever git
+    // prints when `diff` runs outside a repository (its usage text, at exit 1).
+    process.stderr.write(`tamperward: ${cwd} is not inside a git repository — nothing to check\n`);
+    return 2;
+  }
+  let policy: Policy = opts.policyOverride ?? loadPolicy(opts.cwd);
 
   let changes: Change[];
   let layer: 'local' | 'ci';
@@ -43,12 +49,24 @@ function check(opts: CheckOpts): number {
     layer = opts.ciLayer ? 'ci' : 'local';
     view = 'worktree';
   } else if (opts.diff) {
-    const [base, head] = opts.diff.split(/\.{2,3}/);
-    if (!base || !head) {
+    // Exactly two or three dots between two revisions. `a....b` used to split as
+    // `a` / `.b` and reach git, which died with a stack trace; a rev may contain
+    // dots (`v1.2.3...HEAD`) but never starts or ends with one.
+    const m = opts.diff.match(/^(.+?)\.{2,3}(.+)$/);
+    const [base, head] = m ? [m[1], m[2]] : ['', ''];
+    if (!base || !head || base.endsWith('.') || head.startsWith('.')) {
       process.stderr.write(`tamperward: invalid --diff range "${opts.diff}" (expected <base>...<head>)\n`);
       return 2;
     }
     changes = diffRange(base, head, { cwd: opts.cwd });
+    if (changes.length === 0) {
+      // Exit 0 stands — an empty pull request is clean — but say so on stderr: a
+      // consumer workflow that mis-resolves the range (HEAD...HEAD, a shallow clone
+      // with no merge-base) otherwise looks identical to a clean review. (F10.)
+      process.stderr.write(
+        `tamperward: note: the range ${base}...${head} contains no changes — if this is not an empty pull request, check that the range resolves to the intended commits\n`,
+      );
+    }
     layer = 'ci';
     view = 'range'; // authority for main: out-of-band approval ONLY, never the committed ledger
     // TRUSTED-BASE POLICY. Everything on the head is agent-authorable, so the head's own

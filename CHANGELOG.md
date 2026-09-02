@@ -5,6 +5,55 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.2.0] — 2026-09-02
+
+**`init` wires the hook where git actually runs it, the CLI fails closed on
+every crash path, and the policy loader refuses what it cannot vouch for. A
+minor, per CONTRIBUTING and the 1.15.0 precedent: the loader now rejects two
+shapes it used to accept silently (an unknown top-level key, a ledger path
+outside the repository), so a policy carrying either goes from "loaded, not in
+force" to exit 2 — visible, where it was invisible.**
+
+### Fixed
+
+- **`init` wrote `.git/hooks/pre-commit` that git never ran.** With
+  `core.hooksPath` set (lefthook, simple-git-hooks, a custom `.githooks/`) the
+  hook landed in the wrong directory and every re-run reported "already runs
+  the staged check". The hooks directory now comes from
+  `git rev-parse --git-path hooks`; a lefthook or pre-commit-framework repo gets
+  a `skip` with the exact config line to add.
+- **`init` appended the gate after an `exec`/`exit` that made it dead code**,
+  and later reported it as wired. The gate is inserted above the first
+  unconditional exit; an unreachable gate that init wrote is moved, a
+  hand-written one is reported as an error.
+- **Crash paths exited 1 with a stack trace.** A bad `--diff` revision, a
+  `--worktree` outside a repository, an invalid policy reaching `allow`, a
+  directory where `init` expected a file: each is now one line on stderr and
+  exit 2 (cannot evaluate, failing closed), never 1 (a blocking finding) and
+  never 0. `init` plans every change before writing any; an apply failure is an
+  error row, not an abort. `hook`/`sweep` are unchanged: a deny is JSON at exit 0.
+- **`signoff.ledger` could point outside the repository, unreported.** The
+  local layer trusts that file, so `../../shared.jsonl` handed the sign-off
+  channel to whoever controls that path. The loader rejects absolute or
+  escaping ledger paths (exit 2), and policy-diff reports any ledger change.
+- **An `exclude`-only override produced a false "lowered block → undefined"
+  finding** because the override replaced the whole rule object and dropped the
+  baseline severity. Rule overrides are field-merged; the exclude addition is
+  still reported, once.
+- **Policy-derived strings reached the terminal unescaped.** A crafted
+  `ignore` glob could carry a terminal escape sequence into a finding's
+  message. Control characters are stripped from every rendered field, in the
+  text and GitHub renderers.
+- **`init` inferred `@org` as a CODEOWNERS owner** for an organisation remote,
+  which GitHub rejects silently. The owner is confirmed against `github.user`
+  or `user.name`; otherwise the rule gets a TODO comment and init warns.
+  `/dir/**` patterns are recognised so re-runs stop appending duplicates.
+- **Silent config footguns.** An unknown top-level key (`Rules:`, `ignored:`)
+  fails closed naming the accepted set; a leading `/` on a protected, ignore or
+  exclude glob is normalised away instead of matching nothing; `init` loads an
+  existing policy and reports its error instead of "left untouched";
+  `check --diff` prints a stderr note when a range scans zero changes.
+
 ## [2.1.1] — 2026-09-02
 
 **Two bypasses of every git view, closed. A patch: bypass fixes at the same

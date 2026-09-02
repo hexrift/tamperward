@@ -283,7 +283,7 @@ commands ignore what they do not know.
 
 | command | 0 | 1 | 2 |
 | --- | --- | --- | --- |
-| `check` | no blocking finding | at least one blocking finding | cannot evaluate: policy parse error, malformed `--diff` range, or no view given |
+| `check` | no blocking finding | at least one blocking finding | cannot evaluate: policy parse error, malformed `--diff` range, no view given, not a git repository, or an unresolvable revision — any failure the gate cannot recover from is one clean `tamperward: …` line on stderr at exit 2, never a stack trace at exit 1 |
 | `verify` | `VERIFIED` — visible and pristine both green; or a `MASKED_FAILURE` cleared by an out-of-band `verify@<head-sha>` approval | `MASKED_FAILURE` (visible green, pristine red) or `SUITE_RED` | cannot verify, failing closed: no suite command, unresolvable base, `--require-ancestor` refused, budget exceeded, or the working or dependency tree moved during the run |
 | `run` | enforcement clean and the agent exited 0 — a non-zero agent exit is passed through unchanged | any blocking finding or masked failure, whatever the agent returned | cannot adjudicate: dirty start, policy error, verify cannot run |
 | `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0, never exit 2 | — | only for an unsupported agent name |

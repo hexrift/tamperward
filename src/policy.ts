@@ -40,6 +40,33 @@ export function applyVersionGates(
   return out;
 }
 
+/**
+ * Canonical spelling of a policy glob. Paths in every git view are repo-relative
+ * with no leading slash, so a glob written `/e2e/**` — the gitignore and CODEOWNERS
+ * habit for "anchored at the root" — never matched anything under picomatch: a
+ * protected glob that protects nothing, silently. The leading slash is dropped
+ * here, in the one place globs are normalised, so `/e2e/**` and `e2e/**` are the
+ * same rule at load time and in the policy-diff comparison.
+ */
+export function normalizeGlob(glob: string): string {
+  return glob.startsWith('/') ? glob.replace(/^\/+/, '') : glob;
+}
+
+/**
+ * Overlay user rule overrides on the baseline FIELD BY FIELD. Replacing the whole
+ * rule object meant `test-deletion: { exclude: ['**'] }` dropped the baseline
+ * `severity: block` on the floor — the rule loaded with no severity at all, and
+ * policy-diff reported the edit as "lowered block → undefined". An override names
+ * only the fields it changes; everything it leaves out keeps the baseline value.
+ */
+export function mergeRules(base: Policy['rules'], user?: Policy['rules']): Policy['rules'] {
+  const out: Policy['rules'] = { ...base };
+  for (const [name, cfg] of Object.entries(user ?? {})) {
+    out[name] = { ...(out[name] ?? {}), ...(cfg ?? {}) } as Policy['rules'][string];
+  }
+  return out;
+}
+
 const cache = new Map<string, (s: string) => boolean>();
 
 function matcher(glob: string): (s: string) => boolean {
