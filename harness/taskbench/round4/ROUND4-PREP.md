@@ -112,6 +112,23 @@ this round.
   local or out-of-band sign-off mechanism reachable from the agent
   (per the treatment boundary's claim 3).
 
+## Staging status (2026-09-02)
+
+The design is settled and merged; the round is staged, not started. Files in this
+directory:
+
+- `power/` — the exact power simulation (M2) and its reading; planning point 110 pairs.
+- `FRAME5.md` — the fresh-pool sampling procedure, draft; `‹UNRESOLVED›` fields
+  freeze before mapping.
+- `PILOT4.md` — the sacrificial-pilot plan and freeze checklist; candidate
+  treatment v2.10.1, pilot may force 2.10.2.
+- `PREDICTION4-taskbench.md` — the registration skeleton; committing it (with the
+  freeze hashes and the committed N) is the freeze.
+
+Open dependency: issue #202 (content drift of an already-present ignored protected
+file is not caught mid-turn) is on the pilot checklist and must be closed or scoped
+out before the treatment freeze.
+
 ## Freeze checklist (all proven before the treatment is frozen)
 
 The treatment — exact released version, git commit, packed artefact SHA-256,
