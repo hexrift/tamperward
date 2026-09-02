@@ -5,6 +5,44 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.2.1] — 2026-09-02
+
+**Five block rules closed against their one-token neighbours, and three
+routine edits that blocked no longer do. A patch: bypass fixes at the same
+severity and false-positive fixes, nothing else.**
+
+### Fixed
+
+- **`no-verify` matched raw text, not git.** `git commit --no-veri` (git
+  accepts any unambiguous prefix), a quoted `'--no-verify'`, and
+  `export SKIP=tamperward; git commit` all walked past it, while
+  `git log -n 5 -- src/commit.ts`, a commit message quoting `--no-verify`,
+  and `grep -- --no-verify docs/` blocked. Flags are now matched as unquoted
+  tokens of the `commit`/`push`/`merge` subcommand with option values dropped;
+  env hatches as whole assignment tokens; `SKIP=` carries to a later segment
+  only when exported or assigned bare.
+- **`test-skip` spellings:** vitest `skipIf`/`runIf`/`fails`, jest
+  `test.failing`, mocha `this.skip()`, `it.each([])`, `concurrent.skip`, a
+  non-literal `{ skip: expr }`; Python `pytestmark`, bare `@skip`, an aliased
+  `pytest`, `__test__ = False`; Go `testing.Short()` guards and
+  `//go:build ignore`; Rust `cfg_attr(…, ignore)`; Ruby `before { skip }` and
+  a block-less example; Java `assumeTrue(false)` and a fully-qualified
+  `@Ignore`; C# `[Explicit]` and `Assert.Inconclusive()`. False positives
+  fixed: `fit`/`xit`/`xdescribe` require call position, comment-only lines are
+  skipped, and `skip:` counts only in a test's options.
+- **`lint-suppression` spellings:** ESLint inline config (`/* eslint rule: off */`),
+  `# ruff: noqa`, `# flake8: noqa`, `# mypy: ignore-errors`, `# pylint:
+  skip-file`, `//lint:ignore`, `@file:Suppress`, `NOSONAR`, `ReSharper disable`,
+  `@codingStandardsIgnore*`. A marker inside a string literal or docstring no
+  longer fires.
+- **`ts-any-cast`:** `x as (any)` reached only the warn rule because the
+  parenthesised type was not unwrapped; JSDoc `/** @type {any} */ (x)` in
+  JavaScript files is the same cast.
+- **`snapshot-rewrite`:** `npm test -- -u` (the most common spelling) and its
+  yarn/pnpm/bun forms, `find … -name '*.snap' -delete`, `git checkout --` on a
+  snapshot path, `cargo insta accept`, `pytest --snapshot-update`,
+  `UPDATE_EXPECT=1`.
+
 ## [2.2.0] — 2026-09-02
 
 **`init` wires the hook where git actually runs it, the CLI fails closed on

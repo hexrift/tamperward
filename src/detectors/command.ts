@@ -17,3 +17,30 @@ export function tokens(seg: string): string[] {
 export function unquote(t: string): string {
   return t.replace(/^['"]+|['"]+$/g, '');
 }
+
+/** The segment's tokens with quotes stripped — `'--no-verify'` is the flag, while
+ *  `"docs: --no-verify is banned"` is one message argument that is not. */
+export function words(seg: string): string[] {
+  return tokens(seg).map(unquote);
+}
+
+// git's global options that consume the next token (`git -c core.hooksPath=x commit`).
+const GIT_OPT_WITH_ARG: ReadonlySet<string> = new Set(['-c', '-C', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--config-env']);
+
+/** The git subcommand a token list runs (`HUSKY=0 git -C . commit …` -> `commit`),
+ *  or null when it does not invoke git. `git log -n 5 -- src/commit.ts` runs `log`:
+ *  the words `commit` and `-n` elsewhere in the segment are not the spelling. */
+export function gitSubcommand(toks: string[]): string | null {
+  const i = toks.findIndex((t) => t === 'git' || t.endsWith('/git'));
+  if (i < 0) return null;
+  for (let j = i + 1; j < toks.length; j++) {
+    const t = toks[j];
+    if (GIT_OPT_WITH_ARG.has(t)) {
+      j++;
+      continue;
+    }
+    if (t.startsWith('-')) continue;
+    return t;
+  }
+  return null;
+}
