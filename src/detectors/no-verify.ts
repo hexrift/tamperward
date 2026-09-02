@@ -9,7 +9,7 @@ import { segments, tokens } from './command';
 
 const RULE = 'no-verify';
 
-const LITERAL: Array<{ re: RegExp; why: string }> = [
+const LITERAL: Array<{ re: RegExp; why: string; when?: RegExp }> = [
   { re: /(?:^|\s)--no-verify(?:\s|$)/, why: '--no-verify skips the pre-commit/pre-push hooks' },
   { re: /(?:^|\s)--no-hooks(?:\s|$)/, why: '--no-hooks disables hook execution' },
   { re: /(?:^|[\s;&|=])HUSKY=0(?:\s|$)/, why: 'HUSKY=0 disables all Husky hooks' },
@@ -23,6 +23,12 @@ const LITERAL: Array<{ re: RegExp; why: string }> = [
   { re: /(?:^|[\s;&|=])LEFTHOOK=0(?:\s|$)/, why: 'LEFTHOOK=0 disables Lefthook hooks' },
   { re: /\bSKIP_SIMPLE_GIT_HOOKS=1\b/, why: 'SKIP_SIMPLE_GIT_HOOKS=1 skips simple-git-hooks' },
   { re: /\bPRE_COMMIT_ALLOW_NO_CONFIG=1\b/, why: 'PRE_COMMIT_ALLOW_NO_CONFIG=1 lets pre-commit no-op' },
+  // The pre-commit framework's own escape hatch: SKIP=<hook-id>[,…] skips those
+  // hooks for that one invocation. `.pre-commit-config.yaml` is a protected hook,
+  // so its documented bypass has to be one too. `SKIP=` is a plausible variable
+  // name elsewhere, so it counts only in a segment that runs git or pre-commit.
+  { re: /(?:^|[\s;&|])SKIP=\S+/, why: 'SKIP=<hook-id> tells the pre-commit framework to skip that hook', when: /\b(?:git|pre-commit)\b/ },
+  { re: /(?:^|[\s;&|])LEFTHOOK_EXCLUDE=\S+/, why: 'LEFTHOOK_EXCLUDE=<name> skips the named Lefthook commands' },
 ];
 
 const SHORT_N = /^-[a-z]*n[a-z]*$/i; // -n, -nm, -an … a short-flag cluster containing n
@@ -39,7 +45,7 @@ export const noVerify: Detector = {
         let why: string | null = null;
 
         for (const p of LITERAL) {
-          if (p.re.test(seg)) {
+          if (p.re.test(seg) && (!p.when || p.when.test(seg))) {
             why = p.why;
             break;
           }
