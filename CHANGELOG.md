@@ -5,6 +5,109 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.9.0] — 2026-09-02
+
+**The Claude settings files are judged with the runtime's live semantics, on
+the shell surface as well as the file surface. From the runtime-semantics pass
+over 2.7.0's canonical-shape comparator, checked against the Claude Code
+documentation: settings files are watched and reloaded in-session,
+`disableAllHooks` applies from any file with the project overriding the user,
+`env` reaches every session and subprocess, the hook shell is bash, a sibling
+hook's output combines with the gate's. A minor: a hook entry added beside the
+gate, an `env` key of any name in the file that carries it, a pin raised past
+the gate judging the edit, and any shell write to a settings file outside the
+repository now need a one-time sign-off where they used to pass — and `init`
+now declares `disableAllHooks: false` in the project file. Two 2.7.0 false
+positives are corrected: a comma-separated matcher is the honest list the
+runtime documents, and `statusMessage` is cosmetic.**
+
+### Changed
+
+- **A Bash write to any Claude settings file is hook-tampering.** The
+  shell-target model judged write targets against the repository's
+  `protected.hooks` globs only, so `echo '{"disableAllHooks":true}' >
+  ~/.claude/settings.json` — the user file, which the runtime reloads within
+  seconds, no repository glob names, and neither the Stop sweep nor `check
+  --staged` can see — was allowed through Bash while the same Write was denied;
+  so were `$HOME/…`, the absolute path, `python3 -c`, `node -e`, `sed -i`,
+  `tee`, `cp`/`mv`/`ln` destinations, `rm`, and `cat >
+  /etc/claude-code/managed-settings.json`. A write target is now expanded as
+  the shell would (`~`, `$HOME`/`${HOME}`, `%USERPROFILE%`,
+  `$CLAUDE_CONFIG_DIR` — its value from the hook's own environment, else
+  `~/.claude` — backslashes as separators), every symlink in it resolved
+  against the repository root, and judged as a hook write whenever it is
+  settings-shaped wherever it lives: `~/.claude/settings.json`,
+  `managed-settings.json` at any path, a `.claude/settings*.json` at any depth,
+  and a directory holding the user file (`rm -rf ~/.claude`). A symlinked
+  alias (`ln -s . /tmp/xlink; rm /tmp/xlink/.claude/settings.json`, `ln -s
+  ~/.claude /tmp/cfg`) resolves to the file it writes on both surfaces, the
+  `Write` tool included. The finding names the expanded file, so the guarded
+  pin applies and a policy that lowered the rule cannot let it through. On the
+  tool-call surface `isClaudeSettings` accepts the `$CLAUDE_CONFIG_DIR`
+  relocation and backslash paths.
+- **`init` declares `disableAllHooks: false` in the project settings file**,
+  and the canonical shape holds it there: the runtime honours the key from any
+  file with the project overriding the user, so a `true` planted in the user
+  file no longer reaches the gate. Removing or flipping the declaration is
+  hook-tampering; a fresh gate-carrying file is held to the whole shape; a
+  file init wrote before 2.9.0 has no declaration and stays clean until an
+  edit writes the gate into it anew. Re-running `init` adds the declaration to
+  an already-wired file, and sets a `true` back to `false`.
+- **`env` inverted: any key added to or changed in the top-level `env` of a
+  file that carries the gate is hook-tampering; a key removed never is.** The
+  allowlist (`PATH`, `NODE_OPTIONS`, `NODE_PATH`, `HOME`, `npm_config_*`)
+  missed the shell and the loader: `BASH_ENV` is sourced by every
+  non-interactive bash before the hook command runs, `BASH_FUNC_npx%%`
+  redefines `npx` as a function, `LD_PRELOAD` reaches node whatever the
+  shell, and npm reads `npm_config_*` case-insensitively so
+  `NPM_config_registry` walked past the regex. The well-known names —
+  extended with `BASH_ENV`, `ENV`, `BASH_FUNC_*`, `LD_*`, `DYLD_*`,
+  `TAMPERWARD_*`, and `npm_config_*` in any case — stay a finding in any
+  settings file, and the reason names the mechanism when it is a known one.
+- **The pin may only go up, and only as far as the gate judging the edit.**
+  `npx --yes tamperward@99.0.0 hook claude` is a pin npm cannot resolve: the
+  hook exits non-zero with no decision, which the runtime treats as
+  non-blocking, and every tool call proceeds — "a higher pin is clean" was a
+  test. A fresh entry pinned above the judging version is hook-tampering, and
+  the reason says the honest raise is `tamperward init` run from the newer
+  version, which raises the judging gate with it. A fresh entry with no pin is
+  below any floor (`npx` then runs whatever `node_modules/.bin/tamperward` is)
+  — the `c.pin &&` guard that skipped it is gone — while a file whose gate was
+  unpinned before (as init wrote before 1.14.7) still sets no floor. A pin
+  with leading zeros (`02.5.0`) is not a plain version. Raising the pin to any
+  published version at or below the judging gate stays clean.
+- **Every hook entry an edit writes into a gate-carrying file is validated,
+  not only the gate's own.** A value the runtime's schema rejects on any
+  entry under any event — a `type` it does not accept, a non-numeric
+  `timeout`, a non-string matcher — is "broken settings" the runtime continues
+  without, the gate entries in that file included; it is hook-tampering.
+- **A hook entry added beside the gate under PreToolUse or Stop is a
+  sign-off.** The forgery check was textual, and `args`, an `http` entry and a
+  script file carried the same decision past it. A forged decision in the
+  command text is still named as such (the fast path); a shape that is not a
+  plain command entry (`args`, `http`, `prompt`, `agent`, `async`, `if`) is
+  named; and a plain command is a finding too, because its output combines
+  with the gate's verdict — an `updatedInput` rewrites the tool input after
+  the gate allowed it, the last hook winning; a `continue: false` takes
+  precedence over the sweep's block — and a script body carries what a regex
+  cannot see. An entry that was there before, as written, is not the edit's
+  doing; entries under other events are not judged this way.
+
+### Fixed
+
+- **A comma-separated matcher is the honest list, not a pattern that selects
+  nothing.** The runtime's matcher table reads a string of letters, digits,
+  `_`, `-`, spaces, `,` and `|` as an exact list separated by `|` or `,` with
+  optional surrounding whitespace — `Edit, Write` and `Edit|Write` each match
+  either tool. 2.7.0 read the comma as a regex and denied `Bash, Edit, Write,
+  MultiEdit, NotebookEdit` at every layer as "no longer covers Bash, Edit, …";
+  the 2.7.0 entry's claim that the comma fails closed described that false
+  positive. The comparator and `init`'s matcher repair both split on `|` and
+  `,` now.
+- **`statusMessage` on the gate entry is the documented spinner text**, a
+  cosmetic string, and passes; 2.7.0 reported it as a key init does not write
+  and the entry as removed.
+
 ## [2.8.0] — 2026-09-02
 
 **Every read of a repository path is git's view of it: a regular file is its

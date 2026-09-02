@@ -8,7 +8,7 @@ import { isAbsolute, join, relative } from 'node:path';
 import { Change, Detector, DetectorContext, FileChange, Finding, Policy } from '../types';
 import { addedLines, removedLines } from '../diff/select';
 import { isProtected, POLICY_FILE } from '../policy';
-import { PLAIN_SEMVER, PRE_TOOLS, TW_VERSION, compareVersions, initScriptPin, isClaudeSettings, pinNotBelow } from '../wiring';
+import { PLAIN_SEMVER, PRE_TOOLS, TW_VERSION, compareVersions, initScriptPin, isClaudeSettings, pinNotBelow, resolvesToClaudeSettings } from '../wiring';
 import { makeFinding } from './finding';
 import { policyAddWeakening, policyWeakening } from './policy-diff';
 import { segments, tokens, unquote } from './command';
@@ -75,16 +75,37 @@ function eventEntries(s: Settings, event: HookEvent): unknown[] | null {
 const declares = (s: Settings, event: HookEvent): boolean => eventEntries(s, event) !== null;
 
 /** Keys the canonical gate entry may carry. `timeout` is tolerated at or above
- *  120s — the hook needs time to run a diff — and is a finding below. */
-const GATE_KEYS = new Set(['type', 'command', 'timeout']);
+ *  120s — the hook needs time to run a diff — and is a finding below.
+ *  `statusMessage` is the runtime's documented spinner text: cosmetic, a string. */
+const GATE_KEYS = new Set(['type', 'command', 'timeout', 'statusMessage']);
+/** The `type` values the runtime's schema accepts on a hook entry. */
+const HOOK_TYPES = new Set(['command', 'prompt', 'agent', 'http']);
+/** Keys a hook entry beside the gate may carry and still be a plain command entry. */
+const SIBLING_KEYS = GATE_KEYS;
 const CANONICAL_CMD = /^npx --yes tamperward@(\S+) (hook|sweep) claude$/;
 /** An entry that carries the gate's words at all — in any launcher, any pin, any
  *  wrapping. The candidates the shape comparison then judges. */
 const MENTIONS_GATE = /\btamperward\b.*\b(?:hook|sweep)\b/;
 /** Text a sibling hook entry has no honest reason to emit: a forged decision. */
 const FORGERY = /hookSpecificOutput|permissionDecision|updatedInput|"decision"|"continue"/;
-/** Environment the gate command resolves through. */
-const SENSITIVE_ENV = /^(?:PATH|NODE_OPTIONS|NODE_PATH|HOME|npm_config_.*|NPM_CONFIG_.*)$/;
+/** Environment the gate command resolves through (the sensitive names), by the
+ *  mechanism each reaches it: the explanation an `env` finding carries when the
+ *  name is a known one, and the test a file WITHOUT the gate is still judged on.
+ *  `env` applies to every session and every subprocess, the hook's shell is bash
+ *  by default, and npm reads `npm_config_*` case-insensitively. In a file that
+ *  carries the gate every other name is a finding too — init writes no `env`,
+ *  and a name this table does not know is not a name the gate can vouch for. */
+const ENV_MECHANISM: ReadonlyArray<[RegExp, string]> = [
+  [/^PATH$/, 'the gate\'s launcher is looked up through it'],
+  [/^(?:NODE_OPTIONS|NODE_PATH)$/, 'node loads what it names before the gate runs'],
+  [/^HOME$/, 'npx\'s cache and configuration live under it'],
+  [/^npm_config_/i, 'npx reads it as npm configuration, the registry the gate is fetched from included'],
+  [/^(?:BASH_ENV|ENV)$/, 'a non-interactive shell sources it before every hook command'],
+  [/^BASH_FUNC_/, 'bash imports it as a function that shadows the command it names'],
+  [/^(?:LD|DYLD)_/, 'the dynamic loader injects it into every process, the gate included'],
+  [/^TAMPERWARD_/, 'it configures the gate itself'],
+];
+const envMechanism = (k: string): string | null => ENV_MECHANISM.find(([re]) => re.test(k))?.[1] ?? null;
 
 /** How a gate `command` string differs from the one init writes, and whether the
  *  runtime would still run the gate through it. */
@@ -115,13 +136,12 @@ function analyseGateCommand(cmd: string, event: HookEvent): { runs: boolean; pro
 }
 
 /** The tools a matcher selects, with the runtime's semantics: absent, empty or `*`
- *  is every tool (null); a string of `[A-Za-z0-9_ |-]` is an exact list split on
- *  `|`; anything else is an unanchored regular expression tested per tool. A comma
- *  is deliberately NOT a separator: the runtime documents `|` alone, so `Bash,Edit`
- *  is a pattern that matches the literal text `Bash,Edit` — which no tool name is —
- *  and reading it as a list would report clean over a matcher that selects nothing.
- *  Fail closed: it takes the regex path and comes out as a loss. A matcher that is
- *  not a string, or not a valid pattern, selects nothing and is reported. */
+ *  is every tool (null); a string of letters, digits, `_`, `-`, spaces, `,` and
+ *  `|` is an exact list separated by `|` or `,` with optional surrounding
+ *  whitespace (`Edit|Write` and `Edit, Write` each match either tool exactly —
+ *  the runtime's own matcher table); anything else is an unanchored regular
+ *  expression tested per tool. A matcher that is not a string, or not a valid
+ *  pattern, selects nothing and is reported. */
 function matcherSelection(m: unknown): { tools: Set<string> | null; problem: string | null } {
   if (m === undefined) return { tools: null, problem: null };
   if (typeof m !== 'string') return { tools: new Set(), problem: `the matcher ${JSON.stringify(m)} is not a string` };
@@ -129,7 +149,7 @@ function matcherSelection(m: unknown): { tools: Set<string> | null; problem: str
   let problem: string | null = null;
   // eslint-disable-next-line no-control-regex
   if (/[^\x00-\x7f]/.test(m)) problem = 'the matcher contains non-ASCII characters that look like tool names but are not';
-  if (/^[A-Za-z0-9_ |-]+$/.test(m)) return { tools: new Set(m.split('|').map((t) => t.trim()).filter(Boolean)), problem };
+  if (/^[A-Za-z0-9_ ,|-]+$/.test(m)) return { tools: new Set(m.split(/[|,]/).map((t) => t.trim()).filter(Boolean)), problem };
   let re: RegExp;
   try {
     re = new RegExp(m);
@@ -137,6 +157,30 @@ function matcherSelection(m: unknown): { tools: Set<string> | null; problem: str
     return { tools: new Set(), problem: `the matcher \`${m}\` is not a valid pattern — it selects nothing` };
   }
   return { tools: new Set(PRE_TOOLS.filter((t) => re.test(t))), problem };
+}
+
+/** How a hook entry's keys differ from the canonical command entry, and whether
+ *  the runtime would still run it as one: a `type` other than `command`, a key
+ *  init does not write, a `timeout` that cuts the gate off, a non-string
+ *  `statusMessage`. */
+function entryShape(h: Obj): { problems: string[]; runs: boolean } {
+  const problems: string[] = [];
+  let runs = true;
+  if (h.type !== 'command') {
+    problems.push(h.type === undefined ? 'no `type`' : `\`type\` is ${JSON.stringify(h.type)}`);
+    if (h.type !== undefined) runs = false;
+  }
+  for (const k of Object.keys(h)) {
+    if (GATE_KEYS.has(k)) continue;
+    problems.push(`carries \`${k}\``);
+    runs = false;
+  }
+  if ('timeout' in h) {
+    const t = h.timeout;
+    if (typeof t !== 'number' || !Number.isInteger(t) || t < 120) { problems.push(`\`timeout\` ${JSON.stringify(t)} — the gate is cut off before it answers`); runs = false; }
+  }
+  if ('statusMessage' in h && typeof h.statusMessage !== 'string') { problems.push(`\`statusMessage\` ${JSON.stringify(h.statusMessage)} is not a string`); runs = false; }
+  return { problems, runs };
 }
 
 interface Candidate {
@@ -151,47 +195,37 @@ interface Candidate {
   tools: Set<string> | null;
 }
 
+/** Whether a value names the gate anywhere in its JSON. */
+const mentionsGate = (v: unknown): boolean => /\btamperward\b/.test(JSON.stringify(v) ?? '');
+
 /** Every entry under `event` that names the gate, judged. Entries the runtime's
  *  schema would reject are candidates with a problem, not silence. */
 function gateCandidates(s: Settings, event: HookEvent): Candidate[] {
   const out: Candidate[] = [];
-  const mentions = (v: unknown): boolean => /\btamperward\b/.test(JSON.stringify(v) ?? '');
   for (const group of eventEntries(s, event) ?? []) {
     if (!isObj(group)) {
-      if (mentions(group)) out.push({ key: JSON.stringify(group), runs: false, problems: ['the matcher entry is not an object'], pin: null, tools: null });
+      if (mentionsGate(group)) out.push({ key: JSON.stringify(group), runs: false, problems: ['the matcher entry is not an object'], pin: null, tools: null });
       continue;
     }
     if (!Array.isArray(group.hooks)) {
-      if (mentions(group)) out.push({ key: JSON.stringify(group), runs: false, problems: ['`hooks` is not a list'], pin: null, tools: null });
+      if (mentionsGate(group)) out.push({ key: JSON.stringify(group), runs: false, problems: ['`hooks` is not a list'], pin: null, tools: null });
       continue;
     }
     for (const h of group.hooks) {
       if (!isObj(h)) {
-        if (mentions(h)) out.push({ key: JSON.stringify(h), runs: false, problems: ['the hook entry is not an object'], pin: null, tools: null });
+        if (mentionsGate(h)) out.push({ key: JSON.stringify(h), runs: false, problems: ['the hook entry is not an object'], pin: null, tools: null });
         continue;
       }
       const cmd = typeof h.command === 'string' ? h.command : null;
       if (cmd === null) {
-        if (mentions(h)) out.push({ key: JSON.stringify(h), runs: false, problems: ['the gate is not in a `command` string'], pin: null, tools: null });
+        if (mentionsGate(h)) out.push({ key: JSON.stringify(h), runs: false, problems: ['the gate is not in a `command` string'], pin: null, tools: null });
         continue;
       }
       if (!MENTIONS_GATE.test(cmd)) continue;
       const a = analyseGateCommand(cmd, event);
-      const problems = [...a.problems];
-      let runs = a.runs;
-      if (h.type !== 'command') {
-        problems.push(h.type === undefined ? 'no `type`' : `\`type\` is ${JSON.stringify(h.type)}`);
-        if (h.type !== undefined) runs = false;
-      }
-      for (const k of Object.keys(h)) {
-        if (GATE_KEYS.has(k)) continue;
-        problems.push(`carries \`${k}\``);
-        runs = false;
-      }
-      if ('timeout' in h) {
-        const t = h.timeout;
-        if (typeof t !== 'number' || !Number.isInteger(t) || t < 120) { problems.push(`\`timeout\` ${JSON.stringify(t)} — the gate is cut off before it answers`); runs = false; }
-      }
+      const shape = entryShape(h);
+      const problems = [...a.problems, ...shape.problems];
+      let runs = a.runs && shape.runs;
       let tools: Set<string> | null = null;
       if (event === 'PreToolUse') {
         const sel = matcherSelection(group.matcher);
@@ -207,6 +241,9 @@ function gateCandidates(s: Settings, event: HookEvent): Candidate[] {
   return out;
 }
 
+/** Whether the file carries the gate under either event, in any shape. */
+const carriesGate = (s: Settings): boolean => EVENTS.some((e) => gateCandidates(s, e).length > 0);
+
 /** Non-gate command entries under an event, as written. */
 function otherCommands(s: Settings, event: HookEvent): string[] {
   const out: string[] = [];
@@ -218,6 +255,52 @@ function otherCommands(s: Settings, event: HookEvent): string[] {
     }
   }
   return out;
+}
+
+/** Every hook entry under every event the file declares, with its group, keyed
+ *  as written — the unit a sibling edit is judged at. */
+function allEntries(s: Settings): Array<{ event: string; key: string; group: Obj; h: unknown }> {
+  const hooks = s.hooks;
+  if (!isObj(hooks)) return [];
+  const out: Array<{ event: string; key: string; group: Obj; h: unknown }> = [];
+  for (const [event, arr] of Object.entries(hooks)) {
+    if (!Array.isArray(arr)) continue;
+    for (const group of arr) {
+      if (!isObj(group) || !Array.isArray(group.hooks)) continue;
+      for (const h of group.hooks) out.push({ event, key: JSON.stringify({ e: event, m: group.matcher, h }), group, h });
+    }
+  }
+  return out;
+}
+
+/** A value the runtime's schema rejects on a hook entry — on ANY entry: a file
+ *  with a rejected value is "broken settings" the runtime continues without,
+ *  the gate entries in it included. Which values are rejected per entry and
+ *  which fail the file is not documented, so every one is read as the latter. */
+function schemaProblem(group: Obj, h: unknown): string | null {
+  if (group.matcher !== undefined && typeof group.matcher !== 'string') return `the matcher ${JSON.stringify(group.matcher)} is not a string`;
+  if (!isObj(h)) return `the hook entry ${JSON.stringify(h)} is not an object`;
+  if (typeof h.type !== 'string' || !HOOK_TYPES.has(h.type)) return `\`type\` ${JSON.stringify(h.type)} is not one the runtime accepts`;
+  if (h.type === 'command' && typeof h.command !== 'string') return '`command` is not a string';
+  if ('timeout' in h && (typeof h.timeout !== 'number' || !Number.isFinite(h.timeout) || h.timeout <= 0)) return `\`timeout\` ${JSON.stringify(h.timeout)} is not a positive number`;
+  return null;
+}
+
+/** Why a hook entry ADDED beside the gate under PreToolUse or Stop needs a
+ *  sign-off. The textual forgery is the fast path with the specific message; a
+ *  shape that is not a plain command entry (`args`, `http`, `prompt`, `agent`,
+ *  `async`, `if`) is named; and a plain command is still a finding, because its
+ *  output combines with the gate's verdict — an `updatedInput` rewrites the tool
+ *  input after the gate allowed it (the last hook wins), a `continue: false`
+ *  takes precedence over the sweep's block — and a script body carries what the
+ *  regex cannot see. init writes no entry beside the gate. */
+function siblingProblem(h: Obj): string {
+  const cmd = typeof h.command === 'string' ? h.command : '';
+  if (FORGERY.test(cmd)) return `emits a hook decision of its own (\`${cmd.slice(0, 60)}\`)`;
+  if (h.type !== 'command') return `is not a plain command entry (\`type\` is ${JSON.stringify(h.type)})`;
+  const extra = Object.keys(h).filter((k) => !SIBLING_KEYS.has(k));
+  if (extra.length) return `is not a plain command entry (carries \`${extra.join('`, `')}\`)`;
+  return `was added (\`${cmd.slice(0, 60)}\`) — its output combines with the gate's verdict (an \`updatedInput\` after an allow, a \`continue: false\` over a block), and init writes no entry beside the gate`;
 }
 
 /** The union of tools the gate's live entries cover for an event: null = every
@@ -263,16 +346,36 @@ export function duplicateJsonKeys(src: string): string[] {
  *  — or, for an entry this edit wrote, less than init would have written. */
 function settingsWeakening(before: Settings | null, after: Settings, local: boolean): string[] {
   const reasons: string[] = [];
+  const gated = carriesGate(after);
+  const gatedBefore = before !== null && carriesGate(before);
   const dis = after.disableAllHooks;
   if (dis !== undefined && dis !== false && !(before !== null && before.disableAllHooks === dis)) {
     reasons.push(`\`disableAllHooks: ${JSON.stringify(dis)}\` switches every hook off, the gate included`);
   }
+  // init declares `disableAllHooks: false` in the file it writes (2.9.0): the
+  // project value overrides the user file's, so a `true` planted in
+  // `~/.claude/settings.json` — which no repository glob names — no longer
+  // reaches the gate. Dropping the declaration reopens that route. A file init
+  // wrote before 2.9.0 has no declaration and stays clean until an edit writes
+  // the gate into it anew.
+  if (gated && dis === undefined) {
+    if (before !== null && before.disableAllHooks === false) {
+      reasons.push('`disableAllHooks: false` was removed — init declares it so that a `true` in the user settings file cannot switch the gate off');
+    } else if (!gatedBefore) {
+      reasons.push('`disableAllHooks: false` is not declared — init declares it in the file it writes, so that a `true` in the user settings file cannot switch the gate off');
+    }
+  }
+  // `env` is set for every session and every subprocess. A key added or changed
+  // in a file that carries the gate is a finding whatever its name (init writes
+  // no `env`); a well-known name is a finding in any settings file, and the
+  // reason names the mechanism. Removing a key never weakens anything.
   if (isObj(after.env)) {
     const was = before !== null && isObj(before.env) ? before.env : {};
     for (const [k, v] of Object.entries(after.env)) {
-      if (SENSITIVE_ENV.test(k) && JSON.stringify(was[k]) !== JSON.stringify(v)) {
-        reasons.push(`a top-level \`env\` sets ${k} — the gate command resolves through it`);
-      }
+      if (k in was && JSON.stringify(was[k]) === JSON.stringify(v)) continue;
+      const how = envMechanism(k);
+      if (how) reasons.push(`a top-level \`env\` sets ${k} — ${how}`);
+      else if (gated) reasons.push(`a top-level \`env\` sets ${k} — every hook command runs with it, and init writes no \`env\``);
     }
   }
   for (const event of EVENTS) {
@@ -303,19 +406,54 @@ function settingsWeakening(before: Settings | null, after: Settings, local: bool
     for (const c of fresh) {
       if (c.problems.length) reasons.push(`the ${event} gate entry does not match the shape \`tamperward init\` writes: ${c.problems.join('; ')}`);
     }
-    // The pin only ever goes up: never below what the file pinned before, and for
-    // a file that had no before, never below the gate judging it.
+    // The pin only ever goes up, and never past the gate judging it: never below
+    // what the file pinned before — for a file that had no gate entry under this
+    // event, never below the judging gate — and, for an entry this edit wrote,
+    // never above it either. `npx --yes tamperward@99.0.0` is a pin npm cannot
+    // resolve, and a hook that exits non-zero without a decision is fail-OPEN;
+    // an unpinned entry runs whatever `tamperward` resolves to on this machine.
+    // A gate entry the file carried unpinned (as init wrote before 1.14.7) sets
+    // no floor. The honest raise is `tamperward init` run from the newer version,
+    // which raises the judging gate together with the pin.
     const pins = bc.map((c) => c.pin).filter((p): p is string => !!p && PLAIN_SEMVER.test(p)).sort((a, b) => (compareVersions(b, a) ?? 0));
-    const floor = pins[0] ?? (before === null && PLAIN_SEMVER.test(TW_VERSION) ? TW_VERSION : null);
-    if (floor) {
-      for (const c of fresh) {
-        if (c.pin && PLAIN_SEMVER.test(c.pin) && !pinNotBelow(c.pin, floor)) reasons.push(`the ${event} gate is pinned to tamperward@${c.pin}, below ${floor}`);
+    const judging = PLAIN_SEMVER.test(TW_VERSION) ? TW_VERSION : null;
+    const floor = pins[0] ?? (bc.length === 0 ? judging : null);
+    for (const c of fresh) {
+      if (c.pin === null || (c.pin !== '' && !PLAIN_SEMVER.test(c.pin))) continue; // reported by the shape above
+      if (floor !== null && !pinNotBelow(c.pin, floor)) {
+        reasons.push(
+          c.pin === ''
+            ? `the ${event} gate is unpinned, below ${floor} — \`npx\` then runs whatever \`tamperward\` resolves to on this machine`
+            : `the ${event} gate is pinned to tamperward@${c.pin}, below ${floor}`,
+        );
+      } else if (judging !== null && c.pin !== '' && (compareVersions(c.pin, judging) ?? 0) > 0) {
+        reasons.push(`the ${event} gate is pinned to tamperward@${c.pin}, above the ${judging} judging it — a pin npm cannot resolve fails the hook open; raise it by running \`tamperward init\` from the newer version, which raises the judging gate with it`);
       }
     }
-    // A sibling entry that emits a decision of its own.
-    const hadOther = new Set(before !== null ? otherCommands(before, event) : []);
-    for (const cmd of otherCommands(after, event)) {
-      if (!hadOther.has(cmd) && FORGERY.test(cmd)) reasons.push(`a ${event} hook entry beside the gate emits a hook decision of its own (\`${cmd.slice(0, 60)}\`)`);
+  }
+  if (gated) {
+    // Every entry this edit wrote beside the gate, under any event: a value the
+    // schema rejects loses the whole file; a new entry under a gate event
+    // combines with the gate's verdict. An entry that was there before, as
+    // written, is not this edit's doing.
+    const had = new Set(before !== null ? allEntries(before).map((e) => e.key) : []);
+    for (const e of allEntries(after)) {
+      if (had.has(e.key) || mentionsGate(e.h)) continue;
+      const schema = schemaProblem(e.group, e.h);
+      if (schema) {
+        reasons.push(`a ${e.event} hook entry carries a value the runtime's schema rejects (${schema}) — the runtime continues without the broken file, the gate included`);
+      } else if (e.event === 'PreToolUse' || e.event === 'Stop') {
+        reasons.push(`a ${e.event} hook entry beside the gate ${siblingProblem(e.h as Obj)}`);
+      }
+    }
+  } else {
+    // A file without the gate: a sibling that forges a decision is still one
+    // (hooks merge across the settings files).
+    for (const event of EVENTS) {
+      const hadOther = new Set(before !== null ? otherCommands(before, event) : []);
+      for (const cmd of otherCommands(after, event)) {
+        if (!hadOther.has(cmd) && FORGERY.test(cmd)) reasons.push(`a ${event} hook entry beside the gate emits a hook decision of its own (\`${cmd.slice(0, 60)}\`)`);
+      }
     }
   }
   return reasons;
@@ -338,7 +476,7 @@ function claudeSettingsFindings(c: FileChange, policy: Policy): Finding[] | null
       message: `The Claude Code hook wiring was weakened: ${reason}.`,
       evidence: reason,
       remediation:
-        'Leave the PreToolUse and Stop entries that run tamperward, and the matcher that covers every editing tool, exactly as `tamperward init` wrote them. Editing the wiring is editing the gate: re-run `tamperward init` to restore it, or sign off.',
+        'Leave the PreToolUse and Stop entries that run tamperward, the matcher that covers every editing tool, and `disableAllHooks: false` exactly as `tamperward init` wrote them, with no `env` and no hook entry beside the gate. Editing the wiring is editing the gate: re-run `tamperward init` to restore it, or sign off.',
     });
   if (c.before != null && before === null) return null; // was already unreadable: nothing to compare
   if (after === null) {
@@ -534,7 +672,7 @@ export const hookTampering: Detector = {
         const targetsHook =
           isProtected(c.path, policy, 'hooks') ||
           (c.oldPath ? isProtected(c.oldPath, policy, 'hooks') : false) ||
-          isClaudeSettings(c.path);
+          resolvesToClaudeSettings(c.path);
         if (!targetsHook) {
           // package.json is config-class, but `prepare: husky` is the line that
           // INSTALLS the hooks on a fresh checkout — exact through the JSON, so
@@ -590,7 +728,7 @@ export const hookTampering: Detector = {
             }),
           );
         } else if (
-          (c.path.endsWith(POLICY_FILE) || isClaudeSettings(c.path)) &&
+          (c.path.endsWith(POLICY_FILE) || resolvesToClaudeSettings(c.path)) &&
           (semantic = c.path.endsWith(POLICY_FILE) ? policyFindings(c, policy) : claudeSettingsFindings(c, policy)) !== null
         ) {
           // Full content available and parseable → compare SEMANTICALLY: the policy
@@ -766,10 +904,16 @@ export const hookTampering: Detector = {
             // finding that names the policy file or a baseline hook, so a command
             // finding without one was governed by the policy it may have just weakened.
             const target = shellHookTarget(seg, toks, policy, ctx) ?? shellHookTarget('', fed, policy, ctx);
+            const file = target ? repoRelative(target, ctx) : undefined;
+            // The user and managed settings files live outside every repository
+            // glob; the runtime reads hooks from them and reloads them live.
+            const outside = file !== undefined && (isAbsolute(file) || /^[A-Za-z]:\//.test(file)) && isClaudeSettings(file)
+              ? ` — ${file} is a Claude Code settings file the runtime reads hooks from`
+              : '';
             out.push(
               makeFinding(RULE, policy, {
-                ...(target ? { file: repoRelative(target, ctx) } : {}),
-                message: `Hook tampering via shell: ${why}.`,
+                ...(file !== undefined ? { file } : {}),
+                message: `Hook tampering via shell: ${why}${outside}.`,
                 evidence: seg,
                 remediation: 'Leave the hooks in place. Mutating them from the shell is still tampering.',
               }),

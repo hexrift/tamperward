@@ -6,7 +6,7 @@ import { Change, Detector, DetectorContext, Finding, Policy, View } from './type
 import { allDetectors } from './detectors';
 import { isEnabled } from './detectors/finding';
 import { defaultPolicy, isIgnored, isPolicyFile, matchesAny } from './policy';
-import { isClaudeSettings } from './wiring';
+import { resolvesToClaudeSettings } from './wiring';
 
 /**
  * The rule that guards the guardrail, and the files it guards.
@@ -32,7 +32,7 @@ const BASELINE_HOOKS = defaultPolicy().protected.hooks;
 
 export function isGuardedFinding(f: Finding): boolean {
   if (f.rule !== GUARDED_RULE || !f.file) return false;
-  return isPolicyFile(f.file) || matchesAny(f.file, BASELINE_HOOKS) || isClaudeSettings(f.file);
+  return isPolicyFile(f.file) || matchesAny(f.file, BASELINE_HOOKS) || resolvesToClaudeSettings(f.file);
 }
 
 function key(f: Finding): string {

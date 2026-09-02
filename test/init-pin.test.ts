@@ -103,8 +103,14 @@ describe('init pins the local hooks', () => {
       }),
     );
     writeFileSync(join(d, '.git/hooks/pre-commit'), '#!/bin/sh\n./node_modules/.bin/tamperward check --staged\n');
-    expect(planInit(d).filter((a) => a.item === 'agent' || a.item === 'pre-commit').map((a) => a.status)).toEqual(['ok', 'ok']);
+    // The commands are left alone; the one thing init still adds to a hand-wired
+    // file is the `disableAllHooks: false` declaration (2.9.0), which touches no entry.
+    const plan = planInit(d).filter((a) => a.item === 'agent' || a.item === 'pre-commit');
+    expect(plan.map((a) => a.status)).toEqual(['update', 'ok']);
+    expect(plan[0].detail).toBe('declare disableAllHooks: false so the user settings file cannot switch the hooks off');
     apply(d);
     expect(commands(d).sort()).toEqual([custom, 'pnpm exec tamperward sweep claude']);
+    expect(settings(d).disableAllHooks).toBe(false);
+    expect(planInit(d).filter((a) => a.item === 'agent' || a.item === 'pre-commit').map((a) => a.status)).toEqual(['ok', 'ok']);
   });
 });

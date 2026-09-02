@@ -308,6 +308,8 @@ describe('#4 an existing PreToolUse matcher is repaired, not blessed', () => {
             PreToolUse: [{ matcher, hooks: [{ type: 'command', command: `npx --yes tamperward@${SHIPPED} hook claude` }] }],
             Stop: [{ hooks: [{ type: 'command', command: `npx --yes tamperward@${SHIPPED} sweep claude` }] }],
           },
+          // Declared since 2.9.0; without it init has a repair of its own to report.
+          disableAllHooks: false,
         },
         null,
         2,

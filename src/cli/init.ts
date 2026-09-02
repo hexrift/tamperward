@@ -279,11 +279,14 @@ interface ClaudeSettings {
 }
 
 /** The tools a matcher selects, or null when it selects everything (`*`, or an
- *  absent matcher — Claude Code treats both as "every tool"). */
+ *  absent matcher — Claude Code treats both as "every tool"). The runtime reads a
+ *  matcher of letters, digits, `_`, `-`, spaces, `,` and `|` as an exact list
+ *  separated by `|` or `,` with optional surrounding whitespace, so `Edit, Write`
+ *  is the same list as `Edit|Write`. */
 function toolSet(matcher: string | undefined): Set<string> | null {
   const m = String(matcher ?? '').trim();
   if (m === '' || m === '*') return null;
-  return new Set(m.split('|').map((t) => t.trim()).filter(Boolean));
+  return new Set(m.split(/[|,]/).map((t) => t.trim()).filter(Boolean));
 }
 
 /** Tools PRE_MATCHER requires that this matcher does not select. */
@@ -379,7 +382,15 @@ function planClaudeHooks(cwd: string): Action {
   const repin = [...preEntries, ...stopEntries]
     .flatMap((m) => m.hooks ?? [])
     .filter((h) => stalePin(String(h.command ?? '')));
-  if (!needPre && !needStop && stale.length === 0 && repin.length === 0) {
+  // DECLARE `disableAllHooks: false`. The runtime honours the key from any settings
+  // file, the project file overriding the user file, and reloads every file live
+  // in-session — so a `true` written to `~/.claude/settings.json` (outside every
+  // repository glob) switched the gate off for the rest of the session. With the
+  // project file saying `false`, the user file's value never reaches the runtime.
+  // hook-tampering holds the declaration in place: removing or flipping it is
+  // the tamper. (Pass 3a, P0-1.)
+  const needDisableFalse = settings.disableAllHooks !== false;
+  if (!needPre && !needStop && stale.length === 0 && repin.length === 0 && !needDisableFalse) {
     return { item: 'agent', path: rel, status: 'ok', detail: 'PreToolUse + Stop hooks already wired' };
   }
 
@@ -392,6 +403,9 @@ function planClaudeHooks(cwd: string): Action {
       needStop && 'wire Stop sweep',
       repairing.length > 0 && `widen the PreToolUse matcher to cover ${repairing.join(', ')}`,
       repin.length > 0 && `re-pin the hook commands to tamperward@${TW_VERSION} (was ${pins.join(', ')})`,
+      needDisableFalse && (settings.disableAllHooks === undefined
+        ? 'declare disableAllHooks: false so the user settings file cannot switch the hooks off'
+        : `set disableAllHooks: false (was ${JSON.stringify(settings.disableAllHooks)})`),
     ].filter(Boolean).join(' + '),
     apply: () => {
       for (const h of repin) {
@@ -412,6 +426,7 @@ function planClaudeHooks(cwd: string): Action {
       if (needStop) {
         (hooks.Stop ??= []).push({ hooks: [{ type: 'command', command: SWEEP_CMD }] });
       }
+      if (needDisableFalse) settings.disableAllHooks = false;
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, JSON.stringify(settings, null, 2) + '\n');
     },
