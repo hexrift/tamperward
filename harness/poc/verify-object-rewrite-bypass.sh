@@ -15,6 +15,10 @@
 set -u
 CLI="$1"; LABEL="${2:-under test}"
 RC=0
+# every fixture repo is removed on exit, whichever path leaves the script
+POC_DIRS=()
+cleanup() { cd / 2>/dev/null; rm -rf ${POC_DIRS[@]+"${POC_DIRS[@]}"}; }
+trap cleanup EXIT
 
 report() {
   if [ "$2" = "$3" ]; then printf '  %-12s exit %s  as expected\n' "$1" "$3"
@@ -22,7 +26,7 @@ report() {
 }
 
 # --- A: forged CONTENT for a base file ("git show") -------------------------
-W=$(mktemp -d /tmp/poc-or-a-XXXXXX); cd "$W" || exit 1
+W=$(mktemp -d /tmp/poc-or-a-XXXXXX); POC_DIRS+=("$W"); cd "$W" || exit 1
 git init -q; git config user.email p@o.c; git config user.name poc
 mkdir -p test
 echo 'module.exports = 41; // the bug' > src.js
@@ -39,7 +43,7 @@ node "$CLI" verify --base "$BASE" --cmd 'node test/check.test.js' --budget 60 --
 report "A content" 1 $?
 
 # --- B: forged ABSENCE of a base file ("git ls-tree") -----------------------
-W=$(mktemp -d /tmp/poc-or-b-XXXXXX); cd "$W" || exit 1
+W=$(mktemp -d /tmp/poc-or-b-XXXXXX); POC_DIRS+=("$W"); cd "$W" || exit 1
 git init -q; git config user.email p@o.c; git config user.name poc
 mkdir -p test
 echo 'module.exports = 41; // the bug' > src.js

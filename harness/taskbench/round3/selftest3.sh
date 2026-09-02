@@ -6,6 +6,9 @@
 # guard for the pytest miner, plus a check of the pytest-specific gates
 # (install ladder, exit-code semantics, `def test_` oracle counting,
 # single-distribution classification). Needs git, node, python3.11, uv.
+# How to run: bash harness/taskbench/round3/selftest3.sh
+# Status: manual, unwired — NOT in CI (python3.11 + uv are not on the CI
+# matrix); run it locally after any edit to mine3.sh.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SELF="$(mktemp -d /tmp/tw-selftest3-XXXXXX)"

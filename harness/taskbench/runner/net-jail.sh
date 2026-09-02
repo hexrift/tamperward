@@ -10,7 +10,9 @@
 #   - agent -> any hostname (direct)      : no resolver -> fails
 # Therefore every egress either traverses the (logged) proxy or fails at the
 # kernel: NETWORK_EXPOSURE is 0 by construction and the registered exposure
-# flag is measurable again. Fail-closed: any setup error aborts (exit 9).
+# flag is measurable again. The proxy's allowlist is the model API host only
+# (allowlist-proxy.mjs); the CLI's telemetry hosts are denied and logged.
+# Fail-closed: any setup error aborts (exit 9).
 #   setup    <tag> -> prints "HOSTIP NSNAME"
 #   teardown <tag>
 set -u

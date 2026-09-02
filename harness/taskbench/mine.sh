@@ -105,9 +105,12 @@ process_repo() {
   for c in $cands; do
     n=$((n+1))
     local parent="$c^"
-    local tfiles
-    tfiles=$(git -C "$dir" diff --name-only "$parent" "$c" | grep -E "$TESTGLOB_RE" | grep -v node_modules || true)
-    [ -z "$tfiles" ] && { jlog "$repo" "C_NO_TESTFILES" "\"commit\":\"$c\""; continue; }
+    # NUL-delimited into an array: test-file names come from a third-party
+    # repository and may contain whitespace or shell metacharacters, so they are
+    # never word-split or re-parsed as a glob (--literal-pathspecs below).
+    local -a tfiles=()
+    mapfile -d '' -t tfiles < <(git -C "$dir" diff --name-only -z "$parent" "$c" | grep -zE "$TESTGLOB_RE" | grep -zv node_modules || true)
+    [ "${#tfiles[@]}" -eq 0 ] && { jlog "$repo" "C_NO_TESTFILES" "\"commit\":\"$c\""; continue; }
     git -C "$dir" checkout -q --detach "$parent" 2>/dev/null || { jlog "$repo" "C_CHECKOUT_FAILED" "\"commit\":\"$c\""; continue; }
     git -C "$dir" clean -qfdx 2>/dev/null
     # gate 1: install
@@ -127,7 +130,7 @@ process_repo() {
     if [ "$rc" -eq 124 ]; then jlog "$repo" "G2_PARENT_TIMEOUT" "\"commit\":\"$c\""; continue; fi
     if [ "$rc" -ne 0 ]; then jlog "$repo" "G2_PARENT_RED" "\"commit\":\"$c\""; continue; fi
     # gate 3: apply test patch -> red
-    git -C "$dir" diff --binary --full-index "$parent" "$c" -- $tfiles > "$WORK/test.patch" 2>/dev/null
+    git --literal-pathspecs -C "$dir" diff --binary --full-index "$parent" "$c" -- "${tfiles[@]}" > "$WORK/test.patch" 2>/dev/null
     [ -s "$WORK/test.patch" ] || { jlog "$repo" "C_EMPTY_TEST_PATCH" "\"commit\":\"$c\""; continue; }
     if ! git -C "$dir" apply "$WORK/test.patch" 2>/dev/null; then
       jlog "$repo" "G3_PATCH_APPLY_FAILED" "\"commit\":\"$c\""; continue
@@ -161,14 +164,21 @@ process_repo() {
 const fs=require('fs'),cp=require('child_process'),crypto=require('crypto');
 const [repo,commit,testPatch,dir,stratum,pm]=process.argv.slice(2);
 const sha=f=>crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
-const parent=cp.execSync(`git -C ${dir} rev-parse ${commit}^`).toString().trim();
+// argv arrays throughout, never a shell string: file names come from a
+// third-party repository, and a single quote in a test-file name used to break
+// out of the "':(exclude)…'" quoting of the old bash -c command line.
+const git=(...args)=>cp.execFileSync('git',['-C',dir,...args],{encoding:'utf8',maxBuffer:1<<28});
+const parent=git('rev-parse',`${commit}^`).trim();
 const tglob=/(\.test\.[^/]+$|\.spec\.[^/]+$|(^|\/)__tests__\/)/;
-const tfiles=cp.execSync(`git -C ${dir} diff --name-only ${parent} ${commit}`).toString().trim().split('\n').filter(f=>tglob.test(f));
-const excl=tfiles.map(f=>`':(exclude)${f}'`).join(' ');
+const tfiles=git('diff','--name-only','-z',parent,commit).split('\0').filter(f=>f&&tglob.test(f));
+// long-form + literal magic: an excluded name is never re-parsed as a glob
+const excl=tfiles.map(f=>`:(exclude,literal)${f}`);
+const work=process.env.TB_WORK || '/tmp/tb-mine';
 // --binary --full-index: repos can mark files (lockfiles, fixtures) -diff via
 // gitattributes, and a default diff then emits an unapplyable binary stub —
 // found by revalidation on a task whose gold patch could not reconstruct.
-cp.execSync(`git -C ${dir} diff --binary --full-index ${parent} ${commit} -- . ${excl} > ${process.env.TB_WORK || '/tmp/tb-mine'}/gold.patch`,{shell:'/bin/bash'});
+fs.writeFileSync(`${work}/gold.patch`,
+  cp.execFileSync('git',['-C',dir,'diff','--binary','--full-index',parent,commit,'--','.',...excl],{maxBuffer:1<<28}));
 const tp=fs.readFileSync(testPatch,'utf8');
 const cases=(tp.match(/^\+.*\b(test|it)\s*\(/gm)||[]).length;
 let n=0; for (const d of fs.existsSync('tasks')?fs.readdirSync('tasks'):[]) n++;
@@ -176,7 +186,7 @@ const pilot = (()=>{let p=0;for(const d of fs.existsSync('tasks')?fs.readdirSync
 const id=String(n+1).padStart(2,'0')+'-'+repo.replace('/','-');
 fs.mkdirSync(`tasks/${id}`,{recursive:true});
 fs.copyFileSync(testPatch,`tasks/${id}/test.patch`);
-fs.copyFileSync(`${process.env.TB_WORK || '/tmp/tb-mine'}/gold.patch`,`tasks/${id}/gold.patch`);
+fs.copyFileSync(`${work}/gold.patch`,`tasks/${id}/gold.patch`);
 const manifest={
   id, repo, role: pilot<3?'pilot':'main', stratum,
   parent_sha:parent, commit_sha:commit,
@@ -206,8 +216,9 @@ for repo in $ORDER; do
   # resumability: skip only repos with a REPO-LEVEL VERDICT — candidate-level
   # lines from an interrupted run must not count as decided (round-2 FRAME2
   # correction 3: four repos were silently skipped exactly this way; the
-  # standing rule is a verdict line or a re-walk)
-  grep "\"repo\":\"$repo\"" "$ATTR" 2>/dev/null \
+  # standing rule is a verdict line or a re-walk). grep -F: the repo name is
+  # a fixed string, not a regex ("." would otherwise match any character).
+  grep -F -- "\"repo\":\"$repo\"" "$ATTR" 2>/dev/null \
     | grep -qE '"gate":"(EXCLUDED_INACTIVE|NO_QUALIFYING_COMMITS|G0_NO_TEST_SCRIPT|G0_NO_PACKAGE_JSON|CLONE_FAILED|CANDIDATES_EXHAUSTED|TASK_VALIDATED|QUOTA_FULL)"' \
     && continue
   read -r P S W <<< "$(counts)"
@@ -224,7 +235,7 @@ echo "FRAME EXHAUSTED: pilot=$P single=$S workspace=$W"
 # in the frozen order must carry a repo-level verdict when the walk ends
 undecided=0
 for repo in $ORDER; do
-  grep "\"repo\":\"$repo\"" "$ATTR" 2>/dev/null \
+  grep -F -- "\"repo\":\"$repo\"" "$ATTR" 2>/dev/null \
     | grep -qE '"gate":"(EXCLUDED_INACTIVE|NO_QUALIFYING_COMMITS|G0_NO_TEST_SCRIPT|G0_NO_PACKAGE_JSON|CLONE_FAILED|CANDIDATES_EXHAUSTED|TASK_VALIDATED|QUOTA_FULL)"' \
     || { echo "WALK INCOMPLETE: no repo-level verdict for $repo"; undecided=$((undecided+1)); }
 done

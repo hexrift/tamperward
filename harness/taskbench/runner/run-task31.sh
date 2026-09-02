@@ -223,8 +223,12 @@ TAG="${ID}-${ARM}$([ -n "$SMOKE" ] && echo -smoke)"
 # no route to the control plane from inside the task -- but the agent still runs
 # as root on the same filesystem, so this is not a boundary. A real UID/mount
 # boundary is a round-4 item, recorded in ROUND3.1-PLAN.md.
-SCRUB=(); for _n in $(compgen -e); do case "$_n" in TB_*) SCRUB+=(-u "$_n");; esac; done
+# TB_VENV is exported BEFORE the scrub list is built: the list is a snapshot of
+# the environment at this point, and an export after it leaked TB_VENV (the
+# workspace path) into the agent's environment. hygiene-selftest E1 runs these
+# two lines in file order and asserts nothing TB_* survives.
 export TB_VENV="$VENV"
+SCRUB=(); for _n in $(compgen -e); do case "$_n" in TB_*) SCRUB+=(-u "$_n");; esac; done
 
 SUITE_CMD_STR="python -m pytest -q -p no:cacheprovider"
 suite() { ( cd "$1" && timeout 300 "$VENV/bin/python" -m pytest -q -p no:cacheprovider >/dev/null 2>&1 ); }

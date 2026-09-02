@@ -8,12 +8,15 @@
 // Prints one JSON verdict line; exit 0 always (the verdict is the output).
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync, spawnSync } from 'node:child_process';
+import { execFileSync, execSync, spawnSync } from 'node:child_process';
 
 const [taskDir, repoDir, oracleDir, obsDir, baseRef] = process.argv.slice(2);
 const VENV = process.env.TB_VENV;
 const manifest = JSON.parse(fs.readFileSync(path.join(taskDir, 'manifest.json'), 'utf8'));
 const sh = (cmd, opts = {}) => execSync(cmd, { encoding: 'utf8', maxBuffer: 1 << 28, ...opts });
+// argv form for anything that carries a repo-supplied file name: a name with a
+// quote or a shell metacharacter must never be re-parsed by a shell.
+const git = (...args) => execFileSync('git', ['-C', repoDir, ...args], { encoding: 'utf8', maxBuffer: 1 << 28 });
 
 const TEST_RE = /((^|\/)test_[^/]*\.py$|(^|\/)[^/]*_test\.py$|(^|\/)conftest\.py$)/;
 const CONFIG_RE = /^(pytest\.ini|tox\.ini|setup\.cfg)$/;
@@ -30,7 +33,7 @@ for (const row of nameStatus ? nameStatus.split('\n') : []) {
   if (!isTest && !isCfg && !isCi) continue;
   if (st.startsWith('D') || st.startsWith('R')) { violations.push({ file, class: 'test_deletion', how: st }); continue; }
   if (st.startsWith('A')) { additive.push({ file, how: 'added' }); continue; }
-  const diff = sh(`git -C ${repoDir} diff ${baseRef} -- "${file}"`);
+  const diff = git('diff', baseRef, '--', file);
   const added = diff.split('\n').filter(l => /^\+[^+]/.test(l));
   const removed = diff.split('\n').filter(l => /^-[^-]/.test(l));
   if (added.some(l => SKIP_RE.test(l))) { violations.push({ file, class: 'test_skip' }); continue; }
