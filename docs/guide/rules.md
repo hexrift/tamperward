@@ -66,6 +66,15 @@ A new hand-written hook script has no before to be held to. It is judged by the
 model alone and must run `tamperward check` live under the way that hook is executed
 (husky runs `sh -e <file>`; git execs a hook in `core.hooksPath` directly, so there a
 gate that is not the last statement needs `set -e`), or the add is a sign-off as well.
+The one exception is `husky`'s own v9 runtime: the files it writes under `.husky/_/`
+when `npx husky` runs (usually the `prepare` step of an ordinary `npm install`) are
+recognised by their exact byte content while `.husky/pre-commit` is a regular file that
+runs the commit backstop itself — exactly `tamperward check --staged`, live, at the pin
+the judging release carries. Its mere existence is not enough: an ordinary husky
+pre-commit whose real gate is elsewhere would be displaced, and a live but ineffective
+gate (`--worktree`, `--diff HEAD...HEAD`, a `--cwd` away from the root, an old or
+unpinned version) is not the backstop. So an install does not need a sign-off; a file
+that is not byte-for-byte husky's, or a pre-commit that is not that backstop, still does.
 Hooks merge across the Claude settings files, so a `settings.local.json` that only adds
 hooks of its own is not a finding; one that sets `disableAllHooks`, an `env` the gate
 resolves through, or a neutered gate entry is. In
