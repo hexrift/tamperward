@@ -5,6 +5,64 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.14.2] — 2026-09-01
+
+**1.14.1 fixed a filename, not the class. Six more vectors were live; this
+closes them.**
+
+1.14.1 removed agent-added files inside the policy's `protected` classes and
+treated the pristine-inheritance bypass as closed. It was not. The `config`
+class is jest/vitest/tsconfig/eslint/package.json — JS/TS only — so pytest's
+entire configuration surface sat outside it, as did every runner that is not
+jest or vitest. Demonstrated live at 1.14.1, each via a single added file, with
+the bug never fixed and no base-protected file touched:
+
+    pytest.ini      addopts = --deselect <nodeid>
+    setup.cfg       [tool:pytest] addopts
+    tox.ini         [pytest] addopts
+    pyproject.toml  [tool.pytest.ini_options]
+    pytest.ini      -p <plugin module not named conftest>
+    pytest.ini      addopts = -k "not <test>"
+
+The full envelope printed `GREEN MEANS GREEN` over an unfixed bug in every case.
+
+`verify` now owns a **verification surface** — the files a runner auto-consults
+to decide what to collect, how to configure it and which plugins to load — and
+treats it as base-owned exactly like the protected classes: restored from base
+if it existed there, removed if the agent added it. The pristine tree's
+discovery and configuration surface is therefore the base's, never the base plus
+the agent's contribution.
+
+The surface is deliberately **separate from the policy's `protected` classes**.
+They overlap but answer different questions: `package.json` is policy-protected
+because gutting the test script is weakening; `pytest.ini` need not be
+policy-protected at all and still must never be inherited by the pristine run.
+Keeping them apart means widening the verifier's list does not widen in-loop
+denials.
+
+**This list is a lagging indicator by construction.** A runner can always add a
+configuration source, so this bounds the class rather than eliminating it. That
+is stated in the SPEC rather than implied to be solved, and the full analysis —
+including what was tested and did not reproduce — is in
+`docs/THREAT-MODEL-pristine-run.md`, with the multi-vector proof of concept at
+`harness/poc/verify-pristine-inheritance-vectors.sh`.
+
+**Considered and rejected for this release:** disabling runner plugin autoload
+in the pristine run (`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`). It would cover
+entry-point plugins that no file list can enumerate, but it also breaks suites
+that legitimately depend on them — `pytest-asyncio`, `pytest-django` — turning
+honest work into `MASKED_FAILURE`. Applying it symmetrically to both runs makes
+those repositories fail closed and unverifiable instead. It needs a per-repo
+opt-in, not a default.
+
+Scope, in the terms of CONTRIBUTING: a bypass fix, therefore a patch. It makes
+`verify` stricter — a repository whose pristine run depended on an agent-added
+runner config may now see `MASKED_FAILURE`. Failing closed is the intended
+direction.
+
+The published record is corrected accordingly: the bypass class was open from
+**v1.9.0 through 1.14.1 inclusive**, not closed by 1.14.1.
+
 ## [1.14.1] — 2026-09-01
 
 **A bypass in `tamperward verify`: an added file could suppress the tests the

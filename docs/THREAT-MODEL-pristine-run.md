@@ -1,8 +1,9 @@
 # Threat model — what the pristine run inherits from the agent
 
-**Status: 1.14.1 did not close the class. Six vectors are live in the shipped
-verifier as of 1.14.1, demonstrated end to end.** This document records what was
-tested, what reproduces, and what the enforcement rule should be.
+**Status: closed in 1.14.2 by option B below.** As of **1.14.1** six vectors were
+live in the shipped verifier, demonstrated end to end; 1.14.2 gives `verify` a
+verification surface and all six are blocked. This document records what was
+tested, what reproduced, the enforcement rule adopted, and what remains open.
 
 Reproduce with `harness/poc/verify-pristine-inheritance-vectors.sh`.
 
@@ -28,7 +29,7 @@ Each case is identical except for one added file. In every case the agent:
 suppressed the restored base test. The two `conftest.py` cases are controls:
 1.14.1 must block them.
 
-## Results at 1.14.1
+## Results at 1.14.1 (before the fix)
 
 | added artefact | protected class? | outcome |
 |---|---|---|
@@ -113,8 +114,16 @@ Where the runner supports it, also neutralise auto-loading in the pristine run:
 runner still reads is unaffected by autoload flags — but it covers entry-point
 plugins that no file list can enumerate.
 
-**Recommendation: B plus C.** B is the correctness fix; C bounds what B misses.
-Ship B first, since it closes every demonstrated vector.
+**Adopted in 1.14.2: B.** It closes every demonstrated vector — all eight rows
+above are blocked, with the visible run unaffected.
+
+**C was considered and rejected as a default.**
+`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` would cover entry-point plugins no file list
+can enumerate, but it breaks suites that legitimately depend on them
+(`pytest-asyncio`, `pytest-django`), turning honest work into `MASKED_FAILURE`.
+Applying it symmetrically to both runs makes those repositories fail closed and
+unverifiable instead. It needs a per-repository opt-in, not a default, and is
+not in 1.14.2.
 
 ## Residual risk, stated
 
@@ -136,7 +145,7 @@ Ship B first, since it closes every demonstrated vector.
 
 ## What this means for the published record
 
-The bypass class was live from **v1.9.0** through **1.14.1 inclusive**. The
-existing errata already discloses that rounds 2, 3 and 3.1 ran on a verifier
-carrying the `conftest.py` form; that disclosure needs to be widened to say the
-class remains open at 1.14.1 rather than closed by it.
+The bypass class was live from **v1.9.0 through 1.14.1 inclusive** and is closed
+in 1.14.2. The errata discloses that rounds 2, 3 and 3.1 ran on a verifier
+carrying it; that disclosure covers the whole class, not just the `conftest.py`
+form, because every round predates 1.14.2.

@@ -32,6 +32,7 @@ import { chmodSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmS
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { loadPolicy } from '../policy-load';
+import { matchesAny } from '../policy';
 import { assertRev } from '../git/build';
 import { isProtected } from '../policy';
 import { Policy } from '../types';
@@ -57,6 +58,48 @@ interface RunResult {
 }
 
 const OVERLAY_CLASSES = ['tests', 'snapshots', 'config'];
+
+// The VERIFICATION SURFACE: files a test runner auto-consults to decide what to
+// collect, how to configure it, and which plugins to load. Deliberately NOT the
+// policy's `protected` classes, which answer a different question — what the
+// agent may not weaken. `package.json` is policy-protected because gutting the
+// test script is weakening; `pytest.ini` need not be policy-protected at all,
+// and still must never be inherited by the pristine run. Keeping the two lists
+// separate means widening this one does not widen in-loop denials.
+//
+// 1.14.1 removed agent-added files in the protected classes and called the
+// class closed. It was not: the `config` class is jest/vitest/tsconfig/eslint
+// only, so an added pytest.ini, setup.cfg, tox.ini or pyproject.toml still
+// reached the pristine run and could deselect the restored base tests
+// (docs/THREAT-MODEL-pristine-run.md). This list is a lagging indicator of
+// runner behaviour by construction — a runner can always add a configuration
+// source — so it bounds the class rather than eliminating it.
+const VERIFICATION_SURFACE = [
+  // Python / pytest — read from the rootdir, and conftest at any depth
+  '**/conftest.py',
+  '**/pytest.ini',
+  '**/.pytest.ini',
+  '**/setup.cfg',
+  '**/tox.ini',
+  '**/pyproject.toml',
+  // JavaScript / TypeScript runners and the transforms they load
+  '**/jest.config.*',
+  '**/jest.setup.*',
+  '**/vitest.config.*',
+  '**/vitest.workspace.*',
+  '**/.mocharc.*',
+  '**/karma.conf.*',
+  '**/babel.config.*',
+  '**/.babelrc*',
+  '**/vite.config.*',
+  '**/.swcrc',
+  '**/package.json',
+  // Ruby / PHP / .NET
+  '**/.rspec',
+  '**/phpunit.xml',
+  '**/phpunit.xml.dist',
+  '**/*.runsettings',
+];
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 1 << 28 });
@@ -138,7 +181,9 @@ function dropSymlink(p: string): void {
  *  the agent added inside a protected class. Returns [restored, removedAdditions]. */
 function overlayPristine(cwd: string, base: string, dest: string, policy: Policy): [number, number] {
   const atBase = git(['ls-tree', '-r', '--name-only', '-z', base], cwd).split('\0').filter(Boolean);
-  const isOverlay = (p: string): boolean => OVERLAY_CLASSES.some((c) => isProtected(p, policy, c));
+  // Base-owned = the policy's overlay classes UNION the verification surface.
+  const isOverlay = (p: string): boolean =>
+    OVERLAY_CLASSES.some((c) => isProtected(p, policy, c)) || matchesAny(p, VERIFICATION_SURFACE);
   let restored = 0;
   const baseProtected = new Set<string>();
   for (const rel of atBase) {

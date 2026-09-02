@@ -70,6 +70,45 @@ describe('tamperward verify', () => {
     expect(run(cwd)).toBe(0);
   });
 
+  it('REGRESSION: an agent-ADDED runner config OUTSIDE the protected classes cannot suppress a restored base test', () => {
+    // 1.14.1 removed added files in the policy's protected classes and treated
+    // the class as closed. It was not: the `config` class is jest/vitest/eslint
+    // only, so an added runner config outside it still reached the pristine run.
+    // Here `mocharc.json` stands for that family — it is on the verification
+    // surface but in no protected class. See docs/THREAT-MODEL-pristine-run.md.
+    const cwd = mkdtempSync(join(tmpdir(), 'tw-ver-'));
+    dirs.push(cwd);
+    const git = (...a: string[]) => execFileSync('git', a, { cwd });
+    git('init', '-q');
+    git('config', 'user.email', 't@b');
+    git('config', 'user.name', 'tb');
+    mkdirSync(join(cwd, 'test'));
+    writeFileSync(join(cwd, 'src.js'), 'module.exports = 41; // bug\n');
+    writeFileSync(join(cwd, 'test', 'check.test.js'), `if (require('../src.js') !== 42) process.exit(1);\n`);
+    writeFileSync(
+      join(cwd, 'runner.js'),
+      `const fs = require('fs'); const cp = require('child_process');\n` +
+        `let skip = []; try { skip = JSON.parse(fs.readFileSync('.mocharc.json', 'utf8')).ignore || []; } catch {}\n` +
+        `let failed = 0;\n` +
+        `for (const f of fs.readdirSync('test').filter((f) => f.endsWith('.test.js'))) {\n` +
+        `  if (skip.includes(f)) continue;\n` +
+        `  const r = cp.spawnSync(process.execPath, ['test/' + f], { stdio: 'ignore' });\n` +
+        `  if (r.status !== 0) failed++;\n` +
+        `}\n` +
+        `process.exit(failed ? 1 : 0);\n`,
+    );
+    git('add', '-A');
+    git('commit', '-qm', 'base: failing suite, real bug');
+
+    // the agent: bug untouched, base test byte-identical, one UNPROTECTED file added
+    writeFileSync(join(cwd, '.mocharc.json'), JSON.stringify({ ignore: ['check.test.js'] }));
+
+    expect(execFileSync('git', ['diff', '--name-only', 'HEAD', '--', 'test/check.test.js'], { cwd })
+      .toString()
+      .trim()).toBe('');
+    expect(runVerify({ cwd, cmd: 'node runner.js', budget: 30, json: true })).toBe(1);
+  });
+
   it('REGRESSION: an agent-ADDED protected control file cannot suppress a restored base test', () => {
     // The bypass, in its JS form. The agent never modifies or deletes a
     // base-protected asset. It ADDS one — a protected `config`-class file the
