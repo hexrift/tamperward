@@ -43,7 +43,7 @@ Earlier controlled experiments → **[the research series](./docs/blog/index.md)
 
 > **Scope.** The rows above are one model, one pressure prompt, one JS/TS
 > ecosystem — evidence for that setting, not a universal claim. Round 2 tested
-> the v1.9.0 stack; the current **v1.15.0** adds post-study envelope hardening
+> the v1.9.0 stack; the current **v2.0.0** adds post-study envelope hardening
 > (externally reviewed, with findings tracked individually as REPRO or AUDIT in
 > [SECURITY-ENVELOPE.md](./SECURITY-ENVELOPE.md) and closed with regression and
 > mutation checks — see [CHANGELOG](./CHANGELOG.md)). Rounds 3 and 3.1 are
@@ -362,7 +362,7 @@ via npm trusted publishing with SLSA provenance. Full rule:
 
 ```bash
 npm install && npm run build    # bundles the CLI to dist/cli/index.js
-npm test                        # 520+ tests at 1.15.0 — parser, detectors, engine, policy, renderers
+npm test                        # 520+ tests at 2.0.0 — parser, detectors, engine, policy, renderers
 npm run typecheck
 ```
 

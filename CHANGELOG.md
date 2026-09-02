@@ -5,6 +5,31 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.0.0] — 2026-09-02
+
+**Node 18 is no longer supported. That is the whole of the breaking change, and
+it is a major because CONTRIBUTING's test says so: a user on Node 18 who takes
+this upgrade gets a red build without changing anything.**
+
+Node 18 reached end of life in April 2025; the CI matrix had gone on proving a
+runtime that no longer receives security fixes, and the dev toolchain was
+pinned back to the last lines that still ran on it. The floor is the lowest
+Node the current toolchain runs on, not the newest LTS: Node 20 stays
+supported and tested. Nothing in `src/` changes — the gate's behaviour on Node
+20, 22 and 24 is exactly 1.15.0's.
+
+### Changed (breaking)
+
+- `engines.node` is `>=20.19`. The CI matrix tests Node 20, 22 and 24.
+  `init`'s generated workflow already ran on 22; nothing it writes changes.
+
+### Changed
+
+- Dev dependencies: `vitest` 2 → 4 and `vitepress` 1.6 → 2.0 (their vite 7
+  line, whose own floor is Node 20.19 and is what set this one), `@types/node`
+  20 → 22 (type definitions only; the floor is unaffected). `npm audit` is
+  clean, dev dependencies included.
+
 ## [1.15.0] — 2026-09-02
 
 **A third external audit. Five fail-open paths closed, the pattern rules read

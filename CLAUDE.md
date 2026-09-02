@@ -10,7 +10,8 @@ agent produces here.
 - **Commit as the repository author**, using the git identity already configured for
   this checkout. Never commit under an assistant identity.
 - **Branch names follow the repo convention**: `fix/<topic>`, `docs/<topic>`,
-  `sec/<topic>`. Never `claude/…`, `session-…`, or any name carrying a session id.
+  `sec/<topic>`, `release/<version>`. Never `claude/…`, `session-…`, or any name
+  carrying a session id.
 - **Releases are version-driven, so every behaviour change ships with its bump.** A PR
   that changes behaviour bumps `package.json` (patch for a bypass fix or a false-positive
   fix, minor for new surface, major only as CONTRIBUTING "Versioning" defines) and dates
