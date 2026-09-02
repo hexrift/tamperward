@@ -25,17 +25,29 @@ const RULE = 'snapshot-rewrite';
 
 // Runner flags that rewrite snapshots wholesale. `-u`/`--update` are common flags
 // elsewhere (sort -u, npm update), so they only count in a segment that invokes a
-// snapshot-capable runner; --updateSnapshot(s) is unambiguous anywhere.
+// snapshot-capable runner — by name, or through a package-manager test script that
+// forwards its trailing flags to it (`npm test -- -u`, `yarn test -u`, `pnpm test -u`,
+// `npm t -- -u`, `npm run test:ci -- --update`). What a script named `test:update`
+// does lives in package.json, not in the command, and is not visible here.
+// --updateSnapshot(s), node's --test-update-snapshots and syrupy's --snapshot-update
+// are unambiguous anywhere.
 const RUNNER = /\b(?:jest|vitest|playwright|ava)\b/;
-const UPDATE_ANY = /--update-?[sS]napshots?\b/;
+const PM_TEST_SCRIPT = /(?:^|\s)(?:npm|pnpm|yarn|bun)\s+(?:t|tst|test|run(?:-script)?\s+\S*test\S*)(?:\s|$)/;
+const UPDATE_ANY = /--(?:update-?[sS]napshots?|test-update-snapshots|snapshot-update)\b/;
 const UPDATE_WITH_RUNNER = /(?:^|\s)(?:-u|--update)(?:\s|$)/;
+// Other ecosystems' accept-everything spellings: insta's `cargo insta accept` (or
+// `cargo insta test --accept`) and expect-test's UPDATE_EXPECT=1.
+const INSTA_ACCEPT = /\bcargo\s+insta\s+(?:accept\b|.*\s--accept\b)/;
+const UPDATE_EXPECT = /(?:^|\s)UPDATE_EXPECT=\S+/;
 
 // Regeneration scripts by naming convention — `node update-golden.mjs` was the exact
 // observed vector, and bless/regen/rebless are the same convention in other ecosystems.
 const REGEN_SCRIPT = /\b(?:update|regen(?:erate)?|re?bless)[-_.]?(?:golden|snapshots?|baselines?|expected)\b/i;
 
-// Shell verbs that overwrite or remove a file the segment names.
-const MUTATE = /(?:^|\s)(?:rm|cp|mv|tee|truncate|dd)(?:\s|$)|sed\s+-i|>{1,2}/;
+// Shell verbs that overwrite or remove a file the segment names, `find … -delete` /
+// `-exec rm` over a snapshot glob, and `git checkout|restore -- <snapshot>`, which
+// replaces the recorded expectation with an older one.
+const MUTATE = /(?:^|\s)(?:rm|cp|mv|tee|truncate|dd)(?:\s|$)|sed\s+-i|>{1,2}|\bfind\b.*\s-(?:delete\b|exec\s+rm\b)|\bgit\s+(?:checkout|restore)\b/;
 
 function namesProtectedSnapshot(seg: string, policy: Policy): string | null {
   for (const t of tokens(seg)) {
@@ -59,7 +71,9 @@ export const snapshotRewrite: Detector = {
         for (const seg of segments(c.raw)) {
           let why: string | null = null;
           if (UPDATE_ANY.test(seg)) why = 'the snapshot-update flag rewrites every failing snapshot to match current output';
-          else if (RUNNER.test(seg) && UPDATE_WITH_RUNNER.test(seg)) why = 'running the test runner in update mode rewrites failing snapshots to match current output';
+          else if ((RUNNER.test(seg) || PM_TEST_SCRIPT.test(seg)) && UPDATE_WITH_RUNNER.test(seg)) why = 'running the test runner in update mode rewrites failing snapshots to match current output';
+          else if (INSTA_ACCEPT.test(seg)) why = 'cargo insta accept rewrites every pending snapshot to match current output';
+          else if (UPDATE_EXPECT.test(seg)) why = 'UPDATE_EXPECT=1 rewrites every expect-test expectation to match current output';
           else if (REGEN_SCRIPT.test(seg)) why = 'a regeneration script rewrites the recorded expected output from current output';
           else {
             const path = MUTATE.test(seg) ? namesProtectedSnapshot(seg, policy) : null;

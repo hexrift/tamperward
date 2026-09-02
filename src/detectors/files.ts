@@ -62,3 +62,41 @@ export function isSignificantLine(trimmed: string, lang: Lang | null): boolean {
   if (HASH_COMMENT.has(l) && trimmed.startsWith('#')) return false;
   return true;
 }
+
+// Comment-only lines, for rules whose spellings are CODE. A `// was xit while flaky`
+// line adds no marker, and a maintainer writing that comment must not be blocked.
+// lint-suppression must NOT use this: its spellings are comments by construction.
+// PHP `#[...]` is an attribute, not a comment; Rust `#[...]` never reaches the hash
+// branch because Rust is not a hash-comment language.
+const SLASH_COMMENT = /^(?:\/\/|\/\*|\*(?:\s|\/|$))/;
+const HASH_COMMENT_LANGS: ReadonlySet<Lang> = new Set(['py', 'rb', 'php']);
+
+/** Whether a trimmed line is only a comment in the language (php: `#`, `//`, `/*`). */
+export function isCommentLine(trimmed: string, lang: Lang | null): boolean {
+  const l = lang ?? 'js';
+  if (HASH_COMMENT_LANGS.has(l) && trimmed.startsWith('#') && !trimmed.startsWith('#[')) return true;
+  if (l === 'py' || l === 'rb') return false;
+  return SLASH_COMMENT.test(trimmed);
+}
+
+// Whether `line[idx]` sits inside a string literal: a codemod's HEADER constant holding
+// an eslint-disable comment, or a Python docstring saying "never add # noqa", is text,
+// not a directive. A single-line scan: quotes toggle a string state (backslash escapes
+// honoured), and a comment opener outside a string ends the scan because everything
+// after it is comment. Multi-line strings are not tracked — deliberately per line.
+export function insideStringLiteral(line: string, idx: number, lang: Lang | null): boolean {
+  const hash = HASH_COMMENT_LANGS.has(lang ?? 'js');
+  let quote: string | null = null;
+  for (let j = 0; j < idx; j++) {
+    const ch = line[j];
+    if (quote) {
+      if (ch === '\\') j++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') quote = ch;
+    else if (ch === '/' && (line[j + 1] === '/' || line[j + 1] === '*')) return false;
+    else if (hash && ch === '#') return false;
+  }
+  return quote !== null;
+}

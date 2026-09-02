@@ -31,6 +31,11 @@ const WARN_RULE = 'ts-any-launder';
 
 const DOUBLE_CAST = /\bas\s+unknown\s+as\b/g;
 const SUPPRESS = /@ts-(?:ignore|expect-error|nocheck)\b/g;
+// The JavaScript spelling of `as any`: a JSDoc cast, `/** @type {any} */ (x)`. Only the
+// parenthesised form is a cast (an annotation before a declaration is the launder
+// class), and only in a JS file — TypeScript ignores JSDoc types in .ts.
+const JSDOC_ANY_CAST = /\/\*\*\s*@type\s*\{\s*any\s*\}\s*\*\/\s*\(/g;
+const JS_FILE = /\.(?:js|jsx|mjs|cjs)$/;
 const countMatches = (s: string, re: RegExp): number => (s.match(re) || []).length;
 
 interface AnyCounts {
@@ -46,10 +51,17 @@ function countAny(src: string): AnyCounts {
     const sf = ts.createSourceFile('f.ts', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
     const visit = (node: ts.Node): void => {
       if (node.kind === ts.SyntaxKind.AnyKeyword) {
-        const p = node.parent;
+        // `x as (any)` parents the keyword under a ParenthesizedType; the cast is the
+        // same, so unwrap the parens before asking what the target type is.
+        let target: ts.Node = node;
+        let p = target.parent;
+        while (p && ts.isParenthesizedTypeNode(p)) {
+          target = p;
+          p = p.parent;
+        }
         const isCast =
-          (p && ts.isAsExpression(p) && p.type === node) ||
-          (p && ts.isTypeAssertionExpression(p) && p.type === node);
+          (p && ts.isAsExpression(p) && p.type === target) ||
+          (p && ts.isTypeAssertionExpression(p) && p.type === target);
         if (isCast) r.cast++;
         else r.broad++;
       }
@@ -63,7 +75,7 @@ function countAny(src: string): AnyCounts {
 }
 
 // Additive-line fallback for diff-only changes (no before/after content).
-const NARROW_LINE = /\bas\s+any\b|<\s*any\s*>|\bas\s+unknown\s+as\b|@ts-(?:ignore|expect-error|nocheck)\b/;
+const NARROW_LINE = /\bas\s+\(*\s*any\b|<\s*any\s*>|\bas\s+unknown\s+as\b|@ts-(?:ignore|expect-error|nocheck)\b/;
 const BROAD_LINE = /:\s*any\b|<[^<>]*\bany\b[^<>]*>/;
 
 const BLOCK_REMEDIATION = 'Fix the underlying type instead of silencing the checker; do not cast to `any`.';
@@ -92,12 +104,14 @@ export const tsAnyCast: Detector = {
         const dBroad = a.broad - b.broad;
         const dDouble = countMatches(c.after, DOUBLE_CAST) - countMatches(before, DOUBLE_CAST);
         const dSuppr = countMatches(c.after, SUPPRESS) - countMatches(before, SUPPRESS);
+        const dJsdoc = JS_FILE.test(c.path) ? countMatches(c.after, JSDOC_ANY_CAST) - countMatches(before, JSDOC_ANY_CAST) : 0;
 
         // BLOCK: unambiguous escape hatches
         const blockReasons: string[] = [];
         if (dCast > 0) blockReasons.push('`as any` cast');
         if (dDouble > 0) blockReasons.push('`as unknown as` double cast');
         if (dSuppr > 0) blockReasons.push('@ts-ignore/@ts-expect-error/@ts-nocheck suppression');
+        if (dJsdoc > 0) blockReasons.push('JSDoc `@type {any}` cast');
         if (blockReasons.length) {
           out.push(
             makeFinding(inTest ? WARN_RULE : BLOCK_RULE, policy, {
@@ -127,8 +141,9 @@ export const tsAnyCast: Detector = {
       }
 
       // Fallback: diff-only change → additive-line regex, split narrow(block)/broad(warn).
+      const jsdocCast = JS_FILE.test(c.path) ? new RegExp(JSDOC_ANY_CAST.source) : null;
       for (const l of addedLines(c)) {
-        if (NARROW_LINE.test(l.content)) {
+        if (NARROW_LINE.test(l.content) || (jsdocCast && jsdocCast.test(l.content))) {
           out.push(
             makeFinding(inTest ? WARN_RULE : BLOCK_RULE, policy, {
               file: c.path,
