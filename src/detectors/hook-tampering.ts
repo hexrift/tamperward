@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
 import { Change, Detector, DetectorContext, FileChange, Finding, Policy } from '../types';
 import { addedLines, removedLines } from '../diff/select';
+import { inspectRel, textOf } from '../disk';
 import { isProtected, POLICY_FILE } from '../policy';
 import { PLAIN_SEMVER, PRE_TOOLS, TW_VERSION, compareVersions, initScriptPin, isClaudeSettings, pinNotBelow, resolvesToClaudeSettings } from '../wiring';
 import { makeFinding } from './finding';
@@ -654,6 +655,93 @@ function repoRelative(path: string, ctx?: DetectorContext): string {
 }
 
 /** husky runs its scripts through `sh -e`; every other hook is exec'ed by git. */
+
+/** husky v9 writes its own runtime under `.husky/_/` on `npx husky` — usually fired
+ *  by the `prepare` lifecycle of an ordinary `npm install` — and repoints
+ *  `core.hooksPath` there: fourteen one-line shims sourcing `h`, `h` itself (a byte
+ *  copy of the `husky` file the package ships), a deprecation `husky.sh`, and a
+ *  `.gitignore` of `*`. Those files are the installer's, not the agent's, and
+ *  blocking them blocked every `npm install` in a husky repo (17 findings). A write
+ *  under `_/` whose content is BYTE-EQUAL to the runtime pinned here (modulo one
+ *  trailing newline — never compared against node_modules, which the agent can
+ *  write) is judged clean, but only while `.husky/pre-commit` exists beside it:
+ *  the same install repoints `core.hooksPath` away from wherever else the gate
+ *  lived, so in a repo whose gate is NOT husky-run the add still needs a sign-off. */
+const HUSKY_SHIM = '#!/usr/bin/env sh\n. "$(dirname "$0")/h"';
+const HUSKY_SHIM_NAMES = new Set(["applypatch-msg", "commit-msg", "post-applypatch", "post-checkout", "post-commit", "post-merge", "post-rewrite", "pre-applypatch", "pre-auto-gc", "pre-commit", "pre-merge-commit", "pre-push", "pre-rebase", "prepare-commit-msg"]);
+const HUSKY_H_KNOWN = [
+  // husky 9.1.x
+  `#!/usr/bin/env sh
+[ "$HUSKY" = "2" ] && set -x
+n=$(basename "$0")
+s=$(dirname "$(dirname "$0")")/$n
+
+[ ! -f "$s" ] && exit 0
+
+if [ -f "$HOME/.huskyrc" ]; then
+	echo "husky - '~/.huskyrc' is DEPRECATED, please move your code to ~/.config/husky/init.sh"
+fi
+i="\${XDG_CONFIG_HOME:-$HOME/.config}/husky/init.sh"
+[ -f "$i" ] && . "$i"
+
+[ "\${HUSKY-}" = "0" ] && exit 0
+
+export PATH="node_modules/.bin:$PATH"
+sh -e "$s" "$@"
+c=$?
+
+[ $c != 0 ] && echo "husky - $n script failed (code $c)"
+[ $c = 127 ] && echo "husky - command not found in PATH=$PATH"
+exit $c
+`,
+];
+const HUSKY_DEPRECATION = `echo "husky - DEPRECATED
+
+Please remove the following two lines from $0:
+
+#!/usr/bin/env sh
+. \\"\\$(dirname -- \\"\\$0\\")/_/husky.sh\\"
+
+They WILL FAIL in v10.0.0
+"`;
+const stripTrailingNl = (s: string): string => (s.endsWith('\n') ? s.slice(0, -1) : s);
+function huskyRuntimeWrite(path: string, content: string | null | undefined, ctx?: DetectorContext): boolean {
+  const m = path.match(/(?:^|\/)\.husky\/_\/([^/]+)$/);
+  if (!m || content == null) return false;
+  const name = m[1];
+  const body = stripTrailingNl(content);
+  const ok =
+    name === '.gitignore'
+      ? body === '*'
+      : name === 'h'
+        ? HUSKY_H_KNOWN.some((t) => stripTrailingNl(t) === body)
+        : name === 'husky.sh'
+          ? stripTrailingNl(HUSKY_DEPRECATION) === body
+          : HUSKY_SHIM_NAMES.has(name) && body === HUSKY_SHIM;
+  if (!ok) return false;
+  if (!ctx?.cwd) return false; // cannot see whether the gate is husky-run: fail closed
+  // Existence of `.husky/pre-commit` is NOT proof the gate is Tamperward-run: a
+  // repo can already carry an ordinary husky pre-commit (say `npm test`) whose
+  // real gate is another mechanism, and this same install would repoint
+  // core.hooksPath at `.husky/_` and displace it. Read the pre-commit and require
+  // it to run THE COMMIT BACKSTOP: `tamperward check --staged`, live under husky's
+  // `sh -e`, at the pin the judging release carries. The identity must be exact —
+  // `--worktree`, `--diff HEAD...HEAD` and a `--cwd` away from the root are live
+  // but see something other than the staged change, so they are not the backstop
+  // this exemption claims to have verified — and the pin must equal TW_VERSION,
+  // which is what `init` writes, so an ancient or unpinned gate cannot license
+  // displacing a current one. The path must be a readable REGULAR file: a symlink
+  // is never followed (textOf would hand back the link's target text).
+  const root = path.slice(0, path.length - m[0].length + (m[0].startsWith('/') ? 1 : 0));
+  const entry = inspectRel(join(ctx.cwd, root), '.husky/pre-commit');
+  if (entry.kind !== 'file') return false;
+  const gate = textOf(entry);
+  if (gate == null) return false;
+  return invocations(gate.split('\n'), { errexit: true }).some(
+    (i) => i.identity === 'tamperward check --staged' && i.state === 'live' && i.pin === TW_VERSION,
+  );
+}
+
 const isHuskyScript = (path: string): boolean => /(?:^|\/)\.husky\/[^/]+$/.test(path);
 
 /** A file in a hooks directory that nothing executes or sources: notes and git's
@@ -774,6 +862,7 @@ export const hookTampering: Detector = {
           // as the change rides along as the detail the human signing off sees. A new
           // script has no before to be held to: the model alone judges it, and the
           // gate must be live in it.
+          if ((c.op === 'add' || c.op === 'modify') && huskyRuntimeWrite(c.path, c.after, ctx)) continue;
           const husky = isHuskyScript(c.path);
           const opts: ScriptOpts = husky ? { errexit: true } : {};
           const beforePin = c.before != null && c.after != null ? initScriptPin(c.before) : null;

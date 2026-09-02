@@ -5,6 +5,34 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.10.1] — 2026-09-02
+
+**`npm install` no longer trips the gate in a husky repository. A patch: a
+false-positive fix at the same severity.** 2.10.0 made a newly added hook
+script that does not run the gate live a sign-off — correct for a script an
+agent writes, wrong for the seventeen runtime files `husky` writes under
+`.husky/_/` when the `prepare` lifecycle of an ordinary `npm install` fires
+`npx husky`. Those files are the installer's, byte-for-byte, and blocking them
+blocked every install.
+
+### Fixed
+
+- **husky's own v9 runtime under `.husky/_/` is recognised by byte-equal
+  content** — the fourteen one-line shims that source `h`, the `h` runner
+  itself, the deprecation `husky.sh`, and the `.gitignore` of `*` — and is
+  clean only while `.husky/pre-commit` itself runs the commit backstop — exactly
+  `tamperward check --staged`, live under husky's `sh -e`, pinned at the judging
+  release — not merely exists: an ordinary husky pre-commit whose real gate is
+  another mechanism would otherwise let the install repoint `core.hooksPath` and
+  displace the backstop unseen, and a live but ineffective gate (`--worktree`,
+  `--diff HEAD...HEAD`, a `--cwd` away from the root, an old or unpinned
+  version) is not the backstop either. The pre-commit must be a readable regular
+  file; a symbolic link is never followed. The content is matched against a pinned
+  copy, never against `node_modules` (which the agent can write); a repo whose
+  pre-commit does not run the gate live, a file that is not byte-for-byte
+  husky's, a later edit to one, and the absence of a cwd to judge against all
+  stay fail-closed and need a sign-off.
+
 ## [2.10.0] — 2026-09-02
 
 **A hand-written protected hook script is held byte-for-byte to its before.
