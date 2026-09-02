@@ -5,6 +5,50 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.4.0] — 2026-09-02
+
+**The Stop sweep scans untracked protected files, the per-call drift check
+fails closed on a change git cannot see, and the pytest collection knobs are
+test-skip spellings. A minor: `hidden-drift` is a new, non-configurable
+finding on the hook path, and an agent-created protected file is now judged
+at Stop where it was invisible before.**
+
+### Fixed
+
+- **The Stop sweep ignored untracked files.** It fed the detectors from
+  `git diff`, so a new protected file the turn created — a shadowing
+  `vitest.config.ts`, a `.claude/settings.local.json`, a `conftest.py` carrying
+  `collect_ignore` — was invisible to it (the `run` envelope already scanned
+  them). The sweep and the per-call drift check now share one turn view:
+  tracked changes since the turn baseline, plus every untracked file under a
+  protected glob that the turn created (a turn-start snapshot of the protected
+  tree, advanced only on a clean Stop, tells a new file from one that was
+  there before), plus the hidden tracked files below. An untracked file
+  outside the protected globs is not scanned, and a new test with ordinary
+  content is not a finding.
+- **A protected change git could not see was absorbed as the new baseline.**
+  After `git update-index --skip-worktree test/a.test.ts` (or
+  `--assume-unchanged`), git omits the file from every diff; the drift check
+  saw the hash move, asked git for the change, got nothing, evaluated nothing,
+  and saved the tampered tree as sanctioned. The Stop sweep then had nothing
+  to compare. Hidden tracked files are now diffed by hand — the trusted blob at
+  the base against the disk — and judged by the ordinary rules; any remaining
+  drift is reconstructed from a blob whose hash equals the sanctioned one, a
+  restore to the base or turn-start content is accepted, and anything else is
+  a blocking `hidden-drift` finding that no policy can lower or disable. A
+  block never advances the baseline.
+- **A new file reached the hunk-based rules as an empty edit.** The untracked
+  view carried full content but no hunks, so test-skip and the added-line half
+  of hook-tampering read a brand-new file as nothing; hunks for an add are now
+  synthesised from its content.
+- **pytest collection is a skip.** `collect_ignore` / `collect_ignore_glob`
+  (assignment, `+=`, `.append`, `.extend`), `def pytest_ignore_collect(`, and
+  the parametrize `marks=` form join test-skip's Python patterns beside the
+  2.2.1 spellings.
+- **`passWithNoTests: true` in a jest or vitest config** is the CLI flag's
+  twin and is now coverage-lowering, so a brand-new config carrying it — which
+  has no `before` to compare thresholds against — is still a weakening.
+
 ## [2.3.0] — 2026-09-02
 
 **`verify` runs both suites under the operator's environment, not the
