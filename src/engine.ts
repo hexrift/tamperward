@@ -72,11 +72,18 @@ export function evaluate(
     seen.add(k);
     return true;
   });
-  // Per-rule exclude globs: drop this ONE rule's findings on matching paths, leaving
-  // every other rule's coverage intact. The policy file itself is never excludable —
-  // a rule scoped off its own governing file is the self-switch-off this tool exists
-  // to block (the same exception `ignore` carries).
   return deduped.filter((f) => {
+    // `enabled: false` is honoured per FINDING rule id, not only per detector id.
+    // `ts-any-launder` is emitted by the `ts-any-cast` detector, so disabling it
+    // in policy did nothing — the detector stayed enabled and kept emitting the
+    // rule the user had switched off. The engine's own `detector-error` is not a
+    // policy rule and can never be disabled: a rule that could not run is not a
+    // rule that passed, whatever the file says.
+    if (f.rule !== 'detector-error' && !isEnabled(f.rule, policy)) return false;
+    // Per-rule exclude globs: drop this ONE rule's findings on matching paths, leaving
+    // every other rule's coverage intact. The policy file itself is never excludable —
+    // a rule scoped off its own governing file is the self-switch-off this tool exists
+    // to block (the same exception `ignore` carries).
     const ex = policy.rules[f.rule]?.exclude;
     if (!ex?.length || !f.file || isPolicyFile(f.file)) return true;
     return !matchesAny(f.file, ex);

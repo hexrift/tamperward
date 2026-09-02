@@ -47,6 +47,46 @@ the built 1.14.6 CLI before the fix; each is now a permanent test
   in its own process group under a small supervisor, and the whole group is
   killed on budget or exit.
 
+
+**Protection that was silently absent, from a third audit. Each case is a
+permanent test (`test/coverage-gaps.test.ts`).**
+
+### Fixed
+
+- **Session state was written INSIDE the working tree from a `git worktree` or a
+  subdirectory.** `git rev-parse --git-dir` answers an absolute path from
+  anywhere but the top of an ordinary checkout, and the effect layer joined it
+  onto `cwd` — so a Claude Code session in a worktree created
+  `<worktree>/tmp/…/main/.git/worktrees/x/tamperward/` and kept its drift state
+  there. The watcher's default log assumed `.git` was a directory and silently
+  recorded nothing in a worktree. Both now resolve the real git directory.
+- **`enabled: false` did nothing for a rule that is not a detector id.** The
+  engine checked the flag per detector, so `ts-any-launder` (emitted by the
+  `ts-any-cast` detector) and `transient-protected-mutation` (judged outside the
+  engine) kept firing after being switched off. Findings are now filtered by
+  their own rule id. The engine's `detector-error` can never be disabled.
+- **`SKIP=<hook-id>` and `LEFTHOOK_EXCLUDE=` were not hook bypasses.** The
+  pre-commit framework and Lefthook both document these as the way to skip a
+  hook; `.pre-commit-config.yaml` and `lefthook.*` are protected, and their
+  own escape hatches were not. `SKIP=` counts only in a segment that runs git
+  or pre-commit, since the name is plausible elsewhere.
+
+### Changed
+
+- **The pattern rules read the language of the file.** Since 1.14.0 the
+  baseline has protected Python, Go, Rust, Ruby, JVM, PHP and .NET test files,
+  but every skip marker, every suppression directive and the test-block count
+  were JavaScript spellings — `@pytest.mark.skip` in a protected spec fired
+  nothing, and `def test_x` counted as zero tests on both sides. `test-skip`,
+  `lint-suppression`, `test-deletion` (block count) and
+  `test-content-removal` (significant lines, now one shared filter) now use the
+  equivalent spellings for each of those ecosystems; a file of unknown language
+  is read as before. Rust `#[allow(...)]` is deliberately not a suppression
+  finding — it is the ordinary way to annotate an intentional lint, and a block
+  rule on it would be mostly false positives. Per CONTRIBUTING this is a
+  **minor**: the rules catch more only in changes that already violated the
+  policy they declare.
+
 ## [1.14.6] — 2026-09-02
 
 **H2, the last open hypothesis from the second audit, is confirmed: a pull
