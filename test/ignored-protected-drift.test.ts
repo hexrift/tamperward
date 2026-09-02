@@ -6,22 +6,39 @@
 // the report was wrong — the original probe grepped the hook's output for "block"
 // and "hook-tampering" while the finding is named `hidden-drift`, so a real block
 // read as silence. These cases pin the behaviour at both layers.
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
+import { buildSync } from 'esbuild';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { TW_VERSION } from '../src/wiring';
 
-vi.setConfig?.({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: 60_000 });
 
-const CLI = join(__dirname, '..', 'dist', 'cli', 'index.js');
+// The CI test job runs `npm test` without `npm run build`, so `dist/` may not
+// exist: build the CLI here, in the package layout it ships in, as the other
+// end-to-end suites do.
+const ROOT = join(__dirname, '..');
+let cliDir = '';
+let CLI = '';
 const hook = (cwd: string, payload: unknown): string =>
   spawnSync(process.execPath, [CLI, 'hook', 'claude'], {
-    cwd, input: JSON.stringify(payload), encoding: 'utf8', timeout: 25_000,
+    cwd, input: JSON.stringify(payload), encoding: 'utf8', timeout: 50_000,
   }).stdout ?? '';
 
 describe('ignored protected file, content drift mid-turn (#202)', () => {
   let dir: string;
+
+  beforeAll(() => {
+    cliDir = mkdtempSync(join(tmpdir(), 'tw-202-cli-'));
+    symlinkSync(join(ROOT, 'node_modules'), join(cliDir, 'node_modules'), 'dir');
+    writeFileSync(join(cliDir, 'package.json'), JSON.stringify({ name: 'tamperward', version: TW_VERSION, type: 'module' }));
+    mkdirSync(join(cliDir, 'dist', 'cli'), { recursive: true });
+    CLI = join(cliDir, 'dist', 'cli', 'index.js');
+    buildSync({ entryPoints: [join(ROOT, 'src/cli/index.ts')], bundle: true, platform: 'node', format: 'esm', packages: 'external', outfile: CLI, logLevel: 'silent' });
+  }, 120_000);
+  afterAll(() => { if (cliDir) rmSync(cliDir, { recursive: true, force: true }); });
   const git = (...a: string[]) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
 
   beforeEach(() => {
