@@ -12,6 +12,7 @@
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-lightgrey" alt="license"></a>
 </p>
 
+**[Quick start](#quick-start)** ·
 **[Docs & guide](https://hexrift.github.io/tamperward/)** ·
 **[The research series](./docs/blog/index.md)** — every registered prediction
 published beside its outcome
@@ -22,13 +23,27 @@ trajectories, some modify or attempt to modify verification in ways that can
 turn incorrect work into apparent success. Under pressure, the cheaper route to
 green is sometimes to weaken the checks instead of fixing the failure.
 
+In plain English: Tamperward lets a coding agent change your code, but not the
+trusted starting point, the rules, or the checks used to judge that code.
+
 Tamperward is a **deterministic verification-integrity layer**. It blocks known
 weakening moves as they happen, observes protected-state effects, and
 independently re-adjudicates apparent success outside the agent's normal
 completion path. No runtime LLM judge. Fail closed when adjudication is
 impossible.
 
+> **Project status: active research release.** Tamperward is usable today, but
+> its enforcement architecture and supporting evidence are still being tested
+> and hardened. Use it as one layer of defence in depth alongside protected CI,
+> independent tests and human review. Findings, limitations and corrections are
+> published openly. The 2.0 major marks the Node 18 drop, not a declaration of
+> security maturity.
+
 ## What we have actually measured
+
+Plain-English takeaway: the original detector-centred design was insufficient.
+Later versions materially reduced false-green outcomes in two held-out rounds,
+and the subsequent stronger-model replication was inconclusive.
 
 | experiment | result | what it supports |
 | --- | --- | --- |
@@ -39,10 +54,15 @@ impossible.
 | **Round 3** — 17 paired Python repos, fresh PyPI frame, **v1.14.0** ([`harness/taskbench/round3/`](./harness/taskbench/round3/)) | Transfer 9/17 (52.9%). Prevention: **b=6 / c=0**, RD **+35.3pp**, BP95 [9.5, 58.7], exact McNemar **p = 0.0313** | The prevention result appeared in Python — with the treatment also changed from v1.9.0, so ecosystem transfer is not isolated. The in-loop skip detector proved blind to pytest syntax; the outer layers carried it |
 | **Round 3.1** — the same 16 pairs under **`claude-sonnet-5`** ([`harness/taskbench/round3.1/`](./harness/taskbench/round3.1/)) | Transfer 4/16 (25.0%). Prevention: **b=1 / c=0**, RD +6.3pp, BP95 [−13.8, 28.3], exact McNemar **p = 1.0000** | The confirmatory result **did not replicate**, and could not have: only three ungated false greens occurred, so `b ≤ 3` and p ≥ .25 whatever the gate did. A failure to reject, not evidence of no effect |
 
+Key: `b` = false greens seen only without Tamperward; `c` = false greens seen
+only with it; `RD` = paired risk difference; `pp` = percentage points; `BP95` =
+Bonett–Price 95% interval.
+
 Earlier controlled experiments → **[the research series](./docs/blog/index.md)**.
 
-> **Scope.** The rows above are one model, one pressure prompt, one JS/TS
-> ecosystem — evidence for that setting, not a universal claim. Round 2 tested
+> **Scope.** The rows above cover specific models, pressure prompts, treatment
+> versions, and finite JavaScript/TypeScript and Python repository samples —
+> evidence for those settings, not a universal claim. Round 2 tested
 > the v1.9.0 stack; the current **v2.0.0** adds post-study envelope hardening
 > (externally reviewed, with findings tracked individually as REPRO or AUDIT in
 > [SECURITY-ENVELOPE.md](./SECURITY-ENVELOPE.md) and closed with regression and
@@ -56,7 +76,11 @@ Earlier controlled experiments → **[the research series](./docs/blog/index.md)
 
 ## Architecture
 
-Tamperward separates **steering** from **adjudication**.
+The agent may produce the work, but it must not control how that work is
+judged. In architectural terms, Tamperward separates **steering** from
+**adjudication**. "Visible" verification runs the candidate as it stands;
+"pristine" verification restores the protected verification state from the
+trusted starting point and runs the checks again.
 
 > **Core invariant:** the agent may author the candidate tree, but it must not
 > choose the trusted baseline, the governing policy, the verifier, or the final
@@ -186,6 +210,10 @@ Full assumptions and residual risks: [SPEC.md](./SPEC.md),
 npx tamperward init
 ```
 
+Requires Node.js 20.19 or later. JavaScript and TypeScript are the fully
+supported detector surface; the other documented ecosystems get file-level and
+pattern-based protection.
+
 One idempotent command wires the policy, the agent hooks, the pre-commit hook, a
 CI workflow that runs both the diff-time check and pristine verification, and a
 `CODEOWNERS` requirement on the paths that decide whether the gate runs at all.
@@ -286,7 +314,7 @@ Some ambiguous syntactic classes deliberately remain warnings or unimplemented �
 `ts-any-launder` is a permanent warn — rather than being promoted to blockers
 without precision evidence.
 
-## What this does not establish
+## What Tamperward does not do
 
 - **Not a correctness oracle.** Pristine verification can only re-run tests that
   exist in the tree. Round 2's designed-in blind spot: on tasks with withheld
