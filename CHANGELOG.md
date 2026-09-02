@@ -87,6 +87,36 @@ permanent test (`test/coverage-gaps.test.ts`).**
   **minor**: the rules catch more only in changes that already violated the
   policy they declare.
 
+
+### Fixed
+
+- **This repository's own gate did not bind approval labels to the head SHA.**
+  `ci.yml` set `TAMPERWARD_OOB_SIGNOFF` but never `TAMPERWARD_OOB_HEAD`, so a
+  `tamperward:allow:<rule>` label earned for one benign finding cleared every
+  later one pushed to the same PR — the P1-6 hole the shipped template closed in
+  1.12, still open on the project's own CI. Labels on this repo now read
+  `tamperward:allow:<rule>@<head-sha>`, as the generated workflow requires.
+- **ci-tampering read a YAML comment as a removed check.** A comment that quoted
+  `tamperward:allow:<rule>` in a code span satisfied the invocation-position test
+  through the backtick before the word, and rewording it was a blocking finding.
+  Comment lines are never steps.
+
+### Changed
+
+- **`init` pins the local hooks to the version that wrote them**, as it already
+  pinned the workflow (P2-15). `npx --yes tamperward hook claude` with no
+  version resolved `latest` on every call in a repo where the package was not
+  a devDependency, so the gate changed under the repo without anyone changing
+  anything. Re-running `init` re-pins an install it wrote for another version
+  (or wrote unpinned) in `.claude/settings.json` and the pre-commit script; a
+  command someone wrote by hand is left exactly as it is.
+- Dev dependencies: `esbuild` 0.24 → 0.25. `vitest` stays on 2.x and `vitepress`
+  on 1.6.4: every later vitest, and vitepress's only fixed line (the 2.0 alpha),
+  pull in a vite that drops Node 18, which this package still supports
+  (`engines >=18`, tested in CI). `npm audit` therefore still reports the vite
+  dev-server advisories through those two; none of them reach the published
+  package (`npm audit --omit=dev` is clean).
+
 ## [1.14.6] — 2026-09-02
 
 **H2, the last open hypothesis from the second audit, is confirmed: a pull
