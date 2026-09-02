@@ -16,11 +16,12 @@ import { changesFromClaudeHook, ClaudeHookInput, synthFileChange } from '../adap
 import { formatDenial } from '../adapters/claude/deny';
 import { evaluate } from '../engine';
 import { loadPolicy } from '../policy-load';
-import { diffSince, diffWorktree, fileAt, fileOnDisk, hiddenTrackedPaths, isGitRepo, untrackedAdds } from '../git/build';
+import { diffSince, diffWorktree, fileAt, fileOnDisk, hiddenTrackedPaths, ignoredAdds, isGitRepo, untrackedAdds } from '../git/build';
 import { advanceTurnBaseline, turnBaseline } from '../session';
 import {
   contentHash,
   driftBetween,
+  dropTurnTree,
   loadPtree,
   loadTurnTree,
   PTree,
@@ -163,7 +164,7 @@ function gitMode(mode: number): string {
 }
 
 /**
- * The turn's net change to the working tree, as the detectors should see it. Three
+ * The turn's net change to the working tree, as the detectors should see it. Four
  * sources, because a tracked diff alone is not the tree the runner will execute:
  *
  *  1. `git diff <turn base>` — committed or not, every tracked edit.
@@ -176,9 +177,29 @@ function gitMode(mode: number): string {
  *     tree, src/effect.ts): a developer's own pre-existing untracked spec is not
  *     re-litigated every turn. No turn tree → every untracked protected file is
  *     judged (fail closed on unknown provenance).
- *  3. Tracked protected files git has been told to stop comparing (skip-worktree,
+ *  3. IGNORED protected files. `ls-files --others --exclude-standard` drops them by
+ *     design, so a conftest.py the turn created AND excluded — one line in the
+ *     agent-writable `.git/info/exclude`, or in `.gitignore` — reached no view;
+ *     the effect layer saw it in its snapshot and absorbed it as an addition. Same
+ *     scoping as (2), plus one rule: an ignored file the ptree sanctioned at OTHER
+ *     bytes is drift, not an add — it has no git blob to diff against, and the
+ *     effect layer's reconstruct-or-block (uncoveredDrift) is the honest verdict
+ *     for it, where an add of the full content would let a gutting pass.
+ *  4. Tracked protected files git has been told to stop comparing (skip-worktree,
  *     assume-unchanged). They appear in no diff, no status and no untracked list;
  *     diffed here by hand, trusted blob at the turn base vs the disk.
+ *
+ * THE TURN TREE EXCUSES ONLY WHAT THE PTREE ALSO KNOWS. Both trees are `.git`
+ * state the agent can write, and a turn tree forged to list a file the turn
+ * created, at its current hash, used to make (2) drop it as pre-existing — after
+ * which the effect layer absorbed it. The two trees are written together from the
+ * same snapshot, so an untracked file that genuinely predates the turn is in both
+ * at the same hash; an entry the turn tree carries that the ptree never sanctioned
+ * is not something this gate wrote, and the file is judged. Residual, documented:
+ * an agent that rewrites BOTH trees consistently (or removes the ptree so the next
+ * call re-snapshots it — met by effectDriftBlocks, which forgets the turn tree
+ * with it) is inside the loop layer's known trust boundary; CI, which reads none
+ * of this state, remains the authority.
  */
 function turnView(cwd: string, sessionId: string | undefined, policy: Policy, base: string | null): Change[] {
   const tracked = base ? diffSince(base, { cwd }) : diffWorktree({ cwd });
@@ -188,17 +209,27 @@ function turnView(cwd: string, sessionId: string | undefined, policy: Policy, ba
     if (c.oldPath) seen.add(c.oldPath);
   }
   const turnTree = loadTurnTree(cwd, sessionId);
-  const untracked = untrackedAdds({ cwd }, (rel) => isProtected(rel, policy), seen).filter(
-    (c) => c.kind !== 'file' || !turnTree || turnTree[c.path]?.hash !== hashOnDisk(cwd, c.path),
-  );
+  const ptree = loadPtree(cwd, sessionId);
+  const keep = (rel: string): boolean => isProtected(rel, policy);
+  const untouched = (rel: string, disk: string | null): boolean =>
+    disk != null && turnTree?.[rel]?.hash === disk && ptree?.[rel]?.hash === disk;
+  const untracked = untrackedAdds({ cwd }, keep, seen).filter((c) => c.kind !== 'file' || !untouched(c.path, hashOnDisk(cwd, c.path)));
   for (const c of fileChanges(untracked)) seen.add(c.path);
+  const ignored = ignoredAdds({ cwd }, keep, seen).filter((c) => {
+    if (c.kind !== 'file') return false;
+    const disk = hashOnDisk(cwd, c.path);
+    if (untouched(c.path, disk)) return false;
+    const sanctioned = ptree?.[c.path];
+    return !(sanctioned && disk != null && sanctioned.hash !== disk); // drift on a sanctioned file: uncoveredDrift's
+  });
+  for (const c of fileChanges(ignored)) seen.add(c.path);
   const trusted = base ?? 'HEAD';
   const hidden: Change[] = [];
   for (const rel of hiddenTrackedPaths({ cwd })) {
     if (seen.has(rel) || !isProtected(rel, policy)) continue;
     hidden.push(...synthFileChange(rel, fileAt(trusted, rel, { cwd }), fileOnDisk(rel, { cwd })));
   }
-  return [...tracked, ...untracked, ...hidden];
+  return [...tracked, ...untracked, ...ignored, ...hidden];
 }
 
 /**
@@ -241,7 +272,15 @@ function uncoveredDrift(
     const after = fileOnDisk(rel, { cwd });
     const trustedBlob = fileAt(trusted, rel, { cwd });
     const atGitState = after != null && trustedBlob != null && contentHash(after) === contentHash(trustedBlob);
-    const atTurnStart = current[rel] != null && turnTree?.[rel]?.hash === current[rel].hash;
+    // The turn tree may excuse a file that stands exactly as the turn found it ONLY
+    // for an edit this gate predicted and never saw land (the ptree entry still
+    // carries sanctionPredictedWrites' marker, mtimeMs -1): the tool call was allowed,
+    // the user rejected it, the disk never moved. Read without that condition, the
+    // exemption was a second door for a forged turn tree — rewrite an untracked
+    // file from the shell, list it in the turn tree at the new hash, and the drift
+    // was "as the turn found it". A sanctioned entry that a real snapshot confirmed
+    // has no such excuse: a file at bytes the ptree never sanctioned is drift.
+    const atTurnStart = current[rel] != null && expected[rel]?.mtimeMs === -1 && turnTree?.[rel]?.hash === current[rel].hash;
     if ((atGitState || atTurnStart) && current[rel] && expected[rel] && current[rel].mode === expected[rel].mode) {
       // Back at its git state, or exactly as the turn found it: a restore, or an
       // Edit the hook sanctioned that the tool never applied. Nothing to judge.
@@ -288,6 +327,31 @@ function uncoveredDrift(
       });
     }
   }
+  // ADDITIONS the view could not find. A protected file that exists now and that no
+  // sanctioned state knows was created by a route none of the git views lists — a
+  // directory git treats as a nested repository, a listing that came back short —
+  // and used to be absorbed by `savePtree(current)` without a rule having read it.
+  // Reconstructed as the add it is: before = nothing, after = the disk. The turn
+  // tree cannot excuse it (see turnView): an entry there for a path the ptree has
+  // never sanctioned is not something this gate wrote. A file that cannot be read
+  // cannot be judged, and is blocked by name like unreconstructable drift.
+  for (const rel of d.added) {
+    if (seen.has(rel)) continue;
+    const after = fileOnDisk(rel, { cwd });
+    if (after == null) {
+      blocks.push({
+        rule: 'hidden-drift',
+        severity: 'block',
+        file: rel,
+        message: `Protected file ${rel} appeared outside git's view and cannot be read to judge it.`,
+        evidence: rel,
+        remediation: 'Remove the file, or make it readable and bring it into git\'s view; create protected files through a tool call the gate can see.',
+        signoff: { required: true, command: `tamperward allow hidden-drift --file ${rel} --reason "..."` },
+      });
+      continue;
+    }
+    changes.push(...synthFileChange(rel, null, after));
+  }
   return { changes, blocks };
 }
 
@@ -297,8 +361,9 @@ function uncoveredDrift(
  * drifted since the last sanctioned state, run the ordinary detector stack over
  * the drift (the turn view, scoped to the drifted paths) NOW — findings then
  * carry the existing rules' corpus-priced severities. Benign drift (a git
- * restore, a first-run snapshot) evaluates clean and is absorbed. Drift the view
- * cannot show is reconstructed or blocked (uncoveredDrift), never absorbed.
+ * restore, an honest new spec) evaluates clean and is absorbed. Drift the view
+ * cannot show — a hidden edit, an ADDITION git will not list — is reconstructed
+ * or blocked (uncoveredDrift), never absorbed.
  * Returns blocking findings, or null when the current call may proceed.
  */
 function effectDriftBlocks(cwd: string, sessionId: string | undefined, policy: Policy): Finding[] | null {
@@ -308,17 +373,25 @@ function effectDriftBlocks(cwd: string, sessionId: string | undefined, policy: P
   if (!expected) {
     savePtree(cwd, sessionId, current);
     // First sight of the session: the turn begins here, alongside the git baseline.
-    if (!loadTurnTree(cwd, sessionId)) saveTurnTree(cwd, sessionId, current);
+    // The two trees are written together, so a turn tree ALREADY here with no ptree
+    // beside it is not a first sight: the ptree was removed (or never survived its
+    // write). A snapshot taken now would sanction whatever is on disk, and the
+    // surviving turn tree — agent-writable — would then excuse it at Stop as
+    // pre-existing. The turn tree is forgotten with the ptree instead: no turn
+    // tree → every untracked protected file is judged at the next sweep, the
+    // stance this gate takes on unknown provenance.
+    if (loadTurnTree(cwd, sessionId)) dropTurnTree(cwd, sessionId);
+    else saveTurnTree(cwd, sessionId, current);
     return null;
   }
   const d = driftBetween(expected, current);
-  if (d.changed.length === 0 && d.deleted.length === 0) {
-    savePtree(cwd, sessionId, current); // absorb additions + refresh mtimes
+  if (d.changed.length === 0 && d.deleted.length === 0 && d.added.length === 0) {
+    savePtree(cwd, sessionId, current); // refresh mtimes
     return null;
   }
   const base = turnBaseline(cwd, sessionId);
   const all = turnView(cwd, sessionId, policy, base);
-  const drifted = new Set([...d.changed, ...d.deleted]);
+  const drifted = new Set([...d.changed, ...d.deleted, ...d.added]);
   const scoped = all.filter(
     (c) => c.kind === 'file' && (drifted.has(c.path) || (c.oldPath != null && drifted.has(c.oldPath))),
   );

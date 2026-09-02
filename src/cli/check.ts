@@ -6,7 +6,7 @@ import { Change, Policy, View } from '../types';
 import { diffRange, diffStaged, diffWorktree, diffWorktreeWithUntracked, isGitRepo, mergeBaseOf } from '../git/build';
 import { evaluate, hasBlocking, isSuppressed } from '../engine';
 import { loadPolicy, loadPolicyAt, PolicyError } from '../policy-load';
-import { defaultPolicy } from '../policy';
+import { defaultPolicy, isProtected } from '../policy';
 import { applyLocalSignoffs, applyOobSignoffs, oobFromEnv, oobHeadFromEnv } from '../signoff';
 import { Format, report } from './report';
 
@@ -21,7 +21,7 @@ export interface CheckOpts {
    *  post-agent tree, so it cannot trust that tree's own policy, file view, or
    *  sign-off ledger — all agent-authorable. */
   policyOverride?: Policy; // frozen entry-time policy, not the current tree's
-  includeUntracked?: boolean; // worktree view also scans untracked (not-ignored) files
+  includeUntracked?: boolean; // worktree view also scans untracked files, and ignored files on protected paths
   ciLayer?: boolean; // adjudicate at the CI layer: no local (agent-writable) ledger
 }
 
@@ -43,8 +43,12 @@ function check(opts: CheckOpts): number {
     layer = 'local'; // pre-commit: a human at their machine may sign off (ledger, fingerprint-bound)
     view = 'staged';
   } else if (opts.worktree) {
+    // Untracked files as adds, and IGNORED files too when they sit on a protected
+    // path: a protected file the agent hid behind `.git/info/exclude` or a
+    // `.gitignore` line is in the tree the runner executes, whatever git lists.
+    const p = policy;
     changes = opts.includeUntracked
-      ? diffWorktreeWithUntracked({ cwd: opts.cwd })
+      ? diffWorktreeWithUntracked({ cwd: opts.cwd }, (rel) => isProtected(rel, p))
       : diffWorktree({ cwd: opts.cwd });
     layer = opts.ciLayer ? 'ci' : 'local';
     view = 'worktree';

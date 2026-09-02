@@ -441,11 +441,17 @@ describe('D-2 · hook-tampering on the policy file and the wiring is not policy-
   });
 
   it('kept narrow: findings off the policy file and the baseline hooks class stay governed by the policy', () => {
-    // a command finding carries no file: disabled means disabled
-    expect(ht(evaluate([cmd('rm .husky/pre-commit')], disabled))).toHaveLength(0);
+    // a command finding names the hook it writes, so the baseline class is pinned on
+    // the command surface exactly as on the file surface (it used to carry no file,
+    // and `rm .claude/settings.json` from the shell was governed by the lowered policy)
+    const shell = ht(evaluate([cmd('rm .husky/pre-commit')], disabled));
+    expect(shell).toHaveLength(1);
+    expect(shell[0].file).toBe('.husky/pre-commit');
+    expect(shell[0].severity).toBe('block');
     // a user-added hooks glob is the user's own choice to guard — and to unguard
     const own: Policy = parsePolicy({ protected: { hooks: ['scripts/gate.sh'] }, rules: { 'hook-tampering': { severity: 'block', enabled: false } } });
     expect(ht(evaluate([file('scripts/gate.sh', 'x', null, 'delete')], own))).toHaveLength(0);
+    expect(ht(evaluate([cmd('rm scripts/gate.sh')], own))).toHaveLength(0);
     // and under the default policy that same deletion IS reported (the control's control)
     expect(ht(evaluate([file('scripts/gate.sh', 'x', null, 'delete')], parsePolicy({ protected: { hooks: ['scripts/gate.sh'] } }))).length).toBe(1);
   });

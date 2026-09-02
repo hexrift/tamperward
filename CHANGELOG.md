@@ -5,6 +5,39 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.5.1] — 2026-09-02
+
+**A protected file created where git will not list it is judged, never
+absorbed. A patch: a bypass fix at the same severity, found by the adversarial
+pass over 2.4.0's untracked sweep.**
+
+### Fixed
+
+- **An ignored new protected file was judged by nobody.** One line in the
+  agent-writable `.git/info/exclude` (or a `.gitignore` edit) made a
+  `conftest.py` created during the turn invisible: the untracked view drops
+  ignored files, the hidden-tracked probe lists tracked files only, and the
+  effect layer saw the file but treated an addition as something to absorb
+  into the sanctioned tree. The turn ended green. The same applies to the
+  gitignored `.claude/settings.local.json` Claude Code itself excludes. Now:
+  the effect layer reports additions, any protected addition the turn view
+  does not carry is reconstructed as the add it is and run through the
+  detectors, and the git views (`turnView`, the envelope, `check --worktree`
+  with untracked) list ignored files under the protected globs as adds — in
+  two passes, with wholly-ignored trees collapsed and `node_modules` never
+  walked, so a 100k-file package tree costs three milliseconds.
+- **A forged turn tree could excuse a new file.** The turn-start snapshot is
+  `.git` state; it now excuses an untracked or ignored file only when the
+  per-call tree sanctions the same hash, the turn-start exemption is limited
+  to a predicted edit that never landed, a turn tree that outlives its ptree
+  is dropped, and tree saves are atomic. The residual — an agent that
+  rewrites both trees consistently — stays documented; CI is the authority.
+- **Command-surface hook-tampering findings carried no file**, so the engine
+  pin that keeps findings on the gate's own wiring out of the policy's reach
+  did not apply to them: with a policy that had lowered the rule to warn,
+  `rm .claude/settings.json` through Bash was allowed at the hook. They now
+  carry the repo-relative target and are pinned like the file-surface ones.
+
 ## [2.5.0] — 2026-09-02
 
 **The config-narrowing class: a runner told not to open a spec, a coverage

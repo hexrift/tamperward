@@ -197,41 +197,98 @@ export function diffWorktree(opts: GitOpts = {}): Change[] {
   );
 }
 
-/** Every UNTRACKED, not-ignored file as an add — `after` from disk, hunks
- *  synthesised from that content so the hunk-based rules read it as the edit it
- *  is. `keep` narrows the set (the Stop sweep wants protected paths only; the
- *  envelope wants the whole tree). `exclude` drops paths another view already
- *  reports. */
+/** A file on disk as the ADD it is — `after` from disk, hunks synthesised from
+ *  that content so the hunk-based rules read it as the edit it is. */
+function addOf(rel: string, cwd?: string): Change {
+  const after = fromDisk(rel, cwd);
+  return {
+    kind: 'file' as const,
+    path: rel,
+    oldPath: null,
+    op: 'add' as const,
+    before: null,
+    after,
+    binary: false,
+    hunks: after == null ? [] : addHunks(after),
+  };
+}
+
+/** Every UNTRACKED, not-ignored file as an add. `keep` narrows the set (the Stop
+ *  sweep wants protected paths only; the envelope wants the whole tree). `exclude`
+ *  drops paths another view already reports. */
 export function untrackedAdds(opts: GitOpts = {}, keep?: (rel: string) => boolean, exclude?: Set<string>): Change[] {
   const others = git(['ls-files', '--others', '--exclude-standard', '-z'], opts.cwd)
     .split('\0')
     .filter(Boolean);
-  return others
-    .filter((rel) => !exclude?.has(rel) && (!keep || keep(rel)))
-    .map((rel) => {
-      const after = fromDisk(rel, opts.cwd);
-      return {
-        kind: 'file' as const,
-        path: rel,
-        oldPath: null,
-        op: 'add' as const,
-        before: null,
-        after,
-        binary: false,
-        hunks: after == null ? [] : addHunks(after),
-      };
-    });
+  return others.filter((rel) => !exclude?.has(rel) && (!keep || keep(rel))).map((rel) => addOf(rel, opts.cwd));
+}
+
+/** Directories no protected file lives under and no view needs to enumerate: the
+ *  package tree and the VCS directories. Mirrors src/effect.ts SKIP_DIRS. */
+const SKIP_DIRS = new Set(['.git', 'node_modules', '.hg', '.svn']);
+const IGNORED_LS = ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'];
+
+function underSkippedDir(rel: string): boolean {
+  return rel.split('/').some((seg) => SKIP_DIRS.has(seg));
+}
+
+/**
+ * The IGNORED files under `keep` — the files `ls-files --others --exclude-standard`
+ * drops on purpose and no other git view lists. A protected file CREATED where git
+ * will not list it (a `.gitignore` edit, the agent-writable `.git/info/exclude`,
+ * the global excludes that carry `**\/.claude/settings.local.json`) was judged by
+ * nobody: not the tracked diff, not the untracked view, not the hidden-tracked
+ * probe. `keep` is mandatory and is meant to be the protected globs: an ignored
+ * file outside them stays out, exactly as an untracked one does.
+ *
+ * Two passes, so a repository with a large package tree pays nothing for it.
+ * `--directory` collapses a wholly-ignored directory to one entry (`node_modules/`,
+ * `dist/`), which costs a handful of stats instead of a walk of every file under
+ * it (measured: 3 ms against 70 ms for the flat listing on a 100k-file
+ * node_modules). The collapsed entries outside SKIP_DIRS are then expanded with a
+ * positive `:(literal)` pathspec, which prunes git's traversal to those trees
+ * alone and takes the name as-is (a `[` or a leading `-` in a directory name is
+ * not a glob or an option). An ignored directory that also holds tracked files is
+ * not collapsed; its ignored files arrive in the first pass.
+ */
+export function ignoredPaths(opts: GitOpts = {}, keep: (rel: string) => boolean): string[] {
+  const files: string[] = [];
+  const dirs: string[] = [];
+  for (const entry of git([...IGNORED_LS, '--directory'], opts.cwd).split('\0').filter(Boolean)) {
+    if (underSkippedDir(entry)) continue;
+    if (entry.endsWith('/')) dirs.push(entry);
+    else files.push(entry);
+  }
+  if (dirs.length > 0) {
+    const expanded = git([...IGNORED_LS, '--', ...dirs.map((d) => `:(literal)${d}`)], opts.cwd).split('\0').filter(Boolean);
+    for (const rel of expanded) if (!underSkippedDir(rel)) files.push(rel);
+  }
+  return files.filter(keep);
+}
+
+/** Every IGNORED file under `keep` as an add (see ignoredPaths). `exclude` drops
+ *  paths another view already reports. */
+export function ignoredAdds(opts: GitOpts = {}, keep: (rel: string) => boolean, exclude?: Set<string>): Change[] {
+  return ignoredPaths(opts, keep)
+    .filter((rel) => !exclude?.has(rel))
+    .map((rel) => addOf(rel, opts.cwd));
 }
 
 /** Worktree view that also treats UNTRACKED (not-ignored) files as adds. The
  *  plain `git diff HEAD` view misses them entirely — an agent can drop a new
  *  .github/workflows/*.yml or a fresh test-shadowing file and it is invisible
  *  to every tracked-diff scan. The enforcement envelope adjudicates the whole
- *  tree, so it needs this. */
-export function diffWorktreeWithUntracked(opts: GitOpts = {}): Change[] {
+ *  tree, so it needs this. With `keepIgnored` (the protected globs), IGNORED
+ *  files under those globs are adds too: a conftest.py the agent excluded via
+ *  `.git/info/exclude` is as much a part of the tree the runner executes as an
+ *  untracked one, and used to be the one file no view enumerated. */
+export function diffWorktreeWithUntracked(opts: GitOpts = {}, keepIgnored?: (rel: string) => boolean): Change[] {
   const tracked = diffWorktree(opts);
   const seen = new Set(tracked.filter((c) => c.kind === 'file').map((c) => (c as { path: string }).path));
-  return [...tracked, ...untrackedAdds(opts, undefined, seen)];
+  const untracked = untrackedAdds(opts, undefined, seen);
+  for (const c of untracked) if (c.kind === 'file') seen.add(c.path);
+  const ignored = keepIgnored ? ignoredAdds(opts, keepIgnored, seen) : [];
+  return [...tracked, ...untracked, ...ignored];
 }
 
 /**
