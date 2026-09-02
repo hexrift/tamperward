@@ -19,10 +19,12 @@
 // was checked under both ways a hook runs — husky's `sh -e <file>` and git's
 // direct exec — with a failing stand-in for the gate.
 
+import { existsSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { isProtected } from '../policy';
 import { DetectorContext, Policy } from '../types';
-import { PLAIN_SEMVER, compareVersions } from '../wiring';
+import { PLAIN_SEMVER, canonicalPath, claudeConfigDir, compareVersions, homeDir, isClaudeSettings } from '../wiring';
 import { containsProtected, trackedFiles } from './repo';
 
 // ── shell hook scripts ─────────────────────────────────────────────────────────
@@ -1168,7 +1170,11 @@ const WRAPPERS = /^(?:sudo|command|exec|time|nice|env|[A-Za-z_][A-Za-z0-9_]*=\S*
 const INTERPRETERS = new Set(['python', 'python2', 'python3', 'node', 'perl', 'ruby', 'php', 'deno', 'bun']);
 const INLINE_FLAG = /^-(?:c|e|r|E|p|pe|pi|i|ne|ni|le)$|^--eval$|^--print$|^--exec$/;
 const EDITORS = new Set(['ex', 'ed', 'vim', 'vi', 'nvim']);
-const HOOK_BASENAMES = ['pre-commit', 'pre-push', 'commit-msg', 'settings.json', 'settings.local.json', '.tamperward.yml', 'lefthook.yml', 'lefthook.yaml', 'lefthook-local.yml', '.pre-commit-config.yaml', 'CODEOWNERS'];
+/** A path-shaped word inside an inline script: `$HOME`, `${CLAUDE_CONFIG_DIR}` and
+ *  `%USERPROFILE%` stay one word with the path they prefix, so the shell
+ *  expansion reads them as the shell would. */
+const SCRIPT_WORD = /[\w.~/$%{}\\-]+/g;
+const HOOK_BASENAMES = ['pre-commit', 'pre-push', 'commit-msg', 'settings.json', 'settings.local.json', 'managed-settings.json', '.tamperward.yml', 'lefthook.yml', 'lefthook.yaml', 'lefthook-local.yml', '.pre-commit-config.yaml', 'CODEOWNERS'];
 
 /** A `find -name` glob as a matcher over hook basenames. */
 function nameGlob(pattern: string): (name: string) => boolean {
@@ -1215,20 +1221,69 @@ function destinations(cmd: string, args: string[], isDir: (p: string) => boolean
 /** A redirection's target: `>x`, `>>x`, `2>x`, `>|x` (past `noclobber`), `&>x`. */
 const REDIRECT_TARGET = /(?:^|\s)(?:\d*>{1,2}\|?|&>{1,2})\s*(\S+)/g;
 
-/** Path tests over a command's tokens, relative to the repository: an absolute
- *  path under the cwd is the repository path; `.`, `./`, `:/`, `*` are the
- *  whole tree; a directory holds a hook when a protected file lives under it. */
-function hookTests(policy: Policy, ctx?: DetectorContext) {
+/** A shell path token with the spellings the shell expands before a write lands:
+ *  `~`, `$HOME`/`${HOME}` (perl's `$ENV{HOME}`), `%USERPROFILE%`, `$CLAUDE_CONFIG_DIR` (its value when the
+ *  hook's own environment sets it, else the runtime's default `~/.claude` — an
+ *  unset variable is read as the default it stands for, not as nothing), and
+ *  backslashes as separators. */
+export function expandShellPath(t: string, env: NodeJS.ProcessEnv = process.env): string {
+  const home = homeDir(env);
+  return t
+    .replace(/\\/g, '/')
+    .replace(/^~(?=\/|$)/, home)
+    .replace(/\$(?:\{HOME\}|HOME\b|ENV\{HOME\})/g, home)
+    .replace(/%USERPROFILE%/gi, home)
+    .replace(/\$(?:\{CLAUDE_CONFIG_DIR\}|CLAUDE_CONFIG_DIR\b)/g, claudeConfigDir(env));
+}
+
+/** Path tests over a command's tokens, relative to the repository: a token is
+ *  expanded as the shell would (`~`, `$HOME`, `$CLAUDE_CONFIG_DIR`, backslashes),
+ *  every symlink in it resolved, and an absolute path under the cwd is the
+ *  repository path — so `/tmp/xlink/.claude/settings.json` with `/tmp/xlink ->
+ *  <repo>` is `.claude/settings.json`, and `/tmp/cfg/settings.json` with
+ *  `/tmp/cfg -> ~/.claude` is the user file. `.`, `./`, `:/`, `*` are the whole
+ *  tree; a directory holds a hook when a protected file lives under it. A hook is
+ *  a path in `protected.hooks`, or any Claude settings file wherever it lives:
+ *  the runtime reloads every one of them live, and the user and managed files
+ *  are outside every repository glob. */
+export function hookTests(policy: Policy, ctx?: DetectorContext) {
+  const cwd = ctx?.cwd;
+  const onDisk = cwd !== undefined && existsSync(cwd);
+  const root = onDisk ? canonicalPath(cwd) : cwd;
+  const memo = new Map<string, string>();
   const rel = (t: string): string => {
-    let p = t.replace(/^["']|["']$/g, '');
-    if (ctx?.cwd && p.startsWith(ctx.cwd + '/')) p = p.slice(ctx.cwd.length + 1);
-    return p.replace(/^\.\/(?=.)/, '');
+    const hit = memo.get(t);
+    if (hit !== undefined) return hit;
+    let p = expandShellPath(t.replace(/^["']|["']$/g, ''));
+    // `s/a/b/`, `:/`, `{}`, `-name`: not paths — only a path-shaped token is resolved.
+    const pathy = isAbsolute(p) || (p.includes('/') && !/^[-:]/.test(p));
+    if (pathy && (isAbsolute(p) || onDisk)) {
+      p = canonicalPath(isAbsolute(p) ? p : resolve(cwd as string, p));
+      if (root !== undefined) {
+        if (p === root) p = '.';
+        else if (p.startsWith(root + '/')) p = p.slice(root.length + 1);
+      }
+    }
+    if (cwd !== undefined && p.startsWith(cwd + '/')) p = p.slice(cwd.length + 1);
+    p = p.replace(/^\.\/(?=.)/, '');
+    memo.set(t, p);
+    return p;
   };
-  const hook = (t: string): boolean => isProtected(rel(t), policy, 'hooks');
-  const whole = (t: string): boolean => /^(?:\.|\.\/|:\/|\*)$/.test(rel(t)) || (ctx?.cwd !== undefined && rel(t) === ctx.cwd);
-  const holds = (t: string): boolean => !t.startsWith('-') && (whole(t) || containsProtected(rel(t), policy, 'hooks', ctx));
+  const hook = (t: string): boolean => {
+    const p = rel(t);
+    return isProtected(p, policy, 'hooks') || isClaudeSettings(p) || isClaudeSettings(expandShellPath(t.replace(/^["']|["']$/g, '')));
+  };
+  const whole = (t: string): boolean => /^(?:\.|\.\/|:\/|\*)$/.test(rel(t)) || (cwd !== undefined && rel(t) === cwd);
+  // The user settings file lives in no repository listing: a directory token that
+  // is an ancestor of it (`rm -rf ~/.claude`, `find ~/.claude -delete`) holds it.
+  const userSettings = `${claudeConfigDir()}/settings.json`;
+  const userSettingsUnder = (t: string): string | null => {
+    const dir = rel(t).replace(/\/+$/, '');
+    return dir !== '' && dir !== '/' && userSettings.startsWith(dir + '/') ? userSettings : null;
+  };
+  const holds = (t: string): boolean => !t.startsWith('-') && (whole(t) || userSettingsUnder(t) !== null || containsProtected(rel(t), policy, 'hooks', ctx));
   const hookish = (t: string): boolean => hook(t) || holds(t);
-  return { rel, hook, whole, holds, hookish };
+  return { rel, hook, whole, holds, hookish, userSettingsUnder };
 }
 
 /**
@@ -1243,11 +1298,16 @@ function hookTests(policy: Policy, ctx?: DetectorContext) {
  * while the same removal through an Edit was pinned to block.
  */
 export function shellHookTarget(seg: string, toks: string[], policy: Policy, ctx?: DetectorContext): string | null {
-  const { rel, hook, whole, holds } = hookTests(policy, ctx);
+  const { rel, hook, whole, holds, userSettingsUnder } = hookTests(policy, ctx);
   for (const m of seg.matchAll(REDIRECT_TARGET)) {
     if (hook(m[1])) return rel(m[1]);
   }
   const args = toks.map((t) => t.replace(/^(?:of=|--(?:include|exclude|directory)=)/, ''));
+  // the path an inline interpreter script names (`python3 -c "open('…/settings.json','w')"`)
+  for (let i = 1; i < args.length; i++) {
+    if (!INLINE_FLAG.test(args[i - 1])) continue;
+    for (const word of args[i].match(SCRIPT_WORD) ?? []) if (hook(word)) return rel(word);
+  }
   // `.husky/**` matches the bare `.husky` too: a token is the FILE only when it
   // looks like one (a hook's basename, an extension) or the listing says so.
   const fileLike = (p: string): boolean => {
@@ -1257,6 +1317,8 @@ export function shellHookTarget(seg: string, toks: string[], policy: Policy, ctx
   for (const t of args) if (hook(t) && fileLike(rel(t))) return rel(t);
   for (const t of args) {
     if (t.startsWith('-') || !holds(t)) continue;
+    const user = userSettingsUnder(t);
+    if (user !== null) return user;
     const dir = rel(t).replace(/\/+$/, '');
     const under = whole(t) ? '' : dir + '/';
     const listed = trackedFiles(ctx)?.find((f) => f.startsWith(under) && isProtected(f, policy, 'hooks'));
@@ -1283,7 +1345,7 @@ export function shellWritesHook(seg: string, toks: string[], policy: Policy, ctx
   // the SCRIPT an interpreter runs inline (the token after `-c`/`-e`/`-r`), not
   // the files it is given: `perl -ne 'print' hook` reads the hook
   const scripts = args.filter((_, i) => i > 0 && INLINE_FLAG.test(args[i - 1]));
-  const namesHookInText = (): boolean => scripts.some((a) => (a.match(/[\w.~/-]+/g) ?? []).some(hook));
+  const namesHookInText = (): boolean => scripts.some((a) => (a.match(SCRIPT_WORD) ?? []).some(hook));
   switch (cmd) {
     case 'rm': case 'unlink': case 'shred':
       return anyHook || positional.some(holds) ? 'rm deletes a protected hook' : null;
@@ -1359,8 +1421,8 @@ export function shellWritesHook(seg: string, toks: string[], policy: Policy, ctx
 export function xargsWritesHook(toks: string[], fed: string[], policy: Policy, ctx?: DetectorContext): string | null {
   const at = toks.findIndex((t) => t === 'xargs' || t.endsWith('/xargs'));
   if (at === -1) return null;
-  const rel = (t: string): string => (ctx?.cwd && t.startsWith(ctx.cwd + '/') ? t.slice(ctx.cwd.length + 1) : t).replace(/^\.\//, '');
-  const fedHook = fed.some((t) => isProtected(rel(t), policy, 'hooks') || (!t.startsWith('-') && containsProtected(rel(t), policy, 'hooks', ctx)));
+  const { hookish } = hookTests(policy, ctx);
+  const fedHook = fed.some(hookish);
   if (!fedHook) return null;
   let i = at + 1;
   while (i < toks.length && toks[i].startsWith('-')) i += /^-(?:I|n|L|P|d|a|s)$/.test(toks[i]) ? 2 : 1;

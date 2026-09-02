@@ -72,9 +72,11 @@ const V = TW_VERSION;
 const HOOK = `npx --yes tamperward@${V} hook claude`;
 const SWEEP = `npx --yes tamperward@${V} sweep claude`;
 const settings = (o: object): string => JSON.stringify(o, null, 2) + '\n';
-/** `matcher: null` writes NO matcher key (every tool). */
+/** `matcher: null` writes NO matcher key (every tool). `disableAllHooks: false`
+ *  is part of the shape init writes since 2.9.0. */
 const wired = (matcher: string | null = FULL, extra: object = {}): string =>
   settings({
+    disableAllHooks: false,
     hooks: {
       PreToolUse: [{ ...(matcher === null ? {} : { matcher }), hooks: [{ type: 'command', command: HOOK }] }],
       Stop: [{ hooks: [{ type: 'command', command: SWEEP }] }],
@@ -138,27 +140,18 @@ describe('C2 · the PreToolUse matcher is compared as a tool set', () => {
     ['reordering the matcher', () => wired('NotebookEdit|Bash|Write|Edit|MultiEdit')],
     ['reformatting the file', () => JSON.stringify(JSON.parse(wired()))],
     ['adding a permissions block', () => wired(FULL, { permissions: { allow: ['Bash(npm test)'] } })],
-    ['adding an unrelated PreToolUse hook entry', () =>
+    ['adding a PostToolUse event (not a gate event)', () =>
       settings({
-        hooks: {
-          PreToolUse: [
-            { matcher: FULL, hooks: [{ type: 'command', command: HOOK }] },
-            { matcher: 'Write', hooks: [{ type: 'command', command: 'npx prettier --check' }] },
-          ],
-          Stop: [{ hooks: [{ type: 'command', command: SWEEP }] }],
-        },
-      })],
-    ['adding an unrelated Stop hook and a PostToolUse event', () =>
-      settings({
+        disableAllHooks: false,
         hooks: {
           PreToolUse: [{ matcher: FULL, hooks: [{ type: 'command', command: HOOK }] }],
-          Stop: [{ hooks: [{ type: 'command', command: SWEEP }, { type: 'command', command: 'say done' }] }],
+          Stop: [{ hooks: [{ type: 'command', command: SWEEP }] }],
           PostToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo ran' }] }],
         },
       })],
-    ['re-pinning the gate to a newer version', () => wired().replace(new RegExp(`@${V.replace(/\./g, '\\.')}`, 'g'), '@99.0.0')],
     ['splitting the matcher across two entries that still cover every tool', () =>
       settings({
+        disableAllHooks: false,
         hooks: {
           PreToolUse: [
             { matcher: 'Bash|Edit', hooks: [{ type: 'command', command: HOOK }] },
@@ -170,6 +163,41 @@ describe('C2 · the PreToolUse matcher is compared as a tool set', () => {
   ])('control · %s is allowed', (_name, after) => {
     const cwd = withSettings(wired());
     expect(allowed(write(cwd, '.claude/settings.json', after()))).toBe(true);
+  });
+
+  // 2.9.0 (pass 3a): three edits that were controls here are sign-offs now — a
+  // sibling's output combines with the gate's verdict (`updatedInput` after an
+  // allow, `continue: false` over a block), and a pin npm cannot resolve exits
+  // without a decision, which the runtime treats as non-blocking.
+  it.each([
+    ['adding an unrelated PreToolUse hook entry', () =>
+      settings({
+        disableAllHooks: false,
+        hooks: {
+          PreToolUse: [
+            { matcher: FULL, hooks: [{ type: 'command', command: HOOK }] },
+            { matcher: 'Write', hooks: [{ type: 'command', command: 'npx prettier --check' }] },
+          ],
+          Stop: [{ hooks: [{ type: 'command', command: SWEEP }] }],
+        },
+      })],
+    ['adding an unrelated Stop hook', () =>
+      settings({
+        disableAllHooks: false,
+        hooks: {
+          PreToolUse: [{ matcher: FULL, hooks: [{ type: 'command', command: HOOK }] }],
+          Stop: [{ hooks: [{ type: 'command', command: SWEEP }, { type: 'command', command: 'say done' }] }],
+        },
+      })],
+    ['re-pinning the gate above the version judging it', () => wired().replace(new RegExp(`@${V.replace(/\./g, '\\.')}`, 'g'), '@99.0.0')],
+  ])('%s is a sign-off since 2.9.0', (_name, after) => {
+    const cwd = withSettings(wired());
+    expect(denied(write(cwd, '.claude/settings.json', after()))).toBe(true);
+  });
+
+  it('control · re-pinning an older install up to the version judging it is allowed', () => {
+    const cwd = withSettings(wired().replace(new RegExp(`@${V.replace(/\./g, '\\.')}`, 'g'), '@2.5.0'));
+    expect(allowed(write(cwd, '.claude/settings.json', wired()))).toBe(true);
   });
 
   it('re-pinning the gate to an OLDER version is a downgrade, and denied', () => {
@@ -342,15 +370,21 @@ describe('C4 · adding a settings.local.json that shadows the wired gate', () =>
     ['model and env only', settings({ model: 'x', env: { A: '1' } })],
     ['a PostToolUse hook only', settings({ hooks: { PostToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo' }] }] } })],
     ['the gate itself, re-declared', wired()],
-    ['the gate with an extra hook beside it', settings({
+  ])('control · adding a settings.local.json with %s beside a wired sibling is allowed', (_n, content) => {
+    const cwd = withSettings(wired());
+    expect(allowed(write(cwd, '.claude/settings.local.json', content))).toBe(true);
+  });
+
+  it('a settings.local.json that carries the gate with an extra hook beside it is a sign-off since 2.9.0', () => {
+    const cwd = withSettings(wired());
+    const content = settings({
+      disableAllHooks: false,
       hooks: {
         PreToolUse: [{ matcher: FULL, hooks: [{ type: 'command', command: HOOK }, { type: 'command', command: 'echo' }] }],
         Stop: [{ hooks: [{ type: 'command', command: SWEEP }] }],
       },
-    })],
-  ])('control · adding a settings.local.json with %s beside a wired sibling is allowed', (_n, content) => {
-    const cwd = withSettings(wired());
-    expect(allowed(write(cwd, '.claude/settings.local.json', content))).toBe(true);
+    });
+    expect(denied(write(cwd, '.claude/settings.local.json', content))).toBe(true);
   });
 
   it('control · own non-empty hooks in a repo whose settings.json wires no gate are allowed', () => {
