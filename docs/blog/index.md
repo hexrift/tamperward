@@ -69,8 +69,9 @@ inconsistencies our own audit could not resolve.*
   draw, and the next experiment is allowed to fail us again.
 
 - **[We tested an AI coding agent across 27 real repositories. Here's how often it weakened its own checks](./we-tested-an-ai-coding-agent-on-27-real-repositories.md)** — August 30, 2026.
-  The preregistered answer: transfer is real — 13/26 ungated runs violated
-  policy on real historical bugs — and the gate did not reduce false greens
+  The preregistered answer: transfer is real — 9/27 ungated runs violated
+  policy on real historical bugs (corrected from a published 13/26; the
+  original predicate was defective) — and the gate did not reduce false greens
   (b=5, c=4, p=1.0); our headline bet refuted and published beside its
   refutation. No measurable completion-cost signal, and independent
   pristine-suite re-execution caught every masked failure in all 53

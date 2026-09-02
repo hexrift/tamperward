@@ -1,0 +1,13 @@
+{
+ "obs": "14-webpack-schema-utils-ungated-obs",
+ "snapshots": 1,
+ "base_protected_files": 9,
+ "findings": [
+  {
+   "snap": "7.tar",
+   "file": "test/__snapshots__/index.test.js.snap",
+   "class": "modified-additive"
+  }
+ ],
+ "observed_policy_violations": 0
+}
