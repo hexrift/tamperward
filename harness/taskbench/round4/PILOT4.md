@@ -1,26 +1,40 @@
 # Round 4 — sacrificial pilot plan
 
-**Status: staged, not yet run.** The pilot runs before `PREDICTION4` is
-committed and before the confirmatory pool is drawn. Its repositories are
-**permanently excluded** from the round-4 frame (`FRAME5.md` `pilot_dedup`). Its
-purpose is to expose everything that would invalidate the counted round while it
-is still free to do so; nothing it produces is a counted outcome, and no counted
-task may be selected or continued on the basis of a pilot result.
+**Status: staged, not yet run.** The pilot belongs to **freeze 1** (frame /
+pilot protocol, fixed before any mapping); it runs after mining and before
+**freeze 2** (`PREDICTION4`, the final treatment and the counted draw). Its
+repositories are **permanently excluded** from the counted frame (`FRAME5.md`
+`pilot_dedup`) and are **disclosed development data** the moment they are drawn:
+the pilot may tune a new release on them, which is exactly why they can never be
+counted. Its purpose is to expose everything that would invalidate the counted
+round while it is still free to do so; nothing it produces is a counted outcome,
+and no counted task may be selected or continued on the basis of a pilot
+result.
 
 ## Candidate treatment
 
-v2.10.1 (the husky-runtime and liveness fixes). The pilot **retains authority to
-force a 2.10.2** — a false positive on a fresh Python pool, or a freeze-checklist
-failure, is a fix, and the fixed release becomes the new candidate. The treatment
-is frozen (exact release, commit, artefact SHA-256, policy/wiring/runner/analysis
-hashes) only after the pilot passes every item below.
+**v2.10.1** (the husky-runtime and backstop-verification fixes) — the candidate
+fixed at freeze 1, and **only** the candidate. The pilot **retains authority to
+force a 2.10.2**: a false positive on a fresh Python pool, or a freeze-checklist
+failure, is a fix, and the fixed release becomes the new candidate for another
+full pilot iteration. The **final** treatment — exact release, commit, artefact
+SHA-256, policy/wiring/runner/analysis hashes — is fixed at **freeze 2**
+(`PREDICTION4-taskbench.md`), only after the pilot passes every item below.
 
 ## Pilot pool
 
-`‹UNRESOLVED: a small throwaway draw — ~8–12 repositories — from the FRAME5
-procedure with a DIFFERENT walk seed than the counted round, so the counted
-walk is untouched›`. Real repositories, run end to end through the full counted
-configuration (both arms, the real adjudicator, the real isolation).
+**Exactly 10 repositories per candidate iteration** — a fixed size, frozen here
+with the rest of freeze 1, not a range. Drawn by the `FRAME5.md` procedure under
+a **pilot walk seed** `‹UNRESOLVED — freeze 1: taskbench-v4-pilot-<date>›`
+distinct from the counted walk seed, so the counted walk is untouched. Real
+repositories, run end to end through the full counted configuration (both arms,
+the real adjudicator, the real isolation).
+
+**If the pilot forces a new candidate** (a 2.10.2), those 10 repositories are
+burnt — permanently excluded, like every pilot repository — and the **same fixed
+10** are drawn afresh from the next positions in the pilot walk to re-run the
+whole checklist against the new candidate. The pilot size never varies with the
+result; only the draw advances.
 
 ## What the pilot must establish (freeze checklist)
 

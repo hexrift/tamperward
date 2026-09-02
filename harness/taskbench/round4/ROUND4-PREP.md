@@ -118,12 +118,21 @@ The design is settled and merged; the round is staged, not started. Files in thi
 directory:
 
 - `power/` — the exact power simulation (M2) and its reading; planning point 110 pairs.
-- `FRAME5.md` — the fresh-pool sampling procedure, draft; `‹UNRESOLVED›` fields
-  freeze before mapping.
+- `FRAME5.md` — the fresh-pool sampling procedure; its `‹UNRESOLVED — freeze 1›`
+  fields fix before any mapping.
 - `PILOT4.md` — the sacrificial-pilot plan and freeze checklist; candidate
-  treatment v2.10.1, pilot may force 2.10.2.
-- `PREDICTION4-taskbench.md` — the registration skeleton; committing it (with the
-  freeze hashes and the committed N) is the freeze.
+  treatment v2.10.1, exactly 10 repositories per candidate iteration, pilot may
+  force a 2.10.2 (burn those 10, redraw the same fixed 10).
+- `PREDICTION4-taskbench.md` — the registration skeleton, committed but **not
+  registered**; filling it and committing that version is freeze 2.
+
+**Two freezes, in this order.** Freeze 1 (before any mapping): frame source and
+snapshot, mapping and dedup rules, walk seeds, classification and eligibility,
+pilot size and pilot seed, and the **candidate** treatment. Freeze 2 (after
+mining and the pilot, before the counted draw): the **final** release and all
+its hashes, the model, the analysis, the counted N and the randomisation seed.
+The pilot sits between them, which is what lets it force a new candidate without
+reopening the mapping.
 
 Open dependency: issue #202 (content drift of an already-present ignored protected
 file is not caught mid-turn) is on the pilot checklist and must be closed or scoped

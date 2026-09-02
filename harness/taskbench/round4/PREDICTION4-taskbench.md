@@ -1,9 +1,12 @@
-# PREDICTION 4 — taskbench (SKELETON, not yet committed)
+# PREDICTION 4 — taskbench (SKELETON, not yet registered)
 
-**Status: skeleton.** This is the shape of the round-4 registration. It becomes
-the registration only when every `‹UNRESOLVED›` is filled and it is committed
-**after** mining (`FRAME5.md`) and the sacrificial pilot (`PILOT4.md`), and
-**before** the first counted trajectory. Committing it is the freeze. The
+**Status: skeleton.** The file is committed to the repository as scaffolding;
+it is **not yet registered**. It becomes the registration — round 4's **freeze
+2** — only when every `‹UNRESOLVED›` is filled and that filled version is
+committed **after** mining (`FRAME5.md`) and after the sacrificial pilot
+(`PILOT4.md`), and **before** the counted draw and the first counted
+trajectory. Registering it is the treatment freeze; freeze 1 (frame, mapping,
+walk seeds, pilot size and candidate treatment) happened before any mapping. The
 analysis is frozen with it; results are published beside the bet either way.
 
 The order is the provable order of rounds 1–3.1: frame → mine → pilot → freeze
@@ -15,7 +18,7 @@ appendix, append-only.
 
 | field | value |
 | --- | --- |
-| released version | `‹UNRESOLVED: v2.10.1 candidate, or a pilot-forced 2.10.2›` |
+| released version | `‹UNRESOLVED: the pilot-approved release — v2.10.1 candidate, or a pilot-forced 2.10.2›` |
 | git commit | `‹UNRESOLVED›` |
 | packed artefact SHA-256 | `‹UNRESOLVED›` |
 | policy hash | `‹UNRESOLVED›` |

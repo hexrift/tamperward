@@ -1,11 +1,23 @@
 # Taskbench round 4 — frame and walk procedure
 
-**Status: staged, not yet frozen.** This document reaches its frozen form only
-when the values marked `‹UNRESOLVED›` are filled and it is committed *before*
-the first package is mapped and *before* the first repository is examined. Until
-then it is a draft of the procedure, following the frozen-order discipline of
-`round3/FRAME3.md` and `round3.1/ROUND3.1-PLAN.md`: registration
-(`PREDICTION4`) comes after mining and before any counted trajectory.
+**Status: staged, not yet frozen.** Round 4 has **two freezes**, and this
+document belongs to the first:
+
+1. **Frame / pilot-protocol freeze — before any mapping.** Fixes the frame
+   source and its snapshot, the mapping and dedup rules, the walk seed, the
+   classification and eligibility rules, the **pilot size and pilot seed**
+   (`PILOT4.md`), and the **candidate** treatment. Everything in this document
+   except where a field is explicitly deferred to the second freeze.
+2. **PREDICTION / treatment freeze — after mining and after the pilot, before
+   the counted draw.** Fixes the **final** release and all its hashes, the
+   model, the analysis, the counted N and the randomisation seed
+   (`PREDICTION4-taskbench.md`).
+
+The two are separate because the sacrificial pilot may force a new candidate
+(a 2.10.2), which the first freeze must permit and the second must record. A
+value marked `‹UNRESOLVED — freeze 1›` is fixed before mapping; one marked
+`‹UNRESOLVED — freeze 2›` is fixed at registration. This follows the
+frozen-order discipline of `round3/FRAME3.md` and `round3.1/ROUND3.1-PLAN.md`.
 
 Round 4 is the fresh-pool confirmatory test of the hardened 2.x envelope, on a
 population no repository of which has been used for development, auditing or
@@ -14,18 +26,21 @@ frame is the sampling procedure that feeds it.
 
 ## Declared platform (to be decided and frozen before mapping)
 
-- **Treatment, immutable once frozen:** the exact 2.x release identified in
-  `PREDICTION4` — released version `‹UNRESOLVED: e.g. v2.10.1 or a pilot-forced
-  2.10.2›`, git commit `‹UNRESOLVED›`, packed artefact SHA-256 `‹UNRESOLVED›`,
-  policy hash `‹UNRESOLVED›`, generated-wiring hash `‹UNRESOLVED›`, runner hash
-  `‹UNRESOLVED›`, analysis hash `‹UNRESOLVED›`. v2.10.1 is the **candidate**;
-  the sacrificial pilot (`PILOT4.md`) retains authority to force a 2.10.2. No
-  detector, policy, verifier or envelope change between the freeze and round
-  4's end; a limitation the mining or sweep surfaces is a **finding of the
-  round, not a patch**.
+- **Candidate treatment (freeze 1):** **v2.10.1**. The sacrificial pilot
+  (`PILOT4.md`) retains authority to force a 2.10.2; a new candidate re-enters
+  freeze 1 for the pilot only and does not reopen the mapping.
+- **Final treatment (freeze 2), immutable thereafter:** the exact 2.x release
+  identified in `PREDICTION4` — released version `‹UNRESOLVED — freeze 2›`, git
+  commit `‹UNRESOLVED — freeze 2›`, packed artefact SHA-256
+  `‹UNRESOLVED — freeze 2›`, policy hash `‹UNRESOLVED — freeze 2›`,
+  generated-wiring hash `‹UNRESOLVED — freeze 2›`, runner hash
+  `‹UNRESOLVED — freeze 2›`, analysis hash `‹UNRESOLVED — freeze 2›`. No
+  detector, policy, verifier or envelope change between freeze 2 and round 4's
+  end; a limitation the counted round surfaces is a **finding of the round, not
+  a patch**.
 - **Model:** one pinned immutable agent/model configuration — the round 3.1
   `claude-sonnet-5` snapshot if still servable, else one newly pinned ID
-  (`‹UNRESOLVED›`). A second model does not close M2 (SPEC §9.1); a second
+  (`‹UNRESOLVED — freeze 2›`). A second model does not close M2 (SPEC §9.1); a second
   supported runtime is round 4.1, separately preregistered before round 4's
   outcomes are examined.
 - **Runtime: Claude Code, kept.** The treatment contains the PreToolUse deny +
@@ -43,8 +58,9 @@ frame is the sampling procedure that feeds it.
 ## Frame derivation (mechanical, as round 3)
 
 - **Source, pinned and committed:** `hugovk/top-pypi-packages`, snapshot commit
-  `‹UNRESOLVED›` (dataset `last_update` `‹UNRESOLVED›`), committed raw as
-  `frame/top-pypi-packages.min.json` (sha256 `‹UNRESOLVED›`). Rank = row order.
+  `‹UNRESOLVED — freeze 1›` (dataset `last_update` `‹UNRESOLVED — freeze 1›`),
+  committed raw as `frame/top-pypi-packages.min.json`
+  (sha256 `‹UNRESOLVED — freeze 1›`). Rank = row order.
 - **Package → repository mapping** (`fetch-frame5.sh`, to be written from
   `round3/fetch-frame3.sh` unchanged but for the dedup pre-seed and seed): walk
   the ranked list from rank 1; per package fetch `https://pypi.org/pypi/<name>/json`,
@@ -57,12 +73,12 @@ frame is the sampling procedure that feeds it.
   - every round-4 pilot repository from `PILOT4.md` → `pilot_dedup` (this is the
     permanent-exclusion rule the treatment boundary requires);
   - comparison case-insensitive on `owner/repo`.
-- Admit until **‹UNRESOLVED: N unique repositories, N ≥ the frozen sample plus
-  attrition headroom — the power sim points at 110 counted pairs; size the
-  frame for that plus the ~20% duplicate-pair budget and expected mining
-  attrition›** or list exhaustion; `frame/mapping-log.jsonl` records every
+- Admit until **‹UNRESOLVED — freeze 1: N unique repositories, N ≥ the counted
+  sample plus attrition headroom — the power sim points at 110 counted pairs;
+  size the frame for that plus the ~20% duplicate-pair budget and expected
+  mining attrition›** or list exhaustion; `frame/mapping-log.jsonl` records every
   rank's outcome.
-- **Walk order:** keyed-hash shuffle, seed `‹UNRESOLVED: taskbench-v4-<date>›`
+- **Walk order:** keyed-hash shuffle, seed `‹UNRESOLVED — freeze 1: taskbench-v4-<date>›`
   (published before mapping), ascending `sha256(seed + ":" + repo)`;
   `frame/walk-order.json` materialises it.
 
@@ -88,7 +104,11 @@ the eligibility rule in `ROUND4-PREP.md`:
 
 ## Provenance discipline
 
-No real Python repository has priced or tuned any shipped detector; the
-cross-check from FRAME2 corrections runs anyway and is enumerated at frame time.
-Anything mining surfaces about a Tamperward limitation on this pool is a finding
-of the round, recorded, not fixed.
+No **counted** repository has been used for development, auditing or detector
+tuning. The pilot is the deliberate exception and is disclosed as such: it runs
+on real Python repositories and may force a new candidate release, so **every
+pilot repository becomes development data the moment it is drawn** and is
+permanently excluded from the counted frame (`pilot_dedup`). The cross-check
+from FRAME2 corrections runs anyway and is enumerated at frame time. Anything
+the counted round surfaces about a Tamperward limitation is a finding of the
+round, recorded, not fixed.
