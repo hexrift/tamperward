@@ -103,6 +103,15 @@ jobs:
   tamperward:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The gate is fetched from the registry AT GATE TIME, from inside the
+    # checked-out pull request — and \`npm\` reads \`.npmrc\` from the working
+    # directory. A PR that commits one line, \`registry=https://…\`, chooses where
+    # the authority judging it is downloaded from; the version pin below pins the
+    # STRING, not the SOURCE. An environment variable outranks a project
+    # \`.npmrc\` in npm's config precedence, so this is what makes the pin mean
+    # something.
+    env:
+      NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
     steps:
       - uses: actions/checkout@v5
         with:

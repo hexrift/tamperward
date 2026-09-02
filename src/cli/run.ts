@@ -34,12 +34,13 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { runCheck } from './check';
 import { runVerify } from './verify';
 import { loadPolicy, loadPolicyAt } from '../policy-load';
 import { objectRewriteState, trustedGitEnv } from '../git/trusted';
+import { depsFingerprint, treeFingerprint } from '../fingerprint';
 import { defaultPolicy } from '../policy';
 import { Policy } from '../types';
 
@@ -63,82 +64,6 @@ const err = (s: string) => process.stderr.write(s + '\n');
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 1 << 28, env: trustedGitEnv() });
-}
-
-/** Content fingerprint of every non-ignored file (tracked + untracked). The
- *  envelope adjudicates a LIVE tree across three sequential checks, so it must
- *  be able to prove the tree it judged is the tree that still exists when it
- *  answers. (P0-5, external review.) */
-function treeFingerprint(cwd: string): string {
-  const files = git(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd)
-    .split('\0')
-    .filter(Boolean)
-    .sort();
-  const h = createHash('sha256');
-  for (const rel of files) {
-    h.update(rel);
-    h.update('\0');
-    try {
-      h.update(readFileSync(join(cwd, rel)));
-    } catch {
-      h.update('<unreadable>');
-    }
-    h.update('\0');
-  }
-  return h.digest('hex');
-}
-
-/** Content fingerprint of the installed dependency tree.
- *
- *  `verify` symlinks node_modules into BOTH the visible and pristine copies —
- *  it is gitignored, so no diff view sees it, and it is where the suite's own
- *  runner lives. An agent that writes `node_modules/.bin/<runner>` replaces the
- *  program that decides both verdicts: reproduced as VERIFIED with visible and
- *  pristine both exit 0 while the source bug was untouched. Neither the policy
- *  check (git-scoped) nor the tree fingerprint (ls-files, ignores excluded)
- *  could see it. (P0-6, external review.)
- *
- *  Content-hashed, not stat-compared: P1-8 is the standing lesson that mtime
- *  and size are the agent's to choose. Measured 3.4s over 145MB / 5.4k files,
- *  inside a command that already runs the suite twice. */
-function depsFingerprint(cwd: string): string {
-  const root = join(cwd, 'node_modules');
-  const h = createHash('sha256');
-  const walk = (dir: string): void => {
-    let entries;
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
-      const p = join(dir, e.name);
-      if (e.isDirectory()) walk(p);
-      else if (e.isFile()) {
-        h.update(p);
-        try {
-          h.update(readFileSync(p));
-          h.update(String(statSync(p).mode)); // the exec bit is part of identity
-        } catch {
-          h.update('<unreadable>');
-        }
-      } else if (e.isSymbolicLink()) {
-        h.update(p);
-        try {
-          h.update(readlinkSync(p));
-        } catch {
-          h.update('<unreadable-link>');
-        }
-      }
-    }
-  };
-  try {
-    if (!statSync(root).isDirectory()) return 'none';
-  } catch {
-    return 'none'; // no installed tree: nothing to drift
-  }
-  walk(root);
-  return h.digest('hex');
 }
 
 /** Clock ticks since boot. FLOOR is load-bearing: /proc/uptime is fractional
@@ -291,6 +216,22 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     err('read against the anchor we started from. That is the finding.');
     out(`\ntamperward run — agent exit ${agentExit}; OBJECT_REWRITE → ENFORCEMENT_FAILED`);
     return 1;
+  }
+
+  // H3. The final comparison below cannot see a TRANSIENT substitution: a
+  // replacement runner that returns 0 for the visible run, returns 0 for the
+  // pristine run, and puts the original bytes and mode back on its way out
+  // leaves the entry-vs-exit fingerprints identical. Reproduced end to end —
+  // GREEN MEANS GREEN over an unfixed bug. The state that matters is the one
+  // the checks are about to execute, so it is compared HERE, before them.
+  if (depsFingerprint(cwd) !== depsBefore) {
+    err('tamperward run: the installed dependency tree changed before adjudication began — the program');
+    err('that runs the suite is not the one we started with, and both verification runs execute it.');
+    if (!opts.allowDepDrift) {
+      out(`\ntamperward run — agent exit ${agentExit}; DEPENDENCY_DRIFT → ENFORCEMENT_FAILED`);
+      return 1;
+    }
+    err('(--allow-dep-drift: proceeding anyway, on the operator\'s judgement.)');
   }
 
   const head = git(['rev-parse', 'HEAD'], cwd).trim();

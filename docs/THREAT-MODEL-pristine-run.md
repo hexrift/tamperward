@@ -127,6 +127,14 @@ not in 1.14.2.
 
 ## Residual risk, stated
 
+- **Isolation is sequencing plus detection, not a sandbox.** From 1.14.5 the
+  pristine copy does not exist while the candidate's code runs, and its restored
+  files are digested either side of the pristine run. Neither is confinement: a
+  process that outlives the visible run can enumerate the temp directory, and
+  what it does between the digest and the next digest is caught after the fact,
+  not prevented. The copies are separate directories. They are not a sandbox,
+  and no amount of ordering makes them one.
+
 - **The verifier's own inputs are bounded, not enumerated.** 1.14.4 restores what
   the command executes — tokens naming a file present at the base, plus an
   explicit `verify: { inputs: [globs] }` for delegation the tokens cannot see.
@@ -162,3 +170,13 @@ The bypass class was live from **v1.9.0 through 1.14.1 inclusive** and is closed
 in 1.14.2. The errata discloses that rounds 2, 3 and 3.1 ran on a verifier
 carrying it; that disclosure covers the whole class, not just the `conftest.py`
 form, because every round predates 1.14.2.
+
+Two later findings reach the same record and widen it rather than adding to it.
+The **sibling-write** vector (the visible run editing the pristine copy) was live
+from **v1.9.0 through 1.14.4 inclusive**, closed in 1.14.5 — the same span, since
+the two-sibling layout shipped with `verify` itself. The **file-mode** vector
+(content restored, mode not) has the same span for the same reason. Neither is
+evidence that any counted trajectory used them: no such use has been looked for
+in the transcripts, and this note describes what was possible, not what happened.
+What it does mean is that the disclosure covering rounds 2, 3 and 3.1 should be
+read as covering the verifier's isolation as well as its materialisation rule.

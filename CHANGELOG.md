@@ -5,6 +5,94 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.14.5] — 2026-09-02
+
+**The pristine run was writable by the candidate. Four findings from a second
+external audit; a fifth is mechanism-established and deliberately not claimed.**
+
+### The visible run could edit the pristine copy
+
+The two copies were siblings under one temporary root, and BOTH were
+materialised — overlay fully applied — before the visible run started. The
+visible run executes the candidate's code. So the candidate's code wrote
+
+    ../pristine/test/<the test that convicts it>
+
+and both runs returned 0. No race. No background process. No git. Three lines in
+a file the agent already controls, and the layer whose entire purpose is to
+execute code the agent did not write reported `VERIFIED` over an unfixed bug.
+
+Sequencing is the fix: **the pristine copy is built only after the visible run
+has exited.** There is nothing to write into while the candidate is running,
+because it does not exist yet. Separate temporary roots as well, but that is
+defence in depth and not the control — a background process can still enumerate
+a temp directory.
+
+Two guards close what sequencing alone cannot:
+
+- the restored overlay files are digested (content **and** mode) either side of
+  the pristine run, so a write that reaches the copy after it exists is caught;
+- the working tree and the installed dependency tree are fingerprinted around
+  both runs. The pristine copy is now materialised from the source tree *after*
+  the candidate has had a turn, and that tree's path is one `readlink` away
+  through the `node_modules` symlink — so a visible run that reaches back into it
+  would be choosing what the pristine copy is made of. Any movement is exit 2.
+
+**Behaviour change:** a suite that rewrites its own test files or snapshots in
+place during verification now fails closed rather than being verified. Run it in
+whatever mode your runner calls CI, so verification observes rather than updates.
+
+### The overlay restored content, not mode
+
+`git ls-tree --name-only` was the whole of the base read, so a restored file kept
+whatever mode `materialize` had copied from the agent's working tree — or, for a
+file the agent had deleted, the 0644 a fresh `writeFileSync` produces. A base test
+at `100755` therefore arrived non-executable, and a discovery command that runs
+the executable files under `test/` found nothing to run in either copy: `VERIFIED`,
+over a source that fails. **The agent never edited a byte of the test. `chmod -x`
+was the entire attack.** Mode and type now come from the base: blobs are restored
+with their mode, a base symlink is reproduced as one, and a submodule inside an
+overlay class fails closed rather than being faked.
+
+### A transient dependency substitution was invisible
+
+`run` compared the `node_modules` fingerprint at entry against the fingerprint at
+exit. A replacement runner that returns 0 for the visible run, returns 0 for the
+pristine run, and puts the original bytes and mode back on its way out leaves
+those two identical — reproduced end to end as `GREEN MEANS GREEN` over an unfixed
+bug. The state that matters is the one the checks are about to execute, so it is
+now compared **before adjudication begins**, as the object-rewrite check already
+was; `verify` re-checks it around each suite invocation as well.
+
+### The CI gate was fetched from a registry the candidate chose
+
+`npm` reads `.npmrc` from the working directory — which, in a `pull_request`
+workflow, is the checked-out pull request. One committed line,
+`registry=https://…`, decided where `npx --yes tamperward@<version>` downloaded
+the authority judging it from. The version pin pinned the **string**, not the
+**source**. The generated workflow now sets `NPM_CONFIG_REGISTRY` at job level,
+which outranks a project `.npmrc` in npm's config precedence. Workflows generated
+by 1.14.4 and not edited since migrate automatically on the next `init`, via the
+provenance stamp shipped in that release.
+
+### Not claimed
+
+A fifth hypothesis — that a pull request can neuter the generated workflow while
+keeping the required job name, so the check reports green rather than missing —
+is **mechanism-established and unreproduced**. `pull_request` workflows run from
+the PR head and required checks match by name, so nothing in the template
+prevents it; no live PR fixture has been run, so it is not described here as a
+reproduction and nothing has been changed for it.
+
+### Fixed
+
+- `verify` builds the pristine copy only after the visible run exits, digests the
+  restored files around the pristine run, and fails closed if the working tree or
+  the installed dependency tree moves during verification.
+- `verify` restores the base's file mode and type, not only its content.
+- `run` compares the dependency fingerprint before adjudication, not only at exit.
+- The generated CI workflow pins `NPM_CONFIG_REGISTRY`.
+
 ## [1.14.4] — 2026-09-02
 
 **Six fixes from an external audit. Two of them reopen the same wound 1.14.1,
