@@ -82,7 +82,7 @@ function check(opts: CheckOpts): number {
   }
 
   const ignoredFiles = changes.filter((c) => isSuppressed(c, policy)).length;
-  let findings = evaluate(changes, policy, undefined, view);
+  let findings = evaluate(changes, policy, undefined, view, { cwd });
 
   // Sign-off, per layer. LOCAL consults the (fingerprint-bound) ledger; CI honors ONLY an
   // out-of-band approval surfaced via env, never the committed ledger.

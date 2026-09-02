@@ -156,9 +156,17 @@ export interface Policy {
  *  third-party detectors written against the two-argument shape keep working. */
 export type View = 'tool-call' | 'turn' | 'staged' | 'worktree' | 'range';
 
+/** Where the Change[] was manufactured. A detector that must look BESIDE a changed
+ *  file — the Claude settings comparator reads the sibling settings file to know
+ *  whether an added override shadows the wired gate — needs the repository root the
+ *  paths are relative to. Optional and additive, like `view`. */
+export interface DetectorContext {
+  cwd?: string;
+}
+
 export interface Detector {
   id: string;
   surface: Array<'command' | 'file'>;
   certainty: 'mechanical' | 'heuristic';
-  run(changes: Change[], policy: Policy, view?: View): Finding[];
+  run(changes: Change[], policy: Policy, view?: View, ctx?: DetectorContext): Finding[];
 }

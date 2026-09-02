@@ -207,3 +207,29 @@ export function policyWeakening(before: string, after: string): string[] | null 
 
   return reasons;
 }
+
+/**
+ * Reasons an ADDED policy file is weaker than the baseline it displaces.
+ *
+ * A repo with no `.tamperward.yml` runs the baseline, so the first policy file
+ * is an edit FROM the baseline — `ignore: ['**']` on a fresh file switches the
+ * gate off exactly as it would on an existing one. The comparison used to be
+ * gated on a before-text, so the add was never compared to anything. An empty
+ * or comment-only file (the YAML document is null) restates the baseline and
+ * yields nothing; a document that is not a mapping cannot be loaded at all and
+ * is reported, since the loader fails closed on it.
+ */
+export function policyAddWeakening(after: string): string[] {
+  let doc: unknown;
+  try {
+    doc = parse(after);
+  } catch {
+    return ['the added policy is not valid YAML — the gate fails closed until it is fixed'];
+  }
+  if (doc === null || doc === undefined) return [];
+  if (typeof doc !== 'object' || Array.isArray(doc)) {
+    return ['the added policy is not a policy mapping — the gate fails closed until it is fixed'];
+  }
+  // `{}` is the baseline restated (`''` parses to null and would give no baseline).
+  return policyWeakening('{}', after) ?? [];
+}

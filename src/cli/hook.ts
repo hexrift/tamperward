@@ -323,7 +323,7 @@ function effectDriftBlocks(cwd: string, sessionId: string | undefined, policy: P
     (c) => c.kind === 'file' && (drifted.has(c.path) || (c.oldPath != null && drifted.has(c.oldPath))),
   );
   const gap = uncoveredDrift(cwd, policy, expected, current, scoped, base, loadTurnTree(cwd, sessionId));
-  const blocks = evaluate([...scoped, ...gap.changes], policy, undefined, 'turn')
+  const blocks = evaluate([...scoped, ...gap.changes], policy, undefined, 'turn', { cwd })
     .filter((f) => f.severity === 'block')
     .concat(gap.blocks);
   if (blocks.length > 0) return blocks; // do NOT absorb: the deny repeats until restored
@@ -363,7 +363,7 @@ export function preToolUseVerdict(input: ClaudeHookInput): HookResult {
     const driftBlocks = effectDriftBlocks(cwd, input.session_id, policy);
     if (driftBlocks) return verdict(driftBlocks, 'PreToolUse');
     const changes = changesFromClaudeHook(input, cwd);
-    const blocks = evaluate(changes, policy, undefined, 'tool-call').filter((f) => f.severity === 'block');
+    const blocks = evaluate(changes, policy, undefined, 'tool-call', { cwd }).filter((f) => f.severity === 'block');
     if (blocks.length === 0) sanctionPredictedWrites(cwd, input.session_id, policy, changes);
     return verdict(blocks, 'PreToolUse');
   } catch (e) {
@@ -446,7 +446,7 @@ export function stopVerdict(input: ClaudeHookInput): HookResult {
       changes = changes.concat(gap.changes);
       hiddenBlocks = gap.blocks;
     }
-    blocks = evaluate(changes, policy, undefined, 'turn').filter((f) => f.severity === 'block').concat(hiddenBlocks);
+    blocks = evaluate(changes, policy, undefined, 'turn', { cwd }).filter((f) => f.severity === 'block').concat(hiddenBlocks);
     const transient = turnTransientBlocks(cwd, input.session_id, policy, changes);
     blocks = blocks.concat(transient.blocks);
     commitCursor = transient.commit;
