@@ -24,10 +24,19 @@ request supplied the configuration for its own re-execution:
 reported `VERIFIED`, exit 0, over an unfixed bug.
 
 `check --diff` reads its policy from the merge-base and flags that edit as
-`hook-tampering`, so the generated workflow caught it **as a pair** — but only
-where both jobs are required status checks, and anyone invoking `verify` on its
-own had no protection at all. The README claimed the CI verdict was
-base-governed; that was true of `check --diff` and not of `verify`.
+`hook-tampering`. The generated workflow is **one required job containing two
+sequential checks**, not two independently required jobs. Before 1.14.3 the
+composite remained blocking because the base-policy `check --diff` step was part
+of that required job and its failure determined the job's final conclusion. The
+current ordering additionally meant the vulnerable verifier step was skipped
+after a diff failure, but **ordering itself was not the security boundary** — a
+failure in either step fails the job.
+
+If the checks are ever split into separate jobs, **both job conclusions must be
+required**. Requiring only the formerly vulnerable `verify` job would reopen the
+authority failure. Anyone invoking `verify` on its own had no protection at all.
+The README claimed the CI verdict was base-governed; that was true of
+`check --diff` and not of `verify`.
 
 With a `--base`, `verify` now loads the policy from that commit and falls back
 to the built-in defaults if the base has none. Without a `--base` there is no
@@ -36,11 +45,27 @@ is the local-developer path, not the authority path. A `verify:` block added
 only on the candidate is therefore no longer used; add it at the base, or pass
 `--cmd` explicitly, and the error message says so.
 
+Two routes, both closed. The `verify:`-block form above is the simpler one. The
+other is a tree-authored **overlay glob**, and whether it produces a false green
+depends on the baseline:
+
+- against a **red** base — the task's bug already present — widening an overlay
+  class to cover source makes the pristine run fail *harder*, so it fails closed
+  as `MASKED_FAILURE`;
+- against a **green** base, a candidate can introduce a source regression, gut
+  the test so the visible run is green, and widen an overlay class to cover the
+  source. The pre-1.14.3 verifier then restored *both* the good base source and
+  the base test, and both runs came back green — `VERIFIED`, exit 0.
+
+That is what the repository's own `P0-2` fixture documented with
+`protected.config: ["**"]`, and `protected.tests` is equivalent for the purpose
+because both classes are in `OVERLAY_CLASSES`. Confirmed on 1.14.2 for both
+spellings, and closed in 1.14.3 for both.
+
 The existing `P0-2` regression asserted the hole rather than the fix — it
-expected standalone `verify` to return 0 on a tree-authored `protected` glob,
-because at the time only the envelope passed a frozen override. It now asserts
-the closed behaviour, and a new `P0-2b` covers the `verify:`-block form, which is
-the one that was actually exploitable. Both are mutation-checked: reverting the
+expected standalone `verify` to return 0, because at the time only the envelope
+passed a frozen override. It now asserts the closed behaviour, and a new `P0-2b`
+covers the `verify:`-block form. Both are mutation-checked: reverting the
 provenance change fails both.
 
 Scope: a bypass fix, therefore a patch. It is a **behaviour change for anyone

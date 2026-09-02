@@ -165,6 +165,24 @@ describe('envelope hardening — the tree the agent left cannot judge itself', (
     expect(runVerify({ cwd, base: 'HEAD', cmd: CMD, budget: 30, policyOverride: entry })).toBe(1);
   });
 
+  it('P0-2c: the overlay-glob route on a GREEN base — candidate regression must not be masked', () => {
+    // The green-base form of P0-2, which is where the overlay route actually
+    // bites: the base is healthy, the candidate introduces a regression, guts the
+    // test so the visible run is green, and widens an overlay class to cover the
+    // source. Pre-1.14.3 the verifier restored BOTH the good base source and the
+    // base test, so both runs came back green and it reported VERIFIED.
+    // `protected.tests` is used rather than `config` because both are in
+    // OVERLAY_CLASSES and the route is the same.
+    const cwd = repo(true); // GREEN base
+    writeFileSync(join(cwd, 'src.js'), 'module.exports = 0; // candidate regression\n');
+    writeFileSync(join(cwd, 'test', 'check.test.js'), ''); // visible suite made green
+    writeFileSync(
+      join(cwd, '.tamperward.yml'),
+      'version: 1\nprotected:\n  tests: ["src.js", "**/*.test.js"]\n',
+    );
+    expect(runVerify({ cwd, base: 'HEAD', cmd: CMD, budget: 30 })).toBe(1);
+  });
+
   it('P0-2b: a tree-authored `verify:` block must not choose the verifier', () => {
     // The exploitable form of the same provenance defect. The agent does not fix
     // the bug; it rewrites the suite command so the re-execution is trivially
