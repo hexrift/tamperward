@@ -5,6 +5,28 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.10.1] — 2026-09-02
+
+**`npm install` no longer trips the gate in a husky repository. A patch: a
+false-positive fix at the same severity.** 2.10.0 made a newly added hook
+script that does not run the gate live a sign-off — correct for a script an
+agent writes, wrong for the seventeen runtime files `husky` writes under
+`.husky/_/` when the `prepare` lifecycle of an ordinary `npm install` fires
+`npx husky`. Those files are the installer's, byte-for-byte, and blocking them
+blocked every install.
+
+### Fixed
+
+- **husky's own v9 runtime under `.husky/_/` is recognised by byte-equal
+  content** — the fourteen one-line shims that source `h`, the `h` runner
+  itself, the deprecation `husky.sh`, and the `.gitignore` of `*` — and is
+  clean while `.husky/pre-commit` exists beside it, since the same install
+  repoints `core.hooksPath` there. The content is matched against a pinned
+  copy, never against `node_modules` (which the agent can write); a repo whose
+  gate is not husky-run, a file that is not byte-for-byte husky's, a later edit
+  to one, and the absence of a cwd to judge against all stay fail-closed and
+  need a sign-off.
+
 ## [2.10.0] — 2026-09-02
 
 **A hand-written protected hook script is held byte-for-byte to its before.
