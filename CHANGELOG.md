@@ -67,6 +67,14 @@ a one-time sign-off where it used to pass.**
   command-surface finding carries the repo-relative target, so the engine pin
   applies to it.
 
+### Fixed
+
+- **The docs site failed to build after 2.6.0.** The rules guide's
+  ci-tampering row carried `${{ <ctx> || true }}` inside a table cell: the
+  unescaped `||` split the cell and the angle-bracket placeholder was then read
+  as a tag, so the page broke the Vue template compile. The pipes are escaped
+  and the placeholder is spelled `context`.
+
 ### Sign-off
 
 Customised wiring needs a sign-off once (docs/guide/rules.md, "Customised
