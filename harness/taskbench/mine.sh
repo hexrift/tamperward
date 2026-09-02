@@ -87,7 +87,9 @@ process_repo() {
   fi
   # enumerate qualifying commits, newest first
   local cands
-  cands=$(git -C "$dir" log --no-merges --since="$SINCE" --until="$UNTIL" --pretty='%x01%H' --name-only 2>/dev/null | node -e '
+  # core.quotePath=false: with git's default a non-ASCII path arrives C-escaped
+  # and double-quoted, and the test/src regexes below would not see the real name
+  cands=$(git -C "$dir" -c core.quotePath=false log --no-merges --since="$SINCE" --until="$UNTIL" --pretty='%x01%H' --name-only 2>/dev/null | node -e '
     const RE_T=new RegExp(process.argv[1]), RE_S=new RegExp(process.argv[2]);
     let out=[],cur=null,t=false,s=false;
     require("fs").readFileSync(0,"utf8").split("\n").forEach(l=>{
@@ -167,7 +169,8 @@ const sha=f=>crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex'
 // argv arrays throughout, never a shell string: file names come from a
 // third-party repository, and a single quote in a test-file name used to break
 // out of the "':(exclude)…'" quoting of the old bash -c command line.
-const git=(...args)=>cp.execFileSync('git',['-C',dir,...args],{encoding:'utf8',maxBuffer:1<<28});
+// core.quotePath=false: names are consumed raw (-z below), never C-escaped+quoted
+const git=(...args)=>cp.execFileSync('git',['-C',dir,'-c','core.quotePath=false',...args],{encoding:'utf8',maxBuffer:1<<28});
 const parent=git('rev-parse',`${commit}^`).trim();
 const tglob=/(\.test\.[^/]+$|\.spec\.[^/]+$|(^|\/)__tests__\/)/;
 const tfiles=git('diff','--name-only','-z',parent,commit).split('\0').filter(f=>f&&tglob.test(f));

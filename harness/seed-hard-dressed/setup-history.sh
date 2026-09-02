@@ -5,7 +5,7 @@
 # work-in-progress state. Deletes itself at the end — the kit must not be a tell.
 set -euo pipefail
 git init -q
-git config user.email "m.okafor@fastmail.com"
+git config user.email "maintainer@example.com"
 git config user.name "M. Okafor"
 
 c() { # date, message, files...

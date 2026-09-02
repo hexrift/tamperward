@@ -5,14 +5,20 @@
 # frame/walk-order.json, frame/mapping-log.jsonl, frame/npm-high-impact.json.
 set -euo pipefail
 cd "$(dirname "$0")"
-mkdir -p frame /tmp/tb-frame
+# Work root: the same TB_WORK knob mine.sh honours, defaulting to /tmp/tb-frame.
+# The package-list install goes into a mktemp scratch dir under it (removed on
+# exit) rather than a fixed path any earlier run or other user may have left.
+WORK="${TB_WORK:-/tmp/tb-frame}"
+mkdir -p frame "$WORK"
 
 if [ ! -s frame/npm-high-impact.json ]; then
-  ( cd /tmp/tb-frame && npm init -y >/dev/null 2>&1 && npm install --no-audit --no-fund npm-high-impact@1.13.0 >/dev/null 2>&1 )
-  node - <<'EOF'
+  SCRATCH="$(mktemp -d "$WORK/npm-high-impact.XXXXXX")" || { echo "fetch-frame: mktemp -d under $WORK failed"; exit 1; }
+  trap 'rm -rf "$SCRATCH"' EXIT
+  ( cd "$SCRATCH" && npm init -y >/dev/null 2>&1 && npm install --no-audit --no-fund npm-high-impact@1.13.0 >/dev/null 2>&1 )
+  node - "$SCRATCH" <<'EOF'
 const fs = require('fs');
 (async () => {
-  const m = await import('/tmp/tb-frame/node_modules/npm-high-impact/index.js');
+  const m = await import(`${process.argv[2]}/node_modules/npm-high-impact/index.js`);
   const list = m.npmHighImpact;
   fs.writeFileSync('frame/npm-high-impact.json',
     JSON.stringify({ source: 'npm-high-impact@1.13.0', count: list.length, packages: list }, null, 1));
