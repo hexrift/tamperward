@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { planInit } from '../src/cli/init';
+import { TW_VERSION } from '../src/wiring';
 
 let dirs: string[] = [];
 afterEach(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); dirs = []; });
@@ -58,6 +59,54 @@ describe('fresh repo', () => {
     // NotebookEdit joined the matcher in 1.14.0: the adapter always modelled it,
     // but the installed wiring never fired it, so that branch was unreachable.
     expect(s.hooks.PreToolUse[0].matcher).toBe('Bash|Edit|Write|MultiEdit|NotebookEdit');
+    // Declared since 2.9.0: the project value overrides the user file's, so a
+    // `true` written to ~/.claude/settings.json cannot switch the gate off.
+    expect(s.disableAllHooks).toBe(false);
+  });
+
+  it('a comma-separated matcher is the list the runtime reads, not a matcher to widen', () => {
+    const d = repo();
+    mkdirSync(join(d, '.claude'), { recursive: true });
+    writeFileSync(join(d, '.claude/settings.json'), JSON.stringify({
+      hooks: {
+        PreToolUse: [{ matcher: 'Bash, Edit, Write, MultiEdit, NotebookEdit', hooks: [{ type: 'command', command: `npx --yes tamperward@${TW_VERSION} hook claude` }] }],
+        Stop: [{ hooks: [{ type: 'command', command: `npx --yes tamperward@${TW_VERSION} sweep claude` }] }],
+      },
+      disableAllHooks: false,
+    }));
+    expect(statuses(d).agent).toBe('ok');
+    // a comma list missing a tool is widened by appending the missing one
+    writeFileSync(join(d, '.claude/settings.json'), JSON.stringify({
+      hooks: {
+        PreToolUse: [{ matcher: 'Bash, Edit, Write, MultiEdit', hooks: [{ type: 'command', command: `npx --yes tamperward@${TW_VERSION} hook claude` }] }],
+        Stop: [{ hooks: [{ type: 'command', command: `npx --yes tamperward@${TW_VERSION} sweep claude` }] }],
+      },
+      disableAllHooks: false,
+    }));
+    const agent = planInit(d).find((a) => a.item === 'agent')!;
+    expect(agent.status).toBe('update');
+    expect(agent.detail).toContain('widen the PreToolUse matcher to cover NotebookEdit');
+  });
+
+  it('declares `disableAllHooks: false` in an already-wired file, and holds a `true` to false', () => {
+    const d = repo();
+    mkdirSync(join(d, '.claude'), { recursive: true });
+    const wired = {
+      hooks: {
+        PreToolUse: [{ matcher: 'Bash|Edit|Write|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: `npx --yes tamperward@${TW_VERSION} hook claude` }] }],
+        Stop: [{ hooks: [{ type: 'command', command: `npx --yes tamperward@${TW_VERSION} sweep claude` }] }],
+      },
+    };
+    writeFileSync(join(d, '.claude/settings.json'), JSON.stringify(wired));
+    let agent = planInit(d).find((a) => a.item === 'agent')!;
+    expect(agent.status).toBe('update');
+    expect(agent.detail).toBe('declare disableAllHooks: false so the user settings file cannot switch the hooks off');
+    writeFileSync(join(d, '.claude/settings.json'), JSON.stringify({ ...wired, disableAllHooks: true }));
+    agent = planInit(d).find((a) => a.item === 'agent')!;
+    expect(agent.detail).toBe('set disableAllHooks: false (was true)');
+    agent.apply?.();
+    expect(JSON.parse(readFileSync(join(d, '.claude/settings.json'), 'utf8')).disableAllHooks).toBe(false);
+    expect(statuses(d).agent).toBe('ok');
   });
 });
 
