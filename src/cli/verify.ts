@@ -345,19 +345,63 @@ function overlayPristine(
   return { restored, removed };
 }
 
+/**
+ * The suite is run through a tiny Node supervisor rather than spawnSync directly,
+ * because spawnSync's timeout signals ONE process — the shell — and nothing else.
+ * A runner that forks workers (every jest/vitest/pytest-xdist does) left them
+ * running after a budget-exceeded verdict: in a directory about to be removed,
+ * executing the candidate's code after the verdict had already been returned.
+ * spawnSync cannot create a process group (`detached` is an async-spawn option),
+ * so the supervisor does: it spawns the shell detached — its own group — and on
+ * budget or exit kills that whole group. The outcome comes back through a file,
+ * since no exit code can be told apart from one the suite chose for itself.
+ */
+const SUPERVISOR = `
+const cp = require('node:child_process');
+const fs = require('node:fs');
+const [cmd, budgetMs, outFile] = process.argv.slice(1);
+const child = cp.spawn('sh', ['-c', cmd], { stdio: 'ignore', detached: process.platform !== 'win32' });
+const killGroup = () => {
+  try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+  try { child.kill('SIGKILL'); } catch {}
+};
+let done = false;
+const finish = (r) => {
+  if (done) return;
+  done = true;
+  killGroup();
+  fs.writeFileSync(outFile, JSON.stringify(r));
+  process.exit(0);
+};
+const timer = setTimeout(() => finish({ timedOut: true }), Number(budgetMs));
+child.on('error', (e) => { clearTimeout(timer); finish({ error: String(e) }); });
+child.on('exit', (code, signal) => { clearTimeout(timer); finish({ exit: code, signal }); });
+`;
+
 function runSuite(dir: string, cmd: string, budgetSecs: number): RunResult {
   const t0 = Date.now();
-  const r = spawnSync('sh', ['-c', cmd], {
-    cwd: dir,
-    stdio: 'ignore',
-    timeout: budgetSecs * 1000,
-    killSignal: 'SIGKILL',
-  });
-  const secs = Math.round((Date.now() - t0) / 1000);
-  if (r.error && (r.error as NodeJS.ErrnoException).code === 'ETIMEDOUT') return { exit: null, secs };
-  // spawnSync reports a timeout kill as signal SIGKILL with status null too
-  if (r.status === null && r.signal) return { exit: null, secs };
-  return { exit: r.status ?? 2, secs };
+  const outDir = mkdtempSync(join(tmpdir(), 'tw-verify-run-'));
+  const outFile = join(outDir, 'result.json');
+  try {
+    spawnSync(process.execPath, ['-e', SUPERVISOR, cmd, String(budgetSecs * 1000), outFile], {
+      cwd: dir,
+      stdio: 'ignore',
+      timeout: budgetSecs * 1000 + 30_000, // backstop only; the supervisor enforces the budget
+      killSignal: 'SIGKILL',
+    });
+    const secs = Math.round((Date.now() - t0) / 1000);
+    let r: { timedOut?: boolean; error?: string; exit?: number | null; signal?: string | null };
+    try {
+      r = JSON.parse(readFileSync(outFile, 'utf8'));
+    } catch {
+      return { exit: null, secs }; // the supervisor itself did not report: cannot verify
+    }
+    if (r.timedOut || r.error) return { exit: null, secs };
+    if (r.exit === null || r.exit === undefined) return { exit: null, secs }; // killed by a signal
+    return { exit: r.exit, secs };
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
+  }
 }
 
 export function runVerify(opts: VerifyOpts): number {

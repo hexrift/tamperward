@@ -100,8 +100,18 @@ export function policyWeakening(before: string, after: string): string[] | null 
       reasons.push(`rule "${name}" removed from policy`);
       continue;
     }
-    if (br.severity === 'block' && ar.severity === 'warn') {
-      reasons.push(`rule "${name}" lowered block → warn`);
+    // ANY departure from `block` is a lowering, not only the spelling `warn`. The
+    // loader now rejects an unknown severity outright, but this detector judges
+    // the EDIT that introduces it — with the pre-edit policy, before the loader
+    // ever sees the new file — and comparing for `warn` alone let `BLOCK`,
+    // `blocc` or `blocking` through as no change at all.
+    if (br.severity === 'block' && ar.severity !== 'block') {
+      const to = typeof ar.severity === 'string' ? ar.severity : JSON.stringify(ar.severity);
+      reasons.push(
+        ar.severity === 'warn'
+          ? `rule "${name}" lowered block → warn`
+          : `rule "${name}" lowered block → ${to} (not a valid severity; the rule would no longer block)`,
+      );
     }
     if (ar.enabled === false && br.enabled !== false) {
       reasons.push(`rule "${name}" disabled (enabled: false)`);
