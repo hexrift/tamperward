@@ -5,6 +5,8 @@
 // any non-snapshot file / any test file). Mainline commits are presumed legitimate,
 // so for block-graduation purposes every fire counts against graduating as-is.
 // Usage: node harness/fp-study/fp-snapshot.mjs <repoDir> [<repoDir> ...]
+// Status: manual study script, unwired — not run by CI; needs `npm run build` and
+// local clones of the study repos. Output: snapshot-<repo>-fires.jsonl beside this file.
 import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';

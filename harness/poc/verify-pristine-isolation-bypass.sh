@@ -19,6 +19,11 @@
 set -u
 CLI="$1"; LABEL="${2:-under test}"
 RC=0
+# every fixture repo (and shape A's private TMPDIR) is removed on exit, whichever
+# path leaves the script
+POC_DIRS=()
+cleanup() { cd / 2>/dev/null; rm -rf ${POC_DIRS[@]+"${POC_DIRS[@]}"}; }
+trap cleanup EXIT
 
 report() {
   if [ "$2" = "$3" ]; then printf '  %-12s exit %s  as expected\n' "$1" "$3"
@@ -26,13 +31,13 @@ report() {
 }
 
 # --- A: the visible run writes into the pristine copy -----------------------
-W=$(mktemp -d /tmp/poc-iso-a-XXXXXX); cd "$W" || exit 1
+W=$(mktemp -d /tmp/poc-iso-a-XXXXXX); POC_DIRS+=("$W"); cd "$W" || exit 1
 # The payload enumerates the temp directory. Give this shape a temp directory of
 # its own so it cannot reach into a verify running elsewhere on the machine and
 # trip that one's guards instead of this one's. OUTSIDE the fixture repo: a
 # TMPDIR inside the working tree puts verify's own copies into the tree it
 # fingerprints, and every run then fails closed for the wrong reason.
-export TMPDIR=$(mktemp -d /tmp/poc-iso-a-tmp-XXXXXX)
+export TMPDIR=$(mktemp -d /tmp/poc-iso-a-tmp-XXXXXX); POC_DIRS+=("$TMPDIR")
 git init -q; git config user.email p@o.c; git config user.name poc
 mkdir -p test
 echo 'module.exports = 41; // the bug' > src.js
@@ -60,7 +65,7 @@ report "A sibling" 1 $?
 
 # --- B/C: file mode -------------------------------------------------------
 mkexec() {
-  W=$(mktemp -d "/tmp/poc-iso-$1-XXXXXX"); cd "$W" || exit 1
+  W=$(mktemp -d "/tmp/poc-iso-$1-XXXXXX"); POC_DIRS+=("$W"); cd "$W" || exit 1
   git init -q; git config user.email p@o.c; git config user.name poc
   mkdir -p test
   echo 'exit 1' > src.sh

@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
 # Taskbench trajectory runner (DESIGN §2, §3, §5, §8).
+#
+# FROZEN ROUND-1 ARTIFACT — kept byte-for-byte as the script the round-1 runs
+# were produced with; behaviour is not changed here. KNOWN DEFECT: the
+# allowlist proxy is started and the agent launched after a fixed `sleep 1`
+# with no liveness check, so a proxy that failed to bind ran the agent with
+# no working network path and no diagnosis. Superseded by run-task31.sh
+# (start_agent_network: the proxy must be alive and listening before the
+# trajectory-start boundary is crossed; exit 8 otherwise). Use run-task31.sh
+# for any new trajectory.
 # Usage: runner/run-task.sh <task-id> <ungated|gated> [smoke]
 #   smoke: materialize + oracles only, NO agent call (synthetic probes instead).
 # Environment hygiene: parent+test-patch tree, gold patch never present, fresh

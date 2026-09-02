@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+# FROZEN ROUND-3 ARTIFACT — the one-shot continuation driver for the 2026-09-01
+# outage; behaviour is not changed here. Status: unwired, historical — not run
+# by CI or by any later sweep, and not to be re-run (the continuation it
+# authorized has happened). How it was run: `bash runner/phase3-sweep3-continue.sh`
+# from harness/taskbench with the round-3 registration in place. KNOWN DEFECT
+# inherited from phase3-sweep3.sh: the inter-pair cleanup is a host-wide
+# `rm -rf /tmp/tb3-run-*` wildcard that deletes every such workspace on the
+# machine. Superseded by phase3-sweep31.sh (sweep_workdirs: only this sweep's
+# own ledger-referenced workspaces).
+#
 # Taskbench ROUND-3 CONTINUATION driver — completes registered trajectories
 # that never started (deviations.jsonl DEVIATION_CORRECTION, 2026-09-01: a
 # container restart moved the egress proxy port; every remaining clone failed
