@@ -94,19 +94,31 @@ export function escapeControl(path: string): string {
   });
 }
 
-const cache = new Map<string, (s: string) => boolean>();
+/**
+ * One regular expression per glob LIST, not one matcher per glob. The protected
+ * globs are asked about every path git lists — the ignored files under a
+ * collapsed `dist/`, every untracked file the envelope scans — and forty-odd
+ * picomatch calls per path cost as much as the stat walk the effect layer's
+ * pruning removed (measured: 94 ms against 22 ms for 20k paths). picomatch's
+ * own regex for each glob, joined as alternatives, matches exactly the same
+ * paths (its matcher wraps that regex and nothing else under these options).
+ * Cached by the array's identity: a loaded policy's lists are stable objects.
+ */
+const listCache = new WeakMap<string[], RegExp | null>();
 
-function matcher(glob: string): (s: string) => boolean {
-  let m = cache.get(glob);
-  if (!m) {
-    m = picomatch(glob, { dot: true });
-    cache.set(glob, m);
+function listMatcher(globs: string[]): RegExp | null {
+  let re = listCache.get(globs);
+  if (re === undefined) {
+    re = globs.length === 0 ? null : new RegExp(globs.map((g) => `(?:${picomatch.makeRe(g, { dot: true }).source})`).join('|'));
+    listCache.set(globs, re);
   }
-  return m;
+  return re;
 }
 
 export function matchesAny(path: string, globs?: string[]): boolean {
-  return !!globs && globs.some((g) => matcher(g)(path));
+  if (!globs) return false;
+  const re = listMatcher(globs);
+  return re !== null && re.test(path);
 }
 
 /** The first protected category whose globs match `path`, or null. */
@@ -119,12 +131,25 @@ export function protectedCategory(path: string, policy: Policy): string | null {
   return null;
 }
 
+// The union of every category, for the question asked most: "protected at all?"
+const anyCache = new WeakMap<Record<string, string[]>, string[]>();
+
+function allProtectedGlobs(policy: Policy): string[] {
+  const p = policy.protected ?? {};
+  let all = anyCache.get(p);
+  if (!all) {
+    all = Object.values(p).flat();
+    anyCache.set(p, all);
+  }
+  return all;
+}
+
 /** Whether `path` is a protected asset — of `category` when given, of any otherwise.
  *  A path carrying a control character is protected whatever is asked (see CONTROL). */
 export function isProtected(path: string, policy: Policy, category?: string): boolean {
   if (hasControlChar(path)) return true;
   if (category) return matchesAny(path, policy.protected?.[category]);
-  return protectedCategory(path, policy) !== null;
+  return matchesAny(path, allProtectedGlobs(policy));
 }
 
 /** The policy file itself, at any depth. `ignore` may never suppress a change to it:

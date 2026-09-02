@@ -253,6 +253,19 @@ function underSkippedDir(rel: string): boolean {
  * not collapsed; its ignored files arrive in the first pass.
  */
 export function ignoredPaths(opts: GitOpts = {}, keep: (rel: string) => boolean): string[] {
+  return ignoredTree(opts, keep).files;
+}
+
+/**
+ * The two halves of the ignored listing: `dirs` are the WHOLLY-ignored
+ * directories git collapsed (trailing slash, git's own spelling — a directory
+ * that also holds a tracked file is never among them), `files` the ignored
+ * files under `keep`, from the flat pass and the expansion of those directories.
+ * The effect layer (src/effect.ts) prunes its walk with `dirs`: a 50k-file
+ * `dist/` no protected file lives in was stat'ed file by file on every hook
+ * call, and the collapse git already does answers it in one entry.
+ */
+export function ignoredTree(opts: GitOpts = {}, keep: (rel: string) => boolean): { dirs: string[]; files: string[] } {
   const files: string[] = [];
   const dirs: string[] = [];
   for (const entry of git([...IGNORED_LS, '--directory'], opts.cwd).split('\0').filter(Boolean)) {
@@ -264,7 +277,7 @@ export function ignoredPaths(opts: GitOpts = {}, keep: (rel: string) => boolean)
     const expanded = git([...IGNORED_LS, '--', ...dirs.map((d) => `:(literal)${d}`)], opts.cwd).split('\0').filter(Boolean);
     for (const rel of expanded) if (!underSkippedDir(rel)) files.push(rel);
   }
-  return files.filter(keep);
+  return { dirs, files: files.filter(keep) };
 }
 
 /** Every IGNORED file under `keep` as an add (see ignoredPaths). `exclude` drops

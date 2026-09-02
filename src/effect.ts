@@ -26,6 +26,7 @@ import { execFileSync } from 'node:child_process';
 import { Policy } from './types';
 import { isProtected } from './policy';
 import { DiskEntry, inspectRel } from './disk';
+import { ignoredTree } from './git/build';
 
 export interface PEntry {
   hash: string;
@@ -114,13 +115,27 @@ function entryOf(e: DiskEntry): PEntry {
  *
  * The walk is git's view of the tree, not the filesystem's: it lstat's, so a
  * symbolic link is a leaf whatever it points at (a link into node_modules, a
- * link to a device), and what stands at a protected path is recorded by shape
- * when it is not content (src/disk.ts).
+ * link to a device), and a directory git reports as WHOLLY ignored — the
+ * `--directory` collapse src/git/build.ts ignoredTree already runs, one entry
+ * for a `dist/` of 50k files — is not entered; the protected files git lists
+ * under it are snapshotted from that listing instead, so they stay sanctioned
+ * and excused the way they always were. A directory is skipped ONLY on git's
+ * word: an ignored directory holding one tracked file is not collapsed and is
+ * walked, and outside a repository nothing is pruned.
  */
 export function snapshotProtected(cwd: string, policy: Policy, prev?: PTree): PTree {
   void prev;
   const out: PTree = {};
   const keep = (rel: string): boolean => isProtected(rel, policy);
+  let pruned = new Set<string>();
+  let listed: string[] = [];
+  try {
+    const t = ignoredTree({ cwd }, keep);
+    pruned = new Set(t.dirs.map((d) => d.replace(/\/$/, '')));
+    listed = t.files;
+  } catch {
+    /* not a repository, or git unavailable: walk everything */
+  }
   const walk = (rel: string): void => {
     const abs = rel ? join(cwd, rel) : cwd;
     let names: string[];
@@ -132,6 +147,7 @@ export function snapshotProtected(cwd: string, policy: Policy, prev?: PTree): PT
     for (const name of names) {
       if (SKIP_DIRS.has(name)) continue;
       const r = rel ? `${rel}/${name}` : name;
+      if (pruned.has(r)) continue;
       let st;
       try {
         st = lstatSync(join(cwd, r));
@@ -143,6 +159,7 @@ export function snapshotProtected(cwd: string, policy: Policy, prev?: PTree): PT
     }
   };
   walk('');
+  for (const rel of listed) if (out[rel] === undefined) out[rel] = entryOf(inspectRel(cwd, rel));
   return out;
 }
 
