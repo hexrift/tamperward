@@ -43,6 +43,31 @@ export function trackedFiles(ctx?: DetectorContext): string[] | null {
 /** Forget the memoised listing (tests that mutate a repo between evaluations). */
 export function resetTrackedFiles(): void {
   cache.clear();
+  branchCache.clear();
+}
+
+const branchCache = new Map<string, string | null>();
+
+/** The repository's default branch as the remote declares it
+ *  (`refs/remotes/origin/HEAD` → `main`), or null when unknown — a caller then
+ *  accepts `main` and `master` alike. */
+export function defaultBranch(ctx?: DetectorContext): string | null {
+  if (!ctx?.cwd) return null;
+  const hit = branchCache.get(ctx.cwd);
+  if (hit !== undefined) return hit;
+  let name: string | null = null;
+  try {
+    const ref = execFileSync('git', ['symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD'], {
+      cwd: ctx.cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    name = ref.replace(/^origin\//, '') || null;
+  } catch {
+    name = null;
+  }
+  branchCache.set(ctx.cwd, name);
+  return name;
 }
 
 const dirOf = (t: string) => t.replace(/^\.\//, '').replace(/\/+$/, '');

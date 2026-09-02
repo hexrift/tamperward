@@ -10,22 +10,31 @@
 //     `exit 0`, `if false; then … fi`, a heredoc comment, or `shell: bash {0}` (no
 //     -e) added around it;
 //   - the WORKFLOW no longer runs where it matters: a `push`/`pull_request` trigger
-//     removed, `paths-ignore: ['**']`, `branches:` no longer naming main;
+//     removed, `paths-ignore: ['**']`, `branches:` no longer naming the default
+//     branch, `paths:` that no source file can match, `pull_request.types` without
+//     opened/synchronize;
 //   - `continue-on-error` / `if:` written as an expression that folds to a constant
-//     (`"true"`, `${{ 1 == 1 }}`, `${{ 'a' == 'b' }}`, `${{ !true }}`). Anything
-//     with a context reference stays "reachable" — the documented class.
+//     (`"true"`, `${{ 1 == 1 }}`, `${{ 'a' == 'b' }}`, `${{ !true }}`, and the
+//     short-circuits `${{ <ctx> && false }}`, `${{ <ctx> || true }}`). Anything that
+//     genuinely depends on a context reference stays "reachable" — the documented
+//     class.
 //
 // And one class of edit that is NOT a removal, because Dependabot and ordinary
 // maintenance produce it daily: a check line edited in place. `npm test` →
 // `npm test -- --reporter=dot`, `npm run test`, `pnpm test`, quoting, an action
-// bumped `@v3` → `@v4` — the command core is a prefix / superset / equivalent
-// spelling of the removed one, and it is kept. A superset that carries a
-// neutraliser (`|| true`, `--passWithNoTests`, a narrowed `-t`) is reported as such.
+// bumped `@v3` → `@v4`, `npm test` → `npm run test:ci` / `npx vitest run` (respelled
+// as another invocation of the same kind of check), a check moved into a reusable
+// workflow the same change adds — the command core is a prefix / superset /
+// equivalent spelling of the removed one, and it is kept. A superset that carries a
+// neutraliser (`|| true`, `--passWithNoTests`, a narrowed `-t`, a spec path as a
+// positional, a `timeout` wrapper) is reported as such.
 
-import { Change, Detector, Finding } from '../types';
+import { Change, Detector, DetectorContext, Finding } from '../types';
 import { addedLines, removedLines } from '../diff/select';
 import { isProtected } from '../policy';
 import { makeFinding } from './finding';
+import { langOf } from './files';
+import { defaultBranch, trackedFiles } from './repo';
 
 const RULE = 'ci-tampering';
 const USES = /^\s*-\s*uses:/;
@@ -80,15 +89,56 @@ function canonical(core: string): string {
 /** `uses:` identity stops at the version: `actions/setup-node@v3` → `@v4` is a bump. */
 const usesRef = (core: string) => core.replace(/@.*$/, '');
 
-// Suffixes that turn a kept check into a non-check: shell status masking, and runner
-// flags that empty or narrow the suite it runs.
-const NEUTRALISING_SUFFIX =
-  /\|\||;|(?<!&)&(?!&)|\|(?!\|)|--passWithNoTests\b|--coverage=false\b|--coverageThreshold\b|--testPathIgnorePatterns\b|--testPathPattern\b|--testNamePattern\b|(?:^|\s)-t\s|--onlyChanged\b|--changed\b|--findRelatedTests\b/;
+/** Runner flags that select FEWER specs. Shared with test-deletion, which reads the
+ *  same flags added to a package.json test script. */
+export const SUITE_NARROWING_FLAGS =
+  /--testPathIgnorePatterns\b|--testPathPattern\b|--testNamePattern\b|(?:^|\s)-t\s|--onlyChanged\b|--changed\b|--findRelatedTests\b|--exclude\b|--dir\b|--project\b/;
+
+// Suffixes that turn a kept check into a non-check: shell status masking, coverage
+// switched off, and runner flags that empty or narrow the suite it runs.
+const NEUTRALISING_SUFFIX = new RegExp(
+  `\\|\\||;|(?<!&)&(?!&)|\\|(?!\\|)|--passWithNoTests\\b|--coverage=false\\b|--coverageThreshold\\b|${SUITE_NARROWING_FLAGS.source}`,
+);
+
+/** `timeout 1 npm test`: the check is killed before it can decide. */
+const TIMEOUT_WRAP = /^timeout\s+(?:-{1,2}\S+\s+)*\d\S*\s+(.+)$/;
+
+/** A positional that names a spec or a path (`test/a.test.ts`, `src/`, `test/a`)
+ *  narrows the suite exactly like `--testPathPattern` — the runner opens only what
+ *  it names. A flag's value (`--config jest.ci.js`) and a redirect target are not
+ *  positionals. */
+const PATH_SHAPED = /\/|\.(?:test|spec)\./;
+function narrowedByPositional(args: string): boolean {
+  const toks = args.trim().split(/\s+/).filter(Boolean);
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    if (t === '--' || t.startsWith('-')) continue;
+    const prev = toks[i - 1];
+    if (prev && ((prev.startsWith('-') && prev !== '--' && !prev.includes('=')) || /[<>]/.test(prev))) continue;
+    if (/[<>|;&]/.test(t)) continue;
+    if (PATH_SHAPED.test(t)) return true;
+  }
+  return false;
+}
+
+type Kind = 'test' | 'lint' | 'types' | 'gate';
+/** What a check invocation checks — a replacement of the same kind is a respelling,
+ *  of another kind a removal (`npm test` → `npm run lint` drops the tests). */
+function checkKind(core: string): Kind | null {
+  if (!invokesCheck(core)) return null;
+  const s = canonical(core);
+  if (/\btamperward\b/.test(s)) return 'gate';
+  if (/\b(?:lint|eslint)\b/i.test(s)) return 'lint';
+  if (/\b(?:typecheck|type-check|tsc)\b/i.test(s)) return 'types';
+  return 'test';
+}
 
 type Kept = 'kept' | 'neutralised' | 'gone';
 
-/** Whether a removed check survives among the after-file's command cores. */
-function survives(removedCore: string, isUses: boolean, afterCores: string[]): { state: Kept; by?: string } {
+/** Whether a removed check survives among the after-file's command cores. `addedCores`
+ *  are the cores of lines ADDED by this change — the only place a respelling of the
+ *  removed check can be. */
+function survives(removedCore: string, isUses: boolean, afterCores: string[], addedCores: string[]): { state: Kept; by?: string } {
   if (isUses) {
     const ref = usesRef(removedCore);
     return afterCores.some((a) => usesRef(a) === ref) ? { state: 'kept' } : { state: 'gone' };
@@ -100,12 +150,29 @@ function survives(removedCore: string, isUses: boolean, afterCores: string[]): {
     if (a === r) return { state: 'kept' };
     if (a.startsWith(r + ' ')) {
       const rest = a.slice(r.length);
-      if (NEUTRALISING_SUFFIX.test(rest)) neutralised = raw;
+      if (NEUTRALISING_SUFFIX.test(rest) || narrowedByPositional(rest)) neutralised ??= raw;
       else return { state: 'kept' };
     } else if (r.startsWith(a + ' ') && invokesCheck(a)) {
       return { state: 'kept' }; // the check got shorter — arguments dropped, the invocation kept
+    } else {
+      const w = a.match(TIMEOUT_WRAP);
+      if (w && (canonical(w[1]) === r || canonical(w[1]).startsWith(r + ' '))) neutralised ??= raw;
     }
   }
+  const kind = checkKind(removedCore);
+  let respelled = false;
+  for (const raw of addedCores) {
+    if (!kind || checkKind(raw) !== kind) continue;
+    const a = canonical(raw);
+    if (a.match(TIMEOUT_WRAP)) {
+      neutralised ??= raw;
+      continue;
+    }
+    const args = a.slice(a.indexOf(' ') + 1 || a.length);
+    if (a.includes(' ') && (NEUTRALISING_SUFFIX.test(' ' + args) || narrowedByPositional(args))) neutralised ??= raw;
+    else respelled = true;
+  }
+  if (respelled) return { state: 'kept' };
   return neutralised ? { state: 'neutralised', by: neutralised } : { state: 'gone' };
 }
 
@@ -115,9 +182,13 @@ const uncommented = (v: string) => v.replace(/\s+#.*$/, '').trim();
 //
 // GitHub evaluates `if:` and `continue-on-error:` as expressions. Literals, `==`,
 // `!=`, `&&`, `||`, `!` and parentheses fold to a value here; an identifier, a
-// context reference or a function call makes the whole expression UNKNOWN, which
-// reads as reachable — the same exposure as authoring a new guarded step.
-type Val = string | number | boolean | null;
+// context reference or a function call is UNKNOWN — but `&&` and `||` short-circuit
+// on the KNOWN side exactly as they do at runtime: `unknown && false` is always
+// falsy and `unknown || true` always truthy, whatever the context holds. An unknown
+// that survives reads as reachable — the same exposure as authoring a new guarded
+// step.
+const TRUTHY = Symbol('truthy'); // a value not known, except that it is truthy
+type Val = string | number | boolean | null | typeof TRUTHY;
 type Tok = { t: 'str' | 'num' | 'id' | 'op'; v: string };
 
 function lex(src: string): Tok[] | null {
@@ -150,13 +221,13 @@ function lex(src: string): Tok[] | null {
       i += num[0].length;
       continue;
     }
-    const op = src.slice(i).match(/^(?:==|!=|&&|\|\||<=|>=|[!()<>])/);
+    const op = src.slice(i).match(/^(?:==|!=|&&|\|\||<=|>=|[!()<>,[\]])/);
     if (op) {
       out.push({ t: 'op', v: op[0] });
       i += op[0].length;
       continue;
     }
-    const id = src.slice(i).match(/^[A-Za-z_][\w.\-[\]*]*/);
+    const id = src.slice(i).match(/^[A-Za-z_][\w.\-*]*/);
     if (id) {
       out.push({ t: 'id', v: id[0] });
       i += id[0].length;
@@ -167,6 +238,8 @@ function lex(src: string): Tok[] | null {
   return out;
 }
 
+const truthy = (v: Val): boolean => (v === TRUTHY ? true : typeof v === 'string' ? v !== '' : typeof v === 'number' ? v !== 0 : v === true);
+
 /** Fold an expression to a constant; undefined when it depends on anything. */
 export function foldConst(src: string): Val | undefined {
   const toks = lex(src);
@@ -174,9 +247,10 @@ export function foldConst(src: string): Val | undefined {
   let p = 0;
   const peek = () => toks[p];
   const eat = (v: string) => (toks[p]?.t === 'op' && toks[p].v === v ? (p++, true) : false);
-  const truthy = (v: Val): boolean => (typeof v === 'string' ? v !== '' : typeof v === 'number' ? v !== 0 : v === true);
-  const num = (v: Val): number => (typeof v === 'number' ? v : typeof v === 'boolean' ? (v ? 1 : 0) : v === null ? 0 : v.trim() === '' ? 0 : Number(v));
-  const eq = (a: Val, b: Val): boolean => {
+  const num = (v: Val): number =>
+    v === TRUTHY ? NaN : typeof v === 'number' ? v : typeof v === 'boolean' ? (v ? 1 : 0) : v === null ? 0 : v.trim() === '' ? 0 : Number(v);
+  const eq = (a: Val, b: Val): boolean | undefined => {
+    if (a === TRUTHY || b === TRUTHY) return undefined;
     if (typeof a === 'string' && typeof b === 'string') return a.toLowerCase() === b.toLowerCase();
     if (a === null && b === null) return true;
     const x = num(a);
@@ -187,8 +261,9 @@ export function foldConst(src: string): Val | undefined {
     let l = and();
     while (eat('||')) {
       const r = and();
-      if (l === undefined || r === undefined) return undefined;
-      l = truthy(l) ? l : r;
+      if (l !== undefined && truthy(l)) continue; // a truthy left decides
+      if (l !== undefined) l = r; // a falsy left yields the right
+      else l = r !== undefined && truthy(r) ? TRUTHY : undefined; // unknown || truthy is truthy
     }
     return l;
   };
@@ -196,8 +271,9 @@ export function foldConst(src: string): Val | undefined {
     let l = cmp();
     while (eat('&&')) {
       const r = cmp();
-      if (l === undefined || r === undefined) return undefined;
-      l = truthy(l) ? r : l;
+      if (l !== undefined && !truthy(l)) continue; // a falsy left decides
+      if (l !== undefined) l = r; // a truthy left yields the right
+      else l = r !== undefined && !truthy(r) ? false : undefined; // unknown && falsy is falsy
     }
     return l;
   };
@@ -208,14 +284,18 @@ export function foldConst(src: string): Val | undefined {
       if (!t || t.t !== 'op' || !/^(?:==|!=|<|>|<=|>=)$/.test(t.v)) return l;
       p++;
       const r = unary();
-      if (l === undefined || r === undefined) return undefined;
-      if (t.v === '==') l = eq(l, r);
-      else if (t.v === '!=') l = !eq(l, r);
-      else {
+      if (l === undefined || r === undefined) {
+        l = undefined;
+        continue;
+      }
+      if (t.v === '==' || t.v === '!=') {
+        const e = eq(l, r);
+        l = e === undefined ? undefined : t.v === '==' ? e : !e;
+      } else {
         const x = num(l);
         const y = num(r);
-        if (Number.isNaN(x) || Number.isNaN(y)) return undefined;
-        l = t.v === '<' ? x < y : t.v === '>' ? x > y : t.v === '<=' ? x <= y : x >= y;
+        if (Number.isNaN(x) || Number.isNaN(y)) l = undefined;
+        else l = t.v === '<' ? x < y : t.v === '>' ? x > y : t.v === '<=' ? x <= y : x >= y;
       }
     }
   };
@@ -240,7 +320,22 @@ export function foldConst(src: string): Val | undefined {
       if (/^true$/i.test(t.v)) return true;
       if (/^false$/i.test(t.v)) return false;
       if (/^null$/i.test(t.v)) return null;
-      return undefined; // a context reference or a function: not ours to decide
+      // a function call or an index: consume its arguments so the operators
+      // AROUND it still fold, and yield unknown — not ours to decide
+      if (eat('(')) {
+        if (!eat(')')) {
+          for (;;) {
+            or();
+            if (eat(')')) break;
+            if (!eat(',')) return undefined;
+          }
+        }
+      }
+      while (eat('[')) {
+        or();
+        if (!eat(']')) return undefined;
+      }
+      return undefined;
     }
     return undefined;
   };
@@ -262,7 +357,7 @@ export function isAlwaysFalse(raw: string): boolean {
   const e = expressionOf(raw);
   if (e === '') return false;
   const v = foldConst(e);
-  return v !== undefined && !(typeof v === 'string' ? v !== '' : typeof v === 'number' ? v !== 0 : v === true);
+  return v !== undefined && !truthy(v);
 }
 
 /** A `continue-on-error:` value that is on, literal or interpolated. YAML's 1.1
@@ -274,7 +369,7 @@ export function isTruthy(raw: string): boolean {
   const m = v.match(/^\$\{\{\s*(.+?)\s*\}\}$/);
   if (!m) return false;
   const f = foldConst(m[1]);
-  return f !== undefined && (typeof f === 'string' ? f !== '' : typeof f === 'number' ? f !== 0 : f === true);
+  return f !== undefined && truthy(f);
 }
 
 const indentOf = (l: string) => l.match(/^\s*/)![0].length;
@@ -293,8 +388,29 @@ function stepOf(lines: string[], i: number): [number, number] | null {
   return [s, e];
 }
 
+/** The job a job-level line at index `i` belongs to (its key sits directly under
+ *  `jobs:`): the job's line range, or null when the line is not inside a job. */
+function jobOf(lines: string[], i: number): [number, number] | null {
+  const ind = indentOf(lines[i]);
+  let h = i - 1;
+  while (h >= 0 && (lines[h].trim() === '' || indentOf(lines[h]) >= ind)) h--;
+  if (h < 0 || !/^\s+[\w-]+:\s*(?:#.*)?$/.test(lines[h])) return null;
+  let t = h - 1;
+  while (t >= 0 && (lines[t].trim() === '' || indentOf(lines[t]) > 0)) t--;
+  if (t < 0 || !/^jobs:/.test(lines[t])) return null;
+  const hi = indentOf(lines[h]);
+  let e = i + 1;
+  while (e < lines.length && (lines[e].trim() === '' || indentOf(lines[e]) > hi)) e++;
+  return [h, e];
+}
+
 const stepHasCheck = (lines: string[], range: [number, number] | null): boolean =>
   range === null || lines.slice(range[0], range[1]).some((l) => invokesCheck(l) || (USES.test(l) && CHECK.test(l)));
+
+/** A job carries a check when any step does, or when it calls a reusable workflow
+ *  (whose steps this rule cannot see — read as a check, never as none). */
+const jobHasCheck = (lines: string[], range: [number, number]): boolean =>
+  lines.slice(range[0], range[1]).some((l) => invokesCheck(l) || (USES.test(l) && CHECK.test(l)) || /^\s*uses:\s*\S/.test(l));
 
 // ── run-block neutralisers ────────────────────────────────────────────────────
 interface RunBlock {
@@ -323,13 +439,24 @@ const NEUTRALISERS: Array<{ re: RegExp; what: string }> = [
 ];
 
 // ── `on:` narrowing ───────────────────────────────────────────────────────────
+type ListKey = 'branches' | 'branchesIgnore' | 'pathsIgnore' | 'paths' | 'types';
 interface Triggers {
   events: Set<string>;
   branches: Map<string, string[]>; // event → branches list (literal entries)
   branchesIgnore: Map<string, string[]>;
   pathsIgnore: Map<string, string[]>;
+  paths: Map<string, string[]>;
+  types: Map<string, string[]>;
   present: boolean;
 }
+
+const LIST_KEYS: Record<string, ListKey> = {
+  branches: 'branches',
+  'branches-ignore': 'branchesIgnore',
+  'paths-ignore': 'pathsIgnore',
+  paths: 'paths',
+  types: 'types',
+};
 
 function flowList(v: string): string[] | null {
   const m = v.trim().match(/^\[(.*)\]$/);
@@ -342,7 +469,15 @@ function flowList(v: string): string[] | null {
 
 /** A small reader for the `on:` section — the two flow forms and the block mapping. */
 function parseTriggers(src: string): Triggers {
-  const t: Triggers = { events: new Set(), branches: new Map(), branchesIgnore: new Map(), pathsIgnore: new Map(), present: false };
+  const t: Triggers = {
+    events: new Set(),
+    branches: new Map(),
+    branchesIgnore: new Map(),
+    pathsIgnore: new Map(),
+    paths: new Map(),
+    types: new Map(),
+    present: false,
+  };
   const lines = src.split('\n');
   const i = lines.findIndex((l) => /^(?:on|"on"|'on'|true):/.test(l));
   if (i < 0) return t;
@@ -355,7 +490,7 @@ function parseTriggers(src: string): Triggers {
     return t;
   }
   let event: string | null = null;
-  let listKey: 'branches' | 'branchesIgnore' | 'pathsIgnore' | null = null;
+  let listKey: ListKey | null = null;
   let listInd = -1;
   for (let j = i + 1; j < lines.length; j++) {
     const l = lines[j];
@@ -378,8 +513,9 @@ function parseTriggers(src: string): Triggers {
       listKey = null;
       continue;
     }
-    if (event && /^(?:branches|branches-ignore|paths-ignore)$/.test(kv[1])) {
-      listKey = kv[1] === 'branches' ? 'branches' : kv[1] === 'branches-ignore' ? 'branchesIgnore' : 'pathsIgnore';
+    const key = LIST_KEYS[kv[1]];
+    if (event && key) {
+      listKey = key;
       listInd = ind;
       const list = flowList(kv[2]);
       t[listKey].set(event, list ?? []);
@@ -390,38 +526,105 @@ function parseTriggers(src: string): Triggers {
 
 const DEFAULT_BRANCH = /^(?:main|master)$/;
 const ALL = (g: string) => /^\*\*?$|^\*\*\/\*$/.test(g);
+const CODE_EVENTS = ['push', 'pull_request', 'pull_request_target'];
+const PR_CODE_TYPES = /^(?:opened|synchronize|reopened)$/;
 
-function triggerNarrowings(before: Triggers, after: Triggers): string[] {
+/** GitHub's path-filter glob as a matcher: `**` crosses directories anywhere it
+ *  stands (`**.md`), `*` and `?` stay inside a segment. */
+function ghGlob(g: string): (p: string) => boolean {
+  const re = g
+    .split('**')
+    .map((part) => part.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]'))
+    .join('.*');
+  try {
+    const r = new RegExp(`^${re}$`);
+    return (p) => r.test(p);
+  } catch {
+    return () => false;
+  }
+}
+
+/** Whether a `paths:` filter lets any source file through: patterns apply in order,
+ *  a later `!` entry excluding what an earlier one included. */
+function pathsMatchSource(globs: string[], sources: string[]): boolean {
+  const ms = globs.map((g) => ({ neg: g.startsWith('!'), m: ghGlob(g.startsWith('!') ? g.slice(1) : g) }));
+  return sources.some((s) => {
+    let on = false;
+    for (const { neg, m } of ms) if (m(s)) on = !neg;
+    return on;
+  });
+}
+
+/** Source files a workflow's `paths:` filter must be able to match: the repository's
+ *  own code files, or the conventional layouts when no listing is available. */
+const CODE_PROBES = ['src/index.ts', 'src/index.js', 'lib/index.js', 'index.ts', 'main.go', 'src/main.py', 'src/lib.rs', 'packages/a/src/index.ts', 'test/a.test.ts'];
+function sourceProbes(ctx?: DetectorContext): string[] {
+  const files = trackedFiles(ctx);
+  if (!files) return CODE_PROBES;
+  const code = files.filter((f) => langOf(f) !== null);
+  return code.length ? code : CODE_PROBES;
+}
+
+interface TriggerOpts {
+  /** The repository's default branch, or null to accept main and master alike. */
+  defaultBranch: string | null;
+  sources: string[];
+}
+
+function triggerNarrowings(before: Triggers, after: Triggers, opts: TriggerOpts): string[] {
   const out: string[] = [];
   if (!before.present || !after.present) return out;
-  for (const e of ['push', 'pull_request', 'pull_request_target']) {
+  const isDefault = (b: string) => (opts.defaultBranch ? b === opts.defaultBranch : DEFAULT_BRANCH.test(b));
+  const namesDefault = (l: string[]) => l.some(isDefault);
+  for (const e of CODE_EVENTS) {
     if (before.events.has(e) && !after.events.has(e)) out.push(`the ${e} trigger was removed — the workflow no longer runs on it`);
   }
   for (const [e, list] of after.pathsIgnore) {
     const had = before.pathsIgnore.get(e) ?? [];
     if (list.some((g) => ALL(g) && !had.includes(g))) out.push(`on.${e}.paths-ignore now ignores every path — the workflow never runs on ${e}`);
   }
+  for (const [e, list] of after.paths) {
+    if (!CODE_EVENTS.includes(e) || !after.events.has(e)) continue;
+    const had = before.paths.get(e);
+    if (had && !pathsMatchSource(had, opts.sources)) continue; // was already this narrow
+    if (!pathsMatchSource(list, opts.sources)) out.push(`on.${e}.paths matches no source file (now [${list.join(', ')}]) — the workflow never runs on code`);
+  }
+  for (const [e, list] of after.types) {
+    if (!/^pull_request(?:_target)?$/.test(e) || !after.events.has(e)) continue;
+    const had = before.types.get(e);
+    if (had && !had.some((t) => PR_CODE_TYPES.test(t))) continue;
+    if (!list.some((t) => PR_CODE_TYPES.test(t))) out.push(`on.${e}.types no longer includes opened/synchronize (now [${list.join(', ')}]) — the workflow does not run on the pull request's code`);
+  }
   for (const [e, list] of after.branchesIgnore) {
     const had = before.branchesIgnore.get(e) ?? [];
-    if (list.some((g) => (ALL(g) || DEFAULT_BRANCH.test(g)) && !had.includes(g))) out.push(`on.${e}.branches-ignore now covers the default branch`);
+    if (list.some((g) => (ALL(g) || isDefault(g)) && !had.includes(g))) out.push(`on.${e}.branches-ignore now covers the default branch`);
   }
   for (const [e, was] of before.branches) {
     const now = after.branches.get(e);
     if (!now || !after.events.has(e)) continue; // filter dropped = wider, or the event itself is reported above
     if (now.some(ALL)) continue;
-    const lostDefault = was.some((b) => DEFAULT_BRANCH.test(b) && !now.includes(b));
-    const replaced = was.length > 0 && !was.some((b) => now.includes(b));
+    // `[main]` → `[master]` is a rename of the default branch, not a narrowing, when
+    // master IS the default (or when the repository cannot say which name it uses)
+    const lostDefault = namesDefault(was) && !namesDefault(now);
+    const replaced = !namesDefault(was) && !namesDefault(now) && was.length > 0 && !was.some((b) => now.includes(b));
     if (lostDefault || replaced) out.push(`on.${e}.branches no longer names ${was.filter((b) => !now.includes(b)).join(', ')} (now [${now.join(', ')}])`);
   }
   return out;
 }
 
+const REUSED_WORKFLOW = /^\s*uses:\s*\.\/(\.github\/workflows\/[^\s@]+)/;
+
 export const ciTampering: Detector = {
   id: RULE,
   surface: ['file'],
   certainty: 'mechanical',
-  run(changes: Change[], policy): Finding[] {
+  run(changes: Change[], policy, _view, ctx): Finding[] {
     const out: Finding[] = [];
+    // After-content of every file in the change, so a check moved into a reusable
+    // workflow this change adds (`uses: ./.github/workflows/checks.yml`) is found there.
+    const afterByPath = new Map<string, string>();
+    for (const c of changes) if (c.kind === 'file' && c.after != null) afterByPath.set(c.path, c.after);
+    let triggerOpts: TriggerOpts | null = null;
     for (const c of changes) {
       if (c.kind !== 'file') continue;
       // A workflow renamed so GitHub will no longer RUN it. The protected glob
@@ -454,9 +657,14 @@ export const ciTampering: Detector = {
         if (!coe && !cond) continue;
         // Scoped to the step it sits on: `continue-on-error: true` on an `npm audit`
         // step, or `if: false` on a deploy step, neuters no check. Job-level (no
-        // enclosing step) applies to every step and is always reported.
+        // enclosing step) applies to every step of the job — reported when the job
+        // runs a check, and always when the line sits above job level.
         const step = afterLines && l.newLine != null ? stepOf(afterLines, l.newLine - 1) : null;
         if (afterLines && step && !stepHasCheck(afterLines, step)) continue;
+        if (afterLines && !step && l.newLine != null) {
+          const job = jobOf(afterLines, l.newLine - 1);
+          if (job && !jobHasCheck(afterLines, job)) continue;
+        }
         if (coe && isTruthy(coe[1])) {
           out.push(
             makeFinding(RULE, policy, {
@@ -521,13 +729,14 @@ export const ciTampering: Detector = {
         }
         // `on:` narrowed so the workflow no longer runs where the check matters.
         if (c.before != null) {
-          for (const reason of triggerNarrowings(parseTriggers(c.before), parseTriggers(c.after!))) {
+          triggerOpts ??= { defaultBranch: defaultBranch(ctx), sources: sourceProbes(ctx) };
+          for (const reason of triggerNarrowings(parseTriggers(c.before), parseTriggers(c.after!), triggerOpts)) {
             out.push(
               makeFinding(RULE, policy, {
                 file: c.path,
                 message: `The workflow's triggers were narrowed: ${reason}.`,
                 evidence: reason,
-                remediation: 'Keep the workflow running on push and pull_request for the default branch; a check that never runs is no check.',
+                remediation: 'Keep the workflow running on push and pull_request for the default branch and its source paths; a check that never runs is no check.',
               }),
             );
           }
@@ -544,6 +753,16 @@ export const ciTampering: Detector = {
       // conditionalisation — the same exposure as authoring a new guarded step, which no
       // diff-based rule ever saw.
       const afterCores = (afterLines ?? addedLines(c).map((l) => l.content)).map(commandCore);
+      const addedCores = addedLines(c).map((l) => commandCore(l.content));
+      // A check moved into a reusable workflow the same change carries is kept there.
+      for (const l of afterLines ?? []) {
+        const reused = l.match(REUSED_WORKFLOW)?.[1];
+        const content = reused ? afterByPath.get(reused) : undefined;
+        if (content == null || reused === c.path) continue;
+        const cores = content.split('\n').map(commandCore);
+        afterCores.push(...cores);
+        addedCores.push(...cores);
+      }
       for (const l of removedLines(c)) {
         // A YAML comment is prose, not a step. Rewording a comment that quoted
         // `tamperward:allow:<rule>` in a code span read as "a check command was
@@ -554,7 +773,7 @@ export const ciTampering: Detector = {
         const isCheckCommand = !isUsesLine && !/^\s*-?\s*uses:/.test(l.content) &&
           (YAML_KEY.test(l.content) ? /^\s*-?\s*run:/.test(l.content) : true) && invokesCheck(l.content);
         if (!isUsesLine && !isCheckCommand) continue;
-        const s = survives(commandCore(l.content), isUsesLine, afterCores);
+        const s = survives(commandCore(l.content), isUsesLine, afterCores, addedCores);
         if (s.state === 'kept') continue; // moved, reformatted, respelled or extended — not removed
         if (s.state === 'neutralised') {
           out.push(
@@ -562,7 +781,7 @@ export const ciTampering: Detector = {
               file: c.path,
               message: 'A CI check command was neutralised in place: it still runs, but its result no longer decides (or its suite was narrowed).',
               evidence: `${l.content.trim()} → ${s.by}`,
-              remediation: 'Let the check decide the step; do not mask its status or narrow what it runs.',
+              remediation: 'Let the check decide the step; do not mask its status, cut it short, or narrow what it runs.',
             }),
           );
           continue;

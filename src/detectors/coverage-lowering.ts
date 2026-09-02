@@ -12,28 +12,39 @@
 // must not decrease for any path or metric, and the gate must not be removed.
 //
 // The threshold is one of three dials, and an agent denied the first turns the next:
-//   - the DENOMINATOR: `collectCoverageFrom` narrowed, `coveragePathIgnorePatterns` /
-//     vitest `coverage.exclude` grown — the hard file is simply not measured;
+//   - the DENOMINATOR: `collectCoverageFrom` / vitest `coverage.include` narrowed —
+//     compared as the predicate over the repository's own source files, so
+//     `src/**` → `src/**/*.{ts,tsx}` in a TypeScript repo measures the same files
+//     and is silent, while `src/**` → `src/index.ts` drops the rest;
+//     `coveragePathIgnorePatterns` / vitest `coverage.exclude` grown, `.coveragerc`
+//     `[run] omit` grown, codecov `ignore:` grown — the hard file is simply not measured;
 //   - the RUN: `--coverage=false`, `--coverageThreshold={}` on the command line,
 //     `passWithNoTests: true` as a config key (the flag was caught, the key was not),
-//     vitest `thresholds.autoUpdate` (the gate follows the number down);
+//     vitest `thresholds.autoUpdate` (the gate follows the number down),
+//     `coverage.enabled: false`, `thresholds.perFile` dropped (one file may now be
+//     uncovered behind the aggregate);
 //   - the OTHER RUNNERS: `.coveragerc` / `pyproject.toml` `fail_under`, nyc's
-//     `check-coverage` and metrics, codecov's `target` / `threshold` — simple key:
-//     value shapes in files the baseline now protects as config.
+//     `check-coverage` and metrics (also under package.json's `nyc` key), codecov's
+//     `target` (a number, or `auto` — a floor that follows the base) / `threshold` /
+//     `project: off` — simple key: value shapes in files the baseline protects as config.
 //
 // What it will NOT claim: a removal it cannot see. A threshold object built from a
 // spread (`{ ...base, lines: 80 }`), a metric that is an expression, a per-path
 // override that names only some metrics — the unseen part is reported as nothing,
-// not as "removed" (the false-removal was the rule's own worst false positive).
+// not as "removed" (the false-removal was the rule's own worst false positive). And
+// a gate that MOVED — `.coveragerc` → `pyproject.toml`, `jest.config.js` →
+// package.json — with the same numbers is looked for in the rest of the changeset
+// before its old home is reported as deleted.
 //
 // When full before/after content is unavailable (diff-only Change), fall back to the
 // line-based checks so behaviour never regresses or throws.
 
 import picomatch from 'picomatch';
 import ts from 'typescript';
-import { Change, Detector, DetectorContext, Finding } from '../types';
+import { Change, Detector, DetectorContext, FileChange, Finding, Policy } from '../types';
 import { addedLines, removedLines } from '../diff/select';
 import { isProtected } from '../policy';
+import { langOf } from './files';
 import { makeFinding } from './finding';
 import { trackedFiles } from './repo';
 
@@ -61,10 +72,20 @@ interface Thresholds {
 }
 
 interface Lists {
+  /** jest collectCoverageFrom or vitest coverage.include (globs, `!` entries included). */
   collectFrom: string[] | null;
+  collectKey: string;
   ignore: string[]; // coveragePathIgnorePatterns + vitest coverage.exclude
   opaqueCollect: boolean;
   opaqueIgnore: boolean;
+}
+
+/** Boolean switches under the vitest coverage block. */
+interface Switches {
+  /** coverage.enabled */
+  enabled?: boolean;
+  /** coverage.thresholds.perFile */
+  perFile?: boolean;
 }
 
 const norm = (p: string) => p.replace(/^\.\//, '');
@@ -121,6 +142,15 @@ function underKey(node: ts.Node, key: string): boolean {
     if (ts.isPropertyAssignment(p) && keyName(p.name) === key) return true;
   }
   return false;
+}
+
+/** The key of the property whose object literal directly holds `node`. */
+function ownerKey(node: ts.PropertyAssignment): string | null {
+  const obj = node.parent;
+  if (!obj || !ts.isObjectLiteralExpression(obj)) return null;
+  let q: ts.Node | undefined = obj.parent;
+  while (q && (ts.isParenthesizedExpression(q) || ts.isAsExpression(q) || q.kind === ts.SyntaxKind.SatisfiesExpression)) q = q.parent;
+  return q && ts.isPropertyAssignment(q) ? keyName(q.name) : null;
 }
 
 /**
@@ -227,21 +257,24 @@ function literals(e: ts.Expression): { items: string[]; opaque: boolean } {
   return { items, opaque };
 }
 
-/** The denominator lists: what is measured (`collectCoverageFrom`) and what is
- *  exempted (`coveragePathIgnorePatterns`, vitest `coverage.exclude`). */
+/** The denominator lists: what is measured (`collectCoverageFrom`, vitest
+ *  `coverage.include`) and what is exempted (`coveragePathIgnorePatterns`, vitest
+ *  `coverage.exclude`). */
 export function parseLists(src: string): Lists {
-  const res: Lists = { collectFrom: null, ignore: [], opaqueCollect: false, opaqueIgnore: false };
+  const res: Lists = { collectFrom: null, collectKey: 'collectCoverageFrom', ignore: [], opaqueCollect: false, opaqueIgnore: false };
   try {
     const sf = sourceOf(src);
     const resolve = resolverFor(sf);
     const visit = (node: ts.Node): void => {
       if (ts.isPropertyAssignment(node)) {
         const k = keyName(node.name);
-        if (k === 'collectCoverageFrom') {
+        const vitestCoverage = ownerKey(node) === 'coverage';
+        if (k === 'collectCoverageFrom' || (k === 'include' && vitestCoverage)) {
           const { items, opaque } = literals(resolve(node.initializer));
           res.collectFrom = items;
+          res.collectKey = k === 'include' ? 'coverage.include' : k;
           if (opaque) res.opaqueCollect = true;
-        } else if (k === 'coveragePathIgnorePatterns' || (k === 'exclude' && underKey(node, 'coverage'))) {
+        } else if (k === 'coveragePathIgnorePatterns' || (k === 'exclude' && vitestCoverage)) {
           const { items, opaque } = literals(resolve(node.initializer));
           res.ignore.push(...items);
           if (opaque) res.opaqueIgnore = true;
@@ -254,6 +287,50 @@ export function parseLists(src: string): Lists {
     /* fail-safe */
   }
   return res;
+}
+
+/** vitest `coverage.enabled` and `coverage.thresholds.perFile`, when literal. */
+export function parseSwitches(src: string): Switches {
+  const res: Switches = {};
+  try {
+    const sf = sourceOf(src);
+    const bool = (e: ts.Expression): boolean | undefined =>
+      e.kind === ts.SyntaxKind.TrueKeyword ? true : e.kind === ts.SyntaxKind.FalseKeyword ? false : undefined;
+    const visit = (node: ts.Node): void => {
+      if (ts.isPropertyAssignment(node)) {
+        const k = keyName(node.name);
+        const owner = ownerKey(node);
+        if (k === 'enabled' && owner === 'coverage') res.enabled = bool(node.initializer);
+        else if (k === 'perFile' && owner === 'thresholds' && underKey(node, 'coverage')) res.perFile = bool(node.initializer);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+  } catch {
+    /* fail-safe */
+  }
+  return res;
+}
+
+/** The text of a top-level `key` object in a JSON/JS config (`"nyc": { … }` in
+ *  package.json), or '' when absent. */
+function sectionText(src: string, key: string): string {
+  try {
+    const sf = sourceOf(src);
+    let out = '';
+    const visit = (node: ts.Node): void => {
+      if (out) return;
+      if (ts.isPropertyAssignment(node) && keyName(node.name) === key && ts.isObjectLiteralExpression(node.initializer)) {
+        out = node.initializer.getText(sf);
+        return;
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+    return out;
+  } catch {
+    return '';
+  }
 }
 
 // Exemptions that measure nothing worth gating: dependencies, outputs, the tests
@@ -292,11 +369,12 @@ function overrideTargetExists(key: string, configPath: string, ctx?: DetectorCon
   return files.some((f) => f.startsWith(root) && m(f.slice(root.length)));
 }
 
-/** Reasons the after-config weakens the gate vs before. */
-function weakenings(before: Thresholds, after: Thresholds, configPath: string, ctx?: DetectorContext): string[] {
+/** Reasons the after-config weakens the gate vs before. `movedElsewhere` excuses a
+ *  removal: the same gate turned up in another config of the changeset. */
+function weakenings(before: Thresholds, after: Thresholds, configPath: string, movedElsewhere: boolean, ctx?: DetectorContext): string[] {
   const out: string[] = [];
   if (before.present && !after.present) {
-    out.push('the coverage threshold gate was removed');
+    if (!movedElsewhere) out.push('the coverage threshold gate was removed');
     return out;
   }
   if (after.opaque && !after.global && after.paths.size === 0) return out; // unreadable, not weakened
@@ -333,23 +411,70 @@ function weakenings(before: Thresholds, after: Thresholds, configPath: string, c
   return out;
 }
 
-/** Denominator narrowings between two JS/TS configs. */
-function narrowings(before: Lists, after: Lists): string[] {
+const globs = (patterns: string[]) => {
+  const ms = patterns.map((g) => {
+    try {
+      return picomatch(norm(g), { dot: true });
+    } catch {
+      return () => false;
+    }
+  });
+  return (p: string) => ms.some((m) => m(p));
+};
+/** micromatch semantics for a glob list with `!` entries. */
+const globList = (patterns: string[]) => {
+  const pos = globs(patterns.filter((g) => !g.startsWith('!')));
+  const neg = globs(patterns.filter((g) => g.startsWith('!')).map((g) => g.slice(1)));
+  return (p: string) => pos(p) && !neg(p);
+};
+
+/** Conventional source layouts, for when no repository listing is available. */
+const CANONICAL_SOURCES = ['src/index.ts', 'src/a.ts', 'src/a.tsx', 'src/lib/b.ts', 'src/index.js', 'src/a.jsx', 'lib/a.js'];
+const NON_SOURCE = /(?:^|\/)(?:dist|build|out|coverage|node_modules|vendor|test|tests|__tests__|__mocks__|__fixtures__|fixtures|mocks|spec|specs|e2e|cypress|playwright|storybook|scripts|examples|docs|bin|types|typings)\/|\.(?:test|spec|stories|d|config|setup)\.|\.d\.ts$/;
+
+/** The JS/TS source files a coverage denominator ranges over: the repository's own,
+ *  relative to the config's directory, or the canonical layouts. */
+function sourceSamples(configPath: string, policy: Policy, ctx?: DetectorContext): string[] {
+  const files = trackedFiles(ctx);
+  if (!files) return CANONICAL_SOURCES;
+  const root = configPath.includes('/') ? configPath.slice(0, configPath.lastIndexOf('/') + 1) : '';
+  const own = files
+    .filter((f) => f.startsWith(root) && langOf(f) === 'js' && !NON_SOURCE.test(f) && !isProtected(f, policy, 'tests') && !isProtected(f, policy, 'config'))
+    .map((f) => f.slice(root.length));
+  return own.length ? own : CANONICAL_SOURCES;
+}
+
+/** Denominator narrowings between two JS/TS configs, over the source files. */
+function narrowings(before: Lists, after: Lists, sources: string[]): string[] {
   const out: string[] = [];
-  if (before.collectFrom && after.collectFrom && !after.opaqueCollect) {
-    const kept = new Set(after.collectFrom);
-    for (const g of before.collectFrom) {
-      if (!g.startsWith('!') && !kept.has(g)) out.push(`collectCoverageFrom no longer measures ${JSON.stringify(g)}`);
+  if (before.collectFrom && after.collectFrom && !after.opaqueCollect && !before.opaqueCollect) {
+    const pb = globList(before.collectFrom);
+    const pa = globList(after.collectFrom);
+    const dropped = sources.filter((s) => pb(s) && !pa(s));
+    if (dropped.length) {
+      const shown = dropped.slice(0, 3).map((d) => JSON.stringify(d)).join(', ');
+      out.push(`${after.collectKey} no longer measures ${shown}${dropped.length > 3 ? ` (+${dropped.length - 3} more)` : ''}`);
     }
     const had = new Set(before.collectFrom);
     for (const g of after.collectFrom) {
-      if (g.startsWith('!') && !had.has(g) && !BENIGN_EXEMPTION.test(g)) out.push(`collectCoverageFrom now exempts ${JSON.stringify(g)}`);
+      // an exemption whose target the listing does not hold (or with no listing at all)
+      if (g.startsWith('!') && !had.has(g) && !BENIGN_EXEMPTION.test(g) && !dropped.some((d) => globs([g.slice(1)])(d))) {
+        out.push(`${after.collectKey} now exempts ${JSON.stringify(g)}`);
+      }
     }
   }
   const had = new Set(before.ignore);
   for (const g of after.ignore) {
     if (!had.has(g) && !BENIGN_EXEMPTION.test(g)) out.push(`coverage now exempts ${JSON.stringify(g)} (coveragePathIgnorePatterns / coverage.exclude)`);
   }
+  return out;
+}
+
+/** The vitest switches: coverage turned off, the per-file gate dropped. */
+function switchWeakenings(before: Switches, after: Switches): string[] {
+  const out: string[] = [];
+  if (before.enabled === true && after.enabled === false) out.push('coverage.enabled switched off — the thresholds are never checked');
+  if (before.perFile === true && after.perFile !== true) out.push('thresholds.perFile removed — a single uncovered file now hides behind the aggregate');
   return out;
 }
 
@@ -361,77 +486,170 @@ interface SimpleKey {
   /** which direction of change weakens the gate */
   weakens: Direction;
 }
-const SIMPLE_FILES: Array<{ file: RegExp; keys: SimpleKey[]; removable: boolean }> = [
+interface SimpleSpec {
+  file: RegExp;
+  keys: SimpleKey[];
+  removable: boolean;
+  /** YAML: numbers are compared within their nearest `project:` / `patch:` scope. */
+  scoped?: boolean;
+}
+const NYC_KEYS: SimpleKey[] = METRICS.map((m) => ({
+  key: new RegExp(`(?:^|[\\s{,])"?${m}"?\\s*[:=]\\s*"?(\\d+(?:\\.\\d+)?)`, 'g'),
+  label: m,
+  weakens: 'lower' as Direction,
+}));
+const COVERAGE_PY = /(?:^|\/)(?:\.coveragerc|pyproject\.toml)$/;
+const CODECOV = /(?:^|\/)\.?codecov\.yml$/;
+const SIMPLE_FILES: SimpleSpec[] = [
   {
     // coverage.py: `fail_under = 90` under [report] (.coveragerc, setup.cfg-style) or
     // [tool.coverage.report] (pyproject.toml)
-    file: /(?:^|\/)(?:\.coveragerc|pyproject\.toml)$/,
+    file: COVERAGE_PY,
     keys: [{ key: /^\s*fail[_-]under\s*=\s*"?(\d+(?:\.\d+)?)/, label: 'fail_under', weakens: 'lower' }],
     removable: true,
   },
   {
     // nyc: .nycrc / .nycrc.json / .nycrc.yml / nyc.config.js — metric thresholds
     file: /(?:^|\/)(?:\.nycrc(?:\.\w+)?|nyc\.config\.\w+)$/,
-    keys: METRICS.map((m) => ({
-      key: new RegExp(`(?:^|[\\s{,])"?${m}"?\\s*[:=]\\s*"?(\\d+(?:\\.\\d+)?)`, 'g'),
-      label: m,
-      weakens: 'lower' as Direction,
-    })),
+    keys: NYC_KEYS,
     removable: false,
   },
   {
-    // codecov: `target: 90%` is the floor (lowering weakens); `threshold: 2%` is the
+    // codecov: `target: 90%` is the floor (lowering weakens; `auto` is a floor that
+    // follows the base commit, lower than any fixed number); `threshold: 2%` is the
     // permitted drop (raising weakens)
-    file: /(?:^|\/)\.?codecov\.yml$/,
+    file: CODECOV,
     keys: [
-      { key: /^\s*target:\s*"?(\d+(?:\.\d+)?)%?/, label: 'target', weakens: 'lower' },
+      { key: /^\s*target:\s*"?(\d+(?:\.\d+)?|auto)\b%?/, label: 'target', weakens: 'lower' },
       { key: /^\s*threshold:\s*"?(\d+(?:\.\d+)?)%?/, label: 'threshold', weakens: 'raise' },
     ],
     removable: false,
+    scoped: true,
   },
 ];
 
-function numbersOf(src: string, key: RegExp): number[] {
-  const out: number[] = [];
+type Num = number | 'auto';
+interface Scoped {
+  v: Num;
+  scope: string;
+}
+const lessThan = (a: Num, b: Num) => (a === 'auto' ? b !== 'auto' : b === 'auto' ? false : a < b);
+const numOf = (s: string): Num => (s === 'auto' ? 'auto' : Number(s));
+
+function numbersOf(src: string, key: RegExp, scoped = false): Scoped[] {
+  const out: Scoped[] = [];
+  const stack: Array<{ ind: number; key: string }> = [];
   for (const line of src.split('\n')) {
+    let scope = '';
+    if (scoped) {
+      const m = line.match(/^(\s*)([\w-]+):/);
+      if (m) {
+        const ind = m[1].length;
+        while (stack.length && stack[stack.length - 1].ind >= ind) stack.pop();
+        stack.push({ ind, key: m[2] });
+      }
+      scope = [...stack.slice(0, -1)].reverse().find((s) => /^(?:project|patch|changes)$/.test(s.key))?.key ?? '';
+    }
     if (key.global) {
-      for (const m of line.matchAll(key)) out.push(Number(m[1])); // one-line JSON carries several
+      for (const m of line.matchAll(key)) out.push({ v: numOf(m[1]), scope }); // one-line JSON carries several
     } else {
       const m = line.match(key);
-      if (m) out.push(Number(m[1]));
+      if (m) out.push({ v: numOf(m[1]), scope });
     }
   }
   return out;
 }
 
-/** Weakenings of a simple key: value gate. Several occurrences (codecov project +
- *  patch, nyc per-metric) are compared as sorted lists, so a lowered one is seen
- *  whichever position it holds and a re-ordering is not a change. */
-function simpleWeakenings(path: string, before: string, after: string): string[] {
+/** Weakenings of a simple key: value gate. Several occurrences (nyc per-metric) are
+ *  compared as sorted lists, so a lowered one is seen whichever position it holds
+ *  and a re-ordering is not a change; codecov's are compared within their
+ *  `project:` / `patch:` scope, so the evidence names the number that moved. */
+function simpleWeakeningsOf(spec: SimpleSpec, before: string, after: string): string[] {
   const out: string[] = [];
-  const spec = SIMPLE_FILES.find((s) => s.file.test(path));
-  if (!spec) return out;
   for (const k of spec.keys) {
-    const b = numbersOf(before, k.key).sort((x, y) => y - x);
-    const a = numbersOf(after, k.key).sort((x, y) => y - x);
-    if (b.length === 0) continue;
-    if (a.length === 0) {
-      if (spec.removable) out.push(`${k.label} removed (was ${b.join(', ')})`);
-      continue;
-    }
-    if (k.weakens === 'lower') {
-      for (let i = 0; i < b.length; i++) {
-        const av = a[Math.min(i, a.length - 1)];
-        if (av < b[i]) {
-          out.push(`${k.label} lowered ${b[i]} → ${av}`);
-          break;
-        }
+    const bAll = numbersOf(before, k.key, spec.scoped);
+    const aAll = numbersOf(after, k.key, spec.scoped);
+    const scopes = [...new Set(bAll.map((n) => n.scope))];
+    for (const scope of scopes) {
+      const label = scope ? `${scope} ${k.label}` : k.label;
+      const desc = (x: Num, y: Num) => (x === 'auto' ? -1 : y === 'auto' ? 1 : lessThan(x, y) ? 1 : lessThan(y, x) ? -1 : 0);
+      const b = bAll.filter((n) => n.scope === scope).map((n) => n.v).sort(desc);
+      const a = aAll.filter((n) => n.scope === scope).map((n) => n.v).sort(desc);
+      if (b.length === 0) continue;
+      if (a.length === 0) {
+        if (spec.removable) out.push(`${label} removed (was ${b.join(', ')})`);
+        continue;
       }
-    } else {
-      const bMax = b[0];
-      const aMax = a[0];
-      if (aMax > bMax) out.push(`${k.label} raised ${bMax} → ${aMax} (a wider permitted drop)`);
+      if (k.weakens === 'lower') {
+        for (let i = 0; i < b.length; i++) {
+          const av = a[Math.min(i, a.length - 1)];
+          if (lessThan(av, b[i])) {
+            out.push(`${label} lowered ${b[i]} → ${av}`);
+            break;
+          }
+        }
+      } else {
+        const bMax = b[0];
+        const aMax = a[0];
+        if (lessThan(bMax, aMax)) out.push(`${label} raised ${bMax} → ${aMax} (a wider permitted drop)`);
+      }
     }
+  }
+  return out;
+}
+
+/** Entries of a list-valued key in an ini/toml/yaml file: `omit = a, b` with indented
+ *  continuation lines, `omit = ["a", "b"]`, or a yaml block list under `ignore:`. */
+function listEntries(src: string, key: RegExp): string[] {
+  const out: string[] = [];
+  const lines = src.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(key);
+    if (!m) continue;
+    let rest = m[1] ?? '';
+    let j = i + 1;
+    if (rest.trim().startsWith('[') && !rest.includes(']')) {
+      while (j < lines.length && !lines[j].includes(']')) rest += ',' + lines[j++];
+      if (j < lines.length) rest += ',' + lines[j];
+    } else if (rest.trim() === '') {
+      while (j < lines.length && /^\s+(?:-\s+)?\S/.test(lines[j])) rest += ',' + lines[j++].replace(/^\s*-\s+/, '');
+    }
+    for (const e of rest.replace(/[[\]]/g, '').split(',')) {
+      const v = e.trim().replace(/^(['"])(.*)\1$/, '$2');
+      if (v) out.push(v);
+    }
+  }
+  return out;
+}
+
+/** Denominator narrowings in the simple runners: coverage.py `omit`, codecov `ignore`. */
+function simpleNarrowings(path: string, before: string, after: string): string[] {
+  const out: string[] = [];
+  const spec: Array<[RegExp, RegExp, string]> = [
+    [COVERAGE_PY, /^\s*omit\s*=\s*(.*)$/, 'omit now exempts'],
+    [CODECOV, /^ignore:\s*(.*)$/, 'codecov now ignores'],
+  ];
+  for (const [file, key, what] of spec) {
+    if (!file.test(path)) continue;
+    const had = new Set(listEntries(before, key));
+    for (const e of listEntries(after, key)) if (!had.has(e) && !BENIGN_EXEMPTION.test(e)) out.push(`${what} ${JSON.stringify(e)}`);
+  }
+  if (CODECOV.test(path)) {
+    const off = (s: string) => new Set(s.split('\n').map((l) => l.match(/^\s*(project|patch):\s*off\b/)?.[1]).filter((x): x is string => !!x));
+    const had = off(before);
+    for (const s of off(after)) if (!had.has(s)) out.push(`codecov status.${s} switched off`);
+  }
+  return out;
+}
+
+function simpleWeakenings(path: string, before: string, after: string): string[] {
+  const spec = SIMPLE_FILES.find((s) => s.file.test(path));
+  const out = spec ? simpleWeakeningsOf(spec, before, after) : [];
+  // nyc's thresholds also live under package.json's `nyc` key
+  if ((path.split('/').pop() ?? path) === 'package.json') {
+    const b = sectionText(before, 'nyc');
+    const a = sectionText(after, 'nyc');
+    if (b && a) out.push(...simpleWeakeningsOf({ file: /./, keys: NYC_KEYS, removable: false }, b, a).map((r) => `nyc ${r}`));
   }
   return out;
 }
@@ -477,6 +695,39 @@ const SWITCHES: Array<{ re: RegExp; message: string; remediation: string }> = [
 
 const isJsConfig = (path: string) => /\.(?:[cm]?[jt]sx?|json)$/.test(path);
 
+/** Whether a gate this config used to carry appears, at least as strict, in another
+ *  config of the same changeset — a MOVE (`.coveragerc` → `pyproject.toml`,
+ *  `jest.config.js` → package.json), not a removal. */
+function gateMovedElsewhere(c: FileChange, changes: Change[], policy: Policy): boolean {
+  const before = c.before ?? '';
+  const others = changes.filter((o): o is FileChange => o.kind === 'file' && o !== c && o.after != null && isProtected(o.path, policy, 'config'));
+  if (isJsConfig(c.path)) {
+    const was = parseThresholds(before);
+    if (!was.present) return false;
+    return others.some((o) => {
+      if (!isJsConfig(o.path)) return false;
+      const now = parseThresholds(o.after!);
+      if (!now.present) return false;
+      if (now.opaque) return true;
+      return METRICS.every((m) => {
+        const bv = was.global?.values[m];
+        const av = now.global?.values[m];
+        return bv === undefined || (av !== undefined && av >= bv);
+      });
+    });
+  }
+  const spec = SIMPLE_FILES.find((s) => s.file.test(c.path));
+  if (!spec) return false;
+  return spec.keys.every((k) => {
+    const b = numbersOf(before, k.key, spec.scoped).map((n) => n.v);
+    if (b.length === 0) return true;
+    return others.some((o) => {
+      const a = numbersOf(o.after!, k.key, spec.scoped).map((n) => n.v);
+      return a.length > 0 && b.every((bv) => a.some((av) => (k.weakens === 'lower' ? !lessThan(av, bv) : !lessThan(bv, av))));
+    });
+  });
+}
+
 export const coverageLowering: Detector = {
   id: RULE,
   surface: ['file'],
@@ -491,10 +742,15 @@ export const coverageLowering: Detector = {
       if (c.after != null && c.op !== 'delete') {
         const reasons: string[] = [];
         if (isJsConfig(c.path)) {
-          reasons.push(...weakenings(parseThresholds(c.before ?? ''), parseThresholds(c.after), c.path, ctx));
-          reasons.push(...narrowings(parseLists(c.before ?? ''), parseLists(c.after)));
+          const moved = () => gateMovedElsewhere(c, changes, policy);
+          const b = parseThresholds(c.before ?? '');
+          const a = parseThresholds(c.after);
+          reasons.push(...weakenings(b, a, c.path, b.present && !a.present && moved(), ctx));
+          reasons.push(...narrowings(parseLists(c.before ?? ''), parseLists(c.after), sourceSamples(c.path, policy, ctx)));
+          reasons.push(...switchWeakenings(parseSwitches(c.before ?? ''), parseSwitches(c.after)));
         }
         reasons.push(...simpleWeakenings(c.path, c.before ?? '', c.after));
+        reasons.push(...simpleNarrowings(c.path, c.before ?? '', c.after));
         for (const reason of reasons) {
           out.push(
             makeFinding(RULE, policy, {
@@ -510,7 +766,7 @@ export const coverageLowering: Detector = {
         const gated = isJsConfig(c.path)
           ? parseThresholds(before).present
           : simpleWeakenings(c.path, before, '').length > 0 || SIMPLE_FILES.some((s) => s.file.test(c.path) && s.keys.some((k) => numbersOf(before, k.key).length));
-        if (gated) {
+        if (gated && !gateMovedElsewhere(c, changes, policy)) {
           out.push(
             makeFinding(RULE, policy, {
               file: c.path,

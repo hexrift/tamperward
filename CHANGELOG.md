@@ -5,6 +5,54 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.6.0] — 2026-09-02
+
+**Every dial of the selection predicate is modelled, the CI expression folder
+short-circuits the way GitHub does, and the coverage denominator is compared
+as a predicate. From the adversarial pass over 2.5.0. A minor: these rules
+now fire on config keys they previously passed.**
+
+### Added
+
+- **test-deletion reads the rest of the runner's selection.** jest `roots`,
+  `rootDir`, `modulePathIgnorePatterns` and `projects`; vitest `test.dir`,
+  a `!` negation inside `include`, `test.projects` and `vitest.workspace.*`
+  (evaluated as the union of project predicates; a project named by path
+  makes the config opaque and silent); `vite.config.*` carrying a `test:`
+  key is a vitest config; `typecheck.*`, `benchmark.*` and `coverage.*`
+  under `test` no longer collide with `test.include`. Runner flags added to
+  a `package.json` test script (`--testPathPattern`, `-t`, `--exclude`,
+  `--dir`, `--project`) are narrowing. `git checkout <rev> <path>` without
+  `--`, `git checkout <rev> -- .`, and `rm -rf .` / `*` / a `..`-containing
+  token from the repo root are erasures. `describe.each` rows multiply the
+  enclosed tests; rows dropped from a table that stays open are counted;
+  only an added block with a significant body counts toward relocation, so
+  a stub `it("noop", () => {})` no longer excuses a deletion.
+- **coverage-lowering reads vitest's denominator and switches:**
+  `coverage.include` narrowed, `coverage.enabled` off, `thresholds.perFile`
+  removed; `.coveragerc [run] omit`, codecov `target: auto` / `project: off`
+  / `ignore:`, and nyc thresholds inside `package.json`. The patch-threshold
+  evidence reports the numbers it saw.
+- **ci-tampering folds `&&` and `||` the way GitHub does**: `<ctx> && false`
+  is always false and `<ctx> || true` always truthy, so
+  `if: ${{ github.event_name == 'push' && false }}` and
+  `continue-on-error: ${{ <ctx> || true }}` are reported; anything whose value
+  depends on the unknown side stays reachable. `on.<event>.paths:` that cannot
+  match source and `pull_request.types:` replacing the defaults are trigger
+  narrowing; a path-shaped positional after `--` (`npm test -- test/a.test.ts`)
+  is narrowing; `timeout 1 npm test` reports as neutralised.
+
+### Fixed
+
+- **Routine work that blocked:** a check moved into a reusable workflow added
+  in the same change; a job-level `if: false` on a job with no check step;
+  `npm test` → `npm run test:ci` or `npx vitest run` (a respelling, not a
+  removal); `.coveragerc` → `pyproject.toml` carrying the same `fail_under`;
+  `collectCoverageFrom` `src/**` → `src/**/*.{ts,tsx}` (compared over tracked
+  source, not entry by entry); a jest ignore of a `fixtures/` directory;
+  vitest `typecheck.exclude` read as a test exclude; `branches: [main]` →
+  `[master]` when the default branch is unknown.
+
 ## [2.5.1] — 2026-09-02
 
 **A protected file created where git will not list it is judged, never

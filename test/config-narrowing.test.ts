@@ -101,10 +101,11 @@ describe('test-deletion — the runner is told not to open the spec', () => {
     expect(msgs(testDeletion, [diffed('vitest.config.ts', vitest(''), vitest("  exclude: [...configDefaults.exclude, 'e2e/**'],"))], repo)).toHaveLength(0);
   });
 
-  it('a multi-project jest config is opaque, never claimed', () => {
+  it('a multi-project jest config is the UNION of its projects: a spec some project still selects is kept', () => {
     const before = jest('  projects: [{ testMatch: ["**/*.test.ts"] }, { testMatch: ["**/*.spec.ts"] }],');
     const after = jest('  projects: [{ testMatch: ["**/*.test.ts"] }, { testMatch: ["**/nothing.ts"] }],');
-    expect(msgs(testDeletion, [diffed('jest.config.js', before, after)], repo)).toHaveLength(0);
+    expect(msgs(testDeletion, [diffed('jest.config.js', before, after)], repo)).toHaveLength(0); // no .spec.ts in this repo
+    expect(msgs(testDeletion, [diffed('jest.config.js', before, after)], { trackedFiles: ['test/a.spec.ts', 'test/b.test.ts'] })).toHaveLength(1);
   });
 
   it('without a repository listing the canonical layouts stand in', () => {

@@ -42,11 +42,13 @@ const MIN_REMOVED_ROWS = 2;
 
 const ws = (s: string): string => s.replace(/\s+/g, '');
 
-/** The significant lines of every literal `it.each([...])`/`test.each([...])`/
- *  `describe.each([...])` table in a JS/TS spec, and whether any table is open
- *  (spread or non-literal — its rows may have moved to another file). */
-function eachTables(src: string, path: string): { rows: Set<string>; open: boolean } {
-  const rows = new Set<string>();
+/** The rows of every literal `it.each([...])`/`test.each([...])`/`describe.each([...])`
+ *  table in a JS/TS spec — each element's whitespace-stripped text, mapped to its
+ *  source spelling for the evidence line — and whether any table is open (spread or
+ *  non-literal — its rows may have moved to another file). A row is an element, not
+ *  a line: `[2,2,4]` on a one-line table is a test as much as a multi-line object. */
+function eachTables(src: string, path: string): { rows: Map<string, string>; open: boolean } {
+  const rows = new Map<string, string>();
   let open = false;
   if (langOf(path) !== 'js' && langOf(path) !== null) return { rows, open };
   try {
@@ -66,10 +68,9 @@ function eachTables(src: string, path: string): { rows: Set<string>; open: boole
               open = true;
               continue;
             }
-            for (const raw of el.getText(sf).split('\n')) {
-              const l = raw.trim().replace(/,$/, '');
-              if (isSignificantLine(l, 'js')) rows.add(l);
-            }
+            const text = el.getText(sf).replace(/\s*\n\s*/g, ' ');
+            const key = ws(text);
+            if (key.length >= 3) rows.set(key, text);
           }
         } else open = true;
       }
@@ -149,19 +150,23 @@ export const testContentRemoval: Detector = {
         gone.push(line);
       }
 
-      // Rows gone from an each-table whose after-shape is open: the block count
-      // could not compare them, and a lengthened `it.each([...rows,` line hides
-      // them from the net count. Excused only if they reappear in the changeset.
+      // Rows gone from an each-table whose after-shape is open — spread from
+      // elsewhere, or a table that was open before and stays open with fewer
+      // explicit rows: the block count could not compare them, and a lengthened
+      // `it.each([...rows,` line (or a one-line table) hides them from the net
+      // count. Compared as ELEMENTS, not lines; excused only if they reappear in
+      // the changeset.
       const table = eachTables(c.before, c.path);
+      const tableAfter = eachTables(c.after, c.path);
       const goneRows =
-        table.rows.size && eachTables(c.after, c.path).open
-          ? gone.filter((l) => table.rows.has(l.replace(/,$/, '')) && !addedPool.includes(ws(l)))
+        table.rows.size && tableAfter.open
+          ? [...table.rows].filter(([k]) => !tableAfter.rows.has(k) && !addedPool.includes(k)).map(([, text]) => text)
           : [];
       if (goneRows.length >= MIN_REMOVED_ROWS) {
         out.push(
           makeFinding(RULE, policy, {
             file: c.path,
-            message: `Rows removed from a test table: ${goneRows.length} case(s) gone from an each-table that now spreads from elsewhere, and they reappear nowhere in the change.`,
+            message: `Rows removed from a test table: ${goneRows.length} case(s) gone from an each-table that spreads from elsewhere, and they reappear nowhere in the change.`,
             evidence: goneRows.slice(0, 3).map((l) => l.slice(0, 80)).join(' | '),
             remediation:
               'Fix the code under test. A row of it.each is a test; moving the table out of the spec must carry every row with it.',
