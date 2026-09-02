@@ -22,7 +22,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { Finding, Policy } from '../types';
 import { isProtected } from '../policy';
-import { makeFinding } from './finding';
+import { isEnabled, makeFinding } from './finding';
 import type { FsEvent } from '../cli/watch';
 
 const RULE = 'transient-protected-mutation';
@@ -65,6 +65,8 @@ export function transientFindings(
   policy: Policy,
   finalHash: (path: string) => string | null,
 ): Finding[] {
+  // This rule runs outside the engine, so the engine's enabled check never saw it.
+  if (!isEnabled(RULE, policy)) return [];
   const byPath = new Map<string, FsEvent[]>();
   for (const e of events) {
     if (!isProtected(e.path, policy)) continue;

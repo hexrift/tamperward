@@ -21,7 +21,7 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { Policy } from './types';
 import { isProtected } from './policy';
@@ -37,9 +37,21 @@ export type PTree = Record<string, PEntry>;
 const UNSAFE = /[^A-Za-z0-9._-]/g;
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.hg', '.svn']);
 
+/** The ABSOLUTE git directory. `rev-parse --git-dir` answers `.git` from the
+ *  top of an ordinary checkout and an absolute path from anywhere else — a
+ *  subdirectory, a linked `git worktree`, a `.git` file. `join(cwd, gd)` on the
+ *  absolute form produced `<cwd>/<absolute path>`, and `mkdirSync` then created
+ *  that whole tree INSIDE the working tree: a Claude Code session in a worktree
+ *  wrote its effect state to `<worktree>/tmp/.../main/.git/worktrees/x/…`. */
 function gitDir(cwd: string): string | null {
   try {
-    return execFileSync('git', ['rev-parse', '--git-dir'], { cwd, encoding: 'utf8' }).trim();
+    const d = execFileSync('git', ['rev-parse', '--git-dir'], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    if (!d) return null;
+    return isAbsolute(d) ? d : join(cwd, d);
   } catch {
     return null;
   }
@@ -49,7 +61,7 @@ export function ptreePath(cwd: string, sessionId?: string): string | null {
   if (!sessionId) return null;
   const gd = gitDir(cwd);
   if (!gd) return null;
-  const dir = join(cwd, gd, 'tamperward');
+  const dir = join(gd, 'tamperward');
   return join(dir, `ptree-${sessionId.replace(UNSAFE, '')}.json`);
 }
 

@@ -12,8 +12,24 @@ import { Change, Detector, Finding } from '../types';
 import { isProtected } from '../policy';
 import { makeFinding } from './finding';
 import { segments, tokens, unquote } from './command';
+import { Lang, isSignificantLine, langOf } from './files';
 
 const RULE = 'test-deletion';
+
+// Test definitions per language, for the block count. The TS AST does the
+// JavaScript case; these are the equivalent definition sites elsewhere, matched
+// at line start where each ecosystem's convention puts them. Counting the same
+// way on both sides is what matters: a definition that disappears is a deletion.
+const TEST_DEFS: Record<Exclude<Lang, 'js'>, RegExp> = {
+  py: /^\s*(?:async\s+)?def\s+test\w*\s*\(/,
+  go: /^func\s+(?:Test|Example|Fuzz)\w*\s*\(/,
+  rs: /^\s*#\[[\w:]*test[\w:]*(?:\(|\])/,
+  rb: /^\s*(?:(?:it|specify|test|scenario|example)\s*(?:\(\s*)?['"]|def\s+test_\w+)/,
+  java: /^\s*@(?:Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate)\b/,
+  kt: /^\s*@(?:Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate)\b/,
+  php: /^\s*(?:(?:public\s+)?function\s+test\w*\s*\(|#\[Test\]|\*\s*@test\b)/,
+  cs: /^\s*\[(?:Fact|Theory|Test|TestMethod|TestCase|DataTestMethod)\b/,
+};
 
 function calleeName(expr: ts.Expression): string | null {
   if (ts.isIdentifier(expr)) return expr.text; // it(...)
@@ -26,8 +42,16 @@ function calleeName(expr: ts.Expression): string | null {
   return null;
 }
 
-/** Count it()/test() invocations via the AST — skips/onlys still count as present. */
-export function countTestBlocks(src: string): number {
+/** Count test definitions — it()/test() via the AST for JS/TS, the language's own
+ *  definition sites otherwise. Skips/onlys still count as present. */
+export function countTestBlocks(src: string, path = 'spec.ts'): number {
+  const lang = langOf(path);
+  if (lang && lang !== 'js') {
+    const re = TEST_DEFS[lang];
+    let n = 0;
+    for (const line of src.split('\n')) if (re.test(line)) n++;
+    return n;
+  }
   const sf = ts.createSourceFile('spec.ts', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   let n = 0;
   const visit = (node: ts.Node): void => {
@@ -45,11 +69,12 @@ export function countTestBlocks(src: string): number {
  *  Used to detect a RELOCATION: a deleted test whose content reappears in a test file ADDED in
  *  the same changeset is a move, not a tamper (multi-repo FP study: hono#59, nest#25 were real
  *  relocations git didn't link). Line-overlap resists the empty-stub dodge (a stub shares ~none). */
-function significantLines(src: string): Set<string> {
+function significantLines(src: string, path: string): Set<string> {
   const out = new Set<string>();
+  const lang = langOf(path);
   for (const raw of src.split('\n')) {
     const l = raw.trim();
-    if (l.length >= 10 && !/^(import\b|export\s|\/\/|\*|\/\*|}\)?;?$)/.test(l)) out.add(l);
+    if (isSignificantLine(l, lang)) out.add(l);
   }
   return out;
 }
@@ -66,18 +91,18 @@ export const testDeletion: Detector = {
     let addedTestBlocks = 0;
     for (const c of changes) {
       if (c.kind === 'file' && c.op === 'add' && c.after != null && isProtected(c.path, policy, 'tests')) {
-        for (const l of significantLines(c.after)) addedTestLines.add(l);
-        addedTestBlocks += countTestBlocks(c.after);
+        for (const l of significantLines(c.after, c.path)) addedTestLines.add(l);
+        addedTestBlocks += countTestBlocks(c.after, c.path);
       }
     }
-    const isRelocation = (before: string): boolean => {
-      const sig = significantLines(before);
+    const isRelocation = (before: string, path: string): boolean => {
+      const sig = significantLines(before, path);
       if (sig.size === 0 || addedTestLines.size === 0) return false;
       let hit = 0;
       for (const l of sig) if (addedTestLines.has(l)) hit++;
       // ≥60% of the deleted test's body reappears in added tests AND no blocks were dropped in
       // the move (the block-count guard stops a "move that guts assertions" from being excused).
-      return hit / sig.size >= 0.6 && addedTestBlocks >= countTestBlocks(before);
+      return hit / sig.size >= 0.6 && addedTestBlocks >= countTestBlocks(before, path);
     };
 
     for (const c of changes) {
@@ -85,7 +110,7 @@ export const testDeletion: Detector = {
         const isTest = isProtected(c.path, policy, 'tests');
 
         if (c.op === 'delete' && isTest) {
-          if (c.before != null && isRelocation(c.before)) continue; // moved, not deleted
+          if (c.before != null && isRelocation(c.before, c.path)) continue; // moved, not deleted
           out.push(
             makeFinding(RULE, policy, {
               file: c.path,
@@ -115,8 +140,8 @@ export const testDeletion: Detector = {
           // arbitrary block deletion past the rule: git -M links the pair, the
           // rename-out branch above does not fire (the new path is still a test),
           // and nothing compared the bodies. (P0-7, external review.)
-          const before = countTestBlocks(c.before);
-          const after = countTestBlocks(c.after);
+          const before = countTestBlocks(c.before, c.path);
+          const after = countTestBlocks(c.after, c.path);
           if (after < before) {
             out.push(
               makeFinding(RULE, policy, {
