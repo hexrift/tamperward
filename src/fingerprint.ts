@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, readlinkSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { inspectRel } from './disk';
 import { trustedGitEnv } from './git/trusted';
 
 /** Content fingerprint of every non-ignored file (tracked + untracked).
@@ -34,11 +35,9 @@ export function treeFingerprint(cwd: string): string {
   for (const rel of files) {
     h.update(rel);
     h.update('\0');
-    try {
-      h.update(readFileSync(join(cwd, rel)));
-    } catch {
-      h.update('<unreadable>');
-    }
+    // As git would record it: a link is its target text, never followed (a tracked
+    // link to a device is a fingerprint, not a read that never returns).
+    h.update(inspectRel(cwd, rel).content ?? '<unreadable>');
     h.update('\0');
   }
   return h.digest('hex');

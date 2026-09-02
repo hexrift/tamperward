@@ -22,6 +22,7 @@
 // authority; CI is the authority.
 
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, statSync, watch } from 'node:fs';
+import { inspectPath } from '../disk';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { loadPolicy } from '../policy-load';
@@ -41,14 +42,13 @@ export interface FsEvent {
 const SKIP = /(^|\/)(\.git|node_modules)(\/|$)/;
 
 function snap(abs: string): Pick<FsEvent, 'mode' | 'size' | 'hash'> {
-  try {
-    const st = statSync(abs);
-    if (!st.isFile()) return { mode: st.mode, size: null, hash: null };
-    const hash = createHash('sha256').update(readFileSync(abs)).digest('hex').slice(0, 16);
-    return { mode: st.mode, size: st.size, hash };
-  } catch {
-    return { mode: null, size: null, hash: null }; // deleted / transiently absent
-  }
+  // Never follows a link and never reads past the cap (src/disk.ts): a protected
+  // path linked to a device would otherwise hold the watcher, not just one hook call.
+  const e = inspectPath(abs);
+  if (e.kind === 'absent' || e.kind === 'unreadable') return { mode: null, size: null, hash: null }; // deleted / transiently absent
+  if (e.kind !== 'file' || e.content == null) return { mode: e.mode, size: null, hash: null };
+  const hash = createHash('sha256').update(e.content).digest('hex').slice(0, 16);
+  return { mode: e.mode, size: e.size, hash };
 }
 
 /** The event log lives in the repository's git directory, wherever that is: in

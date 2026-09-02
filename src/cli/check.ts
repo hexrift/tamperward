@@ -7,6 +7,7 @@ import { diffRange, diffStaged, diffWorktree, diffWorktreeWithUntracked, isGitRe
 import { evaluate, hasBlocking, isSuppressed } from '../engine';
 import { loadPolicy, loadPolicyAt, PolicyError } from '../policy-load';
 import { defaultPolicy, isProtected } from '../policy';
+import { unjudgeableProtected } from '../disk';
 import { applyLocalSignoffs, applyOobSignoffs, oobFromEnv, oobHeadFromEnv } from '../signoff';
 import { Format, report } from './report';
 
@@ -87,6 +88,12 @@ function check(opts: CheckOpts): number {
 
   const ignoredFiles = changes.filter((c) => isSuppressed(c, policy)).length;
   let findings = evaluate(changes, policy, undefined, view, { cwd });
+  // The worktree view reads the disk, and a protected path the gate cannot judge
+  // by content — a symbolic link, a FIFO, a device, a file past the read cap —
+  // is blocked by name (`hidden-drift`, outside the policy's reach) rather than
+  // passed on whatever content the view could carry for it. The range and staged
+  // views read git objects only, which are always content.
+  if (view === 'worktree') findings = findings.concat(unjudgeableProtected(cwd, policy, changes));
 
   // Sign-off, per layer. LOCAL consults the (fingerprint-bound) ledger; CI honors ONLY an
   // out-of-band approval surfaced via env, never the committed ledger.
