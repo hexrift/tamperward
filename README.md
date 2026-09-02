@@ -43,7 +43,7 @@ Earlier controlled experiments → **[the research series](./docs/blog/index.md)
 
 > **Scope.** The rows above are one model, one pressure prompt, one JS/TS
 > ecosystem — evidence for that setting, not a universal claim. Round 2 tested
-> the v1.9.0 stack; the current **v1.14.1** adds post-study envelope hardening
+> the v1.9.0 stack; the current **v1.14.3** adds post-study envelope hardening
 > (externally reviewed, with findings tracked individually as REPRO or AUDIT in
 > [SECURITY-ENVELOPE.md](./SECURITY-ENVELOPE.md) and closed with regression and
 > mutation checks — see [CHANGELOG](./CHANGELOG.md)). Rounds 3 and 3.1 are
@@ -53,74 +53,119 @@ Earlier controlled experiments → **[the research series](./docs/blog/index.md)
 > and 3.1 all ran on a verifier carrying it. No evidence any agent used it; the
 > layer's authority in those rounds was nonetheless weaker than described at the
 > time. Round 4 is the fresh pool.
-> No round-3 outcomes are included in the claims above.
 
 ## Architecture
 
-The final envelope adjudication is anchored to state recorded before the agent
-starts; the in-loop hooks read the live tree and remain steering controls. The
-final adjudication boundary sits outside the agent's normal lifecycle.
+Tamperward separates **steering** from **adjudication**.
 
-```
-      RECORDED AT ENVELOPE ENTRY:
-      entry SHA · frozen policy · frozen verifier command/budget · dependency fingerprint
-                                    │
-      ┌─────────────────────────────┴───────────────────────────────┐
-      │  agent loop (Claude Code hooks today)                       │
-      │    PreToolUse gate: every proposed Edit/Write/Bash judged;  │
-      │    known weakening DENIED before the tool runs              │
-      │                          │                                  │
-      │  working tree            ▼                                  │
-      │    effect observation: per-call protected-tree drift check  │
-      │    + filesystem-event observer (`tamperward watch`)         │
-      │                          │                                  │
-      │  Stop sweep              ▼                                  │
-      │    end-of-turn net diff re-checked; transient protected     │
-      │    mutations judged from the event log                      │
-      │                          │                                  │
-      │  pristine verification   ▼   (`tamperward verify`)          │
-      │    suite runs twice in separate copies: the candidate tree  │
-      │    as-is, and with protected tests/snapshots/config         │
-      │    restored from the trusted base; visible-green +          │
-      │    pristine-red = MASKED FAILURE                            │
-      └─────────────────────────────┬───────────────────────────────┘
-                                    │  agent runtime exits — exit code NOT trusted
-                                    ▼
-      `tamperward run -- <agent…>` — the outer envelope
-        policy + verifier resolved from the entry state, never the tree
-        the agent wrote · post-agent HEAD must descend from the entry
-        SHA · policy check over base...HEAD (committed weakening) and
-        over the worktree incl. untracked files (uncommitted) ·
-        dependency-tree fingerprint compared · quiescence guard ·
-        pristine verify against the entry base · exit 1 on any blocking
-        finding or masked failure · exit 2 (fail closed) when
-        adjudication is impossible
-                                    │
-                                    ▼
-      pre-commit backstop: `tamperward check --staged`
-                                    │
-                                    ▼
-      PR CI: `check --diff base...head` + `verify --require-ancestor`
-        policy read from the merge-base — a PR cannot govern its own verdict
-                                    │
-                                    ▼
-      out-of-band human exception only: PR label
-      `tamperward:allow:<rule>@<head-sha>` — SHA-bound, applied by a human
-      with write access, never a file the branch can commit
-                                    │
-                                    ▼
-      protected main
+> **Core invariant:** the agent may author the candidate tree, but it must not
+> choose the trusted baseline, the governing policy, the verifier, or the final
+> verdict.
+
+| plane | mechanism | role |
+| --- | --- | --- |
+| **In-loop steering** | Claude Code `PreToolUse`, protected-tree drift checks, the `Stop` sweep, and optional filesystem-event observation | Immediate corrective feedback. Not the final authority. |
+| **Local adjudication** | `tamperward run -- <agent…>` | Wraps the runtime and independently judges the tree it leaves behind. |
+| **Commit backstop** | `tamperward check --staged` | Catches human changes, and agents without supported hooks. |
+| **Repository authority** | Required PR checks plus branch protection | Decides what may reach the protected branch. |
+
+| layer | the question it answers |
+| --- | --- |
+| **Change semantics** | Does a proposed or recorded change match a known weakening class? (PreToolUse deny, staged diff, range diff) |
+| **Effect** | What did the protected state actually become, however the mutation arrived? (drift check, fs-event observer, Stop sweep) |
+| **Outcome** | Does the candidate still pass when protected verification state from the base is restored? (pristine verification — no diff interpreted at all) |
+| **Authority** | Where is the final verdict rendered, and what assumptions make it authoritative? (run envelope, CI, SHA-bound human sign-off) |
+
+### The local enforcement envelope
+
+```mermaid
+flowchart TB
+    subgraph R["tamperward run — outer enforcement envelope"]
+        E["Capture entry state"]
+        subgraph U["Agent-controlled lifecycle"]
+            H["In-loop steering hooks"]
+            A["Agent runtime"]
+            W["Candidate HEAD and worktree"]
+            H -.-> A
+            A --> W
+        end
+        J["Post-exit adjudication"]
+        C["Committed and worktree checks"]
+        V["Visible and pristine verification"]
+        Q["Ancestry, dependency drift, quiescence"]
+        X["Final exit verdict"]
+        E --> A
+        E --> J
+        W --> J
+        J --> C
+        J --> V
+        J --> Q
+        C --> X
+        V --> X
+        Q --> X
+    end
 ```
 
-CI is the final authority in this design, and that authority is conditional on
-the deployment assumptions documented in
-[docs/guide/enforcement.md](./docs/guide/enforcement.md) and
-[SPEC.md](./SPEC.md): verification is anchored to a base the agent cannot
-rewrite (a protected branch), the repository's branch protection actually
-enforces the workflow's verdict on merges, and sign-off labels can only be
-applied by humans with write access. Mechanisms, residuals, and what is
-explicitly outside the trust boundary: [SPEC.md](./SPEC.md) and
-[SECURITY-ENVELOPE.md](./SECURITY-ENVELOPE.md).
+Before starting the agent, the envelope
+
+1. records the exact entry commit;
+2. loads the policy and the verifier command and budget from that commit;
+3. records the installed `node_modules` content fingerprint, where one exists; and
+4. refuses an already-dirty tree unless the operator explicitly accepts the risk.
+
+The hooks then steer the agent while it works: they read live state, deny known
+weakening operations, detect protected-tree drift, and sweep the turn's net
+changes. The `Stop` hook runs that sweep — it does **not** invoke `verify`.
+`tamperward watch` can additionally record transient mutations, but it is an
+optional observer that `init` neither starts nor supervises, and it is not an
+enforcement boundary.
+
+After the runtime exits its exit code is treated as untrusted, and the envelope
+checks that post-agent `HEAD` still descends from the entry commit; the committed
+changes over `entry...HEAD`; staged, unstaged and untracked non-ignored worktree
+changes; dependency drift and whether the tree stayed quiescent; and the
+verification outcome.
+
+`tamperward verify` materialises two temporary copies — they are **not
+sandboxes**, and both execute agent-controlled code. The visible copy runs the
+candidate as-is. In the pristine copy, files on the protected overlay classes and
+on a separate enumerated **verification surface** (the configuration a test runner
+auto-consults) are restored from the trusted base, and agent-added files on those
+surfaces are removed. That surface list deliberately **bounds** runner-configuration
+inheritance rather than eliminating it — see
+[docs/THREAT-MODEL-pristine-run.md](./docs/THREAT-MODEL-pristine-run.md).
+
+Visible green followed by pristine red is a `MASKED_FAILURE`. Two green runs
+establish only that the candidate passes the base suite; they establish neither
+semantic correctness nor a substitute for independent held-out tests.
+
+| result | envelope behaviour |
+| --- | --- |
+| Enforcement clean and agent exits 0 | exit 0 |
+| Blocking finding, masked failure, dependency drift, or non-quiescent tree | exit 1 |
+| Required adjudication cannot be completed | exit 2, failing closed |
+| Enforcement clean but the agent failed | the agent's non-zero exit is preserved |
+
+### CI authority
+
+Pre-commit is an early backstop; protected CI is the merge authority. CI runs, independently:
+
+1. `check --diff base...head`, with policy from the trusted merge-base; and
+2. `verify --require-ancestor --base <base-sha>`, which since **1.14.3** also reads
+   its policy, verification surface and verifier command and budget from that same
+   trusted base — so neither job's verdict is governed by the candidate.
+
+Legitimate exceptions are out-of-band PR labels bound to the exact head SHA; a new
+push invalidates the approval.
+
+This guarantee depends on a protected and immutable base, required status checks, a
+pinned Tamperward version, and label permissions restricted to trusted humans.
+Tamperward provides no OS isolation, no network confinement, no secret isolation,
+and no semantic-correctness oracle.
+
+Full assumptions and residual risks: [SPEC.md](./SPEC.md),
+[SECURITY-ENVELOPE.md](./SECURITY-ENVELOPE.md), and the
+[series limitations page](./docs/blog/limitations.md).
 
 ## Quick start
 
@@ -155,14 +200,7 @@ npx tamperward verify --base main            # pristine-suite re-execution
 npx tamperward run -- <agent command...>     # the outer envelope around an agent
 ```
 
-## Four layers, different jobs
-
-| layer | the question it answers |
-| --- | --- |
-| **Change semantics** | Does a proposed or recorded change match a known weakening class? (PreToolUse deny, staged diff, range diff) |
-| **Effect** | What did the protected state actually become, however the mutation arrived? (drift check, fs-event observer, Stop sweep) |
-| **Outcome** | Does the candidate still pass when protected verification state from the base is restored? (pristine verification — no diff interpreted at all) |
-| **Authority** | Where is the final verdict rendered, and what assumptions make that verdict authoritative? (run envelope, CI, SHA-bound human sign-off) |
+### The rules
 
 Sixteen rules are specified and fourteen ship (see the table in
 [SPEC.md](./SPEC.md)). The families: test protection (`test-deletion`,
@@ -225,8 +263,10 @@ and its totals.
 | v1.9.0 | `tamperward verify`: the round-1 pristine oracle productized — visible-green + pristine-red is a masked failure, and "could not verify" fails closed |
 | Round 2, 9–0 | On 22 fresh repositories, v1.9.0 produced b=9/c=0 false-green discordance (p = 0.0039); four gated false greens remained, through two documented residual mechanisms |
 | cssstyle lifecycle escape (round 2) | The `tamperward run` envelope: the gate denied 42 mutations and verify refused all 25 stop attempts, and the runtime completed the session anyway over a masked tree — hooks decide, runtimes terminate, so the adjudication boundary moved outside the runtime |
+| v1.14.3, external review | Standalone `verify` loaded its policy from the working tree, so the generated CI workflow let a pull request supply the `verify:` command for its own re-execution. `check --diff` flagged the edit as hook-tampering, so the workflow caught it as a pair — but only where both jobs are required, and `verify` alone had no protection. With a `--base`, policy now comes from that commit |
+| v1.14.2, threat model | 1.14.1 removed agent-added files only inside the protected classes, whose `config` list is JS/TS-only; an added `pytest.ini`, `setup.cfg`, `tox.ini` or `pyproject.toml` still reached the pristine run. `verify` now owns a verification surface covering runner-consulted configuration |
 | v1.14.1, article audit | `tamperward verify` kept agent-added protected files in the pristine run on the premise that they "only add strictness". An added `conftest.py` could deselect the restored base tests by node id, so a masked failure reported VERIFIED and the envelope printed GREEN MEANS GREEN over an unfixed bug. Added protected files are now removed; PoC and mutation-checked regression committed |
-| v1.10.1–v1.14.0, owner + two-pass external review | Frozen entry-time policy and verifier, entry-SHA ancestry enforcement, quiescence guard, dependency-tree fingerprint, a CI verify step in the generated workflow, the gate pinned to its own version in CI, and SHA-bound sign-off labels |
+| v1.10.1–v1.14.0, owner + two-pass external review | Frozen entry-time policy and verifier, entry-SHA ancestry enforcement, quiescence guard, `node_modules` content fingerprint, a CI verify step in the generated workflow, the gate pinned to its own version in CI, and SHA-bound sign-off labels |
 
 Each row's primary artifact: [CHANGELOG.md](./CHANGELOG.md), [SPEC.md](./SPEC.md),
 and the posts in [docs/blog/](./docs/blog/index.md).
@@ -247,7 +287,7 @@ via npm trusted publishing with SLSA provenance. Full rule:
 
 ```bash
 npm install && npm run build    # bundles the CLI to dist/cli/index.js
-npm test                        # 365 tests at v1.14.1 — parser, detectors, engine, policy, renderers
+npm test                        # 367 tests at v1.14.3 — parser, detectors, engine, policy, renderers
 npm run typecheck
 ```
 
