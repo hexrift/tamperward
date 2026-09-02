@@ -8,13 +8,15 @@ import { isAbsolute, join, relative } from 'node:path';
 import { Change, Detector, DetectorContext, FileChange, Finding, Policy } from '../types';
 import { addedLines, removedLines } from '../diff/select';
 import { isProtected, POLICY_FILE } from '../policy';
+import { PLAIN_SEMVER, PRE_TOOLS, TW_VERSION, compareVersions, initScriptPin, isClaudeSettings, pinNotBelow } from '../wiring';
 import { makeFinding } from './finding';
 import { policyAddWeakening, policyWeakening } from './policy-diff';
 import { segments, tokens, unquote } from './command';
+import { trackedFiles } from './repo';
 import {
   chmodDropsExec, codeownersWeakening, hookIdentity, insertsDeadGuard, insertsPassingExit, isCodeowners,
-  isLefthook, isPackageJson, isPreCommitConfig, lefthookWeakening, packageJsonWeakening, parseDoc,
-  preCommitWeakening, scriptWeakening, shellHookTarget, shellWritesHook,
+  isLefthook, isLefthookLocal, isPackageJson, isPreCommitConfig, lefthookWeakening, mergeDocs, packageJsonWeakening,
+  parseDoc, preCommitWeakening, scriptWeakening, shebangProblem, shellHookTarget, shellWritesHook, xargsWritesHook,
 } from './hook-wiring';
 
 const RULE = 'hook-tampering';
@@ -22,167 +24,298 @@ const RULE = 'hook-tampering';
 /** Owner execute bit of a git mode ("100755"). */
 const ownerExec = (mode: string): boolean => (parseInt(mode.slice(-3), 8) & 0o100) !== 0;
 
-// ── Claude Code settings: the wiring, read as the runtime reads it ─────────────
+// ── Claude Code settings: the wiring, judged by the shape init writes ──────────
 //
 // `.claude/settings.json` carries the PreToolUse and Stop hooks `init` installs; it
-// is the enforcement. The line-based comparison below (written for shell hooks)
-// read it as text, and text is the wrong grain for JSON:
-//   - narrowing the matcher from "Bash|Edit|Write|MultiEdit|NotebookEdit" to "Bash"
-//     removes no invocation and adds no `exit 0`, so nothing fired — and every
-//     file-edit tool was ungated afterwards;
-//   - a removed invocation was excused when its token reappeared in ANY added line,
-//     so `"command": "true"` plus a decoy `"_note": "npx tamperward hook claude"`
-//     passed clean;
-//   - a settings file ADDED with `{"hooks":{"PreToolUse":[],"Stop":[]}}` had no
-//     before-text to compare and fired nothing, although it shadows the gate.
-// The runtime does not read lines; it parses the file and runs the `command` of
-// each hook entry whose matcher selects the tool. So the comparison parses too,
-// and judges survival on the parsed hook commands alone.
-
-const CLAUDE_SETTINGS = /(?:^|\/)\.claude\/settings(?:\.local)?\.json$/;
-const isClaudeSettings = (p: string): boolean => CLAUDE_SETTINGS.test(p);
-
-/** The other settings file of the pair: overrides between them are what an
- *  added file can shadow. */
-function siblingSettings(p: string): string {
-  return p.endsWith('settings.local.json')
-    ? p.replace(/settings\.local\.json$/, 'settings.json')
-    : p.replace(/settings\.json$/, 'settings.local.json');
-}
-
-/** A command that runs this gate — `hook claude` (PreToolUse) or `sweep claude`
- *  (Stop) — in any pin, from any launcher. Same shape `init` recognises. */
-const TW_INVOCATION = /\btamperward(?:@\S+)?\s+(?:hook|sweep)\s+claude\b/;
+// is the enforcement. Every earlier comparison asked whether the gate was PRESENT
+// — a parsed `command` carrying `tamperward … hook claude` on a matcher covering
+// the editing tools — and presence is not what the runtime does with an entry:
+//   - `npx --yes tamperward@2.5.0 hook claude | head -c0` is present; the runtime
+//     reads an empty stdout and allows;
+//   - `"async": true` beside a perfect command means the verdict is never awaited;
+//     `"if": "Bash(never)"` means it is never asked; `"timeout": 1` means it is
+//     killed before it answers;
+//   - `PATH=/tmp/evil:$PATH npx …`, `NODE_OPTIONS=--require=…`, `npx -p /tmp/evil
+//     tamperward …`, `./node_modules/.bin/tamperward …` run whatever the edit
+//     chose to call tamperward;
+//   - `tamperward@0.1.0` is present, live, and a gate with every bypass since fixed.
+// So the gate's entry is compared to the CANONICAL SHAPE init writes — exactly
+// `{ "type": "command", "command": "npx --yes tamperward@<ver> hook claude" }` on a
+// matcher covering every tool init lists, `sweep claude` under Stop, the pin a
+// plain version never below the one it replaces — and the matcher is evaluated
+// with the runtime's own semantics (exact list or regex). Hooks MERGE across the
+// user, project and local files, so an added local file that declares its own
+// hooks shadows nothing; what a local file can do is `disableAllHooks`, an `env`
+// the gate command resolves through, or a neutered gate entry of its own.
 
 const EVENTS = ['PreToolUse', 'Stop'] as const;
 type HookEvent = (typeof EVENTS)[number];
 
-/** One hook entry that runs the gate, with the tools its matcher selects. */
-interface Wiring {
-  /** Tools the matcher selects; null when it selects every tool. */
-  tools: Set<string> | null;
-  command: string;
-}
-
 type Settings = Record<string, unknown>;
+type Obj = Record<string, unknown>;
+const isObj = (v: unknown): v is Obj => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 function parseSettings(src: string): Settings | null {
   try {
     const v: unknown = JSON.parse(src);
-    return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Settings) : null;
+    return isObj(v) ? (v as Settings) : null;
   } catch {
     return null;
   }
 }
 
-/** The tools a matcher selects, or null for every tool — Claude Code treats an
- *  absent matcher, an empty one and `*` alike. Mirrors `init`'s reading. */
-function toolSet(matcher: unknown): Set<string> | null {
-  const m = typeof matcher === 'string' ? matcher.trim() : '';
-  if (m === '' || m === '*') return null;
-  return new Set(m.split('|').map((t) => t.trim()).filter(Boolean));
-}
-
 function eventEntries(s: Settings, event: HookEvent): unknown[] | null {
   const hooks = s.hooks;
-  if (hooks === null || typeof hooks !== 'object' || Array.isArray(hooks)) return null;
-  const arr = (hooks as Record<string, unknown>)[event];
+  if (!isObj(hooks)) return null;
+  const arr = hooks[event];
   return Array.isArray(arr) ? arr : null;
 }
 
-/** Whether the file declares this event at all (an array, empty or not). An
- *  override file that declares an event without the gate's entry shadows it. */
+/** Whether the file declares this event at all (an array, empty or not). */
 const declares = (s: Settings, event: HookEvent): boolean => eventEntries(s, event) !== null;
 
-/** Every hook entry under `event` whose COMMAND invokes this gate. Only the
- *  `command` field of a command-type hook is a command; a note, a description,
- *  a prompt-type hook, or any other string carrying the same words runs nothing. */
-function gateWiring(s: Settings, event: HookEvent): Wiring[] {
-  const out: Wiring[] = [];
-  for (const m of eventEntries(s, event) ?? []) {
-    if (m === null || typeof m !== 'object') continue;
-    const matcher = m as { matcher?: unknown; hooks?: unknown };
-    if (!Array.isArray(matcher.hooks)) continue;
-    for (const h of matcher.hooks) {
-      if (h === null || typeof h !== 'object') continue;
-      const entry = h as { type?: unknown; command?: unknown };
-      if (entry.type !== undefined && entry.type !== 'command') continue;
-      if (typeof entry.command !== 'string' || !TW_INVOCATION.test(entry.command)) continue;
-      out.push({ tools: toolSet(matcher.matcher), command: entry.command });
+/** Keys the canonical gate entry may carry. `timeout` is tolerated at or above
+ *  120s — the hook needs time to run a diff — and is a finding below. */
+const GATE_KEYS = new Set(['type', 'command', 'timeout']);
+const CANONICAL_CMD = /^npx --yes tamperward@(\S+) (hook|sweep) claude$/;
+/** An entry that carries the gate's words at all — in any launcher, any pin, any
+ *  wrapping. The candidates the shape comparison then judges. */
+const MENTIONS_GATE = /\btamperward\b.*\b(?:hook|sweep)\b/;
+/** Text a sibling hook entry has no honest reason to emit: a forged decision. */
+const FORGERY = /hookSpecificOutput|permissionDecision|updatedInput|"decision"|"continue"/;
+/** Environment the gate command resolves through. */
+const SENSITIVE_ENV = /^(?:PATH|NODE_OPTIONS|NODE_PATH|HOME|npm_config_.*|NPM_CONFIG_.*)$/;
+
+/** How a gate `command` string differs from the one init writes, and whether the
+ *  runtime would still run the gate through it. */
+function analyseGateCommand(cmd: string, event: HookEvent): { runs: boolean; problems: string[]; pin: string | null } {
+  const want = event === 'PreToolUse' ? 'hook' : 'sweep';
+  const problems: string[] = [];
+  let runs = true;
+  const canonical = cmd.match(CANONICAL_CMD);
+  if (canonical) {
+    if (canonical[2] !== want) { problems.push(`runs \`${canonical[2]} claude\` under ${event}`); runs = false; }
+    if (!PLAIN_SEMVER.test(canonical[1])) { problems.push(`the pin \`${canonical[1]}\` is not a plain version`); runs = false; }
+    return { runs, problems, pin: canonical[1] };
+  }
+  const inv = cmd.match(/\btamperward(?:@(\S+))?\s+(hook|sweep)\s+(\S+)/);
+  if (!inv) return { runs: false, problems: ['the command does not invoke the gate'], pin: null };
+  if (inv[2] !== want || inv[3] !== 'claude') { problems.push(`runs \`${inv[2]} ${inv[3]}\` under ${event}`); runs = false; }
+  if (inv[1] !== undefined && !PLAIN_SEMVER.test(inv[1])) { problems.push(`the pin \`${inv[1]}\` is not a plain version`); runs = false; }
+  if (/[|;&<>`]|\$\(/.test(cmd)) { problems.push('text around the invocation (a redirect, pipe or chain)'); runs = false; }
+  if (/^\s*[A-Za-z_]\w*=/.test(cmd)) { problems.push('an environment assignment in front of the gate'); runs = false; }
+  if (/\b(?:sh|bash|zsh|dash)\s+-[a-zA-Z]*c\b/.test(cmd)) { problems.push('wrapped in `sh -c`'); runs = false; }
+  if (/(?:^|\s)(?:-p|--package)(?:=|\s)/.test(cmd)) { problems.push('`-p`/`--package` points npx at another package'); runs = false; }
+  const at = cmd.indexOf(inv[0]);
+  const trailing = cmd.slice(at + inv[0].length).trim();
+  if (trailing) { problems.push(`extra text after the invocation (\`${trailing}\`)`); runs = false; }
+  const head = cmd.slice(0, at).trim();
+  if (head !== 'npx --yes') problems.push(`the launcher \`${head || '(none)'}\` is not \`npx --yes\``);
+  return { runs, problems, pin: inv[1] ?? '' };
+}
+
+/** The tools a matcher selects, with the runtime's semantics: absent, empty or `*`
+ *  is every tool (null); a string of `[A-Za-z0-9_ ,|-]` is an exact list split on
+ *  `|`/`,`; anything else is an unanchored regular expression tested per tool. A
+ *  matcher that is not a string, or not a valid pattern, selects nothing and is
+ *  reported: the runtime would not read it as the list it looks like. */
+function matcherSelection(m: unknown): { tools: Set<string> | null; problem: string | null } {
+  if (m === undefined) return { tools: null, problem: null };
+  if (typeof m !== 'string') return { tools: new Set(), problem: `the matcher ${JSON.stringify(m)} is not a string` };
+  if (m === '' || m === '*') return { tools: null, problem: null };
+  let problem: string | null = null;
+  // eslint-disable-next-line no-control-regex
+  if (/[^\x00-\x7f]/.test(m)) problem = 'the matcher contains non-ASCII characters that look like tool names but are not';
+  if (/^[A-Za-z0-9_ ,|-]+$/.test(m)) return { tools: new Set(m.split(/[|,]/).map((t) => t.trim()).filter(Boolean)), problem };
+  let re: RegExp;
+  try {
+    re = new RegExp(m);
+  } catch {
+    return { tools: new Set(), problem: `the matcher \`${m}\` is not a valid pattern — it selects nothing` };
+  }
+  return { tools: new Set(PRE_TOOLS.filter((t) => re.test(t))), problem };
+}
+
+interface Candidate {
+  /** The entry as written, for "was this exact entry already there". */
+  key: string;
+  /** The runtime would run the gate through this entry and honour its verdict. */
+  runs: boolean;
+  /** How the entry differs from what init writes. */
+  problems: string[];
+  pin: string | null;
+  /** Tools the matcher selects; null for every tool. */
+  tools: Set<string> | null;
+}
+
+/** Every entry under `event` that names the gate, judged. Entries the runtime's
+ *  schema would reject are candidates with a problem, not silence. */
+function gateCandidates(s: Settings, event: HookEvent): Candidate[] {
+  const out: Candidate[] = [];
+  const mentions = (v: unknown): boolean => /\btamperward\b/.test(JSON.stringify(v) ?? '');
+  for (const group of eventEntries(s, event) ?? []) {
+    if (!isObj(group)) {
+      if (mentions(group)) out.push({ key: JSON.stringify(group), runs: false, problems: ['the matcher entry is not an object'], pin: null, tools: null });
+      continue;
+    }
+    if (!Array.isArray(group.hooks)) {
+      if (mentions(group)) out.push({ key: JSON.stringify(group), runs: false, problems: ['`hooks` is not a list'], pin: null, tools: null });
+      continue;
+    }
+    for (const h of group.hooks) {
+      if (!isObj(h)) {
+        if (mentions(h)) out.push({ key: JSON.stringify(h), runs: false, problems: ['the hook entry is not an object'], pin: null, tools: null });
+        continue;
+      }
+      const cmd = typeof h.command === 'string' ? h.command : null;
+      if (cmd === null) {
+        if (mentions(h)) out.push({ key: JSON.stringify(h), runs: false, problems: ['the gate is not in a `command` string'], pin: null, tools: null });
+        continue;
+      }
+      if (!MENTIONS_GATE.test(cmd)) continue;
+      const a = analyseGateCommand(cmd, event);
+      const problems = [...a.problems];
+      let runs = a.runs;
+      if (h.type !== 'command') {
+        problems.push(h.type === undefined ? 'no `type`' : `\`type\` is ${JSON.stringify(h.type)}`);
+        if (h.type !== undefined) runs = false;
+      }
+      for (const k of Object.keys(h)) {
+        if (GATE_KEYS.has(k)) continue;
+        problems.push(`carries \`${k}\``);
+        runs = false;
+      }
+      if ('timeout' in h) {
+        const t = h.timeout;
+        if (typeof t !== 'number' || !Number.isInteger(t) || t < 120) { problems.push(`\`timeout\` ${JSON.stringify(t)} — the gate is cut off before it answers`); runs = false; }
+      }
+      let tools: Set<string> | null = null;
+      if (event === 'PreToolUse') {
+        const sel = matcherSelection(group.matcher);
+        tools = sel.tools;
+        if (sel.problem) { problems.push(sel.problem); }
+      } else if (group.matcher !== undefined && !(typeof group.matcher === 'string' && (group.matcher === '' || group.matcher === '*'))) {
+        problems.push(`a \`matcher\` (${JSON.stringify(group.matcher)}) on the Stop entry`);
+        runs = false;
+      }
+      out.push({ key: JSON.stringify({ m: group.matcher, h }), runs, problems, pin: a.pin, tools });
     }
   }
   return out;
 }
 
-/** The union of tools the gate's entries cover for an event: null = every tool,
- *  'none' = the gate is not wired for this event. */
-function coverage(ws: Wiring[]): Set<string> | null | 'none' {
-  if (ws.length === 0) return 'none';
-  if (ws.some((w) => w.tools === null)) return null;
-  return new Set(ws.flatMap((w) => [...(w.tools as Set<string>)]));
+/** Non-gate command entries under an event, as written. */
+function otherCommands(s: Settings, event: HookEvent): string[] {
+  const out: string[] = [];
+  for (const group of eventEntries(s, event) ?? []) {
+    if (!isObj(group) || !Array.isArray(group.hooks)) continue;
+    for (const h of group.hooks) {
+      if (!isObj(h) || typeof h.command !== 'string' || MENTIONS_GATE.test(h.command)) continue;
+      out.push(h.command);
+    }
+  }
+  return out;
 }
 
-/** `disableAllHooks: true` switches every hook off in one key — cheaper than
- *  editing any of them. */
-const hooksDisabled = (s: Settings): boolean => s.disableAllHooks === true;
+/** The union of tools the gate's live entries cover for an event: null = every
+ *  tool, 'none' = the gate is not wired for this event. */
+function coverage(cs: Candidate[]): Set<string> | null | 'none' {
+  const live = cs.filter((c) => c.runs);
+  if (live.length === 0) return 'none';
+  if (live.some((c) => c.tools === null)) return null;
+  return new Set(live.flatMap((c) => [...(c.tools as Set<string>)]));
+}
 
-/** Reasons the after-settings run less of the gate than the before-settings did.
- *  Pure over the two parsed documents; the shadow case needs the sibling. */
-function settingsWeakening(before: Settings | null, after: Settings, sibling: Settings | null): string[] {
+/** Keys that appear twice in one JSON object: the runtime's reading of the file
+ *  is whichever its parser keeps, which is not something the gate can vouch for. */
+export function duplicateJsonKeys(src: string): string[] {
+  const dups: string[] = [];
+  const stack: Array<Set<string> | null> = [];
+  let expectKey = false;
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === '"') {
+      let j = i + 1;
+      let s = '';
+      while (j < src.length && src[j] !== '"') {
+        if (src[j] === '\\') { s += src[j + 1] ?? ''; j += 2; } else { s += src[j]; j++; }
+      }
+      if (expectKey) {
+        const set = stack[stack.length - 1];
+        if (set) { if (set.has(s)) dups.push(s); set.add(s); }
+        expectKey = false;
+      }
+      i = j;
+      continue;
+    }
+    if (ch === '{') { stack.push(new Set()); expectKey = true; }
+    else if (ch === '[') { stack.push(null); expectKey = false; }
+    else if (ch === '}' || ch === ']') { stack.pop(); expectKey = false; }
+    else if (ch === ',') expectKey = stack[stack.length - 1] !== null;
+  }
+  return [...new Set(dups)];
+}
+
+/** Reasons the after-settings run less of the gate than the before-settings did
+ *  — or, for an entry this edit wrote, less than init would have written. */
+function settingsWeakening(before: Settings | null, after: Settings, local: boolean): string[] {
   const reasons: string[] = [];
-  if (hooksDisabled(after) && !(before !== null && hooksDisabled(before))) {
-    reasons.push('`disableAllHooks: true` switches every hook off, the gate included');
+  const dis = after.disableAllHooks;
+  if (dis !== undefined && dis !== false && !(before !== null && before.disableAllHooks === dis)) {
+    reasons.push(`\`disableAllHooks: ${JSON.stringify(dis)}\` switches every hook off, the gate included`);
+  }
+  if (isObj(after.env)) {
+    const was = before !== null && isObj(before.env) ? before.env : {};
+    for (const [k, v] of Object.entries(after.env)) {
+      if (SENSITIVE_ENV.test(k) && JSON.stringify(was[k]) !== JSON.stringify(v)) {
+        reasons.push(`a top-level \`env\` sets ${k} — the gate command resolves through it`);
+      }
+    }
   }
   for (const event of EVENTS) {
-    const was = before ? coverage(gateWiring(before, event)) : 'none';
-    const now = coverage(gateWiring(after, event));
+    const bc = before !== null ? gateCandidates(before, event) : [];
+    const ac = gateCandidates(after, event);
+    const was = coverage(bc);
+    const now = coverage(ac);
     if (was !== 'none') {
       if (now === 'none') {
         reasons.push(`the tamperward ${event} hook entry was removed`);
       } else if (event === 'PreToolUse') {
         // Stop hooks take no matcher; for PreToolUse the matcher IS the coverage.
         if (was === null && now !== null) {
-          reasons.push(`the PreToolUse matcher for the gate was narrowed from every tool to ${[...now].join('|')}`);
+          reasons.push(`the PreToolUse matcher for the gate was narrowed from every tool to ${[...now].join('|') || '(nothing)'}`);
         } else if (was !== null && now !== null) {
           const lost = [...was].filter((t) => !now.has(t));
           if (lost.length) reasons.push(`the PreToolUse matcher for the gate no longer covers ${lost.join(', ')}`);
         }
       }
-      continue;
+    } else if (now === 'none' && declares(after, event) && !(before !== null && declares(before, event)) && (eventEntries(after, event) ?? []).length === 0) {
+      // An EMPTY declaration has no other purpose. (Hooks merge across the settings
+      // files, so a non-empty list of somebody's own hooks shadows nothing.)
+      reasons.push(`${event} hooks declared empty in ${local ? 'an override file' : 'the settings file'}`);
     }
-    // The gate was not wired for this event in THIS file before (or the file is
-    // new). Declaring the event now, without the gate, in a file whose sibling
-    // carries it is the override that shadows the wiring. An EMPTY declaration
-    // has no other purpose and is reported even when the sibling is unknown;
-    // a non-empty one is somebody's own hook unless the sibling says otherwise.
-    if (now !== 'none' || !declares(after, event)) continue;
-    if (before !== null && declares(before, event)) continue; // was already declared without the gate: not this edit's doing
-    const empty = (eventEntries(after, event) ?? []).length === 0;
-    const shadowed = sibling !== null && gateWiring(sibling, event).length > 0;
-    if (empty || shadowed) {
-      reasons.push(
-        `${event} hooks declared ${empty ? 'empty' : 'without the tamperward entry'} in an override file` +
-          (shadowed ? ' — this shadows the gate the sibling settings file wires' : ''),
-      );
+    // Entries this edit wrote are held to the shape init writes.
+    const had = new Set(bc.map((c) => c.key));
+    const fresh = ac.filter((c) => !had.has(c.key));
+    for (const c of fresh) {
+      if (c.problems.length) reasons.push(`the ${event} gate entry does not match the shape \`tamperward init\` writes: ${c.problems.join('; ')}`);
+    }
+    // The pin only ever goes up: never below what the file pinned before, and for
+    // a file that had no before, never below the gate judging it.
+    const pins = bc.map((c) => c.pin).filter((p): p is string => !!p && PLAIN_SEMVER.test(p)).sort((a, b) => (compareVersions(b, a) ?? 0));
+    const floor = pins[0] ?? (before === null && PLAIN_SEMVER.test(TW_VERSION) ? TW_VERSION : null);
+    if (floor) {
+      for (const c of fresh) {
+        if (c.pin && PLAIN_SEMVER.test(c.pin) && !pinNotBelow(c.pin, floor)) reasons.push(`the ${event} gate is pinned to tamperward@${c.pin}, below ${floor}`);
+      }
+    }
+    // A sibling entry that emits a decision of its own.
+    const hadOther = new Set(before !== null ? otherCommands(before, event) : []);
+    for (const cmd of otherCommands(after, event)) {
+      if (!hadOther.has(cmd) && FORGERY.test(cmd)) reasons.push(`a ${event} hook entry beside the gate emits a hook decision of its own (\`${cmd.slice(0, 60)}\`)`);
     }
   }
   return reasons;
-}
-
-/** The sibling settings file as it will stand after this changeset: its own change
- *  in the same Change[] wins, then the checkout on disk (when the caller said
- *  where that is). null when it cannot be known. */
-function siblingOf(c: FileChange, changes: Change[], ctx?: DetectorContext): Settings | null {
-  const path = siblingSettings(c.path);
-  const inSet = changes.find((o): o is FileChange => o.kind === 'file' && o.path === path);
-  if (inSet) return inSet.after != null ? parseSettings(inSet.after) : null;
-  if (!ctx?.cwd) return null;
-  try {
-    const p = join(ctx.cwd, path);
-    return existsSync(p) ? parseSettings(readFileSync(p, 'utf8')) : null;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -192,7 +325,7 @@ function siblingOf(c: FileChange, changes: Change[], ctx?: DetectorContext): Set
  * comparison. A file that parsed before and does not parse after is reported
  * here: the runtime ignores an unparseable settings file, hooks and all.
  */
-function claudeSettingsFindings(c: FileChange, changes: Change[], policy: Policy, ctx?: DetectorContext): Finding[] | null {
+function claudeSettingsFindings(c: FileChange, policy: Policy): Finding[] | null {
   if (c.after == null) return null;
   const after = parseSettings(c.after);
   const before = c.before != null ? parseSettings(c.before) : null;
@@ -202,14 +335,19 @@ function claudeSettingsFindings(c: FileChange, changes: Change[], policy: Policy
       message: `The Claude Code hook wiring was weakened: ${reason}.`,
       evidence: reason,
       remediation:
-        'Leave the PreToolUse and Stop entries that run tamperward, and the matcher that covers every editing tool, exactly as `tamperward init` wrote them. Editing the wiring is editing the gate.',
+        'Leave the PreToolUse and Stop entries that run tamperward, and the matcher that covers every editing tool, exactly as `tamperward init` wrote them. Editing the wiring is editing the gate: re-run `tamperward init` to restore it, or sign off.',
     });
   if (c.before != null && before === null) return null; // was already unreadable: nothing to compare
   if (after === null) {
     if (c.before == null) return []; // an unreadable new file wires nothing and shadows nothing
     return [finding('the settings file no longer parses as JSON — the runtime ignores it, hooks and all')];
   }
-  return settingsWeakening(before, after, siblingOf(c, changes, ctx)).map(finding);
+  const reasons = settingsWeakening(before, after, /settings\.local\.json$/.test(c.path));
+  const had = new Set(c.before != null ? duplicateJsonKeys(c.before) : []);
+  for (const k of duplicateJsonKeys(c.after)) {
+    if (!had.has(k)) reasons.push(`the key "${k}" appears twice — which reading the runtime keeps is not something the gate can vouch for`);
+  }
+  return reasons.map(finding);
 }
 
 /**
@@ -248,23 +386,79 @@ function renameKept(c: FileChange): boolean {
   return c.before != null && c.after != null ? c.before === c.after : c.hunks.length === 0;
 }
 
+/** The lefthook.yml a lefthook-local overlay sits on, as it will stand after this
+ *  changeset: its own change in the same Change[] wins, then the checkout on disk.
+ *  null when it cannot be known. */
+function lefthookBase(c: FileChange, changes: Change[], ctx?: DetectorContext): Record<string, unknown> | null {
+  const dir = c.path.includes('/') ? c.path.slice(0, c.path.lastIndexOf('/') + 1) : '';
+  const names = ['lefthook.yml', 'lefthook.yaml', '.lefthook.yml', '.lefthook.yaml'].map((n) => dir + n);
+  const inSet = changes.find((o): o is FileChange => o.kind === 'file' && names.includes(o.path));
+  if (inSet) return inSet.after != null ? parseDoc(inSet.after) : null;
+  if (!ctx?.cwd) return null;
+  for (const n of names) {
+    try {
+      const p = join(ctx.cwd, n);
+      if (existsSync(p)) return parseDoc(readFileSync(p, 'utf8'));
+    } catch {
+      /* unreadable: unknown */
+    }
+  }
+  return null;
+}
+
+/** When the lefthook.yml an overlay sits on cannot be read, the overlay's own
+ *  entries under the gate's name are read as the gate: `tamperward: { skip: true }`
+ *  in a local file has one purpose. */
+function syntheticBase(over: Record<string, unknown>): Record<string, unknown> {
+  const base: Record<string, unknown> = {};
+  for (const [section, v] of Object.entries(over)) {
+    if (!isObj(v)) continue;
+    for (const group of ['commands', 'scripts']) {
+      const g = v[group];
+      if (!isObj(g)) continue;
+      for (const name of Object.keys(g)) {
+        if (!/tamperward/.test(name)) continue;
+        const sec = (base[section] ??= {}) as Record<string, unknown>;
+        const grp = (sec[group] ??= {}) as Record<string, unknown>;
+        grp[name] = { run: 'npx tamperward check --staged' };
+      }
+    }
+  }
+  return base;
+}
+
 /**
  * lefthook and pre-commit configs, compared as the tool reads them: the entry
- * that runs the gate removed, `skip: true`, a `glob`/`exclude`/`only` narrowing
- * when it runs, `stages: [manual]`. null when either side is not a YAML mapping —
- * the caller falls back to the script comparison.
+ * that runs the gate removed or no longer live, `skip:`/`only:` in any non-false
+ * shape, a `glob`/`exclude`/tag narrowing, `stages` (explicit or inherited from
+ * `default_stages`) no longer including the commit stages. A lefthook-local file
+ * is judged as the overlay it is: merged over lefthook.yml, before and after.
+ * null when there is nothing to compare — the caller falls back to the script
+ * comparison.
  */
-function configFindings(c: FileChange, policy: Policy): Finding[] | null {
-  if (c.before == null || c.after == null) return null;
-  const before = parseDoc(c.before);
-  const after = parseDoc(c.after);
-  if (before === null) return null;
-  const reasons =
-    after === null
+function configFindings(c: FileChange, changes: Change[], policy: Policy, ctx?: DetectorContext): Finding[] | null {
+  if (c.after == null) return null;
+  let reasons: string[];
+  if (isLefthookLocal(c.path)) {
+    const overBefore = c.before != null ? parseDoc(c.before) : {};
+    const overAfter = parseDoc(c.after);
+    if (overBefore === null) return null;
+    const base = lefthookBase(c, changes, ctx) ?? syntheticBase(overAfter ?? {});
+    reasons = overAfter === null
       ? ['the file no longer parses as YAML — the tool that reads it runs nothing']
-      : isLefthook(c.path)
-        ? lefthookWeakening(before, after)
-        : preCommitWeakening(before, after);
+      : lefthookWeakening(mergeDocs(base, overBefore), mergeDocs(base, overAfter));
+  } else {
+    if (c.before == null) return null;
+    const before = parseDoc(c.before);
+    const after = parseDoc(c.after);
+    if (before === null) return null;
+    reasons =
+      after === null
+        ? ['the file no longer parses as YAML — the tool that reads it runs nothing']
+        : isLefthook(c.path)
+          ? lefthookWeakening(before, after)
+          : preCommitWeakening(before, after);
+  }
   return reasons.map((reason) =>
     makeFinding(RULE, policy, {
       file: c.path,
@@ -273,6 +467,13 @@ function configFindings(c: FileChange, policy: Policy): Finding[] | null {
       remediation: 'Leave the entry that runs the gate as `tamperward init` wrote it. Skipping, staging-off or scoping it is disabling it.',
     }),
   );
+}
+
+/** The repository's own workflow files and hooks, for the CODEOWNERS comparison. */
+function repoGateFiles(ctx?: DetectorContext): string[] {
+  const files = trackedFiles(ctx);
+  if (!files) return [];
+  return files.filter((f) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(f) || /^\.husky\/[^/_][^/]*$/.test(f));
 }
 
 /**
@@ -311,6 +512,9 @@ function repoRelative(path: string, ctx?: DetectorContext): string {
   return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : path;
 }
 
+/** husky runs its scripts through `sh -e`; every other hook is exec'ed by git. */
+const isHuskyScript = (path: string): boolean => /(?:^|\/)\.husky\/[^/]+$/.test(path);
+
 export const hookTampering: Detector = {
   id: RULE,
   surface: ['file', 'command'],
@@ -321,9 +525,13 @@ export const hookTampering: Detector = {
     for (const c of changes) {
       let semantic: Finding[] | null;
       if (c.kind === 'file') {
+        // A Claude settings file is the enforcement wherever the runtime reads it
+        // from — the user file and managed settings included, which the tool-call
+        // layer sees by absolute path and no protected glob names.
         const targetsHook =
           isProtected(c.path, policy, 'hooks') ||
-          (c.oldPath ? isProtected(c.oldPath, policy, 'hooks') : false);
+          (c.oldPath ? isProtected(c.oldPath, policy, 'hooks') : false) ||
+          isClaudeSettings(c.path);
         if (!targetsHook) {
           // package.json is config-class, but `prepare: husky` is the line that
           // INSTALLS the hooks on a fresh checkout — exact through the JSON, so
@@ -380,12 +588,12 @@ export const hookTampering: Detector = {
           );
         } else if (
           (c.path.endsWith(POLICY_FILE) || isClaudeSettings(c.path)) &&
-          (semantic = c.path.endsWith(POLICY_FILE) ? policyFindings(c, policy) : claudeSettingsFindings(c, changes, policy, ctx)) !== null
+          (semantic = c.path.endsWith(POLICY_FILE) ? policyFindings(c, policy) : claudeSettingsFindings(c, policy)) !== null
         ) {
           // Full content available and parseable → compare SEMANTICALLY: the policy
           // as the loader would merge it (every weakening move, incl. the multiline
           // form and an ADD judged against the baseline it displaces), the Claude
-          // settings as the runtime would read them. A null result (no content, or a
+          // settings against the shape init writes. A null result (no content, or a
           // before that already did not parse) drops through to the line-regex below.
           out.push(...semantic);
         } else if (c.op === 'rename') {
@@ -393,9 +601,9 @@ export const hookTampering: Detector = {
         } else if (isCodeowners(c.path)) {
           // Ownership wiring, not a script: the word `husky` in `/.husky/ @owner` is a
           // path, not an invocation. What can be lost here is a human requirement on
-          // a gate-critical path. Needs both sides; a hunk-only view says nothing.
+          // a gate-critical file. Needs both sides; a hunk-only view says nothing.
           if (c.before != null && c.after != null) {
-            for (const reason of codeownersWeakening(c.before, c.after)) {
+            for (const reason of codeownersWeakening(c.before, c.after, [...repoGateFiles(ctx), c.path])) {
               out.push(
                 makeFinding(RULE, policy, {
                   file: c.path,
@@ -407,17 +615,48 @@ export const hookTampering: Detector = {
               );
             }
           }
-        } else if ((isLefthook(c.path) || isPreCommitConfig(c.path)) && (semantic = configFindings(c, policy)) !== null) {
+        } else if ((isLefthook(c.path) || isPreCommitConfig(c.path)) && (semantic = configFindings(c, changes, policy, ctx)) !== null) {
           out.push(...semantic);
         } else if (!c.path.endsWith(POLICY_FILE)) {
           // A hook SCRIPT. Deleting it fires above; the cheaper tamper is to leave the
-          // file in place and gut its body: an early exit, a dropped or commented
-          // invocation — or, at the same line count, `|| true` after the gate, a
-          // dead `if false` around it, `echo` in front of it, `--version` instead of
-          // `check`. The comparison is over the checks each version actually RUNS
+          // file in place and gut its body. A script init wrote is held to the shape
+          // init writes: the same three lines, a pin that only goes up. A hand-written
+          // script is compared over the checks each version actually RUNS
           // (hook-wiring.ts invocations): runner prefix, pin and output redirection
-          // are presentation; a survivor counts only when it is live on a
-          // non-comment line in invocation position.
+          // are presentation; a survivor counts only when it is live — its failure
+          // able to fail the hook — under the way this hook is run.
+          const husky = isHuskyScript(c.path);
+          const beforePin = c.before != null && c.after != null ? initScriptPin(c.before) : null;
+          if (beforePin !== null) {
+            const afterPin = initScriptPin(c.after as string);
+            const kept = afterPin !== null && (beforePin === '' ? afterPin === '' || PLAIN_SEMVER.test(afterPin) : pinNotBelow(afterPin, beforePin));
+            if (!kept) {
+              out.push(
+                makeFinding(RULE, policy, {
+                  file: c.path,
+                  message: 'A protected hook script no longer matches the shape `tamperward init` writes.',
+                  evidence: 'the gate script no longer matches the shape init wrote; re-run init or sign off',
+                  remediation:
+                    'The pre-commit script init writes is the marker line and the pinned staged check, nothing else. Re-run `tamperward init` to restore it, or sign off on the customised script.',
+                }),
+              );
+            }
+            continue;
+          }
+          if (!husky && c.after != null) {
+            const problem = shebangProblem(c.after);
+            if (problem && (c.before == null || problem !== shebangProblem(c.before))) {
+              out.push(
+                makeFinding(RULE, policy, {
+                  file: c.path,
+                  line: 1,
+                  message: `A protected hook's interpreter was changed: ${problem}.`,
+                  evidence: c.after.split('\n')[0],
+                  remediation: 'Keep a shell in shebang position. git execs the hook directly, and an interpreter that never reads the script is a disabled hook.',
+                }),
+              );
+            }
+          }
           const added = addedLines(c);
           const earlyExit = added.find((l) => insertsPassingExit(l.content));
           if (earlyExit) {
@@ -447,7 +686,7 @@ export const hookTampering: Detector = {
           }
           const beforeLines = c.before != null ? c.before.split('\n') : removedLines(c).map((l) => l.content);
           const afterLines = c.after != null ? c.after.split('\n') : added.map((l) => l.content);
-          const lost = scriptWeakening(beforeLines, afterLines);
+          const lost = scriptWeakening(beforeLines, afterLines, husky ? { errexit: true } : {});
           if (lost.length) {
             // one finding per hook is the signal; don't spam per line
             out.push(
@@ -496,6 +735,9 @@ export const hookTampering: Detector = {
           }
         }
       } else {
+        // The tokens of every segment so far: `echo .husky/pre-commit | xargs rm`
+        // names the hook in the segment that FEEDS the one that deletes it.
+        const fed: string[] = [];
         for (const seg of segments(c.raw)) {
           const toks = tokens(seg).map(unquote);
           const hiding = updateIndexHiding(toks, policy);
@@ -509,17 +751,18 @@ export const hookTampering: Detector = {
                   'Leave protected files visible to git. Hiding one from the diff hides it from the gate, which is the tamper — use `--no-skip-worktree` / `--no-assume-unchanged` to undo it.',
               }),
             );
+            fed.push(...toks);
             continue;
           }
           // Only the hook as a WRITE TARGET is tampering. Naming it as a source
           // (`cat hook > /tmp/backup`, `cp hook /tmp/`, `sed -n 1,5p hook`) reads
           // it, and `chmod +x` restores it; both used to block.
-          const why = shellWritesHook(seg, toks, policy);
+          const why = shellWritesHook(seg, toks, policy, ctx) ?? xargsWritesHook(toks, fed, policy, ctx);
           if (why) {
             // `file` is load-bearing: the guarded-rule pin (engine) applies only to a
             // finding that names the policy file or a baseline hook, so a command
             // finding without one was governed by the policy it may have just weakened.
-            const target = shellHookTarget(seg, toks, policy);
+            const target = shellHookTarget(seg, toks, policy, ctx) ?? shellHookTarget('', fed, policy, ctx);
             out.push(
               makeFinding(RULE, policy, {
                 ...(target ? { file: repoRelative(target, ctx) } : {}),
@@ -529,6 +772,7 @@ export const hookTampering: Detector = {
               }),
             );
           }
+          fed.push(...toks);
         }
       }
     }
