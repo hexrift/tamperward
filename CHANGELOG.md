@@ -5,6 +5,115 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.14.4] — 2026-09-02
+
+**Six fixes from an external audit. Two of them reopen the same wound 1.14.1,
+1.14.2 and 1.14.3 each closed one layer of: the verifier's inputs, and the git
+objects the base resolves to.**
+
+### The verifier executed files nothing restored
+
+1.14.3 froze the verifier's command *string* against the base policy. It did not
+freeze what that string runs. The pristine overlay restored the tests, the
+snapshots and the runner configuration — and then handed the result to `sh -c`,
+which ran a program:
+
+    verify:
+      command: node runner.js     # runner.js is in no protected class,
+                                  # and on no runner's config surface
+
+Rewriting `runner.js` to `process.exit(0)` produced `VERIFIED`, exit 0, over an
+untouched bug. Delegation is worse, because the restoration looks complete:
+`package.json` is on the verification surface, so the base's
+`"test": "sh scripts/test.sh"` was faithfully restored — and then called a
+script nobody restored.
+
+The pristine copy now also carries the base's copy of **what the verifier
+executes**, from two sources:
+
+- **implicit** — command tokens naming a file that exists at the base
+  (`node runner.js`, `sh scripts/ci.sh`, `./run-tests`). No configuration; it can
+  only ever restore a file the base itself shipped.
+- **explicit** — a new `verify: { inputs: [globs] }` block, for delegation, which
+  is not statically decidable. Files matching it are restored from the base, and
+  files the agent *added* under it are removed from the pristine copy — the
+  added-`conftest.py` argument, one layer down.
+
+Narrowing `verify.inputs` is policy weakening, alongside changing the command and
+lowering the budget.
+
+This bounds the class; it does not eliminate it. A command can still reach a file
+neither source names — a `Makefile` include, an interpreter's startup file, a
+tool config outside the surface list. Stated as a residual in
+`docs/THREAT-MODEL-pristine-run.md`, not as solved.
+
+### The base itself could be redirected
+
+`git replace`, `.git/info/grafts` and `.git/shallow` change what a commit
+*resolves to* without moving a ref or touching a tracked file. Every guarantee
+here reduces to "the base says X": the overlay's `git ls-tree` (which files exist
+at the base) and `git show` (their content), and the envelope's `merge-base`
+ancestry assertion. `git replace <base> <a-commit-the-agent-just-wrote>` made all
+three answer from a forged tree, and reported `VERIFIED`.
+
+- every trusted read in `verify` and `run` now sets `GIT_NO_REPLACE_OBJECTS=1`,
+  which is complete for replace refs;
+- grafts and shallow have no such switch, so `run` fingerprints the whole
+  object-rewrite state before the agent starts and re-checks it the moment the
+  agent exits. A change is `OBJECT_REWRITE → ENFORCEMENT_FAILED` (exit 1),
+  checked **before** adjudication rather than reported after it: a report
+  produced under a redirected base describes an anchor nobody chose. It is
+  checked a second time after the checks, for a survivor that installs one
+  mid-run.
+
+This closes the case where the agent installs a rewrite during the run. A rewrite
+that predates the envelope predates its authority and is unchanged.
+
+### `init` could not migrate what it had generated
+
+"Workflow already present — left untouched" made the CI template write-once per
+repository. Everything shipped in it since is therefore absent from every repo
+that ran `init` before it: the pristine-verify step (1.9.0), the version pin,
+`--require-ancestor`, the head-bound sign-off label. A repository whose workflow
+predates 1.9.0 has diff-time detection and no pristine re-execution at all — and
+re-running `init` told its owner CI was wired. **Security fixes that only reach
+new adopters are not shipped.**
+
+Generated workflows now carry a provenance stamp (version + hash of the body as
+generated). A file `init` wrote that nobody has edited is migrated in place; a
+file that was edited, or that `init` never wrote, is reported and left exactly as
+it is. `--force-workflow` is the operator's override for the second case.
+
+### `init` blessed a PreToolUse matcher with a hole in it
+
+The wiring check only ever asked whether *our command* was present, so an install
+wired before `NotebookEdit` was added to the matcher (1.13) kept a permanently
+narrower gate, and every later `init` confirmed it as correctly configured. `init`
+now compares the tool set and widens a matcher that does not cover every tool the
+gate must see — as a union, so tools the user added are kept.
+
+### The hook failed OPEN on a payload it could not read
+
+`parseInput` absorbed every parse failure into `{}` — the empty input — which
+flows through to "no findings": exit 0, empty stdout, **allow**. Truncated stdin,
+a JSON array, a partial write from a runtime under memory pressure: all
+indistinguishable from "this tool call is fine", for every tool call while the
+condition lasted. That is the hole `failClosed()` exists to close, left open at
+the front door. Unreadable and malformed payloads are now denied. Genuinely empty
+stdin is still an allow — it is a well-formed *absence* of a tool call.
+
+### Fixed
+
+- `verify` restores the files the verifier command executes, implicitly from the
+  command and explicitly from `verify.inputs`; `parsePolicy` no longer drops the
+  new field, and narrowing it is flagged as weakening.
+- `verify` and `run` read git with `GIT_NO_REPLACE_OBJECTS=1`; `run` convicts an
+  object-rewrite installed during the run.
+- `init` migrates a generated, unedited CI workflow, and never overwrites one it
+  did not write (`--force-workflow` to override).
+- `init` widens an incomplete PreToolUse matcher.
+- The Claude hook denies a payload it cannot parse instead of allowing it.
+
 ## [1.14.3] — 2026-09-02
 
 **Policy provenance: `verify --base` now reads its policy from that commit, not

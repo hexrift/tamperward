@@ -127,6 +127,19 @@ not in 1.14.2.
 
 ## Residual risk, stated
 
+- **The verifier's own inputs are bounded, not enumerated.** 1.14.4 restores what
+  the command executes — tokens naming a file present at the base, plus an
+  explicit `verify: { inputs: [globs] }` for delegation the tokens cannot see.
+  Neither source is complete: a `Makefile` include, an interpreter startup file,
+  a tool config outside the surface list, or any indirection the base script
+  reaches through can still be the agent's. The explicit list is the escape
+  hatch, and it has to be written by hand.
+- **A git rewrite that predates the envelope is not detected.** `run`
+  fingerprints replace refs, `info/grafts` and `shallow` before the agent starts
+  and convicts a change; a rewrite already installed when it starts is part of
+  the state it anchors to. `GIT_NO_REPLACE_OBJECTS=1` does neutralise
+  pre-existing *replace refs* on every trusted read — grafts and shallow have no
+  equivalent switch.
 - **The surface list will lag.** Any runner can add a configuration source. B
   reduces the frequency of that failure; it does not eliminate it. This should
   be said in the SPEC rather than implied to be solved.

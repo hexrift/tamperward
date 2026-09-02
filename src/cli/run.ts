@@ -39,6 +39,7 @@ import { join, resolve } from 'node:path';
 import { runCheck } from './check';
 import { runVerify } from './verify';
 import { loadPolicy, loadPolicyAt } from '../policy-load';
+import { objectRewriteState, trustedGitEnv } from '../git/trusted';
 import { defaultPolicy } from '../policy';
 import { Policy } from '../types';
 
@@ -61,7 +62,7 @@ const out = (s: string) => process.stdout.write(s + '\n');
 const err = (s: string) => process.stderr.write(s + '\n');
 
 function git(args: string[], cwd: string): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 1 << 28 });
+  return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 1 << 28, env: trustedGitEnv() });
 }
 
 /** Content fingerprint of every non-ignored file (tracked + untracked). The
@@ -262,6 +263,11 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
 
   out(`tamperward run — trusted base ${base.slice(0, 10)}; agent exit is untrusted.`);
   const depsBefore = depsFingerprint(cwd); // the runner the suite will execute
+  // What the object layer resolves to. Every read of the trusted base — the
+  // pristine overlay, the ancestry assertion, the ranged diff — goes through
+  // it, and `git replace` / info/grafts / shallow can redirect all three
+  // without moving a ref or touching a file (src/git/trusted.ts).
+  const rewritesBefore = objectRewriteState(cwd);
   const spawnTicks = nowTicks(); // survivors are what appears after this
   const agent = spawnSync(opts.argv[0], opts.argv.slice(1), { cwd, stdio: 'inherit' });
   const agentExit = agent.status ?? 1; // killed-by-signal is not success
@@ -273,8 +279,22 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   // adjudicated against a past that predates its task. Post-agent HEAD must
   // be a descendant of the entry SHA (merge-base then collapses to exactly
   // it); anything else is itself the conviction.
+  // Same attack class as the history rewrite below, one layer lower: `git
+  // replace`, .git/info/grafts and .git/shallow all change what the trusted
+  // base RESOLVES TO without moving a ref or touching a tracked file. Checked
+  // BEFORE adjudication, not merely reported after it: every check downstream
+  // reads the base through this layer, so a report produced under a redirected
+  // base describes an anchor we never chose.
+  if (objectRewriteState(cwd) !== rewritesBefore) {
+    err('tamperward run: git object-replacement state changed during this run — a replace ref, graft');
+    err('or shallow boundary now redirects what the trusted base resolves to. Nothing below could be');
+    err('read against the anchor we started from. That is the finding.');
+    out(`\ntamperward run — agent exit ${agentExit}; OBJECT_REWRITE → ENFORCEMENT_FAILED`);
+    return 1;
+  }
+
   const head = git(['rev-parse', 'HEAD'], cwd).trim();
-  const isAncestor = spawnSync('git', ['merge-base', '--is-ancestor', base, head], { cwd });
+  const isAncestor = spawnSync('git', ['merge-base', '--is-ancestor', base, head], { cwd, env: trustedGitEnv() });
   if (isAncestor.status !== 0) {
     err(`tamperward run: HEAD ${head.slice(0, 10)} is not a descendant of the trusted base ${base.slice(0, 10)} —`);
     err('the agent rewrote history out from under the anchor. That is the finding.');
@@ -318,12 +338,20 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     err('tamperward run: the installed dependency tree changed during this run — the program that');
     err('runs the suite is not the one we started with. Both verification runs execute it.');
   }
+  // And again after the checks: a survivor can install a replace ref while the
+  // suite is running, which would leave the verdict above describing a base
+  // that no longer resolves the same way.
+  const rewrote = objectRewriteState(cwd) !== rewritesBefore;
+  if (rewrote) {
+    err('tamperward run: git object-replacement state changed WHILE the tree was being adjudicated —');
+    err('the checks above read the trusted base through an object layer that has since moved.');
+  }
   const survivors = survivorsHoldingTree(cwd, spawnTicks);
   if (survivors.length) {
     err(`tamperward run: ${survivors.length} process(es) started during this run still hold the`);
     err(`working tree (pid ${survivors.join(', ')}). A verdict cannot outlive the tree it describes.`);
   }
-  const notQuiescent = mutatedDuringAdjudication || survivors.length > 0 || depsDrifted;
+  const notQuiescent = mutatedDuringAdjudication || survivors.length > 0 || depsDrifted || rewrote;
 
   const cannot = diffCode === 2 || workCode === 2 || verifyCode === 2;
   const blocked = diffCode === 1 || workCode === 1 || verifyCode === 1 || notQuiescent;
@@ -331,6 +359,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
 
   const verdict =
     enforcement === 2 ? 'CANNOT_ADJUDICATE (fail closed)'
+    : rewrote ? 'OBJECT_REWRITE — the base the checks read is not the base we anchored to'
     : depsDrifted ? 'DEPENDENCY_DRIFT — the suite runner changed under the envelope'
     : notQuiescent ? 'NOT_QUIESCENT — the tree moved, or something still holds it'
     : enforcement === 1 ? 'ENFORCEMENT_FAILED — the tree the runtime released does not stand'

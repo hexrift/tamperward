@@ -33,6 +33,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { loadPolicy, loadPolicyAt } from '../policy-load';
 import { assertRev } from '../git/build';
+import { trustedGitEnv } from '../git/trusted';
 import { defaultPolicy, isProtected, matchesAny } from '../policy';
 import { Policy } from '../types';
 
@@ -100,8 +101,10 @@ const VERIFICATION_SURFACE = [
   '**/*.runsettings',
 ];
 
+// Every git read here feeds the trust anchor, so every one of them is made with
+// replace-object resolution disabled (src/git/trusted.ts).
 function git(args: string[], cwd: string): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 1 << 28 });
+  return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 1 << 28, env: trustedGitEnv() });
 }
 
 /** merge-base semantics like `check --diff base...head`: the PR cannot dodge by
@@ -123,7 +126,7 @@ function resolveBase(base: string, cwd: string): string {
  *  documented standalone CI wiring (`verify --base <sha>`) could not, so it
  *  gets an opt-in guard. (P1-3, external review.) */
 function baseIsAncestorOfHead(base: string, cwd: string): boolean {
-  const r = spawnSync('git', ['merge-base', '--is-ancestor', base, 'HEAD'], { cwd });
+  const r = spawnSync('git', ['merge-base', '--is-ancestor', base, 'HEAD'], { cwd, env: trustedGitEnv() });
   return r.status === 0;
 }
 
@@ -176,19 +179,74 @@ function dropSymlink(p: string): void {
   }
 }
 
+/**
+ * Files the VERIFIER ITSELF executes, as they exist at the base.
+ *
+ * The overlay restores the tests and the runner's configuration, and then hands
+ * the whole thing to `sh -c <command>` — a command that, in every real repo,
+ * runs a PROGRAM. `verify: { command: "node runner.js" }` restores the test
+ * files and then executes the agent's `runner.js` over them. `npm test` is a
+ * step worse: `package.json` is on the verification surface, so the base's
+ * `"test": "sh scripts/test.sh"` is faithfully restored — and then delegates to
+ * a script nothing restored. Nothing in the overlay classes covers either file,
+ * so both were the agent's, in the run whose entire purpose is to execute code
+ * the agent did not write. 1.14.3 froze the command STRING; this freezes what
+ * the string runs.
+ *
+ * Two sources, because neither alone is enough:
+ *
+ *   implicit — command tokens that name a file existing at the base. Catches the
+ *     direct case (`node runner.js`, `sh scripts/ci.sh`, `./run-tests`) with no
+ *     configuration at all, and can only ever restore a file the base itself
+ *     shipped, so a token that happens to match nothing is simply not restored.
+ *
+ *   explicit — `verify: { inputs: [globs] }` in the policy at the base. Required
+ *     for delegation, which is not statically decidable: `npm test`, `make
+ *     check`, `tox` name no file. Narrowing this list is policy weakening
+ *     (src/detectors/policy-diff.ts), so it cannot be quietly given up.
+ *
+ * This is a bound on the class, not its elimination — a command can always
+ * reach a file neither source names. It is documented as a residual in
+ * docs/THREAT-MODEL-pristine-run.md.
+ */
+function verifierInputs(cmd: string, atBase: string[], policy: Policy): Set<string> {
+  const baseFiles = new Set(atBase);
+  const picked = new Set<string>();
+  for (const raw of cmd.split(/[\s;&|()<>]+/)) {
+    const tok = raw.replace(/^['"]|['"]$/g, '').replace(/^\.\//, '');
+    if (tok && baseFiles.has(tok)) picked.add(tok);
+  }
+  const globs = policy.verify?.inputs;
+  if (globs && globs.length) {
+    for (const rel of atBase) if (matchesAny(rel, globs)) picked.add(rel);
+  }
+  return picked;
+}
+
 /** Restore protected files as they are at `base` into the copy, and remove any
  *  the agent added inside a protected class. Returns [restored, removedAdditions]. */
-function overlayPristine(cwd: string, base: string, dest: string, policy: Policy): [number, number] {
+function overlayPristine(cwd: string, base: string, dest: string, policy: Policy, cmd: string): [number, number] {
   const atBase = git(['ls-tree', '-r', '--name-only', '-z', base], cwd).split('\0').filter(Boolean);
-  // Base-owned = the policy's overlay classes UNION the verification surface.
+  // Base-owned = the policy's overlay classes UNION the verification surface
+  // UNION whatever the verifier command itself executes.
+  const verifierOwned = verifierInputs(cmd, atBase, policy);
+  // The EXPLICIT half is a glob, so it also governs removal: a file the agent
+  // ADDED under `verify.inputs` is a new input to the verifier — the added
+  // conftest.py argument, one layer down. The implicit half cannot do this
+  // (it can only recognise a path that exists at the base), which is exactly
+  // why delegation needs the explicit list.
+  const verifierGlobs = policy.verify?.inputs ?? [];
   const isOverlay = (p: string): boolean =>
-    OVERLAY_CLASSES.some((c) => isProtected(p, policy, c)) || matchesAny(p, VERIFICATION_SURFACE);
+    OVERLAY_CLASSES.some((c) => isProtected(p, policy, c)) ||
+    matchesAny(p, VERIFICATION_SURFACE) ||
+    verifierOwned.has(p) ||
+    (verifierGlobs.length > 0 && matchesAny(p, verifierGlobs));
   let restored = 0;
   const baseProtected = new Set<string>();
   for (const rel of atBase) {
     if (!isOverlay(rel)) continue;
     baseProtected.add(rel);
-    const content = execFileSync('git', ['show', `${base}:${rel}`], { cwd, maxBuffer: 1 << 28 });
+    const content = execFileSync('git', ['show', `${base}:${rel}`], { cwd, maxBuffer: 1 << 28, env: trustedGitEnv() });
     const out = join(dest, rel);
     mkdirSync(dirname(out), { recursive: true });
     dropSymlink(out);
@@ -301,7 +359,7 @@ export function runVerify(opts: VerifyOpts): number {
     mkdirSync(priDir);
     materialize(cwd, visDir);
     materialize(cwd, priDir);
-    [restored, removedAdded] = overlayPristine(cwd, base, priDir, policy);
+    [restored, removedAdded] = overlayPristine(cwd, base, priDir, policy, cmd);
   } catch (e) {
     if (!opts.keep) rmSync(work, { recursive: true, force: true });
     out(`verify: could not materialize (${e instanceof Error ? e.message : String(e)}) — failing closed`);

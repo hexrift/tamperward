@@ -19,7 +19,7 @@ type RawPolicy = {
   rules?: Policy['rules'];
   ignore?: string[];
   signoff?: { required_for?: Severity[]; requiredFor?: Severity[]; ledger?: string };
-  verify?: { command?: string; budget?: number };
+  verify?: { command?: string; budget?: number; inputs?: string[] };
 };
 
 /** `version:` opts in to rule graduations, so a value that cannot be understood must
@@ -53,7 +53,16 @@ export function parsePolicy(raw: RawPolicy | null | undefined): Policy {
       ledger: r.signoff?.ledger ?? base.signoff.ledger,
     },
     ...(r.verify?.command
-      ? { verify: { command: r.verify.command, budget: r.verify.budget ?? 300 } }
+      ? {
+          verify: {
+            command: r.verify.command,
+            budget: r.verify.budget ?? 300,
+            // Rebuilding the block field-by-field means a field added later and
+            // not listed here is SILENTLY DROPPED — which is how `inputs` first
+            // shipped as a no-op that parsed, validated, and restored nothing.
+            ...(Array.isArray(r.verify.inputs) ? { inputs: r.verify.inputs.map(String) } : {}),
+          },
+        }
       : {}),
   };
 }

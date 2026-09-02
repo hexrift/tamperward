@@ -38,6 +38,7 @@ function parseInit(args: string[]): InitOpts {
     const a = args[i];
     if (a === '--cwd') o.cwd = args[++i];
     else if (a === '--dry-run') o.dryRun = true;
+    else if (a === '--force-workflow') o.forceWorkflow = true;
   }
   return o;
 }
@@ -102,9 +103,15 @@ Formats:
                                             adjudicate (fails closed)
   tamperward allow <rule> --reason "..."    record a human sign-off (local audit ledger)
   tamperward init [--dry-run]               wire the policy file plus every
-                                            enforcement point: Claude Code hooks,
+             [--force-workflow]             enforcement point: Claude Code hooks,
                                             pre-commit, CI. Idempotent; never
-                                            overwrites your files.
+                                            overwrites your files. Re-running it
+                                            MIGRATES a CI workflow it generated and
+                                            you have not edited, and widens a
+                                            PreToolUse matcher that no longer covers
+                                            every tool the gate must see.
+                                            --force-workflow replaces a workflow it
+                                            did not write, or one you have edited.
 
 Exit code: check → 1 if any blocking finding. hook/sweep → always 0; a deny is
            emitted as JSON on stdout (exit 2 makes Claude Code ignore the JSON).
