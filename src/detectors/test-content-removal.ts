@@ -29,18 +29,20 @@ import { Change, Detector, Finding } from '../types';
 import { isProtected } from '../policy';
 import { makeFinding } from './finding';
 import { countTestBlocks } from './test-deletion';
+import { isSignificantLine, langOf } from './files';
 
 const RULE = 'test-content-removal';
 const MIN_REMOVED_LINES = 3;
 
 const ws = (s: string): string => s.replace(/\s+/g, '');
 
-/** Significant lines, in file order (test-deletion's filter, kept in sync). */
-function significantLinesOrdered(src: string): string[] {
+/** Significant lines, in file order — the one filter test-deletion also uses. */
+function significantLinesOrdered(src: string, path: string): string[] {
   const out: string[] = [];
+  const lang = langOf(path);
   for (const raw of src.split('\n')) {
     const l = raw.trim();
-    if (l.length >= 10 && !/^(import\b|export\s|\/\/|\*|\/\*|}\)?;?$)/.test(l)) out.push(l);
+    if (isSignificantLine(l, lang)) out.push(l);
   }
   return out;
 }
@@ -57,7 +59,7 @@ export const testContentRemoval: Detector = {
     let keptPool = '';
     for (const c of changes) {
       if (c.kind === 'file' && c.after != null && isProtected(c.path, policy, 'tests')) {
-        keptPool += ws(significantLinesOrdered(c.after).join('\n'));
+        keptPool += ws(significantLinesOrdered(c.after, c.path).join('\n'));
       }
     }
 
@@ -72,10 +74,10 @@ export const testContentRemoval: Detector = {
       // one rule. The corpus sweep showed legitimate snapshot updates dominating
       // this rule's fires until excluded here.
       if (isProtected(c.path, policy, 'snapshots')) continue;
-      if (countTestBlocks(c.after) < countTestBlocks(c.before)) continue; // test-deletion's case
+      if (countTestBlocks(c.after, c.path) < countTestBlocks(c.before, c.path)) continue; // test-deletion's case
 
-      const beforeSig = significantLinesOrdered(c.before);
-      const afterSig = significantLinesOrdered(c.after);
+      const beforeSig = significantLinesOrdered(c.before, c.path);
+      const afterSig = significantLinesOrdered(c.after, c.path);
       // NET removal is required: a one-for-one rewrite (expected values changed in
       // place, line count kept) is the semantic class — held-out oracles judge it,
       // not a diff rule. Gutting shrinks the spec; that is what fires here. A
