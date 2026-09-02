@@ -90,7 +90,7 @@ Formats:
                                             observe supported transient effects
   tamperward verify [--base R] [--cmd C]    pristine-suite re-execution: run the suite
              [--budget S] [--json] [--keep] as-is AND with protected files restored
-                                            from the trusted base; a visible-green /
+             [--require-ancestor] [--cwd D]  from the trusted base; a visible-green /
                                             pristine-red result is a MASKED FAILURE
                                             (exit 1, or 0 under an out-of-band
                                             verify@<head-sha> approval); cannot-verify
@@ -98,14 +98,16 @@ Formats:
   tamperward run [opts] -- <agent cmd...>   enforcement envelope: record the trusted
              [--base R] [--cmd C]           base, run the agent, treat its exit as
              [--budget S] [--allow-dirty]   untrusted, then re-adjudicate the tree it
-                                            left (policy over base...HEAD and the
+             [--settle S] [--allow-dep-drift] left (policy over base...HEAD and the
+             [--cwd D]
                                             worktree, plus verify). Exit: agent's code
                                             when clean; 1 on any blocking finding or
                                             masked failure; 2 when it cannot
                                             adjudicate (fails closed)
   tamperward allow <rule> --reason "..."    record a human sign-off (local audit ledger)
+             [--file F] [--cwd D]
   tamperward init [--dry-run]               wire the policy file plus every
-             [--force-workflow]             enforcement point: Claude Code hooks,
+             [--force-workflow] [--cwd D]   enforcement point: Claude Code hooks,
                                             pre-commit, CI. Idempotent; never
                                             overwrites your files. Re-running it
                                             MIGRATES a CI workflow it generated and
@@ -115,8 +117,12 @@ Formats:
                                             --force-workflow replaces a workflow it
                                             did not write, or one you have edited.
 
-Exit code: check → 1 if any blocking finding. hook/sweep → always 0; a deny is
-           emitted as JSON on stdout (exit 2 makes Claude Code ignore the JSON).
+Exit codes: 0 clean · 1 a blocking finding (check), MASKED_FAILURE or SUITE_RED
+            (verify), any blocking finding or masked failure (run) · 2 cannot
+            evaluate, failing closed: policy error, bad --diff range, no view,
+            unresolvable base, --require-ancestor refused, budget exceeded.
+            hook/sweep → 0 with a deny emitted as JSON on stdout (exit 2 would make
+            Claude Code ignore the JSON); 2 only for an unsupported agent name.
 `);
 }
 

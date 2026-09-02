@@ -58,7 +58,7 @@ off, which is a security failure by a slower route.
 
 ## Supported versions
 
-The latest published minor of the 1.x line receives fixes, as patches — a bypass fix
+The latest published minor of the current major line receives fixes, as patches — a bypass fix
 is always a patch (CONTRIBUTING, "Versioning") so it reaches you on an ordinary update.
 Older minors are not patched; upgrade to the current one.
 
