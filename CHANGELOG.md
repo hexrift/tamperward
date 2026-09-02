@@ -5,6 +5,65 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.5.0] — 2026-09-02
+
+**The config-narrowing class: a runner told not to open a spec, a coverage
+denominator quietly shrunk, a workflow that keeps its check line and never
+runs it. Closed across test-deletion, coverage-lowering and ci-tampering,
+with the two most routine maintainer edits — splitting a spec and touching a
+CI check line — no longer blocking. A minor: these rules now fire on config
+shapes they previously passed.**
+
+### Added
+
+- **test-deletion reads runner selection.** jest `testPathIgnorePatterns`,
+  `testMatch`, `testRegex` and vitest `test.exclude` / `test.include` are
+  evaluated as the selection predicate over the repository's own spec files:
+  a spec that was collected before the edit and is not collected after it is
+  a deletion, with the count. A glob respelled to select the same files, or
+  an ignore that matches nothing in the tree, is silent. Shell spellings that
+  erase a spec join the command surface: `cp /dev/null`, `sed --in-place`,
+  `tee`, `find -delete` / `-exec rm`, `truncate`, `perl -pi`, `git checkout
+  <rev> --`, and a directory token that holds a protected spec (`rm -rf test`;
+  `dist/__tests__` is silent).
+- **coverage-lowering reads the denominator and the switches.**
+  `collectCoverageFrom` entries dropped or source exempted,
+  `coveragePathIgnorePatterns` / `coverage.exclude` grown, `--coverage=false`
+  and `--coverageThreshold=` in a script, vitest `thresholds.autoUpdate`,
+  and `passWithNoTests` as a config key. Python `.coveragerc` /
+  `pyproject.toml` `fail_under`, nyc thresholds and `check-coverage`, and
+  codecov `target` / `threshold` / `informational` join the protected config
+  baseline and are compared.
+- **ci-tampering reads the block, the expression and the trigger.** A kept
+  check line preceded by `set +e`, `exit 0`, `if false; then`, a heredoc
+  comment or `shell: bash {0}`, or followed by `|| true` or
+  `--passWithNoTests`, is neutralised in place. `continue-on-error` and
+  `if:` are constant-folded (quoted booleans, `${{ 1 == 1 }}`, `${{ 'a' ==
+  'b' }}`, `${{ !true }}`); anything with a context reference stays
+  reachable. `on:` narrowed so the workflow no longer runs — `push` /
+  `pull_request` removed, `paths-ignore: ['**']`, `branches:` no longer
+  naming main — is reported.
+
+### Fixed
+
+- **Splitting or merging a spec blocked as a deletion.** Added lines of every
+  added AND modified protected spec in the change are the relocation set, so
+  a split (modify + add), a merge (delete + modify) and two `it`s folded into
+  one `it.each` are relocations; a literal `it.each` table counts one test per
+  row; the Java anchor accepts `@Timeout(5) @Test` on one line.
+- **Editing a check line in place blocked as a removal.** A flag added, `npm
+  test` → `npm run test` / `npm t` / `pnpm test`, `npx` → `pnpm exec` /
+  `yarn` / `bunx`, quoting, and an action bumped `@v3` → `@v4` (Dependabot's
+  daily move) are kept; `continue-on-error` / `if:` on an unrelated step no
+  longer fire.
+- **Three table rows removed plus one line lengthened** slipped under
+  test-content-removal's net threshold; rows inside a literal `each` table
+  are counted on their own.
+- **Removing `console.log` lines from a spec** no longer counts as content
+  removal; a stricter one-metric coverage override, an override removed for a
+  file no longer in the repo, and a `{ ...base }` spread refactor no longer
+  report metrics as removed.
+
 ## [2.4.1] — 2026-09-02
 
 **The enforcement wiring is read for what it does, not for the words in it.
