@@ -133,7 +133,7 @@ describe('pytest spellings test-skip did not know (C6)', () => {
     ['collect_ignore = ["test_slow.py"]', 'collect_ignore'],
     ['collect_ignore_glob = ["test_*_slow.py"]', 'collect_ignore'],
     ['collect_ignore.append("test_a.py")', 'collect_ignore'],
-    ['pytestmark = pytest.mark.skip(reason="later")', 'skip/skipif/xfail'],
+    ['pytestmark = pytest.mark.skip(reason="later")', 'pytestmark'],
     ['    pytest.param(1, marks=pytest.mark.xfail),', 'skip/skipif/xfail'],
     ['@mark.skipif(True, reason="x")', 'skip/skipif/xfail'],
     ['def pytest_ignore_collect(collection_path, config):', 'pytest_ignore_collect'],
