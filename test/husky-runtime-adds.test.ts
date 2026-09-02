@@ -11,12 +11,13 @@
 // fail-closed. This allowlist is security-sensitive, so every recognised filename
 // and content variant is exercised here.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { hookTampering } from '../src/detectors/hook-tampering';
 import { defaultPolicy } from '../src/policy';
 import type { Change, FileChange } from '../src/types';
+import { TW_VERSION } from '../src/wiring';
 
 const P = defaultPolicy();
 
@@ -55,7 +56,7 @@ They WILL FAIL in v10.0.0
 "`;
 const SHIM = `#!/usr/bin/env sh\n. "$(dirname "$0")/h"`;
 const SHIM_NAMES = ['applypatch-msg', 'commit-msg', 'post-applypatch', 'post-checkout', 'post-commit', 'post-merge', 'post-rewrite', 'pre-applypatch', 'pre-auto-gc', 'pre-commit', 'pre-merge-commit', 'pre-push', 'pre-rebase', 'prepare-commit-msg'];
-const GATE = '#!/bin/sh\nnpx --yes tamperward@2.10.1 check --staged\n';
+const GATE = `#!/bin/sh\nnpx --yes tamperward@${TW_VERSION} check --staged\n`;
 
 const add = (path: string, after: string | null): FileChange => ({
   kind: 'file', path, oldPath: null, op: 'add', before: null, after, binary: false, hunks: [],
@@ -107,7 +108,35 @@ describe('husky v9 runtime adds', () => {
   });
 
   it('SECURITY: a pre-commit whose gate is neutered (|| true) is not live — adds stay findings', () => {
-    gate('#!/bin/sh\nnpx --yes tamperward@2.10.1 check --staged || true\n');
+    gate(`#!/bin/sh\nnpx --yes tamperward@${TW_VERSION} check --staged || true\n`);
+    expect(run(installerFiles(), dir).length).toBeGreaterThan(0);
+  });
+
+  it('SECURITY: a live gate that is not the STAGED backstop does not license the install', () => {
+    for (const body of [
+      `#!/bin/sh\nnpx --yes tamperward@${TW_VERSION} check --worktree\n`,
+      `#!/bin/sh\nnpx --yes tamperward@${TW_VERSION} check --diff HEAD...HEAD\n`,
+      `#!/bin/sh\nnpx --yes tamperward@${TW_VERSION} check --staged --cwd /tmp\n`,
+    ]) {
+      gate(body);
+      expect(run(installerFiles(), dir).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('SECURITY: an old or unpinned gate does not license displacing a current one', () => {
+    for (const body of [
+      '#!/bin/sh\nnpx --yes tamperward@1.14.0 check --staged\n',
+      '#!/bin/sh\nnpx --yes tamperward check --staged\n',
+    ]) {
+      gate(body);
+      expect(run(installerFiles(), dir).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('SECURITY: a symlinked pre-commit is not a readable regular file — fails closed', () => {
+    mkdirSync(join(dir, '.husky'), { recursive: true });
+    writeFileSync(join(dir, 'real-gate'), GATE);
+    symlinkSync(join(dir, 'real-gate'), join(dir, '.husky/pre-commit'));
     expect(run(installerFiles(), dir).length).toBeGreaterThan(0);
   });
 

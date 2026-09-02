@@ -724,13 +724,21 @@ function huskyRuntimeWrite(path: string, content: string | null | undefined, ctx
   // repo can already carry an ordinary husky pre-commit (say `npm test`) whose
   // real gate is another mechanism, and this same install would repoint
   // core.hooksPath at `.husky/_` and displace it. Read the pre-commit and require
-  // that it runs `tamperward check` LIVE under husky's `sh -e`, the same model the
-  // hand-written-script rule uses; anything less fails closed.
+  // it to run THE COMMIT BACKSTOP: `tamperward check --staged`, live under husky's
+  // `sh -e`, at the pin the judging release carries. The identity must be exact —
+  // `--worktree`, `--diff HEAD...HEAD` and a `--cwd` away from the root are live
+  // but see something other than the staged change, so they are not the backstop
+  // this exemption claims to have verified — and the pin must equal TW_VERSION,
+  // which is what `init` writes, so an ancient or unpinned gate cannot license
+  // displacing a current one. The path must be a readable REGULAR file: a symlink
+  // is never followed (textOf would hand back the link's target text).
   const root = path.slice(0, path.length - m[0].length + (m[0].startsWith('/') ? 1 : 0));
-  const gate = textOf(inspectRel(join(ctx.cwd, root), '.husky/pre-commit'));
+  const entry = inspectRel(join(ctx.cwd, root), '.husky/pre-commit');
+  if (entry.kind !== 'file') return false;
+  const gate = textOf(entry);
   if (gate == null) return false;
   return invocations(gate.split('\n'), { errexit: true }).some(
-    (i) => /^tamperward check\b/.test(i.identity) && i.state === 'live',
+    (i) => i.identity === 'tamperward check --staged' && i.state === 'live' && i.pin === TW_VERSION,
   );
 }
 
