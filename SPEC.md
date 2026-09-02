@@ -380,7 +380,16 @@ sign-off. The escape valve would guard nothing.
 
 CI sign-off is therefore **out-of-band**: a PR **label** applied by someone with write
 access, gated by **branch protection** plus **`CODEOWNERS`** on the protected paths and
-on `.tamperward.yml`. Never a committed file. This is the "who guards the guardrail"
+on `.tamperward.yml`. Never a committed file.
+
+Those two are not belt-and-braces, they are load-bearing, and 1.14.6 confirmed why.
+A `pull_request` workflow runs from the PR's OWN head and a required check is matched
+by JOB NAME, so a PR that keeps the job name and replaces the gate with `true` reports
+a green required check over anything it likes — reproduced on this project's own CI in
+three seconds. No detector can object, because the detector is defined by the candidate.
+`CODEOWNERS` on `/.github/workflows/` (which `tamperward init` now writes) plus
+"Require review from Code Owners" is the only thing that puts a human in that path.
+**Without both, the CI layer of this tool is advisory.** This is the "who guards the guardrail"
 problem turned on us — getting it right is on-thesis; getting it wrong quietly
 undermines the whole pitch.
 

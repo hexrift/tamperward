@@ -5,6 +5,69 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.14.6] — 2026-09-02
+
+**H2, the last open hypothesis from the second audit, is confirmed: a pull
+request can switch off the gate that judges it. This ships what can be shipped,
+and says plainly what cannot.**
+
+### The reproduction
+
+A `pull_request` workflow executes from the **pull request's own head**, and a
+required status check is matched by **job name**. So a pull request can keep the
+job called `gate`, replace every Tamperward invocation in it with `true`, and
+present a green required check over any change it likes.
+
+Run as a controlled fixture against this project's own CI, on a branch that also
+lowered `hook-tampering` from `block` to `warn`:
+
+    Complete job name: gate
+    ##[group]Run true
+    true
+
+`gate` — **success, in three seconds**. The same range, checked locally with
+1.14.5, blocks with two findings and exits 1:
+
+    BLOCK  ci-tampering    .github/workflows/ci.yml
+    BLOCK  hook-tampering  .tamperward.yml
+
+The detector is correct and irrelevant. A second guard fell with it: the "No
+Claude session links" step lives in the same job, so that check vanished on that
+branch too. One neutered job takes out everything defined in it.
+
+**No detector can close this**, because the detector is defined by the candidate.
+Only a human requirement on the paths that constitute the gate can — which is
+what CODEOWNERS expresses and what branch protection enforces.
+
+### What `init` now does
+
+A fifth enforcement point: `.github/CODEOWNERS`, requiring a code owner on
+`/.github/workflows/`, `/.tamperward.yml` and `/.github/CODEOWNERS` itself. The
+owner is inferred from the `origin` remote. Rules are appended at the **end** of
+an existing file, because CODEOWNERS is last-match-wins and our rules must not
+be shadowed by a broader earlier pattern; a directory rule already covering a
+path (`/.github/`) counts, so nothing redundant is added. Where the owner cannot
+be inferred, the file says so in capitals rather than writing a rule that binds
+nobody — an unresolvable owner is protection that is silently absent, which is
+the failure class this project keeps re-learning.
+
+`CODEOWNERS` also joins the protected `hooks` class in all three locations
+GitHub reads it from. It is enforcement wiring, not documentation.
+
+### What `init` cannot do, and now says
+
+`init` cannot set branch protection. So it ends, every run, with the step it
+cannot take for you: require the check **and** enable "Require review from Code
+Owners". Until both are set, the CI gate is advisory — and the message says so
+in those words, because a tool that implies otherwise is worse than one that
+says nothing.
+
+### Fixed
+
+- `init` writes and maintains a CODEOWNERS requirement on the gate-critical paths.
+- `CODEOWNERS` is a protected `hooks` asset, so removing it is a finding.
+- `init` always reports the branch-protection step it cannot perform.
+
 ## [1.14.5] — 2026-09-02
 
 **The pristine run was writable by the candidate. Four findings from a second
