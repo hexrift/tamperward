@@ -18,6 +18,42 @@ const HOOK_INVOCATION = /\b(tamperward|npx|npm|pnpm|yarn|bun|jest|vitest|eslint|
 
 const isShellComment = (s: string) => /^\s*#/.test(s);
 
+/** Owner execute bit of a git mode ("100755") or an octal chmod argument ("644"). */
+const ownerExec = (mode: string): boolean => (parseInt(mode.slice(-3), 8) & 0o100) !== 0;
+
+/** A symbolic chmod clause: `u-x`, `a-x`, `-x`, `+x`, `u=rw`, `go-rwx`. */
+const SYMBOLIC = /^[ugoa]*([-+=])([rwxXst]*)$/;
+
+/**
+ * Whether a `chmod` segment changes the execute permission of its target.
+ *
+ * The symbolic test used to be `[-+=]?[a-z]*x` anchored at whitespace, which
+ * reads `-x` and `+x` but not `u-x`, `a-x`, `go-x` or `u=rw` — the "who" letters
+ * sit between the anchor and the operator, and an assignment removes x without
+ * ever spelling it. Every one of those clears the bit as effectively as `-x`.
+ * Each argument is read as chmod does: comma-separated clauses, `who op perms`,
+ * or an octal mode whose owner digit decides.
+ */
+function chmodTouchesExec(seg: string): boolean {
+  const toks = tokens(seg).map(unquote);
+  const at = toks.findIndex((t) => /^chmod$/.test(t));
+  if (at === -1) return false;
+  for (const tok of toks.slice(at + 1)) {
+    if (/^[0-7]{3,4}$/.test(tok)) {
+      if (!ownerExec(tok)) return true;
+      continue;
+    }
+    for (const clause of tok.split(',')) {
+      const m = clause.match(SYMBOLIC);
+      if (!m) continue;
+      const [, op, perms] = m;
+      const namesExec = /[xX]/.test(perms);
+      if (op === '=' ? !namesExec : namesExec) return true;
+    }
+  }
+  return false;
+}
+
 export const hookTampering: Detector = {
   id: RULE,
   surface: ['file', 'command'],
@@ -31,6 +67,23 @@ export const hookTampering: Detector = {
           isProtected(c.path, policy, 'hooks') ||
           (c.oldPath ? isProtected(c.oldPath, policy, 'hooks') : false);
         if (!targetsHook) continue;
+
+        // A MODE-ONLY change carries no hunks, so nothing below ever saw it: `chmod
+        // -x .husky/pre-commit` (husky v8 points core.hooksPath at that file, and
+        // git silently skips a hook that is not executable) reached the staged,
+        // worktree and range views as a modify with nothing in it — clean on all
+        // three. The parser now records the modes; losing the owner execute bit on
+        // a hook is the disabling it is.
+        if (c.op !== 'delete' && c.oldMode && c.newMode && ownerExec(c.oldMode) && !ownerExec(c.newMode)) {
+          out.push(
+            makeFinding(RULE, policy, {
+              file: c.path,
+              message: `Execute permission was removed from a protected hook (${c.oldMode} → ${c.newMode}) — git will skip it.`,
+              evidence: `${c.path}: mode ${c.oldMode} → ${c.newMode}`,
+              remediation: 'Restore the execute bit (chmod +x). A hook git cannot run is a disabled hook.',
+            }),
+          );
+        }
 
         if (c.op === 'delete') {
           out.push(
@@ -149,13 +202,8 @@ export const hookTampering: Detector = {
           const hitsHook = tokens(seg).map(unquote).some((t) => isProtected(t, policy, 'hooks'));
           if (!hitsHook) continue;
 
-          // an octal mode whose OWNER digit has no execute bit (644, 000 …) strips +x just
-          // as effectively as `chmod -x`, which the symbolic test alone missed
-          const octal = seg.match(/\bchmod\b[^|;&]*?(?:^|\s)([0-7]{3,4})(?:\s|$)/);
-          const octalDropsExec = octal ? (Number(octal[1].slice(-3)[0]) & 1) === 0 : false;
-
           let why: string | null = null;
-          if (/\bchmod\b/.test(seg) && (/(?:^|\s)[-+=]?[a-z]*x/i.test(seg) || octalDropsExec)) {
+          if (chmodTouchesExec(seg)) {
             why = 'chmod alters execute permission on a hook, which can disable it';
           } else if (/\brm\b/.test(seg)) {
             why = 'rm deletes a protected hook';
