@@ -13,7 +13,7 @@
 // payloads `tamperward hook claude` and `tamperward sweep claude` read on stdin —
 // so the wire contract is what is asserted, not an internal function.
 
-import { describe, it, expect, afterAll, afterEach, beforeAll } from 'vitest';
+import { describe, it, expect, afterAll, afterEach, beforeAll, vi } from 'vitest';
 import { buildSync } from 'esbuild';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -23,6 +23,11 @@ import { runCheck } from '../src/cli/check';
 import { diffWorktreeWithUntracked, ignoredPaths } from '../src/git/build';
 import { contentHash, driftBetween } from '../src/effect';
 import { isProtected, defaultPolicy } from '../src/policy';
+
+// Every case spawns the built CLI several times over a fresh repository; the first
+// one also pays the runner's cold start. 5.4 s on the Node 20 CI runner against a
+// 5 s default is a warm-up, not a verdict, so the file carries its own budget.
+vi.setConfig({ testTimeout: 30_000 });
 
 const ROOT = join(__dirname, '..');
 let cliDir = '';
