@@ -5,6 +5,203 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.14.5] — 2026-09-02
+
+**The pristine run was writable by the candidate. Four findings from a second
+external audit; a fifth is mechanism-established and deliberately not claimed.**
+
+### The visible run could edit the pristine copy
+
+The two copies were siblings under one temporary root, and BOTH were
+materialised — overlay fully applied — before the visible run started. The
+visible run executes the candidate's code. So the candidate's code wrote
+
+    ../pristine/test/<the test that convicts it>
+
+and both runs returned 0. No race. No background process. No git. Three lines in
+a file the agent already controls, and the layer whose entire purpose is to
+execute code the agent did not write reported `VERIFIED` over an unfixed bug.
+
+Sequencing is the fix: **the pristine copy is built only after the visible run
+has exited.** There is nothing to write into while the candidate is running,
+because it does not exist yet. Separate temporary roots as well, but that is
+defence in depth and not the control — a background process can still enumerate
+a temp directory.
+
+Two guards close what sequencing alone cannot:
+
+- the restored overlay files are digested (content **and** mode) either side of
+  the pristine run, so a write that reaches the copy after it exists is caught;
+- the working tree and the installed dependency tree are fingerprinted around
+  both runs. The pristine copy is now materialised from the source tree *after*
+  the candidate has had a turn, and that tree's path is one `readlink` away
+  through the `node_modules` symlink — so a visible run that reaches back into it
+  would be choosing what the pristine copy is made of. Any movement is exit 2.
+
+**Behaviour change:** a suite that rewrites its own test files or snapshots in
+place during verification now fails closed rather than being verified. Run it in
+whatever mode your runner calls CI, so verification observes rather than updates.
+
+### The overlay restored content, not mode
+
+`git ls-tree --name-only` was the whole of the base read, so a restored file kept
+whatever mode `materialize` had copied from the agent's working tree — or, for a
+file the agent had deleted, the 0644 a fresh `writeFileSync` produces. A base test
+at `100755` therefore arrived non-executable, and a discovery command that runs
+the executable files under `test/` found nothing to run in either copy: `VERIFIED`,
+over a source that fails. **The agent never edited a byte of the test. `chmod -x`
+was the entire attack.** Mode and type now come from the base: blobs are restored
+with their mode, a base symlink is reproduced as one, and a submodule inside an
+overlay class fails closed rather than being faked.
+
+### A transient dependency substitution was invisible
+
+`run` compared the `node_modules` fingerprint at entry against the fingerprint at
+exit. A replacement runner that returns 0 for the visible run, returns 0 for the
+pristine run, and puts the original bytes and mode back on its way out leaves
+those two identical — reproduced end to end as `GREEN MEANS GREEN` over an unfixed
+bug. The state that matters is the one the checks are about to execute, so it is
+now compared **before adjudication begins**, as the object-rewrite check already
+was; `verify` re-checks it around each suite invocation as well.
+
+### The CI gate was fetched from a registry the candidate chose
+
+`npm` reads `.npmrc` from the working directory — which, in a `pull_request`
+workflow, is the checked-out pull request. One committed line,
+`registry=https://…`, decided where `npx --yes tamperward@<version>` downloaded
+the authority judging it from. The version pin pinned the **string**, not the
+**source**. The generated workflow now sets `NPM_CONFIG_REGISTRY` at job level,
+which outranks a project `.npmrc` in npm's config precedence. Workflows generated
+by 1.14.4 and not edited since migrate automatically on the next `init`, via the
+provenance stamp shipped in that release.
+
+### Not claimed
+
+A fifth hypothesis — that a pull request can neuter the generated workflow while
+keeping the required job name, so the check reports green rather than missing —
+is **mechanism-established and unreproduced**. `pull_request` workflows run from
+the PR head and required checks match by name, so nothing in the template
+prevents it; no live PR fixture has been run, so it is not described here as a
+reproduction and nothing has been changed for it.
+
+### Fixed
+
+- `verify` builds the pristine copy only after the visible run exits, digests the
+  restored files around the pristine run, and fails closed if the working tree or
+  the installed dependency tree moves during verification.
+- `verify` restores the base's file mode and type, not only its content.
+- `run` compares the dependency fingerprint before adjudication, not only at exit.
+- The generated CI workflow pins `NPM_CONFIG_REGISTRY`.
+
+## [1.14.4] — 2026-09-02
+
+**Six fixes from an external audit. Two of them reopen the same wound 1.14.1,
+1.14.2 and 1.14.3 each closed one layer of: the verifier's inputs, and the git
+objects the base resolves to.**
+
+### The verifier executed files nothing restored
+
+1.14.3 froze the verifier's command *string* against the base policy. It did not
+freeze what that string runs. The pristine overlay restored the tests, the
+snapshots and the runner configuration — and then handed the result to `sh -c`,
+which ran a program:
+
+    verify:
+      command: node runner.js     # runner.js is in no protected class,
+                                  # and on no runner's config surface
+
+Rewriting `runner.js` to `process.exit(0)` produced `VERIFIED`, exit 0, over an
+untouched bug. Delegation is worse, because the restoration looks complete:
+`package.json` is on the verification surface, so the base's
+`"test": "sh scripts/test.sh"` was faithfully restored — and then called a
+script nobody restored.
+
+The pristine copy now also carries the base's copy of **what the verifier
+executes**, from two sources:
+
+- **implicit** — command tokens naming a file that exists at the base
+  (`node runner.js`, `sh scripts/ci.sh`, `./run-tests`). No configuration; it can
+  only ever restore a file the base itself shipped.
+- **explicit** — a new `verify: { inputs: [globs] }` block, for delegation, which
+  is not statically decidable. Files matching it are restored from the base, and
+  files the agent *added* under it are removed from the pristine copy — the
+  added-`conftest.py` argument, one layer down.
+
+Narrowing `verify.inputs` is policy weakening, alongside changing the command and
+lowering the budget.
+
+This bounds the class; it does not eliminate it. A command can still reach a file
+neither source names — a `Makefile` include, an interpreter's startup file, a
+tool config outside the surface list. Stated as a residual in
+`docs/THREAT-MODEL-pristine-run.md`, not as solved.
+
+### The base itself could be redirected
+
+`git replace`, `.git/info/grafts` and `.git/shallow` change what a commit
+*resolves to* without moving a ref or touching a tracked file. Every guarantee
+here reduces to "the base says X": the overlay's `git ls-tree` (which files exist
+at the base) and `git show` (their content), and the envelope's `merge-base`
+ancestry assertion. `git replace <base> <a-commit-the-agent-just-wrote>` made all
+three answer from a forged tree, and reported `VERIFIED`.
+
+- every trusted read in `verify` and `run` now sets `GIT_NO_REPLACE_OBJECTS=1`,
+  which is complete for replace refs;
+- grafts and shallow have no such switch, so `run` fingerprints the whole
+  object-rewrite state before the agent starts and re-checks it the moment the
+  agent exits. A change is `OBJECT_REWRITE → ENFORCEMENT_FAILED` (exit 1),
+  checked **before** adjudication rather than reported after it: a report
+  produced under a redirected base describes an anchor nobody chose. It is
+  checked a second time after the checks, for a survivor that installs one
+  mid-run.
+
+This closes the case where the agent installs a rewrite during the run. A rewrite
+that predates the envelope predates its authority and is unchanged.
+
+### `init` could not migrate what it had generated
+
+"Workflow already present — left untouched" made the CI template write-once per
+repository. Everything shipped in it since is therefore absent from every repo
+that ran `init` before it: the pristine-verify step (1.9.0), the version pin,
+`--require-ancestor`, the head-bound sign-off label. A repository whose workflow
+predates 1.9.0 has diff-time detection and no pristine re-execution at all — and
+re-running `init` told its owner CI was wired. **Security fixes that only reach
+new adopters are not shipped.**
+
+Generated workflows now carry a provenance stamp (version + hash of the body as
+generated). A file `init` wrote that nobody has edited is migrated in place; a
+file that was edited, or that `init` never wrote, is reported and left exactly as
+it is. `--force-workflow` is the operator's override for the second case.
+
+### `init` blessed a PreToolUse matcher with a hole in it
+
+The wiring check only ever asked whether *our command* was present, so an install
+wired before `NotebookEdit` was added to the matcher (1.13) kept a permanently
+narrower gate, and every later `init` confirmed it as correctly configured. `init`
+now compares the tool set and widens a matcher that does not cover every tool the
+gate must see — as a union, so tools the user added are kept.
+
+### The hook failed OPEN on a payload it could not read
+
+`parseInput` absorbed every parse failure into `{}` — the empty input — which
+flows through to "no findings": exit 0, empty stdout, **allow**. Truncated stdin,
+a JSON array, a partial write from a runtime under memory pressure: all
+indistinguishable from "this tool call is fine", for every tool call while the
+condition lasted. That is the hole `failClosed()` exists to close, left open at
+the front door. Unreadable and malformed payloads are now denied. Genuinely empty
+stdin is still an allow — it is a well-formed *absence* of a tool call.
+
+### Fixed
+
+- `verify` restores the files the verifier command executes, implicitly from the
+  command and explicitly from `verify.inputs`; `parsePolicy` no longer drops the
+  new field, and narrowing it is flagged as weakening.
+- `verify` and `run` read git with `GIT_NO_REPLACE_OBJECTS=1`; `run` convicts an
+  object-rewrite installed during the run.
+- `init` migrates a generated, unedited CI workflow, and never overwrites one it
+  did not write (`--force-workflow` to override).
+- `init` widens an incomplete PreToolUse matcher.
+- The Claude hook denies a payload it cannot parse instead of allowing it.
+
 ## [1.14.3] — 2026-09-02
 
 **Policy provenance: `verify --base` now reads its policy from that commit, not

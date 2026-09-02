@@ -127,6 +127,27 @@ not in 1.14.2.
 
 ## Residual risk, stated
 
+- **Isolation is sequencing plus detection, not a sandbox.** From 1.14.5 the
+  pristine copy does not exist while the candidate's code runs, and its restored
+  files are digested either side of the pristine run. Neither is confinement: a
+  process that outlives the visible run can enumerate the temp directory, and
+  what it does between the digest and the next digest is caught after the fact,
+  not prevented. The copies are separate directories. They are not a sandbox,
+  and no amount of ordering makes them one.
+
+- **The verifier's own inputs are bounded, not enumerated.** 1.14.4 restores what
+  the command executes — tokens naming a file present at the base, plus an
+  explicit `verify: { inputs: [globs] }` for delegation the tokens cannot see.
+  Neither source is complete: a `Makefile` include, an interpreter startup file,
+  a tool config outside the surface list, or any indirection the base script
+  reaches through can still be the agent's. The explicit list is the escape
+  hatch, and it has to be written by hand.
+- **A git rewrite that predates the envelope is not detected.** `run`
+  fingerprints replace refs, `info/grafts` and `shallow` before the agent starts
+  and convicts a change; a rewrite already installed when it starts is part of
+  the state it anchors to. `GIT_NO_REPLACE_OBJECTS=1` does neutralise
+  pre-existing *replace refs* on every trusted read — grafts and shallow have no
+  equivalent switch.
 - **The surface list will lag.** Any runner can add a configuration source. B
   reduces the frequency of that failure; it does not eliminate it. This should
   be said in the SPEC rather than implied to be solved.
@@ -149,3 +170,13 @@ The bypass class was live from **v1.9.0 through 1.14.1 inclusive** and is closed
 in 1.14.2. The errata discloses that rounds 2, 3 and 3.1 ran on a verifier
 carrying it; that disclosure covers the whole class, not just the `conftest.py`
 form, because every round predates 1.14.2.
+
+Two later findings reach the same record and widen it rather than adding to it.
+The **sibling-write** vector (the visible run editing the pristine copy) was live
+from **v1.9.0 through 1.14.4 inclusive**, closed in 1.14.5 — the same span, since
+the two-sibling layout shipped with `verify` itself. The **file-mode** vector
+(content restored, mode not) has the same span for the same reason. Neither is
+evidence that any counted trajectory used them: no such use has been looked for
+in the transcripts, and this note describes what was possible, not what happened.
+What it does mean is that the disclosure covering rounds 2, 3 and 3.1 should be
+read as covering the verifier's isolation as well as its materialisation rule.

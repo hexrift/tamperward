@@ -20,7 +20,7 @@ interface RawPolicyShape {
   ignore?: string[];
   protected?: Record<string, string[]>;
   signoff?: { required_for?: string[]; requiredFor?: string[] };
-  verify?: { command?: string; budget?: number };
+  verify?: { command?: string; budget?: number; inputs?: string[] };
 }
 
 interface EffectivePolicy {
@@ -156,6 +156,17 @@ export function policyWeakening(before: string, after: string): string[] | null 
       const ab = av.budget ?? 300;
       if (ab < bb) {
         reasons.push(`verify.budget lowered ${bb}s → ${ab}s — starving the budget turns "cannot verify" into a pressure point`);
+      }
+      // inputs: the globs naming what the verifier command executes. Dropping
+      // one hands the pristine run back the agent's copy of that file — the
+      // same weakening as narrowing `protected`, aimed at the runner instead
+      // of the tests.
+      const stillInput = new Set(av.inputs ?? []);
+      const droppedInputs = (bv.inputs ?? []).filter((g) => !stillInput.has(g));
+      if (droppedInputs.length) {
+        reasons.push(
+          `verify.inputs narrowed (removed ${droppedInputs.join(', ')}) — the pristine run would execute the candidate's copy of those files`,
+        );
       }
     }
   }

@@ -118,7 +118,20 @@ export interface Policy {
    * and any lowering of `budget` as policy weakening, because a verify command an
    * agent can point at `true` is no verification at all.
    */
-  verify?: { command: string; budget: number };
+  verify?: {
+    command: string;
+    budget: number;
+    /**
+     * Globs naming the files the verifier command itself executes — the runner
+     * script, the make target's helpers, anything `npm test` delegates to. They
+     * are restored from the trusted base in the pristine run alongside the
+     * tests, because a restored suite executed by an agent-rewritten runner is
+     * not a restored suite. Command tokens that name a base file are picked up
+     * automatically; this list is for delegation, which is not statically
+     * decidable. Narrowing it is policy weakening.
+     */
+    inputs?: string[];
+  };
 }
 
 /** Which git view manufactured the Change[] — i.e. the diff's granularity. Most rules

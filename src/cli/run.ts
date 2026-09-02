@@ -34,11 +34,13 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { runCheck } from './check';
 import { runVerify } from './verify';
 import { loadPolicy, loadPolicyAt } from '../policy-load';
+import { objectRewriteState, trustedGitEnv } from '../git/trusted';
+import { depsFingerprint, treeFingerprint } from '../fingerprint';
 import { defaultPolicy } from '../policy';
 import { Policy } from '../types';
 
@@ -61,83 +63,7 @@ const out = (s: string) => process.stdout.write(s + '\n');
 const err = (s: string) => process.stderr.write(s + '\n');
 
 function git(args: string[], cwd: string): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 1 << 28 });
-}
-
-/** Content fingerprint of every non-ignored file (tracked + untracked). The
- *  envelope adjudicates a LIVE tree across three sequential checks, so it must
- *  be able to prove the tree it judged is the tree that still exists when it
- *  answers. (P0-5, external review.) */
-function treeFingerprint(cwd: string): string {
-  const files = git(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd)
-    .split('\0')
-    .filter(Boolean)
-    .sort();
-  const h = createHash('sha256');
-  for (const rel of files) {
-    h.update(rel);
-    h.update('\0');
-    try {
-      h.update(readFileSync(join(cwd, rel)));
-    } catch {
-      h.update('<unreadable>');
-    }
-    h.update('\0');
-  }
-  return h.digest('hex');
-}
-
-/** Content fingerprint of the installed dependency tree.
- *
- *  `verify` symlinks node_modules into BOTH the visible and pristine copies —
- *  it is gitignored, so no diff view sees it, and it is where the suite's own
- *  runner lives. An agent that writes `node_modules/.bin/<runner>` replaces the
- *  program that decides both verdicts: reproduced as VERIFIED with visible and
- *  pristine both exit 0 while the source bug was untouched. Neither the policy
- *  check (git-scoped) nor the tree fingerprint (ls-files, ignores excluded)
- *  could see it. (P0-6, external review.)
- *
- *  Content-hashed, not stat-compared: P1-8 is the standing lesson that mtime
- *  and size are the agent's to choose. Measured 3.4s over 145MB / 5.4k files,
- *  inside a command that already runs the suite twice. */
-function depsFingerprint(cwd: string): string {
-  const root = join(cwd, 'node_modules');
-  const h = createHash('sha256');
-  const walk = (dir: string): void => {
-    let entries;
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
-      const p = join(dir, e.name);
-      if (e.isDirectory()) walk(p);
-      else if (e.isFile()) {
-        h.update(p);
-        try {
-          h.update(readFileSync(p));
-          h.update(String(statSync(p).mode)); // the exec bit is part of identity
-        } catch {
-          h.update('<unreadable>');
-        }
-      } else if (e.isSymbolicLink()) {
-        h.update(p);
-        try {
-          h.update(readlinkSync(p));
-        } catch {
-          h.update('<unreadable-link>');
-        }
-      }
-    }
-  };
-  try {
-    if (!statSync(root).isDirectory()) return 'none';
-  } catch {
-    return 'none'; // no installed tree: nothing to drift
-  }
-  walk(root);
-  return h.digest('hex');
+  return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 1 << 28, env: trustedGitEnv() });
 }
 
 /** Clock ticks since boot. FLOOR is load-bearing: /proc/uptime is fractional
@@ -262,6 +188,11 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
 
   out(`tamperward run — trusted base ${base.slice(0, 10)}; agent exit is untrusted.`);
   const depsBefore = depsFingerprint(cwd); // the runner the suite will execute
+  // What the object layer resolves to. Every read of the trusted base — the
+  // pristine overlay, the ancestry assertion, the ranged diff — goes through
+  // it, and `git replace` / info/grafts / shallow can redirect all three
+  // without moving a ref or touching a file (src/git/trusted.ts).
+  const rewritesBefore = objectRewriteState(cwd);
   const spawnTicks = nowTicks(); // survivors are what appears after this
   const agent = spawnSync(opts.argv[0], opts.argv.slice(1), { cwd, stdio: 'inherit' });
   const agentExit = agent.status ?? 1; // killed-by-signal is not success
@@ -273,8 +204,38 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   // adjudicated against a past that predates its task. Post-agent HEAD must
   // be a descendant of the entry SHA (merge-base then collapses to exactly
   // it); anything else is itself the conviction.
+  // Same attack class as the history rewrite below, one layer lower: `git
+  // replace`, .git/info/grafts and .git/shallow all change what the trusted
+  // base RESOLVES TO without moving a ref or touching a tracked file. Checked
+  // BEFORE adjudication, not merely reported after it: every check downstream
+  // reads the base through this layer, so a report produced under a redirected
+  // base describes an anchor we never chose.
+  if (objectRewriteState(cwd) !== rewritesBefore) {
+    err('tamperward run: git object-replacement state changed during this run — a replace ref, graft');
+    err('or shallow boundary now redirects what the trusted base resolves to. Nothing below could be');
+    err('read against the anchor we started from. That is the finding.');
+    out(`\ntamperward run — agent exit ${agentExit}; OBJECT_REWRITE → ENFORCEMENT_FAILED`);
+    return 1;
+  }
+
+  // H3. The final comparison below cannot see a TRANSIENT substitution: a
+  // replacement runner that returns 0 for the visible run, returns 0 for the
+  // pristine run, and puts the original bytes and mode back on its way out
+  // leaves the entry-vs-exit fingerprints identical. Reproduced end to end —
+  // GREEN MEANS GREEN over an unfixed bug. The state that matters is the one
+  // the checks are about to execute, so it is compared HERE, before them.
+  if (depsFingerprint(cwd) !== depsBefore) {
+    err('tamperward run: the installed dependency tree changed before adjudication began — the program');
+    err('that runs the suite is not the one we started with, and both verification runs execute it.');
+    if (!opts.allowDepDrift) {
+      out(`\ntamperward run — agent exit ${agentExit}; DEPENDENCY_DRIFT → ENFORCEMENT_FAILED`);
+      return 1;
+    }
+    err('(--allow-dep-drift: proceeding anyway, on the operator\'s judgement.)');
+  }
+
   const head = git(['rev-parse', 'HEAD'], cwd).trim();
-  const isAncestor = spawnSync('git', ['merge-base', '--is-ancestor', base, head], { cwd });
+  const isAncestor = spawnSync('git', ['merge-base', '--is-ancestor', base, head], { cwd, env: trustedGitEnv() });
   if (isAncestor.status !== 0) {
     err(`tamperward run: HEAD ${head.slice(0, 10)} is not a descendant of the trusted base ${base.slice(0, 10)} —`);
     err('the agent rewrote history out from under the anchor. That is the finding.');
@@ -318,12 +279,20 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     err('tamperward run: the installed dependency tree changed during this run — the program that');
     err('runs the suite is not the one we started with. Both verification runs execute it.');
   }
+  // And again after the checks: a survivor can install a replace ref while the
+  // suite is running, which would leave the verdict above describing a base
+  // that no longer resolves the same way.
+  const rewrote = objectRewriteState(cwd) !== rewritesBefore;
+  if (rewrote) {
+    err('tamperward run: git object-replacement state changed WHILE the tree was being adjudicated —');
+    err('the checks above read the trusted base through an object layer that has since moved.');
+  }
   const survivors = survivorsHoldingTree(cwd, spawnTicks);
   if (survivors.length) {
     err(`tamperward run: ${survivors.length} process(es) started during this run still hold the`);
     err(`working tree (pid ${survivors.join(', ')}). A verdict cannot outlive the tree it describes.`);
   }
-  const notQuiescent = mutatedDuringAdjudication || survivors.length > 0 || depsDrifted;
+  const notQuiescent = mutatedDuringAdjudication || survivors.length > 0 || depsDrifted || rewrote;
 
   const cannot = diffCode === 2 || workCode === 2 || verifyCode === 2;
   const blocked = diffCode === 1 || workCode === 1 || verifyCode === 1 || notQuiescent;
@@ -331,6 +300,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
 
   const verdict =
     enforcement === 2 ? 'CANNOT_ADJUDICATE (fail closed)'
+    : rewrote ? 'OBJECT_REWRITE — the base the checks read is not the base we anchored to'
     : depsDrifted ? 'DEPENDENCY_DRIFT — the suite runner changed under the envelope'
     : notQuiescent ? 'NOT_QUIESCENT — the tree moved, or something still holds it'
     : enforcement === 1 ? 'ENFORCEMENT_FAILED — the tree the runtime released does not stand'

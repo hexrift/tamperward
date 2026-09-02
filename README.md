@@ -185,11 +185,20 @@ A real deployment needs a verify command configured — the generated CI verify 
 verify:
   command: npm test
   budget: 300
+  inputs: ['scripts/**']   # what the command DELEGATES to
 ```
 
 That block is itself a guarded surface: changing the command, lowering the budget,
-or removing it is flagged as policy weakening — a verifier an agent can point at
-`true` is no verification at all.
+narrowing `inputs`, or removing it is flagged as policy weakening — a verifier an
+agent can point at `true` is no verification at all.
+
+`inputs` names the files the command *executes*, so the pristine run gets the
+base's copy of them too. A command token that names a file present at the base is
+picked up automatically (`node runner.js`), so most repositories need nothing
+here. Delegation is what needs the list: `npm test` names no file, and the base's
+restored `"test": "sh scripts/test.sh"` will happily call a script nothing
+restored. It bounds the class rather than closing it — see
+[the threat model](./docs/THREAT-MODEL-pristine-run.md).
 
 The four primitives:
 
@@ -263,6 +272,8 @@ and its totals.
 | v1.9.0 | `tamperward verify`: the round-1 pristine oracle productized — visible-green + pristine-red is a masked failure, and "could not verify" fails closed |
 | Round 2, 9–0 | On 22 fresh repositories, v1.9.0 produced b=9/c=0 false-green discordance (p = 0.0039); four gated false greens remained, through two documented residual mechanisms |
 | cssstyle lifecycle escape (round 2) | The `tamperward run` envelope: the gate denied 42 mutations and verify refused all 25 stop attempts, and the runtime completed the session anyway over a masked tree — hooks decide, runtimes terminate, so the adjudication boundary moved outside the runtime |
+| v1.14.5, external audit | The pristine copy was a sibling of the visible copy and fully prepared before it ran, so the candidate's own code wrote `../pristine/<the failing test>` and both runs returned 0 — no race, no background process, no git. The pristine copy is now built only after the visible run exits, its restored files are digested either side of the pristine run, and the working and dependency trees are fingerprinted around both. Also: the overlay restored content but not MODE, so `chmod -x` alone hid a test from an exec-bit runner in both copies; a transient dependency substitution that restored itself on the way out left the entry-vs-exit fingerprint identical; and a committed `.npmrc` chose the registry the CI gate was downloaded from |
+| v1.14.4, external audit | The overlay restored the tests and then ran the agent's *runner*: `verify.command` was frozen, but `runner.js` — and anything `npm test` delegates to — was in no protected class. And `git replace` redirected what the base resolved to for `ls-tree`, `show` and `merge-base` alike, with no ref moved and no file touched. Verifier inputs are now restored from the base; every trusted read sets `GIT_NO_REPLACE_OBJECTS=1` and the envelope convicts a rewrite installed during the run. `init` also gained workflow migration and matcher repair, and the Claude hook now denies a payload it cannot parse instead of allowing it |
 | v1.14.3, external review | Standalone `verify` loaded its policy from the working tree, so the generated CI workflow let a pull request supply the `verify:` command for its own re-execution. `check --diff` flagged the edit as hook-tampering, so the workflow caught it as a pair — but only where both jobs are required, and `verify` alone had no protection. With a `--base`, policy now comes from that commit |
 | v1.14.2, threat model | 1.14.1 removed agent-added files only inside the protected classes, whose `config` list is JS/TS-only; an added `pytest.ini`, `setup.cfg`, `tox.ini` or `pyproject.toml` still reached the pristine run. `verify` now owns a verification surface covering runner-consulted configuration |
 | v1.14.1, article audit | `tamperward verify` kept agent-added protected files in the pristine run on the premise that they "only add strictness". An added `conftest.py` could deselect the restored base tests by node id, so a masked failure reported VERIFIED and the envelope printed GREEN MEANS GREEN over an unfixed bug. Added protected files are now removed; PoC and mutation-checked regression committed |

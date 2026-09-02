@@ -28,21 +28,45 @@ export interface HookResult {
   stdout: string;
 }
 
+/** The hook could not be given its input, or the input was not a hook payload.
+ *  Thrown, never absorbed: the callers below route it to failClosed(). */
+export class HookInputError extends Error {}
+
 function readStdin(): string {
   try {
     return readFileSync(0, 'utf8');
-  } catch {
-    return '';
+  } catch (e) {
+    throw new HookInputError(`cannot read the hook payload on stdin: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
 
+/**
+ * FAIL CLOSED on a payload we cannot understand.
+ *
+ * Both of these used to swallow the failure and return `{}` — the empty input —
+ * which flows straight through preToolUseVerdict to `verdict([], ...)`: exit 0,
+ * empty stdout, ALLOW. So truncated stdin, a JSON array, a partial write from a
+ * runtime under memory pressure, or any payload shape the parser choked on was
+ * indistinguishable from "this tool call is fine", for every tool call while the
+ * condition lasted. That is the same hole failClosed() was written to close one
+ * layer up, left open at the front door.
+ *
+ * Genuinely empty stdin stays an allow. It is a well-formed ABSENCE of a tool
+ * call — there is nothing to deny, and denying it would break `tamperward hook
+ * claude < /dev/null`, which is how the wiring is smoke-tested.
+ */
 function parseInput(raw: string): ClaudeHookInput {
   if (!raw.trim()) return {};
+  let parsed: unknown;
   try {
-    return JSON.parse(raw) as ClaudeHookInput;
-  } catch {
-    return {};
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    throw new HookInputError(`the hook payload is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
   }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new HookInputError(`the hook payload is not a JSON object (got ${Array.isArray(parsed) ? 'an array' : typeof parsed})`);
+  }
+  return parsed as ClaudeHookInput;
 }
 
 function recordDenylog(blocks: Finding[]): void {
@@ -272,9 +296,27 @@ function emit(r: HookResult): number {
   return r.exitCode;
 }
 
+/** The whole PreToolUse path from RAW BYTES, so the payload-parsing failures are
+ *  reachable from a test without a real stdin. */
+export function preToolUseFromRaw(raw: string): HookResult {
+  try {
+    return preToolUseVerdict(parseInput(raw));
+  } catch (e) {
+    return failClosed('PreToolUse', errText(e));
+  }
+}
+
+export function stopFromRaw(raw: string): HookResult {
+  try {
+    return stopVerdict(parseInput(raw));
+  } catch (e) {
+    return failClosed('Stop', errText(e));
+  }
+}
+
 export function runHookClaude(): number {
   try {
-    return emit(preToolUseVerdict(parseInput(readStdin())));
+    return emit(preToolUseFromRaw(readStdin()));
   } catch (e) {
     return emit(failClosed('PreToolUse', errText(e)));
   }
@@ -282,7 +324,7 @@ export function runHookClaude(): number {
 
 export function runSweepClaude(): number {
   try {
-    return emit(stopVerdict(parseInput(readStdin())));
+    return emit(stopFromRaw(readStdin()));
   } catch (e) {
     return emit(failClosed('Stop', errText(e)));
   }

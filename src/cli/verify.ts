@@ -28,11 +28,14 @@
 // verification at all.
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { loadPolicy, loadPolicyAt } from '../policy-load';
 import { assertRev } from '../git/build';
+import { trustedGitEnv } from '../git/trusted';
+import { depsFingerprint, treeFingerprint } from '../fingerprint';
 import { defaultPolicy, isProtected, matchesAny } from '../policy';
 import { Policy } from '../types';
 
@@ -100,8 +103,10 @@ const VERIFICATION_SURFACE = [
   '**/*.runsettings',
 ];
 
+// Every git read here feeds the trust anchor, so every one of them is made with
+// replace-object resolution disabled (src/git/trusted.ts).
 function git(args: string[], cwd: string): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 1 << 28 });
+  return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 1 << 28, env: trustedGitEnv() });
 }
 
 /** merge-base semantics like `check --diff base...head`: the PR cannot dodge by
@@ -123,7 +128,7 @@ function resolveBase(base: string, cwd: string): string {
  *  documented standalone CI wiring (`verify --base <sha>`) could not, so it
  *  gets an opt-in guard. (P1-3, external review.) */
 function baseIsAncestorOfHead(base: string, cwd: string): boolean {
-  const r = spawnSync('git', ['merge-base', '--is-ancestor', base, 'HEAD'], { cwd });
+  const r = spawnSync('git', ['merge-base', '--is-ancestor', base, 'HEAD'], { cwd, env: trustedGitEnv() });
   return r.status === 0;
 }
 
@@ -176,24 +181,144 @@ function dropSymlink(p: string): void {
   }
 }
 
+/**
+ * Files the VERIFIER ITSELF executes, as they exist at the base.
+ *
+ * The overlay restores the tests and the runner's configuration, and then hands
+ * the whole thing to `sh -c <command>` — a command that, in every real repo,
+ * runs a PROGRAM. `verify: { command: "node runner.js" }` restores the test
+ * files and then executes the agent's `runner.js` over them. `npm test` is a
+ * step worse: `package.json` is on the verification surface, so the base's
+ * `"test": "sh scripts/test.sh"` is faithfully restored — and then delegates to
+ * a script nothing restored. Nothing in the overlay classes covers either file,
+ * so both were the agent's, in the run whose entire purpose is to execute code
+ * the agent did not write. 1.14.3 froze the command STRING; this freezes what
+ * the string runs.
+ *
+ * Two sources, because neither alone is enough:
+ *
+ *   implicit — command tokens that name a file existing at the base. Catches the
+ *     direct case (`node runner.js`, `sh scripts/ci.sh`, `./run-tests`) with no
+ *     configuration at all, and can only ever restore a file the base itself
+ *     shipped, so a token that happens to match nothing is simply not restored.
+ *
+ *   explicit — `verify: { inputs: [globs] }` in the policy at the base. Required
+ *     for delegation, which is not statically decidable: `npm test`, `make
+ *     check`, `tox` name no file. Narrowing this list is policy weakening
+ *     (src/detectors/policy-diff.ts), so it cannot be quietly given up.
+ *
+ * This is a bound on the class, not its elimination — a command can always
+ * reach a file neither source names. It is documented as a residual in
+ * docs/THREAT-MODEL-pristine-run.md.
+ */
+function verifierInputs(cmd: string, atBase: string[], policy: Policy): Set<string> {
+  const baseFiles = new Set(atBase);
+  const picked = new Set<string>();
+  for (const raw of cmd.split(/[\s;&|()<>]+/)) {
+    const tok = raw.replace(/^['"]|['"]$/g, '').replace(/^\.\//, '');
+    if (tok && baseFiles.has(tok)) picked.add(tok);
+  }
+  const globs = policy.verify?.inputs;
+  if (globs && globs.length) {
+    for (const rel of atBase) if (matchesAny(rel, globs)) picked.add(rel);
+  }
+  return picked;
+}
+
+interface BaseEntry {
+  mode: string; // 100644 | 100755 | 120000 | 160000
+  type: string; // blob | commit
+  path: string;
+}
+
+/** The base tree with MODE and TYPE, not just names.
+ *
+ *  `--name-only` was the whole of the previous read, so the overlay restored
+ *  content and left the mode as whatever `materialize` had copied from the
+ *  agent's working tree — or, for a file the agent had deleted, as the 0644 a
+ *  fresh `writeFileSync` produces. A base test at 100755 therefore arrived in
+ *  the pristine copy non-executable, and a discovery command that runs the
+ *  executable files under `test/` found nothing to run and exited 0 in both
+ *  copies: VERIFIED, over a source that fails. The agent never edited a byte
+ *  of the test. `chmod -x` was the entire attack. */
+function baseEntries(base: string, cwd: string): BaseEntry[] {
+  return git(['ls-tree', '-r', '-z', base], cwd)
+    .split('\0')
+    .filter(Boolean)
+    .map((rec) => {
+      const tab = rec.indexOf('\t');
+      const [mode, type] = rec.slice(0, tab).split(' ');
+      return { mode, type, path: rec.slice(tab + 1) };
+    });
+}
+
+/** Content AND mode of the overlay files in the copy, so a write that lands in
+ *  the pristine tree after the overlay is applied cannot go unnoticed. */
+function overlayDigest(dest: string, paths: string[]): string {
+  const h = createHash('sha256');
+  for (const rel of [...paths].sort()) {
+    h.update(rel);
+    h.update('\0');
+    const p = join(dest, rel);
+    try {
+      const st = lstatSync(p);
+      h.update(String(st.mode));
+      h.update(st.isSymbolicLink() ? readlinkSync(p) : readFileSync(p));
+    } catch {
+      h.update('<gone>');
+    }
+    h.update('\0');
+  }
+  return h.digest('hex');
+}
+
 /** Restore protected files as they are at `base` into the copy, and remove any
- *  the agent added inside a protected class. Returns [restored, removedAdditions]. */
-function overlayPristine(cwd: string, base: string, dest: string, policy: Policy): [number, number] {
-  const atBase = git(['ls-tree', '-r', '--name-only', '-z', base], cwd).split('\0').filter(Boolean);
-  // Base-owned = the policy's overlay classes UNION the verification surface.
+ *  the agent added inside a protected class. Returns the restored paths (so the
+ *  caller can re-check them after the run) and the number removed. */
+function overlayPristine(
+  cwd: string,
+  base: string,
+  dest: string,
+  policy: Policy,
+  cmd: string,
+): { restored: string[]; removed: number } {
+  const entries = baseEntries(base, cwd);
+  const atBase = entries.map((e) => e.path);
+  // Base-owned = the policy's overlay classes UNION the verification surface
+  // UNION whatever the verifier command itself executes.
+  const verifierOwned = verifierInputs(cmd, atBase, policy);
+  // The EXPLICIT half is a glob, so it also governs removal: a file the agent
+  // ADDED under `verify.inputs` is a new input to the verifier — the added
+  // conftest.py argument, one layer down. The implicit half cannot do this
+  // (it can only recognise a path that exists at the base), which is exactly
+  // why delegation needs the explicit list.
+  const verifierGlobs = policy.verify?.inputs ?? [];
   const isOverlay = (p: string): boolean =>
-    OVERLAY_CLASSES.some((c) => isProtected(p, policy, c)) || matchesAny(p, VERIFICATION_SURFACE);
-  let restored = 0;
+    OVERLAY_CLASSES.some((c) => isProtected(p, policy, c)) ||
+    matchesAny(p, VERIFICATION_SURFACE) ||
+    verifierOwned.has(p) ||
+    (verifierGlobs.length > 0 && matchesAny(p, verifierGlobs));
+  const restored: string[] = [];
   const baseProtected = new Set<string>();
-  for (const rel of atBase) {
-    if (!isOverlay(rel)) continue;
-    baseProtected.add(rel);
-    const content = execFileSync('git', ['show', `${base}:${rel}`], { cwd, maxBuffer: 1 << 28 });
-    const out = join(dest, rel);
+  for (const e of entries) {
+    if (!isOverlay(e.path)) continue;
+    baseProtected.add(e.path);
+    if (e.type === 'commit') {
+      // A submodule inside an overlay class cannot be materialised faithfully
+      // from this repository alone. "Cannot verify" is the honest answer.
+      throw new Error(`the base's ${e.path} is a submodule; the pristine copy cannot reproduce it`);
+    }
+    const content = execFileSync('git', ['show', `${base}:${e.path}`], { cwd, maxBuffer: 1 << 28, env: trustedGitEnv() });
+    const out = join(dest, e.path);
     mkdirSync(dirname(out), { recursive: true });
-    dropSymlink(out);
-    writeFileSync(out, content);
-    restored++;
+    rmSync(out, { force: true }); // never write THROUGH whatever is there now
+    if (e.mode === '120000') {
+      symlinkSync(content.toString('utf8'), out); // the base's own link, reproduced
+    } else {
+      writeFileSync(out, content);
+      chmodSync(out, parseInt(e.mode.slice(-4), 8) & 0o777); // the mode is part of the file
+    }
+    restored.push(e.path);
   }
   // Agent-added protected files are REMOVED from the pristine copy, not kept.
   // "They can only add strictness" was false, and demonstrably so: a file added
@@ -217,7 +342,7 @@ function overlayPristine(cwd: string, base: string, dest: string, policy: Policy
     rmSync(join(dest, rel), { force: true });
     removed++;
   }
-  return [restored, removed];
+  return { restored, removed };
 }
 
 function runSuite(dir: string, cmd: string, budgetSecs: number): RunResult {
@@ -291,26 +416,95 @@ export function runVerify(opts: VerifyOpts): number {
     return 2;
   }
 
-  const work = mkdtempSync(join(tmpdir(), 'tw-verify-'));
-  const visDir = join(work, 'visible');
-  const priDir = join(work, 'pristine');
-  let restored = 0;
-  let removedAdded = 0;
+  // SEQUENCING IS THE CONTROL (H1). The two copies used to be siblings under one
+  // root, both materialised and the overlay fully applied, BEFORE the visible run
+  // started. The visible run executes the candidate's code — so the candidate's
+  // code could simply write ../pristine/test/<the test that convicts it> and both
+  // runs returned 0. No race, no background process, no git: three lines in a
+  // file the agent already controls, and the whole pristine layer reported
+  // VERIFIED over an unfixed bug.
+  //
+  // The pristine copy is therefore built only AFTER the visible run has exited.
+  // There is nothing to write into while the candidate is running, because it
+  // does not exist yet. Separate temp roots as well, so "the sibling directory"
+  // is not even a shape the attack can assume — that is defence in depth, not
+  // the control; a background process can still enumerate a temp directory, and
+  // the digest check after the pristine run is what covers that.
+  const visRoot = mkdtempSync(join(tmpdir(), 'tw-verify-vis-'));
+  const visDir = join(visRoot, 't');
+  const cleanup = (dirs: string[]): void => {
+    if (opts.keep) return;
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  };
+
+  // The tree under verification must not move either: the pristine copy is now
+  // materialised from it AFTER the candidate's code has had a turn, so a visible
+  // run that reaches back into the original working tree (its path is one
+  // readlink away, through the node_modules symlink) would be choosing what the
+  // pristine copy is made of.
+  const treeBefore = treeFingerprint(cwd);
+  const depsBefore = depsFingerprint(cwd);
+
   try {
     mkdirSync(visDir);
-    mkdirSync(priDir);
     materialize(cwd, visDir);
-    materialize(cwd, priDir);
-    [restored, removedAdded] = overlayPristine(cwd, base, priDir, policy);
   } catch (e) {
-    if (!opts.keep) rmSync(work, { recursive: true, force: true });
+    cleanup([visRoot]);
     out(`verify: could not materialize (${e instanceof Error ? e.message : String(e)}) — failing closed`);
     return 2;
   }
 
   const visible = runSuite(visDir, cmd, budget);
+
+  if (treeFingerprint(cwd) !== treeBefore) {
+    cleanup([visRoot]);
+    out('verify: the working tree changed while the visible suite was running — the pristine copy');
+    out('would be materialised from a tree the candidate just edited. Failing closed, not open.');
+    return 2;
+  }
+  if (depsFingerprint(cwd) !== depsBefore) {
+    cleanup([visRoot]);
+    out('verify: the installed dependency tree changed while the visible suite was running — the');
+    out('pristine run executes through it too. Failing closed, not open.');
+    return 2;
+  }
+
+  const priRoot = mkdtempSync(join(tmpdir(), 'tw-verify-pri-'));
+  const priDir = join(priRoot, 't');
+  let restored: string[] = [];
+  let removedAdded = 0;
+  try {
+    mkdirSync(priDir);
+    materialize(cwd, priDir);
+    ({ restored, removed: removedAdded } = overlayPristine(cwd, base, priDir, policy, cmd));
+  } catch (e) {
+    cleanup([visRoot, priRoot]);
+    out(`verify: could not materialize (${e instanceof Error ? e.message : String(e)}) — failing closed`);
+    return 2;
+  }
+
+  const overlayBefore = overlayDigest(priDir, restored);
   const pristine = runSuite(priDir, cmd, budget);
-  if (!opts.keep) rmSync(work, { recursive: true, force: true });
+  const overlayMoved = overlayDigest(priDir, restored) !== overlayBefore;
+  const treeMoved = treeFingerprint(cwd) !== treeBefore;
+  const depsMoved = depsFingerprint(cwd) !== depsBefore;
+  cleanup([visRoot, priRoot]);
+
+  if (overlayMoved || treeMoved || depsMoved) {
+    out(
+      'verify: ' +
+        (overlayMoved
+          ? 'a restored file in the pristine copy changed while the pristine suite was running'
+          : treeMoved
+            ? 'the working tree changed while the pristine suite was running'
+            : 'the installed dependency tree changed while the pristine suite was running') +
+        ' —',
+    );
+    out('the verdict would describe something other than what ran. Failing closed, not open.');
+    out('(A suite that rewrites its own snapshots or test files in place will trip this; run it in');
+    out('whatever mode your runner calls CI, so verification observes rather than updates.)');
+    return 2;
+  }
 
   let verdict: string;
   let code: number;
@@ -337,16 +531,16 @@ export function runVerify(opts: VerifyOpts): number {
         budget_secs: budget,
         visible: { exit: visible.exit, secs: visible.secs },
         pristine: { exit: pristine.exit, secs: pristine.secs },
-        protected_restored: restored,
+        protected_restored: restored.length,
         added_protected_removed: removedAdded,
-        ...(opts.keep ? { workdir: work } : {}),
+        ...(opts.keep ? { visible_dir: visDir, pristine_dir: priDir } : {}),
       }),
     );
   } else {
     const lines: Record<string, string> = {
-      VERIFIED: `verified: the suite passes, and still passes with all ${restored} protected files restored from ${base.slice(0, 10)}.`,
+      VERIFIED: `verified: the suite passes, and still passes with all ${restored.length} protected files restored from ${base.slice(0, 10)}.`,
       MASKED_FAILURE:
-        `MASKED FAILURE: the visible suite passes, but with the ${restored} protected files restored from ` +
+        `MASKED FAILURE: the visible suite passes, but with the ${restored.length} protected files restored from ` +
         `${base.slice(0, 10)} it FAILS (exit ${pristine.exit}). Something weakened the checks; the code does not pass the original suite.`,
       SUITE_RED: `suite red: the visible suite fails (exit ${visible.exit}) — fix the code first (pristine exit ${pristine.exit}).`,
       BUDGET_EXCEEDED: `budget exceeded (${budget}s): could not verify — failing closed, not open.`,
