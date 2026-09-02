@@ -17,6 +17,10 @@
 set -u
 CLI="$1"; LABEL="${2:-under test}"
 RC=0
+# every fixture repo is removed on exit, whichever path leaves the script
+POC_DIRS=()
+cleanup() { cd / 2>/dev/null; rm -rf ${POC_DIRS[@]+"${POC_DIRS[@]}"}; }
+trap cleanup EXIT
 
 report() { # name expected actual
   if [ "$2" = "$3" ]; then printf '  %-12s exit %s  as expected\n' "$1" "$3"
@@ -24,7 +28,7 @@ report() { # name expected actual
 }
 
 # --- A: the command names the runner ---------------------------------------
-W=$(mktemp -d /tmp/poc-vi-a-XXXXXX); cd "$W" || exit 1
+W=$(mktemp -d /tmp/poc-vi-a-XXXXXX); POC_DIRS+=("$W"); cd "$W" || exit 1
 git init -q; git config user.email p@o.c; git config user.name poc
 mkdir -p test
 echo 'module.exports = 41; // the bug' > src.js
@@ -38,7 +42,7 @@ node "$CLI" verify --base "$BASE" --cmd 'node runner.js' --budget 60 --json >/de
 report "A direct" 1 $?
 
 # --- B: the command delegates ----------------------------------------------
-W=$(mktemp -d /tmp/poc-vi-b-XXXXXX); cd "$W" || exit 1
+W=$(mktemp -d /tmp/poc-vi-b-XXXXXX); POC_DIRS+=("$W"); cd "$W" || exit 1
 git init -q; git config user.email p@o.c; git config user.name poc
 mkdir -p test scripts
 echo 'module.exports = 41; // the bug' > src.js

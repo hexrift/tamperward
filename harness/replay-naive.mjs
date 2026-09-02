@@ -10,7 +10,9 @@
 // Comparator on the identical corpus: tamperward's in-loop record — deny counts and
 // the single recorded FP interception — read from the same batch logs.
 //
-// Usage: node replay-naive.mjs <hookScript> <runsDir> <batchLog...>
+// Usage: node harness/replay-naive.mjs harness/naive-hook.sh harness/runs <batch-log...>
+// Status: manual analysis script, unwired — not run by CI; needs the recorded run.sh
+// transcripts (harness/runs/*.jsonl) and their batch logs.
 import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { basename, join } from 'node:path';

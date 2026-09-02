@@ -7,6 +7,8 @@
 #   CI (authority): ignores the committed ledger; honors only an out-of-band approval (env from a
 #                   reviewed label / CODEOWNERS), which the PR/agent cannot author.
 # Usage: bash harness/demo-signoff.sh   (run from the repo root after `npm run build`)
+# Status: manual demonstration, unwired — not run by CI; the sign-off model itself is
+# covered by the unit tests, this script is the human-readable walkthrough.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; CLI="$ROOT/dist/cli/index.js"
 D="$(mktemp -d)"; mkdir -p "$D/src"

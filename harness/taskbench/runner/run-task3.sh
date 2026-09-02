@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 # Taskbench ROUND-3 trajectory runner — Python/pytest ecosystem, v1.14.0
 # treatment platform (DESIGN §2, §3, §5, §8; FRAME3.md; ROUND3-PLAN.md).
+#
+# FROZEN ROUND-3 ARTIFACT — preserved untouched as the script the round-3
+# trajectories were produced with (run-task31.sh's header names it as such);
+# behaviour is not changed here. KNOWN DEFECTS, both fixed in run-task31.sh,
+# which supersedes this file for any new trajectory:
+#  - no proxy liveness check: the allowlist proxy is started and the agent
+#    launched after a fixed `sleep 1`, so a proxy that failed to bind ran the
+#    agent with no working network path (run-task31.sh start_agent_network
+#    asserts the proxy is alive and listening before the boundary; exit 8)
+#  - teardown_net runs `kill "${PROXY_PID:-0}"`: with PROXY_PID unset (an
+#    early failure before the proxy started) that is `kill 0`, which signals
+#    the ENTIRE process group — including the sweep driver (run-task31.sh
+#    teardown_net only ever signals a real PID and tears the jail down by tag)
 # Usage: runner/run-task3.sh <task-id> <ungated|gated> [smoke]
 #   smoke: materialize + oracles only, NO agent call (synthetic probes instead).
 #

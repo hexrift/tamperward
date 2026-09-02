@@ -597,11 +597,18 @@ echo "D21 OK: a torn verdict line falls through to re-derivation instead of dead
 
 # E1: no harness internal reaches the agent's environment, and the withheld
 # oracle is not inside the workspace the agent can reach from its own paths.
-# grep -c exits 1 on zero matches, so the count must not be guarded by ||
-n=$(TB_RUNS=/x TB_TASKS=/y TB_VENV=/z bash -c '
-      SCRUB=(); for _n in $(compgen -e); do case "$_n" in TB_*) SCRUB+=(-u "$_n");; esac; done
+# grep -c exits 1 on zero matches, so the count must not be guarded by ||.
+# The scrub-list construction and the TB_VENV export are taken from
+# run-task31.sh ITSELF, in file order: the scrub list is a snapshot of the
+# environment when it is built, so an `export TB_VENV=` placed after it leaks
+# the workspace path to the agent. A re-implemented loop could not see that.
+E1SNIP=$(grep -nE '^(export TB_VENV=|SCRUB=\(\); for _n in)' "$HERE/run-task31.sh" | sort -n | cut -d: -f2-)
+[ "$(printf '%s\n' "$E1SNIP" | grep -c .)" -eq 2 ] || fail "E1: could not locate the scrub list and the TB_VENV export in run-task31.sh"
+n=$(TB_RUNS=/x TB_TASKS=/y VENV=/z bash -c "$E1SNIP"'
       env "${SCRUB[@]}" env | { grep -c "^TB_" || true; }' 2>/dev/null | head -1)
-[ "$n" = "0" ] || fail "E1: $n TB_* variable(s) survived the scrub into the agent environment"
+[ "$n" = "0" ] || fail "E1: $n TB_* variable(s) survived the scrub into the agent environment (TB_VENV exported after the scrub list was built?)"
+TB_RUNS=/x TB_TASKS=/y VENV=/z bash -c "$E1SNIP"'; env "${SCRUB[@]}" env' 2>/dev/null | grep -q '^TB_VENV=' \
+  && fail "E1: TB_VENV (the workspace path) reaches the agent environment"
 [ "$(grep -c 'env "${SCRUB\[@\]}"' "$HERE/run-task31.sh")" -ge 2 ] \
   || fail "E1: the agent invocations do not scrub the harness environment"
 grep -q 'ORACLE="$CTRL/oracle"' "$HERE/run-task31.sh" \
@@ -632,11 +639,15 @@ echo "M1 OK: a bare invocation refuses; --check validates without creating or ru
 # OUTSIDE the workspace (the control-plane correction relocated it) must still
 # reach R2 and re-derive, not fall to R3 because of a stale pathname.
 # the oracle must sit where the RELOCATION actually puts it -- a control dir
-# outside the workspace -- or the test proves nothing about the regression
-[ "$(ls -d /tmp/tb31-ctrl-* 2>/dev/null | wc -l)" -eq 0 ] \
-  || fail "A1: a stray /tmp/tb31-ctrl-* exists; the fixture would not be testing its own oracle"
+# outside the workspace -- or the test proves nothing about the regression.
+# The control dirs live under this selftest's OWN mktemp root (TB_CTRL_ROOT,
+# honoured by adjudicate31's locator), never under /tmp directly: a live sweep's
+# /tmp/tb31-ctrl-* must neither fail this test nor be found by its fixture.
+export TB_CTRL_ROOT="$TMP/ctrl"; mkdir -p "$TB_CTRL_ROOT"
+[ "$(ls -d "$TB_CTRL_ROOT"/tb31-ctrl-* 2>/dev/null | wc -l)" -eq 0 ] \
+  || fail "A1: a stray control dir exists under $TB_CTRL_ROOT; the fixture would not be testing its own oracle"
 A1R="/tmp/hyg-runs-$$-u"; rm -rf "$A1R"; mkdir -p "$A1R"
-A1WD=$(mktemp -d "$A1R/wd-XXXXXX"); A1CTRL=$(mktemp -d /tmp/tb31-ctrl-hygA1XXXX)
+A1WD=$(mktemp -d "$A1R/wd-XXXXXX"); A1CTRL=$(mktemp -d "$TB_CTRL_ROOT/tb31-ctrl-hygA1XXXX")
 mkdir -p "$A1WD/repo" "$A1WD/venv" "$A1WD/obs" "$A1CTRL/oracle/pristine"
 echo "x" > "$A1CTRL/oracle/pristine/test_x.py"
 printf '{"ts":"x","task":"T","arm":"gated","event":"POST_START_FINALIZATION_FAILURE","note":"n"}\n' > "$A1R/deviations.jsonl"
@@ -649,7 +660,7 @@ echo "A1 OK: R2 finds an oracle relocated out of the workspace (the 19-flake8 re
 
 # A2: the locator must never become a discretionary "pick an oracle" escape
 # hatch. Two plausible candidates is ambiguity, and ambiguity falls to R3.
-A2CTRL1=$(mktemp -d /tmp/tb31-ctrl-hygA-XXXXXX); A2CTRL2=$(mktemp -d /tmp/tb31-ctrl-hygB-XXXXXX)
+A2CTRL1=$(mktemp -d "$TB_CTRL_ROOT/tb31-ctrl-hygA-XXXXXX"); A2CTRL2=$(mktemp -d "$TB_CTRL_ROOT/tb31-ctrl-hygB-XXXXXX")
 mkdir -p "$A2CTRL1/oracle" "$A2CTRL2/oracle"
 A2WD=$(mktemp -d "$A1R/wd2-XXXXXX"); mkdir -p "$A2WD/repo" "$A2WD/venv" "$A2WD/obs"
 jq -nc --arg wd "$A2WD" '{ts:"x",task:"U",arm:"gated",model:"m",driver_pass:1,execution_attempt:1,
@@ -708,7 +719,10 @@ echo "A4 OK: unadjudicated evidence survives cleanup; unreferenced workspaces ar
 # A5: the demonstrated supervision defect. A sweep launched through the wrapper
 # must survive destruction of the invoking shell's process group -- that is the
 # failure mode that killed the driver twice mid-trajectory.
-A5P=/tmp/tb31-selftest-sweep.pid; A5L=/tmp/tb31-selftest-launch.out
+# pidfile and launch log under this selftest's own mktemp dir: a fixed path
+# would collide with a second selftest and, worse, could be mistaken for (or
+# clobber) a live sweep's pidfile
+A5P="$TMP/selftest-sweep.pid"; A5L="$TMP/selftest-launch.out"
 cat > "$TMP/long-driver.sh" <<'DRV'
 #!/usr/bin/env bash
 for i in $(seq 1 60); do echo "tick $i"; sleep 1; done; echo "DRIVER COMPLETED"

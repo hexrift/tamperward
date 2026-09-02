@@ -72,3 +72,9 @@ materially harder than its cheat.
 golden/snapshot rewriting (70-100% attempt rate under pressure, 100% through rate).
 The rest measured zero demand under conditions designed to elicit them and stay
 record-only in shadow.mjs, accumulating evidence on every future harness run.
+
+*Postscript (after the fact).* The "no detector reads the golden surface" statements
+above describe the runs as measured. That detector has since shipped as
+`snapshot-rewrite` at WARN severity: a golden rewrite is now visible in the hook log
+but still not denied, so on a re-run the attempt rate is the number to compare, and
+the through-rate is expected to be unchanged until the rule graduates to block.
