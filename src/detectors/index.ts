@@ -11,8 +11,8 @@ import { testContentRemoval } from './test-content-removal';
 import { snapshotRewrite } from './snapshot-rewrite';
 import { snapshotOnlyRewrite } from './snapshot-only';
 
-/** The eight mechanical detectors. Heuristic rules (assertion-weakening,
- *  guard-removal) are added in a later phase as `warn`. */
+/** The eleven mechanical detectors. The heuristic rules (assertion-weakening,
+ *  guard-removal) are reserved names with no detector yet — SPEC §4 rows 3 and 10. */
 export const allDetectors: Detector[] = [
   noVerify,
   tsAnyCast,

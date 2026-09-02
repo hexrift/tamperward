@@ -395,7 +395,7 @@ via npm trusted publishing with SLSA provenance. Full rule:
 
 ```bash
 npm install && npm run build    # bundles the CLI to dist/cli/index.js
-npm test                        # 540 tests at 2.1.0 — parser, detectors, engine, policy, renderers
+npm test                        # 540+ tests — parser, detectors, engine, policy, renderers
 npm run typecheck
 ```
 
