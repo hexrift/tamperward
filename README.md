@@ -173,9 +173,18 @@ Full assumptions and residual risks: [SPEC.md](./SPEC.md),
 npx tamperward init
 ```
 
-One idempotent command wires the policy, the agent hooks, the pre-commit hook, and
-a CI workflow that runs both the diff-time check and pristine verification. It
-never overwrites anything you wrote; `--dry-run` prints the plan.
+One idempotent command wires the policy, the agent hooks, the pre-commit hook, a
+CI workflow that runs both the diff-time check and pristine verification, and a
+`CODEOWNERS` requirement on the paths that decide whether the gate runs at all.
+It never overwrites anything you wrote; `--dry-run` prints the plan.
+
+**`init` is not sufficient on its own, and it will tell you so.** In your
+branch-protection or ruleset settings you must require the check *and* enable
+"Require review from Code Owners". A `pull_request` workflow runs from the pull
+request's own head and a required check is matched by job name, so without that
+a PR can keep the job name, replace the gate with `true`, and present a green
+required check over a change the gate would have blocked. That is reproduced on
+this project's own CI, not a theoretical concern.
 
 A real deployment needs a verify command configured — the generated CI verify step
 **fails closed (exit 2) without one** rather than passing quietly. In
@@ -272,6 +281,7 @@ and its totals.
 | v1.9.0 | `tamperward verify`: the round-1 pristine oracle productized — visible-green + pristine-red is a masked failure, and "could not verify" fails closed |
 | Round 2, 9–0 | On 22 fresh repositories, v1.9.0 produced b=9/c=0 false-green discordance (p = 0.0039); four gated false greens remained, through two documented residual mechanisms |
 | cssstyle lifecycle escape (round 2) | The `tamperward run` envelope: the gate denied 42 mutations and verify refused all 25 stop attempts, and the runtime completed the session anyway over a masked tree — hooks decide, runtimes terminate, so the adjudication boundary moved outside the runtime |
+| v1.14.6, external audit | A pull request can neuter the gate that judges it: `pull_request` workflows run from the PR's own head and required checks match by job name, so a job that keeps its name and runs `true` reports green over anything. Reproduced on this repo's own CI — `gate` succeeded in three seconds over a PR that lowered a mechanical rule to warn. No detector can close it, because the detector is defined by the candidate; `init` now writes a CODEOWNERS requirement on the gate-critical paths and states, every run, that branch protection is the half it cannot set for you |
 | v1.14.5, external audit | The pristine copy was a sibling of the visible copy and fully prepared before it ran, so the candidate's own code wrote `../pristine/<the failing test>` and both runs returned 0 — no race, no background process, no git. The pristine copy is now built only after the visible run exits, its restored files are digested either side of the pristine run, and the working and dependency trees are fingerprinted around both. Also: the overlay restored content but not MODE, so `chmod -x` alone hid a test from an exec-bit runner in both copies; a transient dependency substitution that restored itself on the way out left the entry-vs-exit fingerprint identical; and a committed `.npmrc` chose the registry the CI gate was downloaded from |
 | v1.14.4, external audit | The overlay restored the tests and then ran the agent's *runner*: `verify.command` was frozen, but `runner.js` — and anything `npm test` delegates to — was in no protected class. And `git replace` redirected what the base resolved to for `ls-tree`, `show` and `merge-base` alike, with no ref moved and no file touched. Verifier inputs are now restored from the base; every trusted read sets `GIT_NO_REPLACE_OBJECTS=1` and the envelope convicts a rewrite installed during the run. `init` also gained workflow migration and matcher repair, and the Claude hook now denies a payload it cannot parse instead of allowing it |
 | v1.14.3, external review | Standalone `verify` loaded its policy from the working tree, so the generated CI workflow let a pull request supply the `verify:` command for its own re-execution. `check --diff` flagged the edit as hook-tampering, so the workflow caught it as a pair — but only where both jobs are required, and `verify` alone had no protection. With a `--base`, policy now comes from that commit |

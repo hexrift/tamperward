@@ -12,6 +12,7 @@
 // aborts that item with an error rather than clobbering it. `--dry-run` prints the plan
 // and writes nothing.
 
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -44,6 +45,58 @@ const PRE_MATCHER = 'Bash|Edit|Write|MultiEdit|NotebookEdit';
 const SWEEP_CMD = 'npx --yes tamperward sweep claude';
 const PRECOMMIT_CMD = 'npx --yes tamperward check --staged';
 const MARKER = '# tamperward: block agent shortcuts before they land';
+
+// CODEOWNERS. The gate cannot guard the file that decides whether the gate runs.
+//
+// A `pull_request` workflow executes from the PULL REQUEST'S OWN HEAD, and a
+// required status check is matched by JOB NAME. So a pull request can keep the
+// job called `gate`, replace every Tamperward invocation in it with `true`, and
+// present a green required check over any change it likes — including one the
+// gate would have blocked. Reproduced end to end on this project's own CI: the
+// job reported success in three seconds, having run `true`, over a pull request
+// that lowered a mechanical rule from block to warn.
+//
+// No detector can close this, because the detector is defined by the candidate.
+// The only thing that can is a human requirement on the paths that constitute
+// the gate — which is what CODEOWNERS expresses, and what branch protection
+// enforces. Both halves are needed: the file alone is advisory.
+const CODEOWNERS_MARK = '# tamperward: the gate cannot guard the file that defines it';
+const CODEOWNERS_PATHS = ['/.github/workflows/', '/.tamperward.yml', '/.github/CODEOWNERS'];
+
+/**
+ * Whether an existing CODEOWNERS already requires an owner on `critical`.
+ *
+ * Directory rules cover what is under them, so a repository that already writes
+ * `/.github/ @someone` needs nothing added for `/.github/workflows/`. Checking
+ * for the literal string instead would append rules that are already in force —
+ * noise in the one file people need to be able to read at a glance.
+ */
+function coveredBy(existing: string, critical: string): boolean {
+  for (const line of existing.split('\n')) {
+    const t = line.trim();
+    if (!t || t.startsWith('#')) continue;
+    const pattern = t.split(/\s+/)[0];
+    if (!t.slice(pattern.length).trim()) continue; // a pattern with no owner requires nobody
+    if (pattern === '*' || pattern === critical) return true;
+    if (pattern.endsWith('/') && critical.startsWith(pattern)) return true;
+  }
+  return false;
+}
+
+/** `@owner` from the origin remote, or null when it cannot be determined. */
+function inferOwner(cwd: string): string | null {
+  try {
+    const url = execFileSync('git', ['remote', 'get-url', 'origin'], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const m = url.match(/github\.com[:/]+([^/]+)\//);
+    return m ? `@${m[1]}` : null;
+  } catch {
+    return null;
+  }
+}
 
 const POLICY_CONTENT = `# Tamperward policy. The BASELINE (all rules, standard protected globs) applies even
 # without this file — everything here is an override, so an empty file changes nothing.
@@ -318,6 +371,54 @@ function planPreCommit(cwd: string): Action {
  * they are. The stamp decides which — never a guess, never a heuristic on
  * content. `--force-workflow` is the operator's override for the second case.
  */
+/**
+ * Require a human on the paths that decide whether the gate runs.
+ *
+ * Appended at the END of an existing CODEOWNERS on purpose: the file is
+ * last-match-wins, so our rules take precedence over a broader earlier pattern
+ * rather than being shadowed by one.
+ */
+function planCodeowners(cwd: string): Action {
+  const rel = '.github/CODEOWNERS';
+  // GitHub reads whichever of these exists; do not add a second one.
+  const existingRel = ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS'].find((r) =>
+    existsSync(join(cwd, r)),
+  );
+  const path = join(cwd, existingRel ?? rel);
+  const existing = existingRel ? readFileSync(path, 'utf8') : null;
+
+  const missing = CODEOWNERS_PATHS.filter((p) => existing === null || !coveredBy(existing, p));
+  if (missing.length === 0) {
+    return { item: 'codeowners', path: existingRel!, status: 'ok', detail: 'gate paths already have code owners' };
+  }
+
+  const owner = inferOwner(cwd);
+  const block =
+    `\n${CODEOWNERS_MARK}\n` +
+    '# A pull request that rewrites the workflow can keep the job name, replace the\n' +
+    '# gate with `true`, and still report a green required check. Only a human\n' +
+    '# requirement on these paths prevents that.\n' +
+    (owner === null
+      ? '# REPLACE @OWNER BELOW with a real user or team — an unresolvable owner protects nothing.\n'
+      : '') +
+    missing.map((p) => `${p.padEnd(24)} ${owner ?? '@OWNER'}`).join('\n') +
+    '\n';
+
+  return {
+    item: 'codeowners',
+    path: existingRel ?? rel,
+    status: existing === null ? 'create' : 'update',
+    detail:
+      (existing === null ? 'require a code owner on ' : 'add missing code-owner rules for ') +
+      missing.join(', ') +
+      (owner === null ? ' — OWNER UNKNOWN, edit @OWNER before this does anything' : ` (${owner})`),
+    apply: () => {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, existing === null ? block.replace(/^\n/, '') : existing.replace(/\n?$/, '\n') + block);
+    },
+  };
+}
+
 function planWorkflow(cwd: string, force: boolean): Action {
   const rel = '.github/workflows/tamperward.yml';
   const path = join(cwd, rel);
@@ -372,7 +473,7 @@ function planWorkflow(cwd: string, force: boolean): Action {
 }
 
 export function planInit(cwd: string, opts: { forceWorkflow?: boolean } = {}): Action[] {
-  return [planPolicy(cwd), planClaudeHooks(cwd), planPreCommit(cwd), planWorkflow(cwd, opts.forceWorkflow ?? false)];
+  return [planPolicy(cwd), planClaudeHooks(cwd), planPreCommit(cwd), planWorkflow(cwd, opts.forceWorkflow ?? false), planCodeowners(cwd)];
 }
 
 export function runInit(opts: InitOpts): number {
@@ -398,6 +499,19 @@ export function runInit(opts: InitOpts): number {
       : opts.dryRun
         ? `\ntamperward init: ${changed} change(s) planned. Re-run without --dry-run to apply.\n`
         : `\ntamperward init: ${changed} change(s) applied. Commit them so the gate travels with the repo.\n`,
+  );
+  // Always, and last, because it is the one thing init CANNOT do for you and the
+  // one thing without which the CI half of this tool is decorative.
+  w.write(
+    '\nONE STEP LEFT, AND IT IS NOT OPTIONAL. In your branch-protection or ruleset\n' +
+      'settings for the default branch, require the tamperward check AND enable\n' +
+      '"Require review from Code Owners".\n\n' +
+      'Until you do, the CI gate is advisory. A pull request runs the workflow from\n' +
+      'its OWN head, and a required check is matched by job name — so a pull request\n' +
+      'can keep the job called `tamperward`, replace the gate with `true`, and present\n' +
+      'a green required check over a change the gate would have blocked. That is\n' +
+      'reproduced, not theoretical. CODEOWNERS is what puts a human in front of it;\n' +
+      'branch protection is what makes CODEOWNERS bind.\n',
   );
   return 0;
 }

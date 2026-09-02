@@ -170,6 +170,13 @@ export function defaultPolicy(version = 1): Policy {
         '.claude/settings.json',
         '.claude/settings.local.json',
         '**/.pre-commit-config.yaml',
+        // CODEOWNERS is enforcement wiring, not documentation: it is the only
+        // thing that can require a human on a change to the workflow that
+        // decides whether the gate runs at all. GitHub reads it from any of
+        // these three locations. (H2.)
+        '.github/CODEOWNERS',
+        'CODEOWNERS',
+        'docs/CODEOWNERS',
       ],
     },
     rules: {

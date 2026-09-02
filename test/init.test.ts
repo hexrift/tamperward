@@ -22,21 +22,27 @@ const apply = (d: string) => { for (const a of planInit(d)) a.apply?.(); };
 const statuses = (d: string) => Object.fromEntries(planInit(d).map((a) => [a.item, a.status]));
 
 describe('fresh repo', () => {
-  it('creates all four enforcement points', () => {
+  it('creates all five enforcement points', () => {
+    // Five, not four, since H2: a CI gate whose workflow the candidate can
+    // rewrite is not an enforcement point, so the code-owner requirement on the
+    // paths that constitute the gate is part of the wiring, not advice.
     const d = repo();
-    expect(statuses(d)).toEqual({ policy: 'create', agent: 'create', 'pre-commit': 'create', ci: 'create' });
+    expect(statuses(d)).toEqual({
+      policy: 'create', agent: 'create', 'pre-commit': 'create', ci: 'create', codeowners: 'create',
+    });
     apply(d);
     expect(existsSync(join(d, '.tamperward.yml'))).toBe(true);
     expect(existsSync(join(d, '.claude/settings.json'))).toBe(true);
     expect(existsSync(join(d, '.git/hooks/pre-commit'))).toBe(true);
     expect(existsSync(join(d, '.github/workflows/tamperward.yml'))).toBe(true);
+    expect(existsSync(join(d, '.github/CODEOWNERS'))).toBe(true);
   });
 
   it('is a complete no-op on the second run', () => {
     const d = repo();
     apply(d);
     const before = readFileSync(join(d, '.claude/settings.json'), 'utf8');
-    expect(statuses(d)).toEqual({ policy: 'ok', agent: 'ok', 'pre-commit': 'ok', ci: 'ok' });
+    expect(statuses(d)).toEqual({ policy: 'ok', agent: 'ok', 'pre-commit': 'ok', ci: 'ok', codeowners: 'ok' });
     apply(d);
     expect(readFileSync(join(d, '.claude/settings.json'), 'utf8')).toBe(before);
   });
