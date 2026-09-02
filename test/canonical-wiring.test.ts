@@ -385,7 +385,7 @@ describe('B · the liveness model for hand-written scripts (each verified under 
     ['cd away before the gate', sh(`cd /tmp && ${G}`), /another directory/],
     ['cd away on its own line', sh(`cd /tmp\n${G}`), /another directory/],
     ['cd to a variable holding a literal path', sh(`dir=/tmp\ncd "$dir"\n${G}`), /another directory/],
-    ['--cwd added', sh(`${G} --cwd /tmp`), /tamperward check --cwd/],
+    ['--cwd added', sh(`${G} --cwd /tmp`), /tamperward check --staged --cwd \/tmp/],
     ['used as an if condition', sh(`if ${G}; then echo ok; fi`), /condition/],
     ['gate; true', sh(`${G}; true`), /passing statement/],
   ])('flags: %s', (_n, after, re) => {
@@ -462,7 +462,7 @@ describe('B · the liveness model for hand-written scripts (each verified under 
   it('invocations reports the state, the reason and the pin', () => {
     const inv = invocations([`${G} || true`, `gate() { ${G}; }`, 'npx eslint .'], { errexit: true });
     expect(inv.map((i) => [i.identity, i.state])).toEqual([
-      ['tamperward check', 'neutered'], ['eslint', 'live'], ['tamperward check', 'unreachable'],
+      ['tamperward check --staged', 'neutered'], ['eslint', 'live'], ['tamperward check --staged', 'unreachable'],
     ]);
     expect(inv[0].pin).toBe(V);
     expect(inv[0].why).toMatch(/ends in success/);

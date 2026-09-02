@@ -11,20 +11,28 @@
 // helper here reads one format the way its consumer does; hook-tampering asks
 // them what was lost.
 //
-// The script model below is the LIVENESS fallback for hand-written hooks. A script
-// init wrote is judged by hook-tampering against init's exact shape first (see
-// ../wiring.ts initScriptPin); only when the before-script was somebody's own does
-// the question become "does the after-script still run every check the before-
-// script ran, in a position where its failure fails the hook". Every rule here
-// was checked under both ways a hook runs — husky's `sh -e <file>` and git's
-// direct exec — with a failing stand-in for the gate.
+// The script model below is EVIDENCE, not the verdict, for hand-written hooks. A
+// script init wrote is judged by hook-tampering against init's exact shape (see
+// ../wiring.ts initScriptPin); a hand-written script is held byte-equal to its
+// before modulo a pin raise (pinRaiseOnly below) — every other edit needs a
+// sign-off. The model then answers "does the after-script still run every check
+// the before-script ran, in a position where its failure fails the hook", so the
+// human signing off sees WHAT changed. It is not sound and cannot be: a third
+// adversarial pass over a rebuilt model found thirteen more shapes a shell runs
+// one way and a line-by-line reading runs another (inner groups, multi-line
+// groups, `exit 0` inside a brace, traps by name, multi-line quotes, `$#` and
+// `"$@"` in a hook with no argv, a second heredoc on one line, `case` globs). A
+// new script (no before) is judged by it alone, since there is no before to hold
+// it to: the gate must be live. Every rule here was checked under both ways a
+// hook runs — husky's `sh -e <file>` and git's direct exec — with a failing
+// stand-in for the gate.
 
 import { existsSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { isProtected } from '../policy';
 import { DetectorContext, Policy } from '../types';
-import { PLAIN_SEMVER, canonicalPath, claudeConfigDir, compareVersions, homeDir, isClaudeSettings } from '../wiring';
+import { PLAIN_SEMVER, TW_VERSION, canonicalPath, claudeConfigDir, compareVersions, homeDir, isClaudeSettings } from '../wiring';
 import { containsProtected, trackedFiles } from './repo';
 
 // ── shell hook scripts ─────────────────────────────────────────────────────────
@@ -61,6 +69,14 @@ const SUBCOMMAND_TOOLS = new Set(['tamperward', 'make', 'cargo', 'go', 'lefthook
  *  assignments, wrappers. `!` is deliberately NOT here: it inverts the status. */
 const PREFIX = /^(?:(?:then|do|else|\{|\(|exec|command|time|nice|env|sudo|[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"(?=\s|$)|'[^']*'(?=\s|$)|[^\s"']\S*|(?=\s)))\s+)*/;
 
+/** The mode flag of a `tamperward check`: WHAT it looks at. `--staged` sees the
+ *  commit; `--diff HEAD...HEAD` sees nothing; `--worktree` in a pre-commit hook
+ *  sees the unstaged tree, not the commit. */
+const MODE = /\s(--staged|--worktree|--diff(?:[=\s]+[^\s-][^\s;)}|&]*)?)(?=[\s;)}|&]|$)/;
+/** `--cwd <path>`, the path quoted or not; a `$(git rev-parse --show-toplevel)`
+ *  is the repository root, which is where the gate runs anyway. */
+const CWD = /\s--cwd(?:=|\s+)("[^"]*"|'[^']*'|\S+)/;
+
 /**
  * The identity of the check a shell segment runs, or null when it runs none.
  *
@@ -68,8 +84,10 @@ const PREFIX = /^(?:(?:then|do|else|\{|\(|exec|command|time|nice|env|sudo|[A-Za-
  * --staged` are the same check: runner, pin, output redirection and extra flags
  * are not what a hook is for. `echo "npx tamperward check --staged"` is not a
  * check (the invocation is in argument position) and neither is `npx tamperward
- * --version` (no subcommand that checks anything). `--cwd <path>` IS identity for
- * the gate: a check run over another directory is another check.
+ * --version` (no subcommand that checks anything). The mode flag and `--cwd
+ * <path>` ARE identity for the gate: `check --diff HEAD...HEAD` in a pre-commit
+ * hook never sees the staged change, and a check run over another directory is
+ * another check.
  */
 export function checkIdentity(segment: string): string | null {
   const core = segment.trim().replace(PREFIX, '').replace(/\s+/g, ' ');
@@ -81,8 +99,10 @@ export function checkIdentity(segment: string): string | null {
   if (tool === 'tamperward') {
     const sub = toks[1];
     if (!sub || sub.startsWith('-')) return null; // `tamperward --version` checks nothing
-    const cwd = rest.match(/\s--cwd(?:=|\s+)(\S+)/)?.[1];
-    return cwd ? `tamperward ${sub} --cwd ${cwd}` : `tamperward ${sub}`;
+    const mode = rest.match(MODE)?.[1].replace(/[=\s]+/, ' ');
+    const cwd = rest.match(CWD)?.[1];
+    const away = cwd !== undefined && !/rev-parse\s+--show-toplevel/.test(cwd) ? `--cwd ${cwd}` : undefined;
+    return ['tamperward', sub, mode, away].filter((x): x is string => !!x).join(' ');
   }
   if (SUBCOMMAND_TOOLS.has(tool) && toks[1] && !toks[1].startsWith('-')) return `${tool} ${toks[1]}`;
   return tool;
@@ -97,7 +117,9 @@ function pinOfSegment(segment: string): string | null {
 
 /** Split a statement into its segments and the operators between them. A `{ …;
  *  … }` group or a `( … )` subshell is one segment: `gate || { echo; exit 1; }`
- *  has one `||` and one operand after it. */
+ *  has one `||` and one operand after it. A single `&` is an operator too —
+ *  `gate & wait` backgrounds the gate and waits for nothing in particular — but
+ *  the `&` of `2>&1`, `&>` and `<&` is a redirection. */
 function split(stmt: string): { segs: string[]; ops: string[] } {
   const segs: string[] = [];
   const ops: string[] = [];
@@ -113,7 +135,8 @@ function split(stmt: string): { segs: string[]; ops: string[] } {
     if (ch === '(' || (ch === '{' && /(?:^|\s)$/.test(stmt.slice(0, i)) && /^(?:\s|$)/.test(stmt.slice(i + 1)))) { depth++; continue; }
     if (ch === ')' || (ch === '}' && depth > 0 && /(?:^|[\s;])$/.test(stmt.slice(0, i)))) { depth = Math.max(0, depth - 1); continue; }
     if (depth > 0) continue;
-    const op = stmt.startsWith('&&', i) ? '&&' : stmt.startsWith('||', i) ? '||' : ch === ';' ? ';' : ch === '|' ? '|' : null;
+    const bg = ch === '&' && stmt[i + 1] !== '&' && stmt[i + 1] !== '>' && !/[<>]$/.test(stmt.slice(0, i));
+    const op = stmt.startsWith('&&', i) ? '&&' : stmt.startsWith('||', i) ? '||' : ch === ';' ? ';' : ch === '|' ? '|' : bg ? '&' : null;
     if (!op) continue;
     segs.push(stmt.slice(last, i));
     ops.push(op);
@@ -386,11 +409,24 @@ type Status = 'ok' | 'fail' | 'exit' | 'unknown';
 
 interface Frame { dead: boolean; exhausted: boolean; kind: 'base' | 'if' | 'loop' | 'case'; word?: string }
 
+/** Environment the gate resolves through: which `npx`, which `node`, which
+ *  registry, what `node` loads before the gate's own code. An assignment to one
+ *  of these before or on the gate makes the gate whatever the assignment chose. */
+const SENSITIVE_ENV = /^(?:PATH|NODE_OPTIONS|NODE_PATH|HOME|LD_PRELOAD|BASH_ENV|ENV|npm_config_\w*|NPM_CONFIG_\w*)$/;
+/** The names a run of `NAME=value` prefix assignments sets, values consumed so a
+ *  `PATH=` inside a quoted value is not read as an assignment. */
+const assignedNames = (prefix: string): string[] =>
+  [...prefix.matchAll(/(?:^|\s)([A-Za-z_]\w*)=(?:"[^"]*"|'[^']*'|[^\s"']\S*|(?=\s))/g)].map((m) => m[1]);
+/** `wait $!`: the status of the last backgrounded job, which is the gate's. */
+const WAIT_PID = /^wait\s+"?\$!"?\s*;?$/;
+
 interface State {
   errexit: boolean;
   pipefail: boolean;
   /** The script `cd`ed somewhere that is not the repository root. */
   cdAway: boolean;
+  /** The script set PATH, NODE_OPTIONS or another variable the gate resolves through. */
+  redirected: boolean;
   vars: Map<string, string>;
   fns: Map<string, string[]>;
   shadowed: Set<string>;
@@ -403,7 +439,7 @@ interface State {
 
 /** Whether a statement contributes nothing to the script's exit status after the
  *  gate: closers, keywords, an `exit $?` that forwards the status. */
-const TRANSPARENT = /^(?:fi|done|esac|\}|\)|;;|then|do|else|exit\s+"?\$\??"?|exit\s+"?\$\{\?\}"?)\s*;?$/;
+const TRANSPARENT = /^(?:fi|done|esac|\}|\)|;;|then|do|else|exit\s+"?\$\??"?|exit\s+"?\$\{\?\}"?|wait\s+"?\$!"?)\s*;?$/;
 
 /** The status a segment leaves when run after a failed gate, as far as it can be
  *  known. Statement by statement: what fails loudly is an explicit non-zero exit,
@@ -454,12 +490,12 @@ function reaches(segs: string[], ops: string[], i: number): 'yes' | 'no' | 'mayb
     if (!runs) continue;
     const s = constStatus(segs[j]);
     if (s === 'unknown' && (ops[j] === '&&' || ops[j] === '||')) certain = false;
-    if (ops[j] === ';' || ops[j] === '|') { status = 'ok'; certain = certain && true; continue; }
+    if (ops[j] === ';' || ops[j] === '|' || ops[j] === '&') { status = 'ok'; certain = certain && true; continue; }
     status = s;
   }
   const gate = i === 0 ? true : ops[i - 1] === '&&' ? status !== 'fail' : ops[i - 1] === '||' ? status !== 'ok' : true;
   if (!gate) return 'no';
-  if (i === 0 || ops[i - 1] === ';' || ops[i - 1] === '|') return 'yes';
+  if (i === 0 || ops[i - 1] === ';' || ops[i - 1] === '|' || ops[i - 1] === '&') return 'yes';
   if (!certain || status === 'unknown') return 'maybe';
   return 'yes';
 }
@@ -552,15 +588,21 @@ function walk(lines: string[], st: State, topIdx: (i: number) => number, depth: 
     if (/^[{}()]$/.test(stmt)) continue;
 
     // ── statements ──
-    const bg = /(?<!&)&\s*$/.test(stmt) && !/&&\s*$/.test(stmt);
-    if (bg) stmt = stmt.replace(/\s*&\s*$/, '');
+    // A trailing `&` backgrounds the statement; a `wait $!` on the very next line
+    // brings its status back, a bare `wait` (or nothing) does not.
+    const bgLine = /(?<![&<>])&\s*$/.test(stmt) && !/&&\s*$/.test(stmt);
+    if (bgLine) stmt = stmt.replace(/\s*&\s*$/, '');
+    const bg = bgLine && !WAIT_PID.test(stripComment(lines[i + 1] ?? '').trim());
     const { segs, ops } = split(stmt);
     for (let s = 0; s < segs.length; s++) {
       let seg = segs[s].trim();
       const inverted = /^!\s+/.test(seg);
       seg = seg.replace(/^!\s+/, '');
       const execs = /^exec\s+/.test(seg) && !/^exec\s+(?:\d*[<>]|&>)/.test(seg);
+      const whole = seg;
       seg = seg.replace(PREFIX, '');
+      // the words PREFIX stripped: `command`, `env`, `exec`, `NAME=value` …
+      const prefix = whole.slice(0, whole.length - seg.length);
       const reach = dead() ? 'no' : reaches(segs, ops, s);
       const first = seg.split(/\s+/)[0] ?? '';
 
@@ -591,10 +633,11 @@ function walk(lines: string[], st: State, topIdx: (i: number) => number, depth: 
           const sigs = trap[4].split(/\s+/);
           if (sigs.some((x) => /^(?:EXIT|ERR|0|SIGERR)$/i.test(x)) && /(?:^|[;\s])(?:exit(?:\s+0+)?|true|:)\s*(?:;|$)/.test(action)) st.traps.push(idx);
         }
-        const asg = seg.match(/^(?:export\s+|readonly\s+)?([A-Za-z_]\w*)=(.*)$/);
+        const asg = seg.match(/^(?:export\s+|readonly\s+|declare\s+-\w+\s+|local\s+)?([A-Za-z_]\w*)=(.*)$/);
         if (asg) {
           const v = certain ? literal(asg[2], st.vars) : null;
           if (v === null) st.vars.delete(asg[1]); else st.vars.set(asg[1], v);
+          if (SENSITIVE_ENV.test(asg[1])) st.redirected = true;
         }
         if (first === 'cd') {
           const home = cdStaysHome(seg.slice(2), st.vars);
@@ -616,7 +659,7 @@ function walk(lines: string[], st: State, topIdx: (i: number) => number, depth: 
             const body = st.fns.get(first) ?? [];
             const sub: State = { ...st, out: st.out };
             const fnExits = depth < 6 && walk(body, sub, () => idx, depth + 1);
-            st.errexit = sub.errexit; st.pipefail = sub.pipefail; st.cdAway = sub.cdAway;
+            st.errexit = sub.errexit; st.pipefail = sub.pipefail; st.cdAway = sub.cdAway; st.redirected = sub.redirected;
             // the call's own position neuters what the body ran
             const verdict = chainVerdict(segs, ops, s, st, inverted, bg);
             for (let k = start; k < st.out.length; k++) {
@@ -647,8 +690,15 @@ function walk(lines: string[], st: State, topIdx: (i: number) => number, depth: 
         const v = chainVerdict(segs, ops, s, st, inverted, bg);
         state = v.state; why = v.why; passthrough = v.passthrough;
         if (state === 'live' && /^tamperward\b/.test(id) && st.cdAway) { state = 'neutered'; why = 'runs from another directory after a `cd` away from the repository root'; }
+        if (state === 'live' && /^tamperward\b/.test(id)) {
+          const onGate = assignedNames(prefix).filter((n) => SENSITIVE_ENV.test(n));
+          if (onGate.length) { state = 'neutered'; why = `runtime redirected — \`${onGate[0]}=\` in front of it decides what the gate resolves to`; }
+          else if (st.redirected) { state = 'neutered'; why = 'runtime redirected — PATH, NODE_OPTIONS or another variable the gate resolves through is set earlier in the script'; }
+        }
         if (state === 'live') {
-          const words = [first, 'tamperward'].filter((w) => w && st.shadowed.has(w));
+          // the wrapper words in front of the command are commands too: `command()
+          // { :; }` then `command npx …` runs the function
+          const words = [...prefix.split(/\s+/), first, 'tamperward'].filter((w) => w && st.shadowed.has(w));
           if (words.length) { state = 'neutered'; why = `\`${words[0]}\` is redefined by a function or alias in this script`; }
         }
       }
@@ -664,12 +714,17 @@ function chainVerdict(segs: string[], ops: string[], i: number, st: State, inver
   if (inverted) return { state: 'neutered', why: 'its status is inverted by `!`', passthrough: false };
   if (bg) return { state: 'neutered', why: 'run in the background — the hook does not wait for its status', passthrough: false };
   let cur: Status = 'fail';
+  let waited = -1; // the `wait $!` segment that brings a backgrounded gate's status back
   for (let j = i; j < ops.length; j++) {
     const op = ops[j];
     const next = segs[j + 1];
     if (op === '|') {
       if (!st.pipefail) return { state: 'neutered', why: 'piped into another command without `pipefail`', passthrough: false };
       continue;
+    }
+    if (op === '&') {
+      if (WAIT_PID.test((next ?? '').trim())) { waited = j + 1; continue; }
+      return { state: 'neutered', why: 'run in the background — a `wait` without its pid returns 0, and without `wait` the hook does not wait for its status', passthrough: false };
     }
     if (cur === 'exit') break; // the script has ended, failing
     if (op === '||') {
@@ -690,7 +745,7 @@ function chainVerdict(segs: string[], ops: string[], i: number, st: State, inver
   if (cur === 'exit') return { state: 'live', passthrough: false }; // `|| exit 1`: fails the hook by itself
   // the statement's status is the gate's: under errexit that fails the hook; without
   // it, only when nothing runs afterwards
-  return { state: 'live', passthrough: i === ops.length || ops.slice(i).every((o) => o === '&&' || o === '||') };
+  return { state: 'live', passthrough: i === ops.length || ops.slice(i).every((o, k) => o === '&&' || o === '||' || (o === '&' && i + k + 1 === waited)) };
 }
 
 /**
@@ -709,6 +764,7 @@ export function invocations(lines: string[], opts: ScriptOpts = {}): Invocation[
     errexit: prep.errexit,
     pipefail: prep.pipefail,
     cdAway: false,
+    redirected: false,
     vars: new Map(),
     fns: prep.fns,
     shadowed: prep.shadowed,
@@ -746,6 +802,39 @@ const strip = (inv: Invocation & { idx: number; errexit: boolean; passthrough: b
   return rest;
 };
 
+/** An identity without its flags: `tamperward check --diff HEAD...HEAD` and
+ *  `tamperward check --staged` are both spellings of the gate. */
+const baseIdentity = (id: string): string => id.replace(/\s--.*$/, '');
+
+/**
+ * Whether an edit to a hand-written hook script is a PIN RAISE and nothing else:
+ * byte-equal modulo trailing newlines, every `tamperward@<ver>` token's plain
+ * version going up (or a plain pin added to an unpinned token) and never above
+ * the gate judging it. This is the only edit that passes without a sign-off. A
+ * pin removed, a range (`@^1`), a tag (`@latest`), a pre-release, a comment
+ * added, CRLF, a doubled space: all of it is a change to the gate script.
+ */
+export function pinRaiseOnly(before: string, after: string): boolean {
+  const mask = (src: string): { text: string; pins: string[] } => {
+    const pins: string[] = [];
+    const text = src.replace(/\n+$/, '').replace(/\btamperward(?:@(\d+\.\d+\.\d+))?(?=\s|$)/g, (_m, v: string | undefined) => {
+      pins.push(v ?? '');
+      return 'tamperward@\0';
+    });
+    return { text, pins };
+  };
+  const b = mask(before);
+  const a = mask(after);
+  if (b.text !== a.text || b.pins.length !== a.pins.length) return false;
+  return a.pins.every((now, i) => {
+    const was = b.pins[i];
+    if (now === was) return true;
+    if (now === '') return false; // the pin removed
+    if (was !== '' && (compareVersions(now, was) ?? -1) < 0) return false; // lowered
+    return !PLAIN_SEMVER.test(TW_VERSION) || (compareVersions(now, TW_VERSION) ?? 1) <= 0; // never above the judging gate
+  });
+}
+
 /** Reasons the after-script runs fewer checks than the before-script. */
 export function scriptWeakening(before: string[], after: string[], opts: ScriptOpts = {}): Array<{ reason: string; evidence: string }> {
   const beforeInv = invocations(before, opts);
@@ -756,7 +845,7 @@ export function scriptWeakening(before: string[], after: string[], opts: ScriptO
   const out: Array<{ reason: string; evidence: string }> = [];
   for (const id of bl) {
     if (al.has(id)) continue;
-    const trace = afterInv.find((i) => i.identity === id) ?? afterInv.find((i) => i.identity.split(' --cwd ')[0] === id.split(' --cwd ')[0]);
+    const trace = afterInv.find((i) => i.identity === id) ?? afterInv.find((i) => baseIdentity(i.identity) === baseIdentity(id));
     const how =
       trace?.state === 'neutered'
         ? `neutralised in place (${trace.why ?? 'its failure can no longer fail the hook'})`
@@ -771,12 +860,15 @@ export function scriptWeakening(before: string[], after: string[], opts: ScriptO
     out.push({ reason: `the check invocation \`${id}\` was ${how}`, evidence });
   }
   // A pin lowered below what the before-script ran is a downgrade of the gate,
-  // whatever else stayed live.
+  // whatever else stayed live — and so is a pin that is no longer a plain version:
+  // `@^1` resolves to 1.x, `@latest` to whatever the registry serves, a
+  // pre-release to a build nobody released.
   const floor = beforeInv.filter((i) => i.state === 'live' && i.pin && PLAIN_SEMVER.test(i.pin)).map((i) => i.pin as string).sort((a, b) => compareVersions(a, b) ?? 0)[0];
   if (floor) {
     for (const inv of afterInv) {
-      if (inv.state !== 'live' || !inv.pin || !PLAIN_SEMVER.test(inv.pin)) continue;
-      if ((compareVersions(inv.pin, floor) ?? 0) < 0) out.push({ reason: `the gate's pin was lowered from ${floor} to ${inv.pin}`, evidence: inv.line.trim() });
+      if (inv.state !== 'live' || !inv.pin) continue;
+      if (!PLAIN_SEMVER.test(inv.pin)) out.push({ reason: `the gate's pin was changed from ${floor} to \`${inv.pin}\`, which is not a plain version — a range, tag or pre-release resolves to whatever the registry serves`, evidence: inv.line.trim() });
+      else if ((compareVersions(inv.pin, floor) ?? 0) < 0) out.push({ reason: `the gate's pin was lowered from ${floor} to ${inv.pin}`, evidence: inv.line.trim() });
     }
   }
   return out;
@@ -908,10 +1000,36 @@ const GATE = /\btamperward\b/;
 const str = (v: unknown): string => (typeof v === 'string' ? v : Array.isArray(v) ? v.map(String).join(' ') : v == null ? '' : JSON.stringify(v));
 const list = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : typeof v === 'string' ? v.split(/[\s,]+/).filter(Boolean) : []);
 
-/** Whether a config's command string runs the gate LIVE — `tamperward check` in
- *  invocation position, its failure able to fail the entry. Not the word. */
-export function runsGate(command: string): boolean {
-  return invocations([command], { errexit: true }).some((i) => i.state === 'live' && /^tamperward check\b/.test(i.identity));
+/** The live gate a config's command string runs — `tamperward check` in
+ *  invocation position, its failure able to fail the entry, not the word — with
+ *  its identity (mode flag and `--cwd` included) and pin; null when it runs none. */
+export function gateOf(command: string): { identity: string; pin: string } | null {
+  const live = invocations([command], { errexit: true }).find((i) => i.state === 'live' && /^tamperward check\b/.test(i.identity));
+  return live ? { identity: live.identity, pin: live.pin ?? '' } : null;
+}
+
+/** Whether a config's command string runs the gate LIVE. */
+export const runsGate = (command: string): boolean => gateOf(command) !== null;
+
+/** The entries of a config-level `env` map that redirect the gate's runtime, as
+ *  `KEY=value`, so a changed value reads as a change. */
+const redirectingEnv = (env: unknown): string[] =>
+  isDoc(env) ? Object.keys(env).filter((k) => SENSITIVE_ENV.test(k)).sort().map((k) => `${k}=${str(env[k])}`) : [];
+
+/** How the gate an entry runs changed between two readings of it: another
+ *  identity (`--staged` → `--diff HEAD...HEAD`, a `--cwd`), a pin no longer plain
+ *  or lower, an `env` the gate resolves through gained or changed. */
+function gateDrift(what: string, was: { gate: { identity: string; pin: string } | null; env: string[] }, now: { gate: { identity: string; pin: string } | null; env: string[] }): string[] {
+  const out: string[] = [];
+  if (was.gate && now.gate) {
+    if (now.gate.identity !== was.gate.identity) out.push(`${what} now runs \`${now.gate.identity}\` instead of \`${was.gate.identity}\` — another check`);
+    if (PLAIN_SEMVER.test(was.gate.pin) && now.gate.pin) {
+      if (!PLAIN_SEMVER.test(now.gate.pin)) out.push(`${what} pins the gate to \`${now.gate.pin}\`, which is not a plain version (was ${was.gate.pin}) — a range, tag or pre-release resolves to whatever the registry serves`);
+      else if ((compareVersions(now.gate.pin, was.gate.pin) ?? 0) < 0) out.push(`${what} lowered the gate's pin from ${was.gate.pin} to ${now.gate.pin}`);
+    }
+  }
+  if (now.env.length && now.env.join(',') !== was.env.join(',')) out.push(`${what} sets ${now.env.map((e) => e.split('=')[0]).join(', ')} in its \`env\` — the gate's runtime is redirected`);
+  return out;
 }
 
 /** lefthook's overlay: `lefthook-local.yml` is merged over `lefthook.yml`, maps
@@ -927,6 +1045,10 @@ export function mergeDocs(base: Doc, over: Doc): Doc {
 
 interface LefthookEntry {
   live: boolean;
+  /** The live gate's identity and pin; null when the entry runs none. */
+  gate: { identity: string; pin: string } | null;
+  /** The entry's `env` entries the gate resolves through, as `KEY=value`. */
+  env: string[];
   skip: unknown;
   only: unknown;
   sectionSkip: unknown;
@@ -957,8 +1079,11 @@ function lefthookEntries(doc: Doc): Map<string, LefthookEntry> {
         const named = GATE.test(name);
         if (!GATE.test(str(run)) && !named) continue;
         const tags = list(cfg.tags);
+        const gate = run === undefined ? (named ? { identity: 'tamperward check --staged', pin: '' } : null) : gateOf(str(run));
         out.set(`${section}.${group}.${name}`, {
-          live: run === undefined ? named : runsGate(str(run)),
+          live: gate !== null,
+          gate,
+          env: redirectingEnv(cfg.env),
           skip: cfg.skip, only: cfg.only, sectionSkip: v.skip, sectionOnly: v.only,
           glob: str(cfg.glob), exclude: str(cfg.exclude),
           excludedByTag: tags.filter((t) => sectionExclude.includes(t)),
@@ -978,6 +1103,7 @@ export function lefthookWeakening(before: Doc, after: Doc): string[] {
     const now = a.get(key);
     if (!now) { out.push(`lefthook entry ${key} (the gate) was removed`); continue; }
     if (!now.live) out.push(`lefthook entry ${key} no longer runs \`tamperward check\` live`);
+    out.push(...gateDrift(`lefthook entry ${key} (the gate)`, was, now));
     if (!off(now.skip) && off(was.skip)) out.push(`lefthook entry ${key} (the gate) is now \`skip: ${str(now.skip)}\``);
     if (!off(now.sectionSkip) && off(was.sectionSkip)) out.push(`the lefthook hook carrying ${key} (the gate) is now \`skip: ${str(now.sectionSkip)}\``);
     if (!off(now.only) && str(now.only) !== str(was.only)) out.push(`lefthook entry ${key} (the gate) gained or changed \`only\` (${str(now.only)})`);
@@ -989,7 +1115,20 @@ export function lefthookWeakening(before: Doc, after: Doc): string[] {
   return out;
 }
 
-interface PreCommitEntry { live: boolean; stages: string[]; explicitStages: boolean; exclude: string; files: string; types: string; alwaysRun: boolean }
+interface PreCommitEntry {
+  live: boolean;
+  gate: { identity: string; pin: string } | null;
+  env: string[];
+  /** `additional_dependencies` as written: for a `language: node` hook they choose
+   *  which `tamperward` the isolated environment installs. */
+  deps: string;
+  stages: string[];
+  explicitStages: boolean;
+  exclude: string;
+  files: string;
+  types: string;
+  alwaysRun: boolean;
+}
 /** The stages the gate is for, legacy names folded onto the current ones. */
 const STAGE_ALIAS: Record<string, string> = { commit: 'pre-commit', push: 'pre-push', merge_commit: 'pre-merge-commit' };
 const GATE_STAGES = new Set(['pre-commit', 'pre-push']);
@@ -1006,10 +1145,16 @@ function preCommitEntries(doc: Doc): Map<string, PreCommitEntry> {
     for (const h of hooks) {
       if (!isDoc(h)) continue;
       if (!GATE.test(`${str(repo.repo)} ${str(h.id)} ${str(h.entry)} ${str(h.name)}`)) continue;
-      // a local hook runs its `entry`; a remote repo's hook runs what that repo defines
-      const live = h.entry !== undefined ? runsGate(str(h.entry)) : GATE.test(`${str(repo.repo)} ${str(h.id)}`);
+      // a local hook runs its `entry` followed by its `args`; a remote repo's hook
+      // runs what that repo defines
+      const gate = h.entry !== undefined
+        ? gateOf(`${str(h.entry)} ${list(h.args).join(' ')}`.trim())
+        : GATE.test(`${str(repo.repo)} ${str(h.id)}`) ? { identity: 'tamperward check --staged', pin: '' } : null;
       out.set(`${str(repo.repo)}:${str(h.id)}`, {
-        live,
+        live: gate !== null,
+        gate,
+        env: redirectingEnv(h.env),
+        deps: str(h.additional_dependencies),
         stages: Array.isArray(h.stages) ? h.stages.map(String).map(normStage) : defaults,
         explicitStages: Array.isArray(h.stages),
         exclude: str(h.exclude),
@@ -1031,6 +1176,8 @@ export function preCommitWeakening(before: Doc, after: Doc): string[] {
     const now = a.get(key);
     if (!now) { out.push(`pre-commit hook ${key} (the gate) was removed`); continue; }
     if (!now.live) out.push(`pre-commit hook ${key} no longer runs \`tamperward check\` live`);
+    out.push(...gateDrift(`pre-commit hook ${key} (the gate)`, was, now));
+    if (now.deps && now.deps !== was.deps) out.push(`pre-commit hook ${key} (the gate) gained or changed \`additional_dependencies\` (${now.deps}) — they choose which gate the hook installs`);
     const lost = was.stages.filter((s) => GATE_STAGES.has(s) && !now.stages.includes(s));
     if (lost.length && !now.stages.some((s) => GATE_STAGES.has(s))) {
       out.push(`pre-commit hook ${key} (the gate) now runs only at stages [${now.stages.join(', ')}] — no commit or push triggers it`);

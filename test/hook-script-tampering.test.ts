@@ -118,9 +118,9 @@ describe('1 · a hook script is compared by the checks it actually RUNS', () => 
   });
 
   it('checkIdentity: runner, pin, redirection and flags are presentation; position is meaning', () => {
-    expect(checkIdentity('npx tamperward@2.1.0 check --staged >/dev/null')).toBe('tamperward check');
-    expect(checkIdentity('pnpm exec tamperward check --staged')).toBe('tamperward check');
-    expect(checkIdentity('npx --yes tamperward check --worktree')).toBe('tamperward check');
+    expect(checkIdentity('npx tamperward@2.1.0 check --staged >/dev/null')).toBe('tamperward check --staged');
+    expect(checkIdentity('pnpm exec tamperward check --staged')).toBe('tamperward check --staged');
+    expect(checkIdentity('npx --yes tamperward check --worktree')).toBe('tamperward check --worktree');
     expect(checkIdentity('npx tamperward --version')).toBeNull();
     expect(checkIdentity('echo "npx tamperward check --staged"')).toBeNull();
     expect(checkIdentity('npm test')).toBe('test');
@@ -150,7 +150,7 @@ describe('1 · a hook script is compared by the checks it actually RUNS', () => 
   it('invocations reports the state of each occurrence', () => {
     const inv = invocations(['#!/bin/sh', '# npx tamperward check --staged', 'if false; then', '  npx jest', 'fi', 'npx vitest run || true', 'npx eslint .']);
     expect(inv.map((i) => [i.identity, i.state])).toEqual([
-      ['tamperward check', 'comment'], ['jest', 'unreachable'], ['vitest', 'neutered'], ['eslint', 'live'],
+      ['tamperward check --staged', 'comment'], ['jest', 'unreachable'], ['vitest', 'neutered'], ['eslint', 'live'],
     ]);
     expect(scriptWeakening(['npx jest'], ['npx jest || true'])[0].reason).toMatch(/neutralised/);
     expect(scriptWeakening(['npx jest'], ['if false; then', 'npx jest', 'fi'])[0].reason).toMatch(/unreachable/);
