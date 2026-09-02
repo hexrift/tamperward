@@ -11,8 +11,7 @@
 // interpreter-based tampers (the change is on disk, the index is stale).
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { inspectRel, textOf } from '../disk';
 import { parseDiff } from '../diff/parse';
 import { addHunks } from '../diff/synth';
 import { Change } from '../types';
@@ -59,12 +58,13 @@ function blobAt(rev: string, path: string, cwd?: string): string | null {
   }
 }
 
+/** What git would record for the path on disk: a regular file's bytes, a symbolic
+ *  link's target text. null when it is absent — or when it is something the gate
+ *  does not read (a link is never followed; a FIFO, socket or device is never
+ *  opened for content; a file past the cap is not read), which the callers that
+ *  judge the working tree report by name (src/disk.ts unjudgeableProtected). */
 function fromDisk(path: string, cwd?: string): string | null {
-  try {
-    return readFileSync(join(cwd ?? process.cwd(), path), 'utf8');
-  } catch {
-    return null;
-  }
+  return textOf(inspectRel(cwd ?? process.cwd(), path));
 }
 
 /**
@@ -109,7 +109,8 @@ export function fileAt(rev: string, path: string, opts: GitOpts = {}): string | 
   return blobAt(rev, path, opts.cwd);
 }
 
-/** Content of `path` on disk, or null when it is absent or unreadable. */
+/** Content of `path` on disk as git would record it, or null when it is absent or
+ *  not something the gate reads (see fromDisk). */
 export function fileOnDisk(path: string, opts: GitOpts = {}): string | null {
   return fromDisk(path, opts.cwd);
 }
@@ -252,6 +253,19 @@ function underSkippedDir(rel: string): boolean {
  * not collapsed; its ignored files arrive in the first pass.
  */
 export function ignoredPaths(opts: GitOpts = {}, keep: (rel: string) => boolean): string[] {
+  return ignoredTree(opts, keep).files;
+}
+
+/**
+ * The two halves of the ignored listing: `dirs` are the WHOLLY-ignored
+ * directories git collapsed (trailing slash, git's own spelling — a directory
+ * that also holds a tracked file is never among them), `files` the ignored
+ * files under `keep`, from the flat pass and the expansion of those directories.
+ * The effect layer (src/effect.ts) prunes its walk with `dirs`: a 50k-file
+ * `dist/` no protected file lives in was stat'ed file by file on every hook
+ * call, and the collapse git already does answers it in one entry.
+ */
+export function ignoredTree(opts: GitOpts = {}, keep: (rel: string) => boolean): { dirs: string[]; files: string[] } {
   const files: string[] = [];
   const dirs: string[] = [];
   for (const entry of git([...IGNORED_LS, '--directory'], opts.cwd).split('\0').filter(Boolean)) {
@@ -263,7 +277,7 @@ export function ignoredPaths(opts: GitOpts = {}, keep: (rel: string) => boolean)
     const expanded = git([...IGNORED_LS, '--', ...dirs.map((d) => `:(literal)${d}`)], opts.cwd).split('\0').filter(Boolean);
     for (const rel of expanded) if (!underSkippedDir(rel)) files.push(rel);
   }
-  return files.filter(keep);
+  return { dirs, files: files.filter(keep) };
 }
 
 /** Every IGNORED file under `keep` as an add (see ignoredPaths). `exclude` drops

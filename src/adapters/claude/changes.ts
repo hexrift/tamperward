@@ -5,11 +5,12 @@
 // one normalization, four producers.
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, existsSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { Change, FileChange, FileOp } from '../../types';
 import { parseDiff } from '../../diff/parse';
+import { inspectResolved, textOf } from '../../disk';
 
 export interface ClaudeHookInput {
   tool_name?: string;
@@ -24,12 +25,12 @@ function asStr(v: unknown): string {
   return typeof v === 'string' ? v : '';
 }
 
+/** The content the tool is about to edit. The path may honestly be a link (a
+ *  dotfiles-managed settings file), so the chain is resolved — but the target is
+ *  read under the same guards as any repository path (src/disk.ts): a link to a
+ *  device or a FIFO is not a read that never returns. */
 function readDisk(path: string): string | null {
-  try {
-    return existsSync(path) ? readFileSync(path, 'utf8') : null;
-  } catch {
-    return null;
-  }
+  return textOf(inspectResolved(path));
 }
 
 /** NORMALISED absolute path. The tool input is the model's own spelling of the

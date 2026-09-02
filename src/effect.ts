@@ -20,11 +20,13 @@
 // — the loop layer's known trust boundary; CI remains the authority.
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { Policy } from './types';
 import { isProtected } from './policy';
+import { DiskEntry, inspectRel } from './disk';
+import { ignoredTree } from './git/build';
 
 export interface PEntry {
   hash: string;
@@ -87,10 +89,53 @@ export function contentHash(content: string | Buffer): string {
   return sha(Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8'));
 }
 
-/** Walk the repo and snapshot every protected file. `prev` enables the mtime+size
- *  fast path so a big suite costs one stat per file, not one read. */
+/** The snapshot entry for what stands at a protected path. Content is hashed
+ *  when the gate reads it — a regular file's bytes, a symbolic link's target
+ *  text (never followed: src/disk.ts) — and the shape is recorded when it does
+ *  not, so a FIFO, a device, a file past the cap or a read error is an entry
+ *  whose appearance or change is drift the callers block by name. */
+function entryOf(e: DiskEntry): PEntry {
+  const hash = e.content != null ? sha(e.content) : e.kind === 'unreadable' ? 'unreadable' : `${e.kind}:${e.detail}`;
+  return { hash, mode: e.mode, size: e.size, mtimeMs: e.mtimeMs };
+}
+
+/**
+ * Walk the repo and snapshot every protected path. `prev` is accepted for the
+ * callers' sake and not consulted: NO STAT FAST PATH. This used to reuse the
+ * previous entry when mtime + size + mode all matched, skipping the hash. Every
+ * one of those three is writable by the agent being watched: `it(` → `it.skip(`
+ * paid for by shortening the test name keeps the size identical, and `touch -r`
+ * restores the mtime from any reference file — so the measured effect of the
+ * edit was remembered by stat and the drift check passed a file that carried
+ * the skip. (P1-8, external review; reproduced before this change.) This layer
+ * exists BECAUSE some mutation always arrives by a path the matcher did not
+ * see; a cache keyed on data the mutation's author controls reintroduces
+ * exactly the blind spot it was built to close. Hash every protected file,
+ * every time.
+ *
+ * The walk is git's view of the tree, not the filesystem's: it lstat's, so a
+ * symbolic link is a leaf whatever it points at (a link into node_modules, a
+ * link to a device), and a directory git reports as WHOLLY ignored — the
+ * `--directory` collapse src/git/build.ts ignoredTree already runs, one entry
+ * for a `dist/` of 50k files — is not entered; the protected files git lists
+ * under it are snapshotted from that listing instead, so they stay sanctioned
+ * and excused the way they always were. A directory is skipped ONLY on git's
+ * word: an ignored directory holding one tracked file is not collapsed and is
+ * walked, and outside a repository nothing is pruned.
+ */
 export function snapshotProtected(cwd: string, policy: Policy, prev?: PTree): PTree {
+  void prev;
   const out: PTree = {};
+  const keep = (rel: string): boolean => isProtected(rel, policy);
+  let pruned = new Set<string>();
+  let listed: string[] = [];
+  try {
+    const t = ignoredTree({ cwd }, keep);
+    pruned = new Set(t.dirs.map((d) => d.replace(/\/$/, '')));
+    listed = t.files;
+  } catch {
+    /* not a repository, or git unavailable: walk everything */
+  }
   const walk = (rel: string): void => {
     const abs = rel ? join(cwd, rel) : cwd;
     let names: string[];
@@ -102,38 +147,19 @@ export function snapshotProtected(cwd: string, policy: Policy, prev?: PTree): PT
     for (const name of names) {
       if (SKIP_DIRS.has(name)) continue;
       const r = rel ? `${rel}/${name}` : name;
+      if (pruned.has(r)) continue;
       let st;
       try {
-        st = statSync(join(cwd, r));
+        st = lstatSync(join(cwd, r));
       } catch {
         continue;
       }
       if (st.isDirectory()) walk(r);
-      else if (st.isFile() && isProtected(r, policy)) {
-        // NO STAT FAST PATH. This used to reuse the previous entry when
-        // mtime + size + mode all matched, skipping the hash. Every one of
-        // those three is writable by the agent being watched: `it(` → `it.skip(`
-        // paid for by shortening the test name keeps the size identical, and
-        // `touch -r` restores the mtime from any reference file — so the
-        // measured effect of the edit was remembered by stat and the drift
-        // check passed a file that carried the skip. (P1-8, external review;
-        // reproduced before this change.)
-        //
-        // This layer exists BECAUSE some mutation always arrives by a path the
-        // matcher did not see; a cache keyed on data the mutation's author
-        // controls reintroduces exactly the blind spot it was built to close.
-        // Hash every protected file, every time.
-        let hash = '';
-        try {
-          hash = sha(readFileSync(join(cwd, r)));
-        } catch {
-          hash = 'unreadable';
-        }
-        out[r] = { hash, mode: st.mode, size: st.size, mtimeMs: st.mtimeMs };
-      }
+      else if (keep(r)) out[r] = entryOf(inspectRel(cwd, r));
     }
   };
   walk('');
+  for (const rel of listed) if (out[rel] === undefined) out[rel] = entryOf(inspectRel(cwd, rel));
   return out;
 }
 

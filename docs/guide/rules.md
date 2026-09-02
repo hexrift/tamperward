@@ -54,7 +54,7 @@ not do its job — and a gate that cannot evaluate must deny, never pass.
 | finding | where | meaning |
 | --- | --- | --- |
 | `detector-error` | staged, worktree and range views | a detector threw on this change. Repository content that makes a rule crash used to remove that rule from the verdict; now it is a blocking finding naming the rule. |
-| `hidden-drift` | the PreToolUse drift check and the Stop sweep | a protected file changed outside git's view — `git update-index --skip-worktree` / `--assume-unchanged`, or a gitignored protected file — and its last sanctioned content could not be reconstructed, so the change cannot be judged. When it can be reconstructed the ordinary rules judge it instead. Restore the file and bring it back into git's view. |
+| `hidden-drift` | the PreToolUse drift check and the Stop sweep | a protected file changed outside git's view — `git update-index --skip-worktree` / `--assume-unchanged`, or a gitignored protected file — and its last sanctioned content could not be reconstructed, so the change cannot be judged. When it can be reconstructed the ordinary rules judge it instead. Restore the file and bring it back into git's view. Also a protected path the gate cannot judge by content at all — a symbolic link (never followed: git records it as its target text, the runner reads what it points at), a FIFO, a socket, a device, a directory where a file is expected, a file above 64 MiB, or a read error — that is new or changed since the session began: blocked by name in the drift check, the Stop sweep and `check --worktree`. Put a regular file there, or remove it. |
 
 The Stop sweep also scans **untracked** protected files since 2.2.0: a new
 `conftest.py`, a shadowing runner config, or a settings override the turn created is
@@ -67,8 +67,16 @@ check all read it as an add — and a protected addition no git view can list at
 reconstructed from disk by the drift check rather than absorbed. A protected file that
 already existed, untracked or ignored, when the session began is not re-litigated; the
 turn tree that says so can only excuse a file the drift state also sanctioned.
-Untracked and ignored files outside the protected globs are not scanned, and
-`node_modules` is never walked.
+Untracked and ignored files outside the protected globs are not scanned;
+`node_modules` is never walked, and the drift check's walk does not enter a directory
+git reports as wholly ignored (a `dist/` of 50k files costs one listing per call, not
+a stat per file) — the protected files git lists under it are snapshotted from that
+listing, and an ignored directory that also holds a tracked file is walked as before.
+Every disk read is git's view of the path: a symbolic link is its target text and is
+never followed, a regular file is read up to 64 MiB, and nothing else is content. A
+path carrying a control character (a newline in a directory name) is protected in
+every category, since no glob can match it and no honest path carries one; it is
+shown escaped in the verdict.
 
 ## The outcome layer: `tamperward verify`
 

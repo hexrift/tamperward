@@ -9,9 +9,8 @@
 // So a block MUST be exit 0 + JSON, never exit 2. The reason carries only the correction
 // message — no command line, no env. Deny holds even under bypassPermissions.
 
-import { readFileSync, appendFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, appendFileSync, writeFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
 import { changesFromClaudeHook, ClaudeHookInput, synthFileChange } from '../adapters/claude/changes';
 import { formatDenial } from '../adapters/claude/deny';
 import { evaluate } from '../engine';
@@ -33,6 +32,7 @@ import {
 import { defaultEventLog } from './watch';
 import { readEvents, transientFindings } from '../detectors/fs-events';
 import { isProtected } from '../policy';
+import { inspectRel, unjudgeableFinding, unjudgeableProtected } from '../disk';
 import { Change, FileChange, Finding, Policy } from '../types';
 
 export interface HookResult {
@@ -150,12 +150,12 @@ function fileChanges(changes: Change[]): FileChange[] {
   return changes.filter((c): c is FileChange => c.kind === 'file');
 }
 
+/** The hash the snapshot would record for the path's content, or null when the
+ *  gate does not read what stands there (src/disk.ts) — which never compares
+ *  equal to a sanctioned entry, so the path is judged. */
 function hashOnDisk(cwd: string, rel: string): string | null {
-  try {
-    return contentHash(readFileSync(join(cwd, rel)));
-  } catch {
-    return null;
-  }
+  const e = inspectRel(cwd, rel);
+  return e.content == null ? null : contentHash(e.content);
 }
 
 /** git's file mode for a stat mode: executable or not (the two modes a tracked file can have). */
@@ -269,6 +269,13 @@ function uncoveredDrift(
   const candidates = base ? [base, 'HEAD', ''] : ['HEAD', ''];
   for (const rel of [...d.changed, ...d.deleted]) {
     if (seen.has(rel)) continue;
+    // What stands there now is not something the gate reads (a link, a FIFO, a
+    // device, a file past the cap): blocked by name, before any exemption.
+    const unjudgeable = unjudgeableFinding(cwd, rel);
+    if (unjudgeable) {
+      blocks.push(unjudgeable);
+      continue;
+    }
     const after = fileOnDisk(rel, { cwd });
     const trustedBlob = fileAt(trusted, rel, { cwd });
     const atGitState = after != null && trustedBlob != null && contentHash(after) === contentHash(trustedBlob);
@@ -337,6 +344,11 @@ function uncoveredDrift(
   // cannot be judged, and is blocked by name like unreconstructable drift.
   for (const rel of d.added) {
     if (seen.has(rel)) continue;
+    const unjudgeable = unjudgeableFinding(cwd, rel);
+    if (unjudgeable) {
+      blocks.push(unjudgeable);
+      continue;
+    }
     const after = fileOnDisk(rel, { cwd });
     if (after == null) {
       blocks.push({
@@ -396,9 +408,14 @@ function effectDriftBlocks(cwd: string, sessionId: string | undefined, policy: P
     (c) => c.kind === 'file' && (drifted.has(c.path) || (c.oldPath != null && drifted.has(c.oldPath))),
   );
   const gap = uncoveredDrift(cwd, policy, expected, current, scoped, base, loadTurnTree(cwd, sessionId));
-  const blocks = evaluate([...scoped, ...gap.changes], policy, undefined, 'turn', { cwd })
+  const judged = [...scoped, ...gap.changes];
+  // A protected path the view lists that the gate cannot judge by content — a
+  // symbolic link (git's blob for it is the target text; the runner follows it),
+  // a FIFO, a device, a file past the cap — is blocked by name, whatever the
+  // rules made of the content the view carried for it.
+  const blocks = evaluate(judged, policy, undefined, 'turn', { cwd })
     .filter((f) => f.severity === 'block')
-    .concat(gap.blocks);
+    .concat(gap.blocks, unjudgeableProtected(cwd, policy, judged));
   if (blocks.length > 0) return blocks; // do NOT absorb: the deny repeats until restored
   savePtree(cwd, sessionId, current);
   return null;
@@ -467,12 +484,8 @@ function turnTransientBlocks(cwd: string, sessionId: string | undefined, policy:
   if (events.length === 0) return { ...none, commit: () => { if (cp) try { writeFileSync(cp, String(newOffset)); } catch { /* best effort */ } } };
   const persistent = new Set(changes.filter((c) => c.kind === 'file').map((c) => c.path));
   const finalHash = (path: string): string | null => {
-    try {
-      if (!statSync(`${cwd}/${path}`).isFile()) return null;
-      return createHash('sha256').update(readFileSync(`${cwd}/${path}`)).digest('hex').slice(0, 16);
-    } catch {
-      return null;
-    }
+    const e = inspectRel(cwd, path);
+    return e.kind === 'file' && e.content != null ? contentHash(e.content) : null;
   };
   const findings = transientFindings(events, persistent, policy, finalHash);
   recordWarns(findings.filter((f) => f.severity !== 'block'));
@@ -519,7 +532,9 @@ export function stopVerdict(input: ClaudeHookInput): HookResult {
       changes = changes.concat(gap.changes);
       hiddenBlocks = gap.blocks;
     }
-    blocks = evaluate(changes, policy, undefined, 'turn', { cwd }).filter((f) => f.severity === 'block').concat(hiddenBlocks);
+    blocks = evaluate(changes, policy, undefined, 'turn', { cwd })
+      .filter((f) => f.severity === 'block')
+      .concat(hiddenBlocks, unjudgeableProtected(cwd, policy, changes));
     const transient = turnTransientBlocks(cwd, input.session_id, policy, changes);
     blocks = blocks.concat(transient.blocks);
     commitCursor = transient.commit;

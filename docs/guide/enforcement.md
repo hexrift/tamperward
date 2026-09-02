@@ -58,4 +58,8 @@ dropped when the policy loads — paths in every git view are repo-relative, so
 
 The same holds for a protected file that changes where git cannot see it: the hook
 judges it from the trusted content when it can, and blocks as `hidden-drift` when it
-cannot (see [the rules](./rules.md#two-findings-that-are-not-rules)).
+cannot (see [the rules](./rules.md#two-findings-that-are-not-rules)) — and for a
+protected path that is not a regular file the gate can read. A symbolic link is never
+followed (git records it as its target text), a FIFO, a socket or a device is never
+opened for content, and a file above 64 MiB is not read: a new or changed one at a
+protected path is blocked by name, not read through.

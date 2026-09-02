@@ -67,32 +67,89 @@ export function mergeRules(base: Policy['rules'], user?: Policy['rules']): Polic
   return out;
 }
 
-const cache = new Map<string, (s: string) => boolean>();
+/**
+ * A control character anywhere in a path is a path no glob will match: picomatch
+ * compiles `**` to a pattern that stops at a newline, so `n\nl/conftest.py` was
+ * unprotected in every category — dropped by the snapshot walk, by the untracked
+ * and ignored keep filters, by the hidden-tracked probe — and a conftest.py
+ * carrying `collect_ignore` passed every layer from a directory named with one
+ * newline. (Pass 3c, P2-3.) No honest path carries one; such a path is protected
+ * in EVERY category it is asked about, and shown escaped.
+ */
+const CONTROL = /[\u0000-\u001f\u007f]/;
 
-function matcher(glob: string): (s: string) => boolean {
-  let m = cache.get(glob);
-  if (!m) {
-    m = picomatch(glob, { dot: true });
-    cache.set(glob, m);
+export function hasControlChar(path: string): boolean {
+  return CONTROL.test(path);
+}
+
+/** The path with each control character spelled out (`\n`, `\t`, `\x1b`), for
+ *  a message or a report. The finding's own `file` stays the real path. */
+export function escapeControl(path: string): string {
+  return path.replace(/[\u0000-\u001f\u007f]/g, (ch) => {
+    const c = ch.charCodeAt(0);
+    if (c === 0x0a) return '\\n';
+    if (c === 0x0d) return '\\r';
+    if (c === 0x09) return '\\t';
+    return `\\x${c.toString(16).padStart(2, '0')}`;
+  });
+}
+
+/**
+ * One regular expression per glob LIST, not one matcher per glob. The protected
+ * globs are asked about every path git lists — the ignored files under a
+ * collapsed `dist/`, every untracked file the envelope scans — and forty-odd
+ * picomatch calls per path cost as much as the stat walk the effect layer's
+ * pruning removed (measured: 94 ms against 22 ms for 20k paths). picomatch's
+ * own regex for each glob, joined as alternatives, matches exactly the same
+ * paths (its matcher wraps that regex and nothing else under these options).
+ * Cached by the array's identity: a loaded policy's lists are stable objects.
+ */
+const listCache = new WeakMap<string[], RegExp | null>();
+
+function listMatcher(globs: string[]): RegExp | null {
+  let re = listCache.get(globs);
+  if (re === undefined) {
+    re = globs.length === 0 ? null : new RegExp(globs.map((g) => `(?:${picomatch.makeRe(g, { dot: true }).source})`).join('|'));
+    listCache.set(globs, re);
   }
-  return m;
+  return re;
 }
 
 export function matchesAny(path: string, globs?: string[]): boolean {
-  return !!globs && globs.some((g) => matcher(g)(path));
+  if (!globs) return false;
+  const re = listMatcher(globs);
+  return re !== null && re.test(path);
 }
 
 /** The first protected category whose globs match `path`, or null. */
 export function protectedCategory(path: string, policy: Policy): string | null {
-  for (const [cat, globs] of Object.entries(policy.protected ?? {})) {
+  const cats = Object.entries(policy.protected ?? {});
+  if (hasControlChar(path)) return cats[0]?.[0] ?? 'tests'; // protected in every category: the first one names it
+  for (const [cat, globs] of cats) {
     if (matchesAny(path, globs)) return cat;
   }
   return null;
 }
 
+// The union of every category, for the question asked most: "protected at all?"
+const anyCache = new WeakMap<Record<string, string[]>, string[]>();
+
+function allProtectedGlobs(policy: Policy): string[] {
+  const p = policy.protected ?? {};
+  let all = anyCache.get(p);
+  if (!all) {
+    all = Object.values(p).flat();
+    anyCache.set(p, all);
+  }
+  return all;
+}
+
+/** Whether `path` is a protected asset — of `category` when given, of any otherwise.
+ *  A path carrying a control character is protected whatever is asked (see CONTROL). */
 export function isProtected(path: string, policy: Policy, category?: string): boolean {
+  if (hasControlChar(path)) return true;
   if (category) return matchesAny(path, policy.protected?.[category]);
-  return protectedCategory(path, policy) !== null;
+  return matchesAny(path, allProtectedGlobs(policy));
 }
 
 /** The policy file itself, at any depth. `ignore` may never suppress a change to it:
