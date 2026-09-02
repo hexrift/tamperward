@@ -5,6 +5,76 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.7.0] — 2026-09-02
+
+**The wiring `init` writes is judged by its canonical shape, not by whether a
+`tamperward` token is still present. From the adversarial pass over 2.4.1's
+comparators. A minor: honestly customised wiring — a linter step added to
+the init-written pre-commit script, a matcher spelled another way — now needs
+a one-time sign-off where it used to pass.**
+
+### Changed
+
+- **Claude settings compared to the exact entry init writes.** The
+  comparator used to ask whether `tamperward hook claude` appeared somewhere
+  in the command; `>/dev/null` appended, the two subcommands swapped between
+  PreToolUse and Stop, a pin downgraded to 1.0.0, `npx -p /tmp/evil`, a
+  `PATH=` or `NODE_OPTIONS=` prefix, and every entry key the runtime honours
+  (`timeout: 1`, `async`, an `if` that never matches, `args`, `shell`) passed
+  every layer. The gate entry must now be exactly `npx --yes tamperward@<ver>
+  hook claude` under PreToolUse and `sweep claude` under Stop, `<ver>` a plain
+  version never below the one it replaces, on a matcher read with the
+  runtime's own semantics (an exact `|` list, otherwise an unanchored regex; a
+  comma is not a separator and fails closed, as do a non-string, invalid or
+  non-ASCII matcher). Any other key on the entry, any text around the
+  invocation, a top-level `env` touching `PATH`/`NODE_OPTIONS`/`NODE_PATH`/
+  `HOME`/`npm_config_*`, a non-boolean truthy `disableAllHooks`, a duplicated
+  JSON key, or a sibling entry emitting its own hook decision is
+  hook-tampering. The user file and managed settings are judged by path shape
+  at the tool-call layer, outside the repository or not. Hooks merge across
+  the settings files, so the "sibling shadow" finding for an added local file
+  that declares other hooks is gone — it was a false positive.
+- **The pre-commit script init wrote must stay byte-equal to what init
+  writes**, modulo an upward pin. A hand-written hook is judged by whether the
+  gate still runs live under the way that hook is executed (husky's `sh -e`,
+  git's direct exec): function or alias shadowing of a word of the invocation,
+  a function nobody calls, an `else` after an always-true branch, an empty
+  `for` or never-true `while`, `exec`, a passing `trap`, `set +e`, the `||`
+  chain evaluated in order (`|| false || true`, `|| true; exit $?`,
+  `|| kill -0 $$`, `|| exit $status` with status=0), a trailing `&`, a `!`
+  prefix, heredoc bodies as data, `pipefail` only from a real `set -o
+  pipefail`, a lowered pin, `--cwd` as identity, a `cd` away from the root, a
+  non-shell shebang, and a gate that is not the last statement without
+  `set -e` on a directly-exec'ed hook. Thirty of these were verified against a
+  real shell before the model was rebuilt.
+- **lefthook, pre-commit and package.json compared by the command they run**,
+  not the word: `run: npx tamperward --version` and `entry: 'true'` under
+  `id: tamperward` are removals; `skip`/`only` in any non-false shape at
+  command and section level, `tags` against `exclude_tags`,
+  `lefthook-local.yml` as the overlay it is (now in the hooks baseline),
+  `stages` inherited from `default_stages ?? all`, `types`/`exclude_types`
+  without `always_run`, and `prepare: echo husky` / `HUSKY=0 husky` /
+  `husky uninstall` as the removals they are.
+- **CODEOWNERS evaluated over the concrete gate files** with GitHub's glob
+  semantics, so a later ownerless `/.husky/pre-commit`, `*.yml` or
+  `**/pre-commit` un-owning the gate is reported.
+- **Command surface:** absolute paths under the repository relativised;
+  `>|`/`>&`/`&>` kept with their redirection; `install -t`, `cp -t`, `rsync`,
+  `git checkout <rev> -- .`, `git restore --source=<rev> .`, `git apply` /
+  `patch` / `git am`, inline `python -c` / `node -e` / `perl -e` / `ruby -i` /
+  `ex` / `ed` scripts naming a hook, `xargs rm|chmod`, `find -exec chmod -x` /
+  `-delete`, multi-group symbolic chmod (`u+rw-x`), `setfacl`. Every
+  command-surface finding carries the repo-relative target, so the engine pin
+  applies to it.
+
+### Sign-off
+
+Customised wiring needs a sign-off once (docs/guide/rules.md, "Customised
+wiring needs a sign-off"): a linter step added before the gate in the
+init-written script, `npx` → `pnpm exec` in that script, a matcher spelled as
+a regex. A hand-written script that was never init's is judged by liveness
+alone and stays clean when the gate is live.
+
 ## [2.6.0] — 2026-09-02
 
 **Every dial of the selection predicate is modelled, the CI expression folder
