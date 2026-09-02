@@ -57,6 +57,6 @@
     "@types/picomatch": "^3.0.1",
     "esbuild": "^0.25.12",
     "vitepress": "^1.6.4",
-    "vitest": "^4.1.11"
+    "vitest": "^2.1.9"
   }
 }

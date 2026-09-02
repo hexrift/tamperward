@@ -29,10 +29,12 @@ All notable changes to this project are documented here. The format follows
   anything. Re-running `init` re-pins an install it wrote for another version
   (or wrote unpinned) in `.claude/settings.json` and the pre-commit script; a
   command someone wrote by hand is left exactly as it is.
-- Dev dependencies: `vitest` 2 → 4 and `esbuild` 0.24 → 0.25 (advisories in the
-  bundled vite/esbuild dev servers). `vitepress` stays at 1.6.4 — its only fix
-  is the 2.0 alpha — so `npm audit` still reports the dev-server advisories
-  through it; none of them reach the published package.
+- Dev dependencies: `esbuild` 0.24 → 0.25. `vitest` stays on 2.x and `vitepress`
+  on 1.6.4: every later vitest, and vitepress's only fixed line (the 2.0 alpha),
+  pull in a vite that drops Node 18, which this package still supports
+  (`engines >=18`, tested in CI). `npm audit` therefore still reports the vite
+  dev-server advisories through those two; none of them reach the published
+  package (`npm audit --omit=dev` is clean).
 
 ## [1.14.6] — 2026-09-02
 
