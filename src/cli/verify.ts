@@ -31,10 +31,9 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { loadPolicy } from '../policy-load';
-import { matchesAny } from '../policy';
+import { loadPolicy, loadPolicyAt } from '../policy-load';
 import { assertRev } from '../git/build';
-import { isProtected } from '../policy';
+import { defaultPolicy, isProtected, matchesAny } from '../policy';
 import { Policy } from '../types';
 
 export interface VerifyOpts {
@@ -239,9 +238,24 @@ function runSuite(dir: string, cmd: string, budgetSecs: number): RunResult {
 export function runVerify(opts: VerifyOpts): number {
   const cwd = opts.cwd ?? process.cwd();
   const out = (s: string): void => void process.stdout.write(s + '\n');
+
+  // POLICY PROVENANCE. The candidate must not choose the rules it is judged by.
+  // With a --base, the overlay classes, the verification surface config and the
+  // verifier command/budget all come from THAT COMMIT, never from the working
+  // tree: a PR that rewrote `verify: { command: true }` would otherwise have
+  // standalone `verify` grade itself and report VERIFIED. `check --diff` does
+  // flag that as hook-tampering, so the generated workflow caught it as a pair —
+  // but only if both jobs are required, and anyone running `verify` alone had no
+  // protection at all. The base governs, so the guarantee holds job-by-job.
+  //
+  // Without a --base there is no trusted commit to read from and the working
+  // tree's policy is all there is; that is the local-developer path, not the
+  // authority path.
   let policy: Policy;
   try {
-    policy = opts.policyOverride ?? loadPolicy(cwd);
+    if (opts.policyOverride) policy = opts.policyOverride;
+    else if (opts.base) policy = loadPolicyAt(resolveBase(opts.base, cwd), cwd) ?? defaultPolicy();
+    else policy = loadPolicy(cwd);
   } catch (e) {
     out(`verify: cannot load policy (${e instanceof Error ? e.message : String(e)}) — failing closed`);
     return 2;
@@ -258,7 +272,13 @@ export function runVerify(opts: VerifyOpts): number {
   }
   const cmd = opts.cmd ?? policy.verify?.command;
   if (!cmd) {
-    out('verify: no suite command — set policy `verify: { command: ... }` or pass --cmd');
+    out(
+      opts.base
+        ? 'verify: no suite command in the policy at the trusted base — the base governs the ' +
+          'verifier, so a `verify:` block added only on the candidate is not used. Add it at ' +
+          'the base, or pass --cmd explicitly.'
+        : 'verify: no suite command — set policy `verify: { command: ... }` or pass --cmd',
+    );
     return 2;
   }
   const budget = opts.budget ?? policy.verify?.budget ?? 300;

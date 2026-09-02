@@ -155,10 +155,30 @@ describe('envelope hardening — the tree the agent left cannot judge itself', (
     writeFileSync(join(cwd, 'test', 'check.test.js'), ''); // visible suite made green
     writeFileSync(join(cwd, '.tamperward.yml'), 'version: 1\nprotected:\n  config: ["**"]\n');
 
-    // the hole, demonstrated: the widened policy makes the bug invisible
-    expect(runVerify({ cwd, base: 'HEAD', cmd: CMD, budget: 30 })).toBe(0);
-    // the fix: adjudicate with the policy frozen at entry
+    // Closed in 1.14.3 for the standalone path too: with a --base, verify reads
+    // its policy from THAT COMMIT, so the tree-authored glob is never consulted.
+    // This assertion used to expect 0 — the hole — because only the envelope
+    // passed a frozen policyOverride and standalone `verify` (what the generated
+    // CI workflow runs) read the candidate's own policy.
+    expect(runVerify({ cwd, base: 'HEAD', cmd: CMD, budget: 30 })).toBe(1);
+    // an explicit entry-time override remains equivalent
     expect(runVerify({ cwd, base: 'HEAD', cmd: CMD, budget: 30, policyOverride: entry })).toBe(1);
+  });
+
+  it('P0-2b: a tree-authored `verify:` block must not choose the verifier', () => {
+    // The exploitable form of the same provenance defect. The agent does not fix
+    // the bug; it rewrites the suite command so the re-execution is trivially
+    // green. `check --diff` flags that as hook-tampering, so the generated
+    // workflow caught it as a PAIR — but only if both jobs are required, and
+    // anyone running `verify` alone had no protection. The base governs now, so
+    // the guarantee holds job-by-job.
+    const cwd = repo(); // RED base: the bug is real and the suite fails
+    writeFileSync(
+      join(cwd, '.tamperward.yml'),
+      'version: 1\nverify:\n  command: "true"\n  budget: 30\n',
+    );
+    // no --cmd here: the command must come from the policy, and the policy from base
+    expect(runVerify({ cwd, base: 'HEAD', budget: 30 })).not.toBe(0);
   });
 
   // P0-3: `git diff HEAD` never reports untracked files, so an agent could drop

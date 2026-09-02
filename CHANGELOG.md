@@ -5,6 +5,49 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [1.14.3] — 2026-09-02
+
+**Policy provenance: `verify --base` now reads its policy from that commit, not
+from the candidate tree.**
+
+`tamperward run` has always frozen the policy at the entry commit and passed it
+to the verifier. Standalone `tamperward verify` did not: it called
+`loadPolicy(cwd)`, so the overlay classes, the verification surface and — the
+part that matters — the `verify:` block's command and budget all came from the
+working tree. **The generated CI workflow runs standalone `verify`**, so a pull
+request supplied the configuration for its own re-execution:
+
+    # in the PR's .tamperward.yml
+    verify:
+      command: 'true'
+
+reported `VERIFIED`, exit 0, over an unfixed bug.
+
+`check --diff` reads its policy from the merge-base and flags that edit as
+`hook-tampering`, so the generated workflow caught it **as a pair** — but only
+where both jobs are required status checks, and anyone invoking `verify` on its
+own had no protection at all. The README claimed the CI verdict was
+base-governed; that was true of `check --diff` and not of `verify`.
+
+With a `--base`, `verify` now loads the policy from that commit and falls back
+to the built-in defaults if the base has none. Without a `--base` there is no
+trusted commit to read from and the working tree's policy is still used — that
+is the local-developer path, not the authority path. A `verify:` block added
+only on the candidate is therefore no longer used; add it at the base, or pass
+`--cmd` explicitly, and the error message says so.
+
+The existing `P0-2` regression asserted the hole rather than the fix — it
+expected standalone `verify` to return 0 on a tree-authored `protected` glob,
+because at the time only the envelope passed a frozen override. It now asserts
+the closed behaviour, and a new `P0-2b` covers the `verify:`-block form, which is
+the one that was actually exploitable. Both are mutation-checked: reverting the
+provenance change fails both.
+
+Scope: a bypass fix, therefore a patch. It is a **behaviour change for anyone
+who changes `verify.command` inside a pull request** — CI now runs the base's
+command. That is the intended direction: the candidate does not choose the rules
+it is judged by.
+
 ## [1.14.2] — 2026-09-01
 
 **1.14.1 fixed a filename, not the class. Six more vectors were live; this
