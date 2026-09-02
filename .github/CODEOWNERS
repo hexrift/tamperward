@@ -2,9 +2,15 @@
 # the hooks are exactly the assets a bypass would target, so they require a code-owner
 # review — the human half of the sign-off model in SPEC §5.4. Pair this with branch
 # protection ("Require review from Code Owners") or it is advisory only.
+# `src/` as a whole, not just the detectors: the gate job builds the CLI from the PR's
+# own head, so `engine.ts`, `cli/`, `git/`, `diff/` and `signoff.ts` decide the verdict
+# as surely as a detector does — a `hasBlocking` that returns false is a bypass with no
+# detector touched. `package.json` carries the build and test scripts the gate runs and
+# the version that triggers a release; the lockfile pins what those scripts execute.
 /.tamperward.yml        @hexrift
 /.github/               @hexrift
 /.husky/                @hexrift
-/src/detectors/         @hexrift
-/src/policy.ts          @hexrift
-/src/policy-load.ts     @hexrift
+/src/                   @hexrift
+/package.json           @hexrift
+/package-lock.json      @hexrift
+/tsconfig.json          @hexrift
