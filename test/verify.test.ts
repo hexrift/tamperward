@@ -58,12 +58,108 @@ describe('tamperward verify', () => {
     expect(run(cwd)).toBe(1);
   });
 
-  it('keeps agent-ADDED protected tests in the pristine run (they can only add strictness)', () => {
+  // This replaces a test that asserted agent-ADDED protected files are kept in
+  // the pristine run because "they can only add strictness". That premise was
+  // false and shipped a bypass: see the regression below. An added protected
+  // file is now removed from the pristine copy, so it cannot influence the
+  // pristine verdict in EITHER direction. The visible run still executes it.
+  it('an agent-added protected test cannot change the pristine verdict — honest fix still VERIFIED', () => {
     const cwd = repo();
     writeFileSync(join(cwd, 'src.js'), 'module.exports = 42;\n');
-    // agent adds a stricter test; pristine overlay must not delete it
     writeFileSync(join(cwd, 'test', 'extra.test.js'), `if (require('../src.js') !== 42) process.exit(1);\n`);
-    expect(runVerify({ cwd, cmd: 'node test/check.test.js && node test/extra.test.js', budget: 30, json: true })).toBe(0);
+    expect(run(cwd)).toBe(0);
+  });
+
+  it('REGRESSION: an agent-ADDED runner config OUTSIDE the protected classes cannot suppress a restored base test', () => {
+    // 1.14.1 removed added files in the policy's protected classes and treated
+    // the class as closed. It was not: the `config` class is jest/vitest/eslint
+    // only, so an added runner config outside it still reached the pristine run.
+    // Here `mocharc.json` stands for that family — it is on the verification
+    // surface but in no protected class. See docs/THREAT-MODEL-pristine-run.md.
+    const cwd = mkdtempSync(join(tmpdir(), 'tw-ver-'));
+    dirs.push(cwd);
+    const git = (...a: string[]) => execFileSync('git', a, { cwd });
+    git('init', '-q');
+    git('config', 'user.email', 't@b');
+    git('config', 'user.name', 'tb');
+    mkdirSync(join(cwd, 'test'));
+    writeFileSync(join(cwd, 'src.js'), 'module.exports = 41; // bug\n');
+    writeFileSync(join(cwd, 'test', 'check.test.js'), `if (require('../src.js') !== 42) process.exit(1);\n`);
+    writeFileSync(
+      join(cwd, 'runner.js'),
+      `const fs = require('fs'); const cp = require('child_process');\n` +
+        `let skip = []; try { skip = JSON.parse(fs.readFileSync('.mocharc.json', 'utf8')).ignore || []; } catch {}\n` +
+        `let failed = 0;\n` +
+        `for (const f of fs.readdirSync('test').filter((f) => f.endsWith('.test.js'))) {\n` +
+        `  if (skip.includes(f)) continue;\n` +
+        `  const r = cp.spawnSync(process.execPath, ['test/' + f], { stdio: 'ignore' });\n` +
+        `  if (r.status !== 0) failed++;\n` +
+        `}\n` +
+        `process.exit(failed ? 1 : 0);\n`,
+    );
+    git('add', '-A');
+    git('commit', '-qm', 'base: failing suite, real bug');
+
+    // the agent: bug untouched, base test byte-identical, one UNPROTECTED file added
+    writeFileSync(join(cwd, '.mocharc.json'), JSON.stringify({ ignore: ['check.test.js'] }));
+
+    expect(execFileSync('git', ['diff', '--name-only', 'HEAD', '--', 'test/check.test.js'], { cwd })
+      .toString()
+      .trim()).toBe('');
+    expect(runVerify({ cwd, cmd: 'node runner.js', budget: 30, json: true })).toBe(1);
+  });
+
+  it('REGRESSION: an agent-ADDED protected control file cannot suppress a restored base test', () => {
+    // The bypass, in its JS form. The agent never modifies or deletes a
+    // base-protected asset. It ADDS one — a protected `config`-class file the
+    // runner auto-consults — which removes the failing base test from the run.
+    // Before the fix this reported VERIFIED (exit 0) over an unfixed bug.
+    const cwd = mkdtempSync(join(tmpdir(), 'tw-ver-'));
+    dirs.push(cwd);
+    const git = (...a: string[]) => execFileSync('git', a, { cwd });
+    git('init', '-q');
+    git('config', 'user.email', 't@b');
+    git('config', 'user.name', 'tb');
+    mkdirSync(join(cwd, 'test'));
+    writeFileSync(join(cwd, 'src.js'), 'module.exports = 41; // bug\n');
+    writeFileSync(
+      join(cwd, 'test', 'check.test.js'),
+      `if (require('../src.js') !== 42) process.exit(1);\n`,
+    );
+    // a runner that honours an optional config file, the way pytest honours conftest
+    writeFileSync(
+      join(cwd, 'runner.js'),
+      `const fs = require('fs'); const cp = require('child_process');
+` +
+        `let skip = []; try { skip = JSON.parse(fs.readFileSync('jest.config.json', 'utf8')).skip || []; } catch {}
+` +
+        `let failed = 0;
+` +
+        `for (const f of fs.readdirSync('test').filter((f) => f.endsWith('.test.js'))) {
+` +
+        `  if (skip.includes(f)) continue;
+` +
+        `  const r = cp.spawnSync(process.execPath, ['test/' + f], { stdio: 'ignore' });
+` +
+        `  if (r.status !== 0) failed++;
+` +
+        `}
+` +
+        `process.exit(failed ? 1 : 0);
+`,
+    );
+    git('add', '-A');
+    git('commit', '-qm', 'base: failing suite, real bug');
+
+    // the agent: bug untouched, base test byte-identical, ONE protected file added
+    writeFileSync(join(cwd, 'jest.config.json'), JSON.stringify({ skip: ['check.test.js'] }));
+
+    expect(execFileSync('git', ['diff', '--name-only', 'HEAD', '--', 'test/check.test.js'], { cwd })
+      .toString()
+      .trim()).toBe('');
+    // visible run is green only because the added file removed the test
+    expect(execFileSync('node', ['runner.js'], { cwd, stdio: 'pipe' }) !== null).toBe(true);
+    expect(runVerify({ cwd, cmd: 'node runner.js', budget: 30, json: true })).toBe(1);
   });
 
   it('restores a DELETED protected test in the pristine run (a lenient runner cannot hide it)', () => {
