@@ -57,6 +57,16 @@ export interface FileChange {
   /** git reported the blob as binary; before/after are opaque and hunks are empty. */
   binary: boolean;
   hunks: Hunk[];
+  /**
+   * Git file modes ("100644", "100755", "120000") from the diff header, present
+   * only when the header carried them: `old mode` / `new mode` on a mode change,
+   * `new file mode`, `deleted file mode`. A mode-only change has NO hunks, so
+   * without these a `chmod -x` on a hook was invisible to every git view — the
+   * diff parsed as a modify with nothing in it. Absent from producers that have
+   * no mode information (synthesised tool-call edits).
+   */
+  oldMode?: string;
+  newMode?: string;
 }
 
 export type Change = CommandChange | FileChange;

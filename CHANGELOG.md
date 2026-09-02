@@ -7,6 +7,47 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+**Five ways the gate failed open, from a third audit. Each was reproduced against
+the built 1.14.6 CLI before the fix; each is now a permanent test
+(`test/audit-fail-open.test.ts`).**
+
+### Fixed
+
+- **A mistyped severity switched a rule off, silently.** `rules.<name>.severity:
+  BLOCK` (or `blocc`, `blocking`, `1`) parsed cleanly and produced findings that
+  were neither `block` nor `warn` — findings nothing treats as blocking. After
+  such a line, `rm a.test.js` passed the PreToolUse hook, the Stop sweep, and
+  `check --worktree`; and the edit that introduced it was not reported, because
+  policy-diff compared for `warn` only. The loader now validates every value in
+  the file (`rules`, `ignore`, `protected`, `signoff`, `verify`) and fails
+  CLOSED on anything it does not understand, exactly as it already did for
+  `version:`; policy-diff reports any departure from `block` as a lowering.
+  Unknown rule *names* still load, so a policy for a newer build keeps working.
+- **A tool-call diff past 1 MiB was read as a smaller edit.** The hook adapter
+  called `git diff --no-index` with Node's default `maxBuffer`; on overflow the
+  truncated patch was parsed as the whole edit, so `test.skip` appended to a
+  3 MB spec was allowed. The buffer is 256 MiB, and any diff failure other than
+  "files differ" now fails closed instead of parsing partial output.
+- **A redundant path segment dodged every exact-path protected glob at the
+  hook.** `/repo/./.claude/settings.json` and `/repo/src/../.tamperward.yml`
+  reached the detectors as `./.claude/settings.json` and
+  `src/../.tamperward.yml`, which no glob matches — the gate's own wiring could
+  be edited unseen at PreToolUse. Paths are resolved before matching.
+- **`chmod -x` on a hook was invisible to every git view, and three spellings
+  dodged the command detector.** A mode-only change carries no hunks, so the
+  parser dropped it and the staged, worktree and range views reported clean
+  after `chmod u-x .husky/pre-commit` (husky v8 points `core.hooksPath` at that
+  file; git skips a non-executable hook). The parser now records `old mode` /
+  `new mode`, hook-tampering flags a lost execute bit, and the command surface
+  reads chmod arguments the way chmod does (`u-x`, `a-x`, `go-x`, `u=rw`,
+  comma clauses, octal) instead of a regex that only matched `-x`.
+- **`verify`'s budget kill stopped the shell and nothing else.** Workers forked
+  by the runner survived a BUDGET_EXCEEDED verdict, in a directory about to be
+  removed, executing the candidate's code after the verdict. The suite now runs
+  in its own process group under a small supervisor, and the whole group is
+  killed on budget or exit.
+
+
 **Protection that was silently absent, from a third audit. Each case is a
 permanent test (`test/coverage-gaps.test.ts`).**
 
