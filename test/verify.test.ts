@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runVerify } from '../src/cli/verify';
+import { parseVerify, runVerify } from '../src/cli/verify';
 import { policyWeakening } from '../src/detectors/policy-diff';
 
 const dirs: string[] = [];
@@ -38,6 +38,71 @@ function repo(): string {
 const CMD = 'node test/check.test.js';
 const run = (cwd: string, extra: Partial<Parameters<typeof runVerify>[0]> = {}) =>
   runVerify({ cwd, cmd: CMD, budget: 30, json: true, ...extra });
+
+/** Run with stdout captured; return the exit code and the JSON line verify wrote. */
+const capture = (fn: () => number): { code: number; json: Record<string, unknown> } => {
+  const orig = process.stdout.write;
+  const lines: string[] = [];
+  process.stdout.write = ((chunk: unknown) => {
+    lines.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    const code = fn();
+    const json = lines.map((l) => l.trim()).reverse().find((l) => l.startsWith('{'));
+    if (!json) throw new Error('no JSON line written');
+    return { code, json: JSON.parse(json) };
+  } finally {
+    process.stdout.write = orig;
+  }
+};
+
+/** Set env vars for the duration of `fn` and always restore them, so nothing
+ *  set here can leak into another test's suite environment. */
+const withEnv = (vars: Record<string, string | undefined>, fn: () => void): void => {
+  const saved = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+  for (const [k, v] of Object.entries(vars)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    fn();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+};
+
+// A REAL runner behind a package manager: `npm test` → `node --test`, the shape
+// of the .npmrc bypass. The base is honest — app.js adds, math.test.js asserts
+// add(1, 2) === 3 — so a candidate that breaks app.js is red unless something
+// stops the test from running.
+function npmRepo(): string {
+  const d = mkdtempSync(join(tmpdir(), 'tw-ver-npm-'));
+  dirs.push(d);
+  const git = (...a: string[]) => execFileSync('git', a, { cwd: d });
+  git('init', '-q');
+  git('config', 'user.email', 't@b');
+  git('config', 'user.name', 'tb');
+  writeFileSync(join(d, 'app.js'), 'module.exports.add = (a, b) => a + b;\n');
+  writeFileSync(
+    join(d, 'math.test.js'),
+    `const t = require('node:test'); const a = require('node:assert');\n` +
+      `const { add } = require('./app.js');\n` +
+      `t.test('add', () => { a.strictEqual(add(1, 2), 3); });\n`,
+  );
+  writeFileSync(join(d, 'package.json'), JSON.stringify({ name: 'p', version: '1.0.0', scripts: { test: 'node --test' } }));
+  git('add', '-A');
+  git('commit', '-qm', 'base: honest suite, honest source');
+  return d;
+}
+const NPM = (cwd: string) => capture(() => runVerify({ cwd, cmd: 'npm test', budget: 60, json: true }));
+const breakApp = (d: string) => writeFileSync(join(d, 'app.js'), 'module.exports.add = (a, b) => a * b;\n');
+// The preload: with node:test's entry points stubbed to no-ops, `node --test`
+// collects nothing, runs nothing, and exits 0.
+const STUB = `const t = require('node:test'); for (const k of ['test', 'it', 'describe']) { try { t[k] = () => {}; } catch {} }\n`;
 
 describe('tamperward verify', () => {
   it('MASKED_FAILURE: weakened test makes visible green, pristine red — exit 1', () => {
@@ -218,23 +283,6 @@ describe('verify — out-of-band sign-off (MASKED_FAILURE only, head-bound)', ()
   };
   const HEAD = 'abcdef0123456789abcdef0123456789abcdef01';
   const masked = (cwd: string) => writeFileSync(join(cwd, 'test', 'check.test.js'), `process.exit(0); // "fixed"\n`);
-  /** Run with stdout captured; return the exit code and the JSON line verify wrote. */
-  const capture = (fn: () => number): { code: number; json: Record<string, unknown> } => {
-    const orig = process.stdout.write;
-    const lines: string[] = [];
-    process.stdout.write = ((chunk: unknown) => {
-      lines.push(String(chunk));
-      return true;
-    }) as typeof process.stdout.write;
-    try {
-      const code = fn();
-      const json = lines.map((l) => l.trim()).reverse().find((l) => l.startsWith('{'));
-      if (!json) throw new Error('no JSON line written');
-      return { code, json: JSON.parse(json) };
-    } finally {
-      process.stdout.write = orig;
-    }
-  };
 
   it('a head-bound verify token turns MASKED_FAILURE into exit 0 and records the approval', () => {
     const cwd = repo();
@@ -318,5 +366,143 @@ describe('policy-diff guards the verify surface', () => {
     expect(policyWeakening(base, `version: 1\n`)?.join()).toContain('verify block removed');
     expect(policyWeakening(`version: 1\n`, base)).toEqual([]); // adding verify is a strengthening
     expect(policyWeakening(base, `verify:\n  command: npm test\n  budget: 600\n`)).toEqual([]); // raising budget is fine
+  });
+});
+
+describe('verify — the runner is started under the operator\'s environment, not the candidate\'s', () => {
+  // The surface list named what the test runner reads and nothing the package
+  // manager in front of it reads. `npm test` is npm first: it loads .npmrc
+  // before running anything, and `node-options` there becomes NODE_OPTIONS for
+  // every node it spawns. See the VERIFICATION_SURFACE and suiteEnv notes in
+  // src/cli/verify.ts and docs/THREAT-MODEL-pristine-run.md.
+
+  it('REGRESSION: an added .npmrc `node-options=--require <stub>` cannot turn a red suite green', () => {
+    const cwd = npmRepo();
+    breakApp(cwd); // the bug
+    writeFileSync(join(cwd, 'p.cjs'), STUB);
+    writeFileSync(join(cwd, '.npmrc'), 'node-options=--require ./p.cjs\n');
+    // Before the fix: both copies carried the .npmrc, both `node --test` runs
+    // collected nothing, and this was VERIFIED (exit 0) over a source the base
+    // suite fails. Now SUITE_RED specifically: the environment pins npm's
+    // node-options above the project file, so even the VISIBLE run — the
+    // candidate's own tree — executes the real tests. MASKED_FAILURE would also
+    // convict, but would mean the env layer had stopped outranking the file
+    // and only the pristine removal was holding.
+    const r = NPM(cwd);
+    expect(r.code).toBe(1);
+    expect(r.json.verdict).toBe('SUITE_RED');
+  });
+
+  it('the HOME variant — node-options in ~/.npmrc — is read by neither run', () => {
+    // No in-repo file at all, so no surface list can cover this: the candidate
+    // inside `tamperward run` owns HOME. Only the environment control stands
+    // between this and VERIFIED.
+    const cwd = npmRepo();
+    breakApp(cwd);
+    writeFileSync(join(cwd, 'p.cjs'), STUB);
+    const home = mkdtempSync(join(tmpdir(), 'tw-ver-home-'));
+    dirs.push(home);
+    writeFileSync(join(home, '.npmrc'), 'node-options=--require ./p.cjs\n');
+    // An `npx`/`npm test` launcher exports npm_config_userconfig (pointing at
+    // the launching user's ~/.npmrc) into this process, which would pin the
+    // user file on its own and hide what this test is about. Cleared, so the
+    // vector is live in the parent env and only verify's control stands.
+    const launcherPins = Object.fromEntries(
+      Object.keys(process.env)
+        .filter((k) => /^npm_config_(userconfig|globalconfig|node_options)$/i.test(k))
+        .map((k) => [k, undefined]),
+    );
+    withEnv({ ...launcherPins, HOME: home }, () => {
+      const r = NPM(cwd);
+      expect(r.code).toBe(1);
+      expect(r.json.verdict).toBe('SUITE_RED');
+    });
+    // Same file, a different setting: `script-shell` makes npm run the test
+    // script through a shell of the candidate's choosing — one that exits 0.
+    // node-options is pinned by its own variable; this one is caught only
+    // because the user rc file itself is pointed away from HOME.
+    const sh0 = join(home, 'sh0');
+    writeFileSync(sh0, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    writeFileSync(join(home, '.npmrc'), `script-shell=${sh0}\n`);
+    withEnv({ ...launcherPins, HOME: home }, () => {
+      const r = NPM(cwd);
+      expect(r.code).toBe(1);
+      expect(r.json.verdict).toBe('SUITE_RED');
+    });
+  });
+
+  it('an added .npmrc is on the verification surface: removed from the pristine copy and counted', () => {
+    const cwd = npmRepo();
+    writeFileSync(join(cwd, '.npmrc'), 'loglevel=silent\n'); // harmless content; the file is the point
+    const r = NPM(cwd);
+    expect(r.code).toBe(0);
+    expect(r.json.added_protected_removed).toBe(1);
+  });
+
+  it('NODE_OPTIONS and the other load-this-first variables in the parent env do not reach the suite', () => {
+    const cwd = repo();
+    writeFileSync(join(cwd, 'src.js'), 'module.exports = 42;\n');
+    const vars = {
+      NODE_OPTIONS: '--no-warnings',
+      NODE_PATH: '/nowhere',
+      NODE_REPL_EXTERNAL_MODULE: '/nowhere.js',
+      PYTHONPATH: '.',
+      PYTHONSTARTUP: '/nowhere.py',
+      PYTEST_ADDOPTS: '-k nothing',
+      PYTEST_PLUGINS: 'nowhere',
+      NPM_CONFIG_USERCONFIG: '/nowhere/npmrc', // an inherited variant must be replaced, whatever its case
+    };
+    // The suite is a probe: red if any dropped variable is visible, or if the
+    // pinned npm/yarn ones are not what verify set them to.
+    const dropped = Object.keys(vars)
+      .filter((k) => k !== 'NPM_CONFIG_USERCONFIG')
+      .map((k) => `[ -z "\${${k}:-}" ] || exit 1`)
+      .join('; ');
+    const pinned =
+      '[ -f "$npm_config_userconfig" ] && [ ! -s "$npm_config_userconfig" ] || exit 1; ' +
+      '[ -f "$npm_config_globalconfig" ] && [ ! -s "$npm_config_globalconfig" ] || exit 1; ' +
+      '[ "$npm_config_userconfig" != "$npm_config_globalconfig" ] || exit 1; ' +
+      '[ -z "${NPM_CONFIG_USERCONFIG:-}" ] || exit 1; ' +
+      '[ "$YARN_IGNORE_PATH" = 1 ] || exit 1';
+    withEnv(vars, () => {
+      expect(runVerify({ cwd, cmd: `${dropped}; ${pinned}; ${CMD}`, budget: 30, json: true })).toBe(0);
+    });
+  });
+
+  it('control: an honest change through `npm test` is still VERIFIED under the sanitised environment', () => {
+    const cwd = npmRepo();
+    writeFileSync(join(cwd, 'app.js'), 'module.exports.add = (a, b) => b + a;\n');
+    const r = NPM(cwd);
+    expect(r.code).toBe(0);
+    expect(r.json.verdict).toBe('VERIFIED');
+  });
+});
+
+describe('parseVerify', () => {
+  it('a flag is never a value: `--base --json` fails closed instead of verifying against "--json"', () => {
+    const o = parseVerify(['--base', '--json']);
+    expect(o.base).toBeUndefined();
+    expect(o.json).toBe(true); // the flag is still parsed as itself
+    expect(o.invalid).toMatch(/--base/);
+    expect(runVerify({ ...o, cwd: repo() })).toBe(2);
+  });
+
+  it('a missing or malformed value is a fault, not a silent default', () => {
+    expect(parseVerify(['--cmd']).invalid).toMatch(/--cmd/);
+    expect(parseVerify(['--cwd', '--keep']).invalid).toMatch(/--cwd/);
+    expect(parseVerify(['--budget', 'soon']).invalid).toMatch(/--budget/);
+    expect(parseVerify(['--budget', '--json']).invalid).toMatch(/--budget/);
+  });
+
+  it('well-formed flags parse as before', () => {
+    expect(parseVerify(['--base', 'main', '--cmd', 'npm test', '--budget', '60', '--cwd', '.', '--json', '--keep', '--require-ancestor'])).toEqual({
+      base: 'main',
+      cmd: 'npm test',
+      budget: 60,
+      cwd: '.',
+      json: true,
+      keep: true,
+      requireAncestor: true,
+    });
   });
 });
