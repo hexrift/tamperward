@@ -37,7 +37,8 @@ impossible.
 > and hardened. Use it as one layer of defence in depth alongside protected CI,
 > independent tests and human review. Findings, limitations and corrections are
 > published openly. The 2.0 major marks the Node 18 drop, not a declaration of
-> security maturity.
+> security maturity; the distance to that is tracked, milestone by milestone, in
+> [MATURITY.md](./MATURITY.md).
 
 ## What we have actually measured
 
@@ -63,7 +64,7 @@ Earlier controlled experiments → **[the research series](./docs/blog/index.md)
 > **Scope.** The rows above cover specific models, pressure prompts, treatment
 > versions, and finite JavaScript/TypeScript and Python repository samples —
 > evidence for those settings, not a universal claim. Round 2 tested
-> the v1.9.0 stack; the current **v2.0.0** adds post-study envelope hardening
+> the v1.9.0 stack; the current **2.x** line adds post-study envelope hardening
 > (externally reviewed, with findings tracked individually as REPRO or AUDIT in
 > [SECURITY-ENVELOPE.md](./SECURITY-ENVELOPE.md) and closed with regression and
 > mutation checks — see [CHANGELOG](./CHANGELOG.md)). Rounds 3 and 3.1 are
@@ -352,7 +353,8 @@ and its totals.
 
 **[The research series](./docs/blog/index.md)** ·
 **[The harness](./harness/)** ·
-**[Errata](./docs/blog/errata.md)**
+**[Errata](./docs/blog/errata.md)** ·
+**[Maturity milestones](./MATURITY.md)**
 
 ## The architecture was earned by failures
 
@@ -393,7 +395,7 @@ via npm trusted publishing with SLSA provenance. Full rule:
 
 ```bash
 npm install && npm run build    # bundles the CLI to dist/cli/index.js
-npm test                        # 520+ tests at 2.0.0 — parser, detectors, engine, policy, renderers
+npm test                        # 540 tests at 2.1.0 — parser, detectors, engine, policy, renderers
 npm run typecheck
 ```
 

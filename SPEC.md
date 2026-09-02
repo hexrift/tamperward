@@ -665,7 +665,9 @@ precision work so far lives in `harness/fp-study/` and the corpus sweeps of
 `PREDICTION-baselines/tuned-fp/launder-corpus.md`), the two heuristic detectors it
 gates, languages beyond TS, agents beyond Claude Code, and the task-level
 multi-repository benchmark (the repo, not the run, as the sampling unit) that the
-external review placed at the top of the roadmap.
+external review placed at the top of the roadmap. The five milestones a later
+external review (September 2026) named as the distance from research engineering
+to industry infrastructure are tracked in [MATURITY.md](./MATURITY.md).
 
 ---
 
