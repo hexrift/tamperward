@@ -57,7 +57,7 @@ function eachTables(src: string, path: string): { rows: Map<string, string>; ope
       if (
         ts.isCallExpression(node) &&
         ts.isPropertyAccessExpression(node.expression) &&
-        node.expression.name.text === 'each' &&
+        /^(?:each|for)$/.test(node.expression.name.text) &&
         ts.isIdentifier(node.expression.expression) &&
         /^(?:it|test|describe)$/.test(node.expression.expression.text)
       ) {
@@ -83,6 +83,10 @@ function eachTables(src: string, path: string): { rows: Map<string, string>; ope
   return { rows, open };
 }
 
+/** A non-spec file under a test directory: a fixture, a helper, a case table
+ *  extracted from a spec. Content moved there is kept, not removed. */
+const TEST_DIR_FILE = /(?:^|\/)(?:test|tests|__tests__|spec|specs)\//;
+
 /** Significant lines, in file order — the one filter test-deletion also uses. */
 function significantLinesOrdered(src: string, path: string): string[] {
   const out: string[] = [];
@@ -102,7 +106,9 @@ export const testContentRemoval: Detector = {
     const out: Finding[] = [];
 
     // Significant content kept anywhere in the changeset's protected test files
-    // AFTER the edits — the only place removed content can be excused into.
+    // AFTER the edits, plus what this change ADDS to a non-spec file under a test
+    // directory (the `it.each` rows moved to `test/fixtures/add-cases.ts`) — the
+    // only places removed content can be excused into.
     let keptPool = '';
     // Everything ADDED anywhere in the changeset, protected or not: the only pool a
     // row of an OPEN table may be excused into (`it.each([...rows, …])` with `rows`
@@ -112,11 +118,14 @@ export const testContentRemoval: Detector = {
     for (const c of changes) {
       if (c.kind !== 'file' || c.after == null) continue;
       if (isProtected(c.path, policy, 'tests')) keptPool += ws(significantLinesOrdered(c.after, c.path).join('\n'));
-      if (c.op === 'add') addedPool += ws(c.after);
+      let addedHere = '';
+      if (c.op === 'add') addedHere = ws(c.after);
       else if (c.before != null) {
         const had = new Set(c.before.split('\n').map((l) => l.trim()));
-        addedPool += ws(c.after.split('\n').filter((l) => !had.has(l.trim())).join('\n'));
+        addedHere = ws(c.after.split('\n').filter((l) => !had.has(l.trim())).join('\n'));
       }
+      addedPool += addedHere;
+      if (!isProtected(c.path, policy, 'tests') && TEST_DIR_FILE.test(c.path) && langOf(c.path) === 'js') keptPool += addedHere;
     }
 
     for (const c of changes) {

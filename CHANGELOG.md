@@ -5,6 +5,72 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.7.1] — 2026-09-02
+
+**The predicates read the way the runner reads them. A patch: twelve false
+positives and one incidental, every one a maintainer's routine edit that 2.7.0
+blocked, found by the pass-3d sweep of 77 honest edits against the built CLI.
+Nothing fires that did not fire before; the tamper beside each honest edit
+still does.**
+
+### Fixed
+
+- **ci-tampering.** A `${{ }}` expression is folded to its constant or read as
+  one token, so `--shard=${{ matrix.shard }}/4`, `--shard ${{ matrix.shard
+  }}/${{ strategy.job-total }}` and Playwright's `--project=${{ matrix.project
+  }}` are the matrix, not a narrowed suite (a literal `--project=unit` and a
+  `-t ${{ github.sha }}` still are). `node --test`, `mocha`, `ava`, `biome ci`,
+  `oxlint`, `tsgo`, `deno test`, `ruff check` and `mypy` are checks of their
+  kind, so `npm run lint` → `npx biome ci .` and `npm test` → `node --test` are
+  respellings rather than removals. A path positional narrows a test, not a
+  lint: `npx eslint "src/**/*.{ts,tsx}"` and `npx eslint src/ test/` are no
+  longer "neutralised". `cd apps/web && npm test` places the check; its
+  directory is not a positional. `shell: bash -euo pipefail {0}` — any `{0}`
+  shell that keeps `-e` or `-o errexit` — is fail-fast and is not reported.
+  `continue-on-error: true` on a reporter or upload action
+  (`dorny/test-reporter`, `publish-unit-test-result-action`,
+  `upload-artifact`, codecov, coveralls) is not on the check. `branches:
+  [master]` → `[main]` is a rename when the repository has a `main` branch,
+  locally or on a remote, even while a stale `origin/HEAD` still points at
+  `master`; a branch the repository does not have is still a narrowing.
+- **test-deletion.** vitest 3's `it.for` / `test.for` / `describe.for` count
+  like `each`; a `describe.each` table rewritten as `for (const n of [1, 2,
+  3])` or `[1, 2, 3].forEach` counts once per element (a loop over anything
+  else is open, never claimed; a loop over fewer literal rows still fires).
+  `test.projects` entries with `extends: true` inherit the root's selection —
+  in either order; `extends: '<path>'`, `mergeConfig(shared, …)` over an
+  imported base and a `...base` spread are opaque, because vite concatenates
+  the arrays with a base this file cannot see; `test.root` rebases a
+  project's globs like `test.dir`; and the evidence for a vitest default
+  include says `test.include (default)`, not `testRegex`. Only `scripts.test`
+  and `test:ci` are the suite a flag can narrow: `test:unit --project unit`,
+  `test:watch --changed` and `test:staged --findRelatedTests` beside an
+  untouched `test` are slices by design, and `test: vitest run --exclude
+  e2e/**` excludes another runner's directory exactly as `test.exclude`
+  would. A `.snap` inside `__tests__/` — jest's default layout — is
+  snapshot-rewrite's file, not a deleted test, on the file surface and for
+  `rm -rf src/__tests__/__snapshots__` alike. `git checkout main -- test/`
+  while on `main` (any rev that resolves to HEAD) restores nothing older;
+  `HEAD~1` still does.
+- **coverage-lowering.** Exempting generated code, codegen output,
+  migrations, `*.generated.*` / `*.gen.*` / `*.pb.*`, Nest's `*.e2e-spec.ts`,
+  Django's `manage.py` / `wsgi.py` / `asgi.py`, `__init__.py` and the
+  `main.ts` entrypoint is housekeeping in `coverage.exclude`,
+  `coveragePathIgnorePatterns`, `collectCoverageFrom` and `.coveragerc`
+  `omit` alike; `**/index.ts` stays reported. vitest's `thresholds: { 100:
+  true }` is every metric at 100, not four thresholds removed. codecov
+  `informational: true` is reported under `project:` (and at the top), not
+  under `patch:` or `changes:` beside an untouched project target. A
+  `--passWithNoTests` (or `passWithNoTests: true`) in a package whose
+  directory holds no spec — a brand-new workspace package — is not a dodge;
+  the root of a repository with a suite, a package that has one, and a
+  change judged without a repository listing are reported as before.
+- **test-content-removal.** Content this change adds to a non-spec file under
+  a test directory (`test/fixtures/add-cases.ts` receiving the rows of an
+  `it.each` table) is kept, not removed; `test.for` tables are read like
+  `it.each`.
+
+
 ## [2.7.0] — 2026-09-02
 
 **The wiring `init` writes is judged by its canonical shape, not by whether a

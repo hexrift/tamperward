@@ -44,9 +44,67 @@ export function trackedFiles(ctx?: DetectorContext): string[] | null {
 export function resetTrackedFiles(): void {
   cache.clear();
   branchCache.clear();
+  refsCache.clear();
 }
 
 const branchCache = new Map<string, string | null>();
+const refsCache = new Map<string, Set<string> | null>();
+
+/** The short names of every local and remote-tracking branch (`main`,
+ *  `origin/main`), or null when the repository cannot be read. */
+function branchRefs(ctx?: DetectorContext): Set<string> | null {
+  if (!ctx?.cwd) return null;
+  const hit = refsCache.get(ctx.cwd);
+  if (hit !== undefined) return hit;
+  let refs: Set<string> | null = null;
+  try {
+    const out = execFileSync('git', ['for-each-ref', '--format=%(refname:short)', 'refs/heads', 'refs/remotes'], {
+      cwd: ctx.cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    refs = new Set(out.split('\n').map((l) => l.trim()).filter(Boolean));
+  } catch {
+    refs = null;
+  }
+  refsCache.set(ctx.cwd, refs);
+  return refs;
+}
+
+/** Whether a branch named `name` exists locally or on any remote; null when the
+ *  repository cannot say. `origin/HEAD` is written once at clone time and is not
+ *  moved by a rename, so a workflow that now names `main` is judged against the
+ *  branches the repository actually has, not only against that stale pointer. */
+export function branchExists(name: string, ctx?: DetectorContext): boolean | null {
+  const refs = branchRefs(ctx);
+  if (!refs) return null;
+  if (refs.has(name)) return true;
+  for (const r of refs) if (r.endsWith('/' + name)) return true;
+  return false;
+}
+
+/** Whether `rev` names the commit HEAD is on — `main` while on main, `@`, a tag of
+ *  the current commit. null when there is no repository to ask or the rev does not
+ *  resolve. Restoring a path from the commit you stand on discards uncommitted
+ *  edits; only a rev that resolves ELSEWHERE puts an older version back. */
+export function revIsHead(rev: string, ctx?: DetectorContext): boolean | null {
+  if (!ctx?.cwd || rev.startsWith('-')) return null;
+  const parse = (r: string): string | null => {
+    try {
+      return execFileSync('git', ['rev-parse', '--verify', '--quiet', '--end-of-options', `${r}^{commit}`], {
+        cwd: ctx.cwd,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim();
+    } catch {
+      return null;
+    }
+  };
+  const head = parse('HEAD');
+  const target = parse(rev);
+  if (!head || !target) return null;
+  return head === target;
+}
 
 /** The repository's default branch as the remote declares it
  *  (`refs/remotes/origin/HEAD` → `main`), or null when unknown — a caller then
@@ -77,17 +135,21 @@ const dirOf = (t: string) => t.replace(/^\.\//, '').replace(/\/+$/, '');
  * `category`. With a file listing the answer is exact; without one the token is
  * resolved against the globs as `dir/**` — a probe path under it must match a
  * directory-shaped glob (`**\/__tests__/**`, `**\/src/test/**`) or the directory must
- * carry a conventional test-directory name.
+ * carry a conventional test-directory name. A file that also belongs to `except`
+ * does not count: jest's default layout puts `__snapshots__` INSIDE `__tests__`, and
+ * the snapshot category owns those files, so `rm -rf src/__tests__/__snapshots__`
+ * holds no spec.
  */
-export function containsProtected(token: string, policy: Policy, category: string, ctx?: DetectorContext): boolean {
+export function containsProtected(token: string, policy: Policy, category: string, ctx?: DetectorContext, except?: string): boolean {
   const dir = dirOf(token);
   if (!dir || dir === '.' || dir === '/' || dir.startsWith('-')) return false;
+  const counts = (p: string) => isProtected(p, policy, category) && !(except && isProtected(p, policy, except));
   const files = trackedFiles(ctx);
   if (files) {
     const prefix = dir + '/';
-    return files.some((f) => f.startsWith(prefix) && isProtected(f, policy, category));
+    return files.some((f) => f.startsWith(prefix) && counts(f));
   }
-  if (isProtected(dir + '/probe', policy, category)) return true;
+  if (counts(dir + '/probe')) return true;
   const base = dir.split('/').pop() ?? '';
   return category === 'tests' && /^(?:test|tests|__tests__|spec|specs)$/i.test(base);
 }

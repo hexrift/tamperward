@@ -167,8 +167,12 @@ describe('test-deletion — narrowing flags added to the package.json test scrip
     expect(m[0]).toContain('scripts.test');
   });
 
-  it('a test:unit script counts; a test:e2e playwright --project does not (not jest/vitest)', () => {
-    expect(on(pj('vitest run', 'test:unit'), pj('vitest run --project unit', 'test:unit'))).toHaveLength(1);
+  it('a test:unit script is a deliberate slice, not the suite; test:ci is the suite; a playwright --project is not jest/vitest', () => {
+    // Inverted in 2.7.1 (pass-3d s11): `test:unit: vitest run --project unit` beside
+    // an untouched `test` script is how a multi-project repo names its slices —
+    // only `scripts.test` (and `test:ci`) run THE suite, and only they can narrow it.
+    expect(on(pj('vitest run', 'test:unit'), pj('vitest run --project unit', 'test:unit'))).toHaveLength(0);
+    expect(on(pj('vitest run', 'test:ci'), pj('vitest run --project unit', 'test:ci'))).toHaveLength(1);
     expect(on(pj('playwright test', 'test:e2e'), pj('playwright test --project chromium', 'test:e2e'))).toHaveLength(0);
   });
 

@@ -223,8 +223,13 @@ export function parseThresholds(src: string): Thresholds {
               if (!ts.isPropertyAssignment(p)) continue;
               const k = keyName(p.name);
               if (k === null || isMetric(k)) continue; // metrics already taken above
+              if (key === 'thresholds' && k === '100' && p.initializer.kind === ts.SyntaxKind.TrueKeyword) {
+                // vitest's shorthand: every metric at 100 — stricter than any number
+                res.global = merge(res.global, { values: { branches: 100, functions: 100, lines: 100, statements: 100 }, opaque: false });
+                continue;
+              }
               const m = metricsOf(p.initializer, resolve);
-              if (!m) continue; // perFile: true, autoUpdate, '100': true …
+              if (!m) continue; // perFile: true, autoUpdate …
               if (k === 'global') res.global = merge(res.global, m);
               else res.paths.set(norm(k), m);
             }
@@ -334,10 +339,14 @@ function sectionText(src: string, key: string): string {
 }
 
 // Exemptions that measure nothing worth gating: dependencies, outputs, the tests
-// themselves, type declarations, tooling. An added entry pointing at one of these is
-// housekeeping; anything else exempts source from the gate.
+// themselves, type declarations, tooling, generated code (a schema, a protobuf, a
+// codegen output), migrations, and the framework boilerplate nobody unit-tests —
+// Django's `manage.py` / `wsgi.py` / `asgi.py`, a package's `__init__.py`, the
+// `main.ts` that bootstraps a Nest or Angular app, Nest's `*.e2e-spec.ts`. An added
+// entry pointing at one of these is housekeeping; anything else exempts source from
+// the gate (`**/index.ts` stays reported: a barrel re-exports, but an index is source).
 const BENIGN_EXEMPTION =
-  /node_modules|(?:^|[/!])(?:dist|build|out|coverage|tmp|temp|vendor|test|tests|__tests__|__mocks__|__fixtures__|fixtures?|mocks?|spec|specs|e2e|cypress|playwright|storybook|scripts?|examples?|docs?|bin|types?|typings)(?:\/|$|\*)|\.(?:test|spec|stories|d)\.|\.(?:config|setup)\.|\.git\b|\.cache|\.next|\.nuxt|\.output|\.idea|\.d\.ts|\.json$|\.md$|\.css$|\.s[ac]ss$/i;
+  /node_modules|(?:^|[/!])(?:dist|build|out|coverage|tmp|temp|vendor|test|tests|__tests__|__mocks__|__fixtures__|fixtures?|mocks?|spec|specs|e2e|cypress|playwright|storybook|scripts?|examples?|docs?|bin|types?|typings|generated|__generated__|codegen|migrations?)(?:\/|$|\*)|\.(?:test|spec|stories|d|gen|generated|pb|e2e-spec)\.|\.(?:config|setup)\.|(?:^|[/!*])(?:manage|wsgi|asgi|__init__)\.py$|(?:^|[/!*])main\.[jt]sx?$|\.git\b|\.cache|\.next|\.nuxt|\.output|\.idea|\.d\.ts|\.json$|\.md$|\.css$|\.s[ac]ss$/i;
 
 /** Per-metric comparison: a drop OR an outright removal of a metric weakens the gate.
  *  A metric missing from an OPAQUE after-set is unseen, not removed. */
@@ -536,20 +545,32 @@ interface Scoped {
 const lessThan = (a: Num, b: Num) => (a === 'auto' ? b !== 'auto' : b === 'auto' ? false : a < b);
 const numOf = (s: string): Num => (s === 'auto' ? 'auto' : Number(s));
 
-function numbersOf(src: string, key: RegExp, scoped = false): Scoped[] {
-  const out: Scoped[] = [];
+/** The `project:` / `patch:` / `changes:` scope each line of a codecov file sits in. */
+function* scopedLines(src: string): Generator<[string, string]> {
   const stack: Array<{ ind: number; key: string }> = [];
   for (const line of src.split('\n')) {
-    let scope = '';
-    if (scoped) {
-      const m = line.match(/^(\s*)([\w-]+):/);
-      if (m) {
-        const ind = m[1].length;
-        while (stack.length && stack[stack.length - 1].ind >= ind) stack.pop();
-        stack.push({ ind, key: m[2] });
-      }
-      scope = [...stack.slice(0, -1)].reverse().find((s) => /^(?:project|patch|changes)$/.test(s.key))?.key ?? '';
+    const m = line.match(/^(\s*)([\w-]+):/);
+    if (m) {
+      const ind = m[1].length;
+      while (stack.length && stack[stack.length - 1].ind >= ind) stack.pop();
+      stack.push({ ind, key: m[2] });
     }
+    const scope = [...stack.slice(0, -1)].reverse().find((s) => /^(?:project|patch|changes)$/.test(s.key))?.key ?? '';
+    yield [line, scope];
+  }
+}
+
+/** The scopes in which a line matching `key` appears. */
+function scopedKeys(src: string, key: RegExp): string[] {
+  const out: string[] = [];
+  for (const [line, scope] of scopedLines(src)) if (key.test(line)) out.push(scope);
+  return out;
+}
+
+function numbersOf(src: string, key: RegExp, scoped = false): Scoped[] {
+  const out: Scoped[] = [];
+  for (const [line, inScope] of scopedLines(src)) {
+    const scope = scoped ? inScope : '';
     if (key.global) {
       for (const m of line.matchAll(key)) out.push({ v: numOf(m[1]), scope }); // one-line JSON carries several
     } else {
@@ -638,6 +659,13 @@ function simpleNarrowings(path: string, before: string, after: string): string[]
     const off = (s: string) => new Set(s.split('\n').map((l) => l.match(/^\s*(project|patch):\s*off\b/)?.[1]).filter((x): x is string => !!x));
     const had = off(before);
     for (const s of off(after)) if (!had.has(s)) out.push(`codecov status.${s} switched off`);
+    // `informational: true` makes a status unable to fail. Under `project:` that is
+    // the gate switched off; under `patch:` (or `changes:`) it is the common
+    // "report patch coverage, do not block on it" set-up beside an untouched
+    // project target, and the project status still decides.
+    const informational = (s: string) => new Set(scopedKeys(s, /^\s*informational:\s*true\b/).filter((scope) => scope !== 'patch' && scope !== 'changes'));
+    const was = informational(before);
+    for (const scope of informational(after)) if (!was.has(scope)) out.push(`codecov ${scope || 'project'} status informational: true added — the status can no longer fail`);
   }
   return out;
 }
@@ -686,12 +714,19 @@ const SWITCHES: Array<{ re: RegExp; message: string; remediation: string }> = [
     message: 'check-coverage: false — nyc will no longer fail on the thresholds.',
     remediation: 'Keep check-coverage on; raise real coverage instead.',
   },
-  {
-    re: /^\s*informational:\s*true\b/,
-    message: 'informational: true added — the codecov status can no longer fail.',
-    remediation: 'Remove informational; a status that cannot fail is not a gate.',
-  },
 ];
+
+/** Whether the directory a config sits in holds a protected spec at all. null
+ *  without a listing. A brand-new package whose `"test": "jest --passWithNoTests"`
+ *  has no spec yet is not dodging a gate: there is no suite to pass. The root
+ *  package.json of a repository with a suite, and any package that has one, are
+ *  judged as before. */
+function dirHasSpec(configPath: string, policy: Policy, ctx?: DetectorContext): boolean | null {
+  const files = trackedFiles(ctx);
+  if (!files) return null;
+  const root = configPath.includes('/') ? configPath.slice(0, configPath.lastIndexOf('/') + 1) : '';
+  return files.some((f) => f.startsWith(root) && isProtected(f, policy, 'tests'));
+}
 
 const isJsConfig = (path: string) => /\.(?:[cm]?[jt]sx?|json)$/.test(path);
 
@@ -798,6 +833,7 @@ export const coverageLowering: Detector = {
           // an edit that keeps the switch (a reordered key, a reformatted script) is not
           // an addition of it
           if (removed.some((r) => s.re.test(r.content))) continue;
+          if (/passWithNoTests/.test(s.re.source) && dirHasSpec(c.path, policy, ctx) === false) continue;
           out.push(
             makeFinding(RULE, policy, {
               file: c.path,

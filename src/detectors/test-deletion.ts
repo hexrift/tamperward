@@ -14,7 +14,7 @@ import { isProtected } from '../policy';
 import { makeFinding } from './finding';
 import { segments, tokens, unquote } from './command';
 import { Lang, isSignificantLine, langOf } from './files';
-import { containsProtected, trackedFiles } from './repo';
+import { containsProtected, revIsHead, trackedFiles } from './repo';
 import { CANONICAL_SAMPLES, runnerOf, suiteNarrowings } from './suite-config';
 import { SUITE_NARROWING_FLAGS } from './ci-tampering';
 
@@ -49,14 +49,33 @@ function calleeName(expr: ts.Expression): string | null {
   return null;
 }
 
+// `it.each(table)` and vitest 3's `it.for(table)` define one test per row alike —
+// `for` differs only in how the row reaches the callback.
+const TABLE_METHOD = /^(?:each|for)$/;
+
 const isEachOf = (expr: ts.Expression): boolean =>
   ts.isPropertyAccessExpression(expr) &&
   ts.isIdentifier(expr.expression) &&
   (expr.expression.text === 'it' || expr.expression.text === 'test') &&
-  expr.name.text === 'each';
+  TABLE_METHOD.test(expr.name.text);
 
 const isDescribeEach = (expr: ts.Expression): boolean =>
-  ts.isPropertyAccessExpression(expr) && ts.isIdentifier(expr.expression) && expr.expression.text === 'describe' && expr.name.text === 'each';
+  ts.isPropertyAccessExpression(expr) && ts.isIdentifier(expr.expression) && expr.expression.text === 'describe' && TABLE_METHOD.test(expr.name.text);
+
+/** The rows a loop runs its body over: a literal array is counted (`for (const n of
+ *  [1, 2, 3])`, `[1, 2, 3].forEach(...)`), anything else is open. */
+function loopRows(iterable: ts.Expression): { n: number; open: boolean } {
+  if (ts.isArrayLiteralExpression(iterable)) {
+    let n = 0;
+    let open = false;
+    for (const el of iterable.elements) {
+      if (ts.isSpreadElement(el)) open = true;
+      else n++;
+    }
+    return { n: Math.max(n, open ? 0 : 1), open };
+  }
+  return { n: 1, open: true };
+}
 
 /** Rows of an each-TEMPLATE table: the header row, then one test per data row. */
 function templateRows(node: ts.TaggedTemplateExpression): number {
@@ -106,8 +125,12 @@ export interface TestCount {
 /** Count test definitions — it()/test() via the AST for JS/TS, the language's own
  *  definition sites otherwise. Skips/onlys still count as present. A test inside
  *  `describe.each(table)` runs once per row, so it counts once per row: three rows
- *  cut to one is two tests gone with no `it()` touched. With `substantiveOnly`, a
- *  JS test whose function body has no significant line (a stub) is not counted. */
+ *  cut to one is two tests gone with no `it()` touched. A test inside a loop over a
+ *  literal array (`for (const n of [1, 2, 3])`, `[1, 2, 3].forEach`) is the same
+ *  suite written by hand — `describe.each([[1], [2], [3]])` rewritten as that loop
+ *  is three tests on both sides; a loop over anything else is open. With
+ *  `substantiveOnly`, a JS test whose function body has no significant line (a
+ *  stub) is not counted. */
 export function countTests(src: string, path = 'spec.ts', substantiveOnly = false): TestCount {
   const lang = langOf(path);
   if (lang && lang !== 'js') {
@@ -120,7 +143,24 @@ export function countTests(src: string, path = 'spec.ts', substantiveOnly = fals
   let n = 0;
   let open = false;
   const visit = (node: ts.Node, mult: number): void => {
+    if (ts.isForOfStatement(node)) {
+      const r = loopRows(node.expression);
+      if (r.open) open = true;
+      visit(node.statement, mult * r.n);
+      return;
+    }
+    if (ts.isForStatement(node) || ts.isForInStatement(node) || ts.isWhileStatement(node) || ts.isDoStatement(node)) {
+      open = true; // a body run an unknown number of times: counted once, as a floor
+    }
     if (ts.isCallExpression(node)) {
+      // [rows].forEach((row) => { it(...) }): the callback runs once per element
+      const callee = node.expression;
+      if (ts.isPropertyAccessExpression(callee) && callee.name.text === 'forEach') {
+        const r = loopRows(callee.expression);
+        if (r.open) open = true;
+        for (const a of node.arguments) visit(a, mult * r.n);
+        return;
+      }
       // describe.each(table)(name, fn) / describe.each`…`(name, fn): the enclosed
       // tests are multiplied by the row count
       const head = node.expression;
@@ -197,8 +237,22 @@ interface ScriptNarrowing {
   after: string;
 }
 
-/** A runner flag that selects fewer specs, newly present in a `scripts.test*` entry
- *  of package.json that invokes jest or vitest. */
+/** The scripts that run THE suite: `npm test` and its CI twin. `test:unit` /
+ *  `test:browser` with `--project`, `test:watch --changed`, `test:staged
+ *  --findRelatedTests` are deliberately partial runs beside the whole one — their
+ *  flags select a slice by design and narrow nothing anyone relies on. */
+const WHOLE_SUITE_SCRIPT = /^test(?::ci)?$/;
+
+/** `--exclude e2e/**` in the test script is the same set-up as `test.exclude:
+ *  ['e2e/**']` in the config: another runner's directory, not a narrowing. */
+function excludesOtherRunner(flag: string, cmd: string): boolean {
+  if (flag !== '--exclude') return false;
+  const values = [...cmd.matchAll(/--exclude(?:=|\s+)(['"]?)(\S+?)\1(?=\s|$)/g)].map((m) => m[2]);
+  return values.length > 0 && values.every((v) => OTHER_RUNNER_DIR.test(v.replace(/^\.\//, '').replace(/(?:\/\*+)*\/?$/, '') + '/'));
+}
+
+/** A runner flag that selects fewer specs, newly present in the `scripts.test`
+ *  entry of package.json that invokes jest or vitest. */
 function scriptNarrowings(before: string | null, after: string, path: string): ScriptNarrowing[] {
   if ((path.split('/').pop() ?? path) !== 'package.json') return [];
   const scriptsOf = (src: string | null): Record<string, string> => {
@@ -213,7 +267,7 @@ function scriptNarrowings(before: string | null, after: string, path: string): S
   const now = scriptsOf(after);
   const out: ScriptNarrowing[] = [];
   for (const [name, cmd] of Object.entries(now)) {
-    if (!/^test(?:$|[:.-])/.test(name) || !/\b(?:jest|vitest)\b/.test(cmd)) continue;
+    if (!WHOLE_SUITE_SCRIPT.test(name) || !/\b(?:jest|vitest)\b/.test(cmd)) continue;
     const prev = was[name] ?? '';
     const flags = new RegExp(SUITE_NARROWING_FLAGS.source, 'g');
     for (const m of cmd.matchAll(flags)) {
@@ -222,6 +276,7 @@ function scriptNarrowings(before: string | null, after: string, path: string): S
       const one = new RegExp(SUITE_NARROWING_FLAGS.source);
       // the flag was there already (a reformat, an unrelated edit): not an addition
       if (one.test(prev) && prev.includes(flag)) continue;
+      if (excludesOtherRunner(flag, cmd)) continue;
       out.push({ script: name, flag, before: prev, after: cmd });
       break;
     }
@@ -263,6 +318,11 @@ export const testDeletion: Detector = {
   certainty: 'mechanical',
   run(changes: Change[], policy, _view, ctx): Finding[] {
     const out: Finding[] = [];
+    // A recorded expectation is not a spec, wherever it lives: jest's default layout
+    // puts `__snapshots__/*.snap` INSIDE `__tests__/`, where the tests glob claims it,
+    // and deleting an obsolete snapshot there is snapshot-rewrite's warn (its own
+    // measured severity), not a deleted test file.
+    const isSpec = (p: string) => isProtected(p, policy, 'tests') && !isProtected(p, policy, 'snapshots');
 
     // Pool the lines ADDED to protected specs in this changeset — whole files that
     // were added, plus the new lines of modified ones — to recognise relocations.
@@ -272,7 +332,7 @@ export const testDeletion: Detector = {
     const addedTestLines = new Set<string>();
     let addedTestBlocks = 0;
     for (const c of changes) {
-      if (c.kind !== 'file' || c.after == null || !isProtected(c.path, policy, 'tests')) continue;
+      if (c.kind !== 'file' || c.after == null || !isSpec(c.path)) continue;
       // Only a block with a body counts as somewhere a test could have moved TO:
       // three `it("noop", () => {})` stubs beside one real test satisfied the
       // guard for a three-test deletion.
@@ -297,7 +357,7 @@ export const testDeletion: Detector = {
 
     for (const c of changes) {
       if (c.kind === 'file') {
-        const isTest = isProtected(c.path, policy, 'tests');
+        const isTest = isSpec(c.path);
 
         if (c.op === 'delete' && isTest) {
           if (c.before != null && isRelocation(significantLines(c.before, c.path), countTestBlocks(c.before, c.path))) continue; // moved, not deleted
@@ -312,7 +372,7 @@ export const testDeletion: Detector = {
         } else if (
           c.op === 'rename' &&
           c.oldPath &&
-          isProtected(c.oldPath, policy, 'tests') &&
+          isSpec(c.oldPath) &&
           !isTest
         ) {
           // renamed OUT of the test glob — a deletion git would otherwise hide
@@ -400,27 +460,27 @@ export const testDeletion: Detector = {
             // `../../test/a.test.ts` is the root's spec
             const resolved = root !== null && /(?:^|\/)\.{1,2}(?:\/|$)/.test(t) ? joinRoot(root, t) : null;
             const probe = resolved ?? t;
-            if (!isProtected(probe, policy, 'tests')) return false;
+            if (!isSpec(probe)) return false;
             if (!listing || root === null) return true;
             const looksLikeFile = /\.[A-Za-z0-9]+$/.test(probe.split('/').pop() ?? '');
             if (looksLikeFile || listing.includes(resolved ?? inRepo(t))) return true;
-            return containsProtected(resolved ?? inRepo(t), policy, 'tests', ctx);
+            return containsProtected(resolved ?? inRepo(t), policy, 'tests', ctx, 'snapshots');
           });
           // A directory token counts when a protected spec lives under it: `rm -rf test`
           // erases the suite while naming no spec; `rm -rf dist/__tests__` names an
           // ignored build output and is left alone. `.`, `./`, `*` name the whole
           // current directory, and a `..`-containing token is resolved against the
           // cwd first — `git checkout v1 -- .` from the root restores every spec.
-          const rootHasProtected = () => (listing ? listing.some((f) => isProtected(f, policy, 'tests')) : true);
+          const rootHasProtected = () => (listing ? listing.some(isSpec) : true);
           const dirToks = toks.filter((t) => {
             if (t.startsWith('-') || testToks.includes(t)) return false;
             const whole = /^(?:\.|\.\/|\*|\.\/\*)$/.test(t);
             if (!whole && /[*?{}[\]]/.test(t)) return false;
-            if (root === null) return whole ? false : containsProtected(t, policy, 'tests', ctx);
+            if (root === null) return whole ? false : containsProtected(t, policy, 'tests', ctx, 'snapshots');
             const dir = whole ? root : joinRoot(root, t);
             if (dir === null) return false; // escapes the repository: unknown
             if (dir === '') return rootHasProtected();
-            return containsProtected(dir, policy, 'tests', ctx);
+            return containsProtected(dir, policy, 'tests', ctx, 'snapshots');
           });
           if (testToks.length === 0 && dirToks.length === 0) continue;
           const named = [...testToks, ...dirToks];
@@ -432,7 +492,7 @@ export const testDeletion: Detector = {
           // a redirect only tampers if its TARGET is the test (`cat x.spec.ts > /tmp/y`
           // reads the test and writes elsewhere — not a tamper)
           const redirectTarget = seg.match(/>\s*(\S+)/)?.[1];
-          const redirectsOntoTest = redirectTarget ? isProtected(unquote(redirectTarget), policy, 'tests') : false;
+          const redirectsOntoTest = redirectTarget ? isSpec(unquote(redirectTarget)) : false;
           const findDeletes = cmd === 'find' && /\s(?:-delete\b|-exec\s+(?:rm|unlink)\b|-execdir\s+(?:rm|unlink)\b)/.test(seg);
           const gitRestoresOld =
             cmd === 'git' &&
@@ -444,7 +504,9 @@ export const testDeletion: Detector = {
               // `git checkout -- x.test.ts` discards the agent's own edits; a REV
               // other than HEAD puts back an older version of the spec — with or
               // without the `--`: `git checkout v1 test/a.test.ts` restores it too.
-              if (!rev || rev === 'HEAD') return false;
+              // A rev that RESOLVES to HEAD (`main` while on main, `@`) restores
+              // nothing older: it is the `--` form under another name.
+              if (!rev || rev === 'HEAD' || rev === '@' || revIsHead(rev, ctx) === true) return false;
               if (src || seg.includes(' -- ')) return true;
               return revIdx >= 0 && toks.some((t, i) => i > revIdx && named.includes(t));
             })();
@@ -461,7 +523,7 @@ export const testDeletion: Detector = {
             why = 'truncate empties a test file';
           } else if (redirectsOntoTest) {
             why = 'a redirect overwrites/empties a test file';
-          } else if (cmd === 'cp' && testToks.length > 0 && isProtected(toks[toks.length - 1] ?? '', policy, 'tests') && !isProtected(toks[toks.length - 2] ?? '', policy, 'tests')) {
+          } else if (cmd === 'cp' && testToks.length > 0 && isSpec(toks[toks.length - 1] ?? '') && !isSpec(toks[toks.length - 2] ?? '')) {
             why = 'cp overwrites a test file with something else';
           } else if (cmd === 'tee' && !toks.includes('-a') && !toks.includes('--append')) {
             why = 'tee overwrites a test file';
@@ -471,7 +533,7 @@ export const testDeletion: Detector = {
             why = 'git checkout <rev> replaces a test file with an older version';
           } else if (/\bmv\b/.test(seg)) {
             const dest = toks[toks.length - 1];
-            if (dest && testToks.length > 0 && !isProtected(dest, policy, 'tests')) {
+            if (dest && testToks.length > 0 && !isSpec(dest)) {
               why = 'mv renames a test file out of the test glob';
               evidence = `${testToks[0]} → ${dest}`;
             } else if (dest && testToks.length === 0 && dirToks[0] !== dest && leavesGlob(dirToks[0] ?? '', dest, policy, ctx)) {

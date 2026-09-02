@@ -24,7 +24,13 @@
 //
 // Only string literals are read. A computed list (`include: pick()`, a spread of
 // `configDefaults.exclude`) is opaque, and an opaque side is never claimed as a
-// narrowing — silence rather than a guess.
+// narrowing — silence rather than a guess. So is a selection this file does not
+// hold on its own: `mergeConfig(shared, {…})` over an imported base (vite
+// CONCATENATES the arrays, so the effective include is a union nobody here can
+// see), a `...base` spread into the config or its `test` object, and a project or
+// workspace entry with `extends: '<path>'`. `extends: true` is readable — the
+// project inherits the root's selection — and is seeded from it; a project's
+// `test.root` rebases its globs exactly like `test.dir`.
 
 import picomatch from 'picomatch';
 import ts from 'typescript';
@@ -163,22 +169,22 @@ function collect(root: ts.Node, runner: Runner): Selection {
     const entries = take(key, e).map((pattern) => ({ pattern, key }));
     sel.ignore = [...(sel.ignore ?? []), ...entries];
   };
+  let projectList: ts.Expression | null = null;
   const projects = (e: ts.Expression) => {
     sel.present = true;
-    if (!ts.isArrayLiteralExpression(e)) {
-      sel.opaque = true;
-      return;
-    }
-    const list: Selection[] = [];
-    for (const el of e.elements) {
-      // a project named by path or glob has its own config file — unreadable here
-      if (ts.isObjectLiteralExpression(el)) list.push(collect(el, runner));
-      else sel.opaque = true;
-    }
-    sel.projects = list;
-    if (list.some((p) => p.opaque)) sel.opaque = true;
+    // read AFTER the root's own keys, whatever order the file wrote them in: an
+    // `extends: true` project inherits the root's include/exclude/dir
+    projectList = e;
   };
   const visit = (node: ts.Node): void => {
+    if (ts.isSpreadAssignment(node) && spreadsIntoConfig(node, runner)) {
+      sel.present = true;
+      sel.opaque = true; // `{ ...base, test: {…} }`: the base's selection is not here to read
+    }
+    if (ts.isCallExpression(node) && /^(?:\w+\.)?mergeConfig$/.test(node.expression.getText()) && node.arguments[0] && !ts.isObjectLiteralExpression(unwrapConfigCall(node.arguments[0]))) {
+      sel.present = true;
+      sel.opaque = true; // `mergeConfig(shared, …)`: arrays concatenate with a base this file does not hold
+    }
     if (ts.isPropertyAssignment(node)) {
       const k = keyName(node.name);
       if (runner === 'jest') {
@@ -198,7 +204,7 @@ function collect(root: ts.Node, runner: Runner): Selection {
       } else if (ownerKey(node) === 'test') {
         if (k === 'include') sel.include = take(k, node.initializer);
         else if (k === 'exclude') ignores(k, node.initializer);
-        else if (k === 'dir') {
+        else if (k === 'dir' || k === 'root') {
           const { dir, opaque } = dirValue(node.initializer);
           sel.present = true;
           if (opaque) sel.opaque = true;
@@ -212,7 +218,81 @@ function collect(root: ts.Node, runner: Runner): Selection {
     ts.forEachChild(node, visit);
   };
   visit(root);
+  if (projectList) sel.projects = readProjects(projectList, sel, runner);
+  if (sel.projects?.some((p) => p.opaque)) sel.opaque = true;
   return sel;
+}
+
+/** `defineConfig({...})` / `defineProject({...})` around a literal is the literal. */
+function unwrapConfigCall(e: ts.Expression): ts.Expression {
+  let x = e;
+  while (ts.isParenthesizedExpression(x) || ts.isAsExpression(x) || x.kind === ts.SyntaxKind.SatisfiesExpression) {
+    x = (x as ts.ParenthesizedExpression | ts.AsExpression | ts.SatisfiesExpression).expression;
+  }
+  if (ts.isCallExpression(x) && /^(?:\w+\.)?define(?:Config|Project)$/.test(x.expression.getText()) && x.arguments[0]) return unwrapConfigCall(x.arguments[0]);
+  return x;
+}
+
+const JEST_SELECTION_KEYS = /^(?:testMatch|testRegex|testPathIgnorePatterns|modulePathIgnorePatterns|roots|rootDir|projects)$/;
+
+/** A `...base` spread that lands where a selection key would: in vitest's `test`
+ *  object or the object holding it, in jest's config object. */
+function spreadsIntoConfig(node: ts.SpreadAssignment, runner: Runner): boolean {
+  const obj = node.parent;
+  if (!ts.isObjectLiteralExpression(obj)) return false;
+  const keys = obj.properties.map((p) => (ts.isPropertyAssignment(p) ? keyName(p.name) : null));
+  if (runner === 'vitest') {
+    if (keys.includes('test')) return true;
+    let q: ts.Node | undefined = obj.parent;
+    while (q && (ts.isParenthesizedExpression(q) || ts.isAsExpression(q) || q.kind === ts.SyntaxKind.SatisfiesExpression)) q = q.parent;
+    return !!q && ts.isPropertyAssignment(q) && keyName(q.name) === 'test';
+  }
+  return keys.some((k) => k !== null && JEST_SELECTION_KEYS.test(k));
+}
+
+/** The `extends` a project or workspace entry declares: `true` inherits the root
+ *  config, a string names another config file, absent means the runner default. */
+function extendsOf(el: ts.ObjectLiteralExpression): true | 'path' | null {
+  for (const p of el.properties) {
+    if (!ts.isPropertyAssignment(p) || keyName(p.name) !== 'extends') continue;
+    if (p.initializer.kind === ts.SyntaxKind.TrueKeyword) return true;
+    if (p.initializer.kind === ts.SyntaxKind.FalseKeyword) return null;
+    return 'path';
+  }
+  return null;
+}
+
+/** One project of a multi-project config: its own keys over what it extends. */
+function readProject(el: ts.ObjectLiteralExpression, root: Selection | null, runner: Runner): Selection {
+  const p = collect(el, runner);
+  const ext = extendsOf(el);
+  if (ext === 'path') p.opaque = true; // another config file's selection — unreadable here
+  else if (ext === true && root) {
+    p.include ??= root.include;
+    p.regex ??= root.regex;
+    p.ignore ??= root.ignore;
+    p.roots ??= root.roots;
+    p.base ??= root.base;
+    if (root.opaque) p.opaque = true;
+  }
+  p.present = true;
+  return p;
+}
+
+/** The projects list of a config (`projects: [...]`), each read over the root. */
+function readProjects(e: ts.Expression, root: Selection, runner: Runner): Selection[] {
+  if (!ts.isArrayLiteralExpression(e)) {
+    root.opaque = true;
+    return [];
+  }
+  const list: Selection[] = [];
+  for (const el of e.elements) {
+    // a project named by path or glob has its own config file — unreadable here
+    const lit = unwrapConfigCall(el);
+    if (ts.isObjectLiteralExpression(lit)) list.push(readProject(lit, root, runner));
+    else root.opaque = true;
+  }
+  return list;
 }
 
 /** The array a `vitest.workspace.*` file exports — `export default [...]` or
@@ -239,14 +319,10 @@ export function parseSelection(src: string, runner: Runner, path = ''): Selectio
     if (runner === 'vitest' && isWorkspaceFile(path)) {
       const arr = workspaceArray(sf);
       if (arr) {
-        const list: Selection[] = [];
-        for (const el of arr.elements) {
-          if (ts.isObjectLiteralExpression(el)) list.push(collect(el, runner));
-          else sel.opaque = true;
-        }
-        sel.projects = list;
+        // a workspace entry with `extends: true` inherits nothing this file holds
+        sel.projects = readProjects(arr, sel, runner);
         sel.present = true;
-        if (list.some((p) => p.opaque)) sel.opaque = true;
+        if (sel.projects.some((p) => p.opaque)) sel.opaque = true;
       } else if (src.trim()) sel.opaque = true;
     } else sel = collect(sf, runner);
   } catch {
@@ -324,8 +400,8 @@ function predicate(sel: Selection, runner: Runner): Predicate {
       if (!inRoots(r)) return `roots no longer covers it (${JSON.stringify(sel.roots)})`;
       const hit = ignoredBy(r);
       if (hit) return `${hit.key === 'exclude' ? 'test.exclude' : hit.key} now matches it (${JSON.stringify(hit.pattern)})`;
-      const key = sel.include ? (runner === 'jest' ? 'testMatch' : 'test.include') : 'testRegex';
-      return `${key} no longer matches it (${JSON.stringify(sel.include ?? sel.regex ?? [])})`;
+      const key = runner === 'jest' ? (sel.include ? 'testMatch' : sel.regex ? 'testRegex' : 'testMatch (default)') : sel.include ? 'test.include' : 'test.include (default)';
+      return `${key} no longer matches it (${JSON.stringify(sel.include ?? sel.regex ?? includeList ?? [])})`;
     },
   };
 }
