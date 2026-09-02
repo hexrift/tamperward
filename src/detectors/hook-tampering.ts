@@ -115,10 +115,13 @@ function analyseGateCommand(cmd: string, event: HookEvent): { runs: boolean; pro
 }
 
 /** The tools a matcher selects, with the runtime's semantics: absent, empty or `*`
- *  is every tool (null); a string of `[A-Za-z0-9_ ,|-]` is an exact list split on
- *  `|`/`,`; anything else is an unanchored regular expression tested per tool. A
- *  matcher that is not a string, or not a valid pattern, selects nothing and is
- *  reported: the runtime would not read it as the list it looks like. */
+ *  is every tool (null); a string of `[A-Za-z0-9_ |-]` is an exact list split on
+ *  `|`; anything else is an unanchored regular expression tested per tool. A comma
+ *  is deliberately NOT a separator: the runtime documents `|` alone, so `Bash,Edit`
+ *  is a pattern that matches the literal text `Bash,Edit` — which no tool name is —
+ *  and reading it as a list would report clean over a matcher that selects nothing.
+ *  Fail closed: it takes the regex path and comes out as a loss. A matcher that is
+ *  not a string, or not a valid pattern, selects nothing and is reported. */
 function matcherSelection(m: unknown): { tools: Set<string> | null; problem: string | null } {
   if (m === undefined) return { tools: null, problem: null };
   if (typeof m !== 'string') return { tools: new Set(), problem: `the matcher ${JSON.stringify(m)} is not a string` };
@@ -126,7 +129,7 @@ function matcherSelection(m: unknown): { tools: Set<string> | null; problem: str
   let problem: string | null = null;
   // eslint-disable-next-line no-control-regex
   if (/[^\x00-\x7f]/.test(m)) problem = 'the matcher contains non-ASCII characters that look like tool names but are not';
-  if (/^[A-Za-z0-9_ ,|-]+$/.test(m)) return { tools: new Set(m.split(/[|,]/).map((t) => t.trim()).filter(Boolean)), problem };
+  if (/^[A-Za-z0-9_ |-]+$/.test(m)) return { tools: new Set(m.split('|').map((t) => t.trim()).filter(Boolean)), problem };
   let re: RegExp;
   try {
     re = new RegExp(m);

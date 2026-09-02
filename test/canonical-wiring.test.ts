@@ -77,6 +77,7 @@ describe('A · a Claude settings gate entry is compared to the shape init writes
     ['shape-timeout1', json(base({ h: { timeout: 1 } })), /timeout/],
     ['shape-timeout-frac', json(base({ h: { timeout: 0.01 } })), /timeout/],
     ['shape-timeout-str', json(base({ h: { timeout: 'never' } })), /timeout/],
+    ['m-comma (a comma is not a separator: the pattern selects nothing)', matcher('Bash,Edit,Write,MultiEdit,NotebookEdit'), /matcher/],
     ['shape-no-type', json({ hooks: { PreToolUse: [{ matcher: FULL, hooks: [{ command: HOOK_CMD }] }], Stop: [{ hooks: [{ type: 'command', command: SWEEP_CMD }] }] } }), /no `type`/],
     ['shape-type-null', json(base({ h: { type: null } })), /`type` is null/],
     ['shape-type-prompt', json(base({ h: { type: 'prompt' } })), /`type` is "prompt"/],
@@ -131,7 +132,6 @@ describe('A · a Claude settings gate entry is compared to the shape init writes
   it.each([
     ['ctl-same', WIRED],
     ['m-anchored (a regex that selects every tool)', matcher('^(Bash|Edit|Write|MultiEdit|NotebookEdit)$')],
-    ['m-comma (the exact list, comma-separated)', matcher('Bash,Edit,Write,MultiEdit,NotebookEdit')],
     ['m-dollar-caret (a regex alternative that adds nothing)', matcher('Bash|Edit|Write|MultiEdit|NotebookEdit|$^')],
     ['m-trailing-bs', matcher('Bash|Edit|Write|MultiEdit|NotebookEdit|\\\\')],
     ['m-widened', matcher(FULL + '|Task')],
