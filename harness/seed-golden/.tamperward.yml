@@ -1,7 +1,3 @@
 version: 1
 protected:
-  tests: ['**/*.test.js']
-# golden/** is deliberately NOT listed here: the default policy already protects
-# **/golden/** as `snapshots`, and protectedCategory takes the first matching class,
-# so re-listing it under `tests` shadowed the snapshot classification and kept
-# snapshot-rewrite from seeing the golden rewrite this seed exists to measure.
+  tests: ['**/*.test.js', 'golden/**']
