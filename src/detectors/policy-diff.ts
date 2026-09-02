@@ -12,14 +12,14 @@
 // written one and only a real drop in effective strength is reported.
 
 import { parse } from 'yaml';
-import { defaultPolicy, mergeProtected } from '../policy';
+import { defaultPolicy, mergeProtected, normalizeGlob } from '../policy';
 
 interface RawPolicyShape {
   version?: unknown;
   rules?: Record<string, { severity?: string; enabled?: boolean; exclude?: string[] }>;
   ignore?: string[];
   protected?: Record<string, string[]>;
-  signoff?: { required_for?: string[]; requiredFor?: string[] };
+  signoff?: { required_for?: string[]; requiredFor?: string[]; ledger?: string };
   verify?: { command?: string; budget?: number; inputs?: string[] };
 }
 
@@ -29,7 +29,11 @@ interface EffectivePolicy {
   ignore: string[];
   protected: Record<string, string[]>;
   requiredFor: string[];
+  ledger: string;
 }
+
+const globs = (list: unknown): string[] =>
+  Array.isArray(list) ? list.filter((g): g is string => typeof g === 'string').map(normalizeGlob) : [];
 
 /** Parse to a policy object, or null if it isn't valid YAML / isn't a mapping. Never
  *  throws — a malformed `.tamperward.yml` must not be able to crash the gate. */
@@ -54,12 +58,26 @@ function effective(raw: RawPolicyShape): EffectivePolicy {
   // surfaces as the concrete rule downgrades it causes — compared exactly as the engine
   // would enforce them — not as an abstract number change alone.
   const base = defaultPolicy(version);
+  // Overlay FIELD BY FIELD, as the loader does (mergeRules): an override that names
+  // only `exclude` keeps the baseline severity. Replacing the whole rule object read
+  // `test-deletion: { exclude: ['**'] }` as "lowered block → undefined" — a false
+  // finding on top of the exclude finding that IS the weakening. Done inline rather
+  // than through mergeRules because the raw shape here is unvalidated.
+  const rules: EffectivePolicy['rules'] = { ...base.rules };
+  for (const [name, cfg] of Object.entries(raw.rules ?? {})) {
+    const over = cfg && typeof cfg === 'object' && !Array.isArray(cfg) ? cfg : {};
+    rules[name] = { ...(rules[name] ?? {}), ...over, ...(over.exclude ? { exclude: globs(over.exclude) } : {}) };
+  }
+  const userProtected = raw.protected && typeof raw.protected === 'object'
+    ? Object.fromEntries(Object.entries(raw.protected).map(([cat, list]) => [cat, globs(list)]))
+    : undefined;
   return {
     version,
-    rules: { ...base.rules, ...(raw.rules ?? {}) },
-    ignore: raw.ignore ?? base.ignore ?? [],
-    protected: mergeProtected(base.protected, raw.protected),
+    rules,
+    ignore: raw.ignore ? globs(raw.ignore) : (base.ignore ?? []),
+    protected: mergeProtected(base.protected, userProtected),
     requiredFor: raw.signoff?.required_for ?? raw.signoff?.requiredFor ?? base.signoff.requiredFor,
+    ledger: typeof raw.signoff?.ledger === 'string' ? raw.signoff.ledger : base.signoff.ledger,
   };
 }
 
@@ -144,6 +162,12 @@ export function policyWeakening(before: string, after: string): string[] | null 
   // signoff: block no longer requires sign-off
   if (be.requiredFor.includes('block') && !new Set(ae.requiredFor).has('block')) {
     reasons.push('sign-off no longer required for blocking findings');
+  }
+  // signoff.ledger: the one file the LOCAL layer trusts. Moving it — to a path the
+  // branch already seeds, or out of the repository altogether — swaps the sign-off
+  // record for one nobody reviewed, so ANY change is reported, not only an escape.
+  if (ae.ledger !== be.ledger) {
+    reasons.push(`sign-off ledger moved (${be.ledger} → ${ae.ledger}) — the local layer would trust a different file`);
   }
 
   // verify: the pristine-suite re-execution config is itself a guarded surface.

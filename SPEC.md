@@ -220,6 +220,16 @@ FP tuning is repo-shaped; the feature's value claim is scoped to repos whose fir
 cluster in scopeable paths (the adjudicated zod class), and the null is published
 next to the bet that predicted otherwise.
 
+**The loader is strict.** An unknown top-level key (`Rules:`, `ignored:`) fails the
+load like an unknown value does — a policy that silently said nothing is the "weaker
+gate than written" case the loader exists to refuse; rule *names* under `rules:` stay
+open so a policy written for a newer build loads on an older one. `signoff.ledger`
+must be a relative path inside the repository (the local layer trusts that file, and
+a path outside the repo is outside every view and every code-owner rule); moving it
+is a policy-diff finding. A leading `/` on a `protected`, `ignore` or `exclude` glob
+is dropped at load — every git view reports repo-relative paths, so `/e2e/**` and
+`e2e/**` are one rule rather than a glob that matches nothing.
+
 **Finding** — the verdict object and the hook's return payload (see `src/types.ts`):
 
 ```ts

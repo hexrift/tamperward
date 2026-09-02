@@ -45,3 +45,12 @@ author its own:
 
 If Tamperward cannot evaluate a change — an unparseable policy, a git failure — the
 change is denied, not waved through. A crashed gate must never become an absent gate.
+At the CLI that means exit 2 with one `tamperward: …` line on stderr, whatever threw
+(a revision git cannot resolve, a directory where `init` expected a file); the hook
+and the sweep deny as JSON at exit 0 instead, as their wire contract requires.
+
+The policy loader is strict for the same reason: an unknown top-level key (`Rules:`,
+`ignored:`) is refused rather than silently ignored, and `signoff.ledger` must stay
+inside the repository. A leading `/` on a `protected`, `ignore` or `exclude` glob is
+dropped when the policy loads — paths in every git view are repo-relative, so
+`/e2e/**` and `e2e/**` are the same rule.

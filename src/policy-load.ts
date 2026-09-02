@@ -3,10 +3,10 @@
 // the camelCase Policy shape. parsePolicy is pure so it can be tested without disk I/O.
 
 import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join, posix } from 'node:path';
 import { parse } from 'yaml';
 import { Policy, Severity } from './types';
-import { defaultPolicy, mergeProtected, POLICY_FILE } from './policy';
+import { defaultPolicy, mergeProtected, mergeRules, normalizeGlob, POLICY_FILE } from './policy';
 import { fileAt } from './git/build';
 
 /** A policy file that exists but cannot be understood. Never swallowed into the
@@ -38,6 +38,21 @@ const isSeverity = (v: unknown): v is Severity => (SEVERITIES as readonly unknow
 const isStringList = (v: unknown): v is string[] => Array.isArray(v) && v.every((s) => typeof s === 'string');
 const isMapping = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
+/** The top-level keys a policy may carry — `src/types.ts` `Policy`, in file spelling. */
+const TOP_LEVEL_KEYS: ReadonlySet<string> = new Set(['version', 'protected', 'rules', 'ignore', 'signoff', 'verify']);
+
+/**
+ * Whether a ledger path stays inside the repository. The ledger is the one file the
+ * LOCAL layer trusts, so a policy that points it at `../../shared.jsonl` (or an
+ * absolute path) hands the sign-off channel to whoever controls that location —
+ * outside the diff, outside CODEOWNERS, outside every view the gate reads.
+ */
+export function ledgerInsideRepo(ledger: string): boolean {
+  if (!ledger.trim() || isAbsolute(ledger) || /^[A-Za-z]:[\\/]/.test(ledger)) return false;
+  const norm = posix.normalize(ledger.replace(/\\/g, '/'));
+  return norm !== '..' && !norm.startsWith('../') && !norm.startsWith('/');
+}
+
 /**
  * Validate every override the file may carry, failing CLOSED on anything not
  * understood — the same stance `version:` already took.
@@ -58,6 +73,17 @@ function validate(r: RawPolicy, where: string): void {
     throw new PolicyError(`${where}: ${msg}`);
   }
   const show = (v: unknown): string => JSON.stringify(v) ?? String(v);
+
+  // UNKNOWN TOP-LEVEL KEYS fail closed like unknown values do. `Rules:` (a
+  // capital) or `ignored:` parsed as a policy that said nothing — the author
+  // wrote an override that was silently not in force, which is exactly the
+  // "weaker gate than written" case every other check here exists to refuse.
+  // Rule NAMES under `rules` stay open (a policy for a newer build must load);
+  // it is the schema's own vocabulary that must be exact.
+  const unknown = Object.keys(r as Record<string, unknown>).filter((k) => !TOP_LEVEL_KEYS.has(k));
+  if (unknown.length) {
+    bad(`unknown top-level key${unknown.length === 1 ? '' : 's'} ${unknown.map((k) => JSON.stringify(k)).join(', ')} (expected one of ${[...TOP_LEVEL_KEYS].join(', ')})`);
+  }
 
   if (r.rules !== undefined) {
     if (!isMapping(r.rules)) bad(`rules must be a mapping of rule name to { severity, enabled, exclude }, got ${show(r.rules)}`);
@@ -91,6 +117,9 @@ function validate(r: RawPolicy, where: string): void {
     }
     const ledger = (r.signoff as Record<string, unknown>).ledger;
     if (ledger !== undefined && typeof ledger !== 'string') bad(`signoff.ledger must be a path, got ${show(ledger)}`);
+    if (typeof ledger === 'string' && !ledgerInsideRepo(ledger)) {
+      bad(`signoff.ledger must be a relative path inside the repository, got ${show(ledger)}`);
+    }
   }
   if (r.verify !== undefined) {
     if (!isMapping(r.verify)) bad(`verify must be a mapping like { command: "npm test" }, got ${show(r.verify)}`);
@@ -111,14 +140,24 @@ export function parsePolicy(raw: RawPolicy | null | undefined, where: string = P
   // gated graduation applies only to opted-in policies while an explicit severity —
   // written by the user, in either direction — always wins.
   const base = defaultPolicy(version);
+  const globs = (list: string[] | undefined): string[] | undefined => list?.map(normalizeGlob);
+  const userProtected = r.protected
+    ? Object.fromEntries(Object.entries(r.protected).map(([cat, list]) => [cat, globs(list) ?? []]))
+    : undefined;
+  const userRules = r.rules
+    ? Object.fromEntries(
+        Object.entries(r.rules).map(([name, cfg]) => [name, cfg?.exclude ? { ...cfg, exclude: globs(cfg.exclude) } : cfg]),
+      )
+    : undefined;
   return {
     version,
     // Merge with the baseline, never replace. For an integrity tool, a config that sets
     // one rule's severity must NOT silently drop the other nine — nor may naming one
-    // protected glob wipe out the rest of its category (see mergeProtected).
-    protected: mergeProtected(base.protected, r.protected),
-    rules: { ...base.rules, ...(r.rules ?? {}) },
-    ignore: r.ignore ?? base.ignore,
+    // protected glob wipe out the rest of its category (see mergeProtected), nor may
+    // an `exclude`-only override drop the rule's baseline severity (see mergeRules).
+    protected: mergeProtected(base.protected, userProtected),
+    rules: mergeRules(base.rules, userRules),
+    ignore: globs(r.ignore) ?? base.ignore,
     signoff: {
       requiredFor: r.signoff?.required_for ?? r.signoff?.requiredFor ?? base.signoff.requiredFor,
       ledger: r.signoff?.ledger ?? base.signoff.ledger,

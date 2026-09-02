@@ -21,11 +21,13 @@
 
 import { appendFileSync } from 'node:fs';
 import { Finding } from '../../types';
-import { countsPhrase, orderFindings, scopePhrase, SIGNOFF_NOTE } from './text';
+import { countsPhrase, orderFindings, scopePhrase, SIGNOFF_NOTE, stripControl } from './text';
 
-/** Workflow-command message escaping, per the Actions toolkit. */
+/** Workflow-command message escaping, per the Actions toolkit. Control bytes are
+ *  stripped first: the annotation is also echoed into the job log, where an ESC
+ *  sequence carried by a policy string would repaint the verdict (D-9). */
 function escData(s: string): string {
-  return s.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+  return stripControl(s).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
 }
 
 /** Property values escape two more characters, since `,` separates properties and `:`
@@ -57,7 +59,7 @@ export function annotations(findings: Finding[]): string[] {
 
 /** Pipes would split the cell; newlines would end the row. */
 function cell(s: string): string {
-  return s.replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
+  return stripControl(s).replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
 }
 
 /** Deep-link a finding to the exact line in the reviewed tree, when Actions tells us
