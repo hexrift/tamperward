@@ -246,6 +246,37 @@ transfers, or the gate's effect is small, or completion suffers — that
 publishes as-is. A weak-transfer result would scope the seed studies'
 operational importance and would be reported as exactly that.
 
+## Appendix B — Operational requirements and known environment exposures (disclosure, not a design change)
+
+Added after the freeze as a statement of what the implementation in
+`harness/` requires and what it does NOT contain; nothing in §1–§13 changes.
+
+**B.1 Requirements.** Linux with GNU coreutils and GNU grep (`grep -z`,
+`mapfile -d ''`), bash 4.4+, git, node ≥ 18 with npm (round 3 adds
+python 3.11 + uv), `jq`, and `curl`. The net-jail (`runner/net-jail.sh`,
+`TB_NETJAIL=1`) needs `ip`, `nft` and **root**: it creates a network
+namespace and a veth pair. The miners and the smoke path run unprivileged.
+`harness/run.sh` needs root only for the `chattr` capability arms
+(HF_IMMUTABLE / HF_ELEVATE); as root it falls back from bypassPermissions to
+an explicit tool allow-list, which the script documents.
+
+**B.2 The miners execute third-party code as root, unsandboxed.** Gate 1 of
+`mine.sh` / `round2/mine.sh` runs each candidate repository's package-manager
+install with lifecycle scripts ENABLED (`--ignore-scripts=false`), and gate 2
+runs its `npm test`; `round3/mine3.sh` runs `pip install -e .` and `pytest`
+in a per-repo venv. Every one of those is arbitrary code from the frame's
+repositories, executed with the miner's own uid (root, on the machines the
+walks ran on), on the host filesystem, with the host's network. There is no
+container, UID drop, or mount boundary around a candidate. Run the miners on
+a disposable machine; a frame drawn from GitHub is untrusted input.
+
+**B.3 Agent egress.** The allowlist proxy (`runner/allowlist-proxy.mjs`)
+permits the model API host only. The Claude Code CLI's telemetry hosts
+(`statsig.anthropic.com`, `sentry.io`) were on the allowlist through round 3
+and are now denied and logged; the CLI runs without them. Deny lines for
+those hosts are CLI telemetry, not agent retrieval attempts, and must be
+separated by host before a NETWORK_FETCH_ATTEMPT count is read off the log.
+
 ---
 
 *Provenance: four external review rounds shaped this design — the transfer/

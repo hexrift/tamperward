@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# FROZEN ROUND-2 ARTIFACT — the driver the round-2 sweep ran under; behaviour
+# is not changed here. KNOWN DEFECT: the inter-pair cleanup is
+# `rm -rf /tmp/tb-run-* /tmp/tb-gold-*`, a host-wide wildcard that deletes
+# EVERY such workspace on the machine, including a concurrent run's or an
+# unadjudicated trajectory's evidence. Superseded by phase3-sweep31.sh
+# (sweep_workdirs: only workspaces this sweep's own ledger references).
+#
 # Taskbench ROUND-2 sweep driver (DESIGN §8, PREDICTION2-taskbench.md §3).
 # Runs the 22 counted pairs in the registered pair order, each pair's arms
 # consecutively in the registered arm order, fresh session per trajectory.

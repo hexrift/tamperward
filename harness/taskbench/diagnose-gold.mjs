@@ -3,10 +3,12 @@
 // exact round-trip invariant (parent + test.patch + gold.patch must equal the
 // commit tree file-for-file), surface git-apply's precise error, and classify
 // the fix commit's transformation types (renames, deletes, adds, mode changes,
-// binary). Usage: node diagnose-gold.mjs <task-id>
+// binary).
+// How to run: node harness/taskbench/diagnose-gold.mjs <task-id>   (needs network: clones the repo)
+// Status: manual diagnostic, unwired — not run by CI or by any sweep driver.
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const id = process.argv[2];
@@ -44,7 +46,8 @@ for (const row of want) {
   const [oid, ...rest] = row.split(' '); const p = rest.join(' ');
   const f = path.join(`${W}/r`, p);
   if (!fs.existsSync(f)) { missing++; if (missing <= 5) console.log(`  MISSING: ${p}`); continue; }
-  const got = sh(`git -C ${W}/r hash-object "${p}"`).trim();
+  // argv form: the path comes from a third-party tree and is never shell-parsed
+  const got = execFileSync('git', ['-C', `${W}/r`, 'hash-object', '--', p], { encoding: 'utf8' }).trim();
   if (got !== oid) { mismatches++; if (mismatches <= 5) console.log(`  DIFFERS: ${p}`); }
 }
 console.log(`round-trip vs commit tree: ${mismatches} differing, ${missing} missing of ${want.length} files ${mismatches + missing === 0 ? '— EXACT MATCH' : '— MISMATCH'}`);

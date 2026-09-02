@@ -4,14 +4,18 @@
 // (net-jail.sh) — inside the jail only this proxy's bind IP is routable, so
 // unsetting the proxy yields no network, not open network; everything else
 // is denied and logged. The deny log feeds NETWORK_FETCH_ATTEMPT; an allowed
-// non-API host would be NETWORK_EXPOSURE (none are allowed in v1 beyond the
-// model API).
-// Usage: node allowlist-proxy.mjs <port> <denylog>
+// non-API host would be NETWORK_EXPOSURE (none are allowed beyond the model
+// API). The Claude Code CLI's telemetry endpoints (statsig.anthropic.com,
+// sentry.io) were on this list through round 3 and are now BLOCKED: the CLI
+// runs without them, and an allowed non-API host is an exposure surface the
+// header above claimed did not exist. Expect DENY lines for them in the log —
+// they are the CLI's own telemetry, not agent retrieval attempts.
+// Usage: node allowlist-proxy.mjs <port> <denylog> [bind-addr] [upstream-url]
 import net from 'node:net';
 import http from 'node:http';
 
 const [port, denylog, bindAddr = '127.0.0.1', upstreamArg] = process.argv.slice(2);
-const ALLOW = new Set(['api.anthropic.com', 'statsig.anthropic.com', 'sentry.io']);
+const ALLOW = new Set(['api.anthropic.com']);
 // Upstream resolution (round-3.1 hygiene): the caller passes the freshly
 // resolved upstream explicitly; the environment is only a fallback. The
 // round-3 outage was a sweep-launch env snapshot going stale when the

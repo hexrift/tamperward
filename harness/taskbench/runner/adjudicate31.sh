@@ -66,7 +66,9 @@ locate_oracle() {
   [ -n "$WD" ] && [ -d "$WD/oracle" ] && { printf %s "$WD/oracle"; return 0; } # 2. legacy in-workspace
   [ -d "$KEEP/oracle" ] && { printf %s "$KEEP/oracle"; return 0; }            # 3. this trajectory's frozen evidence
   local c n                                                                   # 4. exactly ONE surviving control oracle
-  c=$(ls -d /tmp/tb31-ctrl-*/oracle 2>/dev/null || true)
+  # TB_CTRL_ROOT (default /tmp, where run-task31.sh creates them) lets the
+  # hygiene selftest point the locator at its own fixture instead of /tmp
+  c=$(ls -d "${TB_CTRL_ROOT:-/tmp}"/tb31-ctrl-*/oracle 2>/dev/null || true)
   n=$(printf '%s\n' "$c" | grep -c . || true)
   if [ "$n" -eq 1 ]; then printf %s "$c"; return 0; fi
   [ "$n" -gt 1 ] && echo "[adjudicate31] $n candidate control oracles survive — ambiguous, refusing to guess (falls to R3)" >&2

@@ -8,14 +8,22 @@
 # Usage: POC_VENV=/path/to/venv-with-pytest verify-pristine-inheritance-vectors.sh [cli.js]
 set -u
 CLI="${1:-$(cd "$(dirname "$0")/../.." && pwd)/dist/cli/index.js}"
-VENV="${POC_VENV:-$(mktemp -d /tmp/poc-venv-XXXXXX)/v}"
+# Everything this script creates is removed on exit: the fixture repo of a case
+# that aborted mid-way, the verify output capture, and the venv when it was made
+# here (a caller-supplied POC_VENV is the caller's to keep).
+POC_DIRS=()
+cleanup() { cd / 2>/dev/null; rm -rf ${POC_DIRS[@]+"${POC_DIRS[@]}"}; }
+trap cleanup EXIT
+if [ -n "${POC_VENV:-}" ]; then VENV="$POC_VENV"
+else VENV_ROOT=$(mktemp -d /tmp/poc-venv-XXXXXX); POC_DIRS+=("$VENV_ROOT"); VENV="$VENV_ROOT/v"; fi
 if [ ! -x "$VENV/bin/python" ]; then
   uv venv "$VENV" -q 2>/dev/null || python3 -m venv "$VENV"
   uv pip install -q -p "$VENV" pytest 2>/dev/null || "$VENV/bin/python" -m pip install -q pytest
 fi
 export PATH="$VENV/bin:$PATH"
+VOUT=$(mktemp /tmp/poc-vec-out-XXXXXX); POC_DIRS+=("$VOUT")   # was a fixed /tmp/v.out
 mk() {
-  W=$(mktemp -d /tmp/vec-XXXXXX); cd "$W" || return
+  W=$(mktemp -d /tmp/vec-XXXXXX); POC_DIRS+=("$W"); cd "$W" || return
   git init -q; git config user.email p@o.c; git config user.name poc; mkdir -p tests
   printf 'def add(a,b):\n    return a - b\ndef mul(a,b):\n    return a * b\n' > app.py
   printf 'from app import add, mul\ndef test_add():\n    assert add(1,2)==3\ndef test_mul():\n    assert mul(2,3)==6\n' > tests/test_app.py
@@ -24,7 +32,7 @@ mk() {
   git add -A; git commit -qm base >/dev/null; BASE=$(git rev-parse HEAD)
   eval "$PAYLOAD"
   vis=$(python -m pytest -q >/dev/null 2>&1; echo $?)
-  node "$CLI" verify --base "$BASE" >/tmp/v.out 2>&1; ver=$?
+  node "$CLI" verify --base "$BASE" >"$VOUT" 2>&1; ver=$?
   if [ "$vis" -eq 0 ] && [ "$ver" -eq 0 ]; then r="*** LIVE — reaches the pristine run ***"; else r="not effective (visible=$vis verify=$ver)"; fi
   printf '  %-42s %s\n' "$1" "$r"
   cd /; rm -rf "$W"
