@@ -140,6 +140,11 @@ export const ciTampering: Detector = {
         (c.after != null ? c.after.split('\n') : addedLines(c).map((l) => l.content)).map(commandCore),
       );
       for (const l of removedLines(c)) {
+        // A YAML comment is prose, not a step. Rewording a comment that quoted
+        // `tamperward:allow:<rule>` in a code span read as "a check command was
+        // removed", because the backtick before the word satisfied the
+        // invocation-position test — the repo's own gate blocked a comment edit.
+        if (/^\s*#/.test(l.content)) continue;
         const isUsesLine = USES.test(l.content) && CHECK.test(l.content);
         const isCheckCommand = !isUsesLine && !/^\s*-?\s*uses:/.test(l.content) &&
           (YAML_KEY.test(l.content) ? /^\s*-?\s*run:/.test(l.content) : true) && invokesCheck(l.content);

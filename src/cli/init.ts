@@ -35,16 +35,22 @@ interface Action {
   apply?: () => void;
 }
 
-const HOOK_CMD = 'npx --yes tamperward hook claude';
 // The tools whose calls the PreToolUse gate must see. NotebookEdit was added in
 // 1.13; an install wired before that has a matcher without it, and init's
 // "already wired" check only ever asked whether OUR COMMAND was present — so
 // every repo wired earlier kept a permanently narrower gate, and re-running
 // init reported it as correctly configured. See planClaudeHooks. (P2-12.)
 const PRE_MATCHER = 'Bash|Edit|Write|MultiEdit|NotebookEdit';
-const SWEEP_CMD = 'npx --yes tamperward sweep claude';
-const PRECOMMIT_CMD = 'npx --yes tamperward check --staged';
 const MARKER = '# tamperward: block agent shortcuts before they land';
+
+// Our three local commands, recognised in any pin. A command someone wrote by
+// hand (`node ./node_modules/.bin/tamperward hook claude`) matches too and is
+// left exactly as written; only the `npx --yes tamperward[@v]` form init itself
+// writes is ever re-pinned (see OURS below).
+const HOOK_RE = /\btamperward(?:@\S+)?\s+hook\s+claude\b/;
+const SWEEP_RE = /\btamperward(?:@\S+)?\s+sweep\s+claude\b/;
+const PRECOMMIT_RE = /\btamperward(?:@\S+)?\s+check\s+--staged\b/;
+const OURS = /^\s*npx\s+(?:--yes|-y)\s+tamperward(?:@(\S+))?\s+(hook claude|sweep claude|check --staged)\s*$/;
 
 // CODEOWNERS. The gate cannot guard the file that decides whether the gate runs.
 //
@@ -134,6 +140,31 @@ function shippedVersion(): string {
   return 'latest'; // unknown: prefer a working gate over a broken pin
 }
 const TW_VERSION = shippedVersion();
+
+// PINNED, like the workflow. The local hooks used to be `npx --yes tamperward`
+// with no version: where the package is a devDependency npx runs the installed
+// copy, but where it is not — the common case for a repo that only ran `init` —
+// every hook invocation resolved `latest` from the registry, so the gate a repo
+// ran changed under it without anyone changing anything. That is the P2-15
+// floating dependency again, in the two enforcement points nobody had pinned.
+// `init` re-pins an install it wrote for an older version (planClaudeHooks,
+// planPreCommit); a command someone edited by hand is left alone.
+const HOOK_CMD = `npx --yes tamperward@${TW_VERSION} hook claude`;
+const SWEEP_CMD = `npx --yes tamperward@${TW_VERSION} sweep claude`;
+const PRECOMMIT_CMD = `npx --yes tamperward@${TW_VERSION} check --staged`;
+
+/** The pin an `npx --yes tamperward…` command of ours carries: a version, '' for
+ *  unpinned, or null when the command is not one init writes. */
+function pinOf(command: string): string | null {
+  const m = command.match(OURS);
+  return m ? (m[1] ?? '') : null;
+}
+
+/** Whether a command init wrote needs re-pinning to this build. */
+function stalePin(command: string): boolean {
+  const pin = pinOf(command);
+  return pin !== null && pin !== TW_VERSION;
+}
 
 const WORKFLOW_CONTENT = `name: tamperward
 
@@ -277,12 +308,13 @@ function planClaudeHooks(cwd: string): Action {
   }
 
   const hooks = (settings.hooks ??= {});
-  const entriesWith = (arr: HookMatcher[] | undefined, needle: string): HookMatcher[] =>
-    (arr ?? []).filter((m) => (m.hooks ?? []).some((h) => String(h.command ?? '').includes(needle)));
+  const entriesWith = (arr: HookMatcher[] | undefined, needle: RegExp): HookMatcher[] =>
+    (arr ?? []).filter((m) => (m.hooks ?? []).some((h) => needle.test(String(h.command ?? ''))));
 
-  const preEntries = entriesWith(hooks.PreToolUse, 'tamperward hook claude');
+  const preEntries = entriesWith(hooks.PreToolUse, HOOK_RE);
   const needPre = preEntries.length === 0;
-  const needStop = entriesWith(hooks.Stop, 'tamperward sweep claude').length === 0;
+  const stopEntries = entriesWith(hooks.Stop, SWEEP_RE);
+  const needStop = stopEntries.length === 0;
 
   // REPAIR an existing PreToolUse matcher that does not cover every tool the
   // gate must see. Presence of our command was the only thing checked before,
@@ -290,19 +322,30 @@ function planClaudeHooks(cwd: string): Action {
   // re-running init confirmed it as fine. A matcher listing fewer tools is a
   // gate with a hole in it, not a preference. (P2-12.)
   const stale = preEntries.filter((m) => missingTools(m.matcher).length > 0);
-  if (!needPre && !needStop && stale.length === 0) {
+  // RE-PIN commands init wrote for another version (or wrote unpinned, before
+  // 1.14.7). Only the exact `npx --yes tamperward[@v] <ours>` shape qualifies.
+  const repin = [...preEntries, ...stopEntries]
+    .flatMap((m) => m.hooks ?? [])
+    .filter((h) => stalePin(String(h.command ?? '')));
+  if (!needPre && !needStop && stale.length === 0 && repin.length === 0) {
     return { item: 'agent', path: rel, status: 'ok', detail: 'PreToolUse + Stop hooks already wired' };
   }
 
   const repairing = stale.length > 0 ? [...new Set(stale.flatMap((m) => missingTools(m.matcher)))] : [];
+  const pins = [...new Set(repin.map((h) => pinOf(String(h.command ?? '')) || 'unpinned'))];
   return {
     item: 'agent', path: rel, status: existsSync(path) ? 'update' : 'create',
     detail: [
       needPre && 'wire PreToolUse deny',
       needStop && 'wire Stop sweep',
       repairing.length > 0 && `widen the PreToolUse matcher to cover ${repairing.join(', ')}`,
+      repin.length > 0 && `re-pin the hook commands to tamperward@${TW_VERSION} (was ${pins.join(', ')})`,
     ].filter(Boolean).join(' + '),
     apply: () => {
+      for (const h of repin) {
+        const kind = String(h.command ?? '').match(OURS)?.[2];
+        h.command = kind === 'hook claude' ? HOOK_CMD : kind === 'sweep claude' ? SWEEP_CMD : h.command;
+      }
       if (needPre) {
         (hooks.PreToolUse ??= []).push({
           matcher: PRE_MATCHER,
@@ -338,8 +381,24 @@ function planPreCommit(cwd: string): Action {
 
   const path = join(cwd, target.rel);
   const existing = existsSync(path) ? readFileSync(path, 'utf8') : null;
-  if (existing?.includes('tamperward check --staged')) {
-    return { item: 'pre-commit', path: target.rel, status: 'ok', detail: 'already runs the staged check' };
+  if (existing !== null && PRECOMMIT_RE.test(existing)) {
+    // Present. Re-pin the line init wrote if it carries another version (or
+    // none); a hand-written invocation is left exactly as it is.
+    const lines = existing.split('\n');
+    const staleAt = lines.findIndex((l) => PRECOMMIT_RE.test(l) && stalePin(l));
+    if (staleAt === -1) {
+      return { item: 'pre-commit', path: target.rel, status: 'ok', detail: 'already runs the staged check' };
+    }
+    const was = pinOf(lines[staleAt]) || 'unpinned';
+    return {
+      item: 'pre-commit', path: target.rel, status: 'update',
+      detail: `re-pin the staged check to tamperward@${TW_VERSION} (was ${was})`,
+      apply: () => {
+        lines[staleAt] = PRECOMMIT_CMD;
+        writeFileSync(path, lines.join('\n'));
+        chmodSync(path, 0o755);
+      },
+    };
   }
   return {
     item: 'pre-commit', path: target.rel, status: existing === null ? 'create' : 'update',
