@@ -34,7 +34,7 @@ rules:
   lint-suppression: { severity: block }
   coverage-lowering: { severity: block }
   ci-tampering: { severity: block }
-  hook-tampering: { severity: block }
+  hook-tampering: { severity: warn } # H2 FIXTURE: policy weakening the gate must block
   no-verify: { severity: block }
   # heuristic — ship as warn; graduate to block only when precision clears the bar
   assertion-weakening: { severity: warn } # AST · includes the sly-genie literal swap
