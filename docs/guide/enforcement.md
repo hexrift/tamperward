@@ -34,9 +34,12 @@ author its own:
 - **Agent layer**: honours nothing. A block is a block.
 - **Local**: `tamperward allow <rule> --reason "..."` writes a fingerprint-bound ledger
   entry — a human at a keyboard.
-- **CI**: out-of-band only — a PR label (`tamperward:allow:<rule>`) applied by someone
-  with write access, never a committed file. Applying **or revoking** the label
-  re-evaluates the gate.
+- **CI**: out-of-band only — a PR label (`tamperward:allow:<rule>@<head-sha>`) applied
+  by someone with write access, never a committed file. Applying **or revoking** the
+  label re-evaluates the gate. `verify` reads the same labels: `tamperward:allow:verify@<head-sha>`
+  accepts a masked failure a reviewer has judged — the original suite is genuinely wrong
+  for an intended behaviour change — and clears nothing else. A red suite, or a run
+  that could not verify, stays red.
 
 ## Fail closed
 

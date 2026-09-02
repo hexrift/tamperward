@@ -22,6 +22,17 @@
 //   visible red                     → SUITE_RED       exit 1
 //   budget exceeded / cannot run    → fail CLOSED     exit 2
 //
+// MASKED_FAILURE is the one verdict a human may overrule, and only out of band:
+// the CI channel `check --diff` already honours (TAMPERWARD_OOB_SIGNOFF with
+// TAMPERWARD_OOB_HEAD, resolved by the workflow from a PR label someone with
+// write access applied) accepts a `verify@<head-sha>` token. That is the case
+// where the original suite is genuinely wrong for the change — a behaviour
+// change whose old expectations must fail — and a reviewer has read the test
+// edit and said so. SUITE_RED and cannot-verify are not approvable states: a
+// label cannot make a red suite green or turn "could not run" into "verified".
+// The committed ledger is never consulted; nothing in the tree under judgment
+// can clear its own verdict.
+//
 // The suite command and budget come from policy `verify:` (or flags). That
 // block is a guarded surface: policy-diff flags command changes and budget
 // lowering as policy weakening — a verify an agent can point at `true` is no
@@ -38,6 +49,7 @@ import { trustedGitEnv } from '../git/trusted';
 import { depsFingerprint, treeFingerprint } from '../fingerprint';
 import { defaultPolicy, isProtected, matchesAny } from '../policy';
 import { Policy } from '../types';
+import { oobFromEnv, oobHeadFromEnv, oobToken } from '../signoff';
 
 export interface VerifyOpts {
   cwd?: string;
@@ -566,6 +578,14 @@ export function runVerify(opts: VerifyOpts): number {
     code = 1;
   }
 
+  // Out-of-band sign-off, MASKED_FAILURE only. The verdict is still reported as
+  // what it is — the source does not pass the original suite — and the exit
+  // code alone is what the approval changes. Same token rules as the diff gate:
+  // once the workflow names the head it is adjudicating, only a token bound to
+  // that commit counts, so the approval dies with the next push.
+  const signedOff = verdict === 'MASKED_FAILURE' ? oobToken('verify', oobFromEnv(), oobHeadFromEnv()) : null;
+  if (signedOff) code = 0;
+
   if (opts.json) {
     out(
       JSON.stringify({
@@ -577,6 +597,7 @@ export function runVerify(opts: VerifyOpts): number {
         pristine: { exit: pristine.exit, secs: pristine.secs },
         protected_restored: restored.length,
         added_protected_removed: removedAdded,
+        ...(signedOff ? { oob_signoff: signedOff } : {}),
         ...(opts.keep ? { visible_dir: visDir, pristine_dir: priDir } : {}),
       }),
     );
@@ -590,6 +611,11 @@ export function runVerify(opts: VerifyOpts): number {
       BUDGET_EXCEEDED: `budget exceeded (${budget}s): could not verify — failing closed, not open.`,
     };
     out(`tamperward verify — ${lines[verdict]}`);
+    if (signedOff)
+      out(
+        `masked failure cleared by out-of-band approval (tamperward:allow:${signedOff}): a reviewer ` +
+          'accepted that the original suite no longer applies to this change. Exit 0.',
+      );
     if (removedAdded > 0)
       out(
         `(${removedAdded} protected file(s) added since ${base.slice(0, 10)} were removed from the pristine run: ` +

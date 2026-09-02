@@ -8,9 +8,13 @@
 //          triggering tamper (rule + file + evidence fingerprint) and an expiry — a one-time
 //          human judgment on one tamper, not a standing license. A developer at their machine is
 //          a human; residual pre-plant risk is visible in the diff and backstopped by CI.
-//   CI     (`check --diff`): honors ONLY an out-of-band signal (a reviewed-label/CODEOWNERS
-//          approval surfaced via env by the workflow), NEVER the committed ledger — anything in
-//          the repo is something the PR (and thus the agent) can author.
+//   CI     (`check --diff`, `verify`): honors ONLY an out-of-band signal (a reviewed-label/
+//          CODEOWNERS approval surfaced via env by the workflow), NEVER the committed ledger —
+//          anything in the repo is something the PR (and thus the agent) can author. For
+//          `verify` the token is `verify@<head-sha>` and it covers exactly one verdict,
+//          MASKED_FAILURE: a reviewer has read the intentional test change and agrees the
+//          original suite no longer applies. A red visible suite or a run that could not
+//          verify is not an approvable state and stays red.
 //
 // The fingerprint binds to the triggering tamper, NOT the whole diff: an unrelated edit
 // elsewhere doesn't evaporate a sign-off, but a DIFFERENT tamper of the same rule+file isn't
@@ -86,28 +90,39 @@ export function applyLocalSignoffs(findings: Finding[], cwd: string, policy: Pol
   return { findings: remaining, cleared };
 }
 
+/** The out-of-band token that covers `want` (a rule, `rule:file`, or the `verify`
+ *  verdict), or null when none does.
+ *
+ *  A CI approval used to match on rule (or rule:file) alone, with nothing tying
+ *  it to WHAT was approved or WHEN. Labels persist across `synchronize`, so a
+ *  label earned for one benign deletion cleared every later one pushed to the
+ *  same PR — the local ledger is fingerprint-bound, this channel was not.
+ *  (P1-6, external review.)
+ *
+ *  A token may carry `@<head-sha>`. When the caller supplies the head it is
+ *  running on (the shipped workflow does), an UNBOUND token no longer clears
+ *  anything: the approval must name the commit it was granted for, so the next
+ *  push re-blocks. Callers that pass no head keep the old behaviour, so
+ *  workflows generated before this release are unaffected. */
+export function oobToken(want: string, oob: string[], head?: string): string | null {
+  for (const raw of oob) {
+    const t = raw.trim();
+    if (!t) continue;
+    const at = t.lastIndexOf('@');
+    if (at === -1) {
+      if (!head && t === want) return t; // unbound: refused once a head is known
+      continue;
+    }
+    const [rule, sha] = [t.slice(0, at), t.slice(at + 1)];
+    if (rule !== want) continue;
+    if (!head || (sha.length >= 7 && head.startsWith(sha))) return t;
+  }
+  return null;
+}
+
 /** CI layer: honor ONLY out-of-band approvals (rule or rule:file), NEVER the committed ledger. */
 export function applyOobSignoffs(findings: Finding[], oob: string[], head?: string): SignoffResult {
-  // A CI approval used to match on rule (or rule:file) alone, with nothing tying
-  // it to WHAT was approved or WHEN. Labels persist across `synchronize`, so a
-  // label earned for one benign deletion cleared every later one pushed to the
-  // same PR — the local ledger is fingerprint-bound, this channel was not.
-  // (P1-6, external review.)
-  //
-  // A token may now carry `@<head-sha>`. When the caller supplies the head it is
-  // running on (the shipped workflow does), an UNBOUND token no longer clears
-  // anything: the approval must name the commit it was granted for, so the next
-  // push re-blocks. Callers that pass no head keep the old behaviour, so
-  // workflows generated before this release are unaffected.
-  const tokens = oob.map((s) => s.trim()).filter(Boolean);
-  const matches = (want: string): boolean =>
-    tokens.some((t) => {
-      const at = t.lastIndexOf('@');
-      if (at === -1) return head ? false : t === want; // unbound: refused once a head is known
-      const [rule, sha] = [t.slice(0, at), t.slice(at + 1)];
-      if (rule !== want) return false;
-      return head ? head.startsWith(sha) && sha.length >= 7 : true;
-    });
+  const matches = (want: string): boolean => oobToken(want, oob, head) !== null;
   const cleared: Finding[] = [];
   const remaining: Finding[] = [];
   for (const f of findings) {

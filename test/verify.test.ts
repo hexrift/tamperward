@@ -198,6 +198,118 @@ describe('tamperward verify', () => {
   });
 });
 
+describe('verify — out-of-band sign-off (MASKED_FAILURE only, head-bound)', () => {
+  // The same env the diff gate reads. Set per test and always restored, so a
+  // token here can never leak into the verdict of another test.
+  const withOob = (signoff: string | undefined, head: string | undefined, fn: () => void) => {
+    const save = { s: process.env.TAMPERWARD_OOB_SIGNOFF, h: process.env.TAMPERWARD_OOB_HEAD };
+    if (signoff === undefined) delete process.env.TAMPERWARD_OOB_SIGNOFF;
+    else process.env.TAMPERWARD_OOB_SIGNOFF = signoff;
+    if (head === undefined) delete process.env.TAMPERWARD_OOB_HEAD;
+    else process.env.TAMPERWARD_OOB_HEAD = head;
+    try {
+      fn();
+    } finally {
+      if (save.s === undefined) delete process.env.TAMPERWARD_OOB_SIGNOFF;
+      else process.env.TAMPERWARD_OOB_SIGNOFF = save.s;
+      if (save.h === undefined) delete process.env.TAMPERWARD_OOB_HEAD;
+      else process.env.TAMPERWARD_OOB_HEAD = save.h;
+    }
+  };
+  const HEAD = 'abcdef0123456789abcdef0123456789abcdef01';
+  const masked = (cwd: string) => writeFileSync(join(cwd, 'test', 'check.test.js'), `process.exit(0); // "fixed"\n`);
+  /** Run with stdout captured; return the exit code and the JSON line verify wrote. */
+  const capture = (fn: () => number): { code: number; json: Record<string, unknown> } => {
+    const orig = process.stdout.write;
+    const lines: string[] = [];
+    process.stdout.write = ((chunk: unknown) => {
+      lines.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const code = fn();
+      const json = lines.map((l) => l.trim()).reverse().find((l) => l.startsWith('{'));
+      if (!json) throw new Error('no JSON line written');
+      return { code, json: JSON.parse(json) };
+    } finally {
+      process.stdout.write = orig;
+    }
+  };
+
+  it('a head-bound verify token turns MASKED_FAILURE into exit 0 and records the approval', () => {
+    const cwd = repo();
+    masked(cwd);
+    withOob(`verify@${HEAD.slice(0, 12)}`, HEAD, () => {
+      const r = capture(() => run(cwd));
+      expect(r.code).toBe(0);
+      expect(r.json.verdict).toBe('MASKED_FAILURE'); // still reported as what it is
+      expect(r.json.oob_signoff).toBe(`verify@${HEAD.slice(0, 12)}`);
+    });
+  });
+
+  it('an UNBOUND verify token clears nothing once the workflow names the head', () => {
+    const cwd = repo();
+    masked(cwd);
+    withOob('verify', HEAD, () => {
+      const r = capture(() => run(cwd));
+      expect(r.code).toBe(1);
+      expect(r.json.oob_signoff).toBeUndefined();
+    });
+  });
+
+  it('a token bound to a DIFFERENT commit does not clear this one — the next push re-blocks', () => {
+    const cwd = repo();
+    masked(cwd);
+    withOob('verify@0000000dead', HEAD, () => {
+      expect(capture(() => run(cwd)).code).toBe(1);
+    });
+  });
+
+  it('a rule token (test-deletion@sha) is not a verify approval', () => {
+    const cwd = repo();
+    masked(cwd);
+    withOob(`test-deletion@${HEAD.slice(0, 12)},test-skip@${HEAD.slice(0, 12)}`, HEAD, () => {
+      expect(capture(() => run(cwd)).code).toBe(1);
+    });
+  });
+
+  it('SUITE_RED is not an approvable state — the label leaves it red', () => {
+    const cwd = repo(); // bug unfixed, suite honest: visible red
+    withOob(`verify@${HEAD.slice(0, 12)}`, HEAD, () => {
+      const r = capture(() => run(cwd));
+      expect(r.code).toBe(1);
+      expect(r.json.verdict).toBe('SUITE_RED');
+      expect(r.json.oob_signoff).toBeUndefined();
+    });
+  });
+
+  it('cannot-verify is not an approvable state — the label leaves it failing closed', () => {
+    const cwd = repo();
+    masked(cwd);
+    withOob(`verify@${HEAD.slice(0, 12)}`, HEAD, () => {
+      const r = capture(() => run(cwd, { cmd: 'sleep 30', budget: 1 }));
+      expect(r.code).toBe(2);
+      expect(r.json.verdict).toBe('BUDGET_EXCEEDED');
+    });
+  });
+
+  it('with no head supplied (older workflows) an unbound token is honoured, as for check --diff', () => {
+    const cwd = repo();
+    masked(cwd);
+    withOob('verify', undefined, () => {
+      expect(capture(() => run(cwd)).code).toBe(0);
+    });
+  });
+
+  it('no env at all: the verdict is untouched', () => {
+    const cwd = repo();
+    masked(cwd);
+    withOob(undefined, undefined, () => {
+      expect(capture(() => run(cwd)).code).toBe(1);
+    });
+  });
+});
+
 describe('policy-diff guards the verify surface', () => {
   const base = `verify:\n  command: npm test\n  budget: 300\n`;
   it('flags command change, budget lowering, and removal; allows adding and raising', () => {
