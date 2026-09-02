@@ -22,6 +22,22 @@ severities are the ones `defaultPolicy` ships.
 | `snapshot-only-rewrite` | warn | snapshots moved with **no accompanying change**, judged only at commit granularity (pre-commit and CI diffs); ~0.06% FP on audited mainlines, 7/7 TP on observed tampers — the graduation candidate |
 | `transient-protected-mutation` | warn | judged at the Stop sweep from the `tamperward watch` event log: a protected file whose recorded content or mode churned during the turn while its net state at Stop is unchanged — modified and restored, so neither the per-call drift check nor the turn diff can see it, while anything that consulted the suite mid-churn consulted a weakened version. `TAMPERWARD_TRANSIENT=block` may raise it and can never lower it |
 
+## Two findings that are not rules
+
+Two ids can appear in a verdict without being keys under `rules:`. Neither can be
+disabled, lowered or excluded by policy, because each reports that the gate could
+not do its job — and a gate that cannot evaluate must deny, never pass.
+
+| finding | where | meaning |
+| --- | --- | --- |
+| `detector-error` | staged, worktree and range views | a detector threw on this change. Repository content that makes a rule crash used to remove that rule from the verdict; now it is a blocking finding naming the rule. |
+| `hidden-drift` | the PreToolUse drift check and the Stop sweep | a protected file changed outside git's view — `git update-index --skip-worktree` / `--assume-unchanged`, or a gitignored protected file — and its last sanctioned content could not be reconstructed, so the change cannot be judged. When it can be reconstructed the ordinary rules judge it instead. Restore the file and bring it back into git's view. |
+
+The Stop sweep also scans **untracked** protected files since 2.2.0: a new
+`conftest.py`, a shadowing runner config, or a settings override the turn created is
+judged as the add it is, with its content read as an edit. Untracked files outside the
+protected globs are not scanned.
+
 ## The outcome layer: `tamperward verify`
 
 The one question no diff rule can answer is whether the *original* suite still passes

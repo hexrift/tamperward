@@ -14,6 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseDiff } from '../diff/parse';
+import { addHunks } from '../diff/synth';
 import { Change } from '../types';
 
 export interface GitOpts {
@@ -108,6 +109,11 @@ export function fileAt(rev: string, path: string, opts: GitOpts = {}): string | 
   return blobAt(rev, path, opts.cwd);
 }
 
+/** Content of `path` on disk, or null when it is absent or unreadable. */
+export function fileOnDisk(path: string, opts: GitOpts = {}): string | null {
+  return fromDisk(path, opts.cwd);
+}
+
 /** Whether `cwd` is inside a git work tree. Lets a caller tell "nothing to compare"
  *  apart from "the comparison failed" — the two must not share a fail-open path. */
 export function isGitRepo(cwd?: string): boolean {
@@ -191,6 +197,32 @@ export function diffWorktree(opts: GitOpts = {}): Change[] {
   );
 }
 
+/** Every UNTRACKED, not-ignored file as an add — `after` from disk, hunks
+ *  synthesised from that content so the hunk-based rules read it as the edit it
+ *  is. `keep` narrows the set (the Stop sweep wants protected paths only; the
+ *  envelope wants the whole tree). `exclude` drops paths another view already
+ *  reports. */
+export function untrackedAdds(opts: GitOpts = {}, keep?: (rel: string) => boolean, exclude?: Set<string>): Change[] {
+  const others = git(['ls-files', '--others', '--exclude-standard', '-z'], opts.cwd)
+    .split('\0')
+    .filter(Boolean);
+  return others
+    .filter((rel) => !exclude?.has(rel) && (!keep || keep(rel)))
+    .map((rel) => {
+      const after = fromDisk(rel, opts.cwd);
+      return {
+        kind: 'file' as const,
+        path: rel,
+        oldPath: null,
+        op: 'add' as const,
+        before: null,
+        after,
+        binary: false,
+        hunks: after == null ? [] : addHunks(after),
+      };
+    });
+}
+
 /** Worktree view that also treats UNTRACKED (not-ignored) files as adds. The
  *  plain `git diff HEAD` view misses them entirely — an agent can drop a new
  *  .github/workflows/*.yml or a fresh test-shadowing file and it is invisible
@@ -198,18 +230,24 @@ export function diffWorktree(opts: GitOpts = {}): Change[] {
  *  tree, so it needs this. */
 export function diffWorktreeWithUntracked(opts: GitOpts = {}): Change[] {
   const tracked = diffWorktree(opts);
-  const others = git(['ls-files', '--others', '--exclude-standard', '-z'], opts.cwd)
-    .split('\0')
-    .filter(Boolean);
   const seen = new Set(tracked.filter((c) => c.kind === 'file').map((c) => (c as { path: string }).path));
-  const untracked: Change[] = others
-    .filter((rel) => !seen.has(rel))
-    .map((rel) =>
-      enrich(
-        { kind: 'file', path: rel, oldPath: null, op: 'add', before: null, after: null, binary: false, hunks: [] },
-        () => null,
-        (p) => fromDisk(p, opts.cwd),
-      ),
-    );
-  return [...tracked, ...untracked];
+  return [...tracked, ...untrackedAdds(opts, undefined, seen)];
+}
+
+/**
+ * Tracked paths git has been told NOT to compare against the working tree:
+ * `update-index --skip-worktree` (tag `S`) and `--assume-unchanged` (a lowercase
+ * tag). Neither shows in `git diff <rev>`, `git status`, nor `ls-files --others`
+ * — an edit to such a file is invisible to every git view, while the file is
+ * exactly what the runner executes. A caller that judges the working tree must
+ * diff these by hand (the trusted blob vs the disk).
+ */
+export function hiddenTrackedPaths(opts: GitOpts = {}): string[] {
+  const out: string[] = [];
+  for (const entry of git(['ls-files', '-v', '-z'], opts.cwd).split('\0')) {
+    if (entry.length < 3 || entry[1] !== ' ') continue;
+    const tag = entry[0];
+    if (tag === 'S' || tag !== tag.toUpperCase()) out.push(entry.slice(2));
+  }
+  return out;
 }
