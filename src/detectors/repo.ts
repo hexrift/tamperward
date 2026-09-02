@@ -83,6 +83,29 @@ export function branchExists(name: string, ctx?: DetectorContext): boolean | nul
   return false;
 }
 
+/** Whether `rev` names the commit HEAD is on — `main` while on main, `@`, a tag of
+ *  the current commit. null when there is no repository to ask or the rev does not
+ *  resolve. Restoring a path from the commit you stand on discards uncommitted
+ *  edits; only a rev that resolves ELSEWHERE puts an older version back. */
+export function revIsHead(rev: string, ctx?: DetectorContext): boolean | null {
+  if (!ctx?.cwd || rev.startsWith('-')) return null;
+  const parse = (r: string): string | null => {
+    try {
+      return execFileSync('git', ['rev-parse', '--verify', '--quiet', '--end-of-options', `${r}^{commit}`], {
+        cwd: ctx.cwd,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim();
+    } catch {
+      return null;
+    }
+  };
+  const head = parse('HEAD');
+  const target = parse(rev);
+  if (!head || !target) return null;
+  return head === target;
+}
+
 /** The repository's default branch as the remote declares it
  *  (`refs/remotes/origin/HEAD` → `main`), or null when unknown — a caller then
  *  accepts `main` and `master` alike. */
@@ -112,17 +135,21 @@ const dirOf = (t: string) => t.replace(/^\.\//, '').replace(/\/+$/, '');
  * `category`. With a file listing the answer is exact; without one the token is
  * resolved against the globs as `dir/**` — a probe path under it must match a
  * directory-shaped glob (`**\/__tests__/**`, `**\/src/test/**`) or the directory must
- * carry a conventional test-directory name.
+ * carry a conventional test-directory name. A file that also belongs to `except`
+ * does not count: jest's default layout puts `__snapshots__` INSIDE `__tests__`, and
+ * the snapshot category owns those files, so `rm -rf src/__tests__/__snapshots__`
+ * holds no spec.
  */
-export function containsProtected(token: string, policy: Policy, category: string, ctx?: DetectorContext): boolean {
+export function containsProtected(token: string, policy: Policy, category: string, ctx?: DetectorContext, except?: string): boolean {
   const dir = dirOf(token);
   if (!dir || dir === '.' || dir === '/' || dir.startsWith('-')) return false;
+  const counts = (p: string) => isProtected(p, policy, category) && !(except && isProtected(p, policy, except));
   const files = trackedFiles(ctx);
   if (files) {
     const prefix = dir + '/';
-    return files.some((f) => f.startsWith(prefix) && isProtected(f, policy, category));
+    return files.some((f) => f.startsWith(prefix) && counts(f));
   }
-  if (isProtected(dir + '/probe', policy, category)) return true;
+  if (counts(dir + '/probe')) return true;
   const base = dir.split('/').pop() ?? '';
   return category === 'tests' && /^(?:test|tests|__tests__|spec|specs)$/i.test(base);
 }
