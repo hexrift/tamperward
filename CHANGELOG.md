@@ -5,6 +5,31 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.1.1] — 2026-09-02
+
+**Two bypasses of every git view, closed. A patch: bypass fixes at the same
+severity, and nothing that was green turns red.**
+
+### Fixed
+
+- **git's binary heuristic blinded every content detector.** A committed
+  `.gitattributes` line (`x.spec.ts -diff`, or the `binary` macro) — or simply
+  a NUL byte anywhere in the file — made git print "Binary files differ" instead
+  of hunks. The parser marked the change binary, the builder skipped loading its
+  content, and test-skip, test-content-removal, ci-tampering, coverage-lowering
+  and hook-tampering's content branch all went silent on that file, in the
+  range, staged and worktree views alike; through the hook, a Write adding
+  `it.skip` plus `\0` was allowed. Every `git diff` Tamperward runs now passes
+  `--text`, which overrides both the attribute and the heuristic, and content is
+  loaded regardless of the binary flag. A modified binary golden file still
+  produces only the snapshot-rewrite warning it did before.
+- **A path containing a space was invisible.** git appends a tab to an unquoted
+  path with a space in the `---`/`+++` lines; the parser kept it, so
+  `my tests/b.test.ts\t` matched no protected glob and a deletion or `.skip`
+  under such a directory reported clean. The tab is stripped; quoted paths are
+  decoded as before, and the header split no longer mis-parses a directory
+  containing ` b/`.
+
 ## [2.1.0] — 2026-09-02
 
 **`verify` gains the out-of-band sign-off channel `check --diff` has had since

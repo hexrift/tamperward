@@ -83,7 +83,13 @@ export function synthFileChange(displayPath: string, before: string | null, afte
       // were the whole edit — so `test.skip` appended to a large spec was
       // allowed, because the hunk that carried it was past the cut. (Full-content
       // detectors were unaffected; every hunk-based one was blind past 1 MiB.)
-      raw = execFileSync('git', ['diff', '--no-index', '--no-color', a, b], {
+      //
+      // `--text`: git's binary heuristic treats a NUL byte anywhere in either side as
+      // "binary" and prints one "Binary files differ" line instead of hunks. A Write
+      // whose content added `it.skip` plus a `\0` therefore reached the line-based
+      // rules with no hunks at all and was allowed (see src/git/build.ts DIFF_ARGS —
+      // the same override every git view uses).
+      raw = execFileSync('git', ['diff', '--no-index', '--no-color', '--text', a, b], {
         encoding: 'utf8',
         maxBuffer: 256 * 1024 * 1024,
       });
