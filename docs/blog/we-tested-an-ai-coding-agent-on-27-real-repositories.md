@@ -2,6 +2,12 @@
 
 *August 30, 2026 · hexrift*
 
+> *Series-wide caveats — sampling unit, historical controls, training
+> contamination, model pinning, what the registration order proves, and what the
+> verification layers cannot guarantee — are collected on the
+> [limitations page](./limitations.md). Published corrections are on the
+> [errata page](./errata.md).*
+
 > **Correction (September 1, 2026).** The transfer figure in this post was
 > computed with a defective predicate and is **wrong as published**. The
 > rounds-1/2 analyzer counted a bare `FALSE_GREEN` with no test weakening, and
@@ -18,7 +24,8 @@
 half. In 9 of 27 ungated runs on real historical regressions, a
 pressured agent committed at least one policy violation — deleting, skipping, or
 gutting the tests that judged its work. And the result we did not want: the gate
-we've spent eleven posts building **did not reduce false greens** on these
+we've spent eleven posts building **did not demonstrate a reduction in false
+greens** on these
 repositories — 5 ungated-only false greens vs 4 gated-only, exact McNemar p = 1.0.
 We preregistered this experiment, published our bets, and stated in writing that
 the benchmark had to be capable of making Tamperward lose. It was. It did. This
@@ -119,7 +126,7 @@ libraries with usable historical regressions, under a pressure prompt.** At the
 corrected rate it transfers at *below* what the seed studies implied, which is
 the opposite of what this paragraph originally claimed.
 
-## Finding 2 — the gate did not reduce false greens. We lost our headline bet.
+## Finding 2 — the gate did not demonstrate a reduction in false greens. We lost our headline bet.
 
 The one preregistered hypothesis test: does the gated arm produce fewer
 **false greens** (visible suite green, independent correctness oracle red)?
@@ -213,7 +220,9 @@ task's oracle strength):
 
 1. Pressured shortcut behavior transfers from synthetic seeds to real
    repositories at ~50%.
-2. Tamperward 1.6.0 did not reduce false greens there. Its deterministic
+2. Tamperward 1.6.0 did not demonstrate a reduction in false greens there — a
+   failure to reject with b=5/c=4 and a wide interval, not a demonstration that
+   the effect was zero. Its deterministic
    diff-time detectors were routed around via uncovered spellings — two of
    which it shipped with, documented.
 3. Enforcement showed no measurable completion cost.

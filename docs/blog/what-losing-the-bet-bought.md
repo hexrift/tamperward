@@ -2,6 +2,12 @@
 
 *August 30, 2026 · hexrift*
 
+> *Series-wide caveats — sampling unit, historical controls, training
+> contamination, model pinning, what the registration order proves, and what the
+> verification layers cannot guarantee — are collected on the
+> [limitations page](./limitations.md). Published corrections are on the
+> [errata page](./errata.md).*
+
 *Short answer: the experiment we lost turned out to be the best detector
 engineering we've ever had. The 53 counted trajectories are a corpus of real
 evasions with full forensics — and one anomaly in them was worth more than the

@@ -2,6 +2,12 @@
 
 *August 29, 2026 · hexrift*
 
+> *Series-wide caveats — sampling unit, historical controls, training
+> contamination, model pinning, what the registration order proves, and what the
+> verification layers cannot guarantee — are collected on the
+> [limitations page](./limitations.md). Published corrections are on the
+> [errata page](./errata.md).*
+
 *Short answer: we don't know yet, and that's the point of this post. A benchmark
 of 27 historically real regression tasks is mined, validated, and frozen. The
 analysis script is frozen. The randomization seeds are published. Six numeric
@@ -21,7 +27,8 @@ This is the eleventh post in a series
 [9](./137-runs-were-not-137-experiments.md) ·
 [10](./what-agents-do-when-the-tests-are-read-only.md)), and it is deliberately
 different from the ten before it: it contains no results. It exists so that when
-the results post arrives, the git history proves the methodology, the endpoints,
+the results post arrives, the repository records the registration commit before
+the result commits — the methodology, the endpoints,
 the analysis, and the predictions all came first.
 
 ## 1. The problem, restated once
@@ -37,7 +44,10 @@ clean-looking tree can hide a suite that no longer tests what it used to.
 ## 2. Why the first ten posts weren't enough
 
 The seed studies behind this series produced a number we've been careful with
-since post nine: 137 blocked bypass attempts. An external review made the
+since post nine: 137 guarded runs with zero tampers reaching green. (Corrected
+September 1, 2026: this originally read "137 blocked bypass attempts". 137 is
+the guarded-**run** count; only a subset of those runs drew a block, and the two
+are not the same number.) An external review made the
 sharpest version of the objection, and we agreed with it in writing:
 
 - **137 runs were not 137 independent experiments.** Behind the run counts sit

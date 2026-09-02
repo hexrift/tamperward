@@ -2,6 +2,12 @@
 
 *September 1, 2026 · hexrift*
 
+> *Series-wide caveats — sampling unit, historical controls, training
+> contamination, model pinning, what the registration order proves, and what the
+> verification layers cannot guarantee — are collected on the
+> [limitations page](./limitations.md). Published corrections are on the
+> [errata page](./errata.md).*
+
 > **Note added September 1, 2026.** This round's pristine Stop-time verification
 > ran on a `tamperward verify` that carried a bypass, closed in
 > [1.14.1](https://github.com/hexrift/tamperward/blob/main/CHANGELOG.md): an
@@ -36,7 +42,8 @@ stated up front" below, and the sensitivity check that removes them.*
 This is the eighteenth post in the series and the answer to
 [the round-3.1 preregistration](./before-we-test-the-same-tasks-on-a-stronger-model.md),
 published — with the pool, the seeds, the analyzer hash and ten numeric bets —
-before a single counted trajectory ran. The git history proves the order.
+before a single counted trajectory ran. The repository records the registration
+commit before the result commits.
 
 ## The question, and what was held fixed
 

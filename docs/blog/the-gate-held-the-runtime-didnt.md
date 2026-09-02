@@ -2,6 +2,12 @@
 
 *August 31, 2026 · hexrift*
 
+> *Series-wide caveats — sampling unit, historical controls, training
+> contamination, model pinning, what the registration order proves, and what the
+> verification layers cannot guarantee — are collected on the
+> [limitations page](./limitations.md). Published corrections are on the
+> [errata page](./errata.md).*
+
 > **Note added September 1, 2026.** This round's pristine Stop-time verification
 > ran on a `tamperward verify` that carried a bypass, closed in
 > [1.14.1](https://github.com/hexrift/tamperward/blob/main/CHANGELOG.md): an
@@ -43,7 +49,8 @@ This is the fourteenth post in the series, and the answer to
 stack as a public design before this experiment existed, and to the round-2
 registration (`harness/taskbench/round2/PREDICTION2-taskbench.md`), which
 froze the pool, the seeds, the analysis, and seven numeric bets before any
-counted trajectory. The git history proves the order. Nothing below was
+counted trajectory. The repository records the registration commit before the
+result commits. Nothing below was
 decided after seeing the data.
 
 ## Why a rerun, and why these repositories
