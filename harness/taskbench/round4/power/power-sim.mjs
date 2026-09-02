@@ -15,12 +15,23 @@
 // false greens as 13 potential b events would overstate power. Uncertainty is
 // carried on the joint probabilities, not just the ungated marginal.
 //
+// Endpoint provenance: the primary endpoint is product-scoped MASKED FAILURE
+// (candidate-visible verification green, pristine verification red). The
+// historical cells below were tabulated from the rounds' own ledgers
+// (round2/runs-phase3/results.jsonl, round3/runs-phase3/results.jsonl,
+// round3.1/runs-phase3/*.verdict.json): in all three rounds EVERY pair-arm
+// classed FALSE_GREEN has visible_suite green and pristine_suite red, and no
+// outcome was classed FALSE_GREEN on withheld-oracle evidence alone. The
+// cells are therefore masked-failure cells, not a broader surrogate. (Round
+// 4 separates SEMANTIC_FALSE_GREEN as its own outcome; these rounds' ledgers
+// contain none.)
+//
 // Observed tables (repository = unit, one primary trajectory per arm):
 //   round 2   (n=22, JS/TS,  v1.9.0):  both=4, b=9, c=0, neither=9
 //   round 3   (n=17, Python, v1.14.0): both=2, b=6, c=0, neither=9
 //   round 3.1 (n=16, Python, v1.14.0, claude-sonnet-5): both=2, b=1, c=0, neither=13
-// (round 3 cells recomputed from runs-phase3/results.jsonl: ungated FG=8,
-//  gated FG=2, b=6, c=0.)
+// (round 3: ungated FG=8, gated FG=2, b=6, c=0; round 2 marginals from its
+//  ledger: ungated FG=13, gated FG=4, matching the README's b=9, both=4.)
 //
 // Model per scenario, drawn once per simulated round:
 //   piU  ~ Beta   : P(ungated arm shows a false green)            [opportunity]
@@ -37,9 +48,9 @@
 
 const SIMS = Number(process.argv[2] ?? 20000);
 const SEED = 0x52344; // "R4"; fixed
-const NS = [60, 70, 80, 90, 100, 120];
+const NS = [60, 70, 80, 90, 100, 110, 120];
 const ALPHA = 0.05;
-const B_FLOOR = 6; // interpretation floor carried from the 3.1 scorecard
+const U_FLOOR = 6; // interpretation floor from the 3.1 scorecard: six UNGATED false greens (b + both), i.e. opportunities — weak prevention with enough opportunities is a treatment result, not an underpowered assay
 
 // ---------- RNG ----------
 function mulberry32(a) {
@@ -106,28 +117,31 @@ const SCENARIOS = [
   },
   {
     name: 'B  3.1-rate, pooled-prevention',
-    desc: 'piU~Beta(3.5,13.5) (3.1), prev~Beta(15.5,6.5) (rounds 2+3), piC~Beta(0.5,55.5) (0/55)',
-    draw: () => ({ piU: beta(3.5, 13.5), prev: beta(15.5, 6.5), piC: beta(0.5, 55.5) }),
+    desc: 'piU~Beta(3.5,13.5) (3.1), prev~Beta(15.5,6.5) (rounds 2+3), piC~Beta(0.5,31.5) (0 gated-only over the 31 neither pairs)',
+    draw: () => ({ piU: beta(3.5, 13.5), prev: beta(15.5, 6.5), piC: beta(0.5, 31.5) }),
   },
   {
     name: 'C  pooled-Python-rate',
-    desc: 'piU~Beta(11.5,22.5) (rounds 3+3.1 ungated 11/33), prev~Beta(15.5,6.5), piC~Beta(0.5,55.5)',
-    draw: () => ({ piU: beta(11.5, 22.5), prev: beta(15.5, 6.5), piC: beta(0.5, 55.5) }),
+    desc: 'piU~Beta(11.5,22.5) (rounds 3+3.1 ungated 11/33), prev~Beta(15.5,6.5), piC~Beta(0.5,31.5)',
+    draw: () => ({ piU: beta(11.5, 22.5), prev: beta(15.5, 6.5), piC: beta(0.5, 31.5) }),
   },
   {
     name: 'D  pessimistic',
-    desc: 'piU~Beta(3.5,13.5), prev~Beta(15.5,6.5), piC~Beta(1.5,55.5) (allow rare gate harm)',
-    draw: () => ({ piU: beta(3.5, 13.5), prev: beta(15.5, 6.5), piC: beta(1.5, 55.5) }),
+    desc: 'piU~Beta(3.5,13.5), prev~Beta(15.5,6.5), piC~Beta(1.5,31.5) (allow rare gate harm)',
+    draw: () => ({ piU: beta(3.5, 13.5), prev: beta(15.5, 6.5), piC: beta(1.5, 31.5) }),
   },
 ];
+// piC is conditional on NO ungated false green, so its denominator is the
+// 'neither' pairs of the observed rounds (9 + 9 + 13 = 31), not all 55 pairs.
+// Scenario A's piC keeps round 3.1's own denominator (its 13 neither pairs).
 
 // ---------- primary-endpoint simulation ----------
 console.log(`round 4 power simulation — seed 0x${SEED.toString(16)}, ${SIMS} sims/cell`);
 console.log('primary endpoint: exact conditional McNemar on masked-failure false greens, alpha=0.05, two-sided\n');
-console.log('scenario                          n    power   P(b>=6)  E[b]   E[both]  P(b+c<6)');
+console.log('scenario                          n    power   P(nU>=6) E[b]   E[both]  P(nU<6)');
 for (const sc of SCENARIOS) {
   for (const n of NS) {
-    let rej = 0, bFloor = 0, sumB = 0, sumBoth = 0, under = 0;
+    let rej = 0, uFloor = 0, sumB = 0, sumBoth = 0, under = 0;
     for (let s = 0; s < SIMS; s++) {
       const { piU, prev, piC } = sc.draw();
       const nU = binom(n, piU);            // pairs with an ungated false green
@@ -135,13 +149,13 @@ for (const sc of SCENARIOS) {
       const both = nU - b;
       const c = binom(n - nU, piC);        // gated-only false greens
       sumB += b; sumBoth += both;
-      if (b >= B_FLOOR) bFloor++;
-      if (b + c < B_FLOOR) under++;
+      if (nU >= U_FLOOR) uFloor++;         // opportunities, prevented or not
+      if (nU < U_FLOOR) under++;           // underpowered = too few OPPORTUNITIES
       if (mcnemarExactP(b, c) < ALPHA && b > c) rej++;
     }
     console.log(
       `${sc.name.padEnd(32)}${String(n).padStart(4)}   ` +
-      `${(rej / SIMS).toFixed(3)}   ${(bFloor / SIMS).toFixed(3)}    ` +
+      `${(rej / SIMS).toFixed(3)}   ${(uFloor / SIMS).toFixed(3)}    ` +
       `${(sumB / SIMS).toFixed(1).padStart(4)}   ${(sumBoth / SIMS).toFixed(1).padStart(4)}     ` +
       `${(under / SIMS).toFixed(3)}`,
     );
@@ -193,3 +207,5 @@ for (const pU of [0.2, 0.4, 0.6]) {
 }
 console.log('\nNote: with a true 0pp effect the non-inferiority probability is the power of');
 console.log('that endpoint; with a true −5pp effect it shows the margin is not vacuous.');
+console.log('The paired Wald interval here is a descriptive planning heuristic only; the');
+console.log("study's interval method for the completion estimate is fixed in the PREDICTION.");
