@@ -47,8 +47,20 @@ const PATTERNS: Record<Lang, Pattern[]> = {
   py: [
     // `import pytest as pt` makes the decorator `@pt.mark.skip`; the module alias is free.
     { re: /@\w+\.mark\.(?:skip|skipif|xfail)\b/, why: 'a pytest skip/skipif/xfail marker' },
+    // `from pytest import mark` makes it `@mark.skip`; `marks=pytest.mark.skip` is the
+    // parametrize form. Both carry the same marker without the `@<module>.` shape.
+    { re: /@mark\.(?:skip|skipif|xfail)\b/, why: 'a pytest skip/skipif/xfail marker (from pytest import mark)' },
+    { re: /\bmarks\s*=\s*(?:\w+\.)?mark\.(?:skip|skipif|xfail)\b/, why: 'a parametrize marks= skip/skipif/xfail marker' },
     { re: /\bpytestmark\s*=.*\.mark\.(?:skip|skipif|xfail)\b/, why: 'a module-level pytestmark skip (every test in the file is skipped)' },
-    { re: /\bpytest\.(?:skip|xfail|importorskip)\(/, why: 'a runtime pytest.skip()/xfail() call' },
+    { re: /\bpytest\.(?:skip|xfail|importorskip)\(/, why: 'a runtime pytest.skip()/xfail()/importorskip() call' },
+    // Collection-time drops. A conftest.py is protected as a test file, and these
+    // are how pytest is told never to collect a test in the first place — no
+    // marker ever appears in the test itself. `collect_ignore` / `collect_ignore_glob`
+    // are conftest globals (pytest docs, "Customizing test collection");
+    // `pytest_ignore_collect` is the hook whose only job is to say "skip this path";
+    // `__test__ = False` de-collects a class or function.
+    { re: /\bcollect_ignore(?:_glob)?\s*(?:=|\+=|\.(?:append|extend)\()/, why: 'a collect_ignore / collect_ignore_glob entry (the files are never collected)' },
+    { re: /\bdef\s+pytest_ignore_collect\s*\(/, why: 'a pytest_ignore_collect hook (paths are dropped at collection)' },
     // `from unittest import skip` makes the decorator bare `@skip`.
     { re: /@(?:unittest\.)?(?:skip|skipIf|skipUnless|expectedFailure)\b/, why: 'a unittest skip/expectedFailure decorator' },
     { re: /\bself\.skipTest\(/, why: 'a runtime self.skipTest() call' },

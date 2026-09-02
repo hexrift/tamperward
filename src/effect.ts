@@ -57,15 +57,35 @@ function gitDir(cwd: string): string | null {
   }
 }
 
-export function ptreePath(cwd: string, sessionId?: string): string | null {
+function statePath(cwd: string, sessionId: string | undefined, kind: 'ptree' | 'turntree'): string | null {
   if (!sessionId) return null;
   const gd = gitDir(cwd);
   if (!gd) return null;
   const dir = join(gd, 'tamperward');
-  return join(dir, `ptree-${sessionId.replace(UNSAFE, '')}.json`);
+  return join(dir, `${kind}-${sessionId.replace(UNSAFE, '')}.json`);
+}
+
+export function ptreePath(cwd: string, sessionId?: string): string | null {
+  return statePath(cwd, sessionId, 'ptree');
+}
+
+/** The protected tree as it stood when the TURN began — saved beside the git
+ *  turn baseline (src/session.ts) and advanced with it. The ptree cannot serve
+ *  here: it absorbs additions at every call, so by Stop it already contains the
+ *  file the turn created. This one only moves when a turn ends clean, so an
+ *  untracked protected file it does not carry (or carries with another hash) is
+ *  the turn's own work, and the sweep judges it; one it carries unchanged was
+ *  there before the turn and is not re-litigated. */
+export function turnTreePath(cwd: string, sessionId?: string): string | null {
+  return statePath(cwd, sessionId, 'turntree');
 }
 
 const sha = (buf: Buffer): string => createHash('sha256').update(buf).digest('hex').slice(0, 16);
+
+/** The ptree's content hash, for a caller holding the bytes rather than a path. */
+export function contentHash(content: string | Buffer): string {
+  return sha(Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8'));
+}
 
 /** Walk the repo and snapshot every protected file. `prev` enables the mtime+size
  *  fast path so a big suite costs one stat per file, not one read. */
@@ -136,8 +156,7 @@ export function driftBetween(expected: PTree, current: PTree): Drift {
   return { changed, deleted };
 }
 
-export function loadPtree(cwd: string, sessionId?: string): PTree | null {
-  const p = ptreePath(cwd, sessionId);
+function loadTree(p: string | null): PTree | null {
   if (!p || !existsSync(p)) return null;
   try {
     return JSON.parse(readFileSync(p, 'utf8')) as PTree;
@@ -146,8 +165,7 @@ export function loadPtree(cwd: string, sessionId?: string): PTree | null {
   }
 }
 
-export function savePtree(cwd: string, sessionId: string | undefined, tree: PTree): void {
-  const p = ptreePath(cwd, sessionId);
+function saveTree(p: string | null, tree: PTree): void {
   if (!p) return;
   try {
     mkdirSync(join(p, '..'), { recursive: true });
@@ -155,4 +173,20 @@ export function savePtree(cwd: string, sessionId: string | undefined, tree: PTre
   } catch {
     /* best effort — absence of state degrades to Stop-only coverage, never to a crash */
   }
+}
+
+export function loadPtree(cwd: string, sessionId?: string): PTree | null {
+  return loadTree(ptreePath(cwd, sessionId));
+}
+
+export function savePtree(cwd: string, sessionId: string | undefined, tree: PTree): void {
+  saveTree(ptreePath(cwd, sessionId), tree);
+}
+
+export function loadTurnTree(cwd: string, sessionId?: string): PTree | null {
+  return loadTree(turnTreePath(cwd, sessionId));
+}
+
+export function saveTurnTree(cwd: string, sessionId: string | undefined, tree: PTree): void {
+  saveTree(turnTreePath(cwd, sessionId), tree);
 }

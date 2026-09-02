@@ -11,17 +11,28 @@
 
 import { readFileSync, appendFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { changesFromClaudeHook, ClaudeHookInput } from '../adapters/claude/changes';
+import { join } from 'node:path';
+import { changesFromClaudeHook, ClaudeHookInput, synthFileChange } from '../adapters/claude/changes';
 import { formatDenial } from '../adapters/claude/deny';
 import { evaluate } from '../engine';
 import { loadPolicy } from '../policy-load';
-import { diffSince, diffWorktree, isGitRepo } from '../git/build';
+import { diffSince, diffWorktree, fileAt, fileOnDisk, hiddenTrackedPaths, isGitRepo, untrackedAdds } from '../git/build';
 import { advanceTurnBaseline, turnBaseline } from '../session';
-import { driftBetween, loadPtree, ptreePath, savePtree, snapshotProtected } from '../effect';
+import {
+  contentHash,
+  driftBetween,
+  loadPtree,
+  loadTurnTree,
+  PTree,
+  ptreePath,
+  savePtree,
+  saveTurnTree,
+  snapshotProtected,
+} from '../effect';
 import { defaultEventLog } from './watch';
 import { readEvents, transientFindings } from '../detectors/fs-events';
 import { isProtected } from '../policy';
-import { Finding, Policy } from '../types';
+import { Change, FileChange, Finding, Policy } from '../types';
 
 export interface HookResult {
   exitCode: number;
@@ -133,13 +144,161 @@ function verdict(blocks: Finding[], kind: 'PreToolUse' | 'Stop'): HookResult {
  *  (observed self-invoking `tamperward allow` 3×), so honoring it here would let the agent clear
  *  its own block in-loop. A block is a block; sign-off is a human decision made at the
  *  local/CI layers (src/signoff.ts), never here. */
+
+function fileChanges(changes: Change[]): FileChange[] {
+  return changes.filter((c): c is FileChange => c.kind === 'file');
+}
+
+function hashOnDisk(cwd: string, rel: string): string | null {
+  try {
+    return contentHash(readFileSync(join(cwd, rel)));
+  } catch {
+    return null;
+  }
+}
+
+/** git's file mode for a stat mode: executable or not (the two modes a tracked file can have). */
+function gitMode(mode: number): string {
+  return (mode & 0o100) !== 0 ? '100755' : '100644';
+}
+
+/**
+ * The turn's net change to the working tree, as the detectors should see it. Three
+ * sources, because a tracked diff alone is not the tree the runner will execute:
+ *
+ *  1. `git diff <turn base>` — committed or not, every tracked edit.
+ *  2. UNTRACKED protected files. A new protected file the turn created (a shadowing
+ *     vitest.config.ts, a conftest.py carrying `collect_ignore`, a workflow) is not
+ *     in any tracked diff; only the `run` envelope scanned untracked files, so the
+ *     Stop sweep never saw them. Scoped to protected paths — those are the only ones
+ *     the safety-net rules read, and ordinary untracked scratch stays out of the
+ *     sweep — and to files that are new or changed since the TURN began (the turn
+ *     tree, src/effect.ts): a developer's own pre-existing untracked spec is not
+ *     re-litigated every turn. No turn tree → every untracked protected file is
+ *     judged (fail closed on unknown provenance).
+ *  3. Tracked protected files git has been told to stop comparing (skip-worktree,
+ *     assume-unchanged). They appear in no diff, no status and no untracked list;
+ *     diffed here by hand, trusted blob at the turn base vs the disk.
+ */
+function turnView(cwd: string, sessionId: string | undefined, policy: Policy, base: string | null): Change[] {
+  const tracked = base ? diffSince(base, { cwd }) : diffWorktree({ cwd });
+  const seen = new Set<string>();
+  for (const c of fileChanges(tracked)) {
+    seen.add(c.path);
+    if (c.oldPath) seen.add(c.oldPath);
+  }
+  const turnTree = loadTurnTree(cwd, sessionId);
+  const untracked = untrackedAdds({ cwd }, (rel) => isProtected(rel, policy), seen).filter(
+    (c) => c.kind !== 'file' || !turnTree || turnTree[c.path]?.hash !== hashOnDisk(cwd, c.path),
+  );
+  for (const c of fileChanges(untracked)) seen.add(c.path);
+  const trusted = base ?? 'HEAD';
+  const hidden: Change[] = [];
+  for (const rel of hiddenTrackedPaths({ cwd })) {
+    if (seen.has(rel) || !isProtected(rel, policy)) continue;
+    hidden.push(...synthFileChange(rel, fileAt(trusted, rel, { cwd }), fileOnDisk(rel, { cwd })));
+  }
+  return [...tracked, ...untracked, ...hidden];
+}
+
+/**
+ * FAIL CLOSED on drift git cannot show. The ptree says a protected file changed
+ * since its last sanctioned state, but nothing in the turn view carries that path —
+ * the file has left git's sight by a route the view does not enumerate. This used
+ * to evaluate an EMPTY change list, find nothing, and `savePtree(current)` absorbed
+ * the tamper as the new baseline: the effect layer, built to catch what the
+ * spelling matcher missed, ratified what git missed.
+ *
+ * Reconstruct the change instead. `before` is the sanctioned content, recovered
+ * from any git blob whose hash equals the ptree's (the turn base, HEAD, the index);
+ * `after` is the disk. When the disk already equals the trusted base blob, the file
+ * was RESTORED to its git state (a `git restore`, or an Edit the hook allowed but
+ * the tool never applied) — benign, absorbed as before. When the sanctioned content
+ * cannot be found anywhere, there is nothing honest to diff against, and the only
+ * safe verdict is a block that names the file.
+ */
+function uncoveredDrift(
+  cwd: string,
+  policy: Policy,
+  expected: PTree,
+  current: PTree,
+  covered: Change[],
+  base: string | null,
+  turnTree: PTree | null,
+): { changes: Change[]; blocks: Finding[] } {
+  const d = driftBetween(expected, current);
+  const seen = new Set<string>();
+  for (const c of fileChanges(covered)) {
+    seen.add(c.path);
+    if (c.oldPath) seen.add(c.oldPath);
+  }
+  const changes: Change[] = [];
+  const blocks: Finding[] = [];
+  const trusted = base ?? 'HEAD';
+  const candidates = base ? [base, 'HEAD', ''] : ['HEAD', ''];
+  for (const rel of [...d.changed, ...d.deleted]) {
+    if (seen.has(rel)) continue;
+    const after = fileOnDisk(rel, { cwd });
+    const trustedBlob = fileAt(trusted, rel, { cwd });
+    const atGitState = after != null && trustedBlob != null && contentHash(after) === contentHash(trustedBlob);
+    const atTurnStart = current[rel] != null && turnTree?.[rel]?.hash === current[rel].hash;
+    if ((atGitState || atTurnStart) && current[rel] && expected[rel] && current[rel].mode === expected[rel].mode) {
+      // Back at its git state, or exactly as the turn found it: a restore, or an
+      // Edit the hook sanctioned that the tool never applied. Nothing to judge.
+      continue;
+    }
+    const want = expected[rel]?.hash;
+    let before: string | null = null;
+    for (const rev of candidates) {
+      const blob = fileAt(rev, rel, { cwd });
+      if (blob != null && contentHash(blob) === want) {
+        before = blob;
+        break;
+      }
+    }
+    if (before == null) {
+      blocks.push({
+        rule: 'hidden-drift',
+        severity: 'block',
+        file: rel,
+        message: `Protected file ${rel} changed outside git's view, and its sanctioned content cannot be reconstructed to judge the change.`,
+        evidence: rel,
+        remediation:
+          'Restore the file to its last sanctioned content (git restore, or undo the edit) and bring it back into git\'s view (git update-index --no-skip-worktree / --no-assume-unchanged); make the change through a tool call the gate can see.',
+        signoff: { required: true, command: `tamperward allow hidden-drift --file ${rel} --reason "..."` },
+      });
+      continue;
+    }
+    const synth = synthFileChange(rel, before, after);
+    if (synth.length > 0) {
+      changes.push(...synth);
+    } else if (after != null && current[rel] && expected[rel] && current[rel].mode !== expected[rel].mode) {
+      // Same bytes, different mode: a chmod git cannot see. hook-tampering reads the modes.
+      changes.push({
+        kind: 'file',
+        path: rel,
+        oldPath: null,
+        op: 'modify',
+        before,
+        after,
+        binary: false,
+        hunks: [],
+        oldMode: gitMode(expected[rel].mode),
+        newMode: gitMode(current[rel].mode),
+      });
+    }
+  }
+  return { changes, blocks };
+}
+
 /**
  * Per-call EFFECT check (taskbench Phase 3, run 07-fastify gated): whatever a
  * spelling matcher or a hook flake misses, the protected tree remembers. If it
  * drifted since the last sanctioned state, run the ordinary detector stack over
- * the drift (diff vs the turn baseline, scoped to the drifted paths) NOW —
- * findings then carry the existing rules' corpus-priced severities. Benign
- * drift (a git restore, a first-run snapshot) evaluates clean and is absorbed.
+ * the drift (the turn view, scoped to the drifted paths) NOW — findings then
+ * carry the existing rules' corpus-priced severities. Benign drift (a git
+ * restore, a first-run snapshot) evaluates clean and is absorbed. Drift the view
+ * cannot show is reconstructed or blocked (uncoveredDrift), never absorbed.
  * Returns blocking findings, or null when the current call may proceed.
  */
 function effectDriftBlocks(cwd: string, sessionId: string | undefined, policy: Policy): Finding[] | null {
@@ -148,6 +307,8 @@ function effectDriftBlocks(cwd: string, sessionId: string | undefined, policy: P
   const current = snapshotProtected(cwd, policy, expected ?? undefined);
   if (!expected) {
     savePtree(cwd, sessionId, current);
+    // First sight of the session: the turn begins here, alongside the git baseline.
+    if (!loadTurnTree(cwd, sessionId)) saveTurnTree(cwd, sessionId, current);
     return null;
   }
   const d = driftBetween(expected, current);
@@ -156,12 +317,15 @@ function effectDriftBlocks(cwd: string, sessionId: string | undefined, policy: P
     return null;
   }
   const base = turnBaseline(cwd, sessionId);
-  const all = base ? diffSince(base, { cwd }) : diffWorktree({ cwd });
+  const all = turnView(cwd, sessionId, policy, base);
   const drifted = new Set([...d.changed, ...d.deleted]);
   const scoped = all.filter(
     (c) => c.kind === 'file' && (drifted.has(c.path) || (c.oldPath != null && drifted.has(c.oldPath))),
   );
-  const blocks = evaluate(scoped, policy, undefined, 'turn').filter((f) => f.severity === 'block');
+  const gap = uncoveredDrift(cwd, policy, expected, current, scoped, base, loadTurnTree(cwd, sessionId));
+  const blocks = evaluate([...scoped, ...gap.changes], policy, undefined, 'turn')
+    .filter((f) => f.severity === 'block')
+    .concat(gap.blocks);
   if (blocks.length > 0) return blocks; // do NOT absorb: the deny repeats until restored
   savePtree(cwd, sessionId, current);
   return null;
@@ -216,7 +380,7 @@ function cursorPath(cwd: string, sessionId?: string): string | null {
 
 /** Watcher events for the turn: judged only when the daemon is running (log exists).
  *  The cursor advances with the turn, mirroring the baseline's semantics. */
-function turnTransientBlocks(cwd: string, sessionId: string | undefined, policy: Policy, changes: ReturnType<typeof diffWorktree>): { blocks: Finding[]; commit: () => void } {
+function turnTransientBlocks(cwd: string, sessionId: string | undefined, policy: Policy, changes: Change[]): { blocks: Finding[]; commit: () => void } {
   const none = { blocks: [] as Finding[], commit: () => {} };
   const log = defaultEventLog(cwd);
   const cp = cursorPath(cwd, sessionId);
@@ -271,15 +435,28 @@ export function stopVerdict(input: ClaudeHookInput): HookResult {
     // mid-turn is still the turn's work, and `git diff HEAD` could not see it.
     const policy = loadPolicy(cwd);
     const base = turnBaseline(cwd, input.session_id);
-    const changes = base ? diffSince(base, { cwd }) : diffWorktree({ cwd });
-    blocks = evaluate(changes, policy, undefined, 'turn').filter((f) => f.severity === 'block');
+    let changes = turnView(cwd, input.session_id, policy, base);
+    // The effect state sees what git does not: drift on a protected path that no
+    // part of the view carries is reconstructed or blocked, never passed.
+    const expected = loadPtree(cwd, input.session_id);
+    const current = input.session_id ? snapshotProtected(cwd, policy, expected ?? undefined) : null;
+    let hiddenBlocks: Finding[] = [];
+    if (expected && current) {
+      const gap = uncoveredDrift(cwd, policy, expected, current, changes, base, loadTurnTree(cwd, input.session_id));
+      changes = changes.concat(gap.changes);
+      hiddenBlocks = gap.blocks;
+    }
+    blocks = evaluate(changes, policy, undefined, 'turn').filter((f) => f.severity === 'block').concat(hiddenBlocks);
     const transient = turnTransientBlocks(cwd, input.session_id, policy, changes);
     blocks = blocks.concat(transient.blocks);
     commitCursor = transient.commit;
-    if (blocks.length === 0 && input.session_id) {
+    if (blocks.length === 0 && input.session_id && current) {
       // A clean turn re-baselines the effect state too, so the next turn's drift
-      // check starts from what this turn legitimately left behind.
-      savePtree(cwd, input.session_id, snapshotProtected(cwd, policy, loadPtree(cwd, input.session_id) ?? undefined));
+      // check starts from what this turn legitimately left behind — and the turn
+      // tree advances with the git baseline, so the next sweep judges only the
+      // untracked files the next turn creates or changes.
+      savePtree(cwd, input.session_id, current);
+      saveTurnTree(cwd, input.session_id, current);
     }
   } catch (e) {
     return failClosed('Stop', errText(e));

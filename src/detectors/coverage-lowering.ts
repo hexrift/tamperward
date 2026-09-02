@@ -214,12 +214,15 @@ export const coverageLowering: Detector = {
         );
       }
       for (const l of added) {
-        if (/--passWithNoTests\b/.test(l.content)) {
+        // The CLI flag and its config-key twin (`passWithNoTests: true` in a jest/vitest
+        // config) are one setting; a NEW config file carrying the key is the same move as
+        // adding the flag to the script, and it needs no `before` to be a weakening.
+        if (/--passWithNoTests\b/.test(l.content) || /\bpassWithNoTests\s*:\s*true\b/.test(l.content)) {
           out.push(
             makeFinding(RULE, policy, {
               file: c.path,
               line: l.newLine ?? undefined,
-              message: '--passWithNoTests added — the suite can now pass with zero tests.',
+              message: 'passWithNoTests added — the suite can now pass with zero tests.',
               evidence: l.content.trim(),
               remediation: 'Remove --passWithNoTests; an empty suite must not be a green check.',
             }),
