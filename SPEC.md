@@ -1,15 +1,23 @@
-# Tamperward — Build Spec v0.7
+# Tamperward — Build Spec v0.8
 
 > The deterministic agent-integrity gate. One ruleset, evaluated on the actual
 > diff/commands as a verdict (not a probability), at every stage a change passes
 > through — the agent loop (a Claude Code hook today), pre-commit, and CI, which is
 > the authority.
 
-**Slice:** TypeScript/Jest · Claude Code · 16 rules specified, 14 shipped ·
+**Slice:** TypeScript/Jest · Claude Code · 17 rules specified, 15 shipped ·
 agent-loop + pre-commit + CI + pristine re-execution · the agent-correction
 loop measured, not asserted.
 
-v0.7 reconciles the spec with 1.9.0: `tamperward verify` — the taskbench
+v0.8 reconciles the spec with 1.15.0. No new row: the seventeen-row table (§4) had
+outgrown its heading, the canonical policy example had not kept pace with
+`defaultPolicy`, and §5.1 still described the hook's output contract as a plan when
+it has shipped on the JSON channel since v0.2. This revision brings the counts, the
+policy example, the hook and Stop contracts, the CI wiring (the generated workflow's
+`check --diff` + `verify --require-ancestor` pair with SHA-bound labels) and the repo
+layout into line with the code — the code did not move.
+
+v0.7 reconciled the spec with 1.9.0: `tamperward verify` — the taskbench
 run-correctness oracle productized as row 16 (`pristine-verification`). The
 suite runs twice in separate copies of the working tree: as-is, and with every
 protected test/snapshot/config file restored from a trusted base rev
@@ -66,8 +74,8 @@ Two assertions have to become true or false here:
    message redirects the agent to fix the *real* failure rather than hunt for another
    bypass.
 
-Eleven of the thirteen specified rules are mechanical, and those eleven are the ones
-that shipped — so #1 is largely engineering. The two heuristics remain unbuilt (§4). #2 —
+Fifteen of the seventeen specified rules are mechanical, and those fifteen are the
+ones that shipped — so #1 is largely engineering. The two heuristics remain unbuilt (§4). #2 —
 whether a denied agent fixes the truth or fights the gate — is the harder question. The
 metric that quantifies it is the **bypass-to-fix conversion rate** (§7.B); see the
 README for the measured result, now including its no-gate control arm.
@@ -165,24 +173,32 @@ yours):
 # policy-diff finding. This is what lets a graduation ship in a minor (CONTRIBUTING).
 version: 1
 protected:                         # the safety nets, as first-class assets
-  tests:  ['**/*.test.ts', '**/*.spec.ts', '**/__tests__/**']
-  config: ['jest.config.*', 'tsconfig*.json', '.eslintrc*', 'eslint.config.*']
-  ci:     ['.github/workflows/**']
-  hooks:  ['.husky/**', 'lefthook.*', '.tamperward.yml']
+  # abbreviated — the baseline (src/policy.ts defaultPolicy) also carries the other
+  # JS/TS test extensions and the conventional Python/Go/Rust/Ruby/JVM/PHP/C# layouts,
+  # and the pre-commit / Claude settings / CODEOWNERS wiring under hooks. User globs
+  # MERGE onto the baseline per category; a category can only grow.
+  tests:     ['**/*.test.ts', '**/*.spec.ts', '**/__tests__/**']
+  config:    ['**/jest.config.*', '**/vitest.config.*', '**/tsconfig*.json', '**/.eslintrc*', '**/eslint.config.*', '**/package.json']
+  ci:        ['.github/workflows/**']
+  snapshots: ['**/*.snap', '**/__snapshots__/**', '**/tap-snapshots/**', '**/golden/**', '**/*.golden.*']
+  hooks:     ['.husky/**', '**/lefthook.*', '.tamperward.yml', '.claude/settings.json', '**/.pre-commit-config.yaml', '.github/CODEOWNERS']
 rules:
-  test-deletion:        { severity: block }    # AST
-  test-skip:            { severity: block }
-  assertion-weakening:  { severity: warn  }    # heuristic — RESERVED, not yet built (§4)
-  ts-any-cast:          { severity: block }
-  ts-any-launder:       { severity: warn  }    # permanent warn — graduation closed by corpus (§4 row 13)
-  lint-suppression:     { severity: block }
-  coverage-lowering:    { severity: block }
-  ci-tampering:         { severity: block }
-  hook-tampering:       { severity: block }
-  no-verify:            { severity: block }
-  snapshot-rewrite:     { severity: warn  }    # mechanical but intent-ambiguous — FP study
-  snapshot-only-rewrite: { severity: warn }    # the FP study's narrow signal — graduation candidate
-  guard-removal:        { severity: warn  }    # heuristic — RESERVED, not yet built (§4)
+  test-deletion:         { severity: block }   # AST
+  test-content-removal:  { severity: block }   # content gutted from a surviving spec (§4 row 14)
+  test-skip:             { severity: block }
+  assertion-weakening:   { severity: warn  }   # heuristic — RESERVED, not yet built (§4)
+  ts-any-cast:           { severity: block }
+  ts-any-launder:        { severity: warn  }   # permanent warn — graduation closed by corpus (§4 row 13)
+  lint-suppression:      { severity: block }
+  coverage-lowering:     { severity: block }
+  ci-tampering:          { severity: block }
+  hook-tampering:        { severity: block }
+  no-verify:             { severity: block }
+  snapshot-rewrite:      { severity: warn  }   # mechanical but intent-ambiguous — FP study
+  snapshot-only-rewrite: { severity: warn  }   # the FP study's narrow signal — graduation candidate
+  transient-protected-mutation: { severity: warn }  # the watcher's class (row 15); TAMPERWARD_TRANSIENT=block may raise it
+  guard-removal:         { severity: warn  }   # heuristic — RESERVED, not yet built (§4)
+ignore: []                         # reported, never silent; can never cover this file
 signoff:
   required_for: [block]
   # LOCAL ONLY. In CI, sign-off is out-of-band (§5.4) — never this file.
@@ -224,10 +240,12 @@ rule is 100% mechanical**; heuristics may only ever be `warn` until measured (§
 
 ---
 
-## 4. The thirteen rules — eleven shipped, two reserved
+## 4. The seventeen rules — fifteen shipped, two reserved
 
-Surface · signal · and **certainty class**, because eleven are mechanical and two are
-heuristic, and the spec must not pretend otherwise. The two heuristics (rows 3 and 10)
+Surface · signal · and **certainty class**, because fifteen are mechanical and two are
+heuristic, and the spec must not pretend otherwise. Rows 1–15 are policy rule ids
+(`src/policy.ts` `defaultPolicy`); rows 16 and 17 are the outcome and process layers,
+which interpret no diff and carry no severity — their verdict is an exit code. The two heuristics (rows 3 and 10)
 are **specified here and reserved in the baseline policy, but no detector implements
 them yet** — their names exist so a user policy written today keeps meaning the same
 thing on the release that builds them.
@@ -252,7 +270,7 @@ thing on the release that builds them.
 | 16 | `pristine-verification` | execution (`tamperward verify`) | the suite re-run in two separate copies of the working tree: as-is (visible) and with protected tests/snapshots/config restored from a trusted base rev (pristine; agent-added files **removed** across the protected classes and a separate verification surface of runner-consulted config — 1.14.1 closed the `conftest.py` form of this bypass and 1.14.2 the runner-config form; the surface list lags runner behaviour and bounds the class rather than eliminating it). The copies are separate directories, not a sandbox. Visible-green + pristine-red = **MASKED FAILURE** (exit 1); budget exceeded or cannot-run fails CLOSED (exit 2). From 1.14.5 the pristine copy is materialised only AFTER the visible run exits — the two used to be prepared together as siblings, so the candidate's own code wrote `../pristine/<the test that convicts it>` with no race and no background process — and its restored files are digested (content and mode) either side of the pristine run, while the working tree and installed dependency tree are fingerprinted around both runs; any movement is exit 2. 1.14.5 also restores the base's file MODE and TYPE, not only content: `--name-only` left a restored test at whatever mode the agent's tree carried, so `chmod -x` alone hid it from an exec-bit discovery runner in both copies | mechanical at the outcome level — no diff interpretation at all, which is why it is immune to spelling. Evidence base: in the taskbench Phase-3 sweep this layer identified **every masked failure in all 53 trajectories** while diff-time detection was routed around — a trajectory record on one frame, not a guarantee. Judged at commit/CI granularity by design (a full double suite run per tool call is not a loop-layer cost anyone pays); the `verify:` policy block is guarded by policy-diff (command change, budget lowering, removal = weakening), and from 1.14.3 `verify --base <rev>` reads the overlay policy, verification surface and verifier command/budget from that commit, so the candidate cannot supply the configuration for its own re-execution. 1.14.4 extends the overlay to what the verifier command EXECUTES — command tokens naming a file present at the base (`node runner.js`), plus an explicit `verify: { inputs: [globs] }` for delegation that no token names (`npm test` -> `scripts/test.sh`), whose narrowing is itself weakening — and makes every trusted git read set `GIT_NO_REPLACE_OBJECTS=1`, since `git replace` redirected both `ls-tree` (which files exist at the base) and `show` (their content) to a tree the agent had just written. Both remain BOUNDS, not eliminations: a command can reach a file neither source names, and grafts/shallow have no disable switch (row 17 covers them by fingerprint) | double execution + exit codes |
 | 17 | `run-envelope` | process (`tamperward run`) | the agent invocation wrapped so its exit is untrusted: the trusted base is recorded before the agent starts, and after any termination the released tree is re-adjudicated against that base — policy check over base...HEAD (committed weakening), policy check over the worktree (uncommitted), and pristine verification. Exit: the agent's own code when enforcement is clean; 1 on any blocking finding or masked failure; 2 when adjudication is impossible (dirty start, unresolvable base, no suite command) — failing closed Trust anchor hardening: the entry SHA is frozen before the agent starts, post-agent HEAD must be a descendant of it (history rewrite = the conviction, exit 1), and the WHOLE policy — rules, protected globs, verifier command/budget — is resolved from the base commit (`loadPolicyAt(base)`), never the working tree the agent controls; the worktree check adjudicates at the CI layer (no agent-writable local sign-off ledger) and includes untracked files — a verifier that appears after the agent runs is agent-authored and is never used. Quiescence is guarded, not assumed: the tree is fingerprinted across adjudication and refused (NOT_QUIESCENT) if it moves, and processes started after the agent spawned that still hold the working tree are surfaced the same way — a synchronous wrapper cannot reap a new session, so the envelope declines to certify rather than pretending it can. The dependency fingerprint is compared BEFORE adjudication as well as after it (1.14.5): entry-vs-exit alone could not see a transient substitution — a replacement runner that returns 0 twice and restores its own bytes on the way out. Residual: on non-Linux hosts the survivor scan is unavailable (fingerprint and --settle still apply), and a worker that waits out the run entirely can only be contained by OS-level isolation. From 1.14.4 the git OBJECT layer is inside the boundary too: `git replace`, `.git/info/grafts` and `.git/shallow` change what the trusted base resolves to without moving a ref or touching a tracked file, so the whole rewrite state is fingerprinted before the agent starts and re-checked the moment it exits — a change is OBJECT_REWRITE -> ENFORCEMENT_FAILED (exit 1), adjudicated before the checks rather than reported after them, and re-checked afterwards for a survivor that installs one mid-run. Residual: a rewrite that PREDATES the envelope predates its authority and is not detected. Explicitly OUTSIDE this boundary (documented TCB), each tracked in SECURITY-ENVELOPE.md: ignored dependency trees (node_modules is symlinked into both verification copies, so an agent that mutates installed dependencies corrupts visible and pristine runs alike); closing the dependency surface is a 2.0 roadmap item | round 2's decisive negative: hooks decide, runtimes terminate. In the cssstyle-gated trajectory the gate denied 42 mutations and verify rejected all 25 stop attempts, and the session completed anyway with a masked tree — correct policy decisions are insufficient when the policy mechanism does not own the lifecycle boundary. The envelope (or `check --diff` + `verify` in CI) owns it from outside; the hooks remain the in-session fast path | double execution + exit codes, adjudicated post-termination |
 
-The fourteen mechanical rules are where determinism is real and the demo is honest. The two
+The fifteen mechanical rules are where determinism is real and the demo is honest. The two
 heuristics (3, 10) are the research surface, and the discipline is: **built only against
 a measured negatives corpus, entering as `warn`, promoted per-rule only when the number
 clears the bar (§7)**. Neither has been built — the corpus comes first, because a
@@ -319,18 +337,23 @@ every way a file gets mutated.
 `tool_input` → runs the engine. On a `block` finding it **denies**, and the deny reason
 *is* the correction signal.
 
-**Output contract (verified against current docs):**
-- Start with the **exit-2 + stderr** path — simpler, and stderr is fed to Claude as
-  feedback, so it's equally agent-visible. Move to structured JSON only if needed.
-- The two are **either/or**. Claude Code ignores hook JSON when the process exits 2.
-  So the adapter **must `exit 0` whenever it emits the JSON**, and never mix them.
+**Output contract (shipped — `src/cli/hook.ts`, verified against current Claude Code docs):**
+- A deny is **JSON on stdout at exit 0**. PreToolUse:
+  `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":<reason>}}`;
+  the Stop sweep's block is `{"decision":"block","reason":<reason>}`, also at exit 0. An
+  allow is exit 0 with empty stdout.
+- **Exit 2 is never a verdict.** Claude Code ignores hook JSON when the process exits 2
+  and falls back to the raw-stderr channel — which arrives wrapped as a "hook error" and
+  leaks the invoking command line. So the adapter exits 0 whenever it emits JSON, and the
+  reason carries only the correction message: no command line, no env.
 - A `permissionDecision: "deny"` blocks the tool **even in `bypassPermissions` mode or
   with `--dangerously-skip-permissions`**. The agent cannot escape the gate by changing
   permission mode. This is the property the whole agent layer rests on — and it holds.
-- Start from Anthropic's `bash_command_validator_example.py` reference; it's exactly
-  the block-a-command pattern.
+- A payload the hook cannot read or parse is **denied, not allowed** (fail closed, 1.14.4).
+  Genuinely empty stdin is a well-formed absence of a tool call and stays an allow, which
+  is what lets `tamperward hook claude < /dev/null` smoke-test the wiring.
 
-Structured form (used once the exit-2 path is proven):
+The deny payload, with the reason as the agent sees it:
 
 ```json
 {
@@ -363,8 +386,12 @@ strip shows green inside the agent loop and is only caught later at pre-commit/C
 silently degrades the inner-loop correction property (§2's magic) and the §7.B metric.
 The product is about *not* having flag-shaped gaps; this would be one.
 
-Handle `stop_hook_active`: respect the override after it has blocked repeatedly without
-progress, so the agent isn't trapped in an unbreakable loop.
+Handle `stop_hook_active`: Claude Code sets it on the Stop payload when the agent is
+already continuing because a Stop hook blocked it. The sweep honours it **immediately**
+— `stopVerdict` returns exit 0 with empty stdout on the first payload that carries it,
+before any diff is read — so a turn that was blocked once and restored is never trapped
+in an unbreakable loop. The cost is bounded: what that second stop leaves behind is
+still judged at pre-commit, in CI, and by the `run` envelope.
 
 ### 5.3 Defense in depth
 
@@ -402,9 +429,24 @@ Same engine, dumber adapters.
 - **Pre-commit** (husky): `tamperward check --staged` → exit 1 on any `block`, printing
   the Finding messages. Catches what the agent layer missed (human commits, another
   agent).
-- **CI** (GitHub Action): `tamperward check --diff "origin/${{ github.base_ref }}...HEAD"`.
+- **CI** (GitHub Action — the workflow `tamperward init` writes, `src/cli/init.ts`
+  `WORKFLOW_CONTENT`): two steps over the pull request, both pinned to the gate's own
+  version and fetched from the public registry regardless of any committed `.npmrc`.
+  1. `tamperward check --diff "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}"`
+     with `TAMPERWARD_OOB_SIGNOFF` resolved from the PR's `tamperward:allow:<rule>@<head-sha>`
+     labels and `TAMPERWARD_OOB_HEAD` set to the head SHA, so an approval binds to the one
+     commit it was granted for and the next push re-blocks.
+  2. `tamperward verify --require-ancestor --base "${{ github.event.pull_request.base.sha }}"`
+     — pristine re-execution against the trusted base, reading its policy and verifier
+     from that commit. It needs a `verify:` block in the policy at the base and fails
+     closed (exit 2) without one.
+
   The authority for `main`. A `block` fails the check; it clears only via the
-  out-of-band label of §5.4, never via the agent or a committed ledger.
+  out-of-band label of §5.4, never via the agent or a committed ledger. This
+  repository's own `ci.yml` runs the `check --diff` half only — its test expectations
+  legitimately change with every rule change and standalone `verify` has no
+  out-of-band sign-off channel — so the self-gate is a diff-time gate (README, "CI
+  authority").
 
 ### 6.1 Presentation
 
@@ -572,7 +614,7 @@ tamperward/
   src/policy*.ts        protected-asset globs, policy load + baseline merge
   src/signoff.ts        the three-layer sign-off model
   src/session.ts        the Stop sweep's per-turn baseline
-  src/cli/              tamperward check | hook | sweep | allow
+  src/cli/              tamperward check | hook | sweep | allow | init | verify | run | watch
   src/adapters/claude/  stdin→Change[] (PreToolUse + Stop), Finding→deny
   test/                 unit suite — green is the gate
   harness/              seeds, oracles, and the bypass-to-fix runner
@@ -580,7 +622,8 @@ tamperward/
 ```
 
 Tamperward gates its own repo with the engine it ships: its CI self-gate runs the built
-CLI over the PR range, and a blocking finding clears only via the out-of-band label.
+CLI's `check --diff` over the PR range, and a blocking finding clears only via the
+out-of-band label. The self-gate does not run `verify` on this repo (§6).
 
 ---
 
@@ -656,7 +699,13 @@ external review placed at the top of the roadmap.
 
 ---
 
-*v0.7 · reconciles the spec with 1.9.0: `tamperward verify` seated as row 16 —
+*v0.8 · reconciles the spec with 1.15.0: no new row — the seventeen-row table's
+heading and counts, the canonical policy example (`test-content-removal`,
+`transient-protected-mutation`, the `snapshots` class), the shipped JSON-at-exit-0 hook
+contract and the immediate `stop_hook_active` allow, the generated workflow's
+`check --diff` + `verify --require-ancestor` wiring with SHA-bound labels, and the
+repo layout brought into line with the code.
+Prior: v0.7 · reconciles the spec with 1.9.0: `tamperward verify` seated as row 16 —
 the taskbench run-correctness oracle productized, with the guarded `verify:`
 policy surface and the base-selection caveat stated.
 Prior: v0.6 · reconciles the spec with 1.8.0: the effect layer — per-call protected-tree
