@@ -27,6 +27,10 @@ report() {
 
 # --- A: the visible run writes into the pristine copy -----------------------
 W=$(mktemp -d /tmp/poc-iso-a-XXXXXX); cd "$W" || exit 1
+# The payload enumerates the temp directory. Give this shape a temp directory of
+# its own so it cannot reach into a verify running elsewhere on the machine and
+# trip that one's guards instead of this one's.
+export TMPDIR="$W/tmp"; mkdir -p "$TMPDIR"
 git init -q; git config user.email p@o.c; git config user.name poc
 mkdir -p test
 echo 'module.exports = 41; // the bug' > src.js

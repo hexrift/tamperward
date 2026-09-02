@@ -45,6 +45,26 @@ describe('H1 the pristine copy is not reachable from the visible run', () => {
     // overlaid BEFORE the visible run started — so the candidate's own code
     // wrote ../pristine/test/<the test that convicts it> and both runs returned
     // 0. No race, no background process, no git.
+    //
+    // The payload below ENUMERATES the temp directory, so this test gets a temp
+    // directory of its own. Without one it reaches into the pristine copies of
+    // every other verify running in parallel — every fixture in this repo names
+    // its suite `test/check.test.js` — and trips THEIR overlay-digest guard, so
+    // an unrelated test reports exit 2. That is not hypothetical: it is what
+    // turned `test (18)` red on the first CI run of this branch.
+    const sandbox = mkdtempSync(join(tmpdir(), 'tw-h1box-'));
+    dirs.push(sandbox);
+    const prevTmp = process.env.TMPDIR;
+    process.env.TMPDIR = sandbox;
+    try {
+      runSiblingWriteCase();
+    } finally {
+      if (prevTmp === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = prevTmp;
+    }
+  });
+
+  function runSiblingWriteCase(): void {
     const cwd = jsRepo('tw-h1-');
     const base = head(cwd);
     writeFileSync(
@@ -63,7 +83,7 @@ describe('H1 the pristine copy is not reachable from the visible run', () => {
       ].join('\n'),
     );
     expect(runVerify({ cwd, base, cmd: 'node test/check.test.js', budget: 60, json: true })).toBe(1);
-  });
+  }
 
   it('a visible run that edits the ORIGINAL working tree fails closed', () => {
     // The pristine copy is now materialised after the visible run, so a
