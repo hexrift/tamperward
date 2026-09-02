@@ -178,6 +178,18 @@ export function defaultPolicy(version = 1): Policy {
         '**/.eslintrc*',
         '**/eslint.config.*',
         '**/package.json',
+        // Coverage gates outside the Jest/Vitest shapes. coverage-lowering could only
+        // see a threshold it was shown: a Python `fail_under`, an nyc `lines`, a
+        // codecov `target` lived in files no glob protected, so lowering them fired
+        // nothing. ADDITIVE, like every baseline widening (the policy-diff reads it
+        // as a strengthening). pyproject.toml carries [tool.coverage.report].
+        '**/.coveragerc',
+        '**/pyproject.toml',
+        '**/.nycrc',
+        '**/.nycrc.*',
+        '**/nyc.config.*',
+        '**/codecov.yml',
+        '**/.codecov.yml',
       ],
       ci: ['.github/workflows/**'],
       // Recorded expected outputs. An assertion stored as data is still an assertion;
