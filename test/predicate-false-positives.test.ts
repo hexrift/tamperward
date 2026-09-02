@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { parseDiff } from '../src/diff/parse';
 import { defaultPolicy } from '../src/policy';
 import { testDeletion, countTests } from '../src/detectors/test-deletion';
+import { coverageLowering } from '../src/detectors/coverage-lowering';
 import { ciTampering, foldExpressions } from '../src/detectors/ci-tampering';
 import { branchExists, resetTrackedFiles, revIsHead } from '../src/detectors/repo';
 import type { Change, CommandChange, Detector, DetectorContext, FileChange, FileOp } from '../src/types';
@@ -373,5 +374,53 @@ describe('test-deletion — git checkout <rev> where <rev> is HEAD by another na
     // without a repository to ask, a rev other than HEAD is judged as before
     expect(run(testDeletion, [cmd('git checkout main -- test/')], { trackedFiles: ['test/a.test.ts'] }).length).toBeGreaterThan(0);
     expect(revIsHead('main', { trackedFiles: [] })).toBeNull();
+  });
+});
+
+// ── coverage-lowering ─────────────────────────────────────────────────────────
+describe('coverage-lowering — generated code, migrations, boilerplate, the 100 shorthand, scoped switches (FP-9, FP-12)', () => {
+  const reasons = (c: Change[], ctx?: DetectorContext) => run(coverageLowering, c, ctx).map((f) => f.evidence);
+  const VC = (cov: string) => `import { defineConfig } from "vitest/config";\nexport default defineConfig({ test: { coverage: { ${cov} } } });\n`;
+  const TH = 'thresholds: { lines: 80 }';
+
+  it('vitest coverage.exclude of generated code, migrations and entrypoints is housekeeping (c04)', () => {
+    const after = VC(`${TH}, exclude: ["src/generated/**", "**/migrations/**", "**/*.generated.ts", "**/*.gen.ts", "**/*.pb.ts", "**/main.ts", "**/*.e2e-spec.ts", "**/__generated__/**", "src/codegen/**"]`);
+    expect(reasons([diffed('vitest.config.ts', VC(TH), after)])).toEqual([]);
+  });
+
+  it('… while **/index.ts and a real module stay reported', () => {
+    expect(reasons([diffed('vitest.config.ts', VC(TH), VC(`${TH}, exclude: ["**/index.ts"]`))])).toEqual(['coverage now exempts "**/index.ts" (coveragePathIgnorePatterns / coverage.exclude)']);
+    expect(reasons([diffed('vitest.config.ts', VC(TH), VC(`${TH}, exclude: ["src/discount.ts"]`))])).toHaveLength(1);
+  });
+
+  it('.coveragerc omit of Django boilerplate is housekeeping (c06); a view is not', () => {
+    const rc = (omit: string) => `[run]\nsource = app\nomit =\n    */tests/*\n${omit}\n[report]\nfail_under = 85\n`;
+    expect(reasons([diffed('.coveragerc', rc(''), rc('    */migrations/*\n    manage.py\n    */wsgi.py\n    */asgi.py\n    */__init__.py'))])).toEqual([]);
+    expect(reasons([diffed('.coveragerc', rc(''), rc('    */views.py'))])).toEqual(['omit now exempts "*/views.py"']);
+  });
+
+  it('thresholds: { 100: true } is every metric at 100 (c10)', () => {
+    expect(reasons([diffed('vitest.config.ts', VC('thresholds: { lines: 80, branches: 80 }'), VC('thresholds: { 100: true }'))])).toEqual([]);
+    expect(reasons([diffed('vitest.config.ts', VC('thresholds: { 100: true }'), VC('thresholds: { lines: 80 }'))]).some((x) => /lines threshold lowered 100 → 80/.test(x))).toBe(true);
+    expect(reasons([diffed('vitest.config.ts', VC('thresholds: { 100: true }'), VC('thresholds: { lines: 100 }'))]).some((x) => /branches threshold removed/.test(x))).toBe(true);
+  });
+
+  it('codecov informational: true under patch: is not the project gate (c07); under project: it is', () => {
+    const cc = (extra: string) => `coverage:\n  status:\n    project:\n      default:\n        target: 80%\n        threshold: 1%\n${extra}`;
+    const patch = cc('    patch:\n      default:\n        target: auto\n        informational: true\n');
+    expect(reasons([diffed('codecov.yml', cc(''), patch)])).toEqual([]);
+    const project = cc('').replace('threshold: 1%', 'threshold: 1%\n        informational: true');
+    expect(reasons([diffed('codecov.yml', cc(''), project)])).toEqual(['codecov project status informational: true added — the status can no longer fail']);
+    expect(reasons([diffed('codecov.yml', project, project.replace('target: 80%', 'target: 85%'))])).toEqual([]); // already there: not an addition
+  });
+
+  it('--passWithNoTests in a new package that has no spec is not a dodge (c09)', () => {
+    const pj = '{"name":"newpkg","version":"0.0.1","scripts":{"test":"jest --passWithNoTests"}}\n';
+    const mono = { trackedFiles: ['packages/core/src/index.ts', 'packages/core/test/a.test.ts', 'packages/newpkg/src/index.ts', 'packages/newpkg/package.json'] };
+    expect(reasons([diffed('packages/newpkg/package.json', null, pj)], mono)).toEqual([]);
+    // the package that HAS a suite, the root of a repo with one, and no listing at all: reported
+    expect(reasons([diffed('packages/core/package.json', '{"name":"core","scripts":{"test":"jest"}}\n', pj)], mono)).toHaveLength(1);
+    expect(reasons([diffed('package.json', '{"name":"x","scripts":{"test":"jest"}}\n', pj)], mono)).toHaveLength(1);
+    expect(reasons([diffed('packages/newpkg/package.json', null, pj)])).toHaveLength(1);
   });
 });
