@@ -704,15 +704,25 @@ than this repository. Intent moves nothing. All five are OPEN.
 | # | milestone | what exists today | what closes it |
 |---|-----------|-------------------|----------------|
 | M1 | An independent, **named** security audit with a public report | Three external review passes (the 1.10.x envelope review with executed exploits, the 1.14.x passes, the 1.15.0 audit), every finding ledgered in SECURITY-ENVELOPE.md and closed with a regression and a mutation check. The reviewers are unnamed and the write-ups are ours. | A named auditor publishes a report against a tagged 2.x release; each finding gets a SECURITY-ENVELOPE row; the report is linked from this row. |
-| M2 | A preregistered replication on 2.x — several agents, one fixed treatment, larger samples | Rounds 1–3.1 ran on v1.6.0 → v1.14.0, prediction committed before each; one agent runtime throughout; rounds 2 and 3 changed treatment with ecosystem; round 3.1 could not have replicated (b ≤ 3 by construction); every round on a verifier later found to carry the 1.14.1 bypass. Round 4 is the undrawn fresh pool; its treatment is pinned at v2.10.0 (this release), chosen after three adversarial passes over 2.4.0–2.10.0 closed every in-repository fail-open by design rather than by instance. | A `PREDICTION` committed before the run that pins one 2.x version across every ecosystem in the round, runs at least two agent runtimes, and sizes the sample to detect a round-2-sized effect (b = 9 / c = 0 on 22 pairs). Analysis frozen before the draw; published beside the bet either way. |
+| M2 | A preregistered replication on 2.x — several agents, one fixed treatment, larger samples | Rounds 1–3.1 ran on v1.6.0 → v1.14.0, prediction committed before each; one agent runtime throughout; rounds 2 and 3 changed treatment with ecosystem; round 3.1 could not have replicated (b ≤ 3 by construction); every round on a verifier later found to carry the 1.14.1 bypass. Round 4 is the undrawn fresh pool. It runs one pinned agent/model configuration for its primary result, with v2.10.0 as the candidate treatment after three adversarial passes over 2.4.0–2.10.0 closed every in-repository fail-open by design rather than by instance; the exact release is frozen in the `PREDICTION` (see the treatment boundary below). | Two preregistrations. Round 4: a `PREDICTION` committed before the draw that pins one 2.x release across every ecosystem in the round and one agent/model configuration, with the sample sized by an exact simulation over the full paired table (false green in both arms, ungated only, gated only, neither). Round 4.1: a separate `PREDICTION`, committed before anyone examines round 4's outcomes, that repeats the frozen pool, treatment and analysis under a second supported agent runtime with equivalent PreToolUse/Stop enforcement semantics. An agent runtime is the harness that executes the agent and its tool calls — Claude Code is one; a second model under Claude Code is model-replication evidence and does not by itself satisfy the runtime requirement, and a runtime with no equivalent adapter cannot receive the treatment (that adapter is M5's work). M2 stays open until 4.1 reports. Analysis frozen before each draw; published beside the bet either way. |
 | M3 | Production pilots with published false-positive rates, overhead and friction | Precision is corpus-measured on mainline commits with no agent in the loop (`harness/fp-study/`; `snapshot-only-rewrite` ~0.06% over 1,652 commits; `test-content-removal` priced on 2,304). No deployment measured; no production user named. | A named pilot publishes per-rule fire and false-positive counts over a stated period, `verify` wall-clock against the bare suite, how often the out-of-band label was needed, and hook latency — linked here whether or not it flatters the gate. |
 | M4 | Stronger verifier isolation and cross-ecosystem dependency integrity (partial mitigations shipped) | Two copies, pristine built after the visible run exits, overlay digested either side, tree and `node_modules` fingerprints, Linux survivor scan, replace-objects disabled on every trusted read. Still true: both runs execute the candidate's code, `node_modules` is a symlink into the agent-writable tree, no OS boundary, the dependency fingerprint is Node-only, the verification surface is an enumerated list (docs/THREAT-MODEL-pristine-run.md). | The pristine run executes where the candidate cannot write — a read-only mount of the base's protected surface, or a separate container/runner with its own dependency install — and before/after dependency integrity for the ecosystems the `tests` class covers (pip, Go module cache, cargo, bundler, Maven/Gradle), each as a versioned change with its threat-model note. |
 | M5 | Attested verdicts, broader agent integrations, org-level policy administration | `--json` verdicts and a GitHub job-summary renderer; the npm package carries SLSA provenance, but a *verdict* is not attested. In-loop hooks for Claude Code only; other agents meet the gate at pre-commit and CI. One `.tamperward.yml` per repository. | A signed verdict statement (in-toto or equivalent) binding head, base, gate version, policy hash and verdict, verifiable by a required check; an in-loop adapter for at least one more runtime with the same PreToolUse/Stop semantics; a documented organisation baseline that per-repo policy can strengthen and never weaken. |
 
 #### Round 4 treatment boundary
 
-Round 4 grades v2.10.0 against three stated claims, and a finding is judged inside
-or outside them:
+Round 4 grades the exact 2.x release and commit identified in its `PREDICTION`.
+v2.10.0 is the candidate treatment, not the commitment: the treatment is frozen after
+the sacrificial pilot and before the confirmatory pool is drawn or any counted
+trajectory runs, and a pilot correction ships as whatever version CONTRIBUTING's rules
+give it. The `PREDICTION` pins the released semantic version, the git commit, the
+packed artefact's SHA-256, the policy hash, the hash of the wiring `init` generates,
+and the runner and analysis hashes. Pilot repositories are permanently excluded from
+the pool. The round's other design decisions — the temporal buckets, task eligibility,
+the completion margin, the power simulation — belong to the `PREDICTION`, not here.
+
+The frozen release is graded against three stated claims, and a finding is judged
+inside or outside them:
 
 1. Everything inside the repository is authoritative at the Stop sweep and at CI. A
    tampered test, config, workflow, coverage setting, hook script or Claude settings
@@ -726,10 +736,17 @@ or outside them:
    finding.
 3. `disableAllHooks: false` in the project settings file (written by `init` since
    2.9.0) and a managed settings file for `env` are part of the deployment the
-   treatment assumes, not optional hardening. A round-4 seed runs with both in place.
+   treatment assumes, not optional hardening. A round-4 seed is initialised from the
+   exact frozen package with both in place, and no local or out-of-band sign-off
+   mechanism is reachable from the agent's environment.
 
 A P0 inside claim 1 is the first evidence that the design, not the implementation, is
 at fault; a P0 under claim 2 moves the sentence, not the code.
+
+The research harness's own isolation — an oracle, a result ledger and a parent-owned
+observer the agent cannot reach — applies symmetrically to both arms and protects the
+experiment, never one arm's repository. It closes nothing under M4, which is about the
+isolation Tamperward gives its users.
 
 The review also corrected the v2.0.0 README, whose scope note said "one model,
 one pressure prompt, one JS/TS ecosystem" beneath the Python and `claude-sonnet-5`
