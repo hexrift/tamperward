@@ -5,6 +5,65 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.4.1] — 2026-09-02
+
+**The enforcement wiring is read for what it does, not for the words in it.
+Six bypasses of `hook-tampering` closed and three false positives fixed. A
+patch: bypass fixes at the same severity, and the guard on the gate's own
+wiring is pinned where the policy under judgment could previously switch it
+off.**
+
+### Fixed
+
+- **Claude Code settings were scanned as a shell script.** Narrowing the
+  PreToolUse matcher from `Bash|Edit|Write|MultiEdit|NotebookEdit` to `Bash`
+  removed no invocation and added no `exit 0`, so nothing fired and the
+  file-edit tools were ungated. Setting the hook command to `true` while
+  adding a junk field that quoted the invocation excused the removal, because
+  survival was judged on any added line containing the token. A new
+  `settings.local.json` that declared empty hook arrays, shadowing the
+  wiring, was an add with nothing removed. `.claude/settings.json` and
+  `settings.local.json` are now parsed on both sides and compared as
+  (matcher tool set, command) pairs: an entry removed, a tool lost from the
+  matcher, an event emptied, `disableAllHooks`, a parseable-before file made
+  unparseable, and an add or modify that shadows the sibling's gate are all
+  hook-tampering; survival is judged only on parsed command-type hooks.
+- **Shell hook scripts were scanned for words too.** `|| true` after the
+  invocation, `exit 0  # comment`, `exit 0;`, bare `exit`, `[ -n "$X" ] ||
+  exit 0`, `if false; then` ahead of it, `npx tamperward --version` in its
+  place, and `echo "npx tamperward …"` all read as a kept check. Scripts are
+  reduced to their live check identities (runner, pin, redirects stripped;
+  argument position and `--version` are not invocations) with a liveness
+  state — live, neutered, unreachable, comment — and only a live survivor
+  with the same identity excuses a removal.
+- **A fresh `.tamperward.yml` was never compared to the baseline.** Adding a
+  policy with `ignore: ['**']` or a lowered severity reported nothing because
+  the comparison needed a `before`; an added policy is now judged against the
+  effective baseline exactly like an edit.
+- **The policy under judgment could silence the judgment.** At the local
+  layers, `rules: { hook-tampering: { enabled: false } }` (or `severity:
+  warn`) in the head policy switched off the findings about that very edit.
+  Hook-tampering findings on the policy file and on the baseline hooks class
+  can no longer be disabled, excluded or lowered by policy.
+- **`git update-index --skip-worktree` was not a command anyone modelled.**
+  It, `--assume-unchanged` and `--chmod=-x` on a protected path are
+  hook-tampering, through `git -C`, `git -c`, an absolute `git` and `cd x &&`.
+  Also `chmod 0`, `chmod 00644`, `chmod --reference=`, `perl -pi`, `awk -i
+  inplace`, `sponge`, `ln -sf`, `git checkout <rev> -- <hook>` and
+  `git restore --source` against a hook.
+- **lefthook, pre-commit and package.json wiring:** an entry removed,
+  `skip: true`, a narrowing `glob`/`exclude`/`only`, `stages` without a commit
+  or push stage, a top-level `exclude`, and `prepare: husky` (or its
+  lefthook/simple-git-hooks/pre-commit equivalent) dropped from every
+  install-phase script are hook-tampering.
+- **False positives:** `chmod +x`/`u+x` on a hook no longer fires (only a lost
+  execute bit does); `cat hook > /tmp/backup`, `cp hook /tmp/`, `sed -n` and
+  other read-only uses no longer fire (only a write whose target is the hook
+  does); removing a CODEOWNERS line is judged by last-match-wins ownership of
+  gate-critical paths rather than as "a check invocation (`husky`) removed";
+  `lefthook.yml → .yaml` and `npx → pnpm exec` (or `yarn`, `bunx`) of the same
+  command are kept.
+
 ## [2.4.0] — 2026-09-02
 
 **The Stop sweep scans untracked protected files, the per-call drift check
