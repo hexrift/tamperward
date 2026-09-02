@@ -213,6 +213,9 @@ export function defaultPolicy(version = 1): Policy {
       hooks: [
         '.husky/**',
         '**/lefthook.*',
+        // lefthook merges `lefthook-local.yml` OVER `lefthook.yml`: a `skip: true`
+        // there switches the gate off without touching the file init pointed at.
+        '**/lefthook-local.*',
         '.tamperward.yml',
         '**/.tamperward.yml',
         '.claude/settings.json',

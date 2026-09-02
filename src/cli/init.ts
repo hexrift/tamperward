@@ -16,9 +16,9 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { POLICY_FILE } from '../policy';
 import { loadPolicy } from '../policy-load';
+import { HOOK_CMD, MARKER, OURS, PRECOMMIT_CMD, PRE_MATCHER, SWEEP_CMD, TW_VERSION } from '../wiring';
 
 export interface InitOpts {
   cwd?: string;
@@ -50,22 +50,22 @@ function gitConfig(cwd: string, key: string): string | null {
   }
 }
 
-// The tools whose calls the PreToolUse gate must see. NotebookEdit was added in
-// 1.13; an install wired before that has a matcher without it, and init's
-// "already wired" check only ever asked whether OUR COMMAND was present — so
-// every repo wired earlier kept a permanently narrower gate, and re-running
-// init reported it as correctly configured. See planClaudeHooks. (P2-12.)
-const PRE_MATCHER = 'Bash|Edit|Write|MultiEdit|NotebookEdit';
-const MARKER = '# tamperward: block agent shortcuts before they land';
-
+// The tools whose calls the PreToolUse gate must see (PRE_MATCHER, ../wiring).
+// NotebookEdit was added in 1.13; an install wired before that has a matcher
+// without it, and init's "already wired" check only ever asked whether OUR
+// COMMAND was present — so every repo wired earlier kept a permanently narrower
+// gate, and re-running init reported it as correctly configured. See
+// planClaudeHooks. (P2-12.)
+//
 // Our three local commands, recognised in any pin. A command someone wrote by
 // hand (`node ./node_modules/.bin/tamperward hook claude`) matches too and is
 // left exactly as written; only the `npx --yes tamperward[@v]` form init itself
-// writes is ever re-pinned (see OURS below).
+// writes is ever re-pinned (OURS, ../wiring). hook-tampering judges an edit to
+// that form by the same shape: what init would write, modulo a pin that only
+// goes up.
 const HOOK_RE = /\btamperward(?:@\S+)?\s+hook\s+claude\b/;
 const SWEEP_RE = /\btamperward(?:@\S+)?\s+sweep\s+claude\b/;
 const PRECOMMIT_RE = /\btamperward(?:@\S+)?\s+check\s+--staged\b/;
-const OURS = /^\s*npx\s+(?:--yes|-y)\s+tamperward(?:@(\S+))?\s+(hook claude|sweep claude|check --staged)\s*$/;
 
 // CODEOWNERS. The gate cannot guard the file that decides whether the gate runs.
 //
@@ -150,39 +150,16 @@ version: 1
 # ignore: []            # visible blind spots — the count is always reported
 `;
 
-// The gate resolves ITSELF from the registry at gate time, so it is pinned to
-// the version that wrote the workflow: an unpinned \`npx --yes tamperward\` is a
-// floating dependency in the one component whose job is integrity.
-// (P2-15, external review.)
-function shippedVersion(): string {
-  try {
-    const here = dirname(fileURLToPath(import.meta.url));
-    for (const rel of ['../package.json', '../../package.json', '../../../package.json']) {
-      try {
-        const pkg = JSON.parse(readFileSync(join(here, rel), 'utf8')) as { name?: string; version?: string };
-        if (pkg.name === 'tamperward' && pkg.version) return pkg.version;
-      } catch {
-        /* keep looking */
-      }
-    }
-  } catch {
-    /* fall through */
-  }
-  return 'latest'; // unknown: prefer a working gate over a broken pin
-}
-const TW_VERSION = shippedVersion();
-
-// PINNED, like the workflow. The local hooks used to be `npx --yes tamperward`
-// with no version: where the package is a devDependency npx runs the installed
-// copy, but where it is not — the common case for a repo that only ran `init` —
-// every hook invocation resolved `latest` from the registry, so the gate a repo
-// ran changed under it without anyone changing anything. That is the P2-15
-// floating dependency again, in the two enforcement points nobody had pinned.
-// `init` re-pins an install it wrote for an older version (planClaudeHooks,
-// planPreCommit); a command someone edited by hand is left alone.
-const HOOK_CMD = `npx --yes tamperward@${TW_VERSION} hook claude`;
-const SWEEP_CMD = `npx --yes tamperward@${TW_VERSION} sweep claude`;
-const PRECOMMIT_CMD = `npx --yes tamperward@${TW_VERSION} check --staged`;
+// The local hooks are PINNED, like the workflow (HOOK_CMD, SWEEP_CMD,
+// PRECOMMIT_CMD, ../wiring). They used to be `npx --yes tamperward` with no
+// version: where the package is a devDependency npx runs the installed copy,
+// but where it is not — the common case for a repo that only ran `init` —
+// every hook invocation resolved `latest` from the registry, so the gate a
+// repo ran changed under it without anyone changing anything. That is the
+// P2-15 floating dependency again, in the two enforcement points nobody had
+// pinned. `init` re-pins an install it wrote for an older version
+// (planClaudeHooks, planPreCommit); a command someone edited by hand is left
+// alone.
 
 /** The pin an `npx --yes tamperward…` command of ours carries: a version, '' for
  *  unpinned, or null when the command is not one init writes. */

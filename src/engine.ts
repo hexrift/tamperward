@@ -6,6 +6,7 @@ import { Change, Detector, DetectorContext, Finding, Policy, View } from './type
 import { allDetectors } from './detectors';
 import { isEnabled } from './detectors/finding';
 import { defaultPolicy, isIgnored, isPolicyFile, matchesAny } from './policy';
+import { isClaudeSettings } from './wiring';
 
 /**
  * The rule that guards the guardrail, and the files it guards.
@@ -20,15 +21,18 @@ import { defaultPolicy, isIgnored, isPolicyFile, matchesAny } from './policy';
  * enforcement wiring is therefore handled like `detector-error`: it is never
  * disabled, never excluded, and always blocks — whatever the file under
  * evaluation says about itself. Kept NARROW: only hook-tampering, and only on the
- * policy file and the BASELINE hooks class (the user's own additions to
- * `protected.hooks` stay governed by the user's policy).
+ * policy file, the BASELINE hooks class (the user's own additions to
+ * `protected.hooks` stay governed by the user's policy) and a Claude settings
+ * file wherever the runtime reads one (`~/.claude/settings.json`, managed
+ * settings — the tool-call layer sees those by absolute path, and they are the
+ * enforcement as much as the project file is).
  */
 const GUARDED_RULE = 'hook-tampering';
 const BASELINE_HOOKS = defaultPolicy().protected.hooks;
 
 export function isGuardedFinding(f: Finding): boolean {
   if (f.rule !== GUARDED_RULE || !f.file) return false;
-  return isPolicyFile(f.file) || matchesAny(f.file, BASELINE_HOOKS);
+  return isPolicyFile(f.file) || matchesAny(f.file, BASELINE_HOOKS) || isClaudeSettings(f.file);
 }
 
 function key(f: Finding): string {

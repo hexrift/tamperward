@@ -10,10 +10,20 @@
 // [manual]`, by an `exclude` covering everything — no invocation moves. Each
 // helper here reads one format the way its consumer does; hook-tampering asks
 // them what was lost.
+//
+// The script model below is the LIVENESS fallback for hand-written hooks. A script
+// init wrote is judged by hook-tampering against init's exact shape first (see
+// ../wiring.ts initScriptPin); only when the before-script was somebody's own does
+// the question become "does the after-script still run every check the before-
+// script ran, in a position where its failure fails the hook". Every rule here
+// was checked under both ways a hook runs — husky's `sh -e <file>` and git's
+// direct exec — with a failing stand-in for the gate.
 
 import { parse as parseYaml } from 'yaml';
 import { isProtected } from '../policy';
-import { Policy } from '../types';
+import { DetectorContext, Policy } from '../types';
+import { PLAIN_SEMVER, compareVersions } from '../wiring';
+import { containsProtected, trackedFiles } from './repo';
 
 // ── shell hook scripts ─────────────────────────────────────────────────────────
 
@@ -46,8 +56,8 @@ const SCRIPT = /^(test|tests|lint|typecheck|type-check|coverage|check)\b/;
 const SUBCOMMAND_TOOLS = new Set(['tamperward', 'make', 'cargo', 'go', 'lefthook', 'husky', 'pre-commit']);
 
 /** Words a segment may start with that are not the command: keywords, env
- *  assignments, wrappers. */
-const PREFIX = /^(?:(?:then|do|else|\{|\(|!|exec|command|time|nice|env|sudo|[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"(?=\s|$)|'[^']*'(?=\s|$)|[^\s"']\S*|(?=\s)))\s+)*/;
+ *  assignments, wrappers. `!` is deliberately NOT here: it inverts the status. */
+const PREFIX = /^(?:(?:then|do|else|\{|\(|exec|command|time|nice|env|sudo|[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"(?=\s|$)|'[^']*'(?=\s|$)|[^\s"']\S*|(?=\s)))\s+)*/;
 
 /**
  * The identity of the check a shell segment runs, or null when it runs none.
@@ -56,7 +66,8 @@ const PREFIX = /^(?:(?:then|do|else|\{|\(|!|exec|command|time|nice|env|sudo|[A-Z
  * --staged` are the same check: runner, pin, output redirection and extra flags
  * are not what a hook is for. `echo "npx tamperward check --staged"` is not a
  * check (the invocation is in argument position) and neither is `npx tamperward
- * --version` (no subcommand that checks anything).
+ * --version` (no subcommand that checks anything). `--cwd <path>` IS identity for
+ * the gate: a check run over another directory is another check.
  */
 export function checkIdentity(segment: string): string | null {
   const core = segment.trim().replace(PREFIX, '').replace(/\s+/g, ' ');
@@ -68,22 +79,44 @@ export function checkIdentity(segment: string): string | null {
   if (tool === 'tamperward') {
     const sub = toks[1];
     if (!sub || sub.startsWith('-')) return null; // `tamperward --version` checks nothing
-    return `tamperward ${sub}`;
+    const cwd = rest.match(/\s--cwd(?:=|\s+)(\S+)/)?.[1];
+    return cwd ? `tamperward ${sub} --cwd ${cwd}` : `tamperward ${sub}`;
   }
   if (SUBCOMMAND_TOOLS.has(tool) && toks[1] && !toks[1].startsWith('-')) return `${tool} ${toks[1]}`;
   return tool;
 }
 
-/** Split a statement into its segments and the operators between them. */
+/** The pin a tamperward invocation carries, '' when unpinned, null when it is not
+ *  a tamperward invocation. */
+function pinOfSegment(segment: string): string | null {
+  const m = segment.trim().replace(PREFIX, '').replace(RUNNER, '').match(/^tamperward(?:@(\S+))?\b/);
+  return m ? (m[1] ?? '') : null;
+}
+
+/** Split a statement into its segments and the operators between them. A `{ …;
+ *  … }` group or a `( … )` subshell is one segment: `gate || { echo; exit 1; }`
+ *  has one `||` and one operand after it. */
 function split(stmt: string): { segs: string[]; ops: string[] } {
   const segs: string[] = [];
   const ops: string[] = [];
-  const re = /(&&|\|\||;|\|)/g;
+  let depth = 0;
+  let single = false;
+  let double = false;
   let last = 0;
-  for (const m of stmt.matchAll(re)) {
-    segs.push(stmt.slice(last, m.index));
-    ops.push(m[1]);
-    last = (m.index ?? 0) + m[1].length;
+  for (let i = 0; i < stmt.length; i++) {
+    const ch = stmt[i];
+    if (ch === "'" && !double) { single = !single; continue; }
+    if (ch === '"' && !single) { double = !double; continue; }
+    if (single || double) continue;
+    if (ch === '(' || (ch === '{' && /(?:^|\s)$/.test(stmt.slice(0, i)) && /^(?:\s|$)/.test(stmt.slice(i + 1)))) { depth++; continue; }
+    if (ch === ')' || (ch === '}' && depth > 0 && /(?:^|[\s;])$/.test(stmt.slice(0, i)))) { depth = Math.max(0, depth - 1); continue; }
+    if (depth > 0) continue;
+    const op = stmt.startsWith('&&', i) ? '&&' : stmt.startsWith('||', i) ? '||' : ch === ';' ? ';' : ch === '|' ? '|' : null;
+    if (!op) continue;
+    segs.push(stmt.slice(last, i));
+    ops.push(op);
+    i += op.length - 1;
+    last = i + 1;
   }
   segs.push(stmt.slice(last));
   return { segs, ops };
@@ -131,27 +164,47 @@ export function alwaysFalse(cond: string): boolean {
   return false;
 }
 
-const alwaysTrue = (cond: string): boolean => /^(?:true|:|\[\s+1\s+-eq\s+1\s+\]|\[\s+-n\s+"?\S"?\s+\])$/.test(cond.trim().replace(/;$/, '').trim());
+/** Whether a shell condition can never be false — the spellings of `true`. A
+ *  constant comparison is one or the other; anything with a variable is neither. */
+export const alwaysTrue = (cond: string): boolean => {
+  const c = cond.trim().replace(/;$/, '').trim();
+  if (/^(?:true|:|!\s*false|\(\s*exit\s+0*\s*\))$/.test(c)) return true;
+  const m = c.match(/^(?:\[\[\s+(.+?)\s+\]\]|\[\s+(.+?)\s+\]|test\s+(.+))$/);
+  if (!m) return false;
+  const inner = (m[1] ?? m[2] ?? m[3]).trim();
+  if (inner.includes('$')) return false;
+  const parts = inner.match(/^(\S+)\s+(-eq|-ne|-lt|-le|-gt|-ge|=|==|!=)\s+(\S+)$/);
+  if (parts) {
+    const ints = /^-?\d+$/.test(unq(parts[1])) && /^-?\d+$/.test(unq(parts[3]));
+    if (parts[2].startsWith('-') && !ints) return false; // not integers: an error, not true
+    return !alwaysFalse(c);
+  }
+  if (/^(?:-n|-z)\s+\S+$/.test(inner)) return !alwaysFalse(c);
+  if (/^\S+$/.test(inner)) return unq(inner) !== ''; // `[ "x" ]`: true when non-empty
+  return false;
+};
 
 /** An exit that passes: `exit`, `exit 0`, `return 0`, with or without `;`. */
 const EXIT_ZERO = /^(?:exit|return)(?:\s+0+)?$/;
 /** Any exit, with any argument: the rest of the script is unreachable after it. */
 const EXIT_ANY = /^(?:exit|return)(?:\s+\S+)?$/;
-/** Something on the right of `||` that would make a failed gate not fail the hook. */
-const FAILS_LOUDLY = /\b(?:exit|return)\s+(?:[1-9]\d*|"?\$\?"?|"?\$\{?[A-Za-z_]\w*\}?"?)(?=[\s;})]|$)|\bfalse\b|\bkill\b|\bexit\s*$|\breturn\s*$/;
 
 export interface Invocation {
   identity: string;
   line: string;
   /** How the invocation is prevented from deciding the hook's exit, if it is. */
   state: 'live' | 'neutered' | 'unreachable' | 'comment';
+  /** The specific reason for a neutered/unreachable state. */
+  why?: string;
+  /** The pin a tamperward invocation carries ('' unpinned); absent otherwise. */
+  pin?: string;
 }
 
 /** Whether an added line INSERTS a passing exit: `exit 0`, `exit 0  # done`, `exit 0;`,
  *  bare `exit`, `[ -n "$X" ] || exit 0`. Statement-level: `echo exit 0` is text. */
 export function insertsPassingExit(line: string): boolean {
   if (isComment(line)) return false;
-  return split(stripComment(line)).segs.some((s) => EXIT_ZERO.test(s.trim().replace(PREFIX, '')));
+  return split(stripComment(line)).segs.some((s) => EXIT_ZERO.test(s.trim().replace(/^!\s+/, '').replace(PREFIX, '')));
 }
 
 /** Whether an added line opens a guard that can never be true (`if false; then`). */
@@ -161,108 +214,606 @@ export function insertsDeadGuard(line: string): boolean {
   return !!m && alwaysFalse(m[1]);
 }
 
-/**
- * Every check invocation in a hook script, with the state the script leaves it in:
- * live, neutered in place (`|| true`, `; true`, piped into something without
- * pipefail), unreachable (inside an always-false `if`, or after an unconditional
- * `exit`), or commented out. The comparison the detector makes is over the LIVE
- * set — everything else is one spelling or another of "the hook no longer runs it".
- */
-export function invocations(lines: string[]): Invocation[] {
-  const out: Invocation[] = [];
-  const pipefail = lines.some((l) => /\bpipefail\b/.test(stripComment(l)));
-  // one frame per open `if`; a frame is dead when its condition can never hold or
-  // it already exited. Top-level reachability is the frame at the bottom.
-  const frames: { dead: boolean }[] = [{ dead: false }];
-  const dead = (): boolean => frames.some((f) => f.dead);
+export interface ScriptOpts {
+  /** The runner passes `-e` (husky runs `sh -e <file>`). When absent the script's
+   *  own `set -e` / shebang flags decide, as git's direct exec would. */
+  errexit?: boolean;
+}
 
-  for (const raw of lines) {
-    if (isComment(raw)) {
-      const id = checkIdentity(raw.replace(/^\s*#+\s*/, ''));
-      if (id) out.push({ identity: id, line: raw, state: 'comment' });
-      continue;
-    }
-    const stmt = stripComment(raw).trim();
-    if (!stmt) continue;
+// ── preprocessing: continuations, heredocs, one-line constructs, functions ────
 
-    const ifm = stmt.match(/^(if|elif)\s+(.+?)\s*(?:;\s*then)?\s*$/);
-    if (ifm) {
-      if (ifm[1] === 'if') frames.push({ dead: alwaysFalse(ifm[2]) });
-      else if (frames.length > 1) frames[frames.length - 1].dead = alwaysFalse(ifm[2]);
+/** Join backslash-continued lines, so `gate \` + `|| true` is one statement. */
+function joinContinued(lines: string[]): string[] {
+  const out: string[] = [];
+  let cur: string | null = null;
+  for (const l of lines) {
+    cur = cur === null ? l : cur + ' ' + l.trimStart();
+    const m = cur.match(/(\\+)$/);
+    if (m && m[1].length % 2 === 1 && !isComment(cur)) {
+      cur = cur.slice(0, -1);
       continue;
     }
-    if (/^else\b/.test(stmt)) {
-      if (frames.length > 1) frames[frames.length - 1].dead = false;
-      continue;
-    }
-    if (/^fi\b/.test(stmt)) {
-      if (frames.length > 1) frames.pop();
-      continue;
-    }
+    out.push(cur);
+    cur = null;
+  }
+  if (cur !== null) out.push(cur);
+  return out;
+}
 
-    const { segs, ops } = split(stmt);
-    for (let i = 0; i < segs.length; i++) {
-      const seg = segs[i].trim().replace(PREFIX, '');
-      const id = checkIdentity(seg);
-      if (!id) {
-        // an unconditional exit ends reachability for the enclosing frame
-        if (EXIT_ANY.test(seg) && !dead() && (i === 0 || ops[i - 1] === ';')) frames[frames.length - 1].dead = true;
-        continue;
-      }
-      let state: Invocation['state'] = dead() ? 'unreachable' : 'live';
-      if (state === 'live' && i > 0) {
-        // `false && gate` never runs it; `true || gate` never runs it
-        if (ops[i - 1] === '&&' && alwaysFalse(segs[i - 1])) state = 'unreachable';
-        if (ops[i - 1] === '||' && alwaysTrue(segs[i - 1])) state = 'unreachable';
-      }
-      if (state === 'live' && i < ops.length) {
-        const after = segs.slice(i + 1).join(' ');
-        if (ops[i] === '||' && !FAILS_LOUDLY.test(after)) state = 'neutered';
-        else if (ops[i] === '|' && !pipefail) state = 'neutered';
-        else if (ops[i] === ';' && segs.slice(i + 1).some((s) => /^(?:true|:)$/.test(s.trim()) || EXIT_ZERO.test(s.trim()))) state = 'neutered';
-      }
-      out.push({ identity: id, line: raw, state });
+/** Heredoc bodies are data: `cat <<EOF … EOF` carries text, not statements. */
+function stripHeredocs(lines: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    out.push(l);
+    if (isComment(l)) continue;
+    const m = stripComment(l).match(/<<(-?)\s*(?:'([^']+)'|"([^"]+)"|\\?([A-Za-z_]\w*))/);
+    if (!m) continue;
+    const word = m[2] ?? m[3] ?? m[4];
+    const dash = m[1] === '-';
+    for (i++; i < lines.length; i++) {
+      const t = dash ? lines[i].replace(/^\t+/, '') : lines[i];
+      if (t === word) break;
     }
   }
   return out;
 }
 
+/** `if c; then x; fi` on one line becomes the lines the walker reads. */
+function explodeKeywords(line: string): string[] {
+  if (isComment(line)) return [line];
+  let s = stripComment(line);
+  s = s.replace(/;;/g, '\n;;');
+  s = s.replace(/;\s*(then|do|fi|done|esac|else|elif)\b/g, '\n$1');
+  s = s.replace(/^(\s*case\s+\S+\s+in)\s+(?=\S)/, '$1\n');
+  s = s.replace(/^(\s*)(then|do|else)\s+(?=\S)/, '$1$2\n');
+  s = s.replace(/\n(then|do|else)\s+(?=\S)/g, '\n$1\n');
+  return s.split('\n');
+}
+
+/** Index of the `}` that brings an open group at `depth` back to zero, ignoring
+ *  quotes and `${…}` expansions; -1 when the line does not close it. */
+function closingBrace(line: string, depth: number): number {
+  let single = false;
+  let double = false;
+  let expansion = 0;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === "'" && !double) single = !single;
+    else if (ch === '"' && !single) double = !double;
+    else if (single) continue;
+    else if (ch === '$' && line[i + 1] === '{') { expansion++; i++; }
+    else if (ch === '}' && expansion > 0) expansion--;
+    else if (ch === '{' && !double) depth++;
+    else if (ch === '}' && !double && --depth === 0) return i;
+  }
+  return -1;
+}
+
+/** Net brace depth change of a line. */
+function braceDelta(line: string): number {
+  let d = 0;
+  let single = false;
+  let double = false;
+  let expansion = 0;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === "'" && !double) single = !single;
+    else if (ch === '"' && !single) double = !double;
+    else if (single) continue;
+    else if (ch === '$' && line[i + 1] === '{') { expansion++; i++; }
+    else if (ch === '}' && expansion > 0) expansion--;
+    else if (ch === '{' && !double) d++;
+    else if (ch === '}' && !double) d--;
+  }
+  return d;
+}
+
+const FN_DEF = /^\s*(?:function\s+)?([A-Za-z_][\w-]*)\s*\(\s*\)\s*(.*)$|^\s*function\s+([A-Za-z_][\w-]*)\s*(\{.*)?$/;
+
+interface Prepared {
+  /** Top-level statements, function bodies removed. */
+  top: string[];
+  fns: Map<string, string[]>;
+  /** Names redefined by a function or an alias: a live invocation of one of them
+   *  runs the redefinition, not the tool. */
+  shadowed: Set<string>;
+  pipefail: boolean;
+  errexit: boolean;
+}
+
+/** Split a script into its top-level statements and its function bodies. A body
+ *  is not a frame the script executes: `gate() { … }` runs nothing until called. */
+function prepare(lines: string[], opts: ScriptOpts): Prepared {
+  const flat = stripHeredocs(joinContinued(lines)).flatMap(explodeKeywords);
+  const top: string[] = [];
+  const fns = new Map<string, string[]>();
+  const shadowed = new Set<string>();
+  let errexit = opts.errexit ?? false;
+  let pipefail = false;
+  if (flat[0]?.startsWith('#!')) {
+    const sb = flat[0];
+    if (/\s-[a-zA-Z]*e[a-zA-Z]*(?:\s|$)/.test(sb)) errexit = true;
+    if (/-[a-zA-Z]*o\s+pipefail\b/.test(sb)) pipefail = true;
+  }
+  for (let i = 0; i < flat.length; i++) {
+    const raw = flat[i];
+    if (isComment(raw)) { top.push(raw); continue; }
+    const stmt = stripComment(raw).trim();
+    const al = stmt.match(/^alias\s+([A-Za-z_][\w-]*)=/);
+    if (al) shadowed.add(al[1]);
+    const def = stmt.match(FN_DEF);
+    if (!def) { top.push(raw); continue; }
+    const name = def[1] ?? def[3];
+    shadowed.add(name);
+    let rest = (def[2] ?? def[4] ?? '').trim();
+    if (rest === '' && /^\s*\{/.test(flat[i + 1] ?? '')) { i++; rest = flat[i].trim(); }
+    const body: string[] = [];
+    if (!rest.startsWith('{')) { fns.set(name, body); continue; } // subshell or unknown body: opaque
+    rest = rest.slice(1);
+    // `f() { …; }; f || true`: what follows the closing brace is a top-level statement
+    const after = (line: string, close: number): void => {
+      const t = line.slice(0, close);
+      if (t.trim()) body.push(t);
+      const remainder = line.slice(close + 1).replace(/^\s*;?\s*/, '');
+      if (remainder.trim()) top.push(remainder);
+    };
+    let close = closingBrace(rest, 1);
+    if (close !== -1) {
+      after(rest, close);
+    } else {
+      if (rest.trim()) body.push(rest);
+      let depth = 1 + braceDelta(rest);
+      for (i++; i < flat.length; i++) {
+        const line = isComment(flat[i]) ? '' : stripComment(flat[i]);
+        close = closingBrace(line, depth);
+        if (close !== -1) { after(line, close); break; }
+        depth += braceDelta(line);
+        body.push(flat[i]);
+      }
+    }
+    fns.set(name, body);
+  }
+  return { top, fns, shadowed, pipefail, errexit };
+}
+
+// ── the walk ───────────────────────────────────────────────────────────────────
+
+/** `exit`: the script terminates with a failing status. */
+type Status = 'ok' | 'fail' | 'exit' | 'unknown';
+
+interface Frame { dead: boolean; exhausted: boolean; kind: 'base' | 'if' | 'loop' | 'case'; word?: string }
+
+interface State {
+  errexit: boolean;
+  pipefail: boolean;
+  /** The script `cd`ed somewhere that is not the repository root. */
+  cdAway: boolean;
+  vars: Map<string, string>;
+  fns: Map<string, string[]>;
+  shadowed: Set<string>;
+  /** Statement indices of traps whose action passes on EXIT/ERR. */
+  traps: number[];
+  out: Array<Invocation & { idx: number; errexit: boolean; passthrough: boolean }>;
+  /** Index of the last top-level statement that is not transparent. */
+  lastReal: number;
+}
+
+/** Whether a statement contributes nothing to the script's exit status after the
+ *  gate: closers, keywords, an `exit $?` that forwards the status. */
+const TRANSPARENT = /^(?:fi|done|esac|\}|\)|;;|then|do|else|exit\s+"?\$\??"?|exit\s+"?\$\{\?\}"?)\s*;?$/;
+
+/** The status a segment leaves when run after a failed gate, as far as it can be
+ *  known. Statement by statement: what fails loudly is an explicit non-zero exit,
+ *  `false`, a `kill` of the shell, or a bare `exit`/`return` that forwards a
+ *  failing status. Anything else — `true`, `echo`, `kill -0`, `exit 0`, `exit
+ *  $status` with status=0, `{ echo x; exit; }` (the `exit` forwards echo's 0) —
+ *  passes. Words inside arguments (`echo "exit 1"`) are not statements. */
+function statusAfterFailure(seg: string, vars: Map<string, string>): Status {
+  const inner = seg.trim().replace(/^[{(]\s*/, '').replace(/\s*[})]\s*;?\s*$/, '');
+  let status: Status = 'fail'; // the gate's, until something runs
+  for (const piece of inner.split(/;|&&|\|\||\|/)) {
+    const w = piece.trim().replace(PREFIX, '').split(/\s+/);
+    switch (w[0]) {
+      case '': break;
+      case 'true': case ':': status = 'ok'; break;
+      case 'false': status = 'fail'; break;
+      case 'kill': status = w[1] === '-0' ? 'ok' : 'exit'; break;
+      case 'exit': case 'return': {
+        const arg = unq(w[1] ?? '');
+        if (arg === '' || arg === '$?' || arg === '${?}') return status === 'ok' ? 'ok' : 'exit';
+        if (/^0+$/.test(arg)) return 'ok';
+        if (/^[1-9]\d*$/.test(arg)) return 'exit';
+        const v = arg.match(/^\$\{?([A-Za-z_]\w*)\}?$/);
+        const known = v ? vars.get(v[1]) : undefined;
+        return known !== undefined && /^0+$/.test(known) ? 'ok' : 'exit';
+      }
+      default: status = 'ok';
+    }
+  }
+  return status;
+}
+
+/** Constant status of a segment run on its own, for reachability through `&&`/`||`. */
+function constStatus(seg: string): Status {
+  const s = seg.trim().replace(/^!\s+/, '');
+  if (alwaysTrue(s)) return 'ok';
+  if (alwaysFalse(s)) return 'fail';
+  return 'unknown';
+}
+
+/** Whether segment `i` of a statement runs: 'yes' unconditionally, 'no' never,
+ *  'maybe' when an earlier segment's status is not a constant. */
+function reaches(segs: string[], ops: string[], i: number): 'yes' | 'no' | 'maybe' {
+  let status: Status = 'ok';
+  let certain = true;
+  for (let j = 0; j < i; j++) {
+    const runs = j === 0 ? true : ops[j - 1] === '&&' ? status !== 'fail' : ops[j - 1] === '||' ? status !== 'ok' : true;
+    if (!runs) continue;
+    const s = constStatus(segs[j]);
+    if (s === 'unknown' && (ops[j] === '&&' || ops[j] === '||')) certain = false;
+    if (ops[j] === ';' || ops[j] === '|') { status = 'ok'; certain = certain && true; continue; }
+    status = s;
+  }
+  const gate = i === 0 ? true : ops[i - 1] === '&&' ? status !== 'fail' : ops[i - 1] === '||' ? status !== 'ok' : true;
+  if (!gate) return 'no';
+  if (i === 0 || ops[i - 1] === ';' || ops[i - 1] === '|') return 'yes';
+  if (!certain || status === 'unknown') return 'maybe';
+  return 'yes';
+}
+
+/** Resolve `$VAR`/`${VAR}` against the assignments seen so far; null when unknown. */
+function literal(arg: string, vars: Map<string, string>): string | null {
+  const a = unq(arg.trim());
+  if (/[`]|\$\(/.test(a)) return null;
+  let unknown = false;
+  const r = a.replace(/\$\{?([A-Za-z_]\w*)\}?/g, (_, n: string) => {
+    const v = vars.get(n);
+    if (v === undefined) unknown = true;
+    return v ?? '';
+  });
+  return unknown ? null : r;
+}
+
+/** Whether a `cd` target is the repository root (so the gate still sees the repo). */
+function cdStaysHome(arg: string, vars: Map<string, string>): boolean | null {
+  const a = arg.trim();
+  if (/rev-parse\s+--show-toplevel/.test(a)) return true;
+  const lit = literal(a, vars);
+  if (lit === null) return null; // unknown: not judged
+  return lit === '' || lit === '.' || lit === './';
+}
+
+function walk(lines: string[], st: State, topIdx: (i: number) => number, depth: number): boolean {
+  const frames: Frame[] = [{ dead: false, exhausted: false, kind: 'base' }];
+  const dead = (): boolean => frames.some((f) => f.dead);
+  const conditional = (): boolean => frames.length > 1;
+  let exits = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const idx = topIdx(i);
+    if (isComment(raw)) {
+      const id = checkIdentity(raw.replace(/^\s*#+\s*/, ''));
+      if (id) st.out.push({ identity: id, line: raw, state: 'comment', idx, errexit: st.errexit, passthrough: false });
+      continue;
+    }
+    let stmt = stripComment(raw).trim();
+    if (!stmt) continue;
+
+    // ── control flow ──
+    const ifm = stmt.match(/^(if|elif)\s+(.+)$/);
+    if (ifm) {
+      const cond = ifm[2].replace(/;\s*$/, '');
+      // a gate used AS a condition has its status consumed by the `if`
+      const cid = checkIdentity(cond.replace(/^!\s+/, ''));
+      if (cid) st.out.push({ identity: cid, line: raw, state: dead() ? 'unreachable' : 'neutered', why: 'used as an `if` condition — its failure selects a branch instead of failing the hook', idx, errexit: st.errexit, passthrough: false });
+      if (ifm[1] === 'if') frames.push({ dead: alwaysFalse(cond), exhausted: alwaysTrue(cond), kind: 'if' });
+      else if (frames.length > 1) {
+        const f = frames[frames.length - 1];
+        f.dead = f.exhausted || alwaysFalse(cond);
+        f.exhausted = f.exhausted || alwaysTrue(cond);
+      }
+      continue;
+    }
+    if (/^else\b/.test(stmt)) {
+      if (frames.length > 1) { const f = frames[frames.length - 1]; f.dead = f.exhausted; }
+      continue;
+    }
+    if (/^(?:fi|done|esac)\b/.test(stmt)) { if (frames.length > 1) frames.pop(); continue; }
+    if (/^(?:then|do)\b/.test(stmt)) continue;
+    const loop = stmt.match(/^(while|until)\s+(.+)$/);
+    if (loop) {
+      const cond = loop[2].replace(/;\s*$/, '');
+      frames.push({ dead: loop[1] === 'while' ? alwaysFalse(cond) : alwaysTrue(cond), exhausted: false, kind: 'loop' });
+      continue;
+    }
+    const forl = stmt.match(/^for\s+[A-Za-z_]\w*(?:\s+in\b(.*))?$/);
+    if (forl) {
+      const list = (forl[1] ?? '$@').replace(/;\s*$/, '').trim();
+      frames.push({ dead: forl[1] !== undefined && (list === '' || /^(?:""|'')$/.test(list)), exhausted: false, kind: 'loop' });
+      continue;
+    }
+    const casem = stmt.match(/^case\s+(\S+)\s+in\b/);
+    if (casem) { frames.push({ dead: false, exhausted: false, kind: 'case', word: unq(casem[1]) }); continue; }
+    const pat = frames[frames.length - 1].kind === 'case' ? stmt.match(/^\(?([^()]+)\)\s*(.*)$/) : null;
+    if (pat) {
+      const f = frames[frames.length - 1];
+      const word = f.word ?? '';
+      const patterns = pat[1].split('|').map((p) => unq(p.trim()));
+      const may = /[$`]/.test(word) || patterns.some((p) => p === '*' || /[$`*?[]/.test(p) || p === word);
+      f.dead = !may;
+      stmt = pat[2].trim();
+      if (!stmt) continue;
+    }
+    if (/^;;$/.test(stmt)) continue;
+    if (/^[{}()]$/.test(stmt)) continue;
+
+    // ── statements ──
+    const bg = /(?<!&)&\s*$/.test(stmt) && !/&&\s*$/.test(stmt);
+    if (bg) stmt = stmt.replace(/\s*&\s*$/, '');
+    const { segs, ops } = split(stmt);
+    for (let s = 0; s < segs.length; s++) {
+      let seg = segs[s].trim();
+      const inverted = /^!\s+/.test(seg);
+      seg = seg.replace(/^!\s+/, '');
+      const execs = /^exec\s+/.test(seg) && !/^exec\s+(?:\d*[<>]|&>)/.test(seg);
+      seg = seg.replace(PREFIX, '');
+      const reach = dead() ? 'no' : reaches(segs, ops, s);
+      const first = seg.split(/\s+/)[0] ?? '';
+
+      // State-changing statements. Switching a protection OFF (`set +e`, a passing
+      // trap, a `cd` away) counts wherever it might run; switching one ON (`set
+      // -e`, `cd` back to the root, a known variable) only where it certainly runs.
+      if (reach !== 'no') {
+        const certain = reach === 'yes' && !conditional();
+        const set = seg.match(/^set\s+(.+)$/);
+        if (set) {
+          const toks = set[1].split(/\s+/);
+          for (let t = 0; t < toks.length; t++) {
+            const m = toks[t].match(/^([-+])([a-zA-Z]+)$/);
+            if (!m) continue;
+            const on = m[1] === '-';
+            const flip = (cur: boolean): boolean => (on ? (certain ? true : cur) : false);
+            if (m[2].includes('e')) st.errexit = flip(st.errexit);
+            if (m[2].includes('o')) {
+              const name = toks[++t];
+              if (name === 'errexit') st.errexit = flip(st.errexit);
+              if (name === 'pipefail') st.pipefail = flip(st.pipefail);
+            }
+          }
+        }
+        const trap = seg.match(/^trap\s+(?:'([^']*)'|"([^"]*)"|(\S+))\s+(.+)$/);
+        if (trap) {
+          const action = trap[1] ?? trap[2] ?? trap[3];
+          const sigs = trap[4].split(/\s+/);
+          if (sigs.some((x) => /^(?:EXIT|ERR|0|SIGERR)$/i.test(x)) && /(?:^|[;\s])(?:exit(?:\s+0+)?|true|:)\s*(?:;|$)/.test(action)) st.traps.push(idx);
+        }
+        const asg = seg.match(/^(?:export\s+|readonly\s+)?([A-Za-z_]\w*)=(.*)$/);
+        if (asg) {
+          const v = certain ? literal(asg[2], st.vars) : null;
+          if (v === null) st.vars.delete(asg[1]); else st.vars.set(asg[1], v);
+        }
+        if (first === 'cd') {
+          const home = cdStaysHome(seg.slice(2), st.vars);
+          if (home === false) st.cdAway = true;
+          else if (home === true && certain) st.cdAway = false;
+        }
+      }
+
+      const id = checkIdentity(seg);
+      if (!id) {
+        if (reach === 'yes') {
+          if (EXIT_ANY.test(seg)) {
+            if (!conditional()) { frames[0].dead = true; if (/^exit\b/.test(seg)) exits = true; }
+            else if (/^exit\b/.test(seg) && depth > 0) { /* conditional exit inside a function: not judged */ }
+          } else if (execs && !conditional()) {
+            frames[0].dead = true; // the shell is replaced
+          } else if (st.fns.has(first) && reach === 'yes') {
+            const start = st.out.length;
+            const body = st.fns.get(first) ?? [];
+            const sub: State = { ...st, out: st.out };
+            const fnExits = depth < 6 && walk(body, sub, () => idx, depth + 1);
+            st.errexit = sub.errexit; st.pipefail = sub.pipefail; st.cdAway = sub.cdAway;
+            // the call's own position neuters what the body ran
+            const verdict = chainVerdict(segs, ops, s, st, inverted, bg);
+            for (let k = start; k < st.out.length; k++) {
+              const inv = st.out[k];
+              if (inv.state === 'live' && verdict.state !== 'live') { inv.state = verdict.state; inv.why = verdict.why; }
+              if (inv.state === 'live') inv.passthrough = inv.passthrough && verdict.passthrough;
+            }
+            if (fnExits && !conditional()) { frames[0].dead = true; exits = true; }
+          }
+        } else if (reach === 'maybe' && st.fns.has(first)) {
+          const start = st.out.length;
+          const sub: State = { ...st, out: st.out };
+          if (depth < 6) walk(st.fns.get(first) ?? [], sub, () => idx, depth + 1);
+          const verdict = chainVerdict(segs, ops, s, st, inverted, bg);
+          for (let k = start; k < st.out.length; k++) {
+            const inv = st.out[k];
+            if (inv.state === 'live' && verdict.state !== 'live') { inv.state = verdict.state; inv.why = verdict.why; }
+          }
+        }
+        continue;
+      }
+
+      let state: Invocation['state'] = 'live';
+      let why: string | undefined;
+      let passthrough = false;
+      if (reach === 'no') { state = 'unreachable'; why = dead() ? 'behind an always-false guard, an early exit, or a function body that is never called' : 'behind a constant condition'; }
+      else {
+        const v = chainVerdict(segs, ops, s, st, inverted, bg);
+        state = v.state; why = v.why; passthrough = v.passthrough;
+        if (state === 'live' && /^tamperward\b/.test(id) && st.cdAway) { state = 'neutered'; why = 'runs from another directory after a `cd` away from the repository root'; }
+        if (state === 'live') {
+          const words = [first, 'tamperward'].filter((w) => w && st.shadowed.has(w));
+          if (words.length) { state = 'neutered'; why = `\`${words[0]}\` is redefined by a function or alias in this script`; }
+        }
+      }
+      const pin = pinOfSegment(seg);
+      st.out.push({ identity: id, line: raw, state, why, idx, errexit: st.errexit, passthrough, ...(pin !== null ? { pin } : {}) });
+    }
+  }
+  return exits;
+}
+
+/** What the rest of the statement does to a failed gate at segment `i`. */
+function chainVerdict(segs: string[], ops: string[], i: number, st: State, inverted: boolean, bg: boolean): { state: Invocation['state']; why?: string; passthrough: boolean } {
+  if (inverted) return { state: 'neutered', why: 'its status is inverted by `!`', passthrough: false };
+  if (bg) return { state: 'neutered', why: 'run in the background — the hook does not wait for its status', passthrough: false };
+  let cur: Status = 'fail';
+  for (let j = i; j < ops.length; j++) {
+    const op = ops[j];
+    const next = segs[j + 1];
+    if (op === '|') {
+      if (!st.pipefail) return { state: 'neutered', why: 'piped into another command without `pipefail`', passthrough: false };
+      continue;
+    }
+    if (cur === 'exit') break; // the script has ended, failing
+    if (op === '||') {
+      if (cur === 'fail') cur = statusAfterFailure(next, st.vars);
+    } else if (op === '&&') {
+      if (cur === 'ok') cur = statusAfterFailure(next, st.vars);
+    } else if (op === ';') {
+      const rest = segs.slice(j + 1).map((x) => x.trim());
+      if (st.errexit && cur === 'fail') {
+        if (rest.some((x) => /^(?:true|:)$/.test(x) || EXIT_ZERO.test(x))) return { state: 'neutered', why: 'followed by a passing statement in the same line', passthrough: false };
+        return { state: 'live', passthrough: false };
+      }
+      if (rest.every((x) => TRANSPARENT.test(x))) return { state: cur === 'fail' ? 'live' : 'neutered', why: cur === 'fail' ? undefined : 'the `||` chain after it ends in success', passthrough: cur === 'fail' };
+      return { state: 'neutered', why: 'followed by other statements whose status replaces it (no `set -e`)', passthrough: false };
+    }
+  }
+  if (cur === 'ok') return { state: 'neutered', why: 'the `||` chain after it ends in success', passthrough: false };
+  if (cur === 'exit') return { state: 'live', passthrough: false }; // `|| exit 1`: fails the hook by itself
+  // the statement's status is the gate's: under errexit that fails the hook; without
+  // it, only when nothing runs afterwards
+  return { state: 'live', passthrough: i === ops.length || ops.slice(i).every((o) => o === '&&' || o === '||') };
+}
+
+/**
+ * Every check invocation in a hook script, with the state the script leaves it in:
+ * live, neutered in place (`|| true`, `; true`, piped into something without
+ * pipefail, shadowed by a function or alias, backgrounded, inverted, run after a
+ * `cd` away, or — without `set -e` — followed by other statements), unreachable
+ * (inside an always-false or exhausted branch, an empty loop, after an exit or an
+ * exec, or in a function that is never called), or commented out. The comparison
+ * the detector makes is over the LIVE set — everything else is one spelling or
+ * another of "the hook no longer runs it".
+ */
+export function invocations(lines: string[], opts: ScriptOpts = {}): Invocation[] {
+  const prep = prepare(lines, opts);
+  const st: State = {
+    errexit: prep.errexit,
+    pipefail: prep.pipefail,
+    cdAway: false,
+    vars: new Map(),
+    fns: prep.fns,
+    shadowed: prep.shadowed,
+    traps: [],
+    out: [],
+    lastReal: -1,
+  };
+  for (let i = 0; i < prep.top.length; i++) {
+    const t = stripComment(prep.top[i]).trim();
+    if (t && !isComment(prep.top[i]) && !TRANSPARENT.test(t)) st.lastReal = i;
+  }
+  walk(prep.top, st, (i) => i, 0);
+  // Invocations inside bodies that were never called: unreachable, so the
+  // comparison can say where the gate went.
+  const seen = new Set(st.out.map((o) => o.line));
+  for (const [, body] of prep.fns) {
+    const sub: State = { ...st, out: [], traps: [] };
+    walk(body, sub, () => -1, 1);
+    for (const inv of sub.out) if (!seen.has(inv.line) && inv.state !== 'comment') st.out.push({ ...inv, state: 'unreachable', why: 'defined in a function that is never called' });
+  }
+  return st.out.map((inv) => {
+    if (inv.state !== 'live') return strip(inv);
+    if (st.traps.some((t) => t < inv.idx) || (!inv.errexit && st.traps.some((t) => t > inv.idx))) {
+      return strip({ ...inv, state: 'neutered', why: 'a `trap` on EXIT/ERR exits 0 whatever the gate returned' });
+    }
+    if (inv.passthrough && !inv.errexit && inv.idx !== -1 && inv.idx < st.lastReal) {
+      return strip({ ...inv, state: 'neutered', why: 'without `set -e` its failure does not fail the hook — other statements run after it' });
+    }
+    return strip(inv);
+  });
+}
+
+const strip = (inv: Invocation & { idx: number; errexit: boolean; passthrough: boolean }): Invocation => {
+  const { idx: _i, errexit: _e, passthrough: _p, ...rest } = inv;
+  return rest;
+};
+
 /** Reasons the after-script runs fewer checks than the before-script. */
-export function scriptWeakening(before: string[], after: string[]): Array<{ reason: string; evidence: string }> {
+export function scriptWeakening(before: string[], after: string[], opts: ScriptOpts = {}): Array<{ reason: string; evidence: string }> {
+  const beforeInv = invocations(before, opts);
+  const afterInv = invocations(after, opts);
   const live = (inv: Invocation[]) => new Set(inv.filter((i) => i.state === 'live').map((i) => i.identity));
-  const bl = live(invocations(before));
-  const afterInv = invocations(after);
+  const bl = live(beforeInv);
   const al = live(afterInv);
   const out: Array<{ reason: string; evidence: string }> = [];
   for (const id of bl) {
     if (al.has(id)) continue;
-    const trace = afterInv.find((i) => i.identity === id);
+    const trace = afterInv.find((i) => i.identity === id) ?? afterInv.find((i) => i.identity.split(' --cwd ')[0] === id.split(' --cwd ')[0]);
     const how =
       trace?.state === 'neutered'
-        ? 'neutralised in place (its failure can no longer fail the hook)'
+        ? `neutralised in place (${trace.why ?? 'its failure can no longer fail the hook'})`
         : trace?.state === 'unreachable'
-          ? 'made unreachable (behind an always-false guard or an early exit)'
+          ? `made unreachable (${trace.why ?? 'behind an always-false guard or an early exit'})`
           : trace?.state === 'comment'
             ? 'commented out'
-            : 'removed';
-    const evidence = (trace?.line ?? before.find((l) => checkIdentity(stripComment(l).trim().replace(PREFIX, '')) === id) ?? id).trim();
+            : trace && trace.identity !== id
+              ? `replaced by \`${trace.identity}\``
+              : 'removed';
+    const evidence = (trace?.line ?? before.find((l) => checkIdentity(stripComment(l).trim().replace(/^!\s+/, '').replace(PREFIX, '')) === id) ?? id).trim();
     out.push({ reason: `the check invocation \`${id}\` was ${how}`, evidence });
   }
+  // A pin lowered below what the before-script ran is a downgrade of the gate,
+  // whatever else stayed live.
+  const floor = beforeInv.filter((i) => i.state === 'live' && i.pin && PLAIN_SEMVER.test(i.pin)).map((i) => i.pin as string).sort((a, b) => compareVersions(a, b) ?? 0)[0];
+  if (floor) {
+    for (const inv of afterInv) {
+      if (inv.state !== 'live' || !inv.pin || !PLAIN_SEMVER.test(inv.pin)) continue;
+      if ((compareVersions(inv.pin, floor) ?? 0) < 0) out.push({ reason: `the gate's pin was lowered from ${floor} to ${inv.pin}`, evidence: inv.line.trim() });
+    }
+  }
   return out;
+}
+
+/** A shell interpreter in shebang position, or a shebang that is not one: git
+ *  execs a hook directly, so `#!/usr/bin/env -S sh -c 'exit 0'` or `#!/bin/echo`
+ *  runs the interpreter named there and never the script. */
+export function shebangProblem(src: string): string | null {
+  const first = src.split('\n')[0] ?? '';
+  if (!first.startsWith('#!')) return null;
+  const body = first.slice(2).trim();
+  const toks = body.split(/\s+/);
+  let i = 0;
+  if (/(?:^|\/)env$/.test(toks[0] ?? '')) {
+    i = 1;
+    while (i < toks.length && toks[i].startsWith('-')) i++;
+  }
+  const interp = (toks[i] ?? '').replace(/^.*\//, '');
+  if (!/^(?:sh|bash|dash|zsh|ksh|ash|busybox)$/.test(interp)) return `the shebang runs \`${body}\`, not a shell`;
+  if (toks.slice(i + 1).some((t) => /^-[a-zA-Z]*c/.test(t))) return `the shebang passes \`-c\` — the interpreter runs the argument, not the script`;
+  return null;
 }
 
 // ── CODEOWNERS ─────────────────────────────────────────────────────────────────
 
 export const isCodeowners = (path: string): boolean => /(?:^|\/)CODEOWNERS$/.test(path);
 
-/** The paths whose ownership decides whether the gate can be edited without a human. */
+/** The concrete files whose ownership decides whether the gate can be edited
+ *  without a human. Evaluated as FILES, with GitHub's glob semantics: a later
+ *  ownerless `/.husky/pre-commit`, `*.yml` or `**\/pre-commit` un-owns the gate
+ *  while the directory rule above it still reads as owned. */
 export const GATE_CRITICAL = [
-  '/.github/workflows/',
+  '/.github/workflows/tamperward.yml',
   '/.tamperward.yml',
   '/.github/CODEOWNERS',
   '/CODEOWNERS',
   '/docs/CODEOWNERS',
-  '/.husky/',
+  '/.husky/pre-commit',
   '/.claude/settings.json',
   '/.claude/settings.local.json',
   '/.pre-commit-config.yaml',
@@ -270,15 +821,32 @@ export const GATE_CRITICAL = [
   '/lefthook.yaml',
 ];
 
-/** Whether a CODEOWNERS pattern covers a critical path (GitHub's rules, the subset
- *  that matters here: `*`, an exact path, a directory prefix, a `/**` suffix). */
-function covers(pattern: string, critical: string): boolean {
-  if (pattern === '*' || pattern === '**') return true;
-  let p = pattern.replace(/\/\*\*$/, '/').replace(/\/\*$/, '/');
-  if (!p.startsWith('/')) p = '/' + p;
-  if (p === critical) return true;
-  if (p.endsWith('/') && critical.startsWith(p)) return true;
-  return critical.startsWith(p + '/');
+/** A CODEOWNERS pattern as a matcher over root-anchored file paths, per GitHub's
+ *  rules: `*` stays within a segment, `**` crosses segments, a pattern without a
+ *  slash matches at any depth, a leading slash anchors, a trailing slash (or a
+ *  pattern naming a directory) covers everything beneath. */
+function codeownersMatcher(pattern: string): (file: string) => boolean {
+  let p = pattern.trim();
+  if (p === '*' || p === '**') return () => true;
+  let anchored = p.startsWith('/');
+  if (anchored) p = p.slice(1);
+  const dir = p.endsWith('/');
+  p = p.replace(/\/+$/, '');
+  if (p.includes('/')) anchored = true; // an inner slash anchors to the root, as in gitignore
+  if (p.startsWith('**/')) { anchored = false; p = p.slice(3); }
+  let re = '';
+  for (let i = 0; i < p.length; i++) {
+    const ch = p[i];
+    if (ch === '*') {
+      if (p[i + 1] === '*') { re += '.*'; i++; }
+      else re += '[^/]*';
+    } else if (ch === '?') re += '[^/]';
+    else re += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  }
+  const body = (anchored ? '^/' : '(?:^|/)') + re;
+  const exact = new RegExp(body + '$');
+  const under = new RegExp(body + '/');
+  return (file: string) => (!dir && exact.test(file)) || under.test(file);
 }
 
 /** The owners the file assigns a critical path — the LAST matching rule wins, as
@@ -289,15 +857,23 @@ function ownersOf(content: string, critical: string): string[] | null {
     const t = line.trim();
     if (!t || t.startsWith('#')) continue;
     const [pattern, ...rest] = t.split(/\s+/);
-    if (covers(pattern, critical)) owners = rest.filter((o) => !o.startsWith('#'));
+    let matches: boolean;
+    try {
+      matches = codeownersMatcher(pattern)(critical);
+    } catch {
+      matches = false;
+    }
+    if (matches) owners = rest.filter((o) => !o.startsWith('#'));
   }
   return owners;
 }
 
-/** Reasons the after-CODEOWNERS requires a human on fewer gate-critical paths. */
-export function codeownersWeakening(before: string, after: string): string[] {
+/** Reasons the after-CODEOWNERS requires a human on fewer gate-critical files.
+ *  `extra` adds files the repository has (its workflow files, its hooks). */
+export function codeownersWeakening(before: string, after: string, extra: string[] = []): string[] {
   const out: string[] = [];
-  for (const critical of GATE_CRITICAL) {
+  const files = [...new Set([...GATE_CRITICAL, ...extra.map((f) => (f.startsWith('/') ? f : '/' + f))])];
+  for (const critical of files) {
     const was = ownersOf(before, critical);
     if (!was || was.length === 0) continue;
     const now = ownersOf(after, critical);
@@ -322,26 +898,68 @@ export function parseDoc(src: string): Doc | null {
 }
 
 export const isLefthook = (path: string): boolean => /(?:^|\/)\.?lefthook(?:-local)?\.(?:ya?ml|toml|json)$/.test(path);
+export const isLefthookLocal = (path: string): boolean => /(?:^|\/)\.?lefthook-local\.(?:ya?ml|toml|json)$/.test(path);
 export const isPreCommitConfig = (path: string): boolean => /(?:^|\/)\.pre-commit-config\.ya?ml$/.test(path);
 export const isPackageJson = (path: string): boolean => /(?:^|\/)package\.json$/.test(path);
 
 const GATE = /\btamperward\b/;
 const str = (v: unknown): string => (typeof v === 'string' ? v : Array.isArray(v) ? v.map(String).join(' ') : v == null ? '' : JSON.stringify(v));
+const list = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : typeof v === 'string' ? v.split(/[\s,]+/).filter(Boolean) : []);
 
-interface LefthookEntry { skip: unknown; sectionSkip: unknown; glob: string; exclude: string; only: string }
+/** Whether a config's command string runs the gate LIVE — `tamperward check` in
+ *  invocation position, its failure able to fail the entry. Not the word. */
+export function runsGate(command: string): boolean {
+  return invocations([command], { errexit: true }).some((i) => i.state === 'live' && /^tamperward check\b/.test(i.identity));
+}
 
-/** Every lefthook command/script whose `run` invokes the gate, keyed by section and name. */
+/** lefthook's overlay: `lefthook-local.yml` is merged over `lefthook.yml`, maps
+ *  deeply, everything else replaced. */
+export function mergeDocs(base: Doc, over: Doc): Doc {
+  const out: Doc = { ...base };
+  for (const [k, v] of Object.entries(over)) {
+    const b = out[k];
+    out[k] = isDoc(b) && isDoc(v) ? mergeDocs(b, v) : v;
+  }
+  return out;
+}
+
+interface LefthookEntry {
+  live: boolean;
+  skip: unknown;
+  only: unknown;
+  sectionSkip: unknown;
+  sectionOnly: unknown;
+  glob: string;
+  exclude: string;
+  /** The entry's tags that the section's `exclude_tags` names. */
+  excludedByTag: string[];
+}
+
+const off = (v: unknown): boolean => v === undefined || v === null || v === false;
+
+/** Every lefthook command/script that names the gate, keyed by section and name,
+ *  with whether it runs it live. An overlay entry that carries no `run` but sits
+ *  under the gate's name is read as the gate's (the base config it overlays has
+ *  the `run`). */
 function lefthookEntries(doc: Doc): Map<string, LefthookEntry> {
   const out = new Map<string, LefthookEntry>();
   for (const [section, v] of Object.entries(doc)) {
     if (!isDoc(v)) continue;
+    const sectionExclude = list(v.exclude_tags);
     for (const group of ['commands', 'scripts']) {
       const g = v[group];
       if (!isDoc(g)) continue;
       for (const [name, cfg] of Object.entries(g)) {
-        if (!isDoc(cfg) || !GATE.test(str(cfg.run ?? cfg.runner))) continue;
+        if (!isDoc(cfg)) continue;
+        const run = cfg.run ?? cfg.runner;
+        const named = GATE.test(name);
+        if (!GATE.test(str(run)) && !named) continue;
+        const tags = list(cfg.tags);
         out.set(`${section}.${group}.${name}`, {
-          skip: cfg.skip, sectionSkip: v.skip, glob: str(cfg.glob), exclude: str(cfg.exclude), only: str(cfg.only),
+          live: run === undefined ? named : runsGate(str(run)),
+          skip: cfg.skip, only: cfg.only, sectionSkip: v.skip, sectionOnly: v.only,
+          glob: str(cfg.glob), exclude: str(cfg.exclude),
+          excludedByTag: tags.filter((t) => sectionExclude.includes(t)),
         });
       }
     }
@@ -354,33 +972,48 @@ export function lefthookWeakening(before: Doc, after: Doc): string[] {
   const b = lefthookEntries(before);
   const a = lefthookEntries(after);
   for (const [key, was] of b) {
+    if (!was.live) continue;
     const now = a.get(key);
     if (!now) { out.push(`lefthook entry ${key} (the gate) was removed`); continue; }
-    if (now.skip === true && was.skip !== true) out.push(`lefthook entry ${key} (the gate) is now \`skip: true\``);
-    if (now.sectionSkip === true && was.sectionSkip !== true) out.push(`the lefthook hook carrying ${key} (the gate) is now \`skip: true\``);
+    if (!now.live) out.push(`lefthook entry ${key} no longer runs \`tamperward check\` live`);
+    if (!off(now.skip) && off(was.skip)) out.push(`lefthook entry ${key} (the gate) is now \`skip: ${str(now.skip)}\``);
+    if (!off(now.sectionSkip) && off(was.sectionSkip)) out.push(`the lefthook hook carrying ${key} (the gate) is now \`skip: ${str(now.sectionSkip)}\``);
+    if (!off(now.only) && str(now.only) !== str(was.only)) out.push(`lefthook entry ${key} (the gate) gained or changed \`only\` (${str(now.only)})`);
+    if (!off(now.sectionOnly) && str(now.sectionOnly) !== str(was.sectionOnly)) out.push(`the lefthook hook carrying ${key} (the gate) gained or changed \`only\` (${str(now.sectionOnly)})`);
     if (now.glob !== was.glob && now.glob) out.push(`lefthook entry ${key} (the gate) gained or changed \`glob\` (${now.glob}) — it no longer runs on every commit`);
     if (now.exclude !== was.exclude && now.exclude) out.push(`lefthook entry ${key} (the gate) gained or changed \`exclude\` (${now.exclude})`);
-    if (now.only !== was.only && now.only) out.push(`lefthook entry ${key} (the gate) gained or changed \`only\` (${now.only})`);
+    if (now.excludedByTag.length && !was.excludedByTag.length) out.push(`lefthook entry ${key} (the gate) is tagged ${now.excludedByTag.join(', ')}, which the hook's \`exclude_tags\` switches off`);
   }
   return out;
 }
 
-interface PreCommitEntry { stages: string[] | null; exclude: string; files: string }
-const COMMIT_STAGES = new Set(['commit', 'pre-commit', 'push', 'pre-push', 'commit-msg', 'pre-merge-commit', 'prepare-commit-msg']);
+interface PreCommitEntry { live: boolean; stages: string[]; explicitStages: boolean; exclude: string; files: string; types: string; alwaysRun: boolean }
+/** The stages the gate is for, legacy names folded onto the current ones. */
+const STAGE_ALIAS: Record<string, string> = { commit: 'pre-commit', push: 'pre-push', merge_commit: 'pre-merge-commit' };
+const GATE_STAGES = new Set(['pre-commit', 'pre-push']);
+const ALL_STAGES = ['pre-commit', 'pre-merge-commit', 'pre-push', 'prepare-commit-msg', 'commit-msg', 'post-checkout', 'post-commit', 'post-merge', 'post-rewrite', 'manual'];
+const normStage = (s: string): string => STAGE_ALIAS[s] ?? s;
 
 function preCommitEntries(doc: Doc): Map<string, PreCommitEntry> {
   const out = new Map<string, PreCommitEntry>();
   const repos = Array.isArray(doc.repos) ? doc.repos : [];
+  const defaults = Array.isArray(doc.default_stages) ? doc.default_stages.map(String).map(normStage) : ALL_STAGES;
   for (const repo of repos) {
     if (!isDoc(repo)) continue;
     const hooks = Array.isArray(repo.hooks) ? repo.hooks : [];
     for (const h of hooks) {
       if (!isDoc(h)) continue;
       if (!GATE.test(`${str(repo.repo)} ${str(h.id)} ${str(h.entry)} ${str(h.name)}`)) continue;
+      // a local hook runs its `entry`; a remote repo's hook runs what that repo defines
+      const live = h.entry !== undefined ? runsGate(str(h.entry)) : GATE.test(`${str(repo.repo)} ${str(h.id)}`);
       out.set(`${str(repo.repo)}:${str(h.id)}`, {
-        stages: Array.isArray(h.stages) ? h.stages.map(String) : null,
+        live,
+        stages: Array.isArray(h.stages) ? h.stages.map(String).map(normStage) : defaults,
+        explicitStages: Array.isArray(h.stages),
         exclude: str(h.exclude),
         files: str(h.files),
+        types: [str(h.types), str(h.types_or), str(h.exclude_types)].join(' ').trim(),
+        alwaysRun: h.always_run === true,
       });
     }
   }
@@ -392,17 +1025,19 @@ export function preCommitWeakening(before: Doc, after: Doc): string[] {
   const b = preCommitEntries(before);
   const a = preCommitEntries(after);
   for (const [key, was] of b) {
+    if (!was.live) continue;
     const now = a.get(key);
     if (!now) { out.push(`pre-commit hook ${key} (the gate) was removed`); continue; }
-    const wasStages = was.stages ?? [...COMMIT_STAGES];
-    if (now.stages && !now.stages.some((s) => COMMIT_STAGES.has(s)) && wasStages.some((s) => COMMIT_STAGES.has(s))) {
+    if (!now.live) out.push(`pre-commit hook ${key} no longer runs \`tamperward check\` live`);
+    const lost = was.stages.filter((s) => GATE_STAGES.has(s) && !now.stages.includes(s));
+    if (lost.length && !now.stages.some((s) => GATE_STAGES.has(s))) {
       out.push(`pre-commit hook ${key} (the gate) now runs only at stages [${now.stages.join(', ')}] — no commit or push triggers it`);
-    } else if (now.stages && was.stages) {
-      const lost = was.stages.filter((s) => COMMIT_STAGES.has(s) && !now.stages!.includes(s));
-      if (lost.length) out.push(`pre-commit hook ${key} (the gate) no longer runs at stage(s) ${lost.join(', ')}`);
+    } else if (lost.length) {
+      out.push(`pre-commit hook ${key} (the gate) no longer runs at stage(s) ${lost.join(', ')}${now.explicitStages ? '' : ' (default_stages changed)'}`);
     }
     if (now.exclude !== was.exclude && now.exclude) out.push(`pre-commit hook ${key} (the gate) gained or changed \`exclude\` (${now.exclude})`);
     if (now.files !== was.files && now.files) out.push(`pre-commit hook ${key} (the gate) gained or changed \`files\` (${now.files})`);
+    if (now.types !== was.types && now.types && !now.alwaysRun) out.push(`pre-commit hook ${key} (the gate) is scoped by file type (${now.types}) without \`always_run\``);
   }
   const topB = str(before.exclude);
   const topA = str(after.exclude);
@@ -410,8 +1045,28 @@ export function preCommitWeakening(before: Doc, after: Doc): string[] {
   return out;
 }
 
-const INSTALLER = /\b(?:husky|lefthook|simple-git-hooks|pre-commit)\b/;
 const INSTALL_SCRIPTS = ['prepare', 'postinstall', 'install', 'preinstall'];
+
+/** The hook installer a lifecycle script runs — `husky`, `husky install`,
+ *  `lefthook install`, `simple-git-hooks`, `pre-commit install` — by command
+ *  identity, or null. `echo husky` says the word, `HUSKY=0 husky` runs it
+ *  disabled, `husky uninstall` removes the hooks: none installs anything. */
+export function installerOf(script: string): string | null {
+  for (const seg of script.split(/&&|\|\||;|\n/)) {
+    const raw = seg.trim();
+    if (!raw) continue;
+    if (/^(?:HUSKY|LEFTHOOK)=0\b/.test(raw)) continue;
+    const core = raw.replace(PREFIX, '').replace(RUNNER, '').replace(/\s+/g, ' ');
+    const m = core.match(/^(?:node\s+)?(?:\S*\/)?(husky|lefthook|simple-git-hooks|pre-commit)(?:\.js)?(?:\s+(\S+))?/);
+    if (!m) continue;
+    const [, tool, sub] = m;
+    if (tool === 'husky' && (sub === undefined || sub === 'install' || sub.startsWith('-'))) return sub === 'install' ? 'husky install' : 'husky';
+    if (tool === 'lefthook' && sub === 'install') return 'lefthook install';
+    if (tool === 'pre-commit' && sub === 'install') return 'pre-commit install';
+    if (tool === 'simple-git-hooks' && (sub === undefined || sub.startsWith('-'))) return 'simple-git-hooks';
+  }
+  return null;
+}
 
 /** package.json: the lifecycle script that INSTALLS the git hooks (`prepare: husky`)
  *  losing its installer. Cheap and exact through the JSON, so it is judged here
@@ -426,13 +1081,14 @@ export function packageJsonWeakening(before: string, after: string): string[] {
     return [];
   }
   if (!isDoc(b) || !isDoc(a)) return [];
-  const scripts = (d: Doc): string => {
+  const installers = (d: Doc): string[] => {
     const sc = d.scripts;
-    return isDoc(sc) ? INSTALL_SCRIPTS.map((k) => str(sc[k])).join(' ') : '';
+    if (!isDoc(sc)) return [];
+    return INSTALL_SCRIPTS.map((k) => installerOf(str(sc[k]))).filter((x): x is string => x !== null);
   };
-  const was = scripts(b).match(INSTALLER)?.[0];
+  const was = installers(b)[0];
   if (!was) return [];
-  if (INSTALLER.test(scripts(a))) return [];
+  if (installers(a).length) return [];
   return [`the install script that wires the git hooks (\`${was}\`) was removed from package.json scripts — a fresh checkout installs no hooks`];
 }
 
@@ -449,7 +1105,7 @@ const GIT_HOOKS = new Set([
  *  `.husky/pre-commit` and `.husky/pre-commit.bak` are not the same file to git. */
 export function hookIdentity(path: string): string | null {
   const base = path.split('/').pop() ?? '';
-  if (isLefthook(path)) return 'lefthook';
+  if (isLefthook(path)) return isLefthookLocal(path) ? 'lefthook-local' : 'lefthook';
   if (isPreCommitConfig(path)) return 'pre-commit-config';
   if (base === 'CODEOWNERS') return 'codeowners';
   const husky = path.match(/(?:^|\/)\.husky\/([^/]+)$/);
@@ -460,13 +1116,14 @@ export function hookIdentity(path: string): string | null {
 // ── the command surface ────────────────────────────────────────────────────────
 
 const ownerExec = (mode: string): boolean => (parseInt(mode.slice(-3).padStart(3, '0'), 8) & 0o100) !== 0;
-const SYMBOLIC = /^[ugoa]*([-+=])([rwxXst]*)$/;
+const SYMBOLIC = /^([ugoa]*)((?:[-+=][rwxXstugo]*)+)$/;
 
 /**
  * Whether a `chmod` DROPS the owner execute bit. Direction-aware: `+x` and `u+x`
  * add it and are the repair, not the tamper. `chmod 0`, `chmod 00644` (any 1–5
  * octal digits: the last three decide) and `--reference=<file>` (a mode read from
- * elsewhere, unknowable here) count as dropping it.
+ * elsewhere, unknowable here) count as dropping it. A clause with several op
+ * groups (`u+rw-x`, `u-x+r`, `u=g`) is applied in order and judged by its end.
  */
 export function chmodDropsExec(toks: string[]): boolean {
   const at = toks.findIndex((t) => t === 'chmod' || t.endsWith('/chmod'));
@@ -480,53 +1137,140 @@ export function chmodDropsExec(toks: string[]): boolean {
     for (const clause of tok.split(',')) {
       const m = clause.match(SYMBOLIC);
       if (!m) continue;
-      const [, op, perms] = m;
-      if (op === '-' && /[xX]/.test(perms)) return true;
-      if (op === '=' && !/[xX]/.test(perms)) return true;
+      const [, who, opsText] = m;
+      if (who && !/[ua]/.test(who)) continue; // group/other only: the owner bit is untouched
+      let exec: boolean | null = null; // null: unchanged so far
+      for (const g of opsText.match(/[-+=][rwxXstugo]*/g) ?? []) {
+        const op = g[0];
+        const perms = g.slice(1);
+        if (/[ugo]/.test(perms)) { exec = false; continue; } // copied from another class: unknowable, fail closed
+        if (op === '-' && /[xX]/.test(perms)) exec = false;
+        else if (op === '+' && /[xX]/.test(perms)) exec = true;
+        else if (op === '=') exec = /[xX]/.test(perms);
+      }
+      if (exec === false) return true;
     }
   }
   return false;
 }
 
+/** `setfacl -m u::rw- hook` rewrites the owner's base permissions through the
+ *  ACL: an owner entry without `x` drops the execute bit. */
+export function setfaclDropsExec(toks: string[]): boolean {
+  if (!toks.some((t) => /^-[a-zA-Z]*m|^--modify/.test(t))) return false;
+  return toks.some((t) => t.split(',').some((e) => {
+    const m = e.match(/^(?:u|user)::([rwxX-]*)$/);
+    return !!m && !/[xX]/.test(m[1]);
+  }));
+}
+
 const WRAPPERS = /^(?:sudo|command|exec|time|nice|env|[A-Za-z_][A-Za-z0-9_]*=\S*)$/;
+const INTERPRETERS = new Set(['python', 'python2', 'python3', 'node', 'perl', 'ruby', 'php', 'deno', 'bun']);
+const INLINE_FLAG = /^-(?:c|e|r|E|p|pe|pi|i|ne|ni|le)$|^--eval$|^--print$|^--exec$/;
+const EDITORS = new Set(['ex', 'ed', 'vim', 'vi', 'nvim']);
+const HOOK_BASENAMES = ['pre-commit', 'pre-push', 'commit-msg', 'settings.json', 'settings.local.json', '.tamperward.yml', 'lefthook.yml', 'lefthook.yaml', 'lefthook-local.yml', '.pre-commit-config.yaml', 'CODEOWNERS'];
+
+/** A `find -name` glob as a matcher over hook basenames. */
+function nameGlob(pattern: string): (name: string) => boolean {
+  const re = new RegExp('^' + pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
+  return (n) => re.test(n);
+}
+
+/** The write targets a copy-like command names, dir destinations expanded: `cp
+ *  x .husky/` writes `.husky/x`; `install -t .husky x` writes `.husky/x`. */
+function destinations(cmd: string, args: string[], isDir: (p: string) => boolean): string[] {
+  const positional: string[] = [];
+  let target: string | null = null;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') { positional.push(...args.slice(i + 1)); break; }
+    if (a === '-t' || a === '--target-directory') { target = args[++i] ?? null; continue; }
+    const eq = a.match(/^--target-directory=(.*)$/);
+    if (eq) { target = eq[1]; continue; }
+    if ((cmd === 'install' && /^-[mogS]$/.test(a)) || (cmd === 'install' && /^--(?:mode|owner|group|suffix)$/.test(a)) || (cmd === 'rsync' && /^(?:-e|--rsh|--exclude|--include|--files-from)$/.test(a))) { i++; continue; }
+    if (a.startsWith('-')) continue;
+    positional.push(a);
+  }
+  const base = (p: string): string => p.replace(/\/+$/, '').split('/').pop() ?? p;
+  if (target !== null) return positional.map((p) => `${target!.replace(/\/+$/, '')}/${base(p)}`);
+  if (positional.length < 2) return [];
+  const dest = positional[positional.length - 1];
+  const srcs = positional.slice(0, -1);
+  if (dest.endsWith('/') || srcs.length > 1 || isDir(dest)) return [dest, ...srcs.map((s) => `${dest.replace(/\/+$/, '')}/${base(s)}`)];
+  return [dest];
+}
 
 /**
  * Whether a shell segment WRITES a protected hook, and how — as opposed to reading
  * it. `cat .husky/pre-commit > /tmp/backup` reads the hook and writes a backup;
  * `cp .husky/pre-commit /tmp/` reads it; `sed -n 1,5p .husky/pre-commit` reads it.
- * Only the hook as a write TARGET — redirect target, cp/install/ln destination,
- * either side of mv, tee/sponge/truncate/rm argument, in-place sed/perl/awk
- * target, dd `of=`, or a `git checkout <rev>`/`git restore --source` that puts
- * an older version back — is tampering.
+ * Only the hook as a write TARGET — redirect target, cp/install/ln/rsync
+ * destination (a directory destination expanded to the file it receives), either
+ * side of mv, tee/sponge/truncate/rm argument, in-place sed/perl/awk target, dd
+ * `of=`, an inline interpreter script or batch editor naming it, a patch naming
+ * it, or a `git checkout <rev>`/`git restore --source` that puts an older version
+ * of it (or of a directory holding it, or of everything) back — is tampering. An
+ * absolute path under the repository is the repository path.
  */
-const REDIRECT_TARGET = /(?:^|\s)\d*>{1,2}\|?\s*(\S+)/g;
-const hookPath = (t: string): string => t.replace(/^["']|["']$/g, '').replace(/^\.\//, '');
+/** A redirection's target: `>x`, `>>x`, `2>x`, `>|x` (past `noclobber`), `&>x`. */
+const REDIRECT_TARGET = /(?:^|\s)(?:\d*>{1,2}\|?|&>{1,2})\s*(\S+)/g;
+
+/** Path tests over a command's tokens, relative to the repository: an absolute
+ *  path under the cwd is the repository path; `.`, `./`, `:/`, `*` are the
+ *  whole tree; a directory holds a hook when a protected file lives under it. */
+function hookTests(policy: Policy, ctx?: DetectorContext) {
+  const rel = (t: string): string => {
+    let p = t.replace(/^["']|["']$/g, '');
+    if (ctx?.cwd && p.startsWith(ctx.cwd + '/')) p = p.slice(ctx.cwd.length + 1);
+    return p.replace(/^\.\/(?=.)/, '');
+  };
+  const hook = (t: string): boolean => isProtected(rel(t), policy, 'hooks');
+  const whole = (t: string): boolean => /^(?:\.|\.\/|:\/|\*)$/.test(rel(t)) || (ctx?.cwd !== undefined && rel(t) === ctx.cwd);
+  const holds = (t: string): boolean => !t.startsWith('-') && (whole(t) || containsProtected(rel(t), policy, 'hooks', ctx));
+  const hookish = (t: string): boolean => hook(t) || holds(t);
+  return { rel, hook, whole, holds, hookish };
+}
 
 /**
  * The protected hook a shell segment NAMES — the path a shellWritesHook finding is
  * about: the redirect target first, then the arguments in order (`of=` unwrapped
- * for dd). A command-surface finding used to carry no `file`, and the engine's
- * pin on the guarded rule (src/engine.ts isGuardedFinding) is keyed on the file:
- * under a policy that lowered hook-tampering to warn, `rm .claude/settings.json`
- * from the shell was a warn — and, at the hook, an allow — while the same removal
- * through an Edit was pinned to block.
+ * for dd, absolute paths under the cwd made repo-relative), then a directory (or
+ * the whole tree) holding one, resolved to the first protected file under it when
+ * the repository listing is known. A command-surface finding used to carry no
+ * `file`, and the engine's pin on the guarded rule (src/engine.ts isGuardedFinding)
+ * is keyed on the file: under a policy that lowered hook-tampering to warn, `rm
+ * .claude/settings.json` from the shell was a warn — and, at the hook, an allow —
+ * while the same removal through an Edit was pinned to block.
  */
-export function shellHookTarget(seg: string, toks: string[], policy: Policy): string | null {
+export function shellHookTarget(seg: string, toks: string[], policy: Policy, ctx?: DetectorContext): string | null {
+  const { rel, hook, whole, holds } = hookTests(policy, ctx);
   for (const m of seg.matchAll(REDIRECT_TARGET)) {
-    const t = hookPath(m[1]);
-    if (isProtected(t, policy, 'hooks')) return t;
+    if (hook(m[1])) return rel(m[1]);
   }
-  for (const tok of toks) {
-    const t = hookPath(tok.replace(/^of=/, ''));
-    if (isProtected(t, policy, 'hooks')) return t;
+  const args = toks.map((t) => t.replace(/^(?:of=|--(?:include|exclude|directory)=)/, ''));
+  // `.husky/**` matches the bare `.husky` too: a token is the FILE only when it
+  // looks like one (a hook's basename, an extension) or the listing says so.
+  const fileLike = (p: string): boolean => {
+    const b = p.replace(/\/+$/, '').split('/').pop() ?? '';
+    return HOOK_BASENAMES.includes(b) || /\.[A-Za-z0-9]+$/.test(b.replace(/^\.+/, '')) || (trackedFiles(ctx)?.includes(p) ?? false);
+  };
+  for (const t of args) if (hook(t) && fileLike(rel(t))) return rel(t);
+  for (const t of args) {
+    if (t.startsWith('-') || !holds(t)) continue;
+    const dir = rel(t).replace(/\/+$/, '');
+    const under = whole(t) ? '' : dir + '/';
+    const listed = trackedFiles(ctx)?.find((f) => f.startsWith(under) && isProtected(f, policy, 'hooks'));
+    if (listed) return listed;
+    const guess = under + 'pre-commit';
+    return isProtected(guess, policy, 'hooks') ? guess : whole(t) ? '.tamperward.yml' : dir;
   }
   return null;
 }
 
-export function shellWritesHook(seg: string, toks: string[], policy: Policy): string | null {
-  const hook = (t: string): boolean => isProtected(t.replace(/^\.\//, ''), policy, 'hooks');
+export function shellWritesHook(seg: string, toks: string[], policy: Policy, ctx?: DetectorContext): string | null {
+  const { rel, hook, whole, holds, hookish } = hookTests(policy, ctx);
   for (const m of seg.matchAll(REDIRECT_TARGET)) {
-    if (hook(m[1].replace(/^["']|["']$/g, ''))) return 'a redirect empties or rewrites a protected hook';
+    if (hook(m[1])) return 'a redirect empties or rewrites a protected hook';
   }
   let at = 0;
   while (at < toks.length && WRAPPERS.test(toks[at])) at++;
@@ -536,40 +1280,65 @@ export function shellWritesHook(seg: string, toks: string[], policy: Policy): st
   const last = positional[positional.length - 1] ?? '';
   const anyHook = args.some(hook);
   const inPlace = args.some((a) => /^-[A-Za-z]*i|^--in-place/.test(a));
+  // the SCRIPT an interpreter runs inline (the token after `-c`/`-e`/`-r`), not
+  // the files it is given: `perl -ne 'print' hook` reads the hook
+  const scripts = args.filter((_, i) => i > 0 && INLINE_FLAG.test(args[i - 1]));
+  const namesHookInText = (): boolean => scripts.some((a) => (a.match(/[\w.~/-]+/g) ?? []).some(hook));
   switch (cmd) {
     case 'rm': case 'unlink': case 'shred':
-      return anyHook ? 'rm deletes a protected hook' : null;
+      return anyHook || positional.some(holds) ? 'rm deletes a protected hook' : null;
     case 'truncate':
       return anyHook ? 'truncate empties a protected hook' : null;
     case 'chmod':
-      return anyHook && chmodDropsExec(toks) ? 'chmod removes execute permission from a hook — git will skip it' : null;
+      return (anyHook || positional.some(holds)) && chmodDropsExec(toks) ? 'chmod removes execute permission from a hook — git will skip it' : null;
+    case 'setfacl':
+      return anyHook && setfaclDropsExec(args) ? 'setfacl removes the owner execute permission from a hook — git will skip it' : null;
     case 'mv':
-      return anyHook ? 'mv moves a protected hook out of place or overwrites it' : null;
-    case 'cp': case 'install': case 'ln':
-      return hook(last) ? `${cmd} replaces a protected hook in place` : null;
+      return anyHook || positional.some(holds) ? 'mv moves a protected hook out of place or overwrites it' : null;
+    case 'cp': case 'install': case 'ln': case 'rsync': {
+      const dests = destinations(cmd, args, holds);
+      return dests.some(hook) ? `${cmd} replaces a protected hook in place` : null;
+    }
     case 'tee': case 'sponge':
       return anyHook ? `${cmd} rewrites a protected hook in place` : null;
     case 'dd':
       return args.some((a) => a.startsWith('of=') && hook(a.slice(3))) ? 'dd rewrites a protected hook in place' : null;
     case 'sed': case 'perl':
-      return anyHook && inPlace ? `an in-place ${cmd} rewrites a protected hook` : null;
+      if (anyHook && inPlace) return `an in-place ${cmd} rewrites a protected hook`;
+      if (cmd === 'perl' && args.some((a) => INLINE_FLAG.test(a)) && namesHookInText()) return 'an inline perl script names a protected hook';
+      return null;
     case 'awk': case 'gawk':
       return anyHook && args.some((a, i) => (a === '-i' && args[i + 1] === 'inplace') || a === '--in-place' || a === '-i=inplace')
         ? 'an in-place awk rewrites a protected hook'
         : null;
+    case 'patch':
+      return anyHook ? 'patch rewrites a protected hook' : null;
+    case 'xargs':
+      return null; // judged by the caller, which sees the segments feeding it
+    case 'find': {
+      const mutates = /\s(?:-delete\b|-exec(?:dir)?\s+(?:rm|unlink|chmod|truncate|mv|sed|tee|shred)\b)/.test(seg);
+      if (!mutates) return null;
+      if (/-exec(?:dir)?\s+chmod\b/.test(seg) && !chmodDropsExec(toks)) return null;
+      const dirs = positional.filter((p) => !/^-/.test(p) && !['{}', ';', '+', 'rm', 'chmod', 'unlink', 'truncate', 'mv', 'sed', 'tee', 'shred', 'inplace'].includes(p));
+      const names = args.filter((a, i) => /^-i?(?:name|path|regex)$/.test(args[i - 1] ?? ''));
+      const nameHits = names.length === 0 || names.some((n) => { try { const g = nameGlob(n.replace(/^.*\//, '')); return HOOK_BASENAMES.some(g); } catch { return true; } });
+      const reachesHook = dirs.some((d) => hook(d) || holds(d) || (whole(d) && nameHits)) || (dirs.length === 0 && nameHits);
+      return reachesHook && nameHits ? 'find rewrites or removes protected hooks' : null;
+    }
     case 'git': {
       // skip the global options (`-C <dir>`, `-c <k=v>`, `--git-dir=…`) to the subcommand
       let i = 0;
       while (i < args.length && args[i].startsWith('-')) i += args[i] === '-C' || args[i] === '-c' ? 2 : 1;
       const sub = args[i];
       const rest = args.slice(i + 1);
-      if (!rest.some(hook)) return null;
+      if (sub === 'apply' || sub === 'am') return rest.some((a) => hook(a.replace(/^--(?:include|exclude|directory)=/, ''))) ? `git ${sub} applies a patch that names a protected hook` : null;
+      if (!rest.some(hookish)) return null;
       if (sub === 'checkout') {
         // `git checkout <rev> [--] <hook>`: a rev between the subcommand and the path.
         // `git checkout -- <hook>` (from the index) restores the trusted state and passes.
         const dd = rest.indexOf('--');
         const before = dd === -1 ? rest : rest.slice(0, dd);
-        const revs = before.filter((p) => !p.startsWith('-') && !hook(p));
+        const revs = before.filter((p) => !p.startsWith('-') && !hookish(p));
         return revs.length > 0 ? 'git checkout <rev> -- <hook> puts an older version of a protected hook back' : null;
       }
       if (sub === 'restore' && rest.some((a) => /^--source(?:=|$)/.test(a) || a === '-s')) {
@@ -578,6 +1347,27 @@ export function shellWritesHook(seg: string, toks: string[], policy: Policy): st
       return null;
     }
     default:
+      if (INTERPRETERS.has(cmd) && inPlace && anyHook) return `an in-place ${cmd} rewrites a protected hook`;
+      if (INTERPRETERS.has(cmd) && args.some((a) => INLINE_FLAG.test(a)) && namesHookInText()) return `an inline ${cmd} script names a protected hook`;
+      if (EDITORS.has(cmd) && (anyHook || (args.some((a) => /^-[a-zA-Z]*[cs]/.test(a) || a === '--cmd') && namesHookInText()))) return `${cmd} rewrites a protected hook`;
       return null;
   }
+}
+
+/** `… | xargs rm` / `xargs chmod -x`: the hook path is in the segment feeding
+ *  xargs, not in xargs's own. `fed` are the tokens of the earlier segments. */
+export function xargsWritesHook(toks: string[], fed: string[], policy: Policy, ctx?: DetectorContext): string | null {
+  const at = toks.findIndex((t) => t === 'xargs' || t.endsWith('/xargs'));
+  if (at === -1) return null;
+  const rel = (t: string): string => (ctx?.cwd && t.startsWith(ctx.cwd + '/') ? t.slice(ctx.cwd.length + 1) : t).replace(/^\.\//, '');
+  const fedHook = fed.some((t) => isProtected(rel(t), policy, 'hooks') || (!t.startsWith('-') && containsProtected(rel(t), policy, 'hooks', ctx)));
+  if (!fedHook) return null;
+  let i = at + 1;
+  while (i < toks.length && toks[i].startsWith('-')) i += /^-(?:I|n|L|P|d|a|s)$/.test(toks[i]) ? 2 : 1;
+  const cmd = (toks[i] ?? '').replace(/^.*\//, '');
+  const args = toks.slice(i + 1);
+  if (['rm', 'unlink', 'shred', 'truncate', 'mv', 'tee', 'sponge'].includes(cmd)) return `xargs ${cmd} rewrites or removes a protected hook named earlier in the line`;
+  if (cmd === 'chmod' && chmodDropsExec(toks.slice(i))) return 'xargs chmod removes execute permission from a hook named earlier in the line';
+  if ((cmd === 'sed' || cmd === 'perl') && args.some((a) => /^-[A-Za-z]*i|^--in-place/.test(a))) return `xargs ${cmd} -i rewrites a protected hook named earlier in the line`;
+  return null;
 }

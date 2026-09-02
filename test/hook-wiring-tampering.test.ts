@@ -23,6 +23,7 @@ import { planInit } from '../src/cli/init';
 import { evaluate, hasBlocking, isGuardedFinding } from '../src/engine';
 import { defaultPolicy } from '../src/policy';
 import { parsePolicy } from '../src/policy-load';
+import { TW_VERSION } from '../src/wiring';
 import { diffStaged, diffWorktree } from '../src/git/build';
 import type { Change, CommandChange, FileChange, Finding, Policy } from '../src/types';
 
@@ -64,9 +65,12 @@ function silenced<T>(fn: () => T): T {
 }
 
 // ── the wiring `init` writes ──────────────────────────────────────────────────
+// Pinned to THIS build: a settings file written fresh must pin at least the gate
+// that judges it, and a re-pin only ever goes up (canonical-wiring.test.ts).
 const FULL = 'Bash|Edit|Write|MultiEdit|NotebookEdit';
-const HOOK = 'npx --yes tamperward@2.1.0 hook claude';
-const SWEEP = 'npx --yes tamperward@2.1.0 sweep claude';
+const V = TW_VERSION;
+const HOOK = `npx --yes tamperward@${V} hook claude`;
+const SWEEP = `npx --yes tamperward@${V} sweep claude`;
 const settings = (o: object): string => JSON.stringify(o, null, 2) + '\n';
 /** `matcher: null` writes NO matcher key (every tool). */
 const wired = (matcher: string | null = FULL, extra: object = {}): string =>
@@ -152,7 +156,7 @@ describe('C2 · the PreToolUse matcher is compared as a tool set', () => {
           PostToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo ran' }] }],
         },
       })],
-    ['re-pinning the gate to a newer version', () => wired().replace(/@2\.1\.0/g, '@2.2.0')],
+    ['re-pinning the gate to a newer version', () => wired().replace(new RegExp(`@${V.replace(/\./g, '\\.')}`, 'g'), '@99.0.0')],
     ['splitting the matcher across two entries that still cover every tool', () =>
       settings({
         hooks: {
@@ -166,6 +170,13 @@ describe('C2 · the PreToolUse matcher is compared as a tool set', () => {
   ])('control · %s is allowed', (_name, after) => {
     const cwd = withSettings(wired());
     expect(allowed(write(cwd, '.claude/settings.json', after()))).toBe(true);
+  });
+
+  it('re-pinning the gate to an OLDER version is a downgrade, and denied', () => {
+    const cwd = withSettings(wired());
+    const r = write(cwd, '.claude/settings.json', wired().replace(new RegExp(`@${V.replace(/\./g, '\\.')}`, 'g'), '@2.1.0'));
+    expect(denied(r)).toBe(true);
+    expect(r.stdout).toContain('below');
   });
 
   it('is caught in the staged view and by `check --staged`', () => {
@@ -275,10 +286,23 @@ describe('C4 · adding a settings.local.json that shadows the wired gate', () =>
     expect(denied(write(cwd, '.claude/settings.local.json', settings({ hooks: { Stop: [] } })))).toBe(true);
   });
 
-  it('a non-empty unrelated hook list beside a wired sibling shadows it and is denied', () => {
+  it('control · a non-empty list of somebody\'s own hooks beside a wired sibling shadows nothing (hooks merge across the settings files)', () => {
     const cwd = withSettings(wired());
     const own = settings({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo hi' }] }] } });
-    expect(denied(write(cwd, '.claude/settings.local.json', own))).toBe(true);
+    expect(allowed(write(cwd, '.claude/settings.local.json', own))).toBe(true);
+  });
+
+  it.each([
+    ['`disableAllHooks: "true"`', settings({ disableAllHooks: 'true' })],
+    ['`disableAllHooks: 1`', settings({ disableAllHooks: 1 })],
+    ['an `env` that rewrites PATH', settings({ env: { PATH: '/tmp/evil' } })],
+    ['an `env` that injects NODE_OPTIONS', settings({ env: { NODE_OPTIONS: '--require=/tmp/evil.js' } })],
+    ['an `env` that points npm at another registry', settings({ env: { npm_config_registry: 'http://evil.invalid' } })],
+    ['a gate entry of its own carrying `async`', settings({ hooks: { PreToolUse: [{ matcher: FULL, hooks: [{ type: 'command', command: HOOK, async: true }] }] } })],
+    ['a gate entry of its own behind `if`', settings({ hooks: { Stop: [{ hooks: [{ type: 'command', command: SWEEP, if: 'Bash(never)' }] }] } })],
+  ])('the real local-file threat — %s — is denied', (_n, content) => {
+    const cwd = withSettings(wired());
+    expect(denied(write(cwd, '.claude/settings.local.json', content))).toBe(true);
   });
 
   it('empty arrays are denied even when no sibling is wired — they have no other purpose', () => {
@@ -305,12 +329,12 @@ describe('C4 · adding a settings.local.json that shadows the wired gate', () =>
     expect(silenced(() => runCheck({ staged: true, cwd }))).toBe(1);
   });
 
-  it('the sibling is read from the same changeset when both files change together', () => {
+  it('wiring the gate in one file while adding own hooks in the other is clean — the two merge', () => {
     const changes: Change[] = [
       file('.claude/settings.json', settings({ permissions: {} }), wired()),
       file('.claude/settings.local.json', null, settings({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo' }] }] } }), 'add'),
     ];
-    expect(ht(hookTampering.run(changes, P)).length).toBe(1);
+    expect(ht(hookTampering.run(changes, P)).length).toBe(0);
   });
 
   it.each([
