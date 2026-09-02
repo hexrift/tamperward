@@ -294,6 +294,7 @@ describe('#3 the generated CI workflow can be migrated', () => {
 });
 
 describe('#4 an existing PreToolUse matcher is repaired, not blessed', () => {
+  const SHIPPED = (JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')) as { version: string }).version;
   const agentAction = (cwd: string) => planInit(cwd).find((a) => a.item === 'agent')!;
   const writeSettings = (cwd: string, matcher: string): void => {
     mkdirSync(join(cwd, '.claude'), { recursive: true });
@@ -302,8 +303,10 @@ describe('#4 an existing PreToolUse matcher is repaired, not blessed', () => {
       JSON.stringify(
         {
           hooks: {
-            PreToolUse: [{ matcher, hooks: [{ type: 'command', command: 'npx --yes tamperward hook claude' }] }],
-            Stop: [{ hooks: [{ type: 'command', command: 'npx --yes tamperward sweep claude' }] }],
+            // Pinned to the shipped version, so these cases exercise the MATCHER repair
+            // alone; an unpinned command is its own repair since 1.14.7 (init-pin.test.ts).
+            PreToolUse: [{ matcher, hooks: [{ type: 'command', command: `npx --yes tamperward@${SHIPPED} hook claude` }] }],
+            Stop: [{ hooks: [{ type: 'command', command: `npx --yes tamperward@${SHIPPED} sweep claude` }] }],
           },
         },
         null,
