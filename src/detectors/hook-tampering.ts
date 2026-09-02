@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
 import { Change, Detector, DetectorContext, FileChange, Finding, Policy } from '../types';
 import { addedLines, removedLines } from '../diff/select';
+import { inspectRel, textOf } from '../disk';
 import { isProtected, POLICY_FILE } from '../policy';
 import { PLAIN_SEMVER, PRE_TOOLS, TW_VERSION, compareVersions, initScriptPin, isClaudeSettings, pinNotBelow, resolvesToClaudeSettings } from '../wiring';
 import { makeFinding } from './finding';
@@ -719,8 +720,18 @@ function huskyRuntimeWrite(path: string, content: string | null | undefined, ctx
           : HUSKY_SHIM_NAMES.has(name) && body === HUSKY_SHIM;
   if (!ok) return false;
   if (!ctx?.cwd) return false; // cannot see whether the gate is husky-run: fail closed
+  // Existence of `.husky/pre-commit` is NOT proof the gate is Tamperward-run: a
+  // repo can already carry an ordinary husky pre-commit (say `npm test`) whose
+  // real gate is another mechanism, and this same install would repoint
+  // core.hooksPath at `.husky/_` and displace it. Read the pre-commit and require
+  // that it runs `tamperward check` LIVE under husky's `sh -e`, the same model the
+  // hand-written-script rule uses; anything less fails closed.
   const root = path.slice(0, path.length - m[0].length + (m[0].startsWith('/') ? 1 : 0));
-  return existsSync(join(ctx.cwd, root, '.husky/pre-commit'));
+  const gate = textOf(inspectRel(join(ctx.cwd, root), '.husky/pre-commit'));
+  if (gate == null) return false;
+  return invocations(gate.split('\n'), { errexit: true }).some(
+    (i) => /^tamperward check\b/.test(i.identity) && i.state === 'live',
+  );
 }
 
 const isHuskyScript = (path: string): boolean => /(?:^|\/)\.husky\/[^/]+$/.test(path);

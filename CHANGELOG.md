@@ -20,12 +20,14 @@ blocked every install.
 - **husky's own v9 runtime under `.husky/_/` is recognised by byte-equal
   content** — the fourteen one-line shims that source `h`, the `h` runner
   itself, the deprecation `husky.sh`, and the `.gitignore` of `*` — and is
-  clean while `.husky/pre-commit` exists beside it, since the same install
-  repoints `core.hooksPath` there. The content is matched against a pinned
+  clean only while `.husky/pre-commit` itself runs a live `tamperward check` —
+  not merely exists: an ordinary husky pre-commit whose real gate is another
+  mechanism would otherwise let the install repoint `core.hooksPath` and
+  displace the commit backstop unseen. The content is matched against a pinned
   copy, never against `node_modules` (which the agent can write); a repo whose
-  gate is not husky-run, a file that is not byte-for-byte husky's, a later edit
-  to one, and the absence of a cwd to judge against all stay fail-closed and
-  need a sign-off.
+  pre-commit does not run the gate live, a file that is not byte-for-byte
+  husky's, a later edit to one, and the absence of a cwd to judge against all
+  stay fail-closed and need a sign-off.
 
 ## [2.10.0] — 2026-09-02
 
