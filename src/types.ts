@@ -54,7 +54,12 @@ export interface FileChange {
   before: string | null;
   /** Full AFTER content. null for deletes, binaries, and un-enriched changes. */
   after: string | null;
-  /** git reported the blob as binary; before/after are opaque and hunks are empty. */
+  /**
+   * git reported the blob as binary (a `-diff`/`binary` attribute or a NUL byte).
+   * Reporting only: every diff Tamperward runs passes `--text`, so hunks are still
+   * produced and the git builder still loads before/after. A producer that skipped
+   * either on this flag would hand the change author a switch that blinds the gate.
+   */
   binary: boolean;
   hunks: Hunk[];
   /**
