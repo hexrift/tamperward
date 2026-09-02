@@ -137,8 +137,12 @@ jobs:
 
       # SPEC §5.4: in CI a sign-off must be OUT OF BAND — never a file the same PR can
       # commit, because then the change being blocked could authorise itself. The channel
-      # is a PR label `tamperward:allow:<rule>`, which only someone with write access can
-      # apply, further gated by branch protection + CODEOWNERS.
+      # is a PR label `tamperward:allow:<rule>@<head-sha>`, which only someone with write
+      # access can apply, further gated by branch protection + CODEOWNERS. The `@<sha>`
+      # binds the approval to the commit it was granted for: labels persist across
+      # pushes, and this gate ran without TAMPERWARD_OOB_HEAD until 1.14.7 — so an
+      # unbound label earned for one benign finding cleared every later one pushed to
+      # the same PR, the P1-6 hole the shipped template had already closed.
       #
       # Label text is user-controlled, so it is passed through env and parsed with jq —
       # never interpolated into the shell, which would be a command-injection hole in the
@@ -192,6 +196,7 @@ jobs:
       - name: Tamperward self-gate
         env:
           TAMPERWARD_OOB_SIGNOFF: ${{ steps.oob.outputs.rules }}
+          TAMPERWARD_OOB_HEAD: ${{ github.event.pull_request.head.sha }}
           EVENT: ${{ github.event_name }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}

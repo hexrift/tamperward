@@ -52,8 +52,9 @@ describe('fresh repo', () => {
     apply(d);
     expect(statSync(join(d, '.git/hooks/pre-commit')).mode & 0o111).toBeTruthy();
     const s = JSON.parse(readFileSync(join(d, '.claude/settings.json'), 'utf8'));
-    expect(JSON.stringify(s.hooks.PreToolUse)).toContain('tamperward hook claude');
-    expect(JSON.stringify(s.hooks.Stop)).toContain('tamperward sweep claude');
+    // Pinned to the shipped version since 1.14.7 (the exact string is init-pin.test.ts's).
+    expect(JSON.stringify(s.hooks.PreToolUse)).toMatch(/npx --yes tamperward@\S+ hook claude/);
+    expect(JSON.stringify(s.hooks.Stop)).toMatch(/npx --yes tamperward@\S+ sweep claude/);
     // NotebookEdit joined the matcher in 1.14.0: the adapter always modelled it,
     // but the installed wiring never fired it, so that branch was unreachable.
     expect(s.hooks.PreToolUse[0].matcher).toBe('Bash|Edit|Write|MultiEdit|NotebookEdit');
@@ -92,7 +93,7 @@ describe('merging, never clobbering', () => {
     apply(d);
     const hook = readFileSync(join(d, '.git/hooks/pre-commit'), 'utf8');
     expect(hook).toContain('my-existing-check');
-    expect(hook.match(/tamperward check --staged/g)).toHaveLength(1);
+    expect(hook.match(/tamperward@\S+ check --staged/g)).toHaveLength(1);
   });
 
   it('prefers husky when .husky/ exists', () => {
