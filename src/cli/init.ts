@@ -170,8 +170,9 @@ const WORKFLOW_CONTENT = `name: tamperward
 
 # The CI authority for main: the same engine as the agent hook and pre-commit, run over
 # the PR's commit range. A block fails the check and clears ONLY via the out-of-band
-# label \`tamperward:allow:<rule>\` applied by someone with write access — never a file
-# the PR itself can commit.
+# label \`tamperward:allow:<rule>@<head-sha>\` applied by someone with write access —
+# never a file the PR itself can commit. The verify step reads the same labels:
+# \`tamperward:allow:verify@<head-sha>\` accepts a masked failure a reviewer has judged.
 #
 # labeled/unlabeled re-run the gate because the sign-off is read from the EVENT payload:
 # a label applied after a failure could otherwise never take effect, and REVOKING a
@@ -227,6 +228,14 @@ jobs:
       # Requires a \`verify:\` block in .tamperward.yml naming the suite command;
       # without one this step fails closed (exit 2) rather than passing quietly.
       - name: Tamperward verify (pristine re-execution)
+        env:
+          # The same channel as the gate. \`tamperward:allow:verify@<head-sha>\`
+          # accepts a MASKED_FAILURE — a reviewer has read the intentional test
+          # change and agrees the original suite no longer applies. It clears
+          # nothing else: a red visible suite, or a run that could not verify,
+          # stays red whatever the labels say.
+          TAMPERWARD_OOB_SIGNOFF: \${{ steps.oob.outputs.rules }}
+          TAMPERWARD_OOB_HEAD: \${{ github.event.pull_request.head.sha }}
         run: npx --yes tamperward@${TW_VERSION} verify --require-ancestor --base "\${{ github.event.pull_request.base.sha }}"
 `;
 

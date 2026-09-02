@@ -92,7 +92,9 @@ Formats:
              [--budget S] [--json] [--keep] as-is AND with protected files restored
                                             from the trusted base; a visible-green /
                                             pristine-red result is a MASKED FAILURE
-                                            (exit 1); cannot-verify fails closed (2)
+                                            (exit 1, or 0 under an out-of-band
+                                            verify@<head-sha> approval); cannot-verify
+                                            fails closed (2)
   tamperward run [opts] -- <agent cmd...>   enforcement envelope: record the trusted
              [--base R] [--cmd C]           base, run the agent, treat its exit as
              [--budget S] [--allow-dirty]   untrusted, then re-adjudicate the tree it

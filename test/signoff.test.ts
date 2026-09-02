@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   applyLocalSignoffs,
   applyOobSignoffs,
+  oobToken,
   appendEntry,
   makeEntry,
   fingerprintOf,
@@ -107,5 +108,23 @@ describe('AGENT layer — refuses a sign-off it could have authored (the guarant
     } finally {
       rmSync(d, { recursive: true, force: true });
     }
+  });
+});
+
+describe('oobToken — the one matcher behind check --diff and verify', () => {
+  const HEAD = '1234567890abcdef1234567890abcdef12345678';
+  it('returns the covering token, bound to the head', () => {
+    expect(oobToken('verify', ['test-deletion@1234567', 'verify@1234567890ab'], HEAD)).toBe('verify@1234567890ab');
+  });
+  it('refuses an unbound token once a head is known, honours it when none is', () => {
+    expect(oobToken('verify', ['verify'], HEAD)).toBeNull();
+    expect(oobToken('verify', ['verify'])).toBe('verify');
+  });
+  it('refuses a short or foreign sha', () => {
+    expect(oobToken('verify', ['verify@123456'], HEAD)).toBeNull(); // < 7 chars
+    expect(oobToken('verify', ['verify@deadbeef0'], HEAD)).toBeNull();
+  });
+  it('never matches a different name, whatever the sha', () => {
+    expect(oobToken('verify', ['verify:x@1234567', 'test-skip@1234567'], HEAD)).toBeNull();
   });
 });

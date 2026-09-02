@@ -184,16 +184,19 @@ are involved here, and they are not the same thing.
    trusted base — so neither step's verdict is governed by the candidate.
 
 Legitimate exceptions are out-of-band PR labels, `tamperward:allow:<rule>@<head-sha>`.
-The workflow passes the head SHA to the gate through `TAMPERWARD_OOB_HEAD`, so an
+The workflow passes the head SHA to both steps through `TAMPERWARD_OOB_HEAD`, so an
 approval is bound to the exact commit it was granted for and a new push invalidates it.
+Since **2.1.0** the verify step reads the same labels: `tamperward:allow:verify@<head-sha>`
+accepts a `MASKED_FAILURE` — the case where a behaviour change makes the original
+expectations wrong and a reviewer has read the test edit and said so. It clears nothing
+else: a red visible suite, or a run that could not verify, stays red whatever the labels
+say, and the verdict is still reported as a masked failure; only the exit code changes.
 
 **This repository's own self-gate** — the `gate` job in `.github/workflows/ci.yml` —
 runs the built CLI's `check --diff` over the pull-request range, cleared only by the
 same label channel, but does **not** run `verify` on itself. This repo's test
-expectations legitimately change whenever a rule changes, and standalone `verify` has
-no out-of-band sign-off channel, so a pristine re-execution of its own suite would fail
-closed on exactly the pull requests that improve the gate. The self-gate is a
-diff-time gate.
+expectations legitimately change whenever a rule changes, so nearly every rule pull
+request would need the verify label; the self-gate stays a diff-time gate.
 
 This guarantee depends on a protected and immutable base, required status checks, a
 pinned Tamperward version, and label permissions restricted to trusted humans.
@@ -280,7 +283,7 @@ commands ignore what they do not know.
 | command | 0 | 1 | 2 |
 | --- | --- | --- | --- |
 | `check` | no blocking finding | at least one blocking finding | cannot evaluate: policy parse error, malformed `--diff` range, or no view given |
-| `verify` | `VERIFIED` — visible and pristine both green | `MASKED_FAILURE` (visible green, pristine red) or `SUITE_RED` | cannot verify, failing closed: no suite command, unresolvable base, `--require-ancestor` refused, budget exceeded, or the working or dependency tree moved during the run |
+| `verify` | `VERIFIED` — visible and pristine both green; or a `MASKED_FAILURE` cleared by an out-of-band `verify@<head-sha>` approval | `MASKED_FAILURE` (visible green, pristine red) or `SUITE_RED` | cannot verify, failing closed: no suite command, unresolvable base, `--require-ancestor` refused, budget exceeded, or the working or dependency tree moved during the run |
 | `run` | enforcement clean and the agent exited 0 — a non-zero agent exit is passed through unchanged | any blocking finding or masked failure, whatever the agent returned | cannot adjudicate: dirty start, policy error, verify cannot run |
 | `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0, never exit 2 | — | only for an unsupported agent name |
 | `allow` | sign-off recorded | — | no rule or `--reason`, not a git repo, or no current blocking finding to sign off |
@@ -291,8 +294,8 @@ commands ignore what they do not know.
 
 | variable | who sets it | what it does |
 | --- | --- | --- |
-| `TAMPERWARD_OOB_SIGNOFF` | the CI workflow, from PR labels | comma-separated out-of-band approvals — `<rule>` or `<rule>:<file>`, optionally `@<head-sha>` — honoured by `check --diff` only; never the committed ledger |
-| `TAMPERWARD_OOB_HEAD` | the CI workflow (`github.event.pull_request.head.sha`) | the head SHA under adjudication; once set, an approval clears a finding only if it names that commit (`@<sha>`, at least 7 characters), so a new push re-blocks |
+| `TAMPERWARD_OOB_SIGNOFF` | the CI workflow, from PR labels | comma-separated out-of-band approvals — `<rule>` or `<rule>:<file>` for `check --diff`, `verify` for a `verify` masked failure — optionally `@<head-sha>`; honoured at the CI layer only, never the committed ledger |
+| `TAMPERWARD_OOB_HEAD` | the CI workflow (`github.event.pull_request.head.sha`) | the head SHA under adjudication; once set, an approval clears anything only if it names that commit (`@<sha>`, at least 7 characters), so a new push re-blocks |
 | `TAMPERWARD_DENYLOG` | a harness or operator | a file to which `hook claude` and `sweep claude` append the rule ids of every deny, one line per verdict, best effort |
 | `TAMPERWARD_FSEVENTS` | operator or harness | overrides the `tamperward watch` event-log path (default `.git/tamperward/fsevents.jsonl`); the Stop sweep reads the same variable |
 | `TAMPERWARD_WATCH_NO_RECURSIVE` | CI and tests (`=1`) | forces `tamperward watch` onto its per-directory fallback instead of recursive `fs.watch`, so the fallback is exercised on every platform |

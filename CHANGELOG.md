@@ -5,6 +5,30 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.1.0] — 2026-09-02
+
+**`verify` gains the out-of-band sign-off channel `check --diff` has had since
+1.13.0. A minor, per CONTRIBUTING: new surface, and nothing that was green turns
+red — a masked failure that no label covers exits 1 exactly as before.**
+
+### Added
+
+- **`tamperward:allow:verify@<head-sha>` clears a `verify` masked failure.**
+  Until now a MASKED_FAILURE had no human escape at all: the one case where the
+  original suite is genuinely wrong for the change — an intended behaviour change
+  whose old expectations must fail — could only be merged by switching the
+  verify step off. `verify` now reads the same `TAMPERWARD_OOB_SIGNOFF` and
+  `TAMPERWARD_OOB_HEAD` the diff gate reads, with the same rules: once the
+  workflow names the head it is adjudicating, only a token bound to that commit
+  counts, so the approval dies with the next push. The verdict is still
+  reported as `MASKED_FAILURE` (with `oob_signoff` in `--json`); only the exit
+  code changes. It clears nothing else — SUITE_RED and cannot-verify are not
+  approvable states, so a label cannot make a red suite green or turn "could
+  not run" into "verified". The committed ledger is never consulted.
+- The generated CI workflow passes both variables to its verify step. Re-run
+  `tamperward init` to migrate a workflow it wrote; a hand-edited one is left
+  alone, as before.
+
 ## [2.0.0] — 2026-09-02
 
 **Node 18 is no longer supported. That is the whole of the breaking change, and

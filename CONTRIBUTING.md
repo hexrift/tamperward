@@ -20,9 +20,9 @@ npm run build     # bundles the CLI to dist/cli/index.js
 ```
 
 Tamperward's own CI runs `check --diff` over every pull request (not `verify` — this
-repo's test expectations legitimately change with every rule change, and standalone
-`verify` has no out-of-band sign-off channel), so you can run the same gate on your own
-change:
+repo's test expectations legitimately change with every rule change, so nearly every
+rule PR would need the `tamperward:allow:verify@<head-sha>` label), so you can run the
+same gate on your own change:
 
 ```bash
 node dist/cli/index.js check --staged

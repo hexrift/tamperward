@@ -439,14 +439,16 @@ Same engine, dumber adapters.
   2. `tamperward verify --require-ancestor --base "${{ github.event.pull_request.base.sha }}"`
      — pristine re-execution against the trusted base, reading its policy and verifier
      from that commit. It needs a `verify:` block in the policy at the base and fails
-     closed (exit 2) without one.
+     closed (exit 2) without one. It receives the same two variables (2.1.0): a
+     `tamperward:allow:verify@<head-sha>` label accepts a MASKED_FAILURE — a reviewer
+     has read the intentional test change and agrees the original suite no longer
+     applies — and nothing else; SUITE_RED and cannot-verify are not approvable states.
 
   The authority for `main`. A `block` fails the check; it clears only via the
   out-of-band label of §5.4, never via the agent or a committed ledger. This
   repository's own `ci.yml` runs the `check --diff` half only — its test expectations
-  legitimately change with every rule change and standalone `verify` has no
-  out-of-band sign-off channel — so the self-gate is a diff-time gate (README, "CI
-  authority").
+  legitimately change with every rule change, so nearly every rule PR would carry the
+  verify label — and the self-gate is a diff-time gate (README, "CI authority").
 
 ### 6.1 Presentation
 
