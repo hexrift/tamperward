@@ -11,50 +11,16 @@ import { isProtected, POLICY_FILE } from '../policy';
 import { makeFinding } from './finding';
 import { policyAddWeakening, policyWeakening } from './policy-diff';
 import { segments, tokens, unquote } from './command';
+import {
+  chmodDropsExec, codeownersWeakening, hookIdentity, insertsDeadGuard, insertsPassingExit, isCodeowners,
+  isLefthook, isPackageJson, isPreCommitConfig, lefthookWeakening, packageJsonWeakening, parseDoc,
+  preCommitWeakening, scriptWeakening, shellWritesHook,
+} from './hook-wiring';
 
 const RULE = 'hook-tampering';
 
-/** Commands a hook runs to enforce something. Deliberately specific: a hook body is tiny,
- *  so a named tool disappearing from it is signal, not noise. */
-const HOOK_INVOCATION = /\b(tamperward|npx|npm|pnpm|yarn|bun|jest|vitest|eslint|tsc|lefthook|husky|lint-staged|make|cargo|pytest)\b/;
-
-const isShellComment = (s: string) => /^\s*#/.test(s);
-
-/** Owner execute bit of a git mode ("100755") or an octal chmod argument ("644"). */
+/** Owner execute bit of a git mode ("100755"). */
 const ownerExec = (mode: string): boolean => (parseInt(mode.slice(-3), 8) & 0o100) !== 0;
-
-/** A symbolic chmod clause: `u-x`, `a-x`, `-x`, `+x`, `u=rw`, `go-rwx`. */
-const SYMBOLIC = /^[ugoa]*([-+=])([rwxXst]*)$/;
-
-/**
- * Whether a `chmod` segment changes the execute permission of its target.
- *
- * The symbolic test used to be `[-+=]?[a-z]*x` anchored at whitespace, which
- * reads `-x` and `+x` but not `u-x`, `a-x`, `go-x` or `u=rw` — the "who" letters
- * sit between the anchor and the operator, and an assignment removes x without
- * ever spelling it. Every one of those clears the bit as effectively as `-x`.
- * Each argument is read as chmod does: comma-separated clauses, `who op perms`,
- * or an octal mode whose owner digit decides.
- */
-function chmodTouchesExec(seg: string): boolean {
-  const toks = tokens(seg).map(unquote);
-  const at = toks.findIndex((t) => /^chmod$/.test(t));
-  if (at === -1) return false;
-  for (const tok of toks.slice(at + 1)) {
-    if (/^[0-7]{3,4}$/.test(tok)) {
-      if (!ownerExec(tok)) return true;
-      continue;
-    }
-    for (const clause of tok.split(',')) {
-      const m = clause.match(SYMBOLIC);
-      if (!m) continue;
-      const [, op, perms] = m;
-      const namesExec = /[xX]/.test(perms);
-      if (op === '=' ? !namesExec : namesExec) return true;
-    }
-  }
-  return false;
-}
 
 // ── Claude Code settings: the wiring, read as the runtime reads it ─────────────
 //
@@ -270,6 +236,46 @@ function policyFindings(c: FileChange, policy: Policy): Finding[] | null {
 }
 
 /**
+ * A rename the consumer cannot tell from the original: same identity to the tool
+ * that reads it (`lefthook.yml` → `lefthook.yaml`, `.github/CODEOWNERS` →
+ * `CODEOWNERS`) and unchanged content. `.husky/pre-commit` → `.husky/pre-commit.bak`
+ * stays inside the glob but git will never run it, so it is not kept.
+ */
+function renameKept(c: FileChange): boolean {
+  if (!c.oldPath) return false;
+  const id = hookIdentity(c.oldPath);
+  if (id === null || hookIdentity(c.path) !== id) return false;
+  return c.before != null && c.after != null ? c.before === c.after : c.hunks.length === 0;
+}
+
+/**
+ * lefthook and pre-commit configs, compared as the tool reads them: the entry
+ * that runs the gate removed, `skip: true`, a `glob`/`exclude`/`only` narrowing
+ * when it runs, `stages: [manual]`. null when either side is not a YAML mapping —
+ * the caller falls back to the script comparison.
+ */
+function configFindings(c: FileChange, policy: Policy): Finding[] | null {
+  if (c.before == null || c.after == null) return null;
+  const before = parseDoc(c.before);
+  const after = parseDoc(c.after);
+  if (before === null) return null;
+  const reasons =
+    after === null
+      ? ['the file no longer parses as YAML — the tool that reads it runs nothing']
+      : isLefthook(c.path)
+        ? lefthookWeakening(before, after)
+        : preCommitWeakening(before, after);
+  return reasons.map((reason) =>
+    makeFinding(RULE, policy, {
+      file: c.path,
+      message: `The hook configuration was weakened: ${reason}.`,
+      evidence: reason,
+      remediation: 'Leave the entry that runs the gate as `tamperward init` wrote it. Skipping, staging-off or scoping it is disabling it.',
+    }),
+  );
+}
+
+/**
  * `git update-index` can hide a file from git without touching it: `--skip-worktree`
  * and `--assume-unchanged` make every later `git diff` omit the path, so a shell
  * write to a protected test afterwards is invisible to the Stop sweep, the effect
@@ -304,7 +310,24 @@ export const hookTampering: Detector = {
         const targetsHook =
           isProtected(c.path, policy, 'hooks') ||
           (c.oldPath ? isProtected(c.oldPath, policy, 'hooks') : false);
-        if (!targetsHook) continue;
+        if (!targetsHook) {
+          // package.json is config-class, but `prepare: husky` is the line that
+          // INSTALLS the hooks on a fresh checkout — exact through the JSON, so
+          // it is judged here rather than left to the coverage rules.
+          if (isPackageJson(c.path) && c.before != null && c.after != null) {
+            for (const reason of packageJsonWeakening(c.before, c.after)) {
+              out.push(
+                makeFinding(RULE, policy, {
+                  file: c.path,
+                  message: `The hook installation was weakened: ${reason}.`,
+                  evidence: reason,
+                  remediation: 'Keep the lifecycle script that installs the git hooks. Without it a clone runs no hook at all.',
+                }),
+              );
+            }
+          }
+          continue;
+        }
 
         // A MODE-ONLY change carries no hunks, so nothing below ever saw it: `chmod
         // -x .husky/pre-commit` (husky v8 points core.hooksPath at that file, and
@@ -332,7 +355,7 @@ export const hookTampering: Detector = {
               remediation: 'Restore it. The hooks and the policy are protected assets, not obstacles to remove.',
             }),
           );
-        } else if (c.op === 'rename') {
+        } else if (c.op === 'rename' && !renameKept(c)) {
           out.push(
             makeFinding(RULE, policy, {
               file: c.path,
@@ -351,15 +374,38 @@ export const hookTampering: Detector = {
           // settings as the runtime would read them. A null result (no content, or a
           // before that already did not parse) drops through to the line-regex below.
           out.push(...semantic);
+        } else if (c.op === 'rename') {
+          // a same-identity rename with unchanged content: kept (see renameKept)
+        } else if (isCodeowners(c.path)) {
+          // Ownership wiring, not a script: the word `husky` in `/.husky/ @owner` is a
+          // path, not an invocation. What can be lost here is a human requirement on
+          // a gate-critical path. Needs both sides; a hunk-only view says nothing.
+          if (c.before != null && c.after != null) {
+            for (const reason of codeownersWeakening(c.before, c.after)) {
+              out.push(
+                makeFinding(RULE, policy, {
+                  file: c.path,
+                  message: `CODEOWNERS was weakened: ${reason}.`,
+                  evidence: reason,
+                  remediation:
+                    'Keep a code owner on the workflows, the policy and the hooks. That rule is the only thing requiring a human on a change to the gate itself.',
+                }),
+              );
+            }
+          }
+        } else if ((isLefthook(c.path) || isPreCommitConfig(c.path)) && (semantic = configFindings(c, policy)) !== null) {
+          out.push(...semantic);
         } else if (!c.path.endsWith(POLICY_FILE)) {
-          // A hook SCRIPT. Deleting it fires above; the cheaper tamper is to leave the file
-          // in place and gut its body — prepend `exit 0`, or drop the line that runs the
-          // gate — after which the hook passes everything and nothing else inspects it.
+          // A hook SCRIPT. Deleting it fires above; the cheaper tamper is to leave the
+          // file in place and gut its body: an early exit, a dropped or commented
+          // invocation — or, at the same line count, `|| true` after the gate, a
+          // dead `if false` around it, `echo` in front of it, `--version` instead of
+          // `check`. The comparison is over the checks each version actually RUNS
+          // (hook-wiring.ts invocations): runner prefix, pin and output redirection
+          // are presentation; a survivor counts only when it is live on a
+          // non-comment line in invocation position.
           const added = addedLines(c);
-          const removed = removedLines(c);
-          const live = added.filter((l) => !isShellComment(l.content));
-
-          const earlyExit = added.find((l) => /^\s*exit\s+0\s*$/.test(l.content));
+          const earlyExit = added.find((l) => insertsPassingExit(l.content));
           if (earlyExit) {
             out.push(
               makeFinding(RULE, policy, {
@@ -371,22 +417,33 @@ export const hookTampering: Detector = {
               }),
             );
           }
-
-          for (const l of removed) {
-            if (isShellComment(l.content) || !l.content.trim()) continue;
-            const m = l.content.match(HOOK_INVOCATION);
-            if (!m) continue;
-            // still invoked somewhere in the new body? (a comment does not count as invoking)
-            if (live.some((a) => a.content.includes(m[0]))) continue;
+          // With full content the liveness comparison below decides what a guard
+          // did; on a hunk-only view the guard line is all there is to see.
+          const deadGuard = c.before == null || c.after == null ? added.find((l) => insertsDeadGuard(l.content)) : undefined;
+          if (deadGuard) {
             out.push(
               makeFinding(RULE, policy, {
                 file: c.path,
-                message: `A check invocation (\`${m[0]}\`) was removed from a protected hook.`,
-                evidence: l.content.trim(),
-                remediation: 'Restore the check. Removing or commenting out the gate\'s invocation disables it just as surely as deleting the hook.',
+                line: deadGuard.newLine ?? undefined,
+                message: 'A guard that can never be true was inserted into a protected hook — what it wraps no longer runs.',
+                evidence: deadGuard.content.trim(),
+                remediation: 'Remove the dead condition. A check behind `if false` is a removed check.',
               }),
             );
-            break; // one finding per hook is the signal; don't spam per line
+          }
+          const beforeLines = c.before != null ? c.before.split('\n') : removedLines(c).map((l) => l.content);
+          const afterLines = c.after != null ? c.after.split('\n') : added.map((l) => l.content);
+          const lost = scriptWeakening(beforeLines, afterLines);
+          if (lost.length) {
+            // one finding per hook is the signal; don't spam per line
+            out.push(
+              makeFinding(RULE, policy, {
+                file: c.path,
+                message: `A check invocation was removed from a protected hook: ${lost[0].reason}.`,
+                evidence: lost[0].evidence,
+                remediation: 'Restore the check. Removing, commenting out, guarding off or swallowing the gate\'s exit status disables it just as surely as deleting the hook.',
+              }),
+            );
           }
         } else {
           // Fallback when full content isn't available: pair severity by RULE NAME
@@ -439,20 +496,10 @@ export const hookTampering: Detector = {
             );
             continue;
           }
-          const hitsHook = toks.some((t) => isProtected(t, policy, 'hooks'));
-          if (!hitsHook) continue;
-
-          let why: string | null = null;
-          if (chmodTouchesExec(seg)) {
-            why = 'chmod alters execute permission on a hook, which can disable it';
-          } else if (/\brm\b/.test(seg)) {
-            why = 'rm deletes a protected hook';
-          } else if (/\btruncate\b/.test(seg) || /(?:^|\s)>\s*\S/.test(seg)) {
-            why = 'a redirect/truncate empties a protected hook';
-          } else if (/\b(tee|sed|cp|dd|install|mv)\b/.test(seg)) {
-            why = 'a shell rewrite (tee/sed/cp/dd/install/mv) replaces a protected hook in place';
-          }
-
+          // Only the hook as a WRITE TARGET is tampering. Naming it as a source
+          // (`cat hook > /tmp/backup`, `cp hook /tmp/`, `sed -n 1,5p hook`) reads
+          // it, and `chmod +x` restores it; both used to block.
+          const why = shellWritesHook(seg, toks, policy);
           if (why) {
             out.push(
               makeFinding(RULE, policy, {
