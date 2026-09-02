@@ -4,7 +4,7 @@
 // hook from the shell are all the tamper.
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import { Change, Detector, DetectorContext, FileChange, Finding, Policy } from '../types';
 import { addedLines, removedLines } from '../diff/select';
 import { isProtected, POLICY_FILE } from '../policy';
@@ -14,7 +14,7 @@ import { segments, tokens, unquote } from './command';
 import {
   chmodDropsExec, codeownersWeakening, hookIdentity, insertsDeadGuard, insertsPassingExit, isCodeowners,
   isLefthook, isPackageJson, isPreCommitConfig, lefthookWeakening, packageJsonWeakening, parseDoc,
-  preCommitWeakening, scriptWeakening, shellWritesHook,
+  preCommitWeakening, scriptWeakening, shellHookTarget, shellWritesHook,
 } from './hook-wiring';
 
 const RULE = 'hook-tampering';
@@ -285,16 +285,30 @@ function configFindings(c: FileChange, policy: Policy): Finding[] | null {
  * visibility and pass. Prefixes (`git -C dir`, `git -c k=v`) are transparent because
  * the test is over the segment's tokens, not its shape.
  */
-function updateIndexHiding(toks: string[], policy: Policy): string | null {
+function updateIndexHiding(toks: string[], policy: Policy): { reason: string; file: string } | null {
   if (!toks.some((t) => t === 'git' || t.endsWith('/git')) || !toks.includes('update-index')) return null;
   const hide = toks.find((t) => /^--(?:skip-worktree|assume-unchanged)$/.test(t));
-  if (hide && toks.some((t) => isProtected(t, policy))) {
-    return `git update-index ${hide} hides a protected file from every git diff — edits to it no longer reach the sweep or the pre-commit gate`;
+  const hidden = hide ? toks.find((t) => isProtected(t, policy)) : undefined;
+  if (hide && hidden) {
+    return {
+      reason: `git update-index ${hide} hides a protected file from every git diff — edits to it no longer reach the sweep or the pre-commit gate`,
+      file: hidden,
+    };
   }
-  if (toks.some((t) => /^--chmod=-x$/.test(t)) && toks.some((t) => isProtected(t, policy, 'hooks'))) {
-    return 'git update-index --chmod=-x clears the execute bit on a protected hook through the index, which disables it';
+  const hook = toks.some((t) => /^--chmod=-x$/.test(t)) ? toks.find((t) => isProtected(t, policy, 'hooks')) : undefined;
+  if (hook) {
+    return { reason: 'git update-index --chmod=-x clears the execute bit on a protected hook through the index, which disables it', file: hook };
   }
   return null;
+}
+
+/** The path a command-surface finding is about, repo-relative when the command
+ *  spelled it absolute inside the checkout. The engine's pin reads it against the
+ *  baseline hook globs, which are repo-relative. */
+function repoRelative(path: string, ctx?: DetectorContext): string {
+  if (!ctx?.cwd || !isAbsolute(path)) return path;
+  const rel = relative(ctx.cwd, path);
+  return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : path;
 }
 
 export const hookTampering: Detector = {
@@ -488,7 +502,8 @@ export const hookTampering: Detector = {
           if (hiding) {
             out.push(
               makeFinding(RULE, policy, {
-                message: `Hook tampering via shell: ${hiding}.`,
+                file: repoRelative(hiding.file, ctx),
+                message: `Hook tampering via shell: ${hiding.reason}.`,
                 evidence: seg,
                 remediation:
                   'Leave protected files visible to git. Hiding one from the diff hides it from the gate, which is the tamper — use `--no-skip-worktree` / `--no-assume-unchanged` to undo it.',
@@ -501,8 +516,13 @@ export const hookTampering: Detector = {
           // it, and `chmod +x` restores it; both used to block.
           const why = shellWritesHook(seg, toks, policy);
           if (why) {
+            // `file` is load-bearing: the guarded-rule pin (engine) applies only to a
+            // finding that names the policy file or a baseline hook, so a command
+            // finding without one was governed by the policy it may have just weakened.
+            const target = shellHookTarget(seg, toks, policy);
             out.push(
               makeFinding(RULE, policy, {
+                ...(target ? { file: repoRelative(target, ctx) } : {}),
                 message: `Hook tampering via shell: ${why}.`,
                 evidence: seg,
                 remediation: 'Leave the hooks in place. Mutating them from the shell is still tampering.',

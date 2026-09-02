@@ -20,7 +20,7 @@
 // — the loop layer's known trust boundary; CI remains the authority.
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { Policy } from './types';
@@ -140,20 +140,32 @@ export function snapshotProtected(cwd: string, policy: Policy, prev?: PTree): PT
 export interface Drift {
   changed: string[]; // content or mode differs from the expected state
   deleted: string[]; // expected but gone
+  added: string[]; // present now, unknown to the expected state
 }
 
 export function driftBetween(expected: PTree, current: PTree): Drift {
   const changed: string[] = [];
   const deleted: string[] = [];
+  const added: string[] = [];
   for (const [path, e] of Object.entries(expected)) {
     const c = current[path];
     if (!c) deleted.push(path);
     else if (c.hash !== e.hash || c.mode !== e.mode) changed.push(path);
   }
-  // Additions are absorbed by saving the new snapshot: a brand-new protected file
-  // (a first-run snapshot, a new spec) is ordinary development, same stance as
-  // snapshot-rewrite's op-add exemption.
-  return { changed, deleted };
+  // ADDITIONS ARE DRIFT TOO. They used to be absorbed by saving the new snapshot,
+  // on the reasoning that a brand-new protected file is ordinary development —
+  // and for a file git can list, the turn view did judge it as the add it is. But
+  // a protected file created where git will NOT list it — ignored through an
+  // agent-writable `.git/info/exclude` or a `.gitignore` edit, or a gitignored
+  // `.claude/settings.local.json` written by an interpreter — reached no view at
+  // all, and this layer, the one built to see what git cannot, ratified it as the
+  // new baseline without a single rule having read it. An addition the caller
+  // cannot find in its git view is reconstructed and judged (src/cli/hook.ts
+  // uncoveredDrift); one that evaluates clean is absorbed, one that blocks is not.
+  for (const path of Object.keys(current)) {
+    if (!expected[path]) added.push(path);
+  }
+  return { changed, deleted, added };
 }
 
 function loadTree(p: string | null): PTree | null {
@@ -165,13 +177,28 @@ function loadTree(p: string | null): PTree | null {
   }
 }
 
+/** Written whole or not at all. Hook calls run concurrently when the agent issues
+ *  parallel tool calls, and a reader that met a half-written ptree parsed nothing,
+ *  took it for a first sight, and re-snapshotted — sanctioning the disk as it
+ *  stood. A rename swaps the complete file in under the readers. */
 function saveTree(p: string | null, tree: PTree): void {
   if (!p) return;
   try {
     mkdirSync(join(p, '..'), { recursive: true });
-    writeFileSync(p, JSON.stringify(tree));
+    const tmp = `${p}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(tree));
+    renameSync(tmp, p);
   } catch {
     /* best effort — absence of state degrades to Stop-only coverage, never to a crash */
+  }
+}
+
+function dropTree(p: string | null): void {
+  if (!p) return;
+  try {
+    rmSync(p, { force: true });
+  } catch {
+    /* best effort */
   }
 }
 
@@ -189,4 +216,9 @@ export function loadTurnTree(cwd: string, sessionId?: string): PTree | null {
 
 export function saveTurnTree(cwd: string, sessionId: string | undefined, tree: PTree): void {
   saveTree(turnTreePath(cwd, sessionId), tree);
+}
+
+/** Forget the turn tree: the next sweep judges every untracked protected file. */
+export function dropTurnTree(cwd: string, sessionId: string | undefined): void {
+  dropTree(turnTreePath(cwd, sessionId));
 }

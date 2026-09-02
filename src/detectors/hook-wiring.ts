@@ -499,9 +499,33 @@ const WRAPPERS = /^(?:sudo|command|exec|time|nice|env|[A-Za-z_][A-Za-z0-9_]*=\S*
  * target, dd `of=`, or a `git checkout <rev>`/`git restore --source` that puts
  * an older version back — is tampering.
  */
+const REDIRECT_TARGET = /(?:^|\s)\d*>{1,2}\|?\s*(\S+)/g;
+const hookPath = (t: string): string => t.replace(/^["']|["']$/g, '').replace(/^\.\//, '');
+
+/**
+ * The protected hook a shell segment NAMES — the path a shellWritesHook finding is
+ * about: the redirect target first, then the arguments in order (`of=` unwrapped
+ * for dd). A command-surface finding used to carry no `file`, and the engine's
+ * pin on the guarded rule (src/engine.ts isGuardedFinding) is keyed on the file:
+ * under a policy that lowered hook-tampering to warn, `rm .claude/settings.json`
+ * from the shell was a warn — and, at the hook, an allow — while the same removal
+ * through an Edit was pinned to block.
+ */
+export function shellHookTarget(seg: string, toks: string[], policy: Policy): string | null {
+  for (const m of seg.matchAll(REDIRECT_TARGET)) {
+    const t = hookPath(m[1]);
+    if (isProtected(t, policy, 'hooks')) return t;
+  }
+  for (const tok of toks) {
+    const t = hookPath(tok.replace(/^of=/, ''));
+    if (isProtected(t, policy, 'hooks')) return t;
+  }
+  return null;
+}
+
 export function shellWritesHook(seg: string, toks: string[], policy: Policy): string | null {
   const hook = (t: string): boolean => isProtected(t.replace(/^\.\//, ''), policy, 'hooks');
-  for (const m of seg.matchAll(/(?:^|\s)\d*>{1,2}\|?\s*(\S+)/g)) {
+  for (const m of seg.matchAll(REDIRECT_TARGET)) {
     if (hook(m[1].replace(/^["']|["']$/g, ''))) return 'a redirect empties or rewrites a protected hook';
   }
   let at = 0;

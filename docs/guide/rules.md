@@ -35,8 +35,17 @@ not do its job — and a gate that cannot evaluate must deny, never pass.
 
 The Stop sweep also scans **untracked** protected files since 2.2.0: a new
 `conftest.py`, a shadowing runner config, or a settings override the turn created is
-judged as the add it is, with its content read as an edit. Untracked files outside the
-protected globs are not scanned.
+judged as the add it is, with its content read as an edit. **Ignored** protected files
+are judged the same way: a protected file created behind a `.gitignore` line, the
+agent-writable `.git/info/exclude`, or the global excludes (which carry
+`.claude/settings.local.json`) is in the tree the runner executes whatever git lists,
+so the PreToolUse drift check, the Stop sweep, and the `run` envelope's working-tree
+check all read it as an add — and a protected addition no git view can list at all is
+reconstructed from disk by the drift check rather than absorbed. A protected file that
+already existed, untracked or ignored, when the session began is not re-litigated; the
+turn tree that says so can only excuse a file the drift state also sanctioned.
+Untracked and ignored files outside the protected globs are not scanned, and
+`node_modules` is never walked.
 
 ## The outcome layer: `tamperward verify`
 
