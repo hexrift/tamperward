@@ -46,6 +46,27 @@ export function unquotePath(p: string): string {
   return Buffer.from(bytes).toString('utf8');
 }
 
+/**
+ * The path token of a `--- ` / `+++ ` line. git appends a TAB to an UNQUOTED path that
+ * contains a space (`--- a/my tests/b.test.ts<TAB>`), the traditional-diff convention that
+ * keeps the path parseable by patch(1). Kept, that tab became part of `path`, so
+ * `my tests/b.test.ts\t` matched no protected glob and a deletion or `.skip` edit of a
+ * test under a directory with a space was invisible to every git view.
+ *
+ * Only the unquoted form can carry a trailing tab: a real tab (or quote, newline,
+ * backslash, non-ASCII byte) in a filename is quoted by git and decoded by `unquotePath`,
+ * and that quoting happens even under `core.quotePath=false` for control characters —
+ * which is why the parser handles the quoted form rather than relying on that setting:
+ * `-c core.quotePath=false` would only change WHICH bytes arrive unquoted, and an
+ * unquoted-with-space path would still have its tab. Cutting at the first tab is also
+ * correct for the GNU-diff form (`--- a/x<TAB>2024-01-01 ...`).
+ */
+function pathToken(raw: string): string {
+  if (raw.startsWith('"')) return raw;
+  const tab = raw.indexOf('\t');
+  return tab >= 0 ? raw.slice(0, tab) : raw;
+}
+
 function endOfQuoted(s: string): number {
   for (let i = 1; i < s.length; i++) {
     if (s[i] === '\\') {
@@ -77,10 +98,27 @@ function headerPaths(line: string): [string | null, string | null] {
       first = rest.slice(0, q);
       rest = rest.slice(q + 1);
     } else {
-      const m = rest.match(/^(.*) (b\/.*)$/);
-      if (!m) return [null, null];
-      first = m[1];
-      rest = m[2];
+      // Both sides unquoted. When the header names the SAME path twice (every
+      // non-rename), the two halves are `a/P` and `b/P` and the split point is exactly
+      // the middle — which stays correct however many spaces or ` b/` substrings P
+      // contains. Only a rename header (different paths) needs the last-` b/` guess,
+      // and there `rename from`/`rename to` override it anyway.
+      const mid = (rest.length - 1) / 2;
+      const sym =
+        Number.isInteger(mid) &&
+        rest[mid] === ' ' &&
+        rest.startsWith('a/') &&
+        rest.slice(mid + 1).startsWith('b/') &&
+        rest.slice(2, mid) === rest.slice(mid + 3);
+      if (sym) {
+        first = rest.slice(0, mid);
+        rest = rest.slice(mid + 1);
+      } else {
+        const m = rest.match(/^(.*) (b\/.*)$/);
+        if (!m) return [null, null];
+        first = m[1];
+        rest = m[2];
+      }
     }
   }
   return [stripAB(first), stripAB(rest)];
@@ -140,8 +178,8 @@ export function parseDiff(diff: string): Change[] {
       else if (l.startsWith('copy from ')) { renameFrom = unquotePath(l.slice(10)); if (op === 'modify') op = 'rename'; }
       else if (l.startsWith('copy to ')) { renameTo = unquotePath(l.slice(8)); if (op === 'modify') op = 'rename'; }
       else if (l.startsWith('Binary files ') || l.startsWith('GIT binary patch')) binary = true;
-      else if (l.startsWith('--- ')) minusPath = l.slice(4);
-      else if (l.startsWith('+++ ')) plusPath = l.slice(4);
+      else if (l.startsWith('--- ')) minusPath = pathToken(l.slice(4));
+      else if (l.startsWith('+++ ')) plusPath = pathToken(l.slice(4));
 
       i++;
     }

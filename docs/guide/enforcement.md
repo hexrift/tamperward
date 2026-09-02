@@ -35,7 +35,8 @@ author its own:
 - **Local**: `tamperward allow <rule> --reason "..."` writes a fingerprint-bound ledger
   entry — a human at a keyboard.
 - **CI**: out-of-band only — a PR label (`tamperward:allow:<rule>@<head-sha>`) applied
-  by someone with write access, never a committed file. Applying **or revoking** the
+  by someone with triage access or higher (label permission is approval permission —
+  restrict it accordingly), never a committed file. Applying **or revoking** the
   label re-evaluates the gate. `verify` reads the same labels: `tamperward:allow:verify@<head-sha>`
   accepts a masked failure a reviewer has judged — the original suite is genuinely wrong
   for an intended behaviour change — and clears nothing else. A red suite, or a run

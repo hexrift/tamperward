@@ -265,11 +265,11 @@ thing on the release that builds them.
 | 1 | `test-deletion` | file/cmd | test file `op: delete`; **rename out of the tests glob** (`git mv x.spec.ts x.spec.bak`); net removal of `it()`/`test()` blocks in a modified spec; `rm`/`sed`/`> ` of a protected-tests path | mechanical | **AST** |
 | 2 | `test-skip` | file | added `.skip` / `.only` / `xit` / `xdescribe` / `it.todo` / `test.skip` (`.only` *narrows* the suite — same class); the **node:test options spelling** — `test('x', { skip: true }, …)`, `{ todo: … }`, runtime `t.skip()` (1.5.1, closing a gap a live agent found: denied the crude `rm`, it skipped by option, and the shipped rule was blind to that spelling — coverage of a class must mean the whole class) | mechanical | regex |
 | 3 | `assertion-weakening` | file | net decrease in `expect(` count inside a kept test; strong matcher → weak (`toBeDefined`/`toBeTruthy`/`not.toThrow`); **changed literal inside a kept `expect()`** (the sly-genie `toBe(42)`→`toBe(43)` move) | heuristic — **reserved, not built** | **AST** |
-| 4 | `ts-any-cast` | file | added `as any`, `: any`, `as unknown as`, `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck` | mechanical | regex |
+| 4 | `ts-any-cast` | file | added `as any`, `as unknown as`, `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck` (`: any` and generic-position `any` are `ts-any-launder`, row 14, warn) | mechanical | regex |
 | 5 | `lint-suppression` | file | added `eslint-disable[-next-line]`, `/* eslint-disable */`, `// prettier-ignore` | mechanical | regex |
 | 6 | `coverage-lowering` | file | `coverageThreshold` numbers reduced; `--coverage` stripped from test script; `--passWithNoTests` added | mechanical | regex/JSON |
 | 7 | `ci-tampering` | file | in `protected.ci`: removed/commented test/lint/typecheck step, `continue-on-error: true`, `if: false` | mechanical | regex/YAML |
-| 8 | `hook-tampering` | file/cmd | edit/delete in `protected.hooks`/`protected.config`; `chmod -x` on a hook; edit to `.tamperward.yml` lowering severities, disabling rules, lowering `version:`, **adding `ignore` or per-rule `exclude` globs** (every new policy surface that can weaken the gate is a policy-diff signal the release it ships, 1.6.0) | mechanical | regex |
+| 8 | `hook-tampering` | file/cmd | edit/delete in `protected.hooks` (the `config` class is `coverage-lowering`'s jurisdiction, row 6); `chmod -x` on a hook; edit to `.tamperward.yml` lowering severities, disabling rules, lowering `version:`, **adding `ignore` or per-rule `exclude` globs** (every new policy surface that can weaken the gate is a policy-diff signal the release it ships, 1.6.0) | mechanical | regex |
 | 9 | `no-verify` | command | `git commit -n/--no-verify`, `git push --no-verify`, `HUSKY=0`, `HUSKY_SKIP_HOOKS=1`, `--no-hooks` | mechanical | regex |
 | 10 | `guard-removal` | file | deletion of lines matching auth/validation patterns (`requireAuth`, `checkPermission`, `if (!user`, `authorize`, zod `.parse(`, `csrf`) | heuristic — **reserved, not built** | regex |
 | 11 | `snapshot-rewrite` | command+file | runner update mode (`jest -u`, `--updateSnapshot`, `vitest --update`), regeneration scripts by name (`update-golden`, `regen-snapshots`), shell mutation of protected snapshot paths, and any modify/delete/rename-out of `**/*.snap`, `__snapshots__/`, `golden/` | mechanical, **warn** (updating a snapshot is legitimate when intended output changes; built from measured demand — harness/PREDICTION-affordance.md) | regex + glob |
@@ -415,8 +415,8 @@ the backstops only stop, they don't teach.
 machine. In CI it's fatal: the same PR that triggers a block can append its own
 sign-off. The escape valve would guard nothing.
 
-CI sign-off is therefore **out-of-band**: a PR **label** applied by someone with write
-access, gated by **branch protection** plus **`CODEOWNERS`** on the protected paths and
+CI sign-off is therefore **out-of-band**: a PR **label** applied by someone with triage
+access or higher (GitHub's triage role can label, so label permission IS approval permission), gated by **branch protection** plus **`CODEOWNERS`** on the protected paths and
 on `.tamperward.yml`. Never a committed file.
 
 Those two are not belt-and-braces, they are load-bearing, and 1.14.6 confirmed why.

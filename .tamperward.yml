@@ -36,8 +36,10 @@ rules:
   ci-tampering: { severity: block }
   hook-tampering: { severity: block }
   no-verify: { severity: block }
-  # heuristic — ship as warn; graduate to block only when precision clears the bar
-  assertion-weakening: { severity: warn } # AST · includes the sly-genie literal swap
+  # RESERVED names with no detector behind them (SPEC §4 rows 3 and 10, §10): they
+  # get built only against the negatives corpus and stay warn until precision is
+  # measured. Listed so the severity is on record, not because anything fires.
+  assertion-weakening: { severity: warn }
   guard-removal: { severity: warn }
 
 signoff:

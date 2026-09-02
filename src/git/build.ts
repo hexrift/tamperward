@@ -34,7 +34,12 @@ function git(args: string[], cwd?: string): string {
     return execFileSync('git', args, {
       cwd,
       encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
+      // 256 MiB, matching the hook adapter. Every diff below runs with `--text`, so a
+      // changed binary asset now costs its full size in patch output instead of one
+      // "Binary files differ" line; a legitimate golden-image update must fit. Past
+      // the cap git() throws and the view fails CLOSED (a truncated patch would parse
+      // as a smaller change than the one landing), which is the documented stance.
+      maxBuffer: 256 * 1024 * 1024,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (e) {
@@ -61,8 +66,18 @@ function fromDisk(path: string, cwd?: string): string | null {
   }
 }
 
+/**
+ * Every diff this module produces runs with `--text` (see DIFF_ARGS), so `binary` is
+ * no longer a reason to skip enrichment: it used to be, and that was a total bypass.
+ * git decides "binary" from a `-diff`/`binary` gitattribute or from a NUL byte in the
+ * blob — both under the change author's control — and a binary change carried no
+ * hunks and, here, no before/after either, so a spec gutted to one `it()` with `// \0`
+ * appended (or with `x.spec.ts -diff` in a committed .gitattributes) reached every
+ * content detector as an empty modify. The flag is still set by the parser when git
+ * says so and is kept for reporting; content is loaded regardless.
+ */
 function enrich(c: Change, beforeReader: Reader, afterReader: Reader): Change {
-  if (c.kind !== 'file' || c.binary) return c;
+  if (c.kind !== 'file') return c;
   const before = c.op !== 'add' ? beforeReader(c.oldPath ?? c.path) : null;
   const after = c.op !== 'delete' ? afterReader(c.path) : null;
   return { ...c, before, after };
@@ -122,11 +137,25 @@ export function headSha(cwd?: string): string | null {
   }
 }
 
+/**
+ * Flags shared by every `git diff` Tamperward runs.
+ *
+ * `--text` is load-bearing: without it git's binary heuristic decides what the gate
+ * gets to see. A `-diff` or `binary` attribute in a committed .gitattributes, or a
+ * single NUL byte anywhere in the file, made git print "Binary files a/x and b/x
+ * differ" instead of hunks — and every line-based detector (test-skip, test-content-
+ * removal, ci-tampering, coverage-lowering, hook-tampering's content branch) went
+ * silent on that file, in the range, staged and worktree views alike. `--text`
+ * overrides both the attribute and the NUL heuristic, so the parser always receives
+ * hunks. The hook adapter's `git diff --no-index` passes it too.
+ */
+const DIFF_ARGS = ['diff', '--no-color', '--text', '-M'];
+
 /** Everything that changed since `rev`, COMMITTED OR NOT — the honest Stop-sweep view.
  *  `git diff <rev>` compares that commit to the working tree, so a mid-turn commit can no
  *  longer launder a tamper out of sight the way `git diff HEAD` allowed. */
 export function diffSince(rev: string, opts: GitOpts = {}): Change[] {
-  const raw = git(['diff', '--no-color', '-M', rev], opts.cwd);
+  const raw = git([...DIFF_ARGS, rev], opts.cwd);
   return parseDiff(raw).map((c) =>
     enrich(c, (p) => blobAt(rev, p, opts.cwd), (p) => fromDisk(p, opts.cwd)),
   );
@@ -136,7 +165,7 @@ export function diffSince(rev: string, opts: GitOpts = {}): Change[] {
 export function diffRange(base: string, head: string, opts: GitOpts = {}): Change[] {
   assertRev(base);
   assertRev(head);
-  const raw = git(['diff', '--no-color', '-M', `${base}...${head}`], opts.cwd);
+  const raw = git([...DIFF_ARGS, `${base}...${head}`], opts.cwd);
   // `base...head` diffs from the merge-base, so `before` must come from the merge-base
   // too (not base's tip), or it misaligns whenever base advanced past the branch point.
   const mergeBase = mergeBaseOf(base, head, opts);
@@ -147,7 +176,7 @@ export function diffRange(base: string, head: string, opts: GitOpts = {}): Chang
 
 /** Staged changes — the pre-commit view. `after` is the index. */
 export function diffStaged(opts: GitOpts = {}): Change[] {
-  const raw = git(['diff', '--no-color', '-M', '--cached'], opts.cwd);
+  const raw = git([...DIFF_ARGS, '--cached'], opts.cwd);
   return parseDiff(raw).map((c) =>
     enrich(c, (p) => blobAt('HEAD', p, opts.cwd), (p) => blobAt('', p, opts.cwd)),
   );
@@ -156,7 +185,7 @@ export function diffStaged(opts: GitOpts = {}): Change[] {
 /** Unstaged + staged working-tree changes vs HEAD — the Stop-sweep view.
  *  `after` is read from DISK: an agent's edits are unstaged, so the index is stale. */
 export function diffWorktree(opts: GitOpts = {}): Change[] {
-  const raw = git(['diff', '--no-color', '-M', 'HEAD'], opts.cwd);
+  const raw = git([...DIFF_ARGS, 'HEAD'], opts.cwd);
   return parseDiff(raw).map((c) =>
     enrich(c, (p) => blobAt('HEAD', p, opts.cwd), (p) => fromDisk(p, opts.cwd)),
   );

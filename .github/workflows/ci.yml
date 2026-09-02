@@ -138,8 +138,8 @@ jobs:
 
       # SPEC §5.4: in CI a sign-off must be OUT OF BAND — never a file the same PR can
       # commit, because then the change being blocked could authorise itself. The channel
-      # is a PR label `tamperward:allow:<rule>@<head-sha>`, which only someone with write
-      # access can apply, further gated by branch protection + CODEOWNERS. The `@<sha>`
+      # is a PR label `tamperward:allow:<rule>@<head-sha>`, which only someone with triage
+      # access or higher can apply (label permission is approval permission), further gated by branch protection + CODEOWNERS. The `@<sha>`
       # binds the approval to the commit it was granted for: labels persist across
       # pushes, and this gate ran without TAMPERWARD_OOB_HEAD until 1.14.7 — so an
       # unbound label earned for one benign finding cleared every later one pushed to
@@ -173,11 +173,18 @@ jobs:
             echo "::error::PR description contains a Claude session link — remove it."
             fail=1
           fi
-          if git log --format=%B "$PR_BASE..$PR_HEAD" | grep -Eq "$PAT"; then
+          # Materialise each text first, then grep it. Under `pipefail`, `grep -q`
+          # exits on the first match and the producer upstream dies of SIGPIPE when
+          # more than a pipe buffer of text follows, so the pipeline fails and the
+          # `if` reads that as "no match" — a link early in a large diff was missed.
+          # `|| true` on the producers: an empty result is a clean result, not an error.
+          COMMITS="$(git log --format=%B "$PR_BASE..$PR_HEAD" || true)"
+          if printf '%s' "$COMMITS" | grep -Eq "$PAT"; then
             echo "::error::A commit message in this PR contains a Claude session link — reword it."
             fail=1
           fi
-          if git diff "$PR_BASE...$PR_HEAD" | grep -E '^\+' | grep -Eq "$PAT"; then
+          ADDED="$(git diff "$PR_BASE...$PR_HEAD" | grep -E '^\+' || true)"
+          if printf '%s' "$ADDED" | grep -Eq "$PAT"; then
             echo "::error::A file change in this PR adds a Claude session link — remove it."
             fail=1
           fi
