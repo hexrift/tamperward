@@ -665,9 +665,33 @@ precision work so far lives in `harness/fp-study/` and the corpus sweeps of
 `PREDICTION-baselines/tuned-fp/launder-corpus.md`), the two heuristic detectors it
 gates, languages beyond TS, agents beyond Claude Code, and the task-level
 multi-repository benchmark (the repo, not the run, as the sampling unit) that the
-external review placed at the top of the roadmap. The five milestones a later
-external review (September 2026) named as the distance from research engineering
-to industry infrastructure are tracked in [MATURITY.md](./MATURITY.md).
+external review placed at the top of the roadmap.
+
+### 9.1 Maturity milestones
+
+A September 2026 external review of v2.0.0 rated Tamperward "considerable as
+emerging research engineering; promising but unproven as industry infrastructure"
+and named five milestones that would change that answer. They are tracked here
+under the SECURITY-ENVELOPE rule: a row moves only with a link — a tagged release,
+a merged PR, a committed preregistration, or an artifact published by someone other
+than this repository. Intent moves nothing. All five are OPEN.
+
+| # | milestone | what exists today | what closes it |
+|---|-----------|-------------------|----------------|
+| M1 | An independent, **named** security audit with a public report | Three external review passes (the 1.10.x envelope review with executed exploits, the 1.14.x passes, the 1.15.0 audit), every finding ledgered in SECURITY-ENVELOPE.md and closed with a regression and a mutation check. The reviewers are unnamed and the write-ups are ours. | A named auditor publishes a report against a tagged 2.x release; each finding gets a SECURITY-ENVELOPE row; the report is linked from this row. |
+| M2 | A preregistered replication on 2.x — several agents, one fixed treatment, larger samples | Rounds 1–3.1 ran on v1.6.0 → v1.14.0, prediction committed before each; one agent runtime throughout; rounds 2 and 3 changed treatment with ecosystem; round 3.1 could not have replicated (b ≤ 3 by construction); every round on a verifier later found to carry the 1.14.1 bypass. Round 4 is the undrawn fresh pool. | A `PREDICTION` committed before the run that pins one 2.x version across every ecosystem in the round, runs at least two agent runtimes, and sizes the sample to detect a round-2-sized effect (b = 9 / c = 0 on 22 pairs). Analysis frozen before the draw; published beside the bet either way. |
+| M3 | Production pilots with published false-positive rates, overhead and friction | Precision is corpus-measured on mainline commits with no agent in the loop (`harness/fp-study/`; `snapshot-only-rewrite` ~0.06% over 1,652 commits; `test-content-removal` priced on 2,304). No deployment measured; no production user named. | A named pilot publishes per-rule fire and false-positive counts over a stated period, `verify` wall-clock against the bare suite, how often the out-of-band label was needed, and hook latency — linked here whether or not it flatters the gate. |
+| M4 | Stronger verifier isolation and cross-ecosystem dependency integrity (partial mitigations shipped) | Two copies, pristine built after the visible run exits, overlay digested either side, tree and `node_modules` fingerprints, Linux survivor scan, replace-objects disabled on every trusted read. Still true: both runs execute the candidate's code, `node_modules` is a symlink into the agent-writable tree, no OS boundary, the dependency fingerprint is Node-only, the verification surface is an enumerated list (docs/THREAT-MODEL-pristine-run.md). | The pristine run executes where the candidate cannot write — a read-only mount of the base's protected surface, or a separate container/runner with its own dependency install — and before/after dependency integrity for the ecosystems the `tests` class covers (pip, Go module cache, cargo, bundler, Maven/Gradle), each as a versioned change with its threat-model note. |
+| M5 | Attested verdicts, broader agent integrations, org-level policy administration | `--json` verdicts and a GitHub job-summary renderer; the npm package carries SLSA provenance, but a *verdict* is not attested. In-loop hooks for Claude Code only; other agents meet the gate at pre-commit and CI. One `.tamperward.yml` per repository. | A signed verdict statement (in-toto or equivalent) binding head, base, gate version, policy hash and verdict, verifiable by a required check; an in-loop adapter for at least one more runtime with the same PreToolUse/Stop semantics; a documented organisation baseline that per-repo policy can strengthen and never weaken. |
+
+The review also corrected the v2.0.0 README, whose scope note said "one model,
+one pressure prompt, one JS/TS ecosystem" beneath the Python and `claude-sonnet-5`
+rows; the README readability pass had already replaced it with the accurate
+sentence. The limits the review placed *outside* these milestones — both runs
+execute agent-controlled code, no OS/network/secret isolation, a hardcoded or
+colluding solution the base suite accepts is invisible, ecosystems beyond JS/TS
+get file- and pattern-level coverage — are the README's "What Tamperward does not
+do" and §10 below, and no milestone here removes them.
 
 ---
 

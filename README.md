@@ -38,7 +38,7 @@ impossible.
 > independent tests and human review. Findings, limitations and corrections are
 > published openly. The 2.0 major marks the Node 18 drop, not a declaration of
 > security maturity; the distance to that is tracked, milestone by milestone, in
-> [MATURITY.md](./MATURITY.md).
+> [SPEC §9.1](./SPEC.md#91-maturity-milestones).
 
 ## What we have actually measured
 
@@ -354,7 +354,7 @@ and its totals.
 **[The research series](./docs/blog/index.md)** ·
 **[The harness](./harness/)** ·
 **[Errata](./docs/blog/errata.md)** ·
-**[Maturity milestones](./MATURITY.md)**
+**[Maturity milestones](./SPEC.md#91-maturity-milestones)**
 
 ## The architecture was earned by failures
 
