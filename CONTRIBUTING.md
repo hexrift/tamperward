@@ -14,7 +14,7 @@ number from a negatives corpus (SPEC §7.A), not on taste.
 
 ```bash
 npm install
-npm test          # vitest — 420+ tests at 1.14.6
+npm test          # vitest — 520+ tests at 1.15.0
 npm run typecheck
 npm run build     # bundles the CLI to dist/cli/index.js
 ```

@@ -11,7 +11,10 @@ agent produces here.
   this checkout. Never commit under an assistant identity.
 - **Branch names follow the repo convention**: `fix/<topic>`, `docs/<topic>`,
   `sec/<topic>`. Never `claude/…`, `session-…`, or any name carrying a session id.
-- Every behaviour change gets a `CHANGELOG.md` entry under `[Unreleased]`; the
-  maintainer chooses the version at release time.
+- **Releases are version-driven, so every behaviour change ships with its bump.** A PR
+  that changes behaviour bumps `package.json` (patch for a bypass fix or a false-positive
+  fix, minor for new surface, major only as CONTRIBUTING "Versioning" defines) and dates
+  its `CHANGELOG.md` entry under that version. Merging the bump is the release; never
+  leave an `[Unreleased]` section behind.
 - Run `npm run typecheck`, `npx vitest run`, `npm run build`, and the repo's own gate
   (`node dist/cli/index.js check --staged`) before every push.

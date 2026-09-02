@@ -9,7 +9,7 @@
 agent-loop + pre-commit + CI + pristine re-execution · the agent-correction
 loop measured, not asserted.
 
-v0.8 reconciles the spec with 1.14.6. No new row: the seventeen-row table (§4) had
+v0.8 reconciles the spec with 1.15.0. No new row: the seventeen-row table (§4) had
 outgrown its heading, the canonical policy example had not kept pace with
 `defaultPolicy`, and §5.1 still described the hook's output contract as a plan when
 it has shipped on the JSON channel since v0.2. This revision brings the counts, the
@@ -699,7 +699,7 @@ external review placed at the top of the roadmap.
 
 ---
 
-*v0.8 · reconciles the spec with 1.14.6: no new row — the seventeen-row table's
+*v0.8 · reconciles the spec with 1.15.0: no new row — the seventeen-row table's
 heading and counts, the canonical policy example (`test-content-removal`,
 `transient-protected-mutation`, the `snapshots` class), the shipped JSON-at-exit-0 hook
 contract and the immediate `stop_hook_active` allow, the generated workflow's

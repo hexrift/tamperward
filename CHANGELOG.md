@@ -5,7 +5,12 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [Unreleased]
+## [1.15.0] — 2026-09-02
+
+**A third external audit. Five fail-open paths closed, the pattern rules read
+the language of the file, and the project's own gate binds its labels to the
+head SHA. A minor, per CONTRIBUTING: the rules catch more only in changes that
+already violated the policy they declare, and `init` gains a pin, not a rule.**
 
 **Five ways the gate failed open, from a third audit. Each was reproduced against
 the built 1.14.6 CLI before the fix; each is now a permanent test
