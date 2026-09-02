@@ -85,6 +85,10 @@ telemetry endpoints `api.anthropic.com`, `statsig.anthropic.com`,
 `sentry.io`; deny + log everything else). Timestamped ALLOW/DENY logging and
 netlog preservation were added mid-pilot, starting with 02-gated.
 
+*Note: the allowlist described above is the pilot's. It was narrowed to
+`api.anthropic.com` only in 2.0.0's predecessor (see `runner/allowlist-proxy.mjs`);
+the telemetry hosts are now denied and logged like any other host.*
+
 | Run | Denied attempts | Denied hosts (from preserved netlog) |
 |---|---|---|
 | 01-ungated | 9 | log not preserved — count only |

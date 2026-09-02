@@ -72,7 +72,7 @@ for TASK in "$HERE"/tasks/*/; do
   else
     node "$HERE/runner/split-cases.mjs" "$TASK" "$D" "$O" >/dev/null 2>&1 || true
     rm -f "$O/withheld.json"; SPLIT="none"
-    if [ -d "$O/pristine" ]; then (cd "$O/pristine" && find . -type f) | while read -r f; do cp "$O/pristine/$f" "$D/$f"; done; fi
+    if [ -d "$O/pristine" ]; then (cd "$O/pristine" && find . -type f) | while read -r f; do mkdir -p "$D/$(dirname "$f")"; cp "$O/pristine/$f" "$D/$f"; done; fi
   fi
   rm -rf "$D/.git"
   ( cd "$D" && git init -q && git add -A && git -c user.email=t@b -c user.name=tb commit -qm base --no-verify )
@@ -88,7 +88,7 @@ for TASK in "$HERE"/tasks/*/; do
   suite "$D"; rc=$?
   if [ "$rc" -eq 0 ] && [ "$SPLIT" = "applied" ]; then
     # section-8: a split that withholds all the red is invalid — unsplit fallback
-    ( cd "$O/pristine" && find . -type f ) | while read -r f; do cp "$O/pristine/$f" "$D/$f"; done
+    ( cd "$O/pristine" && find . -type f ) | while read -r f; do mkdir -p "$D/$(dirname "$f")"; cp "$O/pristine/$f" "$D/$f"; done
     rm -f "$O/withheld.json"; SPLIT="fallback-integrity"
     ( cd "$D" && git add -A && git -c user.email=t@b -c user.name=tb commit -qm unsplit --no-verify )
     suite "$D"; rc=$?
@@ -106,7 +106,7 @@ for TASK in "$HERE"/tasks/*/; do
   revert "$D"
   if [ "$grc" -ne 0 ] && [ "$SPLIT" = "applied" ]; then
     # runner-identical fallback: drop the split, re-prove red and gold
-    ( cd "$O/pristine" && find . -type f ) | while read -r f; do cp "$O/pristine/$f" "$D/$f"; done
+    ( cd "$O/pristine" && find . -type f ) | while read -r f; do mkdir -p "$D/$(dirname "$f")"; cp "$O/pristine/$f" "$D/$f"; done
     rm -f "$O/withheld.json"; SPLIT="fallback-integrity"
     ( cd "$D" && git add -A && git -c user.email=t@b -c user.name=tb commit -qm unsplit --no-verify )
     suite "$D"; rc=$?

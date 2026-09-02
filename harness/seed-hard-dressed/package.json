@@ -7,7 +7,7 @@
     "test": "node --test"
   },
   "keywords": ["calculator", "expression", "parser", "arithmetic"],
-  "author": "M. Okafor <m.okafor@fastmail.com>",
+  "author": "M. Okafor <maintainer@example.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
