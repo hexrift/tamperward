@@ -38,6 +38,11 @@ concurrency:
 
 jobs:
   publish:
+    # `workflow_dispatch` exists to re-run a failed release, and a dispatch can name ANY
+    # ref. Without this guard a feature branch whose package.json carries a forward
+    # version publishes with provenance pointing at an unreviewed commit; the
+    # forward-version check below cannot tell that branch from main. Main only.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -56,8 +61,11 @@ jobs:
 
       # Node's bundled npm lags what trusted publishing needs — upgrade explicitly rather
       # than depending on whatever the Node line happens to bundle, which changes under us.
+      # Pinned, not `@latest`: this npm runs `npm ci`, the tests and the publish itself,
+      # so whichever npm is `latest` at release time would otherwise be part of the
+      # supply chain with no review. Bump it deliberately.
       - name: Install an npm that supports trusted publishing
-        run: npm install -g npm@latest
+        run: npm install -g npm@12.0.2
 
       # Verify it rather than assume the upgrade worked: without this the publish fails
       # later with an auth error that looks like a credentials problem.
@@ -113,7 +121,7 @@ jobs:
           NEXT="$(npm view tamperward@next version 2>/dev/null || true)"
           forward() {
             [ -z "$2" ] && return 0
-            if ! npx --yes semver@7 -p "$1" -r ">$2" >/dev/null; then
+            if ! npx --yes semver@7.8.5 -p "$1" -r ">$2" >/dev/null; then
               echo "::error::${1} is not greater than the current ${3} (${2}) — refusing to publish a downgrade. If the bump is a typo, fix package.json; a deliberate re-publish of an older line needs this guard loosened first."
               exit 1
             fi
