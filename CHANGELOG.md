@@ -24,12 +24,19 @@ request supplied the configuration for its own re-execution:
 reported `VERIFIED`, exit 0, over an unfixed bug.
 
 `check --diff` reads its policy from the merge-base and flags that edit as
-`hook-tampering`. The generated workflow is **one job with two sequential
-steps**, so that gate step failed the required job before the vulnerable verifier
-step could produce an authoritative green — the composite stayed protected by
-step ordering, not by two independent required checks. Anyone invoking `verify`
-on its own had no protection at all. The README claimed the CI verdict was
-base-governed; that was true of `check --diff` and not of `verify`.
+`hook-tampering`. The generated workflow is **one required job containing two
+sequential checks**, not two independently required jobs. Before 1.14.3 the
+composite remained blocking because the base-policy `check --diff` step was part
+of that required job and its failure determined the job's final conclusion. The
+current ordering additionally meant the vulnerable verifier step was skipped
+after a diff failure, but **ordering itself was not the security boundary** — a
+failure in either step fails the job.
+
+If the checks are ever split into separate jobs, **both job conclusions must be
+required**. Requiring only the formerly vulnerable `verify` job would reopen the
+authority failure. Anyone invoking `verify` on its own had no protection at all.
+The README claimed the CI verdict was base-governed; that was true of
+`check --diff` and not of `verify`.
 
 With a `--base`, `verify` now loads the policy from that commit and falls back
 to the built-in defaults if the base has none. Without a `--base` there is no
