@@ -26,6 +26,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { loadPolicy } from '../policy-load';
 import { isProtected } from '../policy';
+import { gitDir } from '../git/build';
 import { Policy } from '../types';
 
 export interface FsEvent {
@@ -50,8 +51,12 @@ function snap(abs: string): Pick<FsEvent, 'mode' | 'size' | 'hash'> {
   }
 }
 
+/** The event log lives in the repository's git directory, wherever that is: in
+ *  a linked `git worktree` `.git` is a FILE, so `<cwd>/.git/tamperward/` could
+ *  not be created and the daemon silently recorded nothing. */
 export function defaultEventLog(cwd: string): string {
-  return process.env.TAMPERWARD_FSEVENTS ?? join(cwd, '.git', 'tamperward', 'fsevents.jsonl');
+  if (process.env.TAMPERWARD_FSEVENTS) return process.env.TAMPERWARD_FSEVENTS;
+  return join(gitDir(cwd) ?? join(cwd, '.git'), 'tamperward', 'fsevents.jsonl');
 }
 
 export interface Watcher {
