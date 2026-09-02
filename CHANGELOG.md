@@ -5,6 +5,49 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.3.0] — 2026-09-02
+
+**`verify` runs both suites under the operator's environment, not the
+candidate's, and the verification surface covers what the package manager
+reads before the runner starts. A minor: the suite no longer inherits
+`NODE_OPTIONS` or `PYTHONPATH`, and yarn's `yarn-path` is ignored, so a suite
+that leaned on any of those from the ambient environment goes red until it sets
+them in its own frozen command.**
+
+### Fixed
+
+- **An agent-added `.npmrc` made both runs green.** `node-options=--require
+  ./p.cjs` in a project `.npmrc` is exported by npm as `NODE_OPTIONS` to every
+  node it spawns, so with the frozen command `npm test` a two-line preload that
+  stubs the runner's `test`/`it`/`describe` to no-ops made `node --test` find
+  nothing and exit 0 in the visible AND the pristine copy: VERIFIED over a
+  source the base suite fails, with no protected file touched. `.npmrc` was on
+  no list — it is not a file the runner consults but the file the runner is
+  started under. The same line in `~/.npmrc`, which the candidate owns inside
+  `tamperward run`, worked identically and no in-tree list can cover it.
+  Two layers close the class: the package-manager and runner files
+  (`.npmrc`, `.yarnrc`, `.yarnrc.yml`, `pnpm-workspace.yaml`, `.pnpmfile.cjs`,
+  `.pnp.*`, `.yarn/releases`, `.yarn/plugins`, `.env*`, `.nvmrc`,
+  `.node-version`, `.python-version`, `setup.py`, `sitecustomize.py`,
+  `usercustomize.py`, `.gitattributes`, `.nycrc*`, `.c8rc*`, `.taprc`,
+  `ava.config.*`, `mocha.opts`, jasmine, playwright and cypress configs) join
+  the verification surface; and both suites run under a sanitised environment
+  — `NODE_OPTIONS`, `NODE_PATH`, `NODE_REPL_EXTERNAL_MODULE`, `PYTHONPATH`,
+  `PYTHONSTARTUP`, `PYTEST_ADDOPTS` and `PYTEST_PLUGINS` dropped; npm's
+  `node-options` pinned to nothing (a single space: npm skips an empty env
+  value) and its user and global config pointed at empty files; yarn's
+  `yarn-path` ignored. Verified against npm 10.9, pnpm 10.33 and yarn 1.22;
+  the residual (a runner input that is neither a file here nor a variable
+  there, Python's user site-packages among them) is stated in
+  docs/THREAT-MODEL-pristine-run.md.
+- **`git show` stays, deliberately.** `git cat-file --filters` was considered
+  for LFS-tracked overlay files and rejected: a smudge is a command read from
+  repository config the candidate writes, selected by working-tree attributes
+  the candidate writes. An LFS pointer on the surface restores as a pointer
+  and fails closed.
+- **`verify --base --json`** read the base as `--json`; a value-taking flag now
+  refuses a following flag or a missing value and verify exits 2.
+
 ## [2.2.1] — 2026-09-02
 
 **Five block rules closed against their one-token neighbours, and three

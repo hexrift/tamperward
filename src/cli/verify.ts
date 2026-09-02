@@ -64,6 +64,9 @@ export interface VerifyOpts {
   requireAncestor?: boolean;
   policyOverride?: Policy; // frozen entry-time policy (envelope): the overlay classes
                            // must not be widened by a policy the agent just wrote
+  /** A parse fault (`--base --json`): recorded rather than guessed around, so
+   *  runVerify fails closed on it instead of verifying against a flag. */
+  invalid?: string;
 }
 
 interface RunResult {
@@ -88,6 +91,19 @@ const OVERLAY_CLASSES = ['tests', 'snapshots', 'config'];
 // (docs/THREAT-MODEL-pristine-run.md). This list is a lagging indicator of
 // runner behaviour by construction — a runner can always add a configuration
 // source — so it bounds the class rather than eliminating it.
+//
+// It lagged again, one layer down. The list named what the TEST RUNNER reads
+// and nothing the PACKAGE MANAGER in front of it reads — and `npm test` is npm
+// first. npm loads the project's `.npmrc` before it runs anything, and
+// `node-options=--require ./p.cjs` there is exported as NODE_OPTIONS to every
+// node it spawns; a `p.cjs` that stubs `node:test`'s `test`/`it`/`describe` to
+// no-ops made `node --test` find nothing to run and exit 0 in BOTH copies, and
+// verify reported VERIFIED over a source the base suite fails. Not a config the
+// runner consults: a config the runner is *started under*. The package-manager
+// files are on the list now; the half of this class no file list can hold —
+// `~/.npmrc`, which the candidate owns inside the envelope — is closed in the
+// environment the suites run in (runSuite). What remains residual is a runner
+// input that is neither a file here nor a variable there.
 const VERIFICATION_SURFACE = [
   // Python / pytest — read from the rootdir, and conftest at any depth
   '**/conftest.py',
@@ -96,18 +112,61 @@ const VERIFICATION_SURFACE = [
   '**/setup.cfg',
   '**/tox.ini',
   '**/pyproject.toml',
+  '**/setup.py', // a pytest rootdir marker, and what an editable install executes
+  // Interpreter start-up hooks: imported by site.py before pytest exists,
+  // wherever the tree reaches sys.path (PYTHONPATH=., an editable install).
+  '**/sitecustomize.py',
+  '**/usercustomize.py',
   // JavaScript / TypeScript runners and the transforms they load
   '**/jest.config.*',
   '**/jest.setup.*',
   '**/vitest.config.*',
   '**/vitest.workspace.*',
   '**/.mocharc.*',
+  '**/mocha.opts',
   '**/karma.conf.*',
+  '**/ava.config.*',
+  '**/.taprc',
+  '**/spec/support/jasmine.json',
+  '**/playwright.config.*',
+  '**/cypress.config.*',
+  '**/.nycrc*',
+  '**/.c8rc*',
   '**/babel.config.*',
   '**/.babelrc*',
   '**/vite.config.*',
   '**/.swcrc',
   '**/package.json',
+  // Package-manager configuration: read before the runner starts, and able to
+  // choose what the runner is started under (`node-options`), which shell runs
+  // the script (`script-shell`), or which program is run at all (`yarn-path`).
+  '**/.npmrc',
+  '**/.yarnrc',
+  '**/.yarnrc.yml',
+  // pnpm 10 reads its settings (`nodeOptions` among them) from here as well,
+  // and its environment layer does NOT outrank this file (verified, pnpm
+  // 10.33) — so the file list is the only control for it.
+  '**/pnpm-workspace.yaml',
+  '**/.pnpmfile.cjs',
+  // The runner the package manager executes when the project pins one: yarn's
+  // `yarnPath` release and its plugins, and the PnP loader every spawned node
+  // is made to `--require`.
+  '**/.yarn/releases/*',
+  '**/.yarn/plugins/**',
+  '**/.pnp.cjs',
+  '**/.pnp.js',
+  '**/.pnp.loader.mjs',
+  // dotenv files: `node --env-file`, a jest/vitest setup that loads dotenv,
+  // pytest-dotenv. An .env carries NODE_OPTIONS as easily as an .npmrc does.
+  '**/.env',
+  '**/.env.*',
+  // Version-manager pins: which interpreter the shims select for this cwd.
+  '**/.nvmrc',
+  '**/.node-version',
+  '**/.python-version',
+  // What git does to content on its way into and out of the tree — the base's
+  // decision, never the candidate's.
+  '**/.gitattributes',
   // Ruby / PHP / .NET
   '**/.rspec',
   '**/phpunit.xml',
@@ -320,6 +379,19 @@ function overlayPristine(
       // from this repository alone. "Cannot verify" is the honest answer.
       throw new Error(`the base's ${e.path} is a submodule; the pristine copy cannot reproduce it`);
     }
+    // `git show`, deliberately, and not `git cat-file --filters`. The latter
+    // would hand the blob back as a checkout does — smudged — which is what an
+    // LFS-tracked or clean-filtered file needs to be usable. But a smudge is a
+    // COMMAND, `filter.<driver>.smudge`, read from git config the candidate
+    // writes with an ordinary `git config`, and selected by attributes read
+    // from the WORKING TREE's `.gitattributes` and `$GIT_DIR/info/attributes`,
+    // both of which the candidate writes too; no environment switch turns off
+    // the repository's own config (GIT_CONFIG_GLOBAL/SYSTEM cover only the
+    // other two). "The base's bytes" would then mean "whatever the candidate's
+    // filter emits", in the one read whose whole point is that the candidate
+    // did not choose it. So the raw object: an LFS pointer on the surface is
+    // restored as a pointer, and a pointer is not a test, so the pristine run
+    // fails closed rather than through a filter the candidate could redirect.
     const content = execFileSync('git', ['show', `${base}:${e.path}`], { cwd, maxBuffer: 1 << 28, env: trustedGitEnv() });
     const out = join(dest, e.path);
     mkdirSync(dirname(out), { recursive: true });
@@ -390,6 +462,108 @@ child.on('error', (e) => { clearTimeout(timer); finish({ error: String(e) }); })
 child.on('exit', (code, signal) => { clearTimeout(timer); finish({ exit: code, signal }); });
 `;
 
+/**
+ * The environment both suites run in.
+ *
+ * The surface list governs what the copies CONTAIN. It says nothing about what
+ * the runner reads from outside them, and it reads plenty: npm loads `~/.npmrc`
+ * ahead of the project's, pnpm the same file, yarn `~/.yarnrc` — and each can
+ * name code to execute before the first test. Inside `tamperward run` the
+ * candidate owns HOME and can write all of those. It cannot write into THIS
+ * process's environment, which is the one input here that is unconditionally
+ * the operator's. So the environment is the control for the half of the class
+ * no file list can bound: every runner setting resolved from the env is pinned
+ * to a value chosen here, and every env input that names code to load is
+ * dropped. Applied to both runs alike, so an honest suite sees no difference
+ * between them, and to the supervisor too — it is a node process as well.
+ *
+ *   NODE_OPTIONS            `--require` / `--import` / `--loader` run before the
+ *                           suite's first line. Dropped, not inherited: npm
+ *                           leaves an inherited value in place whenever its own
+ *                           `node-options` is unset (verified, npm 10.9), so a
+ *                           value in the operator's env reaches both runs.
+ *   NODE_PATH               legacy global module resolution; a relative entry
+ *                           resolves against the copy, an absolute one against
+ *                           wherever it points. Dropped.
+ *   NODE_REPL_EXTERNAL_MODULE  a module node loads at start-up. REPL only — but
+ *                           a "load this file first" knob is that knob. Dropped.
+ *   npm_config_node_options npm and pnpm export the `node-options` setting as
+ *                           NODE_OPTIONS to every script they run, and read it
+ *                           from the project .npmrc, `~/.npmrc` and the global
+ *                           file — all BELOW the environment. Set to a single
+ *                           space, because npm's env layer skips an empty value
+ *                           outright (`envVal === ''` is `continue`d, so
+ *                           NPM_CONFIG_NODE_OPTIONS='' changes nothing) and
+ *                           trims a non-empty one to '': "set, to nothing".
+ *                           Verified against npm 10.9 and pnpm 10.33; node
+ *                           itself accepts a whitespace NODE_OPTIONS should a
+ *                           future npm stop trimming. pnpm 10 also reads
+ *                           `nodeOptions` from pnpm-workspace.yaml and the env
+ *                           does NOT outrank that file, which is why that one
+ *                           is on the surface list instead.
+ *   npm_config_userconfig   `~/.npmrc` — HOME-owned, candidate-writable inside
+ *   npm_config_globalconfig the envelope — and `$PREFIX/etc/npmrc`. Pointed at
+ *                           two empty files in this run's scratch directory
+ *                           (two, because npm refuses to load one path twice).
+ *                           Honoured by npm and pnpm, in either letter case,
+ *                           which is also why the inherited variants are
+ *                           dropped case-insensitively before being pinned.
+ *   YARN_IGNORE_PATH        yarn's `yarn-path` / `yarnPath` names a file to run
+ *                           IN PLACE OF yarn, and `~/.yarnrc` is read before any
+ *                           project file (verified: yarn 1.22 ran the file a
+ *                           home .yarnrc named; this switch stopped it). A
+ *                           project pinning its release this way runs the yarn
+ *                           on PATH instead; corepack's `packageManager` pin is
+ *                           unaffected. Yarn 1.22 does not export
+ *                           `node-options` at all (verified), and its bundle
+ *                           has no such setting.
+ *   PYTHONPATH              the one way the tree reaches sys.path at interpreter
+ *                           start-up, where `sitecustomize.py` is imported
+ *                           before pytest exists — the case the threat model
+ *                           left untested. Dropped; a suite that needs it sets
+ *                           it in its own command, which is frozen.
+ *   PYTHONSTARTUP           a file the interpreter executes at start-up.
+ *   PYTEST_ADDOPTS          arguments pytest prepends to its own: `-p`, `-k`,
+ *                           `--deselect` — the pytest.ini vectors, from the env.
+ *   PYTEST_PLUGINS          modules pytest imports as plugins, resolved on
+ *                           sys.path — an in-tree module the candidate wrote.
+ *
+ * Everything else — PATH, HOME, a venv, the operator's own variables — is
+ * inherited, so the suite still runs. NOT covered, and residual (documented in
+ * docs/THREAT-MODEL-pristine-run.md): a runner input that is neither a file on
+ * the surface list nor a variable named here. Python's user site-packages is
+ * the known one — a `.pth` there runs code at start-up, and PYTHONNOUSERSITE
+ * would close it at the price of every `pip install --user` suite — and npm's
+ * builtin npmrc under its own installation is another, in the shared-dependency
+ * class the copies never addressed.
+ */
+const DROPPED_ENV = new Set([
+  'NODE_OPTIONS',
+  'NODE_PATH',
+  'NODE_REPL_EXTERNAL_MODULE',
+  'PYTHONPATH',
+  'PYTHONSTARTUP',
+  'PYTEST_ADDOPTS',
+  'PYTEST_PLUGINS',
+]);
+const PINNED_NPM = /^npm_config_(node_options|userconfig|globalconfig)$/i;
+
+function suiteEnv(scratch: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (DROPPED_ENV.has(k) || PINNED_NPM.test(k)) continue;
+    env[k] = v;
+  }
+  const userRc = join(scratch, 'npmrc-user');
+  const globalRc = join(scratch, 'npmrc-global');
+  for (const f of [userRc, globalRc]) writeFileSync(f, '', { mode: 0o444 });
+  env.npm_config_userconfig = userRc;
+  env.npm_config_globalconfig = globalRc;
+  env.npm_config_node_options = ' ';
+  env.YARN_IGNORE_PATH = '1';
+  return env;
+}
+
 function runSuite(dir: string, cmd: string, budgetSecs: number): RunResult {
   const t0 = Date.now();
   const outDir = mkdtempSync(join(tmpdir(), 'tw-verify-run-'));
@@ -397,6 +571,7 @@ function runSuite(dir: string, cmd: string, budgetSecs: number): RunResult {
   try {
     spawnSync(process.execPath, ['-e', SUPERVISOR, cmd, String(budgetSecs * 1000), outFile], {
       cwd: dir,
+      env: suiteEnv(outDir),
       stdio: 'ignore',
       timeout: budgetSecs * 1000 + 30_000, // backstop only; the supervisor enforces the budget
       killSignal: 'SIGKILL',
@@ -419,6 +594,11 @@ function runSuite(dir: string, cmd: string, budgetSecs: number): RunResult {
 export function runVerify(opts: VerifyOpts): number {
   const cwd = opts.cwd ?? process.cwd();
   const out = (s: string): void => void process.stdout.write(s + '\n');
+
+  if (opts.invalid) {
+    out(`verify: ${opts.invalid} — failing closed`);
+    return 2;
+  }
 
   // POLICY PROVENANCE. The candidate must not choose the rules it is judged by.
   // With a --base, the overlay classes, the verification surface config and the
@@ -627,15 +807,37 @@ export function runVerify(opts: VerifyOpts): number {
 
 export function parseVerify(args: string[]): VerifyOpts {
   const o: VerifyOpts = {};
+  // A value-taking flag takes the NEXT argument, and only when that is a
+  // value. `verify --base --json` used to read the base as "--json", and a
+  // trailing `--base` with nothing after it silently fell back to HEAD. A flag
+  // is never a value: the fault is recorded, the flag is left to be parsed as
+  // itself, and runVerify fails closed on the record.
+  const value = (i: number, flag: string): string | undefined => {
+    const v = args[i + 1];
+    if (v === undefined || v.startsWith('--')) {
+      o.invalid ??= `${flag} needs a value` + (v === undefined ? '' : ` (got the flag "${v}")`);
+      return undefined;
+    }
+    return v;
+  };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a === '--base' && args[i + 1]) o.base = args[++i];
-    else if (a === '--cmd' && args[i + 1]) o.cmd = args[++i];
-    else if (a === '--budget' && args[i + 1]) o.budget = Number(args[++i]);
-    else if (a === '--json') o.json = true;
+    if (a === '--json') o.json = true;
     else if (a === '--keep') o.keep = true;
     else if (a === '--require-ancestor') o.requireAncestor = true;
-    else if (a === '--cwd' && args[i + 1]) o.cwd = args[++i];
+    else if (a === '--base' || a === '--cmd' || a === '--cwd' || a === '--budget') {
+      const v = value(i, a);
+      if (v === undefined) continue;
+      i++;
+      if (a === '--base') o.base = v;
+      else if (a === '--cmd') o.cmd = v;
+      else if (a === '--cwd') o.cwd = v;
+      else {
+        o.budget = Number(v);
+        if (!Number.isFinite(o.budget) || o.budget <= 0)
+          o.invalid ??= `--budget needs a positive number of seconds (got "${v}")`;
+      }
+    }
   }
   return o;
 }
