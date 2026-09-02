@@ -287,7 +287,7 @@ via npm trusted publishing with SLSA provenance. Full rule:
 
 ```bash
 npm install && npm run build    # bundles the CLI to dist/cli/index.js
-npm test                        # 367 tests at v1.14.3 — parser, detectors, engine, policy, renderers
+npm test                        # 368 tests at v1.14.3 — parser, detectors, engine, policy, renderers
 npm run typecheck
 ```
 
