@@ -55,3 +55,7 @@ The policy loader is strict for the same reason: an unknown top-level key (`Rule
 inside the repository. A leading `/` on a `protected`, `ignore` or `exclude` glob is
 dropped when the policy loads — paths in every git view are repo-relative, so
 `/e2e/**` and `e2e/**` are the same rule.
+
+The same holds for a protected file that changes where git cannot see it: the hook
+judges it from the trusted content when it can, and blocks as `hidden-drift` when it
+cannot (see [the rules](./rules.md#two-findings-that-are-not-rules)).
