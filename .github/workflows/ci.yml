@@ -56,9 +56,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # package.json declares engines >=18. CI only ever proved 22, so the stated
-        # floor was an untested claim; these legs are what make it true.
-        node: [18, 20, 22]
+        # package.json declares engines >=20.19 (2.0.0 dropped Node 18, which is past
+        # end of life and which the dev toolchain no longer runs on). Every leg here
+        # is a version the package claims to support, so the floor is a tested claim.
+        node: [20, 22, 24]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
