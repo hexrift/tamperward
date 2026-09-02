@@ -43,7 +43,7 @@ Earlier controlled experiments → **[the research series](./docs/blog/index.md)
 
 > **Scope.** The rows above are one model, one pressure prompt, one JS/TS
 > ecosystem — evidence for that setting, not a universal claim. Round 2 tested
-> the v1.9.0 stack; the current **v1.14.3** adds post-study envelope hardening
+> the v1.9.0 stack; the current **v1.14.6** adds post-study envelope hardening
 > (externally reviewed, with findings tracked individually as REPRO or AUDIT in
 > [SECURITY-ENVELOPE.md](./SECURITY-ENVELOPE.md) and closed with regression and
 > mutation checks — see [CHANGELOG](./CHANGELOG.md)). Rounds 3 and 3.1 are
@@ -148,15 +148,28 @@ semantic correctness nor a substitute for independent held-out tests.
 
 ### CI authority
 
-Pre-commit is an early backstop; protected CI is the merge authority. CI runs, independently:
+Pre-commit is an early backstop; protected CI is the merge authority. Two workflows
+are involved here, and they are not the same thing.
 
-1. `check --diff base...head`, with policy from the trusted merge-base; and
+**The shipped workflow** — the one `tamperward init` writes into your repository as
+`.github/workflows/tamperward.yml` — runs, independently:
+
+1. `check --diff base.sha...head.sha`, with policy from the trusted merge-base; and
 2. `verify --require-ancestor --base <base-sha>`, which since **1.14.3** also reads
    its policy, verification surface and verifier command and budget from that same
-   trusted base — so neither job's verdict is governed by the candidate.
+   trusted base — so neither step's verdict is governed by the candidate.
 
-Legitimate exceptions are out-of-band PR labels bound to the exact head SHA; a new
-push invalidates the approval.
+Legitimate exceptions are out-of-band PR labels, `tamperward:allow:<rule>@<head-sha>`.
+The workflow passes the head SHA to the gate through `TAMPERWARD_OOB_HEAD`, so an
+approval is bound to the exact commit it was granted for and a new push invalidates it.
+
+**This repository's own self-gate** — the `gate` job in `.github/workflows/ci.yml` —
+runs the built CLI's `check --diff` over the pull-request range, cleared only by the
+same label channel, but does **not** run `verify` on itself. This repo's test
+expectations legitimately change whenever a rule changes, and standalone `verify` has
+no out-of-band sign-off channel, so a pristine re-execution of its own suite would fail
+closed on exactly the pull requests that improve the gate. The self-gate is a
+diff-time gate.
 
 This guarantee depends on a protected and immutable base, required status checks, a
 pinned Tamperward version, and label permissions restricted to trusted humans.
@@ -218,9 +231,50 @@ npx tamperward verify --base main            # pristine-suite re-execution
 npx tamperward run -- <agent command...>     # the outer envelope around an agent
 ```
 
+### CLI reference
+
+Every flag below is what the command's parser actually reads (`src/cli/index.ts`,
+`parseVerify`, `parseRun`). `check` reports an unknown flag on stderr; the other
+commands ignore what they do not know.
+
+| command | flags |
+| --- | --- |
+| `check` | one view — `--staged` · `--worktree` · `--diff <base>...<head>` — plus `--format text\|json\|github\|auto` (default `auto`) · `--json` (alias for `--format json`) · `--cwd <dir>` |
+| `verify` | `--base <rev>` (default `HEAD`) · `--cmd <suite command>` · `--budget <seconds>` · `--json` · `--keep` (keep the two materialised copies and report their paths) · `--require-ancestor` (refuse a base that is not an ancestor of `HEAD`) · `--cwd <dir>` |
+| `run` | `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` · `--allow-dirty` · `--settle <seconds>` (wait before the final quiescence check) · `--allow-dep-drift` · `--cwd <dir>` · then `-- <agent command...>` |
+| `allow` | `<rule>` · `--file <path>` · `--reason "<why>"` (required) · `--cwd <dir>` |
+| `init` | `--cwd <dir>` · `--dry-run` · `--force-workflow` |
+| `watch` | `--dir <dir>` · `--log <file>` — a daemon; it runs until signalled |
+| `hook claude` / `sweep claude` | none — the Claude Code payload arrives on stdin |
+
+**Exit codes** — part of the public surface:
+
+| command | 0 | 1 | 2 |
+| --- | --- | --- | --- |
+| `check` | no blocking finding | at least one blocking finding | cannot evaluate: policy parse error, malformed `--diff` range, or no view given |
+| `verify` | `VERIFIED` — visible and pristine both green | `MASKED_FAILURE` (visible green, pristine red) or `SUITE_RED` | cannot verify, failing closed: no suite command, unresolvable base, `--require-ancestor` refused, budget exceeded, or the working or dependency tree moved during the run |
+| `run` | enforcement clean and the agent exited 0 — a non-zero agent exit is passed through unchanged | any blocking finding or masked failure, whatever the agent returned | cannot adjudicate: dirty start, policy error, verify cannot run |
+| `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0, never exit 2 | — | only for an unsupported agent name |
+| `allow` | sign-off recorded | — | no rule or `--reason`, not a git repo, or no current blocking finding to sign off |
+| `init` | wired, or already wired | — | an item needs attention |
+| no or unknown command | help printed (no command) | — | unknown command, help printed |
+
+### Environment variables
+
+| variable | who sets it | what it does |
+| --- | --- | --- |
+| `TAMPERWARD_OOB_SIGNOFF` | the CI workflow, from PR labels | comma-separated out-of-band approvals — `<rule>` or `<rule>:<file>`, optionally `@<head-sha>` — honoured by `check --diff` only; never the committed ledger |
+| `TAMPERWARD_OOB_HEAD` | the CI workflow (`github.event.pull_request.head.sha`) | the head SHA under adjudication; once set, an approval clears a finding only if it names that commit (`@<sha>`, at least 7 characters), so a new push re-blocks |
+| `TAMPERWARD_DENYLOG` | a harness or operator | a file to which `hook claude` and `sweep claude` append the rule ids of every deny, one line per verdict, best effort |
+| `TAMPERWARD_FSEVENTS` | operator or harness | overrides the `tamperward watch` event-log path (default `.git/tamperward/fsevents.jsonl`); the Stop sweep reads the same variable |
+| `TAMPERWARD_WATCH_NO_RECURSIVE` | CI and tests (`=1`) | forces `tamperward watch` onto its per-directory fallback instead of recursive `fs.watch`, so the fallback is exercised on every platform |
+| `TAMPERWARD_TRANSIENT` | a harness that owns restore semantics (`=block`) | raises `transient-protected-mutation` from warn to block; it can never lower a severity |
+| `NO_COLOR` / `FORCE_COLOR` | the user's shell | any non-empty `NO_COLOR` disables colour in the text renderer; a non-empty, non-`0` `FORCE_COLOR` enables it |
+| `GITHUB_ACTIONS` | GitHub Actions (`=true`) | `--format auto` selects the `github` renderer — an inline annotation per finding plus a job summary |
+
 ### The rules
 
-Sixteen rules are specified and fourteen ship (see the table in
+Seventeen rules are specified and fifteen ship (see the table in
 [SPEC.md](./SPEC.md)). The families: test protection (`test-deletion`,
 `test-skip`, `test-content-removal`), verification-signal protection
 (`coverage-lowering`, `snapshot-rewrite`, `snapshot-only-rewrite`), suppression
@@ -308,12 +362,14 @@ via npm trusted publishing with SLSA provenance. Full rule:
 
 ```bash
 npm install && npm run build    # bundles the CLI to dist/cli/index.js
-npm test                        # 368 tests at v1.14.3 — parser, detectors, engine, policy, renderers
+npm test                        # 420+ tests at 1.14.6 — parser, detectors, engine, policy, renderers
 npm run typecheck
 ```
 
-Tamperward gates its own repo in CI with the same engine it ships — including, on more
-than one occasion, blocking its own author's commits. See **[SPEC.md](./SPEC.md)** for
+Tamperward's own CI runs the engine it ships over every pull request — `check --diff`
+over the PR range, cleared only by an out-of-band label; see [CI authority](#ci-authority)
+for why the self-gate runs no `verify` on itself — and has, on more than one occasion,
+blocked its own author's commits. See **[SPEC.md](./SPEC.md)** for
 the build spec, the detector table, the enforcement-point wiring, and the proof-harness
 design; the `harness/` directory holds the seeds, oracles, transcripts tooling, and
 every pre-registered prediction with its outcome.

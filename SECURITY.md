@@ -47,12 +47,20 @@ off, which is a security failure by a slower route.
 - **An approver clearing a real finding.** The out-of-band label is the designed escape
   valve for a reviewed, legitimate change. Its security rests on branch protection and
   `CODEOWNERS`, not on the label being unusable.
-- **Coverage gaps outside the shipped slice** — languages other than TypeScript, agents
-  other than Claude Code. These are stated non-goals, not evasions.
+- **Coverage gaps outside the shipped slice.** JavaScript/TypeScript is the fully
+  supported surface. Other ecosystems (Python, Go, Rust, Ruby, Java/Kotlin/Scala, PHP,
+  C#) get file-level protection — their conventional test layouts are in the baseline
+  `protected.tests` globs, so deleting, renaming out, or gutting such a file fires — plus
+  the documented skip and suppression patterns; the AST-level rules (block counting,
+  `any` detection) are JS/TS only. Agents other than Claude Code meet the gate only at
+  pre-commit, CI and the `run` envelope. These are stated boundaries, not evasions; a
+  miss inside a boundary this file names is still a report we want.
 
 ## Supported versions
 
-Pre-1.0: only the latest published release receives fixes.
+The latest published minor of the 1.x line receives fixes, as patches — a bypass fix
+is always a patch (CONTRIBUTING, "Versioning") so it reaches you on an ordinary update.
+Older minors are not patched; upgrade to the current one.
 
 ## Disclosure
 

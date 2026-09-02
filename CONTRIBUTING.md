@@ -14,12 +14,15 @@ number from a negatives corpus (SPEC §7.A), not on taste.
 
 ```bash
 npm install
-npm test          # vitest — 158 tests
+npm test          # vitest — 420+ tests at 1.14.6
 npm run typecheck
 npm run build     # bundles the CLI to dist/cli/index.js
 ```
 
-Tamperward gates its own repo, so you can run it on your own change:
+Tamperward's own CI runs `check --diff` over every pull request (not `verify` — this
+repo's test expectations legitimately change with every rule change, and standalone
+`verify` has no out-of-band sign-off channel), so you can run the same gate on your own
+change:
 
 ```bash
 node dist/cli/index.js check --staged
@@ -68,7 +71,8 @@ CLI, the policy schema, and the hook contract** — specifically:
 - the `tamperward` commands, their flags, and their **exit codes**
 - the hook wire format: a deny is JSON on stdout at **exit 0** (exit 2 makes the agent
   runtime ignore the JSON)
-- the `.tamperward.yml` schema — `protected`, `rules`, `ignore`, `signoff`
+- the `.tamperward.yml` schema — `version`, `protected`, `rules`, `ignore`, `signoff`, `verify`
+  (`src/types.ts` `Policy`)
 - the `Finding` shape emitted by `--json`
 
 Everything under `src/` is internal. The package publishes no `main` and no `exports`; it
