@@ -2,6 +2,12 @@
 
 *August 29, 2026 · hexrift*
 
+> *Series-wide caveats — sampling unit, historical controls, training
+> contamination, model pinning, what the registration order proves, and what the
+> verification layers cannot guarantee — are collected on the
+> [limitations page](./limitations.md). Published corrections are on the
+> [errata page](./errata.md).*
+
 *The short version: an external review read this entire series and made a statistical
 distinction more sharply than we had — our run counts are much larger than our count
 of independent experiments, and the headline numbers borrowed credibility from that
@@ -133,8 +139,20 @@ larger review recommendations — multi-repository task-level benchmarks with th
 repo, not the run, as the sampling unit; non-Claude agents; mutation testing as an
 orthogonal signal — are the roadmap beyond it, in roughly that order of cost.
 
-The ledger: **59 pre-registered bets — 27 refuted, 30 held, 2 the data couldn't
-resolve** — plus five newly staked and unresolved.
+The ledger, as published: **59 pre-registered bets — 27 refuted, 30 held, 2 the
+data couldn't resolve** — plus five newly staked and unresolved.
+
+*Correction, September 1, 2026: **the exact cumulative totals are withdrawn.**
+The [errata](./errata.md) records that the ledger jumps 56/25 → 59/27 between
+posts 8 and 9 with no identifiable study supplying the two extra refutations, so
+every total from post 9 onward inherits an unreconciled discrepancy. Round 1's
+transfer bet has since flipped from held to refuted as well. Beyond the
+bookkeeping, counting "held" and "refuted" as equal units has no statistical
+interpretation: the ledger mixes deterministic code facts, numeric predictions,
+qualitative mechanism bets, correlated sub-bets, and studies designed
+adaptively from earlier studies. It is an accountability device — every
+prediction published before its outcome — not evidence of calibration. Exact
+totals stay withdrawn until reconciled.*
 
 — [github.com/hexrift/tamperward](https://github.com/hexrift/tamperward) ·
 [npmjs.com/package/tamperward](https://www.npmjs.com/package/tamperward) ·

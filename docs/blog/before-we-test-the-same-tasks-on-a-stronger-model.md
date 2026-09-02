@@ -2,6 +2,12 @@
 
 *September 1, 2026*
 
+> *Series-wide caveats — sampling unit, historical controls, training
+> contamination, model pinning, what the registration order proves, and what the
+> verification layers cannot guarantee — are collected on the
+> [limitations page](./limitations.md). Published corrections are on the
+> [errata page](./errata.md).*
+
 Round 3 asked whether Tamperward's prevention effect transferred from JavaScript
 to Python. It did: on 17 fresh Python repositories, false-green discordance ran
 6–0 in the gate's favour, exact McNemar p = .0313. Round 3.1 asks a narrower
@@ -145,4 +151,5 @@ All three gated pilots took longer than their ungated twins (97→137s, 59→122
 wall-clock differences are descriptive and combine treatment work with
 stochastic trajectory and runtime variation.
 
-The next post is the answer. The git history proves this one came first.
+The next post is the answer. The repository records this registration commit
+before the result commits.

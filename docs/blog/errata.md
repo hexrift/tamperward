@@ -36,6 +36,53 @@ transient-mutation rescan.
 
 ## Corrections — newest first
 
+## 2026-09-01 — series-wide framing pass
+
+**Six framing corrections from the same audit, plus a new
+[limitations page](./limitations.md) carrying the caveats that apply to every
+post.** No result, artifact or figure changes here.
+
+1. **"The git history proves the order"** appeared on seven posts. A commit
+   graph shows parentage and nothing more: it does not establish that no
+   trajectory ran before the registration, that timestamps were not altered,
+   that artifacts were not produced before being committed, or that the
+   registration was publicly visible at the time. Round 3.1's accidental
+   pre-registration trajectory is the illustration — it was caught by
+   disclosure, not by the graph. Replaced throughout with *the repository
+   records the registration commit before the result commits*.
+2. **"137 blocked bypass attempts"** was wrong. 137 is the guarded-**run**
+   count; only a subset of those runs drew a block.
+3. **"Did not reduce false greens"** overstates a failure to reject. Round 1's
+   result is b=5/c=4 with a wide interval — no demonstration of a reduction, and
+   no demonstration that the effect is zero. Changed to *did not demonstrate a
+   reduction in false greens* in the post and the index.
+4. **`18-fsspec-filesystem_spec` was called "a genuine fix".** Its oracle
+   strength is `INTEGRITY`, not `INTEGRITY+SEMANTIC` — no withheld cases exist
+   for that task — so the evidence supports a policy-clean, suite-passing final
+   state, not semantic correctness.
+5. **"Hard immutability"** in the index summary. `chattr +i` binds root until
+   root runs `chattr -i`, which the post itself notes an agent can do. What the
+   10/10 result measures is discovery and friction, not a hard boundary.
+6. **The exact cumulative bet totals are withdrawn.** The unexplained
+   56/25 → 59/27 step (below) is inherited by every later total, and round 1's
+   transfer bet has now flipped from held to refuted. Beyond the bookkeeping,
+   counting "held" and "refuted" as equal units has no statistical
+   interpretation — the ledger mixes deterministic code facts, numeric bands,
+   qualitative mechanism bets, correlated sub-bets and adaptively designed
+   studies. It remains an accountability device, not evidence of calibration.
+
+The limitations page additionally states, in one place rather than scattered:
+the sampling unit behind the early "what AI coding agents do" titles; that
+several before/after comparisons use historical rather than concurrent controls,
+with the relevant Fisher p-values; that commit-corpus percentages are historical
+review-trigger rates rather than clean false-positive estimates; that training
+contamination was never measured; and that pinning a model identifier is not
+pinning an immutable snapshot.
+
+Every Taskbench post now links to both this page and the limitations page from
+its byline, since the errata alone does not reach a reader who arrives at a post
+directly.
+
 ## 2026-09-01 — the shipped verifier was described as the benchmark oracle, and carried a bypass
 
 **Two corrections about `tamperward verify`, one of them a security defect

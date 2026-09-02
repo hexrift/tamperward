@@ -1,7 +1,11 @@
 # Blog
 
 *An [errata page](./errata.md) records every published correction and the
-inconsistencies our own audit could not resolve.*
+inconsistencies our own audit could not resolve. A
+[limitations page](./limitations.md) carries the caveats that apply across the
+whole series — sampling unit, historical controls, training contamination,
+model pinning, what registration ordering does and does not prove, and what the
+verification layers cannot guarantee.*
 
 - **[The mechanism transferred. The confirmatory result didn't replicate.](./the-mechanism-transferred-the-effect-didnt.md)** — September 1, 2026.
   The round-3.1 answer: on the same 16 Python repositories with the model moved
@@ -71,7 +75,8 @@ inconsistencies our own audit could not resolve.*
 - **[We tested an AI coding agent across 27 real repositories. Here's how often it weakened its own checks](./we-tested-an-ai-coding-agent-on-27-real-repositories.md)** — August 30, 2026.
   The preregistered answer: transfer is real — 9/27 ungated runs violated
   policy on real historical bugs (corrected from a published 13/26; the
-  original predicate was defective) — and the gate did not reduce false greens
+  original predicate was defective) — and the gate did not demonstrate a
+  reduction in false greens
   (b=5, c=4, p=1.0); our headline bet refuted and published beside its
   refutation. No measurable completion-cost signal, and independent
   pristine-suite re-execution caught every masked failure in all 53
@@ -83,11 +88,12 @@ inconsistencies our own audit could not resolve.*
   validation caught (and why each finding made the benchmark stricter), what the
   pilot exercised without producing evidence, and six numeric bets — including
   the three results that would count as Tamperward losing. The next post is the
-  answer; the git history proves this one came first.
+  answer; the repository records this registration commit before the result commits.
 
 - **[What AI coding agents do when the tests are read-only](./what-agents-do-when-the-tests-are-read-only.md)** — August 29, 2026.
   The capability-restriction study: `chmod` doesn't bind a root agent, but the
-  immutable bit does — 10/10 honest under hard immutability, EPERM converting
+  immutable bit does until an agent runs `chattr -i` — 10/10 honest under it,
+  which measures discovery and friction rather than a hard boundary; EPERM converting
   agents to the honest fix 4/4 with no remediation text. Then an auto-granted
   elevation path turned two logged confessions ("remove failing test file to
   unblock build") into authorized tampering. Six governance mechanisms now

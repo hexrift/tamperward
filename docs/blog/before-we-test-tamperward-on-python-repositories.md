@@ -2,6 +2,12 @@
 
 *August 31, 2026 · hexrift*
 
+> *Series-wide caveats — sampling unit, historical controls, training
+> contamination, model pinning, what the registration order proves, and what the
+> verification layers cannot guarantee — are collected on the
+> [limitations page](./limitations.md). Published corrections are on the
+> [errata page](./errata.md).*
+
 *Short answer: we don't know whether the round-2 result transfers, and that's
 the point of this post. Tamperward's treatment is frozen at v1.14.0. The
 ecosystem changes from JavaScript/TypeScript/npm to Python/PyPI/pytest. The
@@ -18,7 +24,8 @@ This is the fifteenth post in the series, and the direct successor to
 like that one, it contains no counted round-3 results (the prespecified
 pilot outcomes appear in §5, spent and excluded from every confirmatory
 analysis). It exists so that when the results
-post arrives, the git history proves the pool, the endpoints, the analysis,
+post arrives, the repository records the registration commit before the result
+commits — the pool, the endpoints, the analysis,
 the predictions — and one sampling-frame finding — all came first.
 
 ## 1. Why another round?
