@@ -5,6 +5,89 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.10.0] — 2026-09-02
+
+**A hand-written protected hook script is held byte-for-byte to its before.
+From the third adversarial pass over the shell-script liveness model, run
+against the model rebuilt after the second: thirteen more shapes ran a
+failing gate to exit 0 under a real `sh -e` and a real direct exec while the
+model read the gate as live. A line-by-line reading of a shell script cannot
+be sound, so it is no longer the verdict. A minor: every edit to a hand-written
+hook script other than raising its pin — a linter step added, `npx` →
+`pnpm exec`, an `if ! gate; then exit 1; fi` around it, a comment line — now
+needs a sign-off where 2.7.0 passed it when the gate read as live.**
+
+### Changed
+
+- **A hand-written hook script (`.husky/*`, `.githooks/*`, a `core.hooksPath`
+  script, anything `protected.hooks` matches that is a script) is compared
+  byte-for-byte to its before.** The only clean edits are raising a plain
+  `tamperward@<ver>` pin to a version no higher than the gate judging it (or
+  pinning an invocation that had none) and a trailing-newline-only
+  difference. Everything else is hook-tampering with the reason *the gate
+  script changed; sign off* — `tamperward allow hook-tampering --file <path>`
+  locally, the `tamperward:allow:hook-tampering@<head-sha>` label in CI. The
+  reason the rule is byte-equal and not a better model: after the model was
+  rebuilt for 2.7.0, the next pass found `( gate || true )` and its brace
+  form, a multi-line `{ … } || true` and `| tee`, `|| { echo; exit 0; }`,
+  `|| exec true` and `{ exit 0; }` before the gate, a trap by function name
+  and `trap 'exit $OK'` with `OK=0`, `[ -d . ]` / `true && true` in an `if`
+  whose `else` holds the gate, `until [ -d . ]`, `for f in "$@"` and
+  `[ $# -eq 0 ] ||` in a hook that has no argv, a multi-line string and a
+  `: '…'` block hiding the gate, `|| exit "$rc"` with `rc=0`, `gate & wait`,
+  a second heredoc on one line and a `case` glob against a constant word —
+  each read live, each exit 0 with a failing gate. Those are not fixed as a
+  model; the rule covers them.
+- **The liveness model stays as evidence, not as the verdict.** When the
+  fail-closed rule fires the model still runs, and when it names a mechanism
+  the finding carries it, so the human signing off sees `|| true`, a passing
+  trap, `NODE_OPTIONS=` in front of the gate or a `--diff` swap named rather
+  than a bare "changed". Its reading is right more often: the wrapper words
+  in front of the command (`command`, `env`, `exec`) are tested against the
+  script's own functions and aliases, so `command() { :; }` then
+  `command npx …` is shadowing; an assignment or prefix of `PATH`,
+  `NODE_OPTIONS`, `NODE_PATH`, `HOME`, `LD_PRELOAD`, `BASH_ENV` or
+  `npm_config_*` before or on the gate is "runtime redirected"; the mode flag
+  is part of the gate's identity like `--cwd`, so `check --staged` →
+  `check --diff HEAD...HEAD` or `--worktree` is a replacement, and
+  `--cwd "$(git rev-parse --show-toplevel)"` is the root; a single `&` is an
+  operator, `& wait` without a pid is neutered and `& wait $!` (on the line
+  or the next) is the gate's status; a pin that is no longer a plain version
+  after a plain-pinned before — `@^1`, `@latest`, a range, a pre-release — is
+  a lowering.
+- **A new hand-written hook script must run the gate live.** There is no
+  before to hold it to, so the model alone judges it: `tamperward check`
+  neutered, unreachable, commented out, behind a `PATH=` line or absent is a
+  sign-off; a deleted protected script stays the removal finding it was.
+- **lefthook and pre-commit entries carry the same identity.** `run: … --diff
+  HEAD...HEAD`, `entry: … --diff`, `args: [--cwd, /tmp]` and
+  `args: [--diff, …]` are replacements of the gate; a command-level `env`
+  setting `PATH`, `NODE_OPTIONS`, `NODE_PATH`, `HOME`, `LD_PRELOAD`,
+  `BASH_ENV` or `npm_config_*` gained or changed is a runtime redirect; a pin
+  no longer plain (`@^1`) after a plain-pinned before is a lowering;
+  pre-commit `additional_dependencies` gained or changed on the gate entry
+  chooses which gate the hook installs. These stay judged by the command
+  comparator, not the byte-equal rule.
+- `TAMPERWARD_OOB_SIGNOFF` accepts a token in the label's own spelling
+  (`tamperward:allow:<rule>@<sha>`) as well as the stripped one the shipped
+  workflow sets.
+- SPEC §9.1 records round 4 of the replication study as pinned to this
+  release, with the three-claim treatment boundary it is graded against.
+
+### Fixed
+
+- **The init-written pre-commit script with a second trailing newline** was
+  reported as no longer matching the shape init wrote. Trailing newlines are
+  not shape: none, one or two read as the same script.
+
+### Sign-off
+
+Hand-written hook wiring needs a sign-off on every edit that is not a pin
+raise (docs/guide/rules.md, "Customised wiring needs a sign-off"), cleared
+the same way as the first customisation: `tamperward allow hook-tampering
+--file <path>` locally, the `tamperward:allow:hook-tampering@<head-sha>`
+label in CI.
+
 ## [2.9.0] — 2026-09-02
 
 **The Claude settings files are judged with the runtime's live semantics, on
