@@ -90,10 +90,11 @@ describe('H3 · hook-tampering sees a hook gutted in place', () => {
   });
 
   it('flags the gate invocation being removed or commented out', () => {
+    // since 2.10.0 the finding is the byte-equal rule's, with the model's reading as its detail
     const removed = msgs(hookTampering, diffed('.husky/pre-commit', '#!/bin/sh\nnpx tamperward check --staged\n', '#!/bin/sh\n'));
-    expect(removed.some((x) => /removed from a protected hook/.test(x))).toBe(true);
+    expect(removed.some((x) => /hook script was changed: .*was removed/.test(x))).toBe(true);
     const commented = msgs(hookTampering, diffed('.husky/pre-commit', '#!/bin/sh\nnpx tamperward check --staged\n', '#!/bin/sh\n# npx tamperward check --staged\n'));
-    expect(commented.some((x) => /removed from a protected hook/.test(x))).toBe(true);
+    expect(commented.some((x) => /hook script was changed: .*was commented out/.test(x))).toBe(true);
   });
 
   it('flags shell rewrites and an octal chmod that clears +x (M2)', () => {

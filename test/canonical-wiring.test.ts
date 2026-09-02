@@ -385,7 +385,7 @@ describe('B · the liveness model for hand-written scripts (each verified under 
     ['cd away before the gate', sh(`cd /tmp && ${G}`), /another directory/],
     ['cd away on its own line', sh(`cd /tmp\n${G}`), /another directory/],
     ['cd to a variable holding a literal path', sh(`dir=/tmp\ncd "$dir"\n${G}`), /another directory/],
-    ['--cwd added', sh(`${G} --cwd /tmp`), /tamperward check --cwd/],
+    ['--cwd added', sh(`${G} --cwd /tmp`), /tamperward check --staged --cwd \/tmp/],
     ['used as an if condition', sh(`if ${G}; then echo ok; fi`), /condition/],
     ['gate; true', sh(`${G}; true`), /passing statement/],
   ])('flags: %s', (_n, after, re) => {
@@ -394,6 +394,13 @@ describe('B · the liveness model for hand-written scripts (each verified under 
     expect(m.join('\n')).toMatch(re);
   });
 
+  // The model's CONTROLS: honest edits it reads as live. Since 2.10.0 the model
+  // is evidence, not the verdict — the script is held byte-equal to its before
+  // modulo a pin raise (pass 3b: a rebuilt model still read thirteen shapes as
+  // live that ran a failing gate to exit 0; a line-by-line reading of a shell
+  // script cannot be sound). Each of these is now a sign-off. The assertion is
+  // inverted, not removed: the model's reading of each stays clean (no mechanism
+  // in the message), which is what a human signing off is told.
   it.each([
     ['a linter step before the gate', sh(`npx lint-staged\n${G}`)],
     ['npx → pnpm exec', sh('pnpm exec tamperward check --staged')],
@@ -427,42 +434,52 @@ describe('B · the liveness model for hand-written scripts (each verified under 
     ['set -o pipefail then a pipe', sh(`set -o pipefail\n${G} | tee /tmp/gate.log`)],
     ['set -eo pipefail then a pipe', sh(`set -eo pipefail\n${G} | tee /tmp/gate.log`)],
     ['a comment mentioning pipefail is not pipefail, but no pipe either', sh(`# pipefail\n${G}`)],
-  ])('control · %s is kept', (_n, after) => {
-    expect(msgs([file('.husky/pre-commit', HAND, after)])).toEqual([]);
+  ])('honest edit · %s is a sign-off since 2.10.0, the model reading it live', (_n, after) => {
+    const m = msgs([file('.husky/pre-commit', HAND, after)]);
+    expect(m.length).toBe(1);
+    expect(m[0]).toMatch(/the gate script changed; sign off/);
+    expect(m[0]).toMatch(/changed: an edit other than a pin raise\./);
   });
 
-  it('husky runs `sh -e`; a hook git execs directly needs `set -e` for a gate that is not last', () => {
+  it('husky runs `sh -e`; a hook git execs directly needs `set -e` for a gate that is not last (the model\'s reading, carried as detail)', () => {
     const own = parsePolicy({ protected: { hooks: ['.githooks/**'] } });
-    const at = (before: string, after: string) => hookTampering.run([file('.githooks/pre-commit', before, after)], own).map((f) => f.message + f.evidence).join('\n');
+    // every edit is a sign-off; what differs by runner is the mechanism the finding names
+    const at = (before: string, after: string) => hookTampering.run([file('.githooks/pre-commit', before, after)], own).map((f) => f.message).join('\n');
+    const direct = (after: string) => scriptWeakening(HAND.split('\n'), after.split('\n'), {}).map((l) => l.reason).join('\n');
     expect(at(HAND, sh(`${G}\necho done`))).toMatch(/without `set -e`/);
-    expect(at(HAND, sh(`set -e\n${G}\necho done`))).toBe('');
-    expect(at(HAND, `#!/bin/sh -e\n${G}\necho done\n`)).toBe('');
-    expect(at(HAND, sh(`${G}\nexit $?`))).toBe('');
-    expect(at(HAND, sh(`${G} || exit 1\necho done`))).toBe('');
+    expect(direct(sh(`${G}\necho done`))).toMatch(/without `set -e`/);
+    for (const honest of [sh(`set -e\n${G}\necho done`), `#!/bin/sh -e\n${G}\necho done\n`, sh(`${G}\nexit $?`), sh(`${G} || exit 1\necho done`)]) {
+      expect(direct(honest), honest).toBe('');
+      expect(at(HAND, honest), honest).toMatch(/changed: an edit other than a pin raise\./);
+    }
     // a trap installed AFTER the gate only matters without -e
-    expect(at(HAND, sh(`${G}\ntrap 'exit 0' EXIT`))).toMatch(/trap/);
-    expect(msgs([file('.husky/pre-commit', HAND, sh(`${G}\ntrap 'exit 0' EXIT`))])).toEqual([]);
-    expect(msgs([file('.husky/pre-commit', HAND, sh(`${G}\necho done`))])).toEqual([]);
+    expect(direct(sh(`${G}\ntrap 'exit 0' EXIT`))).toMatch(/trap/);
+    expect(scriptWeakening(HAND.split('\n'), sh(`${G}\ntrap 'exit 0' EXIT`).split('\n'), { errexit: true })).toEqual([]);
+    expect(scriptWeakening(HAND.split('\n'), sh(`${G}\necho done`).split('\n'), { errexit: true })).toEqual([]);
+    expect(msgs([file('.husky/pre-commit', HAND, sh(`${G}\necho done`))])[0]).toMatch(/changed: an edit other than a pin raise\./);
   });
 
-  it('a hook git execs directly must keep a shell in shebang position', () => {
+  it('a hook git execs directly must keep a shell in shebang position (named in the finding; husky ignores the shebang)', () => {
     const own = parsePolicy({ protected: { hooks: ['.githooks/**'] } });
     const at = (after: string) => hookTampering.run([file('.githooks/pre-commit', HAND, after)], own).map((f) => f.message).join('\n');
-    expect(at(`#!/usr/bin/env -S sh -c 'exit 0'\n${G}\n`)).toMatch(/interpreter/);
-    expect(at(`#!/bin/echo\n${G}\n`)).toMatch(/interpreter/);
-    expect(at(`#!/usr/bin/env node\n${G}\n`)).toMatch(/interpreter/);
-    expect(at(`#!/usr/bin/env bash\nset -e\n${G}\n`)).toBe('');
-    expect(at(`#!/bin/bash -e\n${G}\n`)).toBe('');
+    expect(at(`#!/usr/bin/env -S sh -c 'exit 0'\n${G}\n`)).toMatch(/interpreter changed/);
+    expect(at(`#!/bin/echo\n${G}\n`)).toMatch(/interpreter changed/);
+    expect(at(`#!/usr/bin/env node\n${G}\n`)).toMatch(/interpreter changed/);
+    // a shell stays a shell: the edit is a sign-off (byte-equal rule) but names no interpreter problem
+    expect(at(`#!/usr/bin/env bash\nset -e\n${G}\n`)).toMatch(/changed: an edit other than a pin raise\./);
+    expect(at(`#!/bin/bash -e\n${G}\n`)).toMatch(/changed: an edit other than a pin raise\./);
     expect(shebangProblem('#!/usr/bin/env -S bash -eu\n')).toBeNull();
     expect(shebangProblem('no shebang\n')).toBeNull();
     // husky ignores the shebang (it runs `sh -e <file>`), so it is not judged there
-    expect(msgs([file('.husky/pre-commit', HAND, `#!/bin/echo\n${G}\n`)])).toEqual([]);
+    expect(msgs([file('.husky/pre-commit', HAND, `#!/bin/echo\n${G}\n`)])[0]).toMatch(/changed: an edit other than a pin raise\./);
+    // and a NEW git-exec'ed script with a non-shell interpreter is a sign-off on its own
+    expect(hookTampering.run([file('.githooks/pre-commit', null, `#!/bin/echo\n${G}\n`)], own).map((f) => f.message).join()).toMatch(/does not run the gate live: the shebang runs/);
   });
 
   it('invocations reports the state, the reason and the pin', () => {
     const inv = invocations([`${G} || true`, `gate() { ${G}; }`, 'npx eslint .'], { errexit: true });
     expect(inv.map((i) => [i.identity, i.state])).toEqual([
-      ['tamperward check', 'neutered'], ['eslint', 'live'], ['tamperward check', 'unreachable'],
+      ['tamperward check --staged', 'neutered'], ['eslint', 'live'], ['tamperward check --staged', 'unreachable'],
     ]);
     expect(inv[0].pin).toBe(V);
     expect(inv[0].why).toMatch(/ends in success/);

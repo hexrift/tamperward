@@ -14,9 +14,9 @@ import { policyAddWeakening, policyWeakening } from './policy-diff';
 import { segments, tokens, unquote } from './command';
 import { trackedFiles } from './repo';
 import {
-  chmodDropsExec, codeownersWeakening, hookIdentity, insertsDeadGuard, insertsPassingExit, isCodeowners,
+  ScriptOpts, chmodDropsExec, codeownersWeakening, hookIdentity, insertsDeadGuard, insertsPassingExit, invocations, isCodeowners,
   isLefthook, isLefthookLocal, isPackageJson, isPreCommitConfig, lefthookWeakening, mergeDocs, packageJsonWeakening,
-  parseDoc, preCommitWeakening, scriptWeakening, shebangProblem, shellHookTarget, shellWritesHook, xargsWritesHook,
+  parseDoc, pinRaiseOnly, preCommitWeakening, scriptWeakening, shebangProblem, shellHookTarget, shellWritesHook, xargsWritesHook,
 } from './hook-wiring';
 
 const RULE = 'hook-tampering';
@@ -656,6 +656,11 @@ function repoRelative(path: string, ctx?: DetectorContext): string {
 /** husky runs its scripts through `sh -e`; every other hook is exec'ed by git. */
 const isHuskyScript = (path: string): boolean => /(?:^|\/)\.husky\/[^/]+$/.test(path);
 
+/** A file in a hooks directory that nothing executes or sources: notes and git's
+ *  own dotfiles. Everything else a `protected.hooks` glob matches is a script, or
+ *  something a script reads, and is held byte-for-byte. */
+const isHookNote = (path: string): boolean => /\.(?:md|markdown|txt)$|(?:^|\/)\.git(?:ignore|attributes)$/i.test(path);
+
 export const hookTampering: Detector = {
   id: RULE,
   surface: ['file', 'command'],
@@ -762,11 +767,15 @@ export const hookTampering: Detector = {
           // A hook SCRIPT. Deleting it fires above; the cheaper tamper is to leave the
           // file in place and gut its body. A script init wrote is held to the shape
           // init writes: the same three lines, a pin that only goes up. A hand-written
-          // script is compared over the checks each version actually RUNS
-          // (hook-wiring.ts invocations): runner prefix, pin and output redirection
-          // are presentation; a survivor counts only when it is live — its failure
-          // able to fail the hook — under the way this hook is run.
+          // script is held BYTE-EQUAL to its before, modulo a pin raise: a line-by-line
+          // liveness model of a shell script cannot be sound (hook-wiring.ts, head
+          // comment — thirteen more shapes a shell runs one way and the rebuilt model
+          // read another), so every other edit is a sign-off, and what the model reads
+          // as the change rides along as the detail the human signing off sees. A new
+          // script has no before to be held to: the model alone judges it, and the
+          // gate must be live in it.
           const husky = isHuskyScript(c.path);
+          const opts: ScriptOpts = husky ? { errexit: true } : {};
           const beforePin = c.before != null && c.after != null ? initScriptPin(c.before) : null;
           if (beforePin !== null) {
             const afterPin = initScriptPin(c.after as string);
@@ -784,22 +793,88 @@ export const hookTampering: Detector = {
             }
             continue;
           }
-          if (!husky && c.after != null) {
-            const problem = shebangProblem(c.after);
-            if (problem && (c.before == null || problem !== shebangProblem(c.before))) {
+          const added = addedLines(c);
+          const removed = removedLines(c);
+          const beforeLines = c.before != null ? c.before.split('\n') : removed.map((l) => l.content);
+          const afterLines = c.after != null ? c.after.split('\n') : added.map((l) => l.content);
+          const shebang = !husky && c.after != null ? shebangProblem(c.after) : null;
+          const shebangChanged = shebang !== null && (c.before == null || shebang !== shebangProblem(c.before));
+          const earlyExit = added.find((l) => insertsPassingExit(l.content));
+
+          if (c.op === 'add') {
+            // No before to hold it to. The gate must be live in it under the way
+            // this hook runs; a script that runs it neutered, unreachable or not at
+            // all is a sign-off, whatever else it does.
+            const gate = invocations(afterLines, opts).filter((i) => /^tamperward check\b/.test(i.identity));
+            const live = gate.find((i) => i.state === 'live');
+            if (shebang || !live) {
+              const why = shebang ?? (gate.length ? `its \`${gate[0].identity}\` is ${gate[0].state}${gate[0].why ? ` (${gate[0].why})` : ''}` : 'it runs no `tamperward check`');
               out.push(
                 makeFinding(RULE, policy, {
                   file: c.path,
-                  line: 1,
-                  message: `A protected hook's interpreter was changed: ${problem}.`,
-                  evidence: c.after.split('\n')[0],
-                  remediation: 'Keep a shell in shebang position. git execs the hook directly, and an interpreter that never reads the script is a disabled hook.',
+                  message: `A protected hook script was added that does not run the gate live: ${why}. A new gate script needs a sign-off unless the gate is live in it.`,
+                  evidence: `a hook script was added; sign off with \`tamperward allow hook-tampering --file ${c.path} --reason "..."\` locally or the \`tamperward:allow:hook-tampering@<head-sha>\` label in CI, or make the gate live in it`,
+                  remediation: 'Run `tamperward check --staged` in the new hook, in a position where its failure fails the hook, or have a human sign off on a hook that does not.',
+                }),
+              );
+            } else if (earlyExit) {
+              out.push(
+                makeFinding(RULE, policy, {
+                  file: c.path,
+                  line: earlyExit.newLine ?? undefined,
+                  message: 'An early `exit 0` was inserted into a protected hook — it now passes everything.',
+                  evidence: earlyExit.content.trim(),
+                  remediation: 'Remove the early exit. A hook that always succeeds is a disabled hook.',
                 }),
               );
             }
+            continue;
           }
-          const added = addedLines(c);
-          const earlyExit = added.find((l) => insertsPassingExit(l.content));
+
+          if (!isHookNote(c.path)) {
+            // FAIL CLOSED. Byte-equal modulo trailing newlines and a pin raise, or a
+            // sign-off. The model's reading of the change is the detail, not the
+            // verdict: it names a mechanism when it sees one and is silent when it
+            // does not, and silence is not clearance.
+            const clean = c.before != null && c.after != null
+              ? pinRaiseOnly(c.before, c.after)
+              : pinRaiseOnly(removed.map((l) => l.content).join('\n'), added.map((l) => l.content).join('\n'));
+            if (!clean) {
+              // with full content the model decides what a guard did (the gate may sit
+              // in its `else`); on a hunk-only view the guard line is all there is to see
+              const deadGuard = c.before == null || c.after == null ? added.find((l) => insertsDeadGuard(l.content)) : undefined;
+              const detail = [
+                shebangChanged ? `the interpreter changed: ${shebang}` : null,
+                ...scriptWeakening(beforeLines, afterLines, opts).map((l) => l.reason),
+                earlyExit ? `an early \`exit 0\` was inserted (\`${earlyExit.content.trim()}\`)` : null,
+                deadGuard ? `a guard that can never be true was inserted (\`${deadGuard.content.trim()}\`)` : null,
+              ].filter((d): d is string => d !== null);
+              out.push(
+                makeFinding(RULE, policy, {
+                  file: c.path,
+                  message: `A hand-written protected hook script was changed: ${detail.length ? detail.join('; ') : 'an edit other than a pin raise'}. Every edit to a gate script other than raising its pin needs a sign-off.`,
+                  evidence: `the gate script changed; sign off with \`tamperward allow hook-tampering --file ${c.path} --reason "..."\` locally or the \`tamperward:allow:hook-tampering@<head-sha>\` label in CI, or restore it`,
+                  remediation:
+                    'Restore the script, or have a human sign off. A line-by-line reading of a shell script cannot tell an honest restructuring from a neutered gate, so the gate script is held byte-for-byte: only raising its pin passes without a sign-off.',
+                }),
+              );
+            }
+            continue;
+          }
+
+          // A note beside the hooks: the liveness comparison and the added-line
+          // checks, as before — there is no gate in it to hold byte-for-byte.
+          if (shebangChanged && c.after != null) {
+            out.push(
+              makeFinding(RULE, policy, {
+                file: c.path,
+                line: 1,
+                message: `A protected hook's interpreter was changed: ${shebang}.`,
+                evidence: c.after.split('\n')[0],
+                remediation: 'Keep a shell in shebang position. git execs the hook directly, and an interpreter that never reads the script is a disabled hook.',
+              }),
+            );
+          }
           if (earlyExit) {
             out.push(
               makeFinding(RULE, policy, {
@@ -825,9 +900,7 @@ export const hookTampering: Detector = {
               }),
             );
           }
-          const beforeLines = c.before != null ? c.before.split('\n') : removedLines(c).map((l) => l.content);
-          const afterLines = c.after != null ? c.after.split('\n') : added.map((l) => l.content);
-          const lost = scriptWeakening(beforeLines, afterLines, husky ? { errexit: true } : {});
+          const lost = scriptWeakening(beforeLines, afterLines, opts);
           if (lost.length) {
             // one finding per hook is the signal; don't spam per line
             out.push(

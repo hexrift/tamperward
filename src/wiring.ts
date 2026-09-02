@@ -77,8 +77,9 @@ export function pinNotBelow(now: string | null | undefined, floor: string): bool
 }
 
 /** The pre-commit script init creates from nothing: shebang, marker, the pinned
- *  staged check. Group 1 is the pin ('' when unpinned, as init wrote before 1.14.7). */
-const INIT_SCRIPT = /^#!\/bin\/sh\n# tamperward: block agent shortcuts before they land\nnpx --yes tamperward(?:@(\S+))? check --staged\n?$/;
+ *  staged check. Group 1 is the pin ('' when unpinned, as init wrote before 1.14.7).
+ *  Trailing newlines are not shape: none, one or two are the same script. */
+const INIT_SCRIPT = /^#!\/bin\/sh\n# tamperward: block agent shortcuts before they land\nnpx --yes tamperward(?:@(\S+))? check --staged\n*$/;
 
 /** The pin a script carries when it is byte-equal to what init writes (modulo the
  *  pin): a version, '' for unpinned, or null when the script is not init's shape. */

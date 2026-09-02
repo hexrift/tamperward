@@ -147,7 +147,10 @@ export function oobHeadFromEnv(env: NodeJS.ProcessEnv = process.env): string | u
   return v.length >= 7 ? v : undefined;
 }
 
-/** Parse the out-of-band approval env the CI workflow sets (only after verifying a trusted label). */
+/** Parse the out-of-band approval env the CI workflow sets (only after verifying a
+ *  trusted label). The shipped workflow strips the label's `tamperward:allow:`
+ *  prefix before setting the env; a token that still carries it is the same
+ *  approval, so the label's spelling and the env's are interchangeable. */
 export function oobFromEnv(env: NodeJS.ProcessEnv = process.env): string[] {
-  return (env.TAMPERWARD_OOB_SIGNOFF ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  return (env.TAMPERWARD_OOB_SIGNOFF ?? '').split(',').map((s) => s.trim().replace(/^tamperward:allow:/, '')).filter(Boolean);
 }

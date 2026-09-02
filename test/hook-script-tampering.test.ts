@@ -81,10 +81,18 @@ describe('1 · a hook script is compared by the checks it actually RUNS', () => 
       `#!/bin/sh\nnpx tamperward --version\n`,
     ];
     for (const after of decoys) {
-      expect(msgs(edit('.husky/pre-commit', HOOK, after)).some((x) => /removed from a protected hook/.test(x)), after).toBe(true);
+      expect(msgs(edit('.husky/pre-commit', HOOK, after)).some((x) => /script was changed: .*was removed/.test(x)), after).toBe(true);
     }
   });
 
+  // These were the CONTROLS of the liveness model: honest edits the model read as
+  // live and the detector passed. Since 2.10.0 the model is evidence, not the
+  // verdict — a hand-written hook script is held byte-equal to its before modulo
+  // a pin raise, because a line-by-line reading of a shell script cannot be sound
+  // (pass 3b: thirteen more shapes read live that ran a failing gate to exit 0).
+  // Every one of these is now a sign-off, with the reason saying so. The
+  // assertion is inverted, not removed: the honest shape is still what is
+  // being described, and what it costs now is one human sign-off.
   it.each([
     ['npx → pnpm exec', `#!/bin/sh\npnpm exec tamperward check --staged\n`],
     ['npx → yarn', `#!/bin/sh\nyarn tamperward check --staged\n`],
@@ -106,21 +114,28 @@ describe('1 · a hook script is compared by the checks it actually RUNS', () => 
     ['a second check added', `#!/bin/sh\n${GATE}\nnpx lint-staged\n`],
     ['reordered with another check', `#!/bin/sh\nnpx lint-staged\n${GATE}\n`],
     ['moved into a && chain', `#!/bin/sh\ncd "$(git rev-parse --show-toplevel)" && ${GATE}\n`],
-  ])('control · %s is kept', (_n, after) => {
-    expect(msgs(edit('.husky/pre-commit', HOOK, after))).toEqual([]);
+  ])('honest edit · %s is a sign-off since 2.10.0 (byte-equal rule), the model reading it live', (_n, after) => {
+    const f = run(edit('.husky/pre-commit', HOOK, after));
+    expect(f.length).toBe(1);
+    expect(f[0].evidence).toMatch(/the gate script changed; sign off/);
+    // the model still reads the gate as live here, so the finding names no mechanism
+    expect(f[0].message).toMatch(/changed: an edit other than a pin raise\./);
   });
 
-  it('control · replacing `npm test` with `npm run test`, or `yarn test`, is the same check', () => {
+  it('honest edit · replacing `npm test` with `npm run test`, or `yarn test`, is the same check to the model — and a sign-off since 2.10.0', () => {
     const h = (l: string) => `#!/bin/sh\n${l}\n`;
-    expect(msgs(edit('.husky/pre-push', h('npm test'), h('npm run test')))).toEqual([]);
-    expect(msgs(edit('.husky/pre-push', h('npm test'), h('yarn test')))).toEqual([]);
-    expect(msgs(edit('.husky/pre-push', h('npm test'), h('echo "npm test"'))).length).toBeGreaterThan(0);
+    // the model: the same check (no mechanism named); the rule: the script changed
+    expect(scriptWeakening([h('npm test')], [h('npm run test')], { errexit: true })).toEqual([]);
+    expect(scriptWeakening([h('npm test')], [h('yarn test')], { errexit: true })).toEqual([]);
+    expect(msgs(edit('.husky/pre-push', h('npm test'), h('npm run test')))).toEqual([expect.stringMatching(/changed: an edit other than a pin raise/)]);
+    expect(msgs(edit('.husky/pre-push', h('npm test'), h('yarn test')))).toEqual([expect.stringMatching(/changed: an edit other than a pin raise/)]);
+    expect(msgs(edit('.husky/pre-push', h('npm test'), h('echo "npm test"')))).toEqual([expect.stringMatching(/`test` was removed/)]);
   });
 
-  it('checkIdentity: runner, pin, redirection and flags are presentation; position is meaning', () => {
-    expect(checkIdentity('npx tamperward@2.1.0 check --staged >/dev/null')).toBe('tamperward check');
-    expect(checkIdentity('pnpm exec tamperward check --staged')).toBe('tamperward check');
-    expect(checkIdentity('npx --yes tamperward check --worktree')).toBe('tamperward check');
+  it('checkIdentity: runner, pin, redirection and flags are presentation; position and the mode flag are meaning', () => {
+    expect(checkIdentity('npx tamperward@2.1.0 check --staged >/dev/null')).toBe('tamperward check --staged');
+    expect(checkIdentity('pnpm exec tamperward check --staged')).toBe('tamperward check --staged');
+    expect(checkIdentity('npx --yes tamperward check --worktree')).toBe('tamperward check --worktree');
     expect(checkIdentity('npx tamperward --version')).toBeNull();
     expect(checkIdentity('echo "npx tamperward check --staged"')).toBeNull();
     expect(checkIdentity('npm test')).toBe('test');
@@ -150,7 +165,7 @@ describe('1 · a hook script is compared by the checks it actually RUNS', () => 
   it('invocations reports the state of each occurrence', () => {
     const inv = invocations(['#!/bin/sh', '# npx tamperward check --staged', 'if false; then', '  npx jest', 'fi', 'npx vitest run || true', 'npx eslint .']);
     expect(inv.map((i) => [i.identity, i.state])).toEqual([
-      ['tamperward check', 'comment'], ['jest', 'unreachable'], ['vitest', 'neutered'], ['eslint', 'live'],
+      ['tamperward check --staged', 'comment'], ['jest', 'unreachable'], ['vitest', 'neutered'], ['eslint', 'live'],
     ]);
     expect(scriptWeakening(['npx jest'], ['npx jest || true'])[0].reason).toMatch(/neutralised/);
     expect(scriptWeakening(['npx jest'], ['if false; then', 'npx jest', 'fi'])[0].reason).toMatch(/unreachable/);
