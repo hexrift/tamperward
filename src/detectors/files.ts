@@ -52,11 +52,17 @@ const IMPORTS: Record<Lang, RegExp> = {
   cs: /^(?:using\b|namespace\b)/,
 };
 const HASH_COMMENT: ReadonlySet<Lang> = new Set(['py', 'rb']);
+// Debug chatter is not test content: removing three `console.log` lines from a spec
+// blocked as "content gutted" — a line that only prints, or a `debugger` statement,
+// asserts nothing and its removal weakens nothing. Only the PURE call counts: a
+// `console.log` inside an expect() is still an assertion line.
+const DEBUG_ONLY = /^(?:console\.\w+\(.*\)\s*;?|debugger\s*;?)$/;
 
 /** Whether a trimmed line is significant test content for the language. */
 export function isSignificantLine(trimmed: string, lang: Lang | null): boolean {
   if (trimmed.length < 10) return false;
   if (COMMON.test(trimmed)) return false;
+  if (DEBUG_ONLY.test(trimmed)) return false;
   const l = lang ?? 'js';
   if (IMPORTS[l].test(trimmed)) return false;
   if (HASH_COMMENT.has(l) && trimmed.startsWith('#')) return false;

@@ -156,12 +156,15 @@ export interface Policy {
  *  third-party detectors written against the two-argument shape keep working. */
 export type View = 'tool-call' | 'turn' | 'staged' | 'worktree' | 'range';
 
-/** Where the Change[] was manufactured. A detector that must look BESIDE a changed
- *  file — the Claude settings comparator reads the sibling settings file to know
- *  whether an added override shadows the wired gate — needs the repository root the
- *  paths are relative to. Optional and additive, like `view`. */
+/** What the enforcement point knows about the repository beyond the diff. Optional
+ *  and additive, like `View`: a detector that needs it null-checks, a detector written
+ *  against the two- or three-argument shape never sees it. `cwd` is the directory the
+ *  Change[] was manufactured in (paths in commands and findings are relative to it);
+ *  `trackedFiles` is a test double for the `git ls-files` answer a detector would
+ *  otherwise compute from `cwd`. */
 export interface DetectorContext {
   cwd?: string;
+  trackedFiles?: string[];
 }
 
 export interface Detector {

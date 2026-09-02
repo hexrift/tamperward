@@ -25,16 +25,62 @@
 // When the block count itself drops, this rule stays silent: that is
 // test-deletion's finding, and one mechanism reports once.
 
+import ts from 'typescript';
 import { Change, Detector, Finding } from '../types';
 import { isProtected } from '../policy';
 import { makeFinding } from './finding';
-import { countTestBlocks } from './test-deletion';
+import { countTests } from './test-deletion';
 import { isSignificantLine, langOf } from './files';
 
 const RULE = 'test-content-removal';
 const MIN_REMOVED_LINES = 3;
+// Rows of an each-table are tests, one per row (test-deletion counts them so when
+// the table is literal). When the table is OPEN — spread from elsewhere, so the
+// count cannot be compared — a removed row still needs an excuse; two unexcused
+// rows fire, independently of the net line count, because a row is never padding.
+const MIN_REMOVED_ROWS = 2;
 
 const ws = (s: string): string => s.replace(/\s+/g, '');
+
+/** The significant lines of every literal `it.each([...])`/`test.each([...])`/
+ *  `describe.each([...])` table in a JS/TS spec, and whether any table is open
+ *  (spread or non-literal — its rows may have moved to another file). */
+function eachTables(src: string, path: string): { rows: Set<string>; open: boolean } {
+  const rows = new Set<string>();
+  let open = false;
+  if (langOf(path) !== 'js' && langOf(path) !== null) return { rows, open };
+  try {
+    const sf = ts.createSourceFile('spec.ts', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const visit = (node: ts.Node): void => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        node.expression.name.text === 'each' &&
+        ts.isIdentifier(node.expression.expression) &&
+        /^(?:it|test|describe)$/.test(node.expression.expression.text)
+      ) {
+        const arg = node.arguments[0];
+        if (arg && ts.isArrayLiteralExpression(arg)) {
+          for (const el of arg.elements) {
+            if (ts.isSpreadElement(el)) {
+              open = true;
+              continue;
+            }
+            for (const raw of el.getText(sf).split('\n')) {
+              const l = raw.trim().replace(/,$/, '');
+              if (isSignificantLine(l, 'js')) rows.add(l);
+            }
+          }
+        } else open = true;
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+  } catch {
+    /* fail-safe */
+  }
+  return { rows, open };
+}
 
 /** Significant lines, in file order — the one filter test-deletion also uses. */
 function significantLinesOrdered(src: string, path: string): string[] {
@@ -57,9 +103,18 @@ export const testContentRemoval: Detector = {
     // Significant content kept anywhere in the changeset's protected test files
     // AFTER the edits — the only place removed content can be excused into.
     let keptPool = '';
+    // Everything ADDED anywhere in the changeset, protected or not: the only pool a
+    // row of an OPEN table may be excused into (`it.each([...rows, …])` with `rows`
+    // moved to a helper module is a refactor; the same edit with the rows nowhere
+    // is a deletion wearing a spread).
+    let addedPool = '';
     for (const c of changes) {
-      if (c.kind === 'file' && c.after != null && isProtected(c.path, policy, 'tests')) {
-        keptPool += ws(significantLinesOrdered(c.after, c.path).join('\n'));
+      if (c.kind !== 'file' || c.after == null) continue;
+      if (isProtected(c.path, policy, 'tests')) keptPool += ws(significantLinesOrdered(c.after, c.path).join('\n'));
+      if (c.op === 'add') addedPool += ws(c.after);
+      else if (c.before != null) {
+        const had = new Set(c.before.split('\n').map((l) => l.trim()));
+        addedPool += ws(c.after.split('\n').filter((l) => !had.has(l.trim())).join('\n'));
       }
     }
 
@@ -74,7 +129,9 @@ export const testContentRemoval: Detector = {
       // one rule. The corpus sweep showed legitimate snapshot updates dominating
       // this rule's fires until excluded here.
       if (isProtected(c.path, policy, 'snapshots')) continue;
-      if (countTestBlocks(c.after, c.path) < countTestBlocks(c.before, c.path)) continue; // test-deletion's case
+      const blocksBefore = countTests(c.before, c.path);
+      const blocksAfter = countTests(c.after, c.path);
+      if (blocksAfter.min < blocksBefore.min && !blocksAfter.open) continue; // test-deletion's case
 
       const beforeSig = significantLinesOrdered(c.before, c.path);
       const afterSig = significantLinesOrdered(c.after, c.path);
@@ -90,6 +147,27 @@ export const testContentRemoval: Detector = {
         if (afterSet.has(line)) continue;
         if (keptPool.includes(ws(line))) continue; // rewrapped, merged, or relocated — kept
         gone.push(line);
+      }
+
+      // Rows gone from an each-table whose after-shape is open: the block count
+      // could not compare them, and a lengthened `it.each([...rows,` line hides
+      // them from the net count. Excused only if they reappear in the changeset.
+      const table = eachTables(c.before, c.path);
+      const goneRows =
+        table.rows.size && eachTables(c.after, c.path).open
+          ? gone.filter((l) => table.rows.has(l.replace(/,$/, '')) && !addedPool.includes(ws(l)))
+          : [];
+      if (goneRows.length >= MIN_REMOVED_ROWS) {
+        out.push(
+          makeFinding(RULE, policy, {
+            file: c.path,
+            message: `Rows removed from a test table: ${goneRows.length} case(s) gone from an each-table that now spreads from elsewhere, and they reappear nowhere in the change.`,
+            evidence: goneRows.slice(0, 3).map((l) => l.slice(0, 80)).join(' | '),
+            remediation:
+              'Fix the code under test. A row of it.each is a test; moving the table out of the spec must carry every row with it.',
+          }),
+        );
+        continue;
       }
 
       if (gone.length >= MIN_REMOVED_LINES && netDrop >= MIN_REMOVED_LINES) {
