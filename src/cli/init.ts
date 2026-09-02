@@ -170,7 +170,7 @@ const WORKFLOW_CONTENT = `name: tamperward
 
 # The CI authority for main: the same engine as the agent hook and pre-commit, run over
 # the PR's commit range. A block fails the check and clears ONLY via the out-of-band
-# label \`tamperward:allow:<rule>@<head-sha>\` applied by someone with write access —
+# label \`tamperward:allow:<rule>@<head-sha>\` applied by someone with triage access or higher —
 # never a file the PR itself can commit. The verify step reads the same labels:
 # \`tamperward:allow:verify@<head-sha>\` accepts a masked failure a reviewer has judged.
 #
