@@ -5,6 +5,73 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.8.0] — 2026-09-02
+
+**Every read of a repository path is git's view of it: a regular file is its
+bytes up to 64 MiB, a symbolic link is its target text and is never followed,
+and nothing else is content. From the adversarial pass over 2.7.0's
+ignored-adds and effect layer. A minor: a protected path that stands as a
+symbolic link, a FIFO, a socket, a device, a directory, or a file above the
+cap is now blocked by name as `hidden-drift` where it used to be read through
+or not seen at all, so a new or changed one needs a sign-off where it used to
+pass; and a path carrying a control character is protected in every category
+where it used to match no glob.**
+
+### Changed
+
+- **A protected path the gate cannot judge by content is blocked by name.**
+  The untracked and ignored adds, the worktree diff's enrichment, the drift
+  check's hash and the hidden-tracked probe all read a repository path
+  through one reader now (`src/disk.ts`): a regular file is read through a
+  descriptor opened `O_NOFOLLOW` and checked after opening, up to 64 MiB and
+  not a byte past it; a symbolic link is read with `readlink` as the blob git
+  records for it. What is neither — a link, a FIFO, a socket, a device, a
+  directory where a file is expected, a larger file, a read error — is
+  reported as `hidden-drift` by name in the PreToolUse drift check, the Stop
+  sweep and `check --worktree`, the stance the effect layer already took on a
+  file it could not read. The snapshot walk lstat's, so a link is a leaf
+  whatever it points at and a FIFO at a protected path is recorded and its
+  appearance is drift. A link that already stood there when the session began
+  is sanctioned like any other pre-existing file and is not re-litigated. The
+  Edit reconstruction still resolves a link by name (a settings file may
+  honestly be one) and reads the end of the chain under the same guards.
+- **A control character in a path is protected in every category.** picomatch
+  compiles `**` to a pattern that stops at a newline, so `n\nl/conftest.py`
+  matched no protected glob and was dropped by the snapshot walk, the
+  untracked and ignored keep filters, the hidden-tracked probe and the
+  envelope's working-tree check: a `collect_ignore` conftest passed PreToolUse
+  and Stop from a directory named with one newline. A path carrying
+  U+0000–U+001F or U+007F is now protected whatever category is asked, before
+  any glob is consulted; the denial and the text report show it escaped and
+  the finding keeps the real path.
+- **The drift check's walk prunes directories git reports as wholly ignored.**
+  It walked every directory that was not one of four names, so a 50k-file
+  ignored `dist/` was stat'ed file by file on every PreToolUse and Stop —
+  about 1.2 s per hook call. The walk now skips the directories git collapses
+  in its `--directory` listing of ignored paths (the pass the ignored-adds
+  view already runs) and snapshots the protected files git lists under them
+  from that listing, so they stay sanctioned and excused as before. Only
+  git's word prunes: an ignored directory that also holds a tracked file is
+  walked, and outside a repository nothing is skipped. The protected globs
+  compile to one expression per list rather than one matcher per glob, which
+  is what made the listing cheaper than the walk it replaced.
+
+### Fixed
+
+- **A symbolic link at a protected path to a device that never reaches EOF
+  hung the gate.** `ln -s /dev/zero test/conftest.py` held the Stop sweep
+  indefinitely, as did the same link excluded through `.git/info/exclude`,
+  and a tracked spec replaced by such a link held the very next PreToolUse;
+  a link to a FIFO with no writer did the same at the open. Each now returns
+  a block in well under a second.
+
+### Sign-off
+
+A symbolic link, a FIFO or a file above 64 MiB newly placed at a protected path
+needs a sign-off (`tamperward allow hidden-drift --file <path>`), or a regular
+file put in its place. One that existed before the session began is not
+re-litigated.
+
 ## [2.7.1] — 2026-09-02
 
 **The predicates read the way the runner reads them. A patch: twelve false
