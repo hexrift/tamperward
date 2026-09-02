@@ -474,7 +474,7 @@ colours. `NO_COLOR` and `FORCE_COLOR` are honoured.
 Two layers. The first proves detection; the second proves the loop. The second is the
 one that matters.
 
-### 7.A Detection fixtures (`fixtures/`)
+### 7.A Detection fixtures (the planned `fixtures/` corpus — not yet built)
 
 Real before/after pairs in `fixtures/bypasses/`, each a real move (not a string-match
 toy): a genuinely-failing test that gets `.skip`'d; a type error silenced with

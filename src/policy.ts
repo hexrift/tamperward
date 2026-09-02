@@ -103,7 +103,9 @@ export function mergeProtected(
   return out;
 }
 
-/** The baseline policy — mirrors the committed .tamperward.yml. */
+/** The baseline policy. The committed .tamperward.yml is an OVERLAY on this (see
+ *  parsePolicy: protected globs merge per category, rules overlay by name), so it
+ *  lists only what this repo adds — it is not a copy of the baseline. */
 export function defaultPolicy(version = 1): Policy {
   const p: Policy = {
     version,

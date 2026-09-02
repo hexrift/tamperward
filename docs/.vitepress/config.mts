@@ -9,7 +9,7 @@ export default defineConfig({
     'The deterministic agent-integrity gate: blocks AI coding agents from deleting tests, lowering coverage, or rewriting snapshots — measured, not asserted.',
   base: '/tamperward/',
   head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/tamperward/favicon.svg' }]],
-  ignoreDeadLinks: true,
+  ignoreDeadLinks: false, // a broken link fails the docs build; do not switch this back on to hide one
   themeConfig: {
     // Dark mode here is a class toggle, invisible to a media query inside an
     // <img>-loaded SVG — so the theme picks the variant explicitly.
