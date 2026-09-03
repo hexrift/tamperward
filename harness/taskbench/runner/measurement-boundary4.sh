@@ -363,5 +363,68 @@ if [ "$seal_hi" = true ] && [ "$seal_lo" = false ] && [ "$forge_d" = true ]; the
   ok "M10 DECLARED: the verdict reports the run's real seal state and names append forgery as open"
 else no "M10 the evidence_integrity stanza is not honest (sealed yes->$seal_hi no->$seal_lo, append_forgeable=$forge_d)"; fi
 
+hdr "M11 the RECORDS themselves are out of the agent's reach, not merely append-only"
+# Append-only on an agent-visible path stopped ERASURE and nothing else: the agent
+# could still READ the record, and the snapshot payloads stayed fully writable. The
+# record store now lives under the masked control dir, and the only thing crossing
+# the boundary is a write-only FIFO in a read-only channel directory.
+#
+# The control DESTROYS what it probes — that is what makes it a control — so each
+# probe gets its OWN channel, store and collector. Sharing one fixture left the
+# mitigation probing rubble the control had already deleted, which is how this case
+# first "failed": a test-authoring error, not a boundary defect.
+probe11() { # <tag> <read-fd> <mask> <ro> -> the probe's report (store: $W/store11-<tag>)
+  local tag="$1" fd="$2" mask="$3" ro="$4"
+  local ch="$W/chan11-$tag" st="$W/store11-$tag"
+  mkdir -p "$ch" "$st"; mkfifo "$ch/obs" 2>/dev/null
+  printf '00:00:00Z baseline 0000000000000000 -\n' > "$st/tree.log"
+  # held read-write so a writer's open() never blocks and the reader never sees EOF
+  eval "exec $fd<>\"$ch/obs\""
+  eval "( while IFS= read -r l <&$fd; do printf '%s\n' \"\$l\" >> \"$st/tree.log\"; done ) &"
+  local col=$!
+  TB_JAIL_MASK="$mask" TB_JAIL_RO="$ro" bash "$HERE/agent-jail4.sh" - -- bash -c '
+    C="'"$ch"'"; S="'"$st"'"
+    ( printf "hook %s\n" "$$" > "$C/obs" ) 2>/dev/null && echo "emit: ok" || echo "emit: BLOCKED"
+    echo "read: $(cat "$S/tree.log" 2>/dev/null | wc -l)"
+    ( : > "$S/tree.log" )  2>/dev/null && echo "truncate: SUCCEEDED"     || echo "truncate: blocked"
+    ( rm -rf "$S" )        2>/dev/null && echo "erase: SUCCEEDED"        || echo "erase: blocked"
+    ( rm -f "$C/obs" )     2>/dev/null && echo "unlink-chan: SUCCEEDED"  || echo "unlink-chan: blocked"
+    ( : > "$C/impostor" )  2>/dev/null && echo "replace-chan: SUCCEEDED" || echo "replace-chan: blocked"' 2>/dev/null
+  sleep 1; kill "$col" 2>/dev/null; eval "exec $fd<&-"
+}
+c11=$(probe11 ctl 7 "" "")
+if printf '%s' "$c11" | grep -q 'truncate: SUCCEEDED' && printf '%s' "$c11" | grep -q 'unlink-chan: SUCCEEDED' \
+   && printf '%s' "$c11" | grep -q 'erase: SUCCEEDED' && ! printf '%s' "$c11" | grep -q '^read: 0$'; then
+  ok "M11 (threat control) unprotected, the agent READS the record, TRUNCATES it, ERASES the store and UNLINKS the channel"
+else no "M11 threat control inconclusive — the assertions below would prove nothing: $(printf '%s' "$c11" | tr '\n' ' ')"; fi
+m11_store="$W/store11-fix"
+m11=$(probe11 fix 6 "$m11_store" "$W/chan11-fix")
+chk11() { printf '%s' "$m11" | grep -q "$1" && ok "M11 $2" || no "M11 $2 — got: $(printf '%s' "$m11" | tr '\n' ' ')"; }
+chk11 'emit: ok'              "the hook can still emit a record through the channel"
+chk11 '^read: 0$'             "the record store is UNREADABLE from the jail"
+chk11 'truncate: blocked'     "the record cannot be truncated"
+chk11 'erase: blocked'        "the record store cannot be erased"
+chk11 'unlink-chan: blocked'  "the channel cannot be unlinked"
+chk11 'replace-chan: blocked' "no impostor can be created in the channel directory"
+emitted=$(grep -c '^hook ' "$m11_store/tree.log" 2>/dev/null); emitted=${emitted:-0}
+[ "$emitted" -ge 1 ] && ok "M11 end-to-end: the record emitted from inside the jail arrived in the parent-side store" \
+                     || no "M11 the channel dropped the record the jail emitted"
+
+hdr "M12 the snapshot payload is agent-writable, and the record makes tampering DETECTABLE"
+# The tar payloads must stay in the agent-visible dir (the hook writes them), so
+# they can be altered. What the agent cannot do is alter the digest recorded for
+# them, because that digest is in the masked store.
+R12=$(mkrepo); OB12="$W/obs12"; mkdir -p "$OB12"; ST12="$W/store12"; mkdir -p "$ST12"
+( cd "$R12" && TB_OBS="$OB12" TB_OBS_CHAN="$ST12/tree.log" TB_POLICY3="$POLICY3" bash "$HERE/observe3.sh" </dev/null )
+rec_sig=$(head -1 "$ST12/tree.log" | awk '{print $4}')
+snap_sig=$(sha256sum "$OB12/snapshots/1.tar" 2>/dev/null | cut -c1-16)
+if [ -n "$rec_sig" ] && [ "$rec_sig" != "-" ] && [ "$rec_sig" = "$snap_sig" ]; then
+  ok "M12 the record carries the snapshot digest ($rec_sig) and it matches the payload"
+else no "M12 the record does not pin the snapshot payload (record=$rec_sig payload=$snap_sig)"; fi
+printf 'tampered\n' >> "$OB12/snapshots/1.tar"
+snap_sig2=$(sha256sum "$OB12/snapshots/1.tar" | cut -c1-16)
+[ "$rec_sig" != "$snap_sig2" ] && ok "M12 a tampered payload no longer matches the recorded digest — detectable" \
+                              || no "M12 payload tampering left the digest unchanged"
+
 printf '\nmeasurement-boundary4: passed %d, failed %d\n' "$pass" "$fail"
 [ "$fail" = 0 ]

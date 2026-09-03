@@ -228,9 +228,19 @@ hdr "L11 the verifier's interpreter is absolute, never PATH-resolved"
 if grep -q 'SUITE_CMD_STR="\$VENV/bin/python -m pytest' "$HERE/run-task4.sh"; then
   ok "L11 the suite command handed to run/verify uses an ABSOLUTE interpreter"
 else no "L11 the suite command still resolves its interpreter through PATH: $(grep -m1 'SUITE_CMD_STR=' "$HERE/run-task4.sh")"; fi
-grep -q 'TB_JAIL_RO="\$ART_NM:\$VENV:/usr"' "$HERE/run-task4.sh" \
-  && ok "L11 the runner exposes artefact, venv and /usr read-only to the agent" \
-  || no "L11 the runner does not mount the venv and /usr read-only: $(grep -m1 'TB_JAIL_RO=' "$HERE/run-task4.sh")"
+# Assert the PROPERTY, not one literal spelling: pinning the exact string made this
+# fail the moment a legitimate entry was added (the evidence channel), which is a
+# brittle test, not a finding. Each required entry is checked on its own.
+RO_LINE=$(grep -m1 'TB_JAIL_RO="\$ART_NM' "$HERE/run-task4.sh")
+ro_has() { printf '%s' "$RO_LINE" | grep -q -- "$1"; }
+if [ -n "$RO_LINE" ] && ro_has '\$ART_NM' && ro_has '\$VENV' && ro_has '/usr'; then
+  ok "L11 the runner exposes artefact, venv and /usr read-only to the agent"
+else no "L11 the runner does not mount the artefact, venv and /usr read-only: ${RO_LINE:-<no TB_JAIL_RO line>}"; fi
+# The evidence channel must be read-only too, or the agent could unlink the FIFO
+# and silently stop the record (measurement-boundary4 M11).
+ro_has '\$CHAN' \
+  && ok "L11 the evidence channel is read-only to the agent (the FIFO cannot be unlinked or replaced)" \
+  || no "L11 the evidence channel is not mounted read-only: ${RO_LINE:-<no TB_JAIL_RO line>}"
 
 printf '\nlauncher4: passed %d, failed %d\n' "$pass" "$fail"
 [ "$fail" = 0 ]

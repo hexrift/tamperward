@@ -1566,3 +1566,57 @@ and is disclosed rather than corrected.
 Validated from a clean worktree: measurement-boundary4 **23/0**, cleanup-lifecycle4
 77/0, launcher4 45/0, workspace4 18/0, replay4 43/0, verdict4-selftest 21/0,
 isolation-selftest4 13/0, smoke4 39/0, repo suite 2149/2149, typecheck 0, build 0.
+
+## CORRECTION — "parent-owned" records were still agent-READABLE; the seal was only half the property
+
+The append-only seal removed ERASURE and nothing else. The records stayed **readable**
+by the agent, and the snapshot payloads stayed **fully writable** — neither was sealed
+at all. "Inaccessible to the agent" was therefore still false.
+
+### Fix — a write-only evidence channel
+
+The record STORE moved to `$CTRL/evidence`, which the agent jail already masks. The
+only thing that crosses the boundary is a **write-only FIFO** in `$W/chan`, a
+directory mounted **read-only** into the jail, drained by parent-side collectors that
+append into the store. Measured from inside the jail, each against a positive control
+that shows the same probe succeeding unprotected (`measurement-boundary4` M11):
+
+| probe | unprotected | counted configuration |
+|---|---|---|
+| emit a record | ok | **ok** (the hook still records) |
+| read the store | readable | **unreadable** |
+| truncate the record | SUCCEEDED | **blocked** |
+| erase the store | SUCCEEDED | **blocked** |
+| unlink the channel | SUCCEEDED | **blocked** |
+| create an impostor in the channel dir | — | **blocked** |
+
+The baseline line is written by the parent **directly into the store**, before the
+collectors start, so line 1 cannot be raced or displaced by a hook write.
+
+**The observer had to become stateless about the record.** `observe3.sh` used to read
+its own log back (`tail -1`, `wc -l`) to decide whether to snapshot. It cannot now, by
+design, so that bookkeeping moved to a local marker in `$TB_OBS`; it only chooses
+whether to snapshot, never what is recorded. Every call still emits exactly one line,
+so the parent's log is complete by construction.
+
+**Snapshot payloads are record-pinned (M12).** The tars must stay in the agent-visible
+observer dir — the hook writes them — so they remain alterable. Their sha256 is now
+carried IN the record line, in the store the agent cannot reach, so a tampered payload
+no longer matches its recorded digest and is detectable.
+
+### The residual is unchanged and still irreducible
+
+Appending a forged record through the channel remains possible, because the writer is
+inside the agent's process tree. The smoke's corrupt-observer probe was retargeted
+onto that path, so the fail-closed behaviour is still exercised on the one surface
+that is actually reachable — and that probe now doubles as end-to-end proof the
+channel carries agent writes.
+
+**A brittle assertion of mine, corrected.** `launcher4` L11 pinned `TB_JAIL_RO` by
+exact string, so adding the channel to the read-only list "failed" it. It now checks
+each required entry as a property, with the channel added as its own invariant, and
+the predicate's discrimination is shown against negative controls.
+
+measurement-boundary4 **33/0**, launcher4 46/0, cleanup-lifecycle4 77/0, smoke4 39/0,
+workspace4 18/0, replay4 43/0, verdict4-selftest 21/0, isolation-selftest4 13/0,
+observe3-selftest OK.

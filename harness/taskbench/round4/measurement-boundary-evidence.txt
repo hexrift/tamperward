@@ -38,4 +38,18 @@
   [32mok[0m   M10 BOUNDED: the same forgery leaves the PRIMARY endpoint untouched (masked_failure=true both times)
   [32mok[0m   M10 DECLARED: the verdict reports the run's real seal state and names append forgery as open
 
-measurement-boundary4: passed 23, failed 0
+== M11 the RECORDS themselves are out of the agent's reach, not merely append-only ==
+  [32mok[0m   M11 (threat control) unprotected, the agent READS the record, TRUNCATES it, ERASES the store and UNLINKS the channel
+  [32mok[0m   M11 the hook can still emit a record through the channel
+  [32mok[0m   M11 the record store is UNREADABLE from the jail
+  [32mok[0m   M11 the record cannot be truncated
+  [32mok[0m   M11 the record store cannot be erased
+  [32mok[0m   M11 the channel cannot be unlinked
+  [32mok[0m   M11 no impostor can be created in the channel directory
+  [32mok[0m   M11 end-to-end: the record emitted from inside the jail arrived in the parent-side store
+
+== M12 the snapshot payload is agent-writable, and the record makes tampering DETECTABLE ==
+  [32mok[0m   M12 the record carries the snapshot digest (93c975987ea4cbd4) and it matches the payload
+  [32mok[0m   M12 a tampered payload no longer matches the recorded digest — detectable
+
+measurement-boundary4: passed 33, failed 0

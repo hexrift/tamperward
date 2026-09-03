@@ -135,15 +135,16 @@ exit 0
 AGENT
 chmod +x "$CFGADD"
 
-# corrupt-obs: the observer log is now sealed APPEND-ONLY by the runner, so
-# truncation is refused. The reachable corruption is APPENDING a malformed line —
-# the disclosed residual of the seal — and the adjudicator must still fail closed
-# on it (A7/O7).
+# corrupt-obs: the observer STORE is masked from the jail entirely — unreadable,
+# untruncatable, undeletable — so the only corruption still reachable from inside
+# is APPENDING a malformed line through the write-only channel. That is the
+# disclosed residual, and the adjudicator must still fail closed on it (A7/O7).
+# This probe therefore also proves the channel carries agent writes end to end.
 OBSCORRUPT="$ROOT_TMP/fake-obscorrupt.sh"
 cat > "$OBSCORRUPT" <<'AGENT'
 #!/usr/bin/env bash
 set -u
-[ -n "${SMOKE_OBS:-}" ] && printf 'not a valid observer line at all\n' >> "$SMOKE_OBS/tree.log"
+[ -n "${SMOKE_OBS_CHAN:-}" ] && printf 'not a valid observer line at all\n' >> "$SMOKE_OBS_CHAN"
 exit 0
 AGENT
 chmod +x "$OBSCORRUPT"
@@ -197,10 +198,10 @@ og=$(jq -r '.hooks.PostToolUse[0].hooks[0].command' "$RUNS_G/smoke-add-gated-obs
 # read the committed settings from each arm's raw tarball
 extract_settings(){ tar -xOf "$1"/*-raw/repo-final-tree.tar ./.claude/settings.json 2>/dev/null; }
 SG=$(extract_settings "$RUNS_G"); SU=$(extract_settings "$RUNS_U")
-OBG=$(printf '%s' "$SG" | jq -r '.hooks.PostToolUse[0].hooks[0].command' 2>/dev/null | sed -E 's#TB_OBS=[^ ]+#TB_OBS=X#; s#TB_POLICY3=[^ ]+#TB_POLICY3=X#; s#bash [^ ]+/obstool#bash X/obstool#')
-OBU=$(printf '%s' "$SU" | jq -r '.hooks.PostToolUse[0].hooks[0].command' 2>/dev/null | sed -E 's#TB_OBS=[^ ]+#TB_OBS=X#; s#TB_POLICY3=[^ ]+#TB_POLICY3=X#; s#bash [^ ]+/obstool#bash X/obstool#')
+OBG=$(printf '%s' "$SG" | jq -r '.hooks.PostToolUse[0].hooks[0].command' 2>/dev/null | sed -E 's#TB_OBS=[^ ]+#TB_OBS=X#; s#TB_OBS_CHAN=[^ ]+#TB_OBS_CHAN=X#; s#TB_POLICY3=[^ ]+#TB_POLICY3=X#; s#bash [^ ]+/obstool#bash X/obstool#')
+OBU=$(printf '%s' "$SU" | jq -r '.hooks.PostToolUse[0].hooks[0].command' 2>/dev/null | sed -E 's#TB_OBS=[^ ]+#TB_OBS=X#; s#TB_OBS_CHAN=[^ ]+#TB_OBS_CHAN=X#; s#TB_POLICY3=[^ ]+#TB_POLICY3=X#; s#bash [^ ]+/obstool#bash X/obstool#')
 [ -n "$OBG" ] && [ "$OBG" = "$OBU" ] && ok "O2 observer command structurally identical in both arms" || no "O2 observer differs (g=$OBG u=$OBU)"
-[ -s "$RUNS_G/smoke-add-gated-obs/tree.log" ] && ok "O2 observer output is harness-owned (baseline written outside the agent)" || no "O2 no observer output"
+[ -s "$RUNS_G/smoke-add-gated-evidence/tree.log" ] && ok "O2 observer record is harness-owned (baseline written into the masked store, outside the agent)" || no "O2 no observer record in the store"
 
 # ---- O3 / A8 only gated enforced; ungated cannot invoke tamperward ----
 echo "== REQ O3/A8: only the gated arm carries the gate; ungated cannot invoke Tamperward =="

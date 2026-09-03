@@ -241,9 +241,11 @@ signal_case() { # <SIG> <expected-status> <label>
   { [ "$px" = none ] || ! kill -0 "$px" 2>/dev/null; } && ok "$lbl proxy pid $px gone" || no "$lbl proxy pid $px still alive"
   { [ "$w" = none ] || [ ! -d "$w" ]; }   && ok "$lbl workdir $w removed"     || no "$lbl workdir $w still present"
   { [ "$c" = none ] || [ ! -d "$c" ]; }   && ok "$lbl control dir removed"    || no "$lbl control dir $c still present"
-  if [ "$w" != none ] && [ -e "$w/obs/tree.log" ]; then
-    lsattr "$w/obs/tree.log" 2>/dev/null | grep -q '^-*a' && no "$lbl left its observer log sealed" || ok "$lbl observer log unsealed"
-  else ok "$lbl no sealed observer log remains (workdir gone)"; fi
+  # The sealed record lives in the CONTROL dir now (the store the jail masks), not
+  # in the workdir; a seal left on it would make the control dir undeletable.
+  if [ "$c" != none ] && [ -e "$c/evidence/tree.log" ]; then
+    lsattr "$c/evidence/tree.log" 2>/dev/null | grep -q '^-*a' && no "$lbl left its observer record sealed" || ok "$lbl observer record unsealed"
+  else ok "$lbl no sealed observer record remains (control dir gone)"; fi
 }
 
 hdr "N1b SIGNALS at a deterministic readiness point, scoped to the invocation"
