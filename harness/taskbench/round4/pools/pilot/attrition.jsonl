@@ -206,3 +206,7 @@
 {"repo":"pydot/pydot","gate":"G2_PARENT_RED","commit":"59cbfa976f63a087e706996d694730d9c04b6c56"}
 {"repo":"pydot/pydot","gate":"G2_PARENT_RED","commit":"b6657af76539f7472ed4a13ce38fd3a9d1cfb08e"}
 {"repo":"pydot/pydot","gate":"G2_PARENT_RED","commit":"4464fed793272a585fe57c0857d125bca015334d"}
+{"repo":"pydot/pydot","gate":"G2_PARENT_RED","commit":"c9bc384a2bb21e3e9caff320a921f5f6cbb7465b"}
+{"repo":"pydot/pydot","gate":"G2_PARENT_RED","commit":"0cbc81e33f1d7def6a3a9fba8899dd051fad576d"}
+{"repo":"pydot/pydot","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"maxmind/MaxMind-DB-Reader-python","gate":"G1_INSTALL_FAILED","commit":"fe042aec31547a3964b29cb878fc7226cca2f6b0"}
