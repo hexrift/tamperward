@@ -1,0 +1,333 @@
+diff --git a/tests/test_bytecode.py b/tests/test_bytecode.py
+index 014df0392ed7e20efcf485c2e8ba4823d26df417..2a841b248cc12a7aa74e84f83374b2442fecfd45 100644
+--- a/tests/test_bytecode.py
++++ b/tests/test_bytecode.py
+@@ -7,8 +7,8 @@ import types
+ import unittest
+ 
+ from bytecode import Bytecode, ConcreteInstr, FreeVar, Instr, Label, SetLineno
+-from bytecode.instr import BinaryOp, FormatValue, InstrLocation
+-from bytecode.utils import PY312, PY313, PY314
++from bytecode.instr import BinaryOp, CommonConstant, FormatValue, InstrLocation
++from bytecode.utils import PY312, PY313, PY314, PY315
+ 
+ from . import TestCase, get_code
+ 
+@@ -169,6 +169,18 @@ class BytecodeTests(TestCase):
+         bytecode = Bytecode.from_code(code)
+         label_else = Label()
+         if PY314:
++
++            def _ret_none(lineno):
++                return (
++                    Instr(
++                        "LOAD_COMMON_CONSTANT",
++                        CommonConstant.CONSTANT_NONE,
++                        lineno=lineno,
++                    )
++                    if PY315
++                    else Instr("LOAD_CONST", None, lineno=lineno)
++                )
++
+             self.assertInstructionListEqual(
+                 bytecode,
+                 [
+@@ -179,12 +191,12 @@ class BytecodeTests(TestCase):
+                     Instr("NOT_TAKEN", lineno=1),
+                     Instr("LOAD_SMALL_INT", 1, lineno=2),
+                     Instr("STORE_NAME", "x", lineno=2),
+-                    Instr("LOAD_CONST", None, lineno=2),
++                    _ret_none(2),
+                     Instr("RETURN_VALUE", lineno=2),
+                     label_else,
+                     Instr("LOAD_SMALL_INT", 2, lineno=4),
+                     Instr("STORE_NAME", "x", lineno=4),
+-                    Instr("LOAD_CONST", None, lineno=4),
++                    _ret_none(4),
+                     Instr("RETURN_VALUE", lineno=4),
+                 ],
+             )
+@@ -293,7 +305,11 @@ class BytecodeTests(TestCase):
+             ]
+             + (
+                 [
+-                    Instr("LOAD_CONST", None, lineno=3),
++                    Instr(
++                        "LOAD_COMMON_CONSTANT" if PY315 else "LOAD_CONST",
++                        CommonConstant.CONSTANT_NONE if PY315 else None,
++                        lineno=3,
++                    ),
+                     Instr("RETURN_VALUE", lineno=3),
+                 ]
+                 if PY314
+diff --git a/tests/test_cfg.py b/tests/test_cfg.py
+index 3ce8089bb3e1493144c3eb22bed4939a8a68b491..9e41bcfbf556580a568f9e16b1d46847e75e39aa 100644
+--- a/tests/test_cfg.py
++++ b/tests/test_cfg.py
+@@ -21,7 +21,8 @@ from bytecode import (
+     TryEnd,
+     dump_bytecode,
+ )
+-from bytecode.utils import PY312, PY313, PY314
++from bytecode.instr import CommonConstant
++from bytecode.utils import PY312, PY313, PY314, PY315
+ 
+ from . import TestCase, disassemble as _disassemble
+ 
+@@ -35,15 +36,20 @@ def disassemble(
+         # drop LOAD_CONST+RETURN_VALUE to only keep 2 instructions,
+         # to make unit tests shorter
+         block = blocks[-1]
+-        test = (
+-            (block[-1].name == "RETURN_CONST" and block[-1].arg is None)
+-            if PY312 and not PY314
+-            else (
++        if PY315:
++            test = (
++                block[-2].name == "LOAD_COMMON_CONSTANT"
++                and block[-2].arg == CommonConstant.CONSTANT_NONE
++                and block[-1].name == "RETURN_VALUE"
++            )
++        elif PY312 and not PY314:
++            test = block[-1].name == "RETURN_CONST" and block[-1].arg is None
++        else:
++            test = (
+                 block[-2].name == "LOAD_CONST"
+                 and block[-2].arg is None
+                 and block[-1].name == "RETURN_VALUE"
+             )
+-        )
+         if not test:
+             raise ValueError(
+                 "unable to find implicit RETURN_VALUE <None>: %s" % block[-2:]
+diff --git a/tests/test_code.py b/tests/test_code.py
+index 37b1ed454912482a68113830df81cef77bd5b8a0..e38f94d2c9c7d292d1f30e8e151dd08033e3cb52 100644
+--- a/tests/test_code.py
++++ b/tests/test_code.py
+@@ -84,6 +84,17 @@ class CodeTests(TestCase):
+             function=True,
+         )
+ 
++    def test_import(self):
++        # In 3.15 IMPORT_NAME gained lazy/eager flag bits packed into its arg
++        # (like LOAD_SUPER_ATTR), which a naive plain-name decode misses.
++        self.check(
++            """
++            import os
++            import os.path as osp
++            from os import path
++        """
++        )
++
+     def test_async_gen(self):
+         self.check(
+             """
+diff --git a/tests/test_concrete.py b/tests/test_concrete.py
+index 3c09d0901d9d902f1975be702ef11097496089df..1b061fce106d85879383d61cabd9f96031185d6a 100644
+--- a/tests/test_concrete.py
++++ b/tests/test_concrete.py
+@@ -21,7 +21,8 @@ from bytecode import (
+     SetLineno,
+ )
+ from bytecode.concrete import ExceptionTableEntry
+-from bytecode.utils import PY312, PY313, PY314
++from bytecode.instr import CommonConstant
++from bytecode.utils import PY312, PY313, PY314, PY315
+ 
+ from . import TestCase, get_code
+ 
+@@ -244,30 +245,43 @@ class ConcreteBytecodeTests(TestCase):
+     def test_attr(self):
+         code_obj = get_code("x = 5")
+         code = ConcreteBytecode.from_code(code_obj)
+-        self.assertEqual(code.consts, [5, None])
++        self.assertEqual(code.consts, [5] if PY315 else [5, None])
+         self.assertEqual(code.names, ["x"])
+         self.assertEqual(code.varnames, [])
+         self.assertEqual(code.freevars, [])
+         self.assertInstructionListEqual(
+             list(code),
+-            ([ConcreteInstr("RESUME", 0, lineno=0)])
+-            + [
+-                ConcreteInstr("LOAD_CONST", 0, lineno=1),
+-                ConcreteInstr("STORE_NAME", 0, lineno=1),
+-            ]
+-            + (
++            (
+                 [
+-                    ConcreteInstr("LOAD_SMALL_INT", 1, lineno=1),
++                    ConcreteInstr("RESUME", 0, lineno=0),
++                    ConcreteInstr("CACHE", 0, lineno=0),
++                    ConcreteInstr("LOAD_SMALL_INT", 5, lineno=1),
++                    ConcreteInstr("STORE_NAME", 0, lineno=1),
++                    ConcreteInstr("LOAD_COMMON_CONSTANT", 7, lineno=1),
+                     ConcreteInstr("RETURN_VALUE", lineno=1),
+                 ]
+-                if PY314
++                if PY315
+                 else (
+-                    [ConcreteInstr("RETURN_CONST", 1, lineno=1)]
+-                    if PY312
+-                    else [
+-                        ConcreteInstr("LOAD_CONST", 1, lineno=1),
+-                        ConcreteInstr("RETURN_VALUE", lineno=1),
++                    [ConcreteInstr("RESUME", 0, lineno=0)]
++                    + [
++                        ConcreteInstr("LOAD_CONST", 0, lineno=1),
++                        ConcreteInstr("STORE_NAME", 0, lineno=1),
+                     ]
++                    + (
++                        [
++                            ConcreteInstr("LOAD_SMALL_INT", 1, lineno=1),
++                            ConcreteInstr("RETURN_VALUE", lineno=1),
++                        ]
++                        if PY314
++                        else (
++                            [ConcreteInstr("RETURN_CONST", 1, lineno=1)]
++                            if PY312
++                            else [
++                                ConcreteInstr("LOAD_CONST", 1, lineno=1),
++                                ConcreteInstr("RETURN_VALUE", lineno=1),
++                            ]
++                        )
++                    )
+                 )
+             ),
+         )
+@@ -321,7 +335,9 @@ class ConcreteBytecodeTests(TestCase):
+             ]
+             + (
+                 [
+-                    ConcreteInstr("LOAD_CONST", 1),
++                    ConcreteInstr("LOAD_COMMON_CONSTANT", CommonConstant.CONSTANT_NONE)
++                    if PY315
++                    else ConcreteInstr("LOAD_CONST", 1),
+                     ConcreteInstr("RETURN_VALUE"),
+                 ]
+                 if PY314
+@@ -445,7 +461,9 @@ class ConcreteBytecodeTests(TestCase):
+             ]
+             + (
+                 [
+-                    ConcreteInstr("LOAD_CONST", 1),
++                    ConcreteInstr("LOAD_COMMON_CONSTANT", CommonConstant.CONSTANT_NONE)
++                    if PY315
++                    else ConcreteInstr("LOAD_CONST", 1),
+                     ConcreteInstr("RETURN_VALUE"),
+                 ]
+                 if PY314
+@@ -740,6 +758,32 @@ class ConcreteFromCodeTests(TestCase):
+ 
+         # without EXTENDED_ARG
+         concrete = ConcreteBytecode.from_code(code_obj)
++        if PY315:
++            ann_code = concrete.consts[0]
++            func_code = concrete.consts[1]
++            expected_py315 = [
++                ConcreteInstr("RESUME", 0, lineno=0),
++                ConcreteInstr("CACHE", 0, lineno=0),
++                ConcreteInstr("LOAD_CONST", 0, lineno=1),
++                ConcreteInstr("MAKE_FUNCTION", lineno=1),
++                ConcreteInstr("LOAD_CONST", 1, lineno=1),
++                ConcreteInstr("MAKE_FUNCTION", lineno=1),
++                ConcreteInstr("SET_FUNCTION_ATTRIBUTE", 16, lineno=1),
++                ConcreteInstr("STORE_NAME", 0, lineno=1),
++                ConcreteInstr("LOAD_COMMON_CONSTANT", 7, lineno=1),
++                ConcreteInstr("RETURN_VALUE", lineno=1),
++            ]
++            expected_consts = [ann_code, func_code]
++            self.assertSequenceEqual(concrete.names, ["foo"])
++            self.assertSequenceEqual(concrete.consts, expected_consts)
++            self.assertInstructionListEqual(list(concrete), expected_py315)
++            concrete = ConcreteBytecode.from_code(code_obj, extended_arg=True)
++            ann_code = concrete.consts[0]
++            func_code = concrete.consts[1]
++            self.assertEqual(concrete.names, ["foo"])
++            self.assertEqual(concrete.consts, expected_consts)
++            self.assertInstructionListEqual(list(concrete), expected_py315)
++            return
+         if PY314:
+             ann_code = concrete.consts[0]
+             func_code = concrete.consts[1]
+diff --git a/tests/test_misc.py b/tests/test_misc.py
+index 6d9905034e9a25e48ba099b2914bbf8b24d33cd9..b488f0aaed0f0879eab96e810c3e68ddfd43aac1 100644
+--- a/tests/test_misc.py
++++ b/tests/test_misc.py
+@@ -7,7 +7,7 @@ import unittest
+ 
+ import bytecode
+ from bytecode import BasicBlock, Bytecode, ControlFlowGraph, Instr, Label
+-from bytecode.utils import PY312, PY313, PY314
++from bytecode.utils import PY312, PY313, PY314, PY315
+ 
+ from . import disassemble
+ 
+@@ -422,7 +422,33 @@ label_instr14:
+         code = code.to_concrete_bytecode()
+ 
+         # without line numbers
+-        if PY314:
++        if PY315:
++            # RESUME gained a CACHE entry in 3.15, shifting all offsets by 2
++            expected = """
++  0    RESUME 0
++  2    CACHE 0
++  4    LOAD_FAST_BORROW 0
++  6    LOAD_SMALL_INT 1
++  8    COMPARE_OP 88
++ 10    CACHE 0
++ 12    POP_JUMP_IF_FALSE 3
++ 14    CACHE 0
++ 16    NOT_TAKEN
++ 18    LOAD_SMALL_INT 1
++ 20    RETURN_VALUE
++ 22    LOAD_FAST_BORROW 0
++ 24    LOAD_SMALL_INT 2
++ 26    COMPARE_OP 88
++ 28    CACHE 0
++ 30    POP_JUMP_IF_FALSE 3
++ 32    CACHE 0
++ 34    NOT_TAKEN
++ 36    LOAD_SMALL_INT 2
++ 38    RETURN_VALUE
++ 40    LOAD_SMALL_INT 3
++ 42    RETURN_VALUE
++"""
++        elif PY314:
+             # COMPARE_OP use the 4 lowest bits as a cache
+             expected = """
+   0    RESUME 0
+@@ -511,7 +537,32 @@ label_instr14:
+         self.check_dump_bytecode(code, expected.lstrip("\n"))
+ 
+         # with line numbers
+-        if PY314:
++        if PY315:
++            expected = """
++L.  1   0: RESUME 0
++        2: CACHE 0
++L.  2   4: LOAD_FAST_BORROW 0
++        6: LOAD_SMALL_INT 1
++        8: COMPARE_OP 88
++       10: CACHE 0
++       12: POP_JUMP_IF_FALSE 3
++       14: CACHE 0
++       16: NOT_TAKEN
++L.  3  18: LOAD_SMALL_INT 1
++       20: RETURN_VALUE
++L.  4  22: LOAD_FAST_BORROW 0
++       24: LOAD_SMALL_INT 2
++       26: COMPARE_OP 88
++       28: CACHE 0
++       30: POP_JUMP_IF_FALSE 3
++       32: CACHE 0
++       34: NOT_TAKEN
++L.  5  36: LOAD_SMALL_INT 2
++       38: RETURN_VALUE
++L.  6  40: LOAD_SMALL_INT 3
++       42: RETURN_VALUE
++"""
++        elif PY314:
+             expected = """
+ L.  1   0: RESUME 0
+ L.  2   2: LOAD_FAST_BORROW 0

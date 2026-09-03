@@ -1,0 +1,20 @@
+{
+ "id": "06-drivendataorg-cloudpathlib",
+ "repo": "drivendataorg/cloudpathlib",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "9d5fa708814adea1cb956ff4843eb466fbb21738",
+ "commit_sha": "23ca705bd15d42aae1223734d6eb4c6d29e20c39",
+ "test_patch_sha256": "c293b23b3360b5f68a3730890363b0fb4800f945cfb9eafa3b7f2af6b200fa34",
+ "gold_patch_sha256": "65e438daf0e5e8c405b0ccf9f9924e40adbb9e6e8a52b9c2afdd58605e5f3399",
+ "test_files": [
+  "tests/test_cloudpath_file_io.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 12,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-03T11:57:55.845Z"
+}

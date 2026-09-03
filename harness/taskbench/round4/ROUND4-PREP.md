@@ -147,8 +147,13 @@ its hashes, the model, the analysis, the counted N and the randomisation seed.
 The pilot sits between them, which is what lets it force a new candidate without
 reopening the mapping.
 
-No open freeze dependencies. Issue #202 (content drift of an already-present
-ignored protected file) was investigated against v2.10.1 and does not reproduce:
+One open freeze dependency. Issue #202 (content drift of an already-present
+ignored protected file) is an ACKNOWLEDGED PRODUCT GAP, pending an end-to-end
+demonstration against the counted configuration; the note below records the
+investigation's *intended* shape, not a closure, and the earlier "no open freeze
+dependencies" and "does not reproduce" wording overstated it. The investigation
+was against v2.10.1 and must be re-established against the packed 2.10.2
+candidate. As investigated:
 the file is sanctioned in the ptree at first sight, the drift check reports it
 changed, and with no git blob to reconstruct its sanctioned content from the
 verdict is a `hidden-drift` block at both the per-call check and the Stop sweep.

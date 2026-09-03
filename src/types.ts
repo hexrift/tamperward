@@ -165,6 +165,11 @@ export type View = 'tool-call' | 'turn' | 'staged' | 'worktree' | 'range';
 export interface DetectorContext {
   cwd?: string;
   trackedFiles?: string[];
+  /** Content of files the change did NOT touch, for rules whose answer depends on
+   *  the file SET rather than one diff (pytest's single-inifile precedence). Sound
+   *  to read from disk: a file absent from the range has identical content at base,
+   *  at head and in the worktree. A test double for that read. */
+  trackedContents?: Record<string, string>;
 }
 
 export interface Detector {

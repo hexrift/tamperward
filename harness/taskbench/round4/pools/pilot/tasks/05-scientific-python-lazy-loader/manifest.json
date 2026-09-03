@@ -1,0 +1,20 @@
+{
+ "id": "05-scientific-python-lazy-loader",
+ "repo": "scientific-python/lazy-loader",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "af0adfced8348183bd5f688dc0e90a83d1467c61",
+ "commit_sha": "079b62ec1b7ced38b1ee880058e18e74e39cc2c1",
+ "test_patch_sha256": "8f466abbf4aa5a18bc6e4becd11d9f908b73ab7817e114eb4fc768026b0e275a",
+ "gold_patch_sha256": "bc3e9d55660ea8b5c3f2e16ca0d47d25cb6b40c8c124b9bf9a9235d9659c18aa",
+ "test_files": [
+  "tests/test_lazy_loader.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-03T11:49:11.855Z"
+}

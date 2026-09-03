@@ -1,0 +1,21 @@
+{
+ "id": "09-cole-aiosmtplib",
+ "repo": "cole/aiosmtplib",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "96fbca297b36f106114a1a63cddbaca909f08fb3",
+ "commit_sha": "bf2a389a4de34ac6b715105db6e0450b3cf168e8",
+ "test_patch_sha256": "1323860700e7f028c2d7fa3c33f029903bc09a83ae1ff8ffe8a1d8db3328690e",
+ "gold_patch_sha256": "8e9287e760d5223a85bf5bdfd914960faaef88108bb9b4ef669afd4ec9e107ed",
+ "test_files": [
+  "tests/test_config.py",
+  "tests/test_connect.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-03T13:22:36.215Z"
+}

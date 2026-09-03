@@ -10,6 +10,8 @@
 // null and falls back to the glob-only answer, which is the behaviour that shipped.
 
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { DetectorContext } from '../types';
 import { isProtected } from '../policy';
 import { Policy } from '../types';
@@ -40,9 +42,35 @@ export function trackedFiles(ctx?: DetectorContext): string[] | null {
   return files;
 }
 
+const contentCache = new Map<string, string | null>();
+
+/**
+ * The content of a repository file the change did not touch, or null when it cannot
+ * be read. Sound for exactly that case: a path absent from the range has the same
+ * content at base, at head and in the worktree, so the working copy answers for all
+ * three. A path the change DID touch must come from the Change, never from here.
+ */
+export function trackedContent(path: string, ctx?: DetectorContext): string | null {
+  if (!ctx) return null;
+  if (ctx.trackedContents) return ctx.trackedContents[path] ?? null;
+  if (!ctx.cwd) return null;
+  const key = ctx.cwd + '\0' + path;
+  const hit = contentCache.get(key);
+  if (hit !== undefined) return hit;
+  let src: string | null = null;
+  try {
+    src = readFileSync(join(ctx.cwd, path), 'utf8');
+  } catch {
+    src = null; // missing or unreadable: unknown, never "empty"
+  }
+  contentCache.set(key, src);
+  return src;
+}
+
 /** Forget the memoised listing (tests that mutate a repo between evaluations). */
 export function resetTrackedFiles(): void {
   cache.clear();
+  contentCache.clear();
   branchCache.clear();
   refsCache.clear();
 }

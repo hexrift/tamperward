@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
-# Round-4 mining status. Counts miners EXACTLY.
+# Round-4 mining status. Detects the miner by its POOL LOCK, not by command line.
 #
-# Counting miners by command line does not work, in three distinct ways, each
-# found the hard way:
-#   1. `pgrep -fc mine5.sh` matches the launcher wrapper, whose command line
-#      names the script;
-#   2. it also matches the SHELL DOING THE INSPECTING, whose command line
-#      contains the pattern — the observer counts itself;
-#   3. even exact-argv matching over-counts, because a bash SUBSHELL inherits
-#      its parent's argv and appears as another `bash ./mine5.sh`.
-# The unambiguous unit is the SESSION: one launched miner is one session id.
-# Accumulation is more than one mining session, which is what actually happened
-# in D3 and what this must be able to see.
+# Every command-line scheme failed: `pgrep -fc mine5.sh` matched the launcher
+# and the inspecting shell; exact-argv counted subshells; and exact-argv broke
+# entirely the moment the miner was launched by ABSOLUTE path (`bash /abs/mine5.sh`
+# no longer matches `bash ./mine5.sh`), reporting a healthy miner as dead — which
+# would make the backstop relaunch and create the very accumulation the check
+# exists to prevent. The pool lock is the unambiguous signal: the miner holds it
+# (via the flock --close guardian) for its whole lifetime, so "lock held" = a
+# miner is running, independent of how it was launched and immune to the observer
+# counting itself. Accumulation is now impossible by construction — a second
+# miner cannot take the lock — so this reports presence, not a count.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; cd "$HERE"
 # All runtime state lives under one directory so a separate process — another
@@ -20,15 +19,11 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; cd "$HERE"
 TB_RUNTIME_DIR="${TB_RUNTIME_DIR:-/tmp}"; mkdir -p "$TB_RUNTIME_DIR"
 POOL="${1:-pilot}"
 P="pools/$POOL"
-V='"gate":"(EXCLUDED_INACTIVE|G0_NO_PYPROJECT|G0_NOT_PYTEST|G0_NO_TESTS|NO_QUALIFYING_COMMITS|CLONE_FAILED|CANDIDATES_EXHAUSTED|TASK_VALIDATED|QUOTA_FULL)"'
-# macOS ps has no `sid` column; its process groups are the workable equivalent
-# here, because launch-mine.sh puts each miner in its own session AND group.
-if ps -o sid= -p $$ >/dev/null 2>&1; then SIDCOL=sid; else SIDCOL=pgid; fi
-sid_of(){ ps -o "$SIDCOL=" -p "$1" 2>/dev/null | tr -d ' '; }
-self_sid=$(sid_of $$)
-sessions=$(for p in $(pgrep -x -f 'bash ./mine5.sh' 2>/dev/null); do
-             sid_of "$p"; done | sort -u | grep -v "^$self_sid$" | grep -c . || true)
-procs=$(pgrep -x -f 'bash ./mine5.sh' 2>/dev/null | wc -l)
+V='"gate":"(EXCLUDED_INACTIVE|G0_NO_PYPROJECT|G0_NOT_PYTEST|G0_NO_TESTS|NO_QUALIFYING_COMMITS|CLONE_FAILED|REPO_UNAVAILABLE|CANDIDATES_EXHAUSTED|TASK_VALIDATED|QUOTA_FULL)"'
+POOL_LOCK="${TB_POOL_LOCK:-$TB_RUNTIME_DIR/tb-mine5-$POOL.lock}"
+# Held = a miner is running. We try to take it non-blocking in a subshell; if we
+# get it we release it immediately (harmless), if we cannot the miner has it.
+if ( flock -n 8 ) 8>"$POOL_LOCK" 2>/dev/null; then miner=0; else miner=1; fi
 pid=$(cat "$TB_RUNTIME_DIR/tb-mine-$POOL.pid" 2>/dev/null || echo -)
 alive=no; [ "$pid" != - ] && kill -0 "$pid" 2>/dev/null && alive=yes
 # Two supervision modes, and conflating them manufactures false alarms.
@@ -40,8 +35,7 @@ alive=no; [ "$pid" != - ] && kill -0 "$pid" 2>/dev/null && alive=yes
 if [ "$pid" = - ]; then mode=foreground; else mode=launched; fi
 walk=$(node -p "JSON.parse(require('fs').readFileSync('$P/walk.json')).order.length" 2>/dev/null || echo ?)
 echo "pool           $POOL"
-echo "mining sessions $sessions  (1 = healthy, >1 = ACCUMULATION, stop everything)"
-echo "  processes     $procs  (parent + subshells of those sessions; not a miner count)"
+echo "miner          $([ "$miner" = 1 ] && echo "running (pool lock held)" || echo "NOT running (pool lock free)")"
 if [ "$mode" = launched ]; then
   echo "launcher pid   $pid (alive: $alive)"
 else
@@ -61,7 +55,7 @@ if [ -f "$hb" ]; then
   age=$(( $(date +%s) - $(node -p "JSON.parse(require('fs').readFileSync('$hb')).epoch" 2>/dev/null || echo 0) ))
   note="alive"
   [ "$age" -gt 3600 ] && note="STALE — a repository rarely takes an hour; suspect a death"
-  [ "$sessions" = 0 ] && note="no miner running: this is when it stopped"
+  [ "$miner" = 0 ] && note="no miner running: this is when it stopped"
   echo "heartbeat      ${age}s ago ($note)"
   echo "  last repo    $(node -p "JSON.parse(require('fs').readFileSync('$hb')).repo" 2>/dev/null || echo ?)"
 else
@@ -72,7 +66,7 @@ case "$st" in
   signal:*)  st="$st — stopped by a signal the wrapper trapped";;
   "")        if [ "$mode" = foreground ]; then
                st="not tracked here — foreground mode; ask the supervisor (docker compose ps -a)"
-             elif [ "$sessions" = 0 ]; then
+             elif [ "$miner" = 0 ]; then
                st="NONE, and no miner running — killed outright (SIGKILL or a reaped container), not an exit"
              else
                st="not written — still running"

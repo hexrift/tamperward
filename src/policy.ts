@@ -249,6 +249,18 @@ export function defaultPolicy(version = 1): Policy {
         // as a strengthening). pyproject.toml carries [tool.coverage.report].
         '**/.coveragerc',
         '**/pyproject.toml',
+        // pytest's selection configuration. These decide WHICH TESTS RUN, so a
+        // narrowing in them removes a test as surely as deleting the file. The
+        // pristine boundary already refused to inherit them (verify's
+        // VERIFICATION_SURFACE, 1.14.2); this is the in-loop half, so the gate can
+        // say so at the tool call instead of only at adjudication. `tox.ini` and
+        // `setup.cfg` are shared files — the suite-config detector only treats them
+        // as pytest configs when they carry the section pytest reads, so ordinary
+        // packaging edits are untouched.
+        '**/pytest.ini',
+        '**/.pytest.ini',
+        '**/tox.ini',
+        '**/setup.cfg',
         '**/.nycrc',
         '**/.nycrc.*',
         '**/nyc.config.*',

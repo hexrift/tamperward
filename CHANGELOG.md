@@ -5,6 +5,70 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.10.2] — 2026-09-03
+
+**pytest collection narrowing is now a finding at the tool call, not only at
+adjudication. A patch: the missing half of an existing protection.** A round-4
+pilot on a fresh Python pool found that a config could deselect the failing test —
+`addopts = -k "not test_x"`, `--ignore`, `--ignore-glob`, `--deselect`, `-m`, a
+redirected `testpaths`, a narrowed `python_files`/`python_classes`/
+`python_functions`, a `norecursedirs` that swallows the test directory — and the
+gate ALLOWED it while the Stop sweep stayed silent, in `pytest.ini`, `.pytest.ini`,
+`setup.cfg`, `tox.ini` and `pyproject.toml` alike, at the root or nested.
+
+**This was never an escape.** `verify`'s verification surface has refused to
+inherit those files since 1.14.2, and drops `PYTEST_ADDOPTS` with them, so the
+envelope already exited non-zero on every one of these: traced end to end across
+fifteen vectors through the PreToolUse gate, the Stop sweep, pristine
+verification, the `run` envelope and an independent adjudicator. What was missing
+was EARLY feedback — the agent learned at adjudication instead of at the edit.
+
+pytest joins the suite-config model the JS runners already use: the config is read
+as the membership function the runner applies, and a finding is a protected test
+the runner selected before and does not select after. Because the comparison is
+over selection and not over flags, `-v`, `--tb=short`, `-r a`, `--color`,
+`--durations`, `--strict-markers` and a `markers` registry are silent **by
+construction** — there is no benign-flag list to keep in step with pytest's option
+grammar. INI continuation lines, quoted values and TOML string and array forms are
+read; `tox.ini` and `setup.cfg` count as pytest configs only when they carry the
+section pytest reads, so ordinary packaging edits are untouched.
+
+**The scope of `-k`, stated.** A finding is a protected test FILE the runner
+selected before and does not select after, so a `-k` term is convicted when it
+matches the file's stem (`-k "not test_bug"` drops `tests/test_bug.py`) and is left
+alone when it names a test FUNCTION inside a file that is still collected
+(`-k "not test_add"` against `tests/test_bug.py::test_add`). Guessing which
+functions an expression selects would mean modelling pytest's keyword grammar
+against test names the config never lists; the in-loop layers stay silent there by
+construction, and `verify` still exits non-zero on it — traced end to end.
+
+**Precedence transitions.** pytest opens exactly ONE inifile, so the effective
+configuration is a property of the FILE SET, not of any single file — and a change
+can narrow the suite with no file's own before/after being a narrowing. Delete the
+shadowing `pytest.ini` and a `setup.cfg` that has been inert since the repository
+was created springs into effect: the deleted file was benign, and the file that now
+narrows was never touched. Add an empty `pytest.ini` over a `setup.cfg` that had
+widened collection and pytest's own defaults drop the specs the wider setting was
+collecting; nothing in the added file is narrower than the defaults, the narrowing
+IS the shadowing. The effective file is now resolved at base and at head —
+`pytest.ini` > `.pytest.ini` > `pyproject.toml` > `tox.ini` > `setup.cfg`, with the
+shared files claiming the slot only when they carry their own pytest section — and
+when the slot moves, the two selections are compared directly.
+
+It stays SILENT where it cannot know: the content of files the change did not touch
+has to be in hand (sound to read from the working copy, since a file outside the
+range is identical at base, at head and on disk). No listing, no content, no
+finding. A deletion of every pytest config is not a narrowing either — pytest's
+defaults are broader than anything they replaced.
+
+**A false positive this exposed, also fixed.** pytest's ignore set is not one list:
+`norecursedirs` REPLACES the built-in directory skips, while `--ignore`,
+`--ignore-glob`, `--deselect`, `-k` and `-m` ADD to whatever norecursedirs is in
+force. The model seeded the additive entries into an empty list, so a config
+carrying only `addopts = -k "not slow"` was read as collecting `build/**` — which
+made a later config that merely restores the defaults look like a narrowing. The
+built-in skips are now the seed, and a replacement only replaces them.
+
 ## [2.10.1] — 2026-09-02
 
 **`npm install` no longer trips the gate in a husky repository. A patch: a

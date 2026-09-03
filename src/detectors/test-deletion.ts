@@ -9,13 +9,22 @@
 // BLOCK rule is poison, so this one is parsed properly.
 
 import ts from 'typescript';
-import { Change, Detector, DetectorContext, Finding, Policy } from '../types';
+import { Change, Detector, DetectorContext, FileChange, Finding, Policy } from '../types';
 import { isProtected } from '../policy';
 import { makeFinding } from './finding';
 import { segments, tokens, unquote } from './command';
 import { Lang, isSignificantLine, langOf } from './files';
-import { containsProtected, revIsHead, trackedFiles } from './repo';
-import { CANONICAL_SAMPLES, runnerOf, suiteNarrowings } from './suite-config';
+import { containsProtected, revIsHead, trackedContent, trackedFiles } from './repo';
+import {
+  CANONICAL_SAMPLES,
+  PYTEST_CANONICAL_SAMPLES,
+  PYTEST_INI_ORDER,
+  effectivePytestConfig,
+  effectivePytestFile,
+  runnerOf,
+  suiteNarrowings,
+} from './suite-config';
+import type { Runner } from './suite-config';
 import { SUITE_NARROWING_FLAGS } from './ci-tampering';
 
 const RULE = 'test-deletion';
@@ -217,17 +226,23 @@ const OTHER_RUNNER_DIR = /(?:^|\/)(?:e2e|cypress|playwright|fixtures|__fixtures_
 
 /** The protected JS/TS test files a runner config governs, from the repository listing
  *  when one is available, else the conventional layouts. */
-function runnerSamples(configPath: string, policy: Policy, ctx?: DetectorContext): string[] {
+function runnerSamples(configPath: string, policy: Policy, ctx?: DetectorContext, runner?: Runner | null): string[] {
+  // The samples must be in the RUNNER's language: a pytest config judged against a
+  // list of .ts specs selects nothing on either side, so every narrowing would be
+  // invisible. (Found end-to-end: the unit model was right and the integration
+  // still reported clean.)
+  const lang = runner === 'pytest' ? 'py' : 'js';
+  const fallback = runner === 'pytest' ? PYTEST_CANONICAL_SAMPLES : CANONICAL_SAMPLES;
   const files = trackedFiles(ctx);
-  if (!files) return CANONICAL_SAMPLES;
+  if (!files) return fallback;
   // the runner's rootDir is the config's directory: paths are relative to it
   const root = configPath.includes('/') ? configPath.slice(0, configPath.lastIndexOf('/') + 1) : '';
   // Specs under e2e/, cypress/, playwright/ belong to another runner: excluding them
   // from vitest or jest is how those repositories are set up, not a narrowing.
   const own = files
-    .filter((f) => f.startsWith(root) && langOf(f) === 'js' && isProtected(f, policy, 'tests') && !OTHER_RUNNER_DIR.test(f))
+    .filter((f) => f.startsWith(root) && langOf(f) === lang && isProtected(f, policy, 'tests') && (lang !== 'js' || !OTHER_RUNNER_DIR.test(f)))
     .map((f) => f.slice(root.length));
-  return own.length ? own : CANONICAL_SAMPLES;
+  return own.length ? own : fallback;
 }
 
 interface ScriptNarrowing {
@@ -410,7 +425,12 @@ export const testDeletion: Detector = {
         } else if (c.op !== 'delete' && c.after != null && !isTest && isProtected(c.path, policy, 'config') && runnerOf(c.path, c.after)) {
           // The runner's selection config: a protected spec the runner opened before
           // and will not open after is out of the suite as surely as if deleted.
-          for (const n of suiteNarrowings(c.before, c.after, c.path, runnerSamples(c.path, policy, ctx))) {
+          const rn = runnerOf(c.path, c.after);
+          // pytest opens ONE inifile: an inert config (nested, or shadowed by a
+          // higher-precedence root file) changes nothing, so flagging it would be a
+          // false positive in the gated arm only.
+          const readable = rn !== 'pytest' || effectivePytestConfig(c.path, ctx);
+          for (const n of readable ? suiteNarrowings(c.before, c.after, c.path, runnerSamples(c.path, policy, ctx, rn)) : []) {
             out.push(
               makeFinding(RULE, policy, {
                 file: c.path,
@@ -556,6 +576,75 @@ export const testDeletion: Detector = {
         }
       }
     }
+    out.push(...pytestPrecedenceFindings(changes, policy, ctx));
     return out;
   },
 };
+
+/**
+ * pytest opens exactly ONE inifile, so the effective configuration is a property of
+ * the FILE SET. A change can therefore narrow the suite with no single file's
+ * before→after being a narrowing at all:
+ *
+ *   - DELETE the shadowing `pytest.ini` and a narrowing `setup.cfg` that has been
+ *     inert since the repository was created springs into effect. The deleted file
+ *     was benign, and the file that now narrows was never touched, so a per-file
+ *     comparison sees nothing;
+ *   - ADD a `pytest.ini` that merely restates pytest's DEFAULTS and it shadows a
+ *     broader `setup.cfg`, dropping every spec the broader one used to collect.
+ *     Nothing in the added file is narrower than the defaults — it IS the defaults.
+ *
+ * So the effective file is resolved at BASE and at HEAD and, when the two are
+ * different files, their selections are compared directly.
+ *
+ * Fail-SILENT, deliberately: content for the files the change did not touch has to
+ * be in hand (`trackedContents`, else read from `ctx.cwd` — sound, since a file
+ * outside the range is identical at base, head and worktree). With no listing or no
+ * content this reports nothing rather than guessing. A false positive here lands in
+ * the GATED arm alone and is not experimentally neutral; a missed late finding is
+ * still caught by the pristine boundary, which refuses to inherit these files.
+ */
+function pytestPrecedenceFindings(changes: Change[], policy: Policy, ctx?: DetectorContext): Finding[] {
+  const order = PYTEST_INI_ORDER as readonly string[];
+  const touched = new Map<string, FileChange>();
+  for (const c of changes) {
+    if (c.kind !== 'file' || c.oldPath) continue; // a rename is not a precedence move
+    if (order.includes(c.path)) touched.set(c.path, c);
+  }
+  if (touched.size === 0) return [];
+  const listing = trackedFiles(ctx);
+  if (!listing) return [];
+  const rootNames = new Set(listing.filter((f) => !f.includes('/')));
+
+  const base = new Map<string, string | null>();
+  const head = new Map<string, string | null>();
+  for (const name of order) {
+    const c = touched.get(name);
+    if (c) {
+      base.set(name, c.before);
+      head.set(name, c.after);
+      continue;
+    }
+    if (!rootNames.has(name)) continue;
+    const src = trackedContent(name, ctx); // unchanged ⇒ same at base and head
+    base.set(name, src);
+    head.set(name, src);
+  }
+  const was = effectivePytestFile(base);
+  const now = effectivePytestFile(head);
+  // Only a MOVE of the inifile slot is this rule's business. Same file both sides is
+  // the per-file comparison above; losing the slot entirely means pytest's defaults
+  // apply, and the defaults are broader than any narrowing.
+  if (!was || !now || was.path === now.path) return [];
+
+  const samples = runnerSamples(now.path, policy, ctx, 'pytest');
+  return suiteNarrowings(was.content, now.content, now.path, samples).map((n) =>
+    makeFinding(RULE, policy, {
+      file: now.path,
+      message: `The effective pytest config moved from ${was.path} to ${now.path}, and ${n.path} is no longer selected: ${n.reason}.`,
+      evidence: `inifile precedence ${was.path} → ${now.path} drops ${n.path} from the suite`,
+      remediation:
+        'pytest reads ONE config file. Adding a higher-precedence one, or deleting the one in force, changes which settings apply — keep the effective configuration selecting the whole suite.',
+    }),
+  );
+}

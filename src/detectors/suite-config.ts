@@ -59,11 +59,15 @@ interface Selection {
   present: boolean;
 }
 
-export type Runner = 'jest' | 'vitest';
+export type Runner = 'jest' | 'vitest' | 'pytest';
 
 const JEST_DEFAULT_MATCH = ['**/__tests__/**/*.[jt]s?(x)', '**/?(*.)+(spec|test).[jt]s?(x)'];
 const JEST_DEFAULT_IGNORE = ['/node_modules/'];
 const VITEST_DEFAULT_INCLUDE = ['**/*.{test,spec}.?(c|m)[jt]s?(x)'];
+// pytest's own defaults: `python_files` is `test_*.py *_test.py`, and
+// `norecursedirs` keeps the walk out of build/venv trees.
+const PYTEST_DEFAULT_INCLUDE = ['**/test_*.py', '**/*_test.py'];
+const PYTEST_DEFAULT_IGNORE = ['**/build/**', '**/dist/**', '**/node_modules/**', '**/venv/**', '**/.*/**'];
 const VITEST_DEFAULT_EXCLUDE = [
   '**/node_modules/**',
   '**/dist/**',
@@ -82,6 +86,16 @@ export const CANONICAL_SAMPLES = [
   'a.test.tsx',
   'a.spec.js',
   'test/a.test.mjs',
+];
+
+/** The pytest equivalent of CANONICAL_SAMPLES, for a repository listing we do not
+ *  have. pytest collects by BASENAME (`test_*.py`, `*_test.py`) at any depth. */
+export const PYTEST_CANONICAL_SAMPLES = [
+  'tests/test_a.py',
+  'tests/a_test.py',
+  'test_a.py',
+  'src/tests/test_a.py',
+  'tests/conftest.py',
 ];
 
 function keyName(name: ts.PropertyName): string | null {
@@ -133,7 +147,183 @@ export function runnerOf(path: string, content?: string | null): Runner | null {
   if (/^jest\.config\./.test(base) || base === 'package.json') return 'jest';
   if (/^vitest\.(?:config|workspace)\./.test(base)) return 'vitest';
   if (/^vite\.config\./.test(base) && content != null && /(?:^|[\s,{])["']?test["']?\s*:/m.test(content)) return 'vitest';
+  // pytest. `pytest.ini`/`.pytest.ini` are pytest's by name; the shared files are
+  // pytest's only when they carry the section pytest reads, so an ordinary
+  // `[tox]` or `[metadata]` edit is not treated as a suite config at all.
+  if (base === 'pytest.ini' || base === '.pytest.ini') return 'pytest';
+  if (content == null) return null;
+  if (base === 'tox.ini' && /^\s*\[pytest\]/m.test(content)) return 'pytest';
+  if (base === 'setup.cfg' && /^\s*\[tool:pytest\]/m.test(content)) return 'pytest';
+  if (base === 'pyproject.toml' && /^\s*\[tool\.pytest\.ini_options\]/m.test(content)) return 'pytest';
   return null;
+}
+
+/**
+ * Whether pytest would actually READ this config, under the registered cwd (the
+ * repository root). pytest resolves exactly ONE inifile from the rootdir, by a
+ * fixed precedence: pytest.ini > .pytest.ini > pyproject.toml > tox.ini >
+ * setup.cfg. Two consequences, both verified against real pytest:
+ *
+ *   - a NESTED config is never opened when the suite runs from the root, so a
+ *     narrowing in it changes nothing;
+ *   - a lower-precedence root file is shadowed by a higher-precedence one, so a
+ *     narrowing in `pyproject.toml` beneath a `pytest.ini` changes nothing either.
+ *
+ * Flagging an inert config is a FALSE POSITIVE, and a false positive appears in the
+ * gated arm alone — it is not experimentally neutral. Where the repository listing
+ * cannot settle whether a higher-precedence file claims pytest (its content is not
+ * in hand), this stays SILENT rather than guessing, in the same spirit as the rest
+ * of this module. Silence costs a late finding; a guess costs a wrong one, and the
+ * pristine boundary still refuses to inherit the file either way.
+ */
+export const PYTEST_INI_ORDER = ['pytest.ini', '.pytest.ini', 'pyproject.toml', 'tox.ini', 'setup.cfg'] as const;
+
+/**
+ * Whether this file CLAIMS the inifile slot. `pytest.ini` and `.pytest.ini` claim it
+ * unconditionally — pytest opens them even when empty, which is exactly why an added
+ * empty one shadows a broader `setup.cfg`. The shared files claim it only when they
+ * carry THEIR OWN pytest section: `[tool.pytest.ini_options]` in pyproject.toml,
+ * `[pytest]` in tox.ini, `[tool:pytest]` in setup.cfg. Accepting any of the three
+ * spellings in any of the three files would hand precedence to a `pyproject.toml`
+ * that merely mentions pytest as a dependency.
+ */
+export function claimsPytest(name: string, src: string): boolean {
+  if (name === 'pytest.ini' || name === '.pytest.ini') return true;
+  const section =
+    name === 'pyproject.toml' ? /^\s*\[tool\.pytest\.ini_options\]\s*$/m
+    : name === 'tox.ini' ? /^\s*\[pytest\]\s*$/m
+    : name === 'setup.cfg' ? /^\s*\[tool:pytest\]\s*$/m
+    : null;
+  return section !== null && section.test(src);
+}
+
+/**
+ * The ONE file pytest would open, given every root config and its content. `null`
+ * when nothing claims the slot (pytest then applies its defaults, which are broader
+ * than any narrowing — so losing the inifile is never a narrowing).
+ */
+export function effectivePytestFile(files: Map<string, string | null>): { path: string; content: string } | null {
+  for (const name of PYTEST_INI_ORDER) {
+    const content = files.get(name);
+    if (content == null) continue;
+    if (claimsPytest(name, content)) return { path: name, content };
+  }
+  return null;
+}
+
+export function effectivePytestConfig(path: string, ctx?: { trackedFiles?: string[] }): boolean {
+  if (path.includes('/')) return false; // nested: not the rootdir config
+  const base = path;
+  const ORDER = PYTEST_INI_ORDER as readonly string[];
+  const rank = ORDER.indexOf(base);
+  if (rank < 0) return false;
+  const files = ctx?.trackedFiles;
+  if (!files) return true; // no listing: cannot establish a shadow, so do not invent one
+  const rootNames = new Set(files.filter((f) => !f.includes('/')));
+  // any higher-precedence root config present may be the one pytest opens
+  return !ORDER.slice(0, rank).some((n) => rootNames.has(n));
+}
+
+/**
+ * The pytest configuration block, as key -> raw value, from whichever spelling the
+ * file uses: an INI section (`[pytest]`, `[tool:pytest]`) or a TOML table
+ * (`[tool.pytest.ini_options]`). INI CONTINUATION LINES are folded into their key,
+ * which is how `addopts` is most often written across several lines.
+ */
+function pytestBlock(src: string): Record<string, string> | null {
+  const lines = src.split(/\r?\n/);
+  const head = /^\s*\[(pytest|tool:pytest|tool\.pytest\.ini_options)\]\s*$/;
+  let i = lines.findIndex((l) => head.test(l));
+  if (i < 0) return null;
+  const out: Record<string, string> = {};
+  let key: string | null = null;
+  for (i += 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^\s*\[/.test(line)) break;                       // next section ends the block
+    if (/^\s*[#;]/.test(line) || !line.trim()) { continue; }
+    const m = line.match(/^(\w[\w.-]*)\s*[=:]\s*(.*)$/);
+    if (m) { key = m[1]; out[key] = m[2].trim(); continue; }
+    if (key && /^\s+\S/.test(line)) out[key] += ' ' + line.trim();  // continuation
+  }
+  return out;
+}
+
+/** A config value as a token list: a TOML array, a quoted string, or bare INI text. */
+function pytestTokens(raw: string): string[] {
+  const v = raw.trim();
+  if (v.startsWith('[')) {
+    return [...v.matchAll(/"([^"]*)"|'([^']*)'/g)].map((m) => m[1] ?? m[2] ?? '');
+  }
+  const unq = v.replace(/^"([\s\S]*)"$/, '$1').replace(/^'([\s\S]*)'$/, '$1');
+  // keep quoted groups together so `-k "not test_bug"` is two tokens, not three
+  return [...unq.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3] ?? '').filter(Boolean);
+}
+
+/** A `--ignore=<p>` path, or a `--deselect <nodeid>`, as the glob it hides. */
+const pathGlobs = (p: string): string[] => {
+  const clean = p.replace(/^\.\//, '').replace(/::.*$/, '').replace(/\/+$/, '');
+  return clean ? [clean, clean + '/**'] : [];
+};
+
+/**
+ * pytest's selection, as the same predicate shape the JS runners use. Only the keys
+ * that change WHICH FILES RUN are read; `-v`, `--tb`, `-r`, `--color`, `--durations`
+ * and a `markers` registry move nothing and are therefore silent BY CONSTRUCTION —
+ * there is no benign-flag denylist to keep in step with pytest's option grammar.
+ */
+function pytestSelection(src: string): Selection {
+  const sel = empty();
+  const blk = pytestBlock(src);
+  if (!blk) return sel;
+  sel.present = true;
+  // pytest's ignore set is NOT one list. `norecursedirs` REPLACES the built-in dir
+  // skips; `--ignore`, `--ignore-glob`, `--deselect`, `-k` and `-m` are ADDITIVE on
+  // top of whatever norecursedirs is in force. Seeding the additive entries into an
+  // empty list dropped the built-in skips, so a config carrying only
+  // `addopts = -k "not slow"` was modelled as collecting `build/**` — which made a
+  // later config that merely restores the defaults look like a NARROWING. That is a
+  // false positive, and a false positive lands in the gated arm alone.
+  const ignore: IgnoreEntry[] =
+    blk.norecursedirs !== undefined
+      ? pytestTokens(blk.norecursedirs).flatMap((d) => pathGlobs(d).map((pattern) => ({ pattern, key: 'norecursedirs' })))
+      : PYTEST_DEFAULT_IGNORE.map((pattern) => ({ pattern, key: 'norecursedirs' }));
+  if (blk.testpaths !== undefined) sel.roots = pytestTokens(blk.testpaths).map((t) => t.replace(/^\.\//, ''));
+  if (blk.python_files !== undefined) sel.include = pytestTokens(blk.python_files).map((g) => (g.includes('/') ? g : '**/' + g));
+  for (const key of ['python_classes', 'python_functions'] as const) {
+    // these narrow WITHIN a file; a file whose stem no longer matches any pattern
+    // is still collected, so they are recorded as a selection change on the block
+    if (blk[key] !== undefined) ignore.push({ pattern: '\u0000' + key, key });
+  }
+  const opts = blk.addopts !== undefined ? pytestTokens(blk.addopts) : [];
+  for (let j = 0; j < opts.length; j++) {
+    const o = opts[j];
+    const val = (inline: string) => (o.includes('=') ? o.slice(o.indexOf('=') + 1) : (opts[++j] ?? inline));
+    if (o === '--ignore' || o.startsWith('--ignore=')) for (const g of pathGlobs(val(''))) ignore.push({ pattern: g, key: '--ignore' });
+    else if (o === '--ignore-glob' || o.startsWith('--ignore-glob=')) {
+      // pytest fnmatches --ignore-glob against the WHOLE path, where `*` crosses
+      // `/`; picomatch's `*` stops at a separator, so a pattern without an explicit
+      // directory part also gets a `**/`-anchored form.
+      const g = val('');
+      ignore.push({ pattern: g, key: '--ignore-glob' });
+      if (!g.startsWith('**/') && !g.startsWith('/')) ignore.push({ pattern: '**/' + g, key: '--ignore-glob' });
+    }
+    else if (o === '--deselect' || o.startsWith('--deselect=')) for (const g of pathGlobs(val(''))) ignore.push({ pattern: g, key: '--deselect' });
+    else if (o === '-k' || o.startsWith('-k=')) {
+      // `-k` selects by test NAME. A `not <word>` term hides every file whose stem
+      // carries that word; anything more involved is left alone rather than guessed.
+      for (const w of (val('').match(/\bnot\s+([A-Za-z_][\w]*)/g) ?? []).map((t) => t.replace(/^not\s+/, '')))
+        ignore.push({ pattern: `**/*${w}*`, key: '-k' });
+    } else if (o === '-m' || o.startsWith('-m=')) {
+      // `-m` selects by MARKER, which no config can map to files. It can only ever
+      // reduce the run, so it is reported against the config itself rather than
+      // guessing a file.
+      ignore.push({ pattern: '\u0000-m ' + val(''), key: '-m' });
+    } else if (o === '--collect-only' || o === '--co') ignore.push({ pattern: '**', key: o });
+  }
+  // Always recorded now: the list already carries the built-in skips (or the
+  // replacement for them), so "unset" and "set to the defaults" are the same thing.
+  sel.ignore = ignore;
+  return sel;
 }
 
 const isWorkspaceFile = (path: string) => /^vitest\.workspace\./.test(path.split('/').pop() ?? path);
@@ -314,6 +504,7 @@ function workspaceArray(sf: ts.SourceFile): ts.ArrayLiteralExpression | null {
 
 export function parseSelection(src: string, runner: Runner, path = ''): Selection {
   let sel = empty();
+  if (runner === 'pytest') return pytestSelection(src);
   try {
     const sf = ts.createSourceFile('cfg.ts', asExpression(src), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
     if (runner === 'vitest' && isWorkspaceFile(path)) {
@@ -377,12 +568,21 @@ function predicate(sel: Selection, runner: Runner): Predicate {
       why: (p) => (ps.length ? `no project selects it (${ps[0].why(p)})` : 'the projects list is empty'),
     };
   }
-  const includeList = sel.include ?? (runner === 'jest' ? (sel.regex ? null : JEST_DEFAULT_MATCH) : VITEST_DEFAULT_INCLUDE);
+  const includeList =
+    sel.include ?? (runner === 'jest' ? (sel.regex ? null : JEST_DEFAULT_MATCH) : runner === 'pytest' ? PYTEST_DEFAULT_INCLUDE : VITEST_DEFAULT_INCLUDE);
   const ignoreList: IgnoreEntry[] =
-    sel.ignore ?? (runner === 'jest' ? JEST_DEFAULT_IGNORE : VITEST_DEFAULT_EXCLUDE).map((pattern) => ({ pattern, key: runner === 'jest' ? 'testPathIgnorePatterns' : 'test.exclude' }));
+    sel.ignore ??
+    (runner === 'jest' ? JEST_DEFAULT_IGNORE : runner === 'pytest' ? PYTEST_DEFAULT_IGNORE : VITEST_DEFAULT_EXCLUDE).map((pattern) => ({
+      pattern,
+      key: runner === 'jest' ? 'testPathIgnorePatterns' : runner === 'pytest' ? 'norecursedirs' : 'test.exclude',
+    }));
+  // A `\u0000`-prefixed entry is a WHOLE-BLOCK narrowing (`-m`, python_classes,
+  // python_functions): real, but not attributable to one path, so it applies to
+  // every sample rather than being matched as a glob.
+  const blockWide = ignoreList.filter((e) => e.pattern.startsWith('\u0000'));
   const included = includeList ? globList(includeList) : sel.regex ? regexes(sel.regex) : () => true;
   const ignoredBy = (p: string): IgnoreEntry | undefined =>
-    ignoreList.find((e) => (runner === 'jest' ? regexes([e.pattern]) : globs([e.pattern]))(p));
+    blockWide[0] ?? ignoreList.filter((e) => !e.pattern.startsWith('\u0000')).find((e) => (runner === 'jest' ? regexes([e.pattern]) : globs([e.pattern]))(p));
   const roots = sel.roots?.map((r) => r.replace(/^\.\//, '').replace(/\/+$/, '')).map((r) => (r === '.' ? '' : r)) ?? null;
   // rootDir / dir: a path outside it is never walked; inside it, everything the
   // config says is relative to it
@@ -399,7 +599,10 @@ function predicate(sel: Selection, runner: Runner): Predicate {
       if (r === null) return `${baseKey} no longer covers it (${JSON.stringify(sel.base)})`;
       if (!inRoots(r)) return `roots no longer covers it (${JSON.stringify(sel.roots)})`;
       const hit = ignoredBy(r);
-      if (hit) return `${hit.key === 'exclude' ? 'test.exclude' : hit.key} now matches it (${JSON.stringify(hit.pattern)})`;
+      if (hit) {
+        const pat = hit.pattern.startsWith('\u0000') ? hit.pattern.slice(1) : hit.pattern;
+        return `${hit.key === 'exclude' ? 'test.exclude' : hit.key} now matches it (${JSON.stringify(pat)})`;
+      }
       const key = runner === 'jest' ? (sel.include ? 'testMatch' : sel.regex ? 'testRegex' : 'testMatch (default)') : sel.include ? 'test.include' : 'test.include (default)';
       return `${key} no longer matches it (${JSON.stringify(sel.include ?? sel.regex ?? includeList ?? [])})`;
     },

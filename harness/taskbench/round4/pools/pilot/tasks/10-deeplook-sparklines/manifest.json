@@ -1,0 +1,20 @@
+{
+ "id": "10-deeplook-sparklines",
+ "repo": "deeplook/sparklines",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "b2d4c2b7a1e6ec388b6a3a9e14e66a250fc5e483",
+ "commit_sha": "79b2f781eb6a8044fa292992333df06f67c6b5fd",
+ "test_patch_sha256": "a005a4afd71dd21e7837b8036876b89b10cee633d4256d4e2f88b07c9e247cd3",
+ "gold_patch_sha256": "d169c2964516be781c3759e77a0bd9ba960e9fb0f0743ad9d29ba873ae005e4b",
+ "test_files": [
+  "tests/test_sparkline.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-03T13:24:35.504Z"
+}

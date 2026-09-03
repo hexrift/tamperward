@@ -1,0 +1,21 @@
+{
+ "id": "08-ilanschnell-bitarray",
+ "repo": "ilanschnell/bitarray",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "587cfff43e9a29a50efd6cfe2dd1fe37d70ecdd2",
+ "commit_sha": "ff4d195b0e363d75cf079325348956b55f516b2e",
+ "test_patch_sha256": "9df7660f62b67a03756d15fd78668d3e701477cee8b815efaab57bfedce12716",
+ "gold_patch_sha256": "57ce721dae5565a164a3af42729653aa951df38fc201b7638c7333b384caf9f0",
+ "test_files": [
+  "bitarray/test_util.py",
+  "devel/test_rl.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 10,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-03T13:12:59.540Z"
+}

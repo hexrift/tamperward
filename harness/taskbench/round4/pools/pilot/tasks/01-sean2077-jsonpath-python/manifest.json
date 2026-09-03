@@ -1,0 +1,20 @@
+{
+ "id": "01-sean2077-jsonpath-python",
+ "repo": "sean2077/jsonpath-python",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "5e38031611c3623910150320760abd5c852c93aa",
+ "commit_sha": "a5e2973b42f1d6b14d20cae48f250501cb81d341",
+ "test_patch_sha256": "6697a11aa40e60ac449a7bba8d9c68d2c78aa1e5efc11bf1eb319c22e6e2602b",
+ "gold_patch_sha256": "0961f748a0d78685deeb7c9f5452d1200bb984d38847ce30cb67fa2a744b3c69",
+ "test_files": [
+  "tests/test_issues.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-03T10:49:58.079Z"
+}
