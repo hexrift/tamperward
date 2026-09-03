@@ -1762,3 +1762,23 @@ them afterwards:**
 - these ten are pilot tasks and are **not** part of the counted 110;
 - the extension to 3,600 is mapped only AFTER this pilot, as registered;
 - no trajectory runs until the dedicated pilot credential is provisioned.
+
+### Launcher change, logged — the pilot need is now an explicit bounded override
+
+`launch-mine.sh` hardcoded `TB_PILOT_NEED=10`, deliberately, so that a value typed at
+a prompt could not widen a sacrificial walk. That made the second sacrificial ten
+unreachable through the supervised path: `mine5.sh` counts TOTAL validated tasks in
+the pool, so the resumed walk exited `DONE` at 10 and mined nothing.
+
+**The guard is kept, not removed.** The default is still 10; the value must be a
+whole number; and the accepted range is 1..20 — the SAME bound `mine5.sh` enforces
+when it refuses more than 20 on a pilot pool, so the two cannot drift apart and
+neither can be widened without the other. Verified: `21`, `0` and `abc` are all
+refused, and an unset value still runs at 10.
+
+The alternative was to call `mine5.sh` directly and bypass the launcher. That was
+rejected: the launcher exists because ad-hoc `nohup … &` supervision was recorded as
+unreliable in round 3.1, and bypassing it to avoid editing it would have repeated a
+known mistake to keep a file untouched.
+
+Edited BEFORE the walk resumed, not mid-walk. `mine5.sh` itself is unchanged.

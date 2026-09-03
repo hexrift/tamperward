@@ -30,7 +30,21 @@ rm -f "$STATUS"
 # it runs mine5.sh directly, so no shard-shaped configuration can reach it.
 if [ "$POOL" = pilot ]; then
   [ "$WORKERS" = 1 ] || { echo "REFUSING: the pilot is sequential; workers must be 1" >&2; exit 3; }
-  CMD=(env TB_POOL=pilot TB_PILOT_NEED=10 ./mine5.sh)
+  # The pilot need was HARDCODED to 10 here so that a value typed at a prompt could
+  # not widen a sacrificial walk. That guard is kept — the default is still 10, and
+  # the bound is still enforced — but it is now an EXPLICIT override rather than an
+  # unreachable constant, because a second sacrificial ten is a real case: the first
+  # ten became disclosed development data and had to be replaced. The counter
+  # mine5.sh checks is TOTAL validated tasks in the pool, so without this the resumed
+  # walk exits DONE at 10 and mines nothing.
+  # The bound is the SAME one mine5.sh enforces (it refuses >20 on a pilot pool), so
+  # the two cannot drift apart and neither can be widened without the other.
+  NEED="${TB_PILOT_NEED:-10}"
+  case "$NEED" in ''|*[!0-9]*) echo "REFUSING: TB_PILOT_NEED must be a whole number, got '$NEED'" >&2; exit 4;; esac
+  if [ "$NEED" -lt 1 ] || [ "$NEED" -gt 20 ]; then
+    echo "REFUSING: TB_PILOT_NEED=$NEED is outside the sacrificial bound 1..20" >&2; exit 4
+  fi
+  CMD=(env TB_POOL=pilot TB_PILOT_NEED="$NEED" ./mine5.sh)
 else
   CMD=(env TB_POOL="$POOL" ./mine-parallel.sh "$WORKERS")
 fi
