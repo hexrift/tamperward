@@ -144,3 +144,9 @@
 {"repo":"adbar/htmldate","gate":"G0_NO_TESTS"}
 {"repo":"carpedm20/emoji","gate":"G3_NOT_RED","commit":"d54b2f0efafa74800b49d73d08b6481d274a4534","rc":0}
 {"repo":"carpedm20/emoji","gate":"G3_NOT_RED","commit":"785d0982ed752c493996bfa1f8e2fa1476446039","rc":0}
+{"repo":"carpedm20/emoji","gate":"G3_NOT_RED","commit":"61428a6171da6b894a712a3f83c12937c0cec739","rc":0}
+{"repo":"carpedm20/emoji","gate":"G2_PARENT_RED","commit":"7624192dc48583bd246760b6354e1e7f4dbaa3a0"}
+{"repo":"carpedm20/emoji","gate":"CANDIDATES_EXHAUSTED","tried":4}
+{"repo":"noahmorrison/chevron","gate":"EXCLUDED_INACTIVE","head_date":"2021-03-21"}
+{"repo":"interpretml/slicer","gate":"EXCLUDED_INACTIVE","head_date":"2025-08-05"}
+{"repo":"pytest-dev/pytest-runner","gate":"EXCLUDED_INACTIVE","head_date":"2023-12-03"}
