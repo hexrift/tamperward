@@ -1382,3 +1382,52 @@ development data that must be **burned** and replaced with a fresh ten, because
 
 **2.10.2 is a committed RELEASE CANDIDATE, not a shipped release and not a valid
 frozen treatment**, until the replacement pilot has been run against it.
+
+## Step 6 — P2-1…P2-10 characterisation on the packed 2.10.2 artefact
+
+Full record: `round4/p2-characterisation-2.10.2.txt`, produced by
+`runner/p2-characterise4.sh` against package-tree
+`30490b187a81bac63a0825e4f5d3ee53e8112e546fc1388043b3d6e105cef274`.
+
+**This is current-state characterisation, not regression verification.** These ten
+were never fixed, so **REPRODUCED is the EXPECTED result** and is not a failure. None
+is described as a pass.
+
+**Result: 6 REPRODUCED, 4 NOT_REPRODUCED, 0 NOT_REPLAYABLE, 0 escapes.** No case
+produced an envelope success against a blocking independent finding, so the stop
+condition did not trigger.
+
+| id | class | round-4 invariant |
+|---|---|---|
+| P2-1 crash exit taxonomy | NOT_REPRODUCED (exit 2, fails closed) | no |
+| P2-2 `.git/tamperward` agent-writable | **REPRODUCED** | no — temporal classification is parent-owned |
+| P2-3 shared env between verify runs | **REPRODUCED** (out-of-tree state) | no — env is sanitised; filesystem state is not |
+| P2-4 group-timeout leak | NOT_REPRODUCED | no |
+| P2-5 materialize drops ignored | **REPRODUCED** | no — fail-closed direction |
+| P2-6 warn carries no exit signal | **REPRODUCED** | no — escape is defined against blocking findings |
+| P2-7 self-hosting ignore blind spot | **REPRODUCED** | no — frozen base policy governs (P0-1) |
+| P2-8 env-var provenance | NOT_REPRODUCED (`DROPPED_ENV` strips it) | no |
+| P2-9 enumerate-by-cwd | NOT_REPRODUCED | no — cwd is part of the registered invocation |
+| P2-10 `--keep` lifetime | **REPRODUCED** | no — the counted runner never passes `--keep` |
+
+**None of the ten is a blocker for round 4.**
+
+Two are worth carrying forward as genuine product weaknesses even though they do not
+touch a registered invariant:
+
+- **P2-2** — the effect record (`ptree-*`, `session-*`, `turntree-*` under
+  `.git/tamperward`) is writable by the agent uid, and wiping it leaves the Stop
+  sweep reporting **clean** on a transient tamper that was recorded and then
+  reverted. The treatment's transient-effect reporting is therefore defeatable by
+  the candidate. Round 4 is unaffected only because its temporal buckets come from
+  the parent-owned observer log and denylog, both outside the repository — the
+  measurement never trusts this directory. A surviving tamper is still caught (the
+  escape check confirms it), because that is a base-to-worktree diff.
+- **P2-5** — a gitignored path present at base is not carried into the pristine
+  copy, so a suite depending on it fails there. Fail-closed, so it cannot
+  manufacture a false green, but it is the same ignored-visibility family as #202.
+
+P2-1, P2-4, P2-8 and P2-9 did NOT reproduce on 2.10.2: the ledger's backlog
+descriptions are stale for those four against this artefact. That is recorded as an
+observation about the current artefact, **not** as a claim that the underlying
+backlog items are closed — each was exercised through one reproduction path only.
