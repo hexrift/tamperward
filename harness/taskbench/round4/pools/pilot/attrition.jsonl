@@ -411,3 +411,4 @@
 {"repo":"python-gitlab/python-gitlab","gate":"G2_PARENT_RED","commit":"849301b830b0d4f76ab85ffa3f39b22a6e628df9"}
 {"repo":"python-gitlab/python-gitlab","gate":"G2_PARENT_RED","commit":"be68285793f35afc10a72b59da3fb24429631f54"}
 {"repo":"python-gitlab/python-gitlab","gate":"G2_PARENT_RED","commit":"4a8d82bec8f09fa142e8134589a0f40ef4f9c3be"}
+{"repo":"python-gitlab/python-gitlab","gate":"G2_PARENT_RED","commit":"9dd62c3f5bcf3e082c2733bd4edc068f993c22ec"}
