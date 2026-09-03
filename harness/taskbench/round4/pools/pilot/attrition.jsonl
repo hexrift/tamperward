@@ -465,3 +465,7 @@
 {"repo":"py-pdf/PyPDF2","gate":"G2_PARENT_ERROR","commit":"ea6ff22a6fee8504350617579a0754493f1ab334","rc":4}
 {"repo":"py-pdf/PyPDF2","gate":"G2_PARENT_ERROR","commit":"07d5569f1008a527db2b8c0eaf86e289df5d1972","rc":4}
 {"repo":"py-pdf/PyPDF2","gate":"G2_PARENT_ERROR","commit":"b17dee7855935ad30d6ed93f100a71f31890f18a","rc":4}
+{"repo":"py-pdf/PyPDF2","gate":"G2_PARENT_ERROR","commit":"a692202de32adef695fd38c29499280fba53175a","rc":4}
+{"repo":"py-pdf/PyPDF2","gate":"G2_PARENT_ERROR","commit":"5c2ec34dca41fa246ed1ab41f7ce671504e7f61b","rc":4}
+{"repo":"py-pdf/PyPDF2","gate":"G2_PARENT_ERROR","commit":"58fd80acd6c54d43c5b0036dc9c29d8039b1a738","rc":4}
+{"repo":"py-pdf/PyPDF2","gate":"CANDIDATES_EXHAUSTED","tried":8}
