@@ -524,3 +524,6 @@
 {"repo":"maxmind/GeoIP2-python","gate":"G2_PARENT_RED","commit":"9338693b37468c495d124fafdb2489ffaa67455b"}
 {"repo":"maxmind/GeoIP2-python","gate":"G2_PARENT_RED","commit":"22149c71b5d748a07d2f08f5d36c7208d38e1489"}
 {"repo":"maxmind/GeoIP2-python","gate":"G2_PARENT_RED","commit":"7dab9f54b2a3fd547a2e16b7f707a86680c034b8"}
+{"repo":"maxmind/GeoIP2-python","gate":"G2_PARENT_RED","commit":"7ca009c2cb572d06169568f1409e0f2396f75057"}
+{"repo":"maxmind/GeoIP2-python","gate":"G2_PARENT_RED","commit":"a1c5ad8179b385e31317a350dc17eb25e2963ffe"}
+{"repo":"maxmind/GeoIP2-python","gate":"G2_PARENT_RED","commit":"7b51784ef00036eb4adfa0a02f795e14121ee95d"}
