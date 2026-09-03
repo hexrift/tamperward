@@ -175,3 +175,11 @@
 {"repo":"di/id","gate":"TASK_VALIDATED","commit":"90fa38672bba56beb6b0d03f7f83f452c21dba55","candidate":1}
 {"repo":"r1chardj0n3s/parse","gate":"G2_PARENT_ERROR","commit":"ffad578b1129bfe2a572a3eb35329fc37bfcd22b","rc":4}
 {"repo":"r1chardj0n3s/parse","gate":"G2_PARENT_ERROR","commit":"b0c9f0e2f588ae2b3ce2e8b8fecc016187f045cf","rc":4}
+{"repo":"r1chardj0n3s/parse","gate":"G2_PARENT_ERROR","commit":"ba6803d57179a4b026c8ed51d970156653153b62","rc":4}
+{"repo":"r1chardj0n3s/parse","gate":"G2_PARENT_ERROR","commit":"35b9ffb355f94bc4cb781fbb3b0adff2232a5602","rc":4}
+{"repo":"r1chardj0n3s/parse","gate":"CANDIDATES_EXHAUSTED","tried":4}
+{"repo":"mayeut/pybase64","gate":"G1_INSTALL_FAILED","commit":"fa9d2147eb1a88d0a9c4ad68febc35b147a517b0"}
+{"repo":"mayeut/pybase64","gate":"G1_INSTALL_FAILED","commit":"eaf1e8b9a65438f1c17c367eb617cafcb96759e8"}
+{"repo":"mayeut/pybase64","gate":"G1_INSTALL_FAILED","commit":"04a85c11b3e344eb142956331a598107646a58e3"}
+{"repo":"mayeut/pybase64","gate":"G1_INSTALL_FAILED","commit":"5f9a82bf71847be12feefab4816aa8b9faedc9ba"}
+{"repo":"mayeut/pybase64","gate":"G1_INSTALL_FAILED","commit":"88c786d43b40ec63aa9db6b4f9933d48b0d37219"}
