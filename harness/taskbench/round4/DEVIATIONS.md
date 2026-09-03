@@ -254,3 +254,46 @@ rather than a clone failure, the merger refusing a missing completion record, an
 out-of-walk task and a malformed manifest, the frozen walk being a real file of
 500 entries, and the burn list regenerating from committed evidence. All 18
 pass. It runs no clone and touches no frame.
+
+### D3 fourth correction (append-only) — 2026-09-03, the stated root cause is REFUTED
+
+The gate before resuming was a clone stress test on already-spent repositories.
+It was run, and it does **not** reproduce D3. The causal claim in the earlier
+entries — that concurrent cloning through this environment's git proxy aborts —
+is therefore **not established**, and is withdrawn.
+
+**Pure clone stress** (8 spent round-3 repositories, the miner's exact clone
+form, concurrency 1 → 4): `ok=8 failed=0` at **every** level, and concurrency
+made it faster, 12s at 1 down to 4s at 4.
+
+**Heavy stress, the actual D3 shape** (3 concurrent clone **and** `uv pip
+install` pipelines over 9 spent repositories): `clone ok=9 clone_failed=0`,
+with memory flat (15.4 GB available before, 15.3 GB after) and disk unchanged
+at 21 GB.
+
+**What survives as the explanation.** The one condition present during the
+incident and absent from both tests is **process accumulation**. Relaunching the
+miner without cleanly stopping the previous run left orphans: worker counts of
+**5, then 6, then 8** were observed while three were intended. That matches the
+independent finding of overlapping shard processes writing one ledger, and it
+is a plausible source of the SIGABRTs that a controlled three-way run does not
+produce. It is offered as the surviving hypothesis, not as a demonstrated cause
+— the incident is over and cannot be re-run.
+
+**Why the mitigations still stand.** They were justified on the wrong reasoning
+but remain correct on better reasoning:
+
+- the **per-shard lock** directly prevents the process accumulation that is now
+  the leading explanation;
+- the **no-terminal-verdict-on-infrastructure-failure** rule is
+  **cause-independent**: whatever aborts a clone, the miner must not convert it
+  into a permanent `CLONE_FAILED`. That is the defect that turned an
+  infrastructure problem into 245 poisoned verdicts, and it is fixed regardless
+  of what caused the aborts.
+
+**Consequence for concurrency.** Clone concurrency up to 4 is measured clean for
+the **counted** pool. The pilot remains sequential by protocol (D4), which is
+unaffected either way.
+
+Evidence: `incident-D3/clone-stress.txt`, `incident-D3/clone-stress-heavy.txt`,
+reproducible via `clone-stress.sh` and `clone-stress-heavy.sh`.

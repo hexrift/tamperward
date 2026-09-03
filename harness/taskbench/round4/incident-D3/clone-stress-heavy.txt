@@ -1,0 +1,6 @@
+# heavy stress: 3 concurrent clone+install pipelines over 9 spent repos
+  mem before: used 646M avail 15428M
+  disk before: 21G avail
+  mem after:  used 722M avail 15352M
+  disk after:  21G avail
+  clone ok=9 clone_failed=0
