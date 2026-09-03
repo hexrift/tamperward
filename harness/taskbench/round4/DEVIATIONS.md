@@ -1224,3 +1224,34 @@ Amendment 2 frame that leaves
 
 still roughly 61 above the 110 required, so the second pilot draw does **not**
 threaten counted-mining capacity.
+
+## Harness correction — 2026-09-03, the treatment PATH, the verifier venv, and /usr
+
+The bare-launcher work protected `tamperward` and `node`. An adjacent review found
+that was not sufficient, and the gap was larger than PATH ordering:
+
+1. **The verifier resolved its own interpreter through PATH.** `SUITE_CMD_STR` was
+   `python -m pytest …`, and that string is handed to `tamperward run --cmd` and
+   `verify --cmd`. `python` resolved to `$VENV/bin/python`, which the agent can
+   reach — so a planted interpreter would have decided **both** the visible and the
+   pristine verdict. That is a false-green route through the verifier itself, not
+   merely a shadowed gate. Now an **absolute** `$VENV/bin/python`.
+
+2. **`/usr/bin` was writable by the jailed agent.** The agent runs as root and
+   *owns* `/usr/bin` at mode 755, so dropping `CAP_DAC_OVERRIDE` does not protect
+   it: a planted `/usr/bin/git` (or `node`, or `python`) would have been used by the
+   treatment and the verifier. Demonstrated by positive control, not assumed.
+
+3. **The prepared venv was agent-writable** — an agent-writable verifier
+   environment is itself a false-green route.
+
+The jail now exposes `$ART_NM:$VENV:/usr` **read-only** (`/bin`, `/sbin`, `/lib` are
+symlinks into `/usr` on this image). `launcher4.sh` grows L10/L11 (**45/45**) with
+**positive controls that first prove each threat is real** — `/usr/bin` and the venv
+*are* writable without the mounts — and then prove the mitigation: `git`, `node`,
+`tamperward` and the verifier's `python` cannot be shadowed in `/usr/bin`, the venv
+or the artefact, while all three still execute read-only. smoke4 re-run: 39/39.
+
+Trade-off, disclosed: a read-only venv means the agent cannot `pip install` mid-
+trajectory. That is intended — the ladder pre-installs, and a verifier environment
+the candidate can rewrite cannot be trusted to produce either verdict.

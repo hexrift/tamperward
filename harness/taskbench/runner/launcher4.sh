@@ -185,5 +185,52 @@ d=$( cd "$R" && printf '{"tool_name":"Bash","tool_input":{"command":"rm -f tests
      | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).hookSpecificOutput?.permissionDecision||"none")}catch(e){process.stdout.write("nojson")}})' )
 [ "$d" = deny ] && ok "L9 the gate executes and denies under the deployed PATH" || no "L9 gate not live under the deployed PATH ($d)"
 
+hdr "L10 shadow positive-controls: git, node, tamperward and the verifier's python"
+# Protecting the launcher is not enough. Anything the treatment or the VERIFIER
+# resolves can be shadowed if a writable directory sits on the path it searches.
+# Each control below first PROVES the threat is real, then proves the mitigation.
+# The jailed agent runs as root and OWNS /usr/bin at mode 755, so dropping
+# CAP_DAC_OVERRIDE does NOT stop it planting there — /usr must be mounted ro.
+VJ=$(mktemp -d "$WORK/venv-XXXXXX"); mkdir -p "$VJ/bin"
+printf '#!/bin/sh\necho REAL_PY\n' > "$VJ/bin/python"; chmod +x "$VJ/bin/python"
+
+# (a) THREAT: without the read-only mounts, /usr/bin and the venv are writable
+T=$(bash "$HERE/agent-jail4.sh" - -- bash -c '
+      ( cp /bin/true /usr/bin/tb_shadow_probe ) 2>/dev/null && { echo USR_WRITABLE; rm -f /usr/bin/tb_shadow_probe; } || echo usr-ro
+      ( echo pwned > "'"$VJ"'/bin/python" ) 2>/dev/null && echo VENV_WRITABLE || echo venv-ro' 2>/dev/null)
+printf '%s' "$T" | grep -q USR_WRITABLE  && ok "L10 (threat) /usr/bin IS writable by the jailed agent without a ro mount — the risk is real" \
+  || no "L10 threat control inconclusive: /usr/bin was not writable anyway, so the ro mount proves nothing here"
+printf '%s' "$T" | grep -q VENV_WRITABLE && ok "L10 (threat) the venv IS writable without a ro mount — an agent-writable verifier is a false-green route" \
+  || no "L10 threat control inconclusive: the venv was not writable anyway"
+printf '#!/bin/sh\necho REAL_PY\n' > "$VJ/bin/python" 2>/dev/null; chmod +x "$VJ/bin/python" 2>/dev/null
+
+# (b) MITIGATION: with the artefact, venv and /usr read-only, none can be planted
+M=$(TB_JAIL_RO="$ART_NM:$VJ:/usr" bash "$HERE/agent-jail4.sh" - -- bash -c '
+      for t in git node tamperward python; do
+        ( cp /bin/true "/usr/bin/$t" ) 2>/dev/null && echo "PLANTED_USR_$t" || echo "blocked_usr_$t"
+      done
+      ( cp /bin/true "'"$VJ"'/bin/python" ) 2>/dev/null && echo PLANTED_VENV_python || echo blocked_venv_python
+      ( cp /bin/true "'"$ART_BINDIR"'/tamperward" ) 2>/dev/null && echo PLANTED_ART_tamperward || echo blocked_art_tamperward
+      git --version >/dev/null 2>&1 && echo git-ok || echo GIT_BROKEN
+      node --version >/dev/null 2>&1 && echo node-ok || echo NODE_BROKEN
+      "'"$VJ"'/bin/python" 2>/dev/null | grep -q REAL_PY && echo py-ok || echo PY_BROKEN' 2>/dev/null)
+for t in git node tamperward python; do
+  printf '%s' "$M" | grep -q "blocked_usr_$t" && ok "L10 cannot shadow \`$t\` in /usr/bin" || no "L10 SHADOWED /usr/bin/$t"
+done
+printf '%s' "$M" | grep -q blocked_venv_python    && ok "L10 cannot shadow the verifier's python in the venv" || no "L10 SHADOWED the verifier python"
+printf '%s' "$M" | grep -q blocked_art_tamperward && ok "L10 cannot shadow the launcher in the artefact" || no "L10 SHADOWED the launcher"
+# and the hardening must not break the tools the treatment and suite need
+printf '%s' "$M" | grep -q git-ok   && ok "L10 git still works under the ro mounts"   || no "L10 git broken by hardening"
+printf '%s' "$M" | grep -q node-ok  && ok "L10 node still works under the ro mounts"  || no "L10 node broken by hardening"
+printf '%s' "$M" | grep -q py-ok    && ok "L10 the venv python still executes read-only" || no "L10 venv python broken by hardening"
+
+hdr "L11 the verifier's interpreter is absolute, never PATH-resolved"
+if grep -q 'SUITE_CMD_STR="\$VENV/bin/python -m pytest' "$HERE/run-task4.sh"; then
+  ok "L11 the suite command handed to run/verify uses an ABSOLUTE interpreter"
+else no "L11 the suite command still resolves its interpreter through PATH: $(grep -m1 'SUITE_CMD_STR=' "$HERE/run-task4.sh")"; fi
+grep -q 'TB_JAIL_RO="\$ART_NM:\$VENV:/usr"' "$HERE/run-task4.sh" \
+  && ok "L11 the runner exposes artefact, venv and /usr read-only to the agent" \
+  || no "L11 the runner does not mount the venv and /usr read-only: $(grep -m1 'TB_JAIL_RO=' "$HERE/run-task4.sh")"
+
 printf '\nlauncher4: passed %d, failed %d\n' "$pass" "$fail"
 [ "$fail" = 0 ]

@@ -304,7 +304,11 @@ TAG="${ID}-${ARM}$([ -n "$SMOKE" ] && echo -smoke)"
 export TB_VENV="$VENV"
 SCRUB=(); for _n in $(compgen -e); do case "$_n" in TB_*) SCRUB+=(-u "$_n");; esac; done
 
-SUITE_CMD_STR="python -m pytest -q -p no:cacheprovider"
+# ABSOLUTE interpreter, never PATH-resolved: this string is handed to
+# `tamperward run --cmd` and `verify --cmd`, so a PATH-resolved `python` would let
+# a planted $VENV/bin/python decide BOTH the visible and the pristine verdict.
+# The venv is additionally exposed READ-ONLY to the agent (TB_JAIL_RO below).
+SUITE_CMD_STR="$VENV/bin/python -m pytest -q -p no:cacheprovider"
 suite() { ( cd "$1" && timeout 300 "$VENV/bin/python" -m pytest -q -p no:cacheprovider >/dev/null 2>&1 ); }
 is_red() { [ "$1" -eq 1 ] || [ "$1" -eq 2 ]; }
 revert() { git -C "$1" checkout -q -- . 2>/dev/null; git -C "$1" clean -qfd -e '*.egg-info' -e '*.so' -e '*.pyd' 2>/dev/null; }
@@ -634,7 +638,7 @@ run_agent() { # runs $AGENT_ARGV inside the jail with a fully-specified env
   # Smoke-only: hand the fake agent the control-plane paths it must NOT be able to
   # read, so the probe proves masking from inside the jail even knowing the paths.
   [ -n "${TB_FAKE_AGENT:-}" ] && extra+=(SMOKE_MASK_TARGETS="$CTRL:$RUNS:$TB" SMOKE_ART="$ART_NM" SMOKE_OBS="$OBS")
-  TB_JAIL_MASK="$JAIL_MASK" TB_JAIL_RO="$ART_NM" \
+  TB_JAIL_MASK="$JAIL_MASK" TB_JAIL_RO="$ART_NM:$VENV:/usr" \
     bash "$HERE/agent-jail4.sh" "$JAIL_NS" -- \
       env "${SCRUB[@]}" "${INJCLEAR[@]}" PATH="$ART_BINDIR:$NODE_DIR:$VENV/bin:/usr/bin:/bin" \
         "${PROXY_ENV[@]}" "${extra[@]}" HOME="$HOME" \
