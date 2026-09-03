@@ -143,3 +143,4 @@
 {"repo":"wolverdude/genson","gate":"G0_NOT_PYTEST"}
 {"repo":"adbar/htmldate","gate":"G0_NO_TESTS"}
 {"repo":"carpedm20/emoji","gate":"G3_NOT_RED","commit":"d54b2f0efafa74800b49d73d08b6481d274a4534","rc":0}
+{"repo":"carpedm20/emoji","gate":"G3_NOT_RED","commit":"785d0982ed752c493996bfa1f8e2fa1476446039","rc":0}
