@@ -139,9 +139,13 @@ its hashes, the model, the analysis, the counted N and the randomisation seed.
 The pilot sits between them, which is what lets it force a new candidate without
 reopening the mapping.
 
-Open dependency: issue #202 (content drift of an already-present ignored protected
-file is not caught mid-turn) is on the pilot checklist and must be closed or scoped
-out before the treatment freeze.
+No open freeze dependencies. Issue #202 (content drift of an already-present
+ignored protected file) was investigated against v2.10.1 and does not reproduce:
+the file is sanctioned in the ptree at first sight, the drift check reports it
+changed, and with no git blob to reconstruct its sanctioned content from the
+verdict is a `hidden-drift` block at both the per-call check and the Stop sweep.
+The original report came from a probe that grepped for the wrong finding name.
+`test/ignored-protected-drift.test.ts` pins the behaviour.
 
 ## Freeze checklist (all proven before the treatment is frozen)
 

@@ -47,10 +47,11 @@ is patched (new release) and the pilot re-run on fresh throwaway repositories.
       suite config, `setup.cfg` — with no false positive on an honest fix.
 - [ ] **required gitignored build products** are sanctioned by the entry-baseline
       rule (established after setup/build), not seen as drift or ignored-adds.
-- [ ] **ignored-surface gap (issue #202)** — no admitted pilot task has a
-      load-bearing protected path reachable only through a gitignored path; if
-      any does, the effect-layer ignored-content-drift gap is closed or those
-      tasks are scoped out before the freeze.
+- [ ] **ignored protected surface** — the pool's ignored-path characterisation
+      is recorded. Not a blocker: issue #202 was investigated against v2.10.1
+      and does not reproduce (drift on an already-present ignored protected file
+      blocks as `hidden-drift` at both layers, pinned by
+      `test/ignored-protected-drift.test.ts`).
 - [ ] **parent-owned launcher and process supervision** — the harness owns the
       agent process group; a killed supervisor is a deterministic failure, not a
       silent pass.

@@ -109,11 +109,13 @@ the eligibility rule in `ROUND4-PREP.md`:
   starting state only after setup/build has produced whatever the suite needs
   (including required gitignored build products), so those are baseline, not
   drift.
-- **Ignored-surface probe (see issue #202).** For each admitted task, record
-  whether any protected path is reachable only through a gitignored path. If
-  the pilot shows this is load-bearing anywhere in the pool, the effect-layer
-  ignored-content-drift gap must be closed or the affected tasks scoped out
-  **before** the treatment freeze.
+- **Ignored-surface probe.** For each admitted task, record whether any
+  protected path is reachable only through a gitignored path. This is
+  descriptive pool characterisation, not a blocker: issue #202 (content drift
+  of an already-present ignored protected file) was investigated against
+  v2.10.1 and **does not reproduce** — such a change is blocked as
+  `hidden-drift` at both the per-call check and the Stop sweep, pinned by
+  `test/ignored-protected-drift.test.ts`.
 
 ## Provenance discipline
 
