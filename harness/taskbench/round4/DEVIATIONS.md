@@ -28,3 +28,23 @@ resumes from it.
 
 **Pool status at the deviation.** Pilot pool only. The counted walk had not
 started, and freeze 2 had not been reached.
+
+## D2 — 2026-09-03, parallel mining driver added
+
+**What.** `mine-parallel.sh` and `merge-shards.sh` added. The walk may now be
+sharded round-robin across N workers, each with its own pool directory,
+attrition ledger and work directory; the merge selects the first N validated
+tasks in ORIGINAL walk order.
+
+**Why.** Sequential mining measured at 5.5 hours for 20 tasks in round 3. Each
+repository's verdict depends only on that repository, so the walk is
+embarrassingly parallel; the only order-dependent element is the quota
+short-circuit, which the walk-order selection at merge time restores exactly.
+
+**What it changes.** How the walk is executed, not what any gate decides. No
+gate, threshold, window or cap is touched; `mine5.sh` itself is unmodified by
+this deviation. Thread-pool env vars are pinned to 1 per worker so concurrent
+pytest runs do not oversubscribe the cores.
+
+**What it touched.** Nothing counted. Sequential `mine5.sh` remains available
+and is the reference behaviour.
