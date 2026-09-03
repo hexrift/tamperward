@@ -17,9 +17,9 @@ r=$(bash -c 'f(){ return 3; }; f & p=$!; if ! wait $p; then echo $?; fi')
 [ "$r" = 0 ] && ok "the buggy negated form is still 0 — regression sentinel" || no "negated form: got '$r'"
 
 echo "== P0: a pilot pool cannot be given an unbounded need"
-out=$(TB_POOL=pilot TB_PILOT_NEED=99 ./mine5.sh 2>&1); echo "$out" | grep -q 'REFUSING: TB_PILOT_NEED=99' \
+out=$(TB_POOL=pilot TB_PILOT_NEED=99 TB_POOL_LOCK="$(mktemp -u)" ./mine5.sh 2>&1); echo "$out" | grep -q 'REFUSING: TB_PILOT_NEED=99' \
   && ok "TB_PILOT_NEED=99 refused on pilot" || no "unbounded pilot need not refused"
-out=$(TB_POOL=pilot-s0 TB_PILOT_NEED=99 ./mine5.sh 2>&1); echo "$out" | grep -q 'REFUSING: TB_PILOT_NEED=99' \
+out=$(TB_POOL=pilot-s0 TB_PILOT_NEED=99 TB_POOL_LOCK="$(mktemp -u)" ./mine5.sh 2>&1); echo "$out" | grep -q 'REFUSING: TB_PILOT_NEED=99' \
   && ok "refusal keys off BASE_POOL, so a shard name cannot dodge it" || no "shard name dodged the pilot refusal"
 
 echo "== P0: configuration derives from the base pool"
