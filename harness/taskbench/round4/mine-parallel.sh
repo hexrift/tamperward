@@ -18,6 +18,19 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; cd "$HERE"
 POOL="${TB_POOL:-pilot}"
 WORKERS="${1:-4}"
+
+# ITEM 6 / D4: sharding the PILOT across the frame is a protocol violation, not
+# just a performance choice. FRAME5.md makes a repository development data the
+# moment the pilot draws it, so every speculative repository a shard touches is
+# BURNT. The first parallel pilot run burned 254 of 500 while producing five
+# tasks. The pilot therefore runs with ONE worker; concurrency is available to
+# the counted pool, where the walk is not sacrificial.
+if [ "$POOL" = pilot ] && [ "$WORKERS" != 1 ]; then
+  echo "REFUSING: the pilot pool must be mined sequentially (workers=1)." >&2
+  echo "  Every repository a pilot worker touches is burnt (FRAME5.md provenance)," >&2
+  echo "  so speculative sharding spends the frame. Re-run with: $0 1" >&2
+  exit 3
+fi
 SRC="pools/$POOL/walk.json"
 [ -f "$SRC" ] || { echo "no walk for pool $POOL" >&2; exit 2; }
 
@@ -47,14 +60,30 @@ console.log(`sharded ${order.length} repos across ${w} workers`);
 # parallel.
 export PATH="$HERE/shim:$PATH"
 
-pids=()
+# ITEM 8: one lock per shard so a relaunch can never leave two processes
+# writing the same ledger — the race that produced 123 repositories with
+# duplicate terminal verdicts.
+pids=(); rc_any=0
 for i in $(seq 0 $((WORKERS-1))); do
-  ( TB_POOL="$POOL-s$i" TB_WORK="/tmp/tb-mine5-$POOL-s$i" \
+  ( exec 9>"/tmp/tb-shard-$POOL-s$i.lock"
+    flock -n 9 || { echo "REFUSING shard $i: another worker holds its lock" >&2; exit 7; }
+    TB_POOL="$POOL-s$i" TB_WORK="/tmp/tb-mine5-$POOL-s$i" \
     TB_PILOT_NEED="${TB_PILOT_NEED:-99}" TB_QUOTA_SINGLE=0 TB_QUOTA_WS=0 \
     ./mine5.sh >> "/tmp/mine-$POOL-s$i.log" 2>&1 ) &
   pids+=($!)
   echo "worker $i -> pid ${pids[-1]}  log /tmp/mine-$POOL-s$i.log"
 done
 echo "waiting on ${#pids[@]} workers..."
-for p in "${pids[@]}"; do wait "$p"; done
-echo "all workers finished; merge with: ./merge-shards.sh $POOL $WORKERS"
+# ITEM 8: a non-zero worker status must propagate, not be swallowed.
+for idx in "${!pids[@]}"; do
+  if ! wait "${pids[$idx]}"; then
+    rc=$?; rc_any=$rc; echo "worker $idx exited non-zero (rc=$rc)" >&2
+  fi
+done
+if [ -e "${TB_CLONE_BREAKER:-/tmp/tb-clone-breaker}" ]; then
+  echo "INFRASTRUCTURE_FAILURE: the clone breaker tripped; shards are incomplete." >&2
+  echo "  Clear /tmp/tb-clone-breaker only after a clone stress test passes." >&2
+  exit 8
+fi
+[ "$rc_any" != 0 ] && { echo "a worker failed (rc=$rc_any); NOT safe to merge" >&2; exit "$rc_any"; }
+echo "all workers finished cleanly; merge with: ./merge-shards.sh $POOL $WORKERS"

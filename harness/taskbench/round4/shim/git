@@ -1,17 +1,40 @@
 #!/usr/bin/env bash
-# Serialise `git clone` across parallel mining workers, leave every other git
-# subcommand untouched.
+# git shim for round-4 mining: serialise clones, retry them, and break the
+# circuit when the failures are systemic. Every other git subcommand passes
+# straight through. mine5.sh is untouched by this (DEVIATIONS.md D3).
 #
-# Round-4 finding (DEVIATIONS.md D3): three workers cloning at once through this
-# environment's git proxy made `git clone` abort, and the miner recorded each
-# abort as CLONE_FAILED — a TERMINAL repo-level verdict, so a resume would skip
-# those repositories for good. 412 verdicts were poisoned that way before it was
-# caught. Cloning is network-bound and serialising it costs almost nothing; the
-# install and pytest steps, which dominate, stay parallel.
+# Why: three workers cloning at once through this environment's git proxy made
+# `git clone` abort, and the miner records a failed clone as CLONE_FAILED — a
+# TERMINAL repo-level verdict, so a resume skips that repository for good. 245
+# lines over 154 repositories were poisoned that way. A single-attempt terminal
+# verdict on an infrastructure failure is the defect; retries plus a breaker
+# replace it.
 REAL=/usr/bin/git
-for a in "$@"; do
-  if [ "$a" = clone ]; then
-    exec flock /tmp/tb-clone.lock "$REAL" "$@"
+LOCK=${TB_CLONE_LOCK:-/tmp/tb-clone.lock}
+BREAKER=${TB_CLONE_BREAKER:-/tmp/tb-clone-breaker}
+FAILS=${TB_CLONE_FAILS:-/tmp/tb-clone-fails}
+MAX_CONSEC=${TB_CLONE_MAX_CONSEC:-5}
+
+is_clone=0
+for a in "$@"; do [ "$a" = clone ] && { is_clone=1; break; }; done
+[ "$is_clone" = 0 ] && exec "$REAL" "$@"
+
+# A tripped breaker means the shared clone path is down: fail fast and let the
+# driver stop every worker rather than burn more repositories on bad verdicts.
+[ -e "$BREAKER" ] && { echo "tb-shim: clone breaker tripped" >&2; exit 90; }
+
+for attempt in 1 2 3; do
+  if flock "$LOCK" "$REAL" "$@"; then
+    : > "$FAILS"          # consecutive-failure counter resets on any success
+    exit 0
   fi
+  sleep $((attempt*4))
 done
-exec "$REAL" "$@"
+
+n=$(( $(cat "$FAILS" 2>/dev/null || echo 0) + 1 ))
+echo "$n" > "$FAILS"
+if [ "$n" -ge "$MAX_CONSEC" ]; then
+  echo "tb-shim: $n consecutive clone failures — tripping breaker" >&2
+  : > "$BREAKER"
+fi
+exit 1

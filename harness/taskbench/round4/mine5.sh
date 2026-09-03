@@ -26,6 +26,14 @@ WORK="${TB_WORK:-/tmp/tb-mine5-$POOL}"
 # sides must be tied together explicitly or the task emitter reads a
 # directory the walk never wrote.
 export TB_WORK="$WORK"
+# The BASE pool a shard belongs to: pilot-s0 -> pilot, counted-s3 -> counted.
+# Round 3 assigned a task's role by counting existing pilot tasks against a
+# hardcoded 3 (its own PILOT_NEED). Carried into round 4 that is a defect: with
+# PILOT_NEED=10 the pilot counter could never pass 3, so the walk could never
+# reach its need and never stopped — the runaway that burned half the frame
+# (DEVIATIONS.md D3/D4). Role now derives from the pool, not from a count.
+BASE_POOL="${POOL%%-s*}"
+export TB_BASE_POOL="$BASE_POOL"
 CLONE_BASE="${TB_CLONE_BASE:-https://github.com}"  # file:// base in the selftest
 mkdir -p "$WORK" tasks
 ATTR=attrition.jsonl
@@ -255,7 +263,7 @@ fs.mkdirSync(`tasks/${id}`,{recursive:true});
 fs.copyFileSync(testPatch,`tasks/${id}/test.patch`);
 fs.copyFileSync(`${work}/gold.patch`,`tasks/${id}/gold.patch`);
 const manifest={
-  id, repo, role: pilot<3?'pilot':'main', stratum,
+  id, repo, role: (process.env.TB_BASE_POOL||'counted')==='pilot'?'pilot':'main', stratum,
   parent_sha:parent, commit_sha:commit,
   test_patch_sha256:sha(`tasks/${id}/test.patch`),
   gold_patch_sha256:sha(`tasks/${id}/gold.patch`),
