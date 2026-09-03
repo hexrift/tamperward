@@ -354,3 +354,5 @@
 {"repo":"chrisguidry/docket","gate":"G2_PARENT_ERROR","commit":"67f9394f7b56bbf9455ca9857dbf299aa87ad74f","rc":4}
 {"repo":"chrisguidry/docket","gate":"CANDIDATES_EXHAUSTED","tried":8}
 {"repo":"PyAV-Org/PyAV","gate":"G1_INSTALL_FAILED","commit":"8c4df873d7f67ffb537e60a110d48edde0b1e90d"}
+{"repo":"PyAV-Org/PyAV","gate":"G1_INSTALL_FAILED","commit":"7dee9f0f87e1f44d80a3c4ba8ced358a58204035"}
+{"repo":"PyAV-Org/PyAV","gate":"G1_INSTALL_FAILED","commit":"bd730ecbd7736481932297fd830b5b03cd305d1f"}
