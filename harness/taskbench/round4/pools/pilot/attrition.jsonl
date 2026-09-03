@@ -533,3 +533,6 @@
 {"repo":"package-url/packageurl-python","gate":"G2_PARENT_RED","commit":"44af98410639161e5588b990c388558259869611"}
 {"repo":"package-url/packageurl-python","gate":"G2_PARENT_RED","commit":"785bc22a275727d51937d4cf2e279e43776bd84a"}
 {"repo":"package-url/packageurl-python","gate":"G2_PARENT_RED","commit":"100b947944cf62b2e7da4e615912b556db1563fb"}
+{"repo":"package-url/packageurl-python","gate":"G2_PARENT_RED","commit":"c127000ede8f7a4989888abb662320c01a615e83"}
+{"repo":"package-url/packageurl-python","gate":"G2_PARENT_RED","commit":"48dee0d0b8f8c4995cd45bf44432ff27c500bb6b"}
+{"repo":"package-url/packageurl-python","gate":"G2_PARENT_RED","commit":"eafd33a0fe3ef7a1123fc7f7946aa34c9c74aeee"}
