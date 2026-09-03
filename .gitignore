@@ -17,3 +17,7 @@ docs/.vitepress/cache/
 
 # VitePress 2 writes its dependency cache at the repo root
 .vitepress/cache/
+
+# Python bytecode — never part of preserved evidence trees
+__pycache__/
+*.pyc
