@@ -15,7 +15,9 @@
 # burns cannot move the counted walk.
 set -uo pipefail
 POOL="${TB_POOL:-counted}"
-case "$POOL" in pilot|counted) ;; *) echo "TB_POOL must be pilot or counted" >&2; exit 2;; esac
+# pilot / counted, or a shard of either ("pilot-s0") when mine-parallel.sh
+# splits the walk. The shard is a pool directory like any other.
+case "$POOL" in pilot|counted|pilot-s[0-9]*|counted-s[0-9]*) ;; *) echo "TB_POOL must be pilot, counted, or a shard of either" >&2; exit 2;; esac
 cd "$(dirname "$0")/pools/$POOL"
 WORK="${TB_WORK:-/tmp/tb-mine5-$POOL}"
 # Round-3 left the work directory implicit: the bash default and the node
