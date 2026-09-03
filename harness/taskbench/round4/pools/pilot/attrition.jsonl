@@ -154,3 +154,7 @@
 {"repo":"thombashi/pathvalidate","gate":"TASK_VALIDATED","commit":"d94185adfaedd5aea5c1dd0b82227aa60d8694bc","candidate":2}
 {"repo":"scientific-python/lazy-loader","gate":"TASK_VALIDATED","commit":"079b62ec1b7ced38b1ee880058e18e74e39cc2c1","candidate":1}
 {"repo":"facebookresearch/faiss","gate":"G1_INSTALL_FAILED","commit":"02ea14372c9983f3eaa15698512180dc62ea234d"}
+{"repo":"facebookresearch/faiss","gate":"G1_INSTALL_FAILED","commit":"a39e2606887bbacc6c8f54e783c4b42da00cf4b3"}
+{"repo":"facebookresearch/faiss","gate":"G1_INSTALL_FAILED","commit":"1f93154314afbef210f0ebebeab840da22f9ec7d"}
+{"repo":"facebookresearch/faiss","gate":"G1_INSTALL_FAILED","commit":"6644dcfa5576221b1a4417fd766a8b2af71d869e"}
+{"repo":"facebookresearch/faiss","gate":"G1_INSTALL_FAILED","commit":"a424dcb809fd725c44dd976d9063febd4837d16a"}
