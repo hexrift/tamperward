@@ -455,3 +455,4 @@
 {"repo":"mesonbuild/meson-python","gate":"G2_PARENT_ERROR","commit":"d7bb4210f065212d83bd3c84c17f130343fbc0c2","rc":4}
 {"repo":"mesonbuild/meson-python","gate":"G2_PARENT_ERROR","commit":"412482166828d8ab6154af1cfbfae4e503abb42c","rc":4}
 {"repo":"mesonbuild/meson-python","gate":"G2_PARENT_ERROR","commit":"bc406f72aa57104f503df44fef7b7e5d0a2b1e85","rc":4}
+{"repo":"mesonbuild/meson-python","gate":"G2_PARENT_ERROR","commit":"070c59718a90107a9c622812f1d9a7bde8a84c4d","rc":4}
