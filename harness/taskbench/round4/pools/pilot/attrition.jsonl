@@ -189,3 +189,4 @@
 {"repo":"mayeut/pybase64","gate":"CANDIDATES_EXHAUSTED","tried":8}
 {"repo":"run-llama/llama_index","gate":"G0_NO_TESTS"}
 {"repo":"ronf/asyncssh","gate":"G2_PARENT_RED","commit":"25370783e5c15a5dfd2a63c06b464ad549caa73a"}
+{"repo":"ronf/asyncssh","gate":"G2_PARENT_RED","commit":"a787030fd5bdf62642407d64030b7afb05683088"}
