@@ -380,3 +380,7 @@
 {"repo":"python-validators/validators","gate":"G2_PARENT_RED","commit":"25fcef05c293def421fd3f6714403a54fce993cf"}
 {"repo":"python-validators/validators","gate":"G2_PARENT_RED","commit":"ad2e2c5bb4e94ff5798b51a9b28a26fa64684ed0"}
 {"repo":"python-validators/validators","gate":"G2_PARENT_RED","commit":"7722459b52562427634af0166398158fcff24849"}
+{"repo":"python-validators/validators","gate":"G2_PARENT_RED","commit":"e50832ab93795e23e25054c760cf154b285703a4"}
+{"repo":"python-validators/validators","gate":"G2_PARENT_RED","commit":"0a791b6a8a0a8e448b2de5148a03b356aabb891f"}
+{"repo":"python-validators/validators","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"grantjenks/py-tree-sitter-languages","gate":"EXCLUDED_INACTIVE","head_date":"2025-02-17"}
