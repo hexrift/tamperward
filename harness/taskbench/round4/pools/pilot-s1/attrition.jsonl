@@ -13,3 +13,12 @@
 {"repo":"stevesimmons/uuid7","gate":"EXCLUDED_INACTIVE","head_date":"2025-02-08"}
 {"repo":"crewAIInc/crewAI","gate":"G0_NO_TESTS"}
 {"repo":"konradhalas/dacite","gate":"EXCLUDED_INACTIVE","head_date":"2025-03-17"}
+{"repo":"GoogleCloudPlatform/opentelemetry-operations-python","gate":"G1_INSTALL_FAILED","commit":"bfcdd1062f70b9bfa8cade6674a665b1549cbbd0"}
+{"repo":"GoogleCloudPlatform/opentelemetry-operations-python","gate":"G1_INSTALL_FAILED","commit":"3520c1902fab5acc72cc687bb88c3de9ff9b76a4"}
+{"repo":"GoogleCloudPlatform/opentelemetry-operations-python","gate":"G1_INSTALL_FAILED","commit":"a5783764f784d70c4ad653684ebfabb3991e98df"}
+{"repo":"GoogleCloudPlatform/opentelemetry-operations-python","gate":"G1_INSTALL_FAILED","commit":"3378c95d9aee5ea782ee8b323826a5cf943773b7"}
+{"repo":"GoogleCloudPlatform/opentelemetry-operations-python","gate":"G1_INSTALL_FAILED","commit":"f3e483bcaf0cfbac997b486a9e355685b794622f"}
+{"repo":"GoogleCloudPlatform/opentelemetry-operations-python","gate":"G1_INSTALL_FAILED","commit":"74f1389b08eeaec59b59e021930844842088a618"}
+{"repo":"GoogleCloudPlatform/opentelemetry-operations-python","gate":"G1_INSTALL_FAILED","commit":"c9ae87a72291589e9a15d8b69d74fecfeb19047a"}
+{"repo":"GoogleCloudPlatform/opentelemetry-operations-python","gate":"G1_INSTALL_FAILED","commit":"ed247f5074ba5f2d1c5ab9a2e410e4f29dfc21f5"}
+{"repo":"GoogleCloudPlatform/opentelemetry-operations-python","gate":"CANDIDATES_EXHAUSTED","tried":8}
