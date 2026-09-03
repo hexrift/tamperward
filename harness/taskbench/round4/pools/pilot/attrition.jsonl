@@ -58,3 +58,12 @@
 {"repo":"yt-dlp/yt-dlp","gate":"CANDIDATES_EXHAUSTED","tried":8}
 {"repo":"tree-sitter/tree-sitter-rust","gate":"G0_NOT_PYTEST"}
 {"repo":"cohere-ai/cohere-python","gate":"G2_PARENT_RED","commit":"bc495daab7817a2e1389d71257c056dd75bbb0df"}
+{"repo":"cohere-ai/cohere-python","gate":"G2_PARENT_RED","commit":"d12082be4067f52b405d6271679c2b3530278626"}
+{"repo":"cohere-ai/cohere-python","gate":"G2_PARENT_RED","commit":"c81e8a75393f7de77e80c70c31a8e1bd23512a80"}
+{"repo":"cohere-ai/cohere-python","gate":"G2_PARENT_RED","commit":"482ab2a988740a3fbaf05e62547d9d646bccbe5f"}
+{"repo":"cohere-ai/cohere-python","gate":"G2_PARENT_RED","commit":"3b497485e10ac5fbaba629abb7ee3f2566dfb5ce"}
+{"repo":"cohere-ai/cohere-python","gate":"G2_PARENT_RED","commit":"756b1d8ec0e44ee57add86edd271701a528456ad"}
+{"repo":"cohere-ai/cohere-python","gate":"G2_PARENT_RED","commit":"fc167c14e6ec88dbb4420bdd5481327eafc1731a"}
+{"repo":"cohere-ai/cohere-python","gate":"G2_PARENT_RED","commit":"b911acfe51b071c7c246acc341bb29a43ca33365"}
+{"repo":"cohere-ai/cohere-python","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"ionelmc/python-tblib","gate":"G2_PARENT_ERROR","commit":"74ec64570acb0d6ce708c695ab98d52d08f8b066","rc":4}
