@@ -64,3 +64,32 @@ are new files.
 
 Nothing about the treatment, the arms, the endpoint, the analysis or the counted
 N. Freeze 2 remains unregistered and untouched. No counted trajectory has run.
+
+## The extension as built (2026-09-03, after this amendment was committed)
+
+Mapping resumed at ranked position **1,306** and admitted **1,500** repositories
+by position **3,443**, bringing the frame to **2,000**. Outcomes over the tail:
+
+| outcome | count |
+| --- | --- |
+| admitted | 1500 |
+| no GitHub repository | 240 |
+| spent in rounds 1–3 | 247 |
+| already in the original 500 | 11 |
+| burnt by D3 | 17 |
+| monorepo duplicate | 0 |
+| registry error | 0 |
+
+**Verified after the build, not asserted:**
+
+- `frame/frame.json`, `frame/walk-order.json` and `frame/pilot-walk-order.json`
+  are **unchanged** — checksums taken before the run still match.
+- The appended set is **disjoint** from the original 500 and from the 254 burnt
+  repositories, and contains no duplicates.
+- Both extended walks hold 2,000 entries, cover the extended frame exactly, and
+  carry the **frozen order as an identical prefix**; the counted and pilot walks
+  remain different orders over the same set.
+
+Artefacts: `frame/frame-ext.json`, `frame/mapping-log-ext.jsonl`,
+`frame/walk-order-ext.json`, `frame/pilot-walk-order-ext.json`. The originals
+keep their names and their contents.
