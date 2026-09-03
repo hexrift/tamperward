@@ -327,3 +327,6 @@
 {"repo":"kevin1024/vcrpy","gate":"G2_PARENT_ERROR","commit":"30a721d400b55ced25f5d8a612b8a1ae01240160","rc":4}
 {"repo":"kevin1024/vcrpy","gate":"G2_PARENT_ERROR","commit":"045acb1b5f8940f82adbb3faafd13e43e46289d6","rc":4}
 {"repo":"kevin1024/vcrpy","gate":"G2_PARENT_ERROR","commit":"514c374796ba8b53402d3cad86682a7d3f0c34cc","rc":4}
+{"repo":"kevin1024/vcrpy","gate":"G2_PARENT_ERROR","commit":"62cf5e127201c050b6b8f8c8a20910eb7eab753a","rc":4}
+{"repo":"kevin1024/vcrpy","gate":"G2_PARENT_ERROR","commit":"13f201a820b71288829df9470d629bfd0b4183de","rc":4}
+{"repo":"kevin1024/vcrpy","gate":"CANDIDATES_EXHAUSTED","tried":8}
