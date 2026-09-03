@@ -1066,3 +1066,70 @@ protected set is basename-driven (`**/test_*.py`, `**/*_test.py`, `**/conftest.p
 with no `**/tests/**` glob, unlike Rust (`**/tests/**/*.rs`) or Java
 (`**/src/test/**`). Uniform at every depth, so it is stated here to prevent it being
 misread as a monorepo failure.
+
+## Harness correction — 2026-09-03, the immutable bare-launcher deployment
+
+Gate A found that deploying the treatment as `node <artefact>/dist/cli/index.js`
+diverged from canonical at the hook-SCRIPT live-gate recogniser. That was recorded
+as "fail-closed, therefore acceptable". **That reasoning was wrong for an
+experiment.** Fail-closed is operationally safe but NOT experimentally neutral: a
+harness-induced false positive appears in the GATED arm only, so it would depress
+honest completion there and bias the secondary outcome. The deployment is
+corrected rather than the risk accepted.
+
+**The counted treatment is now deployed as a BARE `tamperward`**, resolved through
+a parent-controlled PATH. `deploy-gated4.sh` rewrites init's npx invocations to
+bare rather than to a node path, so the wiring reads exactly as init would write it
+minus the runner. Verified in `runner/launcher4.sh` (**32/32**), not assumed:
+
+- **canonical recognition and depth** — the base scans clean; neutering the gate
+  scores 2 findings (the node-path form scored 1); a hook SCRIPT running the bare
+  gate is clean, and the #201 defence (a no-gate husky hook) is still fail-closed;
+- **immutability** — inside the jail, replacing the launcher, removing it, adding a
+  file beside it, and modifying the package tree are all blocked; the tree hash is
+  unchanged after the attempts and the launcher stays executable read-only;
+- **unshadowable** — PATH carries no `.` or empty entry, bare `tamperward` resolves
+  to the immutable launcher with a decoy present, and a candidate-written
+  `./tamperward` is inert;
+- **PATH and injection integrity** — a sibling process still receives the parent
+  PATH (a candidate's `export` does not leak); NODE_OPTIONS, NODE_PATH, BASH_ENV,
+  LD_PRELOAD and PYTHONPATH are cleared, with a positive control proving
+  `NODE_OPTIONS --require` really does execute in the gate when NOT cleared.
+
+### A second shadowing vector, found by this verification
+
+The launcher is `#!/usr/bin/env node`, so **`node` is resolved through the same
+PATH as the gate**. Proving `tamperward` unshadowable is therefore not sufficient.
+The runner's agent PATH had `$VENV/bin` — which the candidate can write — **ahead
+of** the real node directory, so a planted `node` would have hijacked the gate's
+interpreter. Corrected to `$ART_BINDIR:$NODE_DIR:$VENV/bin:…`, and pinned by L9,
+which asserts the ordering, shows a decoy placed after the real node does not win,
+and carries a positive control proving a decoy placed BEFORE it does — so the
+ordering is demonstrably load-bearing rather than incidental. The smoke caught the
+same class of error as `GATE_NOT_LIVE` when the node directory was absent
+entirely: a gate that cannot execute fails the trajectory rather than passing it.
+
+**Gate A was re-run under this exact configuration** and the divergence case is now
+a positive assertion. All suites green: launcher4 32/32, replay4 42 assertions /
+0 failures, workspace4 12/0 (+6 recorded product gaps), smoke4 39/39, verdict4
+21/21, isolation 13/13.
+
+### Gate A coverage, stated per CASE rather than per assertion
+
+The pass counts above are ASSERTIONS, not cases — P1-9 alone contributes seven.
+Reported per historical case, and derived by a manifest in the script rather than
+asserted in prose. The ledger's `P2-1..P2-10` is a **rolled-up row covering ten
+distinct cases**, so the corpus is larger than the count of table rows:
+
+- **corpus: 35 historical cases** (P0-1..P0-8, P1-1..P1-9, P2-1..P2-10, P2-11..P2-16,
+  anchor/verifier, #201);
+- **20 replayed end-to-end (57%)**;
+- **5 excluded with individually stated reasons** (P0-6, P1-2, P1-5, P1-6, P1-7);
+- **10 NOT YET replayed** — the whole `P2-1..P2-10` row (crash-path exit codes,
+  `.git/tamperward` writability, shared env between runs, group-timeout leak,
+  materialize dropping ignored/empty/.git, warn findings and exit codes, the
+  self-hosting ignore blind spot, env-var provenance). **Not claimed as covered.**
+
+An earlier framing of this result as "36/42, 85.7%" is **withdrawn**: the numerator
+counted assertions and the denominator missed the rolled-up row. The honest figure
+is **20 of 35 cases replayed, 5 excluded with reasons, 10 unaddressed**.

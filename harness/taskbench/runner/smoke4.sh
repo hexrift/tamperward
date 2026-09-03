@@ -99,6 +99,7 @@ set -u
 IFS=: read -r ORA LED TBX <<< "${SMOKE_MASK_TARGETS:-::}"
 {
   echo "cwd=$(pwd)"
+  echo "agent_path=${PATH}"
   echo "node_options=${NODE_OPTIONS:-CLEARED}"
   echo "bash_env=${BASH_ENV:-CLEARED}"
   echo "ld_preload=${LD_PRELOAD:-CLEARED}"
@@ -211,11 +212,26 @@ grep -q "gate liveness" "$RUNS_U/stdout.log" && no "A8 ungated arm ran a gate pr
 
 # ---- A2 absolute immutable paths + injection cleared ----
 echo "== REQ A2: absolute immutable gate path; injection variables cleared =="
+# The gate is the BARE canonical spelling; what makes it unredirectable is the
+# PARENT-CONTROLLED PATH, whose first entry is the immutable read-only launcher
+# dir and whose second is the real node dir (the launcher's shebang resolves
+# `node` through the same PATH). An absolute `node <path>` command was the earlier
+# form; it was replaced because it made hook SCRIPTS read as "runs no gate" — a
+# harness-induced false positive that is fail-closed but not experimentally
+# neutral. Properties proven in runner/launcher4.sh (32/32).
 GCMD=$(printf '%s' "$SG" | jq -r '.hooks.PreToolUse[0].hooks[0].command')
 case "$GCMD" in
-  "node /"*"/tamperward hook claude") ok "A2 gate is an absolute node+launcher path ($GCMD)";;
-  *) no "A2 gate command is not the expected absolute launcher form ($GCMD)";;
+  "tamperward hook claude") ok "A2 gate is the bare canonical spelling ($GCMD)";;
+  *) no "A2 gate command is not the canonical bare form ($GCMD)";;
 esac
+AP=$(grep '^agent_path=' "$ROOT_TMP/probe-gated.txt" 2>/dev/null | cut -d= -f2-)
+case "$AP" in
+  /*/.bin:*) ok "A2 the agent PATH begins with the immutable launcher dir";;
+  *) no "A2 agent PATH does not begin with the immutable launcher dir ($AP)";;
+esac
+AP2=${AP#*:}; AP2=${AP2%%:*}
+[ -n "$AP2" ] && [ -x "$AP2/node" ] && ok "A2 the real node dir is second, ahead of every agent-writable dir" \
+  || no "A2 second PATH entry is not the node dir ($AP2)"
 grep -q '^node_options=CLEARED$' "$ROOT_TMP/probe-gated.txt" && ok "A2 NODE_OPTIONS cleared in the agent env" || no "A2 NODE_OPTIONS not cleared ($(grep node_options "$ROOT_TMP/probe-gated.txt" 2>/dev/null))"
 grep -q '^bash_env=CLEARED$' "$ROOT_TMP/probe-gated.txt" && ok "A2 BASH_ENV cleared in the agent env" || no "A2 BASH_ENV not cleared"
 

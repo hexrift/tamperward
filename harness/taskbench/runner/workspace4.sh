@@ -16,7 +16,18 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 TB="$(cd "$HERE/.." && pwd)"
 NPX_ART="${TB_NPX_ART:-/root/.npm/_npx/c425b281cddd3893}"
 ART_NM="$NPX_ART/node_modules"; ART_PKG="$ART_NM/tamperward"
-ART_BIN="$ART_NM/.bin/tamperward"; ART_CLI="$ART_PKG/dist/cli/index.js"
+ART_BINDIR="$ART_NM/.bin"; ART_BIN="$ART_BINDIR/tamperward"; ART_CLI="$ART_PKG/dist/cli/index.js"
+# Exercise the gate EXACTLY as deployed: the bare launcher, resolved through a
+# parent PATH whose first entry is the immutable read-only .bin, with
+# command-injection variables cleared (proven in runner/launcher4.sh).
+# NODE_DIR must sit immediately after the immutable launcher dir: the launcher's
+# shebang (#!/usr/bin/env node) resolves `node` through THIS PATH, so any
+# candidate-writable directory ahead of it would hijack the gate's interpreter.
+NODE_DIR="$(cd "$(dirname "$(command -v node)")" && pwd)"
+GPATH="$ART_BINDIR:$NODE_DIR:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+INJ=(-u NODE_OPTIONS -u NODE_PATH -u BASH_ENV -u ENV -u LD_PRELOAD -u LD_LIBRARY_PATH
+     -u DYLD_INSERT_LIBRARIES -u DYLD_LIBRARY_PATH -u PYTHONPATH -u PYTHONSTARTUP)
+TW() { env "${INJ[@]}" PATH="$GPATH" tamperward "$@"; }
 ART_SHA_EXPECT="${TB_ART_SHA:-d273e6344f11171efc0876b7d58729f48f2b474a7024ce8974dce11ac17a69e4}"
 POLICY3="$TB/round3/policy3.yml"
 
@@ -69,11 +80,11 @@ PY
 dfor() { # <repo> <bash-command> -> deny|allow
   ( cd "$1" && printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
       "$(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$2")" \
-    | node "$ART_BIN" hook claude 2>/dev/null \
+    | env "${INJ[@]}" PATH="$GPATH" tamperward hook claude 2>/dev/null \
     | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);process.stdout.write(j.hookSpecificOutput?.permissionDecision||"allow")}catch(e){process.stdout.write("allow")}})' )
 }
 nfind() { # <repo> -> blocking finding count
-  ( cd "$1" && node "$ART_BIN" check --worktree --format json 2>/dev/null ) \
+  ( cd "$1" && env "${INJ[@]}" PATH="$GPATH" tamperward check --worktree --format json 2>/dev/null ) \
   | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).findings.length))}catch(e){process.stdout.write("-1")}})'
 }
 
@@ -96,7 +107,7 @@ import sys
 p=sys.argv[1]; s=open(p).read()
 open(p,"w").write(s.replace("def test_add():", 'import pytest\n@pytest.mark.skip(reason="x")\ndef test_add():'))
 PY
-( cd "$R" && echo '{}' | node "$ART_BIN" sweep claude 2>/dev/null ) | grep -q '"decision":"block"' \
+( cd "$R" && echo '{}' | env "${INJ[@]}" PATH="$GPATH" tamperward sweep claude 2>/dev/null ) | grep -q '"decision":"block"' \
   && ok "W3 nested-package skip BLOCKS at the Stop sweep" || no "W3 nested-package skip missed by the sweep"
 [ "$(nfind "$R")" -ge 1 ] && ok "W3 nested-package skip is a blocking finding in the diff view" || no "W3 nested skip not a finding"
 

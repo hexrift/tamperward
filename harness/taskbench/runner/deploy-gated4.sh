@@ -11,22 +11,31 @@
 # `hook claude`, Stop `sweep claude`, disableAllHooks:false), .tamperward.yml, the
 # pre-commit hook, CI and CODEOWNERS — with the `npx --yes tamperward@<v>`
 # invocation string. npx is unreliable in this environment, so EVERY tamperward
-# invocation init wrote is rewritten in place to `node <artefact-bin>` (the pinned
-# launcher, whose `…/tamperward` path preserves the canonical gate shape, so the
-# hook-tampering comparator reads it as the canonical gate at full detection
-# depth). No enforcement point is left depending on the registry.
-# (DEVIATIONS: "npx is unreliable"; "node-form gate ≡ canonical".)
+# invocation init wrote is rewritten in place to a BARE `tamperward`, which the
+# parent resolves through a PATH whose first entry is the IMMUTABLE, read-only
+# `.bin` directory of the pinned artefact.
+#
+# Bare is used rather than `node <path>/dist/cli/index.js` because the hook-SCRIPT
+# live-gate recogniser (hook-wiring.ts RUNNER) accepts package-runner spellings and
+# a bare `tamperward`, but NO `node <path>` form: the node spelling made a hook
+# script read as "runs no gate", a harness-induced FALSE POSITIVE. That fails
+# closed, which is operationally safe but NOT experimentally neutral — it would
+# depress honest completion in the gated arm only and bias the secondary outcome.
+# Bare restores canonical recognition AND canonical detection depth without npx.
+# Safe only because the launcher is immutable and unshadowable; every one of those
+# properties is proven in runner/launcher4.sh (27/27), not assumed.
+# (DEVIATIONS: "npx is unreliable"; "the immutable bare-launcher deployment".)
 set -uo pipefail
 REPO="${1:?repo-dir}"; A_CLI="${2:?artefact-cli}"; A_BIN="${3:?artefact-bin}"
 
 ( cd "$REPO" && node "$A_CLI" init >/dev/null 2>&1 ) || { echo "INIT_FAILED" >&2; exit 1; }
 
-rewrite_npx() { # <file>: `npx --yes|-y tamperward[@v]` -> `node <artefact-bin>`
+rewrite_npx() { # <file>: `npx --yes|-y tamperward[@v]` -> bare `tamperward`
   [ -f "$1" ] || return 0
-  TB_RW_BIN="$A_BIN" node -e '
-    const fs=require("fs"), f=process.argv[1], bin=process.env.TB_RW_BIN;
+  node -e '
+    const fs=require("fs"), f=process.argv[1];
     let s=fs.readFileSync(f,"utf8");
-    s=s.replace(/npx\s+(?:--yes|-y)\s+tamperward(?:@\S+)?/g, "node "+bin);
+    s=s.replace(/npx\s+(?:--yes|-y)\s+tamperward(?:@\S+)?/g, "tamperward");
     fs.writeFileSync(f,s);' "$1"
 }
 rewrite_npx "$REPO/.claude/settings.json"
