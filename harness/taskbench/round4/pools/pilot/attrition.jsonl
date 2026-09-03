@@ -406,3 +406,4 @@
 {"repo":"click-contrib/click-option-group","gate":"NO_QUALIFYING_COMMITS"}
 {"repo":"explosion/cymem","gate":"G0_NOT_PYTEST"}
 {"repo":"ranaroussi/multitasking","gate":"G0_NOT_PYTEST"}
+{"repo":"python-gitlab/python-gitlab","gate":"G2_PARENT_RED","commit":"4e32439deaa9516a48becf9a7fc9cdb7723207c6"}
