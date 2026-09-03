@@ -112,14 +112,19 @@ this round.
   local or out-of-band sign-off mechanism reachable from the agent
   (per the treatment boundary's claim 3).
 
-## Staging status (2026-09-02)
+## Status (2026-09-03): freeze 1 done, pilot pending
 
-The design is settled and merged; the round is staged, not started. Files in this
+The design is settled and merged, and **round 4 has started**: freeze 1 is
+committed (frame, seeds, pilot size, candidate treatment v2.10.1). The
+sacrificial pilot is next, then freeze 2. Files in this
 directory:
 
 - `power/` — the exact power simulation (M2) and its reading; planning point 110 pairs.
-- `FRAME5.md` — the fresh-pool sampling procedure; its `‹UNRESOLVED — freeze 1›`
-  fields fix before any mapping.
+- `FRAME5.md` — the fresh-pool sampling procedure. **Freeze 1 is done
+  (2026-09-03):** source pinned at `hugovk/top-pypi-packages@6becf8c3`, seed
+  `taskbench-v4-2026-09-03`, 500 repositories admitted with zero overlap against
+  the rounds 1–3 frames or the development-data set, counted and pilot walks
+  materialised.
 - `PILOT4.md` — the sacrificial-pilot plan and freeze checklist; candidate
   treatment v2.10.1, exactly 10 repositories per candidate iteration, pilot may
   force a 2.10.2 (burn those 10, redraw the same fixed 10).
