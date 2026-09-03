@@ -24,10 +24,16 @@ die_infra() {
   printf '{"event":"INFRASTRUCTURE_FAILURE","reason":"%s","at":"%s"}\n' \
     "$1" "$(date -u +%FT%TZ)" >> "${TB_INFRA_LOG:-/tmp/tb-infra.jsonl}"
   : > "$BREAKER"
-  # Stop the miner NOW, before it can record a terminal verdict for this repo,
-  # and stop every sibling worker sharing the group.
-  kill -TERM -- -"$(ps -o pgid= $$ | tr -d ' ')" 2>/dev/null
-  sleep 2
+  # Stop the miner NOW, before it can record a terminal verdict for this repo.
+  # Target the mine5.sh ancestor precisely: killing the whole process group also
+  # kills an interactive caller's shell (it terminated the self-test run that
+  # first exercised this path), and a shim must never do that.
+  # mine5.sh exports its own pid. Exact, and safe to exercise outside a miner:
+  # with no TB_MINER_PID the shim simply fails, killing nothing.
+  if [ -n "${TB_MINER_PID:-}" ] && kill -0 "$TB_MINER_PID" 2>/dev/null; then
+    echo "tb-shim: terminating miner pid $TB_MINER_PID before it can record a terminal verdict" >&2
+    kill -TERM "$TB_MINER_PID" 2>/dev/null
+  fi
   exit 90
 }
 

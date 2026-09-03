@@ -34,6 +34,12 @@ export TB_WORK="$WORK"
 # reach its need and never stopped — the runaway that burned half the frame
 # (DEVIATIONS.md D3/D4). Role now derives from the pool, not from a count.
 export TB_BASE_POOL="$BASE_POOL"
+# The clone shim must be able to stop THIS miner before it can record a terminal
+# verdict for a repository the infrastructure failed on. Naming the pid is exact;
+# matching process command lines is not (it matched an unrelated shell that
+# merely mentioned this script) and killing the process group is destructive (it
+# terminated the interactive caller).
+export TB_MINER_PID=$$
 CLONE_BASE="${TB_CLONE_BASE:-https://github.com}"  # file:// base in the selftest
 mkdir -p "$WORK" tasks
 ATTR=attrition.jsonl

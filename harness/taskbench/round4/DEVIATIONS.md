@@ -229,3 +229,28 @@ original wording is preserved beside it.
 pilot, its parallel pilot estimate is withdrawn, and it records that the
 trajectory jail is Linux-only, so a Mac needs a Linux VM for trajectories while
 mining runs natively.
+
+### D3 third correction (append-only) — 2026-09-03, self-tests
+
+Writing the self-tests found two more defects in the recovery itself, both in
+the mechanism meant to stop a poisoning walk:
+
+- **The shim killed its whole process group.** It terminated the interactive
+  shell running the first self-test. A shim must never do that.
+- **Matching the miner by command line was guesswork.** The replacement walked
+  the parent chain looking for `mine5.sh` in a process's cmdline and matched an
+  unrelated shell that merely *mentioned* the script, killing the wrong process.
+
+`mine5.sh` now exports `TB_MINER_PID`, and the shim terminates exactly that pid
+when one is live. With no miner named it exits 90 and kills nothing, which is
+what makes the path safe to exercise in a test at all.
+
+`selftest.sh` covers 18 cases, one per defect that actually occurred: `wait`
+status propagation (with the buggy negated form kept as a regression sentinel),
+the pilot need bound and that a shard name cannot dodge it, `BASE_POOL`
+configuration, the refusal to shard a pilot from both entry points, breaker
+refusals at launch and at merge, the shim raising an infrastructure failure
+rather than a clone failure, the merger refusing a missing completion record, an
+out-of-walk task and a malformed manifest, the frozen walk being a real file of
+500 entries, and the burn list regenerating from committed evidence. All 18
+pass. It runs no clone and touches no frame.
