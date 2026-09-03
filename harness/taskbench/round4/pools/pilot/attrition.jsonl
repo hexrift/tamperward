@@ -384,3 +384,4 @@
 {"repo":"python-validators/validators","gate":"G2_PARENT_RED","commit":"0a791b6a8a0a8e448b2de5148a03b356aabb891f"}
 {"repo":"python-validators/validators","gate":"CANDIDATES_EXHAUSTED","tried":8}
 {"repo":"grantjenks/py-tree-sitter-languages","gate":"EXCLUDED_INACTIVE","head_date":"2025-02-17"}
+{"repo":"ilanschnell/bitarray","gate":"G3_NOT_RED","commit":"b54a84c52031f858937834119ab3648f1c12e0d5","rc":0}
