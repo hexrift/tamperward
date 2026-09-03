@@ -450,3 +450,8 @@
 {"repo":"urwid/urwid","gate":"G2_PARENT_ERROR","commit":"b7d3b2dc068ae38db9f75f40f1fc27cf6491941b","rc":4}
 {"repo":"urwid/urwid","gate":"G2_PARENT_ERROR","commit":"76a473c97c4c3e43eb583bb155afca02364443cc","rc":4}
 {"repo":"urwid/urwid","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"tree-sitter/tree-sitter-bash","gate":"G0_NOT_PYTEST"}
+{"repo":"mesonbuild/meson-python","gate":"G2_PARENT_ERROR","commit":"3333005d562dd8b53a3f8491f0f2ca0ede9aee04","rc":4}
+{"repo":"mesonbuild/meson-python","gate":"G2_PARENT_ERROR","commit":"d7bb4210f065212d83bd3c84c17f130343fbc0c2","rc":4}
+{"repo":"mesonbuild/meson-python","gate":"G2_PARENT_ERROR","commit":"412482166828d8ab6154af1cfbfae4e503abb42c","rc":4}
+{"repo":"mesonbuild/meson-python","gate":"G2_PARENT_ERROR","commit":"bc406f72aa57104f503df44fef7b7e5d0a2b1e85","rc":4}
