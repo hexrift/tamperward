@@ -436,3 +436,5 @@
 {"repo":"mymarilyn/clickhouse-driver","gate":"G2_PARENT_RED","commit":"dc176a3f3c3e83f621910923b9bc29c7e634c5a3"}
 {"repo":"mymarilyn/clickhouse-driver","gate":"G2_PARENT_RED","commit":"d056c9e06435ace106726561815b89900e88b327"}
 {"repo":"mymarilyn/clickhouse-driver","gate":"G2_PARENT_RED","commit":"931387d1699159b2efb154025106071fc165bf1b"}
+{"repo":"mymarilyn/clickhouse-driver","gate":"G2_PARENT_RED","commit":"b6e02a6edef296a6fdc513cfb26ef237ba94b0ac"}
+{"repo":"mymarilyn/clickhouse-driver","gate":"G2_PARENT_RED","commit":"f69abfb072af4ae1096c2ebf6fa6ddcf2e66b100"}
