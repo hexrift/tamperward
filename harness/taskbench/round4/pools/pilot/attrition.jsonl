@@ -47,3 +47,4 @@
 {"repo":"googleads/google-ads-python","gate":"G0_NOT_PYTEST"}
 {"repo":"yt-dlp/yt-dlp","gate":"G2_PARENT_TIMEOUT","commit":"bbc809a1161d3bfca51fa36f59dda35556ee85a0"}
 {"repo":"yt-dlp/yt-dlp","gate":"G2_PARENT_TIMEOUT","commit":"bbc809a1161d3bfca51fa36f59dda35556ee85a0"}
+{"repo":"yt-dlp/yt-dlp","gate":"G2_PARENT_TIMEOUT","commit":"bbc809a1161d3bfca51fa36f59dda35556ee85a0"}
