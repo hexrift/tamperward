@@ -103,6 +103,28 @@ is patched (new release) and the pilot re-run on fresh throwaway repositories.
       corpus and the husky ordinary-gate displacement (#201) all replay to their
       expected verdicts.
 
+## Freeze-checklist status (2026-09-03)
+
+Where the checklist stands as the runner is wired. Marked honestly — an item is
+"proven" only where a self-test demonstrates it against the counted config.
+
+- **Temporal adjudication** — PROVEN. `verdict4.mjs` + `verdict4-selftest.sh`:
+  21/21, all seven required temporal cases, fail-closed on partial records.
+- **Isolation (mount/PID/cap, symmetric)** — PROVEN for the six maskable surfaces.
+  `agent-jail4.sh` + `isolation-selftest4.sh`: 13/13. The credential sub-item is
+  **⚠ partial** (see DEVIATIONS "Credential isolation"), not a whole-item pass.
+- **Plumbing smoke** — PROVEN. `run-task4.sh` deploys the v2.10.1 counted
+  treatment; `smoke4.sh` drives it end-to-end for both arms with a fake agent and
+  asserts all sixteen acceptance points (37/37), including evidence-first
+  adjudication, artefact immutability, injection clearing, credential
+  fingerprinting, provenance/model fail-closed, and only-gated enforcement.
+- **NOT yet — the next honest gate:** the **bypass-replay corpus** (the full
+  tamper set against the counted config — the smoke's fake agent does not exercise
+  the in-loop Claude hooks, only the pre-start gate-liveness probe) and the
+  **workspace fixtures**. Then FRAME5-AMENDMENT-2 mapping + invariants, counted
+  mining, Freeze 2 — and only then any counted trajectory. The real-agent dry run
+  stays PAUSED behind `TB_RUNTASK4_READY`.
+
 ## Harness wiring under the 2.10.x treatment (established 2026-09-03)
 
 The deployment rule says every seed is initialised with `tamperward init` from

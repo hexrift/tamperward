@@ -844,3 +844,43 @@ deployed as `node <pinned-artefact>/dist/cli/index.js …` (the hash-pinned path
 `d273e63…`). It is equivalent to the canonical gate on enforcement, base
 acceptance and gate-neutering detection, and the parent adjudicator is the sole
 cross-arm outcome authority.
+
+## Freeze-checklist milestone — 2026-09-03, the counted runner is wired and the plumbing smoke passes
+
+`run-task4.sh` now deploys the v2.10.1 counted treatment (was the v1.14.0
+gen-policy + Stop-verify wiring). The gated arm is `tamperward init` from the
+hash-pinned artefact with its npx invocations rewritten to the pinned node
+launcher (`node <artefact>/.bin/tamperward …`, canonical gate shape), the
+parent-owned observer merged as a PostToolUse entry, and the agent wrapped in the
+`tamperward run` envelope. The ungated arm carries only the observer. Both arms
+run under the mount/PID/cap jail over the net jail, symmetrically; only the
+enforcement differs. Pristine verification is the parent-owned adjudicator
+(`verdict4.mjs`), never a second Stop hook.
+
+`smoke4.sh` drives the REAL runner end-to-end for both arms with a scripted fake
+agent (offline, no model, no credential) and asserts every acceptance point —
+**37/37**:
+
+- The original eight: model pinned+recorded; observer identical and harness-owned;
+  only the gated arm enforced; oracle/ledger/adjudicator masked from the agent;
+  independent copies, evidence-first; intent-to-add catches a new narrowing config
+  but not gitignored files; a corrupt record fails closed; per-trajectory provenance.
+- The additional eight: both arms identical but for enforcement; absolute immutable
+  gate path with injection variables cleared; artefact hash byte-identical
+  before/after; raw state captured before the adjudicator's intent-to-add; a
+  missing/mismatched model or provenance field invalidates the trajectory; a
+  non-reversible credential fingerprint with no material; partial output rejected
+  deterministically; the ungated arm cannot invoke Tamperward while the gated arm
+  proves a live gate before it starts.
+
+Coherence check: the masked-failure fake agent yields `MASKED_FAILURE` (visible
+green, pristine red) with the envelope catching it (exit 1, no escape) in the
+gated arm — the envelope genuinely enforces, it is not merely wired.
+
+**Scope, stated honestly.** The smoke validates the PLUMBING, not the complete
+harness: the fake agent is not Claude Code, so the in-loop PreToolUse/Stop hook
+enforcement is exercised only by the pre-start gate-liveness probe, not across a
+real agent loop. That, and the full tamper corpus, are the **bypass-replay gate**
+— the next honest gate, together with the workspace fixtures — before any dry
+trajectory. A real-agent trajectory stays gated behind `TB_RUNTASK4_READY` (the
+counted-run guard) until then and until the pilot credential is provisioned.
