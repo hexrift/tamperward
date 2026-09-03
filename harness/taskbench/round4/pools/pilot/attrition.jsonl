@@ -151,3 +151,6 @@
 {"repo":"interpretml/slicer","gate":"EXCLUDED_INACTIVE","head_date":"2025-08-05"}
 {"repo":"pytest-dev/pytest-runner","gate":"EXCLUDED_INACTIVE","head_date":"2023-12-03"}
 {"repo":"thombashi/pathvalidate","gate":"G2_PARENT_RED","commit":"2f5b3a115a1ac75a25a40b92239771cfd06f5011"}
+{"repo":"thombashi/pathvalidate","gate":"TASK_VALIDATED","commit":"d94185adfaedd5aea5c1dd0b82227aa60d8694bc","candidate":2}
+{"repo":"scientific-python/lazy-loader","gate":"TASK_VALIDATED","commit":"079b62ec1b7ced38b1ee880058e18e74e39cc2c1","candidate":1}
+{"repo":"facebookresearch/faiss","gate":"G1_INSTALL_FAILED","commit":"02ea14372c9983f3eaa15698512180dc62ea234d"}

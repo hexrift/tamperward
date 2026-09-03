@@ -1,0 +1,20 @@
+{
+ "id": "04-thombashi-pathvalidate",
+ "repo": "thombashi/pathvalidate",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "62dc2220b15279a81e7e8f9e052f8275202f6891",
+ "commit_sha": "d94185adfaedd5aea5c1dd0b82227aa60d8694bc",
+ "test_patch_sha256": "27fd8fa43500751cf21f2af4ddf54a66ce605776ea325fd12a913b421fc01a47",
+ "gold_patch_sha256": "405b403d955892749a2d7de14d757cdec50bc5d48cb69dee84426a062c2244c5",
+ "test_files": [
+  "test/test_filename.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-03T11:49:05.483Z"
+}

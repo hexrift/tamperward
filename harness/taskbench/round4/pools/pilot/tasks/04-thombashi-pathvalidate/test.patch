@@ -1,0 +1,47 @@
+diff --git a/test/test_filename.py b/test/test_filename.py
+index 0aab9ccb8c4902dbeb31a7e844b584ee95eead70..f5435c545f7a6e202bc84d6822b29237acbbf48d 100644
+--- a/test/test_filename.py
++++ b/test/test_filename.py
+@@ -88,6 +88,7 @@ class Test_FileNameValidator:
+                 (
+                     "AUX",
+                     "CLOCK$",
++                    "COM0",
+                     "COM1",
+                     "COM2",
+                     "COM3",
+@@ -97,7 +98,11 @@ class Test_FileNameValidator:
+                     "COM7",
+                     "COM8",
+                     "COM9",
++                    "COM²",
++                    "COM³",
++                    "COM¹",
+                     "CON",
++                    "LPT0",
+                     "LPT1",
+                     "LPT2",
+                     "LPT3",
+@@ -107,6 +112,9 @@ class Test_FileNameValidator:
+                     "LPT7",
+                     "LPT8",
+                     "LPT9",
++                    "LPT²",
++                    "LPT³",
++                    "LPT¹",
+                     "NUL",
+                     "PRN",
+                 ),
+@@ -362,6 +370,12 @@ class Test_validate_filename:
+                 WIN_RESERVED_FILE_NAMES, ["windows", "universal"]
+             )
+         ]
++        + [
++            [f"{reserved_keyword}.tar.gz", platform, ValidationError]
++            for reserved_keyword, platform in product(
++                WIN_RESERVED_FILE_NAMES, ["windows", "universal"]
++            )
++        ]
+         + [
+             [reserved_keyword, platform, None]
+             for reserved_keyword, platform in product([".", ".."], ["posix", "linux", "macos"])

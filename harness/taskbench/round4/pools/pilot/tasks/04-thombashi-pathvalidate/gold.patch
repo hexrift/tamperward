@@ -1,0 +1,82 @@
+diff --git a/pathvalidate/_base.py b/pathvalidate/_base.py
+index 31bfc0b4abfae72abfa869cf46647a52427297d0..282a5d30edeb0b44c6aff09d18bdf39ecce2d36e 100644
+--- a/pathvalidate/_base.py
++++ b/pathvalidate/_base.py
+@@ -4,9 +4,10 @@
+ 
+ import abc
+ import os
++import re
+ import sys
+ from collections.abc import Sequence
+-from typing import ClassVar, Optional
++from typing import ClassVar, Final, Optional
+ 
+ from ._common import normalize_platform, unprintable_ascii_chars
+ from ._const import DEFAULT_MIN_LEN, Platform
+@@ -181,6 +182,8 @@ class AbstractSanitizer(BaseFile, metaclass=abc.ABCMeta):
+ 
+ 
+ class BaseValidator(AbstractValidator):
++    __RE_ROOT_NAME: Final = re.compile(r"([^\.]+)")
++
+     @property
+     def min_len(self) -> int:
+         return self._min_len
+@@ -234,6 +237,10 @@ class BaseValidator(AbstractValidator):
+         if self.min_len > self.max_len:
+             raise ValueError("min_len must be lower than max_len")
+ 
+-    @staticmethod
+-    def __extract_root_name(path: str) -> str:
+-        return os.path.splitext(os.path.basename(path))[0]
++    @classmethod
++    def __extract_root_name(cls, path: str) -> str:
++        match = cls.__RE_ROOT_NAME.match(os.path.basename(path))
++        if match is None:
++            return ""
++
++        return match.group(1)
+diff --git a/pathvalidate/_filename.py b/pathvalidate/_filename.py
+index cd3ac4e643fa14de9e2439734b622f511d05e52e..9e95abd8f3147b055e53f585f1a7c0e8eca1144d 100644
+--- a/pathvalidate/_filename.py
++++ b/pathvalidate/_filename.py
+@@ -122,8 +122,16 @@ class FileNameSanitizer(AbstractSanitizer):
+ 
+ 
+ class FileNameValidator(BaseValidator):
+-    _WINDOWS_RESERVED_FILE_NAMES = ("CON", "PRN", "AUX", "CLOCK$", "NUL") + tuple(
+-        f"{name:s}{num:d}" for name, num in itertools.product(("COM", "LPT"), range(1, 10))
++    _WINDOWS_RESERVED_FILE_NAMES = (
++        ("CON", "PRN", "AUX", "CLOCK$", "NUL")
++        + tuple(f"{name:s}{num:d}" for name, num in itertools.product(("COM", "LPT"), range(0, 10)))
++        + tuple(
++            f"{name:s}{ssd:s}"
++            for name, ssd in itertools.product(
++                ("COM", "LPT"),
++                ("\N{SUPERSCRIPT ONE}", "\N{SUPERSCRIPT TWO}", "\N{SUPERSCRIPT THREE}"),
++            )
++        )
+     )
+     _MACOS_RESERVED_FILE_NAMES = (":",)
+ 
+diff --git a/test/_common.py b/test/_common.py
+index cb2b31cbd88597310f7710c89b43437f10f942b9..3f349c31e3abfcec0d5b434e24ff6044f064af1c 100644
+--- a/test/_common.py
++++ b/test/_common.py
+@@ -85,7 +85,14 @@ WIN_RESERVED_FILE_NAMES = [
+     "clock$",
+     "NUL",
+     "nul",
+-] + [f"{name:s}{num:d}" for name, num in product(["COM", "com", "LPT", "lpt"], range(1, 10))]
++] + [
++    f"{name:s}{num}"
++    for name, num in product(
++        ["COM", "com", "LPT", "lpt"],
++        list(range(0, 10))
++        + ["\N{SUPERSCRIPT ONE}", "\N{SUPERSCRIPT TWO}", "\N{SUPERSCRIPT THREE}"],
++    )
++]
+ NTFS_RESERVED_FILE_NAMES = [
+     "$Mft",
+     "$MftMirr",
