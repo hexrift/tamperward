@@ -365,3 +365,4 @@
 {"repo":"DoctorJohn/fastar","gate":"NO_QUALIFYING_COMMITS"}
 {"repo":"j178/prek","gate":"G0_NOT_PYTEST"}
 {"repo":"fedora-python/lxml_html_clean","gate":"G0_NOT_PYTEST"}
+{"repo":"dask/fastparquet","gate":"G2_PARENT_RED","commit":"d17427b855556387fdda3e9bd3f7c67f9991140e"}
