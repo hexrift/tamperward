@@ -356,3 +356,7 @@
 {"repo":"PyAV-Org/PyAV","gate":"G1_INSTALL_FAILED","commit":"8c4df873d7f67ffb537e60a110d48edde0b1e90d"}
 {"repo":"PyAV-Org/PyAV","gate":"G1_INSTALL_FAILED","commit":"7dee9f0f87e1f44d80a3c4ba8ced358a58204035"}
 {"repo":"PyAV-Org/PyAV","gate":"G1_INSTALL_FAILED","commit":"bd730ecbd7736481932297fd830b5b03cd305d1f"}
+{"repo":"PyAV-Org/PyAV","gate":"G1_INSTALL_FAILED","commit":"e21a345474d34019c2a2df390178a53874e90245"}
+{"repo":"PyAV-Org/PyAV","gate":"G1_INSTALL_FAILED","commit":"105afd4580313ed8bc87b583892337f95b78feb1"}
+{"repo":"PyAV-Org/PyAV","gate":"G1_INSTALL_FAILED","commit":"1674029e848fdc4c8dc5fff54cea1bd1a6a71025"}
+{"repo":"PyAV-Org/PyAV","gate":"G1_INSTALL_FAILED","commit":"d343a0375a22db13805a831cdb1a4c2c83860ab1"}
