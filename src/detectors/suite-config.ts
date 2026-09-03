@@ -176,10 +176,45 @@ export function runnerOf(path: string, content?: string | null): Runner | null {
  * of this module. Silence costs a late finding; a guess costs a wrong one, and the
  * pristine boundary still refuses to inherit the file either way.
  */
+export const PYTEST_INI_ORDER = ['pytest.ini', '.pytest.ini', 'pyproject.toml', 'tox.ini', 'setup.cfg'] as const;
+
+/**
+ * Whether this file CLAIMS the inifile slot. `pytest.ini` and `.pytest.ini` claim it
+ * unconditionally — pytest opens them even when empty, which is exactly why an added
+ * empty one shadows a broader `setup.cfg`. The shared files claim it only when they
+ * carry THEIR OWN pytest section: `[tool.pytest.ini_options]` in pyproject.toml,
+ * `[pytest]` in tox.ini, `[tool:pytest]` in setup.cfg. Accepting any of the three
+ * spellings in any of the three files would hand precedence to a `pyproject.toml`
+ * that merely mentions pytest as a dependency.
+ */
+export function claimsPytest(name: string, src: string): boolean {
+  if (name === 'pytest.ini' || name === '.pytest.ini') return true;
+  const section =
+    name === 'pyproject.toml' ? /^\s*\[tool\.pytest\.ini_options\]\s*$/m
+    : name === 'tox.ini' ? /^\s*\[pytest\]\s*$/m
+    : name === 'setup.cfg' ? /^\s*\[tool:pytest\]\s*$/m
+    : null;
+  return section !== null && section.test(src);
+}
+
+/**
+ * The ONE file pytest would open, given every root config and its content. `null`
+ * when nothing claims the slot (pytest then applies its defaults, which are broader
+ * than any narrowing — so losing the inifile is never a narrowing).
+ */
+export function effectivePytestFile(files: Map<string, string | null>): { path: string; content: string } | null {
+  for (const name of PYTEST_INI_ORDER) {
+    const content = files.get(name);
+    if (content == null) continue;
+    if (claimsPytest(name, content)) return { path: name, content };
+  }
+  return null;
+}
+
 export function effectivePytestConfig(path: string, ctx?: { trackedFiles?: string[] }): boolean {
   if (path.includes('/')) return false; // nested: not the rootdir config
   const base = path;
-  const ORDER = ['pytest.ini', '.pytest.ini', 'pyproject.toml', 'tox.ini', 'setup.cfg'];
+  const ORDER = PYTEST_INI_ORDER as readonly string[];
   const rank = ORDER.indexOf(base);
   if (rank < 0) return false;
   const files = ctx?.trackedFiles;
@@ -241,7 +276,17 @@ function pytestSelection(src: string): Selection {
   const blk = pytestBlock(src);
   if (!blk) return sel;
   sel.present = true;
-  const ignore: IgnoreEntry[] = [];
+  // pytest's ignore set is NOT one list. `norecursedirs` REPLACES the built-in dir
+  // skips; `--ignore`, `--ignore-glob`, `--deselect`, `-k` and `-m` are ADDITIVE on
+  // top of whatever norecursedirs is in force. Seeding the additive entries into an
+  // empty list dropped the built-in skips, so a config carrying only
+  // `addopts = -k "not slow"` was modelled as collecting `build/**` — which made a
+  // later config that merely restores the defaults look like a NARROWING. That is a
+  // false positive, and a false positive lands in the gated arm alone.
+  const ignore: IgnoreEntry[] =
+    blk.norecursedirs !== undefined
+      ? pytestTokens(blk.norecursedirs).flatMap((d) => pathGlobs(d).map((pattern) => ({ pattern, key: 'norecursedirs' })))
+      : PYTEST_DEFAULT_IGNORE.map((pattern) => ({ pattern, key: 'norecursedirs' }));
   if (blk.testpaths !== undefined) sel.roots = pytestTokens(blk.testpaths).map((t) => t.replace(/^\.\//, ''));
   if (blk.python_files !== undefined) sel.include = pytestTokens(blk.python_files).map((g) => (g.includes('/') ? g : '**/' + g));
   for (const key of ['python_classes', 'python_functions'] as const) {
@@ -249,8 +294,6 @@ function pytestSelection(src: string): Selection {
     // is still collected, so they are recorded as a selection change on the block
     if (blk[key] !== undefined) ignore.push({ pattern: '\u0000' + key, key });
   }
-  if (blk.norecursedirs !== undefined)
-    for (const d of pytestTokens(blk.norecursedirs)) ignore.push(...pathGlobs(d).map((pattern) => ({ pattern, key: 'norecursedirs' })));
   const opts = blk.addopts !== undefined ? pytestTokens(blk.addopts) : [];
   for (let j = 0; j < opts.length; j++) {
     const o = opts[j];
@@ -277,7 +320,9 @@ function pytestSelection(src: string): Selection {
       ignore.push({ pattern: '\u0000-m ' + val(''), key: '-m' });
     } else if (o === '--collect-only' || o === '--co') ignore.push({ pattern: '**', key: o });
   }
-  if (ignore.length) sel.ignore = ignore;
+  // Always recorded now: the list already carries the built-in skips (or the
+  // replacement for them), so "unset" and "set to the defaults" are the same thing.
+  sel.ignore = ignore;
   return sel;
 }
 

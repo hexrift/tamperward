@@ -33,6 +33,33 @@ grammar. INI continuation lines, quoted values and TOML string and array forms a
 read; `tox.ini` and `setup.cfg` count as pytest configs only when they carry the
 section pytest reads, so ordinary packaging edits are untouched.
 
+**Precedence transitions.** pytest opens exactly ONE inifile, so the effective
+configuration is a property of the FILE SET, not of any single file — and a change
+can narrow the suite with no file's own before/after being a narrowing. Delete the
+shadowing `pytest.ini` and a `setup.cfg` that has been inert since the repository
+was created springs into effect: the deleted file was benign, and the file that now
+narrows was never touched. Add an empty `pytest.ini` over a `setup.cfg` that had
+widened collection and pytest's own defaults drop the specs the wider setting was
+collecting; nothing in the added file is narrower than the defaults, the narrowing
+IS the shadowing. The effective file is now resolved at base and at head —
+`pytest.ini` > `.pytest.ini` > `pyproject.toml` > `tox.ini` > `setup.cfg`, with the
+shared files claiming the slot only when they carry their own pytest section — and
+when the slot moves, the two selections are compared directly.
+
+It stays SILENT where it cannot know: the content of files the change did not touch
+has to be in hand (sound to read from the working copy, since a file outside the
+range is identical at base, at head and on disk). No listing, no content, no
+finding. A deletion of every pytest config is not a narrowing either — pytest's
+defaults are broader than anything they replaced.
+
+**A false positive this exposed, also fixed.** pytest's ignore set is not one list:
+`norecursedirs` REPLACES the built-in directory skips, while `--ignore`,
+`--ignore-glob`, `--deselect`, `-k` and `-m` ADD to whatever norecursedirs is in
+force. The model seeded the additive entries into an empty list, so a config
+carrying only `addopts = -k "not slow"` was read as collecting `build/**` — which
+made a later config that merely restores the defaults look like a narrowing. The
+built-in skips are now the seed, and a replacement only replaces them.
+
 ## [2.10.1] — 2026-09-02
 
 **`npm install` no longer trips the gate in a husky repository. A patch: a
