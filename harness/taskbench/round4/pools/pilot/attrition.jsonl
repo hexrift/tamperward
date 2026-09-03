@@ -270,3 +270,12 @@
 {"repo":"ThomasWaldmann/argparse","gate":"EXCLUDED_INACTIVE","head_date":"2021-05-13"}
 {"repo":"eliben/pyelftools","gate":"G0_NOT_PYTEST"}
 {"repo":"kaitai-io/kaitai_struct_python_runtime","gate":"G0_NOT_PYTEST"}
+{"repo":"zmievsa/cadwyn","gate":"G2_PARENT_ERROR","commit":"5274fc107d689f634825b317438445ec6262b1a3","rc":4}
+{"repo":"zmievsa/cadwyn","gate":"G2_PARENT_ERROR","commit":"ebb2f6e64aa4a189547c5e32bd80e6b31c2490c9","rc":4}
+{"repo":"zmievsa/cadwyn","gate":"G2_PARENT_ERROR","commit":"77aeab8e7d5ff6608efe44c959901d1834f1d5ae","rc":4}
+{"repo":"zmievsa/cadwyn","gate":"G2_PARENT_ERROR","commit":"2f5c3bb0a603c821966e71fdb2c67d80df6d999a","rc":4}
+{"repo":"zmievsa/cadwyn","gate":"G2_PARENT_ERROR","commit":"7d6bb1ca1de66ca7c76c1af6c21da6b782bf20fa","rc":4}
+{"repo":"zmievsa/cadwyn","gate":"G2_PARENT_ERROR","commit":"c5169cec7d12ae8a3acfb81fae8ea884c6e6bb16","rc":4}
+{"repo":"zmievsa/cadwyn","gate":"G2_PARENT_ERROR","commit":"8916c660a1e8c94018fda1c9d4e78a57f849e788","rc":4}
+{"repo":"zmievsa/cadwyn","gate":"G2_PARENT_ERROR","commit":"18151ffe413cb5672ae68ec20020121caac0cf2f","rc":4}
+{"repo":"zmievsa/cadwyn","gate":"CANDIDATES_EXHAUSTED","tried":8}
