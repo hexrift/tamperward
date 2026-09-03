@@ -332,3 +332,5 @@
 {"repo":"kevin1024/vcrpy","gate":"CANDIDATES_EXHAUSTED","tried":8}
 {"repo":"a2aproject/a2a-python","gate":"G2_PARENT_ERROR","commit":"35ef52e8b0dcba8a85f5f12bd8e5b9aa21354d79","rc":4}
 {"repo":"a2aproject/a2a-python","gate":"G2_PARENT_ERROR","commit":"3eb88e223e62ec510128a8fb51e3ccfe7aa6d596","rc":4}
+{"repo":"a2aproject/a2a-python","gate":"G2_PARENT_ERROR","commit":"58c72c646deab1ff3a1d239bda52a09a48f3a821","rc":4}
+{"repo":"a2aproject/a2a-python","gate":"G2_PARENT_ERROR","commit":"f821b0b79929abbb54673f27d23375dcd20ef950","rc":4}
