@@ -1,0 +1,84 @@
+diff --git a/docs/changes.rst b/docs/changes.rst
+index b0c281d7bb8dd69c32c8dfcae3a7164d6bb4011e..25aa6ce7402654f5b814a270b15956bbd63d88df 100644
+--- a/docs/changes.rst
++++ b/docs/changes.rst
+@@ -20,6 +20,7 @@ Unreleased
+ - Add ``apply_exemptions`` parameter to
+   :meth:`~flask_wtf.csrf.CSRFProtect.protect` so ``@csrf.exempt`` keeps working
+   when validation is triggered manually. :pr:`419`
++- Add ``RECAPTCHA_ENABLED`` setting. :pr:`509`
+ 
+ Version 1.2.2
+ -------------
+diff --git a/docs/config.rst b/docs/config.rst
+index 9c7282c765b604a016d4dcc0d40dacd2a7d0d03c..1ecd20fca7dc826eb4f0b4152c6ef9de4a41ce02 100644
+--- a/docs/config.rst
++++ b/docs/config.rst
+@@ -43,6 +43,9 @@ Recaptcha
+ ``RECAPTCHA_PUBLIC_KEY``    **required** A public key.
+ ``RECAPTCHA_PRIVATE_KEY``   **required** A private key.
+                             https://www.google.com/recaptcha/admin
++``RECAPTCHA_ENABLED``       Set to ``False`` to disable recaptcha widgets
++                            and always validate recaptcha fields as
++                            valid. Default is ``True``.
+ ``RECAPTCHA_PARAMETERS``    **optional** A dict of configuration options.
+ ``RECAPTCHA_HTML``          **optional** Override default HTML template
+                             for Recaptcha.
+diff --git a/docs/form.rst b/docs/form.rst
+index ab2b6ca081456c8aa0df2b398694088e13ea3d9b..17f31785625edced09e6e8e33d8d67e7ddff764e 100644
+--- a/docs/form.rst
++++ b/docs/form.rst
+@@ -171,6 +171,11 @@ Example of RECAPTCHA_PARAMETERS, and RECAPTCHA_DATA_ATTRS::
+ For your convenience, when testing your application, if ``app.testing`` is ``True``, the recaptcha
+ field will always be valid.
+ 
++In development environment or when you are offline you can disable all
++recaptcha fields::
++
++    RECAPTCHA_ENABLED = False
++
+ If your site uses a nonce-based Content Security Policy, pass a ``nonce``
+ to :class:`RecaptchaField` so the generated ``<script>`` tag carries the
+ matching ``nonce`` attribute. Because the nonce typically changes on every
+diff --git a/src/flask_wtf/recaptcha/validators.py b/src/flask_wtf/recaptcha/validators.py
+index 48ca36699f484aa914d0ef130aeec028bee6687c..0df967347d91cbcc0cbb402d2681d5f243eec2cf 100644
+--- a/src/flask_wtf/recaptcha/validators.py
++++ b/src/flask_wtf/recaptcha/validators.py
+@@ -22,8 +22,13 @@ class Recaptcha:
+     """Validates a ReCaptcha.
+ 
+     Verification is skipped and the field is considered valid whenever
+-    ``current_app.testing`` is ``True``, so tests don't need a real
++    ``current_app.testing`` is ``True`` or ``RECAPTCHA_ENABLED`` is
++    ``False``, so tests and offline development don't need a real
+     reCAPTCHA token.
++
++    .. versionchanged:: 1.3.0
++        Verification is also skipped when ``RECAPTCHA_ENABLED`` is
++        ``False``.
+     """
+ 
+     def __init__(self, message=None):
+@@ -32,7 +37,7 @@ class Recaptcha:
+         self.message = message
+ 
+     def __call__(self, form, field):
+-        if current_app.testing:
++        if current_app.testing or not current_app.config.get("RECAPTCHA_ENABLED", True):
+             return True
+ 
+         if request.is_json:
+diff --git a/src/flask_wtf/recaptcha/widgets.py b/src/flask_wtf/recaptcha/widgets.py
+index 7ba93c8b9c27ea7cd2883381002de78f2a91376f..752e76591af135b84fee887f3a25cb8d6e0ed378 100644
+--- a/src/flask_wtf/recaptcha/widgets.py
++++ b/src/flask_wtf/recaptcha/widgets.py
+@@ -46,6 +46,9 @@ class RecaptchaWidget:
+     def __call__(self, field, error=None, **kwargs):
+         """Returns the recaptcha input HTML."""
+ 
++        if not current_app.config.get("RECAPTCHA_ENABLED", True):
++            return Markup("<!-- recaptcha disabled -->")
++
+         try:
+             public_key = current_app.config["RECAPTCHA_PUBLIC_KEY"]
+         except KeyError:

@@ -8,3 +8,6 @@
 {"repo":"bigcat88/pillow_heif","gate":"G1_INSTALL_FAILED","commit":"4366788c5eff15cf3d3c66d262224dac27f8efc4"}
 {"repo":"bigcat88/pillow_heif","gate":"G1_INSTALL_FAILED","commit":"16f5e2820d43ccaa5534d96120c73bfb72e45fa2"}
 {"repo":"bigcat88/pillow_heif","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"gradio-app/gradio","gate":"G0_NO_TESTS"}
+{"repo":"semgrep/semgrep","gate":"G0_NOT_PYTEST"}
+{"repo":"stevesimmons/uuid7","gate":"EXCLUDED_INACTIVE","head_date":"2025-02-08"}
