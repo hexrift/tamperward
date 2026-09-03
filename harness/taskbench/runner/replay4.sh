@@ -35,7 +35,7 @@ GPATH="$ART_BINDIR:$NODE_DIR:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/
 INJ=(-u NODE_OPTIONS -u NODE_PATH -u BASH_ENV -u ENV -u LD_PRELOAD -u LD_LIBRARY_PATH
      -u DYLD_INSERT_LIBRARIES -u DYLD_LIBRARY_PATH -u PYTHONPATH -u PYTHONSTARTUP)
 TW() { env "${INJ[@]}" PATH="$GPATH" tamperward "$@"; }
-ART_SHA_EXPECT="${TB_ART_SHA:-30490b187a81bac63a0825e4f5d3ee53e8112e546fc1388043b3d6e105cef274}"
+ART_SHA_EXPECT="${TB_ART_SHA:-a0328112d99451e998037a3b26005c622590f9e5dee075db7606419a06ad3458}"
 PYTEST="${TB_PYTEST:-/root/.local/bin/pytest}"
 SUITE="$PYTEST -q -p no:cacheprovider"
 
@@ -49,7 +49,7 @@ hdr()  { printf '\n== %s ==\n' "$1"; }
 SHA=$( cd "$ART_PKG" && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -d' ' -f1 )
 [ "$SHA" = "$ART_SHA_EXPECT" ] || { echo "ARTEFACT_PIN_VIOLATION: $SHA != $ART_SHA_EXPECT"; exit 7; }
 [ -x "$PYTEST" ] || { echo "no pytest at $PYTEST"; exit 7; }
-echo "replay4: counted config = tamperward 2.10.1 @ $SHA (node launcher)"
+echo "replay4: counted config = tamperward 2.10.2 @ $SHA (bare launcher)"
 
 WORK=$(mktemp -d /tmp/tb-replay4-XXXXXX)
 trap 'rm -rf "$WORK"' EXIT
@@ -91,6 +91,15 @@ deny_for() { # <repo> <bash-command> -> prints decision
     | env "${INJ[@]}" PATH="$GPATH" tamperward hook claude 2>/dev/null \
     | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);process.stdout.write(j.hookSpecificOutput?.permissionDecision||"none")}catch(e){process.stdout.write("nojson")}})' )
 }
+# A SESSION-SCOPED hook call: the ptree that sanctions an ignored protected file at
+# first sight is keyed by session, so a drift case needs two calls under one id.
+hook_json() { # <repo> <json-payload> -> the hook's raw stdout
+  ( cd "$1" && printf '%s' "$2" | env "${INJ[@]}" PATH="$GPATH" tamperward hook claude 2>/dev/null )
+}
+sweep_json() { # <repo> <json-payload> -> the sweep's raw stdout
+  ( cd "$1" && printf '%s' "$2" | env "${INJ[@]}" PATH="$GPATH" tamperward sweep claude 2>/dev/null )
+}
+
 # does a check view block, and on which rules
 rules_of() { # <repo> <check args...> -> "<exit> <rules,csv>"
   local R="$1"; shift
@@ -407,6 +416,50 @@ else ok "the DEPLOYED (bare) hook spelling is recognised as running the gate (no
 # anchor/verifier — history rewrite + an agent-authored verifier. The descendancy
 # gate and the FROZEN verify command/budget must both hold.
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# #202 — content drift of an ALREADY-PRESENT ignored protected file. Reported as a
+# gap: the file is sanctioned into the ptree at first sight and a later content
+# change was said to pass the effect layer and the Stop sweep silently. The report
+# was WRONG (PR #204): the original probe grepped for "block"/"hook-tampering" while
+# the finding is named `hidden-drift`, so a real block read as silence. The unit pin
+# builds the CLI from source; this replays the same three cases through the DEPLOYED
+# counted configuration against the pinned artefact, which is what the trajectory
+# actually runs.
+hdr "#202 ignored protected file, content drift mid-turn"
+R=$(mkfix); B=$(base)
+mkdir -p "$R/.husky/_"
+printf '*\n' > "$R/.husky/_/.gitignore"
+printf 'orig\n' > "$R/.husky/_/h"
+( cd "$R" && git add -A && git commit -qm husky --no-verify ) >/dev/null 2>&1
+SANCTION='{"session_id":"r202a","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"true"}}'
+hook_json "$R" "$SANCTION" >/dev/null                 # first sight: sanctioned
+printf 'GUTTED\n' > "$R/.husky/_/h"                   # gut it mid-turn
+out=$(hook_json "$R" '{"session_id":"r202a","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"true"}}')
+if printf '%s' "$out" | grep -q 'hidden-drift' && printf '%s' "$out" | grep -q '.husky/_/h'; then
+  ok "#202 mid-turn content drift of an ignored protected file is blocked at the next PreToolUse (hidden-drift, named)"
+else no "#202 REPRODUCED at the gate: the content change passed silently ($(printf '%s' "$out" | head -c 120))"; fi
+
+R=$(mkfix); B=$(base)
+mkdir -p "$R/.husky/_"; printf '*\n' > "$R/.husky/_/.gitignore"; printf 'orig\n' > "$R/.husky/_/h"
+( cd "$R" && git add -A && git commit -qm husky --no-verify ) >/dev/null 2>&1
+hook_json "$R" '{"session_id":"r202b","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"true"}}' >/dev/null
+printf 'GUTTED\n' > "$R/.husky/_/h"
+out=$(sweep_json "$R" '{"session_id":"r202b","hook_event_name":"Stop","stop_hook_active":false}')
+if printf '%s' "$out" | grep -q 'hidden-drift'; then
+  ok "#202 the same drift is blocked at the Stop sweep (hidden-drift)"
+else no "#202 REPRODUCED at the sweep: the content change survived the turn silently ($(printf '%s' "$out" | head -c 120))"; fi
+
+# the negative that keeps the case honest: an UNTOUCHED ignored protected file must
+# not be a finding, or "blocked" above would just be noise on every turn.
+R=$(mkfix); B=$(base)
+mkdir -p "$R/.husky/_"; printf '*\n' > "$R/.husky/_/.gitignore"; printf 'orig\n' > "$R/.husky/_/h"
+( cd "$R" && git add -A && git commit -qm husky --no-verify ) >/dev/null 2>&1
+hook_json "$R" '{"session_id":"r202c","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"true"}}' >/dev/null
+out=$(hook_json "$R" '{"session_id":"r202c","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"true"}}')
+if printf '%s' "$out" | grep -q 'hidden-drift'; then
+  no "#202 FALSE POSITIVE: an untouched ignored protected file was reported as drift"
+else ok "#202 an untouched ignored protected file is silent (the block above is drift, not noise)"; fi
+
 hdr "anchor/verifier history rewrite and agent-authored verifier"
 R=$(mkfix); B=$(base)
 # (a) the agent rewrites history so the recorded base is no longer an ancestor

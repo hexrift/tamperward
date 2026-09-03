@@ -242,7 +242,7 @@ grep -q '^bash_env=CLEARED$' "$ROOT_TMP/probe-gated.txt" && ok "A2 BASH_ENV clea
 echo "== REQ A3: pinned artefact byte-identical before and after execution =="
 HB=$(jqr "$PG" .artefact_nm_sha256_before); HA=$(jqr "$VG" .artefact_nm_sha256)
 [ -n "$HB" ] && [ "$HB" = "$HA" ] && ok "A3 artefact node_modules hash unchanged across the run" || no "A3 artefact hash changed/absent (before=$HB after=$HA)"
-[ "$(jqr "$PG" .artefact_pkg_sha256)" = "30490b187a81bac63a0825e4f5d3ee53e8112e546fc1388043b3d6e105cef274" ] \
+[ "$(jqr "$PG" .artefact_pkg_sha256)" = "a0328112d99451e998037a3b26005c622590f9e5dee075db7606419a06ad3458" ] \
   && ok "A3 package tree hash equals the frozen pin" || no "A3 package hash != pin"
 
 # ---- A4 / O5 raw state captured before intent-to-add; independent copies ----

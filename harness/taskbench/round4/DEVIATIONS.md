@@ -1645,3 +1645,51 @@ tree and reports the count outside the tree. **Pre-fix the three runs reported 0
 each run gets its own tree built from that snapshot. Post-fix every run reports 0.
 Snapshotting first is also the more faithful reading of "the agent's final tree": it
 is the state the agent left, not the state the adjudicator's own first run left.
+
+## Artefact repin — 2.10.2 rebuilt with the precedence work, and #202 replayed
+
+`npm pack` → install → the packed entrypoint was checked for the NEW symbols before
+anything was pinned (`inifile precedence`, `effectivePytestFile`, the finding text),
+because a previous repin shipped a stale `dist/` and produced a tarball
+byte-identical to the version it was meant to replace.
+
+Freeze identity moves:
+
+    30490b187a81bac63a0825e4f5d3ee53e8112e546fc1388043b3d6e105cef274   (previous)
+ -> a0328112d99451e998037a3b26005c622590f9e5dee075db7606419a06ad3458   (final 2.10.2)
+
+Repinned in the six harness scripts that assert it. The two historical evidence
+files keep the OLD hash on purpose: they record what was measured at the time.
+
+Proved end to end against the packed artefact BEFORE repinning, not merely in unit
+tests: deleting a shadowing `pytest.ini` over a narrowing `setup.cfg` BLOCKS, naming
+the transition and the dropped spec; deleting the INERT `setup.cfg` instead stays
+clean.
+
+**#202 replayed end to end (`replay4`).** The issue reported that content drift of an
+already-present IGNORED protected file passed the effect layer and the Stop sweep
+silently. It does not reproduce, and PR #204 established why: the original probe
+grepped for `block`/`hook-tampering` while the finding is named `hidden-drift`, so a
+real block read as silence. The unit pin builds the CLI from source; this replays
+all three cases through the DEPLOYED counted configuration against the pinned
+artefact — blocked at the next PreToolUse (named), blocked at the Stop sweep, and an
+UNTOUCHED ignored protected file stays silent, so the block is drift and not noise.
+
+**What the repin changed in the trace, and what it did not.** `narrowing-trace4` now
+reports `pristine=red` on the vectors that previously read `pristine=green`: those
+greens were the ADJUDICATOR being fooled by shared tree state, not the product. The
+`pre-tool=allow` column is unchanged and is honest — that probe sends a Bash shell
+redirect, whose resulting file content the gate cannot know; 2.10.2's early feedback
+lands on Edit/Write calls and the effect layer.
+
+**An overclaim of mine, corrected in the CHANGELOG rather than left standing.** The
+four `-k` vectors read `sweep=clean` because they deselect a test FUNCTION
+(`-k "not test_add"` against `tests/test_bug.py::test_add`) while the model convicts
+only when a whole FILE stops being selected. A `-k` term matching the file stem IS
+caught — verified directly. The 2.10.2 entry now states that scope instead of
+implying function-level detection.
+
+replay4 46/0 (was 43), launcher4 46/0, workspace4 18/0, smoke4 39/0,
+p2-characterise4 unchanged (6 reproduced open-backlog, 0 escapes), narrowing-trace4
+15 vectors + 2 benign controls, measurement-boundary4 35/0, cleanup-lifecycle4 77/0,
+verdict4-selftest 21/0, isolation-selftest4 13/0, observe3-selftest OK.

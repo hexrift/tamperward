@@ -15,7 +15,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ART_DIR="${TB_ART_DIR:-/opt/tw-artefact-2.10.2}"
 NM="$ART_DIR/node_modules"; PKG="$NM/tamperward"; BINDIR="$NM/.bin"
-ART_SHA_EXPECT="${TB_ART_SHA:-30490b187a81bac63a0825e4f5d3ee53e8112e546fc1388043b3d6e105cef274}"
+ART_SHA_EXPECT="${TB_ART_SHA:-a0328112d99451e998037a3b26005c622590f9e5dee075db7606419a06ad3458}"
 NODE_DIR="$(cd "$(dirname "$(command -v node)")" && pwd)"
 GPATH="$BINDIR:$NODE_DIR:/usr/local/bin:/usr/bin:/bin"
 INJ=(-u NODE_OPTIONS -u NODE_PATH -u BASH_ENV -u ENV -u LD_PRELOAD -u PYTHONPATH)

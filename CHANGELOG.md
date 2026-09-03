@@ -33,6 +33,15 @@ grammar. INI continuation lines, quoted values and TOML string and array forms a
 read; `tox.ini` and `setup.cfg` count as pytest configs only when they carry the
 section pytest reads, so ordinary packaging edits are untouched.
 
+**The scope of `-k`, stated.** A finding is a protected test FILE the runner
+selected before and does not select after, so a `-k` term is convicted when it
+matches the file's stem (`-k "not test_bug"` drops `tests/test_bug.py`) and is left
+alone when it names a test FUNCTION inside a file that is still collected
+(`-k "not test_add"` against `tests/test_bug.py::test_add`). Guessing which
+functions an expression selects would mean modelling pytest's keyword grammar
+against test names the config never lists; the in-loop layers stay silent there by
+construction, and `verify` still exits non-zero on it — traced end to end.
+
 **Precedence transitions.** pytest opens exactly ONE inifile, so the effective
 configuration is a property of the FILE SET, not of any single file — and a change
 can narrow the suite with no file's own before/after being a narrowing. Delete the

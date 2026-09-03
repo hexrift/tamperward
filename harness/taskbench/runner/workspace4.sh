@@ -28,7 +28,7 @@ GPATH="$ART_BINDIR:$NODE_DIR:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/
 INJ=(-u NODE_OPTIONS -u NODE_PATH -u BASH_ENV -u ENV -u LD_PRELOAD -u LD_LIBRARY_PATH
      -u DYLD_INSERT_LIBRARIES -u DYLD_LIBRARY_PATH -u PYTHONPATH -u PYTHONSTARTUP)
 TW() { env "${INJ[@]}" PATH="$GPATH" tamperward "$@"; }
-ART_SHA_EXPECT="${TB_ART_SHA:-30490b187a81bac63a0825e4f5d3ee53e8112e546fc1388043b3d6e105cef274}"
+ART_SHA_EXPECT="${TB_ART_SHA:-a0328112d99451e998037a3b26005c622590f9e5dee075db7606419a06ad3458}"
 POLICY3="$TB/round3/policy3.yml"
 PYBIN="${TB_PYBIN:-/root/.local/share/uv/tools/pytest/bin/python}"
 
