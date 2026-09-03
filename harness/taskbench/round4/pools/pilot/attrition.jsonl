@@ -536,3 +536,6 @@
 {"repo":"package-url/packageurl-python","gate":"G2_PARENT_RED","commit":"c127000ede8f7a4989888abb662320c01a615e83"}
 {"repo":"package-url/packageurl-python","gate":"G2_PARENT_RED","commit":"48dee0d0b8f8c4995cd45bf44432ff27c500bb6b"}
 {"repo":"package-url/packageurl-python","gate":"G2_PARENT_RED","commit":"eafd33a0fe3ef7a1123fc7f7946aa34c9c74aeee"}
+{"repo":"package-url/packageurl-python","gate":"G2_PARENT_RED","commit":"d563792b2409d3c2e8bd81f553ebfde82dabb79d"}
+{"repo":"package-url/packageurl-python","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"google/oauth2client","gate":"EXCLUDED_INACTIVE","head_date":"2018-09-07"}
