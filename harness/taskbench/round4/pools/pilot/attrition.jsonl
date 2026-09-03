@@ -606,3 +606,7 @@
 {"repo":"pyserial/pyserial","gate":"G5_COMMIT_RED","commit":"1b45b5bfb11175118779e89c9735f96fb4701dc8","rc":1}
 {"repo":"pyserial/pyserial","gate":"G3_NOT_RED","commit":"73db659d987e55121cb14ea36ca879dc299c72e9","rc":0}
 {"repo":"pyserial/pyserial","gate":"G5_COMMIT_RED","commit":"ce7974249a8bb7c76d80ff3544d3ab335f14a411","rc":1}
+{"repo":"pyserial/pyserial","gate":"TASK_VALIDATED","commit":"3d394eac78547475ff11f67118851d7a92870dc6","candidate":6}
+{"repo":"timofurrer/colorful","gate":"G0_NOT_PYTEST"}
+{"repo":"tomasbasham/ratelimit","gate":"EXCLUDED_INACTIVE","head_date":"2025-05-31"}
+{"repo":"twilio/twilio-python","gate":"G0_NOT_PYTEST"}

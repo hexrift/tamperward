@@ -1,0 +1,20 @@
+{
+ "id": "12-pyserial-pyserial",
+ "repo": "pyserial/pyserial",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "5fb3bc6b52376289990f47fb4f293a0332363d31",
+ "commit_sha": "3d394eac78547475ff11f67118851d7a92870dc6",
+ "test_patch_sha256": "e979d01f5c59cd9b246287690504126286c95977893fb71cb73f0b076aa6ff84",
+ "gold_patch_sha256": "ba14ccd153762e5e6b36c6785045e786ff6e39c7f1cc76f8a3ffbc9b00cf76f5",
+ "test_files": [
+  "test/handlers/protocol_test.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-03T23:56:01.195Z"
+}
