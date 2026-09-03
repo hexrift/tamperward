@@ -166,6 +166,34 @@ teardown_net() {
   return 0
 }
 
+# ---- seal helpers + THE ONE COMPOSED CLEANUP HANDLER -------------------------
+# bash keeps only the LAST `trap … EXIT`. A second install anywhere below would
+# silently discard every obligation registered before it — which is exactly how the
+# seal handler once disabled network teardown. So there is ONE handler, it owns
+# every obligation, and runner/cleanup-lifecycle4.sh pins that (with a positive
+# control proving the clobber is real).
+#
+# Verified rather than assumed, so neither is guarded here: bash DOES run the EXIT
+# trap on TERM/INT/HUP, and the script's exit status IS preserved even when the
+# trap's last command fails.
+append_only() { chattr +a "$1" 2>/dev/null || echo "[run-task4] WARNING append-only unsupported for $1 — temporal evidence is erasable" >&2; }
+release_append_only() { [ -n "${1:-}" ] && chattr -a "$1" 2>/dev/null; return 0; }
+
+TB_CLEANED=0
+cleanup() {
+  local st=$?
+  trap - EXIT                      # never re-enter
+  [ "${TB_CLEANED:-0}" = 1 ] && return "$st"
+  TB_CLEANED=1
+  teardown_net                                     # proxy process + net namespace
+  # unseal BEFORE removing, or the workdir cannot be deleted
+  [ -n "${OBS:-}" ] && release_append_only "$OBS/tree.log"
+  release_append_only "${DENYLOG:-}"
+  [ -n "${W:-}" ] && rm -rf "$W" 2>/dev/null
+  [ -n "${CTRL:-}" ] && rm -rf "$CTRL" 2>/dev/null
+  return "$st"
+}
+
 # ---- TRAJECTORY-START NETWORK BOUNDARY (H2, corrected) ------------------
 # Everything above the call to this function is infrastructure and cannot
 # produce a verdict. This is the LAST thing that happens before the agent is
@@ -240,7 +268,7 @@ start_agent_network() {
 if [ "${1:-}" = "--netcheck" ]; then
   W=$(mktemp -d /tmp/tb31-netcheck-XXXXXX); TAG="netcheck"
   NETLOG="$W/net-denied.log"; touch "$NETLOG"
-  trap 'teardown_net; rm -rf "$W" "${CTRL:-}"' EXIT
+  trap cleanup EXIT
   start_agent_network; nrc=$?
   [ "$nrc" -eq 0 ] && { echo "NETCHECK_OK upstream=$(redact "$UPSTREAM")"; exit 0; }
   [ "$nrc" -eq 9 ] && exit 9
@@ -291,6 +319,10 @@ CTRL=$(mktemp -d /tmp/tb31-ctrl-XXXXXX); chmod 700 "$CTRL"
 REPODIR="$W/repo"; ORACLE="$CTRL/oracle"; OBS="$W/obs"; VENV="$W/venv"
 mkdir -p "$ORACLE" "$OBS"
 TAG="${ID}-${ARM}$([ -n "$SMOKE" ] && echo -smoke)"
+# Installed here: after the workdir, control dir and observer dir exist, and before
+# anything that must be released (the append-only seal below). Every exit path from
+# this point is covered by exactly one handler.
+trap cleanup EXIT
 # Scrub every harness internal from the agent's environment. TB_RUNS names the
 # verdict ledger, TB_TASKS the task pool with its gold patches, TB_VENV the
 # workspace. This removes the pointers, and with the oracle relocated there is
@@ -444,8 +476,6 @@ DENYLOG="$W/denylog"; : > "$DENYLOG"   # gated arm writes here via TAMPERWARD_DE
 # RESIDUAL, disclosed: APPENDING well-formed lines is still possible. That can add
 # apparent activity but cannot remove recorded history, and the parent-written
 # baseline is line 1 and is now unerasable.
-append_only() { chattr +a "$1" 2>/dev/null || echo "[run-task4] WARNING append-only unsupported for $1 — temporal evidence is erasable" >&2; }
-release_append_only() { chattr -a "$1" 2>/dev/null || true; }
 
 if [ "$ARM" = "gated" ]; then
   # The canonical counted gated deployment lives in deploy-gated4.sh so that the
@@ -516,10 +546,6 @@ fi
 # ---- TRAJECTORY-START BOUNDARY ----
 # Nothing below this line may be reached without a proven agent network path.
 NETLOG="$W/net-denied.log"; touch "$NETLOG"
-# One EXIT trap only: an earlier revision installed a second one for the seal and
-# silently clobbered the network teardown. Release the append-only attribute here
-# too, or the workdir cannot be cleaned up afterwards.
-trap 'teardown_net; release_append_only "$OBS/tree.log"; release_append_only "$DENYLOG"' EXIT
 start_agent_network; snrc=$?
 [ "$snrc" -eq 9 ] && exit 9
 [ "$snrc" -eq 0 ] || exit 8
@@ -774,4 +800,4 @@ cp "$NETLOG" "$RUNS/$TAG-netlog.txt" 2>/dev/null || true
 cp "$DENYLOG" "$RUNS/$TAG-denylog.txt" 2>/dev/null || true
 cp "$ENV_REPORT" "$RUNS/$TAG-envelope.json" 2>/dev/null || true
 cp "$STARTED" "$RUNS/$TAG-provenance.json" 2>/dev/null || true
-rm -rf "$W" "$CTRL"
+# $W and $CTRL are removed by the single cleanup handler, on this and every path.
