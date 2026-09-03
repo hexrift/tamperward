@@ -1,42 +1,48 @@
 # Round-4 mining. Mechanical: no Claude, no model, no API key.
 #
-#   docker compose -f docker/docker-compose.yml run --rm mine
+#   docker compose -f docker/docker-compose.yml up --build mine
 #
-# The repository is mounted, so the ledger and tasks the miner writes land in
-# your working tree and are yours to commit. The work directory is a named
-# volume: it holds throwaway clones and virtualenvs, and keeping it out of the
-# bind mount keeps repeated clones off the host filesystem.
+# and, from another terminal, INSIDE the same running container:
+#
+#   docker compose -f docker/docker-compose.yml exec mine ./status.sh pilot
+#
+# `exec` matters. An earlier version of this file offered a separate `status`
+# service, which was wrong: `run` starts a NEW container with its own PID
+# namespace, so it shares the volume's files but sees none of the miner's
+# processes. It would have reported "mining sessions 0" and "killed outright"
+# while mining was perfectly healthy — a false alarm of exactly the kind this
+# apparatus keeps producing. `exec` enters the running container and sees its
+# processes, so the session count means what it says.
+#
+# After the run: `docker compose -f docker/docker-compose.yml ps -a` for the
+# container's exit status and `... logs mine` for its complete output. Those are
+# the container's equivalent of launch-mine.sh's status and log files, which the
+# foreground container deliberately does not create.
 services:
   mine:
     build:
       context: ../../../..
       dockerfile: harness/taskbench/round4/docker/Dockerfile
+    # Pinned, not inherited from the host. An Apple Silicon Mac defaults to
+    # arm64, and mining eligibility can differ by architecture — a package with
+    # no arm64 wheel fails to install and its repository is rejected, which the
+    # x86_64 decisions already in the ledger would not have done. Every pilot
+    # and counted repository must be decided on ONE architecture.
+    platform: linux/amd64
     working_dir: /work/harness/taskbench/round4
     volumes:
       - ../../../..:/work
       - tb-work:/tmp/tb
     environment:
       TB_RUNTIME_DIR: /tmp/tb
-    # Foreground and sequential: the container IS the supervisor, so there is
-    # nothing to detach from and nothing to reap it. Ctrl-C stops it; rerun to
-    # resume from the ledger.
+    # Foreground and sequential. The container IS the supervisor, so there is
+    # nothing to detach from and nothing to reap it, and launch-mine.sh is not
+    # used: Docker records the exit status and captures the output itself.
+    # Ctrl-C stops it; rerun to resume from the ledger.
     command: ["bash", "-c", "TB_POOL=pilot TB_PILOT_NEED=10 ./mine5.sh"]
     # The pilot is sequential by protocol; these are ceilings, not targets.
     mem_limit: 8g
     cpus: 2.0
-
-  # Same image, for checking progress from another terminal while `mine` runs.
-  status:
-    build:
-      context: ../../../..
-      dockerfile: harness/taskbench/round4/docker/Dockerfile
-    working_dir: /work/harness/taskbench/round4
-    volumes:
-      - ../../../..:/work
-      - tb-work:/tmp/tb
-    environment:
-      TB_RUNTIME_DIR: /tmp/tb
-    command: ["./status.sh", "pilot"]
 
 volumes:
   tb-work:

@@ -30,25 +30,51 @@ supervisor, which is the whole problem being solved.
 
 ```bash
 git clone https://github.com/hexrift/tamperward.git
-cd tamperward && git checkout round4/miner
+cd tamperward
+git switch main && git pull --ff-only
 cd harness/taskbench/round4
 
-docker compose -f docker/docker-compose.yml run --rm mine
+docker compose -f docker/docker-compose.yml up --build mine
 ```
 
 That runs in the **foreground** — deliberately. There is nothing to detach from
 and nothing to reap it; Ctrl-C stops it and rerunning resumes from the ledger.
 Leave it in its own terminal tab, or run it under `tmux`/`screen`.
 
-From another terminal:
+To check on it, **`exec` into the running container** from another terminal:
 
 ```bash
-docker compose -f docker/docker-compose.yml run --rm status
+docker compose -f docker/docker-compose.yml exec mine ./status.sh pilot
 ```
+
+`exec`, not `run`. A `run` starts a *new* container with its own PID namespace:
+it would share the volume's files but see none of the miner's processes, and
+report `mining sessions 0` and `killed outright` while mining was perfectly
+healthy. That false alarm is why the separate `status` service was removed.
+
+After the run, the container is the supervisor, so ask it:
+
+```bash
+docker compose -f docker/docker-compose.yml ps -a      # exit status
+docker compose -f docker/docker-compose.yml logs mine  # complete output
+```
+
+Those replace `launch-mine.sh`'s status and log files, which the foreground
+container deliberately does not write — `status.sh` says so rather than
+reporting their absence as a death.
 
 The repository is bind-mounted, so the ledger and tasks land in your working
 tree and are yours to commit. Clones and virtualenvs go to a named volume, off
 the host filesystem. `docker volume rm round4_tb-work` clears them.
+
+**The image is pinned, and that matters for the science.** `platform:
+linux/amd64`, uv 0.8.17, Debian bookworm's Python 3.11, node 22 — matching the
+environment the 12 already-decided repositories were mined on. On an Apple
+Silicon Mac Docker would otherwise default to arm64, where a package with no
+arm64 wheel fails to install and its repository is rejected: the same walk would
+produce different verdicts. Every pilot and counted repository must be decided
+on one architecture, so amd64 runs under emulation on Apple Silicon and is
+slower. That is the intended trade.
 
 ## Native macOS (if you would rather not use Docker)
 
@@ -73,10 +99,14 @@ On an Intel Mac use `/usr/local/opt/...` instead of `/opt/homebrew/opt/...`.
 ```bash
 git clone https://github.com/hexrift/tamperward.git
 cd tamperward
-git checkout round4/miner
+git switch main && git pull --ff-only
 npm ci
 cd harness/taskbench/round4
 ```
+
+Native mode runs on the host architecture and whatever `uv` is installed. If
+that is not amd64 with uv 0.8.17, the decisions are not comparable with the ones
+already in the ledger — which is the argument for Docker.
 
 ### Run the pilot
 
@@ -111,8 +141,10 @@ performance choice: every repository the pilot touches is burnt.
 
 Under Docker: Ctrl-C, or `docker compose -f docker/docker-compose.yml down`.
 
-Natively, stop the **session**, not the script — descendants inherit the lock
-descriptor:
+Natively, stop the **session**, not just the script — a descendant can outlive
+the script. The pool lock itself is safe either way: it is held by a `flock
+--close` guardian that never passes the descriptor to the miner or its children,
+so it is released when the miner exits however it exits.
 
 ```bash
 sid=$(cat /tmp/tb-mine-pilot.pid)
@@ -131,9 +163,9 @@ python3 incident-D3/build-burn-list.py     # republish the cumulative burn set
 git add -A . && git commit && git push     # the ledger, tasks and burn set
 ```
 
-(Under Docker, run the first line inside the container — `docker compose -f
-docker/docker-compose.yml run --rm status bash -c "python3
-incident-D3/build-burn-list.py"` — or on the host if you have Python 3.)
+(Under Docker, `docker compose -f docker/docker-compose.yml exec mine python3
+incident-D3/build-burn-list.py` while it is still up, or run it on the host —
+it only reads committed files.)
 
 Push the branch and I will take it from there — the freeze checklist against
 v2.10.1, then the FRAME5-AMENDMENT-2 mapping, then freeze 2.
@@ -144,14 +176,19 @@ Only after the pilot and the amendment-2 mapping. The counted pool is not
 sacrificial and parallelises:
 
 ```bash
-# Docker: override the command and raise the ceilings
+# Docker: same image, counted pool, four workers
 docker compose -f docker/docker-compose.yml run --rm \
-  -e TB_POOL=counted mine bash -c "./mine-parallel.sh 4"
+  -e TB_POOL=counted mine ./mine-parallel.sh 4
 
 # native
 ./launch-mine.sh counted 4
 ./merge-shards.sh counted 4 110            # first 110 validated tasks in walk order
 ```
+
+`run` is correct here (a one-off command, not something to monitor by PID), and
+every runtime path in the counted scripts now derives from `TB_RUNTIME_DIR`, so
+the shard locks, logs and staging directory land in the shared volume rather
+than a container-local `/tmp`.
 
 Four workers is the measured-clean concurrency for cloning; on a quad-core Mac
 it is also about the point where the suite runs stop scaling.

@@ -50,6 +50,16 @@ frame is the sampling procedure that feeds it.
   envelope-escape outcome.
 - **Ecosystem: Python + pytest**, matching round 3.1 so its opportunity rate
   anchors the power calculation.
+- **Mining platform (freeze 1): `linux/amd64`, Python 3.11, uv 0.8.17, node 22.**
+  Eligibility depends on whether a repository's dependencies resolve and install,
+  so the resolver version and the architecture are part of the mapping
+  procedure, not incidental. A package with no `arm64` wheel fails to install and
+  its repository is rejected — the same walk on an Apple Silicon host would
+  produce different verdicts. Every pilot and counted repository is decided on
+  this one platform; `docker/` pins it (`platform: linux/amd64`, `UV_VERSION`
+  asserted at build time) so the pin cannot be lost by running elsewhere. The
+  repositories decided before this was written down were mined on exactly this
+  platform, so nothing is retrofitted.
 - **Repository population: fresh**, mined from a download-ranked PyPI frame,
   with every spent and development-data repository pre-seeded into dedup —
   rounds 1, 2, 3 and 3.1 frames, the enumerated development-data set, and the

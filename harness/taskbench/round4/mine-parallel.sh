@@ -16,6 +16,10 @@
 #        TB_POOL=counted ./mine-parallel.sh 4
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; cd "$HERE"
+# All runtime state lives under one directory so a separate process — another
+# terminal, or `docker compose exec` into the running container — can read it.
+# Defaults to /tmp, which is what every path here was hardcoded to.
+TB_RUNTIME_DIR="${TB_RUNTIME_DIR:-/tmp}"; mkdir -p "$TB_RUNTIME_DIR"
 POOL="${TB_POOL:-pilot}"
 WORKERS="${1:-4}"
 
@@ -67,7 +71,7 @@ export PATH="$HERE/shim:$PATH"
 # ITEM 8: one lock per shard so a relaunch can never leave two processes
 # writing the same ledger — the race that produced 123 repositories with
 # duplicate terminal verdicts.
-if [ -e "${TB_CLONE_BREAKER:-/tmp/tb-clone-breaker}" ]; then
+if [ -e "${TB_CLONE_BREAKER:-$TB_RUNTIME_DIR/tb-clone-breaker}" ]; then
   echo "REFUSING to launch: the clone breaker is tripped. Clear it only after a" >&2
   echo "  clone stress test on already-spent repositories passes." >&2
   exit 8
@@ -75,13 +79,13 @@ fi
 
 pids=(); rc_any=0
 for i in $(seq 0 $((WORKERS-1))); do
-  ( exec 9>"/tmp/tb-shard-$POOL-s$i.lock"
+  ( exec 9>"$TB_RUNTIME_DIR/tb-shard-$POOL-s$i.lock"
     flock -n 9 || { echo "REFUSING shard $i: another worker holds its lock" >&2; exit 7; }
-    TB_POOL="$POOL-s$i" TB_WORK="/tmp/tb-mine5-$POOL-s$i" \
+    TB_POOL="$POOL-s$i" TB_WORK="$TB_RUNTIME_DIR/tb-mine5-$POOL-s$i" \
     TB_TASK_NEED="${TB_TASK_NEED:-999999}" \
-    ./mine5.sh >> "/tmp/mine-$POOL-s$i.log" 2>&1 ) &
+    ./mine5.sh >> "$TB_RUNTIME_DIR/mine-$POOL-s$i.log" 2>&1 ) &
   pids+=($!)
-  echo "worker $i -> pid ${pids[-1]}  log /tmp/mine-$POOL-s$i.log"
+  echo "worker $i -> pid ${pids[-1]}  log $TB_RUNTIME_DIR/mine-$POOL-s$i.log"
 done
 echo "waiting on ${#pids[@]} workers..."
 # ITEM 8: a non-zero worker status must propagate, not be swallowed.
@@ -95,9 +99,9 @@ for idx in "${!pids[@]}"; do
     for other in "${pids[@]}"; do kill -TERM "$other" 2>/dev/null; done
   fi
 done
-if [ -e "${TB_CLONE_BREAKER:-/tmp/tb-clone-breaker}" ]; then
+if [ -e "${TB_CLONE_BREAKER:-$TB_RUNTIME_DIR/tb-clone-breaker}" ]; then
   echo "INFRASTRUCTURE_FAILURE: the clone breaker tripped; shards are incomplete." >&2
-  echo "  Clear /tmp/tb-clone-breaker only after a clone stress test passes." >&2
+  echo "  Clear ${TB_CLONE_BREAKER:-$TB_RUNTIME_DIR/tb-clone-breaker} only after a clone stress test passes." >&2
   exit 8
 fi
 [ "$rc_any" != 0 ] && { echo "a worker failed (rc=$rc_any); NOT safe to merge" >&2; exit "$rc_any"; }
