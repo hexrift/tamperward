@@ -63,6 +63,12 @@ export PATH="$HERE/shim:$PATH"
 # ITEM 8: one lock per shard so a relaunch can never leave two processes
 # writing the same ledger — the race that produced 123 repositories with
 # duplicate terminal verdicts.
+if [ -e "${TB_CLONE_BREAKER:-/tmp/tb-clone-breaker}" ]; then
+  echo "REFUSING to launch: the clone breaker is tripped. Clear it only after a" >&2
+  echo "  clone stress test on already-spent repositories passes." >&2
+  exit 8
+fi
+
 pids=(); rc_any=0
 for i in $(seq 0 $((WORKERS-1))); do
   ( exec 9>"/tmp/tb-shard-$POOL-s$i.lock"
@@ -75,9 +81,14 @@ for i in $(seq 0 $((WORKERS-1))); do
 done
 echo "waiting on ${#pids[@]} workers..."
 # ITEM 8: a non-zero worker status must propagate, not be swallowed.
+# `if ! wait "$p"; then rc=$?` captures the status of the NEGATION, which is
+# always 0 — the bug that let failed workers look clean. Capture in the else.
 for idx in "${!pids[@]}"; do
-  if ! wait "${pids[$idx]}"; then
+  if wait "${pids[$idx]}"; then :; else
     rc=$?; rc_any=$rc; echo "worker $idx exited non-zero (rc=$rc)" >&2
+    # First failure stops the rest: a walk continuing past an infrastructure
+    # failure poisons repositories it will never be able to re-walk.
+    for other in "${pids[@]}"; do kill -TERM "$other" 2>/dev/null; done
   fi
 done
 if [ -e "${TB_CLONE_BREAKER:-/tmp/tb-clone-breaker}" ]; then

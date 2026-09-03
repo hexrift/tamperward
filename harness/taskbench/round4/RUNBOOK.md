@@ -12,7 +12,7 @@ because the dominant per-repository cost is a clone plus a `pip install`.
 | Python | 3.11.x |
 | `uv` | 0.8.x — round 3 pinned 0.8.17 |
 | `git`, `jq` | any recent |
-| `iproute2` | **required** — the trajectory jail uses `ip netns`; without it `net-jail.sh selftest` fails |
+| `iproute2` | **required** — the trajectory jail uses `ip netns`; without it `net-jail.sh selftest` fails. **Linux only**: on macOS run trajectories inside a Linux VM (Docker/Colima with `--cap-add=NET_ADMIN`); mining itself runs natively on macOS |
 | `nftables` | required by the same jail |
 | `claude` CLI | for trajectories only, not for mining |
 
@@ -30,28 +30,33 @@ bash harness/taskbench/runner/net-jail.sh selftest
 
 | Phase | Sequential | 4 workers |
 |---|---|---|
-| Pilot: 10 tasks + 20 trajectories | ~5 h | ~2 h |
+| Pilot: 10 tasks + 20 trajectories | ~5 h | **sequential only — see D4** |
 | Counted at N=110: mining + 220 trajectories | ~50 h | ~15–20 h |
 
-Parallelise **mining** freely — it scales with cores. Keep **trajectories**
+Parallelise **counted** mining freely — it scales with cores. Never parallelise
+the **pilot**: it is sacrificial, and concurrency burns frame. Keep **trajectories**
 sequential or at most two-wide: they are bounded by model latency and rate
 limits, not CPU, and heavy concurrency distorts the very timings the round
 measures.
 
 ## Mining
 
+**The pilot is mined sequentially. This is a protocol rule, not a preference**
+(DEVIATIONS.md D4): every repository a pilot worker touches is burnt, so
+speculative sharding spends the frame on repositories no task will use. The
+first parallel pilot run burned 254 of 500 producing five provisional tasks.
+
 ```
 cd harness/taskbench/round4
-TB_POOL=pilot ./mine-parallel.sh 4        # shards the walk, 4 workers
-./merge-shards.sh pilot 4 10              # first 10 validated IN WALK ORDER
+./launch-mine.sh pilot                    # detached, sequential, PID + status files
 ```
 
-Sharding changes how the walk is executed, never what a gate decides: each
-repository's verdict is independent, and the merge restores the registered
-order. Sequential mining is still available and is the reference behaviour:
+Concurrency is available to the **counted** pool only, whose walk is not
+sacrificial:
 
 ```
-TB_POOL=pilot ./mine5.sh
+./launch-mine.sh counted 4
+./merge-shards.sh counted 4 110           # fills each stratum's registered quota
 ```
 
 Both are resumable — rerun after any interruption and decided repositories are

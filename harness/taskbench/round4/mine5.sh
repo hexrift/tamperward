@@ -15,6 +15,7 @@
 # burns cannot move the counted walk.
 set -uo pipefail
 POOL="${TB_POOL:-counted}"
+BASE_POOL="${POOL%%-s*}"
 # pilot / counted, or a shard of either ("pilot-s0") when mine-parallel.sh
 # splits the walk. The shard is a pool directory like any other.
 case "$POOL" in pilot|counted|pilot-s[0-9]*|counted-s[0-9]*) ;; *) echo "TB_POOL must be pilot, counted, or a shard of either" >&2; exit 2;; esac
@@ -32,7 +33,6 @@ export TB_WORK="$WORK"
 # PILOT_NEED=10 the pilot counter could never pass 3, so the walk could never
 # reach its need and never stopped — the runaway that burned half the frame
 # (DEVIATIONS.md D3/D4). Role now derives from the pool, not from a count.
-BASE_POOL="${POOL%%-s*}"
 export TB_BASE_POOL="$BASE_POOL"
 CLONE_BASE="${TB_CLONE_BASE:-https://github.com}"  # file:// base in the selftest
 mkdir -p "$WORK" tasks
@@ -48,8 +48,17 @@ CAND_CAP=8; STEP_TIMEOUT=300
 # PILOT4.md fixes; the counted pool wants the frozen N the PREDICTION commits
 # (the power simulation points at 110 pairs), split evenly across the two
 # strata and overridable so freeze 2 can set the registered number.
-if [ "$POOL" = pilot ]; then
+# Keyed off the BASE pool, never the shard name: "pilot-s0" is a pilot, and
+# selecting on $POOL gave it the COUNTED defaults (need 0, quotas 55/55), which
+# would have let a single pilot shard consume every remaining repository.
+if [ "$BASE_POOL" = pilot ]; then
   PILOT_NEED="${TB_PILOT_NEED:-10}"; QUOTA_SINGLE="${TB_QUOTA_SINGLE:-0}"; QUOTA_WS="${TB_QUOTA_WS:-0}"
+  # A pilot walk is sacrificial: every repository it touches is burnt. Refuse an
+  # unbounded need outright rather than trust a caller's default.
+  if [ "$PILOT_NEED" -gt 20 ] 2>/dev/null; then
+    echo "REFUSING: TB_PILOT_NEED=$PILOT_NEED on a pilot pool; the walk is sacrificial and must be bounded." >&2
+    exit 4
+  fi
 else
   PILOT_NEED="${TB_PILOT_NEED:-0}"; QUOTA_SINGLE="${TB_QUOTA_SINGLE:-55}"; QUOTA_WS="${TB_QUOTA_WS:-55}"
 fi
@@ -309,4 +318,8 @@ for repo in $ORDER; do
     || { echo "WALK INCOMPLETE: no repo-level verdict for $repo"; undecided=$((undecided+1)); }
 done
 [ "$undecided" -gt 0 ] && { echo "WALK INCOMPLETE: $undecided repo(s) undecided — re-run to complete"; exit 6; }
-echo "WALK COMPLETE: all $(printf '%s\n' $ORDER | wc -l) repos decided"
+WALK_SHA=$(sha256sum walk.json | cut -c1-64)
+printf '{"pool":"%s","base_pool":"%s","walk_sha256":"%s","repos":%s,"completed_at":"%s","pilot_need":%s,"quota_single":%s,"quota_ws":%s}\n' \
+  "$POOL" "$BASE_POOL" "$WALK_SHA" "$(printf '%s\n' $ORDER | wc -l)" "$(date -u +%FT%TZ)" \
+  "$PILOT_NEED" "$QUOTA_SINGLE" "$QUOTA_WS" > completion.json
+echo "WALK COMPLETE: all $(printf '%s\n' $ORDER | wc -l) repos decided (completion.json written)"

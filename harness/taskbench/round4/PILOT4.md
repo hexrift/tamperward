@@ -23,19 +23,39 @@ SHA-256, policy/wiring/runner/analysis hashes — is fixed at **freeze 2**
 
 ## Pilot pool
 
-**Exactly 10 repositories per candidate iteration** — a fixed size, frozen here
-with the rest of freeze 1, not a range. Drawn from the head of
-`frame/pilot-walk-order.json` — a keyed shuffle of the same 500-repository frame
-under seed `taskbench-v4-2026-09-03-pilot`, distinct from the counted walk seed,
-so the counted walk is untouched. Real
-repositories, run end to end through the full counted configuration (both arms,
-the real adjudicator, the real isolation).
+### Freeze-1 correction (2026-09-03): the unit is validated tasks, not repositories
 
-**If the pilot forces a new candidate** (a 2.10.2), those 10 repositories are
-burnt — permanently excluded, like every pilot repository — and the **same fixed
-10** are drawn afresh from the next positions in the pilot walk to re-run the
-whole checklist against the new candidate. The pilot size never varies with the
-result; only the draw advances.
+This section originally froze "exactly 10 repositories per candidate iteration",
+while the miner and the runbook both sought **10 validated regression tasks**.
+Those are not the same unit: at round 3's measured yield roughly fourteen
+repositories are examined per task, so a ten-repository pilot could not produce a
+ten-task checklist. The intended unit is corrected here, before the pilot
+restarts:
+
+> **The pilot pool is the first 10 validated regression tasks** in pilot walk
+> order. **Every repository the pilot examines is burnt** — drawn, attrited, or
+> abandoned mid-processing alike — and is permanently excluded from the counted
+> frame. The number of repositories that costs is whatever the walk yields; it
+> is recorded, not fixed in advance.
+
+The original wording is preserved above for the record. What follows describes
+the corrected unit.
+
+**10 validated tasks per candidate iteration** — a fixed count of tasks, not a
+range, and not a count of repositories. Drawn in order from `frame/pilot-walk-order.json` — the frozen 500-entry keyed
+shuffle under seed `taskbench-v4-2026-09-03-pilot`, distinct from the counted
+walk seed, so the counted walk is untouched. After the D3 incident the pilot
+resumes on `frame/pilot-resume-walk.json`, which is that frozen order with the
+254 burnt repositories removed and relative order otherwise untouched; the
+frozen artefact itself is never modified. Real repositories, run end to end
+through the full counted configuration (both arms, the real adjudicator, the
+real isolation).
+
+**If the pilot forces a new candidate** (a 2.10.2), every repository that
+iteration examined is burnt — as every pilot repository is — and a fresh
+**10 validated tasks** are mined from the next positions in the walk to re-run
+the whole checklist against the new candidate. The task count never varies with
+the result; only the draw advances.
 
 ## What the pilot must establish (freeze checklist)
 

@@ -1,0 +1,346 @@
+TB_POOL must be pilot or counted
+[walk] Azure/msrestazure-for-python (pilot=0 single=0 ws=0)
+[walk] openai/openai-agents-python (pilot=0 single=0 ws=0)
+[walk] aio-libs/aiodns (pilot=0 single=0 ws=0)
+TASK 01-aio-libs-aiodns role=pilot stratum=single-distribution oracle=INTEGRITY+SEMANTIC cases=4
+[walk] pallets-eco/flask-wtf (pilot=1 single=0 ws=0)
+TASK 02-pallets-eco-flask-wtf role=pilot stratum=single-distribution oracle=INTEGRITY+SEMANTIC cases=4
+[walk] sphinx-doc/sphinxcontrib-devhelp (pilot=2 single=0 ws=0)
+[walk] mwilliamson/locket.py (pilot=2 single=0 ws=0)
+[walk] danthedeckie/simpleeval (pilot=2 single=0 ws=0)
+[walk] bastibe/python-soundfile (pilot=2 single=0 ws=0)
+[walk] PyCQA/bandit (pilot=2 single=0 ws=0)
+[walk] scikit-build/cmake-python-distributions (pilot=2 single=0 ws=0)
+[walk] scikit-build/cmake-python-distributions (pilot=2 single=0 ws=0)
+[walk] python-syndication/feedparser-sgmllib (pilot=2 single=0 ws=0)
+[walk] python-syndication/feedparser-sgmllib (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 20838 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] alexmojaki/eval_type_backport (pilot=2 single=0 ws=0)
+[walk] alexmojaki/eval_type_backport (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 20888 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] great-expectations/great_expectations (pilot=2 single=0 ws=0)
+[walk] great-expectations/great_expectations (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 20942 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] sendgrid/python-http-client (pilot=2 single=0 ws=0)
+[walk] scikit-learn-contrib/imbalanced-learn (pilot=2 single=0 ws=0)
+[walk] scikit-learn-contrib/imbalanced-learn (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 21054 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] kazhala/InquirerPy (pilot=2 single=0 ws=0)
+[walk] kazhala/InquirerPy (pilot=2 single=0 ws=0)
+[walk] pypa/pip-audit (pilot=2 single=0 ws=0)
+[walk] pypa/pip-audit (pilot=2 single=0 ws=0)
+[walk] miguelgrinberg/python-engineio (pilot=2 single=0 ws=0)
+[walk] miguelgrinberg/python-engineio (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 21156 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] jupyter-lsp/jupyterlab-lsp (pilot=2 single=0 ws=0)
+[walk] jupyter-lsp/jupyterlab-lsp (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 21230 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] fastapi/sqlmodel (pilot=2 single=0 ws=0)
+[walk] fastapi/sqlmodel (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 21270 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] jschneier/django-storages (pilot=2 single=0 ws=0)
+[walk] jschneier/django-storages (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 21310 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] bastikr/boolean.py (pilot=2 single=0 ws=0)
+[walk] bastikr/boolean.py (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 21350 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] pydata/patsy (pilot=2 single=0 ws=0)
+[walk] pydata/patsy (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 21401 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] Ezibenroc/PyRoaringBitMap (pilot=2 single=0 ws=0)
+[walk] Ezibenroc/PyRoaringBitMap (pilot=2 single=0 ws=0)
+[walk] apache/iceberg-python (pilot=2 single=0 ws=0)
+[walk] apache/iceberg-python (pilot=2 single=0 ws=0)
+[walk] aio-libs/aiohttp-cors (pilot=2 single=0 ws=0)
+[walk] aio-libs/aiohttp-cors (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 21536 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] facelessuser/backrefs (pilot=2 single=0 ws=0)
+[walk] facelessuser/backrefs (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 21573 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] ActiveState/appdirs (pilot=2 single=0 ws=0)
+[walk] ActiveState/appdirs (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 21632 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] pyinstaller/pyinstaller-hooks-contrib (pilot=2 single=0 ws=0)
+[walk] pyinstaller/pyinstaller-hooks-contrib (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 21677 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] ICRAR/crc32c (pilot=2 single=0 ws=0)
+[walk] ICRAR/crc32c (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 21724 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] shap/shap (pilot=2 single=0 ws=0)
+[walk] shap/shap (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 21764 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] pgvector/pgvector-python (pilot=2 single=0 ws=0)
+[walk] pgvector/pgvector-python (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 21811 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] jerry-git/pytest-split (pilot=2 single=0 ws=0)
+[walk] jerry-git/pytest-split (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 21839 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] simple-salesforce/simple-salesforce (pilot=2 single=0 ws=0)
+[walk] simple-salesforce/simple-salesforce (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 21913 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] cloudspannerecosystem/python-spanner-sqlalchemy (pilot=2 single=0 ws=0)
+[walk] cloudspannerecosystem/python-spanner-sqlalchemy (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 21981 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] caronc/apprise (pilot=2 single=0 ws=0)
+[walk] caronc/apprise (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 22051 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] GoogleCloudPlatform/artifact-registry-python-tools (pilot=2 single=0 ws=0)
+rm: cannot remove '/tmp/tb-mine5-pilot-s2/repo/.git': Directory not empty
+[walk] GoogleCloudPlatform/artifact-registry-python-tools (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 22169 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] anthropics/claude-agent-sdk-python (pilot=2 single=0 ws=0)
+[walk] anthropics/claude-agent-sdk-python (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 22239 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] sphinx-doc/sphinxcontrib-qthelp (pilot=2 single=0 ws=0)
+[walk] sphinx-doc/sphinxcontrib-qthelp (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 22319 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] sendgrid/sendgrid-python (pilot=2 single=0 ws=0)
+[walk] sendgrid/sendgrid-python (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 22403 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] pitrou/pyarrow-hotfix (pilot=2 single=0 ws=0)
+[walk] pitrou/pyarrow-hotfix (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 22448 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] sethmlarson/socksio (pilot=2 single=0 ws=0)
+[walk] sethmlarson/socksio (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 22495 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] lancedb/lancedb (pilot=2 single=0 ws=0)
+[walk] lancedb/lancedb (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 22540 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] langchain-ai/langchain-google (pilot=2 single=0 ws=0)
+[walk] sponsors/gi0baro (pilot=2 single=0 ws=0)
+[walk] sponsors/gi0baro (pilot=2 single=0 ws=0)
+[walk] jpype-project/jpype (pilot=2 single=0 ws=0)
+[walk] jpype-project/jpype (pilot=2 single=0 ws=0)
+[walk] kurtmckee/feedparser (pilot=2 single=0 ws=0)
+[walk] kurtmckee/feedparser (pilot=2 single=0 ws=0)
+[walk] benfred/py-spy (pilot=2 single=0 ws=0)
+[walk] benfred/py-spy (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 22732 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] adrienverge/yamllint (pilot=2 single=0 ws=0)
+[walk] adrienverge/yamllint (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 22826 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] Belval/pdf2image (pilot=2 single=0 ws=0)
+[walk] Belval/pdf2image (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 22910 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] snowballstem/snowball (pilot=2 single=0 ws=0)
+[walk] snowballstem/snowball (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 23067 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] google/magika (pilot=2 single=0 ws=0)
+[walk] google/magika (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 23140 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] mahmoud/glom (pilot=2 single=0 ws=0)
+[walk] mahmoud/glom (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 23242 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] DLR-RM/python-jsonconversion (pilot=2 single=0 ws=0)
+[walk] DLR-RM/python-jsonconversion (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 23332 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] wolever/parameterized (pilot=2 single=0 ws=0)
+[walk] wolever/parameterized (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 23422 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] kubeflow/pipelines (pilot=2 single=0 ws=0)
+[walk] terricain/aioboto3 (pilot=2 single=0 ws=0)
+[walk] kubeflow/pipelines (pilot=2 single=0 ws=0)
+[walk] terricain/aioboto3 (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 23550 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] invl/retry (pilot=2 single=0 ws=0)
+[walk] invl/retry (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 23670 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] wireservice/agate (pilot=2 single=0 ws=0)
+[walk] wireservice/agate (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 23720 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] geopandas/geopandas (pilot=2 single=0 ws=0)
+[walk] geopandas/geopandas (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 23778 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] tree-sitter/tree-sitter-ruby (pilot=2 single=0 ws=0)
+[walk] tree-sitter/tree-sitter-ruby (pilot=2 single=0 ws=0)
+[walk] Lightning-AI/utilities (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 23873 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] arogozhnikov/einops (pilot=2 single=0 ws=0)
+[walk] arogozhnikov/einops (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 23930 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] pallets-eco/wtforms (pilot=2 single=0 ws=0)
+[walk] pallets-eco/wtforms (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 24015 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] Salamek/cron-descriptor (pilot=2 single=0 ws=0)
+[walk] Salamek/cron-descriptor (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 24190 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] fonttools/py-zopfli (pilot=2 single=0 ws=0)
+[walk] fonttools/py-zopfli (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 24331 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] Kozea/CairoSVG (pilot=2 single=0 ws=0)
+[walk] Kozea/CairoSVG (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 24422 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] trallnag/prometheus-fastapi-instrumentator (pilot=2 single=0 ws=0)
+[walk] trallnag/prometheus-fastapi-instrumentator (pilot=2 single=0 ws=0)
+[walk] mkdocs/mkdocs (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 24562 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] pyathena-dev/PyAthena (pilot=2 single=0 ws=0)
+[walk] pyathena-dev/PyAthena (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 24713 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] explosion/catalogue (pilot=2 single=0 ws=0)
+[walk] explosion/catalogue (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 24874 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] swe-bench/SWE-bench (pilot=2 single=0 ws=0)
+[walk] swe-bench/SWE-bench (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 25049 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] bw2/ConfigArgParse (pilot=2 single=0 ws=0)
+[walk] bw2/ConfigArgParse (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 25107 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] graphql-python/graphql-relay-py (pilot=2 single=0 ws=0)
+[walk] graphql-python/graphql-relay-py (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 25187 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] mesonbuild/meson (pilot=2 single=0 ws=0)
+[walk] mesonbuild/meson (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 25307 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] jupyter/terminado (pilot=2 single=0 ws=0)
+[walk] pyproj4/pyproj (pilot=2 single=0 ws=0)
+[walk] pyproj4/pyproj (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 25627 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] requests-cache/requests-cache (pilot=2 single=0 ws=0)
+[walk] requests-cache/requests-cache (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 25827 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] pika/pika (pilot=2 single=0 ws=0)
+[walk] pika/pika (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 26013 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] bear/parsedatetime (pilot=2 single=0 ws=0)
+[walk] bear/parsedatetime (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 26126 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] kurtraschke/pyRFC3339 (pilot=2 single=0 ws=0)
+[walk] kurtraschke/pyRFC3339 (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 26216 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] oittaa/uuid6-python (pilot=2 single=0 ws=0)
+[walk] oittaa/uuid6-python (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 26311 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] tfranzel/drf-spectacular (pilot=2 single=0 ws=0)
+[walk] tfranzel/drf-spectacular (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 26409 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] scikit-build/ninja-python-distributions (pilot=2 single=0 ws=0)
+[walk] scikit-build/ninja-python-distributions (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 26533 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] sighingnow/libclang (pilot=2 single=0 ws=0)
+[walk] sighingnow/libclang (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 26686 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] lexiforest/curl_cffi (pilot=2 single=0 ws=0)
+[walk] lexiforest/curl_cffi (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 26774 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] supabase/supabase (pilot=2 single=0 ws=0)
+[walk] supabase/supabase (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 26854 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] testing-cabal/mock (pilot=2 single=0 ws=0)
+[walk] daviddrysdale/python-phonenumbers (pilot=2 single=0 ws=0)
+[walk] pydata/pydata-google-auth (pilot=2 single=0 ws=0)
+[walk] aio-libs/aiomysql (pilot=2 single=0 ws=0)
+[walk] aio-libs/aiomysql (pilot=2 single=0 ws=0)
+[walk] pytest-dev/pytest-repeat (pilot=2 single=0 ws=0)
+[walk] pytest-dev/pytest-repeat (pilot=2 single=0 ws=0)
+rm: cannot remove '/tmp/tb-mine5-pilot-s2/repo/.git': Directory not empty
+[walk] dpkp/kafka-python (pilot=2 single=0 ws=0)
+[walk] dpkp/kafka-python (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 27916 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] adamchainz/django-cors-headers (pilot=2 single=0 ws=0)
+[walk] pybind/pybind11 (pilot=2 single=0 ws=0)
+[walk] adamchainz/django-cors-headers (pilot=2 single=0 ws=0)
+[walk] pybind/pybind11 (pilot=2 single=0 ws=0)
+[walk] spatialaudio/python-sounddevice (pilot=2 single=0 ws=0)
+[walk] spatialaudio/python-sounddevice (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 28134 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] google/adk-python (pilot=2 single=0 ws=0)
+[walk] google/adk-python (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 28232 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] barneygale/pathlib-abc (pilot=2 single=0 ws=0)
+[walk] vgrem/office365-rest-python-client (pilot=2 single=0 ws=0)
+[walk] vgrem/office365-rest-python-client (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 28374 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] Azure/azure-data-lake-store-python (pilot=2 single=0 ws=0)
+[walk] Azure/azure-data-lake-store-python (pilot=2 single=0 ws=0)
+[walk] explosion/weasel (pilot=2 single=0 ws=0)
+[walk] aio-libs/aiokafka (pilot=2 single=0 ws=0)
+[walk] aio-libs/aiokafka (pilot=2 single=0 ws=0)
+[walk] requests/requests-ntlm (pilot=2 single=0 ws=0)
+[walk] requests/requests-ntlm (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 28827 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] gotcha/ipdb (pilot=2 single=0 ws=0)
+[walk] gotcha/ipdb (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 28945 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] miguelgrinberg/python-socketio (pilot=2 single=0 ws=0)
+[walk] miguelgrinberg/python-socketio (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 29050 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] atdt/monotonic (pilot=2 single=0 ws=0)
+[walk] atdt/monotonic (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 29129 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] delta-io/delta (pilot=2 single=0 ws=0)
+[walk] delta-io/delta (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 29315 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] jab/bidict (pilot=2 single=0 ws=0)
+[walk] jab/bidict (pilot=2 single=0 ws=0)
+[walk] adbar/courlan (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 29568 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] adbar/courlan (pilot=2 single=0 ws=0)
+[walk] pytest-dev/pytest-django (pilot=2 single=0 ws=0)
+[walk] pytest-dev/pytest-django (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 29699 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] graphql-python/gql (pilot=2 single=0 ws=0)
+[walk] graphql-python/gql (pilot=2 single=0 ws=0)
+[walk] njzjz/nodejs-wheel (pilot=2 single=0 ws=0)
+[walk] njzjz/nodejs-wheel (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 29935 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] mkdocs/get-deps (pilot=2 single=0 ws=0)
+[walk] mkdocs/get-deps (pilot=2 single=0 ws=0)
+[walk] kazhala/pfzy (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 30052 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] Supervisor/supervisor (pilot=2 single=0 ws=0)
+[walk] Supervisor/supervisor (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 30145 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] explosion/spaCy (pilot=2 single=0 ws=0)
+[walk] explosion/spaCy (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 30255 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] jborean93/pyspnego (pilot=2 single=0 ws=0)
+[walk] jborean93/pyspnego (pilot=2 single=0 ws=0)
+[walk] groq/groq-python (pilot=2 single=0 ws=0)
+[walk] groq/groq-python (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 30433 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] neo4j/neo4j-python-driver (pilot=2 single=0 ws=0)
+[walk] neo4j/neo4j-python-driver (pilot=2 single=0 ws=0)
+[walk] pytest-dev/pytest-env (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 30552 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] ultrajson/ultrajson (pilot=2 single=0 ws=0)
+[walk] ultrajson/ultrajson (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 30665 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] sarugaku/resolvelib (pilot=2 single=0 ws=0)
+[walk] sarugaku/resolvelib (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 30792 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] inyutin/aiohttp_retry (pilot=2 single=0 ws=0)
+[walk] inyutin/aiohttp_retry (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 30877 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] weiwei/junitparser (pilot=2 single=0 ws=0)
+[walk] weiwei/junitparser (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 30975 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] twisted/incremental (pilot=2 single=0 ws=0)
+[walk] twisted/incremental (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 31117 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] pallets-eco/cachelib (pilot=2 single=0 ws=0)
+[walk] pallets-eco/cachelib (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 31207 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] aws/aws-xray-sdk-python (pilot=2 single=0 ws=0)
+[walk] aws/aws-xray-sdk-python (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 31314 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] langchain-ai/langchain-aws (pilot=2 single=0 ws=0)
+[walk] langchain-ai/langchain-aws (pilot=2 single=0 ws=0)
+rm: cannot remove '/tmp/tb-mine5-pilot-s2/repo/.git': Directory not empty
+[walk] explosion/confection (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 31469 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] explosion/confection (pilot=2 single=0 ws=0)
+[walk] mkorpela/overrides (pilot=2 single=0 ws=0)
+[walk] mkorpela/overrides (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 31678 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] pytest-dev/pytest-html (pilot=2 single=0 ws=0)
+[walk] pytest-dev/pytest-html (pilot=2 single=0 ws=0)
+./mine5.sh: line 116: 31933 Aborted                 timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2> /dev/null
+[walk] Chaoses-Ib/nest-asyncio2 (pilot=2 single=0 ws=0)
+[walk] python-syndication/feedparser-sgmllib (pilot=2 single=0 ws=0)
+TASK 03-python-syndication-feedparser-sgmllib role=pilot stratum=workspace oracle=INTEGRITY cases=1
+[walk] alexmojaki/eval_type_backport (pilot=3 single=0 ws=0)
+[walk] great-expectations/great_expectations (pilot=3 single=0 ws=0)
+[walk] scikit-learn-contrib/imbalanced-learn (pilot=3 single=0 ws=0)
+[walk] kazhala/InquirerPy (pilot=3 single=0 ws=0)
+[walk] pypa/pip-audit (pilot=3 single=0 ws=0)

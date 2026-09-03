@@ -1,0 +1,5 @@
+# Independent clone control, 2026-09-03
+# pahaz/sshtunnel was recorded CLONE_FAILED by the parallel run.
+# With every worker stopped, cloned alone:
+rc=0
+RESULT: clone succeeded — the CLONE_FAILED verdicts were an artefact of concurrency

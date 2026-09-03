@@ -157,3 +157,75 @@ sacrificial.
 **Resume posture.** The pilot resumes with **one** worker. Concurrency is not
 raised again until a repeated clone stress test on already-spent repositories
 passes.
+
+### D3 second correction (append-only) — 2026-09-03, after review of the recovery
+
+The recovery committed at `f8d2d3a` was itself incomplete. Independent review
+found six defects in it, two of which could have recreated the runaway. All are
+corrected here; nothing was resumed in between.
+
+**Figures corrected.** The checkpoint carried **245 `CLONE_FAILED` lines across
+127 clone-failed repositories**, while **154 unique repositories** appear
+anywhere in the ledgers. The earlier entry blurred those two denominators.
+
+**Affected interval corrected.** `21481b6..ff8b94b` omitted the first
+contaminated checkpoint. The contaminated interval begins at `47980e9`;
+expressed from the last clean checkpoint it is **`f2b48c6..ff8b94b`**.
+
+**P0 — a pilot shard could have consumed the remaining 246.** The one-worker
+driver defaulted `TB_PILOT_NEED=99`, and `mine5.sh` selected its defaults on
+`$POOL` rather than `$BASE_POOL`, so `pilot-s0` was configured as **counted**
+(need 0, quotas 55/55). Configuration now keys off `BASE_POOL`, a pilot need
+above 20 is refused outright, and the pilot no longer goes through the sharding
+driver at all: `launch-mine.sh pilot` runs `mine5.sh` directly with need 10.
+
+**P0 — clone failures were still terminal.** The shim returned 1, `mine5.sh`
+wrote `CLONE_FAILED` and continued, so a tripped breaker could poison every
+remaining repository before any driver noticed. Clone exhaustion is now a
+dedicated `INFRASTRUCTURE_FAILURE`: it emits no terminal verdict, records the
+event, trips the breaker, and **kills the miner's process group immediately** so
+no verdict can be written. Launchers refuse to start into a tripped breaker.
+
+**P0 — worker status never propagated.** `if ! wait "$p"; then rc=$?` captures
+the status of the *negation*, which is always 0. Reproduced directly: the buggy
+form yields 0 where the fixed form yields 3. Status is now captured in the
+`else` branch, and the first failure terminates the remaining workers.
+
+**P1 — the launcher was not detached.** The claim of `setsid` was untrue; mining
+ran from an ad-hoc `nohup` at a tool call, the supervision path round 3.1
+recorded as unreliable. `launch-mine.sh` is committed, runs under `setsid`, and
+writes PID and exit-status files.
+
+**P1 — the merger could not prove completion.** An unlocked shard may simply
+have crashed. `mine5.sh` now writes a per-shard `completion.json` bound to that
+shard's walk hash, and the merger requires one from every shard. Stratum mode is
+derived from the pool rather than an opt-in env var; a quota shortage, a
+malformed manifest, a task naming a repository outside the walk, and a
+repository producing tasks in two shards are each **hard failures**; the
+destination is staged and published only after validation, replacing rather than
+accumulating.
+
+**P1 — incident evidence was incomplete.** The shard logs were on disk but never
+committed (ignored by pattern), so 100 burn entries lacked committed source
+evidence. The raw logs, the independent `pahaz/sshtunnel` clone control
+(`rc=0` with every worker stopped), and `build-burn-list.py` — which regenerates
+and `--check`s the burn list from that evidence — are now committed. The check
+passes: committed 254, regenerated 254.
+
+**P1 — the frozen walk had been overwritten.** `pools/pilot/walk.json` was a
+**symlink** into `frame/`, so writing the 246-entry remainder through it
+destroyed the registered 500-entry artefact. `frame/pilot-walk-order.json` is
+restored byte-for-byte from the freeze-1 commit; the remainder now lives in
+`frame/pilot-resume-walk.json`, and the active pool holds a real file, not a
+link.
+
+**Protocol — the pilot unit.** `PILOT4.md` froze "exactly 10 repositories" while
+the miner and runbook sought 10 validated tasks. At round 3's yield those cannot
+both hold. A freeze-1 correction now defines the unit as **the first 10
+validated regression tasks, with every examined repository burned**; the
+original wording is preserved beside it.
+
+**Documentation.** The runbook no longer instructs `mine-parallel.sh 4` for the
+pilot, its parallel pilot estimate is withdrawn, and it records that the
+trajectory jail is Linux-only, so a Mac needs a Linux VM for trajectories while
+mining runs natively.
