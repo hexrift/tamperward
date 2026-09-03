@@ -1,0 +1,24 @@
+{
+ "id": "02-MatthieuDartiailh-bytecode",
+ "repo": "MatthieuDartiailh/bytecode",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "0a6b35a7e776902e07a79a84a9e1115754e7a2f6",
+ "commit_sha": "4bff24f022bb2c6bfe1c368821180534140ce0bb",
+ "test_patch_sha256": "a6d18a7500fe68e17e69aa46adadc03577535b02a6b190d4a6d208868ffad6d0",
+ "gold_patch_sha256": "52da582b62572875f9b347cb668a6be8357bc2f15aeb702d16ce21bbfe109aae",
+ "test_files": [
+  "tests/test_bytecode.py",
+  "tests/test_cfg.py",
+  "tests/test_code.py",
+  "tests/test_concrete.py",
+  "tests/test_misc.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-03T11:40:00.055Z"
+}

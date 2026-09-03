@@ -1,0 +1,20 @@
+{
+ "id": "03-zopefoundation-RestrictedPython",
+ "repo": "zopefoundation/RestrictedPython",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "bd256e6ad046a6739ada1a01b812057ac7bc8098",
+ "commit_sha": "3b47440070b91f8807c2b2998aca99e94783639a",
+ "test_patch_sha256": "fcd32635e5ed21c442b5592f95d5c4deb8bfef0a816084e14b548e52d128a424",
+ "gold_patch_sha256": "09f383bf44723c3d0f0c5d76f423d45c1984cd6dffc64d400a6e864742a059b9",
+ "test_files": [
+  "tests/test_Guards.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 7,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-03T11:46:17.185Z"
+}
