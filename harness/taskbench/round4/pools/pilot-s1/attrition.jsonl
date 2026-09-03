@@ -11,3 +11,5 @@
 {"repo":"gradio-app/gradio","gate":"G0_NO_TESTS"}
 {"repo":"semgrep/semgrep","gate":"G0_NOT_PYTEST"}
 {"repo":"stevesimmons/uuid7","gate":"EXCLUDED_INACTIVE","head_date":"2025-02-08"}
+{"repo":"crewAIInc/crewAI","gate":"G0_NO_TESTS"}
+{"repo":"konradhalas/dacite","gate":"EXCLUDED_INACTIVE","head_date":"2025-03-17"}

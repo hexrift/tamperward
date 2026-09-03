@@ -5,3 +5,6 @@
 {"repo":"pallets-eco/flask-wtf","gate":"TASK_VALIDATED","commit":"1f8522d4a362ee66ab12a1ebf55379501dfcef0d","candidate":1}
 {"repo":"sphinx-doc/sphinxcontrib-devhelp","gate":"EXCLUDED_INACTIVE","head_date":"2024-07-29"}
 {"repo":"mwilliamson/locket.py","gate":"EXCLUDED_INACTIVE","head_date":"2022-04-20"}
+{"repo":"danthedeckie/simpleeval","gate":"G0_NOT_PYTEST"}
+{"repo":"bastibe/python-soundfile","gate":"G0_NOT_PYTEST"}
+{"repo":"PyCQA/bandit","gate":"G0_NOT_PYTEST"}
