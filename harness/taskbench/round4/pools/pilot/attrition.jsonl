@@ -301,3 +301,11 @@
 {"repo":"miketheman/pytest-socket","gate":"G2_PARENT_RED","commit":"aae7f44b24475f2fbdc49fac8f2fa6d63b67f48b"}
 {"repo":"miketheman/pytest-socket","gate":"G2_PARENT_RED","commit":"8dc62860f3d0cf2104f50acee8ac91d42dd29950"}
 {"repo":"miketheman/pytest-socket","gate":"G2_PARENT_RED","commit":"ebe145658c258aa2c3ef24c04a2d07216b2781c1"}
+{"repo":"miketheman/pytest-socket","gate":"G2_PARENT_RED","commit":"f8ad7abc2249602458cfb1ac42e835a8389118c8"}
+{"repo":"miketheman/pytest-socket","gate":"G2_PARENT_RED","commit":"906d4efe8a3db792bb1b1a8f8a1525b0f5233417"}
+{"repo":"miketheman/pytest-socket","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"pypa/readme_renderer","gate":"G0_NOT_PYTEST"}
+{"repo":"uqfoundation/ppft","gate":"G0_NOT_PYTEST"}
+{"repo":"paulfitz/daff","gate":"EXCLUDED_INACTIVE","head_date":"2025-05-04"}
+{"repo":"explosion/spacy-loggers","gate":"EXCLUDED_INACTIVE","head_date":"2023-11-03"}
+{"repo":"sphinx-doc/alabaster","gate":"EXCLUDED_INACTIVE","head_date":"2024-07-26"}
