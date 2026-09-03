@@ -486,3 +486,6 @@
 {"repo":"pydata/xarray","gate":"G2_PARENT_ERROR","commit":"63b61d37ab4f77b7804f076c025480dbc791e678","rc":4}
 {"repo":"pydata/xarray","gate":"G2_PARENT_ERROR","commit":"0e627d9d140b45dda311b89c8b557d8922270d04","rc":4}
 {"repo":"pydata/xarray","gate":"G2_PARENT_ERROR","commit":"219181945320940c9d8a6140b616165df67bee3b","rc":4}
+{"repo":"pydata/xarray","gate":"G2_PARENT_ERROR","commit":"fe1284d3a7f306f5b8d2a3984fca5b6b08ca5a1a","rc":4}
+{"repo":"pydata/xarray","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"scipy/oldest-supported-numpy","gate":"EXCLUDED_INACTIVE","head_date":"2024-09-15"}
