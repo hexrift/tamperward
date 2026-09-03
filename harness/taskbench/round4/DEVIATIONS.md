@@ -297,3 +297,36 @@ unaffected either way.
 
 Evidence: `incident-D3/clone-stress.txt`, `incident-D3/clone-stress-heavy.txt`,
 reproducible via `clone-stress.sh` and `clone-stress-heavy.sh`.
+
+### D3 fifth correction (append-only) — 2026-09-03, the burn set is two sets, not one
+
+The third correction's self-test asserted that `frame/pilot-dedup.json`
+regenerates unchanged from committed evidence. That assertion is wrong while the
+pilot runs, and it failed for the right reason at the wrong time: the resumed
+sequential pilot had legitimately burnt **12 further repositories**, so the
+regenerated set was 266 against a committed 254 and the self-test reported a
+defect where there was none. Nothing was lost or mis-accounted; the check was
+holding a growing quantity to a constant.
+
+Two sets follow from the burn rule and they are now kept apart:
+
+- **`incident-D3/burnt-254.json` — the D3 episode's own burn set.** Reconstructed
+  from incident evidence alone (the shard `[walk]` entries union the pre-purge
+  ledgers); no live ledger is consulted. It is history: 254 repositories,
+  frontier depth 396 of 500, and it must regenerate for ever. It is what the
+  earlier corrections meant by "the 254", and it is unchanged by this entry.
+- **`frame/pilot-dedup.json` — the pilot's full exclusion set.** The incident set
+  union every repository the live pilot has since drawn. It **grows while the
+  pilot runs**, by design, and its final value is the counted frame's
+  `pilot_dedup`, republished before the counted draw.
+
+`build-burn-list.py --check` now proves the two invariants that actually hold at
+any moment: the incident set still regenerates exactly, and no repository has
+ever **left** the burn set. Growth passes; a repository disappearing from the
+published set, or incident evidence going missing, fails. Both directions are
+pinned by self-tests, including a sentinel that appends a fresh ledger entry and
+requires the check to pass.
+
+No counted or pilot outcome depends on this entry: it corrects an accounting
+check, not the accounting. The published exclusion set is unchanged in content
+beyond the repositories the running pilot has drawn.

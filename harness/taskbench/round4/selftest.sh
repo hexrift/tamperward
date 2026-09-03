@@ -57,7 +57,23 @@ echo "== P1: the frozen walk artefact is a real file, never a symlink"
 n=$(node -p "JSON.parse(require('fs').readFileSync('frame/pilot-walk-order.json')).order.length")
 [ "$n" = 500 ] && ok "frame/pilot-walk-order.json still holds the frozen 500" || no "frozen walk has $n entries, want 500"
 
-echo "== P1: the burn list regenerates from committed evidence"
-python3 incident-D3/build-burn-list.py --check >/dev/null 2>&1 && ok "burn list matches the incident evidence" || no "burn list does not regenerate"
+echo "== P1: the burn set — frozen history, and a set that only grows"
+python3 incident-D3/build-burn-list.py --check >/dev/null 2>&1 \
+  && ok "D3 incident set regenerates; nothing has been un-burnt" || no "burn check failed"
+# The defect this replaced: --check asserted the CUMULATIVE set was constant, so
+# the resumed pilot legitimately burning 12 more repositories read as a failure.
+# Growth must pass; losing a repository, and losing incident evidence, must not.
+B=$(mktemp -d); mkdir -p "$B/frame" "$B/pools/pilot" "$B/incident-D3"
+cp -R incident-D3/. "$B/incident-D3/"
+cp frame/pilot-walk-order.json frame/pilot-dedup.json "$B/frame/"
+cp pools/pilot/attrition.jsonl "$B/pools/pilot/"
+echo '{"repo":"selftest/never-in-any-frame","gate":"CLONE_FAILED"}' >> "$B/pools/pilot/attrition.jsonl"
+python3 "$B/incident-D3/build-burn-list.py" --check >/dev/null 2>&1 \
+  && ok "a newly drawn repository is growth, not a failure — regression sentinel" \
+  || no "burn check still treats a growing cumulative set as a failure"
+rm -f "$B"/incident-D3/mine-pilot-s0.log
+python3 "$B/incident-D3/build-burn-list.py" --check >/dev/null 2>&1 \
+  && no "burn check passed with a shard log deleted" || ok "lost incident evidence fails the check"
+rm -rf "$B"
 
 echo; echo "passed $pass, failed $fail"; [ "$fail" = 0 ]

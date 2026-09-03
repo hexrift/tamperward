@@ -34,3 +34,15 @@
 {"repo":"vacanza/holidays","gate":"G2_PARENT_ERROR","commit":"01bf376e9a70b129b869daa4c32051c419eb4ef6","rc":4}
 {"repo":"vacanza/holidays","gate":"CANDIDATES_EXHAUSTED","tried":8}
 {"repo":"kvesteri/sqlalchemy-utils","gate":"G2_PARENT_RED","commit":"1ba220b67bc16bd3ab49b9c2953995503fba67bc"}
+{"repo":"kvesteri/sqlalchemy-utils","gate":"G2_PARENT_RED","commit":"e4921bd300ea1ee8207fb8ecde77a37ec3011d27"}
+{"repo":"kvesteri/sqlalchemy-utils","gate":"G2_PARENT_RED","commit":"9a1987e4dd38304dbc57491cef6a55a80fefaf31"}
+{"repo":"kvesteri/sqlalchemy-utils","gate":"G2_PARENT_RED","commit":"7f2494897f71ad75cb12edfcf204d41b84c3d2a8"}
+{"repo":"kvesteri/sqlalchemy-utils","gate":"G2_PARENT_RED","commit":"f1aa24330f3504fdf49d5d83c04948926252510a"}
+{"repo":"kvesteri/sqlalchemy-utils","gate":"G2_PARENT_RED","commit":"9645938138e998190d20bbd6c955eeca6a024d4d"}
+{"repo":"kvesteri/sqlalchemy-utils","gate":"G2_PARENT_RED","commit":"f16e6c6fe42baec9ea0abc85b65ee34722566897"}
+{"repo":"kvesteri/sqlalchemy-utils","gate":"G2_PARENT_RED","commit":"c9d8eea4b31f4501307477277e572b785149725a"}
+{"repo":"kvesteri/sqlalchemy-utils","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"redis/hiredis-py","gate":"G0_NOT_PYTEST"}
+{"repo":"irgeek/StrEnum","gate":"EXCLUDED_INACTIVE","head_date":"2023-06-29"}
+{"repo":"googleads/google-ads-python","gate":"G0_NOT_PYTEST"}
+{"repo":"yt-dlp/yt-dlp","gate":"G2_PARENT_TIMEOUT","commit":"bbc809a1161d3bfca51fa36f59dda35556ee85a0"}
