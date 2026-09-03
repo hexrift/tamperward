@@ -135,13 +135,15 @@ exit 0
 AGENT
 chmod +x "$CFGADD"
 
-# corrupt-obs: truncates the parent-owned observer log to a malformed line —
-# the adjudicator must fail closed (A7/O7).
+# corrupt-obs: the observer log is now sealed APPEND-ONLY by the runner, so
+# truncation is refused. The reachable corruption is APPENDING a malformed line —
+# the disclosed residual of the seal — and the adjudicator must still fail closed
+# on it (A7/O7).
 OBSCORRUPT="$ROOT_TMP/fake-obscorrupt.sh"
 cat > "$OBSCORRUPT" <<'AGENT'
 #!/usr/bin/env bash
 set -u
-[ -n "${SMOKE_OBS:-}" ] && printf 'not a valid observer line at all\n' > "$SMOKE_OBS/tree.log"
+[ -n "${SMOKE_OBS:-}" ] && printf 'not a valid observer line at all\n' >> "$SMOKE_OBS/tree.log"
 exit 0
 AGENT
 chmod +x "$OBSCORRUPT"

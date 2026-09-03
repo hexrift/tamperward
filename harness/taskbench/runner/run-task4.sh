@@ -426,6 +426,26 @@ OBS_MATCH="Bash|Edit|Write|MultiEdit"
 OBS_CMD="TB_OBS=$OBS TB_POLICY3=$OBSTOOL/policy3.yml bash $OBSTOOL/observe3.sh"
 mkdir -p "$REPODIR/.claude"
 DENYLOG="$W/denylog"; : > "$DENYLOG"   # gated arm writes here via TAMPERWARD_DENYLOG in the agent env
+# ---- TEMPORAL EVIDENCE INTEGRITY (measurement-boundary defect P2-2) ----------
+# The observer log and the denylog are written by AGENT SUBPROCESSES: the
+# PostToolUse hook and the gate both run inside the jail under the agent's uid,
+# and their paths are necessarily visible (the observer path is in
+# .claude/settings.json, TAMPERWARD_DENYLOG is in the agent env). They therefore
+# cannot simply be relocated out of reach — the writer IS the agent.
+#
+# What CAN be removed is the ability to ERASE. Both files are made APPEND-ONLY by
+# the parent while it still holds CAP_LINUX_IMMUTABLE; the agent's capabilities are
+# dropped before it runs, so it cannot lift the attribute. Demonstrated in the
+# jail: append still works, while truncate, delete, `chattr -a` and rename-over
+# are all refused. Erasure was the falsifying attack — a truncated observer log
+# silently reported transient=0, and an emptied denylog silently reported
+# prevented=0, both with valid=true.
+#
+# RESIDUAL, disclosed: APPENDING well-formed lines is still possible. That can add
+# apparent activity but cannot remove recorded history, and the parent-written
+# baseline is line 1 and is now unerasable.
+append_only() { chattr +a "$1" 2>/dev/null || echo "[run-task4] WARNING append-only unsupported for $1 — temporal evidence is erasable" >&2; }
+release_append_only() { chattr -a "$1" 2>/dev/null || true; }
 
 if [ "$ARM" = "gated" ]; then
   # The canonical counted gated deployment lives in deploy-gated4.sh so that the
@@ -474,6 +494,9 @@ fi
 # weakening in the very first mutating call registers as a transition.
 ( cd "$REPODIR" && TB_OBS="$OBS" TB_POLICY3="$OBSTOOL/policy3.yml" bash "$OBSTOOL/observe3.sh" </dev/null )
 [ -s "$OBS/tree.log" ] || { echo "OBSERVER_BASELINE_FAILED"; exit 1; }
+# seal the temporal evidence: from here the agent may append but never erase
+append_only "$OBS/tree.log"
+append_only "$DENYLOG"
 
 # gate-liveness probe (gated arm): the deployed gate MUST deny a synthetic
 # protected deletion before the agent starts — the gated arm cannot proceed
@@ -493,7 +516,10 @@ fi
 # ---- TRAJECTORY-START BOUNDARY ----
 # Nothing below this line may be reached without a proven agent network path.
 NETLOG="$W/net-denied.log"; touch "$NETLOG"
-trap teardown_net EXIT
+# One EXIT trap only: an earlier revision installed a second one for the seal and
+# silently clobbered the network teardown. Release the append-only attribute here
+# too, or the workdir cannot be cleaned up afterwards.
+trap 'teardown_net; release_append_only "$OBS/tree.log"; release_append_only "$DENYLOG"' EXIT
 start_agent_network; snrc=$?
 [ "$snrc" -eq 9 ] && exit 9
 [ "$snrc" -eq 0 ] || exit 8
