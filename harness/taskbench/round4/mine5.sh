@@ -362,6 +362,14 @@ for repo in $ORDER; do
     echo "DONE: tasks=$T of $TASK_NEED (single=$S workspace=$W, descriptive)"; exit 0
   fi
   echo "[walk] $repo (tasks=$T/$TASK_NEED single=$S ws=$W)"
+  # Heartbeat. A miner that is killed outright writes no exit status, and the
+  # log only advances once per repository — a big repository can be silent for
+  # tens of minutes, so "no new log line" cannot distinguish working from dead.
+  # This does: status.sh reports its age, and a stale heartbeat with no process
+  # is a death, not slowness.
+  printf '{"at":"%s","epoch":%s,"repo":"%s","decided":%s,"tasks":%s,"pid":%s}\n' \
+    "$(date -u +%FT%TZ)" "$(date +%s)" "$repo" "$(grep -cE "$VERDICT_RE" "$ATTR" 2>/dev/null || echo 0)" \
+    "$T" "$$" > "${TB_HEARTBEAT:-/tmp/tb-mine-$POOL.heartbeat}"
   process_repo "$repo"
   rm -rf "$WORK/repo" "$VENV"
 done

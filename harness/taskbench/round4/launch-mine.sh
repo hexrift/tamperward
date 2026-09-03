@@ -31,9 +31,15 @@ else
   CMD=(env TB_POOL="$POOL" ./mine-parallel.sh "$WORKERS")
 fi
 
+# The wrapper records HOW it ended, not just that it did. A miner that exits
+# writes its status; one killed by a signal we can trap records the signal; and
+# a status file that never appears at all means SIGKILL or a reaped container —
+# which is a different diagnosis from a crash, and previously indistinguishable.
 setsid bash -c '
+  S="'"$STATUS"'"
+  for sig in TERM INT HUP QUIT; do trap "echo signal:$sig > $S; exit 1" "$sig"; done
   "$@" >> "'"$LOG"'" 2>&1
-  echo $? > "'"$STATUS"'"
+  echo $? > "$S"
 ' _ "${CMD[@]}" < /dev/null > /dev/null 2>&1 &
 echo $! > "$PIDFILE"
 echo "launched $POOL (workers=$WORKERS) pid $(cat "$PIDFILE")"
