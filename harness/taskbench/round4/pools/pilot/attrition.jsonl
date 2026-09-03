@@ -543,3 +543,5 @@
 {"repo":"deeplook/sparklines","gate":"TASK_VALIDATED","commit":"79b2f781eb6a8044fa292992333df06f67c6b5fd","candidate":2}
 {"repo":"aws/sagemaker-python-sdk","gate":"G0_NO_TESTS"}
 {"repo":"CycloneDX/cyclonedx-python-lib","gate":"G0_NOT_PYTEST"}
+{"repo":"nteract/papermill","gate":"G3_NOT_RED","commit":"541ee66543db5c871fa1073aeacdc7253ab0013e","rc":0}
+{"repo":"nteract/papermill","gate":"G3_NOT_RED","commit":"cb6b60258bd5ffabd4ae4109e06ffa970baa010a","rc":0}
