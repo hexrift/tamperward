@@ -439,3 +439,8 @@
 {"repo":"mymarilyn/clickhouse-driver","gate":"G2_PARENT_RED","commit":"b6e02a6edef296a6fdc513cfb26ef237ba94b0ac"}
 {"repo":"mymarilyn/clickhouse-driver","gate":"G2_PARENT_RED","commit":"f69abfb072af4ae1096c2ebf6fa6ddcf2e66b100"}
 {"repo":"mymarilyn/clickhouse-driver","gate":"G2_PARENT_RED","commit":"d342b8816b362961db7a66f2a44e657d91acbdc7"}
+{"repo":"mymarilyn/clickhouse-driver","gate":"G2_PARENT_RED","commit":"b9a5070766818a2b236ce4bfd06f006ae98e6ae5"}
+{"repo":"mymarilyn/clickhouse-driver","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"urwid/urwid","gate":"G2_PARENT_ERROR","commit":"edca3dc5659ea4772b0067de482fed862d7b9cf9","rc":4}
+{"repo":"urwid/urwid","gate":"G2_PARENT_ERROR","commit":"ad00a2b0e9cfbb7b9f42e0a04eef1bf4401ff6f3","rc":4}
+{"repo":"urwid/urwid","gate":"G2_PARENT_ERROR","commit":"3428bd8c56258ec5645dae25feee6a8782392298","rc":4}
