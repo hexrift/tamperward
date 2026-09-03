@@ -228,3 +228,14 @@
 {"repo":"python-grimp/grimp","gate":"G2_PARENT_RED","commit":"3c0aad729c4a0eb200998ab4dd92813d4d005a85"}
 {"repo":"python-grimp/grimp","gate":"G2_PARENT_RED","commit":"d121a675ba97963d0d43081d82c7940fb4068ccf"}
 {"repo":"python-grimp/grimp","gate":"G2_PARENT_RED","commit":"fb5bf953c8b1ea67b049e97a8050a6ee009899cf"}
+{"repo":"python-grimp/grimp","gate":"G2_PARENT_RED","commit":"04c86eb89a4c7c9502b26f75e3083bc9f5701837"}
+{"repo":"python-grimp/grimp","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"skorokithakis/shortuuid","gate":"G0_NOT_PYTEST"}
+{"repo":"tree-sitter/tree-sitter-go","gate":"G0_NOT_PYTEST"}
+{"repo":"ronaldoussoren/altgraph","gate":"G0_NOT_PYTEST"}
+{"repo":"CourtBouillon/pydyf","gate":"G2_PARENT_RED","commit":"b8f239d43f5ef0f02e6fd1f00abb54cfd93a3acb"}
+{"repo":"CourtBouillon/pydyf","gate":"CANDIDATES_EXHAUSTED","tried":1}
+{"repo":"pycountry/pycountry","gate":"G2_PARENT_ERROR","commit":"c713c76baec0a3a2c419978c1bd2c6477660e134","rc":4}
+{"repo":"pycountry/pycountry","gate":"G2_PARENT_ERROR","commit":"395b601858d44e410172c990bd132151bd145e5b","rc":4}
+{"repo":"pycountry/pycountry","gate":"G2_PARENT_ERROR","commit":"3a2b9cff901cb589c1a3f349f63ce5d26d0a0fbb","rc":4}
+{"repo":"pycountry/pycountry","gate":"CANDIDATES_EXHAUSTED","tried":3}
