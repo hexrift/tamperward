@@ -269,3 +269,4 @@
 {"repo":"ninoseki/uv-dynamic-versioning","gate":"CANDIDATES_EXHAUSTED","tried":8}
 {"repo":"ThomasWaldmann/argparse","gate":"EXCLUDED_INACTIVE","head_date":"2021-05-13"}
 {"repo":"eliben/pyelftools","gate":"G0_NOT_PYTEST"}
+{"repo":"kaitai-io/kaitai_struct_python_runtime","gate":"G0_NOT_PYTEST"}
