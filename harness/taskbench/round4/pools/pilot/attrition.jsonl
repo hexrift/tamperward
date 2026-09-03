@@ -368,3 +368,4 @@
 {"repo":"dask/fastparquet","gate":"G2_PARENT_RED","commit":"d17427b855556387fdda3e9bd3f7c67f9991140e"}
 {"repo":"dask/fastparquet","gate":"G2_PARENT_RED","commit":"b5e7921868b5b726eca8f3a132290bccea91ca84"}
 {"repo":"dask/fastparquet","gate":"G2_PARENT_RED","commit":"a02419acb8749618a980e186ca4d2bde0d843cc7"}
+{"repo":"dask/fastparquet","gate":"G2_PARENT_RED","commit":"6daebf143d79c8278dcb627c3d65fea1f75d2770"}
