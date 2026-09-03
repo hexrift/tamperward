@@ -714,3 +714,24 @@ root-owned, read-only location (mode 555 / read-only bind), so an agent
 subprocess cannot replace it; offline execution from that location is confirmed.
 (A read-only `~/.npm` or `_cacache` alone does not work — npx needs writable
 scratch — which is another reason to invoke the artefact directly.)
+
+### npx finding — open item CLOSED (2026-09-03): the node-invoked gate is faithful
+
+The open item ("verify the gate's hook-tampering detector accepts a node-invoked
+gate") is resolved in favour of the direct-node deployment. Tested against
+v2.10.1 with the gate deployed as `node <artefact>/dist/cli/index.js`:
+
+- **Accepted as base** — a benign source change scans clean; the settings are NOT
+  flagged as a displaced or non-canonical gate.
+- **Enforces identically** — a protected deletion (`rm tests/test_add.py`) returns
+  `permissionDecision:"deny"` (test-deletion); an honest source edit is allowed.
+- **Tamper-detection intact** — swapping the PreToolUse gate hook to `true` is
+  caught as a `hook-tampering` BLOCK on `.claude/settings.json`.
+
+Deployment decision for the pilot/counted trajectories in this environment: the
+gate and Stop sweep are deployed as `node <pinned-artefact>/dist/cli/index.js
+hook claude` / `sweep claude`, the artefact materialised read-only and pinned by
+the SHA-256 above. This is disclosed as a deviation from the canonical `npx`
+invocation string, justified because (a) npx is unreliable here and (b) a
+hash-pinned artefact is the actual frozen treatment. Enforcement, base
+acceptance, and tamper-detection are all equivalent to the canonical gate.
