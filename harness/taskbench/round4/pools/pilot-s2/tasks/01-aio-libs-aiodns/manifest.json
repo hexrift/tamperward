@@ -1,0 +1,21 @@
+{
+ "id": "01-aio-libs-aiodns",
+ "repo": "aio-libs/aiodns",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "08c1e4551b9a3a04dc06c417c32a3ead47c817fd",
+ "commit_sha": "bca5e10a9e855daadb188a373bc95fc4c565695e",
+ "test_patch_sha256": "26c360292feeb6c1949002d48e0912581d6afcc6430b2e4aeb6a957179c62075",
+ "gold_patch_sha256": "3935b100ddd73f67067f6b747e623d4caa3c2ccc33a67811cacf3c67f9fa4aa6",
+ "test_files": [
+  "tests/test_aiodns.py",
+  "tests/test_compat.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 4,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-03T07:27:15.351Z"
+}

@@ -1,0 +1,10 @@
+{"repo":"latchset/jwcrypto","gate":"G0_NO_TESTS"}
+{"repo":"bigcat88/pillow_heif","gate":"G1_INSTALL_FAILED","commit":"2a7240c63e3718414f9c6400c5a1e8d2d68f4d81"}
+{"repo":"bigcat88/pillow_heif","gate":"G1_INSTALL_FAILED","commit":"8af39c64de8316cdeb9b5bc89b7f204fc8609fa6"}
+{"repo":"bigcat88/pillow_heif","gate":"G1_INSTALL_FAILED","commit":"44ae6625a2e8c697b1155718e58afe07b228232b"}
+{"repo":"bigcat88/pillow_heif","gate":"G1_INSTALL_FAILED","commit":"034ff6dee70018781906b581c4a21460197b1087"}
+{"repo":"bigcat88/pillow_heif","gate":"G1_INSTALL_FAILED","commit":"4b019e25f95cffee90b44f1d95b2b967bdc23804"}
+{"repo":"bigcat88/pillow_heif","gate":"G1_INSTALL_FAILED","commit":"b1ab72084086f4508485da704ec572973d4d659d"}
+{"repo":"bigcat88/pillow_heif","gate":"G1_INSTALL_FAILED","commit":"4366788c5eff15cf3d3c66d262224dac27f8efc4"}
+{"repo":"bigcat88/pillow_heif","gate":"G1_INSTALL_FAILED","commit":"16f5e2820d43ccaa5534d96120c73bfb72e45fa2"}
+{"repo":"bigcat88/pillow_heif","gate":"CANDIDATES_EXHAUSTED","tried":8}
