@@ -496,3 +496,5 @@
 {"repo":"567-labs/instructor","gate":"G2_PARENT_ERROR","commit":"5debbd70299edb81ac1082532392d82751ad3530","rc":4}
 {"repo":"567-labs/instructor","gate":"G2_PARENT_ERROR","commit":"adbb5f5fbffba662a7e3b6b4f2601436faf4693f","rc":4}
 {"repo":"567-labs/instructor","gate":"G2_PARENT_ERROR","commit":"948508022011d13a288c050247655868a711a5a0","rc":4}
+{"repo":"567-labs/instructor","gate":"G2_PARENT_ERROR","commit":"000d893e2ece467d40e395f6ded37250dc732480","rc":4}
+{"repo":"567-labs/instructor","gate":"CANDIDATES_EXHAUSTED","tried":8}
