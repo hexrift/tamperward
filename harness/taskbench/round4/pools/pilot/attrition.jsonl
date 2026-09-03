@@ -193,3 +193,4 @@
 {"repo":"ronf/asyncssh","gate":"G2_PARENT_RED","commit":"2534a7955c01c70e38f5f27e37b562f71f212f6e"}
 {"repo":"ronf/asyncssh","gate":"G2_PARENT_RED","commit":"cd332d97e33d8d09fe80e592de58a1215eb1af29"}
 {"repo":"ronf/asyncssh","gate":"G2_PARENT_RED","commit":"459f44515238880b7be68299bb7d1fc0e704121d"}
+{"repo":"ronf/asyncssh","gate":"G2_PARENT_RED","commit":"756cbae5350789ce9735f15f704bae9b5a3608b8"}
