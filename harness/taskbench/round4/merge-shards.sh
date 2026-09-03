@@ -11,9 +11,13 @@
 # Usage: ./merge-shards.sh <pool> <workers> <need>
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; cd "$HERE"
+# All runtime state lives under one directory so a separate process — another
+# terminal, or `docker compose exec` into the running container — can read it.
+# Defaults to /tmp, which is what every path here was hardcoded to.
+TB_RUNTIME_DIR="${TB_RUNTIME_DIR:-/tmp}"; mkdir -p "$TB_RUNTIME_DIR"
 POOL="${1:-counted}"; WORKERS="${2:-3}"; NEED="${3:-10}"
 
-[ -e "${TB_CLONE_BREAKER:-/tmp/tb-clone-breaker}" ] && {
+[ -e "${TB_CLONE_BREAKER:-$TB_RUNTIME_DIR/tb-clone-breaker}" ] && {
   echo "REFUSING to merge: the clone breaker is tripped — shards are incomplete." >&2; exit 8; }
 
 # Completion is PROVEN by a per-shard record bound to that shard's walk hash,
@@ -22,13 +26,13 @@ WALK_SHA=$(sha256sum "pools/$POOL/walk.json" 2>/dev/null | cut -c1-64)
 for i in $(seq 0 $((WORKERS-1))); do
   C="pools/$POOL-s$i/completion.json"
   [ -f "$C" ] || { echo "REFUSING to merge: shard $i has no completion record ($C)" >&2; exit 7; }
-  L="/tmp/tb-shard-$POOL-s$i.lock"
+  L="$TB_RUNTIME_DIR/tb-shard-$POOL-s$i.lock"
   if [ -e "$L" ] && ! flock -n "$L" true 2>/dev/null; then
     echo "REFUSING to merge: shard $i still has a live writer" >&2; exit 7
   fi
 done
 
-STAGE=$(mktemp -d /tmp/tb-merge-XXXXXX)
+STAGE=$(mktemp -d "$TB_RUNTIME_DIR/tb-merge-XXXXXX")
 TB_POOL_ARG="$POOL" TB_WORKERS_ARG="$WORKERS" TB_NEED_ARG="$NEED" TB_STAGE="$STAGE" node <<'NODE'
 const fs = require("fs"), path = require("path");
 const pool = process.env.TB_POOL_ARG, workers = +process.env.TB_WORKERS_ARG;

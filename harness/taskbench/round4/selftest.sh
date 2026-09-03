@@ -133,16 +133,57 @@ out=$(cd "$D" && env TB_POOL=counted TB_POOL_LOCK="$D/pool.lock" ./mine5.sh 2>&1
 [ "$rc" = 7 ] && echo "$out" | grep -q 'another miner already holds the lock' \
   && ok "a second miner on the same pool is REFUSED (exit 7)" \
   || no "a second miner was allowed to start (rc=$rc)"
-# Stopping a miner means stopping its session — descendants inherit the lock fd,
-# so killing the script alone can leave the pool locked. That is fail-closed
-# (the next miner refuses rather than doubling up), and the runbook's stop is a
-# session stop, which is what this asserts.
+# The lock is held by a flock GUARDIAN, not by a descriptor of the miner shell.
+# The earlier design held it on fd 8 of the miner, which children inherit — so a
+# descendant outliving the miner could keep the pool locked. Assert directly that
+# NO process in the miner's tree has the lock file open; only the guardian does.
+if [ -d /proc ]; then
+  holders=0
+  for pp in $(pgrep -x -f 'bash ./mine5.sh' 2>/dev/null); do
+    ls -l /proc/"$pp"/fd 2>/dev/null | grep -q "$D/pool.lock" && holders=$((holders+1))
+  done
+  [ "$holders" = 0 ] && ok "no miner process holds the lock fd — the guardian does" \
+    || no "$holders miner process(es) still hold the lock descriptor, which children inherit"
+else
+  ok "fd-inheritance check skipped (no /proc)"
+fi
 kill -KILL "$holder" 2>/dev/null
 pkill -KILL -s "$first" 2>/dev/null; kill -KILL "$first" 2>/dev/null
 free=0; for _ in $(seq 1 60); do locked "$D/pool.lock" || { free=1; break; }; sleep 0.25; done
-[ "$free" = 1 ] && ok "stopping the miner's session frees the pool — no stranded lock" \
-  || no "the pool stayed locked after the miner's session was stopped"
+[ "$free" = 1 ] && ok "stopping the miner frees the pool — no stranded lock" \
+  || no "the pool stayed locked after the miner was stopped"
 rm -rf "$D"
+
+echo "== P1: monitoring must not manufacture false alarms"
+# The removed defect: a `status` compose service ran in a SEPARATE container, so
+# it shared files but not the PID namespace, and would have reported 0 sessions
+# and "killed outright" while mining was healthy. Two things pin the correction:
+# status.sh distinguishes foreground supervision from a dead launcher, and the
+# compose file no longer offers a service that cannot see the miner.
+R=$(mktemp -d)
+out=$(TB_RUNTIME_DIR="$R" ./status.sh pilot 2>&1)
+echo "$out" | grep -q 'killed outright' \
+  && no "status.sh cries 'killed outright' with no launcher — the false alarm" \
+  || ok "no launcher is reported as foreground supervision, not as a death"
+echo "$out" | grep -q 'foreground (no launcher)' \
+  && ok "status.sh names the supervision mode instead of guessing" || no "supervision mode not reported"
+rm -rf "$R"
+grep -qE '^\s+status:' docker/docker-compose.yml \
+  && no "a separate status service is back; it cannot see the miner's processes" \
+  || ok "compose offers no separate status service"
+grep -q 'exec mine ./status.sh' docker/docker-compose.yml \
+  && ok "compose documents `exec` into the running container" || no "compose does not document exec"
+grep -q 'platform: linux/amd64' docker/docker-compose.yml \
+  && ok "the mining platform is pinned, not inherited from the host" || no "platform not pinned"
+grep -q 'UV_VERSION=0.8.17' docker/Dockerfile \
+  && ok "uv is pinned to the protocol version" || no "uv is not pinned"
+
+echo "== P1: runtime state is relocatable, so a second process can read it"
+for f in mine5.sh status.sh launch-mine.sh mine-parallel.sh merge-shards.sh shim/git; do
+  bad=$(grep -nE '"/tmp/|=/tmp/' "$f" | grep -v 'TB_RUNTIME_DIR:-/tmp\|RT:-/tmp' || true)
+  [ -n "$bad" ] && { no "$f still hardcodes a /tmp path: ${bad%%$'\n'*}"; break; }
+done
+[ -z "$bad" ] && ok "no script hardcodes a /tmp runtime path"
 
 echo "== P1: the frozen walk artefact is a real file, never a symlink"
 [ -L pools/pilot/walk.json ] && no "pools/pilot/walk.json is a SYMLINK — writes reach the frozen frame" || ok "pools/pilot/walk.json is a real file"

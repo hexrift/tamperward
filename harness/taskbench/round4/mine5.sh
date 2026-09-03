@@ -52,16 +52,33 @@ cd "$HERE/pools/$POOL"
 # driver — had no lock at all: a second launch would simply have appended to the
 # same ledger, which is the accumulation shape D3 is best explained by. Session
 # counting in status.sh detects that AFTER it happens; only the lock prevents it.
-# fd 8, never 9: mine-parallel passes its shard lock down on fd 9, and reusing
-# that number here would close it and release the very lock the parent holds.
-# The kernel drops this lock when the process dies, however it dies, so a
-# SIGKILLed miner does not strand the pool.
+# The probe below uses fd 8, never 9: mine-parallel passes its shard lock down on
+# fd 9, and reusing that number here would close it and release the very lock the
+# parent holds.
+#
+# The lock is held by a GUARDIAN, not by this shell. `flock --close` acquires the
+# lock, closes the descriptor, and only THEN execs the miner, so no descendant
+# ever inherits it. Holding it on a descriptor of this shell — the previous
+# design — made a guarantee it could not keep: children inherit open
+# descriptors, so a descendant outliving the miner (one that starts its own
+# session, say) would keep the pool locked after the miner's session was
+# stopped. With the guardian the lock lives exactly as long as the guardian
+# process, which exits when the miner does, however the miner dies.
 POOL_LOCK="${TB_POOL_LOCK:-$TB_RUNTIME_DIR/tb-mine5-$POOL.lock}"
-exec 8>"$POOL_LOCK"
-if ! flock -n 8; then
-  echo "REFUSING: another miner already holds the lock for pool $POOL ($POOL_LOCK)." >&2
-  echo "  Two miners on one pool write one ledger. Stop the running miner first." >&2
-  exit 7
+if [ -z "${TB_LOCK_GUARDED:-}" ]; then
+  # Report the common case ourselves: flock -n is silent, and an operator needs
+  # to know WHY a miner refused. The guardian remains the authority — if it
+  # loses a race this probe did not see, it exits 7 without a message.
+  if ! ( flock -n 8 ) 8>"$POOL_LOCK" 2>/dev/null; then
+    echo "REFUSING: another miner already holds the lock for pool $POOL ($POOL_LOCK)." >&2
+    echo "  Two miners on one pool write one ledger. Stop the running miner first." >&2
+    exit 7
+  fi
+  export TB_LOCK_GUARDED=1
+  # $HERE, not $0: the script has already cd'd into its pool directory, where
+  # a relative "./mine5.sh" does not resolve.
+  flock -n -E 7 --close "$POOL_LOCK" "$HERE/mine5.sh" "$@"
+  exit $?
 fi
 WORK="${TB_WORK:-$TB_RUNTIME_DIR/tb-mine5-$POOL}"
 # Round-3 left the work directory implicit: the bash default and the node

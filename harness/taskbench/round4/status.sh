@@ -31,11 +31,26 @@ sessions=$(for p in $(pgrep -x -f 'bash ./mine5.sh' 2>/dev/null); do
 procs=$(pgrep -x -f 'bash ./mine5.sh' 2>/dev/null | wc -l)
 pid=$(cat "$TB_RUNTIME_DIR/tb-mine-$POOL.pid" 2>/dev/null || echo -)
 alive=no; [ "$pid" != - ] && kill -0 "$pid" 2>/dev/null && alive=yes
+# Two supervision modes, and conflating them manufactures false alarms.
+# LAUNCHED: launch-mine.sh detached the miner and owns the pid, status and log
+# files. FOREGROUND: the miner runs in the foreground under a supervisor that is
+# not launch-mine.sh — a container, or a terminal — so there is no pid file by
+# design, and its absence says nothing about health. Docker records the exit
+# status (`docker compose ps -a`) and the output (`... logs mine`) itself.
+if [ "$pid" = - ]; then mode=foreground; else mode=launched; fi
 walk=$(node -p "JSON.parse(require('fs').readFileSync('$P/walk.json')).order.length" 2>/dev/null || echo ?)
 echo "pool           $POOL"
 echo "mining sessions $sessions  (1 = healthy, >1 = ACCUMULATION, stop everything)"
 echo "  processes     $procs  (parent + subshells of those sessions; not a miner count)"
-echo "launcher pid   $pid (alive: $alive)"
+if [ "$mode" = launched ]; then
+  echo "launcher pid   $pid (alive: $alive)"
+else
+  echo "supervision    foreground (no launcher) — pid/status/log files are not"
+  echo "               written in this mode; under Docker use \`compose ps -a\`"
+  echo "               and \`compose logs mine\`. Read this container from INSIDE"
+  echo "               it (\`compose exec mine ./status.sh\`): a separate container"
+  echo "               has its own PID namespace and would see 0 sessions."
+fi
 echo "decided        $(grep -cE "$V" "$P/attrition.jsonl" 2>/dev/null || echo 0) of $walk"
 echo "tasks          $(ls "$P/tasks" 2>/dev/null | wc -l)"
 cf=$(grep -c CLONE_FAILED "$P/attrition.jsonl" 2>/dev/null); cf=${cf:-0}
@@ -54,8 +69,16 @@ else
 fi
 st=$(cat "$TB_RUNTIME_DIR/tb-mine-$POOL.status" 2>/dev/null)
 case "$st" in
-  "")        [ "$sessions" = 0 ] && st="NONE, and no miner running — killed outright (SIGKILL or a reaped container), not an exit" || st="not written — still running";;
   signal:*)  st="$st — stopped by a signal the wrapper trapped";;
+  "")        if [ "$mode" = foreground ]; then
+               st="not tracked here — foreground mode; ask the supervisor (docker compose ps -a)"
+             elif [ "$sessions" = 0 ]; then
+               st="NONE, and no miner running — killed outright (SIGKILL or a reaped container), not an exit"
+             else
+               st="not written — still running"
+             fi;;
 esac
 echo "exit status    $st"
-echo "now on         $(tail -1 "$TB_RUNTIME_DIR/tb-mine-$POOL.out" 2>/dev/null | cut -c1-60)"
+now=$(tail -1 "$TB_RUNTIME_DIR/tb-mine-$POOL.out" 2>/dev/null | cut -c1-60)
+[ -z "$now" ] && [ "$mode" = foreground ] && now="(foreground mode writes no log file — see the miner's own output)"
+echo "now on         $now"

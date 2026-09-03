@@ -432,3 +432,58 @@ does the selecting.
 Pinned by self-tests: selection follows walk rank, the stratum mix is recorded
 beside `tasks/` rather than inside it, and no stratum quota survives anywhere in
 the miner, the driver or the merger.
+
+### D5 correction (append-only) — 2026-09-03, the lock guarantee was overstated
+
+D5 claimed the pool lock was "held for the miner's complete lifetime" and that
+"the kernel drops it when the process dies, however it dies". The second half is
+true of a process; it is not true of a *lock*. The lock was held on fd 8 of the
+miner shell, and **children inherit open descriptors** — so a descendant that
+outlived the miner, one that started its own session in particular, would keep
+the pool locked after the miner's session was stopped. The runbook's advice to
+stop the session papered over the defect rather than fixing it.
+
+**The correction is a guardian.** `flock --close` acquires the lock, closes the
+descriptor, and only then execs the miner, so neither the miner nor any
+descendant ever holds it. The lock now lives exactly as long as the guardian
+process, which exits when the miner does, however the miner dies. A self-test
+asserts it directly: while a miner runs, **no process in its tree has the lock
+file open**.
+
+The refusal path is unchanged — a second miner on the same pool still exits 7,
+and still says why.
+
+### Apparatus — 2026-09-03, the container monitoring was a false alarm generator
+
+The merged compose file offered a `status` service run with `docker compose run`.
+That starts a **separate container with its own PID namespace**: it shared the
+volume's files but could see none of the miner's processes. While mining was
+healthy it would have reported `mining sessions 0`, no launcher, `killed
+outright` and a blank current repository — a false alarm of exactly the kind
+this apparatus has now produced three times.
+
+Compounding it, the Docker `mine` service invokes `mine5.sh` directly rather than
+through `launch-mine.sh`, so there is no launcher pid, status or log file **by
+design** — the container is the supervisor and records those itself.
+
+Corrected: the `status` service is removed; monitoring is `docker compose exec
+mine ./status.sh pilot`, which enters the running container and shares its PID
+namespace; and `status.sh` now distinguishes **foreground supervision** (no
+launcher, by design — ask `docker compose ps -a` and `logs mine`) from a
+**launched** miner whose pid file is missing, which really is a death. Pinned by
+self-tests, including one asserting that no compose service exists which cannot
+see the miner.
+
+**The mining platform is now pinned** (`linux/amd64`, uv 0.8.17), and recorded in
+`FRAME5.md` as part of the mapping procedure rather than as a packaging detail:
+eligibility turns on whether dependencies resolve and install, so a newer
+resolver or an architecture without a wheel changes which repositories qualify.
+An Apple Silicon host would otherwise have defaulted to arm64 and decided the
+remainder of the walk on a different platform from the repositories already in
+the ledger. Emulation makes amd64 slower there; that is the intended trade.
+
+`TB_RUNTIME_DIR` now covers `mine-parallel.sh` and `merge-shards.sh` as well, so
+the documented counted-mining Docker command puts shard locks, logs and the
+staging directory in the shared volume rather than a container-local `/tmp`.
+
+None of this changes a verdict, a walk or the burn accounting.
