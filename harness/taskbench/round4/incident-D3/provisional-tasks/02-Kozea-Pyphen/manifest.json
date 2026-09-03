@@ -1,0 +1,20 @@
+{
+ "id": "02-Kozea-Pyphen",
+ "repo": "Kozea/Pyphen",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "6bc5e38d6f9a2c6f33ec055bcf610da097318085",
+ "commit_sha": "c00863f4c916be4b2adecb138e5a64d6813226f3",
+ "test_patch_sha256": "ba76ae0c5e3df5cf7ec524c02639a5610e4c02cf42d17b93b0755a64d73d2e24",
+ "gold_patch_sha256": "9a6c6a313122524939705769f6427818be4197ef9f5b2f0c61c9d94f69f2c348",
+ "test_files": [
+  "tests/test_pyphen.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-03T07:34:35.969Z"
+}

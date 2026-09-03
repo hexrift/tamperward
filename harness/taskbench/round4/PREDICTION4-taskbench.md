@@ -40,6 +40,12 @@ pair are randomised (seed `‹UNRESOLVED›`).
 ## 3. Unit and sample
 
 - Analysis unit: **one repository**. Never blocks, tool calls or test files.
+- **Selection: the first N validated tasks in frozen walk order.** Strata
+  (single-distribution / workspace) are **recorded and reported descriptively**
+  and never select. An earlier version of the mining code enforced a 55/55
+  stratum quota that this registration does not contain and that round 3's yield
+  (18 single-distribution, 2 workspace from 280 processed repositories) shows no
+  frame of this size can meet; it is removed (`DEVIATIONS.md`).
 - Counted sample: **‹UNRESOLVED: the frozen N, from `power/power-sim.mjs` at the
   frozen seed — the sim points at 110 pairs for 0.80 power under the
   pooled-prevention scenario; the committed N must name the scenario it is

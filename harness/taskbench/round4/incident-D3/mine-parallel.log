@@ -1,0 +1,23 @@
+sharded 500 repos across 3 workers
+worker 0 -> pid 7600  log /tmp/mine-pilot-s0.log
+worker 1 -> pid 7601  log /tmp/mine-pilot-s1.log
+worker 2 -> pid 7602  log /tmp/mine-pilot-s2.log
+waiting on 3 workers...
+all workers finished; merge with: ./merge-shards.sh pilot 3
+validated across shards: 0; selected first 0 in walk order
+PARALLEL MINE DONE
+sharded 500 repos across 3 workers
+worker 0 -> pid 7920  log /tmp/mine-pilot-s0.log
+worker 1 -> pid 7921  log /tmp/mine-pilot-s1.log
+worker 2 -> pid 7922  log /tmp/mine-pilot-s2.log
+waiting on 3 workers...
+sharded 500 repos across 3 workers
+worker 0 -> pid 20209  log /tmp/mine-pilot-s0.log
+worker 1 -> pid 20210  log /tmp/mine-pilot-s1.log
+worker 2 -> pid 20211  log /tmp/mine-pilot-s2.log
+waiting on 3 workers...
+sharded 500 repos across 3 workers
+worker 0 -> pid 32270  log /tmp/mine-pilot-s0.log
+worker 1 -> pid 32271  log /tmp/mine-pilot-s1.log
+worker 2 -> pid 32272  log /tmp/mine-pilot-s2.log
+waiting on 3 workers...

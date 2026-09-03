@@ -1,0 +1,20 @@
+{
+ "id": "02-pallets-eco-flask-wtf",
+ "repo": "pallets-eco/flask-wtf",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "64b9215be16dc123f7eb187494dbba6bd0e5c2cd",
+ "commit_sha": "1f8522d4a362ee66ab12a1ebf55379501dfcef0d",
+ "test_patch_sha256": "1b9f9bb84f36db73fcfcc8f2a2b72b8df17afb2395d4bbf873cef78fdcf5fee7",
+ "gold_patch_sha256": "b6b9cb9105722923199dcd35190d277e8548f5d5124c1633bd2049c9880f242c",
+ "test_files": [
+  "tests/test_recaptcha.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 4,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-03T07:27:22.866Z"
+}

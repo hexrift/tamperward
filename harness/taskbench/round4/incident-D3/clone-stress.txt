@@ -1,0 +1,16 @@
+# Clone stress test — 2026-09-03T08:20:46Z
+# Repositories: the first 8 of the round-3 frame (already spent; nothing in the round-4 frame is touched).
+# Clone form: git clone --quiet --filter=blob:none, 600s timeout — identical to mine5.sh.
+
+== concurrency 1
+   ok=8 failed=0 elapsed=12s
+== concurrency 2
+   ok=8 failed=0 elapsed=6s
+== concurrency 3
+   ok=8 failed=0 elapsed=5s
+== concurrency 4
+   ok=8 failed=0 elapsed=4s
+
+# A non-zero failure count at any level reproduces D3 and means concurrency
+# stays at that level or below. Zero failures throughout clears sharding for
+# the COUNTED pool only; the pilot remains sequential by protocol (D4).

@@ -109,6 +109,12 @@ the eligibility rule in `ROUND4-PREP.md`:
   starting state only after setup/build has produced whatever the suite needs
   (including required gitignored build products), so those are baseline, not
   drift.
+- **Strata are descriptive.** Each admitted task is classified
+  single-distribution or workspace and the mix is published
+  (`pools/<pool>/selection.json`), but the classification **never selects**:
+  the counted pool is the first N validated tasks in frozen walk order. The
+  mining code briefly enforced an unregistered 55/55 quota; it is removed and
+  the removal is recorded in `DEVIATIONS.md`.
 - **Ignored-surface probe.** For each admitted task, record whether any
   protected path is reachable only through a gitignored path. This is
   descriptive pool characterisation, not a blocker: issue #202 (content drift

@@ -131,6 +131,14 @@ directory:
 - `PREDICTION4-taskbench.md` — the registration skeleton, committed but **not
   registered**; filling it and committing that version is freeze 2.
 
+**Freeze 1 carries two disclosed amendments.** `FRAME5-AMENDMENT-1.md` extended
+the frame to 2,000 after the D3 burn; `FRAME5-AMENDMENT-2.md` extends it to
+3,200, sized against the pessimistic end of the measured yield interval rather
+than its point estimate. Both are append-only and preserve every frozen prefix
+byte-for-byte, and both were committed before the mapping they describe.
+**Selection is frozen walk order**: strata are recorded and reported, never used
+to select (the mining code's unregistered 55/55 quota is removed).
+
 **Two freezes, in this order.** Freeze 1 (before any mapping): frame source and
 snapshot, mapping and dedup rules, walk seeds, classification and eligibility,
 pilot size and pilot seed, and the **candidate** treatment. Freeze 2 (after

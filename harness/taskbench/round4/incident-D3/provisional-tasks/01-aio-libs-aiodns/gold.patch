@@ -1,0 +1,65 @@
+diff --git a/aiodns/__init__.py b/aiodns/__init__.py
+index 623a1a4ad3a4054941ba4811f1f9b777f70ad444..a62e2f668b7ddc2abc85a9e37fc8837b3c06aab3 100644
+--- a/aiodns/__init__.py
++++ b/aiodns/__init__.py
+@@ -202,8 +202,13 @@ class DNSResolver:
+             fut.set_exception(
+                 error.DNSError(errorno, pycares.errno.strerror(errorno))
+             )
++            return
++        try:
++            converted = convert_result(result, qtype)
++        except error.DNSError as exc:
++            fut.set_exception(exc)
+         else:
+-            fut.set_result(convert_result(result, qtype))
++            fut.set_result(converted)
+ 
+     def _get_query_future_callback(
+         self, qtype: int
+diff --git a/aiodns/compat.py b/aiodns/compat.py
+index b34a1f6037ebc17863b5daf79d5c493b54ed3164..d75e91fe2eaf39b000abae9cf39373f4529b409c 100644
+--- a/aiodns/compat.py
++++ b/aiodns/compat.py
+@@ -12,6 +12,16 @@ from typing import Union, cast
+ 
+ import pycares
+ 
++from . import error
++
++_SINGLE_RESULT_QTYPES = frozenset(
++    {
++        pycares.QUERY_TYPE_CNAME,
++        pycares.QUERY_TYPE_SOA,
++        pycares.QUERY_TYPE_PTR,
++    }
++)
++
+ 
+ def _maybe_str(data: bytes) -> str | bytes:
+     """Decode bytes as ASCII, return bytes if decode fails (pycares 4.x)."""
+@@ -260,13 +270,19 @@ def convert_result(dns_result: pycares.DNSResult, qtype: int) -> QueryResult:
+         converted = _convert_record(record)
+ 
+         # CNAME, SOA, and PTR return single result, not list
+-        if record_type in (
+-            pycares.QUERY_TYPE_CNAME,
+-            pycares.QUERY_TYPE_SOA,
+-            pycares.QUERY_TYPE_PTR,
+-        ):
++        if record_type in _SINGLE_RESULT_QTYPES:
+             return cast(QueryResult, converted)
+ 
+         results.append(converted)
+ 
++    # NOERROR/NODATA: c-ares delivered ARES_SUCCESS but the answer has no
++    # records of the queried type. pycares 4.x raised ARES_ENODATA here;
++    # without this branch single-result qtypes (CNAME/SOA/PTR) would
++    # resolve to [] and crash callers reading .name/.cname/.nsname.
++    if not results:
++        raise error.DNSError(
++            pycares.errno.ARES_ENODATA,
++            pycares.errno.strerror(pycares.errno.ARES_ENODATA),
++        )
++
+     return results

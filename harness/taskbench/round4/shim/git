@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# git shim for round-4 mining. Serialises clones, retries them, and on
+# exhaustion raises a dedicated INFRASTRUCTURE failure that stops the miner
+# before it can write a terminal verdict. Every other git subcommand passes
+# straight through; mine5.sh is untouched (DEVIATIONS.md D3).
+#
+# Why the miner must die rather than continue: `CLONE_FAILED` is a TERMINAL
+# repo-level verdict, so a resume skips that repository for good. A single
+# failed attempt on a shared clone path poisoned 245 lines over 127
+# repositories. Retries alone are not enough — once the path is down, letting
+# the walk continue lets it poison every remaining repository at speed.
+REAL=/usr/bin/git
+RT=${TB_RUNTIME_DIR:-/tmp}
+LOCK=${TB_CLONE_LOCK:-$RT/tb-clone.lock}
+BREAKER=${TB_CLONE_BREAKER:-$RT/tb-clone-breaker}
+FAILS=${TB_CLONE_FAILS:-$RT/tb-clone-fails}
+MAX_CONSEC=${TB_CLONE_MAX_CONSEC:-3}
+
+is_clone=0
+for a in "$@"; do [ "$a" = clone ] && { is_clone=1; break; }; done
+[ "$is_clone" = 0 ] && exec "$REAL" "$@"
+
+die_infra() {
+  echo "tb-shim: INFRASTRUCTURE_FAILURE — $1" >&2
+  printf '{"event":"INFRASTRUCTURE_FAILURE","reason":"%s","at":"%s"}\n' \
+    "$1" "$(date -u +%FT%TZ)" >> "${TB_INFRA_LOG:-$RT/tb-infra.jsonl}"
+  : > "$BREAKER"
+  # Stop the miner NOW, before it can record a terminal verdict for this repo.
+  # Target the mine5.sh ancestor precisely: killing the whole process group also
+  # kills an interactive caller's shell (it terminated the self-test run that
+  # first exercised this path), and a shim must never do that.
+  # mine5.sh exports its own pid. Exact, and safe to exercise outside a miner:
+  # with no TB_MINER_PID the shim simply fails, killing nothing.
+  if [ -n "${TB_MINER_PID:-}" ] && kill -0 "$TB_MINER_PID" 2>/dev/null; then
+    echo "tb-shim: terminating miner pid $TB_MINER_PID before it can record a terminal verdict" >&2
+    kill -TERM "$TB_MINER_PID" 2>/dev/null
+  fi
+  exit 90
+}
+
+# A breaker already tripped by a sibling: never start another clone.
+[ -e "$BREAKER" ] && die_infra "breaker already tripped"
+
+for attempt in 1 2 3; do
+  if flock "$LOCK" "$REAL" "$@"; then
+    : > "$FAILS"
+    exit 0
+  fi
+  sleep $((attempt*4))
+done
+
+n=$(( $(cat "$FAILS" 2>/dev/null || echo 0) + 1 ))
+echo "$n" > "$FAILS"
+[ "$n" -ge "$MAX_CONSEC" ] && die_infra "$n consecutive clone exhaustions"
+# Below the threshold this is still an exhausted clone: refuse to let the miner
+# turn it into a terminal verdict.
+die_infra "clone exhausted after 3 attempts"

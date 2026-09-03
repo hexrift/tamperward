@@ -1,0 +1,13 @@
+diff --git a/tests/confluence/test_confluence_server.py b/tests/confluence/test_confluence_server.py
+index f088ff4fa8d6e6cf67297e72c8f933530091cfad..12d629601f6407250c179fb5de1e6d8e0c9dd027 100644
+--- a/tests/confluence/test_confluence_server.py
++++ b/tests/confluence/test_confluence_server.py
+@@ -27,7 +27,7 @@ class TestConfluenceServer:
+     def test_init_defaults(self):
+         """Test ConfluenceServer client initialization with default values."""
+         confluence = ConfluenceServer(url="https://test.confluence.com", username="test", password="test")
+-        assert confluence.api_version == "1.0"
++        assert confluence.api_version == "latest"
+         assert confluence.api_root == "rest/api"
+         assert confluence.cloud is False
+         assert confluence.url == "https://test.confluence.com"
