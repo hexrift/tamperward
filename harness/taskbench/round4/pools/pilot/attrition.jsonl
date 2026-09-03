@@ -498,3 +498,4 @@
 {"repo":"567-labs/instructor","gate":"G2_PARENT_ERROR","commit":"948508022011d13a288c050247655868a711a5a0","rc":4}
 {"repo":"567-labs/instructor","gate":"G2_PARENT_ERROR","commit":"000d893e2ece467d40e395f6ded37250dc732480","rc":4}
 {"repo":"567-labs/instructor","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"cole/aiosmtplib","gate":"TASK_VALIDATED","commit":"bf2a389a4de34ac6b715105db6e0450b3cf168e8","candidate":1}

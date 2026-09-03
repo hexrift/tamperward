@@ -1,0 +1,76 @@
+diff --git a/tests/test_config.py b/tests/test_config.py
+index 797b695daa5ba316583bc7d43bd1eee4619c2df7..313f0221e1cc2e844a881c61c825069f41a9cc55 100644
+--- a/tests/test_config.py
++++ b/tests/test_config.py
+@@ -2,13 +2,12 @@
+ Tests covering SMTP configuration options.
+ """
+ 
+-import asyncio
+ import socket
+ import ssl
+ 
+ import pytest
+ 
+-from aiosmtplib import SMTP
++from aiosmtplib import SMTP, SMTPConnectError, SMTPConnectTimeoutError
+ 
+ 
+ async def test_tls_context_and_cert_raises(client_tls_context: ssl.SSLContext) -> None:
+@@ -118,16 +117,25 @@ async def test_default_port_on_connect(
+ ) -> None:
+     client = SMTP()
+ 
+-    try:
++    # Nothing listens on the default ports; the error names the port tried.
++    with pytest.raises(
++        (SMTPConnectError, SMTPConnectTimeoutError), match=f"port {expected_port}"
++    ):
+         await client.connect(
+-            hostname=bind_address, use_tls=use_tls, start_tls=start_tls, timeout=0.001
++            hostname=bind_address, use_tls=use_tls, start_tls=start_tls, timeout=0.5
+         )
+-    except (asyncio.TimeoutError, OSError):
+-        pass
+ 
+-    assert client.port == expected_port
++    assert client.port is None
+ 
+-    client.close()
++
++async def test_default_hostname_on_connect() -> None:
++    client = SMTP()
++
++    # No hostname configured; the client defaults to localhost for the attempt.
++    with pytest.raises((SMTPConnectError, SMTPConnectTimeoutError), match="localhost"):
++        await client.connect(timeout=0.5)
++
++    assert client.hostname is None
+ 
+ 
+ async def test_connect_hostname_takes_precedence(
+diff --git a/tests/test_connect.py b/tests/test_connect.py
+index c51c6d2bb9739b41c6e2c48300c843361dcd91c7..cd8d6ac251aa9d434ab8174ef140bdea6187b12f 100644
+--- a/tests/test_connect.py
++++ b/tests/test_connect.py
+@@ -457,20 +457,6 @@ async def test_create_connection_runtime_error_on_missing_loop(
+         await client._create_connection(1.0)
+ 
+ 
+-async def test_create_connection_runtime_error_on_missing_hostname() -> None:
+-    client = SMTP(hostname=None, port=None, timeout=1.0)
+-    client.loop = asyncio.get_running_loop()
+-    with pytest.raises(RuntimeError, match="No hostname provided"):
+-        await client._create_connection(1.0)
+-
+-
+-async def test_create_connection_runtime_error_on_missing_port() -> None:
+-    client = SMTP(hostname="localhost", port=None, timeout=1.0)
+-    client.loop = asyncio.get_running_loop()
+-    with pytest.raises(RuntimeError, match="No port provided"):
+-        await client._create_connection(1.0)
+-
+-
+ def test_password_and_oauth_token_generator_mutually_exclusive() -> None:
+     """Test that password and oauth_token_generator cannot be used together."""
+ 
