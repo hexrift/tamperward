@@ -212,3 +212,9 @@
 {"repo":"maxmind/MaxMind-DB-Reader-python","gate":"G1_INSTALL_FAILED","commit":"fe042aec31547a3964b29cb878fc7226cca2f6b0"}
 {"repo":"maxmind/MaxMind-DB-Reader-python","gate":"G1_INSTALL_FAILED","commit":"63fc04dce77416a7a9f03e6d0ab6749694389cfc"}
 {"repo":"maxmind/MaxMind-DB-Reader-python","gate":"G1_INSTALL_FAILED","commit":"09933898b2cf0c11e655c0a2a06a8a32b8c6d27f"}
+{"repo":"maxmind/MaxMind-DB-Reader-python","gate":"G1_INSTALL_FAILED","commit":"f441cfd1ad76e9ba41a2131013f826b4e0ef8709"}
+{"repo":"maxmind/MaxMind-DB-Reader-python","gate":"G1_INSTALL_FAILED","commit":"c4f2d1fce53273c5a312a57b72a6e1f342d56145"}
+{"repo":"maxmind/MaxMind-DB-Reader-python","gate":"G1_INSTALL_FAILED","commit":"c4f2117f10a0da537decf2f8a15b658db6941340"}
+{"repo":"maxmind/MaxMind-DB-Reader-python","gate":"G1_INSTALL_FAILED","commit":"49a89273148975ca39149d84ffda6061b486468b"}
+{"repo":"maxmind/MaxMind-DB-Reader-python","gate":"G1_INSTALL_FAILED","commit":"0311fcd59771ef7593db1108cb91bc8970947561"}
+{"repo":"maxmind/MaxMind-DB-Reader-python","gate":"CANDIDATES_EXHAUSTED","tried":8}
