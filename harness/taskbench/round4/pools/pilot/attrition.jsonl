@@ -339,3 +339,4 @@
 {"repo":"a2aproject/a2a-python","gate":"G2_PARENT_ERROR","commit":"ddbf853d692ea207dad2be610e675298e0365511","rc":4}
 {"repo":"a2aproject/a2a-python","gate":"G2_PARENT_ERROR","commit":"0c2126fbf1e2b418872181ce2ae200f972b4c202","rc":4}
 {"repo":"a2aproject/a2a-python","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"explosion/cython-blis","gate":"G1_INSTALL_FAILED","commit":"555d35f0c8568c2040bc5cd5f6dc3059ef771580"}
