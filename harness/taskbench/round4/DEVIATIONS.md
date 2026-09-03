@@ -602,3 +602,45 @@ terminal skip and the walk resumes to the next repository; and `CLONE_FAILED`
 cannot be emitted. Confirmed end to end on the live network: `burner-redis`
 classifies to REPO_UNAVAILABLE (91) through the full sequence with the breaker
 clear, and the control clone succeeds. 52/52.
+
+## Pilot mining complete — 2026-09-03 (the pilot itself is NOT yet complete)
+
+The pilot **mining** phase finished: 10 validated regression tasks from 154
+repository decisions (6.49% validation rate, 15.4 repositories per task).
+Committed on `round4/pilot-run`; burn set republished to 408 repositories.
+
+**Three points kept precise in the record:**
+
+1. **The breaker did trip once, pre-D6, on `PrefectHQ/burner-redis`**, before the
+   clone-classification fix existed — the D3-hardened shim could not tell a dead
+   repo from a transient failure and halted. `CLONE_FAILED` nevertheless remained
+   **0** throughout: nothing was ever written as a terminal clone verdict. After
+   D6 and the restart the breaker stayed clear for the rest of the walk. It is
+   wrong to say "the breaker never tripped"; the accurate statement is "no clone
+   ever became a poisoned verdict, and after D6 no clone failure halted the walk."
+
+2. **`REPO_UNAVAILABLE` means "unavailable through the pinned unauthenticated git
+   transport at draw time"** — not conclusively deleted or private. The two such
+   verdicts record only that this transport could not reach those repositories
+   while it demonstrably reached the control.
+
+3. **All ten tasks are single-distribution.** This is acceptable because strata
+   are **descriptive, not selection quotas** — the walk takes the first N
+   validated tasks in order regardless of stratum. The correct response is NOT to
+   mine replacements to manufacture workspace coverage (that would make the
+   stratum a selection criterion, the very thing removed). Instead it is
+   **disclosed**: the sampled pilot offers **no real-repository workspace
+   evidence**, and workspace handling must be exercised **separately**, through
+   preregistered fixtures or replay cases, not by drawing more real repositories.
+
+**What "pilot complete" still requires.** Mining is necessary but not sufficient.
+The pilot is complete only once the **runner and both trajectories (gated and
+ungated) for all ten tasks have been exercised through the counted
+configuration** — the freeze checklist. That pass establishes whether the
+complete pilot proceeds on **v2.10.1** or whether any finding forces a **v2.10.2**
+and another registered candidate iteration.
+
+**Registered chronology from here** (unchanged): freeze checklist on 2.10.1 →
+(if forced, 2.10.2 + re-run) → map Amendment 2 and verify its prefix /
+disjointness / dedup invariants → counted mining → Freeze 2 → only then any
+counted trajectory.
