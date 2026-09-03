@@ -200,3 +200,9 @@
 {"repo":"astral-sh/ty","gate":"G0_NOT_PYTEST"}
 {"repo":"browser-use/cdp-use","gate":"G0_NOT_PYTEST"}
 {"repo":"visgl/deck.gl","gate":"G0_NO_PYPROJECT"}
+{"repo":"pydot/pydot","gate":"G2_PARENT_RED","commit":"3a1443fa566cad5b16bbf0719001f8bfc7cbd7cd"}
+{"repo":"pydot/pydot","gate":"G2_PARENT_RED","commit":"9ae40d7b1f55b5347be78550c9dc57b016d79278"}
+{"repo":"pydot/pydot","gate":"G2_PARENT_RED","commit":"5ab42f391bf0fa25b12c86312fb0983d3cc029d8"}
+{"repo":"pydot/pydot","gate":"G2_PARENT_RED","commit":"59cbfa976f63a087e706996d694730d9c04b6c56"}
+{"repo":"pydot/pydot","gate":"G2_PARENT_RED","commit":"b6657af76539f7472ed4a13ce38fd3a9d1cfb08e"}
+{"repo":"pydot/pydot","gate":"G2_PARENT_RED","commit":"4464fed793272a585fe57c0857d125bca015334d"}
