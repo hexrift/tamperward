@@ -1724,3 +1724,41 @@ report 0, 1, 2 against it, and 0 against the current adjudicator.
 **A pinned commit is the wrong shape for a threat control.** No other harness control
 carries one: `cleanup-lifecycle4`'s `TB_RT` is an env seam, so its 77/0 was not
 vacuous.
+
+## Fresh pilot ten — disclosed BEFORE mining, 2026-09-03
+
+The first ten pilot tasks are spent. They were drawn, validated and then discussed
+in the open (their manifests, patches and repository names are committed and were
+read during development), so they are disclosed development data and cannot serve
+as the pilot. All ten are already in the burn set — verified 10/10 against
+`frame/pilot-dedup.json` — so nothing further needs burning to retire them; what
+they need is to not be USED.
+
+**Ten fresh tasks are mined by resuming the same sacrificial pilot walk**, not by
+starting a new one. `pools/pilot/walk.json` is `frame/pilot-resume-walk.json`
+(1,746 entries, the D3 burn already removed), of which **1,592 are unburnt**; the
+miner resumes past the 154 repositories that already carry a repo-level verdict.
+
+**`TB_PILOT_NEED=20`.** The pool counter is total validated tasks in the pool, so
+with the default need of 10 the walk would exit `DONE` immediately without mining
+anything. 20 is the bound `mine5.sh` itself sanctions — it refuses anything above
+20 on a pilot pool precisely because the walk is sacrificial — and it yields ten
+NEW tasks beside the ten spent ones.
+
+**Identification is by task id, so spent and fresh can never be confused:** the
+spent set is `01`–`10` (`pools/pilot/tasks/01-…` through `10-…`), and the fresh
+pilot is everything the resumed walk numbers from `11` onward. The spent ten are
+left in place rather than moved or deleted: their manifests are the provenance for
+their own burn entries, and relocating them would break the correspondence between
+the ledger and the tasks it describes.
+
+**Registered constraints for this run, restated so the run can be checked against
+them afterwards:**
+
+- sequential only — `launch-mine.sh pilot` never shards and never goes through the
+  parallel driver, which is the shape D3 is best explained by;
+- every repository the walk touches joins the burn set, regenerated from the
+  attrition ledger by `incident-D3/build-burn-list.py` and `--check`ed afterwards;
+- these ten are pilot tasks and are **not** part of the counted 110;
+- the extension to 3,600 is mapped only AFTER this pilot, as registered;
+- no trajectory runs until the dedicated pilot credential is provisioned.
