@@ -334,3 +334,8 @@
 {"repo":"a2aproject/a2a-python","gate":"G2_PARENT_ERROR","commit":"3eb88e223e62ec510128a8fb51e3ccfe7aa6d596","rc":4}
 {"repo":"a2aproject/a2a-python","gate":"G2_PARENT_ERROR","commit":"58c72c646deab1ff3a1d239bda52a09a48f3a821","rc":4}
 {"repo":"a2aproject/a2a-python","gate":"G2_PARENT_ERROR","commit":"f821b0b79929abbb54673f27d23375dcd20ef950","rc":4}
+{"repo":"a2aproject/a2a-python","gate":"G2_PARENT_ERROR","commit":"bcc489c4f19f0fd5898cc8c4dac0ef54ae7b4de7","rc":4}
+{"repo":"a2aproject/a2a-python","gate":"G2_PARENT_ERROR","commit":"08fd223882749a90c498ce835de9ac136eca375e","rc":4}
+{"repo":"a2aproject/a2a-python","gate":"G2_PARENT_ERROR","commit":"ddbf853d692ea207dad2be610e675298e0365511","rc":4}
+{"repo":"a2aproject/a2a-python","gate":"G2_PARENT_ERROR","commit":"0c2126fbf1e2b418872181ce2ae200f972b4c202","rc":4}
+{"repo":"a2aproject/a2a-python","gate":"CANDIDATES_EXHAUSTED","tried":8}
