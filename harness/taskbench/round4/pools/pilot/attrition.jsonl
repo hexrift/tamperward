@@ -413,3 +413,10 @@
 {"repo":"python-gitlab/python-gitlab","gate":"G2_PARENT_RED","commit":"4a8d82bec8f09fa142e8134589a0f40ef4f9c3be"}
 {"repo":"python-gitlab/python-gitlab","gate":"G2_PARENT_RED","commit":"9dd62c3f5bcf3e082c2733bd4edc068f993c22ec"}
 {"repo":"python-gitlab/python-gitlab","gate":"G2_PARENT_RED","commit":"c7c139b9e7823ec1800a819233aee469355ee8d1"}
+{"repo":"python-gitlab/python-gitlab","gate":"G2_PARENT_RED","commit":"f3c6678482b7ca35b1dd1e3bc49fc0c56cd03639"}
+{"repo":"python-gitlab/python-gitlab","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"vsajip/python-gnupg","gate":"G0_NOT_PYTEST"}
+{"repo":"nexB/pip-requirements-parser","gate":"EXCLUDED_INACTIVE","head_date":"2024-09-02"}
+{"repo":"pallets-eco/flask-sqlalchemy","gate":"NO_QUALIFYING_COMMITS"}
+{"repo":"wbond/oscrypto","gate":"G0_NOT_PYTEST"}
+{"repo":"shibukawa/imagesize_py","gate":"G0_NOT_PYTEST"}
