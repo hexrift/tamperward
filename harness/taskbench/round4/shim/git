@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Serialise `git clone` across parallel mining workers, leave every other git
+# subcommand untouched.
+#
+# Round-4 finding (DEVIATIONS.md D3): three workers cloning at once through this
+# environment's git proxy made `git clone` abort, and the miner recorded each
+# abort as CLONE_FAILED — a TERMINAL repo-level verdict, so a resume would skip
+# those repositories for good. 412 verdicts were poisoned that way before it was
+# caught. Cloning is network-bound and serialising it costs almost nothing; the
+# install and pytest steps, which dominate, stay parallel.
+REAL=/usr/bin/git
+for a in "$@"; do
+  if [ "$a" = clone ]; then
+    exec flock /tmp/tb-clone.lock "$REAL" "$@"
+  fi
+done
+exec "$REAL" "$@"

@@ -41,6 +41,12 @@ for(let i=0;i<w;i++){
 console.log(`sharded ${order.length} repos across ${w} workers`);
 ' "$SRC" "$WORKERS" "$POOL" || exit 1
 
+# Cloning is serialised across workers by a git shim (see shim/git and
+# DEVIATIONS.md D3): concurrent clones aborted and were recorded as terminal
+# CLONE_FAILED verdicts. Install and pytest, which dominate the cost, stay
+# parallel.
+export PATH="$HERE/shim:$PATH"
+
 pids=()
 for i in $(seq 0 $((WORKERS-1))); do
   ( TB_POOL="$POOL-s$i" TB_WORK="/tmp/tb-mine5-$POOL-s$i" \
