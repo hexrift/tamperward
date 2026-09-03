@@ -101,3 +101,6 @@
 {"repo":"pypa/flit","gate":"G2_PARENT_RED","commit":"b6199bd7e5ac7d6c130a1578addc7bd4f0c55053"}
 {"repo":"pypa/flit","gate":"G2_PARENT_RED","commit":"9d508ba9d54b65f4baff3357d0d68c14367dda20"}
 {"repo":"pypa/flit","gate":"G2_PARENT_RED","commit":"4fdd194a26c41ff99fbb7f5c48c623cff7353030"}
+{"repo":"pypa/flit","gate":"G2_PARENT_RED","commit":"50bc55a1596fba437927fb40c7cbaca8cb1525ea"}
+{"repo":"pypa/flit","gate":"G2_PARENT_RED","commit":"9bce745d155ad482c3fdc331c80b8731c89d4c0c"}
+{"repo":"pypa/flit","gate":"CANDIDATES_EXHAUSTED","tried":8}
