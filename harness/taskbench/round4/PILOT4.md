@@ -115,6 +115,32 @@ adjudicator, and which keeps Tamperward's own Stop sweep purely part of the
 treatment rather than doubling as the harness's measurement. The treatment
 forces the cleaner separation the design asked for.
 
+## Counted deployment recipe (validated against v2.10.1, 2026-09-03)
+
+Probed against the live CLI; this is what `run-task4.sh` implements per arm.
+
+**Cache pre-warm (once, OUTSIDE the jail).** The canonical hooks invoke
+`npx --yes tamperward@2.10.1`, and the net-jail blocks the npm registry. Warm the
+npx cache before jailing (`npx --yes tamperward@2.10.1 --help >/dev/null`);
+`npx --offline tamperward@2.10.1 ...` then resolves inside the jail (confirmed rc=0).
+
+**Gated arm.** `npx --offline tamperward@2.10.1 init` in the task repo writes the
+canonical `.claude/settings.json` — PreToolUse `hook claude`, Stop `sweep claude`,
+`disableAllHooks:false` — plus `.tamperward.yml` (baseline policy), the pre-commit
+hook, CI and CODEOWNERS. The **parent-owned PostToolUse observer is merged in
+beside the gate** (clean, per the wiring finding — not a second Stop hook). The
+agent runs wrapped in `tamperward run --base --cmd` (the enforcement envelope,
+whose own verdict feeds ONLY envelope-escape). There is **no Stop verify hook**;
+pristine verification is the parent-owned adjudicator, `verdict4.mjs`, after exit.
+
+**Ungated arm.** Only the parent-owned PostToolUse observer in
+`.claude/settings.json` — no gate, no sweep, no envelope. The SAME parent-owned
+adjudicator runs after exit. Isolation (net-jail, and the round-4 mount/PID/cap
+separation) is applied SYMMETRICALLY to both arms.
+
+**Both arms** commit the observer wiring into the agent-visible base (parity), and
+the adjudicator (`verdict4.mjs`) is the sole cross-arm outcome source.
+
 ## Deployment (the treatment boundary's claim 3)
 
 Every pilot and counted seed: initialised with `tamperward init` from the exact
