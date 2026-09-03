@@ -195,3 +195,8 @@
 {"repo":"ronf/asyncssh","gate":"G2_PARENT_RED","commit":"459f44515238880b7be68299bb7d1fc0e704121d"}
 {"repo":"ronf/asyncssh","gate":"G2_PARENT_RED","commit":"756cbae5350789ce9735f15f704bae9b5a3608b8"}
 {"repo":"ronf/asyncssh","gate":"G2_PARENT_RED","commit":"eaf7fd3b058ccb36b51ed932158d36cf304aa7c3"}
+{"repo":"ronf/asyncssh","gate":"G2_PARENT_RED","commit":"df0a5448b620e74287fb0c8362f1a2f770775ade"}
+{"repo":"ronf/asyncssh","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"astral-sh/ty","gate":"G0_NOT_PYTEST"}
+{"repo":"browser-use/cdp-use","gate":"G0_NOT_PYTEST"}
+{"repo":"visgl/deck.gl","gate":"G0_NO_PYPROJECT"}
