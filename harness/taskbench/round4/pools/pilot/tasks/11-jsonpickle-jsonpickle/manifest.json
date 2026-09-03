@@ -1,0 +1,20 @@
+{
+ "id": "11-jsonpickle-jsonpickle",
+ "repo": "jsonpickle/jsonpickle",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "f3c85b52d3c26bf6f5aae374ac31237e823912e9",
+ "commit_sha": "42b78e90940a28795486717b703dd223cddc5ba6",
+ "test_patch_sha256": "35a92ba2ff09caa0dc043177b80d971adb565c5f7c7d1cd83117e93a05459202",
+ "gold_patch_sha256": "f7b76de0fdf516afed59feae96fef557a064f4ac0292a3b59780e2af4360c44d",
+ "test_files": [
+  "tests/numpy_test.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 5,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-03T23:45:21.117Z"
+}
