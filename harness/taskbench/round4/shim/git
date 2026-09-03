@@ -7,14 +7,20 @@
 #   exit 0   clone succeeded — continue.
 #   exit 91  REPO_UNAVAILABLE — the repository is not accessible to the
 #            unauthenticated miner at draw time (deleted or private; we do not
-#            distinguish). Proven, not guessed: the target's GitHub API returns a
-#            final 404 AND a fixed public control repository simultaneously
-#            returns 200. A terminal per-repo skip; the walk continues.
-#   exit 90  INFRASTRUCTURE_FAILURE — anything else (401/403/429/5xx, timeout,
-#            malformed response, or a failed/limited control). The breaker is
-#            tripped and the miner halts WITHOUT writing a verdict. Erring here is
-#            the safe direction: it is what stops a transient failure from
-#            becoming a poisoned verdict (the D3 defect).
+#            distinguish). Proven, not guessed, by an independent cross-check:
+#            the target ref does NOT advertise while a fixed public control
+#            (pallets/flask) DOES. A terminal per-repo skip; the walk continues.
+#   exit 90  INFRASTRUCTURE_FAILURE — anything else (the target still resolves,
+#            or the control does not, i.e. the network/proxy is down, or a
+#            non-github URL that cannot be classified). The breaker is tripped
+#            and the miner halts WITHOUT writing a verdict. Erring here is the
+#            safe direction: it is what stops a transient failure from becoming a
+#            poisoned verdict (the D3 defect).
+#
+# The classifier probes over the git protocol (`ls-remote`), not the REST API:
+# this environment's proxy allows the git protocol to arbitrary public repos but
+# blocks api.github.com for any repo not attached to the session (D6). The probe
+# is by EXIT CODE cross-checked against a control, not by matching Git's stderr.
 #
 # Every non-clone git subcommand passes straight through.
 REAL=${TB_REAL_GIT:-/usr/bin/git}
@@ -24,7 +30,7 @@ BREAKER=${TB_CLONE_BREAKER:-$RT/tb-clone-breaker}
 FAILS=${TB_CLONE_FAILS:-$RT/tb-clone-fails}
 MAX_CONSEC=${TB_CLONE_MAX_CONSEC:-3}
 SLEEP_BASE=${TB_CLONE_SLEEP_BASE:-4}  # per-attempt backoff unit; tests set 0
-GH_API=${TB_GH_API:-https://api.github.com}
+PROBE_TIMEOUT=${TB_PROBE_TIMEOUT:-30}
 CONTROL_REPO=${TB_CONTROL_REPO:-pallets/flask}
 
 is_clone=0
@@ -42,30 +48,31 @@ die_infra() { # trip the breaker and return the infra code; the MINER halts on i
   exit 90
 }
 
-# HTTP status of a GitHub API repo lookup. Test hooks (TB_FAKE_TARGET_STATUS /
-# TB_FAKE_CONTROL_STATUS) let the classifier be exercised without a network; a
-# real probe uses curl through the environment's proxy. "000" means the request
-# itself failed (no response) and is treated as an infrastructure condition.
-gh_status() { # <owner/repo> -> HTTP code
-  curl -sS -o /dev/null -w '%{http_code}' --max-time 20 \
-    -H 'Accept: application/vnd.github+json' "$GH_API/repos/$1" 2>/dev/null || echo 000
+# Does a remote advertise refs? rc 0 = resolves (reachable), non-0 = does not
+# (deleted, private, or unreachable). Uses the REAL git over the proxy-allowed
+# git protocol, with prompts disabled so a private repo fails fast instead of
+# blocking on a credential prompt. Test hooks (TB_FAKE_TARGET_RESOLVE /
+# TB_FAKE_CONTROL_RESOLVE = yes|no) drive the classifier without a network.
+resolves() { # <url> -> rc
+  GIT_TERMINAL_PROMPT=0 timeout "$PROBE_TIMEOUT" "$REAL" ls-remote "$1" HEAD >/dev/null 2>&1
 }
 
-classify_and_exit() { # <owner/repo-or-empty>
-  local slug="$1" target control
-  if [ -n "${TB_FAKE_TARGET_STATUS:-}" ]; then target="$TB_FAKE_TARGET_STATUS"
-  elif [ -n "$slug" ]; then target="$(gh_status "$slug")"
-  else die_infra "clone exhausted and no github slug to classify"; fi
-  if [ -n "${TB_FAKE_CONTROL_STATUS:-}" ]; then control="$TB_FAKE_CONTROL_STATUS"
-  else control="$(gh_status "$CONTROL_REPO")"; fi
-  # REPO_UNAVAILABLE only on a CONFIRMED 404 with a healthy control. Every other
-  # pairing — a non-404 target, or any control that is not a clean 200 — is
-  # infrastructure, because we cannot prove the repo is the thing that is gone.
-  if [ "$target" = 404 ] && [ "$control" = 200 ]; then
-    echo "tb-shim: REPO_UNAVAILABLE $slug (target 404, control $CONTROL_REPO 200)" >&2
+classify_and_exit() { # <owner/repo-or-empty> <target-clone-url-or-empty>
+  local slug="$1" url="$2" tgt ctl
+  if [ -n "${TB_FAKE_TARGET_RESOLVE:-}" ]; then [ "$TB_FAKE_TARGET_RESOLVE" = yes ]; tgt=$?
+  elif [ -n "$url" ]; then resolves "$url"; tgt=$?
+  else die_infra "clone exhausted and no github target url to probe"; fi
+  if [ -n "${TB_FAKE_CONTROL_RESOLVE:-}" ]; then [ "$TB_FAKE_CONTROL_RESOLVE" = yes ]; ctl=$?
+  else resolves "https://github.com/$CONTROL_REPO.git"; ctl=$?; fi
+  # REPO_UNAVAILABLE only when the target does NOT resolve AND the control DOES.
+  # Every other pairing is infrastructure: a control that will not resolve means
+  # the network/proxy is down (we cannot trust a target failure), and a target
+  # that still resolves means the clone failed for some other reason.
+  if [ "$tgt" -ne 0 ] && [ "$ctl" -eq 0 ]; then
+    echo "tb-shim: REPO_UNAVAILABLE $slug (target ref does not advertise; control $CONTROL_REPO does)" >&2
     exit 91
   fi
-  die_infra "clone classification inconclusive: target=$target control=$control (not a confirmed unavailable repo)"
+  die_infra "clone classification inconclusive: target_resolves=$([ "$tgt" -eq 0 ] && echo yes || echo no) control_resolves=$([ "$ctl" -eq 0 ] && echo yes || echo no)"
 }
 
 # A breaker already tripped by a sibling: never start another clone.
@@ -79,13 +86,13 @@ for attempt in 1 2 3; do
   sleep $((attempt*SLEEP_BASE))
 done
 
-# Exhausted. Extract owner/repo from the github URL among the clone args (empty
-# for a non-github URL, e.g. the file:// base used by the self-tests), then
-# classify. The classifier decides REPO_UNAVAILABLE (91) vs infra (90); it never
-# writes a verdict.
+# Exhausted. Extract the github clone URL (and owner/repo, for the message) from
+# the args — empty for a non-github URL, e.g. the file:// base the self-tests use
+# — then classify. The classifier decides REPO_UNAVAILABLE (91) vs infra (90); it
+# never writes a verdict.
 url=""
 for a in "$@"; do case "$a" in *github.com[:/]*) url="$a";; esac; done
 slug="$(printf '%s' "$url" | sed -E 's#^.*github\.com[:/]+##; s#\.git$##; s#/+$##')"
 n=$(( $(cat "$FAILS" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$FAILS"
-classify_and_exit "$slug"
+classify_and_exit "$slug" "$url"

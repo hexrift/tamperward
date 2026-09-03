@@ -194,36 +194,36 @@ echo "== P0/D6: clone classification — REPO_UNAVAILABLE vs infrastructure halt
 # no network is touched.
 mkfailgit() { printf '#!/usr/bin/env bash\nexit 1\n' > "$1/fakegit"; chmod +x "$1/fakegit"; }
 mkhanggit() { printf '#!/usr/bin/env bash\nsleep 5\n' > "$1/fakegit"; chmod +x "$1/fakegit"; }
-# shimclone <dir> <target-status> <control-status> -> prints the shim's exit code
+# shimclone <dir> <target-resolves yes|no> <control-resolves yes|no> -> exit code
 shimclone() {
   local d=$1 tgt=$2 ctl=$3
   ( PATH="$HERE/shim:$PATH" TB_REAL_GIT="$d/fakegit" TB_RUNTIME_DIR="$d" \
-    TB_CLONE_SLEEP_BASE=0 TB_FAKE_TARGET_STATUS="$tgt" TB_FAKE_CONTROL_STATUS="$ctl" \
+    TB_CLONE_SLEEP_BASE=0 TB_FAKE_TARGET_RESOLVE="$tgt" TB_FAKE_CONTROL_RESOLVE="$ctl" \
     git clone https://github.com/acme/widget.git "$d/out" >/dev/null 2>&1 )
   echo $?
 }
 D=$(mktemp -d); mkfailgit "$D"
-rc=$(shimclone "$D" 404 200)
+rc=$(shimclone "$D" no yes)
 { [ "$rc" = 91 ] && [ ! -e "$D/tb-clone-breaker" ]; } \
-  && ok "target 404 + control 200 -> REPO_UNAVAILABLE (91), no breaker" \
+  && ok "target unresolvable + control resolves -> REPO_UNAVAILABLE (91), no breaker" \
   || no "confirmed-unavailable case: rc=$rc breaker=$([ -e "$D/tb-clone-breaker" ] && echo tripped || echo clear)"
 rm -rf "$D"
 D=$(mktemp -d); mkfailgit "$D"
-rc=$(shimclone "$D" 403 200)
+rc=$(shimclone "$D" yes yes)
 { [ "$rc" = 90 ] && [ -e "$D/tb-clone-breaker" ]; } \
-  && ok "clone fails but target is not a confirmed 404 (403) -> halt (90) + breaker" \
-  || no "non-404 target should halt: rc=$rc"
+  && ok "clone fails but target still resolves -> halt (90) + breaker" \
+  || no "resolvable target should halt: rc=$rc"
 rm -rf "$D"
 D=$(mktemp -d); mkfailgit "$D"
-rc=$(shimclone "$D" 404 500)
+rc=$(shimclone "$D" no no)
 { [ "$rc" = 90 ] && [ -e "$D/tb-clone-breaker" ]; } \
-  && ok "target 404 but control not healthy (500) -> halt (90) + breaker" \
-  || no "404 with failed control should halt: rc=$rc"
+  && ok "target unresolvable AND control unresolvable (proxy down) -> halt (90) + breaker" \
+  || no "unresolvable control should halt: rc=$rc"
 rm -rf "$D"
 D=$(mktemp -d); mkfailgit "$D"
-rc=$(shimclone "$D" 200 200)
+rc=$(shimclone "$D" yes yes)
 { [ "$rc" = 90 ] && [ -e "$D/tb-clone-breaker" ]; } \
-  && ok "public repo (target 200) whose clone fails -> halt (90), never a skip" \
+  && ok "reachable repo (target resolves) whose clone fails -> halt (90), never a skip" \
   || no "available-but-clone-failed should halt: rc=$rc"
 rm -rf "$D"
 
@@ -238,7 +238,7 @@ minesandbox() { # -> dir with mine5.sh, shim, and a pilot pool holding the given
 D=$(minesandbox '"acme/gone-one","acme/gone-two"')
 ( cd "$D" && env TB_POOL=counted TB_RUNTIME_DIR="$D" TB_POOL_LOCK="$D/pool.lock" \
     TB_REAL_GIT="$D/fakegit" TB_CLONE_SLEEP_BASE=0 TB_CLONE_BASE=https://github.com \
-    TB_FAKE_TARGET_STATUS=404 TB_FAKE_CONTROL_STATUS=200 TB_TASK_NEED=999 \
+    TB_FAKE_TARGET_RESOLVE=no TB_FAKE_CONTROL_RESOLVE=yes TB_TASK_NEED=999 \
     ./mine5.sh >/dev/null 2>&1 ); mrc=$?
 u=$(grep -c REPO_UNAVAILABLE "$D/pools/counted/attrition.jsonl" 2>/dev/null || echo 0)
 { [ "$u" = 2 ] && [ "$mrc" = 0 ] && [ ! -e "$D/tb-clone-breaker" ]; } \
@@ -251,7 +251,7 @@ rm -rf "$D"
 D=$(minesandbox '"acme/flaky"')
 ( cd "$D" && env TB_POOL=counted TB_RUNTIME_DIR="$D" TB_POOL_LOCK="$D/pool.lock" \
     TB_REAL_GIT="$D/fakegit" TB_CLONE_SLEEP_BASE=0 TB_CLONE_BASE=https://github.com \
-    TB_FAKE_TARGET_STATUS=403 TB_FAKE_CONTROL_STATUS=200 TB_TASK_NEED=999 \
+    TB_FAKE_TARGET_RESOLVE=yes TB_FAKE_CONTROL_RESOLVE=yes TB_TASK_NEED=999 \
     ./mine5.sh >/dev/null 2>&1 ); mrc=$?
 n=$(grep -c '"gate"' "$D/pools/counted/attrition.jsonl" 2>/dev/null || true); n=${n:-0}
 { [ "$mrc" != 0 ] && [ -e "$D/tb-clone-breaker" ] && [ "$n" = 0 ]; } \
@@ -263,7 +263,7 @@ rm -rf "$D"
 D=$(minesandbox '"acme/slow"'); mkhanggit "$D"
 ( cd "$D" && env TB_POOL=counted TB_RUNTIME_DIR="$D" TB_POOL_LOCK="$D/pool.lock" \
     TB_REAL_GIT="$D/fakegit" TB_CLONE_SLEEP_BASE=0 TB_CLONE_TIMEOUT=1 TB_CLONE_BASE=https://github.com \
-    TB_FAKE_TARGET_STATUS=404 TB_FAKE_CONTROL_STATUS=200 TB_TASK_NEED=999 \
+    TB_FAKE_TARGET_RESOLVE=no TB_FAKE_CONTROL_RESOLVE=yes TB_TASK_NEED=999 \
     ./mine5.sh >/dev/null 2>&1 ); mrc=$?
 n=$(grep -c '"gate"' "$D/pools/counted/attrition.jsonl" 2>/dev/null || true); n=${n:-0}
 { [ "$mrc" != 0 ] && [ "$n" = 0 ]; } \

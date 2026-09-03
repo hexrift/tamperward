@@ -507,19 +507,32 @@ not task construction or validation, so it does not restart the pilot and is not
 a Tamperward treatment change (no 2.10.2).
 
 **The fix — a precise classifier, failing safe toward halting.** On an exhausted
-clone the shim performs an independent GitHub API probe and returns an EXIT CODE
-to the miner; it never writes the ledger:
+clone the shim performs an independent probe, cross-checked against a control,
+and returns an EXIT CODE to the miner; it never writes the ledger:
 
-- `91` **REPO_UNAVAILABLE** — emitted **only** when the target's API returns a
-  final **404** AND a fixed public control (`pallets/flask`) simultaneously
-  returns **200**. Defined operationally as "not accessible to the
-  unauthenticated miner at draw time"; it does not distinguish deleted from
-  private. A terminal per-repo skip — the walk continues.
-- `90` **infrastructure** — every other condition (401/403/429/5xx, timeout,
-  malformed response, a failed or rate-limited control, or a non-github URL that
-  cannot be classified). The breaker trips and the miner halts **without a
-  verdict**. We halt whenever we cannot *prove* the repository, rather than the
-  network, is the problem.
+- `91` **REPO_UNAVAILABLE** — emitted **only** when the target ref does **not**
+  advertise while a fixed public control (`pallets/flask`) **does**. Defined
+  operationally as "not accessible to the unauthenticated miner at draw time";
+  it does not distinguish deleted from private. A terminal per-repo skip — the
+  walk continues.
+- `90` **infrastructure** — every other pairing (the target still resolves; the
+  control does not, i.e. the network/proxy is down; a probe timeout; or a
+  non-github URL that cannot be classified). The breaker trips and the miner
+  halts **without a verdict**. We halt whenever we cannot *prove* the repository,
+  rather than the network, is the problem.
+
+**Why the probe is git-protocol, not the REST API.** The first design used a
+GitHub REST probe (target 404 vs control 200). It was implemented and tested,
+then found unusable **in the execution environment**: the agent proxy blocks
+`api.github.com` for any repository not attached to the session (a 403 with an
+Anthropic access message, for the control repo too, token or not), while it
+allows the git protocol to arbitrary public repos — which is how mining clones
+at all. The classifier therefore probes with `git ls-remote` (prompts disabled,
+so a private repo fails fast) and classifies by **exit code cross-checked against
+the control**, not by matching Git's stderr. The logic and the fail-safe
+direction are identical to the REST design; only the transport changed, to one
+this environment permits. Confirmed end to end: `burner-redis` classifies to
+REPO_UNAVAILABLE (91) with the breaker clear, and a control clone succeeds.
 
 **The `CLONE_FAILED` escape hatch is gone.** Previously, if the outer 600 s
 timeout killed the shim before it could trip the breaker, the miner still wrote a
@@ -536,10 +549,10 @@ completeness arithmetic, and `status.sh` counts it as decided. burner-redis is
 burnt regardless (the pilot drew it) and will be retried mechanically on resume,
 receiving the new verdict.
 
-**Proven by self-tests (network-free, via a failing fake git and faked API
-statuses):** target 404 + control 200 → REPO_UNAVAILABLE with no breaker; a
-clone failure whose target is not a confirmed 404 → halt; target 404 with a
-failed/limited control → halt; an outer-timeout kill → halt with no
-`CLONE_FAILED`; a public repo whose clone fails → halt; an unavailable repo is a
-terminal skip and the walk resumes to the next repository; and `CLONE_FAILED`
-can no longer be emitted. 50/50.
+**Proven by self-tests (network-free, via a failing fake git and faked probe
+results):** target unresolvable + control resolves → REPO_UNAVAILABLE with no
+breaker; a clone failure whose target still resolves → halt; target unresolvable
+with an unresolvable control (proxy down) → halt; an outer-timeout kill → halt
+with no `CLONE_FAILED`; a reachable repo whose clone fails → halt; an unavailable
+repo is a terminal skip and the walk resumes to the next repository; and
+`CLONE_FAILED` can no longer be emitted. 50/50.
