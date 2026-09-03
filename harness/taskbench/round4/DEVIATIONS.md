@@ -682,3 +682,35 @@ later round.
 dedicated pilot credential to be provisioned (and revoked after). Provisioning
 and revoking it is an operator action, not something the harness does — so it is
 a handoff before the trajectory phase, distinct from the runner build.
+
+## Freeze-checklist finding — 2026-09-03, npx is unreliable here; deploy the pinned artefact by node
+
+Investigating whether the canonical `npx --yes tamperward@2.10.1` deployment can
+run inside the isolation jail (time-boxed), the failure turned out NOT to be the
+jail: after re-warming, `npx tamperward@2.10.1` fails **online and offline, inside
+and outside `unshare`**. It succeeded earlier this session and has since become
+unreliable — npm registry access and/or npx cache resolution is flaky in this
+environment. Direct `node <cached-2.10.1>/dist/cli/index.js` is deterministic and
+works everywhere, including the full mount+PID jail (version 2.10.1 confirmed).
+
+**Implication.** The canonical `npx` settings string cannot be a dependable
+counted-deployment mechanism here. But the FROZEN TREATMENT is defined by the
+**packed artefact SHA-256** (freeze 2), not by the `npx` invocation string —
+`npx` could even resolve to a re-published 2.10.1 with a different hash, which is
+*less* faithful than a pinned artefact. So deploying via
+`node <artefact>/dist/cli/index.js` with the artefact hash pinned
+(tamperward@2.10.1 package tree sha256
+`d273e6344f11171efc0876b7d58729f48f2b474a7024ce8974dce11ac17a69e4`) is
+deterministic and arguably MORE faithful to "the exact frozen release" than npx.
+
+**Open item before adopting it:** verify the gate's own hook-tampering detector
+accepts a `node <path>` gate entry as the canonical gate (not as a displaced or
+missing gate) — otherwise the gated arm's sweep could false-flag its own base
+settings. That check is required before the direct-node deployment is used in a
+counted trajectory.
+
+Immutable-package handling: the pinned artefact is materialised into a
+root-owned, read-only location (mode 555 / read-only bind), so an agent
+subprocess cannot replace it; offline execution from that location is confirmed.
+(A read-only `~/.npm` or `_cacache` alone does not work — npx needs writable
+scratch — which is another reason to invoke the artefact directly.)
