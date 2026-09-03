@@ -18,6 +18,12 @@ POOL="${TB_POOL:-counted}"
 case "$POOL" in pilot|counted) ;; *) echo "TB_POOL must be pilot or counted" >&2; exit 2;; esac
 cd "$(dirname "$0")/pools/$POOL"
 WORK="${TB_WORK:-/tmp/tb-mine5-$POOL}"
+# Round-3 left the work directory implicit: the bash default and the node
+# block's fallback were the same literal, so they agreed by coincidence.
+# Round 4's default is pool-scoped, so the coincidence is gone and the two
+# sides must be tied together explicitly or the task emitter reads a
+# directory the walk never wrote.
+export TB_WORK="$WORK"
 CLONE_BASE="${TB_CLONE_BASE:-https://github.com}"  # file:// base in the selftest
 mkdir -p "$WORK" tasks
 ATTR=attrition.jsonl
@@ -233,7 +239,7 @@ const tglob=/((^|\/)test_[^/]*\.py$|(^|\/)[^/]*_test\.py$|(^|\/)conftest\.py$)/;
 const tfiles=git('diff','--name-only','-z',parent,commit).split('\0').filter(f=>f&&tglob.test(f));
 // long-form + literal magic: an excluded name is never re-parsed as a glob
 const excl=tfiles.map(f=>`:(exclude,literal)${f}`);
-const work=process.env.TB_WORK || '/tmp/tb-mine3';
+const work=process.env.TB_WORK || `/tmp/tb-mine5-${process.env.TB_POOL||'counted'}`;
 // --binary --full-index + long-form excludes: round-1/2 lessons (gitattributes
 // -diff stubs; underscore-leading paths). TB_WORK-aware (round-2 correction).
 fs.writeFileSync(`${work}/gold.patch`,
