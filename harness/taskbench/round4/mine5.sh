@@ -94,12 +94,11 @@ export TB_WORK="$WORK"
 # reach its need and never stopped — the runaway that burned half the frame
 # (DEVIATIONS.md D3/D4). Role now derives from the pool, not from a count.
 export TB_BASE_POOL="$BASE_POOL"
-# The clone shim must be able to stop THIS miner before it can record a terminal
-# verdict for a repository the infrastructure failed on. Naming the pid is exact;
-# matching process command lines is not (it matched an unrelated shell that
-# merely mentioned this script) and killing the process group is destructive (it
-# terminated the interactive caller).
-export TB_MINER_PID=$$
+# The clone shim no longer signals the miner (that was the fragile part of D3's
+# first recovery — it matched processes by command line and killed the wrong
+# shell, and could race the outer clone timeout). The shim now CLASSIFIES a clone
+# into an exit code and the miner acts on it below; the miner is the sole ledger
+# writer. See D6.
 CLONE_BASE="${TB_CLONE_BASE:-https://github.com}"  # file:// base in the selftest
 mkdir -p "$WORK" tasks
 ATTR=attrition.jsonl
@@ -110,6 +109,7 @@ touch "$ATTR"
 SINCE="2024-09-01"; UNTIL="2026-09-01"
 FLOOR="2025-09-03"
 CAND_CAP=8; STEP_TIMEOUT=300
+CLONE_TIMEOUT="${TB_CLONE_TIMEOUT:-600}"  # outer bound on the shim clone; overridable for tests
 # Pool-scoped task needs. The pilot wants the ten validated tasks PILOT4.md
 # fixes; the counted pool wants the frozen N the PREDICTION commits (the power
 # simulation points at 110 pairs), overridable so freeze 2 can set the
@@ -146,7 +146,7 @@ SRC_RE='\.py$'
 VENDOR_RE='(^|/)(vendor|_vendor|third_party)/'
 STRATUM_EXCL_RE='(^|/)(test|tests|testing|doc|docs|example|examples|fixtures|vendor|_vendor|third_party|benchmark|benchmarks)/'
 # Repo-level verdicts (resume + completeness both key on exactly this set)
-VERDICT_RE='"gate":"(EXCLUDED_INACTIVE|G0_NO_PYPROJECT|G0_NOT_PYTEST|G0_NO_TESTS|NO_QUALIFYING_COMMITS|CLONE_FAILED|CANDIDATES_EXHAUSTED|TASK_VALIDATED|QUOTA_FULL)"'
+VERDICT_RE='"gate":"(EXCLUDED_INACTIVE|G0_NO_PYPROJECT|G0_NOT_PYTEST|G0_NO_TESTS|NO_QUALIFYING_COMMITS|CLONE_FAILED|REPO_UNAVAILABLE|CANDIDATES_EXHAUSTED|TASK_VALIDATED|QUOTA_FULL)"'
 
 PYV=$(python3 --version 2>&1 | awk '{print $2}')
 UVV=$(uv --version 2>&1 | awk '{print $2}')
@@ -208,9 +208,23 @@ LADDER
 process_repo() {
   local repo="$1" dir="$WORK/repo"
   rm -rf "$dir"
-  if ! timeout 600 git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2>/dev/null; then
-    jlog "$repo" "CLONE_FAILED"; return
-  fi
+  # The clone goes through the shim, which classifies any non-success into a
+  # returned EXIT CODE (never a ledger write): 0 success, 91 REPO_UNAVAILABLE
+  # (confirmed 404 with a healthy control), anything else infrastructure. The
+  # miner is the sole ledger writer, and there is NO CLONE_FAILED path any more:
+  # a transient failure or an outer-timeout kill (rc 124) is infrastructure and
+  # HALTS the walk without a verdict, rather than poisoning the repo (the D3
+  # defect). REPO_UNAVAILABLE is the only terminal per-repo verdict a clone can
+  # now produce, and only on proof the repo — not the network — is the problem.
+  timeout "$CLONE_TIMEOUT" git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2>/dev/null
+  local crc=$?
+  case "$crc" in
+    0) : ;;
+    91) jlog "$repo" "REPO_UNAVAILABLE"; return ;;
+    *) : > "${TB_CLONE_BREAKER:-$TB_RUNTIME_DIR/tb-clone-breaker}"
+       echo "tb-mine: INFRASTRUCTURE_FAILURE cloning $repo (clone rc=$crc) — halting, no verdict written" >&2
+       exit 90 ;;
+  esac
   # activity floor (12 months before the FRAME3 freeze)
   local head_date; head_date=$(git -C "$dir" log -1 --format=%cs 2>/dev/null || echo "")
   if [[ -z "$head_date" || "$head_date" < "$FLOOR" ]]; then

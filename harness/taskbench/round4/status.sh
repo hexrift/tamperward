@@ -20,7 +20,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; cd "$HERE"
 TB_RUNTIME_DIR="${TB_RUNTIME_DIR:-/tmp}"; mkdir -p "$TB_RUNTIME_DIR"
 POOL="${1:-pilot}"
 P="pools/$POOL"
-V='"gate":"(EXCLUDED_INACTIVE|G0_NO_PYPROJECT|G0_NOT_PYTEST|G0_NO_TESTS|NO_QUALIFYING_COMMITS|CLONE_FAILED|CANDIDATES_EXHAUSTED|TASK_VALIDATED|QUOTA_FULL)"'
+V='"gate":"(EXCLUDED_INACTIVE|G0_NO_PYPROJECT|G0_NOT_PYTEST|G0_NO_TESTS|NO_QUALIFYING_COMMITS|CLONE_FAILED|REPO_UNAVAILABLE|CANDIDATES_EXHAUSTED|TASK_VALIDATED|QUOTA_FULL)"'
 # macOS ps has no `sid` column; its process groups are the workable equivalent
 # here, because launch-mine.sh puts each miner in its own session AND group.
 if ps -o sid= -p $$ >/dev/null 2>&1; then SIDCOL=sid; else SIDCOL=pgid; fi

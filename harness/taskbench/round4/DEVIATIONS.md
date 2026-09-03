@@ -487,3 +487,59 @@ the documented counted-mining Docker command puts shard locks, logs and the
 staging directory in the shared volume rather than a container-local `/tmp`.
 
 None of this changes a verdict, a walk or the burn accounting.
+
+## D6 — 2026-09-03, a dead frame repo halted the walk; clone failures are now classified
+
+Found by the running pilot at 25 decided / 1 task. `PrefectHQ/burner-redis`, admitted
+to the frame on 2026-09-01, had since gone private or been deleted: an
+unauthenticated clone returns GitHub's "could not read Username" (its response
+for a non-public repo), while a control clone of `pallets/flask` succeeds. The
+D3-hardened shim could not tell "this repo is gone" from "the network flaked",
+so it treated the exhausted clone as an infrastructure failure, tripped the
+breaker, and stopped the miner. Correct for a transient failure; wrong for a
+genuinely dead repo, and in a 2,000-repo frame mined over hours a single such
+repo halts the entire walk.
+
+**The protection worked and nothing was poisoned.** `CLONE_FAILED` stayed 0 —
+burner-redis was never written as a terminal verdict — and task 1 plus all 25
+decisions are intact. This changes only the disposition of unsuccessful clones,
+not task construction or validation, so it does not restart the pilot and is not
+a Tamperward treatment change (no 2.10.2).
+
+**The fix — a precise classifier, failing safe toward halting.** On an exhausted
+clone the shim performs an independent GitHub API probe and returns an EXIT CODE
+to the miner; it never writes the ledger:
+
+- `91` **REPO_UNAVAILABLE** — emitted **only** when the target's API returns a
+  final **404** AND a fixed public control (`pallets/flask`) simultaneously
+  returns **200**. Defined operationally as "not accessible to the
+  unauthenticated miner at draw time"; it does not distinguish deleted from
+  private. A terminal per-repo skip — the walk continues.
+- `90` **infrastructure** — every other condition (401/403/429/5xx, timeout,
+  malformed response, a failed or rate-limited control, or a non-github URL that
+  cannot be classified). The breaker trips and the miner halts **without a
+  verdict**. We halt whenever we cannot *prove* the repository, rather than the
+  network, is the problem.
+
+**The `CLONE_FAILED` escape hatch is gone.** Previously, if the outer 600 s
+timeout killed the shim before it could trip the breaker, the miner still wrote a
+terminal `CLONE_FAILED`. The miner now captures the clone's exit code explicitly
+— `0` continue, `91` REPO_UNAVAILABLE, anything else (including the timeout's
+`124`) breaker + fatal infrastructure exit with no verdict. `mine5.sh` can no
+longer emit `CLONE_FAILED` at all; the token survives only in the
+resume/completeness regex so any legacy line still skips correctly. The shim also
+no longer signals the miner by pid (D3's fragile part, which matched processes by
+command line and could race the timeout); it only returns codes.
+
+`REPO_UNAVAILABLE` is a repo-level verdict: it enters the resume set and the
+completeness arithmetic, and `status.sh` counts it as decided. burner-redis is
+burnt regardless (the pilot drew it) and will be retried mechanically on resume,
+receiving the new verdict.
+
+**Proven by self-tests (network-free, via a failing fake git and faked API
+statuses):** target 404 + control 200 → REPO_UNAVAILABLE with no breaker; a
+clone failure whose target is not a confirmed 404 → halt; target 404 with a
+failed/limited control → halt; an outer-timeout kill → halt with no
+`CLONE_FAILED`; a public repo whose clone fails → halt; an unavailable repo is a
+terminal skip and the walk resumes to the next repository; and `CLONE_FAILED`
+can no longer be emitted. 50/50.

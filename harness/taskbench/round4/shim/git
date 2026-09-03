@@ -1,41 +1,71 @@
 #!/usr/bin/env bash
-# git shim for round-4 mining. Serialises clones, retries them, and on
-# exhaustion raises a dedicated INFRASTRUCTURE failure that stops the miner
-# before it can write a terminal verdict. Every other git subcommand passes
-# straight through; mine5.sh is untouched (DEVIATIONS.md D3).
+# git shim for round-4 mining. Serialises clones, retries them, and CLASSIFIES a
+# clone that will not succeed into exactly one of two outcomes, returned to the
+# miner as an EXIT CODE. The shim never writes the attrition ledger; the miner is
+# the sole ledger writer (DEVIATIONS.md D3, D6).
 #
-# Why the miner must die rather than continue: `CLONE_FAILED` is a TERMINAL
-# repo-level verdict, so a resume skips that repository for good. A single
-# failed attempt on a shared clone path poisoned 245 lines over 127
-# repositories. Retries alone are not enough — once the path is down, letting
-# the walk continue lets it poison every remaining repository at speed.
-REAL=/usr/bin/git
+#   exit 0   clone succeeded — continue.
+#   exit 91  REPO_UNAVAILABLE — the repository is not accessible to the
+#            unauthenticated miner at draw time (deleted or private; we do not
+#            distinguish). Proven, not guessed: the target's GitHub API returns a
+#            final 404 AND a fixed public control repository simultaneously
+#            returns 200. A terminal per-repo skip; the walk continues.
+#   exit 90  INFRASTRUCTURE_FAILURE — anything else (401/403/429/5xx, timeout,
+#            malformed response, or a failed/limited control). The breaker is
+#            tripped and the miner halts WITHOUT writing a verdict. Erring here is
+#            the safe direction: it is what stops a transient failure from
+#            becoming a poisoned verdict (the D3 defect).
+#
+# Every non-clone git subcommand passes straight through.
+REAL=${TB_REAL_GIT:-/usr/bin/git}
 RT=${TB_RUNTIME_DIR:-/tmp}
 LOCK=${TB_CLONE_LOCK:-$RT/tb-clone.lock}
 BREAKER=${TB_CLONE_BREAKER:-$RT/tb-clone-breaker}
 FAILS=${TB_CLONE_FAILS:-$RT/tb-clone-fails}
 MAX_CONSEC=${TB_CLONE_MAX_CONSEC:-3}
+SLEEP_BASE=${TB_CLONE_SLEEP_BASE:-4}  # per-attempt backoff unit; tests set 0
+GH_API=${TB_GH_API:-https://api.github.com}
+CONTROL_REPO=${TB_CONTROL_REPO:-pallets/flask}
 
 is_clone=0
 for a in "$@"; do [ "$a" = clone ] && { is_clone=1; break; }; done
 [ "$is_clone" = 0 ] && exec "$REAL" "$@"
 
-die_infra() {
-  echo "tb-shim: INFRASTRUCTURE_FAILURE — $1" >&2
+infra_log() {
   printf '{"event":"INFRASTRUCTURE_FAILURE","reason":"%s","at":"%s"}\n' \
     "$1" "$(date -u +%FT%TZ)" >> "${TB_INFRA_LOG:-$RT/tb-infra.jsonl}"
+}
+die_infra() { # trip the breaker and return the infra code; the MINER halts on it
+  echo "tb-shim: INFRASTRUCTURE_FAILURE — $1" >&2
+  infra_log "$1"
   : > "$BREAKER"
-  # Stop the miner NOW, before it can record a terminal verdict for this repo.
-  # Target the mine5.sh ancestor precisely: killing the whole process group also
-  # kills an interactive caller's shell (it terminated the self-test run that
-  # first exercised this path), and a shim must never do that.
-  # mine5.sh exports its own pid. Exact, and safe to exercise outside a miner:
-  # with no TB_MINER_PID the shim simply fails, killing nothing.
-  if [ -n "${TB_MINER_PID:-}" ] && kill -0 "$TB_MINER_PID" 2>/dev/null; then
-    echo "tb-shim: terminating miner pid $TB_MINER_PID before it can record a terminal verdict" >&2
-    kill -TERM "$TB_MINER_PID" 2>/dev/null
-  fi
   exit 90
+}
+
+# HTTP status of a GitHub API repo lookup. Test hooks (TB_FAKE_TARGET_STATUS /
+# TB_FAKE_CONTROL_STATUS) let the classifier be exercised without a network; a
+# real probe uses curl through the environment's proxy. "000" means the request
+# itself failed (no response) and is treated as an infrastructure condition.
+gh_status() { # <owner/repo> -> HTTP code
+  curl -sS -o /dev/null -w '%{http_code}' --max-time 20 \
+    -H 'Accept: application/vnd.github+json' "$GH_API/repos/$1" 2>/dev/null || echo 000
+}
+
+classify_and_exit() { # <owner/repo-or-empty>
+  local slug="$1" target control
+  if [ -n "${TB_FAKE_TARGET_STATUS:-}" ]; then target="$TB_FAKE_TARGET_STATUS"
+  elif [ -n "$slug" ]; then target="$(gh_status "$slug")"
+  else die_infra "clone exhausted and no github slug to classify"; fi
+  if [ -n "${TB_FAKE_CONTROL_STATUS:-}" ]; then control="$TB_FAKE_CONTROL_STATUS"
+  else control="$(gh_status "$CONTROL_REPO")"; fi
+  # REPO_UNAVAILABLE only on a CONFIRMED 404 with a healthy control. Every other
+  # pairing — a non-404 target, or any control that is not a clean 200 — is
+  # infrastructure, because we cannot prove the repo is the thing that is gone.
+  if [ "$target" = 404 ] && [ "$control" = 200 ]; then
+    echo "tb-shim: REPO_UNAVAILABLE $slug (target 404, control $CONTROL_REPO 200)" >&2
+    exit 91
+  fi
+  die_infra "clone classification inconclusive: target=$target control=$control (not a confirmed unavailable repo)"
 }
 
 # A breaker already tripped by a sibling: never start another clone.
@@ -46,12 +76,16 @@ for attempt in 1 2 3; do
     : > "$FAILS"
     exit 0
   fi
-  sleep $((attempt*4))
+  sleep $((attempt*SLEEP_BASE))
 done
 
+# Exhausted. Extract owner/repo from the github URL among the clone args (empty
+# for a non-github URL, e.g. the file:// base used by the self-tests), then
+# classify. The classifier decides REPO_UNAVAILABLE (91) vs infra (90); it never
+# writes a verdict.
+url=""
+for a in "$@"; do case "$a" in *github.com[:/]*) url="$a";; esac; done
+slug="$(printf '%s' "$url" | sed -E 's#^.*github\.com[:/]+##; s#\.git$##; s#/+$##')"
 n=$(( $(cat "$FAILS" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$FAILS"
-[ "$n" -ge "$MAX_CONSEC" ] && die_infra "$n consecutive clone exhaustions"
-# Below the threshold this is still an exhausted clone: refuse to let the miner
-# turn it into a terminal verdict.
-die_infra "clone exhausted after 3 attempts"
+classify_and_exit "$slug"

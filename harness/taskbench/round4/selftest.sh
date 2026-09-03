@@ -33,8 +33,8 @@ echo "== P0: a tripped breaker stops everything"
 B=/tmp/tb-selftest-breaker; : > "$B"
 try "mine-parallel refuses to launch into a tripped breaker" env TB_CLONE_BREAKER="$B" TB_POOL=counted ./mine-parallel.sh 1
 try "launch-mine refuses to launch into a tripped breaker"   env TB_CLONE_BREAKER="$B" ./launch-mine.sh counted 1
-out=$(TB_CLONE_BREAKER="$B" TB_MINER_PID=999999 PATH="$HERE/shim:$PATH" timeout 30 git clone https://example.invalid/x /tmp/tb-st-$$ 2>&1); rc=$?
-[ "$rc" = 90 ] && ok "shim exits 90 and kills nothing when no live miner is named" || no "shim exit was $rc, want 90"
+out=$(TB_CLONE_BREAKER="$B" PATH="$HERE/shim:$PATH" timeout 30 git clone https://example.invalid/x /tmp/tb-st-$$ 2>&1); rc=$?
+[ "$rc" = 90 ] && ok "shim exits 90 (infra) when the breaker is already tripped" || no "shim exit was $rc, want 90"
 try "merge refuses while the breaker is tripped"             env TB_CLONE_BREAKER="$B" ./merge-shards.sh counted 1 1
 out=$(TB_CLONE_BREAKER="$B" PATH="$HERE/shim:$PATH" git clone https://example.invalid/x /tmp/tb-st-$$ 2>&1)
 echo "$out" | grep -q 'INFRASTRUCTURE_FAILURE' && ok "shim raises INFRASTRUCTURE_FAILURE, not a clone failure" || no "shim did not raise an infra failure"
@@ -66,7 +66,7 @@ mkdir -p "$T/pools/counted-s0"; printf '{"pool":"counted-s0"}' > "$T/pools/count
 mk 03-c r/third  single-distribution
 mk 01-a r/first  single-distribution
 mk 02-b r/second single-distribution
-out=$(cd "$T" && ./merge-shards.sh counted 1 2 2>&1)
+out=$(cd "$T" && TB_CLONE_BREAKER="$T/nobreaker" ./merge-shards.sh counted 1 2 2>&1)
 if [ -d "$T/pools/counted/tasks/01-a" ] && [ -d "$T/pools/counted/tasks/02-b" ] && [ ! -d "$T/pools/counted/tasks/03-c" ]; then
   ok "the first N validated tasks in walk order are selected"
 else
@@ -184,6 +184,97 @@ for f in mine5.sh status.sh launch-mine.sh mine-parallel.sh merge-shards.sh shim
   [ -n "$bad" ] && { no "$f still hardcodes a /tmp path: ${bad%%$'\n'*}"; break; }
 done
 [ -z "$bad" ] && ok "no script hardcodes a /tmp runtime path"
+
+echo "== P0/D6: clone classification — REPO_UNAVAILABLE vs infrastructure halt"
+# The pilot found a dead/private frame repo (PrefectHQ/burner-redis) halt the
+# whole walk. The fix: the shim classifies an exhausted clone into an EXIT CODE
+# (never a ledger write) — 91 REPO_UNAVAILABLE only on a CONFIRMED target 404
+# with a healthy public control 200; 90 (breaker + halt) for everything else.
+# These drive the classifier with a failing fake git and faked API statuses, so
+# no network is touched.
+mkfailgit() { printf '#!/usr/bin/env bash\nexit 1\n' > "$1/fakegit"; chmod +x "$1/fakegit"; }
+mkhanggit() { printf '#!/usr/bin/env bash\nsleep 5\n' > "$1/fakegit"; chmod +x "$1/fakegit"; }
+# shimclone <dir> <target-status> <control-status> -> prints the shim's exit code
+shimclone() {
+  local d=$1 tgt=$2 ctl=$3
+  ( PATH="$HERE/shim:$PATH" TB_REAL_GIT="$d/fakegit" TB_RUNTIME_DIR="$d" \
+    TB_CLONE_SLEEP_BASE=0 TB_FAKE_TARGET_STATUS="$tgt" TB_FAKE_CONTROL_STATUS="$ctl" \
+    git clone https://github.com/acme/widget.git "$d/out" >/dev/null 2>&1 )
+  echo $?
+}
+D=$(mktemp -d); mkfailgit "$D"
+rc=$(shimclone "$D" 404 200)
+{ [ "$rc" = 91 ] && [ ! -e "$D/tb-clone-breaker" ]; } \
+  && ok "target 404 + control 200 -> REPO_UNAVAILABLE (91), no breaker" \
+  || no "confirmed-unavailable case: rc=$rc breaker=$([ -e "$D/tb-clone-breaker" ] && echo tripped || echo clear)"
+rm -rf "$D"
+D=$(mktemp -d); mkfailgit "$D"
+rc=$(shimclone "$D" 403 200)
+{ [ "$rc" = 90 ] && [ -e "$D/tb-clone-breaker" ]; } \
+  && ok "clone fails but target is not a confirmed 404 (403) -> halt (90) + breaker" \
+  || no "non-404 target should halt: rc=$rc"
+rm -rf "$D"
+D=$(mktemp -d); mkfailgit "$D"
+rc=$(shimclone "$D" 404 500)
+{ [ "$rc" = 90 ] && [ -e "$D/tb-clone-breaker" ]; } \
+  && ok "target 404 but control not healthy (500) -> halt (90) + breaker" \
+  || no "404 with failed control should halt: rc=$rc"
+rm -rf "$D"
+D=$(mktemp -d); mkfailgit "$D"
+rc=$(shimclone "$D" 200 200)
+{ [ "$rc" = 90 ] && [ -e "$D/tb-clone-breaker" ]; } \
+  && ok "public repo (target 200) whose clone fails -> halt (90), never a skip" \
+  || no "available-but-clone-failed should halt: rc=$rc"
+rm -rf "$D"
+
+echo "== P0/D6: the miner writes REPO_UNAVAILABLE, halts on infra, and never writes CLONE_FAILED"
+# Full miner runs over a tiny walk, driven by fakes. mine5.sh is the sole ledger
+# writer; the shim only returns codes.
+minesandbox() { # -> dir with mine5.sh, shim, and a pilot pool holding the given walk repos (json array body)
+  local d; d=$(mktemp -d); cp mine5.sh "$d/"; cp -R shim "$d/"; mkfailgit "$d"
+  mkdir -p "$d/pools/counted"; printf '{"order":[%s]}' "$1" > "$d/pools/counted/walk.json"; echo "$d"
+}
+# unavailable repo is a terminal skip AND the walk RESUMES to the next repo
+D=$(minesandbox '"acme/gone-one","acme/gone-two"')
+( cd "$D" && env TB_POOL=counted TB_RUNTIME_DIR="$D" TB_POOL_LOCK="$D/pool.lock" \
+    TB_REAL_GIT="$D/fakegit" TB_CLONE_SLEEP_BASE=0 TB_CLONE_BASE=https://github.com \
+    TB_FAKE_TARGET_STATUS=404 TB_FAKE_CONTROL_STATUS=200 TB_TASK_NEED=999 \
+    ./mine5.sh >/dev/null 2>&1 ); mrc=$?
+u=$(grep -c REPO_UNAVAILABLE "$D/pools/counted/attrition.jsonl" 2>/dev/null || echo 0)
+{ [ "$u" = 2 ] && [ "$mrc" = 0 ] && [ ! -e "$D/tb-clone-breaker" ]; } \
+  && ok "two unavailable repos -> two REPO_UNAVAILABLE, walk completes, no breaker" \
+  || no "resume-past-unavailable: unavailable=$u miner_rc=$mrc breaker=$([ -e "$D/tb-clone-breaker" ] && echo tripped)"
+grep -q CLONE_FAILED "$D/pools/counted/attrition.jsonl" 2>/dev/null \
+  && no "a REPO_UNAVAILABLE run still wrote CLONE_FAILED" || ok "no CLONE_FAILED written on the unavailable path"
+rm -rf "$D"
+# infrastructure failure (non-404) HALTS the miner with no verdict, no CLONE_FAILED
+D=$(minesandbox '"acme/flaky"')
+( cd "$D" && env TB_POOL=counted TB_RUNTIME_DIR="$D" TB_POOL_LOCK="$D/pool.lock" \
+    TB_REAL_GIT="$D/fakegit" TB_CLONE_SLEEP_BASE=0 TB_CLONE_BASE=https://github.com \
+    TB_FAKE_TARGET_STATUS=403 TB_FAKE_CONTROL_STATUS=200 TB_TASK_NEED=999 \
+    ./mine5.sh >/dev/null 2>&1 ); mrc=$?
+n=$(grep -c '"gate"' "$D/pools/counted/attrition.jsonl" 2>/dev/null || true); n=${n:-0}
+{ [ "$mrc" != 0 ] && [ -e "$D/tb-clone-breaker" ] && [ "$n" = 0 ]; } \
+  && ok "infra failure halts the miner (rc!=0), breaker tripped, NO verdict written" \
+  || no "infra-halt: miner_rc=$mrc breaker=$([ -e "$D/tb-clone-breaker" ] && echo tripped || echo clear) verdicts=$n"
+grep -q CLONE_FAILED "$D/pools/counted/attrition.jsonl" 2>/dev/null && no "infra halt wrote CLONE_FAILED" || ok "infra halt writes no CLONE_FAILED"
+rm -rf "$D"
+# outer clone timeout (shim killed before it can classify) -> infra halt, no CLONE_FAILED
+D=$(minesandbox '"acme/slow"'); mkhanggit "$D"
+( cd "$D" && env TB_POOL=counted TB_RUNTIME_DIR="$D" TB_POOL_LOCK="$D/pool.lock" \
+    TB_REAL_GIT="$D/fakegit" TB_CLONE_SLEEP_BASE=0 TB_CLONE_TIMEOUT=1 TB_CLONE_BASE=https://github.com \
+    TB_FAKE_TARGET_STATUS=404 TB_FAKE_CONTROL_STATUS=200 TB_TASK_NEED=999 \
+    ./mine5.sh >/dev/null 2>&1 ); mrc=$?
+n=$(grep -c '"gate"' "$D/pools/counted/attrition.jsonl" 2>/dev/null || true); n=${n:-0}
+{ [ "$mrc" != 0 ] && [ "$n" = 0 ]; } \
+  && ok "outer clone timeout halts with no verdict (rc=$mrc), never CLONE_FAILED" \
+  || no "outer-timeout: miner_rc=$mrc verdicts=$n"
+grep -q CLONE_FAILED "$D/pools/counted/attrition.jsonl" 2>/dev/null && no "outer timeout wrote CLONE_FAILED" || ok "outer timeout writes no CLONE_FAILED"
+rm -rf "$D"
+# static: the CLONE_FAILED emission is gone from mine5.sh (it survives only in the
+# resume/completeness regex, for backward-compatible skipping of any legacy line)
+grep -q 'jlog "\$repo" "CLONE_FAILED"' mine5.sh \
+  && no "mine5.sh can still emit CLONE_FAILED" || ok "mine5.sh has no CLONE_FAILED emission left"
 
 echo "== P1: the frozen walk artefact is a real file, never a symlink"
 [ -L pools/pilot/walk.json ] && no "pools/pilot/walk.json is a SYMLINK — writes reach the frozen frame" || ok "pools/pilot/walk.json is a real file"
