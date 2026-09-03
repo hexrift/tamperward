@@ -471,3 +471,9 @@
 {"repo":"py-pdf/PyPDF2","gate":"CANDIDATES_EXHAUSTED","tried":8}
 {"repo":"amplitude/Amplitude-Python","gate":"G0_NOT_PYTEST"}
 {"repo":"uqfoundation/pox","gate":"G0_NOT_PYTEST"}
+{"repo":"carltongibson/django-filter","gate":"G0_NOT_PYTEST"}
+{"repo":"d5h-foss/grpc-interceptor","gate":"EXCLUDED_INACTIVE","head_date":"2023-11-15"}
+{"repo":"numirias/pytest-json-report","gate":"EXCLUDED_INACTIVE","head_date":"2022-03-15"}
+{"repo":"c-w/ghp-import","gate":"EXCLUDED_INACTIVE","head_date":"2022-06-11"}
+{"repo":"graingert/pkgutil-resolve-name","gate":"EXCLUDED_INACTIVE","head_date":"2021-07-21"}
+{"repo":"thombashi/DataProperty","gate":"NO_QUALIFYING_COMMITS"}
