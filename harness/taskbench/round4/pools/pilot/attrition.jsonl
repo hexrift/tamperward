@@ -545,3 +545,4 @@
 {"repo":"CycloneDX/cyclonedx-python-lib","gate":"G0_NOT_PYTEST"}
 {"repo":"nteract/papermill","gate":"G3_NOT_RED","commit":"541ee66543db5c871fa1073aeacdc7253ab0013e","rc":0}
 {"repo":"nteract/papermill","gate":"G3_NOT_RED","commit":"cb6b60258bd5ffabd4ae4109e06ffa970baa010a","rc":0}
+{"repo":"nteract/papermill","gate":"G5_COMMIT_RED","commit":"901e1d8060793655539e3df3d8494fd1e8fffb8a","rc":1}
