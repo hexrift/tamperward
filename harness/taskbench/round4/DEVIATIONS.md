@@ -1359,3 +1359,26 @@ than by excusing a miss.
 Still outstanding before the pilot restarts: characterisation of P2-1…P2-10 on this
 artefact (reproduction expected, not a Gate A failure), then burning the existing
 ten-task pool and mining the next fresh ten.
+
+## Documentation reconciliation — 2026-09-03, #202 and pilot status
+
+Review found the round-4 documents disagreeing with each other about #202.
+`DEVIATIONS.md` and `PILOT4.md` recorded it correctly as an **acknowledged product
+gap**, not closed by a unit pin; `FRAME5.md` and `ROUND4-PREP.md` still said it
+"does not reproduce" and that there were "no open freeze dependencies". The
+overstating wording is corrected in both, and both now note that the investigation
+was against **v2.10.1** and must be re-established against the packed **2.10.2**
+candidate before it can be relied on.
+
+The authoritative status, in one place: **#202 is OPEN.** It is marked complete
+only once the counted configuration demonstrably detects drift of an
+already-present ignored protected file, end to end, in a pilot trajectory. Until
+then it carries an outer-harness mitigation.
+
+**Pilot status, authoritatively:** pilot MINING is complete (ten tasks, 154
+repositories). The PILOT IS NOT COMPLETE, and its ten tasks are now disclosed
+development data that must be **burned** and replaced with a fresh ten, because
+2.10.2 became the candidate. No Claude trajectory has been spent.
+
+**2.10.2 is a committed RELEASE CANDIDATE, not a shipped release and not a valid
+frozen treatment**, until the replacement pilot has been run against it.

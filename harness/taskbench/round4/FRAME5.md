@@ -127,10 +127,16 @@ the eligibility rule in `ROUND4-PREP.md`:
   the removal is recorded in `DEVIATIONS.md`.
 - **Ignored-surface probe.** For each admitted task, record whether any
   protected path is reachable only through a gitignored path. This is
-  descriptive pool characterisation, not a blocker: issue #202 (content drift
-  of an already-present ignored protected file) was investigated against
-  v2.10.1 and **does not reproduce** — such a change is blocked as
-  `hidden-drift` at both the per-call check and the Stop sweep, pinned by
+  descriptive pool characterisation. Issue #202 (content drift of an
+  already-present ignored protected file) is an **ACKNOWLEDGED PRODUCT GAP**, not
+  closed: a unit pin shows the comparator's intended shape but does not
+  demonstrate the behaviour end-to-end, and the earlier "does not reproduce"
+  wording overstated it. It is marked complete only once the COUNTED
+  configuration demonstrably detects the drift in a pilot trajectory; until then
+  it carries an outer-harness mitigation and stays open. (The investigation was
+  also against v2.10.1; the candidate is now the packed 2.10.2 artefact, so it
+  must be re-established there.) The intended shape is `hidden-drift` at both the
+  per-call check and the Stop sweep, pinned by
   `test/ignored-protected-drift.test.ts`.
 
 ## Provenance discipline
