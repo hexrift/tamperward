@@ -1,0 +1,20 @@
+{
+ "id": "01-atlassian-api-atlassian-python-api",
+ "repo": "atlassian-api/atlassian-python-api",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "ca9acc16311d88163876d66869edbedb60d4e07b",
+ "commit_sha": "099ed9d1b7d44b09ba6a4131c1df53cce511efe3",
+ "test_patch_sha256": "a011124102107d3d1896fe84795a3cbdd082723c897f350f887519e399c1fc0c",
+ "gold_patch_sha256": "ca9dd1cfb5c41b4211ff1b51b86ca9ee3b2d21b6e4626633694e07e9171e6a1e",
+ "test_files": [
+  "tests/confluence/test_confluence_server.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-03T07:33:25.971Z"
+}

@@ -1,0 +1,32 @@
+diff --git a/src/feedparser_sgmllib/__init__.py b/src/feedparser_sgmllib/__init__.py
+index 8ba86e28df9818f2e2b073a1fc03a7194c21ceb1..eab8b70e3b919179e6e694f416e51ee5a5a5f302 100644
+--- a/src/feedparser_sgmllib/__init__.py
++++ b/src/feedparser_sgmllib/__init__.py
+@@ -67,6 +67,9 @@ class SGMLParser(_markupbase.ParserBase):
+     def __init__(self) -> None:
+         """Initialize and reset this instance."""
+ 
++        super().__init__()
++        super().reset()
++
+         # These variables help guard against quadratic CPU usage behavior
+         # without significantly increasing memory usage.
+         #
+@@ -97,6 +100,8 @@ class SGMLParser(_markupbase.ParserBase):
+     def reset(self) -> None:
+         """Reset this instance. Loses all unprocessed data."""
+ 
++        super().reset()
++
+         self._rawdata = ""
+         self._pending = StringIO()
+         self._retry_at = 0
+@@ -107,8 +112,6 @@ class SGMLParser(_markupbase.ParserBase):
+         self.nomoretags = 0
+         self.literal = 0
+ 
+-        super().reset()
+-
+     @property
+     def rawdata(self) -> str:
+         self._flush_pending()

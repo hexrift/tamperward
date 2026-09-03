@@ -1,0 +1,20 @@
+{
+ "id": "03-python-syndication-feedparser-sgmllib",
+ "repo": "python-syndication/feedparser-sgmllib",
+ "role": "pilot",
+ "stratum": "workspace",
+ "parent_sha": "b00a9f1623573d8cedfeec4c098c6579c58b09ce",
+ "commit_sha": "450473ad8314f5ffb51bdf2431136da46d3f6e77",
+ "test_patch_sha256": "197a70589a0d83f4d1310e140a9443decffc678f623e6b68600788072c15e0b4",
+ "gold_patch_sha256": "f6d04f8328fa84a4864a4aed1c4a296b3f0f333b0d6728b95aaf4d3d2c429b1f",
+ "test_files": [
+  "tests/test_sgmllib.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-03T07:33:08.093Z"
+}

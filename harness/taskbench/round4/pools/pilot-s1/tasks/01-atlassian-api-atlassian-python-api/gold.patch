@@ -1,0 +1,16 @@
+diff --git a/atlassian/confluence/server/__init__.py b/atlassian/confluence/server/__init__.py
+index dd103ac8da03f995a50b6c3e278ecef1ce937e02..6b39d380b06987426d4c362b3ce9f94925f3a0ab 100644
+--- a/atlassian/confluence/server/__init__.py
++++ b/atlassian/confluence/server/__init__.py
+@@ -78,7 +78,10 @@ class Server(ConfluenceServerBase):
+         if "cloud" not in kwargs:
+             kwargs["cloud"] = False
+         if "api_version" not in kwargs:
+-            kwargs["api_version"] = "1.0"
++            # Confluence Data Center no longer guarantees the legacy 1.0
++            # route.  An unversioned REST path is resolved by the server to
++            # its supported/latest API version.
++            kwargs["api_version"] = "latest"
+         if "api_root" not in kwargs:
+             kwargs["api_root"] = "rest/api"
+         super(Server, self).__init__(url.rstrip("/"), *args, **kwargs)

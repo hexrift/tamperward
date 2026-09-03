@@ -1,0 +1,24 @@
+diff --git a/tests/test_sgmllib.py b/tests/test_sgmllib.py
+index 348903ab9ace2e6a4dd04149b3f2fe0d6bd1c870..eb7b335e8dbb2ae8d43a650c84332006c9e8b6cf 100644
+--- a/tests/test_sgmllib.py
++++ b/tests/test_sgmllib.py
+@@ -641,6 +641,19 @@ def test_feed_unresolved_token_peak_memory_scales_nicely():
+     )
+ 
+ 
++def test_init_and_reset_functionality():
++    """
++    Verify that init and reset functionality work as intended.
++
++    The `_markupbase.ParserBase.__init__()` method doesn't set any instance variables.
++    It's incumbent on `SGMLParser` to do extra work to ensure these are set.
++    The way by which this happens is unimportant; it's only important that it happens.
++    """
++
++    instance = sgmllib.SGMLParser()
++    assert instance.getpos() == (1, 0)
++
++
+ # XXX These tests have been disabled by prefixing their names with
+ # an underscore.  The first two exercise outstanding bugs in the
+ # sgmllib module, and the third exhibits questionable behavior
