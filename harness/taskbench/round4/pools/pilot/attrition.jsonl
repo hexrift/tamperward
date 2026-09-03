@@ -239,3 +239,6 @@
 {"repo":"pycountry/pycountry","gate":"G2_PARENT_ERROR","commit":"395b601858d44e410172c990bd132151bd145e5b","rc":4}
 {"repo":"pycountry/pycountry","gate":"G2_PARENT_ERROR","commit":"3a2b9cff901cb589c1a3f349f63ce5d26d0a0fbb","rc":4}
 {"repo":"pycountry/pycountry","gate":"CANDIDATES_EXHAUSTED","tried":3}
+{"repo":"jax-ml/ml_dtypes","gate":"G1_INSTALL_FAILED","commit":"06d4f772d8ac685cb0b8c85e61131450343baf9b"}
+{"repo":"jax-ml/ml_dtypes","gate":"G1_INSTALL_FAILED","commit":"a21500fe6c69af4b00c0a7e1851086cbf920e065"}
+{"repo":"jax-ml/ml_dtypes","gate":"G1_INSTALL_FAILED","commit":"d09882f7cfed1158c76dd95cb95aa1643f2af61b"}
