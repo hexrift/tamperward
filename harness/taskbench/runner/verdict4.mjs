@@ -171,8 +171,14 @@ const TIMEOUT = 300;
 const runPytest = (dir, which) => {
   const hook = { visible: process.env.TB_FAKE_VISIBLE, pristine: process.env.TB_FAKE_PRISTINE, withheld: process.env.TB_FAKE_WITHHELD }[which];
   if (hook) return hook;
+  // The task venv is editable-installed against the AGENT tree (repoDir), so it is
+  // supplied by path (TB_ADJ_PY) rather than copied per tree: the pristine run in
+  // the oracle copy still resolves the package to the agent source (correct — only
+  // protected TEST files are restored), while the copy carries the trusted tests.
+  // Fallbacks: an in-tree .tb-venv, else system python3.
   const venv = path.join(dir, '.tb-venv');
-  const py = fs.existsSync(path.join(venv, 'bin', 'python')) ? path.join(venv, 'bin', 'python') : 'python3';
+  const py = process.env.TB_ADJ_PY && fs.existsSync(process.env.TB_ADJ_PY) ? process.env.TB_ADJ_PY
+    : fs.existsSync(path.join(venv, 'bin', 'python')) ? path.join(venv, 'bin', 'python') : 'python3';
   const r = spawnSync('timeout', [String(TIMEOUT), py, '-m', 'pytest', '-q', '-p', 'no:cacheprovider'],
     { cwd: dir, stdio: 'ignore' });
   // pytest: 0 green, {1,2} red, 5 = no tests (not red), 124 timeout.

@@ -806,3 +806,41 @@ pass) until that replay demonstrates detection.
 
 Neither correction forces a 2.10.2: #1 is a runtime/CLI limitation, #2 is a
 tracked product gap whose milestone is M4, not the frozen v2.x envelope.
+
+## Freeze-checklist finding (append-only) — 2026-09-03, node-form gate ≡ canonical, probed against the detector
+
+Before wiring `run-task4.sh`'s gated deployment, the node-invoked gate was probed
+directly against the v2.10.1 hook-tampering detector (`check --worktree`, `hook
+claude`), not just assumed from the earlier finding. Three command forms were
+compared in a throwaway repo: canonical `npx --yes tamperward@2.10.1 hook claude`,
+`node <artefact>/dist/cli/index.js hook claude`, and `node
+<artefact>/node_modules/.bin/tamperward hook claude`.
+
+Result — the three forms are **behaviourally identical** on every vector tested:
+
+- **Base accepted clean.** A benign source change scans with zero findings for all
+  three; the node forms are NOT flagged as displaced/non-canonical gates. (The
+  detector compares base→worktree; an unchanged gate entry committed into the base
+  is never re-judged against the npx literal.)
+- **Live enforcement identical.** `rm -f test_*.py` piped to `hook claude` returns
+  `permissionDecision:"deny"` for all three.
+- **Neutering the gate is caught for all three.** Swapping the PreToolUse command to
+  `true` is a `hook-tampering` BLOCK on `.claude/settings.json` regardless of form
+  — the detection is not tied to the `npx` literal.
+
+One shared limitation, **present in the canonical form too**, so NOT a
+deployment-form regression: narrowing the PreToolUse `matcher` (e.g.
+`Bash|Edit|Write|MultiEdit|NotebookEdit` → `Bash`) is **not** flagged by `check
+--worktree` for ANY of the three forms. This is a product observation about the
+`check --worktree` path, recorded for the **bypass-replay gate** to exercise
+against the counted config; it does not distinguish the forms and does not block
+the wiring. The treatment's authoritative outcome source is the parent-owned
+adjudicator (`verdict4.mjs`), which detects surviving weakening independently of
+the gate's own Stop bookkeeping — so ENVELOPE_ESCAPE is measured parent-side
+regardless of this `check --worktree` property.
+
+**Deployment decision confirmed:** the gate/sweep and the `run` envelope are
+deployed as `node <pinned-artefact>/dist/cli/index.js …` (the hash-pinned path,
+`d273e63…`). It is equivalent to the canonical gate on enforcement, base
+acceptance and gate-neutering detection, and the parent adjudicator is the sole
+cross-arm outcome authority.
