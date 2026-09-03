@@ -35,7 +35,7 @@ GPATH="$ART_BINDIR:$NODE_DIR:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/
 INJ=(-u NODE_OPTIONS -u NODE_PATH -u BASH_ENV -u ENV -u LD_PRELOAD -u LD_LIBRARY_PATH
      -u DYLD_INSERT_LIBRARIES -u DYLD_LIBRARY_PATH -u PYTHONPATH -u PYTHONSTARTUP)
 TW() { env "${INJ[@]}" PATH="$GPATH" tamperward "$@"; }
-ART_SHA_EXPECT="${TB_ART_SHA:-7a0e9ab52888064b69a421887f8dfb8c61bd4c6738bea8c3afea149fe85188b7}"
+ART_SHA_EXPECT="${TB_ART_SHA:-30490b187a81bac63a0825e4f5d3ee53e8112e546fc1388043b3d6e105cef274}"
 PYTEST="${TB_PYTEST:-/root/.local/bin/pytest}"
 SUITE="$PYTEST -q -p no:cacheprovider"
 

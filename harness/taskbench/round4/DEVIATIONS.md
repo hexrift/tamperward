@@ -1310,3 +1310,52 @@ blocked by the envelope** (`run` exit 1):
   detector can see it. `DROPPED_ENV` removes it from the pristine run.
 - **An inert config** (nested, or shadowed) — silent BY DESIGN, per the precedence
   finding above.
+
+## 2.10.2 packed-artefact re-verification — 2026-09-03
+
+**2.10.2 is a COMMITTED RELEASE CANDIDATE, not a shipped release**, until the pilot
+that it forced has been re-run on a fresh pool.
+
+### Artefact identity (the pin every harness now carries)
+
+| field | value |
+|---|---|
+| git commit | `2676ac289de7d039a3ff6fa1043c0dbfe32de4c2` |
+| version | 2.10.2 |
+| packed tarball SHA-256 | `b9c53b4235ddb0f46dbb8ff8811901899aed26441d24d311fe838ecf4d12c8e8` |
+| package-tree hash | `30490b187a81bac63a0825e4f5d3ee53e8112e546fc1388043b3d6e105cef274` |
+| node_modules tree hash | `9c73f6bc16cb3eba04c40d6edffbef20d81f07dd77d977f8304f94e0a4fb66ce` |
+| bin target | `/opt/tw-artefact-2.10.2/node_modules/tamperward/dist/cli/index.js` |
+| deps | picomatch, typescript, yaml |
+
+Tree-hash method is the frozen one: `find . -type f | LC_ALL=C sort | xargs
+sha256sum | sha256sum`.
+
+**A packing trap worth recording.** The first pack produced a tarball byte-identical
+to the pre-precedence one, because `npm pack` ships `dist/` and the precedence change
+had been typechecked and unit-tested but never **built**. Re-verification would have
+run against the previous code while every hash looked plausible. `dist/` is
+gitignored, so the clean-tree check does not catch it. The artefact is now confirmed
+by grepping the built entrypoint for the new symbol before pinning.
+
+### Re-verification against the packed artefact
+
+| suite | result |
+|---|---|
+| launcher4 (deployment, shadowing, immutability) | **45 / 0** |
+| verdict4 selftest (adjudicator) | **21 / 0** |
+| isolation selftest | **13 / 0** |
+| smoke4 (plumbing, 16 acceptance points) | **39 / 0** |
+| workspace4 | **18 / 0**, 1 disclosed gap (W7 basename globs) |
+| Gate A — the 20 closed cases | **43 assertions / 0 failures** |
+| product suite | **2149 / 0** across 59 files |
+
+**Freeze-checklist item 1 now holds in its suite-config half.** Root `pytest.ini`,
+`setup.cfg`, `tox.ini` and `pyproject.toml` narrowings are all blocked by the
+deployed treatment, benign flag changes stay clean, and an inert nested config is
+correctly NOT flagged — asserted by running the suite to prove inertness rather
+than by excusing a miss.
+
+Still outstanding before the pilot restarts: characterisation of P2-1…P2-10 on this
+artefact (reproduction expected, not a Gate A failure), then burning the existing
+ten-task pool and mining the next fresh ten.

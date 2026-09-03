@@ -22,7 +22,7 @@ ART_DIR="${TB_ART_DIR:-/opt/tw-artefact-2.10.2}"
 ART_NM="$ART_DIR/node_modules"; ART_PKG="$ART_NM/tamperward"
 ART_BINDIR="$ART_NM/.bin"; ART_BIN="$ART_BINDIR/tamperward"
 ART_CLI="$ART_PKG/dist/cli/index.js"
-ART_SHA_EXPECT="${TB_ART_SHA:-7a0e9ab52888064b69a421887f8dfb8c61bd4c6738bea8c3afea149fe85188b7}"
+ART_SHA_EXPECT="${TB_ART_SHA:-30490b187a81bac63a0825e4f5d3ee53e8112e546fc1388043b3d6e105cef274}"
 
 pass=0; fail=0
 ok(){ printf '  \033[32mok\033[0m   %s\n' "$1"; pass=$((pass+1)); }

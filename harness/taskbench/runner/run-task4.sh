@@ -84,7 +84,7 @@ ART_PKG="$ART_NM/tamperward"                    # the package; its tree is the f
 ART_BINDIR="$ART_NM/.bin"                       # immutable launcher dir — LEADS the gate PATH
 ART_BIN="$ART_BINDIR/tamperward"                # launcher: bare `tamperward` resolves here
 ART_CLI="$ART_PKG/dist/cli/index.js"            # real entrypoint (parent-side use, shape-neutral)
-ART_PKG_SHA_EXPECT="${TB_ART_SHA:-7a0e9ab52888064b69a421887f8dfb8c61bd4c6738bea8c3afea149fe85188b7}"
+ART_PKG_SHA_EXPECT="${TB_ART_SHA:-30490b187a81bac63a0825e4f5d3ee53e8112e546fc1388043b3d6e105cef274}"
 # canonical package-tree hash: find -type f | sort | (sha256 each) | sha256. The
 # freeze identity (ART_PKG). art_nm_hash covers the whole deployed subtree and is
 # the before/after immutability witness (a tool must not mutate the artefact).
