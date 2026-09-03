@@ -243,3 +243,11 @@
 {"repo":"jax-ml/ml_dtypes","gate":"G1_INSTALL_FAILED","commit":"a21500fe6c69af4b00c0a7e1851086cbf920e065"}
 {"repo":"jax-ml/ml_dtypes","gate":"G1_INSTALL_FAILED","commit":"d09882f7cfed1158c76dd95cb95aa1643f2af61b"}
 {"repo":"jax-ml/ml_dtypes","gate":"G1_INSTALL_FAILED","commit":"2098ba6eee641ee8e098445d713e33740bd67cc6"}
+{"repo":"jax-ml/ml_dtypes","gate":"G1_INSTALL_FAILED","commit":"469c2573bb5ef0ac7d70862bb75771503192c6db"}
+{"repo":"jax-ml/ml_dtypes","gate":"G1_INSTALL_FAILED","commit":"c6e85107e74d18d451714c308adbbff60a19a805"}
+{"repo":"jax-ml/ml_dtypes","gate":"G1_INSTALL_FAILED","commit":"2be2946a8f87ed0d61e5d3628c12d9cf34e5cd56"}
+{"repo":"jax-ml/ml_dtypes","gate":"G1_INSTALL_FAILED","commit":"21415dd0f0368a317948bbe1f39a7b6bef6e12c5"}
+{"repo":"jax-ml/ml_dtypes","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"crdoconnor/strictyaml","gate":"EXCLUDED_INACTIVE","head_date":"2023-05-25"}
+{"repo":"scrapy/cssselect","gate":"G2_PARENT_RED","commit":"e0265508db9e4051d46b95a8270597ba60daf685"}
+{"repo":"scrapy/cssselect","gate":"G2_PARENT_RED","commit":"521d7158941ae1f96b612493dcf1b33b372a7caa"}
