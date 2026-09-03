@@ -49,7 +49,11 @@
   [32mok[0m   M11 end-to-end: the record emitted from inside the jail arrived in the parent-side store
 
 == M12 the snapshot payload is agent-writable, and the record makes tampering DETECTABLE ==
-  [32mok[0m   M12 the record carries the snapshot digest (93c975987ea4cbd4) and it matches the payload
+  [32mok[0m   M12 the record carries the snapshot digest (270e4e6d1e2cbeca) and it matches the payload
   [32mok[0m   M12 a tampered payload no longer matches the recorded digest — detectable
 
-measurement-boundary4: passed 33, failed 0
+== M13 visible, pristine and withheld each run on their OWN tree ==
+  [32mok[0m   M13 (threat control) on 5d24883 the runs SHARED a tree — later runs saw counts {0,1,2,}
+  [32mok[0m   M13 ISOLATED: every adjudication run started from an untouched tree (counts {0,})
+
+measurement-boundary4: passed 35, failed 0

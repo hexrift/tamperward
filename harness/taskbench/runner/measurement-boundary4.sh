@@ -426,5 +426,65 @@ snap_sig2=$(sha256sum "$OB12/snapshots/1.tar" | cut -c1-16)
 [ "$rec_sig" != "$snap_sig2" ] && ok "M12 a tampered payload no longer matches the recorded digest — detectable" \
                               || no "M12 payload tampering left the digest unchanged"
 
+hdr "M13 visible, pristine and withheld each run on their OWN tree"
+# The fresh HOME/TMPDIR and the jail do not touch an IN-TREE channel: pristine and
+# withheld used to share one directory, and that directory was copied out of the
+# agent tree AFTER the visible run had already executed in it. So a candidate
+# source file — not on the verification surface, so never stripped — could see what
+# an earlier run left and behave differently.
+# The control runs the PREVIOUS committed revision of the adjudicator, so the leak
+# is demonstrated rather than assumed.
+PREFIX_REV=5d24883
+R13=$(mktemp -d "$W/r13-XXXXXX"); mkdir -p "$R13/src" "$R13/tests"
+# calc.py records, OUTSIDE the tree, how many earlier runs had already touched THIS
+# tree. Three isolated runs must each report "0".
+cat > "$R13/src/calc.py" <<'PY'
+import os
+_MARK = os.path.join(os.path.dirname(__file__), ".seen")
+_seen = 0
+if os.path.exists(_MARK):
+    _seen = int(open(_MARK).read() or 0)
+open(_MARK, "w").write(str(_seen + 1))
+with open(os.environ["TB_MB13_REPORT"], "a") as fh:
+    fh.write("%d\n" % _seen)
+def add(a, b):
+    return a - b
+PY
+cat > "$R13/tests/test_bug.py" <<'PY'
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+from calc import add
+def test_add():
+    assert add(1, 2) == 3
+PY
+( cd "$R13" && git init -q && git config user.email t@b && git config user.name tb \
+  && git add -A && git commit -qm base --no-verify ) >/dev/null 2>&1
+B13=$( cd "$R13" && git rev-parse HEAD )
+OB13="$W/obs13"; mkdir -p "$OB13"
+OR13="$W/or13"; mkdir -p "$OR13/pristine/tests" "$OR13/withheld/tests"
+cp "$R13/tests/test_bug.py" "$OR13/pristine/tests/test_bug.py"
+printf 'import sys, os\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))\nfrom calc import add\ndef test_more():\n    assert add(2, 2) == 4\n' > "$OR13/withheld/tests/test_more.py"
+( cd "$R13" && TB_OBS="$OB13" TB_POLICY3="$POLICY3" bash "$HERE/observe3.sh" </dev/null )
+TD13=$(mktemp -d "$W/t13-XXXXXX"); printf '{"id":"mb","repo":"local/mb"}\n' > "$TD13/manifest.json"
+run13() { # <adjudicator> <report> -> report holds one line per interpreter start
+  : > "$2"
+  ( cd "$R13" && git checkout -q -- . 2>/dev/null; rm -f "$R13/src/.seen"
+    TB_ARM=gated TB_ADJ_PY="$PYBIN" TB_MB13_REPORT="$2" TB_ADJ_NOJAIL=1 \
+      node "$1" "$TD13" "$R13" "$OR13" "$OB13" "$B13" >/dev/null 2>&1 )
+  sort -u "$2" | tr '\n' ',' 
+}
+PREV="$W/verdict4-prev.mjs"
+if git -C "$TB" show "$PREFIX_REV:harness/taskbench/runner/verdict4.mjs" > "$PREV" 2>/dev/null; then
+  ctl13=$(run13 "$PREV" "$W/rep13-ctl")
+  # pre-fix: later runs see a tree an earlier run already touched -> a non-zero count
+  if printf '%s' "$ctl13" | grep -q '[1-9]'; then
+    ok "M13 (threat control) on $PREFIX_REV the runs SHARED a tree — later runs saw counts {$ctl13}"
+  else no "M13 threat control inconclusive (counts {$ctl13}) — the assertion below would prove nothing"; fi
+else no "M13 could not check out $PREFIX_REV to demonstrate the leak"; fi
+fix13=$(run13 "$HERE/verdict4.mjs" "$W/rep13-fix")
+if [ "$fix13" = "0," ]; then
+  ok "M13 ISOLATED: every adjudication run started from an untouched tree (counts {$fix13})"
+else no "M13 the runs still share tree state (counts {$fix13}, expected only 0)"; fi
+
 printf '\nmeasurement-boundary4: passed %d, failed %d\n' "$pass" "$fail"
 [ "$fail" = 0 ]

@@ -1620,3 +1620,28 @@ the predicate's discrimination is shown against negative controls.
 measurement-boundary4 **33/0**, launcher4 46/0, cleanup-lifecycle4 77/0, smoke4 39/0,
 workspace4 18/0, replay4 43/0, verdict4-selftest 21/0, isolation-selftest4 13/0,
 observe3-selftest OK.
+
+## CORRECTION — the three adjudication runs shared tree state
+
+Condition "visible, pristine and withheld verification use isolated state" was not
+met, and the jail and the fresh `HOME`/`TMPDIR` did not help: the leak was an
+IN-TREE channel, and both runs used the same directory.
+
+Two defects, both in `verdict4`:
+
+1. the oracle tree was copied out of `repoDir` **after** the visible run had already
+   executed in it, so anything that run left behind — a marker a candidate source
+   wrote at import, stale bytecode — was carried forward into pristine;
+2. the withheld run **reused the pristine tree**, so the pristine run's side effects
+   decided what the withheld run saw.
+
+Demonstrated (`measurement-boundary4` M13) by running the previous committed
+revision `5d24883` against a candidate whose `src/calc.py` — not on the verification
+surface, so never stripped — counts how many earlier runs had already touched its
+tree and reports the count outside the tree. **Pre-fix the three runs reported 0, 1,
+2**: direct evidence they shared one directory.
+
+**Fix.** The agent's final tree is snapshotted BEFORE anything executes in it, and
+each run gets its own tree built from that snapshot. Post-fix every run reports 0.
+Snapshotting first is also the more faithful reading of "the agent's final tree": it
+is the state the agent left, not the state the adjudicator's own first run left.
