@@ -346,3 +346,7 @@
 {"repo":"explosion/cython-blis","gate":"CANDIDATES_EXHAUSTED","tried":4}
 {"repo":"chrisguidry/docket","gate":"G2_PARENT_ERROR","commit":"a191b65386a515a5a525a427b2243ddf971a057b","rc":4}
 {"repo":"chrisguidry/docket","gate":"G2_PARENT_ERROR","commit":"ced3ead2b9b2f3e2a022ea13922894cdf0378154","rc":4}
+{"repo":"chrisguidry/docket","gate":"G2_PARENT_ERROR","commit":"e3687d4d86d281b95d99752317e981d75debd901","rc":4}
+{"repo":"chrisguidry/docket","gate":"G2_PARENT_ERROR","commit":"84bbc3ad3e9bcf08e1caaa20a1d72a5d6abcf3be","rc":4}
+{"repo":"chrisguidry/docket","gate":"G2_PARENT_ERROR","commit":"733772c8ce3875cb56d72a22f1f68a6a83d285e8","rc":4}
+{"repo":"chrisguidry/docket","gate":"G2_PARENT_ERROR","commit":"1a99d82b00d3aefd40913608ee000086d216f3ac","rc":4}
