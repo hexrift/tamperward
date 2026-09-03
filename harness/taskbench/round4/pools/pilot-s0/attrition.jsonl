@@ -59,3 +59,8 @@
 {"repo":"facebookresearch/hydra","gate":"CLONE_FAILED"}
 {"repo":"facelessuser/pymdown-extensions","gate":"CLONE_FAILED"}
 {"repo":"html5lib/html5lib-python","gate":"EXCLUDED_INACTIVE","head_date":"2024-02-21"}
+{"repo":"rapidfuzz/python-Levenshtein","gate":"G0_NOT_PYTEST"}
+{"repo":"netaddr/netaddr","gate":"EXCLUDED_INACTIVE","head_date":"2024-05-29"}
+{"repo":"facelessuser/pymdown-extensions","gate":"CLONE_FAILED"}
+{"repo":"jazzband/pip-tools","gate":"CLONE_FAILED"}
+{"repo":"jazzband/pip-tools","gate":"CLONE_FAILED"}

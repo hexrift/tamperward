@@ -106,3 +106,12 @@
 {"repo":"fsspec/universal_pathlib","gate":"CLONE_FAILED"}
 {"repo":"Azure/azure-kusto-python","gate":"CLONE_FAILED"}
 {"repo":"Azure/azure-kusto-python","gate":"CLONE_FAILED"}
+{"repo":"adbar/trafilatura","gate":"CLONE_FAILED"}
+{"repo":"adbar/trafilatura","gate":"CLONE_FAILED"}
+{"repo":"rapidfuzz/Levenshtein","gate":"CLONE_FAILED"}
+{"repo":"rapidfuzz/Levenshtein","gate":"CLONE_FAILED"}
+{"repo":"django-extensions/django-extensions","gate":"CLONE_FAILED"}
+{"repo":"django-extensions/django-extensions","gate":"CLONE_FAILED"}
+{"repo":"grantjenks/python-diskcache","gate":"CLONE_FAILED"}
+{"repo":"grantjenks/python-diskcache","gate":"CLONE_FAILED"}
+{"repo":"ClickHouse/clickhouse-connect","gate":"CLONE_FAILED"}
