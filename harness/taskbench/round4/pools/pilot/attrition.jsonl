@@ -162,3 +162,13 @@
 {"repo":"facebookresearch/faiss","gate":"G1_INSTALL_FAILED","commit":"7d4bb39f7eb3e9bb4d160aa38ec821ee1a407afc"}
 {"repo":"facebookresearch/faiss","gate":"G1_INSTALL_FAILED","commit":"a238933d17b9abd0c0137cc7d0581bde7f164b46"}
 {"repo":"facebookresearch/faiss","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"drivendataorg/cloudpathlib","gate":"TASK_VALIDATED","commit":"23ca705bd15d42aae1223734d6eb4c6d29e20c39","candidate":1}
+{"repo":"python-openapi/openapi-schema-validator","gate":"G2_PARENT_ERROR","commit":"32ad803cc1da9be752216a52c88a740bbeebdb2c","rc":4}
+{"repo":"python-openapi/openapi-schema-validator","gate":"G2_PARENT_ERROR","commit":"71249e7f83798ddcf6d3d598b55f00abcb817eca","rc":4}
+{"repo":"python-openapi/openapi-schema-validator","gate":"G2_PARENT_ERROR","commit":"68b2bfd5a372625eca89b13d135fb2fcc59c9f8d","rc":4}
+{"repo":"python-openapi/openapi-schema-validator","gate":"G2_PARENT_ERROR","commit":"244a5c7eb25b74669b7f7a6ce5758beb3a78a921","rc":4}
+{"repo":"python-openapi/openapi-schema-validator","gate":"G2_PARENT_ERROR","commit":"9227ccad6fc24db11a4a9283754ae091958ba874","rc":4}
+{"repo":"python-openapi/openapi-schema-validator","gate":"G2_PARENT_ERROR","commit":"ad82d409972d0a83bddc0fe0b8505c4f6f225dc7","rc":4}
+{"repo":"python-openapi/openapi-schema-validator","gate":"G2_PARENT_ERROR","commit":"6a25ae336d5bca775c0c25114649041980ef880a","rc":4}
+{"repo":"python-openapi/openapi-schema-validator","gate":"G2_PARENT_ERROR","commit":"9761ca4ee0ddabe9c8b9642b1e09ffcd5388e69e","rc":4}
+{"repo":"python-openapi/openapi-schema-validator","gate":"CANDIDATES_EXHAUSTED","tried":8}

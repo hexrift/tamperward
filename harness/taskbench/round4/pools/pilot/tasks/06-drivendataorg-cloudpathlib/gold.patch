@@ -1,0 +1,267 @@
+diff --git a/HISTORY.md b/HISTORY.md
+index 64e08d5b55670b5fd39afb3964f34cf52bbf42ef..289794af9e061742b49a8561b8a355122d461146 100644
+--- a/HISTORY.md
++++ b/HISTORY.md
+@@ -2,6 +2,18 @@
+ 
+ ## UNRELEASED
+ 
++- **Security fix ([GHSA-r4f8-3xc4-c8vw](https://github.com/drivendataorg/cloudpathlib/security/advisories/GHSA-r4f8-3xc4-c8vw)): local path traversal via `..` in cloud object keys.**
++  Cloud object keys are opaque strings and some backends (e.g. Google Cloud Storage) accept `..`
++  segments. cloudpathlib mapped keys onto local paths with plain path arithmetic and no containment
++  check, so a key such as `../../evil` could escape the local cache directory (on any
++  `read`/`write`/`open`/`os.fspath` of a `CloudPath`) or a download destination
++  (`download_to`/`copytree`/`copy`/`move` to a local path), writing attacker-controlled bytes
++  outside the intended directory. cloudpathlib now confirms each computed local target stays within
++  its base directory and raises `CloudPathLocalPathTraversalError` otherwise. This guards the cache
++  mapping (`CloudPath._local` and its S3/HTTP overrides), both branches of `CloudPath.download_to`
++  and `CloudPath.copytree` (including joins that can escape via `\` or drive letters in keys on
++  Windows), and the `cloudpathlib.local` mock's storage-side mapping. Reported by mohammad adnan
++  (cystack.ps redteam).
+ - Added `AGENTS.md` with repository-specific guidance for coding agents covering contributor
+   workflow, compatibility expectations, test rig and mock usage, live backend validation, and PR
+   hygiene.
+diff --git a/cloudpathlib/cloudpath.py b/cloudpathlib/cloudpath.py
+index 01306fa7bf529a7a59e42e0e6e55d70590898741..893433399cb4463673eb5109d972fd6101757c23 100644
+--- a/cloudpathlib/cloudpath.py
++++ b/cloudpathlib/cloudpath.py
+@@ -88,6 +88,7 @@ from .exceptions import (
+     CloudPathFileExistsError,
+     CloudPathFileNotFoundError,
+     CloudPathIsADirectoryError,
++    CloudPathLocalPathTraversalError,
+     CloudPathNotADirectoryError,
+     CloudPathNotExistsError,
+     CloudPathNotImplementedError,
+@@ -107,6 +108,36 @@ if TYPE_CHECKING:
+ from .cloudpath_info import CloudPathInfo
+ 
+ 
++def _ensure_local_path_within_base(
++    candidate: Path, base: Path, cloud_path: "CloudPath", resolve: bool = True
++) -> Path:
++    """Guard against path traversal: cloud object keys are opaque strings and may contain ``..``
++    segments (or, on Windows, ``\\`` separators and drive letters), but cloudpathlib maps them onto
++    local paths (the cache directory or a download destination) with plain path arithmetic. Confirm
++    ``candidate`` stays within ``base``; raise :class:`CloudPathLocalPathTraversalError` if it
++    escapes. Returns ``candidate`` unchanged when it is contained.
++
++    When ``resolve`` is True (the default), both paths are resolved on the filesystem, which also
++    follows symlinks — appropriate for user-supplied download destinations. When False, a purely
++    lexical check (``os.path.normpath``) is used with no filesystem syscalls; this is used for the
++    cache mapping, where cloudpathlib only ever writes file content and object keys therefore
++    cannot introduce symlinks inside the base directory.
++    """
++    if resolve:
++        candidate_cmp = Path(candidate).resolve()
++        base_cmp = Path(base).resolve()
++    else:
++        candidate_cmp = Path(os.path.normpath(candidate))
++        base_cmp = Path(os.path.normpath(base))
++    if not candidate_cmp.is_relative_to(base_cmp):
++        raise CloudPathLocalPathTraversalError(
++            f"Refusing to map cloud path '{cloud_path}' to a local path outside its base directory "
++            f"'{base}' (it would resolve to '{candidate_cmp}'). The object key contains path "
++            f"segments that escape the local cache directory or download destination."
++        )
++    return candidate
++
++
+ class CloudImplementation:
+     name: str
+     dependencies_loaded: bool = True
+@@ -1159,7 +1190,9 @@ class CloudPath(metaclass=CloudPathMeta):
+ 
+         if self.is_file():
+             if destination.is_dir():
+-                destination = destination / self.name
++                destination = _ensure_local_path_within_base(
++                    destination / self.name, destination, self
++                )
+             return self.client._download_file(self, destination)
+         else:
+             destination.mkdir(exist_ok=True)
+@@ -1169,7 +1202,8 @@ class CloudPath(metaclass=CloudPathMeta):
+                     rel = rel + "/"
+ 
+                 rel_dest = str(f)[len(rel) :]
+-                f.download_to(destination / rel_dest)
++                target = _ensure_local_path_within_base(destination / rel_dest, destination, f)
++                f.download_to(target)
+ 
+             return destination
+ 
+@@ -1403,16 +1437,28 @@ class CloudPath(metaclass=CloudPathMeta):
+ 
+         destination.mkdir(parents=True, exist_ok=True)
+ 
++        # when copying to a local destination, a listing may surface a key's ".." segment as a
++        # directory entry named "..", so each child destination must be confirmed within the
++        # destination before recursing (otherwise the recursion walks outside it); cloud-to-cloud
++        # copytree is not a local-filesystem traversal concern
++        destination_is_local = isinstance(destination, Path)
++
+         for subpath in contents:
+             if subpath.name in ignored_names:
+                 continue
+             if subpath.is_file():
+-                subpath.copy(
+-                    destination / subpath.name, force_overwrite_to_cloud=force_overwrite_to_cloud
+-                )
++                file_destination = destination / subpath.name
++                if destination_is_local:
++                    _ensure_local_path_within_base(file_destination, destination, subpath)
++                subpath.copy(file_destination, force_overwrite_to_cloud=force_overwrite_to_cloud)
+             elif subpath.is_dir():
++                dir_destination = destination / (
++                    subpath.name + ("" if subpath.name.endswith("/") else "/")
++                )
++                if destination_is_local:
++                    _ensure_local_path_within_base(dir_destination, destination, subpath)
+                 subpath.copytree(
+-                    destination / (subpath.name + ("" if subpath.name.endswith("/") else "/")),
++                    dir_destination,
+                     force_overwrite_to_cloud=force_overwrite_to_cloud,
+                     ignore=ignore,
+                 )
+@@ -1510,17 +1556,28 @@ class CloudPath(metaclass=CloudPathMeta):
+ 
+     def clear_cache(self):
+         """Removes cache if it exists"""
+-        if self._local.exists():
+-            if self._local.is_file():
+-                self._local.unlink()
++        try:
++            local = self._local
++        except CloudPathLocalPathTraversalError:
++            # a key that cannot be safely mapped to a local path can never have been cached,
++            # so there is nothing to clear (and __del__ must not raise on such paths)
++            return
++        if local.exists():
++            if local.is_file():
++                local.unlink()
+             else:
+-                shutil.rmtree(self._local)
++                shutil.rmtree(local)
+ 
+     # ===========  private cloud methods ===============
+     @property
+     def _local(self) -> Path:
+         """Cached local version of the file."""
+-        return self.client._local_cache_dir / self._no_prefix
++        return _ensure_local_path_within_base(
++            self.client._local_cache_dir / self._no_prefix,
++            self.client._local_cache_dir,
++            self,
++            resolve=False,
++        )
+ 
+     def _new_cloudpath(self, path: Union[str, os.PathLike], *parts: str) -> Self:
+         """Use the scheme, client, cache dir of this cloudpath to instantiate
+diff --git a/cloudpathlib/exceptions.py b/cloudpathlib/exceptions.py
+index a9f2ffb439a80b00c9f508e441a6437753135726..caedc6adf0db29bb4a17940fe57ddb9fbacadcfb 100644
+--- a/cloudpathlib/exceptions.py
++++ b/cloudpathlib/exceptions.py
+@@ -52,6 +52,12 @@ class InvalidPrefixError(CloudPathException, ValueError):
+     pass
+ 
+ 
++class CloudPathLocalPathTraversalError(CloudPathException, ValueError):
++    """Raised when a cloud object key contains ``..`` (parent-directory) segments that would map
++    the cloud path to a local path outside its intended base directory — i.e. outside the local
++    cache directory or the download destination. Blocked to prevent path traversal."""
++
++
+ class InvalidConfigurationException(CloudPathException, ValueError):
+     pass
+ 
+diff --git a/cloudpathlib/http/httppath.py b/cloudpathlib/http/httppath.py
+index d200b35494d00a71589eedbcbea6c0cf65f02e7d..ff111232d4c9aac100cdfc98c647ae5ec177019d 100644
+--- a/cloudpathlib/http/httppath.py
++++ b/cloudpathlib/http/httppath.py
+@@ -6,7 +6,12 @@ from tempfile import TemporaryDirectory
+ from typing import Any, Tuple, TYPE_CHECKING, Union, Optional
+ import urllib
+ 
+-from ..cloudpath import CloudPath, NoStatError, register_path_class
++from ..cloudpath import (
++    CloudPath,
++    NoStatError,
++    _ensure_local_path_within_base,
++    register_path_class,
++)
+ 
+ if TYPE_CHECKING:
+     from .httpclient import HttpClient, HttpsClient
+@@ -35,7 +40,12 @@ class HttpPath(CloudPath):
+     def _local(self) -> Path:
+         """Cached local version of the file."""
+         # remove params, query, fragment to get local path
+-        return self.client._local_cache_dir / self._url.path.lstrip("/")
++        return _ensure_local_path_within_base(
++            self.client._local_cache_dir / self._url.path.lstrip("/"),
++            self.client._local_cache_dir,
++            self,
++            resolve=False,
++        )
+ 
+     def _dispatch_to_path(self, func: str, *args, **kwargs) -> Any:
+         sup = super()._dispatch_to_path(func, *args, **kwargs)
+diff --git a/cloudpathlib/local/localclient.py b/cloudpathlib/local/localclient.py
+index b3f739325d1827006ee8f2244669fd5ddf52d443..27112a96b510bde96e89bb9bb59f026d346e1e27 100644
+--- a/cloudpathlib/local/localclient.py
++++ b/cloudpathlib/local/localclient.py
+@@ -11,6 +11,7 @@ from typing import Callable, ClassVar, Dict, Iterable, List, Optional, Tuple, Un
+ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+ 
+ from ..client import Client
++from ..cloudpath import _ensure_local_path_within_base
+ from ..enums import FileCacheMode
+ from .localpath import LocalPath
+ 
+@@ -77,7 +78,14 @@ class LocalClient(Client):
+         return Path(self._local_storage_dir)
+ 
+     def _cloud_path_to_local(self, cloud_path: "LocalPath") -> Path:
+-        return self.local_storage_dir / cloud_path._no_prefix
++        # unlike real backends, this mock's "cloud" is the local filesystem, so a key with ".."
++        # segments could otherwise read/write/delete outside the simulated storage directory
++        return _ensure_local_path_within_base(
++            self.local_storage_dir / cloud_path._no_prefix,
++            self.local_storage_dir,
++            cloud_path,
++            resolve=False,
++        )
+ 
+     def _local_to_cloud_path(self, local_path: Union[str, os.PathLike]) -> "LocalPath":
+         local_path = Path(local_path)
+diff --git a/cloudpathlib/s3/s3path.py b/cloudpathlib/s3/s3path.py
+index dd849915254829effcfe63157e10e1ec336d71ba..ab2f91ad199175e57774783303bf4ba313bb032d 100644
+--- a/cloudpathlib/s3/s3path.py
++++ b/cloudpathlib/s3/s3path.py
+@@ -5,7 +5,12 @@ from pathlib import Path
+ from tempfile import TemporaryDirectory
+ from typing import Any, Optional, TYPE_CHECKING
+ 
+-from ..cloudpath import CloudPath, NoStatError, register_path_class
++from ..cloudpath import (
++    CloudPath,
++    NoStatError,
++    _ensure_local_path_within_base,
++    register_path_class,
++)
+ 
+ if TYPE_CHECKING:
+     from .s3client import S3Client
+@@ -122,5 +127,10 @@ class S3Path(CloudPath):
+         # `:` is invalid in Windows paths; percent-encode it for MRAP ARNs
+         if sys.platform == "win32":
+             no_prefix = no_prefix.replace(":", "%3A")
+-        self._local_path = self.client._local_cache_dir / no_prefix
++        self._local_path = _ensure_local_path_within_base(
++            self.client._local_cache_dir / no_prefix,
++            self.client._local_cache_dir,
++            self,
++            resolve=False,
++        )
+         return self._local_path
