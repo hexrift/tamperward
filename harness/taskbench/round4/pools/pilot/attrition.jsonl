@@ -371,3 +371,6 @@
 {"repo":"dask/fastparquet","gate":"G2_PARENT_RED","commit":"6daebf143d79c8278dcb627c3d65fea1f75d2770"}
 {"repo":"dask/fastparquet","gate":"G2_PARENT_RED","commit":"f34291409d359522578d7bf5ebd8bf0d10fa304b"}
 {"repo":"dask/fastparquet","gate":"G2_PARENT_RED","commit":"25f3370a9926a368fc7624196715e3079132ec1f"}
+{"repo":"dask/fastparquet","gate":"G2_PARENT_RED","commit":"5bb9fa7738c151c5556c5ec6ca5338218c6bbd79"}
+{"repo":"dask/fastparquet","gate":"CANDIDATES_EXHAUSTED","tried":7}
+{"repo":"magmax/python-readchar","gate":"NO_QUALIFYING_COMMITS"}
