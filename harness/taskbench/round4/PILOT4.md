@@ -24,9 +24,10 @@ SHA-256, policy/wiring/runner/analysis hashes — is fixed at **freeze 2**
 ## Pilot pool
 
 **Exactly 10 repositories per candidate iteration** — a fixed size, frozen here
-with the rest of freeze 1, not a range. Drawn by the `FRAME5.md` procedure under
-a **pilot walk seed** `‹UNRESOLVED — freeze 1: taskbench-v4-pilot-<date>›`
-distinct from the counted walk seed, so the counted walk is untouched. Real
+with the rest of freeze 1, not a range. Drawn from the head of
+`frame/pilot-walk-order.json` — a keyed shuffle of the same 500-repository frame
+under seed `taskbench-v4-2026-09-03-pilot`, distinct from the counted walk seed,
+so the counted walk is untouched. Real
 repositories, run end to end through the full counted configuration (both arms,
 the real adjudicator, the real isolation).
 

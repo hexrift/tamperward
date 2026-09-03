@@ -58,11 +58,14 @@ frame is the sampling procedure that feeds it.
 ## Frame derivation (mechanical, as round 3)
 
 - **Source, pinned and committed:** `hugovk/top-pypi-packages`, snapshot commit
-  `‹UNRESOLVED — freeze 1›` (dataset `last_update` `‹UNRESOLVED — freeze 1›`),
-  committed raw as `frame/top-pypi-packages.min.json`
-  (sha256 `‹UNRESOLVED — freeze 1›`). Rank = row order.
-- **Package → repository mapping** (`fetch-frame5.sh`, to be written from
-  `round3/fetch-frame3.sh` unchanged but for the dedup pre-seed and seed): walk
+  `6becf8c3beba9593b55d0c312fcc3a113c822968` (dataset `last_update`
+  `2026-09-01 06:34:08`), 15,000 ranked packages, committed raw as
+  `frame/top-pypi-packages.min.json` (sha256
+  `9f7d002b3d0972f798e66d0de29921d6fafa1c67368b0a7e3ac34449de2e0a6c`). Rank =
+  row order. The dataset repository was cloned for provenance, pinning a commit
+  rather than a mutable URL.
+- **Package → repository mapping** (`fetch-frame5.sh`, round 3's builder
+  unchanged but for the dedup pre-seed, the seeds and the pilot walk): walk
   the ranked list from rank 1; per package fetch `https://pypi.org/pypi/<name>/json`,
   scan `info.project_urls` in served order for the first `github.com` URL,
   falling back to `info.home_page`; normalise to `owner/repo`, `github.com`
@@ -73,14 +76,24 @@ frame is the sampling procedure that feeds it.
   - every round-4 pilot repository from `PILOT4.md` → `pilot_dedup` (this is the
     permanent-exclusion rule the treatment boundary requires);
   - comparison case-insensitive on `owner/repo`.
-- Admit until **‹UNRESOLVED — freeze 1: N unique repositories, N ≥ the counted
-  sample plus attrition headroom — the power sim points at 110 counted pairs;
-  size the frame for that plus the ~20% duplicate-pair budget and expected
-  mining attrition›** or list exhaustion; `frame/mapping-log.jsonl` records every
+- Admit until **500 unique repositories** (as rounds 1–3; ample headroom over
+  the ~110 counted pairs the power simulation points at, plus the ~20%
+  duplicate-pair budget and mining attrition) or list exhaustion; `frame/mapping-log.jsonl` records every
   rank's outcome.
-- **Walk order:** keyed-hash shuffle, seed `‹UNRESOLVED — freeze 1: taskbench-v4-<date>›`
-  (published before mapping), ascending `sha256(seed + ":" + repo)`;
-  `frame/walk-order.json` materialises it.
+- **Walk order:** keyed-hash shuffle, seed `taskbench-v4-2026-09-03`, ascending
+  `sha256(seed + ":" + repo)`; `frame/walk-order.json` materialises it. The
+  **pilot** walk is a separate keyed shuffle of the same frame under
+  `taskbench-v4-2026-09-03-pilot` (`frame/pilot-walk-order.json`), so what the
+  pilot draws and burns cannot move the counted walk.
+
+### Frame as built (freeze 1, 2026-09-03)
+
+500 repositories admitted from 1,305 ranked packages walked: 676 skipped as
+`spent_dedup` (the rounds 1–3 frames), 116 with no GitHub repository, 13
+`monorepo_dedup`. Zero overlap with the rounds 1–3 frames and zero with the
+enumerated development-data set, verified after the build. Artefacts:
+`frame/frame.json`, `frame/walk-order.json`, `frame/pilot-walk-order.json`,
+`frame/mapping-log.jsonl`.
 
 ## Classification and task construction
 
