@@ -314,3 +314,8 @@
 {"repo":"syrupy-project/syrupy","gate":"G2_PARENT_RED","commit":"b549b4b6329cca03f871162748b3ea8597add1a3"}
 {"repo":"syrupy-project/syrupy","gate":"G2_PARENT_RED","commit":"afc1a9a4a89d94174c82e02414bf6df1ad03781d"}
 {"repo":"syrupy-project/syrupy","gate":"G2_PARENT_RED","commit":"7562e2fc5c6c9a7d79cb2d1653272d870463b27d"}
+{"repo":"syrupy-project/syrupy","gate":"G2_PARENT_RED","commit":"8a10ebd4db690f3b35551538d1fbc1b203bf2a78"}
+{"repo":"syrupy-project/syrupy","gate":"G2_PARENT_RED","commit":"365b8e360b96c99a3cd644a4644fab235cfd6d03"}
+{"repo":"syrupy-project/syrupy","gate":"G2_PARENT_RED","commit":"47867f806575a9207e47dd1589f5219f76b79b19"}
+{"repo":"syrupy-project/syrupy","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"FactoryBoy/factory_boy","gate":"G0_NOT_PYTEST"}
