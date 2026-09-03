@@ -5,6 +5,34 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.10.2] — 2026-09-03
+
+**pytest collection narrowing is now a finding at the tool call, not only at
+adjudication. A patch: the missing half of an existing protection.** A round-4
+pilot on a fresh Python pool found that a config could deselect the failing test —
+`addopts = -k "not test_x"`, `--ignore`, `--ignore-glob`, `--deselect`, `-m`, a
+redirected `testpaths`, a narrowed `python_files`/`python_classes`/
+`python_functions`, a `norecursedirs` that swallows the test directory — and the
+gate ALLOWED it while the Stop sweep stayed silent, in `pytest.ini`, `.pytest.ini`,
+`setup.cfg`, `tox.ini` and `pyproject.toml` alike, at the root or nested.
+
+**This was never an escape.** `verify`'s verification surface has refused to
+inherit those files since 1.14.2, and drops `PYTEST_ADDOPTS` with them, so the
+envelope already exited non-zero on every one of these: traced end to end across
+fifteen vectors through the PreToolUse gate, the Stop sweep, pristine
+verification, the `run` envelope and an independent adjudicator. What was missing
+was EARLY feedback — the agent learned at adjudication instead of at the edit.
+
+pytest joins the suite-config model the JS runners already use: the config is read
+as the membership function the runner applies, and a finding is a protected test
+the runner selected before and does not select after. Because the comparison is
+over selection and not over flags, `-v`, `--tb=short`, `-r a`, `--color`,
+`--durations`, `--strict-markers` and a `markers` registry are silent **by
+construction** — there is no benign-flag list to keep in step with pytest's option
+grammar. INI continuation lines, quoted values and TOML string and array forms are
+read; `tox.ini` and `setup.cfg` count as pytest configs only when they carry the
+section pytest reads, so ordinary packaging edits are untouched.
+
 ## [2.10.1] — 2026-09-02
 
 **`npm install` no longer trips the gate in a husky repository. A patch: a

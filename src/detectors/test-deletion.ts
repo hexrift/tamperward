@@ -15,7 +15,8 @@ import { makeFinding } from './finding';
 import { segments, tokens, unquote } from './command';
 import { Lang, isSignificantLine, langOf } from './files';
 import { containsProtected, revIsHead, trackedFiles } from './repo';
-import { CANONICAL_SAMPLES, runnerOf, suiteNarrowings } from './suite-config';
+import { CANONICAL_SAMPLES, PYTEST_CANONICAL_SAMPLES, runnerOf, suiteNarrowings } from './suite-config';
+import type { Runner } from './suite-config';
 import { SUITE_NARROWING_FLAGS } from './ci-tampering';
 
 const RULE = 'test-deletion';
@@ -217,17 +218,23 @@ const OTHER_RUNNER_DIR = /(?:^|\/)(?:e2e|cypress|playwright|fixtures|__fixtures_
 
 /** The protected JS/TS test files a runner config governs, from the repository listing
  *  when one is available, else the conventional layouts. */
-function runnerSamples(configPath: string, policy: Policy, ctx?: DetectorContext): string[] {
+function runnerSamples(configPath: string, policy: Policy, ctx?: DetectorContext, runner?: Runner | null): string[] {
+  // The samples must be in the RUNNER's language: a pytest config judged against a
+  // list of .ts specs selects nothing on either side, so every narrowing would be
+  // invisible. (Found end-to-end: the unit model was right and the integration
+  // still reported clean.)
+  const lang = runner === 'pytest' ? 'py' : 'js';
+  const fallback = runner === 'pytest' ? PYTEST_CANONICAL_SAMPLES : CANONICAL_SAMPLES;
   const files = trackedFiles(ctx);
-  if (!files) return CANONICAL_SAMPLES;
+  if (!files) return fallback;
   // the runner's rootDir is the config's directory: paths are relative to it
   const root = configPath.includes('/') ? configPath.slice(0, configPath.lastIndexOf('/') + 1) : '';
   // Specs under e2e/, cypress/, playwright/ belong to another runner: excluding them
   // from vitest or jest is how those repositories are set up, not a narrowing.
   const own = files
-    .filter((f) => f.startsWith(root) && langOf(f) === 'js' && isProtected(f, policy, 'tests') && !OTHER_RUNNER_DIR.test(f))
+    .filter((f) => f.startsWith(root) && langOf(f) === lang && isProtected(f, policy, 'tests') && (lang !== 'js' || !OTHER_RUNNER_DIR.test(f)))
     .map((f) => f.slice(root.length));
-  return own.length ? own : CANONICAL_SAMPLES;
+  return own.length ? own : fallback;
 }
 
 interface ScriptNarrowing {
@@ -410,7 +417,7 @@ export const testDeletion: Detector = {
         } else if (c.op !== 'delete' && c.after != null && !isTest && isProtected(c.path, policy, 'config') && runnerOf(c.path, c.after)) {
           // The runner's selection config: a protected spec the runner opened before
           // and will not open after is out of the suite as surely as if deleted.
-          for (const n of suiteNarrowings(c.before, c.after, c.path, runnerSamples(c.path, policy, ctx))) {
+          for (const n of suiteNarrowings(c.before, c.after, c.path, runnerSamples(c.path, policy, ctx, runnerOf(c.path, c.after)))) {
             out.push(
               makeFinding(RULE, policy, {
                 file: c.path,
