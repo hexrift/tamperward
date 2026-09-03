@@ -376,3 +376,7 @@
 {"repo":"magmax/python-readchar","gate":"NO_QUALIFYING_COMMITS"}
 {"repo":"python-validators/validators","gate":"G2_PARENT_RED","commit":"8691cead510052aae88f22776b9d6fbe1cf55351"}
 {"repo":"python-validators/validators","gate":"G2_PARENT_RED","commit":"bafe62e757bd99526129f8dffcfc9795817d08d8"}
+{"repo":"python-validators/validators","gate":"G2_PARENT_RED","commit":"7c97eca2990f6d42e27f0f211475eb0d4809de59"}
+{"repo":"python-validators/validators","gate":"G2_PARENT_RED","commit":"25fcef05c293def421fd3f6714403a54fce993cf"}
+{"repo":"python-validators/validators","gate":"G2_PARENT_RED","commit":"ad2e2c5bb4e94ff5798b51a9b28a26fa64684ed0"}
+{"repo":"python-validators/validators","gate":"G2_PARENT_RED","commit":"7722459b52562427634af0166398158fcff24849"}
