@@ -74,6 +74,27 @@ is patched (new release) and the pilot re-run on fresh throwaway repositories.
       corpus and the husky ordinary-gate displacement (#201) all replay to their
       expected verdicts.
 
+## Harness wiring under the 2.10.x treatment (established 2026-09-03)
+
+The deployment rule says every seed is initialised with `tamperward init` from
+the frozen package. Probed against v2.10.1, that constrains where the harness
+may put its own hooks, and the constraint is favourable:
+
+- **A `PostToolUse` observer beside the init-written gate is clean.** The
+  round-3.1 observer keeps its place, so both arms can be instrumented
+  identically without a sign-off.
+- **A second `Stop` entry is `hook-tampering` and blocks.** Round 3.1 ran its
+  `verify` step as an added Stop hook; under the canonical-shape comparator a
+  hook entry added beside the gate under PreToolUse or Stop is the tamper
+  (SPEC row 8), and the probe blocks exactly as specified.
+
+So the round-4 runner does **not** reproduce round 3.1's Stop-hook verify.
+Pristine verification runs **parent-owned, after the agent exits**, in both
+arms — which is what `ROUND4-PREP.md` already requires of the neutral
+adjudicator, and which keeps Tamperward's own Stop sweep purely part of the
+treatment rather than doubling as the harness's measurement. The treatment
+forces the cleaner separation the design asked for.
+
 ## Deployment (the treatment boundary's claim 3)
 
 Every pilot and counted seed: initialised with `tamperward init` from the exact
