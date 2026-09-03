@@ -138,5 +138,165 @@ else
                               || no "L6 leaked $((a_ctrl-b_ctrl)) control dir(s)"
 fi
 
+# ─────────────────────────────────────────────────────────────────────────────
+# N. REAL RESOURCE TEARDOWN through the production entry point.
+# L3/L4 are structural and L6 covers only the workdir with the net jail OFF. These
+# drive run-task4.sh with TB_NETJAIL=1 so an actual network namespace, veth pair and
+# proxy listener exist, then assert every obligation across success, early failure
+# and TERM/INT/HUP. A standalone bash trap probe proves bash semantics; only this
+# proves THIS runner released ITS resources.
+# ─────────────────────────────────────────────────────────────────────────────
+mkfixture() { # -> exports FIXW; a task the runner can actually complete
+  FIXW=$(mktemp -d "$W/fx-XXXXXX"); local F="$FIXW/src"; mkdir -p "$F/mypkg"
+  printf 'def add(a, b):\n    return a - b\n' > "$F/mypkg/__init__.py"
+  printf '[project]\nname = "mypkg"\nversion = "0.1"\n[build-system]\nrequires = ["setuptools"]\nbuild-backend = "setuptools.build_meta"\n' > "$F/pyproject.toml"
+  ( cd "$F" && git init -q && git config user.email t@b && git config user.name tb && git add -A && git commit -qm base --no-verify ) >/dev/null 2>&1
+  local PARENT; PARENT=$( cd "$F" && git rev-parse HEAD )
+  mkdir -p "$F/tests"; printf 'from mypkg import add\ndef test_add():\n    assert add(1, 2) == 3\n' > "$F/tests/test_add.py"
+  ( cd "$F" && git add -A && git diff --cached > "$FIXW/test.patch" && git reset -q --hard "$PARENT" ) >/dev/null 2>&1
+  printf 'def add(a, b):\n    return a + b\n' > "$F/mypkg/__init__.py"
+  ( cd "$F" && git diff > "$FIXW/gold.patch" && git checkout -q -- . ) >/dev/null 2>&1
+  mkdir -p "$FIXW/tasks/lifecycle"
+  cp "$FIXW/test.patch" "$FIXW/tasks/lifecycle/test.patch"; cp "$FIXW/gold.patch" "$FIXW/tasks/lifecycle/gold.patch"
+  printf '{"id":"lifecycle","repo":"local/fixture","parent_sha":"%s"}\n' "$PARENT" > "$FIXW/tasks/lifecycle/manifest.json"
+  export TB_FIX_SRC="$F"
+}
+ns_count() { ip netns list 2>/dev/null | grep -c '^tbj-' || true; }
+assert_clean() { # <label> <cleanuplog> <expected-status-or-empty> <b_run> <b_ctrl> <b_ns>
+  local lbl="$1" cl="$2" want="$3" br="$4" bc="$5" bn="$6"
+  local n; n=$(grep -c '^cleanup ' "$cl" 2>/dev/null || echo 0)
+  [ "$n" = 1 ] && ok "$lbl cleanup ran EXACTLY once" || no "$lbl cleanup ran $n times"
+  [ "$(ns_count)" -le "$bn" ] && ok "$lbl no network namespace left ($(ns_count) <= $bn)" || no "$lbl leaked a namespace ($(ns_count) > $bn)"
+  [ "$(ls -d /tmp/tb3-run-* 2>/dev/null | wc -l)" -le "$br" ] && ok "$lbl no workdir left" || no "$lbl leaked a workdir"
+  [ "$(ls -d /tmp/tb31-ctrl-* 2>/dev/null | wc -l)" -le "$bc" ] && ok "$lbl no control dir left" || no "$lbl leaked a control dir"
+  local sealed; sealed=$(find /tmp -maxdepth 3 -name 'tree.log' -newermt '-3 minutes' 2>/dev/null | while read -r f; do lsattr "$f" 2>/dev/null | grep -q '^-*a' && echo "$f"; done | wc -l)
+  [ "$sealed" = 0 ] && ok "$lbl no file left append-only" || no "$lbl left $sealed sealed file(s)"
+  if [ -n "$want" ]; then
+    grep -q "st=$want" "$cl" 2>/dev/null && ok "$lbl exit status $want preserved into cleanup" \
+      || no "$lbl status not preserved (log: $(tr '\n' ' ' < "$cl"))"
+  fi
+}
+
+hdr "N0 the hygiene seam is reachable (regression pin)"
+# --netcheck never calls the model, but the counted-run guard blocked it, which also
+# left the REAL net-jail teardown path unreachable from any test — the vacuity trap.
+# grep the WHOLE output and the exit code: the guard writes two lines to stderr and
+# exits 78, so matching only the first line missed it against the pre-fix runner.
+g=$(TB_NETJAIL=0 timeout 60 bash "$RT" --netcheck 2>&1); grc=$?
+{ printf '%s' "$g" | grep -q "needs TB_RUNTASK4_READY" || [ "$grc" = 78 ]; } \
+  && no "N0 the guard still blocks --netcheck, so namespace teardown cannot be exercised" \
+  || ok "N0 --netcheck runs without the counted flag"
+
+hdr "N1 SUCCESS path with a REAL network namespace (production entry point)"
+# The fake-agent path returns early from start_agent_network by design (no model
+# call), so it can NEVER create a namespace. --netcheck runs the real network path.
+CLN="$W/n1.cl"; : > "$CLN"
+bn=$(ns_count); br=$(ls -d /tmp/tb3-run-* 2>/dev/null|wc -l)
+TB_NETJAIL=1 TB_CLEANUP_LOG="$CLN" timeout 240 bash "$RT" --netcheck >"$W/n1.log" 2>&1; n1rc=$?
+if grep -q "net-jail: agent confined" "$W/n1.log"; then
+  ok "N1 non-vacuity: a real network namespace was created ($(grep -o 'confined to [^,]*' "$W/n1.log" | head -1))"
+  grep -q "ns=tbj-" "$CLN" && ok "N1 cleanup saw the namespace it had to remove ($(grep -o 'ns=tbj-[^ ]*' "$CLN" | head -1))" \
+                           || no "N1 cleanup recorded no namespace — it cannot have torn one down"
+  [ "$(ns_count)" -le "$bn" ] && ok "N1 the namespace was REMOVED ($(ns_count) <= $bn)" || no "N1 leaked a namespace"
+  [ "$(grep -c '^cleanup ' "$CLN")" = 1 ] && ok "N1 cleanup ran EXACTLY once" || no "N1 cleanup ran $(grep -c '^cleanup ' "$CLN") times"
+  grep -q "st=$n1rc" "$CLN" && ok "N1 exit status $n1rc preserved into cleanup" || no "N1 status not preserved"
+  [ "$(ls -d /tmp/tb3-run-* 2>/dev/null|wc -l)" -le "$br" ] && ok "N1 no workdir left" || no "N1 leaked a workdir"
+  pgrep -f "allowlist-proxy.mjs" >/dev/null 2>&1 && no "N1 an allowlist-proxy process survived" || ok "N1 no proxy process survived"
+else
+  no "N1 the net-jail path was not reached ($(tail -1 "$W/n1.log")) — namespace teardown is UNPROVEN"
+fi
+
+# Every assertion below is scoped to the EXACT resources the invocation recorded in
+# its cleanup line (namespace, workdir, control dir, proxy pid) — never a global
+# /tmp count or a broad pgrep, which previously let one case's leak be reported
+# against another.
+fld() { sed -n 's/.*\b'"$2"'=\([^ ]*\).*/\1/p' "$1" | head -1; }
+
+signal_case() { # <SIG> <expected-status> <label>
+  local sig="$1" want="$2" lbl="$3"
+  local CL="$W/sig-$sig.cl"; : > "$CL"
+  local LOG="$W/sig-$sig.log"
+  # readiness barrier: hold the run alive AFTER the boundary is proven, so the
+  # signal lands at a deterministic point with the namespace and proxy live.
+  TB_NETJAIL=1 TB_CLEANUP_LOG="$CL" TB_NETCHECK_HOLD=25 \
+    timeout 240 bash "$RT" --netcheck >"$LOG" 2>&1 &
+  local rp=$! ready=no
+  for _ in $(seq 1 600); do
+    grep -q "agent network path verified" "$LOG" 2>/dev/null && { ready=yes; break; }
+    kill -0 "$rp" 2>/dev/null || break; sleep 0.1
+  done
+  if [ "$ready" != yes ]; then wait "$rp" 2>/dev/null; no "$lbl readiness barrier never reached — vacuous"; return; fi
+  local ns; ns=$(grep -o 'confined to tbj-[^,]*' "$LOG" | head -1 | sed 's/confined to //')
+  [ -n "$ns" ] && ok "$lbl non-vacuity: namespace $ns live at the barrier" || { no "$lbl no namespace at the barrier"; kill "$rp" 2>/dev/null; return; }
+  kill -"$sig" "$rp" 2>/dev/null; wait "$rp" 2>/dev/null; local rc=$?
+  sleep 1
+  [ "$rc" = "$want" ] && ok "$lbl exit status $rc (conventional $want)" || no "$lbl exit status $rc, expected $want"
+  local runs; runs=$(grep -c '^cleanup ' "$CL" 2>/dev/null || echo 0)
+  [ "$runs" = 1 ] && ok "$lbl cleanup ran EXACTLY once" || no "$lbl cleanup ran $runs times"
+  grep -q "sig=$sig" "$CL" && ok "$lbl cleanup recorded sig=$sig" || no "$lbl cleanup did not record the signal"
+  # scoped resource assertions, from THIS invocation's own record
+  local w c px
+  w=$(fld "$CL" w); c=$(fld "$CL" ctrl); px=$(fld "$CL" proxy)
+  ip netns list 2>/dev/null | grep -q "^$ns" && no "$lbl namespace $ns still present" || ok "$lbl namespace $ns removed"
+  { [ "$px" = none ] || ! kill -0 "$px" 2>/dev/null; } && ok "$lbl proxy pid $px gone" || no "$lbl proxy pid $px still alive"
+  { [ "$w" = none ] || [ ! -d "$w" ]; }   && ok "$lbl workdir $w removed"     || no "$lbl workdir $w still present"
+  { [ "$c" = none ] || [ ! -d "$c" ]; }   && ok "$lbl control dir removed"    || no "$lbl control dir $c still present"
+  if [ "$w" != none ] && [ -e "$w/obs/tree.log" ]; then
+    lsattr "$w/obs/tree.log" 2>/dev/null | grep -q '^-*a' && no "$lbl left its observer log sealed" || ok "$lbl observer log unsealed"
+  else ok "$lbl no sealed observer log remains (workdir gone)"; fi
+}
+
+hdr "N1b SIGNALS at a deterministic readiness point, scoped to the invocation"
+signal_case TERM 143 "N1b/TERM"
+signal_case INT  130 "N1b/INT"
+signal_case HUP  129 "N1b/HUP"
+
+hdr "N1c stress: 8 TERM trials (supplementary, not the primary proof)"
+leaks=0; vac=0
+for i in $(seq 1 8); do
+  CLs="$W/stress-$i.cl"; : > "$CLs"; LOGs="$W/stress-$i.log"
+  TB_NETJAIL=1 TB_CLEANUP_LOG="$CLs" TB_NETCHECK_HOLD=20 timeout 240 bash "$RT" --netcheck >"$LOGs" 2>&1 &
+  rp=$!; ready=no
+  for _ in $(seq 1 600); do grep -q "agent network path verified" "$LOGs" 2>/dev/null && { ready=yes; break; }; kill -0 "$rp" 2>/dev/null || break; sleep 0.1; done
+  if [ "$ready" != yes ]; then wait "$rp" 2>/dev/null; vac=$((vac+1)); continue; fi
+  ns=$(grep -o 'confined to tbj-[^,]*' "$LOGs" | head -1 | sed 's/confined to //')
+  kill -TERM "$rp" 2>/dev/null; wait "$rp" 2>/dev/null; sleep 1
+  ip netns list 2>/dev/null | grep -q "^$ns" && leaks=$((leaks+1))
+done
+[ "$vac" = 0 ] && ok "N1c non-vacuity: all 8 trials reached the readiness barrier" || no "N1c $vac trial(s) were vacuous"
+[ "$leaks" = 0 ] && ok "N1c 0/8 trials leaked a namespace under TERM" || no "N1c $leaks/8 trials leaked a namespace"
+
+hdr "N2 EARLY FAILURE path (fake agent — NO namespace by design)"
+mkfixture; CL2="$FIXW/cl.log"; : > "$CL2"
+: > "$FIXW/tasks/lifecycle/gold.patch"      # gold no longer fixes it -> PRE_AGENT_GOLD_RED
+br=$(ls -d /tmp/tb3-run-* 2>/dev/null|wc -l); bc=$(ls -d /tmp/tb31-ctrl-* 2>/dev/null|wc -l); bn=$(ns_count)
+env TB_TASKS="$FIXW/tasks" TB_RUNS="$FIXW/runs" TB_SMOKE_SRC="$TB_FIX_SRC" TB_FAKE_AGENT="$FAKE" \
+    TB_NETJAIL=1 TB_CLEANUP_LOG="$CL2" bash "$RT" lifecycle gated >"$FIXW/n2.log" 2>&1; n2rc=$?
+[ "$n2rc" -ne 0 ] && ok "N2 non-vacuity: the run failed as intended (exit $n2rc, $(tail -1 "$FIXW/n2.log"))" \
+                  || no "N2 the run unexpectedly succeeded — not an early-failure path"
+assert_clean "N2" "$CL2" "$n2rc" "$br" "$bc" "$bn"
+
+hdr "N3 SIGNALS through the production entry point, blocked mid-run (fake agent — NO namespace by design)"
+for sig in TERM INT HUP; do
+  mkfixture; CL3="$FIXW/cl-$sig.log"; : > "$CL3"
+  SLOW="$FIXW/slow.sh"; printf '#!/usr/bin/env bash\nsleep 120\n' > "$SLOW"; chmod +x "$SLOW"
+  br=$(ls -d /tmp/tb3-run-* 2>/dev/null|wc -l); bc=$(ls -d /tmp/tb31-ctrl-* 2>/dev/null|wc -l); bn=$(ns_count)
+  env TB_TASKS="$FIXW/tasks" TB_RUNS="$FIXW/runs" TB_SMOKE_SRC="$TB_FIX_SRC" TB_FAKE_AGENT="$SLOW" \
+      TB_NETJAIL=1 TB_CLEANUP_LOG="$CL3" bash "$RT" lifecycle gated >"$FIXW/n3-$sig.log" 2>&1 &
+  rp=$!
+  # wait until it is genuinely blocked in the agent phase
+  for _ in $(seq 1 120); do grep -q "fake-agent smoke\|agent" "$FIXW/n3-$sig.log" 2>/dev/null && break; sleep 1; done
+  sleep 2
+  if kill -0 "$rp" 2>/dev/null; then
+    kill -"$sig" "$rp" 2>/dev/null; wait "$rp" 2>/dev/null; srac=$?
+    ok "N3/$sig non-vacuity: the runner was live mid-run and received SIG$sig"
+    sleep 1
+    assert_clean "N3/$sig" "$CL3" "" "$br" "$bc" "$bn"
+  else
+    wait "$rp" 2>/dev/null
+    no "N3/$sig the runner had already exited before the signal — the case is vacuous"
+  fi
+done
+
 printf '\ncleanup-lifecycle4: passed %d, failed %d\n' "$pass" "$fail"
 [ "$fail" = 0 ]

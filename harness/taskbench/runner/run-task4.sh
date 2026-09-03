@@ -55,8 +55,11 @@ CLI="$ROOT/dist/cli/index.js"       # dev build — parent-side self-tests only,
 # passed and the operator has provisioned the short-lived pilot credential. It
 # therefore requires TB_RUNTASK4_READY=1, set only by the counted driver. Smoke
 # and fake-agent runs (TB_FAKE_AGENT set, or the `smoke` arg) are how the plumbing
-# is VALIDATED, so they are allowed through — they never call the model.
-if [ -z "${TB_FAKE_AGENT:-}" ] && [ "${3:-}" != "smoke" ] && [ "${TB_RUNTASK4_READY:-0}" != "1" ]; then
+# is VALIDATED, so they are allowed through — they never call the model. So is
+# `--netcheck`, the hygiene seam that only proves the network boundary and exits:
+# it was blocked here by oversight, which also left the real net-jail teardown path
+# unreachable from any test. Pinned by cleanup-lifecycle4 N0/N1.
+if [ "${1:-}" != "--netcheck" ] && [ -z "${TB_FAKE_AGENT:-}" ] && [ "${3:-}" != "smoke" ] && [ "${TB_RUNTASK4_READY:-0}" != "1" ]; then
   echo "run-task4.sh: a real-agent trajectory needs TB_RUNTASK4_READY=1 (freeze checklist complete + pilot credential provisioned)." >&2
   echo "  Plumbing is validated with TB_FAKE_AGENT or the 'smoke' arg, which never call the model. See DEVIATIONS/PILOT4." >&2
   exit 78
@@ -179,12 +182,39 @@ teardown_net() {
 append_only() { chattr +a "$1" 2>/dev/null || echo "[run-task4] WARNING append-only unsupported for $1 — temporal evidence is erasable" >&2; }
 release_append_only() { [ -n "${1:-}" ] && chattr -a "$1" 2>/dev/null; return 0; }
 
+# Signal handling is SEPARATE from cleanup. A signal trap that merely returns can
+# let execution continue, and invoking cleanup from both a signal trap and the EXIT
+# trap risks running it twice. So on_signal records the signal and exits with the
+# conventional status; the single EXIT handler below still owns every obligation.
+# Without these, a signal delivered while the runner holds a network namespace can
+# skip the EXIT trap entirely — measured on the INHERITED run-task31.sh at 4/8 and
+# here at 3/8 before this fix, so it is a latent defect from round 3.1, not new.
+SIGNAL_RECEIVED=""
+on_signal() {
+  local sig="$1" status
+  trap - INT TERM HUP
+  case "$sig" in
+    HUP)  status=129 ;;
+    INT)  status=130 ;;
+    TERM) status=143 ;;
+    *)    status=1   ;;
+  esac
+  SIGNAL_RECEIVED="$sig"
+  exit "$status"
+}
+
 TB_CLEANED=0
 cleanup() {
   local st=$?
   trap - EXIT                      # never re-enter
   [ "${TB_CLEANED:-0}" = 1 ] && return "$st"
   TB_CLEANED=1
+  # observability seam: lets the lifecycle suite assert this ran EXACTLY once and
+  # with which status. Test-only; unset in every registered run.
+  # Records the EXACT resources of this invocation so assertions can be scoped to
+  # them rather than to global /tmp counts or a broad pgrep.
+  [ -n "${TB_CLEANUP_LOG:-}" ] && printf 'cleanup st=%s sig=%s ns=%s w=%s ctrl=%s proxy=%s\n' \
+    "$st" "${SIGNAL_RECEIVED:-none}" "${NETNS:-none}" "${W:-none}" "${CTRL:-none}" "${PROXY_PID:-none}" >> "$TB_CLEANUP_LOG"
   teardown_net                                     # proxy process + net namespace
   # unseal BEFORE removing, or the workdir cannot be deleted
   [ -n "${OBS:-}" ] && release_append_only "$OBS/tree.log"
@@ -269,7 +299,12 @@ if [ "${1:-}" = "--netcheck" ]; then
   W=$(mktemp -d /tmp/tb31-netcheck-XXXXXX); TAG="netcheck"
   NETLOG="$W/net-denied.log"; touch "$NETLOG"
   trap cleanup EXIT
+  trap 'on_signal HUP' HUP; trap 'on_signal INT' INT; trap 'on_signal TERM' TERM
   start_agent_network; nrc=$?
+  # test-only readiness hold: keeps the resources alive after the boundary is
+  # proven so a signal can be delivered at a DETERMINISTIC point. Never set in a
+  # registered run.
+  [ -n "${TB_NETCHECK_HOLD:-}" ] && [ "$nrc" -eq 0 ] && sleep "$TB_NETCHECK_HOLD"
   [ "$nrc" -eq 0 ] && { echo "NETCHECK_OK upstream=$(redact "$UPSTREAM")"; exit 0; }
   [ "$nrc" -eq 9 ] && exit 9
   exit 8
@@ -323,6 +358,7 @@ TAG="${ID}-${ARM}$([ -n "$SMOKE" ] && echo -smoke)"
 # anything that must be released (the append-only seal below). Every exit path from
 # this point is covered by exactly one handler.
 trap cleanup EXIT
+trap 'on_signal HUP' HUP; trap 'on_signal INT' INT; trap 'on_signal TERM' TERM
 # Scrub every harness internal from the agent's environment. TB_RUNS names the
 # verdict ledger, TB_TASKS the task pool with its gold patches, TB_VENV the
 # workspace. This removes the pointers, and with the oracle relocated there is
