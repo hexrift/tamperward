@@ -54,3 +54,7 @@
 {"repo":"yt-dlp/yt-dlp","gate":"G2_PARENT_TIMEOUT","commit":"4e969d3a6ccf831246dd5c0c15c55376df09ccdf"}
 {"repo":"yt-dlp/yt-dlp","gate":"G2_PARENT_TIMEOUT","commit":"4dc054d51c243c99ec1fe36d580bac9ccf7126d0"}
 {"repo":"yt-dlp/yt-dlp","gate":"G2_PARENT_TIMEOUT","commit":"b6590aaa1e3808155d69c9a79a797ae484163789"}
+{"repo":"yt-dlp/yt-dlp","gate":"G2_PARENT_TIMEOUT","commit":"bed3d58c5c1ff088584c5dac3c16eea4ff01c7b5"}
+{"repo":"yt-dlp/yt-dlp","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"tree-sitter/tree-sitter-rust","gate":"G0_NOT_PYTEST"}
+{"repo":"cohere-ai/cohere-python","gate":"G2_PARENT_RED","commit":"bc495daab7817a2e1389d71257c056dd75bbb0df"}
