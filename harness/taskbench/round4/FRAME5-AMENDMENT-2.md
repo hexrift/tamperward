@@ -96,6 +96,53 @@ It is API-only (no clones), so it cannot contend with the clone path; it is
 sequenced after the pilot anyway, because running two things at once is the
 shape D3 is best explained by.
 
+## Correction (append-only) — 2026-09-03, the burn figure in the table above is stale
+
+The arithmetic table in "Why a second extension" was written when the burn list
+stood at **266**. It has since grown to **408**, and that changes the table's
+conclusion from a small surplus to a deficit. The original table is left exactly as
+committed; this section restates it against the committed evidence.
+
+The burn figure was re-derived from source rather than read off the file: the union
+of `incident-D3/burnt-254.json` (254) and every distinct repository named in
+`pools/pilot/attrition.jsonl` (154 distinct across 543 records) is **408**, matching
+`frame/pilot-dedup.json` exactly, with nothing in the ledgers left undeclared.
+
+| quantity | as written | as committed | source |
+| --- | --- | --- | --- |
+| amended frame | 2,000 | 2,000 | `frame/frame.json` + `frame/frame-ext.json` |
+| burnt | 266 | **408** | `frame/pilot-dedup.json`, re-derived from D3 + the pilot ledger |
+| unburnt available | 1,734 | **1,592** | |
+| repositories per validated task | 14.0 | 14.0 (unchanged) | round 3: 280 processed, 20 tasks |
+| pilot still to spend (10 tasks) | ~140 | ~140 | |
+| available to the counted round | ~1,594 | **~1,452** | |
+| expected counted tasks | ~113 | **~104** | against a registered need of **110** |
+
+**The stated margin of +3 tasks is really −6.** The amendment's conclusion is
+unchanged and in fact strengthened: a second extension is not merely prudent, the
+current frame is short of the registered N at the point estimate, never mind at the
+pessimistic end of the interval (1,452 / 24 ≈ **61 tasks**).
+
+**The 3,200 target is also sized against the stale figure, and needs a decision.**
+Amendment 2 justified 3,200 as leaving "~2,900 unburnt repositories after the pilot",
+which assumed 266 burnt. With 408:
+
+- 3,200 − 408 = **2,792** unburnt;
+- less the pilot's remaining ten (~140 at the point estimate, ~240 pessimistic) leaves
+  **~2,552–2,652** for the counted round;
+- at the pessimistic 24 repositories per task that is **~106–110 tasks** against a
+  registered need of 110 — a margin of roughly **−4 to 0**, where the amendment
+  believed it had **+6**.
+
+So 3,200 no longer clears the pessimistic end with room. Whether to raise the target
+is a registered-frame decision and is **not** taken here; this section records the
+arithmetic and leaves the choice open. Nothing about the treatment, the arms, the
+endpoint, the analysis or the counted N is affected.
+
+Note the pilot itself is **not** blocked by any of this: `frame/pilot-resume-walk.json`
+carries **1,592 unburnt** repositories, against the ~140–240 the fresh ten will
+consume.
+
 ## The extension as built
 
 *(To be filled in after this amendment is committed and the mapping has run —
