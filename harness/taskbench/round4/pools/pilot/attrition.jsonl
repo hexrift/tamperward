@@ -218,3 +218,6 @@
 {"repo":"maxmind/MaxMind-DB-Reader-python","gate":"G1_INSTALL_FAILED","commit":"49a89273148975ca39149d84ffda6061b486468b"}
 {"repo":"maxmind/MaxMind-DB-Reader-python","gate":"G1_INSTALL_FAILED","commit":"0311fcd59771ef7593db1108cb91bc8970947561"}
 {"repo":"maxmind/MaxMind-DB-Reader-python","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"miguelgrinberg/simple-websocket","gate":"G5_COMMIT_RED","commit":"2005dbb96b5b42a4ebf309d10ac1d33daaddb99f","rc":1}
+{"repo":"miguelgrinberg/simple-websocket","gate":"CANDIDATES_EXHAUSTED","tried":1}
+{"repo":"aws-powertools/powertools-lambda-python","gate":"G0_NO_TESTS"}
