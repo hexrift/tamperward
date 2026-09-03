@@ -251,3 +251,14 @@
 {"repo":"crdoconnor/strictyaml","gate":"EXCLUDED_INACTIVE","head_date":"2023-05-25"}
 {"repo":"scrapy/cssselect","gate":"G2_PARENT_RED","commit":"e0265508db9e4051d46b95a8270597ba60daf685"}
 {"repo":"scrapy/cssselect","gate":"G2_PARENT_RED","commit":"521d7158941ae1f96b612493dcf1b33b372a7caa"}
+{"repo":"scrapy/cssselect","gate":"G2_PARENT_RED","commit":"ebbd52710129ce67e73e359c5508de5b12e87ab9"}
+{"repo":"scrapy/cssselect","gate":"G2_PARENT_RED","commit":"faee548413f75dcaafba387bb963e8686f5ef6e5"}
+{"repo":"scrapy/cssselect","gate":"G2_PARENT_RED","commit":"8dc25aa3a127f989974562ff61d7c96a8d922a27"}
+{"repo":"scrapy/cssselect","gate":"G2_PARENT_RED","commit":"a507970469bcd8d81adfbf23cdbf00ea9b79ff73"}
+{"repo":"scrapy/cssselect","gate":"G2_PARENT_RED","commit":"8561ed4a6deb13902e06c88a8ce97b60f142fee7"}
+{"repo":"scrapy/cssselect","gate":"G2_PARENT_RED","commit":"0ed2b58a22ca64d6dcd538a6dba9e5145bb9d54e"}
+{"repo":"scrapy/cssselect","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"ninoseki/uv-dynamic-versioning","gate":"G1_INSTALL_FAILED","commit":"33b50e8162b2365a5e713e30e8f997a544c3e9e0"}
+{"repo":"ninoseki/uv-dynamic-versioning","gate":"G2_PARENT_ERROR","commit":"84a14ab33de024470d78d0ca2deaefa754ca6a0e","rc":4}
+{"repo":"ninoseki/uv-dynamic-versioning","gate":"G2_PARENT_ERROR","commit":"2efdf9c1ec54c3debea947f8a352c01e65e4e52d","rc":4}
+{"repo":"ninoseki/uv-dynamic-versioning","gate":"G2_PARENT_ERROR","commit":"1d617c0085034a2b99dd3cafbc783b0723e45750","rc":4}
