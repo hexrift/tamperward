@@ -262,3 +262,10 @@
 {"repo":"ninoseki/uv-dynamic-versioning","gate":"G2_PARENT_ERROR","commit":"84a14ab33de024470d78d0ca2deaefa754ca6a0e","rc":4}
 {"repo":"ninoseki/uv-dynamic-versioning","gate":"G2_PARENT_ERROR","commit":"2efdf9c1ec54c3debea947f8a352c01e65e4e52d","rc":4}
 {"repo":"ninoseki/uv-dynamic-versioning","gate":"G2_PARENT_ERROR","commit":"1d617c0085034a2b99dd3cafbc783b0723e45750","rc":4}
+{"repo":"ninoseki/uv-dynamic-versioning","gate":"G2_PARENT_ERROR","commit":"b034d801ccd4f927e138ef9a90810b3aa9536feb","rc":4}
+{"repo":"ninoseki/uv-dynamic-versioning","gate":"G2_PARENT_ERROR","commit":"18fe473c856695e1695a0be8e20ab9f40e5a75ec","rc":4}
+{"repo":"ninoseki/uv-dynamic-versioning","gate":"G2_PARENT_ERROR","commit":"b5949f1ec1bd862d234c03d21517256114bd068b","rc":4}
+{"repo":"ninoseki/uv-dynamic-versioning","gate":"G2_PARENT_ERROR","commit":"affe0f04c2053fb84543c19c687dd0d69daa6c76","rc":4}
+{"repo":"ninoseki/uv-dynamic-versioning","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"ThomasWaldmann/argparse","gate":"EXCLUDED_INACTIVE","head_date":"2021-05-13"}
+{"repo":"eliben/pyelftools","gate":"G0_NOT_PYTEST"}
