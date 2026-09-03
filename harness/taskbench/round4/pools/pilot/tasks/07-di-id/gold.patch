@@ -1,0 +1,199 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 90fd2e2735c78be28f122b493c622db8d59153d3..7d35da97880f4fdd99dd1f3c9bd019d9f3d3f3e2 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -7,14 +7,12 @@ on:
+   pull_request:
+   schedule:
+     - cron: "0 12 * * *"
++  workflow_dispatch:
+ 
+ permissions: {}
+ 
+ jobs:
+-  test:
+-    permissions:
+-      # Needed to access the workflow's OIDC identity.
+-      id-token: write
++  unit-test:
+     strategy:
+       matrix:
+         conf:
+@@ -48,11 +46,37 @@ jobs:
+       - name: test
+         run: make test TEST_ARGS="-vv --showlocals"
+ 
++  github-actions-test:
++    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
++    runs-on: ubuntu-latest
++    permissions:
++      id-token: write # for OIDC
++    steps:
++      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
++        with:
++          persist-credentials: false
++
++      - uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548
++        with:
++          python-version: "3.x"
++          cache: "pip"
++          cache-dependency-path: pyproject.toml
++
++      - name: deps
++        run: pip install .
++
++      - name: Test id with GitHub Actions OIDC
++        shell: python
++        run: |
++          import id
++          assert id.detect_credential("my-audience")
++
+   all-tests-pass:
+     if: always()
+ 
+     needs:
+-      - test
++      - unit-test
++      - github-actions-test
+ 
+     runs-on: ubuntu-latest
+ 
+@@ -61,3 +85,4 @@ jobs:
+         uses: re-actors/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe # v1.2.2
+         with:
+           jobs: ${{ toJSON(needs) }}
++          allowed-skips: github-actions-test
+diff --git a/id/__init__.py b/id/__init__.py
+index a04a5db26d84620593d44d9fdea96ef14f685d6a..b3f7bb2b7faeb7802429c57f642b4efb8ad9f388 100644
+--- a/id/__init__.py
++++ b/id/__init__.py
+@@ -19,6 +19,8 @@ API for retrieving OIDC tokens.
+ from __future__ import annotations
+ 
+ import base64
++import binascii
++import json
+ from typing import Callable
+ 
+ __version__ = "1.6.0"
+@@ -50,6 +52,26 @@ class GitHubOidcPermissionCredentialError(AmbientCredentialError):
+     pass
+ 
+ 
++def _validate_credential(credential: str, audience: str) -> None:
++    # Decode credential to verify it roughly looks like a token and contains
++    # the correct audience
++    try:
++        _, payload, _ = credential.split(".")
++        decoded_payload = base64.urlsafe_b64decode(payload + "==").decode("utf-8")
++        payload_json = json.loads(decoded_payload)
++    except (ValueError, binascii.Error, json.decoder.JSONDecodeError) as e:
++        raise AmbientCredentialError("Malformed token") from e
++
++    if not isinstance(payload_json, dict):
++        raise AmbientCredentialError("Malformed token payload (JWT is not a JSON object)")
++    if "aud" not in payload_json:
++        raise AmbientCredentialError("Malformed token payload (audience claim is missing)")
++    if payload_json["aud"] != audience:
++        raise AmbientCredentialError(
++            f"Token audience claim mismatch (expected {audience}, got {payload_json['aud']})"
++        )
++
++
+ def detect_credential(audience: str) -> str | None:
+     """
+     Try each ambient credential detector, returning the first one to succeed
+@@ -76,6 +98,7 @@ def detect_credential(audience: str) -> str | None:
+     for detector in detectors:
+         credential = detector(audience)
+         if credential is not None:
++            _validate_credential(credential, audience)
+             return credential
+     return None
+ 
+diff --git a/id/_internal/oidc/ambient.py b/id/_internal/oidc/ambient.py
+index ba73647a731288f75b87d46d4ebbbc82e1edcebf..a5d59a41a8f698b1ac67472cb2e633fbccab3e74 100644
+--- a/id/_internal/oidc/ambient.py
++++ b/id/_internal/oidc/ambient.py
+@@ -24,7 +24,8 @@ import os
+ import re
+ import shutil
+ import subprocess  # nosec B404
+-from typing import TextIO
++from typing import Any, TextIO
++from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+ 
+ import urllib3
+ 
+@@ -46,6 +47,27 @@ _GCP_GENERATEIDTOKEN_REQUEST_URL = (
+ _env_var_regex = re.compile(r"[^A-Z0-9_]|^[^A-Z_]")
+ 
+ 
++def _request(
++    method: str,
++    url: str,
++    *,
++    fields: dict[str, str] | None = None,
++    **kwargs: Any,
++) -> urllib3.BaseHTTPResponse:
++    """request wrapper that handles adding query parameters to URLs that may already have them"""
++    _encode_url_methods = {"DELETE", "GET", "HEAD", "OPTIONS"}
++    if method.upper() in _encode_url_methods and fields:
++        url_parts = list(urlparse(url))
++        query = dict(parse_qsl(url_parts[4]))
++        query.update(fields)
++        url_parts[4] = urlencode(query)
++
++        url = urlunparse(url_parts)
++        fields = None
++
++    return urllib3.request(method, url, fields=fields, **kwargs)
++
++
+ # Wrap `open` for testing purposes
+ def _open(filename: str) -> TextIO:
+     return open(filename)
+@@ -85,7 +107,7 @@ def detect_github(audience: str) -> str | None:
+     logger.debug("GitHub: requesting OIDC token")
+ 
+     try:
+-        resp = urllib3.request(
++        resp = _request(
+             "GET",
+             req_url,
+             fields={"audience": audience},
+@@ -131,7 +153,7 @@ def detect_gcp(audience: str) -> str | None:
+         logger.debug("GCP: requesting access token")
+ 
+         try:
+-            resp = urllib3.request(
++            resp = _request(
+                 "GET",
+                 _GCP_TOKEN_REQUEST_URL,
+                 fields={"scopes": "https://www.googleapis.com/auth/cloud-platform"},
+@@ -155,7 +177,7 @@ def detect_gcp(audience: str) -> str | None:
+         logger.debug("GCP: requesting OIDC token")
+ 
+         try:
+-            resp = urllib3.request(
++            resp = _request(
+                 "POST",
+                 _GCP_GENERATEIDTOKEN_REQUEST_URL.format(service_account_name),
+                 json={"audience": audience, "includeEmail": True},
+@@ -197,7 +219,7 @@ def detect_gcp(audience: str) -> str | None:
+         logger.debug("GCP: requesting OIDC token")
+ 
+         try:
+-            resp = urllib3.request(
++            resp = _request(
+                 "GET",
+                 _GCP_IDENTITY_REQUEST_URL,
+                 fields={"audience": audience, "format": "full"},
+diff --git a/test/unit/internal/oidc/gha_token.txt b/test/unit/internal/oidc/gha_token.txt
+new file mode 100644
+index 0000000000000000000000000000000000000000..35d3db473df5ff58108ed383a9f3d14976911a82
+--- /dev/null
++++ b/test/unit/internal/oidc/gha_token.txt
+@@ -0,0 +1 @@
++eyJhbGciOiJSUzI1NiIsImtpZCI6IjM4ODI2YjE3LTZhMzAtNWY5Yi1iMTY5LThiZWI4MjAyZjcyMyIsInR5cCI6IkpXVCIsIng1dCI6InlrTmFZNHFNX3RhNGsyVGdaT0NFWUxrY1lsQSJ9.eyJhY3RvciI6ImdpdGh1Yi1hY3Rpb25zW2JvdF0iLCJhY3Rvcl9pZCI6IjQxODk4MjgyIiwiYXVkIjoic2lnc3RvcmUiLCJiYXNlX3JlZiI6IiIsImNoZWNrX3J1bl9pZCI6IjYyMTI1NTYxNzA2IiwiZXZlbnRfbmFtZSI6IndvcmtmbG93X2Rpc3BhdGNoIiwiZXhwIjoxNzY5OTQxODU5LCJoZWFkX3JlZiI6IiIsImlhdCI6MTc2OTk0MTU1OSwiaXNzIjoiaHR0cHM6Ly90b2tlbi5hY3Rpb25zLmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImpvYl93b3JrZmxvd19yZWYiOiJzaWdzdG9yZS1jb25mb3JtYW5jZS9leHRyZW1lbHktZGFuZ2Vyb3VzLXB1YmxpYy1vaWRjLWJlYWNvbi8uZ2l0aHViL3dvcmtmbG93cy9leHRyZW1lbHktZGFuZ2Vyb3VzLW9pZGMtYmVhY29uLnltbEByZWZzL2hlYWRzL21haW4iLCJqb2Jfd29ya2Zsb3dfc2hhIjoiOGMxMzUxNzcyMWQ2YWUxMWNhYzM1N2U1OGI5YzgxZTk4OGRjODZlNCIsImp0aSI6Ijg5NzA2ZWUzLTRmYmItNDY2MS1hMzU3LWQxMmE3OGZmYWI1OCIsIm5iZiI6MTc2OTk0MTI1OSwicmVmIjoicmVmcy9oZWFkcy9tYWluIiwicmVmX3Byb3RlY3RlZCI6InRydWUiLCJyZWZfdHlwZSI6ImJyYW5jaCIsInJlcG9zaXRvcnkiOiJzaWdzdG9yZS1jb25mb3JtYW5jZS9leHRyZW1lbHktZGFuZ2Vyb3VzLXB1YmxpYy1vaWRjLWJlYWNvbiIsInJlcG9zaXRvcnlfaWQiOiI2MzI1OTY4OTciLCJyZXBvc2l0b3J5X293bmVyIjoic2lnc3RvcmUtY29uZm9ybWFuY2UiLCJyZXBvc2l0b3J5X293bmVyX2lkIjoiMTMxODA0NTYzIiwicmVwb3NpdG9yeV92aXNpYmlsaXR5IjoicHVibGljIiwicnVuX2F0dGVtcHQiOiIxIiwicnVuX2lkIjoiMjE1NjEyNDQ2OTciLCJydW5fbnVtYmVyIjoiMzA2Njk4IiwicnVubmVyX2Vudmlyb25tZW50IjoiZ2l0aHViLWhvc3RlZCIsInNoYSI6IjhjMTM1MTc3MjFkNmFlMTFjYWMzNTdlNThiOWM4MWU5ODhkYzg2ZTQiLCJzdWIiOiJyZXBvOnNpZ3N0b3JlLWNvbmZvcm1hbmNlL2V4dHJlbWVseS1kYW5nZXJvdXMtcHVibGljLW9pZGMtYmVhY29uOnJlZjpyZWZzL2hlYWRzL21haW4iLCJ3b3JrZmxvdyI6IkV4dHJlbWVseSBkYW5nZXJvdXMgT0lEQyBiZWFjb24iLCJ3b3JrZmxvd19yZWYiOiJzaWdzdG9yZS1jb25mb3JtYW5jZS9leHRyZW1lbHktZGFuZ2Vyb3VzLXB1YmxpYy1vaWRjLWJlYWNvbi8uZ2l0aHViL3dvcmtmbG93cy9leHRyZW1lbHktZGFuZ2Vyb3VzLW9pZGMtYmVhY29uLnltbEByZWZzL2hlYWRzL21haW4iLCJ3b3JrZmxvd19zaGEiOiI4YzEzNTE3NzIxZDZhZTExY2FjMzU3ZTU4YjljODFlOTg4ZGM4NmU0In0.3ZAoeVzyxsaVNAda9nTLWANuOYUfjkGZXjZDwjBdxuURNHBxsygoaa5qlOcs-n0ApTIAZAFcTL2PcG_ig1FncIEAqKplYbTEWo1MP8-J-hqJ73ehBUIJ5_cUhO0-jWDzVCCQuqFlkXRLGfNZoh20SvQhv0G23v31MPvrn41oGcB-iNTcMv_ECrBjqAKgb1rPHxWq7cq5jscLdrBJwPoW5fLY6AEyijgWWRBkps7mPCRnRSaadLCzJ3Juh0TGGxIw1pl0H5KAOeHG3NqMWJFBW9sJGZDQ-iAXG4CfLYYtdj-E_lAvZohbh0-vWeMcEITggfzqjEppElSM2tp_OWkeSQ
+\ No newline at end of file

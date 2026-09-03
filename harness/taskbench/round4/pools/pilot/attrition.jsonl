@@ -172,3 +172,6 @@
 {"repo":"python-openapi/openapi-schema-validator","gate":"G2_PARENT_ERROR","commit":"6a25ae336d5bca775c0c25114649041980ef880a","rc":4}
 {"repo":"python-openapi/openapi-schema-validator","gate":"G2_PARENT_ERROR","commit":"9761ca4ee0ddabe9c8b9642b1e09ffcd5388e69e","rc":4}
 {"repo":"python-openapi/openapi-schema-validator","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"di/id","gate":"TASK_VALIDATED","commit":"90fa38672bba56beb6b0d03f7f83f452c21dba55","candidate":1}
+{"repo":"r1chardj0n3s/parse","gate":"G2_PARENT_ERROR","commit":"ffad578b1129bfe2a572a3eb35329fc37bfcd22b","rc":4}
+{"repo":"r1chardj0n3s/parse","gate":"G2_PARENT_ERROR","commit":"b0c9f0e2f588ae2b3ce2e8b8fecc016187f045cf","rc":4}
