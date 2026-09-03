@@ -294,3 +294,4 @@
 {"repo":"rr-/screeninfo","gate":"EXCLUDED_INACTIVE","head_date":"2025-08-22"}
 {"repo":"nephila/giturlparse","gate":"G0_NOT_PYTEST"}
 {"repo":"glyph/automat","gate":"G0_NOT_PYTEST"}
+{"repo":"RDFLib/rdflib","gate":"G0_NO_TESTS"}
