@@ -295,3 +295,7 @@
 {"repo":"nephila/giturlparse","gate":"G0_NOT_PYTEST"}
 {"repo":"glyph/automat","gate":"G0_NOT_PYTEST"}
 {"repo":"RDFLib/rdflib","gate":"G0_NO_TESTS"}
+{"repo":"miketheman/pytest-socket","gate":"G2_PARENT_RED","commit":"2bf8608adfc79f0e4ba1e44b42164cd658aa877a"}
+{"repo":"miketheman/pytest-socket","gate":"G2_PARENT_RED","commit":"4fa5b7c7e76ad6ee6fee31bcc10df8628198031e"}
+{"repo":"miketheman/pytest-socket","gate":"G2_PARENT_RED","commit":"ef6be1881952770e2ad6cf2dda7189f19028a7cc"}
+{"repo":"miketheman/pytest-socket","gate":"G2_PARENT_RED","commit":"aae7f44b24475f2fbdc49fac8f2fa6d63b67f48b"}
