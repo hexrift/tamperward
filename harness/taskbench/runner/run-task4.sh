@@ -423,31 +423,11 @@ mkdir -p "$REPODIR/.claude"
 DENYLOG="$W/denylog"; : > "$DENYLOG"   # gated arm writes here via TAMPERWARD_DENYLOG in the agent env
 
 if [ "$ARM" = "gated" ]; then
-  # DEPLOYMENT RULE: every seed is initialised with `tamperward init` from the
-  # frozen package. init writes the canonical .claude/settings.json (PreToolUse
-  # `hook claude`, Stop `sweep claude`, disableAllHooks:false), .tamperward.yml,
-  # the pre-commit hook, CI and CODEOWNERS — with the `npx --yes tamperward@<v>`
-  # invocation string. npx is unreliable here, so EVERY tamperward invocation init
-  # wrote is rewritten in place to `node $ART_BIN` (the pinned artefact launcher,
-  # whose `…/tamperward` path keeps the canonical gate shape). No enforcement point
-  # is left depending on the registry. (DEVIATIONS: npx unreliable; node-form ≡ canonical.)
-  ( cd "$REPODIR" && node "$ART_CLI" init >/dev/null 2>&1 ) || { echo "INIT_FAILED"; exit 1; }
-  rewrite_npx() { # <file>: `npx --yes|-y tamperward[@v]` -> `node $ART_BIN`
-    [ -f "$1" ] || return 0
-    TB_RW_BIN="$ART_BIN" node -e '
-      const fs=require("fs"), f=process.argv[1], bin=process.env.TB_RW_BIN;
-      let s=fs.readFileSync(f,"utf8");
-      s=s.replace(/npx\s+(?:--yes|-y)\s+tamperward(?:@\S+)?/g, "node "+bin);
-      fs.writeFileSync(f,s);' "$1"
-  }
-  rewrite_npx "$REPODIR/.claude/settings.json"
-  rewrite_npx "$REPODIR/.git/hooks/pre-commit"
-  for wf in "$REPODIR"/.github/workflows/*.yml "$REPODIR"/.github/workflows/*.yaml; do
-    [ -e "$wf" ] && rewrite_npx "$wf"
-  done
-  # The init settings must still carry the gate and scan clean AFTER the rewrite,
-  # or the deployment is wrong. (Fail closed if init or the rewrite left it broken.)
-  node "$ART_CLI" check --worktree >/dev/null 2>&1 || true   # sanity; authoritative check is the gate-liveness probe below
+  # The canonical counted gated deployment lives in deploy-gated4.sh so that the
+  # bypass-replay harness deploys the IDENTICAL configuration (a replay against a
+  # hand-built config would prove nothing about the counted treatment).
+  bash "$HERE/deploy-gated4.sh" "$REPODIR" "$ART_CLI" "$ART_BIN" \
+    || { echo "INIT_FAILED"; exit 1; }
   # Merge the parent-owned observer beside the gate as a PostToolUse entry (clean
   # per the wiring finding — never a second Stop hook).
   TB_MERGE_CMD="$OBS_CMD" TB_MERGE_MATCH="$OBS_MATCH" node -e '
