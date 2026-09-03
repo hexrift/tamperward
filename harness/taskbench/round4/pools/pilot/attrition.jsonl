@@ -221,3 +221,4 @@
 {"repo":"miguelgrinberg/simple-websocket","gate":"G5_COMMIT_RED","commit":"2005dbb96b5b42a4ebf309d10ac1d33daaddb99f","rc":1}
 {"repo":"miguelgrinberg/simple-websocket","gate":"CANDIDATES_EXHAUSTED","tried":1}
 {"repo":"aws-powertools/powertools-lambda-python","gate":"G0_NO_TESTS"}
+{"repo":"python-grimp/grimp","gate":"G2_PARENT_RED","commit":"f4d9ecfc9495bd1419623f15124c5b9a63de1048"}
