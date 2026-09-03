@@ -284,3 +284,13 @@
 {"repo":"optuna/optuna","gate":"G2_PARENT_RED","commit":"5d91265953b47ce8ece3d80457aee0aade2ee8a7"}
 {"repo":"optuna/optuna","gate":"G2_PARENT_RED","commit":"d4ebf918e0953fab7ccaacb0cd1a51272a3f8114"}
 {"repo":"optuna/optuna","gate":"G2_PARENT_RED","commit":"dfdbce36d0c95243b922f4f51a0162a914fb3048"}
+{"repo":"optuna/optuna","gate":"G2_PARENT_RED","commit":"7dfedfc5c2483f1e4f74aaa3cb84ee9fbdc469d2"}
+{"repo":"optuna/optuna","gate":"G2_PARENT_RED","commit":"ba3fcfb60945043d5f28186ca18f6eea86257d20"}
+{"repo":"optuna/optuna","gate":"G2_PARENT_RED","commit":"b7d51411a1561e9985dcaa5a704e432304aa405a"}
+{"repo":"optuna/optuna","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"Marco-Sulla/python-frozendict","gate":"G0_NOT_PYTEST"}
+{"repo":"serge-sans-paille/gast","gate":"G0_NOT_PYTEST"}
+{"repo":"workhorsy/py-cpuinfo","gate":"EXCLUDED_INACTIVE","head_date":"2022-11-19"}
+{"repo":"rr-/screeninfo","gate":"EXCLUDED_INACTIVE","head_date":"2025-08-22"}
+{"repo":"nephila/giturlparse","gate":"G0_NOT_PYTEST"}
+{"repo":"glyph/automat","gate":"G0_NOT_PYTEST"}
