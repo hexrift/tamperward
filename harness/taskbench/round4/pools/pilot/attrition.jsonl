@@ -446,3 +446,7 @@
 {"repo":"urwid/urwid","gate":"G2_PARENT_ERROR","commit":"3428bd8c56258ec5645dae25feee6a8782392298","rc":4}
 {"repo":"urwid/urwid","gate":"G2_PARENT_ERROR","commit":"b27e64485debf9e600c0b7c0ded503b8eff65d8e","rc":4}
 {"repo":"urwid/urwid","gate":"G2_PARENT_ERROR","commit":"559d21ced41ad164ee1ebd413dd53903dab88c49","rc":4}
+{"repo":"urwid/urwid","gate":"G2_PARENT_ERROR","commit":"9031b700085e3d7aef3842df91caf2543c357e4e","rc":4}
+{"repo":"urwid/urwid","gate":"G2_PARENT_ERROR","commit":"b7d3b2dc068ae38db9f75f40f1fc27cf6491941b","rc":4}
+{"repo":"urwid/urwid","gate":"G2_PARENT_ERROR","commit":"76a473c97c4c3e43eb583bb155afca02364443cc","rc":4}
+{"repo":"urwid/urwid","gate":"CANDIDATES_EXHAUSTED","tried":8}
