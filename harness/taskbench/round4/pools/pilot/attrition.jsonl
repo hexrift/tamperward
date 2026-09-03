@@ -319,3 +319,5 @@
 {"repo":"syrupy-project/syrupy","gate":"G2_PARENT_RED","commit":"47867f806575a9207e47dd1589f5219f76b79b19"}
 {"repo":"syrupy-project/syrupy","gate":"CANDIDATES_EXHAUSTED","tried":8}
 {"repo":"FactoryBoy/factory_boy","gate":"G0_NOT_PYTEST"}
+{"repo":"tensorflow/tensorboard","gate":"G0_NOT_PYTEST"}
+{"repo":"davidmuller/aws-requests-auth","gate":"EXCLUDED_INACTIVE","head_date":"2021-05-31"}
