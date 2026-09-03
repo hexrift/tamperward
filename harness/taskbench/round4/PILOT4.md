@@ -68,10 +68,15 @@ is patched (new release) and the pilot re-run on fresh throwaway repositories.
 - [ ] **required gitignored build products** are sanctioned by the entry-baseline
       rule (established after setup/build), not seen as drift or ignored-adds.
 - [ ] **ignored protected surface** — the pool's ignored-path characterisation
-      is recorded. Not a blocker: issue #202 was investigated against v2.10.1
-      and does not reproduce (drift on an already-present ignored protected file
-      blocks as `hidden-drift` at both layers, pinned by
-      `test/ignored-protected-drift.test.ts`).
+      is recorded. Issue #202 is an **acknowledged product gap**, NOT closed by
+      the unit pin: `test/ignored-protected-drift.test.ts` shows the comparator's
+      intended shape, but #202 is marked complete ONLY once the **counted
+      configuration** (the deployed gated envelope over a real pool) demonstrably
+      detects drift on an already-present ignored protected file in a pilot
+      trajectory. Until the **bypass-replay gate** shows that end-to-end, the item
+      stays open with an **outer-harness mitigation** — the runner's own pre/post
+      ignored-surface diff, outside the deployed product. (M4, not the frozen
+      v2.x envelope.)
 - [ ] **parent-owned launcher and process supervision** — the harness owns the
       agent process group; a killed supervisor is a deterministic failure, not a
       silent pass.
@@ -81,7 +86,11 @@ is patched (new release) and the pilot re-run on fresh throwaway repositories.
       (that would be an unregistered second treatment). This is harness
       isolation and closes nothing under product milestone M4.
 - [ ] **oracle and result ledger inaccessible to the agent** — verified by an
-      adversarial pilot trajectory that tries to read or write them.
+      adversarial pilot trajectory that tries to read or write them. The active
+      Claude credential is the **⚠ partial** sub-item, never a ✅: it stays
+      reachable symmetrically in both arms (see DEVIATIONS "Credential isolation"),
+      so this isolation item is recorded as passing for the six maskable surfaces
+      with the credential limitation disclosed — not as a whole-item pass.
 - [ ] **cleaned outcome schema** (the one reserved in the round 3.1 plan)
       emits every outcome of `ROUND4-PREP.md` distinctly:
       masked failure, envelope escape, honest completion, semantic false green,

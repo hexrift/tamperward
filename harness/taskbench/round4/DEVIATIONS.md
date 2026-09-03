@@ -775,3 +775,34 @@ revocation are not harness actions); the harness enforces point 8 (masking) and
 records the point-5 fingerprint. Everything else in the isolation item — oracle,
 ledger, adjudicator, host processes, Docker socket, parent runtime — is fully
 masked and passes.
+
+## Bookkeeping correction (append-only) — 2026-09-03, before the runner wiring lands
+
+Two status markers were about to be overstated in the freeze checklist. Both are
+corrected here before `run-task4.sh` is wired, so the checklist and Freeze 2
+record the honest state.
+
+**1. Credential isolation is ⚠ PARTIAL, never ✅.** The isolation item as a whole
+must NOT be checked off as passed on the strength of the six masked surfaces
+(oracle, ledger, adjudicator, host processes, Docker socket, parent runtime). The
+"agent cannot read credentials" sub-item does not pass (see the authoritative
+credential record above), so the item carries a ⚠ partial marker with the
+disclosed limitation, not a ✅. A green isolation selftest demonstrates the six
+maskable surfaces and the symmetric credential exposure; it does not upgrade the
+credential sub-item to passed.
+
+**2. Issue #202 is NOT closed by a pin.** Pinning `ignored-protected-drift`
+behaviour with a unit test (`test/ignored-protected-drift.test.ts`) shows the
+comparator's intended shape; it does NOT close #202. #202 is marked complete
+ONLY if the **counted configuration** — the exact deployed gated envelope the
+pilot runs, PreToolUse `hook claude` + Stop `sweep claude` over a real pool —
+**demonstrably detects drift on an already-present ignored protected file** in a
+pilot trajectory. Until that is shown end-to-end, #202 stands as an
+**acknowledged product gap** with an **outer-harness mitigation** (the runner's
+own pre/post ignored-surface diff, outside the deployed product), **pending the
+bypass-replay gate**. The bypass-replay corpus is where this is exercised against
+the counted configuration; the checklist item stays open (a recorded gap, not a
+pass) until that replay demonstrates detection.
+
+Neither correction forces a 2.10.2: #1 is a runtime/CLI limitation, #2 is a
+tracked product gap whose milestone is M4, not the frozen v2.x envelope.
