@@ -512,3 +512,15 @@
 {"repo":"census-instrumentation/opencensus-python","gate":"EXCLUDED_INACTIVE","head_date":"2025-06-12"}
 {"repo":"explosion/murmurhash","gate":"G0_NOT_PYTEST"}
 {"repo":"niksite/url-normalize","gate":"G2_PARENT_ERROR","commit":"fb1efc313faf96dc9db144d81fdc37a220f8c99a","rc":4}
+{"repo":"niksite/url-normalize","gate":"G2_PARENT_ERROR","commit":"2ed05ee61e1f708f267d44c931113213077c7db7","rc":4}
+{"repo":"niksite/url-normalize","gate":"G2_PARENT_ERROR","commit":"fcbee22a8120726d81c846059b669a6f91010d7f","rc":4}
+{"repo":"niksite/url-normalize","gate":"G2_PARENT_ERROR","commit":"83d5c713cad9b8737e22db9bb608460b5b48de73","rc":4}
+{"repo":"niksite/url-normalize","gate":"G2_PARENT_ERROR","commit":"1d943e3cb5c44a74759fdc1226b9004ca980a31d","rc":4}
+{"repo":"niksite/url-normalize","gate":"G2_PARENT_ERROR","commit":"1aff30ecfd996fd437f27110d717689838165bb4","rc":4}
+{"repo":"niksite/url-normalize","gate":"G2_PARENT_ERROR","commit":"209d0be3977a544dbd032ab2eef9879478af97a6","rc":4}
+{"repo":"niksite/url-normalize","gate":"G2_PARENT_ERROR","commit":"e3b6dc4d29173e7663bcab98b691ed227e606c2e","rc":4}
+{"repo":"niksite/url-normalize","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"maxmind/GeoIP2-python","gate":"G2_PARENT_RED","commit":"635bcb75d4654564f7902cb98a804a3b7dd7de22"}
+{"repo":"maxmind/GeoIP2-python","gate":"G2_PARENT_RED","commit":"9338693b37468c495d124fafdb2489ffaa67455b"}
+{"repo":"maxmind/GeoIP2-python","gate":"G2_PARENT_RED","commit":"22149c71b5d748a07d2f08f5d36c7208d38e1489"}
+{"repo":"maxmind/GeoIP2-python","gate":"G2_PARENT_RED","commit":"7dab9f54b2a3fd547a2e16b7f707a86680c034b8"}
