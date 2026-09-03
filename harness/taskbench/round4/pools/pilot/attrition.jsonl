@@ -281,3 +281,5 @@
 {"repo":"zmievsa/cadwyn","gate":"CANDIDATES_EXHAUSTED","tried":8}
 {"repo":"optuna/optuna","gate":"G2_PARENT_RED","commit":"e096fe371152c3def5b9625aee1207f3756c6d38"}
 {"repo":"optuna/optuna","gate":"G2_PARENT_RED","commit":"b5cfa601cf9ff04d744b8da6bf702fbfef326a6f"}
+{"repo":"optuna/optuna","gate":"G2_PARENT_RED","commit":"5d91265953b47ce8ece3d80457aee0aade2ee8a7"}
+{"repo":"optuna/optuna","gate":"G2_PARENT_RED","commit":"d4ebf918e0953fab7ccaacb0cd1a51272a3f8114"}
