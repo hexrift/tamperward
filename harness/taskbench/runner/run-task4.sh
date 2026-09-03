@@ -78,13 +78,13 @@ fi
 # the gated envelope (`node …`), the real agent (`claude`), and the observer's
 # `node policy-globs.mjs` would all be "command not found" inside the jail.
 NODE_DIR="$(cd "$(dirname "$(command -v node)")" && pwd)"
-NPX_ART="${TB_NPX_ART:-/root/.npm/_npx/c425b281cddd3893}"
-ART_NM="$NPX_ART/node_modules"                 # RO-exposed subtree (package + deps + .bin)
+ART_DIR="${TB_ART_DIR:-/opt/tw-artefact-2.10.2}"
+ART_NM="$ART_DIR/node_modules"                 # RO-exposed subtree (package + deps + .bin)
 ART_PKG="$ART_NM/tamperward"                    # the package; its tree is the freeze identity
 ART_BINDIR="$ART_NM/.bin"                       # immutable launcher dir — LEADS the gate PATH
 ART_BIN="$ART_BINDIR/tamperward"                # launcher: bare `tamperward` resolves here
 ART_CLI="$ART_PKG/dist/cli/index.js"            # real entrypoint (parent-side use, shape-neutral)
-ART_PKG_SHA_EXPECT="${TB_ART_SHA:-d273e6344f11171efc0876b7d58729f48f2b474a7024ce8974dce11ac17a69e4}"
+ART_PKG_SHA_EXPECT="${TB_ART_SHA:-7a0e9ab52888064b69a421887f8dfb8c61bd4c6738bea8c3afea149fe85188b7}"
 # canonical package-tree hash: find -type f | sort | (sha256 each) | sha256. The
 # freeze identity (ART_PKG). art_nm_hash covers the whole deployed subtree and is
 # the before/after immutability witness (a tool must not mutate the artefact).

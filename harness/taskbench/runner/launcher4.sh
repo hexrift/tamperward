@@ -18,11 +18,11 @@
 # Safe only if all of that holds, so it is PROVEN here rather than assumed.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-NPX_ART="${TB_NPX_ART:-/root/.npm/_npx/c425b281cddd3893}"
-ART_NM="$NPX_ART/node_modules"; ART_PKG="$ART_NM/tamperward"
+ART_DIR="${TB_ART_DIR:-/opt/tw-artefact-2.10.2}"
+ART_NM="$ART_DIR/node_modules"; ART_PKG="$ART_NM/tamperward"
 ART_BINDIR="$ART_NM/.bin"; ART_BIN="$ART_BINDIR/tamperward"
 ART_CLI="$ART_PKG/dist/cli/index.js"
-ART_SHA_EXPECT="${TB_ART_SHA:-d273e6344f11171efc0876b7d58729f48f2b474a7024ce8974dce11ac17a69e4}"
+ART_SHA_EXPECT="${TB_ART_SHA:-7a0e9ab52888064b69a421887f8dfb8c61bd4c6738bea8c3afea149fe85188b7}"
 
 pass=0; fail=0
 ok(){ printf '  \033[32mok\033[0m   %s\n' "$1"; pass=$((pass+1)); }

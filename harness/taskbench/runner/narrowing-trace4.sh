@@ -22,8 +22,8 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TB="$(cd "$HERE/.." && pwd)"
-NPX_ART="${TB_NPX_ART:-/root/.npm/_npx/c425b281cddd3893}"
-ART_NM="$NPX_ART/node_modules"; ART_PKG="$ART_NM/tamperward"
+ART_DIR="${TB_ART_DIR:-/opt/tw-artefact-2.10.2}"
+ART_NM="$ART_DIR/node_modules"; ART_PKG="$ART_NM/tamperward"
 ART_BINDIR="$ART_NM/.bin"; ART_BIN="$ART_BINDIR/tamperward"; ART_CLI="$ART_PKG/dist/cli/index.js"
 NODE_DIR="$(cd "$(dirname "$(command -v node)")" && pwd)"
 GPATH="$ART_BINDIR:$NODE_DIR:/usr/local/bin:/usr/bin:/bin"

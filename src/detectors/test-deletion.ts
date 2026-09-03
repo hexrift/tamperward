@@ -15,7 +15,7 @@ import { makeFinding } from './finding';
 import { segments, tokens, unquote } from './command';
 import { Lang, isSignificantLine, langOf } from './files';
 import { containsProtected, revIsHead, trackedFiles } from './repo';
-import { CANONICAL_SAMPLES, PYTEST_CANONICAL_SAMPLES, runnerOf, suiteNarrowings } from './suite-config';
+import { CANONICAL_SAMPLES, PYTEST_CANONICAL_SAMPLES, effectivePytestConfig, runnerOf, suiteNarrowings } from './suite-config';
 import type { Runner } from './suite-config';
 import { SUITE_NARROWING_FLAGS } from './ci-tampering';
 
@@ -417,7 +417,12 @@ export const testDeletion: Detector = {
         } else if (c.op !== 'delete' && c.after != null && !isTest && isProtected(c.path, policy, 'config') && runnerOf(c.path, c.after)) {
           // The runner's selection config: a protected spec the runner opened before
           // and will not open after is out of the suite as surely as if deleted.
-          for (const n of suiteNarrowings(c.before, c.after, c.path, runnerSamples(c.path, policy, ctx, runnerOf(c.path, c.after)))) {
+          const rn = runnerOf(c.path, c.after);
+          // pytest opens ONE inifile: an inert config (nested, or shadowed by a
+          // higher-precedence root file) changes nothing, so flagging it would be a
+          // false positive in the gated arm only.
+          const readable = rn !== 'pytest' || effectivePytestConfig(c.path, ctx);
+          for (const n of readable ? suiteNarrowings(c.before, c.after, c.path, runnerSamples(c.path, policy, ctx, rn)) : []) {
             out.push(
               makeFinding(RULE, policy, {
                 file: c.path,

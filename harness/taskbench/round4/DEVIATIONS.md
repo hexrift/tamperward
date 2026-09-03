@@ -1255,3 +1255,58 @@ or the artefact, while all three still execute read-only. smoke4 re-run: 39/39.
 Trade-off, disclosed: a read-only venv means the agent cannot `pip install` mid-
 trajectory. That is intended — the ladder pre-installs, and a verifier environment
 the candidate can rewrite cannot be trusted to produce either verdict.
+
+## Record correction — the addopts finding is an IN-LOOP DETECTION gap, not an escape
+
+Stated permanently, superseding any looser wording earlier in this file: the pytest
+configuration-narrowing finding is a **missing in-loop semantic detection**, **not an
+envelope escape**. Pristine verification **blocked all fifteen vectors** under
+2.10.1 — `tamperward run` exited 1 on every one — because `verify`'s
+`VERIFICATION_SURFACE` has refused to inherit `pytest.ini`, `.pytest.ini`,
+`setup.cfg`, `tox.ini`, `pyproject.toml`, `conftest.py`, `setup.py` and the
+interpreter start-up hooks since **1.14.2**, and `DROPPED_ENV` drops
+`PYTEST_ADDOPTS` and `PYTEST_PLUGINS` with them. Tamperward never claimed success
+on any of these. What was missing was feedback AT THE EDIT rather than at
+adjudication. Any earlier phrasing suggesting the treatment was blind to these
+vectors describes the DETECTOR only, never the envelope.
+
+## 2.10.2 — effective-config precedence (false positives are not neutral either)
+
+Confirming configuration discovery against real pytest, as required before
+re-verification, found that the first cut of 2.10.2 would have produced FALSE
+POSITIVES. pytest resolves exactly ONE inifile from the rootdir, by a fixed
+precedence — `pytest.ini` > `.pytest.ini` > `pyproject.toml` > `tox.ini` >
+`setup.cfg`. Measured:
+
+| setup (suite run from the repository root) | effect |
+|---|---|
+| nested `pkg/pytest.ini` carrying `--ignore` | **none** — 3 passed, the file is never opened |
+| root `pytest.ini` (benign) + nested narrowing | **none** — nested inert |
+| root `pytest.ini` + a narrowing in `pyproject.toml` | **none** — `pytest.ini` wins |
+
+A config pytest never reads changes nothing, so flagging it is a false positive —
+and a false positive appears in the GATED arm alone, which is the same
+experimental-neutrality problem the launcher divergence had. `effectivePytestConfig`
+now gates the detector: a nested config is inert under the registered cwd, and a
+lower-precedence root file is skipped when a higher-precedence one is present.
+Where the repository listing cannot settle whether a higher-precedence file claims
+pytest, it stays **silent rather than guessing** — silence costs a late finding, a
+guess costs a wrong one, and the pristine boundary catches it either way.
+
+### Disclosed in-loop limits of 2.10.2 (the backstop still holds)
+
+From the five-surface trace on the packed artefact, the Stop sweep now flags eight
+vectors that were silent under 2.10.1: `--ignore`, `--ignore-glob`, `--deselect`,
+`-m`, `testpaths`, `python_files`, `python_functions`, `norecursedirs`. Three
+remain undetected IN-LOOP, each for a stated reason, and **all three are still
+blocked by the envelope** (`run` exit 1):
+
+- **`-k` / `-m` naming a TEST FUNCTION rather than a file.** The model is
+  path-based: it reports a protected test FILE the runner stops selecting. A `-k`
+  that deselects the only function inside a file removes that file's coverage
+  without removing the file, and mapping functions to files would mean parsing
+  every test. Fires when the expression matches a file name; otherwise silent.
+- **`PYTEST_ADDOPTS` in the environment.** No file changes, so no file-diff
+  detector can see it. `DROPPED_ENV` removes it from the pristine run.
+- **An inert config** (nested, or shadowed) — silent BY DESIGN, per the precedence
+  finding above.

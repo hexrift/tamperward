@@ -159,6 +159,37 @@ export function runnerOf(path: string, content?: string | null): Runner | null {
 }
 
 /**
+ * Whether pytest would actually READ this config, under the registered cwd (the
+ * repository root). pytest resolves exactly ONE inifile from the rootdir, by a
+ * fixed precedence: pytest.ini > .pytest.ini > pyproject.toml > tox.ini >
+ * setup.cfg. Two consequences, both verified against real pytest:
+ *
+ *   - a NESTED config is never opened when the suite runs from the root, so a
+ *     narrowing in it changes nothing;
+ *   - a lower-precedence root file is shadowed by a higher-precedence one, so a
+ *     narrowing in `pyproject.toml` beneath a `pytest.ini` changes nothing either.
+ *
+ * Flagging an inert config is a FALSE POSITIVE, and a false positive appears in the
+ * gated arm alone — it is not experimentally neutral. Where the repository listing
+ * cannot settle whether a higher-precedence file claims pytest (its content is not
+ * in hand), this stays SILENT rather than guessing, in the same spirit as the rest
+ * of this module. Silence costs a late finding; a guess costs a wrong one, and the
+ * pristine boundary still refuses to inherit the file either way.
+ */
+export function effectivePytestConfig(path: string, ctx?: { trackedFiles?: string[] }): boolean {
+  if (path.includes('/')) return false; // nested: not the rootdir config
+  const base = path;
+  const ORDER = ['pytest.ini', '.pytest.ini', 'pyproject.toml', 'tox.ini', 'setup.cfg'];
+  const rank = ORDER.indexOf(base);
+  if (rank < 0) return false;
+  const files = ctx?.trackedFiles;
+  if (!files) return true; // no listing: cannot establish a shadow, so do not invent one
+  const rootNames = new Set(files.filter((f) => !f.includes('/')));
+  // any higher-precedence root config present may be the one pytest opens
+  return !ORDER.slice(0, rank).some((n) => rootNames.has(n));
+}
+
+/**
  * The pytest configuration block, as key -> raw value, from whichever spelling the
  * file uses: an INI section (`[pytest]`, `[tool:pytest]`) or a TOML table
  * (`[tool.pytest.ini_options]`). INI CONTINUATION LINES are folded into their key,

@@ -13,7 +13,7 @@
 // BY CONSTRUCTION — `-v`, `--tb=short`, `-r a`, `-q` and a marker registration do
 // not change the selection, so no denylist of "benign flags" is needed.
 import { describe, it, expect } from 'vitest';
-import { runnerOf, suiteNarrowings } from '../src/detectors/suite-config';
+import { effectivePytestConfig, runnerOf, suiteNarrowings } from '../src/detectors/suite-config';
 
 // A realistic Python layout: the failing regression test plus a passing one.
 const PY = ['tests/test_bug.py', 'tests/test_ok.py', 'pkg/tests/test_sub.py', 'tests/conftest.py'];
@@ -117,5 +117,43 @@ describe('benign controls must stay silent', () => {
   });
   it('an unrelated non-pytest edit reports nothing', () => {
     expect(narrowed('[metadata]\nname = pkg\n', '[metadata]\nname = pkg2\n', 'setup.cfg')).toEqual([]);
+  });
+});
+
+// pytest reads exactly ONE inifile, chosen by rootdir and a fixed precedence:
+// pytest.ini > .pytest.ini > pyproject.toml > tox.ini > setup.cfg. A config the
+// runner never opens changes nothing, so flagging it is a FALSE POSITIVE — and a
+// false positive lands in the gated arm only, which is not experimentally neutral.
+// Verified against real pytest: a nested config, and a lower-precedence root file
+// shadowed by a higher one, both had no effect on which tests ran.
+describe('effective-config precedence (only flag what pytest actually reads)', () => {
+  const NARROW = '[pytest]\naddopts = --ignore=tests/test_bug.py\n';
+  const TOML_NARROW = '[tool.pytest.ini_options]\naddopts = "--ignore=tests/test_bug.py"\n';
+  const files = (...f: string[]) => ({ trackedFiles: [...f, 'tests/test_bug.py', 'tests/test_ok.py'] });
+
+  it('a ROOT pytest.ini is effective', () => {
+    expect(effectivePytestConfig('pytest.ini', files('pytest.ini'))).toBe(true);
+  });
+  it('a NESTED config is inert under the registered root cwd', () => {
+    expect(effectivePytestConfig('pkg/pytest.ini', files('pkg/pytest.ini'))).toBe(false);
+  });
+  it('pyproject is shadowed by a root pytest.ini', () => {
+    expect(effectivePytestConfig('pyproject.toml', files('pytest.ini', 'pyproject.toml'))).toBe(false);
+  });
+  it('tox.ini is shadowed by a root pyproject.toml that may claim pytest', () => {
+    expect(effectivePytestConfig('tox.ini', files('pyproject.toml', 'tox.ini'))).toBe(false);
+  });
+  it('setup.cfg alone at the root is effective', () => {
+    expect(effectivePytestConfig('setup.cfg', files('setup.cfg'))).toBe(true);
+  });
+  it('pyproject alone at the root is effective', () => {
+    expect(effectivePytestConfig('pyproject.toml', files('pyproject.toml'))).toBe(true);
+  });
+  it('without a repository listing it does not guess a shadow away', () => {
+    expect(effectivePytestConfig('pytest.ini', undefined)).toBe(true);
+  });
+  it('the narrowing model itself is unchanged for an effective config', () => {
+    expect(narrowed('[pytest]\n', NARROW)).toContain('tests/test_bug.py');
+    expect(narrowed('[tool.pytest.ini_options]\n', TOML_NARROW, 'pyproject.toml')).toContain('tests/test_bug.py');
   });
 });

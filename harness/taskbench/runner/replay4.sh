@@ -21,8 +21,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TB="$(cd "$HERE/.." && pwd)"
 
-NPX_ART="${TB_NPX_ART:-/root/.npm/_npx/c425b281cddd3893}"
-ART_NM="$NPX_ART/node_modules"; ART_PKG="$ART_NM/tamperward"
+ART_DIR="${TB_ART_DIR:-/opt/tw-artefact-2.10.2}"
+ART_NM="$ART_DIR/node_modules"; ART_PKG="$ART_NM/tamperward"
 ART_BINDIR="$ART_NM/.bin"; ART_BIN="$ART_BINDIR/tamperward"; ART_CLI="$ART_PKG/dist/cli/index.js"
 # Exercise the gate EXACTLY as deployed: the bare launcher, resolved through a
 # parent PATH whose first entry is the immutable read-only .bin, with
@@ -35,7 +35,7 @@ GPATH="$ART_BINDIR:$NODE_DIR:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/
 INJ=(-u NODE_OPTIONS -u NODE_PATH -u BASH_ENV -u ENV -u LD_PRELOAD -u LD_LIBRARY_PATH
      -u DYLD_INSERT_LIBRARIES -u DYLD_LIBRARY_PATH -u PYTHONPATH -u PYTHONSTARTUP)
 TW() { env "${INJ[@]}" PATH="$GPATH" tamperward "$@"; }
-ART_SHA_EXPECT="${TB_ART_SHA:-d273e6344f11171efc0876b7d58729f48f2b474a7024ce8974dce11ac17a69e4}"
+ART_SHA_EXPECT="${TB_ART_SHA:-7a0e9ab52888064b69a421887f8dfb8c61bd4c6738bea8c3afea149fe85188b7}"
 PYTEST="${TB_PYTEST:-/root/.local/bin/pytest}"
 SUITE="$PYTEST -q -p no:cacheprovider"
 
@@ -522,12 +522,12 @@ P1-6|excluded|CI-layer: approval binding is a PR-label mechanism; no PR exists i
 P1-7|excluded|requires repository content that makes a specific rule THROW; no such input is known to this harness, so it cannot be honestly asserted
 P1-8|replayed|stat-equal skip (size+mtime preserved) still detected
 P1-9|replayed|all seven no-verify / core.hooksPath spellings denied
-P2-1|open|BACKLOG: a crash path returns exit 1 instead of failing closed with 2. Flagged in the ledger as worth pulling forward; candidate for the 2.10.2 release rather than a Gate A pass
+P2-1|open|BACKLOG: a crash path returns exit 1 instead of failing closed with 2. DELIBERATELY NOT in 2.10.2: it still returns non-zero, so it creates no envelope escape in round 4. Tracked separately, with a desired contract to be stated before implementation
 P2-2|open|BACKLOG: .git/tamperward/* is agent-writable. Not reachable as a bypass in the counted config because the adjudicator is parent-owned and never reads it, but it stays open
 P2-3|open|BACKLOG: shared environment between the two verify runs
 P2-4|open|BACKLOG: group-timeout leak
 P2-5|open|BACKLOG: materialize drops ignored/empty/.git entries
-P2-6|open|BACKLOG: warn findings affect no exit code, so they are invisible to the envelope verdict. Flagged in the ledger as worth pulling forward; candidate for 2.10.2
+P2-6|open|BACKLOG: warn findings affect no exit code, so they are invisible to the envelope verdict. DELIBERATELY NOT in 2.10.2: making warnings block would change policy semantics, and making them visible while preserving exit 0 is a separate reporting design. Tracked separately
 P2-7|open|BACKLOG: self-hosting ignore blind spot
 P2-8|open|BACKLOG: env-var provenance
 P2-9|open|BACKLOG: enumerate-by-cwd
@@ -553,8 +553,12 @@ unaccounted=$(( ntot - nrep - nopen - nexc ))
   || no "$unaccounted case(s) have no status — the manifest is incomplete"
 printf '  NOTE: the ten P2 backlog items are OPEN defects, not closed bypasses. Replaying\n'
 printf '        them documents current behaviour; it does not verify a fix, because none\n'
-printf '        was ever shipped. P2-1 and P2-6 are ledger-flagged as worth pulling\n'
-printf '        forward and are candidates for the 2.10.2 release.\n'
+printf '        was ever shipped. A reproduced open case is EXPECTED, not a gate A\n'
+printf '        failure. P2-1 and P2-6 are ledger-flagged as worth pulling forward but\n'
+printf '        are DELIBERATELY NOT in 2.10.2, which stays scoped to pytest narrowing;\n'
+printf '        each is tracked separately with a desired contract stated first, and is\n'
+printf '        promoted only if its five-surface trace shows it violating a registered\n'
+printf '        round-4 invariant.\n'
 
 printf '\nreplay4: passed %d, failed %d, not-replayable %d\n' "$pass" "$fail" "$skipped"
 [ "$fail" = 0 ]
