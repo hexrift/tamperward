@@ -1,16 +1,58 @@
-# Running round-4 mining on a Mac
+# Running round-4 mining locally
 
 The remote container reaps detached background processes: the pilot was killed
 outright twice — no exit status, no signal, ~14 seconds into a resumed run —
 which is the supervision failure round 3.1 already recorded and `setsid` does not
 fix. Mining is long-running and must outlive whoever started it, so it runs
-better on a real machine.
+better on a machine you control.
 
 Nothing about the protocol changes. The ledger is committed, the walk is frozen,
 and the miner resumes from repository-level verdicts, so a local run continues
 exactly where the remote one stopped.
 
-## One-time setup
+## Claude is not involved in mining
+
+**No Claude Code, no model, no API key, no cost.** Mining is mechanical: it
+clones repositories, applies the FRAME5 gates, finds historical regressions with
+a known upstream fix, and validates that the suite fails before the fix and
+passes after. `mine5.sh` says so at the top — *no agent runs happen here*.
+
+The agent runs are a **later, separate phase**: once the pilot's tasks exist and
+freeze 2 registers the treatment, each task is run twice (gated and ungated) by
+a pinned Claude Code configuration. That phase needs Claude and an API budget.
+This one needs a network connection and CPU.
+
+## Docker (recommended)
+
+The container is Linux, so the GNU tools the scripts need are already there and
+nothing has to be installed on the Mac. The container is also its own
+supervisor, which is the whole problem being solved.
+
+```bash
+git clone https://github.com/hexrift/tamperward.git
+cd tamperward && git checkout round4/miner
+cd harness/taskbench/round4
+
+docker compose -f docker/docker-compose.yml run --rm mine
+```
+
+That runs in the **foreground** — deliberately. There is nothing to detach from
+and nothing to reap it; Ctrl-C stops it and rerunning resumes from the ledger.
+Leave it in its own terminal tab, or run it under `tmux`/`screen`.
+
+From another terminal:
+
+```bash
+docker compose -f docker/docker-compose.yml run --rm status
+```
+
+The repository is bind-mounted, so the ledger and tasks land in your working
+tree and are yours to commit. Clones and virtualenvs go to a named volume, off
+the host filesystem. `docker volume rm round4_tb-work` clears them.
+
+## Native macOS (if you would rather not use Docker)
+
+### One-time setup
 
 ```bash
 # GNU tools the miner needs: flock, setsid, timeout
@@ -26,7 +68,7 @@ command -v flock setsid timeout
 
 On an Intel Mac use `/usr/local/opt/...` instead of `/opt/homebrew/opt/...`.
 
-## Get the repository
+### Get the repository
 
 ```bash
 git clone https://github.com/hexrift/tamperward.git
@@ -36,7 +78,7 @@ npm ci
 cd harness/taskbench/round4
 ```
 
-## Run the pilot
+### Run the pilot
 
 ```bash
 ./launch-mine.sh pilot          # detached, sequential — the only pilot mode
@@ -67,7 +109,10 @@ performance choice: every repository the pilot touches is burnt.
 
 ## Stopping
 
-Stop the **session**, not the script — descendants inherit the lock descriptor:
+Under Docker: Ctrl-C, or `docker compose -f docker/docker-compose.yml down`.
+
+Natively, stop the **session**, not the script — descendants inherit the lock
+descriptor:
 
 ```bash
 sid=$(cat /tmp/tb-mine-pilot.pid)
@@ -86,6 +131,10 @@ python3 incident-D3/build-burn-list.py     # republish the cumulative burn set
 git add -A . && git commit && git push     # the ledger, tasks and burn set
 ```
 
+(Under Docker, run the first line inside the container — `docker compose -f
+docker/docker-compose.yml run --rm status bash -c "python3
+incident-D3/build-burn-list.py"` — or on the host if you have Python 3.)
+
 Push the branch and I will take it from there — the freeze checklist against
 v2.10.1, then the FRAME5-AMENDMENT-2 mapping, then freeze 2.
 
@@ -95,6 +144,11 @@ Only after the pilot and the amendment-2 mapping. The counted pool is not
 sacrificial and parallelises:
 
 ```bash
+# Docker: override the command and raise the ceilings
+docker compose -f docker/docker-compose.yml run --rm \
+  -e TB_POOL=counted mine bash -c "./mine-parallel.sh 4"
+
+# native
 ./launch-mine.sh counted 4
 ./merge-shards.sh counted 4 110            # first 110 validated tasks in walk order
 ```

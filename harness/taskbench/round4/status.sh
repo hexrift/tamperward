@@ -14,6 +14,10 @@
 # in D3 and what this must be able to see.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; cd "$HERE"
+# All runtime state lives under one directory so a separate process — another
+# terminal, or a second container sharing a volume — can read it. Defaults to
+# /tmp, which is what every existing path was hardcoded to.
+TB_RUNTIME_DIR="${TB_RUNTIME_DIR:-/tmp}"; mkdir -p "$TB_RUNTIME_DIR"
 POOL="${1:-pilot}"
 P="pools/$POOL"
 V='"gate":"(EXCLUDED_INACTIVE|G0_NO_PYPROJECT|G0_NOT_PYTEST|G0_NO_TESTS|NO_QUALIFYING_COMMITS|CLONE_FAILED|CANDIDATES_EXHAUSTED|TASK_VALIDATED|QUOTA_FULL)"'
@@ -25,7 +29,7 @@ self_sid=$(sid_of $$)
 sessions=$(for p in $(pgrep -x -f 'bash ./mine5.sh' 2>/dev/null); do
              sid_of "$p"; done | sort -u | grep -v "^$self_sid$" | grep -c . || true)
 procs=$(pgrep -x -f 'bash ./mine5.sh' 2>/dev/null | wc -l)
-pid=$(cat "/tmp/tb-mine-$POOL.pid" 2>/dev/null || echo -)
+pid=$(cat "$TB_RUNTIME_DIR/tb-mine-$POOL.pid" 2>/dev/null || echo -)
 alive=no; [ "$pid" != - ] && kill -0 "$pid" 2>/dev/null && alive=yes
 walk=$(node -p "JSON.parse(require('fs').readFileSync('$P/walk.json')).order.length" 2>/dev/null || echo ?)
 echo "pool           $POOL"
@@ -36,8 +40,8 @@ echo "decided        $(grep -cE "$V" "$P/attrition.jsonl" 2>/dev/null || echo 0)
 echo "tasks          $(ls "$P/tasks" 2>/dev/null | wc -l)"
 cf=$(grep -c CLONE_FAILED "$P/attrition.jsonl" 2>/dev/null); cf=${cf:-0}
 echo "CLONE_FAILED   $cf  (D3 regression: must be 0)"
-echo "breaker        $([ -e "${TB_CLONE_BREAKER:-/tmp/tb-clone-breaker}" ] && echo TRIPPED || echo clear)"
-hb="${TB_HEARTBEAT:-/tmp/tb-mine-$POOL.heartbeat}"
+echo "breaker        $([ -e "${TB_CLONE_BREAKER:-$TB_RUNTIME_DIR/tb-clone-breaker}" ] && echo TRIPPED || echo clear)"
+hb="${TB_HEARTBEAT:-$TB_RUNTIME_DIR/tb-mine-$POOL.heartbeat}"
 if [ -f "$hb" ]; then
   age=$(( $(date +%s) - $(node -p "JSON.parse(require('fs').readFileSync('$hb')).epoch" 2>/dev/null || echo 0) ))
   note="alive"
@@ -48,10 +52,10 @@ if [ -f "$hb" ]; then
 else
   echo "heartbeat      none written"
 fi
-st=$(cat "/tmp/tb-mine-$POOL.status" 2>/dev/null)
+st=$(cat "$TB_RUNTIME_DIR/tb-mine-$POOL.status" 2>/dev/null)
 case "$st" in
   "")        [ "$sessions" = 0 ] && st="NONE, and no miner running — killed outright (SIGKILL or a reaped container), not an exit" || st="not written — still running";;
   signal:*)  st="$st — stopped by a signal the wrapper trapped";;
 esac
 echo "exit status    $st"
-echo "now on         $(tail -1 "/tmp/tb-mine-$POOL.out" 2>/dev/null | cut -c1-60)"
+echo "now on         $(tail -1 "$TB_RUNTIME_DIR/tb-mine-$POOL.out" 2>/dev/null | cut -c1-60)"

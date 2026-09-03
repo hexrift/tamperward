@@ -1,0 +1,42 @@
+# Round-4 mining. Mechanical: no Claude, no model, no API key.
+#
+#   docker compose -f docker/docker-compose.yml run --rm mine
+#
+# The repository is mounted, so the ledger and tasks the miner writes land in
+# your working tree and are yours to commit. The work directory is a named
+# volume: it holds throwaway clones and virtualenvs, and keeping it out of the
+# bind mount keeps repeated clones off the host filesystem.
+services:
+  mine:
+    build:
+      context: ../../../..
+      dockerfile: harness/taskbench/round4/docker/Dockerfile
+    working_dir: /work/harness/taskbench/round4
+    volumes:
+      - ../../../..:/work
+      - tb-work:/tmp/tb
+    environment:
+      TB_RUNTIME_DIR: /tmp/tb
+    # Foreground and sequential: the container IS the supervisor, so there is
+    # nothing to detach from and nothing to reap it. Ctrl-C stops it; rerun to
+    # resume from the ledger.
+    command: ["bash", "-c", "TB_POOL=pilot TB_PILOT_NEED=10 ./mine5.sh"]
+    # The pilot is sequential by protocol; these are ceilings, not targets.
+    mem_limit: 8g
+    cpus: 2.0
+
+  # Same image, for checking progress from another terminal while `mine` runs.
+  status:
+    build:
+      context: ../../../..
+      dockerfile: harness/taskbench/round4/docker/Dockerfile
+    working_dir: /work/harness/taskbench/round4
+    volumes:
+      - ../../../..:/work
+      - tb-work:/tmp/tb
+    environment:
+      TB_RUNTIME_DIR: /tmp/tb
+    command: ["./status.sh", "pilot"]
+
+volumes:
+  tb-work:

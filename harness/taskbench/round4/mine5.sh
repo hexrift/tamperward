@@ -20,6 +20,10 @@ BASE_POOL="${POOL%%-s*}"
 # splits the walk. The shard is a pool directory like any other.
 case "$POOL" in pilot|counted|pilot-s[0-9]*|counted-s[0-9]*) ;; *) echo "TB_POOL must be pilot, counted, or a shard of either" >&2; exit 2;; esac
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# All runtime state lives under one directory so a separate process — another
+# terminal, or a second container sharing a volume — can read it. Defaults to
+# /tmp, which is what every existing path was hardcoded to.
+TB_RUNTIME_DIR="${TB_RUNTIME_DIR:-/tmp}"; mkdir -p "$TB_RUNTIME_DIR"
 
 # The clone shim belongs to the MINER, not to one launcher. It was installed
 # only by mine-parallel.sh, so the sequential pilot — which launch-mine.sh runs
@@ -52,14 +56,14 @@ cd "$HERE/pools/$POOL"
 # that number here would close it and release the very lock the parent holds.
 # The kernel drops this lock when the process dies, however it dies, so a
 # SIGKILLed miner does not strand the pool.
-POOL_LOCK="${TB_POOL_LOCK:-/tmp/tb-mine5-$POOL.lock}"
+POOL_LOCK="${TB_POOL_LOCK:-$TB_RUNTIME_DIR/tb-mine5-$POOL.lock}"
 exec 8>"$POOL_LOCK"
 if ! flock -n 8; then
   echo "REFUSING: another miner already holds the lock for pool $POOL ($POOL_LOCK)." >&2
   echo "  Two miners on one pool write one ledger. Stop the running miner first." >&2
   exit 7
 fi
-WORK="${TB_WORK:-/tmp/tb-mine5-$POOL}"
+WORK="${TB_WORK:-$TB_RUNTIME_DIR/tb-mine5-$POOL}"
 # Round-3 left the work directory implicit: the bash default and the node
 # block's fallback were the same literal, so they agreed by coincidence.
 # Round 4's default is pool-scoped, so the coincidence is gone and the two
@@ -314,7 +318,9 @@ const tglob=/((^|\/)test_[^/]*\.py$|(^|\/)[^/]*_test\.py$|(^|\/)conftest\.py$)/;
 const tfiles=git('diff','--name-only','-z',parent,commit).split('\0').filter(f=>f&&tglob.test(f));
 // long-form + literal magic: an excluded name is never re-parsed as a glob
 const excl=tfiles.map(f=>`:(exclude,literal)${f}`);
-const work=process.env.TB_WORK || `/tmp/tb-mine5-${process.env.TB_POOL||'counted'}`;
+// D1 was this fallback silently disagreeing with the shell's work directory.
+// mine5.sh always exports TB_WORK, so an unset one is a bug, not a default.
+const work=process.env.TB_WORK; if(!work) throw new Error('TB_WORK unset — the emitter must not guess a work directory');
 // --binary --full-index + long-form excludes: round-1/2 lessons (gitattributes
 // -diff stubs; underscore-leading paths). TB_WORK-aware (round-2 correction).
 fs.writeFileSync(`${work}/gold.patch`,
@@ -369,7 +375,7 @@ for repo in $ORDER; do
   # is a death, not slowness.
   printf '{"at":"%s","epoch":%s,"repo":"%s","decided":%s,"tasks":%s,"pid":%s}\n' \
     "$(date -u +%FT%TZ)" "$(date +%s)" "$repo" "$(grep -cE "$VERDICT_RE" "$ATTR" 2>/dev/null || echo 0)" \
-    "$T" "$$" > "${TB_HEARTBEAT:-/tmp/tb-mine-$POOL.heartbeat}"
+    "$T" "$$" > "${TB_HEARTBEAT:-$TB_RUNTIME_DIR/tb-mine-$POOL.heartbeat}"
   process_repo "$repo"
   rm -rf "$WORK/repo" "$VENV"
 done

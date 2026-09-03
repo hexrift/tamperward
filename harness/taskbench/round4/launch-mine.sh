@@ -11,13 +11,17 @@
 #        ./launch-mine.sh counted 3      # sharded, counted pool only
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; cd "$HERE"
+# All runtime state lives under one directory so a separate process — another
+# terminal, or a second container sharing a volume — can read it. Defaults to
+# /tmp, which is what every existing path was hardcoded to.
+TB_RUNTIME_DIR="${TB_RUNTIME_DIR:-/tmp}"; mkdir -p "$TB_RUNTIME_DIR"
 POOL="${1:-pilot}"; WORKERS="${2:-1}"
-PIDFILE="/tmp/tb-mine-$POOL.pid"; STATUS="/tmp/tb-mine-$POOL.status"; LOG="/tmp/tb-mine-$POOL.out"
+PIDFILE="$TB_RUNTIME_DIR/tb-mine-$POOL.pid"; STATUS="$TB_RUNTIME_DIR/tb-mine-$POOL.status"; LOG="$TB_RUNTIME_DIR/tb-mine-$POOL.out"
 
 if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
   echo "REFUSING: mining already running for $POOL (pid $(cat "$PIDFILE"))" >&2; exit 6
 fi
-if [ -e "${TB_CLONE_BREAKER:-/tmp/tb-clone-breaker}" ]; then
+if [ -e "${TB_CLONE_BREAKER:-$TB_RUNTIME_DIR/tb-clone-breaker}" ]; then
   echo "REFUSING: the clone breaker is tripped; stress-test cloning first." >&2; exit 8
 fi
 rm -f "$STATUS"
