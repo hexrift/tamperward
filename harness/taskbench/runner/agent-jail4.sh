@@ -71,8 +71,15 @@ exec "${NETRUN[@]}" unshare --pid --mount --fork --mount-proc bash -euc '
     echo -n "docker-sock "; { [ -S /var/run/docker.sock ] && head -c1 </var/run/docker.sock >/dev/null 2>&1 && echo REACHABLE || echo masked; }
     echo -n "ssh "; { [ -r "$HOME/.ssh" ] && ls "$HOME/.ssh" >/dev/null 2>&1 && [ -n "$(ls -A "$HOME/.ssh" 2>/dev/null)" ] && echo REACHABLE || echo masked; }
     echo -n "aws "; { [ -n "$(ls -A "$HOME/.aws" 2>/dev/null)" ] && echo REACHABLE || echo masked; }
+    # Reachability differs by kind: a masked DIRECTORY is an empty ro tmpfs, a
+    # masked FILE is a bind of /dev/null. `ls -A` on a regular file prints its own
+    # name, so using it for both reported every correctly masked FILE as
+    # REACHABLE; content visibility is the right test for a file.
     IFS=: ; for p in $MASK_LIST; do [ -n "$p" ] || continue
-      echo -n "ctrl:$p "; { [ -e "$p" ] && [ -n "$(ls -A "$p" 2>/dev/null || cat "$p" 2>/dev/null)" ] && echo REACHABLE || echo masked; }
+      echo -n "ctrl:$p "
+      if [ -d "$p" ]; then [ -n "$(ls -A "$p" 2>/dev/null)" ] && echo REACHABLE || echo masked
+      elif [ -e "$p" ]; then [ -s "$p" ] && echo REACHABLE || echo masked
+      else echo masked; fi
     done ; unset IFS
     # /proc/*/root escape: the REAL test is whether a masked control-plane path is
     # reachable through ANY process root (a different mount view leaking the
@@ -84,7 +91,8 @@ exec "${NETRUN[@]}" unshare --pid --mount --fork --mount-proc bash -euc '
     if [ -n "$first_ctrl" ]; then
       for pr in /proc/*/root; do
         cand="$pr$first_ctrl"
-        [ -e "$cand" ] && [ -n "$(ls -A "$cand" 2>/dev/null || cat "$cand" 2>/dev/null)" ] && { esc=yes; break; }
+        if [ -d "$cand" ]; then [ -n "$(ls -A "$cand" 2>/dev/null)" ] && { esc=yes; break; }
+        elif [ -e "$cand" ]; then [ -s "$cand" ] && { esc=yes; break; }; fi
       done
     fi
     echo "$esc"   # yes = a masked path leaked through /proc; no = contained

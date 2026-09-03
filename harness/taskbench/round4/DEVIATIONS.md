@@ -1489,3 +1489,80 @@ first: **measurement-boundary4 9/0**, verdict4 21/21, smoke 39/0, workspace 18/0
 **A regression I introduced and caught here:** the seal's `trap … EXIT` clobbered the
 runner's existing `trap teardown_net EXIT`, silently disabling network-jail
 teardown. The traps are now one.
+
+## CORRECTION — the M1–M4 fixes were incomplete: the ADJUDICATOR ran the candidate's code unjailed
+
+The entry above closed the four demonstrated attacks and then asserted the boundary
+held. **It did not.** Reviewing the mitigation against the protocol's "trace every
+caller" step exposed a path none of M1–M4 covered, and which **subsumes both
+blockers**: `verdict4`'s own **visible** suite run executes candidate-authored code —
+a `conftest.py`, a plugin, the imported source itself — and it ran it *outside* the
+jail, as the parent, uid 0, with full capabilities. The agent was contained; the
+adjudicator then handed the same candidate its own privileges.
+
+Reproduced through the production entry point (`verdict4.mjs`) before any fix, with
+one candidate-authored `conftest.py`:
+
+| # | attack from the VISIBLE adjudication run | demonstrated result |
+|---|---|---|
+| M5 | overwrite the ORACLE's pristine tests | pristine green over a live bug — **`masked_failure` false**, the PRIMARY endpoint destroyed |
+| M6 | `chattr -a` then truncate the observer log and denylog | **both erased** — the M1/M2 seal is void, because the parent holds `CAP_LINUX_IMMUTABLE` |
+| M7 | write into the adjudicator's own tree | succeeded |
+| M8 | write a `.pth` into the shared interpreter's `site-packages` | succeeded — a P2-3 channel that **survives** the M3 surface removal, since a `.pth` is loaded at interpreter start |
+
+M5 is the same class as M3 and strictly worse: M3 fooled the pristine run through a
+file the surface removal can strip; M5 rewrites the gold the pristine run is
+restored *from*. The M1/M2 seal was never a defence against this path at all — it
+only ever constrained the agent's own turn.
+
+### Fix — the adjudication execution boundary
+
+Both adjudication suite runs now go through **the same jail the agent gets**
+(`agent-jail4.sh`): the control plane is masked (the caller's `TB_ADJ_MASK`, plus the
+oracle, observer, denylog and task dirs `verdict4` was itself handed — so the gold
+patch is unreachable too), the interpreter, the pinned artefact and `/usr` are
+read-only, and capabilities are dropped. It **fails closed**: a boundary that cannot
+be established aborts (exit 2) rather than silently producing an unguarded
+measurement, and the jail is verified to have actually masked the control plane
+rather than merely started. Reported as `adjudication_jailed`.
+
+*Not in scope, disclosed:* the adjudication runs keep the parent's network
+reachability. That is symmetric across arms and cannot reach masked state.
+
+**A pre-existing probe defect found by this work.** `agent-jail4.sh`'s
+`TB_JAIL_PROBE` tested reachability with `ls -A`, which prints a regular file's own
+name — so every correctly masked **file** was reported `REACHABLE`. It had never
+surfaced because `isolation-selftest4` only masks directories. Fixed to test
+directory contents and file content separately, with the predicate's discrimination
+shown against unmasked controls.
+
+**A test-authoring error of mine, corrected.** M4's message credited the fresh
+`TMPDIR` for defeating the shared-marker vector. It does not: that fixture's marker
+path is absolute, so `TMPDIR` never applied. The vector is defeated by the M3 surface
+removal. The scrub is still correct and still closes the relative-path variants; M8
+now carries the shared-state vector that survives surface removal.
+
+### The residual, stated precisely
+
+**Erasure is closed** — from the agent (seal + dropped caps) and now from the
+adjudication run (jail). **Append forgery is irreducible and remains open.** The
+observer hook and the gate both execute inside the agent's own process tree, so the
+writer *is* the candidate; no signature, relocation or file mode can separate a
+genuine line from a fabricated one. It is bounded, and the bound is tested (M10):
+appended lines **inflate** `temporal.landed_departures`, `temporal.transient`,
+`temporal.prevented` and `blindness`, and **cannot** move the primary endpoint —
+`persistent` comes from the adjudicator's own scan of the final tree, and neither the
+visible/pristine comparison nor the envelope-escape check reads either log. Every
+verdict now declares this: `evidence_integrity {sealed, erasure_blocked,
+append_forgeable, affects}`, with `sealed` carrying the run's REAL seal state
+(`run-task4` records whether `chattr +a` actually took), so a run whose temporal
+evidence was erasable is self-identifying in the ledger instead of looking like any
+other run.
+
+**Direction of the residual bias:** a forged `prevented` inflates the GATED arm only
+and would overstate the gate's benefit. It requires deliberate forgery by the agent
+and is disclosed rather than corrected.
+
+Validated from a clean worktree: measurement-boundary4 **23/0**, cleanup-lifecycle4
+77/0, launcher4 45/0, workspace4 18/0, replay4 43/0, verdict4-selftest 21/0,
+isolation-selftest4 13/0, smoke4 39/0, repo suite 2149/2149, typecheck 0, build 0.

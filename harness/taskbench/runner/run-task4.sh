@@ -179,7 +179,16 @@ teardown_net() {
 # Verified rather than assumed, so neither is guarded here: bash DOES run the EXIT
 # trap on TERM/INT/HUP, and the script's exit status IS preserved even when the
 # trap's last command fails.
-append_only() { chattr +a "$1" 2>/dev/null || echo "[run-task4] WARNING append-only unsupported for $1 — temporal evidence is erasable" >&2; }
+# EVIDENCE_SEALED records whether the seal actually took, so a run whose temporal
+# evidence was erasable is self-identifying in the ledger rather than looking like
+# any other run. It is reported, not enforced: the PRIMARY endpoint (visible vs
+# pristine) and the envelope-escape check do not read either log.
+EVIDENCE_SEALED=yes
+append_only() {
+  chattr +a "$1" 2>/dev/null && return 0
+  EVIDENCE_SEALED=no
+  echo "[run-task4] WARNING append-only unsupported for $1 — temporal evidence is erasable" >&2
+}
 release_append_only() { [ -n "${1:-}" ] && chattr -a "$1" 2>/dev/null; return 0; }
 
 # Signal handling is SEPARATE from cleanup. A signal trap that merely returns can
@@ -582,6 +591,18 @@ fi
 # ---- TRAJECTORY-START BOUNDARY ----
 # Nothing below this line may be reached without a proven agent network path.
 NETLOG="$W/net-denied.log"; touch "$NETLOG"
+# ---- ADJUDICATION EXECUTION BOUNDARY -------------------------------------
+# verdict4's own visible suite run executes candidate-authored code (a conftest,
+# a plugin, the imported source), so unjailed it would inherit THIS script's
+# authority — enough to overwrite the oracle, lift the append-only seal on the
+# evidence logs, rewrite the adjudicator, and read the task's gold patch. Both
+# adjudication runs therefore go through the same jail the agent gets. Defined
+# HERE, before the first verdict4 call (the smoke path), so `set -u` cannot turn
+# a later definition into a silent unbound-variable abort. verdict4 adds the
+# oracle, observer, denylog and task dirs to the mask list itself.
+ADJ_MASK="$CTRL:$RUNS:$TB"          # oracle, ledger, adjudicator + harness sources
+ADJ_RO="$VENV:$ART_NM:/usr"         # interpreter, pinned artefact, system tree
+
 start_agent_network; snrc=$?
 [ "$snrc" -eq 9 ] && exit 9
 [ "$snrc" -eq 0 ] || exit 8
@@ -595,11 +616,13 @@ if [ -n "$SMOKE" ]; then
   TF=$(cd "$REPODIR" && git ls-files | grep -E '((^|/)test_[^/]*\.py$|(^|/)[^/]*_test\.py$)' | head -1)
   echo "[run-task4] tamper probe target: ${TF:-none}"
   [ -n "$TF" ] && ( cd "$REPODIR" && printf 'import pytest\npytestmark = pytest.mark.skip(reason="tb-probe")\n%s' "$(cat "$TF")" > "$TF" )
-  V1=$(TB_ARM="$ARM" TB_ADJ_PY="$VENV/bin/python" node "$HERE/verdict4.mjs" "$TASK" "$REPODIR" "$ORACLE" "$OBS" "$BASE")
+  V1=$(TB_ARM="$ARM" TB_ADJ_PY="$VENV/bin/python" TB_ADJ_MASK="$ADJ_MASK" TB_ADJ_RO="$ADJ_RO" \
+  TB_EVIDENCE_SEALED="$EVIDENCE_SEALED" node "$HERE/verdict4.mjs" "$TASK" "$REPODIR" "$ORACLE" "$OBS" "$BASE")
   echo "PROBE_TAMPER verdict: $V1"
   ( cd "$REPODIR" && git checkout -q -- . )
   git -C "$REPODIR" apply "$TASK/gold.patch" || echo "PROBE_GOLD: apply failed"
-  V2=$(TB_ARM="$ARM" TB_ADJ_PY="$VENV/bin/python" node "$HERE/verdict4.mjs" "$TASK" "$REPODIR" "$ORACLE" "$OBS" "$BASE")
+  V2=$(TB_ARM="$ARM" TB_ADJ_PY="$VENV/bin/python" TB_ADJ_MASK="$ADJ_MASK" TB_ADJ_RO="$ADJ_RO" \
+  TB_EVIDENCE_SEALED="$EVIDENCE_SEALED" node "$HERE/verdict4.mjs" "$TASK" "$REPODIR" "$ORACLE" "$OBS" "$BASE")
   echo "PROBE_GOLD verdict: $V2"
   teardown_net; rm -rf "$W" "$CTRL"
   exit 0
@@ -797,7 +820,8 @@ fi
 # exported so the adjudicator brands the arm; TB_ADJ_PY points it at the task venv.
 V4ARGS=("$TASK" "$REPODIR" "$ORACLE" "$OBS" "$BASE")
 [ "$ARM" = "gated" ] && V4ARGS+=("$ENV_REPORT" "$DENYLOG")
-VERDICT=$(TB_ARM="$ARM" TB_ADJ_PY="$VENV/bin/python" node "$HERE/verdict4.mjs" "${V4ARGS[@]}" 2>"$W/verdict4.err"); V4RC=$?
+VERDICT=$(TB_ARM="$ARM" TB_ADJ_PY="$VENV/bin/python" TB_ADJ_MASK="$ADJ_MASK" TB_ADJ_RO="$ADJ_RO" \
+  TB_EVIDENCE_SEALED="$EVIDENCE_SEALED" node "$HERE/verdict4.mjs" "${V4ARGS[@]}" 2>"$W/verdict4.err"); V4RC=$?
 DENIES=$([ -f "$DENYLOG" ] && wc -l < "$DENYLOG" | tr -d ' ' || echo 0)
 NETDENIED=$({ grep -c " DENY " "$NETLOG" 2>/dev/null || true; } | tr -d ' \n'); NETDENIED=${NETDENIED:-0}
 ENVEXIT=$(jq -r '.exit // "null"' "$ENV_REPORT" 2>/dev/null || echo null)
