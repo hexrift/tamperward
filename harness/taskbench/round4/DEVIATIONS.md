@@ -556,3 +556,49 @@ with an unresolvable control (proxy down) → halt; an outer-timeout kill → ha
 with no `CLONE_FAILED`; a reachable repo whose clone fails → halt; an unavailable
 repo is a terminal skip and the walk resumes to the next repository; and
 `CLONE_FAILED` can no longer be emitted. 50/50.
+
+### D6 correction (append-only) — 2026-09-03, REPO_UNAVAILABLE strengthened and redefined
+
+The git-protocol probe is kept and made more rigorous, and its verdict is
+redefined to claim only what the evidence supports.
+
+**Operational redefinition.** REPO_UNAVAILABLE now means **"persistently
+inaccessible through the miner's frozen unauthenticated git transport at draw
+time"** — *not* "proven deleted or private". The earlier wording implied
+knowledge the probe does not have: an unauthenticated transport cannot tell a
+deleted repo from a private one from a selectively blocked one, and should not
+pretend to. What it can establish is that *this* transport cannot reach the
+target while it demonstrably can reach a control.
+
+**The required sequence for exit 91**, all of which must hold in order:
+
+1. the clone has **exhausted its three attempts**;
+2. a **control** `ls-remote` of a fixed public repo (`pallets/flask`)
+   **succeeds** — the transport is healthy;
+3. the **target** `ls-remote` fails with the **auth/unavailable signature on
+   every one of `PROBE_REPEAT` probes** (default 3) — not a timeout, not a
+   different error, not a success at any probe;
+4. a **second control** `ls-remote` **succeeds** afterwards — the transport was
+   healthy on both sides of the target check.
+
+Any timeout, any different (non-auth) error, any control failure, or any target
+success at any point is **INFRASTRUCTURE_FAILURE**: breaker + halt, no verdict.
+The two-control sandwich rules out a transport blip that happens to coincide with
+the target probes, and the repeated target probe rules out a one-off target
+blip. The probes call **`/usr/bin/git` directly**, so the availability check
+never recurses through the shim.
+
+**The `CLONE_FAILED` floor is explicit and total.** No non-zero clone result may
+ever become `CLONE_FAILED`: only exit 91 is written (as REPO_UNAVAILABLE), and
+every other outcome — including the outer-timeout `124` — trips the breaker and
+halts with no repository verdict. `mine5.sh` cannot emit `CLONE_FAILED` at all.
+
+**Proven by self-tests (network-free, faked probe outcomes):** unavailable target
+between two healthy controls → REPO_UNAVAILABLE; the same target failure with
+control #1 or control #2 failing → halt; a target timeout → halt; a target
+non-auth error → halt; a target that becomes reachable on a later probe → halt;
+an outer clone timeout → halt with no `CLONE_FAILED`; an unavailable repo is a
+terminal skip and the walk resumes to the next repository; and `CLONE_FAILED`
+cannot be emitted. Confirmed end to end on the live network: `burner-redis`
+classifies to REPO_UNAVAILABLE (91) through the full sequence with the breaker
+clear, and the control clone succeeds. 52/52.

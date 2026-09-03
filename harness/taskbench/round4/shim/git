@@ -5,33 +5,41 @@
 # the sole ledger writer (DEVIATIONS.md D3, D6).
 #
 #   exit 0   clone succeeded — continue.
-#   exit 91  REPO_UNAVAILABLE — the repository is not accessible to the
-#            unauthenticated miner at draw time (deleted or private; we do not
-#            distinguish). Proven, not guessed, by an independent cross-check:
-#            the target ref does NOT advertise while a fixed public control
-#            (pallets/flask) DOES. A terminal per-repo skip; the walk continues.
-#   exit 90  INFRASTRUCTURE_FAILURE — anything else (the target still resolves,
-#            or the control does not, i.e. the network/proxy is down, or a
-#            non-github URL that cannot be classified). The breaker is tripped
-#            and the miner halts WITHOUT writing a verdict. Erring here is the
-#            safe direction: it is what stops a transient failure from becoming a
-#            poisoned verdict (the D3 defect).
+#   exit 91  REPO_UNAVAILABLE — the repository is PERSISTENTLY INACCESSIBLE through
+#            the miner's frozen unauthenticated git transport at draw time. This
+#            does NOT claim the repo is deleted or private — only that this
+#            transport cannot reach it while it demonstrably can reach a control.
+#            A terminal per-repo skip; the walk continues.
+#   exit 90  INFRASTRUCTURE_FAILURE — everything else. The breaker trips and the
+#            miner halts WITHOUT writing a verdict. Erring here is the safe
+#            direction: it stops a transient failure from becoming a poisoned
+#            verdict (the D3 defect).
 #
-# The classifier probes over the git protocol (`ls-remote`), not the REST API:
-# this environment's proxy allows the git protocol to arbitrary public repos but
-# blocks api.github.com for any repo not attached to the session (D6). The probe
-# is by EXIT CODE cross-checked against a control, not by matching Git's stderr.
-#
-# Every non-clone git subcommand passes straight through.
+# REPO_UNAVAILABLE is emitted ONLY when ALL of these hold, in this order:
+#   1. the clone has exhausted its three attempts (we are past the retry loop);
+#   2. a control probe of a fixed public repo SUCCEEDS (the transport is healthy);
+#   3. the target ls-remote fails REPEATEDLY with the auth/unavailable signature
+#      (not a timeout, not a different error, not a success);
+#   4. a SECOND control probe SUCCEEDS afterwards (the transport was healthy
+#      throughout, so the persistent target failure is the target's).
+# Any timeout, any different error, any control failure, or any target success is
+# INFRASTRUCTURE_FAILURE. The probes use /usr/bin/git DIRECTLY so the availability
+# check never recurses through this shim. (D6.)
 REAL=${TB_REAL_GIT:-/usr/bin/git}
+PROBE_GIT=/usr/bin/git            # availability probe: real git, never the shim
 RT=${TB_RUNTIME_DIR:-/tmp}
 LOCK=${TB_CLONE_LOCK:-$RT/tb-clone.lock}
 BREAKER=${TB_CLONE_BREAKER:-$RT/tb-clone-breaker}
 FAILS=${TB_CLONE_FAILS:-$RT/tb-clone-fails}
 MAX_CONSEC=${TB_CLONE_MAX_CONSEC:-3}
-SLEEP_BASE=${TB_CLONE_SLEEP_BASE:-4}  # per-attempt backoff unit; tests set 0
-PROBE_TIMEOUT=${TB_PROBE_TIMEOUT:-30}
+SLEEP_BASE=${TB_CLONE_SLEEP_BASE:-4}   # per-attempt clone backoff unit; tests set 0
+PROBE_TIMEOUT=${TB_PROBE_TIMEOUT:-30}  # per ls-remote probe
+PROBE_REPEAT=${TB_PROBE_REPEAT:-3}     # target must fail the signature this many times
+PROBE_GAP=${TB_PROBE_GAP:-2}           # seconds between target probes; tests set 0
 CONTROL_REPO=${TB_CONTROL_REPO:-pallets/flask}
+# The auth/unavailable signature of an unauthenticated ls-remote against a repo
+# this transport cannot see (private, deleted, or selectively blocked).
+SIG='could not read Username|terminal prompts disabled|Authentication failed|Repository not found|repository .* not found|remote: Not Found'
 
 is_clone=0
 for a in "$@"; do [ "$a" = clone ] && { is_clone=1; break; }; done
@@ -48,31 +56,53 @@ die_infra() { # trip the breaker and return the infra code; the MINER halts on i
   exit 90
 }
 
-# Does a remote advertise refs? rc 0 = resolves (reachable), non-0 = does not
-# (deleted, private, or unreachable). Uses the REAL git over the proxy-allowed
-# git protocol, with prompts disabled so a private repo fails fast instead of
-# blocking on a credential prompt. Test hooks (TB_FAKE_TARGET_RESOLVE /
-# TB_FAKE_CONTROL_RESOLVE = yes|no) drive the classifier without a network.
-resolves() { # <url> -> rc
-  GIT_TERMINAL_PROMPT=0 timeout "$PROBE_TIMEOUT" "$REAL" ls-remote "$1" HEAD >/dev/null 2>&1
+# One control probe. rc 0 = the transport reached the public control. Test hooks
+# TB_FAKE_CONTROL1 / TB_FAKE_CONTROL2 supply an rc without a network.
+probe_control() { # <1|2> -> rc
+  local hook=""
+  case "$1" in 1) hook=${TB_FAKE_CONTROL1:-};; 2) hook=${TB_FAKE_CONTROL2:-};; esac
+  [ -n "$hook" ] && return "$hook"
+  GIT_TERMINAL_PROMPT=0 timeout "$PROBE_TIMEOUT" "$PROBE_GIT" ls-remote "https://github.com/$CONTROL_REPO.git" HEAD >/dev/null 2>&1
+}
+
+# One target probe. Echoes exactly one of: unavailable | reachable | timeout |
+# othererror. Test hook TB_FAKE_TARGET_KIND is a space-separated list consumed one
+# per call (the last entry repeats), so a sequence like "unavailable unavailable
+# reachable" scripts a target that recovers on the third probe.
+probe_target() { # <url> <probe-index> -> kind
+  if [ -n "${TB_FAKE_TARGET_KIND:-}" ]; then
+    echo "$TB_FAKE_TARGET_KIND" | awk -v i="${2:-1}" '{ if (i<=NF) print $i; else print $NF }'
+    return
+  fi
+  local out rc
+  out=$(GIT_TERMINAL_PROMPT=0 timeout "$PROBE_TIMEOUT" "$PROBE_GIT" ls-remote "$1" HEAD 2>&1); rc=$?
+  if [ "$rc" = 0 ]; then echo reachable
+  elif [ "$rc" = 124 ]; then echo timeout
+  elif printf '%s' "$out" | grep -qE "$SIG"; then echo unavailable
+  else echo othererror; fi
 }
 
 classify_and_exit() { # <owner/repo-or-empty> <target-clone-url-or-empty>
-  local slug="$1" url="$2" tgt ctl
-  if [ -n "${TB_FAKE_TARGET_RESOLVE:-}" ]; then [ "$TB_FAKE_TARGET_RESOLVE" = yes ]; tgt=$?
-  elif [ -n "$url" ]; then resolves "$url"; tgt=$?
-  else die_infra "clone exhausted and no github target url to probe"; fi
-  if [ -n "${TB_FAKE_CONTROL_RESOLVE:-}" ]; then [ "$TB_FAKE_CONTROL_RESOLVE" = yes ]; ctl=$?
-  else resolves "https://github.com/$CONTROL_REPO.git"; ctl=$?; fi
-  # REPO_UNAVAILABLE only when the target does NOT resolve AND the control DOES.
-  # Every other pairing is infrastructure: a control that will not resolve means
-  # the network/proxy is down (we cannot trust a target failure), and a target
-  # that still resolves means the clone failed for some other reason.
-  if [ "$tgt" -ne 0 ] && [ "$ctl" -eq 0 ]; then
-    echo "tb-shim: REPO_UNAVAILABLE $slug (target ref does not advertise; control $CONTROL_REPO does)" >&2
-    exit 91
-  fi
-  die_infra "clone classification inconclusive: target_resolves=$([ "$tgt" -eq 0 ] && echo yes || echo no) control_resolves=$([ "$ctl" -eq 0 ] && echo yes || echo no)"
+  local slug="$1" url="$2" i kind
+  [ -n "$url" ] || [ -n "${TB_FAKE_TARGET_KIND:-}" ] || die_infra "clone exhausted and no github target url to probe"
+  # (2) control must be healthy BEFORE we trust a target failure.
+  probe_control 1 || die_infra "control probe #1 failed — transport unhealthy, cannot attribute the clone failure to the target"
+  # (3) target must fail the signature repeatedly; a success, timeout, or
+  #     different error at any probe is infrastructure, not unavailability.
+  for i in $(seq 1 "$PROBE_REPEAT"); do
+    kind=$(probe_target "$url" "$i")
+    case "$kind" in
+      unavailable) ;;
+      reachable)   die_infra "target became reachable on probe $i — not persistently unavailable";;
+      timeout)     die_infra "target probe $i timed out — infrastructure, not unavailability";;
+      *)           die_infra "target probe $i failed with a non-auth error — infrastructure";;
+    esac
+    [ "$i" -lt "$PROBE_REPEAT" ] && sleep "$PROBE_GAP"
+  done
+  # (4) control must STILL be healthy after the target checks.
+  probe_control 2 || die_infra "control probe #2 failed — transport went unhealthy during the target check"
+  echo "tb-shim: REPO_UNAVAILABLE $slug (target persistently unavailable across $PROBE_REPEAT probes, between two healthy controls)" >&2
+  exit 91
 }
 
 # A breaker already tripped by a sibling: never start another clone.
@@ -86,10 +116,10 @@ for attempt in 1 2 3; do
   sleep $((attempt*SLEEP_BASE))
 done
 
-# Exhausted. Extract the github clone URL (and owner/repo, for the message) from
-# the args — empty for a non-github URL, e.g. the file:// base the self-tests use
-# — then classify. The classifier decides REPO_UNAVAILABLE (91) vs infra (90); it
-# never writes a verdict.
+# (1) Exhausted. Extract the github clone URL (and owner/repo, for the message)
+# from the args — empty for a non-github URL, e.g. the file:// base the self-tests
+# use — then classify. The classifier decides REPO_UNAVAILABLE (91) vs infra (90);
+# it never writes a verdict.
 url=""
 for a in "$@"; do case "$a" in *github.com[:/]*) url="$a";; esac; done
 slug="$(printf '%s' "$url" | sed -E 's#^.*github\.com[:/]+##; s#\.git$##; s#/+$##')"
