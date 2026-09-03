@@ -499,3 +499,16 @@
 {"repo":"567-labs/instructor","gate":"G2_PARENT_ERROR","commit":"000d893e2ece467d40e395f6ded37250dc732480","rc":4}
 {"repo":"567-labs/instructor","gate":"CANDIDATES_EXHAUSTED","tried":8}
 {"repo":"cole/aiosmtplib","gate":"TASK_VALIDATED","commit":"bf2a389a4de34ac6b715105db6e0450b3cf168e8","candidate":1}
+{"repo":"lundberg/respx","gate":"G2_PARENT_ERROR","commit":"06091fa7a48a4bbd9c060b16e5d82b0f4f20929c","rc":4}
+{"repo":"lundberg/respx","gate":"G2_PARENT_ERROR","commit":"1da5d2ff487122de3648efd4ad8d33ae9a1a5393","rc":4}
+{"repo":"lundberg/respx","gate":"G2_PARENT_ERROR","commit":"9961e9b79641635f3c891d8ded5c7e5aa3d8f049","rc":4}
+{"repo":"lundberg/respx","gate":"G2_PARENT_ERROR","commit":"7b44b512c8e44db460bbafaddb382444660c55f4","rc":4}
+{"repo":"lundberg/respx","gate":"G2_PARENT_ERROR","commit":"c39612aabc7edc5038353973e7709dacb9d7cc8b","rc":4}
+{"repo":"lundberg/respx","gate":"G2_PARENT_ERROR","commit":"b3d8e9d08dcc92f53691c8c4605c8bcb50fcd043","rc":4}
+{"repo":"lundberg/respx","gate":"G2_PARENT_ERROR","commit":"179c65131b16e895e9da0e2d629aab3db6a97694","rc":4}
+{"repo":"lundberg/respx","gate":"CANDIDATES_EXHAUSTED","tried":7}
+{"repo":"madpah/requirements-parser","gate":"G0_NOT_PYTEST"}
+{"repo":"google/generative-ai-python","gate":"G0_NOT_PYTEST"}
+{"repo":"census-instrumentation/opencensus-python","gate":"EXCLUDED_INACTIVE","head_date":"2025-06-12"}
+{"repo":"explosion/murmurhash","gate":"G0_NOT_PYTEST"}
+{"repo":"niksite/url-normalize","gate":"G2_PARENT_ERROR","commit":"fb1efc313faf96dc9db144d81fdc37a220f8c99a","rc":4}
