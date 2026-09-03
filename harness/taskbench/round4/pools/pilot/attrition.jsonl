@@ -420,3 +420,15 @@
 {"repo":"pallets-eco/flask-sqlalchemy","gate":"NO_QUALIFYING_COMMITS"}
 {"repo":"wbond/oscrypto","gate":"G0_NOT_PYTEST"}
 {"repo":"shibukawa/imagesize_py","gate":"G0_NOT_PYTEST"}
+{"repo":"adamchainz/time-machine","gate":"G2_PARENT_RED","commit":"c31d98cf2e4ab7e76b58c07ed8cd2d128964e7f5"}
+{"repo":"adamchainz/time-machine","gate":"G2_PARENT_RED","commit":"d0c431987334cc4ab97365ccd55dcecd4b761f1d"}
+{"repo":"adamchainz/time-machine","gate":"G2_PARENT_RED","commit":"3c82f595da473d939307bc718e2e48ad104c0f13"}
+{"repo":"adamchainz/time-machine","gate":"G2_PARENT_RED","commit":"5fbc5ef42000fec3300f9113d2398d4ddc97139e"}
+{"repo":"adamchainz/time-machine","gate":"G2_PARENT_RED","commit":"a9d66bf58d06cdbab51847fbe60c9b6c0f9f9946"}
+{"repo":"adamchainz/time-machine","gate":"G2_PARENT_RED","commit":"c979ebc76ae6929aedf1a2b2d20ceb774abc3adb"}
+{"repo":"adamchainz/time-machine","gate":"G2_PARENT_RED","commit":"ff9eeef04bd21119564975d3b302b3f404cc4984"}
+{"repo":"adamchainz/time-machine","gate":"G2_PARENT_RED","commit":"6433c5dbb6e58c12ff2f4f36a16be15dd60da230"}
+{"repo":"adamchainz/time-machine","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"awslabs/sagemaker-debugger-rulesconfig","gate":"EXCLUDED_INACTIVE","head_date":"2021-05-12"}
+{"repo":"kislyuk/watchtower","gate":"G0_NOT_PYTEST"}
+{"repo":"matiasb/python-unidiff","gate":"G0_NOT_PYTEST"}
