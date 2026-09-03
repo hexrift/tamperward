@@ -1202,3 +1202,25 @@ console script, which verdict4 invokes as `<py> -m pytest`, yielding `pytest -m
 pytest` — a marker expression that deselects everything and reported `no_tests`
 throughout. The script now aborts loudly on a failed fixture build and on a
 precondition that is not red, so a broken fixture can no longer masquerade as data.
+
+### Corrected pilot cost of a 2.10.2 candidate (supersedes the earlier timing claim)
+
+An earlier note argued that "deciding now costs nothing because no pilot task is
+exposed". That was **wrong**. The ten pilot tasks were already **drawn** and are
+disclosed **pilot development data** under PILOT4. If 2.10.2 becomes the candidate,
+the registered procedure requires **burning them and mining the next fresh ten**.
+
+What was actually saved is the **expensive** half: **no Claude trajectories have
+been spent** — the 20 pilot trajectories were never run, so no model budget and no
+trajectory-level exposure is lost.
+
+Frame accounting after the burn: the **154 repositories** consumed by the first
+pilot draw are **permanently excluded** and already counted in the published
+408-repository burn set. Mining a fresh ten costs roughly another 154 at the
+observed 15.4 repos/task, taking the burn set to approximately 562. Against the
+Amendment 2 frame that leaves
+
+    (3200 - 562) / 15.4 ≈ 171 expected tasks
+
+still roughly 61 above the 110 required, so the second pilot draw does **not**
+threaten counted-mining capacity.
