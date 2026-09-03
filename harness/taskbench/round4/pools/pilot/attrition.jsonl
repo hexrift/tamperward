@@ -388,3 +388,6 @@
 {"repo":"ilanschnell/bitarray","gate":"G3_NOT_RED","commit":"054c5362f15203947ee015367483bfa2b1acecac","rc":0}
 {"repo":"ilanschnell/bitarray","gate":"G5_COMMIT_RED","commit":"1d4fcd13747d1701444f1b59703c13a9f100cf06","rc":2}
 {"repo":"ilanschnell/bitarray","gate":"TASK_VALIDATED","commit":"ff4d195b0e363d75cf079325348956b55f516b2e","candidate":4}
+{"repo":"temporalio/sdk-python","gate":"G1_INSTALL_FAILED","commit":"6ecff04e7deb51e26c6c04eabeff6dfd1fd78c93"}
+{"repo":"temporalio/sdk-python","gate":"G1_INSTALL_FAILED","commit":"bad9bb8c892f0ad909accf189389c92e6a60d2a6"}
+{"repo":"temporalio/sdk-python","gate":"G1_INSTALL_FAILED","commit":"b0a52fb212a88cc9180e8352fe54c411f9c8609e"}
