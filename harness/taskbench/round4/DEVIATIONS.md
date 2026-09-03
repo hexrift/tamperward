@@ -1693,3 +1693,34 @@ replay4 46/0 (was 43), launcher4 46/0, workspace4 18/0, smoke4 39/0,
 p2-characterise4 unchanged (6 reproduced open-backlog, 0 escapes), narrowing-trace4
 15 vectors + 2 benign controls, measurement-boundary4 35/0, cleanup-lifecycle4 77/0,
 verdict4-selftest 21/0, isolation-selftest4 13/0, observe3-selftest OK.
+
+## History rewrite — the red checkpoint removed, and the one control it broke
+
+`99342db` ("WIP checkpoint — signal-path cleanup defect found, suite RED (48/4)") was
+squashed into `951e8fa`, the commit that turned it green. Surgical: 173 commits → 172,
+nothing below `be9dda7` touched, force-pushed with `--force-with-lease` against the
+known previous head. The resulting HEAD tree is `677bbf37…`, byte-identical to the
+pre-rewrite head.
+
+**A byte-identical tree is not sufficient evidence here, and it did not turn out to
+be.** Tamperward reasons about ancestry, merge bases and frozen history, so the
+rewrite was validated against the COMMIT GRAPH as well: `99342db` is not an ancestor
+of the new head and is not in a fresh clone at all; `check --diff origin/main...HEAD`
+— the CI authority, the history-sensitive view — is clean over 70 changes.
+
+Re-running the matrix from a fresh clone of the rewritten branch then caught a real
+break that the tree comparison could not: **measurement-boundary4 M13 pinned its
+threat control to commit `5d24883`**, which the rewrite replaced. It failed CLOSED
+("could not check out …") rather than passing silently — the right failure mode, but
+still a broken control.
+
+Fixed by removing the dependency on history rather than repinning the sha: the
+pre-fix adjudicator is now a VENDORED FIXTURE
+(`runner/fixtures/verdict4-pre-isolation.mjs`), content-addressed and immune to any
+future history operation. Verified byte-identical to the file at both `5d24883` and
+its rewritten twin `8cf3b6d`, and it still demonstrates the leak — the three runs
+report 0, 1, 2 against it, and 0 against the current adjudicator.
+
+**A pinned commit is the wrong shape for a threat control.** No other harness control
+carries one: `cleanup-lifecycle4`'s `TB_RT` is an env seam, so its 77/0 was not
+vacuous.

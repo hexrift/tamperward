@@ -432,9 +432,12 @@ hdr "M13 visible, pristine and withheld each run on their OWN tree"
 # agent tree AFTER the visible run had already executed in it. So a candidate
 # source file — not on the verification surface, so never stripped — could see what
 # an earlier run left and behave differently.
-# The control runs the PREVIOUS committed revision of the adjudicator, so the leak
-# is demonstrated rather than assumed.
-PREFIX_REV=5d24883
+# The control runs the pre-fix adjudicator, so the leak is demonstrated rather than
+# assumed. It is a VENDORED FIXTURE, not a commit lookup: pinning a sha broke this
+# case the moment the branch history was rewritten (it failed CLOSED — "could not
+# check out …" — rather than passing silently, but it was still broken), and a
+# threat control that depends on the shape of history is the wrong kind of control.
+PREV="$HERE/fixtures/verdict4-pre-isolation.mjs"
 R13=$(mktemp -d "$W/r13-XXXXXX"); mkdir -p "$R13/src" "$R13/tests"
 # calc.py records, OUTSIDE the tree, how many earlier runs had already touched THIS
 # tree. Three isolated runs must each report "0".
@@ -473,14 +476,13 @@ run13() { # <adjudicator> <report> -> report holds one line per interpreter star
       node "$1" "$TD13" "$R13" "$OR13" "$OB13" "$B13" >/dev/null 2>&1 )
   sort -u "$2" | tr '\n' ',' 
 }
-PREV="$W/verdict4-prev.mjs"
-if git -C "$TB" show "$PREFIX_REV:harness/taskbench/runner/verdict4.mjs" > "$PREV" 2>/dev/null; then
+if [ -f "$PREV" ]; then
   ctl13=$(run13 "$PREV" "$W/rep13-ctl")
   # pre-fix: later runs see a tree an earlier run already touched -> a non-zero count
   if printf '%s' "$ctl13" | grep -q '[1-9]'; then
-    ok "M13 (threat control) on $PREFIX_REV the runs SHARED a tree — later runs saw counts {$ctl13}"
+    ok "M13 (threat control) against the pre-fix adjudicator the runs SHARED a tree — later runs saw counts {$ctl13}"
   else no "M13 threat control inconclusive (counts {$ctl13}) — the assertion below would prove nothing"; fi
-else no "M13 could not check out $PREFIX_REV to demonstrate the leak"; fi
+else no "M13 the pre-fix adjudicator fixture is missing ($PREV) — the leak cannot be demonstrated"; fi
 fix13=$(run13 "$HERE/verdict4.mjs" "$W/rep13-fix")
 if [ "$fix13" = "0," ]; then
   ok "M13 ISOLATED: every adjudication run started from an untouched tree (counts {$fix13})"
