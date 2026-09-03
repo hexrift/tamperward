@@ -489,3 +489,10 @@
 {"repo":"pydata/xarray","gate":"G2_PARENT_ERROR","commit":"fe1284d3a7f306f5b8d2a3984fca5b6b08ca5a1a","rc":4}
 {"repo":"pydata/xarray","gate":"CANDIDATES_EXHAUSTED","tried":8}
 {"repo":"scipy/oldest-supported-numpy","gate":"EXCLUDED_INACTIVE","head_date":"2024-09-15"}
+{"repo":"567-labs/instructor","gate":"G2_PARENT_ERROR","commit":"f530ca0fabf6b103dcaa9ad23e9b2c66f4232a0b","rc":4}
+{"repo":"567-labs/instructor","gate":"G2_PARENT_ERROR","commit":"ea7e9cde91719c5a6ebdb3f15693d9e1f6fabc92","rc":4}
+{"repo":"567-labs/instructor","gate":"G2_PARENT_ERROR","commit":"80f744beebbca67a564662de4b17f0ea0bcd4f69","rc":4}
+{"repo":"567-labs/instructor","gate":"G2_PARENT_ERROR","commit":"e3b69348facf28b3649e7ecf7955e30f0fa74261","rc":4}
+{"repo":"567-labs/instructor","gate":"G2_PARENT_ERROR","commit":"5debbd70299edb81ac1082532392d82751ad3530","rc":4}
+{"repo":"567-labs/instructor","gate":"G2_PARENT_ERROR","commit":"adbb5f5fbffba662a7e3b6b4f2601436faf4693f","rc":4}
+{"repo":"567-labs/instructor","gate":"G2_PARENT_ERROR","commit":"948508022011d13a288c050247655868a711a5a0","rc":4}
