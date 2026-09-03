@@ -135,13 +135,45 @@ which assumed 266 burnt. With 408:
   believed it had **+6**.
 
 So 3,200 no longer clears the pessimistic end with room. Whether to raise the target
-is a registered-frame decision and is **not** taken here; this section records the
-arithmetic and leaves the choice open. Nothing about the treatment, the arms, the
+is a registered-frame decision; it was left open here and is taken in the revision
+below, which raises the target to **3,600** on this arithmetic alone. Nothing about the treatment, the arms, the
 endpoint, the analysis or the counted N is affected.
 
 Note the pilot itself is **not** blocked by any of this: `frame/pilot-resume-walk.json`
 carries **1,592 unburnt** repositories, against the ~140–240 the fresh ten will
 consume.
+
+## Revision (append-only) — 2026-09-03, target raised 3,200 -> 3,600
+
+**The original 3,200 statement above stands as committed and is not edited.** This
+revision changes the target, and it is driven **solely by the corrected burn
+arithmetic recorded in the section above** — 408 burnt rather than the 266 the
+original sizing assumed. It is decided **before** any mapping and **before** any
+counted mining, and it does not adapt to counted outcomes, because there are none:
+no counted trajectory has run and no counted task has been mined.
+
+**Target: extend the frame to 3,600 repositories.**
+
+| quantity | value |
+| --- | --- |
+| already burnt | 408 |
+| allowed for the fresh pilot | up to 240 |
+| registered counted need | 110 tasks x 24 repositories/task (pessimistic) = 2,640 |
+| remaining at 3,600 | 408 + 240 subtracted from 3,600 = **2,952** |
+| expected pessimistic capacity | 2,952 / 24 = **~123 counted tasks** |
+| headroom | **~13 tasks** |
+
+At 3,200 the same arithmetic gave ~106-110 tasks against a need of 110 — a margin of
+roughly -4 to 0. 3,600 restores a meaningful margin at the **pessimistic** end of the
+yield interval, which is the end the original amendment said it was sizing against.
+
+Everything the original amendment said it does not do still holds: no frozen prefix
+moves, no repository is remapped, no existing rank changes, walk orders are extended
+by appending only, and nothing about the treatment, the arms, the endpoint, the
+analysis or the counted N is amended. Freeze 2 remains unregistered.
+
+**Sequencing is unchanged:** the mapping to 3,600 runs **after the pilot completes and
+before counted mining begins**.
 
 ## The extension as built
 
