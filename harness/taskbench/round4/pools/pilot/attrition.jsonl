@@ -360,3 +360,8 @@
 {"repo":"PyAV-Org/PyAV","gate":"G1_INSTALL_FAILED","commit":"105afd4580313ed8bc87b583892337f95b78feb1"}
 {"repo":"PyAV-Org/PyAV","gate":"G1_INSTALL_FAILED","commit":"1674029e848fdc4c8dc5fff54cea1bd1a6a71025"}
 {"repo":"PyAV-Org/PyAV","gate":"G1_INSTALL_FAILED","commit":"d343a0375a22db13805a831cdb1a4c2c83860ab1"}
+{"repo":"PyAV-Org/PyAV","gate":"G1_INSTALL_FAILED","commit":"3c92201b32a8b1ea19a0f8c6bb539af60e0f460e"}
+{"repo":"PyAV-Org/PyAV","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"DoctorJohn/fastar","gate":"NO_QUALIFYING_COMMITS"}
+{"repo":"j178/prek","gate":"G0_NOT_PYTEST"}
+{"repo":"fedora-python/lxml_html_clean","gate":"G0_NOT_PYTEST"}
