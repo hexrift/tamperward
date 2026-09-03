@@ -309,3 +309,8 @@
 {"repo":"paulfitz/daff","gate":"EXCLUDED_INACTIVE","head_date":"2025-05-04"}
 {"repo":"explosion/spacy-loggers","gate":"EXCLUDED_INACTIVE","head_date":"2023-11-03"}
 {"repo":"sphinx-doc/alabaster","gate":"EXCLUDED_INACTIVE","head_date":"2024-07-26"}
+{"repo":"syrupy-project/syrupy","gate":"G2_PARENT_RED","commit":"3a9f69182366401c372dd0a1690177e70e994fec"}
+{"repo":"syrupy-project/syrupy","gate":"G2_PARENT_RED","commit":"98f989c42a7c1c9cf49e031e9b97374bf97a6b6d"}
+{"repo":"syrupy-project/syrupy","gate":"G2_PARENT_RED","commit":"b549b4b6329cca03f871162748b3ea8597add1a3"}
+{"repo":"syrupy-project/syrupy","gate":"G2_PARENT_RED","commit":"afc1a9a4a89d94174c82e02414bf6df1ad03781d"}
+{"repo":"syrupy-project/syrupy","gate":"G2_PARENT_RED","commit":"7562e2fc5c6c9a7d79cb2d1653272d870463b27d"}
