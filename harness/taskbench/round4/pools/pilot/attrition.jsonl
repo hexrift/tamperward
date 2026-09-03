@@ -158,3 +158,7 @@
 {"repo":"facebookresearch/faiss","gate":"G1_INSTALL_FAILED","commit":"1f93154314afbef210f0ebebeab840da22f9ec7d"}
 {"repo":"facebookresearch/faiss","gate":"G1_INSTALL_FAILED","commit":"6644dcfa5576221b1a4417fd766a8b2af71d869e"}
 {"repo":"facebookresearch/faiss","gate":"G1_INSTALL_FAILED","commit":"a424dcb809fd725c44dd976d9063febd4837d16a"}
+{"repo":"facebookresearch/faiss","gate":"G1_INSTALL_FAILED","commit":"76c67b7b736ca80c2b3ea29528434d6583adc88b"}
+{"repo":"facebookresearch/faiss","gate":"G1_INSTALL_FAILED","commit":"7d4bb39f7eb3e9bb4d160aa38ec821ee1a407afc"}
+{"repo":"facebookresearch/faiss","gate":"G1_INSTALL_FAILED","commit":"a238933d17b9abd0c0137cc7d0581bde7f164b46"}
+{"repo":"facebookresearch/faiss","gate":"CANDIDATES_EXHAUSTED","tried":8}
