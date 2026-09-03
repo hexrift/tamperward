@@ -541,3 +541,5 @@
 {"repo":"google/oauth2client","gate":"EXCLUDED_INACTIVE","head_date":"2018-09-07"}
 {"repo":"deeplook/sparklines","gate":"G5_COMMIT_RED","commit":"d283370e8fbc01dc2ead98a93d7fac263fd05a37","rc":2}
 {"repo":"deeplook/sparklines","gate":"TASK_VALIDATED","commit":"79b2f781eb6a8044fa292992333df06f67c6b5fd","candidate":2}
+{"repo":"aws/sagemaker-python-sdk","gate":"G0_NO_TESTS"}
+{"repo":"CycloneDX/cyclonedx-python-lib","gate":"G0_NOT_PYTEST"}
