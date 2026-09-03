@@ -735,3 +735,43 @@ the SHA-256 above. This is disclosed as a deviation from the canonical `npx`
 invocation string, justified because (a) npx is unreliable here and (b) a
 hash-pinned artefact is the actual frozen treatment. Enforcement, base
 acceptance, and tamper-detection are all equivalent to the canonical gate.
+
+### Credential isolation — the authoritative record (2026-09-03)
+
+This supersedes the earlier credential entries as the definitive statement for
+the freeze-checklist isolation item and for Freeze 2.
+
+**Classification: PARTIAL ISOLATION with a disclosed runtime limitation — neither
+"passed" nor "failed".** The OS isolation works; the Claude CLI's execution model
+prevents separating authentication privilege from tool-execution privilege, so
+the "agent cannot see credentials" sub-item cannot pass. Because the exposure is
+**symmetric across both arms**, it does not inherently invalidate the
+gated-versus-ungated comparison. **No 2.10.2 is required** — it is a harness/runtime
+limitation, not a Tamperward defect.
+
+The durable record states, precisely:
+
+1. **Credential reachability is identical in both arms**, preserving experimental
+   symmetry.
+2. **Agent-controlled subprocesses can read the active Claude credential** (the
+   agent is the authenticated CLI; tool subprocesses share its uid and mount
+   namespace).
+3. **Network restriction reduces destinations but cannot prevent exfiltration
+   through the permitted model endpoint** — a tool can read the credential, print
+   it, and the CLI relays that output to the model as conversation.
+4. **The pilot uses a dedicated identity/credential** with the lowest available
+   permissions and a hard spending limit where supported.
+5. **Its non-secret fingerprint, creation time and revocation status are
+   recorded** — never the credential itself.
+6. **The credential is revoked immediately after the 20 trajectories**, or upon
+   any unexpected access attempt.
+7. **Revocation is tested, not merely assumed** (a post-revocation call must
+   fail).
+8. **No unrelated credentials, cloud configuration, SSH material or tokens enter
+   the jail** — the isolation jail masks them all.
+
+Points 4–7 are the operator-owned credential lifecycle (provisioning and
+revocation are not harness actions); the harness enforces point 8 (masking) and
+records the point-5 fingerprint. Everything else in the isolation item — oracle,
+ledger, adjudicator, host processes, Docker socket, parent runtime — is fully
+masked and passes.
