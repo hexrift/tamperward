@@ -457,3 +457,11 @@
 {"repo":"mesonbuild/meson-python","gate":"G2_PARENT_ERROR","commit":"bc406f72aa57104f503df44fef7b7e5d0a2b1e85","rc":4}
 {"repo":"mesonbuild/meson-python","gate":"G2_PARENT_ERROR","commit":"070c59718a90107a9c622812f1d9a7bde8a84c4d","rc":4}
 {"repo":"mesonbuild/meson-python","gate":"G2_PARENT_ERROR","commit":"8f7aa62f9d543d2665f3685c0f274cedf0d20b43","rc":4}
+{"repo":"mesonbuild/meson-python","gate":"G2_PARENT_ERROR","commit":"e5ba90fc2c0bad36055e7a393013facb221bb21e","rc":4}
+{"repo":"mesonbuild/meson-python","gate":"G2_PARENT_ERROR","commit":"3205db1c16ae1578706c2c6a9ab367f1a9e432b4","rc":4}
+{"repo":"mesonbuild/meson-python","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"py-pdf/PyPDF2","gate":"G2_PARENT_ERROR","commit":"17d57a57cf96ea33c8c5bb23ba19b68aec3ff253","rc":4}
+{"repo":"py-pdf/PyPDF2","gate":"G2_PARENT_ERROR","commit":"2f3ed6b8952e2fbafd57ca51ec250f3d98e68b79","rc":4}
+{"repo":"py-pdf/PyPDF2","gate":"G2_PARENT_ERROR","commit":"ea6ff22a6fee8504350617579a0754493f1ab334","rc":4}
+{"repo":"py-pdf/PyPDF2","gate":"G2_PARENT_ERROR","commit":"07d5569f1008a527db2b8c0eaf86e289df5d1972","rc":4}
+{"repo":"py-pdf/PyPDF2","gate":"G2_PARENT_ERROR","commit":"b17dee7855935ad30d6ed93f100a71f31890f18a","rc":4}
