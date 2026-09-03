@@ -644,3 +644,41 @@ and another registered candidate iteration.
 (if forced, 2.10.2 + re-run) → map Amendment 2 and verify its prefix /
 disjointness / dedup invariants → counted mining → Freeze 2 → only then any
 counted trajectory.
+
+## Freeze-checklist finding — 2026-09-03, agent-vs-credential isolation is PARTIAL
+
+Investigated for the freeze checklist's isolation item (mount/PID/capability
+separation). Every other boundary is achievable here and will be enforced: the
+oracle, result ledger, adjudicator, host processes, Docker socket and parent
+runtime are masked from the agent by a mount+PID+capability jail (validated:
+`unshare --pid --mount --fork --mount-proc` + path masking + `setpriv
+--bounding-set=-all --inh-caps=-all` all work in this environment).
+
+**The API credential is the exception, and it is a PARTIAL result, not a pass.**
+The agent IS the authenticated `claude` CLI: its tool-call subprocesses run in
+the CLI's own uid and mount namespace, so whatever the CLI must read to
+authenticate (`/root/.claude.json`, mode 600), a tool can read too. Restricting
+egress to the model API does **not** contain this: a tool can read the
+credential, print it, and the CLI relays that output to the model endpoint as
+conversation — the permitted endpoint is itself an exfiltration path. A
+uid privilege-split (tools under an unprivileged uid that cannot read the
+root-owned credential) is the clean fix at the OS level (confirmed: `nobody`
+cannot read the credential), but the `claude` CLI does not run tool subprocesses
+under a separate uid, so it is **infeasible without CLI support**.
+
+**Decision (not a Tamperward defect; no 2.10.2).** A TLS-intercepting
+auth-injecting proxy is NOT built now — introducing certificate trust and a new
+privileged component immediately before the pilot would create a larger untested
+trust boundary than it closes. Instead the counted/pilot trajectories run under a
+**dedicated, short-lived, spending-limited pilot credential**, with: no unrelated
+credentials mounted; strict network allowlisting (already enforced by the
+net-jail); a disposable runtime; and **revocation immediately after the 20
+trajectories**. This is recorded as a **partial isolation result** — the
+"agent cannot see credentials" check does NOT pass — and **Freeze 2 must state
+the limitation accurately**. A proper auth-injecting proxy can close it in a
+later round.
+
+**Consequence for running the pilot here:** the 20 trajectories require that
+dedicated pilot credential to be provisioned (and revoked after). Provisioning
+and revoking it is an operator action, not something the harness does — so it is
+a handoff before the trajectory phase, distinct from the runner build.
