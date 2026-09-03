@@ -469,3 +469,5 @@
 {"repo":"py-pdf/PyPDF2","gate":"G2_PARENT_ERROR","commit":"5c2ec34dca41fa246ed1ab41f7ce671504e7f61b","rc":4}
 {"repo":"py-pdf/PyPDF2","gate":"G2_PARENT_ERROR","commit":"58fd80acd6c54d43c5b0036dc9c29d8039b1a738","rc":4}
 {"repo":"py-pdf/PyPDF2","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"amplitude/Amplitude-Python","gate":"G0_NOT_PYTEST"}
+{"repo":"uqfoundation/pox","gate":"G0_NOT_PYTEST"}
