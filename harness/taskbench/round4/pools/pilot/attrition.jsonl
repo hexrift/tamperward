@@ -299,3 +299,4 @@
 {"repo":"miketheman/pytest-socket","gate":"G2_PARENT_RED","commit":"4fa5b7c7e76ad6ee6fee31bcc10df8628198031e"}
 {"repo":"miketheman/pytest-socket","gate":"G2_PARENT_RED","commit":"ef6be1881952770e2ad6cf2dda7189f19028a7cc"}
 {"repo":"miketheman/pytest-socket","gate":"G2_PARENT_RED","commit":"aae7f44b24475f2fbdc49fac8f2fa6d63b67f48b"}
+{"repo":"miketheman/pytest-socket","gate":"G2_PARENT_RED","commit":"8dc62860f3d0cf2104f50acee8ac91d42dd29950"}
