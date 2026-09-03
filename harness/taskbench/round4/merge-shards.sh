@@ -39,8 +39,14 @@ const walk = JSON.parse(fs.readFileSync(`pools/${pool}/walk.json`));
 const order = walk.order;
 const rank = new Map(order.map((r, i) => [r.toLowerCase(), i]));
 
-// Stratum mode is derived from the POOL, never from an env var a caller may forget.
-const strata = pool.startsWith("counted");
+// SELECTION IS WALK ORDER, in every pool. An earlier version filled a
+// 55/55 single-distribution/workspace quota, a split that appears in no
+// registration: PREDICTION4 registers N pairs and nothing about strata. It was
+// also unsupportable — round 3 yielded 18 single-distribution and 2 workspace
+// tasks from 500 repositories, so a 55-workspace quota could not be met by any
+// frame of this size and would have made the merge fail on a shortage that is a
+// property of the population, not of the mining. Strata are now DESCRIPTIVE:
+// counted, reported, and never a selection criterion.
 
 const found = [], seenRepo = new Map();
 for (let i = 0; i < workers; i++) {
@@ -62,25 +68,19 @@ for (let i = 0; i < workers; i++) {
 }
 found.sort((a, b) => a.rank - b.rank);
 
-let chosen;
-if (strata) {
-  const q = { "single-distribution": +(process.env.TB_QUOTA_SINGLE || 55),
-              "workspace": +(process.env.TB_QUOTA_WS || 55) };
-  const taken = { "single-distribution": 0, "workspace": 0 };
-  chosen = [];
-  for (const f of found) {
-    if (q[f.stratum] === undefined) die(`task ${f.id} has unknown stratum ${f.stratum}`);
-    if (taken[f.stratum] >= q[f.stratum]) continue;
-    taken[f.stratum]++; chosen.push(f);
-  }
-  const short = Object.keys(q).filter(s => taken[s] < q[s]);
-  if (short.length) die(`strata short of their registered quotas: ` +
-    short.map(s => `${s} ${taken[s]}/${q[s]}`).join(", ") + ` — the walk did not yield the registered pool`);
-  console.log(`strata filled exactly: ${JSON.stringify(taken)}`);
-} else {
-  if (found.length < need) die(`only ${found.length} validated tasks, need ${need}`);
-  chosen = found.slice(0, need);
-}
+const KNOWN_STRATA = ["single-distribution", "workspace"];
+for (const f of found)
+  if (!KNOWN_STRATA.includes(f.stratum)) die(`task ${f.id} has unknown stratum ${f.stratum}`);
+if (found.length < need) die(`only ${found.length} validated tasks, need ${need}`);
+const chosen = found.slice(0, need);
+const mix = {};
+for (const c of chosen) mix[c.stratum] = (mix[c.stratum] || 0) + 1;
+console.log(`stratum mix (descriptive, not a quota): ${JSON.stringify(mix)}`);
+fs.writeFileSync(`${stage}/.selection.json`, JSON.stringify({
+  rule: "the first N validated tasks in frozen walk order; strata are descriptive and never select",
+  need, validated: found.length, stratum_mix: mix,
+  tasks: chosen.map(c => ({ id: c.id, repo: c.repo, stratum: c.stratum, walk_rank: c.rank })),
+}, null, 1) + "\n");
 
 for (const c of chosen) {
   const dst = `${stage}/${c.id}`;
@@ -96,6 +96,9 @@ rc=$?
 # Publish only after validation, and replace rather than accumulate.
 rm -rf "pools/$POOL/tasks"; mkdir -p "pools/$POOL/tasks"
 cp -r "$STAGE"/* "pools/$POOL/tasks/" 2>/dev/null
+# The selection record sits beside tasks/, never inside it: it is provenance for
+# the draw (which tasks, at which walk ranks, with what stratum mix), not a task.
+mv "$STAGE/.selection.json" "pools/$POOL/selection.json"
 rm -rf "$STAGE"
 : > "pools/$POOL/attrition.jsonl"
 for i in $(seq 0 $((WORKERS-1))); do

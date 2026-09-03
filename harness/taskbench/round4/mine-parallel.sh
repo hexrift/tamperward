@@ -54,6 +54,10 @@ for(let i=0;i<w;i++){
 console.log(`sharded ${order.length} repos across ${w} workers`);
 ' "$SRC" "$WORKERS" "$POOL" || exit 1
 
+# A shard mines its slice EXHAUSTIVELY (the sentinel need below): no shard can
+# see the aggregate task count, so stopping early is merge-shards.sh's job — it
+# takes the first N validated tasks in frozen walk order across all shards.
+#
 # Cloning is serialised across workers by a git shim (see shim/git and
 # DEVIATIONS.md D3): concurrent clones aborted and were recorded as terminal
 # CLONE_FAILED verdicts. Install and pytest, which dominate the cost, stay
@@ -74,7 +78,7 @@ for i in $(seq 0 $((WORKERS-1))); do
   ( exec 9>"/tmp/tb-shard-$POOL-s$i.lock"
     flock -n 9 || { echo "REFUSING shard $i: another worker holds its lock" >&2; exit 7; }
     TB_POOL="$POOL-s$i" TB_WORK="/tmp/tb-mine5-$POOL-s$i" \
-    TB_PILOT_NEED="${TB_PILOT_NEED:-99}" TB_QUOTA_SINGLE=0 TB_QUOTA_WS=0 \
+    TB_TASK_NEED="${TB_TASK_NEED:-999999}" \
     ./mine5.sh >> "/tmp/mine-$POOL-s$i.log" 2>&1 ) &
   pids+=($!)
   echo "worker $i -> pid ${pids[-1]}  log /tmp/mine-$POOL-s$i.log"

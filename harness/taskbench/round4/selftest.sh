@@ -52,6 +52,98 @@ printf 'not json' > "$T/pools/counted-s0/tasks/01-x/manifest.json"
 ( cd "$T" && ./merge-shards.sh counted 1 1 >/dev/null 2>&1 ) && no "merged a malformed manifest" || ok "merge refused: malformed manifest"
 rm -rf "$T"
 
+echo "== P1: selection is frozen walk order; strata describe, never select"
+# The removed defect: the merger filled a 55 single-distribution / 55 workspace
+# quota that PREDICTION4 registers nowhere, and that round 3's yield (18 single,
+# 2 workspace from 500 repos) shows no frame of this size can meet. A quota the
+# population cannot satisfy fails the merge on a property of the population.
+T=$(mktemp -d); cp merge-shards.sh "$T/"; mkdir -p "$T/pools/counted"
+printf '{"order":["r/first","r/second","r/third"]}' > "$T/pools/counted/walk.json"
+mk(){ mkdir -p "$T/pools/counted-s0/tasks/$1"; printf '{"repo":"%s","stratum":"%s","commit_sha":"a","parent_sha":"b"}' \
+        "$2" "$3" > "$T/pools/counted-s0/tasks/$1/manifest.json"; }
+mkdir -p "$T/pools/counted-s0"; printf '{"pool":"counted-s0"}' > "$T/pools/counted-s0/completion.json"
+# every task workspace-free: under the old quota this could never fill 55 workspace
+mk 03-c r/third  single-distribution
+mk 01-a r/first  single-distribution
+mk 02-b r/second single-distribution
+out=$(cd "$T" && ./merge-shards.sh counted 1 2 2>&1)
+if [ -d "$T/pools/counted/tasks/01-a" ] && [ -d "$T/pools/counted/tasks/02-b" ] && [ ! -d "$T/pools/counted/tasks/03-c" ]; then
+  ok "the first N validated tasks in walk order are selected"
+else
+  no "selection did not follow walk order: $(ls "$T/pools/counted/tasks" 2>/dev/null | tr '\n' ' ')"
+fi
+node -p "JSON.parse(require('fs').readFileSync('$T/pools/counted/selection.json')).stratum_mix['single-distribution']" 2>/dev/null \
+  | grep -qx 2 && ok "the stratum mix is recorded descriptively beside tasks/" || no "no descriptive stratum record"
+[ -e "$T/pools/counted/tasks/selection.json" ] && no "the selection record was published INSIDE tasks/" \
+  || ok "the selection record is not itself a task"
+grep -q 'TB_QUOTA_SINGLE\|TB_QUOTA_WS' merge-shards.sh mine5.sh mine-parallel.sh \
+  && no "a stratum quota survives in the miner or merger" || ok "no stratum quota remains anywhere"
+rm -rf "$T"
+
+echo "== P0: the clone shim reaches EVERY entry point, or the miner refuses"
+# The pilot runs mine5.sh directly (launch-mine.sh), and only mine-parallel.sh
+# installed the shim — so the sequential pilot mined with the real git: no
+# serialisation, no retries, no breaker, and a failed clone free to become a
+# terminal CLONE_FAILED. These two cases are functional, not textual: they run
+# the miner and look at what it wrote.
+sandbox() { # -> path of a self-contained mine5.sh sandbox with one unreachable repo
+  local d; d=$(mktemp -d)
+  cp mine5.sh "$d/"; cp -R shim "$d/"
+  mkdir -p "$d/pools/counted"
+  printf '{"order":["tb-selftest/unreachable"]}' > "$d/pools/counted/walk.json"
+  echo "$d"
+}
+D=$(sandbox)
+out=$(cd "$D" && env TB_POOL=counted TB_CLONE_BASE="file:///nonexistent-tb-selftest" \
+        TB_CLONE_MAX_CONSEC=1 TB_CLONE_LOCK="$D/clone.lock" TB_CLONE_BREAKER="$D/breaker" \
+        TB_CLONE_FAILS="$D/fails" TB_INFRA_LOG="$D/infra.jsonl" TB_POOL_LOCK="$D/pool.lock" \
+        timeout 120 ./mine5.sh 2>&1)
+grep -q CLONE_FAILED "$D/pools/counted/attrition.jsonl" 2>/dev/null \
+  && no "a failed clone STILL became a terminal CLONE_FAILED verdict" \
+  || ok "a failed clone writes no terminal verdict when mine5.sh is run directly"
+[ -e "$D/breaker" ] && ok "the breaker trips for a directly-invoked miner (it could not before)" \
+  || no "the breaker never tripped — the shim is not on the direct path"
+grep -q INFRASTRUCTURE_FAILURE "$D/infra.jsonl" 2>/dev/null \
+  && ok "the failure is raised as INFRASTRUCTURE_FAILURE" || no "no INFRASTRUCTURE_FAILURE recorded"
+rm -rf "$D"
+D=$(sandbox); rm -rf "$D/shim"
+out=$(cd "$D" && env TB_POOL=counted TB_POOL_LOCK="$D/pool.lock" ./mine5.sh 2>&1); rc=$?
+[ "$rc" = 9 ] && echo "$out" | grep -q 'not the clone shim' \
+  && ok "with no shim reachable the miner REFUSES rather than mining unprotected" \
+  || no "miner ran without the shim (rc=$rc)"
+rm -rf "$D"
+
+echo "== P0: one miner per pool, enforced for the miner's whole lifetime"
+# Session counting in status.sh sees accumulation after the fact; only a lock
+# prevents a second launch. mine-parallel locked each shard, so the sequential
+# pilot — the one mode that skips it — had no lock at all.
+locked() { ( flock -n 6 ) 6>"$1" 2>/dev/null && return 1 || return 0; }
+D=$(sandbox)
+( flock 7; sleep 90 ) 7>"$D/clone.lock" &   # hold the shim's clone lock: miner 1 blocks mid-clone
+holder=$!; disown "$holder" 2>/dev/null || true
+# Own session, so the test can stop the miner the way the runbook stops one.
+setsid env TB_POOL=counted TB_CLONE_BASE="file:///nonexistent-tb-selftest" \
+    TB_CLONE_LOCK="$D/clone.lock" TB_CLONE_BREAKER="$D/breaker" TB_CLONE_FAILS="$D/fails" \
+    TB_INFRA_LOG="$D/infra.jsonl" TB_POOL_LOCK="$D/pool.lock" \
+    bash -c 'cd "$1" && ./mine5.sh' _ "$D" >/dev/null 2>&1 &
+first=$!; disown "$first" 2>/dev/null || true
+held=0; for _ in $(seq 1 60); do locked "$D/pool.lock" && { held=1; break; }; sleep 0.25; done
+[ "$held" = 1 ] && ok "miner 1 holds the pool lock while it runs" || no "miner 1 never took the pool lock"
+out=$(cd "$D" && env TB_POOL=counted TB_POOL_LOCK="$D/pool.lock" ./mine5.sh 2>&1); rc=$?
+[ "$rc" = 7 ] && echo "$out" | grep -q 'another miner already holds the lock' \
+  && ok "a second miner on the same pool is REFUSED (exit 7)" \
+  || no "a second miner was allowed to start (rc=$rc)"
+# Stopping a miner means stopping its session — descendants inherit the lock fd,
+# so killing the script alone can leave the pool locked. That is fail-closed
+# (the next miner refuses rather than doubling up), and the runbook's stop is a
+# session stop, which is what this asserts.
+kill -KILL "$holder" 2>/dev/null
+pkill -KILL -s "$first" 2>/dev/null; kill -KILL "$first" 2>/dev/null
+free=0; for _ in $(seq 1 60); do locked "$D/pool.lock" || { free=1; break; }; sleep 0.25; done
+[ "$free" = 1 ] && ok "stopping the miner's session frees the pool — no stranded lock" \
+  || no "the pool stayed locked after the miner's session was stopped"
+rm -rf "$D"
+
 echo "== P1: the frozen walk artefact is a real file, never a symlink"
 [ -L pools/pilot/walk.json ] && no "pools/pilot/walk.json is a SYMLINK — writes reach the frozen frame" || ok "pools/pilot/walk.json is a real file"
 n=$(node -p "JSON.parse(require('fs').readFileSync('frame/pilot-walk-order.json')).order.length")

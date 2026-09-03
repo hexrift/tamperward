@@ -19,7 +19,46 @@ BASE_POOL="${POOL%%-s*}"
 # pilot / counted, or a shard of either ("pilot-s0") when mine-parallel.sh
 # splits the walk. The shard is a pool directory like any other.
 case "$POOL" in pilot|counted|pilot-s[0-9]*|counted-s[0-9]*) ;; *) echo "TB_POOL must be pilot, counted, or a shard of either" >&2; exit 2;; esac
-cd "$(dirname "$0")/pools/$POOL"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+
+# The clone shim belongs to the MINER, not to one launcher. It was installed
+# only by mine-parallel.sh, so the sequential pilot — which launch-mine.sh runs
+# by calling this script directly — mined with the real git: no clone
+# serialisation, no retries, no breaker, and a failed clone free to become the
+# terminal CLONE_FAILED verdict that D3 was about. A protection that depends on
+# which entry point was used is not a protection. Install it here, idempotently,
+# so every entry point gets it, and then PROVE it took effect: if `git` does not
+# resolve to the shim, refuse to mine rather than mine unprotected.
+case ":$PATH:" in *":$HERE/shim:"*) ;; *) PATH="$HERE/shim:$PATH";; esac
+export PATH
+if [ "${TB_REQUIRE_SHIM:-1}" = 1 ]; then
+  resolved="$(command -v git || true)"
+  if [ "$resolved" != "$HERE/shim/git" ]; then
+    echo "REFUSING: git resolves to '${resolved:-nothing}', not the clone shim at $HERE/shim/git." >&2
+    echo "  Mining without the shim cannot serialise clones, cannot retry, and cannot" >&2
+    echo "  stop the walk before a failed clone becomes a terminal CLONE_FAILED verdict." >&2
+    exit 9
+  fi
+fi
+
+cd "$HERE/pools/$POOL"
+
+# One miner per pool, enforced for the miner's COMPLETE lifetime. mine-parallel
+# locked each shard, so the sequential pilot — the one mode that skips that
+# driver — had no lock at all: a second launch would simply have appended to the
+# same ledger, which is the accumulation shape D3 is best explained by. Session
+# counting in status.sh detects that AFTER it happens; only the lock prevents it.
+# fd 8, never 9: mine-parallel passes its shard lock down on fd 9, and reusing
+# that number here would close it and release the very lock the parent holds.
+# The kernel drops this lock when the process dies, however it dies, so a
+# SIGKILLed miner does not strand the pool.
+POOL_LOCK="${TB_POOL_LOCK:-/tmp/tb-mine5-$POOL.lock}"
+exec 8>"$POOL_LOCK"
+if ! flock -n 8; then
+  echo "REFUSING: another miner already holds the lock for pool $POOL ($POOL_LOCK)." >&2
+  echo "  Two miners on one pool write one ledger. Stop the running miner first." >&2
+  exit 7
+fi
 WORK="${TB_WORK:-/tmp/tb-mine5-$POOL}"
 # Round-3 left the work directory implicit: the bash default and the node
 # block's fallback were the same literal, so they agreed by coincidence.
@@ -50,23 +89,33 @@ touch "$ATTR"
 SINCE="2024-09-01"; UNTIL="2026-09-01"
 FLOOR="2025-09-03"
 CAND_CAP=8; STEP_TIMEOUT=300
-# Pool-scoped quotas. The pilot pool wants exactly the ten repositories
-# PILOT4.md fixes; the counted pool wants the frozen N the PREDICTION commits
-# (the power simulation points at 110 pairs), split evenly across the two
-# strata and overridable so freeze 2 can set the registered number.
+# Pool-scoped task needs. The pilot wants the ten validated tasks PILOT4.md
+# fixes; the counted pool wants the frozen N the PREDICTION commits (the power
+# simulation points at 110 pairs), overridable so freeze 2 can set the
+# registered number.
 # Keyed off the BASE pool, never the shard name: "pilot-s0" is a pilot, and
-# selecting on $POOL gave it the COUNTED defaults (need 0, quotas 55/55), which
-# would have let a single pilot shard consume every remaining repository.
+# selecting on $POOL gave it the COUNTED defaults, which would have let a single
+# pilot shard consume every remaining repository.
+#
+# THERE IS NO STRATUM QUOTA. An earlier version required 55 single-distribution
+# AND 55 workspace tasks, a split registered nowhere: PREDICTION4 fixes N pairs
+# and says nothing about strata. It was also unmeetable — round 3 yielded 18
+# single-distribution and 2 workspace tasks from 500 repositories, so a
+# 55-workspace requirement would have driven the walk through the entire frame
+# chasing tasks the population does not contain, and the quota-exhaustion
+# arithmetic below would never have terminated. The walk now stops at N
+# validated tasks in walk order; the stratum of each is RECORDED and reported,
+# and never selects.
 if [ "$BASE_POOL" = pilot ]; then
-  PILOT_NEED="${TB_PILOT_NEED:-10}"; QUOTA_SINGLE="${TB_QUOTA_SINGLE:-0}"; QUOTA_WS="${TB_QUOTA_WS:-0}"
+  TASK_NEED="${TB_PILOT_NEED:-10}"
   # A pilot walk is sacrificial: every repository it touches is burnt. Refuse an
   # unbounded need outright rather than trust a caller's default.
-  if [ "$PILOT_NEED" -gt 20 ] 2>/dev/null; then
-    echo "REFUSING: TB_PILOT_NEED=$PILOT_NEED on a pilot pool; the walk is sacrificial and must be bounded." >&2
+  if [ "$TASK_NEED" -gt 20 ] 2>/dev/null; then
+    echo "REFUSING: TB_PILOT_NEED=$TASK_NEED on a pilot pool; the walk is sacrificial and must be bounded." >&2
     exit 4
   fi
 else
-  PILOT_NEED="${TB_PILOT_NEED:-0}"; QUOTA_SINGLE="${TB_QUOTA_SINGLE:-55}"; QUOTA_WS="${TB_QUOTA_WS:-55}"
+  TASK_NEED="${TB_TASK_NEED:-110}"
 fi
 
 # The neutral v1.14.0 policy's Python protected.tests, as regexes:
@@ -87,19 +136,18 @@ jlog() { # repo, code, extra-json-fragment
   log "{\"repo\":\"$1\",\"gate\":\"$2\"${3:+,$3}}"
 }
 
-counts() { # prints "pilot single ws"
+counts() { # prints "total single ws" — TOTAL drives the walk, strata only describe it
   node -e '
     const fs=require("fs");
-    let p=0,s=0,w=0;
+    let t=0,s=0,w=0;
     if (fs.existsSync("tasks")) for (const d of fs.readdirSync("tasks")) {
       const mf=`tasks/${d}/manifest.json`;
       if (!fs.existsSync(mf)) continue;
       const m=JSON.parse(fs.readFileSync(mf,"utf8"));
-      if (m.role==="pilot") p++;
-      else if (m.stratum==="single-distribution") s++;
-      else w++;
+      t++;
+      if (m.stratum==="single-distribution") s++; else w++;
     }
-    console.log(`${p} ${s} ${w}`);'
+    console.log(`${t} ${s} ${w}`);'
 }
 
 run_suite() { # dir -> exit code of the frozen suite command under timeout
@@ -168,11 +216,13 @@ process_repo() {
       | grep -vE "$STRATUM_EXCL_RE" | grep -q .; then
     stratum="workspace"
   fi
-  # quota check (pilot slots are stratum-blind)
-  read -r P S W <<< "$(counts)"
-  if [ "$P" -ge "$PILOT_NEED" ]; then
-    if [[ "$stratum" == "single-distribution" && "$S" -ge "$QUOTA_SINGLE" ]]; then jlog "$repo" "QUOTA_FULL" "\"stratum\":\"$stratum\""; return; fi
-    if [[ "$stratum" == "workspace" && "$W" -ge "$QUOTA_WS" ]]; then jlog "$repo" "QUOTA_FULL" "\"stratum\":\"$stratum\""; return; fi
+  # need check — total validated tasks, stratum-blind. Re-read here as well as
+  # in the walk loop because a sharded counted run has several miners adding
+  # tasks between one repository and the next. QUOTA_FULL keeps its name so an
+  # existing ledger still resumes against the same terminal-verdict set.
+  read -r T S W <<< "$(counts)"
+  if [ "$T" -ge "$TASK_NEED" ]; then
+    jlog "$repo" "QUOTA_FULL" "\"stratum\":\"$stratum\",\"reason\":\"task need met\""; return
   fi
   # enumerate qualifying commits, newest first
   local cands
@@ -307,16 +357,16 @@ for repo in $ORDER; do
   # resumability: skip only repos with a REPO-LEVEL VERDICT (FRAME2 correction 3)
   # grep -F: the repo name is a fixed string, not a regex
   grep -F -- "\"repo\":\"$repo\"" "$ATTR" 2>/dev/null | grep -qE "$VERDICT_RE" && continue
-  read -r P S W <<< "$(counts)"
-  if [ "$P" -ge "$PILOT_NEED" ] && [ "$S" -ge "$QUOTA_SINGLE" ] && [ "$W" -ge "$QUOTA_WS" ]; then
-    echo "DONE: pilot=$P single=$S workspace=$W"; exit 0
+  read -r T S W <<< "$(counts)"
+  if [ "$T" -ge "$TASK_NEED" ]; then
+    echo "DONE: tasks=$T of $TASK_NEED (single=$S workspace=$W, descriptive)"; exit 0
   fi
-  echo "[walk] $repo (pilot=$P single=$S ws=$W)"
+  echo "[walk] $repo (tasks=$T/$TASK_NEED single=$S ws=$W)"
   process_repo "$repo"
   rm -rf "$WORK/repo" "$VENV"
 done
-read -r P S W <<< "$(counts)"
-echo "FRAME EXHAUSTED: pilot=$P single=$S workspace=$W"
+read -r T S W <<< "$(counts)"
+echo "FRAME EXHAUSTED: tasks=$T of $TASK_NEED (single=$S workspace=$W, descriptive)"
 # completeness arithmetic (FRAME2 correction 3's standing rule)
 undecided=0
 for repo in $ORDER; do
@@ -325,7 +375,7 @@ for repo in $ORDER; do
 done
 [ "$undecided" -gt 0 ] && { echo "WALK INCOMPLETE: $undecided repo(s) undecided — re-run to complete"; exit 6; }
 WALK_SHA=$(sha256sum walk.json | cut -c1-64)
-printf '{"pool":"%s","base_pool":"%s","walk_sha256":"%s","repos":%s,"completed_at":"%s","pilot_need":%s,"quota_single":%s,"quota_ws":%s}\n' \
+printf '{"pool":"%s","base_pool":"%s","walk_sha256":"%s","repos":%s,"completed_at":"%s","task_need":%s,"tasks":%s,"stratum_mix":{"single-distribution":%s,"workspace":%s}}\n' \
   "$POOL" "$BASE_POOL" "$WALK_SHA" "$(printf '%s\n' $ORDER | wc -l)" "$(date -u +%FT%TZ)" \
-  "$PILOT_NEED" "$QUOTA_SINGLE" "$QUOTA_WS" > completion.json
+  "$TASK_NEED" "$T" "$S" "$W" > completion.json
 echo "WALK COMPLETE: all $(printf '%s\n' $ORDER | wc -l) repos decided (completion.json written)"

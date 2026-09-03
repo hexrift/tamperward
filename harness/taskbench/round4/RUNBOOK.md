@@ -56,11 +56,38 @@ sacrificial:
 
 ```
 ./launch-mine.sh counted 4
-./merge-shards.sh counted 4 110           # fills each stratum's registered quota
+./merge-shards.sh counted 4 110           # first 110 validated tasks in walk order
 ```
 
 Both are resumable — rerun after any interruption and decided repositories are
 skipped on their repo-level verdict line.
+
+## Checking and stopping a miner
+
+```
+./status.sh pilot                         # or counted
+```
+
+`mining sessions` is the number that matters: **1 is healthy, more than 1 is
+accumulation** — stop everything. It counts distinct session ids, not command
+lines: `pgrep -fc mine5.sh` also matches the launcher wrapper and the shell
+doing the looking, and even exact-argv matching counts a miner's own subshells.
+The `processes` line is reported only so those two numbers are never confused.
+
+Monitoring detects accumulation after the fact; the **lock** prevents it.
+`mine5.sh` holds an exclusive lock on its pool for its whole lifetime, so a
+second launch on the same pool exits 7 rather than appending to the same ledger.
+
+**Stop a miner by stopping its session**, not by killing the script: the
+miner's descendants inherit the lock file descriptor, so killing the script
+alone can leave the pool locked (fail-closed — the next miner refuses — but it
+needs clearing by hand).
+
+```
+sid=$(cat /tmp/tb-mine-pilot.pid)         # the launcher is its own session leader
+pkill -TERM -s "$sid"; sleep 5; pkill -KILL -s "$sid"
+./status.sh pilot                         # expect: mining sessions 0
+```
 
 ## Surviving interruption
 

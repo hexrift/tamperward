@@ -330,3 +330,105 @@ requires the check to pass.
 No counted or pilot outcome depends on this entry: it corrects an accounting
 check, not the accounting. The published exclusion set is unchanged in content
 beyond the repositories the running pilot has drawn.
+
+### D3 sixth correction (append-only) — 2026-09-03, "refuted" was too strong
+
+The fourth correction said the stress test **refuted** the concurrency
+explanation. That overstates what a negative result can carry. The defensible
+conclusion, adopted here and replacing the earlier wording:
+
+> D3 was **not reproduced** under later tests, which rejects a **deterministic
+> concurrency-alone** explanation **under those tested conditions**. A transient
+> proxy failure is **not ruled out**.
+
+The withdrawal of the causal claim stands; what is corrected is the strength
+claimed for the withdrawal.
+
+The "heavy" test is also weaker evidence than it was presented as: it ran three
+**independent** work directories, so it did not recreate the leading remaining
+mechanism at all — **accumulated same-shard workers sharing and deleting one
+work directory**. The incident logs support that mechanism directly, in two
+independent traces: duplicate `[walk]` entries for the same repository, and
+`rm: Directory not empty` errors inside `/tmp/tb-mine5-pilot-s1/repo`. Process
+accumulation is therefore the strongest surviving explanation — and remains a
+**hypothesis**, because the incident is over and cannot be re-run.
+
+This changes no mitigation. Both the per-shard lock and the new pool lock (D5)
+prevent accumulation directly, and the no-terminal-verdict-on-infrastructure-
+failure rule is cause-independent by construction.
+
+## D5 — 2026-09-03, the pilot mined unprotected and unlocked
+
+Found by review of the resumed pilot at `529630c`, before it produced any task.
+Two defects, both in **how the miner is launched** rather than in what it does,
+and both invisible to the monitoring that was watching it.
+
+**P0 — the clone shim never reached the pilot.** Only `mine-parallel.sh`
+installed `round4/shim` on `PATH`. `launch-mine.sh` runs the pilot by calling
+`mine5.sh` directly — deliberately, so no shard-shaped configuration can reach
+it (D4) — and therefore ran it with the real `git`. The sequential pilot had no
+clone serialisation, no retries, no breaker, and nothing to stop the walk before
+a failed clone became the terminal `CLONE_FAILED` verdict that D3 is about. The
+check-in's `breaker clear` line was reporting on a mechanism that was not
+installed: **true, and meaningless**.
+
+**P0 — the sequential pilot held no lock.** `mine-parallel.sh` locked each
+shard, so the one mode that skips that driver was the one mode with no lifetime
+lock. Session counting in `status.sh` detects accumulation **after** it happens;
+only a lock prevents it, and process accumulation is the leading explanation for
+D3 itself.
+
+**The correction: both protections move into `mine5.sh`, where every entry point
+gets them.**
+
+- The miner installs the shim on `PATH` itself, idempotently, and then **proves
+  it took effect**: if `git` does not resolve to `<round4>/shim/git` it exits 9
+  and mines nothing. A protection that depends on which launcher was used is not
+  a protection; one that fails closed is.
+- The miner takes an exclusive `flock` on its pool for its **complete lifetime**,
+  on fd 8 — never fd 9, which `mine-parallel.sh` uses to pass a shard lock down,
+  and reusing which would release the parent's lock. A second miner on the same
+  pool exits 7. The kernel drops the lock when the process dies however it dies;
+  descendants inherit the descriptor, so a miner is stopped by stopping its
+  **session** (`RUNBOOK.md`), and a leftover lock is fail-closed.
+
+**Both are pinned by functional self-tests**, not by grepping the scripts: a
+sandbox miner is run against an unreachable clone base and the ledger is checked
+for the absence of a terminal `CLONE_FAILED`, the breaker for having tripped,
+and the infra log for `INFRASTRUCTURE_FAILURE`; a miner with no shim on disk is
+required to refuse; and a real second miner is required to exit 7 against a real
+first miner blocked mid-clone. 31 cases, all passing.
+
+**What the 12 completed decisions cost.** Nothing, and they are kept. The pilot
+was stopped at 12 repository decisions with **zero** clone failures and **zero**
+validated tasks, so no verdict was recorded through the unprotected path and no
+task was built on one. The 12 repositories are burnt, as every pilot repository
+is, and are already in the cumulative burn set. The pilot resumes from the
+ledger.
+
+## Protocol — 2026-09-03, the 55/55 stratum quota is removed
+
+`mine5.sh` and `merge-shards.sh` required **55 single-distribution and 55
+workspace** validated tasks. That split is registered **nowhere**:
+`PREDICTION4-taskbench.md` fixes N pairs, names the repository as the unit, and
+says nothing about strata. It was an invention of the mining code that would
+have silently become a selection rule over the counted pool.
+
+It is also unmeetable. Round 3's own ledger: 500 repositories walked, 220
+`QUOTA_FULL` once its need was met, **280 substantively processed for 20 tasks**
+— 18 single-distribution and **2 workspace**. A 55-workspace requirement is
+nowhere near supportable by a frame of this size, so the miner would have walked
+the entire frame chasing tasks the population does not contain, and the merge
+would then have failed on a shortage that is a property of the population rather
+than of the mining.
+
+**The rule now:** the walk stops at **N validated tasks**, and the merger selects
+**the first N in frozen walk order**. Each task's stratum is recorded, reported
+in `completion.json` and in a published `selection.json`, and **never selects**.
+The counted default is the power simulation's 110; a sharded counted run mines
+its slice exhaustively because no shard can see the aggregate, and the merger
+does the selecting.
+
+Pinned by self-tests: selection follows walk rank, the stratum mix is recorded
+beside `tasks/` rather than inside it, and no stratum quota survives anywhere in
+the miner, the driver or the merger.
