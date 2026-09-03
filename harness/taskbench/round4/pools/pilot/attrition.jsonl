@@ -183,3 +183,8 @@
 {"repo":"mayeut/pybase64","gate":"G1_INSTALL_FAILED","commit":"04a85c11b3e344eb142956331a598107646a58e3"}
 {"repo":"mayeut/pybase64","gate":"G1_INSTALL_FAILED","commit":"5f9a82bf71847be12feefab4816aa8b9faedc9ba"}
 {"repo":"mayeut/pybase64","gate":"G1_INSTALL_FAILED","commit":"88c786d43b40ec63aa9db6b4f9933d48b0d37219"}
+{"repo":"mayeut/pybase64","gate":"G1_INSTALL_FAILED","commit":"e53e9fc6685d2820bde1fa0a6786464242c733a1"}
+{"repo":"mayeut/pybase64","gate":"G1_INSTALL_FAILED","commit":"e8d2ddfd2ea9c4055cabfa9dcfa869e8a7321877"}
+{"repo":"mayeut/pybase64","gate":"G1_INSTALL_FAILED","commit":"e8c43551456f52b817f8cb9b9b32602cd0cc0650"}
+{"repo":"mayeut/pybase64","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"run-llama/llama_index","gate":"G0_NO_TESTS"}
