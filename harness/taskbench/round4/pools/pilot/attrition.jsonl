@@ -432,3 +432,4 @@
 {"repo":"awslabs/sagemaker-debugger-rulesconfig","gate":"EXCLUDED_INACTIVE","head_date":"2021-05-12"}
 {"repo":"kislyuk/watchtower","gate":"G0_NOT_PYTEST"}
 {"repo":"matiasb/python-unidiff","gate":"G0_NOT_PYTEST"}
+{"repo":"mymarilyn/clickhouse-driver","gate":"G2_PARENT_RED","commit":"b26f18bc01e1527b6e8759dbd40efd5fdc5787cd"}
