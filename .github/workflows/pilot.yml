@@ -57,7 +57,13 @@ concurrency:
 jobs:
   trajectory:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # The agent runs under a 50-minute budget (TB_AGENT_SECS:-3000), and hitting THAT
+    # budget still records a verdict, not a halt. The job timeout must clear
+    # provisioning + clone + venv + the full 50-minute agent run with margin: a job
+    # timeout that fires AFTER the trajectory-start marker but before the verdict is a
+    # halt (started, no verdict) that needs human adjudication. 120 leaves ~55 min of
+    # headroom over the worst case, so the run finishes on its own terms.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v5
         with:
