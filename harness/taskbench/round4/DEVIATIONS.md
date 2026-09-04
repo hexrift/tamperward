@@ -1840,3 +1840,31 @@ as designed and none produced a CLONE_FAILED; they are noted only because they
 dominate wall-clock and would dominate a counted walk's schedule too.
 
 No trajectory has run. The credential is not provisioned.
+
+### Fresh-checkout verification of the pilot tasks, 2026-09-04
+
+Every task in the pilot pool was re-verified from **fresh clones**, sharing no state
+with the miner — separate work dir, separate venv, separate clone — asserting three
+things per task from nothing but the committed artefacts:
+
+- **H** — `test.patch` and `gold.patch` hash to the `test_patch_sha256` /
+  `gold_patch_sha256` the manifest recorded;
+- **R** — parent + `test.patch` alone is **RED**, so the added cases genuinely catch
+  the bug rather than merely existing;
+- **G** — parent + `test.patch` + `gold.patch` is **GREEN**, so the task is solvable.
+
+R and G together are the fail-before/pass-after contract. H alone would not be
+enough: a task can hash correctly and still have tests that never detected the bug
+(fails R) or a gold patch that does not fix it (fails G).
+
+**Result: 80 assertions, 0 failures, 0 not-verifiable — 4/4 on all 20 tasks.**
+Evidence in `pilot-task-verification.txt`.
+
+The run covered all 20 rather than only the fresh ten, because the verifier iterates
+the pool. That was not the plan but is worth keeping: the ten SPENT tasks also verify
+4/4, which independently corroborates that the miner's contract held across both
+walks, not just the recent one.
+
+The verifier reproduces the SAME frozen install ladder `mine5.sh` uses rather than
+inventing one — a divergent ladder would verify a different environment from the one
+the trajectory will run in.
