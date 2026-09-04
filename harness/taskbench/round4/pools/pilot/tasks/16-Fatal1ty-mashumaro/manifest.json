@@ -1,0 +1,20 @@
+{
+ "id": "16-Fatal1ty-mashumaro",
+ "repo": "Fatal1ty/mashumaro",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "8246bd562164bdef66e642adc882de029c34981b",
+ "commit_sha": "40acb7f1d83a004919facb07f020ea120c09d216",
+ "test_patch_sha256": "380dc5131872e92616f8e3135dc0759a225cb4e2ae750c899a482b3864361fcd",
+ "gold_patch_sha256": "316fe327350ad9b3bd80fc87733339b06deb9f9238bbee1b8e7cc09227e73a69",
+ "test_files": [
+  "tests/test_config.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-04T02:12:54.234Z"
+}

@@ -740,3 +740,12 @@
 {"repo":"qdrant/qdrant-client","gate":"G2_PARENT_RED","commit":"53c81ee2c8bb6dce3f0e2c1e5e18fb55e1dd2b00"}
 {"repo":"qdrant/qdrant-client","gate":"G2_PARENT_RED","commit":"6f0d9bec8cadb04135ae5e3777be6ab0c01f77e1"}
 {"repo":"qdrant/qdrant-client","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"koxudaxi/datamodel-code-generator","gate":"G0_NO_TESTS"}
+{"repo":"PrefectHQ/prefect","gate":"G0_NO_TESTS"}
+{"repo":"Fatal1ty/mashumaro","gate":"TASK_VALIDATED","commit":"40acb7f1d83a004919facb07f020ea120c09d216","candidate":1}
+{"repo":"browser-use/sdk","gate":"G0_NO_PYPROJECT"}
+{"repo":"tox-dev/tox","gate":"G2_PARENT_RED","commit":"f31ebedc7e0e93516f850dbfea247355ccf198df"}
+{"repo":"tox-dev/tox","gate":"G2_PARENT_RED","commit":"cd8c1fa558f12c768aa11929acc01ad3e42eb9f9"}
+{"repo":"tox-dev/tox","gate":"G2_PARENT_RED","commit":"8ef03266a660765368c0f52266b8cc8cac7e484e"}
+{"repo":"tox-dev/tox","gate":"G2_PARENT_RED","commit":"e489adbdb3a548148cd14745f88f887cb80cf81b"}
+{"repo":"tox-dev/tox","gate":"G2_PARENT_RED","commit":"c1af92967f5f84a4ddaeebad6695c2600db39d0c"}

@@ -1,0 +1,77 @@
+diff --git a/tests/test_config.py b/tests/test_config.py
+index 2bfd75d6b7ad459e81090e4ee3921764432e07f3..5f258fbcc21e3e8bf843222bc8bb317608a32ebc 100644
+--- a/tests/test_config.py
++++ b/tests/test_config.py
+@@ -14,6 +14,7 @@ from .entities import (
+     MyDataClassWithOptionalAndOmitNoneFlag,
+     MyNamedTuple,
+     MyNamedTupleWithDefaults,
++    MyNamedTupleWithRequiredAndDefaults,
+     MyUntypedNamedTuple,
+     MyUntypedNamedTupleWithDefaults,
+     TypedDictRequiredKeys,
+@@ -204,11 +205,12 @@ def test_untyped_named_tuple_with_defaults_as_dict():
+     assert DataClass.from_dict({"munpwd": {"i": 1, "f": 2.0}}) == obj
+ 
+ 
+-def test_named_tuple_as_dict_with_missing_default_key():
++def test_named_tuple_as_dict_with_missing_trailing_default_keys():
+     @dataclass
+     class DataClass(DataClassDictMixin):
+         mnpwd: MyNamedTupleWithDefaults
+         munpwd: MyUntypedNamedTupleWithDefaults
++        mnpwrd: MyNamedTupleWithRequiredAndDefaults
+ 
+         class Config(BaseConfig):
+             namedtuple_as_dict = True
+@@ -216,10 +218,47 @@ def test_named_tuple_as_dict_with_missing_default_key():
+     # Omitting a key that has a default should fall back to that default,
+     # the same way an omitted trailing element does for the as_list engine.
+     obj = DataClass(
+-        mnpwd=MyNamedTupleWithDefaults(i=1),
+-        munpwd=MyUntypedNamedTupleWithDefaults(i=1),
++        mnpwd=MyNamedTupleWithDefaults(i=10),
++        munpwd=MyUntypedNamedTupleWithDefaults(i=10),
++        mnpwrd=MyNamedTupleWithRequiredAndDefaults(i=10, s="sss"),
++    )
++    assert (
++        DataClass.from_dict(
++            {
++                "mnpwd": {"i": 10},
++                "munpwd": {"i": 10},
++                "mnpwrd": {"i": 10, "s": "sss"},
++            }
++        )
++        == obj
++    )
++
++
++def test_named_tuple_as_dict_with_missing_middle_default_keys():
++    @dataclass
++    class DataClass(DataClassDictMixin):
++        mnpwd: MyNamedTupleWithDefaults
++        munpwd: MyUntypedNamedTupleWithDefaults
++        mnpwrd: MyNamedTupleWithRequiredAndDefaults
++
++        class Config(BaseConfig):
++            namedtuple_as_dict = True
++
++    obj = DataClass(
++        mnpwd=MyNamedTupleWithDefaults(f=2.2),
++        munpwd=MyUntypedNamedTupleWithDefaults(f=2.2),
++        mnpwrd=MyNamedTupleWithRequiredAndDefaults(33, f=2.2),
++    )
++    assert (
++        DataClass.from_dict(
++            {
++                "mnpwd": {"f": 2.2},
++                "munpwd": {"f": 2.2},
++                "mnpwrd": {"i": 33, "f": 2.2},
++            }
++        )
++        == obj
+     )
+-    assert DataClass.from_dict({"mnpwd": {"i": 1}, "munpwd": {"i": 1}}) == obj
+ 
+ 
+ def test_named_tuple_as_dict_and_as_list_engine():

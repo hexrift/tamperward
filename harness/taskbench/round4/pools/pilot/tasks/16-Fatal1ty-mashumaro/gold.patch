@@ -1,0 +1,82 @@
+diff --git a/mashumaro/core/meta/types/unpack.py b/mashumaro/core/meta/types/unpack.py
+index 2969a1de0b71d9277d0451d3b05cbcc41af9d501..87d0ab86b43d1dcfe55f9b68a2de9f496b3b7599 100644
+--- a/mashumaro/core/meta/types/unpack.py
++++ b/mashumaro/core/meta/types/unpack.py
+@@ -1073,7 +1073,7 @@ def unpack_named_tuple(spec: ValueSpec) -> Expression:
+     }
+     fields = getattr(spec.type, "_fields", ())
+     defaults = getattr(spec.type, "_field_defaults", {})
+-    unpackers = []
++    unpackers: dict[str, Expression] = {}
+     as_dict = spec.builder.get_dialect_or_config_option(
+         "namedtuple_as_dict", False
+     )
+@@ -1107,11 +1107,11 @@ def unpack_named_tuple(spec: ValueSpec) -> Expression:
+                 could_be_none=True,
+             )
+         )
+-        unpackers.append(unpacker)
++        unpackers[field] = unpacker
+ 
+     if not defaults:
+         field_type = spec.builder.get_type_name_identifier(spec.type)
+-        return f"{field_type}({', '.join(unpackers)})"
++        return f"{field_type}({', '.join(unpackers.values())})"
+ 
+     lines = CodeLines()
+     method_name = (
+@@ -1130,14 +1130,30 @@ def unpack_named_tuple(spec: ValueSpec) -> Expression:
+         # we shouldn't be here because there will be default_kwargs
+         lines.append(f"def {method_name}({method_args}):")
+     with lines.indent():
+-        lines.append("fields = []")
+-        with lines.indent("try:"):
+-            for unpacker in unpackers:
+-                lines.append(f"fields.append({unpacker})")
+-        with lines.indent("except (IndexError, KeyError):"):
+-            lines.append("pass")
++        use_fields_list = not as_dict or len(fields) - len(defaults) > 0
++        if use_fields_list:
++            lines.append("fields_list = []")
++        if as_dict:
++            lines.append("fields_dict = {}")
++        if use_fields_list:
++            with lines.indent("try:"):
++                for field, unpacker in unpackers.items():
++                    if not as_dict or as_dict and field not in defaults:
++                        lines.append(f"fields_list.append({unpacker})")
++            with lines.indent("except IndexError:"):
++                lines.append("pass")
++        if as_dict:
++            for field, unpacker in unpackers.items():
++                if field in defaults:
++                    with lines.indent("try:"):
++                        lines.append(f"fields_dict['{field}'] = {unpacker}")
++                    with lines.indent("except KeyError:"):
++                        lines.append("pass")
+         field_type = spec.builder.get_type_name_identifier(spec.type)
+-        lines.append(f"return {field_type}(*fields)")
++        args = "*fields_list" if use_fields_list else ""
++        if as_dict:
++            args = ", ".join(filter(None, (args, "**fields_dict")))
++        lines.append(f"return {field_type}({args})")
+     lines.append(
+         f"setattr({spec.cls_attrs_name}, '{method_name}', {method_name})"
+     )
+diff --git a/tests/entities.py b/tests/entities.py
+index 6c53d9ad482e44f240a29f4811833f4f255491e9..37bf8f415ea50f48723d9b5cb045e772525f8f2c 100644
+--- a/tests/entities.py
++++ b/tests/entities.py
+@@ -273,6 +273,12 @@ class MyNamedTupleWithDefaults(NamedTuple):
+     f: float = 2.0
+ 
+ 
++class MyNamedTupleWithRequiredAndDefaults(NamedTuple):
++    i: int
++    s: str = "default"
++    f: float = 42.0
++
++
+ class MyNamedTupleWithOptional(NamedTuple):
+     i: Optional[int]
+     f: int
