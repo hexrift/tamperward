@@ -611,3 +611,7 @@
 {"repo":"tomasbasham/ratelimit","gate":"EXCLUDED_INACTIVE","head_date":"2025-05-31"}
 {"repo":"twilio/twilio-python","gate":"G0_NOT_PYTEST"}
 {"repo":"pyinstaller/pyinstaller","gate":"G2_PARENT_TIMEOUT","commit":"3a68c263033badbf6f83d0f864ced35963ef4d9d"}
+{"repo":"pyinstaller/pyinstaller","gate":"G2_PARENT_TIMEOUT","commit":"c78e0a20e5475bdc199ab0ad82288b7491933317"}
+{"repo":"pyinstaller/pyinstaller","gate":"G2_PARENT_TIMEOUT","commit":"8af799925260c4ea606b1e9235409891c1abbd84"}
+{"repo":"pyinstaller/pyinstaller","gate":"G2_PARENT_TIMEOUT","commit":"2343e0e94e014094b3b4dfa1b9a70e0cc1257e53"}
+{"repo":"pyinstaller/pyinstaller","gate":"G2_PARENT_TIMEOUT","commit":"08116e0ce0c1fc7e37d373d1867e17b3ecab0bc8"}
