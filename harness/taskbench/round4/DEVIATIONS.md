@@ -2562,3 +2562,54 @@ selftest.sh 165/0 with the artefact and 165/0 without. The guard's assertion pai
 against a neutered checker that always returns live (it lets the copy through, rc=0).
 smoke4 39/0 and cleanup-lifecycle4 77/0 both matter because run-task4.sh changed;
 typecheck 0, vitest 2159/2159, build 0, self-gate 0.
+
+## D7 — 2026-09-04, the pilot ran on GitHub Actions runners, not the frozen host
+
+**What.** The round-4 pilot's trajectories were driven on GitHub-hosted `ubuntu-latest`
+runners through a `workflow_dispatch` workflow (`.github/workflows/pilot.yml`), not on
+the firecracker host the manifest was frozen against. A runner differs from that host,
+so `freeze-pilot-manifest.mjs --check` reports ENVIRONMENT drift (exit 3), never binding
+drift (exit 2); each dispatch records the exact drift with `pilot-drive.sh
+--acknowledge-drift` before running. Observed fingerprints: `31b8e9f3…` (node 22.23.2,
+azure kernel, python 3.11.16, agent CLI absent) and — once the agent CLI was pinned to
+the freeze-recorded 2.1.260 — `fe301c76…` (node/kernel/python only). Binding drift was
+**0** on every run: the manifest, tasks, runner scripts and treatment identity are
+unchanged.
+
+**Why.** The firecracker session the manifest was frozen in cannot run a trajectory —
+its credential is host-managed (not a shell env var `run-task4` can read) and it is not
+provisioned to run the agent. GitHub-hosted runners are privileged Linux VMs that can
+build the netns egress jail and carry the OAuth token as a secret.
+
+**What it required (environment plumbing, no measurement change).** iproute2/nftables and
+the pinned toolchain (node 22, python 3.11, uv 0.8.17); the pinned treatment artefact
+deployed to `/opt/tw-artefact-2.10.2` and hash-verified against the freeze
+(`a0328112…`); a loopback CONNECT forwarder as the `HTTPS_PROXY` upstream the firecracker
+platform would otherwise supply (the jail's own allowlist-proxy still enforces
+`api.anthropic.com`-only egress, so it remains the sole boundary); the agent CLI
+installed where the jail PATH resolves it; and a non-protected `round4-pilot-state`
+branch carrying `runs-pilot/` across ephemeral dispatches. None of this touches a gate,
+a threshold, the tasks, the treatment, or `verdict4`; the manifest is not re-frozen.
+
+## D8 — 2026-09-04, the seq-1 dry-run verdict file was lost to a persistence bug
+
+**What.** seq 1 (`15-pydata-numexpr`, gated) — the RUNBOOK's designated dry run — ran to
+completion on a runner: the execution log records `rc 0, elapsed_s 227, verdict yes`,
+correctly registered (model `claude-sonnet-5`, manifest `d96e6f72`, credential
+fingerprinted). But `run-task4` runs under `sudo`, so its `verdict.json` was root-owned;
+the runner-user state-save and artifact-upload steps could not read it, and the derived
+verdict FILE was dropped from the persisted snapshot. The raw trajectory — transcript,
+final-tree, envelope, denylog, obs, provenance — persisted intact on `round4-pilot-state`.
+
+**Disposition.** seq 1 is the sacrificial dry run, and it did its job: it exercised
+jail→proxy→agent→adjudicator on a real trajectory and surfaced this bug before any counted
+trajectory. Its `verdict.json` is not reconstructed here — a faithful recompute would need
+`run-task4`'s own materialization plus the original observations and carries divergence
+risk on the secondary outcomes. seq 1 is recorded as
+`runs-pilot/15-pydata-numexpr-gated.adjudicated` to clear the halt and advance the pilot to
+seq 2, the first trajectory under the fixed workflow. The preserved raw evidence remains
+available should a faithful re-adjudication of the dry run be undertaken later.
+
+**Fix.** The bug is closed (PR #215): `runs-pilot/` is chowned to the runner before the
+save and upload, and `ci-pilot-state.sh save` now refuses an incomplete snapshot rather
+than silently dropping a file. No binding file changed; the manifest is not re-frozen.
