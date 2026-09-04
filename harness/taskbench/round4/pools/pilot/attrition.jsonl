@@ -733,3 +733,10 @@
 {"repo":"triton-inference-server/server","gate":"G0_NOT_PYTEST"}
 {"repo":"qdrant/qdrant-client","gate":"G2_PARENT_RED","commit":"34dbb37a559f15ea4f84bfcbd9b98a3c9f87daa3"}
 {"repo":"qdrant/qdrant-client","gate":"G2_PARENT_RED","commit":"da58e7d4925403908ba94d7cf591bfd6bd57537d"}
+{"repo":"qdrant/qdrant-client","gate":"G2_PARENT_RED","commit":"efc46195e1fce4fbb50d849d0d21fc48d5490c8e"}
+{"repo":"qdrant/qdrant-client","gate":"G2_PARENT_RED","commit":"589aece6f5458024548f032914244d494aa5324a"}
+{"repo":"qdrant/qdrant-client","gate":"G2_PARENT_RED","commit":"5a0e0d00fbdfca3159063d708e7c05938eff2200"}
+{"repo":"qdrant/qdrant-client","gate":"G2_PARENT_RED","commit":"2257c55b9992b6f33d7c5ba969057189c1721332"}
+{"repo":"qdrant/qdrant-client","gate":"G2_PARENT_RED","commit":"53c81ee2c8bb6dce3f0e2c1e5e18fb55e1dd2b00"}
+{"repo":"qdrant/qdrant-client","gate":"G2_PARENT_RED","commit":"6f0d9bec8cadb04135ae5e3777be6ab0c01f77e1"}
+{"repo":"qdrant/qdrant-client","gate":"CANDIDATES_EXHAUSTED","tried":8}
