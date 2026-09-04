@@ -18,8 +18,30 @@ TB_RUNTIME_DIR="${TB_RUNTIME_DIR:-/tmp}"; mkdir -p "$TB_RUNTIME_DIR"
 POOL="${1:-pilot}"; WORKERS="${2:-1}"
 PIDFILE="$TB_RUNTIME_DIR/tb-mine-$POOL.pid"; STATUS="$TB_RUNTIME_DIR/tb-mine-$POOL.status"; LOG="$TB_RUNTIME_DIR/tb-mine-$POOL.out"
 
-if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
-  echo "REFUSING: mining already running for $POOL (pid $(cat "$PIDFILE"))" >&2; exit 6
+# Argument validation runs FIRST, before any state is read or written, so that a
+# refusal and a dry run are both side-effect free. TB_DRY_RUN used to be checked
+# after `rm -f "$STATUS"`, which meant asking what WOULD run deleted the real
+# status file of the pool.
+if [ "$POOL" = pilot ]; then
+  [ "$WORKERS" = 1 ] || { echo "REFUSING: the pilot is sequential; workers must be 1" >&2; exit 3; }
+  NEED="${TB_PILOT_NEED:-10}"
+  case "$NEED" in ''|*[!0-9]*) echo "REFUSING: TB_PILOT_NEED must be a whole number, got '$NEED'" >&2; exit 4;; esac
+  if [ "$NEED" -lt 1 ] || [ "$NEED" -gt 20 ]; then
+    echo "REFUSING: TB_PILOT_NEED=$NEED is outside the sacrificial bound 1..20" >&2; exit 4
+  fi
+fi
+if [ "${TB_DRY_RUN:-0}" = 1 ]; then
+  echo "DRY_RUN pool=$POOL workers=$WORKERS${NEED:+ need=$NEED}"; exit 0
+fi
+
+if [ -f "$PIDFILE" ]; then
+  if kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+    echo "REFUSING: mining already running for $POOL (pid $(cat "$PIDFILE"))" >&2; exit 6
+  fi
+  # A pid file left by a miner that died is not "already running", and leaving it
+  # in place let the wait loop below accept the STALE pid immediately and report it
+  # as the new launch. Clear it once its process is gone.
+  rm -f "$PIDFILE"
 fi
 if [ -e "${TB_CLONE_BREAKER:-$TB_RUNTIME_DIR/tb-clone-breaker}" ]; then
   echo "REFUSING: the clone breaker is tripped; stress-test cloning first." >&2; exit 8
@@ -29,25 +51,10 @@ rm -f "$STATUS"
 # The PILOT is never sharded (D4) and never goes through the parallel driver:
 # it runs mine5.sh directly, so no shard-shaped configuration can reach it.
 if [ "$POOL" = pilot ]; then
-  [ "$WORKERS" = 1 ] || { echo "REFUSING: the pilot is sequential; workers must be 1" >&2; exit 3; }
-  # The pilot need was HARDCODED to 10 here so that a value typed at a prompt could
-  # not widen a sacrificial walk. That guard is kept — the default is still 10, and
-  # the bound is still enforced — but it is now an EXPLICIT override rather than an
-  # unreachable constant, because a second sacrificial ten is a real case: the first
-  # ten became disclosed development data and had to be replaced. The counter
-  # mine5.sh checks is TOTAL validated tasks in the pool, so without this the resumed
-  # walk exits DONE at 10 and mines nothing.
-  # The bound is the SAME one mine5.sh enforces (it refuses >20 on a pilot pool), so
-  # the two cannot drift apart and neither can be widened without the other.
-  NEED="${TB_PILOT_NEED:-10}"
-  case "$NEED" in ''|*[!0-9]*) echo "REFUSING: TB_PILOT_NEED must be a whole number, got '$NEED'" >&2; exit 4;; esac
-  if [ "$NEED" -lt 1 ] || [ "$NEED" -gt 20 ]; then
-    echo "REFUSING: TB_PILOT_NEED=$NEED is outside the sacrificial bound 1..20" >&2; exit 4
-  fi
+  # NEED was validated above, before any state was touched. The guard itself is
+  # unchanged: default 10, whole number, 1..20 — the same bound mine5.sh enforces
+  # when it refuses more than 20 on a sacrificial pool, so the two cannot drift.
   CMD=(env TB_POOL=pilot TB_PILOT_NEED="$NEED" ./mine5.sh)
-  # TB_DRY_RUN resolves and reports the command WITHOUT launching, so the
-  # sacrificial bound can be tested without starting a real miner on the real pool.
-  if [ "${TB_DRY_RUN:-0}" = 1 ]; then echo "DRY_RUN pool=$POOL need=$NEED"; exit 0; fi
 else
   CMD=(env TB_POOL="$POOL" ./mine-parallel.sh "$WORKERS")
 fi
@@ -71,8 +78,16 @@ setsid bash -c '
   "$@" >> "'"$LOG"'" 2>&1
   echo $? > "$S"
 ' _ "${CMD[@]}" < /dev/null > /dev/null 2>&1 &
-# the child writes it; wait rather than reporting a pid we never observed
-for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$PIDFILE" ] && break; sleep 0.2; done
-echo "launched $POOL (workers=$WORKERS) pid $(cat "$PIDFILE" 2>/dev/null || echo unknown)"
+# The child writes it; wait rather than reporting a pid we never observed. If it
+# never appears the launch did NOT demonstrably start, and saying "pid unknown"
+# while exiting 0 would report a success nobody confirmed — so that is a failure.
+for _ in $(seq 1 50); do [ -s "$PIDFILE" ] && break; sleep 0.2; done
+MPID=$(cat "$PIDFILE" 2>/dev/null || true)
+if [ -z "$MPID" ] || ! kill -0 "$MPID" 2>/dev/null; then
+  echo "LAUNCH_UNCONFIRMED: no live child pid appeared in $PIDFILE within 10s" >&2
+  echo "  the miner may or may not be running; check $LOG and the pool lock before retrying" >&2
+  exit 5
+fi
+echo "launched $POOL (workers=$WORKERS) pid $MPID"
 echo "  log    $LOG"
 echo "  status $STATUS  (written on exit)"

@@ -1996,3 +1996,44 @@ because the near-miss is the point, and because a failed `cd` silently changing 
 runs has now happened more than once in this work.
 
 `selftest.sh` is now **72 assertions**, up from 52 before this pass began.
+
+#### Second finishing pass: required-check wiring, CI budget, launcher isolation
+
+**1. The new job was not actually required.** `gate.needs` listed only
+`[typecheck, test, build]`, so a FAILING harness job could sit beside a mergeable
+green gate — the same hole as omitting it from the ruleset. `harness-selftests` is
+now a `gate` dependency.
+
+**2. The `test` budget is resolved, not flagged again.** The previous entry recorded
+the marginality and left it; it bit immediately, cancelling `test (20)` AND
+`test (22)` on the next run and skipping `gate`. The long, Node-independent harness
+selftests (`miner-selftest.sh`, `hygiene-selftest.sh`, and round 4's) have been moved
+OUT of the per-Node matrix into the dedicated `harness-selftests` job at 25 minutes.
+`test` is now `npm test` plus one static grep. That removes roughly three minutes
+from each of three legs and stops paying three times for Node-independent answers.
+
+**3. Launcher and dry-run isolation completed.**
+
+- A **stale pid file is cleared** once its process is gone. Previously it survived,
+  and the wait loop could accept the dead pid immediately and report it as the new
+  launch.
+- A **missing child pid is now a failure** (`LAUNCH_UNCONFIRMED`, exit 5). It
+  previously printed `pid unknown` and exited 0 — reporting a success nobody had
+  confirmed.
+- **`TB_DRY_RUN` is evaluated before any state is touched.** It was checked after
+  `rm -f "$STATUS"`, so asking what WOULD run deleted the pool's real status file.
+  Argument validation moved ahead of it too, so a refusal is side-effect free.
+  Verified: a pre-existing status file and pid file both survive a dry run intact.
+- **The pool-lock test no longer kills `$!`.** It launched with `setsid … &`, took
+  `first=$!`, then `pkill -KILL -s "$first"` — but `$!` is neither the miner nor its
+  session leader when setsid forks, so the signal went to the wrong session, the
+  miner survived, the pool stayed locked and the last case failed intermittently
+  (**71/1** depending on the machine). The miner now reports its own `$$` and
+  `exec`s, so pid == sid, and the test asserts it got one.
+
+**4. Local repository sources are now a TEST-ONLY opt-in.** Absolute-path `repo`
+values require `TB_ALLOW_LOCAL_REPO=1`; without it they are a FAILURE, not a quiet
+substitution. Otherwise the production verifier could silently read from disk while
+documenting fresh GitHub clones. Both directions are asserted.
+
+`selftest.sh`: **74 assertions**, green three consecutive runs.

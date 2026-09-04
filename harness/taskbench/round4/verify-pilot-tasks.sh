@@ -94,12 +94,20 @@ for T in $(ls "$POOL/tasks" | sort); do
   [ "$ag" = "$eg" ] && ok "H gold.patch matches the recorded sha256" || no "H gold.patch sha $ag != $eg"
 
   D="$WORK/repo"; V="$WORK/venv"; rm -rf "$D"
-  # A manifest repo is normally "owner/name" on GitHub. An ABSOLUTE PATH is also
-  # accepted so the selftest can build a fixture repository locally — in
-  # particular one whose parent suite is RED, which is the only way to prove the
-  # P control actually fails a task rather than merely passing on healthy ones.
+  # A manifest repo is normally "owner/name" on GitHub. An ABSOLUTE PATH is accepted
+  # ONLY under TB_ALLOW_LOCAL_REPO=1, which is a test-only opt-in: the selftest needs
+  # to build a fixture repository locally — in particular one whose parent suite is
+  # RED, the only way to prove the P control actually fails a task rather than merely
+  # passing on healthy ones. Without the flag a local path is a FAILURE, not a quiet
+  # substitution, so the production verifier cannot silently read from disk while
+  # documenting fresh GitHub clones.
   case "$repo" in
-    /*) SRC="$repo"; CLONE_ARGS=() ;;
+    /*) if [ "${TB_ALLOW_LOCAL_REPO:-0}" != 1 ]; then
+          no "$T manifest names a LOCAL path ($repo) but TB_ALLOW_LOCAL_REPO is not set"
+          printf '       a local source is a TEST fixture only; production verification clones from GitHub\n'
+          continue
+        fi
+        SRC="$repo"; CLONE_ARGS=() ;;
     *)  SRC="https://github.com/$repo"; CLONE_ARGS=(--filter=blob:none) ;;
   esac
   # GIT_TERMINAL_PROMPT=0: a private or non-existent repository otherwise blocks

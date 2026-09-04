@@ -122,11 +122,21 @@ D=$(sandbox)
 ( flock 7; sleep 90 ) 7>"$D/clone.lock" &   # hold the shim's clone lock: miner 1 blocks mid-clone
 holder=$!; disown "$holder" 2>/dev/null || true
 # Own session, so the test can stop the miner the way the runbook stops one.
+# The miner reports its OWN pid. `$!` is the process this shell forked, and setsid
+# forks again when it is already a process-group leader — so `$!` was often neither
+# the miner nor its session leader, and the `pkill -s "$first"` below then signalled
+# the wrong session (or none). The miner survived, the pool stayed locked, and the
+# last case failed intermittently: 71/1 depending on the machine. `exec` keeps the
+# pid, and a setsid child is its own session leader, so pid == sid here.
 setsid env TB_POOL=counted TB_CLONE_BASE="file:///nonexistent-tb-selftest" \
     TB_CLONE_LOCK="$D/clone.lock" TB_CLONE_BREAKER="$D/breaker" TB_CLONE_FAILS="$D/fails" \
     TB_INFRA_LOG="$D/infra.jsonl" TB_POOL_LOCK="$D/pool.lock" \
-    bash -c 'cd "$1" && ./mine5.sh' _ "$D" >/dev/null 2>&1 &
-first=$!; disown "$first" 2>/dev/null || true
+    bash -c 'echo $$ > "$1/miner.pid"; cd "$1" && exec ./mine5.sh' _ "$D" >/dev/null 2>&1 &
+disown 2>/dev/null || true
+for _ in $(seq 1 40); do [ -s "$D/miner.pid" ] && break; sleep 0.25; done
+first=$(cat "$D/miner.pid" 2>/dev/null)
+[ -n "$first" ] && ok "the miner reported its own pid ($first), not \$!" \
+                || no "the miner never reported a pid — the stop case below would be meaningless"
 held=0; for _ in $(seq 1 60); do locked "$D/pool.lock" && { held=1; break; }; sleep 0.25; done
 [ "$held" = 1 ] && ok "miner 1 holds the pool lock while it runs" || no "miner 1 never took the pool lock"
 out=$(cd "$D" && env TB_POOL=counted TB_POOL_LOCK="$D/pool.lock" ./mine5.sh 2>&1); rc=$?
@@ -148,7 +158,7 @@ else
   ok "fd-inheritance check skipped (no /proc)"
 fi
 kill -KILL "$holder" 2>/dev/null
-pkill -KILL -s "$first" 2>/dev/null; kill -KILL "$first" 2>/dev/null
+[ -n "$first" ] && { pkill -KILL -s "$first" 2>/dev/null; kill -KILL "$first" 2>/dev/null; }
 free=0; for _ in $(seq 1 60); do locked "$D/pool.lock" || { free=1; break; }; sleep 0.25; done
 [ "$free" = 1 ] && ok "stopping the miner frees the pool — no stranded lock" \
   || no "the pool stayed locked after the miner was stopped"
@@ -395,10 +405,17 @@ node -e '
  fs.writeFileSync(d+"/tasks/98-red-parent/manifest.json", JSON.stringify({
    id:"98-red-parent", repo:repo, parent_sha:sha,
    test_patch_sha256:h("test.patch"), gold_patch_sha256:h("gold.patch")}));' "$PF/pool" "$PR" "$PSHA"
-out=$(TB_POOL_DIR="$PF/pool" ./verify-pilot-tasks.sh 2>&1); rc=$?
+out=$(TB_ALLOW_LOCAL_REPO=1 TB_POOL_DIR="$PF/pool" ./verify-pilot-tasks.sh 2>&1); rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'FAIL.*P untouched parent is red' \
   && ok "a task whose parent is ALREADY RED is failed by the P control" \
   || no "the P control did not reject a red parent (exit $rc): $(printf '%s' "$out" | grep -E 'P |FAIL' | head -1)"
+# and the local-source escape hatch must be TEST-ONLY: without the opt-in the same
+# fixture is refused, so the production verifier cannot quietly read from disk while
+# documenting fresh GitHub clones.
+out=$(TB_POOL_DIR="$PF/pool" ./verify-pilot-tasks.sh 2>&1); rc=$?
+[ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'names a LOCAL path' \
+  && ok "a local repo source is REFUSED without TB_ALLOW_LOCAL_REPO" \
+  || no "a local repo source was accepted without the test-only opt-in (exit $rc)"
 rm -rf "$PF"
 
 echo "== launch-mine.sh: the sacrificial bound, and an honest PID file"

@@ -68,19 +68,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      # The miner under a RANDOMIZED work root: a literal /tmp/tb-mine inside a node
-      # heredoc survived round 1 (default == literal) and broke round 2's walk. This
-      # selftest mines a local fixture, proves the exact round-trip, and fails if
-      # anything touches the default path — the class cannot come back silently.
-      - run: bash harness/taskbench/miner-selftest.sh
-      # Round-3.1 execution hygiene. The registration gate, the resumability
-      # semantics (terminal vs retryable), the circuit breaker's blast radius
-      # and the attempt provenance are proved BEHAVIOURALLY against a stubbed
-      # sweep — the round-3 outage burned 7 pairs because that logic was only
-      # ever exercised by an emergency script. The network-boundary cases need
-      # a live upstream proxy and netns; they skip here and run before the
-      # sweep, whose own preflight refuses to start without them.
-      - run: bash harness/taskbench/runner/hygiene-selftest.sh
+      # The harness selftests used to run HERE, on every Node leg. They are slow and
+      # Node-version-independent, and they pushed this job past its 10-minute budget:
+      # legs finished at 9m27s and 10m00s with one CANCELLED at 10m15s, taking `gate`
+      # down as skipped with it. They now run once, in `harness-selftests`.
       # Static half of the same guard: any /tmp/tb-mine literal in a miner must be on
       # a line that derives from TB_WORK; a naked literal is the regression.
       - name: no naked default-workdir literals in miners
@@ -98,9 +89,9 @@ jobs:
   # for one answer. And the `test` job is already at its 10-minute budget — legs
   # finished at 9m27s, 10m00s and one CANCELLED at 10m15s — so adding anything to
   # it would convert a marginal job into a reliably failing one.
-  round4-harness:
+  harness-selftests:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
@@ -108,12 +99,28 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # `uv` is what the frozen install ladder uses, and the parent-green control
-      # builds a local fixture repository and runs its suite, so it is required
-      # here rather than optional.
+      # `uv` is what the frozen install ladder uses, and round 4's parent-green
+      # control builds a local fixture repository and runs its suite, so it is
+      # required here rather than optional.
       - uses: astral-sh/setup-uv@v7
         with:
           version: '0.8.17'
+      # The miner under a RANDOMIZED work root: a literal /tmp/tb-mine inside a node
+      # heredoc survived round 1 (default == literal) and broke round 2's walk. This
+      # selftest mines a local fixture, proves the exact round-trip, and fails if
+      # anything touches the default path — the class cannot come back silently.
+      - run: bash harness/taskbench/miner-selftest.sh
+      # Round-3.1 execution hygiene. The registration gate, the resumability
+      # semantics (terminal vs retryable), the circuit breaker's blast radius
+      # and the attempt provenance are proved BEHAVIOURALLY against a stubbed
+      # sweep — the round-3 outage burned 7 pairs because that logic was only
+      # ever exercised by an emergency script. The network-boundary cases need
+      # a live upstream proxy and netns; they skip here and run before the
+      # sweep, whose own preflight refuses to start without them.
+      - run: bash harness/taskbench/runner/hygiene-selftest.sh
+      # Round-4 orchestration and the pilot-task verifier — the verifier decides
+      # whether a mined task is usable at all, so an unnoticed regression in it is a
+      # route for an unusable task to enter the pilot.
       - run: bash harness/taskbench/round4/selftest.sh
 
   # Is the ARTIFACT sound? Distinct question from "is the code correct", and it has its
@@ -156,7 +163,10 @@ jobs:
   # own repo with the engine it ships. Rebuilds rather than passing an artifact around —
   # the bundle takes milliseconds and the CLI needs its runtime deps installed anyway.
   gate:
-    needs: [typecheck, test, build]
+    # harness-selftests included deliberately: without it a FAILING harness job could
+    # coexist with a mergeable green gate, which is the same "not actually required"
+    # hole as leaving it out of the ruleset.
+    needs: [typecheck, test, build, harness-selftests]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
