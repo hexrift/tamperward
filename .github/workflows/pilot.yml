@@ -185,6 +185,20 @@ jobs:
           echo "### pilot status" >> "$GITHUB_STEP_SUMMARY"
           ./pilot-drive.sh --status | tee -a "$GITHUB_STEP_SUMMARY" || true
 
+      - name: Normalize runs-pilot ownership
+        # run-task4 runs under sudo, so runs-pilot/ files — including the root-only
+        # verdict.json — are root-owned. Hand them back to the runner user (ALWAYS, so a
+        # halt state persists too) before the state save and the artifact upload, which
+        # run as the runner user. Without this the verdict is silently dropped from the
+        # snapshot and the upload fails with EACCES.
+        if: always() && inputs.action == 'run-next'
+        run: |
+          D=harness/taskbench/round4/runs-pilot
+          if [ -d "$D" ]; then
+            sudo chown -R "$(id -u):$(id -g)" "$D"
+            sudo chmod -R u+rwX "$D"
+          fi
+
       - name: Save pilot state
         # ALWAYS: a produced verdict or a written start marker must persist to the next
         # dispatch — that is what makes never-re-roll hold on an ephemeral runner. Runs
