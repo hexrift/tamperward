@@ -14,7 +14,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; cd "$HERE"
 # All runtime state lives under one directory so a separate process — another
 # terminal, or a second container sharing a volume — can read it. Defaults to
 # /tmp, which is what every existing path was hardcoded to.
-TB_RUNTIME_DIR="${TB_RUNTIME_DIR:-/tmp}"; mkdir -p "$TB_RUNTIME_DIR"
+TB_RUNTIME_DIR="${TB_RUNTIME_DIR:-/tmp}"   # created below, AFTER the side-effect-free exits
 POOL="${1:-pilot}"; WORKERS="${2:-1}"
 PIDFILE="$TB_RUNTIME_DIR/tb-mine-$POOL.pid"; STATUS="$TB_RUNTIME_DIR/tb-mine-$POOL.status"; LOG="$TB_RUNTIME_DIR/tb-mine-$POOL.out"
 
@@ -33,6 +33,10 @@ fi
 if [ "${TB_DRY_RUN:-0}" = 1 ]; then
   echo "DRY_RUN pool=$POOL workers=$WORKERS${NEED:+ need=$NEED}"; exit 0
 fi
+# Only now may the runtime directory be created: creating it above would have made
+# a dry run and a refusal leave a directory behind, contradicting the claim that
+# both are side-effect free.
+mkdir -p "$TB_RUNTIME_DIR" || { echo "REFUSING: cannot create $TB_RUNTIME_DIR" >&2; exit 6; }
 
 # ---- already-running: the POOL LOCK is the authority, not a pid file ----------
 # A pid file is a report; the flock the miner holds on its pool is the fact. Asking
@@ -56,8 +60,16 @@ if [ -e "${TB_CLONE_BREAKER:-$TB_RUNTIME_DIR/tb-clone-breaker}" ]; then
   echo "REFUSING: the clone breaker is tripped; stress-test cloning first." >&2; exit 8
 fi
 # Only now, holding the launcher lock and knowing no miner owns the pool, is it safe
-# to discard the previous run's pid and status.
-rm -f "$PIDFILE" "$STATUS"
+# to discard the previous run's pid and status — and the removal must be VERIFIED.
+# Ignoring `rm -f`'s failure was a live defect: with a DIRECTORY at the pid path the
+# rm failed, the launcher carried on, and the child's `mv` moved its temp file INSIDE
+# that directory instead of failing. Publication therefore "succeeded", the child ran
+# the miner, and the launcher exited 5 reporting a failed launch — leaving an
+# UNTRACKED miner holding the pool lock. Measured before this fix.
+rm -f "$PIDFILE" "$STATUS" 2>/dev/null
+for f in "$PIDFILE" "$STATUS"; do
+  [ -e "$f" ] && { echo "REFUSING: cannot clear $f (is it a directory?) — refusing to launch untracked" >&2; exit 6; }
+done
 
 # The PILOT is never sharded (D4) and never goes through the parallel driver:
 # it runs mine5.sh directly, so no shard-shaped configuration can reach it.
@@ -85,7 +97,11 @@ setsid --fork bash -c '
   pidfile=$1; status=$2; log=$3; shift 3
   tmp="$pidfile.tmp.$$"
   printf "%s\n" "$$" > "$tmp" || exit 70
-  mv -- "$tmp" "$pidfile" || exit 70
+  # -T (no-target-directory) is load-bearing: plain `mv` onto a DIRECTORY moves the
+  # file inside it and reports success, so publication would appear to work and the
+  # miner would start untracked. With -T that case fails and the exec below is never
+  # reached — the miner must not run if its pid cannot be published.
+  mv -T -- "$tmp" "$pidfile" || { rm -f "$tmp"; exit 70; }
   for sig in TERM INT HUP QUIT; do trap "echo signal:$sig > $status; exit 1" "$sig"; done
   "$@" >> "$log" 2>&1
   printf "%s\n" "$?" > "$status"

@@ -2108,3 +2108,45 @@ and the frozen `burnt-254.json`, since hashing only the first would miss a stray
 pool-lock descriptor, which the guardian has owned since round 3.1.
 
 `selftest.sh`: **78 assertions**, green in both TTY and non-TTY execution.
+
+#### Fourth finishing pass: a failed launch could still start an untracked miner
+
+**BLOCKING, and measured before the fix.** With a directory at the pid path:
+`rm -f "$PIDFILE"` failed with *"Is a directory"* and the error was **ignored**; the
+child's plain `mv` then moved its temp file **INSIDE** that directory and reported
+success; publication therefore appeared to work, so the child went on to **run the
+miner**; and the launcher's wait loop — seeing no readable pid file — exited 5
+reporting a failed launch. The result was the worst available combination: an
+operator told the launch failed, while a **miner ran untracked and held the pool
+lock**. Reproduced directly (`STUB STARTED — untracked miner running`, pool lock
+held, temp file found inside the directory).
+
+Three separate faults, all closed:
+
+- **the removal is now verified, not attempted** — if `$PIDFILE` or `$STATUS` still
+  exists after `rm -f`, the launcher refuses (exit 6) rather than launching;
+- **`mv -T`** — plain `mv` onto a directory moves the file inside it and succeeds;
+  `-T` makes that case fail, so the child exits 70 and **never reaches the miner**;
+- **the test now asserts the miner did not START**, via a start marker the stub
+  writes as its first action, plus a free pool lock. Exit code alone passed happily
+  while a miner was running.
+
+**Verifier repo validation.** `*/*` accepted `../repo`, `owner/..`, `owner/`, names
+with whitespace, `a/b/c`, a bare name and `owner/name:x` — any of which would escape
+the base or build a nonsense clone URL. Replaced with explicit per-component
+validation (non-empty, not `.` or `..`, `[A-Za-z0-9._-]` only). All nine malformed
+shapes are asserted refused, with a valid `owner/na.me_-1` control proving the check
+is not merely strict.
+
+**Side-effect-free, actually.** `mkdir -p "$TB_RUNTIME_DIR"` ran before the
+validation and dry-run exits, so both left a directory behind despite the claim.
+Moved below them; asserted that a dry run creates no runtime directory at all.
+
+`selftest.sh`: **82 assertions**, green in TTY and non-TTY.
+
+**Still outstanding, and not fixable from the tree:** `harness-core` and
+`round4-harness` are protected transitively by the corrected `gate` (which now runs
+`if: always()` and asserts every dependency's result), but they are **not listed in
+the repository's required-status ruleset**. That defence-in-depth setting is an
+operator action; until it is made, the protection depends on `ci.yml` not being
+edited.

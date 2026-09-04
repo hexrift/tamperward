@@ -103,11 +103,22 @@ for T in $(ls "$POOL/tasks" | sort); do
   # an absolute path because a manifest happened to contain one would let the
   # production verifier read from disk while documenting a canonical fresh clone;
   # the shape of the field is what keeps that claim true.
+  # Validate BOTH components explicitly. A glob is the wrong tool here: `*/*` happily
+  # accepts `../repo`, `owner/..`, `owner/` and names containing whitespace, any of
+  # which would either escape the base or produce a nonsense clone URL.
+  repo_ok=1
   case "$repo" in
-    */*/*|/*|*:*) no "$T manifest repo is not owner/name: '$repo'"; continue ;;
-    */*) ;;
-    *)   no "$T manifest repo is not owner/name: '$repo'"; continue ;;
+    */*/*|/*|*/) repo_ok=0 ;;
+    */*) owner=${repo%%/*}; name=${repo#*/}
+         for part in "$owner" "$name"; do
+           case "$part" in
+             ''|.|..) repo_ok=0 ;;
+             *[!A-Za-z0-9._-]*) repo_ok=0 ;;   # whitespace, ':', '@', '~' and friends
+           esac
+         done ;;
+    *)   repo_ok=0 ;;
   esac
+  [ "$repo_ok" = 1 ] || { no "$T manifest repo is not owner/name: '$repo'"; continue; }
   # Where those owner/name pairs are fetched FROM is a separate, explicit decision.
   # Production clones from GitHub. A test may point the base elsewhere, but only by
   # setting BOTH the base and TB_VERIFY_TEST_MODE=1 — a non-GitHub base without the

@@ -464,10 +464,28 @@ out=$(TB_VERIFY_REPO_BASE="$PF/remotes" TB_POOL_DIR="$PF/pool" ./verify-pilot-ta
 # a manifest may never name a path
 mkdir -p "$PF/pool2/tasks/97-pathy"; cp "$PF/pool/tasks/98-red-parent/"*.patch "$PF/pool2/tasks/97-pathy/"
 node -e 'const fs=require("fs"),c=require("crypto"),d=process.argv[1];const h=f=>c.createHash("sha256").update(fs.readFileSync(d+"/tasks/97-pathy/"+f)).digest("hex");fs.writeFileSync(d+"/tasks/97-pathy/manifest.json",JSON.stringify({id:"97-pathy",repo:"/tmp/somewhere",parent_sha:"0".repeat(40),test_patch_sha256:h("test.patch"),gold_patch_sha256:h("gold.patch")}));' "$PF/pool2"
-out=$(TB_VERIFY_TEST_MODE=1 TB_POOL_DIR="$PF/pool2" ./verify-pilot-tasks.sh 2>&1); rc=$?
-[ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'not owner/name' \
-  && ok "a manifest repo that is a PATH is refused outright" \
-  || no "a path-shaped manifest repo was accepted (exit $rc)"
+# every malformed shape, not just the obvious one. `*/*` accepts most of these.
+mkrepo_manifest() { # <dir> <repo string>
+  mkdir -p "$1/tasks/97-pathy"; cp "$PF/pool/tasks/98-red-parent/"*.patch "$1/tasks/97-pathy/"
+  node -e 'const fs=require("fs"),c=require("crypto"),d=process.argv[1],r=process.argv[2];
+    const h=f=>c.createHash("sha256").update(fs.readFileSync(d+"/tasks/97-pathy/"+f)).digest("hex");
+    fs.writeFileSync(d+"/tasks/97-pathy/manifest.json",JSON.stringify({id:"97-pathy",repo:r,
+      parent_sha:"0".repeat(40),test_patch_sha256:h("test.patch"),gold_patch_sha256:h("gold.patch")}));' "$1" "$2"
+}
+n=0
+for bad in "/tmp/somewhere" "../repo" "owner/.." "owner/" "own er/repo" "owner/re po" "a/b/c" "owner" "owner/name:x"; do
+  n=$((n+1)); BD="$PF/bad$n"; mkrepo_manifest "$BD" "$bad"
+  out=$(TB_VERIFY_TEST_MODE=1 TB_POOL_DIR="$BD" ./verify-pilot-tasks.sh 2>&1); rc=$?
+  [ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'not owner/name' \
+    || { no "a malformed manifest repo was ACCEPTED: '$bad' (exit $rc)"; continue; }
+done
+ok "every malformed manifest repo is refused (path, .., trailing slash, whitespace, extra segment, bare name, colon)"
+# and a well-formed one is NOT refused by the same check
+mkrepo_manifest "$PF/good" "owner/na.me_-1"
+out=$(TB_VERIFY_TEST_MODE=1 TB_POOL_DIR="$PF/good" ./verify-pilot-tasks.sh 2>&1)
+printf '%s' "$out" | grep -q 'not owner/name' \
+  && no "a VALID owner/name was rejected — the validation is too strict" \
+  || ok "a valid owner/name passes the shape check (dots, dashes, underscores, digits)"
 rm -rf "$PF"
 
 echo "== launch-mine.sh: hermetic — private runtime dir, stub miner, no global state"
@@ -481,7 +499,9 @@ lab() {                       # -> prints a fresh, isolated launcher lab
   cp launch-mine.sh "$L/"
   cat > "$L/mine5.sh" <<'STUB'
 #!/usr/bin/env bash
-# stub miner: holds the pool lock like the real one, then sleeps
+# stub miner: leaves a START MARKER, then holds the pool lock like the real one.
+# The marker is what proves a failed launch did not quietly start a miner anyway.
+touch "${STUB_MARKER:?}"
 exec 8>"${TB_POOL_LOCK:?}"; flock -n 8 || exit 7
 sleep "${STUB_SLEEP:-30}"
 STUB
@@ -490,8 +510,9 @@ STUB
 }
 lrun() {                      # <lab> <extra env...> -- runs the copied launcher
   local L="$1"; shift
-  ( cd "$L" && env TB_RUNTIME_DIR="$L/rt" TB_POOL_LOCK="$L/rt/pool.lock" "$@" ./launch-mine.sh pilot 2>&1 )
+  ( cd "$L" && env TB_RUNTIME_DIR="$L/rt" TB_POOL_LOCK="$L/rt/pool.lock" STUB_MARKER="$L/started" "$@" ./launch-mine.sh pilot 2>&1 )
 }
+pool_free() { [ -e "$1" ] || return 0; ( flock -n 7 ) 7<"$1" 2>/dev/null; }
 stop_lab() { local L="$1"; local pid; pid=$(tr -dc '0-9' < "$L/rt/tb-mine-pilot.pid" 2>/dev/null)
   [ -n "$pid" ] && { pkill -KILL -s "$pid" 2>/dev/null; kill -KILL "$pid" 2>/dev/null; }; rm -rf "$L"; }
 
@@ -543,16 +564,28 @@ out=$(lrun "$L" STUB_SLEEP=20); pid=$(tr -dc '0-9' < "$L/rt/tb-mine-pilot.pid" 2
   || no "the stale pid survived as the reported launch (got ${pid:-none})"
 stop_lab "$L"
 
-# a launch that cannot publish a pid FAILS — never "unknown" with exit 0.
-# `chmod -w` is useless here: this runs as root, which ignores the write bits, so
-# that shape of the test could never fail. Making the pid PATH a directory blocks
-# publication structurally instead — `mv` moves the temp file INTO it, so the path
-# never becomes a readable pid file, whatever the uid.
+# A launch that cannot publish a pid must fail AND must not start the miner.
+# Exit code alone was not enough: with a DIRECTORY at the pid path, `rm -f` failed
+# (ignored), the child's plain `mv` moved its temp file INSIDE that directory and so
+# reported success, the child went on to run the miner, and the launcher exited 5 —
+# leaving an UNTRACKED miner holding the pool lock while reporting a failed launch.
+# `chmod -w` cannot express this at all as root, which ignores the write bits.
 L=$(lab); mkdir -p "$L/rt/tb-mine-pilot.pid"
-out=$(lrun "$L" STUB_SLEEP=5); rc=$?
-[ "$rc" = 5 ] && ! printf '%s' "$out" | grep -q 'pid unknown' \
-  && ok "an unpublishable pid fails the launch (exit 5), never 'pid unknown'" \
+out=$(lrun "$L" STUB_SLEEP=25); rc=$?
+sleep 1
+[ "$rc" != 0 ] && ! printf '%s' "$out" | grep -q 'pid unknown' \
+  && ok "an unpublishable pid fails the launch (exit $rc), never 'pid unknown'" \
   || no "an unconfirmed launch did not fail closed (rc=$rc)"
+[ ! -f "$L/started" ] && ok "a failed publication did NOT start the miner (no start marker)" \
+                      || no "the miner STARTED despite a failed publication — untracked"
+pool_free "$L/rt/pool.lock" && ok "no untracked miner holds the pool lock after a failed launch" \
+                            || no "the pool lock is held after a launch that reported failure"
+rm -rf "$L"
+
+# and the mechanism directly: `mv` onto a directory must not be treated as success
+L=$(lab); mkdir -p "$L/dir"; : > "$L/f"
+if mv -T -- "$L/f" "$L/dir" 2>/dev/null; then no "mv -T onto a directory succeeded — publication could silently 'work'"
+else ok "mv -T refuses a directory target (plain mv would move the file inside it)"; fi
 rm -rf "$L"
 
 echo "== build-burn-list.py: informational flags cannot write state"
