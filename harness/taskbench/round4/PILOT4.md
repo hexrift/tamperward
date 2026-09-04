@@ -57,6 +57,21 @@ iteration examined is burnt — as every pilot repository is — and a fresh
 the whole checklist against the new candidate. The task count never varies with
 the result; only the draw advances.
 
+## The pilot's execution is itself registered (2026-09-04)
+
+Which tasks run, in what order, in which arm order, against which treatment,
+runner and environment is frozen in `PILOT-EXECUTION-MANIFEST.json` (rendered as
+`PILOT-EXECUTION-MANIFEST.md`) at base harness commit `08a1d42`, before any
+trajectory. The order is **derived** from two registered seeds by the rule rounds
+1–3.1 used, both distinct from every counted seed, so the pilot cannot perturb
+the counted draw and the identity of the dry-run trajectory could not be chosen
+after seeing an outcome. `freeze-pilot-manifest.mjs --check` re-derives the whole
+document and fails on any drift in what shapes the measurement; CI runs it.
+
+The **pool is the fresh ten (ids 11–20)**. Ids 01–10 were mined, validated and
+then discussed in the open, which made them disclosed development data; they are
+excluded by id rather than by a filter that could quietly admit them.
+
 ## What the pilot must establish (freeze checklist)
 
 Each item is proven on the pilot pool before the treatment is frozen; a failure

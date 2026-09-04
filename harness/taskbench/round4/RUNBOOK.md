@@ -117,14 +117,46 @@ onnx builds a multi-gigabyte venv, and four workers can land on four heavy ones
 at once. With ample disk this is a non-issue; on a tight allowance, drop to
 two or three workers.
 
+## Running the pilot
+
+The pilot's registration is frozen in `PILOT-EXECUTION-MANIFEST.json` — the ten
+fresh tasks, the trajectory order, the arm order, the treatment, the runner and
+the recorded environment. `PILOT-EXECUTION-MANIFEST.md` is a rendering of it.
+
+**Before trajectory one, every time:**
+
+```
+node harness/taskbench/round4/freeze-pilot-manifest.mjs --check
+```
+
+| exit | meaning |
+|---|---|
+| 0 | the frozen manifest describes this tree — proceed |
+| 2 | **binding drift.** Something that shapes the measurement changed. Do not run |
+| 3 | **environment drift.** Record it in `DEVIATIONS.md`, then proceed |
+| 4 | the artefact is not deployed here, so the treatment could not be verified |
+
+The order is derived from two registered seeds, so **which trajectory is the dry
+run was fixed in advance**: seq 1 is `15-pydata-numexpr`, gated arm. Run it, then
+the remaining 19 in manifest order. A task's two arms run adjacently.
+
+Trajectories need a credential, which lives **outside the repository** —
+short-lived and spending-limited, with only its fingerprint recorded (a one-way
+sha256 prefix, per trajectory, by `run-task4.sh`). `run-task4.sh` also refuses a
+real-agent trajectory unless `TB_RUNTASK4_READY=1`, which is set only once the
+freeze checklist is complete and that credential is provisioned.
+
+Re-freezing is a registered act: `--derive` refuses to overwrite a manifest that
+differs unless `TB_PILOT_REFREEZE=1`, and the reason goes in `DEVIATIONS.md`,
+append-only.
+
 ## What is NOT ready
 
-- **The round-4 runner.** The trajectory runner is still round 3.1's. It needs
-  the v2 deployment (init from the frozen package, `disableAllHooks: false`, no
-  reachable sign-off) and the round-4 outcome schema. See PILOT4.md for the
-  wiring constraint already established: a `PostToolUse` observer beside the
-  init-written gate is clean, a second `Stop` entry is hook-tampering, so
-  pristine verification runs parent-owned after the agent exits.
+- **A counted sweep driver.** `run-task4.sh` runs one trajectory; round 3.1's
+  `phase3-sweep31.sh` is not wired to the round-4 manifest, so the pilot's 20
+  trajectories are driven one at a time against the frozen order. A counted
+  round at N=110 needs the driver (resume on verdicts, one driver per results
+  directory under a lock, H5 checkpoint pushes) before it can start.
 - **The frame, for the counted round only.** At round 3's measured yield —
   ~14 substantive repository decisions per task — the frozen 500 caps out near
   35 tasks against the 110 the power simulation asks for. The pilot is

@@ -2158,3 +2158,91 @@ nothing.
 the repository's required-status ruleset**. That defence-in-depth setting is an
 operator action; until it is made, the protection depends on `ci.yml` not being
 edited.
+
+## Pilot execution manifest FROZEN — 2026-09-04, base `08a1d42`
+
+The registration for the 10×2 sacrificial pilot is frozen before trajectory one, as
+`PILOT-EXECUTION-MANIFEST.json` with its rendered page beside it. It fixes the ten
+fresh tasks, the trajectory order, the arm order, the treatment, the runner and the
+recorded environment. **Nothing in it is a pilot result**: no trajectory has run and
+the credential is not provisioned. Freezing it now is the whole point — an order
+chosen after seeing an outcome is not an order.
+
+| | |
+|---|---|
+| manifest sha256 | `1b1273c1497ab3677c5dbfd0ef3b98f87f8b316b46c0b78db3d86275eb5f18b0` |
+| base harness commit | `08a1d42b596e142f336f24b9b5c5ceb6bcc005e4` |
+| model | `claude-sonnet-5` |
+| trajectory-order seed | `taskbench4-pilot-trajectory-order-v1-2026-09-04` |
+| arm-order seed | `taskbench4-pilot-arm-order-v1-2026-09-04` |
+| tasks / trajectories | 10 / 20 |
+| artefact package tree | `a0328112d99451e998037a3b26005c622590f9e5dee075db7606419a06ad3458` |
+| init wiring | `473a26e6567f393f7663bb961be04f0b27e990984066c88047ae9f7eeeceb6a2` |
+| combined runner hash | `19a940632627785c729d56e3e094d1420638364dfa60feb8aafc5015330029ac` |
+
+**The model is not a choice made here.** FRAME5 registers "the round-3.1
+`claude-sonnet-5` snapshot if still servable, else one newly pinned ID". The default
+is therefore `claude-sonnet-5`, and servability is confirmed when the credential is
+provisioned. If the snapshot is gone, freeze 1's fallback applies and the manifest is
+re-frozen — append-only, with the reason, and **before** trajectory one.
+
+**The order is derived, not typed.** `sha256(seed:id)` sorted for the trajectory
+order, `sha256(arm_seed:id)[0] % 2` for the arm order — the rule rounds 1–3.1 all
+used. Both seeds are distinct from every counted seed and from both mining seeds, so
+nothing the pilot does perturbs the counted draw. `--check` **re-derives** the order
+from the manifest's own seeds, so an order edited by hand is caught even with the
+pool and seeds beside it untouched. The joint dry run is therefore fixed in advance:
+**seq 1 = `15-pydata-numexpr`, gated arm.**
+
+**Binding vs recorded, and why the distinction is not bookkeeping.** Binding
+identities (registration, pool, execution order, treatment, runner) are frozen: a
+change to any of them changes what the pilot measures, and `--check` exits 2. Recorded
+identities (the host environment) move with the machine: freezing them would make the
+manifest unusable on the next host, ignoring them would lose the provenance, so drift
+exits **3** — a deviation to record, not a silent difference and not a hard stop.
+
+**What the freeze pins that a tarball hash does not.** The artefact hash says which
+bytes are installed; the **wiring** hash says what those bytes do to a repository. It
+is derived by actually running `tamperward init` from the artefact into a scratch
+repository and hashing the five files it writes — the deployment rule executed rather
+than asserted. Verified deterministic across repeated runs before being pinned.
+
+**Runner set.** Twelve scripts that shape a trajectory are pinned individually.
+Self-tests and fixtures under `runner/` are deliberately excluded — they cannot reach
+a trajectory — so the pin does not fail for edits that cannot affect a measurement.
+This is a judgement, and it is the one soft edge in the freeze: a script that became
+trajectory-shaping without being added to the list would not be pinned. `--check` in
+CI does not detect that; a reviewer must.
+
+**One defect in this tooling, caught before the freeze.** The tree-hash function was
+first reimplemented in JS and produced a different digest for a byte-identical tree,
+because `sha256sum` prints `./path` and the reimplementation printed `path`. The pin
+comparison caught it immediately — `artefact_pin_matches: false` against a correct
+artefact. It now shells out to the identical pipeline the rest of the harness uses,
+so there is one definition of the artefact's identity rather than two that must be
+kept in agreement.
+
+**Self-test.** `selftest.sh` grows to **117 assertions**, green in TTY and non-TTY.
+The 34 new ones were proven non-vacuous against seven deliberately broken variants of
+the tool: binding drift never reported (8 fail), order re-derivation removed (1), patch
+re-hashing removed (1), arm seed ignored (1 + collateral), trajectory seed ignored
+(2 + collateral), page comparison removed (1), page re-render on the unchanged path
+removed (1). Each mutant fails the assertion that names its mechanism.
+
+One assertion was itself defective when first written and never ran green: under
+`set -o pipefail` a `node --check | grep -q` pipeline reports the checker's exit 2,
+so its success branch was unreachable. The output is now captured before matching.
+
+**CI.** `round4-harness` runs `--check` with `TB_PILOT_CHECK_NO_ARTEFACT=1` and
+`TB_PILOT_CHECK_BINDING_ONLY=1`: no artefact is deployed on a runner and the runner's
+environment necessarily differs from the freeze host, so comparing either would make
+the step fail for reasons that mean nothing. Binding drift is checked in full — a PR
+that edits the adjudicator, the runner, a task patch or the pool without re-freezing
+fails there rather than at trajectory one. Verified both ways: clean at rc=0, and
+rc=2 with `BINDING DRIFT runner` after appending one comment line to `verdict4.mjs`.
+
+**Steps 3–6 are NOT done and are not startable from here.** The pilot credential must
+be provisioned outside the repository; this container has none
+(`~/.claude/.credentials.json` absent, `ANTHROPIC_API_KEY` unset). Until it exists no
+real-Claude trajectory can run, so the dry run, the remaining 19, the revocation and
+the adjudication all wait on that operator action.

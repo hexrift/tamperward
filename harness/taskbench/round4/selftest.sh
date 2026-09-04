@@ -615,4 +615,157 @@ python3 incident-D3/build-burn-list.py --check >/dev/null 2>&1 \
   && ok "both burn artefacts are byte-identical after every informational/rejected invocation" \
   || no "an informational or rejected invocation MUTATED a burn artefact"
 
+
+echo "== pilot execution manifest: the freeze is derived and checkable, not typed"
+FZ=./freeze-pilot-manifest.mjs
+FM=./PILOT-EXECUTION-MANIFEST.json
+# Every --check below fixes BOTH host-dependent axes, so the same assertion holds
+# on the freeze host and on a CI runner with no artefact deployed. The artefact
+# and environment paths get their own dedicated cases underneath.
+CK="TB_PILOT_CHECK_NO_ARTEFACT=1 TB_PILOT_CHECK_BINDING_ONLY=1"
+
+# ---- structure: the pool is the FRESH ten, both arms, nothing else
+node "$FZ" --print > /tmp/tb-fz-print.json 2>/dev/null
+node -e '
+const m=require("/tmp/tb-fz-print.json"), a=[];
+const ok=(c,d)=>a.push((c?"ok   ":"FAIL ")+d);
+const ids=m.pool.tasks.map(t=>t.id);
+ok(ids.length===10,"the pool is exactly 10 tasks");
+ok(ids.every(i=>/^(1[1-9]|20)-/.test(i)),"every task is a FRESH id 11-20");
+ok(!ids.some(i=>/^0[1-9]-|^10-/.test(i)),"no spent id 01-10 can enter the pool");
+ok([...new Set(m.execution.task_order)].length===10 &&
+   m.execution.task_order.every(t=>ids.includes(t)),"the order is a permutation of the pool: none dropped, none repeated");
+ok(m.execution.trajectory_count===20 && m.execution.trajectories.length===20,"both arms: exactly 20 trajectories");
+const per={}; for(const r of m.execution.trajectories) (per[r.task]=per[r.task]||[]).push(r.arm);
+ok(Object.values(per).every(v=>v.length===2 && v.includes("gated") && v.includes("ungated")),
+   "every task runs once gated and once ungated");
+ok(m.execution.trajectories.every((r,i)=>r.seq===i+1),"seq is dense and 1-based, so no trajectory can be skipped unnoticed");
+ok(m.execution.trajectories.every((r,i)=>i%2===1?r.task===m.execution.trajectories[i-1].task:true),
+   "a task pair is adjacent: both arms run back to back");
+console.log(a.join("\n"));
+' | while read -r v d; do [ "$v" = ok ] && ok "$d" || no "$d"; done
+
+# ---- the order FOLLOWS FROM the seeds: a hand-edited order cannot survive
+same=$(node "$FZ" --print | sha256sum; node "$FZ" --print | sha256sum)
+[ "$(echo "$same" | sort -u | wc -l)" = 1 ] && ok "derivation is deterministic across runs" || no "derivation is not deterministic"
+ord(){ node "$FZ" --print | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).execution.task_order.join(",")))'; }
+arms(){ node "$FZ" --print | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).execution.trajectories.filter(r=>r.seq%2===1).map(r=>r.arm).join(",")))'; }
+BASE_ORD=$(ord); BASE_ARMS=$(arms)
+ALT_ORD=$(TB_PILOT_FREEZE_TEST='{"trajectory_order_seed":"selftest-other-order-seed"}' ord)
+ALT_ARMS=$(TB_PILOT_FREEZE_TEST='{"arm_order_seed":"selftest-other-arm-seed"}' arms)
+[ "$BASE_ORD" != "$ALT_ORD" ] && ok "a different trajectory seed yields a different order — the seed is load-bearing" || no "the trajectory seed does not affect the order"
+[ "$BASE_ARMS" != "$ALT_ARMS" ] && ok "a different arm seed yields a different arm assignment" || no "the arm seed does not affect the arms"
+SAME_ORD=$(TB_PILOT_FREEZE_TEST='{"arm_order_seed":"selftest-other-arm-seed"}' ord)
+[ "$BASE_ORD" = "$SAME_ORD" ] && ok "the arm seed does NOT perturb the task order — the two seeds are independent" || no "the arm seed leaked into the task order"
+FROZEN_ORD=$(node -e 'console.log(require("'"$PWD"'/PILOT-EXECUTION-MANIFEST.json").execution.task_order.join(","))')
+[ "$BASE_ORD" = "$FROZEN_ORD" ] && ok "the FROZEN order is exactly what its own seeds derive" || no "the frozen order does not follow from its own seeds"
+
+# ---- --check catches every binding forgery, and tells drift classes apart
+# The copy carries its rendered page too, rendered FROM the tampered JSON, so
+# each case isolates the field it edits instead of also tripping the page check.
+tamper(){ t=$(mktemp /tmp/tb-fz-XXXX.json); node -e '
+const fs=require("fs"),m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+(new Function("m",process.argv[2]))(m);
+fs.writeFileSync(process.argv[3],JSON.stringify(m,null,1)+"\n");' "$FM" "$1" "$t"
+  TB_PILOT_MANIFEST="$t" node "$FZ" --render > "${t%.json}.md" 2>/dev/null; echo "$t"; }
+ckrc(){ env $CK TB_PILOT_MANIFEST="$1" node "$FZ" --check >/dev/null 2>&1; echo $?; }
+
+C=$(tamper 'void 0')
+[ "$(ckrc "$C")" = 0 ] && ok "an untouched copy checks clean (the positive control)" || no "an untouched copy failed to check"
+# The forgery this document exists to prevent: the recorded order is rewritten
+# while the seeds and the pool are left alone.
+C=$(tamper 'const t=m.execution.trajectories; [t[0].task,t[2].task]=[t[2].task,t[0].task];')
+[ "$(ckrc "$C")" = 2 ] && ok "a hand-edited execution order is caught" || no "a forged execution order passed"
+# Asserted on the NAMED comparison, not just the exit code: otherwise this case
+# could not tell "caught by re-derivation" from "caught by something else", and
+# the claim in the label would be inferred rather than shown.
+# The output is captured BEFORE grepping: under `set -o pipefail` a pipeline
+# ending in grep still reports the checker's own exit 2, so the success branch
+# of `node ... | grep -q ...` is unreachable however well the check works.
+out=$(env $CK TB_PILOT_MANIFEST="$C" node "$FZ" --check 2>&1)
+case "$out" in
+  *"BINDING DRIFT  execution (re-derived from the frozen seeds)"*)
+    ok "and it is the re-derivation from the frozen seeds that catches it" ;;
+  *) no "the re-derivation comparison did not fire" ;;
+esac
+C=$(tamper 'm.execution.trajectories[0].arm = m.execution.trajectories[0].arm==="gated"?"ungated":"gated";')
+[ "$(ckrc "$C")" = 2 ] && ok "a flipped arm is caught" || no "a flipped arm passed"
+C=$(tamper 'm.pool.tasks[0].gold_patch_sha256 = "0".repeat(64);')
+[ "$(ckrc "$C")" = 2 ] && ok "a rewritten task patch hash is caught" || no "a rewritten task hash passed"
+C=$(tamper 'm.runner.files[8].sha256 = "0".repeat(64);')
+[ "$(ckrc "$C")" = 2 ] && ok "a rewritten adjudicator hash is caught" || no "a rewritten runner hash passed"
+C=$(tamper 'm.registration.model = "some-other-model";')
+[ "$(ckrc "$C")" = 2 ] && ok "a rewritten model is caught" || no "a rewritten model passed"
+C=$(tamper 'm.registration.trajectory_order_seed = "selftest-swapped-seed";')
+[ "$(ckrc "$C")" = 2 ] && ok "a rewritten seed is caught" || no "a rewritten seed passed"
+C=$(tamper 'm.registration.base_commit = "0".repeat(40);')
+[ "$(ckrc "$C")" = 2 ] && ok "a base commit that is not an ancestor of HEAD is caught" || no "an unrelated base commit passed"
+
+# ---- environment drift is a DIFFERENT answer from binding drift
+C=$(tamper 'm.environment_recorded.kernel = "selftest-not-this-kernel";')
+[ "$(TB_PILOT_CHECK_NO_ARTEFACT=1 TB_PILOT_MANIFEST="$C" node "$FZ" --check >/dev/null 2>&1; echo $?)" = 3 ] \
+  && ok "environment drift exits 3 — recorded, not confused with binding drift" || no "environment drift did not exit 3"
+[ "$(ckrc "$C")" = 0 ] && ok "TB_PILOT_CHECK_BINDING_ONLY=1 skips the host-dependent comparison for CI" || no "binding-only mode still failed on environment drift"
+C=$(tamper 'm.environment_recorded.kernel="x"; m.registration.model="y";')
+[ "$(TB_PILOT_CHECK_NO_ARTEFACT=1 TB_PILOT_MANIFEST="$C" node "$FZ" --check >/dev/null 2>&1; echo $?)" = 2 ] \
+  && ok "binding drift outranks environment drift" || no "binding drift was masked by environment drift"
+
+# ---- an absent treatment is never silently 'fine'
+C=$(tamper 'void 0')
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_PILOT_MANIFEST="$C" node "$FZ" --check >/dev/null 2>&1; echo $?)" = 4 ] \
+  && ok "a missing artefact exits 4 rather than passing with the treatment unverified" || no "a missing artefact did not exit 4"
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_PILOT_CHECK_NO_ARTEFACT=1 TB_PILOT_CHECK_BINDING_ONLY=1 TB_PILOT_MANIFEST="$C" node "$FZ" --check >/dev/null 2>&1; echo $?)" = 0 ] \
+  && ok "the missing-artefact allowance is explicit and opt-in" || no "the missing-artefact allowance did not work"
+out=$(TB_ART_DIR=/nonexistent-artefact TB_PILOT_CHECK_NO_ARTEFACT=1 TB_PILOT_CHECK_BINDING_ONLY=1 TB_PILOT_MANIFEST="$C" node "$FZ" --check 2>&1)
+echo "$out" | grep -q "treatment identity UNVERIFIED" && ok "and it SAYS the treatment is unverified" || no "the allowance is silent about what it skipped"
+
+# ---- the rendered page is part of the freeze, not a comment on it
+diff <(node "$FZ" --render) ./PILOT-EXECUTION-MANIFEST.md >/dev/null 2>&1 \
+  && ok "the committed page is exactly what the frozen manifest renders to" || no "the page has drifted from the manifest"
+PG=$(mktemp -d); cp "$FM" "$PG/PILOT-EXECUTION-MANIFEST.json"; node "$FZ" --render > "$PG/PILOT-EXECUTION-MANIFEST.md"
+[ "$(env $CK TB_PILOT_MANIFEST="$PG/PILOT-EXECUTION-MANIFEST.json" node "$FZ" --check >/dev/null 2>&1; echo $?)" = 0 ] \
+  && ok "a manifest with its matching page checks clean (positive control)" || no "a matching page failed to check"
+printf 'edited by hand\n' >> "$PG/PILOT-EXECUTION-MANIFEST.md"
+[ "$(env $CK TB_PILOT_MANIFEST="$PG/PILOT-EXECUTION-MANIFEST.json" node "$FZ" --check >/dev/null 2>&1; echo $?)" = 2 ] \
+  && ok "a hand-edited page is binding drift, not a cosmetic difference" || no "a hand-edited page passed"
+rm -f "$PG/PILOT-EXECUTION-MANIFEST.md"
+[ "$(env $CK TB_PILOT_MANIFEST="$PG/PILOT-EXECUTION-MANIFEST.json" node "$FZ" --check >/dev/null 2>&1; echo $?)" = 2 ] \
+  && ok "a deleted page is caught rather than treated as nothing to compare" || no "a deleted page passed"
+# --derive re-renders even when the JSON is unchanged; an early return there
+# would leave --derive reporting success while --check reported drift.
+TB_PILOT_MANIFEST="$PG/PILOT-EXECUTION-MANIFEST.json" node "$FZ" --derive >/dev/null 2>&1
+[ -s "$PG/PILOT-EXECUTION-MANIFEST.md" ] && ok "--derive restores a missing page on the unchanged path" || no "--derive left the page missing"
+rm -rf "$PG"
+
+# ---- the pool must not be able to certify itself
+POOLCP=$(mktemp -d); cp -a pools/pilot/tasks/. "$POOLCP/"
+TB_PILOT_POOL_DIR="$POOLCP" node "$FZ" --print >/dev/null 2>&1 \
+  && ok "an intact pool copy derives (the positive control for the pool seam)" || no "an intact pool copy failed to derive"
+echo "tampered" >> "$POOLCP/13-getmoto-py-partiql-parser/gold.patch"
+TB_PILOT_POOL_DIR="$POOLCP" node "$FZ" --print >/dev/null 2>&1 \
+  && no "a patch that disagrees with its own manifest was accepted" || ok "a patch edited under its manifest is refused — the manifest cannot certify itself"
+rm -rf "$POOLCP"; POOLCP=$(mktemp -d); cp -a pools/pilot/tasks/. "$POOLCP/"; rm -rf "$POOLCP/17-tmbo-questionary"
+TB_PILOT_POOL_DIR="$POOLCP" node "$FZ" --print >/dev/null 2>&1 \
+  && no "a pool missing a task was accepted" || ok "a pool missing one of the ten is refused"
+rm -rf "$POOLCP"; POOLCP=$(mktemp -d); cp -a pools/pilot/tasks/. "$POOLCP/"
+node -e 'const f=process.argv[1]+"/11-jsonpickle-jsonpickle/manifest.json";const fs=require("fs");const m=JSON.parse(fs.readFileSync(f,"utf8"));m.role="main";fs.writeFileSync(f,JSON.stringify(m,null,1))' "$POOLCP"
+TB_PILOT_POOL_DIR="$POOLCP" node "$FZ" --print >/dev/null 2>&1 \
+  && no "a task whose role is not 'pilot' was accepted" || ok "a non-pilot role is refused"
+rm -rf "$POOLCP"
+
+# ---- the seams cannot reach the real manifest, and re-freezing is deliberate
+for seam in TB_PILOT_FREEZE_TEST='{"model":"x"}' TB_PILOT_POOL_DIR=/tmp; do
+  rc=$(env "$seam" node "$FZ" --check >/dev/null 2>&1; echo $?)
+  [ "$rc" = 5 ] && ok "\`${seam%%=*}\` is refused against the real manifest" || no "\`${seam%%=*}\` reached the real manifest (rc=$rc)"
+done
+BEFORE_FM=$(sha256sum "$FM" | cut -d' ' -f1)
+C2=$(mktemp /tmp/tb-fz-XXXX.json); cp "$FM" "$C2"
+node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));m.registration.model="stale";fs.writeFileSync(process.argv[1],JSON.stringify(m,null,1)+"\n")' "$C2"
+rc=$(TB_PILOT_MANIFEST="$C2" node "$FZ" --derive >/dev/null 2>&1; echo $?)
+[ "$rc" = 2 ] && ok "--derive refuses to overwrite a differing manifest" || no "--derive silently re-froze (rc=$rc)"
+node -e 'const m=require(process.argv[1]);process.exit(m.registration.model==="stale"?0:1)' "$C2" \
+  && ok "and it wrote nothing — the stale file is untouched" || no "--derive mutated the file it refused to overwrite"
+[ "$(sha256sum "$FM" | cut -d' ' -f1)" = "$BEFORE_FM" ] && ok "the real frozen manifest is byte-identical after every case above" || no "the self-test MUTATED the frozen manifest"
+rm -f /tmp/tb-fz-*.json /tmp/tb-fz-*.md /tmp/tb-fz-print.json
+
 echo; echo "passed $pass, failed $fail"; [ "$fail" = 0 ]
