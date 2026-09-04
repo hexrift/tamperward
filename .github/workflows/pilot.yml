@@ -48,7 +48,7 @@ on:
         default: false
 
 permissions:
-  contents: read
+  contents: write   # run-next force-pushes the runs-pilot/ snapshot to a non-protected state branch
 
 concurrency:
   group: round4-pilot        # one pilot run at a time, ever
@@ -108,6 +108,34 @@ jobs:
         # fingerprint for review. Runs nothing scientific.
         run: bash harness/taskbench/round4/provision-check.sh
 
+      - name: Restore pilot state (never-re-roll across dispatches)
+        if: inputs.action == 'run-next'
+        # Ephemeral runners forget runs-pilot/ between dispatches, which is where the
+        # never-re-roll guarantee lives. Pull the prior markers/verdicts so the driver
+        # advances in order and halts (rather than re-rolls) a started trajectory.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash harness/taskbench/round4/ci-pilot-state.sh restore
+
+      - name: Install the pinned agent CLI where the jail can find it
+        if: inputs.action == 'run-next'
+        # run-task4.sh launches the agent inside the jail with
+        # PATH=ART_BINDIR:NODE_DIR:VENV/bin:/usr/bin:/bin and calls bare `claude`, so the
+        # CLI must resolve in one of those dirs. npm -g on setup-node lands it in NODE_DIR
+        # (same prefix as node); symlink it there otherwise. Runs BEFORE the start marker,
+        # so a miss is retryable — never a halt. Pinned to the freeze-recorded version.
+        run: |
+          set -euo pipefail
+          npm install -g @anthropic-ai/claude-code@2.1.260
+          NODE_DIR="$(cd "$(dirname "$(command -v node)")" && pwd)"
+          CLAUDE="$(command -v claude || true)"
+          [ -n "$CLAUDE" ] || { echo "::error::claude not on PATH after install"; exit 1; }
+          case "$CLAUDE" in
+            "$NODE_DIR"/*|/usr/bin/*|/bin/*) : ;;
+            *) sudo ln -sf "$CLAUDE" "$NODE_DIR/claude" 2>/dev/null || ln -sf "$CLAUDE" "$NODE_DIR/claude" ;;
+          esac
+          echo "agent CLI: $(claude --version 2>&1 | head -1 || true) — reachable at $NODE_DIR/claude"
+
       - name: Run the trajectory
         if: inputs.action == 'run-next'
         env:
@@ -116,12 +144,26 @@ jobs:
         run: |
           set -uo pipefail
           [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || { echo "::error::run-next needs the CLAUDE_CODE_OAUTH_TOKEN secret."; exit 1; }
+
+          # The jail chains egress through an UPSTREAM HTTP proxy (HTTPS_PROXY). The
+          # firecracker env supplies one; a runner does not, so start a loopback CONNECT
+          # forwarder to be that upstream. The jail's own allowlist-proxy still enforces
+          # api.anthropic.com-only egress — this only replaces the missing plumbing.
+          node harness/taskbench/round4/ci-upstream-proxy.mjs 8888 &
+          PROXY_PID=$!
+          trap 'kill "$PROXY_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 20); do
+            (exec 3<>/dev/tcp/127.0.0.1/8888) 2>/dev/null && { exec 3>&- 3<&-; break; }
+            sleep 0.25
+          done
+          export HTTPS_PROXY=http://127.0.0.1:8888 https_proxy=http://127.0.0.1:8888
+
           cd harness/taskbench/round4
 
-          # Every privileged call carries the runner PATH (node, uv, python3.11) so the
-          # freeze fingerprint is identical across the code check, the acknowledgement
-          # and the driver's own gate — an acknowledgement is bound to the exact drift.
-          run() { sudo -E env "PATH=$PATH" "$@"; }
+          # Every privileged call carries the runner PATH and the upstream proxy so the
+          # freeze fingerprint and the agent network path are identical across the code
+          # check, the acknowledgement and the driver's own gate.
+          run() { sudo -E env "PATH=$PATH" HTTPS_PROXY="$HTTPS_PROXY" https_proxy="$https_proxy" "$@"; }
 
           set +e; run node freeze-pilot-manifest.mjs --check >/tmp/fz.txt 2>&1; FRC=$?; set -e
           cat /tmp/fz.txt
@@ -136,13 +178,21 @@ jobs:
             *) echo "::error::freeze exit $FRC — not runnable (binding/structural drift is never acknowledged)."; exit 1 ;;
           esac
 
-          # The jail is applied symmetrically to both arms (PILOT4.md); the driver does
-          # not set TB_NETJAIL, so the operator does. The driver adds TB_RUNTASK4_READY,
-          # the registered model and the manifest binding itself.
+          # TB_NETJAIL=1 (symmetric jail, PILOT4.md) and the upstream proxy travel into the
+          # driver; it adds TB_RUNTASK4_READY, the registered model and the manifest binding.
           run TB_NETJAIL=1 CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" ./pilot-drive.sh --next
 
           echo "### pilot status" >> "$GITHUB_STEP_SUMMARY"
           ./pilot-drive.sh --status | tee -a "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Save pilot state
+        # ALWAYS: a produced verdict or a written start marker must persist to the next
+        # dispatch — that is what makes never-re-roll hold on an ephemeral runner. Runs
+        # even when the trajectory failed.
+        if: always() && inputs.action == 'run-next'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash harness/taskbench/round4/ci-pilot-state.sh save
 
       - name: Upload the trajectory record
         if: always() && inputs.action == 'run-next'
