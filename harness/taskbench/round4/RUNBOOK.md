@@ -78,10 +78,16 @@ Monitoring detects accumulation after the fact; the **lock** prevents it.
 `mine5.sh` holds an exclusive lock on its pool for its whole lifetime, so a
 second launch on the same pool exits 7 rather than appending to the same ledger.
 
-**Stop a miner by stopping its session**, not by killing the script: the
-miner's descendants inherit the lock file descriptor, so killing the script
-alone can leave the pool locked (fail-closed — the next miner refuses — but it
-needs clearing by hand).
+**Stop a miner by stopping its session**, not by killing the script. The pool lock
+is held by a flock GUARDIAN, not by a descriptor of the miner shell, so descendants
+no longer inherit it — that inheritance was the old design and is asserted against
+in `selftest.sh`. Stopping the session is still the right move: it reaps the whole
+tree, including a clone or a suite run that would otherwise keep working in a
+directory the next miner is about to reuse.
+
+The pid in the pid file is the miner's own, published by the session child itself
+(and equal to its session id), not the launcher's `$!` — which setsid can leave
+pointing at a process that has already exited.
 
 ```
 sid=$(cat /tmp/tb-mine-pilot.pid)         # the launcher is its own session leader

@@ -68,16 +68,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      # The harness selftests used to run HERE, on every Node leg. They are slow and
-      # Node-version-independent, and they pushed this job past its 10-minute budget:
-      # legs finished at 9m27s and 10m00s with one CANCELLED at 10m15s, taking `gate`
-      # down as skipped with it. They now run once, in `harness-selftests`.
-      # Static half of the same guard: any /tmp/tb-mine literal in a miner must be on
-      # a line that derives from TB_WORK; a naked literal is the regression.
-      - name: no naked default-workdir literals in miners
-        run: |
-          bad=$(grep -n '/tmp/tb-mine' harness/taskbench/mine.sh harness/taskbench/round2/mine.sh | grep -vE ':[0-9]+:\s*(#|//)' | grep -v 'TB_WORK' || true)
-          if [ -n "$bad" ]; then echo "naked /tmp/tb-mine literal:"; echo "$bad"; exit 1; fi
+      # PACKAGE COMPATIBILITY ONLY. The harness selftests and the static checks used
+      # to run here, on every Node leg. They are slow and Node-version-INDEPENDENT,
+      # and they pushed this job past its 10-minute budget: legs finished at 9m27s
+      # and 10m00s with one CANCELLED at 10m15s, taking `gate` down as skipped with
+      # it. They now run once each, on the protocol-pinned Node 22, in `harness-core`
+      # and `round4-harness`.
 
   # Round-4 orchestration and the pilot-task verifier. Previously validated only by
   # hand, so green CI said nothing about them — and the verifier decides whether a
@@ -89,38 +85,58 @@ jobs:
   # for one answer. And the `test` job is already at its 10-minute budget — legs
   # finished at 9m27s, 10m00s and one CANCELLED at 10m15s — so adding anything to
   # it would convert a marginal job into a reliably failing one.
-  harness-selftests:
+  # The research harness, on the protocol-pinned Node 22. Split from `test` because
+  # these are Node-version-independent — running them across the matrix paid three
+  # times for one answer and blew that job's budget.
+  #
+  # No `npm ci`: every one of these scripts uses only node built-ins (fs, crypto,
+  # child_process) plus fixture-local sources, so installing the package's
+  # dependencies bought nothing but runtime. Verified by inspecting every import in
+  # the selftests and the .mjs helpers they call.
+  harness-core:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
-      # `uv` is what the frozen install ladder uses, and round 4's parent-green
-      # control builds a local fixture repository and runs its suite, so it is
-      # required here rather than optional.
-      - uses: astral-sh/setup-uv@v7
-        with:
-          version: '0.8.17'
       # The miner under a RANDOMIZED work root: a literal /tmp/tb-mine inside a node
       # heredoc survived round 1 (default == literal) and broke round 2's walk. This
       # selftest mines a local fixture, proves the exact round-trip, and fails if
       # anything touches the default path — the class cannot come back silently.
       - run: bash harness/taskbench/miner-selftest.sh
       # Round-3.1 execution hygiene. The registration gate, the resumability
-      # semantics (terminal vs retryable), the circuit breaker's blast radius
-      # and the attempt provenance are proved BEHAVIOURALLY against a stubbed
-      # sweep — the round-3 outage burned 7 pairs because that logic was only
-      # ever exercised by an emergency script. The network-boundary cases need
-      # a live upstream proxy and netns; they skip here and run before the
-      # sweep, whose own preflight refuses to start without them.
+      # semantics (terminal vs retryable), the circuit breaker's blast radius and the
+      # attempt provenance are proved BEHAVIOURALLY against a stubbed sweep — the
+      # round-3 outage burned 7 pairs because that logic was only ever exercised by
+      # an emergency script.
       - run: bash harness/taskbench/runner/hygiene-selftest.sh
-      # Round-4 orchestration and the pilot-task verifier — the verifier decides
-      # whether a mined task is usable at all, so an unnoticed regression in it is a
-      # route for an unusable task to enter the pilot.
+      # Static half of the same guard: any /tmp/tb-mine literal in a miner must be on
+      # a line that derives from TB_WORK; a naked literal is the regression.
+      - name: no naked default-workdir literals in miners
+        run: |
+          bad=$(grep -n '/tmp/tb-mine' harness/taskbench/mine.sh harness/taskbench/round2/mine.sh | grep -vE ':[0-9]+:\s*(#|//)' | grep -v 'TB_WORK' || true)
+          if [ -n "$bad" ]; then echo "naked /tmp/tb-mine literal:"; echo "$bad"; exit 1; fi
+
+  # Round-4 orchestration and the pilot-task verifier. The verifier decides whether a
+  # mined task is usable at all, so an unnoticed regression in it is a route for an
+  # unusable task to enter the pilot.
+  round4-harness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      # `uv` is what the frozen install ladder uses, and the parent-green control
+      # builds a local fixture repository and runs its suite, so it is required here
+      # rather than optional. Pinned: the manifests record the uv the tasks were
+      # mined with.
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.8.17'
       - run: bash harness/taskbench/round4/selftest.sh
 
   # Is the ARTIFACT sound? Distinct question from "is the code correct", and it has its
@@ -163,13 +179,34 @@ jobs:
   # own repo with the engine it ships. Rebuilds rather than passing an artifact around —
   # the bundle takes milliseconds and the CLI needs its runtime deps installed anyway.
   gate:
-    # harness-selftests included deliberately: without it a FAILING harness job could
-    # coexist with a mergeable green gate, which is the same "not actually required"
-    # hole as leaving it out of the ruleset.
-    needs: [typecheck, test, build, harness-selftests]
+    # `needs` alone is NOT enough to make a check required. Without `if: always()` a
+    # failing dependency SKIPS this job, and a skipped required check can be treated
+    # as satisfied — so a red harness job could sit beside a mergeable gate. The job
+    # therefore always runs and asserts every dependency's result explicitly.
+    # Belt and braces: harness-core and round4-harness should ALSO be listed in the
+    # repository's required-status ruleset, so the protection survives an edit to
+    # this file.
+    if: ${{ always() }}
+    needs: [typecheck, test, build, harness-core, round4-harness]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: every dependency must have succeeded
+        env:
+          RESULTS: >-
+            typecheck=${{ needs.typecheck.result }}
+            test=${{ needs.test.result }}
+            build=${{ needs.build.result }}
+            harness-core=${{ needs.harness-core.result }}
+            round4-harness=${{ needs.round4-harness.result }}
+        run: |
+          echo "$RESULTS"
+          bad=$(printf '%s\n' $RESULTS | grep -v '=success$' || true)
+          if [ -n "$bad" ]; then
+            echo "REFUSING: a dependency did not succeed:" >&2
+            printf '%s\n' "$bad" >&2
+            exit 1
+          fi
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0 # full history so the range diff has both endpoints

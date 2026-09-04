@@ -357,8 +357,9 @@ echo "== verify-pilot-tasks: the four defects review found, pinned"
 
 # (b) a run that examines NOTHING must not pass. With an empty pool every counter
 # stays 0 and a naive "no failures" test reports success.
-TB_POOL_DIR=$(mktemp -d) ./verify-pilot-tasks.sh >/dev/null 2>&1 \
-  && no "verifier passed with no tasks examined" || ok "no tasks examined refuses (exit non-zero)"
+TB_POOL_DIR=$(mktemp -d) ./verify-pilot-tasks.sh >/dev/null 2>&1; rc=$?
+[ "$rc" = 2 ] && ok "no tasks examined refuses with EXACTLY exit 2" \
+              || no "no tasks examined gave exit $rc, want exactly 2"
 
 # (c) NOT VERIFIED must fail the run. The exit test was once `fail == 0` alone, so
 # twenty clone failures would have exited 0. Fixture: a task whose repository
@@ -387,81 +388,193 @@ out=$(TB_POOL_DIR="$VP" ./verify-pilot-tasks.sh 2>&1); rc=$?
 rm -rf "$VP"
 
 # (e) the PARENT-GREEN control must actually FAIL a task whose parent is already
-# red. Without this, removing P entirely would leave every other test green — the
-# control would be decorative. Fixture: a local repo whose parent commit has a
-# genuinely failing test, so P must reject it before R is even considered.
-PF=$(mktemp -d); PR="$PF/repo"; mkdir -p "$PR/tests"
+# red — and the counterfactual must be exact: with P removed, H/R/G ACCEPT the same
+# task and the verifier exits 0. Without that pairing, P could be decorative and
+# every other assertion would still pass.
+#
+# The fixture is a real task, not a stub: parent already RED, a test patch that
+# applies and stays RED, a gold patch that applies and turns it GREEN. Only the
+# already-red parent distinguishes it from a valid task, so P is the only thing that
+# can reject it.
+PF=$(mktemp -d); mkdir -p "$PF/remotes/fixture"
+PR="$PF/remotes/fixture/redparent"; mkdir -p "$PR/tests"
 ( cd "$PR" && git init -q && git config user.email t@b && git config user.name t
-  printf 'def test_already_broken():\n    assert False\n' > tests/test_broken.py
   printf '[project]\nname="pfix"\nversion="0.0.1"\n' > pyproject.toml
+  printf 'def add(a, b):\n    return a - b\n' > calc.py
+  # The parent is ALREADY RED: an existing test already exercises the same bug. That
+  # is what makes the counterfactual exact — the gold patch repairs this test too, so
+  # with P removed the task looks perfectly valid (R red, G green) and is accepted.
+  # A parent red for an UNRELATED reason could never satisfy G, and would prove only
+  # that G works, not that P is what rejects the task.
+  printf 'from calc import add\n\ndef test_existing():\n    assert add(2, 2) == 4\n' > tests/test_existing.py
   git add -A && git commit -qm parent --no-verify ) >/dev/null 2>&1
 PSHA=$( cd "$PR" && git rev-parse HEAD )
 mkdir -p "$PF/pool/tasks/98-red-parent"
-printf 'x\n' > "$PF/pool/tasks/98-red-parent/test.patch"
-printf 'y\n' > "$PF/pool/tasks/98-red-parent/gold.patch"
+cat > "$PF/pool/tasks/98-red-parent/test.patch" <<'PATCH'
+diff --git a/tests/test_add.py b/tests/test_add.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_add.py
+@@ -0,0 +1,4 @@
++from calc import add
++
++def test_add():
++    assert add(1, 2) == 3
+PATCH
+cat > "$PF/pool/tasks/98-red-parent/gold.patch" <<'PATCH'
+diff --git a/calc.py b/calc.py
+--- a/calc.py
++++ b/calc.py
+@@ -1,2 +1,2 @@
+ def add(a, b):
+-    return a - b
++    return a + b
+PATCH
 node -e '
- const fs=require("fs"),c=require("crypto"),d=process.argv[1],repo=process.argv[2],sha=process.argv[3];
+ const fs=require("fs"),c=require("crypto"),d=process.argv[1],sha=process.argv[2];
  const h=f=>c.createHash("sha256").update(fs.readFileSync(d+"/tasks/98-red-parent/"+f)).digest("hex");
  fs.writeFileSync(d+"/tasks/98-red-parent/manifest.json", JSON.stringify({
-   id:"98-red-parent", repo:repo, parent_sha:sha,
-   test_patch_sha256:h("test.patch"), gold_patch_sha256:h("gold.patch")}));' "$PF/pool" "$PR" "$PSHA"
-out=$(TB_ALLOW_LOCAL_REPO=1 TB_POOL_DIR="$PF/pool" ./verify-pilot-tasks.sh 2>&1); rc=$?
+   id:"98-red-parent", repo:"fixture/redparent", parent_sha:sha,
+   test_patch_sha256:h("test.patch"), gold_patch_sha256:h("gold.patch")}));' "$PF/pool" "$PSHA"
+
+vrun() { TB_VERIFY_REPO_BASE="$PF/remotes" TB_VERIFY_TEST_MODE=1 TB_POOL_DIR="$PF/pool" "$@"; }
+out=$(vrun ./verify-pilot-tasks.sh 2>&1); rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'FAIL.*P untouched parent is red' \
-  && ok "a task whose parent is ALREADY RED is failed by the P control" \
-  || no "the P control did not reject a red parent (exit $rc): $(printf '%s' "$out" | grep -E 'P |FAIL' | head -1)"
-# and the local-source escape hatch must be TEST-ONLY: without the opt-in the same
-# fixture is refused, so the production verifier cannot quietly read from disk while
-# documenting fresh GitHub clones.
-out=$(TB_POOL_DIR="$PF/pool" ./verify-pilot-tasks.sh 2>&1); rc=$?
-[ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'names a LOCAL path' \
-  && ok "a local repo source is REFUSED without TB_ALLOW_LOCAL_REPO" \
-  || no "a local repo source was accepted without the test-only opt-in (exit $rc)"
+  && ok "P rejects a task whose parent is ALREADY RED" \
+  || no "P did not reject a red parent (exit $rc): $(printf '%s' "$out" | grep -E 'P |FAIL' | head -1)"
+
+# the counterfactual, precisely: strip P and the SAME task is accepted, exit 0
+cp verify-pilot-tasks.sh "$PF/noP.sh"
+python3 - "$PF/noP.sh" <<'STRIP'
+import sys
+p=sys.argv[1]; s=open(p).read()
+i=s.index('  # P — the control'); j=s.index('  git -C "$D" apply --whitespace=nowarn "$POOL/tasks/$T/test.patch"')
+open(p,'w').write(s[:i]+s[j:])
+STRIP
+out=$(vrun bash "$PF/noP.sh" 2>&1); rc=$?
+[ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'R parent + tests is RED' && printf '%s' "$out" | grep -q 'G parent + tests + gold is GREEN' \
+  && ok "counterfactual: with P removed, H/R/G ACCEPT the same task (exit 0) — P is what rejects it" \
+  || no "counterfactual inconclusive (rc=$rc): $(printf '%s' "$out" | grep -E 'FAIL|NOT VERIFIED' | head -1)"
+
+# and the production claim: a non-GitHub base is refused without the test flag
+out=$(TB_VERIFY_REPO_BASE="$PF/remotes" TB_POOL_DIR="$PF/pool" ./verify-pilot-tasks.sh 2>&1); rc=$?
+[ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'without TB_VERIFY_TEST_MODE=1' \
+  && ok "a non-GitHub repo base is REFUSED without TB_VERIFY_TEST_MODE" \
+  || no "a non-GitHub base was accepted without the test flag (exit $rc)"
+# a manifest may never name a path
+mkdir -p "$PF/pool2/tasks/97-pathy"; cp "$PF/pool/tasks/98-red-parent/"*.patch "$PF/pool2/tasks/97-pathy/"
+node -e 'const fs=require("fs"),c=require("crypto"),d=process.argv[1];const h=f=>c.createHash("sha256").update(fs.readFileSync(d+"/tasks/97-pathy/"+f)).digest("hex");fs.writeFileSync(d+"/tasks/97-pathy/manifest.json",JSON.stringify({id:"97-pathy",repo:"/tmp/somewhere",parent_sha:"0".repeat(40),test_patch_sha256:h("test.patch"),gold_patch_sha256:h("gold.patch")}));' "$PF/pool2"
+out=$(TB_VERIFY_TEST_MODE=1 TB_POOL_DIR="$PF/pool2" ./verify-pilot-tasks.sh 2>&1); rc=$?
+[ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'not owner/name' \
+  && ok "a manifest repo that is a PATH is refused outright" \
+  || no "a path-shaped manifest repo was accepted (exit $rc)"
 rm -rf "$PF"
 
-echo "== launch-mine.sh: the sacrificial bound, and an honest PID file"
-# TB_DRY_RUN resolves the command without launching. The earlier version of this
-# block started a REAL miner on the REAL pool and then reached for a broad
-# `pkill -f mine5.sh`, which could have killed a genuine walk; it also made the
-# result depend on live machine state, so it passed here and failed elsewhere.
+echo "== launch-mine.sh: hermetic — private runtime dir, stub miner, no global state"
+# Every case below runs against a COPIED launcher beside a sleeping stub mine5.sh,
+# in a private TB_RUNTIME_DIR. The earlier version started a REAL miner on the REAL
+# pool and asserted with `pgrep -f`, which reaches across the whole machine: it could
+# have killed a genuine walk, and it made the result depend on live machine state,
+# so it passed here and failed under review.
+lab() {                       # -> prints a fresh, isolated launcher lab
+  local L; L=$(mktemp -d)
+  cp launch-mine.sh "$L/"
+  cat > "$L/mine5.sh" <<'STUB'
+#!/usr/bin/env bash
+# stub miner: holds the pool lock like the real one, then sleeps
+exec 8>"${TB_POOL_LOCK:?}"; flock -n 8 || exit 7
+sleep "${STUB_SLEEP:-30}"
+STUB
+  chmod +x "$L/mine5.sh"; mkdir -p "$L/rt"
+  printf '%s' "$L"
+}
+lrun() {                      # <lab> <extra env...> -- runs the copied launcher
+  local L="$1"; shift
+  ( cd "$L" && env TB_RUNTIME_DIR="$L/rt" TB_POOL_LOCK="$L/rt/pool.lock" "$@" ./launch-mine.sh pilot 2>&1 )
+}
+stop_lab() { local L="$1"; local pid; pid=$(tr -dc '0-9' < "$L/rt/tb-mine-pilot.pid" 2>/dev/null)
+  [ -n "$pid" ] && { pkill -KILL -s "$pid" 2>/dev/null; kill -KILL "$pid" 2>/dev/null; }; rm -rf "$L"; }
+
+# a dry run must leave NO runtime artefact at all
+L=$(lab); lrun "$L" TB_DRY_RUN=1 >/dev/null 2>&1
+left=$(ls -A "$L/rt" 2>/dev/null | wc -l)
+[ "$left" = 0 ] && ok "a dry run creates no pid, status, log or lock file" \
+                || no "a dry run left $left runtime file(s): $(ls -A "$L/rt" | tr '\n' ' ')"
+rm -rf "$L"
+
+# the bound, without launching anything
 for bad in 21 0 abc; do
-  out=$(TB_DRY_RUN=1 TB_PILOT_NEED="$bad" ./launch-mine.sh pilot 2>&1)
+  L=$(lab); out=$(lrun "$L" TB_DRY_RUN=1 TB_PILOT_NEED="$bad")
   printf '%s' "$out" | grep -q REFUSING && ok "launcher refuses TB_PILOT_NEED=$bad" \
                                         || no "launcher accepted TB_PILOT_NEED=$bad"
+  rm -rf "$L"
 done
-out=$(TB_DRY_RUN=1 ./launch-mine.sh pilot 2>&1)
-printf '%s' "$out" | grep -q 'need=10' && ok "unset TB_PILOT_NEED still resolves to the default 10" \
-                                       || no "unset TB_PILOT_NEED did not resolve to 10 ($out)"
-out=$(TB_DRY_RUN=1 TB_PILOT_NEED=20 ./launch-mine.sh pilot 2>&1)
-printf '%s' "$out" | grep -q 'need=20' && ok "TB_PILOT_NEED=20 is accepted (the second sacrificial ten)" \
-                                       || no "TB_PILOT_NEED=20 rejected ($out)"
-[ "$(pgrep -f 'bash .*mine5\.sh' | wc -l)" = 0 ] && ok "the bound cases launched no miner" \
-                                                  || no "a bound case started a real miner"
+L=$(lab); printf '%s' "$(lrun "$L" TB_DRY_RUN=1)" | grep -q 'need=10' \
+  && ok "unset TB_PILOT_NEED resolves to the default 10" || no "unset did not resolve to 10"; rm -rf "$L"
+L=$(lab); printf '%s' "$(lrun "$L" TB_DRY_RUN=1 TB_PILOT_NEED=20)" | grep -q 'need=20' \
+  && ok "TB_PILOT_NEED=20 is accepted (the second sacrificial ten)" || no "20 was rejected"; rm -rf "$L"
 
-# `$!` is NOT the supervised child: setsid forks again whenever it is already a
-# process-group leader, so the recorded pid can be a process that exits at once
-# while the worker runs on. That made the "already running" refusal silently
-# ineffective. Sentinel for the mechanism, then the shape of the fix.
-r=$(setsid bash -c 'echo $$' & echo "$!"; wait)
-inner=$(printf '%s' "$r" | sed -n 2p); outer=$(printf '%s' "$r" | sed -n 1p)
-ok "setsid pid sentinel recorded (outer=$outer inner=$inner)"
-grep -q 'echo \$\$ > "' launch-mine.sh && ok "the launcher records the CHILD's own pid" \
-                                         || no "the launcher no longer records the child's own pid"
-grep -q 'echo \$! > "\$PIDFILE"' launch-mine.sh && no "the launcher is back to recording \$! — regression" \
-                                                  || ok "the launcher does not record \$! — regression sentinel"
+# a real (stubbed) launch: the published pid must BE the worker's session leader
+L=$(lab); out=$(lrun "$L" STUB_SLEEP=30); rc=$?
+pid=$(tr -dc '0-9' < "$L/rt/tb-mine-pilot.pid" 2>/dev/null)
+sid=$(ps -o sid= -p "${pid:-0}" 2>/dev/null | tr -d ' ')
+[ "$rc" = 0 ] && [ -n "$pid" ] && [ "$sid" = "$pid" ] \
+  && ok "the published pid is the worker's own session leader (pid=$pid sid=$sid)" \
+  || no "published pid is not a session leader (rc=$rc pid=${pid:-none} sid=${sid:-none})"
+# a second launch is refused while that one holds the pool lock
+out2=$(lrun "$L" STUB_SLEEP=30); rc2=$?
+# It must be refused BY THE POOL LOCK. If the worker inherits the launcher lock the
+# refusal still happens, but from the wrong authority — right by accident — and the
+# pool-lock check is never reached.
+[ "$rc2" = 6 ] && printf '%s' "$out2" | grep -q 'the pool lock is held' \
+  && ok "a second launch is refused BY THE POOL LOCK (exit 6)" \
+  || no "second launch refused for the wrong reason (rc=$rc2): $(printf '%s' "$out2" | head -1)"
+lp=$(tr -dc '0-9' < "$L/rt/tb-mine-pilot.pid" 2>/dev/null)
+inh=$(ls -l /proc/"${lp:-0}"/fd 2>/dev/null | grep -c 'tb-launch' || true)
+[ "${inh:-0}" = 0 ] && ok "the worker does not inherit the launcher lock" \
+                    || no "the worker inherited the launcher lock ($inh fd) — it would hold it for its whole life"
+stop_lab "$L"
+
+# a STALE pid file is replaced, not reported
+L=$(lab); echo 99999999 > "$L/rt/tb-mine-pilot.pid"
+out=$(lrun "$L" STUB_SLEEP=20); pid=$(tr -dc '0-9' < "$L/rt/tb-mine-pilot.pid" 2>/dev/null)
+[ -n "$pid" ] && [ "$pid" != 99999999 ] \
+  && ok "a stale pid file is replaced by the real worker's pid" \
+  || no "the stale pid survived as the reported launch (got ${pid:-none})"
+stop_lab "$L"
+
+# a launch that cannot publish a pid FAILS — never "unknown" with exit 0.
+# `chmod -w` is useless here: this runs as root, which ignores the write bits, so
+# that shape of the test could never fail. Making the pid PATH a directory blocks
+# publication structurally instead — `mv` moves the temp file INTO it, so the path
+# never becomes a readable pid file, whatever the uid.
+L=$(lab); mkdir -p "$L/rt/tb-mine-pilot.pid"
+out=$(lrun "$L" STUB_SLEEP=5); rc=$?
+[ "$rc" = 5 ] && ! printf '%s' "$out" | grep -q 'pid unknown' \
+  && ok "an unpublishable pid fails the launch (exit 5), never 'pid unknown'" \
+  || no "an unconfirmed launch did not fail closed (rc=$rc)"
+rm -rf "$L"
 
 echo "== build-burn-list.py: informational flags cannot write state"
 # An unrecognised --help once fell through to the default branch and REPUBLISHED
 # the burn set. Deterministic and harmless that time; a defect regardless.
-BL=frame/pilot-dedup.json; BEFORE=$(sha256sum "$BL" | cut -d' ' -f1)
+# BOTH registered artefacts: the cumulative set the default branch rewrites, and the
+# FROZEN incident file --write-incident would rewrite. Hashing only the first would
+# miss a stray --write-incident entirely.
+BL=frame/pilot-dedup.json; BI=incident-D3/burnt-254.json
+BEFORE=$(sha256sum "$BL" "$BI" | cut -d' ' -f1 | tr '\n' ' ')
 python3 incident-D3/build-burn-list.py --help >/dev/null 2>&1 \
   && ok "--help exits 0" || no "--help did not exit 0"
-try "--help --bogus refuses (unknown args are checked BEFORE help)" python3 incident-D3/build-burn-list.py --help --bogus
-try "an unknown flag refuses"                                       python3 incident-D3/build-burn-list.py --bogus
-try "--check with --write-incident refuses as two different jobs"   python3 incident-D3/build-burn-list.py --check --write-incident
+# exact codes, not merely non-zero: a refusal that exited 1 would be
+# indistinguishable from the script crashing.
+for c in "--help --bogus" "--bogus" "--check --write-incident"; do
+  python3 incident-D3/build-burn-list.py $c >/dev/null 2>&1; rc=$?
+  [ "$rc" = 2 ] && ok "\`$c\` refuses with EXACTLY exit 2" || no "\`$c\` gave exit $rc, want exactly 2"
+done
 python3 incident-D3/build-burn-list.py --check >/dev/null 2>&1 \
   && ok "--check still passes" || no "--check regressed"
-[ "$(sha256sum "$BL" | cut -d' ' -f1)" = "$BEFORE" ] \
-  && ok "the burn set is byte-identical after every informational/rejected invocation" \
-  || no "an informational or rejected invocation MUTATED the burn set"
+[ "$(sha256sum "$BL" "$BI" | cut -d' ' -f1 | tr '\n' ' ')" = "$BEFORE" ] \
+  && ok "both burn artefacts are byte-identical after every informational/rejected invocation" \
+  || no "an informational or rejected invocation MUTATED a burn artefact"
 
 echo; echo "passed $pass, failed $fail"; [ "$fail" = 0 ]

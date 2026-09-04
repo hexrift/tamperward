@@ -2037,3 +2037,74 @@ substitution. Otherwise the production verifier could silently read from disk wh
 documenting fresh GitHub clones. Both directions are asserted.
 
 `selftest.sh`: **74 assertions**, green three consecutive runs.
+
+#### Third finishing pass: required checks, atomic launch, hermetic tests
+
+**1. Harness checks are genuinely required.** Three separate problems, not one:
+
+- `test` is now package compatibility ONLY (`npm ci` + `npm test`). The harness
+  selftests and the static checks moved to `harness-core`, and round 4's to
+  `round4-harness`, both on the protocol-pinned Node 22 — they are Node-independent,
+  so the matrix was paying three times for one answer and blowing its budget.
+- **Neither harness job runs `npm ci`.** Every script in them uses only node
+  built-ins (`fs`, `crypto`, `child_process`) plus fixture-local sources; verified by
+  inspecting every import in the selftests and the `.mjs` helpers they call.
+- **`needs` alone does not make a check required.** Without `if: always()` a failing
+  dependency SKIPS `gate`, and a skipped required check can be treated as satisfied —
+  so a red harness job could sit beside a mergeable gate. `gate` now always runs and
+  asserts every `needs.*.result` is `success` as its first step.
+
+*Operator action outstanding:* `harness-core` and `round4-harness` should also be
+added to the repository's required-status **ruleset**, so the protection survives an
+edit to `ci.yml`. That is a repository setting and cannot be made from the tree.
+
+**2. The launch handoff is atomic and fail-closed.** Validation and `TB_DRY_RUN`
+resolve before any runtime file is touched; a launcher `flock` serialises concurrent
+launches; the **pool lock** — not a pid file — is the already-running authority,
+because a pid file is a report while the flock is the fact; the previous pid and
+status are removed only while holding the launcher lock; `setsid --fork` is forced so
+the fork path is never conditional on how the launcher was invoked; the session child
+publishes its own pid via **temp file + rename**, so no reader sees a half-written
+pid; and the launch is confirmed by checking the pid is numeric AND either a live
+session leader whose SID equals it, or already finished with a status. Anything else
+exits 5. `pid unknown` with exit 0 is gone.
+
+**A defect I introduced and caught here:** the first version leaked the launcher lock
+into the worker, which inherited fd 9 and held it for its whole life — so a second
+launch was refused by the *launcher* lock rather than the *pool* lock, and the
+authority check was never reached. Right by accident. `9>&-` closes it, and the test
+now asserts both the refusal's *reason* and that the worker holds no such descriptor.
+This is the same fd-inheritance class the pool lock was already fixed for.
+
+**3. The launcher tests are hermetic.** Each runs a COPIED launcher beside a sleeping
+stub miner in a private `TB_RUNTIME_DIR`. Every global `pgrep -f` assertion is gone.
+Asserted: a dry run creates no pid, status, log or lock file; the published pid IS the
+worker's session leader; a second launch is refused by the pool lock; a stale pid file
+is replaced; an unpublishable pid fails with exit 5.
+
+*A test that could never have failed:* the unpublishable-pid case first used
+`chmod -w`, which is meaningless as root — the write succeeded and the case passed
+vacuously. Replaced with a structural block (the pid PATH is a directory) that holds
+at any uid.
+
+**4. Local repositories cannot enter production manifests.** A manifest `repo` must be
+`owner/name` — a path or URL is refused outright, not accepted-under-a-flag. Where
+those pairs are fetched from is a separate explicit decision: `TB_VERIFY_REPO_BASE`
+may point elsewhere ONLY with `TB_VERIFY_TEST_MODE=1`, and a non-GitHub base without
+the flag is refused. The production claim that verification starts from a canonical
+fresh clone now holds by construction.
+
+The P fixture is a REAL task — parent already red, a test patch that applies and stays
+red, a gold patch that applies and turns it green — and the counterfactual is exact:
+**with P removed the same task is ACCEPTED and the verifier exits 0; with P present it
+is rejected.** The parent had to be red for the task's OWN bug for this to work; a
+parent red for an unrelated reason can never satisfy G, and would have proved only
+that G works.
+
+**5. Assertions tightened.** Exact exit **2** (not merely non-zero) for the empty pool
+and every invalid CLI combination; **both** burn artefacts hashed — the cumulative set
+and the frozen `burnt-254.json`, since hashing only the first would miss a stray
+`--write-incident`; and the RUNBOOK no longer claims miner descendants inherit the
+pool-lock descriptor, which the guardian has owned since round 3.1.
+
+`selftest.sh`: **78 assertions**, green in both TTY and non-TTY execution.

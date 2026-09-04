@@ -31,6 +31,11 @@
 # The install ladder is the SAME frozen ladder mine5.sh uses, reproduced rather
 # than reinvented: a divergent ladder would verify a different environment from
 # the one the trajectory will run in.
+#
+# Manifest `repo` is always owner/name. Production fetches those from github.com;
+# TB_VERIFY_REPO_BASE can point elsewhere ONLY with TB_VERIFY_TEST_MODE=1, so the
+# claim that verification starts from a canonical fresh clone stays true by
+# construction rather than by convention.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 POOL="${TB_POOL_DIR:-$HERE/pools/pilot}"
@@ -94,25 +99,27 @@ for T in $(ls "$POOL/tasks" | sort); do
   [ "$ag" = "$eg" ] && ok "H gold.patch matches the recorded sha256" || no "H gold.patch sha $ag != $eg"
 
   D="$WORK/repo"; V="$WORK/venv"; rm -rf "$D"
-  # A manifest repo is normally "owner/name" on GitHub. An ABSOLUTE PATH is accepted
-  # ONLY under TB_ALLOW_LOCAL_REPO=1, which is a test-only opt-in: the selftest needs
-  # to build a fixture repository locally — in particular one whose parent suite is
-  # RED, the only way to prove the P control actually fails a task rather than merely
-  # passing on healthy ones. Without the flag a local path is a FAILURE, not a quiet
-  # substitution, so the production verifier cannot silently read from disk while
-  # documenting fresh GitHub clones.
+  # A manifest `repo` is ALWAYS "owner/name" — never a path, never a URL. Accepting
+  # an absolute path because a manifest happened to contain one would let the
+  # production verifier read from disk while documenting a canonical fresh clone;
+  # the shape of the field is what keeps that claim true.
   case "$repo" in
-    /*) if [ "${TB_ALLOW_LOCAL_REPO:-0}" != 1 ]; then
-          no "$T manifest names a LOCAL path ($repo) but TB_ALLOW_LOCAL_REPO is not set"
-          printf '       a local source is a TEST fixture only; production verification clones from GitHub\n'
-          continue
-        fi
-        SRC="$repo"; CLONE_ARGS=() ;;
-    *)  SRC="https://github.com/$repo"; CLONE_ARGS=(--filter=blob:none) ;;
+    */*/*|/*|*:*) no "$T manifest repo is not owner/name: '$repo'"; continue ;;
+    */*) ;;
+    *)   no "$T manifest repo is not owner/name: '$repo'"; continue ;;
   esac
-  # GIT_TERMINAL_PROMPT=0: a private or non-existent repository otherwise blocks
-  # asking for credentials, which in CI is an indefinite hang rather than a clean
-  # NOT VERIFIED.
+  # Where those owner/name pairs are fetched FROM is a separate, explicit decision.
+  # Production clones from GitHub. A test may point the base elsewhere, but only by
+  # setting BOTH the base and TB_VERIFY_TEST_MODE=1 — a non-GitHub base without the
+  # flag is refused, so no fixture path can slip in silently.
+  BASE="${TB_VERIFY_REPO_BASE:-https://github.com}"
+  if [ "$BASE" != "https://github.com" ] && [ "${TB_VERIFY_TEST_MODE:-0}" != 1 ]; then
+    no "$T refuses a non-GitHub repo base ($BASE) without TB_VERIFY_TEST_MODE=1"
+    continue
+  fi
+  case "$BASE" in https://github.com) CLONE_ARGS=(--filter=blob:none) ;; *) CLONE_ARGS=() ;; esac
+  SRC="$BASE/$repo"
+
   GIT_TERMINAL_PROMPT=0 git clone -q "${CLONE_ARGS[@]}" "$SRC" "$D" 2>/dev/null \
     || { na "$T clone failed — NOT VERIFIED"; continue; }
   git -C "$D" checkout -q --detach "$parent" 2>/dev/null \

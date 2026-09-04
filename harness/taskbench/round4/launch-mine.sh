@@ -34,19 +34,30 @@ if [ "${TB_DRY_RUN:-0}" = 1 ]; then
   echo "DRY_RUN pool=$POOL workers=$WORKERS${NEED:+ need=$NEED}"; exit 0
 fi
 
-if [ -f "$PIDFILE" ]; then
-  if kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
-    echo "REFUSING: mining already running for $POOL (pid $(cat "$PIDFILE"))" >&2; exit 6
-  fi
-  # A pid file left by a miner that died is not "already running", and leaving it
-  # in place let the wait loop below accept the STALE pid immediately and report it
-  # as the new launch. Clear it once its process is gone.
-  rm -f "$PIDFILE"
+# ---- already-running: the POOL LOCK is the authority, not a pid file ----------
+# A pid file is a report; the flock the miner holds on its pool is the fact. Asking
+# the lock cannot be fooled by a stale pid, a recycled pid, or a pid file that was
+# never written. The pid file remains for operators and for shutdown targeting.
+POOL_LOCK="${TB_POOL_LOCK:-$TB_RUNTIME_DIR/tb-mine5-$POOL.lock}"
+LAUNCH_LOCK="$TB_RUNTIME_DIR/tb-launch-$POOL.lock"
+
+# Serialise launches. Two operators racing here could both pass the already-running
+# check and both start a miner; the pool lock would then refuse one of them AFTER it
+# had already clobbered the other's pid and status files.
+exec 9>"$LAUNCH_LOCK" || { echo "REFUSING: cannot open the launcher lock $LAUNCH_LOCK" >&2; exit 6; }
+flock -n 9 || { echo "REFUSING: a launch is already in progress for $POOL" >&2; exit 6; }
+
+if [ -e "$POOL_LOCK" ] && ! ( flock -n 8 ) 8<"$POOL_LOCK" 2>/dev/null; then
+  echo "REFUSING: mining already running for $POOL (the pool lock is held)" >&2
+  [ -s "$PIDFILE" ] && echo "  recorded pid: $(cat "$PIDFILE")" >&2
+  exit 6
 fi
 if [ -e "${TB_CLONE_BREAKER:-$TB_RUNTIME_DIR/tb-clone-breaker}" ]; then
   echo "REFUSING: the clone breaker is tripped; stress-test cloning first." >&2; exit 8
 fi
-rm -f "$STATUS"
+# Only now, holding the launcher lock and knowing no miner owns the pool, is it safe
+# to discard the previous run's pid and status.
+rm -f "$PIDFILE" "$STATUS"
 
 # The PILOT is never sharded (D4) and never goes through the parallel driver:
 # it runs mine5.sh directly, so no shard-shaped configuration can reach it.
@@ -59,33 +70,50 @@ else
   CMD=(env TB_POOL="$POOL" ./mine-parallel.sh "$WORKERS")
 fi
 
-# The wrapper records HOW it ended, not just that it did. A miner that exits
-# writes its status; one killed by a signal we can trap records the signal; and
-# a status file that never appears at all means SIGKILL or a reaped container —
-# which is a different diagnosis from a crash, and previously indistinguishable.
-# The supervised child records its OWN pid. `$!` is the pid of the process this
-# shell forked, but setsid FORKS AGAIN whenever it is already a process-group
-# leader, so `$!` is then a process that exits immediately while the real worker
-# runs on under a different pid — measured here as $!=6527 with the worker at 6529.
-# That made the PID file unreliable, and with it the "already running" refusal
-# above: `kill -0` on a dead pid reports not-running, so a second miner could be
-# launched onto the same pool — the shape D3 is best explained by. The flock pool
-# lock is what actually prevented that; this makes the recorded pid honest too.
-setsid bash -c '
-  echo $$ > "'"$PIDFILE"'"
-  S="'"$STATUS"'"
-  for sig in TERM INT HUP QUIT; do trap "echo signal:$sig > $S; exit 1" "$sig"; done
-  "$@" >> "'"$LOG"'" 2>&1
-  echo $? > "$S"
-' _ "${CMD[@]}" < /dev/null > /dev/null 2>&1 &
-# The child writes it; wait rather than reporting a pid we never observed. If it
-# never appears the launch did NOT demonstrably start, and saying "pid unknown"
-# while exiting 0 would report a success nobody confirmed — so that is a failure.
+# The wrapper records HOW it ended, not just that it did: a miner that exits writes
+# its status, one killed by a signal we can trap records the signal, and a status
+# file that never appears at all means SIGKILL or a reaped container — a different
+# diagnosis from a crash, and previously indistinguishable.
+#
+# `--fork` is not optional. setsid only forks when it is already a process-group
+# leader, so without it the behaviour is conditional on how the launcher was
+# invoked; `$!` was then sometimes the worker and sometimes a process that exited
+# at once while the worker ran on under another pid — measured $!=6527, worker 6529.
+# The child publishes its OWN pid, written to a temp file and RENAMED into place, so
+# a reader never sees a half-written pid file.
+setsid --fork bash -c '
+  pidfile=$1; status=$2; log=$3; shift 3
+  tmp="$pidfile.tmp.$$"
+  printf "%s\n" "$$" > "$tmp" || exit 70
+  mv -- "$tmp" "$pidfile" || exit 70
+  for sig in TERM INT HUP QUIT; do trap "echo signal:$sig > $status; exit 1" "$sig"; done
+  "$@" >> "$log" 2>&1
+  printf "%s\n" "$?" > "$status"
+' _ "$PIDFILE" "$STATUS" "$LOG" "${CMD[@]}" < /dev/null > /dev/null 2>&1 9>&- &
+# 9>&- is load-bearing: without it the worker INHERITS the launcher lock and holds
+# it for its whole life, so a later launch is refused by the launcher lock instead
+# of the pool lock — the authority check would never be reached, and the refusal
+# would be right by accident. This is the same fd-inheritance defect the pool lock
+# was already fixed for (a descendant outliving the miner keeping the pool locked).
+
+# Wait for the published pid, then VALIDATE it rather than trusting the file. A
+# launch that cannot be confirmed is a failed launch: printing "pid unknown" and
+# exiting 0 reports a success nobody observed.
 for _ in $(seq 1 50); do [ -s "$PIDFILE" ] && break; sleep 0.2; done
-MPID=$(cat "$PIDFILE" 2>/dev/null || true)
-if [ -z "$MPID" ] || ! kill -0 "$MPID" 2>/dev/null; then
-  echo "LAUNCH_UNCONFIRMED: no live child pid appeared in $PIDFILE within 10s" >&2
-  echo "  the miner may or may not be running; check $LOG and the pool lock before retrying" >&2
+MPID=$(tr -dc '0-9' < "$PIDFILE" 2>/dev/null || true)
+if [ -z "$MPID" ]; then
+  echo "LAUNCH_UNCONFIRMED: no pid was published to $PIDFILE within 10s" >&2
+  echo "  check $LOG and the pool lock before retrying" >&2
+  exit 5
+fi
+# Either it is alive AND its own session leader (setsid --fork guarantees that), or
+# it has already finished and left a status behind. Anything else is unconfirmed.
+SID=$(ps -o sid= -p "$MPID" 2>/dev/null | tr -d ' ')
+if [ -n "$SID" ]; then
+  [ "$SID" = "$MPID" ] || { echo "LAUNCH_UNCONFIRMED: pid $MPID is not its own session leader (sid=$SID)" >&2; exit 5; }
+elif [ ! -s "$STATUS" ]; then
+  echo "LAUNCH_UNCONFIRMED: pid $MPID is gone and no status was written" >&2
+  echo "  check $LOG before retrying" >&2
   exit 5
 fi
 echo "launched $POOL (workers=$WORKERS) pid $MPID"
