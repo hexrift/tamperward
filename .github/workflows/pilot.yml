@@ -74,15 +74,28 @@ jobs:
           node-version: 22   # matches environment_recorded (v22.x); esbuild is lock-pinned, so the artefact is deterministic
           cache: npm
 
-      - name: Pin the toolchain to the freeze (python 3.11, uv 0.8.17, jail deps)
+      # Python 3.11 the supported way: ubuntu-latest is now Ubuntu 24.04 (noble),
+      # whose apt repos ship 3.12 and have no `python3.11` package. The freeze
+      # recorded 3.11.15; the patch is a recorded (drift) field, not binding, so the
+      # latest 3.11.x is fine and shows up only as acknowledged environment drift.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # The uv the pilot tasks were mined with, pinned — same action and version the
+      # round4-harness CI job uses.
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.8.17'
+
+      - name: Jail dependencies (nftables, iproute2, jq)
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends iproute2 nftables jq python3.11 python3.11-venv
-          # uv pinned to 0.8.17 (the freeze), installed to a system path so it resolves under sudo too
-          curl -LsSf https://astral.sh/uv/0.8.17/install.sh | sudo env UV_INSTALL_DIR=/usr/local/bin UV_UNMANAGED_INSTALL=/usr/local/bin sh
+          sudo apt-get install -y --no-install-recommends nftables iproute2 jq
           uv --version
           python3.11 --version
+          echo "python3.11 -> $(command -v python3.11)"
 
       - run: npm ci
       - run: npm run build
