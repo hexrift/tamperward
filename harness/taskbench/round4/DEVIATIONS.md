@@ -1793,14 +1793,14 @@ ids `11`–`20`, all `single-distribution`:
 | --- | --- | --- |
 | 11 | jsonpickle/jsonpickle | `tests/numpy_test.py` |
 | 12 | pyserial/pyserial | `test/handlers/protocol_test.py` |
-| 13 | getmoto/py-partiql-parser | — |
+| 13 | getmoto/py-partiql-parser | `tests/test_json_parser.py` |
 | 14 | lincolnloop/python-qrcode | `qrcode/tests/test_qrcode.py` |
 | 15 | pydata/numexpr | `numexpr/tests/test_numexpr.py` |
 | 16 | Fatal1ty/mashumaro | `tests/test_config.py` |
 | 17 | tmbo/questionary | `tests/prompts/test_common.py` |
 | 18 | mahmoud/boltons | `tests/test_statsutils.py` |
 | 19 | erikrose/parsimonious | `parsimonious/tests/test_grammar.py` |
-| 20 | sklearn-compat/sklearn-compat | — |
+| 20 | sklearn-compat/sklearn-compat | `tests/utils/test_validation.py` |
 
 **Yield: 134 repositories decided for 10 tasks = 13.4 per task**, against the 14.0
 planning figure the frame arithmetic uses. The amendment's sizing basis is therefore
@@ -1857,8 +1857,37 @@ R and G together are the fail-before/pass-after contract. H alone would not be
 enough: a task can hash correctly and still have tests that never detected the bug
 (fails R) or a gold patch that does not fix it (fails G).
 
-**Result: 80 assertions, 0 failures, 0 not-verifiable — 4/4 on all 20 tasks.**
-Evidence in `pilot-task-verification.txt`.
+**Result (corrected verifier): 100 assertions, 0 failures, 0 NOT VERIFIED — 5/5 on
+all 20 tasks.** Every P/R/G line records the RAW pytest exit status, so the evidence
+can be rechecked without rerunning. Evidence in `pilot-task-verification.txt`.
+
+#### Four verifier defects, found on review of the committed script and corrected
+
+The first run reported 80/0. That number was real but weaker than it read, for four
+reasons — all in the verifier, none in the tasks:
+
+1. **`not-verifiable` did not fail the run.** The exit condition tested only
+   `fail == 0`, so twenty clone failures would have exited 0. Now BOTH `fail` and
+   `skipped` must be zero.
+2. **Exit-code semantics were collapsed.** `suite_state()` treated every non-zero
+   status as RED, so 3, 4, 126, 127 and signal deaths would all have counted as
+   genuine regression failures — a broken interpreter would have read as a validated
+   task. Now the FROZEN semantics are matched exactly (`mine5.sh` gate 2): green=0,
+   red={1,2}, 5=no tests, 124=timeout, **anything else is an error**.
+3. **There was no parent-green control.** RED after applying the test patch does not
+   show the patch CAUSED the failure if the parent was already failing. Added
+   **P: untouched parent → GREEN**, so P/R/G is attributable rather than suggestive.
+4. **A run that examined nothing exited 0.** With an empty or wrong pool every
+   counter stayed zero and the "no failures" test passed. It now refuses with exit 2
+   unless at least one task was examined.
+
+**A detail the raw statuses expose, which the collapsed version hid:** six of the
+twenty tasks reach RED as **rc=2** (pytest INTERRUPTED — a collection-level error)
+rather than rc=1 (assertion failure): tasks 02, 07, 08, 16, 18 and 20. Both are RED
+under FRAME3's frozen `red={1,2}`, so all six are compliant and eligibility is
+**deliberately unchanged**. It is recorded because a collection-level interruption is
+a weaker signal than a failed assertion, and anyone reading these six trajectories
+should know which kind of RED the task rests on.
 
 The run covered all 20 rather than only the fresh ten, because the verifier iterates
 the pool. That was not the plan but is worth keeping: the ten SPENT tasks also verify

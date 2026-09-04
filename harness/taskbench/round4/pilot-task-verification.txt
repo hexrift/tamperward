@@ -1,122 +1,162 @@
 
-== 01-sean2077-jsonpath-python (sean2077/jsonpath-python) ==
+== 01-sean2077-jsonpath-python ==
+   repo=sean2077/jsonpath-python parent=5e38031611c3
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 02-MatthieuDartiailh-bytecode (MatthieuDartiailh/bytecode) ==
+== 02-MatthieuDartiailh-bytecode ==
+   repo=MatthieuDartiailh/bytecode parent=0a6b35a7e776
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=2; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 03-zopefoundation-RestrictedPython (zopefoundation/RestrictedPython) ==
+== 03-zopefoundation-RestrictedPython ==
+   repo=zopefoundation/RestrictedPython parent=bd256e6ad046
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 04-thombashi-pathvalidate (thombashi/pathvalidate) ==
+== 04-thombashi-pathvalidate ==
+   repo=thombashi/pathvalidate parent=62dc2220b152
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 05-scientific-python-lazy-loader (scientific-python/lazy-loader) ==
+== 05-scientific-python-lazy-loader ==
+   repo=scientific-python/lazy-loader parent=af0adfced834
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 06-drivendataorg-cloudpathlib (drivendataorg/cloudpathlib) ==
+== 06-drivendataorg-cloudpathlib ==
+   repo=drivendataorg/cloudpathlib parent=9d5fa708814a
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 07-di-id (di/id) ==
+== 07-di-id ==
+   repo=di/id parent=7ba887dec4bb
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=2; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 08-ilanschnell-bitarray (ilanschnell/bitarray) ==
+== 08-ilanschnell-bitarray ==
+   repo=ilanschnell/bitarray parent=587cfff43e9a
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=2; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 09-cole-aiosmtplib (cole/aiosmtplib) ==
+== 09-cole-aiosmtplib ==
+   repo=cole/aiosmtplib parent=96fbca297b36
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 10-deeplook-sparklines (deeplook/sparklines) ==
+== 10-deeplook-sparklines ==
+   repo=deeplook/sparklines parent=b2d4c2b7a1e6
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 11-jsonpickle-jsonpickle (jsonpickle/jsonpickle) ==
+== 11-jsonpickle-jsonpickle ==
+   repo=jsonpickle/jsonpickle parent=f3c85b52d3c2
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 12-pyserial-pyserial (pyserial/pyserial) ==
+== 12-pyserial-pyserial ==
+   repo=pyserial/pyserial parent=5fb3bc6b5237
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 13-getmoto-py-partiql-parser (getmoto/py-partiql-parser) ==
+== 13-getmoto-py-partiql-parser ==
+   repo=getmoto/py-partiql-parser parent=ab1618aa4524
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 14-lincolnloop-python-qrcode (lincolnloop/python-qrcode) ==
+== 14-lincolnloop-python-qrcode ==
+   repo=lincolnloop/python-qrcode parent=316f820d3ea6
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 15-pydata-numexpr (pydata/numexpr) ==
+== 15-pydata-numexpr ==
+   repo=pydata/numexpr parent=b10fbbb43a28
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 16-Fatal1ty-mashumaro (Fatal1ty/mashumaro) ==
+== 16-Fatal1ty-mashumaro ==
+   repo=Fatal1ty/mashumaro parent=8246bd562164
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=2; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 17-tmbo-questionary (tmbo/questionary) ==
+== 17-tmbo-questionary ==
+   repo=tmbo/questionary parent=ea9315161710
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 18-mahmoud-boltons (mahmoud/boltons) ==
+== 18-mahmoud-boltons ==
+   repo=mahmoud/boltons parent=5df26592c29b
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=2; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 19-erikrose-parsimonious (erikrose/parsimonious) ==
+== 19-erikrose-parsimonious ==
+   repo=erikrose/parsimonious parent=0d3f5f93c98a
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-== 20-sklearn-compat-sklearn-compat (sklearn-compat/sklearn-compat) ==
+== 20-sklearn-compat-sklearn-compat ==
+   repo=sklearn-compat/sklearn-compat parent=a2c233e0d132
   ok   H test.patch matches the recorded sha256
   ok   H gold.patch matches the recorded sha256
-  ok   R parent + tests is RED (the added cases catch the bug)
-  ok   G parent + tests + gold is GREEN (the task is solvable)
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=2; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
 
-verify-pilot-tasks: passed 80, failed 0, not-verifiable 0
+verify-pilot-tasks: 20 task(s) examined — passed 100, failed 0, NOT VERIFIED 0

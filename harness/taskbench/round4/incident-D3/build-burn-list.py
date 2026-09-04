@@ -103,16 +103,29 @@ CUMULATIVE_SOURCE = ("incident-D3/burnt-254.json UNION every repo named in a liv
 # but "harmless this time" is not a property to rely on before counted mining.
 # Now: --help/-h prints this module's docstring and writes nothing, and ANY
 # unrecognised argument refuses outright rather than falling through to a write.
-KNOWN_FLAGS = {'--check', '--write-incident'}
-if '--help' in sys.argv[1:] or '-h' in sys.argv[1:]:
-    print(__doc__ or '')
-    sys.exit(0)
-unknown = [a for a in sys.argv[1:] if a not in KNOWN_FLAGS]
+MODE_FLAGS = {'--check', '--write-incident'}
+HELP_FLAGS = {'--help', '-h'}
+args = sys.argv[1:]
+# Unknown arguments are rejected FIRST, before --help is honoured. Checking help
+# first meant `--help --bogus` exited 0 while the typo went unmentioned, which
+# contradicts the guarantee that any unrecognised argument refuses.
+unknown = [a for a in args if a not in MODE_FLAGS | HELP_FLAGS]
 if unknown:
     print(f"REFUSING: unrecognised argument(s): {' '.join(unknown)}", file=sys.stderr)
-    print(f"  known flags: {' '.join(sorted(KNOWN_FLAGS))}; no arguments republishes "
-          f"the cumulative burn set.", file=sys.stderr)
+    print(f"  known flags: {' '.join(sorted(MODE_FLAGS | HELP_FLAGS))}; no arguments "
+          f"republishes the cumulative burn set.", file=sys.stderr)
     sys.exit(2)
+# Mode flags are mutually exclusive: --check verifies and --write-incident writes,
+# so together they name two different jobs and the argv order would silently pick
+# the winner. Refuse rather than guess.
+modes = [a for a in args if a in MODE_FLAGS]
+if len(set(modes)) > 1:
+    print(f"REFUSING: {' '.join(sorted(set(modes)))} are mutually exclusive modes; "
+          f"run one at a time.", file=sys.stderr)
+    sys.exit(2)
+if any(a in HELP_FLAGS for a in args):
+    print(__doc__ or '')
+    sys.exit(0)
 
 if '--write-incident' in sys.argv:
     repos = incident_set()

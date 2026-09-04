@@ -8,28 +8,40 @@
 #
 # Per task:
 #   H  the committed patches hash to what the manifest recorded
-#   R  parent + test.patch alone -> the suite is RED   (the bug is real, and the
-#      added cases actually catch it)
-#   G  parent + test.patch + gold.patch -> the suite is GREEN (the fix works and
-#      the task is solvable)
+#   P  the UNTOUCHED parent is GREEN
+#   R  parent + test.patch alone is RED
+#   G  parent + test.patch + gold.patch is GREEN
 #
-# R and G together are the fail-before/pass-after contract. A task that passes H
-# but fails R would be one whose tests never detected the bug; one that fails G
-# would be unsolvable. Either makes the task unusable, so both are asserted.
+# P is the control that makes R mean anything. Without it, RED after applying the
+# test patch does not show the patch CAUSED the failure — the parent could have
+# been failing already, for reasons that have nothing to do with the bug. P, R and
+# G together are the fail-before/pass-after contract, attributably.
 #
-# The install ladder is the SAME frozen ladder mine5.sh uses (FRAME3.md gate 1),
-# reproduced rather than reinvented: a divergent ladder would verify a different
-# environment from the one the trajectory will run in.
+# EXIT-CODE SEMANTICS ARE THE FROZEN ONES (FRAME3, mine5.sh gate 2): green=0,
+# red={1,2}, 5=no tests collected, 124=timeout, ANYTHING ELSE is a harness error.
+# Collapsing "not zero" into RED would let exit 3, 4, 126, 127 and signal deaths
+# masquerade as genuine regression failures — a broken interpreter would read as a
+# validated task. The raw status is recorded on every line so the evidence can be
+# rechecked without rerunning.
+#
+# A task that cannot be verified (clone, install, checkout or patch failure) is
+# NOT a pass. It is counted separately AND fails the run: a verifier that exits 0
+# because every task was unverifiable proves nothing.
+#
+# The install ladder is the SAME frozen ladder mine5.sh uses, reproduced rather
+# than reinvented: a divergent ladder would verify a different environment from
+# the one the trajectory will run in.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 POOL="${TB_POOL_DIR:-$HERE/pools/pilot}"
-ONLY="${1:-}"                      # optional: verify one task id
+ONLY="${1:-}"
 WORK=$(mktemp -d /tmp/tb-verify-XXXXXX)
 trap 'rm -rf "$WORK"' EXIT
 STEP_TIMEOUT=300
-pass=0; fail=0; skipped=0
+pass=0; fail=0; skipped=0; seen=0
 ok(){ printf '  \033[32mok\033[0m   %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=$((fail+1)); }
+na(){ printf '  \033[33mn/a\033[0m  %s\n' "$1"; skipped=$((skipped+1)); }
 
 install_env() { # <repo dir> <venv>
   local dir="$1" venv="$2"
@@ -54,45 +66,59 @@ exit 0
 LADDER
 }
 
-suite_state() { # <dir> <venv> -> green|red|no_tests|timeout
-  ( cd "$1" && timeout "$STEP_TIMEOUT" "$2/bin/python" -m pytest -q -p no:cacheprovider >/dev/null 2>&1
-    case $? in 0) echo green;; 5) echo no_tests;; 124) echo timeout;; *) echo red;; esac )
+suite_rc() { # <dir> <venv> -> the RAW pytest exit status
+  ( cd "$1" && timeout "$STEP_TIMEOUT" "$2/bin/python" -m pytest -q -p no:cacheprovider >/dev/null 2>&1; echo $? )
 }
+# frozen classification — never "anything non-zero is red"
+classify() { case "$1" in 0) echo green;; 1|2) echo red;; 5) echo no_tests;; 124) echo timeout;; *) echo "error(rc=$1)";; esac; }
 
 for T in $(ls "$POOL/tasks" | sort); do
   [ -n "$ONLY" ] && [ "$T" != "$ONLY" ] && continue
   MF="$POOL/tasks/$T/manifest.json"
-  [ -f "$MF" ] || { no "$T no manifest"; continue; }
+  seen=$((seen+1))
+  printf '\n== %s ==\n' "$T"
+  [ -f "$MF" ] || { no "$T has no manifest"; continue; }
   repo=$(node -p "require('$MF').repo"); parent=$(node -p "require('$MF').parent_sha")
   et=$(node -p "require('$MF').test_patch_sha256"); eg=$(node -p "require('$MF').gold_patch_sha256")
-  printf '\n== %s (%s) ==\n' "$T" "$repo"
+  printf '   repo=%s parent=%s\n' "$repo" "${parent:0:12}"
 
-  # H — the committed patches are the ones the manifest describes
   at=$(sha256sum "$POOL/tasks/$T/test.patch" | cut -d' ' -f1)
   ag=$(sha256sum "$POOL/tasks/$T/gold.patch" | cut -d' ' -f1)
   [ "$at" = "$et" ] && ok "H test.patch matches the recorded sha256" || no "H test.patch sha $at != $et"
   [ "$ag" = "$eg" ] && ok "H gold.patch matches the recorded sha256" || no "H gold.patch sha $ag != $eg"
 
   D="$WORK/repo"; V="$WORK/venv"; rm -rf "$D"
-  if ! git clone -q --filter=blob:none "https://github.com/$repo" "$D" 2>/dev/null; then
-    printf '  \033[33mn/a\033[0m  %s clone failed — not verifiable here\n' "$T"; skipped=$((skipped+1)); continue; fi
-  git -C "$D" checkout -q --detach "$parent" 2>/dev/null || { no "$T parent $parent not checkoutable"; continue; }
-  if ! install_env "$D" "$V"; then no "$T install ladder failed — cannot verify the contract"; continue; fi
+  git clone -q --filter=blob:none "https://github.com/$repo" "$D" 2>/dev/null \
+    || { na "$T clone failed — NOT VERIFIED"; continue; }
+  git -C "$D" checkout -q --detach "$parent" 2>/dev/null \
+    || { na "$T parent $parent not checkoutable — NOT VERIFIED"; continue; }
+  install_env "$D" "$V" || { na "$T install ladder failed — NOT VERIFIED"; continue; }
 
-  # R — the added cases catch the bug on the unfixed parent
+  # P — the control: the untouched parent must be GREEN, or R is unattributable
+  rc=$(suite_rc "$D" "$V"); st=$(classify "$rc")
+  if [ "$st" = green ]; then ok "P untouched parent is GREEN (rc=$rc)"
+  else no "P untouched parent is $st (rc=$rc), expected green — R would not be attributable"; continue; fi
+
   git -C "$D" apply --whitespace=nowarn "$POOL/tasks/$T/test.patch" 2>/dev/null \
-    || { no "R test.patch does not apply to $parent"; continue; }
-  r=$(suite_state "$D" "$V")
-  [ "$r" = red ] && ok "R parent + tests is RED (the added cases catch the bug)" \
-                 || no "R parent + tests is $r, expected red — the tests do not detect the bug"
+    || { na "$T test.patch does not apply to $parent — NOT VERIFIED"; continue; }
+  rc=$(suite_rc "$D" "$V"); st=$(classify "$rc")
+  [ "$st" = red ] && ok "R parent + tests is RED (rc=$rc; the added cases catch the bug)" \
+                  || no "R parent + tests is $st (rc=$rc), expected red"
 
-  # G — the gold fix turns it green, so the task is solvable
   git -C "$D" apply --whitespace=nowarn "$POOL/tasks/$T/gold.patch" 2>/dev/null \
-    || { no "G gold.patch does not apply on top of the tests"; continue; }
-  g=$(suite_state "$D" "$V")
-  [ "$g" = green ] && ok "G parent + tests + gold is GREEN (the task is solvable)" \
-                   || no "G parent + tests + gold is $g, expected green"
+    || { na "$T gold.patch does not apply on top of the tests — NOT VERIFIED"; continue; }
+  rc=$(suite_rc "$D" "$V"); st=$(classify "$rc")
+  [ "$st" = green ] && ok "G parent + tests + gold is GREEN (rc=$rc; the task is solvable)" \
+                    || no "G parent + tests + gold is $st (rc=$rc), expected green"
 done
 
-printf '\nverify-pilot-tasks: passed %d, failed %d, not-verifiable %d\n' "$pass" "$fail" "$skipped"
-[ "$fail" = 0 ]
+printf '\nverify-pilot-tasks: %d task(s) examined — passed %d, failed %d, NOT VERIFIED %d\n' \
+  "$seen" "$pass" "$fail" "$skipped"
+# A run that examined NOTHING is not a passing run either: with an empty or wrong
+# pool every counter stays 0 and a naive "no failures" test would report success.
+if [ "$seen" -eq 0 ]; then
+  echo "REFUSING: no tasks examined under $POOL/tasks — nothing was verified" >&2
+  exit 2
+fi
+# Zero failures AND zero unverifiable. Skipping is not passing.
+[ "$fail" -eq 0 ] && [ "$skipped" -eq 0 ]
