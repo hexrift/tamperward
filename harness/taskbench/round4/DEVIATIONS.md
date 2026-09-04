@@ -1897,3 +1897,38 @@ walks, not just the recent one.
 The verifier reproduces the SAME frozen install ladder `mine5.sh` uses rather than
 inventing one — a divergent ladder would verify a different environment from the one
 the trajectory will run in.
+
+#### The corrections had no tests. That is now fixed.
+
+Asked directly whether any of the above shipped without a regression test, the answer
+was **none of them had one**. Every one of the five corrections — the four verifier
+defects and the `build-burn-list.py` CLI — was verified by ad-hoc commands whose
+output existed only in a conversation. Nothing in the repository would have caught a
+reintroduction, which is exactly the failure mode argued against two entries above,
+when a threat control pinned to a commit sha was rejected for being able to silently
+stop proving anything.
+
+It matters most for `verify-pilot-tasks.sh`, because that script decides whether a
+mined task is usable at all. A silent regression in it would admit unusable tasks
+into the pilot.
+
+Added to `selftest.sh` (14 new assertions, 52 → 66):
+
+- the exit-code **classifier** table, asserting green=0, red={1,2}, 5=no tests,
+  124=timeout, and — the point of it — that **3, 4, 126, 127 and 137 are errors, not
+  RED**. A library seam (`TB_VERIFY_LIB=1`) lets the classifier be asserted directly
+  rather than hoping a live run happens to produce every status;
+- a run that **examines nothing** refuses (exit 2);
+- an **unclonable task** is NOT VERIFIED and fails the run;
+- a patch that **does not match its recorded sha256** fails;
+- the launcher's sacrificial bound: `21`, `0` and `abc` refused, unset still runs at
+  the default;
+- the builder CLI: `--help` exits 0, `--help --bogus` refuses (unknown arguments are
+  checked BEFORE help), an unknown flag refuses, `--check --write-incident` refuses as
+  two different jobs, `--check` still passes, and the burn set is **byte-identical
+  after every informational or rejected invocation**.
+
+**Each was proven against the pre-fix code before being kept.** Reintroducing the
+original shapes in a scratch copy: `classify(3)` returns `red`; an empty pool exits 0;
+an unclonable task exits 0 having verified nothing. All three are caught by the new
+assertions and all three pass on the corrected script.

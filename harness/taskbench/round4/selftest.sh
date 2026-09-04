@@ -319,4 +319,93 @@ python3 "$B/incident-D3/build-burn-list.py" --check >/dev/null 2>&1 \
   && no "burn check passed with a shard log deleted" || ok "lost incident evidence fails the check"
 rm -rf "$B"
 
+# ─────────────────────────────────────────────────────────────────────────────
+echo
+echo "== verify-pilot-tasks: the four defects review found, pinned"
+# These were all corrected after the fact and NONE of them had a test. The
+# verifier gates whether a mined task is usable, so a silent regression in it
+# would let an unusable task into the pilot.
+
+# (a) the exit-code classifier. It once collapsed every non-zero status into RED,
+# which would let exit 3, 4, 126, 127 and signal deaths pass as genuine regression
+# failures — a broken interpreter reading as a validated task. The frozen
+# semantics (mine5.sh gate 2) are green=0, red={1,2}, 5=no tests, 124=timeout,
+# ANYTHING ELSE an error.
+( TB_VERIFY_LIB=1 . ./verify-pilot-tasks.sh
+  bad=0
+  for pair in "0:green" "1:red" "2:red" "5:no_tests" "124:timeout"; do
+    rc=${pair%%:*}; want=${pair##*:}
+    [ "$(classify "$rc")" = "$want" ] || { echo "classify($rc)=$(classify "$rc") want $want"; bad=1; }
+  done
+  # the whole point: these must NOT be red
+  for rc in 3 4 126 127 137; do
+    case "$(classify "$rc")" in error*) ;; *) echo "classify($rc)=$(classify "$rc") — must be an error, not red"; bad=1;; esac
+  done
+  exit $bad ) >/dev/null 2>&1 \
+  && ok "classifier matches the frozen exit-code semantics; 3/4/126/127/137 are errors, not RED" \
+  || no "classifier diverges from the frozen semantics"
+
+# (b) a run that examines NOTHING must not pass. With an empty pool every counter
+# stays 0 and a naive "no failures" test reports success.
+TB_POOL_DIR=$(mktemp -d) ./verify-pilot-tasks.sh >/dev/null 2>&1 \
+  && no "verifier passed with no tasks examined" || ok "no tasks examined refuses (exit non-zero)"
+
+# (c) NOT VERIFIED must fail the run. The exit test was once `fail == 0` alone, so
+# twenty clone failures would have exited 0. Fixture: a task whose repository
+# cannot be cloned, with otherwise valid hashes.
+VP=$(mktemp -d); mkdir -p "$VP/tasks/99-unclonable"
+printf 'x\n' > "$VP/tasks/99-unclonable/test.patch"; printf 'y\n' > "$VP/tasks/99-unclonable/gold.patch"
+node -e '
+ const fs=require("fs"),c=require("crypto"),d=process.argv[1];
+ const h=f=>c.createHash("sha256").update(fs.readFileSync(d+"/tasks/99-unclonable/"+f)).digest("hex");
+ fs.writeFileSync(d+"/tasks/99-unclonable/manifest.json", JSON.stringify({
+   id:"99-unclonable", repo:"tamperward-selftest/definitely-not-a-real-repo",
+   parent_sha:"0000000000000000000000000000000000000000",
+   test_patch_sha256:h("test.patch"), gold_patch_sha256:h("gold.patch")}));' "$VP"
+out=$(TB_POOL_DIR="$VP" ./verify-pilot-tasks.sh 2>&1); rc=$?
+[ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'NOT VERIFIED 1' \
+  && ok "an unclonable task is NOT VERIFIED and fails the run" \
+  || no "unclonable task did not fail the run (exit $rc)"
+
+# (d) a hash mismatch must be a FAILURE, not a pass. Corrupt one patch after the
+# manifest was written.
+printf 'tampered\n' >> "$VP/tasks/99-unclonable/test.patch"
+out=$(TB_POOL_DIR="$VP" ./verify-pilot-tasks.sh 2>&1); rc=$?
+[ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'FAIL.*H test.patch sha' \
+  && ok "a patch that does not match its recorded sha256 fails" \
+  || no "hash mismatch did not fail (exit $rc)"
+rm -rf "$VP"
+
+echo
+echo "== launch-mine.sh: the sacrificial bound is enforced at the launcher too"
+# The launcher's hardcoded TB_PILOT_NEED=10 became an explicit override. The bound
+# has to hold there as well as in mine5.sh, or the guard moved rather than stayed.
+for bad in 21 0 abc ""; do
+  out=$(TB_PILOT_NEED="$bad" ./launch-mine.sh pilot 2>&1); rc=$?
+  case "$bad" in
+    "") [ "$rc" = 0 ] && ok "unset TB_PILOT_NEED still runs at the default" \
+                      || no "unset TB_PILOT_NEED refused (exit $rc)"
+        # that launch is a no-op (the pool is already at its need) but must be reaped
+        sleep 2; pkill -f 'mine5.sh' 2>/dev/null; rm -f "${TB_RUNTIME_DIR:-/tmp}/tb-mine-pilot.pid" ;;
+    *)  printf '%s' "$out" | grep -q REFUSING && ok "launcher refuses TB_PILOT_NEED=$bad" \
+                                              || no "launcher accepted TB_PILOT_NEED=$bad (exit $rc)" ;;
+  esac
+done
+
+echo
+echo "== build-burn-list.py: informational flags cannot write state"
+# An unrecognised --help once fell through to the default branch and REPUBLISHED
+# the burn set. Deterministic and harmless that time; a defect regardless.
+BL=frame/pilot-dedup.json; BEFORE=$(sha256sum "$BL" | cut -d' ' -f1)
+python3 incident-D3/build-burn-list.py --help >/dev/null 2>&1 \
+  && ok "--help exits 0" || no "--help did not exit 0"
+try "--help --bogus refuses (unknown args are checked BEFORE help)" python3 incident-D3/build-burn-list.py --help --bogus
+try "an unknown flag refuses"                                       python3 incident-D3/build-burn-list.py --bogus
+try "--check with --write-incident refuses as two different jobs"   python3 incident-D3/build-burn-list.py --check --write-incident
+python3 incident-D3/build-burn-list.py --check >/dev/null 2>&1 \
+  && ok "--check still passes" || no "--check regressed"
+[ "$(sha256sum "$BL" | cut -d' ' -f1)" = "$BEFORE" ] \
+  && ok "the burn set is byte-identical after every informational/rejected invocation" \
+  || no "an informational or rejected invocation MUTATED the burn set"
+
 echo; echo "passed $pass, failed $fail"; [ "$fail" = 0 ]

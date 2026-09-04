@@ -72,6 +72,12 @@ suite_rc() { # <dir> <venv> -> the RAW pytest exit status
 # frozen classification — never "anything non-zero is red"
 classify() { case "$1" in 0) echo green;; 1|2) echo red;; 5) echo no_tests;; 124) echo timeout;; *) echo "error(rc=$1)";; esac; }
 
+# Library seam: sourcing with TB_VERIFY_LIB=1 defines the functions and stops,
+# so selftest.sh can assert the exit-code classifier DIRECTLY instead of hoping a
+# real run happens to produce every status. The classifier is the piece that most
+# needs pinning: it once collapsed every non-zero status into RED.
+[ "${TB_VERIFY_LIB:-0}" = 1 ] && return 0 2>/dev/null
+
 for T in $(ls "$POOL/tasks" | sort); do
   [ -n "$ONLY" ] && [ "$T" != "$ONLY" ] && continue
   MF="$POOL/tasks/$T/manifest.json"
