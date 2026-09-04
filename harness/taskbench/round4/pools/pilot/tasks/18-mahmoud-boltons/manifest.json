@@ -1,0 +1,20 @@
+{
+ "id": "18-mahmoud-boltons",
+ "repo": "mahmoud/boltons",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "5df26592c29b9561d122640868ba0522cbc1e20d",
+ "commit_sha": "967864f89791509f9eb36b22b4579d36b72a6df2",
+ "test_patch_sha256": "f467a8f5e952552cd6dd619c4178f62885cad4875cd508052b50838734da577b",
+ "gold_patch_sha256": "6f167ba73c9111009c6cd5eb59c0609b42891d66ff8e1498f6ba5f655b498cd7",
+ "test_files": [
+  "tests/test_statsutils.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-04T02:21:04.619Z"
+}
