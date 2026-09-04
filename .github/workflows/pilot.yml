@@ -100,85 +100,46 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-      - name: Deploy the pinned treatment artefact and verify its tree hash
-        env:
-          # The artefact tree hash the freeze pins. A rebuild that does not reproduce
-          # this exactly is binding drift, so we verify rather than trust.
-          PIN: a0328112d99451e998037a3b26005c622590f9e5dee075db7606419a06ad3458
-          ART_DIR: /opt/tw-artefact-2.10.2
-        run: |
-          set -euo pipefail
-          TGZ="$PWD/$(npm pack --silent)"
-          sudo mkdir -p "$ART_DIR"
-          # `--packages=external` means the CLI needs its runtime deps (picomatch, yaml,
-          # typescript) as siblings, so install the tarball rather than unpacking it.
-          ( cd "$ART_DIR" && sudo npm install --omit=dev --no-audit --no-fund --silent "$TGZ" )
-          rm -f "$TGZ"
-          H="$(cd "$ART_DIR/node_modules/tamperward" && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -d' ' -f1)"
-          echo "artefact tree sha256: $H"
-          if [ "$H" != "$PIN" ]; then
-            echo "::error::artefact tree $H != pinned $PIN — refusing (this would be binding drift)"; exit 1
-          fi
-          # Immutable and read-only, as deploy-gated4.sh's bare launcher requires.
-          sudo chmod -R a-w "$ART_DIR"
-          echo "artefact pin verified" >> "$GITHUB_STEP_SUMMARY"
+      - name: Provision and validate (no trajectory)
+        # Single source of truth, also run by ci.yml's `pilot-provisioning` job so a
+        # runner-image / package / action regression fails a PR rather than a manual
+        # dispatch. Verifies the toolchain, deploys and pin-verifies the artefact,
+        # proves the jail, and runs the freeze check — printing the environment-drift
+        # fingerprint for review. Runs nothing scientific.
+        run: bash harness/taskbench/round4/provision-check.sh
 
-      - name: Prove the network jail
-        run: sudo -E bash harness/taskbench/runner/net-jail.sh selftest
-
-      - name: Freeze, drift handling, and (on run-next) the trajectory
+      - name: Run the trajectory
+        if: inputs.action == 'run-next'
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          ACTION: ${{ inputs.action }}
           ACK: ${{ inputs.acknowledge_env_drift }}
         run: |
           set -uo pipefail
+          [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || { echo "::error::run-next needs the CLAUDE_CODE_OAUTH_TOKEN secret."; exit 1; }
           cd harness/taskbench/round4
 
-          if [ "$ACTION" = "run-next" ] && [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
-            echo "::error::run-next needs the CLAUDE_CODE_OAUTH_TOKEN secret; none is set."; exit 1
-          fi
+          # Every privileged call carries the runner PATH (node, uv, python3.11) so the
+          # freeze fingerprint is identical across the code check, the acknowledgement
+          # and the driver's own gate — an acknowledgement is bound to the exact drift.
+          run() { sudo -E env "PATH=$PATH" "$@"; }
 
-          # Freeze check straight from the checker so we can see the drift class and
-          # fingerprint (pilot-drive's gate is stricter and refuses before printing).
-          set +e
-          FZ="$(node freeze-pilot-manifest.mjs --check 2>&1)"; FRC=$?
-          set -e
-          echo "$FZ"
-          { echo '### freeze-pilot-manifest --check'; echo '```'; echo "$FZ"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-
+          set +e; run node freeze-pilot-manifest.mjs --check >/tmp/fz.txt 2>&1; FRC=$?; set -e
+          cat /tmp/fz.txt
           case "$FRC" in
-            0) echo "no drift — the frozen manifest describes this tree exactly" ;;
-            2|5) echo "::error::binding/structural drift (exit $FRC) — never acknowledged. Resolve or re-freeze deliberately."; exit 1 ;;
-            3) echo "environment drift (exit 3) — expected on a GitHub runner" ;;
-            4) echo "::error::the treatment artefact is not deployed (exit 4) — the deploy step should have prevented this."; exit 1 ;;
-            *) echo "::error::unexpected freeze exit $FRC"; exit 1 ;;
+            0) : ;;
+            3)
+              if [ "$ACK" != "true" ]; then
+                echo "::error::environment drift is unacknowledged. Review the fingerprint from a check run, then re-dispatch run-next with acknowledge_env_drift: true."
+                exit 1
+              fi
+              run ./pilot-drive.sh --acknowledge-drift ;;
+            *) echo "::error::freeze exit $FRC — not runnable (binding/structural drift is never acknowledged)."; exit 1 ;;
           esac
 
-          if [ "$ACTION" = "check" ]; then
-            echo "check complete — nothing was run. Review the drift above, then dispatch run-next with acknowledge_env_drift: true."
-            exit 0
-          fi
-
-          # ---- run-next ----
-          if [ "$FRC" = "3" ]; then
-            if [ "$ACK" != "true" ]; then
-              echo "::error::environment drift is unacknowledged. Review the fingerprint above, then re-dispatch run-next with acknowledge_env_drift: true."
-              exit 1
-            fi
-            # Record the acknowledgement in the SAME (root) context the driver's gate
-            # will re-check, so the fingerprint matches.
-            sudo -E env "PATH=$PATH" ./pilot-drive.sh --acknowledge-drift
-          fi
-
           # The jail is applied symmetrically to both arms (PILOT4.md); the driver does
-          # not set it, so the operator does. Preserve PATH (node, uv) and the token
-          # across sudo; the driver adds TB_RUNTASK4_READY, the registered model and the
-          # manifest binding itself.
-          sudo -E env "PATH=$PATH" \
-            TB_NETJAIL=1 \
-            CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-            ./pilot-drive.sh --next
+          # not set TB_NETJAIL, so the operator does. The driver adds TB_RUNTASK4_READY,
+          # the registered model and the manifest binding itself.
+          run TB_NETJAIL=1 CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" ./pilot-drive.sh --next
 
           echo "### pilot status" >> "$GITHUB_STEP_SUMMARY"
           ./pilot-drive.sh --status | tee -a "$GITHUB_STEP_SUMMARY" || true
