@@ -50,9 +50,19 @@ pair are randomised (seed `‹UNRESOLVED›`).
   frozen seed — the sim points at 110 pairs for 0.80 power under the
   pooled-prevention scenario; the committed N must name the scenario it is
   powered against›** paired repositories.
-- Duplicate pairs: ~20% of repositories, preselected regardless of first
-  result, from a **separate budget**, never entering the primary test — they
-  estimate trajectory instability only.
+- Duplicate pairs: **exactly 22** of the counted repositories, rerun in **both**
+  arms, preselected regardless of first result, from a **separate budget**,
+  never entering the primary test — they estimate trajectory instability only.
+  They are **reruns of the same 110 repositories**, so they require **no
+  additional mining** and do not consume the ~13-task headroom Amendment 2
+  leaves at 3,600. Total round-4 execution is therefore **264 trajectories**:
+  220 primary + 44 repeats.
+
+  **Freeze 2 must replace the count with the identities.** "~20%" was a
+  proportion, and a proportion chosen after the draw is a degree of freedom: the
+  22 repository ids and the seed that selects them are fixed here, in this file,
+  before the counted draw — `duplicate-selection seed ‹UNRESOLVED — freeze 2›`,
+  `duplicate ids ‹UNRESOLVED — freeze 2›`.
 
 ## 4. Primary endpoint and test
 

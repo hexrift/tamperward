@@ -2246,3 +2246,113 @@ be provisioned outside the repository; this container has none
 (`~/.claude/.credentials.json` absent, `ANTHROPIC_API_KEY` unset). Until it exists no
 real-Claude trajectory can run, so the dry run, the remaining 19, the revocation and
 the adjudication all wait on that operator action.
+
+## Pilot freeze — three blockers closed before provisioning, 2026-09-04
+
+Review of the frozen manifest found three gaps between "the order is written down"
+and "the order is binding". All three are closed here; the manifest is re-frozen at
+sha256 `0ab5d5f89fd93c80a764172844a9ac4d9d38ad8e1f7ca10fbc9ff94bc5dfc8c6`.
+
+### 1. policy3.yml was not in the binding set — and it shapes the primary outcome
+
+`run-task4.sh` copies `round3/policy3.yml` into the observer's tool directory and
+the observer reads it through `TB_POLICY3`, **in both arms**. It is the definition
+of the protected surface the parent-owned observer matches against, so it shapes
+the primary outcome as directly as the adjudicator does. It was unpinned.
+
+The cause is worth recording because it is a reasoning error, not a typo: the set
+was assembled by asking **which scripts run**. Data copied into a trajectory is as
+binding as code, and that question cannot see it. The first freeze even named this
+as its "one soft edge" and left it to a reviewer — a reviewer found it, which is
+the good case, but the check should not have depended on that.
+
+So the set is now closed over itself rather than over a reviewer's attention:
+`--check` parses `run-task4.sh` for everything it copies into a trajectory and
+fails, **naming the file**, if any of it is unpinned. Proven by simulating the
+next occurrence — adding a `cp "$HERE/gen-policy.mjs" "$OBSTOOL/"` produces
+`BINDING DRIFT run-task4.sh copies gen-policy.mjs into the trajectory but it is
+not in the binding set`. The set is renamed `binding_set` (schema `/2`), because
+calling it "the runner files" is what invited the mistake.
+
+`pilot-drive.sh` is pinned for the same reason: a driver swapped for one that
+ignores the manifest would leave the manifest a document about an experiment
+rather than a constraint on it.
+
+### 2. Nothing enforced the frozen order — `pilot-drive.sh`
+
+The manifest froze the order and nothing executed against it. An operator could
+run the trajectories in any sequence, or twice, and the document would still read
+as satisfied.
+
+The driver refuses to start unless the freeze check passes; takes the **lowest
+unfinished seq** and offers no way to name one, so out-of-order execution is
+impossible by construction rather than discouraged; **halts** on a trajectory that
+started without producing a verdict, since a trajectory that started has a
+scientific outcome and is never re-rolled — cleared only by a human recording a
+disposition, which nothing the driver writes can create; re-asserts the manifest
+hash **before every trajectory**, so a long `--all` cannot start trajectory 17
+against a tree that changed after trajectory 1; holds a lock; and appends every
+attempt to `pilot-execution-log.jsonl` with the manifest hash it ran under.
+
+That log is also how the counted round gets an **arm-specific** timing estimate.
+Round 3.1's 5.8-minute mean predates the envelope; the gated arm now carries a
+PreToolUse deny and a Stop sweep on every tool call and may cost meaningfully
+more. `--status` reports mean and max per arm.
+
+### 3. The credential fingerprint named the wrong file, and "none" ran anyway
+
+`cred_fingerprint()` hashed `$HOME/.claude.json`. That was wrong twice:
+
+- It is the CLI's **config and session state**, not a credential. The agent runs
+  with the parent's `HOME` (`HOME="$HOME"` in the agent env), so a real session
+  rewrites it mid-run — and the before/after stability comparison would then have
+  failed **every registered trajectory** at post-start with "credential
+  fingerprint changed during the run", a failure with nothing wrong behind it.
+  The plumbing smoke never caught this because its fake agent writes no CLI state.
+  This would have surfaced at trajectory one.
+- With no credential at all it returned `"none"` — a non-empty string, so the
+  provenance completeness check passed and the trajectory ran, recording
+  truthfully and uselessly that no credential was identified.
+
+Now every present source is fingerprinted (not just the first, so the record does
+not depend on modelling the CLI's precedence — a record that guessed precedence
+wrong would be confidently false rather than merely silent), env values are hashed
+under a fixed label so the digest is not a bare sha256 of a secret, and a
+**registered** trajectory refuses to start (exit 7) without one of
+`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`.
+
+Requiring an **environment** source is a deliberate narrowing. A stored OAuth
+token can legitimately refresh mid-run, which makes the before/after comparison
+unable to distinguish "the token refreshed" from "the credential was swapped"; the
+check would have to be weakened to accommodate it, and a weakened check on the one
+fact the credential record exists to establish is worse than a narrow requirement.
+The registered protocol provisions a short-lived, spending-limited key anyway.
+
+### Registered arithmetic corrected
+
+The duplicate budget is **exactly 22** repositories rerun in both arms — reruns,
+so no extra mining and no claim on Amendment 2's ~13-task headroom. Round 4 is
+therefore **264 trajectories** (220 primary + 44 repeats), not 220. `PREDICTION4`
+§3 now says 22 rather than "~20%", with the duplicate ids and their selection seed
+marked `‹UNRESOLVED — freeze 2›`: a proportion chosen after the draw is a degree
+of freedom, and the identities must be fixed before it.
+
+RUNBOOK's cost table is corrected accordingly: ~30 worker-hours mining (~7.5 h
+wall at four workers) + ~25.5 worker-hours of trajectories (~12.8 h wall at
+two-wide) ≈ **20–21 h wall before overhead**, realistically 20–25 h; ~33 h if
+trajectories run strictly sequentially. The earlier "~50 h" quoted the sequential
+column for work that parallelises. The pilot's own line is corrected downward to
+**~2 h**: its ten tasks are already mined, so only the 20 trajectories remain.
+
+### Evidence
+
+`selftest.sh` **144 assertions, 0 failures**, TTY and non-TTY. The 27 new ones
+were proven non-vacuous against eight deliberately broken variants — freeze gate
+neutered, halt-on-start removed, order reversed, mid-run hash re-check removed,
+lock removed, continue-past-failure, credential fingerprint reverted to
+`.claude.json`, refusal removed — each failing the assertions that name its
+mechanism. One earlier mutant was invalid and is recorded as such: a `sed` whose
+delimiter collided with `||` in the pattern produced an **empty** file, and an
+empty file is not valid bash but passes `bash -n`, so it "failed everything" for
+no reason. The guard now requires a mutant to be non-empty, plausible in length,
+valid bash, and different from the original.

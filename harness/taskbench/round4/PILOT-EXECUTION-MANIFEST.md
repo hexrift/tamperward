@@ -9,7 +9,7 @@ the JSON beside this file; this page is rendered from it by `--render`, and
 | | |
 |---|---|
 | manifest | `PILOT-EXECUTION-MANIFEST.json` |
-| sha256 | `1b1273c1497ab3677c5dbfd0ef3b98f87f8b316b46c0b78db3d86275eb5f18b0` |
+| sha256 | `0ab5d5f89fd93c80a764172844a9ac4d9d38ad8e1f7ca10fbc9ff94bc5dfc8c6` |
 | base harness commit | `08a1d42b596e142f336f24b9b5c5ceb6bcc005e4` |
 | model | `claude-sonnet-5` |
 | trajectory-order seed | `taskbench4-pilot-trajectory-order-v1-2026-09-04` |
@@ -33,8 +33,8 @@ node harness/taskbench/round4/freeze-pilot-manifest.mjs --check
 | 3 | **environment drift** — record it in `DEVIATIONS.md`, then proceed |
 | 4 | the artefact is not deployed here, so the treatment could not be verified |
 
-**Binding** identities (registration, pool, execution order, treatment, runner)
-are frozen: a change to any of them changes what the pilot measures.
+**Binding** identities (registration, pool, execution order, treatment, binding
+set) are frozen: a change to any of them changes what the pilot measures.
 **Recorded** identities (the host environment) move with the machine, so they
 are captured for provenance and a difference is a deviation to record, not a
 silent change. Freezing a recorded field would make the manifest unusable on the
@@ -124,16 +124,21 @@ it writes — the deployment rule executed rather than asserted:
 | `.tamperward.yml` | `87560eb2c9b3a113…` |
 | `.git/hooks/pre-commit` | `8f6ab02180243220…` |
 
-## Runner — the scripts that shape a trajectory
+## Binding set — everything that shapes a trajectory
 
-Editing any of these changes what the pilot measures, so each is pinned
-individually. Self-tests and fixtures under `runner/` are deliberately absent:
-they cannot reach a trajectory. The whole `runner/` tree is not pinned, so their
-movement stays visible without being binding.
+Scripts **and the data they carry**. Editing any of it changes what the pilot
+measures, so each entry is pinned individually. Self-tests and fixtures under
+`runner/` are deliberately absent: they cannot reach a trajectory.
+
+`round3/policy3.yml` is here because `run-task4.sh` copies it into the
+observer's tool directory and the observer reads it through `TB_POLICY3` in both
+arms — it *is* the protected-surface definition the observer matches against, so
+it shapes the primary outcome as directly as the adjudicator does. It was missed
+on the first freeze because the set was assembled by asking which scripts run.
 
 | file | sha256 |
 |---|---|
-| `runner/run-task4.sh` | `3c92a73f054cfd42…` |
+| `runner/run-task4.sh` | `80d475ee94070ba4…` |
 | `runner/deploy-gated4.sh` | `6d5c632fd8afb3e1…` |
 | `runner/agent-jail4.sh` | `012962fa20012e97…` |
 | `runner/net-jail.sh` | `688826f19296259e…` |
@@ -145,8 +150,14 @@ movement stays visible without being binding.
 | `runner/verdict-record.sh` | `ba8ea493ad94765c…` |
 | `runner/cleanup-lifecycle4.sh` | `2443b31ce52bc3ce…` |
 | `runner/launcher4.sh` | `53a385b99927c1dc…` |
+| `round3/policy3.yml` | `b675edcc1b1ebdfe…` |
+| `round4/pilot-drive.sh` | `bb3ed76b5473fd62…` |
 
-Combined runner hash: `19a940632627785c729d56e3e094d1420638364dfa60feb8aafc5015330029ac`
+Combined binding-set hash: `e79dddfe64e3dbb13dcd85dc2a89b7570a03521b102490d1984a3f0d9b64b9c4`
+
+`--check` also parses `run-task4.sh` for what it copies into a trajectory and
+fails if anything reaches one unpinned, so this set closes over itself rather
+than depending on a reviewer noticing.
 
 ## Environment — recorded, not binding
 

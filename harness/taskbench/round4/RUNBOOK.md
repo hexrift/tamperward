@@ -28,16 +28,30 @@ bash harness/taskbench/runner/net-jail.sh selftest
 - Mining: 20 tasks in 5.5 h sequential; median 8 min between tasks, mean 17, max 97.
 - Trajectories: 64 runs, median 2.4 min, mean 5.8, max 51.6.
 
-| Phase | Sequential | 4 workers |
+| Phase | Worker-hours | Wall-clock, mining 4-wide + trajectories 2-wide |
 |---|---|---|
-| Pilot: 10 tasks + 20 trajectories | ~5 h | **sequential only — see D4** |
-| Counted at N=110: mining + 220 trajectories | ~50 h | ~15–20 h |
+| Pilot: 20 trajectories (its ten tasks are already mined) | ~2 h | ~2 h — **trajectories are the only work left, and D4 forbids parallel pilot mining** |
+| Counted at N=110: mining + **264** trajectories | ~55 h | **~20–21 h** before overhead, realistically 20–25 h |
+
+The counted figure is **264 trajectories, not 220**: 110 primary pairs plus the
+**22 duplicate pairs** (`PREDICTION4` §3) rerun in both arms — 220 + 44. Those
+are reruns of the same repositories, so they cost no extra mining. At the round
+3/3.1 measured means that is ~30 worker-hours of mining (~7.5 h wall at four
+workers) and ~25.5 worker-hours of trajectories (~12.8 h wall at two-wide).
+Strictly sequential trajectories would put the total near 33 h.
 
 Parallelise **counted** mining freely — it scales with cores. Never parallelise
-the **pilot**: it is sacrificial, and concurrency burns frame. Keep **trajectories**
-sequential or at most two-wide: they are bounded by model latency and rate
-limits, not CPU, and heavy concurrency distorts the very timings the round
-measures.
+the **pilot**: it is sacrificial, and concurrency burns frame. Run **trajectories
+at most two-wide**: they are bounded by model latency and rate limits rather
+than CPU, so two-wide roughly halves the wall-clock, while heavier concurrency
+starts distorting the very timings the round measures.
+
+**These means predate the treatment.** They come from round 3.1, where no arm
+carried the v2 envelope. The gated arm now adds a PreToolUse deny and a Stop
+sweep on every tool call, so its trajectories may cost meaningfully more than
+its ungated twin. The pilot is what replaces this estimate with a measurement:
+`pilot-drive.sh --status` reports mean and max **per arm**, and that number —
+not the round-3.1 mean — is what the counted schedule should be built on.
 
 ## Mining
 
@@ -123,7 +137,32 @@ The pilot's registration is frozen in `PILOT-EXECUTION-MANIFEST.json` — the te
 fresh tasks, the trajectory order, the arm order, the treatment, the runner and
 the recorded environment. `PILOT-EXECUTION-MANIFEST.md` is a rendering of it.
 
-**Before trajectory one, every time:**
+**Run it with the driver, which enforces the frozen order:**
+
+```
+./pilot-drive.sh --check     # manifest, state and order. Runs nothing
+./pilot-drive.sh --next      # run ONE trajectory: the next in frozen order
+./pilot-drive.sh --all       # run in order until done or halted
+./pilot-drive.sh --status    # progress, and per-arm timings
+```
+
+The driver refuses to start unless the freeze check passes, takes the **lowest
+unfinished seq** (there is no way to name one), **halts** rather than re-rolling
+a trajectory that started without producing a verdict, and appends every attempt
+to `runs-pilot/pilot-execution-log.jsonl` with the manifest hash it ran under.
+
+A halt is cleared only by a human recording the disposition as
+`runs-pilot/<task>-<arm>.adjudicated`. Nothing the driver writes can create one.
+
+**The credential must be an environment variable** — `ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN`. A registered trajectory
+refuses to start without one. A stored OAuth token can refresh mid-run, which
+would make the before/after fingerprint comparison unable to distinguish "the
+token refreshed" from "the credential was swapped"; a provisioned,
+spending-limited key is stable for the run, which is what makes that comparison
+mean something.
+
+**The freeze check on its own**, if you want it without the driver:
 
 ```
 node harness/taskbench/round4/freeze-pilot-manifest.mjs --check

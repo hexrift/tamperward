@@ -725,16 +725,78 @@ TRAJ_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 # (never the material), the model, the base and the endpoints. The adjudicator and
 # the driver reject a trajectory whose provenance is missing or mismatched.
 ART_NM_SHA_BEFORE="$(art_nm_hash 2>/dev/null || echo unreadable)"
-# credential fingerprint: a one-way sha256 PREFIX of the active credential file
-# plus its size — enough to prove which credential was in effect and that it did
-# not change, WITHOUT carrying any credential material. Absent file => "none".
+# CREDENTIAL FINGERPRINT — which credential was in effect, proven without
+# carrying any credential material.
+#
+# This fingerprinted $HOME/.claude.json, which was wrong twice over.
+#
+#   1. That file is the CLI's CONFIG AND SESSION STATE, not a credential. It
+#      carries project history and onboarding flags, and the agent runs with the
+#      parent's HOME (see the `HOME="$HOME"` in the agent env below), so a real
+#      session REWRITES it mid-run. The before/after stability comparison would
+#      then fail every registered trajectory at post-start with "credential
+#      fingerprint changed during the run" — a failure with nothing wrong behind
+#      it. The plumbing smoke never caught this because its fake agent does not
+#      write CLI state.
+#   2. With no credential at all it returned the string "none", which is
+#      non-empty, so the provenance completeness check passed and the trajectory
+#      ran anyway — recording, truthfully and uselessly, that no credential was
+#      identified.
+#
+# Every source PRESENT is fingerprinted, not just the first: the claim this
+# record supports is "this credential material was in effect and did not change",
+# and that does not require modelling the CLI's precedence — whereas a record
+# that guessed the precedence wrong would be confidently false rather than
+# merely silent.
+#
+# Env values are hashed with a fixed label so the digest is not a bare sha256 of
+# a secret that could be compared against a precomputed table.
+CRED_ENV_KEYS=(ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN)
+CRED_FILES=("$HOME/.claude/.credentials.json")
 cred_fingerprint() {
-  local f="$HOME/.claude.json"
-  if [ -r "$f" ]; then
-    printf 'sha256:%s size:%s' "$(sha256sum "$f" 2>/dev/null | cut -c1-16)" "$(wc -c < "$f" 2>/dev/null | tr -d ' ')"
-  else echo "none"; fi
+  local out="" f k v h
+  for f in "${CRED_FILES[@]}"; do
+    [ -r "$f" ] || continue
+    h=$( { printf 'tb4-credfp:'; cat "$f"; } | sha256sum | cut -c1-16 )
+    out="$out${out:+ }file:$(basename "$f"):sha256:$h:size:$(wc -c < "$f" | tr -d ' ')"
+  done
+  for k in "${CRED_ENV_KEYS[@]}"; do
+    v="${!k:-}"; [ -n "$v" ] || continue
+    h=$(printf 'tb4-credfp:%s' "$v" | sha256sum | cut -c1-16)
+    out="$out${out:+ }env:$k:sha256:$h:len:${#v}"
+  done
+  [ -n "$out" ] || out="none"
+  printf '%s' "$out"
+}
+cred_env_present() {
+  local k
+  for k in "${CRED_ENV_KEYS[@]}"; do [ -n "${!k:-}" ] && return 0; done
+  return 1
 }
 CRED_FP="$(cred_fingerprint)"
+# A REGISTERED trajectory refuses to start without a credential it can name. The
+# refusal is here, before the agent launches, so nothing scientific has happened
+# when it fires.
+#
+# It requires an ENVIRONMENT source specifically, and that is a deliberate
+# narrowing rather than an accident of implementation. The registered protocol
+# provisions a short-lived, spending-limited credential outside the repository;
+# that is an API key, whose fingerprint is exactly stable for the length of a
+# run. A stored OAuth token can legitimately refresh mid-run, which would make
+# the before/after comparison indistinguishable between "the token refreshed"
+# and "the credential was swapped" — so the check would have to be weakened to
+# accommodate it, and a weakened check on the one fact the credential record
+# exists to establish is worse than a narrow requirement.
+if [ -n "${TB_REGISTERED_MODEL:-}" ]; then
+  if [ "$CRED_FP" = "none" ]; then
+    echo "NO_CREDENTIAL: a registered trajectory needs a provisioned credential; none of ${CRED_ENV_KEYS[*]} is set and no credential file is readable" >&2
+    exit 7
+  fi
+  if ! cred_env_present; then
+    echo "NO_CREDENTIAL: a registered trajectory needs one of ${CRED_ENV_KEYS[*]} — a provisioned, spending-limited key whose fingerprint is stable for the run. Found only: $CRED_FP" >&2
+    exit 7
+  fi
+fi
 jq -nc --arg ts "$TRAJ_TS" --arg task "$ID" --arg arm "$ARM" \
    --arg tr "$(basename "$TRANSCRIPT")" --arg wd "$W" --arg model "$MODEL" \
    --arg regmodel "${TB_REGISTERED_MODEL:-}" \

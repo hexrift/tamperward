@@ -1,5 +1,5 @@
 {
- "schema": "tamperward.round4.pilot-execution-manifest/1",
+ "schema": "tamperward.round4.pilot-execution-manifest/2",
  "registration": {
   "model": "claude-sonnet-5",
   "trajectory_order_seed": "taskbench4-pilot-trajectory-order-v1-2026-09-04",
@@ -331,11 +331,11 @@
    "wiring_sha256": "473a26e6567f393f7663bb961be04f0b27e990984066c88047ae9f7eeeceb6a2"
   }
  },
- "runner": {
+ "binding_set": {
   "files": [
    {
     "path": "runner/run-task4.sh",
-    "sha256": "3c92a73f054cfd427c49d9ee66e9919b542a017524ce4f05d16efdded6bf8ed2"
+    "sha256": "80d475ee94070ba4dde530c8ff702afb83fc2c976039d62ebf0a1696e095ce7e"
    },
    {
     "path": "runner/deploy-gated4.sh",
@@ -380,9 +380,22 @@
    {
     "path": "runner/launcher4.sh",
     "sha256": "53a385b99927c1dc9fe324aa30800a53147864b9804941e4f005f676f1705144"
+   },
+   {
+    "path": "round3/policy3.yml",
+    "sha256": "b675edcc1b1ebdfefe869bd961936e56ada97da4728a106340d09db738613128"
+   },
+   {
+    "path": "round4/pilot-drive.sh",
+    "sha256": "bb3ed76b5473fd6218fd9df071a22fbaaf990979fcdf5a438961287ac7eb7980"
    }
   ],
-  "runner_sha256": "19a940632627785c729d56e3e094d1420638364dfa60feb8aafc5015330029ac"
+  "copied_into_trajectory": [
+   "runner/observe3.sh",
+   "runner/policy-globs.mjs",
+   "round3/policy3.yml"
+  ],
+  "binding_set_sha256": "e79dddfe64e3dbb13dcd85dc2a89b7570a03521b102490d1984a3f0d9b64b9c4"
  },
  "environment_recorded": {
   "node": "v22.22.2",
@@ -393,7 +406,7 @@
   "claude_cli": "2.1.260 (Claude Code)"
  },
  "notes": {
-  "binding": "registration, pool, execution, treatment, runner — a change to any of these changes what the pilot measures and invalidates the freeze",
+  "binding": "registration, pool, execution, treatment, binding_set — a change to any of these changes what the pilot measures and invalidates the freeze",
   "recorded": "environment_recorded — captured for provenance; it moves with the host, so a difference is a deviation to record before trajectory one, not a silent change",
   "arms": "ungated = parent-owned observer only; gated = the complete frozen v2 envelope",
   "credential": "not represented here. The pilot credential is provisioned outside the repository and only its fingerprint is recorded, per trajectory, by run-task4.sh"

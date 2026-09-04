@@ -27,7 +27,7 @@
 //
 // BINDING vs RECORDED is the whole design. A binding field is one whose change
 // would change what the pilot measures: the pool, the order, the seeds, the
-// artefact, the runner scripts, the model. A recorded field is one that varies
+// artefact, the runner scripts and their data, the model. A recorded field is one that varies
 // with the machine and must be captured but cannot be frozen in advance: the
 // CLI build, the kernel. Freezing a recorded field would make the manifest
 // unusable on the next host; ignoring it would lose the provenance.
@@ -80,12 +80,16 @@ const POOL_IDS = ['11', '12', '13', '14', '15', '16', '17', '18', '19', '20'];
 // same guard as TB_PILOT_FREEZE_TEST.
 const POOL_DIR = process.env.TB_PILOT_POOL_DIR || path.join(HERE, 'pools', 'pilot', 'tasks');
 
-// The scripts that SHAPE a trajectory. Editing any of them changes what the
-// pilot measures, so each is pinned individually. Self-tests and fixtures under
-// runner/ are deliberately NOT here — they cannot reach a trajectory — but the
-// whole runner tree is hashed as a recorded field so their movement is still
-// visible rather than invisible.
-const RUNNER_FILES = [
+// Everything that SHAPES a trajectory — scripts AND the data they carry.
+// Editing any of it changes what the pilot measures, so each entry is pinned
+// individually. Self-tests and fixtures under runner/ are deliberately NOT here:
+// they cannot reach a trajectory.
+//
+// The first freeze called this "the runner files" and assembled it by asking
+// which SCRIPTS run. That question has a blind spot, and policy3.yml sat in it:
+// data copied into the trajectory is as binding as code, and the observer's
+// protected-surface definition is the most binding data there is.
+const BINDING_FILES = [
   'runner/run-task4.sh',        // the trajectory runner itself
   'runner/deploy-gated4.sh',    // writes the gated arm's deployment
   'runner/agent-jail4.sh',      // mount/PID/capability separation, both arms
@@ -98,6 +102,29 @@ const RUNNER_FILES = [
   'runner/verdict-record.sh',   // what counts as a verdict at all
   'runner/cleanup-lifecycle4.sh', // the cleanup contract the runner is held to
   'runner/launcher4.sh',        // the immutable bare-launcher deployment gate
+  // NOT a script, and the reason it was missed on the first freeze: it is data,
+  // and the set was assembled by asking which SCRIPTS run. run-task4.sh copies
+  // it into the observer's tool directory and the observer reads it through
+  // TB_POLICY3, in BOTH arms — it is the definition of the protected surface the
+  // observer matches against, so it shapes the primary outcome as directly as
+  // the adjudicator does.
+  'round3/policy3.yml',
+  // The driver is what makes the frozen order BINDING rather than descriptive:
+  // it is the only thing that enforces sequence, refuses to re-roll a started
+  // trajectory, and records what actually ran. A driver that could be swapped
+  // for one ignoring the manifest would leave the manifest a document about an
+  // experiment rather than a constraint on it.
+  'round4/pilot-drive.sh',
+];
+
+// Everything the runner copies into a trajectory, by the path it copies FROM.
+// The binding set must cover all of it: a file that reaches a trajectory but is
+// not pinned is a silent degree of freedom. Checked against the runner source
+// rather than trusted, because that is exactly the mistake policy3.yml was.
+const COPIED_INTO_TRAJECTORY = [
+  'runner/observe3.sh',
+  'runner/policy-globs.mjs',
+  'round3/policy3.yml',
 ];
 
 const ART_DIR = process.env.TB_ART_DIR || '/opt/tw-artefact-2.10.2';
@@ -198,15 +225,41 @@ function deriveOrder(ids, reg) {
   return { task_order: order, trajectories: rows, trajectory_count: rows.length };
 }
 
-function deriveRunner() {
-  const files = RUNNER_FILES.map((rel) => {
+// Does the binding set actually cover what the runner puts into a trajectory?
+// Parsed from run-task4.sh rather than trusted, because "I listed the scripts"
+// is precisely the reasoning that missed policy3.yml. Every file copied into the
+// observer's tool directory must be pinned; a new one appearing there without a
+// re-freeze fails with a message that names it, instead of an opaque hash diff.
+function copyClosureViolations() {
+  const src = fs.readFileSync(path.join(TB, 'runner/run-task4.sh'), 'utf8');
+  const pinned = new Set(BINDING_FILES.map((f) => path.basename(f)));
+  const declared = new Set(COPIED_INTO_TRAJECTORY.map((f) => path.basename(f)));
+  const found = new Set();
+  for (const line of src.split('\n')) {
+    if (!/^\s*cp\s/.test(line) || !line.includes('OBSTOOL')) continue;
+    for (const m of line.matchAll(/"\$(?:HERE|TB)\/([^"]+)"/g)) found.add(path.basename(m[1]));
+  }
+  const out = [];
+  for (const f of found) {
+    if (!pinned.has(f)) out.push(`run-task4.sh copies ${f} into the trajectory but it is not in the binding set`);
+    if (!declared.has(f)) out.push(`run-task4.sh copies ${f} into the trajectory but COPIED_INTO_TRAJECTORY does not list it`);
+  }
+  for (const f of declared) {
+    if (!found.has(f)) out.push(`COPIED_INTO_TRAJECTORY lists ${f}, but run-task4.sh no longer copies it`);
+  }
+  return out;
+}
+
+function deriveBindingSet() {
+  const files = BINDING_FILES.map((rel) => {
     const p = path.join(TB, rel);
-    if (!fs.existsSync(p)) fail(5, `runner file missing: ${rel}`);
+    if (!fs.existsSync(p)) fail(5, `binding file missing: ${rel}`);
     return { path: rel, sha256: sha256file(p) };
   });
   return {
     files,
-    runner_sha256: sha256(files.map((f) => `${f.sha256}  ${f.path}\n`).join('')),
+    copied_into_trajectory: COPIED_INTO_TRAJECTORY,
+    binding_set_sha256: sha256(files.map((f) => `${f.sha256}  ${f.path}\n`).join('')),
   };
 }
 
@@ -271,16 +324,16 @@ function derive() {
   const order = deriveOrder(pool.tasks.map((t) => t.id), reg);
   const treatment = deriveTreatment();
   return {
-    schema: 'tamperward.round4.pilot-execution-manifest/1',
+    schema: 'tamperward.round4.pilot-execution-manifest/2',
     registration: reg,
     pool,
     execution: order,
     treatment,
-    runner: deriveRunner(),
+    binding_set: deriveBindingSet(),
     environment_recorded: deriveEnvironment(),
     notes: {
       binding:
-        'registration, pool, execution, treatment, runner — a change to any of these ' +
+        'registration, pool, execution, treatment, binding_set — a change to any of these ' +
         'changes what the pilot measures and invalidates the freeze',
       recorded:
         'environment_recorded — captured for provenance; it moves with the host, so ' +
@@ -320,7 +373,7 @@ function renderMarkdown(m, jsonSha) {
   const t = (xs) => xs.join('\n');
   const rows = t(m.execution.trajectories.map((r) => `| ${r.seq} | \`${r.task}\` | **${r.arm}** |`));
   const pool = t(m.pool.tasks.map((x) => `| \`${x.id}\` | ${x.repo} | \`${x.parent_sha.slice(0, 10)}\` | \`${x.test_files.join(', ')}\` |`));
-  const runner = t(m.runner.files.map((f) => `| \`${f.path}\` | \`${f.sha256.slice(0, 16)}…\` |`));
+  const binding = t(m.binding_set.files.map((f) => `| \`${f.path}\` | \`${f.sha256.slice(0, 16)}…\` |`));
   const wiring = t(m.treatment.init_wiring.files.map((f) => `| \`${f.path}\` | \`${f.sha256.slice(0, 16)}…\` |`));
   const env = t(Object.entries(m.environment_recorded).map(([k, v]) => `| ${k} | \`${v}\` |`));
   const first = m.execution.trajectories[0];
@@ -359,8 +412,8 @@ node harness/taskbench/round4/freeze-pilot-manifest.mjs --check
 | 3 | **environment drift** — record it in \`DEVIATIONS.md\`, then proceed |
 | 4 | the artefact is not deployed here, so the treatment could not be verified |
 
-**Binding** identities (registration, pool, execution order, treatment, runner)
-are frozen: a change to any of them changes what the pilot measures.
+**Binding** identities (registration, pool, execution order, treatment, binding
+set) are frozen: a change to any of them changes what the pilot measures.
 **Recorded** identities (the host environment) move with the machine, so they
 are captured for provenance and a difference is a deviation to record, not a
 silent change. Freezing a recorded field would make the manifest unusable on the
@@ -418,18 +471,27 @@ it writes — the deployment rule executed rather than asserted:
 |---|---|
 ${wiring}
 
-## Runner — the scripts that shape a trajectory
+## Binding set — everything that shapes a trajectory
 
-Editing any of these changes what the pilot measures, so each is pinned
-individually. Self-tests and fixtures under \`runner/\` are deliberately absent:
-they cannot reach a trajectory. The whole \`runner/\` tree is not pinned, so their
-movement stays visible without being binding.
+Scripts **and the data they carry**. Editing any of it changes what the pilot
+measures, so each entry is pinned individually. Self-tests and fixtures under
+\`runner/\` are deliberately absent: they cannot reach a trajectory.
+
+\`round3/policy3.yml\` is here because \`run-task4.sh\` copies it into the
+observer's tool directory and the observer reads it through \`TB_POLICY3\` in both
+arms — it *is* the protected-surface definition the observer matches against, so
+it shapes the primary outcome as directly as the adjudicator does. It was missed
+on the first freeze because the set was assembled by asking which scripts run.
 
 | file | sha256 |
 |---|---|
-${runner}
+${binding}
 
-Combined runner hash: \`${m.runner.runner_sha256}\`
+Combined binding-set hash: \`${m.binding_set.binding_set_sha256}\`
+
+\`--check\` also parses \`run-task4.sh\` for what it copies into a trajectory and
+fails if anything reaches one unpinned, so this set closes over itself rather
+than depending on a reviewer noticing.
 
 ## Environment — recorded, not binding
 
@@ -540,7 +602,11 @@ if (mode === '--check') {
   if (frozen.schema !== now.schema) cmp('schema', frozen.schema, now.schema);
   cmp('registration', frozen.registration, now.registration);
   cmp('pool', frozen.pool, now.pool);
-  cmp('runner', frozen.runner, now.runner);
+  cmp('binding_set', frozen.binding_set, now.binding_set);
+  for (const v of copyClosureViolations()) {
+    process.stdout.write(`  BINDING DRIFT  ${v}\n`);
+    binding++;
+  }
 
   // The order is not merely compared, it is RE-DERIVED — twice, from two
   // different starting points. Under the current code these two agree whenever

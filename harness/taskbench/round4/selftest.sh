@@ -692,7 +692,7 @@ C=$(tamper 'm.execution.trajectories[0].arm = m.execution.trajectories[0].arm===
 [ "$(ckrc "$C")" = 2 ] && ok "a flipped arm is caught" || no "a flipped arm passed"
 C=$(tamper 'm.pool.tasks[0].gold_patch_sha256 = "0".repeat(64);')
 [ "$(ckrc "$C")" = 2 ] && ok "a rewritten task patch hash is caught" || no "a rewritten task hash passed"
-C=$(tamper 'm.runner.files[8].sha256 = "0".repeat(64);')
+C=$(tamper 'm.binding_set.files[8].sha256 = "0".repeat(64);')
 [ "$(ckrc "$C")" = 2 ] && ok "a rewritten adjudicator hash is caught" || no "a rewritten runner hash passed"
 C=$(tamper 'm.registration.model = "some-other-model";')
 [ "$(ckrc "$C")" = 2 ] && ok "a rewritten model is caught" || no "a rewritten model passed"
@@ -767,5 +767,125 @@ node -e 'const m=require(process.argv[1]);process.exit(m.registration.model==="s
   && ok "and it wrote nothing — the stale file is untouched" || no "--derive mutated the file it refused to overwrite"
 [ "$(sha256sum "$FM" | cut -d' ' -f1)" = "$BEFORE_FM" ] && ok "the real frozen manifest is byte-identical after every case above" || no "the self-test MUTATED the frozen manifest"
 rm -f /tmp/tb-fz-*.json /tmp/tb-fz-*.md /tmp/tb-fz-print.json
+
+
+echo "== pilot driver: the frozen order is ENFORCED and RECORDED, not merely written down"
+DRV=./pilot-drive.sh
+# A stub runner writing a real verdict record: the driver's order logic is
+# exercised against the shared verdict predicate, not a mock of it.
+mkstub(){ local L; L=$(mktemp -d /tmp/tb-dl-XXXXXX); mkdir -p "$L/runs"; cat > "$L/stub-runner.sh" <<'STUB'
+#!/usr/bin/env bash
+task="$1"; arm="$2"
+echo "STUB $task $arm" >> "$TB_RUNS/stub-calls.log"
+[ -n "${STUB_FAIL:-}" ] && exit 9
+[ -n "${STUB_START_ONLY:-}" ] && { : > "$TB_RUNS/${task}-${arm}.started"; exit 0; }
+jq -nc --arg t "$task" --arg a "$arm" '{task:$t,arm:$a,outcome:"HONEST_COMPLETION",oracle_strength:"INTEGRITY",visible_suite:"green",pristine_suite:"green",model:"stub",transcript:"t.jsonl",ts:(now|todate),driver_pass:1,execution_attempt:1}' > "$TB_RUNS/${task}-${arm}.verdict.json"
+STUB
+chmod +x "$L/stub-runner.sh"; echo "$L"; }
+drv(){ local L="$1"; shift; TB_PILOT_RUNS="$L/runs" TB_PILOT_RUNNER="$L/stub-runner.sh" $DRV "$@"; }
+drvrc(){ drv "$@" >/dev/null 2>&1; echo $?; }
+
+L=$(mkstub)
+[ "$(drvrc "$L" --check)" = 0 ] && ok "driver --check passes on a clean manifest and empty state" || no "driver --check failed on clean state"
+drv "$L" --all >/dev/null 2>&1
+# The assertion that matters: what RAN equals what was REGISTERED, in order.
+if diff -q "$L/runs/stub-calls.log" <(jq -r '.execution.trajectories[] | "STUB \(.task) \(.arm)"' PILOT-EXECUTION-MANIFEST.json) >/dev/null 2>&1; then
+  ok "the executed sequence is byte-identical to the frozen order, all 20"
+else no "the executed sequence diverged from the frozen order"; fi
+[ "$(wc -l < "$L/runs/pilot-execution-log.jsonl")" = 40 ] \
+  && ok "every trajectory is recorded: 20 started + 20 finished" || no "the execution log is incomplete"
+jq -e 'select(.event=="finished") | .manifest_sha256 | length==64' "$L/runs/pilot-execution-log.jsonl" >/dev/null 2>&1 \
+  && ok "each record carries the manifest hash it ran under" || no "records do not carry the manifest hash"
+drv "$L" --status 2>&1 | grep -q "gated  n=10" && ok "per-arm timings are reported, which is what the counted round needs" || no "no per-arm timings"
+[ "$(drvrc "$L" --all)" = 0 ] && ok "a completed pilot is idempotent — nothing re-runs" || no "a completed pilot re-ran something"
+rm -rf "$L"
+
+L=$(mkstub); STUB_FAIL=1 drv "$L" --all >/dev/null 2>&1
+[ "$(wc -l < "$L/runs/stub-calls.log")" = 1 ] && ok "a failing trajectory stops the driver — nothing further is attempted" || no "the driver continued past a failure"
+rm -rf "$L"
+
+L=$(mkstub); STUB_START_ONLY=1 drv "$L" --next >/dev/null 2>&1
+[ "$(drvrc "$L" --next)" = 3 ] && ok "a started trajectory with no verdict HALTS the driver — never re-rolled" || no "a started trajectory was re-rolled"
+t=$(jq -r '.execution.trajectories[0].task' PILOT-EXECUTION-MANIFEST.json); a=$(jq -r '.execution.trajectories[0].arm' PILOT-EXECUTION-MANIFEST.json)
+: > "$L/runs/${t}-${a}.adjudicated"
+[ "$(drvrc "$L" --check)" = 0 ] && ok "and only a recorded human disposition releases the halt" || no "the halt did not clear on adjudication"
+rm -rf "$L"
+
+# Out-of-order execution is impossible by construction: there is no way to name a
+# seq, and the driver always takes the LOWEST unfinished one.
+L=$(mkstub)
+t20=$(jq -r '.execution.trajectories[19].task' PILOT-EXECUTION-MANIFEST.json); a20=$(jq -r '.execution.trajectories[19].arm' PILOT-EXECUTION-MANIFEST.json)
+jq -nc --arg t "$t20" --arg a "$a20" '{task:$t,arm:$a,outcome:"X",oracle_strength:"I",visible_suite:"g",pristine_suite:"g",model:"stub",transcript:"t",ts:"2026-01-01T00:00:00Z",driver_pass:1,execution_attempt:1}' > "$L/runs/${t20}-${a20}.verdict.json"
+drv "$L" --next >/dev/null 2>&1
+[ "$(head -1 "$L/runs/stub-calls.log")" = "STUB $(jq -r '.execution.trajectories[0]|"\(.task) \(.arm)"' PILOT-EXECUTION-MANIFEST.json)" ] \
+  && ok "with a later seq already done the driver still takes the lowest unfinished one" || no "the driver skipped ahead"
+grep -q '\-\-next <seq>\|\$2.*seq' $DRV && no "the driver accepts a caller-chosen seq" || ok "no caller can name a seq — order is enforced by construction"
+rm -rf "$L"
+
+echo "== pilot driver: it will not run against a tree that drifted from its registration"
+L=$(mkstub)
+cp ../runner/verdict4.mjs /tmp/tb-v4-selftest.bak
+echo "// selftest drift" >> ../runner/verdict4.mjs
+rc=$(drvrc "$L" --next)
+calls=0; [ -f "$L/runs/stub-calls.log" ] && calls=$(wc -l < "$L/runs/stub-calls.log")
+mv /tmp/tb-v4-selftest.bak ../runner/verdict4.mjs
+[ "$rc" = 2 ] && ok "binding drift refuses the driver (exit 2)" || no "the driver ran against a drifted tree (rc=$rc)"
+[ "$calls" = 0 ] && ok "and NOTHING was executed — the refusal is before any trajectory" || no "$calls trajectories ran despite drift"
+rm -rf "$L"
+
+L=$(mkstub)
+( flock -n 9 || exit 6; sleep 6 ) 9>"$L/runs/.driver.lock" &
+sleep 0.5; rc=$(drvrc "$L" --next); wait
+[ "$rc" = 6 ] && ok "a second driver is refused by the lock" || no "two drivers could run at once (rc=$rc)"
+rm -rf "$L"
+
+# The long-run hazard: --all starting trajectory 17 against a tree that changed
+# after trajectory 1. The freeze gate runs once at startup and cannot see that.
+L=$(mkstub); L2=$(mktemp -d /tmp/tb-dl-XXXXXX)
+cat > "$L/mutating-runner.sh" <<MUT
+#!/usr/bin/env bash
+bash "$L/stub-runner.sh" "\$@"
+printf '\n' >> "$PWD/PILOT-EXECUTION-MANIFEST.json"
+MUT
+chmod +x "$L/mutating-runner.sh"
+cp PILOT-EXECUTION-MANIFEST.json /tmp/tb-pm-selftest.bak
+out=$(TB_PILOT_RUNS="$L2/runs" TB_PILOT_RUNNER="$L/mutating-runner.sh" $DRV --all 2>&1); rc=$?
+cp /tmp/tb-pm-selftest.bak PILOT-EXECUTION-MANIFEST.json; rm -f /tmp/tb-pm-selftest.bak
+[ "$rc" = 2 ] && case "$out" in *"changed under the driver"*) ok "a manifest edited BETWEEN trajectories is caught mid-run, not just at startup" ;; *) no "mid-run guard did not fire (refused for another reason)" ;; esac \
+  || no "a manifest edited mid-run was not caught (rc=$rc)"
+[ "$(wc -l < "$L2/runs/stub-calls.log")" = 1 ] && ok "and it stopped at the trajectory after the change" || no "the driver kept going after the manifest changed"
+rm -rf "$L" "$L2"
+
+echo "== credential: the fingerprint names a real source, and none is refused"
+# The real functions, lifted from the runner rather than reimplemented here.
+CT=$(mktemp /tmp/tb-cred-XXXXXX.sh)
+{ echo 'HOME=/tmp/tb-credhome'
+  echo 'CRED_ENV_KEYS=(ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN)'
+  echo 'CRED_FILES=("$HOME/.claude/.credentials.json")'
+  sed -n '/^cred_fingerprint() {/,/^}/p;/^cred_env_present() {/,/^}/p' ../runner/run-task4.sh; } > "$CT"
+grep -q 'cred_fingerprint()' "$CT" && grep -q 'cred_env_present()' "$CT" \
+  && ok "the real credential functions were extracted from run-task4.sh" || no "extraction found no credential functions — the cases below prove nothing"
+rm -rf /tmp/tb-credhome; mkdir -p /tmp/tb-credhome/.claude
+[ "$(bash -c "source $CT; cred_fingerprint")" = none ] && ok "no credential anywhere fingerprints as 'none'" || no "an absent credential did not report none"
+fp=$(ANTHROPIC_API_KEY=sk-selftest-abc bash -c "source $CT; cred_fingerprint")
+case "$fp" in *env:ANTHROPIC_API_KEY:sha256:*) ok "an env credential is named in the fingerprint" ;; *) no "env credential not fingerprinted: $fp" ;; esac
+case "$fp" in *sk-selftest-abc*) no "the fingerprint LEAKS credential material" ;; *) ok "no credential material appears in the fingerprint" ;; esac
+fp2=$(ANTHROPIC_API_KEY=sk-selftest-xyz bash -c "source $CT; cred_fingerprint")
+[ "$fp" != "$fp2" ] && ok "a different credential yields a different fingerprint" || no "two different credentials share a fingerprint"
+a=$(ANTHROPIC_API_KEY=sk-selftest-abc bash -c "source $CT; cred_fingerprint"); b=$(ANTHROPIC_API_KEY=sk-selftest-abc bash -c "source $CT; cred_fingerprint")
+[ "$a" = "$b" ] && ok "the fingerprint is stable across calls — the before/after check can mean something" || no "the fingerprint is unstable"
+echo '{"t":"x"}' > /tmp/tb-credhome/.claude/.credentials.json
+bash -c "source $CT; cred_env_present" && no "a file-only credential passed the env requirement" || ok "a file-only credential does NOT satisfy the env requirement"
+ANTHROPIC_API_KEY=x bash -c "source $CT; cred_env_present" && ok "an env credential does satisfy it" || no "an env credential was not recognised"
+rm -rf /tmp/tb-credhome "$CT"
+# The state file the CLI rewrites mid-run must not be in the credential set: it
+# would make the before/after comparison fail on every registered trajectory.
+grep -q 'CRED_FILES=.*\.claude\.json"' ../runner/run-task4.sh \
+  && no "\$HOME/.claude.json is still fingerprinted as a credential" \
+  || ok "\$HOME/.claude.json — CLI config and session state — is not treated as a credential"
+grep -q 'NO_CREDENTIAL: a registered trajectory needs' ../runner/run-task4.sh \
+  && ok "a registered trajectory refuses to start without a credential" || no "no refusal for a missing credential"
+awk '/^if \[ -n "\$\{TB_REGISTERED_MODEL:-\}" \]; then$/{f=1} f&&/NO_CREDENTIAL/{print "guarded"; exit}' ../runner/run-task4.sh | grep -q guarded \
+  && ok "and the refusal is scoped to registered runs, so the smoke path still works" || no "the credential refusal is not scoped to registered runs"
 
 echo; echo "passed $pass, failed $fail"; [ "$fail" = 0 ]
