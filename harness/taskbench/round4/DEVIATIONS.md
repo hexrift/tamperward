@@ -2481,3 +2481,39 @@ invalid and are recorded as such: the first left `$FZ`/`$FM`/`$CK` undefined so
 `set -u` killed the harness, and the second ran after the mutants had been deleted,
 giving rc=127 for all four. Identical results across unrelated mutants is the
 signature of a broken harness, not of thorough coverage.
+
+### CI failure — the counterfactual fixture flaked on an editable-install internal, 2026-09-04
+
+`round4-harness` went red on the four-blocker push: `verify-pilot-tasks` reported
+`G parent + tests + gold is red (rc=1)`. The same fixture passed one commit earlier
+and I had not touched it, so this was environment-dependent, not a regression in the
+change.
+
+**Root cause.** The counterfactual fixture is a minimal hand-built package. The
+verifier installs it with `uv pip install -e .` and then edits the tree's `calc.py`
+via the gold patch, expecting the import to see the edit. On the setuptools version
+that runner resolved, the editable install produced a **finder pointing at a static
+copy** rather than the live tree, so after the gold patch the import still returned
+the parent `calc` (`a - b`) — both tests failed, G read RED (rc=1) though the task is
+solvable. `python -m pytest`'s cwd insertion does not help, because a meta-path
+finder is consulted before `sys.path`.
+
+Reproduced deterministically — independent of which editable mode a setuptools
+happens to pick — by injecting a meta-path finder that shadows `calc` with a stale
+copy: G goes RED with `assert -1 == 3`, exactly the CI symptom.
+
+**Fix.** A `conftest.py` at the fixture root force-loads `calc` from the working tree
+into `sys.modules` at collection start. `sys.modules` is consulted before any finder,
+so the live tree module wins on every setuptools/pytest version. Scope is the
+**fixture only** — `verify-pilot-tasks.sh` and the real task repositories are
+untouched, because real mined packages install live-editable and never hit this; this
+is why the 20-task verification did not need rerunning.
+
+**Guard.** A permanent, deterministic regression asserts both halves: with the shadow
+finder installed and no conftest the solvable task reads RED (the class reproduced),
+and with the conftest it reads GREEN (the fix). It builds its own venv and shadow, so
+it does not depend on the host toolchain's editable behaviour.
+
+selftest.sh 160/0 with the artefact and 160/0 without. Only selftest.sh changed; no
+binding file moved, so the manifest is not re-frozen. typecheck 0, vitest 2159/2159,
+build 0, self-gate 0.

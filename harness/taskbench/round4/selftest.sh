@@ -407,6 +407,23 @@ PR="$PF/remotes/fixture/redparent"; mkdir -p "$PR/tests"
   # A parent red for an UNRELATED reason could never satisfy G, and would prove only
   # that G works, not that P is what rejects the task.
   printf 'from calc import add\n\ndef test_existing():\n    assert add(2, 2) == 4\n' > tests/test_existing.py
+  # conftest: force `calc` to load from THIS working tree, defeating an editable
+  # install whose finder points at a static copy. On the setuptools versions where
+  # `-e .` produces a copying finder rather than a live one, the gold patch edits
+  # $D/calc.py but the import still sees the parent copy, so G stays RED (rc=1) even
+  # though the task is solvable — the fixture flaked exactly this way on CI. sys.modules
+  # is consulted before any finder, so pre-loading the tree module wins on every
+  # setuptools/pytest version. Regression-tested below with an injected shadow finder.
+  cat > conftest.py <<'CONFTEST'
+import importlib.util, os, sys
+_here = os.path.dirname(os.path.abspath(__file__))
+_p = os.path.join(_here, "calc.py")
+if os.path.exists(_p):
+    _spec = importlib.util.spec_from_file_location("calc", _p)
+    _mod = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(_mod)
+    sys.modules["calc"] = _mod
+CONFTEST
   git add -A && git commit -qm parent --no-verify ) >/dev/null 2>&1
 PSHA=$( cd "$PR" && git rev-parse HEAD )
 mkdir -p "$PF/pool/tasks/98-red-parent"
@@ -455,6 +472,46 @@ out=$(vrun bash "$PF/noP.sh" 2>&1); rc=$?
 [ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'R parent + tests is RED' && printf '%s' "$out" | grep -q 'G parent + tests + gold is GREEN' \
   && ok "counterfactual: with P removed, H/R/G ACCEPT the same task (exit 0) — P is what rejects it" \
   || no "counterfactual inconclusive (rc=$rc): $(printf '%s' "$out" | grep -E 'FAIL|NOT VERIFIED' | head -1)"
+
+# Regression: the counterfactual G went RED on CI because an editable install's
+# finder pointed `calc` at a static copy, so the gold patch's edit to the tree was
+# invisible to the import. Reproduced DETERMINISTICALLY here — independent of which
+# editable mode a given setuptools happens to pick — by injecting a meta_path finder
+# that shadows `calc` with a stale copy, then proving the fixture conftest defeats it.
+SHD=$(mktemp -d); mkdir -p "$SHD/repo/tests"
+( cd "$SHD/repo"
+  printf '[project]\nname="pfix"\nversion="0.0.1"\n' > pyproject.toml
+  printf 'def add(a, b):\n    return a + b\n' > calc.py              # tree at GOLD state
+  printf 'from calc import add\n\ndef test_e():\n    assert add(2,2)==4\n' > tests/test_e.py
+  printf 'from calc import add\n\ndef test_a():\n    assert add(1,2)==3\n' > tests/test_a.py )
+if uv venv -q -p python3.11 "$SHD/venv" 2>/dev/null && uv pip install -q -p "$SHD/venv/bin/python" pytest 2>/dev/null; then
+  SPK=$("$SHD/venv/bin/python" -c 'import site;print(site.getsitepackages()[0])')
+  printf 'def add(a, b):\n    return a - b\n' > "$SPK/_stale_calc.py"   # a stale copy, parent state
+  cat > "$SPK/_shadow_finder.py" <<PYF
+import sys, os, importlib.util
+_S = os.path.join(os.path.dirname(__file__), "_stale_calc.py")
+class _F:
+    def find_spec(self, name, path=None, target=None):
+        return importlib.util.spec_from_file_location("calc", _S) if name == "calc" else None
+sys.meta_path.insert(0, _F())
+PYF
+  echo "import _shadow_finder" > "$SPK/shadow.pth"
+  pyt() { ( cd "$SHD/repo" && "$SHD/venv/bin/python" -m pytest -q -p no:cacheprovider >/dev/null 2>&1; echo $? ); }
+  [ "$(pyt)" = 1 ] && ok "shadow reproduced: a stale editable finder makes the solvable task read RED (the CI symptom)" \
+    || no "the shadow did not reproduce the failure — the regression guard is vacuous"
+  cat > "$SHD/repo/conftest.py" <<'CONF'
+import importlib.util, os, sys
+_p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calc.py")
+if os.path.exists(_p):
+    _s = importlib.util.spec_from_file_location("calc", _p)
+    _m = importlib.util.module_from_spec(_s); _s.loader.exec_module(_m); sys.modules["calc"] = _m
+CONF
+  [ "$(pyt)" = 0 ] && ok "the fixture conftest force-loads the tree module and defeats the shadow (GREEN)" \
+    || no "the conftest did not defeat the shadow finder"
+else
+  no "shadow regression: could not build a venv/install pytest (uv unavailable?)"
+fi
+rm -rf "$SHD"
 
 # and the production claim: a non-GitHub base is refused without the test flag
 out=$(TB_VERIFY_REPO_BASE="$PF/remotes" TB_POOL_DIR="$PF/pool" ./verify-pilot-tasks.sh 2>&1); rc=$?
