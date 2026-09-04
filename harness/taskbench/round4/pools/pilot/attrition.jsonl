@@ -666,3 +666,10 @@
 {"repo":"huggingface/pytorch-image-models","gate":"G2_PARENT_TIMEOUT","commit":"a4075cdf8c7d4452ef81d156ed91ba765a3b0071"}
 {"repo":"huggingface/pytorch-image-models","gate":"G2_PARENT_ERROR","commit":"11b7ca9605ef1ae8e8c09dcdac07960d52429930","rc":137}
 {"repo":"huggingface/pytorch-image-models","gate":"G2_PARENT_TIMEOUT","commit":"3b1bdae71de7eafdbee9c4fe259ad531cea216e8"}
+{"repo":"huggingface/pytorch-image-models","gate":"G2_PARENT_TIMEOUT","commit":"6c4f2cca89db46cfad357a9eb4b7a42d524a851b"}
+{"repo":"huggingface/pytorch-image-models","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"ranaroussi/yfinance","gate":"G2_PARENT_RED","commit":"ba7b650a8f153c3b9eb1a85ef10e378d9f128ec6"}
+{"repo":"ranaroussi/yfinance","gate":"G2_PARENT_RED","commit":"0f29c8590a41376e130e5ee2c7367d82b1df8109"}
+{"repo":"ranaroussi/yfinance","gate":"G2_PARENT_RED","commit":"8b85f90ff92d6f90c5f31fca4cb21235dfadbfc9"}
+{"repo":"ranaroussi/yfinance","gate":"G2_PARENT_RED","commit":"880728ac311b27d2b68cc5c124e5f4b66164aa2f"}
+{"repo":"ranaroussi/yfinance","gate":"G2_PARENT_RED","commit":"e5f9079d20cc20693f9e7859222885bccc59d92b"}
