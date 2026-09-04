@@ -1,0 +1,181 @@
+name: pilot
+
+# Round-4 pilot trajectory runner — MANUAL, non-required, never on push.
+#
+# It runs ONE frozen trajectory (`pilot-drive.sh --next`, which takes the lowest
+# unfinished seq — seq 1 is `15-pydata-numexpr` / gated). A trajectory that
+# STARTS is never re-rolled, so dispatching `run-next` is a deliberate, one-way
+# act. `check` (the default) provisions the host and validates the freeze but
+# runs no trajectory.
+#
+# This is NOT one of the required checks in ci.yml. Like harness.yml it costs real
+# model usage and must never gate a merge.
+#
+# WHY A GITHUB RUNNER WORKS. `ubuntu-latest` is a privileged Linux VM: `iproute2`
+# and `nftables` are available and the runner has `sudo`, so `net-jail.sh` builds
+# the netns + veth + nftables egress jail the pilot needs (proven: net-jail.sh
+# selftest passes). The registered agent authenticates with the OAuth token as a
+# secret and reaches api.anthropic.com through the jail's allowlist proxy — the
+# same path round 3.1 recorded.
+#
+# ENVIRONMENT DRIFT IS EXPECTED AND HANDLED IN TWO PHASES. A runner is not the
+# frozen firecracker host, so `freeze-pilot-manifest.mjs` reports ENVIRONMENT
+# drift (exit 3) — acknowledgeable, unlike BINDING drift (exit 2), which fails
+# hard here and is never acknowledged. Phase 1: dispatch `check`; it prints the
+# exact drift fingerprint and stops. Review it. Phase 2: dispatch `run-next` with
+# `acknowledge_env_drift: true`; the run records that exact fingerprint and
+# proceeds. Also record the drift in DEVIATIONS.md — the acknowledgement lets the
+# driver proceed; the ledger is the scientific record.
+#
+# SAFETY. `run-task4.sh` writes its trajectory-start marker only AFTER the jail is
+# up, the gate-liveness probe passes and the agent is about to launch. Any failure
+# in provisioning, the jail, or the freeze happens BEFORE that marker, so it does
+# not burn seq 1 — it is cleanly retryable. Only a failure once the agent has
+# started is a real, non-re-rollable outcome that halts the driver for human
+# adjudication.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'check (provision + freeze, runs nothing) | run-next (runs ONE trajectory; burns seq 1)'
+        type: choice
+        options: [check, run-next]
+        default: check
+      acknowledge_env_drift:
+        description: 'run-next only — record the environment drift and proceed. Review the fingerprint from a `check` run first.'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: round4-pilot        # one pilot run at a time, ever
+  cancel-in-progress: false
+
+jobs:
+  trajectory:
+    runs-on: ubuntu-latest
+    # The agent runs under a 50-minute budget (TB_AGENT_SECS:-3000), and hitting THAT
+    # budget still records a verdict, not a halt. The job timeout must clear
+    # provisioning + clone + venv + the full 50-minute agent run with margin: a job
+    # timeout that fires AFTER the trajectory-start marker but before the verdict is a
+    # halt (started, no verdict) that needs human adjudication. 120 leaves ~55 min of
+    # headroom over the worst case, so the run finishes on its own terms.
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0     # full history: the freeze checks base_commit is an ancestor of HEAD
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22   # matches environment_recorded (v22.x); esbuild is lock-pinned, so the artefact is deterministic
+          cache: npm
+
+      - name: Pin the toolchain to the freeze (python 3.11, uv 0.8.17, jail deps)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends iproute2 nftables jq python3.11 python3.11-venv
+          # uv pinned to 0.8.17 (the freeze), installed to a system path so it resolves under sudo too
+          curl -LsSf https://astral.sh/uv/0.8.17/install.sh | sudo env UV_INSTALL_DIR=/usr/local/bin UV_UNMANAGED_INSTALL=/usr/local/bin sh
+          uv --version
+          python3.11 --version
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Deploy the pinned treatment artefact and verify its tree hash
+        env:
+          # The artefact tree hash the freeze pins. A rebuild that does not reproduce
+          # this exactly is binding drift, so we verify rather than trust.
+          PIN: a0328112d99451e998037a3b26005c622590f9e5dee075db7606419a06ad3458
+          ART_DIR: /opt/tw-artefact-2.10.2
+        run: |
+          set -euo pipefail
+          TGZ="$PWD/$(npm pack --silent)"
+          sudo mkdir -p "$ART_DIR"
+          # `--packages=external` means the CLI needs its runtime deps (picomatch, yaml,
+          # typescript) as siblings, so install the tarball rather than unpacking it.
+          ( cd "$ART_DIR" && sudo npm install --omit=dev --no-audit --no-fund --silent "$TGZ" )
+          rm -f "$TGZ"
+          H="$(cd "$ART_DIR/node_modules/tamperward" && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -d' ' -f1)"
+          echo "artefact tree sha256: $H"
+          if [ "$H" != "$PIN" ]; then
+            echo "::error::artefact tree $H != pinned $PIN — refusing (this would be binding drift)"; exit 1
+          fi
+          # Immutable and read-only, as deploy-gated4.sh's bare launcher requires.
+          sudo chmod -R a-w "$ART_DIR"
+          echo "artefact pin verified" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Prove the network jail
+        run: sudo -E bash harness/taskbench/runner/net-jail.sh selftest
+
+      - name: Freeze, drift handling, and (on run-next) the trajectory
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ACTION: ${{ inputs.action }}
+          ACK: ${{ inputs.acknowledge_env_drift }}
+        run: |
+          set -uo pipefail
+          cd harness/taskbench/round4
+
+          if [ "$ACTION" = "run-next" ] && [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+            echo "::error::run-next needs the CLAUDE_CODE_OAUTH_TOKEN secret; none is set."; exit 1
+          fi
+
+          # Freeze check straight from the checker so we can see the drift class and
+          # fingerprint (pilot-drive's gate is stricter and refuses before printing).
+          set +e
+          FZ="$(node freeze-pilot-manifest.mjs --check 2>&1)"; FRC=$?
+          set -e
+          echo "$FZ"
+          { echo '### freeze-pilot-manifest --check'; echo '```'; echo "$FZ"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+          case "$FRC" in
+            0) echo "no drift — the frozen manifest describes this tree exactly" ;;
+            2|5) echo "::error::binding/structural drift (exit $FRC) — never acknowledged. Resolve or re-freeze deliberately."; exit 1 ;;
+            3) echo "environment drift (exit 3) — expected on a GitHub runner" ;;
+            4) echo "::error::the treatment artefact is not deployed (exit 4) — the deploy step should have prevented this."; exit 1 ;;
+            *) echo "::error::unexpected freeze exit $FRC"; exit 1 ;;
+          esac
+
+          if [ "$ACTION" = "check" ]; then
+            echo "check complete — nothing was run. Review the drift above, then dispatch run-next with acknowledge_env_drift: true."
+            exit 0
+          fi
+
+          # ---- run-next ----
+          if [ "$FRC" = "3" ]; then
+            if [ "$ACK" != "true" ]; then
+              echo "::error::environment drift is unacknowledged. Review the fingerprint above, then re-dispatch run-next with acknowledge_env_drift: true."
+              exit 1
+            fi
+            # Record the acknowledgement in the SAME (root) context the driver's gate
+            # will re-check, so the fingerprint matches.
+            sudo -E env "PATH=$PATH" ./pilot-drive.sh --acknowledge-drift
+          fi
+
+          # The jail is applied symmetrically to both arms (PILOT4.md); the driver does
+          # not set it, so the operator does. Preserve PATH (node, uv) and the token
+          # across sudo; the driver adds TB_RUNTASK4_READY, the registered model and the
+          # manifest binding itself.
+          sudo -E env "PATH=$PATH" \
+            TB_NETJAIL=1 \
+            CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
+            ./pilot-drive.sh --next
+
+          echo "### pilot status" >> "$GITHUB_STEP_SUMMARY"
+          ./pilot-drive.sh --status | tee -a "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Upload the trajectory record
+        if: always() && inputs.action == 'run-next'
+        uses: actions/upload-artifact@v5
+        with:
+          name: pilot-runs
+          path: |
+            harness/taskbench/round4/runs-pilot/
+          retention-days: 30
+          if-no-files-found: ignore
