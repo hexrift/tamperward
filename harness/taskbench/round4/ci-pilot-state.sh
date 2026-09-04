@@ -59,7 +59,20 @@ case "$CMD" in
       exit 0
     fi
     W="$(mktemp -d)"
-    cp -a "$DIR/." "$W/"
+    cp -a "$DIR/." "$W/" || { msg "cp of runs-pilot/ reported errors (unreadable files?)"; }
+    # Integrity: a file present in runs-pilot/ but missing from the snapshot was
+    # unreadable (e.g. a root-only verdict.json under sudo) and would be silently lost —
+    # persisting that would spuriously halt the next dispatch. Refuse instead.
+    missing=0
+    while IFS= read -r f; do
+      rel="${f#"$DIR"/}"
+      [ -e "$W/$rel" ] || { msg "MISSING from snapshot: $rel"; missing=1; }
+    done < <(find "$DIR" -type f)
+    if [ "$missing" != 0 ]; then
+      rm -rf "$W"
+      msg "REFUSING to save an incomplete snapshot — fix the file permissions (chown runs-pilot/ to the runner) and re-run"
+      exit 1
+    fi
     (
       cd "$W"
       git init -q
