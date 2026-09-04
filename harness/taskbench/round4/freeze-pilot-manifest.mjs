@@ -374,7 +374,13 @@ function renderMarkdown(m, jsonSha) {
   const rows = t(m.execution.trajectories.map((r) => `| ${r.seq} | \`${r.task}\` | **${r.arm}** |`));
   const pool = t(m.pool.tasks.map((x) => `| \`${x.id}\` | ${x.repo} | \`${x.parent_sha.slice(0, 10)}\` | \`${x.test_files.join(', ')}\` |`));
   const binding = t(m.binding_set.files.map((f) => `| \`${f.path}\` | \`${f.sha256.slice(0, 16)}…\` |`));
-  const wiring = t(m.treatment.init_wiring.files.map((f) => `| \`${f.path}\` | \`${f.sha256.slice(0, 16)}…\` |`));
+  // A document derived where no artefact is deployed has no treatment identity.
+  // That is a legitimate state — `--check` reports it as unverified rather than
+  // failing — so the page must render it, not throw. A renderer that crashes on a
+  // valid document turns "cannot verify the treatment" into "the tool is broken".
+  const tr = m.treatment;
+  const wiring = tr ? t(tr.init_wiring.files.map((f) => `| \`${f.path}\` | \`${f.sha256.slice(0, 16)}…\` |`))
+                    : '| _(no artefact deployed on the host that derived this)_ | |';
   const env = t(Object.entries(m.environment_recorded).map(([k, v]) => `| ${k} | \`${v}\` |`));
   const first = m.execution.trajectories[0];
   return `# Round 4 — pilot execution manifest
@@ -454,13 +460,13 @@ ${pool}
 
 Pool hash: \`${m.pool.pool_sha256}\`
 
-## Treatment — v${m.treatment.version}
+## Treatment — ${tr ? `v${tr.version}` : 'NOT VERIFIED HERE'}
 
 | | |
 |---|---|
-| artefact | \`${m.treatment.artefact_dir}\` |
-| package tree sha256 | \`${m.treatment.artefact_pkg_tree_sha256}\` |
-| init wiring sha256 | \`${m.treatment.init_wiring.wiring_sha256}\` |
+| artefact | \`${tr ? tr.artefact_dir : 'not deployed here'}\` |
+| package tree sha256 | \`${tr ? tr.artefact_pkg_tree_sha256 : '— unverifiable on this host'}\` |
+| init wiring sha256 | \`${tr ? tr.init_wiring.wiring_sha256 : '— unverifiable on this host'}\` |
 
 The artefact hash says which bytes are installed. The **wiring** hash says what
 those bytes do to a repository, and is derived by actually running
@@ -554,11 +560,12 @@ if (mode === '--render') {
 
 if (mode === '--derive') {
   const doc = derive();
-  if (!doc.treatment) fail(4, `the artefact is not deployed at ${ART_PKG} — a manifest cannot be frozen without the treatment identity`);
-  if (!doc.treatment.artefact_pin_matches) {
-    fail(2, `artefact tree ${doc.treatment.artefact_pkg_tree_sha256} != pinned ${ART_PKG_SHA_EXPECT}`);
-  }
   const rendered = render(doc);
+  // Order matters here. Refusing to overwrite a registration, and re-rendering a
+  // page that is already correct, are NOT acts of freezing: they must work on any
+  // host, including one with no artefact deployed. Only actually WRITING a new
+  // manifest requires the treatment identity, so that check sits just above the
+  // write and nowhere earlier.
   if (fs.existsSync(target)) {
     const cur = fs.readFileSync(target, 'utf8');
     if (cur === rendered) {
@@ -572,6 +579,10 @@ if (mode === '--derive') {
     if (process.env.TB_PILOT_REFREEZE !== '1') {
       fail(2, `${target} exists and differs. Re-freezing is a registered act: set TB_PILOT_REFREEZE=1 and record the reason append-only in DEVIATIONS.md`);
     }
+  }
+  if (!doc.treatment) fail(4, `the artefact is not deployed at ${ART_PKG} — a manifest cannot be frozen without the treatment identity`);
+  if (!doc.treatment.artefact_pin_matches) {
+    fail(2, `artefact tree ${doc.treatment.artefact_pkg_tree_sha256} != pinned ${ART_PKG_SHA_EXPECT}`);
   }
   fs.writeFileSync(target, rendered);
   fs.writeFileSync(mdTarget, renderMarkdown(doc, sha256(rendered)));
@@ -660,15 +671,34 @@ if (mode === '--check') {
     binding++;
   }
 
-  // Provenance, not identity: the content hashes above are what actually pin
-  // the tree. This says the freeze happened on a commit this checkout contains.
+  // Provenance, not identity: the content hashes above are what actually pin the
+  // tree. This says the freeze happened on a commit this checkout contains.
+  //
+  // "Cannot tell" and "is false" are different answers and must not share an exit
+  // code. A shallow clone — which is what `actions/checkout` produces by default —
+  // does not contain the base commit's history at all, so the ancestry question is
+  // UNANSWERABLE there, not answered "no". Counting that as drift made the CI step
+  // fail for a reason that meant nothing, which is precisely how a check earns its
+  // way into being disabled.
   const base = frozen.registration.base_commit;
-  try {
-    execFileSync('git', ['merge-base', '--is-ancestor', base, 'HEAD'], { cwd: REPO, stdio: 'ignore' });
-    process.stdout.write(`  base commit ${base.slice(0, 7)} is an ancestor of HEAD\n`);
-  } catch {
-    process.stdout.write(`  BINDING DRIFT  base commit ${base} is not an ancestor of HEAD\n`);
+  const git = (args) => execFileSync('git', args, { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  let shallow = false;
+  try { shallow = git(['rev-parse', '--is-shallow-repository']) === 'true'; } catch { /* not a repo */ }
+  let known = true;
+  try { execFileSync('git', ['cat-file', '-e', `${base}^{commit}`], { cwd: REPO, stdio: 'ignore' }); } catch { known = false; }
+  if (!known && shallow) {
+    process.stdout.write(`  base commit ${base.slice(0, 7)}: UNVERIFIABLE — this is a shallow clone, so the history is not here\n`);
+  } else if (!known) {
+    process.stdout.write(`  BINDING DRIFT  base commit ${base} does not exist in this repository\n`);
     binding++;
+  } else {
+    try {
+      execFileSync('git', ['merge-base', '--is-ancestor', base, 'HEAD'], { cwd: REPO, stdio: 'ignore' });
+      process.stdout.write(`  base commit ${base.slice(0, 7)} is an ancestor of HEAD\n`);
+    } catch {
+      process.stdout.write(`  BINDING DRIFT  base commit ${base} is not an ancestor of HEAD\n`);
+      binding++;
+    }
   }
 
   process.stdout.write(`\n  binding drift: ${binding}   recorded drift: ${recorded}\n`);

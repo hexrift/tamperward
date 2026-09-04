@@ -2356,3 +2356,39 @@ delimiter collided with `||` in the pattern produced an **empty** file, and an
 empty file is not valid bash but passes `bash -n`, so it "failed everything" for
 no reason. The guard now requires a mutant to be non-empty, plausible in length,
 valid bash, and different from the original.
+
+### CI failure on the first push of the above — and what it says about the method
+
+`round4-harness` failed 20 of 144. Two independent causes, both mine, and both the
+same underlying error: **the suite was validated in exactly one environment and
+shipped with assertions that silently depended on it.**
+
+**Cause 1 — no artefact on a runner (15 failures).** The driver's freeze gate runs
+the same `--check` as everything else, so on a host with no artefact deployed it
+exits 4 and refuses; every driver assertion then failed. `--derive` also required a
+treatment identity before it would refuse to overwrite a differing manifest or
+re-render a page — neither of which is an act of freezing, and both of which must
+work on any host. `--derive` is reordered so only the WRITE requires a treatment,
+and `renderMarkdown` no longer throws on a document with no treatment: a renderer
+that crashes on a legitimate document converts "cannot verify the treatment" into
+"the tool is broken".
+
+**Cause 2 — the ancestry check could never pass in CI (5 failures).** `--check`
+asserted the base commit is an ancestor of HEAD and counted failure as BINDING
+drift. `actions/checkout` clones shallow by default, so the history is not there
+and the question is **unanswerable**, not answered "no". This is precisely the
+failure mode named one commit earlier — a check that always fails for a reason that
+means nothing is a check on its way to being disabled — and it was written anyway.
+
+"Cannot tell" and "is false" no longer share an exit code: a shallow clone reports
+`UNVERIFIABLE`, an absent commit in a **full** clone is drift, and a present
+non-ancestor is drift. Verified across all three shapes in a purpose-built
+non-shallow repository, because this checkout is itself shallow and could not
+exercise two of the branches. `round4-harness` now checks out with
+`fetch-depth: 0`, so the provenance check is genuinely answered on every CI run
+rather than permanently excused.
+
+**Method correction.** The suite is now run in **both** environments before any
+push — with the artefact and with `TB_ART_DIR` pointing at nothing — because
+"passes here" was never evidence for "passes on a runner". 146/0 with the artefact,
+146/0 without, 146/0 in TTY and non-TTY.

@@ -126,7 +126,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # FULL history. The pilot manifest records the commit it was frozen against,
+      # and `--check` asserts that commit is an ancestor of HEAD. A default shallow
+      # checkout does not contain it, so the question is unanswerable rather than
+      # answered — the check reports that honestly now, but reporting "unverifiable"
+      # on every CI run would quietly retire a provenance check that costs one fetch.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
           node-version: 22

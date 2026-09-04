@@ -700,6 +700,19 @@ C=$(tamper 'm.registration.trajectory_order_seed = "selftest-swapped-seed";')
 [ "$(ckrc "$C")" = 2 ] && ok "a rewritten seed is caught" || no "a rewritten seed passed"
 C=$(tamper 'm.registration.base_commit = "0".repeat(40);')
 [ "$(ckrc "$C")" = 2 ] && ok "a base commit that is not an ancestor of HEAD is caught" || no "an unrelated base commit passed"
+# "Cannot tell" and "is false" must not share an answer. A shallow clone — what
+# actions/checkout produces by default — does not contain the history, so the
+# question is unanswerable there; counting that as drift is what made the CI step
+# fail for a reason that meant nothing. Asserted against whichever shape this
+# checkout actually has, so it holds on a dev machine and on a runner alike.
+out=$(env $CK TB_PILOT_MANIFEST="$C" node "$FZ" --check 2>&1)
+if [ "$(git -C ../../.. rev-parse --is-shallow-repository 2>/dev/null)" = true ]; then
+  case "$out" in *"UNVERIFIABLE — this is a shallow clone"*) ok "in a shallow clone an unreachable base commit is UNVERIFIABLE, not drift" ;;
+                 *) no "a shallow clone reported the ancestry question as answered" ;; esac
+else
+  case "$out" in *"does not exist in this repository"*) ok "with full history an absent base commit IS drift" ;;
+                 *) no "an absent base commit was not reported as drift in a full clone" ;; esac
+fi
 
 # ---- environment drift is a DIFFERENT answer from binding drift
 C=$(tamper 'm.environment_recorded.kernel = "selftest-not-this-kernel";')
@@ -722,7 +735,12 @@ echo "$out" | grep -q "treatment identity UNVERIFIED" && ok "and it SAYS the tre
 # ---- the rendered page is part of the freeze, not a comment on it
 diff <(node "$FZ" --render) ./PILOT-EXECUTION-MANIFEST.md >/dev/null 2>&1 \
   && ok "the committed page is exactly what the frozen manifest renders to" || no "the page has drifted from the manifest"
-PG=$(mktemp -d); cp "$FM" "$PG/PILOT-EXECUTION-MANIFEST.json"; node "$FZ" --render > "$PG/PILOT-EXECUTION-MANIFEST.md"
+# Derived for THIS host rather than copied: with no artefact deployed the frozen
+# manifest carries a treatment this environment cannot reproduce, and --derive
+# would rightly refuse to overwrite it. --print reflects the environment, so the
+# unchanged path below is reachable on a CI runner and on the freeze host alike.
+PG=$(mktemp -d); node "$FZ" --print > "$PG/PILOT-EXECUTION-MANIFEST.json"
+TB_PILOT_MANIFEST="$PG/PILOT-EXECUTION-MANIFEST.json" node "$FZ" --render > "$PG/PILOT-EXECUTION-MANIFEST.md"
 [ "$(env $CK TB_PILOT_MANIFEST="$PG/PILOT-EXECUTION-MANIFEST.json" node "$FZ" --check >/dev/null 2>&1; echo $?)" = 0 ] \
   && ok "a manifest with its matching page checks clean (positive control)" || no "a matching page failed to check"
 printf 'edited by hand\n' >> "$PG/PILOT-EXECUTION-MANIFEST.md"
@@ -782,11 +800,18 @@ echo "STUB $task $arm" >> "$TB_RUNS/stub-calls.log"
 jq -nc --arg t "$task" --arg a "$arm" '{task:$t,arm:$a,outcome:"HONEST_COMPLETION",oracle_strength:"INTEGRITY",visible_suite:"green",pristine_suite:"green",model:"stub",transcript:"t.jsonl",ts:(now|todate),driver_pass:1,execution_attempt:1}' > "$TB_RUNS/${task}-${arm}.verdict.json"
 STUB
 chmod +x "$L/stub-runner.sh"; echo "$L"; }
-drv(){ local L="$1"; shift; TB_PILOT_RUNS="$L/runs" TB_PILOT_RUNNER="$L/stub-runner.sh" $DRV "$@"; }
+# The driver's freeze gate runs the same --check as everything else, so on a host
+# with no artefact deployed (every CI runner) it must be given the same explicit
+# allowance. Withheld deliberately in one case below, to prove the refusal is real.
+drv(){ local L="$1"; shift; env $CK TB_PILOT_RUNS="$L/runs" TB_PILOT_RUNNER="$L/stub-runner.sh" $DRV "$@"; }
 drvrc(){ drv "$@" >/dev/null 2>&1; echo $?; }
 
 L=$(mkstub)
 [ "$(drvrc "$L" --check)" = 0 ] && ok "driver --check passes on a clean manifest and empty state" || no "driver --check failed on clean state"
+# The allowance is opt-in for the driver too: without it, a host that cannot verify
+# the treatment cannot start a trajectory.
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_PILOT_RUNS="$L/runs" TB_PILOT_RUNNER="$L/stub-runner.sh" $DRV --next >/dev/null 2>&1; echo $?)" = 2 ] \
+  && ok "the driver refuses when the treatment cannot be verified and no allowance is given" || no "the driver ran without verifying the treatment"
 drv "$L" --all >/dev/null 2>&1
 # The assertion that matters: what RAN equals what was REGISTERED, in order.
 if diff -q "$L/runs/stub-calls.log" <(jq -r '.execution.trajectories[] | "STUB \(.task) \(.arm)"' PILOT-EXECUTION-MANIFEST.json) >/dev/null 2>&1; then
@@ -849,7 +874,7 @@ printf '\n' >> "$PWD/PILOT-EXECUTION-MANIFEST.json"
 MUT
 chmod +x "$L/mutating-runner.sh"
 cp PILOT-EXECUTION-MANIFEST.json /tmp/tb-pm-selftest.bak
-out=$(TB_PILOT_RUNS="$L2/runs" TB_PILOT_RUNNER="$L/mutating-runner.sh" $DRV --all 2>&1); rc=$?
+out=$(env $CK TB_PILOT_RUNS="$L2/runs" TB_PILOT_RUNNER="$L/mutating-runner.sh" $DRV --all 2>&1); rc=$?
 cp /tmp/tb-pm-selftest.bak PILOT-EXECUTION-MANIFEST.json; rm -f /tmp/tb-pm-selftest.bak
 [ "$rc" = 2 ] && case "$out" in *"changed under the driver"*) ok "a manifest edited BETWEEN trajectories is caught mid-run, not just at startup" ;; *) no "mid-run guard did not fire (refused for another reason)" ;; esac \
   || no "a manifest edited mid-run was not caught (rc=$rc)"
