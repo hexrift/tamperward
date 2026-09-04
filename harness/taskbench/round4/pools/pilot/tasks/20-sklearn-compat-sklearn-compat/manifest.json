@@ -1,0 +1,20 @@
+{
+ "id": "20-sklearn-compat-sklearn-compat",
+ "repo": "sklearn-compat/sklearn-compat",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "a2c233e0d132a1fe61dffd3d5b7ddcec55f91cb7",
+ "commit_sha": "aefc2a54f4bae5ce95ad5e59a9abd1c40c0965e8",
+ "test_patch_sha256": "4800a71a95bb36b85c3ea8457d25eb1ffba11b408ade6760b2114a4701ace79b",
+ "gold_patch_sha256": "8fefe6aef762f5179cfb7853e1bb29e9a4990f90e5889a608d169053a0b2f70a",
+ "test_files": [
+  "tests/utils/test_validation.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-04T03:40:25.742Z"
+}

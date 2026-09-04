@@ -999,3 +999,12 @@
 {"repo":"apache/datafusion-python","gate":"G1_INSTALL_FAILED","commit":"4906d391beb0d224c034e60809db72172f0244fe"}
 {"repo":"apache/datafusion-python","gate":"G1_INSTALL_FAILED","commit":"4e223ff09a70c0d54d7f658bc35cf66eb0b724df"}
 {"repo":"apache/datafusion-python","gate":"G1_INSTALL_FAILED","commit":"5b7ad645bde69f380bb5387100fde5f72804fded"}
+{"repo":"apache/datafusion-python","gate":"G1_INSTALL_FAILED","commit":"2d074713d1505256ed92a07e77c18ee43713a303"}
+{"repo":"apache/datafusion-python","gate":"G1_INSTALL_FAILED","commit":"c0ac93b68fff606aed570aed09d72d749ba79bae"}
+{"repo":"apache/datafusion-python","gate":"CANDIDATES_EXHAUSTED","tried":8}
+{"repo":"rogerbinns/apsw","gate":"G0_NOT_PYTEST"}
+{"repo":"sklearn-compat/sklearn-compat","gate":"G5_COMMIT_RED","commit":"622788bc5b5f5b8e0aea3fe5ef2a18936089d279","rc":2}
+{"repo":"sklearn-compat/sklearn-compat","gate":"G5_COMMIT_RED","commit":"6aa4471af0d46f232840c165ac8f567da6cd79f8","rc":2}
+{"repo":"sklearn-compat/sklearn-compat","gate":"G5_COMMIT_RED","commit":"c0d0379436adcfd9f653da3c6159987890adb745","rc":2}
+{"repo":"sklearn-compat/sklearn-compat","gate":"G5_COMMIT_RED","commit":"578b0a9a486ade7ac22da0d90338c977d7740959","rc":2}
+{"repo":"sklearn-compat/sklearn-compat","gate":"TASK_VALIDATED","commit":"aefc2a54f4bae5ce95ad5e59a9abd1c40c0965e8","candidate":5}

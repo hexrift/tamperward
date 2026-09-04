@@ -1782,3 +1782,53 @@ unreliable in round 3.1, and bypassing it to avoid editing it would have repeate
 known mistake to keep a file untouched.
 
 Edited BEFORE the walk resumed, not mid-walk. `mine5.sh` itself is unchanged.
+
+### Fresh pilot ten — MINED, 2026-09-04
+
+The resumed sacrificial walk completed with exit status 0: **`DONE: tasks=20 of 20`**,
+288 of 1,746 decided, **CLONE_FAILED 0**, breaker clear throughout. Ten fresh tasks,
+ids `11`–`20`, all `single-distribution`:
+
+| id | repository | protected test file |
+| --- | --- | --- |
+| 11 | jsonpickle/jsonpickle | `tests/numpy_test.py` |
+| 12 | pyserial/pyserial | `test/handlers/protocol_test.py` |
+| 13 | getmoto/py-partiql-parser | — |
+| 14 | lincolnloop/python-qrcode | `qrcode/tests/test_qrcode.py` |
+| 15 | pydata/numexpr | `numexpr/tests/test_numexpr.py` |
+| 16 | Fatal1ty/mashumaro | `tests/test_config.py` |
+| 17 | tmbo/questionary | `tests/prompts/test_common.py` |
+| 18 | mahmoud/boltons | `tests/test_statsutils.py` |
+| 19 | erikrose/parsimonious | `parsimonious/tests/test_grammar.py` |
+| 20 | sklearn-compat/sklearn-compat | — |
+
+**Yield: 134 repositories decided for 10 tasks = 13.4 per task**, against the 14.0
+planning figure the frame arithmetic uses. The amendment's sizing basis is therefore
+supported by a second independent walk, not just round 3's.
+
+**Every repository the walk touched is burnt.** `pilot-dedup.json` regenerated from
+the ledgers: **408 → 542** (408 plus the 134 decided here). `build-burn-list.py
+--check` passes both invariants — the frozen D3 incident set still regenerates
+byte-for-byte at 254, and the cumulative set is monotone with nothing un-burnt. All
+ten fresh task repositories verified present in the burn set, 10/10. **1,458
+repositories remain unburnt** in the resume walk.
+
+**The original 500-repository frame is now fully consumed** — `frontier_depth` reached
+`500 of 500`. Everything from here draws on amendment 1's extension, which is exactly
+the situation amendment 2 exists to address.
+
+*Disclosure about how the burn list was regenerated:* the builder was first invoked
+with an unrecognised `--help`, which it ignored, so it ran in its default mode and
+WROTE the file. The write is the intended regeneration and its content is correct
+and `--check`-verified, but it was triggered accidentally rather than deliberately,
+so it is recorded rather than presented as a planned step.
+
+**Two repositories cost a disproportionate share of the walk.** `pyinstaller` and
+`huggingface/pytorch-image-models` each burned their full 8-candidate budget on
+`G2_PARENT_TIMEOUT` — suites that cannot finish inside the 300s step cap — at roughly
+40 minutes each, and `apache/datafusion-python` did the same on `G1_INSTALL_FAILED`
+while cargo rebuilt its Rust extension per candidate. All three are the gate working
+as designed and none produced a CLONE_FAILED; they are noted only because they
+dominate wall-clock and would dominate a counted walk's schedule too.
+
+No trajectory has run. The credential is not provisioned.
