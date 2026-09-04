@@ -660,3 +660,7 @@
 {"repo":"uber/h3-py","gate":"G1_INSTALL_FAILED","commit":"3d5b12a37071a09248389cafe8f45032c9a9a549"}
 {"repo":"uber/h3-py","gate":"CANDIDATES_EXHAUSTED","tried":8}
 {"repo":"huggingface/pytorch-image-models","gate":"G2_PARENT_TIMEOUT","commit":"542263d764a0d6f8c59244880bd2df0643d02673"}
+{"repo":"huggingface/pytorch-image-models","gate":"G2_PARENT_TIMEOUT","commit":"9a5261e31b3b5128526eb2658333b4c0a54464ae"}
+{"repo":"huggingface/pytorch-image-models","gate":"G2_PARENT_TIMEOUT","commit":"f5780845d8ea714810ce850d8fe43e4d080ebf6d"}
+{"repo":"huggingface/pytorch-image-models","gate":"G2_PARENT_TIMEOUT","commit":"7d17fe675ca3208e6f2a8e72304baf65e44c8934"}
+{"repo":"huggingface/pytorch-image-models","gate":"G2_PARENT_TIMEOUT","commit":"a4075cdf8c7d4452ef81d156ed91ba765a3b0071"}
