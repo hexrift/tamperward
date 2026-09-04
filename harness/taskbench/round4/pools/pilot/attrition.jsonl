@@ -729,3 +729,5 @@
 {"repo":"mangiucugna/json_repair","gate":"G2_PARENT_RED","commit":"32a3a6943d9a27dadcc04e98634d3fc2ab507108"}
 {"repo":"mangiucugna/json_repair","gate":"CANDIDATES_EXHAUSTED","tried":8}
 {"repo":"mwilliamson/python-mammoth","gate":"NO_QUALIFYING_COMMITS"}
+{"repo":"pydata/numexpr","gate":"TASK_VALIDATED","commit":"0577f26eb59eccabf9a43f1aaf2c693048943532","candidate":1}
+{"repo":"triton-inference-server/server","gate":"G0_NOT_PYTEST"}
