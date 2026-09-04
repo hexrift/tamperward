@@ -1,0 +1,20 @@
+{
+ "id": "13-getmoto-py-partiql-parser",
+ "repo": "getmoto/py-partiql-parser",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "ab1618aa4524b75db700faf89c054d88087acef0",
+ "commit_sha": "4ff136862eb60fd2b8dafad066b0f2a8c1c3d964",
+ "test_patch_sha256": "4d4507ec0114f4752a17a32927132b5e90e6f6331add9ba74ce6097d0a56e42c",
+ "gold_patch_sha256": "7d0c29d945afeccc82481053406e2be1bc84ca5b77831fb2ff0494afae9f3433",
+ "test_files": [
+  "tests/test_json_parser.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-04T00:36:44.510Z"
+}
