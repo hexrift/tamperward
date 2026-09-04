@@ -731,3 +731,5 @@
 {"repo":"mwilliamson/python-mammoth","gate":"NO_QUALIFYING_COMMITS"}
 {"repo":"pydata/numexpr","gate":"TASK_VALIDATED","commit":"0577f26eb59eccabf9a43f1aaf2c693048943532","candidate":1}
 {"repo":"triton-inference-server/server","gate":"G0_NOT_PYTEST"}
+{"repo":"qdrant/qdrant-client","gate":"G2_PARENT_RED","commit":"34dbb37a559f15ea4f84bfcbd9b98a3c9f87daa3"}
+{"repo":"qdrant/qdrant-client","gate":"G2_PARENT_RED","commit":"da58e7d4925403908ba94d7cf591bfd6bd57537d"}
