@@ -1,0 +1,20 @@
+{
+ "id": "17-tmbo-questionary",
+ "repo": "tmbo/questionary",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "ea931516171010e9daa37cea91b7ccc66b16f9ab",
+ "commit_sha": "9032b00ff57b9a9f93ee249099bb9e80e3b00847",
+ "test_patch_sha256": "4db3ada713aa7260a1e039eaeb32ba90d74dce56034bb5a29d931ba6f46f5130",
+ "gold_patch_sha256": "c8870d8d7a9937dcefbe072e1b6c4a5cbd466e081be526230d235bd459e369b8",
+ "test_files": [
+  "tests/prompts/test_common.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-04T02:14:45.067Z"
+}
