@@ -664,3 +664,5 @@
 {"repo":"huggingface/pytorch-image-models","gate":"G2_PARENT_TIMEOUT","commit":"f5780845d8ea714810ce850d8fe43e4d080ebf6d"}
 {"repo":"huggingface/pytorch-image-models","gate":"G2_PARENT_TIMEOUT","commit":"7d17fe675ca3208e6f2a8e72304baf65e44c8934"}
 {"repo":"huggingface/pytorch-image-models","gate":"G2_PARENT_TIMEOUT","commit":"a4075cdf8c7d4452ef81d156ed91ba765a3b0071"}
+{"repo":"huggingface/pytorch-image-models","gate":"G2_PARENT_ERROR","commit":"11b7ca9605ef1ae8e8c09dcdac07960d52429930","rc":137}
+{"repo":"huggingface/pytorch-image-models","gate":"G2_PARENT_TIMEOUT","commit":"3b1bdae71de7eafdbee9c4fe259ad531cea216e8"}
