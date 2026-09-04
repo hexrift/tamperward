@@ -1844,18 +1844,22 @@ No trajectory has run. The credential is not provisioned.
 ### Fresh-checkout verification of the pilot tasks, 2026-09-04
 
 Every task in the pilot pool was re-verified from **fresh clones**, sharing no state
-with the miner — separate work dir, separate venv, separate clone — asserting three
+with the miner — separate work dir, separate venv, separate clone — asserting FOUR
 things per task from nothing but the committed artefacts:
 
 - **H** — `test.patch` and `gold.patch` hash to the `test_patch_sha256` /
   `gold_patch_sha256` the manifest recorded;
+- **P** — the **UNTOUCHED parent is GREEN**;
 - **R** — parent + `test.patch` alone is **RED**, so the added cases genuinely catch
   the bug rather than merely existing;
 - **G** — parent + `test.patch` + `gold.patch` is **GREEN**, so the task is solvable.
 
-R and G together are the fail-before/pass-after contract. H alone would not be
-enough: a task can hash correctly and still have tests that never detected the bug
-(fails R) or a gold patch that does not fix it (fails G).
+**P is the control that makes R mean anything.** Without it, RED after applying the
+test patch does not show the patch CAUSED the failure — the parent could already have
+been failing for reasons unrelated to the bug. P, R and G together are the
+fail-before/pass-after contract, *attributably*. H alone would not be enough either: a
+task can hash correctly and still have tests that never detected the bug (fails R) or
+a gold patch that does not fix it (fails G).
 
 **Result (corrected verifier): 100 assertions, 0 failures, 0 NOT VERIFIED — 5/5 on
 all 20 tasks.** Every P/R/G line records the RAW pytest exit status, so the evidence
@@ -1932,3 +1936,54 @@ Added to `selftest.sh` (14 new assertions, 52 → 66):
 original shapes in a scratch copy: `classify(3)` returns `red`; an empty pool exits 0;
 an unclonable task exits 0 having verified nothing. All three are caught by the new
 assertions and all three pass on the corrected script.
+
+#### Finishing pass: five review findings on the test/supervision layer
+
+Review of `84fd793` found that the tests added in the previous entry did not cover
+what they claimed, and that one of them was actively unsafe. All five are corrected.
+
+**1. The P control had no test.** The previous entry claimed all four verifier
+defects were pinned; removing P entirely would have left every test green, making the
+control decorative. Now covered by a **local fixture repository whose parent commit
+has a genuinely failing test**, so P must reject it before R is even considered.
+Proven non-vacuous: with P the fixture fails `P untouched parent is red (rc=1)`; with
+P stripped from a scratch copy the failure vanishes. Verifying this required the
+verifier to accept an ABSOLUTE PATH as a manifest `repo`, since the parent-red case
+cannot be built on GitHub.
+
+**2. `selftest.sh` was not invoked by required CI**, so green CI validated none of
+these corrections. `harness.yml` is deliberately not a required check and never ran
+it. Now wired into the `test` job of `ci.yml` alongside the other harness selftests,
+with `uv` installed — the frozen install ladder needs it, and the P control runs a
+real suite. Full selftest runs in **30s** against a 10-minute job budget.
+
+**3. `$!` is not the supervised child, and the PID file was wrong.** `setsid` forks
+again whenever it is already a process-group leader, so the recorded pid can be a
+process that exits immediately while the worker runs on. Measured directly:
+**`$!`=6527, worker=6529**. The consequence was not cosmetic — `launch-mine.sh`'s
+"already running" refusal calls `kill -0` on that pid, so a dead pid reported
+not-running and a **second miner could be launched onto the same pool**, which is the
+shape D3 is best explained by. The `flock` pool lock is what actually prevented that.
+The supervised child now writes its own `$$`, and the launcher waits for the file
+rather than reporting a pid it never observed.
+
+**4. The launcher test was not isolated.** It started a REAL miner on the REAL pool
+and then reached for a broad `pkill -f 'mine5.sh'`, which could have killed a genuine
+walk; it also made the result depend on live machine state, which is why it passed
+here and failed under review. Replaced with a `TB_DRY_RUN=1` seam that resolves and
+reports the command without launching, plus an assertion that the bound cases started
+no miner.
+
+**5. The verification narrative still said H/R/G** and omitted P. Corrected to
+H/P/R/G with the reason P exists.
+
+**An incident while fixing this, disclosed:** applying the launcher patch, a
+`cd <relative> && python3 …` chain failed at the `cd` (the shell was already in that
+directory), so the patch never applied and the "dry run" that followed **launched a
+real miner on the real pool** — precisely finding 4's hazard, demonstrated live. No
+harm: the pool was already at its need, so it exited `DONE: tasks=20 of 10` at once,
+decided nothing (288 unchanged), burnt nothing, `CLONE_FAILED` still 0. It is recorded
+because the near-miss is the point, and because a failed `cd` silently changing what
+runs has now happened more than once in this work.
+
+`selftest.sh` is now **72 assertions**, up from 52 before this pass began.

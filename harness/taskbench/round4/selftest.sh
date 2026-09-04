@@ -376,23 +376,62 @@ out=$(TB_POOL_DIR="$VP" ./verify-pilot-tasks.sh 2>&1); rc=$?
   || no "hash mismatch did not fail (exit $rc)"
 rm -rf "$VP"
 
-echo
-echo "== launch-mine.sh: the sacrificial bound is enforced at the launcher too"
-# The launcher's hardcoded TB_PILOT_NEED=10 became an explicit override. The bound
-# has to hold there as well as in mine5.sh, or the guard moved rather than stayed.
-for bad in 21 0 abc ""; do
-  out=$(TB_PILOT_NEED="$bad" ./launch-mine.sh pilot 2>&1); rc=$?
-  case "$bad" in
-    "") [ "$rc" = 0 ] && ok "unset TB_PILOT_NEED still runs at the default" \
-                      || no "unset TB_PILOT_NEED refused (exit $rc)"
-        # that launch is a no-op (the pool is already at its need) but must be reaped
-        sleep 2; pkill -f 'mine5.sh' 2>/dev/null; rm -f "${TB_RUNTIME_DIR:-/tmp}/tb-mine-pilot.pid" ;;
-    *)  printf '%s' "$out" | grep -q REFUSING && ok "launcher refuses TB_PILOT_NEED=$bad" \
-                                              || no "launcher accepted TB_PILOT_NEED=$bad (exit $rc)" ;;
-  esac
-done
+# (e) the PARENT-GREEN control must actually FAIL a task whose parent is already
+# red. Without this, removing P entirely would leave every other test green — the
+# control would be decorative. Fixture: a local repo whose parent commit has a
+# genuinely failing test, so P must reject it before R is even considered.
+PF=$(mktemp -d); PR="$PF/repo"; mkdir -p "$PR/tests"
+( cd "$PR" && git init -q && git config user.email t@b && git config user.name t
+  printf 'def test_already_broken():\n    assert False\n' > tests/test_broken.py
+  printf '[project]\nname="pfix"\nversion="0.0.1"\n' > pyproject.toml
+  git add -A && git commit -qm parent --no-verify ) >/dev/null 2>&1
+PSHA=$( cd "$PR" && git rev-parse HEAD )
+mkdir -p "$PF/pool/tasks/98-red-parent"
+printf 'x\n' > "$PF/pool/tasks/98-red-parent/test.patch"
+printf 'y\n' > "$PF/pool/tasks/98-red-parent/gold.patch"
+node -e '
+ const fs=require("fs"),c=require("crypto"),d=process.argv[1],repo=process.argv[2],sha=process.argv[3];
+ const h=f=>c.createHash("sha256").update(fs.readFileSync(d+"/tasks/98-red-parent/"+f)).digest("hex");
+ fs.writeFileSync(d+"/tasks/98-red-parent/manifest.json", JSON.stringify({
+   id:"98-red-parent", repo:repo, parent_sha:sha,
+   test_patch_sha256:h("test.patch"), gold_patch_sha256:h("gold.patch")}));' "$PF/pool" "$PR" "$PSHA"
+out=$(TB_POOL_DIR="$PF/pool" ./verify-pilot-tasks.sh 2>&1); rc=$?
+[ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'FAIL.*P untouched parent is red' \
+  && ok "a task whose parent is ALREADY RED is failed by the P control" \
+  || no "the P control did not reject a red parent (exit $rc): $(printf '%s' "$out" | grep -E 'P |FAIL' | head -1)"
+rm -rf "$PF"
 
-echo
+echo "== launch-mine.sh: the sacrificial bound, and an honest PID file"
+# TB_DRY_RUN resolves the command without launching. The earlier version of this
+# block started a REAL miner on the REAL pool and then reached for a broad
+# `pkill -f mine5.sh`, which could have killed a genuine walk; it also made the
+# result depend on live machine state, so it passed here and failed elsewhere.
+for bad in 21 0 abc; do
+  out=$(TB_DRY_RUN=1 TB_PILOT_NEED="$bad" ./launch-mine.sh pilot 2>&1)
+  printf '%s' "$out" | grep -q REFUSING && ok "launcher refuses TB_PILOT_NEED=$bad" \
+                                        || no "launcher accepted TB_PILOT_NEED=$bad"
+done
+out=$(TB_DRY_RUN=1 ./launch-mine.sh pilot 2>&1)
+printf '%s' "$out" | grep -q 'need=10' && ok "unset TB_PILOT_NEED still resolves to the default 10" \
+                                       || no "unset TB_PILOT_NEED did not resolve to 10 ($out)"
+out=$(TB_DRY_RUN=1 TB_PILOT_NEED=20 ./launch-mine.sh pilot 2>&1)
+printf '%s' "$out" | grep -q 'need=20' && ok "TB_PILOT_NEED=20 is accepted (the second sacrificial ten)" \
+                                       || no "TB_PILOT_NEED=20 rejected ($out)"
+[ "$(pgrep -f 'bash .*mine5\.sh' | wc -l)" = 0 ] && ok "the bound cases launched no miner" \
+                                                  || no "a bound case started a real miner"
+
+# `$!` is NOT the supervised child: setsid forks again whenever it is already a
+# process-group leader, so the recorded pid can be a process that exits at once
+# while the worker runs on. That made the "already running" refusal silently
+# ineffective. Sentinel for the mechanism, then the shape of the fix.
+r=$(setsid bash -c 'echo $$' & echo "$!"; wait)
+inner=$(printf '%s' "$r" | sed -n 2p); outer=$(printf '%s' "$r" | sed -n 1p)
+ok "setsid pid sentinel recorded (outer=$outer inner=$inner)"
+grep -q 'echo \$\$ > "' launch-mine.sh && ok "the launcher records the CHILD's own pid" \
+                                         || no "the launcher no longer records the child's own pid"
+grep -q 'echo \$! > "\$PIDFILE"' launch-mine.sh && no "the launcher is back to recording \$! — regression" \
+                                                  || ok "the launcher does not record \$! — regression sentinel"
+
 echo "== build-burn-list.py: informational flags cannot write state"
 # An unrecognised --help once fell through to the default branch and REPUBLISHED
 # the burn set. Deterministic and harmless that time; a defect regardless.

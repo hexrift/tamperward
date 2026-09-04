@@ -94,7 +94,18 @@ for T in $(ls "$POOL/tasks" | sort); do
   [ "$ag" = "$eg" ] && ok "H gold.patch matches the recorded sha256" || no "H gold.patch sha $ag != $eg"
 
   D="$WORK/repo"; V="$WORK/venv"; rm -rf "$D"
-  git clone -q --filter=blob:none "https://github.com/$repo" "$D" 2>/dev/null \
+  # A manifest repo is normally "owner/name" on GitHub. An ABSOLUTE PATH is also
+  # accepted so the selftest can build a fixture repository locally — in
+  # particular one whose parent suite is RED, which is the only way to prove the
+  # P control actually fails a task rather than merely passing on healthy ones.
+  case "$repo" in
+    /*) SRC="$repo"; CLONE_ARGS=() ;;
+    *)  SRC="https://github.com/$repo"; CLONE_ARGS=(--filter=blob:none) ;;
+  esac
+  # GIT_TERMINAL_PROMPT=0: a private or non-existent repository otherwise blocks
+  # asking for credentials, which in CI is an indefinite hang rather than a clean
+  # NOT VERIFIED.
+  GIT_TERMINAL_PROMPT=0 git clone -q "${CLONE_ARGS[@]}" "$SRC" "$D" 2>/dev/null \
     || { na "$T clone failed — NOT VERIFIED"; continue; }
   git -C "$D" checkout -q --detach "$parent" 2>/dev/null \
     || { na "$T parent $parent not checkoutable — NOT VERIFIED"; continue; }

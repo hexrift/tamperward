@@ -45,6 +45,9 @@ if [ "$POOL" = pilot ]; then
     echo "REFUSING: TB_PILOT_NEED=$NEED is outside the sacrificial bound 1..20" >&2; exit 4
   fi
   CMD=(env TB_POOL=pilot TB_PILOT_NEED="$NEED" ./mine5.sh)
+  # TB_DRY_RUN resolves and reports the command WITHOUT launching, so the
+  # sacrificial bound can be tested without starting a real miner on the real pool.
+  if [ "${TB_DRY_RUN:-0}" = 1 ]; then echo "DRY_RUN pool=$POOL need=$NEED"; exit 0; fi
 else
   CMD=(env TB_POOL="$POOL" ./mine-parallel.sh "$WORKERS")
 fi
@@ -53,13 +56,23 @@ fi
 # writes its status; one killed by a signal we can trap records the signal; and
 # a status file that never appears at all means SIGKILL or a reaped container —
 # which is a different diagnosis from a crash, and previously indistinguishable.
+# The supervised child records its OWN pid. `$!` is the pid of the process this
+# shell forked, but setsid FORKS AGAIN whenever it is already a process-group
+# leader, so `$!` is then a process that exits immediately while the real worker
+# runs on under a different pid — measured here as $!=6527 with the worker at 6529.
+# That made the PID file unreliable, and with it the "already running" refusal
+# above: `kill -0` on a dead pid reports not-running, so a second miner could be
+# launched onto the same pool — the shape D3 is best explained by. The flock pool
+# lock is what actually prevented that; this makes the recorded pid honest too.
 setsid bash -c '
+  echo $$ > "'"$PIDFILE"'"
   S="'"$STATUS"'"
   for sig in TERM INT HUP QUIT; do trap "echo signal:$sig > $S; exit 1" "$sig"; done
   "$@" >> "'"$LOG"'" 2>&1
   echo $? > "$S"
 ' _ "${CMD[@]}" < /dev/null > /dev/null 2>&1 &
-echo $! > "$PIDFILE"
-echo "launched $POOL (workers=$WORKERS) pid $(cat "$PIDFILE")"
+# the child writes it; wait rather than reporting a pid we never observed
+for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$PIDFILE" ] && break; sleep 0.2; done
+echo "launched $POOL (workers=$WORKERS) pid $(cat "$PIDFILE" 2>/dev/null || echo unknown)"
 echo "  log    $LOG"
 echo "  status $STATUS  (written on exit)"
