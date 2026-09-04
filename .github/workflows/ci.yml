@@ -196,6 +196,34 @@ jobs:
             *) echo "published artifact is broken"; exit 1 ;;
           esac
 
+  # Can a runner actually provision the pilot? The toolchain, the artefact deploy + pin,
+  # the network jail and the freeze — validated on every push/PR through the SAME
+  # provision-check.sh the `pilot` workflow runs, so a runner-image / package / action
+  # regression (e.g. python3.11 leaving noble's apt) fails here rather than being
+  # discovered on a manual `pilot` dispatch. Runs NO trajectory and needs no credential.
+  # The setup steps mirror .github/workflows/pilot.yml and must stay in step with it.
+  pilot-provisioning:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.8.17'
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends nftables iproute2 jq
+      - run: npm ci
+      - run: npm run build
+      - run: bash harness/taskbench/round4/provision-check.sh
+
   # Does the CHANGE violate the integrity policy? The dogfood job: Tamperward gates its
   # own repo with the engine it ships. Rebuilds rather than passing an artifact around —
   # the bundle takes milliseconds and the CLI needs its runtime deps installed anyway.
@@ -208,7 +236,7 @@ jobs:
     # repository's required-status ruleset, so the protection survives an edit to
     # this file.
     if: ${{ always() }}
-    needs: [typecheck, test, build, harness-core, round4-harness]
+    needs: [typecheck, test, build, harness-core, round4-harness, pilot-provisioning]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -220,6 +248,7 @@ jobs:
             build=${{ needs.build.result }}
             harness-core=${{ needs.harness-core.result }}
             round4-harness=${{ needs.round4-harness.result }}
+            pilot-provisioning=${{ needs.pilot-provisioning.result }}
         run: |
           echo "$RESULTS"
           bad=$(printf '%s\n' $RESULTS | grep -v '=success$' || true)
