@@ -28,16 +28,30 @@ bash harness/taskbench/runner/net-jail.sh selftest
 - Mining: 20 tasks in 5.5 h sequential; median 8 min between tasks, mean 17, max 97.
 - Trajectories: 64 runs, median 2.4 min, mean 5.8, max 51.6.
 
-| Phase | Sequential | 4 workers |
+| Phase | Worker-hours | Wall-clock, mining 4-wide + trajectories 2-wide |
 |---|---|---|
-| Pilot: 10 tasks + 20 trajectories | ~5 h | **sequential only — see D4** |
-| Counted at N=110: mining + 220 trajectories | ~50 h | ~15–20 h |
+| Pilot: 20 trajectories (its ten tasks are already mined) | ~2 h | ~2 h — **trajectories are the only work left, and D4 forbids parallel pilot mining** |
+| Counted at N=110: mining + **264** trajectories | ~55 h | **~20–21 h** before overhead, realistically 20–25 h |
+
+The counted figure is **264 trajectories, not 220**: 110 primary pairs plus the
+**22 duplicate pairs** (`PREDICTION4` §3) rerun in both arms — 220 + 44. Those
+are reruns of the same repositories, so they cost no extra mining. At the round
+3/3.1 measured means that is ~30 worker-hours of mining (~7.5 h wall at four
+workers) and ~25.5 worker-hours of trajectories (~12.8 h wall at two-wide).
+Strictly sequential trajectories would put the total near 33 h.
 
 Parallelise **counted** mining freely — it scales with cores. Never parallelise
-the **pilot**: it is sacrificial, and concurrency burns frame. Keep **trajectories**
-sequential or at most two-wide: they are bounded by model latency and rate
-limits, not CPU, and heavy concurrency distorts the very timings the round
-measures.
+the **pilot**: it is sacrificial, and concurrency burns frame. Run **trajectories
+at most two-wide**: they are bounded by model latency and rate limits rather
+than CPU, so two-wide roughly halves the wall-clock, while heavier concurrency
+starts distorting the very timings the round measures.
+
+**These means predate the treatment.** They come from round 3.1, where no arm
+carried the v2 envelope. The gated arm now adds a PreToolUse deny and a Stop
+sweep on every tool call, so its trajectories may cost meaningfully more than
+its ungated twin. The pilot is what replaces this estimate with a measurement:
+`pilot-drive.sh --status` reports mean and max **per arm**, and that number —
+not the round-3.1 mean — is what the counted schedule should be built on.
 
 ## Mining
 
@@ -117,14 +131,92 @@ onnx builds a multi-gigabyte venv, and four workers can land on four heavy ones
 at once. With ample disk this is a non-issue; on a tight allowance, drop to
 two or three workers.
 
+## Running the pilot
+
+The pilot's registration is frozen in `PILOT-EXECUTION-MANIFEST.json` — the ten
+fresh tasks, the trajectory order, the arm order, the treatment, the runner and
+the recorded environment. `PILOT-EXECUTION-MANIFEST.md` is a rendering of it.
+
+**Run it with the driver, which enforces the frozen order:**
+
+```
+./pilot-drive.sh --check     # manifest, state and order. Runs nothing
+./pilot-drive.sh --next      # run ONE trajectory: the next in frozen order
+./pilot-drive.sh --all       # run in order until done or halted
+./pilot-drive.sh --status    # progress, and per-arm timings
+```
+
+The driver refuses to start unless the freeze check passes, takes the **lowest
+unfinished seq** (there is no way to name one), **halts** rather than re-rolling
+a trajectory that started without producing a verdict, and appends every attempt
+to `runs-pilot/pilot-execution-log.jsonl` with the manifest hash it ran under.
+
+A halt is cleared only by a human recording the disposition as
+`runs-pilot/<task>-<arm>.adjudicated`. Nothing the driver writes can create one.
+
+The driver puts each trajectory into **registered mode**: it reads the model from
+the manifest and passes readiness, the registered model, the manifest path and
+hash, and the frozen sequence number. `run-task4.sh` then binds itself to that
+manifest — it refuses unless the row at that sequence is exactly this (task, arm),
+and it persists `pilot_seq` and `manifest_sha256` into the provenance record and
+the verdict, so a result can name the registered row it came from without
+reference to the driver's log.
+
+If the environment has drifted from the freeze, `--check` returns 3 and the driver
+refuses until it is acknowledged:
+
+```
+./pilot-drive.sh --acknowledge-drift    # records the EXACT drift, then proceed
+```
+
+The acknowledgement is bound to a fingerprint of that specific drift, so a
+different drift later is not covered by it. Binding drift is never acknowledgeable
+— fix it, or re-freeze deliberately and record why. Record the drift in
+`DEVIATIONS.md` too: the acknowledgement file lets the driver proceed, the ledger
+is the scientific record.
+
+**The credential must be an environment variable** — `ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN`. A registered trajectory
+refuses to start without one. A stored OAuth token can refresh mid-run, which
+would make the before/after fingerprint comparison unable to distinguish "the
+token refreshed" from "the credential was swapped"; a provisioned,
+spending-limited key is stable for the run, which is what makes that comparison
+mean something.
+
+**The freeze check on its own**, if you want it without the driver:
+
+```
+node harness/taskbench/round4/freeze-pilot-manifest.mjs --check
+```
+
+| exit | meaning |
+|---|---|
+| 0 | the frozen manifest describes this tree — proceed |
+| 2 | **binding drift.** Something that shapes the measurement changed. Do not run |
+| 3 | **environment drift.** Record it in `DEVIATIONS.md`, then proceed |
+| 4 | the artefact is not deployed here, so the treatment could not be verified |
+
+The order is derived from two registered seeds, so **which trajectory is the dry
+run was fixed in advance**: seq 1 is `15-pydata-numexpr`, gated arm. Run it, then
+the remaining 19 in manifest order. A task's two arms run adjacently.
+
+Trajectories need a credential, which lives **outside the repository** —
+short-lived and spending-limited, with only its fingerprint recorded (a one-way
+sha256 prefix, per trajectory, by `run-task4.sh`). `run-task4.sh` also refuses a
+real-agent trajectory unless `TB_RUNTASK4_READY=1`, which is set only once the
+freeze checklist is complete and that credential is provisioned.
+
+Re-freezing is a registered act: `--derive` refuses to overwrite a manifest that
+differs unless `TB_PILOT_REFREEZE=1`, and the reason goes in `DEVIATIONS.md`,
+append-only.
+
 ## What is NOT ready
 
-- **The round-4 runner.** The trajectory runner is still round 3.1's. It needs
-  the v2 deployment (init from the frozen package, `disableAllHooks: false`, no
-  reachable sign-off) and the round-4 outcome schema. See PILOT4.md for the
-  wiring constraint already established: a `PostToolUse` observer beside the
-  init-written gate is clean, a second `Stop` entry is hook-tampering, so
-  pristine verification runs parent-owned after the agent exits.
+- **A counted sweep driver.** `run-task4.sh` runs one trajectory; round 3.1's
+  `phase3-sweep31.sh` is not wired to the round-4 manifest, so the pilot's 20
+  trajectories are driven one at a time against the frozen order. A counted
+  round at N=110 needs the driver (resume on verdicts, one driver per results
+  directory under a lock, H5 checkpoint pushes) before it can start.
 - **The frame, for the counted round only.** At round 3's measured yield —
   ~14 substantive repository decisions per task — the frozen 500 caps out near
   35 tasks against the 110 the power simulation asks for. The pilot is

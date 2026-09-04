@@ -126,7 +126,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # FULL history. The pilot manifest records the commit it was frozen against,
+      # and `--check` asserts that commit is an ancestor of HEAD. A default shallow
+      # checkout does not contain it, so the question is unanswerable rather than
+      # answered — the check reports that honestly now, but reporting "unverifiable"
+      # on every CI run would quietly retire a provenance check that costs one fetch.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -138,6 +145,20 @@ jobs:
         with:
           version: '0.8.17'
       - run: bash harness/taskbench/round4/selftest.sh
+      # The pilot registration must keep describing the tree it registers. A PR
+      # that edits the adjudicator, the runner, a task patch or the pool without
+      # re-freezing fails here rather than at trajectory one.
+      #
+      # The two flags are what CI can honestly assert and no more: no artefact is
+      # deployed on a runner, and the runner's own environment necessarily
+      # differs from the freeze host, so comparing either would make this step
+      # fail for reasons that mean nothing. Binding drift — the identities that
+      # shape the measurement — is checked in full.
+      - name: the frozen pilot manifest still describes this tree
+        env:
+          TB_PILOT_CHECK_NO_ARTEFACT: '1'
+          TB_PILOT_CHECK_BINDING_ONLY: '1'
+        run: node harness/taskbench/round4/freeze-pilot-manifest.mjs --check
 
   # Is the ARTIFACT sound? Distinct question from "is the code correct", and it has its
   # own failure mode: `files: [dist]` with dist/ gitignored once shipped a tarball

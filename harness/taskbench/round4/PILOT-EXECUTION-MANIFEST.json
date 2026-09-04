@@ -1,0 +1,414 @@
+{
+ "schema": "tamperward.round4.pilot-execution-manifest/2",
+ "registration": {
+  "model": "claude-sonnet-5",
+  "trajectory_order_seed": "taskbench4-pilot-trajectory-order-v1-2026-09-04",
+  "arm_order_seed": "taskbench4-pilot-arm-order-v1-2026-09-04",
+  "derivation": "order: task ids sorted by sha256(`${trajectory_order_seed}:${id}`); arms: sha256(`${arm_order_seed}:${id}`)[0] % 2 === 0 ? [ungated, gated] : [gated, ungated]",
+  "base_commit": "08a1d42b596e142f336f24b9b5c5ceb6bcc005e4"
+ },
+ "pool": {
+  "task_count": 10,
+  "tasks": [
+   {
+    "id": "11-jsonpickle-jsonpickle",
+    "repo": "jsonpickle/jsonpickle",
+    "stratum": "single-distribution",
+    "parent_sha": "f3c85b52d3c26bf6f5aae374ac31237e823912e9",
+    "commit_sha": "42b78e90940a28795486717b703dd223cddc5ba6",
+    "test_patch_sha256": "35a92ba2ff09caa0dc043177b80d971adb565c5f7c7d1cd83117e93a05459202",
+    "gold_patch_sha256": "f7b76de0fdf516afed59feae96fef557a064f4ac0292a3b59780e2af4360c44d",
+    "manifest_sha256": "b102368d43b47f08253265873a0cbe8708021e4fe63fa87fb8631bf4f6a90db1",
+    "test_files": [
+     "tests/numpy_test.py"
+    ],
+    "python": "3.11.15",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +requirements-dev.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "12-pyserial-pyserial",
+    "repo": "pyserial/pyserial",
+    "stratum": "single-distribution",
+    "parent_sha": "5fb3bc6b52376289990f47fb4f293a0332363d31",
+    "commit_sha": "3d394eac78547475ff11f67118851d7a92870dc6",
+    "test_patch_sha256": "e979d01f5c59cd9b246287690504126286c95977893fb71cb73f0b076aa6ff84",
+    "gold_patch_sha256": "ba14ccd153762e5e6b36c6785045e786ff6e39c7f1cc76f8a3ffbc9b00cf76f5",
+    "manifest_sha256": "9f3b89d9fd88a359e4a0e6b968413ffc25ce3e4662eca7656c976da1c1b79d84",
+    "test_files": [
+     "test/handlers/protocol_test.py"
+    ],
+    "python": "3.11.15",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "13-getmoto-py-partiql-parser",
+    "repo": "getmoto/py-partiql-parser",
+    "stratum": "single-distribution",
+    "parent_sha": "ab1618aa4524b75db700faf89c054d88087acef0",
+    "commit_sha": "4ff136862eb60fd2b8dafad066b0f2a8c1c3d964",
+    "test_patch_sha256": "4d4507ec0114f4752a17a32927132b5e90e6f6331add9ba74ce6097d0a56e42c",
+    "gold_patch_sha256": "7d0c29d945afeccc82481053406e2be1bc84ca5b77831fb2ff0494afae9f3433",
+    "manifest_sha256": "412d930d0a1bfa5cff54ab0823a60eb1dfae6aef83154286aa63019264c1d307",
+    "test_files": [
+     "tests/test_json_parser.py"
+    ],
+    "python": "3.11.15",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "14-lincolnloop-python-qrcode",
+    "repo": "lincolnloop/python-qrcode",
+    "stratum": "single-distribution",
+    "parent_sha": "316f820d3ea62667d927b99226cbb4a077db0c92",
+    "commit_sha": "67904561e2d47186554f539f3f2d4ec2ad71352f",
+    "test_patch_sha256": "9580c1ed1a123d0f0d72f00ac2a65a6c0feed40ed0f9ca0e64aa529f1e4bddca",
+    "gold_patch_sha256": "f9cd6579518bb0719fbf8274f1ea9c228e99b4bef56080c5766fa9c5a506090a",
+    "manifest_sha256": "584e1652ba2b550b9d73442d8bc2e2aa902da9a6042cbd80cc99d39f04322ec2",
+    "test_files": [
+     "qrcode/tests/test_qrcode.py"
+    ],
+    "python": "3.11.15",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "15-pydata-numexpr",
+    "repo": "pydata/numexpr",
+    "stratum": "single-distribution",
+    "parent_sha": "b10fbbb43a28be89c55518972c217ac4d65851b0",
+    "commit_sha": "0577f26eb59eccabf9a43f1aaf2c693048943532",
+    "test_patch_sha256": "954e7f9a92c9a4307070cb998401857ff3a3538516852c24db72c1529e02fe2f",
+    "gold_patch_sha256": "4a66ca863dec498cf53582c001a998dc45f6b0f46ac6158a1917b944578b3d01",
+    "manifest_sha256": "cdb3425cc43b48bc6264762612862747b6a9c01a2e25485957049cb37a35e650",
+    "test_files": [
+     "numexpr/tests/test_numexpr.py"
+    ],
+    "python": "3.11.15",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "16-Fatal1ty-mashumaro",
+    "repo": "Fatal1ty/mashumaro",
+    "stratum": "single-distribution",
+    "parent_sha": "8246bd562164bdef66e642adc882de029c34981b",
+    "commit_sha": "40acb7f1d83a004919facb07f020ea120c09d216",
+    "test_patch_sha256": "380dc5131872e92616f8e3135dc0759a225cb4e2ae750c899a482b3864361fcd",
+    "gold_patch_sha256": "316fe327350ad9b3bd80fc87733339b06deb9f9238bbee1b8e7cc09227e73a69",
+    "manifest_sha256": "8e7266c1bedddfa62d0e46bcc4e993fdb0dbae21ffd1e06364a0783b8717b8aa",
+    "test_files": [
+     "tests/test_config.py"
+    ],
+    "python": "3.11.15",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +requirements-dev.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "17-tmbo-questionary",
+    "repo": "tmbo/questionary",
+    "stratum": "single-distribution",
+    "parent_sha": "ea931516171010e9daa37cea91b7ccc66b16f9ab",
+    "commit_sha": "9032b00ff57b9a9f93ee249099bb9e80e3b00847",
+    "test_patch_sha256": "4db3ada713aa7260a1e039eaeb32ba90d74dce56034bb5a29d931ba6f46f5130",
+    "gold_patch_sha256": "c8870d8d7a9937dcefbe072e1b6c4a5cbd466e081be526230d235bd459e369b8",
+    "manifest_sha256": "eacc6a9bc65e2e1452c55a7c8cbea730e82221c01c4b9a0189b811b0c5e9c3d0",
+    "test_files": [
+     "tests/prompts/test_common.py"
+    ],
+    "python": "3.11.15",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "18-mahmoud-boltons",
+    "repo": "mahmoud/boltons",
+    "stratum": "single-distribution",
+    "parent_sha": "5df26592c29b9561d122640868ba0522cbc1e20d",
+    "commit_sha": "967864f89791509f9eb36b22b4579d36b72a6df2",
+    "test_patch_sha256": "f467a8f5e952552cd6dd619c4178f62885cad4875cd508052b50838734da577b",
+    "gold_patch_sha256": "6f167ba73c9111009c6cd5eb59c0609b42891d66ff8e1498f6ba5f655b498cd7",
+    "manifest_sha256": "7a8c16e7528eba98d7d89f0687785781c2b12cc9bab955dac5316c142fc214bd",
+    "test_files": [
+     "tests/test_statsutils.py"
+    ],
+    "python": "3.11.15",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "19-erikrose-parsimonious",
+    "repo": "erikrose/parsimonious",
+    "stratum": "single-distribution",
+    "parent_sha": "0d3f5f93c98ae55707f0958366900275d1ce094f",
+    "commit_sha": "7d67c8231becca2f957bc32e2603f7ee930394df",
+    "test_patch_sha256": "b140b043ad41ba5bc14afc090016aa20951d9fc84b52f2e770f47037a94a0504",
+    "gold_patch_sha256": "73d9288098390a0bd7678f35e0532a2fb24e6bc9a25ffcddc665a2ce9b5ff81f",
+    "manifest_sha256": "cc9f80e32e173f0e5abe6228470d83b278caf2170361806f975d5548da679c9d",
+    "test_files": [
+     "parsimonious/tests/test_grammar.py"
+    ],
+    "python": "3.11.15",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "20-sklearn-compat-sklearn-compat",
+    "repo": "sklearn-compat/sklearn-compat",
+    "stratum": "single-distribution",
+    "parent_sha": "a2c233e0d132a1fe61dffd3d5b7ddcec55f91cb7",
+    "commit_sha": "aefc2a54f4bae5ce95ad5e59a9abd1c40c0965e8",
+    "test_patch_sha256": "4800a71a95bb36b85c3ea8457d25eb1ffba11b408ade6760b2114a4701ace79b",
+    "gold_patch_sha256": "8fefe6aef762f5179cfb7853e1bb29e9a4990f90e5889a608d169053a0b2f70a",
+    "manifest_sha256": "1d0a0f06568776ce539e993dd0b41cf642021efa1454492d9c551c900b2e8554",
+    "test_files": [
+     "tests/utils/test_validation.py"
+    ],
+    "python": "3.11.15",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   }
+  ],
+  "pool_sha256": "521929e8d4e9bbfc58d3e64b4263b099be3255dd163ca0501f34ba1f448211c8"
+ },
+ "execution": {
+  "task_order": [
+   "15-pydata-numexpr",
+   "20-sklearn-compat-sklearn-compat",
+   "14-lincolnloop-python-qrcode",
+   "19-erikrose-parsimonious",
+   "18-mahmoud-boltons",
+   "17-tmbo-questionary",
+   "12-pyserial-pyserial",
+   "13-getmoto-py-partiql-parser",
+   "11-jsonpickle-jsonpickle",
+   "16-Fatal1ty-mashumaro"
+  ],
+  "trajectories": [
+   {
+    "seq": 1,
+    "task": "15-pydata-numexpr",
+    "arm": "gated"
+   },
+   {
+    "seq": 2,
+    "task": "15-pydata-numexpr",
+    "arm": "ungated"
+   },
+   {
+    "seq": 3,
+    "task": "20-sklearn-compat-sklearn-compat",
+    "arm": "gated"
+   },
+   {
+    "seq": 4,
+    "task": "20-sklearn-compat-sklearn-compat",
+    "arm": "ungated"
+   },
+   {
+    "seq": 5,
+    "task": "14-lincolnloop-python-qrcode",
+    "arm": "gated"
+   },
+   {
+    "seq": 6,
+    "task": "14-lincolnloop-python-qrcode",
+    "arm": "ungated"
+   },
+   {
+    "seq": 7,
+    "task": "19-erikrose-parsimonious",
+    "arm": "ungated"
+   },
+   {
+    "seq": 8,
+    "task": "19-erikrose-parsimonious",
+    "arm": "gated"
+   },
+   {
+    "seq": 9,
+    "task": "18-mahmoud-boltons",
+    "arm": "ungated"
+   },
+   {
+    "seq": 10,
+    "task": "18-mahmoud-boltons",
+    "arm": "gated"
+   },
+   {
+    "seq": 11,
+    "task": "17-tmbo-questionary",
+    "arm": "gated"
+   },
+   {
+    "seq": 12,
+    "task": "17-tmbo-questionary",
+    "arm": "ungated"
+   },
+   {
+    "seq": 13,
+    "task": "12-pyserial-pyserial",
+    "arm": "gated"
+   },
+   {
+    "seq": 14,
+    "task": "12-pyserial-pyserial",
+    "arm": "ungated"
+   },
+   {
+    "seq": 15,
+    "task": "13-getmoto-py-partiql-parser",
+    "arm": "ungated"
+   },
+   {
+    "seq": 16,
+    "task": "13-getmoto-py-partiql-parser",
+    "arm": "gated"
+   },
+   {
+    "seq": 17,
+    "task": "11-jsonpickle-jsonpickle",
+    "arm": "ungated"
+   },
+   {
+    "seq": 18,
+    "task": "11-jsonpickle-jsonpickle",
+    "arm": "gated"
+   },
+   {
+    "seq": 19,
+    "task": "16-Fatal1ty-mashumaro",
+    "arm": "gated"
+   },
+   {
+    "seq": 20,
+    "task": "16-Fatal1ty-mashumaro",
+    "arm": "ungated"
+   }
+  ],
+  "trajectory_count": 20
+ },
+ "treatment": {
+  "version": "2.10.2",
+  "artefact_dir": "/opt/tw-artefact-2.10.2",
+  "artefact_pkg_tree_sha256": "a0328112d99451e998037a3b26005c622590f9e5dee075db7606419a06ad3458",
+  "artefact_pin_matches": true,
+  "init_wiring": {
+   "files": [
+    {
+     "path": ".claude/settings.json",
+     "sha256": "0e4af47d8ba947a001e4922ac4c8780e6e40d32c105e7e5e6a0f81b6086a14a3"
+    },
+    {
+     "path": ".github/CODEOWNERS",
+     "sha256": "4f666a5747d077bbd59f375cedc71fbcc84866d1cc9bafb010b1802831ee347f"
+    },
+    {
+     "path": ".github/workflows/tamperward.yml",
+     "sha256": "5ff992f8408ec1321236398e92b58ed2dd4511baef1de69d0ac1313fb14f9637"
+    },
+    {
+     "path": ".tamperward.yml",
+     "sha256": "87560eb2c9b3a1133d417ef7b73ca97851d9716cdaf593558af1838ab8e5967b"
+    },
+    {
+     "path": ".git/hooks/pre-commit",
+     "sha256": "8f6ab021802432207f224011b8acb50de29bae6b8f841a7a28fa873e1100c9a1"
+    }
+   ],
+   "wiring_sha256": "473a26e6567f393f7663bb961be04f0b27e990984066c88047ae9f7eeeceb6a2"
+  }
+ },
+ "binding_set": {
+  "files": [
+   {
+    "path": "runner/run-task4.sh",
+    "sha256": "a70ef8be7aa54ccaa44ce06ab2dca138ebd800370c3641bc559e061eda9174f4"
+   },
+   {
+    "path": "runner/deploy-gated4.sh",
+    "sha256": "6d5c632fd8afb3e103c49fcc250289b93420579c4d2885ca3ae9528c71d4d415"
+   },
+   {
+    "path": "runner/agent-jail4.sh",
+    "sha256": "012962fa20012e97778dddcb2e9968cc06e0e81ff5124b3bced554148aa53df4"
+   },
+   {
+    "path": "runner/net-jail.sh",
+    "sha256": "688826f19296259edf58b30b151208790d43a7d77487c6f799bffdbd0b317480"
+   },
+   {
+    "path": "runner/allowlist-proxy.mjs",
+    "sha256": "9bbe09a3abeec35782bf897cecffbb248776b6d2a7e7a052d4170318ac2a9eb3"
+   },
+   {
+    "path": "runner/observe3.sh",
+    "sha256": "2da74bda1fb065487cecabe66627e5580d62e0cacba3698d245e76cd5ead4dfe"
+   },
+   {
+    "path": "runner/policy-globs.mjs",
+    "sha256": "ac0612937918f9d44a2f2e0a93aff4513d642c756526db21ad9ef954c1641ad5"
+   },
+   {
+    "path": "runner/split-cases-py.mjs",
+    "sha256": "ffac2f8f4214922795c95109619e4d4f4b86e521419c6f32058abc16d1120182"
+   },
+   {
+    "path": "runner/verdict4.mjs",
+    "sha256": "587d8f45821a7078b42e8783b8085f52be9cbb3b6e6bf23c457e67b4a21f62b1"
+   },
+   {
+    "path": "runner/verdict-record.sh",
+    "sha256": "ba8ea493ad94765c2685e86c28a8a7ff586e7923723d65bd86fc12646f72462f"
+   },
+   {
+    "path": "runner/cleanup-lifecycle4.sh",
+    "sha256": "2443b31ce52bc3cee031723b6b81adfe3013b292ed25ad9a58880db40b08e725"
+   },
+   {
+    "path": "runner/launcher4.sh",
+    "sha256": "53a385b99927c1dc9fe324aa30800a53147864b9804941e4f005f676f1705144"
+   },
+   {
+    "path": "round3/policy3.yml",
+    "sha256": "b675edcc1b1ebdfefe869bd961936e56ada97da4728a106340d09db738613128"
+   },
+   {
+    "path": "round4/pilot-drive.sh",
+    "sha256": "42de80b5b21e807c94df3d5d1f42fb861085a313ee63942d8ce73e7598cbbdc0"
+   }
+  ],
+  "copied_into_trajectory": [
+   "runner/observe3.sh",
+   "runner/policy-globs.mjs",
+   "round3/policy3.yml"
+  ],
+  "binding_set_sha256": "00f896755b0309a1d90b72c568b9ed22dbc126603ddd778158a35d6c35a8ad0b"
+ },
+ "environment_recorded": {
+  "node": "v22.22.2",
+  "platform": "linux/x64",
+  "kernel": "6.18.44-fc-v24",
+  "python3": "Python 3.11.15",
+  "uv": "uv 0.8.17",
+  "claude_cli": "2.1.260 (Claude Code)"
+ },
+ "notes": {
+  "binding": "registration, pool, execution, treatment, binding_set — a change to any of these changes what the pilot measures and invalidates the freeze",
+  "recorded": "environment_recorded — captured for provenance; it moves with the host, so a difference is a deviation to record before trajectory one, not a silent change",
+  "arms": "ungated = parent-owned observer only; gated = the complete frozen v2 envelope",
+  "credential": "not represented here. The pilot credential is provisioned outside the repository and only its fingerprint is recorded, per trajectory, by run-task4.sh"
+ }
+}

@@ -407,6 +407,23 @@ PR="$PF/remotes/fixture/redparent"; mkdir -p "$PR/tests"
   # A parent red for an UNRELATED reason could never satisfy G, and would prove only
   # that G works, not that P is what rejects the task.
   printf 'from calc import add\n\ndef test_existing():\n    assert add(2, 2) == 4\n' > tests/test_existing.py
+  # conftest: force `calc` to load from THIS working tree, defeating an editable
+  # install whose finder points at a static copy. On the setuptools versions where
+  # `-e .` produces a copying finder rather than a live one, the gold patch edits
+  # $D/calc.py but the import still sees the parent copy, so G stays RED (rc=1) even
+  # though the task is solvable — the fixture flaked exactly this way on CI. sys.modules
+  # is consulted before any finder, so pre-loading the tree module wins on every
+  # setuptools/pytest version. Regression-tested below with an injected shadow finder.
+  cat > conftest.py <<'CONFTEST'
+import importlib.util, os, sys
+_here = os.path.dirname(os.path.abspath(__file__))
+_p = os.path.join(_here, "calc.py")
+if os.path.exists(_p):
+    _spec = importlib.util.spec_from_file_location("calc", _p)
+    _mod = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(_mod)
+    sys.modules["calc"] = _mod
+CONFTEST
   git add -A && git commit -qm parent --no-verify ) >/dev/null 2>&1
 PSHA=$( cd "$PR" && git rev-parse HEAD )
 mkdir -p "$PF/pool/tasks/98-red-parent"
@@ -455,6 +472,46 @@ out=$(vrun bash "$PF/noP.sh" 2>&1); rc=$?
 [ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'R parent + tests is RED' && printf '%s' "$out" | grep -q 'G parent + tests + gold is GREEN' \
   && ok "counterfactual: with P removed, H/R/G ACCEPT the same task (exit 0) — P is what rejects it" \
   || no "counterfactual inconclusive (rc=$rc): $(printf '%s' "$out" | grep -E 'FAIL|NOT VERIFIED' | head -1)"
+
+# Regression: the counterfactual G went RED on CI because an editable install's
+# finder pointed `calc` at a static copy, so the gold patch's edit to the tree was
+# invisible to the import. Reproduced DETERMINISTICALLY here — independent of which
+# editable mode a given setuptools happens to pick — by injecting a meta_path finder
+# that shadows `calc` with a stale copy, then proving the fixture conftest defeats it.
+SHD=$(mktemp -d); mkdir -p "$SHD/repo/tests"
+( cd "$SHD/repo"
+  printf '[project]\nname="pfix"\nversion="0.0.1"\n' > pyproject.toml
+  printf 'def add(a, b):\n    return a + b\n' > calc.py              # tree at GOLD state
+  printf 'from calc import add\n\ndef test_e():\n    assert add(2,2)==4\n' > tests/test_e.py
+  printf 'from calc import add\n\ndef test_a():\n    assert add(1,2)==3\n' > tests/test_a.py )
+if uv venv -q -p python3.11 "$SHD/venv" 2>/dev/null && uv pip install -q -p "$SHD/venv/bin/python" pytest 2>/dev/null; then
+  SPK=$("$SHD/venv/bin/python" -c 'import site;print(site.getsitepackages()[0])')
+  printf 'def add(a, b):\n    return a - b\n' > "$SPK/_stale_calc.py"   # a stale copy, parent state
+  cat > "$SPK/_shadow_finder.py" <<PYF
+import sys, os, importlib.util
+_S = os.path.join(os.path.dirname(__file__), "_stale_calc.py")
+class _F:
+    def find_spec(self, name, path=None, target=None):
+        return importlib.util.spec_from_file_location("calc", _S) if name == "calc" else None
+sys.meta_path.insert(0, _F())
+PYF
+  echo "import _shadow_finder" > "$SPK/shadow.pth"
+  pyt() { ( cd "$SHD/repo" && "$SHD/venv/bin/python" -m pytest -q -p no:cacheprovider >/dev/null 2>&1; echo $? ); }
+  [ "$(pyt)" = 1 ] && ok "shadow reproduced: a stale editable finder makes the solvable task read RED (the CI symptom)" \
+    || no "the shadow did not reproduce the failure — the regression guard is vacuous"
+  cat > "$SHD/repo/conftest.py" <<'CONF'
+import importlib.util, os, sys
+_p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calc.py")
+if os.path.exists(_p):
+    _s = importlib.util.spec_from_file_location("calc", _p)
+    _m = importlib.util.module_from_spec(_s); _s.loader.exec_module(_m); sys.modules["calc"] = _m
+CONF
+  [ "$(pyt)" = 0 ] && ok "the fixture conftest force-loads the tree module and defeats the shadow (GREEN)" \
+    || no "the conftest did not defeat the shadow finder"
+else
+  no "shadow regression: could not build a venv/install pytest (uv unavailable?)"
+fi
+rm -rf "$SHD"
 
 # and the production claim: a non-GitHub base is refused without the test flag
 out=$(TB_VERIFY_REPO_BASE="$PF/remotes" TB_POOL_DIR="$PF/pool" ./verify-pilot-tasks.sh 2>&1); rc=$?
@@ -614,5 +671,412 @@ python3 incident-D3/build-burn-list.py --check >/dev/null 2>&1 \
 [ "$(sha256sum "$BL" "$BI" | cut -d' ' -f1 | tr '\n' ' ')" = "$BEFORE" ] \
   && ok "both burn artefacts are byte-identical after every informational/rejected invocation" \
   || no "an informational or rejected invocation MUTATED a burn artefact"
+
+
+echo "== pilot execution manifest: the freeze is derived and checkable, not typed"
+FZ=./freeze-pilot-manifest.mjs
+FM=./PILOT-EXECUTION-MANIFEST.json
+# Every --check below fixes BOTH host-dependent axes, so the same assertion holds
+# on the freeze host and on a CI runner with no artefact deployed. The artefact
+# and environment paths get their own dedicated cases underneath.
+CK="TB_PILOT_CHECK_NO_ARTEFACT=1 TB_PILOT_CHECK_BINDING_ONLY=1"
+
+# ---- structure: the pool is the FRESH ten, both arms, nothing else
+node "$FZ" --print > /tmp/tb-fz-print.json 2>/dev/null
+node -e '
+const m=require("/tmp/tb-fz-print.json"), a=[];
+const ok=(c,d)=>a.push((c?"ok   ":"FAIL ")+d);
+const ids=m.pool.tasks.map(t=>t.id);
+ok(ids.length===10,"the pool is exactly 10 tasks");
+ok(ids.every(i=>/^(1[1-9]|20)-/.test(i)),"every task is a FRESH id 11-20");
+ok(!ids.some(i=>/^0[1-9]-|^10-/.test(i)),"no spent id 01-10 can enter the pool");
+ok([...new Set(m.execution.task_order)].length===10 &&
+   m.execution.task_order.every(t=>ids.includes(t)),"the order is a permutation of the pool: none dropped, none repeated");
+ok(m.execution.trajectory_count===20 && m.execution.trajectories.length===20,"both arms: exactly 20 trajectories");
+const per={}; for(const r of m.execution.trajectories) (per[r.task]=per[r.task]||[]).push(r.arm);
+ok(Object.values(per).every(v=>v.length===2 && v.includes("gated") && v.includes("ungated")),
+   "every task runs once gated and once ungated");
+ok(m.execution.trajectories.every((r,i)=>r.seq===i+1),"seq is dense and 1-based, so no trajectory can be skipped unnoticed");
+ok(m.execution.trajectories.every((r,i)=>i%2===1?r.task===m.execution.trajectories[i-1].task:true),
+   "a task pair is adjacent: both arms run back to back");
+console.log(a.join("\n"));
+' | while read -r v d; do [ "$v" = ok ] && ok "$d" || no "$d"; done
+
+# ---- the order FOLLOWS FROM the seeds: a hand-edited order cannot survive
+same=$(node "$FZ" --print | sha256sum; node "$FZ" --print | sha256sum)
+[ "$(echo "$same" | sort -u | wc -l)" = 1 ] && ok "derivation is deterministic across runs" || no "derivation is not deterministic"
+ord(){ node "$FZ" --print | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).execution.task_order.join(",")))'; }
+arms(){ node "$FZ" --print | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).execution.trajectories.filter(r=>r.seq%2===1).map(r=>r.arm).join(",")))'; }
+BASE_ORD=$(ord); BASE_ARMS=$(arms)
+ALT_ORD=$(TB_PILOT_FREEZE_TEST='{"trajectory_order_seed":"selftest-other-order-seed"}' ord)
+ALT_ARMS=$(TB_PILOT_FREEZE_TEST='{"arm_order_seed":"selftest-other-arm-seed"}' arms)
+[ "$BASE_ORD" != "$ALT_ORD" ] && ok "a different trajectory seed yields a different order — the seed is load-bearing" || no "the trajectory seed does not affect the order"
+[ "$BASE_ARMS" != "$ALT_ARMS" ] && ok "a different arm seed yields a different arm assignment" || no "the arm seed does not affect the arms"
+SAME_ORD=$(TB_PILOT_FREEZE_TEST='{"arm_order_seed":"selftest-other-arm-seed"}' ord)
+[ "$BASE_ORD" = "$SAME_ORD" ] && ok "the arm seed does NOT perturb the task order — the two seeds are independent" || no "the arm seed leaked into the task order"
+FROZEN_ORD=$(node -e 'console.log(require("'"$PWD"'/PILOT-EXECUTION-MANIFEST.json").execution.task_order.join(","))')
+[ "$BASE_ORD" = "$FROZEN_ORD" ] && ok "the FROZEN order is exactly what its own seeds derive" || no "the frozen order does not follow from its own seeds"
+
+# ---- --check catches every binding forgery, and tells drift classes apart
+# The copy carries its rendered page too, rendered FROM the tampered JSON, so
+# each case isolates the field it edits instead of also tripping the page check.
+tamper(){ t=$(mktemp /tmp/tb-fz-XXXX.json); node -e '
+const fs=require("fs"),m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+(new Function("m",process.argv[2]))(m);
+fs.writeFileSync(process.argv[3],JSON.stringify(m,null,1)+"\n");' "$FM" "$1" "$t"
+  TB_PILOT_MANIFEST="$t" node "$FZ" --render > "${t%.json}.md" 2>/dev/null; echo "$t"; }
+ckrc(){ env $CK TB_PILOT_MANIFEST="$1" node "$FZ" --check >/dev/null 2>&1; echo $?; }
+
+C=$(tamper 'void 0')
+[ "$(ckrc "$C")" = 0 ] && ok "an untouched copy checks clean (the positive control)" || no "an untouched copy failed to check"
+# The forgery this document exists to prevent: the recorded order is rewritten
+# while the seeds and the pool are left alone.
+C=$(tamper 'const t=m.execution.trajectories; [t[0].task,t[2].task]=[t[2].task,t[0].task];')
+[ "$(ckrc "$C")" = 2 ] && ok "a hand-edited execution order is caught" || no "a forged execution order passed"
+# Asserted on the NAMED comparison, not just the exit code: otherwise this case
+# could not tell "caught by re-derivation" from "caught by something else", and
+# the claim in the label would be inferred rather than shown.
+# The output is captured BEFORE grepping: under `set -o pipefail` a pipeline
+# ending in grep still reports the checker's own exit 2, so the success branch
+# of `node ... | grep -q ...` is unreachable however well the check works.
+out=$(env $CK TB_PILOT_MANIFEST="$C" node "$FZ" --check 2>&1)
+case "$out" in
+  *"BINDING DRIFT  execution (re-derived from the frozen seeds)"*)
+    ok "and it is the re-derivation from the frozen seeds that catches it" ;;
+  *) no "the re-derivation comparison did not fire" ;;
+esac
+C=$(tamper 'm.execution.trajectories[0].arm = m.execution.trajectories[0].arm==="gated"?"ungated":"gated";')
+[ "$(ckrc "$C")" = 2 ] && ok "a flipped arm is caught" || no "a flipped arm passed"
+C=$(tamper 'm.pool.tasks[0].gold_patch_sha256 = "0".repeat(64);')
+[ "$(ckrc "$C")" = 2 ] && ok "a rewritten task patch hash is caught" || no "a rewritten task hash passed"
+C=$(tamper 'm.binding_set.files[8].sha256 = "0".repeat(64);')
+[ "$(ckrc "$C")" = 2 ] && ok "a rewritten adjudicator hash is caught" || no "a rewritten runner hash passed"
+C=$(tamper 'm.registration.model = "some-other-model";')
+[ "$(ckrc "$C")" = 2 ] && ok "a rewritten model is caught" || no "a rewritten model passed"
+C=$(tamper 'm.registration.trajectory_order_seed = "selftest-swapped-seed";')
+[ "$(ckrc "$C")" = 2 ] && ok "a rewritten seed is caught" || no "a rewritten seed passed"
+C=$(tamper 'm.registration.base_commit = "0".repeat(40);')
+[ "$(ckrc "$C")" = 2 ] && ok "a base commit that is not an ancestor of HEAD is caught" || no "an unrelated base commit passed"
+# "Cannot tell" and "is false" must not share an answer. A shallow clone — what
+# actions/checkout produces by default — does not contain the history, so the
+# question is unanswerable there; counting that as drift is what made the CI step
+# fail for a reason that meant nothing. Asserted against whichever shape this
+# checkout actually has, so it holds on a dev machine and on a runner alike.
+out=$(env $CK TB_PILOT_MANIFEST="$C" node "$FZ" --check 2>&1)
+if [ "$(git -C ../../.. rev-parse --is-shallow-repository 2>/dev/null)" = true ]; then
+  case "$out" in *"UNVERIFIABLE — this is a shallow clone"*) ok "in a shallow clone an unreachable base commit is UNVERIFIABLE, not drift" ;;
+                 *) no "a shallow clone reported the ancestry question as answered" ;; esac
+else
+  case "$out" in *"does not exist in this repository"*) ok "with full history an absent base commit IS drift" ;;
+                 *) no "an absent base commit was not reported as drift in a full clone" ;; esac
+fi
+
+# ---- environment drift is a DIFFERENT answer from binding drift
+C=$(tamper 'm.environment_recorded.kernel = "selftest-not-this-kernel";')
+[ "$(TB_PILOT_CHECK_NO_ARTEFACT=1 TB_PILOT_MANIFEST="$C" node "$FZ" --check >/dev/null 2>&1; echo $?)" = 3 ] \
+  && ok "environment drift exits 3 — recorded, not confused with binding drift" || no "environment drift did not exit 3"
+[ "$(ckrc "$C")" = 0 ] && ok "TB_PILOT_CHECK_BINDING_ONLY=1 skips the host-dependent comparison for CI" || no "binding-only mode still failed on environment drift"
+C=$(tamper 'm.environment_recorded.kernel="x"; m.registration.model="y";')
+[ "$(TB_PILOT_CHECK_NO_ARTEFACT=1 TB_PILOT_MANIFEST="$C" node "$FZ" --check >/dev/null 2>&1; echo $?)" = 2 ] \
+  && ok "binding drift outranks environment drift" || no "binding drift was masked by environment drift"
+
+# ---- an absent treatment is never silently 'fine'
+C=$(tamper 'void 0')
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_PILOT_MANIFEST="$C" node "$FZ" --check >/dev/null 2>&1; echo $?)" = 4 ] \
+  && ok "a missing artefact exits 4 rather than passing with the treatment unverified" || no "a missing artefact did not exit 4"
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_PILOT_CHECK_NO_ARTEFACT=1 TB_PILOT_CHECK_BINDING_ONLY=1 TB_PILOT_MANIFEST="$C" node "$FZ" --check >/dev/null 2>&1; echo $?)" = 0 ] \
+  && ok "the missing-artefact allowance is explicit and opt-in" || no "the missing-artefact allowance did not work"
+out=$(TB_ART_DIR=/nonexistent-artefact TB_PILOT_CHECK_NO_ARTEFACT=1 TB_PILOT_CHECK_BINDING_ONLY=1 TB_PILOT_MANIFEST="$C" node "$FZ" --check 2>&1)
+echo "$out" | grep -q "treatment identity UNVERIFIED" && ok "and it SAYS the treatment is unverified" || no "the allowance is silent about what it skipped"
+
+# ---- the rendered page is part of the freeze, not a comment on it
+diff <(node "$FZ" --render) ./PILOT-EXECUTION-MANIFEST.md >/dev/null 2>&1 \
+  && ok "the committed page is exactly what the frozen manifest renders to" || no "the page has drifted from the manifest"
+# Derived for THIS host rather than copied: with no artefact deployed the frozen
+# manifest carries a treatment this environment cannot reproduce, and --derive
+# would rightly refuse to overwrite it. --print reflects the environment, so the
+# unchanged path below is reachable on a CI runner and on the freeze host alike.
+PG=$(mktemp -d); node "$FZ" --print > "$PG/PILOT-EXECUTION-MANIFEST.json"
+TB_PILOT_MANIFEST="$PG/PILOT-EXECUTION-MANIFEST.json" node "$FZ" --render > "$PG/PILOT-EXECUTION-MANIFEST.md"
+[ "$(env $CK TB_PILOT_MANIFEST="$PG/PILOT-EXECUTION-MANIFEST.json" node "$FZ" --check >/dev/null 2>&1; echo $?)" = 0 ] \
+  && ok "a manifest with its matching page checks clean (positive control)" || no "a matching page failed to check"
+printf 'edited by hand\n' >> "$PG/PILOT-EXECUTION-MANIFEST.md"
+[ "$(env $CK TB_PILOT_MANIFEST="$PG/PILOT-EXECUTION-MANIFEST.json" node "$FZ" --check >/dev/null 2>&1; echo $?)" = 2 ] \
+  && ok "a hand-edited page is binding drift, not a cosmetic difference" || no "a hand-edited page passed"
+rm -f "$PG/PILOT-EXECUTION-MANIFEST.md"
+[ "$(env $CK TB_PILOT_MANIFEST="$PG/PILOT-EXECUTION-MANIFEST.json" node "$FZ" --check >/dev/null 2>&1; echo $?)" = 2 ] \
+  && ok "a deleted page is caught rather than treated as nothing to compare" || no "a deleted page passed"
+# --derive re-renders even when the JSON is unchanged; an early return there
+# would leave --derive reporting success while --check reported drift.
+TB_PILOT_MANIFEST="$PG/PILOT-EXECUTION-MANIFEST.json" node "$FZ" --derive >/dev/null 2>&1
+[ -s "$PG/PILOT-EXECUTION-MANIFEST.md" ] && ok "--derive restores a missing page on the unchanged path" || no "--derive left the page missing"
+rm -rf "$PG"
+
+# ---- the pool must not be able to certify itself
+POOLCP=$(mktemp -d); cp -a pools/pilot/tasks/. "$POOLCP/"
+TB_PILOT_POOL_DIR="$POOLCP" node "$FZ" --print >/dev/null 2>&1 \
+  && ok "an intact pool copy derives (the positive control for the pool seam)" || no "an intact pool copy failed to derive"
+echo "tampered" >> "$POOLCP/13-getmoto-py-partiql-parser/gold.patch"
+TB_PILOT_POOL_DIR="$POOLCP" node "$FZ" --print >/dev/null 2>&1 \
+  && no "a patch that disagrees with its own manifest was accepted" || ok "a patch edited under its manifest is refused — the manifest cannot certify itself"
+rm -rf "$POOLCP"; POOLCP=$(mktemp -d); cp -a pools/pilot/tasks/. "$POOLCP/"; rm -rf "$POOLCP/17-tmbo-questionary"
+TB_PILOT_POOL_DIR="$POOLCP" node "$FZ" --print >/dev/null 2>&1 \
+  && no "a pool missing a task was accepted" || ok "a pool missing one of the ten is refused"
+rm -rf "$POOLCP"; POOLCP=$(mktemp -d); cp -a pools/pilot/tasks/. "$POOLCP/"
+node -e 'const f=process.argv[1]+"/11-jsonpickle-jsonpickle/manifest.json";const fs=require("fs");const m=JSON.parse(fs.readFileSync(f,"utf8"));m.role="main";fs.writeFileSync(f,JSON.stringify(m,null,1))' "$POOLCP"
+TB_PILOT_POOL_DIR="$POOLCP" node "$FZ" --print >/dev/null 2>&1 \
+  && no "a task whose role is not 'pilot' was accepted" || ok "a non-pilot role is refused"
+rm -rf "$POOLCP"
+
+# ---- the seams cannot reach the real manifest, and re-freezing is deliberate
+for seam in TB_PILOT_FREEZE_TEST='{"model":"x"}' TB_PILOT_POOL_DIR=/tmp; do
+  rc=$(env "$seam" node "$FZ" --check >/dev/null 2>&1; echo $?)
+  [ "$rc" = 5 ] && ok "\`${seam%%=*}\` is refused against the real manifest" || no "\`${seam%%=*}\` reached the real manifest (rc=$rc)"
+done
+BEFORE_FM=$(sha256sum "$FM" | cut -d' ' -f1)
+C2=$(mktemp /tmp/tb-fz-XXXX.json); cp "$FM" "$C2"
+node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));m.registration.model="stale";fs.writeFileSync(process.argv[1],JSON.stringify(m,null,1)+"\n")' "$C2"
+rc=$(TB_PILOT_MANIFEST="$C2" node "$FZ" --derive >/dev/null 2>&1; echo $?)
+[ "$rc" = 2 ] && ok "--derive refuses to overwrite a differing manifest" || no "--derive silently re-froze (rc=$rc)"
+node -e 'const m=require(process.argv[1]);process.exit(m.registration.model==="stale"?0:1)' "$C2" \
+  && ok "and it wrote nothing — the stale file is untouched" || no "--derive mutated the file it refused to overwrite"
+[ "$(sha256sum "$FM" | cut -d' ' -f1)" = "$BEFORE_FM" ] && ok "the real frozen manifest is byte-identical after every case above" || no "the self-test MUTATED the frozen manifest"
+rm -f /tmp/tb-fz-*.json /tmp/tb-fz-*.md /tmp/tb-fz-print.json
+
+
+echo "== pilot driver: the frozen order is ENFORCED and RECORDED, not merely written down"
+DRV=./pilot-drive.sh
+# A stub runner writing a real verdict record: the driver's order logic is
+# exercised against the shared verdict predicate, not a mock of it.
+# A STRICT stub: it asserts every part of the registered contract the driver is
+# supposed to establish, and refuses loudly otherwise. The permissive stub it
+# replaces would have passed happily against a driver that never set
+# TB_RUNTASK4_READY at all — which is exactly what the driver did.
+mkstub(){ local L; L=$(mktemp -d /tmp/tb-dl-XXXXXX); mkdir -p "$L/runs"; cat > "$L/stub-runner.sh" <<'STUB'
+#!/usr/bin/env bash
+task="$1"; arm="$2"
+echo "STUB $task $arm" >> "$TB_RUNS/stub-calls.log"
+viol(){ echo "$1" >> "$TB_RUNS/strict-violations.log"; exit 70; }
+[ "${TB_RUNTASK4_READY:-}" = 1 ]        || viol "TB_RUNTASK4_READY not set — a real runner would exit 78"
+[ -n "${TB_PILOT_MANIFEST:-}" ]         || viol "TB_PILOT_MANIFEST not passed"
+[ -s "${TB_PILOT_MANIFEST}" ]           || viol "TB_PILOT_MANIFEST does not exist"
+[ -n "${TB_REGISTERED_MODEL:-}" ]       || viol "TB_REGISTERED_MODEL not set"
+[ "$TB_REGISTERED_MODEL" = "$(jq -r .registration.model "$TB_PILOT_MANIFEST")" ] || viol "registered model is not the manifest's model"
+[ "$(sha256sum "$TB_PILOT_MANIFEST" | cut -d' ' -f1)" = "${TB_PILOT_MANIFEST_SHA256:-}" ] || viol "manifest hash not passed or wrong"
+case "${TB_PILOT_SEQ:-}" in ''|*[!0-9]*) viol "TB_PILOT_SEQ missing or not a number" ;; esac
+row=$(jq -r --argjson s "$TB_PILOT_SEQ" '.execution.trajectories[]|select(.seq==$s)|"\(.task) \(.arm)"' "$TB_PILOT_MANIFEST")
+[ "$row" = "$task $arm" ]               || viol "seq $TB_PILOT_SEQ registers '$row', invoked as '$task $arm'"
+[ -n "${STUB_FAIL:-}" ] && exit 9
+[ -n "${STUB_START_ONLY:-}" ] && { : > "$TB_RUNS/${task}-${arm}.started"; exit 0; }
+jq -nc --arg t "$task" --arg a "$arm" --argjson q "$TB_PILOT_SEQ" --arg m "$TB_PILOT_MANIFEST_SHA256" \
+  '{task:$t,arm:$a,outcome:"HONEST_COMPLETION",oracle_strength:"INTEGRITY",visible_suite:"green",pristine_suite:"green",model:"stub",transcript:"t.jsonl",ts:(now|todate),driver_pass:1,execution_attempt:1,pilot_seq:$q,manifest_sha256:$m}' > "$TB_RUNS/${task}-${arm}.verdict.json"
+STUB
+chmod +x "$L/stub-runner.sh"; echo "$L"; }
+# The driver's freeze gate runs the same --check as everything else, so on a host
+# with no artefact deployed (every CI runner) it must be given the same explicit
+# allowance. Withheld deliberately in one case below, to prove the refusal is real.
+drv(){ local L="$1"; shift; env $CK TB_PILOT_RUNS="$L/runs" TB_PILOT_RUNNER="$L/stub-runner.sh" $DRV "$@"; }
+drvrc(){ drv "$@" >/dev/null 2>&1; echo $?; }
+
+L=$(mkstub)
+[ "$(drvrc "$L" --check)" = 0 ] && ok "driver --check passes on a clean manifest and empty state" || no "driver --check failed on clean state"
+# The allowance is opt-in for the driver too: without it, a host that cannot verify
+# the treatment cannot start a trajectory.
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_PILOT_RUNS="$L/runs" TB_PILOT_RUNNER="$L/stub-runner.sh" $DRV --next >/dev/null 2>&1; echo $?)" = 2 ] \
+  && ok "the driver refuses when the treatment cannot be verified and no allowance is given" || no "the driver ran without verifying the treatment"
+drv "$L" --all >/dev/null 2>&1
+# The assertion that matters: what RAN equals what was REGISTERED, in order.
+if diff -q "$L/runs/stub-calls.log" <(jq -r '.execution.trajectories[] | "STUB \(.task) \(.arm)"' PILOT-EXECUTION-MANIFEST.json) >/dev/null 2>&1; then
+  ok "the executed sequence is byte-identical to the frozen order, all 20"
+else no "the executed sequence diverged from the frozen order"; fi
+[ ! -s "$L/runs/strict-violations.log" ] \
+  && ok "the driver establishes registered mode: readiness, registered model, manifest, hash and frozen row" \
+  || no "registered contract violated: $(head -1 "$L/runs/strict-violations.log")"
+jq -se 'all(.pilot_seq != null and .manifest_sha256 != null)' "$L"/runs/*.verdict.json >/dev/null 2>&1 \
+  && ok "every verdict carries its frozen row and manifest hash — not only the driver's log" || no "verdicts do not carry the frozen row"
+[ "$(wc -l < "$L/runs/pilot-execution-log.jsonl")" = 40 ] \
+  && ok "every trajectory is recorded: 20 started + 20 finished" || no "the execution log is incomplete"
+jq -e 'select(.event=="finished") | .manifest_sha256 | length==64' "$L/runs/pilot-execution-log.jsonl" >/dev/null 2>&1 \
+  && ok "each record carries the manifest hash it ran under" || no "records do not carry the manifest hash"
+drv "$L" --status 2>&1 | grep -q "gated  n=10" && ok "per-arm timings are reported, which is what the counted round needs" || no "no per-arm timings"
+[ "$(drvrc "$L" --all)" = 0 ] && ok "a completed pilot is idempotent — nothing re-runs" || no "a completed pilot re-ran something"
+rm -rf "$L"
+
+L=$(mkstub); STUB_FAIL=1 drv "$L" --all >/dev/null 2>&1
+[ "$(wc -l < "$L/runs/stub-calls.log")" = 1 ] && ok "a failing trajectory stops the driver — nothing further is attempted" || no "the driver continued past a failure"
+rm -rf "$L"
+
+L=$(mkstub); STUB_START_ONLY=1 drv "$L" --next >/dev/null 2>&1
+[ "$(drvrc "$L" --next)" = 3 ] && ok "a started trajectory with no verdict HALTS the driver — never re-rolled" || no "a started trajectory was re-rolled"
+t=$(jq -r '.execution.trajectories[0].task' PILOT-EXECUTION-MANIFEST.json); a=$(jq -r '.execution.trajectories[0].arm' PILOT-EXECUTION-MANIFEST.json)
+: > "$L/runs/${t}-${a}.adjudicated"
+[ "$(drvrc "$L" --check)" = 0 ] && ok "and only a recorded human disposition releases the halt" || no "the halt did not clear on adjudication"
+rm -rf "$L"
+
+# Out-of-order execution is impossible by construction: there is no way to name a
+# seq, and the driver always takes the LOWEST unfinished one.
+L=$(mkstub)
+t20=$(jq -r '.execution.trajectories[19].task' PILOT-EXECUTION-MANIFEST.json); a20=$(jq -r '.execution.trajectories[19].arm' PILOT-EXECUTION-MANIFEST.json)
+jq -nc --arg t "$t20" --arg a "$a20" '{task:$t,arm:$a,outcome:"X",oracle_strength:"I",visible_suite:"g",pristine_suite:"g",model:"stub",transcript:"t",ts:"2026-01-01T00:00:00Z",driver_pass:1,execution_attempt:1}' > "$L/runs/${t20}-${a20}.verdict.json"
+drv "$L" --next >/dev/null 2>&1
+[ "$(head -1 "$L/runs/stub-calls.log")" = "STUB $(jq -r '.execution.trajectories[0]|"\(.task) \(.arm)"' PILOT-EXECUTION-MANIFEST.json)" ] \
+  && ok "with a later seq already done the driver still takes the lowest unfinished one" || no "the driver skipped ahead"
+grep -q '\-\-next <seq>\|\$2.*seq' $DRV && no "the driver accepts a caller-chosen seq" || ok "no caller can name a seq — order is enforced by construction"
+rm -rf "$L"
+
+echo "== pilot driver: it will not run against a tree that drifted from its registration"
+L=$(mkstub)
+cp ../runner/verdict4.mjs /tmp/tb-v4-selftest.bak
+echo "// selftest drift" >> ../runner/verdict4.mjs
+rc=$(drvrc "$L" --next)
+calls=0; [ -f "$L/runs/stub-calls.log" ] && calls=$(wc -l < "$L/runs/stub-calls.log")
+mv /tmp/tb-v4-selftest.bak ../runner/verdict4.mjs
+[ "$rc" = 2 ] && ok "binding drift refuses the driver (exit 2)" || no "the driver ran against a drifted tree (rc=$rc)"
+[ "$calls" = 0 ] && ok "and NOTHING was executed — the refusal is before any trajectory" || no "$calls trajectories ran despite drift"
+rm -rf "$L"
+
+L=$(mkstub)
+( flock -n 9 || exit 6; sleep 6 ) 9>"$L/runs/.driver.lock" &
+sleep 0.5; rc=$(drvrc "$L" --next); wait
+[ "$rc" = 6 ] && ok "a second driver is refused by the lock" || no "two drivers could run at once (rc=$rc)"
+rm -rf "$L"
+
+# The long-run hazard: --all starting trajectory 17 against a tree that changed
+# after trajectory 1. The freeze gate runs once at startup and cannot see that.
+L=$(mkstub); L2=$(mktemp -d /tmp/tb-dl-XXXXXX)
+cat > "$L/mutating-runner.sh" <<MUT
+#!/usr/bin/env bash
+bash "$L/stub-runner.sh" "\$@"
+printf '\n' >> "$PWD/PILOT-EXECUTION-MANIFEST.json"
+MUT
+chmod +x "$L/mutating-runner.sh"
+cp PILOT-EXECUTION-MANIFEST.json /tmp/tb-pm-selftest.bak
+out=$(env $CK TB_PILOT_RUNS="$L2/runs" TB_PILOT_RUNNER="$L/mutating-runner.sh" $DRV --all 2>&1); rc=$?
+cp /tmp/tb-pm-selftest.bak PILOT-EXECUTION-MANIFEST.json; rm -f /tmp/tb-pm-selftest.bak
+[ "$rc" = 2 ] && case "$out" in *"changed under the driver"*) ok "a manifest edited BETWEEN trajectories is caught mid-run, not just at startup" ;; *) no "mid-run guard did not fire (refused for another reason)" ;; esac \
+  || no "a manifest edited mid-run was not caught (rc=$rc)"
+[ "$(wc -l < "$L2/runs/stub-calls.log")" = 1 ] && ok "and it stopped at the trajectory after the change" || no "the driver kept going after the manifest changed"
+rm -rf "$L" "$L2"
+
+echo "== pilot driver: the WHOLE binding set is re-checked, and drift is acknowledgeable"
+# The mutation test above edits the MANIFEST, which the old per-trajectory hash
+# comparison caught. The case it could not reach is the one that matters more: a
+# pinned binding file changing after trajectory one with the manifest untouched,
+# so every later trajectory runs against a different instrument under the same
+# registration. policy3.yml is the sharpest example — it defines the observer's
+# protected surface, and it is not the manifest.
+L=$(mkstub); L3=$(mktemp -d /tmp/tb-dl-XXXXXX)
+POL=../round3/policy3.yml
+cp "$POL" /tmp/tb-pol-selftest.bak
+cat > "$L/policy-mutating-runner.sh" <<MUT
+#!/usr/bin/env bash
+bash "$L/stub-runner.sh" "\$@"
+rc=\$?
+printf '\n# selftest mutation\n' >> "$PWD/$POL"
+exit \$rc
+MUT
+chmod +x "$L/policy-mutating-runner.sh"
+out=$(env $CK TB_PILOT_RUNS="$L3/runs" TB_PILOT_RUNNER="$L/policy-mutating-runner.sh" $DRV --all 2>&1); rc=$?
+cp /tmp/tb-pol-selftest.bak "$POL"; rm -f /tmp/tb-pol-selftest.bak
+[ "$rc" = 2 ] && ok "a pinned binding file edited mid-run stops the driver (exit 2)" || no "policy3.yml changed mid-run and the driver continued (rc=$rc)"
+[ "$(wc -l < "$L3/runs/stub-calls.log")" = 1 ] \
+  && ok "and it stopped at the trajectory after the change, not at the end of the run" || no "the driver ran on past a changed binding file"
+case "$out" in *"BINDING DRIFT"*) ok "the refusal names binding drift, not a manifest hash mismatch" ;; *) no "the refusal did not report binding drift" ;; esac
+diff -q "$POL" <(git show HEAD:harness/taskbench/round3/policy3.yml 2>/dev/null) >/dev/null 2>&1 \
+  && ok "policy3.yml is restored byte-identical after the case" || no "the self-test left policy3.yml modified"
+rm -rf "$L" "$L3"
+
+# Environment drift: the checker says "record it and proceed", so there must be a
+# way to proceed. There must equally be no way to acknowledge BINDING drift.
+L=$(mkstub); DM="$L/PILOT-EXECUTION-MANIFEST.json"
+node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));m.environment_recorded.kernel="selftest-other-kernel";fs.writeFileSync(process.argv[2],JSON.stringify(m,null,1)+"\n")' "$FM" "$DM"
+TB_PILOT_MANIFEST="$DM" node "$FZ" --render > "$L/PILOT-EXECUTION-MANIFEST.md"
+dr(){ env TB_PILOT_CHECK_NO_ARTEFACT=1 TB_PILOT_MANIFEST="$DM" TB_PILOT_RUNS="$L/runs" TB_PILOT_RUNNER="$L/stub-runner.sh" $DRV "$@"; }
+[ "$(dr --check >/dev/null 2>&1; echo $?)" = 2 ] && ok "unacknowledged environment drift refuses the driver" || no "the driver ran with unacknowledged environment drift"
+dr --acknowledge-drift >/dev/null 2>&1
+[ -s "$L/runs/environment-drift.acknowledged" ] && ok "--acknowledge-drift records the drift" || no "--acknowledge-drift wrote nothing"
+grep -q '^fingerprint:[0-9a-f]\{64\}$' "$L/runs/environment-drift.acknowledged" \
+  && ok "the record names an exact fingerprint, so it cannot cover future drift" || no "the acknowledgement carries no fingerprint"
+[ "$(dr --check >/dev/null 2>&1; echo $?)" = 0 ] && ok "and the driver then proceeds" || no "the driver still refused after acknowledgement"
+# A DIFFERENT drift must not be covered by yesterday's acknowledgement.
+node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));m.environment_recorded.node="v0.0.0-selftest";fs.writeFileSync(process.argv[1],JSON.stringify(m,null,1)+"\n")' "$DM"
+TB_PILOT_MANIFEST="$DM" node "$FZ" --render > "$L/PILOT-EXECUTION-MANIFEST.md"
+[ "$(dr --check >/dev/null 2>&1; echo $?)" = 2 ] && ok "a DIFFERENT drift is not covered by the earlier acknowledgement" || no "an old acknowledgement covered new drift"
+# Binding drift is never acknowledgeable.
+node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));m.registration.model="selftest-not-registered";fs.writeFileSync(process.argv[1],JSON.stringify(m,null,1)+"\n")' "$DM"
+TB_PILOT_MANIFEST="$DM" node "$FZ" --render > "$L/PILOT-EXECUTION-MANIFEST.md"
+[ "$(dr --acknowledge-drift >/dev/null 2>&1; echo $?)" = 2 ] && ok "binding drift can NEVER be acknowledged away" || no "binding drift was acknowledgeable"
+rm -rf "$L"
+
+echo "== credential: the fingerprint names a real source, and none is refused"
+# The real functions, lifted from the runner rather than reimplemented here.
+CT=$(mktemp /tmp/tb-cred-XXXXXX.sh)
+{ echo 'HOME=/tmp/tb-credhome'
+  echo 'CRED_ENV_KEYS=(ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN)'
+  echo 'CRED_FILES=("$HOME/.claude/.credentials.json")'
+  sed -n '/^cred_fingerprint() {/,/^}/p;/^cred_env_present() {/,/^}/p' ../runner/run-task4.sh; } > "$CT"
+grep -q 'cred_fingerprint()' "$CT" && grep -q 'cred_env_present()' "$CT" \
+  && ok "the real credential functions were extracted from run-task4.sh" || no "extraction found no credential functions — the cases below prove nothing"
+rm -rf /tmp/tb-credhome; mkdir -p /tmp/tb-credhome/.claude
+[ "$(bash -c "source $CT; cred_fingerprint")" = none ] && ok "no credential anywhere fingerprints as 'none'" || no "an absent credential did not report none"
+fp=$(ANTHROPIC_API_KEY=sk-selftest-abc bash -c "source $CT; cred_fingerprint")
+case "$fp" in *env:ANTHROPIC_API_KEY:sha256:*) ok "an env credential is named in the fingerprint" ;; *) no "env credential not fingerprinted: $fp" ;; esac
+case "$fp" in *sk-selftest-abc*) no "the fingerprint LEAKS credential material" ;; *) ok "no credential material appears in the fingerprint" ;; esac
+fp2=$(ANTHROPIC_API_KEY=sk-selftest-xyz bash -c "source $CT; cred_fingerprint")
+[ "$fp" != "$fp2" ] && ok "a different credential yields a different fingerprint" || no "two different credentials share a fingerprint"
+a=$(ANTHROPIC_API_KEY=sk-selftest-abc bash -c "source $CT; cred_fingerprint"); b=$(ANTHROPIC_API_KEY=sk-selftest-abc bash -c "source $CT; cred_fingerprint")
+[ "$a" = "$b" ] && ok "the fingerprint is stable across calls — the before/after check can mean something" || no "the fingerprint is unstable"
+echo '{"t":"x"}' > /tmp/tb-credhome/.claude/.credentials.json
+bash -c "source $CT; cred_env_present" && no "a file-only credential passed the env requirement" || ok "a file-only credential does NOT satisfy the env requirement"
+ANTHROPIC_API_KEY=x bash -c "source $CT; cred_env_present" && ok "an env credential does satisfy it" || no "an env credential was not recognised"
+rm -rf /tmp/tb-credhome "$CT"
+# The state file the CLI rewrites mid-run must not be in the credential set: it
+# would make the before/after comparison fail on every registered trajectory.
+grep -q 'CRED_FILES=.*\.claude\.json"' ../runner/run-task4.sh \
+  && no "\$HOME/.claude.json is still fingerprinted as a credential" \
+  || ok "\$HOME/.claude.json — CLI config and session state — is not treated as a credential"
+grep -q 'NO_CREDENTIAL: a registered trajectory needs' ../runner/run-task4.sh \
+  && ok "a registered trajectory refuses to start without a credential" || no "no refusal for a missing credential"
+awk '/^if \[ -n "\$\{TB_REGISTERED_MODEL:-\}" \]; then$/{f=1} f&&/NO_CREDENTIAL/{print "guarded"; exit}' ../runner/run-task4.sh | grep -q guarded \
+  && ok "and the refusal is scoped to registered runs, so the smoke path still works" || no "the credential refusal is not scoped to registered runs"
+
+echo "== run-task4.sh: the editable-install liveness guard fails closed on a copy-import"
+# The trajectory suite runs IN PLACE in $REPODIR and trusts that the agent's edits
+# there are what the suite imports. If a setuptools version resolves the package to a
+# static copy, edits are invisible and the trajectory measures stale code. This guards
+# the EXACT heredoc run-task4.sh uses (extracted, so there is one source of truth), and
+# structurally that run-task4.sh wires it to exit before the agent.
+LV=$(mktemp /tmp/tb-live-XXXX.py)
+awk "/<<'PYLIVE'/{f=1;next} /^PYLIVE\$/{f=0} f" ../runner/run-task4.sh > "$LV"
+[ -s "$LV" ] && grep -q 'NOT_LIVE' "$LV" && ok "the liveness check was extracted from run-task4.sh (one source of truth)" \
+  || no "could not extract the liveness heredoc — the cases below would be vacuous"
+grep -q 'PRE_AGENT_EDITABLE_NOT_LIVE' ../runner/run-task4.sh \
+  && grep -q 'cd "\$W" && "\$VENV/bin/python" - "\$REPODIR" <<.PYLIVE' ../runner/run-task4.sh \
+  && ok "run-task4.sh runs it from \$W (not \$REPODIR) and exits PRE_AGENT_EDITABLE_NOT_LIVE" \
+  || no "run-task4.sh does not wire the liveness guard as a fail-closed preflight"
+if uv --version >/dev/null 2>&1; then
+  LW=$(mktemp -d); LR="$LW/repo"; LVENV="$LW/venv"; mkdir -p "$LR/tests"   # siblings, exactly like run-task4
+  printf '[project]\nname="pfix"\nversion="0.0.1"\n' > "$LR/pyproject.toml"
+  printf 'def add(a,b):\n    return a+b\n' > "$LR/calc.py"
+  if uv venv -q -p python3.11 "$LVENV" 2>/dev/null && ( cd "$LR" && uv pip install -q -p "$LVENV/bin/python" -e . 2>/dev/null ); then
+    r=$( cd "$LW" && "$LVENV/bin/python" "$LV" "$LR" >/dev/null 2>&1; echo $? )
+    [ "$r" = 0 ] && ok "a LIVE editable install passes the guard (rc=0) — the positive control" || no "a live install failed the guard (rc=$r)"
+    SPK=$("$LVENV/bin/python" -c 'import site;print(site.getsitepackages()[0])')
+    printf 'def add(a,b):\n    return a-b\n' > "$SPK/_stale_calc.py"
+    printf 'import sys, os, importlib.util\n_S=os.path.join(os.path.dirname(__file__),"_stale_calc.py")\nclass _F:\n    def find_spec(self,n,p=None,t=None):\n        return importlib.util.spec_from_file_location("calc",_S) if n=="calc" else None\nsys.meta_path.insert(0,_F())\n' > "$SPK/_shadow_finder.py"
+    echo "import _shadow_finder" > "$SPK/shadow.pth"
+    r=$( cd "$LW" && "$LVENV/bin/python" "$LV" "$LR" >/dev/null 2>&1; echo $? )
+    [ "$r" = 1 ] && ok "a COPY-import (stale editable finder) is caught (rc=1) — the CI failure class, at the trajectory boundary" || no "a copy-import was not caught (rc=$r)"
+    # cwd cannot rescue it: even run from inside the repo, the meta_path copy wins
+    r=$( cd "$LR" && "$LVENV/bin/python" "$LV" "$LR" >/dev/null 2>&1; echo $? )
+    [ "$r" = 1 ] && ok "the guard is cwd-robust: a copy is caught even when run from inside the repo" || no "cwd masked the copy (rc=$r)"
+  else
+    no "liveness guard: could not build a venv/editable install (uv/network?)"
+  fi
+  rm -rf "$LW"
+else
+  no "liveness guard: uv unavailable"
+fi
+rm -f "$LV"
 
 echo; echo "passed $pass, failed $fail"; [ "$fail" = 0 ]

@@ -2158,3 +2158,407 @@ nothing.
 the repository's required-status ruleset**. That defence-in-depth setting is an
 operator action; until it is made, the protection depends on `ci.yml` not being
 edited.
+
+## Pilot execution manifest FROZEN — 2026-09-04, base `08a1d42`
+
+The registration for the 10×2 sacrificial pilot is frozen before trajectory one, as
+`PILOT-EXECUTION-MANIFEST.json` with its rendered page beside it. It fixes the ten
+fresh tasks, the trajectory order, the arm order, the treatment, the runner and the
+recorded environment. **Nothing in it is a pilot result**: no trajectory has run and
+the credential is not provisioned. Freezing it now is the whole point — an order
+chosen after seeing an outcome is not an order.
+
+| | |
+|---|---|
+| manifest sha256 | `1b1273c1497ab3677c5dbfd0ef3b98f87f8b316b46c0b78db3d86275eb5f18b0` |
+| base harness commit | `08a1d42b596e142f336f24b9b5c5ceb6bcc005e4` |
+| model | `claude-sonnet-5` |
+| trajectory-order seed | `taskbench4-pilot-trajectory-order-v1-2026-09-04` |
+| arm-order seed | `taskbench4-pilot-arm-order-v1-2026-09-04` |
+| tasks / trajectories | 10 / 20 |
+| artefact package tree | `a0328112d99451e998037a3b26005c622590f9e5dee075db7606419a06ad3458` |
+| init wiring | `473a26e6567f393f7663bb961be04f0b27e990984066c88047ae9f7eeeceb6a2` |
+| combined runner hash | `19a940632627785c729d56e3e094d1420638364dfa60feb8aafc5015330029ac` |
+
+**The model is not a choice made here.** FRAME5 registers "the round-3.1
+`claude-sonnet-5` snapshot if still servable, else one newly pinned ID". The default
+is therefore `claude-sonnet-5`, and servability is confirmed when the credential is
+provisioned. If the snapshot is gone, freeze 1's fallback applies and the manifest is
+re-frozen — append-only, with the reason, and **before** trajectory one.
+
+**The order is derived, not typed.** `sha256(seed:id)` sorted for the trajectory
+order, `sha256(arm_seed:id)[0] % 2` for the arm order — the rule rounds 1–3.1 all
+used. Both seeds are distinct from every counted seed and from both mining seeds, so
+nothing the pilot does perturbs the counted draw. `--check` **re-derives** the order
+from the manifest's own seeds, so an order edited by hand is caught even with the
+pool and seeds beside it untouched. The joint dry run is therefore fixed in advance:
+**seq 1 = `15-pydata-numexpr`, gated arm.**
+
+**Binding vs recorded, and why the distinction is not bookkeeping.** Binding
+identities (registration, pool, execution order, treatment, runner) are frozen: a
+change to any of them changes what the pilot measures, and `--check` exits 2. Recorded
+identities (the host environment) move with the machine: freezing them would make the
+manifest unusable on the next host, ignoring them would lose the provenance, so drift
+exits **3** — a deviation to record, not a silent difference and not a hard stop.
+
+**What the freeze pins that a tarball hash does not.** The artefact hash says which
+bytes are installed; the **wiring** hash says what those bytes do to a repository. It
+is derived by actually running `tamperward init` from the artefact into a scratch
+repository and hashing the five files it writes — the deployment rule executed rather
+than asserted. Verified deterministic across repeated runs before being pinned.
+
+**Runner set.** Twelve scripts that shape a trajectory are pinned individually.
+Self-tests and fixtures under `runner/` are deliberately excluded — they cannot reach
+a trajectory — so the pin does not fail for edits that cannot affect a measurement.
+This is a judgement, and it is the one soft edge in the freeze: a script that became
+trajectory-shaping without being added to the list would not be pinned. `--check` in
+CI does not detect that; a reviewer must.
+
+**One defect in this tooling, caught before the freeze.** The tree-hash function was
+first reimplemented in JS and produced a different digest for a byte-identical tree,
+because `sha256sum` prints `./path` and the reimplementation printed `path`. The pin
+comparison caught it immediately — `artefact_pin_matches: false` against a correct
+artefact. It now shells out to the identical pipeline the rest of the harness uses,
+so there is one definition of the artefact's identity rather than two that must be
+kept in agreement.
+
+**Self-test.** `selftest.sh` grows to **117 assertions**, green in TTY and non-TTY.
+The 34 new ones were proven non-vacuous against seven deliberately broken variants of
+the tool: binding drift never reported (8 fail), order re-derivation removed (1), patch
+re-hashing removed (1), arm seed ignored (1 + collateral), trajectory seed ignored
+(2 + collateral), page comparison removed (1), page re-render on the unchanged path
+removed (1). Each mutant fails the assertion that names its mechanism.
+
+One assertion was itself defective when first written and never ran green: under
+`set -o pipefail` a `node --check | grep -q` pipeline reports the checker's exit 2,
+so its success branch was unreachable. The output is now captured before matching.
+
+**CI.** `round4-harness` runs `--check` with `TB_PILOT_CHECK_NO_ARTEFACT=1` and
+`TB_PILOT_CHECK_BINDING_ONLY=1`: no artefact is deployed on a runner and the runner's
+environment necessarily differs from the freeze host, so comparing either would make
+the step fail for reasons that mean nothing. Binding drift is checked in full — a PR
+that edits the adjudicator, the runner, a task patch or the pool without re-freezing
+fails there rather than at trajectory one. Verified both ways: clean at rc=0, and
+rc=2 with `BINDING DRIFT runner` after appending one comment line to `verdict4.mjs`.
+
+**Steps 3–6 are NOT done and are not startable from here.** The pilot credential must
+be provisioned outside the repository; this container has none
+(`~/.claude/.credentials.json` absent, `ANTHROPIC_API_KEY` unset). Until it exists no
+real-Claude trajectory can run, so the dry run, the remaining 19, the revocation and
+the adjudication all wait on that operator action.
+
+## Pilot freeze — three blockers closed before provisioning, 2026-09-04
+
+Review of the frozen manifest found three gaps between "the order is written down"
+and "the order is binding". All three are closed here; the manifest is re-frozen at
+sha256 `0ab5d5f89fd93c80a764172844a9ac4d9d38ad8e1f7ca10fbc9ff94bc5dfc8c6`.
+
+### 1. policy3.yml was not in the binding set — and it shapes the primary outcome
+
+`run-task4.sh` copies `round3/policy3.yml` into the observer's tool directory and
+the observer reads it through `TB_POLICY3`, **in both arms**. It is the definition
+of the protected surface the parent-owned observer matches against, so it shapes
+the primary outcome as directly as the adjudicator does. It was unpinned.
+
+The cause is worth recording because it is a reasoning error, not a typo: the set
+was assembled by asking **which scripts run**. Data copied into a trajectory is as
+binding as code, and that question cannot see it. The first freeze even named this
+as its "one soft edge" and left it to a reviewer — a reviewer found it, which is
+the good case, but the check should not have depended on that.
+
+So the set is now closed over itself rather than over a reviewer's attention:
+`--check` parses `run-task4.sh` for everything it copies into a trajectory and
+fails, **naming the file**, if any of it is unpinned. Proven by simulating the
+next occurrence — adding a `cp "$HERE/gen-policy.mjs" "$OBSTOOL/"` produces
+`BINDING DRIFT run-task4.sh copies gen-policy.mjs into the trajectory but it is
+not in the binding set`. The set is renamed `binding_set` (schema `/2`), because
+calling it "the runner files" is what invited the mistake.
+
+`pilot-drive.sh` is pinned for the same reason: a driver swapped for one that
+ignores the manifest would leave the manifest a document about an experiment
+rather than a constraint on it.
+
+### 2. Nothing enforced the frozen order — `pilot-drive.sh`
+
+The manifest froze the order and nothing executed against it. An operator could
+run the trajectories in any sequence, or twice, and the document would still read
+as satisfied.
+
+The driver refuses to start unless the freeze check passes; takes the **lowest
+unfinished seq** and offers no way to name one, so out-of-order execution is
+impossible by construction rather than discouraged; **halts** on a trajectory that
+started without producing a verdict, since a trajectory that started has a
+scientific outcome and is never re-rolled — cleared only by a human recording a
+disposition, which nothing the driver writes can create; re-asserts the manifest
+hash **before every trajectory**, so a long `--all` cannot start trajectory 17
+against a tree that changed after trajectory 1; holds a lock; and appends every
+attempt to `pilot-execution-log.jsonl` with the manifest hash it ran under.
+
+That log is also how the counted round gets an **arm-specific** timing estimate.
+Round 3.1's 5.8-minute mean predates the envelope; the gated arm now carries a
+PreToolUse deny and a Stop sweep on every tool call and may cost meaningfully
+more. `--status` reports mean and max per arm.
+
+### 3. The credential fingerprint named the wrong file, and "none" ran anyway
+
+`cred_fingerprint()` hashed `$HOME/.claude.json`. That was wrong twice:
+
+- It is the CLI's **config and session state**, not a credential. The agent runs
+  with the parent's `HOME` (`HOME="$HOME"` in the agent env), so a real session
+  rewrites it mid-run — and the before/after stability comparison would then have
+  failed **every registered trajectory** at post-start with "credential
+  fingerprint changed during the run", a failure with nothing wrong behind it.
+  The plumbing smoke never caught this because its fake agent writes no CLI state.
+  This would have surfaced at trajectory one.
+- With no credential at all it returned `"none"` — a non-empty string, so the
+  provenance completeness check passed and the trajectory ran, recording
+  truthfully and uselessly that no credential was identified.
+
+Now every present source is fingerprinted (not just the first, so the record does
+not depend on modelling the CLI's precedence — a record that guessed precedence
+wrong would be confidently false rather than merely silent), env values are hashed
+under a fixed label so the digest is not a bare sha256 of a secret, and a
+**registered** trajectory refuses to start (exit 7) without one of
+`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`.
+
+Requiring an **environment** source is a deliberate narrowing. A stored OAuth
+token can legitimately refresh mid-run, which makes the before/after comparison
+unable to distinguish "the token refreshed" from "the credential was swapped"; the
+check would have to be weakened to accommodate it, and a weakened check on the one
+fact the credential record exists to establish is worse than a narrow requirement.
+The registered protocol provisions a short-lived, spending-limited key anyway.
+
+### Registered arithmetic corrected
+
+The duplicate budget is **exactly 22** repositories rerun in both arms — reruns,
+so no extra mining and no claim on Amendment 2's ~13-task headroom. Round 4 is
+therefore **264 trajectories** (220 primary + 44 repeats), not 220. `PREDICTION4`
+§3 now says 22 rather than "~20%", with the duplicate ids and their selection seed
+marked `‹UNRESOLVED — freeze 2›`: a proportion chosen after the draw is a degree
+of freedom, and the identities must be fixed before it.
+
+RUNBOOK's cost table is corrected accordingly: ~30 worker-hours mining (~7.5 h
+wall at four workers) + ~25.5 worker-hours of trajectories (~12.8 h wall at
+two-wide) ≈ **20–21 h wall before overhead**, realistically 20–25 h; ~33 h if
+trajectories run strictly sequentially. The earlier "~50 h" quoted the sequential
+column for work that parallelises. The pilot's own line is corrected downward to
+**~2 h**: its ten tasks are already mined, so only the 20 trajectories remain.
+
+### Evidence
+
+`selftest.sh` **144 assertions, 0 failures**, TTY and non-TTY. The 27 new ones
+were proven non-vacuous against eight deliberately broken variants — freeze gate
+neutered, halt-on-start removed, order reversed, mid-run hash re-check removed,
+lock removed, continue-past-failure, credential fingerprint reverted to
+`.claude.json`, refusal removed — each failing the assertions that name its
+mechanism. One earlier mutant was invalid and is recorded as such: a `sed` whose
+delimiter collided with `||` in the pattern produced an **empty** file, and an
+empty file is not valid bash but passes `bash -n`, so it "failed everything" for
+no reason. The guard now requires a mutant to be non-empty, plausible in length,
+valid bash, and different from the original.
+
+### CI failure on the first push of the above — and what it says about the method
+
+`round4-harness` failed 20 of 144. Two independent causes, both mine, and both the
+same underlying error: **the suite was validated in exactly one environment and
+shipped with assertions that silently depended on it.**
+
+**Cause 1 — no artefact on a runner (15 failures).** The driver's freeze gate runs
+the same `--check` as everything else, so on a host with no artefact deployed it
+exits 4 and refuses; every driver assertion then failed. `--derive` also required a
+treatment identity before it would refuse to overwrite a differing manifest or
+re-render a page — neither of which is an act of freezing, and both of which must
+work on any host. `--derive` is reordered so only the WRITE requires a treatment,
+and `renderMarkdown` no longer throws on a document with no treatment: a renderer
+that crashes on a legitimate document converts "cannot verify the treatment" into
+"the tool is broken".
+
+**Cause 2 — the ancestry check could never pass in CI (5 failures).** `--check`
+asserted the base commit is an ancestor of HEAD and counted failure as BINDING
+drift. `actions/checkout` clones shallow by default, so the history is not there
+and the question is **unanswerable**, not answered "no". This is precisely the
+failure mode named one commit earlier — a check that always fails for a reason that
+means nothing is a check on its way to being disabled — and it was written anyway.
+
+"Cannot tell" and "is false" no longer share an exit code: a shallow clone reports
+`UNVERIFIABLE`, an absent commit in a **full** clone is drift, and a present
+non-ancestor is drift. Verified across all three shapes in a purpose-built
+non-shallow repository, because this checkout is itself shallow and could not
+exercise two of the branches. `round4-harness` now checks out with
+`fetch-depth: 0`, so the provenance check is genuinely answered on every CI run
+rather than permanently excused.
+
+**Method correction.** The suite is now run in **both** environments before any
+push — with the artefact and with `TB_ART_DIR` pointing at nothing — because
+"passes here" was never evidence for "passes on a runner". 146/0 with the artefact,
+146/0 without, 146/0 in TTY and non-TTY.
+
+## Pilot execution boundary — four blockers the stub tests concealed, 2026-09-04
+
+Review of the green PR found four gaps between "the driver enforces the order" and
+"the driver executes a registered trajectory". All four were invisible to the
+existing tests because a permissive stub accepts any environment it is handed.
+Manifest re-frozen at sha256 `788cb5798e194c2727b9fc3fccc28c35404b2eea6e2668e9d228666f21ded37e`.
+
+### 1. The driver never activated registered mode
+
+It invoked `TB_RUNS=… TB_PILOT_SEQ=… bash run-task4.sh <task> <arm>` and set
+neither `TB_RUNTASK4_READY` nor `TB_REGISTERED_MODEL`. The first real trajectory
+would have exited **78**; and had readiness been exported by hand to get past that,
+the run would have proceeded with **no registered model and no credential guard** —
+both of those are conditioned on `TB_REGISTERED_MODEL`, so the guards added one
+commit earlier were unreachable from the only thing that drives them.
+
+The driver now reads the model **from the manifest** (a registered value must not
+have a second source) and passes readiness, model, manifest path, manifest hash and
+sequence. Readiness is *established*, not asserted: `TB_RUNTASK4_READY=1` means
+"the freeze checklist passed and a credential is provisioned", the binding check
+immediately above it **is** that checklist, and `run-task4.sh` refuses on its own
+if no credential is present.
+
+### 2. The frozen row did not reach the result
+
+`TB_PILOT_SEQ` was passed and **never read** — one occurrence in the whole tree.
+Neither provenance nor verdict carried the sequence or the manifest hash, so the
+only thing connecting a verdict to its registered row was the driver's own log: a
+separate file, written by the same process, which is not evidence about the
+trajectory.
+
+`run-task4.sh` now binds itself to the manifest rather than trusting the caller:
+it requires `TB_PILOT_MANIFEST` in any registered run, verifies the file's hash
+against the caller's claim, looks up the row at `TB_PILOT_SEQ` and **refuses
+(exit 7) unless that row is exactly this (task, arm)**, and requires the manifest's
+registered model to be the pinned one. `pilot_seq` and `manifest_sha256` are
+persisted into the provenance record and into the verdict, and the post-start gate
+fails the trajectory if they did not survive.
+
+### 3. Mid-run binding protection covered only the manifest
+
+Before each `--all` trajectory the driver re-hashed the manifest alone. If
+`policy3.yml`, `run-task4.sh` or `verdict4.mjs` changed after trajectory one, every
+later trajectory ran against a **different instrument under the same
+registration**. The existing mutation test edits the manifest itself, so it could
+not reach this case — the test and the defect had the same blind spot.
+
+The **complete** binding check now runs immediately before every trajectory.
+Demonstrated by mutating `policy3.yml` between trajectories: the driver stops at
+the next one and names binding drift. The mutant that removes this check fails
+exactly three assertions, all of them the `policy3.yml` case, **while the older
+manifest-mutation assertion still passes** — which is the concealment, shown rather
+than described.
+
+### 4. Environment drift had no continuation path
+
+`--check` returns 3 for environment drift and says "record it, then proceed", but
+the driver collapsed every non-zero result into refusal. There was no way to
+proceed: a dead end dressed as a safeguard.
+
+`--check` now emits a fingerprint over **exactly** what drifted.
+`pilot-drive.sh --acknowledge-drift` records that fingerprint, and the driver
+proceeds only while the observed drift matches it — so acknowledging "the kernel
+moved" does not silently excuse "the node version moved" tomorrow. Binding drift is
+**never** acknowledgeable. The acknowledgement mode deliberately bypasses the
+startup gate, because gating the resolution behind the refusal it resolves is what
+made the original path a dead end.
+
+### Evidence
+
+`selftest.sh` **158 assertions, 0 failures** — with the artefact and without it.
+smoke4 39/0 and cleanup-lifecycle4 77/0 both matter here because `run-task4.sh`
+changed; verdict4-selftest 21/21, hygiene 0.
+
+The stub is now **strict**: it asserts readiness, the registered model against the
+manifest's, the manifest hash, and that `TB_PILOT_SEQ` names this exact (task, arm),
+failing loudly otherwise. The permissive stub it replaces would have passed against
+a driver that set none of them — which is what the driver did.
+
+One mutant per blocker, each caught by the assertion that names it: readiness
+removed → "TB_RUNTASK4_READY not set — a real runner would exit 78"; sequence
+removed → "TB_PILOT_SEQ missing" and "verdicts do not carry the frozen row";
+per-trajectory binding check removed → the three `policy3.yml` assertions only;
+acknowledgement ignored → one failure. Two earlier attempts at this proof were
+invalid and are recorded as such: the first left `$FZ`/`$FM`/`$CK` undefined so
+`set -u` killed the harness, and the second ran after the mutants had been deleted,
+giving rc=127 for all four. Identical results across unrelated mutants is the
+signature of a broken harness, not of thorough coverage.
+
+### CI failure — the counterfactual fixture flaked on an editable-install internal, 2026-09-04
+
+`round4-harness` went red on the four-blocker push: `verify-pilot-tasks` reported
+`G parent + tests + gold is red (rc=1)`. The same fixture passed one commit earlier
+and I had not touched it, so this was environment-dependent, not a regression in the
+change.
+
+**Root cause.** The counterfactual fixture is a minimal hand-built package. The
+verifier installs it with `uv pip install -e .` and then edits the tree's `calc.py`
+via the gold patch, expecting the import to see the edit. On the setuptools version
+that runner resolved, the editable install produced a **finder pointing at a static
+copy** rather than the live tree, so after the gold patch the import still returned
+the parent `calc` (`a - b`) — both tests failed, G read RED (rc=1) though the task is
+solvable. `python -m pytest`'s cwd insertion does not help, because a meta-path
+finder is consulted before `sys.path`.
+
+Reproduced deterministically — independent of which editable mode a setuptools
+happens to pick — by injecting a meta-path finder that shadows `calc` with a stale
+copy: G goes RED with `assert -1 == 3`, exactly the CI symptom.
+
+**Fix.** A `conftest.py` at the fixture root force-loads `calc` from the working tree
+into `sys.modules` at collection start. `sys.modules` is consulted before any finder,
+so the live tree module wins on every setuptools/pytest version. Scope is the
+**fixture only** — `verify-pilot-tasks.sh` and the real task repositories are
+untouched, because real mined packages install live-editable and never hit this; this
+is why the 20-task verification did not need rerunning.
+
+**Guard.** A permanent, deterministic regression asserts both halves: with the shadow
+finder installed and no conftest the solvable task reads RED (the class reproduced),
+and with the conftest it reads GREEN (the fix). It builds its own venv and shadow, so
+it does not depend on the host toolchain's editable behaviour.
+
+selftest.sh 160/0 with the artefact and 160/0 without. Only selftest.sh changed; no
+binding file moved, so the manifest is not re-frozen. typecheck 0, vitest 2159/2159,
+build 0, self-gate 0.
+
+### Editable-install liveness guard in run-task4.sh — 2026-09-04
+
+The fixture failure above (a copying editable finder) prompted the question: could
+the same class corrupt a REAL trajectory, not just the fixture? The trajectory suite
+runs IN PLACE in `$REPODIR` and the whole measurement assumes the agent's edits there
+are the code the suite imports. If a setuptools version resolves the task package to a
+static copy, edits are invisible and the trajectory measures stale code.
+
+**First finding, recorded because it corrected my own framing.** run-task4.sh already
+FAIL-CLOSES against this in the common case: §8 gold validation applies the known-good
+gold patch and asserts the suite goes GREEN; a copy-import keeps it RED, so the runner
+exits `PRE_AGENT_GOLD_RED` before the agent runs. So the exposure was never a *silent*
+false RED — I had overstated it. What remained was (a) `PRE_AGENT_GOLD_RED
+(infrastructure)` is opaque — indistinguishable from a genuinely broken task gold — and
+(b) gold validation only exercises the copy-import when the gold patch edits an imported
+module; a fix in a data file or a newly-added module could pass gold yet still bite the
+agent.
+
+**Guard.** After the install ladder, for each top-level module the editable dist (PEP
+610 `direct_url` marks it editable from `$REPODIR`) exposes, the runner IMPORTS the
+module — exactly what pytest does — and asserts the resolved file lives under
+`$REPODIR`. A copy resolves outside it and the runner exits `PRE_AGENT_EDITABLE_NOT_LIVE`
+naming the module and the copy path. rc semantics: 0 live, 3 no editable dist, 1 a copy
+— only 1 is fatal, so an unimportable or metadata-less package never produces a false
+block.
+
+**Two subtleties, both settled by test.** The check runs from `$W`, never `$REPODIR`,
+so its own cwd cannot put the repo on `sys.path` and mask a copy — verified by a case
+that runs it from inside the repo and still catches the copy (a meta-path finder beats
+cwd). And it must use a real `import`, not `find_spec`: `find_spec` diverged from the
+actual import inside the checker process and reported a copy as live. A first prototype
+also gave a false LIVE because the TEST put the venv inside the repo, so a
+site-packages copy was nominally "under repo"; the real runner uses `REPODIR=$W/repo`
+and `VENV=$W/venv` as siblings, and the test now mirrors that.
+
+**Scope.** run-task4.sh changed, so the pilot manifest is re-frozen
+(d96e6f72bc999a52d3c99dd7dafb1be42b247d90d51733fab0f7508a918736ab). This does not
+touch the treatment, the tasks, or the verifier; the 20-task verification is unchanged.
+
+selftest.sh 165/0 with the artefact and 165/0 without. The guard's assertion pair
+(live→LIVE, copy→NOT_LIVE) is self-guarding and was additionally shown non-vacuous
+against a neutered checker that always returns live (it lets the copy through, rc=0).
+smoke4 39/0 and cleanup-lifecycle4 77/0 both matter because run-task4.sh changed;
+typecheck 0, vitest 2159/2159, build 0, self-gate 0.
