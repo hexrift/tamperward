@@ -1953,9 +1953,18 @@ cannot be built on GitHub.
 
 **2. `selftest.sh` was not invoked by required CI**, so green CI validated none of
 these corrections. `harness.yml` is deliberately not a required check and never ran
-it. Now wired into the `test` job of `ci.yml` alongside the other harness selftests,
-with `uv` installed — the frozen install ladder needs it, and the P control runs a
-real suite. Full selftest runs in **30s** against a 10-minute job budget.
+it. Now a **dedicated `round4-harness` job** in `ci.yml`, with `uv` installed — the
+frozen install ladder needs it, and the P control runs a real suite.
+
+It was first added as a step inside the existing `test` job, and CI caught that:
+`test (20)` was **cancelled at 10m15s** against that job's 10-minute timeout. The log
+shows the cancellation landing *inside* `hygiene-selftest.sh`, before the new step ran
+at all — so the `test` matrix was ALREADY at its budget (legs finished at 9m27s,
+10m00s, and one cancelled), and the addition would have turned a marginal job into a
+reliably failing one. A separate job also avoids paying three times, across the Node
+matrix, for an answer that does not depend on the Node version. **The pre-existing
+marginality of the `test` job is left as found and flagged rather than silently
+papered over by raising its timeout.**
 
 **3. `$!` is not the supervised child, and the PID file was wrong.** `setsid` forks
 again whenever it is already a process-group leader, so the recorded pid can be a

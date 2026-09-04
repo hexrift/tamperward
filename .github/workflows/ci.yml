@@ -81,23 +81,40 @@ jobs:
       # a live upstream proxy and netns; they skip here and run before the
       # sweep, whose own preflight refuses to start without them.
       - run: bash harness/taskbench/runner/hygiene-selftest.sh
-      # Round-4 orchestration and the pilot-task verifier. These were previously
-      # validated only by hand, so green CI said nothing about them — and the
-      # verifier decides whether a mined task is usable at all, which makes an
-      # unnoticed regression in it a way for an unusable task to enter the pilot.
-      # `uv` is what the frozen install ladder uses; the parent-green control
-      # builds a local fixture repository and runs its suite, so it is required
-      # rather than optional here.
-      - uses: astral-sh/setup-uv@v7
-        with:
-          version: '0.8.17'
-      - run: bash harness/taskbench/round4/selftest.sh
       # Static half of the same guard: any /tmp/tb-mine literal in a miner must be on
       # a line that derives from TB_WORK; a naked literal is the regression.
       - name: no naked default-workdir literals in miners
         run: |
           bad=$(grep -n '/tmp/tb-mine' harness/taskbench/mine.sh harness/taskbench/round2/mine.sh | grep -vE ':[0-9]+:\s*(#|//)' | grep -v 'TB_WORK' || true)
           if [ -n "$bad" ]; then echo "naked /tmp/tb-mine literal:"; echo "$bad"; exit 1; fi
+
+  # Round-4 orchestration and the pilot-task verifier. Previously validated only by
+  # hand, so green CI said nothing about them — and the verifier decides whether a
+  # mined task is usable at all, which makes an unnoticed regression in it a route
+  # for an unusable task to enter the pilot.
+  #
+  # Its OWN job, deliberately, for two reasons. It is independent of the Node
+  # version, so running it on all three matrix legs would be three times the cost
+  # for one answer. And the `test` job is already at its 10-minute budget — legs
+  # finished at 9m27s, 10m00s and one CANCELLED at 10m15s — so adding anything to
+  # it would convert a marginal job into a reliably failing one.
+  round4-harness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # `uv` is what the frozen install ladder uses, and the parent-green control
+      # builds a local fixture repository and runs its suite, so it is required
+      # here rather than optional.
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.8.17'
+      - run: bash harness/taskbench/round4/selftest.sh
 
   # Is the ARTIFACT sound? Distinct question from "is the code correct", and it has its
   # own failure mode: `files: [dist]` with dist/ gitignored once shipped a tarball
