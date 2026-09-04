@@ -610,3 +610,4 @@
 {"repo":"timofurrer/colorful","gate":"G0_NOT_PYTEST"}
 {"repo":"tomasbasham/ratelimit","gate":"EXCLUDED_INACTIVE","head_date":"2025-05-31"}
 {"repo":"twilio/twilio-python","gate":"G0_NOT_PYTEST"}
+{"repo":"pyinstaller/pyinstaller","gate":"G2_PARENT_TIMEOUT","commit":"3a68c263033badbf6f83d0f864ced35963ef4d9d"}
