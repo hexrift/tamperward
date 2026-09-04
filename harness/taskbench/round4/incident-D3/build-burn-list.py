@@ -96,6 +96,24 @@ CUMULATIVE_RULE = (
 CUMULATIVE_SOURCE = ("incident-D3/burnt-254.json UNION every repo named in a live "
                      "pilot ledger (pools/pilot*/attrition.jsonl)")
 
+# Argument validation, BEFORE anything can write. An unrecognised flag used to be
+# ignored, so `--help` fell through to the default branch and REPUBLISHED the
+# cumulative burn set — an informational flag silently mutating registered state.
+# The write it performed was deterministic and correct, so nothing was corrupted,
+# but "harmless this time" is not a property to rely on before counted mining.
+# Now: --help/-h prints this module's docstring and writes nothing, and ANY
+# unrecognised argument refuses outright rather than falling through to a write.
+KNOWN_FLAGS = {'--check', '--write-incident'}
+if '--help' in sys.argv[1:] or '-h' in sys.argv[1:]:
+    print(__doc__ or '')
+    sys.exit(0)
+unknown = [a for a in sys.argv[1:] if a not in KNOWN_FLAGS]
+if unknown:
+    print(f"REFUSING: unrecognised argument(s): {' '.join(unknown)}", file=sys.stderr)
+    print(f"  known flags: {' '.join(sorted(KNOWN_FLAGS))}; no arguments republishes "
+          f"the cumulative burn set.", file=sys.stderr)
+    sys.exit(2)
+
 if '--write-incident' in sys.argv:
     repos = incident_set()
     json.dump(envelope(repos, INCIDENT_RULE, INCIDENT_SOURCE), open(INCIDENT, 'w'), indent=1)

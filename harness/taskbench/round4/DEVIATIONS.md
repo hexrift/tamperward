@@ -1804,7 +1804,11 @@ ids `11`–`20`, all `single-distribution`:
 
 **Yield: 134 repositories decided for 10 tasks = 13.4 per task**, against the 14.0
 planning figure the frame arithmetic uses. The amendment's sizing basis is therefore
-supported by a second independent walk, not just round 3's.
+CORROBORATED by a second, separate walk — not "independent". The two walks are keyed
+shuffles of overlapping frames drawn from the same pinned PyPI snapshot under the same
+gates, so they are not statistically independent and the agreement must not be read as
+if two independent estimates had converged. (Wording corrected here; the earlier phrasing
+in this entry said "independent".)
 
 **Every repository the walk touched is burnt.** `pilot-dedup.json` regenerated from
 the ledgers: **408 → 542** (408 plus the 134 decided here). `build-burn-list.py
@@ -1819,9 +1823,13 @@ the situation amendment 2 exists to address.
 
 *Disclosure about how the burn list was regenerated:* the builder was first invoked
 with an unrecognised `--help`, which it ignored, so it ran in its default mode and
-WROTE the file. The write is the intended regeneration and its content is correct
-and `--check`-verified, but it was triggered accidentally rather than deliberately,
-so it is recorded rather than presented as a planned step.
+WROTE the file. Operationally harmless — the output is deterministic, it is the
+regeneration that was going to be run anyway, and it was independently verified by
+`--check` — but an informational flag silently mutating registered state is a defect
+regardless of this outcome. **Fixed before counted mining:** `--help`/`-h` now prints
+usage and writes nothing, and ANY unrecognised argument refuses with exit 2 instead of
+falling through to a write. Verified: state is byte-identical after `--help`,
+`--bogus` and `--check`.
 
 **Two repositories cost a disproportionate share of the walk.** `pyinstaller` and
 `huggingface/pytorch-image-models` each burned their full 8-candidate budget on
