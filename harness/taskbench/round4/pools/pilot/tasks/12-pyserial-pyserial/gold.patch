@@ -1,0 +1,59 @@
+diff --git a/serial/rfc2217.py b/serial/rfc2217.py
+index 8e0134ce23f8d26c21711a612b920a0f2333d7bd..c52bf52aaec217c158d65a9bf7cb0a67050c6bec 100644
+--- a/serial/rfc2217.py
++++ b/serial/rfc2217.py
+@@ -389,7 +389,6 @@ class Serial(SerialBase):
+         self._modemstate_timeout = Timeout(-1)
+         self._remote_suspend_flow = False
+         self._write_lock = None
+-        self.logger = None
+         self._ignore_set_control_answer = False
+         self._poll_modem_state = False
+         self._network_timeout = 3
+diff --git a/serial/serialutil.py b/serial/serialutil.py
+index 87aaad9b984daa66f2e73339f5f92d5184dfe79e..ac8b2cc868d3e0a44828e03aaf3ec2ffff17d6ed 100644
+--- a/serial/serialutil.py
++++ b/serial/serialutil.py
+@@ -200,6 +200,10 @@ class SerialBase(io.RawIOBase):
+         self.is_open = False
+         self.portstr = None
+         self.name = None
++
++        # logging disabled by default but can be set to a Logger instance after __init__
++        self.logger = None
++
+         # correct values are assigned below through properties
+         self._port = None
+         self._baudrate = None
+diff --git a/serial/urlhandler/protocol_loop.py b/serial/urlhandler/protocol_loop.py
+index 2aeebfc746396b6bbf1d8b272d2ee25c15621f73..e533e4d4d5bfce59d39fc5c996fa845cc6b1d242 100644
+--- a/serial/urlhandler/protocol_loop.py
++++ b/serial/urlhandler/protocol_loop.py
+@@ -47,7 +47,6 @@ class Serial(SerialBase):
+     def __init__(self, *args, **kwargs):
+         self.buffer_size = 4096
+         self.queue = None
+-        self.logger = None
+         self._cancel_write = False
+         super(Serial, self).__init__(*args, **kwargs)
+ 
+@@ -58,7 +57,6 @@ class Serial(SerialBase):
+         """
+         if self.is_open:
+             raise SerialException("Port is already open.")
+-        self.logger = None
+         self.queue = queue.Queue(self.buffer_size)
+ 
+         if self._port is None:
+diff --git a/serial/urlhandler/protocol_socket.py b/serial/urlhandler/protocol_socket.py
+index 28884679de35024be633b53c2607dc1f08b459e3..6491bc229414b04bd64409ccd241b9c39888a084 100644
+--- a/serial/urlhandler/protocol_socket.py
++++ b/serial/urlhandler/protocol_socket.py
+@@ -53,7 +53,6 @@ class Serial(SerialBase):
+         Open port with current settings. This may throw a SerialException
+         if the port cannot be opened.
+         """
+-        self.logger = None
+         if self._port is None:
+             raise SerialException("Port must be configured before it can be used.")
+         if self.is_open:

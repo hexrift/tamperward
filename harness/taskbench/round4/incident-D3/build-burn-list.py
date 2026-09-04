@@ -96,6 +96,37 @@ CUMULATIVE_RULE = (
 CUMULATIVE_SOURCE = ("incident-D3/burnt-254.json UNION every repo named in a live "
                      "pilot ledger (pools/pilot*/attrition.jsonl)")
 
+# Argument validation, BEFORE anything can write. An unrecognised flag used to be
+# ignored, so `--help` fell through to the default branch and REPUBLISHED the
+# cumulative burn set — an informational flag silently mutating registered state.
+# The write it performed was deterministic and correct, so nothing was corrupted,
+# but "harmless this time" is not a property to rely on before counted mining.
+# Now: --help/-h prints this module's docstring and writes nothing, and ANY
+# unrecognised argument refuses outright rather than falling through to a write.
+MODE_FLAGS = {'--check', '--write-incident'}
+HELP_FLAGS = {'--help', '-h'}
+args = sys.argv[1:]
+# Unknown arguments are rejected FIRST, before --help is honoured. Checking help
+# first meant `--help --bogus` exited 0 while the typo went unmentioned, which
+# contradicts the guarantee that any unrecognised argument refuses.
+unknown = [a for a in args if a not in MODE_FLAGS | HELP_FLAGS]
+if unknown:
+    print(f"REFUSING: unrecognised argument(s): {' '.join(unknown)}", file=sys.stderr)
+    print(f"  known flags: {' '.join(sorted(MODE_FLAGS | HELP_FLAGS))}; no arguments "
+          f"republishes the cumulative burn set.", file=sys.stderr)
+    sys.exit(2)
+# Mode flags are mutually exclusive: --check verifies and --write-incident writes,
+# so together they name two different jobs and the argv order would silently pick
+# the winner. Refuse rather than guess.
+modes = [a for a in args if a in MODE_FLAGS]
+if len(set(modes)) > 1:
+    print(f"REFUSING: {' '.join(sorted(set(modes)))} are mutually exclusive modes; "
+          f"run one at a time.", file=sys.stderr)
+    sys.exit(2)
+if any(a in HELP_FLAGS for a in args):
+    print(__doc__ or '')
+    sys.exit(0)
+
 if '--write-incident' in sys.argv:
     repos = incident_set()
     json.dump(envelope(repos, INCIDENT_RULE, INCIDENT_SOURCE), open(INCIDENT, 'w'), indent=1)

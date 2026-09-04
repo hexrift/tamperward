@@ -1,0 +1,34 @@
+diff --git a/parsimonious/tests/test_grammar.py b/parsimonious/tests/test_grammar.py
+index 3527311fd05e2c7d68ffbda1e5074496345faaff..ba5aa9de07ea6118f7c2e83bd35aeb63af39422b 100644
+--- a/parsimonious/tests/test_grammar.py
++++ b/parsimonious/tests/test_grammar.py
+@@ -504,6 +504,29 @@ class GrammarTests(TestCase):
+             list(grammar.keys()),
+             ['r%s' % i for i in range(100)])
+ 
++    def test_sequence_choice_bug(self):
++        """
++        Regression test for https://github.com/erikrose/parsimonious/issues/238
++        """
++        grammar = Grammar(r'''
++            value = "[" "]" / "5"
++        ''')
++        self.assertTrue(grammar.parse('[]') is not None)
++        self.assertTrue(grammar.parse('5') is not None)
++        grammar2 = Grammar(r'''
++            value = "5" / "[" "]"
++        ''')
++        self.assertTrue(grammar2.parse('[]') is not None)
++        self.assertTrue(grammar2.parse('5') is not None)
++        grammar3 = Grammar(r'''
++            value = "4" / "[" "]" / "(" ")" / "{" "}" / "5"
++        ''')
++        self.assertTrue(grammar3.parse('[]') is not None)
++        self.assertTrue(grammar3.parse('5') is not None)
++        self.assertTrue(grammar3.parse('()') is not None)
++        self.assertTrue(grammar3.parse('{}') is not None)
++        self.assertTrue(grammar3.parse('4') is not None)
++
+     def test_repetitions(self):
+         grammar = Grammar(r'''
+             left_missing = "a"{,5}

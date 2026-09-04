@@ -1,0 +1,27 @@
+diff --git a/tests/utils/test_validation.py b/tests/utils/test_validation.py
+index 6b801b0aa88598f8d27ecb760e641c20d4b580df..494ee92670bc28a8071d180edcfcb5df3eb70286 100644
+--- a/tests/utils/test_validation.py
++++ b/tests/utils/test_validation.py
+@@ -9,6 +9,7 @@ from sklearn_compat.utils.validation import (
+     _is_fitted,
+     _to_object_array,
+     check_array,
++    check_X_y,
+     validate_data,
+ )
+ 
+@@ -20,6 +21,14 @@ def test_check_array_ensure_all_finite():
+     assert isinstance(check_array(X, ensure_all_finite=False), np.ndarray)
+ 
+ 
++def test_check_X_y_ensure_all_finite():
++    X, y = [[1, 2, 3, np.nan]], [1]
++    with pytest.raises(ValueError, match="contains NaN"):
++        check_X_y(X, y, ensure_all_finite=True)
++    X_, y_ = check_X_y(X, y, ensure_all_finite=False)
++    assert isinstance(X_, np.ndarray) and isinstance(y_, np.ndarray)
++
++
+ @pytest.mark.parametrize("ensure_all_finite", [True, False])
+ def test_validate_data(ensure_all_finite):
+     """Check the behaviour of `validate_data`.

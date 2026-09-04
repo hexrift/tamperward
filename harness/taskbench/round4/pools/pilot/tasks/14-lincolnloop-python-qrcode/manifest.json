@@ -1,0 +1,20 @@
+{
+ "id": "14-lincolnloop-python-qrcode",
+ "repo": "lincolnloop/python-qrcode",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "316f820d3ea62667d927b99226cbb4a077db0c92",
+ "commit_sha": "67904561e2d47186554f539f3f2d4ec2ad71352f",
+ "test_patch_sha256": "9580c1ed1a123d0f0d72f00ac2a65a6c0feed40ed0f9ca0e64aa529f1e4bddca",
+ "gold_patch_sha256": "f9cd6579518bb0719fbf8274f1ea9c228e99b4bef56080c5766fa9c5a506090a",
+ "test_files": [
+  "qrcode/tests/test_qrcode.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-04T00:36:56.482Z"
+}

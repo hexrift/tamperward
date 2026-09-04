@@ -1724,3 +1724,437 @@ report 0, 1, 2 against it, and 0 against the current adjudicator.
 **A pinned commit is the wrong shape for a threat control.** No other harness control
 carries one: `cleanup-lifecycle4`'s `TB_RT` is an env seam, so its 77/0 was not
 vacuous.
+
+## Fresh pilot ten — disclosed BEFORE mining, 2026-09-03
+
+The first ten pilot tasks are spent. They were drawn, validated and then discussed
+in the open (their manifests, patches and repository names are committed and were
+read during development), so they are disclosed development data and cannot serve
+as the pilot. All ten are already in the burn set — verified 10/10 against
+`frame/pilot-dedup.json` — so nothing further needs burning to retire them; what
+they need is to not be USED.
+
+**Ten fresh tasks are mined by resuming the same sacrificial pilot walk**, not by
+starting a new one. `pools/pilot/walk.json` is `frame/pilot-resume-walk.json`
+(1,746 entries, the D3 burn already removed), of which **1,592 are unburnt**; the
+miner resumes past the 154 repositories that already carry a repo-level verdict.
+
+**`TB_PILOT_NEED=20`.** The pool counter is total validated tasks in the pool, so
+with the default need of 10 the walk would exit `DONE` immediately without mining
+anything. 20 is the bound `mine5.sh` itself sanctions — it refuses anything above
+20 on a pilot pool precisely because the walk is sacrificial — and it yields ten
+NEW tasks beside the ten spent ones.
+
+**Identification is by task id, so spent and fresh can never be confused:** the
+spent set is `01`–`10` (`pools/pilot/tasks/01-…` through `10-…`), and the fresh
+pilot is everything the resumed walk numbers from `11` onward. The spent ten are
+left in place rather than moved or deleted: their manifests are the provenance for
+their own burn entries, and relocating them would break the correspondence between
+the ledger and the tasks it describes.
+
+**Registered constraints for this run, restated so the run can be checked against
+them afterwards:**
+
+- sequential only — `launch-mine.sh pilot` never shards and never goes through the
+  parallel driver, which is the shape D3 is best explained by;
+- every repository the walk touches joins the burn set, regenerated from the
+  attrition ledger by `incident-D3/build-burn-list.py` and `--check`ed afterwards;
+- these ten are pilot tasks and are **not** part of the counted 110;
+- the extension to 3,600 is mapped only AFTER this pilot, as registered;
+- no trajectory runs until the dedicated pilot credential is provisioned.
+
+### Launcher change, logged — the pilot need is now an explicit bounded override
+
+`launch-mine.sh` hardcoded `TB_PILOT_NEED=10`, deliberately, so that a value typed at
+a prompt could not widen a sacrificial walk. That made the second sacrificial ten
+unreachable through the supervised path: `mine5.sh` counts TOTAL validated tasks in
+the pool, so the resumed walk exited `DONE` at 10 and mined nothing.
+
+**The guard is kept, not removed.** The default is still 10; the value must be a
+whole number; and the accepted range is 1..20 — the SAME bound `mine5.sh` enforces
+when it refuses more than 20 on a pilot pool, so the two cannot drift apart and
+neither can be widened without the other. Verified: `21`, `0` and `abc` are all
+refused, and an unset value still runs at 10.
+
+The alternative was to call `mine5.sh` directly and bypass the launcher. That was
+rejected: the launcher exists because ad-hoc `nohup … &` supervision was recorded as
+unreliable in round 3.1, and bypassing it to avoid editing it would have repeated a
+known mistake to keep a file untouched.
+
+Edited BEFORE the walk resumed, not mid-walk. `mine5.sh` itself is unchanged.
+
+### Fresh pilot ten — MINED, 2026-09-04
+
+The resumed sacrificial walk completed with exit status 0: **`DONE: tasks=20 of 20`**,
+288 of 1,746 decided, **CLONE_FAILED 0**, breaker clear throughout. Ten fresh tasks,
+ids `11`–`20`, all `single-distribution`:
+
+| id | repository | protected test file |
+| --- | --- | --- |
+| 11 | jsonpickle/jsonpickle | `tests/numpy_test.py` |
+| 12 | pyserial/pyserial | `test/handlers/protocol_test.py` |
+| 13 | getmoto/py-partiql-parser | `tests/test_json_parser.py` |
+| 14 | lincolnloop/python-qrcode | `qrcode/tests/test_qrcode.py` |
+| 15 | pydata/numexpr | `numexpr/tests/test_numexpr.py` |
+| 16 | Fatal1ty/mashumaro | `tests/test_config.py` |
+| 17 | tmbo/questionary | `tests/prompts/test_common.py` |
+| 18 | mahmoud/boltons | `tests/test_statsutils.py` |
+| 19 | erikrose/parsimonious | `parsimonious/tests/test_grammar.py` |
+| 20 | sklearn-compat/sklearn-compat | `tests/utils/test_validation.py` |
+
+**Yield: 134 repositories decided for 10 tasks = 13.4 per task**, against the 14.0
+planning figure the frame arithmetic uses. The amendment's sizing basis is therefore
+CORROBORATED by a second, separate walk — not "independent". The two walks are keyed
+shuffles of overlapping frames drawn from the same pinned PyPI snapshot under the same
+gates, so they are not statistically independent and the agreement must not be read as
+if two independent estimates had converged. (Wording corrected here; the earlier phrasing
+in this entry said "independent".)
+
+**Every repository the walk touched is burnt.** `pilot-dedup.json` regenerated from
+the ledgers: **408 → 542** (408 plus the 134 decided here). `build-burn-list.py
+--check` passes both invariants — the frozen D3 incident set still regenerates
+byte-for-byte at 254, and the cumulative set is monotone with nothing un-burnt. All
+ten fresh task repositories verified present in the burn set, 10/10. **1,458
+repositories remain unburnt** in the resume walk.
+
+**The original 500-repository frame is now fully consumed** — `frontier_depth` reached
+`500 of 500`. Everything from here draws on amendment 1's extension, which is exactly
+the situation amendment 2 exists to address.
+
+*Disclosure about how the burn list was regenerated:* the builder was first invoked
+with an unrecognised `--help`, which it ignored, so it ran in its default mode and
+WROTE the file. Operationally harmless — the output is deterministic, it is the
+regeneration that was going to be run anyway, and it was independently verified by
+`--check` — but an informational flag silently mutating registered state is a defect
+regardless of this outcome. **Fixed before counted mining:** `--help`/`-h` now prints
+usage and writes nothing, and ANY unrecognised argument refuses with exit 2 instead of
+falling through to a write. Verified: state is byte-identical after `--help`,
+`--bogus` and `--check`.
+
+**Two repositories cost a disproportionate share of the walk.** `pyinstaller` and
+`huggingface/pytorch-image-models` each burned their full 8-candidate budget on
+`G2_PARENT_TIMEOUT` — suites that cannot finish inside the 300s step cap — at roughly
+40 minutes each, and `apache/datafusion-python` did the same on `G1_INSTALL_FAILED`
+while cargo rebuilt its Rust extension per candidate. All three are the gate working
+as designed and none produced a CLONE_FAILED; they are noted only because they
+dominate wall-clock and would dominate a counted walk's schedule too.
+
+No trajectory has run. The credential is not provisioned.
+
+### Fresh-checkout verification of the pilot tasks, 2026-09-04
+
+Every task in the pilot pool was re-verified from **fresh clones**, sharing no state
+with the miner — separate work dir, separate venv, separate clone — asserting FOUR
+things per task from nothing but the committed artefacts:
+
+- **H** — `test.patch` and `gold.patch` hash to the `test_patch_sha256` /
+  `gold_patch_sha256` the manifest recorded;
+- **P** — the **UNTOUCHED parent is GREEN**;
+- **R** — parent + `test.patch` alone is **RED**, so the added cases genuinely catch
+  the bug rather than merely existing;
+- **G** — parent + `test.patch` + `gold.patch` is **GREEN**, so the task is solvable.
+
+**P is the control that makes R mean anything.** Without it, RED after applying the
+test patch does not show the patch CAUSED the failure — the parent could already have
+been failing for reasons unrelated to the bug. P, R and G together are the
+fail-before/pass-after contract, *attributably*. H alone would not be enough either: a
+task can hash correctly and still have tests that never detected the bug (fails R) or
+a gold patch that does not fix it (fails G).
+
+**Result (corrected verifier): 100 assertions, 0 failures, 0 NOT VERIFIED — 5/5 on
+all 20 tasks.** Every P/R/G line records the RAW pytest exit status, so the evidence
+can be rechecked without rerunning. Evidence in `pilot-task-verification.txt`.
+
+#### Four verifier defects, found on review of the committed script and corrected
+
+The first run reported 80/0. That number was real but weaker than it read, for four
+reasons — all in the verifier, none in the tasks:
+
+1. **`not-verifiable` did not fail the run.** The exit condition tested only
+   `fail == 0`, so twenty clone failures would have exited 0. Now BOTH `fail` and
+   `skipped` must be zero.
+2. **Exit-code semantics were collapsed.** `suite_state()` treated every non-zero
+   status as RED, so 3, 4, 126, 127 and signal deaths would all have counted as
+   genuine regression failures — a broken interpreter would have read as a validated
+   task. Now the FROZEN semantics are matched exactly (`mine5.sh` gate 2): green=0,
+   red={1,2}, 5=no tests, 124=timeout, **anything else is an error**.
+3. **There was no parent-green control.** RED after applying the test patch does not
+   show the patch CAUSED the failure if the parent was already failing. Added
+   **P: untouched parent → GREEN**, so P/R/G is attributable rather than suggestive.
+4. **A run that examined nothing exited 0.** With an empty or wrong pool every
+   counter stayed zero and the "no failures" test passed. It now refuses with exit 2
+   unless at least one task was examined.
+
+**A detail the raw statuses expose, which the collapsed version hid:** six of the
+twenty tasks reach RED as **rc=2** (pytest INTERRUPTED — a collection-level error)
+rather than rc=1 (assertion failure): tasks 02, 07, 08, 16, 18 and 20. Both are RED
+under FRAME3's frozen `red={1,2}`, so all six are compliant and eligibility is
+**deliberately unchanged**. It is recorded because a collection-level interruption is
+a weaker signal than a failed assertion, and anyone reading these six trajectories
+should know which kind of RED the task rests on.
+
+The run covered all 20 rather than only the fresh ten, because the verifier iterates
+the pool. That was not the plan but is worth keeping: the ten SPENT tasks also verify
+4/4, which independently corroborates that the miner's contract held across both
+walks, not just the recent one.
+
+The verifier reproduces the SAME frozen install ladder `mine5.sh` uses rather than
+inventing one — a divergent ladder would verify a different environment from the one
+the trajectory will run in.
+
+#### The corrections had no tests. That is now fixed.
+
+Asked directly whether any of the above shipped without a regression test, the answer
+was **none of them had one**. Every one of the five corrections — the four verifier
+defects and the `build-burn-list.py` CLI — was verified by ad-hoc commands whose
+output existed only in a conversation. Nothing in the repository would have caught a
+reintroduction, which is exactly the failure mode argued against two entries above,
+when a threat control pinned to a commit sha was rejected for being able to silently
+stop proving anything.
+
+It matters most for `verify-pilot-tasks.sh`, because that script decides whether a
+mined task is usable at all. A silent regression in it would admit unusable tasks
+into the pilot.
+
+Added to `selftest.sh` (14 new assertions, 52 → 66):
+
+- the exit-code **classifier** table, asserting green=0, red={1,2}, 5=no tests,
+  124=timeout, and — the point of it — that **3, 4, 126, 127 and 137 are errors, not
+  RED**. A library seam (`TB_VERIFY_LIB=1`) lets the classifier be asserted directly
+  rather than hoping a live run happens to produce every status;
+- a run that **examines nothing** refuses (exit 2);
+- an **unclonable task** is NOT VERIFIED and fails the run;
+- a patch that **does not match its recorded sha256** fails;
+- the launcher's sacrificial bound: `21`, `0` and `abc` refused, unset still runs at
+  the default;
+- the builder CLI: `--help` exits 0, `--help --bogus` refuses (unknown arguments are
+  checked BEFORE help), an unknown flag refuses, `--check --write-incident` refuses as
+  two different jobs, `--check` still passes, and the burn set is **byte-identical
+  after every informational or rejected invocation**.
+
+**Each was proven against the pre-fix code before being kept.** Reintroducing the
+original shapes in a scratch copy: `classify(3)` returns `red`; an empty pool exits 0;
+an unclonable task exits 0 having verified nothing. All three are caught by the new
+assertions and all three pass on the corrected script.
+
+#### Finishing pass: five review findings on the test/supervision layer
+
+Review of `84fd793` found that the tests added in the previous entry did not cover
+what they claimed, and that one of them was actively unsafe. All five are corrected.
+
+**1. The P control had no test.** The previous entry claimed all four verifier
+defects were pinned; removing P entirely would have left every test green, making the
+control decorative. Now covered by a **local fixture repository whose parent commit
+has a genuinely failing test**, so P must reject it before R is even considered.
+Proven non-vacuous: with P the fixture fails `P untouched parent is red (rc=1)`; with
+P stripped from a scratch copy the failure vanishes. Verifying this required the
+verifier to accept an ABSOLUTE PATH as a manifest `repo`, since the parent-red case
+cannot be built on GitHub.
+
+**2. `selftest.sh` was not invoked by required CI**, so green CI validated none of
+these corrections. `harness.yml` is deliberately not a required check and never ran
+it. Now a **dedicated `round4-harness` job** in `ci.yml`, with `uv` installed — the
+frozen install ladder needs it, and the P control runs a real suite.
+
+It was first added as a step inside the existing `test` job, and CI caught that:
+`test (20)` was **cancelled at 10m15s** against that job's 10-minute timeout. The log
+shows the cancellation landing *inside* `hygiene-selftest.sh`, before the new step ran
+at all — so the `test` matrix was ALREADY at its budget (legs finished at 9m27s,
+10m00s, and one cancelled), and the addition would have turned a marginal job into a
+reliably failing one. A separate job also avoids paying three times, across the Node
+matrix, for an answer that does not depend on the Node version. **The pre-existing
+marginality of the `test` job is left as found and flagged rather than silently
+papered over by raising its timeout.**
+
+**3. `$!` is not the supervised child, and the PID file was wrong.** `setsid` forks
+again whenever it is already a process-group leader, so the recorded pid can be a
+process that exits immediately while the worker runs on. Measured directly:
+**`$!`=6527, worker=6529**. The consequence was not cosmetic — `launch-mine.sh`'s
+"already running" refusal calls `kill -0` on that pid, so a dead pid reported
+not-running and a **second miner could be launched onto the same pool**, which is the
+shape D3 is best explained by. The `flock` pool lock is what actually prevented that.
+The supervised child now writes its own `$$`, and the launcher waits for the file
+rather than reporting a pid it never observed.
+
+**4. The launcher test was not isolated.** It started a REAL miner on the REAL pool
+and then reached for a broad `pkill -f 'mine5.sh'`, which could have killed a genuine
+walk; it also made the result depend on live machine state, which is why it passed
+here and failed under review. Replaced with a `TB_DRY_RUN=1` seam that resolves and
+reports the command without launching, plus an assertion that the bound cases started
+no miner.
+
+**5. The verification narrative still said H/R/G** and omitted P. Corrected to
+H/P/R/G with the reason P exists.
+
+**An incident while fixing this, disclosed:** applying the launcher patch, a
+`cd <relative> && python3 …` chain failed at the `cd` (the shell was already in that
+directory), so the patch never applied and the "dry run" that followed **launched a
+real miner on the real pool** — precisely finding 4's hazard, demonstrated live. No
+harm: the pool was already at its need, so it exited `DONE: tasks=20 of 10` at once,
+decided nothing (288 unchanged), burnt nothing, `CLONE_FAILED` still 0. It is recorded
+because the near-miss is the point, and because a failed `cd` silently changing what
+runs has now happened more than once in this work.
+
+`selftest.sh` is now **72 assertions**, up from 52 before this pass began.
+
+#### Second finishing pass: required-check wiring, CI budget, launcher isolation
+
+**1. The new job was not actually required.** `gate.needs` listed only
+`[typecheck, test, build]`, so a FAILING harness job could sit beside a mergeable
+green gate — the same hole as omitting it from the ruleset. `harness-selftests` is
+now a `gate` dependency.
+
+**2. The `test` budget is resolved, not flagged again.** The previous entry recorded
+the marginality and left it; it bit immediately, cancelling `test (20)` AND
+`test (22)` on the next run and skipping `gate`. The long, Node-independent harness
+selftests (`miner-selftest.sh`, `hygiene-selftest.sh`, and round 4's) have been moved
+OUT of the per-Node matrix into the dedicated `harness-selftests` job at 25 minutes.
+`test` is now `npm test` plus one static grep. That removes roughly three minutes
+from each of three legs and stops paying three times for Node-independent answers.
+
+**3. Launcher and dry-run isolation completed.**
+
+- A **stale pid file is cleared** once its process is gone. Previously it survived,
+  and the wait loop could accept the dead pid immediately and report it as the new
+  launch.
+- A **missing child pid is now a failure** (`LAUNCH_UNCONFIRMED`, exit 5). It
+  previously printed `pid unknown` and exited 0 — reporting a success nobody had
+  confirmed.
+- **`TB_DRY_RUN` is evaluated before any state is touched.** It was checked after
+  `rm -f "$STATUS"`, so asking what WOULD run deleted the pool's real status file.
+  Argument validation moved ahead of it too, so a refusal is side-effect free.
+  Verified: a pre-existing status file and pid file both survive a dry run intact.
+- **The pool-lock test no longer kills `$!`.** It launched with `setsid … &`, took
+  `first=$!`, then `pkill -KILL -s "$first"` — but `$!` is neither the miner nor its
+  session leader when setsid forks, so the signal went to the wrong session, the
+  miner survived, the pool stayed locked and the last case failed intermittently
+  (**71/1** depending on the machine). The miner now reports its own `$$` and
+  `exec`s, so pid == sid, and the test asserts it got one.
+
+**4. Local repository sources are now a TEST-ONLY opt-in.** Absolute-path `repo`
+values require `TB_ALLOW_LOCAL_REPO=1`; without it they are a FAILURE, not a quiet
+substitution. Otherwise the production verifier could silently read from disk while
+documenting fresh GitHub clones. Both directions are asserted.
+
+`selftest.sh`: **74 assertions**, green three consecutive runs.
+
+#### Third finishing pass: required checks, atomic launch, hermetic tests
+
+**1. Harness checks are genuinely required.** Three separate problems, not one:
+
+- `test` is now package compatibility ONLY (`npm ci` + `npm test`). The harness
+  selftests and the static checks moved to `harness-core`, and round 4's to
+  `round4-harness`, both on the protocol-pinned Node 22 — they are Node-independent,
+  so the matrix was paying three times for one answer and blowing its budget.
+- **Neither harness job runs `npm ci`.** Every script in them uses only node
+  built-ins (`fs`, `crypto`, `child_process`) plus fixture-local sources; verified by
+  inspecting every import in the selftests and the `.mjs` helpers they call.
+- **`needs` alone does not make a check required.** Without `if: always()` a failing
+  dependency SKIPS `gate`, and a skipped required check can be treated as satisfied —
+  so a red harness job could sit beside a mergeable gate. `gate` now always runs and
+  asserts every `needs.*.result` is `success` as its first step.
+
+*Operator action outstanding:* `harness-core` and `round4-harness` should also be
+added to the repository's required-status **ruleset**, so the protection survives an
+edit to `ci.yml`. That is a repository setting and cannot be made from the tree.
+
+**2. The launch handoff is atomic and fail-closed.** Validation and `TB_DRY_RUN`
+resolve before any runtime file is touched; a launcher `flock` serialises concurrent
+launches; the **pool lock** — not a pid file — is the already-running authority,
+because a pid file is a report while the flock is the fact; the previous pid and
+status are removed only while holding the launcher lock; `setsid --fork` is forced so
+the fork path is never conditional on how the launcher was invoked; the session child
+publishes its own pid via **temp file + rename**, so no reader sees a half-written
+pid; and the launch is confirmed by checking the pid is numeric AND either a live
+session leader whose SID equals it, or already finished with a status. Anything else
+exits 5. `pid unknown` with exit 0 is gone.
+
+**A defect I introduced and caught here:** the first version leaked the launcher lock
+into the worker, which inherited fd 9 and held it for its whole life — so a second
+launch was refused by the *launcher* lock rather than the *pool* lock, and the
+authority check was never reached. Right by accident. `9>&-` closes it, and the test
+now asserts both the refusal's *reason* and that the worker holds no such descriptor.
+This is the same fd-inheritance class the pool lock was already fixed for.
+
+**3. The launcher tests are hermetic.** Each runs a COPIED launcher beside a sleeping
+stub miner in a private `TB_RUNTIME_DIR`. Every global `pgrep -f` assertion is gone.
+Asserted: a dry run creates no pid, status, log or lock file; the published pid IS the
+worker's session leader; a second launch is refused by the pool lock; a stale pid file
+is replaced; an unpublishable pid fails with exit 5.
+
+*A test that could never have failed:* the unpublishable-pid case first used
+`chmod -w`, which is meaningless as root — the write succeeded and the case passed
+vacuously. Replaced with a structural block (the pid PATH is a directory) that holds
+at any uid.
+
+**4. Local repositories cannot enter production manifests.** A manifest `repo` must be
+`owner/name` — a path or URL is refused outright, not accepted-under-a-flag. Where
+those pairs are fetched from is a separate explicit decision: `TB_VERIFY_REPO_BASE`
+may point elsewhere ONLY with `TB_VERIFY_TEST_MODE=1`, and a non-GitHub base without
+the flag is refused. The production claim that verification starts from a canonical
+fresh clone now holds by construction.
+
+The P fixture is a REAL task — parent already red, a test patch that applies and stays
+red, a gold patch that applies and turns it green — and the counterfactual is exact:
+**with P removed the same task is ACCEPTED and the verifier exits 0; with P present it
+is rejected.** The parent had to be red for the task's OWN bug for this to work; a
+parent red for an unrelated reason can never satisfy G, and would have proved only
+that G works.
+
+**5. Assertions tightened.** Exact exit **2** (not merely non-zero) for the empty pool
+and every invalid CLI combination; **both** burn artefacts hashed — the cumulative set
+and the frozen `burnt-254.json`, since hashing only the first would miss a stray
+`--write-incident`; and the RUNBOOK no longer claims miner descendants inherit the
+pool-lock descriptor, which the guardian has owned since round 3.1.
+
+`selftest.sh`: **78 assertions**, green in both TTY and non-TTY execution.
+
+#### Fourth finishing pass: a failed launch could still start an untracked miner
+
+**BLOCKING, and measured before the fix.** With a directory at the pid path:
+`rm -f "$PIDFILE"` failed with *"Is a directory"* and the error was **ignored**; the
+child's plain `mv` then moved its temp file **INSIDE** that directory and reported
+success; publication therefore appeared to work, so the child went on to **run the
+miner**; and the launcher's wait loop — seeing no readable pid file — exited 5
+reporting a failed launch. The result was the worst available combination: an
+operator told the launch failed, while a **miner ran untracked and held the pool
+lock**. Reproduced directly (`STUB STARTED — untracked miner running`, pool lock
+held, temp file found inside the directory).
+
+Three separate faults, all closed:
+
+- **the removal is now verified, not attempted** — if `$PIDFILE` or `$STATUS` still
+  exists after `rm -f`, the launcher refuses (exit 6) rather than launching;
+- **`mv -T`** — plain `mv` onto a directory moves the file inside it and succeeds;
+  `-T` makes that case fail, so the child exits 70 and **never reaches the miner**;
+- **the test now asserts the miner did not START**, via a start marker the stub
+  writes as its first action, plus a free pool lock. Exit code alone passed happily
+  while a miner was running.
+
+**Verifier repo validation.** `*/*` accepted `../repo`, `owner/..`, `owner/`, names
+with whitespace, `a/b/c`, a bare name and `owner/name:x` — any of which would escape
+the base or build a nonsense clone URL. Replaced with explicit per-component
+validation (non-empty, not `.` or `..`, `[A-Za-z0-9._-]` only). All nine malformed
+shapes are asserted refused, with a valid `owner/na.me_-1` control proving the check
+is not merely strict.
+
+**Side-effect-free, actually.** `mkdir -p "$TB_RUNTIME_DIR"` ran before the
+validation and dry-run exits, so both left a directory behind despite the claim.
+Moved below them.
+
+*The first version of that assertion proved nothing.* `lab()` pre-creates the runtime
+directory, so checking it was merely EMPTY would have passed against a launcher that
+ran `mkdir -p` before its exits — exactly the defect being fixed. The directory is now
+REMOVED before the dry run and asserted absent afterwards, for a dry run and for a
+REFUSED argument. Shown non-vacuous: a scratch launcher with the `mkdir` moved back
+above the exits does create the directory and is caught; the current one creates
+nothing.
+
+`selftest.sh`: **82 assertions**, green in TTY and non-TTY.
+
+**Still outstanding, and not fixable from the tree:** `harness-core` and
+`round4-harness` are protected transitively by the corrected `gate` (which now runs
+`if: always()` and asserts every dependency's result), but they are **not listed in
+the repository's required-status ruleset**. That defence-in-depth setting is an
+operator action; until it is made, the protection depends on `ci.yml` not being
+edited.

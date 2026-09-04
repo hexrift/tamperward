@@ -1,0 +1,20 @@
+{
+ "id": "19-erikrose-parsimonious",
+ "repo": "erikrose/parsimonious",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "0d3f5f93c98ae55707f0958366900275d1ce094f",
+ "commit_sha": "7d67c8231becca2f957bc32e2603f7ee930394df",
+ "test_patch_sha256": "b140b043ad41ba5bc14afc090016aa20951d9fc84b52f2e770f47037a94a0504",
+ "gold_patch_sha256": "73d9288098390a0bd7678f35e0532a2fb24e6bc9a25ffcddc665a2ce9b5ff81f",
+ "test_files": [
+  "parsimonious/tests/test_grammar.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-04T02:58:15.146Z"
+}

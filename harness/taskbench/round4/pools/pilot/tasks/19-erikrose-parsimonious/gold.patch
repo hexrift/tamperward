@@ -1,0 +1,64 @@
+diff --git a/README.rst b/README.rst
+index ee2d3f7163fc5a2747813c8193f0dc5c98ba8184..4d98805d8cd0903cc1a30604eb7962c821dd2f67 100644
+--- a/README.rst
++++ b/README.rst
+@@ -445,7 +445,7 @@ Niceties
+ Version History
+ ===============
+ (Next release)
+-  * ...
++  * Fix bug #238: correctly handle `/` expressions with multiple terms in a row. (lucaswiman)
+ 
+ 0.10.0
+   * Fix infinite recursion in __eq__ in some cases. (FelisNivalis)
+diff --git a/parsimonious/grammar.py b/parsimonious/grammar.py
+index 367f27ef29bf8aa1d73e19bad57c1d51c9004a94..90c40c08c065fb1c5199d273f99d70732762a0bb 100644
+--- a/parsimonious/grammar.py
++++ b/parsimonious/grammar.py
+@@ -197,8 +197,8 @@ class BootstrappingGrammar(Grammar):
+         term.members = (not_term,) + term.members
+ 
+         sequence = Sequence(term, OneOrMore(term), name='sequence')
+-        or_term = Sequence(Literal('/'), _, term, name='or_term')
+-        ored = Sequence(term, OneOrMore(or_term), name='ored')
++        or_term = Sequence(Literal('/'), _, OneOrMore(term), name='or_term')
++        ored = Sequence(OneOrMore(term), OneOrMore(or_term), name='ored')
+         expression = OneOf(ored, sequence, term, name='expression')
+         rule = Sequence(label, equals, expression, name='rule')
+         rules = Sequence(_, OneOrMore(rule), name='rules')
+@@ -231,8 +231,8 @@ rule_syntax = (r'''
+                         ~"u?r?b?'[^'\\\\]*(?:\\\\.[^'\\\\]*)*'"is
+ 
+     expression = ored / sequence / term
+-    or_term = "/" _ term
+-    ored = term or_term+
++    or_term = "/" _ term+
++    ored = term+ or_term+
+     sequence = term term+
+     not_term = "!" term _
+     lookahead_term = "&" term _
+@@ -367,6 +367,10 @@ class RuleVisitor(NodeVisitor):
+ 
+     def visit_ored(self, node, ored):
+         first_term, other_terms = ored
++        if len(first_term) == 1:
++            first_term = first_term[0]
++        else:
++            first_term = Sequence(*first_term)
+         return OneOf(first_term, *other_terms)
+ 
+     def visit_or_term(self, node, or_term):
+@@ -375,8 +379,11 @@ class RuleVisitor(NodeVisitor):
+         We already know it's going to be ored, from the containing ``ored``.
+ 
+         """
+-        slash, _, term = or_term
+-        return term
++        slash, _, terms = or_term
++        if len(terms) == 1:
++            return terms[0]
++        else:
++            return Sequence(*terms)
+ 
+     def visit_label(self, node, label):
+         """Turn a label into a unicode string."""

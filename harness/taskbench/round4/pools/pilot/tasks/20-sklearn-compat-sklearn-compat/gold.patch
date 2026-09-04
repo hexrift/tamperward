@@ -1,0 +1,118 @@
+diff --git a/README.md b/README.md
+index 20687d8704c3fefe71760093853026bd9c6ae5fc..9de53ea0fe0393523248d1d11424628e6010a6b3 100644
+--- a/README.md
++++ b/README.md
+@@ -75,24 +75,26 @@ class MyEstimator(BaseEstimator):
+         return self
+ ```
+ 
+-#### `check_array` function
++#### `check_array` and `check_X_y` functions
+ 
+ The parameter `force_all_finite` has been deprecated in favor of the `ensure_all_finite`
+ parameter. You need to modify the call to the function to use the new parameter. So,
+ the change is the same as for `validate_data` and will look like this:
+ 
+ ``` py
+-from sklearn.utils.validation import check_array
++from sklearn.utils.validation import check_array, check_X_y
+ 
+ check_array(X, force_all_finite=True)
++check_X_y(X, y, force_all_finite=True)
+ ```
+ 
+ to:
+ 
+ ``` py
+-from sklearn_compat.utils.validation import check_array
++from sklearn_compat.utils.validation import check_array, check_X_y
+ 
+ check_array(X, ensure_all_finite=True)
++check_X_y(X, y, ensure_all_finite=True)
+ ```
+ 
+ #### `_check_n_features` and `_check_feature_names` functions
+diff --git a/src/sklearn_compat/_sklearn_compat.py b/src/sklearn_compat/_sklearn_compat.py
+index 75d89531fb4ca460d2a3965330e1166ab0ef4029..d7ec4d46f8d657770f73310cb45675a014f7fba3 100644
+--- a/src/sklearn_compat/_sklearn_compat.py
++++ b/src/sklearn_compat/_sklearn_compat.py
+@@ -445,6 +445,61 @@ if sklearn_version < parse_version("1.6"):
+             **kwargs,
+         )
+ 
++    def check_X_y(
++        X,
++        y,
++        accept_sparse=False,
++        *,
++        accept_large_sparse=True,
++        dtype="numeric",
++        order=None,
++        copy=False,
++        force_writeable=False,
++        ensure_all_finite=None,
++        ensure_2d=True,
++        allow_nd=False,
++        multi_output=False,
++        ensure_min_samples=1,
++        ensure_min_features=1,
++        y_numeric=False,
++        estimator=None,
++    ):
++        """Input validation for standard estimators.
++
++        Check the original documentation for more details:
++        https://scikit-learn.org/stable/modules/generated/sklearn.utils.check_X_y.html
++        """
++        from sklearn.utils.validation import check_X_y as _check_X_y
++
++        if ensure_all_finite is not None:
++            force_all_finite = ensure_all_finite
++        else:
++            force_all_finite = True
++
++        check_X_y_params = inspect.signature(_check_X_y).parameters
++        kwargs = {}
++        if "force_writeable" in check_X_y_params:
++            kwargs["force_writeable"] = force_writeable
++
++        return _check_X_y(
++            X,
++            y,
++            accept_sparse=accept_sparse,
++            accept_large_sparse=accept_large_sparse,
++            dtype=dtype,
++            order=order,
++            copy=copy,
++            force_all_finite=force_all_finite,
++            ensure_2d=ensure_2d,
++            allow_nd=allow_nd,
++            multi_output=multi_output,
++            ensure_min_samples=ensure_min_samples,
++            ensure_min_features=ensure_min_features,
++            y_numeric=y_numeric,
++            estimator=estimator,
++            **kwargs,
++        )
++
+     # tags infrastructure
+     @dataclass(**_dataclass_args())
+     class InputTags:
+@@ -749,5 +804,6 @@ else:
+         _check_feature_names,  # noqa: F401
+         _check_n_features,  # noqa: F401
+         check_array,  # noqa: F401
++        check_X_y,  # noqa: F401
+         validate_data,  # noqa: F401
+     )
+diff --git a/src/sklearn_compat/utils/validation.py b/src/sklearn_compat/utils/validation.py
+index 076b400f7bda0e33ad2cf2d4e050229077e3dba3..acab0d263fdda035d90f731bbab7ae0decc830cc 100644
+--- a/src/sklearn_compat/utils/validation.py
++++ b/src/sklearn_compat/utils/validation.py
+@@ -4,5 +4,6 @@ from sklearn_compat._sklearn_compat import (
+     _is_fitted,  # noqa: F401
+     _to_object_array,  # noqa: F401
+     check_array,  # noqa: F401
++    check_X_y,  # noqa: F401
+     validate_data,  # noqa: F401
+ )

@@ -1,0 +1,20 @@
+{
+ "id": "15-pydata-numexpr",
+ "repo": "pydata/numexpr",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "b10fbbb43a28be89c55518972c217ac4d65851b0",
+ "commit_sha": "0577f26eb59eccabf9a43f1aaf2c693048943532",
+ "test_patch_sha256": "954e7f9a92c9a4307070cb998401857ff3a3538516852c24db72c1529e02fe2f",
+ "gold_patch_sha256": "4a66ca863dec498cf53582c001a998dc45f6b0f46ac6158a1917b944578b3d01",
+ "test_files": [
+  "numexpr/tests/test_numexpr.py"
+ ],
+ "python": "3.11.15",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-04T01:38:34.189Z"
+}
