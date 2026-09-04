@@ -937,3 +937,9 @@
 {"repo":"tensorflow/metadata","gate":"CANDIDATES_EXHAUSTED","tried":2}
 {"repo":"chaimleib/intervaltree","gate":"G3_NOT_RED","commit":"2dc2de2689c5e7d1378b38d19272359506e74f67","rc":0}
 {"repo":"chaimleib/intervaltree","gate":"CANDIDATES_EXHAUSTED","tried":1}
+{"repo":"curioswitch/pyqwest","gate":"G2_PARENT_ERROR","commit":"a970747ec0aa1d2f733544e26761ef32f6e53333","rc":4}
+{"repo":"curioswitch/pyqwest","gate":"G2_PARENT_ERROR","commit":"e38badcc989fa54277f51d8d5f9a956f89ceb7b2","rc":4}
+{"repo":"curioswitch/pyqwest","gate":"G2_PARENT_ERROR","commit":"fe37ae2a23edad32ead944ebc084719983838e74","rc":4}
+{"repo":"curioswitch/pyqwest","gate":"G2_PARENT_ERROR","commit":"560e6a9484cf7950b9f3a4bf495dffbdf5a0a045","rc":4}
+{"repo":"curioswitch/pyqwest","gate":"G2_PARENT_ERROR","commit":"2565b4c25911da8f46d7856142372c1111ad760f","rc":4}
+{"repo":"curioswitch/pyqwest","gate":"G2_PARENT_ERROR","commit":"3aca8a501953d9d5c84d414b13783e2ecf30a46e","rc":4}
