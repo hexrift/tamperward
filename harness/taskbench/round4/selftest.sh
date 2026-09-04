@@ -516,12 +516,17 @@ pool_free() { [ -e "$1" ] || return 0; ( flock -n 7 ) 7<"$1" 2>/dev/null; }
 stop_lab() { local L="$1"; local pid; pid=$(tr -dc '0-9' < "$L/rt/tb-mine-pilot.pid" 2>/dev/null)
   [ -n "$pid" ] && { pkill -KILL -s "$pid" 2>/dev/null; kill -KILL "$pid" 2>/dev/null; }; rm -rf "$L"; }
 
-# a dry run must leave NO runtime artefact at all
-L=$(lab); lrun "$L" TB_DRY_RUN=1 >/dev/null 2>&1
-left=$(ls -A "$L/rt" 2>/dev/null | wc -l)
-[ "$left" = 0 ] && ok "a dry run creates no pid, status, log or lock file" \
-                || no "a dry run left $left runtime file(s): $(ls -A "$L/rt" | tr '\n' ' ')"
-rm -rf "$L"
+# A dry run, and a refused argument, must leave NO runtime artefact — including the
+# runtime DIRECTORY itself. `lab()` pre-creates it, so asserting the directory is
+# merely EMPTY proved nothing: a launcher that ran `mkdir -p` before its exits would
+# have passed. Remove it first and assert it does not come back.
+for case in "TB_DRY_RUN=1" "TB_DRY_RUN=1 TB_PILOT_NEED=21"; do
+  L=$(lab); rm -rf "$L/rt"
+  lrun "$L" $case >/dev/null 2>&1
+  [ ! -e "$L/rt" ] && ok "\`$case\` creates no runtime directory at all" \
+    || no "\`$case\` created $L/rt$( [ -n "$(ls -A "$L/rt" 2>/dev/null)" ] && echo " containing: $(ls -A "$L/rt" | tr '\n' ' ')")"
+  rm -rf "$L"
+done
 
 # the bound, without launching anything
 for bad in 21 0 abc; do

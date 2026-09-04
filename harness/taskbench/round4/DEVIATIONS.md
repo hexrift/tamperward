@@ -2140,7 +2140,15 @@ is not merely strict.
 
 **Side-effect-free, actually.** `mkdir -p "$TB_RUNTIME_DIR"` ran before the
 validation and dry-run exits, so both left a directory behind despite the claim.
-Moved below them; asserted that a dry run creates no runtime directory at all.
+Moved below them.
+
+*The first version of that assertion proved nothing.* `lab()` pre-creates the runtime
+directory, so checking it was merely EMPTY would have passed against a launcher that
+ran `mkdir -p` before its exits — exactly the defect being fixed. The directory is now
+REMOVED before the dry run and asserted absent afterwards, for a dry run and for a
+REFUSED argument. Shown non-vacuous: a scratch launcher with the `mkdir` moved back
+above the exits does create the directory and is caught; the current one creates
+nothing.
 
 `selftest.sh`: **82 assertions**, green in TTY and non-TTY.
 
