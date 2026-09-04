@@ -993,3 +993,5 @@
 {"repo":"exasol/pyexasol","gate":"G2_PARENT_RED","commit":"75c9055c0870f4686bfe85c9ff1e2dcb38fa527a"}
 {"repo":"exasol/pyexasol","gate":"CANDIDATES_EXHAUSTED","tried":8}
 {"repo":"dmlls/python-casefy","gate":"EXCLUDED_INACTIVE","head_date":"2025-03-07"}
+{"repo":"apache/datafusion-python","gate":"G1_INSTALL_FAILED","commit":"e6c75870a2c465aae4787605f91a9dff47b0e911"}
+{"repo":"apache/datafusion-python","gate":"G1_INSTALL_FAILED","commit":"cc2ec5c620f7fce1dab05ed72ef6627a4348a6ee"}
