@@ -2392,3 +2392,92 @@ rather than permanently excused.
 push — with the artefact and with `TB_ART_DIR` pointing at nothing — because
 "passes here" was never evidence for "passes on a runner". 146/0 with the artefact,
 146/0 without, 146/0 in TTY and non-TTY.
+
+## Pilot execution boundary — four blockers the stub tests concealed, 2026-09-04
+
+Review of the green PR found four gaps between "the driver enforces the order" and
+"the driver executes a registered trajectory". All four were invisible to the
+existing tests because a permissive stub accepts any environment it is handed.
+Manifest re-frozen at sha256 `788cb5798e194c2727b9fc3fccc28c35404b2eea6e2668e9d228666f21ded37e`.
+
+### 1. The driver never activated registered mode
+
+It invoked `TB_RUNS=… TB_PILOT_SEQ=… bash run-task4.sh <task> <arm>` and set
+neither `TB_RUNTASK4_READY` nor `TB_REGISTERED_MODEL`. The first real trajectory
+would have exited **78**; and had readiness been exported by hand to get past that,
+the run would have proceeded with **no registered model and no credential guard** —
+both of those are conditioned on `TB_REGISTERED_MODEL`, so the guards added one
+commit earlier were unreachable from the only thing that drives them.
+
+The driver now reads the model **from the manifest** (a registered value must not
+have a second source) and passes readiness, model, manifest path, manifest hash and
+sequence. Readiness is *established*, not asserted: `TB_RUNTASK4_READY=1` means
+"the freeze checklist passed and a credential is provisioned", the binding check
+immediately above it **is** that checklist, and `run-task4.sh` refuses on its own
+if no credential is present.
+
+### 2. The frozen row did not reach the result
+
+`TB_PILOT_SEQ` was passed and **never read** — one occurrence in the whole tree.
+Neither provenance nor verdict carried the sequence or the manifest hash, so the
+only thing connecting a verdict to its registered row was the driver's own log: a
+separate file, written by the same process, which is not evidence about the
+trajectory.
+
+`run-task4.sh` now binds itself to the manifest rather than trusting the caller:
+it requires `TB_PILOT_MANIFEST` in any registered run, verifies the file's hash
+against the caller's claim, looks up the row at `TB_PILOT_SEQ` and **refuses
+(exit 7) unless that row is exactly this (task, arm)**, and requires the manifest's
+registered model to be the pinned one. `pilot_seq` and `manifest_sha256` are
+persisted into the provenance record and into the verdict, and the post-start gate
+fails the trajectory if they did not survive.
+
+### 3. Mid-run binding protection covered only the manifest
+
+Before each `--all` trajectory the driver re-hashed the manifest alone. If
+`policy3.yml`, `run-task4.sh` or `verdict4.mjs` changed after trajectory one, every
+later trajectory ran against a **different instrument under the same
+registration**. The existing mutation test edits the manifest itself, so it could
+not reach this case — the test and the defect had the same blind spot.
+
+The **complete** binding check now runs immediately before every trajectory.
+Demonstrated by mutating `policy3.yml` between trajectories: the driver stops at
+the next one and names binding drift. The mutant that removes this check fails
+exactly three assertions, all of them the `policy3.yml` case, **while the older
+manifest-mutation assertion still passes** — which is the concealment, shown rather
+than described.
+
+### 4. Environment drift had no continuation path
+
+`--check` returns 3 for environment drift and says "record it, then proceed", but
+the driver collapsed every non-zero result into refusal. There was no way to
+proceed: a dead end dressed as a safeguard.
+
+`--check` now emits a fingerprint over **exactly** what drifted.
+`pilot-drive.sh --acknowledge-drift` records that fingerprint, and the driver
+proceeds only while the observed drift matches it — so acknowledging "the kernel
+moved" does not silently excuse "the node version moved" tomorrow. Binding drift is
+**never** acknowledgeable. The acknowledgement mode deliberately bypasses the
+startup gate, because gating the resolution behind the refusal it resolves is what
+made the original path a dead end.
+
+### Evidence
+
+`selftest.sh` **158 assertions, 0 failures** — with the artefact and without it.
+smoke4 39/0 and cleanup-lifecycle4 77/0 both matter here because `run-task4.sh`
+changed; verdict4-selftest 21/21, hygiene 0.
+
+The stub is now **strict**: it asserts readiness, the registered model against the
+manifest's, the manifest hash, and that `TB_PILOT_SEQ` names this exact (task, arm),
+failing loudly otherwise. The permissive stub it replaces would have passed against
+a driver that set none of them — which is what the driver did.
+
+One mutant per blocker, each caught by the assertion that names it: readiness
+removed → "TB_RUNTASK4_READY not set — a real runner would exit 78"; sequence
+removed → "TB_PILOT_SEQ missing" and "verdicts do not carry the frozen row";
+per-trajectory binding check removed → the three `policy3.yml` assertions only;
+acknowledgement ignored → one failure. Two earlier attempts at this proof were
+invalid and are recorded as such: the first left `$FZ`/`$FM`/`$CK` undefined so
+`set -u` killed the harness, and the second ran after the mutants had been deleted,
+giving rc=127 for all four. Identical results across unrelated mutants is the
+signature of a broken harness, not of thorough coverage.

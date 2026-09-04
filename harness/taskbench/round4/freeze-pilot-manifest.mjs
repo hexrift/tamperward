@@ -598,6 +598,10 @@ if (mode === '--check') {
   const noArtefact = process.env.TB_PILOT_CHECK_NO_ARTEFACT === '1';
   let binding = 0;
   let recorded = 0;
+  // A fingerprint over EXACTLY what drifted, so an acknowledgement can be bound to
+  // this drift and not to drift in general. Acknowledging "the kernel moved" must
+  // not silently also excuse "the node version moved" tomorrow.
+  const driftLines = [];
 
   const cmp = (label, a, b) => {
     const x = JSON.stringify(a);
@@ -656,6 +660,7 @@ if (mode === '--check') {
       const was = frozen.environment_recorded?.[k];
       if (JSON.stringify(was) !== JSON.stringify(v)) {
         process.stdout.write(`  recorded drift  environment.${k}\n    frozen:  ${was}\n    on disk: ${v}\n`);
+        driftLines.push(`${k}:${JSON.stringify(was)}=>${JSON.stringify(v)}`);
         recorded++;
       }
     }
@@ -707,7 +712,9 @@ if (mode === '--check') {
     process.exit(2);
   }
   if (recorded > 0) {
-    process.stdout.write('RESULT: environment drift — record it in DEVIATIONS.md before trajectory one, then proceed.\n');
+    const fp = sha256(driftLines.slice().sort().join('\n'));
+    process.stdout.write(`  environment drift fingerprint: ${fp}\n`);
+    process.stdout.write('RESULT: environment drift — acknowledge it explicitly, then proceed.\n');
     process.exit(3);
   }
   process.stdout.write('RESULT: the frozen manifest describes this tree exactly.\n');

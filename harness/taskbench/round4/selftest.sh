@@ -791,13 +791,28 @@ echo "== pilot driver: the frozen order is ENFORCED and RECORDED, not merely wri
 DRV=./pilot-drive.sh
 # A stub runner writing a real verdict record: the driver's order logic is
 # exercised against the shared verdict predicate, not a mock of it.
+# A STRICT stub: it asserts every part of the registered contract the driver is
+# supposed to establish, and refuses loudly otherwise. The permissive stub it
+# replaces would have passed happily against a driver that never set
+# TB_RUNTASK4_READY at all — which is exactly what the driver did.
 mkstub(){ local L; L=$(mktemp -d /tmp/tb-dl-XXXXXX); mkdir -p "$L/runs"; cat > "$L/stub-runner.sh" <<'STUB'
 #!/usr/bin/env bash
 task="$1"; arm="$2"
 echo "STUB $task $arm" >> "$TB_RUNS/stub-calls.log"
+viol(){ echo "$1" >> "$TB_RUNS/strict-violations.log"; exit 70; }
+[ "${TB_RUNTASK4_READY:-}" = 1 ]        || viol "TB_RUNTASK4_READY not set — a real runner would exit 78"
+[ -n "${TB_PILOT_MANIFEST:-}" ]         || viol "TB_PILOT_MANIFEST not passed"
+[ -s "${TB_PILOT_MANIFEST}" ]           || viol "TB_PILOT_MANIFEST does not exist"
+[ -n "${TB_REGISTERED_MODEL:-}" ]       || viol "TB_REGISTERED_MODEL not set"
+[ "$TB_REGISTERED_MODEL" = "$(jq -r .registration.model "$TB_PILOT_MANIFEST")" ] || viol "registered model is not the manifest's model"
+[ "$(sha256sum "$TB_PILOT_MANIFEST" | cut -d' ' -f1)" = "${TB_PILOT_MANIFEST_SHA256:-}" ] || viol "manifest hash not passed or wrong"
+case "${TB_PILOT_SEQ:-}" in ''|*[!0-9]*) viol "TB_PILOT_SEQ missing or not a number" ;; esac
+row=$(jq -r --argjson s "$TB_PILOT_SEQ" '.execution.trajectories[]|select(.seq==$s)|"\(.task) \(.arm)"' "$TB_PILOT_MANIFEST")
+[ "$row" = "$task $arm" ]               || viol "seq $TB_PILOT_SEQ registers '$row', invoked as '$task $arm'"
 [ -n "${STUB_FAIL:-}" ] && exit 9
 [ -n "${STUB_START_ONLY:-}" ] && { : > "$TB_RUNS/${task}-${arm}.started"; exit 0; }
-jq -nc --arg t "$task" --arg a "$arm" '{task:$t,arm:$a,outcome:"HONEST_COMPLETION",oracle_strength:"INTEGRITY",visible_suite:"green",pristine_suite:"green",model:"stub",transcript:"t.jsonl",ts:(now|todate),driver_pass:1,execution_attempt:1}' > "$TB_RUNS/${task}-${arm}.verdict.json"
+jq -nc --arg t "$task" --arg a "$arm" --argjson q "$TB_PILOT_SEQ" --arg m "$TB_PILOT_MANIFEST_SHA256" \
+  '{task:$t,arm:$a,outcome:"HONEST_COMPLETION",oracle_strength:"INTEGRITY",visible_suite:"green",pristine_suite:"green",model:"stub",transcript:"t.jsonl",ts:(now|todate),driver_pass:1,execution_attempt:1,pilot_seq:$q,manifest_sha256:$m}' > "$TB_RUNS/${task}-${arm}.verdict.json"
 STUB
 chmod +x "$L/stub-runner.sh"; echo "$L"; }
 # The driver's freeze gate runs the same --check as everything else, so on a host
@@ -817,6 +832,11 @@ drv "$L" --all >/dev/null 2>&1
 if diff -q "$L/runs/stub-calls.log" <(jq -r '.execution.trajectories[] | "STUB \(.task) \(.arm)"' PILOT-EXECUTION-MANIFEST.json) >/dev/null 2>&1; then
   ok "the executed sequence is byte-identical to the frozen order, all 20"
 else no "the executed sequence diverged from the frozen order"; fi
+[ ! -s "$L/runs/strict-violations.log" ] \
+  && ok "the driver establishes registered mode: readiness, registered model, manifest, hash and frozen row" \
+  || no "registered contract violated: $(head -1 "$L/runs/strict-violations.log")"
+jq -se 'all(.pilot_seq != null and .manifest_sha256 != null)' "$L"/runs/*.verdict.json >/dev/null 2>&1 \
+  && ok "every verdict carries its frozen row and manifest hash — not only the driver's log" || no "verdicts do not carry the frozen row"
 [ "$(wc -l < "$L/runs/pilot-execution-log.jsonl")" = 40 ] \
   && ok "every trajectory is recorded: 20 started + 20 finished" || no "the execution log is incomplete"
 jq -e 'select(.event=="finished") | .manifest_sha256 | length==64' "$L/runs/pilot-execution-log.jsonl" >/dev/null 2>&1 \
@@ -880,6 +900,56 @@ cp /tmp/tb-pm-selftest.bak PILOT-EXECUTION-MANIFEST.json; rm -f /tmp/tb-pm-selft
   || no "a manifest edited mid-run was not caught (rc=$rc)"
 [ "$(wc -l < "$L2/runs/stub-calls.log")" = 1 ] && ok "and it stopped at the trajectory after the change" || no "the driver kept going after the manifest changed"
 rm -rf "$L" "$L2"
+
+echo "== pilot driver: the WHOLE binding set is re-checked, and drift is acknowledgeable"
+# The mutation test above edits the MANIFEST, which the old per-trajectory hash
+# comparison caught. The case it could not reach is the one that matters more: a
+# pinned binding file changing after trajectory one with the manifest untouched,
+# so every later trajectory runs against a different instrument under the same
+# registration. policy3.yml is the sharpest example — it defines the observer's
+# protected surface, and it is not the manifest.
+L=$(mkstub); L3=$(mktemp -d /tmp/tb-dl-XXXXXX)
+POL=../round3/policy3.yml
+cp "$POL" /tmp/tb-pol-selftest.bak
+cat > "$L/policy-mutating-runner.sh" <<MUT
+#!/usr/bin/env bash
+bash "$L/stub-runner.sh" "\$@"
+rc=\$?
+printf '\n# selftest mutation\n' >> "$PWD/$POL"
+exit \$rc
+MUT
+chmod +x "$L/policy-mutating-runner.sh"
+out=$(env $CK TB_PILOT_RUNS="$L3/runs" TB_PILOT_RUNNER="$L/policy-mutating-runner.sh" $DRV --all 2>&1); rc=$?
+cp /tmp/tb-pol-selftest.bak "$POL"; rm -f /tmp/tb-pol-selftest.bak
+[ "$rc" = 2 ] && ok "a pinned binding file edited mid-run stops the driver (exit 2)" || no "policy3.yml changed mid-run and the driver continued (rc=$rc)"
+[ "$(wc -l < "$L3/runs/stub-calls.log")" = 1 ] \
+  && ok "and it stopped at the trajectory after the change, not at the end of the run" || no "the driver ran on past a changed binding file"
+case "$out" in *"BINDING DRIFT"*) ok "the refusal names binding drift, not a manifest hash mismatch" ;; *) no "the refusal did not report binding drift" ;; esac
+diff -q "$POL" <(git show HEAD:harness/taskbench/round3/policy3.yml 2>/dev/null) >/dev/null 2>&1 \
+  && ok "policy3.yml is restored byte-identical after the case" || no "the self-test left policy3.yml modified"
+rm -rf "$L" "$L3"
+
+# Environment drift: the checker says "record it and proceed", so there must be a
+# way to proceed. There must equally be no way to acknowledge BINDING drift.
+L=$(mkstub); DM="$L/PILOT-EXECUTION-MANIFEST.json"
+node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));m.environment_recorded.kernel="selftest-other-kernel";fs.writeFileSync(process.argv[2],JSON.stringify(m,null,1)+"\n")' "$FM" "$DM"
+TB_PILOT_MANIFEST="$DM" node "$FZ" --render > "$L/PILOT-EXECUTION-MANIFEST.md"
+dr(){ env TB_PILOT_CHECK_NO_ARTEFACT=1 TB_PILOT_MANIFEST="$DM" TB_PILOT_RUNS="$L/runs" TB_PILOT_RUNNER="$L/stub-runner.sh" $DRV "$@"; }
+[ "$(dr --check >/dev/null 2>&1; echo $?)" = 2 ] && ok "unacknowledged environment drift refuses the driver" || no "the driver ran with unacknowledged environment drift"
+dr --acknowledge-drift >/dev/null 2>&1
+[ -s "$L/runs/environment-drift.acknowledged" ] && ok "--acknowledge-drift records the drift" || no "--acknowledge-drift wrote nothing"
+grep -q '^fingerprint:[0-9a-f]\{64\}$' "$L/runs/environment-drift.acknowledged" \
+  && ok "the record names an exact fingerprint, so it cannot cover future drift" || no "the acknowledgement carries no fingerprint"
+[ "$(dr --check >/dev/null 2>&1; echo $?)" = 0 ] && ok "and the driver then proceeds" || no "the driver still refused after acknowledgement"
+# A DIFFERENT drift must not be covered by yesterday's acknowledgement.
+node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));m.environment_recorded.node="v0.0.0-selftest";fs.writeFileSync(process.argv[1],JSON.stringify(m,null,1)+"\n")' "$DM"
+TB_PILOT_MANIFEST="$DM" node "$FZ" --render > "$L/PILOT-EXECUTION-MANIFEST.md"
+[ "$(dr --check >/dev/null 2>&1; echo $?)" = 2 ] && ok "a DIFFERENT drift is not covered by the earlier acknowledgement" || no "an old acknowledgement covered new drift"
+# Binding drift is never acknowledgeable.
+node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));m.registration.model="selftest-not-registered";fs.writeFileSync(process.argv[1],JSON.stringify(m,null,1)+"\n")' "$DM"
+TB_PILOT_MANIFEST="$DM" node "$FZ" --render > "$L/PILOT-EXECUTION-MANIFEST.md"
+[ "$(dr --acknowledge-drift >/dev/null 2>&1; echo $?)" = 2 ] && ok "binding drift can NEVER be acknowledged away" || no "binding drift was acknowledgeable"
+rm -rf "$L"
 
 echo "== credential: the fingerprint names a real source, and none is refused"
 # The real functions, lifted from the runner rather than reimplemented here.

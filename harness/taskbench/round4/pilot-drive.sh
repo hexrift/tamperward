@@ -41,7 +41,7 @@ TB="$(cd "$HERE/.." && pwd)"
 . "$TB/runner/verdict-record.sh"
 
 MODE="${1:-}"
-case "$MODE" in --check|--status|--next|--all) ;; *)
+case "$MODE" in --check|--status|--next|--all|--acknowledge-drift) ;; *)
   sed -n '3,30p' "$0" | sed 's|^# \{0,1\}||'; exit 5 ;;
 esac
 
@@ -54,16 +54,55 @@ LOG="$RUNS/pilot-execution-log.jsonl"
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 5; }
 
 # ---- 1. the freeze gate, fail-closed -----------------------------------------
-# Deliberately NOT skippable. A driver that can be told to ignore the freeze
-# check is a driver that will be told to ignore it, at 2am, once.
-if ! FREEZE_OUT=$(node "$HERE/freeze-pilot-manifest.mjs" --check 2>&1); then
-  echo "$FREEZE_OUT"
-  echo
-  echo "REFUSING: the frozen manifest does not describe this tree. Resolve the drift" >&2
-  echo "(or re-freeze deliberately and record why) before running any trajectory." >&2
-  exit 2
-fi
+# Deliberately NOT skippable. A driver that can be told to ignore the freeze check
+# is a driver that will be told to ignore it, at 2am, once.
+#
+# But "refuse everything non-zero" was too blunt: the checker distinguishes
+# BINDING drift (2) from ENVIRONMENT drift (3), and collapsing them left exit 3 —
+# the case the checker explicitly says to record and proceed from — with no way to
+# proceed. Environment drift is now acknowledgeable, ONCE, against the exact drift
+# it describes; binding drift never is.
+ACK="$RUNS/environment-drift.acknowledged"
+freeze_check() { FREEZE_OUT=$(node "$HERE/freeze-pilot-manifest.mjs" --check 2>&1); FREEZE_RC=$?; }
+drift_fp() { printf %s "$FREEZE_OUT" | sed -n 's/^  environment drift fingerprint: //p'; }
+
+# `where` names the moment for the message: a refusal before trajectory one and a
+# refusal between trajectories are the same check but very different situations.
+gate_or_die() {
+  local where="$1"
+  freeze_check
+  case "$FREEZE_RC" in
+    0) return 0 ;;
+    3)
+      local fp; fp=$(drift_fp)
+      if [ -n "$fp" ] && [ -f "$ACK" ] && grep -qxF "fingerprint:$fp" "$ACK"; then
+        echo "environment drift acknowledged ($where): ${fp:0:12}"
+        return 0
+      fi
+      echo "$FREEZE_OUT"
+      echo
+      echo "REFUSING ($where): the environment differs from the freeze and that difference" >&2
+      echo "is not acknowledged. Review the drift above, then record it with:" >&2
+      echo "    $0 --acknowledge-drift" >&2
+      exit 2 ;;
+    *)
+      echo "$FREEZE_OUT"
+      echo
+      echo "REFUSING ($where): the frozen manifest does not describe this tree. Resolve the" >&2
+      echo "drift (or re-freeze deliberately and record why) before running any trajectory." >&2
+      exit 2 ;;
+  esac
+}
+# --acknowledge-drift must NOT go through the startup gate: it exists precisely to
+# resolve a refusal, and gating it behind that refusal makes the drift
+# unacknowledgeable — a dead end dressed as a safeguard. It runs its own check,
+# and refuses anything that is not environment drift.
+[ "$MODE" = --acknowledge-drift ] || gate_or_die "startup"
 MANIFEST_SHA=$(sha256sum "$MANIFEST" | cut -d' ' -f1)
+# The registered model comes FROM the manifest. Typing it anywhere else would
+# create a second source for a registered value.
+MODEL=$(jq -r '.registration.model' "$MANIFEST")
+[ -n "$MODEL" ] && [ "$MODEL" != null ] || { echo "manifest names no registered model" >&2; exit 5; }
 
 # ---- state -------------------------------------------------------------------
 mkdir -p "$RUNS"
@@ -125,6 +164,29 @@ summary() {
   fi
 }
 
+if [ "$MODE" = --acknowledge-drift ]; then
+  # Only ENVIRONMENT drift is acknowledgeable, and only the drift actually
+  # present: the record names the exact fingerprint, so tomorrow's different
+  # drift is not silently covered by today's acknowledgement.
+  freeze_check
+  case "$FREEZE_RC" in
+    0) echo "there is no drift to acknowledge — the manifest describes this tree exactly"; exit 0 ;;
+    3) : ;;
+    *) echo "$FREEZE_OUT"; echo; echo "REFUSING: this is not environment drift. Binding drift is never acknowledged — fix it or re-freeze deliberately." >&2; exit 2 ;;
+  esac
+  fp=$(drift_fp)
+  [ -n "$fp" ] || { echo "the checker reported drift but no fingerprint; refusing to record a blank acknowledgement" >&2; exit 5; }
+  { echo "# environment drift acknowledged for the round-4 pilot"
+    echo "# recorded $(ts) against manifest $MANIFEST_SHA"
+    echo "# this acknowledgement covers EXACTLY the drift below and no other"
+    printf '%s\n' "$FREEZE_OUT" | sed -n 's/^  /# /p'
+    echo "fingerprint:$fp"; } >> "$ACK"
+  echo "recorded in $ACK"
+  echo "  fingerprint: $fp"
+  echo "Also record it in DEVIATIONS.md — this file lets the driver proceed; the ledger is the scientific record."
+  exit 0
+fi
+
 if [ "$MODE" = --status ]; then summary; exit 0; fi
 
 if [ "$MODE" = --check ]; then
@@ -152,11 +214,15 @@ log() { jq -nc "$@" >> "$LOG"; }
 run_one() {
   local s="$1" task arm t0 t1 rc
   read -r task arm <<<"$(row "$s")"
-  # Re-assert the freeze immediately before launching. A long --all run could
-  # otherwise start trajectory 17 against a tree that changed after trajectory 1.
+  # Re-assert the WHOLE binding set immediately before launching, not just the
+  # manifest's own hash. Hashing only the manifest caught an edited manifest and
+  # missed the case that matters more: policy3.yml, verdict4.mjs or run-task4.sh
+  # changing after trajectory one, with the manifest untouched, so every later
+  # trajectory ran against a different instrument under the same registration.
   local sha_now; sha_now=$(sha256sum "$MANIFEST" | cut -d' ' -f1)
   [ "$sha_now" = "$MANIFEST_SHA" ] || {
     echo "REFUSING: the manifest changed under the driver ($MANIFEST_SHA -> $sha_now)" >&2; return 2; }
+  gate_or_die "before seq $s"
 
   echo "== seq $s/$TOTAL  $task  $arm"
   t0=$(date +%s)
@@ -164,7 +230,19 @@ run_one() {
       --arg arm "$arm" --arg manifest_sha256 "$MANIFEST_SHA" \
       '{event:$ev,ts:$ts,seq:$seq,task:$task,arm:$arm,manifest_sha256:$manifest_sha256}'
 
-  TB_RUNS="$RUNS" TB_PILOT_SEQ="$s" bash "$RUNNER" "$task" "$arm"
+  # Registered mode is ESTABLISHED here, not asserted. TB_RUNTASK4_READY means
+  # "the freeze checklist passed and a credential is provisioned": the binding
+  # check above is that checklist, and run-task4.sh refuses on its own if no
+  # credential is present. The registered model and the frozen row travel with the
+  # trajectory so the runner can bind itself to the manifest rather than trusting
+  # the caller's word for which row this is.
+  TB_RUNS="$RUNS" \
+  TB_RUNTASK4_READY=1 \
+  TB_REGISTERED_MODEL="$MODEL" \
+  TB_PILOT_MANIFEST="$MANIFEST" \
+  TB_PILOT_MANIFEST_SHA256="$MANIFEST_SHA" \
+  TB_PILOT_SEQ="$s" \
+    bash "$RUNNER" "$task" "$arm"
   rc=$?
   t1=$(date +%s)
 

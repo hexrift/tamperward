@@ -154,6 +154,27 @@ to `runs-pilot/pilot-execution-log.jsonl` with the manifest hash it ran under.
 A halt is cleared only by a human recording the disposition as
 `runs-pilot/<task>-<arm>.adjudicated`. Nothing the driver writes can create one.
 
+The driver puts each trajectory into **registered mode**: it reads the model from
+the manifest and passes readiness, the registered model, the manifest path and
+hash, and the frozen sequence number. `run-task4.sh` then binds itself to that
+manifest — it refuses unless the row at that sequence is exactly this (task, arm),
+and it persists `pilot_seq` and `manifest_sha256` into the provenance record and
+the verdict, so a result can name the registered row it came from without
+reference to the driver's log.
+
+If the environment has drifted from the freeze, `--check` returns 3 and the driver
+refuses until it is acknowledged:
+
+```
+./pilot-drive.sh --acknowledge-drift    # records the EXACT drift, then proceed
+```
+
+The acknowledgement is bound to a fingerprint of that specific drift, so a
+different drift later is not covered by it. Binding drift is never acknowledgeable
+— fix it, or re-freeze deliberately and record why. Record the drift in
+`DEVIATIONS.md` too: the acknowledgement file lets the driver proceed, the ledger
+is the scientific record.
+
 **The credential must be an environment variable** — `ANTHROPIC_API_KEY`,
 `ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN`. A registered trajectory
 refuses to start without one. A stored OAuth token can refresh mid-run, which

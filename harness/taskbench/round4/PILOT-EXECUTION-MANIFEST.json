@@ -335,7 +335,7 @@
   "files": [
    {
     "path": "runner/run-task4.sh",
-    "sha256": "80d475ee94070ba4dde530c8ff702afb83fc2c976039d62ebf0a1696e095ce7e"
+    "sha256": "adc227ce4ff067a8c80cbb5d6f43f62fb747dc63360d5488419d040a2884f5bb"
    },
    {
     "path": "runner/deploy-gated4.sh",
@@ -387,7 +387,7 @@
    },
    {
     "path": "round4/pilot-drive.sh",
-    "sha256": "bb3ed76b5473fd6218fd9df071a22fbaaf990979fcdf5a438961287ac7eb7980"
+    "sha256": "42de80b5b21e807c94df3d5d1f42fb861085a313ee63942d8ce73e7598cbbdc0"
    }
   ],
   "copied_into_trajectory": [
@@ -395,7 +395,7 @@
    "runner/policy-globs.mjs",
    "round3/policy3.yml"
   ],
-  "binding_set_sha256": "e79dddfe64e3dbb13dcd85dc2a89b7570a03521b102490d1984a3f0d9b64b9c4"
+  "binding_set_sha256": "5a05a6c5a06a9e2be7b720263d02df76dd782dd9edafdde450a47a21ec42fdb2"
  },
  "environment_recorded": {
   "node": "v22.22.2",

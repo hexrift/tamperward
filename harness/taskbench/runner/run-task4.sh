@@ -343,6 +343,45 @@ if [ -n "${TB_SMOKE_SRC:-}" ] && [ -n "${TB_REGISTERED_MODEL:-}" ]; then
   echo "ABORT: TB_SMOKE_SRC is a self-test seam and must never be set in a registered run"; exit 7
 fi
 
+# ---- FROZEN-ROW BINDING -----------------------------------------------------
+# A registered trajectory IS a row in a registered manifest, and it must be able
+# to prove that by itself. Without this the only thing connecting a verdict to
+# its registered row is the driver's own log: a separate file, written by the same
+# process, which is not evidence about the trajectory.
+#
+# Required whenever a model is pinned, because a registered run of THIS runner is
+# a round-4 manifest-driven run by definition, and one without a manifest is a
+# trajectory executed outside the registration. Placed after the model-pin and
+# seam refusals so those keep their own exit codes and messages.
+PILOT_SEQ=""; PILOT_MANIFEST_SHA=""
+if [ -n "${TB_REGISTERED_MODEL:-}" ]; then
+  [ -n "${TB_PILOT_MANIFEST:-}" ] \
+    || { echo "NO_MANIFEST: a registered trajectory must name its frozen manifest (TB_PILOT_MANIFEST)"; exit 7; }
+  [ -s "${TB_PILOT_MANIFEST}" ] \
+    || { echo "NO_MANIFEST: ${TB_PILOT_MANIFEST} is missing or empty"; exit 7; }
+  PILOT_MANIFEST_SHA=$(sha256sum "$TB_PILOT_MANIFEST" | cut -d' ' -f1)
+  # The caller states the hash it believes it is driving; a disagreement means the
+  # manifest changed between the driver's check and this trajectory.
+  if [ -n "${TB_PILOT_MANIFEST_SHA256:-}" ] && [ "$TB_PILOT_MANIFEST_SHA256" != "$PILOT_MANIFEST_SHA" ]; then
+    echo "MANIFEST_HASH_MISMATCH: caller expected $TB_PILOT_MANIFEST_SHA256, file is $PILOT_MANIFEST_SHA"; exit 7
+  fi
+  PILOT_SEQ="${TB_PILOT_SEQ:-}"
+  case "$PILOT_SEQ" in
+    ''|*[!0-9]*) echo "NO_SEQ: a registered trajectory must carry its frozen row number (TB_PILOT_SEQ)"; exit 7 ;;
+  esac
+  _row=$(jq -r --argjson s "$PILOT_SEQ" \
+          '.execution.trajectories[] | select(.seq==$s) | "\(.task) \(.arm)"' "$TB_PILOT_MANIFEST" 2>/dev/null)
+  [ -n "$_row" ] || { echo "NO_SUCH_ROW: seq $PILOT_SEQ is not a row in $TB_PILOT_MANIFEST"; exit 7; }
+  # The row must be THIS trajectory. A driver that passed the right seq with the
+  # wrong task, or ran a task out of its registered slot, is refused here rather
+  # than producing a verdict that silently claims a row it did not execute.
+  [ "$_row" = "$ID $ARM" ] \
+    || { echo "ROW_MISMATCH: seq $PILOT_SEQ registers '$_row', this trajectory is '$ID $ARM'"; exit 7; }
+  _mm=$(jq -r '.registration.model' "$TB_PILOT_MANIFEST" 2>/dev/null)
+  [ "$_mm" = "$TB_REGISTERED_MODEL" ] \
+    || { echo "MODEL_NOT_REGISTERED: manifest registers '$_mm', this run pinned '$TB_REGISTERED_MODEL'"; exit 7; }
+fi
+
 # EARLY preflight: fail closed before a clone/install burns the retry budget.
 # This is a cheap early-out only -- the authoritative check is the
 # trajectory-start boundary (start_agent_network) immediately before the agent.
@@ -804,8 +843,9 @@ jq -nc --arg ts "$TRAJ_TS" --arg task "$ID" --arg arm "$ARM" \
    --arg base "$BASE" --arg td "$TASK" \
    --arg artpkg "$ART_PKG_SHA" --arg artnm "$ART_NM_SHA_BEFORE" \
    --arg credfp "$CRED_FP" --arg upstream "$(redact "$UPSTREAM")" \
+   --arg pseq "$PILOT_SEQ" --arg pmsha "$PILOT_MANIFEST_SHA" \
    --arg cliver "$(node "$ART_CLI" --help 2>/dev/null | head -1 | tr -d '\n' | cut -c1-60)" \
-   '{ts:$ts,task:$task,arm:$arm,model:$model,registered_model:$regmodel,driver_pass:$pass,execution_attempt:$xa,transcript:$tr,workdir:$wd,base:$base,task_dir:$td,artefact_pkg_sha256:$artpkg,artefact_nm_sha256_before:$artnm,credential_fingerprint:$credfp,upstream:$upstream,cli_banner:$cliver}' \
+   '{ts:$ts,task:$task,arm:$arm,model:$model,registered_model:$regmodel,driver_pass:$pass,execution_attempt:$xa,transcript:$tr,workdir:$wd,base:$base,task_dir:$td,artefact_pkg_sha256:$artpkg,artefact_nm_sha256_before:$artnm,credential_fingerprint:$credfp,upstream:$upstream,cli_banner:$cliver,pilot_seq:$pseq,manifest_sha256:$pmsha}' \
    > "$STARTED" || { echo "PRE_AGENT_MARKER_FAILED"; exit 1; }
 sync "$STARTED" 2>/dev/null || sync 2>/dev/null || true
 
@@ -907,6 +947,14 @@ fi
   || post_start_failure "provenance artefact hash != pin"
 [ "$CRED_FP_AFTER" = "$CRED_FP" ] \
   || post_start_failure "credential fingerprint changed during the run ($CRED_FP -> $CRED_FP_AFTER)"
+# The frozen row must have survived into the provenance record. A verdict that
+# cannot name the registered row it came from is not evidence about that row.
+if [ -n "${TB_REGISTERED_MODEL:-}" ]; then
+  [ "$(prov_field pilot_seq)" = "$PILOT_SEQ" ] \
+    || post_start_failure "provenance pilot_seq '$(prov_field pilot_seq)' != '$PILOT_SEQ'"
+  [ "$(prov_field manifest_sha256)" = "$PILOT_MANIFEST_SHA" ] \
+    || post_start_failure "provenance manifest_sha256 != the manifest this trajectory was bound to"
+fi
 
 # ---- neutral adjudicator (verdict4), parent-owned, on the agent's final tree.
 # Arm-specific inputs: the gated arm passes the envelope report (feeds ONLY
@@ -935,8 +983,9 @@ printf '%s' "$VERDICT" | jq -c \
     --argjson pass "${TB_DRIVER_PASS:-1}" --argjson xattempt "${TB_EXEC_ATTEMPT:-1}" \
     --arg ts "$TRAJ_TS" \
     --arg artpkg "$ART_PKG_SHA" --arg artnm "$ART_NM_SHA_AFTER" --arg credfp "$CRED_FP" \
+    --arg pseq "$PILOT_SEQ" --arg pmsha "$PILOT_MANIFEST_SHA" \
     --arg rung "$(cat "$W/rung" 2>/dev/null | head -1)" --arg tr "$(basename "$TRANSCRIPT")" \
-    '. + {arm:$arm, model:$model, elapsed_s:$elapsed, agent_killed:$killed, denies:$denies, net_fetch_attempts:$net, envelope_exit:$envexit, driver_pass:$pass, execution_attempt:$xattempt, ts:$ts, install_rung:$rung, transcript:$tr, artefact_pkg_sha256:$artpkg, artefact_nm_sha256:$artnm, credential_fingerprint:$credfp}' \
+    '. + {arm:$arm, model:$model, elapsed_s:$elapsed, agent_killed:$killed, denies:$denies, net_fetch_attempts:$net, envelope_exit:$envexit, driver_pass:$pass, execution_attempt:$xattempt, ts:$ts, install_rung:$rung, transcript:$tr, artefact_pkg_sha256:$artpkg, artefact_nm_sha256:$artnm, credential_fingerprint:$credfp, pilot_seq:$pseq, manifest_sha256:$pmsha}' \
     > "$LINE" 2>"$W/verdict-line.err" \
   || post_start_failure "the verdict line could not be constructed ($(head -c 200 "$W/verdict-line.err" 2>/dev/null))"
 # the record must be VALID and must be THIS trajectory's -- line-count growth is
