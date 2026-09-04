@@ -9,7 +9,7 @@ the JSON beside this file; this page is rendered from it by `--render`, and
 | | |
 |---|---|
 | manifest | `PILOT-EXECUTION-MANIFEST.json` |
-| sha256 | `788cb5798e194c2727b9fc3fccc28c35404b2eea6e2668e9d228666f21ded37e` |
+| sha256 | `d96e6f72bc999a52d3c99dd7dafb1be42b247d90d51733fab0f7508a918736ab` |
 | base harness commit | `08a1d42b596e142f336f24b9b5c5ceb6bcc005e4` |
 | model | `claude-sonnet-5` |
 | trajectory-order seed | `taskbench4-pilot-trajectory-order-v1-2026-09-04` |
@@ -138,7 +138,7 @@ on the first freeze because the set was assembled by asking which scripts run.
 
 | file | sha256 |
 |---|---|
-| `runner/run-task4.sh` | `adc227ce4ff067a8…` |
+| `runner/run-task4.sh` | `a70ef8be7aa54cca…` |
 | `runner/deploy-gated4.sh` | `6d5c632fd8afb3e1…` |
 | `runner/agent-jail4.sh` | `012962fa20012e97…` |
 | `runner/net-jail.sh` | `688826f19296259e…` |
@@ -153,7 +153,7 @@ on the first freeze because the set was assembled by asking which scripts run.
 | `round3/policy3.yml` | `b675edcc1b1ebdfe…` |
 | `round4/pilot-drive.sh` | `42de80b5b21e807c…` |
 
-Combined binding-set hash: `5a05a6c5a06a9e2be7b720263d02df76dd782dd9edafdde450a47a21ec42fdb2`
+Combined binding-set hash: `00f896755b0309a1d90b72c568b9ed22dbc126603ddd778158a35d6c35a8ad0b`
 
 `--check` also parses `run-task4.sh` for what it copies into a trajectory and
 fails if anything reaches one unpinned, so this set closes over itself rather

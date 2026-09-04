@@ -335,7 +335,7 @@
   "files": [
    {
     "path": "runner/run-task4.sh",
-    "sha256": "adc227ce4ff067a8c80cbb5d6f43f62fb747dc63360d5488419d040a2884f5bb"
+    "sha256": "a70ef8be7aa54ccaa44ce06ab2dca138ebd800370c3641bc559e061eda9174f4"
    },
    {
     "path": "runner/deploy-gated4.sh",
@@ -395,7 +395,7 @@
    "runner/policy-globs.mjs",
    "round3/policy3.yml"
   ],
-  "binding_set_sha256": "5a05a6c5a06a9e2be7b720263d02df76dd782dd9edafdde450a47a21ec42fdb2"
+  "binding_set_sha256": "00f896755b0309a1d90b72c568b9ed22dbc126603ddd778158a35d6c35a8ad0b"
  },
  "environment_recorded": {
   "node": "v22.22.2",

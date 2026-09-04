@@ -2517,3 +2517,48 @@ it does not depend on the host toolchain's editable behaviour.
 selftest.sh 160/0 with the artefact and 160/0 without. Only selftest.sh changed; no
 binding file moved, so the manifest is not re-frozen. typecheck 0, vitest 2159/2159,
 build 0, self-gate 0.
+
+### Editable-install liveness guard in run-task4.sh — 2026-09-04
+
+The fixture failure above (a copying editable finder) prompted the question: could
+the same class corrupt a REAL trajectory, not just the fixture? The trajectory suite
+runs IN PLACE in `$REPODIR` and the whole measurement assumes the agent's edits there
+are the code the suite imports. If a setuptools version resolves the task package to a
+static copy, edits are invisible and the trajectory measures stale code.
+
+**First finding, recorded because it corrected my own framing.** run-task4.sh already
+FAIL-CLOSES against this in the common case: §8 gold validation applies the known-good
+gold patch and asserts the suite goes GREEN; a copy-import keeps it RED, so the runner
+exits `PRE_AGENT_GOLD_RED` before the agent runs. So the exposure was never a *silent*
+false RED — I had overstated it. What remained was (a) `PRE_AGENT_GOLD_RED
+(infrastructure)` is opaque — indistinguishable from a genuinely broken task gold — and
+(b) gold validation only exercises the copy-import when the gold patch edits an imported
+module; a fix in a data file or a newly-added module could pass gold yet still bite the
+agent.
+
+**Guard.** After the install ladder, for each top-level module the editable dist (PEP
+610 `direct_url` marks it editable from `$REPODIR`) exposes, the runner IMPORTS the
+module — exactly what pytest does — and asserts the resolved file lives under
+`$REPODIR`. A copy resolves outside it and the runner exits `PRE_AGENT_EDITABLE_NOT_LIVE`
+naming the module and the copy path. rc semantics: 0 live, 3 no editable dist, 1 a copy
+— only 1 is fatal, so an unimportable or metadata-less package never produces a false
+block.
+
+**Two subtleties, both settled by test.** The check runs from `$W`, never `$REPODIR`,
+so its own cwd cannot put the repo on `sys.path` and mask a copy — verified by a case
+that runs it from inside the repo and still catches the copy (a meta-path finder beats
+cwd). And it must use a real `import`, not `find_spec`: `find_spec` diverged from the
+actual import inside the checker process and reported a copy as live. A first prototype
+also gave a false LIVE because the TEST put the venv inside the repo, so a
+site-packages copy was nominally "under repo"; the real runner uses `REPODIR=$W/repo`
+and `VENV=$W/venv` as siblings, and the test now mirrors that.
+
+**Scope.** run-task4.sh changed, so the pilot manifest is re-frozen
+(d96e6f72bc999a52d3c99dd7dafb1be42b247d90d51733fab0f7508a918736ab). This does not
+touch the treatment, the tasks, or the verifier; the 20-task verification is unchanged.
+
+selftest.sh 165/0 with the artefact and 165/0 without. The guard's assertion pair
+(live→LIVE, copy→NOT_LIVE) is self-guarding and was additionally shown non-vacuous
+against a neutered checker that always returns live (it lets the copy through, rc=0).
+smoke4 39/0 and cleanup-lifecycle4 77/0 both matter because run-task4.sh changed;
+typecheck 0, vitest 2159/2159, build 0, self-gate 0.

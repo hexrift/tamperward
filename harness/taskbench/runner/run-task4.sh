@@ -495,6 +495,62 @@ exit 0
 LADDER
 [ $? -eq 0 ] || { echo INSTALL_FAILED; exit 1; }
 
+# EDITABLE-INSTALL LIVENESS — fail closed if the task package imports from a COPY.
+# The suite runs in place in $REPODIR and the whole measurement assumes the agent's
+# edits to $REPODIR are the code the suite imports. Some setuptools versions produce
+# an editable install whose finder resolves the package to a static copy (a build dir,
+# or a site-packages copy), so edits to $REPODIR are invisible to the import — the
+# trajectory would then measure stale code. §8 gold validation catches this ONLY when
+# the gold patch happens to edit an imported module; this asserts the property
+# directly and names the cause, instead of the opaque PRE_AGENT_GOLD_RED.
+#
+# For each top-level module the editable dist (the one whose PEP 610 direct_url marks
+# it editable from $REPODIR) exposes, it IMPORTS the module — exactly what pytest does
+# — and checks the resolved file lives under $REPODIR. Run from $W, never $REPODIR, so
+# the check's own cwd cannot put the repo on sys.path and mask a copy. rc: 0 live /
+# 3 no editable dist / 1 a copy — only 1 is fatal, so an unimportable or metadata-less
+# package never produces a false block.
+LIVE_OUT=$( cd "$W" && "$VENV/bin/python" - "$REPODIR" <<'PYLIVE'
+import json, sys, pathlib, importlib, importlib.metadata as md
+repo = pathlib.Path(sys.argv[1]).resolve()
+def editable_from_repo(dist):
+    try:
+        du = dist.read_text('direct_url.json')
+        if not du: return False
+        j = json.loads(du)
+        if not j.get('dir_info', {}).get('editable'): return False
+        url = j.get('url', '')
+        return url.startswith('file://') and pathlib.Path(url[7:]).resolve() == repo
+    except Exception:
+        return False
+tops, found = [], False
+for dist in md.distributions():
+    if editable_from_repo(dist):
+        found = True
+        tops += [t for t in (dist.read_text('top_level.txt') or '').split() if t]
+if not found: print("NO_EDITABLE_DIST"); sys.exit(3)
+if not tops: print("NO_TOPLEVEL"); sys.exit(0)
+bad = []
+for t in sorted(set(tops)):
+    try:
+        m = importlib.import_module(t)
+    except Exception:
+        continue
+    loc = getattr(m, '__file__', None)
+    if loc is None:
+        p = list(getattr(m, '__path__', []) or [])
+        loc = p[0] if p else None
+    if not loc: continue
+    try:
+        pathlib.Path(loc).resolve().relative_to(repo)
+    except ValueError:
+        bad.append("%s<-%s" % (t, pathlib.Path(loc).resolve()))
+if bad: print("NOT_LIVE " + " ".join(bad)); sys.exit(1)
+print("LIVE"); sys.exit(0)
+PYLIVE
+)
+[ $? -eq 1 ] && { echo "PRE_AGENT_EDITABLE_NOT_LIVE: the task package imports from a copy, not $REPODIR — $LIVE_OUT"; exit 1; }
+
 # strip history; synthetic base commit; no remotes
 rm -rf "$REPODIR/.git"
 ( cd "$REPODIR" && git init -q && git add -A \
