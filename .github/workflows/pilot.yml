@@ -38,12 +38,12 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'check (provision + freeze, runs nothing) | run-next (runs ONE trajectory; burns seq 1)'
+        description: 'check (provision + freeze, runs nothing) | run-next (ONE trajectory) | sweep (all remaining, in frozen order, checkpointing each)'
         type: choice
-        options: [check, run-next]
+        options: [check, run-next, sweep]
         default: check
       acknowledge_env_drift:
-        description: 'run-next only — record the environment drift and proceed. Review the fingerprint from a `check` run first.'
+        description: 'run-next / sweep — record the environment drift and proceed. Review the fingerprint from a `check` run first.'
         type: boolean
         default: false
 
@@ -57,13 +57,12 @@ concurrency:
 jobs:
   trajectory:
     runs-on: ubuntu-latest
-    # The agent runs under a 50-minute budget (TB_AGENT_SECS:-3000), and hitting THAT
-    # budget still records a verdict, not a halt. The job timeout must clear
-    # provisioning + clone + venv + the full 50-minute agent run with margin: a job
-    # timeout that fires AFTER the trajectory-start marker but before the verdict is a
-    # halt (started, no verdict) that needs human adjudication. 120 leaves ~55 min of
-    # headroom over the worst case, so the run finishes on its own terms.
-    timeout-minutes: 120
+    # A single trajectory needs ~65 min worst case (≤50-min agent budget + provisioning).
+    # `sweep` runs many back-to-back in one job, checkpointing after each, and stops
+    # starting new trajectories ~285 min in (see STOP_AFTER) so the last one finishes
+    # well under this ceiling; anything unfinished is resumed by re-dispatching sweep.
+    # 350 stays under GitHub's 6 h hard cap while leaving that headroom.
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v5
         with:
@@ -109,7 +108,7 @@ jobs:
         run: bash harness/taskbench/round4/provision-check.sh
 
       - name: Restore pilot state (never-re-roll across dispatches)
-        if: inputs.action == 'run-next'
+        if: inputs.action != 'check'
         # Ephemeral runners forget runs-pilot/ between dispatches, which is where the
         # never-re-roll guarantee lives. Pull the prior markers/verdicts so the driver
         # advances in order and halts (rather than re-rolls) a started trajectory.
@@ -118,7 +117,7 @@ jobs:
         run: bash harness/taskbench/round4/ci-pilot-state.sh restore
 
       - name: Install the pinned agent CLI where the jail can find it
-        if: inputs.action == 'run-next'
+        if: inputs.action != 'check'
         # run-task4.sh launches the agent inside the jail with
         # PATH=ART_BINDIR:NODE_DIR:VENV/bin:/usr/bin:/bin and calls bare `claude`, so the
         # CLI must resolve in one of those dirs. npm -g on setup-node lands it in NODE_DIR
@@ -136,19 +135,20 @@ jobs:
           esac
           echo "agent CLI: $(claude --version 2>&1 | head -1 || true) — reachable at $NODE_DIR/claude"
 
-      - name: Run the trajectory
-        if: inputs.action == 'run-next'
+      - name: Run the pilot (run-next = one trajectory, sweep = the frozen order)
+        if: inputs.action != 'check'
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ACK: ${{ inputs.acknowledge_env_drift }}
+          ACTION: ${{ inputs.action }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
-          [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || { echo "::error::run-next needs the CLAUDE_CODE_OAUTH_TOKEN secret."; exit 1; }
+          [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || { echo "::error::needs the CLAUDE_CODE_OAUTH_TOKEN secret."; exit 1; }
 
-          # The jail chains egress through an UPSTREAM HTTP proxy (HTTPS_PROXY). The
-          # firecracker env supplies one; a runner does not, so start a loopback CONNECT
-          # forwarder to be that upstream. The jail's own allowlist-proxy still enforces
-          # api.anthropic.com-only egress — this only replaces the missing plumbing.
+          # The jail chains egress through an UPSTREAM HTTP proxy (HTTPS_PROXY). A runner
+          # has none, so start a loopback CONNECT forwarder to be it. The jail's own
+          # allowlist-proxy still enforces api.anthropic.com-only egress.
           node harness/taskbench/round4/ci-upstream-proxy.mjs 8888 &
           PROXY_PID=$!
           trap 'kill "$PROXY_PID" 2>/dev/null || true' EXIT
@@ -159,31 +159,57 @@ jobs:
           export HTTPS_PROXY=http://127.0.0.1:8888 https_proxy=http://127.0.0.1:8888
 
           cd harness/taskbench/round4
+          # Every privileged call carries the runner PATH, the upstream proxy, TB_NETJAIL and
+          # the token, so the freeze fingerprint and the agent network path are identical
+          # across the code check, the acknowledgement and the driver's own gate.
+          run() { sudo -E env "PATH=$PATH" HTTPS_PROXY="$HTTPS_PROXY" https_proxy="$https_proxy" TB_NETJAIL=1 CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" "$@"; }
 
-          # Every privileged call carries the runner PATH and the upstream proxy so the
-          # freeze fingerprint and the agent network path are identical across the code
-          # check, the acknowledgement and the driver's own gate.
-          run() { sudo -E env "PATH=$PATH" HTTPS_PROXY="$HTTPS_PROXY" https_proxy="$https_proxy" "$@"; }
+          # H5-style checkpoint after EACH trajectory: hand the sudo-written runs-pilot/ files
+          # back to the runner and force-push the snapshot to the state branch. On an
+          # ephemeral runner this means a mid-sweep death loses at most the in-flight
+          # trajectory — round 3 lost eight pairs to exactly this failure mode.
+          checkpoint() {
+            sudo chown -R "$(id -u):$(id -g)" runs-pilot 2>/dev/null || true
+            sudo chmod -R u+rwX runs-pilot 2>/dev/null || true
+            GITHUB_TOKEN="$GITHUB_TOKEN" bash "$GITHUB_WORKSPACE/harness/taskbench/round4/ci-pilot-state.sh" save
+          }
 
+          # Acknowledge environment drift once; the acknowledgement persists in runs-pilot/
+          # for the whole sweep (the runner's fingerprint does not change mid-job).
           set +e; run node freeze-pilot-manifest.mjs --check >/tmp/fz.txt 2>&1; FRC=$?; set -e
           cat /tmp/fz.txt
           case "$FRC" in
             0) : ;;
             3)
-              if [ "$ACK" != "true" ]; then
-                echo "::error::environment drift is unacknowledged. Review the fingerprint from a check run, then re-dispatch run-next with acknowledge_env_drift: true."
-                exit 1
-              fi
+              [ "$ACK" = "true" ] || { echo "::error::environment drift is unacknowledged. Review the fingerprint from a check run, then re-dispatch with acknowledge_env_drift: true."; exit 1; }
               run ./pilot-drive.sh --acknowledge-drift ;;
             *) echo "::error::freeze exit $FRC — not runnable (binding/structural drift is never acknowledged)."; exit 1 ;;
           esac
 
-          # TB_NETJAIL=1 (symmetric jail, PILOT4.md) and the upstream proxy travel into the
-          # driver; it adds TB_RUNTASK4_READY, the registered model and the manifest binding.
-          run TB_NETJAIL=1 CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" ./pilot-drive.sh --next
+          # The sweep, following the round-3.1 driver's process: run trajectories in frozen
+          # order, resume by rerun (done/adjudicated ones are skipped by the driver),
+          # checkpoint after each, and stop cleanly on complete / halt / failure. `run-next`
+          # does exactly one. The time budget stops STARTING a new trajectory ~285 min in so
+          # the last one finishes under the 350-min job timeout; re-dispatching resumes.
+          T0=$(date +%s); STOP_AFTER=$(( 285*60 )); n=0; rc_final=0
+          while :; do
+            set +e; run ./pilot-drive.sh --next >/tmp/next.txt 2>&1; RC=$?; set -e
+            cat /tmp/next.txt
+            if grep -q 'every trajectory is accounted for' /tmp/next.txt; then
+              echo "PILOT COMPLETE — every trajectory is accounted for"; break
+            fi
+            checkpoint; n=$((n+1))
+            if [ "$RC" = 3 ]; then echo "::warning::HALTED after $n — a started trajectory needs adjudication; stopping."; rc_final=3; break; fi
+            if [ "$RC" != 0 ]; then echo "::error::a trajectory failed (rc=$RC) after $n; stopping."; rc_final="$RC"; break; fi
+            [ "$ACTION" = "sweep" ] || break
+            if [ $(( $(date +%s) - T0 )) -gt "$STOP_AFTER" ]; then
+              echo "::warning::time budget reached after $n trajectories; stopping cleanly — re-dispatch sweep to resume."; break
+            fi
+          done
 
           echo "### pilot status" >> "$GITHUB_STEP_SUMMARY"
           ./pilot-drive.sh --status | tee -a "$GITHUB_STEP_SUMMARY" || true
+          exit "$rc_final"
 
       - name: Normalize runs-pilot ownership
         # run-task4 runs under sudo, so runs-pilot/ files — including the root-only
@@ -191,7 +217,7 @@ jobs:
         # halt state persists too) before the state save and the artifact upload, which
         # run as the runner user. Without this the verdict is silently dropped from the
         # snapshot and the upload fails with EACCES.
-        if: always() && inputs.action == 'run-next'
+        if: always() && inputs.action != 'check'
         run: |
           D=harness/taskbench/round4/runs-pilot
           if [ -d "$D" ]; then
@@ -203,13 +229,13 @@ jobs:
         # ALWAYS: a produced verdict or a written start marker must persist to the next
         # dispatch — that is what makes never-re-roll hold on an ephemeral runner. Runs
         # even when the trajectory failed.
-        if: always() && inputs.action == 'run-next'
+        if: always() && inputs.action != 'check'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: bash harness/taskbench/round4/ci-pilot-state.sh save
 
       - name: Upload the trajectory record
-        if: always() && inputs.action == 'run-next'
+        if: always() && inputs.action != 'check'
         uses: actions/upload-artifact@v5
         with:
           name: pilot-runs
