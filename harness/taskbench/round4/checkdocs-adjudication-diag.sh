@@ -34,7 +34,15 @@ STATE_REF="${TB_STATE_REF:-origin/round4-pilot-state}"
 TRAJ="${TB_TRAJ:-11-jsonpickle-jsonpickle-gated}"
 OUT_DIR="${TB_DIAG_OUT:-${RUNNER_TEMP:-/tmp}/checkdocs-adj-diag}"
 rm -rf "$OUT_DIR"; mkdir -p "$OUT_DIR"
-W="$OUT_DIR/work"; mkdir -p "$W"
+# The jailed working set (repo, venv, the suite's HOME/TMPDIR boxes, the mask dir)
+# MUST live somewhere every uid can search — the jail drops CAP_DAC_OVERRIDE, so a
+# venv under a path like /home/runner/work/_temp (RUNNER_TEMP), whose parent
+# /home/runner is 750 and owned by another user, is unreachable to uid 0 inside
+# the jail: execve returns EACCES and the suite never runs. run-task4.sh puts its
+# work under /tmp (mode 1777, world-searchable) for exactly this reason; matching
+# it is part of reproducing the scoring environment faithfully. The RECORD (logs,
+# cells.jsonl, the json) stays under OUT_DIR so the upload step collects it.
+W="$(mktemp -d /tmp/tb-adjdiag-XXXXXX)"
 die() { echo "::error::$*" >&2; exit 1; }
 for c in git uv python3.11 jq unshare; do command -v "$c" >/dev/null 2>&1 || die "$c is required"; done
 ADJ_JAIL="$RUNNER/agent-jail4.sh"
@@ -88,11 +96,11 @@ VENV_PREFIX="$(cd "$(dirname "$(dirname "$PYBIN")")" && pwd)"
 # artefact.
 SUITE=(timeout 300 "$PYBIN" -m pytest -q -p no:cacheprovider)
 SCRUB=(PYTEST_ADDOPTS PYTEST_PLUGINS PYTHONPATH PYTHONSTARTUP NODE_OPTIONS NODE_PATH BASH_ENV ENV LD_PRELOAD)
-MASKDIR="$OUT_DIR/ctrl"; mkdir -p "$MASKDIR"
+MASKDIR="$W/ctrl"; mkdir -p "$MASKDIR"
 
 cell() { # <tag> <jailed:yes|no> <ro:yes|no>
   local tag=$1 jailed=$2 ro=$3
-  local box; box="$(mktemp -d "$OUT_DIR/box-$tag-XXXXXX")"
+  local box; box="$(mktemp -d "$W/box-$tag-XXXXXX")"
   mkdir -p "$box/home" "$box/tmp"
   # GNU env: options (--unset) BEFORE NAME=VALUE assignments.
   local -a env_over=()
