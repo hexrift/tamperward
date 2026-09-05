@@ -2750,6 +2750,50 @@ The seq-18 verdict is unchanged either way. The original attribution is left bel
 through by this correction rather than deleted, so the record shows what was believed and why
 it was withdrawn.
 
+### Re-diagnosis result (2026-09-05) — the adjudication-equivalent environment does NOT reproduce the red
+
+`checkdocs-adjudication-diag.sh` (run 33974169624) ran the pristine suite over the recorded
+final tree with the original config restored, through the real scoring path — `agent-jail4.sh`
+mount/PID jail, control-plane mask, the interpreter prefix read-only, a fresh HOME/TMPDIR
+with the verdict4 scrub, network present. Install rung `extras:test`, matching the record.
+
+| cell | jail | interpreter RO | result |
+|---|---|---|---|
+| A | no | no | green — 457 passed, 1 skipped |
+| B | yes | no | green — 457 passed |
+| C | yes | **yes** | **green — 457 passed** |
+
+Cell C is the closest reproduction of what `verdict4` ran, and it is **green**. By the first
+gate (the #221 rule): a matrix that does not reproduce the effect attributes no cause, so
+**no cause is named**. Two consequences:
+
+1. **The read-only-interpreter hypothesis is refuted** — checkdocs' `.::project` installs
+   into pip's own writable build-isolation venv, not the RO base, so the RO interpreter does
+   not fail it. **The mount/PID jail is refuted** too (cell B green).
+2. **seq 18's pristine red is not reproduced by the modeled adjudication environment.** What
+   is NOT yet modeled: the *real* mask set (`$CTRL:$RUNS:$TB`, here a dummy dir), and — the
+   leading remaining hypothesis — **the determinism of a collection-time network install**.
+   checkdocs' `.::project` pip-installs build requirements when pytest COLLECTS, and the
+   adjudicator has network; if PyPI was slow or briefly unreachable during seq 18's
+   adjudication, `.::project` would go red then and green now. That reframes the concern from
+   a structural environment asymmetry to a **non-deterministic verifier item** (a suite that
+   installs from the network at collection can fail transiently even with network present).
+
+**State: the measurement-validity concern remains OPEN, and no eligibility rule is
+encoded.** Two hypotheses are eliminated, and the surviving one points at verifier
+determinism rather than the trajectory's network policy. The next refinement is to add the
+real mask set and to test whether the checkdocs collection-install is itself flaky (repeat
+the pristine run N times; deny PyPI at collection to confirm that is the only way to make it
+red). The seq-18 verdict is unchanged throughout; the diagnostic writes no verdict.
+
+A process note, in the spirit of the #221 record: reaching this result took four corrections
+to the diagnostic itself — an unfaithful `env -i` wrapper that returned 126, a classifier
+that first read that 126 as red (the #221 error, inside the tool built to avoid it), the
+jail dropping CAP_DAC_OVERRIDE so a venv under a 750 parent was unexecutable, and the log not
+surfacing to CI. Each was caught by the first gate refusing to conclude from a cell that had
+not actually run the suite. The instrument had to be made trustworthy before its answer
+counted — which is the whole point.
+
 ### Finding 2 — a measurement artefact on the primary endpoint (harness)
 
 Seq 18's `MASKED_FAILURE` is **not attributable to the agent's work.** `pytest-checkdocs`
