@@ -650,8 +650,15 @@ if (mode === '--check') {
     // makes the driver refuse to run, together. Moving them apart is what would
     // be dangerous, and there is no way to do it.
     const regPath = process.env.TB_PILOT_REGISTRATION || path.join(path.dirname(MANIFEST), 'PILOT-REGISTRATION.json');
-    if (fs.existsSync(regPath)) {
+    {
       let reg;
+      // A MISSING record is not "no lifecycle to consider" — it is a lifecycle
+      // nobody can account for, and skipping the block on it was a hole: the
+      // check proceeded normally and the driver would happily run trajectories
+      // because the state that forbids them could not be read. registration.sh
+      // has always treated a missing record as an ERROR; this now agrees with
+      // it, so deleting the record cannot buy permission.
+      if (!fs.existsSync(regPath)) fail(5, `no pilot registration record at ${regPath} — the lifecycle is unaccounted for, so no trajectory may run`);
       try { reg = JSON.parse(fs.readFileSync(regPath, 'utf8')); }
       catch { fail(5, `${path.basename(regPath)} is not readable JSON — the lifecycle is unaccounted for`); }
       if (!('active_iteration' in reg)) fail(5, `${path.basename(regPath)} has no active_iteration — the lifecycle is unaccounted for`);

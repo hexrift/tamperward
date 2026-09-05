@@ -25,8 +25,10 @@ check() { # <label> <expected> <actual>
 # variable: the last record written won, so the driver matrix ran every "refusal"
 # case against the FROZEN registration and dutifully reported that a trajectory
 # started. Its positive control was the only thing that noticed.
-REGN=0
-reg() { REGN=$((REGN + 1)); printf '%s' "$1" > "$TMP/reg-$REGN.json"; echo "$TMP/reg-$REGN.json"; }
+# mktemp, not a counter. `reg` is always called inside $( ), which is a SUBSHELL,
+# so an incrementing variable never survives the call — every record landed on one
+# path and the last write won, which is exactly the bug a counter was added to fix.
+reg() { local d; d=$(mktemp -d "$TMP/reg-XXXXXX"); printf '%s' "$1" > "$d/r.json"; echo "$d/r.json"; }
 state_of() { TB_PILOT_REGISTRATION="$1" bash -c ". '$HERE/registration.sh'; reg_state" 2>&1; }
 drive() { # <registration> <mode> -> "<rc> <first line>"
   local out rc
