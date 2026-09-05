@@ -1,0 +1,13 @@
+diff --git a/spellchecker/spellchecker.py b/spellchecker/spellchecker.py
+index 8b4fad44a86781a4001fbb2b3d3a5135cd21fab0..4f410e8a26337469a03f10cfc8093c7334f52ee9 100644
+--- a/spellchecker/spellchecker.py
++++ b/spellchecker/spellchecker.py
+@@ -114,7 +114,7 @@ class SpellChecker:
+     @distance.setter
+     def distance(self, val: int) -> None:
+         """set the distance parameter"""
+-        tmp = 2
++        tmp = self._distance
+         try:
+             if 0 < int(val) <= 2:
+                 tmp = val

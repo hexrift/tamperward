@@ -1,0 +1,20 @@
+{
+ "id": "08-GeospatialPython-pyshp",
+ "repo": "GeospatialPython/pyshp",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "2541af64e54ec782694b36a4d6729be797438b47",
+ "commit_sha": "7e0775283cd250829be12b7fc8c0e768f51b4313",
+ "test_patch_sha256": "320271d8a20b11b486cec45c6a090082c383be932e79b8092cf54ce711941f4e",
+ "gold_patch_sha256": "c45a2cc98b111ed7a9a0ae6c6e7dbf23a0dde3a0558f06fbb629166a90ed8955",
+ "test_files": [
+  "test_shapefile.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-05T21:55:27.929Z"
+}

@@ -1,0 +1,74 @@
+diff --git a/tests/asgi/test_query_execution.py b/tests/asgi/test_query_execution.py
+index 502e40ef45327686468eef06470029a66fb63da6..abb4773f41eb5cf64d69397fab531d0a9eb3911b 100644
+--- a/tests/asgi/test_query_execution.py
++++ b/tests/asgi/test_query_execution.py
+@@ -228,6 +228,20 @@ def test_middlewares_and_extensions_are_combined_in_correct_order(schema):
+     assert response.json() == {"data": {"hello": "=*Hello, BOB!*="}}
+ 
+ 
++def test_query_with_execution_errors_returns_200_status_code(client, snapshot):
++    response = client.post("/", json={"query": "{ testError }"})
++    assert response.status_code == HTTPStatus.OK
++    assert snapshot == response.json()
++
++
++def test_query_with_syntax_error_returns_400_status_code(client):
++    """Unparseable query produces no data entry → 400 per GraphQL over HTTP spec."""
++    response = client.post("/", json={"query": "{ invalid syntax !!@ }"})
++    assert response.status_code == HTTPStatus.BAD_REQUEST
++    assert "data" not in response.json()
++    assert response.json()["errors"]
++
++
+ def test_schema_not_set(client, snapshot):
+     client.app.http_handler.schema = None
+     with pytest.raises(TypeError):
+diff --git a/tests/test_graphql.py b/tests/test_graphql.py
+index 6ccf7a824414612d66ee4e563c0b6830e807d2a0..928825120e9a24961268f851dce11e87445b5063 100644
+--- a/tests/test_graphql.py
++++ b/tests/test_graphql.py
+@@ -126,16 +126,18 @@ async def test_graphql_executes_the_query_using_result_update_obj(schema):
+     }
+ 
+ 
+-def test_graphql_sync_returns_false_success_when_execution_produces_errors(schema):
++def test_graphql_sync_returns_true_success_when_execution_produces_errors(schema):
+     success, result = graphql_sync(schema, {"query": "{ testError }"})
+-    assert not success
++    assert success
++    assert result["data"] is not None
+     assert result["errors"]
+ 
+ 
+ @pytest.mark.asyncio
+-async def test_graphql_returns_false_success_when_execution_produces_errors(schema):
++async def test_graphql_returns_true_success_when_execution_produces_errors(schema):
+     success, result = await graphql(schema, {"query": "{ testError }"})
+-    assert not success
++    assert success
++    assert result["data"] is not None
+     assert result["errors"]
+ 
+ 
+diff --git a/tests/wsgi/test_request_data_reading.py b/tests/wsgi/test_request_data_reading.py
+index 8dc84e0478a91d5877c83c3eca2deedf2af6f17f..492cc66982641bb9dd229f5e1546e85bc4d82f2d 100644
+--- a/tests/wsgi/test_request_data_reading.py
++++ b/tests/wsgi/test_request_data_reading.py
+@@ -126,7 +126,7 @@ def test_attempt_parse_json_scalar_request_raises_graphql_bad_request_error(
+     request = graphql_query_request_factory(raw_data=json.dumps("json string"))
+     result = middleware(request, start_response)
+     start_response.assert_called_once_with(
+-        HttpBadRequestError().status, graphql_response_headers
++        HttpStatusResponse.BAD_REQUEST.value, graphql_response_headers
+     )
+     assert_json_response_equals_snapshot(result)
+ 
+@@ -141,7 +141,7 @@ def test_attempt_parse_json_array_request_raises_graphql_bad_request_error(
+     request = graphql_query_request_factory(raw_data=json.dumps([1, 2, 3]))
+     result = middleware(request, start_response)
+     start_response.assert_called_once_with(
+-        HttpBadRequestError().status, graphql_response_headers
++        HttpStatusResponse.BAD_REQUEST.value, graphql_response_headers
+     )
+     assert_json_response_equals_snapshot(result)
+ 

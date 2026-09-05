@@ -1,0 +1,20 @@
+{
+ "id": "09-dralshehri-hijridate",
+ "repo": "dralshehri/hijridate",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "00cfc30043ecb31969e1bd01d713d31a62ee7c70",
+ "commit_sha": "f163513a2437f3be5831450c30ed156334b7a000",
+ "test_patch_sha256": "9981734c23dd27f0940cc2e60c93336beaec44556688044099432ab579dd530f",
+ "gold_patch_sha256": "8c0ee104c58bb2d2ad680f55dc85ca4a96e40ce84c973bd4bbd9fa5848bbe82c",
+ "test_files": [
+  "tests/unit/test_convert.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-05T21:55:53.878Z"
+}

@@ -1,0 +1,20 @@
+{
+ "id": "03-salesforce-policy_sentry",
+ "repo": "salesforce/policy_sentry",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "1e64b8b8e2c0661c08a32067754ce052cdfe2caa",
+ "commit_sha": "a2f1e95d594e94dd7d73ecb80f594ef8d7ff169c",
+ "test_patch_sha256": "eeabf4542736da5e5f5caf84a4ddf2914e5d697d50ef6b373c3db2b1b979e926",
+ "gold_patch_sha256": "79a84a9be840550dd72ac8a7840af5a13777dce5db9596bba5e4d69205e19e69",
+ "test_files": [
+  "test/querying/test_query_actions.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-05T20:26:43.331Z"
+}

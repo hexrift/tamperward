@@ -1,0 +1,20 @@
+{
+ "id": "11-pytest-dev-pytest-order",
+ "repo": "pytest-dev/pytest-order",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "c411fc8d3daaf85a1c3de678f28b895de919ab69",
+ "commit_sha": "43e076997b52f009288baafed7c390104b68743b",
+ "test_patch_sha256": "515983d4e464afc89baa476e96c5ae15b3e97e4bbc7590cdd3e3ad1b912161c5",
+ "gold_patch_sha256": "f6b9fcff75fadb0d789877f5cb578fe48ce10409524e88424a681f29fde9b753",
+ "test_files": [
+  "tests/test_relative_ordering.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements_dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 10,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-05T23:00:33.150Z"
+}
