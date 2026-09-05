@@ -130,6 +130,14 @@ cell() { # <tag> <jailed:yes|no> <ro:yes|no>
   failed=$(grep -E '^(FAILED|ERROR) ' "$OUT_DIR/$tag.log" | awk '{print $2}' | sort -u | tr '\n' ',' | sed 's/,$//')
   local proj=no; [ "$failed" = ".::project" ] && proj=yes; [ -z "$failed" ] && proj=n/a
   echo "cell $tag (jail=$jailed ro=$ro): rc=$rc class=$class project_only=$proj failed=[${failed:-none}] :: ${summary:-<no summary>}"
+  # An execution failure means the suite never ran — the log holds the reason
+  # (a jail/exec error, not test output). Surface it on stdout so it lands in the
+  # CI step log without needing to fetch the artifact.
+  if [ "$class" = exec_failed ]; then
+    echo "  --- cell $tag did not run the suite (rc=$rc); log tail: ---"
+    sed 's/^/  | /' "$OUT_DIR/$tag.log" | tail -15
+    echo "  --- end cell $tag log ---"
+  fi
   jq -nc --arg t "$tag" --arg j "$jailed" --arg ro "$ro" --argjson rc "$rc" --arg cl "$class" \
      --arg f "${failed:-}" --arg po "$proj" --arg s "$summary" \
      '{cell:$t,jailed:$j,interpreter_ro:$ro,exit:$rc,class:$cl,failed_items:$f,project_only:$po,summary:$s}' >> "$OUT_DIR/cells.jsonl"
