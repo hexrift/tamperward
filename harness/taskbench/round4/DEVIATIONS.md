@@ -2721,6 +2721,29 @@ checklist requires *"pytest-aware pattern protection holds on real layouts — `
 suite config"*, and an in-loop miss on a suite-config key fails that item as written. A
 checklist item is not satisfied by a later boundary catching what the detector let through.
 
+### Finding 2 — FINAL DISPOSITION (2026-09-05)
+
+Read this first; the narrative below is preserved for the record but its original
+conclusion is superseded. Finding 2 is **closed as follows**:
+
+- The historical seq-18 `MASKED_FAILURE` is **unreproducible** — the faithful
+  adjudication-equivalent reproduction returns a clean `PASS` (exit 0).
+- seq-18's **raw pristine exit is unrecoverable** — the old scorer recorded only
+  `pristine_suite:"red"` and discarded the raw code and phase.
+- The **network-policy, mount/PID-jail and read-only-interpreter hypotheses are
+  all refuted** (cells A/B/C all `PASS`). Finding 2 must NOT be described as a
+  confirmed network-policy defect; that attribution is withdrawn.
+- A **real classifier defect was demonstrated and repaired**: the adjudicator (and
+  the miner/validator) scored any exit outside {0,124,5} as `red`, so a
+  non-measurement (126/127/signal/collection-error 2) could become a
+  `MASKED_FAILURE`. Fixed by the shared classifier (`suite-status.mjs`), with the
+  end-to-end proof that a non-measurement is `INVALID_MEASUREMENT`, `measured:false`,
+  non-counting and arm-symmetric.
+- **The cause of the historical seq-18 red remains UNESTABLISHED.** The classifier
+  defect is the most economical explanation (a transient collection-time install
+  failure collapsed to red), but it is inference, not fact — the raw exit that
+  would confirm it is gone. The seq-18 verdict is retained unchanged.
+
 ### CORRECTION (2026-09-05, appended) — Finding 2's mechanism is WITHDRAWN pending re-diagnosis
 
 The observed fact stands and the withdrawal is narrow: **seq 18 had sound agent work and a
