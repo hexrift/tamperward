@@ -1,0 +1,135 @@
+name: mine
+
+# Round-4 MINING — MANUAL, non-required, never on push. ONE generic workflow, not
+# one per round or iteration: the pool is a dispatch input (pilot-i2 now, pilot-i3
+# or a counted pool later).
+#
+# Mining is MECHANICAL and credential-free — clone repositories, apply the frozen
+# FRAME5 gates, validate regression tasks. NO agent, NO model, NO Claude
+# credential, NO artefact, NO net-jail. So this shares none of pilot.yml's body;
+# what it reuses is the checkpoint-to-state-branch mechanism (ci-pilot-state.sh via
+# TB_STATE_DIR).
+#
+# ENVIRONMENT FIDELITY is why this runs the pinned docker-compose ON the runner
+# rather than mine5 directly: mining eligibility depends on arch / wheel / resolver
+# (docker/docker-compose.yml pins debian-bookworm amd64, python 3.11, uv 0.8.17),
+# and the protocol requires every pilot AND counted repository decided on ONE
+# environment. ubuntu-latest is native amd64, so the pinned image runs unemulated.
+# The image digest and tool versions are printed for the iteration's freeze record.
+#
+# RESUMABLE. mine5 writes a terminal verdict per repository and skips those, so a
+# dispatch cut off by the budget resumes on the next; a repo interrupted
+# mid-processing is re-examined, which is safe because mining is idempotent (unlike
+# a non-re-rollable trajectory).
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'check (build image + pool sanity, mines nothing) | mine (walk under the budget, checkpointing)'
+        type: choice
+        options: [check, mine]
+        default: check
+      pool:
+        description: 'mining pool (a pilot iteration, e.g. pilot-i2)'
+        default: pilot-i2
+
+permissions:
+  contents: write   # `mine` force-pushes the pool snapshot to a non-protected state branch
+
+concurrency:
+  group: round4-mine-${{ github.event.inputs.pool || 'pilot-i2' }}
+  cancel-in-progress: false
+
+env:
+  POOL: ${{ github.event.inputs.pool || 'pilot-i2' }}
+  COMPOSE: harness/taskbench/round4/docker/docker-compose.yml
+
+jobs:
+  mine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350   # 285-min mining budget under this ceiling; resume by re-dispatch
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Pool sanity — the walk is disjoint from the burn set
+        run: |
+          set -euo pipefail
+          P="harness/taskbench/round4/pools/$POOL"
+          [ -s "$P/walk.json" ] || { echo "::error::no walk.json for pool $POOL"; exit 1; }
+          node -e '
+            const fs=require("fs"), P="harness/taskbench/round4";
+            const order=new Set(JSON.parse(fs.readFileSync(P+"/pools/'"$POOL"'/walk.json")).order);
+            const burn=JSON.parse(fs.readFileSync(P+"/frame/pilot-dedup.json")).repos;
+            const leaked=burn.filter(r=>order.has(r));
+            if (leaked.length){console.error("::error::"+leaked.length+" burnt repos leaked into the walk");process.exit(1);}
+            console.log("pool '"$POOL"': "+order.size+" repositories, burn-set disjoint: OK");
+          '
+
+      - name: Build the pinned mining image (records its identity)
+        run: |
+          set -euo pipefail
+          docker compose -f "$COMPOSE" build mine
+          echo "mining environment (recorded for the iteration freeze):"
+          docker compose -f "$COMPOSE" run --rm --no-deps mine bash -c '
+            echo "  os      $(. /etc/os-release; echo "$PRETTY_NAME")"
+            echo "  arch    $(uname -m)"
+            echo "  python  $(python3 --version 2>&1)"
+            echo "  uv      $(uv --version 2>&1)"
+            echo "  node    $(node --version 2>&1)"
+          ' | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Restore mining state (resume across dispatches)
+        if: inputs.action == 'mine'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TB_STATE_DIR: pools/${{ env.POOL }}
+          TB_PILOT_STATE_BRANCH: round4-mine-${{ env.POOL }}-state
+        run: bash harness/taskbench/round4/ci-pilot-state.sh restore
+
+      - name: Mine (walk until ten validated or the 285-min budget)
+        if: inputs.action == 'mine'
+        run: |
+          set -uo pipefail
+          P="harness/taskbench/round4/pools/$POOL"
+          echo "before: $(ls "$P/tasks" 2>/dev/null | grep -v '^\.' | wc -l | tr -d ' ') task(s), $(grep -c . "$P/attrition.jsonl" 2>/dev/null || echo 0) attrition line(s)"
+          # The pinned image runs mine5 (its default command). A 285-min host-side
+          # budget then stops the container; the pool's attrition.jsonl is the
+          # checkpoint. `|| true`: a budget stop is not a failure.
+          set +e
+          timeout --signal=TERM 285m env TB_POOL="$POOL" TB_PILOT_NEED=10 \
+            docker compose -f "$COMPOSE" up --build --abort-on-container-exit --exit-code-from mine mine
+          RC=$?
+          set -e
+          echo "compose exit: $RC (124 = hit the budget, resume by re-dispatch)"
+          # mine5 wrote the pool as root inside the container; hand it back so the
+          # unprivileged save/upload can read it (the D8 lesson).
+          sudo chown -R "$(id -u):$(id -g)" "$P" 2>/dev/null || true
+
+      - name: Save mining state
+        if: always() && inputs.action == 'mine'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TB_STATE_DIR: pools/${{ env.POOL }}
+          TB_PILOT_STATE_BRANCH: round4-mine-${{ env.POOL }}-state
+        run: bash harness/taskbench/round4/ci-pilot-state.sh save
+
+      - name: Status
+        if: always() && inputs.action == 'mine'
+        run: |
+          P="harness/taskbench/round4/pools/$POOL"
+          t=$(ls "$P/tasks" 2>/dev/null | grep -v '^\.' | wc -l | tr -d ' ')
+          a=$(grep -c . "$P/attrition.jsonl" 2>/dev/null || echo 0)
+          echo "pool $POOL — validated tasks: $t / 10 ; attrition lines: $a" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$t" -ge 10 ]; then echo "DONE: ten validated — finalize and freeze iteration 2" | tee -a "$GITHUB_STEP_SUMMARY"
+          else echo "not yet ten — re-dispatch \`mine\` to continue" | tee -a "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Upload the pool snapshot
+        if: always() && inputs.action == 'mine'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mine-${{ env.POOL }}
+          path: |
+            harness/taskbench/round4/pools/${{ env.POOL }}/attrition.jsonl
+            harness/taskbench/round4/pools/${{ env.POOL }}/tasks/
+          if-no-files-found: warn
