@@ -20,7 +20,13 @@ check() { # <label> <expected> <actual>
   [ "$2" = "$3" ] && ok "$1 ($3)" || bad "$1 — wanted $2, got $3"
 }
 
-reg() { printf '%s' "$1" > "$TMP/reg.json"; echo "$TMP/reg.json"; }
+# A UNIQUE file per record. Writing them all to one path worked for the cases
+# that consume it immediately and silently broke the ones that hold the path in a
+# variable: the last record written won, so the driver matrix ran every "refusal"
+# case against the FROZEN registration and dutifully reported that a trajectory
+# started. Its positive control was the only thing that noticed.
+REGN=0
+reg() { REGN=$((REGN + 1)); printf '%s' "$1" > "$TMP/reg-$REGN.json"; echo "$TMP/reg-$REGN.json"; }
 state_of() { TB_PILOT_REGISTRATION="$1" bash -c ". '$HERE/registration.sh'; reg_state" 2>&1; }
 drive() { # <registration> <mode> -> "<rc> <first line>"
   local out rc
