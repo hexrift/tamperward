@@ -318,6 +318,27 @@ function pytestSelection(src: string): Selection {
       // reduce the run, so it is reported against the config itself rather than
       // guessing a file.
       ignore.push({ pattern: '\u0000-m ' + val(''), key: '-m' });
+    } else if (o === '-p' || o.startsWith('-p=') || (o.length > 2 && o.startsWith('-p'))) {
+      // `-p no:<plugin>` turns a plugin OFF, and a plugin that is off contributes
+      // no items: pytest-checkdocs' `.::project`, pytest-ruff's lint items,
+      // whatever an enabler toggles. That is the same harm as `--ignore` or `-k`
+      // written in a key the collection options never covered — round 4's pilot
+      // (seq 18) found it used to make a failing item disappear while every
+      // narrowing key stayed untouched, allowed at the tool call and persisted.
+      //
+      // Which plugin it is cannot be resolved from the config, so this is a
+      // WHOLE-BLOCK narrowing like `-m` rather than a guess at the files. There is
+      // no allowlist of harmless plugins: the gate cannot know what any plugin
+      // contributes, and a genuine environment reason to disable one is exactly
+      // what the sign-off path is for.
+      //
+      // The value may be detached (`-p no:x`), attached (`-pno:x`) or after `=`
+      // (`-p=no:x`); pytest accepts all three, so all three are read. `-p <plugin>`
+      // without `no:` LOADS one, which can only widen the run and is never a
+      // finding — flagging it would be a false positive, and a false positive lands
+      // in the gated arm alone.
+      const v = o === '-p' ? (opts[++j] ?? '') : o.startsWith('-p=') ? o.slice(3) : o.slice(2);
+      if (v.startsWith('no:')) ignore.push({ pattern: '\u0000-p ' + v, key: '-p' });
     } else if (o === '--collect-only' || o === '--co') ignore.push({ pattern: '**', key: o });
   }
   // Always recorded now: the list already carries the built-in skips (or the
@@ -600,8 +621,12 @@ function predicate(sel: Selection, runner: Runner): Predicate {
       if (!inRoots(r)) return `roots no longer covers it (${JSON.stringify(sel.roots)})`;
       const hit = ignoredBy(r);
       if (hit) {
-        const pat = hit.pattern.startsWith('\u0000') ? hit.pattern.slice(1) : hit.pattern;
-        return `${hit.key === 'exclude' ? 'test.exclude' : hit.key} now matches it (${JSON.stringify(pat)})`;
+        // A whole-block narrowing (`-m`, `python_classes`, `python_functions`,
+        // `-p no:<plugin>`) does not MATCH a path — it shrinks what the runner
+        // collects everywhere. Saying "now matches it" of a marker expression or a
+        // disabled plugin would name a mechanism that did not happen.
+        if (hit.pattern.startsWith('\u0000')) return `${hit.key} narrows the whole run (${JSON.stringify(hit.pattern.slice(1))})`;
+        return `${hit.key === 'exclude' ? 'test.exclude' : hit.key} now matches it (${JSON.stringify(hit.pattern)})`;
       }
       const key = runner === 'jest' ? (sel.include ? 'testMatch' : sel.regex ? 'testRegex' : 'testMatch (default)') : sel.include ? 'test.include' : 'test.include (default)';
       return `${key} no longer matches it (${JSON.stringify(sel.include ?? sel.regex ?? includeList ?? [])})`;

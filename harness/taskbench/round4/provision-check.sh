@@ -22,11 +22,45 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-ART_DIR="${TB_ART_DIR:-/opt/tw-artefact-2.10.2}"
-# The artefact tree hash the freeze pins. Kept in step with freeze-pilot-manifest.mjs.
-PIN='a0328112d99451e998037a3b26005c622590f9e5dee075db7606419a06ad3458'
-
 fail() { echo "provision-check: FAIL — $1" >&2; exit 1; }
+. "$(dirname "$0")/registration.sh"
+
+# WHICH QUESTION IS VALID DEPENDS ON THE LIFECYCLE STATE, and that is the whole
+# point of reading it here. This script used to carry its own copy of the pinned
+# artefact hash and the artefact directory, "kept in step with
+# freeze-pilot-manifest.mjs" by hand — a pin duplicated into a script is a pin
+# that drifts, and it also meant a closed iteration's pin was asserted against an
+# unfrozen candidate, failing a PR for being correct.
+#
+#   FROZEN   assert the registered iteration's pin, and run the full freeze check.
+#   BETWEEN  make NO freeze claim. Everything else still has to hold: the
+#            candidate builds, deploys reproducibly, is the CURRENT candidate and
+#            not a stale one, the jail enforces, and the closed iteration's
+#            manifest is immutable and internally reproducible.
+#
+# BETWEEN must never read as "anything goes": it drops exactly the assertions
+# that are about a registration, and no others. Pilot EXECUTION is refused
+# separately, by pilot-drive.sh, which will not run outside FROZEN.
+STATE="$(reg_state)" || fail "cannot read the pilot lifecycle: $STATE"
+echo "provision-check: lifecycle — $STATE"
+CANDIDATE="$(reg_candidate_version)"
+case "$STATE" in
+  frozen*)
+    ACTIVE="${STATE#frozen }"
+    ITER="$(reg_iteration "$ACTIVE")"
+    [ -n "$ITER" ] || fail "active_iteration is $ACTIVE but no such iteration is recorded"
+    PIN="$(printf '%s' "$ITER" | jq -r '.treatment_artefact_sha256')"
+    ART_DIR="${TB_ART_DIR:-$(printf '%s' "$ITER" | jq -r '.treatment_artefact_dir')}"
+    ;;
+  between)
+    PIN=
+    # The candidate's own directory, never a closed iteration's: deploying 2.10.3
+    # into /opt/tw-artefact-2.10.2 would leave the path asserting a version the
+    # tree no longer is.
+    ART_DIR="${TB_ART_DIR:-/opt/tw-artefact-$CANDIDATE}"
+    ;;
+esac
+
 # Run privileged only when we are not already root and sudo exists (CI runner user
 # has passwordless sudo; a root container needs none).
 priv() { if [ "$(id -u)" -ne 0 ]; then sudo "$@"; else "$@"; fi; }
@@ -49,15 +83,46 @@ priv mkdir -p "$ART_DIR"
   || fail "artefact install into $ART_DIR failed"
 rm -f "$TGZ"
 H="$(cd "$ART_DIR/node_modules/tamperward" && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -d' ' -f1)"
-[ "$H" = "$PIN" ] || fail "artefact tree $H != pinned $PIN (this would be binding drift)"
+# The deployed artefact must BE the current candidate. Without this the between
+# state could pass while a stale tree sat in the directory — the deployment is a
+# fresh install so it is true by construction, and asserted anyway because "true
+# by construction" is what stops being true after a refactor.
+DEPLOYED_V="$(node -p "require('$ART_DIR/node_modules/tamperward/package.json').version")"
+[ "$DEPLOYED_V" = "$CANDIDATE" ] || fail "deployed artefact is $DEPLOYED_V, the candidate is $CANDIDATE"
+if [ -n "$PIN" ]; then
+  [ "$H" = "$PIN" ] || fail "artefact tree $H != pinned $PIN (this would be binding drift)"
+  echo "provision-check: artefact deployed and pin verified ($PIN)"
+else
+  # No registration to pin against, so the assertion that remains is
+  # REPRODUCIBILITY: the same packed artefact installed twice yields the same
+  # tree. That is what "the deployed artefact is the one just built" can mean
+  # when there is no registered hash to compare it to.
+  TGZ2="$ROOT/$(npm pack --silent)" || fail "npm pack failed (second)"
+  CTRL="$(mktemp -d)"
+  ( cd "$CTRL" && npm install --omit=dev --no-audit --no-fund --silent "$TGZ2" ) || fail "control install failed"
+  H2="$(cd "$CTRL/node_modules/tamperward" && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -d' ' -f1)"
+  rm -rf "$CTRL"; rm -f "$TGZ2"
+  [ "$H" = "$H2" ] || fail "the artefact is not reproducible: deployed $H != rebuilt $H2"
+  echo "provision-check: artefact $CANDIDATE deployed and reproducible ($H) — no registration, so no pin is claimed"
+fi
 priv chmod -R a-w "$ART_DIR"
-echo "provision-check: artefact deployed and pin verified ($PIN)"
 
 # 3. the network jail -------------------------------------------------------
 privE bash "$ROOT/harness/taskbench/runner/net-jail.sh" selftest || fail "net-jail.sh selftest failed"
 echo "provision-check: net-jail selftest OK"
 
 # 4. the freeze -------------------------------------------------------------
+# BETWEEN iterations there is no registration to check the tree against, and
+# asserting a closed iteration's binding set would forbid exactly the work that
+# state exists to allow. What IS asserted is that the closed iteration's record
+# stayed put: its manifest is byte-identical to what the registration recorded,
+# and its rendered page still derives from it. Immutable, and internally
+# reproducible, without any claim about the current tree.
+if [ -z "$PIN" ]; then
+  reg_assert_closed_immutable | sed 's/^/provision-check: /' || fail "a closed iteration is not immutable or not reproducible"
+  echo "provision-check: OK — candidate $CANDIDATE provisions; no pilot iteration is registered, so no freeze claim is made and pilot execution is refused by pilot-drive.sh"
+  exit 0
+fi
 set +e
 FZ="$(node "$ROOT/harness/taskbench/round4/freeze-pilot-manifest.mjs" --check 2>&1)"; RC=$?
 set -e
