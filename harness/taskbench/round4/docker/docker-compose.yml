@@ -35,11 +35,18 @@ services:
       - tb-work:/tmp/tb
     environment:
       TB_RUNTIME_DIR: /tmp/tb
+      # Parameterised so ONE compose serves any pool and any pilot iteration — no
+      # per-round or per-iteration file. Iteration 1 was TB_POOL=pilot; iteration 2
+      # (after 2.10.3) is TB_POOL=pilot-i2, mining the fresh ten from the next
+      # positions. Override on the host: `TB_POOL=pilot-i2 docker compose ... up mine`.
+      TB_POOL: ${TB_POOL:-pilot}
+      TB_PILOT_NEED: ${TB_PILOT_NEED:-10}
     # Foreground and sequential. The container IS the supervisor, so there is
     # nothing to detach from and nothing to reap it, and launch-mine.sh is not
     # used: Docker records the exit status and captures the output itself.
-    # Ctrl-C stops it; rerun to resume from the ledger.
-    command: ["bash", "-c", "TB_POOL=pilot TB_PILOT_NEED=10 ./mine5.sh"]
+    # Ctrl-C stops it; rerun to resume from the ledger (mine5 skips repos that
+    # already carry a terminal verdict in the pool's attrition.jsonl).
+    command: ["bash", "-c", "./mine5.sh"]
     # The pilot is sequential by protocol; these are ceilings, not targets.
     mem_limit: 8g
     cpus: 2.0
