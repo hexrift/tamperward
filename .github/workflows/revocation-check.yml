@@ -1,0 +1,80 @@
+name: revocation-check
+
+# Round-4 registered step 6 — verify that the PILOT credential is dead.
+#
+# MANUAL, non-required, never on push, and it takes NO inputs. That is deliberate:
+# the credential identity and the client version the check is pinned to come from
+# files committed in the tree (pilot-credential.json and the frozen pilot
+# manifest). Were they dispatch inputs, anyone able to dispatch could point the
+# check at some other revoked token, supply that token's fingerprint, and harvest
+# a REVOKED — the exact false pass the check exists to prevent.
+#
+# It lives in CI because that is where the credential is. The token exists as a
+# repository secret and nowhere else a check can reach, which also fixes the
+# ordering: revoke, verify HERE, and only then delete the secret. Deleting the
+# secret first stops CI reusing the token but leaves it valid at Anthropic, and
+# destroys the evidence path.
+#
+# MODEL USAGE. If the credential is genuinely revoked — the expected case — every
+# call is rejected before inference and nothing is billed. If it is still LIVE,
+# the check does incur bounded usage: one short client prompt and one
+# `max_tokens: 1` request. That is the cost of finding out, and it is the outcome
+# that fails the job.
+#
+# See harness/taskbench/round4/verify-revocation.sh for what the test establishes,
+# why the agent CLI rather than a hand-rolled request is the ground truth, and why
+# the rejection signature is measured in-run instead of assumed.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: round4-revocation-check
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      # The verdict logic, before it is asked a question that matters. It runs on
+      # every PR in ci.yml too; running it here as well means the dispatch that
+      # decides step 6 cannot execute logic that has not just been exercised
+      # against the failures it must refuse.
+      - name: Self-test the verdict logic (stubbed client and wire)
+        run: bash harness/taskbench/round4/verify-revocation-selftest.sh
+
+      - name: Install the pilot's pinned agent CLI
+        # The version the pilot ran under, recorded in the frozen manifest
+        # (environment_recorded.claude_cli). The verifier asserts it independently
+        # and refuses on a mismatch — a different client's refusal is not evidence
+        # about the frozen one.
+        run: |
+          set -euo pipefail
+          npm install -g @anthropic-ai/claude-code@2.1.260
+          claude --version
+
+      - name: Verify revocation
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: bash harness/taskbench/round4/verify-revocation.sh
+
+      - name: Publish the record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: revocation-check
+          # The verdict record only: fingerprint, exit codes, signature booleans
+          # and HTTP status. Raw client output and response bodies stay on the
+          # runner and are never published.
+          path: ${{ runner.temp }}/revocation-check/revocation-check.json
+          if-no-files-found: warn

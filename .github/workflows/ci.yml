@@ -145,6 +145,12 @@ jobs:
         with:
           version: '0.8.17'
       - run: bash harness/taskbench/round4/selftest.sh
+      # The step-6 revocation verdict logic, stubbed. The real check is manual and
+      # runs once, against a credential that by then is expected to be dead —
+      # the worst moment to discover it accepts something it should not, since a
+      # false REVOKED would close the registered credential step on evidence that
+      # does not hold. Deterministic: no network, no agent CLI, no credential.
+      - run: bash harness/taskbench/round4/verify-revocation-selftest.sh
       # The pilot registration must keep describing the tree it registers. A PR
       # that edits the adjudicator, the runner, a task patch or the pool without
       # re-freezing fails here rather than at trajectory one.
