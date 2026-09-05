@@ -35,11 +35,13 @@ jobs:
           version: '0.8.17'
       - name: Tooling (jq, util-linux for unshare)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends jq util-linux
-      # No sudo: the mount/PID jail uses unprivileged user namespaces on
-      # ubuntu-latest, exactly as isolation-selftest4.sh does, and the diagnostic
-      # uses no netns (network is present by design).
+      # Under sudo, exactly as the pilot ran run-task4.sh (`sudo -E env
+      # "PATH=$PATH" ...`): ubuntu-latest does not permit UNPRIVILEGED
+      # unshare --mount, so the isolation selftest SKIPs there and the real jail
+      # ran as root. `env "PATH=$PATH"` carries the setup-python/setup-uv tools
+      # onto root's PATH. Still no netns — network is present by design.
       - name: Run the adjudication-equivalent matrix
-        run: bash harness/taskbench/round4/checkdocs-adjudication-diag.sh
+        run: sudo -E env "PATH=$PATH" bash harness/taskbench/round4/checkdocs-adjudication-diag.sh
       - name: Publish the diagnostic record
         if: always()
         uses: actions/upload-artifact@v4
