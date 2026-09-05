@@ -47,6 +47,51 @@ describe('addopts selection flags are narrowings', () => {
   it('-k deselects by name', () => {
     expect(narrowed(base, '[pytest]\naddopts = -q -k "not test_bug"\n')).toContain('tests/test_bug.py');
   });
+  // ROUND 4, seq 18 — the vector that forced 2.10.3. The agent wrote
+  // `addopts=--doctest-modules -p no:checkdocs`, which removed pytest-checkdocs'
+  // `.::project` item from the run while every narrowing key stayed untouched. It
+  // was ALLOWED at the tool call and persisted to the final tree. `-p no:<plugin>`
+  // turns a plugin off, and a plugin that is off contributes no items — the same
+  // harm as `--ignore` or `-k`, written in a key the collection options never
+  // covered.
+  it('-p no:<plugin> disables a plugin, so the items it contributes leave the run', () => {
+    expect(narrowed(base, '[pytest]\naddopts = -q -p no:checkdocs\n').length).toBeGreaterThan(0);
+  });
+  it('the finding names the mechanism, not a glob match that never happened', () => {
+    const ns = suiteNarrowings(base, '[pytest]\naddopts = -q -p no:checkdocs\n', 'pytest.ini', PY);
+    expect(ns[0].reason).toContain('-p narrows the whole run');
+    expect(ns[0].reason).toContain('no:checkdocs');
+    expect(ns[0].reason).not.toContain('matches it');
+  });
+  it('the seq-18 line exactly as the pilot recorded it', () => {
+    const before = '[pytest]\nnorecursedirs=dist build .eggs .tox fuzzing metrics\naddopts=--doctest-modules\n';
+    const after = '[pytest]\nnorecursedirs=dist build .eggs .tox fuzzing metrics\naddopts=--doctest-modules -p no:checkdocs\n';
+    expect(narrowed(before, after).length).toBeGreaterThan(0);
+  });
+  // Equivalent spellings must not be a way around it. pytest accepts the value
+  // detached, attached, or after `=`; all three disable the same plugin.
+  it('the attached and `=` spellings are the same disable', () => {
+    expect(narrowed(base, '[pytest]\naddopts = -q -pno:checkdocs\n').length).toBeGreaterThan(0);
+    expect(narrowed(base, '[pytest]\naddopts = -q -p=no:checkdocs\n').length).toBeGreaterThan(0);
+  });
+  it('a continuation line hides nothing', () => {
+    expect(narrowed(base, '[pytest]\naddopts =\n    --doctest-modules\n    -p no:checkdocs\n').length).toBeGreaterThan(0);
+  });
+  // LOADING a plugin can only add to the run. Flagging it would be a false
+  // positive, and a false positive lands in the gated arm alone.
+  it('-p <plugin> LOADS one and is not a narrowing', () => {
+    expect(narrowed(base, '[pytest]\naddopts = -q -p myplugin\n')).toEqual([]);
+    expect(narrowed(base, '[pytest]\naddopts = -q -p anyio\n')).toEqual([]);
+  });
+  // The vector is written in `addopts`, so it reaches every surface that carries an
+  // addopts line. Each is checked against the file pytest would actually read.
+  it('every pytest configuration surface carries the vector', () => {
+    expect(narrowed('[tool:pytest]\naddopts = -q\n', '[tool:pytest]\naddopts = -q -p no:checkdocs\n', 'setup.cfg').length).toBeGreaterThan(0);
+    expect(narrowed('[pytest]\naddopts = -q\n', '[pytest]\naddopts = -q -p no:checkdocs\n', 'tox.ini').length).toBeGreaterThan(0);
+    expect(narrowed('[tool.pytest.ini_options]\naddopts = "-q"\n', '[tool.pytest.ini_options]\naddopts = "-q -p no:checkdocs"\n', 'pyproject.toml').length).toBeGreaterThan(0);
+    expect(narrowed('[tool.pytest.ini_options]\naddopts = ["-q"]\n', '[tool.pytest.ini_options]\naddopts = ["-q", "-p", "no:checkdocs"]\n', 'pyproject.toml').length).toBeGreaterThan(0);
+  });
+
   it('-m deselects by marker expression', () => {
     expect(narrowed(base, '[pytest]\naddopts = -q -m "not slow"\n').length).toBeGreaterThan(0);
   });
