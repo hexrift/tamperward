@@ -163,4 +163,7 @@ jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg traj "$TRAJ" --arg ref "$
 
 echo
 echo "FINDING: $FINDING — $NOTE"
+# The job runs this under sudo (the jail needs root), so the output is root-owned;
+# make it world-readable so the unprivileged upload-artifact step can collect it.
+chmod -R a+rX "$OUT_DIR" 2>/dev/null || true
 exit 0
