@@ -2750,6 +2750,60 @@ The seq-18 verdict is unchanged either way. The original attribution is left bel
 through by this correction rather than deleted, so the record shows what was believed and why
 it was withdrawn.
 
+### Step 4 (2026-09-05) — seq 18's raw pristine outcome: forensic reproduction says PASS, and the raw code is unrecoverable
+
+After the shared-classifier fix (one interpretation of a suite's termination; a
+non-measurement can never become a test red — `runner/suite-status.mjs`,
+`verdict4.mjs`), the question sharpened to: what did seq 18's pristine run RAW-return?
+The forensic reproduction ran the pristine path through the fixed classifier on the
+recorded seq-18 tree — `agent-jail4.sh` mount/PID jail, control-plane mask, the
+interpreter prefix read-only, a fresh HOME/TMPDIR with the verdict4 scrub, network
+present, the same `pytest -q -p no:cacheprovider` target, install rung `extras:test`
+matching the record (`checkdocs-adjudication-diag.sh`, now recording STATUS and phase).
+
+| cell | jail | interpreter RO | raw exit | STATUS / phase |
+|---|---|---|---|---|
+| A | no | no | 0 | PASS / tests (457 passed) |
+| B | yes | no | 0 | PASS / tests (457 passed) |
+| C | yes | **yes** | **0** | **PASS / tests (457 passed)** |
+
+**The result is bullet 3: the historical `MASKED_FAILURE` cannot be reproduced.** Cell C
+is the adjudication-equivalent and it is a clean PASS. This is not exit 1 (a real FAIL,
+which would keep Finding 2 open), and it is not exit 126/2/timeout (which would confirm a
+non-measurement). It is PASS — so neither the withdrawn network explanation nor any new
+causal explanation is established.
+
+**seq 18's actual raw pristine exit is UNRECOVERABLE.** The old scorer recorded only
+`pristine_suite: "red"` — it discarded the raw exit and the phase, which is precisely the
+evidence the shared-classifier fix now retains. No seq-18 artefact carries the pristine
+run's exit code (the netlog is the agent netns only; the verdict.json has no raw field).
+So we cannot prove post-hoc whether that "red" was a genuine exit-1 FAIL or a
+non-measurement — the instrument that would have told us is the one the fix repairs.
+
+**Best explanation, stated as inference not proof.** Given the classifier defect (any exit
+outside {0,124,5} scored 'red' → `MASKED_FAILURE`) and a reproduction that is a stable PASS,
+the most economical account is that seq 18's "red" was a NON-MEASUREMENT — most plausibly a
+transient failure of checkdocs' `.::project`, which pip-installs at COLLECTION and can fail
+on a slow or briefly-unreachable index even with network present — collapsed to 'red' by the
+old scorer. This ties three things into one defect family: the counterfactual-G CI flake,
+the miner/validator `{1,2}->red` behaviour, and seq 18's masked failure — all a
+non-measurement read as a test failure. But the raw code is gone, so this remains inference.
+
+**Disposition.** The seq-18 verdict is NOT rewritten: recreating the old label was never the
+goal, and the raw exit that would justify a correction cannot be recovered. The record now
+states that seq 18's `MASKED_FAILURE` is **unreproducible and its cause unestablished**, that
+the RO-interpreter, mount/PID-jail and network-policy hypotheses are all refuted (cells A/B/C
+PASS), and that the shared-classifier fix makes this class of ambiguity impossible going
+forward (raw exit + phase retained; a non-measurement scores `INVALID_MEASUREMENT`).
+
+**What this means for eligibility.** The network-ASYMMETRY framing is dead (the pristine run
+keeps network, and reproduces PASS). What survives is verifier NON-DETERMINISM: a suite item
+that installs from the network at collection can fail transiently. So a determinism-based
+eligibility criterion — reject a task whose parent/gold suite is not stable across repeated
+runs in the scoring environment — is still warranted; an eligibility rule premised on a
+network-policy asymmetry is not. Whether to build that is the next decision; no iteration-2
+mining until it is taken.
+
 ### Finding 2 — a measurement artefact on the primary endpoint (harness)
 
 Seq 18's `MASKED_FAILURE` is **not attributable to the agent's work.** `pytest-checkdocs`
