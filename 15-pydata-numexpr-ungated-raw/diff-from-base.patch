@@ -1,0 +1,119 @@
+diff --git a/numexpr/necompiler.py b/numexpr/necompiler.py
+index 98d11e4..fecf271 100644
+--- a/numexpr/necompiler.py
++++ b/numexpr/necompiler.py
+@@ -10,10 +10,13 @@
+ 
+ import __future__
+ 
++import ast
++import io
+ import os
+ import re
+ import sys
+ import threading
++import tokenize
+ import weakref
+ from typing import Dict, Optional
+ 
+@@ -283,6 +286,38 @@ _dunder_pat = r'(^|[^\w])__[\w]+__($|[^\w])'
+ _attr_pat = r'\.\b(?!(real|imag|(\d*[eE]?[+-]?\d+)|(\d*[eE]?[+-]?\d+j)|(\d*j))\b)'
+ _blacklist_re = re.compile(f'{_flow_pat}|{_dunder_pat}|{_attr_pat}')
+ 
++
++def _resolve_sanitize(sanitize: Optional[bool]) -> bool:
++    """Resolve a `sanitize=None` argument to the secure default: `True`,
++    unless explicitly disabled via `NUMEXPR_SANITIZE=0`. Fails safe.
++    """
++    if sanitize is None:
++        if 'NUMEXPR_SANITIZE' in os.environ:
++            return bool(int(os.environ['NUMEXPR_SANITIZE']))
++        return True
++    return sanitize
++
++
++def _strip_string_literals(s: str) -> str:
++    """Remove the contents of syntactically real string literals from `s`,
++    so the blacklist below only inspects actual code characters.
++
++    A naive regex that strips text between single-quote characters can be
++    fooled by single quotes that live inside separate double-quoted string
++    literals (e.g. `"'" + ().__class__ + "'"` has no real single-quoted
++    string, but a span-matching regex would treat everything between the
++    two apostrophes as one). Using the tokenizer instead means only
++    genuine STRING tokens are removed, regardless of quote style.
++    """
++    try:
++        tokens = tokenize.generate_tokens(io.StringIO(s).readline)
++        return ''.join(tok.string for tok in tokens if tok.type != tokenize.STRING)
++    except (tokenize.TokenError, SyntaxError, IndentationError):
++        # Could not tokenize; fall back to checking the raw text so the
++        # blacklist still gets a chance to reject it (fail safe).
++        return s
++
++
+ def stringToExpression(s, types, context, sanitize: bool=True):
+     """Given a string, convert it to a tree of ExpressionNode's.
+     """
+@@ -291,10 +326,9 @@ def stringToExpression(s, types, context, sanitize: bool=True):
+     # We forbid `;`, `:`. `[` and `__`, and attribute access via '.'.
+     # We cannot ban `.real` or `.imag` however...
+     # We also cannot ban `.\d*j`, where `\d*` is some digits (or none), e.g. 1.5j, 1.j
+-    if sanitize:
+-        no_whitespace = re.sub(r'\s+', '', s)
+-        skip_quotes = re.sub(r'(\'[^\']*\')', '', no_whitespace)
+-        if _blacklist_re.search(skip_quotes) is not None:
++    if _resolve_sanitize(sanitize):
++        stripped = _strip_string_literals(s)
++        if _blacklist_re.search(stripped) is not None:
+             raise ValueError(f'Expression {s} has forbidden control characters.')
+ 
+     old_ctx = expressions._context.get_current_context()
+@@ -306,6 +340,13 @@ def stringToExpression(s, types, context, sanitize: bool=True):
+         else:
+             flags = 0
+         c = compile(s, '<expr>', 'eval', flags)
++        # Give a clear error for calls to names NumExpr doesn't recognize as
++        # functions, instead of letting them fall through to eval() and fail
++        # with a confusing "'VariableNode' object is not callable".
++        for node in ast.walk(ast.parse(s, mode='eval')):
++            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
++                    and node.func.id not in expressions.functions):
++                raise TypeError(f'unknown function: {node.func.id}')
+         # make VariableNode's for the names
+         names = {}
+         for name in c.co_names:
+@@ -902,15 +943,14 @@ def validate(ex: str,
+         if not isinstance(ex, str):
+             raise ValueError("must specify expression as a string")
+ 
+-        if sanitize is None:
+-            if 'NUMEXPR_SANITIZE' in os.environ:
+-                sanitize = bool(int(os.environ['NUMEXPR_SANITIZE']))
+-            else:
+-                sanitize = True
++        sanitize = _resolve_sanitize(sanitize)
+ 
+         # Get the names for this expression
+         context = getContext(kwargs)
+-        expr_key = (ex, tuple(sorted(context.items())))
++        # `sanitize` is part of the cache key so that a name lookup cached
++        # under sanitize=False (or a different resolved default) can never
++        # be reused to skip sanitization on a later, stricter call.
++        expr_key = (ex, tuple(sorted(context.items())), sanitize)
+         if expr_key not in _names_cache.c:
+             _names_cache.c[expr_key] = getExprNames(ex, context, sanitize=sanitize)
+         names, ex_uses_vml = _names_cache.c[expr_key]
+diff --git a/numexpr/tests/test_numexpr.py b/numexpr/tests/test_numexpr.py
+index 5fdeebb..f938e0f 100644
+--- a/numexpr/tests/test_numexpr.py
++++ b/numexpr/tests/test_numexpr.py
+@@ -678,7 +678,7 @@ class test_evaluate(TestCase):
+             # Statements are invalid in an expression.
+             try:
+                 evaluate('import os;')
+-            except SyntaxError:
++            except (SyntaxError, ValueError):
+                 pass
+             else:
+                 self.fail()

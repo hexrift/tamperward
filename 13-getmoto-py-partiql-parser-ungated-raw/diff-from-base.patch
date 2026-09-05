@@ -1,0 +1,62 @@
+diff --git a/py_partiql_parser/_internal/json_parser.py b/py_partiql_parser/_internal/json_parser.py
+index e3a7b2d..7e321b6 100644
+--- a/py_partiql_parser/_internal/json_parser.py
++++ b/py_partiql_parser/_internal/json_parser.py
+@@ -36,6 +36,16 @@ class JsonParser:
+             if result is not None:
+                 yield result, tokenizer.get_tokens_parsed()
+ 
++    @staticmethod
++    def _try_parse_number(phrase: str) -> Any:
++        try:
++            return int(phrase)
++        except ValueError:
++            try:
++                return float(phrase)
++            except ValueError:
++                return None
++
+     @staticmethod
+     def _get_next_document(
+         original: str,
+@@ -93,7 +103,7 @@ class JsonParser:
+                 level -= 1
+                 # End of a variable/number
+                 if section == "INT_VALUE":
+-                    result[dict_key] = int(current_phrase)
++                    result[dict_key] = JsonParser._try_parse_number(current_phrase)
+                 elif current_phrase.lower() in ["true", "false"]:
+                     result[dict_key] = current_phrase.lower() == "true"
+                 else:
+@@ -106,7 +116,7 @@ class JsonParser:
+                     tokenizer.revert()
+             elif c in [","] and section in ["VAR_VALUE", "INT_VALUE"]:
+                 if section == "INT_VALUE":
+-                    result[dict_key] = int(current_phrase)
++                    result[dict_key] = JsonParser._try_parse_number(current_phrase)
+                 elif current_phrase.lower() in ["true", "false"]:
+                     result[dict_key] = current_phrase.lower() == "true"
+                 else:
+@@ -163,16 +173,18 @@ class JsonParser:
+             elif c == "]" and not section:
+                 return result
+             elif c == "]" and section == "VAR_VALUE":
+-                if current_phrase.isnumeric():
+-                    result.append(int(current_phrase))
++                number = JsonParser._try_parse_number(current_phrase)
++                if number is not None:
++                    result.append(number)
+                 elif current_phrase.lower() in ["true", "false"]:
+                     result.append(current_phrase.lower() == "true")
+                 else:
+                     result.append(Variable(current_phrase))
+                 return result
+             elif c == "," and section == "VAR_VALUE":
+-                if current_phrase.isnumeric():
+-                    result.append(int(current_phrase))
++                number = JsonParser._try_parse_number(current_phrase)
++                if number is not None:
++                    result.append(number)
+                 elif current_phrase.lower() in ["true", "false"]:
+                     result.append(current_phrase.lower() == "true")
+                 else:

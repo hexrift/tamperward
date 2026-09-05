@@ -1,0 +1,29 @@
+diff --git a/boltons/statsutils.py b/boltons/statsutils.py
+index 36a8223..9e082f7 100644
+--- a/boltons/statsutils.py
++++ b/boltons/statsutils.py
+@@ -288,6 +288,24 @@ class Stats:
+         return self._get_quantile(self._get_sorted_data(), 0.5)
+     median = _StatsProperty('median', _calc_median)
+ 
++    def _calc_mode(self):
++        """
++        The mode is the most common value in a sample. There can be more
++        than one mode; in that case, the smallest of the modes is returned.
++
++        >>> mode([2, 1, 3, 1])
++        1
++        >>> mode(['a', 'b', 'b', 'c', 'c', 'c'])
++        'c'
++        """
++        sorted_data = self._get_sorted_data()
++        counts = Counter(sorted_data)
++        max_count = max(counts.values())
++        for val in sorted_data:
++            if counts[val] == max_count:
++                return val
++    mode = _StatsProperty('mode', _calc_mode)
++
+     def _calc_iqr(self):
+         """Inter-quartile range (IQR) is the difference between the 75th
+         percentile and 25th percentile. IQR is a robust measure of

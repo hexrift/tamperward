@@ -1,0 +1,25 @@
+diff --git a/boltons/statsutils.py b/boltons/statsutils.py
+index 36a8223..117a00d 100644
+--- a/boltons/statsutils.py
++++ b/boltons/statsutils.py
+@@ -320,6 +320,20 @@ class Stats:
+         return (gq(0.25) + (2 * gq(0.5)) + gq(0.75)) / 4.0
+     trimean = _StatsProperty('trimean', _calc_trimean)
+ 
++    def _calc_mode(self):
++        """The mode is the most common value in a dataset. Ties resolve to
++        the value that appears first in the data.
++
++        >>> mode([1, 2, 1])
++        1
++        """
++        counts = Counter(self.data)
++        max_count = max(counts.values())
++        for val in self.data:
++            if counts[val] == max_count:
++                return val
++    mode = _StatsProperty('mode', _calc_mode)
++
+     def _calc_variance(self):
+         """\
+         Variance is the average of the squares of the difference between

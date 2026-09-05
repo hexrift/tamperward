@@ -1,0 +1,79 @@
+diff --git a/jsonpickle/ext/numpy.py b/jsonpickle/ext/numpy.py
+index ba66483..76164bd 100644
+--- a/jsonpickle/ext/numpy.py
++++ b/jsonpickle/ext/numpy.py
+@@ -71,14 +71,40 @@ class NumpyGenericHandler(NumpyBaseHandler):
+ 
+ 
+ class NumpyDatetimeHandler(NumpyGenericHandler):
+-    """Extend NumpyGenericHandler to handle nanosecond-resolution datetime64"""
++    """Extend NumpyGenericHandler to handle datetime64 at any resolution"""
+ 
+     def restore(self, data: dict[str, Any]) -> dict[str, Any]:
+         value = self.context.restore(data["value"], reset=False)
+-        dtype = data["dtype"]
+-        if dtype.endswith("[ns]"):
+-            return self.restore_dtype(data).type(value, "ns")  # type: ignore[no-any-return]
+-        return self.restore_dtype(data).type(value)  # type: ignore[no-any-return]
++        dtype = self.restore_dtype(data)
++        if isinstance(value, int):
++            # Values outside the range of datetime.date/datetime, and all
++            # ns-resolution values (whose int64 range dwarfs datetime's),
++            # flatten to a bare int, which needs the unit to restore correctly.
++            unit = dtype.name[len("datetime64[") : -1]
++            result = dtype.type(value, unit)
++        else:
++            # date/datetime round-trip through at least day resolution, so
++            # coarser units (Y, M, W) need to be re-truncated after construction.
++            result = dtype.type(value).astype(dtype)
++        return cast(Any, result)
++
++
++class NumpyExtendedPrecisionHandler(NumpyGenericHandler):
++    """Extend NumpyGenericHandler for longdouble/clongdouble.
++
++    These have no Python counterpart, so ``tolist()`` returns the scalar
++    itself rather than a plain float/complex, which would recurse forever
++    if flattened as-is. Round-trip through the scalar's string form instead.
++    """
++
++    def flatten(self, obj: npt.NDArray[Any], data: dict[str, Any]) -> dict[str, Any]:
++        self.flatten_dtype(obj.dtype.newbyteorder("N"), data)
++        data["value"] = self.context.flatten(str(obj), reset=False)
++        return data
++
++    def restore(self, data: dict[str, Any]) -> dict[str, Any]:
++        value = self.context.restore(data["value"], reset=False)
++        return cast(Any, self.restore_dtype(data).type(value))
+ 
+ 
+ class UnpickleableNumpyGenericHandler(NumpyGenericHandler):
+@@ -484,6 +510,8 @@ def register_handlers(
+     register(np.dtype(np.int32).__class__, NumpyDTypeHandler, base=True)
+     register(np.dtype(np.datetime64).__class__, NumpyDTypeHandler, base=True)
+     register(np.datetime64, NumpyDatetimeHandler, base=True)
++    register(np.longdouble, NumpyExtendedPrecisionHandler, base=True)
++    register(np.clongdouble, NumpyExtendedPrecisionHandler, base=True)
+     # other handlers
+     register(np.ufunc, NumpyUfuncHandler, base=True)
+ 
+@@ -498,5 +526,7 @@ def unregister_handlers() -> None:
+     unregister(np.dtype(np.float32).__class__)
+     unregister(np.dtype(np.int32).__class__)
+     unregister(np.dtype(np.datetime64).__class__)
++    unregister(np.longdouble)
++    unregister(np.clongdouble)
+     # other handlers
+     unregister(np.ufunc)
+diff --git a/pytest.ini b/pytest.ini
+index 43a66cf..3a6a721 100644
+--- a/pytest.ini
++++ b/pytest.ini
+@@ -1,6 +1,6 @@
+ [pytest]
+ norecursedirs=dist build .eggs .tox fuzzing metrics
+-addopts=--doctest-modules
++addopts=--doctest-modules -p no:checkdocs
+ doctest_optionflags=ALLOW_UNICODE ELLIPSIS
+ filterwarnings=
+     # https://github.com/pytest-dev/pytest/issues/6928

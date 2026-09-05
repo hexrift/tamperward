@@ -1,0 +1,13 @@
+diff --git a/test/handlers/protocol_test.py b/test/handlers/protocol_test.py
+index 81d3fc0..9d1a4af 100644
+--- a/test/handlers/protocol_test.py
++++ b/test/handlers/protocol_test.py
+@@ -26,6 +26,8 @@ LOGGER_LEVELS = {
+ class DummySerial(SerialBase):
+     """Serial port implementation for plain sockets."""
+ 
++    logger = None
++
+     def open(self):
+         """Open port with current settings. This may throw a SerialException
+            if the port cannot be opened."""

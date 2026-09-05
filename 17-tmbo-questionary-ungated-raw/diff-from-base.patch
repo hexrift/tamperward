@@ -1,0 +1,26 @@
+diff --git a/questionary/prompts/common.py b/questionary/prompts/common.py
+index 3ce6266..e1b40c5 100644
+--- a/questionary/prompts/common.py
++++ b/questionary/prompts/common.py
+@@ -472,7 +472,20 @@ class InquirerControl(FormattedTextControl):
+                     tokens.append(("class:text", "{}".format(indicator)))
+ 
+                 if isinstance(choice.title, list):
+-                    tokens.extend(choice.title)
++                    if selected:
++                        suffix = "class:selected"
++                    elif index == self.pointed_at:
++                        suffix = "class:highlighted"
++                    else:
++                        suffix = None
++
++                    if suffix is None:
++                        tokens.extend(choice.title)
++                    else:
++                        tokens.extend(
++                            ("{} {}".format(style, suffix).strip(), text)
++                            for style, text in choice.title
++                        )
+                 elif selected:
+                     tokens.append(
+                         ("class:selected", "{}{}".format(shortcut, choice.title))

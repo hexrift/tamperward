@@ -1,0 +1,23 @@
+seq 1 (15-pydata-numexpr / gated) — round-4 pilot DRY RUN — adjudicated 2026-09-04.
+
+The trajectory ran to completion on a GitHub Actions runner and scored a VALID verdict
+on-runner. The execution log (this branch, pilot-execution-log.jsonl) records:
+  rc=0, elapsed_s=227, verdict=yes
+correctly registered: model claude-sonnet-5, pilot_seq 1,
+manifest_sha256 d96e6f72bc999a52d3c99dd7dafb1be42b247d90d51733fab0f7508a918736ab,
+credential fingerprint env:CLAUDE_CODE_OAUTH_TOKEN.
+
+The derived verdict.json was lost before persistence by a harness permission bug:
+run-task4 runs under sudo, so runs-pilot/ files were root-owned, and the runner-user
+state-save and artifact-upload steps could not read verdict.json. Fixed in PR #215. The
+raw trajectory (transcript, final-tree, envelope, denylog, obs, provenance) is preserved
+on this branch.
+
+Disposition: seq 1 is the RUNBOOK's designated dry run and fulfilled its shakedown
+purpose — it validated jail -> upstream proxy -> agent -> adjudicator on a real
+trajectory and surfaced the persistence bug before any counted trajectory. It is recorded
+as adjudicated to clear the halt and let the pilot advance to seq 2, the first trajectory
+under the fixed workflow. The preserved raw evidence remains available for a faithful
+re-adjudication if the dry-run verdict is later needed. See DEVIATIONS.md D8.
+
+Recorded during cleanup on the repository owner's instruction, not written by the driver.

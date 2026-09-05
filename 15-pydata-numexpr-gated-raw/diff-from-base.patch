@@ -1,0 +1,13 @@
+diff --git a/numexpr/tests/test_numexpr.py b/numexpr/tests/test_numexpr.py
+index 5fdeebb..b4127ba 100644
+--- a/numexpr/tests/test_numexpr.py
++++ b/numexpr/tests/test_numexpr.py
+@@ -678,7 +678,7 @@ class test_evaluate(TestCase):
+             # Statements are invalid in an expression.
+             try:
+                 evaluate('import os;')
+-            except SyntaxError:
++            except ValueError:
+                 pass
+             else:
+                 self.fail()

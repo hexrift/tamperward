@@ -1,0 +1,57 @@
+diff --git a/mashumaro/core/meta/types/unpack.py b/mashumaro/core/meta/types/unpack.py
+index 2969a1d..c5a0808 100644
+--- a/mashumaro/core/meta/types/unpack.py
++++ b/mashumaro/core/meta/types/unpack.py
+@@ -1129,15 +1129,27 @@ def unpack_named_tuple(spec: ValueSpec) -> Expression:
+     else:  # pragma: no cover
+         # we shouldn't be here because there will be default_kwargs
+         lines.append(f"def {method_name}({method_args}):")
++    field_type = spec.builder.get_type_name_identifier(spec.type)
+     with lines.indent():
+-        lines.append("fields = []")
+-        with lines.indent("try:"):
+-            for unpacker in unpackers:
+-                lines.append(f"fields.append({unpacker})")
+-        with lines.indent("except (IndexError, KeyError):"):
+-            lines.append("pass")
+-        field_type = spec.builder.get_type_name_identifier(spec.type)
+-        lines.append(f"return {field_type}(*fields)")
++        if as_dict:
++            # Dict keys can be missing in any position (not just trailing),
++            # so each field must be unpacked independently and omitted
++            # fields left for the namedtuple's own defaults to fill in.
++            lines.append("fields = {}")
++            for field_name, unpacker in zip(fields, unpackers):
++                with lines.indent("try:"):
++                    lines.append(f"fields['{field_name}'] = {unpacker}")
++                with lines.indent("except KeyError:"):
++                    lines.append("pass")
++            lines.append(f"return {field_type}(**fields)")
++        else:
++            lines.append("fields = []")
++            with lines.indent("try:"):
++                for unpacker in unpackers:
++                    lines.append(f"fields.append({unpacker})")
++            with lines.indent("except (IndexError, KeyError):"):
++                lines.append("pass")
++            lines.append(f"return {field_type}(*fields)")
+     lines.append(
+         f"setattr({spec.cls_attrs_name}, '{method_name}', {method_name})"
+     )
+diff --git a/tests/entities.py b/tests/entities.py
+index 6c53d9a..af4bed9 100644
+--- a/tests/entities.py
++++ b/tests/entities.py
+@@ -278,6 +278,12 @@ class MyNamedTupleWithOptional(NamedTuple):
+     f: int
+ 
+ 
++class MyNamedTupleWithRequiredAndDefaults(NamedTuple):
++    i: int
++    s: str = "sss"
++    f: float = 2.0
++
++
+ MyUntypedNamedTuple = namedtuple("MyUntypedNamedTuple", ("i", "f"))
+ 
+ 

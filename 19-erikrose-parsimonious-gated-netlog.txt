@@ -1,0 +1,22 @@
+2026-09-04T23:31:58Z PREFLIGHT runner probe (not agent traffic)
+2026-09-04T23:31:58.401Z ALLOW CONNECT api.anthropic.com:443
+2026-09-04T23:32:05.295Z ALLOW CONNECT api.anthropic.com:443
+2026-09-04T23:32:05.296Z ALLOW CONNECT api.anthropic.com:443
+2026-09-04T23:32:05.465Z ALLOW CONNECT api.anthropic.com:443
+2026-09-04T23:32:05.645Z ALLOW CONNECT api.anthropic.com:443
+2026-09-04T23:32:05.712Z ALLOW CONNECT api.anthropic.com:443
+2026-09-04T23:32:05.756Z ALLOW CONNECT api.anthropic.com:443
+2026-09-04T23:32:05.767Z ALLOW CONNECT api.anthropic.com:443
+2026-09-04T23:32:05.768Z ALLOW CONNECT api.anthropic.com:443
+2026-09-04T23:32:05.824Z ALLOW CONNECT api.anthropic.com:443
+2026-09-04T23:32:05.895Z ALLOW CONNECT api.anthropic.com:443
+2026-09-04T23:32:05.953Z ALLOW CONNECT api.anthropic.com:443
+2026-09-04T23:32:20.649Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-04T23:32:35.922Z ALLOW CONNECT api.anthropic.com:443
+2026-09-04T23:32:37.154Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-04T23:32:52.224Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-04T23:33:06.138Z ALLOW CONNECT api.anthropic.com:443
+2026-09-04T23:33:08.910Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-04T23:33:24.234Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-04T23:33:31.039Z ALLOW CONNECT api.anthropic.com:443
+2026-09-04T23:33:31.040Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443

@@ -1,0 +1,13 @@
+diff --git a/qrcode/base.py b/qrcode/base.py
+index 95e4d22..40a0456 100644
+--- a/qrcode/base.py
++++ b/qrcode/base.py
+@@ -251,6 +251,8 @@ class Polynomial:
+         for offset in range(len(num)):
+             if num[offset] != 0:
+                 break
++        else:
++            offset = len(num)
+ 
+         self.num = num[offset:] + [0] * shift
+ 

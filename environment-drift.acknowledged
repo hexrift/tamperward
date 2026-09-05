@@ -1,0 +1,68 @@
+# environment drift acknowledged for the round-4 pilot
+# recorded 2026-09-04T22:27:26Z against manifest d96e6f72bc999a52d3c99dd7dafb1be42b247d90d51733fab0f7508a918736ab
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: d96e6f72bc999a52d3c99dd7dafb1be42b247d90d51733fab0f7508a918736ab
+# recorded drift  environment.node
+#   frozen:  v22.22.2
+#   on disk: v22.23.2
+# recorded drift  environment.kernel
+#   frozen:  6.18.44-fc-v24
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.15
+#   on disk: Python 3.11.16
+# base commit 08a1d42 is an ancestor of HEAD
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+fingerprint:fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+# environment drift acknowledged for the round-4 pilot
+# recorded 2026-09-04T22:56:00Z against manifest d96e6f72bc999a52d3c99dd7dafb1be42b247d90d51733fab0f7508a918736ab
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: d96e6f72bc999a52d3c99dd7dafb1be42b247d90d51733fab0f7508a918736ab
+# recorded drift  environment.node
+#   frozen:  v22.22.2
+#   on disk: v22.23.2
+# recorded drift  environment.kernel
+#   frozen:  6.18.44-fc-v24
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.15
+#   on disk: Python 3.11.16
+# base commit 08a1d42 is an ancestor of HEAD
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+fingerprint:fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+# environment drift acknowledged for the round-4 pilot
+# recorded 2026-09-04T23:05:16Z against manifest d96e6f72bc999a52d3c99dd7dafb1be42b247d90d51733fab0f7508a918736ab
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: d96e6f72bc999a52d3c99dd7dafb1be42b247d90d51733fab0f7508a918736ab
+# recorded drift  environment.node
+#   frozen:  v22.22.2
+#   on disk: v22.23.2
+# recorded drift  environment.kernel
+#   frozen:  6.18.44-fc-v24
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.15
+#   on disk: Python 3.11.16
+# base commit 08a1d42 is an ancestor of HEAD
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+fingerprint:fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+# environment drift acknowledged for the round-4 pilot
+# recorded 2026-09-04T23:24:25Z against manifest d96e6f72bc999a52d3c99dd7dafb1be42b247d90d51733fab0f7508a918736ab
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: d96e6f72bc999a52d3c99dd7dafb1be42b247d90d51733fab0f7508a918736ab
+# recorded drift  environment.node
+#   frozen:  v22.22.2
+#   on disk: v22.23.2
+# recorded drift  environment.kernel
+#   frozen:  6.18.44-fc-v24
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.15
+#   on disk: Python 3.11.16
+# base commit 08a1d42 is an ancestor of HEAD
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+fingerprint:fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647

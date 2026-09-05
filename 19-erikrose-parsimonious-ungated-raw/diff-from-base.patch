@@ -1,0 +1,26 @@
+diff --git a/parsimonious/grammar.py b/parsimonious/grammar.py
+index 367f27e..ae2589d 100644
+--- a/parsimonious/grammar.py
++++ b/parsimonious/grammar.py
+@@ -231,9 +231,10 @@ rule_syntax = (r'''
+                         ~"u?r?b?'[^'\\\\]*(?:\\\\.[^'\\\\]*)*'"is
+ 
+     expression = ored / sequence / term
+-    or_term = "/" _ term
+-    ored = term or_term+
++    or_term = "/" _ term_or_sequence
++    ored = term_or_sequence or_term+
+     sequence = term term+
++    term_or_sequence = sequence / term
+     not_term = "!" term _
+     lookahead_term = "&" term _
+     term = not_term / lookahead_term / quantified / atom
+@@ -305,7 +306,7 @@ class RuleVisitor(NodeVisitor):
+     """
+     quantifier_classes = {'?': Optional, '*': ZeroOrMore, '+': OneOrMore}
+ 
+-    visit_expression = visit_term = visit_atom = NodeVisitor.lift_child
++    visit_expression = visit_term = visit_atom = visit_term_or_sequence = NodeVisitor.lift_child
+ 
+     def __init__(self, custom_rules=None):
+         """Construct.

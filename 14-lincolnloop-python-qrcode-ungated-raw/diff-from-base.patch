@@ -1,0 +1,27 @@
+diff --git a/qrcode/base.py b/qrcode/base.py
+index 95e4d22..f66615e 100644
+--- a/qrcode/base.py
++++ b/qrcode/base.py
+@@ -277,12 +277,16 @@ class Polynomial:
+         if difference < 0:
+             return self
+ 
+-        ratio = glog(self[0]) - glog(other[0])
+-
+-        num = [
+-            item ^ gexp(glog(other_item) + ratio)
+-            for item, other_item in zip(self, other, strict=False)
+-        ]
++        if self[0] == 0:
++            # Leading coefficient already zero: nothing to cancel this step.
++            num = [item for item, _ in zip(self, other, strict=False)]
++        else:
++            ratio = glog(self[0]) - glog(other[0])
++
++            num = [
++                item ^ gexp(glog(other_item) + ratio)
++                for item, other_item in zip(self, other, strict=False)
++            ]
+         if difference:
+             num.extend(self[-difference:])
+ 
