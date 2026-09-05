@@ -2613,3 +2613,60 @@ available should a faithful re-adjudication of the dry run be undertaken later.
 **Fix.** The bug is closed (PR #215): `runs-pilot/` is chowned to the runner before the
 save and upload, and `ci-pilot-state.sh save` now refuses an incomplete snapshot rather
 than silently dropping a file. No binding file changed; the manifest is not re-frozen.
+
+## D9 — 2026-09-05, step 6: the pilot credential was live on the first test, then revoked
+
+**What.** The registered step-6 verification was dispatched twice against the same
+credential — fingerprint `env:CLAUDE_CODE_OAUTH_TOKEN:sha256:26d89a0505b792a2:len:108`, the
+identity every one of the 20 pilot provenance records carries — and returned two different
+verdicts twenty-four minutes apart. Both attempts ran under `revocation-check` run
+33964034445 with the freeze-recorded client `2.1.260 (Claude Code)` on `ubuntu-latest`.
+
+| | attempt 1 · 11:42:22Z | attempt 2 · 11:45:04Z | control (both attempts) |
+|---|---|---|---|
+| client exit | **0** | 1 | 1 |
+| auth-failure signature | no | yes | yes |
+| HTTP | **429** (`rate_limit_error`) | **401** (`authentication_error`) | 401 |
+| verdict | **LIVE** | **REVOKED** | calibrated |
+
+**Attempt 1 — the credential believed revoked was still live.** The client ran a prompt to
+completion under it (exit 0, no rejection signature), and the wire returned 429, a
+POST-authentication rejection: the credential was accepted and then throttled, where an
+unauthenticated request returns 401. The operator had reported it revoked on the strength of
+observed authentication failures; the test contradicted that, which is the entire reason
+point 7 of the credential record requires revocation to be tested rather than assumed. Had
+step 6 been closed on the operator's report, the register would have carried a false
+statement about the disposition of a credential that had been reachable by a tamper-focused
+agent for 20 trajectories.
+
+**Attempt 2 — revocation, after the operator acted again.** Same credential, same client,
+same job: the client now refuses it exactly as it refuses a known-invalid token, and the
+wire returns 401 `authentication_error`.
+
+**What makes this a reading rather than a malfunction.** The negative control — the same
+client, invoked the same way, with a synthetic invalid token — returned exit 1 / signature
+yes / 401 in BOTH attempts. So the instrument was identical across the pair: the request
+shape does yield 401 for a rejected credential, and this client does exit non-zero and say
+so when one is refused. Attempt 1 reproduced neither and attempt 2 reproduced both. The
+positive control is historical and equally real: this client authenticated with this exact
+fingerprint across all 20 pilot trajectories on 2026-09-04.
+
+**Disposition. Step 6 is CLOSED, on attempt 2.** The pilot credential no longer
+authenticates. The registered order is intact and un-reordered — no step ran ahead of it.
+
+**Cost, stated plainly.** Attempt 1 incurred bounded model usage — one short client prompt
+and one `max_tokens: 1` request — because the credential was live. That is the documented
+cost of the LIVE branch and the reason the job fails on it. Attempt 2 incurred none: every
+call was rejected before inference.
+
+**Sequencing note for the record.** The GitHub secret was deliberately RETAINED across both
+attempts. Deleting it removes CI's access, not the credential, and the token value exists
+nowhere else a check can reach — so deleting first would have made attempt 2 impossible and
+left the false LIVE state undetected and unverifiable. Revoke, verify, then delete.
+
+**Open item, upstream not ours.** The revocation mechanism remains undocumented: the token
+is CLI-minted by `claude setup-token`, and neither a revocation path nor whether re-minting
+invalidates a prior token is documented. Attempt 1 is a concrete instance of what that gap
+costs — an operator can reasonably believe a credential is dead while it still
+authenticates. The counted run provisions a separate fresh credential (step 11) regardless,
+and the same tested verification applies to it.
