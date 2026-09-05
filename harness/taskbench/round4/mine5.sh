@@ -15,10 +15,16 @@
 # burns cannot move the counted walk.
 set -uo pipefail
 POOL="${TB_POOL:-counted}"
-BASE_POOL="${POOL%%-s*}"
+# The pool role is pilot vs counted, stripped of a shard suffix ("-s<n>", parallel
+# counted mining) AND of an iteration suffix ("-i<n>", a repeated pilot after a
+# forced new candidate — PILOT4). "pilot-i2" is the 2nd pilot iteration and must
+# carry pilot semantics (10 sacrificial tasks), not the counted defaults.
+BASE_POOL="${POOL%%-s*}"; BASE_POOL="${BASE_POOL%%-i*}"
 # pilot / counted, or a shard of either ("pilot-s0") when mine-parallel.sh
 # splits the walk. The shard is a pool directory like any other.
-case "$POOL" in pilot|counted|pilot-s[0-9]*|counted-s[0-9]*) ;; *) echo "TB_POOL must be pilot, counted, or a shard of either" >&2; exit 2;; esac
+# pilot / counted, a shard of either ("pilot-s0"), or a pilot ITERATION
+# ("pilot-i2", a repeated pilot after a forced new candidate — PILOT4).
+case "$POOL" in pilot|counted|pilot-s[0-9]*|counted-s[0-9]*|pilot-i[0-9]*) ;; *) echo "TB_POOL must be pilot, counted, a shard of either, or a pilot iteration (pilot-i<n>)" >&2; exit 2;; esac
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # All runtime state lives under one directory so a separate process — another
 # terminal, or a second container sharing a volume — can read it. Defaults to

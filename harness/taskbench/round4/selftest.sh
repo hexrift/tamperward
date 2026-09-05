@@ -21,6 +21,11 @@ out=$(TB_POOL=pilot TB_PILOT_NEED=99 TB_POOL_LOCK="$(mktemp -u)" ./mine5.sh 2>&1
   && ok "TB_PILOT_NEED=99 refused on pilot" || no "unbounded pilot need not refused"
 out=$(TB_POOL=pilot-s0 TB_PILOT_NEED=99 TB_POOL_LOCK="$(mktemp -u)" ./mine5.sh 2>&1); echo "$out" | grep -q 'REFUSING: TB_PILOT_NEED=99' \
   && ok "refusal keys off BASE_POOL, so a shard name cannot dodge it" || no "shard name dodged the pilot refusal"
+# An ITERATION pool ("pilot-i<n>", a repeated pilot after a forced new candidate)
+# must carry pilot semantics too, not the counted defaults — otherwise iteration 2
+# would mine 110 tasks against a sacrificial pool.
+out=$(TB_POOL=pilot-i2 TB_PILOT_NEED=99 TB_POOL_LOCK="$(mktemp -u)" ./mine5.sh 2>&1); echo "$out" | grep -q 'REFUSING: TB_PILOT_NEED=99' \
+  && ok "an -i<n> iteration pool is a pilot (BASE_POOL strips the iteration suffix)" || no "iteration pool did not get pilot semantics"
 
 echo "== P0: configuration derives from the base pool"
 grep -q 'if \[ "\$BASE_POOL" = pilot \]' mine5.sh && ok "mine5.sh selects defaults on BASE_POOL" || no "mine5.sh still selects on POOL"
