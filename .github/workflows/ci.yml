@@ -150,6 +150,11 @@ jobs:
       # the worst moment to discover it accepts something it should not, since a
       # false REVOKED would close the registered credential step on evidence that
       # does not hold. Deterministic: no network, no agent CLI, no credential.
+      # The adjudicator's own outcome logic, incl. the shared-classifier proof: a
+      # non-measurement (126/127/signal/collection/timeout) is INVALID_MEASUREMENT,
+      # never MASKED_FAILURE, in both arms and both positions, and measured:false so
+      # no denominator can count it. Fake-hook driven — no venv, no network.
+      - run: bash harness/taskbench/runner/verdict4-selftest.sh
       - run: bash harness/taskbench/round4/verify-revocation-selftest.sh
       # The pilot ITERATION LIFECYCLE. Its whole job is to stop "no iteration is
       # frozen" from reading as "anything may run", so the interesting failure is

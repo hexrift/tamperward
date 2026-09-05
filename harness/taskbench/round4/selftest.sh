@@ -357,6 +357,37 @@ echo "== verify-pilot-tasks: the four defects review found, pinned"
   && ok "shared classifier: only 0/1 are PASS/FAIL; 2/3/4/126/127/137 are non-measurements, never RED" \
   || no "shared classifier diverges from the canonical semantics"
 
+# (a2) NO RESIDUAL non-measurement->red path. The shared classifier is the ONLY
+# interpretation of a suite's termination; each consumer that scores a suite must
+# route through it, and none may keep the old {1,2}->red / nonzero->red collapse
+# that let a 126 or a collection error (exit 2) manufacture a MASKED_FAILURE. This
+# is the structural guard behind the behavioural proofs in verdict4-selftest.sh.
+resid=0
+for f in mine5.sh verify-pilot-tasks.sh ../runner/verdict4.mjs checkdocs-adjudication-diag.sh; do
+  grep -q "suite-status" "$f" || { echo "  $f does not route through suite-status.mjs"; resid=1; }
+done
+# the exact collapses the fix removed must not reappear
+grep -qE '\[ "\$rc" -eq 1 \] \|\| \[ "\$rc" -eq 2 \]' mine5.sh && { echo "  mine5.sh still maps {1,2}->red"; resid=1; }
+grep -qE '1\|2\)[[:space:]]*(echo[[:space:]]+red|class=red)' verify-pilot-tasks.sh checkdocs-adjudication-diag.sh && { echo "  a consumer still maps 1|2->red"; resid=1; }
+# verdict4 must not classify a suite by a bare exit-code branch any more
+grep -qE "r\.status === 0.*return 'green'" ../runner/verdict4.mjs && { echo "  verdict4.mjs still classifies inline"; resid=1; }
+[ "$resid" = 0 ] \
+  && ok "no residual non-measurement->red path: miner, validator, adjudicator and the diag all route through the shared classifier" \
+  || no "a residual nonzero->red scoring path remains"
+
+# (a3) The re-roll / retry decision is ARM-BLIND. run-task4's post-start policy is
+# a single exit 11 (preserve artifacts, never re-roll) with no branch on the arm or
+# the outcome; the arm appears only as recorded metadata. An INVALID_MEASUREMENT is
+# a valid verdict (recorded as attrition), also produced without reference to the
+# arm. Guard: post_start_failure must not condition on $ARM/outcome, and the
+# re-roll refusal must be unconditional.
+rt=../runner/run-task4.sh
+if grep -nE 'post_start_failure|must NOT be re-rolled|exit 11' "$rt" | grep -qiE '\bif\b.*(ARM|arm==|outcome)'; then
+  no "the re-roll decision branches on the arm or outcome"
+else
+  ok "the re-roll / retry decision is arm-blind and outcome-blind (a non-measurement is recorded, never re-rolled)"
+fi
+
 # (b) a run that examines NOTHING must not pass. With an empty pool every counter
 # stays 0 and a naive "no failures" test reports success.
 TB_POOL_DIR=$(mktemp -d) ./verify-pilot-tasks.sh >/dev/null 2>&1; rc=$?
