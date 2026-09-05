@@ -89,10 +89,32 @@ jobs:
 
       - name: Mine (walk until ten validated or the 285-min budget)
         if: inputs.action == 'mine'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TB_STATE_DIR: pools/${{ env.POOL }}
+          TB_PILOT_STATE_BRANCH: round4-mine-${{ env.POOL }}-state
         run: |
           set -uo pipefail
           P="harness/taskbench/round4/pools/$POOL"
           echo "before: $(ls "$P/tasks" 2>/dev/null | grep -v '^\.' | wc -l | tr -d ' ') task(s), $(grep -c . "$P/attrition.jsonl" 2>/dev/null || echo 0) attrition line(s)"
+
+          # PERIODIC CHECKPOINT. The docker compose run is one long step whose
+          # output is not streamed and whose pool is not saved until it ends, so a
+          # budget-length dispatch was invisible until it finished. This background
+          # loop chowns the pool back from the container's root and pushes a
+          # snapshot to the state branch every 10 minutes, so "X/10 validated" and
+          # the attrition ledger are visible mid-run, and a hard runner death loses
+          # at most the last interval. mine5 appends one complete line per repo, so
+          # a snapshot is at worst missing the in-flight repo — which is re-examined
+          # (idempotent), never corrupt.
+          checkpoint() {
+            sudo chown -R "$(id -u):$(id -g)" "$P" 2>/dev/null || true
+            bash harness/taskbench/round4/ci-pilot-state.sh save 2>&1 | sed 's/^/  [checkpoint] /' || true
+          }
+          ( while sleep 600; do checkpoint; done ) &
+          SAVER=$!
+          trap 'kill "$SAVER" 2>/dev/null || true' EXIT
+
           # The pinned image runs mine5 (its default command). A 285-min host-side
           # budget then stops the container; the pool's attrition.jsonl is the
           # checkpoint. `|| true`: a budget stop is not a failure.
@@ -101,9 +123,10 @@ jobs:
             docker compose -f "$COMPOSE" up --build --abort-on-container-exit --exit-code-from mine mine
           RC=$?
           set -e
+          kill "$SAVER" 2>/dev/null || true
           echo "compose exit: $RC (124 = hit the budget, resume by re-dispatch)"
-          # mine5 wrote the pool as root inside the container; hand it back so the
-          # unprivileged save/upload can read it (the D8 lesson).
+          # Final ownership handback so the always-save step and the upload can read
+          # the pool (the D8 lesson).
           sudo chown -R "$(id -u):$(id -g)" "$P" 2>/dev/null || true
 
       - name: Save mining state
