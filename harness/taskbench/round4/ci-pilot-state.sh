@@ -27,7 +27,12 @@ set -uo pipefail
 CMD="${1:-}"
 BRANCH="${TB_PILOT_STATE_BRANCH:-round4-pilot-state}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-DIR="$HERE/runs-pilot"
+# The snapshotted directory. Defaults to runs-pilot/ (the pilot trajectories), and
+# TB_STATE_DIR generalises it so the SAME checkpoint mechanism carries the mining
+# pool (pools/pilot-i2/) across ephemeral dispatches — one save/restore that force-
+# pushes an orphan snapshot to a non-protected branch, never repo code. Relative
+# paths resolve under this script's dir.
+DIR="${TB_STATE_DIR:+$HERE/${TB_STATE_DIR#$HERE/}}"; DIR="${DIR:-$HERE/runs-pilot}"
 SERVER="${GITHUB_SERVER_URL:-https://github.com}"
 REPO="${GITHUB_REPOSITORY:?GITHUB_REPOSITORY must be set}"
 TOKEN="${GITHUB_TOKEN:?GITHUB_TOKEN must be set (needs contents: write)}"

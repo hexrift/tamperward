@@ -1,0 +1,137 @@
+name: mine
+
+# Round-4 iteration-2 MINING — MANUAL, non-required, never on push.
+#
+# Mining is MECHANICAL and credential-free: it clones repositories and applies the
+# frozen FRAME5 gates (parent-green, +tests red, gold green) to validate ten fresh
+# regression tasks. NO agent, NO model, NO Claude credential, NO artefact, NO
+# net-jail — the entire apparatus pilot.yml builds is irrelevant here, which is why
+# this is a separate workflow rather than a branch inside it. What it DOES share is
+# the checkpoint-to-state-branch mechanism (ci-pilot-state.sh), reused via
+# TB_STATE_DIR so the growing pool survives ephemeral dispatches.
+#
+# RESUMABLE. mine5.sh writes a terminal verdict per repository to attrition.jsonl
+# and skips any repo that already has one, so a dispatch cut off by the job timeout
+# resumes on the next dispatch — a repo killed mid-processing simply has no verdict
+# and is re-examined, which is safe because mining is idempotent (unlike a
+# trajectory, which is a non-re-rollable observation and is why pilot.yml
+# checkpoints per-trajectory; mining need only checkpoint per-dispatch).
+#
+# The pool (pools/pilot-i2) is the PILOT4 fresh-ten: the frozen order with every
+# burnt repository removed. Every repository it examines is burnt.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'check (toolchain + pool, mines nothing) | mine (walk until ten validated or the budget, checkpointing)'
+        type: choice
+        options: [check, mine]
+        default: check
+      pool:
+        description: 'mining pool (a pilot iteration)'
+        default: pilot-i2
+
+permissions:
+  contents: write   # `mine` force-pushes the pool snapshot to a non-protected state branch
+
+concurrency:
+  group: round4-mine-${{ github.event.inputs.pool }}
+  cancel-in-progress: false
+
+env:
+  POOL: ${{ github.event.inputs.pool || 'pilot-i2' }}
+  TB_STATE_DIR: pools/${{ github.event.inputs.pool || 'pilot-i2' }}
+  TB_PILOT_STATE_BRANCH: round4-mine-${{ github.event.inputs.pool || 'pilot-i2' }}-state
+
+jobs:
+  mine:
+    runs-on: ubuntu-latest
+    # ~285-min mining budget under a 350-min ceiling (matches pilot.yml), leaving
+    # headroom for restore/save; anything unfinished resumes on re-dispatch.
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # The uv the round-4 tasks are mined with — a newer resolver changes which
+      # repositories install cleanly and therefore which qualify, so it is pinned.
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.8.17'
+      - name: jq
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends jq
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Toolchain + pool sanity (mines nothing)
+        run: |
+          set -euo pipefail
+          node --version; python3.11 --version; uv --version; jq --version
+          W="harness/taskbench/round4/pools/$POOL/walk.json"
+          [ -s "$W" ] || { echo "::error::no walk.json for pool $POOL"; exit 1; }
+          n=$(node -p "JSON.parse(require('fs').readFileSync('$W')).order.length")
+          echo "pool $POOL: $n repositories in the walk"
+          # never re-examine a burnt repo: the walk must be disjoint from the burn set
+          node -e '
+            const fs=require("fs");
+            const order=new Set(JSON.parse(fs.readFileSync("harness/taskbench/round4/pools/'"$POOL"'/walk.json")).order);
+            const burn=JSON.parse(fs.readFileSync("harness/taskbench/round4/frame/pilot-dedup.json")).repos;
+            const leaked=burn.filter(r=>order.has(r));
+            if (leaked.length) { console.error("::error::"+leaked.length+" burnt repos leaked into the walk"); process.exit(1); }
+            console.log("burn-set disjoint: OK");
+          '
+
+      - name: Restore mining state (resume across dispatches)
+        if: inputs.action == 'mine'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash harness/taskbench/round4/ci-pilot-state.sh restore
+
+      - name: Mine (walk until ten validated or the budget)
+        if: inputs.action == 'mine'
+        env:
+          TB_PILOT_NEED: '10'
+        run: |
+          set -uo pipefail
+          echo "before: $(ls harness/taskbench/round4/pools/$POOL/tasks 2>/dev/null | grep -v '^\.' | wc -l) task(s), $(grep -c . harness/taskbench/round4/pools/$POOL/attrition.jsonl 2>/dev/null || echo 0) attrition line(s)"
+          # 285 minutes, then SIGTERM: the pool's attrition.jsonl is the checkpoint,
+          # and a repo interrupted mid-processing is re-examined next dispatch.
+          set +e
+          timeout --signal=TERM 285m env TB_POOL="$POOL" TB_PILOT_NEED=10 bash harness/taskbench/round4/mine5.sh | tee /tmp/mine.out
+          RC=${PIPESTATUS[0]}
+          set -e
+          echo "mine5 exit: $RC (124 = hit the budget, resume by re-dispatch)"
+          tail -3 /tmp/mine.out >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+      - name: Save mining state
+        if: always() && inputs.action == 'mine'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash harness/taskbench/round4/ci-pilot-state.sh save
+
+      - name: Status
+        if: always() && inputs.action == 'mine'
+        run: |
+          P="harness/taskbench/round4/pools/$POOL"
+          t=$(ls "$P/tasks" 2>/dev/null | grep -v '^\.' | wc -l | tr -d ' ')
+          a=$(grep -c . "$P/attrition.jsonl" 2>/dev/null || echo 0)
+          echo "pool $POOL — validated tasks: $t / 10 ; attrition lines: $a" | tee -a "$GITHUB_STEP_SUMMARY"
+          [ "$t" -ge 10 ] && echo "DONE: ten validated — ready to finalize and freeze iteration 2" | tee -a "$GITHUB_STEP_SUMMARY" || echo "not yet ten — re-dispatch \`mine\` to continue" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the pool snapshot
+        if: always() && inputs.action == 'mine'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mine-${{ env.POOL }}
+          path: |
+            harness/taskbench/round4/pools/${{ env.POOL }}/attrition.jsonl
+            harness/taskbench/round4/pools/${{ env.POOL }}/tasks/
+          if-no-files-found: warn
