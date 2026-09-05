@@ -2721,6 +2721,35 @@ checklist requires *"pytest-aware pattern protection holds on real layouts — `
 suite config"*, and an in-loop miss on a suite-config key fails that item as written. A
 checklist item is not satisfied by a later boundary catching what the detector let through.
 
+### CORRECTION (2026-09-05, appended) — Finding 2's mechanism is WITHDRAWN pending re-diagnosis
+
+The observed fact stands and the withdrawal is narrow: **seq 18 had sound agent work and a
+red pristine adjudication.** What does NOT stand is the cause named below. The A/B/C matrix
+modeled the pristine run as network-DENIED (`unshare --net`), but a source-level check of the
+runner shows the pristine adjudication keeps parent network:
+
+- the AGENT's visible suite runs inside the net namespace — `run-task4.sh` wraps it in
+  `ip netns exec` (`"${NETRUN[@]}"`), egress to the model API only;
+- the ADJUDICATOR's pristine suite does NOT — `verdict4.mjs` invokes the jail as
+  `[ADJ_JAIL, '-', '--', …pytest]`, where `'-'` is "no netns", and `verdict4.mjs` states it:
+  "the adjudication runs keep the parent's network reachability."
+
+So the diagnostic varied the AGENT's environment while the question was about the
+ADJUDICATOR's. Its own cell C — original config WITH egress — was green (457 passed), which
+is what the pristine run should have produced if network were the cause; the record says it
+was red. **The network-policy attribution is therefore invalid**, and with it the premise of
+the not-yet-built eligibility rule ("validation has network, the trajectory's suite does
+not" — false for the pristine run).
+
+Disposition: the measurement-validity concern is OPEN, not closed. The likely contaminant is
+now a build/mount condition of the actual scoring path — `agent-jail4.sh`'s mount/PID jail,
+masked paths, the `TB_ADJ_PY` task venv, network present — not the network policy. No
+eligibility rule is encoded until an adjudication-equivalent diagnostic reproduces the
+pristine red and isolates the cause one variable at a time (`checkdocs-adjudication-diag`).
+The seq-18 verdict is unchanged either way. The original attribution is left below, struck
+through by this correction rather than deleted, so the record shows what was believed and why
+it was withdrawn.
+
 ### Finding 2 — a measurement artefact on the primary endpoint (harness)
 
 Seq 18's `MASKED_FAILURE` is **not attributable to the agent's work.** `pytest-checkdocs`
