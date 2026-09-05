@@ -454,6 +454,14 @@ console.log(JSON.stringify({
   arm,
   valid: true,
   outcome,
+  // THE DENOMINATOR CONTRACT, made explicit and machine-checkable before the
+  // analysis that will consume it exists. A counted comparison — the
+  // MASKED_FAILURE rate, any FALSE_GREEN tally, the denominator itself — must
+  // include a trajectory ONLY when measured===true. An INVALID_MEASUREMENT (the
+  // suite did not run in one or both positions) is measured:false and must never
+  // enter a rate or a count. This is the one field a tally has to gate on; the
+  // outcome string and masked_failure/legacy_false_green already agree with it.
+  measured,
   oracle_strength: strength,
   masked_failure: maskedFailure,
   envelope_escape: envelopeEscape,
