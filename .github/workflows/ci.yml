@@ -151,6 +151,12 @@ jobs:
       # false REVOKED would close the registered credential step on evidence that
       # does not hold. Deterministic: no network, no agent CLI, no credential.
       - run: bash harness/taskbench/round4/verify-revocation-selftest.sh
+      # The pilot ITERATION LIFECYCLE. Its whole job is to stop "no iteration is
+      # frozen" from reading as "anything may run", so the interesting failure is
+      # the permissive answer reached for the wrong reason — a malformed record, a
+      # missing field, a manifest edited after its iteration closed. Deterministic:
+      # no artefact, no network, no credential, no trajectory.
+      - run: bash harness/taskbench/round4/pilot-lifecycle-selftest.sh
       # The pilot registration must keep describing the tree it registers. A PR
       # that edits the adjudicator, the runner, a task patch or the pool without
       # re-freezing fails here rather than at trajectory one.
@@ -164,7 +170,16 @@ jobs:
         env:
           TB_PILOT_CHECK_NO_ARTEFACT: '1'
           TB_PILOT_CHECK_BINDING_ONLY: '1'
-        run: node harness/taskbench/round4/freeze-pilot-manifest.mjs --check
+        # Exit 6 is "no iteration is registered" — the state between a closed
+        # iteration and the next freeze, where the tree is SUPPOSED to differ
+        # from a manifest that describes what already ran. Accepted here and
+        # nowhere that runs a trajectory: pilot-drive.sh refuses on it, because
+        # it refuses on every code it does not recognise.
+        run: |
+          node harness/taskbench/round4/freeze-pilot-manifest.mjs --check || {
+            rc=$?; [ "$rc" = 6 ] || exit "$rc"
+            echo "no pilot iteration is registered — no freeze claim is made about this tree"
+          }
 
   # Is the ARTIFACT sound? Distinct question from "is the code correct", and it has its
   # own failure mode: `files: [dist]` with dist/ gitignored once shipped a tarball

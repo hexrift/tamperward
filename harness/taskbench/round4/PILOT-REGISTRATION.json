@@ -1,0 +1,40 @@
+{
+  "record": "round-4 pilot iteration lifecycle",
+  "why": "The frozen manifest pins ONE iteration's treatment and pool. When an iteration closes and its result forces a treatment change, the tree legitimately stops matching that pin — and until the next pool is mined there is nothing to freeze. Without a lifecycle that state is unrepresentable, so CI ends up asking a closed iteration's question of an unfrozen candidate. This record names which iteration, if any, is active.",
+  "states": {
+    "frozen": "an iteration is registered: its treatment and pool are pinned, the full freeze assertions are armed, and trajectories may run",
+    "between": "no iteration is registered: the tree may differ from the last closed treatment, no freeze claim is made, development and mining are allowed and pilot execution is FORBIDDEN"
+  },
+  "transition": "frozen -> closed -> between -> (mine a fresh pool) -> frozen. One-way: a closed iteration is never reopened and its pins never change. Only freeze-pilot-manifest.mjs --derive moves the protocol back to frozen.",
+  "active_iteration": null,
+  "iterations": [
+    {
+      "iteration": 1,
+      "lifecycle": "closed",
+      "outcome": "failed",
+      "closed_on": "2026-09-05",
+      "decision": "DEVIATIONS.md D10 — step 7 declared: the pilot did not pass; 2.10.3 is forced",
+      "treatment_version": "2.10.2",
+      "treatment_artefact_sha256": "a0328112d99451e998037a3b26005c622590f9e5dee075db7606419a06ad3458",
+      "treatment_artefact_dir": "/opt/tw-artefact-2.10.2",
+      "manifest": "PILOT-EXECUTION-MANIFEST.json",
+      "manifest_sha256": "d96e6f72bc999a52d3c99dd7dafb1be42b247d90d51733fab0f7508a918736ab",
+      "pool": [
+        "11-jsonpickle-jsonpickle",
+        "12-pyserial-pyserial",
+        "13-getmoto-py-partiql-parser",
+        "14-lincolnloop-python-qrcode",
+        "15-pydata-numexpr",
+        "16-Fatal1ty-mashumaro",
+        "17-tmbo-questionary",
+        "18-mahmoud-boltons",
+        "19-erikrose-parsimonious",
+        "20-sklearn-compat-sklearn-compat"
+      ],
+      "pool_status": "burnt — permanently excluded from the counted frame, as every pilot repository is",
+      "trajectories": 20,
+      "adjudicated": 19,
+      "note": "seq 1 (15-pydata-numexpr, gated) ran to completion; its verdict FILE was lost to the D8 persistence bug and it is recorded as adjudicated. These pins are historical and immutable: they describe what actually ran."
+    }
+  ]
+}

@@ -586,11 +586,95 @@ if (mode === '--derive') {
   }
   fs.writeFileSync(target, rendered);
   fs.writeFileSync(mdTarget, renderMarkdown(doc, sha256(rendered)));
+  // FREEZING IS THE ONLY WAY BACK TO A RUNNABLE STATE. A manifest on disk is not
+  // a registration: when an iteration closes, its manifest stays as the record of
+  // what ran, and the protocol sits BETWEEN iterations — provisioning and mining
+  // allowed, pilot execution refused (pilot-drive.sh). Writing a manifest without
+  // also registering it would leave that refusal in place with no way to lift it;
+  // letting anything ELSE lift it would make "nothing is frozen" a formality. So
+  // the activation lives here, on the success path of the write, and nowhere else.
+  //
+  // Only for the REAL manifest. `--derive` against a self-test seam writes a
+  // document somewhere else and must not touch the protocol's live state.
+  if (path.resolve(target) === MANIFEST) {
+    const regPath = process.env.TB_PILOT_REGISTRATION || path.join(path.dirname(MANIFEST), 'PILOT-REGISTRATION.json');
+    if (fs.existsSync(regPath)) {
+      const reg = JSON.parse(fs.readFileSync(regPath, 'utf8'));
+      const closed = (reg.iterations ?? []).filter((i) => i.lifecycle === 'closed');
+      // A closed iteration is never reopened and its pins never change, so a new
+      // freeze always opens the NEXT number.
+      const n = Math.max(0, ...(reg.iterations ?? []).map((i) => i.iteration)) + (reg.active_iteration === null ? 1 : 0);
+      const active = reg.active_iteration ?? n;
+      const entry = {
+        iteration: active,
+        lifecycle: 'frozen',
+        outcome: null,
+        frozen_on: new Date().toISOString().slice(0, 10),
+        treatment_version: doc.treatment?.version ?? null,
+        treatment_artefact_sha256: doc.treatment?.artefact_pkg_tree_sha256 ?? null,
+        treatment_artefact_dir: doc.treatment?.artefact_dir ?? null,
+        manifest: path.basename(MANIFEST),
+        manifest_sha256: sha256(rendered),
+        pool: (doc.pool?.tasks ?? []).map((t) => t.id),
+      };
+      reg.active_iteration = active;
+      reg.iterations = [...closed, entry].sort((a, b) => a.iteration - b.iteration);
+      fs.writeFileSync(regPath, JSON.stringify(reg, null, 2) + '\n');
+      process.stdout.write(`registered iteration ${active} as frozen in ${path.basename(regPath)}\n`);
+    }
+  }
   process.stdout.write(`froze ${target}\n  and rendered ${mdTarget}\n  manifest sha256: ${sha256(rendered)}\n`);
   process.exit(0);
 }
 
 if (mode === '--check') {
+  // "Does the frozen manifest still describe this tree?" is a question with
+  // meaning only while something is frozen. Between iterations the manifest on
+  // disk belongs to a CLOSED iteration: it describes what ran, and the tree is
+  // supposed to have moved on — that is what closing an iteration and changing
+  // the treatment MEANS. Asserting its binding set here would forbid exactly the
+  // work the between state exists to allow (round 4: the driver, the runner and
+  // the eligibility rules all change before iteration 2 is frozen).
+  //
+  // This is not a way to silence drift. It applies only to the REAL manifest,
+  // only when the registration says nothing is active, and it removes no other
+  // assertion: the closed iteration is still held immutable and reproducible by
+  // provision-check.sh, and pilot-drive.sh refuses to execute at all in this
+  // state. A tree can drift freely from a registration that does not exist; it
+  // cannot drift from one that does.
+  if (path.resolve(target) === MANIFEST) {
+    // One env var relocates the WHOLE lifecycle — registration.sh reads it too,
+    // so provision-check.sh, pilot-drive.sh and this check always agree about
+    // which iteration is registered. That is why it is not a bypass surface: a
+    // record saying "between" makes this check decline to claim anything AND
+    // makes the driver refuse to run, together. Moving them apart is what would
+    // be dangerous, and there is no way to do it.
+    const regPath = process.env.TB_PILOT_REGISTRATION || path.join(path.dirname(MANIFEST), 'PILOT-REGISTRATION.json');
+    if (fs.existsSync(regPath)) {
+      let reg;
+      try { reg = JSON.parse(fs.readFileSync(regPath, 'utf8')); }
+      catch { fail(5, `${path.basename(regPath)} is not readable JSON — the lifecycle is unaccounted for`); }
+      if (!('active_iteration' in reg)) fail(5, `${path.basename(regPath)} has no active_iteration — the lifecycle is unaccounted for`);
+      if (reg.active_iteration === null) {
+        // EXIT 6, not 0, and that choice is the safety property. pilot-drive.sh
+        // treats any freeze code it does not recognise as a refusal — "a driver
+        // that can be told to ignore the freeze check is a driver that will be
+        // told to ignore it, at 2am, once" — so answering 0 here would tell the
+        // driver the tree is clean and let trajectories run against a
+        // registration that does not exist. 6 makes the refusal automatic in the
+        // component that already cannot be talked out of one, WITHOUT editing the
+        // driver, which is itself a binding file: closing an iteration must not
+        // require changing something the closed iteration pinned.
+        process.stdout.write(
+          `no active pilot iteration — the manifest on disk belongs to a closed one, so no freeze claim is made about this tree.\n` +
+          `  closed: ${(reg.iterations ?? []).filter((i) => i.lifecycle === 'closed').map((i) => `${i.iteration} (${i.outcome ?? 'no outcome'}, ${i.treatment_version ?? '?'})`).join(', ') || 'none'}\n` +
+          `  development and mining are allowed in this state; pilot EXECUTION is refused until\n` +
+          `  freeze-pilot-manifest.mjs --derive registers the next iteration.\n`,
+        );
+        process.exit(6);
+      }
+    }
+  }
   if (!fs.existsSync(target)) fail(5, `no frozen manifest at ${target}`);
   const frozenRaw = fs.readFileSync(target, 'utf8');
   const frozen = JSON.parse(frozenRaw);

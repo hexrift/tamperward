@@ -679,7 +679,15 @@ FM=./PILOT-EXECUTION-MANIFEST.json
 # Every --check below fixes BOTH host-dependent axes, so the same assertion holds
 # on the freeze host and on a CI runner with no artefact deployed. The artefact
 # and environment paths get their own dedicated cases underneath.
-CK="TB_PILOT_CHECK_NO_ARTEFACT=1 TB_PILOT_CHECK_BINDING_ONLY=1"
+# A registration seam for the whole freeze/driver section. These cases ask "given
+# a REGISTERED iteration, does the checker classify drift and does the driver
+# refuse to run against it?" — questions that presuppose a registration. The real
+# record says no iteration is active (iteration 1 closed, D10), which is a
+# different property with its own self-test (pilot-lifecycle-selftest.sh); left in
+# place it would make every case below exit at that state and assert nothing.
+FROZEN_REG="$(mktemp -d)/registration.json"
+printf '{"active_iteration":1,"iterations":[{"iteration":1,"lifecycle":"frozen"}]}\n' > "$FROZEN_REG"
+CK="TB_PILOT_CHECK_NO_ARTEFACT=1 TB_PILOT_CHECK_BINDING_ONLY=1 TB_PILOT_REGISTRATION=$FROZEN_REG"
 
 # ---- structure: the pool is the FRESH ten, both arms, nothing else
 node "$FZ" --print > /tmp/tb-fz-print.json 2>/dev/null
