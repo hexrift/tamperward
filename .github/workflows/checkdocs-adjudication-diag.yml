@@ -1,0 +1,49 @@
+name: checkdocs-adjudication-diag
+
+# DIAGNOSTIC v2 for round-4 Finding 2 — manual, non-required, never on push. Runs
+# no trajectory, needs no credential, writes no verdict. It re-diagnoses seq 18's
+# pristine red against the REAL scoring path (agent-jail4.sh mount/PID jail, RO
+# interpreter, fresh HOME/TMPDIR, network present), after the first diagnostic was
+# found to have modeled the agent's network environment rather than the
+# adjudicator's. See harness/taskbench/round4/checkdocs-adjudication-diag.sh.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: round4-checkdocs-adj-diag
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Fetch the pilot state branch (the recorded final tree lives there)
+        run: git fetch --no-tags origin round4-pilot-state:refs/remotes/origin/round4-pilot-state
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.8.17'
+      - name: Tooling (jq, util-linux for unshare)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends jq util-linux
+      # No sudo: the mount/PID jail uses unprivileged user namespaces on
+      # ubuntu-latest, exactly as isolation-selftest4.sh does, and the diagnostic
+      # uses no netns (network is present by design).
+      - name: Run the adjudication-equivalent matrix
+        run: bash harness/taskbench/round4/checkdocs-adjudication-diag.sh
+      - name: Publish the diagnostic record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkdocs-adjudication-diag
+          path: ${{ runner.temp }}/checkdocs-adj-diag/
+          if-no-files-found: warn
