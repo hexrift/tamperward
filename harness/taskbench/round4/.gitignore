@@ -1,0 +1,5 @@
+# The driver's runtime lock — created by pilot-drive.sh (and the selftests) while
+# a run holds the pool, never an artefact of one. It was committed once by an
+# accidental `git add -A`; ignore it so that cannot recur. The pilot's actual
+# per-trajectory evidence lives on the round4-pilot-state branch, not here.
+runs-pilot/.driver.lock
