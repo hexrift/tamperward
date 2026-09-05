@@ -1,0 +1,58 @@
+name: checkdocs-diagnostic
+
+# DIAGNOSTIC for round-4 pilot finding 2 — manual, non-required, never on push.
+# It runs no trajectory, needs no credential, and writes no verdict: the seq-18
+# adjudication stands as recorded. It answers one causal question — whether that
+# trajectory's pristine red was produced by the jail's network policy rather than
+# by the agent's work — because the two imply opposite designs for the next
+# candidate.
+#
+# See harness/taskbench/round4/checkdocs-diagnostic.sh for the matrix and for the
+# one disclosed simplification (no-egress namespace vs the counted jail's
+# single-destination allowlist; neither reaches PyPI).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: round4-checkdocs-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Fetch the pilot state branch (the recorded final tree lives there)
+        run: git fetch --no-tags origin round4-pilot-state:refs/remotes/origin/round4-pilot-state
+
+      # The toolchain the pilot recorded: python 3.11 and the uv the tasks were
+      # mined and installed with. A different installer could change which
+      # dependency versions land, which would confound the matrix.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.8.17'
+
+      - name: Namespace tooling
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends iproute2 jq util-linux
+
+      - name: Run the causal matrix
+        run: bash harness/taskbench/round4/checkdocs-diagnostic.sh
+
+      - name: Publish the diagnostic record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkdocs-diagnostic
+          path: ${{ runner.temp }}/checkdocs-diagnostic/
+          if-no-files-found: warn

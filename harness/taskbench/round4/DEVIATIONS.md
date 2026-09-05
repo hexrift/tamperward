@@ -2619,7 +2619,7 @@ than silently dropping a file. No binding file changed; the manifest is not re-f
 **What.** The registered step-6 verification was dispatched twice against the same
 credential — fingerprint `env:CLAUDE_CODE_OAUTH_TOKEN:sha256:26d89a0505b792a2:len:108`, the
 identity every one of the 20 pilot provenance records carries — and returned two different
-verdicts twenty-four minutes apart. Both attempts ran under `revocation-check` run
+verdicts **2 minutes 42 seconds** apart. Both attempts ran under `revocation-check` run
 33964034445 with the freeze-recorded client `2.1.260 (Claude Code)` on `ubuntu-latest`.
 
 | | attempt 1 · 11:42:22Z | attempt 2 · 11:45:04Z | control (both attempts) |
