@@ -79,13 +79,30 @@ grep -q -- '-p no:checkdocs' "$W/pytest.ini.original" && die "reversal did not r
 echo "== install (the frozen FRAME3 ladder, with egress, as the trajectory did) =="
 VENV="$W/venv"
 uv venv -q -p python3.11 "$VENV" || die "venv failed"
+# The COMPLETE frozen FRAME3 ladder, including the requirements-file rung. An
+# earlier version of this script stopped after the extras and produced an
+# environment without numpy — every cell then died at collection with the same
+# seven import errors, varying nothing, and the matrix "concluded" from it.
 RUNG=
 for extra in test tests dev; do
   if ( cd "$REPO" && uv pip install -q -p "$VENV/bin/python" -e ".[$extra]" ) >/dev/null 2>&1; then RUNG="extras:$extra"; break; fi
 done
-[ -n "$RUNG" ] && echo "install rung: $RUNG" || die "install failed"
+if [ -z "$RUNG" ]; then
+  ( cd "$REPO" && uv pip install -q -p "$VENV/bin/python" -e . ) >/dev/null 2>&1 && RUNG=plain
+fi
+[ -n "$RUNG" ] || die "install failed"
+for rf in requirements-dev.txt requirements_dev.txt dev-requirements.txt \
+          requirements-test.txt test-requirements.txt requirements/dev.txt requirements/test.txt; do
+  if [ -f "$REPO/$rf" ]; then
+    echo "requirements rung: $rf"
+    ( cd "$REPO" && uv pip install -q -p "$VENV/bin/python" -r "$rf" ) >/dev/null 2>&1
+    break
+  fi
+done
 ( cd "$REPO" && uv pip install -q -p "$VENV/bin/python" pytest ) >/dev/null 2>&1
-echo "recorded rung was: $(git -C "$HERE" show "$STATE_REF:$TRAJ.verdict.json" | jq -r '.install_rung')"
+RECORDED_RUNG=$(git -C "$HERE" show "$STATE_REF:$TRAJ.verdict.json" | jq -r '.install_rung')
+echo "install rung: $RUNG (recorded: $RECORDED_RUNG)"
+[ "$RUNG" = "$RECORDED_RUNG" ] || die "install rung $RUNG does not match the recorded $RECORDED_RUNG; the environment is not the trajectory's"
 
 # cell <name> <config-file> <jailed:yes|no>
 cell() {
@@ -103,7 +120,7 @@ cell() {
   fi
   rc=$?
   local summary failed_items project_only
-  summary=$(grep -E '^[0-9]+ (passed|failed)|passed|failed' "$log" | tail -1 | tr -d '\r')
+  summary=$(grep -E ' in [0-9.]+s' "$log" | tail -1 | sed 's/=//g' | tr -s ' ' | tr -d '\r')
   # Which items failed, by name — the whole question is whether `.::project` is alone.
   failed_items=$(grep -E '^(FAILED|ERROR) ' "$log" | awk '{print $2}' | sort -u | tr '\n' ',' | sed 's/,$//')
   project_only=no
@@ -126,7 +143,25 @@ A_PO=$(jq -r 'select(.cell=="A").project_only' "$OUT_DIR/cells.jsonl")
 B_RC=$(jq -r 'select(.cell=="B").exit'        "$OUT_DIR/cells.jsonl")
 C_RC=$(jq -r 'select(.cell=="C").exit'        "$OUT_DIR/cells.jsonl")
 
-if [ "$A_RC" != 0 ] && [ "$A_PO" = yes ] && [ "$B_RC" = 0 ] && [ "$C_RC" = 0 ]; then
+# PRECONDITION, before any causal reading. pytest exits 2 on a collection error,
+# 3 internal, 4 usage, 5 nothing collected — none of which is a test result. And
+# cell B is the configuration the agent actually left, which the record shows
+# green: if it is not green here, this environment is not the trajectory's and
+# NOTHING measured in it says anything about the trajectory. Concluding anyway is
+# how the first run of this script reported AGENT_WORK_IMPLICATED from seven
+# identical numpy import errors.
+BAD_RC=
+for c in A B C; do
+  rc=$(jq -r --arg c "$c" 'select(.cell==$c).exit' "$OUT_DIR/cells.jsonl")
+  case "$rc" in 0|1) ;; *) BAD_RC="cell $c exited $rc (pytest: 2=collection error, 3=internal, 4=usage, 5=no tests) — not a test result" ;; esac
+done
+if [ -n "$BAD_RC" ]; then
+  FINDING=ENVIRONMENT_NOT_REPRODUCED
+  NOTE="$BAD_RC. No causal claim is made."
+elif [ "$B_RC" != 0 ]; then
+  FINDING=ENVIRONMENT_NOT_REPRODUCED
+  NOTE="cell B — the configuration the agent left, recorded green — is red here, so this environment is not the trajectory's. No causal claim is made."
+elif [ "$A_RC" != 0 ] && [ "$A_PO" = yes ] && [ "$B_RC" = 0 ] && [ "$C_RC" = 0 ]; then
   FINDING=ARTEFACT_CONFIRMED
   NOTE="the pristine red is caused by the network policy alone: same tree, same dependencies — red only when checkdocs is enabled AND egress is denied, and the sole failing item is .::project"
 elif [ "$A_RC" = 0 ]; then
@@ -152,6 +187,7 @@ jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg traj "$TRAJ" --arg ref "$
 echo
 case "$FINDING" in
   ARTEFACT_CONFIRMED) echo "FINDING: the seq-18 pristine red is a measurement artefact of the network policy." ;;
+  ENVIRONMENT_NOT_REPRODUCED) echo "FINDING: $FINDING — $NOTE" ;;
   *)                  echo "FINDING: $FINDING — $NOTE" ;;
 esac
 # A diagnostic reports; it does not gate. Exit 0 on every reachable conclusion so
