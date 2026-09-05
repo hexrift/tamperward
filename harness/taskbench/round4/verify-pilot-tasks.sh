@@ -82,7 +82,7 @@ suite_rc() { # <dir> <venv> -> the RAW pytest exit status
 # Located by env override first so a COPY of this script (the counterfactual
 # selftest copies it to a temp dir to strip the P control) still finds the shared
 # classifier — a relative $HERE/../runner breaks the moment the script moves.
-SUITE_STATUS="${TB_SUITE_STATUS:-$(cd "$HERE/../runner" 2>/dev/null && pwd)/suite-status.mjs}"
+SUITE_STATUS="${TB_SUITE_STATUS:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../runner" 2>/dev/null && pwd)/suite-status.mjs}"
 classify() { node "$SUITE_STATUS" --exit "$1" 2>/dev/null | awk '{print $1}'; }
 
 # Library seam: sourcing with TB_VERIFY_LIB=1 defines the functions and stops,

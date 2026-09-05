@@ -693,6 +693,26 @@ FROZEN_REG="$(mktemp -d)/registration.json"
 printf '{"active_iteration":1,"iterations":[{"iteration":1,"lifecycle":"frozen"}]}\n' > "$FROZEN_REG"
 CK="TB_PILOT_CHECK_NO_ARTEFACT=1 TB_PILOT_CHECK_BINDING_ONLY=1 TB_PILOT_REGISTRATION=$FROZEN_REG"
 
+# ONE rule, encoded once (#223): a CLOSED historical registration is not the
+# current candidate registration. A self-test whose SUBJECT is the CURRENT
+# implementation — freeze forgery detection, driver behaviour — must bind to the
+# current tree, ALL binding hashes as they are now, not to iteration 1's frozen
+# pins. The moment a binding file legitimately changes between iterations (which
+# that state exists to allow), the committed manifest carries stale pins and every
+# derived case would show incidental binding drift, masking the property under
+# test. This produces a current-tree manifest for such cases.
+#
+# It is a TEST FIXTURE mechanism, NOT a runtime escape hatch: production
+# pilot-drive.sh still consumes the real registered manifest, and --derive remains
+# the only path back to a frozen, runnable state. Tests may manufacture a valid
+# fixture; a real pilot may not derive itself a convenient one.
+derive_current_tree_test_registration() {
+  local out; out="$(mktemp -d)/PILOT-EXECUTION-MANIFEST.json"
+  node "$FZ" --print > "$out" || return 1
+  TB_PILOT_MANIFEST="$out" node "$FZ" --render > "${out%.json}.md" 2>/dev/null
+  echo "$out"
+}
+
 # ---- structure: the pool is the FRESH ten, both arms, nothing else
 node "$FZ" --print > /tmp/tb-fz-print.json 2>/dev/null
 node -e '
@@ -732,10 +752,19 @@ FROZEN_ORD=$(node -e 'console.log(require("'"$PWD"'/PILOT-EXECUTION-MANIFEST.jso
 # ---- --check catches every binding forgery, and tells drift classes apart
 # The copy carries its rendered page too, rendered FROM the tampered JSON, so
 # each case isolates the field it edits instead of also tripping the page check.
+#
+# The base is the CURRENT tree's derivation (--print), NOT the committed manifest.
+# The committed PILOT-EXECUTION-MANIFEST.json pins iteration 1's binding files;
+# the moment a binding file legitimately changes between iterations (development
+# is allowed in that state), the committed base would carry a stale binding pin
+# and every tamper copy would show binding drift, masking the drift class the
+# case is trying to isolate. Deriving the base from the tree under test makes an
+# unmutated copy clean BY CONSTRUCTION, so each case tests exactly its mutation.
+TAMPER_BASE="$(derive_current_tree_test_registration)"
 tamper(){ t=$(mktemp /tmp/tb-fz-XXXX.json); node -e '
 const fs=require("fs"),m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
 (new Function("m",process.argv[2]))(m);
-fs.writeFileSync(process.argv[3],JSON.stringify(m,null,1)+"\n");' "$FM" "$1" "$t"
+fs.writeFileSync(process.argv[3],JSON.stringify(m,null,1)+"\n");' "$TAMPER_BASE" "$1" "$t"
   TB_PILOT_MANIFEST="$t" node "$FZ" --render > "${t%.json}.md" 2>/dev/null; echo "$t"; }
 ckrc(){ env $CK TB_PILOT_MANIFEST="$1" node "$FZ" --check >/dev/null 2>&1; echo $?; }
 
@@ -858,6 +887,12 @@ rm -f /tmp/tb-fz-*.json /tmp/tb-fz-*.md /tmp/tb-fz-print.json
 
 echo "== pilot driver: the frozen order is ENFORCED and RECORDED, not merely written down"
 DRV=./pilot-drive.sh
+# The behavioural driver tests bind to the CURRENT tree, not iteration 1's closed
+# manifest (see derive_current_tree_test_registration). So the question is "given a
+# correctly frozen registration for THIS implementation, does the driver accept /
+# refuse the right states?" — not "does today's tree still hash to failed
+# iteration 1?". Those became different questions when iteration 1 closed.
+DRV_MANIFEST="$(derive_current_tree_test_registration)"
 # A stub runner writing a real verdict record: the driver's order logic is
 # exercised against the shared verdict predicate, not a mock of it.
 # A STRICT stub: it asserts every part of the registered contract the driver is
@@ -887,18 +922,18 @@ chmod +x "$L/stub-runner.sh"; echo "$L"; }
 # The driver's freeze gate runs the same --check as everything else, so on a host
 # with no artefact deployed (every CI runner) it must be given the same explicit
 # allowance. Withheld deliberately in one case below, to prove the refusal is real.
-drv(){ local L="$1"; shift; env $CK TB_PILOT_RUNS="$L/runs" TB_PILOT_RUNNER="$L/stub-runner.sh" $DRV "$@"; }
+drv(){ local L="$1"; shift; env $CK TB_PILOT_MANIFEST="$DRV_MANIFEST" TB_PILOT_RUNS="$L/runs" TB_PILOT_RUNNER="$L/stub-runner.sh" $DRV "$@"; }
 drvrc(){ drv "$@" >/dev/null 2>&1; echo $?; }
 
 L=$(mkstub)
 [ "$(drvrc "$L" --check)" = 0 ] && ok "driver --check passes on a clean manifest and empty state" || no "driver --check failed on clean state"
 # The allowance is opt-in for the driver too: without it, a host that cannot verify
 # the treatment cannot start a trajectory.
-[ "$(TB_ART_DIR=/nonexistent-artefact TB_PILOT_RUNS="$L/runs" TB_PILOT_RUNNER="$L/stub-runner.sh" $DRV --next >/dev/null 2>&1; echo $?)" = 2 ] \
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_PILOT_MANIFEST="$DRV_MANIFEST" TB_PILOT_RUNS="$L/runs" TB_PILOT_RUNNER="$L/stub-runner.sh" $DRV --next >/dev/null 2>&1; echo $?)" = 2 ] \
   && ok "the driver refuses when the treatment cannot be verified and no allowance is given" || no "the driver ran without verifying the treatment"
 drv "$L" --all >/dev/null 2>&1
 # The assertion that matters: what RAN equals what was REGISTERED, in order.
-if diff -q "$L/runs/stub-calls.log" <(jq -r '.execution.trajectories[] | "STUB \(.task) \(.arm)"' PILOT-EXECUTION-MANIFEST.json) >/dev/null 2>&1; then
+if diff -q "$L/runs/stub-calls.log" <(jq -r '.execution.trajectories[] | "STUB \(.task) \(.arm)"' "$DRV_MANIFEST") >/dev/null 2>&1; then
   ok "the executed sequence is byte-identical to the frozen order, all 20"
 else no "the executed sequence diverged from the frozen order"; fi
 [ ! -s "$L/runs/strict-violations.log" ] \
@@ -920,7 +955,7 @@ rm -rf "$L"
 
 L=$(mkstub); STUB_START_ONLY=1 drv "$L" --next >/dev/null 2>&1
 [ "$(drvrc "$L" --next)" = 3 ] && ok "a started trajectory with no verdict HALTS the driver — never re-rolled" || no "a started trajectory was re-rolled"
-t=$(jq -r '.execution.trajectories[0].task' PILOT-EXECUTION-MANIFEST.json); a=$(jq -r '.execution.trajectories[0].arm' PILOT-EXECUTION-MANIFEST.json)
+t=$(jq -r '.execution.trajectories[0].task' "$DRV_MANIFEST"); a=$(jq -r '.execution.trajectories[0].arm' "$DRV_MANIFEST")
 : > "$L/runs/${t}-${a}.adjudicated"
 [ "$(drvrc "$L" --check)" = 0 ] && ok "and only a recorded human disposition releases the halt" || no "the halt did not clear on adjudication"
 rm -rf "$L"
@@ -928,10 +963,10 @@ rm -rf "$L"
 # Out-of-order execution is impossible by construction: there is no way to name a
 # seq, and the driver always takes the LOWEST unfinished one.
 L=$(mkstub)
-t20=$(jq -r '.execution.trajectories[19].task' PILOT-EXECUTION-MANIFEST.json); a20=$(jq -r '.execution.trajectories[19].arm' PILOT-EXECUTION-MANIFEST.json)
+t20=$(jq -r '.execution.trajectories[19].task' "$DRV_MANIFEST"); a20=$(jq -r '.execution.trajectories[19].arm' "$DRV_MANIFEST")
 jq -nc --arg t "$t20" --arg a "$a20" '{task:$t,arm:$a,outcome:"X",oracle_strength:"I",visible_suite:"g",pristine_suite:"g",model:"stub",transcript:"t",ts:"2026-01-01T00:00:00Z",driver_pass:1,execution_attempt:1}' > "$L/runs/${t20}-${a20}.verdict.json"
 drv "$L" --next >/dev/null 2>&1
-[ "$(head -1 "$L/runs/stub-calls.log")" = "STUB $(jq -r '.execution.trajectories[0]|"\(.task) \(.arm)"' PILOT-EXECUTION-MANIFEST.json)" ] \
+[ "$(head -1 "$L/runs/stub-calls.log")" = "STUB $(jq -r '.execution.trajectories[0]|"\(.task) \(.arm)"' "$DRV_MANIFEST")" ] \
   && ok "with a later seq already done the driver still takes the lowest unfinished one" || no "the driver skipped ahead"
 grep -q '\-\-next <seq>\|\$2.*seq' $DRV && no "the driver accepts a caller-chosen seq" || ok "no caller can name a seq — order is enforced by construction"
 rm -rf "$L"
@@ -956,15 +991,16 @@ rm -rf "$L"
 # The long-run hazard: --all starting trajectory 17 against a tree that changed
 # after trajectory 1. The freeze gate runs once at startup and cannot see that.
 L=$(mkstub); L2=$(mktemp -d /tmp/tb-dl-XXXXXX)
+# Its OWN current-tree manifest; the runner mutates that copy, never the committed
+# iteration-1 record (which must stay byte-identical — a preserved guardrail).
+MM="$(derive_current_tree_test_registration)"
 cat > "$L/mutating-runner.sh" <<MUT
 #!/usr/bin/env bash
 bash "$L/stub-runner.sh" "\$@"
-printf '\n' >> "$PWD/PILOT-EXECUTION-MANIFEST.json"
+printf '\n' >> "$MM"
 MUT
 chmod +x "$L/mutating-runner.sh"
-cp PILOT-EXECUTION-MANIFEST.json /tmp/tb-pm-selftest.bak
-out=$(env $CK TB_PILOT_RUNS="$L2/runs" TB_PILOT_RUNNER="$L/mutating-runner.sh" $DRV --all 2>&1); rc=$?
-cp /tmp/tb-pm-selftest.bak PILOT-EXECUTION-MANIFEST.json; rm -f /tmp/tb-pm-selftest.bak
+out=$(env $CK TB_PILOT_MANIFEST="$MM" TB_PILOT_RUNS="$L2/runs" TB_PILOT_RUNNER="$L/mutating-runner.sh" $DRV --all 2>&1); rc=$?
 [ "$rc" = 2 ] && case "$out" in *"changed under the driver"*) ok "a manifest edited BETWEEN trajectories is caught mid-run, not just at startup" ;; *) no "mid-run guard did not fire (refused for another reason)" ;; esac \
   || no "a manifest edited mid-run was not caught (rc=$rc)"
 [ "$(wc -l < "$L2/runs/stub-calls.log")" = 1 ] && ok "and it stopped at the trajectory after the change" || no "the driver kept going after the manifest changed"
@@ -988,7 +1024,7 @@ printf '\n# selftest mutation\n' >> "$PWD/$POL"
 exit \$rc
 MUT
 chmod +x "$L/policy-mutating-runner.sh"
-out=$(env $CK TB_PILOT_RUNS="$L3/runs" TB_PILOT_RUNNER="$L/policy-mutating-runner.sh" $DRV --all 2>&1); rc=$?
+out=$(env $CK TB_PILOT_MANIFEST="$DRV_MANIFEST" TB_PILOT_RUNS="$L3/runs" TB_PILOT_RUNNER="$L/policy-mutating-runner.sh" $DRV --all 2>&1); rc=$?
 cp /tmp/tb-pol-selftest.bak "$POL"; rm -f /tmp/tb-pol-selftest.bak
 [ "$rc" = 2 ] && ok "a pinned binding file edited mid-run stops the driver (exit 2)" || no "policy3.yml changed mid-run and the driver continued (rc=$rc)"
 [ "$(wc -l < "$L3/runs/stub-calls.log")" = 1 ] \
@@ -1001,7 +1037,8 @@ rm -rf "$L" "$L3"
 # Environment drift: the checker says "record it and proceed", so there must be a
 # way to proceed. There must equally be no way to acknowledge BINDING drift.
 L=$(mkstub); DM="$L/PILOT-EXECUTION-MANIFEST.json"
-node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));m.environment_recorded.kernel="selftest-other-kernel";fs.writeFileSync(process.argv[2],JSON.stringify(m,null,1)+"\n")' "$FM" "$DM"
+BASE_CT="$(derive_current_tree_test_registration)"
+node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));m.environment_recorded.kernel="selftest-other-kernel";fs.writeFileSync(process.argv[2],JSON.stringify(m,null,1)+"\n")' "$BASE_CT" "$DM"
 TB_PILOT_MANIFEST="$DM" node "$FZ" --render > "$L/PILOT-EXECUTION-MANIFEST.md"
 dr(){ env TB_PILOT_CHECK_NO_ARTEFACT=1 TB_PILOT_MANIFEST="$DM" TB_PILOT_RUNS="$L/runs" TB_PILOT_RUNNER="$L/stub-runner.sh" $DRV "$@"; }
 [ "$(dr --check >/dev/null 2>&1; echo $?)" = 2 ] && ok "unacknowledged environment drift refuses the driver" || no "the driver ran with unacknowledged environment drift"
