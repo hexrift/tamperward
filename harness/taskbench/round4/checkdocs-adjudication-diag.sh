@@ -125,12 +125,16 @@ cell() { # <tag> <jailed:yes|no> <ro:yes|no>
   # 124 timeout. ANYTHING ELSE (126 not-executable, 127 not-found, >=128 signal,
   # a jail/setup error) is an EXECUTION FAILURE and NOT a test result — it must
   # never be read as red.
-  local class
-  case "$rc" in
-    0) class=green ;;
-    1|2) class=red ;;
-    5) class=no_tests ;;
-    124) class=timeout ;;
+  # The SHARED classifier (runner/suite-status.mjs), not a local case — exit 2 is
+  # a collection error (EXEC_FAILED), never a test red. Mapped to this script's
+  # lowercase vocabulary.
+  local st class
+  st=$(node "$RUNNER/suite-status.mjs" --exit "$rc" --log "$OUT_DIR/$tag.log" 2>/dev/null | awk "{print \$1}")
+  case "$st" in
+    PASS) class=green ;;
+    FAIL) class=red ;;
+    NO_TESTS) class=no_tests ;;
+    TIMEOUT) class=timeout ;;
     *) class=exec_failed ;;
   esac
   local failed summary

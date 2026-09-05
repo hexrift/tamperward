@@ -336,24 +336,26 @@ echo "== verify-pilot-tasks: the four defects review found, pinned"
 # verifier gates whether a mined task is usable, so a silent regression in it
 # would let an unusable task into the pilot.
 
-# (a) the exit-code classifier. It once collapsed every non-zero status into RED,
-# which would let exit 3, 4, 126, 127 and signal deaths pass as genuine regression
-# failures — a broken interpreter reading as a validated task. The frozen
-# semantics (mine5.sh gate 2) are green=0, red={1,2}, 5=no tests, 124=timeout,
-# ANYTHING ELSE an error.
+# (a) the exit-code classifier, now the SHARED one (runner/suite-status.mjs) that
+# the adjudicator, miner and validator all use. Only PASS (0) and FAIL (1) are
+# measurements; everything else is a suite that did not answer. This corrects the
+# earlier local copy, which read exit 2 as RED — but pytest exit 2 is INTERRUPTED
+# (a collection error, e.g. a plugin that pip-installs at collect time failing),
+# NOT a test failure (which is 1). Treating a collection error as a regression is
+# exactly the collapse this fix removes; it is now EXEC_FAILED.
 ( TB_VERIFY_LIB=1 . ./verify-pilot-tasks.sh
   bad=0
-  for pair in "0:green" "1:red" "2:red" "5:no_tests" "124:timeout"; do
+  for pair in "0:PASS" "1:FAIL" "5:NO_TESTS" "124:TIMEOUT"; do
     rc=${pair%%:*}; want=${pair##*:}
     [ "$(classify "$rc")" = "$want" ] || { echo "classify($rc)=$(classify "$rc") want $want"; bad=1; }
   done
-  # the whole point: these must NOT be red
-  for rc in 3 4 126 127 137; do
-    case "$(classify "$rc")" in error*) ;; *) echo "classify($rc)=$(classify "$rc") — must be an error, not red"; bad=1;; esac
+  # The whole point: none of these is a test result (FAIL). Exit 2 joins them.
+  for rc in 2 3 4 126 127 137; do
+    case "$(classify "$rc")" in PASS|FAIL) echo "classify($rc)=$(classify "$rc") — a non-measurement must not be PASS/FAIL"; bad=1;; esac
   done
   exit $bad ) >/dev/null 2>&1 \
-  && ok "classifier matches the frozen exit-code semantics; 3/4/126/127/137 are errors, not RED" \
-  || no "classifier diverges from the frozen semantics"
+  && ok "shared classifier: only 0/1 are PASS/FAIL; 2/3/4/126/127/137 are non-measurements, never RED" \
+  || no "shared classifier diverges from the canonical semantics"
 
 # (b) a run that examines NOTHING must not pass. With an empty pool every counter
 # stays 0 and a naive "no failures" test reports success.
@@ -454,9 +456,11 @@ node -e '
    id:"98-red-parent", repo:"fixture/redparent", parent_sha:sha,
    test_patch_sha256:h("test.patch"), gold_patch_sha256:h("gold.patch")}));' "$PF/pool" "$PSHA"
 
-vrun() { TB_VERIFY_REPO_BASE="$PF/remotes" TB_VERIFY_TEST_MODE=1 TB_POOL_DIR="$PF/pool" "$@"; }
+# TB_SUITE_STATUS points the (possibly copied) verifier at the real shared
+# classifier; without it the counterfactual's temp-dir copy cannot resolve it.
+vrun() { TB_VERIFY_REPO_BASE="$PF/remotes" TB_VERIFY_TEST_MODE=1 TB_POOL_DIR="$PF/pool" TB_SUITE_STATUS="$(cd "$HERE/../runner" && pwd)/suite-status.mjs" "$@"; }
 out=$(vrun ./verify-pilot-tasks.sh 2>&1); rc=$?
-[ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'FAIL.*P untouched parent is red' \
+[ "$rc" != 0 ] && printf '%s' "$out" | grep -qi 'FAIL.*P untouched parent is red' \
   && ok "P rejects a task whose parent is ALREADY RED" \
   || no "P did not reject a red parent (exit $rc): $(printf '%s' "$out" | grep -E 'P |FAIL' | head -1)"
 

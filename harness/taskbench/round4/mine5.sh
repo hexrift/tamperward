@@ -174,6 +174,13 @@ counts() { # prints "total single ws" — TOTAL drives the walk, strata only des
 run_suite() { # dir -> exit code of the frozen suite command under timeout
   ( cd "$1" && timeout "$STEP_TIMEOUT" "$VENV/bin/python" -m pytest -q -p no:cacheprovider >/dev/null 2>&1 )
 }
+# The SHARED interpretation (runner/suite-status.mjs). PASS/FAIL are the only
+# measurements; exit 2 (INTERRUPTED — a collection error, not a test failure),
+# 126/127, signals, timeouts and no-tests are non-measurements. Eligibility gates
+# below branch on the STATUS, so a collection error can no longer masquerade as a
+# regression "red" the way {1,2}->red once let it.
+RUNNER_DIR="$(cd "$HERE/../runner" && pwd)"
+suite_status() { node "$RUNNER_DIR/suite-status.mjs" --exit "$1" 2>/dev/null | awk '{print $1}'; }
 
 install_env() { # dir -> 0 on success; writes the successful rung to $WORK/rung
   local dir="$1"
@@ -296,44 +303,48 @@ process_repo() {
     local rung; rung=$(tr '\n' ' ' < "$WORK/rung" 2>/dev/null | sed 's/ $//'); rung=${rung:-unknown}
     # gate 2: parent suite green (FRAME3 exit-code semantics: green=0, red={1,2},
     # 5=no tests collected, 124=timeout, else harness error)
-    run_suite "$dir"; rc=$?
-    if [ "$rc" -eq 124 ]; then jlog "$repo" "G2_PARENT_TIMEOUT" "\"commit\":\"$c\""; continue; fi
-    if [ "$rc" -eq 5 ]; then jlog "$repo" "G2_NO_TESTS_COLLECTED" "\"commit\":\"$c\""; continue; fi
-    if [ "$rc" -eq 1 ] || [ "$rc" -eq 2 ]; then jlog "$repo" "G2_PARENT_RED" "\"commit\":\"$c\""; continue; fi
-    if [ "$rc" -ne 0 ]; then jlog "$repo" "G2_PARENT_ERROR" "\"commit\":\"$c\",\"rc\":$rc"; continue; fi
+    run_suite "$dir"; rc=$?; st=$(suite_status "$rc")
+    case "$st" in
+      PASS) : ;;                                                                              # the parent is green — proceed
+      FAIL) jlog "$repo" "G2_PARENT_RED" "\"commit\":\"$c\",\"rc\":$rc"; continue ;;
+      NO_TESTS) jlog "$repo" "G2_NO_TESTS_COLLECTED" "\"commit\":\"$c\""; continue ;;
+      TIMEOUT) jlog "$repo" "G2_PARENT_TIMEOUT" "\"commit\":\"$c\""; continue ;;
+      *) jlog "$repo" "G2_PARENT_EXEC_FAILED" "\"commit\":\"$c\",\"status\":\"$st\",\"rc\":$rc"; continue ;;
+    esac
     # gate 3: apply test patch -> red
     git --literal-pathspecs -C "$dir" diff --binary --full-index "$parent" "$c" -- "${tfiles[@]}" > "$WORK/test.patch" 2>/dev/null
     [ -s "$WORK/test.patch" ] || { jlog "$repo" "C_EMPTY_TEST_PATCH" "\"commit\":\"$c\""; continue; }
     if ! git -C "$dir" apply "$WORK/test.patch" 2>/dev/null; then
       jlog "$repo" "G3_PATCH_APPLY_FAILED" "\"commit\":\"$c\""; continue
     fi
-    run_suite "$dir"; rc=$?
-    if [ "$rc" -eq 124 ]; then
-      git -C "$dir" checkout -q -- . ; jlog "$repo" "G3_TIMEOUT" "\"commit\":\"$c\""; continue
-    fi
-    if [ "$rc" -eq 0 ] || [ "$rc" -eq 5 ]; then
-      git -C "$dir" checkout -q -- . ; jlog "$repo" "G3_NOT_RED" "\"commit\":\"$c\",\"rc\":$rc"; continue
-    fi
-    if [ "$rc" -ne 1 ] && [ "$rc" -ne 2 ]; then
-      git -C "$dir" checkout -q -- . ; jlog "$repo" "G3_ERROR" "\"commit\":\"$c\",\"rc\":$rc"; continue
-    fi
+    run_suite "$dir"; rc=$?; st=$(suite_status "$rc")
+    case "$st" in
+      FAIL) : ;;                                                                              # the added tests fail — a real red
+      PASS|NO_TESTS) git -C "$dir" checkout -q -- . ; jlog "$repo" "G3_NOT_RED" "\"commit\":\"$c\",\"rc\":$rc,\"status\":\"$st\""; continue ;;
+      TIMEOUT) git -C "$dir" checkout -q -- . ; jlog "$repo" "G3_TIMEOUT" "\"commit\":\"$c\""; continue ;;
+      *) git -C "$dir" checkout -q -- . ; jlog "$repo" "G3_EXEC_FAILED" "\"commit\":\"$c\",\"status\":\"$st\",\"rc\":$rc"; continue ;;
+    esac
     # gate 4: true red reproduces twice more
     local red_ok=1
     for i in 1 2; do
-      run_suite "$dir"; rc=$?
-      if [ "$rc" -ne 1 ] && [ "$rc" -ne 2 ]; then red_ok=0; break; fi
+      run_suite "$dir"; rc=$?; st=$(suite_status "$rc")
+      if [ "$st" != FAIL ]; then red_ok=0; break; fi
     done
     if [ "$red_ok" -ne 1 ]; then
       git -C "$dir" checkout -q -- .
-      if [ "$rc" -eq 124 ]; then jlog "$repo" "G4_TIMEOUT" "\"commit\":\"$c\""; else jlog "$repo" "G4_NONDETERMINISTIC" "\"commit\":\"$c\",\"rc\":$rc"; fi
+      if [ "$rc" -eq 124 ]; then jlog "$repo" "G4_TIMEOUT" "\"commit\":\"$c\""; else jlog "$repo" "G4_NONDETERMINISTIC" "\"commit\":\"$c\",\"rc\":$rc,\"status\":\"$st\""; fi
       continue
     fi
     # gate 5: full commit tree green
     git -C "$dir" checkout -q -- .
     git -C "$dir" checkout -q --detach "$c" 2>/dev/null
-    run_suite "$dir"; rc=$?
-    if [ "$rc" -eq 124 ]; then jlog "$repo" "G5_TIMEOUT" "\"commit\":\"$c\""; continue; fi
-    if [ "$rc" -ne 0 ]; then jlog "$repo" "G5_COMMIT_RED" "\"commit\":\"$c\",\"rc\":$rc"; continue; fi
+    run_suite "$dir"; rc=$?; st=$(suite_status "$rc")
+    case "$st" in
+      PASS) : ;;
+      TIMEOUT) jlog "$repo" "G5_TIMEOUT" "\"commit\":\"$c\""; continue ;;
+      FAIL) jlog "$repo" "G5_COMMIT_RED" "\"commit\":\"$c\",\"rc\":$rc"; continue ;;
+      *) jlog "$repo" "G5_COMMIT_EXEC_FAILED" "\"commit\":\"$c\",\"status\":\"$st\",\"rc\":$rc"; continue ;;
+    esac
     # PASS: materialize task artifacts (TASK_VALIDATED only on materialization success)
     if ! node - "$repo" "$c" "$WORK/test.patch" "$dir" "$stratum" "$rung" "$PYV" "$UVV" <<'EOF'
 const fs=require('fs'),cp=require('child_process'),crypto=require('crypto');
