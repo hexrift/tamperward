@@ -1,0 +1,16 @@
+diff --git a/tests/test_methods.py b/tests/test_methods.py
+index ec6736a2403b27a579ab43c877c8fac217b944ab..6191e3bccff928ca5b44e260f963661acd1e8751 100644
+--- a/tests/test_methods.py
++++ b/tests/test_methods.py
+@@ -86,9 +86,8 @@ def test_signature():
+     assert signature([Any, list, NewType("", int)]) == (object, list, int)
+     assert signature([AnyStr]) == signature([bytes | str])
+     assert signature([TypeVar("T")]) == signature([object])
+-    assert signature([list]) <= (list,)
+-    assert signature([list]) <= signature([list])
+-    assert signature([list]) <= signature([list[int]])
++    assert signature([list]).subtypes(list)
++    assert signature([list]).subtypes(subtype(list[int]))
+ 
+ 
+ class namespace: ...

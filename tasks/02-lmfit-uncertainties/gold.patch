@@ -1,0 +1,92 @@
+diff --git a/uncertainties/core.py b/uncertainties/core.py
+index 1c7ff51e59802773be3fbe3831f88c7268feb51c..62eeba52cade7346db1637f997bcb2c2c869e9ba 100644
+--- a/uncertainties/core.py
++++ b/uncertainties/core.py
+@@ -989,6 +989,7 @@ def ufloat_fromstr(representation, tag=None):
+     >>> x = ufloat_fromstr("12.58 ± 0.23")  # = ufloat(12.58, 0.23)
+     >>> x = ufloat_fromstr("3.85e5 +/- 2.3e4")  # = ufloat(3.8e5, 2.3e4)
+     >>> x = ufloat_fromstr("(38.5 +/- 2.3)e4")  # = ufloat(3.8e5, 2.3e4)
++    >>> x = ufloat_fromstr("38.5 +- 10%") # = ufloat(38.5, 3.85) (percentage uncertainty)
+ 
+     >>> x = ufloat_fromstr("72.1(2.2)")  # = ufloat(72.1, 2.2)
+     >>> x = ufloat_fromstr("72.15(4)")  # = ufloat(72.15, 0.04)
+diff --git a/uncertainties/parsing.py b/uncertainties/parsing.py
+index bf176692287831813df11f3376378aa9aac157e7..92f3d78d269e436d52703f6644699f05658d8bf8 100644
+--- a/uncertainties/parsing.py
++++ b/uncertainties/parsing.py
+@@ -48,6 +48,25 @@ NUMBER_WITH_UNCERT_GLOBAL_EXP_RE_MATCH = re.compile(
+     re.VERBOSE,
+ ).match
+ 
++# Regexp for percentage uncertainties (e.g., "23 ± 13%", "2.037e5 (±3.270%)")
++PERCENTAGE_WITH_UNCERT_RE_STR = r"""
++    ([+-])?                     # Sign for value
++    ([\d\.]+(?:[eE][+-]?\d+)?)  # Main value (with scientific notation)
++    \s*                         # Optional whitespace
++    \(?                         # Optional opening parenthesis
++    \s*                         # Optional whitespace
++    (?:[±+-]+)?                 # Optional symbol (±, +, -, +-, -+, +/-)
++    \s*                         # Optional whitespace
++    ([\d\.]+(?:[eE][+-]?\d+)?)  # Percentage uncertainty (with scientific notation)
++    \s*                         # Optional whitespace
++    %                           # Literal % symbol
++    \)?                         # Optional closing parenthesis
++"""
++
++PERCENTAGE_WITH_UNCERT_RE_MATCH = re.compile(
++    PERCENTAGE_WITH_UNCERT_RE_STR,
++    re.VERBOSE,
++).match
+ 
+ class NotParenUncert(ValueError):
+     """
+@@ -123,6 +142,35 @@ def parse_error_in_parentheses(representation):
+     return (value, uncert_value)
+ 
+ 
++def parse_percentage_uncertainty(representation):
++    """
++    Parse a string with percentage uncertainty, e.g., "23 ± 13%",
++    "2.037e5 (±3.270%)", or "23 +- 1.3e-5%".
++
++    The percentage uncertainty is converted to an absolute uncertainty:
++        uncertainty = value * (percentage / 100)
++
++    Returns (value, uncertainty) as floats.
++
++    Raises ValueError if the string cannot be parsed.
++    """
++    match = PERCENTAGE_WITH_UNCERT_RE_MATCH(representation)
++    if not match:
++        raise ValueError(cannot_parse_ufloat_msg_pat % representation)
++
++    sign, value_str, uncertainty_str = match.groups()
++
++    try:
++        value = float((sign or "") + value_str)
++        uncertainty_percent = float(uncertainty_str)
++    except ValueError:
++        raise ValueError(cannot_parse_ufloat_msg_pat % representation)
++
++    # Convert percentage uncertainty to absolute
++    uncertainty = abs(value) * (uncertainty_percent / 100)
++    return (value, uncertainty)
++
++
+ # Regexp for catching the two variable parts of -1.2×10⁻¹²:
+ PRETTY_PRINT_MATCH = re.compile("(.*?)\\s*×\\s*10(.*)").match
+ 
+@@ -212,6 +260,13 @@ def str_to_number_with_uncert(representation):
+     else:
+         factor = 1  # No global exponential factor
+ 
++    try:
++        # Check for percentage uncertainty format
++        parsed_value = parse_percentage_uncertainty(representation)
++        return (parsed_value[0] * factor, parsed_value[1] * factor)
++    except ValueError:
++        pass
++
+     match = re.match("(.*)(?:\\+/-|±)(.*)", representation)
+     if match:
+         (nom_value, uncert) = match.groups()

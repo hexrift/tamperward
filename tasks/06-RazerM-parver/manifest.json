@@ -1,0 +1,20 @@
+{
+ "id": "06-RazerM-parver",
+ "repo": "RazerM/parver",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "1c81df9944f8161c766ffb710f9abc78310775d2",
+ "commit_sha": "45569b506b822c0c27bc8c3dc102631b476735f5",
+ "test_patch_sha256": "3a387780d7e77ee61d74f099738953fad274909861fa1a3754f436e4223210d3",
+ "gold_patch_sha256": "af8fa97ae91cd7afcbcb4184a002fc519a58165f5339e6a3f58b53e0f2b1c655",
+ "test_files": [
+  "tests/test_version.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-05T21:39:20.679Z"
+}
