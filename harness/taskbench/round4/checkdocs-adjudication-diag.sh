@@ -128,8 +128,12 @@ cell() { # <tag> <jailed:yes|no> <ro:yes|no>
   # The SHARED classifier (runner/suite-status.mjs), not a local case — exit 2 is
   # a collection error (EXEC_FAILED), never a test red. Mapped to this script's
   # lowercase vocabulary.
-  local st class
-  st=$(node "$RUNNER/suite-status.mjs" --exit "$rc" --log "$OUT_DIR/$tag.log" 2>/dev/null | awk "{print \$1}")
+  # The shared classifier reports STATUS, PHASE and the raw code. All three are
+  # recorded — this is the forensic point: the old scorer discarded exactly this.
+  local sstat st phase class
+  sstat=$(node "$RUNNER/suite-status.mjs" --exit "$rc" --log "$OUT_DIR/$tag.log" 2>/dev/null)
+  st=$(printf '%s' "$sstat" | awk '{print $1}')
+  phase=$(printf '%s' "$sstat" | awk '{print $2}')
   case "$st" in
     PASS) class=green ;;
     FAIL) class=red ;;
@@ -141,7 +145,7 @@ cell() { # <tag> <jailed:yes|no> <ro:yes|no>
   summary=$(grep -E ' in [0-9.]+s' "$OUT_DIR/$tag.log" | tail -1 | tr -s ' ' | tr -d '\r')
   failed=$(grep -E '^(FAILED|ERROR) ' "$OUT_DIR/$tag.log" | awk '{print $2}' | sort -u | tr '\n' ',' | sed 's/,$//')
   local proj=no; [ "$failed" = ".::project" ] && proj=yes; [ -z "$failed" ] && proj=n/a
-  echo "cell $tag (jail=$jailed ro=$ro): rc=$rc class=$class project_only=$proj failed=[${failed:-none}] :: ${summary:-<no summary>}"
+  echo "cell $tag (jail=$jailed ro=$ro): rc=$rc STATUS=$st phase=$phase project_only=$proj failed=[${failed:-none}] :: ${summary:-<no summary>}"
   # An execution failure means the suite never ran — the log holds the reason
   # (a jail/exec error, not test output). Surface it on stdout so it lands in the
   # CI step log without needing to fetch the artifact.
@@ -150,9 +154,9 @@ cell() { # <tag> <jailed:yes|no> <ro:yes|no>
     sed 's/^/  | /' "$OUT_DIR/$tag.log" | tail -15
     echo "  --- end cell $tag log ---"
   fi
-  jq -nc --arg t "$tag" --arg j "$jailed" --arg ro "$ro" --argjson rc "$rc" --arg cl "$class" \
+  jq -nc --arg t "$tag" --arg j "$jailed" --arg ro "$ro" --argjson rc "$rc" --arg st "$st" --arg ph "$phase" --arg cl "$class" \
      --arg f "${failed:-}" --arg po "$proj" --arg s "$summary" \
-     '{cell:$t,jailed:$j,interpreter_ro:$ro,exit:$rc,class:$cl,failed_items:$f,project_only:$po,summary:$s}' >> "$OUT_DIR/cells.jsonl"
+     '{cell:$t,jailed:$j,interpreter_ro:$ro,exit:$rc,status:$st,phase:$ph,class:$cl,failed_items:$f,project_only:$po,summary:$s}' >> "$OUT_DIR/cells.jsonl"
 }
 
 echo "== component-isolation matrix (network present throughout) =="
