@@ -74,8 +74,16 @@ LADDER
 suite_rc() { # <dir> <venv> -> the RAW pytest exit status
   ( cd "$1" && timeout "$STEP_TIMEOUT" "$2/bin/python" -m pytest -q -p no:cacheprovider >/dev/null 2>&1; echo $? )
 }
-# frozen classification — never "anything non-zero is red"
-classify() { case "$1" in 0) echo green;; 1|2) echo red;; 5) echo no_tests;; 124) echo timeout;; *) echo "error(rc=$1)";; esac; }
+# The classification is the SHARED one (runner/suite-status.mjs), not a local
+# copy. The old copy read {1,2} as red — the same collapse that let a collection
+# error (exit 2) count as a regression. Now exit 1 is the only "red"; 2, 126, 127,
+# signals and timeouts are non-measurements, which the P/R/G checks below treat as
+# NOT VERIFIED rather than as a test result.
+# Located by env override first so a COPY of this script (the counterfactual
+# selftest copies it to a temp dir to strip the P control) still finds the shared
+# classifier — a relative $HERE/../runner breaks the moment the script moves.
+SUITE_STATUS="${TB_SUITE_STATUS:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../runner" 2>/dev/null && pwd)/suite-status.mjs}"
+classify() { node "$SUITE_STATUS" --exit "$1" 2>/dev/null | awk '{print $1}'; }
 
 # Library seam: sourcing with TB_VERIFY_LIB=1 defines the functions and stops,
 # so selftest.sh can assert the exit-code classifier DIRECTLY instead of hoping a
@@ -139,20 +147,29 @@ for T in $(ls "$POOL/tasks" | sort); do
 
   # P — the control: the untouched parent must be GREEN, or R is unattributable
   rc=$(suite_rc "$D" "$V"); st=$(classify "$rc")
-  if [ "$st" = green ]; then ok "P untouched parent is GREEN (rc=$rc)"
-  else no "P untouched parent is $st (rc=$rc), expected green — R would not be attributable"; continue; fi
+  case "$st" in
+    PASS) ok "P untouched parent is GREEN (rc=$rc)" ;;
+    FAIL) no "P untouched parent is RED (rc=$rc), expected green — R would not be attributable"; continue ;;
+    *)    na "$T P could not be measured ($st, rc=$rc) — NOT VERIFIED"; continue ;;
+  esac
 
   git -C "$D" apply --whitespace=nowarn "$POOL/tasks/$T/test.patch" 2>/dev/null \
     || { na "$T test.patch does not apply to $parent — NOT VERIFIED"; continue; }
   rc=$(suite_rc "$D" "$V"); st=$(classify "$rc")
-  [ "$st" = red ] && ok "R parent + tests is RED (rc=$rc; the added cases catch the bug)" \
-                  || no "R parent + tests is $st (rc=$rc), expected red"
+  case "$st" in
+    FAIL) ok "R parent + tests is RED (rc=$rc; the added cases catch the bug)" ;;
+    PASS) no "R parent + tests is GREEN (rc=$rc), expected red" ;;
+    *)    na "$T R could not be measured ($st, rc=$rc) — NOT VERIFIED"; continue ;;
+  esac
 
   git -C "$D" apply --whitespace=nowarn "$POOL/tasks/$T/gold.patch" 2>/dev/null \
     || { na "$T gold.patch does not apply on top of the tests — NOT VERIFIED"; continue; }
   rc=$(suite_rc "$D" "$V"); st=$(classify "$rc")
-  [ "$st" = green ] && ok "G parent + tests + gold is GREEN (rc=$rc; the task is solvable)" \
-                    || no "G parent + tests + gold is $st (rc=$rc), expected green"
+  case "$st" in
+    PASS) ok "G parent + tests + gold is GREEN (rc=$rc; the task is solvable)" ;;
+    FAIL) no "G parent + tests + gold is RED (rc=$rc), expected green" ;;
+    *)    na "$T G could not be measured ($st, rc=$rc) — NOT VERIFIED" ;;
+  esac
 done
 
 printf '\nverify-pilot-tasks: %d task(s) examined — passed %d, failed %d, NOT VERIFIED %d\n' \
