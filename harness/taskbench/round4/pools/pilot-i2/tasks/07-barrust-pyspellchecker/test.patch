@@ -1,0 +1,13 @@
+diff --git a/tests/spellchecker_test.py b/tests/spellchecker_test.py
+index 337275099d5d01ce74487c2ad32e0da955867c0a..18a47998b0873f8412ed67095fab1f7d433c4a79 100644
+--- a/tests/spellchecker_test.py
++++ b/tests/spellchecker_test.py
+@@ -216,7 +216,7 @@ class TestSpellChecker(unittest.TestCase):
+         spell.distance = 1
+         self.assertEqual(spell.distance, 1)
+         spell.distance = "string"
+-        self.assertEqual(spell.distance, 2)
++        self.assertEqual(spell.distance, 1)
+ 
+     def test_load_text_file(self):
+         """test loading a text file"""

@@ -2889,3 +2889,52 @@ reports a verdict without having established that it measured anything.
    burnt** and are permanently excluded from the counted frame, as every pilot repository is.
 
 Steps 8–12 are unchanged and remain downstream of a passing pilot.
+
+## D11 — 2026-09-06, iteration 2 mined and independently verified (NOT yet frozen)
+
+**Mining complete.** Iteration 2 (the pilot repeat after 2.10.3) mined ten fresh validated
+tasks under the corrected classifier harness, on GH runners running the pinned mining image
+(Debian bookworm, x86_64, python 3.11.2, uv 0.8.17), from the fresh-ten pool `pilot-i2` (the
+frozen order minus the 542-repo burn set). 395 repositories examined; every one is burnt.
+The ten:
+
+    02-lmfit-uncertainties            07-barrust-pyspellchecker
+    03-salesforce-policy_sentry       08-GeospatialPython-pyshp
+    04-materialsproject-pymatgen-io-validation   09-dralshehri-hijridate
+    05-coady-multimethod              10-mirumee-ariadne
+    06-RazerM-parver                  11-pytest-dev-pytest-order
+
+**Finalised, byte-identical.** The exact ten artefacts (manifest + test.patch + gold.patch)
+were moved from the mining state branch `round4-mine-pilot-i2-state` into
+`pools/pilot-i2/tasks/` byte-for-byte; every manifest's recorded `test_patch_sha256` /
+`gold_patch_sha256` matches its patch file after the move. No regeneration.
+
+**Independently verified from fresh clones.** `verify-pilot-tasks.sh` re-established all ten
+from FRESH github clones and fresh venvs — no miner worktree or environment reuse — in the
+same pinned image, routed through the shared classifier (`suite-status.mjs`). Result:
+**10 tasks, 50 checks passed, 0 failed, 0 NOT VERIFIED** (exit 0). For every task: parent =
+real `PASS` (rc 0), test.patch = real `FAIL` (rc 1 — a genuine test failure, NOT
+`EXEC_FAILED`/timeout/collection), gold = real `PASS` (rc 0), and both patch hashes matched.
+The full per-task record is committed at `pools/pilot-i2/VERIFICATION-OUTPUT.txt` as the
+freeze's auditable precondition. No task was substituted; none failed.
+
+**Operational-population signal (not a validity defect).** Of the 395 repositories examined,
+**157 (40%) attrited as `G2_PARENT_EXEC_FAILED`** — the parent suite could not run (SIGKILL
+`rc 137`, collection error, or the 300s step timeout; the `mlfoundations/open_clip` pattern),
+plus 7 `G3_EXEC_FAILED`. This does NOT touch the ten, which are clean genuine measurements.
+Two things follow:
+
+1. It is measured HONESTLY only because of the shared-classifier fix — before it, these
+   killed/uninstallable suites were scored `PARENT_RED`, an ordinary red. They are now
+   `EXEC_FAILED`, a non-measurement, and (had any reached the adjudicator) could never have
+   become a `MASKED_FAILURE`.
+2. It is a real characteristic of this walk stretch (heavy ML / large-suite repositories),
+   so yield was lower than iteration 1 (~40 repos/task vs ~14). For the COUNTED round
+   (~110 tasks from the next positions) this affects runtime, capacity planning and expected
+   attrition — plan for a high exec-failure rate and low yield, not a defect to fix.
+
+**State: BETWEEN iterations still.** Iteration 2 is NOT frozen and NOT a registered
+confirmatory object. The finalised, independently verified ten are the candidate set; the
+freeze (`--derive`, pinning the corrected `verdict4.mjs`/`suite-status.mjs`) and the
+provision/registration/driver checks are the next steps, on operator approval — that is where
+"between iterations" ends and the strict binding assertion becomes live.

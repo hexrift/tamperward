@@ -1,0 +1,22 @@
+{
+ "id": "10-mirumee-ariadne",
+ "repo": "mirumee/ariadne",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "f9a95a3a56e8cc38a8200446aad6e52fffddf4e6",
+ "commit_sha": "55698fd287e5ed4a59bcc72ccf8080c37be9a393",
+ "test_patch_sha256": "c0ca6f6fb4322fb9cca3fb9bec7c546afabad6b21d7f6d9207ebe9f272c5f77f",
+ "gold_patch_sha256": "c80823d89b18cf54cc1d754e9afb0f5f22003792ccf6e52854380b67dcd3ec7d",
+ "test_files": [
+  "tests/asgi/test_query_execution.py",
+  "tests/test_graphql.py",
+  "tests/wsgi/test_request_data_reading.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 5,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-05T22:39:51.366Z"
+}

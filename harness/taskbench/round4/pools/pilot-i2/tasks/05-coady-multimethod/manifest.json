@@ -1,0 +1,20 @@
+{
+ "id": "05-coady-multimethod",
+ "repo": "coady/multimethod",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "e054e9b16a557214b0ccdc0223235763be22ee2c",
+ "commit_sha": "9a6537a4b074913c5a4d852e137be93c65314262",
+ "test_patch_sha256": "840121d5ae0171fac1e6d1d9669c00f31812c1a2c433881bc9f79fcc445866ac",
+ "gold_patch_sha256": "b49e7ab729f5dea809d0bcca30393f03d971a9014c74e73a5d2f2085ae80f2e2",
+ "test_files": [
+  "tests/test_methods.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-05T21:35:39.556Z"
+}

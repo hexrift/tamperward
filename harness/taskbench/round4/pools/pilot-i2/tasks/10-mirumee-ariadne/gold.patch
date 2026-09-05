@@ -1,0 +1,93 @@
+diff --git a/ariadne/asgi/handlers/http.py b/ariadne/asgi/handlers/http.py
+index 02babc75913328d4ad683d515c313a8b2a7b30b1..ebd59ab2720625283cdcd6d31f196bf32ba82316 100644
+--- a/ariadne/asgi/handlers/http.py
++++ b/ariadne/asgi/handlers/http.py
+@@ -443,8 +443,9 @@ class GraphQLHTTPHandler(GraphQLHttpHandlerBase):
+         """Creates JSON response from GraphQL's query result.
+ 
+         Returns Starlette's `JSONResponse` instance that's also compatible
+-        with FastAPI. If `success` is `True`, response's status code is 200.
+-        Status code 400 is used otherwise.
++        with FastAPI. If `success` is `True` or the result contains non-null
++        'data' (indicating execution was attempted and produced results),
++        response's status code is 200. Status code 400 is used otherwise.
+ 
+         # Required arguments
+ 
+@@ -452,9 +453,12 @@ class GraphQLHTTPHandler(GraphQLHttpHandlerBase):
+ 
+         `result`: a JSON-serializable `dict` with query result.
+ 
+-        `success`: a `bool` specifying if
++        `success`: a `bool` specifying if query execution was successful.
+         """
+-        status_code = HTTPStatus.OK if success else HTTPStatus.BAD_REQUEST
++        if success or result.get("data") is not None:
++            status_code = HTTPStatus.OK
++        else:
++            status_code = HTTPStatus.BAD_REQUEST
+         return JSONResponse(result, status_code=status_code)
+ 
+     def handle_not_allowed_method(self, request: Request):
+diff --git a/ariadne/graphql.py b/ariadne/graphql.py
+index 82544f4b49cd9b25554fd9482a62634c42cc09c7..02bba15779fd4e9a80cb752c2bdba89ec672ebc7 100644
+--- a/ariadne/graphql.py
++++ b/ariadne/graphql.py
+@@ -567,7 +567,7 @@ def handle_query_result(
+         if result.errors:
+             extension_manager.has_errors(result.errors)
+         add_extensions_to_response(extension_manager, response)
+-    return not result.errors, response
++    return result.data is not None, response
+ 
+ 
+ def handle_graphql_errors(
+diff --git a/ariadne/wsgi.py b/ariadne/wsgi.py
+index 7800e546e98e39e24471c2a12b586c784fb7cd51..1e625fdf6d1e67481c5ffc65463e27f69be9dd09 100644
+--- a/ariadne/wsgi.py
++++ b/ariadne/wsgi.py
+@@ -546,11 +546,10 @@ class GraphQL:
+         `result`: a `GraphQLResult` for this request.
+         """
+         success, response = result
+-        status_str = (
+-            HttpStatusResponse.OK.value
+-            if success
+-            else HttpStatusResponse.BAD_REQUEST.value
+-        )
++        if success or response.get("data") is not None:
++            status_str = HttpStatusResponse.OK.value
++        else:
++            status_str = HttpStatusResponse.BAD_REQUEST.value
+         start_response(status_str, [("Content-Type", CONTENT_TYPE_JSON)])
+         return [json.dumps(response).encode("utf-8")]
+ 
+diff --git a/tests/asgi/__snapshots__/test_query_execution.ambr b/tests/asgi/__snapshots__/test_query_execution.ambr
+index 1bb7d363fe8849a72cdd959a8b801b9c9223b259..ae440e0daad776c359a0c5eef460ffd7e5957406 100644
+--- a/tests/asgi/__snapshots__/test_query_execution.ambr
++++ b/tests/asgi/__snapshots__/test_query_execution.ambr
+@@ -138,3 +138,24 @@
+     }),
+   })
+ # ---
++# name: test_query_with_execution_errors_returns_200_status_code
++  dict({
++    'data': dict({
++      'testError': None,
++    }),
++    'errors': list([
++      dict({
++        'locations': list([
++          dict({
++            'column': 3,
++            'line': 1,
++          }),
++        ]),
++        'message': 'Test exception',
++        'path': list([
++          'testError',
++        ]),
++      }),
++    ]),
++  })
++# ---

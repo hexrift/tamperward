@@ -1,0 +1,105 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 394366925ef737488bb1c3f9fe7c2c003e660e27..212f1768c349b25dfb7d615c570c9e9515892954 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,6 +2,13 @@
+ 
+ The versioning scheme is compliant with the [PEP 440](https://peps.python.org/pep-0440/#public-version-identifiers) specification.
+ 
++## Unreleased – 2025‑07‑23
++
++### Added
++- Turkish language support for internationalization
++  - Added `TurkishLocale` class with Turkish month names, day names, and notations
++  - Updated `Language` type to include `"tr"` for Turkish language support
++
+ ## 2.5.0 - 2024-05-25
+ 
+ - Added a new function called `year_length()`, which calculates the total number of days in a Hijri year.
+diff --git a/docs/usage.md b/docs/usage.md
+index e938bfbc49ae9bcdc0fdd99908fae9cb19edf46d..353929e45e9d7a213059482470e2df319acd1749 100644
+--- a/docs/usage.md
++++ b/docs/usage.md
+@@ -113,7 +113,7 @@ TypeError: '>' not supported between instances of 'Hijri' and 'str'
+ 
+ ## Internationalization
+ 
+-Representation of weekday names, month names, and calendar notations is supported. English `en` is the default language. Additionally, Arabic `ar` and Bangla `bn` translations are available, but it can be easily extended for other natural languages.
++Representation of weekday names, month names, and calendar notations is supported. English `en` is the default language. Additionally, Arabic `ar`, Bangla `bn`, and Turkish `tr` translations are available, but it can be easily extended for other natural languages.
+ 
+ The following is an example showing how to use the Arabic language:
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 33de61767a1b681b672578fe6d6790d22400a7f7..883111c778fe3a5dd3f9d8495f98b847c509b71e 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -212,3 +212,6 @@ isort = { combine-as-imports = true, lines-between-types = 1 }
+     "D10", # Missing docstrings
+     "PLR2004", # Magic value used in comparison
+ ]
++"src/hijridate/locales.py" = [
++    "RUF001", # Allow Turkish characters like ı, ş, ç, etc.
++]
+\ No newline at end of file
+diff --git a/src/hijridate/locales.py b/src/hijridate/locales.py
+index 3e1e8334eabe04ee795c9a66d1e225d8bbdc89cd..07df3bac79dd7515f3f0cac11cc95fb5d6d15459 100644
+--- a/src/hijridate/locales.py
++++ b/src/hijridate/locales.py
+@@ -2,7 +2,7 @@
+ 
+ from typing import ClassVar, Dict, Literal, Tuple, Type
+ 
+-Language = Literal["en", "ar", "bn"]
++Language = Literal["en", "ar", "bn", "tr"]
+ 
+ _locale_map: Dict[str, Type["Locale"]] = {}
+ 
+@@ -197,3 +197,48 @@ class BengaliLocale(Locale):
+     )
+     notation = "হিজরি"
+     gregorian_notation = "খ্রিস্টাব্দ"
++
++
++class TurkishLocale(Locale):
++    """A Turkish Locale object represents Turkish locale-specific data."""
++
++    language_tag = "tr"
++    month_names = (
++        "Muharrem",
++        "Safer",
++        "Rebiülevvel",
++        "Rebiülahir",
++        "Cemaziyelevvel",
++        "Cemaziyelahir",
++        "Recep",
++        "Şaban",
++        "Ramazan",
++        "Şevval",
++        "Zilkade",
++        "Zilhicce",
++    )
++    gregorian_month_names = (
++        "Ocak",
++        "Şubat",
++        "Mart",
++        "Nisan",
++        "Mayıs",
++        "Haziran",
++        "Temmuz",
++        "Ağustos",
++        "Eylül",
++        "Ekim",
++        "Kasım",
++        "Aralık",
++    )
++    day_names = (
++        "Pazartesi",
++        "Salı",
++        "Çarşamba",
++        "Perşembe",
++        "Cuma",
++        "Cumartesi",
++        "Pazar",
++    )
++    notation = "Hicri"
++    gregorian_notation = "Miladi"

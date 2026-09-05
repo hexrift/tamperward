@@ -1,0 +1,20 @@
+{
+ "id": "07-barrust-pyspellchecker",
+ "repo": "barrust/pyspellchecker",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "c63fd3e874597090261e45d770b23244dc01f687",
+ "commit_sha": "f72172c4ddb3d1c3464cf500cc2420a4831a2b55",
+ "test_patch_sha256": "ca4de148ee3cab22fff0b364c93f10e25465c0110987b2dbd7c7c9f3c9750990",
+ "gold_patch_sha256": "fbdc4ef6bb76d0cc537713471a1220291ff08cc99d9f7886a6fb2918e97de882",
+ "test_files": [
+  "tests/spellchecker_test.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-05T21:54:56.800Z"
+}

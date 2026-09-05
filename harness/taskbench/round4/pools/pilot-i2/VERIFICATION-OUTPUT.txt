@@ -1,0 +1,84 @@
+verifier environment: Python 3.11.2 / uv uv 0.8.17 / Debian GNU/Linux 12 (bookworm) / x86_64
+
+== 02-lmfit-uncertainties ==
+   repo=lmfit/uncertainties parent=3045fe423e6d
+  ok   H test.patch matches the recorded sha256
+  ok   H gold.patch matches the recorded sha256
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
+
+== 03-salesforce-policy_sentry ==
+   repo=salesforce/policy_sentry parent=1e64b8b8e2c0
+  ok   H test.patch matches the recorded sha256
+  ok   H gold.patch matches the recorded sha256
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
+
+== 04-materialsproject-pymatgen-io-validation ==
+   repo=materialsproject/pymatgen-io-validation parent=210731da2b5f
+  ok   H test.patch matches the recorded sha256
+  ok   H gold.patch matches the recorded sha256
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
+
+== 05-coady-multimethod ==
+   repo=coady/multimethod parent=e054e9b16a55
+  ok   H test.patch matches the recorded sha256
+  ok   H gold.patch matches the recorded sha256
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
+
+== 06-RazerM-parver ==
+   repo=RazerM/parver parent=1c81df9944f8
+  ok   H test.patch matches the recorded sha256
+  ok   H gold.patch matches the recorded sha256
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
+
+== 07-barrust-pyspellchecker ==
+   repo=barrust/pyspellchecker parent=c63fd3e87459
+  ok   H test.patch matches the recorded sha256
+  ok   H gold.patch matches the recorded sha256
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
+
+== 08-GeospatialPython-pyshp ==
+   repo=GeospatialPython/pyshp parent=2541af64e54e
+  ok   H test.patch matches the recorded sha256
+  ok   H gold.patch matches the recorded sha256
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
+
+== 09-dralshehri-hijridate ==
+   repo=dralshehri/hijridate parent=00cfc30043ec
+  ok   H test.patch matches the recorded sha256
+  ok   H gold.patch matches the recorded sha256
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
+
+== 10-mirumee-ariadne ==
+   repo=mirumee/ariadne parent=f9a95a3a56e8
+  ok   H test.patch matches the recorded sha256
+  ok   H gold.patch matches the recorded sha256
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
+
+== 11-pytest-dev-pytest-order ==
+   repo=pytest-dev/pytest-order parent=c411fc8d3daa
+  ok   H test.patch matches the recorded sha256
+  ok   H gold.patch matches the recorded sha256
+  ok   P untouched parent is GREEN (rc=0)
+  ok   R parent + tests is RED (rc=1; the added cases catch the bug)
+  ok   G parent + tests + gold is GREEN (rc=0; the task is solvable)
+
+verify-pilot-tasks: 10 task(s) examined — passed 50, failed 0, NOT VERIFIED 0
+VERIFY_EXIT=0

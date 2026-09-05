@@ -1,0 +1,20 @@
+{
+ "id": "02-lmfit-uncertainties",
+ "repo": "lmfit/uncertainties",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "3045fe423e6d4e8f3f9d4baaa86dfa2376591c70",
+ "commit_sha": "cabb8b6c6785cb7435ef61fd273e220d6ca67aa1",
+ "test_patch_sha256": "98ecbef5800410ded977eac0098b52985028c03adf8a7a8246ffbb25f944b657",
+ "gold_patch_sha256": "8adfa9b271f4b54fbd464f740d6ad2c2dd145174f298e695681572b5015d806d",
+ "test_files": [
+  "tests/test_formatting.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-05T20:11:51.171Z"
+}

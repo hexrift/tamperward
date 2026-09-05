@@ -1,0 +1,160 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index c80bafc788664245511d2042ea6d23d50f95b66f..620a3faca2d6c9ebabbf42c32d483f66a0dd3d58 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,6 +2,10 @@
+ 
+ ## Unreleased
+ 
++### New features
++* added option `--fail-all-on-failed-ordering` to abort the whole test run
++  without executing any tests if some tests could not be ordered
++
+ ### Fixes
+ - transitive relative chains are resolved as a single globally consistent order
+ 
+diff --git a/docs/source/configuration.rst b/docs/source/configuration.rst
+index e8bb36e2609296a30cc4f000f5d5ba45b547da73..a1ac89cc1fdbc5aff813e0dcc36b0777882c2f80 100644
+--- a/docs/source/configuration.rst
++++ b/docs/source/configuration.rst
+@@ -653,6 +653,36 @@ If you use the option `--error-on-failed-ordering`, "test_two" will now error:
+     ERROR test_failed_ordering.py::test_two - Failed: The test could not be ordered
+     ========================= 1 passed, 1 error in 0.75s ==========================
+ 
++``--fail-all-on-failed-ordering``
++---------------------------------
++This option is analogous to ``--error-on-failed-ordering``, but instead of failing only
++the tests that could not be ordered, it aborts the whole test run immediately, without
++executing any tests. This is useful if running the tests in a wrong order has
++unwanted effects.
++
++Using the example shown above::
++
++    $ pytest tests -vv --fail-all-on-failed-ordering
++    ============================= test session starts ==============================
++    ...
++    collected 2 items
++
++    ============================ no tests ran in 0.02s =============================
++    ERROR: pytest-order: cannot execute 'test_two' relative to others: 'test_three'
++
++The test run exits with the usage error exit code (4).
++
++The option also works with ``--collect-only``, as the ordering happens during test
++collection. This allows validating the ordering, e.g. in CI, without executing any
++tests::
++
++    $ pytest tests --collect-only --fail-all-on-failed-ordering
++    ERROR: pytest-order: cannot execute 'test_two' relative to others: 'test_three'
++    ============================= test session starts ==============================
++    ...
++    ========================== 2 tests collected in 0.01s ==========================
++
++The exit code is 4 in this case as well, and 0 if all tests could be ordered.
+ 
+ 
+ .. _`pytest-dependency`: https://pypi.org/project/pytest-dependency/
+diff --git a/src/pytest_order/item.py b/src/pytest_order/item.py
+index 36205a34ea565b7ee598851dd6475ddb3b898ab3..7c6be64870e044523813dcb3acc40c5130e28397 100644
+--- a/src/pytest_order/item.py
++++ b/src/pytest_order/item.py
+@@ -2,7 +2,7 @@ import sys
+ from typing import Optional, Generic, TypeVar
+ from collections import defaultdict
+ 
+-from _pytest.python import Function
++from pytest import Function, UsageError
+ 
+ from .settings import Scope, Settings
+ 
+@@ -176,6 +176,10 @@ class ItemList:
+         msg = " ".join([item.node_id for item in failed_items])
+         sys.stdout.write("\nWARNING: cannot execute test relative to others: ")
+         sys.stdout.write(msg)
++        if self.settings.fail_all_on_failed_ordering:
++            raise UsageError(
++                f"pytest-order: cannot execute test relative to others: {msg}"
++            )
+         if self.settings.error_on_failed_ordering:
+             sys.stdout.write(" - ignoring the marker.\n")
+         else:
+diff --git a/src/pytest_order/plugin.py b/src/pytest_order/plugin.py
+index 0fb9361dea0dc1d8439f004e1d0e2350bf62f70a..ce0a618188aa1dcb39c5aae3202ad30b1781c115 100644
+--- a/src/pytest_order/plugin.py
++++ b/src/pytest_order/plugin.py
+@@ -1,11 +1,11 @@
+ from collections.abc import Generator, Callable
+ 
+ import pytest
++from pytest import Function
+ from _pytest.config import Config
+ from _pytest.config.argparsing import Parser
+ from _pytest.main import Session
+ from _pytest.mark import Mark
+-from _pytest.python import Function
+ 
+ from .sorter import Sorter
+ 
+@@ -126,6 +126,15 @@ def pytest_addoption(parser: Parser) -> None:
+             "will error instead of generating only a warning."
+         ),
+     )
++    group.addoption(
++        "--fail-all-on-failed-ordering",
++        action="store_true",
++        dest="fail_all_on_failed_ordering",
++        help=(
++            "If set, the whole test run fails immediately without running "
++            "any tests if some tests with relative markers could not be ordered."
++        ),
++    )
+     group.addoption(
+         "--order-after-ff",
+         action="store_true",
+diff --git a/src/pytest_order/settings.py b/src/pytest_order/settings.py
+index e020adf1fd26b70aecac4425069765d6b00c787b..fe4c5ea0444733d2559c3fb05ad726b6d56cdb68 100644
+--- a/src/pytest_order/settings.py
++++ b/src/pytest_order/settings.py
+@@ -26,6 +26,9 @@ class Settings:
+         self.error_on_failed_ordering: str = config.getoption(
+             "error_on_failed_ordering"
+         )
++        self.fail_all_on_failed_ordering: bool = config.getoption(
++            "fail_all_on_failed_ordering"
++        )
+         scope: str = config.getoption("order_scope")
+         if scope in self.valid_scopes:
+             self.scope: Scope = self.valid_scopes[scope]
+diff --git a/src/pytest_order/sorter.py b/src/pytest_order/sorter.py
+index c6eb3679f193166187001715058dfb7e702a737b..f4aac11eecc487a9d44b59e2758eb573b1c1219f 100644
+--- a/src/pytest_order/sorter.py
++++ b/src/pytest_order/sorter.py
+@@ -7,7 +7,7 @@ from warnings import warn
+ 
+ from _pytest.config import Config
+ from _pytest.mark import Mark
+-from _pytest.python import Function
++from pytest import Function, UsageError
+ 
+ from .item import Item, ItemList, ItemGroup, filter_marks, move_item, RelativeMark
+ from .settings import Settings, Scope
+@@ -270,15 +270,15 @@ class Sorter:
+         return has_relative_marks
+ 
+     def warn_about_unknown_test(self, item: Item, rel_mark: str) -> None:
++        msg = f"cannot execute '{item.item.name}' relative to others: '{rel_mark}'"
++        if self.settings.fail_all_on_failed_ordering:
++            raise UsageError(f"pytest-order: {msg}")
+         if self.settings.error_on_failed_ordering:
+             item.item.fixturenames.insert(0, "fail_after_cannot_order")
+             ignore_msg = ""
+         else:
+             ignore_msg = " - ignoring the marker"
+-        sys.stdout.write(
+-            f"\nWARNING: cannot execute '{item.item.name}' relative to others: "
+-            f"'{rel_mark}'{ignore_msg}."
+-        )
++        sys.stdout.write(f"\nWARNING: {msg}{ignore_msg}.")
+ 
+     def collect_markers(self) -> None:
+         aliases: dict[str, list[Item]] = {}
