@@ -2938,3 +2938,28 @@ confirmatory object. The finalised, independently verified ten are the candidate
 freeze (`--derive`, pinning the corrected `verdict4.mjs`/`suite-status.mjs`) and the
 provision/registration/driver checks are the next steps, on operator approval — that is where
 "between iterations" ends and the strict binding assertion becomes live.
+
+## D12 — 2026-09-06, iteration-2 pre-trajectory plumbing (non-binding; the freeze is unchanged)
+
+Two operational corrections between arming iteration 2 (freeze d2d35a2f) and trajectory 1.
+Neither touches the frozen binding set, the pool, the seeds, the registration, the
+treatment or the adjudicator; `freeze --check` remains binding drift 0 after both.
+
+1. **Execution-record isolation.** `pilot.yml` now checkpoints iteration-2 runs to their own
+   state branch `round4-pilot-i2-state` (job-level `TB_PILOT_STATE_BRANCH`),
+   so iteration-1 runs (on `round4-pilot-state`, tasks 11–20) and iteration-2 runs (tasks
+   02–11) never mix. This is the checkpoint TARGET read by `ci-pilot-state.sh`; `pilot.yml`
+   is deliberately outside the frozen binding set, so this is isolation plumbing, not a
+   change to the registered trajectory machinery.
+
+2. **`claude_cli: null` in the frozen manifest — accepted, not re-derived.** The iteration-2
+   manifest was derived in the mining container, which carries no Claude CLI, so the recorded
+   (non-binding) `environment_recorded.claude_cli` is null, where iteration 1 recorded
+   "2.1.260 (Claude Code)". The EXECUTION path pins `@anthropic-ai/claude-code@2.1.260`
+   (pilot.yml), and the mismatch surfaces at run time as acknowledgeable ENVIRONMENT drift
+   (exit 3), never binding drift — exactly as iteration 1's runner environment did (D7).
+   Re-freezing an otherwise clean registration to improve a descriptive field would add more
+   risk than it removes, so it is accepted. To keep the audit trail complete, pilot.yml now
+   records the ACTUAL `claude --version` into the persisted run record
+   (`runs-pilot/agent-cli-versions.txt`, checkpointed to the state branch), so what executed
+   is established by the run record even though the freeze did not pin it.
