@@ -80,24 +80,66 @@ def editable_dist_from_repo(repo):
     return out
 
 
-def top_levels(dist):
-    tops = [t for t in (dist.read_text("top_level.txt") or "").split() if t]
-    if tops:
-        return tops
-    # Fallback: infer from RECORD's top-level packages (no top_level.txt in some
-    # PEP 660 backends). A dir with __init__.py or a bare module at import root.
-    names = set()
+# Directory names that are never the package under test — a target must be the
+# code the task's tests import, not the test/doc/example tree that a PEP 660 finder
+# may also expose (iteration-2 task-04 exposed `examples` and `tests` this way).
+NON_PACKAGE = {
+    "tests", "test", "testing", "docs", "doc", "examples", "example",
+    "benchmarks", "benchmark", "scripts", "notebooks", "conftest", "setup",
+    "__pycache__", "build", "dist",
+}
+
+
+def candidate_modules(dist):
+    """Import-name candidates for the editable dist, most authoritative first:
+    top_level.txt, then RECORD source packages, then the dist NAME normalised to an
+    import name (many PEP 660 finder-hook editables ship no top_level.txt and a
+    RECORD that lists only the .pth — but the dist name IS the package, e.g.
+    reactivex)."""
+    out, seen = [], set()
+
+    def add(n):
+        if n and n not in seen and n not in NON_PACKAGE:
+            seen.add(n)
+            out.append(n)
+
+    for t in (dist.read_text("top_level.txt") or "").split():
+        add(t)
     try:
         for f in dist.files or []:
             parts = str(f).split("/")
             if not parts or parts[0].endswith(".dist-info") or parts[0].endswith(".egg-info"):
                 continue
             if len(parts) >= 2 and parts[1] == "__init__.py":
-                names.add(parts[0])
+                add(parts[0])
             elif len(parts) == 1 and parts[0].endswith(".py") and parts[0] != "__init__.py":
-                names.add(parts[0][:-3])
+                add(parts[0][:-3])
     except Exception:
         pass
+    try:
+        name = (dist.metadata["Name"] or "").strip()
+        if name:
+            add(name.replace("-", "_").replace(".", "_").lower())
+    except Exception:
+        pass
+    return out
+
+
+def repo_layout_modules(repo):
+    """Last resort: top-level importable packages/modules present in the writable
+    repo (flat, src-layout, or single-file), excluding the non-package tree. Sorted,
+    deterministic."""
+    names = set()
+    for root in (repo, repo / "src"):
+        if not root.is_dir():
+            continue
+        for p in root.iterdir():
+            if p.name in NON_PACKAGE:
+                continue
+            if p.is_dir() and (p / "__init__.py").is_file():
+                names.add(p.name)
+            elif p.is_file() and p.suffix == ".py" and p.name != "__init__.py":
+                names.add(p.stem)
     return sorted(names)
 
 
@@ -128,13 +170,16 @@ def main():
     if not dists:
         fail("NO_EDITABLE_DIST installed from %s" % repo)
 
-    # Deterministic target: first (sorted) top-level module, across the editable
-    # dists in name order, that has a locatable writable backing file.
+    # Deterministic target: across the editable dists (in name order), the first
+    # candidate import name — top_level.txt, then RECORD, then the dist name — with a
+    # locatable writable backing file; failing that, a top-level package present in
+    # the repo. Candidate order is authoritative (not re-sorted) so the dist's own
+    # package wins over an incidentally-importable sibling.
     target_mod = None
     target_file = None
     seen = []
     for dist in sorted(dists, key=lambda d: d.metadata["Name"] or ""):
-        for mod in sorted(set(top_levels(dist))):
+        for mod in candidate_modules(dist):
             seen.append(mod)
             bf = backing_file(repo, mod)
             if bf is not None:
@@ -143,7 +188,14 @@ def main():
         if target_mod:
             break
     if target_mod is None:
-        fail("NO_LOCATABLE_TARGET top_levels=%s" % ",".join(seen))
+        for mod in repo_layout_modules(repo):
+            seen.append(mod)
+            bf = backing_file(repo, mod)
+            if bf is not None:
+                target_mod, target_file = mod, bf
+                break
+    if target_mod is None:
+        fail("NO_LOCATABLE_TARGET candidates=%s" % ",".join(seen))
 
     original = target_file.read_bytes()
     orig_sha = hashlib.sha256(original).hexdigest()

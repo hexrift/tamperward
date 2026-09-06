@@ -105,6 +105,21 @@ r=$(runprim "$ROOT/venv-none/bin/python" "$ROOT/none"); rc=${r%%|*}; msg=${r#*|}
   && ok "no editable dist => NOT_VERIFIED: $msg" \
   || no "no editable dist should be NOT_VERIFIED, got rc=$rc: $msg"
 
+# --- 4b. a sibling tests/ package must NOT be chosen as the target: the primitive
+# must resolve the PACKAGE under test, not the test tree a finder may also expose
+# (the iteration-2 task-04 / RxPY shape where top_level.txt is absent or noisy). ---
+mkpkg flat "$ROOT/withtests"
+mkdir -p "$ROOT/withtests/tests"; printf 'X = 1\n' > "$ROOT/withtests/tests/__init__.py"
+venv "$ROOT/venv-withtests"
+if "$ROOT/venv-withtests/bin/python" -m pip install -q -e "$ROOT/withtests" >/dev/null 2>&1; then
+  r=$(runprim "$ROOT/venv-withtests/bin/python" "$ROOT/withtests"); rc=${r%%|*}; msg=${r#*|}
+  [ "$rc" = 0 ] && echo "$msg" | grep -q 'LIVE livepkg' \
+    && ok "a tests/ sibling is excluded; the package is the target => LIVE: $msg" \
+    || no "target resolution picked the wrong module (expected livepkg), rc=$rc: $msg"
+else
+  no "could not install the with-tests fixture"
+fi
+
 # --- 5. flat-layout EDITABLE -> LIVE ---
 mkpkg flat "$ROOT/flat-e"
 venv "$ROOT/venv-flat-e"
