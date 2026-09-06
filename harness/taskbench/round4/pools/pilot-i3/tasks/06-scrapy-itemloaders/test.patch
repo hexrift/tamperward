@@ -1,0 +1,36 @@
+diff --git a/tests/test_loader_initialization.py b/tests/test_loader_initialization.py
+index 0ba3df5352b7262a62e5f9cd75d51095dd0fdd51..ea6dcc511f16f67978d1892bbe58444ce3a097d7 100644
+--- a/tests/test_loader_initialization.py
++++ b/tests/test_loader_initialization.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ from abc import ABC, abstractmethod
++from dataclasses import dataclass
+ from typing import Any
+ 
+ from itemloaders import ItemLoader
+@@ -99,3 +100,23 @@ class TestInitializationBase(ABC):
+ 
+ class TestInitializationFromDict(TestInitializationBase):
+     item_class = dict
++
++
++@dataclass
++class DefaultItem:
++    name: Any = "default"
++
++
++def test_ignore_field_defaults_of_the_built_item() -> None:
++    class DefaultItemLoader(ItemLoader):
++        default_item_class = DefaultItem
++
++    il = DefaultItemLoader()
++    il.add_value("name", "foo")
++    assert il.load_item() == DefaultItem(name=["foo"])
++
++
++def test_keep_field_defaults_of_the_given_item() -> None:
++    il = ItemLoader(item=DefaultItem())
++    il.add_value("name", "foo")
++    assert il.load_item() == DefaultItem(name=["default", "foo"])

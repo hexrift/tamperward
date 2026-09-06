@@ -1,0 +1,23 @@
+{
+ "id": "09-pytest-dev-pytest-forked",
+ "repo": "pytest-dev/pytest-forked",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "e0115aa6d1ae25540c0d829170c204bbda57ce2e",
+ "commit_sha": "c3cef557bd9650a50d3ad6a7d2d54216612e3f92",
+ "test_patch_sha256": "54794982490ae94cf81939ea2f37e28c80a4c7ca6fce3c931b835f4ab357758b",
+ "gold_patch_sha256": "27a4358b8dc4e7ba3f5fa9a8be50ed6da186f0cb4ce9eb89d01af84b376b8afb",
+ "test_files": [
+  "testing/test_boxed.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 5,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-06T18:06:58.590Z",
+ "oracle_case_count": 5,
+ "heldout_oracle_available": true,
+ "oracle_count_status": "measured"
+}

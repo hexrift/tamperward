@@ -1,0 +1,106 @@
+diff --git a/docs/tips.rst b/docs/tips.rst
+index a629a72846f51655bec3f5399d7e6305bca65416..857ce4c7a88e723c179788cadda4833fbc32a696 100644
+--- a/docs/tips.rst
++++ b/docs/tips.rst
+@@ -478,15 +478,27 @@ an existing set environment variable, use the ``overwrite=True`` argument of
+    env.read_env(BASE_DIR('.env'), overwrite=True)
+ 
+ 
+-Create and read an Env in one step
+-----------------------------------
++Create a configured Env in one step
++-----------------------------------
++
++Use :meth:`.environ.Env.configured` to create an ``Env`` instance and configure
++its flags in a single call:
++
++.. code-block:: python
++
++   env = environ.Env.configured(
++       prefix='DJANGO_',
++       smart_cast=False,
++       warn_on_default=True,
++   )
++
++   env.bool('DEBUG', default=False)
+ 
+-Use :meth:`.environ.Env.from_env_file` to create an ``Env`` instance, configure
+-its flags, and read an environment file in a single call:
++Pass an env file path to read it after the instance has been configured:
+ 
+ .. code-block:: python
+ 
+-   env = environ.Env.from_env_file(
++   env = environ.Env.configured(
+        BASE_DIR('.env'),
+        overwrite=True,
+        parse_comments=True,
+@@ -494,14 +506,12 @@ its flags, and read an environment file in a single call:
+        smart_cast=False,
+    )
+ 
+-   env.bool('DEBUG', default=False)
+-
+ The regular ``Env`` constructor remains reserved for schema declarations. Pass
+-schemas with the ``scheme`` argument when using ``from_env_file``:
++schemas with the ``scheme`` argument when using ``configured``:
+ 
+ .. code-block:: python
+ 
+-   env = environ.Env.from_env_file(
++   env = environ.Env.configured(
+        BASE_DIR('.env'),
+        scheme={
+            'DEBUG': (bool, False),
+diff --git a/environ/environ.py b/environ/environ.py
+index 7780f3b6abc8bc2c2ef3f51a6312ce31fcd7f451..5d054e24419b315956074fec5251752a257c7f4c 100644
+--- a/environ/environ.py
++++ b/environ/environ.py
+@@ -233,19 +233,20 @@ class Env:
+ 
+     @classmethod
+     # pylint: disable=too-many-arguments
+-    def from_env_file(
++    def configured(
+             cls, env_file=None, scheme=None, *, overwrite=False,
+             parse_comments=False, encoding='utf8', smart_cast=True,
+             escape_proxy=False, interpolate=True, warn_on_default=False,
+             prefix="", **overrides):
+-        r"""Create an Env instance and read a .env file.
++        r"""Create a configured Env instance.
+ 
+         This keeps ``Env.__init__`` reserved for schema declarations while
+-        making it possible to configure instance flags and load an env file in
+-        one step.
++        making it possible to configure instance flags in one step. If
++        ``env_file`` is provided, the file is read after the instance is
++        configured.
+ 
+         :param env_file: The path to the ``.env`` file your application should
+-            use.
++            use. When omitted, no env file is read.
+         :param scheme: An optional mapping of schema declarations passed to
+             ``Env.__init__``.
+         :param overwrite: ``overwrite=True`` will force an overwrite of
+@@ -267,13 +268,14 @@ class Env:
+         env.interpolate = interpolate
+         env.warn_on_default = warn_on_default
+         env.prefix = prefix
+-        env.read_env(
+-            env_file,
+-            overwrite=overwrite,
+-            parse_comments=parse_comments,
+-            encoding=encoding,
+-            **overrides
+-        )
++        if env_file is not None or overrides:
++            env.read_env(
++                env_file,
++                overwrite=overwrite,
++                parse_comments=parse_comments,
++                encoding=encoding,
++                **overrides
++            )
+         return env
+ 
+     def __call__(self, var, cast=None, default=NOTSET, parse_default=False):

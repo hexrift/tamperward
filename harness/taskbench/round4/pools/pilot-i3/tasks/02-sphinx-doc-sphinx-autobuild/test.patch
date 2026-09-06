@@ -1,0 +1,9 @@
+diff --git a/tests/test_application.py b/tests/test_application.py
+index 6919d9ad69749583ad9c09ca76abfc807c9c607b..e1e3be485181efe73a5df226439bc9c4862349d4 100644
+--- a/tests/test_application.py
++++ b/tests/test_application.py
+@@ -33,3 +33,4 @@ def test_application(tmp_path):
+ 
+     response = client.get("/")
+     assert response.status_code == 200
++    assert response.headers["Cache-Control"] == "no-cache"

@@ -1,0 +1,47 @@
+diff --git a/CHANGELOG.rst b/CHANGELOG.rst
+index 93586d9ec168f2ee7d09a96cafc4457eb77497e7..6515b82f24b1ae24347eb668fd039d491f5dade3 100644
+--- a/CHANGELOG.rst
++++ b/CHANGELOG.rst
+@@ -4,6 +4,9 @@ UNRELEASED
+ * Drop support for EOL Python versions: 3.7, 3.8, 3.9.
+ * Print proper child process exit status.
+ * Removed dependency to `py <https://pypi.org/project/py>`__.
++* Fix tests marked with `@pytest.mark.forked` in pytest 7+.
++* pytest >= 7 is now required.
++
+ 
+ v1.6.0
+ ======
+diff --git a/setup.py b/setup.py
+index 108b4d890a825dfb323e541f5ed29578d847fad5..a4263f4119aec3db562963a6e11e679367084611 100644
+--- a/setup.py
++++ b/setup.py
+@@ -19,7 +19,7 @@ setup(
+         ],
+     },
+     zip_safe=False,
+-    install_requires=["pytest>=3.10"],
++    install_requires=["pytest>=7"],
+     setup_requires=["setuptools_scm"],
+     python_requires=">=3.10",
+     classifiers=[
+diff --git a/src/pytest_forked/__init__.py b/src/pytest_forked/__init__.py
+index 6d678f2ff9d3076c8f46d5752c65ab93947a6c9c..6d135cb7c2b0fc9822914b00b0095baf726533ca 100644
+--- a/src/pytest_forked/__init__.py
++++ b/src/pytest_forked/__init__.py
+@@ -44,13 +44,14 @@ def pytest_load_initial_conftests(early_config, parser, args):
+ 
+ 
+ @pytest.hookimpl(tryfirst=True)
+-def pytest_runtest_protocol(item):
++def pytest_runtest_protocol(item, nextitem):
+     if item.config.getvalue("forked") or item.get_closest_marker("forked"):
+         ihook = item.ihook
+         ihook.pytest_runtest_logstart(nodeid=item.nodeid, location=item.location)
+         reports = forked_run_report(item)
+         for rep in reports:
+             ihook.pytest_runtest_logreport(report=rep)
++        item.session._setupstate.teardown_exact(nextitem)
+         ihook.pytest_runtest_logfinish(nodeid=item.nodeid, location=item.location)
+         return True
+ 

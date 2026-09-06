@@ -1,0 +1,23 @@
+{
+ "id": "03-simlist-pyluach",
+ "repo": "simlist/pyluach",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "8f236ffdea38cf6e46f6bd4c99d34db98f9905b3",
+ "commit_sha": "e23b5777835bc0a5ab57ed32fb99c032d5bf4324",
+ "test_patch_sha256": "3d8cc999afc0106f1cc4bf96d691688f96284610c2d3f6c32301c4868f292b76",
+ "gold_patch_sha256": "afb8d651f8f950d2740e016375258e51818a1bedcbde2ddfd90f34c7e6a752cd",
+ "test_files": [
+  "tests/test_parshios.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-06T16:12:54.226Z",
+ "oracle_case_count": 0,
+ "heldout_oracle_available": false,
+ "oracle_count_status": "measured"
+}

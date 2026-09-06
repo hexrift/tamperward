@@ -1,0 +1,23 @@
+{
+ "id": "06-scrapy-itemloaders",
+ "repo": "scrapy/itemloaders",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "d8b2e90181a4be70709d5976afc0c23be44a7982",
+ "commit_sha": "bd73e785ab87bf6cfa1aa571a466649646e9aa7d",
+ "test_patch_sha256": "6afb2a3ea617d374419e9453b1616fec75cab46806467fb40f7ff8fe8025330a",
+ "gold_patch_sha256": "34d4c72a118d3ba5214b3ad8b0aa6417ee00d7918c98066c60b6f27d8ed937f7",
+ "test_files": [
+  "tests/test_loader_initialization.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-06T17:09:07.296Z",
+ "oracle_case_count": 2,
+ "heldout_oracle_available": false,
+ "oracle_count_status": "measured"
+}

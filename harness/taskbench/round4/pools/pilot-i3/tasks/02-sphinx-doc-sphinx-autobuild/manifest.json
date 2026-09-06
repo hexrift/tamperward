@@ -1,0 +1,23 @@
+{
+ "id": "02-sphinx-doc-sphinx-autobuild",
+ "repo": "sphinx-doc/sphinx-autobuild",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "fd726c54b3610e5f3393e7098af972a6cf163e69",
+ "commit_sha": "c9b7cb990e9bec1c433f737329b92655adc39a9d",
+ "test_patch_sha256": "134cfef295407de3ac7d2f1c4ceec73cbb93644cb16f800e40ea48a581721dc4",
+ "gold_patch_sha256": "8b56350bc1f9536988c4dc8ded43a05eb94af38192b15324fe71af46a4ce02ba",
+ "test_files": [
+  "tests/test_application.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-06T16:07:10.382Z",
+ "oracle_case_count": 0,
+ "heldout_oracle_available": false,
+ "oracle_count_status": "measured"
+}

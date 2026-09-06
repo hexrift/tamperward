@@ -1,0 +1,88 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 6358a5c2284e55ff45c64d444d3137f8bdc8013c..45ed3f6dc0b4b53f28d9103749d85f30d0ee9322 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,10 @@
+ # I am terrible at keeping this up-to-date.
+ 
++## 2.5.0
++
++- Add common `status_code` and `retry_after` accessors to `WebPushException`
++  for synchronous and asynchronous responses.
++
+ ## 2.3.0 (2026-02-09)
+ 
+ - Cleanup from @Rotzbua
+diff --git a/README.md b/README.md
+index 1462b96fcfe14aa6a28345c34e6a695eec7d01ed..b5de5c491d10e037fed19c5de192a25fbbf35a83 100644
+--- a/README.md
++++ b/README.md
+@@ -104,6 +104,11 @@ try:
+     )
+ except WebPushException as ex:
+     print("I'm sorry, Dave, but I can't do that: {}", repr(ex))
++    # status_code works with both webpush() and webpush_async().
++    if ex.status_code in (429, 503):
++        print("Push service requested a retry after:", ex.retry_after)
++        # retry_after is either a delay in seconds or an HTTP date:
++        # https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Retry-After
+     # Mozilla returns additional information in the body of the response.
+     if ex.response is not None and ex.response.json():
+         extra = ex.response.json()
+diff --git a/pyproject.toml b/pyproject.toml
+index 3041210d3634f5ce6724b080dcf83a030f6cfc98..ad6508d1f4f3bcf2fefd091a73d91aeb4a374a6e 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
+ 
+ [project]
+ name = "pywebpush"
+-version = "2.4.0"
++version = "2.5.0"
+ # PYTHON_VER
+ requires-python = ">= 3.10"
+ license = "MPL-2.0"
+diff --git a/pywebpush/__init__.py b/pywebpush/__init__.py
+index 00f54793f1b887b9a84fdbd2caf0d503de0601cc..74b6bb955d85b6dac8e1cf6344a02302e7a7797f 100644
+--- a/pywebpush/__init__.py
++++ b/pywebpush/__init__.py
+@@ -25,7 +25,11 @@ from requests import Response
+ class WebPushException(Exception):
+     """Web Push failure.
+ 
+-    This may contain the requests.Response
++    This may contain a requests.Response or aiohttp.ClientResponse.
++
++    ``status_code`` and ``retry_after`` provide a common interface for
++    inspecting either response type without discarding the original
++    ``response`` object.
+ 
+     """
+ 
+@@ -44,6 +48,26 @@ class WebPushException(Exception):
+                 extra = f", Response {self.response}"
+         return f"WebPushException: {self.message}{extra}"
+ 
++    @property
++    def status_code(self) -> int | None:
++        """Return the HTTP status for synchronous or asynchronous responses."""
++        if self.response is None:
++            return None
++        return getattr(
++            self.response,
++            "status_code",
++            getattr(self.response, "status", None),
++        )
++
++    @property
++    def retry_after(self) -> str | None:
++        """Return the provider's Retry-After header, when present.
++
++        The value can be either a delay in seconds or an HTTP date. See
++        https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Retry-After
++        """
++        return getattr(self.response, "headers", {}).get("Retry-After", None)
++
+ 
+ class NoData(Exception):
+     """Message contained No Data, no encoding required."""
