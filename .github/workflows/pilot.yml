@@ -69,7 +69,7 @@ jobs:
       # ISOLATION PLUMBING — the checkpoint target read by ci-pilot-state.sh; it is
       # NOT in the frozen binding set and touches no treatment, driver, runner or
       # adjudicator. Update it when a new iteration is armed.
-      TB_PILOT_STATE_BRANCH: round4-pilot-i2-state
+      TB_PILOT_STATE_BRANCH: round4-pilot-i3-state
     steps:
       - uses: actions/checkout@v5
         with:
