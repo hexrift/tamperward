@@ -1,0 +1,47 @@
+name: net-proof
+
+# Composed jailed-network boundary proof — apparatus qualification, NOT pilot
+# execution. Manual, non-required, never on push, and deliberately DECOUPLED from
+# pilot.yml: it shares no registered-trajectory lifecycle state (no active
+# iteration, no frozen manifest, no runs-pilot/ checkpointing), so it can be run
+# at any time — including the pre-freeze active_iteration:null state — without
+# touching or depending on pilot state.
+#
+# It proves ONE property: from inside the agent jail/netns,
+#   allowlist-proxy -> supplied upstream proxy -> api.anthropic.com
+# reaches a real Anthropic HTTP response, while direct egress and non-allowlisted
+# destinations fail closed and the supplied upstream is observed to be traversed.
+# It runs no agent and needs NO credential (a 401/403 is sufficient reachability
+# evidence). See harness/taskbench/round4/net-integration-proof.sh and DEVIATIONS D21.
+#
+# Runs on the SAME Ubuntu CI environment used for pilot provisioning (ubuntu-latest
+# is a privileged Linux VM with sudo, iproute2 and nftables), so the jail the proof
+# builds is the same kind the pilot builds. It CANNOT run on Docker-for-Mac (no
+# nf_tables).
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: net-proof
+  cancel-in-progress: false
+
+jobs:
+  net-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Jail + tooling (nftables, iproute2, jq)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nftables iproute2 jq
+      - name: Composed jailed-network boundary proof (no token, no burn)
+        run: bash harness/taskbench/round4/net-integration-proof.sh
