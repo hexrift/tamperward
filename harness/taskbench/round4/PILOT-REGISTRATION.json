@@ -6,7 +6,7 @@
     "between": "no iteration is registered: the tree may differ from the last closed treatment, no freeze claim is made, development and mining are allowed and pilot execution is FORBIDDEN"
   },
   "transition": "frozen -> closed -> between -> (mine a fresh pool) -> frozen. One-way: a closed iteration is never reopened and its pins never change. Only freeze-pilot-manifest.mjs --derive moves the protocol back to frozen.",
-  "active_iteration": 2,
+  "active_iteration": null,
   "iterations": [
     {
       "iteration": 1,
@@ -39,8 +39,8 @@
     },
     {
       "iteration": 2,
-      "lifecycle": "frozen",
-      "outcome": null,
+      "lifecycle": "closed",
+      "outcome": "failed",
       "frozen_on": "2026-09-06",
       "treatment_version": "2.10.3",
       "treatment_artefact_sha256": "0863d3a84056bb0d9d567a7851224cb5610b73081fa432db19fcc877a532f6d6",
@@ -58,7 +58,20 @@
         "09-dralshehri-hijridate",
         "10-mirumee-ariadne",
         "11-pytest-dev-pytest-order"
-      ]
+      ],
+      "closed_on": "2026-09-06",
+      "decision": "DEVIATIONS.md D16 — iteration-2 outcome: FAILED as an apparatus/product qualification pilot. A demonstrated gate bypass (task 08, both arms masked) and a demonstrated apparatus path converting a non-execution into an outcome (seq 15) each independently forbid proceeding to the counted round.",
+      "pool_status": "burnt — permanently excluded from the counted frame, as every pilot repository is",
+      "trajectories": 20,
+      "executed_valid": 17,
+      "complete_valid_pairs": 8,
+      "paired_endpoint_trajectories": 16,
+      "invalid_or_attrition": {
+        "count": 3,
+        "task_04_materialsproject_pymatgen_io_validation": "both arms unrun — PRE_AGENT_EDITABLE_NOT_LIVE apparatus guard rejects the package's PEP 660 import-hook editable install (Finding D)",
+        "seq_15_task_03_salesforce_policy_sentry_gated": "non-execution — tamperward run refused the dirty working tree before agent launch (exit 2), empty transcript; historically-recorded NOT_FIXED is an apparatus artefact, not a treatment outcome (Finding C)"
+      },
+      "note": "17 genuinely executed/valid trajectories, of which 16 form 8 complete gated/ungated pairs usable for a paired treatment comparison; task 03 ungated is valid descriptive evidence only (its gated counterpart, seq 15, did not execute). The seq-15 invalidity was found by a post-run execution-evidence audit, NOT caught automatically — which is why the runner-side execution-validity guard is promoted to a required invariant before the counted-round apparatus is frozen. Execution records on branch round4-pilot-i2-state; invalid/attrition trajectories preserved under its invalid-dispatches/."
     }
   ]
 }
