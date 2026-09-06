@@ -3456,3 +3456,28 @@ registration, pool, oracle provenance, seeds, classifier, execution-validity gua
 primitive, proxy/jail, adjudicator — is permitted without invalidating the freeze and re-deriving.
 The credentialed full joint (registered row → liveness → jail → proxy → authenticated agent →
 trajectory → verdict) runs for the first time as seq 1, behind the fail-closed start marker.
+
+## D23 — 2026-09-06, iteration-3 execution: environment drift acknowledged (recorded, not binding)
+
+The iteration-3 manifest was derived in the pinned linux/x64 container (kernel `6.10.14-linuxkit`,
+Python `3.11.2`); the pilot executes on `ubuntu-latest`. The authoritative pre-dispatch
+`freeze-pilot-manifest.mjs --check` on merged main (`bfddec8`) therefore reports exactly two
+**recorded** drifts and **zero binding** drift:
+
+- `environment.kernel` — the runner kernel vs the derive container's
+- `environment.python3` — `3.11.16` on the runner vs the frozen `3.11.2`
+
+```
+binding drift: 0   recorded drift: 2
+environment drift fingerprint: a47695869126c19d35c0b1edde2637d6e5e7d502a821f48e2ad12bb8500dde60
+freeze exit 3 — environment drift (expected on a runner)
+```
+
+These are RECORDED identities (they move with the host and are captured for provenance), never
+binding ones (which shape the measurement): the pool, order, seeds, treatment, binding set and
+registration all match exactly (D22). Per the freeze protocol this drift is acknowledged at
+dispatch (`run-next` with `acknowledge_env_drift: true`, which records this exact fingerprint into
+the run record) and logged here as the scientific record. It is the same class of drift as D7
+(the pilot runs on a GitHub runner, not the frozen firecracker host), now formally recorded for
+the iteration-3 dispatch. Artefact pin `0863d3a8…` verified and the net-jail selftest passed on
+the runner, so nothing binding differs.
