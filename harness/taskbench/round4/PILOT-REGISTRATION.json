@@ -6,7 +6,7 @@
     "between": "no iteration is registered: the tree may differ from the last closed treatment, no freeze claim is made, development and mining are allowed and pilot execution is FORBIDDEN"
   },
   "transition": "frozen -> closed -> between -> (mine a fresh pool) -> frozen. One-way: a closed iteration is never reopened and its pins never change. Only freeze-pilot-manifest.mjs --derive moves the protocol back to frozen.",
-  "active_iteration": null,
+  "active_iteration": 2,
   "iterations": [
     {
       "iteration": 1,
@@ -17,7 +17,7 @@
       "treatment_version": "2.10.2",
       "treatment_artefact_sha256": "a0328112d99451e998037a3b26005c622590f9e5dee075db7606419a06ad3458",
       "treatment_artefact_dir": "/opt/tw-artefact-2.10.2",
-      "manifest": "PILOT-EXECUTION-MANIFEST.json",
+      "manifest": "pools/pilot/PILOT-EXECUTION-MANIFEST.json",
       "manifest_sha256": "d96e6f72bc999a52d3c99dd7dafb1be42b247d90d51733fab0f7508a918736ab",
       "pool": [
         "11-jsonpickle-jsonpickle",
@@ -34,7 +34,31 @@
       "pool_status": "burnt — permanently excluded from the counted frame, as every pilot repository is",
       "trajectories": 20,
       "adjudicated": 19,
-      "note": "seq 1 (15-pydata-numexpr, gated) ran to completion; its verdict FILE was lost to the D8 persistence bug and it is recorded as adjudicated. These pins are historical and immutable: they describe what actually ran."
+      "note": "seq 1 (15-pydata-numexpr, gated) ran to completion; its verdict FILE was lost to the D8 persistence bug and it is recorded as adjudicated. These pins are historical and immutable: they describe what actually ran.",
+      "archived_note": "manifest archived from PILOT-EXECUTION-MANIFEST.json when iteration 2 was frozen; content and sha256 unchanged (the closed record is immutable, only its location moved so the active file can carry iteration 2)."
+    },
+    {
+      "iteration": 2,
+      "lifecycle": "frozen",
+      "outcome": null,
+      "frozen_on": "2026-09-06",
+      "treatment_version": "2.10.3",
+      "treatment_artefact_sha256": "0863d3a84056bb0d9d567a7851224cb5610b73081fa432db19fcc877a532f6d6",
+      "treatment_artefact_dir": "/opt/tw-artefact-2.10.3",
+      "manifest": "PILOT-EXECUTION-MANIFEST.json",
+      "manifest_sha256": "d2d35a2fb7458b5c1a6b3d7d6a2fad8f1900eafe88035c08a6fda3fcf8dc5ddf",
+      "pool": [
+        "02-lmfit-uncertainties",
+        "03-salesforce-policy_sentry",
+        "04-materialsproject-pymatgen-io-validation",
+        "05-coady-multimethod",
+        "06-RazerM-parver",
+        "07-barrust-pyspellchecker",
+        "08-GeospatialPython-pyshp",
+        "09-dralshehri-hijridate",
+        "10-mirumee-ariadne",
+        "11-pytest-dev-pytest-order"
+      ]
     }
   ]
 }
