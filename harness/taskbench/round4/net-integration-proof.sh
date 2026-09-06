@@ -63,13 +63,17 @@ NETLOG="$TMP/allowlist-decisions.log"; : > "$NETLOG"          # allowlist-proxy 
 UPLOG="$TMP/upstream-connects.log";    : > "$UPLOG"           # ci-upstream CONNECT record
 UP_PID=""; AP_PID=""; NS=""; HOSTIP=""
 
-# the four facts (+ observations), machine-readable at the end
+# the facts (+ observations), machine-readable at the end. Each negative/control
+# has a DISTINCT named outcome (DIRECT_EGRESS_BLOCKED / DENIED_BY_ALLOWLIST /
+# UPSTREAM_REQUIRED) so a forensic reader sees WHICH property held, not three bare
+# booleans that all read `false` for different reasons.
 jail_enforced=false
-direct_egress_blocked=false
-non_allowlisted_denied=false
+direct_egress_blocked=false          # DIRECT_EGRESS_BLOCKED
+non_allowlisted_denied=false         # DENIED_BY_ALLOWLIST
 allowlist_proxy_observed=false
-upstream_proxy_observed=false
-remote_http_observed=false
+upstream_proxy_observed=false        # upstream emitted its own CONNECT record
+upstream_load_bearing=false          # UPSTREAM_REQUIRED (kill-upstream control)
+remote_http_observed=false           # anthropic_reachable
 STATUS="none"
 UPSTREAM_CONNECT_TARGET="none"
 
@@ -92,6 +96,7 @@ emit() {   # machine-readable evidence block, then the human verdict
   echo "allowlist_proxy_observed=$allowlist_proxy_observed"
   echo "upstream_proxy_observed=$upstream_proxy_observed"
   echo "upstream_connect_target=$UPSTREAM_CONNECT_TARGET"
+  echo "upstream_load_bearing=$upstream_load_bearing"
   echo "remote_http_observed=$remote_http_observed"
   echo "jail_netns=$NS"
   echo "allowlist_proxy_endpoint=$HOSTIP:$PROXY_PORT"
@@ -101,7 +106,8 @@ emit() {   # machine-readable evidence block, then the human verdict
 }
 
 pass_all() { $jail_enforced && $direct_egress_blocked && $non_allowlisted_denied \
-             && $allowlist_proxy_observed && $upstream_proxy_observed && $remote_http_observed; }
+             && $allowlist_proxy_observed && $upstream_proxy_observed \
+             && $upstream_load_bearing && $remote_http_observed; }
 
 # ============================================================================
 # FACT 0 — jail exists and ENFORCES isolation (also proves direct egress blocked
@@ -140,9 +146,9 @@ say "[fact 1] direct egress from inside $NS (no proxy) must fail"
 "${NETRUN[@]}" env -u HTTPS_PROXY -u https_proxy curl -sS --max-time 10 --noproxy '*' -o /dev/null "https://$ALLOWED_HOST/" 2>/dev/null; DH=$?
 "${NETRUN[@]}" env -u HTTPS_PROXY -u https_proxy curl -sS --max-time 10 --noproxy '*' -o /dev/null "https://1.1.1.1/" 2>/dev/null; DI=$?
 if [ "$DH" != 0 ] && [ "$DI" != 0 ]; then
-  direct_egress_blocked=true; say "  direct egress unavailable (hostname rc=$DH, numeric rc=$DI — both fail)"
+  direct_egress_blocked=true; say "  outcome=DIRECT_EGRESS_BLOCKED (hostname rc=$DH, numeric rc=$DI — both fail)"
 else
-  say "  DIRECT egress SUCCEEDED (hostname rc=$DH, numeric rc=$DI) — chain is bypassable"
+  say "  outcome=DIRECT_EGRESS_OPEN — direct egress SUCCEEDED (hostname rc=$DH, numeric rc=$DI); chain is bypassable"
 fi
 
 # ============================================================================
@@ -153,11 +159,11 @@ say "[fact 2] non-allowlisted $DENIED_HOST via the proxy must be DENIED BY THE A
 "${NETRUN[@]}" env NO_PROXY= no_proxy= curl -sS --max-time 15 -o /dev/null \
     -x "http://$HOSTIP:$PROXY_PORT" "https://$DENIED_HOST/" 2>/dev/null; NRC=$?
 if grep -q "DENY CONNECT ${DENIED_HOST}" "$NETLOG"; then
-  non_allowlisted_denied=true; say "  DENIED_BY_ALLOWLIST: $DENIED_HOST (proxy logged DENY CONNECT; curl rc=$NRC)"
+  non_allowlisted_denied=true; say "  outcome=DENIED_BY_ALLOWLIST: $DENIED_HOST (proxy logged DENY CONNECT; curl rc=$NRC)"
 elif [ "$NRC" != 0 ]; then
-  say "  UNREACHABLE_FOR_SOME_OTHER_REASON: $DENIED_HOST failed (rc=$NRC) but no allowlist DENY was observed — NOT the property we assert"
+  say "  outcome=UNREACHABLE_FOR_SOME_OTHER_REASON: $DENIED_HOST failed (rc=$NRC) but no allowlist DENY was observed — NOT the property we assert"
 else
-  say "  non-allowlisted $DENIED_HOST was REACHED (rc=$NRC) — allowlist did not deny"
+  say "  outcome=NON_ALLOWLISTED_REACHED: $DENIED_HOST was REACHED (rc=$NRC) — allowlist did not deny"
 fi
 
 # ============================================================================
@@ -184,6 +190,24 @@ if [ -n "$UPSTREAM_CONNECT_TARGET" ]; then
   upstream_proxy_observed=true; say "  supplied upstream traversed (its own record: CONNECT $UPSTREAM_CONNECT_TARGET)"
 else
   UPSTREAM_CONNECT_TARGET="none"; say "  supplied upstream emitted no CONNECT record for $ALLOWED_HOST — traversal NOT proven"
+fi
+
+# ============================================================================
+# FACT 4 — the SUPPLIED upstream is LOAD-BEARING (UPSTREAM_REQUIRED). Kill it and
+# repeat the allowed jailed request: it MUST now fail. This rules out the most
+# important alternative explanation for fact 3 — that the request ignored the
+# configured upstream and escaped by some other route. Combined with the upstream's
+# own CONNECT record, it proves the traffic both DID traverse the supplied upstream
+# and could NOT have reached the endpoint without it.
+# ============================================================================
+say "[fact 4] load-bearing control: kill the supplied upstream; the allowed jailed request must now FAIL"
+kill "$UP_PID" 2>/dev/null; wait "$UP_PID" 2>/dev/null; UP_PID=""
+"${NETRUN[@]}" env NO_PROXY= no_proxy= curl -sS --max-time 15 -o /dev/null \
+    -x "http://$HOSTIP:$PROXY_PORT" "https://$ALLOWED_HOST/" 2>/dev/null; LRC=$?
+if [ "$LRC" != 0 ]; then
+  upstream_load_bearing=true; say "  outcome=UPSTREAM_REQUIRED: with the supplied upstream down, $ALLOWED_HOST is unreachable (curl rc=$LRC)"
+else
+  say "  outcome=UPSTREAM_BYPASSED: $ALLOWED_HOST still reachable with the supplied upstream DOWN (rc=$LRC) — the chain is bypassable"
 fi
 
 # ============================================================================

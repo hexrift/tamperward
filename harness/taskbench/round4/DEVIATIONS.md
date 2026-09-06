@@ -3363,13 +3363,18 @@ the real model API host — is filled by `round4/net-integration-proof.sh`, a na
 proof that drives the components directly (it runs no agent, deploys no artefact, produces no
 outcome): it builds the jail (`net-jail.sh setup`), starts the supplied upstream
 (`ci-upstream-proxy`) and the `allowlist-proxy`, and — from INSIDE the jail namespace — asserts
-four facts separately: (1) direct egress fails (proxy vars removed, hostname + numeric both fail);
-(2) a non-allowlisted host is DENIED BY THE ALLOWLIST (keyed on the proxy's own DENY decision, not
-mere unreachability); (3) the allowed host returns a real Anthropic HTTP status observed from
-inside the jail; (4) the supplied upstream is actually traversed — asserted against the upstream's
-OWN `CONNECT api.anthropic.com:443` evidence record (a set `HTTPS_PROXY` alone is not accepted as
-proof). It emits a machine-readable `NETWORK_INTEGRATION_PROOF` block and never logs tokens,
-headers, credentials or environment values. It is kept ENTIRELY OUT of `pilot.yml` (which is bound
+each fact separately, with a DISTINCT named outcome so a forensic reader sees WHICH property held:
+(1) `DIRECT_EGRESS_BLOCKED` — direct egress fails (proxy vars removed, hostname + numeric both
+fail); (2) `DENIED_BY_ALLOWLIST` — a non-allowlisted host is denied, keyed on the proxy's own DENY
+decision, distinguished from `UNREACHABLE_FOR_SOME_OTHER_REASON`; (3) the allowed host returns a
+real Anthropic HTTP status observed from inside the jail; (4) the supplied upstream is actually
+traversed — asserted against the upstream's OWN `CONNECT api.anthropic.com:443` evidence record
+(a set `HTTPS_PROXY` alone is not accepted as proof); and (5) `UPSTREAM_REQUIRED` — a load-bearing
+control: with the supplied upstream killed, the allowed jailed request MUST fail, ruling out the
+alternative explanation that fact (3) escaped by some other route. It emits a machine-readable
+`NETWORK_INTEGRATION_PROOF` block (persisted by the `net-proof` workflow to the run summary and a
+90-day artifact, and archived into this ledger as a `network_proof:` record once it runs) and never
+logs tokens, headers, credentials or environment values. It is kept ENTIRELY OUT of `pilot.yml` (which is bound
 to registered-trajectory lifecycle semantics): it runs on the same Ubuntu CI environment used for
 pilot provisioning, via a dedicated `net-proof` workflow with no experimental-state coupling, so
 the property is apparatus qualification established before any registered trajectory is permitted —
