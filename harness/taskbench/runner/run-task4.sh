@@ -510,9 +510,11 @@ LADDER
 # __file__ path equality, which false-rejected the PEP 660 finder-hook editable in
 # iteration-2 task-04 (DEVIATIONS D16 Finding D) and could false-accept a stale .pth.
 # Any inability to establish the coupling is LIVENESS_NOT_VERIFIED, never a pass.
-set +e
+# run-task4 runs under `set -uo pipefail` (no errexit); a failing command
+# substitution sets $? without exiting, so no set +e/-e dance is needed — and a
+# stray `set -e` here would silently turn errexit on for the REST of the script,
+# killing the run at the next normally-nonzero command (it did: smoke4 caught it).
 LIVE_OUT=$("$VENV/bin/python" "$HERE/editable-liveness.py" "$REPODIR" 2>&1); LIVERC=$?
-set -e
 echo "[run-task4] editable-liveness: $LIVE_OUT"
 [ "$LIVERC" = 0 ] || { echo "PRE_AGENT_EDITABLE_NOT_LIVE: $LIVE_OUT"; exit 1; }
 
