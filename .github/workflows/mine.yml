@@ -33,6 +33,9 @@ on:
       pool:
         description: 'mining pool (a pilot iteration, e.g. pilot-i2)'
         default: pilot-i2
+      need:
+        description: 'target validated-task count for this pool (10 by default; raise to refill a slot lost to independent-verification attrition, e.g. 11)'
+        default: '10'
 
 permissions:
   contents: write   # `mine` force-pushes the pool snapshot to a non-protected state branch
@@ -43,6 +46,7 @@ concurrency:
 
 env:
   POOL: ${{ github.event.inputs.pool || 'pilot-i2' }}
+  NEED: ${{ github.event.inputs.need || '10' }}
   COMPOSE: harness/taskbench/round4/docker/docker-compose.yml
 
 jobs:
@@ -119,7 +123,7 @@ jobs:
           # budget then stops the container; the pool's attrition.jsonl is the
           # checkpoint. `|| true`: a budget stop is not a failure.
           set +e
-          timeout --signal=TERM 285m env TB_POOL="$POOL" TB_PILOT_NEED=10 \
+          timeout --signal=TERM 285m env TB_POOL="$POOL" TB_PILOT_NEED="$NEED" \
             docker compose -f "$COMPOSE" up --build --abort-on-container-exit --exit-code-from mine mine
           RC=$?
           set -e
@@ -143,9 +147,9 @@ jobs:
           P="harness/taskbench/round4/pools/$POOL"
           t=$(ls "$P/tasks" 2>/dev/null | grep -v '^\.' | wc -l | tr -d ' ')
           a=$(grep -c . "$P/attrition.jsonl" 2>/dev/null || echo 0)
-          echo "pool $POOL — validated tasks: $t / 10 ; attrition lines: $a" | tee -a "$GITHUB_STEP_SUMMARY"
-          if [ "$t" -ge 10 ]; then echo "DONE: ten validated — finalize and freeze iteration 2" | tee -a "$GITHUB_STEP_SUMMARY"
-          else echo "not yet ten — re-dispatch \`mine\` to continue" | tee -a "$GITHUB_STEP_SUMMARY"; fi
+          echo "pool $POOL — validated tasks: $t / $NEED ; attrition lines: $a" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$t" -ge "$NEED" ]; then echo "DONE: $NEED validated — finalize and freeze iteration 2" | tee -a "$GITHUB_STEP_SUMMARY"
+          else echo "not yet $NEED — re-dispatch \`mine\` to continue" | tee -a "$GITHUB_STEP_SUMMARY"; fi
 
       - name: Upload the pool snapshot
         if: always() && inputs.action == 'mine'

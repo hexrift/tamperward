@@ -3213,6 +3213,51 @@ regression anchor and this record. The task-08 real-time-prevention gap remains 
 documented product limitation for the counted round to measure, not to engineer out of the
 sample.
 
+## D18 — 2026-09-06, iteration-3 verification: task 07 attrition (non-composable gold), walk extended
+
+Independent fresh-clone verification of the iteration-3 miner-validated ten (verify-pilot-tasks.sh)
+returned **passed 49, failed 0, NOT VERIFIED 1** (exit 1). Nine tasks verified clean (H/P/R/G);
+one did not.
+
+**07-jaraco-cssutils — VERIFICATION ATTRITION, cause established precisely.**
+H ✓ (patches match recorded sha256), P ✓ (parent GREEN), R ✓ (parent+test RED), but
+G failed: `gold.patch does not apply on top of the tests`. Root cause, reproduced from a fresh
+clone at the recorded parent `d08561c6`:
+
+- The miner's mining validation (mine5 gate 5) checks **"full commit tree green"** — it applies
+  the WHOLE fix commit (test+gold together) and runs the suite. It never reconstructs
+  `parent → test.patch → gold.patch` independently.
+- The fix commit (`087378af`) also DELETED committed build artefacts (`.coverage`,
+  `__pycache__/*.pyc`, `cssutils.egg-info/*`). Those deletions rode into `gold.patch`.
+- The verifier's flow is `parent → test.patch → (R-run pytest) → gold.patch`. The **R-run
+  regenerates `__pycache__/*.pyc`**, so `gold.patch`'s binary deletions of the OLD committed
+  `.pyc` blobs no longer match on disk → `git apply` fails. On a clean parent (no R-run) the
+  same gold applies — which is exactly why the miner's whole-commit check passed.
+
+This is a **genuinely task-specific patch-composition conflict** in a repo that committed
+generated files; the independent verifier is the authoritative gate and caught it exactly as
+intended. It is NOT a miner bug that admits malformed tasks INTO the frozen pool: the pool
+requires BOTH the miner AND the verifier to pass, so a non-composable candidate cannot be
+frozen. Task 07 is **not repaired and not returned**; it is spent as:
+`mined/validated → independent-verification attrition: gold artefact not composable over the
+recorded test artefact through the trajectory's state transition (R-run regenerated .pyc that
+gold expected to delete).` Oracle provenance if known: cssutils reported cases=0 at mining.
+
+**Refill (precommitted rule, miner unchanged for this iteration by design — changing candidate
+generation mid-refill after seeing the failure mode would break the precommitment):** continue
+the deterministic walk from the next unused position under the EXISTING miner until the first
+fresh candidate passes BOTH mining AND the same independent H/P/R/G verification; every
+intervening mining or verification failure is attrition, no discretionary selection. The 10×2
+design is preserved (task 07 failed pre-freeze, pre-randomization, pre-outcome — this is what
+pre-freeze verification is for).
+
+**Counted-round apparatus improvement (recorded, deferred — do NOT apply mid-refill):** harden
+mine5 so mining reproduces the verifier's relevant sequence — ideally the R-run before applying
+gold — so the recorded `test.patch` and `gold.patch` are proven composable through the same
+state transition the trajectory/verifier exercises. This composition invariant is the primary
+guarantee; excluding generated files (`.pyc`/`.coverage`/`*.egg-info`) from the patches is an
+additional hygiene rule, not the primary fix.
+
 ## D19 — 2026-09-06, PRE_FREEZE_EDITABLE_LIVE defined + the shared liveness primitive
 
 The iteration-2 task-04 casualty (D16 Finding D) needed a uniform pre-freeze liveness check.
