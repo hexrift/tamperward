@@ -1,0 +1,29 @@
+diff --git a/src/pyluach/parshios.py b/src/pyluach/parshios.py
+index 8d12a94..e6e2480 100644
+--- a/src/pyluach/parshios.py
++++ b/src/pyluach/parshios.py
+@@ -149,20 +149,17 @@ def _get_four_parshios(date):
+     shabbos = date.shabbos()
+     rc_adar = HebrewDate(year, adar, 1)
+     rc_nisan = HebrewDate(year, 1, 1)
+-    if shabbos == rc_nisan:
++    hachodesh_shabbos = (rc_nisan - 6).shabbos()
++    if shabbos == hachodesh_shabbos:
+         return _FourParshiosEnum.HACHODESH
++    if shabbos == hachodesh_shabbos - 7:
++        return _FourParshiosEnum.PARAH
+     if shabbos <= rc_adar and rc_adar - shabbos < 7:
+         return _FourParshiosEnum.SHEKALIM
+     if shabbos.month == adar:
+         purim = HebrewDate(year, adar, 14)
+         if shabbos < purim and (purim - shabbos) < 7:
+             return _FourParshiosEnum.ZACHOR
+-        if shabbos > purim and (shabbos - purim) in [8, 9]:
+-            return _FourParshiosEnum.PARAH
+-        if shabbos > purim and shabbos - purim < 7:
+-            return _FourParshiosEnum.PARAH
+-        if (rc_nisan - date) < 7:
+-            return _FourParshiosEnum.HACHODESH
+     return None
+ 
+ 

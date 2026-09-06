@@ -1,0 +1,12 @@
+diff --git a/sphinx_autobuild/middleware.py b/sphinx_autobuild/middleware.py
+index 2652a0c..84d7cf9 100644
+--- a/sphinx_autobuild/middleware.py
++++ b/sphinx_autobuild/middleware.py
+@@ -33,6 +33,7 @@ class JavascriptInjectorMiddleware:
+             nonlocal add_script
+             if message["type"] == "http.response.start":
+                 headers = MutableHeaders(scope=message)
++                headers["Cache-Control"] = "no-cache"
+                 if headers.get("Content-Type", "").startswith("text/html"):
+                     add_script = True
+                     if "Content-Length" in headers:

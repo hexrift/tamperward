@@ -1,0 +1,102 @@
+# environment drift acknowledged for the round-4 pilot
+# recorded 2026-09-06T22:36:47Z against manifest 707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: 707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547
+# recorded drift  environment.kernel
+#   frozen:  6.10.14-linuxkit
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.2
+#   on disk: Python 3.11.16
+# recorded drift  environment.claude_cli
+#   frozen:  null
+#   on disk: 2.1.260 (Claude Code)
+# base commit bb0ed2a is an ancestor of HEAD
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: 66ea9bc0042df6582519eed5e45a5a120004ebeb7d252f88bd547bf5db85b35f
+fingerprint:66ea9bc0042df6582519eed5e45a5a120004ebeb7d252f88bd547bf5db85b35f
+# environment drift acknowledged for the round-4 pilot
+# recorded 2026-09-06T22:48:38Z against manifest 707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: 707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547
+# recorded drift  environment.kernel
+#   frozen:  6.10.14-linuxkit
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.2
+#   on disk: Python 3.11.16
+# recorded drift  environment.claude_cli
+#   frozen:  null
+#   on disk: 2.1.260 (Claude Code)
+# base commit bb0ed2a is an ancestor of HEAD
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: 66ea9bc0042df6582519eed5e45a5a120004ebeb7d252f88bd547bf5db85b35f
+fingerprint:66ea9bc0042df6582519eed5e45a5a120004ebeb7d252f88bd547bf5db85b35f
+# environment drift acknowledged for the round-4 pilot
+# recorded 2026-09-06T22:56:42Z against manifest 707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: 707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547
+# recorded drift  environment.kernel
+#   frozen:  6.10.14-linuxkit
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.2
+#   on disk: Python 3.11.16
+# recorded drift  environment.claude_cli
+#   frozen:  null
+#   on disk: 2.1.260 (Claude Code)
+# base commit bb0ed2a is an ancestor of HEAD
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: 66ea9bc0042df6582519eed5e45a5a120004ebeb7d252f88bd547bf5db85b35f
+fingerprint:66ea9bc0042df6582519eed5e45a5a120004ebeb7d252f88bd547bf5db85b35f
+# environment drift acknowledged for the round-4 pilot
+# recorded 2026-09-06T22:59:37Z against manifest 707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: 707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547
+# recorded drift  environment.kernel
+#   frozen:  6.10.14-linuxkit
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.2
+#   on disk: Python 3.11.16
+# recorded drift  environment.claude_cli
+#   frozen:  null
+#   on disk: 2.1.260 (Claude Code)
+# base commit bb0ed2a is an ancestor of HEAD
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: 66ea9bc0042df6582519eed5e45a5a120004ebeb7d252f88bd547bf5db85b35f
+fingerprint:66ea9bc0042df6582519eed5e45a5a120004ebeb7d252f88bd547bf5db85b35f
+# environment drift acknowledged for the round-4 pilot
+# recorded 2026-09-06T23:02:48Z against manifest 707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: 707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547
+# recorded drift  environment.kernel
+#   frozen:  6.10.14-linuxkit
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.2
+#   on disk: Python 3.11.16
+# recorded drift  environment.claude_cli
+#   frozen:  null
+#   on disk: 2.1.260 (Claude Code)
+# base commit bb0ed2a is an ancestor of HEAD
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: 66ea9bc0042df6582519eed5e45a5a120004ebeb7d252f88bd547bf5db85b35f
+fingerprint:66ea9bc0042df6582519eed5e45a5a120004ebeb7d252f88bd547bf5db85b35f
+# environment drift acknowledged for the round-4 pilot
+# recorded 2026-09-06T23:07:20Z against manifest 707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: 707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547
+# recorded drift  environment.kernel
+#   frozen:  6.10.14-linuxkit
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.2
+#   on disk: Python 3.11.16
+# recorded drift  environment.claude_cli
+#   frozen:  null
+#   on disk: 2.1.260 (Claude Code)
+# base commit bb0ed2a is an ancestor of HEAD
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: 66ea9bc0042df6582519eed5e45a5a120004ebeb7d252f88bd547bf5db85b35f
+fingerprint:66ea9bc0042df6582519eed5e45a5a120004ebeb7d252f88bd547bf5db85b35f

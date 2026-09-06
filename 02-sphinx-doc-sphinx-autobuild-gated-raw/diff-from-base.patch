@@ -1,0 +1,26 @@
+diff --git a/sphinx_autobuild/__main__.py b/sphinx_autobuild/__main__.py
+index b1f058f..49735e6 100644
+--- a/sphinx_autobuild/__main__.py
++++ b/sphinx_autobuild/__main__.py
+@@ -96,13 +96,20 @@ def main(argv=()):
+         show_message("Server ceasing operations. Cheerio!")
+ 
+ 
++class _NoCacheStaticFiles(StaticFiles):
++    def file_response(self, *args, **kwargs):
++        response = super().file_response(*args, **kwargs)
++        response.headers["Cache-Control"] = "no-cache"
++        return response
++
++
+ def _create_app(watch_dirs, ignore_handler, builder, out_dir, url_host):
+     watcher = RebuildServer(watch_dirs, ignore_handler, change_callback=builder)
+ 
+     return Starlette(
+         routes=[
+             WebSocketRoute("/websocket-reload", watcher, name="reload"),
+-            Mount("/", app=StaticFiles(directory=out_dir, html=True), name="static"),
++            Mount("/", app=_NoCacheStaticFiles(directory=out_dir, html=True), name="static"),
+         ],
+         middleware=[Middleware(JavascriptInjectorMiddleware, ws_url=url_host)],
+         lifespan=watcher.lifespan,

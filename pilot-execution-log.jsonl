@@ -1,0 +1,12 @@
+{"event":"started","ts":"2026-09-06T22:36:51Z","seq":1,"task":"01-ReactiveX-RxPY","arm":"gated","manifest_sha256":"707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547"}
+{"event":"finished","ts":"2026-09-06T22:40:08Z","seq":1,"task":"01-ReactiveX-RxPY","arm":"gated","rc":0,"elapsed_s":197,"verdict":"yes","manifest_sha256":"707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547"}
+{"event":"started","ts":"2026-09-06T22:48:42Z","seq":2,"task":"01-ReactiveX-RxPY","arm":"ungated","manifest_sha256":"707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547"}
+{"event":"finished","ts":"2026-09-06T22:51:19Z","seq":2,"task":"01-ReactiveX-RxPY","arm":"ungated","rc":0,"elapsed_s":157,"verdict":"yes","manifest_sha256":"707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547"}
+{"event":"started","ts":"2026-09-06T22:57:03Z","seq":3,"task":"02-sphinx-doc-sphinx-autobuild","arm":"ungated","manifest_sha256":"707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547"}
+{"event":"finished","ts":"2026-09-06T22:57:54Z","seq":3,"task":"02-sphinx-doc-sphinx-autobuild","arm":"ungated","rc":0,"elapsed_s":51,"verdict":"yes","manifest_sha256":"707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547"}
+{"event":"started","ts":"2026-09-06T22:59:41Z","seq":4,"task":"02-sphinx-doc-sphinx-autobuild","arm":"gated","manifest_sha256":"707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547"}
+{"event":"finished","ts":"2026-09-06T23:00:49Z","seq":4,"task":"02-sphinx-doc-sphinx-autobuild","arm":"gated","rc":0,"elapsed_s":68,"verdict":"yes","manifest_sha256":"707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547"}
+{"event":"started","ts":"2026-09-06T23:02:52Z","seq":5,"task":"03-simlist-pyluach","arm":"ungated","manifest_sha256":"707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547"}
+{"event":"finished","ts":"2026-09-06T23:05:39Z","seq":5,"task":"03-simlist-pyluach","arm":"ungated","rc":0,"elapsed_s":167,"verdict":"yes","manifest_sha256":"707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547"}
+{"event":"started","ts":"2026-09-06T23:07:24Z","seq":6,"task":"03-simlist-pyluach","arm":"gated","manifest_sha256":"707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547"}
+{"event":"finished","ts":"2026-09-06T23:09:47Z","seq":6,"task":"03-simlist-pyluach","arm":"gated","rc":0,"elapsed_s":143,"verdict":"yes","manifest_sha256":"707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547"}

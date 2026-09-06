@@ -1,0 +1,85 @@
+diff --git a/reactivex/operators/_windowwithtimeorcount.py b/reactivex/operators/_windowwithtimeorcount.py
+index 3be5eba..f3e35ca 100644
+--- a/reactivex/operators/_windowwithtimeorcount.py
++++ b/reactivex/operators/_windowwithtimeorcount.py
+@@ -1,3 +1,4 @@
++import threading
+ from typing import Any, TypeVar
+ 
+ from reactivex import Observable, abc, typing
+@@ -50,6 +51,7 @@ def window_with_time_or_count_(
+         window_id = 0
+         group_disposable = CompositeDisposable(timer_d)
+         ref_count_disposable = RefCountDisposable(group_disposable)
++        gate = threading.RLock()
+ 
+         def create_timer(_id: int):
+             nonlocal n, s, window_id
+@@ -58,15 +60,16 @@ def window_with_time_or_count_(
+ 
+             def action(scheduler: abc.SchedulerBase, state: Any = None):
+                 nonlocal n, s, window_id
+-                if _id != window_id:
+-                    return
+-
+-                n = 0
+-                window_id += 1
+-                new_id = window_id
+-                s.on_completed()
+-                s = Subject()
+-                observer.on_next(add_ref(s, ref_count_disposable))
++                with gate:
++                    if _id != window_id:
++                        return
++
++                    n = 0
++                    window_id += 1
++                    new_id = window_id
++                    s.on_completed()
++                    s = Subject()
++                    observer.on_next(add_ref(s, ref_count_disposable))
+                 create_timer(new_id)
+ 
+             m.disposable = _scheduler.schedule_relative(timespan, action)
+@@ -79,26 +82,29 @@ def window_with_time_or_count_(
+             new_window = False
+             new_id = 0
+ 
+-            s.on_next(x)
+-            n += 1
+-            if n == count:
+-                new_window = True
+-                n = 0
+-                window_id += 1
+-                new_id = window_id
+-                s.on_completed()
+-                s = Subject()
+-                observer.on_next(add_ref(s, ref_count_disposable))
++            with gate:
++                s.on_next(x)
++                n += 1
++                if n == count:
++                    new_window = True
++                    n = 0
++                    window_id += 1
++                    new_id = window_id
++                    s.on_completed()
++                    s = Subject()
++                    observer.on_next(add_ref(s, ref_count_disposable))
+ 
+             if new_window:
+                 create_timer(new_id)
+ 
+         def on_error(e: Exception) -> None:
+-            s.on_error(e)
++            with gate:
++                s.on_error(e)
+             observer.on_error(e)
+ 
+         def on_completed() -> None:
+-            s.on_completed()
++            with gate:
++                s.on_completed()
+             observer.on_completed()
+ 
+         group_disposable.add(
