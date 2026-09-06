@@ -1,0 +1,20 @@
+diff --git a/spellchecker/spellchecker.py b/spellchecker/spellchecker.py
+index 8b4fad4..f9c0fed 100644
+--- a/spellchecker/spellchecker.py
++++ b/spellchecker/spellchecker.py
+@@ -108,13 +108,13 @@ class SpellChecker:
+         """int: The maximum edit distance to calculate
+ 
+         Note:
+-            Valid values are 1 or 2; if an invalid value is passed, defaults to 2"""
++            Valid values are 1 or 2; if an invalid value is passed, keeps the current value"""
+         return self._distance
+ 
+     @distance.setter
+     def distance(self, val: int) -> None:
+         """set the distance parameter"""
+-        tmp = 2
++        tmp = self._distance
+         try:
+             if 0 < int(val) <= 2:
+                 tmp = val

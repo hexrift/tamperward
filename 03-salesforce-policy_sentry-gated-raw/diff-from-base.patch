@@ -1,0 +1,16 @@
+diff --git a/CODEOWNERS b/CODEOWNERS
+index 522fa4a..54dbf11 100644
+--- a/CODEOWNERS
++++ b/CODEOWNERS
+@@ -1,2 +1,11 @@
+ # Comment line immediately above ownership line is reserved for related gus information. Please be careful while editing.
+ #ECCN:Open Source
++
++# tamperward: the gate cannot guard the file that defines it
++# A pull request that rewrites the workflow can keep the job name, replace the
++# gate with `true`, and still report a green required check. Only a human
++# requirement on these paths prevents that.
++# REPLACE @OWNER BELOW with a real user or team — an unresolvable owner protects nothing.
++/.github/workflows/      @OWNER
++/.tamperward.yml         @OWNER
++/.github/CODEOWNERS      @OWNER

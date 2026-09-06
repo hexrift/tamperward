@@ -1,0 +1,37 @@
+diff --git a/uncertainties/parsing.py b/uncertainties/parsing.py
+index bf17669..5c60a52 100644
+--- a/uncertainties/parsing.py
++++ b/uncertainties/parsing.py
+@@ -212,14 +212,30 @@ def str_to_number_with_uncert(representation):
+     else:
+         factor = 1  # No global exponential factor
+ 
+-    match = re.match("(.*)(?:\\+/-|±)(.*)", representation)
++    match = re.match("(.*)(?:\\+/-|\\+-|±)(.*)", representation)
+     if match:
+         (nom_value, uncert) = match.groups()
++        nom_value = nom_value.strip()
++        uncert = uncert.strip()
++
++        # Parentheses wrapping only the uncertainty, as in "23(±13%)" or
++        # "23 (±13%)" (as opposed to NUMBER_WITH_UNCERT_GLOBAL_EXP_RE_MATCH,
++        # which wraps the whole value and uncertainty before an exponent):
++        if nom_value.endswith("(") and uncert.endswith(")"):
++            nom_value = nom_value[:-1].strip()
++            uncert = uncert[:-1].strip()
+ 
+         try:
+             # Simple form 1234.45+/-1.2 or 1234.45±1.2, or 1.23e-10+/-1e-23
+             # or -1.2×10⁻¹²±1e23:
+-            parsed_value = (to_float(nom_value) * factor, to_float(uncert) * factor)
++            nom_value_float = to_float(nom_value)
++            if uncert.endswith("%"):
++                # Percentage uncertainty, e.g. 23 ± 13%:
++                percent = to_float(uncert[:-1].strip())
++                uncert_float = abs(nom_value_float) * percent / 100.0
++            else:
++                uncert_float = to_float(uncert)
++            parsed_value = (nom_value_float * factor, uncert_float * factor)
+         except ValueError:
+             raise ValueError(cannot_parse_ufloat_msg_pat % representation)
+ 

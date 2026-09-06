@@ -1,0 +1,2 @@
+2026-09-06T12:42:00Z PREFLIGHT runner probe (not agent traffic)
+2026-09-06T12:42:00.068Z ALLOW CONNECT api.anthropic.com:443

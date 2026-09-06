@@ -1,0 +1,15 @@
+diff --git a/multimethod/__init__.py b/multimethod/__init__.py
+index 346251b..236213a 100644
+--- a/multimethod/__init__.py
++++ b/multimethod/__init__.py
+@@ -254,6 +254,10 @@ class signature(tuple):
+         """Return whether all arguments are instances."""
+         return self.required <= len(args) and all(map(isinstance, args, self))
+ 
++    def subtypes(self, *types) -> bool:
++        """Return whether all types are subtypes."""
++        return self.required <= len(types) and all(map(issubclass, types, self))
++
+ 
+ REGISTERED = TypeVar("REGISTERED", bound=Callable[..., Any])
+ 

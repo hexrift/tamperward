@@ -1,0 +1,5 @@
+warning: unable to access '/home/runner/.config/git/attributes': Permission denied
+warning: unable to access '/home/runner/.config/git/ignore': Permission denied
+warning: unable to access '/home/runner/.config/git/ignore': Permission denied
+tamperward run: working tree is dirty before the agent starts — the envelope cannot
+attribute changes. Commit or stash first, or pass --allow-dirty to own the risk.

@@ -1,0 +1,36 @@
+diff --git a/policy_sentry/querying/actions.py b/policy_sentry/querying/actions.py
+index 15dd5c2..f0e1f38 100644
+--- a/policy_sentry/querying/actions.py
++++ b/policy_sentry/querying/actions.py
+@@ -109,21 +109,24 @@ def create_action_data_entries(
+     """
+ 
+     results = []
+-    condition_keys = []
+-    dependent_actions = []
++    # The "" resource type represents conditions/dependent actions that apply
++    # regardless of which specific resource type the action is used against.
++    base_entry = action_data["resource_types"].get("", {})
++    base_condition_keys = base_entry.get("condition_keys") or []
++    base_dependent_actions = base_entry.get("dependent_actions") or []
+     for resource_type, resource_type_entry in action_data["resource_types"].items():
+         # Set default value for if no other matches are found
+         resource_arn_format = "*"
+-        # Get the dependent actions
+-        resource_dependent_actions = resource_type_entry["dependent_actions"]
+-        if resource_dependent_actions:
+-            dependent_actions.extend(resource_dependent_actions)
++        condition_keys = list(resource_type_entry.get("condition_keys") or [])
++        dependent_actions = list(resource_type_entry["dependent_actions"] or [])
+         # Get the condition keys
+         if resource_type:
+             service_resource_data = service_prefix_data["resources"].get(resource_type)
+             if service_resource_data:
+                 resource_arn_format = service_resource_data.get("arn", "*")
+-                condition_keys = service_resource_data.get("condition_keys")
++                condition_keys = list(service_resource_data.get("condition_keys") or [])
++            condition_keys += base_condition_keys
++            dependent_actions += base_dependent_actions
+ 
+         temp_dict = {
+             "action": f"{service_prefix_data['prefix']}:{action_name}",

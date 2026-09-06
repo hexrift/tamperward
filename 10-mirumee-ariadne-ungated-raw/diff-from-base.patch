@@ -1,0 +1,47 @@
+diff --git a/ariadne/graphql.py b/ariadne/graphql.py
+index 82544f4..ad30f72 100644
+--- a/ariadne/graphql.py
++++ b/ariadne/graphql.py
+@@ -567,7 +567,12 @@ def handle_query_result(
+         if result.errors:
+             extension_manager.has_errors(result.errors)
+         add_extensions_to_response(extension_manager, response)
+-    return not result.errors, response
++
++    # Errors raised before execution started (eg. variable coercion errors)
++    # leave `data` unset, unlike execution errors which still produce a
++    # (possibly partial) `data` result and should be reported as successful.
++    success = not result.errors or result.data is not None
++    return success, response
+ 
+ 
+ def handle_graphql_errors(
+diff --git a/tests/asgi/__snapshots__/test_query_execution.ambr b/tests/asgi/__snapshots__/test_query_execution.ambr
+index 1bb7d36..ae440e0 100644
+--- a/tests/asgi/__snapshots__/test_query_execution.ambr
++++ b/tests/asgi/__snapshots__/test_query_execution.ambr
+@@ -138,3 +138,24 @@
+     }),
+   })
+ # ---
++# name: test_query_with_execution_errors_returns_200_status_code
++  dict({
++    'data': dict({
++      'testError': None,
++    }),
++    'errors': list([
++      dict({
++        'locations': list([
++          dict({
++            'column': 3,
++            'line': 1,
++          }),
++        ]),
++        'message': 'Test exception',
++        'path': list([
++          'testError',
++        ]),
++      }),
++    ]),
++  })
++# ---

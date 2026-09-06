@@ -1,0 +1,13 @@
+diff --git a/test_shapefile.py b/test_shapefile.py
+index d90843e..ac9f746 100644
+--- a/test_shapefile.py
++++ b/test_shapefile.py
+@@ -1540,7 +1540,7 @@ def test_reader_zip_polyylinez_no_m_itershaperecords():
+     Original source:  https://github.com/OpenNHM/AvaFrameData/blob/main/avaPopeletzbach/
+     License CC-BY-4.0
+     """
+-    with shapefile.Reader("shapefiles/REL.zip/REL/releaseArea20090407") as sf:
++    with shapefile.Reader("shapefiles/test/REL.zip/REL/releaseArea20090407") as sf:
+         for _shaperec in sf.iterShapeRecords():
+             pass
+ 
