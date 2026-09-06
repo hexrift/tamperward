@@ -1171,4 +1171,22 @@ else
   no "liveness primitive: uv unavailable"
 fi
 
+echo "== smoke4 A3 pin is DERIVED from the active registration, never hardcoded (regression) =="
+# The smoke path silently drifted to iteration 1's 2.10.2 pin after the treatment
+# moved, because A3 compared against a literal sha. Guard both directions: no literal
+# treatment sha, and the derivation reads the registration (or TB_ART_SHA).
+if grep -qE '\.artefact_pkg_sha256\) = "[0-9a-f]{64}"' ../runner/smoke4.sh; then
+  no "smoke4 A3 compares against a hardcoded artefact sha — it will drift from the registration"
+else
+  ok "smoke4 A3 does not compare against a hardcoded artefact sha"
+fi
+grep -q 'PILOT-REGISTRATION.json' ../runner/smoke4.sh && grep -q 'EXPECTED_PIN' ../runner/smoke4.sh \
+  && ok "smoke4 derives the A3 pin from the registration / TB_ART_SHA" \
+  || no "smoke4 no longer derives the A3 pin from the active registration"
+# and the derivation actually resolves the CURRENT registered treatment
+DERIVED=$(jq -r '(.active_iteration // ([.iterations[].iteration]|max)) as $a | .iterations[]|select(.iteration==$a)|.treatment_artefact_sha256' PILOT-REGISTRATION.json 2>/dev/null)
+[ -n "$DERIVED" ] && [ "$DERIVED" != null ] \
+  && ok "the registration resolves a current treatment pin ($DERIVED)" \
+  || no "could not derive a treatment pin from the registration"
+
 echo; echo "passed $pass, failed $fail"; [ "$fail" = 0 ]

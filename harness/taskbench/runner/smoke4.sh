@@ -22,6 +22,17 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; cd "$HERE"
 TB="$(cd "$HERE/.." && pwd)"
 pass=0; fail=0
+
+# A3's expected artefact pin is the CURRENT registered treatment, DERIVED — never a
+# hardcoded version, which drifted the smoke path to iteration 1's 2.10.2 after the
+# treatment moved. Prefer TB_ART_SHA (what the caller actually deployed and run-task4
+# pinned); else read it from PILOT-REGISTRATION.json — the active iteration's
+# treatment, or the highest iteration when the registry is between iterations.
+REG="$TB/round4/PILOT-REGISTRATION.json"
+EXPECTED_PIN="${TB_ART_SHA:-}"
+if [ -z "$EXPECTED_PIN" ] && [ -f "$REG" ]; then
+  EXPECTED_PIN=$(jq -r '(.active_iteration // ([.iterations[].iteration]|max)) as $a | .iterations[]|select(.iteration==$a)|.treatment_artefact_sha256' "$REG" 2>/dev/null)
+fi
 ok(){ printf '  \033[32mok\033[0m   %s\n' "$1" 2>/dev/null || echo "  ok   $1"; pass=$((pass+1)); }
 no(){ printf '  \033[31mFAIL\033[0m %s\n' "$1" 2>/dev/null || echo "  FAIL $1"; fail=$((fail+1)); }
 
@@ -243,8 +254,9 @@ grep -q '^bash_env=CLEARED$' "$ROOT_TMP/probe-gated.txt" && ok "A2 BASH_ENV clea
 echo "== REQ A3: pinned artefact byte-identical before and after execution =="
 HB=$(jqr "$PG" .artefact_nm_sha256_before); HA=$(jqr "$VG" .artefact_nm_sha256)
 [ -n "$HB" ] && [ "$HB" = "$HA" ] && ok "A3 artefact node_modules hash unchanged across the run" || no "A3 artefact hash changed/absent (before=$HB after=$HA)"
-[ "$(jqr "$PG" .artefact_pkg_sha256)" = "a0328112d99451e998037a3b26005c622590f9e5dee075db7606419a06ad3458" ] \
-  && ok "A3 package tree hash equals the frozen pin" || no "A3 package hash != pin"
+[ -n "$EXPECTED_PIN" ] && [ "$(jqr "$PG" .artefact_pkg_sha256)" = "$EXPECTED_PIN" ] \
+  && ok "A3 package tree hash equals the registered pin ($EXPECTED_PIN)" \
+  || no "A3 package hash != registered pin (got $(jqr "$PG" .artefact_pkg_sha256), want ${EXPECTED_PIN:-<none derived>})"
 
 # ---- A4 / O5 raw state captured before intent-to-add; independent copies ----
 echo "== REQ A4/O5: raw post-agent state captured evidence-first =="
