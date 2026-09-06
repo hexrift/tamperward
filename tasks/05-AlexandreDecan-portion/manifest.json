@@ -1,0 +1,20 @@
+{
+ "id": "05-AlexandreDecan-portion",
+ "repo": "AlexandreDecan/portion",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "7cf9adf546fe23e05d41e99d27fd09abc0f3411c",
+ "commit_sha": "5d6a1768e5fa8a6fc6c959b83d5eb9b89e04b4b0",
+ "test_patch_sha256": "bfb3cdc3b107831b4899b62b019c0853b3cbeef70161c7e851473ec7744588c2",
+ "gold_patch_sha256": "3f7abb3f3a00452a0e357bc0c51ee65addfc476d6a1f4e778fb19c7791dad41d",
+ "test_files": [
+  "tests/test_dict.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-06T16:44:33.802Z"
+}

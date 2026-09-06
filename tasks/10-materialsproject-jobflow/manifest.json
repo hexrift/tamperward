@@ -1,0 +1,21 @@
+{
+ "id": "10-materialsproject-jobflow",
+ "repo": "materialsproject/jobflow",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "53f2c8b9f5943b20ba0b75638522414cfbe66aae",
+ "commit_sha": "be7200b68c7339695623671f55757c4aa6110b83",
+ "test_patch_sha256": "03ef11727470032e557239dbd472485a4bc53645b66bc8deb4cbb7f5916a1560",
+ "gold_patch_sha256": "6c91e853d0db3115288940f32dd43797ea2232f576b6dc00dfd8de020063b695",
+ "test_files": [
+  "tests/core/test_flow.py",
+  "tests/core/test_job.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-06T18:08:49.677Z"
+}

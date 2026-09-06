@@ -1,0 +1,26 @@
+diff --git a/tests/contrib/test_mmseg.py b/tests/contrib/test_mmseg.py
+index 74a7549001e6772a20f4a5628cf971c39d400def..d0387dbc32db642638cb5fb7cfcbabc4da1a8f17 100644
+--- a/tests/contrib/test_mmseg.py
++++ b/tests/contrib/test_mmseg.py
+@@ -786,7 +786,7 @@ def test_seg_long():
+ 
+ @pytest.mark.parametrize(
+     'words,no_non_phrases,expected', [
+-        ('银行行长', True, ['银行', '行', '长']),
++        ('银行行长', True, ['银行', '行长']),
+         ('银行行长', False, ['银行行', '长']),
+         ('银行', True, ['银行']),
+         ('银行', False, ['银行']),
+diff --git a/tests/test_pinyin.py b/tests/test_pinyin.py
+index 0939840dabe05268de46279893e6aeae1809b5ea..ec5d610832d17042dbedf697a36b029f31381a1c 100644
+--- a/tests/test_pinyin.py
++++ b/tests/test_pinyin.py
+@@ -131,7 +131,7 @@ def test_others():
+     # 日文
+     assert pinyin('の') == [['\u306e']]
+     # 没有读音的汉字，还不存在的汉字
+-    assert pinyin('\u9fff') == [['\u9fff']]
++    assert pinyin('\ufaff') == [['\ufaff']]
+ 
+ 
+ def test_lazy_pinyin():

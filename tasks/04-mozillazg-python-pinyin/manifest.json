@@ -1,0 +1,21 @@
+{
+ "id": "04-mozillazg-python-pinyin",
+ "repo": "mozillazg/python-pinyin",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "2b19fe51338930332028c598d7cd9f28b22c3d1c",
+ "commit_sha": "88a0102e986886fa623e923c61d6705ffac4baa6",
+ "test_patch_sha256": "0eeb7be509ac8de8ad64025929f805d485bf42dac21dee25e78499a39470293e",
+ "gold_patch_sha256": "a2f81a45c742ca33a7f8c3443b33066825278e411abe3b0e856671db3c93a56f",
+ "test_files": [
+  "tests/contrib/test_mmseg.py",
+  "tests/test_pinyin.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements_dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-06T16:13:16.081Z"
+}

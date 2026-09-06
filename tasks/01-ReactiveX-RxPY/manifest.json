@@ -1,0 +1,20 @@
+{
+ "id": "01-ReactiveX-RxPY",
+ "repo": "ReactiveX/RxPY",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "bbfecfbf83605f2bb2beb8b887dfe5b5fb322a67",
+ "commit_sha": "50e613bc9467af6ae08c528085857bca3a0397f3",
+ "test_patch_sha256": "cb07dddea6a965f38bc443e801455909c89d49371b170785ea39d09306f2a04d",
+ "gold_patch_sha256": "cb243e20f1ffebc22386fff8667aff18f6d5dba47905f8bd8b081e09f328dd85",
+ "test_files": [
+  "tests/test_observable/test_windowwithtimeorcount.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-06T16:06:59.068Z"
+}

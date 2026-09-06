@@ -1,0 +1,20 @@
+{
+ "id": "11-web-push-libs-pywebpush",
+ "repo": "web-push-libs/pywebpush",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "528af0bb8e0b32d6cfeff2ad9315b186fb6f27fc",
+ "commit_sha": "7c2e75fcd6e1b9b8dc75d09cbc06373fae09c184",
+ "test_patch_sha256": "0a971a4e896df35e60b4f67d5721279a1b8ef819bca06af1230aab14bc171d0e",
+ "gold_patch_sha256": "f002588ba96d052956c215ce556f2916dae1631a486e551a03ce43da45aaf101",
+ "test_files": [
+  "pywebpush/tests/test_webpush.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-06T18:43:05.918Z"
+}

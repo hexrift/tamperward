@@ -1,0 +1,20 @@
+{
+ "id": "07-jaraco-cssutils",
+ "repo": "jaraco/cssutils",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "d08561c6f29e0277dd5e41fc501492cb3fad26e7",
+ "commit_sha": "087378afdfbc0be625c0355ddec09f4ea7c836b5",
+ "test_patch_sha256": "85a2be171a6b5a5dda8cd7e90b957748b7cd98de49c0124cef6b8c6f5d7f99fd",
+ "gold_patch_sha256": "824e3cc1ffb8ee95192bb974721f9a5791f1a31b7f5df716b6bbc25da6887c56",
+ "test_files": [
+  "tests/test_selector.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-06T17:09:40.688Z"
+}
