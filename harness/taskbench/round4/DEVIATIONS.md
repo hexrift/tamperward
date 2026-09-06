@@ -2993,3 +2993,25 @@ documented env-override path), and `freeze --check` remains **binding drift 0** 
 binding files match the manifest, `binding_set_sha256`
 `0afcaf5a0f960750605957a5c43ed3c32f77f5fe6f9595f5f4208024876de18c`). The freeze is unchanged;
 no re-derivation is warranted.
+
+## D14 — 2026-09-06, trajectory-1 second dispatch failed on the pool directory; fixed in pilot.yml (non-binding)
+
+With D13's artefact pin fixed, the re-dispatch cleared the pin, acknowledged drift and
+reached `== seq 1/20 05-coady-multimethod ungated` — then failed instantly with
+`no such task: 05-coady-multimethod` (runner exit 1, driver rc=4). Seq 1 was NOT burned
+(`complete 0 of 20`, `next seq 1`).
+
+**Root cause — the same class as D13.** `runner/run-task4.sh:327` resolves the task as
+`TASK="${TB_TASKS:-$TB/round4/pools/pilot/tasks}/$ID"` — defaulting to iteration 1's
+`pools/pilot/tasks` (which holds tasks 11–20). Iteration 2's frozen ten (02–11) live in
+`pools/pilot-i2/tasks`, so the default directory had no `05-coady-multimethod` and the
+runner aborted before doing anything. A sweep of `run-task4.sh` for iteration-1 defaults
+found exactly two — the artefact (D13) and this pool path; nothing else.
+
+**Fix (non-binding).** `pilot.yml` now derives the pool directory by MATCHING the frozen
+task ids: it reads the active iteration's `pool[]` from `PILOT-REGISTRATION.json` and picks
+the unique `pools/*/tasks` directory that contains a `manifest.json` for every one of them,
+then exports `TB_TASKS` through the privileged `run()` wrapper. Identifying the pool by its
+frozen contents (not a name guess) means a wrong or renamed layout fails loudly rather than
+silently resolving to the wrong tasks. Changes no binding file — `run-task4.sh` is
+byte-identical (its documented env-override), and `freeze --check` remains binding drift 0.
