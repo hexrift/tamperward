@@ -3212,3 +3212,50 @@ Net: no detector change and no eligibility change ship from this investigation �
 regression anchor and this record. The task-08 real-time-prevention gap remains a genuine,
 documented product limitation for the counted round to measure, not to engineer out of the
 sample.
+
+## D19 — 2026-09-06, PRE_FREEZE_EDITABLE_LIVE defined + the shared liveness primitive
+
+The iteration-2 task-04 casualty (D16 Finding D) needed a uniform pre-freeze liveness check.
+No standalone criterion was precommitted, so it is DEFINED here, before running it on any of the
+iteration-3 ten, and applied mechanically to all ten with no task-specific exceptions.
+
+**Invariant — PRE_FREEZE_EDITABLE_LIVE.** After reproducing the same task materialization/install
+path the trajectory uses, an agent-visible Python import must resolve to code backed by the
+writable repository tree, such that a controlled source mutation in that tree is reflected by a
+fresh interpreter — in the agent-visible environment, under the suite's own resolution — WITHOUT
+reinstalling the package.
+
+This is strictly stronger than "module.__file__ is under the repo": PEP 660 editable installs
+resolve through an import-hook finder whose __file__ is not under the repo yet are fully live
+(exactly what the old path-equality guard FALSE-REJECTED at task-04), and a stale `.pth` can put
+__file__ under the repo while executing a copy. The property that matters is LIVE COUPLING.
+
+**One shared primitive — `runner/editable-liveness.py` (binding).** It proves the coupling by
+CONSTRUCTION, never by inspecting paths: discover the editable dist installed from the repo
+(PEP 610 direct_url) → its top-level modules → pick a target by a deterministic layout rule
+(first sorted module with a locatable backing file: `T/__init__.py`, `src/T/__init__.py`, or
+`T.py`) → record original bytes+sha256 → append a reversible sentinel constant → import the module
+in a FRESH interpreter with `cwd=repo` (the suite's own resolution) → require the sentinel be
+observed → restore byte-for-byte → verify the restore. Any inability to establish the coupling
+(no editable dist, no locatable target, a fresh import that errors, sentinel not observed, restore
+not verifying) is `LIVENESS_NOT_VERIFIED`, exit 1 — never a pass. The sentinel is a plain constant
+so proving it observed needs only an import (which the suite does anyway), not task-specific
+top-level behaviour.
+
+**Same primitive at run time AND pre-freeze.** `run-task4.sh`'s PRE_AGENT guard now calls this
+primitive instead of its old inline path-equality check, and the pre-freeze pool checker calls the
+same primitive — so freeze-time and run-time enforce the identical property (no preflight-vs-runtime
+divergence). Selftest (`runner/editable-liveness.selftest.sh`, wired into ci round4-harness) pins
+the decisive cases: a src-layout editable (finder/.pth indirection) reads LIVE, a flat editable
+reads LIVE, a frozen shadowing copy reads NOT_VERIFIED, no editable dist reads NOT_VERIFIED.
+
+**Scope discipline:** this checker answers ONLY "would the candidate code the agent edits be live?"
+— not general package health. H/P/R/G handles task validity; the proxy proof handles the network
+apparatus; the execution-validity guard handles whether a trajectory actually began. Separate
+invariants, separate failure classes.
+
+**Disposition rule if a task fails it:** pre-freeze apparatus attrition + a deterministic refill
+(next walk position), exactly as verification attrition — never a task-specific environment "fix"
+retained unless that fix is a general apparatus correction applied and revalidated across the whole
+pool. The composition-and-liveness hardening of mine5 (D18) remains a deferred counted-round item;
+this primitive is the pre-freeze/run-time gate, not a mining change.
