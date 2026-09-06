@@ -1,0 +1,78 @@
+diff --git a/docs/index.rst b/docs/index.rst
+index 4f915e0e0a4cf7a06d526393f55bbf9c4d2b8df3..c74762ebbeb6f111f58770ea97c9533de6c3a86b 100644
+--- a/docs/index.rst
++++ b/docs/index.rst
+@@ -40,6 +40,12 @@ using a proper processing function.
+    each of the item's values will be stored as-is if it's already
+    an iterable, or wrapped with a list if it's a single value.
+ 
++   .. versionchanged:: VERSION
++      An Item Loader that instantiates the item itself starts with no
++      collected data. The field defaults of the item class still reach the
++      loaded item, but only for fields that get no data, and without going
++      through :ref:`processors <processors>`.
++
+ Here is a typical Item Loader usage::
+ 
+     from itemloaders import ItemLoader
+diff --git a/docs/release-notes.rst b/docs/release-notes.rst
+index a47563ee2cc4e1aab19bfa83388542c2f9201018..3be81d73b6ba507f94dd5ef3553edd7699e9a6a0 100644
+--- a/docs/release-notes.rst
++++ b/docs/release-notes.rst
+@@ -5,6 +5,16 @@
+ Release notes
+ =============
+ 
++.. _release-VERSION:
++
++itemloaders VERSION (unreleased)
++--------------------------------
++
++-   **Backward-incompatible change**, which should determine the version
++    number of this release: when an Item Loader instantiates the item itself,
++    the field defaults of that item are no longer treated as collected data
++    (:gh:`117`)
++
+ .. _release-1.4.0:
+ 
+ itemloaders 1.4.0 (2026-01-29)
+diff --git a/itemloaders/__init__.py b/itemloaders/__init__.py
+index 7c926789d176ddd8127741f026dff70e5014b3b0..3d1e8f4d08e1e8fc21cb67c7be93249df6e5e696 100644
+--- a/itemloaders/__init__.py
++++ b/itemloaders/__init__.py
+@@ -82,6 +82,10 @@ class ItemLoader:
+         An Item class (or factory), used to instantiate items when not given in
+         the ``__init__`` method.
+ 
++        .. versionchanged:: VERSION
++            The field defaults of an item instantiated this way are no longer
++            treated as loaded values.
++
+         .. warning:: Currently, this factory/class needs to be
+             callable/instantiated without any arguments.
+             If you are using ``dataclasses``, please consider the following
+@@ -131,6 +135,9 @@ class ItemLoader:
+             stats if stats is not None or parent is None else parent.stats
+         )
+         context.update(selector=selector)
++        # An item built here has no data, only the field defaults of its class,
++        # which must not be mistaken for loaded values.
++        has_initial_values = item is not None
+         if item is None:
+             item = self.default_item_class()
+         self._local_item = item
+@@ -138,10 +145,10 @@ class ItemLoader:
+         self.context: MutableMapping[str, Any] = context
+         self.parent: ItemLoader | None = parent
+         self._local_values: dict[str, list[Any]] = {}
+-        # values from initial item
+-        for field_name, value in ItemAdapter(item).items():
+-            self._values.setdefault(field_name, [])
+-            self._values[field_name] += arg_to_iter(value)
++        if has_initial_values:
++            for field_name, value in ItemAdapter(item).items():
++                self._values.setdefault(field_name, [])
++                self._values[field_name] += arg_to_iter(value)
+ 
+     @property
+     def _values(self) -> dict[str, list[Any]]:

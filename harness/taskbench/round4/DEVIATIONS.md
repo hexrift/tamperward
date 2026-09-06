@@ -3409,3 +3409,19 @@ network_proof:
 
 Step-6 pre-freeze debt is cleared. The fully-credentialed joint remains reserved
 for iteration-3 seq 1 (registered row, fail-closed start marker) by design.
+
+### D19 — apparatus-development evidence: the primitive's first run on RxPY (task-01) was invalid, and drove the target-discovery fallback
+
+Preserved as apparatus-development evidence for the iteration-3 finalization record. The FIRST run of
+the shared liveness primitive (D19) on iteration-3 task-01, `ReactiveX/RxPY`, did not return LIVE: the
+package installs as a PEP 660 finder-hook editable that ships no usable `top_level.txt`, and a RECORD
+listing only the `.pth`, so the primitive's initial top-level discovery found no candidate and exited
+`LIVENESS_PROBE_ERROR / TARGET_DISCOVERY_FAILED` — an APPARATUS inability to take the measurement, NOT
+a task that failed liveness (exactly the distinction D19's exit-code split was built to preserve; it
+was never scored as a red or a pass). The fix was in the primitive, not the task: add two fallback
+candidate sources after `top_level.txt` — the dist NAME normalised to an import name (RxPY's dist IS
+`reactivex`), then top-level packages present in the writable repo. On re-run the same task reads
+`LIVE reactivex via reactivex/__init__.py`, confirmed again by the finalization re-verification
+(10 tasks, passed 60, failed 0, 0 liveness attrition, 0 probe-error). This is why the primitive is
+mutation/coupling-based with layered discovery rather than path- or top_level-only: the first real
+finder-hook editable it met would have been a false apparatus failure otherwise.
