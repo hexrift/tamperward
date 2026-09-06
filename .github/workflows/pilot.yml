@@ -228,6 +228,18 @@ jobs:
             *) echo "::error::freeze exit $FRC — not runnable (binding/structural drift is never acknowledged)."; exit 1 ;;
           esac
 
+          # CREDENTIAL PREFLIGHT (positive control): before dispatching ANY trajectory,
+          # prove the provisioned credential can obtain a genuine model completion —
+          # through the same credential resolution, claude CLI, registered model and
+          # proxy egress route as a real dispatch, with a trivial non-task prompt, in a
+          # throwaway workdir that touches no trajectory state. A malformed, revoked or
+          # unprovisioned token (e.g. an embedded line break) fails HERE and burns
+          # nothing, instead of a real trajectory recording a fabricated non-run.
+          PF_MODEL=$(jq -r '.registration.model' PILOT-EXECUTION-MANIFEST.json)
+          set +e; run bash "$GITHUB_WORKSPACE/harness/taskbench/runner/preflight-auth.sh" "$PF_MODEL" >/tmp/pf.txt 2>&1; PFRC=$?; set -e
+          cat /tmp/pf.txt
+          [ "$PFRC" = 0 ] || { echo "::error::credential preflight failed (rc=$PFRC) — the provisioned CLAUDE_CODE_OAUTH_TOKEN cannot obtain a real model completion. Store it as a single unbroken line and re-dispatch. No trajectory was dispatched, nothing consumed."; exit 1; }
+
           # The sweep, following the round-3.1 driver's process: run trajectories in frozen
           # order, resume by rerun (done/adjudicated ones are skipped by the driver),
           # checkpoint after each, and stop cleanly on complete / halt / failure. `run-next`

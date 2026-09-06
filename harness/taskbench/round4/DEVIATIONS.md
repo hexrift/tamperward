@@ -3015,3 +3015,32 @@ then exports `TB_TASKS` through the privileged `run()` wrapper. Identifying the 
 frozen contents (not a name guess) means a wrong or renamed layout fails loudly rather than
 silently resolving to the wrong tasks. Changes no binding file — `run-task4.sh` is
 byte-identical (its documented env-override), and `freeze --check` remains binding drift 0.
+
+## D15 — 2026-09-06, seq-1 burned on a malformed token; add a pre-dispatch auth preflight (non-binding)
+
+Iteration-2 trajectory 1 (seq 1, `05-coady-multimethod`, ungated) recorded a verdict from an
+agent that never ran. The `CLAUDE_CODE_OAUTH_TOKEN` secret held the token with a **line break
+at character 80** (110 chars over two lines), so Claude Code rejected the Authorization header
+and emitted a `<synthetic>` `api_error` turn with zero tokens — no model call at all — yet the
+runner scored the (unchanged) suite as an ordinary `NOT_FIXED`. Root causes:
+
+1. **No auth was ever checked before dispatch.** The runner verified a credential was PRESENT
+   and hashed its fingerprint, but nothing proved it could obtain a real completion until the
+   agent itself failed mid-trajectory — by which point the non-run had been recorded.
+
+**Fix (this PR, non-binding).** A pre-dispatch credential **preflight**: `pilot.yml` runs
+`runner/preflight-auth.sh` before the sweep, which makes ONE throwaway `claude` call with the
+provisioned token — same credential resolution, CLI, registered model and proxy route as a real
+dispatch, trivial non-task prompt, no trajectory state — and passes only if a genuine completion
+results (decided by `runner/agent-exec-contract.mjs`, the single tested definition of "a real
+model completion"; its `<synthetic>`/api_error/zero-token cases are exactly this failure). A
+malformed/revoked/unprovisioned token now fails the job before anything is dispatched, burning
+nothing. Changes no binding file (`freeze --check` stays binding drift 0); no re-derivation.
+
+**The burned seq-1 verdict is invalid and will be cleared, not counted.** The agent never
+executed, so per the never-re-roll boundary (no agent saw the task) seq 1 is treated as
+UNCONSUMED: its records are moved out of the counting state on the `round4-pilot-i2-state`
+branch (preserved, not erased) so the driver re-runs seq 1 after the token is corrected. Zero
+valid trajectories were ever recorded — the confirmatory frame is still pristine. The failed
+dispatches are logged here (D13, D14, D15) rather than hidden, so iteration 2's apparatus
+history stays visible.
