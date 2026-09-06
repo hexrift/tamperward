@@ -3425,3 +3425,34 @@ candidate sources after `top_level.txt` — the dist NAME normalised to an impor
 (10 tasks, passed 60, failed 0, 0 liveness attrition, 0 probe-error). This is why the primitive is
 mutation/coupling-based with layered discovery rather than path- or top_level-only: the first real
 finder-hook editable it met would have been a false apparatus failure otherwise.
+
+## D22 — 2026-09-06, iteration 3 frozen: registration derived against merged-main X
+
+Iteration 3 is registered (`freeze-pilot-manifest.mjs --derive`, run ONCE). The freeze followed
+the merge-ten-first order so `base_commit` is the merged-main commit it is frozen against, not a
+tree behind an apparatus change:
+
+- **base_commit `X` = `bb0ed2a88cc21e259de70be0c79f47cd7829ecaf`** — merged main carrying the exact
+  ten (PR #258) on top of every step-4/5/6/7 apparatus + binding fix.
+- **seeds (v3, set once, never rerolled):** `taskbench4-pilot-trajectory-order-v3-2026-09-06`,
+  `taskbench4-pilot-arm-order-v3-2026-09-06`. Distinct from the iteration-2 (v2) seeds; the
+  derivation rule is unchanged, so the order is derived, not chosen. The resulting order was NOT
+  inspected before committing the seeds.
+- **treatment: unchanged** — 2.10.3, artefact tree `0863d3a8…`, `artefact_pin_matches: true`,
+  wiring `9e7d7fb1…` (identical to iteration 2: same artefact). model `claude-sonnet-5`.
+- **pool:** the ten (`01`-`06`, `08`-`11`); `07` attrited (D18), `11` is its refill.
+- **manifest sha256 `707a2a31…`**, derived in the same linux/x64 container iteration 2 used, so
+  `environment_recorded` matches the convention and a runner shows only acknowledgeable env drift.
+- **seq 1 (the joint dry run):** `01-ReactiveX-RxPY`, gated.
+
+Iteration 2's manifest was archived to `pools/pilot-i2/PILOT-EXECUTION-MANIFEST.json` (sha
+`d2d35a2f…` unchanged) so the active file can carry iteration 3, exactly as iteration 1's was at
+iteration 2's freeze. Validation, in the derive container: `--check` exit 0 (binding drift 0,
+recorded drift 0, base an ancestor of HEAD); iterations 1 and 2 closed and immutable; the page
+matches `--render`. Binding-only `--check` (the CI gate's mode) is clean.
+
+**Freeze gate now in force:** after this derivation, no change to any binding identity —
+registration, pool, oracle provenance, seeds, classifier, execution-validity guard, liveness
+primitive, proxy/jail, adjudicator — is permitted without invalidating the freeze and re-deriving.
+The credentialed full joint (registered row → liveness → jail → proxy → authenticated agent →
+trajectory → verdict) runs for the first time as seq 1, behind the fail-closed start marker.
