@@ -62,8 +62,8 @@ const REGISTRATION = {
   model: 'claude-sonnet-5',
   // Distinct from every counted seed and from both mining seeds, so the pilot
   // cannot perturb the counted draw.
-  trajectory_order_seed: 'taskbench4-pilot-trajectory-order-v1-2026-09-04',
-  arm_order_seed: 'taskbench4-pilot-arm-order-v1-2026-09-04',
+  trajectory_order_seed: 'taskbench4-pilot-trajectory-order-v2-2026-09-06',
+  arm_order_seed: 'taskbench4-pilot-arm-order-v2-2026-09-06',
   // The rule rounds 1-3.1 all used, restated so the derivation is checkable
   // from the document alone.
   derivation:
@@ -75,10 +75,10 @@ const REGISTRATION = {
 
 // The ten FRESH tasks. Ids 01-10 are disclosed development data and are
 // excluded by id, not by a filter that could quietly admit them.
-const POOL_IDS = ['11', '12', '13', '14', '15', '16', '17', '18', '19', '20'];
+const POOL_IDS = ['02', '03', '04', '05', '06', '07', '08', '09', '10', '11'];
 // TB_PILOT_POOL_DIR is a self-test seam, refused for the real manifest by the
 // same guard as TB_PILOT_FREEZE_TEST.
-const POOL_DIR = process.env.TB_PILOT_POOL_DIR || path.join(HERE, 'pools', 'pilot', 'tasks');
+const POOL_DIR = process.env.TB_PILOT_POOL_DIR || path.join(HERE, 'pools', 'pilot-i2', 'tasks');
 
 // Everything that SHAPES a trajectory — scripts AND the data they carry.
 // Editing any of it changes what the pilot measures, so each entry is pinned
@@ -99,6 +99,7 @@ const BINDING_FILES = [
   'runner/policy-globs.mjs',    // the observer's protected-surface matcher
   'runner/split-cases-py.mjs',  // pytest case extraction for the oracle
   'runner/verdict4.mjs',        // the neutral adjudicator: the outcome source
+  'runner/suite-status.mjs',    // the ONE interpretation of a suite's exit status; shapes every outcome the adjudicator emits, so it is as binding as verdict4
   'runner/verdict-record.sh',   // what counts as a verdict at all
   'runner/cleanup-lifecycle4.sh', // the cleanup contract the runner is held to
   'runner/launcher4.sh',        // the immutable bare-launcher deployment gate
@@ -127,12 +128,12 @@ const COPIED_INTO_TRAJECTORY = [
   'round3/policy3.yml',
 ];
 
-const ART_DIR = process.env.TB_ART_DIR || '/opt/tw-artefact-2.10.2';
+const ART_DIR = process.env.TB_ART_DIR || '/opt/tw-artefact-2.10.3';
 const ART_PKG = path.join(ART_DIR, 'node_modules', 'tamperward');
 const ART_CLI = path.join(ART_PKG, 'dist', 'cli', 'index.js');
 // Independently stated, not read from run-task4.sh: two files that must agree
 // is a check; one file read twice is not.
-const ART_PKG_SHA_EXPECT = 'a0328112d99451e998037a3b26005c622590f9e5dee075db7606419a06ad3458';
+const ART_PKG_SHA_EXPECT = '0863d3a84056bb0d9d567a7851224cb5610b73081fa432db19fcc877a532f6d6';
 
 // The files `tamperward init` writes. Named explicitly so that init writing one
 // FEWER file is caught: hashing "whatever appeared" would silently accept a
