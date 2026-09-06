@@ -63,6 +63,13 @@ jobs:
     # well under this ceiling; anything unfinished is resumed by re-dispatching sweep.
     # 350 stays under GitHub's 6 h hard cap while leaving that headroom.
     timeout-minutes: 350
+    env:
+      # Iteration-2 execution records go to their OWN state branch, so iteration-1
+      # runs (on round4-pilot-state) and iteration-2 runs never mix. This is
+      # ISOLATION PLUMBING — the checkpoint target read by ci-pilot-state.sh; it is
+      # NOT in the frozen binding set and touches no treatment, driver, runner or
+      # adjudicator. Update it when a new iteration is armed.
+      TB_PILOT_STATE_BRANCH: round4-pilot-i2-state
     steps:
       - uses: actions/checkout@v5
         with:
@@ -134,6 +141,13 @@ jobs:
             *) sudo ln -sf "$CLAUDE" "$NODE_DIR/claude" 2>/dev/null || ln -sf "$CLAUDE" "$NODE_DIR/claude" ;;
           esac
           echo "agent CLI: $(claude --version 2>&1 | head -1 || true) — reachable at $NODE_DIR/claude"
+          # The iteration-2 freeze recorded claude_cli:null (derived in the mining
+          # container, which has no Claude CLI). The execution path pins 2.1.260, so
+          # the ACTUAL version is captured HERE, into the persisted run record, so the
+          # audit trail establishes what executed (checkpointed to the state branch
+          # with runs-pilot/). Non-binding: pilot.yml is outside the frozen set.
+          RP="$GITHUB_WORKSPACE/harness/taskbench/round4/runs-pilot"; mkdir -p "$RP"
+          printf '%s  %s\n' "$(date -u +%FT%TZ)" "$(claude --version 2>&1 | head -1)" >> "$RP/agent-cli-versions.txt"
 
       - name: Run the pilot (run-next = one trajectory, sweep = the frozen order)
         if: inputs.action != 'check'
