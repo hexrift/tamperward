@@ -1138,43 +1138,37 @@ grep -q 'NO_CREDENTIAL: a registered trajectory needs' ../runner/run-task4.sh \
 awk '/^if \[ -n "\$\{TB_REGISTERED_MODEL:-\}" \]; then$/{f=1} f&&/NO_CREDENTIAL/{print "guarded"; exit}' ../runner/run-task4.sh | grep -q guarded \
   && ok "and the refusal is scoped to registered runs, so the smoke path still works" || no "the credential refusal is not scoped to registered runs"
 
-echo "== run-task4.sh: the editable-install liveness guard fails closed on a copy-import"
-# The trajectory suite runs IN PLACE in $REPODIR and trusts that the agent's edits
-# there are what the suite imports. If a setuptools version resolves the package to a
-# static copy, edits are invisible and the trajectory measures stale code. This guards
-# the EXACT heredoc run-task4.sh uses (extracted, so there is one source of truth), and
-# structurally that run-task4.sh wires it to exit before the agent.
-LV=$(mktemp /tmp/tb-live-XXXX.py)
-awk "/<<'PYLIVE'/{f=1;next} /^PYLIVE\$/{f=0} f" ../runner/run-task4.sh > "$LV"
-[ -s "$LV" ] && grep -q 'NOT_LIVE' "$LV" && ok "the liveness check was extracted from run-task4.sh (one source of truth)" \
-  || no "could not extract the liveness heredoc — the cases below would be vacuous"
-grep -q 'PRE_AGENT_EDITABLE_NOT_LIVE' ../runner/run-task4.sh \
-  && grep -q 'cd "\$W" && "\$VENV/bin/python" - "\$REPODIR" <<.PYLIVE' ../runner/run-task4.sh \
-  && ok "run-task4.sh runs it from \$W (not \$REPODIR) and exits PRE_AGENT_EDITABLE_NOT_LIVE" \
-  || no "run-task4.sh does not wire the liveness guard as a fail-closed preflight"
+echo "== run-task4.sh: the editable-install liveness guard fails closed via the shared primitive"
+# run-task4.sh delegates to runner/editable-liveness.py — the ONE primitive the
+# pre-freeze checker also calls. Assert the wiring is a fail-closed preflight, then
+# exercise the ACTUAL primitive against a uv editable install (the trajectory's
+# install path): a live install passes, a stale-copy shadow (a meta_path finder that
+# wins over cwd) is caught. The layout/mechanism matrix is the primitive's own unit
+# selftest (runner/editable-liveness.selftest.sh); this proves the trajectory boundary.
+grep -q 'editable-liveness.py' ../runner/run-task4.sh \
+  && grep -q 'PRE_AGENT_EDITABLE_NOT_LIVE' ../runner/run-task4.sh \
+  && ok "run-task4.sh wires the shared liveness primitive as a fail-closed preflight" \
+  || no "run-task4.sh does not wire the liveness primitive"
+PRIM="$(cd .. && pwd)/runner/editable-liveness.py"
 if uv --version >/dev/null 2>&1; then
-  LW=$(mktemp -d); LR="$LW/repo"; LVENV="$LW/venv"; mkdir -p "$LR/tests"   # siblings, exactly like run-task4
-  printf '[project]\nname="pfix"\nversion="0.0.1"\n' > "$LR/pyproject.toml"
+  LW=$(mktemp -d); LR="$LW/repo"; LVENV="$LW/venv"; mkdir -p "$LR"
+  printf '[project]\nname="pfix"\nversion="0.0.1"\n[tool.setuptools]\npy-modules=["calc"]\n' > "$LR/pyproject.toml"
   printf 'def add(a,b):\n    return a+b\n' > "$LR/calc.py"
   if uv venv -q -p python3.11 "$LVENV" 2>/dev/null && ( cd "$LR" && uv pip install -q -p "$LVENV/bin/python" -e . 2>/dev/null ); then
-    r=$( cd "$LW" && "$LVENV/bin/python" "$LV" "$LR" >/dev/null 2>&1; echo $? )
-    [ "$r" = 0 ] && ok "a LIVE editable install passes the guard (rc=0) — the positive control" || no "a live install failed the guard (rc=$r)"
+    r=$( "$LVENV/bin/python" "$PRIM" "$LR" >/dev/null 2>&1; echo $? )
+    [ "$r" = 0 ] && ok "a LIVE editable install => rc 0 (positive control)" || no "a live install failed the primitive (rc=$r)"
     SPK=$("$LVENV/bin/python" -c 'import site;print(site.getsitepackages()[0])')
     printf 'def add(a,b):\n    return a-b\n' > "$SPK/_stale_calc.py"
     printf 'import sys, os, importlib.util\n_S=os.path.join(os.path.dirname(__file__),"_stale_calc.py")\nclass _F:\n    def find_spec(self,n,p=None,t=None):\n        return importlib.util.spec_from_file_location("calc",_S) if n=="calc" else None\nsys.meta_path.insert(0,_F())\n' > "$SPK/_shadow_finder.py"
     echo "import _shadow_finder" > "$SPK/shadow.pth"
-    r=$( cd "$LW" && "$LVENV/bin/python" "$LV" "$LR" >/dev/null 2>&1; echo $? )
-    [ "$r" = 1 ] && ok "a COPY-import (stale editable finder) is caught (rc=1) — the CI failure class, at the trajectory boundary" || no "a copy-import was not caught (rc=$r)"
-    # cwd cannot rescue it: even run from inside the repo, the meta_path copy wins
-    r=$( cd "$LR" && "$LVENV/bin/python" "$LV" "$LR" >/dev/null 2>&1; echo $? )
-    [ "$r" = 1 ] && ok "the guard is cwd-robust: a copy is caught even when run from inside the repo" || no "cwd masked the copy (rc=$r)"
+    r=$( "$LVENV/bin/python" "$PRIM" "$LR" >/dev/null 2>&1; echo $? )
+    [ "$r" = 1 ] && ok "a stale-copy shadow (meta_path finder wins over cwd) => NOT_VERIFIED (rc 1)" || no "a shadowed copy was not caught (rc=$r)"
   else
-    no "liveness guard: could not build a venv/editable install (uv/network?)"
+    no "liveness primitive: could not build a uv editable install (uv/network?)"
   fi
   rm -rf "$LW"
 else
-  no "liveness guard: uv unavailable"
+  no "liveness primitive: uv unavailable"
 fi
-rm -f "$LV"
 
 echo; echo "passed $pass, failed $fail"; [ "$fail" = 0 ]
