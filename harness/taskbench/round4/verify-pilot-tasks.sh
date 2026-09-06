@@ -43,7 +43,7 @@ ONLY="${1:-}"
 WORK=$(mktemp -d /tmp/tb-verify-XXXXXX)
 trap 'rm -rf "$WORK"' EXIT
 STEP_TIMEOUT=300
-pass=0; fail=0; skipped=0; seen=0
+pass=0; fail=0; skipped=0; seen=0; livefail=0; liveerror=0
 ok(){ printf '  \033[32mok\033[0m   %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=$((fail+1)); }
 na(){ printf '  \033[33mn/a\033[0m  %s\n' "$1"; skipped=$((skipped+1)); }
@@ -84,6 +84,9 @@ suite_rc() { # <dir> <venv> -> the RAW pytest exit status
 # classifier — a relative $HERE/../runner breaks the moment the script moves.
 SUITE_STATUS="${TB_SUITE_STATUS:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../runner" 2>/dev/null && pwd)/suite-status.mjs}"
 classify() { node "$SUITE_STATUS" --exit "$1" 2>/dev/null | awk '{print $1}'; }
+# The SAME editable-liveness primitive run-task4.sh calls at PRE_AGENT time, so the
+# pre-freeze qualification and the trajectory enforce the identical liveness property.
+LIVENESS="${TB_LIVENESS_PRIM:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../runner" 2>/dev/null && pwd)/editable-liveness.py}"
 
 # Library seam: sourcing with TB_VERIFY_LIB=1 defines the functions and stops,
 # so selftest.sh can assert the exit-code classifier DIRECTLY instead of hoping a
@@ -145,6 +148,25 @@ for T in $(ls "$POOL/tasks" | sort); do
     || { na "$T parent $parent not checkoutable — NOT VERIFIED"; continue; }
   install_env "$D" "$V" || { na "$T install ladder failed — NOT VERIFIED"; continue; }
 
+  # PRE_FREEZE_EDITABLE_LIVE (D19). Same install ladder + python3.11 interpreter as
+  # the trajectory (install_env above); the primitive proves a repo source edit is
+  # live for the suite. A failure is QUALIFICATION ATTRITION — a distinct class,
+  # never a suite red/PASS. Full audit evidence is emitted for the frozen record.
+  if [ "${TB_LIVENESS:-0}" = 1 ]; then
+    RUNG=$(tr '\n' ' ' < "$WORK/rung" 2>/dev/null)
+    LVOUT=$("$V/bin/python" "$LIVENESS" "$D" 2>&1); LVRC=$?
+    printf '  [liveness-audit] task=%s interp=%s rung=%s status=%s\n' "$T" "$V/bin/python" "${RUNG:-?}" "$LVOUT"
+    if [ "$LVRC" = 0 ]; then
+      ok "LIVENESS: a repo source edit is live for the suite ($LVOUT)"
+    elif [ "$LVRC" = 1 ]; then
+      printf '  \033[35mLIVE-ATTR\033[0m %s: %s (qualification attrition — the probe ran; coupling not demonstrated)\n' "$T" "$LVOUT"
+      livefail=$((livefail+1)); continue
+    else
+      printf '  \033[31mLIVE-ERROR\033[0m %s: %s (apparatus could not measure — NOT task attrition; fix the checker)\n' "$T" "$LVOUT"
+      liveerror=$((liveerror+1)); continue
+    fi
+  fi
+
   # P — the control: the untouched parent must be GREEN, or R is unattributable
   rc=$(suite_rc "$D" "$V"); st=$(classify "$rc")
   case "$st" in
@@ -172,8 +194,8 @@ for T in $(ls "$POOL/tasks" | sort); do
   esac
 done
 
-printf '\nverify-pilot-tasks: %d task(s) examined — passed %d, failed %d, NOT VERIFIED %d\n' \
-  "$seen" "$pass" "$fail" "$skipped"
+printf '\nverify-pilot-tasks: %d task(s) examined — passed %d, failed %d, NOT VERIFIED %d, LIVENESS attrition %d, LIVENESS probe-error %d\n' \
+  "$seen" "$pass" "$fail" "$skipped" "$livefail" "$liveerror"
 # A run that examined NOTHING is not a passing run either: with an empty or wrong
 # pool every counter stays 0 and a naive "no failures" test would report success.
 if [ "$seen" -eq 0 ]; then
@@ -181,4 +203,4 @@ if [ "$seen" -eq 0 ]; then
   exit 2
 fi
 # Zero failures AND zero unverifiable. Skipping is not passing.
-[ "$fail" -eq 0 ] && [ "$skipped" -eq 0 ]
+[ "$fail" -eq 0 ] && [ "$skipped" -eq 0 ] && [ "$livefail" -eq 0 ] && [ "$liveerror" -eq 0 ]

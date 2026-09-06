@@ -26,14 +26,17 @@
 #   7. the fresh import must OBSERVE the sentinel
 #   8. restore the file byte-for-byte
 #   9. verify the restore (sha256 matches the original)
-#  10. ANY inability to establish the coupling — no editable dist, no locatable
-#      target, a fresh import that errors, a sentinel not observed, a restore that
-#      does not verify — is LIVENESS_NOT_VERIFIED, never a pass.
+#  10. a sentinel that RAN but was not observed is LIVENESS_NOT_VERIFIED (a real
+#      coupling failure); an apparatus that could not take the measurement at all
+#      (no editable dist, target discovery failed, the module would not import, a
+#      restore that does not verify) is LIVENESS_PROBE_ERROR — kept DISTINCT so a
+#      tooling failure never masquerades as a task that failed liveness.
 #
 # Usage:  <task-venv-python> editable-liveness.py <repo-dir>
 # Output: a single status line, and exit code:
-#   0  LIVE <module> via <backing-file>
-#   1  LIVENESS_NOT_VERIFIED <reason>
+#   0  LIVE <module> via <backing-file>            coupling demonstrated
+#   1  LIVENESS_NOT_VERIFIED <reason>              probe ran; coupling NOT demonstrated
+#   2  LIVENESS_PROBE_ERROR <reason>               apparatus could not take the measurement
 # The sentinel is a plain module-level constant, so proving it observed requires only
 # importing the module (which the suite does anyway), not executing any task-specific
 # top-level behaviour.
@@ -49,9 +52,20 @@ import sys
 SENTINEL_NAME = "_TW_LIVENESS_SENTINEL"
 
 
-def fail(reason):
+# Two DISTINCT non-live outcomes, never conflated: a real coupling failure vs the
+# apparatus being unable to take the measurement at all. A checker that cannot run
+# the probe must not masquerade as a task that failed liveness.
+def not_verified(reason):
+    # exit 1: the probe RAN and did not demonstrate repo->runtime coupling.
     print("LIVENESS_NOT_VERIFIED " + reason)
     sys.exit(1)
+
+
+def probe_error(reason):
+    # exit 2: the apparatus could not perform the measurement (no editable dist,
+    # target discovery failed, the module would not import, a restore did not verify).
+    print("LIVENESS_PROBE_ERROR " + reason)
+    sys.exit(2)
 
 
 def editable_dist_from_repo(repo):
@@ -80,24 +94,66 @@ def editable_dist_from_repo(repo):
     return out
 
 
-def top_levels(dist):
-    tops = [t for t in (dist.read_text("top_level.txt") or "").split() if t]
-    if tops:
-        return tops
-    # Fallback: infer from RECORD's top-level packages (no top_level.txt in some
-    # PEP 660 backends). A dir with __init__.py or a bare module at import root.
-    names = set()
+# Directory names that are never the package under test — a target must be the
+# code the task's tests import, not the test/doc/example tree that a PEP 660 finder
+# may also expose (iteration-2 task-04 exposed `examples` and `tests` this way).
+NON_PACKAGE = {
+    "tests", "test", "testing", "docs", "doc", "examples", "example",
+    "benchmarks", "benchmark", "scripts", "notebooks", "conftest", "setup",
+    "__pycache__", "build", "dist",
+}
+
+
+def candidate_modules(dist):
+    """Import-name candidates for the editable dist, most authoritative first:
+    top_level.txt, then RECORD source packages, then the dist NAME normalised to an
+    import name (many PEP 660 finder-hook editables ship no top_level.txt and a
+    RECORD that lists only the .pth — but the dist name IS the package, e.g.
+    reactivex)."""
+    out, seen = [], set()
+
+    def add(n):
+        if n and n not in seen and n not in NON_PACKAGE:
+            seen.add(n)
+            out.append(n)
+
+    for t in (dist.read_text("top_level.txt") or "").split():
+        add(t)
     try:
         for f in dist.files or []:
             parts = str(f).split("/")
             if not parts or parts[0].endswith(".dist-info") or parts[0].endswith(".egg-info"):
                 continue
             if len(parts) >= 2 and parts[1] == "__init__.py":
-                names.add(parts[0])
+                add(parts[0])
             elif len(parts) == 1 and parts[0].endswith(".py") and parts[0] != "__init__.py":
-                names.add(parts[0][:-3])
+                add(parts[0][:-3])
     except Exception:
         pass
+    try:
+        name = (dist.metadata["Name"] or "").strip()
+        if name:
+            add(name.replace("-", "_").replace(".", "_").lower())
+    except Exception:
+        pass
+    return out
+
+
+def repo_layout_modules(repo):
+    """Last resort: top-level importable packages/modules present in the writable
+    repo (flat, src-layout, or single-file), excluding the non-package tree. Sorted,
+    deterministic."""
+    names = set()
+    for root in (repo, repo / "src"):
+        if not root.is_dir():
+            continue
+        for p in root.iterdir():
+            if p.name in NON_PACKAGE:
+                continue
+            if p.is_dir() and (p / "__init__.py").is_file():
+                names.add(p.name)
+            elif p.is_file() and p.suffix == ".py" and p.name != "__init__.py":
+                names.add(p.stem)
     return sorted(names)
 
 
@@ -122,19 +178,22 @@ def main():
         sys.exit(2)
     repo = pathlib.Path(sys.argv[1]).resolve()
     if not repo.is_dir():
-        fail("REPO_MISSING %s" % repo)
+        probe_error("REPO_MISSING %s" % repo)
 
     dists = editable_dist_from_repo(repo)
     if not dists:
-        fail("NO_EDITABLE_DIST installed from %s" % repo)
+        probe_error("NO_EDITABLE_DIST installed from %s" % repo)
 
-    # Deterministic target: first (sorted) top-level module, across the editable
-    # dists in name order, that has a locatable writable backing file.
+    # Deterministic target: across the editable dists (in name order), the first
+    # candidate import name — top_level.txt, then RECORD, then the dist name — with a
+    # locatable writable backing file; failing that, a top-level package present in
+    # the repo. Candidate order is authoritative (not re-sorted) so the dist's own
+    # package wins over an incidentally-importable sibling.
     target_mod = None
     target_file = None
     seen = []
     for dist in sorted(dists, key=lambda d: d.metadata["Name"] or ""):
-        for mod in sorted(set(top_levels(dist))):
+        for mod in candidate_modules(dist):
             seen.append(mod)
             bf = backing_file(repo, mod)
             if bf is not None:
@@ -143,7 +202,14 @@ def main():
         if target_mod:
             break
     if target_mod is None:
-        fail("NO_LOCATABLE_TARGET top_levels=%s" % ",".join(seen))
+        for mod in repo_layout_modules(repo):
+            seen.append(mod)
+            bf = backing_file(repo, mod)
+            if bf is not None:
+                target_mod, target_file = mod, bf
+                break
+    if target_mod is None:
+        probe_error("TARGET_DISCOVERY_FAILED candidates=%s" % ",".join(seen))
 
     original = target_file.read_bytes()
     orig_sha = hashlib.sha256(original).hexdigest()
@@ -176,16 +242,16 @@ def main():
         target_file.write_bytes(original)
 
     if hashlib.sha256(target_file.read_bytes()).hexdigest() != orig_sha:
-        fail("RESTORE_FAILED %s" % target_file)
+        probe_error("RESTORE_FAILED %s" % target_file)
 
     if r.returncode == 0:
         print("LIVE %s via %s" % (target_mod, target_file.relative_to(repo)))
         sys.exit(0)
     if r.returncode == 7:
-        fail("FRESH_IMPORT_FAILED %s (%s)" % (target_mod, (r.stderr or "").strip()[:160]))
+        probe_error("FRESH_IMPORT_FAILED %s (%s)" % (target_mod, (r.stderr or "").strip()[:160]))
     if r.returncode == 8:
-        fail("SENTINEL_NOT_OBSERVED %s imports a static copy, not %s" % (target_mod, target_file.relative_to(repo)))
-    fail("PROBE_RC_%d %s" % (r.returncode, (r.stderr or "").strip()[:160]))
+        not_verified("SENTINEL_NOT_OBSERVED %s imports a static copy, not %s" % (target_mod, target_file.relative_to(repo)))
+    probe_error("PROBE_RC_%d %s" % (r.returncode, (r.stderr or "").strip()[:160]))
 
 
 if __name__ == "__main__":
