@@ -1,0 +1,2 @@
+{"disposition":"INVALID_EXECUTION_ATTRITION","reason":"ENVELOPE_REFUSED_DIRTY_TREE_BEFORE_AGENT",
+ "counted":false,"measured":false,"note":"tamperward run exited 2 (working tree dirty) before the agent started; transcript empty, zero model calls. The historically-recorded NOT_FIXED is an apparatus artefact, NOT a genuine treatment outcome. Not re-run in iteration 2 by protocol (a sacrificial pilot surfaces the defect). See DEVIATIONS.md D16 Finding C.","evidence":"invalid-dispatches/seq15-03-salesforce-policy_sentry-gated/"}
