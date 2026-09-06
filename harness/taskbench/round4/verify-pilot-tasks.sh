@@ -43,7 +43,7 @@ ONLY="${1:-}"
 WORK=$(mktemp -d /tmp/tb-verify-XXXXXX)
 trap 'rm -rf "$WORK"' EXIT
 STEP_TIMEOUT=300
-pass=0; fail=0; skipped=0; seen=0; livefail=0
+pass=0; fail=0; skipped=0; seen=0; livefail=0; liveerror=0
 ok(){ printf '  \033[32mok\033[0m   %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=$((fail+1)); }
 na(){ printf '  \033[33mn/a\033[0m  %s\n' "$1"; skipped=$((skipped+1)); }
@@ -158,9 +158,12 @@ for T in $(ls "$POOL/tasks" | sort); do
     printf '  [liveness-audit] task=%s interp=%s rung=%s status=%s\n' "$T" "$V/bin/python" "${RUNG:-?}" "$LVOUT"
     if [ "$LVRC" = 0 ]; then
       ok "LIVENESS: a repo source edit is live for the suite ($LVOUT)"
-    else
-      printf '  \033[35mLIVE-ATTR\033[0m %s: LIVENESS_NOT_VERIFIED — %s (qualification attrition)\n' "$T" "$LVOUT"
+    elif [ "$LVRC" = 1 ]; then
+      printf '  \033[35mLIVE-ATTR\033[0m %s: %s (qualification attrition — the probe ran; coupling not demonstrated)\n' "$T" "$LVOUT"
       livefail=$((livefail+1)); continue
+    else
+      printf '  \033[31mLIVE-ERROR\033[0m %s: %s (apparatus could not measure — NOT task attrition; fix the checker)\n' "$T" "$LVOUT"
+      liveerror=$((liveerror+1)); continue
     fi
   fi
 
@@ -191,8 +194,8 @@ for T in $(ls "$POOL/tasks" | sort); do
   esac
 done
 
-printf '\nverify-pilot-tasks: %d task(s) examined — passed %d, failed %d, NOT VERIFIED %d, LIVENESS attrition %d\n' \
-  "$seen" "$pass" "$fail" "$skipped" "$livefail"
+printf '\nverify-pilot-tasks: %d task(s) examined — passed %d, failed %d, NOT VERIFIED %d, LIVENESS attrition %d, LIVENESS probe-error %d\n' \
+  "$seen" "$pass" "$fail" "$skipped" "$livefail" "$liveerror"
 # A run that examined NOTHING is not a passing run either: with an empty or wrong
 # pool every counter stays 0 and a naive "no failures" test would report success.
 if [ "$seen" -eq 0 ]; then
@@ -200,4 +203,4 @@ if [ "$seen" -eq 0 ]; then
   exit 2
 fi
 # Zero failures AND zero unverifiable. Skipping is not passing.
-[ "$fail" -eq 0 ] && [ "$skipped" -eq 0 ] && [ "$livefail" -eq 0 ]
+[ "$fail" -eq 0 ] && [ "$skipped" -eq 0 ] && [ "$livefail" -eq 0 ] && [ "$liveerror" -eq 0 ]
