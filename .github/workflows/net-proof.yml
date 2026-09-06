@@ -1,0 +1,79 @@
+name: net-proof
+
+# Composed jailed-network boundary proof — apparatus qualification, NOT pilot
+# execution. Manual, non-required, never on push, and deliberately DECOUPLED from
+# pilot.yml: it shares no registered-trajectory lifecycle state (no active
+# iteration, no frozen manifest, no runs-pilot/ checkpointing), so it can be run
+# at any time — including the pre-freeze active_iteration:null state — without
+# touching or depending on pilot state.
+#
+# It proves ONE property: from inside the agent jail/netns,
+#   allowlist-proxy -> supplied upstream proxy -> api.anthropic.com
+# reaches a real Anthropic HTTP response, while direct egress and non-allowlisted
+# destinations fail closed and the supplied upstream is observed to be traversed.
+# It runs no agent and needs NO credential (a 401/403 is sufficient reachability
+# evidence). See harness/taskbench/round4/net-integration-proof.sh and DEVIATIONS D21.
+#
+# Runs on the SAME Ubuntu CI environment used for pilot provisioning (ubuntu-latest
+# is a privileged Linux VM with sudo, iproute2 and nftables), so the jail the proof
+# builds is the same kind the pilot builds. It CANNOT run on Docker-for-Mac (no
+# nf_tables).
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: net-proof
+  cancel-in-progress: false
+
+jobs:
+  net-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Jail + tooling (nftables, iproute2, jq)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nftables iproute2 jq
+      - name: Composed jailed-network boundary proof (no token, no burn)
+        id: proof
+        run: |
+          set -o pipefail
+          bash harness/taskbench/round4/net-integration-proof.sh 2>&1 | tee proof.out
+
+      - name: Persist the evidence (durable record, not an expiring log)
+        if: always()
+        # The authoritative step-6 record: the machine-readable block plus the run
+        # id and commit, written to the run summary AND uploaded as an artifact, so
+        # "step 6 passed" is provable later without an expired CI log. Mirrors the
+        # network_proof: schema recorded in the Round-4 ledger (DEVIATIONS D21).
+        run: |
+          {
+            echo "## network_proof"
+            echo '```yaml'
+            echo "network_proof:"
+            echo "  workflow_run: ${GITHUB_RUN_ID}"
+            echo "  commit: ${GITHUB_SHA}"
+            sed -n '/^NETWORK_INTEGRATION_PROOF$/,/^status=/p' proof.out | sed -n '2,$p' \
+              | sed 's/^/  /'
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY" > network_proof.evidence.txt
+          echo "---- captured evidence ----"; cat network_proof.evidence.txt
+
+      - name: Upload the evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: network-proof-evidence
+          path: |
+            network_proof.evidence.txt
+            proof.out
+          retention-days: 90

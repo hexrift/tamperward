@@ -3304,3 +3304,84 @@ invariants, separate failure classes.
 retained unless that fix is a general apparatus correction applied and revalidated across the whole
 pool. The composition-and-liveness hardening of mine5 (D18) remains a deferred counted-round item;
 this primitive is the pre-freeze/run-time gate, not a mining change.
+
+## D20 — 2026-09-06, pre-freeze apparatus regression: the liveness-guard integration changed run-task4 control flow; smoke4 caught it before iteration-3 freeze
+
+Wiring the shared liveness primitive (D19) into `run-task4.sh`'s PRE_AGENT guard introduced a
+`set +e … set -e` pair around the primitive call. `run-task4.sh` runs under `set -uo pipefail`
+with **no** `-e`; the stray `set -e` therefore did not restore a prior state — it turned errexit
+ON for the entire remainder of the script. Every trajectory then died at the next non-zero-but-
+tolerated status after the liveness check, before writing a verdict.
+
+**How it was caught, and why that matters.** Ordinary CI did not surface it (its harness paths do
+not exercise a full trajectory to a verdict under that control-flow change). `smoke4` did: it ran
+37 trajectories with empty `before/after` verdict fields — a shape that is only produced by a
+premature exit after the liveness guard. This is exactly the class of failure smoke4 exists to
+expose — a binding-level change to shell control-flow semantics that leaves component unit tests
+green — and it was caught **before** the iteration-3 freeze, not during a counted trajectory.
+
+**Disposition.** Recorded as an apparatus regression, not a mere typo, because the lesson is
+structural: editing binding shell that runs without `-e` must not import `set -e` semantics, and
+the end-to-end smoke (not component selftests) is the layer that detects it. The fix (remove the
+stray `set +e`/`set -e`; the primitive call already reports its own rc) was isolated, merged
+first as the binding correction, and the A3-pin branch was rebased and the end-to-end smoke
+re-run from merged main (`smoke4: passed 59, failed 0`) before proceeding. Considered but NOT
+done now (to avoid widening a narrow binding fix): promoting the specific "verdict fields are
+populated on a genuine completion" smoke assertion into the regular CI gate. That is a reasonable
+later hardening; it is not part of clearing the pre-freeze debt.
+
+## D21 — 2026-09-06, step-6 network-envelope integration proof; and why the credentialed joint is (by design) seq-1, not a throwaway
+
+The pre-freeze plan called for a "proxy-supplied integration proof": the authenticated agent
+path inside the jail → allowlist proxy → model API, with the PRE_AGENT liveness guard (D19)
+succeeding and the trajectory reaching a valid verdict — proving #251/#252/#254 and the network
+envelope coexist before the iteration-3 freeze.
+
+**Architectural finding that reshaped it.** `run-task4.sh` DELIBERATELY refuses a real,
+credentialed agent trajectory outside a REGISTERED manifest row: it requires `TB_RUNTASK4_READY=1`,
+and once `TB_REGISTERED_MODEL` is set it further requires a valid `TB_PILOT_MANIFEST` /
+`TB_PILOT_SEQ` naming a real row (else `NO_MANIFEST` / `NO_SUCH_ROW`, exit 7). There is no
+"real agent on a throwaway task" mode. The three runnable modes are, by construction:
+`--netcheck` (no agent), `TB_FAKE_AGENT` (a genuine-tokens fake — real model call, no jail/clone),
+and a registered pilot row. Consequently the fully-credentialed
+**jail + agent + liveness → verdict** joint can only run AS a registered trajectory — which is
+seq-1 — and seq-1 is protected by the fail-closed start marker: any composition failure BEFORE
+the marker is retryable and burns nothing. Forcing that joint earlier would mean adding a new
+real-agent seam (neither fake nor registered) right before the freeze — new binding surface at
+exactly the wrong moment. So the joint is left to seq-1, where the apparatus already makes it
+safe, and step 6 targets the ONE integration point nothing else exercises.
+
+**What is proven, and by what.** Each leg of the acceptance is covered by its own green check:
+jail builds & enforces (`net-jail.sh selftest`, provision-check/CI); the liveness guard + the
+D20 errexit fix reach a scored verdict (`smoke4`, 59/0); the token yields a genuine model
+completion through the configured Claude CLI / model / upstream-proxy path (`preflight-auth.sh`) —
+that check does NOT verify manifest registration (its caller supplies the model) and does not
+build the jail, so it is credited only with credential/model/upstream reachability, nothing more;
+the real candidate repos are editable-LIVE under the suite's own resolution (the
+`verify-pilot-tasks` liveness audit, 10/10). The remaining gap — the composed **jailed** path to
+the real model API host — is filled by `round4/net-integration-proof.sh`, a narrow, credential-free
+proof that drives the components directly (it runs no agent, deploys no artefact, produces no
+outcome): it builds the jail (`net-jail.sh setup`), starts the supplied upstream
+(`ci-upstream-proxy`) and the `allowlist-proxy`, and — from INSIDE the jail namespace — asserts
+each fact separately, with a DISTINCT named outcome so a forensic reader sees WHICH property held:
+(1) `DIRECT_EGRESS_BLOCKED` — direct egress fails (proxy vars removed, hostname + numeric both
+fail); (2) `DENIED_BY_ALLOWLIST` — a non-allowlisted host is denied, keyed on the proxy's own DENY
+decision, distinguished from `UNREACHABLE_FOR_SOME_OTHER_REASON`; (3) the allowed host returns a
+real Anthropic HTTP status observed from inside the jail; (4) the supplied upstream is actually
+traversed — asserted against the upstream's OWN `CONNECT api.anthropic.com:443` evidence record
+(a set `HTTPS_PROXY` alone is not accepted as proof); and (5) `UPSTREAM_REQUIRED` — a load-bearing
+control: with the supplied upstream killed, the allowed jailed request MUST fail, ruling out the
+alternative explanation that fact (3) escaped by some other route. It emits a machine-readable
+`NETWORK_INTEGRATION_PROOF` block (persisted by the `net-proof` workflow to the run summary and a
+90-day artifact, and archived into this ledger as a `network_proof:` record once it runs) and never
+logs tokens, headers, credentials or environment values. It is kept ENTIRELY OUT of `pilot.yml` (which is bound
+to registered-trajectory lifecycle semantics): it runs on the same Ubuntu CI environment used for
+pilot provisioning, via a dedicated `net-proof` workflow with no experimental-state coupling, so
+the property is apparatus qualification established before any registered trajectory is permitted —
+not a side effect of a particular pilot command.
+
+**Host constraint (recorded so it is not re-discovered).** This proof cannot run on
+Docker-Desktop-for-Mac: its LinuxKit kernel has no `nf_tables`, so `nft` fails with
+"Netlink socket: Protocol not supported" and the jail cannot be built at all. The network jail
+is a Linux-runner capability; the proof runs on `ubuntu-latest` (where `net-jail.sh selftest`
+already passes), not locally.
