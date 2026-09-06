@@ -324,7 +324,15 @@ python3 incident-D3/build-burn-list.py --check >/dev/null 2>&1 \
 B=$(mktemp -d); mkdir -p "$B/frame" "$B/pools/pilot" "$B/incident-D3"
 cp -R incident-D3/. "$B/incident-D3/"
 cp frame/pilot-walk-order.json frame/pilot-dedup.json "$B/frame/"
-cp pools/pilot/attrition.jsonl "$B/pools/pilot/"
+# Mirror build-burn-list.py's glob: the cumulative set unions EVERY pilot pool's
+# ledger (pools/pilot*/attrition.jsonl), so the temp scenario must carry them all.
+# Copying only pools/pilot/ made the published dedup — which already folds in
+# iteration 2 (pilot-i2) and every later iteration — read as un-burnt against a
+# partial cumulative, a false failure the moment a second pilot pool exists.
+for a in pools/pilot*/attrition.jsonl; do
+  [ -e "$a" ] || continue
+  d="$B/$(dirname "$a")"; mkdir -p "$d"; cp "$a" "$d/"
+done
 echo '{"repo":"selftest/never-in-any-frame","gate":"CLONE_FAILED"}' >> "$B/pools/pilot/attrition.jsonl"
 python3 "$B/incident-D3/build-burn-list.py" --check >/dev/null 2>&1 \
   && ok "a newly drawn repository is growth, not a failure — regression sentinel" \
