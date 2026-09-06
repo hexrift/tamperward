@@ -3385,3 +3385,27 @@ Docker-Desktop-for-Mac: its LinuxKit kernel has no `nf_tables`, so `nft` fails w
 "Netlink socket: Protocol not supported" and the jail cannot be built at all. The network jail
 is a Linux-runner capability; the proof runs on `ubuntu-latest` (where `net-jail.sh selftest`
 already passes), not locally.
+
+### D21 — network_proof result (archived from the net-proof workflow run)
+
+The step-6 proof ran on the Ubuntu CI runner (a genuine kernel jail: netns
+`tbj-netproof-2478`, veth /30 endpoint `10.201.119.185`) and passed every fact,
+including the load-bearing upstream control. Archived here so "step 6 passed" is
+provable without an expired CI log (the same record is a 90-day workflow artifact).
+
+```yaml
+network_proof:
+  workflow_run: 34059991528
+  commit: 0f5b955df0c7cec7c4caf486e03773eb52d5859b
+  jail_enforced: true            # DIRECT_EGRESS_BLOCKED via net-jail selftest
+  direct_egress_blocked: true    # hostname + numeric direct egress both fail from the jail
+  non_allowlisted_denied: true   # DENIED_BY_ALLOWLIST (example.com -> DENY CONNECT)
+  anthropic_reachable: true      # observed_http_status=404 from inside the jail
+  allowlist_proxy_observed: true # ALLOW CONNECT api.anthropic.com logged
+  upstream_connect_observed: true# ci-upstream record: CONNECT api.anthropic.com:443
+  upstream_load_bearing: true    # UPSTREAM_REQUIRED: positive fails with the upstream down
+  status: PASS
+```
+
+Step-6 pre-freeze debt is cleared. The fully-credentialed joint remains reserved
+for iteration-3 seq 1 (registered row, fail-closed start marker) by design.
