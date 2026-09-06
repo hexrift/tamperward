@@ -11,9 +11,14 @@
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git ca-certificates curl bash coreutils util-linux procps \
+      git ca-certificates curl bash coreutils util-linux procps jq \
       python3 python3-venv python3-dev build-essential \
  && rm -rf /var/lib/apt/lists/*
+# jq is a hard PREREQUISITE of the runner (run-task4.sh builds every provenance
+# and verdict record with it) and the lifecycle/registration tooling. It is baked
+# into the image, not installed at runtime, so a harness run in this container
+# never dies mid-trajectory on a missing jq (the pilot's own runner installs it
+# on the GitHub runner separately).
 
 # node (for the walk/manifest emitters) and uv (for the per-repo virtualenvs)
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
