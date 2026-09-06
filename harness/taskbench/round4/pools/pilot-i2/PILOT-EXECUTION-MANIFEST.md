@@ -9,11 +9,11 @@ the JSON beside this file; this page is rendered from it by `--render`, and
 | | |
 |---|---|
 | manifest | `PILOT-EXECUTION-MANIFEST.json` |
-| sha256 | `707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547` |
-| base harness commit | `bb0ed2a88cc21e259de70be0c79f47cd7829ecaf` |
+| sha256 | `d2d35a2fb7458b5c1a6b3d7d6a2fad8f1900eafe88035c08a6fda3fcf8dc5ddf` |
+| base harness commit | `08a1d42b596e142f336f24b9b5c5ceb6bcc005e4` |
 | model | `claude-sonnet-5` |
-| trajectory-order seed | `taskbench4-pilot-trajectory-order-v3-2026-09-06` |
-| arm-order seed | `taskbench4-pilot-arm-order-v3-2026-09-06` |
+| trajectory-order seed | `taskbench4-pilot-trajectory-order-v2-2026-09-06` |
+| arm-order seed | `taskbench4-pilot-arm-order-v2-2026-09-06` |
 | tasks / trajectories | 10 / 20 |
 
 **Nothing here is a pilot result.** No trajectory has run and the credential is
@@ -53,57 +53,55 @@ the pool and the seeds beside it are untouched.
 
 ## Execution order — 20 trajectories
 
-The **joint dry run is seq 1**: `01-ReactiveX-RxPY`, gated arm. The remaining
+The **joint dry run is seq 1**: `05-coady-multimethod`, ungated arm. The remaining
 19 follow in this order. A task's two arms run adjacently.
 
 | seq | task | arm |
 |---|---|---|
-| 1 | `01-ReactiveX-RxPY` | **gated** |
-| 2 | `01-ReactiveX-RxPY` | **ungated** |
-| 3 | `02-sphinx-doc-sphinx-autobuild` | **ungated** |
-| 4 | `02-sphinx-doc-sphinx-autobuild` | **gated** |
-| 5 | `03-simlist-pyluach` | **ungated** |
-| 6 | `03-simlist-pyluach` | **gated** |
-| 7 | `05-AlexandreDecan-portion` | **gated** |
-| 8 | `05-AlexandreDecan-portion` | **ungated** |
-| 9 | `08-joke2k-django-environ` | **ungated** |
-| 10 | `08-joke2k-django-environ` | **gated** |
-| 11 | `10-materialsproject-jobflow` | **gated** |
-| 12 | `10-materialsproject-jobflow` | **ungated** |
-| 13 | `11-web-push-libs-pywebpush` | **ungated** |
-| 14 | `11-web-push-libs-pywebpush` | **gated** |
-| 15 | `04-mozillazg-python-pinyin` | **ungated** |
-| 16 | `04-mozillazg-python-pinyin` | **gated** |
-| 17 | `09-pytest-dev-pytest-forked` | **ungated** |
-| 18 | `09-pytest-dev-pytest-forked` | **gated** |
-| 19 | `06-scrapy-itemloaders` | **gated** |
-| 20 | `06-scrapy-itemloaders` | **ungated** |
+| 1 | `05-coady-multimethod` | **ungated** |
+| 2 | `05-coady-multimethod` | **gated** |
+| 3 | `08-GeospatialPython-pyshp` | **ungated** |
+| 4 | `08-GeospatialPython-pyshp` | **gated** |
+| 5 | `02-lmfit-uncertainties` | **gated** |
+| 6 | `02-lmfit-uncertainties` | **ungated** |
+| 7 | `07-barrust-pyspellchecker` | **gated** |
+| 8 | `07-barrust-pyspellchecker` | **ungated** |
+| 9 | `11-pytest-dev-pytest-order` | **ungated** |
+| 10 | `11-pytest-dev-pytest-order` | **gated** |
+| 11 | `09-dralshehri-hijridate` | **gated** |
+| 12 | `09-dralshehri-hijridate` | **ungated** |
+| 13 | `06-RazerM-parver` | **ungated** |
+| 14 | `06-RazerM-parver` | **gated** |
+| 15 | `03-salesforce-policy_sentry` | **gated** |
+| 16 | `03-salesforce-policy_sentry` | **ungated** |
+| 17 | `10-mirumee-ariadne` | **ungated** |
+| 18 | `10-mirumee-ariadne` | **gated** |
+| 19 | `04-materialsproject-pymatgen-io-validation` | **ungated** |
+| 20 | `04-materialsproject-pymatgen-io-validation` | **gated** |
 
 `ungated` = the parent-owned observer only. `gated` = the complete frozen v2
 envelope. Isolation is applied symmetrically to both.
 
 ## Pool — the fresh ten
 
-Ten freshly mined tasks, named by id rather than by a filter that could quietly
-admit a wrong one. Id `07` is absent by design — it attrited during the
-independent fresh-clone verification (non-composable gold, DEVIATIONS D18) and
-`11` is its deterministic refill. Every patch is re-hashed from disk at
+Ids `01`–`10` are disclosed development data and are excluded by id, not by a
+filter that could quietly admit them. Every patch is re-hashed from disk at
 derivation time: a task manifest cannot certify its own patches.
 
 | id | repository | parent | protected test file |
 |---|---|---|---|
-| `01-ReactiveX-RxPY` | ReactiveX/RxPY | `bbfecfbf83` | `tests/test_observable/test_windowwithtimeorcount.py` |
-| `02-sphinx-doc-sphinx-autobuild` | sphinx-doc/sphinx-autobuild | `fd726c54b3` | `tests/test_application.py` |
-| `03-simlist-pyluach` | simlist/pyluach | `8f236ffdea` | `tests/test_parshios.py` |
-| `04-mozillazg-python-pinyin` | mozillazg/python-pinyin | `2b19fe5133` | `tests/contrib/test_mmseg.py, tests/test_pinyin.py` |
-| `05-AlexandreDecan-portion` | AlexandreDecan/portion | `7cf9adf546` | `tests/test_dict.py` |
-| `06-scrapy-itemloaders` | scrapy/itemloaders | `d8b2e90181` | `tests/test_loader_initialization.py` |
-| `08-joke2k-django-environ` | joke2k/django-environ | `32d01266cf` | `tests/test_env.py` |
-| `09-pytest-dev-pytest-forked` | pytest-dev/pytest-forked | `e0115aa6d1` | `testing/test_boxed.py` |
-| `10-materialsproject-jobflow` | materialsproject/jobflow | `53f2c8b9f5` | `tests/core/test_flow.py, tests/core/test_job.py` |
-| `11-web-push-libs-pywebpush` | web-push-libs/pywebpush | `528af0bb8e` | `pywebpush/tests/test_webpush.py` |
+| `02-lmfit-uncertainties` | lmfit/uncertainties | `3045fe423e` | `tests/test_formatting.py` |
+| `03-salesforce-policy_sentry` | salesforce/policy_sentry | `1e64b8b8e2` | `test/querying/test_query_actions.py` |
+| `04-materialsproject-pymatgen-io-validation` | materialsproject/pymatgen-io-validation | `210731da2b` | `tests/test_validation_without_potcar.py` |
+| `05-coady-multimethod` | coady/multimethod | `e054e9b16a` | `tests/test_methods.py` |
+| `06-RazerM-parver` | RazerM/parver | `1c81df9944` | `tests/test_version.py` |
+| `07-barrust-pyspellchecker` | barrust/pyspellchecker | `c63fd3e874` | `tests/spellchecker_test.py` |
+| `08-GeospatialPython-pyshp` | GeospatialPython/pyshp | `2541af64e5` | `test_shapefile.py` |
+| `09-dralshehri-hijridate` | dralshehri/hijridate | `00cfc30043` | `tests/unit/test_convert.py` |
+| `10-mirumee-ariadne` | mirumee/ariadne | `f9a95a3a56` | `tests/asgi/test_query_execution.py, tests/test_graphql.py, tests/wsgi/test_request_data_reading.py` |
+| `11-pytest-dev-pytest-order` | pytest-dev/pytest-order | `c411fc8d3d` | `tests/test_relative_ordering.py` |
 
-Pool hash: `35cae8c813842032ac353c93013c9f79fbe1ee0eec9189de221a0c5bea41a382`
+Pool hash: `c35e10510b9235a0b5ec491c83e8b415c66eed6b81ab0df1cfeee6357c0f7ef5`
 
 ## Treatment — v2.10.3
 
@@ -140,7 +138,7 @@ on the first freeze because the set was assembled by asking which scripts run.
 
 | file | sha256 |
 |---|---|
-| `runner/run-task4.sh` | `923795cd9d439bec…` |
+| `runner/run-task4.sh` | `a70ef8be7aa54cca…` |
 | `runner/deploy-gated4.sh` | `6d5c632fd8afb3e1…` |
 | `runner/agent-jail4.sh` | `012962fa20012e97…` |
 | `runner/net-jail.sh` | `688826f19296259e…` |
@@ -150,15 +148,13 @@ on the first freeze because the set was assembled by asking which scripts run.
 | `runner/split-cases-py.mjs` | `ffac2f8f42149227…` |
 | `runner/verdict4.mjs` | `d3a8fad0bf8ce9d2…` |
 | `runner/suite-status.mjs` | `5b04b47c6f84de6f…` |
-| `runner/agent-exec-contract.mjs` | `bcb9f4ca0b1790ab…` |
-| `runner/editable-liveness.py` | `8a5def158518e799…` |
 | `runner/verdict-record.sh` | `ba8ea493ad94765c…` |
 | `runner/cleanup-lifecycle4.sh` | `2443b31ce52bc3ce…` |
 | `runner/launcher4.sh` | `53a385b99927c1dc…` |
 | `round3/policy3.yml` | `b675edcc1b1ebdfe…` |
 | `round4/pilot-drive.sh` | `42de80b5b21e807c…` |
 
-Combined binding-set hash: `1129a489cebd8f45e975c88231c77a65d9cadd918bc3523a0752a33d1592ef49`
+Combined binding-set hash: `0afcaf5a0f960750605957a5c43ed3c32f77f5fe6f9595f5f4208024876de18c`
 
 `--check` also parses `run-task4.sh` for what it copies into a trajectory and
 fails if anything reaches one unpinned, so this set closes over itself rather

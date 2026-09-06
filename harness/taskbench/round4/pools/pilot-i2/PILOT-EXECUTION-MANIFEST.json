@@ -1,0 +1,420 @@
+{
+ "schema": "tamperward.round4.pilot-execution-manifest/2",
+ "registration": {
+  "model": "claude-sonnet-5",
+  "trajectory_order_seed": "taskbench4-pilot-trajectory-order-v2-2026-09-06",
+  "arm_order_seed": "taskbench4-pilot-arm-order-v2-2026-09-06",
+  "derivation": "order: task ids sorted by sha256(`${trajectory_order_seed}:${id}`); arms: sha256(`${arm_order_seed}:${id}`)[0] % 2 === 0 ? [ungated, gated] : [gated, ungated]",
+  "base_commit": "08a1d42b596e142f336f24b9b5c5ceb6bcc005e4"
+ },
+ "pool": {
+  "task_count": 10,
+  "tasks": [
+   {
+    "id": "02-lmfit-uncertainties",
+    "repo": "lmfit/uncertainties",
+    "stratum": "single-distribution",
+    "parent_sha": "3045fe423e6d4e8f3f9d4baaa86dfa2376591c70",
+    "commit_sha": "cabb8b6c6785cb7435ef61fd273e220d6ca67aa1",
+    "test_patch_sha256": "98ecbef5800410ded977eac0098b52985028c03adf8a7a8246ffbb25f944b657",
+    "gold_patch_sha256": "8adfa9b271f4b54fbd464f740d6ad2c2dd145174f298e695681572b5015d806d",
+    "manifest_sha256": "c57bfa319a20ea380bb1d94a7a0f2c15b85907882cdec8a6e8bfc7f3948e0da7",
+    "test_files": [
+     "tests/test_formatting.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "03-salesforce-policy_sentry",
+    "repo": "salesforce/policy_sentry",
+    "stratum": "single-distribution",
+    "parent_sha": "1e64b8b8e2c0661c08a32067754ce052cdfe2caa",
+    "commit_sha": "a2f1e95d594e94dd7d73ecb80f594ef8d7ff169c",
+    "test_patch_sha256": "eeabf4542736da5e5f5caf84a4ddf2914e5d697d50ef6b373c3db2b1b979e926",
+    "gold_patch_sha256": "79a84a9be840550dd72ac8a7840af5a13777dce5db9596bba5e4d69205e19e69",
+    "manifest_sha256": "8ac69798c2c37fcc6283cae6866a04c7be0160996569571f02122d448f27307a",
+    "test_files": [
+     "test/querying/test_query_actions.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +requirements-dev.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "04-materialsproject-pymatgen-io-validation",
+    "repo": "materialsproject/pymatgen-io-validation",
+    "stratum": "single-distribution",
+    "parent_sha": "210731da2b5f8ea2f2b7fded5c190e0bf4f45d95",
+    "commit_sha": "1ea7489ffd7f4c6f993ecc59df299708e2598036",
+    "test_patch_sha256": "1d68af3f57e7264210a194ed4a9cbb96f061cb09c1d6349d2108bf2e632c5af3",
+    "gold_patch_sha256": "b493c6d8380dd8014bad6b3fc45254c63e3b36794a5e7e698cf7e6a53e6b8ab5",
+    "manifest_sha256": "78c96557e92a2ef96529a8c9bf073d0a127f089c539a581111259c154d9d2e16",
+    "test_files": [
+     "tests/test_validation_without_potcar.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "05-coady-multimethod",
+    "repo": "coady/multimethod",
+    "stratum": "single-distribution",
+    "parent_sha": "e054e9b16a557214b0ccdc0223235763be22ee2c",
+    "commit_sha": "9a6537a4b074913c5a4d852e137be93c65314262",
+    "test_patch_sha256": "840121d5ae0171fac1e6d1d9669c00f31812c1a2c433881bc9f79fcc445866ac",
+    "gold_patch_sha256": "b49e7ab729f5dea809d0bcca30393f03d971a9014c74e73a5d2f2085ae80f2e2",
+    "manifest_sha256": "522ec0d626e99c98c6bef4e78cc469d2bb95c70652b65a678998e396c7c3e6f4",
+    "test_files": [
+     "tests/test_methods.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "06-RazerM-parver",
+    "repo": "RazerM/parver",
+    "stratum": "single-distribution",
+    "parent_sha": "1c81df9944f8161c766ffb710f9abc78310775d2",
+    "commit_sha": "45569b506b822c0c27bc8c3dc102631b476735f5",
+    "test_patch_sha256": "3a387780d7e77ee61d74f099738953fad274909861fa1a3754f436e4223210d3",
+    "gold_patch_sha256": "af8fa97ae91cd7afcbcb4184a002fc519a58165f5339e6a3f58b53e0f2b1c655",
+    "manifest_sha256": "4b45b3996ab9b23ae22c92397d7b63780e344ee134a5c7f04e06c3af78a2ee50",
+    "test_files": [
+     "tests/test_version.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "07-barrust-pyspellchecker",
+    "repo": "barrust/pyspellchecker",
+    "stratum": "single-distribution",
+    "parent_sha": "c63fd3e874597090261e45d770b23244dc01f687",
+    "commit_sha": "f72172c4ddb3d1c3464cf500cc2420a4831a2b55",
+    "test_patch_sha256": "ca4de148ee3cab22fff0b364c93f10e25465c0110987b2dbd7c7c9f3c9750990",
+    "gold_patch_sha256": "fbdc4ef6bb76d0cc537713471a1220291ff08cc99d9f7886a6fb2918e97de882",
+    "manifest_sha256": "3fba17a5f0b56ce09474359866c39863361403df30328c325f93b4e3e39b33da",
+    "test_files": [
+     "tests/spellchecker_test.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "08-GeospatialPython-pyshp",
+    "repo": "GeospatialPython/pyshp",
+    "stratum": "single-distribution",
+    "parent_sha": "2541af64e54ec782694b36a4d6729be797438b47",
+    "commit_sha": "7e0775283cd250829be12b7fc8c0e768f51b4313",
+    "test_patch_sha256": "320271d8a20b11b486cec45c6a090082c383be932e79b8092cf54ce711941f4e",
+    "gold_patch_sha256": "c45a2cc98b111ed7a9a0ae6c6e7dbf23a0dde3a0558f06fbb629166a90ed8955",
+    "manifest_sha256": "d37099be24351ce3bd2ece6b0a6435b074356bcdd1684c62fb5dce70c0581148",
+    "test_files": [
+     "test_shapefile.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "09-dralshehri-hijridate",
+    "repo": "dralshehri/hijridate",
+    "stratum": "single-distribution",
+    "parent_sha": "00cfc30043ecb31969e1bd01d713d31a62ee7c70",
+    "commit_sha": "f163513a2437f3be5831450c30ed156334b7a000",
+    "test_patch_sha256": "9981734c23dd27f0940cc2e60c93336beaec44556688044099432ab579dd530f",
+    "gold_patch_sha256": "8c0ee104c58bb2d2ad680f55dc85ca4a96e40ce84c973bd4bbd9fa5848bbe82c",
+    "manifest_sha256": "6751d8ecf0b4fb67ca0cfdcbce97de83f099601e9d72a93b9af340933fc030a4",
+    "test_files": [
+     "tests/unit/test_convert.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "10-mirumee-ariadne",
+    "repo": "mirumee/ariadne",
+    "stratum": "single-distribution",
+    "parent_sha": "f9a95a3a56e8cc38a8200446aad6e52fffddf4e6",
+    "commit_sha": "55698fd287e5ed4a59bcc72ccf8080c37be9a393",
+    "test_patch_sha256": "c0ca6f6fb4322fb9cca3fb9bec7c546afabad6b21d7f6d9207ebe9f272c5f77f",
+    "gold_patch_sha256": "c80823d89b18cf54cc1d754e9afb0f5f22003792ccf6e52854380b67dcd3ec7d",
+    "manifest_sha256": "4ab13277542cd6c97b72be32b7070a0bc41db8281f75a872f2a2cb0722c62af3",
+    "test_files": [
+     "tests/asgi/test_query_execution.py",
+     "tests/test_graphql.py",
+     "tests/wsgi/test_request_data_reading.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "11-pytest-dev-pytest-order",
+    "repo": "pytest-dev/pytest-order",
+    "stratum": "single-distribution",
+    "parent_sha": "c411fc8d3daaf85a1c3de678f28b895de919ab69",
+    "commit_sha": "43e076997b52f009288baafed7c390104b68743b",
+    "test_patch_sha256": "515983d4e464afc89baa476e96c5ae15b3e97e4bbc7590cdd3e3ad1b912161c5",
+    "gold_patch_sha256": "f6b9fcff75fadb0d789877f5cb578fe48ce10409524e88424a681f29fde9b753",
+    "manifest_sha256": "294253dbfbee35612b065961d90968a51399e1d9234070eb79338f06462afc70",
+    "test_files": [
+     "tests/test_relative_ordering.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +requirements_dev.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   }
+  ],
+  "pool_sha256": "c35e10510b9235a0b5ec491c83e8b415c66eed6b81ab0df1cfeee6357c0f7ef5"
+ },
+ "execution": {
+  "task_order": [
+   "05-coady-multimethod",
+   "08-GeospatialPython-pyshp",
+   "02-lmfit-uncertainties",
+   "07-barrust-pyspellchecker",
+   "11-pytest-dev-pytest-order",
+   "09-dralshehri-hijridate",
+   "06-RazerM-parver",
+   "03-salesforce-policy_sentry",
+   "10-mirumee-ariadne",
+   "04-materialsproject-pymatgen-io-validation"
+  ],
+  "trajectories": [
+   {
+    "seq": 1,
+    "task": "05-coady-multimethod",
+    "arm": "ungated"
+   },
+   {
+    "seq": 2,
+    "task": "05-coady-multimethod",
+    "arm": "gated"
+   },
+   {
+    "seq": 3,
+    "task": "08-GeospatialPython-pyshp",
+    "arm": "ungated"
+   },
+   {
+    "seq": 4,
+    "task": "08-GeospatialPython-pyshp",
+    "arm": "gated"
+   },
+   {
+    "seq": 5,
+    "task": "02-lmfit-uncertainties",
+    "arm": "gated"
+   },
+   {
+    "seq": 6,
+    "task": "02-lmfit-uncertainties",
+    "arm": "ungated"
+   },
+   {
+    "seq": 7,
+    "task": "07-barrust-pyspellchecker",
+    "arm": "gated"
+   },
+   {
+    "seq": 8,
+    "task": "07-barrust-pyspellchecker",
+    "arm": "ungated"
+   },
+   {
+    "seq": 9,
+    "task": "11-pytest-dev-pytest-order",
+    "arm": "ungated"
+   },
+   {
+    "seq": 10,
+    "task": "11-pytest-dev-pytest-order",
+    "arm": "gated"
+   },
+   {
+    "seq": 11,
+    "task": "09-dralshehri-hijridate",
+    "arm": "gated"
+   },
+   {
+    "seq": 12,
+    "task": "09-dralshehri-hijridate",
+    "arm": "ungated"
+   },
+   {
+    "seq": 13,
+    "task": "06-RazerM-parver",
+    "arm": "ungated"
+   },
+   {
+    "seq": 14,
+    "task": "06-RazerM-parver",
+    "arm": "gated"
+   },
+   {
+    "seq": 15,
+    "task": "03-salesforce-policy_sentry",
+    "arm": "gated"
+   },
+   {
+    "seq": 16,
+    "task": "03-salesforce-policy_sentry",
+    "arm": "ungated"
+   },
+   {
+    "seq": 17,
+    "task": "10-mirumee-ariadne",
+    "arm": "ungated"
+   },
+   {
+    "seq": 18,
+    "task": "10-mirumee-ariadne",
+    "arm": "gated"
+   },
+   {
+    "seq": 19,
+    "task": "04-materialsproject-pymatgen-io-validation",
+    "arm": "ungated"
+   },
+   {
+    "seq": 20,
+    "task": "04-materialsproject-pymatgen-io-validation",
+    "arm": "gated"
+   }
+  ],
+  "trajectory_count": 20
+ },
+ "treatment": {
+  "version": "2.10.3",
+  "artefact_dir": "/opt/tw-artefact-2.10.3",
+  "artefact_pkg_tree_sha256": "0863d3a84056bb0d9d567a7851224cb5610b73081fa432db19fcc877a532f6d6",
+  "artefact_pin_matches": true,
+  "init_wiring": {
+   "files": [
+    {
+     "path": ".claude/settings.json",
+     "sha256": "6e99f9ebc362164327dd9e1799b7b5457a92a0e1d7dde4e13835cb241e2b8793"
+    },
+    {
+     "path": ".github/CODEOWNERS",
+     "sha256": "4f666a5747d077bbd59f375cedc71fbcc84866d1cc9bafb010b1802831ee347f"
+    },
+    {
+     "path": ".github/workflows/tamperward.yml",
+     "sha256": "70e74fa14c8e14863aa12785b09cdc12698e5105336104478c4e11cdfaa6b11c"
+    },
+    {
+     "path": ".tamperward.yml",
+     "sha256": "87560eb2c9b3a1133d417ef7b73ca97851d9716cdaf593558af1838ab8e5967b"
+    },
+    {
+     "path": ".git/hooks/pre-commit",
+     "sha256": "eb3fba7628d009926eefa14574e9e086c2840d7a8791cf002c1f13755bba0478"
+    }
+   ],
+   "wiring_sha256": "9e7d7fb1016c331e6d3a8974a5ff6b97043ae0b90843004670af67db52ddc487"
+  }
+ },
+ "binding_set": {
+  "files": [
+   {
+    "path": "runner/run-task4.sh",
+    "sha256": "a70ef8be7aa54ccaa44ce06ab2dca138ebd800370c3641bc559e061eda9174f4"
+   },
+   {
+    "path": "runner/deploy-gated4.sh",
+    "sha256": "6d5c632fd8afb3e103c49fcc250289b93420579c4d2885ca3ae9528c71d4d415"
+   },
+   {
+    "path": "runner/agent-jail4.sh",
+    "sha256": "012962fa20012e97778dddcb2e9968cc06e0e81ff5124b3bced554148aa53df4"
+   },
+   {
+    "path": "runner/net-jail.sh",
+    "sha256": "688826f19296259edf58b30b151208790d43a7d77487c6f799bffdbd0b317480"
+   },
+   {
+    "path": "runner/allowlist-proxy.mjs",
+    "sha256": "9bbe09a3abeec35782bf897cecffbb248776b6d2a7e7a052d4170318ac2a9eb3"
+   },
+   {
+    "path": "runner/observe3.sh",
+    "sha256": "2da74bda1fb065487cecabe66627e5580d62e0cacba3698d245e76cd5ead4dfe"
+   },
+   {
+    "path": "runner/policy-globs.mjs",
+    "sha256": "ac0612937918f9d44a2f2e0a93aff4513d642c756526db21ad9ef954c1641ad5"
+   },
+   {
+    "path": "runner/split-cases-py.mjs",
+    "sha256": "ffac2f8f4214922795c95109619e4d4f4b86e521419c6f32058abc16d1120182"
+   },
+   {
+    "path": "runner/verdict4.mjs",
+    "sha256": "d3a8fad0bf8ce9d2b8ac7548932d17952f54f5b78cb87ec48c4acca617ca01d4"
+   },
+   {
+    "path": "runner/suite-status.mjs",
+    "sha256": "5b04b47c6f84de6f3da60c9460cef91888b868def4349c48d3bad829e67cdfac"
+   },
+   {
+    "path": "runner/verdict-record.sh",
+    "sha256": "ba8ea493ad94765c2685e86c28a8a7ff586e7923723d65bd86fc12646f72462f"
+   },
+   {
+    "path": "runner/cleanup-lifecycle4.sh",
+    "sha256": "2443b31ce52bc3cee031723b6b81adfe3013b292ed25ad9a58880db40b08e725"
+   },
+   {
+    "path": "runner/launcher4.sh",
+    "sha256": "53a385b99927c1dc9fe324aa30800a53147864b9804941e4f005f676f1705144"
+   },
+   {
+    "path": "round3/policy3.yml",
+    "sha256": "b675edcc1b1ebdfefe869bd961936e56ada97da4728a106340d09db738613128"
+   },
+   {
+    "path": "round4/pilot-drive.sh",
+    "sha256": "42de80b5b21e807c94df3d5d1f42fb861085a313ee63942d8ce73e7598cbbdc0"
+   }
+  ],
+  "copied_into_trajectory": [
+   "runner/observe3.sh",
+   "runner/policy-globs.mjs",
+   "round3/policy3.yml"
+  ],
+  "binding_set_sha256": "0afcaf5a0f960750605957a5c43ed3c32f77f5fe6f9595f5f4208024876de18c"
+ },
+ "environment_recorded": {
+  "node": "v22.23.2",
+  "platform": "linux/x64",
+  "kernel": "6.10.14-linuxkit",
+  "python3": "Python 3.11.2",
+  "uv": "uv 0.8.17",
+  "claude_cli": null
+ },
+ "notes": {
+  "binding": "registration, pool, execution, treatment, binding_set — a change to any of these changes what the pilot measures and invalidates the freeze",
+  "recorded": "environment_recorded — captured for provenance; it moves with the host, so a difference is a deviation to record before trajectory one, not a silent change",
+  "arms": "ungated = parent-owned observer only; gated = the complete frozen v2 envelope",
+  "credential": "not represented here. The pilot credential is provisioned outside the repository and only its fingerprint is recorded, per trajectory, by run-task4.sh"
+ }
+}
