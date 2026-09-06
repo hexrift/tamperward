@@ -2963,3 +2963,33 @@ treatment or the adjudicator; `freeze --check` remains binding drift 0 after bot
    records the ACTUAL `claude --version` into the persisted run record
    (`runs-pilot/agent-cli-versions.txt`, checkpointed to the state branch), so what executed
    is established by the run record even though the freeze did not pin it.
+
+## D13 — 2026-09-06, trajectory-1 first dispatch failed on the artefact pin; fixed in pilot.yml (non-binding)
+
+The first `run-next` dispatch of iteration-2 trajectory 1 (seq 1, `05-coady-multimethod`,
+ungated) FAILED before the agent ran, with
+`ARTEFACT_PIN_VIOLATION: /opt/tw-artefact-2.10.2/... != pinned a0328112...` (runner exit 7).
+
+**Root cause.** `runner/run-task4.sh` is treatment-AGNOSTIC by design: it pins whatever
+artefact `TB_ART_DIR`/`TB_ART_SHA` name, and DEFAULTS them to iteration 1's 2.10.2
+(`/opt/tw-artefact-2.10.2`, `a0328112...`). Iteration 1's treatment *was* 2.10.2, so the
+default matched and nothing had to override it. Iteration 2's treatment is 2.10.3
+(`/opt/tw-artefact-2.10.3`, `0863d3a8...`) — deployed and pin-verified by the provision
+`check` — but `pilot.yml` never told the runner to look there, so the pre-start pin check
+compared the (absent) 2.10.2 tree against the 2.10.2 pin and aborted.
+
+**Not burned.** The artefact pin is a PRE-START check (before the trajectory's start marker),
+so it is retryable: seq 1 was NOT consumed. The driver reported "next seq 1" unchanged, and
+the counted frame is untouched.
+
+**Fix (non-binding).** `pilot.yml` now DERIVES the treatment identity from the frozen
+registration — `active_iteration` → that iteration's `treatment_artefact_dir` /
+`treatment_artefact_sha256` in `PILOT-REGISTRATION.json` (the single source of truth) — and
+threads `TB_ART_DIR`/`TB_ART_SHA` through the privileged `run()` wrapper so the freeze
+acknowledgement and the driver's `--next` gate both see the right artefact. This is
+iteration-agnostic: a future iteration N with a new treatment needs no further pilot.yml
+edit. Crucially it changes NO binding file — `run-task4.sh` is byte-identical (this is its
+documented env-override path), and `freeze --check` remains **binding drift 0** (all 15
+binding files match the manifest, `binding_set_sha256`
+`0afcaf5a0f960750605957a5c43ed3c32f77f5fe6f9595f5f4208024876de18c`). The freeze is unchanged;
+no re-derivation is warranted.
