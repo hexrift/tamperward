@@ -100,6 +100,7 @@ const BINDING_FILES = [
   'runner/split-cases-py.mjs',  // pytest case extraction for the oracle
   'runner/verdict4.mjs',        // the neutral adjudicator: the outcome source
   'runner/suite-status.mjs',    // the ONE interpretation of a suite's exit status; shapes every outcome the adjudicator emits, so it is as binding as verdict4
+  'runner/agent-exec-contract.mjs', // the ONE positive proof of a genuine agent execution; the runner refuses to adjudicate/persist without it (a non-execution can never become an outcome), so it gates whether ANY outcome may count — as binding as verdict4
   'runner/verdict-record.sh',   // what counts as a verdict at all
   'runner/cleanup-lifecycle4.sh', // the cleanup contract the runner is held to
   'runner/launcher4.sh',        // the immutable bare-launcher deployment gate
