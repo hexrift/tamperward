@@ -165,6 +165,12 @@ jobs:
       # completion, ignores a CLI that exits 0 on a synthetic api_error, and creates
       # NO trajectory state. CLI stubbed via TB_PREFLIGHT_CLI — no network.
       - run: bash harness/taskbench/runner/preflight-auth.selftest.sh
+      # Editable-install LIVENESS primitive — the ONE check (shared by run-task4's
+      # PRE_AGENT guard and the pre-freeze pool checker) that a source edit the agent
+      # makes in the repo is LIVE for the suite. Proves it by construction (mutate,
+      # fresh import, observe, restore); the iteration-2 task-04 finder-hook shape must
+      # read LIVE and a frozen shadow copy NOT_VERIFIED. Uses python venv + pip.
+      - run: bash harness/taskbench/runner/editable-liveness.selftest.sh
       - run: bash harness/taskbench/round4/verify-revocation-selftest.sh
       # The pilot ITERATION LIFECYCLE. Its whole job is to stop "no iteration is
       # frozen" from reading as "anything may run", so the interesting failure is
