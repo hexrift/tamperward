@@ -756,8 +756,13 @@ const m=require("/tmp/tb-fz-print.json"), a=[];
 const ok=(c,d)=>a.push((c?"ok   ":"FAIL ")+d);
 const ids=m.pool.tasks.map(t=>t.id);
 ok(ids.length===10,"the pool is exactly 10 tasks");
-ok(ids.every(i=>/^(1[1-9]|20)-/.test(i)),"every task is a FRESH id 11-20");
-ok(!ids.some(i=>/^0[1-9]-|^10-/.test(i)),"no spent id 01-10 can enter the pool");
+// The frozen pool must be EXACTLY the finalized ten on disk — no substitution,
+// no extra, no spent/disclosed id. The active pool tracks the frozen iteration
+// (iteration 2: pools/pilot-i2); update the path when a new iteration is frozen.
+{ const fs=require("fs"), poolDir="pools/pilot-i2/tasks";
+  const onDisk=fs.readdirSync(poolDir).filter(d=>/^[0-9][0-9]-/.test(d)).sort();
+  ok(JSON.stringify(ids.slice().sort())===JSON.stringify(onDisk),
+     "the frozen pool is exactly the finalized ten in "+poolDir); }
 ok([...new Set(m.execution.task_order)].length===10 &&
    m.execution.task_order.every(t=>ids.includes(t)),"the order is a permutation of the pool: none dropped, none repeated");
 ok(m.execution.trajectory_count===20 && m.execution.trajectories.length===20,"both arms: exactly 20 trajectories");
@@ -890,17 +895,17 @@ TB_PILOT_MANIFEST="$PG/PILOT-EXECUTION-MANIFEST.json" node "$FZ" --derive >/dev/
 rm -rf "$PG"
 
 # ---- the pool must not be able to certify itself
-POOLCP=$(mktemp -d); cp -a pools/pilot/tasks/. "$POOLCP/"
+POOLCP=$(mktemp -d); cp -a pools/pilot-i2/tasks/. "$POOLCP/"
 TB_PILOT_POOL_DIR="$POOLCP" node "$FZ" --print >/dev/null 2>&1 \
   && ok "an intact pool copy derives (the positive control for the pool seam)" || no "an intact pool copy failed to derive"
-echo "tampered" >> "$POOLCP/13-getmoto-py-partiql-parser/gold.patch"
+echo "tampered" >> "$POOLCP/04-materialsproject-pymatgen-io-validation/gold.patch"
 TB_PILOT_POOL_DIR="$POOLCP" node "$FZ" --print >/dev/null 2>&1 \
   && no "a patch that disagrees with its own manifest was accepted" || ok "a patch edited under its manifest is refused — the manifest cannot certify itself"
-rm -rf "$POOLCP"; POOLCP=$(mktemp -d); cp -a pools/pilot/tasks/. "$POOLCP/"; rm -rf "$POOLCP/17-tmbo-questionary"
+rm -rf "$POOLCP"; POOLCP=$(mktemp -d); cp -a pools/pilot-i2/tasks/. "$POOLCP/"; rm -rf "$POOLCP/08-GeospatialPython-pyshp"
 TB_PILOT_POOL_DIR="$POOLCP" node "$FZ" --print >/dev/null 2>&1 \
   && no "a pool missing a task was accepted" || ok "a pool missing one of the ten is refused"
-rm -rf "$POOLCP"; POOLCP=$(mktemp -d); cp -a pools/pilot/tasks/. "$POOLCP/"
-node -e 'const f=process.argv[1]+"/11-jsonpickle-jsonpickle/manifest.json";const fs=require("fs");const m=JSON.parse(fs.readFileSync(f,"utf8"));m.role="main";fs.writeFileSync(f,JSON.stringify(m,null,1))' "$POOLCP"
+rm -rf "$POOLCP"; POOLCP=$(mktemp -d); cp -a pools/pilot-i2/tasks/. "$POOLCP/"
+node -e 'const f=process.argv[1]+"/02-lmfit-uncertainties/manifest.json";const fs=require("fs");const m=JSON.parse(fs.readFileSync(f,"utf8"));m.role="main";fs.writeFileSync(f,JSON.stringify(m,null,1))' "$POOLCP"
 TB_PILOT_POOL_DIR="$POOLCP" node "$FZ" --print >/dev/null 2>&1 \
   && no "a task whose role is not 'pilot' was accepted" || ok "a non-pilot role is refused"
 rm -rf "$POOLCP"
