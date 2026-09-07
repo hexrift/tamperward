@@ -1,0 +1,640 @@
+diff --git a/CHANGES.rst b/CHANGES.rst
+index a5742f8278005514ea2a2d5e492c77cd090cdb4d..4f415c947f15dc9c3316a8f95f53c9254eb5e63c 100644
+--- a/CHANGES.rst
++++ b/CHANGES.rst
+@@ -14,8 +14,16 @@ We now follow the XDG base directory specification, that tells where config
+ unset, `${HOME}/.config/diceware/diceware.ini`. The traditional location
+ `${HOME}/.diceware.ini` is still supported.
+ 
++Furthermore we read `${XDG_DATA_HOME}/diceware/` (or
++`${HOME}/.local/share/diceware/` if `${XDG_DATA_HOME}` is empty or unset) to
++lookup further wordlists.
++
++New option `--show-wordlist-dirs` lists all directory locations we search for
++contained wordlists.
++
+ - Officially support Python 3.10 to 3.12.
+-- Fixed #86: Follow `XDG`_ base directory specification.
++- Fixed #86: Follow `XDG <https://specifications.freedesktop.org/basedir-spec/latest/>`_ base directory specification.
++- Fixed #84: Allow to store wordlists also in custom directories.
+ - Use `ruff` as linter, drop `flake8`.
+ - Renew `tox` configuration.
+ - Switch to `pyproject`-based project layout, away from using `setup.py`.
+diff --git a/diceware.1 b/diceware.1
+index 3aeb7177ecd5f3cf28dfb022ada8c4971fa474b1..5af6b336ae250add22b95e156e652ebeb755d584 100644
+--- a/diceware.1
++++ b/diceware.1
+@@ -1,6 +1,6 @@
+ .\" Man page generated from reStructuredText.
+ .
+-.TH DICEWARE 1 "July 2024" "diceware 1.0.dev0" "User Commands"
++.TH DICEWARE 1 "September 2024" "diceware 1.0.dev0" "User Commands"
+ .SH NAME
+ diceware \- create passphrases
+ .
+@@ -104,15 +104,118 @@ Number of sides of dice. Default: 6
+ .UNINDENT
+ .UNINDENT
+ .UNINDENT
++.SH ENVIRONMENT VARIABLES
++.INDENT 0.0
++.TP
++.B \fBXDG_CONFIG_HOME\fP
++If set and not empty, this variable determines the directory to use for
++user\-local configuration files. We then lookup
++\fI${XDG_CONFIG_HOME}/diceware/diceware.ini\fP and values set here override
++system\-wide config files.
++.TP
++.B \fBXDG_CONFIG_DIRS\fP
++If set and not empty, this variable is interpreted as colon\-separated list
++of directories, that might contain system\-wide configuration files. We
++lookup \fI<DIR>/diceware/diceware.ini\fP for each directory set in
++\fI$XDG_CONFIG_DIRS\fP\&.
++.TP
++.B \fBXDG_DATA_HOME\fP
++.INDENT 7.0
++.INDENT 3.5
++If set and not empty, this variable determines a directory to search for
++additional wordlists. We then lookup \fI${XDG_DATA_HOME}/diceware\fP for any
++existing wordlist files.
++.UNINDENT
++.UNINDENT
++.INDENT 7.0
++.TP
++.B \fBXDG_DATA_DIRS\fP
++If set and not empty, this variable is interpreted as colon\-separated list
++of directories, that might contain additional wordlist files. See below. We
++lookup \fI<DIR>/diceware/\fP then for each directory set in the list.
++.UNINDENT
++.UNINDENT
+ .SH FILES
++.sp
++Depending on environment variables set (or not set) we lookup certain
++directories for configuration files called \fBdiceware.ini\fP and for wordlist
++files.
++.SS CONFIGURATION FILES
++.sp
++Configuration settings for \fBdiceware\fP can be spread over several
++configuration files. We parse configuration values from the files given below,
++but values set in former files take precedence over values set in latter ones.
+ .INDENT 0.0
+ .TP
+ .B \fI~/.diceware.ini\fP
+-Your personal diceware configuration file.
++Your personal diceware configuration file. Values set here override values
++from any other configuration file.
++.TP
++.B \fI$XDG_CONFIG_HOME/diceware/diceware.ini\fP
++Additional location for your personal diceware configuration. Values set
++here will override any system\-wide valid values but can be overridden by
++\fI~/.diceware.ini\fP\&.
++.TP
++.B \fI$HOME/.config/diceware/diceware.ini\fP
++Alternative location for diceware configuration, only used if
++\fI${XDG_CONFIG_HOME}\fP is empty or unset.
++.TP
++.B \fI/etc/xdg/diceware/diceware.ini\fP
++If \fB$XDG_CONFIG_DIRS\fP is not set or empty, we look here for a system\-wide
++configuration file. Values set here take least precedence.
+ .UNINDENT
++.SS WORDLIST FILES AND WORDLIST DIRECTORIES:
++.sp
++\fBdiceware\fP comes with a set of wordlists but enables you to add new wordlists
++by putting them into certain directories. The paths where the lists are stored
++(including the built\-in ones) is shown using \fB\-\-show\-wordlist\-dirs\fP\&.
++.sp
++Wordlist files are expected to contain lines with one term on each
++line and they must have a certain filenames to be found.
++.sp
++Wordlist filenames have to follow the pattern: \fBwordlist_<NAME>.txt\fP
++where \fB<NAME>\fP can be any name consisting of letters, numbers, underscores and
++hyphens. For instance \fBwordlist_en_eff.txt\fP is the filename of the EFF
++(electronic frontier foundation) word list. \fBen_eff\fP is the name of this list.
+ .sp
+-\fBdiceware\fP also comes with a set of wordlists. The path where these lists are
+-stored is showed with \fB\-\-help\fP\&.
++We support \fB\&.txt\fP and \fB\&.asc\fP as filename extensions for wordlists, where
++\fB\&.txt\fP files are expected to be plain wordlists and \fB\&.asc\fP files should
++provide a PGP\-signature.
++.sp
++If wordlists with the same name are found in different directories then the one
++in the directory with the highest precedence is taken only. The following
++locations are ordered by precedence (highest first). Therefore built\-in
++wordlists cannot be overridden by custom wordlists. You can, however, use
++custom wordlists with a different name.
++.sp
++Directories we look up that do not exist (in part or completely) are silently
++skipped when searching for wordlist files.
++.INDENT 0.0
++.TP
++.B \fI<INSTALL\-DIR>/wordlists/\fP
++The directory containing the built\-in wordlists as part of the
++installation. These are the wordlists that are always available, regardless
++of configuration values and their exact location depends on the
++installation location of the \fBdiceware\fP package.
++.TP
++.B \fI$XDG_DATA_HOME/diceware/\fP
++If $XDG_DATA_HOME is set and not empty, we look in this directory for
++wordlists.
++.TP
++.B \fI$HOME/.local/share/diceware/\fP
++If $XDG_DATA_HOME is unset or empty, we look  into this directory for
++wordlists.
++.TP
++.B \fI<DIR>/diceware\fP from \fI$XDG_DATA_DIRS\fP
++If $XDG_DATA_DIR is set and not empty, it is interpreted as a
++colon\-separated list of directories with \fI/diceware\fP appended. So,
++\fI/foo/bar:/baz\fP will make us look into \fI/foo/bar/diceware/\fP and
++\fI/baz/diceware/\fP in that order.
++.TP
++.B \fI/usr/local/share/diceware/\fP, \fI/usr/share/diceware\fP
++If $XDG_DATA_DIRS is unset or empty, we look into these two directories for
++wordlists.
++.UNINDENT
+ .SH EXAMPLES
+ .INDENT 0.0
+ .TP
+diff --git a/diceware/__init__.py b/diceware/__init__.py
+index 94053a0d1c73bd672ccf430e968b4aaca906c805..538d64c3bb5026e6b8189df10d38152d773f9489 100644
+--- a/diceware/__init__.py
++++ b/diceware/__init__.py
+@@ -24,7 +24,7 @@ from .__about__ import version as __version__
+ from diceware.config import get_config_dict
+ from diceware.logger import configure
+ from diceware.wordlist import (
+-    WordList, get_wordlist_path, get_wordlists_dir, get_wordlist_names,
++    WordList, get_wordlist_path, get_wordlist_dirs, get_wordlist_names,
+     )
+ 
+ #: Special chars inserted on demand
+@@ -60,6 +60,13 @@ def print_version():
+     print(GPL_TEXT)
+ 
+ 
++def print_wordlist_dirs():
++    """Output all dirs we look up for wordlists.
++    """
++    for entry in get_wordlist_dirs():
++        print(entry)
++
++
+ def get_random_sources():
+     """Get a dictionary of all entry points called diceware_random_source.
+ 
+@@ -92,7 +99,7 @@ def handle_options(args):
+     defaults = get_config_dict()
+     parser = argparse.ArgumentParser(
+         description="Create a passphrase",
+-        epilog="Wordlists are stored in %s" % get_wordlists_dir()
++        epilog="Use --show-wordlist-dirs to list directories where you can store custom wordlists."
+         )
+     parser.add_argument(
+         '-n', '--num', default=6, type=int,
+@@ -121,7 +128,7 @@ def handle_options(args):
+         metavar="NAME", nargs='*',
+         help=(
+             "Use words from this wordlist. Possible values: `%s'. "
+-            "Wordlists are stored in the folder displayed below. "
++            "Wordlists are stored in the folders displayed below. "
+             "Default: en_eff" % "', `".join(wordlist_names)))
+     realdice_group = parser.add_argument_group(
+         "Arguments related to `realdice' randomsource",
+@@ -139,7 +146,11 @@ def handle_options(args):
+         help='Be verbose. Use several times for increased verbosity.')
+     parser.add_argument(
+         '--version', action='store_true',
+-        help='output version information and exit.',
++        help='Output version information and exit.',
++        )
++    parser.add_argument(
++        '--show-wordlist-dirs', action='store_true',
++        help='Output directories we look up to find wordlists and exit.',
+         )
+     for plugin in plugins.values():
+         if hasattr(plugin, "update_argparser"):
+@@ -219,6 +230,9 @@ def main(args=None):
+     if options.version:
+         print_version()
+         raise SystemExit(0)
++    elif options.show_wordlist_dirs:
++        print_wordlist_dirs()
++        raise SystemExit(0)
+     try:
+         print(get_passphrase(options))
+     except (OSError, IOError) as infile_error:
+diff --git a/docs/config.rst b/docs/config.rst
+index c7ff0abd2a66beac1c322f30c6e34905118b4eb3..d0c7516396d3684a0f9454c278a13f0352b94411 100644
+--- a/docs/config.rst
++++ b/docs/config.rst
+@@ -47,16 +47,92 @@ Please note, that all options must be set within a section
+ ``[diceware]``.
+ 
+ 
+-Config File Name and Path
+--------------------------
++Config Files Name and Path
++--------------------------
+ 
+-Currently, we look for configuration files only in the calling users'
+-home directory. The file must be called::
++Prior to version 1.0 we looked for a single configuration file in the calling
++users' home directory only. The file had to be called::
+ 
+  .diceware.ini
+ 
+-(please note the leading dot). If such a file is missing, build-in
+-defaults apply.
++(please note the leading dot). If such a file were missing, buildt-in
++defaults applied.
++
++Since version 1.0 we look into several additional locations, but values set in
++``.diceware.ini`` still always override settings from other configuration files
++found.
++
++In order of precedence (with highest priority first) we look into the following
++paths::
++
++    ${HOME}/.diceware.ini
++
++Values set here override settings in any of the following files. If
++``${XDG_CONFIG_HOME}`` is defined and not empty, we then look into
++
++::
++
++    ${XDG_CONFIG_HOME}/diceware/diceware.ini
++
++
++or otherwise into
++
++::
++
++    ${HOME}/.config/diceware/diceware.ini
++
++Finally, if a colon-separated and not empty list of directories is set
++in
++
++::
++
++    ${XDG_CONFIG_DIRS}
++
++we look up any directory in this list, appended by
++
++::
++
++    /diceware/diceware.ini
++
++
++If none of the above files exist, default settings apply. Using this scheme we
++follow the `XDG Base Directory Specification
++<https://specifications.freedesktop.org/basedir-spec/latest/>`_.
++
++
++Examples
++........
++
++If you set the environment variable ``${XDG_CONFIG_DIRS}`` to ``/foo:/etc``,
++and then create a file ``diceware.ini`` in directory
++``/foo/diceware/`` with contents like this::
++
++    [diceware]
++    num = 2
++
++then `diceware` will create passphrases with two terms, except other
++configuration files or commandline options overrule this setting.
++
++Precedence of paths in ``${XDG_CONFIG_DIRS}`` is from least to highest
++priority. Therefore, if you create a file ``/etc/diceware/diceware.ini`` with
++content
++
++::
++
++    [diceware]
++    num = 4
++
++then this setting will override ``num = 2`` from the file above. Still any
++setting in ``${XDG_CONFIG_HOME}/diceware/diceware.ini`` or
++``${HOME}/.config/diceware/diceware.ini`` as explained above will take
++precedence while options set in ``${HOME}/.diceware.ini`` or on the commandline
++like
++
++::
++
++    diceware -n 6
++
++will still have highest priority.
+ 
+ 
+ Option Values
+diff --git a/docs/manpage.rst b/docs/manpage.rst
+index 9f2f0deb85cb7b72089767cb73545cf8e8d680ac..924be738a7678a27f2b4827d4ce1f020eb38eabb 100644
+--- a/docs/manpage.rst
++++ b/docs/manpage.rst
+@@ -3,7 +3,7 @@
+ :subtitle: create passphrases
+ :manual_section: 1
+ :manual_group: User Commands
+-:date: July 2024
++:date: September 2024
+ :version: diceware 1.0.dev0
+ :author: Written by Uli Fouquet and contributors
+ 
+@@ -73,15 +73,116 @@ options
+     Number of sides of dice. Default: 6
+ 
+ 
++environment variables
++---------------------
++
++``XDG_CONFIG_HOME``
++    If set and not empty, this variable determines the directory to use for
++    user-local configuration files. We then lookup
++    `${XDG_CONFIG_HOME}/diceware/diceware.ini` and values set here override
++    system-wide config files.
++
++``XDG_CONFIG_DIRS``
++    If set and not empty, this variable is interpreted as colon-separated list
++    of directories, that might contain system-wide configuration files. We
++    lookup `<DIR>/diceware/diceware.ini` for each directory set in
++    `$XDG_CONFIG_DIRS`.
++
++``XDG_DATA_HOME``
++    If set and not empty, this variable determines a directory to search for
++    additional wordlists. We then lookup `${XDG_DATA_HOME}/diceware` for any
++    existing wordlist files.
++
++ ``XDG_DATA_DIRS``
++    If set and not empty, this variable is interpreted as colon-separated list
++    of directories, that might contain additional wordlist files. See below. We
++    lookup `<DIR>/diceware/` then for each directory set in the list.
++
++
+ files
+ -----
+ 
++Depending on environment variables set (or not set) we lookup certain
++directories for configuration files called ``diceware.ini`` and for wordlist
++files.
++
++CONFIGURATION FILES
++...................
++
++Configuration settings for ``diceware`` can be spread over several
++configuration files. We parse configuration values from the files given below,
++but values set in former files take precedence over values set in latter ones.
++
+ `~/.diceware.ini`
+-    Your personal diceware configuration file.
++    Your personal diceware configuration file. Values set here override values
++    from any other configuration file.
++
++`$XDG_CONFIG_HOME/diceware/diceware.ini`
++    Additional location for your personal diceware configuration. Values set
++    here will override any system-wide valid values but can be overridden by
++    `~/.diceware.ini`.
++
++`$HOME/.config/diceware/diceware.ini`
++    Alternative location for diceware configuration, only used if
++    `${XDG_CONFIG_HOME}` is empty or unset.
++
++
++`/etc/xdg/diceware/diceware.ini`
++    If ``$XDG_CONFIG_DIRS`` is not set or empty, we look here for a system-wide
++    configuration file. Values set here take least precedence.
++
++
++WORDLIST FILES AND WORDLIST DIRECTORIES:
++........................................
++
++``diceware`` comes with a set of wordlists but enables you to add new wordlists
++by putting them into certain directories. The paths where the lists are stored
++(including the built-in ones) is shown using ``--show-wordlist-dirs``.
++
++Wordlist files are expected to contain lines with one term on each
++line and they must have a certain filenames to be found.
++
++Wordlist filenames have to follow the pattern: ``wordlist_<NAME>.txt``
++where ``<NAME>`` can be any name consisting of letters, numbers, underscores and
++hyphens. For instance ``wordlist_en_eff.txt`` is the filename of the EFF
++(electronic frontier foundation) word list. ``en_eff`` is the name of this list.
++
++We support ``.txt`` and ``.asc`` as filename extensions for wordlists, where
++``.txt`` files are expected to be plain wordlists and ``.asc`` files should
++provide a PGP-signature.
++
++If wordlists with the same name are found in different directories then the one
++in the directory with the highest precedence is taken only. The following
++locations are ordered by precedence (highest first). Therefore built-in
++wordlists cannot be overridden by custom wordlists. You can, however, use
++custom wordlists with a different name.
++
++Directories we look up that do not exist (in part or completely) are silently
++skipped when searching for wordlist files.
++
++`<INSTALL-DIR>/wordlists/`
++    The directory containing the built-in wordlists as part of the
++    installation. These are the wordlists that are always available, regardless
++    of configuration values and their exact location depends on the
++    installation location of the ``diceware`` package.
++
++`$XDG_DATA_HOME/diceware/`
++    If $XDG_DATA_HOME is set and not empty, we look in this directory for
++    wordlists.
++
++`$HOME/.local/share/diceware/`
++    If $XDG_DATA_HOME is unset or empty, we look  into this directory for
++    wordlists.
+ 
+-``diceware`` also comes with a set of wordlists. The path where these lists are
+-stored is showed with ``--help``.
++`<DIR>/diceware` from `$XDG_DATA_DIRS`
++    If $XDG_DATA_DIR is set and not empty, it is interpreted as a
++    colon-separated list of directories with `/diceware` appended. So,
++    `/foo/bar:/baz` will make us look into `/foo/bar/diceware/` and
++    `/baz/diceware/` in that order.
+ 
++`/usr/local/share/diceware/`, `/usr/share/diceware`
++    If $XDG_DATA_DIRS is unset or empty, we look into these two directories for
++    wordlists.
+ 
+ examples
+ --------
+diff --git a/docs/wordlists.rst b/docs/wordlists.rst
+index 016846b80b821b5393613a2c857473b29452cec3..58f5cb0014f4e58d74964617dfcef518ee2f88d5 100644
+--- a/docs/wordlists.rst
++++ b/docs/wordlists.rst
+@@ -12,7 +12,13 @@ good choice for usual private use.
+          but the `long EFF wordlist`_ (see below), because it is more secure
+          and more comfortable to use.
+ 
+-Currently (v0.10) we provide the following lists:
++Currently (v1.0) we provide the following lists:
++
++- `ca` (8192/2^13 words)
++
++  A list of Catalan words. Compiled by `@jawlenskys`_ from Debian dict file for
++  Catalan and a selection of most used Catalan Wikipedia words. This list
++  provides the `prefix property`_.
+ 
+ - `de` (7776/6^5 words)
+ 
+@@ -54,17 +60,35 @@ Currently (v0.10) we provide the following lists:
+   A list of english adjectives. This list is relatively short and should be
+   used together with other lists -- for instance the `en_nouns` list -- to
+   provide a sufficient security level. List provided from the
+-  `NaturalLanguagePasswords`_ project.
++  `NaturalLanguagePasswords`_ project. This list got lots of short terms (good
++  for comfort, bad for security) and does *not* provide the `prefix property`_.
+ 
+ - `en_nouns` (7776/6^5 words)
+ 
+   A list of english nouns. Can be used together with other lists -- for
+   instance the `en_adjectives` list to form natural language phrases. List
+-  provided from the `NaturalLanguagePasswords`_ project.
++  provided from the `NaturalLanguagePasswords`_ project. This list got lots of
++  short terms (good for comfort, bad for security) and does *not* provide the
++  `prefix property`_.
++
++- `es` (8192/2^13 words)
++
++  A list of Spanish words, carefully crafted by `@jawlenskys`_ from Debian dict
++  file for Spanish and a selection of most used Spanish words from `Corpus de
++  Referencia del Español Actual (CREA)`_. This list provides the `prefix
++  property`_.
++
++- `it` (8192/2^13 words)
++
++  A list of Italian words, Compiled by `@jawlenskys`_ from Debian dict file for
++  Italian and an `Italian frequency list
++  <https://en.wiktionary.org/wiki/User:Matthias_Buchmeier#Italian_frequency_list>`
++  generated from TV and movie subtitles.  This list provides the `prefix
++  property`_.
+ 
+ - `pt-br` (7776/6^5 words)
+ 
+-  A list of brazilian portugese words, carefully crafted by `@drebs`_. This
++  A list of Brazilian Portugese words, carefully crafted by `@drebs`_. This
+   list contains no overshort words. It also provides the `prefix property`_.
+ 
+ 
+@@ -115,8 +139,8 @@ easier to break by checking all char combinations than to try all combinations
+ of words in the wordlist.
+ 
+ 
+-Add Own Wordlists
+------------------
++Using Custom Wordlists
++----------------------
+ 
+ You can use any wordlist you like. Simply give the filename and it
+ will be used::
+@@ -127,7 +151,7 @@ will be used::
+ You can even pipe-in dynamic wordlists. Just use the dash ``-`` as
+ filename::
+ 
+-  $ cat mywordgenerator.sh | diceware -
++  $ mywordgenerator.sh | diceware -
+   HiHiHelloHiHiHello
+ 
+ for instance.
+@@ -137,18 +161,22 @@ to `diceware`.
+ 
+ But, if you want to store a wordlist persistently, you can do so too.
+ 
+-The wordlists we offer for use with `diceware` are all stored in a
+-single folder. The exact location is output by ``--help`` at the very
+-end::
++The built-in wordlists we offer for use with `diceware` are all stored in a
++single directory. The exact location is output by ``--show-wordlist-dirs`` as
++first entry::
+ 
+-  $ diceware --help
++  $ diceware --show-wordlist-dirs
++  /path/to/some/directory
++  /path/to/other/directory
+   ...
+-  Wordlists are stored in /some/path/to/folder
+ 
+-Just put your own wordlists into this folder (here:
+-``/some/path/to/folder``) and rename the file to something like
+-``wordlist_MY_SPECIAL_NAME.txt``. Afterwards you can pick your
+-wordlist by running::
++But also all the other directories listed by this command are looked up for
++wordlist files (if they exist).
++
++You can put your own wordlists into one of these folders (here:
++``/path/to/some/directory``, ``/path/to/other/directory``) and rename the file
++to something like ``wordlist_MY_SPECIAL_NAME.txt``. Afterwards you can pick
++your wordlist by running::
+ 
+   $ diceware -w MY_SPECIAL_NAME
+ 
+@@ -168,8 +196,48 @@ funny characters. In fact we accept regular letters, dashes, numbers,
+ and underscores only. Files that do not follow these naming convention
+ are ignored.
+ 
+-A list of all available wordlist names can also be retrieved with
+-``--help``. See the ``--wordlist`` explanation.
++A list of all available wordlist names can be retrieved with ``--help``. See
++the ``--wordlist`` explanation.
++
++
++Where Wordlists are Looked Up
++-----------------------------
++
++Starting with version 1.0 wordlists can be stored in several directories.  We
++look for wordlists in certain directories only.  The list of these directories
++depends partly on environment variables. It can be shown with::
++
++    $ diceware --show-wordlist-dirs
++    /some/installdir/diceware/wordlists
++    /home/user/.local/share/diceware
++    /usr/local/share/diceware
++    /usr/share/diceware
++
++and may be different on your machine. Wordlist directories are looked up in the
++order listed by ``--show-wordlist-dirs``. Wordlists in former directories
++override same-named in latter ones.  So, with the order given above, a wordlist
++named ``wordlist_foo.txt`` in ``/some/installdir/diceware/wordlists`` will have
++precedence over a same-named wordfile located in ``/usr/share/diceware``.
++
++The ``wordlists/`` directory of the Python package itself is always the first
++we look into.
++
++Afterwards we look up ``${XDG_DATA_HOME}/diceware/`` or, if this environment
++variable is not set or empty, ``${HOME}/.local/share/diceware``.
++
++At the end we look into each of the directories listed in the
++colon-separated list in ``${XDG_DATA_DIRS}``, appended by ``/diceware``. So, if
++``${XDG_DATA_DIRS}`` is set to ``/foo:/bar:/etc/foo``, we will look into
++``/foo/diceware``, ``/bar/diceware`` and ``/etc/foo/diceware`` (in that order)
++for wordlists.
++
++In case the environment variable ``${XDG_DATA_DIRS}`` is not set or empty, we
++look into ``/usr/local/share/diceware`` and ``/usr/share/diceware`` instead.
++
++Under all circumstances we stop looking up wordlist directories, when the first
++match (with a given wordlist name) happened.
++
++All these rules try to follow the `XDG Base Directory Specification`_.
+ 
+ 
+ Plain Wordlists
+@@ -243,15 +311,17 @@ automatically done by `diceware`.
+ .. warning:: Diceware does *not* automatically verify PGP-signed
+              files.
+ 
+-
+ .. _`8k wordlist`: http://world.std.com/~reinhold/diceware8k.txt
++.. _`Corpus de Referencia del Español Actual (CREA)`: https://corpus.rae.es/lfrecuencias.html
+ .. _`diceware standard wordlist`: http://world.std.com/~reinhold/diceware.wordlist.asc
+ .. _`@drebs`: https://github.com/drebs
+ .. _`Electronic Frontier Foundation`: https://eff.org/
+ .. _`@Heartsucker`: https://github.com/heartsucker/
+ .. _`Institut für Deutsche Sprache`: https://www.ids-mannheim.de/derewo
++.. _`@jawlenskys`: https://github.com/jawlenskys
+ .. _`long EFF wordlist`: https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt
+ .. _`NaturalLanguagePasswords`: https://github.com/NaturalLanguagePasswords
+ .. _`prefix property`: https://en.wikipedia.org/wiki/Prefix_code
+ .. _`scientific effort`: https://www.eff.org/deeplinks/2016/07/new-wordlists-random-passphrases
+ .. _`securedrop`: https://github.com/freedomofpress/securedrop
++.. _`XDG Base Directory Specification`: https://specifications.freedesktop.org/basedir-spec/latest/

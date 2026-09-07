@@ -1,0 +1,21 @@
+{
+ "id": "05-tavily-ai-tavily-python",
+ "repo": "tavily-ai/tavily-python",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "b608114c649b191d3a8460d9abc78e26e3fe6f7c",
+ "commit_sha": "b7e5295f43e41d6a5f6efbdcb7ec7992d70eeed9",
+ "test_patch_sha256": "6e9c51c1922901f38a0f211d6d9d2a2be94984fbf4c333ec7fa21cdd20d1a651",
+ "gold_patch_sha256": "193f0770943b9f4ab343f5d99216f5efabd087b0e3515a554763281d8d2033c7",
+ "test_files": [
+  "tests/test_custom_session.py",
+  "tests/test_errors.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 4,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T01:32:32.802Z"
+}

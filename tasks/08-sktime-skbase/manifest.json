@@ -1,0 +1,20 @@
+{
+ "id": "08-sktime-skbase",
+ "repo": "sktime/skbase",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "e11c4b1e33152bca1bd63e3f1a3cfa2a79d47bbf",
+ "commit_sha": "22695ad74a197d64aef6df57d197b29cfee60957",
+ "test_patch_sha256": "f1ee5dcec5d96b3af1257ca4e0ed9e95bbd240d396de6f38403832618eb01f8d",
+ "gold_patch_sha256": "72b549c6be2b608d852a747ad6e0dc66d257f09082ac88ede4b5920a345c3dbb",
+ "test_files": [
+  "skbase/tests/test_deep_equals.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T01:40:56.146Z"
+}

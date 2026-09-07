@@ -1,0 +1,20 @@
+{
+ "id": "07-ivankorobkov-python-inject",
+ "repo": "ivankorobkov/python-inject",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "fa3c62c28e6ae3d7e2fd0122282ce197480dc6b9",
+ "commit_sha": "29714bb258c1e876aa34569ce749c5f5127ec579",
+ "test_patch_sha256": "4cf4db786ebec9825dde17011610a580e57ade52d0d4caee49acaef4d4279e55",
+ "gold_patch_sha256": "22aad191a9bbc6cbc6576c5d465a821deb0cb4abb94de96419b68cdee6095964",
+ "test_files": [
+  "test/test_attr.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T01:39:23.361Z"
+}

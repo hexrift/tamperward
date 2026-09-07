@@ -1,0 +1,20 @@
+{
+ "id": "09-aio-libs-janus",
+ "repo": "aio-libs/janus",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "a85cc407c22c75c9a2e0a19a74160f25f3f31c54",
+ "commit_sha": "57ac3fce968a6c5e82bd8bb28a19896789b0ba0d",
+ "test_patch_sha256": "11134bac596b6c473ffcfb143df6bafde0ba22ce1b3c7bbc74fbaff144775671",
+ "gold_patch_sha256": "dad71b8b4ba6160947591bd70c57e9d6f36ae2b70c380d7e056dea1b893f286c",
+ "test_files": [
+  "tests/test_sync.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T01:46:52.243Z"
+}

@@ -1,0 +1,105 @@
+diff --git a/tests/test_custom_session.py b/tests/test_custom_session.py
+index 7063b281c57dc55f3dbf1cababb2bc15602e5795..acc4c0ef3987cb5263f0f90dfe78700a84dd23ff 100644
+--- a/tests/test_custom_session.py
++++ b/tests/test_custom_session.py
+@@ -4,7 +4,6 @@ from tests.request_intercept import intercept_requests, clear_interceptor, MockS
+ import tavily.tavily as sync_tavily
+ import tavily.async_tavily as async_tavily
+ import pytest
+-from tavily.errors import MissingAPIKeyError
+ 
+ 
+ @pytest.fixture
+@@ -104,10 +103,14 @@ class TestSyncCustomSession:
+ 
+     # --- API key validation edge cases ---
+ 
+-    def test_no_api_key_no_session_raises(self, monkeypatch):
++    def test_no_api_key_no_session_creates_keyless_client(self, monkeypatch):
++        """No api_key + no custom session -> keyless mode (search/extract only)."""
+         monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+-        with pytest.raises(MissingAPIKeyError):
+-            sync_tavily.TavilyClient()
++        client = sync_tavily.TavilyClient()
++        assert client._keyless is True
++        assert "Authorization" not in client.headers
++        assert client.headers.get("X-Tavily-Access-Mode") == "keyless"
++        assert client.headers.get("X-Client-Source") == "tavily-python-keyless"
+ 
+     def test_no_api_key_with_session_allowed(self, sync_interceptor, monkeypatch):
+         monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+@@ -140,10 +143,13 @@ class TestSyncCustomSession:
+         assert req is not None
+         assert req.headers["Authorization"] == "Bearer apim-token"
+ 
+-    def test_empty_string_api_key_no_session_raises(self, monkeypatch):
++    def test_empty_string_api_key_no_session_creates_keyless_client(self, monkeypatch):
++        """Empty-string api_key + no custom session -> keyless mode."""
+         monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+-        with pytest.raises(MissingAPIKeyError):
+-            sync_tavily.TavilyClient(api_key="")
++        client = sync_tavily.TavilyClient(api_key="")
++        assert client._keyless is True
++        assert "Authorization" not in client.headers
++        assert client.headers.get("X-Tavily-Access-Mode") == "keyless"
+ 
+     def test_empty_string_api_key_with_session_allowed(self, sync_interceptor):
+         custom_session = MockSession(sync_interceptor)
+@@ -336,10 +342,11 @@ class TestAsyncCustomClient:
+ 
+     # --- API key validation edge cases ---
+ 
+-    def test_no_api_key_no_client_raises(self, monkeypatch):
++    def test_no_api_key_no_client_creates_keyless_client(self, monkeypatch):
++        """Async: no api_key + no custom client -> keyless mode."""
+         monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+-        with pytest.raises(MissingAPIKeyError):
+-            async_tavily.AsyncTavilyClient()
++        client = async_tavily.AsyncTavilyClient()
++        assert client._keyless is True
+ 
+     def test_no_api_key_with_client_allowed(self, monkeypatch):
+         monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+diff --git a/tests/test_errors.py b/tests/test_errors.py
+index 71276d5a9f865cce2d8ddd0948586b8446365dd3..3bd7cbdff765c516de7aa4d4bbd8455f76547273 100644
+--- a/tests/test_errors.py
++++ b/tests/test_errors.py
+@@ -4,7 +4,7 @@ import asyncio
+ 
+ import tavily.tavily as sync_tavily
+ import tavily.async_tavily as async_tavily
+-from tavily.errors import MissingAPIKeyError, InvalidAPIKeyError
++from tavily.errors import InvalidAPIKeyError
+ 
+ @pytest.fixture
+ def set_api_key():
+@@ -31,18 +31,17 @@ def test_load_key_from_env(set_api_key):
+ 
+     # No error should be raised
+ 
+-def test_missing_api_key(clear_api_key):
+-    with pytest.raises(MissingAPIKeyError):
+-        sync_tavily.TavilyClient(api_key='')
+-
+-    with pytest.raises(MissingAPIKeyError):
+-        async_tavily.AsyncTavilyClient(api_key='')
+-
+-    with pytest.raises(MissingAPIKeyError):
+-        sync_tavily.TavilyClient()
+-
+-    with pytest.raises(MissingAPIKeyError):
+-        async_tavily.AsyncTavilyClient()
++def test_no_api_key_creates_keyless_client(clear_api_key):
++    """With no API key (None or empty string) the client constructs in keyless mode."""
++    for ctor_args in [{"api_key": ""}, {}, {"api_key": None}]:
++        sync_client = sync_tavily.TavilyClient(**ctor_args)
++        assert sync_client._keyless is True
++        assert "Authorization" not in sync_client.headers
++        assert sync_client.headers.get("X-Tavily-Access-Mode") == "keyless"
++        assert sync_client.headers.get("X-Client-Source") == "tavily-python-keyless"
++
++        async_client = async_tavily.AsyncTavilyClient(**ctor_args)
++        assert async_client._keyless is True
+ 
+ def test_invalid_api_key():
+     with pytest.raises(InvalidAPIKeyError):

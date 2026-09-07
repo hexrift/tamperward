@@ -1,0 +1,20 @@
+{
+ "id": "03-scrapy-itemadapter",
+ "repo": "scrapy/itemadapter",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "47481554948a1af59b3676b7310b2a93e0b96212",
+ "commit_sha": "69437d9324bbe4ad7c1b12ebcd26b53c0f88e65b",
+ "test_patch_sha256": "f4f0aced18c8b3aeff096019d9a44eece9b58bacbf699fda285de7138a7e6e76",
+ "gold_patch_sha256": "4ee3f33e1fb5dd515355413edf0d5ec0eabcce46366080cb0503397bd9b9fb3f",
+ "test_files": [
+  "tests/test_json_schema.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T00:53:20.805Z"
+}
