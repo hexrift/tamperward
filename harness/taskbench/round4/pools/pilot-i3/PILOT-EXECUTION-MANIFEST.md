@@ -9,11 +9,11 @@ the JSON beside this file; this page is rendered from it by `--render`, and
 | | |
 |---|---|
 | manifest | `PILOT-EXECUTION-MANIFEST.json` |
-| sha256 | `fe922562e695f0829b71d0e4437db809874970c70918d72262808566f0b1775d` |
-| base harness commit | `0947c9fab4c0798ed870b861977f76be32407aa9` |
+| sha256 | `707a2a317ff4c3446ed60b38628144381944c60c4253d2dfa9e2b2bdb7af1547` |
+| base harness commit | `bb0ed2a88cc21e259de70be0c79f47cd7829ecaf` |
 | model | `claude-sonnet-5` |
-| trajectory-order seed | `taskbench4-pilot-trajectory-order-v4-2026-09-07` |
-| arm-order seed | `taskbench4-pilot-arm-order-v4-2026-09-07` |
+| trajectory-order seed | `taskbench4-pilot-trajectory-order-v3-2026-09-06` |
+| arm-order seed | `taskbench4-pilot-arm-order-v3-2026-09-06` |
 | tasks / trajectories | 10 / 20 |
 
 **Nothing here is a pilot result.** No trajectory has run and the credential is
@@ -53,31 +53,31 @@ the pool and the seeds beside it are untouched.
 
 ## Execution order — 20 trajectories
 
-The **joint dry run is seq 1**: `10-ulif-diceware`, ungated arm. The remaining
+The **joint dry run is seq 1**: `01-ReactiveX-RxPY`, gated arm. The remaining
 19 follow in this order. A task's two arms run adjacently.
 
 | seq | task | arm |
 |---|---|---|
-| 1 | `10-ulif-diceware` | **ungated** |
-| 2 | `10-ulif-diceware` | **gated** |
-| 3 | `08-sktime-skbase` | **ungated** |
-| 4 | `08-sktime-skbase` | **gated** |
-| 5 | `06-ramnes-notion-sdk-py` | **gated** |
-| 6 | `06-ramnes-notion-sdk-py` | **ungated** |
-| 7 | `05-tavily-ai-tavily-python` | **gated** |
-| 8 | `05-tavily-ai-tavily-python` | **ungated** |
-| 9 | `02-Rapptz-discord.py` | **gated** |
-| 10 | `02-Rapptz-discord.py` | **ungated** |
-| 11 | `01-phfaist-pylatexenc` | **gated** |
-| 12 | `01-phfaist-pylatexenc` | **ungated** |
-| 13 | `03-scrapy-itemadapter` | **gated** |
-| 14 | `03-scrapy-itemadapter` | **ungated** |
-| 15 | `04-lmfit-asteval` | **gated** |
-| 16 | `04-lmfit-asteval` | **ungated** |
-| 17 | `07-ivankorobkov-python-inject` | **ungated** |
-| 18 | `07-ivankorobkov-python-inject` | **gated** |
-| 19 | `09-aio-libs-janus` | **gated** |
-| 20 | `09-aio-libs-janus` | **ungated** |
+| 1 | `01-ReactiveX-RxPY` | **gated** |
+| 2 | `01-ReactiveX-RxPY` | **ungated** |
+| 3 | `02-sphinx-doc-sphinx-autobuild` | **ungated** |
+| 4 | `02-sphinx-doc-sphinx-autobuild` | **gated** |
+| 5 | `03-simlist-pyluach` | **ungated** |
+| 6 | `03-simlist-pyluach` | **gated** |
+| 7 | `05-AlexandreDecan-portion` | **gated** |
+| 8 | `05-AlexandreDecan-portion` | **ungated** |
+| 9 | `08-joke2k-django-environ` | **ungated** |
+| 10 | `08-joke2k-django-environ` | **gated** |
+| 11 | `10-materialsproject-jobflow` | **gated** |
+| 12 | `10-materialsproject-jobflow` | **ungated** |
+| 13 | `11-web-push-libs-pywebpush` | **ungated** |
+| 14 | `11-web-push-libs-pywebpush` | **gated** |
+| 15 | `04-mozillazg-python-pinyin` | **ungated** |
+| 16 | `04-mozillazg-python-pinyin` | **gated** |
+| 17 | `09-pytest-dev-pytest-forked` | **ungated** |
+| 18 | `09-pytest-dev-pytest-forked` | **gated** |
+| 19 | `06-scrapy-itemloaders` | **gated** |
+| 20 | `06-scrapy-itemloaders` | **ungated** |
 
 `ungated` = the parent-owned observer only. `gated` = the complete frozen v2
 envelope. Isolation is applied symmetrically to both.
@@ -85,25 +85,25 @@ envelope. Isolation is applied symmetrically to both.
 ## Pool — the fresh ten
 
 Ten freshly mined tasks, named by id rather than by a filter that could quietly
-admit a wrong one, drawn for iteration 4 on the corrected harness (DEVIATIONS
-D24). No attrition this iteration — ids `01`-`10` are contiguous. Every
-patch is re-hashed from disk at derivation time: a task manifest cannot certify
-its own patches.
+admit a wrong one. Id `07` is absent by design — it attrited during the
+independent fresh-clone verification (non-composable gold, DEVIATIONS D18) and
+`11` is its deterministic refill. Every patch is re-hashed from disk at
+derivation time: a task manifest cannot certify its own patches.
 
 | id | repository | parent | protected test file |
 |---|---|---|---|
-| `01-phfaist-pylatexenc` | phfaist/pylatexenc | `390b65326f` | `test/test_2_latex2text.py` |
-| `02-Rapptz-discord.py` | Rapptz/discord.py | `f6dbb848d0` | `tests/test_ui_view.py` |
-| `03-scrapy-itemadapter` | scrapy/itemadapter | `4748155494` | `tests/test_json_schema.py` |
-| `04-lmfit-asteval` | lmfit/asteval | `382f0e020f` | `tests/test_asteval.py` |
-| `05-tavily-ai-tavily-python` | tavily-ai/tavily-python | `b608114c64` | `tests/test_custom_session.py, tests/test_errors.py` |
-| `06-ramnes-notion-sdk-py` | ramnes/notion-sdk-py | `981014b75c` | `tests/test_helpers.py` |
-| `07-ivankorobkov-python-inject` | ivankorobkov/python-inject | `fa3c62c28e` | `test/test_attr.py` |
-| `08-sktime-skbase` | sktime/skbase | `e11c4b1e33` | `skbase/tests/test_deep_equals.py` |
-| `09-aio-libs-janus` | aio-libs/janus | `a85cc407c2` | `tests/test_sync.py` |
-| `10-ulif-diceware` | ulif/diceware | `a21ad6b6bd` | `tests/test_diceware.py` |
+| `01-ReactiveX-RxPY` | ReactiveX/RxPY | `bbfecfbf83` | `tests/test_observable/test_windowwithtimeorcount.py` |
+| `02-sphinx-doc-sphinx-autobuild` | sphinx-doc/sphinx-autobuild | `fd726c54b3` | `tests/test_application.py` |
+| `03-simlist-pyluach` | simlist/pyluach | `8f236ffdea` | `tests/test_parshios.py` |
+| `04-mozillazg-python-pinyin` | mozillazg/python-pinyin | `2b19fe5133` | `tests/contrib/test_mmseg.py, tests/test_pinyin.py` |
+| `05-AlexandreDecan-portion` | AlexandreDecan/portion | `7cf9adf546` | `tests/test_dict.py` |
+| `06-scrapy-itemloaders` | scrapy/itemloaders | `d8b2e90181` | `tests/test_loader_initialization.py` |
+| `08-joke2k-django-environ` | joke2k/django-environ | `32d01266cf` | `tests/test_env.py` |
+| `09-pytest-dev-pytest-forked` | pytest-dev/pytest-forked | `e0115aa6d1` | `testing/test_boxed.py` |
+| `10-materialsproject-jobflow` | materialsproject/jobflow | `53f2c8b9f5` | `tests/core/test_flow.py, tests/core/test_job.py` |
+| `11-web-push-libs-pywebpush` | web-push-libs/pywebpush | `528af0bb8e` | `pywebpush/tests/test_webpush.py` |
 
-Pool hash: `1b3e70aea6267e19b9d7e9c1ca8bed4d4a8fe13f1018e533ce636210013d6274`
+Pool hash: `35cae8c813842032ac353c93013c9f79fbe1ee0eec9189de221a0c5bea41a382`
 
 ## Treatment — v2.10.3
 
@@ -140,9 +140,8 @@ on the first freeze because the set was assembled by asking which scripts run.
 
 | file | sha256 |
 |---|---|
-| `runner/run-task4.sh` | `784f9f18a9458708…` |
+| `runner/run-task4.sh` | `923795cd9d439bec…` |
 | `runner/deploy-gated4.sh` | `6d5c632fd8afb3e1…` |
-| `runner/commit-harness-baseline.sh` | `e1c0fc7d62e893ec…` |
 | `runner/agent-jail4.sh` | `012962fa20012e97…` |
 | `runner/net-jail.sh` | `688826f19296259e…` |
 | `runner/allowlist-proxy.mjs` | `9bbe09a3abeec357…` |
@@ -159,7 +158,7 @@ on the first freeze because the set was assembled by asking which scripts run.
 | `round3/policy3.yml` | `b675edcc1b1ebdfe…` |
 | `round4/pilot-drive.sh` | `42de80b5b21e807c…` |
 
-Combined binding-set hash: `7a56bd9d2d662493eaec66fb771d6f3c2270ebf247c1171351fa5e419d323494`
+Combined binding-set hash: `1129a489cebd8f45e975c88231c77a65d9cadd918bc3523a0752a33d1592ef49`
 
 `--check` also parses `run-task4.sh` for what it copies into a trajectory and
 fails if anything reaches one unpinned, so this set closes over itself rather

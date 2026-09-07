@@ -3556,3 +3556,28 @@ Stop sweep read the harness's own wiring as agent tampering; regression-tested i
   (`mine.yml`, pool `pilot-i4`, need 10) → independent H/P/R/G + editable-LIVE → finalize the exact
   ten → `--derive` with fresh **v4** seeds against corrected `main` → freeze → dispatch. `mine5` is
   kept as-is (the D18 composition hardening remains a deferred, separately-recorded improvement).
+
+## D26 — 2026-09-07, iteration 4 frozen on the corrected harness
+
+Iteration 4 is registered (`freeze-pilot-manifest.mjs --derive`, run ONCE) on the corrected apparatus
+(D24 gate-wiring baseline fix merged), against merged-main base X4.
+
+- **base_commit X4 = `0947c9fab4c0798ed870b861977f76be32407aa9`** (the exact ten, PR #265, on the
+  corrected harness).
+- **seeds (v4, set once, not rerolled):** `taskbench4-pilot-trajectory-order-v4-2026-09-07`,
+  `taskbench4-pilot-arm-order-v4-2026-09-07`.
+- **treatment unchanged:** 2.10.3, artefact `0863d3a8…`, pin_matches true; model `claude-sonnet-5`.
+- **pool:** the fresh ten, ids `01`-`10` contiguous (no attrition this iteration); 02/05/10 carry
+  held-out semantic oracles (measured cases 6/4/3), the rest integrity-level.
+- **manifest sha256 `fe922562…`**; derived in the pinned linux/x64 container.
+- **seq 1 (joint dry run):** `10-ulif-diceware`, ungated.
+
+Iteration 3's manifest was archived to `pools/pilot-i3/PILOT-EXECUTION-MANIFEST.json` (sha
+`707a2a31…` unchanged) so the active file carries iteration 4. Validated in the derive container:
+`--check` exit 0 (binding 0, recorded 0, base an ancestor of HEAD); iterations 1, 2 and 3 closed
+and immutable; page matches `--render`; structural audit 11/11.
+
+The D24 defect that failed iteration 3 (harness-owned `.claude` wiring re-read by the Stop sweep as
+tampering when a candidate `.gitignore` ignored the dot-path) is fixed and regression-locked
+(`runner/gated-base-wiring.selftest.sh`), and `runner/commit-harness-baseline.sh` is in the frozen
+binding set — so seq-6's failure mode cannot recur under this freeze.

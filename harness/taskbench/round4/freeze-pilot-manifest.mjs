@@ -62,25 +62,24 @@ const REGISTRATION = {
   model: 'claude-sonnet-5',
   // Distinct from every counted seed and from both mining seeds, so the pilot
   // cannot perturb the counted draw.
-  trajectory_order_seed: 'taskbench4-pilot-trajectory-order-v3-2026-09-06',
-  arm_order_seed: 'taskbench4-pilot-arm-order-v3-2026-09-06',
+  trajectory_order_seed: 'taskbench4-pilot-trajectory-order-v4-2026-09-07',
+  arm_order_seed: 'taskbench4-pilot-arm-order-v4-2026-09-07',
   // The rule rounds 1-3.1 all used, restated so the derivation is checkable
   // from the document alone.
   derivation:
     'order: task ids sorted by sha256(`${trajectory_order_seed}:${id}`); ' +
     'arms: sha256(`${arm_order_seed}:${id}`)[0] % 2 === 0 ? [ungated, gated] : [gated, ungated]',
   // The merged harness commit this manifest is frozen against.
-  base_commit: 'bb0ed2a88cc21e259de70be0c79f47cd7829ecaf',
+  base_commit: '0947c9fab4c0798ed870b861977f76be32407aa9',
 };
 
-// The ten FRESH tasks, mined for iteration 3 and named by id, not by a filter
-// that could quietly admit a wrong one. Id 07 attrited in the independent
-// verification (non-composable gold, DEVIATIONS D18); 11 is its deterministic
-// refill — hence 01-06, 08-11.
-const POOL_IDS = ['01', '02', '03', '04', '05', '06', '08', '09', '10', '11'];
+// The ten FRESH tasks, mined for iteration 4 on the CORRECTED harness (D24
+// gate-wiring baseline fix) and named by id, not by a filter that could quietly
+// admit a wrong one. No attrition this iteration — ids 01-10, contiguous.
+const POOL_IDS = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10'];
 // TB_PILOT_POOL_DIR is a self-test seam, refused for the real manifest by the
 // same guard as TB_PILOT_FREEZE_TEST.
-const POOL_DIR = process.env.TB_PILOT_POOL_DIR || path.join(HERE, 'pools', 'pilot-i3', 'tasks');
+const POOL_DIR = process.env.TB_PILOT_POOL_DIR || path.join(HERE, 'pools', 'pilot-i4', 'tasks');
 
 // Everything that SHAPES a trajectory — scripts AND the data they carry.
 // Editing any of it changes what the pilot measures, so each entry is pinned
@@ -457,10 +456,10 @@ envelope. Isolation is applied symmetrically to both.
 ## Pool — the fresh ten
 
 Ten freshly mined tasks, named by id rather than by a filter that could quietly
-admit a wrong one. Id \`07\` is absent by design — it attrited during the
-independent fresh-clone verification (non-composable gold, DEVIATIONS D18) and
-\`11\` is its deterministic refill. Every patch is re-hashed from disk at
-derivation time: a task manifest cannot certify its own patches.
+admit a wrong one, drawn for iteration 4 on the corrected harness (DEVIATIONS
+D24). No attrition this iteration — ids \`01\`-\`10\` are contiguous. Every
+patch is re-hashed from disk at derivation time: a task manifest cannot certify
+its own patches.
 
 | id | repository | parent | protected test file |
 |---|---|---|---|
