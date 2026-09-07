@@ -94,6 +94,7 @@ const POOL_DIR = process.env.TB_PILOT_POOL_DIR || path.join(HERE, 'pools', 'pilo
 const BINDING_FILES = [
   'runner/run-task4.sh',        // the trajectory runner itself
   'runner/deploy-gated4.sh',    // writes the gated arm's deployment
+  'runner/commit-harness-baseline.sh', // folds the harness-owned gate wiring into the trusted gated base with the candidate's excludes overridden (D24): whether the wiring is part of the base — vs. re-read by the Stop sweep as agent tampering — is decided here, so it shapes every gated outcome
   'runner/agent-jail4.sh',      // mount/PID/capability separation, both arms
   'runner/net-jail.sh',         // network isolation, both arms
   'runner/allowlist-proxy.mjs', // the only egress path out of the jail

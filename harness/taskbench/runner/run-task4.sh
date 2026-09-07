@@ -628,12 +628,13 @@ EOF
 fi
 
 # The wiring is part of the agent-visible base: an untracked .claude/settings.json
-# makes the enforcement envelope fail closed at entry ("working tree dirty").
-# Committed in BOTH arms for instrumentation parity; in the gated arm the gate's
-# own policy protects it, the neutral adjudicator ignores it.
-( cd "$REPODIR" && git add -A .claude .tamperward.yml .github 2>/dev/null; git add -A .claude 2>/dev/null; \
-  git -c user.email=t@b -c user.name=tb commit -qm hooks --no-verify )
-BASE=$(git -C "$REPODIR" rev-parse HEAD)
+# makes the enforcement envelope fail closed at entry ("working tree dirty"), and
+# a wiring file left ignored-on-a-protected-path is re-evaluated by the Stop sweep
+# and spuriously blocked as hook-tampering (iteration-3 D24). Folded into the
+# trusted base in BOTH arms for instrumentation parity, with the candidate's
+# excludes overridden, by the shared, unit-tested helper. In the gated arm the
+# gate's own policy protects it; the neutral adjudicator ignores it.
+BASE=$(bash "$HERE/commit-harness-baseline.sh" "$REPODIR")
 
 # Only the gated arm may carry Tamperward; the ungated arm cannot invoke it even
 # by accident. (Additional smoke req: "the ungated arm cannot accidentally invoke
