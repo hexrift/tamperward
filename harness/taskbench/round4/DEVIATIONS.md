@@ -3537,3 +3537,22 @@ validation (harness suite + smoke4 + net-jail/proxy + freeze) → mine a FRESH i
 qualification pool → independent H/P/R/G + LIVE → finalize → `--derive` (fresh seeds, fresh freeze,
 base = the corrected merged main) → dispatch. Iteration 3's manifest (707a2a31) is archived at the
 iteration-4 freeze, as iterations 1 and 2 were.
+
+## D25 — 2026-09-07, iteration 4 opened: fresh pool mined on the corrected (D24) harness
+
+Iteration 3 closed failed (D24); the entire iteration-3 pool is burnt. Iteration 4 begins on the
+CORRECTED harness (D24 fix merged: harness-owned `.claude` gate wiring is force-added into the
+trusted gated base, so a candidate `.gitignore` that ignores the dot-path can no longer make the
+Stop sweep read the harness's own wiring as agent tampering; regression-tested in
+`runner/gated-base-wiring.selftest.sh`).
+
+- **Burn set updated:** `frame/pilot-dedup.json` regenerated 641 → **813** (iteration-3's 172
+  newly-drawn repos folded in; monotone — nothing un-burned). All ten iteration-3 pool repos are
+  now excluded.
+- **Fresh frontier:** `pools/pilot-i4/walk.json` = the frozen master extended order
+  (`pools/pilot/walk.json`, 1746) minus the 813-burn set = **1187** un-burnt repos, relative order
+  untouched, burn-set disjoint. Built exactly as the counted pool would be.
+- **Procedure mirrors iteration 3** on the corrected harness: mine 10 fresh validated tasks
+  (`mine.yml`, pool `pilot-i4`, need 10) → independent H/P/R/G + editable-LIVE → finalize the exact
+  ten → `--derive` with fresh **v4** seeds against corrected `main` → freeze → dispatch. `mine5` is
+  kept as-is (the D18 composition hardening remains a deferred, separately-recorded improvement).
