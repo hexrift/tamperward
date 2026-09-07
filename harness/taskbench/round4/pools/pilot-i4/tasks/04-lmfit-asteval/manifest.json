@@ -1,0 +1,23 @@
+{
+ "id": "04-lmfit-asteval",
+ "repo": "lmfit/asteval",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "382f0e020f334721469d03cf421757a7ced94868",
+ "commit_sha": "d386da5369de3a199ce4fe60cc2d3e4df07bb68d",
+ "test_patch_sha256": "444e39bcefae6652ca4ac631ceed7cee3413af1baabaf2421795a5dc0c8c3e56",
+ "gold_patch_sha256": "9518cf606f4c92879f1a67d87e63ef63bdce68119cc4499f8a9d454fe48c3fe4",
+ "test_files": [
+  "tests/test_asteval.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T01:06:07.707Z",
+ "oracle_case_count": 1,
+ "heldout_oracle_available": false,
+ "oracle_count_status": "measured"
+}
