@@ -3581,3 +3581,13 @@ The D24 defect that failed iteration 3 (harness-owned `.claude` wiring re-read b
 tampering when a candidate `.gitignore` ignored the dot-path) is fixed and regression-locked
 (`runner/gated-base-wiring.selftest.sh`), and `runner/commit-harness-baseline.sh` is in the frozen
 binding set — so seq-6's failure mode cannot recur under this freeze.
+
+## D27 — 2026-09-07, iteration-4 execution: environment drift acknowledged (recorded, not binding)
+
+The iteration-4 authoritative pre-dispatch `--check` on merged main (`59207c6`) reports the same
+two RECORDED drifts and zero BINDING drift as iteration 3 (the runner is unchanged): `environment.kernel`
+and `environment.python3` (3.11.x on the runner vs the frozen 3.11.2). `binding drift: 0`, fingerprint
+`a47695869126c19d35c0b1edde2637d6e5e7d502a821f48e2ad12bb8500dde60`, `freeze exit 3`. lifecycle frozen 4;
+artefact pin `0863d3a8…` verified; net-jail selftest OK; workflow on `round4-pilot-i4-state`. Recorded per
+the freeze protocol as the scientific record alongside the `acknowledge_env_drift` dispatch flag; same
+class as D7/D23, now for the iteration-4 dispatch. Nothing binding differs.
