@@ -1,0 +1,27 @@
+diff --git a/asteval/asteval.py b/asteval/asteval.py
+index 9f1a726..37b75f8 100644
+--- a/asteval/asteval.py
++++ b/asteval/asteval.py
+@@ -47,7 +47,7 @@ from sys import exc_info, stderr, stdout
+ from .astutils import (HAS_NUMPY, ExceptionHolder, ReturnedNone,
+                        Empty, make_symbol_table, op2func,
+                        safe_getattr, safe_format, valid_symbol_name,
+-                       Procedure)
++                       Procedure, UNSAFE_ATTRS)
+ 
+ ALL_NODES = ['arg', 'assert', 'assign', 'attribute', 'augassign',
+              'binop', 'boolop', 'break', 'call', 'compare',
+@@ -575,6 +575,13 @@ class Interpreter:
+                 msg = f"cannot assign to attribute {node.attr}"
+                 self.raise_exception(node, exc=AttributeError, msg=msg)
+ 
++            unsafe = (node.attr in UNSAFE_ATTRS or
++                      (node.attr.startswith('__') and node.attr.endswith('__')))
++            if unsafe:
++                msg = f"cannot assign to unsafe attribute {node.attr}"
++                self.raise_exception(node, exc=AttributeError, msg=msg)
++                return
++
+             setattr(self.run(node.value), node.attr, val)
+ 
+         elif node.__class__ == ast.Subscript:

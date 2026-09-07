@@ -1,0 +1,16 @@
+diff --git a/skbase/utils/deep_equals/_deep_equals.py b/skbase/utils/deep_equals/_deep_equals.py
+index ab72dfb..1796ac3 100644
+--- a/skbase/utils/deep_equals/_deep_equals.py
++++ b/skbase/utils/deep_equals/_deep_equals.py
+@@ -508,6 +508,11 @@ def deep_equals_custom(x, y, return_msg=False, plugins=None):
+     """
+     ret = _make_ret(return_msg)
+ 
++    # identical objects are always equal in value,
++    # regardless of what their __eq__/__ne__ do
++    if x is y:
++        return ret(True, "")
++
+     if type(x) is not type(y):
+         return ret(False, f".type, x.type = {type(x)} != y.type = {type(y)}")
+ 

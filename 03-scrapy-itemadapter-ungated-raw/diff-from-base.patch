@@ -1,0 +1,13 @@
+diff --git a/itemadapter/_json_schema.py b/itemadapter/_json_schema.py
+index 2450992..e18199a 100644
+--- a/itemadapter/_json_schema.py
++++ b/itemadapter/_json_schema.py
+@@ -271,7 +271,7 @@ def iter_docstrings(item_class: type, attr_names: AbstractSet[str]) -> Iterator[
+             and isinstance(next_node.value, ast.Constant)
+             and isinstance(next_node.value.value, str)
+         ):
+-            yield attr_name, next_node.value.value
++            yield attr_name, inspect.cleandoc(next_node.value.value)
+ 
+ 
+ def get_inherited_attr_docstring(item_class: type, attr_name: str) -> str | None:

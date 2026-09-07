@@ -1,0 +1,14 @@
+diff --git a/janus/__init__.py b/janus/__init__.py
+index 1f7db59..be755ad 100644
+--- a/janus/__init__.py
++++ b/janus/__init__.py
+@@ -121,7 +121,8 @@ class Queue(Generic[T]):
+             # async API didn't accessed yet, nothing to notify
+             return
+         try:
+-            self._loop.call_soon_threadsafe(callback, *args)
++            if not self._loop.is_closed():
++                self._loop.call_soon_threadsafe(callback, *args)
+         except RuntimeError:
+             # swallowing agreed in #2
+             pass

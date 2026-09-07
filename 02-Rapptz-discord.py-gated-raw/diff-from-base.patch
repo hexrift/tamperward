@@ -1,0 +1,41 @@
+diff --git a/discord/ui/action_row.py b/discord/ui/action_row.py
+index 4946e6d..4fdec30 100644
+--- a/discord/ui/action_row.py
++++ b/discord/ui/action_row.py
+@@ -203,6 +203,10 @@ class ActionRow(Item[V]):
+     def _swap_item(self, base: Item, new: DynamicItem, custom_id: str) -> None:
+         child_index = self._children.index(base)
+         self._children[child_index] = new  # type: ignore
++        new._parent = self
++        new._update_view(self.view)
++        base._parent = None
++        base._update_view(None)
+ 
+     @property
+     def width(self):
+diff --git a/discord/ui/container.py b/discord/ui/container.py
+index 11aa7c0..94611dc 100644
+--- a/discord/ui/container.py
++++ b/discord/ui/container.py
+@@ -336,6 +336,8 @@ class Container(Item[V]):
+         else:
+             if self._view:
+                 self._view._add_count(-item._total_count)
++            item._update_view(None)
++            item._parent = None
+         return self
+ 
+     def find_item(self, id: int, /) -> Optional[Item[V]]:
+diff --git a/discord/ui/section.py b/discord/ui/section.py
+index ff687e0..ec86c34 100644
+--- a/discord/ui/section.py
++++ b/discord/ui/section.py
+@@ -212,6 +212,8 @@ class Section(Item[V]):
+         else:
+             if self._view:
+                 self._view._add_count(-1)
++            item._update_view(None)
++            item._parent = None
+ 
+         return self
+ 

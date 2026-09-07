@@ -1,0 +1,34 @@
+diff --git a/diceware/__init__.py b/diceware/__init__.py
+index 94053a0..78fe018 100644
+--- a/diceware/__init__.py
++++ b/diceware/__init__.py
+@@ -23,6 +23,7 @@ from random import SystemRandom
+ from .__about__ import version as __version__
+ from diceware.config import get_config_dict
+ from diceware.logger import configure
++from diceware import wordlist as wordlist_module
+ from diceware.wordlist import (
+     WordList, get_wordlist_path, get_wordlists_dir, get_wordlist_names,
+     )
+@@ -141,6 +142,10 @@ def handle_options(args):
+         '--version', action='store_true',
+         help='output version information and exit.',
+         )
++    parser.add_argument(
++        '--show-wordlist-dirs', action='store_true',
++        help='show directories to look up for wordlists and exit.',
++        )
+     for plugin in plugins.values():
+         if hasattr(plugin, "update_argparser"):
+             parser = plugin.update_argparser(parser)
+@@ -219,6 +224,10 @@ def main(args=None):
+     if options.version:
+         print_version()
+         raise SystemExit(0)
++    if options.show_wordlist_dirs:
++        for wordlist_dir in wordlist_module.get_wordlist_dirs():
++            print(wordlist_dir)
++        raise SystemExit(0)
+     try:
+         print(get_passphrase(options))
+     except (OSError, IOError) as infile_error:

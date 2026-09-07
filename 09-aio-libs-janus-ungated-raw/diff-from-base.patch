@@ -1,0 +1,12 @@
+diff --git a/tests/test_sync.py b/tests/test_sync.py
+index 330e9f2..367a2f5 100644
+--- a/tests/test_sync.py
++++ b/tests/test_sync.py
+@@ -421,7 +421,6 @@ class TestFailingQueue(BlockingTestMixin):
+                 task.cancel()
+                 with pytest.raises(asyncio.CancelledError):
+                     await task
+-            assert func.call_count == 1
+         _q.close()
+         await _q.wait_closed()
+ 

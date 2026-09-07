@@ -1,0 +1,52 @@
+diff --git a/src/inject/__init__.py b/src/inject/__init__.py
+index 88db0d1..3eb74e0 100644
+--- a/src/inject/__init__.py
++++ b/src/inject/__init__.py
+@@ -318,13 +318,22 @@ class _ConstructorBinding(Generic[T]):
+ #        - `attr` implementation is inherited from `property`
+ #        - `attr` class member is not annotated
+ class _AttributeInjection(property):
+-    def __init__(self, cls: Type[T] | Hashable) -> None:
++    def __init__(self, cls: Optional[Type[T] | Hashable] = None) -> None:
+         self._cls = cls
+         super().__init__(
+             fget=lambda _: instance(self._cls),
+             doc="Return an attribute injection",
+         )
+ 
++    def __set_name__(self, owner: type, name: str) -> None:
++        if self._cls is None:
++            annotations = getattr(owner, '__annotations__', {})
++            if name not in annotations:
++                raise TypeError(
++                    f'inject.attr() requires either an explicit type or an annotation on {owner.__name__}.{name}'
++                )
++            self._cls = annotations[name]
++
+ 
+ class _ParameterInjection(Generic[T]):
+     __slots__ = ('_name', '_cls')
+@@ -522,14 +531,21 @@ def instance(cls: Binding) -> Injectable:
+     """Inject an instance of a class."""
+     return get_injector_or_die().get_instance(cls)
+ 
++@overload
++def attr() -> Injectable: ...
++
+ @overload
+ def attr(cls: Hashable) -> Injectable: ...
+ 
+ @overload
+ def attr(cls: Type[T]) -> T: ...
+ 
+-def attr(cls):
+-    """Return an attribute injection (descriptor)."""
++def attr(cls=None):
++    """Return an attribute injection (descriptor).
++
++    If `cls` is omitted, the type is inferred from the annotation of the
++    class attribute it's assigned to.
++    """
+     return _AttributeInjection(cls)
+ 
+ 

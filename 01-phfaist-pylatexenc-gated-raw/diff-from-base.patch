@@ -1,0 +1,23 @@
+diff --git a/pylatexenc/latex2text/_defaultspecs.py b/pylatexenc/latex2text/_defaultspecs.py
+index 2cbfc4f..111a330 100644
+--- a/pylatexenc/latex2text/_defaultspecs.py
++++ b/pylatexenc/latex2text/_defaultspecs.py
+@@ -381,12 +381,13 @@ def _subsuperscript_formatter(which):
+ 
+         # if the full argument can be rendered with unicode superscript or
+         # subscript characters, then that's the best we can do in plain text.
+-        # The fancy engine italicizes variable names where they are typeset, so
+-        # the argument reaches us already styled and has to be taken back to
+-        # plain ascii before the lookup; unicode has no styled superscripts to
+-        # offer anyway.
++        # The argument may reach us already styled, either because the fancy
++        # engine italicizes variable names where they are typeset, or because
++        # a macro such as '\mathbf{}' installed its own style for it; either
++        # way the styled letter has to be taken back to plain ascii before the
++        # lookup, since unicode has no styled superscripts to offer anyway.
+         subsuper_text = fmt_subsuperscript_text(
+-            arg_text, which, normalize_math_style_chars=fancy
++            arg_text, which, normalize_math_style_chars=True
+         )
+         if subsuper_text is None and fancy and ' ' in arg_text:
+             # Unicode has no superscript or subscript space, so a single space

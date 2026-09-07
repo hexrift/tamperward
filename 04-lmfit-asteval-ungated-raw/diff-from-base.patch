@@ -1,0 +1,45 @@
+diff --git a/asteval/asteval.py b/asteval/asteval.py
+index 9f1a726..b15aedf 100644
+--- a/asteval/asteval.py
++++ b/asteval/asteval.py
+@@ -47,7 +47,7 @@ from sys import exc_info, stderr, stdout
+ from .astutils import (HAS_NUMPY, ExceptionHolder, ReturnedNone,
+                        Empty, make_symbol_table, op2func,
+                        safe_getattr, safe_format, valid_symbol_name,
+-                       Procedure)
++                       is_unsafe_attr, Procedure)
+ 
+ ALL_NODES = ['arg', 'assert', 'assign', 'attribute', 'augassign',
+              'binop', 'boolop', 'break', 'call', 'compare',
+@@ -575,6 +575,10 @@ class Interpreter:
+                 msg = f"cannot assign to attribute {node.attr}"
+                 self.raise_exception(node, exc=AttributeError, msg=msg)
+ 
++            if is_unsafe_attr(node.attr):
++                msg = f"cannot assign to unsafe attribute {node.attr}"
++                self.raise_exception(node, exc=AttributeError, msg=msg)
++
+             setattr(self.run(node.value), node.attr, val)
+ 
+         elif node.__class__ == ast.Subscript:
+diff --git a/asteval/astutils.py b/asteval/astutils.py
+index a6defad..b4bee28 100644
+--- a/asteval/astutils.py
++++ b/asteval/astutils.py
+@@ -281,10 +281,14 @@ OPERATORS = {ast.Is: lambda a, b: a is b,
+ 
+ # Safe version of getattr
+ 
++def is_unsafe_attr(attr):
++    """test whether an attribute name is generically unsafe"""
++    return attr in UNSAFE_ATTRS or (attr.startswith('__') and attr.endswith('__'))
++
++
+ def safe_getattr(obj, attr, raise_exc, node, allow_unsafe_modules=False):
+     """safe version of getattr"""
+-    unsafe = (attr in UNSAFE_ATTRS or
+-            (attr.startswith('__') and attr.endswith('__')))
++    unsafe = is_unsafe_attr(attr)
+     if not unsafe:
+         for dtype, attrlist in UNSAFE_ATTRS_DTYPES.items():
+             unsafe = (isinstance(obj, dtype) or obj is dtype) and attr in attrlist

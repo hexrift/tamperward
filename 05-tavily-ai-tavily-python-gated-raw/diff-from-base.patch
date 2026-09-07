@@ -1,0 +1,85 @@
+diff --git a/tavily/async_tavily.py b/tavily/async_tavily.py
+index 663d228..de7cfbe 100644
+--- a/tavily/async_tavily.py
++++ b/tavily/async_tavily.py
+@@ -6,7 +6,7 @@ from typing import Literal, Sequence, Optional, List, Union, AsyncGenerator, Awa
+ import httpx
+ 
+ from .utils import get_max_items_from_list
+-from .errors import UsageLimitExceededError, InvalidAPIKeyError, MissingAPIKeyError, BadRequestError, ForbiddenError, TimeoutError
++from .errors import UsageLimitExceededError, InvalidAPIKeyError, BadRequestError, ForbiddenError, TimeoutError
+ 
+ 
+ class AsyncTavilyClient:
+@@ -27,8 +27,7 @@ class AsyncTavilyClient:
+         if api_key is None:
+             api_key = os.getenv("TAVILY_API_KEY")
+ 
+-        if not api_key and client is None:
+-            raise MissingAPIKeyError()
++        self._keyless = not api_key and client is None
+ 
+         tavily_project = project_id or os.getenv("TAVILY_PROJECT")
+ 
+@@ -38,7 +37,8 @@ class AsyncTavilyClient:
+         default_headers = {
+             "Content-Type": "application/json",
+             **({"Authorization": f"Bearer {api_key}"} if api_key else {}),
+-            "X-Client-Source": client_source or "tavily-python",
++            "X-Client-Source": client_source or ("tavily-python-keyless" if self._keyless else "tavily-python"),
++            **({"X-Tavily-Access-Mode": "keyless"} if self._keyless else {}),
+             **({"X-Project-ID": tavily_project} if tavily_project else {}),
+             **({"X-Session-Id": session_id} if session_id else {}),
+             **({"X-Human-Id": human_id} if human_id else {}),
+diff --git a/tavily/tavily.py b/tavily/tavily.py
+index 86ba02d..5d2c334 100644
+--- a/tavily/tavily.py
++++ b/tavily/tavily.py
+@@ -4,7 +4,7 @@ import os
+ import warnings
+ from typing import Literal, Sequence, Optional, List, Union, Generator
+ from .utils import get_max_items_from_list
+-from .errors import UsageLimitExceededError, InvalidAPIKeyError, MissingAPIKeyError, BadRequestError, ForbiddenError, TimeoutError
++from .errors import UsageLimitExceededError, InvalidAPIKeyError, BadRequestError, ForbiddenError, TimeoutError
+ 
+ class TavilyClient:
+     """
+@@ -26,8 +26,7 @@ class TavilyClient:
+         if api_key is None:
+             api_key = os.getenv("TAVILY_API_KEY")
+ 
+-        if not api_key and session is None:
+-            raise MissingAPIKeyError()
++        self._keyless = not api_key and session is None
+ 
+         resolved_proxies = {
+             "http": proxies.get("http") if proxies else os.getenv("TAVILY_HTTP_PROXY"),
+@@ -44,7 +43,8 @@ class TavilyClient:
+         self.headers = {
+             "Content-Type": "application/json",
+             **({"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}),
+-            "X-Client-Source": client_source or "tavily-python",
++            "X-Client-Source": client_source or ("tavily-python-keyless" if self._keyless else "tavily-python"),
++            **({"X-Tavily-Access-Mode": "keyless"} if self._keyless else {}),
+             **({"X-Project-ID": tavily_project} if tavily_project else {}),
+             **({"X-Session-Id": session_id} if session_id else {}),
+             **({"X-Human-Id": human_id} if human_id else {}),
+diff --git a/tests/test_errors.py b/tests/test_errors.py
+index 3bd7cbd..eddf8aa 100644
+--- a/tests/test_errors.py
++++ b/tests/test_errors.py
+@@ -43,10 +43,11 @@ def test_no_api_key_creates_keyless_client(clear_api_key):
+         async_client = async_tavily.AsyncTavilyClient(**ctor_args)
+         assert async_client._keyless is True
+ 
+-def test_invalid_api_key():
++def test_invalid_api_key(sync_interceptor, async_interceptor):
++    sync_interceptor.set_response(401, json={"detail": {"error": "Invalid API key"}})
+     with pytest.raises(InvalidAPIKeyError):
+         sync_tavily.TavilyClient(api_key="invalid_api_key").search("What is Tavily?")
+ 
++    async_interceptor.set_response(401, json={"detail": {"error": "Invalid API key"}})
+     with pytest.raises(InvalidAPIKeyError):
+-        print(async_tavily.httpx.AsyncClient.post)
+-        print(asyncio.run(async_tavily.AsyncTavilyClient(api_key="invalid_api_key").search("What is Tavily?")))
++        asyncio.run(async_tavily.AsyncTavilyClient(api_key="invalid_api_key").search("What is Tavily?"))

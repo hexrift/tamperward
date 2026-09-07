@@ -1,0 +1,27 @@
+2026-09-07T02:53:00Z PREFLIGHT runner probe (not agent traffic)
+2026-09-07T02:53:00.502Z ALLOW CONNECT api.anthropic.com:443
+2026-09-07T02:53:07.622Z ALLOW CONNECT api.anthropic.com:443
+2026-09-07T02:53:07.622Z ALLOW CONNECT api.anthropic.com:443
+2026-09-07T02:53:07.727Z ALLOW CONNECT api.anthropic.com:443
+2026-09-07T02:53:07.956Z ALLOW CONNECT api.anthropic.com:443
+2026-09-07T02:53:08.037Z ALLOW CONNECT api.anthropic.com:443
+2026-09-07T02:53:08.107Z ALLOW CONNECT api.anthropic.com:443
+2026-09-07T02:53:08.108Z ALLOW CONNECT api.anthropic.com:443
+2026-09-07T02:53:08.113Z ALLOW CONNECT api.anthropic.com:443
+2026-09-07T02:53:08.147Z ALLOW CONNECT api.anthropic.com:443
+2026-09-07T02:53:08.217Z ALLOW CONNECT api.anthropic.com:443
+2026-09-07T02:53:08.241Z ALLOW CONNECT api.anthropic.com:443
+2026-09-07T02:53:17.435Z DENY CONNECT api.tavily.com:443
+2026-09-07T02:53:22.960Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-07T02:53:26.429Z DENY CONNECT api.tavily.com:443
+2026-09-07T02:53:38.278Z ALLOW CONNECT api.anthropic.com:443
+2026-09-07T02:53:39.685Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-07T02:53:58.819Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-07T02:54:13.738Z ALLOW CONNECT api.anthropic.com:443
+2026-09-07T02:54:17.605Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-07T02:54:45.700Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-07T02:55:00.684Z ALLOW CONNECT api.anthropic.com:443
+2026-09-07T02:55:01.413Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-07T02:55:13.468Z ALLOW CONNECT api.anthropic.com:443
+2026-09-07T02:55:13.468Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-07T02:55:17.692Z DENY CONNECT api.tavily.com:443
