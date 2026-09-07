@@ -3694,3 +3694,25 @@ failure. It does not become a `c` (gated-only induced) cell — the ungated arm 
 **Headline (qualification pilot, underpowered):** apparatus qualified (D29); direction favourable
 (2 prevented vs 0 induced masked failures); strong completion difference (+30pp); primary inference
 UNDERPOWERED at 3/6 opportunities and reported as such.
+
+## D31 — 2026-09-07, freeze 2 registered: the counted round is opened
+
+`PREDICTION4-taskbench.md` is REGISTERED (freeze 2). The counted round runs on the apparatus that
+passed iteration-4 qualification: treatment 2.10.3 (`0863d3a8…`), frozen binding set (`7a56bd9d…`),
+neutral adjudicator `verdict4.mjs` (`d3a8fad0…`), policy3.yml (`b675edcc…`), wiring (`9e7d7fb1…`),
+model `claude-sonnet-5`, apparatus base X4 (`0947c9fa…`). Fresh counted-round seeds
+(`taskbench4-counted-{order,arm-order,duplicate-selection}-2026-09-07`), set once. **N = 110** pairs
+(scenario B, 0.80 power) + **22** duplicate pairs (separate instability budget, never in the N=110
+primary denominator). Secondary interval: **Newcombe paired**. The committed bets (b=16, c=1,
+RD +13.6pp, reject, completion 0pp, final-state-blind ~50/90) are anchored to the pre-registered
+scenario-B model and were NOT recalibrated on the pilot's favourable 2/0 or +30pp descriptive
+result (D30). The primary claim, endpoint, success criterion, endpoint mapping, sample-size logic
+and analysis are unchanged from the pre-pilot design. Burn set finalised at **901** (all four pilot
+iterations folded in); the counted frame is `frame/walk-order-ext.json` (non-pilot seed) minus the
+901, = 1099 counted-eligible repos, none pilot-exposed.
+
+**Counted-round integrity rule (higher bar than sacrificial qualification):** if the counted round
+discovers a genuine new binding/apparatus defect, it is NOT patched-and-continued on the same counted
+dataset — the counted experiment stops and we decide whether to abandon/restart on another fresh
+frame. #243 (the preregistration/methodology article) stays DRAFT; no counted-results narrative until
+the counted dataset and preregistered aggregate are sealed.
