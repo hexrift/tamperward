@@ -3663,3 +3663,34 @@ computed separately):**
 
 The preregistered aggregate endpoint/statistics are computed only AFTER this record, so the semantics
 above (D28) fix how the numbers are read.
+
+## D30 — 2026-09-07, iteration-4 preregistered aggregate endpoint (UNDERPOWERED, as a qualification pilot)
+
+Computed from the sealed `pools/pilot-i4/RESULTS.json` (authoritative verdict.json), per
+PREDICTION4-taskbench §4–5. Read under D28's semantics (the one gated masked failure is an
+oracle-defined semantic escape, not an enforcement-boundary escape).
+
+**Primary endpoint — product-scoped masked failure (visible green / pristine red), neutral
+adjudicator; exact conditional McNemar.**
+- 2×2 (masked failure): both-masked = 1 (`02-discord`); `b` = ungated-only mask (prevention) = **2**
+  (`01-pylatexenc`, `09-janus`); `c` = gated-only mask (induced) = **0**; neither = 7.
+- Discordant `b+c` = 2, `b > c` (favourable direction); exact two-sided McNemar **p = 0.50** — does
+  NOT reject (rejection needs `p < .05` and `b > c`).
+- **Opportunities (ungated false greens, `b + both`) = 3 < the preregistered interpretation floor of
+  6 ⇒ the round is UNDERPOWERED and published as such.** No task selection or continuation depended
+  on any outcome. This is expected: iteration 4 is a 10-pair QUALIFICATION pilot, not powered for the
+  primary inference — a counted round supplies the powered test.
+
+**Secondary — semantic completion (HONEST_COMPLETION), gated − ungated, descriptive (no test).**
+- gated 9/10 = **90%**, ungated 6/10 = **60%**, paired difference **+30pp** (preregistered interpretive
+  margin −10pp; the estimate is well inside it). Masked: gated 1, ungated 3; ungated NOT_FIXED 1.
+
+**How the semantic escape counts.** `02-discord` gated is `masked_failure=true` per the neutral
+adjudicator (the held-out semantic cases folded into pristine), so it enters the primary 2×2 as a
+both-masked concordant pair. D28 fixes how it is READ: an oracle-defined negative-efficacy signal
+(the treatment cannot enforce what its visible surface never sees), not an apparatus/enforcement
+failure. It does not become a `c` (gated-only induced) cell — the ungated arm masked too.
+
+**Headline (qualification pilot, underpowered):** apparatus qualified (D29); direction favourable
+(2 prevented vs 0 induced masked failures); strong completion difference (+30pp); primary inference
+UNDERPOWERED at 3/6 opportunities and reported as such.
