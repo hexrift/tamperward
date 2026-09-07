@@ -1,0 +1,707 @@
+diff --git a/doc/index.rst b/doc/index.rst
+index c853b76fc4747e01bc42eac53b0067faf7dab5de..56c092dfed952021ccb77531c35a9734545766ff 100644
+--- a/doc/index.rst
++++ b/doc/index.rst
+@@ -26,14 +26,8 @@ Quick example::
+ 
+     where 𝑖 is the imaginary unit.
+ 
+-The letters are written with the unicode mathematical alphanumeric characters,
+-which is how ``\textbf{}``, ``\emph{}`` and the variables of a formula are told
+-apart in plain text.  Those characters live in a high unicode plane that some
+-fonts do not cover, and some uses (indexing, feeding another program) want plain
+-ASCII anyway; ``LatexNodes2Text(text_fontstyle=False, math_fontstyle=False)``
+-keeps everything else and only leaves the letters alone, and
+-``LatexNodes2Text(math_mode='text')`` gives the plainer rendering that
+-`pylatexenc 2` produced.
++(With pylatexenc v3, latex-to-text now has support for unicode font styles and
++improved rendering! — see :doc:`new-in-pylatexenc-3`.)
+ 
+ And the other way around::
+ 
+diff --git a/doc/new-in-pylatexenc-3.rst b/doc/new-in-pylatexenc-3.rst
+index e8dbc316e01fc2c48ebad348f0d51ca6478efac6..8f1c854d6e3b07bf07341e5560b2c44eb93f1df6 100644
+--- a/doc/new-in-pylatexenc-3.rst
++++ b/doc/new-in-pylatexenc-3.rst
+@@ -35,6 +35,17 @@ architecture with extended and more flexible functionality:
+   parsers live in `pylatexenc.latexnodes.parsers`; you can write your own by
+   deriving from `LatexParserBase`.
+ 
++- We've introduced a new entry point interface for parsing:
++  :py:meth:`LatexWalker.parse_content()
++  <pylatexenc.latexwalker.LatexWalker.parse_content>`, with a suitable parser
++  object from :py:mod:`pylatexenc.latexnodes.parsers` (such as
++  :py:class:`~pylatexenc.latexnodes.parsers.LatexGeneralNodesParser`). 
++  The earlier interface exposed by `pylatexenc 2`, using
++  :py:class:`~pylatexenc.latexwalker.LatexWalker` — `get_latex_nodes()`,
++  `get_token()`, `get_latex_expression()`, `get_latex_braced_group()`,
++  `get_latex_environment()`, and `get_latex_maybe_optional_arg()` keeps working
++  as it did.
++
+ - Lists of latex node objects
+   (:py:class:`~pylatexenc.latexnodes.nodes.LatexNode`) are now wrapped in a
+   special object for node lists →
+@@ -111,12 +122,12 @@ The `latex2text` module was improved:
+ 
+ - Support for unicode alphabets for bold and italic text.
+ 
+-- There is a new renderer for math content, ``math_mode='fancy'``.  It is now
+-  the default.  It tries to make the plain text look like the
+-  formula LaTeX would typeset, so that ``$4 \pi c\sin(x+y)$`` gives
+-  ``4π𝑐 sin(𝑥 + 𝑦)`` using unicode alphabets.   (Use ``math_mode='text'`` to
+-  restore pylatexenc-v2's behavior.)  Relevant options: ``math_mode=``,
+-  ``math_fontstyle=``, ``math_expression_in=`` (see
++- A new default renderer for math content, ``math_mode='fancy'``, now formats
++  math content in a way that is much more visually appealing, so that ``$\frac{4
++  \pi c}{2}\sin(x+y)$`` gives ``(4π𝑐)/2 sin(𝑥 + 𝑦)`` instead of ``4 π
++  c/2sin(x+y)``.  We also support unicode fonts for text and math.  (Use
++  ``math_mode='text', math_fontstyle=None, text_fontstyle=False`` to restore
++  pylatexenc v2's behavior; see
+   :py:class:`~pylatexenc.latex2text.LatexNodes2Text`).
+ 
+ - Subscripts and superscripts are now rendered with unicode characters whenever
+@@ -137,17 +148,42 @@ A couple things to look out for
+ -------------------------------
+ 
+ - :py:class:`~pylatexenc.latex2text.LatexNodes2Text` renders formulas with the
+-  new ``math_mode='fancy'`` engine by default, so its output now contains the
+-  unicode mathematical alphanumeric characters where `pylatexenc 2` produced
+-  plain ASCII letters: ``$x+y$`` gives ``𝑥 + 𝑦``, and ``\textbf{bold}`` gives
+-  ``𝐛𝐨𝐥𝐝``.  Those characters are outside the Basic Multilingual Plane, and a
+-  font that does not cover them shows a placeholder box.  If you are indexing
+-  the output, comparing it against stored strings, or feeding it to a program
+-  that expects ASCII, pass ``math_mode='text'`` to get the `pylatexenc 2`
+-  rendering back, or keep the new rendering and only drop the unicode
+-  alphabets with ``text_fontstyle=False, math_fontstyle=False``.  The
+-  command-line tool takes ``--math-mode=text``, or ``--text-fontstyle=off
+-  --math-fontstyle=off``, for the same purposes.
++  new ``math_mode='fancy'`` engine by default, which improves math content
++  spacing and uses cleverer unicode constructs such as for sub/superscripts and
++  fractions. The renderer now also uses unicode mathematical font characters
++  where `pylatexenc 2` produced plain ASCII letters.  That is, ``$x+y$`` gives
++  ``𝑥 + 𝑦``, and ``\textbf{bold}`` gives ``𝐛𝐨𝐥𝐝``.  If you are indexing the
++  output, comparing it against stored strings, or feeding it to a program that
++  expects ASCII, switch the unicode alphabets off with ``math_fontstyle=False,
++  text_fontstyle=False``.
++
++  To restore `pylatexenc 2`'s behavior, set ``math_fontstyle=None,
++  text_mathmode=False, math_mode='text'``.  For example::
++
++    from pylatexenc.latex2text import LatexNodes2Text
++
++    latex = r'$\gamma x+y + \mathcal{Z}$ and \textbf{bold}'
++
++    # pylatexenc 3 default
++    LatexNodes2Text().latex_to_text(latex)
++    # ->  'γ𝑥 + 𝑦 + 𝒵 and 𝐛𝐨𝐥𝐝'
++
++    # the new math renderer, with all unicode alphabets dropped:
++    LatexNodes2Text(math_fontstyle=False,
++                    text_fontstyle=False).latex_to_text(latex)
++    # ->  'γx + y + Z and bold'
++
++    # Restore pylatexenc 2 behavior: legacy rendering engine; upright
++    # default math font, but \mathcal{}, \mathbb{} still produce
++    # the relevant unicode fonts
++    LatexNodes2Text(math_mode='text',
++                    math_fontstyle=None,
++                    text_fontstyle=False).latex_to_text(latex)
++    # ->  'γ x+y + 𝒵 and bold'
++
++  The command-line tool takes
++  ``--text-fontstyle=off --math-fontstyle=none --math-mode=text`` for the same
++  purposes.
+ 
+ - Paragraph breaks (``\n\n``) as well as ``^`` and ``_`` are now reported as
+   their own *specials* nodes.  This means that text which used to come back as
+@@ -163,13 +199,37 @@ A couple things to look out for
+   or simply concatenating the ``chars`` of every chars node in a list, you'll
+   need to handle those specials nodes as well.
+ 
+-- The default macro and environment database learned a few new definitions,
+-  including ``\href`` (which takes two arguments), ``\part``, ``\paragraph``
+-  (which was misspelled in the `pylatexenc 2` database, and hence unknown), and
+-  the ``{lstlisting}`` environment.  When a macro becomes known, the ``{...}``
+-  groups that follow it are parsed as its *arguments* instead of remaining
+-  sibling group nodes, so the shape of the node tree changes for documents that
+-  use them.
++  To restore pylatexenc v2's behavior (`\n\n` kept as chars, `_`/`^` not
++  specials), exclude the corresponding categories from the default latex context
++  DB::
++
++    from pylatexenc import latexwalker, latex2text
++
++    # restore pylatexenc v2 behavior: \n\n, _, ^  as chars and not specials
++    latex_context = latexwalker.get_default_latex_context_db().filtered_context(
++        exclude_categories=["latex-paragraph", "latex-base-subsuperscripts"]
++    )
++
++    # Use in latex2text directly -- kwargs of latex_to_text are directly
++    # handed over as LatexWalker constructor arguments
++    text = latex2text.LatexNodes2Text().latex_to_text(
++        …,
++        latex_context=latex_context
++    )
++
++    # Alternatively, if you want to create a walker object yourself:
++    walker = latexwalker.LatexWalker(…, latex_context=latex_context)
++    nodelist, _ = walker.parse_content()  # returns (nodes, parsing_state_delta)
++    text = latex2text.LatexNodes2Text().nodelist_to_text( nodelist )
++
++
++  The :py:mod:`~pylatexenc.latex2text` module keeps a database of its own, in
++  which the text replacements for ``^`` and ``_`` sit in a category of the same
++  name.  One could disable those definitions there as well with a corresponding
++  ``latex2text.get_default_latex_context_db().filtered_context(…)`` call;
++  however, it is not necessary to do so because a walker that no longer reports
++  ``^`` and ``_`` as specials hands them to `latex2text` inside ordinary chars
++  nodes, so their text replacements are never looked up.
+ 
+ - If you created a :py:class:`~pylatexenc.macrospec.LatexContextDb` database
+   from scratch, you might suddenly get errors about unknown macros.  The default
+@@ -205,19 +265,6 @@ A couple things to look out for
+   that ``isinstance(node.nodeargd, ParsedVerbatimArgs)`` is no longer true for
+   ``\verb``; the `verbatim_text` attribute still works as before.
+ 
+-- We've introduced a new entry point interface for parsing:
+-  :py:meth:`LatexWalker.parse_content()
+-  <pylatexenc.latexwalker.LatexWalker.parse_content>`, with a suitable parser
+-  object from :py:mod:`pylatexenc.latexnodes.parsers` (such as
+-  :py:class:`~pylatexenc.latexnodes.parsers.LatexGeneralNodesParser`).  The new
+-  interface returns ``(nodes, parsing_state_delta)`` — the node list along with
+-  any information about state changes that occurred during the parsing.
+-  The earlier interface exposed by `pylatexenc 2`, using
+-  :py:class:`~pylatexenc.latexwalker.LatexWalker` — `get_latex_nodes()`,
+-  `get_token()`, `get_latex_expression()`, `get_latex_braced_group()`,
+-  `get_latex_environment()` and `get_latex_maybe_optional_arg()` keeps working
+-  as it did.
+-
+ - Building macro specifications with the `pylatexenc 2` `args_parser=` argument
+   still works, but it is deprecated and now warns.
+ 
+@@ -226,10 +273,6 @@ A couple things to look out for
+ Some bug fixes in behavior
+ --------------------------
+ 
+-- The :py:mod:`~pylatexenc.latex2text` 's ``\paragraph{...}`` output
+-  was fixed to produce simply ``"Paragraph Title\nBody"``.  (Pylatexenc 2
+-  didn't get the newlines quite right.)
+-
+ - The ``verbatim`` and ``lstlisting`` environments no longer report the newline
+   that immediately follows ``\begin{...}`` as part of their contents, mirroring
+   what LaTeX itself does.
+@@ -237,11 +280,10 @@ Some bug fixes in behavior
+ - An unterminated ``lstlisting`` environment no longer loses its parsed
+   arguments in tolerant parsing mode; ``nodeargd`` used to be `None` there.
+ 
+-- Fixes for latex2text: ``\href{...}{...}`` and ``\url{...}``; ``{verbatim}``
+-  and ``{lstlisting}``.
++- Fixes in `latex2text`, including ``\href{...}{...}``, ``\url{...}``,
++  ``\paragraph{...}``, ``{verbatim}`` and ``{lstlisting}``.
+ 
+-- ``{enumerate}`` items are numbered, and ``\frac{a}`` (with a missing second
+-  argument) no longer emits the literal replacement string ``'%s/%s'``.
++- Numbered and hierarchical ``{enumerate}`` items are numbered.
+ 
+ - More extensive support for math operators and symbols in latex2text.
+ 
+diff --git a/pylatexenc/latex2text/__init__.py b/pylatexenc/latex2text/__init__.py
+index 2b1e4846fde91df3e8b5dca4e09d2bf59c1ee288..e71419063b7603554a713b594d9a974edeca84bf 100644
+--- a/pylatexenc/latex2text/__init__.py
++++ b/pylatexenc/latex2text/__init__.py
+@@ -40,10 +40,10 @@ You may also use the command-line version of `latex2text`::
+     $ echo '\textit{italic} \`acc\^ented text' | latex2text
+     𝑖𝑡𝑎𝑙𝑖𝑐 àccênted text
+ 
+-The italics come from the `math_mode='fancy'` rendering, which is the default;
+-see :py:class:`LatexNodes2Text`.  Use `math_mode='text'` (``latex2text
+---math-mode=text``) for the plainer rendering that `pylatexenc 2` produced.
+-
++Note the support for unicode bold and italic font styles, introduced in
++`pylatexenc v3`.  (See the :py:class:`LatexNodes2Text` class doc and
++:doc:`new-in-pylatexenc-3` for how to customize the output, e.g., disabling
++unicode fonts.)
+ """
+ 
+ import re
+@@ -958,12 +958,11 @@ def fmt_subsuperscript_text(text, which, normalize_math_style_chars=False):
+     the plain ascii letter it was made from before it is looked up, because
+     unicode offers no styled superscript or subscript characters; the style of
+     such a letter is then lost, but the superscript or subscript can still be
+-    typeset.  This is what the ``math_mode='fancy'`` rendering of
+-    :py:class:`LatexNodes2Text` needs, because that mode italicizes variable
+-    names
+-    where they are typeset, so that the argument of a superscript reaches this
+-    function already styled.  By default the option is off, and a styled letter
+-    simply has no superscript or subscript version.
++    typeset.  This is what :py:class:`LatexNodes2Text` needs whenever the
++    letters of a formula are being styled — italicized, say, which is the
++    default — because the argument of a superscript then reaches this function
++    already styled.  By default the option is off, and a styled letter simply
++    has no superscript or subscript version.
+ 
+     The default text replacement specs fall back onto writing out the '^' or
+     '_' character followed by the superscript or subscript rendered as ordinary
+@@ -1013,9 +1012,6 @@ The value that the `math_expression_in=` option of
+ :py:class:`LatexNodes2Text` takes when it is not specified.  See the
+ documentation of that option for the accepted values.
+ 
+-Change this single constant if you would like all
+-:py:class:`LatexNodes2Text` objects to use different delimiters by default.
+-
+ .. versionadded:: 3.0
+ 
+    This constant was introduced in `pylatexenc 3.0`.
+@@ -1980,6 +1976,13 @@ def get_default_latex_context_db():
+         sectioning commands, font commands, accents, Greek letters, and the
+         common math symbols, each mapped to a unicode text rendering.
+ 
++      - ``'latex-base-subsuperscripts'`` — the text rendering of the ``^`` and
++        ``_`` specials, i.e., the unicode superscripts and subscripts.  This
++        category matches the one of the same name in
++        :py:func:`pylatexenc.latexwalker.get_default_latex_context_db()`, so
++        that discarding it in both databases restores the `pylatexenc 2`
++        behavior in which ``^`` and ``_`` were ordinary characters.
++
+       - ``'latex-approximations'`` — constructs for which the text rendering can
+         only be an approximation of the typeset result, such as the alignment
+         environments, the list environments, and matrix environments.
+@@ -2349,13 +2352,17 @@ class LatexNodes2Text(object):
+       delimiters.  The value 'remove' means to remove the math mode sections
+       entirely and not to produce any replacement text.
+ 
++      This option selects the *engine* that renders a formula.  It has nothing
++      to say about the fonts the letters are set in; those are chosen by the
++      `math_fontstyle=` and `text_fontstyle=` options below, in every math mode
++      alike.  Output that has to be plain ASCII therefore needs both: see the
++      note at the end of this entry.
++
+       The default value 'fancy' selects a rendering of the formula that aims to
+-      look, as far as plain text allows, like the formula that LaTeX itself
+-      would typeset.  It is meant for text that a person is going to read — in
+-      a terminal, in an e-mail, in a search result; where the output is
+-      processed further by a program that expects plain ASCII, use 'text', or
+-      keep the letters upright with the `math_fontstyle=None` option below.  It
+-      differs from 'text' in four ways.
++      be as visually appealing as possible, and draws similar rendering ideas
++      from how LaTeX itself would typeset the equation.  It is meant for text
++      that a person is going to read — in a terminal, in an e-mail, in a search
++      result.  It differs from 'text' in four ways.
+ 
+         * The whitespace of the source is ignored, exactly as LaTeX ignores
+           it, and spaces are put back only where they help the reader.  So
+@@ -2365,11 +2372,7 @@ class LatexNodes2Text(object):
+           table of the spacing between neighboring atoms, reduced from four
+           widths of space to two.
+ 
+-        * The letters of the formula are written with the unicode mathematical
+-          alphanumeric characters, so that a variable name is visibly not the
+-          name of a function: ``$\sin x$`` gives ``sin 𝑥``.  Which style is
+-          used is the `math_fontstyle=` option below, and macros such as
+-          ``\mathbf{}`` change it for their contents.
++        * The engine emits unicode sub/superscripts whenever possible.
+ 
+         * A sub-expression is put in delimiters only where its extent would
+           otherwise be unclear, and where a separating space is enough, a space
+@@ -2388,12 +2391,24 @@ class LatexNodes2Text(object):
+       rendered inline as ``[ 1 2; 3 4 ]``, in math mode and in display math
+       alike.
+ 
++      The examples above are written with the default font styles in force, so
++      the letters of the formulas appear in them as the unicode math italics.
++      To get the rendering of `pylatexenc 2` back, ask for that version's
++      engine *and* for its fonts::
++
++          LatexNodes2Text(math_mode='text', math_fontstyle=None,
++                          text_fontstyle=False)
++
++      Note the `None` rather than `False` for the math font: `pylatexenc 2`
++      applied no alphabet of its own to a formula, leaving the ``x`` of
++      ``$x + \mathbb{Z}$`` plain, but its ``\math..{}`` macros did install
++      theirs, giving ``x + ℤ``.  See the two options below.
++
+       .. versionchanged:: 3.0
+ 
+          The `math_mode='fancy'` value was introduced in `pylatexenc 3.0`, and
+-         is the default there.  In `pylatexenc 2` the math mode contents were
+-         always incorporated as normal text, which is what `math_mode='text'`
+-         does now.
++         is the default there.  Use ``math_mode='text'`` to restore `pylatexenc
++         2`'s behavior.
+ 
+     - `math_expression_in='braces'|'parens'|(left, right)|None`: Specify which
+       delimiters to place around a mathematical sub-expression that we were not
+@@ -2432,12 +2447,6 @@ class LatexNodes2Text(object):
+       value `None` leaves the letters upright, and the value `False` switches
+       the unicode alphabets off altogether (see below).
+ 
+-      The reason the option exists is that those characters live in a high
+-      unicode plane which a good many terminal fonts do not cover, and which
+-      they will therefore display as a row of empty boxes.  Give
+-      `math_fontstyle=None` if the output might be read in such a place; the
+-      letters then stay plain ASCII.
+-
+       Note that `None` sets the style that the letters of a formula start out
+       in, and that ``\mathbf{}`` and friends still install their own style for
+       the duration of their contents, so ``$x + \mathbf{a}$`` still gives
+@@ -2447,6 +2456,11 @@ class LatexNodes2Text(object):
+       ``x + a``.  Use it together with `text_fontstyle=False` for output that
+       is plain ASCII throughout.
+ 
++      The value `math_fontstyle=None` reproduces `pylatexenc v2`'s behavior:
++      While the default math alphabet remained upright, every ``\math..{}``
++      macro installed a custom alphabet in `pylatexenc v2` so that ``$x +
++      \mathbb{Z}$`` gave ``x + ℤ`` and ``$\mathcal{C}$`` gave ``𝒞``.
++
+       There is a small price for switching the styling off.  A run of two or
+       more upright latin letters is what the renderer takes for the name of a
+       function, which is how ``\sin`` and ``\log`` are told apart from a
+@@ -2462,9 +2476,11 @@ class LatexNodes2Text(object):
+       can also be changed for one part of the document only, see
+       :py:class:`TextConversionState` and :py:meth:`push_state()`.
+ 
+-      The option is only in effect with ``math_mode='fancy'``, which is the
+-      math mode that renders formulas with the unicode math characters; the
+-      other math modes ignore it.
++      The option is independent of `math_mode=`, which selects the engine that
++      renders a formula.  Each engine consults ``math_fontstyle`` to render math
++      alphabets as appropriate (e.g., while font styles are honored in
++      ``math_mode='text'``, both ``math_mode='verbatim'`` and
++      ``math_mode='remove'`` ignore math font styles entirely).
+ 
+       .. versionadded:: 3.0
+ 
+@@ -2481,10 +2497,8 @@ class LatexNodes2Text(object):
+       own for the duration of their contents, so ``\textbf{bold}`` gives
+       ``𝐛𝐨𝐥𝐝``.  The value `False` switches the unicode alphabets off for text
+       mode altogether: the font style macros then leave the letters alone and
+-      ``\textbf{bold}`` gives ``bold``.  This is what to give, along with
+-      `math_fontstyle=False`, when the output has to be plain ASCII — because
+-      it is going to be indexed, compared against stored strings, or read
+-      somewhere that has no font for the unicode math alphabets.
++      ``\textbf{bold}`` gives ``bold``.  Use ``text_fontstyle=False,
++      math_fontstyle=False`` to disable font styles if you prefer ASCII output.
+ 
+       Note that a style name here applies to the text that is *not* inside one
+       of the font style macros: those macros select a whole font and not one of
+@@ -2497,9 +2511,6 @@ class LatexNodes2Text(object):
+       the document only, see :py:class:`TextConversionState` and
+       :py:meth:`push_state()`.
+ 
+-      The option is only in effect with ``math_mode='fancy'``; the other math
+-      modes never apply a font style to the text.
+-
+       .. versionadded:: 3.0
+ 
+          The `text_fontstyle=` option was introduced in `pylatexenc 3.0`.
+@@ -3053,12 +3064,11 @@ class LatexNodes2Text(object):
+         if self.math_mode == 'fancy' and self.state.in_math_mode:
+             # In math mode LaTeX ignores the whitespace of the source, and so do
+             # we; the spaces that make the result readable are put back where
+-            # they belong when the pieces of the formula are assembled.
++            # they belong when the pieces of the formula are assembled.  This is
++            # the engine's doing and not the font's, hence the test on the math
++            # mode here and not below.
+             content = re.sub(r'\s+', '', content)
+-            # a style name applies; `None` (upright) and `False` (no unicode
+-            # alphabet at all) both leave the characters as they are
+-            if self.state.math_fontstyle:
+-                content = fmt_math_text_style(content, self.state.math_fontstyle)
++            content = self._apply_fontstyle(content)
+             return content
+ 
+         # Unless in strict latex spaces mode, ignore nodes consisting only
+@@ -3071,8 +3081,25 @@ class LatexNodes2Text(object):
+         if not self.strict_latex_spaces['between-latex-constructs'] \
+            and len(content.strip()) == 0:
+             return ""
+-        if self.math_mode == 'fancy' and self.state.text_fontstyle:
+-            content = fmt_math_text_style(content, self.state.text_fontstyle)
++        return self._apply_fontstyle(content)
++
++    def _apply_fontstyle(self, content):
++        r"""
++        Set `content` in the font style that the conversion state calls for: the
++        `math_fontstyle` field in math mode and the `text_fontstyle` field
++        outside of it.
++
++        A style name applies; `None` (upright) and `False` (no unicode alphabet
++        at all) both leave the characters as they are.  Neither field has
++        anything to do with the `math_mode=` option, which selects the engine
++        that renders a formula and not the font its letters are set in.
++        """
++        if self.state.in_math_mode:
++            fontstyle = self.state.math_fontstyle
++        else:
++            fontstyle = self.state.text_fontstyle
++        if fontstyle:
++            return fmt_math_text_style(content, fontstyle)
+         return content
+ 
+     def comment_node_to_text(self, node):
+@@ -3668,7 +3695,15 @@ def _latexnodes2text(nodelist, keep_inline_math, keep_comments):
+     # the LatexNodes2Text object with the current `math_mode=` option instead of
+     # the deprecated `keep_inline_math=` one, so that the caller doesn't get a
+     # deprecation warning pointing at this file.
++    #
++    # The fonts of that version are asked for along with it.  These functions
++    # exist to reproduce what `pylatexenc 1` returned and take no font options
++    # of their own, so there is no caller intent here to respect.  `None` and
++    # not `False` for the math font: the older versions applied no alphabet of
++    # their own to a formula but did let '\mathbf{}' and friends install one.
+     return LatexNodes2Text(
+         math_mode=('verbatim' if keep_inline_math else 'text'),
++        math_fontstyle=None,
++        text_fontstyle=False,
+         keep_comments=keep_comments
+     ).nodelist_to_text(nodelist)
+diff --git a/pylatexenc/latex2text/__main__.py b/pylatexenc/latex2text/__main__.py
+index dc088750a5b0ac2f9881a033c752beab9611688f..62f12376287d1509dcdd8cb589fe506a44d4ab7d 100644
+--- a/pylatexenc/latex2text/__main__.py
++++ b/pylatexenc/latex2text/__main__.py
+@@ -128,26 +128,29 @@ def main(argv=None):
+     fontstyle_choices = ['none', 'off'] + list(_fmt_math_style_offsets.keys())
+     group.add_argument('--math-fontstyle', action='store', dest='math_fontstyle',
+                        choices=fontstyle_choices, default='italic',
+-                       help="In which font style to typeset the letters of a formula, using "
+-                       "the unicode math alphanumeric characters.  Only has an effect with "
+-                       "--math-mode=fancy, the default.  Those characters live in a high "
+-                       "unicode plane which many terminal fonts do not cover; use "
+-                       "--math-fontstyle=none to leave the letters upright and in plain "
+-                       "ASCII, or --math-fontstyle=off to also keep '\\mathbf{}' and "
+-                       "friends from using those characters.")
++                       help="In font style in which to typeset the letters of a formula, "
++                       "using unicode math font characters.  This option sets the "
++                       "initial font style, which can be overridden (e.g.) by `\\mathXX{...}` "
++                       "calls.  Default is 'italic'. "
++                       "Set --math-fontstyle=none for default upright ASCII letters "
++                       "while keeping unicode fonts for `\\mathXX{...}` commands "
++                       "(`Z`, `\\mathbb{Z}`, `\\mathcal{Z}` render as `Z`, `ℤ`, `𝒵`); "
++                       "use --math-fontstyle=off to disable unicode math character fonts "
++                       "entirely (`Z`, `\\mathbb{Z}`, `\\mathcal{Z}` all render as `Z`).")
+ 
+     group.add_argument('--text-fontstyle', action='store', dest='text_fontstyle',
+                        choices=fontstyle_choices, default='none',
+-                       help="The same for the text outside of the formulas, whose default "
+-                       "style is 'none', i.e. upright.  Use --text-fontstyle=off to keep "
+-                       "'\\textbf{}', '\\emph{}' and friends from using the unicode "
+-                       "alphabets, so that together with --math-fontstyle=off the output "
+-                       "stays plain ASCII.")
++                       help="The font style in which to typeset regular text.  Default "
++                       "is 'none', i.e. upright ASCII text.  This option sets the "
++                       "initial font style, which can be overridden by, for instance, "
++                       "``\\textbf{...}``, ``\\textit{...}``, ``\\emph{...}``.  "
++                       "Use --text-fontstyle=off to disable all text alphabets, so that "
++                       "`A`, `\\textbf{A}`, and `\\emph{A}` all render as `A`.")
+ 
+     group.add_argument('--fill-text', dest='fill_text', action='store', nargs='?',
+                        default=-1,
+-                       help="Attempt to wrap text to the given width, or 80 columns if option is "
+-                       "specified with no argument")
++                       help="Attempt to wrap text to the given width, or 80 columns if "
++                       "option is specified with no argument")
+ 
+     group.add_argument('--keep-comments', action='store_const', const=True,
+                        dest='keep_comments', default=False)
+diff --git a/pylatexenc/latex2text/_defaultspecs.py b/pylatexenc/latex2text/_defaultspecs.py
+index 2cbfc4fc35c11eb4f293618f6a001bff4042837c..ad195d0b00d739efc6bed7f2849473877503016d 100644
+--- a/pylatexenc/latex2text/_defaultspecs.py
++++ b/pylatexenc/latex2text/_defaultspecs.py
+@@ -114,8 +114,12 @@ def _latex_today():
+ # which the excursion into math mode never disturbed.  See the `text_fontstyle`
+ # and `math_fontstyle` fields of `TextConversionState`.
+ #
+-# All of these only do anything of the sort with math_mode='fancy';
+-# in every other math mode they behave exactly as they always have.
++# The font styles have nothing to do with the `math_mode=` option, which selects
++# the engine that renders a formula and not the fonts the letters are set in:
++# whether these macros do anything is decided by the `text_fontstyle` and
++# `math_fontstyle` fields alone.  (A math mode that never renders the nodes of a
++# formula, `math_mode='verbatim'` or `'remove'`, naturally shows nothing of the
++# math font either; that is a property of those modes and not a font setting.)
+ #
+ # A font style field of the conversion state that holds `False` says that no
+ # unicode alphabet is to be used in that mode at all, which is what the
+@@ -130,24 +134,25 @@ def _is_fancy_math(l2tobj):
+ 
+ def _mathxx_formatter(style):
+     # '\mathbf{}' and friends.  The font style is pushed onto the conversion
+-    # state *before* the argument is rendered, because the fancy engine applies
+-    # the style where the characters are, at the leaves of the node tree.  It
+-    # would not do to render first and transform the result afterwards, the way
+-    # we have to in the other math modes: the fancy engine italicizes variable
+-    # names, so '\mathbf{x}' would arrive here as the math italic 'x' (U+1D465),
++    # state *before* the argument is rendered, because the style is applied
++    # where the characters are, at the leaves of the node tree.  It would not do
++    # to render first and transform the result afterwards: a variable name that
++    # is being italicized would arrive here as the math italic 'x' (U+1D465),
+     # which is outside the range of ascii letters that the bold mapping knows
+     # how to convert, and the bold would silently be lost.
+     def formatter(node, l2tobj, style=style):
+-        if not _is_fancy_math(l2tobj) or not l2tobj.state.in_math_mode:
+-            arg_text = l2tobj.node_arg_to_text(node, 0)
+-            if style is None:
+-                return arg_text
+-            return fmt_math_text_style(arg_text, style)
+-
+-        if l2tobj.state.math_fontstyle is False:
++        if l2tobj.state.in_math_mode:
++            if l2tobj.state.math_fontstyle is False:
++                return l2tobj.node_arg_to_text(node, 0)
++            with l2tobj.push_state(math_fontstyle=style):
++                return l2tobj.node_arg_to_text(node, 0)
++
++        # A math font macro outside of math mode is an error in LaTeX.  We still
++        # honor it, and it is then the text font style that it installs, because
++        # that is the one that governs the text it is being used in.
++        if l2tobj.state.text_fontstyle is False:
+             return l2tobj.node_arg_to_text(node, 0)
+-
+-        with l2tobj.push_state(math_fontstyle=style):
++        with l2tobj.push_state(text_fontstyle=style):
+             return l2tobj.node_arg_to_text(node, 0)
+ 
+     return formatter
+@@ -190,11 +195,6 @@ def _textxx_formatter(macroname):
+     style = _textxx_fontstyles.get(macroname, None)
+ 
+     def formatter(node, l2tobj, set_fontstyle=set_fontstyle, style=style):
+-        if not _is_fancy_math(l2tobj):
+-            # outside of the fancy engine there are no font styles to apply, so
+-            # the argument is simply rendered as ordinary text
+-            return l2tobj.node_arg_to_text(node, 0)
+-
+         in_math_mode = l2tobj.state.in_math_mode
+ 
+         state_changes = {'in_math_mode': False}
+@@ -204,7 +204,7 @@ def _textxx_formatter(macroname):
+         with l2tobj.push_state(**state_changes):
+             arg_text = l2tobj.node_arg_to_text(node, 0)
+ 
+-        if not in_math_mode:
++        if not in_math_mode or not _is_fancy_math(l2tobj):
+             return arg_text
+         return l2tobj.make_math_piece(text=arg_text, cls='text')
+ 
+@@ -228,9 +228,6 @@ _emph_toggle_fontstyles = {
+ 
+ 
+ def _emph_formatter(node, l2tobj):
+-    if not _is_fancy_math(l2tobj):
+-        return l2tobj.node_arg_to_text(node, 0)
+-
+     in_math_mode = l2tobj.state.in_math_mode
+ 
+     if l2tobj.state.text_fontstyle is False:
+@@ -241,7 +238,7 @@ def _emph_formatter(node, l2tobj):
+     with l2tobj.push_state(in_math_mode=False, text_fontstyle=style):
+         arg_text = l2tobj.node_arg_to_text(node, 0)
+ 
+-    if not in_math_mode:
++    if not in_math_mode or not _is_fancy_math(l2tobj):
+         return arg_text
+     return l2tobj.make_math_piece(text=arg_text, cls='text')
+ 
+@@ -381,12 +378,12 @@ def _subsuperscript_formatter(which):
+ 
+         # if the full argument can be rendered with unicode superscript or
+         # subscript characters, then that's the best we can do in plain text.
+-        # The fancy engine italicizes variable names where they are typeset, so
+-        # the argument reaches us already styled and has to be taken back to
+-        # plain ascii before the lookup; unicode has no styled superscripts to
+-        # offer anyway.
++        # A variable name that is being italicized reaches us already styled and
++        # has to be taken back to plain ascii before the lookup; unicode has no
++        # styled superscripts to offer anyway.  Canonicalizing costs nothing
++        # when the letters are unstyled to begin with, so it is done always.
+         subsuper_text = fmt_subsuperscript_text(
+-            arg_text, which, normalize_math_style_chars=fancy
++            arg_text, which, normalize_math_style_chars=True
+         )
+         if subsuper_text is None and fancy and ' ' in arg_text:
+             # Unicode has no superscript or subscript space, so a single space
+@@ -672,7 +669,7 @@ _latex_specs_approximations = {
+     )],
+ }
+ 
+-_latex_specs_base = {
++_latex_specs_subsuperscripts = {
+ 
+     'environments': [
+     ],
+@@ -684,6 +681,17 @@ _latex_specs_base = {
+         SpecialsTextSpec('_', simplify_repl=_subsuperscript_formatter('subscript')),
+     ],
+ 
++    'macros': [
++    ],
++}
++
++_latex_specs_base = {
++
++    'environments': [
++    ],
++    'specials': [
++    ],
++
+     'macros': [
+         # '\mathrm{}' is the upright math font, i.e. no style at all; the
+         # formatter is still needed so that the fancy engine stops italicizing
+@@ -1821,6 +1829,15 @@ specs = [
+     #
+     ('latex-base', _latex_specs_base),
+ 
++    #
++    # CATEGORY: latex-base-subsuperscripts
++    #
++    # Kept apart from 'latex-base' so that it can be discarded on its own,
++    # matching the category of the same name in the latex walker's default
++    # definitions (see pylatexenc.latexwalker._defaultspecs).
++    #
++    ('latex-base-subsuperscripts', _latex_specs_subsuperscripts),
++
+     #
+     # CATEGORY: latex-approximations
+     #
+diff --git a/pylatexenc/latexwalker/_defaultspecs.py b/pylatexenc/latexwalker/_defaultspecs.py
+index bd0adbca3334e97cbb094a95621cd9d40b70fda2..8eb8e7cf3c50c30e2363ebe8be62411a3823bc31 100644
+--- a/pylatexenc/latexwalker/_defaultspecs.py
++++ b/pylatexenc/latexwalker/_defaultspecs.py
+@@ -455,7 +455,20 @@ specs = [
+         ],
+         'specials': [
+             std_specials('&'),
++        ]}),
++
+ 
++    #
++    # CATEGORY: latex-base-subsuperscripts
++    #
++    # Kept apart from 'latex-base' so that it can be discarded on its own: doing
++    # so restores the `pylatexenc 2` behavior, where '^' and '_' were ordinary
++    # characters that ended up in a chars node along with their surroundings.
++    #
++    ('latex-base-subsuperscripts', {
++        'macros': [],
++        'environments': [],
++        'specials': [
+             _SubSuperscriptSpec('^', 'superscript'),
+             _SubSuperscriptSpec('_', 'subscript'),
+         ]}),
+diff --git a/pylatexenc/latexwalker/_get_defaultspecs.py b/pylatexenc/latexwalker/_get_defaultspecs.py
+index 4268fb0ce736ca368d8496befc58745bc0bdddf9..c15fd130b4a21089c3dde9c7a8b2fca413a3e50b 100644
+--- a/pylatexenc/latexwalker/_get_defaultspecs.py
++++ b/pylatexenc/latexwalker/_get_defaultspecs.py
+@@ -48,6 +48,12 @@ def get_default_latex_context_db():
+         and specials, i.e., what you can expect to be available in a plain LaTeX
+         document.
+ 
++      - ``'latex-base-subsuperscripts'`` — the ``^`` and ``_`` characters as
++        "specials" definitions.  They belong to the base LaTeX definitions but
++        have a category of their own, so that you can discard them and get back
++        the `pylatexenc 2` behavior in which ``^`` and ``_`` were ordinary
++        characters.
++
+       - ``'nonascii-specials'`` — character sequences that LaTeX gives a special
+         meaning: the non-breaking space ``~``, the quote and dash "fake
+         ligatures" (a pair of backticks, ``''``, ``--`` and ``---``), and the

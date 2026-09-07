@@ -1,0 +1,14 @@
+diff --git a/skbase/utils/deep_equals/_deep_equals.py b/skbase/utils/deep_equals/_deep_equals.py
+index ab72dfb9169b4231d4211a1c0bb415d3bfe903c8..340d2dcc601d3d0e21e7b801cc32d8971ad8de2a 100644
+--- a/skbase/utils/deep_equals/_deep_equals.py
++++ b/skbase/utils/deep_equals/_deep_equals.py
+@@ -508,6 +508,9 @@ def deep_equals_custom(x, y, return_msg=False, plugins=None):
+     """
+     ret = _make_ret(return_msg)
+ 
++    if x is y:
++        return ret(True, "")
++
+     if type(x) is not type(y):
+         return ret(False, f".type, x.type = {type(x)} != y.type = {type(y)}")
+ 
