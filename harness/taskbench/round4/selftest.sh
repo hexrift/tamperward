@@ -315,17 +315,42 @@ n=$(grep -c '"gate"' "$D/pools/counted/attrition.jsonl" 2>/dev/null || true); n=
   || no "infra-halt: miner_rc=$mrc breaker=$([ -e "$D/tb-clone-breaker" ] && echo tripped || echo clear) verdicts=$n"
 grep -q CLONE_FAILED "$D/pools/counted/attrition.jsonl" 2>/dev/null && no "infra halt wrote CLONE_FAILED" || ok "infra halt writes no CLONE_FAILED"
 rm -rf "$D"
-# (g) outer clone timeout (shim killed before it can classify) -> infra halt, no CLONE_FAILED
+# (g/D33) OUTER clone timeout (shim killed before it can self-classify) is now
+#         re-probed by the miner via the shim's classify-only mode and routed the
+#         same as a self-classified clone failure — it no longer blindly halts.
+# (g) 124 + target unavailable (control healthy) -> REPO_UNAVAILABLE, walk continues, no CLONE_FAILED
 D=$(minesandbox '"acme/slow"'); mkhanggit "$D"
 ( cd "$D" && env TB_POOL=counted TB_RUNTIME_DIR="$D" TB_POOL_LOCK="$D/pool.lock" \
     TB_REAL_GIT="$D/fakegit" TB_CLONE_SLEEP_BASE=0 TB_CLONE_TIMEOUT=1 TB_CLONE_BASE=https://github.com \
     TB_FAKE_CONTROL1=0 TB_FAKE_TARGET_KIND=unavailable TB_FAKE_CONTROL2=0 TB_TASK_NEED=999 \
     ./mine5.sh >/dev/null 2>&1 ); mrc=$?
-n=$(grep -c '"gate"' "$D/pools/counted/attrition.jsonl" 2>/dev/null || true); n=${n:-0}
-{ [ "$mrc" != 0 ] && [ "$n" = 0 ]; } \
-  && ok "outer clone timeout halts with no verdict (rc=$mrc), never CLONE_FAILED" \
-  || no "outer-timeout: miner_rc=$mrc verdicts=$n"
+u=$(grep -c REPO_UNAVAILABLE "$D/pools/counted/attrition.jsonl" 2>/dev/null || true); u=${u:-0}
+{ [ "$u" = 1 ] && [ "$mrc" = 0 ] && [ ! -e "$D/tb-clone-breaker" ]; } \
+  && ok "outer timeout + unavailable target -> REPO_UNAVAILABLE (post-timeout classify), walk continues" \
+  || no "outer-timeout-unavailable: u=$u mrc=$mrc breaker=$([ -e "$D/tb-clone-breaker" ] && echo tripped)"
 grep -q CLONE_FAILED "$D/pools/counted/attrition.jsonl" 2>/dev/null && no "outer timeout wrote CLONE_FAILED" || ok "outer timeout writes no CLONE_FAILED"
+rm -rf "$D"
+# (g2/D33) 124 + target reachable (control healthy) -> UNCLONABLE_LIVE, walk continues, no breaker
+D=$(minesandbox '"acme/slow"'); mkhanggit "$D"
+( cd "$D" && env TB_POOL=counted TB_RUNTIME_DIR="$D" TB_POOL_LOCK="$D/pool.lock" \
+    TB_REAL_GIT="$D/fakegit" TB_CLONE_SLEEP_BASE=0 TB_CLONE_TIMEOUT=1 TB_CLONE_BASE=https://github.com \
+    TB_FAKE_CONTROL1=0 TB_FAKE_TARGET_KIND=reachable TB_FAKE_CONTROL2=0 TB_TASK_NEED=999 \
+    ./mine5.sh >/dev/null 2>&1 ); mrc=$?
+ul=$(grep -c UNCLONABLE_LIVE "$D/pools/counted/attrition.jsonl" 2>/dev/null || true); ul=${ul:-0}
+{ [ "$ul" = 1 ] && [ "$mrc" = 0 ] && [ ! -e "$D/tb-clone-breaker" ]; } \
+  && ok "outer timeout + reachable target -> UNCLONABLE_LIVE (D33), walk continues, no breaker" \
+  || no "outer-timeout-reachable: ul=$ul mrc=$mrc breaker=$([ -e "$D/tb-clone-breaker" ] && echo tripped)"
+rm -rf "$D"
+# (g3/D33) 124 + transport unhealthy (control #1 down) STILL halts with no verdict
+D=$(minesandbox '"acme/slow"'); mkhanggit "$D"
+( cd "$D" && env TB_POOL=counted TB_RUNTIME_DIR="$D" TB_POOL_LOCK="$D/pool.lock" \
+    TB_REAL_GIT="$D/fakegit" TB_CLONE_SLEEP_BASE=0 TB_CLONE_TIMEOUT=1 TB_CLONE_BASE=https://github.com \
+    TB_FAKE_CONTROL1=1 TB_FAKE_TARGET_KIND=reachable TB_FAKE_CONTROL2=0 TB_TASK_NEED=999 \
+    ./mine5.sh >/dev/null 2>&1 ); mrc=$?
+n=$(grep -c '"gate"' "$D/pools/counted/attrition.jsonl" 2>/dev/null || true); n=${n:-0}
+{ [ "$mrc" != 0 ] && [ -e "$D/tb-clone-breaker" ] && [ "$n" = 0 ]; } \
+  && ok "outer timeout + transport unhealthy -> halt, breaker, no verdict" \
+  || no "outer-timeout-transport-fault: mrc=$mrc breaker=$([ -e "$D/tb-clone-breaker" ] && echo tripped) verdicts=$n"
 rm -rf "$D"
 # static: no nonzero clone result can write CLONE_FAILED (the emission is gone;
 # the token survives only in the resume/completeness regex for any legacy line)
