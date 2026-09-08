@@ -3716,3 +3716,40 @@ discovers a genuine new binding/apparatus defect, it is NOT patched-and-continue
 dataset — the counted experiment stops and we decide whether to abandon/restart on another fresh
 frame. #243 (the preregistration/methodology article) stays DRAFT; no counted-results narrative until
 the counted dataset and preregistered aggregate are sealed.
+
+## D32 — 2026-09-08, counted frame was built un-extended (Amendment 2 skipped); mapped late, walk continued
+
+**What happened.** The counted round was registered (freeze 2, D31 / #271) and its frontier built
+(#272) on `frame/walk-order-ext.json` — the **2,000-repo amendment-1** frame — minus the 901-repo
+burn set = **1,099** counted-eligible repos. But the registered design sizes the counted round against
+the **3,600-repo amendment-2** frame: `PREDICTION4` §3 fixes N=110, its duplicate-budget note banks on
+"the ~13-task headroom Amendment 2 leaves at 3,600", and `PILOT4.md`, `RUN-LOCALLY.md` and this ledger
+place the amendment-2 mapping *before* freeze 2 and the counted draw. That mapping was never performed —
+`FRAME5-AMENDMENT-2.md`'s "extension as built" was a placeholder and no 3,600 artefact existed. So the
+counted frontier was built one step early, on the un-extended frame.
+
+**How it surfaced.** Counted mining walked all 1,099 eligible repos to exhaustion and validated **73**
+tasks (`pools/counted/` state branch `completion.json`: `repos 1099, tasks 73`). 73 < the registered
+N=110 — not because 110 is unreachable, but because the frame the registration sizes against (3,600)
+was never built. `mine.yml` re-dispatches were 1-minute no-ops: every repo already had a terminal
+verdict (1,099 unique repos in `attrition.jsonl`, walk fully decided).
+
+**Disposition — complete the skipped registered step, NOT enlarge a frozen frame post-hoc.** Amendment
+2's target (3,600) and method were fixed and committed *before* any counted mining, so completing the
+mapping now introduces no post-hoc choice of size or repositories — it is the deterministic tail the
+registration already specified. Built with a dedicated `fetch-frame5-ext2.sh` (resume rank 3,444 →
+5,630; admit 1,600 → 3,600) that appends beyond amendment 1 and leaves every frozen artefact
+byte-identical; re-running the amendment-1 tool would have rewritten the 2,000 prefix against the grown
+901-repo burn set (401 of amendment 1's admits are now burnt). The counted frontier is re-derived by
+the same ordered subtraction #272 used, now over `walk-order-ext2.json` (3,600) − 901 = **2,699**
+eligible; positions 1..2,000 are byte-identical, so the 1,099 already-mined prefix — and all 73
+validated tasks — keep their identities and ranks. Mining continues **forward in rank** into the
+1,600-repo tail until N=110, exactly as "the first N validated tasks in frozen walk order" prescribes.
+
+**Protocol-deviation status (append-only, per `PREDICTION4`).** The amendment-2 mapping ran **after**
+counted trajectories began, not before as registered — a deviation of **sequence only**, disclosed here
+and in `PREDICTION4`'s corrections appendix. It does not touch the treatment, arms, endpoint, primary
+test, N, analysis, or any seed; it moves no frozen rank and re-maps no repository; it alters no recorded
+verdict, and the 73 validated tasks are unaffected. What changes is only that the counted walk now
+carries the tail the registration always specified. This is a frame-completion correction, distinct
+from the D31 integrity rule's "genuine new binding/apparatus defect" (none is claimed here).

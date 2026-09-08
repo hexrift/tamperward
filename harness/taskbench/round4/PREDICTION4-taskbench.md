@@ -124,3 +124,27 @@ M2 stays open until round 4.1 — committed **before** round 4's outcomes are
 examined — repeats this frozen pool, treatment and analysis under a second
 **supported runtime** with equivalent PreToolUse/Stop enforcement semantics.
 Not part of this registration.
+
+## Corrections appendix (append-only)
+
+### 2026-09-08 — the counted frame was built un-extended; Amendment 2 mapped late
+
+This registration sizes the counted round against the **3,600**-repository
+amendment-2 frame (§3, and the duplicate-budget note on "the ~13-task headroom
+Amendment 2 leaves at 3,600"). In execution, freeze 2 (#271) and the
+counted-frame build (#272) used the un-extended **2,000**-repository amendment-1
+walk (`walk-order-ext.json` − 901 = 1,099 eligible); the FRAME5 Amendment 2
+mapping the design places before the counted draw was not performed. The 1,099
+frame mined to exhaustion at **73** validated tasks, short of N=110.
+
+The skipped mapping has now been completed (`FRAME5-AMENDMENT-2.md`, "the
+extension as built"; `DEVIATIONS.md` D32): the frame is extended to 3,600
+append-only (every frozen rank byte-identical), the counted frontier re-derived
+to **2,699** eligible with the 1,099 already-mined prefix and its 73 tasks
+preserved at identical ranks, and counted mining continues forward in rank to
+N=110. Because Amendment 2's target and method were fixed **before** any counted
+mining, this introduces no post-hoc degree of freedom in what enters the counted
+pool. **The deviation is one of sequence only — the mapping ran after counted
+trajectories began rather than before.** Nothing about the treatment, arms,
+endpoint, primary test, N, analysis, or any seed is changed, and no recorded
+verdict is altered.
