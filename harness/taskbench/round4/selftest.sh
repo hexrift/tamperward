@@ -254,11 +254,19 @@ rc=$(shimx "$D" 0 "othererror" 0)
 { [ "$rc" = 90 ] && [ -e "$D/tb-clone-breaker" ]; } \
   && ok "target fails with a non-auth error -> halt (90), not unavailability" || no "target-othererror should halt: rc=$rc"
 rm -rf "$D"
-# (d) target becomes reachable on a later probe -> halt
+# (d) target FLAPS unavailable->reachable across probes -> halt (not a stable signal)
 D=$(mktemp -d); mkfailgit "$D"
 rc=$(shimx "$D" 0 "unavailable unavailable reachable" 0)
 { [ "$rc" = 90 ] && [ -e "$D/tb-clone-breaker" ]; } \
-  && ok "target reachable on a later probe -> halt (90), not persistently unavailable" || no "target-recovers should halt: rc=$rc"
+  && ok "target flaps unavailable->reachable -> halt (90), not a stable classification" || no "target-flaps should halt: rc=$rc"
+rm -rf "$D"
+# (d2/D33) target PERSISTENTLY reachable between two healthy controls, clone exhausted
+#          -> UNCLONABLE_LIVE (92), NO breaker (not a transport fault, not a halt)
+D=$(mktemp -d); mkfailgit "$D"
+rc=$(shimx "$D" 0 "reachable reachable reachable" 0)
+{ [ "$rc" = 92 ] && [ ! -e "$D/tb-clone-breaker" ]; } \
+  && ok "reachable target between two healthy controls -> UNCLONABLE_LIVE (92), no breaker" \
+  || no "sandwich-reachable: rc=$rc breaker=$([ -e "$D/tb-clone-breaker" ] && echo tripped || echo clear)"
 rm -rf "$D"
 
 echo "== P0/D6: the miner writes REPO_UNAVAILABLE, halts on infra, and never writes CLONE_FAILED"
@@ -281,15 +289,29 @@ u=$(grep -c REPO_UNAVAILABLE "$D/pools/counted/attrition.jsonl" 2>/dev/null || t
 grep -q CLONE_FAILED "$D/pools/counted/attrition.jsonl" 2>/dev/null \
   && no "a REPO_UNAVAILABLE run still wrote CLONE_FAILED" || ok "no CLONE_FAILED written on the unavailable path"
 rm -rf "$D"
-# (f) infrastructure failure (target still reachable) HALTS with no verdict, no CLONE_FAILED
-D=$(minesandbox '"acme/flaky"')
+# (f/D33) reachable-but-unclonable repos are terminal skips and the walk RESUMES:
+#         two of them -> two UNCLONABLE_LIVE, walk completes, no breaker, no CLONE_FAILED.
+D=$(minesandbox '"acme/unclonable-one","acme/unclonable-two"')
 ( cd "$D" && env TB_POOL=counted TB_RUNTIME_DIR="$D" TB_POOL_LOCK="$D/pool.lock" \
     TB_REAL_GIT="$D/fakegit" TB_CLONE_SLEEP_BASE=0 TB_PROBE_GAP=0 TB_CLONE_BASE=https://github.com \
     TB_FAKE_CONTROL1=0 TB_FAKE_TARGET_KIND=reachable TB_FAKE_CONTROL2=0 TB_TASK_NEED=999 \
     ./mine5.sh >/dev/null 2>&1 ); mrc=$?
+ul=$(grep -c UNCLONABLE_LIVE "$D/pools/counted/attrition.jsonl" 2>/dev/null || true); ul=${ul:-0}
+{ [ "$ul" = 2 ] && [ "$mrc" = 0 ] && [ ! -e "$D/tb-clone-breaker" ]; } \
+  && ok "two reachable-but-unclonable repos -> two UNCLONABLE_LIVE, walk completes, no breaker" \
+  || no "unclonable-live-resume: ul=$ul miner_rc=$mrc breaker=$([ -e "$D/tb-clone-breaker" ] && echo tripped || echo clear)"
+grep -q CLONE_FAILED "$D/pools/counted/attrition.jsonl" 2>/dev/null && no "the unclonable path wrote CLONE_FAILED" || ok "no CLONE_FAILED on the unclonable path"
+rm -rf "$D"
+# (f') a genuine infrastructure failure (transport unhealthy: control #1 down) STILL
+#      HALTS the miner with no verdict — the D33 skip is ONLY for a proven-reachable target.
+D=$(minesandbox '"acme/flaky"')
+( cd "$D" && env TB_POOL=counted TB_RUNTIME_DIR="$D" TB_POOL_LOCK="$D/pool.lock" \
+    TB_REAL_GIT="$D/fakegit" TB_CLONE_SLEEP_BASE=0 TB_PROBE_GAP=0 TB_CLONE_BASE=https://github.com \
+    TB_FAKE_CONTROL1=1 TB_FAKE_TARGET_KIND=reachable TB_FAKE_CONTROL2=0 TB_TASK_NEED=999 \
+    ./mine5.sh >/dev/null 2>&1 ); mrc=$?
 n=$(grep -c '"gate"' "$D/pools/counted/attrition.jsonl" 2>/dev/null || true); n=${n:-0}
 { [ "$mrc" != 0 ] && [ -e "$D/tb-clone-breaker" ] && [ "$n" = 0 ]; } \
-  && ok "infra failure halts the miner (rc!=0), breaker tripped, NO verdict written" \
+  && ok "transport-unhealthy infra failure still halts (rc!=0), breaker tripped, NO verdict" \
   || no "infra-halt: miner_rc=$mrc breaker=$([ -e "$D/tb-clone-breaker" ] && echo tripped || echo clear) verdicts=$n"
 grep -q CLONE_FAILED "$D/pools/counted/attrition.jsonl" 2>/dev/null && no "infra halt wrote CLONE_FAILED" || ok "infra halt writes no CLONE_FAILED"
 rm -rf "$D"

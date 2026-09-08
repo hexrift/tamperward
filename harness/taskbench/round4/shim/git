@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # git shim for round-4 mining. Serialises clones, retries them, and CLASSIFIES a
-# clone that will not succeed into exactly one of two outcomes, returned to the
+# clone that will not succeed into exactly one of three outcomes, returned to the
 # miner as an EXIT CODE. The shim never writes the attrition ledger; the miner is
-# the sole ledger writer (DEVIATIONS.md D3, D6).
+# the sole ledger writer (DEVIATIONS.md D3, D6, D33).
 #
 #   exit 0   clone succeeded — continue.
 #   exit 91  REPO_UNAVAILABLE — the repository is PERSISTENTLY INACCESSIBLE through
@@ -10,6 +10,13 @@
 #            does NOT claim the repo is deleted or private — only that this
 #            transport cannot reach it while it demonstrably can reach a control.
 #            A terminal per-repo skip; the walk continues.
+#   exit 92  UNCLONABLE_LIVE — the repository is PERSISTENTLY REACHABLE through the
+#            frozen transport (control-sandwiched, symmetric to 91's unavailable
+#            proof) yet the clone exhausted its attempts under the frozen procedure
+#            (blobless full-history clone, unchanged 600 s budget). Measurement is
+#            unavailable: the repo cannot be materialised here. A terminal per-repo
+#            skip; the walk continues, NOT a halt — both controls and the target
+#            are healthy, so no transport fault is implied. (DEVIATIONS.md D33.)
 #   exit 90  INFRASTRUCTURE_FAILURE — everything else. The breaker trips and the
 #            miner halts WITHOUT writing a verdict. Erring here is the safe
 #            direction: it stops a transient failure from becoming a poisoned
@@ -83,26 +90,40 @@ probe_target() { # <url> <probe-index> -> kind
 }
 
 classify_and_exit() { # <owner/repo-or-empty> <target-clone-url-or-empty>
-  local slug="$1" url="$2" i kind
+  local slug="$1" url="$2" i kind first=""
   [ -n "$url" ] || [ -n "${TB_FAKE_TARGET_KIND:-}" ] || die_infra "clone exhausted and no github target url to probe"
-  # (2) control must be healthy BEFORE we trust a target failure.
+  # (2) control must be healthy BEFORE we trust anything about the target.
   probe_control 1 || die_infra "control probe #1 failed — transport unhealthy, cannot attribute the clone failure to the target"
-  # (3) target must fail the signature repeatedly; a success, timeout, or
-  #     different error at any probe is infrastructure, not unavailability.
+  # (3) the target must give the SAME definite signal on every probe: either the
+  #     auth/unavailable signature (persistently unavailable -> 91) or a clean
+  #     ls-remote (persistently reachable -> 92). A timeout, a non-auth error, or a
+  #     signal that FLAPS between the two is infrastructure — it cannot be classified.
   for i in $(seq 1 "$PROBE_REPEAT"); do
     kind=$(probe_target "$url" "$i")
     case "$kind" in
-      unavailable) ;;
-      reachable)   die_infra "target became reachable on probe $i — not persistently unavailable";;
-      timeout)     die_infra "target probe $i timed out — infrastructure, not unavailability";;
+      unavailable|reachable) ;;
+      timeout)     die_infra "target probe $i timed out — infrastructure, not a classifiable state";;
       *)           die_infra "target probe $i failed with a non-auth error — infrastructure";;
     esac
+    if [ -z "$first" ]; then first="$kind"
+    elif [ "$kind" != "$first" ]; then
+      die_infra "target flapped ($first then $kind) across probes — infrastructure, not a stable state"
+    fi
     [ "$i" -lt "$PROBE_REPEAT" ] && sleep "$PROBE_GAP"
   done
-  # (4) control must STILL be healthy after the target checks.
+  # (4) control must STILL be healthy after the target checks — the stable target
+  #     signal was taken between two healthy controls, so it is the target's.
   probe_control 2 || die_infra "control probe #2 failed — transport went unhealthy during the target check"
-  echo "tb-shim: REPO_UNAVAILABLE $slug (target persistently unavailable across $PROBE_REPEAT probes, between two healthy controls)" >&2
-  exit 91
+  if [ "$first" = unavailable ]; then
+    echo "tb-shim: REPO_UNAVAILABLE $slug (target persistently unavailable across $PROBE_REPEAT probes, between two healthy controls)" >&2
+    exit 91
+  fi
+  # first = reachable: the repo demonstrably exists on the frozen transport, but the
+  # clone could not be materialised under the frozen procedure. Not a transport
+  # fault (both controls healthy, target reachable throughout) — a terminal,
+  # candidate-neutral "measurement unavailable" outcome, NOT a halt. (D33.)
+  echo "tb-shim: UNCLONABLE_LIVE $slug (target reachable across $PROBE_REPEAT probes between two healthy controls, but the clone exhausted its attempts under the frozen procedure)" >&2
+  exit 92
 }
 
 # A breaker already tripped by a sibling: never start another clone.
