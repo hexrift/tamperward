@@ -1,0 +1,13 @@
+diff --git a/nodesemver/__init__.py b/nodesemver/__init__.py
+index 7d81a184c72c7b9778d05f92ab3af408cb36fe06..aaed5e03cbe1bb7c3cd743a28019816160799f3f 100644
+--- a/nodesemver/__init__.py
++++ b/nodesemver/__init__.py
+@@ -275,7 +275,7 @@ def parse(version, loose):
+ 
+ def valid(version, loose):
+     v = parse(version, loose)
+-    if v.version:
++    if v and v.version:
+         return v
+     else:
+         return None

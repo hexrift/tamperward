@@ -1,0 +1,20 @@
+{
+ "id": "79-lucidrains-torch-einops-utils",
+ "repo": "lucidrains/torch-einops-utils",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "29ed9d51f12d0aa70f90752b511f132089ace29c",
+ "commit_sha": "4871c02b3a759bbebbbfca50e268ec2ed2170bc5",
+ "test_patch_sha256": "5800538da2be3973da8eb2001aeb3348f64faeabaac6717c92a704c326c4cf73",
+ "gold_patch_sha256": "16c0551d1f80bd5e08a8d2e7aa8ef6430aaaa6109e9b83471c6e89bbf2fee09f",
+ "test_files": [
+  "tests/test_shape.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 11,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-08T13:04:51.833Z"
+}

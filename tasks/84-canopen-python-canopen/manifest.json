@@ -1,0 +1,20 @@
+{
+ "id": "84-canopen-python-canopen",
+ "repo": "canopen-python/canopen",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "3b57fed8d3e5fd54b9fca2f6ebe344f346952cb3",
+ "commit_sha": "14b3336bc973023e82325426adf6d71046ebcf55",
+ "test_patch_sha256": "e0a098b5c06fa5864eaf6f6f4ce0883482bdaea82ee36e33850844e5e045f01d",
+ "gold_patch_sha256": "79272bcc6177c051386663543f2e130879e64a3c33c58cb9e69a143ddd723060",
+ "test_files": [
+  "test/test_emcy.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 10,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-08T13:20:55.907Z"
+}

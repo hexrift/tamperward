@@ -1,0 +1,92 @@
+diff --git a/examples/django_test_settings.py b/examples/django_test_settings.py
+index dcb1f6c80ae9ca8ff31fc9f23f208ee556968ac3..4b5689e9b234d173f2672924ad0031b87a638b37 100644
+--- a/examples/django_test_settings.py
++++ b/examples/django_test_settings.py
+@@ -28,3 +28,5 @@ TEMPLATES = [
+ GRAPHENE = {"SCHEMA": "graphene_django.tests.schema_view.schema"}
+ 
+ ROOT_URLCONF = "graphene_django.tests.urls"
++
++USE_TZ = True
+diff --git a/examples/starwars/schema.py b/examples/starwars/schema.py
+index 07bf9d286c6bb75559875a84602eb0cd93057486..e81c8b2bb22cd9bab307013a76d16bad69963cf0 100644
+--- a/examples/starwars/schema.py
++++ b/examples/starwars/schema.py
+@@ -1,5 +1,5 @@
+ import graphene
+-from graphene import Schema, relay, resolve_only_args
++from graphene import Schema, relay
+ from graphene_django import DjangoConnectionField, DjangoObjectType
+ 
+ from .data import create_ship, get_empire, get_faction, get_rebels, get_ship, get_ships
+@@ -62,16 +62,13 @@ class Query(graphene.ObjectType):
+     node = relay.Node.Field()
+     ships = DjangoConnectionField(Ship, description="All the ships.")
+ 
+-    @resolve_only_args
+-    def resolve_ships(self):
++    def resolve_ships(self, info):
+         return get_ships()
+ 
+-    @resolve_only_args
+-    def resolve_rebels(self):
++    def resolve_rebels(self, info):
+         return get_rebels()
+ 
+-    @resolve_only_args
+-    def resolve_empire(self):
++    def resolve_empire(self, info):
+         return get_empire()
+ 
+ 
+diff --git a/graphene_django/converter.py b/graphene_django/converter.py
+index 4e458f185f0f594e7fafe97e9f2b88402421ac6f..467804dabcb097fbf7dce0dc14d080e5a2c5b235 100644
+--- a/graphene_django/converter.py
++++ b/graphene_django/converter.py
+@@ -199,19 +199,13 @@ def convert_field_to_string(field, registry=None):
+     )
+ 
+ 
+-@convert_django_field.register(models.BigAutoField)
+ @convert_django_field.register(models.AutoField)
++@convert_django_field.register(models.BigAutoField)
++@convert_django_field.register(models.SmallAutoField)
+ def convert_field_to_id(field, registry=None):
+     return ID(description=get_django_field_description(field), required=not field.null)
+ 
+ 
+-if hasattr(models, "SmallAutoField"):
+-
+-    @convert_django_field.register(models.SmallAutoField)
+-    def convert_field_small_to_id(field, registry=None):
+-        return convert_field_to_id(field, registry)
+-
+-
+ @convert_django_field.register(models.UUIDField)
+ def convert_field_to_uuid(field, registry=None):
+     return UUID(
+diff --git a/graphene_django/fields.py b/graphene_django/fields.py
+index 1bbe1f3d2d5dff16e1835196ed68dbcf0fe18557..9e9f457283ad221b22682f8c41ef383ce89edbc3 100644
+--- a/graphene_django/fields.py
++++ b/graphene_django/fields.py
+@@ -247,7 +247,7 @@ class DjangoConnectionField(ConnectionField):
+     def wrap_resolve(self, parent_resolver):
+         return partial(
+             self.connection_resolver,
+-            parent_resolver,
++            self.resolver or parent_resolver,
+             self.connection_type,
+             self.get_manager(),
+             self.get_queryset_resolver(),
+diff --git a/setup.cfg b/setup.cfg
+index bd6d271f05d488a30fc47e22eeafb911637abea7..09dcf69cc6c6ab2390a84f54fba9ddb5793c16c7 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -10,3 +10,7 @@ omit = */tests/*
+ [tool:pytest]
+ DJANGO_SETTINGS_MODULE = examples.django_test_settings
+ addopts = --random-order
++filterwarnings =
++    error
++    # we can't do anything about the DeprecationWarning about typing.ByteString in graphql
++    default:'typing\.ByteString' is deprecated:DeprecationWarning:graphql\.pyutils\.is_iterable

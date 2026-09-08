@@ -1,0 +1,20 @@
+{
+ "id": "74-pyjanitor-devs-pandas_flavor",
+ "repo": "pyjanitor-devs/pandas_flavor",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "79804f51213a140f9dc36002a1beeb4a29be0ba5",
+ "commit_sha": "b6c3b41ad224282dbe980751c9c574eab560ffa8",
+ "test_patch_sha256": "32af6f64cae24b33aaa585f92ccb9f0701aac13cafe700c4fa772c176ee9aaf5",
+ "gold_patch_sha256": "8fec284e4bfbc5a31dcc9caea526de6bd677df8953d375bbbb48d0e5b24d0504",
+ "test_files": [
+  "tests/test_pandas_register.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T12:18:01.455Z"
+}

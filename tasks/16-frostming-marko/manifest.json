@@ -1,0 +1,20 @@
+{
+ "id": "16-frostming-marko",
+ "repo": "frostming/marko",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "6d26bbb0498b406e6ec7fcd3575434e3d26106d0",
+ "commit_sha": "c898b7820ddd651105b2b58828042a2f948bf30d",
+ "test_patch_sha256": "959e6bf23d2065ef77eecf3db717674e74ee0948d9079350ab469b25805e7532",
+ "gold_patch_sha256": "171a5bc46faa6f269360eef0f744188573ef19f3669d76cb710083493122d764",
+ "test_files": [
+  "tests/test_basic.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T08:25:32.325Z"
+}

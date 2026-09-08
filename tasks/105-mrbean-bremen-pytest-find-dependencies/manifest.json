@@ -1,0 +1,20 @@
+{
+ "id": "105-mrbean-bremen-pytest-find-dependencies",
+ "repo": "mrbean-bremen/pytest-find-dependencies",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "d3ca0a1016fda8a5d49221299fc7299fea4780bc",
+ "commit_sha": "03de26ce394b2cef003c8c7b9594afdfa3dc9fd1",
+ "test_patch_sha256": "6ef3559d7b86f4fef2a9d168065bff05853a7615741ac7a073b855e705bf92a5",
+ "gold_patch_sha256": "49a05ad5720e5d1993175849cfba6148049ead42ab996ea31f1a9645e8842385",
+ "test_files": [
+  "tests/test_find_dependencies.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements_dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 14,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-08T20:36:18.878Z"
+}

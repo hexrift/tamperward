@@ -1,0 +1,20 @@
+{
+ "id": "34-robotframework-PythonLibCore",
+ "repo": "robotframework/PythonLibCore",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "e9c36644b4cbcc238e0d5f880e95aa4348f35e9c",
+ "commit_sha": "a5061753d7ef073ed22115c3c2655fa88afc06fe",
+ "test_patch_sha256": "05ee6ffae785579dc908ce6d0d67a8903b13ce3472bac842b2668657046ee44e",
+ "gold_patch_sha256": "29b8011f28438946149189499239561947ee9e6e20121cd5616f494159368691",
+ "test_files": [
+  "utest/test_translations.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T14:57:32.435Z"
+}

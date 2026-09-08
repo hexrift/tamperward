@@ -1,0 +1,328 @@
+diff --git a/docs/calendars.rst b/docs/calendars.rst
+index 7d481290d4b6df44382c5a100abf2c6ed8b43e50..4936cddd94a1c0779a3b5e2b18363ddb3a72ad6f 100644
+--- a/docs/calendars.rst
++++ b/docs/calendars.rst
+@@ -21,7 +21,8 @@ Exchange  SSE    SSEExchangeCalendar     Yes        keli
+ Exchange  TASE   TASEExchangeCalendar               gabglus
+ Exchange  HKEX   HKEXExchangeCalendar    Yes        1dot75cm
+ Exchange  ASX    ASXExchangeCalendar                pulledlamb
+-Exchange  BSE    BSEExchangeCalendar                rakesh1988
++Exchange  BSE    BSEExchangeCalendar     Yes        rakesh1988
++Exchange  NSE    NSEExchangeCalendar     Yes        rakesh1988
+ Exchange  IEX    IEXExchangeCalendar     Yes        carterjfulcher
+ ========= ====== ===================== ============ ==========
+ 
+diff --git a/pandas_market_calendars/calendars/bse.py b/pandas_market_calendars/calendars/bse.py
+index 36fc6c000ba11d8bd10bed8204778929590d9761..7543512eefba8dbc2de34c164d38bebe8f81bbf7 100644
+--- a/pandas_market_calendars/calendars/bse.py
++++ b/pandas_market_calendars/calendars/bse.py
+@@ -421,7 +421,9 @@ BSEClosedDay = [
+     Timestamp("2026-12-25", tz="UTC"),  # Fri, Christmas
+ ]
+ 
+-NSEClosedDay = BSEClosedDay.copy()
++# BSE and NSE currently share the same published closure set in this module.
++# Keep this as a shared object so future exchange-specific deltas are explicit.
++NSEClosedDay = BSEClosedDay
+ 
+ 
+ class BSEExchangeCalendar(MarketCalendar):
+@@ -435,7 +437,7 @@ class BSEExchangeCalendar(MarketCalendar):
+     early closes or late opens.
+     """
+ 
+-    aliases = ["BSE"]
++    aliases = ["BSE", "XBOM"]
+     regular_market_times = {
+         "market_open": ((None, time(9, 15)),),
+         "market_close": ((None, time(15, 30)),),
+diff --git a/pandas_market_calendars/calendars/cme.py b/pandas_market_calendars/calendars/cme.py
+index 9cad5a62574057d9c453f1d9a757d218ac5e5fc7..a296db4722d975ece0dc8301960bf757b0cdf9aa 100644
+--- a/pandas_market_calendars/calendars/cme.py
++++ b/pandas_market_calendars/calendars/cme.py
+@@ -26,7 +26,7 @@ from pandas.tseries.holiday import (
+ )
+ from zoneinfo import ZoneInfo
+ 
+-from pandas_market_calendars.calendars.cme_globex_agriculture import GRAINS_AND_OILSEEDS_MARKET_TIMES
++from pandas_market_calendars.calendars.cme_market_times import GRAINS_AND_OILSEEDS_MARKET_TIMES
+ from pandas_market_calendars.holidays.cme import (
+     GoodFriday2010,
+     GoodFriday2012,
+@@ -58,6 +58,9 @@ from pandas_market_calendars.market_calendar import MarketCalendar
+ # shows that Equity, Interest Rate, FX, Energy, Metals & DME Products close at 1200 CT on July 4, 2016, while Grain,
+ # Oilseed & MGEX Products and Livestock, Dairy & Lumber products are completely closed.
+ 
++CME_EQUITY_LEGACY_HOURS_START = "2005-09-12"
++CME_EQUITY_MODERN_HOURS_START = "2012-11-19"
++
+ 
+ class CMETradeDateCalendar(MarketCalendar):
+     """
+@@ -118,22 +121,26 @@ class CMEEquityExchangeCalendar(MarketCalendar):
+     """
+ 
+     aliases = ["CME_Equity", "CBOT_Equity"]
++    # CME shortened its equity trading session between the 2005 Globex
++    # migration and the 2012 hours change.  The base calendar cannot model a
++    # temporary absence of a break, so that era is represented as a zero-length
++    # 15:15 break that coincides with the close.
+     regular_market_times = {
+         "market_open": (
+             (None, time(17), -1),
+-            ("2005-09-12", time(15, 30), -1),
+-            ("2012-11-19", time(17), -1),
++            (CME_EQUITY_LEGACY_HOURS_START, time(15, 30), -1),
++            (CME_EQUITY_MODERN_HOURS_START, time(17), -1),
+         ),
+         "market_close": (
+             (None, time(16)),
+-            ("2005-09-12", time(15, 15)),
+-            ("2012-11-19", time(16)),
++            (CME_EQUITY_LEGACY_HOURS_START, time(15, 15)),
++            (CME_EQUITY_MODERN_HOURS_START, time(16)),
+         ),
+         "break_start": ((None, time(15, 15)),),
+         "break_end": (
+             (None, time(15, 30)),
+-            ("2005-09-12", time(15, 15)),
+-            ("2012-11-19", time(15, 30)),
++            (CME_EQUITY_LEGACY_HOURS_START, time(15, 15)),
++            (CME_EQUITY_MODERN_HOURS_START, time(15, 30)),
+         ),
+     }
+ 
+@@ -145,7 +152,6 @@ class CMEEquityExchangeCalendar(MarketCalendar):
+     def tz(self):
+         return ZoneInfo("America/Chicago")
+ 
+-
+     @property
+     def regular_holidays(self):
+         # Many days that are holidays for the NYSE are an early close day for CME
+diff --git a/pandas_market_calendars/calendars/cme_globex_agriculture.py b/pandas_market_calendars/calendars/cme_globex_agriculture.py
+index 499595b48d8ffc3daf81d624f399a2dcbdfa4734..e5176318114e863f2521d76fb53bb6bad8f0f5e8 100644
+--- a/pandas_market_calendars/calendars/cme_globex_agriculture.py
++++ b/pandas_market_calendars/calendars/cme_globex_agriculture.py
+@@ -24,6 +24,7 @@ from pandas.tseries.holiday import (
+     USThanksgivingDay,
+ )
+ 
++from pandas_market_calendars.calendars.cme_market_times import GRAINS_AND_OILSEEDS_MARKET_TIMES
+ from pandas_market_calendars.holidays.us import (
+     Christmas,
+     ChristmasEveBefore1993,
+@@ -38,15 +39,6 @@ from pandas_market_calendars.holidays.us import (
+ from .cme_globex_base import CMEGlobexBaseExchangeCalendar
+ 
+ 
+-GRAINS_AND_OILSEEDS_MARKET_TIMES = {
+-    "market_open": ((None, time(19), -1),),  # offset by -1 day
+-    "market_close": ((None, time(13, 20)),),
+-    "break_start": ((None, time(7, 45)),),
+-    "break_end": ((None, time(8, 30)),),
+-}
+-
+-
+-
+ class CMEGlobexAgricultureExchangeCalendar(CMEGlobexBaseExchangeCalendar):
+     """
+     Exchange calendar for CME for Agriculture products
+diff --git a/pandas_market_calendars/calendars/cme_globex_energy_and_metals.py b/pandas_market_calendars/calendars/cme_globex_energy_and_metals.py
+index 48badfb4f0919862028d52727eb1a3640c68d23d..3579109afbf2babddbccdef79ec07586ba50596e 100644
+--- a/pandas_market_calendars/calendars/cme_globex_energy_and_metals.py
++++ b/pandas_market_calendars/calendars/cme_globex_energy_and_metals.py
+@@ -219,3 +219,12 @@ class CMEGlobexEnergyAndMetalsExchangeCalendar(CMEGlobexBaseExchangeCalendar):
+                 ),
+             ),
+         ]
++
++    @property
++    def special_closes_adhoc(self):
++        return [
++            (
++                time(15, 15),
++                ["2010-12-31"],
++            )
++        ]
+diff --git a/pandas_market_calendars/calendars/cme_market_times.py b/pandas_market_calendars/calendars/cme_market_times.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..f13b52c7af6e69c9ffc1dad3215227310abc3759
+--- /dev/null
++++ b/pandas_market_calendars/calendars/cme_market_times.py
+@@ -0,0 +1,9 @@
++from datetime import time
++
++
++GRAINS_AND_OILSEEDS_MARKET_TIMES = {
++    "market_open": ((None, time(19), -1),),  # offset by -1 day
++    "market_close": ((None, time(13, 20)),),
++    "break_start": ((None, time(7, 45)),),
++    "break_end": ((None, time(8, 30)),),
++}
+diff --git a/pandas_market_calendars/calendars/mirror.py b/pandas_market_calendars/calendars/mirror.py
+index a4e9f6d51f6820e4db5e8585566462cac7401a25..cc1dfcac72b9d7aaf75b294a9e42308d2b0517bd 100644
+--- a/pandas_market_calendars/calendars/mirror.py
++++ b/pandas_market_calendars/calendars/mirror.py
+@@ -12,6 +12,8 @@ from pandas_market_calendars.market_calendar import HolidayCalendar, MarketCalen
+ 
+ 
+ DAYMASKS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
++MIRROR_HOLIDAY_START_DATES = {"XNYS": "1885-01-01"}
++
+ 
+ # XTAE (Tel Aviv Stock Exchange) changed from Sun-Thu to Mon-Fri on Jan 5, 2026
+ XTAE_TRANSITION_DATE = pd.Timestamp("2026-01-05")
+@@ -84,9 +86,10 @@ class TradingCalendar(MarketCalendar):
+     @property
+     def regular_holidays(self):
+         regular_holidays = self._ec.regular_holidays
+-        if regular_holidays is None or not hasattr(regular_holidays, "rules"):
++        start_date = MIRROR_HOLIDAY_START_DATES.get(self.name)
++        if start_date is None or regular_holidays is None or not hasattr(regular_holidays, "rules"):
+             return regular_holidays
+-        return HolidayCalendar(rules=regular_holidays.rules, start_date="1885-01-01")
++        return HolidayCalendar(rules=regular_holidays.rules, start_date=start_date)
+ 
+     @property
+     def adhoc_holidays(self):
+@@ -131,6 +134,8 @@ time_props = {
+ 
+ for exchange in calendars:
+     cal = calendars[exchange]
++    if exchange in MarketCalendar._regmeta_class_registry:
++        continue
+ 
+     # this loop will set up the newly required regular_market_times dictionary
+     regular_market_times = {}
+diff --git a/pandas_market_calendars/market_calendar.py b/pandas_market_calendars/market_calendar.py
+index f9b5b33e5170228c04beac004b17054077a30f98..ba902097103b1eab11febb16d9198723896c328f 100644
+--- a/pandas_market_calendars/market_calendar.py
++++ b/pandas_market_calendars/market_calendar.py
+@@ -355,17 +355,10 @@ class MarketCalendar(metaclass=MarketCalendarMeta):
+         if times is None:
+             return None
+ 
+-        # Normalize date to midnight to properly match against special dates index
+-        date = pd.Timestamp(date).normalize()
++        date, _ = self.clean_dates(date, date)
+ 
+-        # Check for special times on this specific date
+-        # Use the date itself for both start and end to check just this one day
+-        special = self.special_dates(market_time, date, date, filter_holidays=False)
+-
+-        # If there's a special time for this date, return it
+-        if len(special) > 0 and date in special.index:
+-            # special is a Series with dates as index and times as values
+-            # The time is already in UTC, convert to local timezone
++        special = self.special_dates(market_time, date, date, filter_holidays=True)
++        if date in special.index:
+             return special.loc[date].tz_convert(self.tz).time().replace(tzinfo=self.tz)
+ 
+         regular_time = self.days_at_time(pd.DatetimeIndex([date]), market_time).iloc[0]
+@@ -774,6 +767,55 @@ class MarketCalendar(metaclass=MarketCalendarMeta):
+ 
+         return self.schedule_from_days(_all_days, tz, start, end, force_special_times, market_times, interruptions)
+ 
++    def _apply_special_times(self, schedule, special_dates, open_adj, close_adj, force_special_times):
++        """
++        Apply special times to a schedule.
++
++        A market time's own special value is authoritative.  Open/close
++        specials can still conform other requested columns, but explicit
++        non-open/close specials are restored afterwards so values such as
++        NYSE early-close post sessions are not silently clamped away.
++
++        :param schedule: schedule DataFrame
++        :param special_dates: mapping of market time names to special timestamps
++        :param open_adj: dates with a special market open
++        :param close_adj: dates with a special market close
++        :param force_special_times: schedule force_special_times argument
++        :return: schedule DataFrame with special times applied
++        """
++        for market_time in ("market_open", "market_close"):
++            special = special_dates.get(market_time)
++            if special is not None:
++                schedule.loc[special.index, market_time] = special
++
++        cols = schedule.columns
++        if force_special_times is True and len(open_adj) > 0:
++            mkt_open_ind = cols.get_loc("market_open")
++
++            # Can't use Lambdas here since numpy array assignment doesn't return the array.
++            def adjust_opens(x):  # x is an np.Array.
++                x[x <= x[mkt_open_ind]] = x[mkt_open_ind]
++                return x
++
++            adjusted = schedule.loc[open_adj].apply(adjust_opens, axis=1, raw=True)
++            schedule.loc[open_adj] = adjusted
++
++        if force_special_times is True and len(close_adj) > 0:
++            mkt_close_ind = cols.get_loc("market_close")
++
++            def adjust_closes(x):
++                x[x >= x[mkt_close_ind]] = x[mkt_close_ind]
++                return x
++
++            adjusted = schedule.loc[close_adj].apply(adjust_closes, axis=1, raw=True)
++            schedule.loc[close_adj] = adjusted
++
++        for market_time, special in special_dates.items():
++            if market_time not in ("market_open", "market_close"):
++                schedule.loc[special.index, market_time] = special
++
++        return schedule
++
+     def schedule_from_days(
+         self,
+         days: pd.DatetimeIndex,
+@@ -849,39 +891,7 @@ class MarketCalendar(metaclass=MarketCalendarMeta):
+ 
+             schedule[market_time] = temp
+ 
+-        for market_time in ("market_open", "market_close"):
+-            special = _special_dates.get(market_time)
+-            if special is not None:
+-                schedule.loc[special.index, market_time] = special
+-
+-        cols = schedule.columns
+-        if _adj_others and len(_open_adj) > 0:
+-            mkt_open_ind = cols.get_loc("market_open")
+-
+-            # Can't use Lambdas here since numpy array assignment doesn't return the array.
+-            def adjust_opens(x):  # x is an np.Array.
+-                x[x <= x[mkt_open_ind]] = x[mkt_open_ind]
+-                return x
+-
+-            adjusted = schedule.loc[_open_adj].apply(adjust_opens, axis=1, raw=True)
+-            schedule.loc[_open_adj] = adjusted
+-
+-        if _adj_others and len(_close_adj) > 0:
+-            mkt_close_ind = cols.get_loc("market_close")
+-
+-            def adjust_closes(x):
+-                x[x >= x[mkt_close_ind]] = x[mkt_close_ind]
+-                return x
+-
+-            adjusted = schedule.loc[_close_adj].apply(adjust_closes, axis=1, raw=True)
+-            schedule.loc[_close_adj] = adjusted
+-
+-        # A market_time's own special value is authoritative. Apply non-open/close
+-        # specials after open/close conformance so explicit values, such as NYSE
+-        # early-close post sessions, are not silently clamped away.
+-        for market_time, special in _special_dates.items():
+-            if market_time not in ("market_open", "market_close"):
+-                schedule.loc[special.index, market_time] = special
++        schedule = self._apply_special_times(schedule, _special_dates, _open_adj, _close_adj, force_special_times)
+ 
+         if interruptions:
+             interrs = self.interruptions_df
+@@ -1006,7 +1016,7 @@ class MarketCalendar(metaclass=MarketCalendarMeta):
+ 
+         # When post follows market_close, market_close should not be considered a close
+         day.loc[day.eq("market_close") & day.shift(-1).eq("post")] = "market_open"
+-        day = day.map(lambda x: (self.open_close_map.get(x) if x in self.open_close_map else x))
++        day = day.map(lambda x: self.open_close_map.get(x) if x in self.open_close_map else x)
+ 
+         below = day.index <= timestamp
+         last_below = day[below]

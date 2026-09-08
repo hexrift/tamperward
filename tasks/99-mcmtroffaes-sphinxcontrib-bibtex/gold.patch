@@ -1,0 +1,114 @@
+diff --git a/src/sphinxcontrib/bibtex/__init__.py b/src/sphinxcontrib/bibtex/__init__.py
+index f484406080a284a3570166edc102882ef4859287..2c98ada25358d2cb0aee0d74f926a3bf8c539ad3 100644
+--- a/src/sphinxcontrib/bibtex/__init__.py
++++ b/src/sphinxcontrib/bibtex/__init__.py
+@@ -48,11 +48,6 @@ def builder_inited_cite(app: Sphinx) -> None:
+     dom.data["bibdata"] = process_bibdata(
+         dom.bibdata, bibfiles, app.config.bibtex_encoding
+     )
+-    # parse bibliography header
+-    header = getattr(app.config, "bibtex_bibliography_header")
+-    if header:
+-        dom.data["bibliography_header"] = docutils.nodes.container()
+-        dom.data["bibliography_header"] += parse_header(header, "bibliography_header")
+ 
+ 
+ def builder_inited_footcite(app: Sphinx) -> None:
+diff --git a/src/sphinxcontrib/bibtex/directives.py b/src/sphinxcontrib/bibtex/directives.py
+index 9fe78f1aa8233fedc0c21481e35c4a10ba1ebf09..46b48b8c456219a1c3dc90193838f9d146562989 100644
+--- a/src/sphinxcontrib/bibtex/directives.py
++++ b/src/sphinxcontrib/bibtex/directives.py
+@@ -18,6 +18,7 @@ import docutils.nodes
+ import docutils.parsers.rst.directives as directives
+ import sphinx.util
+ from docutils.parsers.rst import Directive
++from docutils.statemachine import StringList
+ 
+ from .bibfile import _make_ids
+ from .nodes import bibliography as bibliography_node
+@@ -176,11 +177,11 @@ class BibliographyDirective(Directive):
+                 subtype="list_type_error",
+             )
+             list_ = "citation"
+-        citation_node_class: type[docutils.nodes.Element]
+-        if list_ in {"bullet", "enumerated"}:
+-            citation_node_class = docutils.nodes.list_item
+-        else:
+-            citation_node_class = docutils.nodes.citation
++        citation_node_class: type[docutils.nodes.Element] = (
++            docutils.nodes.list_item
++            if list_ in {"bullet", "enumerated"}
++            else docutils.nodes.citation
++        )
+         env.temp_data["bibtex_bibliography_count"] = (
+             env.temp_data.get("bibtex_bibliography_count", 0) + 1  # type: ignore
+         )
+@@ -229,6 +230,14 @@ class BibliographyDirective(Directive):
+                 )
+             else:
+                 keys.append(key)
++        # header
++        header = getattr(env.config, "bibtex_bibliography_header")
++        if header:
++            content = StringList(
++                header.splitlines(),
++                source="conf.py:bibtex_bibliography_header",
++            )
++            self.state.nested_parse(content, self.content_offset)
+         # create bibliography object
+         bibliography = BibliographyValue(
+             line=self.lineno,
+diff --git a/src/sphinxcontrib/bibtex/domain.py b/src/sphinxcontrib/bibtex/domain.py
+index 2452e51be2a9dd98a79bb151fca55c293df2f5a4..3fd0e6d741dcfc3e9edbdd39c4b627a7b0d13c1c 100644
+--- a/src/sphinxcontrib/bibtex/domain.py
++++ b/src/sphinxcontrib/bibtex/domain.py
+@@ -245,7 +245,6 @@ class BibtexDomain(Domain):
+         "bibdata": BibData(
+             encoding="", bibfiles={}, data=pybtex.database.BibliographyData()
+         ),
+-        "bibliography_header": docutils.nodes.container(),
+         "bibliographies": {},
+         "citations": [],
+         "citation_refs": [],
+@@ -281,10 +280,6 @@ class BibtexDomain(Domain):
+         """Information about the bibliography files."""
+         return self.data["bibdata"]
+ 
+-    @property
+-    def bibliography_header(self) -> docutils.nodes.Element:
+-        return self.data["bibliography_header"]
+-
+     @property
+     def bibliographies(self) -> Dict["BibliographyKey", "BibliographyValue"]:
+         """Map storing information about each bibliography directive."""
+diff --git a/src/sphinxcontrib/bibtex/transforms.py b/src/sphinxcontrib/bibtex/transforms.py
+index bde10b56683b51c92c44cac980e9089beee91136..5dcb797434c13674379246ea363ba68703994fcb 100644
+--- a/src/sphinxcontrib/bibtex/transforms.py
++++ b/src/sphinxcontrib/bibtex/transforms.py
+@@ -14,7 +14,7 @@ from pybtex.plugin import find_plugin
+ from sphinx.transforms.post_transforms import SphinxPostTransform
+ from sphinx.util.logging import getLogger
+ 
+-from .directives import BibliographyKey
++from .directives import BibliographyKey, BibliographyValue
+ from .nodes import bibliography as bibliography_node
+ 
+ if TYPE_CHECKING:
+@@ -62,7 +62,7 @@ class BibliographyTransform(SphinxPostTransform):
+             # reminder: env.docname may be equal to 'index' instead of
+             # bibnode['docname'] in post-transform phase (e.g. latex builder)
+             bib_key = BibliographyKey(docname=bibnode["docname"], id_=bibnode["ids"][0])
+-            bibliography = domain.bibliographies[bib_key]
++            bibliography: BibliographyValue = domain.bibliographies[bib_key]
+             citations = [
+                 citation
+                 for citation in domain.citations
+@@ -106,7 +106,7 @@ class BibliographyTransform(SphinxPostTransform):
+                 if bibliography.list_ == "enumerated":
+                     env.temp_data["bibtex_enum_count"] += 1
+             if citations:
+-                final_node = domain.bibliography_header.deepcopy()
++                final_node = docutils.nodes.container()
+                 final_node += nodes
+                 bibnode.replace_self(final_node)
+             else:

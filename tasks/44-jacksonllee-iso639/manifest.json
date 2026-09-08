@@ -1,0 +1,20 @@
+{
+ "id": "44-jacksonllee-iso639",
+ "repo": "jacksonllee/iso639",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "ad29b5101dc98a519daae2e01bb6ef863b4e70f1",
+ "commit_sha": "05bb4322473a0abdf30afdd80ef465674fbf27af",
+ "test_patch_sha256": "8f665ee84c0d83e1d5d6f22337104c75de2f77750b2bebc9706bbb80026ffd8f",
+ "gold_patch_sha256": "8520a93f0b8c2b4c83ee3d8ddd824494a83dfe2e9ed5ce30b5788e4ca323d65c",
+ "test_files": [
+  "tests/test_language.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T17:36:17.163Z"
+}

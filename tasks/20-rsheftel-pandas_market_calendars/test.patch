@@ -1,0 +1,142 @@
+diff --git a/tests/test_bse_calendar.py b/tests/test_bse_calendar.py
+index d2d90c603dda970fb162bdc56b0889e6f1dbc624..fc8192ba18040cf2843560b98bcd4ba944282f13 100644
+--- a/tests/test_bse_calendar.py
++++ b/tests/test_bse_calendar.py
+@@ -23,7 +23,7 @@ def test_holidays():
+         assert session_label not in trading_days
+ 
+     nse_calendar = NSEExchangeCalendar()
+-    nse_trading_days = nse_calendar.valid_days(pd.Timestamp("2004-01-01"), pd.Timestamp("2026-12-31"))
++    nse_trading_days = nse_calendar.valid_days(pd.Timestamp("1997-01-01"), pd.Timestamp("2026-12-31"))
+     for session_label in NSEClosedDay:
+         assert session_label not in nse_trading_days
+ 
+@@ -33,7 +33,7 @@ def test_holidays():
+ 
+ def test_bse_and_nse_aliases_are_separate_calendars():
+     assert get_calendar("BSE").name == "BSE"
+-    assert get_calendar("XBOM").name == "XBOM"
++    assert get_calendar("XBOM").name == "BSE"
+     assert get_calendar("NSE").name == "NSE"
+     assert get_calendar("XNSE").name == "NSE"
+     assert get_calendar("XNSE").name != get_calendar("BSE").name
+diff --git a/tests/test_cme_agriculture_calendar.py b/tests/test_cme_agriculture_calendar.py
+index fa891f1a41a9c5e12a0f7812c42ce736ad76bd8a..cf3d8153a824097690ae671e0c59348c5d24807d 100644
+--- a/tests/test_cme_agriculture_calendar.py
++++ b/tests/test_cme_agriculture_calendar.py
+@@ -2,7 +2,6 @@ import pandas as pd
+ from zoneinfo import ZoneInfo
+ 
+ from pandas_market_calendars.calendars.cme import CMEAgricultureExchangeCalendar
+-from pandas_market_calendars.calendars.cme_globex_agriculture import CMEGlobexGrainsAndOilseedsExchangeCalendar
+ 
+ 
+ def test_time_zone():
+@@ -10,12 +9,8 @@ def test_time_zone():
+     assert CMEAgricultureExchangeCalendar().name == "CME_Agriculture"
+ 
+ 
+-def test_regular_market_times_match_grains_union():
++def test_regular_market_times_match_grains_public_hours():
+     cme = CMEAgricultureExchangeCalendar()
+-    grains = CMEGlobexGrainsAndOilseedsExchangeCalendar()
+-
+-    assert cme.regular_market_times == grains.regular_market_times
+-
+     schedule = cme.schedule("2024-11-25", "2024-11-25", tz="America/Chicago")
+     session = schedule.loc["2024-11-25"]
+     assert session.market_open == pd.Timestamp("2024-11-24 19:00:00", tz=cme.tz)
+diff --git a/tests/test_cme_equity_calendar.py b/tests/test_cme_equity_calendar.py
+index 06a43465999a663fcf64b4b1801377ae3af2593c..f76eb6ecaa27ae0396de383c56c2e79d5f2cedfc 100644
+--- a/tests/test_cme_equity_calendar.py
++++ b/tests/test_cme_equity_calendar.py
+@@ -111,7 +111,7 @@ def test_trade_date_calendar_excludes_equity_early_close_holidays():
+ 
+ def test_trade_date_calendar_excludes_settlement_holidays_without_dropping_equity_sessions():
+     cme = CMEEquityExchangeCalendar()
+-    issue_dates = [
++    early_close_dates = [
+         "2022-01-17",
+         "2022-02-21",
+         "2022-05-30",
+@@ -131,12 +131,13 @@ def test_trade_date_calendar_excludes_settlement_holidays_without_dropping_equit
+     ]
+ 
+     trade_dates = CMETradeDateCalendar().valid_days("2022-01-01", "2024-02-29")
+-    schedule = cme.schedule("2022-01-01", "2024-02-29")
++    schedule = cme.schedule("2022-01-01", "2024-02-29", tz=cme.tz)
+ 
+-    for date in issue_dates:
++    for date in early_close_dates:
+         timestamp = pd.Timestamp(date, tz="UTC")
++        expected_close = pd.Timestamp(f"{date} 12:00:00", tz=cme.tz)
+         assert timestamp not in trade_dates
+-        assert pd.Timestamp(date) in schedule.index
++        assert schedule.loc[date].market_close == expected_close
+ 
+ 
+ def test_good_friday_2026_has_early_close_session():
+diff --git a/tests/test_exchange_calendar_cme_globex_energy_and_metals.py b/tests/test_exchange_calendar_cme_globex_energy_and_metals.py
+index d8de5d0315242501ac8f1fea5a74044b9f9f5d28..dc275d5232d6696443b7c7ed36f7e175aa2721f2 100644
+--- a/tests/test_exchange_calendar_cme_globex_energy_and_metals.py
++++ b/tests/test_exchange_calendar_cme_globex_energy_and_metals.py
+@@ -99,10 +99,11 @@ def test_new_years_sunday_is_observed_on_monday():
+     assert pd.Timestamp("2023-01-03", tz="UTC") in valid_days
+ 
+ 
+-def test_new_years_saturday_is_not_observed_on_monday():
+-    valid_days = cal.valid_days("2010-12-31", "2011-01-04")
++def test_new_years_saturday_keeps_documented_2011_sessions():
++    schedule = cal.schedule("2010-12-31", "2011-01-04", tz=cal.tz)
+ 
+-    assert pd.Timestamp("2011-01-03", tz="UTC") in valid_days
++    assert schedule.loc["2010-12-31"].market_close == pd.Timestamp("2010-12-31 15:15:00", tz=cal.tz)
++    assert schedule.loc["2011-01-03"].market_open == pd.Timestamp("2011-01-02 17:00:00", tz=cal.tz)
+ 
+ 
+ def test_energy_and_metals_new_years_2021_closed_but_2022_monday_open():
+diff --git a/tests/test_import_side_effects.py b/tests/test_import_side_effects.py
+index 154785a420b224b7a4c7e0c7bba77e261df1f08a..611bf0e4802c7c8d528e985876607039ae267153 100644
+--- a/tests/test_import_side_effects.py
++++ b/tests/test_import_side_effects.py
+@@ -22,9 +22,14 @@ def test_import_does_not_change_pandas_holiday_calendar_defaults():
+         baseline_end = AbstractHolidayCalendar.end_date
+ 
+         import pandas_market_calendars
++        from pandas_market_calendars.market_calendar import HolidayCalendar
+ 
++        bounded = HolidayCalendar(rules=[USMemorialDay], start_date="2010-01-01", end_date="2010-12-31")
++        bounded_holidays = bounded.holidays()
+         bday_after = CustomBusinessDay(calendar=ExampleCalendar())
++
+         assert bday_before == bday_after
++        assert bounded_holidays[0] == pd.Timestamp("2010-05-31")
+         assert AbstractHolidayCalendar.start_date == baseline_start
+         assert AbstractHolidayCalendar.end_date == baseline_end
+         """
+diff --git a/tests/test_nyse_calendar.py b/tests/test_nyse_calendar.py
+index dec0368339fa4a1458e6498fff9e3fd88a3f8e1a..5976086882d5b2e29c7429f2942655f8a094f18c 100644
+--- a/tests/test_nyse_calendar.py
++++ b/tests/test_nyse_calendar.py
+@@ -207,6 +207,8 @@ def test_post_market_close_on_modern_early_close_days():
+     session = schedule.loc["2019-12-24"]
+     assert session.market_close == pd.Timestamp("2019-12-24 13:00", tz=nyse.tz)
+     assert session.post == pd.Timestamp("2019-12-24 17:00", tz=nyse.tz)
++    post_only = nyse.schedule("2019-12-24", "2019-12-24", market_times=["post"], tz="America/New_York")
++    assert post_only.loc["2019-12-24"].post == session.post
+ 
+ 
+ def test_special_holidays():
+diff --git a/tests/test_utils.py b/tests/test_utils.py
+index 1347233ebf2b54a8f3d4b771e2051b02da34eedc..78385c9ccd13ba17662f275ff76d8a7bb8e6075c 100644
+--- a/tests/test_utils.py
++++ b/tests/test_utils.py
+@@ -88,6 +88,8 @@ def test_merge_schedules_inner_excludes_reported_non_overlapping_session():
+ 
+     actual = mcal.merge_schedules([nyse_schedule, xetra_schedule], how="inner")
+ 
++    assert not actual.empty
++    assert pd.Timestamp("2024-12-02") in actual.index
+     assert pd.Timestamp("2024-12-30") not in actual.index
+     assert (actual["market_open"] < actual["market_close"]).all()
+ 

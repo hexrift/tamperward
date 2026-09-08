@@ -1,0 +1,20 @@
+{
+ "id": "73-Yelp-detect-secrets",
+ "repo": "Yelp/detect-secrets",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "6cdb79bbbd5622d99329a7129e4612f72d6350cd",
+ "commit_sha": "3025a07fd55db19d0e77c4b626e0c4defdaf853f",
+ "test_patch_sha256": "db7e72659a822efb4ac15aef2157208ac74b36ebf28d4dd8a29298e29c21ae58",
+ "gold_patch_sha256": "dac6ddec71c634800060409c759aba02f53d7636305dbd18a30506573ee72e2b",
+ "test_files": [
+  "tests/plugins/ip_public_test.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T07:38:40.847Z"
+}

@@ -1,0 +1,20 @@
+{
+ "id": "108-mondeja-mkdocs-include-markdown-plugin",
+ "repo": "mondeja/mkdocs-include-markdown-plugin",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "39df60911e5a5da6cd0cdace89cead96c79636bc",
+ "commit_sha": "98cf8e8dee370cf332ed00cd8426d2ffcfa07065",
+ "test_patch_sha256": "bfafeb1d57f8b002eeadc30f54a01e428218443921c4078aceb6fd059f6969d6",
+ "gold_patch_sha256": "6ae11e2a66d500c31717f2ec2343c03f686a33af0c629ac7064180a67c506beb",
+ "test_files": [
+  "tests/test_unit/test_order.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T20:44:42.503Z"
+}

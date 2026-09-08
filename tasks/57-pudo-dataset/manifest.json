@@ -1,0 +1,20 @@
+{
+ "id": "57-pudo-dataset",
+ "repo": "pudo/dataset",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "3cbef3bb91515988eba488c5f8a00eafd84d3863",
+ "commit_sha": "4a6bf5fa1ab448c16a36adfacd71c680f0c2f084",
+ "test_patch_sha256": "48bec8254dd1805dd92f77c53e0619560c3ec34a6b0f2eb29d737c8e1c360a62",
+ "gold_patch_sha256": "f6fe04805f91c2f2dee5e99607909d6e911ce0de3a2c60cc5272d62a828ad400",
+ "test_files": [
+  "test/test_database.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T20:02:54.755Z"
+}

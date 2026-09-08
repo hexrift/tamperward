@@ -1,0 +1,20 @@
+{
+ "id": "76-doronz88-pymobiledevice3",
+ "repo": "doronz88/pymobiledevice3",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "15c3eab6273285e593f811499779b7f5bcdb4178",
+ "commit_sha": "44ba6104924c57aded6a23eb6806defdf4b42bdf",
+ "test_patch_sha256": "14db57e23e426cca4fa98c069df1a054e7689db9c88127956d945c3bc93cf42e",
+ "gold_patch_sha256": "cd97474803c0fded328a0092ca414b70dede4e58a26c1055eb024c44cb43487d",
+ "test_files": [
+  "tests/test_tunneld_federation.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T12:26:54.005Z"
+}

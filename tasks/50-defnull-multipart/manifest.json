@@ -1,0 +1,20 @@
+{
+ "id": "50-defnull-multipart",
+ "repo": "defnull/multipart",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "59322fee206c150211f84f72769d20f34acb9666",
+ "commit_sha": "ba1d834d3884298e4539b58a8eff2532737bcb71",
+ "test_patch_sha256": "96f2aa801d870a22fca00a55b0ef59fef80ed22f36e991dc1f48b8a637c8aa81",
+ "gold_patch_sha256": "fdca9b1968c88011de354df9b170c2f5c860acd898737e39c209e226bf86d0bd",
+ "test_files": [
+  "test/test_push_parser.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T18:04:04.261Z"
+}

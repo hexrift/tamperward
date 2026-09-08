@@ -1,0 +1,20 @@
+{
+ "id": "94-durandtibo-hatchling-autoextras-hook",
+ "repo": "durandtibo/hatchling-autoextras-hook",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "1955e547fe32a27c4ba939731da4519daa77402a",
+ "commit_sha": "eb4b6a301cd6e06e2dac67446a80571240a8e17e",
+ "test_patch_sha256": "c1aab35837ad074846d2a6a427080597b79b9f10d9646fac05ec04ce47e9b1fd",
+ "gold_patch_sha256": "a52f3b44051a85257a7c1119e19eb2cb44af512a2baef1c73c6d3fc0f883f254",
+ "test_files": [
+  "tests/unit/test_hooks.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 8,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-08T16:13:11.267Z"
+}

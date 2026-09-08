@@ -1,0 +1,35 @@
+diff --git a/CHANGELOG.rst b/CHANGELOG.rst
+index d725bf5edf89d8897bac175a581c7f53f6957c46..66760304192109596b659a47db86b605955ea0ea 100644
+--- a/CHANGELOG.rst
++++ b/CHANGELOG.rst
+@@ -8,6 +8,9 @@ Unreleased
+ - Remove support for Python 3.8
+ - Correct the type of the ``dependency_groups`` parameter to ``resolve()``,
+   ``resolve_all()``, and ``DependencyGroupsResolver()``.
++- Raise a clear ``TypeError`` when an ``include-group`` value is not a string
++  (was a cryptic ``TypeError`` from name normalization), and accept any
++  ``Mapping`` for include items, not only ``dict``.
+ 
+ 1.3.1
+ -----
+diff --git a/src/dependency_groups/_implementation.py b/src/dependency_groups/_implementation.py
+index def4f8bdf38bd2a1050a8d550646e991b5dbbf8e..c7533ad22edbb38de3e74f6ca0a21678aa844770 100644
+--- a/src/dependency_groups/_implementation.py
++++ b/src/dependency_groups/_implementation.py
+@@ -154,11 +154,15 @@ class DependencyGroupResolver:
+                 # valid PEP 508 Dependency Specifier
+                 # raises InvalidRequirement on failure
+                 elements.append(Requirement(item))
+-            elif isinstance(item, dict):
++            elif isinstance(item, Mapping):
+                 if tuple(item.keys()) != ("include-group",):
+                     raise ValueError(f"Invalid dependency group item: {item}")
+ 
+                 include_group = next(iter(item.values()))
++                if not isinstance(include_group, str):
++                    raise TypeError(
++                        f"Invalid include-group value, must be a string: {item}"
++                    )
+                 elements.append(DependencyGroupInclude(include_group=include_group))
+             else:
+                 raise ValueError(f"Invalid dependency group item: {item}")

@@ -1,0 +1,23 @@
+{
+ "id": "03-WebwareForPython-DBUtils",
+ "repo": "WebwareForPython/DBUtils",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "5549c9e9e7eb2be4a282b8272f8bfcaa5603f7c5",
+ "commit_sha": "06a2a85384251a27a474940e173cb78d99b2ccda",
+ "test_patch_sha256": "12582c624b2b36401d7451af9177b861afca80ef1eac7d4fffa0b71c64646353",
+ "gold_patch_sha256": "cca36f3f2866e75d47485f2e2742aae45228fbee29c0c80a9002ca075236366b",
+ "test_files": [
+  "tests/conftest.py",
+  "tests/test_persistent_db.py",
+  "tests/test_pooled_db.py",
+  "tests/test_steady_db.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 13,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T05:54:41.158Z"
+}

@@ -1,0 +1,20 @@
+{
+ "id": "45-pytest-dev-pytest-github-actions-annotate-failures",
+ "repo": "pytest-dev/pytest-github-actions-annotate-failures",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "10e283c83a465f5a57df48cb848c54d0ebe0a8d7",
+ "commit_sha": "badb1c53b08428046ec602b2aab606fc50c318a4",
+ "test_patch_sha256": "bc4d758e0d1f646d012af8362cf0d6cf0b6b52e9aea93c6ecd9ca144e7eb470e",
+ "gold_patch_sha256": "ab310e2f9174e42870998bd71f897a04a68d216ecc12c02afab3005ed976ec6a",
+ "test_files": [
+  "plugin_test.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T17:37:19.392Z"
+}

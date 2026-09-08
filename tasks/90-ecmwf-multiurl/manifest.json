@@ -1,0 +1,20 @@
+{
+ "id": "90-ecmwf-multiurl",
+ "repo": "ecmwf/multiurl",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "acdbb59009f12faec1e4c6db04932d417aced7dc",
+ "commit_sha": "917b600a54d9ec7c94568825bc84c6dfe194f0b6",
+ "test_patch_sha256": "05a4c07f33f41078318075be430b58b1dae2b01100d27bf6d813dad3156cd228",
+ "gold_patch_sha256": "4db012a09f38cd58d4b73e2e031d1b21b2dc5ff84ad6fa5152505278d7533960",
+ "test_files": [
+  "tests/test_robust.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T15:47:09.686Z"
+}

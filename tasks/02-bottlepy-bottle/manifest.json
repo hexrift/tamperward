@@ -1,0 +1,20 @@
+{
+ "id": "02-bottlepy-bottle",
+ "repo": "bottlepy/bottle",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "2a743a302a71460bfe4c0b8b7cb99a306b0328c6",
+ "commit_sha": "b73bd1db5b7a915cf6a78656955c4059f58195ae",
+ "test_patch_sha256": "6998cafc9861fe410caf797d606a220022e35a605f80c82d0d19626a1b4e1bb2",
+ "gold_patch_sha256": "0726a544ef3dccd37fc07af533e5d5818c9269c06e9d69674557d5cfbb66a570",
+ "test_files": [
+  "test/test_sendfile.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T05:54:28.150Z"
+}

@@ -1,0 +1,20 @@
+{
+ "id": "78-espressif-idf-component-manager",
+ "repo": "espressif/idf-component-manager",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "c25e094a9d266b69c027d52f2e7af22d42b148a7",
+ "commit_sha": "2da1f2c61bd460ff5b139fbd77691112f547570f",
+ "test_patch_sha256": "818f2b6e8e43b3abaed73979ced7f504967569a2aad2a4c8a9c1a47de7ad0068",
+ "gold_patch_sha256": "83ac99e4855d24834dcd091a3d3db336828f4553f517bdea919575ee6f3f46a6",
+ "test_files": [
+  "tests/sources/test_git.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 8,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-08T12:58:47.087Z"
+}

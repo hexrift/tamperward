@@ -1,0 +1,20 @@
+{
+ "id": "103-scrapinghub-price-parser",
+ "repo": "scrapinghub/price-parser",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "32b6b8044ec2326d9720211654ce2c16ff8a95dc",
+ "commit_sha": "ea535c03a9d5ef8df18b30a9368adaa556ed2995",
+ "test_patch_sha256": "665565fe2337082e9f3ee11128f826b81ffe1b82b63b8ef8fa87030a4ae8f7da",
+ "gold_patch_sha256": "28efaf9a81fe5d0e8091285c641e2256dc9fa2aee780bd408e7cc443eca99971",
+ "test_files": [
+  "tests/test_price_parsing.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T20:21:35.661Z"
+}

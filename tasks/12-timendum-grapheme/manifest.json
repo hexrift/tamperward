@@ -1,0 +1,20 @@
+{
+ "id": "12-timendum-grapheme",
+ "repo": "timendum/grapheme",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "60650c7a0ff8ea97eac2e549c300c4727724fdaf",
+ "commit_sha": "5844003ac7ad170ffa58fb7cbc5bf870fe8e6fda",
+ "test_patch_sha256": "1d4f79b4ed18b92e37d40607e92a68a6c9e497a494afa7ad6fbaa7018a8ded2a",
+ "gold_patch_sha256": "14e8c30849ead5b591ad58c9abf7480a55ae8ecf7d347b6ce1cd8f1b044a9113",
+ "test_files": [
+  "tests/test_mod.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T06:51:20.985Z"
+}

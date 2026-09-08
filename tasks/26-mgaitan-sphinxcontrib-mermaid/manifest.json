@@ -1,0 +1,20 @@
+{
+ "id": "26-mgaitan-sphinxcontrib-mermaid",
+ "repo": "mgaitan/sphinxcontrib-mermaid",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "6d7611b2943345bd0352d1203f7ab1f2e6d4bd7a",
+ "commit_sha": "b24171655ba60b0a296d0172efe456efefe9a4dc",
+ "test_patch_sha256": "513e2ac32fe3ad532deeb7e85578e85b167e749112082186e5d85a2df3404a1e",
+ "gold_patch_sha256": "e4170aedb3fa41b2e08854647d7130adb6fa35d606b84f92eefa20d66281eaaa",
+ "test_files": [
+  "tests/test_html.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T13:05:57.996Z"
+}

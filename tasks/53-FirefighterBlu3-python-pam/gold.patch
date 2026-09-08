@@ -1,0 +1,558 @@
+diff --git a/ChangeLog.md b/ChangeLog.md
+index dae7a7851d2b23ed4a53ab76d75017c1c189ce29..38faf4b3eca2c4f69a211afd6f1cf314e559a4af 100644
+--- a/ChangeLog.md
++++ b/ChangeLog.md
+@@ -1,13 +1,16 @@
+ # ChangeLog
+ 
+ ## 2.1.0
+-December 14, 2025
+   - switch to poetry
+   - merge outstanding PRs
+   - make handle checks and make them more robust
+   - update documentation with better example
+   - remove py2 support
+   - tox test suite set to py312 and py313
++  - fix #40: `pam.authenticate()` no longer reuses a process-global
++    `PamAuthenticator` (thread-safe concurrent auth); libpam ctypes bindings
++    are loaded once and shared for performance
++  - document threading model (do not share one `PamAuthenticator` across threads)
+ 
+ ## 2.0.2 Latest
+ March 17, 2022
+diff --git a/README.md b/README.md
+index 076e9cf08b849fc2eb13348d96bf338350add03f..d0e21de7a037965e87c6383a6e1556b9baf4d02e 100644
+--- a/README.md
++++ b/README.md
+@@ -3,12 +3,34 @@
+ [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/FirefighterBlu3/python-pam/badge)](https://scorecard.dev/viewer/?uri=github.com/FirefighterBlu3/python-pam)
+ [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13794/badge)](https://www.bestpractices.dev/projects/13794)
+ 
+-Python pam module supporting py3 for Linux type systems (!windows, !py2)
++Python pam module supporting py3 for Linux type systems (!windows)
+ 
+ ## Security
+ 
+ See [SECURITY.md](SECURITY.md) for supported versions and how to report vulnerabilities.
+ 
++## Threading and concurrency
++
++`pam.authenticate()` is safe to call from many threads at once. Each call uses
++its own PAM handle; libpam ctypes bindings are loaded once and shared (no global
++lock on the auth path).
++
++Do **not** share a single `PamAuthenticator` / `pam.pam()` instance across threads
++without external synchronization. That object owns mutable PAM session state
++(`handle`, `code`, `reason`, `messages`). For sessions (`call_end=False`), keep
++one instance per thread (or serialize access).
++
++High-QPS login APIs should use:
++
++```python
++import pam
++
++if pam.authenticate(username, password, service='myapp'):
++    ...
++```
++
++## Examples
++
+ Commandline example:
+ 
+ ```bash
+@@ -26,11 +48,9 @@ Close session: Success (0)
+ Inline examples:
+ 
+ ```python
+-[david@Scott python-pam]$ python
+-Python 3.9.7 (default, Oct 10 2021, 15:13:22)
+-[GCC 11.1.0] on linux
+-Type "help", "copyright", "credits" or "license" for more information.
+ >>> import pam
++>>> pam.authenticate('david', 'correctpassword')
++True
+ >>> p = pam.pam()
+ >>> p.authenticate('david', 'correctpassword')
+ True
+diff --git a/python-pam/pam/__init__.py b/python-pam/pam/__init__.py
+index 5ac52d8d74871e3bf1238b345b96d7219c983838..9429d17143419579c2a435f4e552ecf42af0311d 100644
+--- a/python-pam/pam/__init__.py
++++ b/python-pam/pam/__init__.py
+@@ -116,8 +116,6 @@ __all__ = [
+     'PAM_XDISPLAY',
+     ]
+ 
+-__PA: PamAuthenticator | None = None
+-
+ 
+ def authenticate(
+     username: str | bytes,
+@@ -131,8 +129,14 @@ def authenticate(
+ ) -> bool:
+     """Authenticate a user against PAM.
+ 
+-    This is a convenience function that creates a PamAuthenticator instance
+-    (reusing a global instance if available) and calls its authenticate method.
++    Creates a fresh ``PamAuthenticator`` for each call so concurrent use from
++    multiple threads is safe. libpam ctypes bindings are loaded once and shared.
++
++    For result codes after auth, use ``PamAuthenticator`` directly::
++
++        pa = pam.pam()
++        ok = pa.authenticate(user, password)
++        print(pa.code, pa.reason)
+ 
+     Args:
+         username: Username to authenticate
+@@ -147,14 +151,10 @@ def authenticate(
+     Returns:
+         bool: True if authentication succeeded, False otherwise
+     """
+-    global __PA  # noqa: W0603, PLW0603
+-
+-    if __PA is None:  # pragma: no branch
+-        __PA = PamAuthenticator()
+-
+-    return __PA.authenticate(username, password, service, env, call_end, encoding, resetcreds, print_failure_messages)
++    return PamAuthenticator().authenticate(
++        username, password, service, env, call_end, encoding, resetcreds, print_failure_messages,
++    )
+ 
+ 
+ # legacy implementations used pam.pam()
+ pam = PamAuthenticator  # noqa: N816, C0103
+-authenticate.__doc__ = PamAuthenticator.authenticate.__doc__
+diff --git a/python-pam/pam/__internals.py b/python-pam/pam/__internals.py
+index 92ba1ccea78da2eb2c80d51b1286b85160374b43..1dbfad67c249e692d5683375d2cd9ddca23f6132 100644
+--- a/python-pam/pam/__internals.py
++++ b/python-pam/pam/__internals.py
+@@ -5,6 +5,7 @@ including structure definitions, constants, and the PamAuthenticator class.
+ """
+ import os
+ import sys
++import threading
+ from ctypes import (
+     CDLL,
+     CFUNCTYPE,
+@@ -142,10 +143,13 @@ def my_conv(
+ ) -> int:
+     """Simple conversation function that responds to any
+        prompt where the echo is off with the supplied password"""
+-    # Create an array of n_messages response objects
+-    calloc = libc.calloc
+-    calloc.restype = c_void_p
+-    calloc.argtypes = [c_size_t, c_size_t]
++    # Prefer class-level calloc (configured once); fall back for unit tests that
++    # pass a raw libc.
++    calloc = getattr(PamAuthenticator, 'calloc', None)
++    if calloc is None:  # pragma: no cover
++        calloc = libc.calloc
++        calloc.restype = c_void_p
++        calloc.argtypes = [c_size_t, c_size_t]
+ 
+     cpassword = c_char_p(password)
+ 
+@@ -187,86 +191,121 @@ class PamConv(Structure):
+ class PamAuthenticator:
+     """PAM authenticator class.
+ 
+-    This class provides methods to authenticate users against Linux-PAM,
+-    manage PAM sessions, and handle PAM environment variables.
++    Provides methods to authenticate users against Linux-PAM, manage PAM
++    sessions, and handle PAM environment variables.
++
++    Thread safety:
++      - ``pam.authenticate()`` creates a fresh instance per call and is safe
++        for concurrent use (libs are loaded once and shared).
++      - A single ``PamAuthenticator`` instance must not be used from multiple
++        threads at once. For high-QPS auth, prefer ``pam.authenticate()`` or
++        one instance per concurrent caller (default ``call_end=True``).
++      - With ``call_end=False``, the instance owns a live PAM handle for
++        sessions/env; treat that object as single-threaded.
+     """
+-    code: int = 0
+-    reason: str | bytes | None = None
+ 
+-    def __init__(self):
+-        # use a trick of dlopen(), this effectively becomes
+-        # dlopen("", ...) which opens our own executable. since 'python' has
+-        # a libc dependency, this means libc symbols are already available
+-        # to us
+-
+-        # libc = CDLL(find_library("c"))
+-        libc = cdll.LoadLibrary(None)  # type: ignore[arg-type]
+-        self.libc = libc
+-
+-        libpam = CDLL(find_library("pam"))
+-        libpam_misc = CDLL(find_library("pam_misc"))
++    # Shared ctypes bindings (immutable after _ensure_libs). Loaded once.
++    _lib_lock = threading.Lock()
++    _libs_ready = False
++    libc: Any = None
++    calloc: Any = None
++    pam_end: Any = None
++    pam_start: Any = None
++    pam_acct_mgmt: Any = None
++    pam_set_item: Any = None
++    pam_setcred: Any = None
++    pam_strerror: Any = None
++    pam_authenticate: Any = None
++    pam_open_session: Any = None
++    pam_close_session: Any = None
++    pam_putenv: Any = None
++    pam_misc_setenv: Any = None
++    pam_getenv: Any = None
++    pam_getenvlist: Any = None
++
++    @classmethod
++    def _ensure_libs(cls) -> None:
++        """Load libpam/libc symbols once for all instances (thread-safe)."""
++        if cls._libs_ready:
++            return
++
++        with cls._lib_lock:
++            if cls._libs_ready:
++                return
++
++            # dlopen("", ...) — python already links libc, so symbols are available
++            libc = cdll.LoadLibrary(None)  # type: ignore[arg-type]
++            libpam = CDLL(find_library("pam"))
++            libpam_misc = CDLL(find_library("pam_misc"))
++
++            cls.libc = libc
++            cls.calloc = libc.calloc
++            cls.calloc.restype = c_void_p
++            cls.calloc.argtypes = [c_size_t, c_size_t]
++
++            # bug #6 (@NIPE-SYSTEMS), some libpam versions don't include this
++            if hasattr(libpam, 'pam_end'):  # pragma: no branch
++                cls.pam_end = libpam.pam_end
++                cls.pam_end.restype = c_int
++                cls.pam_end.argtypes = [PamHandle, c_int]
++
++            cls.pam_start = libpam.pam_start
++            cls.pam_start.restype = c_int
++            cls.pam_start.argtypes = [c_char_p, c_char_p, POINTER(PamConv),
++                                     POINTER(PamHandle)]
++
++            cls.pam_acct_mgmt = libpam.pam_acct_mgmt
++            cls.pam_acct_mgmt.restype = c_int
++            cls.pam_acct_mgmt.argtypes = [PamHandle, c_int]
++
++            cls.pam_set_item = libpam.pam_set_item
++            cls.pam_set_item.restype = c_int
++            cls.pam_set_item.argtypes = [PamHandle, c_int, c_void_p]
++
++            cls.pam_setcred = libpam.pam_setcred
++
++            cls.pam_strerror = libpam.pam_strerror
++            cls.pam_strerror.restype = c_char_p
++            cls.pam_strerror.argtypes = [PamHandle, c_int]
++
++            cls.pam_authenticate = libpam.pam_authenticate
++            cls.pam_authenticate.restype = c_int
++            cls.pam_authenticate.argtypes = [PamHandle, c_int]
++
++            cls.pam_open_session = libpam.pam_open_session
++            cls.pam_open_session.restype = c_int
++            cls.pam_open_session.argtypes = [PamHandle, c_int]
++
++            cls.pam_close_session = libpam.pam_close_session
++            cls.pam_close_session.restype = c_int
++            cls.pam_close_session.argtypes = [PamHandle, c_int]
++
++            cls.pam_putenv = libpam.pam_putenv
++            cls.pam_putenv.restype = c_int
++            cls.pam_putenv.argtypes = [PamHandle, c_char_p]
++
++            if libpam_misc._name:  # pragma: no branch
++                cls.pam_misc_setenv = libpam_misc.pam_misc_setenv
++                cls.pam_misc_setenv.restype = c_int
++                cls.pam_misc_setenv.argtypes = [PamHandle, c_char_p, c_char_p,
++                                               c_int]
++
++            cls.pam_getenv = libpam.pam_getenv
++            cls.pam_getenv.restype = c_char_p
++            cls.pam_getenv.argtypes = [PamHandle, c_char_p]
++
++            cls.pam_getenvlist = libpam.pam_getenvlist
++            cls.pam_getenvlist.restype = POINTER(c_char_p)
++            cls.pam_getenvlist.argtypes = [PamHandle]
++
++            cls._libs_ready = True
+ 
++    def __init__(self):
++        self._ensure_libs()
+         self.handle: PamHandle | None = None
+         self.messages: list[str] = []
+-
+-        self.calloc = libc.calloc
+-        self.calloc.restype = c_void_p
+-        self.calloc.argtypes = [c_size_t, c_size_t]
+-
+-        # bug #6 (@NIPE-SYSTEMS), some libpam versions don't include this
+-        # function
+-        if hasattr(libpam, 'pam_end'):  # pragma: no branch
+-            self.pam_end = libpam.pam_end
+-            self.pam_end.restype = c_int
+-            self.pam_end.argtypes = [PamHandle, c_int]
+-
+-        self.pam_start = libpam.pam_start
+-        self.pam_start.restype = c_int
+-        self.pam_start.argtypes = [c_char_p, c_char_p, POINTER(PamConv),
+-                                   POINTER(PamHandle)]
+-
+-        self.pam_acct_mgmt = libpam.pam_acct_mgmt
+-        self.pam_acct_mgmt.restype = c_int
+-        self.pam_acct_mgmt.argtypes = [PamHandle, c_int]
+-
+-        self.pam_set_item = libpam.pam_set_item
+-        self.pam_set_item.restype = c_int
+-        self.pam_set_item.argtypes = [PamHandle, c_int, c_void_p]
+-
+-        self.pam_setcred = libpam.pam_setcred
+-        self.pam_strerror = libpam.pam_strerror
+-        self.pam_strerror.restype = c_char_p
+-        self.pam_strerror.argtypes = [PamHandle, c_int]
+-
+-        self.pam_authenticate = libpam.pam_authenticate
+-        self.pam_authenticate.restype = c_int
+-        self.pam_authenticate.argtypes = [PamHandle, c_int]
+-
+-        self.pam_open_session = libpam.pam_open_session
+-        self.pam_open_session.restype = c_int
+-        self.pam_open_session.argtypes = [PamHandle, c_int]
+-
+-        self.pam_close_session = libpam.pam_close_session
+-        self.pam_close_session.restype = c_int
+-        self.pam_close_session.argtypes = [PamHandle, c_int]
+-
+-        self.pam_putenv = libpam.pam_putenv
+-        self.pam_putenv.restype = c_int
+-        self.pam_putenv.argtypes = [PamHandle, c_char_p]
+-
+-        if libpam_misc._name:  # pragma: no branch
+-            self.pam_misc_setenv = libpam_misc.pam_misc_setenv
+-            self.pam_misc_setenv.restype = c_int
+-            self.pam_misc_setenv.argtypes = [PamHandle, c_char_p, c_char_p,
+-                                             c_int]
+-
+-        self.pam_getenv = libpam.pam_getenv
+-        self.pam_getenv.restype = c_char_p
+-        self.pam_getenv.argtypes = [PamHandle, c_char_p]
+-
+-        self.pam_getenvlist = libpam.pam_getenvlist
+-        self.pam_getenvlist.restype = POINTER(c_char_p)
+-        self.pam_getenvlist.argtypes = [PamHandle]
++        self.code: int = 0
++        self.reason: str | bytes | None = None
+ 
+     def authenticate(
+         self,
+@@ -301,7 +340,12 @@ class PamAuthenticator:
+         Returns:
+           success:  PAM_SUCCESS
+           failure:  False
++
++        Note:
++          Do not call authenticate() on the same instance from multiple threads
++          concurrently. Use ``pam.authenticate()`` for concurrent high-QPS auth.
+         """
++        self.messages = []
+ 
+         @conv_func
+         def __conv(n_messages, messages, p_response, app_data):
+@@ -431,7 +475,7 @@ class PamAuthenticator:
+         else:
+             self.reason = f"PAM error {auth_success} (handle invalid)"
+ 
+-        if call_end and hasattr(self, 'pam_end'):  # pragma: no branch
++        if call_end and hasattr(self, 'pam_end') and self.pam_end is not None:  # pragma: no branch
+             self.pam_end(self.handle, auth_success)
+             self.handle = None
+ 
+@@ -446,7 +490,7 @@ class PamAuthenticator:
+         Returns:
+           Linux-PAM return value as int
+         """
+-        if not self.handle or not hasattr(self, 'pam_end'):
++        if not self.handle or self.pam_end is None:
+             return PAM_SYSTEM_ERR
+ 
+         retval = self.pam_end(self.handle, self.code)
+@@ -498,7 +542,7 @@ class PamAuthenticator:
+         Returns:
+           Linux-PAM return value as int
+         """
+-        if not self.handle or not hasattr(self, "pam_misc_setenv"):
++        if not self.handle or self.pam_misc_setenv is None:
+             return PAM_SYSTEM_ERR
+ 
+         retval = self.pam_misc_setenv(self.handle,
+diff --git a/scratch/issue40_threaded.py b/scratch/issue40_threaded.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..9fa13632a8a1693f96558c9a1b7e5ecfb8f03d2a
+--- /dev/null
++++ b/scratch/issue40_threaded.py
+@@ -0,0 +1,130 @@
++#!/usr/bin/env python3
++"""Scratch harness for https://github.com/FirefighterBlu3/python-pam/issues/40
++
++Historically, pam.authenticate() reused a process-global PamAuthenticator and
++raced on handle (ArgumentError / segfault under load).
++
++After the fix, --mode shared (module pam.authenticate) should complete cleanly.
++--mode fresh (new PamAuthenticator per call) remains the control.
++
++Usage (needs a real local account + PAM):
++  python3 scratch/issue40_threaded.py \\
++      --username testuser --password 'TestPass123!' \\
++      --service python-pam-test --threads 32 --rounds 50 --mode both
++"""
++
++from __future__ import annotations
++
++import argparse
++import os
++import sys
++import threading
++import time
++import traceback
++from collections import Counter
++from concurrent.futures import ThreadPoolExecutor, as_completed
++
++# Prefer in-tree package when run from the repo root.
++_REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
++_PKG = os.path.join(_REPO, "python-pam")
++if _PKG not in sys.path:
++    sys.path.insert(0, _PKG)
++
++import pam  # noqa: E402
++from pam import PamAuthenticator  # noqa: E402
++
++
++def _worker_shared(username: str, password: str, service: str, rounds: int, stats: Counter, lock: threading.Lock) -> None:
++    for _ in range(rounds):
++        try:
++            pam.authenticate(username, password, service=service)
++            with lock:
++                stats["ok"] += 1
++        except Exception as exc:  # noqa: BLE001 — intentional: catch race exceptions
++            key = f"{type(exc).__name__}: {exc}"
++            with lock:
++                stats["errors"] += 1
++                stats[key] += 1
++                if stats.get("_tb_saved") is None and "PamHandle" in str(exc):
++                    stats["_tb_saved"] = 1
++                    stats["_tb"] = traceback.format_exc()
++
++
++def _worker_fresh(username: str, password: str, service: str, rounds: int, stats: Counter, lock: threading.Lock) -> None:
++    for _ in range(rounds):
++        try:
++            PamAuthenticator().authenticate(username, password, service=service)
++            with lock:
++                stats["ok"] += 1
++        except Exception as exc:  # noqa: BLE001
++            key = f"{type(exc).__name__}: {exc}"
++            with lock:
++                stats["errors"] += 1
++                stats[key] += 1
++
++
++def run(mode: str, username: str, password: str, service: str, threads: int, rounds: int) -> Counter:
++    stats: Counter = Counter()
++    lock = threading.Lock()
++    worker = _worker_shared if mode == "shared" else _worker_fresh
++    t0 = time.perf_counter()
++    with ThreadPoolExecutor(max_workers=threads) as pool:
++        futures = [
++            pool.submit(worker, username, password, service, rounds, stats, lock)
++            for _ in range(threads)
++        ]
++        for fut in as_completed(futures):
++            fut.result()
++    stats["_elapsed"] = time.perf_counter() - t0
++    return stats
++
++
++def main() -> int:
++    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
++    p.add_argument("--username", required=True)
++    p.add_argument("--password", required=True)
++    p.add_argument("--service", default="login", help="PAM service name (default: login)")
++    p.add_argument("--threads", type=int, default=32)
++    p.add_argument("--rounds", type=int, default=40, help="Auth attempts per thread")
++    p.add_argument(
++        "--mode",
++        choices=("shared", "fresh", "both"),
++        default="both",
++        help="shared = pam.authenticate() API; fresh = new PamAuthenticator each call",
++    )
++    args = p.parse_args()
++
++    modes = ["shared", "fresh"] if args.mode == "both" else [args.mode]
++    exit_code = 0
++
++    for mode in modes:
++        total = args.threads * args.rounds
++        print(f"\n=== mode={mode} threads={args.threads} rounds={args.rounds} total={total} ===")
++        print(f"    user={args.username!r} service={args.service!r}")
++        stats = run(mode, args.username, args.password, args.service, args.threads, args.rounds)
++        elapsed = float(stats.pop("_elapsed", 0.0))
++        tb = stats.pop("_tb", None)
++        stats.pop("_tb_saved", None)
++        ok = stats.pop("ok", 0)
++        errors = stats.pop("errors", 0)
++        print(f"    ok={ok} errors={errors} elapsed={elapsed:.2f}s")
++        if stats:
++            print("    exception breakdown:")
++            for msg, count in stats.most_common():
++                print(f"      {count:5d}  {msg}")
++        if tb:
++            print("    sample traceback (PamHandle-related):")
++            print("\n".join("      " + line for line in str(tb).splitlines()))
++        if mode == "shared" and errors:
++            exit_code = 1
++            if any("PamHandle" in k or "ArgumentError" in k for k in stats):
++                print("    >>> reproduced issue #40 style failure")
++                exit_code = 2
++        elif mode == "fresh" and errors:
++            print("    (fresh mode also saw exceptions — may be PAM/config, not only sharing)")
++
++    return exit_code
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/stress_test_threaded.py b/stress_test_threaded.py
+index bb3f1157f817ce8adae37fcfe82272ac67dbba85..bbc0e21aeb3062da08ddb8a514b3ae6f2d5f5b7d 100755
+--- a/stress_test_threaded.py
++++ b/stress_test_threaded.py
+@@ -87,7 +87,7 @@ def authenticate_worker(
+                 code = pam_obj.code
+                 reason = pam_obj.reason
+             else:
+-                # Use the global authenticate function (shared instance)
++                # Use the module authenticate function (fresh instance per call)
+                 auth_result = authenticate(username, password)
+                 # Note: With shared instance, we can't easily get code/reason
+                 code = PAM_SUCCESS if auth_result else -1
+@@ -259,7 +259,7 @@ Examples:
+   # Custom thread/attempt configuration
+   python stress_test_threaded.py --threads 20 --attempts 5
+ 
+-  # Test with shared instance (global authenticate function)
++  # Test via pam.authenticate() (one PamAuthenticator per call)
+   python stress_test_threaded.py --shared
+         """
+     )
+@@ -295,7 +295,7 @@ Examples:
+     parser.add_argument(
+         '--shared',
+         action='store_true',
+-        help='Use shared instance (global authenticate function) instead of separate instances'
++        help='Use pam.authenticate() instead of an explicit PamAuthenticator per attempt'
+     )
+     
+     parser.add_argument(

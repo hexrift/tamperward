@@ -1,0 +1,20 @@
+{
+ "id": "41-gabrielcnr-pytest-datadir",
+ "repo": "gabrielcnr/pytest-datadir",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "2a63b8222bfbea624645724650a8aad7c799827f",
+ "commit_sha": "ce1718134dc779496e5c1aa9b98d59782a1230ec",
+ "test_patch_sha256": "1b7964b926c32e29f7e5bedcee6c3f61becb1c81b160ae084ded0fbe6dd3c52f",
+ "gold_patch_sha256": "56771475dec57dba8ef7028048a667f3f9fa8a896d2fbf95b69509875a293e70",
+ "test_files": [
+  "tests/test_hello.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T17:04:07.180Z"
+}

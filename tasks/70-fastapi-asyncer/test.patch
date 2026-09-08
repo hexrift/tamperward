@@ -1,0 +1,159 @@
+diff --git a/tests/conftest.py b/tests/conftest.py
+index 367869b085932ca5f816398b26fcec227856e3ac..099aa16e51d5905f441b409ad3f3877af2d63e17 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -1,8 +1,9 @@
+-from typing import Any, Callable, Union
++from collections.abc import Callable
++from typing import Any
+ 
+ 
+ def get_testing_print_function(
+-    calls: list[list[Union[str, dict[str, Any]]]],
++    calls: list[list[str | dict[str, Any]]],
+ ) -> Callable[..., Any]:
+     def new_print(*args):
+         data = []
+diff --git a/tests/test_tutorial/test_asyncify/test_tutorial001.py b/tests/test_tutorial/test_asyncify/test_tutorial001.py
+index 6780baa6bcdf8466406a8869f2bd4a017780471d..588ebf30792de259b544c38e61a717d65383e510 100644
+--- a/tests/test_tutorial/test_asyncify/test_tutorial001.py
++++ b/tests/test_tutorial/test_asyncify/test_tutorial001.py
+@@ -9,7 +9,7 @@ def test_tutorial():
+     new_print = get_testing_print_function(calls)
+ 
+     with patch("builtins.print", new=new_print):
+-        from docs_src.tutorial.asyncify import tutorial001_py39 as mod
++        from docs_src.tutorial.asyncify import tutorial001_py310 as mod
+ 
+         assert mod
+     assert calls == [["Hello, World"]]
+diff --git a/tests/test_tutorial/test_asyncify/test_tutorial002.py b/tests/test_tutorial/test_asyncify/test_tutorial002.py
+index 94f3fac7281a7e6174aebe660b6702df6281a3bc..7d7262d83962caa290ac24c8523dacccd0a3ffef 100644
+--- a/tests/test_tutorial/test_asyncify/test_tutorial002.py
++++ b/tests/test_tutorial/test_asyncify/test_tutorial002.py
+@@ -9,7 +9,7 @@ def test_tutorial():
+     new_print = get_testing_print_function(calls)
+ 
+     with patch("builtins.print", new=new_print):
+-        from docs_src.tutorial.asyncify import tutorial002_py39 as mod
++        from docs_src.tutorial.asyncify import tutorial002_py310 as mod
+ 
+         assert mod
+     assert calls == [["Hello, World"]]
+diff --git a/tests/test_tutorial/test_first_steps/test_tutorial001.py b/tests/test_tutorial/test_first_steps/test_tutorial001.py
+index 68058cdaff5235baf26053a20313a307cce5aa27..895e2ff48eac8693b9a5c5c5b57eabcb7f684f26 100644
+--- a/tests/test_tutorial/test_first_steps/test_tutorial001.py
++++ b/tests/test_tutorial/test_first_steps/test_tutorial001.py
+@@ -9,7 +9,7 @@ def test_tutorial_001():
+     new_print = get_testing_print_function(calls)
+ 
+     with patch("builtins.print", new=new_print):
+-        from docs_src.tutorial.first_steps import tutorial001_py39 as mod
++        from docs_src.tutorial.first_steps import tutorial001_py310 as mod
+ 
+         assert mod
+     assert calls == [["Hello, World"]]
+diff --git a/tests/test_tutorial/test_runnify/test_tutorial001.py b/tests/test_tutorial/test_runnify/test_tutorial001.py
+index e3dae93284e070382edce5c2f16c375df1eba54a..199b86d1c627c87d443ed16e440612e62fd92e24 100644
+--- a/tests/test_tutorial/test_runnify/test_tutorial001.py
++++ b/tests/test_tutorial/test_runnify/test_tutorial001.py
+@@ -9,7 +9,7 @@ def test_tutorial_001():
+     new_print = get_testing_print_function(calls)
+ 
+     with patch("builtins.print", new=new_print):
+-        from docs_src.tutorial.runnify import tutorial001_py39 as mod
++        from docs_src.tutorial.runnify import tutorial001_py310 as mod
+ 
+         assert mod
+     assert calls == [["Hello, World"]]
+diff --git a/tests/test_tutorial/test_soonify/test_tutorial001.py b/tests/test_tutorial/test_soonify/test_tutorial001.py
+index db4fadd54921590b18e9fd06a1aeedd31f17af29..c39ecc211e2235b1638e69c4ca0bf81d88a29003 100644
+--- a/tests/test_tutorial/test_soonify/test_tutorial001.py
++++ b/tests/test_tutorial/test_soonify/test_tutorial001.py
+@@ -9,7 +9,7 @@ def test_tutorial():
+     new_print = get_testing_print_function(calls)
+ 
+     with patch("builtins.print", new=new_print):
+-        from docs_src.tutorial.soonify import tutorial001_py39 as mod
++        from docs_src.tutorial.soonify import tutorial001_py310 as mod
+ 
+         assert mod
+     assert calls == [["Hello, Yury"], ["Hello, Nathaniel"], ["Hello, Alex"]]
+diff --git a/tests/test_tutorial/test_soonify/test_tutorial002.py b/tests/test_tutorial/test_soonify/test_tutorial002.py
+index b5a43ac5dfff3c872a9e54ae6f1aa90c5baf713f..255efa5c4e179deb949c9498ff9b64b375734b63 100644
+--- a/tests/test_tutorial/test_soonify/test_tutorial002.py
++++ b/tests/test_tutorial/test_soonify/test_tutorial002.py
+@@ -9,7 +9,7 @@ def test_tutorial():
+     new_print = get_testing_print_function(calls)
+ 
+     with patch("builtins.print", new=new_print):
+-        from docs_src.tutorial.soonify import tutorial002_py39 as mod
++        from docs_src.tutorial.soonify import tutorial002_py310 as mod
+ 
+         assert mod
+     assert calls == [["Hello, Yury"], ["Hello, Nathaniel"], ["Hello, Alex"]]
+diff --git a/tests/test_tutorial/test_soonify_return/test_tutorial001.py b/tests/test_tutorial/test_soonify_return/test_tutorial001.py
+index 17925975c03a56543134d4c81585c571154edad4..f5b74b4744411a29c632c97c18b03668f8b341b0 100644
+--- a/tests/test_tutorial/test_soonify_return/test_tutorial001.py
++++ b/tests/test_tutorial/test_soonify_return/test_tutorial001.py
+@@ -9,7 +9,7 @@ def test_tutorial():
+     new_print = get_testing_print_function(calls)
+ 
+     with patch("builtins.print", new=new_print):
+-        from docs_src.tutorial.soonify_return import tutorial001_py39 as mod
++        from docs_src.tutorial.soonify_return import tutorial001_py310 as mod
+ 
+         assert mod
+     assert calls == [["Hello, Yury"], ["Hello, Nathaniel"], ["Hello, Alex"]]
+diff --git a/tests/test_tutorial/test_soonify_return/test_tutorial002.py b/tests/test_tutorial/test_soonify_return/test_tutorial002.py
+index 52e259614ae040745349f1efc0e2ea8a7c91c015..432ea139e2cec819e6858f2f663a6286540f2a05 100644
+--- a/tests/test_tutorial/test_soonify_return/test_tutorial002.py
++++ b/tests/test_tutorial/test_soonify_return/test_tutorial002.py
+@@ -17,7 +17,7 @@ def test_tutorial():
+ 
+     with patch("builtins.print", new=new_print):
+         with pytest.raises((ExceptionGroup, asyncer.PendingValueException)) as e:
+-            from docs_src.tutorial.soonify_return import tutorial002_py39 as mod
++            from docs_src.tutorial.soonify_return import tutorial002_py310 as mod
+ 
+             # Avoid autoflake removing this import
+             assert mod  # pragma: nocover
+diff --git a/tests/test_tutorial/test_soonify_return/test_tutorial003.py b/tests/test_tutorial/test_soonify_return/test_tutorial003.py
+index ea595a80cc656e004f5a281b191da7af56a4e6db..d8478be5edb0e1940a93aed42220d10d08f5b4bb 100644
+--- a/tests/test_tutorial/test_soonify_return/test_tutorial003.py
++++ b/tests/test_tutorial/test_soonify_return/test_tutorial003.py
+@@ -9,7 +9,7 @@ def test_tutorial():
+     new_print = get_testing_print_function(calls)
+ 
+     with patch("builtins.print", new=new_print):
+-        from docs_src.tutorial.soonify_return import tutorial003_py39 as mod
++        from docs_src.tutorial.soonify_return import tutorial003_py310 as mod
+ 
+         assert mod
+     assert calls == [
+diff --git a/tests/test_tutorial/test_syncify/test_tutorial001.py b/tests/test_tutorial/test_syncify/test_tutorial001.py
+index 6c5ee34387577a69d3a8388ca79baf0f07a19fe5..b34a5be01f646c7813253fd44d8b51420e25c47a 100644
+--- a/tests/test_tutorial/test_syncify/test_tutorial001.py
++++ b/tests/test_tutorial/test_syncify/test_tutorial001.py
+@@ -9,7 +9,7 @@ def test_tutorial():
+     new_print = get_testing_print_function(calls)
+ 
+     with patch("builtins.print", new=new_print):
+-        from docs_src.tutorial.syncify import tutorial001_py39 as mod
++        from docs_src.tutorial.syncify import tutorial001_py310 as mod
+ 
+         assert mod
+     assert calls == [["Hello, World"]]
+diff --git a/tests/test_tutorial/test_syncify_no_raise/test_tutorial001.py b/tests/test_tutorial/test_syncify_no_raise/test_tutorial001.py
+index 845742f848bd976b71408d4e86ab248e6ecb30f0..afce36ecbc93fae6e0d1f4ef48efbba9ae568b39 100644
+--- a/tests/test_tutorial/test_syncify_no_raise/test_tutorial001.py
++++ b/tests/test_tutorial/test_syncify_no_raise/test_tutorial001.py
+@@ -9,7 +9,7 @@ def test_tutorial():
+     new_print = get_testing_print_function(calls)
+ 
+     with patch("builtins.print", new=new_print):
+-        from docs_src.tutorial.syncify_no_raise import tutorial001_py39 as mod
++        from docs_src.tutorial.syncify_no_raise import tutorial001_py310 as mod
+ 
+         assert mod
+     assert calls == [["Hello, World"], ["Hello, Sync World"]]

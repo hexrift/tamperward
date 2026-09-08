@@ -1,0 +1,88 @@
+diff --git a/tests/test_library.py b/tests/test_library.py
+index 9b515d03f2a37055dd07b709d5890a4e29ec6b6f..e0668d04db02a6ec4db62dbf997ba05cb8e4f9e0 100644
+--- a/tests/test_library.py
++++ b/tests/test_library.py
+@@ -3,6 +3,7 @@ import pytest
+ from bibtexparser import Library
+ from bibtexparser.model import Entry
+ from bibtexparser.model import Field
++from bibtexparser.model import ImplicitComment
+ 
+ 
+ def get_dummy_entry():
+@@ -94,3 +95,33 @@ def test_constructor_fails_on_duplicate_by_default():
+     library = Library(blocks=[get_dummy_entry(), get_dummy_entry()], fail_on_duplicate_key=False)
+     assert len(library.blocks) == 2
+     assert len(library.failed_blocks) == 1
++
++
++def test_remove_prefers_identical_instance_over_equal_block():
++    """With two equal blocks, remove() must remove the passed instance. See issue 537."""
++    first_comment = ImplicitComment("#same")
++    second_comment = ImplicitComment("#same")
++    assert first_comment == second_comment
++
++    library = Library()
++    library.add([first_comment, second_comment])
++
++    library.remove(second_comment)
++    assert len(library.blocks) == 1
++    assert library.blocks[0] is first_comment
++
++
++def test_replace_prefers_identical_instance_over_equal_block():
++    """With two equal blocks, replace() must replace the passed instance. See issue 537."""
++    first_comment = ImplicitComment("#same")
++    second_comment = ImplicitComment("#same")
++    assert first_comment == second_comment
++
++    library = Library()
++    library.add([first_comment, second_comment])
++
++    new_comment = ImplicitComment("#new")
++    library.replace(second_comment, new_comment)
++    assert len(library.blocks) == 2
++    assert library.blocks[0] is first_comment
++    assert library.blocks[1] is new_comment
+diff --git a/tests/test_model.py b/tests/test_model.py
+index c00929e24d63df4d699f961bddf67317d93840da..0382a1c2ef9adfecc1c3ad56d3e18fa21b59fda2 100644
+--- a/tests/test_model.py
++++ b/tests/test_model.py
+@@ -392,6 +392,37 @@ def test_string_enclosing_validation():
+         String("myKey", "myValue", 1, "raw", enclosing="invalid")
+ 
+ 
++def test_entry_hash():
++    # Equal entries have equal hashes
++    entry_1 = Entry("article", "key", [Field("field", "value", 1)], 1, "raw")
++    entry_2 = Entry("article", "key", [Field("field", "value", 1)], 1, "raw")
++    assert hash(entry_1) == hash(entry_2)
++    # Entries are usable in sets and dicts
++    assert len({entry_1, deepcopy(entry_1)}) == 1
++    assert {entry_1: "value"}[entry_2] == "value"
++
++
++def test_string_hash():
++    # Equal strings have equal hashes
++    string_1 = String("key", "value", 1, "raw")
++    string_2 = String("key", "value", 1, "raw")
++    assert hash(string_1) == hash(string_2)
++    # Strings are usable in sets and dicts
++    assert len({string_1, deepcopy(string_1)}) == 1
++    assert {string_1: "value"}[string_2] == "value"
++
++
++def test_field_hash():
++    # Equal fields have equal hashes
++    field_1 = Field("field", "value", 1)
++    field_2 = Field("field", "value", 1)
++    assert hash(field_1) == hash(field_2)
++    # Fields are usable in sets and dicts, even with unhashable values
++    field_1.value = ["some", "unhashable", "value"]
++    assert len({field_1, deepcopy(field_1)}) == 1
++    assert {field_1: "value"}[deepcopy(field_1)] == "value"
++
++
+ def test_entry_fields_shorthand():
+     entry = Entry(
+         entry_type="article",

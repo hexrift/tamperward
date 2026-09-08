@@ -1,0 +1,19 @@
+diff --git a/tests/test_encoder.py b/tests/test_encoder.py
+index bdb8cb1fdac0950cc8c96c83fccfcaed9cd037de..60830419139fe5027c45ac35df63c61cf3ad0fb6 100644
+--- a/tests/test_encoder.py
++++ b/tests/test_encoder.py
+@@ -37,6 +37,14 @@ class TestPrimitives:
+         assert encode("true") == '"true"'
+         assert encode("false") == '"false"'
+ 
++    def test_string_with_hyphens(self) -> None:
++        # Strings starting with hyphen must be quoted (list marker conflict)
++        assert encode("-hello") == '"-hello"'
++        assert encode("-") == '"-"'
++        # Strings containing or ending with hyphen don't need quotes
++        assert encode("hello-world") == "hello-world"
++        assert encode("hello-") == "hello-"
++
+ 
+ class TestObjects:
+     """Test encoding of objects."""

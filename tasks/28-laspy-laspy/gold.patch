@@ -1,0 +1,108 @@
+diff --git a/laspy/lasdata.py b/laspy/lasdata.py
+index 7105d709cb7d60664e4642379199396af1154fe2..f514cdaaf2f53a76187c65c32e1d4841e9ae2b98 100644
+--- a/laspy/lasdata.py
++++ b/laspy/lasdata.py
+@@ -354,12 +354,11 @@ class LasData:
+         *,
+         eager_state: record.EagerWaveformState,
+     ) -> None:
+-        waveform_reader = eager_state.reader
+         waveforms = eager_state.waveforms
+         points_waveform_index = eager_state.points_waveform_index
+ 
+         point_count = len(self.points)
+-        wave_size_bytes = waveform_reader.wave_size_bytes
++        wave_size_bytes = waveforms.wave_size
+         offsets = np.zeros(point_count, dtype=np.uint64)
+         offsets[has_waveform_mask] = (
+             np.asarray(points_waveform_index[has_waveform_mask], dtype=np.uint64)
+diff --git a/laspy/lasreader.py b/laspy/lasreader.py
+index 16deb22247b9304950db5b814cb8606d72102f10..a4543dcbde9e0bc5c86389f62e2ba9ca70b1e156 100644
+--- a/laspy/lasreader.py
++++ b/laspy/lasreader.py
+@@ -253,7 +253,6 @@ class LasReader:
+ 
+         points._set_waveform_state(
+             record.EagerWaveformState(
+-                self._waveform_source,
+                 waveforms_record,
+                 points_waveform_index,
+             )
+diff --git a/laspy/point/record.py b/laspy/point/record.py
+index e615a515a16b2ff0c597d81af08bcf4debaac3b5..a02eb0ee35ff1766697ebc9c00ee15d769768093 100644
+--- a/laspy/point/record.py
++++ b/laspy/point/record.py
+@@ -48,7 +48,6 @@ class LazyWaveformState:
+ 
+ @dataclass(frozen=True, slots=True)
+ class EagerWaveformState:
+-    reader: IWaveformReader
+     waveforms: WaveformRecord
+     points_waveform_index: np.ndarray[Any, np.dtype[np.int64]]
+ 
+@@ -98,12 +97,10 @@ class PackedPointRecord:
+     ) -> WaveformState | None:
+         match waveform_state:
+             case EagerWaveformState(
+-                reader=reader,
+                 waveforms=waveforms,
+                 points_waveform_index=points_waveform_index,
+             ):
+                 return EagerWaveformState(
+-                    reader,
+                     waveforms,
+                     np.asarray(points_waveform_index, dtype=np.int64),
+                 )
+@@ -130,7 +127,6 @@ class PackedPointRecord:
+                 )
+                 self._set_waveform_state(
+                     EagerWaveformState(
+-                        reader,
+                         waveforms,
+                         points_waveform_index,
+                     )
+@@ -215,12 +211,10 @@ class PackedPointRecord:
+     def _copy_waveform_state(self) -> WaveformState | None:
+         match self._waveform_state:
+             case EagerWaveformState(
+-                reader=reader,
+                 waveforms=waveforms,
+                 points_waveform_index=points_waveform_index,
+             ):
+                 return EagerWaveformState(
+-                    reader,
+                     WaveformRecord(
+                         waveforms.samples.copy(), waveforms.sample_spacing_ps
+                     ),
+@@ -245,7 +239,6 @@ class PackedPointRecord:
+         current_size = len(self.array)
+         match self._waveform_state:
+             case EagerWaveformState(
+-                reader=reader,
+                 waveforms=waveforms,
+                 points_waveform_index=points_waveform_index,
+             ):
+@@ -267,7 +260,6 @@ class PackedPointRecord:
+                     resized_index[current_size:] = len(waveforms)
+ 
+                     return EagerWaveformState(
+-                        reader,
+                         WaveformRecord(resized_samples, waveforms.sample_spacing_ps),
+                         resized_index,
+                     )
+@@ -310,7 +302,6 @@ class PackedPointRecord:
+     ):
+         match self._waveform_state:
+             case EagerWaveformState(
+-                reader=reader,
+                 waveforms=waveforms,
+                 points_waveform_index=points_waveform_index,
+             ):
+@@ -323,7 +314,6 @@ class PackedPointRecord:
+                     waveforms.sample_spacing_ps,
+                 )
+                 waveform_state = EagerWaveformState(
+-                    reader,
+                     waveforms_subset,
+                     inverse_indices,
+                 )

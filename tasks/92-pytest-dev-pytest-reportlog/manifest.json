@@ -1,0 +1,20 @@
+{
+ "id": "92-pytest-dev-pytest-reportlog",
+ "repo": "pytest-dev/pytest-reportlog",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "986dbfbb0d58be03291d27a5bcbae5a8b065e068",
+ "commit_sha": "668cdf7d87d802a4351e5cd59016581605da15e4",
+ "test_patch_sha256": "499ac8de74d4601933eff43e5baef45d187c349c140e7f00822df21d99e5c3a4",
+ "gold_patch_sha256": "2d828fa1945550799519e2dacb47fbdcb3ab06e61b411d931a06ef1ca84237a2",
+ "test_files": [
+  "tests/test_reportlog.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T16:05:09.351Z"
+}

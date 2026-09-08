@@ -1,0 +1,30 @@
+diff --git a/py7zr/io.py b/py7zr/io.py
+index 795122f48cfe3e82fcea734fdc858337e501d60b..ac15e3a46373003b85ae66fd27998382aa84bd3d 100644
+--- a/py7zr/io.py
++++ b/py7zr/io.py
+@@ -199,7 +199,12 @@ class MemIO:
+     def close(self) -> None:
+         self._closed = True
+         if self._buf is not None:
+-            self._buf.seek(0)
++            # The rewind exists so that seekable factory products (e.g.
++            # BytesIOFactory) can be read back after extraction.  A non-seekable
++            # destination (such as zipfile.ZipFile.open, see issue #703) cannot
++            # be rewound and must not be asked to.
++            if getattr(self._buf, "seekable", lambda: True)():
++                self._buf.seek(0)
+             self._buf.close()
+ 
+     def seek(self, offset: int, whence: int = 0) -> int:
+diff --git a/py7zr/py7zr.py b/py7zr/py7zr.py
+index 33d0ea60694755781e97f6427fccfccfdd614147..27e0599c84105cc282572729a86d8f01cd39f24c 100644
+--- a/py7zr/py7zr.py
++++ b/py7zr/py7zr.py
+@@ -1450,7 +1450,6 @@ class Worker:
+                     else:
+                         with fileish.open(mode="wb") as obfp:
+                             crc32 = self.decompress(fp, f.folder, obfp, f.uncompressed, f.compressed, src_end, q)
+-                            obfp.seek(0)
+                             if f.crc32 is not None and crc32 != f.crc32:
+                                 raise CrcError(crc32, f.crc32, f.filename)
+                 else:

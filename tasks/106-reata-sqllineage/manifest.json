@@ -1,0 +1,21 @@
+{
+ "id": "106-reata-sqllineage",
+ "repo": "reata/sqllineage",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "939abe728f54eefad3610548ec4e8a26f3d233b8",
+ "commit_sha": "50825b793f66a47a9a19ca4736cab800b7902834",
+ "test_patch_sha256": "0759445ffd516bb220f4472da3554c48be8860b9281300e602f91bb6d9c50acd",
+ "gold_patch_sha256": "89dc90b962efbd02ebdbb9b6f5a587b329d15cb97d697e93519d10ac15a684c2",
+ "test_files": [
+  "tests/sql/column/test_column_merge.py",
+  "tests/sql/column/test_column_update.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T20:42:25.289Z"
+}

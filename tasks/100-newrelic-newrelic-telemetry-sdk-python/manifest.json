@@ -1,0 +1,21 @@
+{
+ "id": "100-newrelic-newrelic-telemetry-sdk-python",
+ "repo": "newrelic/newrelic-telemetry-sdk-python",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "65a786ff56c934598fd6f770ff748d7e1afad1be",
+ "commit_sha": "7aa45e24f7769fa91410364ef5c22f85ca3f9433",
+ "test_patch_sha256": "a91e9b04e162abc13e5ba0244679a7cd305e359bb592c47c46d0c82f671e74df",
+ "gold_patch_sha256": "e006d00bc0ade193677d7abbe4919a6a7e2aa8b69e8554b635372403f660fb4f",
+ "test_files": [
+  "tests/test_client.py",
+  "tests/test_client_proxy.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T18:55:25.116Z"
+}

@@ -1,0 +1,20 @@
+{
+ "id": "27-pypa-dependency-groups",
+ "repo": "pypa/dependency-groups",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "311b4866c11917e3023e0b63c5f3291484808811",
+ "commit_sha": "4026025d42850026a8b7a7c96374f3c36fa05a4b",
+ "test_patch_sha256": "b019054a2566bed321d3bda0b1d771c6d0ecec2522f77e8c26d0269ec307d3df",
+ "gold_patch_sha256": "85efa9daddd0a304a47809012c8d443af5e23a657cee6334e9d63c538ceec778",
+ "test_files": [
+  "tests/test_resolve_func.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T13:07:05.401Z"
+}

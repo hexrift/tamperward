@@ -1,0 +1,80 @@
+diff --git a/einx/_src/adapter/einx_from_namedtensor.py b/einx/_src/adapter/einx_from_namedtensor.py
+index 05d5b1e54b9fb32831012ae5635cbf7ad33ebc23..e76f888e6b79ec33b69193ac186c9100f02b1d1f 100644
+--- a/einx/_src/adapter/einx_from_namedtensor.py
++++ b/einx/_src/adapter/einx_from_namedtensor.py
+@@ -281,16 +281,17 @@ def _parse_op(description, el_op, invocation, allow_concat=False, implicit_outpu
+ 
+         exprs_in = [stage1.map(expr_in, lambda expr: stage1.Brackets(expr) if _mark(expr) else None, include_children=False) for expr_in in exprs_in]
+ 
+-    # Check that no two vectorized axes in any output have the same name
++    # Check that no two vectorized axes in any (unconcatenated) output have the same name
+     for expr_out in exprs_out:
+-        axis_names = [expr.name for expr in expr_out.nodes() if isinstance(expr, stage1.Axis) and not stage1.is_in_brackets(expr)]
+-        if len(axis_names) != len(set(axis_names)):
+-            duplicates = {name for name in axis_names if axis_names.count(name) > 1}
+-            raise SemanticError(
+-                invocation=invocation,
+-                pos=invocation.indicator.get_pos_for_axisnames([expr_out], duplicates),
+-                message="The output expression must not contain multiple vectorized axes with the same name.\n%EXPR%",
+-            )
++        for expr_out in stage1.split_concatenated_axes(expr_out):
++            axis_names = [expr.name for expr in expr_out.nodes() if isinstance(expr, stage1.Axis) and not stage1.is_in_brackets(expr)]
++            if len(axis_names) != len(set(axis_names)):
++                duplicates = {name for name in axis_names if axis_names.count(name) > 1}
++                raise SemanticError(
++                    invocation=invocation,
++                    pos=invocation.indicator.get_pos_for_axisnames([expr_out], duplicates),
++                    message="The output expression must not contain multiple vectorized axes with the same name (after splitting concatenated axes).\n%EXPR%",
++                )
+ 
+     if not allow_duplicate_el_axes:
+         # Check that no two marked axes in any tensor have the same name
+diff --git a/einx/_src/namedtensor/stage1/__init__.py b/einx/_src/namedtensor/stage1/__init__.py
+index 44cfa8101f9bebdef55cfd48e259fa04193e568e..225d28584ce918782781129897138c95f6565e3c 100644
+--- a/einx/_src/namedtensor/stage1/__init__.py
++++ b/einx/_src/namedtensor/stage1/__init__.py
+@@ -15,3 +15,4 @@ from .parse import parse_arg
+ from .transform import map
+ from .transform import remove
+ from .transform import is_in_brackets
++from .transform import split_concatenated_axes
+diff --git a/einx/_src/namedtensor/stage1/transform.py b/einx/_src/namedtensor/stage1/transform.py
+index d27642245db978150897f7aa27d7129b0df7c2e1..4e5fae93830f29deccbc703a5df662734c955ed2 100644
+--- a/einx/_src/namedtensor/stage1/transform.py
++++ b/einx/_src/namedtensor/stage1/transform.py
+@@ -78,3 +78,35 @@ def any_parent_is(expr, pred, include_self=True):
+ 
+ def is_in_brackets(expr):
+     return any_parent_is(expr, lambda expr: isinstance(expr, Brackets))
++
++
++def _product(*iterables):
++    if not iterables:
++        yield ()
++    else:
++        first, *rest = iterables
++        for item in first:
++            for prod in _product(*rest):
++                yield (item,) + prod
++
++
++def split_concatenated_axes(expr):
++    if isinstance(expr, ConcatenatedAxis):
++        for child in expr.children:
++            yield from split_concatenated_axes(child)
++    elif isinstance(expr, Axis):
++        yield expr
++    elif isinstance(expr, Ellipsis):
++        for inner in split_concatenated_axes(expr.inner):
++            yield Ellipsis.create(inner, expr.begin_pos, expr.end_pos, expr.ellipsis_id)
++    elif isinstance(expr, FlattenedAxis):
++        for inner in split_concatenated_axes(expr.inner):
++            yield FlattenedAxis.create(inner, expr.begin_pos, expr.end_pos)
++    elif isinstance(expr, Brackets):
++        for inner in split_concatenated_axes(expr.inner):
++            yield Brackets.create(inner, expr.begin_pos, expr.end_pos)
++    elif isinstance(expr, List):
++        for children in _product(*[list(split_concatenated_axes(child)) for child in expr.children]):
++            yield List.create(children, expr.begin_pos, expr.end_pos)
++    else:
++        raise TypeError(f"Invalid expression type {type(expr)}")

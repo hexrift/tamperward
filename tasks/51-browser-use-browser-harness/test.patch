@@ -1,0 +1,121 @@
+diff --git a/tests/unit/test_helpers.py b/tests/unit/test_helpers.py
+index 80efb09e607145296c5774dbdf20ab6f0c96dfa6..ec04c4d7ce764593e582f084dc363e787b92b084 100644
+--- a/tests/unit/test_helpers.py
++++ b/tests/unit/test_helpers.py
+@@ -466,3 +466,116 @@ def test_new_tab_reuses_an_empty_data_document(monkeypatch):
+ 
+     assert helpers.new_tab("https://example.com") == "target-placeholder"
+     assert calls == [("goto_url", "https://example.com")]
++
++
++# --- press_key physical key identity (#685) ---
++
++
++def _key_events(key, modifiers=0):
++    events = []
++
++    def fake_cdp(method, **kwargs):
++        if method == "Input.dispatchKeyEvent":
++            events.append(kwargs)
++        return {}
++
++    with patch("browser_harness.helpers.cdp", side_effect=fake_cdp):
++        helpers.press_key(key, modifiers)
++    return events
++
++
++@pytest.mark.parametrize(
++    "char, code, vk, shift",
++    [
++        ("a", "KeyA", 65, False),
++        ("A", "KeyA", 65, True),
++        ("z", "KeyZ", 90, False),
++        ("1", "Digit1", 49, False),
++        ("!", "Digit1", 49, True),
++        ("0", "Digit0", 48, False),
++        (")", "Digit0", 48, True),
++        ("/", "Slash", 191, False),
++        ("?", "Slash", 191, True),
++        (";", "Semicolon", 186, False),
++        (":", "Semicolon", 186, True),
++        ("-", "Minus", 189, False),
++        ("_", "Minus", 189, True),
++        ("`", "Backquote", 192, False),
++        ("~", "Backquote", 192, True),
++        ("\\", "Backslash", 220, False),
++        ("|", "Backslash", 220, True),
++        ("'", "Quote", 222, False),
++        ('"', "Quote", 222, True),
++        (" ", "Space", 32, False),
++    ],
++)
++def test_press_key_sends_the_physical_key_a_real_keyboard_would(char, code, vk, shift):
++    """`code` is the physical key, never the character; the VK is not ord(char).
++
++    ord() only coincides for A-Z and 0-9 -- "a" is VK 65 not 97, and "/" is
++    VK 191 not 47 -- so anything reading e.code or e.keyCode saw values no
++    keyboard can produce.
++    """
++    events = _key_events(char)
++    down = events[0]
++
++    assert down["key"] == char
++    assert down["code"] == code
++    assert down["windowsVirtualKeyCode"] == vk
++    assert down["nativeVirtualKeyCode"] == vk
++    assert bool(down["modifiers"] & 8) is shift
++    # The character still reaches the page via the char event.
++    assert [e for e in events if e["type"] == "char"][0]["text"] == char
++
++
++@pytest.mark.parametrize("char", ["\u00e9", "\u4e2d", "\U0001F600"])
++def test_press_key_claims_no_physical_key_for_non_us_characters(char):
++    """No US key produces these, so report none rather than a fabricated one."""
++    events = _key_events(char)
++    down = events[0]
++
++    assert down["code"] == ""
++    assert down["windowsVirtualKeyCode"] == 0
++    assert [e for e in events if e["type"] == "char"][0]["text"] == char
++
++
++@pytest.mark.parametrize("modifiers", [1, 2, 4])
++def test_press_key_does_not_add_shift_to_a_shortcut(modifiers):
++    """press_key("A", modifiers=2) means Ctrl+A, not Ctrl+Shift+A.
++
++    Auto-shifting uppercase is right when typing text, but here the caller is
++    composing a shortcut and their intent has to win.
++    """
++    events = _key_events("A", modifiers)
++
++    assert all(e["modifiers"] == modifiers for e in events)
++    assert not any(e["type"] == "char" for e in events)
++
++
++@pytest.mark.parametrize(
++    "key, code, vk",
++    [("Enter", "Enter", 13), ("Backspace", "Backspace", 8),
++     ("ArrowLeft", "ArrowLeft", 37), ("Tab", "Tab", 9), ("Escape", "Escape", 27)],
++)
++def test_press_key_leaves_named_keys_alone(key, code, vk):
++    down = _key_events(key)[0]
++    assert (down["code"], down["windowsVirtualKeyCode"]) == (code, vk)
++    assert down["modifiers"] == 0
++
++
++def test_fill_input_types_each_character_as_a_real_key():
++    """fill_input() exists to emit real key events, so its codes must be real."""
++    events = []
++
++    def fake_cdp(method, **kwargs):
++        if method == "Input.dispatchKeyEvent":
++            events.append(kwargs)
++        return {}
++
++    with patch("browser_harness.helpers.cdp", side_effect=fake_cdp), \
++         patch("browser_harness.helpers.js", side_effect=lambda *_a, **_k: True):
++        helpers.fill_input("#inp", "Hi!", clear_first=False)
++
++    typed = [(e["key"], e["code"], e["windowsVirtualKeyCode"], bool(e["modifiers"] & 8))
++             for e in events if e["type"] == "keyDown"]
++    assert typed == [("H", "KeyH", 72, True), ("i", "KeyI", 73, False), ("!", "Digit1", 49, True)]

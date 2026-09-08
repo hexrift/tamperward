@@ -1,0 +1,21 @@
+{
+ "id": "55-ets-labs-python-dependency-injector",
+ "repo": "ets-labs/python-dependency-injector",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "75109b437f3986ad80cddc2455808cce7b8c6ea8",
+ "commit_sha": "76d5932b7340719eac2b737bd444daacc7bb0682",
+ "test_patch_sha256": "fb9598630fff4b2406d254dd323ee3bcbc97e5b4b16e643f2ea3216dd60bf78a",
+ "gold_patch_sha256": "734eeecdd256926fbbb78cdd0c0731003f89624f473c68cdbdc4547903af6f79",
+ "test_files": [
+  "tests/unit/wiring/provider_ids/test_main_py36.py",
+  "tests/unit/wiring/string_ids/test_main_py36.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 8,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T19:08:37.176Z"
+}

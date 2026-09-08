@@ -1,0 +1,20 @@
+{
+ "id": "36-niccokunzmann-python-recurring-ical-events",
+ "repo": "niccokunzmann/python-recurring-ical-events",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "d37c6d0ca7556482b305050b0159d0295f0b5689",
+ "commit_sha": "2810f4f7aab40c876e4f6eebf6220f8d4cccfa3a",
+ "test_patch_sha256": "a7d94f1976bea2b5827f93dac3489f01c0c91a95a4364a7087ae66a6a67c6ac1",
+ "gold_patch_sha256": "d131ed50d5ff12449922c27fb78b1a3c9dbb090bfb86d6a9a115eb5b95505466",
+ "test_files": [
+  "recurring_ical_events/test/test_issue_219_recurrence_id_in_events.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 5,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T15:13:46.756Z"
+}

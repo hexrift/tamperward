@@ -1,0 +1,14 @@
+diff --git a/src/mdformat_tables/plugin.py b/src/mdformat_tables/plugin.py
+index 9636a6e0fae96297c8f3b99e0a79e1d6a0fa6dcd..41c047470b6a1e941adb83e80231aa554058e4b0 100644
+--- a/src/mdformat_tables/plugin.py
++++ b/src/mdformat_tables/plugin.py
+@@ -12,7 +12,8 @@ def add_cli_argument_group(group: argparse._ArgumentGroup) -> None:
+     `mdit.options["mdformat"]["plugin"]["tables"]`."""
+     group.add_argument(
+         "--compact-tables",
+-        action="store_true",
++        action="store_const",
++        const=True,
+         help="do not add padding to table cells",
+     )
+ 

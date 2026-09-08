@@ -1,0 +1,20 @@
+{
+ "id": "65-launchdarkly-python-eventsource",
+ "repo": "launchdarkly/python-eventsource",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "638c403172630f099df81715cdc3389cfd9d46a4",
+ "commit_sha": "d09ca936a0d15f937cafd91deb11963d5f281813",
+ "test_patch_sha256": "e0b021d5d7b0634e26fc11e7142e7cef2c4dd544390730975318ea009579c5a6",
+ "gold_patch_sha256": "0ccf113a3a4b42e84188135e710735086a117644a4e7630cdc0cf60fe5fc462d",
+ "test_files": [
+  "ld_eventsource/testing/test_http_connect_strategy_with_sse_client.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T00:54:04.267Z"
+}

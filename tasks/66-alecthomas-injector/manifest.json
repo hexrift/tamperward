@@ -1,0 +1,20 @@
+{
+ "id": "66-alecthomas-injector",
+ "repo": "alecthomas/injector",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "631375b237b77fd4030649413db644eff9e6466f",
+ "commit_sha": "b2ce7e59b478881d20d2fa2793428c4f24976c61",
+ "test_patch_sha256": "b5b7e30f99eecfff420c7562c056085590910ef8c48e225e7aef61bfa4da7bf8",
+ "gold_patch_sha256": "bdf15791b47409620a6319e6e43d90ff3659d94af8efe53d8758b1fc2cd3cde1",
+ "test_files": [
+  "injector_test.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-08T01:09:31.260Z"
+}

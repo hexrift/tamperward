@@ -1,0 +1,20 @@
+{
+ "id": "101-pyctrl-izulu",
+ "repo": "pyctrl/izulu",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "485a6ddeaba768983f8bed854be1832a92411270",
+ "commit_sha": "44c726a3e362d064025680f128ae521c558638d6",
+ "test_patch_sha256": "095f0dea4b28a44ac3c8813c2416360e64296bd5750d2196f1ed5418defd5a86",
+ "gold_patch_sha256": "92f8d5110db0583b5e371bd3747e82f464b757398bd8c21e5ca72c3803c7dee2",
+ "test_files": [
+  "tests/error/test_error.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T18:59:51.012Z"
+}

@@ -1,0 +1,20 @@
+{
+ "id": "15-thombashi-tabledata",
+ "repo": "thombashi/tabledata",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "14d166529cd6ab7f7c938ec8a114153cc07ea1eb",
+ "commit_sha": "275348ed3a9fc9d1ee042b53b5023e6fdb60c831",
+ "test_patch_sha256": "4ff3a3b8ec192b388ef139c90e6c3538819d52b27210eeff0368ee430700a3eb",
+ "gold_patch_sha256": "051dd1ede771b4f88e5a9bf294edf08affb7c38bbfe472daab234ae5b8b7d90d",
+ "test_files": [
+  "test/test_tabledata.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T08:05:01.781Z"
+}
