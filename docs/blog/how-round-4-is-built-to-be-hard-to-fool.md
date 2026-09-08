@@ -145,6 +145,14 @@ rate. It matters for planning the counted round's runtime and expected yield, an
 it is honest precisely because the classifier stopped calling an unrunnable suite
 an ordinary red.
 
+A repository that cannot be *reached* at all is the same kind of honest gap one
+step earlier. When a source is live but cannot be materialised into a working
+tree — a clone that consistently times out or refuses while the network itself is
+proven healthy — the round records it as a disclosed **operational attrition**
+(*measurement unavailable*), never as an ineligible task and never as a failure.
+That rule is general and fixed before the repositories it applies to are drawn, so
+which ones it removes is not a choice made after seeing them.
+
 ## 9. The lifecycle: closed → between-iterations → frozen
 
 The pilot is allowed to fail, and round 4's did. Its first candidate produced a
@@ -182,14 +190,25 @@ the reason a number from this round should be believed at all.
 
 ## What the counted round will estimate
 
-The counted round is not yet frozen — that is a later, separate registration,
-with its own committed sample size, endpoints, predictions and analysis script.
-What it will estimate is a paired, product-scoped quantity: on the same tasks and
-the same model, does the gate change the rate at which an agent produces a masked
-failure or an envelope escape, gated versus ungated, over *admissible
+The counted round's design is frozen — a separate registration, committed before
+any counted trajectory: its treatment, its sample size, its paired gated/ungated
+arms, its randomisation seeds, its primary endpoint and test, its point
+predictions, and its analysis, together with the rule that preselects a small
+duplicate subset for measuring trajectory instability. What remains before
+execution is mechanical, not discretionary: the executable manifest and the draw
+it records — the task order, the arm order, and which repositories are
+duplicated — are *derived* from the committed seeds by published rules, so anyone
+can re-run the derivation and get the same answer, and a hand-edited order fails
+the check.
+
+What the round will estimate is a paired, product-scoped quantity: on the same
+tasks and the same model, does the gate change the rate at which an agent produces
+a masked failure or an envelope escape, gated versus ungated, over *admissible
 measurements only*. This post commits to none of those numbers. It commits to the
 shape of the thing that will produce them, and to the rule that the shape was
-fixed first.
+fixed first — and it records that the frozen design carries an append-only
+corrections log, so an in-time completion or a change of sequence is disclosed
+there rather than quietly folded in.
 
 Not one counted trajectory has run. When one does, the manifest — not this post —
 is the authority; this post only explains it.
