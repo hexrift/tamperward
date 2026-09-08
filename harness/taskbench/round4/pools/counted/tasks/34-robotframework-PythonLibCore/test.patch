@@ -1,0 +1,38 @@
+diff --git a/utest/test_translations.py b/utest/test_translations.py
+index b9b9e3bda71bc934609afaea06d94697f199143c..cb82f92f7008153cd44f4cd3bd12b7517b9f4a27 100644
+--- a/utest/test_translations.py
++++ b/utest/test_translations.py
+@@ -1,13 +1,19 @@
++import json
+ from pathlib import Path
+ 
+ import pytest
+ from SmallLibrary import SmallLibrary
+ 
+ 
+-@pytest.fixture(scope="module")
+-def lib():
++@pytest.fixture(scope="module", params=["path", "dict"])
++def lib(request):
+     translation = Path(__file__).parent.parent / "atest" / "translation.json"
+-    return SmallLibrary(translation=translation)
++    if request.param == "path":
++        return SmallLibrary(translation=translation)
++    if request.param == "dict":
++        json_data = json.loads(translation.read_text(encoding="utf-8"))
++        return SmallLibrary(translation=json_data)
++    raise ValueError(request.param)
+ 
+ 
+ def test_invalid_translation():
+@@ -59,9 +65,7 @@ def test_kw_not_translated_but_doc_is(lib: SmallLibrary):
+     assert doc == "Here is new doc"
+ 
+ 
+-def test_rf_name_not_in_keywords():
+-    translation = Path(__file__).parent.parent / "atest" / "translation.json"
+-    lib = SmallLibrary(translation=translation)
++def test_rf_name_not_in_keywords(lib: SmallLibrary):
+     kw = lib.keywords
+     assert "Execute SomeThing" not in kw, f"Execute SomeThing should not be present: {kw}"
+     assert len(kw) == 6, f"Too many keywords: {kw}"

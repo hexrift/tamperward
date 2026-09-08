@@ -1,0 +1,20 @@
+{
+ "id": "40-ianlini-flatten-dict",
+ "repo": "ianlini/flatten-dict",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "b6a3b131f4e5218096d2a6dfc16192f0f5110382",
+ "commit_sha": "59be03dc98de81c8966ddb85e3d482cb64d81d52",
+ "test_patch_sha256": "3e8d08ed1bd915c443f0ae40cddb2aa9198dede2503287417c868441637b751b",
+ "gold_patch_sha256": "f34170d77b994d456197fb90ad568c83a1b37d2224c16e3fe931cd7ed13ae963",
+ "test_files": [
+  "src/flatten_dict/tests/flatten_dict_test.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 6,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T17:01:27.749Z"
+}

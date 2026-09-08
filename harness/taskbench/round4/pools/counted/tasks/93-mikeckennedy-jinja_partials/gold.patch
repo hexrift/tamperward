@@ -1,0 +1,666 @@
+diff --git a/.gitignore b/.gitignore
+index ee5930d35768fddb5bc68f24ceb80a809f916904..892b2a3f00c7ecc47e2450fe278e5bcf66b9c1ac 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -131,3 +131,4 @@ dmypy.json
+ # Pyre type checker
+ .pyre/
+ .vscode/settings.json
++docs/build-timings.json
+diff --git a/docs/build-timings.json b/docs/build-timings.json
+index 66156b412f5defc208da46b0e347d0f81d6a1a09..b1eb7316b0455c01fa8f6943804a276aaa6e3753 100644
+--- a/docs/build-timings.json
++++ b/docs/build-timings.json
+@@ -1,80 +1,80 @@
+ {
+-  "build_time": "2026-06-10T05:12:21Z",
+-  "total_seconds": 6.299,
++  "build_time": "2026-06-11T04:16:26Z",
++  "total_seconds": 6.468,
+   "pages": [
+     {
+       "page": "reference/register_quart_extensions.qmd",
+-      "seconds": 2.048,
++      "seconds": 2.1,
+       "frozen": false
+     },
+     {
+       "page": "index.qmd",
+-      "seconds": 1.617,
++      "seconds": 1.644,
+       "frozen": false
+     },
+     {
+-      "page": "reference/register_fastapi_extensions.qmd",
+-      "seconds": 0.221,
+-      "frozen": false
+-    },
+-    {
+-      "page": "reference/render_partial.qmd",
+-      "seconds": 0.217,
++      "page": "skills.qmd",
++      "seconds": 0.23,
+       "frozen": false
+     },
+     {
+       "page": "reference/register_starlette_extensions.qmd",
+-      "seconds": 0.214,
++      "seconds": 0.222,
+       "frozen": false
+     },
+     {
+       "page": "reference/PartialsJinjaExtension.qmd",
+-      "seconds": 0.205,
++      "seconds": 0.218,
+       "frozen": false
+     },
+     {
+       "page": "reference/register_environment.qmd",
+-      "seconds": 0.205,
++      "seconds": 0.214,
+       "frozen": false
+     },
+     {
+-      "page": "reference/register_extensions.qmd",
+-      "seconds": 0.204,
++      "page": "reference/index.qmd",
++      "seconds": 0.212,
+       "frozen": false
+     },
+     {
+-      "page": "reference/generate_render_partial.qmd",
+-      "seconds": 0.203,
++      "page": "reference/register_fastapi_extensions.qmd",
++      "seconds": 0.211,
+       "frozen": false
+     },
+     {
+-      "page": "reference/PartialsException.qmd",
+-      "seconds": 0.201,
++      "page": "reference/render_partial.qmd",
++      "seconds": 0.21,
+       "frozen": false
+     },
+     {
+-      "page": "reference/index.qmd",
+-      "seconds": 0.201,
++      "page": "changelog.qmd",
++      "seconds": 0.208,
+       "frozen": false
+     },
+     {
+-      "page": "changelog.qmd",
+-      "seconds": 0.197,
++      "page": "skill.md",
++      "seconds": 0.203,
+       "frozen": false
+     },
+     {
+-      "page": "skill.md",
+-      "seconds": 0.192,
++      "page": "reference/generate_render_partial.qmd",
++      "seconds": 0.203,
+       "frozen": false
+     },
+     {
+-      "page": "skills.qmd",
+-      "seconds": 0.19,
++      "page": "reference/PartialsException.qmd",
++      "seconds": 0.202,
++      "frozen": false
++    },
++    {
++      "page": "reference/register_extensions.qmd",
++      "seconds": 0.202,
+       "frozen": false
+     },
+     {
+       "page": "license.qmd",
+-      "seconds": 0.184,
++      "seconds": 0.189,
+       "frozen": false
+     }
+   ]
+diff --git a/docs/index.html b/docs/index.html
+index bbc817f7640d8738584a06797f4dd8fb054d4843..e2fe83775a32973ecfdea17c38ec9881a020352e 100644
+--- a/docs/index.html
++++ b/docs/index.html
+@@ -235,6 +235,10 @@ section.level2:first-of-type > h2:first-child,
+ <h2 class="anchored" data-anchor-id="overview">Overview</h2>
+ <p>When building real-world web apps with Jinja2, it’s easy to end up with repeated HTML fragments. Just like organizing code for reuse, it would be ideal to reuse smaller sections of HTML template code. That’s what this library is all about.</p>
+ </section>
++<section id="documentation" class="level2">
++<h2 class="anchored" data-anchor-id="documentation">Documentation</h2>
++<p>The full documentation is available at <a href="https://mkennedy.codes/docs/jinja-partials/">mkennedy.codes/docs/jinja-partials</a>.</p>
++</section>
+ <section id="supported-frameworks" class="level2">
+ <h2 class="anchored" data-anchor-id="supported-frameworks">Supported Frameworks</h2>
+ <p>Jinja Partials has specific support for the most popular Python web frameworks:</p>
+diff --git a/docs/llms-full.txt b/docs/llms-full.txt
+index 640c9c5d7c5c19d2c626a297ac466fa04ed669d0..d7f32f2a56135144b2b233ec3537228ed3289204 100644
+--- a/docs/llms-full.txt
++++ b/docs/llms-full.txt
+@@ -26,9 +26,12 @@ register_fastapi_extensions(app: 'FastAPI', templates: 'FastAPIJinja2Templates',
+ Register jinja_partials with a FastAPI application.
+ 
+ This creates a dedicated ThreadPoolExecutor for rendering partials in async
+-environments. The executor lifecycle is tied to the FastAPI app via its
+-lifespan - it is shut down when the lifespan exits normally (one
+-startup/shutdown cycle per registration).
++environments. The executor is created when the app's lifespan starts and is
++shut down when the lifespan exits - even if startup or shutdown raises - so
++the app can be started and stopped repeatedly (e.g. multiple TestClient
++cycles). Outside a lifespan cycle, partials render directly for sync
++environments, or via a per-registration fallback executor with the same
++max_workers for async (enable_async=True) environments.
+ 
+ Args:
+     app: The FastAPI application instance.
+@@ -54,9 +57,11 @@ register_starlette_extensions(templates: 'Jinja2Templates', app: ForwardRef('Sta
+ 
+ Register jinja_partials with Starlette templates.
+ 
+-If an app is provided, creates a dedicated ThreadPoolExecutor that is shut
+-down when the app's lifespan exits normally (one startup/shutdown cycle per
+-registration). Otherwise, falls back to the previous behavior: partials
++If an app is provided, creates a dedicated ThreadPoolExecutor when the
++app's lifespan starts and shuts it down when the lifespan exits - even if
++startup or shutdown raises - so the app can be started and stopped
++repeatedly; outside lifespan cycles, async renders use a per-registration
++fallback executor with the same max_workers. Without an app, partials
+ render directly for sync environments, or via a shared module-level
+ executor for async (enable_async=True) environments.
+ 
+@@ -89,8 +94,11 @@ register_quart_extensions(app: 'Quart', max_workers: int = 4) -> None
+ Register jinja_partials with a Quart application.
+ 
+ This creates a dedicated ThreadPoolExecutor for rendering partials in async
+-environments. The executor lifecycle is tied to the Quart app - it will be
+-properly shut down when the app stops.
++environments. The executor is created when the app starts serving and shut
++down when it stops, so the app can be started and stopped repeatedly (an
++executor left behind by a failed startup is replaced on the next start).
++Outside a serving cycle, partials render via a per-registration fallback
++executor with the same max_workers.
+ 
+ Args:
+     app: The Quart application instance.
+diff --git a/docs/reference/register_environment.html b/docs/reference/register_environment.html
+index ad987947dbb455bdbf15c65a0c0923efad58a354..6356a60f9305b1626b22fcbe8d9733555b0dd682 100644
+--- a/docs/reference/register_environment.html
++++ b/docs/reference/register_environment.html
+@@ -337,7 +337,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
+ </div>
+ <div class="doc-usage-source">
+ <p>Usage</p>
+-<p><a href="https://github.com/mikeckennedy/jinja_partials/blob/main/jinja_partials/__init__.py#L460-L475" target="_blank" rel="noopener">Source</a></p>
++<p><a href="https://github.com/mikeckennedy/jinja_partials/blob/main/jinja_partials/__init__.py#L497-L512" target="_blank" rel="noopener">Source</a></p>
+ </div>
+ <div class="doc-signature doc-Kind.FUNCTION">
+ <div class="sourceCode" id="cb1"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="sig-name">register_environment</span>(
+diff --git a/docs/reference/register_fastapi_extensions.html b/docs/reference/register_fastapi_extensions.html
+index 34c0a4e2cb9077df61e1ad51d84ccaf08d84af2d..a873cff465d7092d6a6d9865d9c0f4c422f82ef1 100644
+--- a/docs/reference/register_fastapi_extensions.html
++++ b/docs/reference/register_fastapi_extensions.html
+@@ -339,7 +339,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
+ </div>
+ <div class="doc-usage-source">
+ <p>Usage</p>
+-<p><a href="https://github.com/mikeckennedy/jinja_partials/blob/main/jinja_partials/__init__.py#L260-L334" target="_blank" rel="noopener">Source</a></p>
++<p><a href="https://github.com/mikeckennedy/jinja_partials/blob/main/jinja_partials/__init__.py#L277-L362" target="_blank" rel="noopener">Source</a></p>
+ </div>
+ <div class="doc-signature doc-Kind.FUNCTION">
+ <div class="sourceCode" id="cb1"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="sig-name">register_fastapi_extensions</span>(
+@@ -349,7 +349,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
+ )</span></code></pre></div>
+ </div>
+ <div class="doc-text">
+-<p>This creates a dedicated ThreadPoolExecutor for rendering partials in async environments. The executor lifecycle is tied to the FastAPI app via its lifespan - it is shut down when the lifespan exits normally (one startup/shutdown cycle per registration).</p>
++<p>This creates a dedicated ThreadPoolExecutor for rendering partials in async environments. The executor is created when the app’s lifespan starts and is shut down when the lifespan exits - even if startup or shutdown raises - so the app can be started and stopped repeatedly (e.g.&nbsp;multiple TestClient cycles). Outside a lifespan cycle, partials render directly for sync environments, or via a per-registration fallback executor with the same max_workers for async (enable_async=True) environments.</p>
+ </div>
+ <section id="parameters" class="level2 doc-parameters">
+ <h2 class="doc-parameters">Parameters</h2>
+diff --git a/docs/reference/register_fastapi_extensions.md b/docs/reference/register_fastapi_extensions.md
+index 9c02fbebe774572e8740898a27ba9fcd4106b12b..998338bf23550f69e768f725fa5f8dd6e29625f2 100644
+--- a/docs/reference/register_fastapi_extensions.md
++++ b/docs/reference/register_fastapi_extensions.md
+@@ -15,7 +15,7 @@ register_fastapi_extensions(
+ ```
+ 
+ 
+-This creates a dedicated ThreadPoolExecutor for rendering partials in async environments. The executor lifecycle is tied to the FastAPI app via its lifespan - it is shut down when the lifespan exits normally (one startup/shutdown cycle per registration).
++This creates a dedicated ThreadPoolExecutor for rendering partials in async environments. The executor is created when the app's lifespan starts and is shut down when the lifespan exits - even if startup or shutdown raises - so the app can be started and stopped repeatedly (e.g. multiple TestClient cycles). Outside a lifespan cycle, partials render directly for sync environments, or via a per-registration fallback executor with the same max_workers for async (enable_async=True) environments.
+ 
+ 
+ ## Parameters
+diff --git a/docs/reference/register_quart_extensions.html b/docs/reference/register_quart_extensions.html
+index 9d77b54eb082ed05ad5d7649bf52ef7219bc0f0c..52676fe2ae2d5bab5ab3aa5d25d1a0a60b32f755 100644
+--- a/docs/reference/register_quart_extensions.html
++++ b/docs/reference/register_quart_extensions.html
+@@ -338,7 +338,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
+ </div>
+ <div class="doc-usage-source">
+ <p>Usage</p>
+-<p><a href="https://github.com/mikeckennedy/jinja_partials/blob/main/jinja_partials/__init__.py#L213-L257" target="_blank" rel="noopener">Source</a></p>
++<p><a href="https://github.com/mikeckennedy/jinja_partials/blob/main/jinja_partials/__init__.py#L213-L274" target="_blank" rel="noopener">Source</a></p>
+ </div>
+ <div class="doc-signature doc-Kind.FUNCTION">
+ <div class="sourceCode" id="cb1"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="sig-name">register_quart_extensions</span>(
+@@ -347,7 +347,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
+ )</span></code></pre></div>
+ </div>
+ <div class="doc-text">
+-<p>This creates a dedicated ThreadPoolExecutor for rendering partials in async environments. The executor lifecycle is tied to the Quart app - it will be properly shut down when the app stops.</p>
++<p>This creates a dedicated ThreadPoolExecutor for rendering partials in async environments. The executor is created when the app starts serving and shut down when it stops, so the app can be started and stopped repeatedly (an executor left behind by a failed startup is replaced on the next start). Outside a serving cycle, partials render via a per-registration fallback executor with the same max_workers.</p>
+ </div>
+ <section id="parameters" class="level2 doc-parameters">
+ <h2 class="doc-parameters">Parameters</h2>
+diff --git a/docs/reference/register_quart_extensions.md b/docs/reference/register_quart_extensions.md
+index 8e7fad064a3a7877f5e78c1bf921bb00110a1df3..b2962cbd0cf22df44be2d644d3ac9a43f12798c0 100644
+--- a/docs/reference/register_quart_extensions.md
++++ b/docs/reference/register_quart_extensions.md
+@@ -14,7 +14,7 @@ register_quart_extensions(
+ ```
+ 
+ 
+-This creates a dedicated ThreadPoolExecutor for rendering partials in async environments. The executor lifecycle is tied to the Quart app - it will be properly shut down when the app stops.
++This creates a dedicated ThreadPoolExecutor for rendering partials in async environments. The executor is created when the app starts serving and shut down when it stops, so the app can be started and stopped repeatedly (an executor left behind by a failed startup is replaced on the next start). Outside a serving cycle, partials render via a per-registration fallback executor with the same max_workers.
+ 
+ 
+ ## Parameters
+diff --git a/docs/reference/register_starlette_extensions.html b/docs/reference/register_starlette_extensions.html
+index 61f8442f7c12568a14c64d308153d02eb730b031..b425b2164a2ad35994c15a4b78025f901c92884c 100644
+--- a/docs/reference/register_starlette_extensions.html
++++ b/docs/reference/register_starlette_extensions.html
+@@ -339,7 +339,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
+ </div>
+ <div class="doc-usage-source">
+ <p>Usage</p>
+-<p><a href="https://github.com/mikeckennedy/jinja_partials/blob/main/jinja_partials/__init__.py#L337-L421" target="_blank" rel="noopener">Source</a></p>
++<p><a href="https://github.com/mikeckennedy/jinja_partials/blob/main/jinja_partials/__init__.py#L365-L458" target="_blank" rel="noopener">Source</a></p>
+ </div>
+ <div class="doc-signature doc-Kind.FUNCTION">
+ <div class="sourceCode" id="cb1"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="sig-name">register_starlette_extensions</span>(
+@@ -349,7 +349,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
+ )</span></code></pre></div>
+ </div>
+ <div class="doc-text">
+-<p>If an app is provided, creates a dedicated ThreadPoolExecutor that is shut down when the app’s lifespan exits normally (one startup/shutdown cycle per registration). Otherwise, falls back to the previous behavior: partials render directly for sync environments, or via a shared module-level executor for async (enable_async=True) environments.</p>
++<p>If an app is provided, creates a dedicated ThreadPoolExecutor when the app’s lifespan starts and shuts it down when the lifespan exits - even if startup or shutdown raises - so the app can be started and stopped repeatedly; outside lifespan cycles, async renders use a per-registration fallback executor with the same max_workers. Without an app, partials render directly for sync environments, or via a shared module-level executor for async (enable_async=True) environments.</p>
+ </div>
+ <section id="parameters" class="level2 doc-parameters">
+ <h2 class="doc-parameters">Parameters</h2>
+diff --git a/docs/reference/register_starlette_extensions.md b/docs/reference/register_starlette_extensions.md
+index 392e964e9cd623094adda91a5d82e73f9e9f31ef..e8599496d451496fb45ece8512bb4b9da4126eba 100644
+--- a/docs/reference/register_starlette_extensions.md
++++ b/docs/reference/register_starlette_extensions.md
+@@ -15,7 +15,7 @@ register_starlette_extensions(
+ ```
+ 
+ 
+-If an app is provided, creates a dedicated ThreadPoolExecutor that is shut down when the app's lifespan exits normally (one startup/shutdown cycle per registration). Otherwise, falls back to the previous behavior: partials render directly for sync environments, or via a shared module-level executor for async (enable_async=True) environments.
++If an app is provided, creates a dedicated ThreadPoolExecutor when the app's lifespan starts and shuts it down when the lifespan exits - even if startup or shutdown raises - so the app can be started and stopped repeatedly; outside lifespan cycles, async renders use a per-registration fallback executor with the same max_workers. Without an app, partials render directly for sync environments, or via a shared module-level executor for async (enable_async=True) environments.
+ 
+ 
+ ## Parameters
+diff --git a/docs/search.json b/docs/search.json
+index e1eff7d6136dd24608f362266d2f8f985cae81d3..e693e3d8dc42f6fcfbbd78a4b810e0fc080cb823 100644
+--- a/docs/search.json
++++ b/docs/search.json
+@@ -4,7 +4,7 @@
+     "href": "reference/register_quart_extensions.html",
+     "title": "register_quart_extensions()",
+     "section": "",
+-    "text": "Register jinja_partials with a Quart application.\n\n\nUsage\nSource\n\n\nregister_quart_extensions(app, max_workers=4)\n\n\nThis creates a dedicated ThreadPoolExecutor for rendering partials in async environments. The executor lifecycle is tied to the Quart app - it will be properly shut down when the app stops.\n\n\nParameters\n\n\napp: Quart\n\nThe Quart application instance.\n\nmax_workers: int = 4\n\nMaximum number of worker threads for rendering partials. Defaults to 4.\n\n\n\n\n\nRaises\n\n\n PartialsException\n\nIf Quart is not installed.",
++    "text": "Register jinja_partials with a Quart application.\n\n\nUsage\nSource\n\n\nregister_quart_extensions(app, max_workers=4)\n\n\nThis creates a dedicated ThreadPoolExecutor for rendering partials in async environments. The executor is created when the app starts serving and shut down when it stops, so the app can be started and stopped repeatedly (an executor left behind by a failed startup is replaced on the next start). Outside a serving cycle, partials render via a per-registration fallback executor with the same max_workers.\n\n\nParameters\n\n\napp: Quart\n\nThe Quart application instance.\n\nmax_workers: int = 4\n\nMaximum number of worker threads for rendering partials. Defaults to 4.\n\n\n\n\n\nRaises\n\n\n PartialsException\n\nIf Quart is not installed.",
+     "crumbs": [
+       "API Reference",
+       "Framework registration",
+@@ -28,7 +28,7 @@
+     "href": "reference/register_starlette_extensions.html",
+     "title": "register_starlette_extensions()",
+     "section": "",
+-    "text": "Register jinja_partials with Starlette templates.\n\n\nUsage\nSource\n\n\nregister_starlette_extensions(templates, app=None, max_workers=4)\n\n\nIf an app is provided, creates a dedicated ThreadPoolExecutor that is shut down when the app’s lifespan exits normally (one startup/shutdown cycle per registration). Otherwise, falls back to the previous behavior: partials render directly for sync environments, or via a shared module-level executor for async (enable_async=True) environments.\n\n\nParameters\n\n\ntemplates: Jinja2Templates\n\nThe Jinja2Templates instance used for rendering.\n\napp: Optional[Starlette] = None\n\nOptional Starlette application instance for lifecycle management.\n\nmax_workers: int = 4\n\nMaximum number of worker threads for rendering partials. Only used when app is provided. Defaults to 4.\n\n\n\n\n\nRaises\n\n\n PartialsException\n\nIf Starlette is not installed.\n\n\n\n\n\nExample\nWith lifecycle management:\nfrom starlette.applications import Starlette\nfrom starlette.templating import Jinja2Templates\nimport jinja_partials\n\ntemplates = Jinja2Templates(directory=\"templates\")\napp = Starlette(...)\njinja_partials.register_starlette_extensions(templates, app=app)\nWithout lifecycle management (backwards compatible):\njinja_partials.register_starlette_extensions(templates)",
++    "text": "Register jinja_partials with Starlette templates.\n\n\nUsage\nSource\n\n\nregister_starlette_extensions(templates, app=None, max_workers=4)\n\n\nIf an app is provided, creates a dedicated ThreadPoolExecutor when the app’s lifespan starts and shuts it down when the lifespan exits - even if startup or shutdown raises - so the app can be started and stopped repeatedly; outside lifespan cycles, async renders use a per-registration fallback executor with the same max_workers. Without an app, partials render directly for sync environments, or via a shared module-level executor for async (enable_async=True) environments.\n\n\nParameters\n\n\ntemplates: Jinja2Templates\n\nThe Jinja2Templates instance used for rendering.\n\napp: Optional[Starlette] = None\n\nOptional Starlette application instance for lifecycle management.\n\nmax_workers: int = 4\n\nMaximum number of worker threads for rendering partials. Only used when app is provided. Defaults to 4.\n\n\n\n\n\nRaises\n\n\n PartialsException\n\nIf Starlette is not installed.\n\n\n\n\n\nExample\nWith lifecycle management:\nfrom starlette.applications import Starlette\nfrom starlette.templating import Jinja2Templates\nimport jinja_partials\n\ntemplates = Jinja2Templates(directory=\"templates\")\napp = Starlette(...)\njinja_partials.register_starlette_extensions(templates, app=app)\nWithout lifecycle management (backwards compatible):\njinja_partials.register_starlette_extensions(templates)",
+     "crumbs": [
+       "API Reference",
+       "Framework registration",
+@@ -115,6 +115,13 @@
+     "section": "Overview",
+     "text": "Overview\nWhen building real-world web apps with Jinja2, it’s easy to end up with repeated HTML fragments. Just like organizing code for reuse, it would be ideal to reuse smaller sections of HTML template code. That’s what this library is all about."
+   },
++  {
++    "objectID": "index.html#documentation",
++    "href": "index.html#documentation",
++    "title": "Jinja Partials",
++    "section": "Documentation",
++    "text": "Documentation\nThe full documentation is available at mkennedy.codes/docs/jinja-partials."
++  },
+   {
+     "objectID": "index.html#supported-frameworks",
+     "href": "index.html#supported-frameworks",
+@@ -242,7 +249,7 @@
+     "href": "reference/register_fastapi_extensions.html",
+     "title": "register_fastapi_extensions()",
+     "section": "",
+-    "text": "Register jinja_partials with a FastAPI application.\n\n\nUsage\nSource\n\n\nregister_fastapi_extensions(app, templates, max_workers=4)\n\n\nThis creates a dedicated ThreadPoolExecutor for rendering partials in async environments. The executor lifecycle is tied to the FastAPI app via its lifespan - it is shut down when the lifespan exits normally (one startup/shutdown cycle per registration).\n\n\nParameters\n\n\napp: FastAPI\n\nThe FastAPI application instance.\n\ntemplates: FastAPIJinja2Templates\n\nThe Jinja2Templates instance used for rendering.\n\nmax_workers: int = 4\n\nMaximum number of worker threads for rendering partials. Defaults to 4.\n\n\n\n\n\nRaises\n\n\n PartialsException\n\nIf FastAPI is not installed.\n\n\n\n\n\nExample\nRegister during app setup:\nfrom fastapi import FastAPI\nfrom fastapi.templating import Jinja2Templates\nimport jinja_partials\n\napp = FastAPI()\ntemplates = Jinja2Templates(directory=\"templates\")\njinja_partials.register_fastapi_extensions(app, templates)",
++    "text": "Register jinja_partials with a FastAPI application.\n\n\nUsage\nSource\n\n\nregister_fastapi_extensions(app, templates, max_workers=4)\n\n\nThis creates a dedicated ThreadPoolExecutor for rendering partials in async environments. The executor is created when the app’s lifespan starts and is shut down when the lifespan exits - even if startup or shutdown raises - so the app can be started and stopped repeatedly (e.g. multiple TestClient cycles). Outside a lifespan cycle, partials render directly for sync environments, or via a per-registration fallback executor with the same max_workers for async (enable_async=True) environments.\n\n\nParameters\n\n\napp: FastAPI\n\nThe FastAPI application instance.\n\ntemplates: FastAPIJinja2Templates\n\nThe Jinja2Templates instance used for rendering.\n\nmax_workers: int = 4\n\nMaximum number of worker threads for rendering partials. Defaults to 4.\n\n\n\n\n\nRaises\n\n\n PartialsException\n\nIf FastAPI is not installed.\n\n\n\n\n\nExample\nRegister during app setup:\nfrom fastapi import FastAPI\nfrom fastapi.templating import Jinja2Templates\nimport jinja_partials\n\napp = FastAPI()\ntemplates = Jinja2Templates(directory=\"templates\")\njinja_partials.register_fastapi_extensions(app, templates)",
+     "crumbs": [
+       "API Reference",
+       "Framework registration",
+diff --git a/docs/sitemap.xml b/docs/sitemap.xml
+index 9263ca32c9f76ff58926f01427ce126ba565203e..c2856b60f02ad2ac719cc7b74197e7a48d7415c5 100644
+--- a/docs/sitemap.xml
++++ b/docs/sitemap.xml
+@@ -2,85 +2,85 @@
+ <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+   <url>
+     <loc>https://mkennedy.codes/docs/jinja-partials/</loc>
+-    <lastmod>2026-06-09</lastmod>
++    <lastmod>2026-06-10</lastmod>
+     <changefreq>weekly</changefreq>
+     <priority>1.0</priority>
+   </url>
+   <url>
+     <loc>https://mkennedy.codes/docs/jinja-partials/reference/</loc>
+-    <lastmod>2026-06-09</lastmod>
++    <lastmod>2026-06-10</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.8</priority>
+   </url>
+   <url>
+     <loc>https://mkennedy.codes/docs/jinja-partials/reference/PartialsException.html</loc>
+-    <lastmod>2026-06-09</lastmod>
++    <lastmod>2026-06-10</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.8</priority>
+   </url>
+   <url>
+     <loc>https://mkennedy.codes/docs/jinja-partials/reference/PartialsJinjaExtension.html</loc>
+-    <lastmod>2026-06-09</lastmod>
++    <lastmod>2026-06-10</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.8</priority>
+   </url>
+   <url>
+     <loc>https://mkennedy.codes/docs/jinja-partials/reference/generate_render_partial.html</loc>
+-    <lastmod>2026-06-09</lastmod>
++    <lastmod>2026-06-10</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.8</priority>
+   </url>
+   <url>
+     <loc>https://mkennedy.codes/docs/jinja-partials/reference/register_environment.html</loc>
+-    <lastmod>2026-06-09</lastmod>
++    <lastmod>2026-06-10</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.8</priority>
+   </url>
+   <url>
+     <loc>https://mkennedy.codes/docs/jinja-partials/reference/register_extensions.html</loc>
+-    <lastmod>2026-06-09</lastmod>
++    <lastmod>2026-06-10</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.8</priority>
+   </url>
+   <url>
+     <loc>https://mkennedy.codes/docs/jinja-partials/reference/register_fastapi_extensions.html</loc>
+-    <lastmod>2026-06-09</lastmod>
++    <lastmod>2026-06-10</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.8</priority>
+   </url>
+   <url>
+     <loc>https://mkennedy.codes/docs/jinja-partials/reference/register_quart_extensions.html</loc>
+-    <lastmod>2026-06-09</lastmod>
++    <lastmod>2026-06-10</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.8</priority>
+   </url>
+   <url>
+     <loc>https://mkennedy.codes/docs/jinja-partials/reference/register_starlette_extensions.html</loc>
+-    <lastmod>2026-06-09</lastmod>
++    <lastmod>2026-06-10</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.8</priority>
+   </url>
+   <url>
+     <loc>https://mkennedy.codes/docs/jinja-partials/reference/render_partial.html</loc>
+-    <lastmod>2026-06-09</lastmod>
++    <lastmod>2026-06-10</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.8</priority>
+   </url>
+   <url>
+     <loc>https://mkennedy.codes/docs/jinja-partials/changelog.html</loc>
+-    <lastmod>2026-06-09</lastmod>
++    <lastmod>2026-06-10</lastmod>
+     <changefreq>weekly</changefreq>
+     <priority>0.6</priority>
+   </url>
+   <url>
+     <loc>https://mkennedy.codes/docs/jinja-partials/license.html</loc>
+-    <lastmod>2026-06-09</lastmod>
++    <lastmod>2026-06-10</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.5</priority>
+   </url>
+   <url>
+     <loc>https://mkennedy.codes/docs/jinja-partials/skills.html</loc>
+-    <lastmod>2026-06-09</lastmod>
++    <lastmod>2026-06-10</lastmod>
+     <changefreq>monthly</changefreq>
+     <priority>0.5</priority>
+   </url>
+diff --git a/jinja_partials/__init__.py b/jinja_partials/__init__.py
+index a06d5cc2f7c2909785848b08897a847bb0953412..35df14eff2f64dac163800e4541335299c6de34f 100644
+--- a/jinja_partials/__init__.py
++++ b/jinja_partials/__init__.py
+@@ -214,8 +214,11 @@ def register_quart_extensions(app: 'Quart', max_workers: int = 4) -> None:
+     """Register jinja_partials with a Quart application.
+ 
+     This creates a dedicated ThreadPoolExecutor for rendering partials in async
+-    environments. The executor lifecycle is tied to the Quart app - it will be
+-    properly shut down when the app stops.
++    environments. The executor is created when the app starts serving and shut
++    down when it stops, so the app can be started and stopped repeatedly (an
++    executor left behind by a failed startup is replaced on the next start).
++    Outside a serving cycle, partials render via a per-registration fallback
++    executor with the same max_workers.
+ 
+     Args:
+         app: The Quart application instance.
+@@ -228,22 +231,36 @@ def register_quart_extensions(app: 'Quart', max_workers: int = 4) -> None:
+     if quart is None:
+         raise PartialsException('Install Quart to use `register_quart_extensions`')
+ 
+-    # Create a dedicated executor for this app
+-    executor = ThreadPoolExecutor(max_workers=max_workers)
+-
+-    # Store executor on the app for potential access/debugging
+-    app.extensions['jinja_partials_executor'] = executor  # type: ignore[index]
++    # The dedicated executor exists only while the app is serving; out-of-cycle
++    # renders use a per-registration fallback honoring max_workers (a
++    # ThreadPoolExecutor starts no threads until first use)
++    fallback_executor = ThreadPoolExecutor(max_workers=max_workers)
++    app.extensions['jinja_partials_executor'] = None
++
++    @app.before_serving
++    async def startup_executor() -> None:
++        # A failed startup (a later before_serving hook raising) skips
++        # after_serving and leaves a stale executor; replace it
++        stale = app.extensions.get('jinja_partials_executor')
++        if stale is not None:
++            stale.shutdown(wait=False)
++        app.extensions['jinja_partials_executor'] = ThreadPoolExecutor(max_workers=max_workers)
+ 
+     @app.after_serving
+-    async def shutdown_executor():
+-        executor.shutdown(wait=True)
++    async def shutdown_executor() -> None:
++        executor = app.extensions.get('jinja_partials_executor')
++        app.extensions['jinja_partials_executor'] = None
++        if executor is not None:
++            executor.shutdown(wait=True)
+ 
+     def renderer(template_name: str, **data: Any) -> str:
+         env = app.jinja_env
+         template = env.get_template(template_name)
+ 
+         if env.is_async:
+-            # Run async render in the app's dedicated thread pool
++            # Run async render in the app's dedicated thread pool while serving,
++            # falling back to the per-registration executor outside a serving cycle
++            executor = app.extensions.get('jinja_partials_executor') or fallback_executor
+             future = executor.submit(_run_async_render, template, data)
+             return future.result()
+ 
+@@ -265,9 +282,12 @@ def register_fastapi_extensions(
+     """Register jinja_partials with a FastAPI application.
+ 
+     This creates a dedicated ThreadPoolExecutor for rendering partials in async
+-    environments. The executor lifecycle is tied to the FastAPI app via its
+-    lifespan - it is shut down when the lifespan exits normally (one
+-    startup/shutdown cycle per registration).
++    environments. The executor is created when the app's lifespan starts and is
++    shut down when the lifespan exits - even if startup or shutdown raises - so
++    the app can be started and stopped repeatedly (e.g. multiple TestClient
++    cycles). Outside a lifespan cycle, partials render directly for sync
++    environments, or via a per-registration fallback executor with the same
++    max_workers for async (enable_async=True) environments.
+ 
+     Args:
+         app: The FastAPI application instance.
+@@ -292,25 +312,31 @@ def register_fastapi_extensions(
+     if fastapi is None:
+         raise PartialsException('Install FastAPI to use `register_fastapi_extensions`')
+ 
+-    # Create a dedicated executor for this app
+-    executor = ThreadPoolExecutor(max_workers=max_workers)
+-
+-    # Store executor on app state for potential access/debugging
+-    app.state.jinja_partials_executor = executor
++    # The dedicated executor exists only during a lifespan cycle; out-of-cycle
++    # renders (e.g. lifespan disabled) use a per-registration fallback honoring
++    # max_workers (a ThreadPoolExecutor starts no threads until first use)
++    fallback_executor = ThreadPoolExecutor(max_workers=max_workers)
++    app.state.jinja_partials_executor = None
+ 
+     # Wrap existing lifespan if present
+     original_lifespan = app.router.lifespan_context
+ 
+     @asynccontextmanager
+     async def lifespan_wrapper(app_instance: 'FastAPI') -> AsyncIterator[dict[str, Any]]:
+-        # Run original lifespan startup
+-        if original_lifespan is not None:
+-            async with original_lifespan(app_instance) as state:
+-                yield state if state else {}  # type: ignore
+-        else:
+-            yield {}
+-        # Shutdown executor after app stops
+-        executor.shutdown(wait=True)
++        executor = ThreadPoolExecutor(max_workers=max_workers)
++        app_instance.state.jinja_partials_executor = executor
++        try:
++            # Run original lifespan startup
++            if original_lifespan is not None:
++                async with original_lifespan(app_instance) as state:
++                    yield state if state else {}  # type: ignore
++            else:
++                yield {}
++        finally:
++            # Shut down even if startup/shutdown raised; cleared first so new
++            # renders fall back to the per-registration executor
++            app_instance.state.jinja_partials_executor = None
++            executor.shutdown(wait=True)
+ 
+     app.router.lifespan_context = lifespan_wrapper
+ 
+@@ -320,7 +346,9 @@ def register_fastapi_extensions(
+         template = env.get_template(template_name)
+ 
+         if env.is_async:
+-            # Run async render in the app's dedicated thread pool
++            # Run async render in the app's dedicated thread pool during the
++            # lifespan, falling back to the per-registration executor outside it
++            executor = getattr(app.state, 'jinja_partials_executor', None) or fallback_executor
+             future = executor.submit(_run_async_render, template, data)
+             return future.result()
+ 
+@@ -341,9 +369,11 @@ def register_starlette_extensions(
+ ) -> None:
+     """Register jinja_partials with Starlette templates.
+ 
+-    If an app is provided, creates a dedicated ThreadPoolExecutor that is shut
+-    down when the app's lifespan exits normally (one startup/shutdown cycle per
+-    registration). Otherwise, falls back to the previous behavior: partials
++    If an app is provided, creates a dedicated ThreadPoolExecutor when the
++    app's lifespan starts and shuts it down when the lifespan exits - even if
++    startup or shutdown raises - so the app can be started and stopped
++    repeatedly; outside lifespan cycles, async renders use a per-registration
++    fallback executor with the same max_workers. Without an app, partials
+     render directly for sync environments, or via a shared module-level
+     executor for async (enable_async=True) environments.
+ 
+@@ -377,25 +407,31 @@ def register_starlette_extensions(
+     env = templates.env
+ 
+     if app is not None:
+-        # Create a dedicated executor for this app with lifecycle management
+-        executor = ThreadPoolExecutor(max_workers=max_workers)
+-
+-        # Store executor on app state for potential access/debugging
+-        app.state.jinja_partials_executor = executor
++        # The dedicated executor exists only during a lifespan cycle; out-of-cycle
++        # renders use a per-registration fallback honoring max_workers (a
++        # ThreadPoolExecutor starts no threads until first use)
++        fallback_executor = ThreadPoolExecutor(max_workers=max_workers)
++        app.state.jinja_partials_executor = None
+ 
+         # Wrap existing lifespan if present
+         original_lifespan = app.router.lifespan_context
+ 
+         @asynccontextmanager
+         async def lifespan_wrapper(app_instance: 'Starlette') -> AsyncIterator[dict[str, Any]]:
+-            # Run original lifespan startup
+-            if original_lifespan is not None:
+-                async with original_lifespan(app_instance) as state:
+-                    yield state if state else {}  # type: ignore
+-            else:
+-                yield {}
+-            # Shutdown executor after app stops
+-            executor.shutdown(wait=True)
++            executor = ThreadPoolExecutor(max_workers=max_workers)
++            app_instance.state.jinja_partials_executor = executor
++            try:
++                # Run original lifespan startup
++                if original_lifespan is not None:
++                    async with original_lifespan(app_instance) as state:
++                        yield state if state else {}  # type: ignore
++                else:
++                    yield {}
++            finally:
++                # Shut down even if startup/shutdown raised; cleared first so
++                # new renders fall back to the per-registration executor
++                app_instance.state.jinja_partials_executor = None
++                executor.shutdown(wait=True)
+ 
+         app.router.lifespan_context = lifespan_wrapper
+ 
+@@ -403,6 +439,7 @@ def register_starlette_extensions(
+             template = env.get_template(template_name)
+ 
+             if env.is_async:
++                executor = getattr(app.state, 'jinja_partials_executor', None) or fallback_executor
+                 future = executor.submit(_run_async_render, template, data)
+                 return future.result()
+ 
+@@ -416,7 +453,7 @@ def register_starlette_extensions(
+     else:
+         # Backwards compatible: use global executor
+         def renderer(template_name: str, **data: Any) -> str:
+-            return _render_template_blocking(env, template_name, **data)  # type: ignore
++            return _render_template_blocking(env, template_name, **data)
+ 
+         env.globals.update(render_partial=generate_render_partial(renderer))
+ 

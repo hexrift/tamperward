@@ -1,0 +1,15 @@
+diff --git a/textparser.py b/textparser.py
+index 65814055385978de0550105a32a7a4d7c3b36cf8..8d76d7287c1eaac4751050e3de89ae5285c0303d 100644
+--- a/textparser.py
++++ b/textparser.py
+@@ -219,6 +219,10 @@ class ParseError(Error):
+ 
+         return self._column
+ 
++    def __reduce__(self):
++        """Adds pickling support."""
++        return type(self), (self._text, self._offset), {}
++
+ 
+ Token = namedtuple('Token', ['kind', 'value', 'offset'])
+ 

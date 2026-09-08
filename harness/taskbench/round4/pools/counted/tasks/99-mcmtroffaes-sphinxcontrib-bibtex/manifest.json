@@ -1,0 +1,20 @@
+{
+ "id": "99-mcmtroffaes-sphinxcontrib-bibtex",
+ "repo": "mcmtroffaes/sphinxcontrib-bibtex",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "8d4009560117736174ee61807ced7ca62684b2aa",
+ "commit_sha": "9b5499673e37aac7e840990919efd8b8954b72c3",
+ "test_patch_sha256": "fff64ee70a6deab69c33ff112344d8e1dc6bb47b7605ef7f17273d0a5b6cd6d6",
+ "gold_patch_sha256": "2c5b3a105637bfc99b0d68de463ab9cee83102788fb30cf6be02c7ef809a3fdb",
+ "test_files": [
+  "test/test_bibliography.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T18:51:50.177Z"
+}

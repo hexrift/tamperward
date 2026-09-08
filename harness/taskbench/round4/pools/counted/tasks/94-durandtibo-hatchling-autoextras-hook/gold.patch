@@ -1,0 +1,174 @@
+diff --git a/src/hatchling_autoextras_hook/hooks.py b/src/hatchling_autoextras_hook/hooks.py
+index ca7d23914b78e008a548998a309b66b494bfc8f0..009115091ed0857f7767b167fcff4a69c621d9d3 100644
+--- a/src/hatchling_autoextras_hook/hooks.py
++++ b/src/hatchling_autoextras_hook/hooks.py
+@@ -2,11 +2,16 @@ r"""Hatchling metadata hook to automatically generate 'all' extras."""
+ 
+ from __future__ import annotations
+ 
++__all__ = ["AutoExtrasMetadataHook"]
++
++import logging
+ from typing import Any
+ 
+ from hatchling.metadata.plugin.interface import MetadataHookInterface
+ from hatchling.plugin import hookimpl
+ 
++logger: logging.Logger = logging.getLogger(__name__)
++
+ 
+ class AutoExtrasMetadataHook(MetadataHookInterface):
+     r"""Metadata hook that automatically generates an 'all' extra.
+@@ -14,6 +19,17 @@ class AutoExtrasMetadataHook(MetadataHookInterface):
+     This hook collects all optional dependencies defined in the project
+     and creates an 'all' extra that includes all of them.
+ 
++    Configuration options (in pyproject.toml):
++        group-name: Name of the combined extras group (default: "all")
++        exclude: List of extra names to exclude from the combined group (default: [])
++        overwrite: Whether to overwrite existing group (default: False)
++
++    Example configuration:
++        [tool.hatch.metadata.hooks.autoextras]
++        group-name = "complete"
++        exclude = ["dev", "test"]
++        overwrite = false
++
+     Example usage:
+ 
+     ```pycon
+@@ -24,7 +40,8 @@ class AutoExtrasMetadataHook(MetadataHookInterface):
+     ...         "dev": ["pytest>=7.0", "black>=22.0"],
+     ...     }
+     ... }
+-    >>> AutoExtrasMetadataHook("test", {}).update(metadata)
++    >>> hook = AutoExtrasMetadataHook("test", {})
++    >>> hook.update(metadata)
+     >>> metadata
+     {'optional-dependencies': {'dev': ['pytest>=7.0', 'black>=22.0'],
+      'all': ['black>=22.0', 'pytest>=7.0']}}
+@@ -34,43 +51,108 @@ class AutoExtrasMetadataHook(MetadataHookInterface):
+ 
+     PLUGIN_NAME: str = "autoextras"
+ 
++    def __init__(self, root: str, config: dict[str, Any]) -> None:
++        """Initialize the hook and validate configuration.
++
++        Args:
++            root: The name of the plugin.
++            config: The plugin configuration dictionary.
++
++        Raises:
++            ValueError: If the configuration is invalid.
++            TypeError: If the configuration is invalid.
++        """
++        super().__init__(root, {"group-name": "all", "exclude": [], "overwrite": False} | config)
++        self._validate_config()
++
++    def _validate_config(self) -> None:
++        """Validate the plugin configuration.
++
++        Raises:
++            ValueError: If any configuration option is invalid.
++            TypeError: If any configuration option is invalid.
++        """
++        group_name = self.config["group-name"]
++        if not isinstance(group_name, str) or not group_name.strip():
++            msg = "'group-name' must be a non-empty string"
++            raise ValueError(msg)
++
++        exclude = self.config["exclude"]
++        if not isinstance(exclude, list):
++            msg = "'exclude' must be a list of extra names"
++            raise TypeError(msg)
++
++        overwrite = self.config["overwrite"]
++        if not isinstance(overwrite, bool):
++            msg = "'overwrite' must be a boolean"
++            raise TypeError(msg)
++
+     def update(self, metadata: dict[str, Any]) -> None:
+         r"""Update the project metadata to add the configured extras
+         group.
+ 
+         This method collects all dependencies from all optional extras
+-        (excluding any existing group with the configured name), removes
+-        duplicates, sorts them alphabetically, and creates/updates the
+-        extras group with the combined list.
++        (excluding any existing group with the configured name and any
++        extras in the exclude list), removes duplicates, sorts them
++        alphabetically, and creates/updates the extras group with the
++        combined list.
+ 
+         Args:
+             metadata: The project metadata dictionary to update. This
+                 dictionary is modified in place.
+ 
++        Raises:
++            RuntimeError: If the configured group name already exists and
++                overwrite is False.
++            TypeError: If optional dependencies are not in the expected format.
++
+         Note:
+             If no optional dependencies exist, this method does nothing.
+-            Any pre-existing extras group will be completely replaced.
++            Any pre-existing extras group will be completely replaced if
++            overwrite is True.
+         """
+-        # Get the configured extras group name (defaults to 'all')
+-        extras_group_name = self.config.get("group-name", "all")
++        # Get configuration options
++        extras_group_name = self.config["group-name"]
++        exclude_groups = self.config["exclude"]
++        overwrite = self.config["overwrite"]
+ 
+         # Get optional dependencies
+         optional_dependencies = metadata.get("optional-dependencies", {})
+ 
++        # Check if the group already exists
+         if extras_group_name in optional_dependencies:
+-            msg = f"Group name '{extras_group_name}' already exists. Use a different group name."
+-            raise RuntimeError(msg)
+-
+-        # Collect all dependencies from all extras (except the configured group if it exists)
+-        all_deps = set()
+-        for deps in optional_dependencies.values():
+-            all_deps.update(deps)
+-
+-        # Add the extras group with all dependencies
+-        # Sort for consistent output
++            if not overwrite:
++                existing_extras = list(optional_dependencies.keys())
++                msg = (
++                    f"Cannot create '{extras_group_name}' group: already exists. "
++                    f"Existing extras: {existing_extras}. "
++                    f"Configure a different 'group-name' in pyproject.toml or set 'overwrite = true'"
++                )
++                raise RuntimeError(msg)
++            logger.debug(f"Overwriting existing '{extras_group_name}' group")
++
++        # Collect all dependencies from all extras (except excluded ones)
++        all_deps: set[str] = set()
++        processed_extras = []
++
++        for extra_name, deps in optional_dependencies.items():
++            # Skip the configured group name and excluded groups
++            if extra_name == extras_group_name or extra_name in exclude_groups:
++                continue
++
++            # Add dependencies, normalizing whitespace
++            all_deps.update(dep.strip() for dep in deps if isinstance(dep, str))
++            processed_extras.append(extra_name)
++
++        # Add the extras group with all dependencies (sorted for consistent output)
+         optional_dependencies[extras_group_name] = sorted(all_deps)
+         metadata["optional-dependencies"] = optional_dependencies
+ 
++        logger.debug(
++            f"Created '{extras_group_name}' with {len(all_deps)} dependencies "
++            f"from {len(processed_extras)} extras: {processed_extras}"
++        )
++
+ 
+ @hookimpl
+ def hatch_register_metadata_hook() -> type[MetadataHookInterface]:

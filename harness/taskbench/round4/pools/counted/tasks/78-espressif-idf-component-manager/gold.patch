@@ -1,0 +1,255 @@
+diff --git a/docs/en/reference/manifest_file.rst b/docs/en/reference/manifest_file.rst
+index ac8c1ad24b860f4a2da620e01af833e678631414..5b6266e8022c7ea61b9316d2f9aecd6c33051d3f 100644
+--- a/docs/en/reference/manifest_file.rst
++++ b/docs/en/reference/manifest_file.rst
+@@ -671,6 +671,8 @@ The path to the local directory containing the dependency. You can use either a
+ 
+ This field supports `environment variables`_.
+ 
++When the manifest is itself loaded from a Git dependency, ``path`` refers to another component in the same Git repository instead. See `Local paths in manifests loaded from Git`_.
++
+ Example:
+ 
+ .. code-block:: yaml
+@@ -774,16 +776,16 @@ Example:
+         # version: v1.0.0       # Tag
+         # version: 1234567890abcdef1234567890abcdef12345678  # Commit hash
+ 
+-``override_path`` in manifests loaded from Git
+-----------------------------------------------
++Local paths in manifests loaded from Git
++----------------------------------------
+ 
+-The ESP Component Registry dependencies declared in the ``idf_component.yml`` of a Git-based dependency may include an ``override_path`` field. In this case, the override path is resolved relative to the component's location in the same Git repository instead of the local filesystem of the machine performing dependency resolution.
++A dependency declared with ``path`` or ``override_path`` (and without ``git``) in the ``idf_component.yml`` of a Git-based dependency is resolved relative to the component's location in that Git repository.
+ 
+ For portability, the dependency is recorded as another Git dependency that points to the same repository and is pinned to the same commit as the parent component.
+ 
+ This behavior is useful for repositories that contain multiple components, where one component depends on another component from the same repository.
+ 
+-If the resolved ``override_path`` would point outside the Git repository root, the override is ignored and the dependency is resolved normally (for example, from the ESP Component Registry). In this case, the Component Manager prints a warning.
++If a resolved ``path`` points outside the Git repository root, dependency resolution fails. If an ``override_path`` points outside the repository, the override is ignored and the dependency is resolved normally (for example, from the ESP Component Registry); the Component Manager prints a warning.
+ 
+ .. _web-source:
+ 
+diff --git a/idf_component_tools/sources/base.py b/idf_component_tools/sources/base.py
+index d2cbc59e4ab9dfceb01afd1c34f53575e8047c5a..6820c64f907ef39a4bd42a9171ca7264c04c2601 100644
+--- a/idf_component_tools/sources/base.py
++++ b/idf_component_tools/sources/base.py
+@@ -1,4 +1,4 @@
+-# SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
++# SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
+ # SPDX-License-Identifier: Apache-2.0
+ 
+ import os
+@@ -7,6 +7,7 @@ from abc import abstractmethod
+ 
+ from idf_component_tools.file_cache import FileCache
+ from idf_component_tools.hash_tools.checksums import ChecksumsModel
++from idf_component_tools.messages import warn
+ from idf_component_tools.semver import SimpleSpec
+ from idf_component_tools.utils import BaseModel, ComponentWithVersions
+ 
+@@ -95,6 +96,29 @@ class BaseSource(BaseModel):
+     def normalized_name(self, name: str) -> str:
+         return name
+ 
++    @staticmethod
++    def _warn_if_component_name_mismatch(component_name: str, directory_name: str) -> None:
++        component_with_namespace = component_name.replace('/', '__')
++        namespace_and_component = component_name.split('/')
++        component_without_namespace = namespace_and_component[-1]
++        if directory_name in (component_without_namespace, component_with_namespace):
++            return
++
++        alternative_name = (
++            f' or "{component_with_namespace}"' if len(namespace_and_component) == 2 else ''
++        )
++        warn(
++            'Component name "{component_name}" doesn\'t match the '
++            'directory name "{directory_name}".\n'.format(
++                component_name=component_name,
++                directory_name=directory_name,
++            )
++            + 'ESP-IDF CMake build system uses directory names as names '
++            + 'of components, so different names may break '
++            + 'requirements resolution. To avoid the problem rename the component directory to '
++            + f'"{component_without_namespace}"{alternative_name}'
++        )
++
+     def validate_version_spec(self, spec: str) -> bool:
+         if not spec or spec == '*':
+             return True
+diff --git a/idf_component_tools/sources/git.py b/idf_component_tools/sources/git.py
+index 348446acf5930db0dab4ff1eb42ea6444ddfd6f5..64e74394ca60f9a52a2afb38889ecd2b68d7d767 100644
+--- a/idf_component_tools/sources/git.py
++++ b/idf_component_tools/sources/git.py
+@@ -98,6 +98,10 @@ class GitSource(BaseSource):
+         if not component.version:
+             raise FetchingError(f'Version should provided for {component.name}')
+ 
++        directory_name = posixpath.basename(posixpath.normpath(self.repo_path))
++        if directory_name:
++            self._warn_if_component_name_mismatch(component.name, directory_name)
++
+         temp_dir = tempfile.mkdtemp()
+         try:
+             self._checkout_git_source(component.version, temp_dir, selected_paths=[self.repo_path])
+@@ -132,60 +136,89 @@ class GitSource(BaseSource):
+ 
+         return download_path
+ 
+-    def _resolve_override_paths(
++    def _resolve_local_paths(
+         self,
+         dependencies: t.List['ComponentRequirement'],
+         commit_id: str,
+     ) -> t.List['ComponentRequirement']:
+-        """Transform override_path dependencies into git dependencies within the same repo.
++        """Transform local dependencies into git dependencies within the same repository.
+ 
+-        When a git-fetched component's manifest declares a dependency with override_path,
+-        that path typically points to another component within the same git repository.
+-        Instead of treating it as a local path (which would fail since it doesn't exist
+-        on the user's machine), we resolve it to a git dependency pointing to the same
+-        repository and commit. This keeps the lock file portable across machines.
++        Relative path and override_path dependencies in a git-fetched component refer to
++        other components in that repository. Resolving them as git dependencies keeps the
++        lock file portable after the temporary checkout is removed.
+         """
+         resolved = []
+         for dep in dependencies:
++            local_paths = []
+             if dep.override_path:
+-                repo_relative_path = posixpath.normpath(
+-                    posixpath.join(self.repo_path, dep.override_path)
+-                )
++                local_paths.append(('override_path', dep.override_path))
++            if dep.path and not dep.git:
++                local_paths.append(('path', dep.path))
++
++            if not local_paths:
++                resolved.append(dep)
++                continue
++
++            repo_relative_path = None
++            for field_name, local_path in local_paths:
++                local_path = subst_vars_in_str(local_path)
++                candidate_path = posixpath.normpath(posixpath.join(self.repo_path, local_path))
+ 
+                 virtual_repo_root = '/__idf_component_repo__'
+-                resolved_abs = posixpath.normpath(
+-                    posixpath.join(virtual_repo_root, repo_relative_path)
+-                )
++                resolved_abs = posixpath.normpath(posixpath.join(virtual_repo_root, candidate_path))
+ 
+-                if resolved_abs != virtual_repo_root and not resolved_abs.startswith(
++                if resolved_abs == virtual_repo_root or resolved_abs.startswith(
+                     virtual_repo_root + '/'
+                 ):
++                    if field_name == 'override_path' and dep.path:
++                        warn(
++                            'Both "path" and "override_path" are set for dependency "{}". '
++                            'Using "override_path" relative to the parent Git repository "{}".'.format(
++                                dep.name,
++                                self.repo,
++                            )
++                        )
++                    repo_relative_path = candidate_path
++                    break
++
++                if field_name == 'override_path':
+                     warn(
+                         'Ignoring override_path "{}" for dependency "{}": '
+                         'path leads outside the git repository "{}". '
+-                        'The component will be resolved from the registry instead.'.format(
++                        'The override will be ignored.'.format(
+                             dep.override_path,
+                             dep.name,
+                             self.repo,
+                         )
+                     )
+-                    new_dep = dep.model_copy(update={'override_path': None})
+-                    new_dep._source = None
+-                    resolved.append(new_dep)
+                     continue
+ 
+-                new_dep = dep.model_copy(
+-                    update={
+-                        'override_path': None,
+-                        'version': commit_id,
+-                        'git': self.git,
+-                        'path': repo_relative_path,
+-                    }
++                raise FetchingError(
++                    'The "path" field for dependency "{}" in git component "{}" '
++                    'points outside the git repository "{}": "{}".'.format(
++                        dep.name,
++                        self.repo_path,
++                        self.repo,
++                        dep.path,
++                    )
+                 )
++
++            if repo_relative_path is None:
++                new_dep = dep.model_copy(update={'override_path': None})
+                 new_dep._source = None
+                 resolved.append(new_dep)
+                 continue
+-            resolved.append(dep)
++
++            new_dep = dep.model_copy(
++                update={
++                    'override_path': None,
++                    'version': commit_id,
++                    'git': self.git,
++                    'path': repo_relative_path,
++                }
++            )
++            new_dep._source = None
++            resolved.append(new_dep)
+         return resolved
+ 
+     def versions(self, name, spec='*', target=None):
+@@ -220,7 +253,7 @@ class GitSource(BaseSource):
+             if os.path.isfile(manifest_path):
+                 manifest = ManifestManager(manifest_path, name=name).load()
+                 dependencies = manifest.raw_requirements
+-                dependencies = self._resolve_override_paths(dependencies, commit_id)
++                dependencies = self._resolve_local_paths(dependencies, commit_id)
+                 use_gitignore = manifest.use_gitignore
+ 
+                 if manifest.targets:  # only check when exists
+diff --git a/idf_component_tools/sources/local.py b/idf_component_tools/sources/local.py
+index 185fa47d19184216daa3a6de784beeb7ab5448b5..0e0a5f0830227f468e16c21b2a44e4b7582d7550 100644
+--- a/idf_component_tools/sources/local.py
++++ b/idf_component_tools/sources/local.py
+@@ -160,27 +160,7 @@ class LocalSource(BaseSource):
+ 
+     def download(self, component: 'SolvedComponent', download_path: str) -> str:  # noqa: ARG002
+         directory_name = os.path.basename(str(self._path))
+-        component_with_namespace = component.name.replace('/', '__')
+-        namespace_and_component = component.name.split('/')
+-        component_without_namespace = namespace_and_component[-1]
+-        if (
+-            component_without_namespace != directory_name
+-            and component_with_namespace != directory_name
+-        ):
+-            alternative_name = (
+-                f' or "{component_with_namespace}"' if len(namespace_and_component) == 2 else ''
+-            )
+-            warn(
+-                'Component name "{component_name}" doesn\'t match the '
+-                'directory name "{directory_name}".\n'.format(
+-                    component_name=component.name,
+-                    directory_name=directory_name,
+-                )
+-                + 'ESP-IDF CMake build system uses directory names as names '
+-                + 'of components, so different names may break '
+-                + 'requirements resolution. To avoid the problem rename the component directory to '
+-                + f'"{component_without_namespace}"{alternative_name}'
+-            )
++        self._warn_if_component_name_mismatch(component.name, directory_name)
+         return str(self._path)
+ 
+     def versions(self, name, spec='*', target=None):  # noqa: ARG002

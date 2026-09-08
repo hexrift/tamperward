@@ -1,0 +1,20 @@
+{
+ "id": "68-thatch-moreorless",
+ "repo": "thatch/moreorless",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "6b32e3fe66de846ecbf4cc978c95542f892ba8f7",
+ "commit_sha": "9443a9ace5f4b8120bf86e11378b2bc4f47c444c",
+ "test_patch_sha256": "e8fce2c5f4a0515c5647d7cab32e9b2caa9ac345859c4eb62346e7c20c12ec8a",
+ "gold_patch_sha256": "f521b9e3de8ec82d629e91bd178da99d30cea0204bc3256eeab2b2fb5bb7a9ae",
+ "test_files": [
+  "tests/test_combined.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T01:15:58.106Z"
+}

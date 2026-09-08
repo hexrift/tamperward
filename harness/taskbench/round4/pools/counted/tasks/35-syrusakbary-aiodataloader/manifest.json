@@ -1,0 +1,20 @@
+{
+ "id": "35-syrusakbary-aiodataloader",
+ "repo": "syrusakbary/aiodataloader",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "ffad8a1b11574d087100fc27bd2622aeeb881ca1",
+ "commit_sha": "6c1346e36a37de1485389855c7605de574d9eadd",
+ "test_patch_sha256": "763df10d4c753974e159e477198f00a23a9d0c411119f66ac4ebce6c422db3c6",
+ "gold_patch_sha256": "05c9b357f8927a4029312e09497d8afef788d723632551f31d09317e8e2e560e",
+ "test_files": [
+  "test_aiodataloader.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 4,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T15:00:50.269Z"
+}

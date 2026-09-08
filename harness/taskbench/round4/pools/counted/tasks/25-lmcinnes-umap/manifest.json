@@ -1,0 +1,20 @@
+{
+ "id": "25-lmcinnes-umap",
+ "repo": "lmcinnes/umap",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "f6dcf3e261bcf78aa3366d60c2a8fc4b75bf58c4",
+ "commit_sha": "e1ab14e5b79e72b681c53b97e0800a3f92e240cb",
+ "test_patch_sha256": "c3a9127dbfaacb7a38140bf3b936828727a7d41afa89fd83e25837bd2cbb67b3",
+ "gold_patch_sha256": "a90e78603fda436585d3138a8fe6981ac178f828e8c7bc79768acd6ecf09222d",
+ "test_files": [
+  "umap/tests/test_umap_metrics.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 4,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T12:43:53.611Z"
+}

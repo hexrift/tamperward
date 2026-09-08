@@ -1,0 +1,20 @@
+{
+ "id": "18-Lancetnik-FastDepends",
+ "repo": "Lancetnik/FastDepends",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "bb3157906fa43cdf1ada58213fddca6fefc405b6",
+ "commit_sha": "da75a76553da8b39501a9e52ca36b416b31e2fb9",
+ "test_patch_sha256": "4be538ae1ff68add00a4c0334a90c25d213b29f138773208eef658400efca3b6",
+ "gold_patch_sha256": "de837f5fa4d9a09221f92dec3f383bb89f49767d240b9cbd85acb97ea41a133a",
+ "test_files": [
+  "tests/test_overrides.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T08:28:37.702Z"
+}

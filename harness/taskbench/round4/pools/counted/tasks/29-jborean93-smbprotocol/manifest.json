@@ -1,0 +1,20 @@
+{
+ "id": "29-jborean93-smbprotocol",
+ "repo": "jborean93/smbprotocol",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "66ee4837c66e650bb60f6418120b21179facaea4",
+ "commit_sha": "3b5b3e90d77bca701bb56f4d8c2e82636ad67d70",
+ "test_patch_sha256": "0d7c682aac5df81c5dcc334c1d6d53209212df9b9e91436cbeb42ff8c2d9e6fc",
+ "gold_patch_sha256": "ac50fb85f1340a360da63e805f4128b1ae68083f749be66c404b2f885ccd45a1",
+ "test_files": [
+  "tests/test_open.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 5,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T13:36:16.181Z"
+}

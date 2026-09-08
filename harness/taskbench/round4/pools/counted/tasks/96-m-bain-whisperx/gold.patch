@@ -1,0 +1,13 @@
+diff --git a/whisperx/utils.py b/whisperx/utils.py
+index ac8fb290d638669d1ec758584339d4253d77231b..510fd9c876f673333939c79840909c28fad72b4a 100644
+--- a/whisperx/utils.py
++++ b/whisperx/utils.py
+@@ -468,6 +468,8 @@ def get_writer(
+     return writers[output_format](output_dir)
+ 
+ def interpolate_nans(x, method='nearest'):
++    if method == "ignore":
++        return x
+     if x.notnull().sum() > 1:
+         return x.interpolate(method=method).ffill().bfill()
+     else:

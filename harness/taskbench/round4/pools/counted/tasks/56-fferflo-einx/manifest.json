@@ -1,0 +1,21 @@
+{
+ "id": "56-fferflo-einx",
+ "repo": "fferflo/einx",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "65cdf193a8ab6a8d51dd4df9ede9bb0de746fa9f",
+ "commit_sha": "d6f66ea157f6f2aacee7fd0b632cc7a2a6874ad7",
+ "test_patch_sha256": "16e6d1bb4efbb72f45a97da37af8b8cbe65b1a6bfa9db066d914f070f286ac89",
+ "gold_patch_sha256": "9247a270f435c7eb33bc6a41fd022562323038c480dbf9c6b348393a1fe6bfe8",
+ "test_files": [
+  "test/test_shapes.py",
+  "test/test_values.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T19:11:46.380Z"
+}

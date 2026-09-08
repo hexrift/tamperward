@@ -1,0 +1,50 @@
+diff --git a/sqllineage/core/parser/sqlfluff/extractors/merge.py b/sqllineage/core/parser/sqlfluff/extractors/merge.py
+index acfd12a342ddfc685da8de34646771232d1f1c47..dfc8432167b75dd95e2a451f63e8bdda6006d754 100644
+--- a/sqllineage/core/parser/sqlfluff/extractors/merge.py
++++ b/sqllineage/core/parser/sqlfluff/extractors/merge.py
+@@ -46,7 +46,20 @@ class MergeExtractor(BaseExtractor):
+                             for set_clause in set_clause_list.get_children(
+                                 "set_clause"
+                             ):
+-                                columns = set_clause.get_children("column_reference")
++                                columns = list(
++                                    set_clause.get_children("column_reference")
++                                )
++                                if len(columns) == 1:
++                                    # tsql wraps the RHS of an assignment in an
++                                    # `expression` segment
++                                    if expression := set_clause.get_child("expression"):
++                                        expr_children = list_child_segments(expression)
++                                        if (
++                                            len(expr_children) == 1
++                                            and expr_children[0].type
++                                            == "column_reference"
++                                        ):
++                                            columns.append(expr_children[0])
+                                 if len(columns) == 2:
+                                     src_col = tgt_col = None
+                                     if src_cqt := extract_column_qualifier(columns[1]):
+diff --git a/sqllineage/core/parser/sqlfluff/extractors/update.py b/sqllineage/core/parser/sqlfluff/extractors/update.py
+index a92fbe6406332a03d5a7065a1952e945b7b528a2..ae5945d5b233242bb8f71b4cd1003efc821e1795 100644
+--- a/sqllineage/core/parser/sqlfluff/extractors/update.py
++++ b/sqllineage/core/parser/sqlfluff/extractors/update.py
+@@ -55,7 +55,18 @@ class UpdateExtractor(BaseExtractor):
+ 
+             if segment.type == "set_clause_list":
+                 for set_clause in segment.get_children("set_clause"):
+-                    column_references = set_clause.get_children("column_reference")
++                    column_references = list(
++                        set_clause.get_children("column_reference")
++                    )
++                    if len(column_references) == 1:
++                        # tsql wraps the RHS of an assignment in an `expression` segment
++                        if expression := set_clause.get_child("expression"):
++                            expr_children = list_child_segments(expression)
++                            if (
++                                len(expr_children) == 1
++                                and expr_children[0].type == "column_reference"
++                            ):
++                                column_references.append(expr_children[0])
+                     if len(column_references) == 2:
+                         tgt_cqt = extract_column_qualifier(column_references[0])
+                         src_cqt = extract_column_qualifier(column_references[1])

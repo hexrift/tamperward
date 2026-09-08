@@ -1,0 +1,20 @@
+{
+ "id": "10-fsspec-sshfs",
+ "repo": "fsspec/sshfs",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "29cb7145b1bfbcd14cf37f17a9e781c1657e3a5c",
+ "commit_sha": "3d2d681b4abbaa412ee961b9953d57ee277a019a",
+ "test_patch_sha256": "09291c9332324da8455d40ca32edb56f78e1131776ffed5833bf743c7cfdbef2",
+ "gold_patch_sha256": "e714026e4d856260a57c885c32a9b625bfbb0cafb066b2d2235111740740c05a",
+ "test_files": [
+  "tests/test_sshfs.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T06:31:11.025Z"
+}

@@ -1,0 +1,20 @@
+{
+ "id": "48-ERGO-Code-HiGHS",
+ "repo": "ERGO-Code/HiGHS",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "f65a6838e3daa4fa23f06ffffc7c895370dbd3dc",
+ "commit_sha": "957ff561774ddb995cb1f2eec937dd0805cfc02d",
+ "test_patch_sha256": "7abf54c49d81756627df2b0afa27a1a906512f56057ca598294e2648a9472bd6",
+ "gold_patch_sha256": "1fbeb1dcfe53f6bfe6fc540225dde62ccd76c824c91e6ae142a75e952dbb46d0",
+ "test_files": [
+  "tests/test_highspy.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 11,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T17:58:13.874Z"
+}

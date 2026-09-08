@@ -1,0 +1,20 @@
+{
+ "id": "54-huggingface-math-verify",
+ "repo": "huggingface/math-verify",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "84ca4e5d3010a5d50c67f08c2ff83b9e3ec33e4e",
+ "commit_sha": "6f5218c822fb2ed2d3618d6eda501295069b4061",
+ "test_patch_sha256": "7eb9e46d46ed18f7cdf5cf8259d9c83e46e92ca2cfd802cf382c051ab39bdaa0",
+ "gold_patch_sha256": "4a396b2d10e5829f9bc067e7d1254152677ebd3d554d6bf0222b1cf849db9028",
+ "test_files": [
+  "tests/test_all.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T18:35:44.673Z"
+}

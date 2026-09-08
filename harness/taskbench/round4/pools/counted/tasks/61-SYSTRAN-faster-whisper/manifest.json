@@ -1,0 +1,20 @@
+{
+ "id": "61-SYSTRAN-faster-whisper",
+ "repo": "SYSTRAN/faster-whisper",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "00a5b26b1f09bf18972855980ddc13949dc56f87",
+ "commit_sha": "409a6919f98e2664794e80a93e421803837bc0fe",
+ "test_patch_sha256": "08cc7af339a56944bcb70178a3cafe2eb5ccac89e215250fbbad388e29541ac8",
+ "gold_patch_sha256": "190013b79485a44565d1b1e63f8f9f6885c4ad6c4c04e981757152c69df22fa4",
+ "test_files": [
+  "tests/test_transcribe.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T23:41:16.445Z"
+}

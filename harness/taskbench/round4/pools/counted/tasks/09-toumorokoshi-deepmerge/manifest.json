@@ -1,0 +1,20 @@
+{
+ "id": "09-toumorokoshi-deepmerge",
+ "repo": "toumorokoshi/deepmerge",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "f4822dec8ce4aec26fa142777ae949f543e341ad",
+ "commit_sha": "d180db58506391428b2adbdb245cd578f61d2eff",
+ "test_patch_sha256": "7111ec6b87dccef71d947c4e3bb9ad6dcdb6a8675df4b6b543f7d873e88a8659",
+ "gold_patch_sha256": "e3c62df179d446222d563810dd0eccd9e8c6770429d13b03157438edff4d74ca",
+ "test_files": [
+  "deepmerge/tests/strategy/test_type_conflict.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T06:07:59.838Z"
+}

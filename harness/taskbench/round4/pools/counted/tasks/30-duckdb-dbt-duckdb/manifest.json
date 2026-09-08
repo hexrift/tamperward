@@ -1,0 +1,21 @@
+{
+ "id": "30-duckdb-dbt-duckdb",
+ "repo": "duckdb/dbt-duckdb",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "0084259bbc11eaefad5dc67f446ae4e2f12db945",
+ "commit_sha": "acdab5dfc85715572bbf43fcf2b318a5ed1bfa16",
+ "test_patch_sha256": "3badbd76fc63a1d169859345606dc90d1fab08874e527bcc18422073c74f628a",
+ "gold_patch_sha256": "c73022df656626c2784f79c2732c0b9b6b20710f9a242e1ff315f027616ec813",
+ "test_files": [
+  "tests/functional/adapter/test_constraints.py",
+  "tests/unit/test_duckdb_adapter.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +dev-requirements.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T13:45:59.549Z"
+}

@@ -1,0 +1,47 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 3ca689666f795092e01145d1a220ce86cf9b7469..cf2a2ce2ebdbc625037f6ed28307831e426d04f3 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
+ 
+ [project]
+ name = "python-toon"
+-version = "0.1.0"
++version = "0.1.1"
+ description = "Token-Oriented Object Notation (TOON) encoder for Python - Optimized data format for LLMs"
+ readme = "README.md"
+ requires-python = ">=3.8"
+diff --git a/src/toon/__init__.py b/src/toon/__init__.py
+index 47cc26d7a407a8759f1ab8d5d05ced96dfaeade7..0d0235bb1a981ffbeb8fbc09865827ac554946a1 100644
+--- a/src/toon/__init__.py
++++ b/src/toon/__init__.py
+@@ -8,5 +8,5 @@ with 30-60% fewer tokens than JSON.
+ from .encoder import encode
+ from .types import Delimiter, DelimiterKey, EncodeOptions
+ 
+-__version__ = "0.1.0"
++__version__ = "0.1.1"
+ __all__ = ["encode", "Delimiter", "DelimiterKey", "EncodeOptions"]
+diff --git a/src/toon/primitives.py b/src/toon/primitives.py
+index f05744a0151a0350a3e7ad267d6c9b9fdb56726b..8d494d7a0d1a6c870ad58465abfb68ebe1add377 100644
+--- a/src/toon/primitives.py
++++ b/src/toon/primitives.py
+@@ -90,6 +90,10 @@ def is_safe_unquoted(value: str, delimiter: str = COMMA) -> bool:
+     except ValueError:
+         pass
+ 
++    # Check if starts with list marker (hyphen)
++    if value.startswith(LIST_ITEM_MARKER):
++        return False
++
+     # Check for structural characters (including current delimiter)
+     unsafe_chars = [
+         COLON,
+@@ -98,7 +102,6 @@ def is_safe_unquoted(value: str, delimiter: str = COMMA) -> bool:
+         CLOSE_BRACKET,
+         OPEN_BRACE,
+         CLOSE_BRACE,
+-        LIST_ITEM_MARKER,
+         DOUBLE_QUOTE,
+         BACKSLASH,
+         NEWLINE,

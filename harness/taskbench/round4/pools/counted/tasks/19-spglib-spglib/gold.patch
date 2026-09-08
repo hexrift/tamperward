@@ -1,0 +1,344 @@
+diff --git a/docs/python-interface.md b/docs/python-interface.md
+index dec1bcac798551717d56f6f41109fbc9330bcb72..5794b0633a452504d186973454aee6b9dd91452b 100644
+--- a/docs/python-interface.md
++++ b/docs/python-interface.md
+@@ -198,7 +198,7 @@ details, see {ref}`variables_symprec`, {ref}`variables_angle_tolerance`, and
+ 
+ ### Error
+ 
+-- {py:func}`spglib.spglib.get_error_message`
++- {py:func}`spglib.error.get_error_message`
+ 
+ ### Space-group symmetry search
+ 
+diff --git a/python/spglib/__init__.py b/python/spglib/__init__.py
+index ffce0de4c3cc16110ede79bc9462dbbb98b4ebe0..7d7fa0c6bae295979bc11f4bab173ac1f146564f 100644
+--- a/python/spglib/__init__.py
++++ b/python/spglib/__init__.py
+@@ -8,6 +8,7 @@
+ from ._internal import *  # noqa: F403
+ from ._version import __version__, __version_tuple__  # noqa: F401
+ from .cell import *  # noqa: F403
++from .error import *  # noqa: F403
+ from .kpoints import *  # noqa: F403
+ from .msg import *  # noqa: F403
+ from .reduce import *  # noqa: F403
+@@ -15,7 +16,6 @@ from .spg import *  # noqa: F403
+ 
+ # fmt: off
+ from .spglib import (  # noqa: F401
+-    get_error_message,
+     get_hall_number_from_symmetry,
+     get_version,
+     spg_get_commit,
+diff --git a/python/spglib/_internal.py b/python/spglib/_internal.py
+index e7e486a55855dd2400aea2a4902623105f33aeea..1142d45ecb78f8f9859c4906064468325d66fa8f 100644
+--- a/python/spglib/_internal.py
++++ b/python/spglib/_internal.py
+@@ -9,12 +9,9 @@ import numpy as np
+ from numpy._typing import ArrayLike
+ 
+ from . import _spglib
++from .error import _set_no_error, _set_or_throw_error
+ from .spg import SpgCell, SpglibDataset
+-from .spglib import (
+-    _expand_cell,
+-    _set_no_error,
+-    _set_or_throw_error,
+-)
++from .spglib import _expand_cell
+ 
+ __all__ = [
+     "get_pointgroup",
+diff --git a/python/spglib/cell.py b/python/spglib/cell.py
+index e785b439ca9654a26b2e7e3ed8a41791996891f7..e09ec6df25a395fb6ad2adbe7d9eab6f7a4b039c 100644
+--- a/python/spglib/cell.py
++++ b/python/spglib/cell.py
+@@ -8,8 +8,9 @@ from __future__ import annotations
+ import numpy as np
+ 
+ from . import _spglib
++from .error import _set_no_error, _set_or_throw_error
+ from .spg import SpgCell
+-from .spglib import _expand_cell, _set_no_error, _set_or_throw_error
++from .spglib import _expand_cell
+ 
+ __all__ = [
+     "standardize_cell",
+diff --git a/python/spglib/error.py b/python/spglib/error.py
+index 37d8b79b5c6cea09940fcf9d434d0d4f08070e97..386458cb2849c0bf3292c4628785069ca30b24aa 100644
+--- a/python/spglib/error.py
++++ b/python/spglib/error.py
+@@ -18,9 +18,89 @@
+ .. versionadded:: 2.7.0
+ """
+ 
++# Copyright (C) 2015 Atsushi Togo
++# This file is part of spglib.
++# SPDX-License-Identifier: BSD-3-Clause
++from __future__ import annotations
++
++import os
++import warnings
++
++from ._compat.warnings import deprecated
++
++__all__ = [
++    "SpglibError",
++    "get_error_message",
++]
++
+ 
+ class SpglibError(Exception):
+     """Base exception type for all errors raised by spglib."""
+ 
+ 
+ # TODO: Provide more exception types.
++
++
++# Old deprecated error functions
++OLD_ERROR_HANDLING: bool = True
++"""
++Use the old error handling.
++
++Note that this variable may be removed in the future or change value in the future.
++You can also use :envvar:`SPGLIB_OLD_ERROR_HANDLING` instead of altering this value.
++"""
++
++
++_spglib_error = ""
++
++
++def _check_OLD_ERROR_HANDLING() -> bool:
++    env_var = os.environ.get("SPGLIB_OLD_ERROR_HANLDING")
++    if env_var is not None:
++        if env_var.lower() in ("false", "0"):
++            return False
++        return True
++    return OLD_ERROR_HANDLING
++
++
++def _set_or_throw_error(exc: Exception, _throw: bool = False) -> None:
++    if _throw or not _check_OLD_ERROR_HANDLING():
++        if isinstance(exc, SpglibError):
++            # Our native errors we pass transparently
++            raise exc
++        # Otherwise we try to recast them to SplibError
++        raise SpglibError(f"Generic Spglib error:\n{exc}") from exc
++    warnings.warn(
++        "Set OLD_ERROR_HANDLING to false and catch the errors directly.",
++        DeprecationWarning,
++        stacklevel=2,
++    )
++    _spglib_error = str(exc)
++
++
++def _set_no_error(_throw: bool = False) -> None:
++    if _throw or not _check_OLD_ERROR_HANDLING():
++        return
++    warnings.warn(
++        "Set OLD_ERROR_HANDLING to false and catch the errors directly.",
++        DeprecationWarning,
++        stacklevel=2,
++    )
++    _spglib_error = "no error"
++
++
++@deprecated("Set OLD_ERROR_HANDLING to false and catch the errors directly")
++def get_error_message() -> str:
++    """Return error message why spglib failed.
++
++    .. warning::
++        This method is not thread safe, i.e., only safely usable
++        when calling one spglib method per process.
++
++    Notes
++    -----
++    .. versionadded:: 1.9.5
++    .. deprecated:: 2.7.0
++
++    """
++    return _spglib_error
+diff --git a/python/spglib/kpoints.py b/python/spglib/kpoints.py
+index 34d3d39943172b658229aa1917a6333f763ec88d..34fa12b6a886c217fe44146123b3738480744a44 100644
+--- a/python/spglib/kpoints.py
++++ b/python/spglib/kpoints.py
+@@ -9,7 +9,8 @@ import numpy as np
+ from numpy.typing import ArrayLike
+ 
+ from . import _spglib
+-from .spglib import Cell, _expand_cell, _set_no_error, _set_or_throw_error
++from .error import _set_no_error, _set_or_throw_error
++from .spglib import Cell, _expand_cell
+ 
+ __all__ = [
+     "get_ir_reciprocal_mesh",
+diff --git a/python/spglib/msg.py b/python/spglib/msg.py
+index aef1f02556819595c7f9ae2956ee9843886bfb60..8c2b92513c901fd962e8570b03a827275fbee9ea 100644
+--- a/python/spglib/msg.py
++++ b/python/spglib/msg.py
+@@ -13,6 +13,7 @@ from numpy.typing import ArrayLike, NDArray
+ 
+ from . import _spglib
+ from ._compat.typing import TypeAlias
++from .error import _set_no_error, _set_or_throw_error
+ from .spglib import (
+     DictInterface,
+     Lattice,
+@@ -20,8 +21,6 @@ from .spglib import (
+     Numbers,
+     Positions,
+     _expand_cell,
+-    _set_no_error,
+-    _set_or_throw_error,
+ )
+ 
+ __all__ = [
+diff --git a/python/spglib/reduce.py b/python/spglib/reduce.py
+index ad2bf2e3f233d65ed421acf3d316ce0c0f1be6d3..13a97e9280e651f2c031aa85df8c1e313993db09 100644
+--- a/python/spglib/reduce.py
++++ b/python/spglib/reduce.py
+@@ -9,7 +9,7 @@ import numpy as np
+ from numpy.typing import ArrayLike
+ 
+ from . import _spglib
+-from .spglib import _set_no_error, _set_or_throw_error
++from .error import _set_no_error, _set_or_throw_error
+ 
+ __all__ = [
+     "delaunay_reduce",
+diff --git a/python/spglib/spg.py b/python/spglib/spg.py
+index 116eef8afb7ede3fb79e7e329cf7df1ea8d4c93e..d7e60d10bb35994cb327724762634d630df9a929 100644
+--- a/python/spglib/spg.py
++++ b/python/spglib/spg.py
+@@ -16,6 +16,7 @@ import spglib
+ 
+ from . import _spglib
+ from ._compat.typing import TypeAlias
++from .error import _set_no_error, _set_or_throw_error
+ from .spglib import (
+     Cell,
+     DictInterface,
+@@ -23,8 +24,6 @@ from .spglib import (
+     Numbers,
+     Positions,
+     _expand_cell,
+-    _set_no_error,
+-    _set_or_throw_error,
+ )
+ 
+ __all__ = [
+diff --git a/python/spglib/spglib.py b/python/spglib/spglib.py
+index d0b8357cbf09fbf206f774b62b22bcf18e50179b..c2bcc9aa17f2287ff608fc6e3f85773a493f9adc 100644
+--- a/python/spglib/spglib.py
++++ b/python/spglib/spglib.py
+@@ -6,7 +6,6 @@
+ from __future__ import annotations
+ 
+ import dataclasses
+-import os
+ import warnings
+ from collections.abc import Mapping, Sequence
+ from typing import TYPE_CHECKING, Union
+@@ -18,7 +17,7 @@ import spglib
+ from . import _spglib
+ from ._compat.typing import TypeAlias
+ from ._compat.warnings import deprecated
+-from .error import SpglibError
++from .error import SpglibError, _set_no_error, _set_or_throw_error
+ 
+ if TYPE_CHECKING:
+     from collections.abc import Iterator
+@@ -27,7 +26,6 @@ if TYPE_CHECKING:
+     from numpy.typing import ArrayLike
+ 
+ __all__ = [
+-    "get_error_message",
+     "get_hall_number_from_symmetry",
+     "get_version",
+     "spg_get_commit",
+@@ -47,18 +45,6 @@ Cell: TypeAlias = Union["spglib.spg.SpgCell", "spglib.msg.MsgCell"]
+ """Either SpgCell or MsgCell."""
+ 
+ 
+-OLD_ERROR_HANDLING: bool = True
+-"""
+-Use the old error handling.
+-
+-Note that this variable may be removed in the future or change value in the future.
+-You can also use :envvar:`SPGLIB_OLD_ERROR_HANDLING` instead of altering this value.
+-"""
+-
+-
+-_spglib_error = ""
+-
+-
+ @dataclasses.dataclass(eq=True, frozen=True)
+ class DictInterface(Mapping[str, "Any"]):
+     """Base class for dataclass with dict interface.
+@@ -128,23 +114,6 @@ def spg_get_commit() -> str:
+     return _spglib.commit()
+ 
+ 
+-@deprecated("Set OLD_ERROR_HANDLING to false and catch the errors directly")
+-def get_error_message() -> str:
+-    """Return error message why spglib failed.
+-
+-    .. warning::
+-        This method is not thread safe, i.e., only safely usable
+-        when calling one spglib method per process.
+-
+-    Notes
+-    -----
+-    .. versionadded:: 1.9.5
+-    .. deprecated:: 2.7.0
+-
+-    """
+-    return _spglib_error
+-
+-
+ def _expand_cell(
+     cell: Cell,
+ ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
+@@ -195,41 +164,6 @@ def _expand_cell(
+     return (lattice, positions, numbers, magmoms)
+ 
+ 
+-def _check_OLD_ERROR_HANDLING() -> bool:
+-    env_var = os.environ.get("SPGLIB_OLD_ERROR_HANLDING")
+-    if env_var is not None:
+-        if env_var.lower() in ("false", "0"):
+-            return False
+-        return True
+-    return OLD_ERROR_HANDLING
+-
+-
+-def _set_or_throw_error(exc: Exception, _throw: bool = False) -> None:
+-    if _throw or not _check_OLD_ERROR_HANDLING():
+-        if isinstance(exc, SpglibError):
+-            # Our native errors we pass transparently
+-            raise exc
+-        # Otherwise we try to recast them to SplibError
+-        raise SpglibError(f"Generic Spglib error:\n{exc}") from exc
+-    warnings.warn(
+-        "Set OLD_ERROR_HANDLING to false and catch the errors directly.",
+-        DeprecationWarning,
+-        stacklevel=2,
+-    )
+-    _spglib_error = str(exc)
+-
+-
+-def _set_no_error(_throw: bool = False) -> None:
+-    if _throw or not _check_OLD_ERROR_HANDLING():
+-        return
+-    warnings.warn(
+-        "Set OLD_ERROR_HANDLING to false and catch the errors directly.",
+-        DeprecationWarning,
+-        stacklevel=2,
+-    )
+-    _spglib_error = "no error"
+-
+-
+ @deprecated("Use get_spacegroup_type_from_symmetry instead")
+ def get_hall_number_from_symmetry(
+     rotations: ArrayLike[np.intc],

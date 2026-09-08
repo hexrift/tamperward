@@ -1,0 +1,20 @@
+{
+ "id": "97-mercedes-benz-odxtools",
+ "repo": "mercedes-benz/odxtools",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "fc9567c484c2637ff0108ac3d5379cf79472c08a",
+ "commit_sha": "4398026c3255e4703032333baba155a0183f8d96",
+ "test_patch_sha256": "bfc0c2b9d485bcbde89b1ac0c4046bb8deb2e8ad1b58c40cafc714ec938f11ee",
+ "gold_patch_sha256": "caea2d821e22fcdec302ab704b750747c206e361fd9fe960407f4291c1f43bf6",
+ "test_files": [
+  "tests/test_dop_type_diagnostics.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T17:30:04.969Z"
+}

@@ -1,0 +1,160 @@
+diff --git a/README.rst b/README.rst
+index f0aaeccad33ff3da27655e2fd58ed2031c511f97..b88d39f8b004be6950aa505f3a1e877e0aba1395 100644
+--- a/README.rst
++++ b/README.rst
+@@ -101,7 +101,6 @@ Optional dependencies
+ These packages can be installed via ``pip install typepy[datetime]``:
+ 
+ - `python-dateutil <https://dateutil.readthedocs.io/en/stable/>`__
+-- `pytz <https://pypi.org/project/pytz/>`__
+ 
+ Usage
+ =======
+diff --git a/docs/pages/introduction/installation.rst b/docs/pages/introduction/installation.rst
+index 20d7521ce6b17cc1ca1c4888ac8cbc4f6598e642..c8959100a35f0823398ef07fc6659a05202164be 100644
+--- a/docs/pages/introduction/installation.rst
++++ b/docs/pages/introduction/installation.rst
+@@ -38,4 +38,3 @@ Optional dependencies
+ These packages can be installed via ``pip install typepy[datetime]``:
+ 
+ - `python-dateutil <https://dateutil.readthedocs.io/en/stable/>`__
+-- `pytz <https://pypi.org/project/pytz/>`__
+diff --git a/pyproject.toml b/pyproject.toml
+index 3552a2c65ee2a7b965ec580ff04f6168a545787c..f49565ac2f47847175e4b8d4a8f93fc095d6d1ef 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -35,7 +35,6 @@ known_third_party = [
+   'logbook',
+   'pytablewriter',
+   'pytest',
+-  'pytz',
+   'sphinx_rtd_theme',
+   'tcolorpy',
+ ]
+diff --git a/setup.py b/setup.py
+index 5c7d445eed2b1c691055c12830d8b45f08f5d005..8c39cfac12ff5a78372285d49092d502fceab33c 100644
+--- a/setup.py
++++ b/setup.py
+@@ -42,7 +42,6 @@ with open(os.path.join(REQUIREMENT_DIR, "test_requirements.txt")) as f:
+ 
+ DATETIME_REQUIRES = [
+     "python-dateutil>=2.8.0,<3.0.0",
+-    "pytz>=2018.9",
+     "packaging",
+ ]
+ 
+diff --git a/tox.ini b/tox.ini
+index cc7ce77e8e7ef4c3ed533eec1452306f1f1deba9..6ba1857be1e2ffc02acadf6b101444d20984d91a 100644
+--- a/tox.ini
++++ b/tox.ini
+@@ -75,7 +75,6 @@ deps =
+     mypy>=1
+     ruff>=0.8
+     types-python-dateutil
+-    types-pytz
+ commands =
+     codespell typepy docs/pages test -q2 --check-filenames
+     mypy typepy setup.py
+diff --git a/typepy/converter/_datetime.py b/typepy/converter/_datetime.py
+index f45874c2d2c3bdd0481f3aef5da57db300cf4454..3c3e616768404f5fec99c742fbbb0a5ade02fdd6 100644
+--- a/typepy/converter/_datetime.py
++++ b/typepy/converter/_datetime.py
+@@ -11,8 +11,6 @@ from ._interface import AbstractValueConverter
+ 
+ 
+ class DateTimeConverter(AbstractValueConverter):
+-    __DAYS_TO_SECONDS_COEF = 60**2 * 24
+-    __MICROSECONDS_TO_SECONDS_COEF = 1000**2
+     __COMMON_DST_TIMEZONE_TABLE = {
+         -36000: "America/Adak",  # -1000
+         -32400: "US/Alaska",  # -0900
+@@ -56,7 +54,7 @@ class DateTimeConverter(AbstractValueConverter):
+ 
+         if self.__timezone:
+             if self.__datetime.tzinfo is None:
+-                self.__datetime = self.__timezone.localize(self.__datetime)
++                self.__datetime = self.__datetime.replace(tzinfo=self.__timezone)
+             else:
+                 self.__datetime = datetime.fromtimestamp(
+                     self.__datetime.timestamp(), tz=self.__timezone
+@@ -68,35 +66,24 @@ class DateTimeConverter(AbstractValueConverter):
+         from ..type._integer import Integer
+         from ..type._realnumber import RealNumber
+ 
+-        conv_error = TypeConversionError(
+-            "timestamp is out of the range of values supported by the platform"
+-        )
+-
+         timestamp = Integer(self._value, strict_level=1).try_convert()
+-        if timestamp:
+-            try:
+-                self.__datetime = datetime.fromtimestamp(timestamp, self.__timezone)
+-            except (ValueError, OSError, OverflowError):
+-                raise conv_error
+-
+-            return self.__datetime
+-
+-        timestamp = RealNumber(self._value, strict_level=1).try_convert()
+-        if timestamp:
+-            try:
+-                self.__datetime = datetime.fromtimestamp(int(timestamp), self.__timezone).replace(
+-                    microsecond=int((timestamp - int(timestamp)) * 1000000)
+-                )
+-            except (ValueError, OSError, OverflowError):
+-                raise conv_error
++        if timestamp is None:
++            timestamp = RealNumber(self._value, strict_level=1).try_convert()
++        if timestamp is None:
++            return None
+ 
+-            return self.__datetime
++        try:
++            self.__datetime = datetime.fromtimestamp(float(timestamp), self.__timezone)
++        except (ValueError, OSError, OverflowError):
++            raise TypeConversionError(
++                "timestamp is out of the range of values supported by the platform"
++            )
+ 
+-        return None
++        return self.__datetime
+ 
+     def __from_datetime_string(self):
+         import dateutil.parser
+-        import pytz
++        from zoneinfo import ZoneInfo
+ 
+         self.__validate_datetime_string()
+ 
+@@ -113,28 +100,21 @@ class DateTimeConverter(AbstractValueConverter):
+             raise TypeConversionError(f"failed to parse as a datetime: type={type(self._value)}")
+ 
+         if self.__timezone:
+-            pytz_timezone = self.__timezone
++            tz = self.__timezone
+         else:
+             try:
+                 dst_timezone_name = self.__get_dst_timezone_name(self.__get_timedelta_sec())
+             except (AttributeError, KeyError):
+                 return self.__datetime
+ 
+-            pytz_timezone = pytz.timezone(dst_timezone_name)
++            tz = ZoneInfo(dst_timezone_name)
+ 
+-        self.__datetime = self.__datetime.replace(tzinfo=None)
+-        self.__datetime = pytz_timezone.localize(self.__datetime)
++        self.__datetime = self.__datetime.replace(tzinfo=tz)
+ 
+         return self.__datetime
+ 
+     def __get_timedelta_sec(self):
+-        dt = self.__datetime.utcoffset()
+-
+-        return int(
+-            dt.days * self.__DAYS_TO_SECONDS_COEF
+-            + float(dt.seconds)
+-            + dt.microseconds / self.__MICROSECONDS_TO_SECONDS_COEF
+-        )
++        return int(self.__datetime.utcoffset().total_seconds())
+ 
+     def __get_dst_timezone_name(self, offset):
+         return self.__COMMON_DST_TIMEZONE_TABLE[offset]

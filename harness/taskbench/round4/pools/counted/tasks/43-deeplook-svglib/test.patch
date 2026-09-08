@@ -1,0 +1,14 @@
+diff --git a/tests/test_basic.py b/tests/test_basic.py
+index ed9e5742c1461cb6315f6b06e737e83c19d44968..f38602d938c1708e3c1825a2ff5d1e1544896285 100755
+--- a/tests/test_basic.py
++++ b/tests/test_basic.py
+@@ -649,6 +649,9 @@ class TestTransformAttrConverter:
+             # Invalid/unsupported expressions return empty list
+             ("scale(0.9), translate", []),
+             ("ref(svg)", []),
++            # Unbalanced parentheses used to raise IndexError
++            ("scale(2", []),
++            ("rotate(45", []),
+         )
+         ac = svglib.Svg2RlgAttributeConverter()
+         failed = _testit(ac.convertTransform, mapping)

@@ -1,0 +1,21 @@
+{
+ "id": "75-trailofbits-fickling",
+ "repo": "trailofbits/fickling",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "913249db3bf1b29c562db77402bb3b74d0c95937",
+ "commit_sha": "99464b5c2d538ae36c41ccdbc362c1d745aa2d9d",
+ "test_patch_sha256": "2df3dcde212898b6304b41ed665893842d3c80d2217e3107362ba669a3afbbb3",
+ "gold_patch_sha256": "f09b73c4c3f7f02dc8a05e4cc7d3b67b590d328df21173f83bdc3cd2df66b8f7",
+ "test_files": [
+  "test/test_bypasses.py",
+  "test/test_pickle.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 6,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-08T12:21:45.709Z"
+}

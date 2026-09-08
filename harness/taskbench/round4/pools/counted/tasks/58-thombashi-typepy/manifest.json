@@ -1,0 +1,20 @@
+{
+ "id": "58-thombashi-typepy",
+ "repo": "thombashi/typepy",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "92958dc4094188387319538bb8ee9f313b36aa43",
+ "commit_sha": "c702aa0d7ce8257d249a034a7f52337c5aa38446",
+ "test_patch_sha256": "9b16fa2004eba2b9048111d3aa6747b01f0d0cc8e84c97cd08150136d285364f",
+ "gold_patch_sha256": "fb6b33605dea306a890a876e483fc9bee78a0acbbc9af4815b39d0420f442a53",
+ "test_files": [
+  "test/test_type.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T20:07:49.613Z"
+}

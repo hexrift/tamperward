@@ -1,0 +1,20 @@
+{
+ "id": "81-xaviviro-python-toon",
+ "repo": "xaviviro/python-toon",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "f6a7cc22a3f3088285280de1e30ab11bdb0a0633",
+ "commit_sha": "fb0f50645e7f231119d6299e030701ef45a37115",
+ "test_patch_sha256": "6096171cac16fe030fbc2cdf96649bd485d40a11d808a3c5bc48d16294e33458",
+ "gold_patch_sha256": "eb552e79bb5505130d067da4e88316c79b45b47dcedb308564141f625048f088",
+ "test_files": [
+  "tests/test_encoder.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T13:07:36.421Z"
+}

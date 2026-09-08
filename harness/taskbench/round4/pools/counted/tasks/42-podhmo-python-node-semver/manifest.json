@@ -1,0 +1,20 @@
+{
+ "id": "42-podhmo-python-node-semver",
+ "repo": "podhmo/python-node-semver",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "e8e473e995513a0acd9db45f5411f2e0d23ecbb4",
+ "commit_sha": "f7c3f71904afd87e31f0b97db4b7e7732a671d81",
+ "test_patch_sha256": "d22437d1ff954b1113ca957e58d5e2043290a9c35dbe2ef931b0c9a079ba0e7c",
+ "gold_patch_sha256": "1462f2e7a2d5cf2b07353fc2d8f6799f5928ff6cdc306885a4c91ab46fa8bc5e",
+ "test_files": [
+  "nodesemver/tests/test_regression.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T17:13:03.576Z"
+}

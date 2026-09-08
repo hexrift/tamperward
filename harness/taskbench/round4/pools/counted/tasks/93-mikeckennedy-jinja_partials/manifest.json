@@ -1,0 +1,20 @@
+{
+ "id": "93-mikeckennedy-jinja_partials",
+ "repo": "mikeckennedy/jinja_partials",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "50c8dc55e3447000ebd7654af2215920a3e04287",
+ "commit_sha": "20c0e11586e91dd69187504a349ebd4638634612",
+ "test_patch_sha256": "18b626c92620c33a8a105dec2162e4889815b6a0ecfa5e212d2a8763fcfe0097",
+ "gold_patch_sha256": "49d10fb46853c2f69954aaeaccf7c7b5a56a02f954ca66c24c3f16222e1a89d1",
+ "test_files": [
+  "tests/test_rendering.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 13,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-08T16:08:52.249Z"
+}

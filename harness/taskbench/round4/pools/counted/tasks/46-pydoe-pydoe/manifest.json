@@ -1,0 +1,20 @@
+{
+ "id": "46-pydoe-pydoe",
+ "repo": "pydoe/pydoe",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "63f3225e29c79f31fa7b8d193f12293dda233de7",
+ "commit_sha": "a62e88c0e6aa7f201a7a8e87dbced6140bd219f2",
+ "test_patch_sha256": "da25eb589c7930cef81be066c34ba3802083da7d67d990062f78e0bfd0e91e1c",
+ "gold_patch_sha256": "93a502346a2b9ee7351e594849b1ed200b94d72d5194e01d17119661340ebfa9",
+ "test_files": [
+  "tests/test_factorial.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 7,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T17:42:12.202Z"
+}

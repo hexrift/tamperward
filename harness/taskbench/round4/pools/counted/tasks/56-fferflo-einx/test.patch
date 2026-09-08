@@ -1,0 +1,66 @@
+diff --git a/test/test_shapes.py b/test/test_shapes.py
+index 280d1dc736404924bb2313f76838674a1c722f83..aa5951aab528c92cfa9b919b892c7cf9910e3906 100644
+--- a/test/test_shapes.py
++++ b/test/test_shapes.py
+@@ -253,6 +253,22 @@ def test_shape_id(setup_backend):
+             assert y.shape == (3, 2)
+             assert x.shape == (3, 10, 11, 2)
+ 
++    x = setup.full((2, 3))
++    with suppress((OperationNotSupportedError, *setup.exceptions)):
++        assert einx.id("a b, a b -> a (b + b)", x, x).shape == (2, 6)
++    with suppress((OperationNotSupportedError, *setup.exceptions)):
++        assert einx.id("a b, a b -> (b + b) a", x, x).shape == (6, 2)
++    with suppress((OperationNotSupportedError, *setup.exceptions)):
++        assert einx.id("b a, b a -> (b + b) a", x, x).shape == (4, 3)
++    with suppress((OperationNotSupportedError, *setup.exceptions)):
++        assert einx.id("b a, b a -> a (b + b)", x, x).shape == (3, 4)
++    if "torch.vmap" not in setup.name and "mlx.vmap" not in setup.name:
++        with suppress((OperationNotSupportedError, *setup.exceptions)):
++            assert einx.id("a b1, a b2 -> a (b1 + b2)", x, x).shape == (2, 6)
++        with suppress((OperationNotSupportedError, *setup.exceptions)):
++            assert einx.id("b1 a, b2 a -> a (b1 + b2)", x, x).shape == (3, 4)
++    with pytest.raises((OperationNotSupportedError, EinxError, *setup.exceptions)):
++        einx.id("a b1, a b2 -> a ((a b1) + b2)", x, x)
+ 
+ @use_backend
+ def test_shape_dot(setup_backend):
+diff --git a/test/test_values.py b/test/test_values.py
+index f626837e75fed6f6f4ef1cb48e2f30fc5fb635c4..895e80ef54922c157f05999e53e1249e96a66b2a 100644
+--- a/test/test_values.py
++++ b/test/test_values.py
+@@ -154,6 +154,34 @@ def test_values(setup_backend):
+             setup=setup,
+         )
+ 
++    if "torch.vmap" not in setup.name and "mlx.vmap" not in setup.name:
++        x = setup.full((2, 3), dtype="int32", value=0)
++        y = setup.full((2, 3), dtype="int32", value=1)
++        with suppress((OperationNotSupportedError, *setup.exceptions)):
++            z = einx.id("a b1, a b2 -> a (b1 + b2)", x, y)
++            assert_allclose(
++                z[:, :3],
++                np.zeros((2, 3)),
++                setup=setup,
++            )
++            assert_allclose(
++                z[:, 3:],
++                np.ones((2, 3)),
++                setup=setup,
++            )
++        with suppress((OperationNotSupportedError, *setup.exceptions)):
++            z = einx.id("b1 a, b2 a -> a (b1 + b2)", x, y)
++            assert_allclose(
++                z[:, :2],
++                np.zeros((3, 2)),
++                setup=setup,
++            )
++            assert_allclose(
++                z[:, 2:],
++                np.ones((3, 2)),
++                setup=setup,
++            )
++
+ 
+ @pytest.mark.computes_values
+ def test_compare_backends(setup_backend):

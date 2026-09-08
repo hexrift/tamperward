@@ -1,0 +1,282 @@
+diff --git a/graphene_django/forms/tests/test_converter.py b/graphene_django/forms/tests/test_converter.py
+index 7e2a6d34283a2a0eb33f0052c2079cc4ca97aba7..64fa8507e0456735d7143a305c7e87a699f57489 100644
+--- a/graphene_django/forms/tests/test_converter.py
++++ b/graphene_django/forms/tests/test_converter.py
+@@ -1,4 +1,4 @@
+-from django import forms
++from django import VERSION as DJANGO_VERSION, forms
+ from pytest import raises
+ 
+ from graphene import (
+@@ -19,12 +19,16 @@ from graphene import (
+ from ..converter import convert_form_field
+ 
+ 
+-def assert_conversion(django_field, graphene_field, *args):
+-    field = django_field(*args, help_text="Custom Help Text")
++def assert_conversion(django_field, graphene_field, *args, **kwargs):
++    # Arrange
++    help_text = kwargs.setdefault("help_text", "Custom Help Text")
++    field = django_field(*args, **kwargs)
++    # Act
+     graphene_type = convert_form_field(field)
++    # Assert
+     assert isinstance(graphene_type, graphene_field)
+     field = graphene_type.Field()
+-    assert field.description == "Custom Help Text"
++    assert field.description == help_text
+     return field
+ 
+ 
+@@ -59,7 +63,12 @@ def test_should_slug_convert_string():
+ 
+ 
+ def test_should_url_convert_string():
+-    assert_conversion(forms.URLField, String)
++    kwargs = {}
++    if DJANGO_VERSION >= (5, 0):
++        # silence RemovedInDjango60Warning
++        kwargs["assume_scheme"] = "https"
++
++    assert_conversion(forms.URLField, String, **kwargs)
+ 
+ 
+ def test_should_choice_convert_string():
+@@ -75,8 +84,7 @@ def test_should_regex_convert_string():
+ 
+ 
+ def test_should_uuid_convert_string():
+-    if hasattr(forms, "UUIDField"):
+-        assert_conversion(forms.UUIDField, UUID)
++    assert_conversion(forms.UUIDField, UUID)
+ 
+ 
+ def test_should_integer_convert_int():
+diff --git a/graphene_django/rest_framework/tests/test_field_converter.py b/graphene_django/rest_framework/tests/test_field_converter.py
+index b0d7a6d6caab11f78ae75b45a4b470ebfe6cc7c0..7eb907ac859ed799266bbfc4dd9a580d5ff82328 100644
+--- a/graphene_django/rest_framework/tests/test_field_converter.py
++++ b/graphene_django/rest_framework/tests/test_field_converter.py
+@@ -96,8 +96,7 @@ def test_should_regex_convert_string():
+ 
+ 
+ def test_should_uuid_convert_string():
+-    if hasattr(serializers, "UUIDField"):
+-        assert_conversion(serializers.UUIDField, graphene.String)
++    assert_conversion(serializers.UUIDField, graphene.String)
+ 
+ 
+ def test_should_model_convert_field():
+diff --git a/graphene_django/tests/test_converter.py b/graphene_django/tests/test_converter.py
+index 1499348fed8fdfa68a8a309f41a8ec748177923d..d08d07b11215fd3c4e55282cb4d672ea4aeb49a4 100644
+--- a/graphene_django/tests/test_converter.py
++++ b/graphene_django/tests/test_converter.py
+@@ -53,9 +53,8 @@ def assert_conversion(django_field, graphene_field, *args, **kwargs):
+ 
+ 
+ def test_should_unknown_django_field_raise_exception():
+-    with raises(Exception) as excinfo:
++    with raises(Exception, match="Don't know how to convert the Django field"):
+         convert_django_field(None)
+-    assert "Don't know how to convert the Django field" in str(excinfo.value)
+ 
+ 
+ def test_should_date_time_convert_string():
+@@ -115,8 +114,7 @@ def test_should_big_auto_convert_id():
+ 
+ 
+ def test_should_small_auto_convert_id():
+-    if hasattr(models, "SmallAutoField"):
+-        assert_conversion(models.SmallAutoField, graphene.ID, primary_key=True)
++    assert_conversion(models.SmallAutoField, graphene.ID, primary_key=True)
+ 
+ 
+ def test_should_uuid_convert_id():
+@@ -166,14 +164,14 @@ def test_field_with_choices_convert_enum():
+         help_text="Language", choices=(("es", "Spanish"), ("en", "English"))
+     )
+ 
+-    class TranslatedModel(models.Model):
++    class ChoicesModel(models.Model):
+         language = field
+ 
+         class Meta:
+             app_label = "test"
+ 
+     graphene_type = convert_django_field_with_choices(field).type.of_type
+-    assert graphene_type._meta.name == "TestTranslatedModelLanguageChoices"
++    assert graphene_type._meta.name == "TestChoicesModelLanguageChoices"
+     assert graphene_type._meta.enum.__members__["ES"].value == "es"
+     assert graphene_type._meta.enum.__members__["ES"].description == "Spanish"
+     assert graphene_type._meta.enum.__members__["EN"].value == "en"
+@@ -186,14 +184,14 @@ def test_field_with_callable_choices_convert_enum():
+ 
+     field = models.CharField(help_text="Language", choices=get_choices)
+ 
+-    class TranslatedModel(models.Model):
++    class CallableChoicesModel(models.Model):
+         language = field
+ 
+         class Meta:
+             app_label = "test"
+ 
+     graphene_type = convert_django_field_with_choices(field).type.of_type
+-    assert graphene_type._meta.name == "TestTranslatedModelLanguageChoices"
++    assert graphene_type._meta.name == "TestCallableChoicesModelLanguageChoices"
+     assert graphene_type._meta.enum.__members__["ES"].value == "es"
+     assert graphene_type._meta.enum.__members__["ES"].description == "Spanish"
+     assert graphene_type._meta.enum.__members__["EN"].value == "en"
+diff --git a/graphene_django/tests/test_get_queryset.py b/graphene_django/tests/test_get_queryset.py
+index d5b1d938a6f6c5d65d0089f54d1f2a1cac68ba13..d0930e4af442172c64a4e1931c0733f6b0950a67 100644
+--- a/graphene_django/tests/test_get_queryset.py
++++ b/graphene_django/tests/test_get_queryset.py
+@@ -26,6 +26,7 @@ class TestShouldCallGetQuerySetOnForeignKey:
+         class ReporterType(DjangoObjectType):
+             class Meta:
+                 model = Reporter
++                fields = "__all__"
+ 
+             @classmethod
+             def get_queryset(cls, queryset, info):
+@@ -36,6 +37,7 @@ class TestShouldCallGetQuerySetOnForeignKey:
+         class ArticleType(DjangoObjectType):
+             class Meta:
+                 model = Article
++                fields = "__all__"
+ 
+             @classmethod
+             def get_queryset(cls, queryset, info):
+@@ -200,6 +202,7 @@ class TestShouldCallGetQuerySetOnForeignKeyNode:
+         class ReporterType(DjangoObjectType):
+             class Meta:
+                 model = Reporter
++                fields = "__all__"
+                 interfaces = (Node,)
+ 
+             @classmethod
+@@ -211,6 +214,7 @@ class TestShouldCallGetQuerySetOnForeignKeyNode:
+         class ArticleType(DjangoObjectType):
+             class Meta:
+                 model = Article
++                fields = "__all__"
+                 interfaces = (Node,)
+ 
+             @classmethod
+@@ -370,6 +374,7 @@ class TestShouldCallGetQuerySetOnOneToOne:
+         class FilmDetailsType(DjangoObjectType):
+             class Meta:
+                 model = FilmDetails
++                fields = "__all__"
+ 
+             @classmethod
+             def get_queryset(cls, queryset, info):
+@@ -380,6 +385,7 @@ class TestShouldCallGetQuerySetOnOneToOne:
+         class FilmType(DjangoObjectType):
+             class Meta:
+                 model = Film
++                fields = "__all__"
+ 
+             @classmethod
+             def get_queryset(cls, queryset, info):
+diff --git a/graphene_django/tests/test_query.py b/graphene_django/tests/test_query.py
+index 42394c204ade0a45bacaa077aac10da31fb7689c..85ea14520581b91b35989b734b6565f3dbe03821 100644
+--- a/graphene_django/tests/test_query.py
++++ b/graphene_django/tests/test_query.py
+@@ -1,5 +1,6 @@
+ import base64
+ import datetime
++from unittest.mock import ANY, Mock
+ 
+ import pytest
+ from django.db import models
+@@ -2000,14 +2001,62 @@ def test_connection_should_succeed_if_last_higher_than_number_of_objects():
+     assert result.data == expected
+ 
+ 
++def test_connection_should_call_resolver_function():
++    resolver_mock = Mock(
++        name="resolver",
++        return_value=[
++            Reporter(first_name="Some", last_name="One"),
++            Reporter(first_name="John", last_name="Doe"),
++        ],
++    )
++
++    class ReporterType(DjangoObjectType):
++        class Meta:
++            model = Reporter
++            fields = "__all__"
++            interfaces = [Node]
++
++    class Query(graphene.ObjectType):
++        reporters = DjangoConnectionField(ReporterType, resolver=resolver_mock)
++
++    schema = graphene.Schema(query=Query)
++    result = schema.execute(
++        """
++        query {
++            reporters {
++                edges {
++                    node {
++                        firstName
++                        lastName
++                    }
++                }
++            }
++        }
++        """
++    )
++
++    resolver_mock.assert_called_once_with(None, ANY)
++    assert not result.errors
++    assert result.data == {
++        "reporters": {
++            "edges": [
++                {"node": {"firstName": "Some", "lastName": "One"}},
++                {"node": {"firstName": "John", "lastName": "Doe"}},
++            ],
++        },
++    }
++
++
+ def test_should_query_nullable_foreign_key():
+     class PetType(DjangoObjectType):
+         class Meta:
+             model = Pet
++            fields = "__all__"
+ 
+     class PersonType(DjangoObjectType):
+         class Meta:
+             model = Person
++            fields = "__all__"
+ 
+     class Query(graphene.ObjectType):
+         pet = graphene.Field(PetType, name=graphene.String(required=True))
+@@ -2022,10 +2071,8 @@ def test_should_query_nullable_foreign_key():
+     schema = graphene.Schema(query=Query)
+ 
+     person = Person.objects.create(name="Jane")
+-    [
+-        Pet.objects.create(name="Stray dog", age=1),
+-        Pet.objects.create(name="Jane's dog", owner=person, age=1),
+-    ]
++    Pet.objects.create(name="Stray dog", age=1)
++    Pet.objects.create(name="Jane's dog", owner=person, age=1)
+ 
+     query_pet = """
+         query getPet($name: String!) {
+@@ -2068,6 +2115,7 @@ def test_should_query_nullable_one_to_one_relation_with_custom_resolver():
+     class FilmType(DjangoObjectType):
+         class Meta:
+             model = Film
++            fields = "__all__"
+ 
+         @classmethod
+         def get_queryset(cls, queryset, info):
+@@ -2076,6 +2124,7 @@ def test_should_query_nullable_one_to_one_relation_with_custom_resolver():
+     class FilmDetailsType(DjangoObjectType):
+         class Meta:
+             model = FilmDetails
++            fields = "__all__"
+ 
+         @classmethod
+         def get_queryset(cls, queryset, info):

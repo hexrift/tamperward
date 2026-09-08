@@ -1,0 +1,20 @@
+{
+ "id": "80-fabiocaccamo-python-fsutil",
+ "repo": "fabiocaccamo/python-fsutil",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "e1d342b4b97fc3058117251bc0b106dc76a5631f",
+ "commit_sha": "fc91d1460f067bfc7ce935a2f37277892b52ded8",
+ "test_patch_sha256": "6c3f8c6a2cc20d409f83cba4d58501734ff00461ac3427aeb5435eaf5a841f86",
+ "gold_patch_sha256": "164d2b494678bae64957a4d8702592dcba5279bcb0bb3e25f8673abcf437e595",
+ "test_files": [
+  "tests/test_info.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-test.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-08T13:05:42.174Z"
+}

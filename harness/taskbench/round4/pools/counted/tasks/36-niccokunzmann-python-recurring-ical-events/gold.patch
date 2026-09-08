@@ -1,0 +1,66 @@
+diff --git a/README.rst b/README.rst
+index 7246b79ca6f95801df7a0e5d5eacb76b1805fe4a..471f5b9cb59e309a6b53d806034fdd3e5d941a62 100644
+--- a/README.rst
++++ b/README.rst
+@@ -411,6 +411,38 @@ In this example, we get an event and find that it has several alarms in it.
+     >>> len(event.walk("VALARM"))
+     2
+ 
++Edit One Event in a Calendar
++****************************
++
++You can edit events that occur in a series.
++It is important that you increase the ``SEQUENCE`` number of the event though.
++
++.. code-block:: python
++
++    >>> calendar = recurring_ical_events.example_calendar("recurring_events_moved")
++    >>> event = recurring_ical_events.of(calendar).at("20190309")[0]
++
++    # This event happens on 2019-03-09
++    >>> print(event["SUMMARY"])
++    New Event
++
++    # The attributes can be set, just not mutated
++    >>> event["SUMMARY"] = "Modified Again!"
++
++    # Make sure to increase the sequence number!
++    # If you do not do that, the modification will not appear.
++    # Try it out.
++    >>> event["SEQUENCE"] = event.get("SEQUENCE", 0) + 1
++
++    # Add the modified event ot the calendar
++    >>> calendar.add_component(event)
++
++    # Get the day again and see the modified event
++    >>> event = recurring_ical_events.of(calendar).at("20190309")[0]
++    >>> print(event["SUMMARY"])
++    Modified Again!
++
++
+ Speed
+ *****
+ 
+diff --git a/recurring_ical_events/adapters/component.py b/recurring_ical_events/adapters/component.py
+index 977cd315a1ff3c29fd45bf463ce8fc37378d915f..20192c1b850ea4737ed8c04c4452b635fe2d5c33 100644
+--- a/recurring_ical_events/adapters/component.py
++++ b/recurring_ical_events/adapters/component.py
+@@ -26,7 +26,7 @@ if TYPE_CHECKING:
+ class ComponentAdapter(ABC):
+     """A unified interface to work with icalendar components."""
+ 
+-    ATTRIBUTES_TO_DELETE_ON_COPY = ["RRULE", "RDATE", "EXDATE", "RECURRENCE-ID"]
++    ATTRIBUTES_TO_DELETE_ON_COPY = ["RRULE", "RDATE", "EXDATE"]
+ 
+     @staticmethod
+     @abstractmethod
+@@ -115,7 +115,8 @@ class ComponentAdapter(ABC):
+                     del copied_component[attribute]
+         for subcomponent in self._component.subcomponents:
+             copied_component.add_component(subcomponent)
+-        copied_component["RECURRENCE-ID"] = copied_component["DTSTART"]
++        if "RECURRENCE-ID" not in copied_component:
++            copied_component["RECURRENCE-ID"] = copied_component["DTSTART"]
+         return copied_component
+ 
+     @cached_property

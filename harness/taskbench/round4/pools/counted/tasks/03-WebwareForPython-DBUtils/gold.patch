@@ -1,0 +1,686 @@
+diff --git a/dbutils/persistent_db.py b/dbutils/persistent_db.py
+index 6c49001d2a7e42e23fa391fa198a61b4401ccd6e..6356022a8b662ee6eb54bef7cadcf616d028f68a 100644
+--- a/dbutils/persistent_db.py
++++ b/dbutils/persistent_db.py
+@@ -48,10 +48,14 @@ by creating an instance of PersistentDB, passing the following parameters:
+         really fatal for the connection and the failover mechanism shall
+         be applied (see the steady_db module for details)
+     ping: an optional flag controlling when connections are checked
+-        with the ping() method if such a method is available
+         (0 = None = never, 1 = default = whenever it is requested,
+         2 = when a cursor is created, 4 = when a query is executed,
+         7 = always, and all other bit combinations of these values)
++        By default, connections are checked with the ping() method if
++        such a method is available.  You can also pass an SQL statement
++        or a callable that shall be used for the check instead, which is
++        then made as with ping=1, or a tuple with the flag and one of the
++        latter (see the steady_db module for details).
+     closeable: if this is set to true, then closing connections will
+         be allowed, but by default this will be silently ignored
+     threadlocal: an optional class for representing thread-local data
+@@ -173,10 +177,20 @@ class PersistentDB:
+             database module maps both onto the same exception class.  The
+             callable must tolerate arbitrary exception instances, including
+             instances without args.
+-        ping: determines when the connection should be checked with ping()
++        ping: determines when the connection should be checked
+             (0 = None = never, 1 = default = whenever it is requested,
+             2 = when a cursor is created, 4 = when a query is executed,
+             7 = always, and all other bit combinations of these values)
++            By default, the connection is checked with its ping() method.
++            Since ping() is not part of the DB-API 2 specification, you
++            can also pass an SQL statement such as "select 1" that shall
++            be executed instead, or a callable that is passed the
++            underlying DB-API 2 connection and shall return whether that
++            connection is still alive.  Such a check is made as with
++            ping=1, i.e. whenever a connection is requested; if you want
++            it to be made at other times, pass a tuple with one of the
++            integer values above and the SQL statement or the callable,
++            e.g. ping=(4, "select 1").
+         closeable: if this is set to true, then closing connections will
+             be allowed, but by default this will be silently ignored
+         threadlocal: an optional class for representing thread-local data
+diff --git a/dbutils/pooled_db.py b/dbutils/pooled_db.py
+index 0da0877c0792827afa7ccc8f7c0f00c72435f7fb..304b5826eb21e61b99fe1746375fd7a02e6c1344 100644
+--- a/dbutils/pooled_db.py
++++ b/dbutils/pooled_db.py
+@@ -63,10 +63,14 @@ an instance of PooledDB, passing the following parameters:
+         really fatal for the connection and the failover mechanism shall
+         be applied (see the steady_db module for details)
+     ping: an optional flag controlling when connections are checked
+-        with the ping() method if such a method is available
+         (0 = None = never, 1 = default = whenever fetched from the pool,
+         2 = when a cursor is created, 4 = when a query is executed,
+         7 = always, and all other bit combinations of these values)
++        By default, connections are checked with the ping() method if
++        such a method is available.  You can also pass an SQL statement
++        or a callable that shall be used for the check instead, which is
++        then made as with ping=1, or a tuple with the flag and one of the
++        latter (see the steady_db module for details).
+ 
+     The creator function or the connect function of the DB-API 2 compliant
+     database module specified as the creator will receive any additional
+@@ -239,10 +243,20 @@ class PooledDB:
+             database module maps both onto the same exception class.  The
+             callable must tolerate arbitrary exception instances, including
+             instances without args.
+-        ping: determines when the connection should be checked with ping()
++        ping: determines when the connection should be checked
+             (0 = None = never, 1 = default = whenever fetched from the pool,
+             2 = when a cursor is created, 4 = when a query is executed,
+             7 = always, and all other bit combinations of these values)
++            By default, the connection is checked with its ping() method.
++            Since ping() is not part of the DB-API 2 specification, you
++            can also pass an SQL statement such as "select 1" that shall
++            be executed instead, or a callable that is passed the
++            underlying DB-API 2 connection and shall return whether that
++            connection is still alive.  Such a check is made as with
++            ping=1, i.e. whenever a connection is fetched from the pool;
++            if you want it to be made at other times, pass a tuple with
++            one of the integer values above and the SQL statement or the
++            callable, e.g. ping=(4, "select 1").
+         args, kwargs: the parameters that shall be passed to the creator
+             function or the connection constructor of the DB-API 2 module
+         """
+diff --git a/dbutils/steady_db.py b/dbutils/steady_db.py
+index a7fc2d34c20737bc6c01014e00660eda342c8718..b49b2f77a8d6d70b8fe9a413704c9405c9f4fffc 100644
+--- a/dbutils/steady_db.py
++++ b/dbutils/steady_db.py
+@@ -112,6 +112,25 @@ class InvalidCursorError(SteadyDBError):
+ InvalidCursor = InvalidCursorError
+ 
+ 
++_PING_ERROR = (
++    "'ping' must be an integer, an SQL statement, a callable,"
++    " or a tuple with an integer and one of the latter.")
++
++
++def _sql_pinger(sql):
++    """Create a check function executing the given SQL statement."""
++    def pinger(con):
++        """Check the connection by executing an SQL statement."""
++        cursor = con.cursor()
++        try:
++            cursor.execute(sql)
++        finally:
++            with suppress(Exception):
++                cursor.close()
++
++    return pinger
++
++
+ def connect(
+         creator, maxusage=None, setsession=None,
+         failures=None, ping=1, closeable=True, isfatal=None,
+@@ -143,10 +162,21 @@ def connect(
+         when the database module maps both onto the same exception class.
+         The callable must tolerate arbitrary exception instances of the
+         classes given as failures, including instances without args.
+-    ping: determines when the connection should be checked with ping()
++    ping: determines when and how the connection shall be checked
+         (0 = None = never, 1 = default = when _ping_check() is called,
+         2 = whenever a cursor is created, 4 = when a query is executed,
+-        7 = always, and all other bit combinations of these values)
++        7 = always, and all other bit combinations of these values).
++        By default, the connection is checked with its ping() method.
++        Since ping() is not part of the DB-API 2 specification and not
++        available in every database module, you can also pass an SQL
++        statement such as "select 1" that shall be executed instead, or
++        a callable that is passed the underlying DB-API 2 connection and
++        shall return whether that connection is still alive, where None
++        counts as alive and raising an exception counts as not alive.
++        Such a check is made as with ping=1, i.e. when _ping_check()
++        is called; if you want it to be made at other times, pass a tuple
++        with one of the integer values above and the SQL statement or the
++        callable, e.g. ping=(4, "select 1").
+     closeable: if this is set to false, then closing the connection will
+         be silently ignored, but by default the connection can be closed
+     args, kwargs: the parameters that shall be passed to the creator
+@@ -212,11 +242,34 @@ class SteadyDBConnection:
+         if isfatal is not None and not callable(isfatal):
+             raise TypeError("'isfatal' must be a callable.")
+         self._isfatal = isfatal
+-        self._ping = ping if isinstance(ping, int) else 0
++        self._ping, self._pinger = self._parse_ping(ping)
+         self._closeable = closeable
+         self._args, self._kwargs = args, kwargs
+         self._store(self._create())
+ 
++    @staticmethod
++    def _parse_ping(ping):
++        """Split the ping parameter into a flag and a check function.
++
++        The ping parameter determines when the connection shall be checked
++        and can also determine how it shall be checked, by passing an SQL
++        statement or a callable instead of or together with the flag.
++        """
++        if isinstance(ping, tuple):
++            try:
++                ping, pinger = ping
++            except ValueError:
++                raise TypeError(_PING_ERROR) from None
++        elif isinstance(ping, str) or callable(ping):
++            ping, pinger = 1, ping
++        else:
++            pinger = None
++        if isinstance(pinger, str):
++            pinger = _sql_pinger(pinger)
++        elif pinger is not None and not callable(pinger):
++            raise TypeError(_PING_ERROR)
++        return ping if isinstance(ping, int) else 0, pinger
++
+     def __enter__(self):
+         """Enter the runtime context for the connection object."""
+         return self
+@@ -354,29 +407,37 @@ class SteadyDBConnection:
+                 self.rollback()
+ 
+     def _ping_check(self, ping=1, reconnect=True):
+-        """Check whether the connection is still alive using ping().
++        """Check whether the connection is still alive.
++
++        The connection is checked with the check function that has been
++        derived from the ping parameter, or with the ping() method of the
++        underlying connection if no such function has been specified.
+ 
+         If the underlying connection is not active and the ping
+         parameter is set accordingly, the connection will be recreated
+         unless the connection is currently inside a transaction.
+         """
+         if ping & self._ping:
+-            try:  # if possible, ping the connection
+-                try:  # pass a reconnect=False flag if this is supported
+-                    alive = self._con.ping(False)
+-                except TypeError:  # the reconnect flag is not supported
+-                    alive = self._con.ping()
+-            except (AttributeError, IndexError, TypeError, ValueError):
+-                self._ping = 0  # ping() is not available
+-                alive = None
+-                reconnect = False
+-            except Exception:
+-                alive = False
++            if self._pinger is None:
++                try:  # if possible, ping the connection
++                    try:  # pass a reconnect=False flag if this is supported
++                        alive = self._con.ping(False)
++                    except TypeError:  # the reconnect flag is not supported
++                        alive = self._con.ping()
++                except (AttributeError, IndexError, TypeError, ValueError):
++                    self._ping = 0  # ping() is not available
++                    return None  # the connection cannot be checked
++                except Exception:
++                    alive = False
+             else:
+-                if alive is None:
+-                    alive = True
+-                if alive:
+-                    reconnect = False
++                try:  # check the connection with the given check function
++                    alive = self._pinger(self._con)
++                except Exception:
++                    alive = False
++            if alive is None:
++                alive = True
++            if alive:
++                reconnect = False
+             if reconnect and not self._transaction:
+                 try:  # try to reopen the connection
+                     con = self._create()
+diff --git a/docs/changelog.html b/docs/changelog.html
+index 92767660f1ec9a4cba7a62434d41b6b6f6dbfb6a..b444aa775d862b77d51f31b96c8a7c6990bcf89b 100644
+--- a/docs/changelog.html
++++ b/docs/changelog.html
+@@ -23,6 +23,13 @@ shall be applied. This allows distinguishing errors that merely report a
+ failed statement, such as a deliberate server side statement timeout, from
+ errors that report a broken connection, when the database module maps both
+ onto the same exception class.</p></li>
++<li><p>The <span class="docutils literal">ping</span> parameter of <span class="docutils literal">PersistentDB</span>, <span class="docutils literal">PooledDB</span> and
++<span class="docutils literal">steady_db.connect()</span> now also accepts an SQL statement such as
++<span class="docutils literal">&quot;select 1&quot;</span> or a callable that shall be used for checking the
++connections instead of the <span class="docutils literal">ping()</span> method, which is not part of the
++DB-API 2 specification and not provided by every database module.  Pass a
++tuple with the usual integer value and the SQL statement or the callable
++if the connections shall not only be checked when they are requested.</p></li>
+ <li><p>Added a <span class="docutils literal">no_failover()</span> context manager to steady cursors that suspends
+ the failover mechanism for individual statements.</p></li>
+ <li><p>Added <span class="docutils literal">dbapi_connection</span> and <span class="docutils literal">dbapi_cursor</span> attributes providing
+diff --git a/docs/changelog.rst b/docs/changelog.rst
+index 64760651ed353410fc86884340a941e5a9d809cf..afa6c9a26317047618cb86acef0e9d09a84933c5 100644
+--- a/docs/changelog.rst
++++ b/docs/changelog.rst
+@@ -15,6 +15,13 @@ Changes:
+   failed statement, such as a deliberate server side statement timeout, from
+   errors that report a broken connection, when the database module maps both
+   onto the same exception class.
++* The ``ping`` parameter of ``PersistentDB``, ``PooledDB`` and
++  ``steady_db.connect()`` now also accepts an SQL statement such as
++  ``"select 1"`` or a callable that shall be used for checking the
++  connections instead of the ``ping()`` method, which is not part of the
++  DB-API 2 specification and not provided by every database module.  Pass a
++  tuple with the usual integer value and the SQL statement or the callable
++  if the connections shall not only be checked when they are requested.
+ * Added a ``no_failover()`` context manager to steady cursors that suspends
+   the failover mechanism for individual statements.
+ * Added ``dbapi_connection`` and ``dbapi_cursor`` attributes providing
+diff --git a/docs/main.de.html b/docs/main.de.html
+index b3e705b764908e18f076a051947b499162e19a73..9c880c0bdad67989df1ccec32611c57d806992ab 100644
+--- a/docs/main.de.html
++++ b/docs/main.de.html
+@@ -43,14 +43,15 @@
+ <li><p><a class="reference internal" href="#besonderheiten-bei-der-benutzung" id="toc-entry-15">Besonderheiten bei der Benutzung</a></p>
+ <ul>
+ <li><p><a class="reference internal" href="#steuerung-der-ausfallsicherung" id="toc-entry-16">Steuerung der Ausfallsicherung</a></p></li>
++<li><p><a class="reference internal" href="#prufung-der-verbindungen" id="toc-entry-17">Prüfung der Verbindungen</a></p></li>
+ </ul>
+ </li>
+-<li><p><a class="reference internal" href="#anmerkungen" id="toc-entry-17">Anmerkungen</a></p></li>
+-<li><p><a class="reference internal" href="#zukunft" id="toc-entry-18">Zukunft</a></p></li>
+-<li><p><a class="reference internal" href="#fehlermeldungen-und-feedback" id="toc-entry-19">Fehlermeldungen und Feedback</a></p></li>
+-<li><p><a class="reference internal" href="#links" id="toc-entry-20">Links</a></p></li>
+-<li><p><a class="reference internal" href="#autoren" id="toc-entry-21">Autoren</a></p></li>
+-<li><p><a class="reference internal" href="#copyright-und-lizenz" id="toc-entry-22">Copyright und Lizenz</a></p></li>
++<li><p><a class="reference internal" href="#anmerkungen" id="toc-entry-18">Anmerkungen</a></p></li>
++<li><p><a class="reference internal" href="#zukunft" id="toc-entry-19">Zukunft</a></p></li>
++<li><p><a class="reference internal" href="#fehlermeldungen-und-feedback" id="toc-entry-20">Fehlermeldungen und Feedback</a></p></li>
++<li><p><a class="reference internal" href="#links" id="toc-entry-21">Links</a></p></li>
++<li><p><a class="reference internal" href="#autoren" id="toc-entry-22">Autoren</a></p></li>
++<li><p><a class="reference internal" href="#copyright-und-lizenz" id="toc-entry-23">Copyright und Lizenz</a></p></li>
+ </ul>
+ </nav>
+ <section id="zusammenfassung">
+@@ -289,10 +290,16 @@ Datenbankadapter-Modul nicht geeignet sein sollte</p></li>
+ kommen soll (muss als Schlüsselwort-Argument übergeben werden, siehe
+ <a class="reference internal" href="#steuerung-der-ausfallsicherung">Steuerung der Ausfallsicherung</a>)</p></li>
+ <li><p><span class="docutils literal">ping</span>: mit diesem Parameter kann eingestellt werden, wann Verbindungen
+-mit der <span class="docutils literal">ping()</span>-Methode geprüft werden, falls eine solche vorhanden ist
++geprüft werden
+ (<span class="docutils literal">0</span> = <span class="docutils literal">None</span> = nie, <span class="docutils literal">1</span> = Standardwert = immer wenn neu angefragt,
+ <span class="docutils literal">2</span> = vor Erzeugen eines Cursors, <span class="docutils literal">4</span> = vor dem Ausführen von Abfragen,
+-<span class="docutils literal">7</span> = immer, und alle Bitkombinationen dieser Werte)</p></li>
++<span class="docutils literal">7</span> = immer, und alle Bitkombinationen dieser Werte)</p>
++<p>Standardmäßig werden Verbindungen mit der <span class="docutils literal">ping()</span>-Methode geprüft, falls
++eine solche vorhanden ist. Sie können für die Prüfung stattdessen auch einen
++SQL-Befehl oder eine Funktion angeben, die dann wie bei <span class="docutils literal">ping=1</span> erfolgt,
++oder ein Tupel aus dem obigen Wert und einem der beiden
++(siehe <a class="reference internal" href="#prufung-der-verbindungen">Prüfung der Verbindungen</a>).</p>
++</li>
+ <li><p><span class="docutils literal">closeable</span>: wenn dies auf <span class="docutils literal">True</span> gesetzt wird, dann wird das Schließen
+ von Verbindungen erlaubt, normalerweise wird es jedoch ignoriert</p></li>
+ <li><p><span class="docutils literal">threadlocal</span>: eine optionale Klasse zur Speicherung thread-lokaler Daten,
+@@ -386,10 +393,16 @@ Datenbankadapter-Modul nicht geeignet sein sollte</p></li>
+ kommen soll (muss als Schlüsselwort-Argument übergeben werden, siehe
+ <a class="reference internal" href="#steuerung-der-ausfallsicherung">Steuerung der Ausfallsicherung</a>)</p></li>
+ <li><p><span class="docutils literal">ping</span>: mit diesem Parameter kann eingestellt werden, wann Verbindungen
+-mit der <span class="docutils literal">ping()</span>-Methode geprüft werden, falls eine solche vorhanden ist
++geprüft werden
+ (<span class="docutils literal">0</span> = <span class="docutils literal">None</span> = nie, <span class="docutils literal">1</span> = Standardwert = immer wenn neu angefragt,
+ <span class="docutils literal">2</span> = vor Erzeugen eines Cursors, <span class="docutils literal">4</span> = vor dem Ausführen von Abfragen,
+-<span class="docutils literal">7</span> = immer, und alle Bitkombinationen dieser Werte)</p></li>
++<span class="docutils literal">7</span> = immer, und alle Bitkombinationen dieser Werte)</p>
++<p>Standardmäßig werden Verbindungen mit der <span class="docutils literal">ping()</span>-Methode geprüft, falls
++eine solche vorhanden ist. Sie können für die Prüfung stattdessen auch einen
++SQL-Befehl oder eine Funktion angeben, die dann wie bei <span class="docutils literal">ping=1</span> erfolgt,
++oder ein Tupel aus dem obigen Wert und einem der beiden
++(siehe <a class="reference internal" href="#prufung-der-verbindungen">Prüfung der Verbindungen</a>).</p>
++</li>
+ <li><p>Die als <span class="docutils literal">creator</span> angegebene Funktion oder die Funktion <span class="docutils literal">connect</span>
+ des DB-API-2-Datenbankadapter-Moduls erhalten alle weiteren Parameter,
+ wie <span class="docutils literal">host</span>, <span class="docutils literal">database</span>, <span class="docutils literal">user</span>, <span class="docutils literal">password</span> usw. Sie können einige
+@@ -532,6 +545,53 @@ tatsächlich eine Transaktion auf dem Datenbankserver gestartet wird,
+ mit allen sich daraus ergebenden Folgen.</p>
+ </aside>
+ </section>
++<section id="prufung-der-verbindungen">
++<h3>Prüfung der Verbindungen</h3>
++<p>Verbindungen, die im Verbindungspool gehalten oder einem Thread zugeordnet
++sind, können unbrauchbar werden, wenn der Datenbankserver neu gestartet wird
++oder zu lange untätige Verbindungen abbricht. Damit dies auffällt, bevor die
++Verbindung verwendet wird, kann DBUtils sie mit der <span class="docutils literal">ping()</span>-Methode der
++zugrunde liegenden DB-API-2-Verbindung prüfen, wobei der Parameter <span class="docutils literal">ping</span>
++festlegt, wann eine solche Prüfung stattfindet.</p>
++<p>Allerdings ist <span class="docutils literal">ping()</span> nicht Teil der DB-API-2-Spezifikation, und viele
++gebräuchliche Datenbankadapter-Module stellen diese Methode nicht bereit.
++Sobald DBUtils bemerkt, dass die Methode nicht verfügbar ist, werden die
++Verbindungen überhaupt nicht mehr geprüft. In diesem Fall können Sie als
++Parameter <span class="docutils literal">ping</span> einen SQL-Befehl angeben, der stattdessen zur Prüfung
++der Verbindung ausgeführt werden soll:</p>
++<pre class="literal-block">import psycopg2
++from dbutils.pooled_db import PooledDB
++
++pool = PooledDB(psycopg2, 5, database='meinedb', ping='select 1')</pre>
++<p>Statt eines SQL-Befehls können Sie auch eine Funktion angeben, der die
++zugrunde liegende DB-API-2-Verbindung übergeben wird und die zurückgibt,
++ob diese noch intakt ist:</p>
++<pre class="literal-block">def is_healthy(con):
++    # psycopg2 weiß, ob die Verbindung bereits geschlossen wurde
++    return not con.closed
++
++pool = PooledDB(psycopg2, 5, database='meinedb', ping=is_healthy)</pre>
++<p>Die Rückgabe von <span class="docutils literal">None</span> gilt als intakt, das Auslösen einer Exception als
++nicht intakt, so dass auch eine Funktion verwendet werden kann, die einfach
++eine Datenbankoperation ausführt, ohne Fehler abzufangen. Meldet die Prüfung
++die Verbindung als nicht intakt, dann wird diese transparent durch eine neu
++geöffnete Verbindung ersetzt, genau wie wenn <span class="docutils literal">ping()</span> sie als nicht mehr
++brauchbar gemeldet hätte.</p>
++<p>Eine solche Prüfung findet immer dann statt, wenn eine Verbindung aus dem
++Verbindungspool geholt oder von einem Thread angefragt wird, also zu dem
++Zeitpunkt, der dem Wert <span class="docutils literal">ping=1</span> entspricht. Wenn sie auch zu den anderen
++Zeitpunkten stattfinden soll, dann geben Sie ein Tupel aus dem üblichen
++ganzzahligen Wert und dem SQL-Befehl oder der Funktion an:</p>
++<pre class="literal-block">pool = PooledDB(psycopg2, 5, database='meinedb', ping=(4, 'select 1'))</pre>
++<aside class="admonition warning">
++<p class="admonition-title">Warnung</p>
++<p>Jede derartige Prüfung erfordert eine zusätzliche Anfrage an den
++Datenbankserver, weshalb Sie sie nur bei wirklichem Bedarf mit <span class="docutils literal">ping=4</span>
++oder <span class="docutils literal">ping=7</span> kombinieren sollten. Bedenken Sie außerdem, dass ein zur
++Prüfung ausgeführter SQL-Befehl eine Transaktion auf dem Datenbankserver
++starten kann, wenn die Verbindung nicht im Autocommit-Modus läuft.</p>
++</aside>
++</section>
+ </section>
+ <section id="anmerkungen">
+ <h2>Anmerkungen</h2>
+diff --git a/docs/main.de.rst b/docs/main.de.rst
+index dc148acc83a483b825dfc05e287ab0d2d18c03d5..19fc4add34d8d338465f8cf2615e1cc5cf7073b9 100644
+--- a/docs/main.de.rst
++++ b/docs/main.de.rst
+@@ -278,11 +278,17 @@ Parameter angeben müssen:
+   `Steuerung der Ausfallsicherung`_)
+ 
+ * ``ping``: mit diesem Parameter kann eingestellt werden, wann Verbindungen
+-  mit der ``ping()``-Methode geprüft werden, falls eine solche vorhanden ist
++  geprüft werden
+   (``0`` = ``None`` = nie, ``1`` = Standardwert = immer wenn neu angefragt,
+   ``2`` = vor Erzeugen eines Cursors, ``4`` = vor dem Ausführen von Abfragen,
+   ``7`` = immer, und alle Bitkombinationen dieser Werte)
+ 
++  Standardmäßig werden Verbindungen mit der ``ping()``-Methode geprüft, falls
++  eine solche vorhanden ist. Sie können für die Prüfung stattdessen auch einen
++  SQL-Befehl oder eine Funktion angeben, die dann wie bei ``ping=1`` erfolgt,
++  oder ein Tupel aus dem obigen Wert und einem der beiden
++  (siehe `Prüfung der Verbindungen`_).
++
+ * ``closeable``: wenn dies auf ``True`` gesetzt wird, dann wird das Schließen
+   von Verbindungen erlaubt, normalerweise wird es jedoch ignoriert
+ 
+@@ -394,11 +400,17 @@ Parameter angeben müssen:
+   `Steuerung der Ausfallsicherung`_)
+ 
+ * ``ping``: mit diesem Parameter kann eingestellt werden, wann Verbindungen
+-  mit der ``ping()``-Methode geprüft werden, falls eine solche vorhanden ist
++  geprüft werden
+   (``0`` = ``None`` = nie, ``1`` = Standardwert = immer wenn neu angefragt,
+   ``2`` = vor Erzeugen eines Cursors, ``4`` = vor dem Ausführen von Abfragen,
+   ``7`` = immer, und alle Bitkombinationen dieser Werte)
+ 
++  Standardmäßig werden Verbindungen mit der ``ping()``-Methode geprüft, falls
++  eine solche vorhanden ist. Sie können für die Prüfung stattdessen auch einen
++  SQL-Befehl oder eine Funktion angeben, die dann wie bei ``ping=1`` erfolgt,
++  oder ein Tupel aus dem obigen Wert und einem der beiden
++  (siehe `Prüfung der Verbindungen`_).
++
+ * Die als ``creator`` angegebene Funktion oder die Funktion ``connect``
+   des DB-API-2-Datenbankadapter-Moduls erhalten alle weiteren Parameter,
+   wie ``host``, ``database``, ``user``, ``password`` usw. Sie können einige
+@@ -564,6 +576,59 @@ erfasst und auch nicht auf die Begrenzung ``maxusage`` angerechnet werden.
+     tatsächlich eine Transaktion auf dem Datenbankserver gestartet wird,
+     mit allen sich daraus ergebenden Folgen.
+ 
++Prüfung der Verbindungen
++------------------------
++Verbindungen, die im Verbindungspool gehalten oder einem Thread zugeordnet
++sind, können unbrauchbar werden, wenn der Datenbankserver neu gestartet wird
++oder zu lange untätige Verbindungen abbricht. Damit dies auffällt, bevor die
++Verbindung verwendet wird, kann DBUtils sie mit der ``ping()``-Methode der
++zugrunde liegenden DB-API-2-Verbindung prüfen, wobei der Parameter ``ping``
++festlegt, wann eine solche Prüfung stattfindet.
++
++Allerdings ist ``ping()`` nicht Teil der DB-API-2-Spezifikation, und viele
++gebräuchliche Datenbankadapter-Module stellen diese Methode nicht bereit.
++Sobald DBUtils bemerkt, dass die Methode nicht verfügbar ist, werden die
++Verbindungen überhaupt nicht mehr geprüft. In diesem Fall können Sie als
++Parameter ``ping`` einen SQL-Befehl angeben, der stattdessen zur Prüfung
++der Verbindung ausgeführt werden soll::
++
++    import psycopg2
++    from dbutils.pooled_db import PooledDB
++
++    pool = PooledDB(psycopg2, 5, database='meinedb', ping='select 1')
++
++Statt eines SQL-Befehls können Sie auch eine Funktion angeben, der die
++zugrunde liegende DB-API-2-Verbindung übergeben wird und die zurückgibt,
++ob diese noch intakt ist::
++
++    def is_healthy(con):
++        # psycopg2 weiß, ob die Verbindung bereits geschlossen wurde
++        return not con.closed
++
++    pool = PooledDB(psycopg2, 5, database='meinedb', ping=is_healthy)
++
++Die Rückgabe von ``None`` gilt als intakt, das Auslösen einer Exception als
++nicht intakt, so dass auch eine Funktion verwendet werden kann, die einfach
++eine Datenbankoperation ausführt, ohne Fehler abzufangen. Meldet die Prüfung
++die Verbindung als nicht intakt, dann wird diese transparent durch eine neu
++geöffnete Verbindung ersetzt, genau wie wenn ``ping()`` sie als nicht mehr
++brauchbar gemeldet hätte.
++
++Eine solche Prüfung findet immer dann statt, wenn eine Verbindung aus dem
++Verbindungspool geholt oder von einem Thread angefragt wird, also zu dem
++Zeitpunkt, der dem Wert ``ping=1`` entspricht. Wenn sie auch zu den anderen
++Zeitpunkten stattfinden soll, dann geben Sie ein Tupel aus dem üblichen
++ganzzahligen Wert und dem SQL-Befehl oder der Funktion an::
++
++    pool = PooledDB(psycopg2, 5, database='meinedb', ping=(4, 'select 1'))
++
++.. warning::
++    Jede derartige Prüfung erfordert eine zusätzliche Anfrage an den
++    Datenbankserver, weshalb Sie sie nur bei wirklichem Bedarf mit ``ping=4``
++    oder ``ping=7`` kombinieren sollten. Bedenken Sie außerdem, dass ein zur
++    Prüfung ausgeführter SQL-Befehl eine Transaktion auf dem Datenbankserver
++    starten kann, wenn die Verbindung nicht im Autocommit-Modus läuft.
++
+ 
+ Anmerkungen
+ ===========
+diff --git a/docs/main.html b/docs/main.html
+index 798f832b26007ce80cbbefada03c57ce486966bd..add46b19743a5c5819d881258b6faee673b58885 100644
+--- a/docs/main.html
++++ b/docs/main.html
+@@ -43,14 +43,15 @@
+ <li><p><a class="reference internal" href="#advanced-usage" id="toc-entry-15">Advanced Usage</a></p>
+ <ul>
+ <li><p><a class="reference internal" href="#controlling-the-failover-mechanism" id="toc-entry-16">Controlling the failover mechanism</a></p></li>
++<li><p><a class="reference internal" href="#checking-connections" id="toc-entry-17">Checking connections</a></p></li>
+ </ul>
+ </li>
+-<li><p><a class="reference internal" href="#notes" id="toc-entry-17">Notes</a></p></li>
+-<li><p><a class="reference internal" href="#future" id="toc-entry-18">Future</a></p></li>
+-<li><p><a class="reference internal" href="#bug-reports-and-feedback" id="toc-entry-19">Bug reports and feedback</a></p></li>
+-<li><p><a class="reference internal" href="#links" id="toc-entry-20">Links</a></p></li>
+-<li><p><a class="reference internal" href="#credits" id="toc-entry-21">Credits</a></p></li>
+-<li><p><a class="reference internal" href="#copyright-and-license" id="toc-entry-22">Copyright and License</a></p></li>
++<li><p><a class="reference internal" href="#notes" id="toc-entry-18">Notes</a></p></li>
++<li><p><a class="reference internal" href="#future" id="toc-entry-19">Future</a></p></li>
++<li><p><a class="reference internal" href="#bug-reports-and-feedback" id="toc-entry-20">Bug reports and feedback</a></p></li>
++<li><p><a class="reference internal" href="#links" id="toc-entry-21">Links</a></p></li>
++<li><p><a class="reference internal" href="#credits" id="toc-entry-22">Credits</a></p></li>
++<li><p><a class="reference internal" href="#copyright-and-license" id="toc-entry-23">Copyright and License</a></p></li>
+ </ul>
+ </nav>
+ <section id="synopsis">
+@@ -268,10 +269,14 @@ has been raised and shall return whether the connection failover mechanism
+ shall be applied (must be passed as a keyword argument, see
+ <a class="reference internal" href="#controlling-the-failover-mechanism">Controlling the failover mechanism</a>)</p></li>
+ <li><p><span class="docutils literal">ping</span>: an optional flag controlling when connections are checked
+-with the <span class="docutils literal">ping()</span> method if such a method is available
+ (<span class="docutils literal">0</span> = <span class="docutils literal">None</span> = never, <span class="docutils literal">1</span> = default = whenever it is requested,
+ <span class="docutils literal">2</span> = when a cursor is created, <span class="docutils literal">4</span> = when a query is executed,
+-<span class="docutils literal">7</span> = always, and all other bit combinations of these values)</p></li>
++<span class="docutils literal">7</span> = always, and all other bit combinations of these values)</p>
++<p>By default, connections are checked with the <span class="docutils literal">ping()</span> method if such a
++method is available. You can also pass an SQL statement or a callable that
++shall be used for the check instead, which is then made as with <span class="docutils literal">ping=1</span>,
++or a tuple with the flag and one of the latter (see <a class="reference internal" href="#checking-connections">Checking connections</a>).</p>
++</li>
+ <li><p><span class="docutils literal">closeable</span>: if this is set to true, then closing connections will
+ be allowed, but by default this will be silently ignored</p></li>
+ <li><p><span class="docutils literal">threadlocal</span>: an optional class for representing thread-local data
+@@ -353,10 +358,14 @@ has been raised and shall return whether the connection failover mechanism
+ shall be applied (must be passed as a keyword argument, see
+ <a class="reference internal" href="#controlling-the-failover-mechanism">Controlling the failover mechanism</a>)</p></li>
+ <li><p><span class="docutils literal">ping</span>: an optional flag controlling when connections are checked
+-with the <span class="docutils literal">ping()</span> method if such a method is available
+ (<span class="docutils literal">0</span> = <span class="docutils literal">None</span> = never, <span class="docutils literal">1</span> = default = whenever fetched from the pool,
+ <span class="docutils literal">2</span> = when a cursor is created, <span class="docutils literal">4</span> = when a query is executed,
+-<span class="docutils literal">7</span> = always, and all other bit combinations of these values)</p></li>
++<span class="docutils literal">7</span> = always, and all other bit combinations of these values)</p>
++<p>By default, connections are checked with the <span class="docutils literal">ping()</span> method if such a
++method is available. You can also pass an SQL statement or a callable that
++shall be used for the check instead, which is then made as with <span class="docutils literal">ping=1</span>,
++or a tuple with the flag and one of the latter (see <a class="reference internal" href="#checking-connections">Checking connections</a>).</p>
++</li>
+ <li><p>The creator function or the connect function of the DB-API 2 compliant
+ database module specified as the creator will receive any additional
+ parameters such as the host, database, user, password etc. You may
+@@ -487,6 +496,48 @@ during transactions. Keep in mind though that this really starts a
+ transaction on the database server, with all its implications.</p>
+ </aside>
+ </section>
++<section id="checking-connections">
++<h3>Checking connections</h3>
++<p>Connections that are kept in the pool or bound to a thread may become stale
++when the database server is restarted or drops connections that have been
++idle for too long. In order to notice this before the connection is used,
++DBUtils can check it with the <span class="docutils literal">ping()</span> method of the underlying DB-API 2
++connection, and the <span class="docutils literal">ping</span> parameter controls when such a check is made.</p>
++<p>However, <span class="docutils literal">ping()</span> is not part of the DB-API 2 specification, and many
++widely used database modules do not implement it. When DBUtils notices that
++the method is unavailable, it stops checking the connections altogether.
++In this case, you can pass an SQL statement as <span class="docutils literal">ping</span> parameter that shall
++be executed for checking the connection instead:</p>
++<pre class="literal-block">import psycopg2
++from dbutils.pooled_db import PooledDB
++
++pool = PooledDB(psycopg2, 5, database='mydb', ping='select 1')</pre>
++<p>Instead of an SQL statement, you can also pass a callable that is passed the
++underlying DB-API 2 connection and shall return whether it is still alive:</p>
++<pre class="literal-block">def is_healthy(con):
++    # psycopg2 knows whether the connection has been closed already
++    return not con.closed
++
++pool = PooledDB(psycopg2, 5, database='mydb', ping=is_healthy)</pre>
++<p>Returning <span class="docutils literal">None</span> counts as alive and raising an exception counts as not
++alive, so a callable that simply carries out some database operation without
++catching errors can be used as well. When the check reports the connection as
++not alive, it is transparently replaced with a newly opened connection, just
++as if <span class="docutils literal">ping()</span> had reported it as broken.</p>
++<p>Such a check is made whenever a connection is fetched from the pool or
++requested by a thread, i.e. at the time corresponding to <span class="docutils literal">ping=1</span>. If you
++want it to be made at the other times as well, pass a tuple with the usual
++integer value and the SQL statement or the callable:</p>
++<pre class="literal-block">pool = PooledDB(psycopg2, 5, database='mydb', ping=(4, 'select 1'))</pre>
++<aside class="admonition warning">
++<p class="admonition-title">Warning</p>
++<p>Every check of this kind requires an extra round trip to the database
++server, so you should combine it with <span class="docutils literal">ping=4</span> or <span class="docutils literal">ping=7</span> only when
++you really need it. Also keep in mind that an SQL statement executed for
++checking a connection can start a transaction on the database server
++when the connection does not run in autocommit mode.</p>
++</aside>
++</section>
+ </section>
+ <section id="notes">
+ <h2>Notes</h2>
+diff --git a/docs/main.rst b/docs/main.rst
+index bccc18beb81e2da7806f2acb571e9168d2f62ea7..1585e4a41d329c580caf8e13d5c7116b6b72d704 100644
+--- a/docs/main.rst
++++ b/docs/main.rst
+@@ -257,11 +257,15 @@ of ``PersistentDB``, passing the following parameters:
+   `Controlling the failover mechanism`_)
+ 
+ * ``ping``: an optional flag controlling when connections are checked
+-  with the ``ping()`` method if such a method is available
+   (``0`` = ``None`` = never, ``1`` = default = whenever it is requested,
+   ``2`` = when a cursor is created, ``4`` = when a query is executed,
+   ``7`` = always, and all other bit combinations of these values)
+ 
++  By default, connections are checked with the ``ping()`` method if such a
++  method is available. You can also pass an SQL statement or a callable that
++  shall be used for the check instead, which is then made as with ``ping=1``,
++  or a tuple with the flag and one of the latter (see `Checking connections`_).
++
+ * ``closeable``: if this is set to true, then closing connections will
+   be allowed, but by default this will be silently ignored
+ 
+@@ -361,11 +365,15 @@ following parameters:
+   `Controlling the failover mechanism`_)
+ 
+ * ``ping``: an optional flag controlling when connections are checked
+-  with the ``ping()`` method if such a method is available
+   (``0`` = ``None`` = never, ``1`` = default = whenever fetched from the pool,
+   ``2`` = when a cursor is created, ``4`` = when a query is executed,
+   ``7`` = always, and all other bit combinations of these values)
+ 
++  By default, connections are checked with the ``ping()`` method if such a
++  method is available. You can also pass an SQL statement or a callable that
++  shall be used for the check instead, which is then made as with ``ping=1``,
++  or a tuple with the flag and one of the latter (see `Checking connections`_).
++
+ * The creator function or the connect function of the DB-API 2 compliant
+   database module specified as the creator will receive any additional
+   parameters such as the host, database, user, password etc. You may
+@@ -519,6 +527,54 @@ are not counted towards the ``maxusage`` limit either.
+     during transactions. Keep in mind though that this really starts a
+     transaction on the database server, with all its implications.
+ 
++Checking connections
++--------------------
++Connections that are kept in the pool or bound to a thread may become stale
++when the database server is restarted or drops connections that have been
++idle for too long. In order to notice this before the connection is used,
++DBUtils can check it with the ``ping()`` method of the underlying DB-API 2
++connection, and the ``ping`` parameter controls when such a check is made.
++
++However, ``ping()`` is not part of the DB-API 2 specification, and many
++widely used database modules do not implement it. When DBUtils notices that
++the method is unavailable, it stops checking the connections altogether.
++In this case, you can pass an SQL statement as ``ping`` parameter that shall
++be executed for checking the connection instead::
++
++    import psycopg2
++    from dbutils.pooled_db import PooledDB
++
++    pool = PooledDB(psycopg2, 5, database='mydb', ping='select 1')
++
++Instead of an SQL statement, you can also pass a callable that is passed the
++underlying DB-API 2 connection and shall return whether it is still alive::
++
++    def is_healthy(con):
++        # psycopg2 knows whether the connection has been closed already
++        return not con.closed
++
++    pool = PooledDB(psycopg2, 5, database='mydb', ping=is_healthy)
++
++Returning ``None`` counts as alive and raising an exception counts as not
++alive, so a callable that simply carries out some database operation without
++catching errors can be used as well. When the check reports the connection as
++not alive, it is transparently replaced with a newly opened connection, just
++as if ``ping()`` had reported it as broken.
++
++Such a check is made whenever a connection is fetched from the pool or
++requested by a thread, i.e. at the time corresponding to ``ping=1``. If you
++want it to be made at the other times as well, pass a tuple with the usual
++integer value and the SQL statement or the callable::
++
++    pool = PooledDB(psycopg2, 5, database='mydb', ping=(4, 'select 1'))
++
++.. warning::
++    Every check of this kind requires an extra round trip to the database
++    server, so you should combine it with ``ping=4`` or ``ping=7`` only when
++    you really need it. Also keep in mind that an SQL statement executed for
++    checking a connection can start a transaction on the database server
++    when the connection does not run in autocommit mode.
++
+ 
+ Notes
+ =====

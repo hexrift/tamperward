@@ -1,0 +1,20 @@
+{
+ "id": "77-mirumee-ariadne-codegen",
+ "repo": "mirumee/ariadne-codegen",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "3dbd107d17b77d9662b1d2f5279defc63016e6f6",
+ "commit_sha": "3f424da8f9e1d1e1966c2f91a135c73612146980",
+ "test_patch_sha256": "00c93f58aae58464ea45b366915b0c2e905286875d45c435eb2383e24126c434",
+ "gold_patch_sha256": "091acf8bb54cc95c073a7272b61e8a7d57eb3612846ae071ff59b2b5e0c4959b",
+ "test_files": [
+  "tests/main/test_main.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T12:31:21.765Z"
+}

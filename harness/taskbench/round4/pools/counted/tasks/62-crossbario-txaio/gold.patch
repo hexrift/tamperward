@@ -1,0 +1,44 @@
+diff --git a/.audit/oberstet_fix_89.md b/.audit/oberstet_fix_89.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..eced412277f1aacc0def5978a60ab34569525601
+--- /dev/null
++++ b/.audit/oberstet_fix_89.md
+@@ -0,0 +1,8 @@
++- [ ] I did **not** use any AI-assistance tools to help create this pull request.
++- [x] I **did** use AI-assistance tools to *help* create this pull request.
++- [x] I have read, understood and followed the projects' [AI Policy](https://github.com/crossbario/autobahn-python/blob/main/AI_POLICY.md) when creating code, documentation etc. for this pull request.
++
++Submitted by: @oberstet
++Date: 2026-06-18
++Related issue(s): #89
++Branch: oberstet:fix_89
+diff --git a/docs/changelog.rst b/docs/changelog.rst
+index 6bc204a056cd59fd5401a415fd8a10682a75a4c9..cb69bdf9029188f4b90e641d7068d074f4dcb096 100644
+--- a/docs/changelog.rst
++++ b/docs/changelog.rst
+@@ -11,6 +11,10 @@ This document contains a reverse-chronological list of changes to txaio.
+ 26.6.1
+ ------
+ 
++**Fix**
++
++* Logging at ``warn`` level on the asyncio backend no longer triggers a ``DeprecationWarning`` from the standard library: ``txaio`` now dispatches the ``warn`` level to ``logging.Logger.warning`` instead of the deprecated ``.warn`` alias (`#89 <https://github.com/crossbario/txaio/issues/89>`_)
++
+ **Other**
+ 
+ * Bumped the shared ``wamp-ai`` and ``wamp-cicd`` Git submodules to match the rest of the WAMP project group (zlmdb / autobahn-python 26.6.1) for the coordinated release. The ``wamp-cicd`` bump picks up the GHSA-6658 shell-injection hardening in the shared ``identifiers.yml`` reusable workflow (untrusted GitHub event fields are now passed via ``env:`` as quoted data with a fail-closed branch-name allowlist) (`#218 <https://github.com/crossbario/txaio/issues/218>`_)
+diff --git a/src/txaio/aio.py b/src/txaio/aio.py
+index 905cc4932f2d673e74fba2242d8b1ff8f3514b61..845f87ab38c1493d63d42b92315c7f662c382485 100644
+--- a/src/txaio/aio.py
++++ b/src/txaio/aio.py
+@@ -162,6 +162,10 @@ def _log(logger, level, format="", **kwargs):
+     if level == "trace":
+         level = "debug"
+         kwargs["txaio_trace"] = True
++    elif level == "warn":
++        # stdlib logging.Logger.warn() is the deprecated alias of .warning();
++        # dispatch to the non-deprecated method to avoid a DeprecationWarning (#89)
++        level = "warning"
+ 
+     msg = format.format(**kwargs)
+     getattr(logger._logger, level)(msg)
