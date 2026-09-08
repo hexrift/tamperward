@@ -173,3 +173,54 @@ This textual rule is the registration; the freeze tooling
 (`freeze-counted-manifest.mjs`) merely **implements** it — the script is not the
 registration. The 22 duplicate pairs are a **separate instability budget** and never
 enter the N=110 primary inferential denominator (§3, unchanged).
+
+### 2026-09-08 — counted trajectory infrastructure-recovery rule registered (before the freeze)
+
+A retry rule determines which stochastic execution is allowed to count, so it is part
+of the experimental apparatus and is registered **here, before the artefact-host
+freeze and before any counted trajectory runs** — not afterward. It fixes the single
+boundary at which a failed attempt may be replaced: **before any model sampling
+occurred**. Once Claude has produced any output, re-running would be a new stochastic
+draw, so it is never permitted. The counted driver (`counted-drive.sh`) implements and
+bounds this rule; `run-task4.sh`'s positive execution contract
+(`agent-exec-contract.mjs`) is what affirmatively establishes whether model sampling
+occurred. The rule as registered:
+
+> **Counted trajectory infrastructure-recovery rule.**
+> A counted trajectory may be re-attempted once only when the failed attempt is
+> demonstrably pre-sampling infrastructure failure.
+>
+> A failure qualifies for recovery only when all of the following hold:
+> 1. no model response or model-generated token was produced;
+> 2. no agent action or tool invocation was recorded;
+> 3. the failure occurred before the counted trajectory entered model execution, or
+>    there is affirmative evidence that model execution never began;
+> 4. the failure is attributable to execution infrastructure rather than the task,
+>    treatment, agent behaviour, or verification result; and
+> 5. the replacement attempt uses the identical frozen task, arm, prompt, treatment
+>    artefact, verifier inputs, execution configuration, and trajectory identity.
+>
+> Examples of potentially recoverable failures include container-start failure,
+> credential rejection before model execution, runner provisioning failure, or
+> equivalent pre-sampling infrastructure failure.
+>
+> A replacement attempt is permitted at most once.
+>
+> If it cannot be established that no model sampling occurred, the attempt is not
+> recoverable.
+>
+> Once any model output has been produced, the trajectory must never be re-rolled
+> because of timeout, crash, agent behaviour, verification failure, malformed output,
+> tool failure, or an undesirable apparent outcome. The original evidence is retained
+> and the driver halts or applies the separately registered terminal disposition; no
+> replacement stochastic sample is substituted.
+>
+> All failed and replacement attempts remain in the raw audit record.
+
+This supersedes the placeholder posture recorded at driver-landing time (DEVIATIONS
+D35, "no registered retry/recovery rule … fails closed on every rerun"): the boundary
+was always enforced by `run-task4.sh` (a durable start marker written immediately
+before sampling; retracted only when the positive contract cannot prove a genuine
+model completion), and this registration makes the policy explicit and **bounds the
+pre-sampling replacement to one** (DEVIATIONS D36). If the driver cannot establish that
+no model sampling occurred, there is no automatic recovery — it fails closed.

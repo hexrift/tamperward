@@ -1336,6 +1336,7 @@ mkcdstub(){ local L; L=$(mktemp -d /tmp/tb-cdl-XXXXXX); mkdir -p "$L/runs"; cat 
 #!/usr/bin/env bash
 task="$1"; arm="$2"
 echo "STUB $task $arm" >> "$TB_RUNS/../stub-calls.log"
+echo "${TB_EXEC_ATTEMPT:-none}" >> "$TB_RUNS/../attempts.log"
 viol(){ echo "$1" >> "$TB_RUNS/../strict-violations.log"; exit 70; }
 [ "${TB_RUNTASK4_READY:-}" = 1 ]        || viol "TB_RUNTASK4_READY not set — a real runner would exit 78"
 [ -n "${TB_PILOT_MANIFEST:-}" ] && [ -s "${TB_PILOT_MANIFEST}" ] || viol "runner-view missing (TB_PILOT_MANIFEST)"
@@ -1396,13 +1397,49 @@ L=$(mkcdstub); STUB_FAIL=1 cdrv "$L" --all >/dev/null 2>&1
 [ "$(wc -l < "$L/runs/stub-calls.log")" = 1 ] && ok "a failing counted trajectory stops the driver — nothing further is attempted" || no "the counted driver continued past a failure"
 rm -rf "$L"
 
-# No re-roll: a started-but-verdictless trajectory HALTS for adjudication; only a
-# recorded human disposition releases it. There is NO registered retry rule.
+# No re-roll of a SAMPLED trajectory: a started-but-verdictless trajectory (run-task4.sh
+# retained its start marker because the positive contract proved a model completion)
+# HALTS for adjudication; only a recorded human disposition releases it. The recovery
+# rule (D36) covers PRE-sampling failures only and never this one.
 L=$(mkcdstub); STUB_START_ONLY=1 cdrv "$L" --next >/dev/null 2>&1
-[ "$(cdrvrc "$L" --next)" = 3 ] && ok "a started counted trajectory with no verdict HALTS the driver — never re-rolled" || no "a started counted trajectory was re-rolled"
+[ "$(cdrvrc "$L" --next)" = 3 ] && ok "a started (sampled) counted trajectory with no verdict HALTS the driver — never re-rolled" || no "a started counted trajectory was re-rolled"
 t1=$(jq -r '.execution.primary.trajectories[0].task' "$CDM"); a1=$(jq -r '.execution.primary.trajectories[0].arm' "$CDM")
 : > "$L/runs/seq-001/${t1}-${a1}.adjudicated"
 [ "$(cdrvrc "$L" --check)" = 0 ] && ok "and only a recorded human disposition releases the counted halt" || no "the counted halt did not clear on adjudication"
+rm -rf "$L"
+
+# The registered infrastructure-recovery rule (D36): a PRE-sampling failure — the stub
+# exits WITHOUT writing a start marker, exactly as run-task4.sh leaves a seq when its
+# positive contract cannot prove a model completion (marker retracted) — may be
+# re-attempted AT MOST ONCE; a second pre-sampling failure exhausts that one
+# replacement and HALTS (fail closed). Sampling is never re-rolled (covered above).
+L=$(mkcdstub)
+STUB_FAIL=1 cdrv "$L" --next >/dev/null 2>&1                  # attempt 1 (original) fails pre-sampling
+[ "$(cdrvrc "$L" --check)" = 0 ] \
+  && ok "one pre-sampling infrastructure failure leaves the trajectory recoverable — the one registered replacement is permitted" \
+  || no "a first pre-sampling failure was not recoverable"
+STUB_FAIL=1 cdrv "$L" --next >/dev/null 2>&1                  # attempt 2 (the one replacement) fails pre-sampling
+[ "$(grep -c '^STUB ' "$L/runs/stub-calls.log")" = 2 ] \
+  && ok "the one permitted replacement re-attempts the identical frozen trajectory (2 attempts ran)" \
+  || no "the registered replacement did not re-attempt the trajectory"
+[ "$(cdrvrc "$L" --check)" = 3 ] \
+  && ok "a second pre-sampling failure exhausts the one replacement and HALTS (fail closed, exit 3)" \
+  || no "the recovery cap was not enforced — a third attempt was allowed"
+[ "$(cdrvrc "$L" --all)" = 3 ] && ok "and --all refuses past the cap rather than re-rolling" || no "--all re-rolled past the recovery cap"
+[ "$(grep -c '"event":"finished"' "$L/runs/counted-execution-log.jsonl")" = 2 ] \
+  && ok "both failed attempts remain in the raw audit record" || no "the failed attempts are not both recorded"
+[ "$(tr '\n' ' ' < "$L/runs/attempts.log")" = "1 2 " ] \
+  && ok "each attempt is dispatched with an incrementing ordinal (TB_EXEC_ATTEMPT 1 then 2), so its evidence is separately namespaced" \
+  || no "the attempt ordinal did not increment (got: '$(tr '\n' ' ' < "$L/runs/attempts.log")')"
+rm -rf "$L"
+
+# A recovery-exhausted halt, like a sampled halt, releases ONLY on a recorded human
+# disposition — never by the driver's own hand.
+L=$(mkcdstub)
+STUB_FAIL=1 cdrv "$L" --next >/dev/null 2>&1; STUB_FAIL=1 cdrv "$L" --next >/dev/null 2>&1
+tE=$(jq -r '.execution.primary.trajectories[0].task' "$CDM"); aE=$(jq -r '.execution.primary.trajectories[0].arm' "$CDM")
+: > "$L/runs/seq-001/${tE}-${aE}.adjudicated"
+[ "$(cdrvrc "$L" --check)" = 0 ] && ok "a recorded human disposition releases a recovery-exhausted counted halt too" || no "the recovery-exhausted halt did not clear on adjudication"
 rm -rf "$L"
 
 # Out-of-order execution is impossible by construction: no way to name a seq, and

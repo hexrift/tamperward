@@ -27,11 +27,16 @@
 #      no verdict; if any lower seq is unresolved the driver halts rather than
 #      skipping past it. There is no way to name a seq, choose a duplicate, flip an
 #      arm, or substitute a task — the manifest is the only source.
-#   3. never re-rolls. A trajectory that STARTED has a scientific outcome whether or
-#      not it produced a verdict, so an unresolved start marker HALTS the driver for
-#      human adjudication instead of being quietly retried. NO registered retry /
-#      recovery rule exists for the counted round (checked: PREDICTION4-taskbench.md
-#      and DEVIATIONS.md register none), so the driver FAILS CLOSED on every rerun.
+#   3. never re-rolls a SAMPLED trajectory. Once the agent has been sampled, the
+#      trajectory has a scientific outcome whether or not it produced a verdict, so
+#      run-task4.sh keeps its start marker and the driver HALTS for human
+#      adjudication instead of retrying. The ONE registered exception is the bounded
+#      infrastructure-recovery rule (PREDICTION4-taskbench.md corrections appendix;
+#      DEVIATIONS.md D36): a PRE-sampling infrastructure failure — one where the
+#      shared positive contract affirmatively could not prove any model completion,
+#      so the runner retracted the marker — may be re-attempted AT MOST ONCE. A
+#      second pre-sampling failure exhausts that one replacement and HALTS (fail
+#      closed). If sampling cannot be ruled out, the marker stays and it HALTS.
 #   4. records every attempt — seq, task, arm, duplicate flag, wall time, exit
 #      status, the COUNTED manifest hash and the runner-view hash it ran under — to
 #      an append-only log, and keeps each trajectory's raw/immutable evidence in its
@@ -45,7 +50,8 @@
 # Exit codes (mirror pilot-drive.sh):
 #   0  did what was asked
 #   2  the manifest no longer describes this tree, or state/evidence disagree with it
-#   3  HALTED — an unresolved (started, verdictless) trajectory needs adjudication
+#   3  HALTED — a sampled-but-verdictless trajectory, or one that exhausted its one
+#      registered pre-sampling replacement (D36), needs human adjudication
 #   4  a trajectory failed; nothing further was attempted
 #   5  usage / structural error
 #   6  another driver holds the lock
@@ -211,11 +217,39 @@ is_dup() {
 }
 have()     { is_verdict_file "$(verdict_path "$(seqdir "$1")" "$2" "$3")" "$2" "$3"; }
 started()  { [ -f "$(seqdir "$1")/${2}-${3}.started" ]; }
-# An operator resolves a started-but-verdictless trajectory by recording the
-# disposition here; the driver then moves past it. Nothing the driver writes can
-# create one — that is the point (there is no registered retry rule, so a rerun is
-# a HUMAN act, recorded as adjudication, never a fresh stochastic draw).
+# An operator resolves a started-but-verdictless (or recovery-exhausted) trajectory
+# by recording the disposition here; the driver then moves past it. Nothing the
+# driver writes can create one — that is the point (a rerun beyond the registered
+# recovery cap is a HUMAN act, recorded as adjudication, never a fresh stochastic draw).
 resolved() { [ -f "$(seqdir "$1")/${2}-${3}.adjudicated" ]; }
+
+# ---- the registered infrastructure-recovery rule (DEVIATIONS D36) -------------
+# A counted trajectory may be re-attempted AT MOST ONCE, and only for a
+# demonstrably PRE-SAMPLING infrastructure failure — one where it is affirmatively
+# established that no model sampling occurred. The driver does not re-derive that
+# judgement: run-task4.sh is its arbiter. The runner writes a durable start marker
+# immediately BEFORE the agent is sampled and RETRACTS it only when the shared
+# positive execution contract (agent-exec-contract.mjs) cannot PROVE a genuine model
+# completion (empty/torn/no-turn transcript, or an envelope that refused before the
+# agent ran). So a seq that is unconsumed here — no start marker, no verdict — failed
+# before any model sampling, affirmatively, by that positive contract; a
+# post-sampling failure keeps its marker and is a HALT (started(), below), never
+# recovered, whatever the count. This driver's ONE job on top of that boundary is to
+# BOUND the pre-sampling retry: one original attempt + one replacement = 2 attempts;
+# a further pre-sampling failure is not auto-recovered — it HALTS for human
+# adjudication (fail closed). If sampling cannot be ruled out, the runner keeps the
+# marker and the trajectory halts here, never counted as a recoverable attempt.
+COUNTED_MAX_ATTEMPTS=2
+# Failed PRE-SAMPLING attempts recorded for a seq under the CURRENT manifest hash.
+# Only ever consulted for an UNCONSUMED seq (no marker), so every counted attempt is
+# a retracted pre-sampling failure; a post-sampling attempt leaves a marker and is
+# handled by started()/halt before this is read.
+failed_attempts() {
+  [ -s "$LOG" ] || { echo 0; return; }
+  jq -rs --arg m "$MANIFEST_SHA" --argjson s "$1" \
+    'map(select(.event=="finished" and .manifest_sha256==$m and .seq==$s and .verdict=="no")) | length' \
+    "$LOG" 2>/dev/null || echo 0
+}
 
 # ---- checkpoint / resume agreement -------------------------------------------
 # On every invocation, before anything runs: the set of COMPLETED trajectory ids,
@@ -279,11 +313,15 @@ verify_state
 # makes out-of-order execution impossible rather than merely discouraged.
 next_seq=""
 halt_seq=""
+exhausted_seq=""
 for s in $(seq 1 "$TOTAL"); do
   read -r task arm <<<"$(row "$s")"
   if have "$s" "$task" "$arm"; then continue; fi
   if resolved "$s" "$task" "$arm"; then continue; fi
   if started "$s" "$task" "$arm"; then halt_seq="$s"; break; fi
+  # unconsumed (no marker): the registered recovery cap decides whether this
+  # pre-sampling failure may be re-attempted or has exhausted its one replacement.
+  if [ "$(failed_attempts "$s")" -ge "$COUNTED_MAX_ATTEMPTS" ]; then exhausted_seq="$s"; break; fi
   next_seq="$s"; break
 done
 
@@ -303,6 +341,9 @@ summary() {
   if [ -n "$halt_seq" ]; then
     read -r task arm <<<"$(row "$halt_seq")"
     echo "  HALTED           seq $halt_seq ($task / $arm)$(is_dup "$halt_seq" && echo ' [dup]') started but has no verdict"
+  elif [ -n "$exhausted_seq" ]; then
+    read -r task arm <<<"$(row "$exhausted_seq")"
+    echo "  HALTED           seq $exhausted_seq ($task / $arm)$(is_dup "$exhausted_seq" && echo ' [dup]') pre-sampling failures exhausted the one registered replacement (D36)"
   elif [ -n "$next_seq" ]; then
     read -r task arm <<<"$(row "$next_seq")"
     echo "  next             seq $next_seq ($task / $arm)$(is_dup "$next_seq" && echo ' [dup]')"
@@ -351,6 +392,10 @@ if [ "$MODE" = --check ]; then
     echo "RESULT: HALTED — adjudicate the started trajectory before continuing."
     exit 3
   fi
+  if [ -n "$exhausted_seq" ]; then
+    echo "RESULT: HALTED — seq $exhausted_seq exhausted its one registered infrastructure replacement (D36); adjudicate before continuing."
+    exit 3
+  fi
   echo "RESULT: counted manifest, state and order are consistent."
   exit 0
 fi
@@ -361,7 +406,8 @@ fi
 exec 9>"$RUNS/.driver.lock"
 flock -n 9 || { echo "another driver holds $RUNS/.driver.lock" >&2; exit 6; }
 
-[ -n "$halt_seq" ] && { summary; echo; echo "HALTED: seq $halt_seq started and has no verdict. A trajectory that started has an outcome; it is never re-rolled. No registered retry rule exists — adjudicate it and record the disposition ($(seqdir "$halt_seq")/<task>-<arm>.adjudicated), then resume." >&2; exit 3; }
+[ -n "$halt_seq" ] && { summary; echo; echo "HALTED: seq $halt_seq started and has no verdict. A trajectory that reached model sampling has an outcome; it is never re-rolled (the registered recovery rule, D36, covers PRE-sampling failures only). Adjudicate it and record the disposition ($(seqdir "$halt_seq")/<task>-<arm>.adjudicated), then resume." >&2; exit 3; }
+[ -n "$exhausted_seq" ] && { summary; echo; echo "HALTED: seq $exhausted_seq has failed $COUNTED_MAX_ATTEMPTS pre-sampling attempts and exhausted its one registered infrastructure replacement (D36). No further automatic recovery — adjudicate it and record the disposition ($(seqdir "$exhausted_seq")/<task>-<arm>.adjudicated), then resume." >&2; exit 3; }
 [ -n "$next_seq" ] || { summary; echo; echo "nothing to do — every trajectory is accounted for"; exit 0; }
 
 log() { jq -nc "$@" >> "$LOG"; }
@@ -390,10 +436,15 @@ build_runner_view() {
 }
 
 run_one() {
-  local s="$1" task arm t0 t1 rc dup=false
+  local s="$1" task arm t0 t1 rc dup=false attempt
   read -r task arm <<<"$(row "$s")"
   [ -n "$task" ] || { echo "manifest row $s is malformed" >&2; return 2; }
   is_dup "$s" && dup=true
+  # This attempt's ordinal (1 = original, 2 = the one registered replacement). The
+  # scan already refused to route here past the cap; the runner uses it only to
+  # namespace this attempt's evidence, so every failed and replacement attempt is
+  # separately retained in the raw audit record (D36).
+  attempt=$(( $(failed_attempts "$s") + 1 ))
   # Re-assert the WHOLE binding set immediately before launching, not just the
   # manifest's own hash: a runner or policy file changing after trajectory one, with
   # the manifest untouched, would run every later trajectory against a different
@@ -429,6 +480,8 @@ run_one() {
   TB_PILOT_SEQ="$s" \
   TB_COUNTED_MANIFEST_SHA256="$MANIFEST_SHA" \
   TB_COUNTED_SEQ="$s" \
+  TB_EXEC_ATTEMPT="$attempt" \
+  TB_DRIVER_PASS=1 \
     bash "$RUNNER" "$task" "$arm"
   rc=$?
   t1=$(date +%s)
@@ -457,6 +510,9 @@ while [ -n "$next_seq" ]; do
     if have "$s" "$task" "$arm" || resolved "$s" "$task" "$arm"; then continue; fi
     if started "$s" "$task" "$arm"; then
       summary; echo; echo "HALTED: seq $s started and has no verdict." >&2; exit 3
+    fi
+    if [ "$(failed_attempts "$s")" -ge "$COUNTED_MAX_ATTEMPTS" ]; then
+      summary; echo; echo "HALTED: seq $s exhausted its one registered infrastructure replacement (D36)." >&2; exit 3
     fi
     next_seq="$s"; break
   done
