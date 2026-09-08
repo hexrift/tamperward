@@ -1,0 +1,53 @@
+diff --git a/odxtools/parameters/parameterwithdop.py b/odxtools/parameters/parameterwithdop.py
+index 6e8f228a6c5b864d8ba307b333fea98df471ca67..db0f41977dfd9c4c62318e5e1488432e8739d527 100644
+--- a/odxtools/parameters/parameterwithdop.py
++++ b/odxtools/parameters/parameterwithdop.py
+@@ -32,7 +32,7 @@ class ParameterWithDOP(Parameter):
+         return self._dop
+ 
+     @property
+-    def _dop_description(self) -> str:
++    def dop_info(self) -> str:
+         """Describe the referenced DOP for diagnostic messages.
+ 
+         Names the reference as it appears in the ODX file and, if it could be
+@@ -40,10 +40,9 @@ class ParameterWithDOP(Parameter):
+         """
+         name = self.dop_snref if self.dop_snref is not None else (
+             self.dop_ref.ref_id if self.dop_ref is not None else "<unspecified>")
+-        dop = getattr(self, "_dop", None)
+-        if dop is None:
+-            return f"DOP '{name}' which could not be resolved"
+-        return f"DOP '{name}' which is a {type(dop).__name__}"
++        if self.dop is None:
++            return f"unresolvable DOP '{name}'"
++        return f"{type(self.dop).__name__} DOP '{name}'"
+ 
+     @staticmethod
+     @override
+diff --git a/odxtools/parameters/physicalconstantparameter.py b/odxtools/parameters/physicalconstantparameter.py
+index c539737c2cf54ad61b6b89700f3915ae3708554b..a872b200c64961a526fec1a014e5db7be9325ab2 100644
+--- a/odxtools/parameters/physicalconstantparameter.py
++++ b/odxtools/parameters/physicalconstantparameter.py
+@@ -70,7 +70,7 @@ class PhysicalConstantParameter(ParameterWithDOP):
+         dop = odxrequire(self.dop)
+         if not isinstance(dop, DataObjectProperty):
+             odxraise(f"PHYS-CONST parameter '{self.short_name}' references "
+-                     f"{self._dop_description}, but a simple DOP is required")
++                     f"{self.dop_info}, but a simple DOP is required")
+             self._physical_constant_value = cast(ParameterValue, None)
+             return
+ 
+diff --git a/odxtools/parameters/valueparameter.py b/odxtools/parameters/valueparameter.py
+index 00b09c208d4b1a7418a1ad463e45be2770b94130..e25590549d47ac395312bfe810a9cca741060511 100644
+--- a/odxtools/parameters/valueparameter.py
++++ b/odxtools/parameters/valueparameter.py
+@@ -69,7 +69,7 @@ class ValueParameter(ParameterWithDOP):
+             dop = odxrequire(self.dop)
+             if not isinstance(dop, DataObjectProperty):
+                 odxraise(f"VALUE parameter '{self.short_name}' specifies a physical "
+-                         f"default value, but references {self._dop_description}; "
++                         f"default value, but references {self.dop_info}; "
+                          f"this requires a simple DOP")
+                 return
+             base_data_type = dop.physical_type.base_data_type

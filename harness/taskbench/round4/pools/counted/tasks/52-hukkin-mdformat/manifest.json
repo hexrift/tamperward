@@ -1,0 +1,20 @@
+{
+ "id": "52-hukkin-mdformat",
+ "repo": "hukkin/mdformat",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "6b47904826b107356cd34509d2cc4f74455798eb",
+ "commit_sha": "56e221da358612cbae25c7dde371f30607ded566",
+ "test_patch_sha256": "fe40d061328f8cec5c1c6288379ed39325b966e1d0d910fc65508f8000caa32c",
+ "gold_patch_sha256": "3d6698959de0633ef602593d497adea24377e7dbb903961b1d2823fa63288931",
+ "test_files": [
+  "tests/test_plugins.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T18:19:10.316Z"
+}

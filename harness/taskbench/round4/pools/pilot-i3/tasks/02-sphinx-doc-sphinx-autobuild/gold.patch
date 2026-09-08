@@ -1,0 +1,25 @@
+diff --git a/NEWS.rst b/NEWS.rst
+index 58ef6fba25d8cdc2406e9823b1cf271717592d15..87c4a9a1f5822d54cfd16873dc85281012f1f9f8 100644
+--- a/NEWS.rst
++++ b/NEWS.rst
+@@ -4,6 +4,8 @@ Changelog
+ unreleased
+ ----------
+ 
++* Set ``Cache-Control`` header to ```no-cache``` for served files.
++
+ 2025.08.25 - 2025-08-25
+ -----------------------
+ 
+diff --git a/sphinx_autobuild/middleware.py b/sphinx_autobuild/middleware.py
+index 2652a0c1dab2f5082562a1b12ae9087007632ba8..ae12575a5c929f72b5cd698faff370574fc8532f 100644
+--- a/sphinx_autobuild/middleware.py
++++ b/sphinx_autobuild/middleware.py
+@@ -38,6 +38,7 @@ class JavascriptInjectorMiddleware:
+                     if "Content-Length" in headers:
+                         length = int(headers["Content-Length"]) + len(self.script)
+                         headers["Content-Length"] = str(length)
++                headers["Cache-Control"] = "no-cache"
+             elif message["type"] == "http.response.body":
+                 request_complete = not message.get("more_body", False)
+                 if add_script and request_complete:

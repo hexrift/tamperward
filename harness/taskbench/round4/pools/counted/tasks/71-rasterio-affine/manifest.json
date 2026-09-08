@@ -1,0 +1,21 @@
+{
+ "id": "71-rasterio-affine",
+ "repo": "rasterio/affine",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "57a5dd16898ead9416908c89674c4a9d7346a339",
+ "commit_sha": "217f2d201c7ab7c99125a4f3dc6478e93b3e9f8e",
+ "test_patch_sha256": "239c2e5d9b8f8d4e92938d6e841308ef7bed23645a7c330ecef3846f9b281650",
+ "gold_patch_sha256": "fd1e4fb2fda5ea310ed1374a64fd8b645c0ec59282508ff186270cdd0d7716ce",
+ "test_files": [
+  "tests/test_numpy.py",
+  "tests/test_transform.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T01:22:04.801Z"
+}

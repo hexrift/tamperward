@@ -1,0 +1,23 @@
+{
+ "id": "08-joke2k-django-environ",
+ "repo": "joke2k/django-environ",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "32d01266cf7c0e5f894e0a1eb4b6af8f863ac0cf",
+ "commit_sha": "5b3188a57e01ad56b792b5bd145bb7ce24b7f906",
+ "test_patch_sha256": "72f698cd5d3a80d92baacf01c552e4da98956e7f773a4247265b9f9c660363fc",
+ "gold_patch_sha256": "db5f6e07136d4be0faf16446d2181b57d264faf764d7fcede3b77710ec375ccb",
+ "test_files": [
+  "tests/test_env.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 4,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-06T17:57:28.340Z",
+ "oracle_case_count": 4,
+ "heldout_oracle_available": true,
+ "oracle_count_status": "measured"
+}

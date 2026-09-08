@@ -1,0 +1,22 @@
+diff --git a/bottle.py b/bottle.py
+index 053f9b41add28cbbf926bab5cf6366c138d2ba22..7d3ecefc8606a93788baa4b2ffc32c0ce5687d98 100755
+--- a/bottle.py
++++ b/bottle.py
+@@ -2822,12 +2822,13 @@ def static_file(filename, root,
+ 
+     if etag:
+         headers['ETag'] = etag
+-        check = getenv('HTTP_IF_NONE_MATCH')
+-        if check and check == etag:
+-            return HTTPResponse(status=304, **headers)
++
++    inm = getenv('HTTP_IF_NONE_MATCH')
++    if inm and inm == etag:
++        return HTTPResponse(status=304, **headers)
+ 
+     ims = getenv('HTTP_IF_MODIFIED_SINCE')
+-    if ims:
++    if ims and not inm:
+         ims = parse_date(ims.split(";")[0].strip())
+         if ims is not None and ims >= int(stats.st_mtime):
+             return HTTPResponse(status=304, **headers)

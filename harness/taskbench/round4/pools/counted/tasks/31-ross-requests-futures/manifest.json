@@ -1,0 +1,20 @@
+{
+ "id": "31-ross-requests-futures",
+ "repo": "ross/requests-futures",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "ba0adf051bcb8fec38921339e1140721cdb65bf9",
+ "commit_sha": "9e47e8d91de800eab5dc745f82c30452389ac368",
+ "test_patch_sha256": "ed91ba56c7e4ff49d2df7634bb8da73128917bb28b3abe9424c881434f8843d4",
+ "gold_patch_sha256": "3a62a9602435728b62bc9d9e5d8564d2cd260e5a3cab9273671319ec26747a40",
+ "test_files": [
+  "tests/test_requests_futures.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T13:46:44.781Z"
+}

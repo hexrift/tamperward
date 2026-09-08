@@ -17,9 +17,23 @@
 //   node ci-upstream-proxy.mjs [port]    # default 8888, on 127.0.0.1
 import net from 'node:net';
 import http from 'node:http';
+import fs from 'node:fs';
 
 const PORT = Number(process.argv[2] || process.env.TB_UPSTREAM_PORT || 8888);
 const HOST = '127.0.0.1';
+
+// CONNECT evidence record. The upstream logs every tunnel target it is asked to
+// open, so an auditor (e.g. net-integration-proof.sh) can ASSERT that a given
+// request actually traversed THIS supplied upstream, rather than inferring it
+// from HTTPS_PROXY being set. Target host:port only — never headers, bodies or
+// credentials (there are none; this forwarder carries no auth). Goes to stderr,
+// and additionally to TB_UPSTREAM_LOG when set (a dedicated file the proof reads).
+const UPSTREAM_LOG = process.env.TB_UPSTREAM_LOG || '';
+const record = (target) => {
+  const line = `ci-upstream: CONNECT ${target}`;
+  console.error(line);
+  if (UPSTREAM_LOG) { try { fs.appendFileSync(UPSTREAM_LOG, line + '\n'); } catch { /* best-effort evidence */ } }
+};
 
 const server = http.createServer((req, res) => {
   // Only CONNECT (HTTPS tunnelling) is used by the chained proxy; refuse the rest.
@@ -30,6 +44,7 @@ const server = http.createServer((req, res) => {
 server.on('connect', (req, client, head) => {
   const [host, portStr] = String(req.url).split(':');
   const port = Number(portStr) || 443;
+  record(`${host}:${port}`);
   const upstream = net.connect(port, host, () => {
     client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
     if (head && head.length) upstream.write(head);

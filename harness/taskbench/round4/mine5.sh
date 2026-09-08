@@ -152,7 +152,7 @@ SRC_RE='\.py$'
 VENDOR_RE='(^|/)(vendor|_vendor|third_party)/'
 STRATUM_EXCL_RE='(^|/)(test|tests|testing|doc|docs|example|examples|fixtures|vendor|_vendor|third_party|benchmark|benchmarks)/'
 # Repo-level verdicts (resume + completeness both key on exactly this set)
-VERDICT_RE='"gate":"(EXCLUDED_INACTIVE|G0_NO_PYPROJECT|G0_NOT_PYTEST|G0_NO_TESTS|NO_QUALIFYING_COMMITS|CLONE_FAILED|REPO_UNAVAILABLE|CANDIDATES_EXHAUSTED|TASK_VALIDATED|QUOTA_FULL)"'
+VERDICT_RE='"gate":"(EXCLUDED_INACTIVE|G0_NO_PYPROJECT|G0_NOT_PYTEST|G0_NO_TESTS|NO_QUALIFYING_COMMITS|CLONE_FAILED|REPO_UNAVAILABLE|UNCLONABLE_LIVE|CANDIDATES_EXHAUSTED|TASK_VALIDATED|QUOTA_FULL)"'
 
 PYV=$(python3 --version 2>&1 | awk '{print $2}')
 UVV=$(uv --version 2>&1 | awk '{print $2}')
@@ -223,17 +223,40 @@ process_repo() {
   rm -rf "$dir"
   # The clone goes through the shim, which classifies any non-success into a
   # returned EXIT CODE (never a ledger write): 0 success, 91 REPO_UNAVAILABLE
-  # (confirmed 404 with a healthy control), anything else infrastructure. The
-  # miner is the sole ledger writer, and there is NO CLONE_FAILED path any more:
-  # a transient failure or an outer-timeout kill (rc 124) is infrastructure and
-  # HALTS the walk without a verdict, rather than poisoning the repo (the D3
-  # defect). REPO_UNAVAILABLE is the only terminal per-repo verdict a clone can
-  # now produce, and only on proof the repo — not the network — is the problem.
+  # (target proven persistently unavailable, control healthy), 92 UNCLONABLE_LIVE
+  # (target proven persistently reachable but the clone exhausted its attempts
+  # under the frozen procedure — measurement unavailable, D33), anything else
+  # infrastructure. The miner is the sole ledger writer, and there is NO
+  # CLONE_FAILED path any more. An OUTER-timeout kill (rc 124) means the shim was
+  # killed mid-clone before it could classify; the miner then re-probes
+  # reachability via the shim's classify-only mode and routes it the same way
+  # (reachable -> UNCLONABLE_LIVE, unavailable -> REPO_UNAVAILABLE, transport
+  # fault -> halt) — D33 correction. Every remaining infrastructure code HALTS the
+  # walk without a verdict, rather than poisoning the repo (the D3 defect).
+  # REPO_UNAVAILABLE and UNCLONABLE_LIVE are the two terminal per-repo verdicts a
+  # clone can produce, each only on PROOF (control-sandwiched) about the repo —
+  # not the network.
   timeout "$CLONE_TIMEOUT" git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2>/dev/null
   local crc=$?
   case "$crc" in
     0) : ;;
     91) jlog "$repo" "REPO_UNAVAILABLE"; return ;;
+    92) jlog "$repo" "UNCLONABLE_LIVE" "\"evidence\":\"reachable via ls-remote (control-sandwiched); clone exhausted its attempts under the frozen procedure (blobless full history, ${CLONE_TIMEOUT}s budget)\""; return ;;
+    124) # OUTER clone-budget timeout: the shim was killed mid-clone before it could
+         # classify. Re-probe reachability WITHOUT cloning (the shim's classify-only
+         # mode, control-sandwiched) and decide: a reachable target whose clone cannot
+         # complete in the frozen ${CLONE_TIMEOUT}s budget is UNCLONABLE_LIVE (D33
+         # correction — the "clone exceeds the 600 s bound" trigger), an unavailable
+         # one is REPO_UNAVAILABLE, and anything the probe cannot attribute to the
+         # target (transport fault) still halts. The 600 s budget is unchanged.
+         local ccrc; git __tbclassify "$CLONE_BASE/$repo.git" >/dev/null 2>&1; ccrc=$?
+         case "$ccrc" in
+           91) jlog "$repo" "REPO_UNAVAILABLE"; return ;;
+           92) jlog "$repo" "UNCLONABLE_LIVE" "\"evidence\":\"clone exceeded the frozen ${CLONE_TIMEOUT}s budget (outer timeout); target reachable via ls-remote, control-sandwiched\""; return ;;
+           *) : > "${TB_CLONE_BREAKER:-$TB_RUNTIME_DIR/tb-clone-breaker}"
+              echo "tb-mine: INFRASTRUCTURE_FAILURE cloning $repo (outer clone timeout; post-timeout classify rc=$ccrc) — halting, no verdict written" >&2
+              exit 90 ;;
+         esac ;;
     *) : > "${TB_CLONE_BREAKER:-$TB_RUNTIME_DIR/tb-clone-breaker}"
        echo "tb-mine: INFRASTRUCTURE_FAILURE cloning $repo (clone rc=$crc) — halting, no verdict written" >&2
        exit 90 ;;

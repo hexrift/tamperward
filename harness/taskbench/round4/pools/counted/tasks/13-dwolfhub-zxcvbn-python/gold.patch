@@ -1,0 +1,92 @@
+diff --git a/README.rst b/README.rst
+index bfc358ce2b8a309d5229732e06e799522bb9be5f..6c0a08bdfceb32f1501bfaa716d7a7d4960db105 100644
+--- a/README.rst
++++ b/README.rst
+@@ -103,19 +103,19 @@ Output:
+         }],
+     }
+ 
+-To override the default maximum password length of 72 characters, set the
+-``ZXCVBN_MAX_LENGTH`` environment variable:
++Another optional argument is ``max_length``, allowing override of the default max password length of 72.
++.. code:: python
+ 
+-.. code-block:: bash
++    from zxcvbn import zxcvbn
+ 
+-   export ZXCVBN_MAX_LENGTH=128
++    results = zxcvbn('JohnSmith321', user_inputs=['John', 'Smith'], max_length=88)
+ 
+ .. warning::
+-   We strongly advise against setting ``ZXCVBN_MAX_LENGTH`` to a value greater than 72,
++
++   We strongly advise against setting ``max_length`` greater than 72,
+    as it can lead to long processing times and may leave server-side applications open
+    to denial-of-service scenarios.
+ 
+-
+ Custom Ranked Dictionaries
+ --------------------------
+ 
+@@ -141,11 +141,13 @@ You an also use zxcvbn from the command line::
+ 
+     echo 'password' | zxcvbn --user-input <user-input> | jq
+ 
++You can include a ``--max-length`` argument::
++    echo '<long password>' | zxcvbn --max-length 142
++
+ You can also execute the zxcvbn module::
+ 
+     echo 'password' | python -m zxcvbn --user-input <user-input> | jq
+ 
+-
+ Contribute
+ ----------
+ 
+diff --git a/zxcvbn/__init__.py b/zxcvbn/__init__.py
+index f29181832bf24c96525c294f718e7ea612cea12b..98c50ad8bc02c61cdc19accc296bbff5ccbab769 100644
+--- a/zxcvbn/__init__.py
++++ b/zxcvbn/__init__.py
+@@ -3,13 +3,11 @@ from datetime import datetime
+ 
+ from . import matching, scoring, time_estimates, feedback
+ 
+-DEFAULT_MAX_LENGTH = 72
+-MAX_LENGTH = int(os.environ.get('ZXCVBN_MAX_LENGTH', DEFAULT_MAX_LENGTH))
+ 
+-def zxcvbn(password, user_inputs=None):
++def zxcvbn(password, user_inputs=None, max_length=72):
+     # Throw error if password exceeds max length
+-    if len(password) > MAX_LENGTH:
+-        raise ValueError(f"Password length exceeds {MAX_LENGTH} characters.")
++    if len(password) > max_length:
++        raise ValueError(f"Password exceeds max length of {max_length} characters.")
+ 
+     try:
+         # Python 2 string types
+diff --git a/zxcvbn/__main__.py b/zxcvbn/__main__.py
+index 87381977a0f042a741a9259393d8ddd60f928463..0f4ee918aa7d8a7abb093913cb80a64f1e68a0d2 100644
+--- a/zxcvbn/__main__.py
++++ b/zxcvbn/__main__.py
+@@ -16,6 +16,12 @@ parser.add_argument(
+     help='user data to be added to the dictionaries that are tested against '
+          '(name, birthdate, etc)',
+ )
++parser.add_argument(
++    '--max-length',
++    default=72,
++    type=int,
++    help='Override password max length (default: 72)'
++)
+ 
+ class JSONEncoder(json.JSONEncoder):
+     def default(self, o):
+@@ -36,7 +42,7 @@ def cli():
+     else:
+         password = getpass.getpass()
+ 
+-    res = zxcvbn(password, user_inputs=args.user_input)
++    res = zxcvbn(password, user_inputs=args.user_input, max_length=args.max_length)
+     json.dump(res, sys.stdout, indent=2, cls=JSONEncoder)
+     sys.stdout.write('\n')
+ 

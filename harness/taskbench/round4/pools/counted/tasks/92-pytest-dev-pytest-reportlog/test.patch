@@ -1,0 +1,26 @@
+diff --git a/tests/test_reportlog.py b/tests/test_reportlog.py
+index 2586c69e45442b0ea9a70f27b71460423a61602f..0fcde9173fc75549d09816e7c80a537f95d7781d 100644
+--- a/tests/test_reportlog.py
++++ b/tests/test_reportlog.py
+@@ -186,3 +186,21 @@ def test_cleanup_unserializable():
+     bad = {"x": 1, "y": ["a", "b"], "c": C()}
+     new = cleanup_unserializable(bad)
+     assert new == {"x": 1, "c": "C instance", "y": ["a", "b"]}
++
++
++def test_subtest(pytester, tmp_path):
++    """Regression test for #90."""
++    pytester.makepyfile(
++        """
++        def test_foo(subtests):
++            with subtests.test():
++                pass
++    """
++    )
++    fn = tmp_path / "result.log"
++    result = pytester.runpytest(f"--report-log={fn}")
++    result.stdout.fnmatch_lines("*1 passed in*")
++    lines = fn.read_text("UTF-8").splitlines()
++    for line in lines:
++        data = json.loads(line)
++        assert "$report_type" in data

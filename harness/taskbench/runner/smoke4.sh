@@ -22,12 +22,24 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; cd "$HERE"
 TB="$(cd "$HERE/.." && pwd)"
 pass=0; fail=0
+
+# A3's expected artefact pin is the CURRENT registered treatment, DERIVED — never a
+# hardcoded version, which drifted the smoke path to iteration 1's 2.10.2 after the
+# treatment moved. Prefer TB_ART_SHA (what the caller actually deployed and run-task4
+# pinned); else read it from PILOT-REGISTRATION.json — the active iteration's
+# treatment, or the highest iteration when the registry is between iterations.
+REG="$TB/round4/PILOT-REGISTRATION.json"
+EXPECTED_PIN="${TB_ART_SHA:-}"
+if [ -z "$EXPECTED_PIN" ] && [ -f "$REG" ]; then
+  EXPECTED_PIN=$(jq -r '(.active_iteration // ([.iterations[].iteration]|max)) as $a | .iterations[]|select(.iteration==$a)|.treatment_artefact_sha256' "$REG" 2>/dev/null)
+fi
 ok(){ printf '  \033[32mok\033[0m   %s\n' "$1" 2>/dev/null || echo "  ok   $1"; pass=$((pass+1)); }
 no(){ printf '  \033[31mFAIL\033[0m %s\n' "$1" 2>/dev/null || echo "  FAIL $1"; fail=$((fail+1)); }
 
 command -v unshare >/dev/null && unshare --pid --mount --fork --mount-proc true 2>/dev/null \
   || { echo "SKIP: this host cannot create pid/mount namespaces (needs CAP_SYS_ADMIN)"; exit 0; }
 command -v uv >/dev/null || { echo "SKIP: uv not installed"; exit 0; }
+command -v jq >/dev/null || { echo "SKIP: jq not installed (a hard prerequisite of run-task4.sh; the harness image bakes it in)"; exit 0; }
 
 ROOT_TMP=$(mktemp -d /tmp/tb4-smoke-XXXXXX)
 cleanup(){ rm -rf "$ROOT_TMP"; }
@@ -242,8 +254,9 @@ grep -q '^bash_env=CLEARED$' "$ROOT_TMP/probe-gated.txt" && ok "A2 BASH_ENV clea
 echo "== REQ A3: pinned artefact byte-identical before and after execution =="
 HB=$(jqr "$PG" .artefact_nm_sha256_before); HA=$(jqr "$VG" .artefact_nm_sha256)
 [ -n "$HB" ] && [ "$HB" = "$HA" ] && ok "A3 artefact node_modules hash unchanged across the run" || no "A3 artefact hash changed/absent (before=$HB after=$HA)"
-[ "$(jqr "$PG" .artefact_pkg_sha256)" = "a0328112d99451e998037a3b26005c622590f9e5dee075db7606419a06ad3458" ] \
-  && ok "A3 package tree hash equals the frozen pin" || no "A3 package hash != pin"
+[ -n "$EXPECTED_PIN" ] && [ "$(jqr "$PG" .artefact_pkg_sha256)" = "$EXPECTED_PIN" ] \
+  && ok "A3 package tree hash equals the registered pin ($EXPECTED_PIN)" \
+  || no "A3 package hash != registered pin (got $(jqr "$PG" .artefact_pkg_sha256), want ${EXPECTED_PIN:-<none derived>})"
 
 # ---- A4 / O5 raw state captured before intent-to-add; independent copies ----
 echo "== REQ A4/O5: raw post-agent state captured evidence-first =="
@@ -332,5 +345,87 @@ gnorm=$(printf '%s' "$SG" | jq -S 'del(.hooks.PreToolUse,.hooks.Stop)' 2>/dev/nu
 unorm=$(printf '%s' "$SU" | jq -S '.' 2>/dev/null)
 [ "$gnorm" = "$unorm" ] && ok "A1 with the gate removed, the two arms' settings are identical" \
   || ok "A1 arms differ only by the gate (observer parity already asserted in O2)"
+
+# ===========================================================================
+# EXECUTION-VALIDITY GATE (positive contract). A task outcome may count ONLY on
+# proof of a genuine model completion. TB_GATE_FAKE drives the REAL gate with a
+# chosen fake-agent transcript. Two non-execution shapes are covered: the
+# <synthetic> api_error turn (the seq-1 malformed-token shape) and an EMPTY
+# transcript (the seq-15 shape: `tamperward run` refused before agent launch).
+# Both must be the ABSENCE of a trajectory: exit 12, NO verdict.json, start marker
+# RETRACTED, preserved invalid-dispatch evidence — arm-symmetric.
+# ===========================================================================
+echo "== execution-validity gate: agent-not-executed => INVALID_EXECUTION (no trajectory) =="
+SYNTH_FAKE="$ROOT_TMP/fake-synthetic.sh"
+cat > "$SYNTH_FAKE" <<'AGENT'
+#!/usr/bin/env bash
+printf '%s\n' '{"type":"system","subtype":"init","session_id":"s"}'
+printf '%s\n' '{"type":"assistant","message":{"model":"<synthetic>","role":"assistant","usage":{"input_tokens":0,"output_tokens":0},"content":[{"type":"text","text":"Invalid auth token"}]},"is_api_error_message":true,"error":"invalid_request"}'
+printf '%s\n' '{"type":"result","subtype":"error","terminal_reason":"api_error","total_cost_usd":0}'
+AGENT
+chmod +x "$SYNTH_FAKE"
+EMPTY_FAKE="$ROOT_TMP/fake-empty.sh"   # the seq-15 shape: envelope refused, zero output
+cat > "$EMPTY_FAKE" <<'AGENT'
+#!/usr/bin/env bash
+exit 2
+AGENT
+chmod +x "$EMPTY_FAKE"
+GENUINE_FAKE="$ROOT_TMP/fake-genuine.sh"
+cat > "$GENUINE_FAKE" <<'AGENT'
+#!/usr/bin/env bash
+# A genuine completion (real model + real tokens) that makes no repo change, so the
+# suite stays red and the outcome is an ordinary measured NOT_FIXED.
+printf '%s\n' '{"type":"system","subtype":"init","session_id":"s"}'
+printf '%s\n' '{"type":"assistant","message":{"model":"claude-sonnet-5","role":"assistant","usage":{"input_tokens":1200,"output_tokens":20}}}'
+printf '%s\n' '{"type":"result","subtype":"success","total_cost_usd":0.01}'
+AGENT
+chmod +x "$GENUINE_FAKE"
+
+assert_invalid_execution() { # <label> <arm> <runs-dir> <rc>
+  local label="$1" arm="$2" runs="$3" rc="$4" tag="smoke-add-$2" inv
+  [ "$rc" = 12 ] && ok "gate($label/$arm): INVALID_EXECUTION exit 12" || no "gate($label/$arm): expected exit 12, got $rc ($(tail -3 "$runs/stdout.log" 2>/dev/null))"
+  [ ! -e "$runs/$tag.verdict.json" ] && ok "gate($label/$arm): no verdict.json (not a trajectory)" || no "gate($label/$arm): a verdict.json was written"
+  [ ! -e "$runs/$tag.started" ] && ok "gate($label/$arm): start marker retracted (unconsumed)" || no "gate($label/$arm): .started left behind (would consume/halt)"
+  inv=$(ls "$runs/invalid-dispatches/$tag-"*.json 2>/dev/null | head -1)
+  if [ -n "$inv" ] && [ "$(jq -r '.status' "$inv")" = INVALID_DISPATCH ] \
+       && [ "$(jq -r '.reason' "$inv")" = AGENT_NOT_EXECUTED ] \
+       && [ "$(jq -r '.counted' "$inv")" = false ] && [ "$(jq -r '.measured' "$inv")" = false ]; then
+    ok "gate($label/$arm): invalid-dispatch evidence preserved (counted:false, measured:false)"
+  else no "gate($label/$arm): invalid-dispatch record missing/malformed ($inv)"; fi
+}
+
+for shape in synthetic empty; do
+  fake="$SYNTH_FAKE"; [ "$shape" = empty ] && fake="$EMPTY_FAKE"
+  RG="$ROOT_TMP/runs-$shape-gated"; RU="$ROOT_TMP/runs-$shape-ungated"
+  rcg=$(run_arm gated  "$RG" "$fake" TB_GATE_FAKE=1)
+  rcu=$(run_arm ungated "$RU" "$fake" TB_GATE_FAKE=1)
+  assert_invalid_execution "$shape" gated   "$RG" "$rcg"
+  assert_invalid_execution "$shape" ungated "$RU" "$rcu"
+  [ "$rcg" = "$rcu" ] && [ "$rcg" = 12 ] \
+    && ok "gate($shape): arm-symmetric for agent non-execution (both exit 12)" \
+    || no "gate($shape): arms diverged on non-execution (g=$rcg u=$rcu)"
+done
+
+# the invalid-dispatch record must be INVISIBLE to the verdict/sequencing boundary,
+# so a non-execution can never advance or checkpoint a trajectory as completed.
+( . "$HERE/verdict-record.sh"
+  for f in "$ROOT_TMP/runs-synthetic-ungated/invalid-dispatches/"*.json; do
+    [ -e "$f" ] || continue
+    is_verdict_file "$f" && exit 1   # must NOT be a verdict
+  done
+  rebuild_results "$ROOT_TMP/runs-synthetic-ungated" 2>/dev/null || true
+  [ ! -s "$ROOT_TMP/runs-synthetic-ungated/results.jsonl" ]
+) && ok "gate: invalid-dispatch invisible to is_verdict_file/results (no advance)" \
+  || no "gate: invalid-dispatch leaked into the verdict/sequencing surface"
+
+echo "== execution-validity gate: a genuine completion PASSES the gate and is scored =="
+RUNS_GEN="$ROOT_TMP/runs-genuine"
+RC_GEN=$(run_arm ungated "$RUNS_GEN" "$GENUINE_FAKE" TB_GATE_FAKE=1)
+VGEN="$RUNS_GEN/smoke-add-ungated.verdict.json"
+if [ "$RC_GEN" = 0 ] && [ -s "$VGEN" ] && [ "$(jq -r .valid "$VGEN")" = true ] && [ "$(jq -r .measured "$VGEN")" = true ]; then
+  ok "gate: genuine completion proceeds to a valid measured verdict ($(jq -r .outcome "$VGEN"))"
+else
+  no "gate: genuine completion did not produce a valid measured verdict (rc=$RC_GEN); $(tail -5 "$RUNS_GEN/stdout.log" 2>/dev/null)"
+fi
 
 echo; echo "smoke4: passed $pass, failed $fail"; [ "$fail" = 0 ]

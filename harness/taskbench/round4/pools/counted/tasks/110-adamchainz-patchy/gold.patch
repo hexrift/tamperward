@@ -1,0 +1,66 @@
+diff --git a/CHANGELOG.rst b/CHANGELOG.rst
+index 5c6393cb5f01215ccd234d205f6dc64e99dd0159..1f507af54c8c4376ad71a892c6e74389b7d1ddab 100644
+--- a/CHANGELOG.rst
++++ b/CHANGELOG.rst
+@@ -16,6 +16,12 @@ Unreleased
+   `PR #620 <https://github.com/adamchainz/patchy/pull/620>`__.
+   Thanks to Anton Kovalevich for the initial work in `PR #431 <https://github.com/adamchainz/patchy/pull/431>`__.
+ 
++* Store patched source with Python’s `linecache module <https://docs.python.org/3/library/linecache.html>`__, under a per-function virtual filename like ``<patchy: example.some_func>``.
++  This makes tracebacks, ``pdb``, ``inspect.getsource()``, and other tools show the patched source code.
++
++  `PR #621 <https://github.com/adamchainz/patchy/pull/621>`__.
++  Thanks to Michael Bianco for the initial work in `PR #542 <https://github.com/adamchainz/patchy/pull/542>`__.
++
+ 3.0.0 (2026-08-19)
+ ------------------
+ 
+diff --git a/src/patchy/api.py b/src/patchy/api.py
+index 1fd878d5894e6ebe77c6a3d6035cefc0b9abefda..4a235c40c90583af154bb61a8cb830e72d805d98 100644
+--- a/src/patchy/api.py
++++ b/src/patchy/api.py
+@@ -2,6 +2,7 @@ from __future__ import annotations
+ 
+ import ast
+ import inspect
++import linecache
+ from collections.abc import Callable
+ from functools import wraps
+ from textwrap import dedent
+@@ -185,6 +186,10 @@ def _set_source(func: Callable[..., Any], func_source: str) -> None:
+     real_func = _get_real_func(func)
+     # Figure out any future headers that may be required
+     feature_flags = real_func.__code__.co_flags & FEATURE_MASK
++    # Compile with a per-function virtual filename, under which the patched
++    # source is stored in linecache below. Line numbers relative to the
++    # patched source then match, so tools show the right lines.
++    filename = f"<patchy: {real_func.__module__}.{real_func.__qualname__}>"
+ 
+     class_name = _class_name(func)
+ 
+@@ -193,7 +198,7 @@ def _set_source(func: Callable[..., Any], func_source: str) -> None:
+         flags: int = 0,
+     ) -> CodeType | ast.Module:
+         result: CodeType | ast.Module = compile(
+-            code, "<patchy>", "exec", flags=feature_flags | flags, dont_inherit=True
++            code, filename, "exec", flags=feature_flags | flags, dont_inherit=True
+         )
+         return result
+ 
+@@ -321,6 +326,16 @@ def _set_source(func: Callable[..., Any], func_source: str) -> None:
+     # Store the modified source. This used to be attached to the function but
+     # that is a bit naughty
+     _source_map[real_func] = func_source
++    # Store the modified source in linecache, under the virtual filename, so
++    # tools that read source through it, like tracebacks, pdb, and
++    # inspect.getsource(), show it. Done the same way as doctest and timeit.
++    # The None mtime means linecache.checkcache() never drops the entry.
++    linecache.cache[filename] = (
++        len(func_source),
++        None,
++        func_source.splitlines(keepends=True),
++        filename,
++    )
+ 
+ 
+ def _get_real_func(func: Callable[..., Any]) -> Callable[..., Any]:

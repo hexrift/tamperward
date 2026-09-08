@@ -1,0 +1,21 @@
+{
+ "id": "28-laspy-laspy",
+ "repo": "laspy/laspy",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "19f1059215c46a83dea13c76542ae2b4d31c2101",
+ "commit_sha": "fbc5b375f9dad6bae499a81ca436bee361ecf047",
+ "test_patch_sha256": "9d09aadd752bbbc2b9983a901a6a90f45dbd6295fc9a02d6c269fb79fb0e3030",
+ "gold_patch_sha256": "c8797e32dd82549b6b6849d1385c8616f990e9a84831c57312a1107004e15041",
+ "test_files": [
+  "tests/test_point_record.py",
+  "tests/test_point_record_waveformstate.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T13:18:05.196Z"
+}

@@ -1,0 +1,20 @@
+{
+ "id": "64-Simplistix-testfixtures",
+ "repo": "Simplistix/testfixtures",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "9505a7594eb7f83a05ba610423fae598ed409cf4",
+ "commit_sha": "cc7307a0f38e1758a71f265fdca5e3e81ff370a1",
+ "test_patch_sha256": "07f0440568881c2aea97dbd836906f2fd00de6131cfff5373db9dd4f794dad40",
+ "gold_patch_sha256": "7ae4a7b86c80926da17ea07666f184f5d41483b2f014f156b83dfed838ba0958",
+ "test_files": [
+  "tests/test_should_raise.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 8,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-08T00:46:24.318Z"
+}

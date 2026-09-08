@@ -1,0 +1,129 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 564c54b8a914f8e24560bdd362ddc0302844cc56..fc92006f353913d571c6d5e8b200cae45cf842b6 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,7 +1,10 @@
+ # Changelog
+ 
+ 
+-## Next release
++## Next release (2.5.0)
++
++### Added
++ - The `combine` method of an `IntervalDict` accepts a `missing` parameter to fill values for non-overlapping keys (see [#95](https://github.com/AlexandreDecan/portion/issues/95)).
+ 
+ ### Changed
+  - Drop official support for Python 3.7.
+@@ -11,7 +14,7 @@
+ ## 2.4.2 (2023-12-06)
+ 
+ ### Fixed
+- - Import error when using `create_api` in Python 3.10+ (see [#87](https://github.com/AlexandreDecan/portion/issues/85)).
++ - Import error when using `create_api` in Python 3.10+ (see [#87](https://github.com/AlexandreDecan/portion/issues/87)).
+ 
+ 
+ 
+diff --git a/README.md b/README.md
+index 2bbe9ead55ef25a7a31c755c04a41ac44e2646a4..81517524506b45d531964dbe668dcc2a41af212e 100644
+--- a/README.md
++++ b/README.md
+@@ -697,9 +697,11 @@ See [#44](https://github.com/AlexandreDecan/portion/issues/44#issuecomment-71019
+ 
+ Two `IntervalDict` instances can be combined together using the `.combine` method.
+ This method returns a new `IntervalDict` whose keys and values are taken from the two
+-source `IntervalDict`. Values corresponding to non-intersecting keys are simply copied,
+-while values corresponding to intersecting keys are combined together using the provided
+-function, as illustrated hereafter:
++source `IntervalDict`.
++The values corresponding to intersecting keys (i.e., when the two instances overlap)
++are combined using the provided `how` function, while values corresponding to
++non-intersecting keys are simply copied (i.e., the `how` function is not called
++for them), as illustrated hereafter:
+ 
+ ```python
+ >>> d1 = P.IntervalDict({P.closed(0, 2): 'banana'})
+@@ -710,6 +712,16 @@ function, as illustrated hereafter:
+ 
+ ```
+ 
++The `combine` method also accepts a `missing` parameter. When `missing` is set,
++the `how` function is called even for non-intersecting keys, using the value of
++`missing` to replace the missing values:
++
++```python
++>>> d1.combine(d2, how=concat, missing='kiwi')
++{[0,1): 'banana/kiwi', [1,2]: 'banana/orange', (2,3]: 'kiwi/orange'}
++
++```
++
+ Resulting keys always correspond to an outer join. Other joins can be easily simulated
+ by querying the resulting `IntervalDict` as follows:
+ 
+@@ -724,6 +736,8 @@ by querying the resulting `IntervalDict` as follows:
+ 
+ ```
+ 
++
++
+ Finally, similarly to a `dict`, an `IntervalDict` also supports `len`, `in` and `del`, and defines
+ `.clear`, `.copy`, `.update`, `.pop`, `.popitem`, and `.setdefault`.
+ For convenience, one can export the content of an `IntervalDict` to a classical Python `dict` using
+diff --git a/portion/dict.py b/portion/dict.py
+index 1f4890dcafa3a04ad3c0b6770b39c05363d65224..88dead8c88dac5dad846069e374d892cd1d5958d 100644
+--- a/portion/dict.py
++++ b/portion/dict.py
+@@ -218,26 +218,37 @@ class IntervalDict(MutableMapping):
+         for i, v in data:
+             self[i] = v
+ 
+-    def combine(self, other, how):
++    def combine(self, other, how, *, missing=...):
+         """
+         Return a new IntervalDict that combines the values from current and
+-        provided ones.
++        provided IntervalDict.
+ 
+         If d = d1.combine(d2, f), then d contains (1) all values from d1 whose
+         keys do not intersect the ones of d2, (2) all values from d2 whose keys
+         do not intersect the ones of d1, and (3) f(x, y) for x in d1, y in d2 for
+         intersecting keys.
+ 
++        When missing is set, the how function is called even for non-intersecting
++        keys using the value of missing to replace the missing values. This is,
++        case (1) corresponds to f(x, missing) and case (2) to f(missing, y).
++
+         :param other: another IntervalDict instance.
+         :param how: a function of two parameters that combines values.
++        :param missing: if set, use this value for missing values when calling "how".
+         :return: a new IntervalDict instance.
+         """
+         new_items = []
+ 
+         dom1, dom2 = self.domain(), other.domain()
+ 
+-        new_items.extend(self[dom1 - dom2].items())
+-        new_items.extend(other[dom2 - dom1].items())
++        if missing is Ellipsis:
++            new_items.extend(self[dom1 - dom2].items())
++            new_items.extend(other[dom2 - dom1].items())
++        else:
++            for i, v in self[dom1 - dom2].items():
++                new_items.append((i, how(v, missing)))
++            for i, v in other[dom2 - dom1].items():
++                new_items.append((i, how(missing, v)))
+ 
+         intersection = dom1 & dom2
+         d1, d2 = self[intersection], other[intersection]
+diff --git a/setup.py b/setup.py
+index 1127e6ee2003607308a2e713b8093e535a0b28d3..228840d1b3c3cd75fe11e8adb050b9d2eb9a17c9 100644
+--- a/setup.py
++++ b/setup.py
+@@ -9,7 +9,7 @@ with open(
+ 
+ setup(
+     name="portion",
+-    version="2.4.2",
++    version="2.5.0",
+     license="LGPLv3",
+     author="Alexandre Decan",
+     url="https://github.com/AlexandreDecan/portion",

@@ -1,0 +1,16 @@
+diff --git a/tests/requests/test_batch_request_content.py b/tests/requests/test_batch_request_content.py
+index 81cac044665d2bf605bc0cb60a254b549ee559d7..21554644f300733a139ec874f380052a0612e658 100644
+--- a/tests/requests/test_batch_request_content.py
++++ b/tests/requests/test_batch_request_content.py
+@@ -88,9 +88,9 @@ def test_add_urllib_request(batch_request_content):
+ 
+ 
+ def test_finalize(batch_request_content):
+-    finalized_requests = batch_request_content.finalize()
++    finalized_batch_request_content = batch_request_content.finalize()
+     assert batch_request_content.is_finalized
+-    assert finalized_requests == batch_request_content.requests
++    assert finalized_batch_request_content.requests == batch_request_content.requests
+ 
+ 
+ def test_create_from_discriminator_value():

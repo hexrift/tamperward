@@ -1,0 +1,20 @@
+{
+ "id": "107-janLuke-cloup",
+ "repo": "janLuke/cloup",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "7eba003b4fe2ed6c8c5492e5268ca6796103087a",
+ "commit_sha": "278a7a1df947cf97e2abfa5afdcb10ee7fdf7504",
+ "test_patch_sha256": "18e06784cca96c547b118d152de603e66209148f5ab824374120ce2f22274352",
+ "gold_patch_sha256": "f380b6eb93351eebe15c40813aff9806745f07f36304a97be888299829e96f77",
+ "test_files": [
+  "tests/test_formatting.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T20:43:34.633Z"
+}

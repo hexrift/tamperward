@@ -1,0 +1,21 @@
+{
+ "id": "98-zephyrproject-rtos-west",
+ "repo": "zephyrproject-rtos/west",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "818bcb18f58eb4f2bb96f9818294c28eb2585fb8",
+ "commit_sha": "75072d20e32a584f037d562375f75eda75012f9b",
+ "test_patch_sha256": "c55110dae14a587fb56bec8de64a4ac9cf43dad58b3fe605c567c25477374f3f",
+ "gold_patch_sha256": "e24356046617b15f9f19f75c1a64422db0e1decf9b29118609835a0cc9b220d5",
+ "test_files": [
+  "tests/test_manifest.py",
+  "tests/test_project.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-08T18:41:33.733Z"
+}

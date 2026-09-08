@@ -254,11 +254,19 @@ rc=$(shimx "$D" 0 "othererror" 0)
 { [ "$rc" = 90 ] && [ -e "$D/tb-clone-breaker" ]; } \
   && ok "target fails with a non-auth error -> halt (90), not unavailability" || no "target-othererror should halt: rc=$rc"
 rm -rf "$D"
-# (d) target becomes reachable on a later probe -> halt
+# (d) target FLAPS unavailable->reachable across probes -> halt (not a stable signal)
 D=$(mktemp -d); mkfailgit "$D"
 rc=$(shimx "$D" 0 "unavailable unavailable reachable" 0)
 { [ "$rc" = 90 ] && [ -e "$D/tb-clone-breaker" ]; } \
-  && ok "target reachable on a later probe -> halt (90), not persistently unavailable" || no "target-recovers should halt: rc=$rc"
+  && ok "target flaps unavailable->reachable -> halt (90), not a stable classification" || no "target-flaps should halt: rc=$rc"
+rm -rf "$D"
+# (d2/D33) target PERSISTENTLY reachable between two healthy controls, clone exhausted
+#          -> UNCLONABLE_LIVE (92), NO breaker (not a transport fault, not a halt)
+D=$(mktemp -d); mkfailgit "$D"
+rc=$(shimx "$D" 0 "reachable reachable reachable" 0)
+{ [ "$rc" = 92 ] && [ ! -e "$D/tb-clone-breaker" ]; } \
+  && ok "reachable target between two healthy controls -> UNCLONABLE_LIVE (92), no breaker" \
+  || no "sandwich-reachable: rc=$rc breaker=$([ -e "$D/tb-clone-breaker" ] && echo tripped || echo clear)"
 rm -rf "$D"
 
 echo "== P0/D6: the miner writes REPO_UNAVAILABLE, halts on infra, and never writes CLONE_FAILED"
@@ -281,29 +289,68 @@ u=$(grep -c REPO_UNAVAILABLE "$D/pools/counted/attrition.jsonl" 2>/dev/null || t
 grep -q CLONE_FAILED "$D/pools/counted/attrition.jsonl" 2>/dev/null \
   && no "a REPO_UNAVAILABLE run still wrote CLONE_FAILED" || ok "no CLONE_FAILED written on the unavailable path"
 rm -rf "$D"
-# (f) infrastructure failure (target still reachable) HALTS with no verdict, no CLONE_FAILED
-D=$(minesandbox '"acme/flaky"')
+# (f/D33) reachable-but-unclonable repos are terminal skips and the walk RESUMES:
+#         two of them -> two UNCLONABLE_LIVE, walk completes, no breaker, no CLONE_FAILED.
+D=$(minesandbox '"acme/unclonable-one","acme/unclonable-two"')
 ( cd "$D" && env TB_POOL=counted TB_RUNTIME_DIR="$D" TB_POOL_LOCK="$D/pool.lock" \
     TB_REAL_GIT="$D/fakegit" TB_CLONE_SLEEP_BASE=0 TB_PROBE_GAP=0 TB_CLONE_BASE=https://github.com \
     TB_FAKE_CONTROL1=0 TB_FAKE_TARGET_KIND=reachable TB_FAKE_CONTROL2=0 TB_TASK_NEED=999 \
     ./mine5.sh >/dev/null 2>&1 ); mrc=$?
+ul=$(grep -c UNCLONABLE_LIVE "$D/pools/counted/attrition.jsonl" 2>/dev/null || true); ul=${ul:-0}
+{ [ "$ul" = 2 ] && [ "$mrc" = 0 ] && [ ! -e "$D/tb-clone-breaker" ]; } \
+  && ok "two reachable-but-unclonable repos -> two UNCLONABLE_LIVE, walk completes, no breaker" \
+  || no "unclonable-live-resume: ul=$ul miner_rc=$mrc breaker=$([ -e "$D/tb-clone-breaker" ] && echo tripped || echo clear)"
+grep -q CLONE_FAILED "$D/pools/counted/attrition.jsonl" 2>/dev/null && no "the unclonable path wrote CLONE_FAILED" || ok "no CLONE_FAILED on the unclonable path"
+rm -rf "$D"
+# (f') a genuine infrastructure failure (transport unhealthy: control #1 down) STILL
+#      HALTS the miner with no verdict — the D33 skip is ONLY for a proven-reachable target.
+D=$(minesandbox '"acme/flaky"')
+( cd "$D" && env TB_POOL=counted TB_RUNTIME_DIR="$D" TB_POOL_LOCK="$D/pool.lock" \
+    TB_REAL_GIT="$D/fakegit" TB_CLONE_SLEEP_BASE=0 TB_PROBE_GAP=0 TB_CLONE_BASE=https://github.com \
+    TB_FAKE_CONTROL1=1 TB_FAKE_TARGET_KIND=reachable TB_FAKE_CONTROL2=0 TB_TASK_NEED=999 \
+    ./mine5.sh >/dev/null 2>&1 ); mrc=$?
 n=$(grep -c '"gate"' "$D/pools/counted/attrition.jsonl" 2>/dev/null || true); n=${n:-0}
 { [ "$mrc" != 0 ] && [ -e "$D/tb-clone-breaker" ] && [ "$n" = 0 ]; } \
-  && ok "infra failure halts the miner (rc!=0), breaker tripped, NO verdict written" \
+  && ok "transport-unhealthy infra failure still halts (rc!=0), breaker tripped, NO verdict" \
   || no "infra-halt: miner_rc=$mrc breaker=$([ -e "$D/tb-clone-breaker" ] && echo tripped || echo clear) verdicts=$n"
 grep -q CLONE_FAILED "$D/pools/counted/attrition.jsonl" 2>/dev/null && no "infra halt wrote CLONE_FAILED" || ok "infra halt writes no CLONE_FAILED"
 rm -rf "$D"
-# (g) outer clone timeout (shim killed before it can classify) -> infra halt, no CLONE_FAILED
+# (g/D33) OUTER clone timeout (shim killed before it can self-classify) is now
+#         re-probed by the miner via the shim's classify-only mode and routed the
+#         same as a self-classified clone failure — it no longer blindly halts.
+# (g) 124 + target unavailable (control healthy) -> REPO_UNAVAILABLE, walk continues, no CLONE_FAILED
 D=$(minesandbox '"acme/slow"'); mkhanggit "$D"
 ( cd "$D" && env TB_POOL=counted TB_RUNTIME_DIR="$D" TB_POOL_LOCK="$D/pool.lock" \
     TB_REAL_GIT="$D/fakegit" TB_CLONE_SLEEP_BASE=0 TB_CLONE_TIMEOUT=1 TB_CLONE_BASE=https://github.com \
     TB_FAKE_CONTROL1=0 TB_FAKE_TARGET_KIND=unavailable TB_FAKE_CONTROL2=0 TB_TASK_NEED=999 \
     ./mine5.sh >/dev/null 2>&1 ); mrc=$?
-n=$(grep -c '"gate"' "$D/pools/counted/attrition.jsonl" 2>/dev/null || true); n=${n:-0}
-{ [ "$mrc" != 0 ] && [ "$n" = 0 ]; } \
-  && ok "outer clone timeout halts with no verdict (rc=$mrc), never CLONE_FAILED" \
-  || no "outer-timeout: miner_rc=$mrc verdicts=$n"
+u=$(grep -c REPO_UNAVAILABLE "$D/pools/counted/attrition.jsonl" 2>/dev/null || true); u=${u:-0}
+{ [ "$u" = 1 ] && [ "$mrc" = 0 ] && [ ! -e "$D/tb-clone-breaker" ]; } \
+  && ok "outer timeout + unavailable target -> REPO_UNAVAILABLE (post-timeout classify), walk continues" \
+  || no "outer-timeout-unavailable: u=$u mrc=$mrc breaker=$([ -e "$D/tb-clone-breaker" ] && echo tripped)"
 grep -q CLONE_FAILED "$D/pools/counted/attrition.jsonl" 2>/dev/null && no "outer timeout wrote CLONE_FAILED" || ok "outer timeout writes no CLONE_FAILED"
+rm -rf "$D"
+# (g2/D33) 124 + target reachable (control healthy) -> UNCLONABLE_LIVE, walk continues, no breaker
+D=$(minesandbox '"acme/slow"'); mkhanggit "$D"
+( cd "$D" && env TB_POOL=counted TB_RUNTIME_DIR="$D" TB_POOL_LOCK="$D/pool.lock" \
+    TB_REAL_GIT="$D/fakegit" TB_CLONE_SLEEP_BASE=0 TB_CLONE_TIMEOUT=1 TB_CLONE_BASE=https://github.com \
+    TB_FAKE_CONTROL1=0 TB_FAKE_TARGET_KIND=reachable TB_FAKE_CONTROL2=0 TB_TASK_NEED=999 \
+    ./mine5.sh >/dev/null 2>&1 ); mrc=$?
+ul=$(grep -c UNCLONABLE_LIVE "$D/pools/counted/attrition.jsonl" 2>/dev/null || true); ul=${ul:-0}
+{ [ "$ul" = 1 ] && [ "$mrc" = 0 ] && [ ! -e "$D/tb-clone-breaker" ]; } \
+  && ok "outer timeout + reachable target -> UNCLONABLE_LIVE (D33), walk continues, no breaker" \
+  || no "outer-timeout-reachable: ul=$ul mrc=$mrc breaker=$([ -e "$D/tb-clone-breaker" ] && echo tripped)"
+rm -rf "$D"
+# (g3/D33) 124 + transport unhealthy (control #1 down) STILL halts with no verdict
+D=$(minesandbox '"acme/slow"'); mkhanggit "$D"
+( cd "$D" && env TB_POOL=counted TB_RUNTIME_DIR="$D" TB_POOL_LOCK="$D/pool.lock" \
+    TB_REAL_GIT="$D/fakegit" TB_CLONE_SLEEP_BASE=0 TB_CLONE_TIMEOUT=1 TB_CLONE_BASE=https://github.com \
+    TB_FAKE_CONTROL1=1 TB_FAKE_TARGET_KIND=reachable TB_FAKE_CONTROL2=0 TB_TASK_NEED=999 \
+    ./mine5.sh >/dev/null 2>&1 ); mrc=$?
+n=$(grep -c '"gate"' "$D/pools/counted/attrition.jsonl" 2>/dev/null || true); n=${n:-0}
+{ [ "$mrc" != 0 ] && [ -e "$D/tb-clone-breaker" ] && [ "$n" = 0 ]; } \
+  && ok "outer timeout + transport unhealthy -> halt, breaker, no verdict" \
+  || no "outer-timeout-transport-fault: mrc=$mrc breaker=$([ -e "$D/tb-clone-breaker" ] && echo tripped) verdicts=$n"
 rm -rf "$D"
 # static: no nonzero clone result can write CLONE_FAILED (the emission is gone;
 # the token survives only in the resume/completeness regex for any legacy line)
@@ -324,7 +371,15 @@ python3 incident-D3/build-burn-list.py --check >/dev/null 2>&1 \
 B=$(mktemp -d); mkdir -p "$B/frame" "$B/pools/pilot" "$B/incident-D3"
 cp -R incident-D3/. "$B/incident-D3/"
 cp frame/pilot-walk-order.json frame/pilot-dedup.json "$B/frame/"
-cp pools/pilot/attrition.jsonl "$B/pools/pilot/"
+# Mirror build-burn-list.py's glob: the cumulative set unions EVERY pilot pool's
+# ledger (pools/pilot*/attrition.jsonl), so the temp scenario must carry them all.
+# Copying only pools/pilot/ made the published dedup — which already folds in
+# iteration 2 (pilot-i2) and every later iteration — read as un-burnt against a
+# partial cumulative, a false failure the moment a second pilot pool exists.
+for a in pools/pilot*/attrition.jsonl; do
+  [ -e "$a" ] || continue
+  d="$B/$(dirname "$a")"; mkdir -p "$d"; cp "$a" "$d/"
+done
 echo '{"repo":"selftest/never-in-any-frame","gate":"CLONE_FAILED"}' >> "$B/pools/pilot/attrition.jsonl"
 python3 "$B/incident-D3/build-burn-list.py" --check >/dev/null 2>&1 \
   && ok "a newly drawn repository is growth, not a failure — regression sentinel" \
@@ -758,8 +813,8 @@ const ids=m.pool.tasks.map(t=>t.id);
 ok(ids.length===10,"the pool is exactly 10 tasks");
 // The frozen pool must be EXACTLY the finalized ten on disk — no substitution,
 // no extra, no spent/disclosed id. The active pool tracks the frozen iteration
-// (iteration 2: pools/pilot-i2); update the path when a new iteration is frozen.
-{ const fs=require("fs"), poolDir="pools/pilot-i2/tasks";
+// (iteration 4: pools/pilot-i4); update the path when a new iteration is frozen.
+{ const fs=require("fs"), poolDir="pools/pilot-i4/tasks";
   const onDisk=fs.readdirSync(poolDir).filter(d=>/^[0-9][0-9]-/.test(d)).sort();
   ok(JSON.stringify(ids.slice().sort())===JSON.stringify(onDisk),
      "the frozen pool is exactly the finalized ten in "+poolDir); }
@@ -895,17 +950,17 @@ TB_PILOT_MANIFEST="$PG/PILOT-EXECUTION-MANIFEST.json" node "$FZ" --derive >/dev/
 rm -rf "$PG"
 
 # ---- the pool must not be able to certify itself
-POOLCP=$(mktemp -d); cp -a pools/pilot-i2/tasks/. "$POOLCP/"
+POOLCP=$(mktemp -d); cp -a pools/pilot-i4/tasks/. "$POOLCP/"
 TB_PILOT_POOL_DIR="$POOLCP" node "$FZ" --print >/dev/null 2>&1 \
   && ok "an intact pool copy derives (the positive control for the pool seam)" || no "an intact pool copy failed to derive"
-echo "tampered" >> "$POOLCP/04-materialsproject-pymatgen-io-validation/gold.patch"
+echo "tampered" >> "$POOLCP/04-lmfit-asteval/gold.patch"
 TB_PILOT_POOL_DIR="$POOLCP" node "$FZ" --print >/dev/null 2>&1 \
   && no "a patch that disagrees with its own manifest was accepted" || ok "a patch edited under its manifest is refused — the manifest cannot certify itself"
-rm -rf "$POOLCP"; POOLCP=$(mktemp -d); cp -a pools/pilot-i2/tasks/. "$POOLCP/"; rm -rf "$POOLCP/08-GeospatialPython-pyshp"
+rm -rf "$POOLCP"; POOLCP=$(mktemp -d); cp -a pools/pilot-i4/tasks/. "$POOLCP/"; rm -rf "$POOLCP/08-sktime-skbase"
 TB_PILOT_POOL_DIR="$POOLCP" node "$FZ" --print >/dev/null 2>&1 \
   && no "a pool missing a task was accepted" || ok "a pool missing one of the ten is refused"
-rm -rf "$POOLCP"; POOLCP=$(mktemp -d); cp -a pools/pilot-i2/tasks/. "$POOLCP/"
-node -e 'const f=process.argv[1]+"/02-lmfit-uncertainties/manifest.json";const fs=require("fs");const m=JSON.parse(fs.readFileSync(f,"utf8"));m.role="main";fs.writeFileSync(f,JSON.stringify(m,null,1))' "$POOLCP"
+rm -rf "$POOLCP"; POOLCP=$(mktemp -d); cp -a pools/pilot-i4/tasks/. "$POOLCP/"
+node -e 'const f=process.argv[1]+"/02-Rapptz-discord.py/manifest.json";const fs=require("fs");const m=JSON.parse(fs.readFileSync(f,"utf8"));m.role="main";fs.writeFileSync(f,JSON.stringify(m,null,1))' "$POOLCP"
 TB_PILOT_POOL_DIR="$POOLCP" node "$FZ" --print >/dev/null 2>&1 \
   && no "a task whose role is not 'pilot' was accepted" || ok "a non-pilot role is refused"
 rm -rf "$POOLCP"
@@ -924,6 +979,164 @@ node -e 'const m=require(process.argv[1]);process.exit(m.registration.model==="s
   && ok "and it wrote nothing — the stale file is untouched" || no "--derive mutated the file it refused to overwrite"
 [ "$(sha256sum "$FM" | cut -d' ' -f1)" = "$BEFORE_FM" ] && ok "the real frozen manifest is byte-identical after every case above" || no "the self-test MUTATED the frozen manifest"
 rm -f /tmp/tb-fz-*.json /tmp/tb-fz-*.md /tmp/tb-fz-print.json
+
+
+echo "== counted execution manifest: the counted freeze is derived and checkable, not typed"
+CFZ=./freeze-counted-manifest.mjs
+# The real counted manifest is NOT frozen here — it is derived on the artefact host
+# after this tooling lands (PREDICTION4 sequence). Every case below therefore runs
+# against a SYNTHETIC fixture pool via the TB_COUNTED_POOL_DIR seam and NEVER derives
+# or bakes in the real 110->22 selection: the REGISTERED RULES are the subject, not
+# the pool. TB_ART_DIR is forced to an absent path so the treatment is deterministically
+# null on the freeze host and on a CI runner alike (the artefact-host derive is where
+# the real treatment identity is bound; here we test the derivation logic hermetically).
+CTEST='{"n_primary":8,"n_duplicates":3}'
+# Build a synthetic pool of N faithful 'main' tasks: manifest.json with self-consistent
+# patch hashes plus test.patch/gold.patch — exactly the shape derivePool validates.
+mkcounted_pool(){ node -e '
+const fs=require("fs"),path=require("path"),{createHash}=require("crypto");
+const dir=process.argv[1], n=+process.argv[2];
+const h=b=>createHash("sha256").update(b).digest("hex");
+for(let i=1;i<=n;i++){
+  const id=String(i).padStart(2,"0")+"-fixture-repo"+i;
+  const d=path.join(dir,id); fs.mkdirSync(d,{recursive:true});
+  const testp="test patch "+i+"\n", goldp="gold patch "+i+"\n";
+  fs.writeFileSync(path.join(d,"test.patch"),testp);
+  fs.writeFileSync(path.join(d,"gold.patch"),goldp);
+  fs.writeFileSync(path.join(d,"manifest.json"),JSON.stringify({
+    id, repo:"fixture/repo"+i, role:"main", stratum:"single-distribution",
+    parent_sha:"p".repeat(40), commit_sha:"c".repeat(40),
+    test_patch_sha256:h(testp), gold_patch_sha256:h(goldp),
+    test_files:["t"+i+".py"], python:"3.11.2", uv:"0.8.17",
+    install_rung:"extras:test", suite_cmd:"python -m pytest -q"
+  },null,1));
+}' "$1" "$2"; }
+CPOOL=$(mktemp -d); mkcounted_pool "$CPOOL" 8
+cprint(){ TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CPOOL" TB_COUNTED_FREEZE_TEST="${1:-$CTEST}" node "$CFZ" --print; }
+
+# ---- structure: N primary paired both-arm trajectories + a SEPARATE 22-style budget
+cprint > /tmp/tb-cfz-print.json 2>/dev/null
+node -e '
+const m=require("/tmp/tb-cfz-print.json"),a=[];
+const {createHash}=require("crypto");
+const ok=(c,d)=>a.push((c?"ok   ":"FAIL ")+d);
+const ids=m.pool.tasks.map(t=>t.id);
+ok(m.pool.task_count===8,"the fixture pool is exactly N=8 tasks");
+ok([...new Set(m.execution.task_order)].length===8 && m.execution.task_order.every(t=>ids.includes(t)),
+   "the order is a permutation of the pool: none dropped, none repeated");
+ok(m.execution.primary.trajectory_count===16 && m.execution.primary.trajectories.length===16,"both arms: exactly 2N primary trajectories");
+const per={}; for(const r of m.execution.primary.trajectories)(per[r.task]=per[r.task]||[]).push(r.arm);
+ok(Object.values(per).every(v=>v.length===2&&v.includes("gated")&&v.includes("ungated")),"every primary task runs once gated and once ungated");
+ok(m.execution.primary.trajectories.every((r,i)=>r.seq===i+1),"primary seq is dense and 1-based, so no trajectory can be skipped unnoticed");
+ok(m.execution.primary.trajectories.every((r,i)=>i%2===1?r.task===m.execution.primary.trajectories[i-1].task:true),"a primary task pair is adjacent: both arms run back to back");
+ok(m.execution.duplicates.task_ids.length===3,"the duplicate set is exactly n_duplicates=3");
+ok(m.execution.duplicates.task_ids.every(t=>ids.includes(t)),"every duplicate id is drawn from the primary pool — a re-run, never a new task");
+ok(m.execution.duplicates.trajectory_count===6 && m.execution.duplicates.trajectories.length===6,"the duplicate budget is exactly 2*n_duplicates trajectories");
+ok(m.execution.duplicates.trajectories.every(r=>r.duplicate===true),"every duplicate trajectory is tagged duplicate:true");
+ok(m.execution.primary.trajectories.every(r=>r.duplicate===undefined),"no primary trajectory is tagged duplicate — the budget never enters the N primary denominator");
+const seqs=m.execution.duplicates.trajectories.map(r=>r.seq);
+ok(seqs[0]===17 && seqs[seqs.length-1]===22,"duplicate seq continues after the primary block (17..22) and never renumbers it");
+ok(m.execution.trajectory_count===22,"total trajectories = 2*(N + duplicates)");
+// The duplicate selection FOLLOWS FROM the registered rule, recomputed independently here.
+const reg=m.registration;
+const want=ids.map(id=>[createHash("sha256").update(reg.duplicate_seed+":"+id).digest("hex"),id])
+  .sort((x,y)=>x[0]<y[0]?-1:x[0]>y[0]?1:(x[1]<y[1]?-1:x[1]>y[1]?1:0)).slice(0,3).map(x=>x[1]);
+ok(JSON.stringify(m.execution.duplicates.task_ids)===JSON.stringify(want),
+   "the 22-rule output equals an INDEPENDENT recomputation of sha256(dup_seed:id) sorted, first n — the rule, not a stored list");
+ok(m.execution_ready===false,"execution_ready is false: no counted order-enforcing driver is pinned yet");
+ok(m.binding_set.counted_driver===null,"the counted driver is declared null, not silently omitted");
+ok(m.treatment===null,"with no artefact on this host the treatment is null, not faked");
+console.log(a.join("\n"));
+' | while read -r v d; do [ "$v" = ok ] && ok "$d" || no "$d"; done
+
+# ---- the order, arms and duplicates each FOLLOW FROM their own seed, independently
+cord(){ cprint "${1:-$CTEST}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).execution.task_order.join(",")))'; }
+cdup(){ cprint "${1:-$CTEST}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).execution.duplicates.task_ids.join(",")))'; }
+# per-task arm, keyed by task id (order-independent), so this isolates the ARM seed
+carms(){ cprint "${1:-$CTEST}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const t=JSON.parse(s).execution.primary.trajectories.filter(r=>r.seq%2===1);const m={};for(const r of t)m[r.task]=r.arm;console.log(Object.keys(m).sort().map(k=>k+"="+m[k]).join(","))})'; }
+ALT_O='{"n_primary":8,"n_duplicates":3,"order_seed":"selftest-counted-other-order"}'
+ALT_D='{"n_primary":8,"n_duplicates":3,"duplicate_seed":"selftest-counted-other-dup"}'
+ALT_A='{"n_primary":8,"n_duplicates":3,"arm_order_seed":"selftest-counted-other-arm"}'
+[ "$(cord)" = "$(cord)" ] && ok "counted derivation is deterministic across runs" || no "counted derivation is not deterministic"
+[ "$(cord)" != "$(cord "$ALT_O")" ] && ok "a different order seed yields a different order — the order seed is load-bearing" || no "the order seed does not affect the order"
+[ "$(cdup)" != "$(cdup "$ALT_D")" ] && ok "a different duplicate seed yields a different duplicate set — the duplicate seed is load-bearing" || no "the duplicate seed does not affect the duplicates"
+[ "$(carms)" != "$(carms "$ALT_A")" ] && ok "a different arm seed yields a different arm assignment — the arm seed is load-bearing" || no "the arm seed does not affect the arms"
+[ "$(cdup)" = "$(cdup "$ALT_O")" ] && ok "the order seed does NOT perturb the duplicate set — order and duplicates are independent" || no "the order seed leaked into the duplicate set"
+[ "$(cord)" = "$(cord "$ALT_D")" ] && ok "the duplicate seed does NOT perturb the task order" || no "the duplicate seed leaked into the order"
+[ "$(carms)" = "$(carms "$ALT_O")" ] && ok "the order seed does NOT perturb per-task arm assignment" || no "the order seed leaked into the arms"
+
+# ---- fail closed: the pool cannot certify itself, and N is fixed not read off it
+CBAD=$(mktemp -d); cp -a "$CPOOL/." "$CBAD/"
+node -e 'const f=process.argv[1],fs=require("fs");const m=JSON.parse(fs.readFileSync(f));m.role="pilot";fs.writeFileSync(f,JSON.stringify(m,null,1))' "$CBAD/01-fixture-repo1/manifest.json"
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CBAD" TB_COUNTED_FREEZE_TEST="$CTEST" node "$CFZ" --print >/dev/null 2>&1; echo $?)" = 5 ] && ok "a non-'main' role in the counted pool is refused" || no "a non-main role was accepted"
+rm -rf "$CBAD"; CBAD=$(mktemp -d); cp -a "$CPOOL/." "$CBAD/"; echo tampered >> "$CBAD/02-fixture-repo2/gold.patch"
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CBAD" TB_COUNTED_FREEZE_TEST="$CTEST" node "$CFZ" --print >/dev/null 2>&1; echo $?)" = 5 ] && ok "a patch edited under its manifest is refused — the pool cannot certify itself" || no "a self-inconsistent patch was accepted"
+rm -rf "$CBAD"; CBAD=$(mktemp -d); cp -a "$CPOOL/." "$CBAD/"
+node -e 'const f=process.argv[1],fs=require("fs");const m=JSON.parse(fs.readFileSync(f));m.id="99-not-my-dir";fs.writeFileSync(f,JSON.stringify(m,null,1))' "$CBAD/03-fixture-repo3/manifest.json"
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CBAD" TB_COUNTED_FREEZE_TEST="$CTEST" node "$CFZ" --print >/dev/null 2>&1; echo $?)" = 5 ] && ok "a manifest id disagreeing with its directory is refused" || no "a mismatched id was accepted"
+rm -rf "$CBAD"
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CPOOL" TB_COUNTED_FREEZE_TEST='{"n_primary":9,"n_duplicates":3}' node "$CFZ" --print >/dev/null 2>&1; echo $?)" = 5 ] && ok "a pool whose size != n_primary is refused — N is registered, never read off the pool" || no "a wrong-sized pool was accepted"
+
+# ---- --check catches every binding forgery and tells the drift classes apart
+CBASE=$(mktemp /tmp/tb-cfz-XXXX.json)
+cprint > "$CBASE" 2>/dev/null
+TB_COUNTED_MANIFEST="$CBASE" node "$CFZ" --render > "${CBASE%.json}.md" 2>/dev/null
+CK2="TB_ART_DIR=/nonexistent-artefact TB_COUNTED_CHECK_NO_ARTEFACT=1 TB_COUNTED_CHECK_BINDING_ONLY=1 TB_COUNTED_POOL_DIR=$CPOOL TB_COUNTED_FREEZE_TEST=$CTEST"
+ctamper(){ local t; t=$(mktemp /tmp/tb-cfz-XXXX.json); node -e '
+const fs=require("fs"),m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+(new Function("m",process.argv[2]))(m);
+fs.writeFileSync(process.argv[3],JSON.stringify(m,null,1)+"\n");' "$CBASE" "$1" "$t"
+  TB_COUNTED_MANIFEST="$t" node "$CFZ" --render > "${t%.json}.md" 2>/dev/null; echo "$t"; }
+cckrc(){ env $CK2 TB_COUNTED_MANIFEST="$1" node "$CFZ" --check >/dev/null 2>&1; echo $?; }
+C=$(ctamper 'void 0')
+[ "$(cckrc "$C")" = 0 ] && ok "an untouched counted copy checks clean (the positive control — also proves the binding set is copy-closed)" || no "an untouched copy failed to check"
+C=$(ctamper 'const t=m.execution.primary.trajectories;[t[0].task,t[2].task]=[t[2].task,t[0].task];')
+[ "$(cckrc "$C")" = 2 ] && ok "a hand-edited counted execution order is caught" || no "a forged counted order passed"
+out=$(env $CK2 TB_COUNTED_MANIFEST="$C" node "$CFZ" --check 2>&1)
+case "$out" in *"BINDING DRIFT  execution (re-derived from the frozen seeds)"*) ok "and it is the re-derivation from the frozen seeds that catches the order" ;;
+               *) no "the order re-derivation comparison did not fire" ;; esac
+C=$(ctamper 'm.execution.duplicates.task_ids=[m.pool.tasks[0].id,m.pool.tasks[1].id,m.pool.tasks[2].id];')
+[ "$(cckrc "$C")" = 2 ] && ok "a hand-picked duplicate set that does not follow from the seed is caught — the degree of freedom the rule removes" || no "a forged duplicate set passed"
+C=$(ctamper 'm.execution.primary.trajectories[0].arm=m.execution.primary.trajectories[0].arm==="gated"?"ungated":"gated";')
+[ "$(cckrc "$C")" = 2 ] && ok "a flipped counted arm is caught" || no "a flipped arm passed"
+C=$(ctamper 'm.pool.tasks[0].gold_patch_sha256="0".repeat(64);')
+[ "$(cckrc "$C")" = 2 ] && ok "a rewritten counted task patch hash is caught" || no "a rewritten task hash passed"
+C=$(ctamper 'm.binding_set.files[0].sha256="0".repeat(64);')
+[ "$(cckrc "$C")" = 2 ] && ok "a rewritten runner hash is caught" || no "a rewritten runner hash passed"
+C=$(ctamper 'm.registration.duplicate_seed="selftest-swapped-seed";')
+[ "$(cckrc "$C")" = 2 ] && ok "a rewritten duplicate seed is caught — re-derivation stops following it" || no "a rewritten seed passed"
+C=$(ctamper 'm.registration.model="some-other-model";')
+[ "$(cckrc "$C")" = 2 ] && ok "a rewritten model is caught" || no "a rewritten model passed"
+# environment drift is a DIFFERENT answer from binding drift
+C=$(ctamper 'm.environment_recorded.kernel="selftest-not-this-kernel";')
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_COUNTED_CHECK_NO_ARTEFACT=1 TB_COUNTED_POOL_DIR="$CPOOL" TB_COUNTED_FREEZE_TEST="$CTEST" TB_COUNTED_MANIFEST="$C" node "$CFZ" --check >/dev/null 2>&1; echo $?)" = 3 ] \
+  && ok "counted environment drift exits 3 — recorded, not confused with binding drift" || no "counted environment drift did not exit 3"
+[ "$(cckrc "$C")" = 0 ] && ok "TB_COUNTED_CHECK_BINDING_ONLY=1 skips the host-dependent comparison for CI" || no "binding-only mode still failed on environment drift"
+C=$(ctamper 'm.environment_recorded.kernel="x"; m.registration.model="y";')
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_COUNTED_CHECK_NO_ARTEFACT=1 TB_COUNTED_POOL_DIR="$CPOOL" TB_COUNTED_FREEZE_TEST="$CTEST" TB_COUNTED_MANIFEST="$C" node "$CFZ" --check >/dev/null 2>&1; echo $?)" = 2 ] \
+  && ok "binding drift outranks environment drift" || no "binding drift was masked by environment drift"
+# the rendered page is part of the freeze
+C=$(ctamper 'void 0'); printf 'edited by hand\n' >> "${C%.json}.md"
+[ "$(cckrc "$C")" = 2 ] && ok "a hand-edited counted page is binding drift, not a cosmetic difference" || no "a hand-edited page passed"
+C=$(ctamper 'void 0'); rm -f "${C%.json}.md"
+[ "$(cckrc "$C")" = 2 ] && ok "a deleted counted page is caught rather than treated as nothing to compare" || no "a deleted page passed"
+# an absent treatment is never silently 'fine'
+C=$(ctamper 'void 0')
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CPOOL" TB_COUNTED_FREEZE_TEST="$CTEST" TB_COUNTED_MANIFEST="$C" node "$CFZ" --check >/dev/null 2>&1; echo $?)" = 4 ] \
+  && ok "a missing counted artefact exits 4 rather than passing with the treatment unverified" || no "a missing artefact did not exit 4"
+out=$(TB_ART_DIR=/nonexistent-artefact TB_COUNTED_CHECK_NO_ARTEFACT=1 TB_COUNTED_CHECK_BINDING_ONLY=1 TB_COUNTED_POOL_DIR="$CPOOL" TB_COUNTED_FREEZE_TEST="$CTEST" TB_COUNTED_MANIFEST="$C" node "$CFZ" --check 2>&1)
+echo "$out" | grep -q "treatment identity UNVERIFIED" && ok "and it SAYS the treatment is unverified" || no "the missing-artefact allowance is silent about what it skipped"
+
+# ---- the seams cannot reach the real manifest; nothing is frozen yet, so refuse cleanly
+for seam in TB_COUNTED_FREEZE_TEST='{"model":"x"}' TB_COUNTED_POOL_DIR=/tmp; do
+  rc=$(env "$seam" node "$CFZ" --check >/dev/null 2>&1; echo $?)
+  [ "$rc" = 5 ] && ok "\`${seam%%=*}\` is refused against the real counted manifest path" || no "\`${seam%%=*}\` reached the real manifest (rc=$rc)"
+done
+[ "$(node "$CFZ" --check >/dev/null 2>&1; echo $?)" = 5 ] && ok "--check refuses when no counted manifest is frozen yet" || no "--check did not refuse a missing manifest"
+[ "$(node "$CFZ" --render >/dev/null 2>&1; echo $?)" = 5 ] && ok "--render refuses when no counted manifest is frozen yet" || no "--render did not refuse a missing manifest"
+[ "$(node "$CFZ" --bogus >/dev/null 2>&1; echo $?)" = 5 ] && ok "an unknown counted mode is a usage error (exit 5)" || no "an unknown mode did not exit 5"
+[ ! -e ./COUNTED-EXECUTION-MANIFEST.json ] && ok "no COUNTED-EXECUTION-MANIFEST.json is committed — the freeze is derived on the artefact host, after this tooling lands" || no "a counted manifest was committed before the artefact-host freeze"
+rm -rf "$CPOOL"; rm -f /tmp/tb-cfz-*.json /tmp/tb-cfz-*.md /tmp/tb-cfz-print.json
 
 
 echo "== pilot driver: the frozen order is ENFORCED and RECORDED, not merely written down"
@@ -1130,43 +1343,55 @@ grep -q 'NO_CREDENTIAL: a registered trajectory needs' ../runner/run-task4.sh \
 awk '/^if \[ -n "\$\{TB_REGISTERED_MODEL:-\}" \]; then$/{f=1} f&&/NO_CREDENTIAL/{print "guarded"; exit}' ../runner/run-task4.sh | grep -q guarded \
   && ok "and the refusal is scoped to registered runs, so the smoke path still works" || no "the credential refusal is not scoped to registered runs"
 
-echo "== run-task4.sh: the editable-install liveness guard fails closed on a copy-import"
-# The trajectory suite runs IN PLACE in $REPODIR and trusts that the agent's edits
-# there are what the suite imports. If a setuptools version resolves the package to a
-# static copy, edits are invisible and the trajectory measures stale code. This guards
-# the EXACT heredoc run-task4.sh uses (extracted, so there is one source of truth), and
-# structurally that run-task4.sh wires it to exit before the agent.
-LV=$(mktemp /tmp/tb-live-XXXX.py)
-awk "/<<'PYLIVE'/{f=1;next} /^PYLIVE\$/{f=0} f" ../runner/run-task4.sh > "$LV"
-[ -s "$LV" ] && grep -q 'NOT_LIVE' "$LV" && ok "the liveness check was extracted from run-task4.sh (one source of truth)" \
-  || no "could not extract the liveness heredoc — the cases below would be vacuous"
-grep -q 'PRE_AGENT_EDITABLE_NOT_LIVE' ../runner/run-task4.sh \
-  && grep -q 'cd "\$W" && "\$VENV/bin/python" - "\$REPODIR" <<.PYLIVE' ../runner/run-task4.sh \
-  && ok "run-task4.sh runs it from \$W (not \$REPODIR) and exits PRE_AGENT_EDITABLE_NOT_LIVE" \
-  || no "run-task4.sh does not wire the liveness guard as a fail-closed preflight"
+echo "== run-task4.sh: the editable-install liveness guard fails closed via the shared primitive"
+# run-task4.sh delegates to runner/editable-liveness.py — the ONE primitive the
+# pre-freeze checker also calls. Assert the wiring is a fail-closed preflight, then
+# exercise the ACTUAL primitive against a uv editable install (the trajectory's
+# install path): a live install passes, a stale-copy shadow (a meta_path finder that
+# wins over cwd) is caught. The layout/mechanism matrix is the primitive's own unit
+# selftest (runner/editable-liveness.selftest.sh); this proves the trajectory boundary.
+grep -q 'editable-liveness.py' ../runner/run-task4.sh \
+  && grep -q 'PRE_AGENT_EDITABLE_NOT_LIVE' ../runner/run-task4.sh \
+  && ok "run-task4.sh wires the shared liveness primitive as a fail-closed preflight" \
+  || no "run-task4.sh does not wire the liveness primitive"
+PRIM="$(cd .. && pwd)/runner/editable-liveness.py"
 if uv --version >/dev/null 2>&1; then
-  LW=$(mktemp -d); LR="$LW/repo"; LVENV="$LW/venv"; mkdir -p "$LR/tests"   # siblings, exactly like run-task4
-  printf '[project]\nname="pfix"\nversion="0.0.1"\n' > "$LR/pyproject.toml"
+  LW=$(mktemp -d); LR="$LW/repo"; LVENV="$LW/venv"; mkdir -p "$LR"
+  printf '[project]\nname="pfix"\nversion="0.0.1"\n[tool.setuptools]\npy-modules=["calc"]\n' > "$LR/pyproject.toml"
   printf 'def add(a,b):\n    return a+b\n' > "$LR/calc.py"
   if uv venv -q -p python3.11 "$LVENV" 2>/dev/null && ( cd "$LR" && uv pip install -q -p "$LVENV/bin/python" -e . 2>/dev/null ); then
-    r=$( cd "$LW" && "$LVENV/bin/python" "$LV" "$LR" >/dev/null 2>&1; echo $? )
-    [ "$r" = 0 ] && ok "a LIVE editable install passes the guard (rc=0) — the positive control" || no "a live install failed the guard (rc=$r)"
+    r=$( "$LVENV/bin/python" "$PRIM" "$LR" >/dev/null 2>&1; echo $? )
+    [ "$r" = 0 ] && ok "a LIVE editable install => rc 0 (positive control)" || no "a live install failed the primitive (rc=$r)"
     SPK=$("$LVENV/bin/python" -c 'import site;print(site.getsitepackages()[0])')
     printf 'def add(a,b):\n    return a-b\n' > "$SPK/_stale_calc.py"
     printf 'import sys, os, importlib.util\n_S=os.path.join(os.path.dirname(__file__),"_stale_calc.py")\nclass _F:\n    def find_spec(self,n,p=None,t=None):\n        return importlib.util.spec_from_file_location("calc",_S) if n=="calc" else None\nsys.meta_path.insert(0,_F())\n' > "$SPK/_shadow_finder.py"
     echo "import _shadow_finder" > "$SPK/shadow.pth"
-    r=$( cd "$LW" && "$LVENV/bin/python" "$LV" "$LR" >/dev/null 2>&1; echo $? )
-    [ "$r" = 1 ] && ok "a COPY-import (stale editable finder) is caught (rc=1) — the CI failure class, at the trajectory boundary" || no "a copy-import was not caught (rc=$r)"
-    # cwd cannot rescue it: even run from inside the repo, the meta_path copy wins
-    r=$( cd "$LR" && "$LVENV/bin/python" "$LV" "$LR" >/dev/null 2>&1; echo $? )
-    [ "$r" = 1 ] && ok "the guard is cwd-robust: a copy is caught even when run from inside the repo" || no "cwd masked the copy (rc=$r)"
+    r=$( "$LVENV/bin/python" "$PRIM" "$LR" >/dev/null 2>&1; echo $? )
+    [ "$r" = 1 ] && ok "a stale-copy shadow (meta_path finder wins over cwd) => NOT_VERIFIED (rc 1)" || no "a shadowed copy was not caught (rc=$r)"
   else
-    no "liveness guard: could not build a venv/editable install (uv/network?)"
+    no "liveness primitive: could not build a uv editable install (uv/network?)"
   fi
   rm -rf "$LW"
 else
-  no "liveness guard: uv unavailable"
+  no "liveness primitive: uv unavailable"
 fi
-rm -f "$LV"
+
+echo "== smoke4 A3 pin is DERIVED from the active registration, never hardcoded (regression) =="
+# The smoke path silently drifted to iteration 1's 2.10.2 pin after the treatment
+# moved, because A3 compared against a literal sha. Guard both directions: no literal
+# treatment sha, and the derivation reads the registration (or TB_ART_SHA).
+if grep -qE '\.artefact_pkg_sha256\) = "[0-9a-f]{64}"' ../runner/smoke4.sh; then
+  no "smoke4 A3 compares against a hardcoded artefact sha — it will drift from the registration"
+else
+  ok "smoke4 A3 does not compare against a hardcoded artefact sha"
+fi
+grep -q 'PILOT-REGISTRATION.json' ../runner/smoke4.sh && grep -q 'EXPECTED_PIN' ../runner/smoke4.sh \
+  && ok "smoke4 derives the A3 pin from the registration / TB_ART_SHA" \
+  || no "smoke4 no longer derives the A3 pin from the active registration"
+# and the derivation actually resolves the CURRENT registered treatment
+DERIVED=$(jq -r '(.active_iteration // ([.iterations[].iteration]|max)) as $a | .iterations[]|select(.iteration==$a)|.treatment_artefact_sha256' PILOT-REGISTRATION.json 2>/dev/null)
+[ -n "$DERIVED" ] && [ "$DERIVED" != null ] \
+  && ok "the registration resolves a current treatment pin ($DERIVED)" \
+  || no "could not derive a treatment pin from the registration"
 
 echo; echo "passed $pass, failed $fail"; [ "$fail" = 0 ]

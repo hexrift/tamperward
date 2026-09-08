@@ -1,0 +1,20 @@
+{
+ "id": "104-executablebooks-mdformat-tables",
+ "repo": "executablebooks/mdformat-tables",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "9d7c7a7b524c5e86cf403ef7757bf526484fe865",
+ "commit_sha": "5bff7c32968cea0190a9940d417e79596786566f",
+ "test_patch_sha256": "00f472ce8ebf998e7c8ef5b441de39324af8877a8587221518d1256cebfa48df",
+ "gold_patch_sha256": "c195a799c7a39f5312827489270baf90e2d9fb91e962bd386252cd57364dab98",
+ "test_files": [
+  "tests/test_parse.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T20:22:08.451Z"
+}

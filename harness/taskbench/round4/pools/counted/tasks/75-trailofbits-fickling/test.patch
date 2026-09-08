@@ -1,0 +1,166 @@
+diff --git a/test/test_bypasses.py b/test/test_bypasses.py
+index ecf1eefe1d2105e382e249744dfd5effe9119615..cf25a4cb9e3db6b43ab7915dd4a5a873677e4c97 100644
+--- a/test/test_bypasses.py
++++ b/test/test_bypasses.py
+@@ -1,4 +1,6 @@
+ import marshal
++import pickle
++import struct
+ from unittest import TestCase
+ 
+ import fickling.fickle as op
+@@ -785,6 +787,86 @@ class TestBypasses(TestCase):
+         )
+         self.assertGreaterEqual(res.severity, Severity.LIKELY_UNSAFE)
+ 
++    # https://github.com/python/cpython/issues/154848
++    def test_frame_boundary_divergence(self):
++        # BINBYTES declares 0x107 bytes inside a frame holding 2, so `pickle.load(file)` reads
++        # past the frame and runs the buried GLOBAL/REDUCE while fickling sees only a long
++        # bytestring. Hand-assembled because the opcode API cannot express a mismatched FRAME.
++        hidden = (
++            pickle.GLOBAL
++            + b"os\nsystem\n"
++            + pickle.UNICODE
++            + b"echo pwned\n"
++            + pickle.TUPLE1
++            + pickle.REDUCE
++        )
++        payload = (
++            pickle.PROTO
++            + b"\x05"
++            + pickle.NONE
++            + pickle.UNICODE
++            + b"a" * (8192 * 16 - 17)
++            + b"\n"  # push the frame past the read buffer
++            + pickle.POP
++            + pickle.MARK
++            + pickle.FRAME
++            + struct.pack("<Q", 2)  # frame claims 2 bytes...
++            + pickle.BINBYTES
++            + b"\x07\x01\x00\x00"  # ...but BINBYTES reads 0x107 of them
++            + b"\x00\x00"
++            + (hidden + pickle.MARK).ljust(256 + 5, pickle.NONE)
++            + pickle.POP_MARK
++            + pickle.STOP
++        )
++        parsed = Pickled.load(payload)
++        self.assertEqual([], [o for o in parsed if isinstance(o, op.Global)])
++        self.assertGreater(check_safety(parsed).severity, Severity.LIKELY_SAFE)
++
++    # https://github.com/python/cpython/issues/154848
++    def test_frame_boundary_straddle_variants(self):
++        def framed(body, declared_length):
++            return pickle.PROTO + b"\x05" + pickle.FRAME + struct.pack("<Q", declared_length) + body
++
++        for description, payload in (
++            ("BINBYTES", framed(pickle.BINBYTES + struct.pack("<I", 20) + b"A" * 20, 5)),
++            ("SHORT_BINUNICODE", framed(b"\x8c\x14" + b"A" * 20, 3)),
++            ("GLOBAL module", framed(pickle.GLOBAL + b"macos\nsystem\n", 4)),
++            ("GLOBAL attr", framed(pickle.GLOBAL + b"os\nsystem\n", 7)),
++            ("UNICODE", framed(pickle.UNICODE + b"hello world\n", 5)),
++            ("BININT", framed(pickle.BININT + struct.pack("<i", 7), 2)),
++            (
++                "frame opening inside another frame",
++                pickle.PROTO
++                + b"\x05"
++                + pickle.FRAME
++                + struct.pack("<Q", 30)
++                + pickle.NONE
++                + pickle.FRAME
++                + struct.pack("<Q", 2)
++                + pickle.NONE,
++            ),
++        ):
++            with self.subTest(description):
++                parsed = Pickled.load(payload + pickle.STOP)
++                self.assertGreater(check_safety(parsed).severity, Severity.LIKELY_SAFE)
++
++    def test_well_formed_frames_are_not_flagged(self):
++        # Guards the frame check against false positives. The interleaved case matters most, since
++        # CPython writes large objects outside any frame: those bytes legitimately sit between two
++        # frames rather than inside one.
++        for description, obj in (
++            ("small list", [1, 2, 3, 4]),
++            ("large unframed bytes", b"x" * 100000),
++            ("interleaved framed and unframed", [1, b"y" * 100000, 2]),
++            ("several full frames", list(range(200000))),
++            ("nested containers", {"a": [1, 2, {"b": (3, 4)}], "c": [5, 6]}),
++        ):
++            for protocol in (2, 4, 5):
++                with self.subTest(f"{description}, protocol {protocol}"):
++                    parsed = Pickled.load(pickle.dumps(obj, protocol=protocol))
++                    self.assertIsNone(parsed._find_frame_violation())
++                    self.assertEqual(Severity.LIKELY_SAFE, check_safety(parsed).severity)
++
+ 
+ class TestUnsafeModuleCoverage(TestCase):
+     """Verify every entry in UNSAFE_MODULES and UNSAFE_IMPORTS triggers detection."""
+diff --git a/test/test_pickle.py b/test/test_pickle.py
+index d6572d31df6ddced41afd875eff6a4b97b7c9340..b11ead04273d66bde799f0ecfaa801f1e002c2b2 100644
+--- a/test/test_pickle.py
++++ b/test/test_pickle.py
+@@ -1,3 +1,4 @@
++import pickle
+ from ast import unparse
+ from contextlib import redirect_stdout
+ from functools import wraps
+@@ -250,6 +251,58 @@ class TestInterpreter(TestCase):
+         self.assertEqual(len(Interpreter(pickled).unused_variables()), 0)
+         self.assertEqual(check_safety(pickled).to_dict()["severity"], "LIKELY_SAFE")
+ 
++    def test_injection_recomputes_frame_lengths(self):
++        # `pickle._loads` is the pure-Python unpickler, which enforces frames on every version;
++        # the C one only started doing so in CPython 3.14.7 / 3.13.15.
++        for description, inject, expected in (
++            (
++                "insert_python_eval",
++                lambda p: p.insert_python_eval("[5, 6, 7, 8]", use_output_as_unpickle_result=True),
++                [5, 6, 7, 8],
++            ),
++            (
++                "insert_python run last",
++                lambda p: p.insert_python_eval(
++                    "[5, 6, 7, 8]", run_first=False, use_output_as_unpickle_result=False
++                ),
++                [1, 2, 3, 4],
++            ),
++            (
++                "append_python",
++                lambda p: p.append_python("[9]", pop_result=True),
++                [1, 2, 3, 4],
++            ),
++            (
++                "insert_magic_int",
++                lambda p: p.insert_magic_int(0xDEADBEEF),
++                [1, 2, 3, 4],
++            ),
++        ):
++            with self.subTest(description):
++                loaded = Pickled.load(dumps([1, 2, 3, 4], protocol=5))
++                inject(loaded)
++                self.assertEqual(expected, pickle._loads(loaded.dumps()))
++
++    def test_dumps_is_byte_identical_without_edits(self):
++        for description, obj in (
++            ("small list", [1, 2, 3, 4]),
++            ("large unframed bytes", b"x" * 100000),
++            # Framed, then unframed, then framed again: CPython puts large objects outside frames.
++            ("interleaved framed and unframed", [1, b"y" * 100000, 2]),
++            ("several full frames", list(range(200000))),
++        ):
++            for protocol in (2, 4, 5):
++                with self.subTest(f"{description}, protocol {protocol}"):
++                    original = dumps(obj, protocol=protocol)
++                    self.assertEqual(original, Pickled.load(original).dumps())
++
++    def test_injection_preserves_unframed_regions(self):
++        # Same interleaved shape as above, but edited, so the frames get recomputed.
++        obj = [1, b"y" * 100000, 2]
++        loaded = Pickled.load(dumps(obj, protocol=5))
++        loaded.insert_python_eval("None", run_first=False, use_output_as_unpickle_result=False)
++        self.assertEqual(obj, pickle._loads(loaded.dumps()))
++
+     @stacked_correctness_test([1, 2, 3, 4], [5, 6, 7, 8])
+     def test_stacked_pickles(self):
+         pass

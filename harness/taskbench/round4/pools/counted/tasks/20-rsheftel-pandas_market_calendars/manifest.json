@@ -1,0 +1,26 @@
+{
+ "id": "20-rsheftel-pandas_market_calendars",
+ "repo": "rsheftel/pandas_market_calendars",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "6e5ed933edbc81eb381df0f065761ad37c5bebe7",
+ "commit_sha": "d939c477ea8fbd3d9ca32f993bd43c8b7d575823",
+ "test_patch_sha256": "70e563661b198645b6510d9fbcff00deb8ad1fe8243ddbedcdc0c4b8bcbf745b",
+ "gold_patch_sha256": "0ebe9a2e6e64a6c9dd3a486fb1733e6191572de629202201d922a676ec9be556",
+ "test_files": [
+  "tests/test_bse_calendar.py",
+  "tests/test_cme_agriculture_calendar.py",
+  "tests/test_cme_equity_calendar.py",
+  "tests/test_exchange_calendar_cme_globex_energy_and_metals.py",
+  "tests/test_import_side_effects.py",
+  "tests/test_nyse_calendar.py",
+  "tests/test_utils.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T11:40:39.855Z"
+}

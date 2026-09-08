@@ -62,23 +62,24 @@ const REGISTRATION = {
   model: 'claude-sonnet-5',
   // Distinct from every counted seed and from both mining seeds, so the pilot
   // cannot perturb the counted draw.
-  trajectory_order_seed: 'taskbench4-pilot-trajectory-order-v2-2026-09-06',
-  arm_order_seed: 'taskbench4-pilot-arm-order-v2-2026-09-06',
+  trajectory_order_seed: 'taskbench4-pilot-trajectory-order-v4-2026-09-07',
+  arm_order_seed: 'taskbench4-pilot-arm-order-v4-2026-09-07',
   // The rule rounds 1-3.1 all used, restated so the derivation is checkable
   // from the document alone.
   derivation:
     'order: task ids sorted by sha256(`${trajectory_order_seed}:${id}`); ' +
     'arms: sha256(`${arm_order_seed}:${id}`)[0] % 2 === 0 ? [ungated, gated] : [gated, ungated]',
   // The merged harness commit this manifest is frozen against.
-  base_commit: '08a1d42b596e142f336f24b9b5c5ceb6bcc005e4',
+  base_commit: '0947c9fab4c0798ed870b861977f76be32407aa9',
 };
 
-// The ten FRESH tasks. Ids 01-10 are disclosed development data and are
-// excluded by id, not by a filter that could quietly admit them.
-const POOL_IDS = ['02', '03', '04', '05', '06', '07', '08', '09', '10', '11'];
+// The ten FRESH tasks, mined for iteration 4 on the CORRECTED harness (D24
+// gate-wiring baseline fix) and named by id, not by a filter that could quietly
+// admit a wrong one. No attrition this iteration — ids 01-10, contiguous.
+const POOL_IDS = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10'];
 // TB_PILOT_POOL_DIR is a self-test seam, refused for the real manifest by the
 // same guard as TB_PILOT_FREEZE_TEST.
-const POOL_DIR = process.env.TB_PILOT_POOL_DIR || path.join(HERE, 'pools', 'pilot-i2', 'tasks');
+const POOL_DIR = process.env.TB_PILOT_POOL_DIR || path.join(HERE, 'pools', 'pilot-i4', 'tasks');
 
 // Everything that SHAPES a trajectory — scripts AND the data they carry.
 // Editing any of it changes what the pilot measures, so each entry is pinned
@@ -92,6 +93,7 @@ const POOL_DIR = process.env.TB_PILOT_POOL_DIR || path.join(HERE, 'pools', 'pilo
 const BINDING_FILES = [
   'runner/run-task4.sh',        // the trajectory runner itself
   'runner/deploy-gated4.sh',    // writes the gated arm's deployment
+  'runner/commit-harness-baseline.sh', // folds the harness-owned gate wiring into the trusted gated base with the candidate's excludes overridden (D24): whether the wiring is part of the base — vs. re-read by the Stop sweep as agent tampering — is decided here, so it shapes every gated outcome
   'runner/agent-jail4.sh',      // mount/PID/capability separation, both arms
   'runner/net-jail.sh',         // network isolation, both arms
   'runner/allowlist-proxy.mjs', // the only egress path out of the jail
@@ -100,6 +102,8 @@ const BINDING_FILES = [
   'runner/split-cases-py.mjs',  // pytest case extraction for the oracle
   'runner/verdict4.mjs',        // the neutral adjudicator: the outcome source
   'runner/suite-status.mjs',    // the ONE interpretation of a suite's exit status; shapes every outcome the adjudicator emits, so it is as binding as verdict4
+  'runner/agent-exec-contract.mjs', // the ONE positive proof of a genuine agent execution; the runner refuses to adjudicate/persist without it (a non-execution can never become an outcome), so it gates whether ANY outcome may count — as binding as verdict4
+  'runner/editable-liveness.py', // the ONE editable-liveness primitive: run-task4's PRE_AGENT guard and the pre-freeze pool checker both call it, so whether the agent's edits are LIVE for the suite is decided identically at freeze time and run time — it gates whether a trajectory may proceed at all
   'runner/verdict-record.sh',   // what counts as a verdict at all
   'runner/cleanup-lifecycle4.sh', // the cleanup contract the runner is held to
   'runner/launcher4.sh',        // the immutable bare-launcher deployment gate
@@ -451,9 +455,11 @@ envelope. Isolation is applied symmetrically to both.
 
 ## Pool — the fresh ten
 
-Ids \`01\`–\`10\` are disclosed development data and are excluded by id, not by a
-filter that could quietly admit them. Every patch is re-hashed from disk at
-derivation time: a task manifest cannot certify its own patches.
+Ten freshly mined tasks, named by id rather than by a filter that could quietly
+admit a wrong one, drawn for iteration 4 on the corrected harness (DEVIATIONS
+D24). No attrition this iteration — ids \`01\`-\`10\` are contiguous. Every
+patch is re-hashed from disk at derivation time: a task manifest cannot certify
+its own patches.
 
 | id | repository | parent | protected test file |
 |---|---|---|---|

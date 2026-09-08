@@ -1,0 +1,13 @@
+diff --git a/tests/test_parshios.py b/tests/test_parshios.py
+index 9660dda736afae667b78a8818ffc9d6ad2a6cf12..16c90f69b060b51b5b6b399a4e310e1f7756d930 100644
+--- a/tests/test_parshios.py
++++ b/tests/test_parshios.py
+@@ -96,6 +96,8 @@ def test_parah():
+     date = dates.HebrewDate(5784, 13, 14)
+     assert parshios.four_parshios(date, hebrew=True) == 'פרה'
+     assert parshios.four_parshios(date - 1) != 'Parah'
++    date = dates.GregorianDate(2025, 3, 9)
++    assert parshios.four_parshios(date) == ''
+ 
+ 
+ def test_hachodesh():

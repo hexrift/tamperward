@@ -175,8 +175,53 @@ analysis or the counted N is amended. Freeze 2 remains unregistered.
 **Sequencing is unchanged:** the mapping to 3,600 runs **after the pilot completes and
 before counted mining begins**.
 
-## The extension as built
+## The extension as built (2026-09-08 — mapped after counted mining had begun)
 
-*(To be filled in after this amendment is committed and the mapping has run —
-admitted count, resumed rank, ending rank, dedup outcomes, and verification that
-the frozen prefixes are byte-identical.)*
+Mapping resumed at ranked position **3,444** — where amendment 1's ext mapping
+stopped (`frame/mapping-log-ext.jsonl`) — and admitted **1,600** repositories by
+position **5,630**, bringing the frame to **3,600**.
+
+It was built by a dedicated `fetch-frame5-ext2.sh`, **not** by re-running
+`fetch-frame5-ext.sh` with a larger target. The amendment-1 tool reads today's
+`pilot-dedup.json` (now **901**, grown from the 254 it used) and re-walks ranks
+1,306..3,443 against it; **401** of amendment 1's 1,500 admits have since been
+burnt, so re-running it would drop them and rewrite the frozen 2,000 prefix. The
+amendment-2 builder instead resumes beyond amendment 1 and writes new files:
+`frame/frame-ext2.json`, `frame/mapping-log-ext2.jsonl`,
+`frame/walk-order-ext2.json`, `frame/pilot-walk-order-ext2.json`.
+
+Outcomes over the tail (ranks 3,444–5,630, 2,187 packages walked):
+
+| outcome | count |
+| --- | --- |
+| admitted | 1600 |
+| no GitHub repository | 316 |
+| spent in rounds 1–3.1 | 149 |
+| already in the amendment-1 frame | 65 |
+| duplicate within the amendment-2 tail | 36 |
+| burnt (`pilot_dedup`) | 20 |
+| registry error (skipped) | 1 |
+
+**Verified after the build, not asserted:**
+
+- The original 500 (`frame.json`, `walk-order.json`, `pilot-walk-order.json`) and
+  amendment 1's extension (`frame-ext.json`, `walk-order-ext.json`,
+  `pilot-walk-order-ext.json`) are **byte-identical** — checksums taken before the
+  run still match (`walk-order-ext.json` sha256 `ab78d0…636b6`, unchanged).
+- `walk-order-ext2.json` holds **3,600** entries; positions 1..2,000 are the
+  **byte-identical prefix** of `walk-order-ext.json`, and the appended 1,600
+  collide with that prefix in **0** positions.
+- The appended set is **disjoint** from the frame already built and from the 901
+  burnt repositories (the dedup pre-seed enforced both), with no internal duplicates.
+
+**Sequencing deviation — disclosed, not smoothed.** As registered (`PREDICTION4`
+§3; `PILOT4.md`; `RUN-LOCALLY.md`) this mapping was to run **before** freeze 2 and
+the counted draw. It did not: freeze 2 (#271) and the counted-frame build (#272)
+were executed on the un-extended 2,000 walk (1,099 eligible), which mined to
+exhaustion at **73** validated tasks — short of the registered N=110 the 3,600
+frame is sized to meet. This mapping was therefore run **after** counted mining
+began, to complete the skipped step. Because it is append-only and rank-preserving,
+the 1,099 already-mined prefix and its 73 validated tasks keep their identities and
+ranks; the counted walk simply gains the 1,600 pre-specified tail it should have
+carried from the start. Full disclosure: `DEVIATIONS.md` D32 and `PREDICTION4`'s
+corrections appendix.

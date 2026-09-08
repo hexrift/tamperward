@@ -1,0 +1,79 @@
+diff --git a/README.rst b/README.rst
+index 8ae5f72007b2e226138fe609fbe050fe188d0a59..1e896c2d5f5ce0509224d4f31694011fe4d02890 100644
+--- a/README.rst
++++ b/README.rst
+@@ -52,21 +52,26 @@ Matrices can be created by passing the values ``a, b, c, d, e, f`` to the
+          0.7071067811865475, 0.7071067811865476, 0.0)
+ 
+ These matrices can be applied to ``(x, y)`` tuples using the
+-``*`` operator (or the ``@`` matrix multiplier operator for
+-future releases) to obtain transformed coordinates ``(x', y')``.
++``@`` matrix multiplier operator to obtain transformed
++coordinates ``(x', y')``.
+ 
+ .. code-block:: pycon
+ 
+-  >>> Affine.translation(1.0, 5.0) * (1.0, 1.0)
++  >>> Affine.translation(1.0, 5.0) @ (1.0, 1.0)
+   (2.0, 6.0)
+-  >>> Affine.rotation(45.0) * (1.0, 1.0)
++  >>> Affine.rotation(45.0) @ (1.0, 1.0)
+   (1.1102230246251565e-16, 1.414213562373095)
+ 
++.. note::
++   Versions before 3.0.0 only supported the ``*`` operator for
++   matrix multiplication. To use these examples with previous
++   releases, replace ``@`` with ``*``.
++
+ They may also be multiplied together to combine transformations.
+ 
+ .. code-block:: pycon
+ 
+-  >>> Affine.translation(1.0, 5.0) * Affine.rotation(45.0)
++  >>> Affine.translation(1.0, 5.0) @ Affine.rotation(45.0)
+   Affine(0.7071067811865476, -0.7071067811865475, 1.0,
+          0.7071067811865475, 0.7071067811865476, 5.0)
+ 
+@@ -89,7 +94,7 @@ origin can be easily computed.
+   >>> geotransform = (-237481.5, 425.0, 0.0, 237536.4, 0.0, -425.0)
+   >>> fwd = Affine.from_gdal(*geotransform)
+   >>> col, row = 0, 100
+-  >>> fwd * (col, row)
++  >>> fwd @ (col, row)
+   (-237481.5, 195036.4)
+ 
+ The reverse transformation is obtained using the ``~`` inverse operator.
+@@ -97,5 +102,5 @@ The reverse transformation is obtained using the ``~`` inverse operator.
+ .. code-block:: pycon
+ 
+   >>> rev = ~fwd
+-  >>> rev * fwd * (col, row)
++  >>> rev @ fwd @ (col, row)
+   (0.0, 99.99999999999999)
+diff --git a/src/affine/__init__.py b/src/affine/__init__.py
+index 9fdee0e3f6ca0fba056b11de72e0d73db024dce9..883db5ddeae71057ae1348f3bf14a15a2c0e0fee 100644
+--- a/src/affine/__init__.py
++++ b/src/affine/__init__.py
+@@ -615,13 +615,16 @@ class Affine:
+         Returns
+         -------
+         Affine or a tuple of two items
++
++        .. deprecated:: 3.1.0
++            Use `@` matmul instead of `*` mul operator for matrix multiplication.
+         """
+-        # TODO: consider enabling this for 3.1
+-        # warnings.warn(
+-        #     "Use `@` matmul instead of `*` mul operator for matrix multiplication",
+-        #     PendingDeprecationWarning,
+-        #     stacklevel=2,
+-        # )
++        # TODO: consider elevating to DeprecationWarning for 3.2
++        warnings.warn(
++            "Use `@` matmul instead of `*` mul operator for matrix multiplication",
++            PendingDeprecationWarning,
++            stacklevel=2,
++        )
+         if isinstance(other, Affine):
+             return self.__matmul__(other)
+         try:

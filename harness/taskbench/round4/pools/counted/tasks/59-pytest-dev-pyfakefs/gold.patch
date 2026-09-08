@@ -1,0 +1,33 @@
+diff --git a/CHANGES.md b/CHANGES.md
+index 7ca209de334c734d21dcbfc53d576be01753db2d..c145fa868b9e52147d12a27c404177a8eb0dbc1c 100644
+--- a/CHANGES.md
++++ b/CHANGES.md
+@@ -15,6 +15,9 @@ The released versions correspond to PyPI releases.
+ 
+ * fixed a crash if the stack limit was set to a low value
+   (see [#1313](https://github.com/pytest-dev/pyfakefs/issues/1313))
++* fixed `os.ftruncate` to inspect the `FakeFileWrapper` returned by
++  `get_open_file(fd)`
++  (see [#1331](https://github.com/pytest-dev/pyfakefs/issues/1331))
+ 
+ ## [Version 6.2.0](https://pypi.python.org/pypi/pyfakefs/6.2.0) (2026-04-12)
+ 
+diff --git a/pyfakefs/fake_os.py b/pyfakefs/fake_os.py
+index 3c3edc036a98d25d58b2c4dd4f72d14111af196f..25764439fa43918dcd33d0c282d7238692d15079 100644
+--- a/pyfakefs/fake_os.py
++++ b/pyfakefs/fake_os.py
+@@ -1019,11 +1019,10 @@ class FakeOsModule:
+         Raises:
+             OSError: if the file descriptor is invalid
+         """
+-        file_object = self.filesystem.get_open_file(fd).get_object()
+-        if isinstance(file_object, FakeFileWrapper):
+-            file_object.size = length
+-        else:
++        file_handle = self.filesystem.get_open_file(fd)
++        if not isinstance(file_handle, FakeFileWrapper):
+             self.filesystem.raise_os_error(errno.EBADF)
++        file_handle.get_object().size = length
+ 
+     def access(
+         self,

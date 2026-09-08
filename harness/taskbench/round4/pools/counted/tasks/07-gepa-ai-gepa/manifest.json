@@ -1,0 +1,20 @@
+{
+ "id": "07-gepa-ai-gepa",
+ "repo": "gepa-ai/gepa",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "2075eaee9fd13b34fab8e0b8c9cf0a223eebe7b1",
+ "commit_sha": "2360e7ec87d70d149efe3c677447f16f0b932336",
+ "test_patch_sha256": "af926b8b6948c0e866b86df5d4207fac0496b94b0e0e90670fa54d8fb788da90",
+ "gold_patch_sha256": "e09c5ebf43d82c02169d391cf9d06630de7346b93da8adc5fd2c921d7e57548a",
+ "test_files": [
+  "tests/test_optimize_anything_autoresearch_engine.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T06:02:12.791Z"
+}

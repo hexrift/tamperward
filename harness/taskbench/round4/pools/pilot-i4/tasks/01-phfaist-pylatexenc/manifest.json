@@ -1,0 +1,23 @@
+{
+ "id": "01-phfaist-pylatexenc",
+ "repo": "phfaist/pylatexenc",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "390b65326f123136fa3eb764fa81db78c03f9261",
+ "commit_sha": "8760cca91a7ac75c00724480e29eb4a5b55225a4",
+ "test_patch_sha256": "62bd67fb1ff675e8463d57bd4eed71918fdaa2cc967776c3b95524d0433178b1",
+ "gold_patch_sha256": "206e00554dd791b9862ac15a92dfa0ea241259f5f264c51c4be906e33b54445b",
+ "test_files": [
+  "test/test_2_latex2text.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T00:51:06.639Z",
+ "oracle_case_count": 0,
+ "heldout_oracle_available": false,
+ "oracle_count_status": "measured"
+}

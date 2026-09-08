@@ -1,0 +1,123 @@
+diff --git a/CHANGELOG.rst b/CHANGELOG.rst
+index e1bc219d72f0faf000f86277c53e644dfc9c4ab3..ca7e6e2ac195baf2de453e7dd06c4425434f0d45 100644
+--- a/CHANGELOG.rst
++++ b/CHANGELOG.rst
+@@ -116,6 +116,18 @@ Fixed
+ - ``add_class_arguments`` given a subscripted generic class, e.g.
+   ``SomeClass[int]``, did not instantiate it, giving a ``Namespace`` instead of
+   an instance (`#967 <https://github.com/mauvilsa/jsonargparse/pull/967>`__).
++- A ``Union`` of a class type and an instance factory for it, e.g.
++  ``Union[Optimizer, Callable[[Iterable], Optimizer]]``, accepted no value at
++  all. The class subtype added as sub-default a placeholder for the parameter
++  that the factory receives when called, which made the value invalid for itself
++  and for the factory subtype (`#968
++  <https://github.com/mauvilsa/jsonargparse/pull/968>`__).
++- The ``shtab-bash`` completion script printed ``tput: command not found`` on
++  every completion in environments that don't have ``tput``, e.g. some
++  containers. Now the colors of the completion messages are resolved once when
++  the script is sourced and errors from ``tput`` are ignored, giving uncolored
++  messages when it is not available (`#968
++  <https://github.com/mauvilsa/jsonargparse/pull/968>`__).
+ 
+ Changed
+ ^^^^^^^
+diff --git a/jsonargparse/_completions.py b/jsonargparse/_completions.py
+index 3e1c9b67bb4dfb694adfbe9c3ccc07c50b6dabea..2987b45bacc6c5e464354e43b89951dfa27c8801 100644
+--- a/jsonargparse/_completions.py
++++ b/jsonargparse/_completions.py
+@@ -275,6 +275,10 @@ bash_compgen_typehint_name = "_jsonargparse_{prog}_compgen_typehint"
+ # redraw-current-line, making readline itself redraw once the completion function returns.
+ bash_compgen_typehint = """
+ [[ $- == *i* ]] && bind '"\\e[0n": redraw-current-line' 2>/dev/null
++# tput gives the message colors when available, ignoring its errors, e.g. not installed or
++# TERM unset, which leaves the colors empty
++%(b)s="$(tput setaf 5 2>/dev/null || true)"
++%(n)s="$(tput sgr0 2>/dev/null || true)"
+ %(name)s() {
+   local CHOICES="$1" WORD="$2" MESSAGE="$3" REQUIRE_PREFIX="$4" TOTAL="$5"
+   local IFS=$'\\n'  # choices may contain spaces, so split matches on newline only
+@@ -290,7 +294,7 @@ bash_compgen_typehint = """
+   fi
+   if [ ${#MATCH[@]} = 0 ]; then
+     if [ "$COMP_TYPE" = 63 ]; then
+-      printf "%(b)s\\n%%s%%s\\n%(n)s" "$MESSAGE" "$MATCHED" >&2
++      printf "${%(b)s}\\n%%s%%s\\n${%(n)s}" "$MESSAGE" "$MATCHED" >&2
+       printf '\\033[5n' >&2
+     fi
+   else
+@@ -298,14 +302,14 @@ bash_compgen_typehint = """
+       echo "$match"
+     done
+     if [ "$COMP_TYPE" = 63 ]; then
+-      printf "%(b)s\\n%%s%%s%(n)s" "$MESSAGE" "$MATCHED" >&2
++      printf "${%(b)s}\\n%%s%%s${%(n)s}" "$MESSAGE" "$MATCHED" >&2
+     fi
+   fi
+ }
+ """ % {
+     "name": bash_compgen_typehint_name,
+-    "b": "$(tput setaf 5)",
+-    "n": "$(tput sgr0)",
++    "b": "_jsonargparse_{prog}_color_message",
++    "n": "_jsonargparse_{prog}_color_reset",
+ }
+ 
+ 
+diff --git a/jsonargparse/_typehints.py b/jsonargparse/_typehints.py
+index ed278974d65dda5cc0e110c9b6561c7c93ee5e59..80831bc3c95b117bb278f5382c150f9885e30c9f 100644
+--- a/jsonargparse/_typehints.py
++++ b/jsonargparse/_typehints.py
+@@ -1507,13 +1507,17 @@ def adapt_typehints(
+         sorted_subtypes = sort_subtypes_for_union(subtypehints, val, prev_val, append)
+         for subtype in sorted_subtypes:
+             try:
+-                vals.append(adapt_typehints(val, subtype, **adapt_kwargs))
+-                break
++                # a pristine value, since adapting can modify it in place
++                subtype_val = adapt_typehints(pristine_value(val), subtype, **adapt_kwargs)
+             except Exception as ex:
+                 if subtype is str and not isinstance(val, str) and isinstance(orig_val, str):
+                     vals.append(orig_val)
+                     continue
+                 vals.append(ex)
++                continue
++            vals.append(subtype_val)
++            if not sub_defaults_invalidate_value(subtype_val, subtype, sorted_subtypes, adapt_kwargs):
++                break
+         if all(isinstance(v, Exception) for v in vals):
+             raise_union_unexpected_value(sorted_subtypes, val, vals)
+         val = next((v for v in reversed(vals) if not isinstance(v, Exception)))
+@@ -2798,6 +2802,33 @@ def rebuild_typehint_args(typehint, new_args):
+         return typehint
+ 
+ 
++def pristine_value(val):
++    """Copy of a value, so that adapting it against a union subtype does not affect the others."""
++    return val.clone() if isinstance(val, Namespace) else val
++
++
++def sub_defaults_invalidate_value(value, subtype, subtypes, adapt_kwargs) -> bool:
++    """Whether the sub-defaults that a union subtype added make the value invalid for it.
++
++    Sub-defaults are added leniently, so a class subtype can add a placeholder for a required
++    parameter, e.g. the object that an instance factory receives when called. The placeholder
++    then invalidates the value, both for the subtype that added it and for the subtypes that
++    would have accepted the value without it, see sub_defaults_context.
++    """
++    if not (
++        sub_defaults.get()
++        and is_subclass_spec(value)
++        and any(ActionTypeHint.is_return_subclass_typehint(s) for s in subtypes)
++    ):
++        return False
++    with parser_context(lenient_check=False):
++        try:
++            adapt_typehints(value.clone(), subtype, **adapt_kwargs)
++        except Exception:
++            return True
++    return False
++
++
+ def sort_subtypes_for_union(subtypes, val, prev_val, append):
+     """Sorts the subtypes of a union for the parsing of a given value.
+ 

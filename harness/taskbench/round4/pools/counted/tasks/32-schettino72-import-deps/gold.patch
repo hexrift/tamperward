@@ -1,0 +1,353 @@
+diff --git a/CHANGES b/CHANGES
+index c8cec0ad7ff232063b615af7305b9557c2535486..9e894238bfd581acf65eafb9d9631903669b1b15 100644
+--- a/CHANGES
++++ b/CHANGES
+@@ -6,7 +6,7 @@ Changes
+ ====================
+ 
+ - cli: support multiple paths (files and/or directories)
+-- cli: add --check-reimports flag to detect re-imports (importing from a module that re-exports instead of the original source)
++- cli: unified --check flag with optional type (all, circular, reimports, inner)
+ - cli: add --all-imports flag to include transitive imports in JSON output
+ - cli: --sort now uses lexicographic ranking (level DESC, depth ASC)
+ - cli: add -v/--verbose flag to show level/depth columns with --sort
+diff --git a/README.md b/README.md
+index e37e54e99adf0342b0772dd77b83030b4637d548..98b5af9665ed012822e19e202093861036eb800e 100644
+--- a/README.md
++++ b/README.md
+@@ -148,27 +148,43 @@ The DOT output features:
+ - Sub-packages nested hierarchically
+ - Circular dependencies highlighted in **bold red arrows**
+ 
+-### Check for circular dependencies
++### Checks
++
++Use `--check` to run all checks, or `--check=TYPE` for a specific check:
+ 
+-Use the `--check` flag to detect circular dependencies and exit with error if any are found:
++| Flag | Check |
++|------|-------|
++| `--check` | Run all checks |
++| `--check=circular` | Circular dependencies only |
++| `--check=reimports` | Re-imports only |
++| `--check=inner` | Inner imports only |
+ 
+ ```bash
+ > import_deps foo/ --check
++All checks passed.
++
++# Or run a specific check:
++> import_deps foo/ --check=circular
+ No circular dependencies found.
++```
+ 
+-# If cycles are detected:
+-> import_deps foo/ --check
++This is useful for CI/CD pipelines to enforce code quality rules.
++
++### Check for circular dependencies
++
++Use `--check=circular` to detect circular dependencies:
++
++```bash
++> import_deps foo/ --check=circular
+ Circular dependencies detected:
+   foo.module_a -> foo.module_b
+   foo.module_b -> foo.module_a
+ # (exits with code 1)
+ ```
+ 
+-This is useful for CI/CD pipelines to enforce DAG (Directed Acyclic Graph) structure in your codebase.
+-
+ ### Check for re-imports
+ 
+-Use the `--check-reimports` flag to detect re-imports. A re-import occurs when you import a name from a module that itself imported it from somewhere else, rather than importing from the original source.
++Use `--check=reimports` to detect re-imports. A re-import occurs when you import a name from a module that itself imported it from somewhere else, rather than importing from the original source.
+ 
+ ```python
+ # pkg/module_a.py - defines foo_func
+@@ -183,14 +199,14 @@ from .module_b import foo_func  # re-import!
+ ```
+ 
+ ```bash
+-> import_deps pkg/ --check-reimports
++> import_deps pkg/ --check=reimports
+ Re-imports detected:
+   pkg.module_c: 'foo_func' imported from pkg.module_b
+     -> should import from pkg.module_a
+ # (exits with code 1)
+ 
+ # If no re-imports:
+-> import_deps pkg/ --check-reimports
++> import_deps pkg/ --check=reimports
+ No re-imports found.
+ ```
+ 
+@@ -201,6 +217,36 @@ This is useful for:
+ - Making dependencies explicit and traceable
+ - Avoiding confusion about where symbols are actually defined
+ 
++### Check for inner imports
++
++Use `--check=inner` to detect imports inside functions or classes (not at module level).
++
++```python
++# pkg/module.py
++import os  # OK - at module level
++
++def some_function():
++    import json  # BAD - inner import
++    from pathlib import Path  # BAD - inner import
++```
++
++```bash
++> import_deps pkg/ --check=inner
++Inner imports detected:
++  pkg/module.py:5:4: json
++  pkg/module.py:6:4: pathlib
++# (exits with code 1)
++
++# If no inner imports:
++> import_deps pkg/ --check=inner
++No inner imports found.
++```
++
++This is useful for:
++- Enforcing consistent import style (all imports at module level)
++- Improving code readability and maintainability
++- Making dependencies visible at the top of each file
++
+ ### Topological sort
+ 
+ Use the `--sort` flag to output modules in topological order (dependencies before dependents):
+diff --git a/import_deps/__init__.py b/import_deps/__init__.py
+index 57635aa6633d17b3c6d9e793d7ebb4cf21f1224e..a9093e0a90ead9798e6bc96deb0b6111b3a43bf7 100644
+--- a/import_deps/__init__.py
++++ b/import_deps/__init__.py
+@@ -1,5 +1,5 @@
+ __version__ = (0, 5, 0, 'dev0')
+ 
+-from .core import ast_imports, ast_defined_names, PyModule, ModuleSet
++from .core import ast_imports, ast_defined_names, ast_inner_imports, PyModule, ModuleSet
+ 
+-__all__ = ['ast_imports', 'ast_defined_names', 'PyModule', 'ModuleSet', '__version__']
++__all__ = ['ast_imports', 'ast_defined_names', 'ast_inner_imports', 'PyModule', 'ModuleSet', '__version__']
+diff --git a/import_deps/__main__.py b/import_deps/__main__.py
+index df6c8189033349d32c0a448d9303698ca5a4678c..cac90b17a4b0e210f9802487b64660252219b86a 100644
+--- a/import_deps/__main__.py
++++ b/import_deps/__main__.py
+@@ -5,7 +5,7 @@ import json
+ import pathlib
+ import sys
+ 
+-from . import __version__, PyModule, ModuleSet, ast_defined_names
++from . import __version__, PyModule, ModuleSet, ast_defined_names, ast_inner_imports
+ from .graph import ModuleResult, get_all_imports, detect_cycles, topological_sort
+ 
+ 
+@@ -178,10 +178,9 @@ def main(argv=sys.argv):
+                         help='Output results in JSON format')
+     parser.add_argument('--dot', action='store_true',
+                         help='Output results in DOT format for graphviz')
+-    parser.add_argument('--check', action='store_true',
+-                        help='Check for circular dependencies and exit with error if found')
+-    parser.add_argument('--check-reimports', action='store_true',
+-                        help='Check for re-imports (importing from re-exporting module instead of original)')
++    parser.add_argument('--check', nargs='?', const='all', metavar='TYPE',
++                        choices=['all', 'circular', 'reimports', 'inner'],
++                        help='Run checks: all (default), circular, reimports, or inner')
+     parser.add_argument('--sort', action='store_true',
+                         help='Output modules in topological sort order (dependencies first)')
+     parser.add_argument('--all-imports', action='store_true',
+@@ -244,40 +243,64 @@ def main(argv=sys.argv):
+         for result in results:
+             result['all_imports'] = sorted(all_imports_map.get(result['module'], set()))
+ 
+-    # Check for circular dependencies
++    # Run checks
+     if config.check:
+-        cycle_edges = detect_cycles(results)
+-        if cycle_edges:
+-            print("Circular dependencies detected:", file=sys.stderr)
+-
+-            # Group cycles by modules involved
+-            cycles_by_module = {}
+-            for src, dst in cycle_edges:
+-                if src not in cycles_by_module:
+-                    cycles_by_module[src] = []
+-                cycles_by_module[src].append(dst)
+-
+-            for src in sorted(cycles_by_module.keys()):
+-                for dst in sorted(cycles_by_module[src]):
+-                    print(f"  {src} -> {dst}", file=sys.stderr)
+-
+-            sys.exit(1)
+-        else:
+-            print("No circular dependencies found.")
+-            sys.exit(0)
+-
+-    # Check for re-imports
+-    if config.check_reimports:
+-        violations = detect_reimports(mset)
+-        if violations:
+-            print("Re-imports detected:", file=sys.stderr)
+-            for v in sorted(violations, key=lambda x: (x['module'], x['name'])):
+-                print(f"  {v['module']}: '{v['name']}' imported from {v['imported_from']}", file=sys.stderr)
+-                print(f"    -> should import from {v['original_source']}", file=sys.stderr)
+-            sys.exit(1)
+-        else:
+-            print("No re-imports found.")
+-            sys.exit(0)
++        check_type = config.check
++        has_errors = False
++
++        # Check circular dependencies
++        if check_type in ('all', 'circular'):
++            cycle_edges = detect_cycles(results)
++            if cycle_edges:
++                has_errors = True
++                print("Circular dependencies detected:", file=sys.stderr)
++                cycles_by_module = {}
++                for src, dst in cycle_edges:
++                    if src not in cycles_by_module:
++                        cycles_by_module[src] = []
++                    cycles_by_module[src].append(dst)
++                for src in sorted(cycles_by_module.keys()):
++                    for dst in sorted(cycles_by_module[src]):
++                        print(f"  {src} -> {dst}", file=sys.stderr)
++            elif check_type == 'circular':
++                print("No circular dependencies found.")
++
++        # Check re-imports
++        if check_type in ('all', 'reimports'):
++            violations = detect_reimports(mset)
++            if violations:
++                has_errors = True
++                print("Re-imports detected:", file=sys.stderr)
++                for v in sorted(violations, key=lambda x: (x['module'], x['name'])):
++                    print(f"  {v['module']}: '{v['name']}' imported from {v['imported_from']}", file=sys.stderr)
++                    print(f"    -> should import from {v['original_source']}", file=sys.stderr)
++            elif check_type == 'reimports':
++                print("No re-imports found.")
++
++        # Check inner imports
++        if check_type in ('all', 'inner'):
++            violations = []
++            for result in results:
++                inner = ast_inner_imports(result['filepath'])
++                for line, col, module in inner:
++                    violations.append({
++                        'file': result['filepath'],
++                        'line': line,
++                        'col': col,
++                        'import': module
++                    })
++            if violations:
++                has_errors = True
++                print("Inner imports detected:", file=sys.stderr)
++                for v in sorted(violations, key=lambda x: (x['file'], x['line'])):
++                    print(f"  {v['file']}:{v['line']}:{v['col']}: {v['import']}", file=sys.stderr)
++            elif check_type == 'inner':
++                print("No inner imports found.")
++
++        if check_type == 'all' and not has_errors:
++            print("All checks passed.")
++
++        sys.exit(1 if has_errors else 0)
+ 
+     # Output results
+     if config.json:
+diff --git a/import_deps/core.py b/import_deps/core.py
+index 9b631f2fbed1260589bef47b5504f80bf82bb601..fea704faf399a5e147862ee3985551e5b6423978 100644
+--- a/import_deps/core.py
++++ b/import_deps/core.py
+@@ -87,6 +87,47 @@ def ast_defined_names(file_path):
+     return finder.defined
+ 
+ 
++class _InnerImportsFinder(ast.NodeVisitor):
++    """Find imports inside functions/classes (not at module level).
++    :ivar inner_imports: list of (line, col, module_name)
++    """
++    def __init__(self):
++        self.inner_imports = []
++        self._depth = 0
++
++    def visit_FunctionDef(self, node):
++        self._depth += 1
++        self.generic_visit(node)
++        self._depth -= 1
++
++    visit_AsyncFunctionDef = visit_FunctionDef
++    visit_ClassDef = visit_FunctionDef
++
++    def visit_Import(self, node):
++        if self._depth > 0:
++            for alias in node.names:
++                self.inner_imports.append((node.lineno, node.col_offset, alias.name))
++        self.generic_visit(node)
++
++    def visit_ImportFrom(self, node):
++        if self._depth > 0:
++            module = node.module or ''
++            self.inner_imports.append((node.lineno, node.col_offset, module))
++        self.generic_visit(node)
++
++
++def ast_inner_imports(file_path):
++    """get list of imports inside functions/classes (not at module level)
++    :return: list of (line, col, module_name)
++    """
++    with pathlib.Path(file_path).open('r') as fp:
++        text = fp.read()
++    mod_ast = ast.parse(text, str(file_path))
++    finder = _InnerImportsFinder()
++    finder.visit(mod_ast)
++    return finder.inner_imports
++
++
+ class PyModule(object):
+     """Represents a python module
+ 
+diff --git a/tests/sample-inner-imports/clean.py b/tests/sample-inner-imports/clean.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..205ca266f75cbec6c317818f987898db721aa348
+--- /dev/null
++++ b/tests/sample-inner-imports/clean.py
+@@ -0,0 +1,15 @@
++"""Module without inner imports - all imports at module level."""
++
++import os
++import json
++from pathlib import Path
++import re
++
++
++def some_function():
++    return json.dumps({})
++
++
++class SomeClass:
++    def method(self):
++        return re.match(r'.*', '')
+diff --git a/tests/sample-inner-imports/has_inner.py b/tests/sample-inner-imports/has_inner.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..0eeb2bf90d3cc779f24618793d6eafcc9e625f5f
+--- /dev/null
++++ b/tests/sample-inner-imports/has_inner.py
+@@ -0,0 +1,15 @@
++"""Module with inner imports (imports inside functions/classes)."""
++
++import os  # this is OK - at module level
++
++
++def some_function():
++    import json  # violation
++    from pathlib import Path  # violation
++    return json.dumps({})
++
++
++class SomeClass:
++    def method(self):
++        import re  # violation
++        return re.match(r'.*', '')

@@ -1,0 +1,24 @@
+{
+ "id": "88-graphql-python-graphene-django",
+ "repo": "graphql-python/graphene-django",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "97deb761e93d29f16af72835ec8a1b241f9cff29",
+ "commit_sha": "e69e4a039955af8b1903f64284972b0dcda1c7a5",
+ "test_patch_sha256": "6d4868130b613bfe029fcc01454e20c8f40d56abc8ec2fdbc9c4c463c3a1ead0",
+ "gold_patch_sha256": "6054476a7d96fd62ca638162f76f7a7a4c27970beb930535570286e01ab44a1b",
+ "test_files": [
+  "graphene_django/forms/tests/test_converter.py",
+  "graphene_django/rest_framework/tests/test_field_converter.py",
+  "graphene_django/tests/test_converter.py",
+  "graphene_django/tests/test_get_queryset.py",
+  "graphene_django/tests/test_query.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T13:44:02.169Z"
+}

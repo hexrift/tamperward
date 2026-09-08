@@ -1,0 +1,20 @@
+{
+ "id": "04-All-Hands-AI-ToM-SWE",
+ "repo": "All-Hands-AI/ToM-SWE",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "ec6f6c4cf954ca8675efb5ebb443e009772411aa",
+ "commit_sha": "372cd6cc70c2d20fc05793375831f5b371b783a0",
+ "test_patch_sha256": "cd873bfc5d4bdf9757dc462c94f217af2fa8c557995d0cd3dd1c17a90537ac2a",
+ "gold_patch_sha256": "3d3d39076cf22f4571659c1e5f29cc7d8c5da25df23bc0bba037ae31bc660347",
+ "test_files": [
+  "tests/test_action.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T05:57:04.868Z"
+}

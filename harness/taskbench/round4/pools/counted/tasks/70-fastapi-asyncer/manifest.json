@@ -1,0 +1,31 @@
+{
+ "id": "70-fastapi-asyncer",
+ "repo": "fastapi/asyncer",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "4a2e433669e820480406c03e4c72fada0946b5db",
+ "commit_sha": "23db40acdf95f4d5eaac6c5806ac7bdb85ad1ef5",
+ "test_patch_sha256": "d64f9d0093f207eb2a19e21684b83bac3c6648226a5da89df440752ea9a5ed8f",
+ "gold_patch_sha256": "d40a10f03a3c25692219eab411a8017b1aaa7075d6321207871748ff1d211c38",
+ "test_files": [
+  "tests/conftest.py",
+  "tests/test_tutorial/test_asyncify/test_tutorial001.py",
+  "tests/test_tutorial/test_asyncify/test_tutorial002.py",
+  "tests/test_tutorial/test_first_steps/test_tutorial001.py",
+  "tests/test_tutorial/test_runnify/test_tutorial001.py",
+  "tests/test_tutorial/test_soonify/test_tutorial001.py",
+  "tests/test_tutorial/test_soonify/test_tutorial002.py",
+  "tests/test_tutorial/test_soonify_return/test_tutorial001.py",
+  "tests/test_tutorial/test_soonify_return/test_tutorial002.py",
+  "tests/test_tutorial/test_soonify_return/test_tutorial003.py",
+  "tests/test_tutorial/test_syncify/test_tutorial001.py",
+  "tests/test_tutorial/test_syncify_no_raise/test_tutorial001.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T01:21:39.991Z"
+}

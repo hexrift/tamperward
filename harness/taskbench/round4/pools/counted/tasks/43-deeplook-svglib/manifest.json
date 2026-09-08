@@ -1,0 +1,20 @@
+{
+ "id": "43-deeplook-svglib",
+ "repo": "deeplook/svglib",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "c5c1ed161842d1ca56b42104bdae6e372b7e5128",
+ "commit_sha": "9dd359ab31a750b6fe377d15b5526af52373eb45",
+ "test_patch_sha256": "e69da594df3d4f070aee0b41854253f0ffc3dd6cc24b0caad53ddfe4b04d4af6",
+ "gold_patch_sha256": "82069892f41f11c91a2b0a4b6b59185a0558e8e3c6834ad9ed55ab4c636e09cd",
+ "test_files": [
+  "tests/test_basic.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T17:34:15.143Z"
+}

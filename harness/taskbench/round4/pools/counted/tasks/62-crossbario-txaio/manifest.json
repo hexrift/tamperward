@@ -1,0 +1,20 @@
+{
+ "id": "62-crossbario-txaio",
+ "repo": "crossbario/txaio",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "9fbd4787b2f2122a7933a3bab003dfd13a9aa779",
+ "commit_sha": "10b46d7a4aaee17c82f2e0fd5dd7bda880b801cb",
+ "test_patch_sha256": "8a78364a20a84adad00da6674d8eb9a3dd115e26bd42944d4aa180cfed661ff2",
+ "gold_patch_sha256": "02371be8d310509ef306c42c749bbc416f97d8e14228b80d06c929eb7b73a598",
+ "test_files": [
+  "tests/test_logging.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T23:41:24.945Z"
+}

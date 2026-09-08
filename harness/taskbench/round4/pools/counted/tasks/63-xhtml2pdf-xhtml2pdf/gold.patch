@@ -1,0 +1,201 @@
+diff --git a/xhtml2pdf/builders/watermarks.py b/xhtml2pdf/builders/watermarks.py
+index a01c724b3d28ccd07dfa5ba9f92ca405bb4a2353..7a4c455deabc1036b51b3050cfea32ba5826f6ec 100644
+--- a/xhtml2pdf/builders/watermarks.py
++++ b/xhtml2pdf/builders/watermarks.py
+@@ -1,18 +1,18 @@
+ from __future__ import annotations
+ 
++from io import BytesIO
+ from typing import TYPE_CHECKING, Iterator, cast
+ 
+ import pypdf
+ from PIL import Image
+ from reportlab.pdfgen.canvas import Canvas
+ 
+-from xhtml2pdf.files import getFile, pisaFileObject
+-
+-from io import BytesIO
++from xhtml2pdf.files import pisaFileObject
+ 
+ if TYPE_CHECKING:
++    from tempfile import _TemporaryFileWrapper
+ 
+-    from xhtml2pdf.context import pisaContext
++    from xhtml2pdf.xhtml2pdf_reportlab import PmlBaseDoc
+ 
+ 
+ class WaterMarks:
+@@ -102,25 +102,34 @@ class WaterMarks:
+         return output
+ 
+     @staticmethod
+-    def get_watermark(context: pisaContext, max_numpage: int) -> Iterator:
+-        if context.pisaBackgroundList:
+-            pages = [x[0] for x in context.pisaBackgroundList] + [max_numpage + 1]
++    def get_watermark(doc: PmlBaseDoc, max_numpage: int) -> Iterator:
++        if doc.pisaTemplateList:
++            pages = [x[0] for x in doc.pisaTemplateList] + [max_numpage + 1]
+             pages.pop(0)
+-            for counter, (page, bgfile, pgcontext) in enumerate(
+-                context.pisaBackgroundList
+-            ):
+-                if not bgfile.notFound():
++            for counter, (page, pagetemplate) in enumerate(doc.pisaTemplateList):
++                bgfile = pagetemplate.pisaBackground
++
++                if bgfile is not None and not bgfile.notFound():
++                    pgcontext = pagetemplate.backgroundContext
++                    if bgfile.getMimeType().startswith("image/"):
++                        # The background is an image, we need to generate a PDF backdrop for this
++                        # image.
++                        bgfile = WaterMarks.generate_pdf_background(
++                            bgfile,
++                            pagetemplate.pagesize,
++                            is_portrait=pagetemplate.isPortrait(),
++                            context=pagetemplate.backgroundContext,
++                        )
++
+                     yield range(page, pages[counter]), bgfile, int(pgcontext["step"])
+ 
+     @staticmethod
+     def process_doc(
+-        context: pisaContext, istream: bytes, output: bytes
++        doc: PmlBaseDoc, istream: bytes, output: bytes
+     ) -> tuple[bytes, bool]:
+         pdfoutput: pypdf.PdfWriter = pypdf.PdfWriter(clone_from=istream)
+         has_bg: bool = False
+-        for pages, bgouter, step in WaterMarks.get_watermark(
+-            context, len(pdfoutput.pages)
+-        ):
++        for pages, bgouter, step in WaterMarks.get_watermark(doc, len(pdfoutput.pages)):
+             bginput: pypdf.PdfReader = pypdf.PdfReader(bgouter.getBytesIO())
+             pagebg: pypdf.PageObject = bginput.pages[0]
+             for index, ctr in enumerate(pages):
+diff --git a/xhtml2pdf/context.py b/xhtml2pdf/context.py
+index 240246bc9d2686f99cd39eaab6620f4c88c483fe..95aa33fc0d0271700ce355c86e76b21d7952e1b3 100644
+--- a/xhtml2pdf/context.py
++++ b/xhtml2pdf/context.py
+@@ -473,7 +473,6 @@ class pisaCSSBuilder(css.CSSBuilder):
+         pt = PmlPageTemplate(id=name, frames=frameList, pagesize=c.pageSize)
+         pt.pisaStaticList = staticList
+         pt.pisaBackground = background
+-        pt.pisaBackgroundList = c.pisaBackgroundList
+         pt.backgroundContext = background_context
+ 
+         if isLandscape:
+@@ -592,7 +591,6 @@ class pisaContext:
+         self.frameStatioundList: list = []
+         self.log: list = []
+         self.path: list = []
+-        self.pisaBackgroundList: list = []
+         self.select_options: list[str] = []
+         self.story: list = []
+         self.image: PmlImage | None = None
+diff --git a/xhtml2pdf/document.py b/xhtml2pdf/document.py
+index 0dbbaead81dca3e0a59740b943be3e741d3410fb..667145e0774f2bdefa24fdac3c63a179282ced53 100644
+--- a/xhtml2pdf/document.py
++++ b/xhtml2pdf/document.py
+@@ -197,7 +197,7 @@ def pisaDocument(
+ 
+     # Add watermarks
+     output = io.BytesIO()
+-    output, has_bg = WaterMarks.process_doc(context, out, output)
++    output, has_bg = WaterMarks.process_doc(doc, out, output)
+ 
+     if not has_bg:
+         output = out
+diff --git a/xhtml2pdf/tags.py b/xhtml2pdf/tags.py
+index 0d88a4f5515d5d3c005d89ac99d6649996206ba3..72b4885889579f9a790ade8493439a352c4711ee 100644
+--- a/xhtml2pdf/tags.py
++++ b/xhtml2pdf/tags.py
+@@ -670,7 +670,6 @@ class pisaTagPDFTEMPLATE(pisaTag):
+ 
+         pt = PmlPageTemplate(id=name, frames=c.frameList, pagesize=A4)
+         pt.pisaStaticList = c.frameStaticList
+-        pt.pisaBackgroundList = c.pisaBackgroundList
+         pt.pisaBackground = self.attr.background
+ 
+         c.templateList[name] = pt
+diff --git a/xhtml2pdf/xhtml2pdf_reportlab.py b/xhtml2pdf/xhtml2pdf_reportlab.py
+index bd8207d3122ab1b17e46c2b2192d919f50b2f167..6ef3c499fc9e321d92b935235f03a980ab85cd38 100644
+--- a/xhtml2pdf/xhtml2pdf_reportlab.py
++++ b/xhtml2pdf/xhtml2pdf_reportlab.py
+@@ -47,7 +47,6 @@ from reportlab.platypus.tableofcontents import TableOfContents
+ from reportlab.platypus.tables import Table, TableStyle
+ from reportlab.rl_config import register_reset
+ 
+-from xhtml2pdf.builders.watermarks import WaterMarks
+ from xhtml2pdf.files import pisaFileObject, pisaTempFile
+ from xhtml2pdf.reportlab_paragraph import Paragraph
+ from xhtml2pdf.util import ImageWarning, getBorderStyle
+@@ -102,6 +101,19 @@ class PmlMaxHeightMixIn:
+ class PmlBaseDoc(BaseDocTemplate):
+     """We use our own document template to get access to the canvas and set some information once."""
+ 
++    # Stores a list of page templates, and the first page from which they're active.
++    pisaTemplateList: list[tuple[int, PmlPageTemplate]]
++
++    def beforeDocument(self) -> None:
++        """
++        This is called before any processing is done on the document.
++
++        In case of multiBuild is used, this will be called before any build, not just the first.
++        """
++        # Clear the list of templates, to ensure the list refers to the *final* rendering, also
++        # in a multiBuild rendering.
++        self.pisaTemplateList = []
++
+     def beforePage(self) -> None:
+         self.canv._doc.info.producer = PRODUCER
+ 
+@@ -196,7 +208,6 @@ class PmlPageTemplate(PageTemplate):
+ 
+     def __init__(self, **kw) -> None:
+         self.pisaStaticList: list = []
+-        self.pisaBackgroundList: list[tuple] = []
+         self.pisaBackground = None
+         super().__init__(**kw)
+         self._page_count: int = 0
+@@ -208,8 +219,6 @@ class PmlPageTemplate(PageTemplate):
+         self.h: int = 0
+         self.w: int = 0
+ 
+-        self.backgroundids: list[int] = []
+-
+     def isFirstFlow(self, canvas: Canvas) -> bool:
+         if self._first_flow:
+             if canvas.getPageNumber() <= self._page_count:
+@@ -228,27 +237,12 @@ class PmlPageTemplate(PageTemplate):
+     def beforeDrawPage(self, canvas: Canvas, doc):
+         canvas.saveState()
+         try:
+-            if doc.pageTemplate.id not in self.backgroundids:
+-                pisaBackground = None
+-                if (
+-                    hasattr(self, "pisaBackground")
+-                    and self.pisaBackground
+-                    and (not self.pisaBackground.notFound())
+-                ):
+-                    if self.pisaBackground.getMimeType().startswith("image/"):
+-                        pisaBackground = WaterMarks.generate_pdf_background(
+-                            self.pisaBackground,
+-                            self.pagesize,
+-                            is_portrait=self.isPortrait(),
+-                            context=self.backgroundContext,
+-                        )
+-                    else:
+-                        pisaBackground = self.pisaBackground
+-                    self.backgroundids.append(doc.pageTemplate.id)
+-                if pisaBackground:
+-                    self.pisaBackgroundList.append(
+-                        (canvas.getPageNumber(), pisaBackground, self.backgroundContext)
+-                    )
++            if (
++                # No template was set yet, or the previous template differs from the last
++                not doc.pisaTemplateList
++                or doc.pisaTemplateList[-1][-1] != self
++            ):
++                doc.pisaTemplateList.append((canvas.getPageNumber(), self))
+ 
+             def pageNumbering(objList):
+                 for obj in flatten(objList):

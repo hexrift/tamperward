@@ -1,0 +1,296 @@
+diff --git a/src/dependency_injector/wiring.py b/src/dependency_injector/wiring.py
+index 6b13e05c5cbc2e3d56eaae2a4bbbc800355f027b..60ccc65a658a6492f6a4254ef74d57d163e8482c 100644
+--- a/src/dependency_injector/wiring.py
++++ b/src/dependency_injector/wiring.py
+@@ -959,8 +959,8 @@ class ProvidedInstance(Modifier):
+         self.segments.append((self.TYPE_ITEM, item))
+         return self
+ 
+-    def call(self) -> Self:
+-        self.segments.append((self.TYPE_CALL, None))
++    def call(self, *args, **kwargs) -> Self:
++        self.segments.append((self.TYPE_CALL, (args, kwargs)))
+         return self
+ 
+     def modify(
+@@ -975,7 +975,7 @@ class ProvidedInstance(Modifier):
+             elif type_ == ProvidedInstance.TYPE_ITEM:
+                 provider = provider[value]
+             elif type_ == ProvidedInstance.TYPE_CALL:
+-                provider = provider.call()
++                provider = provider.call(*value[0], **value[1])
+             else:
+                 assert_never(type_)
+         return provider
+diff --git a/tests/unit/samples/wiring/container.py b/tests/unit/samples/wiring/container.py
+index 95681dbfd44d0304292237f51b3ddf93045bc5cb..69eb7115ea959c761ff6eb913775ad4cf893cc5d 100644
+--- a/tests/unit/samples/wiring/container.py
++++ b/tests/unit/samples/wiring/container.py
+@@ -1,6 +1,6 @@
+ from dependency_injector import containers, providers
+ 
+-from .service import Service
++from .service import Service, ServiceWithCallable
+ 
+ 
+ class SubContainer(containers.DeclarativeContainer):
+@@ -14,4 +14,6 @@ class Container(containers.DeclarativeContainer):
+ 
+     service = providers.Factory(Service)
+ 
++    service_with_callable = providers.Factory(ServiceWithCallable)
++
+     sub = providers.Container(SubContainer)
+diff --git a/tests/unit/samples/wiring/module.py b/tests/unit/samples/wiring/module.py
+index 3925b295d42b1fe044501808de0b6df2e80e73ad..dbec120793f83f9ddfbf9b79eca6e368c3124118 100644
+--- a/tests/unit/samples/wiring/module.py
++++ b/tests/unit/samples/wiring/module.py
+@@ -100,6 +100,27 @@ def test_provided_instance(some_value: int = Provide[Container.service.provided.
+     return some_value
+ 
+ 
++@inject
++def test_provided_instance_call_with_args(
++        some_value: int = Provide[Container.service_with_callable.provided.method_with_args.call(1, 2)]
++):
++    return some_value
++
++
++@inject
++def test_provided_instance_call_with_kwargs(
++        some_value: dict = Provide[Container.service_with_callable.provided.method_with_kwargs.call(a=1, b=2)]
++):
++    return some_value
++
++
++@inject
++def test_provided_instance_call_with_args_and_kwargs(
++        some_value: dict = Provide[Container.service_with_callable.provided.foo.process.call(1, 2, key="value")]
++):
++    return some_value
++
++
+ @inject
+ def test_subcontainer_provider(some_value: int = Provide[Container.sub.int_object]):
+     return some_value
+diff --git a/tests/unit/samples/wiring/service.py b/tests/unit/samples/wiring/service.py
+index 4151b94fafffec6756f22993d6c5c2b1db70b498..944b9921bd45c4d3d2be5143aa1603cd8a3f55f2 100644
+--- a/tests/unit/samples/wiring/service.py
++++ b/tests/unit/samples/wiring/service.py
+@@ -1,2 +1,21 @@
+ class Service:
+     service_attr: int
++
++
++class ServiceWithCallable:
++    def __init__(self):
++        self.foo = CallableDict({"bar": lambda: 10})
++
++    def method_with_args(self, x, y):
++        return x + y
++
++    def method_with_kwargs(self, **kwargs):
++        return kwargs
++
++
++class CallableDict(dict):
++    def __init__(self, *args, **kwargs):
++        super().__init__(*args, **kwargs)
++
++    def process(self, *args, **kwargs):
++        return {"args": args, "kwargs": kwargs}
+diff --git a/tests/unit/samples/wiringstringids/container.py b/tests/unit/samples/wiringstringids/container.py
+index 95681dbfd44d0304292237f51b3ddf93045bc5cb..69eb7115ea959c761ff6eb913775ad4cf893cc5d 100644
+--- a/tests/unit/samples/wiringstringids/container.py
++++ b/tests/unit/samples/wiringstringids/container.py
+@@ -1,6 +1,6 @@
+ from dependency_injector import containers, providers
+ 
+-from .service import Service
++from .service import Service, ServiceWithCallable
+ 
+ 
+ class SubContainer(containers.DeclarativeContainer):
+@@ -14,4 +14,6 @@ class Container(containers.DeclarativeContainer):
+ 
+     service = providers.Factory(Service)
+ 
++    service_with_callable = providers.Factory(ServiceWithCallable)
++
+     sub = providers.Container(SubContainer)
+diff --git a/tests/unit/samples/wiringstringids/module.py b/tests/unit/samples/wiringstringids/module.py
+index aac85aa8680865f66c9cb6a1c962bc736d437f7a..8e6662d2391cf2620db1d1861d47e575add7fbb9 100644
+--- a/tests/unit/samples/wiringstringids/module.py
++++ b/tests/unit/samples/wiringstringids/module.py
+@@ -4,21 +4,20 @@ from decimal import Decimal
+ from typing import Callable
+ 
+ from dependency_injector.wiring import (
+-    inject,
+     Provide,
+     Provider,
+-    as_int,
+-    as_float,
+     as_,
+-    required,
++    as_float,
++    as_int,
++    inject,
+     invariant,
+     provided,
++    required,
+ )
+ 
+ from .container import Container
+ from .service import Service
+ 
+-
+ service: Service = Provide["service"]
+ service_provider: Callable[..., Service] = Provider["service"]
+ undefined: Callable = Provide["undefined"]
+@@ -55,22 +54,24 @@ def test_function(service: Service = Provide["service"]):
+ 
+ 
+ @inject
+-def test_function_provider(service_provider: Callable[..., Service] = Provider["service"]):
++def test_function_provider(
++    service_provider: Callable[..., Service] = Provider["service"],
++):
+     service = service_provider()
+     return service
+ 
+ 
+ @inject
+ def test_config_value(
+-        value_int: int = Provide["config.a.b.c", as_int()],
+-        value_float: float = Provide["config.a.b.c", as_float()],
+-        value_str: str = Provide["config.a.b.c", as_(str)],
+-        value_decimal: Decimal = Provide["config.a.b.c", as_(Decimal)],
+-        value_required: str = Provide["config.a.b.c", required()],
+-        value_required_int: int = Provide["config.a.b.c", required().as_int()],
+-        value_required_float: float = Provide["config.a.b.c", required().as_float()],
+-        value_required_str: str = Provide["config.a.b.c", required().as_(str)],
+-        value_required_decimal: str = Provide["config.a.b.c", required().as_(Decimal)],
++    value_int: int = Provide["config.a.b.c", as_int()],
++    value_float: float = Provide["config.a.b.c", as_float()],
++    value_str: str = Provide["config.a.b.c", as_(str)],
++    value_decimal: Decimal = Provide["config.a.b.c", as_(Decimal)],
++    value_required: str = Provide["config.a.b.c", required()],
++    value_required_int: int = Provide["config.a.b.c", required().as_int()],
++    value_required_float: float = Provide["config.a.b.c", required().as_float()],
++    value_required_str: str = Provide["config.a.b.c", required().as_(str)],
++    value_required_decimal: str = Provide["config.a.b.c", required().as_(Decimal)],
+ ):
+     return (
+         value_int,
+@@ -87,25 +88,60 @@ def test_config_value(
+ 
+ @inject
+ def test_config_value_required_undefined(
+-        value_required: int = Provide["config.a.b.c", required()],
++    value_required: int = Provide["config.a.b.c", required()],
+ ):
+     return value_required
+ 
+ 
+ @inject
+-def test_provide_provider(service_provider: Callable[..., Service] = Provide["service.provider"]):
++def test_provide_provider(
++    service_provider: Callable[..., Service] = Provide["service.provider"],
++):
+     service = service_provider()
+     return service
+ 
+ 
+ @inject
+-def test_provider_provider(service_provider: Callable[..., Service] = Provider["service.provider"]):
++def test_provider_provider(
++    service_provider: Callable[..., Service] = Provider["service.provider"],
++):
+     service = service_provider()
+     return service
+ 
+ 
+ @inject
+-def test_provided_instance(some_value: int = Provide["service", provided().foo["bar"].call()]):
++def test_provided_instance(
++    some_value: int = Provide["service", provided().foo["bar"].call()]
++):
++    return some_value
++
++
++@inject
++def test_provided_instance_call_with_args(
++    some_value: int = Provide[
++        "service_with_callable",
++        provided().method_with_args.call(1, 2),
++    ],
++):
++    return some_value
++
++
++@inject
++def test_provided_instance_call_with_kwargs(
++    some_value: dict = Provide[
++        "service_with_callable",
++        provided().method_with_kwargs.call(a=1, b=2),
++    ],
++):
++    return some_value
++
++
++@inject
++def test_provided_instance_call_with_args_and_kwargs(
++    some_value: dict = Provide[
++        "service_with_callable", provided().foo.process.call(1, 2, key="value")
++    ]
++):
+     return some_value
+ 
+ 
+@@ -115,14 +151,16 @@ def test_subcontainer_provider(some_value: int = Provide["sub.int_object"]):
+ 
+ 
+ @inject
+-def test_config_invariant(some_value: int = Provide["config.option", invariant("config.switch")]):
++def test_config_invariant(
++    some_value: int = Provide["config.option", invariant("config.switch")]
++):
+     return some_value
+ 
+ 
+ @inject
+ def test_provide_from_different_containers(
+-        service: Service = Provide["service"],
+-        some_value: int = Provide["int_object"],
++    service: Service = Provide["service"],
++    some_value: int = Provide["int_object"],
+ ):
+     return service, some_value
+ 
+diff --git a/tests/unit/samples/wiringstringids/service.py b/tests/unit/samples/wiringstringids/service.py
+index 4151b94fafffec6756f22993d6c5c2b1db70b498..944b9921bd45c4d3d2be5143aa1603cd8a3f55f2 100644
+--- a/tests/unit/samples/wiringstringids/service.py
++++ b/tests/unit/samples/wiringstringids/service.py
+@@ -1,2 +1,21 @@
+ class Service:
+     service_attr: int
++
++
++class ServiceWithCallable:
++    def __init__(self):
++        self.foo = CallableDict({"bar": lambda: 10})
++
++    def method_with_args(self, x, y):
++        return x + y
++
++    def method_with_kwargs(self, **kwargs):
++        return kwargs
++
++
++class CallableDict(dict):
++    def __init__(self, *args, **kwargs):
++        super().__init__(*args, **kwargs)
++
++    def process(self, *args, **kwargs):
++        return {"args": args, "kwargs": kwargs}

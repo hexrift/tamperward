@@ -1,0 +1,20 @@
+{
+ "id": "39-wntrblm-nox",
+ "repo": "wntrblm/nox",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "f85d0503edb6aea8b81976a5bc6ba273aec5bda5",
+ "commit_sha": "c699c47cb806df85e900d0bd51a79bdf1829c33f",
+ "test_patch_sha256": "45350aeed88059ad1555d2deac542ba96894bafd6038d91d8be6bbe5a622ef2f",
+ "gold_patch_sha256": "fe589032a9f690da516113d810d7f5a890fe1e3ae11467d335cd8b896a1f7626",
+ "test_files": [
+  "tests/test_parallel.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 4,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T16:52:18.602Z"
+}

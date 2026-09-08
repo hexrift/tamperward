@@ -1,0 +1,20 @@
+{
+ "id": "33-HIPS-autograd",
+ "repo": "HIPS/autograd",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "2df6a84afd94561591f3500f2245d6a70dae92be",
+ "commit_sha": "27dcc8e8604896ed5cd734dcfab52f6bf063953d",
+ "test_patch_sha256": "4929d2135873c4165a26198f0c019eb59c0364e2121fe5d7b5671cfe62a35b06",
+ "gold_patch_sha256": "4b58534aed38f5785ffd8bb7dd0e062da349c9f8044758281550c18795ef7b53",
+ "test_files": [
+  "tests/test_systematic.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T14:56:13.411Z"
+}

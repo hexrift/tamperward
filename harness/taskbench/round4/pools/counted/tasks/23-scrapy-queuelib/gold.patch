@@ -1,0 +1,13 @@
+diff --git a/queuelib/rrqueue.py b/queuelib/rrqueue.py
+index c34e0b8a28b1896ccd5a1b040f66410a4e1538a4..83276454c420eebb4168b23a8732971d82465f35 100644
+--- a/queuelib/rrqueue.py
++++ b/queuelib/rrqueue.py
+@@ -83,7 +83,7 @@ class RoundRobinQueue:
+             else:
+                 self.key_queue.appendleft(key)
+ 
+-            if m:
++            if m is not None:
+                 return m
+ 
+     def close(self) -> list[Hashable]:

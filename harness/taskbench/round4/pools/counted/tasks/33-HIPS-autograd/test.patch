@@ -1,0 +1,15 @@
+diff --git a/tests/test_systematic.py b/tests/test_systematic.py
+index 46425b8e20cf9c07351801a647ccd6c9e7bba695..4a4de8681b8950c6407dab244956dc0e4a49b653 100644
+--- a/tests/test_systematic.py
++++ b/tests/test_systematic.py
+@@ -180,6 +180,10 @@ def test_conj():
+     unary_ufunc_check(np.conj)
+ 
+ 
++def test_conjugate():
++    unary_ufunc_check(np.conjugate)
++
++
+ def test_angle():
+     unary_ufunc_check(np.angle)
+ 

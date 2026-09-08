@@ -1,0 +1,20 @@
+{
+ "id": "23-scrapy-queuelib",
+ "repo": "scrapy/queuelib",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "c04e41f49ab2dba38ec607d8b639656b8da77caf",
+ "commit_sha": "9f5fbf467f5a6ce930d101d01be1a31eddce5b1f",
+ "test_patch_sha256": "9019b2a7977414e9a43663ee136bef929e24c8209303d1c6a496af62cd823ecc",
+ "gold_patch_sha256": "640d1297b18c8c5af157b0106e33b5bca627084d07257bf7cfe2800bc5e100da",
+ "test_files": [
+  "queuelib/tests/test_rrqueue.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T11:48:56.295Z"
+}

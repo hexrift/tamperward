@@ -1,0 +1,23 @@
+{
+ "id": "10-ulif-diceware",
+ "repo": "ulif/diceware",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "a21ad6b6bd91e422cc00b0f9351b85fddea2aa4f",
+ "commit_sha": "118f9808b173ffba39885d0591c0ac8fa87175e7",
+ "test_patch_sha256": "ffcff68aed35f1124130a71133faf5bd4c97454c0593072aeeb32d12c2e0017e",
+ "gold_patch_sha256": "c6886ead4c84f5e57a0d3d279d9f63d43818e692718cf3540be6e9e17a9c190c",
+ "test_files": [
+  "tests/test_diceware.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T01:47:34.141Z",
+ "oracle_case_count": 3,
+ "heldout_oracle_available": true,
+ "oracle_count_status": "measured"
+}

@@ -1,0 +1,58 @@
+diff --git a/src/gepa/oa/engines/autoresearch.py b/src/gepa/oa/engines/autoresearch.py
+index fad6e441a3ddd6d55a47e7d33649f8e1fea3f1bc..2fd131a26543b201da41cfabcc2e4169862a4298 100644
+--- a/src/gepa/oa/engines/autoresearch.py
++++ b/src/gepa/oa/engines/autoresearch.py
+@@ -165,7 +165,9 @@ def _terminate_claude_process(running: _RunningClaudeProcess) -> tuple[str, str]
+         try:
+             proc.wait(timeout=5)
+         except subprocess.TimeoutExpired:
+-            _signal_claude_process(proc, signal.SIGKILL)
++            # SIGKILL is not defined by Windows' signal module. Any value other
++            # than SIGTERM uses the direct `proc.kill()` fallback there.
++            _signal_claude_process(proc, getattr(signal, "SIGKILL", -9))
+             proc.wait()
+     return _collect_claude_output(running)
+ 
+diff --git a/src/gepa/utils/code_execution.py b/src/gepa/utils/code_execution.py
+index 05e77a9b8d32b3ba760fdb1fcaffb684ff45bdc3..96b032f66c1d2993a8529e4f42b8b33a8a2daf28 100644
+--- a/src/gepa/utils/code_execution.py
++++ b/src/gepa/utils/code_execution.py
+@@ -301,15 +301,15 @@ def _execute_in_process(
+ 
+     # Set up timeout using signal (Unix only)
+     old_handler = None
+-    has_signal = hasattr(signal, "SIGALRM")
++    alarm_signal = getattr(signal, "SIGALRM", None)
+ 
+-    if timeout > 0 and has_signal:
+-        old_handler = signal.signal(signal.SIGALRM, _alarm_handler)
++    if timeout > 0 and alarm_signal is not None:
++        old_handler = signal.signal(alarm_signal, _alarm_handler)
+         # Use setitimer for sub-second precision if available
+         try:
+-            signal.setitimer(signal.ITIMER_REAL, timeout)
++            signal.setitimer(signal.ITIMER_REAL, timeout)  # pyright: ignore[reportAttributeAccessIssue]
+         except AttributeError:
+-            signal.alarm(int(timeout))
++            signal.alarm(int(timeout))  # pyright: ignore[reportAttributeAccessIssue]
+ 
+     try:
+         with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+@@ -333,13 +333,13 @@ def _execute_in_process(
+         success = False
+     finally:
+         # Disable timeout
+-        if timeout > 0 and has_signal:
++        if timeout > 0 and alarm_signal is not None:
+             try:
+-                signal.setitimer(signal.ITIMER_REAL, 0)
++                signal.setitimer(signal.ITIMER_REAL, 0)  # pyright: ignore[reportAttributeAccessIssue]
+             except AttributeError:
+-                signal.alarm(0)
++                signal.alarm(0)  # pyright: ignore[reportAttributeAccessIssue]
+             if old_handler is not None:
+-                signal.signal(signal.SIGALRM, old_handler)
++                signal.signal(alarm_signal, old_handler)
+ 
+         # Double-check: if we've exceeded timeout but no exception was raised, kill children
+         elapsed = time.time() - start_time

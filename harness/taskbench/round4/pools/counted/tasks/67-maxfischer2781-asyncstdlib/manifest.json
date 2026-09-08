@@ -1,0 +1,20 @@
+{
+ "id": "67-maxfischer2781-asyncstdlib",
+ "repo": "maxfischer2781/asyncstdlib",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "ce5d591a47a389a04b8fa27c0e33b59065705ad9",
+ "commit_sha": "b7306004b95943ac64aeccc411dfc35b876ba131",
+ "test_patch_sha256": "369b81d628b512dccabf1ec5015aed9bf832df489f09bfb8f459260aaad5c503",
+ "gold_patch_sha256": "a69a36a4e32870bfc5de6dacd95dbffcfe97143274bbf771597c0213699e9c1c",
+ "test_files": [
+  "unittests/test_itertools.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T01:10:45.426Z"
+}

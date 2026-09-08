@@ -1,0 +1,13 @@
+diff --git a/src/pyluach/parshios.py b/src/pyluach/parshios.py
+index 8d12a949aa92bf6d692790bb1d1a9c072bcf6066..f1e54edef200d39eb46bd0f259d6e38bb9459d72 100644
+--- a/src/pyluach/parshios.py
++++ b/src/pyluach/parshios.py
+@@ -159,7 +159,7 @@ def _get_four_parshios(date):
+             return _FourParshiosEnum.ZACHOR
+         if shabbos > purim and (shabbos - purim) in [8, 9]:
+             return _FourParshiosEnum.PARAH
+-        if shabbos > purim and shabbos - purim < 7:
++        if shabbos > purim and 2 < (shabbos - purim) < 7:
+             return _FourParshiosEnum.PARAH
+         if (rc_nisan - date) < 7:
+             return _FourParshiosEnum.HACHODESH

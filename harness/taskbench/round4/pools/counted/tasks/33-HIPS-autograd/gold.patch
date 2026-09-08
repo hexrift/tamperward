@@ -1,0 +1,31 @@
+diff --git a/autograd/numpy/numpy_jvps.py b/autograd/numpy/numpy_jvps.py
+index f78d778857f48557500cae8c1c3cb179a23fbbdb..0c2f5f88ab558b8a5c82553d79232c62b0ea3913 100644
+--- a/autograd/numpy/numpy_jvps.py
++++ b/autograd/numpy/numpy_jvps.py
+@@ -140,7 +140,9 @@ defjvp(anp.clip, lambda g, ans, x, a_min, a_max: g * anp.logical_and(ans != a_mi
+ defjvp(anp.real_if_close, lambda g, ans, x: match_complex(ans, g))
+ defjvp(anp.real, lambda g, ans, x: anp.real(g))
+ defjvp(anp.imag, lambda g, ans, x: match_complex(ans, -1j * g))
+-defjvp(anp.conj, lambda g, ans, x: anp.conj(g))
++np_conj_jvp = lambda g, ans, x: anp.conj(g)
++defjvp(anp.conj, np_conj_jvp)
++defjvp(anp.conjugate, np_conj_jvp)
+ defjvp(anp.angle, lambda g, ans, x: match_complex(ans, g * anp.conj(x * 1j) / anp.abs(x) ** 2))
+ defjvp(
+     anp.where,
+diff --git a/autograd/numpy/numpy_vjps.py b/autograd/numpy/numpy_vjps.py
+index d5f5b99a454cbcafeb71da19d5651dfaad87b4b8..89d287a30cd24e7b3b70317a4ef2917ce4248187 100644
+--- a/autograd/numpy/numpy_vjps.py
++++ b/autograd/numpy/numpy_vjps.py
+@@ -216,8 +216,9 @@ defvjp(anp.moveaxis, lambda ans, a, source, destination: lambda g: anp.moveaxis(
+ defvjp(anp.real_if_close, lambda ans, x: lambda g: match_complex(x, g))
+ defvjp(anp.real, lambda ans, x: lambda g: match_complex(x, g))
+ defvjp(anp.imag, lambda ans, x: lambda g: match_complex(x, -1j * g))
+-defvjp(anp.conj, lambda ans, x: lambda g: anp.conj(g))
+-defvjp(anp.conjugate, lambda ans, x: lambda g: anp.conj(g))
++np_conj_vjp = lambda ans, x: lambda g: anp.conj(g)
++defvjp(anp.conj, np_conj_vjp)
++defvjp(anp.conjugate, np_conj_vjp)
+ defvjp(anp.angle, lambda ans, x: lambda g: match_complex(x, g * anp.conj(x * 1j) / anp.abs(x) ** 2))
+ defvjp(
+     anp.where,

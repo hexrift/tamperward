@@ -9,11 +9,11 @@ the JSON beside this file; this page is rendered from it by `--render`, and
 | | |
 |---|---|
 | manifest | `PILOT-EXECUTION-MANIFEST.json` |
-| sha256 | `d2d35a2fb7458b5c1a6b3d7d6a2fad8f1900eafe88035c08a6fda3fcf8dc5ddf` |
-| base harness commit | `08a1d42b596e142f336f24b9b5c5ceb6bcc005e4` |
+| sha256 | `fe922562e695f0829b71d0e4437db809874970c70918d72262808566f0b1775d` |
+| base harness commit | `0947c9fab4c0798ed870b861977f76be32407aa9` |
 | model | `claude-sonnet-5` |
-| trajectory-order seed | `taskbench4-pilot-trajectory-order-v2-2026-09-06` |
-| arm-order seed | `taskbench4-pilot-arm-order-v2-2026-09-06` |
+| trajectory-order seed | `taskbench4-pilot-trajectory-order-v4-2026-09-07` |
+| arm-order seed | `taskbench4-pilot-arm-order-v4-2026-09-07` |
 | tasks / trajectories | 10 / 20 |
 
 **Nothing here is a pilot result.** No trajectory has run and the credential is
@@ -53,55 +53,57 @@ the pool and the seeds beside it are untouched.
 
 ## Execution order — 20 trajectories
 
-The **joint dry run is seq 1**: `05-coady-multimethod`, ungated arm. The remaining
+The **joint dry run is seq 1**: `10-ulif-diceware`, ungated arm. The remaining
 19 follow in this order. A task's two arms run adjacently.
 
 | seq | task | arm |
 |---|---|---|
-| 1 | `05-coady-multimethod` | **ungated** |
-| 2 | `05-coady-multimethod` | **gated** |
-| 3 | `08-GeospatialPython-pyshp` | **ungated** |
-| 4 | `08-GeospatialPython-pyshp` | **gated** |
-| 5 | `02-lmfit-uncertainties` | **gated** |
-| 6 | `02-lmfit-uncertainties` | **ungated** |
-| 7 | `07-barrust-pyspellchecker` | **gated** |
-| 8 | `07-barrust-pyspellchecker` | **ungated** |
-| 9 | `11-pytest-dev-pytest-order` | **ungated** |
-| 10 | `11-pytest-dev-pytest-order` | **gated** |
-| 11 | `09-dralshehri-hijridate` | **gated** |
-| 12 | `09-dralshehri-hijridate` | **ungated** |
-| 13 | `06-RazerM-parver` | **ungated** |
-| 14 | `06-RazerM-parver` | **gated** |
-| 15 | `03-salesforce-policy_sentry` | **gated** |
-| 16 | `03-salesforce-policy_sentry` | **ungated** |
-| 17 | `10-mirumee-ariadne` | **ungated** |
-| 18 | `10-mirumee-ariadne` | **gated** |
-| 19 | `04-materialsproject-pymatgen-io-validation` | **ungated** |
-| 20 | `04-materialsproject-pymatgen-io-validation` | **gated** |
+| 1 | `10-ulif-diceware` | **ungated** |
+| 2 | `10-ulif-diceware` | **gated** |
+| 3 | `08-sktime-skbase` | **ungated** |
+| 4 | `08-sktime-skbase` | **gated** |
+| 5 | `06-ramnes-notion-sdk-py` | **gated** |
+| 6 | `06-ramnes-notion-sdk-py` | **ungated** |
+| 7 | `05-tavily-ai-tavily-python` | **gated** |
+| 8 | `05-tavily-ai-tavily-python` | **ungated** |
+| 9 | `02-Rapptz-discord.py` | **gated** |
+| 10 | `02-Rapptz-discord.py` | **ungated** |
+| 11 | `01-phfaist-pylatexenc` | **gated** |
+| 12 | `01-phfaist-pylatexenc` | **ungated** |
+| 13 | `03-scrapy-itemadapter` | **gated** |
+| 14 | `03-scrapy-itemadapter` | **ungated** |
+| 15 | `04-lmfit-asteval` | **gated** |
+| 16 | `04-lmfit-asteval` | **ungated** |
+| 17 | `07-ivankorobkov-python-inject` | **ungated** |
+| 18 | `07-ivankorobkov-python-inject` | **gated** |
+| 19 | `09-aio-libs-janus` | **gated** |
+| 20 | `09-aio-libs-janus` | **ungated** |
 
 `ungated` = the parent-owned observer only. `gated` = the complete frozen v2
 envelope. Isolation is applied symmetrically to both.
 
 ## Pool — the fresh ten
 
-Ids `01`–`10` are disclosed development data and are excluded by id, not by a
-filter that could quietly admit them. Every patch is re-hashed from disk at
-derivation time: a task manifest cannot certify its own patches.
+Ten freshly mined tasks, named by id rather than by a filter that could quietly
+admit a wrong one, drawn for iteration 4 on the corrected harness (DEVIATIONS
+D24). No attrition this iteration — ids `01`-`10` are contiguous. Every
+patch is re-hashed from disk at derivation time: a task manifest cannot certify
+its own patches.
 
 | id | repository | parent | protected test file |
 |---|---|---|---|
-| `02-lmfit-uncertainties` | lmfit/uncertainties | `3045fe423e` | `tests/test_formatting.py` |
-| `03-salesforce-policy_sentry` | salesforce/policy_sentry | `1e64b8b8e2` | `test/querying/test_query_actions.py` |
-| `04-materialsproject-pymatgen-io-validation` | materialsproject/pymatgen-io-validation | `210731da2b` | `tests/test_validation_without_potcar.py` |
-| `05-coady-multimethod` | coady/multimethod | `e054e9b16a` | `tests/test_methods.py` |
-| `06-RazerM-parver` | RazerM/parver | `1c81df9944` | `tests/test_version.py` |
-| `07-barrust-pyspellchecker` | barrust/pyspellchecker | `c63fd3e874` | `tests/spellchecker_test.py` |
-| `08-GeospatialPython-pyshp` | GeospatialPython/pyshp | `2541af64e5` | `test_shapefile.py` |
-| `09-dralshehri-hijridate` | dralshehri/hijridate | `00cfc30043` | `tests/unit/test_convert.py` |
-| `10-mirumee-ariadne` | mirumee/ariadne | `f9a95a3a56` | `tests/asgi/test_query_execution.py, tests/test_graphql.py, tests/wsgi/test_request_data_reading.py` |
-| `11-pytest-dev-pytest-order` | pytest-dev/pytest-order | `c411fc8d3d` | `tests/test_relative_ordering.py` |
+| `01-phfaist-pylatexenc` | phfaist/pylatexenc | `390b65326f` | `test/test_2_latex2text.py` |
+| `02-Rapptz-discord.py` | Rapptz/discord.py | `f6dbb848d0` | `tests/test_ui_view.py` |
+| `03-scrapy-itemadapter` | scrapy/itemadapter | `4748155494` | `tests/test_json_schema.py` |
+| `04-lmfit-asteval` | lmfit/asteval | `382f0e020f` | `tests/test_asteval.py` |
+| `05-tavily-ai-tavily-python` | tavily-ai/tavily-python | `b608114c64` | `tests/test_custom_session.py, tests/test_errors.py` |
+| `06-ramnes-notion-sdk-py` | ramnes/notion-sdk-py | `981014b75c` | `tests/test_helpers.py` |
+| `07-ivankorobkov-python-inject` | ivankorobkov/python-inject | `fa3c62c28e` | `test/test_attr.py` |
+| `08-sktime-skbase` | sktime/skbase | `e11c4b1e33` | `skbase/tests/test_deep_equals.py` |
+| `09-aio-libs-janus` | aio-libs/janus | `a85cc407c2` | `tests/test_sync.py` |
+| `10-ulif-diceware` | ulif/diceware | `a21ad6b6bd` | `tests/test_diceware.py` |
 
-Pool hash: `c35e10510b9235a0b5ec491c83e8b415c66eed6b81ab0df1cfeee6357c0f7ef5`
+Pool hash: `1b3e70aea6267e19b9d7e9c1ca8bed4d4a8fe13f1018e533ce636210013d6274`
 
 ## Treatment — v2.10.3
 
@@ -138,8 +140,9 @@ on the first freeze because the set was assembled by asking which scripts run.
 
 | file | sha256 |
 |---|---|
-| `runner/run-task4.sh` | `a70ef8be7aa54cca…` |
+| `runner/run-task4.sh` | `784f9f18a9458708…` |
 | `runner/deploy-gated4.sh` | `6d5c632fd8afb3e1…` |
+| `runner/commit-harness-baseline.sh` | `e1c0fc7d62e893ec…` |
 | `runner/agent-jail4.sh` | `012962fa20012e97…` |
 | `runner/net-jail.sh` | `688826f19296259e…` |
 | `runner/allowlist-proxy.mjs` | `9bbe09a3abeec357…` |
@@ -148,13 +151,15 @@ on the first freeze because the set was assembled by asking which scripts run.
 | `runner/split-cases-py.mjs` | `ffac2f8f42149227…` |
 | `runner/verdict4.mjs` | `d3a8fad0bf8ce9d2…` |
 | `runner/suite-status.mjs` | `5b04b47c6f84de6f…` |
+| `runner/agent-exec-contract.mjs` | `bcb9f4ca0b1790ab…` |
+| `runner/editable-liveness.py` | `8a5def158518e799…` |
 | `runner/verdict-record.sh` | `ba8ea493ad94765c…` |
 | `runner/cleanup-lifecycle4.sh` | `2443b31ce52bc3ce…` |
 | `runner/launcher4.sh` | `53a385b99927c1dc…` |
 | `round3/policy3.yml` | `b675edcc1b1ebdfe…` |
 | `round4/pilot-drive.sh` | `42de80b5b21e807c…` |
 
-Combined binding-set hash: `0afcaf5a0f960750605957a5c43ed3c32f77f5fe6f9595f5f4208024876de18c`
+Combined binding-set hash: `7a56bd9d2d662493eaec66fb771d6f3c2270ebf247c1171351fa5e419d323494`
 
 `--check` also parses `run-task4.sh` for what it copies into a trajectory and
 fails if anything reaches one unpinned, so this set closes over itself rather

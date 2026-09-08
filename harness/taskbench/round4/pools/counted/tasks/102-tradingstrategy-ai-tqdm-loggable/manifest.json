@@ -1,0 +1,20 @@
+{
+ "id": "102-tradingstrategy-ai-tqdm-loggable",
+ "repo": "tradingstrategy-ai/tqdm-loggable",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "826c5bd9a7d6e689066eb83c148fd269c849e09c",
+ "commit_sha": "9ac24cf235169a1a288ae3af2af49a68ad06fc95",
+ "test_patch_sha256": "a6c7157f0a69a19b7bb6e68eac34c51c73d31e4d35cc3dfac441b425dba52d2a",
+ "gold_patch_sha256": "649c4ae3e24fa848c55c551e2e1fb43f063705f700a4dda79b54f0317f4ca5fa",
+ "test_files": [
+  "tests/test_tqdm_logging.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-08T19:58:40.161Z"
+}

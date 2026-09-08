@@ -1,0 +1,12 @@
+diff --git a/tests/test_formatting.py b/tests/test_formatting.py
+index 3f8a57d637af48b6e8628220313e5b1800f5acf8..fc2eab4e5af69f15cff7b6d05df9ff6e0ead6e2f 100644
+--- a/tests/test_formatting.py
++++ b/tests/test_formatting.py
+@@ -225,6 +225,7 @@ def test_write_section_print_long_constraint_on_a_new_line():
+         The heading:
+             [This is a long constraint description that doesn't fit the line
+             xx.]
++
+             This is the help.
+             term  This is the definition.
+         """)

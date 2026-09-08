@@ -1,0 +1,26 @@
+diff --git a/src/msgraph_core/requests/batch_request_builder.py b/src/msgraph_core/requests/batch_request_builder.py
+index ab544c7c44b6f7ec290cd8ec4707e2d1b8f40ab5..5bf647cffb3943077a4fa115a4d8b0af3caa2a70 100644
+--- a/src/msgraph_core/requests/batch_request_builder.py
++++ b/src/msgraph_core/requests/batch_request_builder.py
+@@ -31,7 +31,7 @@ class BatchRequestBuilder:
+         if request_adapter is None:
+             raise ValueError("request_adapter cannot be Null.")
+         self._request_adapter = request_adapter
+-        self.url_template = f"{self._request_adapter.base_url}/$batch"
++        self.url_template = f"{self._request_adapter.base_url.removesuffix('/')}/$batch"
+         self.error_map = error_map or {}
+ 
+     async def post(
+diff --git a/src/msgraph_core/requests/batch_request_content.py b/src/msgraph_core/requests/batch_request_content.py
+index 0235df8a7eaa4f6dd3d56d526e859367a56764ed..fad6053d43ac7b0a980e1b64f577dc1f4973fb4e 100644
+--- a/src/msgraph_core/requests/batch_request_content.py
++++ b/src/msgraph_core/requests/batch_request_content.py
+@@ -125,7 +125,7 @@ class BatchRequestContent(Parsable):
+         Finalizes the batch request content.
+         """
+         self.is_finalized = True
+-        return self._requests
++        return self
+ 
+     def _request_by_id(self, request_id: str) -> Optional[BatchRequestItem]:
+         """

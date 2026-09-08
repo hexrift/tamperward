@@ -1,0 +1,104 @@
+diff --git a/.changelog/025a03a00dd64881a04c135de3f3ae41.md b/.changelog/025a03a00dd64881a04c135de3f3ae41.md
+index cda0d5ba8a324e3de0e6146c666b44b54970ef36..851e847e48b3939d09d095ea170ddee22d0b4fdf 100644
+--- a/.changelog/025a03a00dd64881a04c135de3f3ae41.md
++++ b/.changelog/025a03a00dd64881a04c135de3f3ae41.md
+@@ -1,4 +1,5 @@
+ ---
+ type: patch
+ ---
+-Close owned sessions after background requests finish
++Close owned sessions after their background requests finish, including when
++using a supplied executor
+diff --git a/README.rst b/README.rst
+index 2a9d30f51ee902b2461c7cc99c6dfda2b57c573f..5df8120af63675cd7c28041b7810b323907ffeea 100644
+--- a/README.rst
++++ b/README.rst
+@@ -77,10 +77,12 @@ FutureSession will use an existing session object if supplied:
+     my_session = session()
+     future_session = FuturesSession(session=my_session)
+ 
+-``FuturesSession.close()`` shuts down an executor it created, waiting for
+-running requests and cancelling queued ones, before closing its own connection
+-pools. An executor or session supplied to ``FuturesSession`` remains owned by
+-the caller and is not shut down or closed automatically.
++``FuturesSession.close()`` waits for running requests and cancels queued ones
++before closing resources it owns. A supplied executor remains running and can
++be reused, but requests using ``FuturesSession``'s own connection pools are
++still drained. A supplied session is not closed automatically; when both an
++executor and session are supplied, their lifecycle remains the caller's
++responsibility.
+ 
+ That's it. The api of requests.Session is preserved without any modifications
+ beyond returning a Future rather than Response. As with all futures exceptions
+diff --git a/requests_futures/sessions.py b/requests_futures/sessions.py
+index d3b0149a7efafc13eb62bb9164e96b8404e7bf9c..8559585d643ddb721db8889a2b41f1b135aba07d 100644
+--- a/requests_futures/sessions.py
++++ b/requests_futures/sessions.py
+@@ -20,10 +20,11 @@ releases of python.
+ 
+ """
+ 
+-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
++from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, wait
+ from functools import partial
+ from logging import getLogger
+ from pickle import PickleError, dumps
++from threading import Lock
+ 
+ from requests import Session
+ from requests.adapters import DEFAULT_POOLSIZE, DEFAULT_RETRIES, Retry
+@@ -110,6 +111,10 @@ class FuturesSession(Session):
+         _adapter_kwargs = {}
+         super(FuturesSession, self).__init__(*args, **kwargs)
+         self._owned_executor = executor is None
++        self._pending_futures = set()
++        self._pending_futures_lock = Lock()
++        self._close_lock = Lock()
++        self._closing = False
+         if executor is None:
+             executor = ThreadPoolExecutor(max_workers=max_workers)
+             # set connection pool size equal to max_workers if needed
+@@ -165,12 +170,39 @@ class FuturesSession(Session):
+             except (TypeError, PickleError):
+                 raise RuntimeError(PICKLE_ERROR)
+ 
+-        return self.executor.submit(func, *args, **kwargs)
++        if self._owned_executor or self.session:
++            return self.executor.submit(func, *args, **kwargs)
++
++        with self._pending_futures_lock:
++            if self._closing:
++                raise RuntimeError('cannot schedule new futures while closing')
++            future = self.executor.submit(func, *args, **kwargs)
++            self._pending_futures.add(future)
++        future.add_done_callback(self._remove_pending_future)
++        return future
++
++    def _remove_pending_future(self, future):
++        with self._pending_futures_lock:
++            self._pending_futures.discard(future)
+ 
+     def close(self):
+-        if self._owned_executor:
+-            self.executor.shutdown(cancel_futures=True)
+-        super(FuturesSession, self).close()
++        with self._close_lock:
++            if self._owned_executor:
++                self.executor.shutdown(cancel_futures=True)
++            elif not self.session:
++                with self._pending_futures_lock:
++                    self._closing = True
++                    pending_futures = tuple(self._pending_futures)
++                try:
++                    for future in pending_futures:
++                        future.cancel()
++                    wait(pending_futures)
++                    super(FuturesSession, self).close()
++                finally:
++                    with self._pending_futures_lock:
++                        self._closing = False
++                return
++            super(FuturesSession, self).close()
+ 
+     def get(self, url, **kwargs):
+         r"""

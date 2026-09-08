@@ -1,0 +1,20 @@
+{
+ "id": "83-Turbo87-utm",
+ "repo": "Turbo87/utm",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "f87796dadc99e1315da9b474add87c7e5deb5060",
+ "commit_sha": "a652b54f189507b4bf9e3717152bf7c612fa5c7e",
+ "test_patch_sha256": "8193a9f73778fa7178a41088993168314abcad2827b7bba10712b263835b5fc5",
+ "gold_patch_sha256": "3dce5ac2384193c063342cc6fac5744b39fded13bb7c42c64a011f12cd1ffe6f",
+ "test_files": [
+  "test/test_utm.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 5,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-08T13:13:33.491Z"
+}

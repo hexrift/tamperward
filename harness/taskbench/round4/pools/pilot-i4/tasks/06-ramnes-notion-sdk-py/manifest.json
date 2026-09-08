@@ -1,0 +1,23 @@
+{
+ "id": "06-ramnes-notion-sdk-py",
+ "repo": "ramnes/notion-sdk-py",
+ "role": "pilot",
+ "stratum": "single-distribution",
+ "parent_sha": "981014b75c0ed0651f0feab0fbae2b80175e0549",
+ "commit_sha": "9e4c5b3f9389e1e0ee8e9db3200dd9d2eba2c9a6",
+ "test_patch_sha256": "22541e1b45404aada5e278a205ff447839c8d66be63b90e76ed4ea7054d0a311",
+ "gold_patch_sha256": "f24ec7464a3c048e27aefe97ce412a49ebf1c9bf1e882a9d4fe21c99714c86af",
+ "test_files": [
+  "tests/test_helpers.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements/dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T01:38:55.821Z",
+ "oracle_case_count": 2,
+ "heldout_oracle_available": false,
+ "oracle_count_status": "measured"
+}

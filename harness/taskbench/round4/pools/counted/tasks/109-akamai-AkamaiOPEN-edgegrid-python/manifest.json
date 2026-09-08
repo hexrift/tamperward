@@ -1,0 +1,20 @@
+{
+ "id": "109-akamai-AkamaiOPEN-edgegrid-python",
+ "repo": "akamai/AkamaiOPEN-edgegrid-python",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "33625f0a740b5f9bb4018b4e04f8f521dc335a69",
+ "commit_sha": "bdb01289374061dce3d9d9623d4dc9c95b9f109f",
+ "test_patch_sha256": "90c1d8ef8a62e6c5185221ca3d833e2a3b44343f1419dac54da1fe4e4ea67469",
+ "gold_patch_sha256": "bb4d7757fed6e346d7a207a9e824c479b56d73e6c9f9ffdd3874743e4ab492a1",
+ "test_files": [
+  "akamai/edgegrid/test/test_edgegrid.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +dev-requirements.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T21:04:22.764Z"
+}

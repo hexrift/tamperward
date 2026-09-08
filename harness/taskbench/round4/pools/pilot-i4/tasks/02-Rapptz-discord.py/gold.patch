@@ -1,0 +1,97 @@
+diff --git a/discord/ui/action_row.py b/discord/ui/action_row.py
+index 4946e6da6b539dd17000200f1ece4265e70dd787..0c59b929ff83f4210cb036bdeac883ba37a6c584 100644
+--- a/discord/ui/action_row.py
++++ b/discord/ui/action_row.py
+@@ -203,6 +203,9 @@ class ActionRow(Item[V]):
+     def _swap_item(self, base: Item, new: DynamicItem, custom_id: str) -> None:
+         child_index = self._children.index(base)
+         self._children[child_index] = new  # type: ignore
++        base._detach_view()
++        new._update_view(self.view)
++        new._parent = self
+ 
+     @property
+     def width(self):
+@@ -299,6 +302,7 @@ class ActionRow(Item[V]):
+             if self._view:
+                 self._view._add_count(-1)
+             self._weight -= item.width
++            item._detach_view()
+ 
+         return self
+ 
+@@ -330,6 +334,8 @@ class ActionRow(Item[V]):
+         """
+         if self._view:
+             self._view._add_count(-len(self._children))
++        for item in self._children:
++            item._detach_view()
+         self._children.clear()
+         self._weight = 0
+         return self
+diff --git a/discord/ui/container.py b/discord/ui/container.py
+index 11aa7c0e6911d81e95db5c292b6eb21abf51def2..b88b188a454041e664b6b6665b64273ae4eafa7b 100644
+--- a/discord/ui/container.py
++++ b/discord/ui/container.py
+@@ -197,6 +197,9 @@ class Container(Item[V]):
+     def _swap_item(self, base: Item, new: DynamicItem, custom_id: str) -> None:
+         child_index = self._children.index(base)
+         self._children[child_index] = new  # type: ignore
++        base._detach_view()
++        new._update_view(self.view)
++        new._parent = self
+ 
+     @property
+     def children(self) -> List[Item[V]]:
+@@ -336,6 +339,7 @@ class Container(Item[V]):
+         else:
+             if self._view:
+                 self._view._add_count(-item._total_count)
++            item._detach_view()
+         return self
+ 
+     def find_item(self, id: int, /) -> Optional[Item[V]]:
+@@ -367,5 +371,7 @@ class Container(Item[V]):
+ 
+         if self._view:
+             self._view._add_count(-len(tuple(self.walk_children())))
++        for item in self._children:
++            item._detach_view()
+         self._children.clear()
+         return self
+diff --git a/discord/ui/item.py b/discord/ui/item.py
+index c6f165d5c3a240c783af31e58d028b25b6b73bd4..2c1b48be0d2965ec0b5bdf5977d81f5ede630915 100644
+--- a/discord/ui/item.py
++++ b/discord/ui/item.py
+@@ -206,6 +206,10 @@ class Item(Generic[V]):
+     def _update_view(self, view) -> None:
+         self._view = view
+ 
++    def _detach_view(self) -> None:
++        self._update_view(None)
++        self._parent = None
++
+     def copy(self) -> Self:
+         return copy.deepcopy(self)
+ 
+diff --git a/discord/ui/section.py b/discord/ui/section.py
+index ff687e0beff0f86e9c2b3d2fc54536cfbba985d2..bca00c08a89b031dce844f1f55e5712c1812a3e2 100644
+--- a/discord/ui/section.py
++++ b/discord/ui/section.py
+@@ -212,6 +212,7 @@ class Section(Item[V]):
+         else:
+             if self._view:
+                 self._view._add_count(-1)
++            item._detach_view()
+ 
+         return self
+ 
+@@ -244,6 +245,8 @@ class Section(Item[V]):
+         if self._view:
+             self._view._add_count(-len(self._children))  # we don't count the accessory because it is required
+ 
++        for item in self._children:
++            item._detach_view()
+         self._children.clear()
+         return self
+ 

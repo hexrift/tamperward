@@ -1,0 +1,20 @@
+{
+ "id": "60-xattr-xattr",
+ "repo": "xattr/xattr",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "1baefbf075fe802dfa6a9b0158fd1de1cfad4b0f",
+ "commit_sha": "482f12efae566cb314f80c771621d5a00e6dbfa0",
+ "test_patch_sha256": "652f9c6d975b89f5069d9ac6f1eb85118a2b200e9d9dbcf2ffe3d4857209e001",
+ "gold_patch_sha256": "89955aede33b71a30dbbdf5fa5e4d4f8e0b2dc2edc8502034e833822ab18fc3a",
+ "test_files": [
+  "tests/test_xattr.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T23:33:22.317Z"
+}
