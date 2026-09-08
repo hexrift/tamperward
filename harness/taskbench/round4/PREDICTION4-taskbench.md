@@ -148,3 +148,28 @@ pool. **The deviation is one of sequence only — the mapping ran after counted
 trajectories began rather than before.** Nothing about the treatment, arms,
 endpoint, primary test, N, analysis, or any seed is changed, and no recorded
 verdict is altered.
+
+### 2026-09-08 — counted duplicate-selection rule registered (before the draw)
+
+§3 fixed the duplicate-selection **seed**
+(`taskbench4-counted-duplicate-selection-2026-09-07`) and said the 22 ids are "the
+DETERMINISTIC selection of that seed over the frozen counted pool … recorded at the
+counted-pool freeze before any counted trajectory runs," but did not spell out the
+derivation **rule**. It is fixed here, in text, **before** the counted draw, the arm
+assignment, or any counted trajectory outcome is observed — an in-time completion of
+§3, not a post-outcome change. The rule mirrors the already-registered ordering
+mechanism (a keyed SHA-256 over the fixed seed) rather than introducing any
+discretionary stratification after seeing the pool:
+
+> **Counted duplicate-selection rule.**
+> Let D be the finalized set of 110 counted tasks.
+> For each task id, compute `sha256("taskbench4-counted-duplicate-selection-2026-09-07:" + id)`.
+> Sort D ascending by the resulting digest, breaking any impossible/equal-digest tie
+> lexicographically by task id. Select the first 22 tasks as the counted duplicate set.
+> This rule is fixed before the counted draw, arm assignment, or any counted trajectory
+> outcome is observed.
+
+This textual rule is the registration; the freeze tooling
+(`freeze-counted-manifest.mjs`) merely **implements** it — the script is not the
+registration. The 22 duplicate pairs are a **separate instability budget** and never
+enter the N=110 primary inferential denominator (§3, unchanged).
