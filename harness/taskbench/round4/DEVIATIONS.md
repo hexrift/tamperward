@@ -3891,3 +3891,40 @@ the textual rule lands first as the registration; the freeze tooling
 is never the registration. The counted freeze itself (execution manifest + the seed-derived
 draw: task order, arm parity, the 22 duplicates) remains unfrozen and runs on the artefact
 host (it binds the deployed 2.10.3 treatment); no counted trajectory has run.
+
+## D35 — 2026-09-08, counted execution driver landed; execution_ready now true (no launch, no freeze)
+
+The counted round now has its order-enforcing driver: `round4/counted-drive.sh`, the
+faithful analog of `pilot-drive.sh` for the 264-trajectory counted manifest (110×2
+primary + 22×2 duplicate). Landing it makes `freeze-counted-manifest.mjs` compute
+`execution_ready: true` and pin the driver into the binding set — the file's hash is
+now part of the freeze, so `--check` refuses if the driver changes. **The counted
+manifest is still not frozen and no counted trajectory has run.** The freeze is a
+separate registered act on the artefact host (it binds the deployed 2.10.3 treatment);
+the launch is credential-gated and later still. This entry records only that the
+apparatus gap the freeze tooling disclosed (`counted_driver: null`) is now closed.
+
+**It is a boring executor and enforces exactly the frozen registration.** It refuses to
+start unless `freeze-counted-manifest.mjs --check` passes AND the manifest is
+`execution_ready`; it derives the 264 immutable trajectory identities FROM the manifest
+and runs them strictly in frozen `seq` order (primary 1..220, then the duplicate budget
+221..264), lowest-unfinished first, never skipping a gap; it re-verifies the whole
+binding set (runner, policy, treatment AND the driver's own hash) before every
+trajectory and mid-run; and it keeps each trajectory's raw/immutable evidence in its own
+per-seq directory so a duplicate never overwrites its primary twin (a task can appear in
+both blocks with the same arm — e.g. `43-deeplook-svglib` at seq 219/220 and 263/264).
+It chooses nothing: not the tasks, the 22 duplicates, the order, the arms, the model, or
+the treatment. The counted round reuses the identical runner (`run-task4.sh`); because
+the counted manifest deliberately splits its execution block into primary/duplicate
+sub-blocks, the driver projects a deterministic flat runner-view (embedding the counted
+manifest hash) so the unmodified runner can bind a row by `seq` — `run-task4.sh` is a
+pinned pilot binding file and is not touched.
+
+**No re-roll; NO registered retry/recovery rule exists for the counted round.** A
+trajectory that STARTED has a scientific outcome whether or not it produced a verdict, so
+an unresolved start marker HALTS the driver for human adjudication instead of being
+quietly retried. `PREDICTION4-taskbench.md` and this ledger register no counted
+retry/recovery policy, so the driver **fails closed** on every rerun. Whether a bounded
+recovery rule should be registered before launch is left **open for registration** — it
+is deliberately NOT invented here, and nothing about retry policy is added to the
+manifest or the registration.

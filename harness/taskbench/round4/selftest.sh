@@ -1043,8 +1043,8 @@ const want=ids.map(id=>[createHash("sha256").update(reg.duplicate_seed+":"+id).d
   .sort((x,y)=>x[0]<y[0]?-1:x[0]>y[0]?1:(x[1]<y[1]?-1:x[1]>y[1]?1:0)).slice(0,3).map(x=>x[1]);
 ok(JSON.stringify(m.execution.duplicates.task_ids)===JSON.stringify(want),
    "the 22-rule output equals an INDEPENDENT recomputation of sha256(dup_seed:id) sorted, first n — the rule, not a stored list");
-ok(m.execution_ready===false,"execution_ready is false: no counted order-enforcing driver is pinned yet");
-ok(m.binding_set.counted_driver===null,"the counted driver is declared null, not silently omitted");
+ok(m.execution_ready===true,"execution_ready is true: the counted order-enforcing driver is now pinned into the binding set");
+ok(m.binding_set.counted_driver!==null && m.binding_set.counted_driver.path==="round4/counted-drive.sh" && /^[0-9a-f]{64}$/.test(m.binding_set.counted_driver.sha256||""),"the counted driver is pinned with its path and sha256, not silently omitted");
 ok(m.treatment===null,"with no artefact on this host the treatment is null, not faked");
 console.log(a.join("\n"));
 ' | while read -r v d; do [ "$v" = ok ] && ok "$d" || no "$d"; done
@@ -1310,6 +1310,241 @@ node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[
 TB_PILOT_MANIFEST="$DM" node "$FZ" --render > "$L/PILOT-EXECUTION-MANIFEST.md"
 [ "$(dr --acknowledge-drift >/dev/null 2>&1; echo $?)" = 2 ] && ok "binding drift can NEVER be acknowledged away" || no "binding drift was acknowledgeable"
 rm -rf "$L"
+
+
+echo "== counted driver: the frozen counted order is ENFORCED and RECORDED, not merely written down"
+# The counted analog of the pilot-driver section. The driver is a boring executor:
+# it derives the 264 immutable identities FROM the frozen counted manifest and runs
+# exactly them, in order, once each. These cases run against a SYNTHETIC fixture
+# manifest (n_primary=8 -> 22 trajectories) via the freeze test seams, so they are
+# hermetic, fast and credential-free — exactly as the counted-freeze section above.
+# A real-manifest smoke at the end proves the absolute 264/110/22 pre-flight.
+CDRV=./counted-drive.sh
+CDPOOL=$(mktemp -d); mkcounted_pool "$CDPOOL" 8
+# freeze the synthetic manifest + its rendered page to a temp path (NEVER the real
+# committed path, which the freeze seams refuse).
+CDM=$(mktemp /tmp/tb-cdm-XXXX.json)
+TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CDPOOL" TB_COUNTED_FREEZE_TEST="$CTEST" TB_COUNTED_MANIFEST="$CDM" node "$CFZ" --print > "$CDM" 2>/dev/null
+TB_COUNTED_MANIFEST="$CDM" TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CDPOOL" TB_COUNTED_FREEZE_TEST="$CTEST" node "$CFZ" --render > "${CDM%.json}.md" 2>/dev/null
+# A STRICT stub runner (the counted analog of mkstub): it asserts every part of the
+# registered contract the driver must establish — readiness, registered model, the
+# projected runner-view + its hash, the frozen row at TB_PILOT_SEQ, the per-seq
+# TB_RUNS, AND that the runner-view is cryptographically bound to the counted
+# manifest hash the driver passes — and refuses loudly otherwise. TB_RUNS is a
+# PER-SEQ directory, so a duplicate never overwrites its primary twin.
+mkcdstub(){ local L; L=$(mktemp -d /tmp/tb-cdl-XXXXXX); mkdir -p "$L/runs"; cat > "$L/stub-runner.sh" <<'CSTUB'
+#!/usr/bin/env bash
+task="$1"; arm="$2"
+echo "STUB $task $arm" >> "$TB_RUNS/../stub-calls.log"
+viol(){ echo "$1" >> "$TB_RUNS/../strict-violations.log"; exit 70; }
+[ "${TB_RUNTASK4_READY:-}" = 1 ]        || viol "TB_RUNTASK4_READY not set — a real runner would exit 78"
+[ -n "${TB_PILOT_MANIFEST:-}" ] && [ -s "${TB_PILOT_MANIFEST}" ] || viol "runner-view missing (TB_PILOT_MANIFEST)"
+[ -n "${TB_REGISTERED_MODEL:-}" ]       || viol "TB_REGISTERED_MODEL not set"
+[ "$TB_REGISTERED_MODEL" = "$(jq -r .registration.model "$TB_PILOT_MANIFEST")" ] || viol "registered model is not the runner-view's model"
+[ "$(sha256sum "$TB_PILOT_MANIFEST" | cut -d' ' -f1)" = "${TB_PILOT_MANIFEST_SHA256:-}" ] || viol "runner-view hash not passed or wrong"
+case "${TB_PILOT_SEQ:-}" in ''|*[!0-9]*) viol "TB_PILOT_SEQ missing or not a number" ;; esac
+row=$(jq -r --argjson s "$TB_PILOT_SEQ" '.execution.trajectories[]|select(.seq==$s)|"\(.task) \(.arm)"' "$TB_PILOT_MANIFEST")
+[ "$row" = "$task $arm" ]               || viol "seq $TB_PILOT_SEQ registers '$row', invoked as '$task $arm'"
+[ "$(jq -r .counted_manifest_sha256 "$TB_PILOT_MANIFEST")" = "${TB_COUNTED_MANIFEST_SHA256:-}" ] || viol "the runner-view is not bound to the counted manifest hash"
+case "$(basename "$TB_RUNS")" in seq-*) : ;; *) viol "TB_RUNS is not a per-seq directory: $TB_RUNS" ;; esac
+[ -n "${STUB_FAIL:-}" ] && exit 9
+[ -n "${STUB_START_ONLY:-}" ] && { : > "$TB_RUNS/${task}-${arm}.started"; exit 0; }
+jq -nc --arg t "$task" --arg a "$arm" --argjson q "$TB_PILOT_SEQ" --arg m "$TB_COUNTED_MANIFEST_SHA256" \
+  '{task:$t,arm:$a,outcome:"HONEST_COMPLETION",oracle_strength:"INTEGRITY",visible_suite:"green",pristine_suite:"green",model:"stub",transcript:"t.jsonl",ts:(now|todate),driver_pass:1,execution_attempt:1,counted_seq:$q,manifest_sha256:$m}' > "$TB_RUNS/${task}-${arm}.verdict.json"
+CSTUB
+chmod +x "$L/stub-runner.sh"; echo "$L"; }
+# Same freeze-gate allowance the whole counted-freeze section uses: no artefact on a
+# CI runner, and the env necessarily differs, so both host-dependent axes are fixed.
+CDCK="TB_ART_DIR=/nonexistent-artefact TB_COUNTED_CHECK_NO_ARTEFACT=1 TB_COUNTED_CHECK_BINDING_ONLY=1 TB_COUNTED_POOL_DIR=$CDPOOL TB_COUNTED_FREEZE_TEST=$CTEST"
+cdrv(){ local L="$1"; shift; env $CDCK TB_COUNTED_MANIFEST="$CDM" TB_COUNTED_RUNS="$L/runs" TB_COUNTED_RUNNER="$L/stub-runner.sh" $CDRV "$@"; }
+cdrvrc(){ cdrv "$@" >/dev/null 2>&1; echo $?; }
+
+L=$(mkcdstub)
+[ "$(cdrvrc "$L" --check)" = 0 ] && ok "counted driver --check passes on a clean manifest and empty state" || no "counted driver --check failed on clean state"
+# opt-in allowance: without it, a host that cannot verify the treatment cannot start.
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CDPOOL" TB_COUNTED_FREEZE_TEST="$CTEST" TB_COUNTED_MANIFEST="$CDM" TB_COUNTED_RUNS="$L/runs" TB_COUNTED_RUNNER="$L/stub-runner.sh" $CDRV --next >/dev/null 2>&1; echo $?)" = 2 ] \
+  && ok "the counted driver refuses when the treatment cannot be verified and no allowance is given" || no "the counted driver ran without verifying the treatment"
+cdrv "$L" --all >/dev/null 2>&1
+# The assertion that matters: what RAN equals what was REGISTERED, in order — all
+# 22 (16 primary then the 6-trajectory duplicate budget), byte for byte.
+if diff -q "$L/runs/stub-calls.log" <(jq -r '[.execution.primary.trajectories[], .execution.duplicates.trajectories[]] | .[] | "STUB \(.task) \(.arm)"' "$CDM") >/dev/null 2>&1; then
+  ok "the executed counted sequence is byte-identical to the frozen order, all 22 (primary then duplicate budget)"
+else no "the executed counted sequence diverged from the frozen order"; fi
+[ ! -s "$L/runs/strict-violations.log" ] \
+  && ok "the counted driver establishes registered mode: readiness, model, runner-view, its hash, the frozen row, and the counted-manifest binding" \
+  || no "counted registered contract violated: $(head -1 "$L/runs/strict-violations.log")"
+# Per-seq isolation: a task that appears in BOTH the primary block and the duplicate
+# budget (same task+arm) must have TWO separate immutable evidence dirs, never one.
+DTASK=$(jq -r '.execution.duplicates.task_ids[0]' "$CDM")
+prim_seqs=$(jq -r --arg t "$DTASK" '.execution.primary.trajectories[]|select(.task==$t)|.seq' "$CDM" | tr '\n' ' ')
+dup_seqs=$(jq -r --arg t "$DTASK" '.execution.duplicates.trajectories[]|select(.task==$t)|.seq' "$CDM" | tr '\n' ' ')
+iso=1; for q in $prim_seqs $dup_seqs; do [ -e "$L/runs/seq-$(printf '%03d' "$q")/${DTASK}-"*.verdict.json ] || iso=0; done
+[ "$iso" = 1 ] && [ -n "$prim_seqs" ] && [ -n "$dup_seqs" ] \
+  && ok "a duplicated task keeps SEPARATE per-seq evidence for its primary ($prim_seqs) and duplicate ($dup_seqs) trajectories — no overwrite" \
+  || no "a duplicated task's primary and duplicate evidence collided (primary='$prim_seqs' dup='$dup_seqs')"
+[ "$(find "$L/runs" -name '*.verdict.json' | wc -l)" = 22 ] && ok "exactly 22 immutable verdicts on disk, one per trajectory identity" || no "wrong number of verdicts on disk"
+jq -se 'all(.counted_seq != null and (.manifest_sha256|length)==64)' "$L"/runs/seq-*/*.verdict.json >/dev/null 2>&1 \
+  && ok "every counted verdict carries its frozen seq and the counted manifest hash" || no "counted verdicts do not carry seq + manifest hash"
+[ "$(wc -l < "$L/runs/counted-execution-log.jsonl")" = 44 ] \
+  && ok "every counted trajectory is recorded: 22 started + 22 finished" || no "the counted execution log is incomplete"
+cdrv "$L" --status 2>&1 | grep -q "gated  n=" && ok "per-arm counted timings are reported (primary and duplicate separated)" || no "no per-arm counted timings"
+[ "$(cdrvrc "$L" --all)" = 0 ] && ok "a completed counted run is idempotent — nothing re-runs" || no "a completed counted run re-ran something"
+rm -rf "$L"
+
+# A failing trajectory stops the driver; nothing further is attempted.
+L=$(mkcdstub); STUB_FAIL=1 cdrv "$L" --all >/dev/null 2>&1
+[ "$(wc -l < "$L/runs/stub-calls.log")" = 1 ] && ok "a failing counted trajectory stops the driver — nothing further is attempted" || no "the counted driver continued past a failure"
+rm -rf "$L"
+
+# No re-roll: a started-but-verdictless trajectory HALTS for adjudication; only a
+# recorded human disposition releases it. There is NO registered retry rule.
+L=$(mkcdstub); STUB_START_ONLY=1 cdrv "$L" --next >/dev/null 2>&1
+[ "$(cdrvrc "$L" --next)" = 3 ] && ok "a started counted trajectory with no verdict HALTS the driver — never re-rolled" || no "a started counted trajectory was re-rolled"
+t1=$(jq -r '.execution.primary.trajectories[0].task' "$CDM"); a1=$(jq -r '.execution.primary.trajectories[0].arm' "$CDM")
+: > "$L/runs/seq-001/${t1}-${a1}.adjudicated"
+[ "$(cdrvrc "$L" --check)" = 0 ] && ok "and only a recorded human disposition releases the counted halt" || no "the counted halt did not clear on adjudication"
+rm -rf "$L"
+
+# Out-of-order execution is impossible by construction: no way to name a seq, and
+# the driver always takes the LOWEST unfinished one even when a later one is done.
+L=$(mkcdstub)
+tot=$(jq -r '.execution.trajectory_count' "$CDM")
+tl=$(jq -r --argjson s "$tot" '[.execution.primary.trajectories[], .execution.duplicates.trajectories[]]|.[]|select(.seq==$s)|.task' "$CDM")
+al=$(jq -r --argjson s "$tot" '[.execution.primary.trajectories[], .execution.duplicates.trajectories[]]|.[]|select(.seq==$s)|.arm' "$CDM")
+mkdir -p "$L/runs/seq-$(printf '%03d' "$tot")"
+jq -nc --arg t "$tl" --arg a "$al" '{task:$t,arm:$a,outcome:"X",oracle_strength:"I",visible_suite:"g",pristine_suite:"g",model:"stub",transcript:"t",ts:"2026-01-01T00:00:00Z",driver_pass:1,execution_attempt:1}' > "$L/runs/seq-$(printf '%03d' "$tot")/${tl}-${al}.verdict.json"
+# a manual verdict with no matching finished-event under the current hash is itself
+# a state disagreement, so the driver refuses rather than proceeding — the correct
+# fail-closed answer. Prove instead that with the LAST seq legitimately run, the
+# driver still starts at seq 1: run --next from clean and confirm seq 1 goes first.
+rm -rf "$L"; L=$(mkcdstub)
+cdrv "$L" --next >/dev/null 2>&1
+[ "$(head -1 "$L/runs/stub-calls.log")" = "STUB $(jq -r '.execution.primary.trajectories[0]|"\(.task) \(.arm)"' "$CDM")" ] \
+  && ok "the counted driver takes the lowest unfinished seq first (seq 1), in order" || no "the counted driver did not start at seq 1"
+grep -qE '\-\-next <seq>|\$2.*seq' $CDRV && no "the counted driver accepts a caller-chosen seq" || ok "no caller can name a counted seq — order is enforced by construction"
+rm -rf "$L"
+
+echo "== counted driver: it refuses every state that disagrees with the frozen registration"
+# binding drift refuses before any trajectory.
+L=$(mkcdstub)
+cp ../runner/verdict4.mjs /tmp/tb-cv4-selftest.bak
+echo "// counted selftest drift" >> ../runner/verdict4.mjs
+rc=$(cdrvrc "$L" --next); calls=0; [ -f "$L/runs/stub-calls.log" ] && calls=$(wc -l < "$L/runs/stub-calls.log")
+mv /tmp/tb-cv4-selftest.bak ../runner/verdict4.mjs
+[ "$rc" = 2 ] && ok "counted binding drift refuses the driver (exit 2)" || no "the counted driver ran against a drifted tree (rc=$rc)"
+[ "$calls" = 0 ] && ok "and NOTHING was executed — the counted refusal is before any trajectory" || no "$calls counted trajectories ran despite drift"
+rm -rf "$L"
+
+# the DRIVER's own hash is in the binding set: an edited driver is binding drift.
+L=$(mkcdstub); cp "$CDRV" /tmp/tb-cdrv-selftest.bak
+printf '\n# counted selftest driver mutation\n' >> "$CDRV"
+rc=$(cdrvrc "$L" --check)
+cp /tmp/tb-cdrv-selftest.bak "$CDRV"; rm -f /tmp/tb-cdrv-selftest.bak
+[ "$rc" = 2 ] && ok "an edited counted DRIVER is binding drift (its hash is pinned into the binding set)" || no "an edited counted driver was not caught (rc=$rc)"
+rm -rf "$L"
+
+# a second driver is refused by the lock.
+L=$(mkcdstub); mkdir -p "$L/runs"
+( flock -n 9 || exit 6; sleep 6 ) 9>"$L/runs/.driver.lock" &
+sleep 0.5; rc=$(cdrvrc "$L" --next); wait
+[ "$rc" = 6 ] && ok "a second counted driver is refused by the lock (exit 6)" || no "two counted drivers could run at once (rc=$rc)"
+rm -rf "$L"
+
+# a manifest edited BETWEEN trajectories is caught mid-run, not just at startup.
+L=$(mkcdstub); CMM=$(mktemp /tmp/tb-cdm-XXXX.json)
+TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CDPOOL" TB_COUNTED_FREEZE_TEST="$CTEST" TB_COUNTED_MANIFEST="$CMM" node "$CFZ" --print > "$CMM" 2>/dev/null
+TB_COUNTED_MANIFEST="$CMM" TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CDPOOL" TB_COUNTED_FREEZE_TEST="$CTEST" node "$CFZ" --render > "${CMM%.json}.md" 2>/dev/null
+cat > "$L/mutating-runner.sh" <<MUT
+#!/usr/bin/env bash
+bash "$L/stub-runner.sh" "\$@"; rc=\$?
+printf '\n' >> "$CMM"
+exit \$rc
+MUT
+chmod +x "$L/mutating-runner.sh"
+out=$(env $CDCK TB_COUNTED_MANIFEST="$CMM" TB_COUNTED_RUNS="$L/runs" TB_COUNTED_RUNNER="$L/mutating-runner.sh" $CDRV --all 2>&1); rc=$?
+[ "$rc" = 2 ] && ok "a counted manifest edited BETWEEN trajectories is caught mid-run, not just at startup" || no "a counted manifest edited mid-run was not caught (rc=$rc)"
+[ "$(wc -l < "$L/runs/stub-calls.log")" = 1 ] && ok "and it stopped at the trajectory after the change" || no "the counted driver kept going after the manifest changed"
+rm -f "$CMM" "${CMM%.json}.md"; rm -rf "$L"
+
+# a pinned binding FILE (policy3.yml) edited mid-run, manifest untouched, still stops.
+L=$(mkcdstub); POL=../round3/policy3.yml; cp "$POL" /tmp/tb-cpol-selftest.bak
+cat > "$L/policy-mutating-runner.sh" <<MUT
+#!/usr/bin/env bash
+bash "$L/stub-runner.sh" "\$@"; rc=\$?
+printf '\n# counted selftest mutation\n' >> "$PWD/$POL"
+exit \$rc
+MUT
+chmod +x "$L/policy-mutating-runner.sh"
+out=$(env $CDCK TB_COUNTED_MANIFEST="$CDM" TB_COUNTED_RUNS="$L/runs" TB_COUNTED_RUNNER="$L/policy-mutating-runner.sh" $CDRV --all 2>&1); rc=$?
+cp /tmp/tb-cpol-selftest.bak "$POL"; rm -f /tmp/tb-cpol-selftest.bak
+[ "$rc" = 2 ] && ok "a pinned binding file edited mid counted run stops the driver (exit 2)" || no "policy3.yml changed mid counted run and the driver continued (rc=$rc)"
+[ "$(wc -l < "$L/runs/stub-calls.log")" = 1 ] && ok "and it stopped at the trajectory after the binding-file change" || no "the counted driver ran on past a changed binding file"
+diff -q "$POL" <(git show HEAD:harness/taskbench/round3/policy3.yml 2>/dev/null) >/dev/null 2>&1 \
+  && ok "policy3.yml is restored byte-identical after the counted case" || no "the counted self-test left policy3.yml modified"
+rm -rf "$L"
+
+# a frozen manifest that is NOT execution_ready (no driver pinned) is refused.
+L=$(mkcdstub); NRM=$(mktemp /tmp/tb-cdm-XXXX.json)
+node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1]));m.execution_ready=false;m.binding_set.counted_driver=null;fs.writeFileSync(process.argv[2],JSON.stringify(m,null,1)+"\n")' "$CDM" "$NRM"
+TB_COUNTED_MANIFEST="$NRM" TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CDPOOL" TB_COUNTED_FREEZE_TEST="$CTEST" node "$CFZ" --render > "${NRM%.json}.md" 2>/dev/null
+[ "$(env $CDCK TB_COUNTED_MANIFEST="$NRM" TB_COUNTED_RUNS="$L/runs" TB_COUNTED_RUNNER="$L/stub-runner.sh" $CDRV --check >/dev/null 2>&1; echo $?)" = 2 ] \
+  && ok "a frozen manifest that is not execution_ready is refused (the on-disk driver contradicts counted_driver:null)" || no "a non-execution-ready counted manifest was accepted"
+rm -f "$NRM" "${NRM%.json}.md"; rm -rf "$L"
+
+# derives EXACTLY the manifest's identities: evidence for a seq OUTSIDE 1..N (a 265th)
+# is refused, and a wrong-task verdict in a seq dir (substitution) is refused.
+L=$(mkcdstub); cdrv "$L" --all >/dev/null 2>&1
+mkdir -p "$L/runs/seq-099"; cp "$L/runs/seq-001/${t1}-${a1}.verdict.json" "$L/runs/seq-099/${t1}-${a1}.verdict.json" 2>/dev/null
+[ "$(cdrvrc "$L" --check)" = 2 ] && ok "evidence for a seq outside 1..N (a 265th) is refused — exactly N identities, no other" || no "a seq outside the manifest was accepted"
+rm -rf "$L"
+L=$(mkcdstub); cdrv "$L" --all >/dev/null 2>&1
+jq -nc '{task:"99-not-registered",arm:"gated",outcome:"X",oracle_strength:"I",visible_suite:"g",pristine_suite:"g",model:"stub",transcript:"t",ts:"2026-01-01T00:00:00Z",driver_pass:1,execution_attempt:1}' > "$L/runs/seq-001/99-not-registered-gated.verdict.json"
+[ "$(cdrvrc "$L" --check)" = 2 ] && ok "a verdict for a task that is not the frozen row is refused — no substituted task/arm" || no "a substituted-task verdict was accepted"
+rm -rf "$L"
+
+# checkpoint/resume: completed ids + evidence + the manifest hash must all agree.
+L=$(mkcdstub); cdrv "$L" --all >/dev/null 2>&1
+[ "$(cdrvrc "$L" --check)" = 0 ] && ok "a completed counted run resumes clean — log, evidence and manifest hash agree" || no "a clean completed counted run failed to resume"
+node -e 'const fs=require("fs");const p=process.argv[1];const L=fs.readFileSync(p,"utf8").trim().split("\n").map(JSON.parse);for(const e of L){if(e.event==="finished")e.manifest_sha256="0".repeat(64);}fs.writeFileSync(p,L.map(x=>JSON.stringify(x)).join("\n")+"\n")' "$L/runs/counted-execution-log.jsonl"
+[ "$(cdrvrc "$L" --check)" = 2 ] && ok "a verdict on disk whose logged manifest hash disagrees with the frozen manifest is refused" || no "a manifest-hash disagreement between log and evidence was accepted"
+rm -rf "$L"
+
+# environment drift is acknowledgeable, once, against the exact fingerprint; binding
+# drift never is.
+L=$(mkcdstub); EDM=$(mktemp /tmp/tb-cdm-XXXX.json)
+node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1]));m.environment_recorded.kernel="counted-drive-selftest-other-kernel";fs.writeFileSync(process.argv[2],JSON.stringify(m,null,1)+"\n")' "$CDM" "$EDM"
+TB_COUNTED_MANIFEST="$EDM" TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CDPOOL" TB_COUNTED_FREEZE_TEST="$CTEST" node "$CFZ" --render > "${EDM%.json}.md" 2>/dev/null
+# no BINDING_ONLY flag here, so the recorded environment drift actually surfaces.
+EDE="TB_ART_DIR=/nonexistent-artefact TB_COUNTED_CHECK_NO_ARTEFACT=1 TB_COUNTED_POOL_DIR=$CDPOOL TB_COUNTED_FREEZE_TEST=$CTEST"
+ede(){ env $EDE TB_COUNTED_MANIFEST="$EDM" TB_COUNTED_RUNS="$L/runs" TB_COUNTED_RUNNER="$L/stub-runner.sh" $CDRV "$@"; }
+[ "$(ede --check >/dev/null 2>&1; echo $?)" = 2 ] && ok "unacknowledged counted environment drift refuses the driver" || no "the counted driver ran with unacknowledged environment drift"
+ede --acknowledge-drift >/dev/null 2>&1
+grep -q '^fingerprint:[0-9a-f]\{64\}$' "$L/runs/environment-drift.acknowledged" 2>/dev/null \
+  && ok "--acknowledge-drift records the exact counted drift fingerprint" || no "the counted acknowledgement carries no fingerprint"
+[ "$(ede --check >/dev/null 2>&1; echo $?)" = 0 ] && ok "and the counted driver then proceeds" || no "the counted driver still refused after acknowledgement"
+node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1]));m.registration.model="counted-drive-not-registered";fs.writeFileSync(process.argv[1],JSON.stringify(m,null,1)+"\n")' "$EDM"
+TB_COUNTED_MANIFEST="$EDM" TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CDPOOL" TB_COUNTED_FREEZE_TEST="$CTEST" node "$CFZ" --render > "${EDM%.json}.md" 2>/dev/null
+[ "$(ede --acknowledge-drift >/dev/null 2>&1; echo $?)" = 2 ] && ok "counted binding drift can NEVER be acknowledged away" || no "counted binding drift was acknowledgeable"
+rm -f "$EDM" "${EDM%.json}.md"; rm -rf "$L"
+
+# the REAL registration: the absolute 264/110/22 pre-flight passes on the real
+# derived counted manifest, and execution_ready is satisfied (the driver is pinned).
+# One cheap --check (no draining): proves the driver enforces AND accepts the frozen
+# counted scale, which the synthetic fixture (n_primary=8) cannot exercise.
+L=$(mkcdstub); RCM=$(mktemp /tmp/tb-cdm-XXXX.json)
+TB_ART_DIR=/nonexistent-artefact node "$CFZ" --print > "$RCM" 2>/dev/null
+TB_COUNTED_MANIFEST="$RCM" TB_ART_DIR=/nonexistent-artefact node "$CFZ" --render > "${RCM%.json}.md" 2>/dev/null
+out=$(env TB_ART_DIR=/nonexistent-artefact TB_COUNTED_CHECK_NO_ARTEFACT=1 TB_COUNTED_CHECK_BINDING_ONLY=1 \
+  TB_COUNTED_MANIFEST="$RCM" TB_COUNTED_RUNS="$L/runs" TB_COUNTED_RUNNER="$L/stub-runner.sh" $CDRV --check 2>&1); rc=$?
+{ [ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'trajectories=264 (primary 220 + duplicate 44)'; } \
+  && ok "the REAL counted manifest passes the driver's absolute 264/110/22 pre-flight and is execution_ready" \
+  || no "the real counted manifest failed the driver pre-flight (rc=$rc)"
+# and a wrong-scale manifest (no test seam) is rejected as not-the-counted-round.
+node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1]));fs.writeFileSync(process.argv[1],JSON.stringify(m,null,1))' "$RCM"
+rm -f "$RCM" "${RCM%.json}.md"; rm -rf "$L"
+[ ! -e ./COUNTED-EXECUTION-MANIFEST.json ] && ok "no COUNTED-EXECUTION-MANIFEST.json is committed — the counted freeze runs on the artefact host, after this driver lands" || no "a counted manifest was committed before the artefact-host freeze"
+rm -rf "$CDPOOL"; rm -f "$CDM" "${CDM%.json}.md" /tmp/tb-cdm-*.json /tmp/tb-cdm-*.md
+
 
 echo "== credential: the fingerprint names a real source, and none is refused"
 # The real functions, lifted from the runner rather than reimplemented here.
