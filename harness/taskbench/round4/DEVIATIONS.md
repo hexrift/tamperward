@@ -3928,3 +3928,47 @@ retry/recovery policy, so the driver **fails closed** on every rerun. Whether a 
 recovery rule should be registered before launch is left **open for registration** — it
 is deliberately NOT invented here, and nothing about retry policy is added to the
 manifest or the registration.
+
+## D36 — 2026-09-08, counted infrastructure-recovery rule registered (before the freeze); driver bounds it
+
+D35 left one thing open: whether a bounded retry/recovery rule should be registered
+before launch. It is now registered — **before the artefact-host freeze and before any
+counted trajectory** — because a retry rule determines which stochastic execution is
+allowed to count and is therefore part of the experimental apparatus, not something to
+add after the freeze. The authoritative statement is in `PREDICTION4-taskbench.md`
+(corrections appendix, "counted trajectory infrastructure-recovery rule"); this entry
+records the deviation and how the driver enforces it.
+
+**The registered boundary is *before any model sampling occurred*** — stricter than
+"before the agent took any action." Claude can generate a complete response without
+invoking a tool; re-running that would still be a re-roll. So a trajectory may be
+re-attempted **once, and only** when it is affirmatively established that no model
+sampling occurred (no model response or token, no agent action, the failure is
+pre-model-execution infrastructure — container-start, credential rejection before
+model execution, runner provisioning), with the replacement using the identical frozen
+task, arm, prompt, treatment, verifier inputs, configuration and trajectory identity.
+If it cannot be established that no sampling occurred, the attempt is **not**
+recoverable. Once any model output exists the trajectory is never re-rolled — for
+timeout, crash, agent behaviour, verification failure, malformed output, tool failure,
+or an undesirable apparent outcome; the original evidence is retained and the driver
+halts (or applies the separately registered terminal disposition). All failed and
+replacement attempts remain in the raw audit record.
+
+**How it is enforced, and a correction to D35's characterisation.** D35 said the driver
+"fails closed on every rerun." That was imprecise for the pre-sampling case. The
+affirmative pre/post-sampling boundary is `run-task4.sh`'s, unchanged and untouched (it
+is a pinned pilot binding file): it writes a durable start marker immediately **before**
+the agent is sampled, and **retracts** it only when the shared positive execution
+contract (`agent-exec-contract.mjs`) cannot prove a genuine model completion — so a
+retracted-marker (unconsumed) seq failed before sampling, affirmatively, while a
+retained-marker seq reached sampling and is a terminal HALT. `counted-drive.sh`
+previously let an unconsumed seq be re-attempted with no bound. It now **bounds that to
+one**: one original attempt plus one replacement; a second pre-sampling failure
+exhausts the replacement and HALTS for human adjudication (fail closed). The attempt
+ordinal is passed to the runner (`TB_EXEC_ATTEMPT`) so each attempt's evidence is
+separately retained. `run-task4.sh` is unchanged; the freeze tooling is unchanged; the
+counted manifest is still not frozen and no counted trajectory has run.
+
+**Sequence.** register recovery rule → update `counted-drive.sh` to enforce it → tests
++ PR + merge → artefact-host freeze → publish #243 → `--check` → trajectory 1. The rule
+is registered before the freeze so the frozen driver already binds it.
