@@ -3863,3 +3863,31 @@ unavailable target → `REPO_UNAVAILABLE`, walk continues; with control #1 down 
 breaker, no verdict; none writes `CLONE_FAILED`. Nothing about the treatment, binding set,
 adjudicator, policy, endpoint, N, ordering, or any seed changes; the 94 validated tasks
 are untouched.
+
+## D34 — 2026-09-08, counted duplicate-selection rule registered (before the draw); pool finalized
+
+The counted pool reached the registered **N=110** and was finalized onto `main` (#276:
+`pools/counted/tasks/` + `attrition.jsonl` + a descriptive `selection.json`; walk ranks
+503..2555 of the amendment-2 2,699 frontier; stratum mix 106 single-distribution / 4
+workspace). The pool composition is a pure consequence of the frozen walk order and N,
+so committing it is a recording act, not a registration choice.
+
+`PREDICTION4` §3 had fixed the duplicate-selection **seed**
+(`taskbench4-counted-duplicate-selection-2026-09-07`) and stated the 22 ids are "the
+DETERMINISTIC selection of that seed … recorded at the counted-pool freeze before any
+counted trajectory runs," but left the derivation **rule** unstated. The exact rule is now
+registered in `PREDICTION4`'s corrections appendix, **in text, before** the counted draw,
+the arm assignment, or any counted trajectory outcome — an in-time completion of §3, not a
+post-outcome degree of freedom:
+
+> Let D be the 110 counted tasks. For each id compute
+> `sha256("taskbench4-counted-duplicate-selection-2026-09-07:" + id)`; sort D ascending by
+> the digest, ties broken lexicographically by id; take the first 22 as the duplicate set.
+
+It mirrors the already-registered keyed-SHA-256 ordering mechanism rather than introducing
+any discretionary stratification after seeing the pool. **Ordering discipline (registered):**
+the textual rule lands first as the registration; the freeze tooling
+(`freeze-counted-manifest.mjs`) is written afterwards and only *implements* it — the script
+is never the registration. The counted freeze itself (execution manifest + the seed-derived
+draw: task order, arm parity, the 22 duplicates) remains unfrozen and runs on the artefact
+host (it binds the deployed 2.10.3 treatment); no counted trajectory has run.
