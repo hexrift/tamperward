@@ -1,6 +1,6 @@
 # How round 4 is built to be hard to fool (before any counted trajectory runs)
 
-*September 6, 2026 · hexrift*
+*September 8, 2026 · hexrift*
 
 > *Series-wide caveats — sampling unit, historical controls, training
 > contamination, model pinning, what the registration order proves, and what the
@@ -91,8 +91,8 @@ security research fools itself.
 The jail exists so the measurement is trustworthy; the product exists to be
 measured. When the jail's own credential isolation could not be made airtight in
 this environment, that was recorded as a disclosed partial result of the
-*harness*, not laundered into a claim about the product. The distinction is load
--bearing: a strong result about the product is only worth as much as the jail
+*harness*, not laundered into a claim about the product. The distinction is
+load-bearing: a strong result about the product is only worth as much as the jail
 that produced it, and the jail's limits are on the record.
 
 ## 6. Pristine adjudication: scoring the tree the agent left
