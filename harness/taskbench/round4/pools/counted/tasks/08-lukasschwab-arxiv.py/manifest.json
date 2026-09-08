@@ -1,0 +1,20 @@
+{
+ "id": "08-lukasschwab-arxiv.py",
+ "repo": "lukasschwab/arxiv.py",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "bf5c730fedcdc0a101ad10f9414c7c1163bf6db2",
+ "commit_sha": "93d021d7c49fb1f140231edab493959c6667c43e",
+ "test_patch_sha256": "f92ee927f84247ae032994e3892d8da01af5c915018476f9273a762596c7b2ea",
+ "gold_patch_sha256": "e50d2c8dfb836ded25c69d5cec0059b95ce43531623b80e274751bd23ead891b",
+ "test_files": [
+  "tests/test_client.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T06:06:41.213Z"
+}

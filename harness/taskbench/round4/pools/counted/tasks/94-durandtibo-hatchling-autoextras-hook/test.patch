@@ -1,0 +1,209 @@
+diff --git a/tests/unit/test_hooks.py b/tests/unit/test_hooks.py
+index 0546fe4b697f4d16b4eff31d162d2d948725a0a5..fb08fb25ed18c63b901b97ff6ac4c8ee06159908 100644
+--- a/tests/unit/test_hooks.py
++++ b/tests/unit/test_hooks.py
+@@ -14,6 +14,21 @@ def test_plugin_name() -> None:
+     assert AutoExtrasMetadataHook.PLUGIN_NAME == "autoextras"
+ 
+ 
++def test_invalid_group_name() -> None:
++    with pytest.raises(ValueError, match=r"'group-name' must be a non-empty string"):
++        AutoExtrasMetadataHook("test", {"group-name": " "})
++
++
++def test_invalid_exclude_type() -> None:
++    with pytest.raises(TypeError, match=r"'exclude' must be a list of extra names"):
++        AutoExtrasMetadataHook("test", {"exclude": "dev"})
++
++
++def test_invalid_overwrite_type() -> None:
++    with pytest.raises(TypeError, match=r"'overwrite' must be a boolean"):
++        AutoExtrasMetadataHook("test", {"overwrite": "true"})
++
++
+ def test_update_default_group_name() -> None:
+     """Test that the default group name is 'all'."""
+     hook = AutoExtrasMetadataHook("test", {})
+@@ -23,15 +38,14 @@ def test_update_default_group_name() -> None:
+             "docs": ["sphinx>=4.0"],
+         }
+     }
+-
+     hook.update(metadata)
+-
+-    assert "all" in metadata["optional-dependencies"]
+-    assert metadata["optional-dependencies"]["all"] == [
+-        "black>=22.0",
+-        "pytest>=7.0",
+-        "sphinx>=4.0",
+-    ]
++    assert metadata == {
++        "optional-dependencies": {
++            "all": ["black>=22.0", "pytest>=7.0", "sphinx>=4.0"],
++            "dev": ["pytest>=7.0", "black>=22.0"],
++            "docs": ["sphinx>=4.0"],
++        }
++    }
+ 
+ 
+ def test_update_custom_group_name() -> None:
+@@ -43,16 +57,14 @@ def test_update_custom_group_name() -> None:
+             "docs": ["sphinx>=4.0"],
+         }
+     }
+-
+     hook.update(metadata)
+-
+-    assert "complete" in metadata["optional-dependencies"]
+-    assert "all" not in metadata["optional-dependencies"]
+-    assert metadata["optional-dependencies"]["complete"] == [
+-        "black>=22.0",
+-        "pytest>=7.0",
+-        "sphinx>=4.0",
+-    ]
++    assert metadata == {
++        "optional-dependencies": {
++            "complete": ["black>=22.0", "pytest>=7.0", "sphinx>=4.0"],
++            "dev": ["pytest>=7.0", "black>=22.0"],
++            "docs": ["sphinx>=4.0"],
++        }
++    }
+ 
+ 
+ def test_update_with_no_optional_dependencies() -> None:
+@@ -80,10 +92,11 @@ def test_update_with_single_extra() -> None:
+         }
+     }
+     AutoExtrasMetadataHook(root="test", config={}).update(metadata)
+-    assert "all" in metadata["optional-dependencies"]
+-    assert set(metadata["optional-dependencies"]["all"]) == {
+-        "pytest>=7.0",
+-        "black>=22.0",
++    assert metadata == {
++        "optional-dependencies": {
++            "all": ["black>=22.0", "pytest>=7.0"],
++            "dev": ["pytest>=7.0", "black>=22.0"],
++        }
+     }
+ 
+ 
+@@ -97,15 +110,20 @@ def test_update_with_multiple_extras() -> None:
+         }
+     }
+     AutoExtrasMetadataHook(root="test", config={}).update(metadata)
+-    assert "all" in metadata["optional-dependencies"]
+-    expected = {
+-        "pytest>=7.0",
+-        "black>=22.0",
+-        "sphinx>=5.0",
+-        "sphinx-rtd-theme>=1.0",
+-        "mypy>=1.0",
++    assert metadata == {
++        "optional-dependencies": {
++            "all": [
++                "black>=22.0",
++                "mypy>=1.0",
++                "pytest>=7.0",
++                "sphinx-rtd-theme>=1.0",
++                "sphinx>=5.0",
++            ],
++            "dev": ["pytest>=7.0", "black>=22.0"],
++            "docs": ["sphinx>=5.0", "sphinx-rtd-theme>=1.0"],
++            "typing": ["mypy>=1.0"],
++        }
+     }
+-    assert set(metadata["optional-dependencies"]["all"]) == expected
+ 
+ 
+ def test_update_with_duplicate_dependencies() -> None:
+@@ -117,11 +135,13 @@ def test_update_with_duplicate_dependencies() -> None:
+         }
+     }
+     AutoExtrasMetadataHook(root="test", config={}).update(metadata)
+-    assert "all" in metadata["optional-dependencies"]
+-    # pytest should only appear once
+-    assert metadata["optional-dependencies"]["all"].count("pytest>=7.0") == 1
+-    expected = {"pytest>=7.0", "black>=22.0", "coverage>=6.0"}
+-    assert set(metadata["optional-dependencies"]["all"]) == expected
++    assert metadata == {
++        "optional-dependencies": {
++            "all": ["black>=22.0", "coverage>=6.0", "pytest>=7.0"],
++            "dev": ["pytest>=7.0", "black>=22.0"],
++            "test": ["pytest>=7.0", "coverage>=6.0"],
++        }
++    }
+ 
+ 
+ def test_update_sorts_dependencies() -> None:
+@@ -132,14 +152,15 @@ def test_update_sorts_dependencies() -> None:
+         }
+     }
+     AutoExtrasMetadataHook(root="test", config={}).update(metadata)
+-    assert metadata["optional-dependencies"]["all"] == [
+-        "aaa-package",
+-        "mmm-package",
+-        "zzz-package",
+-    ]
++    assert metadata == {
++        "optional-dependencies": {
++            "all": ["aaa-package", "mmm-package", "zzz-package"],
++            "dev": ["zzz-package", "aaa-package", "mmm-package"],
++        }
++    }
+ 
+ 
+-def test_update_preserves_existing_all() -> None:
++def test_update_does_not_overwrite_all() -> None:
+     """Test that update raises an error if 'all' extra already
+     exists."""
+     metadata = {
+@@ -149,10 +170,48 @@ def test_update_preserves_existing_all() -> None:
+         }
+     }
+     hook = AutoExtrasMetadataHook(root="test", config={})
+-    with pytest.raises(RuntimeError, match=r"Group name 'all' already exists."):
++    with pytest.raises(RuntimeError, match=r"Cannot create 'all' group: already exists."):
+         hook.update(metadata)
+ 
+ 
++def test_update_overwrite_all() -> None:
++    """Test that update raises an error if 'all' extra already
++    exists."""
++    metadata = {
++        "optional-dependencies": {
++            "all": ["old-dependency"],
++            "dev": ["pytest>=7.0", "black>=22.0"],
++        }
++    }
++    AutoExtrasMetadataHook(root="test", config={"overwrite": True}).update(metadata)
++    assert metadata == {
++        "optional-dependencies": {
++            "all": ["black>=22.0", "pytest>=7.0"],
++            "dev": ["pytest>=7.0", "black>=22.0"],
++        }
++    }
++
++
++def test_update_with_exclude() -> None:
++    """Test that update excludes some extras."""
++    metadata = {
++        "optional-dependencies": {
++            "dev": ["pytest>=7.0", "black>=22.0"],
++            "docs": ["sphinx>=5.0", "sphinx-rtd-theme>=1.0"],
++            "typing": ["mypy>=1.0"],
++        }
++    }
++    AutoExtrasMetadataHook(root="test", config={"exclude": ["dev"]}).update(metadata)
++    assert metadata == {
++        "optional-dependencies": {
++            "all": ["mypy>=1.0", "sphinx-rtd-theme>=1.0", "sphinx>=5.0"],
++            "dev": ["pytest>=7.0", "black>=22.0"],
++            "docs": ["sphinx>=5.0", "sphinx-rtd-theme>=1.0"],
++            "typing": ["mypy>=1.0"],
++        }
++    }
++
++
+ def test_hatch_register_metadata_hook_returns_correct_class() -> None:
+     """Ensure the plugin registration function returns the correct hook
+     class."""

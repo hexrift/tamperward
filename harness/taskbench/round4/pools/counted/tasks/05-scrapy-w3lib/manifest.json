@@ -1,0 +1,20 @@
+{
+ "id": "05-scrapy-w3lib",
+ "repo": "scrapy/w3lib",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "1a21c9d2e799ae4770e7b11d3e7885cd6e4e7052",
+ "commit_sha": "9f98ce0dbdeb2ec37cd44038b40666b0dd3ee8c5",
+ "test_patch_sha256": "b55751288883d29e784c4ea6cef0281a9add572ef42c392b4c848ccae329d2e9",
+ "gold_patch_sha256": "4269d9266fdf38b76a5e615c83c97219df525b6fbfe2d1b60a4950e54700b02d",
+ "test_files": [
+  "tests/test_encoding.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T05:57:30.162Z"
+}

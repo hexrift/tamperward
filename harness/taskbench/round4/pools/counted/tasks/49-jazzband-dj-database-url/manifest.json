@@ -1,0 +1,20 @@
+{
+ "id": "49-jazzband-dj-database-url",
+ "repo": "jazzband/dj-database-url",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "354ef42ed7fce0ed3415a11132f06b9e0474e746",
+ "commit_sha": "70c9f33a84b5960c6dcded524bf5e1e18486e234",
+ "test_patch_sha256": "e4b5a956f27d621aa5cd26721b3812035959704238fead237147b3561ec5dfa5",
+ "gold_patch_sha256": "fc072a9a09992502a206893d3385225e0fbbcf549a8e3ea0ee0ba6d78c5713a2",
+ "test_files": [
+  "tests/test_dj_database_url.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T17:59:26.785Z"
+}

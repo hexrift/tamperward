@@ -1,0 +1,21 @@
+{
+ "id": "06-mauvilsa-jsonargparse",
+ "repo": "mauvilsa/jsonargparse",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "e7b7989f64a370e2944759ddb3f4e3055e724168",
+ "commit_sha": "eacf963ca4381b0f7ed10af3740c21bb17c212b1",
+ "test_patch_sha256": "2c84b82052dc533ef4f0be204f0994fc1e54285c5301817f74b5372b1e799897",
+ "gold_patch_sha256": "edfa5ac4fac86c58d08e588cc0965820db23355cf5e6338cc3a2ccfdde123585",
+ "test_files": [
+  "jsonargparse_tests/test_shtab.py",
+  "jsonargparse_tests/test_typehints.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 4,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T05:58:36.500Z"
+}

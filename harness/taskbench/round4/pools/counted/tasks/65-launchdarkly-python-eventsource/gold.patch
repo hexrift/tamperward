@@ -1,0 +1,127 @@
+diff --git a/ld_eventsource/config/connect_strategy.py b/ld_eventsource/config/connect_strategy.py
+index 1b59f674d1e6bf72e84928ed48578e252f6b6fc1..47708310e417ba5cd9669a683cfefc6384f96baf 100644
+--- a/ld_eventsource/config/connect_strategy.py
++++ b/ld_eventsource/config/connect_strategy.py
+@@ -1,11 +1,13 @@
+ from __future__ import annotations
+ 
++from dataclasses import dataclass
+ from logging import Logger
+ from typing import Callable, Iterator, Optional, Union
+ 
+ from urllib3 import PoolManager
+ 
+-from ld_eventsource.http import _HttpClientImpl, _HttpConnectParams
++from ld_eventsource.http import (DynamicQueryParams, _HttpClientImpl,
++                                 _HttpConnectParams)
+ 
+ 
+ class ConnectStrategy:
+@@ -38,6 +40,7 @@ class ConnectStrategy:
+         headers: Optional[dict] = None,
+         pool: Optional[PoolManager] = None,
+         urllib3_request_options: Optional[dict] = None,
++        query_params: Optional[DynamicQueryParams] = None
+     ) -> ConnectStrategy:
+         """
+         Creates the default HTTP implementation, specifying request parameters.
+@@ -47,9 +50,11 @@ class ConnectStrategy:
+         :param pool: optional urllib3 ``PoolManager`` to provide an HTTP client
+         :param urllib3_request_options: optional ``kwargs`` to add to the ``request`` call; these
+             can include any parameters supported by ``urllib3``, such as ``timeout``
++        :param query_params: optional callable that can be used to affect query parameters
++            dynamically for each connection attempt
+         """
+         return _HttpConnectStrategy(
+-            _HttpConnectParams(url, headers, pool, urllib3_request_options)
++            _HttpConnectParams(url, headers, pool, urllib3_request_options, query_params)
+         )
+ 
+ 
+diff --git a/ld_eventsource/http.py b/ld_eventsource/http.py
+index 8d1096ba2ca8b12722c9d5446881b785c659d3da..c97ed6d529906988f8706c603366e76012104d9d 100644
+--- a/ld_eventsource/http.py
++++ b/ld_eventsource/http.py
+@@ -1,5 +1,6 @@
+ from logging import Logger
+ from typing import Callable, Iterator, Optional, Tuple
++from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+ 
+ from urllib3 import PoolManager
+ from urllib3.exceptions import MaxRetryError
+@@ -9,6 +10,12 @@ from ld_eventsource.errors import HTTPContentTypeError, HTTPStatusError
+ 
+ _CHUNK_SIZE = 10000
+ 
++DynamicQueryParams = Callable[[], dict[str, str]]
++"""
++A callable that returns a dictionary of query parameters to add to the URL.
++This can be used to modify query parameters dynamically for each connection attempt.
++"""
++
+ 
+ class _HttpConnectParams:
+     def __init__(
+@@ -17,16 +24,22 @@ class _HttpConnectParams:
+         headers: Optional[dict] = None,
+         pool: Optional[PoolManager] = None,
+         urllib3_request_options: Optional[dict] = None,
++        query_params: Optional[DynamicQueryParams] = None
+     ):
+         self.__url = url
+         self.__headers = headers
+         self.__pool = pool
+         self.__urllib3_request_options = urllib3_request_options
++        self.__query_params = query_params
+ 
+     @property
+     def url(self) -> str:
+         return self.__url
+ 
++    @property
++    def query_params(self) -> Optional[DynamicQueryParams]:
++        return self.__query_params
++
+     @property
+     def headers(self) -> Optional[dict]:
+         return self.__headers
+@@ -48,7 +61,16 @@ class _HttpClientImpl:
+         self.__logger = logger
+ 
+     def connect(self, last_event_id: Optional[str]) -> Tuple[Iterator[bytes], Callable]:
+-        self.__logger.info("Connecting to stream at %s" % self.__params.url)
++        url = self.__params.url
++        if self.__params.query_params is not None:
++            qp = self.__params.query_params()
++            if qp:
++                url_parts = list(urlsplit(url))
++                query = dict(parse_qsl(url_parts[3]))
++                query.update(qp)
++                url_parts[3] = urlencode(query)
++                url = urlunsplit(url_parts)
++        self.__logger.info("Connecting to stream at %s" % url)
+ 
+         headers = self.__params.headers.copy() if self.__params.headers else {}
+         headers['Cache-Control'] = 'no-cache'
+@@ -67,7 +89,7 @@ class _HttpClientImpl:
+         try:
+             resp = self.__pool.request(
+                 'GET',
+-                self.__params.url,
++                url,
+                 preload_content=False,
+                 retries=Retry(
+                     total=None, read=0, connect=0, status=0, other=0, redirect=3
+diff --git a/ld_eventsource/testing/http_util.py b/ld_eventsource/testing/http_util.py
+index 80e61dd5bfbbb619dd893826cfd3fa2d583bc3ac..03b348af1889145e04e9eff88203f6f3a42bb927 100644
+--- a/ld_eventsource/testing/http_util.py
++++ b/ld_eventsource/testing/http_util.py
+@@ -113,7 +113,7 @@ class MockServerRequestHandler(BaseHTTPRequestHandler):
+     def _do_request(self):
+         server_wrapper = self.server.server_wrapper
+         server_wrapper.requests.put(MockServerRequest(self))
+-        handler = server_wrapper.matchers.get(self.path)
++        handler = server_wrapper.matchers.get(self.path.split("?")[0], None)
+         if handler:
+             handler.write(self)
+         else:

@@ -1,0 +1,60 @@
+diff --git a/tests/test_dop_type_diagnostics.py b/tests/test_dop_type_diagnostics.py
+index 1e32c52fe3be52c20bc097391b5b55043124192f..fd1f0f2a4248e3856c8085d6e24a19c7a4e82f3c 100644
+--- a/tests/test_dop_type_diagnostics.py
++++ b/tests/test_dop_type_diagnostics.py
+@@ -7,10 +7,13 @@ name the offending element so that it can be found in a large database.
+ """
+ import unittest
+ 
++import odxtools.exceptions as exceptions
++
+ from odxtools.exceptions import OdxError
+ from odxtools.odxlink import (DocType, OdxDocFragment, OdxLinkDatabase, OdxLinkId, OdxLinkRef)
+ from odxtools.parameters.physicalconstantparameter import PhysicalConstantParameter
+ from odxtools.parameters.valueparameter import ValueParameter
++from odxtools.nameditemlist import NamedItemList
+ from odxtools.snrefcontext import SnRefContext
+ from odxtools.structure import Structure
+ 
+@@ -21,7 +24,7 @@ def _structure(short_name: str) -> Structure:
+     return Structure(
+         odx_id=OdxLinkId(short_name, doc_frags),
+         short_name=short_name,
+-        parameters=[],  # type: ignore[arg-type]
++        parameters=NamedItemList(),
+     )
+ 
+ 
+@@ -70,12 +73,17 @@ class TestDopTypeDiagnostics(unittest.TestCase):
+         param = PhysicalConstantParameter(
+             short_name="the_constant",
+             physical_constant_value_raw="1",
+-            dop_snref="does_not_exist",
++            dop_ref=OdxLinkRef("does_not_exist", doc_frags),
+         )
+ 
+-        description = param._dop_description
+-        self.assertIn("does_not_exist", description)
+-        self.assertIn("could not be resolved", description)
++        exceptions.strict_mode = False
++        try:
++            param._resolve_odxlinks(OdxLinkDatabase())
++        finally:
++            exceptions.strict_mode = True
++
++        self.assertIn("does_not_exist", param.dop_info)
++        self.assertIn("unresolvable", param.dop_info)
+ 
+     def test_description_names_the_reference_as_written(self) -> None:
+         """The name in the message is the one the ODX file uses."""
+@@ -86,8 +94,8 @@ class TestDopTypeDiagnostics(unittest.TestCase):
+         )
+         param._resolve_odxlinks(self.odxlinks)
+ 
+-        self.assertIn("a_structure", param._dop_description)
+-        self.assertIn("Structure", param._dop_description)
++        self.assertIn("a_structure", param.dop_info)
++        self.assertIn("Structure", param.dop_info)
+ 
+ 
+ if __name__ == "__main__":

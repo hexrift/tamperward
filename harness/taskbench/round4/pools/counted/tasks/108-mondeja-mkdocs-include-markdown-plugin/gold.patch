@@ -1,0 +1,44 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 623ff1eea562b3892b708fd0e8fb53ff112f30e5..70e730b59b92999cefc827a5db05d1078f7e24c2 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -75,6 +75,9 @@ jobs:
+               file_handler.write(env)
+       - name: Install dependencies
+         run: pip install -U hatch
++      - name: Patch virtualenv on Python3.9
++        if: matrix.py == '3.9'
++        run: pip install --force-reinstall "virtualenv<21"
+       - name: Run tests
+         run: |
+           hatch run +py=${{ steps.env.outputs.py }} tests:all
+diff --git a/pyproject.toml b/pyproject.toml
+index c52c512039862d7046a2982de5306f46161cdee2..19cf415ee52960efa34fe55fb0e71c3ec0c956d7 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,6 +1,6 @@
+ [project]
+ name = "mkdocs-include-markdown-plugin"
+-version = "7.2.1"
++version = "7.2.2"
+ description = "Mkdocs Markdown includer plugin."
+ readme = "README.md"
+ license = "Apache-2.0"
+diff --git a/src/mkdocs_include_markdown_plugin/process.py b/src/mkdocs_include_markdown_plugin/process.py
+index e9f2c77257235c6a71c031898fa7731542820826..9bbc4fa7cf29e8b078a851c4cc34a224c93da78a 100644
+--- a/src/mkdocs_include_markdown_plugin/process.py
++++ b/src/mkdocs_include_markdown_plugin/process.py
+@@ -547,8 +547,11 @@ def sort_paths(paths: list[str], order: OrderOption) -> list[str]:
+                 return os.path.splitext(p)[1]
+     elif order_type == 'natural':
+         if order_by == 'extension':
+-            def key(p: str) -> str:
+-                return natural_sort_key(os.path.splitext(p)[1])  # type: ignore
++            def key(p: str) -> tuple:  # type: ignore
++                return (
++                    natural_sort_key(os.path.splitext(p)[1]),
++                    natural_sort_key(os.path.basename(p)),
++                )
+         elif order_by == 'name':
+             def key(p: str) -> str:
+                 return natural_sort_key(os.path.basename(p))  # type: ignore

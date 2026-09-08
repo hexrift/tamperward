@@ -1,0 +1,64 @@
+diff --git a/CHANGELOG.rst b/CHANGELOG.rst
+index adf6a5cf3c42ea43090fd168ab1c4261c013595d..42e89e4fefb6f72a958a1433d6c1280dfd148298 100644
+--- a/CHANGELOG.rst
++++ b/CHANGELOG.rst
+@@ -6,6 +6,7 @@ UNRELEASED
+ 
+ *UNRELEASED*
+ 
++- New ``lazy_shared_datadir`` fixture, which brings the same lazy functionality as ``lazy_datadir`` for the *shared* directory.
+ - Fix ``LazyDataDir.joinpath`` typing to also support ``Path`` objects as the right-hand side parameter.
+ 
+ 1.7.2
+diff --git a/README.md b/README.md
+index e6d62c235e7671ee9152c01711888d0c14662e36..ff99599dddfa79652877d38323bff2375712a08e 100644
+--- a/README.md
++++ b/README.md
+@@ -56,6 +56,18 @@ def test_read_module(lazy_datadir):
+ 
+ Unlike `datadir`, `lazy_datadir` is an object that only implements `joinpath` and `/` operations. While not fully backward-compatible with `datadir`, most tests can switch to `lazy_datadir` without modifications.
+ 
++### lazy_shared_datadir
++
++`lazy_shared_datadir` is similar to `lazy_datadir`, but applied to the shared data directory `shared_datadir`.
++That is, instead of copying all files in `shared_datadir`, files are only copied as necessary when accessed via `joinpath` or the `/` operator.
++This allows for a shared data directory to be pulled from lazily in the same manner as `lazy_datadir`.
++
++```python
++def test_read_global(lazy_shared_datadir):
++    contents = (lazy_shared_datadir / "hello.txt").read_text()
++    assert contents == "Hello World!\n"
++```
++
+ # License
+ 
+ MIT.
+diff --git a/src/pytest_datadir/plugin.py b/src/pytest_datadir/plugin.py
+index a9284b068164ad404ceff8f1e70447ab47ca2aa8..86346cdddac38d2ff49cf96a9644244de01f79bd 100644
+--- a/src/pytest_datadir/plugin.py
++++ b/src/pytest_datadir/plugin.py
+@@ -115,3 +115,24 @@ def lazy_datadir(original_datadir: Path, tmp_path: Path) -> LazyDataDir:
+         tmp_path: Pytest's built-in fixture providing a temporary directory path.
+     """
+     return LazyDataDir(original_datadir, tmp_path)
++
++
++@pytest.fixture
++def lazy_shared_datadir(request: pytest.FixtureRequest, tmp_path: Path) -> LazyDataDir:
++    """
++    Return a lazy version of the shared data directory.
++
++    Here, "lazy" means that the temporary directory is initially created empty.
++
++    Files and directories are then copied from the data directory only when first
++    accessed via the ``joinpath`` method or the ``/`` operator.
++
++    Args:
++        request: The Pytest fixture request object.
++        tmp_path: Pytest's built-in fixture providing a temporary directory path.
++    """
++    original_shared_path = Path(os.path.join(request.fspath.dirname, "data"))
++    temp_path = tmp_path / "data"
++    temp_path.mkdir(parents=True, exist_ok=False)
++
++    return LazyDataDir(original_shared_path, temp_path)

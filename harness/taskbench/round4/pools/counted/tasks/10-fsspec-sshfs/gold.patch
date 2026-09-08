@@ -1,0 +1,13 @@
+diff --git a/sshfs/spec.py b/sshfs/spec.py
+index d3a8e0537811629a6a0ae30dfc5a822c4a52cefa..f8f594067ff9fd7697d09719746542eb8c692c09 100644
+--- a/sshfs/spec.py
++++ b/sshfs/spec.py
+@@ -265,7 +265,7 @@ class SSHFileSystem(AsyncFileSystem):
+         await self._execute(cmd)
+ 
+     @wrap_exceptions
+-    async def _ls(self, path, detail=False, **kwargs):
++    async def _ls(self, path, detail=True, **kwargs):
+         async with self._pool.get() as channel:
+             file_attrs = await channel.readdir(path)
+ 

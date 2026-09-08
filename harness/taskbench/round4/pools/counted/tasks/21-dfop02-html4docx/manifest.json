@@ -1,0 +1,20 @@
+{
+ "id": "21-dfop02-html4docx",
+ "repo": "dfop02/html4docx",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "0edb311053536ba0eda902e53b1017c53c38059c",
+ "commit_sha": "91b5c21330e1b6f85f6113bed5363471fd01e8b2",
+ "test_patch_sha256": "d49e2dd9fbb95186a0fe24520a73e69495a42e28db6c1239e2328851ea625fa2",
+ "gold_patch_sha256": "c0e2b23f57b860ae257ae944dd36fb7fc6dafe10ce9ca28385212e7a32ba8aa2",
+ "test_files": [
+  "tests/test_h4d.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T11:43:42.527Z"
+}

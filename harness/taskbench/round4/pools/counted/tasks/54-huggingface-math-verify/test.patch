@@ -1,0 +1,33 @@
+diff --git a/tests/test_all.py b/tests/test_all.py
+index e36c27c3216d105ded204999be30c9a6596dbca6..f0fc7e7b09cdaa9c9ecda3a1d5478627ac0ce80a 100644
+--- a/tests/test_all.py
++++ b/tests/test_all.py
+@@ -22,6 +22,7 @@
+ 
+ import pytest
+ import sympy
++import math
+ 
+ from math_verify import ExprExtractionConfig, LatexExtractionConfig, parse, verify
+ from math_verify.grader import sympy_expr_eq
+@@ -909,4 +910,18 @@ def test_math_extraction_additional_cases(gold, pred, expected):
+     ]
+ )
+ def test_set_rel_assymetry(gold, pred, expected, allow_set_relation_comp):
+-    assert compare_strings(gold, pred, match_types=["latex"], allow_set_relation_comp=allow_set_relation_comp) == expected
+\ No newline at end of file
++    assert compare_strings(gold, pred, match_types=["latex"], allow_set_relation_comp=allow_set_relation_comp) == expected
++
++
++@pytest.mark.parametrize(
++    "gold, pred, expected",
++    [
++        (
++            f"{math.sqrt(17):.15f}",
++            f"$\\sqrt{{17}}$",
++            1,
++        )
++    ]
++)
++def test_float_precision(gold, pred, expected):
++    assert compare_strings(gold, pred, match_types=["latex", "expr"], precision=5) == expected

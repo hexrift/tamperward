@@ -1,0 +1,146 @@
+diff --git a/README.md b/README.md
+index bd31400985e76343265024e17533a692e865a2d4..4d01817b9c274e0897cefca0dea27766a82a19fb 100644
+--- a/README.md
++++ b/README.md
+@@ -16,7 +16,7 @@ With CLI flags:
+ 
+ Or with functions: `logistro.set_structured()` and `logistro.set_human()`.
+ Generally, they can be called once before anything else happens in logging.
+-See NOTE below for why python's `logging` is so complicated.
++(See note below about changing mid-program).
+ 
+ It also adds `logger.debug2(...)`: more verbose then `logger.debug(...)`.
+ 
+@@ -45,28 +45,14 @@ logger.critical('hey, this still works! its just more informative')
+ logger.exception('hey, this still works! its just more informative')
+ ```
+ 
+-Like logging, If using from multiple threads, call `betterConfig()` early.
+-
+-## Technical Note
+-
+-Python's `logging` is over-engineered and not quite good enough:
++## Changing Logger Formatter Mid-Execution
+ 
+-### Background
+-
+-`Loggers` exist in a tree structure, hierarchy defined by the name.
+-There is a root logger that you cannot change.
+-`Loggers` have `Handlers`, `Handlers` have `Formatters`. When you call a logging
+-function on a `Logger`, it searches up the tree for all parent handlers.
+-In simple usage, usually only the root logger has a handler.
+-
+-### Problem
++If you don't have any weird setup, and you need to change the logging style
++mid-execution, try calling an above function like `set_structured()`
++and then `logistro.coerce_logger(logistro.getLogger())`. See the file
++*TECH_NOTE.md* for an intro into the complexities.
++Like logging, If using from multiple threads, call `betterConfig()` early.
+ 
+-Changing the format mid-program means finding all the (relevant?) handlers
+-in the tree. `pytest` for example attaches other handlers so it can capture
+-logging. We set our format on all of, and just, the root logger's handlers.
+-We strip useless data from the process logger by using a filter.
+-I don't want to shotgun handlers for a mid-execution change.
+-If you are customizing things this much, you can use our formatters directly.
+ 
+ * tests
+ * argument flag levels
+diff --git a/TECH_NOTE.md b/TECH_NOTE.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..e4401ae3384e126f9caaccd07053c4d503a15ebe
+--- /dev/null
++++ b/TECH_NOTE.md
+@@ -0,0 +1,20 @@
++# Technical Note
++
++Python's `logging` is over-engineered and not quite good enough:
++
++## Background
++
++`Loggers` exist in a tree structure, hierarchy defined by the name.
++There is a root logger that you cannot change.
++`Loggers` have `Handlers`, `Handlers` have `Formatters`. When you call a logging
++function on a `Logger`, it searches up the tree for all parent handlers.
++In simple usage, usually only the root logger has a handler.
++
++## Problem
++
++Changing the format mid-program means finding all the (relevant?) handlers
++in the tree. `pytest` for example attaches other handlers so it can capture
++logging. We set our format on all of, and just, the root logger's handlers.
++We strip useless data from the process logger by using a filter.
++I don't want to shotgun handlers for a mid-execution change.
++If you are customizing things this much, you can use our formatters directly.
+diff --git a/logistro/__init__.py b/logistro/__init__.py
+index b18a8a40a29f25be894380a0c620a13e09895ce2..242d375403efecbf590ae3145fb60c54345532f7 100644
+--- a/logistro/__init__.py
++++ b/logistro/__init__.py
+@@ -1,4 +1,5 @@
+ from .custom_logging import betterConfig
++from .custom_logging import coerce_logger
+ from .custom_logging import DEBUG2
+ from .custom_logging import getLogger
+ from .custom_logging import getPipeLogger
+@@ -8,6 +9,7 @@ from .custom_logging import set_structured
+ from .custom_logging import structured_formatter
+ 
+ __all__ = [
++    coerce_logger,
+     DEBUG2,
+     human_formatter,
+     structured_formatter,
+diff --git a/logistro/custom_logging.py b/logistro/custom_logging.py
+index bfa0726584874081c2632b3704bac9bf2fe8371f..90405edcfb6348cbe66d24a146dce0d58c44c135 100644
+--- a/logistro/custom_logging.py
++++ b/logistro/custom_logging.py
+@@ -60,7 +60,7 @@ def set_structured():
+     args.parsed.human = False
+ 
+ 
+-def _coerce_logger(logger, formatter=None):
++def coerce_logger(logger, formatter=None):
+     if not formatter:
+         if args.parsed.human:
+             formatter = human_formatter
+@@ -83,10 +83,10 @@ def run_once(f):
+ @run_once
+ def betterConfig(**kwargs):
+     logging.basicConfig(**kwargs)
+-    _coerce_logger(logging.getLogger())
++    coerce_logger(logging.getLogger())
+ 
+ 
+-def getLogger(name):
++def getLogger(name=None):
+     betterConfig()
+     logger = logging.getLogger(name)
+     return logger
+@@ -132,23 +132,23 @@ def getPipeLogger(
+                 )
+                 if last_size == len(raw_buffer):
+                     if raw_buffer:
+-                        logger.log(default_level, raw_buffer)
++                        logger.log(default_level, raw_buffer.decode())
+                     return
+             except Exception:
+                 while raw_buffer:
+                     line, m, raw_buffer = raw_buffer.partition(IFS)
+                     if not m:
+                         if line:
+-                            logger.log(default_level, line)
++                            logger.log(default_level, line.decode())
+                         break
+-                    logger.log(default_level, line)
++                    logger.log(default_level, line.decode())
+                 return
+             while raw_buffer:
+                 line, m, raw_buffer = raw_buffer.partition(IFS)
+                 if not m:
+                     raw_buffer = line
+                     break
+-                logger.log(default_level, line)
++                logger.log(default_level, line.decode())
+ 
+     pipeReader = Thread(
+         target=readPipe,

@@ -1,0 +1,20 @@
+{
+ "id": "37-pyupio-safety",
+ "repo": "pyupio/safety",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "a4d6a5c9afb14c5d1920776130b0b4cafa290df4",
+ "commit_sha": "796af4dc10881a1826e7b8cf6f4c2abf4abf556c",
+ "test_patch_sha256": "c242e2c2c6cc42172945e6d78f84a13b0ee5b167a61ff9724506353ca34425e3",
+ "gold_patch_sha256": "82bd14fb7498c6db259482c13423bd16a7fb03ce515cd8b7cbba13b94880816c",
+ "test_files": [
+  "tests/test_util.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T15:44:13.424Z"
+}

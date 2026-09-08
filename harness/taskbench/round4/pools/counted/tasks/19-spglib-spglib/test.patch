@@ -1,0 +1,21 @@
+diff --git a/test/functional/python/conftest.py b/test/functional/python/conftest.py
+index dcdaac712b7a0c183446a3c672d799e08b18834c..78c99956f3b70b12af3ccb2c085ecbddf5e2d6bc 100644
+--- a/test/functional/python/conftest.py
++++ b/test/functional/python/conftest.py
+@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
+ import numpy as np
+ import pytest
+ import spglib
++import spglib.error
+ import yaml
+ 
+ if TYPE_CHECKING:
+@@ -20,7 +21,7 @@ if TYPE_CHECKING:
+ 
+ TEST_DIR = Path(__file__).parent
+ 
+-spglib.spglib.OLD_ERROR_HANDLING = False
++spglib.error.OLD_ERROR_HANDLING = False
+ 
+ 
+ def get_cell(fname: Path) -> TestCell:

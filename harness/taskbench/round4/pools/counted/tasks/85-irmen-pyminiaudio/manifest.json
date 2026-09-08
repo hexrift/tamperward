@@ -1,0 +1,20 @@
+{
+ "id": "85-irmen-pyminiaudio",
+ "repo": "irmen/pyminiaudio",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "e46af0014dae19f1e42e3e2cad68ee5902baffd3",
+ "commit_sha": "668b99e5acd85732dad2935e8025a79fbf8ada65",
+ "test_patch_sha256": "5fa5f482cce593e6c7a2eeffdaa5c960ea8f16bf84f4561cf7ea0bf0c1d5751a",
+ "gold_patch_sha256": "bc2247fbbaa5f4c30ffa5fc8f129bc3fe4185e9f4afbd1e59616c6d76701d994",
+ "test_files": [
+  "tests/test_miniaudio.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-08T13:22:54.538Z"
+}

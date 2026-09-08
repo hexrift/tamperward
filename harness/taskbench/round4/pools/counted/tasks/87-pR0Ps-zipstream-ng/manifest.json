@@ -1,0 +1,20 @@
+{
+ "id": "87-pR0Ps-zipstream-ng",
+ "repo": "pR0Ps/zipstream-ng",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "bc4168a146afc56b1b7049bbd34f5e0da692cbef",
+ "commit_sha": "bff1e5586f9fbefcea3329f2dc4e4c60b7722edb",
+ "test_patch_sha256": "904581ca2571e1a18d690c191ead6e2f05b674a2b080fad22d1de8b1b05bc33e",
+ "gold_patch_sha256": "79d5c40463ec1533d37c15bfc69eb44c33a4e07ef4a80816336ef2db35e86625",
+ "test_files": [
+  "tests/test_zipstream.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T13:43:21.871Z"
+}

@@ -1,0 +1,20 @@
+{
+ "id": "01-macbre-sql-metadata",
+ "repo": "macbre/sql-metadata",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "bed78261a9399d1d24012b7052965bea970bd92f",
+ "commit_sha": "d0e6fc617d73254045a2712baf055eb912689e48",
+ "test_patch_sha256": "26dce45cd257566818d29bc1b9ecddeb75cc45ec36b40f01cbc6b5f609540344",
+ "gold_patch_sha256": "b4dd1403d738baefd2b345563c6c6b355815e0a9eaa4eb361361713336888742",
+ "test_files": [
+  "test/test_getting_columns.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T05:46:30.726Z"
+}

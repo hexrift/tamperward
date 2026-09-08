@@ -1,0 +1,85 @@
+diff --git a/bibtexparser/library.py b/bibtexparser/library.py
+index c19e144a449c2ac3abf98d05774024ceaaa1c286..fd504713dc97af954510cc497ea6f3f2b090a6ee 100644
+--- a/bibtexparser/library.py
++++ b/bibtexparser/library.py
+@@ -80,16 +80,30 @@ class Library:
+                 seen_string_keys.add(block.key)
+         return duplicate_keys
+ 
++    def _block_index(self, block: Block) -> int:
++        """Index of a block in the library, preferring identity over equality.
++
++        :param block: Block to look up.
++        :raises ValueError: If block is not in library."""
++        for i, b in enumerate(self._blocks):
++            if b is block:
++                return i
++        # No identity match; fall back to equality (raises ValueError if not found).
++        return self._blocks.index(block)
++
+     def remove(self, blocks: Union[List[Block], Block]):
+         """Remove blocks from library.
+ 
++        If equal duplicate blocks exist in the library, the exact (identical)
++        instance is removed, if present; otherwise the first equal block.
++
+         :param blocks: Block or list of blocks to remove.
+         :raises ValueError: If block is not in library."""
+         if isinstance(blocks, Block):
+             blocks = [blocks]
+ 
+         for block in blocks:
+-            self._blocks.remove(block)
++            del self._blocks[self._block_index(block)]
+             if isinstance(block, Entry):
+                 del self._entries_by_key[block.key]
+             elif isinstance(block, String):
+@@ -98,6 +112,9 @@ class Library:
+     def replace(self, old_block: Block, new_block: Block, fail_on_duplicate_key: bool = True):
+         """Replace a block with another block, at the same position.
+ 
++        If equal duplicate blocks exist in the library, the exact (identical)
++        instance is replaced, if present; otherwise the first equal block.
++
+         :param old_block: Block to replace.
+         :param new_block: Block to replace with.
+         :param fail_on_duplicate_key: If False, adds a DuplicateKeyBlock if
+@@ -105,7 +122,7 @@ class Library:
+         :raises ValueError: If old_block is not in library or if fail_on_duplicate_key is True
+                 and a block with new_block.key (other than old_block) already exists."""
+         try:
+-            index = self._blocks.index(old_block)
++            index = self._block_index(old_block)
+             self.remove(old_block)
+         except ValueError:
+             raise ValueError("Block to replace is not in library.")
+diff --git a/bibtexparser/model.py b/bibtexparser/model.py
+index 421aef99419e476f5207a093d88540bf0202827c..c7b807e66e862b2124281961fae19b365fa93d48 100644
+--- a/bibtexparser/model.py
++++ b/bibtexparser/model.py
+@@ -86,6 +86,12 @@ class Block(abc.ABC):
+             and self.__dict__ == other.__dict__
+         )
+ 
++    def __hash__(self) -> int:
++        # Hash on a stable subset of the attributes compared in `__eq__`
++        # (equal blocks thus have equal hashes). Mutable or potentially
++        # unhashable attributes (e.g. fields, parser_metadata) are excluded.
++        return hash((type(self), self._start_line_in_file, self._raw))
++
+ 
+ class String(Block):
+     """Bibtex Blocks of the ``@string`` type, e.g. ``@string{me = "My Name"}``."""
+@@ -289,6 +295,12 @@ class Field:
+             and self.__dict__ == other.__dict__
+         )
+ 
++    def __hash__(self) -> int:
++        # Hash on a stable subset of the attributes compared in `__eq__`
++        # (equal fields thus have equal hashes). The value is excluded as it
++        # may be mutable or unhashable (e.g. a list after middleware was applied).
++        return hash((type(self), self._start_line, self._key))
++
+     def __str__(self) -> str:
+         return f"Field (line: {self.start_line}, key: `{self.key}`): `{self.value}`"
+ 

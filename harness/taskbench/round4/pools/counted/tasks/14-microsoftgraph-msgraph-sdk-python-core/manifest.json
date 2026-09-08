@@ -1,0 +1,20 @@
+{
+ "id": "14-microsoftgraph-msgraph-sdk-python-core",
+ "repo": "microsoftgraph/msgraph-sdk-python-core",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "c6c089e70410bc5b4d19de32fce7cea9cfd37f70",
+ "commit_sha": "a0dd3c18d39f9cadbba25109345ee7be8a810a99",
+ "test_patch_sha256": "f4ebc96fd54ac9fb02304e90ee3d6cd7f177d093ab7242c426ee480f6c7dd122",
+ "gold_patch_sha256": "a3b1152bdbd916b66142802644560107b30d3886d350ae092b97d84aa1f49be5",
+ "test_files": [
+  "tests/requests/test_batch_request_content.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +requirements-dev.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T08:01:12.231Z"
+}

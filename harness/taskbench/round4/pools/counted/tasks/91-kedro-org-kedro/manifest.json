@@ -1,0 +1,21 @@
+{
+ "id": "91-kedro-org-kedro",
+ "repo": "kedro-org/kedro",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "2aa161ec3b76ee8601ef4d16a74c958873e12854",
+ "commit_sha": "b8cb7ffea6b747b06cdb05a1e1beaada52213fb0",
+ "test_patch_sha256": "479f260310daeed3915ee2d0ac114ba3ebb6b332b9d2f0c4f7c0daedd08a40fc",
+ "gold_patch_sha256": "dff3d6fa15fe8c7371d6d6d1dcad99ccce729bb67350183c15be3cbb4bf11150",
+ "test_files": [
+  "tests/config/test_omegaconf_config.py",
+  "tests/framework/session/test_service_session.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 12,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-08T16:02:14.580Z"
+}

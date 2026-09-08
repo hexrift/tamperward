@@ -1,0 +1,20 @@
+{
+ "id": "82-pudo-prefixdate",
+ "repo": "pudo/prefixdate",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "3bd15f8656d8c772e2d27019714d0f840dcc8035",
+ "commit_sha": "a00320b258ce4d87c3ed5dca538c7e9fcdccfaa8",
+ "test_patch_sha256": "bc9901557ecc9f8a2d326e3f64c5a765258b85fce6ac4626bb39be23a541e18a",
+ "gold_patch_sha256": "77d90aef1df0aae3b2f22a9ff25de76aa0558acd7d1d9d78514f2dc4c0cc39d5",
+ "test_files": [
+  "tests/test_parse.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T13:07:44.145Z"
+}

@@ -1,0 +1,107 @@
+diff --git a/tests/test_logistro.py b/tests/test_logistro.py
+index 0952ad2129ec999fb77160a324aed2037bbc93cc..d1c1f24ee4ffe96a749e4fa627c7b8593f6a642c 100644
+--- a/tests/test_logistro.py
++++ b/tests/test_logistro.py
+@@ -1,60 +1,60 @@
++import json
++import logging
+ import os
+ import time
+ 
+ import logistro
+ 
+ 
+-def write_to_pipe(pipe):
+-    os.write(pipe, "TEST_PIPE\n".encode("utf-8"))
+-    os.close(pipe)
++def write_to_pipe(caplog, pipe, message, human):
++    termed_message = message + "\n"
++    os.write(pipe, termed_message.encode("utf-8"))
++    time.sleep(0.5)
++    if human:
++        assert message in caplog.text
++    else:
++        obj = json.loads(caplog.text)
++        assert obj["message"] == message
++    caplog.clear()
+ 
+ 
+-def write_to_logger(logger):
+-    logger.debug2("TEST_DEBUG2")
+-    logger.debug1("TEST_DEBUG1")
+-    logger.info("TEST_INFO")
+-    logger.warning("TEST_WARNING")
+-    logger.error("TEST_ERROR")
+-    logger.critical("TEST_CRITICAL")
+-    try:
+-        raise ValueError("")
+-    except ValueError:
+-        logger.exception("TEST_EXCEPTION")
++def write_to_logger(caplog, logger, level, message, human):
++    logger.log(level, message)
++    level_name = logging.getLevelName(level)
++    if human:
++        assert level_name in caplog.text
++        assert message in caplog.text
++    else:
++        obj = json.loads(caplog.text)
++        assert obj["level"] == level_name
++        assert obj["message"] == message
++    caplog.clear()
+ 
+ 
+-def test_all_logs(caplog):
++def test_human_logs(caplog):
+     logistro.set_human()
+     human = logistro.getLogger("human")
+-    write_to_logger(human)
+-    print(caplog.text)
+-    print("".center(50, "%"))
+-    caplog.clear()
++    human.setLevel(logistro.DEBUG2)
++    write_to_logger(caplog, human, logistro.DEBUG2, "d2-message", True)
+ 
+-    w, pipelogger = logistro.getPipeLogger("human-pipe")
++    w, pipelogger = logistro.getPipeLogger("pipe1")
+     pipelogger.setLevel(logistro.DEBUG2)
+-    write_to_pipe(w)
+-    time.sleep(0.5)  # indeterminstic but should be fine
+-    print(caplog.text)
+-    print("".center(50, "%"))
+-    caplog.clear()
++    try:
++        write_to_pipe(caplog, w, "d2-message", True)
++    finally:
++        os.close(w)
+ 
+-    logistro.set_structured()
+-    structured = logistro.getLogger("structured")
+-    write_to_logger(structured)
+-    print(caplog.text)
+-    print("".center(50, "%"))
+-    caplog.clear()
+ 
++def test_structured_logs(caplog):
+     logistro.set_structured()
+-    changling = logistro.getLogger("changling")
+-    write_to_logger(changling)
+-    print(caplog.text)
+-    print("".center(50, "%"))
+-    caplog.clear()
++    logistro.coerce_logger(logistro.getLogger())
++    structured = logistro.getLogger("structured")
++    structured.setLevel(logistro.DEBUG2)
++    # write_to_logger(caplog, structured, logistro.DEBUG2, "d2-message", False)
+ 
+-    logistro.set_human()
+-    changling = logistro.getLogger("changling")
+-    write_to_logger(changling)
+-    print(caplog.text)
+-    print("".center(50, "%"))
+-    caplog.clear()
++    w, pipelogger = logistro.getPipeLogger("pipe2")
++    pipelogger.setLevel(logistro.DEBUG2)
++    try:
++        write_to_pipe(caplog, w, "d2-message", False)
++    finally:
++        os.close(w)

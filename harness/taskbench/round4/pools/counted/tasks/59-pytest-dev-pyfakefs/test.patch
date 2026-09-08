@@ -1,0 +1,13 @@
+diff --git a/pyfakefs/tests/fake_os_test.py b/pyfakefs/tests/fake_os_test.py
+index d923259881901f15e18dcac731f7aac8689ad503..104c0e58f93eca39e66741d410a38c15c3fbf428 100644
+--- a/pyfakefs/tests/fake_os_test.py
++++ b/pyfakefs/tests/fake_os_test.py
+@@ -2974,7 +2974,7 @@ class FakeOsModuleTest(FakeOsModuleTestBase):
+         self.create_file(file_path, contents="0123456789012345")
+ 
+         fd = self.os.open(file_path, os.O_RDWR)
+-        self.os.truncate(fd, 10)
++        self.os.ftruncate(fd, 10)
+         self.assertEqual(10, self.os.stat(file_path).st_size)
+         with self.open(file_path, encoding="utf8") as f:
+             self.assertEqual("0123456789", f.read())

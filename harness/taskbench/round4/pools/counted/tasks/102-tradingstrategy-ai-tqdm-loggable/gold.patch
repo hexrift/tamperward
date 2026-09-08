@@ -1,0 +1,127 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 335071ca9a038c53fb5b806a3fb7f927d9ef9a62..470de9a14b71eb94a3284771cba092181ef456e5 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,3 +1,9 @@
++# 0.4
++
++- Add: `TQDM_LOGGABLE_FORCE=stdout|logging|auto` environment override for deterministic progress rendering in notebook kernels and batch runners like `jupyter execute` (2026-03-15)
++- Add: tests covering forced stdout and logging selection in `tqdm_loggable.auto` (2026-03-15)
++- Docs: document the override for notebook kernels that should render progress in the calling TTY instead of widget/HTML output (2026-03-15)
++
+ # 0.3
+ 
+ - Add: Python 3.14 compatibility (2026-02-10)
+diff --git a/README.md b/README.md
+index 198a756c0fad5d4097f2d38c48206003d9a30119..298315902b9d1cfeab1a7613a57ae79e34c6f3ab 100644
+--- a/README.md
++++ b/README.md
+@@ -113,6 +113,26 @@ If the application is running without a proper terminal, non-interactive progres
+ Otherwise progress bar is delegated `tqdm.auto` module to maintain the compatibility
+ with any `tqdm` system without any changes to code.
+ 
++If you need to override the auto-detection, set `TQDM_LOGGABLE_FORCE` before importing `tqdm_loggable.auto`:
++
++- `TQDM_LOGGABLE_FORCE=stdout` forces plain terminal / stdout tqdm
++- `TQDM_LOGGABLE_FORCE=logging` forces logging-based progress output
++- `TQDM_LOGGABLE_FORCE=auto` restores normal detection
++
++This is especially useful for notebook kernels launched by tools like `jupyter execute`, where the runtime is technically inside an IPython kernel but you still want a terminal-rendered progress bar in the calling TTY.
++
++Example:
++
++```python
++import os
++
++os.environ["TQDM_LOGGABLE_FORCE"] = "stdout"
++
++from tqdm_loggable.auto import tqdm
++```
++
++Use `stdout` when you want a real terminal progress bar in the parent shell, and `logging` when the process is running headlessly and progress should be emitted as log lines instead.
++
+ `tqdm_loggable` has also progress bar workarounds for [Jupyter Notebook environments](https://jupyter.org/)
+ like [Datalore](https://www.jetbrains.com/datalore/) which [are not 100% compatible](https://jupyter.org/) with the original Jupyter Notebook.
+ 
+diff --git a/tqdm_loggable/auto.py b/tqdm_loggable/auto.py
+index c5729f2f151ab436c0adbe05b9b9e856ebe833fc..13c9ca0e77735642c422107980fd91b1232e4587 100644
+--- a/tqdm_loggable/auto.py
++++ b/tqdm_loggable/auto.py
+@@ -1,13 +1,28 @@
+-from .utils import is_interactive_session, is_stdout_only_session
++"""Choose the best tqdm implementation for the current environment."""
+ 
+-if is_interactive_session() and not is_stdout_only_session():
++from .utils import get_forced_progress_mode, is_interactive_session, is_stdout_only_session
++
++# Allow callers to override auto-detection in cases like `jupyter execute`,
++# where we are inside an IPython kernel but still want terminal progress.
++forced_mode = get_forced_progress_mode()
++
++if forced_mode == "stdout":
++    from tqdm import tqdm
++    INTERACTIVE_TQDM = False
++elif forced_mode == "logging":
++    from .tqdm_logging import tqdm_logging as tqdm
++    INTERACTIVE_TQDM = False
++elif is_interactive_session() and not is_stdout_only_session():
++    # Notebook-like environments still default to tqdm's interactive frontend.
+     from tqdm.auto import tqdm
+     INTERACTIVE_TQDM = True
+ elif is_stdout_only_session():
++    # Environments like Datalore need plain stdout output instead of widgets.
+     from tqdm import tqdm
+     INTERACTIVE_TQDM = False
+ else:
++    # Fall back to logging when neither a TTY nor stdout-style progress is safe.
+     from .tqdm_logging import tqdm_logging as tqdm
+     INTERACTIVE_TQDM = False
+ 
+-__all__ = ["tqdm"]
+\ No newline at end of file
++__all__ = ["tqdm"]
+diff --git a/tqdm_loggable/utils.py b/tqdm_loggable/utils.py
+index e22f30df31c921cc974c496d2d322580753a6723..a9e1502693188437447a10cb7569bb18137aaebd 100644
+--- a/tqdm_loggable/utils.py
++++ b/tqdm_loggable/utils.py
+@@ -17,6 +17,33 @@ import sys
+ NON_INTERACTIVE_TERM_VALUES = ["dumb", "", None]
+ 
+ 
++def get_forced_progress_mode() -> str | None:
++    """Get forced progress rendering mode from environment.
++
++    Supported values:
++
++    - ``auto``: Use the normal automatic detection
++    - ``stdout``: Force plain terminal/stdout tqdm
++    - ``logging``: Force logging-based tqdm
++
++    The value is case-insensitive.
++    Invalid values are ignored.
++    """
++
++    # This override exists for mixed environments where auto-detection is
++    # technically correct about "being in a notebook" but wrong about the
++    # desired output channel.
++    value = os.environ.get("TQDM_LOGGABLE_FORCE", None)
++    if value is None:
++        return None
++
++    value = value.strip().lower()
++    if value in {"auto", "stdout", "logging"}:
++        return value
++
++    return None
++
++
+ def is_interactive_session() -> bool:
+     """Guess if we are an interactive session and can render real progress bars."""
+ 
+@@ -75,4 +102,4 @@ def is_stdout_only_session() -> bool:
+     A code report has been privately logged to Datalore support for enquiring about the
+     feature disparity between Datalore and Jupyter Notebooks.
+     """
+-    return os.environ.get("AGENT_MANAGER_HOST", None) == 'datalore'
+\ No newline at end of file
++    return os.environ.get("AGENT_MANAGER_HOST", None) == 'datalore'

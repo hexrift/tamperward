@@ -1,0 +1,255 @@
+diff --git a/.github/workflows/CI.yml b/.github/workflows/CI.yml
+index 1bd85b9f9d5c0a65af17ed1caebaf4a743ac1624..c2e750aae6666a399d2bdf544893773f9ce54593 100644
+--- a/.github/workflows/CI.yml
++++ b/.github/workflows/CI.yml
+@@ -80,7 +80,7 @@ jobs:
+         env:
+           UNSAFE_PYO3_SKIP_VERSION_CHECK: 1
+         with:
+-          args: --release --out dist
++          args: --release --out dist --interpreter ${{ matrix.python_version }}
+           target: x64
+       - run: pip install --find-links=./dist jh2
+         name: Install built package
+diff --git a/CHANGELOG.rst b/CHANGELOG.rst
+index 8a0e03bbb9895a0a9a31dfe2299c0685b4de8685..5729c5a1a39524a69ba6d60bedbb4a6b9fa1b09c 100644
+--- a/CHANGELOG.rst
++++ b/CHANGELOG.rst
+@@ -1,6 +1,22 @@
+ Release History
+ ===============
+ 
++5.0.12 (2026-05-29)
++------------------
++
++- Fixed RFC conformance (7540 6.9.2) mandates that the connection-level flow-control window always starts at 65535 octets,
++  regardless of what SETTINGS_INITIAL_WINDOW_SIZE advertises.
++- Omitted MAX_FRAME_SIZE and ENABLE_CONNECT_PROTOCOL from the default settings
++  preface; both RFC implicit defaults (16384, 0) still apply via property
++  getters.
++- Changed default settings: HEADER_TABLE_SIZE -> 4096 to 65536; INITIAL_WINDOW_SIZE = 65535 to 6291456 and MAX_HEADER_LIST_SIZE = unset to 262144.
++- Fixed HPACK decoder cap not being initialized from local_settings.
++  HEADER_TABLE_SIZE at construction time; Settings.acknowledge() only emits
++  events for changed values, so defaults never propagated and the decoder
++  stayed at 4096, rejecting legitimate header blocks once HEADER_TABLE_SIZE
++  was raised.
++- (rust) Improved HPACK error reporting: replaced generic "operation failed" messages with formatted upstream error variants for diagnosability.
++
+ 5.0.11 (2026-04-05)
+ ------------------
+ 
+diff --git a/Cargo.lock b/Cargo.lock
+index f645287877e91c7bd24fa9226b9cb21971b311a9..241e1d6c625cc18e98cc45d7a52bee66f57c9804 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -4,9 +4,9 @@ version = 4
+ 
+ [[package]]
+ name = "cc"
+-version = "1.2.59"
++version = "1.2.62"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "b7a4d3ec6524d28a329fc53654bbadc9bdd7b0431f5d65f1a56ffb28a1ee5283"
++checksum = "a1dce859f0832a7d088c4f1119888ab94ef4b5d6795d1ce05afb7fe159d79f98"
+ dependencies = [
+  "find-msvc-tools",
+  "shlex",
+@@ -41,7 +41,7 @@ checksum = "1a9fcbcc408c5526c3ab80d534e5c86e7967c1fb7aa0a8c76abd1edc27deb877"
+ 
+ [[package]]
+ name = "jh2"
+-version = "5.0.11"
++version = "5.0.12"
+ dependencies = [
+  "httlib-hpack",
+  "pyo3",
+@@ -49,9 +49,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "libc"
+-version = "0.2.184"
++version = "0.2.186"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "48f5d2a454e16a5ea0f4ced81bd44e4cfc7bd3a507b61887c99fd3538b28e4af"
++checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
+ 
+ [[package]]
+ name = "once_cell"
+@@ -135,9 +135,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "python3-dll-a"
+-version = "0.2.14"
++version = "0.2.15"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d381ef313ae70b4da5f95f8a4de773c6aa5cd28f73adec4b4a31df70b66780d8"
++checksum = "d80ba7540edb18890d444c5aa8e1f1f99b1bdf26fb26ae383135325f4a36042b"
+ dependencies = [
+  "cc",
+ ]
+diff --git a/Cargo.toml b/Cargo.toml
+index b162ff37fde870e45c79b69079b31dec4eba8342..9c935755f58c050ccdac86e459754a5b1b43b806 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "jh2"
+-version = "5.0.11"
++version = "5.0.12"
+ edition = "2021"
+ 
+ # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+diff --git a/jh2/__init__.py b/jh2/__init__.py
+index 6a29763c9d76443ac6135620ccbf2ef24c1d0520..518d821871fbfaf68dbbe290594d5c91b79a0124 100644
+--- a/jh2/__init__.py
++++ b/jh2/__init__.py
+@@ -7,4 +7,4 @@ A HTTP/2 implementation.
+ 
+ from __future__ import annotations
+ 
+-__version__ = "5.0.11"
++__version__ = "5.0.12"
+diff --git a/jh2/connection.py b/jh2/connection.py
+index cc6823feedf4662ee5ea3d7aa118ad281c39b4e9..e60d8b955de18884be74a121a90497a3d1912ccf 100644
+--- a/jh2/connection.py
++++ b/jh2/connection.py
+@@ -461,9 +461,29 @@ class H2Connection:
+         )
+         self.remote_settings = Settings(client=not self.config.client_side)
+ 
+-        # The current value of the connection flow control windows on the
+-        # connection.
+-        self.outbound_flow_control_window = self.remote_settings.initial_window_size
++        # Propagate the initial (default) local HEADER_TABLE_SIZE to the
++        # decoder's hard limit. Settings that match RFC 7540 defaults are not
++        # surfaced through ``Settings.acknowledge`` (their deque holds a single
++        # entry), so without this the decoder's hard limit would stay at the
++        # codec's construction default (4096) while we advertise something
++        # larger to the peer. The peer's resulting Dynamic Table Size Update
++        # would then be rejected with ``InvalidMaxDynamicSize``.
++        #
++        # The encoder side is deliberately not touched here: its table size is
++        # bounded by what the *remote* advertises, and the RFC default until
++        # the remote sends SETTINGS is 4096. It will be raised on demand from
++        # ``_receive_settings_frame``.
++        self.decoder.max_allowed_table_size = self.local_settings.header_table_size
++
++        # The current value of the connection flow control window for data we
++        # can send to the peer.
++        #
++        # RFC 7540 §6.9.2: ``SETTINGS_INITIAL_WINDOW_SIZE`` does **not**
++        # affect the connection-level flow-control window. The peer's
++        # connection window always starts at 65535 octets regardless of what
++        # they advertise via ``INITIAL_WINDOW_SIZE`` and can only be grown by
++        # them via ``WINDOW_UPDATE`` frames on stream 0.
++        self.outbound_flow_control_window = 65535
+ 
+         #: The maximum size of a frame that can be emitted by this peer, in
+         #: bytes.
+@@ -492,9 +512,17 @@ class H2Connection:
+         self._closed_streams = SizeLimitDict(size_limit=self.MAX_CLOSED_STREAMS)
+ 
+         # The flow control window manager for the connection.
+-        self._inbound_flow_control_window_manager = WindowManager(
+-            max_window_size=self.local_settings.initial_window_size
+-        )
++        #
++        # RFC 7540 6.9.2: ``SETTINGS_INITIAL_WINDOW_SIZE`` does not
++        # affect the connection-level flow-control window. The connection
++        # window always starts at the protocol default of 65535 octets and
++        # can only be grown via ``WINDOW_UPDATE`` frames on stream 0. Using
++        # ``local_settings.initial_window_size`` here desyncs our view from
++        # the peer's, which on a large advertised window causes the
++        # auto-update algorithm to emit oversized increments that the peer
++        # eventually rejects with ``FLOW_CONTROL_ERROR`` ("May not increment
++        # flow control window past 2147483647").
++        self._inbound_flow_control_window_manager = WindowManager(max_window_size=65535)
+ 
+         # When in doubt use dict-dispatch.
+         self._frame_dispatch_table = {
+diff --git a/jh2/settings.py b/jh2/settings.py
+index a04e93957a70eb76395475907f9fc078f6065577..bb666c2115e3ddda2fdcc11489248841b9e1dfef 100644
+--- a/jh2/settings.py
++++ b/jh2/settings.py
+@@ -134,11 +134,10 @@ class Settings(MutableMapping):
+         #
+         # This contains the default values for HTTP/2.
+         self._settings = {
+-            SettingCodes.HEADER_TABLE_SIZE: collections.deque([4096]),
++            SettingCodes.HEADER_TABLE_SIZE: collections.deque([65536]),
+             SettingCodes.ENABLE_PUSH: collections.deque([int(client)]),
+-            SettingCodes.INITIAL_WINDOW_SIZE: collections.deque([65535]),
+-            SettingCodes.MAX_FRAME_SIZE: collections.deque([16384]),
+-            SettingCodes.ENABLE_CONNECT_PROTOCOL: collections.deque([0]),
++            SettingCodes.INITIAL_WINDOW_SIZE: collections.deque([6291456]),
++            SettingCodes.MAX_HEADER_LIST_SIZE: collections.deque([262144]),
+         }
+         if initial_values is not None:
+             for key, value in initial_values.items():
+@@ -220,7 +219,8 @@ class Settings(MutableMapping):
+         The current value of the :data:`MAX_FRAME_SIZE
+         <h2.settings.SettingCodes.MAX_FRAME_SIZE>` setting.
+         """
+-        return self[SettingCodes.MAX_FRAME_SIZE]
++        # Default RFC value, we can omit it in settings preface!
++        return self.get(SettingCodes.MAX_FRAME_SIZE, 16384)
+ 
+     @max_frame_size.setter
+     def max_frame_size(self, value):
+@@ -259,7 +259,7 @@ class Settings(MutableMapping):
+         The current value of the :data:`ENABLE_CONNECT_PROTOCOL
+         <h2.settings.SettingCodes.ENABLE_CONNECT_PROTOCOL>` setting.
+         """
+-        return self[SettingCodes.ENABLE_CONNECT_PROTOCOL]
++        return self.get(SettingCodes.ENABLE_CONNECT_PROTOCOL, 0)
+ 
+     @enable_connect_protocol.setter
+     def enable_connect_protocol(self, value):
+diff --git a/src/lib.rs b/src/lib.rs
+index cd8847339fe9e980c735152c77a5cb00d0cbbc6c..6fd2a5a75b31d7bc66b450f5cfd150588da1f082 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -56,7 +56,7 @@ impl Encoder {
+ 
+                 self.inner
+                     .encode((header.clone(), value.clone(), header_flags), &mut dst)
+-                    .map_err(|_| HPACKError::new_err("operation failed"))?;
++                    .map_err(|e| HPACKError::new_err(format!("encoder failure: {e:?}")))?;
+             }
+             Ok(())
+         })?;
+@@ -89,7 +89,7 @@ impl Encoder {
+         py.detach(|| {
+             self.inner
+                 .encode((header.0.clone(), header.1.clone(), flags), &mut dst)
+-                .map_err(|_| HPACKError::new_err("operation failed"))
++                .map_err(|e| HPACKError::new_err(format!("encoder failure: {e:?}")))
+         })?;
+ 
+         Ok(PyBytes::new(py, dst.as_slice()))
+@@ -104,7 +104,7 @@ impl Encoder {
+     pub fn set_header_table_size(&mut self, value: u32) -> PyResult<()> {
+         self.inner
+             .update_max_dynamic_size(value, &mut self.pending_table_size_update)
+-            .map_err(|_| HPACKError::new_err("invalid header table size set"))
++            .map_err(|e| HPACKError::new_err(format!("invalid header table size set: {e:?}")))
+     }
+ }
+ 
+@@ -139,7 +139,7 @@ impl Decoder {
+ 
+                 self.inner
+                     .decode_exact(&mut buf, &mut data)
+-                    .map_err(|_| HPACKError::new_err("operation failed"))?;
++                    .map_err(|e| HPACKError::new_err(format!("decoder failure: {e:?}")))?;
+ 
+                 if !data.is_empty() {
+                     total_mem += data[0].0.len() + data[0].1.len();
+@@ -205,6 +205,7 @@ impl Decoder {
+         self.inner.set_max_dynamic_size(value);
+     }
+ 
++    // httlib_hpack does not expose the dynamic table current size
+     #[getter]
+     pub fn get_max_allowed_table_size(&self) -> u32 {
+         self.inner.max_dynamic_size()

@@ -1,0 +1,20 @@
+{
+ "id": "72-vitalik-django-ninja",
+ "repo": "vitalik/django-ninja",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "184baefdd7fcd0c5b5548bd3c78822c3a8c8657e",
+ "commit_sha": "72ceeb8f7d7bba1265b8e0605b1704af06ddb0e5",
+ "test_patch_sha256": "18ff9b33dfc8f2a3ad6821423fd52e511f2f3a4d326b3bbbb0e0aa1051288aa7",
+ "gold_patch_sha256": "72497d6ec959edfa839e455f1d1dfcf074de9b11a73f619c9459040a34cb396f",
+ "test_files": [
+  "tests/test_orm_schemas.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 3,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-08T02:33:48.611Z"
+}

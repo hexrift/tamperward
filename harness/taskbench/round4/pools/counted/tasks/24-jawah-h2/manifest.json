@@ -1,0 +1,21 @@
+{
+ "id": "24-jawah-h2",
+ "repo": "jawah/h2",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "aa410c575de96088f9aaa4e7e267f2ace2b19b13",
+ "commit_sha": "9b4eb992011adeb4565dc15db818a281dc6babaa",
+ "test_patch_sha256": "f4067bc95196e71b6bda821c899b147aad7c471f0794297ec3d6c4850f5da239",
+ "gold_patch_sha256": "fd9cca13c9f5ca87b1a96c056b87fe1366830ffa56463c6b11f6fe9561d33f8d",
+ "test_files": [
+  "tests/test_flow_control_window.py",
+  "tests/test_settings.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test +dev-requirements.txt",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T12:27:27.036Z"
+}

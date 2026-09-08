@@ -1,0 +1,20 @@
+{
+ "id": "69-cantools-textparser",
+ "repo": "cantools/textparser",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "1ef809eb283da3c3ec7b8bc682f11eeada3a81d6",
+ "commit_sha": "53e7ef6370c8eace8067589185aa4f122a2db2c0",
+ "test_patch_sha256": "cefce5603c577004e970e043008d32b979b7edc6b38a7d020d599f609b9dd1cc",
+ "gold_patch_sha256": "635334a7e282421b3080c76ffaa97b72cbda6e4c1b13cc02afcfb117d0b89b8b",
+ "test_files": [
+  "tests/test_textparser.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 1,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T01:20:29.276Z"
+}

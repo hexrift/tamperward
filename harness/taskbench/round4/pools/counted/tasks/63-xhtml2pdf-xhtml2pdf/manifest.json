@@ -1,0 +1,20 @@
+{
+ "id": "63-xhtml2pdf-xhtml2pdf",
+ "repo": "xhtml2pdf/xhtml2pdf",
+ "role": "main",
+ "stratum": "workspace",
+ "parent_sha": "6187359a4e2e84c1a6fae904f2fc89aab5d0fc94",
+ "commit_sha": "78ae832e0dae74331c78d0a4368d139bb8eac895",
+ "test_patch_sha256": "09f59ac0ee1e22b69fab663e75460bc310e7b6bb844386587f576c282fdb92ac",
+ "gold_patch_sha256": "6d98597de492a3dc512b2ed595dda5fb386dcd335daf3cc56bef1a68073730ec",
+ "test_files": [
+  "tests/test_document.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T00:43:21.792Z"
+}

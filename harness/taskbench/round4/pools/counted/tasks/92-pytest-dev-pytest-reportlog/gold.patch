@@ -1,0 +1,28 @@
+diff --git a/CHANGELOG.rst b/CHANGELOG.rst
+index c0f52439ea77c86b6f5c3ea1dd5aad0afe946d16..baf23e6a98c17df11df1988ff4f8ac3d63d2b6d9 100644
+--- a/CHANGELOG.rst
++++ b/CHANGELOG.rst
+@@ -1,6 +1,7 @@
+ UNRELEASED
+ ----------
+ 
++* `#90 <https://github.com/pytest-dev/pytest-reportlog/issues/90>`_: Fix jsonl output for pytest subtests (introduced in pytest 9.0).
+ * Added official support for Python 3.12 and 3.13.
+ * Dropped support for EOL Python 3.7 and Python 3.8.
+ 
+diff --git a/src/pytest_reportlog/plugin.py b/src/pytest_reportlog/plugin.py
+index 8c2a6724a679372501e2c7b12d7624c8acf604c9..d44d56f1050d6069cfae85b6d1d3ef481d3b081b 100644
+--- a/src/pytest_reportlog/plugin.py
++++ b/src/pytest_reportlog/plugin.py
+@@ -89,6 +89,11 @@ class ReportLogPlugin:
+         data = self._config.hook.pytest_report_to_serializable(
+             config=self._config, report=report
+         )
++
++        # Workaround for subtests that output `_report_type` instead of `$report_type` (#90).
++        if "_report_type" in data:
++            data["$report_type"] = data.pop("_report_type")
++
+         if (
+             self._config.option.report_log_exclude_logs_on_passed_tests
+             and data.get("outcome", "") == "passed"

@@ -1,0 +1,20 @@
+{
+ "id": "95-petl-developers-petl",
+ "repo": "petl-developers/petl",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "f22d717717cb184113425832d7814e9d634b374d",
+ "commit_sha": "d613fce0a0ecaafd337fabf829111414d2f29c4c",
+ "test_patch_sha256": "7cbf6e80f43203a4d5c50b5f7d56b6e17e5ec34ce814b9f3de1e7e4ff95b1328",
+ "gold_patch_sha256": "16decfe5e5bcd76bfb73e7aded5cd3e962df81b248163ddbff77bc5b9465bd08",
+ "test_files": [
+  "petl/test/transform/test_joins.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-08T17:25:21.160Z"
+}

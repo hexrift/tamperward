@@ -1,0 +1,12 @@
+diff --git a/tests/test_parse.py b/tests/test_parse.py
+index 461a255edfca1ae6db603e4ea5291107ac0a0bac..46728739f0af895e015a2f56420ad5fb815db849 100644
+--- a/tests/test_parse.py
++++ b/tests/test_parse.py
+@@ -6,6 +6,7 @@ from prefixdate import parse, normalize_date, parse_parts, Precision
+ def test_normalize():
+     assert normalize_date(None) is None
+     assert normalize_date("2001") == "2001"
++    assert normalize_date("27171") is None
+     assert normalize_date(2001) == "2001"
+     assert normalize_date(201) is None
+ 

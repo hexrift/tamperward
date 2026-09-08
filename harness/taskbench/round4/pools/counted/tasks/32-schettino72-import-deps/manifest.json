@@ -1,0 +1,20 @@
+{
+ "id": "32-schettino72-import-deps",
+ "repo": "schettino72/import-deps",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "186f5da64c1f7f77e407df96153ab0c2fd73347e",
+ "commit_sha": "9fd1ed9300ae1f8dfccad76aeb02570dd354110c",
+ "test_patch_sha256": "152ffbcc315e09dc7e70ae29f0e0a556284893902f242d959a143d1df031dc25",
+ "gold_patch_sha256": "8094935b9552f749ab7be03aee6167629d18dd5d2531607ec9d61cd07a52596e",
+ "test_files": [
+  "tests/test_import_deps.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 4,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T13:47:23.681Z"
+}

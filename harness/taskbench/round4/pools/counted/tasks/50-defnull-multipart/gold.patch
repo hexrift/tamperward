@@ -1,0 +1,104 @@
+diff --git a/CHANGELOG.rst b/CHANGELOG.rst
+index 6e2059b13fa611ce6e6e3c3bfb742ad1b25ebba3..24776d04cb3fa2a469d5372586a76ee2011a5431 100644
+--- a/CHANGELOG.rst
++++ b/CHANGELOG.rst
+@@ -20,6 +20,10 @@ faster file uploads and 50% faster text field handling.
+ 
+ * change: Dropped support for Python 3.8 and 3.9 (both EOL), added support
+   for Python 3.14
++* change: Accessing :attr:`MultipartSegment.size` before the segment is
++  complete now raises :exc:`ParserStateError`. The new attribute
++  :attr:`MultipartSegment.bytes_received` provides the in-progress segment
++  body byte count previously exposed by :attr:`MultipartSegment.size`.
+ * change: :class:`PushMultipartParser` now emits :class:`bytes` instead of
+   :class:`bytearray` for part body chunks. Update your ``isinstance`` checks
+   if you have any.
+diff --git a/examples/async_stream_wrapper.py b/examples/async_stream_wrapper.py
+index 8f018a4653ae5b41da9e1d3b41cf0a28b51feb32..243eb32a1f833e19b2364a1e9babdfc666946850 100644
+--- a/examples/async_stream_wrapper.py
++++ b/examples/async_stream_wrapper.py
+@@ -174,7 +174,7 @@ class AsyncMultipartPart:
+ 
+     def tell(self):
+         """Return the number of bytes already consumed from the segment body."""
+-        return self.segment.size - len(self._buffer)
++        return self.segment.bytes_received - len(self._buffer)
+ 
+     async def read_chunk(self, limit=-1) -> bytes:
+         """Read and return a single chunk of bytes from the segment body.
+diff --git a/multipart.py b/multipart.py
+index abb482d21f967c6880938e3b9fe04211428b3bec..a8c2badc87a7f31d4137fda0c2dc043fccc37a2f 100644
+--- a/multipart.py
++++ b/multipart.py
+@@ -798,16 +798,16 @@ class PushMultipartParser:
+ 
+     def _on_segment_payload(self, chunk: bytes) -> bytes:
+         assert self._segment is not None and not self._segment.complete
+-        self._segment.size += len(chunk)
+-        if self._segment.size > self.max_segment_size:
++        self._segment.bytes_received += len(chunk)
++        if self._segment.bytes_received > self.max_segment_size:
+             raise ParserLimitReached("Maximum segment size exceeded")
+-        if -1 < self._segment_limit < self._segment.size:
++        if -1 < self._segment_limit < self._segment.bytes_received:
+             raise ParserError("Segment Content-Length exceeded")
+         return chunk
+ 
+     def _on_segment_complete(self):
+         assert self._segment is not None and not self._segment.complete
+-        if self._segment.size < self._segment_limit:
++        if self._segment.bytes_received < self._segment_limit:
+             raise ParserError("Segment size does not match Content-Length header")
+         self._segment.complete = True
+         return None
+@@ -836,8 +836,8 @@ class MultipartSegment:
+     details (e.g. :attr:`name` and :attr:`filename`).
+ 
+     Segment instances do not store or buffer any payload data, but the parser
+-    will update the payload :attr:`size` property while parsing, and mark the
+-    segment as :attr:`complete` when done.
++    will count :attr:`bytes_received` while parsing, and make the final
++    :attr:`size` available once the segment is :attr:`complete`.
+     """
+ 
+     #: Ordered list of headers as (name, value) pairs. Header names are
+@@ -860,16 +860,16 @@ class MultipartSegment:
+     #: The optional ``'charset'`` option of the ``Content-Type`` header.
+     charset: Optional[str]
+ 
+-    #: Segment body size (so far). Will be updated for each chunk of payload
+-    #: during parsing.
+-    size: int
++    #: Segment body bytes received so far. Will be updated for each chunk of
++    #: payload during parsing.
++    bytes_received: int
+     #: True if the parser detected the end of the segment and ``size`` is final.
+     complete: bool
+ 
+     def __init__(self, headerlist: List[Tuple[str, str]]):
+         """Private constructor used by :class:`PushMultipartParser`"""
+ 
+-        self.size = 0
++        self.bytes_received = 0
+         self.complete = False
+ 
+         self.headerlist = headerlist
+@@ -888,6 +888,18 @@ class MultipartSegment:
+                 self.content_type, args = parse_options_header(value)
+                 self.charset = args.get("charset")
+ 
++    @cached_property
++    def size(self):
++        """Final segment body size in bytes.
++
++        Only available after the segment is :attr:`complete`. Use
++        :attr:`bytes_received` if you need the in-progress byte count
++        while parsing.
++        """
++        if not self.complete:
++            raise ParserStateError("Segment size not known yet")
++        return self.bytes_received
++
+     def header(self, name: str, default=None):
+         """Return the value of a header if present, or a default value."""
+         compare = name.title()

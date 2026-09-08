@@ -1,0 +1,20 @@
+{
+ "id": "11-geopozo-logistro",
+ "repo": "geopozo/logistro",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "33834f990cd6b50a03960ec0b61f2f2ea99d7b5e",
+ "commit_sha": "b50b9ca8f2e53cfdd155b6357431996d2b692c95",
+ "test_patch_sha256": "65869516bebc93f22c0221fc1e253f34370d0d3ce0fab69108a7c7b0faaa965b",
+ "gold_patch_sha256": "529ce1169bbb64f2683f98c4cd070d3001ba02f5200044aa1433c71e4d74645e",
+ "test_files": [
+  "tests/test_logistro.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T06:43:14.048Z"
+}

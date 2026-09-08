@@ -1,0 +1,34 @@
+diff --git a/README.md b/README.md
+index aea75b42fe0a2f3bb578384885024029902b5e87..dabb8fd70d00c0c160a68133e05af09def7b20e7 100644
+--- a/README.md
++++ b/README.md
+@@ -116,16 +116,3 @@ The meaning of the underlying raw data is documented in the [arXiv API User Manu
+ 
+ This project uses [UV](https://astral.sh/uv) for development, while maintaining compatibility with traditional pip installation for end users.
+ 
+-### Development Setup
+-
+-1. **Install UV** (if you haven't already):
+-   ```bash
+-   curl -LsSf https://astral.sh/uv/install.sh | sh
+-   ```
+-
+-2. **Clone and setup**:
+-   ```bash
+-   git clone https://github.com/lukasschwab/arxiv.py
+-   cd arxiv.py
+-   make dev-setup
+-   ```
+diff --git a/arxiv/__init__.py b/arxiv/__init__.py
+index c94bb54b8edb632d1a53cdc7bf33ed06c5f827d9..e8236879e878bfddc29e7197c72d798c07099a0e 100644
+--- a/arxiv/__init__.py
++++ b/arxiv/__init__.py
+@@ -502,7 +502,7 @@ class Search:
+         self,
+         query: str = "",
+         id_list: list[str] | None = None,
+-        max_results: int | None = None,
++        max_results: int | None = 100,
+         sort_by: SortCriterion = SortCriterion.Relevance,
+         sort_order: SortOrder = SortOrder.Descending,
+     ):

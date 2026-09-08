@@ -1,0 +1,15 @@
+diff --git a/src/svglib/svglib.py b/src/svglib/svglib.py
+index 719b06fe253de9a3b2348e6148d065f4e9bc5385..71eca768d0c50ccdd56b2b7dbe74978996a1f068 100644
+--- a/src/svglib/svglib.py
++++ b/src/svglib/svglib.py
+@@ -480,7 +480,9 @@ class AttributeConverter:
+         for i, lin in enumerate(line):
+             if lin in "()":
+                 brackets.append(i)
+-        for i in range(0, len(brackets), 2):
++        # Step in pairs and stop before a final unmatched "(" or ")" so an
++        # unbalanced transform (e.g. "scale(2") does not index past the list.
++        for i in range(0, len(brackets) - 1, 2):
+             bi, bj = brackets[i], brackets[i + 1]
+             subline = line[bi + 1 : bj]
+             subline = subline.strip()

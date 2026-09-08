@@ -1,0 +1,12 @@
+diff --git a/fast_depends/dependencies/provider.py b/fast_depends/dependencies/provider.py
+index f7ae3962095fee1add6d952f97909655b3f7370e..34d98cae3c51a036c66c30d34d4fe94ee87eed70 100644
+--- a/fast_depends/dependencies/provider.py
++++ b/fast_depends/dependencies/provider.py
+@@ -20,7 +20,6 @@ class Provider:
+         self.overrides = {}
+ 
+     def clear(self) -> None:
+-        self.dependencies = {}
+         self.overrides = {}
+ 
+     def add_dependant(

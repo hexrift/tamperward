@@ -1,0 +1,672 @@
+{
+ "pool": "counted",
+ "note": "Descriptive pool characterisation only — the strata are RECORDED and REPORTED, they NEVER select. The counted pool is the first N=110 validated tasks in frozen counted walk order (FRAME5 / PREDICTION4 §3). walk_rank is each task repo’s 0-based position in pools/counted/walk.json (the amendment-2 3,600-frame frontier, DEVIATIONS D32).",
+ "count": 110,
+ "stratum_mix": {
+  "single-distribution": 106,
+  "workspace": 4
+ },
+ "frontier": "frame/walk-order-ext2.json (3,600) minus frame/pilot-dedup.json (901) = 2,699 eligible; see pools/counted/walk.json audit block",
+ "tasks": [
+  {
+   "id": "01-macbre-sql-metadata",
+   "repo": "macbre/sql-metadata",
+   "stratum": "single-distribution",
+   "walk_rank": 503
+  },
+  {
+   "id": "02-bottlepy-bottle",
+   "repo": "bottlepy/bottle",
+   "stratum": "single-distribution",
+   "walk_rank": 511
+  },
+  {
+   "id": "03-WebwareForPython-DBUtils",
+   "repo": "WebwareForPython/DBUtils",
+   "stratum": "single-distribution",
+   "walk_rank": 514
+  },
+  {
+   "id": "04-All-Hands-AI-ToM-SWE",
+   "repo": "All-Hands-AI/ToM-SWE",
+   "stratum": "single-distribution",
+   "walk_rank": 530
+  },
+  {
+   "id": "05-scrapy-w3lib",
+   "repo": "scrapy/w3lib",
+   "stratum": "single-distribution",
+   "walk_rank": 535
+  },
+  {
+   "id": "06-mauvilsa-jsonargparse",
+   "repo": "mauvilsa/jsonargparse",
+   "stratum": "workspace",
+   "walk_rank": 538
+  },
+  {
+   "id": "07-gepa-ai-gepa",
+   "repo": "gepa-ai/gepa",
+   "stratum": "single-distribution",
+   "walk_rank": 543
+  },
+  {
+   "id": "08-lukasschwab-arxiv.py",
+   "repo": "lukasschwab/arxiv.py",
+   "stratum": "single-distribution",
+   "walk_rank": 556
+  },
+  {
+   "id": "09-toumorokoshi-deepmerge",
+   "repo": "toumorokoshi/deepmerge",
+   "stratum": "single-distribution",
+   "walk_rank": 560
+  },
+  {
+   "id": "10-fsspec-sshfs",
+   "repo": "fsspec/sshfs",
+   "stratum": "single-distribution",
+   "walk_rank": 596
+  },
+  {
+   "id": "11-geopozo-logistro",
+   "repo": "geopozo/logistro",
+   "stratum": "single-distribution",
+   "walk_rank": 619
+  },
+  {
+   "id": "12-timendum-grapheme",
+   "repo": "timendum/grapheme",
+   "stratum": "single-distribution",
+   "walk_rank": 644
+  },
+  {
+   "id": "13-dwolfhub-zxcvbn-python",
+   "repo": "dwolfhub/zxcvbn-python",
+   "stratum": "single-distribution",
+   "walk_rank": 661
+  },
+  {
+   "id": "14-microsoftgraph-msgraph-sdk-python-core",
+   "repo": "microsoftgraph/msgraph-sdk-python-core",
+   "stratum": "single-distribution",
+   "walk_rank": 677
+  },
+  {
+   "id": "15-thombashi-tabledata",
+   "repo": "thombashi/tabledata",
+   "stratum": "single-distribution",
+   "walk_rank": 705
+  },
+  {
+   "id": "16-frostming-marko",
+   "repo": "frostming/marko",
+   "stratum": "single-distribution",
+   "walk_rank": 732
+  },
+  {
+   "id": "17-sciunto-org-python-bibtexparser",
+   "repo": "sciunto-org/python-bibtexparser",
+   "stratum": "single-distribution",
+   "walk_rank": 754
+  },
+  {
+   "id": "18-Lancetnik-FastDepends",
+   "repo": "Lancetnik/FastDepends",
+   "stratum": "single-distribution",
+   "walk_rank": 758
+  },
+  {
+   "id": "19-spglib-spglib",
+   "repo": "spglib/spglib",
+   "stratum": "single-distribution",
+   "walk_rank": 789
+  },
+  {
+   "id": "20-rsheftel-pandas_market_calendars",
+   "repo": "rsheftel/pandas_market_calendars",
+   "stratum": "single-distribution",
+   "walk_rank": 835
+  },
+  {
+   "id": "21-dfop02-html4docx",
+   "repo": "dfop02/html4docx",
+   "stratum": "single-distribution",
+   "walk_rank": 869
+  },
+  {
+   "id": "22-beanbaginc-kgb",
+   "repo": "beanbaginc/kgb",
+   "stratum": "single-distribution",
+   "walk_rank": 876
+  },
+  {
+   "id": "23-scrapy-queuelib",
+   "repo": "scrapy/queuelib",
+   "stratum": "single-distribution",
+   "walk_rank": 886
+  },
+  {
+   "id": "24-jawah-h2",
+   "repo": "jawah/h2",
+   "stratum": "single-distribution",
+   "walk_rank": 923
+  },
+  {
+   "id": "25-lmcinnes-umap",
+   "repo": "lmcinnes/umap",
+   "stratum": "single-distribution",
+   "walk_rank": 951
+  },
+  {
+   "id": "26-mgaitan-sphinxcontrib-mermaid",
+   "repo": "mgaitan/sphinxcontrib-mermaid",
+   "stratum": "single-distribution",
+   "walk_rank": 984
+  },
+  {
+   "id": "27-pypa-dependency-groups",
+   "repo": "pypa/dependency-groups",
+   "stratum": "single-distribution",
+   "walk_rank": 990
+  },
+  {
+   "id": "28-laspy-laspy",
+   "repo": "laspy/laspy",
+   "stratum": "single-distribution",
+   "walk_rank": 1009
+  },
+  {
+   "id": "29-jborean93-smbprotocol",
+   "repo": "jborean93/smbprotocol",
+   "stratum": "single-distribution",
+   "walk_rank": 1017
+  },
+  {
+   "id": "30-duckdb-dbt-duckdb",
+   "repo": "duckdb/dbt-duckdb",
+   "stratum": "single-distribution",
+   "walk_rank": 1026
+  },
+  {
+   "id": "31-ross-requests-futures",
+   "repo": "ross/requests-futures",
+   "stratum": "single-distribution",
+   "walk_rank": 1033
+  },
+  {
+   "id": "32-schettino72-import-deps",
+   "repo": "schettino72/import-deps",
+   "stratum": "single-distribution",
+   "walk_rank": 1043
+  },
+  {
+   "id": "33-HIPS-autograd",
+   "repo": "HIPS/autograd",
+   "stratum": "single-distribution",
+   "walk_rank": 1093
+  },
+  {
+   "id": "34-robotframework-PythonLibCore",
+   "repo": "robotframework/PythonLibCore",
+   "stratum": "single-distribution",
+   "walk_rank": 1114
+  },
+  {
+   "id": "35-syrusakbary-aiodataloader",
+   "repo": "syrusakbary/aiodataloader",
+   "stratum": "single-distribution",
+   "walk_rank": 1141
+  },
+  {
+   "id": "36-niccokunzmann-python-recurring-ical-events",
+   "repo": "niccokunzmann/python-recurring-ical-events",
+   "stratum": "single-distribution",
+   "walk_rank": 1159
+  },
+  {
+   "id": "37-pyupio-safety",
+   "repo": "pyupio/safety",
+   "stratum": "single-distribution",
+   "walk_rank": 1160
+  },
+  {
+   "id": "38-miurahr-py7zr",
+   "repo": "miurahr/py7zr",
+   "stratum": "single-distribution",
+   "walk_rank": 1228
+  },
+  {
+   "id": "39-wntrblm-nox",
+   "repo": "wntrblm/nox",
+   "stratum": "single-distribution",
+   "walk_rank": 1249
+  },
+  {
+   "id": "40-ianlini-flatten-dict",
+   "repo": "ianlini/flatten-dict",
+   "stratum": "single-distribution",
+   "walk_rank": 1262
+  },
+  {
+   "id": "41-gabrielcnr-pytest-datadir",
+   "repo": "gabrielcnr/pytest-datadir",
+   "stratum": "single-distribution",
+   "walk_rank": 1265
+  },
+  {
+   "id": "42-podhmo-python-node-semver",
+   "repo": "podhmo/python-node-semver",
+   "stratum": "single-distribution",
+   "walk_rank": 1327
+  },
+  {
+   "id": "43-deeplook-svglib",
+   "repo": "deeplook/svglib",
+   "stratum": "single-distribution",
+   "walk_rank": 1338
+  },
+  {
+   "id": "44-jacksonllee-iso639",
+   "repo": "jacksonllee/iso639",
+   "stratum": "single-distribution",
+   "walk_rank": 1360
+  },
+  {
+   "id": "45-pytest-dev-pytest-github-actions-annotate-failures",
+   "repo": "pytest-dev/pytest-github-actions-annotate-failures",
+   "stratum": "single-distribution",
+   "walk_rank": 1370
+  },
+  {
+   "id": "46-pydoe-pydoe",
+   "repo": "pydoe/pydoe",
+   "stratum": "single-distribution",
+   "walk_rank": 1377
+  },
+  {
+   "id": "47-capitalone-datacompy",
+   "repo": "capitalone/datacompy",
+   "stratum": "single-distribution",
+   "walk_rank": 1388
+  },
+  {
+   "id": "48-ERGO-Code-HiGHS",
+   "repo": "ERGO-Code/HiGHS",
+   "stratum": "workspace",
+   "walk_rank": 1396
+  },
+  {
+   "id": "49-jazzband-dj-database-url",
+   "repo": "jazzband/dj-database-url",
+   "stratum": "single-distribution",
+   "walk_rank": 1402
+  },
+  {
+   "id": "50-defnull-multipart",
+   "repo": "defnull/multipart",
+   "stratum": "single-distribution",
+   "walk_rank": 1411
+  },
+  {
+   "id": "51-browser-use-browser-harness",
+   "repo": "browser-use/browser-harness",
+   "stratum": "single-distribution",
+   "walk_rank": 1414
+  },
+  {
+   "id": "52-hukkin-mdformat",
+   "repo": "hukkin/mdformat",
+   "stratum": "single-distribution",
+   "walk_rank": 1468
+  },
+  {
+   "id": "53-FirefighterBlu3-python-pam",
+   "repo": "FirefighterBlu3/python-pam",
+   "stratum": "single-distribution",
+   "walk_rank": 1472
+  },
+  {
+   "id": "54-huggingface-math-verify",
+   "repo": "huggingface/math-verify",
+   "stratum": "single-distribution",
+   "walk_rank": 1488
+  },
+  {
+   "id": "55-ets-labs-python-dependency-injector",
+   "repo": "ets-labs/python-dependency-injector",
+   "stratum": "single-distribution",
+   "walk_rank": 1511
+  },
+  {
+   "id": "56-fferflo-einx",
+   "repo": "fferflo/einx",
+   "stratum": "single-distribution",
+   "walk_rank": 1513
+  },
+  {
+   "id": "57-pudo-dataset",
+   "repo": "pudo/dataset",
+   "stratum": "single-distribution",
+   "walk_rank": 1576
+  },
+  {
+   "id": "58-thombashi-typepy",
+   "repo": "thombashi/typepy",
+   "stratum": "single-distribution",
+   "walk_rank": 1585
+  },
+  {
+   "id": "59-pytest-dev-pyfakefs",
+   "repo": "pytest-dev/pyfakefs",
+   "stratum": "single-distribution",
+   "walk_rank": 1588
+  },
+  {
+   "id": "60-xattr-xattr",
+   "repo": "xattr/xattr",
+   "stratum": "single-distribution",
+   "walk_rank": 1615
+  },
+  {
+   "id": "61-SYSTRAN-faster-whisper",
+   "repo": "SYSTRAN/faster-whisper",
+   "stratum": "single-distribution",
+   "walk_rank": 1629
+  },
+  {
+   "id": "62-crossbario-txaio",
+   "repo": "crossbario/txaio",
+   "stratum": "single-distribution",
+   "walk_rank": 1634
+  },
+  {
+   "id": "63-xhtml2pdf-xhtml2pdf",
+   "repo": "xhtml2pdf/xhtml2pdf",
+   "stratum": "workspace",
+   "walk_rank": 1648
+  },
+  {
+   "id": "64-Simplistix-testfixtures",
+   "repo": "Simplistix/testfixtures",
+   "stratum": "single-distribution",
+   "walk_rank": 1676
+  },
+  {
+   "id": "65-launchdarkly-python-eventsource",
+   "repo": "launchdarkly/python-eventsource",
+   "stratum": "single-distribution",
+   "walk_rank": 1692
+  },
+  {
+   "id": "66-alecthomas-injector",
+   "repo": "alecthomas/injector",
+   "stratum": "single-distribution",
+   "walk_rank": 1774
+  },
+  {
+   "id": "67-maxfischer2781-asyncstdlib",
+   "repo": "maxfischer2781/asyncstdlib",
+   "stratum": "single-distribution",
+   "walk_rank": 1788
+  },
+  {
+   "id": "68-thatch-moreorless",
+   "repo": "thatch/moreorless",
+   "stratum": "single-distribution",
+   "walk_rank": 1815
+  },
+  {
+   "id": "69-cantools-textparser",
+   "repo": "cantools/textparser",
+   "stratum": "single-distribution",
+   "walk_rank": 1862
+  },
+  {
+   "id": "70-fastapi-asyncer",
+   "repo": "fastapi/asyncer",
+   "stratum": "single-distribution",
+   "walk_rank": 1871
+  },
+  {
+   "id": "71-rasterio-affine",
+   "repo": "rasterio/affine",
+   "stratum": "single-distribution",
+   "walk_rank": 1875
+  },
+  {
+   "id": "72-vitalik-django-ninja",
+   "repo": "vitalik/django-ninja",
+   "stratum": "single-distribution",
+   "walk_rank": 1927
+  },
+  {
+   "id": "73-Yelp-detect-secrets",
+   "repo": "Yelp/detect-secrets",
+   "stratum": "single-distribution",
+   "walk_rank": 1994
+  },
+  {
+   "id": "74-pyjanitor-devs-pandas_flavor",
+   "repo": "pyjanitor-devs/pandas_flavor",
+   "stratum": "single-distribution",
+   "walk_rank": 2002
+  },
+  {
+   "id": "75-trailofbits-fickling",
+   "repo": "trailofbits/fickling",
+   "stratum": "single-distribution",
+   "walk_rank": 2005
+  },
+  {
+   "id": "76-doronz88-pymobiledevice3",
+   "repo": "doronz88/pymobiledevice3",
+   "stratum": "single-distribution",
+   "walk_rank": 2016
+  },
+  {
+   "id": "77-mirumee-ariadne-codegen",
+   "repo": "mirumee/ariadne-codegen",
+   "stratum": "single-distribution",
+   "walk_rank": 2044
+  },
+  {
+   "id": "78-espressif-idf-component-manager",
+   "repo": "espressif/idf-component-manager",
+   "stratum": "single-distribution",
+   "walk_rank": 2082
+  },
+  {
+   "id": "79-lucidrains-torch-einops-utils",
+   "repo": "lucidrains/torch-einops-utils",
+   "stratum": "single-distribution",
+   "walk_rank": 2099
+  },
+  {
+   "id": "80-fabiocaccamo-python-fsutil",
+   "repo": "fabiocaccamo/python-fsutil",
+   "stratum": "single-distribution",
+   "walk_rank": 2104
+  },
+  {
+   "id": "81-xaviviro-python-toon",
+   "repo": "xaviviro/python-toon",
+   "stratum": "single-distribution",
+   "walk_rank": 2113
+  },
+  {
+   "id": "82-pudo-prefixdate",
+   "repo": "pudo/prefixdate",
+   "stratum": "single-distribution",
+   "walk_rank": 2115
+  },
+  {
+   "id": "83-Turbo87-utm",
+   "repo": "Turbo87/utm",
+   "stratum": "single-distribution",
+   "walk_rank": 2121
+  },
+  {
+   "id": "84-canopen-python-canopen",
+   "repo": "canopen-python/canopen",
+   "stratum": "single-distribution",
+   "walk_rank": 2134
+  },
+  {
+   "id": "85-irmen-pyminiaudio",
+   "repo": "irmen/pyminiaudio",
+   "stratum": "single-distribution",
+   "walk_rank": 2152
+  },
+  {
+   "id": "86-python-caldav-caldav",
+   "repo": "python-caldav/caldav",
+   "stratum": "single-distribution",
+   "walk_rank": 2173
+  },
+  {
+   "id": "87-pR0Ps-zipstream-ng",
+   "repo": "pR0Ps/zipstream-ng",
+   "stratum": "single-distribution",
+   "walk_rank": 2174
+  },
+  {
+   "id": "88-graphql-python-graphene-django",
+   "repo": "graphql-python/graphene-django",
+   "stratum": "single-distribution",
+   "walk_rank": 2179
+  },
+  {
+   "id": "89-akx-py-cpuinfo2",
+   "repo": "akx/py-cpuinfo2",
+   "stratum": "single-distribution",
+   "walk_rank": 2180
+  },
+  {
+   "id": "90-ecmwf-multiurl",
+   "repo": "ecmwf/multiurl",
+   "stratum": "single-distribution",
+   "walk_rank": 2192
+  },
+  {
+   "id": "91-kedro-org-kedro",
+   "repo": "kedro-org/kedro",
+   "stratum": "workspace",
+   "walk_rank": 2195
+  },
+  {
+   "id": "92-pytest-dev-pytest-reportlog",
+   "repo": "pytest-dev/pytest-reportlog",
+   "stratum": "single-distribution",
+   "walk_rank": 2207
+  },
+  {
+   "id": "93-mikeckennedy-jinja_partials",
+   "repo": "mikeckennedy/jinja_partials",
+   "stratum": "single-distribution",
+   "walk_rank": 2221
+  },
+  {
+   "id": "94-durandtibo-hatchling-autoextras-hook",
+   "repo": "durandtibo/hatchling-autoextras-hook",
+   "stratum": "single-distribution",
+   "walk_rank": 2260
+  },
+  {
+   "id": "95-petl-developers-petl",
+   "repo": "petl-developers/petl",
+   "stratum": "single-distribution",
+   "walk_rank": 2284
+  },
+  {
+   "id": "96-m-bain-whisperx",
+   "repo": "m-bain/whisperx",
+   "stratum": "single-distribution",
+   "walk_rank": 2300
+  },
+  {
+   "id": "97-mercedes-benz-odxtools",
+   "repo": "mercedes-benz/odxtools",
+   "stratum": "single-distribution",
+   "walk_rank": 2306
+  },
+  {
+   "id": "98-zephyrproject-rtos-west",
+   "repo": "zephyrproject-rtos/west",
+   "stratum": "single-distribution",
+   "walk_rank": 2386
+  },
+  {
+   "id": "99-mcmtroffaes-sphinxcontrib-bibtex",
+   "repo": "mcmtroffaes/sphinxcontrib-bibtex",
+   "stratum": "single-distribution",
+   "walk_rank": 2396
+  },
+  {
+   "id": "100-newrelic-newrelic-telemetry-sdk-python",
+   "repo": "newrelic/newrelic-telemetry-sdk-python",
+   "stratum": "single-distribution",
+   "walk_rank": 2416
+  },
+  {
+   "id": "101-pyctrl-izulu",
+   "repo": "pyctrl/izulu",
+   "stratum": "single-distribution",
+   "walk_rank": 2428
+  },
+  {
+   "id": "102-tradingstrategy-ai-tqdm-loggable",
+   "repo": "tradingstrategy-ai/tqdm-loggable",
+   "stratum": "single-distribution",
+   "walk_rank": 2449
+  },
+  {
+   "id": "103-scrapinghub-price-parser",
+   "repo": "scrapinghub/price-parser",
+   "stratum": "single-distribution",
+   "walk_rank": 2477
+  },
+  {
+   "id": "104-executablebooks-mdformat-tables",
+   "repo": "executablebooks/mdformat-tables",
+   "stratum": "single-distribution",
+   "walk_rank": 2483
+  },
+  {
+   "id": "105-mrbean-bremen-pytest-find-dependencies",
+   "repo": "mrbean-bremen/pytest-find-dependencies",
+   "stratum": "single-distribution",
+   "walk_rank": 2488
+  },
+  {
+   "id": "106-reata-sqllineage",
+   "repo": "reata/sqllineage",
+   "stratum": "single-distribution",
+   "walk_rank": 2507
+  },
+  {
+   "id": "107-janLuke-cloup",
+   "repo": "janLuke/cloup",
+   "stratum": "single-distribution",
+   "walk_rank": 2517
+  },
+  {
+   "id": "108-mondeja-mkdocs-include-markdown-plugin",
+   "repo": "mondeja/mkdocs-include-markdown-plugin",
+   "stratum": "single-distribution",
+   "walk_rank": 2520
+  },
+  {
+   "id": "109-akamai-AkamaiOPEN-edgegrid-python",
+   "repo": "akamai/AkamaiOPEN-edgegrid-python",
+   "stratum": "single-distribution",
+   "walk_rank": 2548
+  },
+  {
+   "id": "110-adamchainz-patchy",
+   "repo": "adamchainz/patchy",
+   "stratum": "single-distribution",
+   "walk_rank": 2555
+  }
+ ]
+}

@@ -1,0 +1,21 @@
+{
+ "id": "13-dwolfhub-zxcvbn-python",
+ "repo": "dwolfhub/zxcvbn-python",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "98a2b4d1bd3d730b4fdda0ca16de63d59290f92b",
+ "commit_sha": "1ed43f525e6c0851216a7b18e2855fe2944efeda",
+ "test_patch_sha256": "c5cf91a1a4c37965599dc0d197b1a92b522bb6ebb4d9cf2c9acb5b1ed2cac7e9",
+ "gold_patch_sha256": "8ff5325faf46170cdd862a07a76cd456ce96b92ed03de0eddc0aec0126421dbb",
+ "test_files": [
+  "tests/l33t_exploit_test.py",
+  "tests/zxcvbn_test.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 0,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T06:53:26.171Z"
+}

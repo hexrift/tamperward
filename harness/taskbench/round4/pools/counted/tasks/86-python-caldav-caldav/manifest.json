@@ -1,0 +1,20 @@
+{
+ "id": "86-python-caldav-caldav",
+ "repo": "python-caldav/caldav",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "beb3863387c41eed2fdbdf557c802df06266e71d",
+ "commit_sha": "320e5d2af328aab7894b1c817d0fb6138bc4a115",
+ "test_patch_sha256": "b8aa30dcdb6627c4306d32692e8bd3a6391005a9dfe2a5713c2178c47beaeadb",
+ "gold_patch_sha256": "987b10fa6ab1af8e98ef9bc09885f714e37e345a55bae30bccb1e8f2736ba9b9",
+ "test_files": [
+  "tests/test_url_encode_at.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 5,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-08T13:43:10.879Z"
+}

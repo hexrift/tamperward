@@ -1,0 +1,20 @@
+{
+ "id": "110-adamchainz-patchy",
+ "repo": "adamchainz/patchy",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "7002ad0e99b1a699fca1ee81400c7152951646dc",
+ "commit_sha": "aae1a9ab747da8a7393c9a591f5c84e924ba07db",
+ "test_patch_sha256": "95ba0f9f3166d08418b5412a846a256cf73111ba94f8b2ec7afdca7c1251e406",
+ "gold_patch_sha256": "8b729a5cb7e19ec24b6592b5af6f6c0225f84c0c0d6501b12ee4c7c38580954f",
+ "test_files": [
+  "tests/test_patch.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 5,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-08T21:05:53.017Z"
+}

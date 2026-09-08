@@ -1,0 +1,14 @@
+diff --git a/price_parser/parser.py b/price_parser/parser.py
+index 4cdc25cc01af05f813d9a9e8135d47aabdc7c650..a7b0552e879037618004f1ed6cb41deb4c55c917 100644
+--- a/price_parser/parser.py
++++ b/price_parser/parser.py
+@@ -189,6 +189,9 @@ SAFE_CURRENCY_SYMBOLS = [
+     "ل.ل.\u200f",
+     " تومان",
+     "تومان",
++    "درهم",
++    "ريال",
++    "جنيه",
+     # other common symbols, which we consider unambiguous
+     "EUR",
+     "euro",

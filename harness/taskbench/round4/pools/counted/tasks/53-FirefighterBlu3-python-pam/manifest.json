@@ -1,0 +1,20 @@
+{
+ "id": "53-FirefighterBlu3-python-pam",
+ "repo": "FirefighterBlu3/python-pam",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "1eacf1546989a842f48a4c309c98f46e55167150",
+ "commit_sha": "f09faf15ee4fface7191c890ddaf3107b5c47dc8",
+ "test_patch_sha256": "22bd5985a33ec901f0e593ceadb57b984b4ab1fc741ee6110967b62b1477b153",
+ "gold_patch_sha256": "0df2782169c778525a8c9472d33a71d4b888013399ed47c468c27ff2fda3ba49",
+ "test_files": [
+  "tests/test_internals.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T18:25:47.040Z"
+}

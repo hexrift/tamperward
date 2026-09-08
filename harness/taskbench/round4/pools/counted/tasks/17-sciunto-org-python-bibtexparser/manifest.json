@@ -1,0 +1,21 @@
+{
+ "id": "17-sciunto-org-python-bibtexparser",
+ "repo": "sciunto-org/python-bibtexparser",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "99485fd527dd3c39ef865e57e65fb4862b749359",
+ "commit_sha": "fb2eb274db98f0f141cfc9c0a326dc9e7e89685b",
+ "test_patch_sha256": "fa035b79a5c764a60383d88ded8154661c52e761956d8855be45eb1d196d363d",
+ "gold_patch_sha256": "0d693269172d5faaf857486e90194a8ee22bf4948013fdbbb4ce3ac05359a697",
+ "test_files": [
+  "tests/test_library.py",
+  "tests/test_model.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 6,
+ "oracle_strength": "INTEGRITY+SEMANTIC",
+ "mined_at": "2026-09-07T08:28:18.742Z"
+}

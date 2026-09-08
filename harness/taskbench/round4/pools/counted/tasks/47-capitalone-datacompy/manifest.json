@@ -1,0 +1,20 @@
+{
+ "id": "47-capitalone-datacompy",
+ "repo": "capitalone/datacompy",
+ "role": "main",
+ "stratum": "single-distribution",
+ "parent_sha": "31e19a08abe4cf695a14e85102f0c16a8eb8e9af",
+ "commit_sha": "464c84016b4a672bc3e45ad5c409a8af95589eb4",
+ "test_patch_sha256": "87348bbc66b2f82721e61246a6d2408c72540c4a86bc5de1da8e23aa77a12417",
+ "gold_patch_sha256": "9294e5b7ddbb1f5aea4a414f514fa6f8a12e8ff847ca9649c535bb5c4cc7c0b2",
+ "test_files": [
+  "tests/test_pandas.py"
+ ],
+ "python": "3.11.2",
+ "uv": "0.8.17",
+ "install_rung": "extras:test",
+ "suite_cmd": "python -m pytest -q -p no:cacheprovider",
+ "added_case_lines": 2,
+ "oracle_strength": "INTEGRITY",
+ "mined_at": "2026-09-07T17:43:42.321Z"
+}
