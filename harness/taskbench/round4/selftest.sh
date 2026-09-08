@@ -981,6 +981,164 @@ node -e 'const m=require(process.argv[1]);process.exit(m.registration.model==="s
 rm -f /tmp/tb-fz-*.json /tmp/tb-fz-*.md /tmp/tb-fz-print.json
 
 
+echo "== counted execution manifest: the counted freeze is derived and checkable, not typed"
+CFZ=./freeze-counted-manifest.mjs
+# The real counted manifest is NOT frozen here — it is derived on the artefact host
+# after this tooling lands (PREDICTION4 sequence). Every case below therefore runs
+# against a SYNTHETIC fixture pool via the TB_COUNTED_POOL_DIR seam and NEVER derives
+# or bakes in the real 110->22 selection: the REGISTERED RULES are the subject, not
+# the pool. TB_ART_DIR is forced to an absent path so the treatment is deterministically
+# null on the freeze host and on a CI runner alike (the artefact-host derive is where
+# the real treatment identity is bound; here we test the derivation logic hermetically).
+CTEST='{"n_primary":8,"n_duplicates":3}'
+# Build a synthetic pool of N faithful 'main' tasks: manifest.json with self-consistent
+# patch hashes plus test.patch/gold.patch — exactly the shape derivePool validates.
+mkcounted_pool(){ node -e '
+const fs=require("fs"),path=require("path"),{createHash}=require("crypto");
+const dir=process.argv[1], n=+process.argv[2];
+const h=b=>createHash("sha256").update(b).digest("hex");
+for(let i=1;i<=n;i++){
+  const id=String(i).padStart(2,"0")+"-fixture-repo"+i;
+  const d=path.join(dir,id); fs.mkdirSync(d,{recursive:true});
+  const testp="test patch "+i+"\n", goldp="gold patch "+i+"\n";
+  fs.writeFileSync(path.join(d,"test.patch"),testp);
+  fs.writeFileSync(path.join(d,"gold.patch"),goldp);
+  fs.writeFileSync(path.join(d,"manifest.json"),JSON.stringify({
+    id, repo:"fixture/repo"+i, role:"main", stratum:"single-distribution",
+    parent_sha:"p".repeat(40), commit_sha:"c".repeat(40),
+    test_patch_sha256:h(testp), gold_patch_sha256:h(goldp),
+    test_files:["t"+i+".py"], python:"3.11.2", uv:"0.8.17",
+    install_rung:"extras:test", suite_cmd:"python -m pytest -q"
+  },null,1));
+}' "$1" "$2"; }
+CPOOL=$(mktemp -d); mkcounted_pool "$CPOOL" 8
+cprint(){ TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CPOOL" TB_COUNTED_FREEZE_TEST="${1:-$CTEST}" node "$CFZ" --print; }
+
+# ---- structure: N primary paired both-arm trajectories + a SEPARATE 22-style budget
+cprint > /tmp/tb-cfz-print.json 2>/dev/null
+node -e '
+const m=require("/tmp/tb-cfz-print.json"),a=[];
+const {createHash}=require("crypto");
+const ok=(c,d)=>a.push((c?"ok   ":"FAIL ")+d);
+const ids=m.pool.tasks.map(t=>t.id);
+ok(m.pool.task_count===8,"the fixture pool is exactly N=8 tasks");
+ok([...new Set(m.execution.task_order)].length===8 && m.execution.task_order.every(t=>ids.includes(t)),
+   "the order is a permutation of the pool: none dropped, none repeated");
+ok(m.execution.primary.trajectory_count===16 && m.execution.primary.trajectories.length===16,"both arms: exactly 2N primary trajectories");
+const per={}; for(const r of m.execution.primary.trajectories)(per[r.task]=per[r.task]||[]).push(r.arm);
+ok(Object.values(per).every(v=>v.length===2&&v.includes("gated")&&v.includes("ungated")),"every primary task runs once gated and once ungated");
+ok(m.execution.primary.trajectories.every((r,i)=>r.seq===i+1),"primary seq is dense and 1-based, so no trajectory can be skipped unnoticed");
+ok(m.execution.primary.trajectories.every((r,i)=>i%2===1?r.task===m.execution.primary.trajectories[i-1].task:true),"a primary task pair is adjacent: both arms run back to back");
+ok(m.execution.duplicates.task_ids.length===3,"the duplicate set is exactly n_duplicates=3");
+ok(m.execution.duplicates.task_ids.every(t=>ids.includes(t)),"every duplicate id is drawn from the primary pool — a re-run, never a new task");
+ok(m.execution.duplicates.trajectory_count===6 && m.execution.duplicates.trajectories.length===6,"the duplicate budget is exactly 2*n_duplicates trajectories");
+ok(m.execution.duplicates.trajectories.every(r=>r.duplicate===true),"every duplicate trajectory is tagged duplicate:true");
+ok(m.execution.primary.trajectories.every(r=>r.duplicate===undefined),"no primary trajectory is tagged duplicate — the budget never enters the N primary denominator");
+const seqs=m.execution.duplicates.trajectories.map(r=>r.seq);
+ok(seqs[0]===17 && seqs[seqs.length-1]===22,"duplicate seq continues after the primary block (17..22) and never renumbers it");
+ok(m.execution.trajectory_count===22,"total trajectories = 2*(N + duplicates)");
+// The duplicate selection FOLLOWS FROM the registered rule, recomputed independently here.
+const reg=m.registration;
+const want=ids.map(id=>[createHash("sha256").update(reg.duplicate_seed+":"+id).digest("hex"),id])
+  .sort((x,y)=>x[0]<y[0]?-1:x[0]>y[0]?1:(x[1]<y[1]?-1:x[1]>y[1]?1:0)).slice(0,3).map(x=>x[1]);
+ok(JSON.stringify(m.execution.duplicates.task_ids)===JSON.stringify(want),
+   "the 22-rule output equals an INDEPENDENT recomputation of sha256(dup_seed:id) sorted, first n — the rule, not a stored list");
+ok(m.execution_ready===false,"execution_ready is false: no counted order-enforcing driver is pinned yet");
+ok(m.binding_set.counted_driver===null,"the counted driver is declared null, not silently omitted");
+ok(m.treatment===null,"with no artefact on this host the treatment is null, not faked");
+console.log(a.join("\n"));
+' | while read -r v d; do [ "$v" = ok ] && ok "$d" || no "$d"; done
+
+# ---- the order, arms and duplicates each FOLLOW FROM their own seed, independently
+cord(){ cprint "${1:-$CTEST}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).execution.task_order.join(",")))'; }
+cdup(){ cprint "${1:-$CTEST}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).execution.duplicates.task_ids.join(",")))'; }
+# per-task arm, keyed by task id (order-independent), so this isolates the ARM seed
+carms(){ cprint "${1:-$CTEST}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const t=JSON.parse(s).execution.primary.trajectories.filter(r=>r.seq%2===1);const m={};for(const r of t)m[r.task]=r.arm;console.log(Object.keys(m).sort().map(k=>k+"="+m[k]).join(","))})'; }
+ALT_O='{"n_primary":8,"n_duplicates":3,"order_seed":"selftest-counted-other-order"}'
+ALT_D='{"n_primary":8,"n_duplicates":3,"duplicate_seed":"selftest-counted-other-dup"}'
+ALT_A='{"n_primary":8,"n_duplicates":3,"arm_order_seed":"selftest-counted-other-arm"}'
+[ "$(cord)" = "$(cord)" ] && ok "counted derivation is deterministic across runs" || no "counted derivation is not deterministic"
+[ "$(cord)" != "$(cord "$ALT_O")" ] && ok "a different order seed yields a different order — the order seed is load-bearing" || no "the order seed does not affect the order"
+[ "$(cdup)" != "$(cdup "$ALT_D")" ] && ok "a different duplicate seed yields a different duplicate set — the duplicate seed is load-bearing" || no "the duplicate seed does not affect the duplicates"
+[ "$(carms)" != "$(carms "$ALT_A")" ] && ok "a different arm seed yields a different arm assignment — the arm seed is load-bearing" || no "the arm seed does not affect the arms"
+[ "$(cdup)" = "$(cdup "$ALT_O")" ] && ok "the order seed does NOT perturb the duplicate set — order and duplicates are independent" || no "the order seed leaked into the duplicate set"
+[ "$(cord)" = "$(cord "$ALT_D")" ] && ok "the duplicate seed does NOT perturb the task order" || no "the duplicate seed leaked into the order"
+[ "$(carms)" = "$(carms "$ALT_O")" ] && ok "the order seed does NOT perturb per-task arm assignment" || no "the order seed leaked into the arms"
+
+# ---- fail closed: the pool cannot certify itself, and N is fixed not read off it
+CBAD=$(mktemp -d); cp -a "$CPOOL/." "$CBAD/"
+node -e 'const f=process.argv[1],fs=require("fs");const m=JSON.parse(fs.readFileSync(f));m.role="pilot";fs.writeFileSync(f,JSON.stringify(m,null,1))' "$CBAD/01-fixture-repo1/manifest.json"
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CBAD" TB_COUNTED_FREEZE_TEST="$CTEST" node "$CFZ" --print >/dev/null 2>&1; echo $?)" = 5 ] && ok "a non-'main' role in the counted pool is refused" || no "a non-main role was accepted"
+rm -rf "$CBAD"; CBAD=$(mktemp -d); cp -a "$CPOOL/." "$CBAD/"; echo tampered >> "$CBAD/02-fixture-repo2/gold.patch"
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CBAD" TB_COUNTED_FREEZE_TEST="$CTEST" node "$CFZ" --print >/dev/null 2>&1; echo $?)" = 5 ] && ok "a patch edited under its manifest is refused — the pool cannot certify itself" || no "a self-inconsistent patch was accepted"
+rm -rf "$CBAD"; CBAD=$(mktemp -d); cp -a "$CPOOL/." "$CBAD/"
+node -e 'const f=process.argv[1],fs=require("fs");const m=JSON.parse(fs.readFileSync(f));m.id="99-not-my-dir";fs.writeFileSync(f,JSON.stringify(m,null,1))' "$CBAD/03-fixture-repo3/manifest.json"
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CBAD" TB_COUNTED_FREEZE_TEST="$CTEST" node "$CFZ" --print >/dev/null 2>&1; echo $?)" = 5 ] && ok "a manifest id disagreeing with its directory is refused" || no "a mismatched id was accepted"
+rm -rf "$CBAD"
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CPOOL" TB_COUNTED_FREEZE_TEST='{"n_primary":9,"n_duplicates":3}' node "$CFZ" --print >/dev/null 2>&1; echo $?)" = 5 ] && ok "a pool whose size != n_primary is refused — N is registered, never read off the pool" || no "a wrong-sized pool was accepted"
+
+# ---- --check catches every binding forgery and tells the drift classes apart
+CBASE=$(mktemp /tmp/tb-cfz-XXXX.json)
+cprint > "$CBASE" 2>/dev/null
+TB_COUNTED_MANIFEST="$CBASE" node "$CFZ" --render > "${CBASE%.json}.md" 2>/dev/null
+CK2="TB_ART_DIR=/nonexistent-artefact TB_COUNTED_CHECK_NO_ARTEFACT=1 TB_COUNTED_CHECK_BINDING_ONLY=1 TB_COUNTED_POOL_DIR=$CPOOL TB_COUNTED_FREEZE_TEST=$CTEST"
+ctamper(){ local t; t=$(mktemp /tmp/tb-cfz-XXXX.json); node -e '
+const fs=require("fs"),m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+(new Function("m",process.argv[2]))(m);
+fs.writeFileSync(process.argv[3],JSON.stringify(m,null,1)+"\n");' "$CBASE" "$1" "$t"
+  TB_COUNTED_MANIFEST="$t" node "$CFZ" --render > "${t%.json}.md" 2>/dev/null; echo "$t"; }
+cckrc(){ env $CK2 TB_COUNTED_MANIFEST="$1" node "$CFZ" --check >/dev/null 2>&1; echo $?; }
+C=$(ctamper 'void 0')
+[ "$(cckrc "$C")" = 0 ] && ok "an untouched counted copy checks clean (the positive control — also proves the binding set is copy-closed)" || no "an untouched copy failed to check"
+C=$(ctamper 'const t=m.execution.primary.trajectories;[t[0].task,t[2].task]=[t[2].task,t[0].task];')
+[ "$(cckrc "$C")" = 2 ] && ok "a hand-edited counted execution order is caught" || no "a forged counted order passed"
+out=$(env $CK2 TB_COUNTED_MANIFEST="$C" node "$CFZ" --check 2>&1)
+case "$out" in *"BINDING DRIFT  execution (re-derived from the frozen seeds)"*) ok "and it is the re-derivation from the frozen seeds that catches the order" ;;
+               *) no "the order re-derivation comparison did not fire" ;; esac
+C=$(ctamper 'm.execution.duplicates.task_ids=[m.pool.tasks[0].id,m.pool.tasks[1].id,m.pool.tasks[2].id];')
+[ "$(cckrc "$C")" = 2 ] && ok "a hand-picked duplicate set that does not follow from the seed is caught — the degree of freedom the rule removes" || no "a forged duplicate set passed"
+C=$(ctamper 'm.execution.primary.trajectories[0].arm=m.execution.primary.trajectories[0].arm==="gated"?"ungated":"gated";')
+[ "$(cckrc "$C")" = 2 ] && ok "a flipped counted arm is caught" || no "a flipped arm passed"
+C=$(ctamper 'm.pool.tasks[0].gold_patch_sha256="0".repeat(64);')
+[ "$(cckrc "$C")" = 2 ] && ok "a rewritten counted task patch hash is caught" || no "a rewritten task hash passed"
+C=$(ctamper 'm.binding_set.files[0].sha256="0".repeat(64);')
+[ "$(cckrc "$C")" = 2 ] && ok "a rewritten runner hash is caught" || no "a rewritten runner hash passed"
+C=$(ctamper 'm.registration.duplicate_seed="selftest-swapped-seed";')
+[ "$(cckrc "$C")" = 2 ] && ok "a rewritten duplicate seed is caught — re-derivation stops following it" || no "a rewritten seed passed"
+C=$(ctamper 'm.registration.model="some-other-model";')
+[ "$(cckrc "$C")" = 2 ] && ok "a rewritten model is caught" || no "a rewritten model passed"
+# environment drift is a DIFFERENT answer from binding drift
+C=$(ctamper 'm.environment_recorded.kernel="selftest-not-this-kernel";')
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_COUNTED_CHECK_NO_ARTEFACT=1 TB_COUNTED_POOL_DIR="$CPOOL" TB_COUNTED_FREEZE_TEST="$CTEST" TB_COUNTED_MANIFEST="$C" node "$CFZ" --check >/dev/null 2>&1; echo $?)" = 3 ] \
+  && ok "counted environment drift exits 3 — recorded, not confused with binding drift" || no "counted environment drift did not exit 3"
+[ "$(cckrc "$C")" = 0 ] && ok "TB_COUNTED_CHECK_BINDING_ONLY=1 skips the host-dependent comparison for CI" || no "binding-only mode still failed on environment drift"
+C=$(ctamper 'm.environment_recorded.kernel="x"; m.registration.model="y";')
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_COUNTED_CHECK_NO_ARTEFACT=1 TB_COUNTED_POOL_DIR="$CPOOL" TB_COUNTED_FREEZE_TEST="$CTEST" TB_COUNTED_MANIFEST="$C" node "$CFZ" --check >/dev/null 2>&1; echo $?)" = 2 ] \
+  && ok "binding drift outranks environment drift" || no "binding drift was masked by environment drift"
+# the rendered page is part of the freeze
+C=$(ctamper 'void 0'); printf 'edited by hand\n' >> "${C%.json}.md"
+[ "$(cckrc "$C")" = 2 ] && ok "a hand-edited counted page is binding drift, not a cosmetic difference" || no "a hand-edited page passed"
+C=$(ctamper 'void 0'); rm -f "${C%.json}.md"
+[ "$(cckrc "$C")" = 2 ] && ok "a deleted counted page is caught rather than treated as nothing to compare" || no "a deleted page passed"
+# an absent treatment is never silently 'fine'
+C=$(ctamper 'void 0')
+[ "$(TB_ART_DIR=/nonexistent-artefact TB_COUNTED_POOL_DIR="$CPOOL" TB_COUNTED_FREEZE_TEST="$CTEST" TB_COUNTED_MANIFEST="$C" node "$CFZ" --check >/dev/null 2>&1; echo $?)" = 4 ] \
+  && ok "a missing counted artefact exits 4 rather than passing with the treatment unverified" || no "a missing artefact did not exit 4"
+out=$(TB_ART_DIR=/nonexistent-artefact TB_COUNTED_CHECK_NO_ARTEFACT=1 TB_COUNTED_CHECK_BINDING_ONLY=1 TB_COUNTED_POOL_DIR="$CPOOL" TB_COUNTED_FREEZE_TEST="$CTEST" TB_COUNTED_MANIFEST="$C" node "$CFZ" --check 2>&1)
+echo "$out" | grep -q "treatment identity UNVERIFIED" && ok "and it SAYS the treatment is unverified" || no "the missing-artefact allowance is silent about what it skipped"
+
+# ---- the seams cannot reach the real manifest; nothing is frozen yet, so refuse cleanly
+for seam in TB_COUNTED_FREEZE_TEST='{"model":"x"}' TB_COUNTED_POOL_DIR=/tmp; do
+  rc=$(env "$seam" node "$CFZ" --check >/dev/null 2>&1; echo $?)
+  [ "$rc" = 5 ] && ok "\`${seam%%=*}\` is refused against the real counted manifest path" || no "\`${seam%%=*}\` reached the real manifest (rc=$rc)"
+done
+[ "$(node "$CFZ" --check >/dev/null 2>&1; echo $?)" = 5 ] && ok "--check refuses when no counted manifest is frozen yet" || no "--check did not refuse a missing manifest"
+[ "$(node "$CFZ" --render >/dev/null 2>&1; echo $?)" = 5 ] && ok "--render refuses when no counted manifest is frozen yet" || no "--render did not refuse a missing manifest"
+[ "$(node "$CFZ" --bogus >/dev/null 2>&1; echo $?)" = 5 ] && ok "an unknown counted mode is a usage error (exit 5)" || no "an unknown mode did not exit 5"
+[ ! -e ./COUNTED-EXECUTION-MANIFEST.json ] && ok "no COUNTED-EXECUTION-MANIFEST.json is committed — the freeze is derived on the artefact host, after this tooling lands" || no "a counted manifest was committed before the artefact-host freeze"
+rm -rf "$CPOOL"; rm -f /tmp/tb-cfz-*.json /tmp/tb-cfz-*.md /tmp/tb-cfz-print.json
+
+
 echo "== pilot driver: the frozen order is ENFORCED and RECORDED, not merely written down"
 DRV=./pilot-drive.sh
 # The behavioural driver tests bind to the CURRENT tree, not iteration 1's closed
