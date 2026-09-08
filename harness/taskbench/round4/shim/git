@@ -48,9 +48,15 @@ CONTROL_REPO=${TB_CONTROL_REPO:-pallets/flask}
 # this transport cannot see (private, deleted, or selectively blocked).
 SIG='could not read Username|terminal prompts disabled|Authentication failed|Repository not found|repository .* not found|remote: Not Found'
 
-is_clone=0
-for a in "$@"; do [ "$a" = clone ] && { is_clone=1; break; }; done
-[ "$is_clone" = 0 ] && exec "$REAL" "$@"
+# `__tbclassify <url>` is a classify-ONLY entrypoint (no clone): the miner calls it
+# after the OUTER clone timeout has killed a shim mid-clone, to decide 90/91/92 for a
+# repo whose clone could not complete in the frozen budget (D33 correction). Handled
+# below once the probe functions are defined — do not exec real git for it.
+if [ "${1:-}" != "__tbclassify" ]; then
+  is_clone=0
+  for a in "$@"; do [ "$a" = clone ] && { is_clone=1; break; }; done
+  [ "$is_clone" = 0 ] && exec "$REAL" "$@"
+fi
 
 infra_log() {
   printf '{"event":"INFRASTRUCTURE_FAILURE","reason":"%s","at":"%s"}\n' \
@@ -125,6 +131,14 @@ classify_and_exit() { # <owner/repo-or-empty> <target-clone-url-or-empty>
   echo "tb-shim: UNCLONABLE_LIVE $slug (target reachable across $PROBE_REPEAT probes between two healthy controls, but the clone exhausted its attempts under the frozen procedure)" >&2
   exit 92
 }
+
+# Classify-only dispatch (see `__tbclassify` at the top): probe reachability WITHOUT
+# cloning and exit 90/91/92 via the same control-sandwiched classifier the clone path
+# uses. The miner invokes this on an outer-timeout kill (miner rc 124). (D33 correction.)
+if [ "${1:-}" = "__tbclassify" ]; then
+  cu="${2:-}"
+  classify_and_exit "$(printf '%s' "$cu" | sed -E 's#^.*github\.com[:/]+##; s#\.git$##; s#/+$##')" "$cu"
+fi
 
 # A breaker already tripped by a sibling: never start another clone.
 [ -e "$BREAKER" ] && die_infra "breaker already tripped"

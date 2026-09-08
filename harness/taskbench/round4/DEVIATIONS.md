@@ -3818,3 +3818,48 @@ reachable-but-unclonable repo and the **walk completes** across two of them with
 `CLONE_FAILED`; and a transport-unhealthy failure (control #1 down) with a reachable target **still**
 halts with no verdict. The prior D6 cases (REPO_UNAVAILABLE, control/timeout/othererror halts, the
 outer-timeout halt, no-CLONE_FAILED) are unchanged and still pass.
+
+### D33 correction (append-only) — 2026-09-08, the outer-timeout path is extended to classify
+
+The scope note above deferred the outer-timeout path (miner `crc=124`: a single clone
+attempt runs until the outer 600 s `timeout` kills the shim before it can classify),
+leaving it as D6's fail-closed halt. It has now recurred and is extended, exactly as
+foreseen.
+
+**What happened.** After the D33 clone-exhaustion fix merged, counted mining resumed and
+reached **89 → 94/110**, then halted on `JohnSnowLabs/spark-nlp` (rank ~2196) with
+`clone rc=124` — the outer 600 s budget fired (a large repo whose blobless full-history
+clone does not complete in the budget), not the fast-fail-then-classify path
+`intellij-community` took. A re-dispatch halted **again** on the same repo at `rc=124`.
+Two independent dispatches both timing out at 600 s is the persistence evidence D6's
+fail-closed stance requires: this is the repository's property, not a one-off slow
+episode. (`intellij-community`, by contrast, fast-failed once and then cloned cleanly on
+retry — vindicating the halt-and-retry disambiguation.)
+
+**The extension.** On `crc=124` the miner no longer blindly halts: it re-probes the
+target via the shim's new classify-only entrypoint (`git __tbclassify <url>`, which runs
+the identical control-sandwiched classifier **without cloning**) and routes the result
+the same way the self-classified clone path does — **reachable → `UNCLONABLE_LIVE` (92)**,
+unavailable → `REPO_UNAVAILABLE` (91), anything the probe cannot attribute to the target
+(control failure / transport fault) → halt (90). The **600 s budget and the clone
+procedure are unchanged**; only the disposition of a clone that exceeds the budget for a
+provably-reachable target changed, from halt to the terminal, candidate-neutral
+`UNCLONABLE_LIVE` skip — which is the "clone exceeds the existing 600 s bound" trigger the
+original D33 answer named.
+
+**How "no local/harness fault" is honoured.** The control-sandwich is the operational
+test: the classify-only probe requires a fixed public control (`pallets/flask`) to
+`ls-remote` successfully on both sides of the target check. A network/proxy fault fails
+the control → halt (not `UNCLONABLE_LIVE`), so a *transport* slowdown can never be
+mislabelled as the repo's. What remains is a reachable target whose clone cannot complete
+in the frozen budget while the transport is demonstrably healthy — measurement
+unavailable under the frozen procedure. A single 600 s timeout with healthy controls is
+taken as that trigger; for `spark-nlp` it was independently confirmed persistent across
+two dispatches before this change was written.
+
+**Proven by self-tests (network-free):** an outer timeout (a hanging fake git under a 1 s
+budget) with a reachable target → `UNCLONABLE_LIVE`, walk continues, no breaker; with an
+unavailable target → `REPO_UNAVAILABLE`, walk continues; with control #1 down → halt,
+breaker, no verdict; none writes `CLONE_FAILED`. Nothing about the treatment, binding set,
+adjudicator, policy, endpoint, N, ordering, or any seed changes; the 94 validated tasks
+are untouched.
