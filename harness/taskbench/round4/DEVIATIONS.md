@@ -3753,3 +3753,68 @@ test, N, analysis, or any seed; it moves no frozen rank and re-maps no repositor
 verdict, and the 73 validated tasks are unaffected. What changes is only that the counted walk now
 carries the tail the registration always specified. This is a frame-completion correction, distinct
 from the D31 integrity rule's "genuine new binding/apparatus defect" (none is claimed here).
+
+## D33 — 2026-09-08, a reachable-but-unclonable repo had no disposition; added UNCLONABLE_LIVE
+
+**What happened.** Counted mining (run #13, the extended 2,699 frontier) reached
+`JetBrains/intellij-community` at **rank 2190** with 89/110 validated. The clone exhausted its three
+attempts under the frozen procedure (`git clone --filter=blob:none`, unchanged 600 s budget); the D6
+shim then confirmed — control-sandwiched — that the target is **reachable** (`ls-remote` succeeds), so
+per D6 it classified the failure as infrastructure (exit 90) and **halted with no verdict**. Correct
+under D6, which was written for a *dead* repo (→ `REPO_UNAVAILABLE`) and treats every reachable-target
+clone failure as a transient infrastructure fault to halt on. But this repo is not transient: it is a
+very large monorepo the miner (which needs full history, so no `--depth`) cannot materialise here at
+all. D6 had **no disposition for a repository that is reachable but cannot be materialised under the
+frozen procedure**, so the walk was stuck — a blind re-dispatch re-halts on the same rank.
+
+**Disposition — a general, prospective, candidate-neutral rule (NOT a one-off skip, NOT a timeout
+raise).** The 600 s budget and the clone procedure are the frozen operational bound and are **left
+unchanged**; the missing piece was only what to do when that bound cannot produce a working tree for a
+reachable repo. Added a third terminal clone outcome, `UNCLONABLE_LIVE`, symmetric to
+`REPO_UNAVAILABLE`:
+
+- **Trigger (all must hold, control-sandwiched, exactly mirroring the 91 proof):** the clone has
+  exhausted its attempts; a control `ls-remote` succeeds; the **target** `ls-remote` is **reachable**
+  on every one of `PROBE_REPEAT` probes (a stable, definite signal — not a timeout, not a non-auth
+  error, not a signal that flaps to unavailable); a second control succeeds. The transport is
+  demonstrably healthy on both sides, so the failure is the repository's, not the network's.
+- **Disposition:** a **terminal attrition** verdict (`"gate":"UNCLONABLE_LIVE"`), rank preserved,
+  clone-exhaustion + reachability evidence recorded; the miner advances monotonically to the next
+  rank. It enters the resume/completeness verdict set exactly like the other terminal skips, so a
+  resume never re-clones it.
+
+It is called **"measurement unavailable / operationally unclonable"**, **not** `G0-ineligible`:
+eligibility cannot be established without cloning, so no out-of-gate knowledge (e.g. "IntelliJ is not a
+pytest project") is used to justify the skip. The clean, defensible fact is only that the repo could
+not be measured under the frozen procedure. The rule applies **identically to every remaining rank**;
+it is not specific to `intellij-community`.
+
+**Fail-closed preserved.** Only a *proven-reachable* target (both controls healthy, a stable reachable
+signal across all probes) becomes `UNCLONABLE_LIVE`. Every case D6 halts on still halts: control
+failure (transport unhealthy), a target probe timeout, a non-auth error, or a target that flaps
+between reachable and unavailable — all remain `INFRASTRUCTURE_FAILURE` (breaker + halt, no verdict).
+The change reroutes exactly one previously-halting state (clone exhausted **and** target proven
+reachable) into a terminal skip.
+
+**Scope, stated plainly.** The trigger is the shim's own clone-exhaustion classifier (the path
+`intellij-community` took: the three attempts fail, the shim then probes and proves reachability). The
+rarer path where a *single* clone attempt hangs until the **outer** 600 s `timeout` kills the shim
+before it can classify (miner `crc=124`) is **left as D6's fail-closed halt**, unchanged; if that mode
+is ever hit it halts for operator judgment rather than being auto-skipped. This can be extended to
+classify post-timeout later if it recurs; it is disclosed here rather than silently broadened.
+
+**Not a treatment/binding change, and not the D31 stop condition.** Like D6, this changes only the
+disposition of an unsuccessful clone — candidate SELECTION plumbing — never task construction,
+validation, the binding set, the adjudicator, the policy, the endpoint, N, ordering, or any seed. It
+cannot turn a non-task into a task or the reverse (an unmaterialisable repo can never be adjudicated),
+so the 89 already-validated tasks and every recorded verdict are untouched. It is therefore an
+operational mining-infrastructure disposition, not the "genuine new binding/apparatus defect" D31 stops
+the counted experiment for.
+
+**Proven by self-tests (network-free, via the fake-git/faked-probe harness):** a persistently
+reachable target between two healthy controls → `UNCLONABLE_LIVE` (92) with **no** breaker; a target
+that flaps unavailable→reachable → halt (90); the miner writes one `UNCLONABLE_LIVE` per
+reachable-but-unclonable repo and the **walk completes** across two of them with no breaker and no
+`CLONE_FAILED`; and a transport-unhealthy failure (control #1 down) with a reachable target **still**
+halts with no verdict. The prior D6 cases (REPO_UNAVAILABLE, control/timeout/othererror halts, the
+outer-timeout halt, no-CLONE_FAILED) are unchanged and still pass.

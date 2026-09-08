@@ -19,7 +19,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; cd "$HERE"
 TB_RUNTIME_DIR="${TB_RUNTIME_DIR:-/tmp}"; mkdir -p "$TB_RUNTIME_DIR"
 POOL="${1:-pilot}"
 P="pools/$POOL"
-V='"gate":"(EXCLUDED_INACTIVE|G0_NO_PYPROJECT|G0_NOT_PYTEST|G0_NO_TESTS|NO_QUALIFYING_COMMITS|CLONE_FAILED|REPO_UNAVAILABLE|CANDIDATES_EXHAUSTED|TASK_VALIDATED|QUOTA_FULL)"'
+V='"gate":"(EXCLUDED_INACTIVE|G0_NO_PYPROJECT|G0_NOT_PYTEST|G0_NO_TESTS|NO_QUALIFYING_COMMITS|CLONE_FAILED|REPO_UNAVAILABLE|UNCLONABLE_LIVE|CANDIDATES_EXHAUSTED|TASK_VALIDATED|QUOTA_FULL)"'
 POOL_LOCK="${TB_POOL_LOCK:-$TB_RUNTIME_DIR/tb-mine5-$POOL.lock}"
 # Held = a miner is running. We try to take it non-blocking in a subshell; if we
 # get it we release it immediately (harmless), if we cannot the miner has it.
@@ -49,6 +49,8 @@ echo "decided        $(grep -cE "$V" "$P/attrition.jsonl" 2>/dev/null || echo 0)
 echo "tasks          $(ls "$P/tasks" 2>/dev/null | wc -l)"
 cf=$(grep -c CLONE_FAILED "$P/attrition.jsonl" 2>/dev/null); cf=${cf:-0}
 echo "CLONE_FAILED   $cf  (D3 regression: must be 0)"
+ul=$(grep -c UNCLONABLE_LIVE "$P/attrition.jsonl" 2>/dev/null); ul=${ul:-0}
+echo "UNCLONABLE_LIVE $ul  (D33: reachable but not materialisable under the frozen procedure)"
 echo "breaker        $([ -e "${TB_CLONE_BREAKER:-$TB_RUNTIME_DIR/tb-clone-breaker}" ] && echo TRIPPED || echo clear)"
 hb="${TB_HEARTBEAT:-$TB_RUNTIME_DIR/tb-mine-$POOL.heartbeat}"
 if [ -f "$hb" ]; then

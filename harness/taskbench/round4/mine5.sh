@@ -152,7 +152,7 @@ SRC_RE='\.py$'
 VENDOR_RE='(^|/)(vendor|_vendor|third_party)/'
 STRATUM_EXCL_RE='(^|/)(test|tests|testing|doc|docs|example|examples|fixtures|vendor|_vendor|third_party|benchmark|benchmarks)/'
 # Repo-level verdicts (resume + completeness both key on exactly this set)
-VERDICT_RE='"gate":"(EXCLUDED_INACTIVE|G0_NO_PYPROJECT|G0_NOT_PYTEST|G0_NO_TESTS|NO_QUALIFYING_COMMITS|CLONE_FAILED|REPO_UNAVAILABLE|CANDIDATES_EXHAUSTED|TASK_VALIDATED|QUOTA_FULL)"'
+VERDICT_RE='"gate":"(EXCLUDED_INACTIVE|G0_NO_PYPROJECT|G0_NOT_PYTEST|G0_NO_TESTS|NO_QUALIFYING_COMMITS|CLONE_FAILED|REPO_UNAVAILABLE|UNCLONABLE_LIVE|CANDIDATES_EXHAUSTED|TASK_VALIDATED|QUOTA_FULL)"'
 
 PYV=$(python3 --version 2>&1 | awk '{print $2}')
 UVV=$(uv --version 2>&1 | awk '{print $2}')
@@ -223,17 +223,21 @@ process_repo() {
   rm -rf "$dir"
   # The clone goes through the shim, which classifies any non-success into a
   # returned EXIT CODE (never a ledger write): 0 success, 91 REPO_UNAVAILABLE
-  # (confirmed 404 with a healthy control), anything else infrastructure. The
-  # miner is the sole ledger writer, and there is NO CLONE_FAILED path any more:
-  # a transient failure or an outer-timeout kill (rc 124) is infrastructure and
-  # HALTS the walk without a verdict, rather than poisoning the repo (the D3
-  # defect). REPO_UNAVAILABLE is the only terminal per-repo verdict a clone can
-  # now produce, and only on proof the repo — not the network — is the problem.
+  # (target proven persistently unavailable, control healthy), 92 UNCLONABLE_LIVE
+  # (target proven persistently reachable but the clone exhausted its attempts
+  # under the frozen procedure — measurement unavailable, D33), anything else
+  # infrastructure. The miner is the sole ledger writer, and there is NO
+  # CLONE_FAILED path any more: a transient failure or an outer-timeout kill
+  # (rc 124) is infrastructure and HALTS the walk without a verdict, rather than
+  # poisoning the repo (the D3 defect). REPO_UNAVAILABLE and UNCLONABLE_LIVE are
+  # the two terminal per-repo verdicts a clone can produce, each only on PROOF
+  # (control-sandwiched) about the repo — not the network.
   timeout "$CLONE_TIMEOUT" git clone --quiet --filter=blob:none "$CLONE_BASE/$repo.git" "$dir" 2>/dev/null
   local crc=$?
   case "$crc" in
     0) : ;;
     91) jlog "$repo" "REPO_UNAVAILABLE"; return ;;
+    92) jlog "$repo" "UNCLONABLE_LIVE" "\"evidence\":\"reachable via ls-remote (control-sandwiched); clone exhausted its attempts under the frozen procedure (blobless full history, ${CLONE_TIMEOUT}s budget)\""; return ;;
     *) : > "${TB_CLONE_BREAKER:-$TB_RUNTIME_DIR/tb-clone-breaker}"
        echo "tb-mine: INFRASTRUCTURE_FAILURE cloning $repo (clone rc=$crc) — halting, no verdict written" >&2
        exit 90 ;;
