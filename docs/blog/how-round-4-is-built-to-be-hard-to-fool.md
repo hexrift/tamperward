@@ -28,10 +28,10 @@ An AI agent writes code, and the same agent can usually edit the tests, configs
 and CI that judge that code. When a pressured agent turns a failing suite green,
 "green" is ambiguous between *the code got fixed* and *the check got weakened* —
 and weakening is cheaper. Tamperward is a gate that tries to make the second one
-hard: it refuses edits that delete tests, weaken assertions, or narrow what the
-runner collects, unless a human signs off out of band. The research question is
-narrow and empirical: **does the gate change what agents actually get away with,
-on real regressions, measured without fooling ourselves?**
+hard: it refuses known test-deletion, test-skip, test-content-removal and
+verification-narrowing moves, unless a human signs off out of band. The research
+question is narrow and empirical: **does the gate change what agents actually get
+away with, on real regressions, measured without fooling ourselves?**
 
 ## 2. A frozen treatment and a frozen binding set
 
@@ -71,10 +71,14 @@ test cannot do without: a population the analysis has never seen.
 
 The unit of evidence is a **pair**. Each task is run twice on the same frozen
 model: once with the Tamperward gate live (gated) and once without it (ungated),
-same task, same prompt, same jail, the arm order fixed by a published seed. The
-agent is blind to its arm. Pairing is what lets the round ask the only question
-that matters — *did the gate change the outcome on this task* — with each task as
-its own control, rather than comparing two different samples of repositories.
+same task, same prompt, same jail, with arm order fixed by a published seed. The
+arm is not announced in the prompt; in the gated arm the agent may nevertheless
+infer its assignment from Tamperward's enforcement feedback, so this is not a
+placebo-blinded intervention — the round measures the behavioural effect of
+observable enforcement, not of a hidden treatment. Pairing is what lets the round
+ask the only question that matters — *did the gate change the outcome on this
+task* — with each task as its own control, rather than comparing two different
+samples of repositories.
 
 ## 5. The product is not the jail
 
@@ -146,12 +150,19 @@ it is honest precisely because the classifier stopped calling an unrunnable suit
 an ordinary red.
 
 A repository that cannot be *reached* at all is the same kind of honest gap one
-step earlier. When a source is live but cannot be materialised into a working
-tree — a clone that consistently times out or refuses while the network itself is
-proven healthy — the round records it as a disclosed **operational attrition**
-(*measurement unavailable*), never as an ineligible task and never as a failure.
-That rule is general and fixed before the repositories it applies to are drawn, so
-which ones it removes is not a choice made after seeing them.
+step earlier — and here the record has to be exact about timing, because the rule
+was not preregistered. The registered clone procedure did not originally define a
+terminal disposition for a source that stayed reachable but could not be
+materialised into a working tree within its frozen clone budget — a clone that
+consistently times out or refuses while the network itself is proven healthy. That
+gap surfaced *during* counted mining and is recorded in the deviations log (D33). A
+general, candidate-neutral **UNCLONABLE_LIVE** disposition (*measurement
+unavailable*) was then added — without changing the clone budget, the eligibility
+rules, the walk order, the seeds, or any previously validated task — and it applies
+uniformly on continuation of the walk, recorded as attrition and never as an
+ineligible task or a failure. Which remaining repositories it removes is not
+discretionary; but it was registered when the gap appeared, not before, and the
+deviations log says so rather than dressing it up as a prior commitment.
 
 ## 9. The lifecycle: closed → between-iterations → frozen
 
