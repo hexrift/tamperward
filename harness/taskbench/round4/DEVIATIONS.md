@@ -4124,3 +4124,52 @@ pool freeze, with workspace-aware discovery and separately validated native/comp
 scikit-build-core extension is a plausible *second* barrier (its editable install
 resolves through a build-dir loader, so the sentinel step might also fail) but
 execution never reached it — noted for future work, not asserted as observed.
+
+## D40 — 2026-09-09, counted sweep PAUSED for a non-counted liveness census across the frozen pool
+
+After two pre-sampling `TARGET_DISCOVERY_FAILED` cases exposed distinct unsupported
+package layouts — `48-ERGO-Code-HiGHS` (workspace-nested `highs/highspy/…`, D39) and
+`99-mcmtroffaes-sphinxcontrib-bibtex` (PEP 420 namespace `src/sphinxcontrib/bibtex/…`)
+— the counted sweep was **paused** to apply the unchanged frozen liveness procedure
+across the complete frozen counted pool. The diagnostic uses **no model sampling and
+does not inspect treatment outcomes**. Its purpose is to determine the extent and
+composition of pre-sampling measurement availability under the already-frozen
+apparatus. No task, ordering, arm, treatment, verifier, or liveness rule is changed.
+
+**Task 99 dispositioned under D39.** `99-mcmtroffaes-sphinxcontrib-bibtex` is a second
+deterministic `PRE_SAMPLING_LIVENESS_UNAVAILABLE` case: it is a PEP 420 namespace
+package, so the frozen probe's `backing_file` tries `sphinxcontrib/__init__.py` and
+`src/sphinxcontrib/__init__.py` (a namespace has neither) and `sphinxcontrib_bibtex/…`
+(the directory is `sphinxcontrib/bibtex/`), and never tries the dotted path. Its full
+scheduled footprint — seq 11 (ungated) and seq 12 (gated); primary pair, not a
+duplicate — is marked measurement-unavailable symmetrically per D39. No sampling
+occurred; no budget spent.
+
+**Why size it now.** The two cases are not "unlucky tasks": they show the frozen probe
+has a systematic source-discovery limitation spanning multiple packaging layouts and
+both strata. Continuing one task at a time risks discovering late that the realised
+denominator is materially smaller and compositionally biased. The census sizes that
+before more model budget is spent.
+
+**No preregistered minimum-N or stopping rule.** PREDICTION4 powers N=110 at 0.80
+(scenario B, P(underpowered)=0.03) and defines an interpretation floor (six ungated
+false greens) that is explicitly "not a stopping rule"; it defines no minimum
+analyzable N. So any continue/stop decision after the census is a transparent
+**post-freeze methodological judgment**, recorded as such — not presented as
+preregistered. Pre-set decision framework (fixed before the census result is seen):
+if the remaining measurable pool comfortably supports the registered primary
+analysis, apply D39 mechanically to every deterministically-unavailable task and
+continue, reporting the reduced realised denominator; if the attrition materially
+undermines the registered power/estimand or removes a meaningful class of
+repositories, stop the counted round, report the liveness-gate omission as the round
+finding, and rerun a future round with the corrected pre-freeze gate. No replacements
+from outside the frozen 110; no modification of `editable-liveness.py` during this
+round.
+
+**The sharpened apparatus finding.** The counted pool was frozen on **suite
+viability**, but counted execution requires a stronger **edit-to-import liveness**
+property that was never screened across the pool (the shared probe is pinned into the
+binding set but was never run as a counted pre-freeze gate). That is a genuine
+apparatus defect, not a bad task. The frozen probe is not modified during this round;
+broadening its discovery (workspace-nested, namespace/dotted, compiled-editable) and
+running the liveness gate before pool freeze are the next-round fixes.
