@@ -82,16 +82,15 @@ jobs:
             echo "[$LABEL policy check] general egress from inside the jail (expect BLOCKED):"
             sudo ip netns exec "$NETNS" env -u HTTPS_PROXY -u https_proxy curl -sS -m 8 -o /dev/null -w '  direct pypi.org -> http=%{http_code}\n' "https://pypi.org/simple/" 2>&1 | tail -1 || echo "  direct pypi.org -> BLOCKED (expected)"
 
-            # FAITHFUL to counted: run-task4.sh's SCRUB unsets only TB_*, so the counted
-            # suite runs with GITHUB_ACTIONS/CI PRESERVED on its GHA runner. Plain sudo
-            # strips them, so pass them through explicitly (env-driven tasks like 45 are
-            # GITHUB_ACTIONS-sensitive; network-driven tasks like 07 are unaffected).
-            run_jailed() { ( cd "$D" && sudo timeout 300 ip netns exec "$NETNS" \
+            # FAITHFUL to counted, exactly: run-task4.sh runs the suite as
+            #   sudo -E env "${SCRUB[@]}" HTTPS_PROXY=... ip-netns-exec ... pytest
+            # where SCRUB unsets ONLY TB_*. So preserve the WHOLE GHA env (sudo -E) minus
+            # TB_* (none exist here) — not a hand-picked subset. This carries GITHUB_WORKSPACE
+            # et al. that env-sensitive tasks (45's annotation-path plugin) actually read.
+            run_jailed() { ( cd "$D" && sudo -E timeout 300 ip netns exec "$NETNS" \
                 env NO_PROXY= no_proxy= HTTPS_PROXY="http://$PROXY_HOST:$PORT" https_proxy="http://$PROXY_HOST:$PORT" \
-                GITHUB_ACTIONS="${GITHUB_ACTIONS:-}" CI="${CI:-}" GITHUB_RUN_ID="${GITHUB_RUN_ID:-}" \
-                GITHUB_WORKFLOW="${GITHUB_WORKFLOW:-}" GITHUB_REF="${GITHUB_REF:-}" RUNNER_OS="${RUNNER_OS:-}" \
                 "$PY" -m pytest -q -p no:cacheprovider ) >"$1" 2>&1; echo $?; }
-            echo "[$LABEL env fidelity] GITHUB_ACTIONS passed through = ${GITHUB_ACTIONS:-<unset>}"
+            echo "[$LABEL env fidelity] full GHA env preserved via sudo -E; GITHUB_ACTIONS=${GITHUB_ACTIONS:-<unset>} GITHUB_WORKSPACE=${GITHUB_WORKSPACE:-<unset>}"
 
             echo "== $LABEL P (jailed, frozen cmd) =="; PRC=$(run_jailed "/tmp/$LABEL.P.out"); echo "$LABEL P rc=$PRC"; tail -3 "/tmp/$LABEL.P.out"
             git -C "$D" apply --whitespace=nowarn "$MF/test.patch" && echo "$LABEL test.patch applied" || echo "$LABEL test.patch FAILED"
