@@ -4173,3 +4173,161 @@ binding set but was never run as a counted pre-freeze gate). That is a genuine
 apparatus defect, not a bad task. The frozen probe is not modified during this round;
 broadening its discovery (workspace-nested, namespace/dotted, compiled-editable) and
 running the liveness gate before pool freeze are the next-round fixes.
+
+## D41 — 2026-09-09, counted liveness census RESULT; D39 extended to 7 tasks; continuation warranted; PRE_SAMPLING_CONTRACT_UNAVAILABLE introduced (45 disposed, 07 pending read-only diagnosis)
+
+This records the **result** of the D40 census — documentation of what the frozen
+apparatus actually showed. It is a post-freeze operational record: **no model
+sampling, no counted outcome, no budget spent, and no change to any frozen task,
+probe, manifest, arm assignment, runner, or ordering.** It does not prejudice the
+remaining run.
+
+### The census that ran
+
+The unchanged census tool (`verify-pilot-tasks.sh`, `TB_LIVENESS=1`) was run once per
+task in its ONLY-mode over all **110** frozen counted tasks, credential-free, with no
+`claude`/agent/trajectory, via `.github/workflows/liveness-census.yml` (GitHub Actions
+run `34397302112`, 15 stride-shards + aggregate, all green). Runner: `ubuntu24` image
+`20260907.300.1`, kernel `6.17.0-1022-azure`, node `v22.23.2`, python `3.11.16`, uv
+`0.8.17`, repo `7e78afd`. The probe, install ladder, and classifier were not modified.
+
+**Evidential scope.** The **liveness** classification is a property of the frozen
+probe against the pinned source and is environment-independent (it reproduced
+identically off-runner). The **H/P/R/G** columns run the actual test suites and are
+environment-sensitive; only the census runner's canonical values are used here (an
+off-runner reproduction was explicitly discarded because running the suites as root,
+6-way parallel, on a different base image produced spurious parent-control failures
+the runner did not — it agreed on liveness but not on P/R/G).
+
+### Result — LIVENESS (primary census endpoint): 103 / 110 LIVE (93.6%)
+
+| bucket | probe exit | n | tasks |
+|---|---|---:|---|
+| LIVE | 0 | 103 | (all others) |
+| TARGET_DISCOVERY_FAILED | 2 | 4 | `19-spglib`, `26-mgaitan-sphinxcontrib-mermaid`, `48-ERGO-Code-HiGHS`, `99-mcmtroffaes-sphinxcontrib-bibtex` |
+| FRESH_IMPORT_FAILED (LIVENESS_PROBE_ERROR) | 2 | 2 | `72-vitalik-django-ninja`, `88-graphql-python-graphene-django` |
+| SENTINEL_NOT_OBSERVED | 1 | 1 | `109-akamai-AkamaiOPEN-edgegrid-python` |
+
+By stratum: single-distribution 100/106 LIVE (6 unavailable: `19, 26, 72, 88, 99,
+109`); workspace 3/4 LIVE (1 unavailable: `48`). The one workspace loss is not a
+stratum effect — it shares its mechanism with single-distribution `19` (see below).
+`exit 1` (probe ran, coupling not demonstrated) is kept distinct from `exit 2`
+(apparatus could not take the measurement).
+
+### Continuation judgment (post-freeze; PREDICTION4 defines no minimum-N)
+
+103/110 tasks satisfy the frozen liveness invariant (93.6%). Seven are pre-sampling
+measurement-unavailable under the frozen probe: four TARGET_DISCOVERY_FAILED, two
+FRESH_IMPORT_FAILED, and one SENTINEL_NOT_OBSERVED. The losses span multiple
+mechanisms and do not remove either registered stratum wholesale. On that basis, the
+round remains scientifically useful and continuation is warranted, subject to
+separately resolving the two P/R/G anomalies. No unavailable task is replaced and the
+frozen liveness apparatus is unchanged.
+
+### D39 extended: the 7 liveness-unavailable tasks
+
+All 7 meet D39's `PRE_SAMPLING_LIVENESS_UNAVAILABLE` definition — before sampling, the
+frozen liveness procedure cannot establish live coupling, and the failure is
+deterministic under the frozen apparatus (the probe and pinned source are frozen, so a
+re-run cannot change the result; D36's one infrastructure replacement is not spent).
+Each is dispositioned symmetrically at task level across all its scheduled
+trajectories, with the driver's `seq-NNN/<task>-<arm>.adjudicated` marker
+(`sampled=false, model_output=none, budget_spent=0,
+disposition=PRE_SAMPLING_LIVENESS_UNAVAILABLE`); positions preserved, no replacement.
+`48` and `99` were already recorded (D39, D40); the census confirms them and adds
+`19, 26, 72, 88, 109`.
+
+Per-task, exactly what the probe reported (`candidates=` verbatim; no downstream cause
+asserted beyond the observed failing stage):
+
+- `99-…-sphinxcontrib-bibtex` — `TARGET_DISCOVERY_FAILED candidates=sphinxcontrib,sphinxcontrib_bibtex`. PEP 420 namespace `sphinxcontrib.bibtex`; discovery tried the bare namespace (no `__init__`) and the wrong flat name, never the dotted path.
+- `26-…-sphinxcontrib-mermaid` — `TARGET_DISCOVERY_FAILED candidates=sphinxcontrib_mermaid`. Same `sphinxcontrib.*` namespace family.
+- `48-ERGO-Code-HiGHS` — `TARGET_DISCOVERY_FAILED candidates=_editable_skbc_highspy,highspy`. Workspace-nested `highs/highspy/…` source layout associated with its scikit-build-core editable packaging; frozen discovery failed before sentinel testing. (Preserves D39's observed mechanism; the `_editable_skbc_highspy` finder name now visible in the candidates corroborates the scikit-build-core *association* but the failing stage observed is still discovery, not a proven sentinel/build-loader failure.)
+- `19-spglib-spglib` — `TARGET_DISCOVERY_FAILED candidates=_editable_skbc_spglib,spglib`. Single-distribution with scikit-build-core editable packaging (same `_editable_skbc_*` finder-shim association as `48`, in a non-workspace layout); frozen discovery failed before sentinel testing.
+- `109-akamai-…-edgegrid-python` — `SENTINEL_NOT_OBSERVED`: the probe ran and found that `akamai` imports a **static copy, not** `akamai/__init__.py`. This is the one substantive case — edit→import coupling was measured and is **not** live for this layout, which would also make a counted solve edit untrustworthy.
+- `72-vitalik-django-ninja` — `FRESH_IMPORT_FAILED`: a bare fresh-interpreter import of `ninja` raises (Django `LazySettings` unevaluated). The probe cannot take the measurement without Django settings configured (a probe limitation for framework packages, distinct from `109`'s measured-not-live).
+- `88-…-graphene-django` — `FRESH_IMPORT_FAILED`: fresh import of `graphene_django` raises `ImproperlyConfigured: Requested setting DEBUG, but settings are not configured`. Same framework-import class as `72`.
+
+### New post-freeze disposition — PRE_SAMPLING_CONTRACT_UNAVAILABLE (distinct from liveness)
+
+The P/R/G bonus audit surfaced **2 of 103 LIVE tasks** whose frozen qualification
+contract does not hold on the counted runner. These are **not** liveness failures and
+are **not** folded into D39. A new general, prospective task-level disposition is
+introduced:
+
+> **PRE_SAMPLING_CONTRACT_UNAVAILABLE** — a frozen counted task is
+> measurement-unavailable when, before model sampling, the unchanged qualification
+> procedure cannot establish the registered P/R/G contract (untouched parent GREEN,
+> parent+tests RED, parent+tests+gold GREEN), and read-only evidence shows the failure
+> is attributable to the task/environment/harness interaction rather than transient
+> infrastructure.
+
+Applied at task level to every scheduled trajectory for the task, positions preserved,
+no replacement, and with **no change to the frozen task or runner**.
+
+- **`45-pytest-dev-pytest-github-actions-annotate-failures` → CONTRACT_UNAVAILABLE (now).**
+  Census: LIVE, but **P (untouched parent) is RED (rc=1)** — the untreated baseline
+  fails. Mechanism is clear and by construction: the package activates when
+  `GITHUB_ACTIONS=true` and annotates pytest failures, so its own suite behaves
+  differently on a GitHub Actions runner than on the non-GHA firecracker mining host
+  where P was GREEN. The **counted runner is itself GitHub Actions** (`counted.yml`),
+  so the counted environment changes the untreated baseline — the task cannot support
+  the registered masked-failure comparison on this runner. Changing `GITHUB_ACTIONS`,
+  special-casing the task, or altering the environment would be a **new execution
+  condition introduced after counted outcomes already exist**, which is why the
+  disposition is exclusion, not a fix. Not duplicated (primary pair only).
+
+- **`07-gepa-ai-gepa` → pending read-only diagnosis.**
+  Census: LIVE, P GREEN, but **R could not be measured (`HARNESS_ERROR`, pytest
+  rc=3)** — parent+tests hit a pytest internal/collection error, so the fail-before
+  contract is unattributable. Because rc=3 can mean several things, a small read-only
+  reproduction of the exact frozen P/R/G procedure is done first (no change to tests or
+  harness) to establish whether the error is deterministic. If deterministic (as the
+  census strongly indicates) → CONTRACT_UNAVAILABLE, symmetric exclusion; if transient
+  → investigate separately before any sampling. **Not excluded yet.** Not duplicated
+  (primary pair only).
+
+The distinction from D39 is deliberate: D39 = the frozen **liveness** probe cannot
+establish edit→import coupling; CONTRACT_UNAVAILABLE = liveness holds but the frozen
+**P/R/G qualification contract** cannot be established pre-sampling for
+task/environment/harness reasons.
+
+### Denominators
+
+```
+110 primary tasks
+  |
+  +-- 7  PRE_SAMPLING_LIVENESS_UNAVAILABLE (D39)   -> 103 LIVE
+              |
+              +-- 2 held for separate P/R/G disposition
+              |     (45 = CONTRACT_UNAVAILABLE; 07 = pending read-only diagnosis)
+              v
+maximum currently eligible primary denominator = 101–103
+final denominator remains subject to later
+registered / pre-sampling measurement attrition
+```
+
+Duplicate pairs: of all 9 excluded/pending tasks, **only `48` is in the 22-duplicate
+set**, so the duplicate denominator is **21** (unchanged from D39); the census's six
+additional liveness exclusions and the two P/R/G cases touch primary pairs only.
+
+### What is not changed, and what remains paused
+
+No frozen task, probe (`editable-liveness.py`), manifest, arm assignment, runner, or
+ordering is modified; no unavailable task is replaced. The counted sweep stays
+**PAUSED**. Before any trajectory resumes, in order: (1) this record lands; (2) `45`
+stays excluded under CONTRACT_UNAVAILABLE; (3) `07`'s rc=3 is reproduced read-only;
+(4) if deterministic, `07` is excluded symmetrically too; (5) the resulting maximum
+denominator is recorded; (6) an explicit human go; (7) the frozen sweep resumes with
+these dispositions applied. Steps 1–5 spend no model budget.
+
+### Apparatus findings for the next round (not retrofitted here)
+
+The census confirms and sharpens D39/D40's finding. The next-round pre-freeze gate
+must (a) run the frozen liveness probe with discovery broadened for **namespace-dotted**
+(`sphinxcontrib.*`), **workspace-nested**, and **compiled/scikit-build-core editable**
+layouts, and handle **framework packages** whose bare import needs configuration
+(Django); and (b) run the **P/R/G qualification on the actual counted runner
+environment** (GitHub Actions), so a GHA-sensitive untreated baseline like `45` is
+caught before freeze rather than after. Mining qualification on a non-GHA host is not
+sufficient evidence of counted-runner qualification.
