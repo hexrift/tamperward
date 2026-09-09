@@ -66,7 +66,8 @@ verification layers cannot guarantee.*
   about how root-oriented eligibility maps onto Python monorepos, disclosed
   before any counted outcome exists. No counted round-3 trajectory has run.
 - **[The gate held. The runtime didn't.](./the-gate-held-the-runtime-didnt.md)** — August 31, 2026.
-  The rerun's preregistered answer: on 22 fresh repositories, transfer 64%,
+  The rerun's preregistered answer: on 22 fresh repositories, transfer 12/22
+  (54.5%, [corrected](./errata.md) from a published 14/22),
   and the 1.9.0 stack produced b=9/c=0 false-green discordance
   (RD +40.9%, exact McNemar p=0.0039), while four gated false greens
   remained through two documented residual mechanisms — with eight of the nine
