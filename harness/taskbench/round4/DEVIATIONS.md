@@ -4285,17 +4285,19 @@ partial passthrough (still missing `GITHUB_WORKSPACE`) both misread `45` as P-gr
 Only the jailed **full-env** run reproduces the counted condition for both tasks.
 
 - **`45-pytest-dev-pytest-github-actions-annotate-failures` → CONTRACT_UNAVAILABLE
-  (finalized).** Under the counted net-jail with the full GHA env, the untouched parent
-  is **RED** (`P rc=1`: 2 failed / 14 passed). The plugin computes annotation file paths
-  relative to `GITHUB_WORKSPACE`; on the counted runner that points at the tamperward
-  checkout (a foreign tree), so it emits absolute paths
-  (`::warning file=/tmp/pytest-of-root/.../my_module.py`) where its own self-tests
-  expect relative ones, and the parent fails. (The open-net census also showed P RED —
-  faithful for this env-driven mechanism; the net-jail is irrelevant to it.) The counted
-  environment reproduces this by construction, so the untreated baseline is invalid on
-  the counted runner. Changing `GITHUB_WORKSPACE`/`GITHUB_ACTIONS` or special-casing the
-  task would be a **new execution condition introduced after counted outcomes exist**,
-  so the disposition is exclusion, not a fix. Not duplicated (primary pair only).
+  (finalized).** Under the faithful counted runner (net-jail + full GHA env) the
+  untouched parent is **RED** (`P rc=1`: 2 failed / 14 passed). Stated narrowly to what
+  run `34413592725` proved: with the inherited GHA environment present — notably the
+  foreign `GITHUB_WORKSPACE` (`/home/runner/work/tamperward/tamperward`) — the plugin's
+  emitted annotation paths do not match what its own parent self-tests expect (observed
+  `::warning file=/tmp/pytest-of-root/.../my_module.py` where the test expects a relative
+  `file=my_module.py`), and two parent tests fail. No claim is made about the plugin's
+  internal path logic beyond that observation. (The open-net census also showed P RED,
+  faithful for this env-driven behavior; the net-jail is irrelevant to it.) So the
+  counted runner's inherited environment changes the untreated baseline, making it
+  invalid on that runner. Changing `GITHUB_WORKSPACE`/`GITHUB_ACTIONS` or special-casing
+  the task would be a **new execution condition introduced after counted outcomes
+  exist**, so the disposition is exclusion, not a fix. Not duplicated (primary pair only).
 
 - **`07-gepa-ai-gepa` → CONTRACT_UNAVAILABLE (finalized).** Under the counted net-jail
   the untouched parent is **RED** (`P rc=1`: 13 failed / 679 passed / 6 errors, all
