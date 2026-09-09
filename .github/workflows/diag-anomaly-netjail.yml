@@ -1,0 +1,105 @@
+name: diag-anomaly-netjail
+
+# THROWAWAY read-only diagnostic (D41 step 3, faithful) — reproduce the frozen P/R
+# qualification of the two P/R/G-anomaly tasks (07-gepa-ai-gepa, 45-pytest-…-annotate-
+# failures) UNDER THE COUNTED NET-JAIL / PROXY POLICY, which is the actual counted
+# execution condition (run-task4.sh runs the verdict suite inside `ip netns exec` via
+# the allowlist proxy). Open-net (the census) is NOT the execution condition, so this
+# closes the record faithfully.
+#
+# Per task: clone the frozen parent, run the frozen install ladder OPEN-net on the host
+# (as counted provisioning does, before the jail), then build the SAME counted jail
+# (net-jail.sh -> netns+nft, allowlist-proxy.mjs -> only api.anthropic.com, upstream =
+# ci-upstream-proxy.mjs) and run the frozen suite command INSIDE the jail for P and R
+# (twice), capturing rc + full output. NO Claude credential, NO model sampling, NO
+# edits to task/tests/probe/harness. Push-triggered on this throwaway branch only;
+# never merged. Delete the branch after reading the run.
+on:
+  push:
+    branches: [sec/round4-diag-07]
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.8.17'
+      - name: Jail deps (nftables, iproute2, jq) — same as counted.yml
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nftables iproute2 jq
+      - name: Faithful counted-net-jail P/R diagnosis of 07 and 45 (no credential, no sampling)
+        run: |
+          set -uo pipefail
+          ROOT="$PWD"
+          RUNNER="$ROOT/harness/taskbench/runner"
+          POOL="$ROOT/harness/taskbench/round4/pools/counted/tasks"
+          echo "runner: ${ImageOS:-?} ${ImageVersion:-?} ; $(python3.11 --version) ; $(uv --version) ; $(node --version)"
+
+          # Upstream CONNECT forwarder, exactly as counted.yml starts it. 07/45 never
+          # call api.anthropic.com, so its reachability is irrelevant to them; it exists
+          # only so the jail's allowlist proxy has a well-formed upstream.
+          node "$ROOT/harness/taskbench/round4/ci-upstream-proxy.mjs" 8888 >/tmp/upstream.log 2>&1 &
+          UP=$!; trap 'kill $UP 2>/dev/null || true' EXIT
+          UPSTREAM="http://127.0.0.1:8888"; sleep 1
+
+          diag_task() {  # <task-dir> <label>
+            local MF="$1" LABEL="$2" REPO PSHA D V PY TAG PORT PROXY_HOST NETNS PXPID PRC R1 R2
+            REPO=$(node -p "require('$MF/manifest.json').repo")
+            PSHA=$(node -p "require('$MF/manifest.json').parent_sha")
+            echo; echo "################## $LABEL  repo=$REPO parent=$PSHA ##################"
+            D=$(mktemp -d)/repo; V=$(mktemp -d)/venv
+            git clone -q --filter=blob:none "https://github.com/$REPO" "$D"
+            git -C "$D" checkout -q --detach "$PSHA"
+            # install OPEN-net on the host (counted provisioning happens before the jail)
+            uv venv -q -p python3.11 "$V"; PY="$V/bin/python"
+            ( cd "$D" && timeout 300 uv pip install -q -p "$PY" -e ".[test]" ) && echo "install extras:test OK" \
+              || { echo "extras:test failed, trying plain -e ."; ( cd "$D" && timeout 300 uv pip install -q -p "$PY" -e . ) && echo "install plain OK" || echo "install FAILED rc=$?"; }
+            uv pip install -q -p "$PY" pytest >/dev/null 2>&1
+
+            # build the counted net-jail (needs root; ip/nft)
+            TAG="d-$LABEL-$$"; PORT=$(( 20000 + (RANDOM % 20000) ))
+            read -r PROXY_HOST NETNS < <(sudo bash "$RUNNER/net-jail.sh" setup "$TAG" "$PORT") || true
+            if [ -z "${NETNS:-}" ]; then echo "!!! $LABEL NETJAIL SETUP FAILED — skipping"; return 0; fi
+            echo "$LABEL jail: netns=$NETNS egress only via $PROXY_HOST:$PORT (allowlist -> $UPSTREAM)"
+            sudo -E env "PATH=$PATH" node "$RUNNER/allowlist-proxy.mjs" "$PORT" "/tmp/netlog-$LABEL" "$PROXY_HOST" "$UPSTREAM" >/tmp/proxy-$LABEL.log 2>&1 &
+            PXPID=$!; sleep 2
+            echo "[$LABEL policy check] general egress from inside the jail (expect BLOCKED):"
+            sudo ip netns exec "$NETNS" env -u HTTPS_PROXY -u https_proxy curl -sS -m 8 -o /dev/null -w '  direct pypi.org -> http=%{http_code}\n' "https://pypi.org/simple/" 2>&1 | tail -1 || echo "  direct pypi.org -> BLOCKED (expected)"
+
+            run_jailed() { ( cd "$D" && sudo timeout 300 ip netns exec "$NETNS" \
+                env NO_PROXY= no_proxy= HTTPS_PROXY="http://$PROXY_HOST:$PORT" https_proxy="http://$PROXY_HOST:$PORT" \
+                "$PY" -m pytest -q -p no:cacheprovider ) >"$1" 2>&1; echo $?; }
+
+            echo "== $LABEL P (jailed, frozen cmd) =="; PRC=$(run_jailed "/tmp/$LABEL.P.out"); echo "$LABEL P rc=$PRC"; tail -3 "/tmp/$LABEL.P.out"
+            git -C "$D" apply --whitespace=nowarn "$MF/test.patch" && echo "$LABEL test.patch applied" || echo "$LABEL test.patch FAILED"
+            echo "== $LABEL R run 1 (jailed) =="; R1=$(run_jailed "/tmp/$LABEL.R1.out"); echo "$LABEL R1 rc=$R1"
+            echo "== $LABEL R run 2 (jailed, determinism) =="; R2=$(run_jailed "/tmp/$LABEL.R2.out"); echo "$LABEL R2 rc=$R2"
+
+            echo ">>> $LABEL JAILED VERDICT: P rc=$PRC  R1 rc=$R1  R2 rc=$R2   (frozen classifier: 0=GREEN 1=RED 3=HARNESS_ERROR)"
+            echo ">>> $LABEL R1 INTERNALERROR lines: $(grep -c 'INTERNALERROR' "/tmp/$LABEL.R1.out" 2>/dev/null || echo 0) ; WindowsPath: $(grep -c "cannot instantiate 'WindowsPath'" "/tmp/$LABEL.R1.out" 2>/dev/null || echo 0)"
+            echo "--- $LABEL P tail ---"; grep -E 'passed|failed|error|ERROR' "/tmp/$LABEL.P.out" | tail -4
+            echo "--- $LABEL R1 tail ---"; tail -22 "/tmp/$LABEL.R1.out"
+
+            sudo kill "$PXPID" 2>/dev/null || true
+            sudo bash "$RUNNER/net-jail.sh" teardown "$TAG" >/dev/null 2>&1 || true
+          }
+
+          diag_task "$POOL/07-gepa-ai-gepa" 07-gepa
+          diag_task "$POOL/45-pytest-dev-pytest-github-actions-annotate-failures" 45-annotate
+          echo; echo "=== diagnosis complete — classify per the D41 decision tree ==="
