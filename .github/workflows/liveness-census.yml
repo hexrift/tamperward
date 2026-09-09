@@ -1,0 +1,331 @@
+name: liveness-census
+
+# Round-4 NON-COUNTED liveness census over the frozen counted pool (DEVIATIONS D40).
+# MANUAL, non-required, never on push. This is the enactment of the D40 pause: it
+# applies the UNCHANGED frozen liveness procedure across all 110 frozen counted tasks
+# to size pre-sampling measurement availability BEFORE any further model budget is
+# spent. It is a diagnostic, not a counted step.
+#
+# WHAT IT IS NOT. It samples NO model (no CLAUDE_CODE_OAUTH_TOKEN, no `claude`, no
+# agent, no trajectory). It inspects NO treatment outcome. It runs `run-task4.sh` and
+# `counted-drive.sh` NOT AT ALL, so it can neither start, resume, halt, nor re-roll a
+# counted trajectory. `permissions: contents: read` means it cannot write the
+# round4-counted-state branch or any other branch — counted state is physically
+# untouchable from here. There is no auto-resume of the sweep: this workflow only
+# measures and reports.
+#
+# WHAT IT RUNS. `verify-pilot-tasks.sh`, byte-for-byte the frozen census tool, once
+# per task in its ONLY-mode (task id as $1), with TB_LIVENESS=1 and TB_POOL_DIR set
+# to the ABSOLUTE path of pools/counted (see the run step for why it must be
+# absolute). That path clones each task's pinned repo from a FRESH
+# disposable checkout, builds the SAME python3.11 + editable install ladder the
+# trajectory uses, then runs the SAME editable-liveness.py primitive run-task4.sh
+# calls at PRE_AGENT time. The probe, the ladder and the classifier are not modified,
+# reimplemented, or parameterised here — the workflow is a driver around the frozen
+# script, nothing more.
+#
+# WHY A GITHUB RUNNER MIRRORS COUNTED EXECUTION. The counted trajectories run on this
+# same `ubuntu-latest` image with node 22 / python 3.11 / uv 0.8.17 and NO build-tool
+# additions beyond the base image (counted.yml adds only jail packages, which do not
+# affect a task's install). The census deliberately adds no compiler or build
+# capability the counted runner lacks, so an install/clone/probe failure here
+# faithfully predicts counted-execution unavailability rather than being an artefact
+# of a leaner or richer environment.
+#
+# READING THE RESULT. The liveness endpoint is aggregated PER TASK from the
+# `[liveness-audit]` line the probe emits, never from the script's pass/fail counter
+# (a census EXPECTS many non-LIVE tasks, so that counter is meaningless here). The
+# probe's three exit classes are kept distinct: LIVE (exit 0), LIVENESS_NOT_VERIFIED
+# (exit 1 — the probe ran, coupling not demonstrated: SENTINEL_NOT_OBSERVED) and
+# LIVENESS_PROBE_ERROR (exit 2 — the apparatus could not measure:
+# TARGET_DISCOVERY_FAILED and friends). H/P/R/G is a SEPARATE, secondary bonus audit
+# reported alongside; a task that is LIVE but fails P/R/G is a distinct apparatus/pool
+# issue, surfaced on its own — never folded into the liveness census or D39.
+#
+# The script's in-code phrase "pre-freeze qualification" describes exactly the gap
+# D40 records: the pool was frozen on suite viability, not on edit-to-import liveness.
+# The wording is not edited mid-census; it is called out in D40 and in the results.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read   # READ ONLY — the census never writes a branch and never touches counted state
+
+concurrency:
+  group: round4-liveness-census
+  cancel-in-progress: false
+
+env:
+  # Stride-sharded across this many parallel runners. 110 frozen tasks -> 7-8 per
+  # shard. Each shard is an independent runner, so its identity fingerprint is
+  # captured separately (per-shard differences are preserved in the record).
+  SHARDS_TOTAL: "15"
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    # Per-task worst case is bounded by the script's own 300 s STEP_TIMEOUT on each of
+    # install + up to three suite runs (~20 min); 7-8 tasks/shard sit far under this
+    # ceiling. The ceiling only backstops a pathological hang.
+    timeout-minutes: 300
+    strategy:
+      # A non-LIVE task is an EXPECTED census outcome, never a reason to cancel the
+      # other shards. Every shard must run to completion so all 110 are measured.
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1     # the census needs only the frozen pool + probe at HEAD, not history
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22   # same as counted.yml — node runs the shared suite-status.mjs classifier
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'   # the interpreter the ladder and the probe both use
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.8.17'  # the uv the counted tasks were mined and are run with
+
+      - name: Per-shard runner identity (fingerprint preserved in the record)
+        run: |
+          set -euo pipefail
+          OUT="$GITHUB_WORKSPACE/census-out"; mkdir -p "$OUT"
+          ID="$OUT/_identity-shard-${{ matrix.shard }}.txt"
+          {
+            echo "shard=${{ matrix.shard }} of ${SHARDS_TOTAL}"
+            echo "date_utc=$(date -u +%FT%TZ)"
+            echo "ImageOS=${ImageOS:-?}"
+            echo "ImageVersion=${ImageVersion:-?}"
+            echo "RUNNER_OS=${RUNNER_OS:-?}"
+            echo "RUNNER_ARCH=${RUNNER_ARCH:-?}"
+            echo "RUNNER_NAME=${RUNNER_NAME:-?}"
+            echo "kernel=$(uname -srmo)"
+            echo "kernel_full=$(uname -a)"
+            echo "node=$(node --version 2>&1)"
+            echo "python3.11=$(python3.11 --version 2>&1)"
+            echo "uv=$(uv --version 2>&1)"
+            echo "git=$(git --version 2>&1)"
+            echo "repo_commit=$(git rev-parse HEAD)"
+            echo "repo_ref=${GITHUB_REF:-?}"
+            echo "github_sha=${GITHUB_SHA:-?}"
+          } | tee "$ID"
+
+      - name: Run the frozen liveness probe over this shard's tasks (TB_LIVENESS=1, no Claude)
+        # No `set -e`: a non-LIVE task makes the script exit nonzero BY DESIGN, and that
+        # must not abort the shard. Each task's full output and the script's raw rc are
+        # captured; aggregation reads the [liveness-audit] line, not any exit code.
+        run: |
+          set -uo pipefail
+          cd harness/taskbench/round4
+          SCRIPT=verify-pilot-tasks.sh
+          [ -f "$SCRIPT" ] || { echo "::error::$SCRIPT missing — cannot run the census"; exit 1; }
+
+          # TB_POOL_DIR must be ABSOLUTE. The script reads each manifest with
+          # node `require($POOL/tasks/<t>/manifest.json)`, and require() treats a path
+          # without a leading '/' or './' as a MODULE NAME (searched in node_modules),
+          # not a file — so a relative pool dir makes every manifest read return empty
+          # and every task fail at H before the probe ever runs. The pilot default
+          # ($HERE/pools/pilot) is absolute for exactly this reason; the counted
+          # equivalent is the absolute path to pools/counted. Do NOT relativise this.
+          POOL_DIR="$PWD/pools/counted"
+          [ -d "$POOL_DIR/tasks" ] || { echo "::error::$POOL_DIR/tasks missing"; exit 1; }
+
+          OUT="$GITHUB_WORKSPACE/census-out"; mkdir -p "$OUT"
+          SHARD=${{ matrix.shard }}
+          TOTAL=${SHARDS_TOTAL}
+
+          # Same task ordering the script itself uses (ls | sort); stride assignment
+          # spreads any clustering of heavy/compiled tasks across shards.
+          mapfile -t ALL < <(ls "$POOL_DIR/tasks" | sort)
+          echo "pool has ${#ALL[@]} tasks; this is shard $SHARD of $TOTAL"
+          mine=()
+          for i in "${!ALL[@]}"; do
+            if [ $(( i % TOTAL )) -eq "$SHARD" ]; then mine+=("${ALL[$i]}"); fi
+          done
+          echo "shard $SHARD tasks (${#mine[@]}): ${mine[*]}"
+          printf '%s\n' "${mine[@]}" > "$OUT/_shard-${SHARD}-tasks.txt"
+
+          for T in "${mine[@]}"; do
+            echo "::group::census $T"
+            set +e
+            TB_LIVENESS=1 TB_POOL_DIR="$POOL_DIR" bash "$SCRIPT" "$T" >"$OUT/$T.log" 2>&1
+            rc=$?
+            set -e
+            echo "$rc" > "$OUT/$T.rc"
+            # One-line progress into the Actions log: the exact probe status for this task.
+            audit="$(grep -m1 '\[liveness-audit\]' "$OUT/$T.log" || true)"
+            if [ -n "$audit" ]; then
+              printf '%-42s %s\n' "$T" "${audit#*status=}"
+            else
+              # No audit line means clone/checkout/install failed BEFORE the probe ran.
+              why="$(grep -m1 -- 'NOT VERIFIED' "$OUT/$T.log" || echo 'no [liveness-audit] line; setup failed before the probe')"
+              printf '%-42s SETUP-UNAVAILABLE (%s)\n' "$T" "$why"
+            fi
+            echo "::endgroup::"
+          done
+          echo "shard $SHARD done — ${#mine[@]} task log(s) in census-out/"
+          exit 0
+
+      - name: Upload this shard's raw census output
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: liveness-census-shard-${{ matrix.shard }}
+          path: census-out/
+          retention-days: 30
+          if-no-files-found: warn
+
+  aggregate:
+    needs: census
+    if: always()   # aggregate whatever the shards produced, even if one shard died
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: liveness-census-shard-*
+          path: shards
+          merge-multiple: true   # task logs and identity files are uniquely named across shards
+
+      - name: Aggregate the census from the [liveness-audit] lines (never the pass counter)
+        run: |
+          set -uo pipefail
+          S=shards
+          POOL=harness/taskbench/round4/pools/counted/tasks
+          REPORT=census-report.md
+          TSV=census-summary.tsv
+          printf 'task\tliveness\tlvrc\tprg\tP\tR\tG\tdetail\n' > "$TSV"
+
+          # Buckets (raw task ids preserved in each).
+          declare -A BUCKET
+          live=(); sentinel=(); target=(); probeerr=(); notverif=(); setupfail=(); unknown=(); missing=()
+          prg_ok=(); prg_anom=()
+
+          classify_log() { # <logfile> -> sets globals: BKT LVRC DETAIL P R G PRG
+            local log="$1"
+            BKT=""; LVRC=""; DETAIL=""; P="-"; R="-"; G="-"; PRG="-"
+            local audit status
+            audit="$(grep -m1 '\[liveness-audit\]' "$log" || true)"
+            if [ -z "$audit" ]; then
+              BKT="SETUP_UNAVAILABLE"; LVRC="-"
+              DETAIL="$(grep -m1 -- 'NOT VERIFIED' "$log" | sed -E 's/^[[:space:]]*//; s/\x1b\[[0-9;]*m//g' || true)"
+              [ -n "$DETAIL" ] || DETAIL="setup failed before the probe (no [liveness-audit] line)"
+              return
+            fi
+            status="${audit#*status=}"
+            DETAIL="$(printf '%s' "$status" | sed -E 's/\x1b\[[0-9;]*m//g' | head -c 200)"
+            if printf '%s' "$status" | grep -q 'TARGET_DISCOVERY_FAILED'; then BKT="TARGET_DISCOVERY_FAILED"; LVRC=2
+            elif printf '%s' "$status" | grep -q 'SENTINEL_NOT_OBSERVED'; then BKT="SENTINEL_NOT_OBSERVED"; LVRC=1
+            elif printf '%s' "$status" | grep -q 'LIVENESS_PROBE_ERROR'; then BKT="OTHER_PROBE_ERROR"; LVRC=2
+            elif printf '%s' "$status" | grep -q 'LIVENESS_NOT_VERIFIED'; then BKT="OTHER_NOT_VERIFIED"; LVRC=1
+            elif printf '%s' "$status" | grep -q 'LIVE '; then BKT="LIVE"; LVRC=0
+            else BKT="UNKNOWN"; LVRC="?"; fi
+            # H/P/R/G secondary audit (only LIVE tasks reach P/R/G in the script).
+            if grep -q 'P untouched parent is GREEN' "$log"; then P="GREEN"
+            elif grep -q 'P untouched parent is RED' "$log"; then P="RED"
+            elif grep -q 'P could not be measured' "$log"; then P="n/a"; fi
+            if grep -q 'R parent + tests is RED' "$log"; then R="RED"
+            elif grep -q 'R parent + tests is GREEN' "$log"; then R="GREEN"
+            elif grep -q 'R could not be measured' "$log"; then R="n/a"; fi
+            if grep -q 'G parent + tests + gold is GREEN' "$log"; then G="GREEN"
+            elif grep -q 'G parent + tests + gold is RED' "$log"; then G="RED"
+            elif grep -q 'G could not be measured' "$log"; then G="n/a"; fi
+            if [ "$BKT" = "LIVE" ]; then
+              if [ "$P" = "GREEN" ] && [ "$R" = "RED" ] && [ "$G" = "GREEN" ]; then PRG="OK"; else PRG="ANOMALY"; fi
+            fi
+          }
+
+          # Iterate the FROZEN pool so a missing log is detected, not silently skipped.
+          seen=0
+          for tdir in "$POOL"/*/; do
+            T="$(basename "$tdir")"
+            log="$S/$T.log"
+            if [ ! -f "$log" ]; then missing+=("$T"); continue; fi
+            seen=$((seen+1))
+            classify_log "$log"
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$T" "$BKT" "$LVRC" "$PRG" "$P" "$R" "$G" "$DETAIL" >> "$TSV"
+            case "$BKT" in
+              LIVE) live+=("$T"); [ "$PRG" = "OK" ] && prg_ok+=("$T") || prg_anom+=("$T") ;;
+              SENTINEL_NOT_OBSERVED) sentinel+=("$T") ;;
+              TARGET_DISCOVERY_FAILED) target+=("$T") ;;
+              OTHER_PROBE_ERROR) probeerr+=("$T") ;;
+              OTHER_NOT_VERIFIED) notverif+=("$T") ;;
+              SETUP_UNAVAILABLE) setupfail+=("$T") ;;
+              *) unknown+=("$T") ;;
+            esac
+          done
+
+          total_pool=$(ls "$POOL" | wc -l | tr -d ' ')
+          nlive=${#live[@]}; nsent=${#sentinel[@]}; ntarget=${#target[@]}; nprobe=${#probeerr[@]}
+          nnotv=${#notverif[@]}; nsetup=${#setupfail[@]}; nunk=${#unknown[@]}; nmiss=${#missing[@]}
+          nanom=${#prg_anom[@]}
+
+          {
+            echo "# Round-4 liveness census — frozen probe over the counted pool (D40)"
+            echo
+            echo "Pool: **$total_pool** frozen tasks · measured: **$seen** · missing logs: **$nmiss**"
+            echo
+            echo "## LIVENESS (primary census endpoint)"
+            echo
+            echo "| bucket | exit | n | meaning |"
+            echo "|---|---|---:|---|"
+            echo "| LIVE | 0 | $nlive | edit-to-import coupling demonstrated — measurable |"
+            echo "| SENTINEL_NOT_OBSERVED | 1 | $nsent | probe ran; coupling not demonstrated (LIVENESS_NOT_VERIFIED) |"
+            echo "| OTHER_NOT_VERIFIED | 1 | $nnotv | probe ran; other not-verified reason |"
+            echo "| TARGET_DISCOVERY_FAILED | 2 | $ntarget | apparatus could not locate the package to probe |"
+            echo "| OTHER_PROBE_ERROR | 2 | $nprobe | apparatus could not measure (other probe error) |"
+            echo "| SETUP_UNAVAILABLE | – | $nsetup | clone/checkout/install failed before the probe |"
+            echo "| UNKNOWN | ? | $nunk | unparsed — inspect the log |"
+            echo "| (missing log) | – | $nmiss | shard did not produce a log — re-run needed |"
+            echo
+            echo "Measurable (LIVE) = **$nlive / $total_pool**. LVRC=1 (probe ran, not live) and LVRC>1 (probe could not measure) are reported separately above."
+            echo
+            echo "## P/R/G secondary audit (bonus — NOT the census endpoint, never folded into liveness/D39)"
+            echo
+            echo "Among LIVE tasks: clean contract (P GREEN, R RED, G GREEN) = **${#prg_ok[@]}**; anomalies = **$nanom**."
+            [ "$nanom" -gt 0 ] && { echo; echo "> LIVE-but-P/R/G-anomaly tasks are a SEPARATE apparatus/pool issue and require their own decision — do not fold into D39:"; echo ">"; printf '> - %s\n' "${prg_anom[@]}"; }
+            echo
+            echo "## Raw task ids per bucket (preserved for structural diagnosis)"
+            emit() { echo; echo "**$1 ($2):**"; shift 2; if [ "$#" -eq 0 ]; then echo "_none_"; else printf -- '- %s\n' "$@"; fi; }
+            emit "LIVE" "$nlive" "${live[@]}"
+            emit "SENTINEL_NOT_OBSERVED" "$nsent" "${sentinel[@]}"
+            emit "OTHER_NOT_VERIFIED" "$nnotv" "${notverif[@]}"
+            emit "TARGET_DISCOVERY_FAILED" "$ntarget" "${target[@]}"
+            emit "OTHER_PROBE_ERROR" "$nprobe" "${probeerr[@]}"
+            emit "SETUP_UNAVAILABLE" "$nsetup" "${setupfail[@]}"
+            emit "UNKNOWN" "$nunk" "${unknown[@]}"
+            emit "MISSING LOG (re-run)" "$nmiss" "${missing[@]}"
+            echo
+            echo "_Structural sub-diagnosis of the unavailable classes (namespace-dotted / workspace-nested / compiled-editable / other) is done from the task manifests + the probe's \`candidates=\` field in the raw logs; it is NOT auto-classified here._"
+          } | tee "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$nmiss" -gt 0 ]; then
+            echo "::warning::$nmiss task(s) produced no log — a shard likely died. Re-run those shards before treating the census as complete."
+          fi
+          if [ "$nunk" -gt 0 ]; then
+            echo "::warning::$nunk task(s) did not parse into a bucket — inspect their logs."
+          fi
+          # The aggregate job is a REPORT, not a gate: it exits 0 so the census result
+          # is the artifact, not a red/green check. (A dead shard is a warning above.)
+          exit 0
+
+      - name: Upload the census report + raw logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: liveness-census-report
+          path: |
+            census-report.md
+            census-summary.tsv
+            shards/
+          retention-days: 30
+          if-no-files-found: warn
