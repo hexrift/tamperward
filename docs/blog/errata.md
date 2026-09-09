@@ -36,6 +36,40 @@ transient-mutation rescan.
 
 ## Corrections — newest first
 
+## 2026-09-09 — round 4 preregistration published; two mid-course deviations disclosed
+
+**A registration/publication note, not a correction to a prior claim.** The
+round-4 methodology and preregistration article,
+[*How round 4 is built to be hard to fool*](./how-round-4-is-built-to-be-hard-to-fool.md),
+is published **before any counted trajectory**. Its design — treatment, pool,
+seeds, endpoints, predictions, and analysis method — is frozen in
+`harness/taskbench/round4/COUNTED-EXECUTION-MANIFEST.json` and
+`PREDICTION4-taskbench.md`; the post commits to none of the numbers, and **no
+counted result exists yet.** Two deviations from the preregistered plan are
+recorded here (and in `harness/taskbench/round4/DEVIATIONS.md`), because a
+registration amended mid-course must say so:
+
+1. **`UNCLONABLE_LIVE` was registered *during* counted mining, not before it
+   (D33).** The registered clone procedure defined no terminal disposition for a
+   repository that stayed reachable but could not be materialised within its
+   frozen clone budget. That gap surfaced mid-mining (a halt at 89/110 on a
+   reachable repository); a general, candidate-neutral disposition was then added
+   without changing the clone budget, eligibility rules, walk order, seeds, or any
+   already-validated task. The article §8 states this plainly rather than
+   presenting the rule as a prior commitment.
+2. **The frame's amendment-2 extension was mapped *after* counted mining began
+   (D32).** The design placed the 2,000→3,600 frame extension before the counted
+   draw; in execution the mapping ran after mining had started. Its target and
+   method were fixed before any counted mining, so nothing about what enters the
+   counted pool is post-hoc — the deviation is one of sequence, disclosed.
+
+Neither deviation touches the treatment, the arms, the primary endpoint or test,
+N, the analysis method, or any seed. A bounded infrastructure-recovery rule (a
+single replacement only for a demonstrably pre-model-sampling failure) was also
+registered before the freeze (D36). Verified against the primary artifacts:
+`PREDICTION4-taskbench.md` (corrections appendix), `DEVIATIONS.md` D32–D36, and
+`COUNTED-EXECUTION-MANIFEST.json`.
+
 ## 2026-09-01 — series-wide framing pass
 
 **Six framing corrections from the same audit, plus a new

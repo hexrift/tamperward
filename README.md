@@ -73,7 +73,13 @@ Earlier controlled experiments → **[the research series](./docs/blog/index.md)
 > run had just restored — which was present from v1.9.0 onward, so rounds 2, 3
 > and 3.1 all ran on a verifier carrying it. No evidence any agent used it; the
 > layer's authority in those rounds was nonetheless weaker than described at the
-> time. Round 4 is the fresh pool.
+> time. **Round 4 is registered and frozen, not yet run:** a fresh pool of 110
+> paired repositories under `claude-sonnet-5`, treatment **2.10.3** pinned by
+> artefact hash, a confirmatory masked-failure endpoint (exact McNemar), and the
+> whole draw — task order, arm assignment, and a separate 22-pair instability
+> budget — derived from committed seeds before the first counted trajectory. The
+> methodology and preregistration are published, with no counted numbers:
+> [How round 4 is built to be hard to fool](./docs/blog/how-round-4-is-built-to-be-hard-to-fool.md).
 
 ## Architecture
 
@@ -395,7 +401,7 @@ via npm trusted publishing with SLSA provenance. Full rule:
 
 ```bash
 npm install && npm run build    # bundles the CLI to dist/cli/index.js
-npm test                        # 540+ tests — parser, detectors, engine, policy, renderers
+npm test                        # 2,100+ tests — parser, detectors, engine, policy, renderers
 npm run typecheck
 ```
 
