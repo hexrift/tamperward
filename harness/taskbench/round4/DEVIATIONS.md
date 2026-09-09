@@ -4174,7 +4174,7 @@ apparatus defect, not a bad task. The frozen probe is not modified during this r
 broadening its discovery (workspace-nested, namespace/dotted, compiled-editable) and
 running the liveness gate before pool freeze are the next-round fixes.
 
-## D41 — 2026-09-09, counted liveness census RESULT; D39 extended to 7 tasks; continuation warranted; PRE_SAMPLING_CONTRACT_UNAVAILABLE introduced (45 disposed, 07 pending read-only diagnosis)
+## D41 — 2026-09-09, counted liveness census RESULT; D39 extended to 7 tasks; continuation warranted; PRE_SAMPLING_CONTRACT_UNAVAILABLE introduced and finalized for 45 + 07 (confirmed under the counted net-jail + full env)
 
 This records the **result** of the D40 census — documentation of what the frozen
 apparatus actually showed. It is a post-freeze operational record: **no model
@@ -4265,26 +4265,48 @@ introduced:
 Applied at task level to every scheduled trajectory for the task, positions preserved,
 no replacement, and with **no change to the frozen task or runner**.
 
-- **`45-pytest-dev-pytest-github-actions-annotate-failures` → CONTRACT_UNAVAILABLE (now).**
-  Census: LIVE, but **P (untouched parent) is RED (rc=1)** — the untreated baseline
-  fails. Mechanism is clear and by construction: the package activates when
-  `GITHUB_ACTIONS=true` and annotates pytest failures, so its own suite behaves
-  differently on a GitHub Actions runner than on the non-GHA firecracker mining host
-  where P was GREEN. The **counted runner is itself GitHub Actions** (`counted.yml`),
-  so the counted environment changes the untreated baseline — the task cannot support
-  the registered masked-failure comparison on this runner. Changing `GITHUB_ACTIONS`,
-  special-casing the task, or altering the environment would be a **new execution
-  condition introduced after counted outcomes already exist**, which is why the
-  disposition is exclusion, not a fix. Not duplicated (primary pair only).
+Both anomaly tasks were confirmed unqualifiable under the **actual counted execution
+environment** by a read-only, credential-free diagnostic (D41 step 3; throwaway
+workflow `diag-anomaly-netjail`, GitHub Actions run 34413592725). Per task it runs the
+frozen install ladder + suite command on an `ubuntu-latest` runner, install open-net
+on the host (as counted provisioning does), then P/R **inside the counted net-jail**
+(`net-jail.sh` netns+nft, `allowlist-proxy.mjs`, `ci-upstream-proxy.mjs` upstream) and
+under the **full GHA environment** (`sudo -E`, which mirrors `run-task4.sh`'s `SCRUB`
+that unsets only `TB_*`). No credential, no model sampling, no edits to
+task/tests/probe/harness; egress was confirmed blocked inside the jail before each
+measurement.
 
-- **`07-gepa-ai-gepa` → pending read-only diagnosis.**
-  Census: LIVE, P GREEN, but **R could not be measured (`HARNESS_ERROR`, pytest
-  rc=3)** — parent+tests hit a pytest internal/collection error, so the fail-before
-  contract is unattributable. Because rc=3 can mean several things, a small read-only
-  reproduction of the exact frozen P/R/G procedure is done first (no change to tests or
-  harness) to establish whether the error is deterministic. If deterministic (as the
-  census strongly indicates) → CONTRACT_UNAVAILABLE, symmetric exclusion; if transient
-  → investigate separately before any sampling. **Not excluded yet.** Not duplicated
+Fidelity note (recorded because it changed the reading): the counted **verdict** suite
+runs jailed (`run-task4.sh` wraps it in `ip netns exec`), so the open-net census is not
+the execution condition for a network-dependent task; and the suite runs under the full
+GHA env (SCRUB removes only `TB_*`), so a reduced env is not faithful either. An early
+jailed run under plain `sudo` (which strips `GITHUB_ACTIONS`) and a second under a
+partial passthrough (still missing `GITHUB_WORKSPACE`) both misread `45` as P-green.
+Only the jailed **full-env** run reproduces the counted condition for both tasks.
+
+- **`45-pytest-dev-pytest-github-actions-annotate-failures` → CONTRACT_UNAVAILABLE
+  (finalized).** Under the counted net-jail with the full GHA env, the untouched parent
+  is **RED** (`P rc=1`: 2 failed / 14 passed). The plugin computes annotation file paths
+  relative to `GITHUB_WORKSPACE`; on the counted runner that points at the tamperward
+  checkout (a foreign tree), so it emits absolute paths
+  (`::warning file=/tmp/pytest-of-root/.../my_module.py`) where its own self-tests
+  expect relative ones, and the parent fails. (The open-net census also showed P RED —
+  faithful for this env-driven mechanism; the net-jail is irrelevant to it.) The counted
+  environment reproduces this by construction, so the untreated baseline is invalid on
+  the counted runner. Changing `GITHUB_WORKSPACE`/`GITHUB_ACTIONS` or special-casing the
+  task would be a **new execution condition introduced after counted outcomes exist**,
+  so the disposition is exclusion, not a fix. Not duplicated (primary pair only).
+
+- **`07-gepa-ai-gepa` → CONTRACT_UNAVAILABLE (finalized).** Under the counted net-jail
+  the untouched parent is **RED** (`P rc=1`: 13 failed / 679 passed / 6 errors, all
+  `httpx.ProxyError: 403 Forbidden` — the suite's network-dependent tests, which the
+  jail's allowlist denies). The census saw P green only because it ran open-net; the
+  counted verdict suite runs jailed, so the baseline is invalid on the counted runner.
+  (Secondary, compounding: `R` is a pytest `INTERNAL_ERROR` `rc=3` —
+  `NotImplementedError: cannot instantiate 'WindowsPath'` in `_pytest/reports.py`
+  failure-report formatting, deterministic on every failing test — so `R` cannot be a
+  clean RED either.) The read-only rc=3 diagnosis (D41 step 3) established the failure
+  is attributable to the task/environment, not transient infrastructure. Not duplicated
   (primary pair only).
 
 The distinction from D39 is deliberate: D39 = the frozen **liveness** probe cannot
@@ -4299,10 +4321,10 @@ task/environment/harness reasons.
   |
   +-- 7  PRE_SAMPLING_LIVENESS_UNAVAILABLE (D39)   -> 103 LIVE
               |
-              +-- 2 held for separate P/R/G disposition
-              |     (45 = CONTRACT_UNAVAILABLE; 07 = pending read-only diagnosis)
+              +-- 2  PRE_SAMPLING_CONTRACT_UNAVAILABLE (finalized)
+              |      (45 and 07, both P RED under the counted net-jail + full GHA env)
               v
-maximum currently eligible primary denominator = 101–103
+maximum currently eligible primary denominator = 101
 final denominator remains subject to later
 registered / pre-sampling measurement attrition
 ```
@@ -4315,11 +4337,13 @@ additional liveness exclusions and the two P/R/G cases touch primary pairs only.
 
 No frozen task, probe (`editable-liveness.py`), manifest, arm assignment, runner, or
 ordering is modified; no unavailable task is replaced. The counted sweep stays
-**PAUSED**. Before any trajectory resumes, in order: (1) this record lands; (2) `45`
-stays excluded under CONTRACT_UNAVAILABLE; (3) `07`'s rc=3 is reproduced read-only;
-(4) if deterministic, `07` is excluded symmetrically too; (5) the resulting maximum
-denominator is recorded; (6) an explicit human go; (7) the frozen sweep resumes with
-these dispositions applied. Steps 1–5 spend no model budget.
+**PAUSED**. The measurement work is now complete: the census sized liveness (7
+unavailable under D39) and the read-only jailed diagnostic finalized both P/R/G cases
+(45 and 07 → CONTRACT_UNAVAILABLE), none spending model budget. Remaining, in order:
+(1) this record lands; (2) an explicit human go; (3) the frozen sweep resumes with the
+D39 (×7) and CONTRACT_UNAVAILABLE (×2) task-level dispositions applied — 9 tasks marked
+measurement-unavailable and skipped mechanically, no replacement, positions preserved,
+against a maximum eligible primary denominator of 101.
 
 ### Apparatus findings for the next round (not retrofitted here)
 
@@ -4327,7 +4351,14 @@ The census confirms and sharpens D39/D40's finding. The next-round pre-freeze ga
 must (a) run the frozen liveness probe with discovery broadened for **namespace-dotted**
 (`sphinxcontrib.*`), **workspace-nested**, and **compiled/scikit-build-core editable**
 layouts, and handle **framework packages** whose bare import needs configuration
-(Django); and (b) run the **P/R/G qualification on the actual counted runner
-environment** (GitHub Actions), so a GHA-sensitive untreated baseline like `45` is
-caught before freeze rather than after. Mining qualification on a non-GHA host is not
-sufficient evidence of counted-runner qualification.
+(Django); and (b) run the **P/R/G qualification in the actual counted execution
+environment** — the same GitHub Actions runner, the same net-jail / proxy policy, and
+the same full env (`GITHUB_ACTIONS`, `GITHUB_WORKSPACE`, …) that `run-task4.sh`
+preserves — so environment-sensitive baselines are caught before freeze rather than
+after. Both finalized CONTRACT_UNAVAILABLE cases are of this kind: `07` needs general
+network the counted jail blocks (parent RED under the jail, green open-net), and `45`'s
+annotation-path self-tests fail under the counted runner's foreign `GITHUB_WORKSPACE`.
+The open-net census was not wrong — it correctly surfaced both as anomalies — but for
+environment-sensitive tasks the qualifying P/R/G must match the counted network *and*
+environment, not just the mining host. Mining qualification on a non-GHA host, and
+open-net qualification, are each insufficient evidence of counted-runner qualification.
