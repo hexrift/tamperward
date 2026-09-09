@@ -16,8 +16,8 @@
 #
 # Steps, all deterministic and token-free:
 #   1. the toolchain the counted round needs is present,
-#   2. the pinned treatment artefact builds, deploys and reproduces the manifest's
-#      frozen tree hash,
+#   2. the published treatment (tamperward@<version>) installs and reproduces the
+#      manifest's frozen tree hash,
 #   3. the network jail builds and enforces (net-jail.sh selftest),
 #   4. the counted freeze check passes — exit 0 (a frozen host) or 3 (environment
 #      drift, expected on any runner) are both fine; 2/4/5 are not.
@@ -60,23 +60,29 @@ for t in node npm python3.11 uv jq ip nft; do
 done
 echo "provision-counted-check: toolchain present ($(node -v), $(python3.11 --version 2>&1), $(uv --version 2>&1))"
 
-# 2. artefact: build, deploy, verify the frozen pin -------------------------
-cd "$ROOT"
-TGZ="$ROOT/$(npm pack --silent)" || fail "npm pack failed"
+# 2. artefact: install the PUBLISHED treatment, verify the frozen pin --------
+# The treatment is the published, immutable tamperward@$VERSION — the exact
+# package a user installs, and the bytes the counted pin was frozen against.
+# Install it from the registry rather than re-packing the working tree: the
+# source tree's non-code files drift as docs are updated — README.md above all,
+# and README ships INSIDE the npm package — so `npm pack` of a later working tree
+# yields a different tree hash for a byte-identical gate. The published release
+# cannot drift, so it deploys precisely the frozen treatment. The pin check below
+# still guards correctness: a published tree that ever differed from the frozen
+# pin fails closed here, so this can never smuggle in a different treatment.
 priv rm -rf "$ART_DIR"
 priv mkdir -p "$ART_DIR"
 # `--omit=dev`: the CLI needs its runtime deps (picomatch, yaml, typescript) as
-# siblings, so install the tarball rather than unpacking it.
-( cd "$ART_DIR" && priv npm install --omit=dev --no-audit --no-fund --silent "$TGZ" ) \
-  || fail "artefact install into $ART_DIR failed"
-rm -f "$TGZ"
+# siblings, so install the package (with deps) into the artefact dir.
+( cd "$ART_DIR" && priv npm install --omit=dev --no-audit --no-fund --silent "tamperward@$VERSION" ) \
+  || fail "install of published tamperward@$VERSION into $ART_DIR failed"
 H="$(cd "$ART_DIR/node_modules/tamperward" && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -d' ' -f1)"
 # The deployed artefact must BE the frozen treatment version AND reproduce its
 # frozen tree hash. A mismatch on either is binding drift — the run must not start.
 DEPLOYED_V="$(node -p "require('$ART_DIR/node_modules/tamperward/package.json').version")"
 [ "$DEPLOYED_V" = "$VERSION" ] || fail "deployed artefact is $DEPLOYED_V, the frozen treatment is $VERSION"
 [ "$H" = "$PIN" ]             || fail "artefact tree $H != frozen pin $PIN (this would be binding drift)"
-echo "provision-counted-check: artefact $VERSION deployed to $ART_DIR and pin verified ($PIN)"
+echo "provision-counted-check: published tamperward@$VERSION deployed to $ART_DIR and pin verified ($PIN)"
 priv chmod -R a-w "$ART_DIR"
 
 # 3. the network jail -------------------------------------------------------
