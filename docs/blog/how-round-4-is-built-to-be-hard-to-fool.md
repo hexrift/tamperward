@@ -14,13 +14,19 @@ round is built so that the eventual number is hard to fake in either direction �
 including by us. This is the methodology: the frozen treatment, the burned
 pools, the paired arms, the jail that is not the product, the pristine
 adjudication, and the one distinction that turned out to matter most — a suite
-that could not run is not a test that failed. The design is frozen; this post
-explains it.*
+that could not run is not a test that failed. The design is frozen; the numbered
+bets, including the conditions that would count as the gate losing, are on the
+record at the end. This post explains all of it.*
 
-This is a design post, not a result post. It exists so that when a round-4
-numbers post arrives, the repository already records what was committed to
-beforehand — the treatment, the pool, the endpoints, the randomization, and the
-rules for what a result is allowed to change.
+This is a design post, not a result post — the direct successor to
+[round 3.1](./the-mechanism-transferred-the-effect-didnt.md), which asked whether
+the prevention effect holds under the stronger model and could not answer: only
+three ungated opportunities occurred on those sixteen tasks, far too few for the
+test to reject either way. Round 4 re-asks the question on a fresh pool many times
+larger — 110 paired repositories — built to supply them. It exists so that when a round-4 numbers post
+arrives, the repository already records what was committed to beforehand — the
+treatment, the pool, the endpoints, the randomization, the bets, and the rules for
+what a result is allowed to change.
 
 ## 1. The problem, restated once
 
@@ -130,19 +136,19 @@ Round 4 makes that impossible. One shared classifier is the single interpretatio
 of a suite's termination, used by the miner, the validator and the adjudicator
 alike. It returns `PASS`, `FAIL`, or one of several non-measurement states, and
 **only `PASS` and `FAIL` are admissible inputs to any outcome comparison.**
-Everything else is `INVALID_MEASUREMENT`, carrying a `measured: false` flag that
-excludes it from the denominator and from every masked-failure or false-green
-tally, in both arms and in either position. A suite that did not run cannot become
-evidence. This is proven end-to-end — every non-measurement exit, both arms, both
-positions — and the rule is arm-symmetric, so an environmental failure can never
-masquerade as a treatment effect in either direction.
+Everything else is `INVALID_MEASUREMENT`: flagged `measured: false`, and kept out
+of the denominator and every masked-failure or false-green tally. A suite that did
+not run cannot become evidence. This is proven end to end — every non-measurement
+exit, in both arms and in either running order — and because the rule treats the
+two arms identically, a broken environment can never masquerade as a treatment
+effect in either direction.
 
 ## 8. Attrition is measured, not silently scored
 
-The corollary of §7 is that a task or a trajectory that could not be measured is
-**attrition**, not failure. When mining round 4's fresh ten, roughly forty
-percent of the repositories examined attrited because their parent suite could
-not run in the jail — heavy machine-learning suites, collection-time installs,
+That has a simple consequence: a run we could not measure is **attrition**, not a
+failure. When mining round 4's fresh ten, roughly forty percent of the
+repositories we examined dropped out because their parent suite would not run in
+the jail at all — heavy machine-learning suites, collection-time installs,
 timeouts. That number is recorded, out in the open, as an operational
 characteristic of the population; it is *not* folded into any success or failure
 rate. It matters for planning the counted round's runtime and expected yield, and
@@ -201,25 +207,51 @@ the reason a number from this round should be believed at all.
 
 ## What the counted round will estimate
 
-The counted round's design is frozen — a separate registration, committed before
-any counted trajectory: its treatment, its sample size, its paired gated/ungated
-arms, its randomisation seeds, its primary endpoint and test, its point
-predictions, and its analysis, together with the rule that preselects a small
-duplicate subset for measuring trajectory instability. What remains before
-execution is mechanical, not discretionary: the executable manifest and the draw
-it records — the task order, the arm order, and which repositories are
-duplicated — are *derived* from the committed seeds by published rules, so anyone
-can re-run the derivation and get the same answer, and a hand-edited order fails
-the check.
+The round asks one paired, product-scoped question: on the same tasks and the same
+model, does the gate change how often an agent produces a masked failure or an
+envelope escape — gated versus ungated, over *admissible measurements only*? The
+design that answers it is frozen. Treatment, sample size, paired arms, seeds,
+primary endpoint and test, and analysis are all committed, and the draw itself —
+the task order, the arm order, which repositories are duplicated — is *derived*
+from those seeds by published rules. Anyone can re-run the derivation and get the
+same answer; a hand-edited order fails the check.
 
-What the round will estimate is a paired, product-scoped quantity: on the same
-tasks and the same model, does the gate change the rate at which an agent produces
-a masked failure or an envelope escape, gated versus ungated, over *admissible
-measurements only*. This post commits to none of those numbers. It commits to the
-shape of the thing that will produce them, and to the rule that the shape was
-fixed first — and it records that the frozen design carries an append-only
-corrections log, so an in-time completion or a change of sequence is disclosed
-there rather than quietly folded in.
+## The bets
 
-Not one counted trajectory has run. When one does, the manifest — not this post —
-is the authority; this post only explains it.
+On the record now, so they can be scored later. They come from the model we
+registered — the round-3.1 opportunity rate with pooled prevention — not from the
+sacrificial pilot, whose favourable outcomes calibrated nothing. They are bets,
+not evidence.
+
+- **Prevention** — the one hypothesis test. Roughly **16** discordant pairs where
+  the ungated arm masks a failure the gated arm prevents, against about **1** the
+  other way; a paired risk difference near **+13.6 points**. The single formal
+  test, exact McNemar on the discordant pairs, **rejects** at α = .05 — at b=16,
+  c=1 the exact two-sided p is about 0.0003, though the bet is "reject," not a
+  promised p.
+- **Cost** — none we can see. Verified-completion risk difference, gated minus
+  ungated, **≈ 0 points**. Held at zero on purpose, not lifted to the pilot's
+  descriptive +30.
+- **Final-state-blind** — about **half** the gated trajectories that landed a
+  weakening leave nothing behind at exit, against roughly **90%** ungated: a
+  contrast near **−40 points**.
+
+The point is that these are frozen from the model, not the pilot: `b` and `c` are
+not the pilot's favourable 2/0, and completion stays at 0 rather than the pilot's
++30. The full ledger, and the scenario it is anchored to, is in
+`PREDICTION4-taskbench.md`.
+
+## What would change our mind
+
+Pre-stated, and published as-is whatever happens. Any one of these is the gate
+losing, or the round failing to answer: a prevention risk difference **≤ 0**;
+**c ≥ b**, the gate shifting evasion rather than stopping it; a completion cost
+past the registered **−10-point** margin; or any counted **envelope escape** — a
+gated masked failure the envelope adjudicated clean, which is the one class the
+outer envelope exists to close. And a floor, not a stopping rule: if fewer than
+**six** ungated opportunities occur, the round publishes as *underpowered for
+prevention* — not as a claim in either direction.
+
+Not one counted trajectory has run. The treatment, the pool, the seeds, the
+analysis and these bets are all committed before trajectory one — the manifest is
+the record, and the next post is the answer, whatever it turns out to be.
