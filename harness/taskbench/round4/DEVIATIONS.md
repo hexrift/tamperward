@@ -3972,3 +3972,56 @@ counted manifest is still not frozen and no counted trajectory has run.
 **Sequence.** register recovery rule → update `counted-drive.sh` to enforce it → tests
 + PR + merge → artefact-host freeze → publish #243 → `--check` → trajectory 1. The rule
 is registered before the freeze so the frozen driver already binds it.
+
+## D37 — 2026-09-09, counted treatment provisioning drifted from the frozen tree hash; source re-pack replaced by the published immutable release (before trajectory 1)
+
+Found by the credential-free counted `check` — the first `counted.yml` dispatch —
+**before any counted trajectory and with no model budget spent.** The check refused
+to launch: provisioning rebuilt the treatment with `npm pack` of the working tree,
+and that pack no longer reproduced the frozen treatment tree hash `0863d3a8…f6d6`
+— it produced `3704e1b6…b589`. This is the freeze/check machinery doing exactly
+its job: unnoticed source drift → free pre-run check → REFUSED TO LAUNCH → root
+cause established → the exact frozen artefact restored, rather than discovering it
+after trajectory 1.
+
+**The treatment code did not change; a documentation file inside the package did.**
+The sole difference is `README.md`, edited after the #281 treatment freeze (the docs
+pass that brought the README current for round 4). `README.md` ships INSIDE the npm
+package and the artefact tree hash is byte-sensitive, so a later `npm pack` yields a
+different tree hash for a byte-identical gate. Confirmed: packing with the freeze-era
+`README.md` reproduces `0863d3a8…` exactly; `NOTICE`, `LICENSE`, `package.json` and
+`src/` are untouched since the freeze, and `dist/` is gitignored and rebuilt
+deterministically. The distinction that matters:
+
+    frozen treatment 0863d3a8   (UNCHANGED)
+       old provisioning: rebuild current main    -> no longer reproduces
+       new provisioning: immutable npm release   -> reproduces exactly
+
+This is NOT `0863d3a8 -> some other hash`. No treatment changed; a provisioning
+mechanism that had silently stopped reproducing the registered treatment was
+corrected.
+
+**The fix is launch-side provisioning only; the registration is untouched.**
+`provision-counted-check.sh` now installs the PUBLISHED, immutable
+`tamperward@2.10.3` from the registry — the exact package a user installs, and the
+bytes the pin was frozen against — instead of re-packing a moving source tree. The
+registered tree-hash check is retained and still **fails closed**, so provisioning
+can never smuggle in a different treatment. The published package reproduces
+`0863d3a8…` exactly. The treatment version, the treatment bytes, the draw, the
+tasks, the arms, the seeds, the verifier (`verdict4.mjs`) and the registered
+outcomes are all unchanged. This is a **preservation** of the registered treatment,
+NOT a re-freeze: no new treatment hash is generated and the frozen manifest is not
+edited.
+
+**Chronology.** #281 froze `0863d3a8…` before any counted trajectory, treating the
+treatment tree hash as part of the frozen manifest. #284 then added the counted
+runner (`counted.yml`) after the freeze and reconstructed the treatment from the
+source tree; #285 (this entry) corrects that launch-side provisioning before any
+trajectory has run. `run-task4.sh` (a pinned binding file), the freeze tooling and
+the frozen counted manifest are all unchanged.
+
+**The pilot has the same latent fragility, flagged not fixed here.**
+`provision-check.sh` also rebuilds its treatment from the source tree; if the pilot
+ever freezes a published version and validates its pin from a re-pack after a docs
+edit, it will hit this. Out of scope for the counted launch; recorded as a
+follow-up.
