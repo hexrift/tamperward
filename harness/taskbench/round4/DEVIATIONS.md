@@ -4065,3 +4065,62 @@ environment fields are non-binding by registration; acknowledging them is the
 mechanism the freeze and the driver already define (the D23/D27 precedent), not a
 change to the experiment. seq 1 recorded a verdict on its first attempt (no
 recovery, no re-roll); the driver advanced to seq 2.
+
+## D39 — 2026-09-09, PRE_SAMPLING_LIVENESS_UNAVAILABLE: counted task 48-ERGO-Code-HiGHS marked measurement-unavailable (post-freeze operational disposition)
+
+This is a **post-freeze operational deviation/disposition** introduced during the
+counted sweep — NOT a rule preregistered from the outset. It is stated generally and
+prospectively: any remaining counted task meeting the same conditions receives the
+same disposition.
+
+During pre-sampling setup for counted task `48-ERGO-Code-HiGHS` (seq 5, gated), the
+frozen editable-liveness probe terminated with `TARGET_DISCOVERY_FAILED`. The pinned
+repository places the package at `highs/highspy/…`, while the frozen probe
+(`runner/editable-liveness.py`) searches only four non-workspace-nested layouts
+(`highspy/__init__.py`, `src/highspy/__init__.py`, `highspy.py`, `src/highspy.py`).
+Because both the repository layout and the probe are frozen, read-only diagnosis
+established that the failure is **deterministic under the counted apparatus rather
+than transient infrastructure failure** — so D36's one infrastructure replacement is
+not spent (a re-run cannot change the result). No model sampling occurred and no
+counted outcome was observed (run-task4 exited at the PRE_AGENT guard, before the
+agent launched; no budget spent). The frozen probe was **not** modified.
+
+A general task-level `PRE_SAMPLING_LIVENESS_UNAVAILABLE` disposition is introduced
+for cases where, before sampling, the frozen liveness procedure cannot establish
+live coupling and deterministic read-only evidence shows that retry cannot change
+the result. **All scheduled trajectories for the affected task are marked
+measurement-unavailable symmetrically; the task is not replaced.** Symmetric means
+both arms of the primary pair and, when the task is also a duplicate, both arms of
+the duplicate pair — so no arm is ever present while its twin is absent, and no
+replacement is drawn (no replacement rule was preregistered, and selecting one after
+counted outcomes are already observed would be a worse methodological problem than
+accepting post-freeze measurement attrition).
+
+**Applied here** to all four scheduled trajectories of `48-ERGO-Code-HiGHS`
+(duplicate index 11): seq 5 (gated) and seq 6 (ungated) primary, seq 221 (gated) and
+seq 222 (ungated) duplicate. Each is recorded with the driver's existing
+operator-adjudication marker (`seq-NNN/<task>-<arm>.adjudicated`) noting
+`sampled=false, model_output=none, budget_spent=0,
+disposition=PRE_SAMPLING_LIVENESS_UNAVAILABLE`; the driver skips them mechanically
+and the sweep resumes at seq 7. The seq-5 pre-sampling failure evidence (its
+started/finished log events, verdict=no) is preserved as-is and stays distinguishable
+from an executed trajectory. No change was made to the frozen manifest, probe, task,
+arm assignment, or ordering.
+
+**Denominators.** After D39, the *maximum remaining measurable design* is 109 primary
+pairs and 21 duplicate pairs; final analysis denominators remain subject to any later
+registered measurement attrition.
+
+**Apparatus finding for the next round (not retrofitted here).** Counted mining
+(`mine5.sh`) established **suite viability** (the suite runs and the gold/test patches
+apply) but did **not** establish the stronger **runtime editable-liveness invariant**
+the counted runner requires at PRE_AGENT time: the shared liveness probe is pinned
+into the binding set yet was never run as a counted pre-freeze qualification gate (the
+checker that runs it, `verify-pilot-tasks.sh`, is pilot-scoped). So a task that cannot
+satisfy the runtime invariant was admitted to the counted pool — *mining qualification
+≠ counted execution viability*. The next-round fix: run the same liveness gate before
+pool freeze, with workspace-aware discovery and separately validated native/compiled
+(scikit-build-core) package semantics. That `highspy` is also a compiled
+scikit-build-core extension is a plausible *second* barrier (its editable install
+resolves through a build-dir loader, so the sentinel step might also fail) but
+execution never reached it — noted for future work, not asserted as observed.
