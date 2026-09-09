@@ -38,6 +38,7 @@ export default defineConfig({
             { text: 'All posts', link: '/blog/' },
             { text: 'Limitations', link: '/blog/limitations' },
             { text: 'Errata', link: '/blog/errata' },
+            { text: 'How round 4 is built to be hard to fool', link: '/blog/how-round-4-is-built-to-be-hard-to-fool' },
             { text: "The mechanism transferred. The confirmatory result didn't replicate.", link: '/blog/the-mechanism-transferred-the-effect-didnt' },
             { text: 'Before we test the same tasks on a stronger model', link: '/blog/before-we-test-the-same-tasks-on-a-stronger-model' },
             { text: "The effect transferred. The detector didn't.", link: '/blog/the-effect-transferred-the-detector-didnt' },

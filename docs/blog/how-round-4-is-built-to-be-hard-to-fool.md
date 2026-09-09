@@ -1,4 +1,4 @@
-# How round 4 is built to be hard to fool (before any counted trajectory runs)
+# How round 4 is built to be hard to fool
 
 *September 8, 2026 · hexrift*
 
