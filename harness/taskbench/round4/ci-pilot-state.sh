@@ -26,6 +26,11 @@ set -uo pipefail
 
 CMD="${1:-}"
 BRANCH="${TB_PILOT_STATE_BRANCH:-round4-pilot-state}"
+# Names the snapshot in its commit subject. Defaults to 'pilot' so the pilot's
+# existing message is byte-identical; the counted run sets TB_STATE_LABEL=counted so
+# its state branch does not commit under a misleading "pilot" subject. Cosmetic only
+# — the snapshot content, not this branch's history, is the record.
+LABEL="${TB_STATE_LABEL:-pilot}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # The snapshotted directory. Defaults to runs-pilot/ (the pilot trajectories);
 # TB_STATE_DIR generalises it so the SAME checkpoint mechanism carries the mining
@@ -83,7 +88,7 @@ case "$CMD" in
       git checkout -q -b "$BRANCH"
       git add -A
       git -c user.name='pilot-ci' -c user.email='pilot-ci@users.noreply.github.com' \
-          commit -q -m "round-4 pilot state @ $(date -u +%FT%TZ) (${GITHUB_RUN_ID:-local})"
+          commit -q -m "round-4 $LABEL state @ $(date -u +%FT%TZ) (${GITHUB_RUN_ID:-local})"
       # Force-push: the branch carries only the latest cumulative snapshot; its history
       # is not the record (the uploaded artefact and the ledger are).
       git push -q -f "$AUTH_URL" "$BRANCH" 2>&1 | sed -E 's#//[^@]*@#//<redacted>@#g'
