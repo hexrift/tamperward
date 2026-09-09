@@ -3891,3 +3891,84 @@ the textual rule lands first as the registration; the freeze tooling
 is never the registration. The counted freeze itself (execution manifest + the seed-derived
 draw: task order, arm parity, the 22 duplicates) remains unfrozen and runs on the artefact
 host (it binds the deployed 2.10.3 treatment); no counted trajectory has run.
+
+## D35 — 2026-09-08, counted execution driver landed; execution_ready now true (no launch, no freeze)
+
+The counted round now has its order-enforcing driver: `round4/counted-drive.sh`, the
+faithful analog of `pilot-drive.sh` for the 264-trajectory counted manifest (110×2
+primary + 22×2 duplicate). Landing it makes `freeze-counted-manifest.mjs` compute
+`execution_ready: true` and pin the driver into the binding set — the file's hash is
+now part of the freeze, so `--check` refuses if the driver changes. **The counted
+manifest is still not frozen and no counted trajectory has run.** The freeze is a
+separate registered act on the artefact host (it binds the deployed 2.10.3 treatment);
+the launch is credential-gated and later still. This entry records only that the
+apparatus gap the freeze tooling disclosed (`counted_driver: null`) is now closed.
+
+**It is a boring executor and enforces exactly the frozen registration.** It refuses to
+start unless `freeze-counted-manifest.mjs --check` passes AND the manifest is
+`execution_ready`; it derives the 264 immutable trajectory identities FROM the manifest
+and runs them strictly in frozen `seq` order (primary 1..220, then the duplicate budget
+221..264), lowest-unfinished first, never skipping a gap; it re-verifies the whole
+binding set (runner, policy, treatment AND the driver's own hash) before every
+trajectory and mid-run; and it keeps each trajectory's raw/immutable evidence in its own
+per-seq directory so a duplicate never overwrites its primary twin (a task can appear in
+both blocks with the same arm — e.g. `43-deeplook-svglib` at seq 219/220 and 263/264).
+It chooses nothing: not the tasks, the 22 duplicates, the order, the arms, the model, or
+the treatment. The counted round reuses the identical runner (`run-task4.sh`); because
+the counted manifest deliberately splits its execution block into primary/duplicate
+sub-blocks, the driver projects a deterministic flat runner-view (embedding the counted
+manifest hash) so the unmodified runner can bind a row by `seq` — `run-task4.sh` is a
+pinned pilot binding file and is not touched.
+
+**No re-roll; NO registered retry/recovery rule exists for the counted round.** A
+trajectory that STARTED has a scientific outcome whether or not it produced a verdict, so
+an unresolved start marker HALTS the driver for human adjudication instead of being
+quietly retried. `PREDICTION4-taskbench.md` and this ledger register no counted
+retry/recovery policy, so the driver **fails closed** on every rerun. Whether a bounded
+recovery rule should be registered before launch is left **open for registration** — it
+is deliberately NOT invented here, and nothing about retry policy is added to the
+manifest or the registration.
+
+## D36 — 2026-09-08, counted infrastructure-recovery rule registered (before the freeze); driver bounds it
+
+D35 left one thing open: whether a bounded retry/recovery rule should be registered
+before launch. It is now registered — **before the artefact-host freeze and before any
+counted trajectory** — because a retry rule determines which stochastic execution is
+allowed to count and is therefore part of the experimental apparatus, not something to
+add after the freeze. The authoritative statement is in `PREDICTION4-taskbench.md`
+(corrections appendix, "counted trajectory infrastructure-recovery rule"); this entry
+records the deviation and how the driver enforces it.
+
+**The registered boundary is *before any model sampling occurred*** — stricter than
+"before the agent took any action." Claude can generate a complete response without
+invoking a tool; re-running that would still be a re-roll. So a trajectory may be
+re-attempted **once, and only** when it is affirmatively established that no model
+sampling occurred (no model response or token, no agent action, the failure is
+pre-model-execution infrastructure — container-start, credential rejection before
+model execution, runner provisioning), with the replacement using the identical frozen
+task, arm, prompt, treatment, verifier inputs, configuration and trajectory identity.
+If it cannot be established that no sampling occurred, the attempt is **not**
+recoverable. Once any model output exists the trajectory is never re-rolled — for
+timeout, crash, agent behaviour, verification failure, malformed output, tool failure,
+or an undesirable apparent outcome; the original evidence is retained and the driver
+halts (or applies the separately registered terminal disposition). All failed and
+replacement attempts remain in the raw audit record.
+
+**How it is enforced, and a correction to D35's characterisation.** D35 said the driver
+"fails closed on every rerun." That was imprecise for the pre-sampling case. The
+affirmative pre/post-sampling boundary is `run-task4.sh`'s, unchanged and untouched (it
+is a pinned pilot binding file): it writes a durable start marker immediately **before**
+the agent is sampled, and **retracts** it only when the shared positive execution
+contract (`agent-exec-contract.mjs`) cannot prove a genuine model completion — so a
+retracted-marker (unconsumed) seq failed before sampling, affirmatively, while a
+retained-marker seq reached sampling and is a terminal HALT. `counted-drive.sh`
+previously let an unconsumed seq be re-attempted with no bound. It now **bounds that to
+one**: one original attempt plus one replacement; a second pre-sampling failure
+exhausts the replacement and HALTS for human adjudication (fail closed). The attempt
+ordinal is passed to the runner (`TB_EXEC_ATTEMPT`) so each attempt's evidence is
+separately retained. `run-task4.sh` is unchanged; the freeze tooling is unchanged; the
+counted manifest is still not frozen and no counted trajectory has run.
+
+**Sequence.** register recovery rule → update `counted-drive.sh` to enforce it → tests
++ PR + merge → artefact-host freeze → publish #243 → `--check` → trajectory 1. The rule
+is registered before the freeze so the frozen driver already binds it.
