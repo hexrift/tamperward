@@ -7,6 +7,20 @@ whole series — sampling unit, historical controls, training contamination,
 model pinning, what registration ordering does and does not prove, and what the
 verification layers cannot guarantee.*
 
+- **[How round 4 is built to be hard to fool](./how-round-4-is-built-to-be-hard-to-fool.md)** — September 8, 2026.
+  The round-4 methodology and preregistration, published **before any counted
+  trajectory** — no results, on purpose. Round 4 tests the hardened Tamperward
+  envelope on a fresh pool of 110 real Python regressions under
+  `claude-sonnet-5`, treatment **2.10.3** pinned by artefact hash, with the whole
+  draw — task order, arm assignment, and a separate 22-pair instability budget —
+  derived from committed seeds and frozen in a manifest before trajectory one.
+  The post explains the parts built so the eventual number is hard to fake in
+  either direction: the frozen treatment and binding set, the burned fresh pools,
+  the paired arms, the research jail that is not the product, the pristine
+  adjudicator, and the one distinction that mattered most — a suite that could not
+  run is not a test that failed. It commits to none of the numbers; the manifest,
+  not the post, is the authority.
+
 - **[The mechanism transferred. The confirmatory result didn't replicate.](./the-mechanism-transferred-the-effect-didnt.md)** — September 1, 2026.
   The round-3.1 answer: on the same 16 Python repositories with the model moved
   to `claude-sonnet-5` and the treatment byte-identical, round 3's confirmatory
