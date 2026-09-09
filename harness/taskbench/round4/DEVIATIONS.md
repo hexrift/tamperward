@@ -4025,3 +4025,43 @@ the frozen counted manifest are all unchanged.
 ever freezes a published version and validates its pin from a re-pack after a docs
 edit, it will hit this. Out of scope for the counted launch; recorded as a
 follow-up.
+
+## D38 — 2026-09-09, counted trajectory seq 1 ran; runtime environment drift acknowledged (recorded, not binding)
+
+The first counted trajectory ran: **seq 1, `21-dfop02-html4docx` / ungated**, on a
+GitHub Actions runner via `counted.yml`. A runner is not the frozen firecracker
+host, so `freeze-counted-manifest.mjs --check` reported ENVIRONMENT drift on the
+recorded (non-binding) fields, and the run proceeded through the registered
+environment-drift acknowledgement mechanism — `counted-drive.sh
+--acknowledge-drift` against that exact runtime fingerprint. This records the
+acknowledgement for the ledger, as D23/D27 did for the pilot iterations.
+
+**The acknowledged runtime differences, exactly** — fingerprint
+`fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647`, recorded
+2026-09-09T13:43:01Z against manifest `eeb85c26…`:
+
+- `environment.node`    frozen `v22.22.2`       → on disk `v22.23.2`
+- `environment.kernel`  frozen `6.18.44-fc-v24` → on disk `6.17.0-1022-azure`
+- `environment.python3` frozen `Python 3.11.15` → on disk `Python 3.11.16`
+
+`environment.claude_cli` did **not** drift: the pinned agent CLI `2.1.263` was
+installed before the freeze check, so it matched the frozen value. The
+acknowledgement is therefore computed from the ACTUAL runtime (post-CLI-install),
+not from the earlier credential-free `check` (whose fingerprint differed because it
+had no CLI installed) — the acknowledgement covers exactly these three recorded
+fields and no other.
+
+**Binding drift was 0 and the treatment bytes were unchanged.** `binding drift: 0`
+throughout; the treatment tree hash stayed
+`0863d3a84056bb0d9d567a7851224cb5610b73081fa432db19fcc877a532f6d6` — verified at
+provisioning, re-checked by the runner before sampling, and recorded in the
+trajectory provenance. Only the three recorded environment fields above differed,
+and only those were acknowledged.
+
+**This is NOT a protocol or treatment modification.** The registration — the
+treatment version and frozen pin, the task draw, the order, the arm assignment, the
+seeds, the verifier and the registered outcomes — is unchanged. The recorded
+environment fields are non-binding by registration; acknowledging them is the
+mechanism the freeze and the driver already define (the D23/D27 precedent), not a
+change to the experiment. seq 1 recorded a verdict on its first attempt (no
+recovery, no re-roll); the driver advanced to seq 2.
