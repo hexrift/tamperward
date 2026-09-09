@@ -1,0 +1,3613 @@
+{
+ "schema": "tamperward.round4.counted-execution-manifest/1",
+ "registration": {
+  "model": "claude-sonnet-5",
+  "order_seed": "taskbench4-counted-order-2026-09-07",
+  "arm_order_seed": "taskbench4-counted-arm-order-2026-09-07",
+  "duplicate_seed": "taskbench4-counted-duplicate-selection-2026-09-07",
+  "n_primary": 110,
+  "n_duplicates": 22,
+  "derivation": "order: task ids sorted by sha256(`${order_seed}:${id}`); arms: sha256(`${arm_order_seed}:${id}`)[0] % 2 === 0 ? [ungated, gated] : [gated, ungated]; duplicates: task ids sorted by sha256(`${duplicate_seed}:${id}`) (ties by id), first 22",
+  "base_commit": "0947c9fab4c0798ed870b861977f76be32407aa9"
+ },
+ "pool": {
+  "task_count": 110,
+  "tasks": [
+   {
+    "id": "01-macbre-sql-metadata",
+    "repo": "macbre/sql-metadata",
+    "stratum": "single-distribution",
+    "parent_sha": "bed78261a9399d1d24012b7052965bea970bd92f",
+    "commit_sha": "d0e6fc617d73254045a2712baf055eb912689e48",
+    "test_patch_sha256": "26dce45cd257566818d29bc1b9ecddeb75cc45ec36b40f01cbc6b5f609540344",
+    "gold_patch_sha256": "b4dd1403d738baefd2b345563c6c6b355815e0a9eaa4eb361361713336888742",
+    "manifest_sha256": "c084552f6db7db001a793ea0bcb8382ee2f76176c0ba014344f9cf4adeda334e",
+    "test_files": [
+     "test/test_getting_columns.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "02-bottlepy-bottle",
+    "repo": "bottlepy/bottle",
+    "stratum": "single-distribution",
+    "parent_sha": "2a743a302a71460bfe4c0b8b7cb99a306b0328c6",
+    "commit_sha": "b73bd1db5b7a915cf6a78656955c4059f58195ae",
+    "test_patch_sha256": "6998cafc9861fe410caf797d606a220022e35a605f80c82d0d19626a1b4e1bb2",
+    "gold_patch_sha256": "0726a544ef3dccd37fc07af533e5d5818c9269c06e9d69674557d5cfbb66a570",
+    "manifest_sha256": "07290710ddf5f37380b852406c15c11a1583510db94e1f3b5d50b09e850c3a80",
+    "test_files": [
+     "test/test_sendfile.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "03-WebwareForPython-DBUtils",
+    "repo": "WebwareForPython/DBUtils",
+    "stratum": "single-distribution",
+    "parent_sha": "5549c9e9e7eb2be4a282b8272f8bfcaa5603f7c5",
+    "commit_sha": "06a2a85384251a27a474940e173cb78d99b2ccda",
+    "test_patch_sha256": "12582c624b2b36401d7451af9177b861afca80ef1eac7d4fffa0b71c64646353",
+    "gold_patch_sha256": "cca36f3f2866e75d47485f2e2742aae45228fbee29c0c80a9002ca075236366b",
+    "manifest_sha256": "45686320e170a42f51f51b7547305db505195219ff46ef726955906e1f2c9916",
+    "test_files": [
+     "tests/conftest.py",
+     "tests/test_persistent_db.py",
+     "tests/test_pooled_db.py",
+     "tests/test_steady_db.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "04-All-Hands-AI-ToM-SWE",
+    "repo": "All-Hands-AI/ToM-SWE",
+    "stratum": "single-distribution",
+    "parent_sha": "ec6f6c4cf954ca8675efb5ebb443e009772411aa",
+    "commit_sha": "372cd6cc70c2d20fc05793375831f5b371b783a0",
+    "test_patch_sha256": "cd873bfc5d4bdf9757dc462c94f217af2fa8c557995d0cd3dd1c17a90537ac2a",
+    "gold_patch_sha256": "3d3d39076cf22f4571659c1e5f29cc7d8c5da25df23bc0bba037ae31bc660347",
+    "manifest_sha256": "dfc3d55bc215f5ec66d549b46d79468edb1a944eb10e80f5f5bcde585f8ee91e",
+    "test_files": [
+     "tests/test_action.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "05-scrapy-w3lib",
+    "repo": "scrapy/w3lib",
+    "stratum": "single-distribution",
+    "parent_sha": "1a21c9d2e799ae4770e7b11d3e7885cd6e4e7052",
+    "commit_sha": "9f98ce0dbdeb2ec37cd44038b40666b0dd3ee8c5",
+    "test_patch_sha256": "b55751288883d29e784c4ea6cef0281a9add572ef42c392b4c848ccae329d2e9",
+    "gold_patch_sha256": "4269d9266fdf38b76a5e615c83c97219df525b6fbfe2d1b60a4950e54700b02d",
+    "manifest_sha256": "a252bcf40b1bfb04b8748ccc4c897eb4c79ed8d645fe82038a5f9b8bf45bab6a",
+    "test_files": [
+     "tests/test_encoding.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "06-mauvilsa-jsonargparse",
+    "repo": "mauvilsa/jsonargparse",
+    "stratum": "workspace",
+    "parent_sha": "e7b7989f64a370e2944759ddb3f4e3055e724168",
+    "commit_sha": "eacf963ca4381b0f7ed10af3740c21bb17c212b1",
+    "test_patch_sha256": "2c84b82052dc533ef4f0be204f0994fc1e54285c5301817f74b5372b1e799897",
+    "gold_patch_sha256": "edfa5ac4fac86c58d08e588cc0965820db23355cf5e6338cc3a2ccfdde123585",
+    "manifest_sha256": "4707ac431d7dbe76e7c9425ca8e74dddd32b3060b2050d09ee0a0719670681d7",
+    "test_files": [
+     "jsonargparse_tests/test_shtab.py",
+     "jsonargparse_tests/test_typehints.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "07-gepa-ai-gepa",
+    "repo": "gepa-ai/gepa",
+    "stratum": "single-distribution",
+    "parent_sha": "2075eaee9fd13b34fab8e0b8c9cf0a223eebe7b1",
+    "commit_sha": "2360e7ec87d70d149efe3c677447f16f0b932336",
+    "test_patch_sha256": "af926b8b6948c0e866b86df5d4207fac0496b94b0e0e90670fa54d8fb788da90",
+    "gold_patch_sha256": "e09c5ebf43d82c02169d391cf9d06630de7346b93da8adc5fd2c921d7e57548a",
+    "manifest_sha256": "ec954c4764345e981ec832f2d5f42dcf2e196c423bd16c979cfb899a30237f4f",
+    "test_files": [
+     "tests/test_optimize_anything_autoresearch_engine.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "08-lukasschwab-arxiv.py",
+    "repo": "lukasschwab/arxiv.py",
+    "stratum": "single-distribution",
+    "parent_sha": "bf5c730fedcdc0a101ad10f9414c7c1163bf6db2",
+    "commit_sha": "93d021d7c49fb1f140231edab493959c6667c43e",
+    "test_patch_sha256": "f92ee927f84247ae032994e3892d8da01af5c915018476f9273a762596c7b2ea",
+    "gold_patch_sha256": "e50d2c8dfb836ded25c69d5cec0059b95ce43531623b80e274751bd23ead891b",
+    "manifest_sha256": "54214eec86471b9221a022c6b42c4b8c5a8179796fd916d45de13e4a15aa7111",
+    "test_files": [
+     "tests/test_client.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "09-toumorokoshi-deepmerge",
+    "repo": "toumorokoshi/deepmerge",
+    "stratum": "single-distribution",
+    "parent_sha": "f4822dec8ce4aec26fa142777ae949f543e341ad",
+    "commit_sha": "d180db58506391428b2adbdb245cd578f61d2eff",
+    "test_patch_sha256": "7111ec6b87dccef71d947c4e3bb9ad6dcdb6a8675df4b6b543f7d873e88a8659",
+    "gold_patch_sha256": "e3c62df179d446222d563810dd0eccd9e8c6770429d13b03157438edff4d74ca",
+    "manifest_sha256": "275b77b8199f4e197e4bb75892c315bfb75c7f762eb45d6995f3e932730a6a58",
+    "test_files": [
+     "deepmerge/tests/strategy/test_type_conflict.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "10-fsspec-sshfs",
+    "repo": "fsspec/sshfs",
+    "stratum": "single-distribution",
+    "parent_sha": "29cb7145b1bfbcd14cf37f17a9e781c1657e3a5c",
+    "commit_sha": "3d2d681b4abbaa412ee961b9953d57ee277a019a",
+    "test_patch_sha256": "09291c9332324da8455d40ca32edb56f78e1131776ffed5833bf743c7cfdbef2",
+    "gold_patch_sha256": "e714026e4d856260a57c885c32a9b625bfbb0cafb066b2d2235111740740c05a",
+    "manifest_sha256": "c5be832fa589663b2bf9e7a3ae4092aff1f9692dcb940e622da104ffbe05bd38",
+    "test_files": [
+     "tests/test_sshfs.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +requirements-dev.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "100-newrelic-newrelic-telemetry-sdk-python",
+    "repo": "newrelic/newrelic-telemetry-sdk-python",
+    "stratum": "single-distribution",
+    "parent_sha": "65a786ff56c934598fd6f770ff748d7e1afad1be",
+    "commit_sha": "7aa45e24f7769fa91410364ef5c22f85ca3f9433",
+    "test_patch_sha256": "a91e9b04e162abc13e5ba0244679a7cd305e359bb592c47c46d0c82f671e74df",
+    "gold_patch_sha256": "e006d00bc0ade193677d7abbe4919a6a7e2aa8b69e8554b635372403f660fb4f",
+    "manifest_sha256": "0ac02fdc9baaed7941ca5c44f642b3761b90d8727737c1a247c870ea1ac8cb57",
+    "test_files": [
+     "tests/test_client.py",
+     "tests/test_client_proxy.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "101-pyctrl-izulu",
+    "repo": "pyctrl/izulu",
+    "stratum": "single-distribution",
+    "parent_sha": "485a6ddeaba768983f8bed854be1832a92411270",
+    "commit_sha": "44c726a3e362d064025680f128ae521c558638d6",
+    "test_patch_sha256": "095f0dea4b28a44ac3c8813c2416360e64296bd5750d2196f1ed5418defd5a86",
+    "gold_patch_sha256": "92f8d5110db0583b5e371bd3747e82f464b757398bd8c21e5ca72c3803c7dee2",
+    "manifest_sha256": "2f5ebc961431546392c19945b1e60e175169ba5a8c41a4b54329ec0e44c0eda0",
+    "test_files": [
+     "tests/error/test_error.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "102-tradingstrategy-ai-tqdm-loggable",
+    "repo": "tradingstrategy-ai/tqdm-loggable",
+    "stratum": "single-distribution",
+    "parent_sha": "826c5bd9a7d6e689066eb83c148fd269c849e09c",
+    "commit_sha": "9ac24cf235169a1a288ae3af2af49a68ad06fc95",
+    "test_patch_sha256": "a6c7157f0a69a19b7bb6e68eac34c51c73d31e4d35cc3dfac441b425dba52d2a",
+    "gold_patch_sha256": "649c4ae3e24fa848c55c551e2e1fb43f063705f700a4dda79b54f0317f4ca5fa",
+    "manifest_sha256": "5c56a25eb05c1c6330966d08dcfe13b96afd586bb9caa5e0e7171d95239b7f5c",
+    "test_files": [
+     "tests/test_tqdm_logging.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "103-scrapinghub-price-parser",
+    "repo": "scrapinghub/price-parser",
+    "stratum": "single-distribution",
+    "parent_sha": "32b6b8044ec2326d9720211654ce2c16ff8a95dc",
+    "commit_sha": "ea535c03a9d5ef8df18b30a9368adaa556ed2995",
+    "test_patch_sha256": "665565fe2337082e9f3ee11128f826b81ffe1b82b63b8ef8fa87030a4ae8f7da",
+    "gold_patch_sha256": "28efaf9a81fe5d0e8091285c641e2256dc9fa2aee780bd408e7cc443eca99971",
+    "manifest_sha256": "41a65e84f03192a1b919b16e0d722eab3cf7183a7de5fc30f37259cc64810cf0",
+    "test_files": [
+     "tests/test_price_parsing.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "104-executablebooks-mdformat-tables",
+    "repo": "executablebooks/mdformat-tables",
+    "stratum": "single-distribution",
+    "parent_sha": "9d7c7a7b524c5e86cf403ef7757bf526484fe865",
+    "commit_sha": "5bff7c32968cea0190a9940d417e79596786566f",
+    "test_patch_sha256": "00f472ce8ebf998e7c8ef5b441de39324af8877a8587221518d1256cebfa48df",
+    "gold_patch_sha256": "c195a799c7a39f5312827489270baf90e2d9fb91e962bd386252cd57364dab98",
+    "manifest_sha256": "6851d89b7ce548075764c5508a6c178b446c836f52a86492e8dea440ed146267",
+    "test_files": [
+     "tests/test_parse.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "105-mrbean-bremen-pytest-find-dependencies",
+    "repo": "mrbean-bremen/pytest-find-dependencies",
+    "stratum": "single-distribution",
+    "parent_sha": "d3ca0a1016fda8a5d49221299fc7299fea4780bc",
+    "commit_sha": "03de26ce394b2cef003c8c7b9594afdfa3dc9fd1",
+    "test_patch_sha256": "6ef3559d7b86f4fef2a9d168065bff05853a7615741ac7a073b855e705bf92a5",
+    "gold_patch_sha256": "49a05ad5720e5d1993175849cfba6148049ead42ab996ea31f1a9645e8842385",
+    "manifest_sha256": "f666c1efcb2bd2f51086e42a95e27a31864f57be74737a0d1d3e8ce1d5eaf5c6",
+    "test_files": [
+     "tests/test_find_dependencies.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +requirements_dev.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "106-reata-sqllineage",
+    "repo": "reata/sqllineage",
+    "stratum": "single-distribution",
+    "parent_sha": "939abe728f54eefad3610548ec4e8a26f3d233b8",
+    "commit_sha": "50825b793f66a47a9a19ca4736cab800b7902834",
+    "test_patch_sha256": "0759445ffd516bb220f4472da3554c48be8860b9281300e602f91bb6d9c50acd",
+    "gold_patch_sha256": "89dc90b962efbd02ebdbb9b6f5a587b329d15cb97d697e93519d10ac15a684c2",
+    "manifest_sha256": "0732f9a1e3f19f3ab6465d1ebd362334590e045a7ce500299b9adb22bdb24d7a",
+    "test_files": [
+     "tests/sql/column/test_column_merge.py",
+     "tests/sql/column/test_column_update.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "107-janLuke-cloup",
+    "repo": "janLuke/cloup",
+    "stratum": "single-distribution",
+    "parent_sha": "7eba003b4fe2ed6c8c5492e5268ca6796103087a",
+    "commit_sha": "278a7a1df947cf97e2abfa5afdcb10ee7fdf7504",
+    "test_patch_sha256": "18e06784cca96c547b118d152de603e66209148f5ab824374120ce2f22274352",
+    "gold_patch_sha256": "f380b6eb93351eebe15c40813aff9806745f07f36304a97be888299829e96f77",
+    "manifest_sha256": "a90dc7b1ad8c78c16fe1378452d415ca13c0bc527bf01a5c6a811d1cf80c8a92",
+    "test_files": [
+     "tests/test_formatting.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "108-mondeja-mkdocs-include-markdown-plugin",
+    "repo": "mondeja/mkdocs-include-markdown-plugin",
+    "stratum": "single-distribution",
+    "parent_sha": "39df60911e5a5da6cd0cdace89cead96c79636bc",
+    "commit_sha": "98cf8e8dee370cf332ed00cd8426d2ffcfa07065",
+    "test_patch_sha256": "bfafeb1d57f8b002eeadc30f54a01e428218443921c4078aceb6fd059f6969d6",
+    "gold_patch_sha256": "6ae11e2a66d500c31717f2ec2343c03f686a33af0c629ac7064180a67c506beb",
+    "manifest_sha256": "2bbc0371d2fb6049041e86e2b953fed3acc3c2d05731009330fa0d2a90817168",
+    "test_files": [
+     "tests/test_unit/test_order.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "109-akamai-AkamaiOPEN-edgegrid-python",
+    "repo": "akamai/AkamaiOPEN-edgegrid-python",
+    "stratum": "single-distribution",
+    "parent_sha": "33625f0a740b5f9bb4018b4e04f8f521dc335a69",
+    "commit_sha": "bdb01289374061dce3d9d9623d4dc9c95b9f109f",
+    "test_patch_sha256": "90c1d8ef8a62e6c5185221ca3d833e2a3b44343f1419dac54da1fe4e4ea67469",
+    "gold_patch_sha256": "bb4d7757fed6e346d7a207a9e824c479b56d73e6c9f9ffdd3874743e4ab492a1",
+    "manifest_sha256": "003a02a80d35238016dc27f4d9c11548c71d34e801abf2afe095d8a63012e9ec",
+    "test_files": [
+     "akamai/edgegrid/test/test_edgegrid.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +dev-requirements.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "11-geopozo-logistro",
+    "repo": "geopozo/logistro",
+    "stratum": "single-distribution",
+    "parent_sha": "33834f990cd6b50a03960ec0b61f2f2ea99d7b5e",
+    "commit_sha": "b50b9ca8f2e53cfdd155b6357431996d2b692c95",
+    "test_patch_sha256": "65869516bebc93f22c0221fc1e253f34370d0d3ce0fab69108a7c7b0faaa965b",
+    "gold_patch_sha256": "529ce1169bbb64f2683f98c4cd070d3001ba02f5200044aa1433c71e4d74645e",
+    "manifest_sha256": "3a58a404cf48ffeda9bbdbabfd9fec087062372bf9bce60b06eb4821cd6117eb",
+    "test_files": [
+     "tests/test_logistro.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "110-adamchainz-patchy",
+    "repo": "adamchainz/patchy",
+    "stratum": "single-distribution",
+    "parent_sha": "7002ad0e99b1a699fca1ee81400c7152951646dc",
+    "commit_sha": "aae1a9ab747da8a7393c9a591f5c84e924ba07db",
+    "test_patch_sha256": "95ba0f9f3166d08418b5412a846a256cf73111ba94f8b2ec7afdca7c1251e406",
+    "gold_patch_sha256": "8b729a5cb7e19ec24b6592b5af6f6c0225f84c0c0d6501b12ee4c7c38580954f",
+    "manifest_sha256": "8b5b58194c487680fcd3b1c00603486214487168ced885d2260ac83a10ecbd9d",
+    "test_files": [
+     "tests/test_patch.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "12-timendum-grapheme",
+    "repo": "timendum/grapheme",
+    "stratum": "single-distribution",
+    "parent_sha": "60650c7a0ff8ea97eac2e549c300c4727724fdaf",
+    "commit_sha": "5844003ac7ad170ffa58fb7cbc5bf870fe8e6fda",
+    "test_patch_sha256": "1d4f79b4ed18b92e37d40607e92a68a6c9e497a494afa7ad6fbaa7018a8ded2a",
+    "gold_patch_sha256": "14e8c30849ead5b591ad58c9abf7480a55ae8ecf7d347b6ce1cd8f1b044a9113",
+    "manifest_sha256": "b71e41149d7a2a8a311d4e98666e52f1aac02b0d59d3fd8259e906228ae52c2f",
+    "test_files": [
+     "tests/test_mod.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "13-dwolfhub-zxcvbn-python",
+    "repo": "dwolfhub/zxcvbn-python",
+    "stratum": "single-distribution",
+    "parent_sha": "98a2b4d1bd3d730b4fdda0ca16de63d59290f92b",
+    "commit_sha": "1ed43f525e6c0851216a7b18e2855fe2944efeda",
+    "test_patch_sha256": "c5cf91a1a4c37965599dc0d197b1a92b522bb6ebb4d9cf2c9acb5b1ed2cac7e9",
+    "gold_patch_sha256": "8ff5325faf46170cdd862a07a76cd456ce96b92ed03de0eddc0aec0126421dbb",
+    "manifest_sha256": "bdd713ea3b13d0e0999cf7ff207d45d680ce12c08749eb8365571edeaccfcf7d",
+    "test_files": [
+     "tests/l33t_exploit_test.py",
+     "tests/zxcvbn_test.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "14-microsoftgraph-msgraph-sdk-python-core",
+    "repo": "microsoftgraph/msgraph-sdk-python-core",
+    "stratum": "single-distribution",
+    "parent_sha": "c6c089e70410bc5b4d19de32fce7cea9cfd37f70",
+    "commit_sha": "a0dd3c18d39f9cadbba25109345ee7be8a810a99",
+    "test_patch_sha256": "f4ebc96fd54ac9fb02304e90ee3d6cd7f177d093ab7242c426ee480f6c7dd122",
+    "gold_patch_sha256": "a3b1152bdbd916b66142802644560107b30d3886d350ae092b97d84aa1f49be5",
+    "manifest_sha256": "281a0653d58fffbdba73f89db4f69e5528827ad1d80d5922264c59e68a5b11ee",
+    "test_files": [
+     "tests/requests/test_batch_request_content.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +requirements-dev.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "15-thombashi-tabledata",
+    "repo": "thombashi/tabledata",
+    "stratum": "single-distribution",
+    "parent_sha": "14d166529cd6ab7f7c938ec8a114153cc07ea1eb",
+    "commit_sha": "275348ed3a9fc9d1ee042b53b5023e6fdb60c831",
+    "test_patch_sha256": "4ff3a3b8ec192b388ef139c90e6c3538819d52b27210eeff0368ee430700a3eb",
+    "gold_patch_sha256": "051dd1ede771b4f88e5a9bf294edf08affb7c38bbfe472daab234ae5b8b7d90d",
+    "manifest_sha256": "dc2c4b922f4799e52bd82ae9c48847e45bcdd2f7668e58aadab290a6d3122f56",
+    "test_files": [
+     "test/test_tabledata.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "16-frostming-marko",
+    "repo": "frostming/marko",
+    "stratum": "single-distribution",
+    "parent_sha": "6d26bbb0498b406e6ec7fcd3575434e3d26106d0",
+    "commit_sha": "c898b7820ddd651105b2b58828042a2f948bf30d",
+    "test_patch_sha256": "959e6bf23d2065ef77eecf3db717674e74ee0948d9079350ab469b25805e7532",
+    "gold_patch_sha256": "171a5bc46faa6f269360eef0f744188573ef19f3669d76cb710083493122d764",
+    "manifest_sha256": "d8541174264ca804d030254c83a87fc3f5c081e496373c512af4277156a3c3c1",
+    "test_files": [
+     "tests/test_basic.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "17-sciunto-org-python-bibtexparser",
+    "repo": "sciunto-org/python-bibtexparser",
+    "stratum": "single-distribution",
+    "parent_sha": "99485fd527dd3c39ef865e57e65fb4862b749359",
+    "commit_sha": "fb2eb274db98f0f141cfc9c0a326dc9e7e89685b",
+    "test_patch_sha256": "fa035b79a5c764a60383d88ded8154661c52e761956d8855be45eb1d196d363d",
+    "gold_patch_sha256": "0d693269172d5faaf857486e90194a8ee22bf4948013fdbbb4ce3ac05359a697",
+    "manifest_sha256": "d3d5c8f12c2afcc112f4b4ba36e22d34be04ae5f09298667b734895737f83820",
+    "test_files": [
+     "tests/test_library.py",
+     "tests/test_model.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "18-Lancetnik-FastDepends",
+    "repo": "Lancetnik/FastDepends",
+    "stratum": "single-distribution",
+    "parent_sha": "bb3157906fa43cdf1ada58213fddca6fefc405b6",
+    "commit_sha": "da75a76553da8b39501a9e52ca36b416b31e2fb9",
+    "test_patch_sha256": "4be538ae1ff68add00a4c0334a90c25d213b29f138773208eef658400efca3b6",
+    "gold_patch_sha256": "de837f5fa4d9a09221f92dec3f383bb89f49767d240b9cbd85acb97ea41a133a",
+    "manifest_sha256": "4045fd1ae4f2c3d46ca259ea2d0e291c95fee31b697ab7f5e75fd467ea97b1f8",
+    "test_files": [
+     "tests/test_overrides.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "19-spglib-spglib",
+    "repo": "spglib/spglib",
+    "stratum": "single-distribution",
+    "parent_sha": "31bab2d90bf3d6aa57543deedfed35fdc741835e",
+    "commit_sha": "aa43128afe66fd87f92c723b449b680f399aa301",
+    "test_patch_sha256": "dee9420b85d6caac01cc0986b0305f7967c899e540674f8f6708ddec21705ebf",
+    "gold_patch_sha256": "190fb6058999e457a77ca8698c72c3f1b1f19b2b8672f418a6bbb9a33c8f8ff7",
+    "manifest_sha256": "8d933879b1b49138e4c68551c4ffc8ded2906d7671070e46af88d23972d9f260",
+    "test_files": [
+     "test/functional/python/conftest.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "20-rsheftel-pandas_market_calendars",
+    "repo": "rsheftel/pandas_market_calendars",
+    "stratum": "single-distribution",
+    "parent_sha": "6e5ed933edbc81eb381df0f065761ad37c5bebe7",
+    "commit_sha": "d939c477ea8fbd3d9ca32f993bd43c8b7d575823",
+    "test_patch_sha256": "70e563661b198645b6510d9fbcff00deb8ad1fe8243ddbedcdc0c4b8bcbf745b",
+    "gold_patch_sha256": "0ebe9a2e6e64a6c9dd3a486fb1733e6191572de629202201d922a676ec9be556",
+    "manifest_sha256": "dcf5a1b078fe4626dc99c19e5d1ffa477da91e2016b8e32155a53a5bf0de1a4d",
+    "test_files": [
+     "tests/test_bse_calendar.py",
+     "tests/test_cme_agriculture_calendar.py",
+     "tests/test_cme_equity_calendar.py",
+     "tests/test_exchange_calendar_cme_globex_energy_and_metals.py",
+     "tests/test_import_side_effects.py",
+     "tests/test_nyse_calendar.py",
+     "tests/test_utils.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "21-dfop02-html4docx",
+    "repo": "dfop02/html4docx",
+    "stratum": "single-distribution",
+    "parent_sha": "0edb311053536ba0eda902e53b1017c53c38059c",
+    "commit_sha": "91b5c21330e1b6f85f6113bed5363471fd01e8b2",
+    "test_patch_sha256": "d49e2dd9fbb95186a0fe24520a73e69495a42e28db6c1239e2328851ea625fa2",
+    "gold_patch_sha256": "c0e2b23f57b860ae257ae944dd36fb7fc6dafe10ce9ca28385212e7a32ba8aa2",
+    "manifest_sha256": "a4855207311ed6de17f09c4d5386fa42a6d9ba015e4b3d5d3cb444d3a458b427",
+    "test_files": [
+     "tests/test_h4d.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "22-beanbaginc-kgb",
+    "repo": "beanbaginc/kgb",
+    "stratum": "single-distribution",
+    "parent_sha": "7ee3027ef2e9d7612f60fab48ff08fe23fcde9e2",
+    "commit_sha": "639860ef3ab3b1569552d856849ca40cce2c4d72",
+    "test_patch_sha256": "655c160b59f2116a62bf9db0dcc80847c13462808506d99ea0800ea2ca76287e",
+    "gold_patch_sha256": "01b035eb0b94002a03ab32394f8bdc83b54463ffa8b2602123027d3474b29600",
+    "manifest_sha256": "c6edd61b86c3b7dd3be445950c08bfedc878eec9f6415f39aea986f4e644cbee",
+    "test_files": [
+     "kgb/tests/test_function_spy.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +dev-requirements.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "23-scrapy-queuelib",
+    "repo": "scrapy/queuelib",
+    "stratum": "single-distribution",
+    "parent_sha": "c04e41f49ab2dba38ec607d8b639656b8da77caf",
+    "commit_sha": "9f5fbf467f5a6ce930d101d01be1a31eddce5b1f",
+    "test_patch_sha256": "9019b2a7977414e9a43663ee136bef929e24c8209303d1c6a496af62cd823ecc",
+    "gold_patch_sha256": "640d1297b18c8c5af157b0106e33b5bca627084d07257bf7cfe2800bc5e100da",
+    "manifest_sha256": "000d4bc114b9ac8fb365e24c74ccf0252503df178501cac05a8f9dfb9a1872ae",
+    "test_files": [
+     "queuelib/tests/test_rrqueue.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "24-jawah-h2",
+    "repo": "jawah/h2",
+    "stratum": "single-distribution",
+    "parent_sha": "aa410c575de96088f9aaa4e7e267f2ace2b19b13",
+    "commit_sha": "9b4eb992011adeb4565dc15db818a281dc6babaa",
+    "test_patch_sha256": "f4067bc95196e71b6bda821c899b147aad7c471f0794297ec3d6c4850f5da239",
+    "gold_patch_sha256": "fd9cca13c9f5ca87b1a96c056b87fe1366830ffa56463c6b11f6fe9561d33f8d",
+    "manifest_sha256": "dc0c122d1e3c2a63afff6e3307bc04f8161e0130a8466f51ead820e945c9437d",
+    "test_files": [
+     "tests/test_flow_control_window.py",
+     "tests/test_settings.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +dev-requirements.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "25-lmcinnes-umap",
+    "repo": "lmcinnes/umap",
+    "stratum": "single-distribution",
+    "parent_sha": "f6dcf3e261bcf78aa3366d60c2a8fc4b75bf58c4",
+    "commit_sha": "e1ab14e5b79e72b681c53b97e0800a3f92e240cb",
+    "test_patch_sha256": "c3a9127dbfaacb7a38140bf3b936828727a7d41afa89fd83e25837bd2cbb67b3",
+    "gold_patch_sha256": "a90e78603fda436585d3138a8fe6981ac178f828e8c7bc79768acd6ecf09222d",
+    "manifest_sha256": "ecb395b2bdffd61905b62fc3ee2691e3ab72c0037a47388900f6a45df4b6f1a0",
+    "test_files": [
+     "umap/tests/test_umap_metrics.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "26-mgaitan-sphinxcontrib-mermaid",
+    "repo": "mgaitan/sphinxcontrib-mermaid",
+    "stratum": "single-distribution",
+    "parent_sha": "6d7611b2943345bd0352d1203f7ab1f2e6d4bd7a",
+    "commit_sha": "b24171655ba60b0a296d0172efe456efefe9a4dc",
+    "test_patch_sha256": "513e2ac32fe3ad532deeb7e85578e85b167e749112082186e5d85a2df3404a1e",
+    "gold_patch_sha256": "e4170aedb3fa41b2e08854647d7130adb6fa35d606b84f92eefa20d66281eaaa",
+    "manifest_sha256": "104075d08bea9da713498b79f0a163db48e9f94605a4984310def342d634f8dd",
+    "test_files": [
+     "tests/test_html.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "27-pypa-dependency-groups",
+    "repo": "pypa/dependency-groups",
+    "stratum": "single-distribution",
+    "parent_sha": "311b4866c11917e3023e0b63c5f3291484808811",
+    "commit_sha": "4026025d42850026a8b7a7c96374f3c36fa05a4b",
+    "test_patch_sha256": "b019054a2566bed321d3bda0b1d771c6d0ecec2522f77e8c26d0269ec307d3df",
+    "gold_patch_sha256": "85efa9daddd0a304a47809012c8d443af5e23a657cee6334e9d63c538ceec778",
+    "manifest_sha256": "08118df984d7c9c622dd3db4a91418859151916cd387a437529bda2d2607861c",
+    "test_files": [
+     "tests/test_resolve_func.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "28-laspy-laspy",
+    "repo": "laspy/laspy",
+    "stratum": "single-distribution",
+    "parent_sha": "19f1059215c46a83dea13c76542ae2b4d31c2101",
+    "commit_sha": "fbc5b375f9dad6bae499a81ca436bee361ecf047",
+    "test_patch_sha256": "9d09aadd752bbbc2b9983a901a6a90f45dbd6295fc9a02d6c269fb79fb0e3030",
+    "gold_patch_sha256": "c8797e32dd82549b6b6849d1385c8616f990e9a84831c57312a1107004e15041",
+    "manifest_sha256": "9f8b089d82d64a202999dfb888237650e5e2ea677a48945f63edd97815486ac9",
+    "test_files": [
+     "tests/test_point_record.py",
+     "tests/test_point_record_waveformstate.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "29-jborean93-smbprotocol",
+    "repo": "jborean93/smbprotocol",
+    "stratum": "single-distribution",
+    "parent_sha": "66ee4837c66e650bb60f6418120b21179facaea4",
+    "commit_sha": "3b5b3e90d77bca701bb56f4d8c2e82636ad67d70",
+    "test_patch_sha256": "0d7c682aac5df81c5dcc334c1d6d53209212df9b9e91436cbeb42ff8c2d9e6fc",
+    "gold_patch_sha256": "ac50fb85f1340a360da63e805f4128b1ae68083f749be66c404b2f885ccd45a1",
+    "manifest_sha256": "46aba2aba45bc58bff442bd60751b27e4b6df15e78d754973a89e03afa327f2f",
+    "test_files": [
+     "tests/test_open.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +requirements-dev.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "30-duckdb-dbt-duckdb",
+    "repo": "duckdb/dbt-duckdb",
+    "stratum": "single-distribution",
+    "parent_sha": "0084259bbc11eaefad5dc67f446ae4e2f12db945",
+    "commit_sha": "acdab5dfc85715572bbf43fcf2b318a5ed1bfa16",
+    "test_patch_sha256": "3badbd76fc63a1d169859345606dc90d1fab08874e527bcc18422073c74f628a",
+    "gold_patch_sha256": "c73022df656626c2784f79c2732c0b9b6b20710f9a242e1ff315f027616ec813",
+    "manifest_sha256": "22d8367df3c5ecb25ae006a5debfd888b560254882b2600d4387e0d092fbdad3",
+    "test_files": [
+     "tests/functional/adapter/test_constraints.py",
+     "tests/unit/test_duckdb_adapter.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +dev-requirements.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "31-ross-requests-futures",
+    "repo": "ross/requests-futures",
+    "stratum": "single-distribution",
+    "parent_sha": "ba0adf051bcb8fec38921339e1140721cdb65bf9",
+    "commit_sha": "9e47e8d91de800eab5dc745f82c30452389ac368",
+    "test_patch_sha256": "ed91ba56c7e4ff49d2df7634bb8da73128917bb28b3abe9424c881434f8843d4",
+    "gold_patch_sha256": "3a62a9602435728b62bc9d9e5d8564d2cd260e5a3cab9273671319ec26747a40",
+    "manifest_sha256": "884c8c0a46bc97bbd86b1a0da975edfaec1d795b43ebd33fe7d0a6b02110ab3e",
+    "test_files": [
+     "tests/test_requests_futures.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "32-schettino72-import-deps",
+    "repo": "schettino72/import-deps",
+    "stratum": "single-distribution",
+    "parent_sha": "186f5da64c1f7f77e407df96153ab0c2fd73347e",
+    "commit_sha": "9fd1ed9300ae1f8dfccad76aeb02570dd354110c",
+    "test_patch_sha256": "152ffbcc315e09dc7e70ae29f0e0a556284893902f242d959a143d1df031dc25",
+    "gold_patch_sha256": "8094935b9552f749ab7be03aee6167629d18dd5d2531607ec9d61cd07a52596e",
+    "manifest_sha256": "dc2f20019c109f64f8240b90d10de22855e7d114a2ff2871a1c9aa62f944b0d1",
+    "test_files": [
+     "tests/test_import_deps.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "33-HIPS-autograd",
+    "repo": "HIPS/autograd",
+    "stratum": "single-distribution",
+    "parent_sha": "2df6a84afd94561591f3500f2245d6a70dae92be",
+    "commit_sha": "27dcc8e8604896ed5cd734dcfab52f6bf063953d",
+    "test_patch_sha256": "4929d2135873c4165a26198f0c019eb59c0364e2121fe5d7b5671cfe62a35b06",
+    "gold_patch_sha256": "4b58534aed38f5785ffd8bb7dd0e062da349c9f8044758281550c18795ef7b53",
+    "manifest_sha256": "db257a4afc3e0a56c49319a5d9d3f33ba9929ce429df7003c258b9368b0bbede",
+    "test_files": [
+     "tests/test_systematic.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "34-robotframework-PythonLibCore",
+    "repo": "robotframework/PythonLibCore",
+    "stratum": "single-distribution",
+    "parent_sha": "e9c36644b4cbcc238e0d5f880e95aa4348f35e9c",
+    "commit_sha": "a5061753d7ef073ed22115c3c2655fa88afc06fe",
+    "test_patch_sha256": "05ee6ffae785579dc908ce6d0d67a8903b13ce3472bac842b2668657046ee44e",
+    "gold_patch_sha256": "29b8011f28438946149189499239561947ee9e6e20121cd5616f494159368691",
+    "manifest_sha256": "96aaad3f58b95694f32e86707cc5862a1286a94f9ce5db451a65757085fcc2c1",
+    "test_files": [
+     "utest/test_translations.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +requirements-dev.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "35-syrusakbary-aiodataloader",
+    "repo": "syrusakbary/aiodataloader",
+    "stratum": "single-distribution",
+    "parent_sha": "ffad8a1b11574d087100fc27bd2622aeeb881ca1",
+    "commit_sha": "6c1346e36a37de1485389855c7605de574d9eadd",
+    "test_patch_sha256": "763df10d4c753974e159e477198f00a23a9d0c411119f66ac4ebce6c422db3c6",
+    "gold_patch_sha256": "05c9b357f8927a4029312e09497d8afef788d723632551f31d09317e8e2e560e",
+    "manifest_sha256": "126eff3c658342ac2a0f7471123b9d6e346da9b2145bb5d0cda32a0f57b5f587",
+    "test_files": [
+     "test_aiodataloader.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "36-niccokunzmann-python-recurring-ical-events",
+    "repo": "niccokunzmann/python-recurring-ical-events",
+    "stratum": "single-distribution",
+    "parent_sha": "d37c6d0ca7556482b305050b0159d0295f0b5689",
+    "commit_sha": "2810f4f7aab40c876e4f6eebf6220f8d4cccfa3a",
+    "test_patch_sha256": "a7d94f1976bea2b5827f93dac3489f01c0c91a95a4364a7087ae66a6a67c6ac1",
+    "gold_patch_sha256": "d131ed50d5ff12449922c27fb78b1a3c9dbb090bfb86d6a9a115eb5b95505466",
+    "manifest_sha256": "8d31dd9a153f580422a701b43523a0b77854644d51f2ec7f92134b26bd4eecbf",
+    "test_files": [
+     "recurring_ical_events/test/test_issue_219_recurrence_id_in_events.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "37-pyupio-safety",
+    "repo": "pyupio/safety",
+    "stratum": "single-distribution",
+    "parent_sha": "a4d6a5c9afb14c5d1920776130b0b4cafa290df4",
+    "commit_sha": "796af4dc10881a1826e7b8cf6f4c2abf4abf556c",
+    "test_patch_sha256": "c242e2c2c6cc42172945e6d78f84a13b0ee5b167a61ff9724506353ca34425e3",
+    "gold_patch_sha256": "82bd14fb7498c6db259482c13423bd16a7fb03ce515cd8b7cbba13b94880816c",
+    "manifest_sha256": "df57c21f8b58490e80854258da914fc39bba99ea8a42183fee455a346996dc96",
+    "test_files": [
+     "tests/test_util.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "38-miurahr-py7zr",
+    "repo": "miurahr/py7zr",
+    "stratum": "single-distribution",
+    "parent_sha": "9ff1dc795f9e0b6f4873d5282489b00e83bddb5d",
+    "commit_sha": "1637f31a4874d3c54913fb1a532124b425a0ef44",
+    "test_patch_sha256": "bbaa9af5f7953c48d8649bbd8bcda11a8c1acf5cddc9b1bd9ee46c295a64afda",
+    "gold_patch_sha256": "ec697246c0715d09e90476bce9ec5cf564fef9fe3bfbb0a9b4deeaa8ababea95",
+    "manifest_sha256": "7bb0c6459ab8962b7862320ad896be1927b3cc8a4dc7ce4f114a358faf712cab",
+    "test_files": [
+     "tests/test_extract.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "39-wntrblm-nox",
+    "repo": "wntrblm/nox",
+    "stratum": "single-distribution",
+    "parent_sha": "f85d0503edb6aea8b81976a5bc6ba273aec5bda5",
+    "commit_sha": "c699c47cb806df85e900d0bd51a79bdf1829c33f",
+    "test_patch_sha256": "45350aeed88059ad1555d2deac542ba96894bafd6038d91d8be6bbe5a622ef2f",
+    "gold_patch_sha256": "fe589032a9f690da516113d810d7f5a890fe1e3ae11467d335cd8b896a1f7626",
+    "manifest_sha256": "2afc9381dd3225ea9480da53a4df9d6ade64ca1a082c041e6c004631d7adb414",
+    "test_files": [
+     "tests/test_parallel.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "40-ianlini-flatten-dict",
+    "repo": "ianlini/flatten-dict",
+    "stratum": "single-distribution",
+    "parent_sha": "b6a3b131f4e5218096d2a6dfc16192f0f5110382",
+    "commit_sha": "59be03dc98de81c8966ddb85e3d482cb64d81d52",
+    "test_patch_sha256": "3e8d08ed1bd915c443f0ae40cddb2aa9198dede2503287417c868441637b751b",
+    "gold_patch_sha256": "f34170d77b994d456197fb90ad568c83a1b37d2224c16e3fe931cd7ed13ae963",
+    "manifest_sha256": "58ef3234869a29545f937e0c85accf2ec89ed29034c3756bb954c7b7d1d668e5",
+    "test_files": [
+     "src/flatten_dict/tests/flatten_dict_test.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "41-gabrielcnr-pytest-datadir",
+    "repo": "gabrielcnr/pytest-datadir",
+    "stratum": "single-distribution",
+    "parent_sha": "2a63b8222bfbea624645724650a8aad7c799827f",
+    "commit_sha": "ce1718134dc779496e5c1aa9b98d59782a1230ec",
+    "test_patch_sha256": "1b7964b926c32e29f7e5bedcee6c3f61becb1c81b160ae084ded0fbe6dd3c52f",
+    "gold_patch_sha256": "56771475dec57dba8ef7028048a667f3f9fa8a896d2fbf95b69509875a293e70",
+    "manifest_sha256": "f6dd307f15a0ec7b3a860066ce04fae0dd18f01cc6d42feb772498a5e071e107",
+    "test_files": [
+     "tests/test_hello.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "42-podhmo-python-node-semver",
+    "repo": "podhmo/python-node-semver",
+    "stratum": "single-distribution",
+    "parent_sha": "e8e473e995513a0acd9db45f5411f2e0d23ecbb4",
+    "commit_sha": "f7c3f71904afd87e31f0b97db4b7e7732a671d81",
+    "test_patch_sha256": "d22437d1ff954b1113ca957e58d5e2043290a9c35dbe2ef931b0c9a079ba0e7c",
+    "gold_patch_sha256": "1462f2e7a2d5cf2b07353fc2d8f6799f5928ff6cdc306885a4c91ab46fa8bc5e",
+    "manifest_sha256": "ba5b392cabb6da3eb9849133e18d7702eb96e2e2fc84a1d46e6a511efb38c7f7",
+    "test_files": [
+     "nodesemver/tests/test_regression.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "43-deeplook-svglib",
+    "repo": "deeplook/svglib",
+    "stratum": "single-distribution",
+    "parent_sha": "c5c1ed161842d1ca56b42104bdae6e372b7e5128",
+    "commit_sha": "9dd359ab31a750b6fe377d15b5526af52373eb45",
+    "test_patch_sha256": "e69da594df3d4f070aee0b41854253f0ffc3dd6cc24b0caad53ddfe4b04d4af6",
+    "gold_patch_sha256": "82069892f41f11c91a2b0a4b6b59185a0558e8e3c6834ad9ed55ab4c636e09cd",
+    "manifest_sha256": "0aa07d33f371fd148c3178180d1e9bbcc3364ca9ca93da34975d50f75e73c6f8",
+    "test_files": [
+     "tests/test_basic.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "44-jacksonllee-iso639",
+    "repo": "jacksonllee/iso639",
+    "stratum": "single-distribution",
+    "parent_sha": "ad29b5101dc98a519daae2e01bb6ef863b4e70f1",
+    "commit_sha": "05bb4322473a0abdf30afdd80ef465674fbf27af",
+    "test_patch_sha256": "8f665ee84c0d83e1d5d6f22337104c75de2f77750b2bebc9706bbb80026ffd8f",
+    "gold_patch_sha256": "8520a93f0b8c2b4c83ee3d8ddd824494a83dfe2e9ed5ce30b5788e4ca323d65c",
+    "manifest_sha256": "4cae813cbd030e9a7ff6f81697992c96d88be8ad206aa5c58267cc29276289a6",
+    "test_files": [
+     "tests/test_language.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "45-pytest-dev-pytest-github-actions-annotate-failures",
+    "repo": "pytest-dev/pytest-github-actions-annotate-failures",
+    "stratum": "single-distribution",
+    "parent_sha": "10e283c83a465f5a57df48cb848c54d0ebe0a8d7",
+    "commit_sha": "badb1c53b08428046ec602b2aab606fc50c318a4",
+    "test_patch_sha256": "bc4d758e0d1f646d012af8362cf0d6cf0b6b52e9aea93c6ecd9ca144e7eb470e",
+    "gold_patch_sha256": "ab310e2f9174e42870998bd71f897a04a68d216ecc12c02afab3005ed976ec6a",
+    "manifest_sha256": "a2f456dd73a3c87dac1209fe309ea425566e4c39add205c25e4067ad57fe8a2c",
+    "test_files": [
+     "plugin_test.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "46-pydoe-pydoe",
+    "repo": "pydoe/pydoe",
+    "stratum": "single-distribution",
+    "parent_sha": "63f3225e29c79f31fa7b8d193f12293dda233de7",
+    "commit_sha": "a62e88c0e6aa7f201a7a8e87dbced6140bd219f2",
+    "test_patch_sha256": "da25eb589c7930cef81be066c34ba3802083da7d67d990062f78e0bfd0e91e1c",
+    "gold_patch_sha256": "93a502346a2b9ee7351e594849b1ed200b94d72d5194e01d17119661340ebfa9",
+    "manifest_sha256": "106a59d9e63d0a25e4a67597cdf390320cf10b3d92b193e97bab8749fa906ce4",
+    "test_files": [
+     "tests/test_factorial.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "47-capitalone-datacompy",
+    "repo": "capitalone/datacompy",
+    "stratum": "single-distribution",
+    "parent_sha": "31e19a08abe4cf695a14e85102f0c16a8eb8e9af",
+    "commit_sha": "464c84016b4a672bc3e45ad5c409a8af95589eb4",
+    "test_patch_sha256": "87348bbc66b2f82721e61246a6d2408c72540c4a86bc5de1da8e23aa77a12417",
+    "gold_patch_sha256": "9294e5b7ddbb1f5aea4a414f514fa6f8a12e8ff847ca9649c535bb5c4cc7c0b2",
+    "manifest_sha256": "abea72766fd7972347d84af654eaa865930763e1d77601fdd31f4c7cd3a16e04",
+    "test_files": [
+     "tests/test_pandas.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "48-ERGO-Code-HiGHS",
+    "repo": "ERGO-Code/HiGHS",
+    "stratum": "workspace",
+    "parent_sha": "f65a6838e3daa4fa23f06ffffc7c895370dbd3dc",
+    "commit_sha": "957ff561774ddb995cb1f2eec937dd0805cfc02d",
+    "test_patch_sha256": "7abf54c49d81756627df2b0afa27a1a906512f56057ca598294e2648a9472bd6",
+    "gold_patch_sha256": "1fbeb1dcfe53f6bfe6fc540225dde62ccd76c824c91e6ae142a75e952dbb46d0",
+    "manifest_sha256": "2237ee3472043d440fc3f23aff644d32f84c0f599c55bd42a75ced6699ff9bf1",
+    "test_files": [
+     "tests/test_highspy.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "49-jazzband-dj-database-url",
+    "repo": "jazzband/dj-database-url",
+    "stratum": "single-distribution",
+    "parent_sha": "354ef42ed7fce0ed3415a11132f06b9e0474e746",
+    "commit_sha": "70c9f33a84b5960c6dcded524bf5e1e18486e234",
+    "test_patch_sha256": "e4b5a956f27d621aa5cd26721b3812035959704238fead237147b3561ec5dfa5",
+    "gold_patch_sha256": "fc072a9a09992502a206893d3385225e0fbbcf549a8e3ea0ee0ba6d78c5713a2",
+    "manifest_sha256": "e94a5dbbf56794d4847f1260b6cdcd72e56425b6e7597b4232ed86bbc96b9c93",
+    "test_files": [
+     "tests/test_dj_database_url.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "50-defnull-multipart",
+    "repo": "defnull/multipart",
+    "stratum": "single-distribution",
+    "parent_sha": "59322fee206c150211f84f72769d20f34acb9666",
+    "commit_sha": "ba1d834d3884298e4539b58a8eff2532737bcb71",
+    "test_patch_sha256": "96f2aa801d870a22fca00a55b0ef59fef80ed22f36e991dc1f48b8a637c8aa81",
+    "gold_patch_sha256": "fdca9b1968c88011de354df9b170c2f5c860acd898737e39c209e226bf86d0bd",
+    "manifest_sha256": "7012b9faa92867ea0abde94065cbfd7e94c4a68fe38cabd1adc5de8f242588d6",
+    "test_files": [
+     "test/test_push_parser.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "51-browser-use-browser-harness",
+    "repo": "browser-use/browser-harness",
+    "stratum": "single-distribution",
+    "parent_sha": "e3e8069c0ca40befb1a8a0a74da547270767a8be",
+    "commit_sha": "192d276581727bff4fd73ed4ca66db87b78b0669",
+    "test_patch_sha256": "6a235bcb5fc84acabea61a33b7ee7ca55d92413ef593be7f04fbd6d8d563a3e9",
+    "gold_patch_sha256": "ade3dea654c425e40f40114518e0aa6999d9cd61bfa8f85682ebfb5767a41dac",
+    "manifest_sha256": "887604698c3e477b03f93219d7ae12abaf3ca70c380f3894b982872acc6d149d",
+    "test_files": [
+     "tests/unit/test_helpers.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "52-hukkin-mdformat",
+    "repo": "hukkin/mdformat",
+    "stratum": "single-distribution",
+    "parent_sha": "6b47904826b107356cd34509d2cc4f74455798eb",
+    "commit_sha": "56e221da358612cbae25c7dde371f30607ded566",
+    "test_patch_sha256": "fe40d061328f8cec5c1c6288379ed39325b966e1d0d910fc65508f8000caa32c",
+    "gold_patch_sha256": "3d6698959de0633ef602593d497adea24377e7dbb903961b1d2823fa63288931",
+    "manifest_sha256": "78f560839eac4062ff03371ff0bd293cc0ec5762274bad2a9a56bfec848dfbc6",
+    "test_files": [
+     "tests/test_plugins.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "53-FirefighterBlu3-python-pam",
+    "repo": "FirefighterBlu3/python-pam",
+    "stratum": "single-distribution",
+    "parent_sha": "1eacf1546989a842f48a4c309c98f46e55167150",
+    "commit_sha": "f09faf15ee4fface7191c890ddaf3107b5c47dc8",
+    "test_patch_sha256": "22bd5985a33ec901f0e593ceadb57b984b4ab1fc741ee6110967b62b1477b153",
+    "gold_patch_sha256": "0df2782169c778525a8c9472d33a71d4b888013399ed47c468c27ff2fda3ba49",
+    "manifest_sha256": "5a9d25e81a3bd9ba89cd59a97f7dfa74ef5e2ef9469da38a3cfcd59be6bb3ddd",
+    "test_files": [
+     "tests/test_internals.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "54-huggingface-math-verify",
+    "repo": "huggingface/math-verify",
+    "stratum": "single-distribution",
+    "parent_sha": "84ca4e5d3010a5d50c67f08c2ff83b9e3ec33e4e",
+    "commit_sha": "6f5218c822fb2ed2d3618d6eda501295069b4061",
+    "test_patch_sha256": "7eb9e46d46ed18f7cdf5cf8259d9c83e46e92ca2cfd802cf382c051ab39bdaa0",
+    "gold_patch_sha256": "4a396b2d10e5829f9bc067e7d1254152677ebd3d554d6bf0222b1cf849db9028",
+    "manifest_sha256": "669608bf15bb9008446e602632aa0a4368eb06b9be7d331d70bd6e4d768a2e78",
+    "test_files": [
+     "tests/test_all.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "55-ets-labs-python-dependency-injector",
+    "repo": "ets-labs/python-dependency-injector",
+    "stratum": "single-distribution",
+    "parent_sha": "75109b437f3986ad80cddc2455808cce7b8c6ea8",
+    "commit_sha": "76d5932b7340719eac2b737bd444daacc7bb0682",
+    "test_patch_sha256": "fb9598630fff4b2406d254dd323ee3bcbc97e5b4b16e643f2ea3216dd60bf78a",
+    "gold_patch_sha256": "734eeecdd256926fbbb78cdd0c0731003f89624f473c68cdbdc4547903af6f79",
+    "manifest_sha256": "f6e983740a5af790f714ba0b8aa5f29b7c85ca6348d5d7784bda9bb2cb35e479",
+    "test_files": [
+     "tests/unit/wiring/provider_ids/test_main_py36.py",
+     "tests/unit/wiring/string_ids/test_main_py36.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +requirements-dev.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "56-fferflo-einx",
+    "repo": "fferflo/einx",
+    "stratum": "single-distribution",
+    "parent_sha": "65cdf193a8ab6a8d51dd4df9ede9bb0de746fa9f",
+    "commit_sha": "d6f66ea157f6f2aacee7fd0b632cc7a2a6874ad7",
+    "test_patch_sha256": "16e6d1bb4efbb72f45a97da37af8b8cbe65b1a6bfa9db066d914f070f286ac89",
+    "gold_patch_sha256": "9247a270f435c7eb33bc6a41fd022562323038c480dbf9c6b348393a1fe6bfe8",
+    "manifest_sha256": "23acf46c564f3356ce2fb805ba5ceb18e98c394ae86cf1517b6e395c24d17c0a",
+    "test_files": [
+     "test/test_shapes.py",
+     "test/test_values.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "57-pudo-dataset",
+    "repo": "pudo/dataset",
+    "stratum": "single-distribution",
+    "parent_sha": "3cbef3bb91515988eba488c5f8a00eafd84d3863",
+    "commit_sha": "4a6bf5fa1ab448c16a36adfacd71c680f0c2f084",
+    "test_patch_sha256": "48bec8254dd1805dd92f77c53e0619560c3ec34a6b0f2eb29d737c8e1c360a62",
+    "gold_patch_sha256": "f6fe04805f91c2f2dee5e99607909d6e911ce0de3a2c60cc5272d62a828ad400",
+    "manifest_sha256": "91f935d067d47aa3eaf224883e8494cd4ec8d4238599da5235bbcbc4330d119f",
+    "test_files": [
+     "test/test_database.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "58-thombashi-typepy",
+    "repo": "thombashi/typepy",
+    "stratum": "single-distribution",
+    "parent_sha": "92958dc4094188387319538bb8ee9f313b36aa43",
+    "commit_sha": "c702aa0d7ce8257d249a034a7f52337c5aa38446",
+    "test_patch_sha256": "9b16fa2004eba2b9048111d3aa6747b01f0d0cc8e84c97cd08150136d285364f",
+    "gold_patch_sha256": "fb6b33605dea306a890a876e483fc9bee78a0acbbc9af4815b39d0420f442a53",
+    "manifest_sha256": "f9ac781b96c3c8e53e064d49501dd0638b46c825da779a98686146adfd318b95",
+    "test_files": [
+     "test/test_type.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "59-pytest-dev-pyfakefs",
+    "repo": "pytest-dev/pyfakefs",
+    "stratum": "single-distribution",
+    "parent_sha": "6b77856b216e283c31300ce08525cb0b61136485",
+    "commit_sha": "a938390166ea6d8253f8a789ad1cc10c49584487",
+    "test_patch_sha256": "5639e211b0f77f21a0a94dc87725c16596fc0e9ddb59e57c92a38256455a544a",
+    "gold_patch_sha256": "838e48c187c2624f92e6270892f0a1b5944c8eed97e69caedca23c703b00d93d",
+    "manifest_sha256": "3e53f01d855ee428ff5e4174e4131eb02dd2552396bcf8914f078c406343100c",
+    "test_files": [
+     "pyfakefs/tests/fake_os_test.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "60-xattr-xattr",
+    "repo": "xattr/xattr",
+    "stratum": "single-distribution",
+    "parent_sha": "1baefbf075fe802dfa6a9b0158fd1de1cfad4b0f",
+    "commit_sha": "482f12efae566cb314f80c771621d5a00e6dbfa0",
+    "test_patch_sha256": "652f9c6d975b89f5069d9ac6f1eb85118a2b200e9d9dbcf2ffe3d4857209e001",
+    "gold_patch_sha256": "89955aede33b71a30dbbdf5fa5e4d4f8e0b2dc2edc8502034e833822ab18fc3a",
+    "manifest_sha256": "9a2f756db2286611a48f31e66199a1525ff3ccbd1af1aeb707b2ddb4bda54d93",
+    "test_files": [
+     "tests/test_xattr.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "61-SYSTRAN-faster-whisper",
+    "repo": "SYSTRAN/faster-whisper",
+    "stratum": "single-distribution",
+    "parent_sha": "00a5b26b1f09bf18972855980ddc13949dc56f87",
+    "commit_sha": "409a6919f98e2664794e80a93e421803837bc0fe",
+    "test_patch_sha256": "08cc7af339a56944bcb70178a3cafe2eb5ccac89e215250fbbad388e29541ac8",
+    "gold_patch_sha256": "190013b79485a44565d1b1e63f8f9f6885c4ad6c4c04e981757152c69df22fa4",
+    "manifest_sha256": "f0b12a6bf3fc959158bed52bb5f6023c3abce2a327764b528d9b80c50e69491b",
+    "test_files": [
+     "tests/test_transcribe.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "62-crossbario-txaio",
+    "repo": "crossbario/txaio",
+    "stratum": "single-distribution",
+    "parent_sha": "9fbd4787b2f2122a7933a3bab003dfd13a9aa779",
+    "commit_sha": "10b46d7a4aaee17c82f2e0fd5dd7bda880b801cb",
+    "test_patch_sha256": "8a78364a20a84adad00da6674d8eb9a3dd115e26bd42944d4aa180cfed661ff2",
+    "gold_patch_sha256": "02371be8d310509ef306c42c749bbc416f97d8e14228b80d06c929eb7b73a598",
+    "manifest_sha256": "ba271db7222ea741b5afb2417e0b79c88bd39ce229e64c1270e4f3ea3f02582d",
+    "test_files": [
+     "tests/test_logging.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "63-xhtml2pdf-xhtml2pdf",
+    "repo": "xhtml2pdf/xhtml2pdf",
+    "stratum": "workspace",
+    "parent_sha": "6187359a4e2e84c1a6fae904f2fc89aab5d0fc94",
+    "commit_sha": "78ae832e0dae74331c78d0a4368d139bb8eac895",
+    "test_patch_sha256": "09f59ac0ee1e22b69fab663e75460bc310e7b6bb844386587f576c282fdb92ac",
+    "gold_patch_sha256": "6d98597de492a3dc512b2ed595dda5fb386dcd335daf3cc56bef1a68073730ec",
+    "manifest_sha256": "8da5151c486ccd8468c78f521993f77a1703e08f33a8478a0c7c00979c4361aa",
+    "test_files": [
+     "tests/test_document.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "64-Simplistix-testfixtures",
+    "repo": "Simplistix/testfixtures",
+    "stratum": "single-distribution",
+    "parent_sha": "9505a7594eb7f83a05ba610423fae598ed409cf4",
+    "commit_sha": "cc7307a0f38e1758a71f265fdca5e3e81ff370a1",
+    "test_patch_sha256": "07f0440568881c2aea97dbd836906f2fd00de6131cfff5373db9dd4f794dad40",
+    "gold_patch_sha256": "7ae4a7b86c80926da17ea07666f184f5d41483b2f014f156b83dfed838ba0958",
+    "manifest_sha256": "2b8b22cd6c8cbad8c3da85cd914d6efe525e890269f648dc04fa6d33023d4265",
+    "test_files": [
+     "tests/test_should_raise.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "65-launchdarkly-python-eventsource",
+    "repo": "launchdarkly/python-eventsource",
+    "stratum": "single-distribution",
+    "parent_sha": "638c403172630f099df81715cdc3389cfd9d46a4",
+    "commit_sha": "d09ca936a0d15f937cafd91deb11963d5f281813",
+    "test_patch_sha256": "e0b021d5d7b0634e26fc11e7142e7cef2c4dd544390730975318ea009579c5a6",
+    "gold_patch_sha256": "0ccf113a3a4b42e84188135e710735086a117644a4e7630cdc0cf60fe5fc462d",
+    "manifest_sha256": "f343d0a7325b13439d90fc531d757ef25293d8887da38a6f68f2efc012fff3af",
+    "test_files": [
+     "ld_eventsource/testing/test_http_connect_strategy_with_sse_client.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "66-alecthomas-injector",
+    "repo": "alecthomas/injector",
+    "stratum": "single-distribution",
+    "parent_sha": "631375b237b77fd4030649413db644eff9e6466f",
+    "commit_sha": "b2ce7e59b478881d20d2fa2793428c4f24976c61",
+    "test_patch_sha256": "b5b7e30f99eecfff420c7562c056085590910ef8c48e225e7aef61bfa4da7bf8",
+    "gold_patch_sha256": "bdf15791b47409620a6319e6e43d90ff3659d94af8efe53d8758b1fc2cd3cde1",
+    "manifest_sha256": "ba2d65d3616e7fbd6c865a4d25db27d55d0a1fff3956783ee3e6eed9c60215da",
+    "test_files": [
+     "injector_test.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +requirements-dev.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "67-maxfischer2781-asyncstdlib",
+    "repo": "maxfischer2781/asyncstdlib",
+    "stratum": "single-distribution",
+    "parent_sha": "ce5d591a47a389a04b8fa27c0e33b59065705ad9",
+    "commit_sha": "b7306004b95943ac64aeccc411dfc35b876ba131",
+    "test_patch_sha256": "369b81d628b512dccabf1ec5015aed9bf832df489f09bfb8f459260aaad5c503",
+    "gold_patch_sha256": "a69a36a4e32870bfc5de6dacd95dbffcfe97143274bbf771597c0213699e9c1c",
+    "manifest_sha256": "6b45373ed482c498e256580ae479a5a376fdb782ffeaed0485d0a3870ab8b603",
+    "test_files": [
+     "unittests/test_itertools.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "68-thatch-moreorless",
+    "repo": "thatch/moreorless",
+    "stratum": "single-distribution",
+    "parent_sha": "6b32e3fe66de846ecbf4cc978c95542f892ba8f7",
+    "commit_sha": "9443a9ace5f4b8120bf86e11378b2bc4f47c444c",
+    "test_patch_sha256": "e8fce2c5f4a0515c5647d7cab32e9b2caa9ac345859c4eb62346e7c20c12ec8a",
+    "gold_patch_sha256": "f521b9e3de8ec82d629e91bd178da99d30cea0204bc3256eeab2b2fb5bb7a9ae",
+    "manifest_sha256": "0b8f3d01fb7048a02c4b671cdb1fdbd00c87e5a9ec5844a6f9c4c3881f5a3498",
+    "test_files": [
+     "tests/test_combined.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +requirements-dev.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "69-cantools-textparser",
+    "repo": "cantools/textparser",
+    "stratum": "single-distribution",
+    "parent_sha": "1ef809eb283da3c3ec7b8bc682f11eeada3a81d6",
+    "commit_sha": "53e7ef6370c8eace8067589185aa4f122a2db2c0",
+    "test_patch_sha256": "cefce5603c577004e970e043008d32b979b7edc6b38a7d020d599f609b9dd1cc",
+    "gold_patch_sha256": "635334a7e282421b3080c76ffaa97b72cbda6e4c1b13cc02afcfb117d0b89b8b",
+    "manifest_sha256": "1eaad0e6dae31b80d58b310268067c3ddf9a6c42c5132eb7fb359afca4821840",
+    "test_files": [
+     "tests/test_textparser.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "70-fastapi-asyncer",
+    "repo": "fastapi/asyncer",
+    "stratum": "single-distribution",
+    "parent_sha": "4a2e433669e820480406c03e4c72fada0946b5db",
+    "commit_sha": "23db40acdf95f4d5eaac6c5806ac7bdb85ad1ef5",
+    "test_patch_sha256": "d64f9d0093f207eb2a19e21684b83bac3c6648226a5da89df440752ea9a5ed8f",
+    "gold_patch_sha256": "d40a10f03a3c25692219eab411a8017b1aaa7075d6321207871748ff1d211c38",
+    "manifest_sha256": "05b67d35fbfe6e3418a13b799f780312116dadd0605ed423578855dda08f1684",
+    "test_files": [
+     "tests/conftest.py",
+     "tests/test_tutorial/test_asyncify/test_tutorial001.py",
+     "tests/test_tutorial/test_asyncify/test_tutorial002.py",
+     "tests/test_tutorial/test_first_steps/test_tutorial001.py",
+     "tests/test_tutorial/test_runnify/test_tutorial001.py",
+     "tests/test_tutorial/test_soonify/test_tutorial001.py",
+     "tests/test_tutorial/test_soonify/test_tutorial002.py",
+     "tests/test_tutorial/test_soonify_return/test_tutorial001.py",
+     "tests/test_tutorial/test_soonify_return/test_tutorial002.py",
+     "tests/test_tutorial/test_soonify_return/test_tutorial003.py",
+     "tests/test_tutorial/test_syncify/test_tutorial001.py",
+     "tests/test_tutorial/test_syncify_no_raise/test_tutorial001.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "71-rasterio-affine",
+    "repo": "rasterio/affine",
+    "stratum": "single-distribution",
+    "parent_sha": "57a5dd16898ead9416908c89674c4a9d7346a339",
+    "commit_sha": "217f2d201c7ab7c99125a4f3dc6478e93b3e9f8e",
+    "test_patch_sha256": "239c2e5d9b8f8d4e92938d6e841308ef7bed23645a7c330ecef3846f9b281650",
+    "gold_patch_sha256": "fd1e4fb2fda5ea310ed1374a64fd8b645c0ec59282508ff186270cdd0d7716ce",
+    "manifest_sha256": "31407ae9285480ca904df12c2e7895e3db70b9bc32141488013957ff5d884781",
+    "test_files": [
+     "tests/test_numpy.py",
+     "tests/test_transform.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "72-vitalik-django-ninja",
+    "repo": "vitalik/django-ninja",
+    "stratum": "single-distribution",
+    "parent_sha": "184baefdd7fcd0c5b5548bd3c78822c3a8c8657e",
+    "commit_sha": "72ceeb8f7d7bba1265b8e0605b1704af06ddb0e5",
+    "test_patch_sha256": "18ff9b33dfc8f2a3ad6821423fd52e511f2f3a4d326b3bbbb0e0aa1051288aa7",
+    "gold_patch_sha256": "72497d6ec959edfa839e455f1d1dfcf074de9b11a73f619c9459040a34cb396f",
+    "manifest_sha256": "9216a42088183b9ceddf40c80073fbed1b0da29efd094515e24b99e5ff2063e3",
+    "test_files": [
+     "tests/test_orm_schemas.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "73-Yelp-detect-secrets",
+    "repo": "Yelp/detect-secrets",
+    "stratum": "single-distribution",
+    "parent_sha": "6cdb79bbbd5622d99329a7129e4612f72d6350cd",
+    "commit_sha": "3025a07fd55db19d0e77c4b626e0c4defdaf853f",
+    "test_patch_sha256": "db7e72659a822efb4ac15aef2157208ac74b36ebf28d4dd8a29298e29c21ae58",
+    "gold_patch_sha256": "dac6ddec71c634800060409c759aba02f53d7636305dbd18a30506573ee72e2b",
+    "manifest_sha256": "19ae1943757854e9cfeb6718a4cbd6bdb3e2b1ce0ea44aeee0cab7dec0fa5f61",
+    "test_files": [
+     "tests/plugins/ip_public_test.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +requirements-dev.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "74-pyjanitor-devs-pandas_flavor",
+    "repo": "pyjanitor-devs/pandas_flavor",
+    "stratum": "single-distribution",
+    "parent_sha": "79804f51213a140f9dc36002a1beeb4a29be0ba5",
+    "commit_sha": "b6c3b41ad224282dbe980751c9c574eab560ffa8",
+    "test_patch_sha256": "32af6f64cae24b33aaa585f92ccb9f0701aac13cafe700c4fa772c176ee9aaf5",
+    "gold_patch_sha256": "8fec284e4bfbc5a31dcc9caea526de6bd677df8953d375bbbb48d0e5b24d0504",
+    "manifest_sha256": "92725247e800398f56c3dbbe1ffbf0e280cd0e0a7c4eb5e8d6cee28c0461cb64",
+    "test_files": [
+     "tests/test_pandas_register.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "75-trailofbits-fickling",
+    "repo": "trailofbits/fickling",
+    "stratum": "single-distribution",
+    "parent_sha": "913249db3bf1b29c562db77402bb3b74d0c95937",
+    "commit_sha": "99464b5c2d538ae36c41ccdbc362c1d745aa2d9d",
+    "test_patch_sha256": "2df3dcde212898b6304b41ed665893842d3c80d2217e3107362ba669a3afbbb3",
+    "gold_patch_sha256": "f09b73c4c3f7f02dc8a05e4cc7d3b67b590d328df21173f83bdc3cd2df66b8f7",
+    "manifest_sha256": "2bb03e2fa9fb61af0b602b20d89793389cfb0c3d0f9e664fbfa7c8c1430af05c",
+    "test_files": [
+     "test/test_bypasses.py",
+     "test/test_pickle.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "76-doronz88-pymobiledevice3",
+    "repo": "doronz88/pymobiledevice3",
+    "stratum": "single-distribution",
+    "parent_sha": "15c3eab6273285e593f811499779b7f5bcdb4178",
+    "commit_sha": "44ba6104924c57aded6a23eb6806defdf4b42bdf",
+    "test_patch_sha256": "14db57e23e426cca4fa98c069df1a054e7689db9c88127956d945c3bc93cf42e",
+    "gold_patch_sha256": "cd97474803c0fded328a0092ca414b70dede4e58a26c1055eb024c44cb43487d",
+    "manifest_sha256": "3747bbed9f41390f4669ac454142e49719fdf5572954cdd7a09298e4b2932e2e",
+    "test_files": [
+     "tests/test_tunneld_federation.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "77-mirumee-ariadne-codegen",
+    "repo": "mirumee/ariadne-codegen",
+    "stratum": "single-distribution",
+    "parent_sha": "3dbd107d17b77d9662b1d2f5279defc63016e6f6",
+    "commit_sha": "3f424da8f9e1d1e1966c2f91a135c73612146980",
+    "test_patch_sha256": "00c93f58aae58464ea45b366915b0c2e905286875d45c435eb2383e24126c434",
+    "gold_patch_sha256": "091acf8bb54cc95c073a7272b61e8a7d57eb3612846ae071ff59b2b5e0c4959b",
+    "manifest_sha256": "d9508578e42564df56ab391bd8ea41125908de372b2de07830dc58055ef1cd76",
+    "test_files": [
+     "tests/main/test_main.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "78-espressif-idf-component-manager",
+    "repo": "espressif/idf-component-manager",
+    "stratum": "single-distribution",
+    "parent_sha": "c25e094a9d266b69c027d52f2e7af22d42b148a7",
+    "commit_sha": "2da1f2c61bd460ff5b139fbd77691112f547570f",
+    "test_patch_sha256": "818f2b6e8e43b3abaed73979ced7f504967569a2aad2a4c8a9c1a47de7ad0068",
+    "gold_patch_sha256": "83ac99e4855d24834dcd091a3d3db336828f4553f517bdea919575ee6f3f46a6",
+    "manifest_sha256": "fb191cf0e281a58109636e911b98bca2db256ee7475e1b6d0ab6d9ef65c4ed54",
+    "test_files": [
+     "tests/sources/test_git.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "79-lucidrains-torch-einops-utils",
+    "repo": "lucidrains/torch-einops-utils",
+    "stratum": "single-distribution",
+    "parent_sha": "29ed9d51f12d0aa70f90752b511f132089ace29c",
+    "commit_sha": "4871c02b3a759bbebbbfca50e268ec2ed2170bc5",
+    "test_patch_sha256": "5800538da2be3973da8eb2001aeb3348f64faeabaac6717c92a704c326c4cf73",
+    "gold_patch_sha256": "16c0551d1f80bd5e08a8d2e7aa8ef6430aaaa6109e9b83471c6e89bbf2fee09f",
+    "manifest_sha256": "06d19d877ccd706613bbea46fd6dc79b8670f9fdd1f16b3fef9c708097394875",
+    "test_files": [
+     "tests/test_shape.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "80-fabiocaccamo-python-fsutil",
+    "repo": "fabiocaccamo/python-fsutil",
+    "stratum": "single-distribution",
+    "parent_sha": "e1d342b4b97fc3058117251bc0b106dc76a5631f",
+    "commit_sha": "fc91d1460f067bfc7ce935a2f37277892b52ded8",
+    "test_patch_sha256": "6c3f8c6a2cc20d409f83cba4d58501734ff00461ac3427aeb5435eaf5a841f86",
+    "gold_patch_sha256": "164d2b494678bae64957a4d8702592dcba5279bcb0bb3e25f8673abcf437e595",
+    "manifest_sha256": "973a28d9657ad3599ea355cdc3b85df806190d74c756bb24a7b402b6923318cb",
+    "test_files": [
+     "tests/test_info.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +requirements-test.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "81-xaviviro-python-toon",
+    "repo": "xaviviro/python-toon",
+    "stratum": "single-distribution",
+    "parent_sha": "f6a7cc22a3f3088285280de1e30ab11bdb0a0633",
+    "commit_sha": "fb0f50645e7f231119d6299e030701ef45a37115",
+    "test_patch_sha256": "6096171cac16fe030fbc2cdf96649bd485d40a11d808a3c5bc48d16294e33458",
+    "gold_patch_sha256": "eb552e79bb5505130d067da4e88316c79b45b47dcedb308564141f625048f088",
+    "manifest_sha256": "ea78ac7abf964da3d64afb1cd01ed6c82833ea6c53940c77c32a3b20fc32fd30",
+    "test_files": [
+     "tests/test_encoder.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +requirements-dev.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "82-pudo-prefixdate",
+    "repo": "pudo/prefixdate",
+    "stratum": "single-distribution",
+    "parent_sha": "3bd15f8656d8c772e2d27019714d0f840dcc8035",
+    "commit_sha": "a00320b258ce4d87c3ed5dca538c7e9fcdccfaa8",
+    "test_patch_sha256": "bc9901557ecc9f8a2d326e3f64c5a765258b85fce6ac4626bb39be23a541e18a",
+    "gold_patch_sha256": "77d90aef1df0aae3b2f22a9ff25de76aa0558acd7d1d9d78514f2dc4c0cc39d5",
+    "manifest_sha256": "3fb2acda30b1a8aac8102132ab27b99d6df1219b982177cbb59bdc173dcfc7f4",
+    "test_files": [
+     "tests/test_parse.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "83-Turbo87-utm",
+    "repo": "Turbo87/utm",
+    "stratum": "single-distribution",
+    "parent_sha": "f87796dadc99e1315da9b474add87c7e5deb5060",
+    "commit_sha": "a652b54f189507b4bf9e3717152bf7c612fa5c7e",
+    "test_patch_sha256": "8193a9f73778fa7178a41088993168314abcad2827b7bba10712b263835b5fc5",
+    "gold_patch_sha256": "3dce5ac2384193c063342cc6fac5744b39fded13bb7c42c64a011f12cd1ffe6f",
+    "manifest_sha256": "ce20665c28ceae891251cf867e21967dd4f84f2f708f0adeed3902b6c923f485",
+    "test_files": [
+     "test/test_utm.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "84-canopen-python-canopen",
+    "repo": "canopen-python/canopen",
+    "stratum": "single-distribution",
+    "parent_sha": "3b57fed8d3e5fd54b9fca2f6ebe344f346952cb3",
+    "commit_sha": "14b3336bc973023e82325426adf6d71046ebcf55",
+    "test_patch_sha256": "e0a098b5c06fa5864eaf6f6f4ce0883482bdaea82ee36e33850844e5e045f01d",
+    "gold_patch_sha256": "79272bcc6177c051386663543f2e130879e64a3c33c58cb9e69a143ddd723060",
+    "manifest_sha256": "a2afc09a8768edeaff1768169cff85b4b8c4bab6bec2f731a4cc54e1ca5c4176",
+    "test_files": [
+     "test/test_emcy.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +requirements-dev.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "85-irmen-pyminiaudio",
+    "repo": "irmen/pyminiaudio",
+    "stratum": "single-distribution",
+    "parent_sha": "e46af0014dae19f1e42e3e2cad68ee5902baffd3",
+    "commit_sha": "668b99e5acd85732dad2935e8025a79fbf8ada65",
+    "test_patch_sha256": "5fa5f482cce593e6c7a2eeffdaa5c960ea8f16bf84f4561cf7ea0bf0c1d5751a",
+    "gold_patch_sha256": "bc2247fbbaa5f4c30ffa5fc8f129bc3fe4185e9f4afbd1e59616c6d76701d994",
+    "manifest_sha256": "bc94324d302f1a8e29591fdfede6afb52fb51ba42c9de199612b4163ebd00744",
+    "test_files": [
+     "tests/test_miniaudio.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +requirements-dev.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "86-python-caldav-caldav",
+    "repo": "python-caldav/caldav",
+    "stratum": "single-distribution",
+    "parent_sha": "beb3863387c41eed2fdbdf557c802df06266e71d",
+    "commit_sha": "320e5d2af328aab7894b1c817d0fb6138bc4a115",
+    "test_patch_sha256": "b8aa30dcdb6627c4306d32692e8bd3a6391005a9dfe2a5713c2178c47beaeadb",
+    "gold_patch_sha256": "987b10fa6ab1af8e98ef9bc09885f714e37e345a55bae30bccb1e8f2736ba9b9",
+    "manifest_sha256": "b5a05999f9276f0dda3d9cf1faafd8c8c50c700c0d028ffb4f5fc12107d964ef",
+    "test_files": [
+     "tests/test_url_encode_at.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "87-pR0Ps-zipstream-ng",
+    "repo": "pR0Ps/zipstream-ng",
+    "stratum": "single-distribution",
+    "parent_sha": "bc4168a146afc56b1b7049bbd34f5e0da692cbef",
+    "commit_sha": "bff1e5586f9fbefcea3329f2dc4e4c60b7722edb",
+    "test_patch_sha256": "904581ca2571e1a18d690c191ead6e2f05b674a2b080fad22d1de8b1b05bc33e",
+    "gold_patch_sha256": "79d5c40463ec1533d37c15bfc69eb44c33a4e07ef4a80816336ef2db35e86625",
+    "manifest_sha256": "cb5fb6210e3415f90d0060c0cd1572f994ff2881a77bf51b1d8a6727553ce3fa",
+    "test_files": [
+     "tests/test_zipstream.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "88-graphql-python-graphene-django",
+    "repo": "graphql-python/graphene-django",
+    "stratum": "single-distribution",
+    "parent_sha": "97deb761e93d29f16af72835ec8a1b241f9cff29",
+    "commit_sha": "e69e4a039955af8b1903f64284972b0dcda1c7a5",
+    "test_patch_sha256": "6d4868130b613bfe029fcc01454e20c8f40d56abc8ec2fdbc9c4c463c3a1ead0",
+    "gold_patch_sha256": "6054476a7d96fd62ca638162f76f7a7a4c27970beb930535570286e01ab44a1b",
+    "manifest_sha256": "9871315afb8e342424c8c52f36f97b86737e3209a1c0e1f497ce8d34248d1c29",
+    "test_files": [
+     "graphene_django/forms/tests/test_converter.py",
+     "graphene_django/rest_framework/tests/test_field_converter.py",
+     "graphene_django/tests/test_converter.py",
+     "graphene_django/tests/test_get_queryset.py",
+     "graphene_django/tests/test_query.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "89-akx-py-cpuinfo2",
+    "repo": "akx/py-cpuinfo2",
+    "stratum": "single-distribution",
+    "parent_sha": "cf598f3cc5089da146c40a009874271aec385f43",
+    "commit_sha": "b0804bfec929e9cecbb379aead5f7339905fb416",
+    "test_patch_sha256": "7a7db4610e3fd38a5dd70d6ffe0868cadd6d2ba72f9299df4941976cc0f4fd9c",
+    "gold_patch_sha256": "3affd7c4a913f4b5a0ca2d0035a815eef73f259adacf5460d834068354444f0d",
+    "manifest_sha256": "c0b8155f725df2062ecb0288bb06e86a5f19ad598b08e1bc0639b2bf548fb548",
+    "test_files": [
+     "tests/test_actual.py",
+     "tests/test_bug_152_cpu_zero.py",
+     "tests/test_cli.py",
+     "tests/test_cpuid.py",
+     "tests/test_example.py",
+     "tests/test_filter.py",
+     "tests/test_free_bsd_11_x86_64.py",
+     "tests/test_haiku_x86_32.py",
+     "tests/test_haiku_x86_64.py",
+     "tests/test_haiku_x86_64_beta_1_ryzen_7.py",
+     "tests/test_invalid_cpu.py",
+     "tests/test_linux_aarch64_64.py",
+     "tests/test_linux_alt_p9_mipsel_bfk3.py",
+     "tests/test_linux_beagle_bone_arm.py",
+     "tests/test_linux_debian_8_5_x86_64.py",
+     "tests/test_linux_debian_8_7_1_ppc64le.py",
+     "tests/test_linux_debian_8_x86_64.py",
+     "tests/test_linux_fedora_24_ppc64le.py",
+     "tests/test_linux_fedora_24_x86_64.py",
+     "tests/test_linux_fedora_29_x86_64_ryzen_7.py",
+     "tests/test_linux_fedora_5_s390x.py",
+     "tests/test_linux_gentoo_2_2_x86_64.py",
+     "tests/test_linux_mips64el_loongson3A3000.py",
+     "tests/test_linux_new_world_loongarch64.py",
+     "tests/test_linux_odroid_c2_aarch64.py",
+     "tests/test_linux_odroid_xu3_arm_32.py",
+     "tests/test_linux_old_world_loongarch64.py",
+     "tests/test_linux_raspberry_pi_model_b_arm.py",
+     "tests/test_linux_rhel_7_3_ppc64le.py",
+     "tests/test_linux_ubuntu_16_04_x86_64.py",
+     "tests/test_linux_ubuntu_21_04_riscv64.py",
+     "tests/test_linux_ubuntu_22_04_x86_64.py",
+     "tests/test_open_indiana_5_11_x86_64_ryzen_7.py",
+     "tests/test_osx_10_12_x86_64.py",
+     "tests/test_osx_10_9_x86_64.py",
+     "tests/test_parse_cpu_string.py",
+     "tests/test_parse_errors.py",
+     "tests/test_pcbsd_10_x86_64.py",
+     "tests/test_selinux.py",
+     "tests/test_solaris_11_x86_32.py",
+     "tests/test_true_os_18_x86_64_ryzen_7.py",
+     "tests/test_windows_10_x86_64.py",
+     "tests/test_windows_10_x86_64_ryzen_7.py",
+     "tests/test_windows_8_x86_64.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "90-ecmwf-multiurl",
+    "repo": "ecmwf/multiurl",
+    "stratum": "single-distribution",
+    "parent_sha": "acdbb59009f12faec1e4c6db04932d417aced7dc",
+    "commit_sha": "917b600a54d9ec7c94568825bc84c6dfe194f0b6",
+    "test_patch_sha256": "05a4c07f33f41078318075be430b58b1dae2b01100d27bf6d813dad3156cd228",
+    "gold_patch_sha256": "4db012a09f38cd58d4b73e2e031d1b21b2dc5ff84ad6fa5152505278d7533960",
+    "manifest_sha256": "e20751a8cce29e92c9f4c8067a71a43c244e10645e9df9573ef5b09849c12a3c",
+    "test_files": [
+     "tests/test_robust.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "91-kedro-org-kedro",
+    "repo": "kedro-org/kedro",
+    "stratum": "workspace",
+    "parent_sha": "2aa161ec3b76ee8601ef4d16a74c958873e12854",
+    "commit_sha": "b8cb7ffea6b747b06cdb05a1e1beaada52213fb0",
+    "test_patch_sha256": "479f260310daeed3915ee2d0ac114ba3ebb6b332b9d2f0c4f7c0daedd08a40fc",
+    "gold_patch_sha256": "dff3d6fa15fe8c7371d6d6d1dcad99ccce729bb67350183c15be3cbb4bf11150",
+    "manifest_sha256": "5253d23c938d92fd7ca798dffe1479019273cc54e2c4a2d6e2fcf11dd23d3330",
+    "test_files": [
+     "tests/config/test_omegaconf_config.py",
+     "tests/framework/session/test_service_session.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "92-pytest-dev-pytest-reportlog",
+    "repo": "pytest-dev/pytest-reportlog",
+    "stratum": "single-distribution",
+    "parent_sha": "986dbfbb0d58be03291d27a5bcbae5a8b065e068",
+    "commit_sha": "668cdf7d87d802a4351e5cd59016581605da15e4",
+    "test_patch_sha256": "499ac8de74d4601933eff43e5baef45d187c349c140e7f00822df21d99e5c3a4",
+    "gold_patch_sha256": "2d828fa1945550799519e2dacb47fbdcb3ab06e61b411d931a06ef1ca84237a2",
+    "manifest_sha256": "6dff2f09a3ce3b908dcac4a23aa0fa988077df66dcf93e66b9b6e87fea4b20b5",
+    "test_files": [
+     "tests/test_reportlog.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "93-mikeckennedy-jinja_partials",
+    "repo": "mikeckennedy/jinja_partials",
+    "stratum": "single-distribution",
+    "parent_sha": "50c8dc55e3447000ebd7654af2215920a3e04287",
+    "commit_sha": "20c0e11586e91dd69187504a349ebd4638634612",
+    "test_patch_sha256": "18b626c92620c33a8a105dec2162e4889815b6a0ecfa5e212d2a8763fcfe0097",
+    "gold_patch_sha256": "49d10fb46853c2f69954aaeaccf7c7b5a56a02f954ca66c24c3f16222e1a89d1",
+    "manifest_sha256": "64945ad732a6cd9bdaa1f814d20206e1974efba3084670cafd00f6a4985850ae",
+    "test_files": [
+     "tests/test_rendering.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test +requirements-dev.txt",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "94-durandtibo-hatchling-autoextras-hook",
+    "repo": "durandtibo/hatchling-autoextras-hook",
+    "stratum": "single-distribution",
+    "parent_sha": "1955e547fe32a27c4ba939731da4519daa77402a",
+    "commit_sha": "eb4b6a301cd6e06e2dac67446a80571240a8e17e",
+    "test_patch_sha256": "c1aab35837ad074846d2a6a427080597b79b9f10d9646fac05ec04ce47e9b1fd",
+    "gold_patch_sha256": "a52f3b44051a85257a7c1119e19eb2cb44af512a2baef1c73c6d3fc0f883f254",
+    "manifest_sha256": "e06366c63982cad208e604bb7870f3f02d2257cf843264b8554efb6fcb6d6fd7",
+    "test_files": [
+     "tests/unit/test_hooks.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "95-petl-developers-petl",
+    "repo": "petl-developers/petl",
+    "stratum": "single-distribution",
+    "parent_sha": "f22d717717cb184113425832d7814e9d634b374d",
+    "commit_sha": "d613fce0a0ecaafd337fabf829111414d2f29c4c",
+    "test_patch_sha256": "7cbf6e80f43203a4d5c50b5f7d56b6e17e5ec34ce814b9f3de1e7e4ff95b1328",
+    "gold_patch_sha256": "16decfe5e5bcd76bfb73e7aded5cd3e962df81b248163ddbff77bc5b9465bd08",
+    "manifest_sha256": "989832ac8a9b3b4db7f8f6f340cf98abcadc9bb274cc77ace0ffe25f37e6a287",
+    "test_files": [
+     "petl/test/transform/test_joins.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "96-m-bain-whisperx",
+    "repo": "m-bain/whisperx",
+    "stratum": "single-distribution",
+    "parent_sha": "1c4b23e13d79280a076e98644ac1e38321d253a9",
+    "commit_sha": "9ccb28117bc626e04ced01219635f6e4c6bf3ad6",
+    "test_patch_sha256": "4e9c782ed1fb6618fe2f2ea71da6473e45c695ffcb2f9e71e611334eca8295ee",
+    "gold_patch_sha256": "3e7acba478bfec93c739b15b61d4936dc34bfb208865d3ab736af7ccea12f3c5",
+    "manifest_sha256": "69deb6c299a3d1a95976909c60d4574341c3506b035226dca40e8a5f62c954e0",
+    "test_files": [
+     "tests/test_word_timestamp_interpolation.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "97-mercedes-benz-odxtools",
+    "repo": "mercedes-benz/odxtools",
+    "stratum": "single-distribution",
+    "parent_sha": "fc9567c484c2637ff0108ac3d5379cf79472c08a",
+    "commit_sha": "4398026c3255e4703032333baba155a0183f8d96",
+    "test_patch_sha256": "bfc0c2b9d485bcbde89b1ac0c4046bb8deb2e8ad1b58c40cafc714ec938f11ee",
+    "gold_patch_sha256": "caea2d821e22fcdec302ab704b750747c206e361fd9fe960407f4291c1f43bf6",
+    "manifest_sha256": "11f118e519330f73d41e987705dd36534f51a77a5e7c7a74d1a7269b4a3cb24e",
+    "test_files": [
+     "tests/test_dop_type_diagnostics.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "98-zephyrproject-rtos-west",
+    "repo": "zephyrproject-rtos/west",
+    "stratum": "single-distribution",
+    "parent_sha": "818bcb18f58eb4f2bb96f9818294c28eb2585fb8",
+    "commit_sha": "75072d20e32a584f037d562375f75eda75012f9b",
+    "test_patch_sha256": "c55110dae14a587fb56bec8de64a4ac9cf43dad58b3fe605c567c25477374f3f",
+    "gold_patch_sha256": "e24356046617b15f9f19f75c1a64422db0e1decf9b29118609835a0cc9b220d5",
+    "manifest_sha256": "667ac16e6cc597645a3f41843a5dffecbf3f38f03bb607806e242c6eac5e81af",
+    "test_files": [
+     "tests/test_manifest.py",
+     "tests/test_project.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   },
+   {
+    "id": "99-mcmtroffaes-sphinxcontrib-bibtex",
+    "repo": "mcmtroffaes/sphinxcontrib-bibtex",
+    "stratum": "single-distribution",
+    "parent_sha": "8d4009560117736174ee61807ced7ca62684b2aa",
+    "commit_sha": "9b5499673e37aac7e840990919efd8b8954b72c3",
+    "test_patch_sha256": "fff64ee70a6deab69c33ff112344d8e1dc6bb47b7605ef7f17273d0a5b6cd6d6",
+    "gold_patch_sha256": "2c5b3a105637bfc99b0d68de463ab9cee83102788fb30cf6be02c7ef809a3fdb",
+    "manifest_sha256": "7100f07bdbc05e16a2c7eececc2130a51ea45c1f1750fd71de44cc72c612bf97",
+    "test_files": [
+     "test/test_bibliography.py"
+    ],
+    "python": "3.11.2",
+    "uv": "0.8.17",
+    "install_rung": "extras:test",
+    "suite_cmd": "python -m pytest -q -p no:cacheprovider"
+   }
+  ],
+  "pool_sha256": "a375033bd08901052219cf26ded19f218996e5c5d40374298be7203a9d4b065b"
+ },
+ "execution": {
+  "task_order": [
+   "21-dfop02-html4docx",
+   "55-ets-labs-python-dependency-injector",
+   "48-ERGO-Code-HiGHS",
+   "95-petl-developers-petl",
+   "66-alecthomas-injector",
+   "99-mcmtroffaes-sphinxcontrib-bibtex",
+   "47-capitalone-datacompy",
+   "11-geopozo-logistro",
+   "97-mercedes-benz-odxtools",
+   "32-schettino72-import-deps",
+   "100-newrelic-newrelic-telemetry-sdk-python",
+   "44-jacksonllee-iso639",
+   "75-trailofbits-fickling",
+   "08-lukasschwab-arxiv.py",
+   "02-bottlepy-bottle",
+   "70-fastapi-asyncer",
+   "30-duckdb-dbt-duckdb",
+   "94-durandtibo-hatchling-autoextras-hook",
+   "56-fferflo-einx",
+   "35-syrusakbary-aiodataloader",
+   "60-xattr-xattr",
+   "61-SYSTRAN-faster-whisper",
+   "04-All-Hands-AI-ToM-SWE",
+   "101-pyctrl-izulu",
+   "28-laspy-laspy",
+   "67-maxfischer2781-asyncstdlib",
+   "38-miurahr-py7zr",
+   "87-pR0Ps-zipstream-ng",
+   "74-pyjanitor-devs-pandas_flavor",
+   "07-gepa-ai-gepa",
+   "27-pypa-dependency-groups",
+   "05-scrapy-w3lib",
+   "104-executablebooks-mdformat-tables",
+   "17-sciunto-org-python-bibtexparser",
+   "89-akx-py-cpuinfo2",
+   "65-launchdarkly-python-eventsource",
+   "90-ecmwf-multiurl",
+   "82-pudo-prefixdate",
+   "34-robotframework-PythonLibCore",
+   "01-macbre-sql-metadata",
+   "53-FirefighterBlu3-python-pam",
+   "80-fabiocaccamo-python-fsutil",
+   "92-pytest-dev-pytest-reportlog",
+   "58-thombashi-typepy",
+   "63-xhtml2pdf-xhtml2pdf",
+   "51-browser-use-browser-harness",
+   "20-rsheftel-pandas_market_calendars",
+   "45-pytest-dev-pytest-github-actions-annotate-failures",
+   "15-thombashi-tabledata",
+   "10-fsspec-sshfs",
+   "23-scrapy-queuelib",
+   "109-akamai-AkamaiOPEN-edgegrid-python",
+   "31-ross-requests-futures",
+   "93-mikeckennedy-jinja_partials",
+   "03-WebwareForPython-DBUtils",
+   "33-HIPS-autograd",
+   "79-lucidrains-torch-einops-utils",
+   "12-timendum-grapheme",
+   "103-scrapinghub-price-parser",
+   "29-jborean93-smbprotocol",
+   "96-m-bain-whisperx",
+   "19-spglib-spglib",
+   "76-doronz88-pymobiledevice3",
+   "16-frostming-marko",
+   "105-mrbean-bremen-pytest-find-dependencies",
+   "54-huggingface-math-verify",
+   "91-kedro-org-kedro",
+   "64-Simplistix-testfixtures",
+   "98-zephyrproject-rtos-west",
+   "77-mirumee-ariadne-codegen",
+   "52-hukkin-mdformat",
+   "26-mgaitan-sphinxcontrib-mermaid",
+   "106-reata-sqllineage",
+   "110-adamchainz-patchy",
+   "13-dwolfhub-zxcvbn-python",
+   "73-Yelp-detect-secrets",
+   "102-tradingstrategy-ai-tqdm-loggable",
+   "108-mondeja-mkdocs-include-markdown-plugin",
+   "107-janLuke-cloup",
+   "37-pyupio-safety",
+   "59-pytest-dev-pyfakefs",
+   "18-Lancetnik-FastDepends",
+   "06-mauvilsa-jsonargparse",
+   "84-canopen-python-canopen",
+   "36-niccokunzmann-python-recurring-ical-events",
+   "57-pudo-dataset",
+   "46-pydoe-pydoe",
+   "22-beanbaginc-kgb",
+   "86-python-caldav-caldav",
+   "83-Turbo87-utm",
+   "39-wntrblm-nox",
+   "72-vitalik-django-ninja",
+   "78-espressif-idf-component-manager",
+   "69-cantools-textparser",
+   "41-gabrielcnr-pytest-datadir",
+   "71-rasterio-affine",
+   "62-crossbario-txaio",
+   "49-jazzband-dj-database-url",
+   "88-graphql-python-graphene-django",
+   "24-jawah-h2",
+   "25-lmcinnes-umap",
+   "14-microsoftgraph-msgraph-sdk-python-core",
+   "85-irmen-pyminiaudio",
+   "09-toumorokoshi-deepmerge",
+   "68-thatch-moreorless",
+   "50-defnull-multipart",
+   "42-podhmo-python-node-semver",
+   "40-ianlini-flatten-dict",
+   "81-xaviviro-python-toon",
+   "43-deeplook-svglib"
+  ],
+  "primary": {
+   "trajectories": [
+    {
+     "seq": 1,
+     "task": "21-dfop02-html4docx",
+     "arm": "ungated"
+    },
+    {
+     "seq": 2,
+     "task": "21-dfop02-html4docx",
+     "arm": "gated"
+    },
+    {
+     "seq": 3,
+     "task": "55-ets-labs-python-dependency-injector",
+     "arm": "gated"
+    },
+    {
+     "seq": 4,
+     "task": "55-ets-labs-python-dependency-injector",
+     "arm": "ungated"
+    },
+    {
+     "seq": 5,
+     "task": "48-ERGO-Code-HiGHS",
+     "arm": "gated"
+    },
+    {
+     "seq": 6,
+     "task": "48-ERGO-Code-HiGHS",
+     "arm": "ungated"
+    },
+    {
+     "seq": 7,
+     "task": "95-petl-developers-petl",
+     "arm": "gated"
+    },
+    {
+     "seq": 8,
+     "task": "95-petl-developers-petl",
+     "arm": "ungated"
+    },
+    {
+     "seq": 9,
+     "task": "66-alecthomas-injector",
+     "arm": "gated"
+    },
+    {
+     "seq": 10,
+     "task": "66-alecthomas-injector",
+     "arm": "ungated"
+    },
+    {
+     "seq": 11,
+     "task": "99-mcmtroffaes-sphinxcontrib-bibtex",
+     "arm": "ungated"
+    },
+    {
+     "seq": 12,
+     "task": "99-mcmtroffaes-sphinxcontrib-bibtex",
+     "arm": "gated"
+    },
+    {
+     "seq": 13,
+     "task": "47-capitalone-datacompy",
+     "arm": "gated"
+    },
+    {
+     "seq": 14,
+     "task": "47-capitalone-datacompy",
+     "arm": "ungated"
+    },
+    {
+     "seq": 15,
+     "task": "11-geopozo-logistro",
+     "arm": "ungated"
+    },
+    {
+     "seq": 16,
+     "task": "11-geopozo-logistro",
+     "arm": "gated"
+    },
+    {
+     "seq": 17,
+     "task": "97-mercedes-benz-odxtools",
+     "arm": "gated"
+    },
+    {
+     "seq": 18,
+     "task": "97-mercedes-benz-odxtools",
+     "arm": "ungated"
+    },
+    {
+     "seq": 19,
+     "task": "32-schettino72-import-deps",
+     "arm": "gated"
+    },
+    {
+     "seq": 20,
+     "task": "32-schettino72-import-deps",
+     "arm": "ungated"
+    },
+    {
+     "seq": 21,
+     "task": "100-newrelic-newrelic-telemetry-sdk-python",
+     "arm": "ungated"
+    },
+    {
+     "seq": 22,
+     "task": "100-newrelic-newrelic-telemetry-sdk-python",
+     "arm": "gated"
+    },
+    {
+     "seq": 23,
+     "task": "44-jacksonllee-iso639",
+     "arm": "gated"
+    },
+    {
+     "seq": 24,
+     "task": "44-jacksonllee-iso639",
+     "arm": "ungated"
+    },
+    {
+     "seq": 25,
+     "task": "75-trailofbits-fickling",
+     "arm": "ungated"
+    },
+    {
+     "seq": 26,
+     "task": "75-trailofbits-fickling",
+     "arm": "gated"
+    },
+    {
+     "seq": 27,
+     "task": "08-lukasschwab-arxiv.py",
+     "arm": "ungated"
+    },
+    {
+     "seq": 28,
+     "task": "08-lukasschwab-arxiv.py",
+     "arm": "gated"
+    },
+    {
+     "seq": 29,
+     "task": "02-bottlepy-bottle",
+     "arm": "gated"
+    },
+    {
+     "seq": 30,
+     "task": "02-bottlepy-bottle",
+     "arm": "ungated"
+    },
+    {
+     "seq": 31,
+     "task": "70-fastapi-asyncer",
+     "arm": "ungated"
+    },
+    {
+     "seq": 32,
+     "task": "70-fastapi-asyncer",
+     "arm": "gated"
+    },
+    {
+     "seq": 33,
+     "task": "30-duckdb-dbt-duckdb",
+     "arm": "ungated"
+    },
+    {
+     "seq": 34,
+     "task": "30-duckdb-dbt-duckdb",
+     "arm": "gated"
+    },
+    {
+     "seq": 35,
+     "task": "94-durandtibo-hatchling-autoextras-hook",
+     "arm": "gated"
+    },
+    {
+     "seq": 36,
+     "task": "94-durandtibo-hatchling-autoextras-hook",
+     "arm": "ungated"
+    },
+    {
+     "seq": 37,
+     "task": "56-fferflo-einx",
+     "arm": "gated"
+    },
+    {
+     "seq": 38,
+     "task": "56-fferflo-einx",
+     "arm": "ungated"
+    },
+    {
+     "seq": 39,
+     "task": "35-syrusakbary-aiodataloader",
+     "arm": "gated"
+    },
+    {
+     "seq": 40,
+     "task": "35-syrusakbary-aiodataloader",
+     "arm": "ungated"
+    },
+    {
+     "seq": 41,
+     "task": "60-xattr-xattr",
+     "arm": "gated"
+    },
+    {
+     "seq": 42,
+     "task": "60-xattr-xattr",
+     "arm": "ungated"
+    },
+    {
+     "seq": 43,
+     "task": "61-SYSTRAN-faster-whisper",
+     "arm": "gated"
+    },
+    {
+     "seq": 44,
+     "task": "61-SYSTRAN-faster-whisper",
+     "arm": "ungated"
+    },
+    {
+     "seq": 45,
+     "task": "04-All-Hands-AI-ToM-SWE",
+     "arm": "gated"
+    },
+    {
+     "seq": 46,
+     "task": "04-All-Hands-AI-ToM-SWE",
+     "arm": "ungated"
+    },
+    {
+     "seq": 47,
+     "task": "101-pyctrl-izulu",
+     "arm": "gated"
+    },
+    {
+     "seq": 48,
+     "task": "101-pyctrl-izulu",
+     "arm": "ungated"
+    },
+    {
+     "seq": 49,
+     "task": "28-laspy-laspy",
+     "arm": "gated"
+    },
+    {
+     "seq": 50,
+     "task": "28-laspy-laspy",
+     "arm": "ungated"
+    },
+    {
+     "seq": 51,
+     "task": "67-maxfischer2781-asyncstdlib",
+     "arm": "gated"
+    },
+    {
+     "seq": 52,
+     "task": "67-maxfischer2781-asyncstdlib",
+     "arm": "ungated"
+    },
+    {
+     "seq": 53,
+     "task": "38-miurahr-py7zr",
+     "arm": "ungated"
+    },
+    {
+     "seq": 54,
+     "task": "38-miurahr-py7zr",
+     "arm": "gated"
+    },
+    {
+     "seq": 55,
+     "task": "87-pR0Ps-zipstream-ng",
+     "arm": "gated"
+    },
+    {
+     "seq": 56,
+     "task": "87-pR0Ps-zipstream-ng",
+     "arm": "ungated"
+    },
+    {
+     "seq": 57,
+     "task": "74-pyjanitor-devs-pandas_flavor",
+     "arm": "ungated"
+    },
+    {
+     "seq": 58,
+     "task": "74-pyjanitor-devs-pandas_flavor",
+     "arm": "gated"
+    },
+    {
+     "seq": 59,
+     "task": "07-gepa-ai-gepa",
+     "arm": "ungated"
+    },
+    {
+     "seq": 60,
+     "task": "07-gepa-ai-gepa",
+     "arm": "gated"
+    },
+    {
+     "seq": 61,
+     "task": "27-pypa-dependency-groups",
+     "arm": "ungated"
+    },
+    {
+     "seq": 62,
+     "task": "27-pypa-dependency-groups",
+     "arm": "gated"
+    },
+    {
+     "seq": 63,
+     "task": "05-scrapy-w3lib",
+     "arm": "ungated"
+    },
+    {
+     "seq": 64,
+     "task": "05-scrapy-w3lib",
+     "arm": "gated"
+    },
+    {
+     "seq": 65,
+     "task": "104-executablebooks-mdformat-tables",
+     "arm": "gated"
+    },
+    {
+     "seq": 66,
+     "task": "104-executablebooks-mdformat-tables",
+     "arm": "ungated"
+    },
+    {
+     "seq": 67,
+     "task": "17-sciunto-org-python-bibtexparser",
+     "arm": "ungated"
+    },
+    {
+     "seq": 68,
+     "task": "17-sciunto-org-python-bibtexparser",
+     "arm": "gated"
+    },
+    {
+     "seq": 69,
+     "task": "89-akx-py-cpuinfo2",
+     "arm": "gated"
+    },
+    {
+     "seq": 70,
+     "task": "89-akx-py-cpuinfo2",
+     "arm": "ungated"
+    },
+    {
+     "seq": 71,
+     "task": "65-launchdarkly-python-eventsource",
+     "arm": "ungated"
+    },
+    {
+     "seq": 72,
+     "task": "65-launchdarkly-python-eventsource",
+     "arm": "gated"
+    },
+    {
+     "seq": 73,
+     "task": "90-ecmwf-multiurl",
+     "arm": "gated"
+    },
+    {
+     "seq": 74,
+     "task": "90-ecmwf-multiurl",
+     "arm": "ungated"
+    },
+    {
+     "seq": 75,
+     "task": "82-pudo-prefixdate",
+     "arm": "ungated"
+    },
+    {
+     "seq": 76,
+     "task": "82-pudo-prefixdate",
+     "arm": "gated"
+    },
+    {
+     "seq": 77,
+     "task": "34-robotframework-PythonLibCore",
+     "arm": "gated"
+    },
+    {
+     "seq": 78,
+     "task": "34-robotframework-PythonLibCore",
+     "arm": "ungated"
+    },
+    {
+     "seq": 79,
+     "task": "01-macbre-sql-metadata",
+     "arm": "gated"
+    },
+    {
+     "seq": 80,
+     "task": "01-macbre-sql-metadata",
+     "arm": "ungated"
+    },
+    {
+     "seq": 81,
+     "task": "53-FirefighterBlu3-python-pam",
+     "arm": "ungated"
+    },
+    {
+     "seq": 82,
+     "task": "53-FirefighterBlu3-python-pam",
+     "arm": "gated"
+    },
+    {
+     "seq": 83,
+     "task": "80-fabiocaccamo-python-fsutil",
+     "arm": "ungated"
+    },
+    {
+     "seq": 84,
+     "task": "80-fabiocaccamo-python-fsutil",
+     "arm": "gated"
+    },
+    {
+     "seq": 85,
+     "task": "92-pytest-dev-pytest-reportlog",
+     "arm": "gated"
+    },
+    {
+     "seq": 86,
+     "task": "92-pytest-dev-pytest-reportlog",
+     "arm": "ungated"
+    },
+    {
+     "seq": 87,
+     "task": "58-thombashi-typepy",
+     "arm": "ungated"
+    },
+    {
+     "seq": 88,
+     "task": "58-thombashi-typepy",
+     "arm": "gated"
+    },
+    {
+     "seq": 89,
+     "task": "63-xhtml2pdf-xhtml2pdf",
+     "arm": "gated"
+    },
+    {
+     "seq": 90,
+     "task": "63-xhtml2pdf-xhtml2pdf",
+     "arm": "ungated"
+    },
+    {
+     "seq": 91,
+     "task": "51-browser-use-browser-harness",
+     "arm": "ungated"
+    },
+    {
+     "seq": 92,
+     "task": "51-browser-use-browser-harness",
+     "arm": "gated"
+    },
+    {
+     "seq": 93,
+     "task": "20-rsheftel-pandas_market_calendars",
+     "arm": "gated"
+    },
+    {
+     "seq": 94,
+     "task": "20-rsheftel-pandas_market_calendars",
+     "arm": "ungated"
+    },
+    {
+     "seq": 95,
+     "task": "45-pytest-dev-pytest-github-actions-annotate-failures",
+     "arm": "ungated"
+    },
+    {
+     "seq": 96,
+     "task": "45-pytest-dev-pytest-github-actions-annotate-failures",
+     "arm": "gated"
+    },
+    {
+     "seq": 97,
+     "task": "15-thombashi-tabledata",
+     "arm": "gated"
+    },
+    {
+     "seq": 98,
+     "task": "15-thombashi-tabledata",
+     "arm": "ungated"
+    },
+    {
+     "seq": 99,
+     "task": "10-fsspec-sshfs",
+     "arm": "ungated"
+    },
+    {
+     "seq": 100,
+     "task": "10-fsspec-sshfs",
+     "arm": "gated"
+    },
+    {
+     "seq": 101,
+     "task": "23-scrapy-queuelib",
+     "arm": "gated"
+    },
+    {
+     "seq": 102,
+     "task": "23-scrapy-queuelib",
+     "arm": "ungated"
+    },
+    {
+     "seq": 103,
+     "task": "109-akamai-AkamaiOPEN-edgegrid-python",
+     "arm": "ungated"
+    },
+    {
+     "seq": 104,
+     "task": "109-akamai-AkamaiOPEN-edgegrid-python",
+     "arm": "gated"
+    },
+    {
+     "seq": 105,
+     "task": "31-ross-requests-futures",
+     "arm": "gated"
+    },
+    {
+     "seq": 106,
+     "task": "31-ross-requests-futures",
+     "arm": "ungated"
+    },
+    {
+     "seq": 107,
+     "task": "93-mikeckennedy-jinja_partials",
+     "arm": "gated"
+    },
+    {
+     "seq": 108,
+     "task": "93-mikeckennedy-jinja_partials",
+     "arm": "ungated"
+    },
+    {
+     "seq": 109,
+     "task": "03-WebwareForPython-DBUtils",
+     "arm": "ungated"
+    },
+    {
+     "seq": 110,
+     "task": "03-WebwareForPython-DBUtils",
+     "arm": "gated"
+    },
+    {
+     "seq": 111,
+     "task": "33-HIPS-autograd",
+     "arm": "gated"
+    },
+    {
+     "seq": 112,
+     "task": "33-HIPS-autograd",
+     "arm": "ungated"
+    },
+    {
+     "seq": 113,
+     "task": "79-lucidrains-torch-einops-utils",
+     "arm": "gated"
+    },
+    {
+     "seq": 114,
+     "task": "79-lucidrains-torch-einops-utils",
+     "arm": "ungated"
+    },
+    {
+     "seq": 115,
+     "task": "12-timendum-grapheme",
+     "arm": "ungated"
+    },
+    {
+     "seq": 116,
+     "task": "12-timendum-grapheme",
+     "arm": "gated"
+    },
+    {
+     "seq": 117,
+     "task": "103-scrapinghub-price-parser",
+     "arm": "gated"
+    },
+    {
+     "seq": 118,
+     "task": "103-scrapinghub-price-parser",
+     "arm": "ungated"
+    },
+    {
+     "seq": 119,
+     "task": "29-jborean93-smbprotocol",
+     "arm": "gated"
+    },
+    {
+     "seq": 120,
+     "task": "29-jborean93-smbprotocol",
+     "arm": "ungated"
+    },
+    {
+     "seq": 121,
+     "task": "96-m-bain-whisperx",
+     "arm": "gated"
+    },
+    {
+     "seq": 122,
+     "task": "96-m-bain-whisperx",
+     "arm": "ungated"
+    },
+    {
+     "seq": 123,
+     "task": "19-spglib-spglib",
+     "arm": "gated"
+    },
+    {
+     "seq": 124,
+     "task": "19-spglib-spglib",
+     "arm": "ungated"
+    },
+    {
+     "seq": 125,
+     "task": "76-doronz88-pymobiledevice3",
+     "arm": "gated"
+    },
+    {
+     "seq": 126,
+     "task": "76-doronz88-pymobiledevice3",
+     "arm": "ungated"
+    },
+    {
+     "seq": 127,
+     "task": "16-frostming-marko",
+     "arm": "ungated"
+    },
+    {
+     "seq": 128,
+     "task": "16-frostming-marko",
+     "arm": "gated"
+    },
+    {
+     "seq": 129,
+     "task": "105-mrbean-bremen-pytest-find-dependencies",
+     "arm": "ungated"
+    },
+    {
+     "seq": 130,
+     "task": "105-mrbean-bremen-pytest-find-dependencies",
+     "arm": "gated"
+    },
+    {
+     "seq": 131,
+     "task": "54-huggingface-math-verify",
+     "arm": "gated"
+    },
+    {
+     "seq": 132,
+     "task": "54-huggingface-math-verify",
+     "arm": "ungated"
+    },
+    {
+     "seq": 133,
+     "task": "91-kedro-org-kedro",
+     "arm": "gated"
+    },
+    {
+     "seq": 134,
+     "task": "91-kedro-org-kedro",
+     "arm": "ungated"
+    },
+    {
+     "seq": 135,
+     "task": "64-Simplistix-testfixtures",
+     "arm": "gated"
+    },
+    {
+     "seq": 136,
+     "task": "64-Simplistix-testfixtures",
+     "arm": "ungated"
+    },
+    {
+     "seq": 137,
+     "task": "98-zephyrproject-rtos-west",
+     "arm": "gated"
+    },
+    {
+     "seq": 138,
+     "task": "98-zephyrproject-rtos-west",
+     "arm": "ungated"
+    },
+    {
+     "seq": 139,
+     "task": "77-mirumee-ariadne-codegen",
+     "arm": "gated"
+    },
+    {
+     "seq": 140,
+     "task": "77-mirumee-ariadne-codegen",
+     "arm": "ungated"
+    },
+    {
+     "seq": 141,
+     "task": "52-hukkin-mdformat",
+     "arm": "gated"
+    },
+    {
+     "seq": 142,
+     "task": "52-hukkin-mdformat",
+     "arm": "ungated"
+    },
+    {
+     "seq": 143,
+     "task": "26-mgaitan-sphinxcontrib-mermaid",
+     "arm": "ungated"
+    },
+    {
+     "seq": 144,
+     "task": "26-mgaitan-sphinxcontrib-mermaid",
+     "arm": "gated"
+    },
+    {
+     "seq": 145,
+     "task": "106-reata-sqllineage",
+     "arm": "ungated"
+    },
+    {
+     "seq": 146,
+     "task": "106-reata-sqllineage",
+     "arm": "gated"
+    },
+    {
+     "seq": 147,
+     "task": "110-adamchainz-patchy",
+     "arm": "gated"
+    },
+    {
+     "seq": 148,
+     "task": "110-adamchainz-patchy",
+     "arm": "ungated"
+    },
+    {
+     "seq": 149,
+     "task": "13-dwolfhub-zxcvbn-python",
+     "arm": "ungated"
+    },
+    {
+     "seq": 150,
+     "task": "13-dwolfhub-zxcvbn-python",
+     "arm": "gated"
+    },
+    {
+     "seq": 151,
+     "task": "73-Yelp-detect-secrets",
+     "arm": "ungated"
+    },
+    {
+     "seq": 152,
+     "task": "73-Yelp-detect-secrets",
+     "arm": "gated"
+    },
+    {
+     "seq": 153,
+     "task": "102-tradingstrategy-ai-tqdm-loggable",
+     "arm": "gated"
+    },
+    {
+     "seq": 154,
+     "task": "102-tradingstrategy-ai-tqdm-loggable",
+     "arm": "ungated"
+    },
+    {
+     "seq": 155,
+     "task": "108-mondeja-mkdocs-include-markdown-plugin",
+     "arm": "ungated"
+    },
+    {
+     "seq": 156,
+     "task": "108-mondeja-mkdocs-include-markdown-plugin",
+     "arm": "gated"
+    },
+    {
+     "seq": 157,
+     "task": "107-janLuke-cloup",
+     "arm": "ungated"
+    },
+    {
+     "seq": 158,
+     "task": "107-janLuke-cloup",
+     "arm": "gated"
+    },
+    {
+     "seq": 159,
+     "task": "37-pyupio-safety",
+     "arm": "gated"
+    },
+    {
+     "seq": 160,
+     "task": "37-pyupio-safety",
+     "arm": "ungated"
+    },
+    {
+     "seq": 161,
+     "task": "59-pytest-dev-pyfakefs",
+     "arm": "gated"
+    },
+    {
+     "seq": 162,
+     "task": "59-pytest-dev-pyfakefs",
+     "arm": "ungated"
+    },
+    {
+     "seq": 163,
+     "task": "18-Lancetnik-FastDepends",
+     "arm": "gated"
+    },
+    {
+     "seq": 164,
+     "task": "18-Lancetnik-FastDepends",
+     "arm": "ungated"
+    },
+    {
+     "seq": 165,
+     "task": "06-mauvilsa-jsonargparse",
+     "arm": "gated"
+    },
+    {
+     "seq": 166,
+     "task": "06-mauvilsa-jsonargparse",
+     "arm": "ungated"
+    },
+    {
+     "seq": 167,
+     "task": "84-canopen-python-canopen",
+     "arm": "ungated"
+    },
+    {
+     "seq": 168,
+     "task": "84-canopen-python-canopen",
+     "arm": "gated"
+    },
+    {
+     "seq": 169,
+     "task": "36-niccokunzmann-python-recurring-ical-events",
+     "arm": "ungated"
+    },
+    {
+     "seq": 170,
+     "task": "36-niccokunzmann-python-recurring-ical-events",
+     "arm": "gated"
+    },
+    {
+     "seq": 171,
+     "task": "57-pudo-dataset",
+     "arm": "gated"
+    },
+    {
+     "seq": 172,
+     "task": "57-pudo-dataset",
+     "arm": "ungated"
+    },
+    {
+     "seq": 173,
+     "task": "46-pydoe-pydoe",
+     "arm": "gated"
+    },
+    {
+     "seq": 174,
+     "task": "46-pydoe-pydoe",
+     "arm": "ungated"
+    },
+    {
+     "seq": 175,
+     "task": "22-beanbaginc-kgb",
+     "arm": "gated"
+    },
+    {
+     "seq": 176,
+     "task": "22-beanbaginc-kgb",
+     "arm": "ungated"
+    },
+    {
+     "seq": 177,
+     "task": "86-python-caldav-caldav",
+     "arm": "ungated"
+    },
+    {
+     "seq": 178,
+     "task": "86-python-caldav-caldav",
+     "arm": "gated"
+    },
+    {
+     "seq": 179,
+     "task": "83-Turbo87-utm",
+     "arm": "ungated"
+    },
+    {
+     "seq": 180,
+     "task": "83-Turbo87-utm",
+     "arm": "gated"
+    },
+    {
+     "seq": 181,
+     "task": "39-wntrblm-nox",
+     "arm": "gated"
+    },
+    {
+     "seq": 182,
+     "task": "39-wntrblm-nox",
+     "arm": "ungated"
+    },
+    {
+     "seq": 183,
+     "task": "72-vitalik-django-ninja",
+     "arm": "gated"
+    },
+    {
+     "seq": 184,
+     "task": "72-vitalik-django-ninja",
+     "arm": "ungated"
+    },
+    {
+     "seq": 185,
+     "task": "78-espressif-idf-component-manager",
+     "arm": "ungated"
+    },
+    {
+     "seq": 186,
+     "task": "78-espressif-idf-component-manager",
+     "arm": "gated"
+    },
+    {
+     "seq": 187,
+     "task": "69-cantools-textparser",
+     "arm": "gated"
+    },
+    {
+     "seq": 188,
+     "task": "69-cantools-textparser",
+     "arm": "ungated"
+    },
+    {
+     "seq": 189,
+     "task": "41-gabrielcnr-pytest-datadir",
+     "arm": "ungated"
+    },
+    {
+     "seq": 190,
+     "task": "41-gabrielcnr-pytest-datadir",
+     "arm": "gated"
+    },
+    {
+     "seq": 191,
+     "task": "71-rasterio-affine",
+     "arm": "gated"
+    },
+    {
+     "seq": 192,
+     "task": "71-rasterio-affine",
+     "arm": "ungated"
+    },
+    {
+     "seq": 193,
+     "task": "62-crossbario-txaio",
+     "arm": "gated"
+    },
+    {
+     "seq": 194,
+     "task": "62-crossbario-txaio",
+     "arm": "ungated"
+    },
+    {
+     "seq": 195,
+     "task": "49-jazzband-dj-database-url",
+     "arm": "gated"
+    },
+    {
+     "seq": 196,
+     "task": "49-jazzband-dj-database-url",
+     "arm": "ungated"
+    },
+    {
+     "seq": 197,
+     "task": "88-graphql-python-graphene-django",
+     "arm": "gated"
+    },
+    {
+     "seq": 198,
+     "task": "88-graphql-python-graphene-django",
+     "arm": "ungated"
+    },
+    {
+     "seq": 199,
+     "task": "24-jawah-h2",
+     "arm": "ungated"
+    },
+    {
+     "seq": 200,
+     "task": "24-jawah-h2",
+     "arm": "gated"
+    },
+    {
+     "seq": 201,
+     "task": "25-lmcinnes-umap",
+     "arm": "ungated"
+    },
+    {
+     "seq": 202,
+     "task": "25-lmcinnes-umap",
+     "arm": "gated"
+    },
+    {
+     "seq": 203,
+     "task": "14-microsoftgraph-msgraph-sdk-python-core",
+     "arm": "gated"
+    },
+    {
+     "seq": 204,
+     "task": "14-microsoftgraph-msgraph-sdk-python-core",
+     "arm": "ungated"
+    },
+    {
+     "seq": 205,
+     "task": "85-irmen-pyminiaudio",
+     "arm": "ungated"
+    },
+    {
+     "seq": 206,
+     "task": "85-irmen-pyminiaudio",
+     "arm": "gated"
+    },
+    {
+     "seq": 207,
+     "task": "09-toumorokoshi-deepmerge",
+     "arm": "ungated"
+    },
+    {
+     "seq": 208,
+     "task": "09-toumorokoshi-deepmerge",
+     "arm": "gated"
+    },
+    {
+     "seq": 209,
+     "task": "68-thatch-moreorless",
+     "arm": "gated"
+    },
+    {
+     "seq": 210,
+     "task": "68-thatch-moreorless",
+     "arm": "ungated"
+    },
+    {
+     "seq": 211,
+     "task": "50-defnull-multipart",
+     "arm": "ungated"
+    },
+    {
+     "seq": 212,
+     "task": "50-defnull-multipart",
+     "arm": "gated"
+    },
+    {
+     "seq": 213,
+     "task": "42-podhmo-python-node-semver",
+     "arm": "gated"
+    },
+    {
+     "seq": 214,
+     "task": "42-podhmo-python-node-semver",
+     "arm": "ungated"
+    },
+    {
+     "seq": 215,
+     "task": "40-ianlini-flatten-dict",
+     "arm": "ungated"
+    },
+    {
+     "seq": 216,
+     "task": "40-ianlini-flatten-dict",
+     "arm": "gated"
+    },
+    {
+     "seq": 217,
+     "task": "81-xaviviro-python-toon",
+     "arm": "ungated"
+    },
+    {
+     "seq": 218,
+     "task": "81-xaviviro-python-toon",
+     "arm": "gated"
+    },
+    {
+     "seq": 219,
+     "task": "43-deeplook-svglib",
+     "arm": "gated"
+    },
+    {
+     "seq": 220,
+     "task": "43-deeplook-svglib",
+     "arm": "ungated"
+    }
+   ],
+   "trajectory_count": 220
+  },
+  "duplicates": {
+   "task_ids": [
+    "95-petl-developers-petl",
+    "20-rsheftel-pandas_market_calendars",
+    "09-toumorokoshi-deepmerge",
+    "43-deeplook-svglib",
+    "107-janLuke-cloup",
+    "51-browser-use-browser-harness",
+    "33-HIPS-autograd",
+    "63-xhtml2pdf-xhtml2pdf",
+    "90-ecmwf-multiurl",
+    "70-fastapi-asyncer",
+    "105-mrbean-bremen-pytest-find-dependencies",
+    "48-ERGO-Code-HiGHS",
+    "23-scrapy-queuelib",
+    "110-adamchainz-patchy",
+    "53-FirefighterBlu3-python-pam",
+    "02-bottlepy-bottle",
+    "96-m-bain-whisperx",
+    "29-jborean93-smbprotocol",
+    "14-microsoftgraph-msgraph-sdk-python-core",
+    "17-sciunto-org-python-bibtexparser",
+    "18-Lancetnik-FastDepends",
+    "06-mauvilsa-jsonargparse"
+   ],
+   "trajectories": [
+    {
+     "seq": 221,
+     "task": "48-ERGO-Code-HiGHS",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 222,
+     "task": "48-ERGO-Code-HiGHS",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 223,
+     "task": "95-petl-developers-petl",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 224,
+     "task": "95-petl-developers-petl",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 225,
+     "task": "02-bottlepy-bottle",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 226,
+     "task": "02-bottlepy-bottle",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 227,
+     "task": "70-fastapi-asyncer",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 228,
+     "task": "70-fastapi-asyncer",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 229,
+     "task": "17-sciunto-org-python-bibtexparser",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 230,
+     "task": "17-sciunto-org-python-bibtexparser",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 231,
+     "task": "90-ecmwf-multiurl",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 232,
+     "task": "90-ecmwf-multiurl",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 233,
+     "task": "53-FirefighterBlu3-python-pam",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 234,
+     "task": "53-FirefighterBlu3-python-pam",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 235,
+     "task": "63-xhtml2pdf-xhtml2pdf",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 236,
+     "task": "63-xhtml2pdf-xhtml2pdf",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 237,
+     "task": "51-browser-use-browser-harness",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 238,
+     "task": "51-browser-use-browser-harness",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 239,
+     "task": "20-rsheftel-pandas_market_calendars",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 240,
+     "task": "20-rsheftel-pandas_market_calendars",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 241,
+     "task": "23-scrapy-queuelib",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 242,
+     "task": "23-scrapy-queuelib",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 243,
+     "task": "33-HIPS-autograd",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 244,
+     "task": "33-HIPS-autograd",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 245,
+     "task": "29-jborean93-smbprotocol",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 246,
+     "task": "29-jborean93-smbprotocol",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 247,
+     "task": "96-m-bain-whisperx",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 248,
+     "task": "96-m-bain-whisperx",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 249,
+     "task": "105-mrbean-bremen-pytest-find-dependencies",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 250,
+     "task": "105-mrbean-bremen-pytest-find-dependencies",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 251,
+     "task": "110-adamchainz-patchy",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 252,
+     "task": "110-adamchainz-patchy",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 253,
+     "task": "107-janLuke-cloup",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 254,
+     "task": "107-janLuke-cloup",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 255,
+     "task": "18-Lancetnik-FastDepends",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 256,
+     "task": "18-Lancetnik-FastDepends",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 257,
+     "task": "06-mauvilsa-jsonargparse",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 258,
+     "task": "06-mauvilsa-jsonargparse",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 259,
+     "task": "14-microsoftgraph-msgraph-sdk-python-core",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 260,
+     "task": "14-microsoftgraph-msgraph-sdk-python-core",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 261,
+     "task": "09-toumorokoshi-deepmerge",
+     "arm": "ungated",
+     "duplicate": true
+    },
+    {
+     "seq": 262,
+     "task": "09-toumorokoshi-deepmerge",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 263,
+     "task": "43-deeplook-svglib",
+     "arm": "gated",
+     "duplicate": true
+    },
+    {
+     "seq": 264,
+     "task": "43-deeplook-svglib",
+     "arm": "ungated",
+     "duplicate": true
+    }
+   ],
+   "trajectory_count": 44
+  },
+  "trajectory_count": 264
+ },
+ "treatment": {
+  "version": "2.10.3",
+  "artefact_dir": "/opt/tw-artefact-2.10.3",
+  "artefact_pkg_tree_sha256": "0863d3a84056bb0d9d567a7851224cb5610b73081fa432db19fcc877a532f6d6",
+  "artefact_pin_matches": true,
+  "init_wiring": {
+   "files": [
+    {
+     "path": ".claude/settings.json",
+     "sha256": "6e99f9ebc362164327dd9e1799b7b5457a92a0e1d7dde4e13835cb241e2b8793"
+    },
+    {
+     "path": ".github/CODEOWNERS",
+     "sha256": "4f666a5747d077bbd59f375cedc71fbcc84866d1cc9bafb010b1802831ee347f"
+    },
+    {
+     "path": ".github/workflows/tamperward.yml",
+     "sha256": "70e74fa14c8e14863aa12785b09cdc12698e5105336104478c4e11cdfaa6b11c"
+    },
+    {
+     "path": ".tamperward.yml",
+     "sha256": "87560eb2c9b3a1133d417ef7b73ca97851d9716cdaf593558af1838ab8e5967b"
+    },
+    {
+     "path": ".git/hooks/pre-commit",
+     "sha256": "eb3fba7628d009926eefa14574e9e086c2840d7a8791cf002c1f13755bba0478"
+    }
+   ],
+   "wiring_sha256": "9e7d7fb1016c331e6d3a8974a5ff6b97043ae0b90843004670af67db52ddc487"
+  }
+ },
+ "binding_set": {
+  "files": [
+   {
+    "path": "runner/run-task4.sh",
+    "sha256": "784f9f18a94587088510d6a1ae544e04eff95cceccf198f8a576d63d780e34c7"
+   },
+   {
+    "path": "runner/deploy-gated4.sh",
+    "sha256": "6d5c632fd8afb3e103c49fcc250289b93420579c4d2885ca3ae9528c71d4d415"
+   },
+   {
+    "path": "runner/commit-harness-baseline.sh",
+    "sha256": "e1c0fc7d62e893ec699a81b84cb23d8128728fd4938fe41ff2561935cb7217dd"
+   },
+   {
+    "path": "runner/agent-jail4.sh",
+    "sha256": "012962fa20012e97778dddcb2e9968cc06e0e81ff5124b3bced554148aa53df4"
+   },
+   {
+    "path": "runner/net-jail.sh",
+    "sha256": "688826f19296259edf58b30b151208790d43a7d77487c6f799bffdbd0b317480"
+   },
+   {
+    "path": "runner/allowlist-proxy.mjs",
+    "sha256": "9bbe09a3abeec35782bf897cecffbb248776b6d2a7e7a052d4170318ac2a9eb3"
+   },
+   {
+    "path": "runner/observe3.sh",
+    "sha256": "2da74bda1fb065487cecabe66627e5580d62e0cacba3698d245e76cd5ead4dfe"
+   },
+   {
+    "path": "runner/policy-globs.mjs",
+    "sha256": "ac0612937918f9d44a2f2e0a93aff4513d642c756526db21ad9ef954c1641ad5"
+   },
+   {
+    "path": "runner/split-cases-py.mjs",
+    "sha256": "ffac2f8f4214922795c95109619e4d4f4b86e521419c6f32058abc16d1120182"
+   },
+   {
+    "path": "runner/verdict4.mjs",
+    "sha256": "d3a8fad0bf8ce9d2b8ac7548932d17952f54f5b78cb87ec48c4acca617ca01d4"
+   },
+   {
+    "path": "runner/suite-status.mjs",
+    "sha256": "5b04b47c6f84de6f3da60c9460cef91888b868def4349c48d3bad829e67cdfac"
+   },
+   {
+    "path": "runner/agent-exec-contract.mjs",
+    "sha256": "bcb9f4ca0b1790abd33e2e15e76d58f6b05e80c1d1972b74141f32faf508152b"
+   },
+   {
+    "path": "runner/editable-liveness.py",
+    "sha256": "8a5def158518e7999d8cb647e2378ff27858f4cb02156568b5f00ecd30cbe89e"
+   },
+   {
+    "path": "runner/verdict-record.sh",
+    "sha256": "ba8ea493ad94765c2685e86c28a8a7ff586e7923723d65bd86fc12646f72462f"
+   },
+   {
+    "path": "runner/cleanup-lifecycle4.sh",
+    "sha256": "2443b31ce52bc3cee031723b6b81adfe3013b292ed25ad9a58880db40b08e725"
+   },
+   {
+    "path": "runner/launcher4.sh",
+    "sha256": "53a385b99927c1dc9fe324aa30800a53147864b9804941e4f005f676f1705144"
+   },
+   {
+    "path": "round3/policy3.yml",
+    "sha256": "b675edcc1b1ebdfefe869bd961936e56ada97da4728a106340d09db738613128"
+   }
+  ],
+  "copied_into_trajectory": [
+   "runner/observe3.sh",
+   "runner/policy-globs.mjs",
+   "round3/policy3.yml"
+  ],
+  "counted_driver": {
+   "path": "round4/counted-drive.sh",
+   "sha256": "101a33b749b30eae2b1c43165a3f5a9b528ca1d513f9c212d8a6ba0b645993b7"
+  },
+  "binding_set_sha256": "5053cbaed58acab7f43492eee49a9e6311f27854948989124d54d0f383afb78c"
+ },
+ "execution_ready": true,
+ "environment_recorded": {
+  "node": "v22.22.2",
+  "platform": "linux/x64",
+  "kernel": "6.18.44-fc-v24",
+  "python3": "Python 3.11.15",
+  "uv": "uv 0.8.17",
+  "claude_cli": "2.1.263 (Claude Code)"
+ },
+ "notes": {
+  "binding": "registration, pool, execution, treatment, binding_set — a change to any invalidates the freeze",
+  "recorded": "environment_recorded — captured for provenance; a difference is a deviation to record, not a silent change",
+  "arms": "ungated = parent-owned observer only; gated = the complete frozen v2 envelope",
+  "duplicates": "the 22 duplicate trajectories are a SEPARATE instability budget and NEVER enter the N=110 primary denominator",
+  "execution_ready": "false until a counted order-enforcing driver (round4/counted-drive.sh) is built and pinned into the binding set",
+  "credential": "not represented here; provisioned outside the repository, only its fingerprint recorded per trajectory by run-task4.sh"
+ }
+}

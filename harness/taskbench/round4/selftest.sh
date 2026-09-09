@@ -1127,15 +1127,24 @@ C=$(ctamper 'void 0')
 out=$(TB_ART_DIR=/nonexistent-artefact TB_COUNTED_CHECK_NO_ARTEFACT=1 TB_COUNTED_CHECK_BINDING_ONLY=1 TB_COUNTED_POOL_DIR="$CPOOL" TB_COUNTED_FREEZE_TEST="$CTEST" TB_COUNTED_MANIFEST="$C" node "$CFZ" --check 2>&1)
 echo "$out" | grep -q "treatment identity UNVERIFIED" && ok "and it SAYS the treatment is unverified" || no "the missing-artefact allowance is silent about what it skipped"
 
-# ---- the seams cannot reach the real manifest; nothing is frozen yet, so refuse cleanly
+# ---- the seams cannot reach the real manifest, even now that it is frozen
 for seam in TB_COUNTED_FREEZE_TEST='{"model":"x"}' TB_COUNTED_POOL_DIR=/tmp; do
   rc=$(env "$seam" node "$CFZ" --check >/dev/null 2>&1; echo $?)
   [ "$rc" = 5 ] && ok "\`${seam%%=*}\` is refused against the real counted manifest path" || no "\`${seam%%=*}\` reached the real manifest (rc=$rc)"
 done
-[ "$(node "$CFZ" --check >/dev/null 2>&1; echo $?)" = 5 ] && ok "--check refuses when no counted manifest is frozen yet" || no "--check did not refuse a missing manifest"
-[ "$(node "$CFZ" --render >/dev/null 2>&1; echo $?)" = 5 ] && ok "--render refuses when no counted manifest is frozen yet" || no "--render did not refuse a missing manifest"
+# The manifest is frozen now, so --render RENDERS it and its page is part of the freeze.
+diff <(node "$CFZ" --render) ./COUNTED-EXECUTION-MANIFEST.md >/dev/null 2>&1 \
+  && ok "the committed counted page is exactly what the frozen manifest renders to" || no "the committed counted page has drifted from the manifest"
 [ "$(node "$CFZ" --bogus >/dev/null 2>&1; echo $?)" = 5 ] && ok "an unknown counted mode is a usage error (exit 5)" || no "an unknown mode did not exit 5"
-[ ! -e ./COUNTED-EXECUTION-MANIFEST.json ] && ok "no COUNTED-EXECUTION-MANIFEST.json is committed — the freeze is derived on the artefact host, after this tooling lands" || no "a counted manifest was committed before the artefact-host freeze"
+# The counted manifest is now FROZEN and committed. It must describe the tree exactly:
+# the pool, the execution re-derived from its OWN seeds, the binding set (incl. the
+# counted driver's hash) and the rendered page. The treatment is host-dependent (the
+# 2.10.3 artefact need not be deployed on this runner), so accept an unverifiable
+# treatment; every binding input must still match.
+[ -e ./COUNTED-EXECUTION-MANIFEST.json ] \
+  && [ "$(TB_COUNTED_CHECK_NO_ARTEFACT=1 TB_COUNTED_CHECK_BINDING_ONLY=1 node "$CFZ" --check >/dev/null 2>&1; echo $?)" = 0 ] \
+  && ok "the committed counted manifest is frozen and passes --check (binding + re-derived draw match the tree)" \
+  || no "the committed counted manifest is missing or does not describe the tree"
 rm -rf "$CPOOL"; rm -f /tmp/tb-cfz-*.json /tmp/tb-cfz-*.md /tmp/tb-cfz-print.json
 
 
@@ -1579,7 +1588,13 @@ out=$(env TB_ART_DIR=/nonexistent-artefact TB_COUNTED_CHECK_NO_ARTEFACT=1 TB_COU
 # and a wrong-scale manifest (no test seam) is rejected as not-the-counted-round.
 node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1]));fs.writeFileSync(process.argv[1],JSON.stringify(m,null,1))' "$RCM"
 rm -f "$RCM" "${RCM%.json}.md"; rm -rf "$L"
-[ ! -e ./COUNTED-EXECUTION-MANIFEST.json ] && ok "no COUNTED-EXECUTION-MANIFEST.json is committed — the counted freeze runs on the artefact host, after this driver lands" || no "a counted manifest was committed before the artefact-host freeze"
+# The counted manifest is frozen and committed; the driver's binding target now
+# exists. It must be execution_ready and bind THIS counted-drive.sh by hash.
+[ -e ./COUNTED-EXECUTION-MANIFEST.json ] \
+  && [ "$(jq -r '.execution_ready' ./COUNTED-EXECUTION-MANIFEST.json)" = true ] \
+  && [ "$(jq -r '.binding_set.counted_driver.sha256' ./COUNTED-EXECUTION-MANIFEST.json)" = "$(sha256sum "$CDRV" | cut -d' ' -f1)" ] \
+  && ok "the committed counted manifest is execution_ready and pins THIS counted-drive.sh by hash" \
+  || no "the committed counted manifest is missing, not execution_ready, or pins a different driver"
 rm -rf "$CDPOOL"; rm -f "$CDM" "${CDM%.json}.md" /tmp/tb-cdm-*.json /tmp/tb-cdm-*.md
 
 
