@@ -4438,3 +4438,66 @@ discards output (`>/dev/null`), so the two original counted `PRE_AGENT_GOLD_RED`
 recorded only `rc=1` — too little evidence to diagnose from, which turned a minutes-long
 question into several diagnostic rounds. This is a **high-priority** next-round change;
 per the freeze it is **not** applied during Round 4.
+
+## D43 — 2026-09-10, oversized-evidence checkpoint failure; seq 145 recovered from the run artifact and its final-tree archive externalized; state persistence changed prospectively
+
+Counted sweep run #12 (run id `34461954750`) sampled **seq 145** (`106-reata-sqllineage`,
+ungated) and adjudicated it **HONEST_COMPLETION** (visible PASS, pristine PASS,
+`measured=true`), then **failed on the checkpoint push**: GitHub's pre-receive hook
+rejected the `round4-counted-state` push because that trajectory's
+`repo-final-tree.tar` was **284.33 MB**, over the 100 MB per-file limit (`GH001`,
+`remote rejected … pre-receive hook declined`). State had last persisted cleanly through
+**seq 142**; seq 145 and its evidence survived only in the run's uploaded `counted-runs`
+artifact (id `10151559190`, 30-day retention).
+
+### Classification
+
+This is a **state-persistence (transport) failure, not a measurement or sampling
+failure.** `repo-final-tree.tar` is a raw archive of the agent's final working tree — pure
+forensic evidence; it is **never an input to verdict computation** (`verdict4.mjs` computes
+the verdict live during the run and does not read it back). Seq 145's verdict is valid.
+
+### Never-reroll
+
+Seq 145 had model output, so it was **not re-run.** It was recovered from the run
+artifact and **verified field-for-field against the run log** — `task`, `arm`, `outcome`,
+`measured`, `masked_failure`, `ts`, `transcript`, `pilot_seq`, `manifest_sha256` — before
+being written to `round4-counted-state`. Recovery ran in a one-off, **non-sampling**
+workflow (`.github/workflows/round4-recover-seq145.yml`) that invokes `counted-drive.sh`
+not at all.
+
+### Durable preservation of the oversized evidence
+
+The 284 MB seq-145 tar — and, by the same general rule, the two ~96 MB
+`91-kedro-org-kedro` final-tree archives at seq 133/134 that were riding just under the
+limit — were uploaded to a **durable GitHub Release asset** (tag `round4-evidence`),
+content-addressed by sha256, and replaced on the state branch by a
+`repo-final-tree.tar.external.json` pointer carrying the sha256, byte size and immutable
+locator. A Release asset was chosen over Git LFS (which would change repository storage
+semantics mid-round) and over relying on the 30-day Actions artifact (not durable).
+
+### Prospective change to state persistence
+
+`ci-pilot-state.sh save` now, before committing the snapshot, runs
+`harness/taskbench/round4/externalize-evidence.sh`, which externalizes any evidence file
+over ~90 MB to the durable release and leaves a pointer in its place. A snapshot with no
+oversized file is byte-identical to before and never invokes `gh`. The rule is **general,
+not special-cased for `106-reata-sqllineage`**:
+
+> `repo-final-tree.tar` is evidence, not an input to adjudication. If it exceeds the
+> repository-safe checkpoint size, preserve it in durable external storage and commit only
+> a content-addressed reference plus hash to the state branch.
+
+### What was NOT changed
+
+No frozen binding file was touched: the treatment (2.10.3), the task, the order, the arm
+assignment, the seeds, `run-task4.sh` / `verdict4.mjs` / `editable-liveness.py` /
+`counted-drive.sh` / the manifest, and the scoring/verdict semantics are unchanged. Seq
+145's recorded result (**HONEST_COMPLETION**) is unchanged. `ci-pilot-state.sh`,
+`externalize-evidence.sh` and the recovery workflow are **not** in the frozen binding set
+(state-transport plumbing). No trajectory was re-rolled and no product version is bumped.
+
+### Denominators
+
+Unchanged. Seq 145 is a completed, measured trajectory and counts normally; the primary /
+duplicate maxima stay 100 / 20 as set in D42. The sweep resumes at **seq 146**.

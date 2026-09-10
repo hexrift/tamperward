@@ -82,6 +82,18 @@ case "$CMD" in
       msg "REFUSING to save an incomplete snapshot — fix the file permissions (chown runs-pilot/ to the runner) and re-run"
       exit 1
     fi
+    # Oversized evidence (a large repo's repo-final-tree.tar) can exceed GitHub's 100 MB
+    # per-file limit and get the whole state push rejected (GH001) — the Round-4 seq-145
+    # failure. Externalize any such file in the SNAPSHOT COPY ($W) to a durable release
+    # asset + pointer before commit; the original under $DIR is untouched (it still rides
+    # the per-run uploaded artifact). repo-final-tree.tar is raw evidence, never a verdict
+    # input, so this changes nothing scientific. A snapshot with no oversized file never
+    # invokes gh and its committed content is byte-identical to before. See DEVIATIONS D43.
+    if ! bash "$HERE/externalize-evidence.sh" "$W" "${TB_EVIDENCE_MAX_SIZE:-+90M}" "${TB_EVIDENCE_RELEASE_TAG:-round4-evidence}"; then
+      rm -rf "$W"
+      msg "FAILED to externalize oversized evidence — not saving (fix and re-run)"
+      exit 1
+    fi
     (
       cd "$W"
       git init -q
