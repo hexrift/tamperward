@@ -1,0 +1,116 @@
+name: round4-recover-seq145-ledger
+
+# ONE-OFF ledger completion for DEVIATIONS D43 (second recovery step). NOT part of
+# the counted apparatus and never samples a trajectory.
+#
+# The first recovery (round4-recover-seq145) put seq 145's evidence directory + verdict
+# on round4-counted-state, but did NOT carry seq 145's entries in the execution ledger
+# (counted-execution-log.jsonl) — those were written by run #12 locally and never pushed.
+# counted-drive.sh then refused (exit 2): "seq 145 has a verdict on disk but no
+# finished-event under the current manifest hash". This job splices seq 145's EXACT
+# started+finished lines from run #12's uploaded counted-runs ledger (run 34461954750,
+# artifact 10151559190) into the branch ledger. No reconstruction, no sampling.
+#
+# Trigger: pushing this branch. Concurrency-grouped with `counted` so it never races a sweep.
+
+on:
+  push:
+    branches: ['fix/round4-seq145-ledger']
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: round4-counted
+  cancel-in-progress: false
+
+jobs:
+  ledger:
+    runs-on: ubuntu-latest
+    env:
+      TB_STATE_DIR: runs-counted
+      TB_PILOT_STATE_BRANCH: round4-counted-state
+      TB_STATE_LABEL: counted
+      SOURCE_RUN_ID: '34461954750'
+      SOURCE_ARTIFACT: counted-runs
+      MANIFEST_SHA: 'eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c'
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download run #12's counted-runs ledger
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/cr
+          gh run download "$SOURCE_RUN_ID" -R "$GITHUB_REPOSITORY" -n "$SOURCE_ARTIFACT" -D /tmp/cr
+          test -f /tmp/cr/counted-execution-log.jsonl || { echo "::error::artifact has no counted-execution-log.jsonl"; exit 1; }
+
+      - name: Extract seq 145's exact ledger lines (fail closed)
+        run: |
+          set -euo pipefail
+          SRC=/tmp/cr/counted-execution-log.jsonl
+          # Exact original lines for seq 145 (field is "seq":145, followed by "task").
+          grep '"seq":145,' "$SRC" > /tmp/seq145.jsonl || true
+          n=$(wc -l < /tmp/seq145.jsonl | tr -d ' ')
+          echo "seq-145 ledger lines found: $n"; cat /tmp/seq145.jsonl
+          [ "$n" -eq 2 ] || { echo "::error::expected exactly 2 seq-145 lines (started+finished), got $n"; exit 1; }
+          # Must contain a finished event with the frozen manifest hash and verdict=yes.
+          node -e '
+            const fs=require("fs");
+            const ls=fs.readFileSync("/tmp/seq145.jsonl","utf8").split("\n").filter(Boolean).map(JSON.parse);
+            const st=ls.find(e=>e.event==="started"), fi=ls.find(e=>e.event==="finished");
+            if(!st||!fi){console.error("missing started or finished");process.exit(1);}
+            const want={seq:145,task:"106-reata-sqllineage",arm:"ungated",manifest_sha256:process.env.MANIFEST_SHA};
+            for(const e of [st,fi]) for(const k of Object.keys(want)) if(String(e[k])!==String(want[k])){console.error(`MISMATCH ${e.event}.${k}: ${e[k]} != ${want[k]}`);process.exit(1);}
+            if(fi.verdict!=="yes"){console.error("finished.verdict != yes: "+fi.verdict);process.exit(1);}
+            console.log("verified seq-145 started+finished lines (finished verdict=yes, manifest matches frozen)");
+          '
+
+      - name: Restore state, ensure seq 145 verdict present but ledger event missing
+        run: |
+          set -euo pipefail
+          bash harness/taskbench/round4/ci-pilot-state.sh restore
+          RC=harness/taskbench/round4/runs-counted
+          test -f "$RC/seq-145/106-reata-sqllineage-ungated.verdict.json" || { echo "::error::seq-145 verdict not on branch — run round4-recover-seq145 first"; exit 1; }
+          LOG="$RC/counted-execution-log.jsonl"
+          if grep -q '"seq":145,.*"event":"finished"\|"event":"finished".*"seq":145,' "$LOG"; then
+            echo "seq-145 already has a finished ledger event — nothing to do"; exit 0
+          fi
+          echo "last ledger line before splice:"; tail -1 "$LOG"
+
+      - name: Splice seq 145's exact lines into the branch ledger, then save
+        run: |
+          set -euo pipefail
+          RC=harness/taskbench/round4/runs-counted
+          LOG="$RC/counted-execution-log.jsonl"
+          [ -s "$LOG" ] && [ -z "$(tail -c1 "$LOG")" ] || printf '\n' >> "$LOG"   # ensure trailing newline
+          cat /tmp/seq145.jsonl >> "$LOG"
+          echo "ledger tail after splice:"; tail -3 "$LOG"
+          # Mirror the driver's own consistency check: every seq with a verdict on disk
+          # must have a finished+verdict=yes event under the frozen manifest hash.
+          node -e '
+            const fs=require("fs"),path=require("path");
+            const RC=process.argv[1], M=process.env.MANIFEST_SHA;
+            const log=fs.readFileSync(path.join(RC,"counted-execution-log.jsonl"),"utf8").split("\n").filter(Boolean).map(JSON.parse);
+            const fin=new Set(log.filter(e=>e.event==="finished"&&e.manifest_sha256===M&&e.verdict==="yes").map(e=>e.seq));
+            let bad=[];
+            for(const d of fs.readdirSync(RC)){const m=d.match(/^seq-(\d+)$/);if(!m)continue;
+              const has=fs.readdirSync(path.join(RC,d)).some(f=>f.endsWith(".verdict.json")&&f!=="results.jsonl");
+              if(has && !fin.has(+m[1])) bad.push(+m[1]);}
+            if(bad.length){console.error("verdicts with no finished ledger event:",bad.sort((a,b)=>a-b));process.exit(1);}
+            console.log("consistency OK: all",fin.size,"finished events cover every on-disk verdict");
+          ' "$RC"
+          bash harness/taskbench/round4/ci-pilot-state.sh save
+
+      - name: Confirm on the state branch
+        run: |
+          set -euo pipefail
+          W="$(mktemp -d)"
+          git clone -q --depth 1 --branch round4-counted-state \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$W"
+          grep -q '"seq":145,' "$W/counted-execution-log.jsonl" || { echo "::error::seq-145 not in pushed ledger"; exit 1; }
+          echo "OK: seq-145 ledger events on round4-counted-state."
+          echo "### seq-145 ledger completed (D43)" >> "$GITHUB_STEP_SUMMARY"
+          grep '"seq":145,' "$W/counted-execution-log.jsonl" >> "$GITHUB_STEP_SUMMARY" || true
