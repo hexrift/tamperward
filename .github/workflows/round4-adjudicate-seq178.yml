@@ -1,0 +1,127 @@
+name: round4-adjudicate-seq178
+
+# ONE-OFF disposition for DEVIATIONS D44. NOT part of the counted apparatus and it never
+# samples a trajectory. It writes the seq-178 task-level `.adjudicated` marker
+# (PRE_SAMPLING_AGENT_CONFIG_PROVENANCE_UNAVAILABLE) to round4-counted-state so the frozen
+# driver skips the gated arm of the measurement-unavailable task 86-python-caldav-caldav and
+# resumes at seq 179. Seq 177 (ungated) already carries its own INVALID_MEASUREMENT verdict and
+# is not touched. No reroll, no sampling, no frozen-apparatus change. See
+# harness/taskbench/round4/DEVIATIONS.md D44.
+#
+# The marker content is the committed file harness/taskbench/round4/seq-178-D44.adjudicated —
+# this job copies it verbatim, so what is written is auditable in the branch, not built by a
+# heredoc. Before saving it mirrors the driver's own next-seq scan and REFUSES (exit 1) unless
+# the next unresolved trajectory is exactly seq 179 — so a wrong marker never persists.
+#
+# Trigger: pushing this branch. Concurrency-grouped with `counted` so it never races a sweep.
+
+on:
+  push:
+    branches: ['fix/round4-adjudicate-seq178']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: round4-counted
+  cancel-in-progress: false
+
+jobs:
+  adjudicate:
+    runs-on: ubuntu-latest
+    env:
+      TB_STATE_DIR: runs-counted
+      TB_PILOT_STATE_BRANCH: round4-counted-state
+      TB_STATE_LABEL: counted
+      MANIFEST_SHA: 'eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c'
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Restore counted state
+        run: bash harness/taskbench/round4/ci-pilot-state.sh restore
+
+      - name: Assert the pre-state (fail closed, idempotent)
+        run: |
+          set -euo pipefail
+          RC=harness/taskbench/round4/runs-counted
+          SD="$RC/seq-178"
+          test -d "$SD" || { echo "::error::seq-178 dir missing on state branch"; exit 1; }
+          # seq 178 must be the halted gated arm: no verdict on disk.
+          if ls "$SD"/*.verdict.json >/dev/null 2>&1; then
+            echo "::error::seq-178 already has a verdict — not the expected D36-exhausted halt state"; exit 1
+          fi
+          # idempotent: if already adjudicated, stop cleanly.
+          if [ -f "$SD/86-python-caldav-caldav-gated.adjudicated" ]; then
+            echo "seq-178 already carries its D44 marker — nothing to do"; exit 0
+          fi
+          # its ungated pair (seq 177) must already carry its INVALID_MEASUREMENT verdict.
+          test -f "$RC/seq-177/86-python-caldav-caldav-ungated.verdict.json" \
+            || { echo "::error::seq-177 verdict missing — unexpected pre-state"; exit 1; }
+          echo "pre-state OK: seq-178 halted (no verdict, no marker); seq-177 verdict present"
+
+      - name: Write the seq-178 D44 adjudication marker (verbatim copy of the committed file)
+        run: |
+          set -euo pipefail
+          RC=harness/taskbench/round4/runs-counted
+          SRC=harness/taskbench/round4/seq-178-D44.adjudicated
+          DST="$RC/seq-178/86-python-caldav-caldav-gated.adjudicated"
+          test -s "$SRC" || { echo "::error::marker source $SRC missing/empty"; exit 1; }
+          cp "$SRC" "$DST"
+          echo "wrote $DST:"; echo "----"; cat "$DST"; echo "----"
+
+      - name: Verify the driver's next seq is 179 (mirror scan, no sampling)
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs=require("fs"), path=require("path");
+            const RC="harness/taskbench/round4/runs-counted";
+            const M=JSON.parse(fs.readFileSync("harness/taskbench/round4/COUNTED-EXECUTION-MANIFEST.json","utf8"));
+            const MSHA=process.env.MANIFEST_SHA;
+            const rows=[...M.execution.primary.trajectories, ...M.execution.duplicates.trajectories];
+            const TOTAL=M.execution.trajectory_count;
+            const byseq=new Map(rows.map(r=>[r.seq,r]));
+            const logp=path.join(RC,"counted-execution-log.jsonl");
+            const log=fs.existsSync(logp)?fs.readFileSync(logp,"utf8").split("\n").filter(Boolean).map(JSON.parse):[];
+            const failedNo=(s)=>log.filter(e=>e.event==="finished"&&e.manifest_sha256===MSHA&&e.seq===s&&e.verdict==="no").length;
+            const sd=(s)=>path.join(RC,"seq-"+String(s).padStart(3,"0"));
+            const have=(s,r)=>{const f=path.join(sd(s),`${r.task}-${r.arm}.verdict.json`);if(!fs.existsSync(f))return false;try{JSON.parse(fs.readFileSync(f,"utf8"));return true;}catch{return false;}};
+            const resolved=(s,r)=>fs.existsSync(path.join(sd(s),`${r.task}-${r.arm}.adjudicated`));
+            const started=(s,r)=>fs.existsSync(path.join(sd(s),`${r.task}-${r.arm}.started`));
+            let next=null,halt=null,exhausted=null;
+            for(let s=1;s<=TOTAL;s++){const r=byseq.get(s);if(!r){console.error("malformed row "+s);process.exit(2);}
+              if(have(s,r))continue; if(resolved(s,r))continue;
+              if(started(s,r)){halt=s;break;}
+              if(failedNo(s)>=2){exhausted=s;break;}
+              next=s;break;}
+            console.log(JSON.stringify({next,halt,exhausted}));
+            if(halt!==null){console.error("REFUSING: unexpected sampled-but-verdictless HALT at seq "+halt);process.exit(3);}
+            if(exhausted!==null){console.error("REFUSING: unexpected D36-exhausted seq "+exhausted+" (178 should now be resolved)");process.exit(3);}
+            if(next!==179){console.error("REFUSING: expected next unresolved seq 179, got "+next);process.exit(1);}
+            const r=byseq.get(179);
+            console.log("OK: seq 178 resolved; next unresolved seq is 179 ("+r.task+" / "+r.arm+")");
+          '
+
+      - name: Save counted state
+        run: bash harness/taskbench/round4/ci-pilot-state.sh save
+
+      - name: Confirm the marker is on the state branch
+        run: |
+          set -euo pipefail
+          W="$(mktemp -d)"
+          git clone -q --depth 1 --branch round4-counted-state \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$W"
+          F="$W/seq-178/86-python-caldav-caldav-gated.adjudicated"
+          test -f "$F" || { echo "::error::seq-178 marker not on round4-counted-state after save"; exit 1; }
+          echo "OK: seq-178 D44 marker present on round4-counted-state."
+          {
+            echo "### seq-178 adjudicated (D44)"
+            echo '```'
+            grep -E '^(disposition|reason|task|seq|arm|sampled|deviation)=' "$F"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
