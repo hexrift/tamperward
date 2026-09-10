@@ -1,0 +1,85 @@
+name: diag-whisperx-gold
+# THROWAWAY, read-only diagnostic for counted seq 121 (96-m-bain-whisperx / gated),
+# which hit PRE_AGENT_GOLD_RED twice (D36 exhausted). It reproduces run-task4's
+# pre-agent GOLD baseline faithfully — same frozen parent, same install ladder,
+# same suite command — but CAPTURES the output run-task4 discards (>/dev/null), so
+# we can see WHY the gold suite is red: a heavy-dep import/collection error vs. the
+# gold patch not satisfying the test. No credential, no model sampling, no
+# counted-state mutation, no net-jail (the pre-agent baseline runs open-net).
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  gold:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.8.17'
+      - name: Reproduce the whisperx gold baseline (verbose)
+        run: |
+          set -uo pipefail
+          REPO=m-bain/whisperx
+          PARENT=1c4b23e13d79280a076e98644ac1e38321d253a9
+          TASK="$PWD/harness/taskbench/round4/pools/counted/tasks/96-m-bain-whisperx"
+          W=$(mktemp -d); REPODIR="$W/repo"; VENV="$W/venv"; PY="$VENV/bin/python"
+
+          echo "== task manifest =="; cat "$TASK/manifest.json"
+
+          echo; echo "== clone @ frozen parent =="
+          git clone -q --filter=blob:none "https://github.com/$REPO.git" "$REPODIR"
+          git -C "$REPODIR" checkout -q --detach "$PARENT"
+          git -C "$REPODIR" log -1 --format='parent %H %s'
+
+          echo; echo "== apply test.patch (full — the dropped-split INTEGRITY fallback path) =="
+          git -C "$REPODIR" apply "$TASK/test.patch" && echo "test.patch OK"
+
+          echo; echo "== install ladder (frozen: uv venv py3.11, extras:test) =="
+          uv venv -q -p python3.11 "$VENV"
+          rung=""
+          for extra in test tests dev; do
+            if ( cd "$REPODIR" && uv pip install -p "$PY" -e ".[$extra]" ) >"$W/install.log" 2>&1; then rung="extras:$extra"; break; fi
+          done
+          if [ -z "$rung" ]; then
+            ( cd "$REPODIR" && uv pip install -p "$PY" -e . ) >"$W/install.log" 2>&1 && rung="plain"
+          fi
+          for rf in requirements-dev.txt requirements_dev.txt dev-requirements.txt requirements-test.txt test-requirements.txt requirements/dev.txt requirements/test.txt; do
+            [ -f "$REPODIR/$rf" ] && { ( cd "$REPODIR" && uv pip install -p "$PY" -r "$rf" ) >>"$W/install.log" 2>&1; break; }
+          done
+          ( cd "$REPODIR" && uv pip install -p "$PY" pytest ) >>"$W/install.log" 2>&1
+          echo "install rung: ${rung:-NONE}"
+          echo "--- tail of install.log (last 40 lines) ---"; tail -40 "$W/install.log"
+          [ -n "$rung" ] || { echo "INSTALL_FAILED (no rung succeeded) — full install.log:"; cat "$W/install.log"; }
+
+          echo; echo "== resolved key package versions =="
+          "$PY" -m pip freeze 2>/dev/null | grep -iE '^(torch|torchaudio|transformers|numpy|pandas|whisperx|ctranslate2|faster-whisper|pyannote|onnxruntime|nvidia|pytorch)' || true
+
+          echo; echo "== direct import probe (does whisperx.alignment import at all?) =="
+          "$PY" - <<'PYEOF'
+import traceback
+for mod in ("torch","numpy","pandas","whisperx","whisperx.utils","whisperx.alignment"):
+    try:
+        __import__(mod); print("import OK:", mod)
+    except Exception as e:
+        print("import FAIL:", mod, "->", type(e).__name__, str(e)[:300])
+        traceback.print_exc()
+        break
+PYEOF
+
+          echo; echo "== PARENT suite (test.patch only, no gold) — expected RED =="
+          ( cd "$REPODIR" && timeout 300 "$PY" -m pytest -rA --tb=short -p no:cacheprovider tests/test_word_timestamp_interpolation.py ) ; echo "PARENT rc=$?"
+
+          echo; echo "== apply gold.patch =="
+          git -C "$REPODIR" apply "$TASK/gold.patch" && echo "gold.patch OK"
+
+          echo; echo "== GOLD suite (test.patch + gold.patch) — expected GREEN; counted run saw RED =="
+          ( cd "$REPODIR" && timeout 300 "$PY" -m pytest -rA --tb=long -p no:cacheprovider tests/test_word_timestamp_interpolation.py ) ; echo "GOLD rc=$?"
+
+          echo; echo "== done (diagnostic only; nothing persisted) =="
+          rm -rf "$W" || true
