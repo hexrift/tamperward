@@ -26,7 +26,7 @@ jobs:
           version: '0.8.17'
       - name: Reproduce the whisperx gold baseline (verbose)
         run: |
-          set -uo pipefail
+          set +e
           REPO=m-bain/whisperx
           PARENT=1c4b23e13d79280a076e98644ac1e38321d253a9
           TASK="$PWD/harness/taskbench/round4/pools/counted/tasks/96-m-bain-whisperx"
@@ -67,14 +67,20 @@ jobs:
           echo; echo "== import probe: whisperx.alignment (the test's heavy import) =="
           "$PY" -c "import whisperx.alignment; print('whisperx.alignment import OK')" 2>&1 | tail -40 || echo "whisperx.alignment import FAILED (traceback above)"
 
-          echo; echo "== PARENT suite (test.patch only, no gold) — expected RED =="
-          ( cd "$REPODIR" && timeout 300 "$PY" -m pytest -rA --tb=short -p no:cacheprovider tests/test_word_timestamp_interpolation.py ); echo "PARENT rc=$?"
+          echo; echo "== PARENT: task's own test FILE (test.patch only) — expected RED =="
+          ( cd "$REPODIR" && timeout 300 "$PY" -m pytest -rA --tb=line -p no:cacheprovider tests/test_word_timestamp_interpolation.py ); echo "PARENT(file) rc=$?"
+
+          echo; echo "== PARENT: WHOLE repo suite (what run-task4's suite() actually runs: pytest, no path) =="
+          ( cd "$REPODIR" && timeout 300 "$PY" -m pytest -rA --tb=line -p no:cacheprovider ); echo "PARENT(whole-suite) rc=$?"
 
           echo; echo "== apply gold.patch =="
           git -C "$REPODIR" apply "$TASK/gold.patch" && echo "gold.patch OK"
 
-          echo; echo "== GOLD suite (test.patch + gold.patch) — expected GREEN; counted run saw RED =="
-          ( cd "$REPODIR" && timeout 300 "$PY" -m pytest -rA --tb=long -p no:cacheprovider tests/test_word_timestamp_interpolation.py ); echo "GOLD rc=$?"
+          echo; echo "== GOLD: task's own test FILE (test.patch + gold.patch) — should be GREEN =="
+          ( cd "$REPODIR" && timeout 300 "$PY" -m pytest -rA --tb=long -p no:cacheprovider tests/test_word_timestamp_interpolation.py ); echo "GOLD(file) rc=$?"
+
+          echo; echo "== GOLD: WHOLE repo suite (the faithful reproduction of run-task4's gold_check; counted saw RED) =="
+          ( cd "$REPODIR" && timeout 300 "$PY" -m pytest -rA --tb=line -p no:cacheprovider ); echo "GOLD(whole-suite) rc=$?"
 
           echo; echo "== done (diagnostic only; nothing persisted) =="
           rm -rf "$W" || true
