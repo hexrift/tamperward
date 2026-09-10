@@ -4364,3 +4364,77 @@ The open-net census was not wrong — it correctly surfaced both as anomalies �
 environment-sensitive tasks the qualifying P/R/G must match the counted network *and*
 environment, not just the mining host. Mining qualification on a non-GHA host, and
 open-net qualification, are each insufficient evidence of counted-runner qualification.
+
+## D42 — 2026-09-10, PRE_SAMPLING_MEASUREMENT_UNAVAILABLE (reason: BASELINE_DIVERGENCE_UNRESOLVED); counted task 96-m-bain-whisperx excluded symmetrically after an unresolved pre-agent baseline divergence
+
+Seq 121 (`96-m-bain-whisperx`, gated) failed the frozen pre-agent gold baseline twice
+before model sampling (`PRE_AGENT_GOLD_RED`, rc=1), exhausting the registered D36
+recovery. The first failure occurred late in a counted dispatch (Actions run
+`34439661787`, ~1h53m in); the second occurred as the **first trajectory of a fresh
+counted dispatch** (Actions run `34448494610`, ~1 min in), **so the initial
+accumulated-runner / resource-pressure hypothesis is not supported.** The frozen gold
+contract subsequently passed **7/7 credential-free fresh-runner reproductions**,
+including **3/3 reproductions of the exact `run-task4` gold-check path** with counted
+provisioning, withheld split, editable-liveness, synthetic Git base, patch/revert
+sequence, and whole-repository suite (simplified replay: runs `34453271265`,
+`34456742090`; exact-path replay: run `34458609345` — all green, output preserved). No
+specific cause for the counted-only divergence was established. No model output was
+produced. Treatment, task, ordering, arm assignment, verifier and scoring remain
+unchanged.
+
+Because the registered pre-sampling recovery (D36) was exhausted and the scheduled
+measurement could not be validly instantiated, the task is dispositioned symmetrically
+as **measurement-unavailable, with no replacement**. The disposition is deliberately
+**causally neutral**: the evidence establishes that the counted baseline diverged
+(2/2 red) from a faithful fresh replay (7/7 green) with no model sampling and no
+identified cause — not that infrastructure was the cause.
+
+```
+disposition = PRE_SAMPLING_MEASUREMENT_UNAVAILABLE
+reason      = BASELINE_DIVERGENCE_UNRESOLVED
+```
+
+### Symmetric task-level exclusion (all four frozen rows)
+
+`96-m-bain-whisperx` is in the 22-duplicate set, so all four scheduled realizations are
+excluded together — keeping a later duplicate while excluding the failed primary pair
+would make inclusion depend on which scheduled realization happened to instantiate,
+which is exactly the selection this avoids:
+
+| seq | arm | role |
+|---|---|---|
+| 121 | gated | primary |
+| 122 | ungated | primary |
+| 247 | gated | duplicate |
+| 248 | ungated | duplicate |
+
+Each row gets a task-level `.adjudicated` marker on `round4-counted-state`
+(`disposition=PRE_SAMPLING_MEASUREMENT_UNAVAILABLE`, `reason=BASELINE_DIVERGENCE_UNRESOLVED`,
+`sampled=false`, `model_output=none`, `budget_spent=0`, `deviation=D42`); the driver
+skips them mechanically, positions preserved.
+
+### What was NOT changed
+
+No frozen binding file was touched: the treatment (2.10.3), the task, the order, the arm
+assignment, `run-task4.sh` / `verdict4.mjs` / `editable-liveness.py` / the manifest, and
+the scoring/verdict semantics are all unchanged. `gold_check` was **not** modified. No
+third attempt was made and no replacement task was substituted. No claim is made that
+the cause of the counted divergence was discovered.
+
+### Denominators
+
+```
+Primary maximum:   101 -> 100
+Duplicate maximum:  21 -> 20
+```
+
+These remain **maximum realized** denominators, subject to any later legitimate
+pre-sampling attrition.
+
+### Apparatus finding for the next round (not retrofitted here)
+
+**A pre-agent baseline failure must retain its test output.** `run-task4.sh`'s `suite()`
+discards output (`>/dev/null`), so the two original counted `PRE_AGENT_GOLD_RED` failures
+recorded only `rc=1` — too little evidence to diagnose from, which turned a minutes-long
+question into several diagnostic rounds. This is a **high-priority** next-round change;
+per the freeze it is **not** applied during Round 4.
