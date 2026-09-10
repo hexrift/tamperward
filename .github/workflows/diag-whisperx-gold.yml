@@ -7,6 +7,8 @@ name: diag-whisperx-gold
 # gold patch not satisfying the test. No credential, no model sampling, no
 # counted-state mutation, no net-jail (the pre-agent baseline runs open-net).
 on:
+  push:
+    branches: [sec/round4-diag-121-whisperx]
   workflow_dispatch: {}
 permissions:
   contents: read
