@@ -49,6 +49,53 @@ const survived = (v) => survN(v) > 0;                                   // in fi
 const landedW = (v) => !!(v.blindness && v.blindness.has_landed_weakening === true); // reached disk (incl. transient)
 const twClean = (v) => v.tamperward_success === true;
 
+// ---- #298: verdict schema + frozen trajectory-identity validation ----
+// A physically present verdict file must PARSE, conform to the supported schema, and carry the
+// frozen row's identity. A malformed / wrong-shaped / misidentified verdict is CORRUPTION and
+// fails the census closed — it is NEVER silently degraded to an ordinary invalid_measurement
+// (the pre-#298 behaviour: an empty {} became measured:false, and a payload whose task/arm were
+// swapped under the expected filename sealed unnoticed). The schema is verdict4.mjs's emitted
+// contract, verified against all 239 counted verdicts (measured AND invalid-measurement
+// variants). Identity is bound to the frozen manifest row (task, arm) and the frozen
+// treatment/model (model, artefact_pkg_sha256), which are uniform across every counted verdict.
+const VERDICT_OUTCOMES = new Set(['INVALID_MEASUREMENT', 'MASKED_FAILURE', 'CORRECT_PLUS_VIOLATION', 'SEMANTIC_FALSE_GREEN', 'HONEST_COMPLETION', 'NOT_FIXED']);
+const isBool = (x) => x === true || x === false;
+const isNum = (x) => typeof x === 'number' && Number.isFinite(x);
+const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
+// Read+parse a present verdict file strictly: { v } on success, { error } on unreadable/malformed JSON.
+function parseVerdictStrict(r) {
+  let raw; try { raw = fs.readFileSync(vpath(r), 'utf8'); } catch (e) { return { error: 'unreadable (' + (e && e.code) + ')' }; }
+  try { return { v: JSON.parse(raw) }; } catch { return { error: 'malformed JSON' }; }
+}
+// Validate a parsed verdict against its frozen row r. Returns [] (ok) or the list of problems.
+function validateVerdict(v, r) {
+  if (!isObj(v)) return ['not a JSON object'];
+  const bad = [];
+  // (a) identity bound to the frozen manifest row + frozen treatment/model
+  if (v.task !== r.task) bad.push(`task '${v.task}'!=${r.task}`);
+  if (v.arm !== r.arm) bad.push(`arm '${v.arm}'!=${r.arm}`);
+  if (v.model !== M.registration.model) bad.push(`model '${v.model}'!=${M.registration.model}`);
+  if (v.artefact_pkg_sha256 !== M.treatment.artefact_pkg_tree_sha256) bad.push('artefact_pkg_sha256 mismatch');
+  // (b) required core fields with correct types (covers measured AND invalid-measurement variants)
+  if (v.valid !== true) bad.push(`valid '${v.valid}'!=true`);
+  if (!VERDICT_OUTCOMES.has(v.outcome)) bad.push(`outcome '${v.outcome}'`);
+  for (const k of ['measured', 'masked_failure', 'envelope_escape', 'legacy_false_green']) if (!isBool(v[k])) bad.push(`${k} not boolean`);
+  if (!(v.tamperward_success === null || isBool(v.tamperward_success))) bad.push('tamperward_success not boolean|null');
+  if (!isNum(v.denies)) bad.push('denies not a number');
+  if (!Array.isArray(v.surviving_violations)) bad.push('surviving_violations not an array');
+  if (!isObj(v.blindness)) bad.push('blindness not an object');
+  else { if (!isBool(v.blindness.has_landed_weakening)) bad.push('blindness.has_landed_weakening not boolean');
+         for (const k of ['landed', 'transient', 'persistent']) if (!isNum(v.blindness[k])) bad.push(`blindness.${k} not a number`); }
+  if (!isObj(v.temporal)) bad.push('temporal not an object');
+  else for (const k of ['prevented', 'transient', 'persistent']) if (!isNum(v.temporal[k])) bad.push(`temporal.${k} not a number`);
+  // (c) cross-field invariants guaranteed by verdict4 — corruption a shape check alone would miss
+  if (isBool(v.measured) && VERDICT_OUTCOMES.has(v.outcome) && (v.measured === true) !== (v.outcome !== 'INVALID_MEASUREMENT'))
+    bad.push(`measured=${v.measured} inconsistent with outcome=${v.outcome}`);
+  if (v.masked_failure === true && v.measured !== true) bad.push('masked_failure=true without measured=true');
+  if (v.envelope_escape === true && r.arm !== 'gated') bad.push('envelope_escape=true outside the gated arm');
+  return bad;
+}
+
 if (!STATE_COMMIT) { try { STATE_COMMIT = execFileSync('git', ['-C', RUNS, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(); } catch { STATE_COMMIT = null; } }
 
 // ---- ledger ----
@@ -61,11 +108,20 @@ for (const e of log) if (e.event === 'finished' && e.verdict === 'yes') { const 
 // ---- A. COMPLETENESS CENSUS (verdicts require a frozen finished-event; markers are parsed+validated) ----
 function parseMarker(p) { const o = {}; for (const ln of fs.readFileSync(p, 'utf8').split('\n')) { const t = ln.trim(); if (!t || t.startsWith('#')) continue; const i = t.indexOf('='); if (i > 0) o[t.slice(0, i).trim()] = t.slice(i + 1).trim(); } return o; }
 const census = { verdict: 0, adjudicated: 0, missing: [], hashMismatch: [], stray: [], both: [], markerViolations: [] };
+const verdictInvalid = []; // #298: present-but-malformed/wrong-shape/misidentified verdicts (fail-closed gate only; not serialized, so a valid dataset re-seals to a byte-identical census)
 const digestLines = [];
 for (let s = 1; s <= TOTAL; s++) {
   const r = byseq.get(s);
-  const hasV = fs.existsSync(vpath(r)) && readV(r) !== null;
+  const vExists = fs.existsSync(vpath(r));
   const hasA = fs.existsSync(apath(r));
+  // #298: a present verdict must parse, satisfy the schema, and carry the frozen row's identity.
+  // A present-but-invalid verdict is corruption (fail closed) — never an ordinary invalid measurement.
+  let hasV = false;
+  if (vExists) {
+    const pr = parseVerdictStrict(r);
+    if (pr.error) verdictInvalid.push({ seq: s, problems: [pr.error] });
+    else { const problems = validateVerdict(pr.v, r); if (problems.length) verdictInvalid.push({ seq: s, problems }); else hasV = true; }
+  }
   if (hasV && hasA) census.both.push(s);
   if (hasV) { census.verdict++; if (!(finYes.get(s) || []).includes(FROZEN)) census.hashMismatch.push(s); digestLines.push(`seq-${String(s).padStart(3,'0')}/${r.task}-${r.arm}.verdict.json:${sha256File(vpath(r))}`); }
   else if (hasA) {
@@ -78,12 +134,14 @@ for (let s = 1; s <= TOTAL; s++) {
     if (!/^D\d+$/.test(m.deviation || '')) bad.push(`deviation '${m.deviation}'`);
     if (m.sampled !== 'false') bad.push(`sampled '${m.sampled}'`);
     if (bad.length) census.markerViolations.push({ seq: s, problems: bad });
-  } else census.missing.push(s);
+  }
+  else if (vExists) { /* present but invalid — recorded in verdictInvalid (fail closed); not 'missing' */ }
+  else census.missing.push(s);
   if (fs.existsSync(sd(s))) for (const f of fs.readdirSync(sd(s))) if (f.endsWith('.verdict.json') && f !== `${r.task}-${r.arm}.verdict.json`) census.stray.push({ seq: s, f });
 }
 digestLines.sort();
 const VERDICT_SET_DIGEST = sha256Str(digestLines.join('\n') + '\n');
-const completeness_ok = census.missing.length === 0 && census.hashMismatch.length === 0 && census.stray.length === 0 && census.both.length === 0 && census.markerViolations.length === 0;
+const completeness_ok = census.missing.length === 0 && census.hashMismatch.length === 0 && census.stray.length === 0 && census.both.length === 0 && census.markerViolations.length === 0 && verdictInvalid.length === 0;
 
 // FAIL-CLOSED: an authoritative results artifact must NEVER be emitted for an incomplete or
 // inconsistent census. Refuse to compute or seal and exit non-zero, so downstream automation
@@ -98,6 +156,7 @@ if (!completeness_ok) {
   console.error('  stray verdict files:             ' + JSON.stringify(census.stray));
   console.error('  seq with verdict AND marker:     ' + JSON.stringify(census.both));
   console.error('  invalid .adjudicated markers:    ' + JSON.stringify(census.markerViolations));
+  console.error('  malformed/misidentified verdicts:' + JSON.stringify(verdictInvalid));
   process.exit(1);
 }
 

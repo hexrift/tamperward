@@ -3,8 +3,10 @@
 Authoritative data readout for the Round-4 counted run. Every number is reproduced by
 `analyze-counted.mjs` from the frozen manifest and the per-seq verdicts, and is sealed in
 [`ROUND4-RESULTS.json`](./ROUND4-RESULTS.json) (`payload_sha256`
-`e830345a1a43704630daeea9ae88316e5bc6ea967182e39843c75e36ff5bfaea`, deterministic — excludes
-the `sealed_at` timestamp). The prose article
+`9d611678f8d619aa32e0ff96202da1d8604bb95717acfc43a5eccc57ccf1db95`, deterministic — excludes
+the `sealed_at` timestamp; #298 added verdict schema + identity validation, which re-seals the
+payload hash via the embedded `analysis_script_sha256` but leaves every aggregate byte-identical).
+The prose article
 ([`ROUND4-ARTICLE.md`](./ROUND4-ARTICLE.md)) is generated from this record. Nothing here
 re-derives a per-trajectory verdict: `measured`, `masked_failure`, `outcome`,
 `envelope_escape`, `tamperward_success`, `surviving_violations`, `blindness`, `temporal` are
@@ -22,7 +24,7 @@ the frozen adjudicator (`verdict4`) fields; this analysis only aggregates them.
 | **counted-execution-log sha256** | `1bb42f1a4609857678bbd49186bd73903d2f51b46996f894f128618e52aac5ca` |
 | **verdict/adjudication set digest** | `a5b652e16f7a4768998d8eaa2708c54b14db1647828cfefcc8877866626cf18d` |
 | deviation ledger sha256 (`DEVIATIONS.md`) | `50d6994e9a16000d090c85e31aafeaf2def3779237c9230eaaa5267bf7a64077` |
-| analysis script sha256 (self-hash) | `35169fadffc76db6e8868d0a78927f208477978540fc2e08a1d17e4674640e57` |
+| analysis script sha256 (self-hash) | `1eddc3920dde64c2c282c858f0f82ae7c1f3b1bf8cabd027e74e8d8c2be42b0e` |
 
 The dataset is bound by the state commit, the ledger hash, and a deterministic digest over
 every verdict/adjudication file — so two different state snapshots cannot be analysed under
@@ -31,20 +33,28 @@ the same recorded identity.
 ## Completeness census (fail-closed)
 
 264 / 264 accounted: **239 verdicts + 25 adjudicated**. Every verdict has a
-`finished`+`verdict=yes` ledger event under the frozen manifest hash. Every one of the 25
-`.adjudicated` markers was **parsed and validated** (task/arm/seq match the frozen row,
-disposition present, `deviation` matches `D<n>`, `sampled=false`): **0 marker violations**.
-Zero missing, zero stray verdicts, zero seqs with both. `completeness_ok = true`.
-Measurement split of the 239 verdicts: **201 measured**, **38 `INVALID_MEASUREMENT`**.
+`finished`+`verdict=yes` ledger event under the frozen manifest hash. Every one of the 239
+verdicts was **schema- and identity-validated** (#298): it parses, satisfies the supported
+verdict schema (required booleans/enums, `surviving_violations` array, `blindness`/`temporal`
+count objects, and the verdict4 invariants `measured ⟺ outcome≠INVALID_MEASUREMENT` and
+`masked_failure ⇒ measured`), and its `task`/`arm`/`model`/`artefact_pkg_sha256` are bound to
+the frozen manifest row and treatment — so a corrupt (`{}`, malformed JSON) or misidentified
+verdict fails closed rather than silently degrading to an ordinary `INVALID_MEASUREMENT`. Every
+one of the 25 `.adjudicated` markers was **parsed and validated** (task/arm/seq match the frozen
+row, disposition present, `deviation` matches `D<n>`, `sampled=false`): **0 marker violations**.
+Zero missing, zero stray verdicts, zero seqs with both, zero schema/identity violations.
+`completeness_ok = true`. Measurement split of the 239 verdicts: **201 measured**, **38
+`INVALID_MEASUREMENT`**.
 
 The gate is **fail-closed, not advisory**: on any census failure (a missing verdict/marker, a
-verdict without its frozen ledger event, a stray verdict, or a malformed/mismatched marker)
-`analyze-counted.mjs` **refuses to write a results artifact and exits non-zero** — a
-`completeness_ok:false` field inside an otherwise-sealed artifact is never emitted, so
-downstream automation cannot treat "exit 0 + a seal" as authoritative over a partial dataset.
-This is regression-tested by [`analyze-counted.selftest.sh`](./analyze-counted.selftest.sh)
-(complete census seals/exit 0; missing verdict, malformed marker, and stray verdict each
-refuse + exit non-zero + write no artifact) and run in CI.
+verdict without its frozen ledger event, a stray verdict, a malformed/mismatched marker, or a
+malformed/wrong-shaped/misidentified verdict) `analyze-counted.mjs` **refuses to write a results
+artifact and exits non-zero** — a `completeness_ok:false` field inside an otherwise-sealed
+artifact is never emitted, so downstream automation cannot treat "exit 0 + a seal" as
+authoritative over a partial dataset. This is regression-tested by
+[`analyze-counted.selftest.sh`](./analyze-counted.selftest.sh) (complete census seals/exit 0;
+missing verdict, malformed marker, stray verdict, empty/`{}` verdict, wrong task/arm identity,
+and malformed JSON each refuse + exit non-zero + write no artifact) and run in CI.
 
 ## Primary endpoint — registered inferential claim: **do not reject H₀**
 
@@ -200,5 +210,5 @@ node harness/taskbench/round4/analyze-counted.mjs \
   --manifest harness/taskbench/round4/COUNTED-EXECUTION-MANIFEST.json \
   --deviations harness/taskbench/round4/DEVIATIONS.md \
   --out ROUND4-RESULTS.json
-# payload_sha256 must equal e830345a1a43704630daeea9ae88316e5bc6ea967182e39843c75e36ff5bfaea
+# payload_sha256 must equal 9d611678f8d619aa32e0ff96202da1d8604bb95717acfc43a5eccc57ccf1db95
 ```
