@@ -330,10 +330,17 @@ jobs:
       # one workflow that must not have one.
       # This is an open-source repo: no Claude session URLs may reach any public
       # surface. The PR body, every commit message in the range, and every added
-      # line of the diff are screened; a hit fails the (required) gate. The
-      # attribution footer is fine — the session identifier is not. Untrusted PR
-      # text goes through env, never shell interpolation, same as the label step.
-      - name: No Claude session links on any public surface
+      # line of the diff are screened for a session link; a hit fails the (required)
+      # gate. Commit messages are ALSO screened for agent-attribution trailers — a
+      # Co-Authored-By naming an assistant, a "Generated with/by [Claude Code]" line,
+      # or a Claude-Session: trailer — because a commit message is permanent git
+      # history and CLAUDE.md forbids attribution there. The generic footer the GitHub
+      # connector force-appends to a PR *body* carries no session id and stays tolerated
+      # there; the body and diff screens remain session-link-only (a commit message is
+      # the one surface that never legitimately carries that footer and never carries a
+      # run transcript, so broadening it there is safe from false positives). Untrusted
+      # PR text goes through env, never shell interpolation, same as the label step.
+      - name: No Claude session links or commit-message attribution
         if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -344,6 +351,10 @@ jobs:
         run: |
           set -euo pipefail
           PAT='claude\.ai/code/session'
+          # Attribution artifacts that must never enter permanent git history. Screened
+          # against commit messages only, in precise emitted forms, so a commit message
+          # that merely documents the ban in prose is not caught.
+          ATTR='Claude-Session:|Co-Authored-By:.*([Cc]laude|[Aa]nthropic)|[Gg]enerated (with|by) \[?[Cc]laude'
           # Live body, not the event payload: the payload snapshots the body at
           # trigger time, so a post-push edit — removing a link, or adding one —
           # would be judged stale. Payload is the fallback if the API read fails.
@@ -363,12 +374,16 @@ jobs:
             echo "::error::A commit message in this PR contains a Claude session link — reword it."
             fail=1
           fi
+          if printf '%s' "$COMMITS" | grep -Eq "$ATTR"; then
+            echo "::error::A commit message in this PR carries agent attribution (Co-Authored-By naming an assistant, a Generated-with/by [Claude Code] line, or a Claude-Session trailer) — reword it."
+            fail=1
+          fi
           ADDED="$(git diff "$PR_BASE...$PR_HEAD" | grep -E '^\+' || true)"
           if printf '%s' "$ADDED" | grep -Eq "$PAT"; then
             echo "::error::A file change in this PR adds a Claude session link — remove it."
             fail=1
           fi
-          [ "$fail" -eq 0 ] && echo "no session links found in body, commits, or diff"
+          [ "$fail" -eq 0 ] && echo "clean: no session links in body/commits/diff, no attribution in commit messages"
           exit "$fail"
 
       - name: Resolve out-of-band sign-off from PR labels

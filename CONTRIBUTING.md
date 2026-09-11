@@ -126,10 +126,14 @@ answerable from the changelog alone.
   `tamperward:allow:<rule>` label — never by weakening the policy to get past the gate.
 - Keep the diff to what the change needs. The detectors are the security boundary; a
   drive-by refactor in `src/detectors/` costs more review than it saves.
-- **No Claude session links on any public surface.** PR descriptions, commit messages,
-  and file contents must not contain Claude Code session URLs (the ones with a
-  session identifier in the path); the required `gate` check fails on any of the
-  three. Tool-attribution footers are fine — the session identifier is not.
+- **No Claude session links on any public surface, and no attribution in git history.**
+  PR descriptions, commit messages, and file contents must not contain Claude Code
+  session URLs (the ones with a session identifier in the path); the required `gate`
+  check fails on any of the three. Commit messages additionally must not carry an
+  agent-attribution trailer — a `Co-Authored-By` naming an assistant, a "Generated
+  with/by [Claude Code]" line, or a `Claude-Session:` trailer — because a commit
+  message is permanent git history. The generic tool-attribution footer the connector
+  appends to a PR *body* stays fine there — the session identifier is not.
   - *Operational note for automated authors:* some tools append a
     session-linked footer to the PR body at **creation** time, which trips this
     gate on the first run. The reliable pattern is create-then-edit — open the
