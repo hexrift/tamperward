@@ -3,10 +3,18 @@
 Authoritative data readout for the Round-4 counted run. Every number is reproduced by
 `analyze-counted.mjs` from the frozen manifest and the per-seq verdicts, and is sealed in
 [`ROUND4-RESULTS.json`](./ROUND4-RESULTS.json) (`payload_sha256`
-`4f3c60ea81c2751dc1a3354f0713842380e06400e734b3715d6924fa22a5db94`, deterministic — excludes
-the `sealed_at` timestamp; #298 added verdict schema + identity validation and #299 added
-full-inventory enumeration, adjudication-reference, and manifest validation, which re-seal the
-payload hash via the embedded `analysis_script_sha256` but leave every aggregate byte-identical).
+`e7bfce087ded46db1c7770ed0a34aead2f493557886fcbf408dfb2d1fc784e1b`, deterministic — excludes
+the `sealed_at` timestamp; #298 added verdict schema + identity validation, #299 added
+full-inventory enumeration, adjudication-reference, and manifest validation, and #300 bound the
+recorded state commit to the exact input bytes (authoritative-by-default provenance proof, recorded
+in `provenance.input_verification`), consolidated all input reads to a single pass, derived every
+aggregate from the per-row disposition captured **at census time** (the same snapshot the digest and
+provenance proof see — no post-census filesystem re-read of marker/verdict existence), and made the
+artifact write atomic — each re-seals the payload hash via the embedded `analysis_script_sha256`
+but leaves every scientific aggregate byte-identical). This record was produced by the
+**authoritative** path — `provenance.input_verification = { mode: authoritative, verified: true,
+state_commit_resolved: 979a5d27… }` — proving every input byte-identical to the tracked tree at the
+counted-state commit, not by the `--fixture` escape hatch.
 The prose article
 ([`ROUND4-ARTICLE.md`](./ROUND4-ARTICLE.md)) is generated from this record. Nothing here
 re-derives a per-trajectory verdict: `measured`, `masked_failure`, `outcome`,
@@ -25,7 +33,7 @@ the frozen adjudicator (`verdict4`) fields; this analysis only aggregates them.
 | **counted-execution-log sha256** | `1bb42f1a4609857678bbd49186bd73903d2f51b46996f894f128618e52aac5ca` |
 | **verdict/adjudication set digest** | `a5b652e16f7a4768998d8eaa2708c54b14db1647828cfefcc8877866626cf18d` |
 | deviation ledger sha256 (`DEVIATIONS.md`) | `50d6994e9a16000d090c85e31aafeaf2def3779237c9230eaaa5267bf7a64077` |
-| analysis script sha256 (self-hash) | `a96b4e8d84a91c6c3847c82f07ce93f73bd4ad62e8474c04ce1010a7a2c09feb` |
+| analysis script sha256 (self-hash) | `aafdc3eaf4ea88723f4bd2c67d7824b68e5fc3b7d2d02f7dd2b26f04bc06ad2c` |
 
 The dataset is bound by the state commit, the ledger hash, and a deterministic digest over
 every verdict/adjudication file — so two different state snapshots cannot be analysed under
@@ -229,11 +237,42 @@ version was bumped for any deviation.
 
 ## Reproduce
 
+Sealing is **authoritative by default** (#300): before it records `provenance.counted_state_commit`,
+the analyzer PROVES that every relevant input it read — the ledger and each present verdict /
+adjudication record — is byte-identical to the tracked blob at `--state-commit` in the runs git
+repository, and that the manifest and deviations are tracked-and-clean in their own repository.
+A `--state-commit` that names no commit, an input whose bytes differ from that commit (dirty), or
+an input absent from that commit's tree (untracked) REFUSES to seal — the seal can never claim a
+commit that does not identify its inputs. Run it against a real checkout of the immutable state:
+
 ```
 node harness/taskbench/round4/analyze-counted.mjs \
   --runs <checkout of round4-counted-state @ 979a5d27> \
   --manifest harness/taskbench/round4/COUNTED-EXECUTION-MANIFEST.json \
   --deviations harness/taskbench/round4/DEVIATIONS.md \
+  --state-commit 979a5d273bd03dd9699c2cf51526715c57563534 \
   --out ROUND4-RESULTS.json
-# payload_sha256 must equal 4f3c60ea81c2751dc1a3354f0713842380e06400e734b3715d6924fa22a5db94
+# payload_sha256 must equal e7bfce087ded46db1c7770ed0a34aead2f493557886fcbf408dfb2d1fc784e1b
 ```
+
+The sealed artifact **self-identifies** its verification state in `provenance.input_verification`:
+this record carries `{ mode: authoritative, verified: true, state_commit_resolved: 979a5d27… }`.
+
+The deterministic scientific aggregates can also be revalidated from an *extracted copy* of the
+counted runs (where the immutable git state is not present) by adding `--fixture` (alias
+`--allow-unverified-inputs`) — the EXPLICIT, non-default mode that skips the provenance proof and
+records `--state-commit` verbatim. Mode controls only whether provenance is ENFORCED, never what a
+valid census computes, so a `--fixture` reseal against a faithful input copy reproduces **every
+scientific aggregate and every input hash** byte-identically. Its `payload_sha256` will **not** match
+`e7bfce08…` above, by design: a fixture seal records `input_verification = { mode: fixture, verified:
+false, state_commit_resolved: null }`, so it is unmistakable from — and cannot masquerade as — an
+authoritative seal, and a fixture run **refuses to overwrite** an authoritative `--out` artifact
+(non-promotable). Only the authoritative path against the real immutable state reproduces
+`e7bfce08…`. Synthetic selftests use `--fixture` for the same reason (see
+`analyze-counted.selftest.sh`).
+
+The artifact is written **atomically** (temp file + `rename`), and every read of a validated input
+happens once (the recorded hashes, the census, the provenance proof, and the aggregates all derive
+from the same bytes). Consumer contract: if a later reseal attempt fails — refused validation, a
+crash, a full disk — any prior `ROUND4-RESULTS.json` is left byte-for-byte intact and remains the
+authoritative record; a failed attempt is a no-op on the sealed file, never a partial overwrite.
