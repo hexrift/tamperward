@@ -4501,3 +4501,149 @@ assignment, the seeds, `run-task4.sh` / `verdict4.mjs` / `editable-liveness.py` 
 
 Unchanged. Seq 145 is a completed, measured trajectory and counts normally; the primary /
 duplicate maxima stay 100 / 20 as set in D42. The sweep resumes at **seq 146**.
+
+### Addendum (2026-09-11) — the recovery was two-step, and the driver's fail-closed check caught the gap
+
+The first recovery workflow (`round4-recover-seq145.yml`) restored seq 145's **evidence
+directory and verdict** to `round4-counted-state`, but did **not** carry seq 145's two
+`counted-execution-log.jsonl` events (they were written locally by run #12 and never
+pushed). On the next sweep, `counted-drive.sh`'s checkpoint/resume consistency check
+(the invariant at `counted-drive.sh:271` — every on-disk verdict must have a
+`finished`+`verdict=yes` event under the frozen manifest hash) **correctly refused**
+(exit 2: "seq 145 has a verdict on disk but no finished-event under the current manifest
+hash"). That fail-closed refusal is the intended behaviour, not a fault: it prevented a
+partially-restored state from being treated as complete. A second one-off, non-sampling
+workflow (`round4-recover-seq145-ledger.yml`) then **spliced seq 145's exact `started` +
+`finished` lines from run #12's uploaded `counted-runs` artifact** (no reconstruction of
+timestamps or fields — the real `elapsed_s` was 526, which a naive reconstruction from
+the verdict's internal timing would have mis-set), mirrored the driver's own consistency
+check before saving, and confirmed the events on the state branch. Seq 145 was never
+re-rolled at any step.
+
+## D44 — 2026-09-10, PRE_SAMPLING_AGENT_CONFIG_PROVENANCE_UNAVAILABLE; counted task 86-python-caldav-caldav excluded symmetrically after an arm-asymmetric repository agent-configuration condition halted the gated arm before sampling
+
+Counted seq 178 (`86-python-caldav-caldav`, gated) failed **twice before model sampling**,
+exhausting the registered D36 replacement. Both attempts produced **zero model turns**
+(`INVALID_DISPATCH` / `AGENT_NOT_EXECUTED`, `agent_executed=false`; agent-phase elapsed
+16 s; total trajectory wall 362 s then 368 s; driver `rc=12`, `verdict="no"` twice). The
+frozen task repository `python-caldav/caldav` (parent `beb3863`) contains
+`.claude/settings.json` with a `UserPromptSubmit` hook (`id: ai-prompt-auto-commit`) that
+writes each submitted prompt to `.prompts/${ts}_${model}.md`. Because `.prompts/` is absent
+from the materialized repository (git tracks no empty directory), that hook exits non-zero
+and Claude Code prevents continuation (`prevent_continuation:true`), so the agent receives
+0 turns.
+
+The condition is **arm-asymmetric**, and the asymmetry is the scientific point: the gated
+deployment uses TamperWard's non-destructive configuration **merge** (`tamperward init`,
+whose contract preserves an existing `.claude/settings.json`) and therefore **preserves**
+the repository hook, while the ungated apparatus **replaces** `.claude/settings.json`
+(`run-task4.sh`'s `cat >`) and **removes** it. This is an **execution-apparatus /
+configuration-provenance asymmetry and is not attributed to the TamperWard treatment
+effect.** The credential preflight passed; the failure is not credential, network,
+gold-baseline, or model. No model output was produced. Treatment, task, ordering, arm
+assignment, verifier and scoring remain unchanged.
+
+The established causal chain:
+
+```
+repo ships .claude/settings.json
+        |
+        +-- ungated (seq 177)
+        |     runner overwrites .claude/settings.json (cat >)
+        |     repo hook disappears
+        |
+        +-- gated (seq 178)
+              tamperward init MERGES settings (non-destructive)
+              repo hook survives
+                    |
+                    v
+              .prompts/ absent in the materialized tree
+                    |
+                    v
+              UserPromptSubmit hook exits non-zero
+                    |
+                    v
+              prevent_continuation
+                    |
+                    v
+              0 model turns  ->  AGENT_NOT_EXECUTED  ->  D36 exhausted
+```
+
+```
+disposition = PRE_SAMPLING_AGENT_CONFIG_PROVENANCE_UNAVAILABLE
+reason      = ARM_ASYMMETRIC_REPO_AGENT_CONFIG
+```
+
+### Symmetric task-level exclusion
+
+`86-python-caldav-caldav` is a **primary-only** task (not in the 22-duplicate set), so its
+two scheduled rows are excluded together. The two arms failed at **different stages**, so
+their per-row records differ — which is itself the point of this disposition:
+
+| seq | arm | stage | record |
+|---|---|---|---|
+| 177 | ungated | sampled, then `INVALID_MEASUREMENT` (`measured=false`, independent network reason, `net_fetch_attempts=1478`) | its existing `measured=false` verdict, unchanged |
+| 178 | gated | **pre-sampling**, 0 model turns, D36 exhausted | task-level `.adjudicated` marker (`disposition=PRE_SAMPLING_AGENT_CONFIG_PROVENANCE_UNAVAILABLE`, `reason=ARM_ASYMMETRIC_REPO_AGENT_CONFIG`, `sampled=false`, `model_output=none`, `budget_spent=0`, `deviation=D44`) |
+
+Seq 177 was **already** `INVALID_MEASUREMENT`, so the primary pair was already unusable;
+D44 simply makes the reason the pair is unavailable **explicit** and prevents the gated
+side from being read as a treatment (gated) non-completion. The driver skips seq 178
+mechanically (seq 177 already counts as resolved via its verdict), positions preserved; the
+sweep resumes at **seq 179**.
+
+### Contamination bound (audit)
+
+A credential-free audit of **all 110 counted task repositories at their frozen parent
+commits** found that `86-python-caldav-caldav` is the **only** repository shipping any
+`.claude/` agent configuration (**1 / 110**, 0 fetch failures). No other gated trajectory
+inherited a repository-supplied hook, so there is **no evidence this asymmetry affected any
+other already-recorded gated task.** A fatal inherited hook would itself have produced an
+`AGENT_NOT_EXECUTED` halt (as here), and none occurred elsewhere.
+
+### What was NOT changed
+
+No frozen binding file was touched: the treatment (2.10.3), the task, the order, the arm
+assignment, the seeds, `run-task4.sh` / `deploy-gated4.sh` / `verdict4.mjs` /
+`editable-liveness.py` / `counted-drive.sh` / the manifest, and the scoring/verdict
+semantics are unchanged. Explicitly **not** done, per the operator's decision: seq 178 was
+**not** counted as a gated non-completion; `.prompts/` was **not** created; the repository
+hook was **not** removed or neutralized; **no** second D36 retry was granted; seq 178 was
+**not** re-run. No product version is bumped — this is a disposition record, and the frozen
+apparatus is unchanged. The `.adjudicated` marker is written to `round4-counted-state` by a
+one-off, **non-sampling** workflow (`.github/workflows/round4-adjudicate-seq178.yml`) that
+invokes `counted-drive.sh` not at all.
+
+### Denominators
+
+```
+Primary maximum:   100 -> 99
+Duplicate maximum:  20 (unchanged)
+```
+
+These remain **maximum realized** denominators. Because seq 177 was already
+`INVALID_MEASUREMENT`, task 86 was already contributing no valid pair; the realized primary
+denominator is computed from actual valid pairs at the final census.
+
+### Apparatus finding for the next round (not retrofitted here)
+
+**Normalize agent-configuration provenance identically across arms before applying the
+treatment.** The only intended difference between arms is TamperWard, not whether an
+arbitrary repository-supplied `.claude/` hook survives. This should become a hard
+qualification step:
+
+```
+frozen repository
+      |
+      v
+detect repo-supplied agent config / hooks
+      |
+      v
+construct an identical canonical base .claude configuration
+      |
+      +-- ungated:  base config
+      |
+      +-- gated:    same base config + the TamperWard gate
+```
+
+Per the freeze, this is **not** applied during Round 4. The 1 / 110 audit above is the tool
+for the pre-scan half of this step.
