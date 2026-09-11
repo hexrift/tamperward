@@ -110,7 +110,22 @@ const byseq = new Map([...prim, ...dupTraj].map(r => [r.seq, r]));
 const sd = (s) => path.join(RUNS, 'seq-' + String(s).padStart(3, '0'));
 const vpath = (r) => path.join(sd(r.seq), `${r.task}-${r.arm}.verdict.json`);
 const apath = (r) => path.join(sd(r.seq), `${r.task}-${r.arm}.adjudicated`);
-const readV = (r) => { const b = readBytes(vpath(r)); if (b === null) return null; try { return JSON.parse(b.toString('utf8')); } catch { return null; } };
+// #300: EXISTENCE is decided via the one-read byte cache (null == ENOENT == absent), not a separate
+// fs.existsSync syscall — so a file's presence and its bytes come from the SAME cached observation. A
+// non-ENOENT I/O error throws and fails the seal closed rather than masquerading as "absent".
+const existsCached = (p) => readBytes(p) !== null;
+// #300: the SINGLE SOURCE OF TRUTH for per-row disposition, captured DURING THE CENSUS (the same
+// phase as the digest and the byte-match provenance proof), keyed by seq: { hasV, hasA, v }.
+// Aggregation reads ONLY from here — never a post-census filesystem re-read of marker/verdict
+// existence — so the sealed aggregates (pre_sampling_adjudicated, post_sampling_invalid, excluded_primary_pairs,
+// every measured/MF figure) can never derive from a different filesystem snapshot than the one the
+// census hashed and the provenance proof verified. Populated in the census loop below.
+const rowCache = new Map(); // seq -> { hasV: bool, hasA: bool, v: parsedVerdict|null }
+// The parsed verdict AS OBSERVED AT CENSUS TIME (the exact bytes hashed into the digest and proven
+// against --state-commit); a row with no valid verdict at census -> null. NO filesystem access.
+const readV = (r) => { const e = rowCache.get(r.seq); return e ? e.v : null; };
+// Marker presence AS OBSERVED AT CENSUS TIME — never re-observed from the filesystem in aggregation.
+const markerPresent = (r) => { const e = rowCache.get(r.seq); return !!(e && e.hasA); };
 const measured = (v) => !!v && v.measured === true;
 const MF = (v) => measured(v) && v.masked_failure === true;
 const survN = (v) => Array.isArray(v.surviving_violations) ? v.surviving_violations.length : (v.surviving_violations ? 1 : 0);
@@ -305,15 +320,15 @@ for (const f of walkFiles(RUNS)) {
 const digestLines = [];
 for (let s = 1; s <= TOTAL; s++) {
   const r = byseq.get(s);
-  const vExists = fs.existsSync(vpath(r));
-  const hasA = fs.existsSync(apath(r));
+  const vExists = existsCached(vpath(r));
+  const hasA = existsCached(apath(r));
   // #298: a present verdict must parse, satisfy the schema, and carry the frozen row's identity.
   // A present-but-invalid verdict is corruption (fail closed) — never an ordinary invalid measurement.
-  let hasV = false;
+  let hasV = false, vParsed = null;
   if (vExists) {
     const pr = parseVerdictStrict(r);
     if (pr.error) verdictInvalid.push({ seq: s, problems: [pr.error] });
-    else { const problems = validateVerdict(pr.v, r); if (problems.length) verdictInvalid.push({ seq: s, problems }); else hasV = true; }
+    else { const problems = validateVerdict(pr.v, r); if (problems.length) verdictInvalid.push({ seq: s, problems }); else { hasV = true; vParsed = pr.v; } }
   }
   // #299: verdict+marker co-presence is a PHYSICAL conflict — detect it by file EXISTENCE, so a
   // malformed verdict beside a marker is still caught (the old hasV&&hasA missed it because hasV
@@ -337,6 +352,9 @@ for (let s = 1; s <= TOTAL; s++) {
   }
   else if (vExists) { /* present but invalid — recorded in verdictInvalid (fail closed); not 'missing' */ }
   else census.missing.push(s);
+  // #300: freeze this row's census observation as the single source of truth for aggregation. Every
+  // later aggregate (sections B-G) reads presence/verdict from rowCache, never from the filesystem.
+  rowCache.set(s, { hasV, hasA, v: vParsed });
 }
 digestLines.sort();
 const VERDICT_SET_DIGEST = sha256Str(digestLines.join('\n') + '\n');
@@ -450,7 +468,10 @@ let preAdj = 0, postInvalid = 0;
 for (const [task, arms] of tasks) {
   const g = arms.gated ? readV(arms.gated) : null, u = arms.ungated ? readV(arms.ungated) : null;
   if (!measured(g) || !measured(u)) {
-    const gAdj = fs.existsSync(apath(arms.gated)), uAdj = fs.existsSync(apath(arms.ungated));
+    // #300: marker presence from the census cache (markerPresent), NOT a post-census fs re-read, so
+    // pre_sampling_adjudicated / post_sampling_invalid / excluded_primary_pairs derive from the exact
+    // snapshot the census hashed and the provenance proof verified.
+    const gAdj = markerPresent(arms.gated), uAdj = markerPresent(arms.ungated);
     const cat = (gAdj || uAdj) ? 'adjudicated' : 'invalid_measurement';
     if (cat === 'adjudicated') preAdj++; else postInvalid++;
     excluded.push({ task, category: cat, gated: gAdj ? 'adjudicated' : (measured(g) ? 'measured' : 'invalid_measurement'), ungated: uAdj ? 'adjudicated' : (measured(u) ? 'measured' : 'invalid_measurement') });

@@ -32,8 +32,11 @@
 #               artifact SELF-IDENTIFIES its verification state (provenance.input_verification), and a
 #               --fixture seal must be UNMISTAKABLE (verified:false / mode:fixture) AND NON-PROMOTABLE
 #               (it must not overwrite an authoritative artifact). git is REQUIRED for these cases (a
-#               missing git FAILS, never skips). The #297/#298/#299 cases above pin the census math
-#               and now run under --fixture, so a census failure is exercised independently of the
+#               missing git FAILS, never skips). Cases 41-42 pin the snapshot-integrity fix: the
+#               adjudicated / excluded aggregation derives from the disposition CACHED at census time
+#               (not a post-census marker re-read), and structurally no fs.existsSync(apath|vpath)
+#               remains in the analyzer. The #297/#298/#299 cases above pin the census math and now
+#               run under --fixture, so a census failure is exercised independently of the
 #               (mode-gated) provenance proof.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -505,5 +508,28 @@ AFTER="$(sha256sum "$GOUT" | cut -d' ' -f1)"
 [ "$BEFORE" = "$AFTER" ] || fail "the authoritative artifact must be left byte-for-byte intact after a refused fixture write"
 [ "$(jq -r .provenance.input_verification.verified "$GOUT")" = "true" ] || fail "the artifact must still be authoritative (verified=true) after the refused fixture write"
 echo "ok 40: --fixture is non-promotable — refuses to overwrite an authoritative artifact, which stays intact"
+
+# 41. CENSUS-CACHED DISPOSITION drives aggregation (snapshot-integrity race fix). A fixture with an
+#     adjudicated row -> the adjudicated / excluded / invalid aggregation fields
+#     (pre_sampling_adjudicated_exclusions, post_sampling_invalid_measurement_exclusions,
+#     excluded_primary_pairs) derive from the disposition CACHED at census time, not a post-census
+#     marker re-read. (Runs in --fixture: the census+aggregation path under test is mode-independent.)
+mkfixture; rm -f "$OUT"; rm -f "$RUNS/seq-004/t2-ungated.verdict.json"
+mkmarker 4 t2 ungated PRE_SAMPLING_LIVENESS_UNAVAILABLE D39
+runD || fail "census with an adjudicated row must seal"
+[ -f "$OUT" ] || fail "adjudicated-row census must write the artifact"
+[ "$(jq -r .denominators.pre_sampling_adjudicated_exclusions "$OUT")" = "1" ] || fail "pre_sampling_adjudicated must reflect the census-cached adjudicated row"
+[ "$(jq -r .denominators.post_sampling_invalid_measurement_exclusions "$OUT")" = "0" ] || fail "post_sampling_invalid must be 0 (the excluded pair is adjudicated, not invalid)"
+[ "$(jq -r '.excluded_primary_pairs | length' "$OUT")" = "1" ] || fail "exactly one excluded primary pair expected"
+[ "$(jq -r '.excluded_primary_pairs[0].category' "$OUT")" = "adjudicated" ] || fail "excluded pair category must be 'adjudicated' (from the census cache)"
+[ "$(jq -r '.excluded_primary_pairs[0].ungated' "$OUT")" = "adjudicated" ] || fail "excluded pair ungated arm must read 'adjudicated' (from the census cache)"
+echo "ok 41: adjudicated/excluded aggregation derives from the census-cached disposition, not a marker re-read"
+
+# 42. STRUCTURAL: no post-census filesystem re-read of marker/verdict EXISTENCE remains — aggregation
+#     reads presence/verdict only from the census cache, so no two filesystem snapshots can be mixed
+#     into one seal by construction. (The sole surviving fs.existsSync targets the OUT artifact, not
+#     apath()/vpath().)
+[ "$(grep -c 'existsSync(apath\|existsSync(vpath' "$ANALYZER")" = "0" ] || fail "analyzer must not re-read marker/verdict existence via fs.existsSync(apath|vpath) anywhere; aggregation must read the census cache"
+echo "ok 42: no fs.existsSync(apath|vpath) in the analyzer — aggregation cannot mix filesystem snapshots"
 
 echo "analyze-counted.selftest: PASS"
