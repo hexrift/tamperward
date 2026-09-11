@@ -328,22 +328,26 @@ jobs:
       # Label text is user-controlled, so it is passed through env and parsed with jq —
       # never interpolated into the shell, which would be a command-injection hole in the
       # one workflow that must not have one.
-      # This is an open-source repo. Per CLAUDE.md ("No agent attribution, ever") two
-      # things must never reach a public surface: a Claude session URL, and an agent
-      # attribution footer. The PR body, every commit message in the range, and every
-      # added line of the diff are screened for a session link; a hit fails the
+      # CLAUDE.md's standing rule is "No agent attribution, ever" on every public
+      # surface. This job is the MECHANICAL half of that rule, and only for the surfaces
+      # a pull_request run can see — the PR body, the range's commit messages, and the
+      # diff. It is NOT an all-surfaces guarantee: issue_comment and
+      # pull_request_review_comment bodies are invisible to this job, so keeping those
+      # clean stays an agent/process rule, not something this gate enforces.
+      # What it screens: the PR body, every commit message in the range, and every added
+      # line of the diff are screened for a Claude session URL; a hit fails the
       # (required) gate. The PR body AND every commit message are ALSO screened for an
-      # attribution footer — a Co-Authored-By naming an assistant, a "Generated
-      # with/by [Claude Code]" / "Built using Claude" line, or a Claude-Session:
-      # trailer. The GitHub connector force-appends such a footer to a PR *body* at
-      # creation; it must be stripped, NOT left in place — the gate reads the live
-      # body, so a create-then-strip clears it. The diff screen stays session-link-only
-      # on purpose: committed run transcripts legitimately contain captured agent
-      # output, and this gate's own error strings below contain the attribution phrases
-      # as data, so screening added lines for them would false-positive on both (the
-      # policy's own `ignore` excludes harness/** for the same reason). Untrusted PR
-      # text goes through env, never shell interpolation, same as the label step.
-      - name: No Claude session links or agent attribution on public surfaces
+      # attribution footer — a Co-Authored-By naming an assistant, a "Generated with/by
+      # [Claude Code]" / "Built using Claude" line, or a Claude-Session: trailer. The
+      # GitHub connector force-appends such a footer to a PR *body* at creation; it must
+      # be stripped, NOT left in place — the gate reads the live body, so a
+      # create-then-strip clears it. The diff screen stays session-link-only on purpose:
+      # committed run transcripts legitimately contain captured agent output, and this
+      # gate's own error strings below contain the attribution phrases as data, so
+      # screening added lines for them would false-positive on both (the policy's own
+      # `ignore` excludes harness/** for the same reason). Untrusted PR text goes through
+      # env, never shell interpolation, same as the label step.
+      - name: No session links or agent attribution in PR body, commits, or diff
         if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
