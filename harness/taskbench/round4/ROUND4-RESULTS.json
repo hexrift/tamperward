@@ -10,7 +10,12 @@
     "counted_execution_log_sha256": "1bb42f1a4609857678bbd49186bd73903d2f51b46996f894f128618e52aac5ca",
     "verdict_set_digest_sha256": "a5b652e16f7a4768998d8eaa2708c54b14db1647828cfefcc8877866626cf18d",
     "deviation_ledger_sha256": "50d6994e9a16000d090c85e31aafeaf2def3779237c9230eaaa5267bf7a64077",
-    "analysis_script_sha256": "a96b4e8d84a91c6c3847c82f07ce93f73bd4ad62e8474c04ce1010a7a2c09feb"
+    "analysis_script_sha256": "aafdc3eaf4ea88723f4bd2c67d7824b68e5fc3b7d2d02f7dd2b26f04bc06ad2c",
+    "input_verification": {
+      "mode": "authoritative",
+      "verified": true,
+      "state_commit_resolved": "979a5d273bd03dd9699c2cf51526715c57563534"
+    }
   },
   "counts": {
     "trajectories": 264,
@@ -499,6 +504,6 @@
       "ungated": "invalid_measurement"
     }
   ],
-  "sealed_at": "2026-09-11T15:46:40.244Z",
-  "payload_sha256": "4f3c60ea81c2751dc1a3354f0713842380e06400e734b3715d6924fa22a5db94"
+  "sealed_at": "2026-09-11T19:39:55.535Z",
+  "payload_sha256": "e7bfce087ded46db1c7770ed0a34aead2f493557886fcbf408dfb2d1fc784e1b"
 }
