@@ -1,6 +1,14 @@
 # Round 4 results
 
-*Results companion to “[How round 4 is built to be hard to fool](../../../docs/blog/how-round-4-is-built-to-be-hard-to-fool.md)”, the pre-counted Round-4 methodology post — part of the [TamperWard research series](../../../docs/blog/index.md). That post committed to none of the numbers; this one reports them.*
+*September 11, 2026 · hexrift*
+
+> *Series-wide caveats — sampling unit, historical controls, training
+> contamination, model pinning, what the registration order proves, and what the
+> verification layers cannot guarantee — are collected on the
+> [limitations page](./limitations.md). Published corrections are on the
+> [errata page](./errata.md).*
+
+*Results companion to “[How round 4 is built to be hard to fool](./how-round-4-is-built-to-be-hard-to-fool.md)”, the pre-counted Round-4 methodology post — part of the [TamperWard research series](/blog/). That post committed to none of the numbers; this one reports them.*
 
 > Round 4 did not confirm our primary prediction. We predicted that TamperWard would produce
 > a large and statistically significant reduction in masked failures. It did not: the
@@ -9,11 +17,10 @@
 > trajectories, we observed no case where landed tampering survived and TamperWard certified
 > it clean.
 
-*Every figure here is the sealed value in [`ROUND4-RESULTS.json`](./ROUND4-RESULTS.json)
+*Every figure here is the sealed value in [`ROUND4-RESULTS.json`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/ROUND4-RESULTS.json)
 (`payload_sha256` `e7bfce08…`, deterministic), reproducible with
-[`analyze-counted.mjs`](./analyze-counted.mjs) against `round4-counted-state` @ `979a5d27`.
-Registered design: `PREDICTION4-taskbench.md` (freeze 2). Draft for internal review — not
-published.*
+[`analyze-counted.mjs`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/analyze-counted.mjs) against [`round4-counted-state` @ `979a5d27`](https://github.com/hexrift/tamperward/tree/979a5d273bd03dd9699c2cf51526715c57563534).
+Registered design: [`PREDICTION4-taskbench.md`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/PREDICTION4-taskbench.md) (freeze 2).*
 
 ## 1. What we predicted
 
@@ -216,17 +223,17 @@ label mixes them.
 
 ## 12. Full deviations / raw evidence
 
-- Registered design: `PREDICTION4-taskbench.md`. Methodology companion:
-  [How round 4 is built to be hard to fool](../../../docs/blog/how-round-4-is-built-to-be-hard-to-fool.md).
-- Sealed results: [`ROUND4-RESULTS.json`](./ROUND4-RESULTS.json); readout:
-  [`ROUND4-ANALYSIS.md`](./ROUND4-ANALYSIS.md); engine:
-  [`analyze-counted.mjs`](./analyze-counted.mjs).
-- Deviation ledger: `DEVIATIONS.md` (D36, D39–D44). D36's one-replacement recovery was
+- Registered design: [`PREDICTION4-taskbench.md`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/PREDICTION4-taskbench.md). Methodology companion:
+  [How round 4 is built to be hard to fool](./how-round-4-is-built-to-be-hard-to-fool.md).
+- Sealed results: [`ROUND4-RESULTS.json`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/ROUND4-RESULTS.json); readout:
+  [`ROUND4-ANALYSIS.md`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/ROUND4-ANALYSIS.md); engine:
+  [`analyze-counted.mjs`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/analyze-counted.mjs).
+- Deviation ledger: [`DEVIATIONS.md`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/DEVIATIONS.md) (D36, D39–D44). D36's one-replacement recovery was
   exercised several times — recovered once (seq 219) and exhausted on the D42 (whisperx) and
   D44 (caldav) tasks.
-- Per-trajectory verdicts and execution ledger: `round4-counted-state` @ `979a5d27`
+- Per-trajectory verdicts and execution ledger: [`round4-counted-state` @ `979a5d27`](https://github.com/hexrift/tamperward/tree/979a5d273bd03dd9699c2cf51526715c57563534)
   (ledger `1bb42f1a…`, verdict-set digest `a5b652e1…`).
-- Oversized final-tree evidence: the `round4-evidence` release (content-addressed).
+- Oversized final-tree evidence: the [`round4-evidence` release](https://github.com/hexrift/tamperward/releases/tag/round4-evidence) (content-addressed).
 - Frozen identity: manifest `eeb85c26…`, treatment 2.10.3 (`0863d3a8…`), model
   `claude-sonnet-5`.
 

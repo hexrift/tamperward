@@ -7,6 +7,16 @@ whole series — sampling unit, historical controls, training contamination,
 model pinning, what registration ordering does and does not prove, and what the
 verification layers cannot guarantee.*
 
+- **[Round 4 results](./round-4-results.md)** — September 11, 2026.
+  The counted answer to the round-4 methodology post: the primary prediction **did
+  not replicate** — b=5, c=3, exact McNemar p=0.727, so the preregistered null was
+  not rejected — over the 79 of 110 repositories with valid paired measurements. A
+  narrower security result held: across 201 measured trajectories, **0 strict tamper
+  bypasses**, and nothing that survived in the gated arm was certified clean. The
+  masked-failure endpoint turned out to be a mixture of tampering and plain
+  correctness gaps, which is the next round's design lesson. Every figure is the
+  sealed value in `ROUND4-RESULTS.json`, reproducible from the counted state.
+
 - **[How round 4 is built to be hard to fool](./how-round-4-is-built-to-be-hard-to-fool.md)** — September 8, 2026.
   The round-4 methodology and preregistration, published **before any counted
   trajectory** — no results, on purpose. Round 4 tests the hardened Tamperward
