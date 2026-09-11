@@ -37,6 +37,46 @@ const FROZEN = MANIFEST_SHA;
 const prim = M.execution.primary.trajectories;
 const dupTraj = M.execution.duplicates.trajectories;
 const TOTAL = M.execution.trajectory_count;
+
+// ---- #299: MANIFEST validation (BEFORE byseq) — a malformed manifest is fail-closed corruption ----
+// byseq below is keyed on r.seq, so a duplicate seq would silently coalesce two rows (dropping one
+// trajectory from every per-seq scan) and a gap/out-of-range seq would leave a hole the census
+// cannot see. The frozen manifest is therefore validated first: trajectory_count is a positive
+// integer that the rows exactly realize; every seq is an integer in 1..trajectory_count, unique,
+// covering the range with no gaps; every row carries a non-empty string task and an arm in
+// {gated,ungated}; and task/arm pairing is well-formed — within the primary set AND within the
+// duplicate set each task appears exactly once per arm (one gated, one ungated), which is the
+// invariant sections B/F/G rely on when they pair by task. Any violation refuses to seal (no
+// artifact, non-zero exit) before byseq is ever built, so aggregation only ever runs on a
+// validated manifest. This adds nothing to the serialized payload, so a valid manifest re-seals
+// byte-identically. Holds on the real counted manifest (264 rows, 110 primary + 22 duplicate
+// arm-paired tasks).
+{
+  const problems = [];
+  if (!Number.isInteger(TOTAL) || TOTAL < 1) problems.push(`trajectory_count ${JSON.stringify(TOTAL)} is not a positive integer`);
+  const rows = [...prim, ...dupTraj];
+  if (rows.length !== TOTAL) problems.push(`row count ${rows.length} != trajectory_count ${JSON.stringify(TOTAL)}`);
+  const seqSeen = new Set();
+  for (const r of rows) {
+    if (!Number.isInteger(r.seq)) problems.push(`seq ${JSON.stringify(r.seq)} is not an integer`);
+    else if (r.seq < 1 || r.seq > TOTAL) problems.push(`seq ${r.seq} outside 1..${TOTAL}`);
+    else if (seqSeen.has(r.seq)) problems.push(`seq ${r.seq} is duplicated`);
+    if (Number.isInteger(r.seq)) seqSeen.add(r.seq);
+    if (typeof r.task !== 'string' || r.task.length === 0) problems.push(`seq ${JSON.stringify(r.seq)} task is not a non-empty string`);
+    if (r.arm !== 'gated' && r.arm !== 'ungated') problems.push(`seq ${JSON.stringify(r.seq)} arm '${r.arm}' is not gated|ungated`);
+  }
+  for (let s = 1; Number.isInteger(TOTAL) && s <= TOTAL; s++) if (!seqSeen.has(s)) problems.push(`seq ${s} missing (coverage gap)`);
+  const checkPairing = (set, label) => { const byTask = new Map();
+    for (const r of set) { if (typeof r.task !== 'string' || r.task.length === 0) continue; const t = byTask.get(r.task) || {}; if (t[r.arm]) problems.push(`${label} task '${r.task}' arm '${r.arm}' appears more than once`); t[r.arm] = r; byTask.set(r.task, t); }
+    for (const [task, t] of byTask) if (!t.gated || !t.ungated) problems.push(`${label} task '${task}' is not arm-paired (gated=${!!t.gated}, ungated=${!!t.ungated})`); };
+  checkPairing(prim, 'primary'); checkPairing(dupTraj, 'duplicate');
+  if (problems.length) {
+    console.error('REFUSING TO SEAL — manifest validation failed (fail-closed); no results artifact written:');
+    for (const p of problems) console.error('  ' + p);
+    process.exit(1);
+  }
+}
+
 const byseq = new Map([...prim, ...dupTraj].map(r => [r.seq, r]));
 const sd = (s) => path.join(RUNS, 'seq-' + String(s).padStart(3, '0'));
 const vpath = (r) => path.join(sd(r.seq), `${r.task}-${r.arm}.verdict.json`);
@@ -161,8 +201,70 @@ for (const e of log) if (e.event === 'finished' && e.verdict === 'yes') { const 
 
 // ---- A. COMPLETENESS CENSUS (verdicts require a frozen finished-event; markers are parsed+validated) ----
 function parseMarker(p) { const o = {}; for (const ln of fs.readFileSync(p, 'utf8').split('\n')) { const t = ln.trim(); if (!t || t.startsWith('#')) continue; const i = t.indexOf('='); if (i > 0) o[t.slice(0, i).trim()] = t.slice(i + 1).trim(); } return o; }
+// #299: registered .adjudicated DISPOSITION VOCABULARY. Derived by reading the 25 real counted
+// markers together with DEVIATIONS.md — every real marker carries exactly one of these four
+// dispositions, and each is a registered DEVIATIONS.md entry (so all 25 real markers validate):
+//   PRE_SAMPLING_LIVENESS_UNAVAILABLE                (D39; frozen editable-liveness probe unavailable)
+//   PRE_SAMPLING_CONTRACT_UNAVAILABLE                (D41; frozen P/R/G qualification contract unmet)
+//   PRE_SAMPLING_MEASUREMENT_UNAVAILABLE             (D42; pre-agent gold baseline divergence)
+//   PRE_SAMPLING_AGENT_CONFIG_PROVENANCE_UNAVAILABLE (D44; arm-asymmetric repo agent-config halt)
+// A marker whose disposition is outside this set is unregistered corruption and fails closed
+// (the pre-#299 check only required disposition to be non-empty), and the D<n> it cites must
+// additionally RESOLVE to a real heading in the supplied DEVIATIONS.md, not merely match D\d+.
+const REGISTERED_DISPOSITIONS = new Set([
+  'PRE_SAMPLING_LIVENESS_UNAVAILABLE',
+  'PRE_SAMPLING_CONTRACT_UNAVAILABLE',
+  'PRE_SAMPLING_MEASUREMENT_UNAVAILABLE',
+  'PRE_SAMPLING_AGENT_CONFIG_PROVENANCE_UNAVAILABLE',
+]);
+// Registered deviation ledger: the set of D<n> identifiers appearing in any heading of the
+// supplied DEVIATIONS.md (a heading may cite several). null when no --deviations ledger was
+// supplied, in which case a marker's deviation cannot be resolved and fails closed. D1..D44 on
+// the real ledger.
+const registeredDeviations = (() => { if (!DEVIATIONS) return null; const set = new Set();
+  for (const ln of fs.readFileSync(DEVIATIONS, 'utf8').split('\n')) if (/^#{1,6}\s/.test(ln)) for (const mm of ln.matchAll(/\bD(\d+)\b/g)) set.add('D' + mm[1]);
+  return set; })();
+// #299: an allowlist (by pattern) of the non-record run artifacts that legitimately sit under a
+// counted runs dir — the ledger, the driver lock, CLI-version / drift / runner-view sidecars, and
+// per-trajectory evidence (jsonl/err/tar transcripts, -evidence/-obs/-raw dirs, -provenance.json,
+// -netlog/-denylog, -envelope.json, .started markers), plus the extraction .filelist. Ancillary
+// files never fail the census (they cannot move an aggregate: aggregation reads only the exact
+// frozen verdict/marker paths). This list only classifies "known ancillary" vs an "unknown
+// ancillary" file that is surfaced as a NON-fatal operator note — per #299 only unknown
+// verdict/adjudication RECORDS fail, never unknown ancillary files. On the real set the sole
+// ancillary files are counted-execution-log.jsonl and the extraction .filelist.
+const ANCILLARY_ALLOWLIST = [
+  /^counted-execution-log\.jsonl$/, /(^|\/)\.driver\.lock$/, /(^|\/)agent-cli-versions\.txt$/,
+  /(^|\/)environment-drift\.acknowledged$/, /(^|\/)\.counted-runner-view\.json$/, /(^|\/)\.filelist$/,
+  /\.jsonl$/, /\.err$/, /\.tar$/, /-evidence(\/|$)/, /-obs(\/|$)/, /-raw(\/|$)/,
+  /-provenance\.json$/, /-netlog\.txt$/, /-denylog\.txt$/, /-envelope\.json$/, /\.started$/,
+];
+const isKnownAncillary = (f) => ANCILLARY_ALLOWLIST.some((re) => re.test(f));
+const pad3 = (s) => String(s).padStart(3, '0');
+
 const census = { verdict: 0, adjudicated: 0, missing: [], hashMismatch: [], stray: [], both: [], markerViolations: [] };
 const verdictInvalid = []; // #298: present-but-malformed/wrong-shape/misidentified verdicts (fail-closed gate only; not serialized, so a valid dataset re-seals to a byte-identical census)
+const unknownAncillary = []; // #299: non-record files not on the allowlist — surfaced (non-fatal), never gated
+
+// #299: ENUMERATE every verdict/adjudication record physically present under the runs dir (a full
+// recursive walk, not just seq-001..trajectory_count) and bind each to the frozen inventory. A
+// file ending in `.verdict.json`/`.adjudicated` is a verdict/adjudication RECORD and must sit at
+// exactly its frozen row's path — seq-NNN/<task>-<arm>.<ext> with NNN in 1..trajectory_count and
+// <task>-<arm> matching byseq(NNN). Anything else so named — a seq-NNN outside the frozen range, a
+// wrong <task>-<arm> filename, or a record loose at the top level / nested elsewhere — is a stray
+// and fails closed (census.stray). Every non-record file is an ancillary run artifact and is
+// IGNORED; a non-record not on ANCILLARY_ALLOWLIST is noted (non-fatal) but never fails. This
+// subsumes and replaces the old in-range verdict-only stray scan. census.stray is empty on a
+// valid dataset, so the serialized census re-seals byte-identically.
+const expVerdict = new Map(), expMarker = new Map();
+for (let s = 1; s <= TOTAL; s++) { const r = byseq.get(s); expVerdict.set(`seq-${pad3(s)}/${r.task}-${r.arm}.verdict.json`, s); expMarker.set(`seq-${pad3(s)}/${r.task}-${r.arm}.adjudicated`, s); }
+const walkFiles = (root) => { const out = []; const rec = (d, rel) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const r = rel ? rel + '/' + e.name : e.name; if (e.isDirectory()) rec(path.join(d, e.name), r); else out.push(r); } }; rec(root, ''); return out; };
+for (const f of walkFiles(RUNS)) {
+  if (f.endsWith('.verdict.json')) { if (!expVerdict.has(f)) census.stray.push({ record: 'verdict', f }); }
+  else if (f.endsWith('.adjudicated')) { if (!expMarker.has(f)) census.stray.push({ record: 'adjudicated', f }); }
+  else if (!isKnownAncillary(f)) unknownAncillary.push(f);
+}
+
 const digestLines = [];
 for (let s = 1; s <= TOTAL; s++) {
   const r = byseq.get(s);
@@ -176,26 +278,36 @@ for (let s = 1; s <= TOTAL; s++) {
     if (pr.error) verdictInvalid.push({ seq: s, problems: [pr.error] });
     else { const problems = validateVerdict(pr.v, r); if (problems.length) verdictInvalid.push({ seq: s, problems }); else hasV = true; }
   }
-  if (hasV && hasA) census.both.push(s);
-  if (hasV) { census.verdict++; if (!(finYes.get(s) || []).includes(FROZEN)) census.hashMismatch.push(s); digestLines.push(`seq-${String(s).padStart(3,'0')}/${r.task}-${r.arm}.verdict.json:${sha256File(vpath(r))}`); }
+  // #299: verdict+marker co-presence is a PHYSICAL conflict — detect it by file EXISTENCE, so a
+  // malformed verdict beside a marker is still caught (the old hasV&&hasA missed it because hasV
+  // needs a successful parse, letting a marker mask a corrupt verdict).
+  if (vExists && hasA) census.both.push(s);
+  if (hasV) { census.verdict++; if (!(finYes.get(s) || []).includes(FROZEN)) census.hashMismatch.push(s); digestLines.push(`seq-${pad3(s)}/${r.task}-${r.arm}.verdict.json:${sha256File(vpath(r))}`); }
   else if (hasA) {
-    census.adjudicated++; digestLines.push(`seq-${String(s).padStart(3,'0')}/${r.task}-${r.arm}.adjudicated:${sha256File(apath(r))}`);
+    census.adjudicated++; digestLines.push(`seq-${pad3(s)}/${r.task}-${r.arm}.adjudicated:${sha256File(apath(r))}`);
     const m = parseMarker(apath(r)); const bad = [];
     if (m.task !== r.task) bad.push(`task ${m.task}!=${r.task}`);
     if (m.arm !== r.arm) bad.push(`arm ${m.arm}!=${r.arm}`);
     if (String(m.seq) !== String(s)) bad.push(`seq ${m.seq}!=${s}`);
-    if (!m.disposition) bad.push('no disposition');
-    if (!/^D\d+$/.test(m.deviation || '')) bad.push(`deviation '${m.deviation}'`);
+    // #299: disposition must be in the registered vocabulary (not merely non-empty), and the cited
+    // deviation must RESOLVE to a real DEVIATIONS.md heading (not merely match the D<digits> shape).
+    if (!REGISTERED_DISPOSITIONS.has(m.disposition)) bad.push(`disposition '${m.disposition}' not registered`);
+    if (!/^D\d+$/.test(m.deviation || '')) bad.push(`deviation '${m.deviation}' malformed`);
+    else if (!registeredDeviations) bad.push(`deviation '${m.deviation}' unresolved (no --deviations ledger)`);
+    else if (!registeredDeviations.has(m.deviation)) bad.push(`deviation '${m.deviation}' not in DEVIATIONS.md`);
     if (m.sampled !== 'false') bad.push(`sampled '${m.sampled}'`);
     if (bad.length) census.markerViolations.push({ seq: s, problems: bad });
   }
   else if (vExists) { /* present but invalid — recorded in verdictInvalid (fail closed); not 'missing' */ }
   else census.missing.push(s);
-  if (fs.existsSync(sd(s))) for (const f of fs.readdirSync(sd(s))) if (f.endsWith('.verdict.json') && f !== `${r.task}-${r.arm}.verdict.json`) census.stray.push({ seq: s, f });
 }
 digestLines.sort();
 const VERDICT_SET_DIGEST = sha256Str(digestLines.join('\n') + '\n');
 const completeness_ok = census.missing.length === 0 && census.hashMismatch.length === 0 && census.stray.length === 0 && census.both.length === 0 && census.markerViolations.length === 0 && verdictInvalid.length === 0;
+
+// #299: unknown ancillary (non-record) files are NEVER a census failure — surface them once as a
+// non-fatal operator note (silent on the real set, which has none). Does not affect the seal.
+if (unknownAncillary.length) console.error('NOTE — unknown ancillary files present (ignored, non-fatal; not verdict/adjudication records): ' + JSON.stringify(unknownAncillary));
 
 // FAIL-CLOSED: an authoritative results artifact must NEVER be emitted for an incomplete or
 // inconsistent census. Refuse to compute or seal and exit non-zero, so downstream automation
@@ -205,12 +317,12 @@ const completeness_ok = census.missing.length === 0 && census.hashMismatch.lengt
 // analyze-counted.selftest.sh. See PR #297 review.
 if (!completeness_ok) {
   console.error('REFUSING TO SEAL — completeness census failed (fail-closed); no results artifact written:');
-  console.error('  missing (no verdict, no marker): ' + JSON.stringify(census.missing));
-  console.error('  verdict/manifest-hash mismatch:  ' + JSON.stringify(census.hashMismatch));
-  console.error('  stray verdict files:             ' + JSON.stringify(census.stray));
-  console.error('  seq with verdict AND marker:     ' + JSON.stringify(census.both));
-  console.error('  invalid .adjudicated markers:    ' + JSON.stringify(census.markerViolations));
-  console.error('  malformed/misidentified verdicts:' + JSON.stringify(verdictInvalid));
+  console.error('  missing (no verdict, no marker):    ' + JSON.stringify(census.missing));
+  console.error('  verdict/manifest-hash mismatch:     ' + JSON.stringify(census.hashMismatch));
+  console.error('  stray verdict/adjudication records: ' + JSON.stringify(census.stray));
+  console.error('  seq with verdict AND marker:        ' + JSON.stringify(census.both));
+  console.error('  invalid .adjudicated markers:       ' + JSON.stringify(census.markerViolations));
+  console.error('  malformed/misidentified verdicts:   ' + JSON.stringify(verdictInvalid));
   process.exit(1);
 }
 
