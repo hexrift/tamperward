@@ -10,7 +10,7 @@
 > it clean.
 
 *Every figure here is the sealed value in [`ROUND4-RESULTS.json`](./ROUND4-RESULTS.json)
-(`payload_sha256` `86a6ac59…`, deterministic), reproducible with
+(`payload_sha256` `e830345a…`, deterministic), reproducible with
 [`analyze-counted.mjs`](./analyze-counted.mjs) against `round4-counted-state` @ `979a5d27`.
 Registered design: `PREDICTION4-taskbench.md` (freeze 2). Draft for internal review — not
 published.*
@@ -31,6 +31,9 @@ The counted run executed all 264 trajectories (220 primary + 44 duplicate). Stat
 complete and internally consistent: 239 verdicts + 25 adjudicated = 264/264, every verdict
 bound to a frozen-manifest ledger event, every adjudication marker parsed and validated
 (0 violations), no stray records. Of 239 verdicts, 201 measured, 38 `INVALID_MEASUREMENT`.
+The completeness gate is fail-closed: the analyzer refuses to emit a sealed results artifact
+and exits non-zero on any census failure (regression-tested, run in CI), so no incomplete
+dataset can be presented as an authoritative record.
 
 ## 3. Primary result: the prediction did not replicate
 

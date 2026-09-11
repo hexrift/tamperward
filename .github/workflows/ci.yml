@@ -145,6 +145,12 @@ jobs:
         with:
           version: '0.8.17'
       - run: bash harness/taskbench/round4/selftest.sh
+      # The results analyzer's FAIL-CLOSED completeness gate: an incomplete or inconsistent
+      # census must never be sealed — analyze-counted.mjs refuses to write an artifact and
+      # exits non-zero (a completeness_ok:false field inside a sealed artifact is NOT enough,
+      # since downstream automation can treat exit 0 + a seal as authoritative). Synthetic
+      # fixture; no state, network, or credential. (PR #297 review.)
+      - run: bash harness/taskbench/round4/analyze-counted.selftest.sh
       # The step-6 revocation verdict logic, stubbed. The real check is manual and
       # runs once, against a credential that by then is expected to be dead —
       # the worst moment to discover it accepts something it should not, since a

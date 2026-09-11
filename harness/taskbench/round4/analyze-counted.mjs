@@ -85,6 +85,22 @@ digestLines.sort();
 const VERDICT_SET_DIGEST = sha256Str(digestLines.join('\n') + '\n');
 const completeness_ok = census.missing.length === 0 && census.hashMismatch.length === 0 && census.stray.length === 0 && census.both.length === 0 && census.markerViolations.length === 0;
 
+// FAIL-CLOSED: an authoritative results artifact must NEVER be emitted for an incomplete or
+// inconsistent census. Refuse to compute or seal and exit non-zero, so downstream automation
+// cannot treat "exit 0 + a seal" as authoritative over a partial dataset. A `completeness_ok:
+// false` field inside an otherwise-sealed artifact is not sufficient, so no artifact is written
+// at all here. This gate is unconditional (independent of --out) and is proven by
+// analyze-counted.selftest.sh. See PR #297 review.
+if (!completeness_ok) {
+  console.error('REFUSING TO SEAL — completeness census failed (fail-closed); no results artifact written:');
+  console.error('  missing (no verdict, no marker): ' + JSON.stringify(census.missing));
+  console.error('  verdict/manifest-hash mismatch:  ' + JSON.stringify(census.hashMismatch));
+  console.error('  stray verdict files:             ' + JSON.stringify(census.stray));
+  console.error('  seq with verdict AND marker:     ' + JSON.stringify(census.both));
+  console.error('  invalid .adjudicated markers:    ' + JSON.stringify(census.markerViolations));
+  process.exit(1);
+}
+
 // ---- B. PRIMARY McNEMAR (110 primary tasks, paired by repository) ----
 const tasks = new Map(); for (const r of prim) { const t = tasks.get(r.task) || {}; t[r.arm] = r; tasks.set(r.task, t); }
 let b = 0, c = 0, a = 0, d = 0, validPairs = 0; const bList = [], cList = [], excluded = [];
