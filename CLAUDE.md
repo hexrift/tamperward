@@ -22,3 +22,13 @@ agent produces here.
   leave an `[Unreleased]` section behind.
 - Run `npm run typecheck`, `npx vitest run`, `npm run build`, and the repo's own gate
   (`node dist/cli/index.js check --staged`) before every push.
+- **Counted-round records reach `main` only through a maintainer-merged green PR.** Every
+  counted-round methodology change, deviation record (`DEVIATIONS.md`), sealed result
+  (`ROUND4-RESULTS.json` and kin), and publication artifact (`ROUND4-ANALYSIS.md`,
+  `ROUND4-ARTICLE.md`, and any successor) reaches `main` **only** via a green pull request
+  **merged by the maintainer** — never a direct push, and never an autonomous merge by the
+  agent that produced it. No agent both generates experimental evidence and unilaterally
+  publishes it; the PR is the permanent review/audit trail and the human boundary before an
+  experimental record hits `main`. Ordinary engineering PRs may be auto-merged when
+  appropriate; experimental record and publication changes always get this stricter
+  boundary.
