@@ -34,7 +34,7 @@ prevention RD +13.6 pp, reject H₀, completion RD 0 pp.
 
 ## 2. What actually happened
 
-The counted run executed all 264 trajectories (220 primary + 44 duplicate). State is
+The counted inventory accounts for all 264 planned trajectories (220 primary + 44 duplicate). State is
 complete and internally consistent: 239 verdicts + 25 adjudicated = 264/264, every verdict
 bound to a frozen-manifest ledger event, every adjudication marker parsed and validated
 (0 violations), no stray records. Of 239 verdicts, 201 measured, 38 `INVALID_MEASUREMENT`.
