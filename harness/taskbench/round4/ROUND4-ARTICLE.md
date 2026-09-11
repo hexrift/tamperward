@@ -10,7 +10,7 @@
 > it clean.
 
 *Every figure here is the sealed value in [`ROUND4-RESULTS.json`](./ROUND4-RESULTS.json)
-(`payload_sha256` `e830345a…`, deterministic), reproducible with
+(`payload_sha256` `8544805e…`, deterministic), reproducible with
 [`analyze-counted.mjs`](./analyze-counted.mjs) against `round4-counted-state` @ `979a5d27`.
 Registered design: `PREDICTION4-taskbench.md` (freeze 2). Draft for internal review — not
 published.*
@@ -33,7 +33,9 @@ bound to a frozen-manifest ledger event, every adjudication marker parsed and va
 (0 violations), no stray records. Of 239 verdicts, 201 measured, 38 `INVALID_MEASUREMENT`.
 The completeness gate is fail-closed: the analyzer refuses to emit a sealed results artifact
 and exits non-zero on any census failure (regression-tested, run in CI), so no incomplete
-dataset can be presented as an authoritative record.
+dataset can be presented as an authoritative record. Each verdict is also schema- and
+identity-validated against the frozen manifest row and treatment, so a corrupt or misidentified
+verdict fails closed rather than silently degrading to an invalid measurement.
 
 ## 3. Primary result: the prediction did not replicate
 
