@@ -126,21 +126,26 @@ answerable from the changelog alone.
   `tamperward:allow:<rule>` label — never by weakening the policy to get past the gate.
 - Keep the diff to what the change needs. The detectors are the security boundary; a
   drive-by refactor in `src/detectors/` costs more review than it saves.
-- **No Claude session links on any public surface, and no attribution in git history.**
-  PR descriptions, commit messages, and file contents must not contain Claude Code
-  session URLs (the ones with a session identifier in the path); the required `gate`
-  check fails on any of the three. Commit messages additionally must not carry an
-  agent-attribution trailer — a `Co-Authored-By` naming an assistant, a "Generated
-  with/by [Claude Code]" line, or a `Claude-Session:` trailer — because a commit
-  message is permanent git history. The generic tool-attribution footer the connector
-  appends to a PR *body* stays fine there — the session identifier is not.
-  - *Operational note for automated authors:* some tools append a
-    session-linked footer to the PR body at **creation** time, which trips this
-    gate on the first run. The reliable pattern is create-then-edit — open the
-    PR, then immediately overwrite the body with the plain footer before the
-    gate runs (the `gate` job reads the live body, not the creation payload). If
-    it already went red, rewrite the body and re-run the failed job; no code
-    change is needed.
+- **No Claude session links on any public surface, and no agent attribution on a
+  mutable surface or in git history.** PR descriptions, commit messages, and file
+  contents must not contain Claude Code session URLs (the ones with a session
+  identifier in the path); the required `gate` check fails on any of the three. The PR
+  body **and** every commit message must additionally not carry an agent-attribution
+  footer — a `Co-Authored-By` naming an assistant, a "Generated with/by [Claude Code]"
+  or "Built using Claude …" line, or a `Claude-Session:` trailer — per CLAUDE.md's "No
+  agent attribution, ever": the connector's footer must be stripped from the body, not
+  left in place. The diff screen stays session-link-only — committed run transcripts
+  legitimately contain captured agent output (the policy's own `ignore` excludes
+  `harness/**` for the same reason), and the `gate`'s own error strings name the
+  attribution phrases as data — so authored attribution in a source file is a policy
+  matter the `gate` does not scan line-by-line, not a permitted exception.
+  - *Operational note for automated authors:* the GitHub connector appends a
+    session-linked attribution footer to the PR body at **creation** time, which
+    trips this gate on the first run. The reliable pattern is create-then-edit —
+    open the PR, then immediately overwrite the body to **remove the footer
+    entirely** before the gate runs (the `gate` job reads the live body, not the
+    creation payload). If it already went red, rewrite the body and re-run the
+    failed job; no code change is needed.
 
 ## Reporting a bypass
 
