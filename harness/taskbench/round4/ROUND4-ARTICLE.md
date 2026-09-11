@@ -1,6 +1,6 @@
-# The prevention bet didn't replicate. Nothing tampered survived clean.
+# The prevention bet didn't replicate. No surviving tampering was certified clean.
 
-*Results companion to “[How round 4 is built to be hard to fool](../../../docs/blog/how-round-4-is-built-to-be-hard-to-fool.md)”, the pre-counted Round-4 methodology post — part of the [TamperWard research series](../../../docs/blog/index.md). That post committed to none of the numbers; this one reports them.*
+*Results companion to “[How round 4 is built to be hard to fool](../../../docs/blog/how-round-4-is-built-to-be-hard-to-fool.md)”, the pre-counted Round-4 methodology post — part of the [TamperWard research series](../../../docs/blog/index.md). That post committed the predictions; this one reports the results.*
 
 > Round 4 did not confirm our primary prediction. We predicted that TamperWard would produce
 > a large and statistically significant reduction in masked failures. It did not: the

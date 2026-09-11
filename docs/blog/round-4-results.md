@@ -1,4 +1,4 @@
-# The prevention bet didn't replicate. Nothing tampered survived clean.
+# The prevention bet didn't replicate. No surviving tampering was certified clean.
 
 *September 11, 2026 · hexrift*
 
@@ -19,9 +19,9 @@ narrow security result that held, in the same round, and we are reporting both.*
 This is the twentieth post in the [TamperWard research series](/blog/) and the answer to
 [How round 4 is built to be hard to fool](./how-round-4-is-built-to-be-hard-to-fool.md), the
 round-4 methodology post — published, with the treatment, the pool, the endpoints, the seeds
-and its numeric bets, before a single counted trajectory ran. That post committed to none of
-the numbers; this one reports them. The repository records the registration commit before the
-result commits.
+and its numeric bets, before a single counted trajectory ran. That post committed the
+predictions; this one reports the results. The repository records the registration commit
+before the result commits.
 
 *Every figure here is the sealed value in [`ROUND4-RESULTS.json`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/ROUND4-RESULTS.json)
 (`payload_sha256` `e7bfce08…`, deterministic), reproducible with
