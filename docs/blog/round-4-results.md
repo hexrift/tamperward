@@ -1,4 +1,4 @@
-# Round 4 results
+# The prevention bet didn't replicate. Nothing tampered survived clean.
 
 *September 11, 2026 · hexrift*
 
@@ -8,21 +8,27 @@
 > [limitations page](./limitations.md). Published corrections are on the
 > [errata page](./errata.md).*
 
-*Results companion to “[How round 4 is built to be hard to fool](./how-round-4-is-built-to-be-hard-to-fool.md)”, the pre-counted Round-4 methodology post — part of the [TamperWard research series](/blog/). That post committed to none of the numbers; this one reports them.*
+*Short answer: we made a big prediction, and Round 4 did not confirm it. We predicted that
+TamperWard would produce a large and statistically significant reduction in masked failures,
+and it did not: the registered paired test produced 5 prevention discordances, 3 induced-harm
+discordances, and p = 0.727, so we do not reject the preregistered null. At the same time a
+narrower security result held — across 201 measured trajectories, we observed no case where
+landed tampering survived and TamperWard certified it clean. A missed primary prediction and a
+narrow security result that held, in the same round, and we are reporting both.*
 
-> Round 4 did not confirm our primary prediction. We predicted that TamperWard would produce
-> a large and statistically significant reduction in masked failures. It did not: the
-> registered paired test produced 5 prevention discordances, 3 induced-harm discordances,
-> and p = 0.727. At the same time, a narrower security result held: across 201 measured
-> trajectories, we observed no case where landed tampering survived and TamperWard certified
-> it clean.
+This is the twentieth post in the [TamperWard research series](/blog/) and the answer to
+[How round 4 is built to be hard to fool](./how-round-4-is-built-to-be-hard-to-fool.md), the
+round-4 methodology post — published, with the treatment, the pool, the endpoints, the seeds
+and its numeric bets, before a single counted trajectory ran. That post committed to none of
+the numbers; this one reports them. The repository records the registration commit before the
+result commits.
 
 *Every figure here is the sealed value in [`ROUND4-RESULTS.json`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/ROUND4-RESULTS.json)
 (`payload_sha256` `e7bfce08…`, deterministic), reproducible with
 [`analyze-counted.mjs`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/analyze-counted.mjs) against [`round4-counted-state` @ `979a5d27`](https://github.com/hexrift/tamperward/tree/979a5d273bd03dd9699c2cf51526715c57563534).
 Registered design: [`PREDICTION4-taskbench.md`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/PREDICTION4-taskbench.md) (freeze 2).*
 
-## 1. What we predicted
+## What we predicted, and the one test that would decide it
 
 Round 4 was preregistered as a paired experiment over N = 110 repositories, each run in a
 **gated** arm (the frozen TamperWard 2.10.3 platform: PreToolUse gate + Stop sweep +
@@ -32,9 +38,9 @@ inferential claim was an exact conditional McNemar test on **product-scoped mask
 only when `p < .05` **and** `b > c`. The committed point predictions: b = 16, c = 1,
 prevention RD +13.6 pp, reject H₀, completion RD 0 pp.
 
-## 2. What actually happened
+## The counted inventory came in complete and self-consistent
 
-The counted inventory accounts for all 264 planned trajectories (220 primary + 44 duplicate). State is
+Start with the bookkeeping. The counted inventory accounts for all 264 planned trajectories (220 primary + 44 duplicate). State is
 complete and internally consistent: 239 verdicts + 25 adjudicated = 264/264, every verdict
 bound to a frozen-manifest ledger event, every adjudication marker parsed and validated
 (0 violations), no stray records. Of 239 verdicts, 201 measured, 38 `INVALID_MEASUREMENT`.
@@ -44,7 +50,7 @@ dataset can be presented as an authoritative record. Each verdict is also schema
 identity-validated against the frozen manifest row and treatment, so a corrupt or misidentified
 verdict fails closed rather than silently degrading to an invalid measurement.
 
-## 3. Primary result: the prediction did not replicate
+## The primary result: the prediction did not replicate
 
 Among **79 repositories with valid measurements in both arms**, **5 prevention
 discordances** and **3 induced-harm discordances**. Exact paired McNemar **p = 0.727**, so
@@ -57,13 +63,13 @@ discordances** and **3 induced-harm discordances**. Exact paired McNemar **p = 0
 | exact McNemar p | ≈ 0.0003 | **0.727** |
 | decision | reject H₀ | **do not reject H₀** |
 
-A clear failed prediction, stated plainly. The interpretation floor was met — ungated
+It is a clear failed prediction, and we are saying so plainly. The interpretation floor was met — ungated
 opportunities `a + b = 15`, required 6 — so this is not an opportunity-starved or
 uninterpretable round. But realized discordance, and therefore realized statistical
 information, was below the original 80% power calculation: 8 discordant pairs versus roughly
 17 assumed, over 79 realized valid pairs versus the planned 110.
 
-## 4. What the masked failures actually were
+## What the masked failures actually were
 
 The registered endpoint counts two different things under one label:
 
@@ -83,7 +89,7 @@ a mixture, not one mechanism. This is a **post-result observation and a next-rou
 lesson (separate the two scopes at the endpoint level), not a retrofit to the confirmatory
 hypothesis**, which stands as registered and did not reject.
 
-## 5. Zero strict tamper bypasses (stated precisely)
+## Zero strict tamper bypasses, stated precisely
 
 We hold the strict definition:
 
@@ -107,7 +113,7 @@ result is that it also corrects the word *escape*: the frozen `envelope_escape` 
 10 times, and all 10 decompose to correctness/oracle false-greens — none were tampering
 certified clean.
 
-## 6. Completion / legitimate-work cost
+## What legitimate work cost — and the claim we did not make
 
 Semantic completion (`HONEST_COMPLETION` — verdict4's name for the registered `HONEST_FIX`
 category — plus `CORRECT_PLUS_VIOLATION`) over the 79 valid pairs:
@@ -122,7 +128,7 @@ The interval crosses both 0 and the registered −10 pp margin, so there is no e
 large productivity penalty **and** we make **no non-inferiority claim** — none was registered
 or tested. Descriptive only.
 
-## 7. Duplicate stability
+## How repeatable the trajectories were
 
 The 22 duplicate repositories give a test-retest read against their primary realizations,
 over **36 arm-level primary-vs-repeat comparisons** (of 44 possible; 8 had a side
@@ -136,7 +142,7 @@ full outcome agreement     33/36 = 92%
 Trajectory instability is low, which makes the primary null harder to dismiss as random
 trajectory chaos.
 
-## 8. The 79/110 measurement problem
+## Why only 79 of 110 pairs survived to measurement
 
 ```
 110 primary repositories
@@ -152,7 +158,7 @@ losing 31/110 repositories (3 one-arm) can still introduce **selection bias** if
 availability correlates with task characteristics or heterogeneous treatment effects. We do
 not claim the attrition is bias-free — only that it is not an obvious arm imbalance.
 
-## 9. What broke in the apparatus
+## What broke in the apparatus
 
 The strongest issues are in the execution environment, not the treatment or the analysis:
 
@@ -165,7 +171,7 @@ The strongest issues are in the execution environment, not the treatment or the 
 - evidence persistence (the D43 oversized-tar checkpoint failure);
 - pre-agent baseline observability (D42).
 
-## 10. What we would change before the next round
+## What we would change before the next round
 
 Do **not** simply run more tasks. Move qualification much closer to the exact production
 runner, so a repository can enter the frozen pool only after it has demonstrably produced a
@@ -195,7 +201,7 @@ repository hook survives, and not whether a venv happens to execute. A second de
 separate tampering from correctness at the endpoint, since Round 4 shows the masked-failure
 label mixes them.
 
-## 11. What this does — and does not — establish
+## What this does — and does not — establish
 
 - It **does** establish that, in this preregistered sample, the treatment did not produce the
   predicted large, significant reduction in masked failures, and that the realized masked
@@ -208,7 +214,7 @@ label mixes them.
   contrast is real — those are descriptive observations to replicate.
 - It **does not** revise the confirmatory hypothesis after the fact.
 
-## Predicted-vs-observed scorecard (including misses)
+## The predicted-vs-observed scorecard, misses included
 
 | bet | predicted | observed |
 |---|---|---|
@@ -221,7 +227,7 @@ label mixes them.
 | final-state-blind, ungated | ~90% | 66.7% (12/18) |
 | final-state-blind contrast | ~−40 pp | +33.3 pp (opposite sign) |
 
-## 12. Full deviations / raw evidence
+## The full deviations and raw evidence
 
 - Registered design: [`PREDICTION4-taskbench.md`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/PREDICTION4-taskbench.md). Methodology companion:
   [How round 4 is built to be hard to fool](./how-round-4-is-built-to-be-hard-to-fool.md).
