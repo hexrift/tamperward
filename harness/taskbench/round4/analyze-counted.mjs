@@ -8,8 +8,19 @@
 // fields; this script only AGGREGATES them, then emits a machine-sealed
 // ROUND4-RESULTS.json so the results prose is generated from the sealed record.
 //
-//   node analyze-counted.mjs --runs <runs-counted-dir> --manifest <manifest.json> \
+//   node analyze-counted.mjs [--fixture] --runs <runs-counted-dir> --manifest <manifest.json> \
 //        --deviations <DEVIATIONS.md> [--state-commit <sha>] [--out ROUND4-RESULTS.json]
+//
+// #300: SEALING IS AUTHORITATIVE BY DEFAULT. Before it records `provenance.counted_state_commit`,
+// the analyzer PROVES that every relevant input it read — the ledger and each present verdict /
+// adjudication record — is byte-identical to the tracked blob at `--state-commit` in the runs
+// git repository, and that the manifest and deviations are tracked-and-clean in their own repo.
+// A `--state-commit` that names no commit, an input whose bytes differ from that commit (dirty),
+// or an input absent from that commit's tree (untracked/added) REFUSES to seal — the seal can
+// never claim a commit that does not identify its inputs, and an unproven commit is never copied
+// through nor silently attributed to HEAD. `--fixture` (alias `--allow-unverified-inputs`) is the
+// EXPLICIT, non-default exploration / synthetic-fixture mode that SKIPS this proof and records
+// `--state-commit` verbatim; a plain invocation without proof fails closed rather than trusting it.
 //
 // Field semantics (verdict4.mjs): a weakening that reached disk is `blindness.landed`
 // (= transient + persistent). It SURVIVED iff it is in the final tree, i.e.
@@ -23,15 +34,33 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const arg = (n, d) => { const i = process.argv.indexOf('--' + n); return i >= 0 ? process.argv[i + 1] : d; };
+const flag = (n) => process.argv.includes('--' + n);
 const RUNS = arg('runs'); const MANIFEST = arg('manifest'); const DEVIATIONS = arg('deviations');
 const OUT = arg('out'); let STATE_COMMIT = arg('state-commit');
-if (!RUNS || !MANIFEST) { console.error('usage: --runs <dir> --manifest <path> [--deviations <path>] [--state-commit <sha>] [--out <json>]'); process.exit(2); }
+// #300: authoritative sealing (default) proves input provenance against --state-commit before
+// recording it; --fixture / --allow-unverified-inputs is the explicit, clearly non-default mode
+// that skips that proof (synthetic selftests, or revalidating against an extracted input copy).
+const FIXTURE = flag('fixture') || flag('allow-unverified-inputs');
+if (!RUNS || !MANIFEST) { console.error('usage: [--fixture|--allow-unverified-inputs] --runs <dir> --manifest <path> [--deviations <path>] [--state-commit <sha>] [--out <json>]'); process.exit(2); }
 
-const sha256File = (p) => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+// ---- #300: read every relevant input file's bytes EXACTLY ONCE, then derive the recorded content
+// hashes, the verdict-set digest, the completeness census, the input-provenance proof, AND every
+// scientific aggregate from those same cached bytes — never a distinct re-read for census vs hash
+// vs aggregate. A file that changed between two reads can therefore no longer seal an internally
+// inconsistent record, and the provenance proof runs over the exact bytes that produced the seal. ----
+const _byteCache = new Map(); // resolved absPath -> Buffer (present) | null (ENOENT)
+const readBytes = (p) => { const a = path.resolve(p); if (_byteCache.has(a)) return _byteCache.get(a);
+  let v; try { v = fs.readFileSync(a); } catch (e) { if (e && e.code === 'ENOENT') { _byteCache.set(a, null); return null; } throw e; }
+  _byteCache.set(a, v); return v; };
+const sha256Buf = (b) => crypto.createHash('sha256').update(b).digest('hex');
+const sha256File = (p) => sha256Buf(readBytes(p));           // cache-backed: the bytes are read once
 const sha256Str = (s) => crypto.createHash('sha256').update(s).digest('hex');
+// git's blob object id == sha1("blob "+byteLen+"\0"+bytes) == `git hash-object`; lets the
+// provenance proof compare on-disk input bytes to a commit's tracked blob ids from one `ls-tree`.
+const gitBlobId = (b) => crypto.createHash('sha1').update('blob ' + b.length + '\0').update(b).digest('hex');
 const SELF_SHA = sha256File(fileURLToPath(import.meta.url)); // Node CAN hash its own source
 
-const M = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
+const M = JSON.parse(readBytes(MANIFEST).toString('utf8'));
 const MANIFEST_SHA = sha256File(MANIFEST);
 const FROZEN = MANIFEST_SHA;
 const prim = M.execution.primary.trajectories;
@@ -81,7 +110,7 @@ const byseq = new Map([...prim, ...dupTraj].map(r => [r.seq, r]));
 const sd = (s) => path.join(RUNS, 'seq-' + String(s).padStart(3, '0'));
 const vpath = (r) => path.join(sd(r.seq), `${r.task}-${r.arm}.verdict.json`);
 const apath = (r) => path.join(sd(r.seq), `${r.task}-${r.arm}.adjudicated`);
-const readV = (r) => { try { return JSON.parse(fs.readFileSync(vpath(r), 'utf8')); } catch { return null; } };
+const readV = (r) => { const b = readBytes(vpath(r)); if (b === null) return null; try { return JSON.parse(b.toString('utf8')); } catch { return null; } };
 const measured = (v) => !!v && v.measured === true;
 const MF = (v) => measured(v) && v.masked_failure === true;
 const survN = (v) => Array.isArray(v.surviving_violations) ? v.surviving_violations.length : (v.surviving_violations ? 1 : 0);
@@ -116,9 +145,10 @@ const isBool = (x) => x === true || x === false;
 const isCount = (x) => Number.isInteger(x) && x >= 0; // verdict4 counts are non-negative integers
 const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 // Read+parse a present verdict file strictly: { v } on success, { error } on unreadable/malformed JSON.
+// Bytes come from the shared one-read cache, so this parse and the digest hash see identical bytes.
 function parseVerdictStrict(r) {
-  let raw; try { raw = fs.readFileSync(vpath(r), 'utf8'); } catch (e) { return { error: 'unreadable (' + (e && e.code) + ')' }; }
-  try { return { v: JSON.parse(raw) }; } catch { return { error: 'malformed JSON' }; }
+  const b = readBytes(vpath(r)); if (b === null) return { error: 'unreadable (ENOENT)' };
+  try { return { v: JSON.parse(b.toString('utf8')) }; } catch { return { error: 'malformed JSON' }; }
 }
 // Validate a parsed verdict against its frozen row r. Returns [] (ok) or the list of problems.
 function validateVerdict(v, r) {
@@ -190,17 +220,20 @@ function validateVerdict(v, r) {
   return bad;
 }
 
-if (!STATE_COMMIT) { try { STATE_COMMIT = execFileSync('git', ['-C', RUNS, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(); } catch { STATE_COMMIT = null; } }
+// #300: STATE_COMMIT is NOT trusted here. The old code copied --state-commit through unproven (or,
+// absent it, blindly recorded `git rev-parse HEAD`). Resolution + input-provenance verification now
+// happen AFTER the completeness census below — once the exact present-input set is known — so an
+// unproven or nonexistent commit fails closed instead of reaching `provenance.counted_state_commit`.
 
 // ---- ledger ----
 const ledgerPath = path.join(RUNS, 'counted-execution-log.jsonl');
-const ledgerRaw = fs.readFileSync(ledgerPath, 'utf8');
+const ledgerRaw = readBytes(ledgerPath).toString('utf8'); // one cached read feeds both parse and hash
 const log = ledgerRaw.split('\n').filter(Boolean).map(JSON.parse);
 const finYes = new Map();
 for (const e of log) if (e.event === 'finished' && e.verdict === 'yes') { const a = finYes.get(e.seq) || []; a.push(e.manifest_sha256); finYes.set(e.seq, a); }
 
 // ---- A. COMPLETENESS CENSUS (verdicts require a frozen finished-event; markers are parsed+validated) ----
-function parseMarker(p) { const o = {}; for (const ln of fs.readFileSync(p, 'utf8').split('\n')) { const t = ln.trim(); if (!t || t.startsWith('#')) continue; const i = t.indexOf('='); if (i > 0) o[t.slice(0, i).trim()] = t.slice(i + 1).trim(); } return o; }
+function parseMarker(p) { const o = {}; for (const ln of readBytes(p).toString('utf8').split('\n')) { const t = ln.trim(); if (!t || t.startsWith('#')) continue; const i = t.indexOf('='); if (i > 0) o[t.slice(0, i).trim()] = t.slice(i + 1).trim(); } return o; }
 // #299: registered .adjudicated DISPOSITION VOCABULARY. Derived by reading the 25 real counted
 // markers together with DEVIATIONS.md — every real marker carries exactly one of these four
 // dispositions, and each is a registered DEVIATIONS.md entry (so all 25 real markers validate):
@@ -222,7 +255,7 @@ const REGISTERED_DISPOSITIONS = new Set([
 // supplied, in which case a marker's deviation cannot be resolved and fails closed. D1..D44 on
 // the real ledger.
 const registeredDeviations = (() => { if (!DEVIATIONS) return null; const set = new Set();
-  for (const ln of fs.readFileSync(DEVIATIONS, 'utf8').split('\n')) if (/^#{1,6}\s/.test(ln)) for (const mm of ln.matchAll(/\bD(\d+)\b/g)) set.add('D' + mm[1]);
+  for (const ln of readBytes(DEVIATIONS).toString('utf8').split('\n')) if (/^#{1,6}\s/.test(ln)) for (const mm of ln.matchAll(/\bD(\d+)\b/g)) set.add('D' + mm[1]);
   return set; })();
 // #299: an allowlist (by pattern) of the non-record run artifacts that legitimately sit under a
 // counted runs dir — the ledger, the driver lock, CLI-version / drift / runner-view sidecars, and
@@ -245,6 +278,10 @@ const pad3 = (s) => String(s).padStart(3, '0');
 const census = { verdict: 0, adjudicated: 0, missing: [], hashMismatch: [], stray: [], both: [], markerViolations: [] };
 const verdictInvalid = []; // #298: present-but-malformed/wrong-shape/misidentified verdicts (fail-closed gate only; not serialized, so a valid dataset re-seals to a byte-identical census)
 const unknownAncillary = []; // #299: non-record files not on the allowlist — surfaced (non-fatal), never gated
+// #300: the exact state-commit-bound inputs whose bytes feed the seal — the ledger plus every
+// present verdict/adjudication record — as { abs, sub } (sub = path relative to the runs dir).
+// Authoritative sealing proves each of these against --state-commit below. Not serialized.
+const provInputs = [{ abs: ledgerPath, sub: 'counted-execution-log.jsonl' }];
 
 // #299: ENUMERATE every verdict/adjudication record physically present under the runs dir (a full
 // recursive walk, not just seq-001..trajectory_count) and bind each to the frozen inventory. A
@@ -282,9 +319,9 @@ for (let s = 1; s <= TOTAL; s++) {
   // malformed verdict beside a marker is still caught (the old hasV&&hasA missed it because hasV
   // needs a successful parse, letting a marker mask a corrupt verdict).
   if (vExists && hasA) census.both.push(s);
-  if (hasV) { census.verdict++; if (!(finYes.get(s) || []).includes(FROZEN)) census.hashMismatch.push(s); digestLines.push(`seq-${pad3(s)}/${r.task}-${r.arm}.verdict.json:${sha256File(vpath(r))}`); }
+  if (hasV) { census.verdict++; if (!(finYes.get(s) || []).includes(FROZEN)) census.hashMismatch.push(s); digestLines.push(`seq-${pad3(s)}/${r.task}-${r.arm}.verdict.json:${sha256File(vpath(r))}`); provInputs.push({ abs: vpath(r), sub: `seq-${pad3(s)}/${r.task}-${r.arm}.verdict.json` }); }
   else if (hasA) {
-    census.adjudicated++; digestLines.push(`seq-${pad3(s)}/${r.task}-${r.arm}.adjudicated:${sha256File(apath(r))}`);
+    census.adjudicated++; digestLines.push(`seq-${pad3(s)}/${r.task}-${r.arm}.adjudicated:${sha256File(apath(r))}`); provInputs.push({ abs: apath(r), sub: `seq-${pad3(s)}/${r.task}-${r.arm}.adjudicated` });
     const m = parseMarker(apath(r)); const bad = [];
     if (m.task !== r.task) bad.push(`task ${m.task}!=${r.task}`);
     if (m.arm !== r.arm) bad.push(`arm ${m.arm}!=${r.arm}`);
@@ -325,6 +362,77 @@ if (!completeness_ok) {
   console.error('  malformed/misidentified verdicts:   ' + JSON.stringify(verdictInvalid));
   process.exit(1);
 }
+
+// ---- #300: INPUT-PROVENANCE verification — bind the recorded state commit to the exact bytes read.
+// AUTHORITATIVE (default): the seal may not claim a --state-commit that does not identify its inputs.
+// We (1) resolve --state-commit to a real commit in the runs git repository — a bad/absent commit is
+// never copied through nor silently attributed to HEAD; (2) prove every state-commit-bound input
+// (the ledger + each present verdict/adjudication record, i.e. exactly the bytes hashed into the
+// digest and read by the aggregates above) is byte-identical to that commit's tracked blob, rejecting
+// a dirty input (bytes differ) or an untracked/added one (absent from that commit's tree); and (3)
+// prove the manifest and deviations are tracked-and-clean (unmodified vs HEAD) in their own repo.
+// The commit's tree IS the immutable input bundle each input is checked against. Any failure REFUSES
+// to seal (non-zero, no artifact). --fixture / --allow-unverified-inputs is the explicit non-default
+// escape hatch: it SKIPS this proof and records --state-commit verbatim (synthetic selftests, or
+// revalidating aggregates against an extracted input copy where the immutable git state is absent).
+const git = (args, opts) => execFileSync('git', args, opts);
+let resolvedStateCommit = STATE_COMMIT;
+if (!FIXTURE) {
+  const problems = [];
+  let treeBlobs = null, prefix = '';
+  if (!STATE_COMMIT) {
+    problems.push('authoritative sealing requires --state-commit naming the immutable runs state (pass --fixture / --allow-unverified-inputs to seal against unverified inputs)');
+  } else {
+    // (1) resolve to a real commit in the runs repo (rejects `not-a-commit`, a short-lived ref, HEAD blind-trust)
+    try { resolvedStateCommit = git(['-C', RUNS, 'rev-parse', '--verify', '--quiet', STATE_COMMIT + '^{commit}'], { encoding: 'utf8' }).trim() || null; }
+    catch { resolvedStateCommit = null; }
+    if (!resolvedStateCommit) problems.push(`--state-commit '${STATE_COMMIT}' does not resolve to a commit in the runs git repository (${RUNS})`);
+    else {
+      try { prefix = git(['-C', RUNS, 'rev-parse', '--show-prefix'], { encoding: 'utf8' }).trim(); } catch { prefix = ''; }
+      // one ls-tree gives every tracked blob id at that commit; compare each input's git blob id to it.
+      // --full-tree: emit repo-root-relative paths (not cwd-relative) so `prefix + sub` addresses them
+      // even when RUNS is a subdirectory of the runs repository.
+      try {
+        treeBlobs = new Map();
+        const raw = git(['-C', RUNS, 'ls-tree', '-r', '-z', '--full-tree', resolvedStateCommit], { encoding: 'buffer', maxBuffer: 1 << 28 }).toString('utf8');
+        for (const ent of raw.split('\0')) { if (!ent) continue; const tab = ent.indexOf('\t'); if (tab < 0) continue; const meta = ent.slice(0, tab).split(' '); if (meta[1] === 'blob') treeBlobs.set(ent.slice(tab + 1), meta[2]); }
+      } catch (e) { treeBlobs = null; problems.push('could not read the tree at --state-commit: ' + (e && e.message)); }
+    }
+  }
+  // (2) prove the state-commit-bound inputs (ledger + present verdicts/markers) byte-for-byte.
+  if (treeBlobs) {
+    const dirty = [], untracked = [];
+    for (const inp of provInputs) { const want = treeBlobs.get(prefix + inp.sub);
+      if (!want) untracked.push(inp.sub);
+      else if (want !== gitBlobId(readBytes(inp.abs))) dirty.push(inp.sub); }
+    if (untracked.length) problems.push(`inputs absent from --state-commit's tree (untracked/added; not part of the sealed immutable state): ${JSON.stringify(untracked.sort())}`);
+    if (dirty.length) problems.push(`inputs whose on-disk bytes differ from --state-commit (dirty/modified; do not match the claimed immutable state): ${JSON.stringify(dirty.sort())}`);
+  }
+  // (3) prove the manifest and deviations are tracked-and-clean (unmodified vs HEAD) in their own repo.
+  const verifyTrackedClean = (label, file) => {
+    let top; try { top = git(['-C', path.dirname(file), 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim(); }
+    catch { problems.push(`${label} (${file}) is not inside a git repository — cannot prove its provenance`); return; }
+    const rel = path.relative(top, path.resolve(file));
+    let blob; try { blob = git(['-C', top, 'rev-parse', '--verify', '--quiet', 'HEAD:' + rel], { encoding: 'utf8' }).trim() || null; } catch { blob = null; }
+    if (!blob) problems.push(`${label} is not tracked at HEAD (untracked): ${rel}`);
+    else if (blob !== gitBlobId(readBytes(file))) problems.push(`${label} bytes differ from HEAD (dirty/modified): ${rel}`);
+  };
+  verifyTrackedClean('manifest', MANIFEST);
+  if (DEVIATIONS) verifyTrackedClean('deviations', DEVIATIONS);
+
+  if (problems.length) {
+    console.error('REFUSING TO SEAL — input-provenance verification failed (authoritative mode; pass --fixture / --allow-unverified-inputs to seal against unverified inputs); no results artifact written:');
+    for (const p of problems) console.error('  ' + p);
+    process.exit(1);
+  }
+} else {
+  // --fixture: EXPLICIT non-authoritative mode. Record --state-commit verbatim (no proof). As a
+  // convenience fall back to the runs repo HEAD when none was given, else null; this is NEVER the
+  // default path — a plain (non-fixture) invocation fails closed above rather than trusting an
+  // unproven commit.
+  if (!resolvedStateCommit) { try { resolvedStateCommit = git(['-C', RUNS, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(); } catch { resolvedStateCommit = null; } }
+}
+STATE_COMMIT = resolvedStateCommit;
 
 // ---- B. PRIMARY McNEMAR (110 primary tasks, paired by repository) ----
 const tasks = new Map(); for (const r of prim) { const t = tasks.get(r.task) || {}; t[r.arm] = r; tasks.set(r.task, t); }
@@ -484,7 +592,21 @@ const result = {
 const payload = JSON.stringify(result, null, 2);
 const sealed = { ...result, sealed_at: new Date().toISOString(), payload_sha256: sha256Str(payload) };
 
-if (OUT) { fs.writeFileSync(OUT, JSON.stringify(sealed, null, 2) + '\n'); console.error('wrote ' + OUT); }
+if (OUT) {
+  // #300: write the sealed artifact ATOMICALLY — a fully-formed temp file in the same directory,
+  // then rename() over OUT. rename is atomic on POSIX, so a consumer ever reads either the complete
+  // previous artifact or the complete new one, never a truncated half-write. Every validation
+  // (manifest, completeness census, input provenance) has already passed before this point, so the
+  // only artifact ever written is a fully-sealed one. CONSUMER CONTRACT: if a later reseal attempt
+  // fails — refused validation, a crash, a full disk — any prior ROUND4-RESULTS.json is left
+  // byte-for-byte intact and remains the authoritative record; a failed attempt is a no-op on the
+  // sealed file (a refusal writes nothing at all; a mid-write failure leaves only the discarded temp
+  // file), never a partial overwrite. Re-run once the cause is fixed. See ROUND4-ANALYSIS.md.
+  const tmp = OUT + '.tmp-' + process.pid;
+  fs.writeFileSync(tmp, JSON.stringify(sealed, null, 2) + '\n');
+  fs.renameSync(tmp, OUT);
+  console.error('wrote ' + OUT);
+}
 const S = (x) => JSON.stringify(x);
 console.error(`\ncompleteness_ok=${completeness_ok}  markerViolations=${S(census.markerViolations)}`);
 console.error(`counts=${S(result.counts)}  state_commit=${STATE_COMMIT}  payload_sha256=${sealed.payload_sha256}`);

@@ -10,7 +10,7 @@
 > it clean.
 
 *Every figure here is the sealed value in [`ROUND4-RESULTS.json`](./ROUND4-RESULTS.json)
-(`payload_sha256` `4f3c60ea…`, deterministic), reproducible with
+(`payload_sha256` `34caec9c…`, deterministic), reproducible with
 [`analyze-counted.mjs`](./analyze-counted.mjs) against `round4-counted-state` @ `979a5d27`.
 Registered design: `PREDICTION4-taskbench.md` (freeze 2). Draft for internal review — not
 published.*

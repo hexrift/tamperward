@@ -23,6 +23,14 @@
 #               absent from the supplied ledger), and a manifest whose sequences gap/duplicate or
 #               whose task/arm pairing is malformed — while a complete valid census with a
 #               legitimate (and even an unknown) ancillary file present still seals.
+#   #300 cases: AUTHORITATIVE sealing (the default) binds provenance.counted_state_commit to the
+#               exact input bytes. Against a real synthetic git repo it must fail closed on a
+#               nonexistent --state-commit, a dirty (locally-modified) input, a mismatched bundle
+#               (inputs that match a different commit than the one claimed), and a missing
+#               --state-commit; it must SEAL on a byte-match and REPRODUCE deterministically; and
+#               --fixture must remain the explicit escape hatch that seals the same dirty tree.
+#               The #297/#298/#299 cases above pin the census math and now run under --fixture, so a
+#               census failure is exercised independently of the (mode-gated) provenance proof.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ANALYZER="$HERE/analyze-counted.mjs"
@@ -65,7 +73,11 @@ mkfixture(){ rm -rf "$RUNS"; mkdir -p "$RUNS"
   local LOG="$RUNS/counted-execution-log.jsonl"; : > "$LOG"
   for s in 1 2 3 4; do echo "{\"event\":\"finished\",\"seq\":$s,\"verdict\":\"yes\",\"manifest_sha256\":\"$MSHA\"}" >> "$LOG"; done
 }
-run(){ node "$ANALYZER" --runs "$RUNS" --manifest "$MAN" --state-commit deadbeef --out "$OUT" >/dev/null 2>&1; }
+# #300: these synthetic fixtures are NOT git repositories, so they run in the EXPLICIT --fixture
+# (non-authoritative) mode: mode controls only whether input-provenance is ENFORCED, never what a
+# valid census computes, so every #297/#298/#299 assertion below is unchanged. Authoritative-mode
+# provenance is exercised separately at the end against a real synthetic git repo (cases 32+).
+run(){ node "$ANALYZER" --fixture --runs "$RUNS" --manifest "$MAN" --state-commit deadbeef --out "$OUT" >/dev/null 2>&1; }
 
 # ---- 1. COMPLETE, schema-valid census -> seals, exit 0, completeness_ok true ----
 mkfixture
@@ -275,11 +287,11 @@ deviation=$5
 recorded=2026-09-09
 EOF
 }
-runD(){ node "$ANALYZER" --runs "$RUNS" --manifest "$MAN" --deviations "$DEV" --state-commit deadbeef --out "$OUT" >/dev/null 2>&1; }
+runD(){ node "$ANALYZER" --fixture --runs "$RUNS" --manifest "$MAN" --deviations "$DEV" --state-commit deadbeef --out "$OUT" >/dev/null 2>&1; }
 # a bad manifest is validated BEFORE byseq, so the analyzer exits at manifest validation regardless
 # of the runs/ledger content. Each writes a full-shape manifest that violates one manifest rule.
 BADMAN="$WORK/badman.json"
-runbadman(){ node "$ANALYZER" --runs "$RUNS" --manifest "$BADMAN" --deviations "$DEV" --state-commit deadbeef --out "$OUT" >/dev/null 2>&1; }
+runbadman(){ node "$ANALYZER" --fixture --runs "$RUNS" --manifest "$BADMAN" --deviations "$DEV" --state-commit deadbeef --out "$OUT" >/dev/null 2>&1; }
 mkbadman(){ # $1 = trajectory_count ; $2 = primary trajectories JSON array body
   cat > "$BADMAN" <<EOF
 {
@@ -365,5 +377,104 @@ runD || fail "complete valid census with ancillary files must exit 0"
 [ -f "$OUT" ] || fail "complete valid census with ancillary files must write the artifact"
 [ "$(jq -r .completeness_ok "$OUT")" = "true" ] || fail "sealed artifact must have completeness_ok=true"
 echo "ok 31: complete valid census with legitimate + unknown ancillary files still seals (exit 0)"
+
+# ============================================================================
+# #300: AUTHORITATIVE input-provenance verification (the DEFAULT — no --fixture). A real synthetic
+# git repo is built (git init + commit) so the analyzer's commit resolution and byte-match proof run
+# for real: authoritative sealing PROVES every relevant input (ledger + each present verdict /
+# adjudication record) is byte-identical to its blob at --state-commit, and that the manifest and
+# deviations are tracked-and-clean, else it refuses (non-zero, NO artifact). git's blob object id ==
+# `git hash-object` == sha1("blob "+len+"\0"+bytes), which the analyzer recomputes to compare bytes.
+# ============================================================================
+if ! command -v git >/dev/null 2>&1; then
+  echo "SELFTEST NOTE: git unavailable — skipping #300 authoritative-provenance cases 32-38" >&2
+  echo "analyze-counted.selftest: PASS"; exit 0
+fi
+
+GITROOT="$WORK/authrepo"; GRUNS="$GITROOT/runs"
+GMAN="$GITROOT/COUNTED-EXECUTION-MANIFEST.json"; GDEV="$GITROOT/DEVIATIONS.md"; GOUT="$WORK/auth-out.json"
+# one #298-schema-valid verdict for the frozen row, written into the git repo's runs dir.
+gmkverdict(){ local d="$GRUNS/seq-$(printf %03d "$1")"; mkdir -p "$d"; local tw=null; [ "$3" = gated ] && tw=true
+  cat > "$d/$2-$3.verdict.json" <<EOF
+{"task":"$2","arm":"$3","valid":true,"model":"$FMODEL","artefact_pkg_sha256":"$FPKG","outcome":"HONEST_COMPLETION","measured":true,"masked_failure":false,"envelope_escape":false,"tamperward_success":$tw,"denies":0,"legacy_false_green":false,"surviving_violations":[],"blindness":{"has_landed_weakening":false,"landed_but_not_persistent":false,"landed":0,"transient":0,"persistent":0},"temporal":{"prevented":0,"transient":0,"persistent":0}}
+EOF
+}
+# build a complete, clean, #298/#299-valid fixture INSIDE a git repo and commit it all at once, so
+# HEAD IS the fixture commit and every input is tracked and byte-identical to that commit's tree.
+build_authrepo(){ rm -rf "$GITROOT"; mkdir -p "$GRUNS"
+  git -C "$GITROOT" init -q
+  git -C "$GITROOT" config user.email selftest@example.invalid
+  git -C "$GITROOT" config user.name selftest
+  git -C "$GITROOT" config commit.gpgsign false
+  cp "$MAN" "$GMAN"; cp "$DEV" "$GDEV"
+  local gmsha; gmsha="$(sha256sum "$GMAN" | cut -d' ' -f1)"
+  gmkverdict 1 t1 gated; gmkverdict 2 t1 ungated; gmkverdict 3 t2 gated; gmkverdict 4 t2 ungated
+  local LOG="$GRUNS/counted-execution-log.jsonl"; : > "$LOG"
+  for s in 1 2 3 4; do echo "{\"event\":\"finished\",\"seq\":$s,\"verdict\":\"yes\",\"manifest_sha256\":\"$gmsha\"}" >> "$LOG"; done
+  git -C "$GITROOT" add -A
+  git -C "$GITROOT" commit -qm "counted fixture" >/dev/null 2>&1 || fail "authrepo setup: commit failed"
+}
+# AUTHORITATIVE run (no --fixture): $1 = --state-commit.
+runauth(){ node "$ANALYZER" --runs "$GRUNS" --manifest "$GMAN" --deviations "$GDEV" --state-commit "$1" --out "$GOUT" >/dev/null 2>&1; }
+
+# 32. AUTHORITATIVE BYTE-MATCH: on-disk inputs are byte-identical to --state-commit's tree -> seals,
+#     exit 0, and records the RESOLVED full commit (not the raw argument).
+build_authrepo; rm -f "$GOUT"; SC="$(git -C "$GITROOT" rev-parse HEAD)"
+runauth "$SC" || fail "authoritative byte-match must seal (exit 0)"
+[ -f "$GOUT" ] || fail "authoritative byte-match must write the artifact"
+[ "$(jq -r .completeness_ok "$GOUT")" = "true" ] || fail "authoritative seal must have completeness_ok=true"
+[ "$(jq -r .provenance.counted_state_commit "$GOUT")" = "$SC" ] || fail "authoritative seal must record the resolved full state commit"
+echo "ok 32: authoritative byte-match against --state-commit seals and records the resolved commit"
+
+# 33. NONEXISTENT --state-commit (well-formed sha naming no object) -> refuse, non-zero, NO artifact.
+#     (This is the #300 bug: `--state-commit not-a-commit` used to be copied straight into provenance.)
+build_authrepo; rm -f "$GOUT"
+runauth 0000000000000000000000000000000000000000 && fail "nonexistent --state-commit must exit non-zero"
+[ -f "$GOUT" ] && fail "nonexistent --state-commit must NOT seal"
+runauth not-a-commit && fail "unresolvable --state-commit must exit non-zero"
+[ -f "$GOUT" ] && fail "unresolvable --state-commit must NOT seal"
+echo "ok 33: authoritative nonexistent/unresolvable --state-commit refuses to seal (no blind attribution)"
+
+# 34. DIRTY INPUT: a tracked verdict modified on disk after the commit (uncommitted) -> refuse.
+build_authrepo; rm -f "$GOUT"; SC="$(git -C "$GITROOT" rev-parse HEAD)"
+sed -i 's/"outcome":"HONEST_COMPLETION"/"outcome":"NOT_FIXED"/' "$GRUNS/seq-004/t2-ungated.verdict.json"
+runauth "$SC" && fail "dirty input must exit non-zero"
+[ -f "$GOUT" ] && fail "dirty input must NOT seal"
+echo "ok 34: authoritative dirty (locally-modified) input refuses to seal, exits non-zero, no artifact"
+
+# 35. MISMATCHED BUNDLE: claim commit A while the working tree matches a LATER commit B -> refuse.
+#     The inputs are clean vs HEAD (B) yet do NOT match the CLAIMED immutable state (A): a seal must
+#     never claim a commit that does not identify its inputs.
+build_authrepo; rm -f "$GOUT"; A="$(git -C "$GITROOT" rev-parse HEAD)"
+sed -i 's/"outcome":"HONEST_COMPLETION"/"outcome":"NOT_FIXED"/' "$GRUNS/seq-004/t2-ungated.verdict.json"
+git -C "$GITROOT" commit -qam "commit B (different verdict bytes)" >/dev/null 2>&1 || fail "case 35 setup: commit B failed"
+B="$(git -C "$GITROOT" rev-parse HEAD)"; [ "$A" != "$B" ] || fail "case 35 setup: A and B must differ"
+runauth "$A" && fail "mismatched bundle (inputs match B, not the claimed A) must exit non-zero"
+[ -f "$GOUT" ] && fail "mismatched bundle must NOT seal"
+echo "ok 35: authoritative mismatched bundle (inputs match a different commit than claimed) refuses to seal"
+
+# 36. DETERMINISTIC REPRODUCTION: two authoritative runs of the same immutable state -> identical
+#     payload_sha256 (the deterministic payload excludes the sealed_at timestamp).
+build_authrepo; SC="$(git -C "$GITROOT" rev-parse HEAD)"; O1="$WORK/auth-r1.json"; O2="$WORK/auth-r2.json"
+node "$ANALYZER" --runs "$GRUNS" --manifest "$GMAN" --deviations "$GDEV" --state-commit "$SC" --out "$O1" >/dev/null 2>&1 || fail "reproduction run 1 must seal"
+node "$ANALYZER" --runs "$GRUNS" --manifest "$GMAN" --deviations "$GDEV" --state-commit "$SC" --out "$O2" >/dev/null 2>&1 || fail "reproduction run 2 must seal"
+P1="$(jq -r .payload_sha256 "$O1")"; P2="$(jq -r .payload_sha256 "$O2")"
+[ -n "$P1" ] && [ "$P1" = "$P2" ] || fail "two authoritative runs must reproduce an identical payload_sha256 ($P1 vs $P2)"
+echo "ok 36: authoritative sealing reproduces a deterministic payload_sha256 across runs"
+
+# 37. MISSING --state-commit in authoritative mode -> refuse (fail closed; no silent HEAD attribution).
+build_authrepo; rm -f "$GOUT"
+node "$ANALYZER" --runs "$GRUNS" --manifest "$GMAN" --deviations "$GDEV" --out "$GOUT" >/dev/null 2>&1 && fail "authoritative mode without --state-commit must exit non-zero"
+[ -f "$GOUT" ] && fail "authoritative mode without --state-commit must NOT seal"
+echo "ok 37: authoritative mode without --state-commit refuses to seal (no blind HEAD fallback)"
+
+# 38. --fixture ESCAPE HATCH: the SAME dirty tree case 34 rejected seals under --fixture, recording
+#     --state-commit verbatim. Mode gates only ENFORCEMENT; a valid census still computes and seals.
+build_authrepo; rm -f "$GOUT"
+sed -i 's/"outcome":"HONEST_COMPLETION"/"outcome":"NOT_FIXED"/' "$GRUNS/seq-004/t2-ungated.verdict.json"
+node "$ANALYZER" --fixture --runs "$GRUNS" --manifest "$GMAN" --deviations "$GDEV" --state-commit deadbeef --out "$GOUT" >/dev/null 2>&1 || fail "--fixture must seal the dirty tree"
+[ -f "$GOUT" ] || fail "--fixture must write the artifact for the dirty tree"
+[ "$(jq -r .provenance.counted_state_commit "$GOUT")" = "deadbeef" ] || fail "--fixture must record --state-commit verbatim"
+echo "ok 38: --fixture seals the same dirty tree case 34 rejected and records --state-commit verbatim"
 
 echo "analyze-counted.selftest: PASS"
