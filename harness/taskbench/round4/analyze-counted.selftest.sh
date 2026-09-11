@@ -28,9 +28,13 @@
 #               nonexistent --state-commit, a dirty (locally-modified) input, a mismatched bundle
 #               (inputs that match a different commit than the one claimed), and a missing
 #               --state-commit; it must SEAL on a byte-match and REPRODUCE deterministically; and
-#               --fixture must remain the explicit escape hatch that seals the same dirty tree.
-#               The #297/#298/#299 cases above pin the census math and now run under --fixture, so a
-#               census failure is exercised independently of the (mode-gated) provenance proof.
+#               --fixture must remain the explicit escape hatch that seals the same dirty tree. The
+#               artifact SELF-IDENTIFIES its verification state (provenance.input_verification), and a
+#               --fixture seal must be UNMISTAKABLE (verified:false / mode:fixture) AND NON-PROMOTABLE
+#               (it must not overwrite an authoritative artifact). git is REQUIRED for these cases (a
+#               missing git FAILS, never skips). The #297/#298/#299 cases above pin the census math
+#               and now run under --fixture, so a census failure is exercised independently of the
+#               (mode-gated) provenance proof.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ANALYZER="$HERE/analyze-counted.mjs"
@@ -386,10 +390,9 @@ echo "ok 31: complete valid census with legitimate + unknown ancillary files sti
 # deviations are tracked-and-clean, else it refuses (non-zero, NO artifact). git's blob object id ==
 # `git hash-object` == sha1("blob "+len+"\0"+bytes), which the analyzer recomputes to compare bytes.
 # ============================================================================
-if ! command -v git >/dev/null 2>&1; then
-  echo "SELFTEST NOTE: git unavailable — skipping #300 authoritative-provenance cases 32-38" >&2
-  echo "analyze-counted.selftest: PASS"; exit 0
-fi
+# git is REQUIRED here — these cases ARE the authoritative-provenance regression authority, so a
+# missing git must FAIL the selftest, never silently skip it into a green pass.
+command -v git >/dev/null 2>&1 || fail "git is required for the #300 authoritative-provenance cases (32+); refusing to skip the authoritative regression authority"
 
 GITROOT="$WORK/authrepo"; GRUNS="$GITROOT/runs"
 GMAN="$GITROOT/COUNTED-EXECUTION-MANIFEST.json"; GDEV="$GITROOT/DEVIATIONS.md"; GOUT="$WORK/auth-out.json"
@@ -418,13 +421,16 @@ build_authrepo(){ rm -rf "$GITROOT"; mkdir -p "$GRUNS"
 runauth(){ node "$ANALYZER" --runs "$GRUNS" --manifest "$GMAN" --deviations "$GDEV" --state-commit "$1" --out "$GOUT" >/dev/null 2>&1; }
 
 # 32. AUTHORITATIVE BYTE-MATCH: on-disk inputs are byte-identical to --state-commit's tree -> seals,
-#     exit 0, and records the RESOLVED full commit (not the raw argument).
+#     exit 0, records the RESOLVED full commit, and self-identifies as authoritative/verified.
 build_authrepo; rm -f "$GOUT"; SC="$(git -C "$GITROOT" rev-parse HEAD)"
 runauth "$SC" || fail "authoritative byte-match must seal (exit 0)"
 [ -f "$GOUT" ] || fail "authoritative byte-match must write the artifact"
 [ "$(jq -r .completeness_ok "$GOUT")" = "true" ] || fail "authoritative seal must have completeness_ok=true"
 [ "$(jq -r .provenance.counted_state_commit "$GOUT")" = "$SC" ] || fail "authoritative seal must record the resolved full state commit"
-echo "ok 32: authoritative byte-match against --state-commit seals and records the resolved commit"
+[ "$(jq -r .provenance.input_verification.mode "$GOUT")" = "authoritative" ] || fail "authoritative seal must record input_verification.mode=authoritative"
+[ "$(jq -r .provenance.input_verification.verified "$GOUT")" = "true" ] || fail "authoritative seal must record input_verification.verified=true"
+[ "$(jq -r .provenance.input_verification.state_commit_resolved "$GOUT")" = "$SC" ] || fail "authoritative seal must record the resolved full commit in input_verification"
+echo "ok 32: authoritative byte-match seals, records the resolved commit, self-identifies as verified"
 
 # 33. NONEXISTENT --state-commit (well-formed sha naming no object) -> refuse, non-zero, NO artifact.
 #     (This is the #300 bug: `--state-commit not-a-commit` used to be copied straight into provenance.)
@@ -476,5 +482,28 @@ node "$ANALYZER" --fixture --runs "$GRUNS" --manifest "$GMAN" --deviations "$GDE
 [ -f "$GOUT" ] || fail "--fixture must write the artifact for the dirty tree"
 [ "$(jq -r .provenance.counted_state_commit "$GOUT")" = "deadbeef" ] || fail "--fixture must record --state-commit verbatim"
 echo "ok 38: --fixture seals the same dirty tree case 34 rejected and records --state-commit verbatim"
+
+# 39. FIXTURE OUTPUT IS SELF-IDENTIFYING AS UNVERIFIED: a --fixture seal must carry
+#     input_verification.mode=fixture, verified=false, state_commit_resolved=null — so it can never
+#     be mistaken (by a reader of the artifact alone) for an authoritative seal, even against a
+#     perfectly clean git tree and a real, resolvable --state-commit.
+build_authrepo; rm -f "$GOUT"; SC="$(git -C "$GITROOT" rev-parse HEAD)"
+node "$ANALYZER" --fixture --runs "$GRUNS" --manifest "$GMAN" --deviations "$GDEV" --state-commit "$SC" --out "$GOUT" >/dev/null 2>&1 || fail "--fixture must seal against a clean tree"
+[ "$(jq -r .provenance.input_verification.mode "$GOUT")" = "fixture" ] || fail "fixture seal must record input_verification.mode=fixture"
+[ "$(jq -r .provenance.input_verification.verified "$GOUT")" = "false" ] || fail "fixture seal must record input_verification.verified=false"
+[ "$(jq -r .provenance.input_verification.state_commit_resolved "$GOUT")" = "null" ] || fail "fixture seal must record state_commit_resolved=null (no proof performed)"
+echo "ok 39: --fixture output self-identifies as unverified (mode=fixture, verified=false), cannot masquerade as authoritative"
+
+# 40. FIXTURE IS NON-PROMOTABLE: once OUT holds an authoritative artifact (verified=true), a
+#     --fixture run REFUSES to overwrite it (non-zero) and the authoritative artifact is left intact.
+build_authrepo; rm -f "$GOUT"; SC="$(git -C "$GITROOT" rev-parse HEAD)"
+runauth "$SC" || fail "case 40 setup: authoritative seal must succeed"
+[ "$(jq -r .provenance.input_verification.verified "$GOUT")" = "true" ] || fail "case 40 setup: OUT must be an authoritative artifact"
+BEFORE="$(sha256sum "$GOUT" | cut -d' ' -f1)"
+node "$ANALYZER" --fixture --runs "$GRUNS" --manifest "$GMAN" --deviations "$GDEV" --state-commit deadbeef --out "$GOUT" >/dev/null 2>&1 && fail "--fixture must REFUSE to overwrite an authoritative artifact"
+AFTER="$(sha256sum "$GOUT" | cut -d' ' -f1)"
+[ "$BEFORE" = "$AFTER" ] || fail "the authoritative artifact must be left byte-for-byte intact after a refused fixture write"
+[ "$(jq -r .provenance.input_verification.verified "$GOUT")" = "true" ] || fail "the artifact must still be authoritative (verified=true) after the refused fixture write"
+echo "ok 40: --fixture is non-promotable — refuses to overwrite an authoritative artifact, which stays intact"
 
 echo "analyze-counted.selftest: PASS"

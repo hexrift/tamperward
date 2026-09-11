@@ -52,15 +52,15 @@ const _byteCache = new Map(); // resolved absPath -> Buffer (present) | null (EN
 const readBytes = (p) => { const a = path.resolve(p); if (_byteCache.has(a)) return _byteCache.get(a);
   let v; try { v = fs.readFileSync(a); } catch (e) { if (e && e.code === 'ENOENT') { _byteCache.set(a, null); return null; } throw e; }
   _byteCache.set(a, v); return v; };
+// A REQUIRED input that is absent must report a clear "input not found" and exit — never fall through
+// to a `null.toString()` / hash-of-null TypeError on a mistyped --manifest / --deviations / --runs.
+const readRequired = (p, label) => { const b = readBytes(p); if (b === null) { console.error(`input not found: ${label} (${p})`); process.exit(2); } return b; };
 const sha256Buf = (b) => crypto.createHash('sha256').update(b).digest('hex');
 const sha256File = (p) => sha256Buf(readBytes(p));           // cache-backed: the bytes are read once
 const sha256Str = (s) => crypto.createHash('sha256').update(s).digest('hex');
-// git's blob object id == sha1("blob "+byteLen+"\0"+bytes) == `git hash-object`; lets the
-// provenance proof compare on-disk input bytes to a commit's tracked blob ids from one `ls-tree`.
-const gitBlobId = (b) => crypto.createHash('sha1').update('blob ' + b.length + '\0').update(b).digest('hex');
 const SELF_SHA = sha256File(fileURLToPath(import.meta.url)); // Node CAN hash its own source
 
-const M = JSON.parse(readBytes(MANIFEST).toString('utf8'));
+const M = JSON.parse(readRequired(MANIFEST, 'manifest').toString('utf8'));
 const MANIFEST_SHA = sha256File(MANIFEST);
 const FROZEN = MANIFEST_SHA;
 const prim = M.execution.primary.trajectories;
@@ -227,7 +227,7 @@ function validateVerdict(v, r) {
 
 // ---- ledger ----
 const ledgerPath = path.join(RUNS, 'counted-execution-log.jsonl');
-const ledgerRaw = readBytes(ledgerPath).toString('utf8'); // one cached read feeds both parse and hash
+const ledgerRaw = readRequired(ledgerPath, 'counted-execution-log.jsonl').toString('utf8'); // one cached read feeds both parse and hash
 const log = ledgerRaw.split('\n').filter(Boolean).map(JSON.parse);
 const finYes = new Map();
 for (const e of log) if (e.event === 'finished' && e.verdict === 'yes') { const a = finYes.get(e.seq) || []; a.push(e.manifest_sha256); finYes.set(e.seq, a); }
@@ -255,7 +255,7 @@ const REGISTERED_DISPOSITIONS = new Set([
 // supplied, in which case a marker's deviation cannot be resolved and fails closed. D1..D44 on
 // the real ledger.
 const registeredDeviations = (() => { if (!DEVIATIONS) return null; const set = new Set();
-  for (const ln of readBytes(DEVIATIONS).toString('utf8').split('\n')) if (/^#{1,6}\s/.test(ln)) for (const mm of ln.matchAll(/\bD(\d+)\b/g)) set.add('D' + mm[1]);
+  for (const ln of readRequired(DEVIATIONS, 'deviations ledger').toString('utf8').split('\n')) if (/^#{1,6}\s/.test(ln)) for (const mm of ln.matchAll(/\bD(\d+)\b/g)) set.add('D' + mm[1]);
   return set; })();
 // #299: an allowlist (by pattern) of the non-record run artifacts that legitimately sit under a
 // counted runs dir — the ledger, the driver lock, CLI-version / drift / runner-view sidecars, and
@@ -376,6 +376,15 @@ if (!completeness_ok) {
 // escape hatch: it SKIPS this proof and records --state-commit verbatim (synthetic selftests, or
 // revalidating aggregates against an extracted input copy where the immutable git state is absent).
 const git = (args, opts) => execFileSync('git', args, opts);
+// A git blob object id is hash("blob "+byteLen+"\0"+bytes) in the REPO'S object format — sha1 by
+// default, sha256 for an --object-format=sha256 repo — and equals `git hash-object` / the id in
+// `git ls-tree`. Detecting the format per repo (cached) keeps the byte-match proof correct on
+// either, instead of hardcoding sha1 and flagging every input dirty on a sha256 repo.
+const _objFmt = new Map();
+const objectFormat = (dir) => { if (_objFmt.has(dir)) return _objFmt.get(dir);
+  let f; try { f = git(['-C', dir, 'rev-parse', '--show-object-format'], { encoding: 'utf8' }).trim(); } catch { f = ''; }
+  if (f !== 'sha256') f = 'sha1'; _objFmt.set(dir, f); return f; };
+const gitBlobIdFor = (dir, b) => crypto.createHash(objectFormat(dir)).update('blob ' + b.length + '\0').update(b).digest('hex');
 let resolvedStateCommit = STATE_COMMIT;
 if (!FIXTURE) {
   const problems = [];
@@ -404,7 +413,7 @@ if (!FIXTURE) {
     const dirty = [], untracked = [];
     for (const inp of provInputs) { const want = treeBlobs.get(prefix + inp.sub);
       if (!want) untracked.push(inp.sub);
-      else if (want !== gitBlobId(readBytes(inp.abs))) dirty.push(inp.sub); }
+      else if (want !== gitBlobIdFor(RUNS, readBytes(inp.abs))) dirty.push(inp.sub); }
     if (untracked.length) problems.push(`inputs absent from --state-commit's tree (untracked/added; not part of the sealed immutable state): ${JSON.stringify(untracked.sort())}`);
     if (dirty.length) problems.push(`inputs whose on-disk bytes differ from --state-commit (dirty/modified; do not match the claimed immutable state): ${JSON.stringify(dirty.sort())}`);
   }
@@ -415,7 +424,7 @@ if (!FIXTURE) {
     const rel = path.relative(top, path.resolve(file));
     let blob; try { blob = git(['-C', top, 'rev-parse', '--verify', '--quiet', 'HEAD:' + rel], { encoding: 'utf8' }).trim() || null; } catch { blob = null; }
     if (!blob) problems.push(`${label} is not tracked at HEAD (untracked): ${rel}`);
-    else if (blob !== gitBlobId(readBytes(file))) problems.push(`${label} bytes differ from HEAD (dirty/modified): ${rel}`);
+    else if (blob !== gitBlobIdFor(top, readBytes(file))) problems.push(`${label} bytes differ from HEAD (dirty/modified): ${rel}`);
   };
   verifyTrackedClean('manifest', MANIFEST);
   if (DEVIATIONS) verifyTrackedClean('deviations', DEVIATIONS);
@@ -535,6 +544,15 @@ const result = {
     verdict_set_digest_sha256: VERDICT_SET_DIGEST,
     deviation_ledger_sha256: DEVIATIONS ? sha256File(DEVIATIONS) : null,
     analysis_script_sha256: SELF_SHA,
+    // #300: the artifact SELF-IDENTIFIES its verification state, so a reader of ROUND4-RESULTS.json
+    // alone can tell an AUTHORITATIVE seal (every input proven byte-identical to the resolved commit)
+    // from a --fixture seal (unverified). This lives INSIDE `result`, so payload_sha256 covers it and
+    // a fixture artifact can never be byte-identical to — nor pass as — an authoritative one.
+    input_verification: {
+      mode: FIXTURE ? 'fixture' : 'authoritative',
+      verified: !FIXTURE,
+      state_commit_resolved: FIXTURE ? null : resolvedStateCommit,
+    },
   },
   counts: { trajectories: TOTAL, verdicts: census.verdict, adjudicated: census.adjudicated, measured: measuredCount, invalid_measurement: invalidCount },
   completeness_ok, completeness_detail: census,
@@ -593,15 +611,28 @@ const payload = JSON.stringify(result, null, 2);
 const sealed = { ...result, sealed_at: new Date().toISOString(), payload_sha256: sha256Str(payload) };
 
 if (OUT) {
-  // #300: write the sealed artifact ATOMICALLY — a fully-formed temp file in the same directory,
-  // then rename() over OUT. rename is atomic on POSIX, so a consumer ever reads either the complete
+  // #300: a --fixture (unverified) seal must NOT be PROMOTABLE over an authoritative record. If OUT
+  // already holds an authoritative artifact (provenance.input_verification.verified === true), a
+  // fixture run REFUSES and writes nothing rather than clobbering it — the canonical
+  // ROUND4-RESULTS.json can only be (re)produced by the authoritative path. An authoritative run is
+  // never blocked here: it has already passed the byte-match proof above.
+  if (FIXTURE && fs.existsSync(OUT)) {
+    let priorVerified = false;
+    try { const prior = JSON.parse(fs.readFileSync(OUT, 'utf8')); priorVerified = !!(prior && prior.provenance && prior.provenance.input_verification && prior.provenance.input_verification.verified === true); } catch { priorVerified = false; }
+    if (priorVerified) {
+      console.error('REFUSING TO WRITE — a --fixture (unverified) seal must not overwrite the authoritative artifact at ' + OUT + ' (its provenance.input_verification.verified === true). Write to a different --out, or remove it deliberately, then reseal authoritatively.');
+      process.exit(1);
+    }
+  }
+  // Write the sealed artifact ATOMICALLY — a fully-formed temp file in the same directory, then
+  // rename() over OUT. rename is atomic on POSIX, so a consumer ever reads either the complete
   // previous artifact or the complete new one, never a truncated half-write. Every validation
   // (manifest, completeness census, input provenance) has already passed before this point, so the
   // only artifact ever written is a fully-sealed one. CONSUMER CONTRACT: if a later reseal attempt
-  // fails — refused validation, a crash, a full disk — any prior ROUND4-RESULTS.json is left
-  // byte-for-byte intact and remains the authoritative record; a failed attempt is a no-op on the
-  // sealed file (a refusal writes nothing at all; a mid-write failure leaves only the discarded temp
-  // file), never a partial overwrite. Re-run once the cause is fixed. See ROUND4-ANALYSIS.md.
+  // fails — refused validation, the fixture-over-authoritative refusal above, a crash, a full disk —
+  // any prior ROUND4-RESULTS.json is left byte-for-byte intact and remains the authoritative record;
+  // a failed attempt is a no-op on the sealed file (a refusal writes nothing at all; a mid-write
+  // failure leaves only the discarded temp file), never a partial overwrite. See ROUND4-ANALYSIS.md.
   const tmp = OUT + '.tmp-' + process.pid;
   fs.writeFileSync(tmp, JSON.stringify(sealed, null, 2) + '\n');
   fs.renameSync(tmp, OUT);
