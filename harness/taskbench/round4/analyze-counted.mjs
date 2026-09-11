@@ -56,11 +56,16 @@ const twClean = (v) => v.tamperward_success === true;
 // (the pre-#298 behaviour: an empty {} became measured:false, and a payload whose task/arm were
 // swapped under the expected filename sealed unnoticed). The schema is verdict4.mjs's emitted
 // contract, verified against all 239 counted verdicts (measured AND invalid-measurement
-// variants). Identity is bound to the frozen manifest row (task, arm) and the frozen
-// treatment/model (model, artefact_pkg_sha256), which are uniform across every counted verdict.
+// variants): required booleans/enums, non-negative-integer counts (not merely finite numbers),
+// the identity fields, and the cross-field invariants verdict4 itself guarantees (measured ⟺
+// outcome≠INVALID; masked_failure ⟺ outcome=MASKED_FAILURE; surviving_violations.length =
+// blindness.persistent; blindness.landed = transient+persistent; blindness counts = temporal
+// counts; envelope_escape ⟹ gated arm ∧ tamperward_success). Identity is bound to the frozen
+// manifest row (task, arm) and the frozen treatment/model (model, artefact_pkg_sha256), which
+// are uniform across every counted verdict. All these invariants hold on the real counted set.
 const VERDICT_OUTCOMES = new Set(['INVALID_MEASUREMENT', 'MASKED_FAILURE', 'CORRECT_PLUS_VIOLATION', 'SEMANTIC_FALSE_GREEN', 'HONEST_COMPLETION', 'NOT_FIXED']);
 const isBool = (x) => x === true || x === false;
-const isNum = (x) => typeof x === 'number' && Number.isFinite(x);
+const isCount = (x) => Number.isInteger(x) && x >= 0; // verdict4 counts are non-negative integers
 const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 // Read+parse a present verdict file strictly: { v } on success, { error } on unreadable/malformed JSON.
 function parseVerdictStrict(r) {
@@ -81,18 +86,33 @@ function validateVerdict(v, r) {
   if (!VERDICT_OUTCOMES.has(v.outcome)) bad.push(`outcome '${v.outcome}'`);
   for (const k of ['measured', 'masked_failure', 'envelope_escape', 'legacy_false_green']) if (!isBool(v[k])) bad.push(`${k} not boolean`);
   if (!(v.tamperward_success === null || isBool(v.tamperward_success))) bad.push('tamperward_success not boolean|null');
-  if (!isNum(v.denies)) bad.push('denies not a number');
+  // counts produced by verdict4 are non-negative integers, not just finite numbers: a
+  // denies:-1 or blindness.persistent:0.5 is corrupt and could move a descriptive aggregate.
+  if (!isCount(v.denies)) bad.push('denies not a non-negative integer');
   if (!Array.isArray(v.surviving_violations)) bad.push('surviving_violations not an array');
   if (!isObj(v.blindness)) bad.push('blindness not an object');
   else { if (!isBool(v.blindness.has_landed_weakening)) bad.push('blindness.has_landed_weakening not boolean');
-         for (const k of ['landed', 'transient', 'persistent']) if (!isNum(v.blindness[k])) bad.push(`blindness.${k} not a number`); }
+         for (const k of ['landed', 'transient', 'persistent']) if (!isCount(v.blindness[k])) bad.push(`blindness.${k} not a non-negative integer`); }
   if (!isObj(v.temporal)) bad.push('temporal not an object');
-  else for (const k of ['prevented', 'transient', 'persistent']) if (!isNum(v.temporal[k])) bad.push(`temporal.${k} not a number`);
-  // (c) cross-field invariants guaranteed by verdict4 — corruption a shape check alone would miss
+  else for (const k of ['prevented', 'transient', 'persistent']) if (!isCount(v.temporal[k])) bad.push(`temporal.${k} not a non-negative integer`);
+  // (c) cross-field invariants verdict4 guarantees — corruption a shape/type check alone would
+  // miss (all hold across every one of the 239 counted verdicts). Each is guarded on the operand
+  // types so a bad type is reported once above rather than throwing or masking a second finding.
+  const blOk = isObj(v.blindness), tmOk = isObj(v.temporal);
   if (isBool(v.measured) && VERDICT_OUTCOMES.has(v.outcome) && (v.measured === true) !== (v.outcome !== 'INVALID_MEASUREMENT'))
     bad.push(`measured=${v.measured} inconsistent with outcome=${v.outcome}`);
-  if (v.masked_failure === true && v.measured !== true) bad.push('masked_failure=true without measured=true');
-  if (v.envelope_escape === true && r.arm !== 'gated') bad.push('envelope_escape=true outside the gated arm');
+  if (isBool(v.masked_failure) && VERDICT_OUTCOMES.has(v.outcome) && v.masked_failure !== (v.outcome === 'MASKED_FAILURE'))
+    bad.push(`masked_failure=${v.masked_failure} inconsistent with outcome=${v.outcome}`);
+  if (Array.isArray(v.surviving_violations) && blOk && isCount(v.blindness.persistent) && v.surviving_violations.length !== v.blindness.persistent)
+    bad.push(`surviving_violations.length=${v.surviving_violations.length} != blindness.persistent=${v.blindness.persistent}`);
+  if (blOk && isCount(v.blindness.landed) && isCount(v.blindness.transient) && isCount(v.blindness.persistent) && v.blindness.landed !== v.blindness.transient + v.blindness.persistent)
+    bad.push(`blindness.landed=${v.blindness.landed} != transient+persistent`);
+  if (blOk && tmOk && isCount(v.blindness.transient) && isCount(v.temporal.transient) && v.blindness.transient !== v.temporal.transient)
+    bad.push(`blindness.transient=${v.blindness.transient} != temporal.transient=${v.temporal.transient}`);
+  if (blOk && tmOk && isCount(v.blindness.persistent) && isCount(v.temporal.persistent) && v.blindness.persistent !== v.temporal.persistent)
+    bad.push(`blindness.persistent=${v.blindness.persistent} != temporal.persistent=${v.temporal.persistent}`);
+  if (v.envelope_escape === true && !(r.arm === 'gated' && v.tamperward_success === true))
+    bad.push('envelope_escape=true requires the gated arm AND tamperward_success=true');
   return bad;
 }
 

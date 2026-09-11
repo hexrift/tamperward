@@ -3,7 +3,7 @@
 Authoritative data readout for the Round-4 counted run. Every number is reproduced by
 `analyze-counted.mjs` from the frozen manifest and the per-seq verdicts, and is sealed in
 [`ROUND4-RESULTS.json`](./ROUND4-RESULTS.json) (`payload_sha256`
-`9d611678f8d619aa32e0ff96202da1d8604bb95717acfc43a5eccc57ccf1db95`, deterministic — excludes
+`0e6a8175fde7d51e3d74da3a0703191a1fc1e4383b9e85145b116b88e93546a1`, deterministic — excludes
 the `sealed_at` timestamp; #298 added verdict schema + identity validation, which re-seals the
 payload hash via the embedded `analysis_script_sha256` but leaves every aggregate byte-identical).
 The prose article
@@ -24,7 +24,7 @@ the frozen adjudicator (`verdict4`) fields; this analysis only aggregates them.
 | **counted-execution-log sha256** | `1bb42f1a4609857678bbd49186bd73903d2f51b46996f894f128618e52aac5ca` |
 | **verdict/adjudication set digest** | `a5b652e16f7a4768998d8eaa2708c54b14db1647828cfefcc8877866626cf18d` |
 | deviation ledger sha256 (`DEVIATIONS.md`) | `50d6994e9a16000d090c85e31aafeaf2def3779237c9230eaaa5267bf7a64077` |
-| analysis script sha256 (self-hash) | `1eddc3920dde64c2c282c858f0f82ae7c1f3b1bf8cabd027e74e8d8c2be42b0e` |
+| analysis script sha256 (self-hash) | `80e067e922ccfad9b1f5e9af88523d544a656e9e64c708aaefae3afc56fd7bca` |
 
 The dataset is bound by the state commit, the ledger hash, and a deterministic digest over
 every verdict/adjudication file — so two different state snapshots cannot be analysed under
@@ -35,11 +35,17 @@ the same recorded identity.
 264 / 264 accounted: **239 verdicts + 25 adjudicated**. Every verdict has a
 `finished`+`verdict=yes` ledger event under the frozen manifest hash. Every one of the 239
 verdicts was **schema- and identity-validated** (#298): it parses, satisfies the supported
-verdict schema (required booleans/enums, `surviving_violations` array, `blindness`/`temporal`
-count objects, and the verdict4 invariants `measured ⟺ outcome≠INVALID_MEASUREMENT` and
-`masked_failure ⇒ measured`), and its `task`/`arm`/`model`/`artefact_pkg_sha256` are bound to
-the frozen manifest row and treatment — so a corrupt (`{}`, malformed JSON) or misidentified
-verdict fails closed rather than silently degrading to an ordinary `INVALID_MEASUREMENT`. Every
+verdict schema (required booleans/enums, **non-negative-integer** counts — `denies`,
+`blindness.{landed,transient,persistent}`, `temporal.{prevented,transient,persistent}` — not
+merely finite numbers, `surviving_violations` array), and the cross-field invariants verdict4
+itself guarantees (`measured ⟺ outcome≠INVALID_MEASUREMENT`; `masked_failure ⟺
+outcome=MASKED_FAILURE`; `surviving_violations.length = blindness.persistent`; `blindness.landed
+= transient+persistent`; blindness counts = temporal counts; `envelope_escape ⟹ gated ∧
+tamperward_success`); and its `task`/`arm`/`model`/`artefact_pkg_sha256` are bound to the frozen
+manifest row and treatment — so a corrupt (`{}`, malformed JSON, a negative or fractional count,
+an impossible field combination) or misidentified verdict fails closed rather than silently
+degrading to an ordinary `INVALID_MEASUREMENT`. Every one of these invariants holds on all 239
+counted verdicts. Every
 one of the 25 `.adjudicated` markers was **parsed and validated** (task/arm/seq match the frozen
 row, disposition present, `deviation` matches `D<n>`, `sampled=false`): **0 marker violations**.
 Zero missing, zero stray verdicts, zero seqs with both, zero schema/identity violations.
@@ -210,5 +216,5 @@ node harness/taskbench/round4/analyze-counted.mjs \
   --manifest harness/taskbench/round4/COUNTED-EXECUTION-MANIFEST.json \
   --deviations harness/taskbench/round4/DEVIATIONS.md \
   --out ROUND4-RESULTS.json
-# payload_sha256 must equal 9d611678f8d619aa32e0ff96202da1d8604bb95717acfc43a5eccc57ccf1db95
+# payload_sha256 must equal 0e6a8175fde7d51e3d74da3a0703191a1fc1e4383b9e85145b116b88e93546a1
 ```
