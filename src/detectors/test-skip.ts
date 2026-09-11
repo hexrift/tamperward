@@ -12,23 +12,46 @@
 // hit; the two build-constraint spellings that ARE comments say so (`comment: true`).
 // Call-position spellings (`fit(`, `xit(`) are matched with their paren: the bare
 // word blocked `expect(label).toBe("fit")`.
+//
+// Member access is formatting-robust for the JS skip/focus family: `test.skip`,
+// `test . skip` (whitespace-separated) and `test['skip']` (literal string-bracket) are
+// the same operation, so all three are matched (via `acc()` below). A marker spelled
+// inside a string literal (`expect(x).toBe("test.skip")`) is text, not a skip, and is
+// masked out (via `insideStringLiteral`). Documented limits — NOT covered, by design,
+// because the pristine boundary is the backstop, not this in-loop detector: computed or
+// aliased access (`const s = 'skip'; test[s](...)`, `test['sk' + 'ip']`) is not resolved;
+// and a member chain split across PHYSICAL lines (`test\n  .skip(...)`) is not joined,
+// since matching is line-based.
 
 import { Change, Detector, Finding } from '../types';
 import { addedLines } from '../diff/select';
 import { isProtected } from '../policy';
-import { isCommentLine, Lang, langOf } from './files';
+import { insideStringLiteral, isCommentLine, Lang, langOf } from './files';
 import { makeFinding } from './finding';
 
 const RULE = 'test-skip';
 
 type Pattern = { re: RegExp; why: string; comment?: true };
 
+// A member access to one of `names` (a `|`-alternation), reached by dot — with optional
+// surrounding whitespace — OR by literal string-bracket access: `.skip`, ` . skip`,
+// `['skip']`, `[ "only" ]`. Formatting-robust so a spacing or bracket rewrite cannot evade
+// the marker. NOT resolved (documented in the header): computed/aliased access (`t[s]`,
+// `t['sk'+'ip']`) and chains split across physical lines. The dot form keeps a trailing
+// non-word guard so `.skip` never swallows `.skipIf`; the bracket form is bounded by its
+// closing quote for the same reason.
+const acc = (names: string): string =>
+  `(?:\\s*\\.\\s*(?:${names})(?![\\w$])|\\s*\\[\\s*['"\`](?:${names})['"\`]\\s*\\])`;
+const JS_RUNNER = '\\b(?:it|test|describe|suite)';
+const JS_MOD = 'concurrent|sequential|shuffle'; // vitest concurrency modifier: it.concurrent.skip
+
 const PATTERNS: Record<Lang, Pattern[]> = {
   js: [
-    // vitest chains a concurrency modifier before the marker: it.concurrent.skip.
-    { re: /\b(?:it|test|describe|suite)(?:\.(?:concurrent|sequential|shuffle))?\.(?:skip|only|todo)\b/, why: 'a .skip/.only/.todo marker' },
-    { re: /\b(?:it|test|describe|suite)\.(?:skipIf|runIf)\s*\(/, why: 'a .skipIf()/.runIf() condition (the test runs only when the condition allows)' },
-    { re: /\b(?:it|test)\.(?:fails|failing)\s*\(/, why: 'a .fails/.failing marker (the test now passes by failing)' },
+    // The skip/only/todo family on a runner, by dot-or-bracket access, with one optional
+    // vitest concurrency modifier hop: test.skip, test . skip, test['skip'], it.concurrent.skip.
+    { re: new RegExp(JS_RUNNER + acc(JS_MOD) + '?' + acc('skip|only|todo')), why: 'a .skip/.only/.todo marker' },
+    { re: new RegExp(JS_RUNNER + acc('skipIf|runIf') + '\\s*\\('), why: 'a .skipIf()/.runIf() condition (the test runs only when the condition allows)' },
+    { re: new RegExp(JS_RUNNER + acc('fails|failing') + '\\s*\\('), why: 'a .fails/.failing marker (the test now passes by failing)' },
     { re: /\b(?:it|test|describe)\.each\s*\(\s*\[\s*\]\s*\)/, why: 'an empty .each table (no case ever runs)' },
     { re: /\b(?:xit|xtest|xdescribe)\s*\(/, why: 'an x-prefixed disabled test' },
     { re: /\b(?:fit|ftest|fdescribe)\s*\(/, why: 'an f-prefixed focused test (narrows the suite)' },
@@ -42,7 +65,7 @@ const PATTERNS: Record<Lang, Pattern[]> = {
     { re: /\b(?:it|test|describe|suite)\s*\(\s*(['"`])(?:(?!\1).)*\1\s*,\s*\{[^}]*?\bskip:(?!\s*(?:false|0)\b)/, why: 'a { skip: ... } option disabling the test (node:test options form)' },
     { re: /\bskip:\s*(?:true|['"`])/, why: 'a { skip: ... } option disabling the test (node:test options form)' },
     { re: /\btodo:\s*(?:true|['"`])/, why: 'a { todo: ... } option (the test no longer fails the run)' },
-    { re: /\b(?:t|ctx|context|this)\.skip\(/, why: 'a runtime t.skip()/this.skip() call' },
+    { re: new RegExp('\\b(?:t|ctx|context|this)' + acc('skip') + '\\s*\\('), why: 'a runtime t.skip()/this.skip() call' },
   ],
   py: [
     // `import pytest as pt` makes the decorator `@pt.mark.skip`; the module alias is free.
@@ -100,6 +123,23 @@ const PATTERNS: Record<Lang, Pattern[]> = {
   ],
 };
 
+// A pattern fires only when it hits code OUTSIDE a string literal: a marker spelled inside a
+// quoted string (`expect(x).toBe("test.skip")`, `const s = 'it["skip"]'`) is text, not a skip,
+// so every match position is checked and the first non-string one wins. Build-constraint
+// patterns (comment:true) are matched as-is — they ARE comments, on lines this rule only reaches
+// when the whole line is a comment. A per-call global clone keeps the stored regex stateless.
+function matchesOutsideString(p: Pattern, content: string, lang: Lang | null): boolean {
+  if (p.comment) return p.re.test(content);
+  const re = p.re.global ? p.re : new RegExp(p.re.source, p.re.flags + 'g');
+  re.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    if (!insideStringLiteral(content, m.index, lang)) return true;
+    if (m.index === re.lastIndex) re.lastIndex++; // guard against a zero-length match
+  }
+  return false;
+}
+
 export const testSkip: Detector = {
   id: RULE,
   surface: ['file'],
@@ -115,7 +155,7 @@ export const testSkip: Detector = {
         const comment = isCommentLine(l.content.trim(), lang);
         for (const p of patterns) {
           if (comment && !p.comment) continue;
-          if (p.re.test(l.content)) {
+          if (matchesOutsideString(p, l.content, lang)) {
             out.push(
               makeFinding(RULE, policy, {
                 file: c.path,
