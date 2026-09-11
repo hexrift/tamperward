@@ -3,9 +3,10 @@
 Authoritative data readout for the Round-4 counted run. Every number is reproduced by
 `analyze-counted.mjs` from the frozen manifest and the per-seq verdicts, and is sealed in
 [`ROUND4-RESULTS.json`](./ROUND4-RESULTS.json) (`payload_sha256`
-`8544805e66f2f04ad9c1f3c73fbb8fadba465b115b0cbd1c92f21280aba942e6`, deterministic — excludes
-the `sealed_at` timestamp; #298 added verdict schema + identity validation, which re-seals the
-payload hash via the embedded `analysis_script_sha256` but leaves every aggregate byte-identical).
+`4f3c60ea81c2751dc1a3354f0713842380e06400e734b3715d6924fa22a5db94`, deterministic — excludes
+the `sealed_at` timestamp; #298 added verdict schema + identity validation and #299 added
+full-inventory enumeration, adjudication-reference, and manifest validation, which re-seal the
+payload hash via the embedded `analysis_script_sha256` but leave every aggregate byte-identical).
 The prose article
 ([`ROUND4-ARTICLE.md`](./ROUND4-ARTICLE.md)) is generated from this record. Nothing here
 re-derives a per-trajectory verdict: `measured`, `masked_failure`, `outcome`,
@@ -24,7 +25,7 @@ the frozen adjudicator (`verdict4`) fields; this analysis only aggregates them.
 | **counted-execution-log sha256** | `1bb42f1a4609857678bbd49186bd73903d2f51b46996f894f128618e52aac5ca` |
 | **verdict/adjudication set digest** | `a5b652e16f7a4768998d8eaa2708c54b14db1647828cfefcc8877866626cf18d` |
 | deviation ledger sha256 (`DEVIATIONS.md`) | `50d6994e9a16000d090c85e31aafeaf2def3779237c9230eaaa5267bf7a64077` |
-| analysis script sha256 (self-hash) | `9ee721f805e4051584e53fc6a36e15e8be28953ebcfbe50d5dcd8ab1e6be236a` |
+| analysis script sha256 (self-hash) | `a96b4e8d84a91c6c3847c82f07ce93f73bd4ad62e8474c04ce1010a7a2c09feb` |
 
 The dataset is bound by the state commit, the ledger hash, and a deterministic digest over
 every verdict/adjudication file — so two different state snapshots cannot be analysed under
@@ -49,21 +50,36 @@ manifest row and treatment — so a corrupt (`{}`, malformed JSON, a negative or
 an impossible field combination) or misidentified verdict fails closed rather than silently
 degrading to an ordinary `INVALID_MEASUREMENT`. Every one of these invariants holds on all 239
 counted verdicts. Every
-one of the 25 `.adjudicated` markers was **parsed and validated** (task/arm/seq match the frozen
-row, disposition present, `deviation` matches `D<n>`, `sampled=false`): **0 marker violations**.
-Zero missing, zero stray verdicts, zero seqs with both, zero schema/identity violations.
+one of the 25 `.adjudicated` markers was **parsed and validated** — task/arm/seq match the frozen
+row, `sampled=false`, its **disposition is one of the registered pre-sampling dispositions**
+(`PRE_SAMPLING_{LIVENESS,CONTRACT,MEASUREMENT,AGENT_CONFIG_PROVENANCE}_UNAVAILABLE`), and its
+**`deviation` (`D<n>`) resolves to an actual `DEVIATIONS.md` heading** (the 25 markers cite
+D39/D41/D42/D44): **0 marker violations**. Beyond the per-seq scan, the census now **enumerates
+every verdict/adjudication record physically present under the runs directory** and binds each to
+the frozen inventory — a record for a sequence outside `1..trajectory_count`, or whose
+`<task>-<arm>` filename does not match the frozen row, is a stray and fails closed, while allowed
+ancillary run artifacts (the ledger, per-trajectory evidence sidecars) are ignored; **verdict+marker
+co-presence is detected by file existence, independent of parse success**; and the **manifest is
+validated** (unique sequences covering `1..trajectory_count` with no gaps, well-formed task/arm
+pairing) before any aggregation (#299). Zero missing, zero stray verdict/adjudication records, zero
+seqs with both, zero schema/identity/inventory violations.
 `completeness_ok = true`. Measurement split of the 239 verdicts: **201 measured**, **38
 `INVALID_MEASUREMENT`**.
 
 The gate is **fail-closed, not advisory**: on any census failure (a missing verdict/marker, a
-verdict without its frozen ledger event, a stray verdict, a malformed/mismatched marker, or a
-malformed/wrong-shaped/misidentified verdict) `analyze-counted.mjs` **refuses to write a results
-artifact and exits non-zero** — a `completeness_ok:false` field inside an otherwise-sealed
-artifact is never emitted, so downstream automation cannot treat "exit 0 + a seal" as
-authoritative over a partial dataset. This is regression-tested by
-[`analyze-counted.selftest.sh`](./analyze-counted.selftest.sh) (complete census seals/exit 0;
-missing verdict, malformed marker, stray verdict, empty/`{}` verdict, wrong task/arm identity,
-and malformed JSON each refuse + exit non-zero + write no artifact) and run in CI.
+verdict without its frozen ledger event, a stray or mislocated verdict/adjudication record, a
+verdict+marker co-presence, a malformed/mismatched marker — including an unregistered disposition
+or an unresolved deviation reference — a malformed/wrong-shaped/misidentified verdict, or an
+invalid manifest) `analyze-counted.mjs` **refuses to write a results artifact and exits
+non-zero** — a `completeness_ok:false` field inside an otherwise-sealed artifact is never emitted,
+so downstream automation cannot treat "exit 0 + a seal" as authoritative over a partial dataset.
+This is regression-tested by [`analyze-counted.selftest.sh`](./analyze-counted.selftest.sh)
+(complete census seals/exit 0; missing verdict, malformed marker, stray verdict, empty/`{}`
+verdict, wrong task/arm identity, and malformed JSON, plus the type/invariant checks and the
+inventory/adjudication cases — out-of-range sequence, wrong `<task>-<arm>` filename, malformed-
+verdict + marker co-presence, unregistered disposition, unresolved deviation, and manifest seq
+gap/duplicate/bad pairing — each refuse + exit non-zero + write no artifact, while a valid census
+with a legitimate ancillary file present still seals) and run in CI.
 
 ## Primary endpoint — registered inferential claim: **do not reject H₀**
 
@@ -219,5 +235,5 @@ node harness/taskbench/round4/analyze-counted.mjs \
   --manifest harness/taskbench/round4/COUNTED-EXECUTION-MANIFEST.json \
   --deviations harness/taskbench/round4/DEVIATIONS.md \
   --out ROUND4-RESULTS.json
-# payload_sha256 must equal 8544805e66f2f04ad9c1f3c73fbb8fadba465b115b0cbd1c92f21280aba942e6
+# payload_sha256 must equal 4f3c60ea81c2751dc1a3354f0713842380e06400e734b3715d6924fa22a5db94
 ```

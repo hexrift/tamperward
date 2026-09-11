@@ -16,6 +16,13 @@
 #               denies vs temporal.prevented; ungated => tamperward_success null; envelope_escape
 #               requires gated, tamperward_success, and a masked_failure or surviving violation)
 #               must also fail closed.
+#   #299 cases: a full-inventory census must ALSO fail closed on an out-of-range sequence dir with a
+#               verdict, an in-range verdict OR marker whose <task>-<arm> filename is wrong, a
+#               malformed-verdict + marker PHYSICAL co-presence (detected by existence, not parse),
+#               an unregistered .adjudicated disposition, an unresolved deviation reference (D<n>
+#               absent from the supplied ledger), and a manifest whose sequences gap/duplicate or
+#               whose task/arm pairing is malformed — while a complete valid census with a
+#               legitimate (and even an unknown) ancillary file present still seals.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ANALYZER="$HERE/analyze-counted.mjs"
@@ -232,5 +239,131 @@ putv seq-004/t2-ungated.verdict.json <<EOF
 EOF
 run && fail "ungated tamperward_success!=null must exit non-zero"; [ -f "$OUT" ] && fail "ungated tw!=null must NOT seal"
 echo "ok 21: ungated tamperward_success!=null refuses to seal, exits non-zero, no artifact"
+
+# ============================================================================
+# #299: full-inventory enumeration, physical verdict+marker co-presence, disposition-vocabulary +
+# deviation-resolution, and manifest validation. Each case isolates one rule and must refuse to
+# seal (non-zero, NO artifact); the final positive case seals with ancillary files present. These
+# are INDEPENDENT of the #297/#298 cases above and use fixtures schema-valid for #298's validator.
+# ============================================================================
+
+# a deviation ledger fixture (D<n> headings) — a marker's `deviation` must resolve to one of these.
+DEV="$WORK/DEVIATIONS.md"
+cat > "$DEV" <<'EOF'
+# Deviations ledger (test fixture)
+
+## D39 — 2026-09-09, PRE_SAMPLING_LIVENESS_UNAVAILABLE (fixture)
+Editable-liveness probe unavailable.
+
+## D41 — 2026-09-09, PRE_SAMPLING_CONTRACT_UNAVAILABLE (fixture)
+Frozen qualification contract unmet.
+EOF
+
+# a schema-valid .adjudicated marker (registered disposition + resolvable deviation by default).
+mkmarker(){ # seq task arm disposition deviation
+  local d="$RUNS/seq-$(printf %03d "$1")"; mkdir -p "$d"
+  cat > "$d/$2-$3.adjudicated" <<EOF
+# fixture adjudication marker
+disposition=$4
+task=$2
+seq=$1
+arm=$3
+sampled=false
+model_output=none
+budget_spent=0
+deviation=$5
+recorded=2026-09-09
+EOF
+}
+runD(){ node "$ANALYZER" --runs "$RUNS" --manifest "$MAN" --deviations "$DEV" --state-commit deadbeef --out "$OUT" >/dev/null 2>&1; }
+# a bad manifest is validated BEFORE byseq, so the analyzer exits at manifest validation regardless
+# of the runs/ledger content. Each writes a full-shape manifest that violates one manifest rule.
+BADMAN="$WORK/badman.json"
+runbadman(){ node "$ANALYZER" --runs "$RUNS" --manifest "$BADMAN" --deviations "$DEV" --state-commit deadbeef --out "$OUT" >/dev/null 2>&1; }
+mkbadman(){ # $1 = trajectory_count ; $2 = primary trajectories JSON array body
+  cat > "$BADMAN" <<EOF
+{
+  "registration": { "model": "$FMODEL", "base_commit": "0000000000000000000000000000000000000000", "n_primary": 2, "n_duplicates": 0 },
+  "treatment": { "version": "0.0.0-test", "artefact_pkg_tree_sha256": "$FPKG" },
+  "execution": {
+    "trajectory_count": $1,
+    "primary": { "trajectory_count": $1, "trajectories": [ $2 ] },
+    "duplicates": { "trajectory_count": 0, "trajectories": [] }
+  }
+}
+EOF
+}
+
+# 22. OUT-OF-RANGE sequence dir with a verdict (seq 5 > trajectory_count 4) -> refuse
+mkfixture; rm -f "$OUT"; mkdir -p "$RUNS/seq-005"
+echo '{"task":"t3","arm":"gated","measured":true}' > "$RUNS/seq-005/t3-gated.verdict.json"
+run && fail "out-of-range seq verdict must exit non-zero"; [ -f "$OUT" ] && fail "out-of-range seq verdict must NOT seal"
+echo "ok 22: out-of-range sequence dir with a verdict refuses to seal, exits non-zero, no artifact"
+
+# 23. In-range verdict with a WRONG <task>-<arm> filename -> refuse (enumerated stray)
+mkfixture; rm -f "$OUT"
+echo '{"task":"t2","arm":"ungated","measured":true}' > "$RUNS/seq-004/t2-wrongfilename.verdict.json"
+run && fail "wrong-filename verdict must exit non-zero"; [ -f "$OUT" ] && fail "wrong-filename verdict must NOT seal"
+echo "ok 23: in-range verdict with a wrong <task>-<arm> filename refuses to seal, exits non-zero, no artifact"
+
+# 24. In-range MARKER with a WRONG <task>-<arm> filename -> refuse (adjudication stray; the old scan
+#     looked only at .verdict.json filenames and never at .adjudicated)
+mkfixture; rm -f "$OUT"
+mkmarker 4 t2 ungated PRE_SAMPLING_LIVENESS_UNAVAILABLE D39
+mv "$RUNS/seq-004/t2-ungated.adjudicated" "$RUNS/seq-004/t9-gated.adjudicated"
+run && fail "wrong-filename marker must exit non-zero"; [ -f "$OUT" ] && fail "wrong-filename marker must NOT seal"
+echo "ok 24: in-range marker with a wrong <task>-<arm> filename refuses to seal, exits non-zero, no artifact"
+
+# 25. MALFORMED verdict + marker PHYSICAL co-presence at the same seq -> refuse. Co-presence is
+#     detected by file EXISTENCE, so the conflict is caught even though the verdict never parses
+#     (the old both-check keyed on a successful parse and missed exactly this).
+mkfixture; rm -f "$OUT"
+printf '{not valid json' > "$RUNS/seq-004/t2-ungated.verdict.json"
+mkmarker 4 t2 ungated PRE_SAMPLING_LIVENESS_UNAVAILABLE D39
+runD && fail "malformed-verdict + marker conflict must exit non-zero"; [ -f "$OUT" ] && fail "verdict+marker conflict must NOT seal"
+echo "ok 25: malformed-verdict + marker physical conflict refuses to seal, exits non-zero, no artifact"
+
+# 26. INVALID disposition (not in the registered vocabulary), otherwise a well-formed marker -> refuse
+mkfixture; rm -f "$OUT"; rm -f "$RUNS/seq-004/t2-ungated.verdict.json"
+mkmarker 4 t2 ungated NOT_A_REGISTERED_DISPOSITION D39
+runD && fail "invalid disposition must exit non-zero"; [ -f "$OUT" ] && fail "invalid disposition must NOT seal"
+echo "ok 26: unregistered .adjudicated disposition refuses to seal, exits non-zero, no artifact"
+
+# 27. UNRESOLVED deviation reference (D999 is not a heading in the supplied ledger) -> refuse
+mkfixture; rm -f "$OUT"; rm -f "$RUNS/seq-004/t2-ungated.verdict.json"
+mkmarker 4 t2 ungated PRE_SAMPLING_LIVENESS_UNAVAILABLE D999
+runD && fail "unresolved deviation must exit non-zero"; [ -f "$OUT" ] && fail "unresolved deviation must NOT seal"
+echo "ok 27: unresolved deviation reference (D<n> absent from the ledger) refuses to seal, exits non-zero, no artifact"
+
+# 28. MANIFEST sequence gap (trajectory_count 5 but only seq 1..4 present; seq 5 never covered) -> refuse
+mkfixture; rm -f "$OUT"
+mkbadman 5 '{"seq":1,"task":"t1","arm":"gated"},{"seq":2,"task":"t1","arm":"ungated"},{"seq":3,"task":"t2","arm":"gated"},{"seq":4,"task":"t2","arm":"ungated"}'
+runbadman && fail "manifest seq gap must exit non-zero"; [ -f "$OUT" ] && fail "manifest seq gap must NOT seal"
+echo "ok 28: manifest sequence gap refuses to seal, exits non-zero, no artifact"
+
+# 29. MANIFEST duplicate sequence (seq 3 twice, seq 4 never covered) -> refuse
+mkfixture; rm -f "$OUT"
+mkbadman 4 '{"seq":1,"task":"t1","arm":"gated"},{"seq":2,"task":"t1","arm":"ungated"},{"seq":3,"task":"t2","arm":"gated"},{"seq":3,"task":"t2","arm":"ungated"}'
+runbadman && fail "manifest duplicate seq must exit non-zero"; [ -f "$OUT" ] && fail "manifest duplicate seq must NOT seal"
+echo "ok 29: manifest duplicate sequence refuses to seal, exits non-zero, no artifact"
+
+# 30. MANIFEST bad task/arm pairing (seqs cover 1..4 uniquely, but task t2 has two gated and no ungated) -> refuse
+mkfixture; rm -f "$OUT"
+mkbadman 4 '{"seq":1,"task":"t1","arm":"gated"},{"seq":2,"task":"t1","arm":"ungated"},{"seq":3,"task":"t2","arm":"gated"},{"seq":4,"task":"t2","arm":"gated"}'
+runbadman && fail "manifest bad pairing must exit non-zero"; [ -f "$OUT" ] && fail "manifest bad pairing must NOT seal"
+echo "ok 30: manifest bad task/arm pairing refuses to seal, exits non-zero, no artifact"
+
+# 31. POSITIVE: a complete valid census with a legitimate marker (registered disposition + resolvable
+#     deviation) AND ancillary files present — a known-shape one, and an UNKNOWN non-record file
+#     (which is ignored, never a failure) — still seals (exit 0, artifact written, completeness_ok true).
+mkfixture; rm -f "$OUT"; rm -f "$RUNS/seq-004/t2-ungated.verdict.json"
+mkmarker 4 t2 ungated PRE_SAMPLING_LIVENESS_UNAVAILABLE D39
+echo 'provenance evidence' > "$RUNS/seq-001/t1-gated-provenance.json"   # allowlisted per-trajectory evidence
+: > "$RUNS/.driver.lock"                                                # allowlisted driver lock
+echo 'not a record' > "$RUNS/seq-002/mystery-note.txt"                  # UNKNOWN ancillary -> ignored, non-fatal
+runD || fail "complete valid census with ancillary files must exit 0"
+[ -f "$OUT" ] || fail "complete valid census with ancillary files must write the artifact"
+[ "$(jq -r .completeness_ok "$OUT")" = "true" ] || fail "sealed artifact must have completeness_ok=true"
+echo "ok 31: complete valid census with legitimate + unknown ancillary files still seals (exit 0)"
 
 echo "analyze-counted.selftest: PASS"
