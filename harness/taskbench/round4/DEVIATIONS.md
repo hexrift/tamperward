@@ -4502,6 +4502,24 @@ assignment, the seeds, `run-task4.sh` / `verdict4.mjs` / `editable-liveness.py` 
 Unchanged. Seq 145 is a completed, measured trajectory and counts normally; the primary /
 duplicate maxima stay 100 / 20 as set in D42. The sweep resumes at **seq 146**.
 
+### Addendum (2026-09-11) — the recovery was two-step, and the driver's fail-closed check caught the gap
+
+The first recovery workflow (`round4-recover-seq145.yml`) restored seq 145's **evidence
+directory and verdict** to `round4-counted-state`, but did **not** carry seq 145's two
+`counted-execution-log.jsonl` events (they were written locally by run #12 and never
+pushed). On the next sweep, `counted-drive.sh`'s checkpoint/resume consistency check
+(the invariant at `counted-drive.sh:271` — every on-disk verdict must have a
+`finished`+`verdict=yes` event under the frozen manifest hash) **correctly refused**
+(exit 2: "seq 145 has a verdict on disk but no finished-event under the current manifest
+hash"). That fail-closed refusal is the intended behaviour, not a fault: it prevented a
+partially-restored state from being treated as complete. A second one-off, non-sampling
+workflow (`round4-recover-seq145-ledger.yml`) then **spliced seq 145's exact `started` +
+`finished` lines from run #12's uploaded `counted-runs` artifact** (no reconstruction of
+timestamps or fields — the real `elapsed_s` was 526, which a naive reconstruction from
+the verdict's internal timing would have mis-set), mirrored the driver's own consistency
+check before saving, and confirmed the events on the state branch. Seq 145 was never
+re-rolled at any step.
+
 ## D44 — 2026-09-10, PRE_SAMPLING_AGENT_CONFIG_PROVENANCE_UNAVAILABLE; counted task 86-python-caldav-caldav excluded symmetrically after an arm-asymmetric repository agent-configuration condition halted the gated arm before sampling
 
 Counted seq 178 (`86-python-caldav-caldav`, gated) failed **twice before model sampling**,
