@@ -5,6 +5,29 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.10.4] — 2026-09-11
+
+**`test.skip` written as `test['skip']` or `test . skip` is the same skip, and the
+in-loop detector was reading only the adjacent-dot spelling. A patch: the test-skip rule
+now matches the skip/focus family through literal string-bracket access and
+whitespace-separated member access, so a spacing or bracket rewrite is no longer a way
+around it.** Reviewing round 4's mechanical detector, `test.skip('case', cb)` produced a
+finding while `test['skip']('case', cb)` and `test . skip('case', cb)` produced none —
+ordinary literal spellings of the same operation. The JavaScript skip/only/todo,
+skipIf/runIf, fails/failing and runtime `t.skip()`/`this.skip()` markers now read both the
+dot form (with or without surrounding whitespace) and the string-bracket form.
+
+**Precision held, not widened.** A marker spelled inside a string literal
+(`expect(x).toBe("test.skip")`) is now masked as text rather than counted as a finding, and
+bracket access on a non-runner object (`cfg["skip"]`, pagination) is not a marker. Computed
+or aliased access (`test[s]`, `test['sk' + 'ip']`) and a member chain split across physical
+lines stay out of scope, by design and documented in the rule — the pristine boundary, not
+this in-loop detector, is the backstop for what a mechanical pattern cannot resolve.
+
+**This was not an escape.** The gap is in the in-loop mechanical detector; pristine
+verification still catches the consequence of any skipped test, so nothing false-green
+turned on it. Direct-diff and hook-adapter evaluation agree on the new spellings.
+
 ## [2.10.3] — 2026-09-05
 
 **Disabling a pytest plugin is a suite narrowing, and it was not being read as

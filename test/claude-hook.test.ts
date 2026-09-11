@@ -61,6 +61,22 @@ describe('claude PreToolUse adapter', () => {
     expect(f.some((x) => x.rule === 'test-deletion')).toBe(true);
   });
 
+  it('denies a Write that skips a test by bracket/whitespace access (same finding as direct diff, #301)', () => {
+    const cwd = fixtureCwd();
+    const f = evalHook(
+      {
+        tool_name: 'Write',
+        cwd,
+        tool_input: {
+          file_path: join(cwd, 'src/a.spec.ts'),
+          content: `it('one', () => {}); it('two', () => {});\ntest['skip']('three', () => {});\n`,
+        },
+      },
+      cwd,
+    );
+    expect(f.some((x) => x.rule === 'test-skip')).toBe(true);
+  });
+
   it('denies a Write that introduces an unsafe cast', () => {
     const cwd = fixtureCwd();
     const f = evalHook(

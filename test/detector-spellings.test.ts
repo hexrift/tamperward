@@ -108,6 +108,16 @@ describe('test-skip: JavaScript spellings', () => {
     'fit("adds", () => {});',
     'xdescribe("m", () => {});',
     'xit ("adds", () => {});',
+    // #301: whitespace-separated member access and literal string-bracket access are the
+    // same operation as `.skip`, so a spacing/bracket rewrite cannot evade the marker.
+    "test['skip']('adds', () => {});",
+    'test . skip("adds", () => {});',
+    'describe["only"]("m", () => {});',
+    "it [ 'todo' ]('adds', () => {});",
+    "test.concurrent['skip']('adds', () => {});",
+    "it['skipIf'](process.platform === 'win32')('adds', () => {});",
+    'it . fails("adds", () => {});',
+    'it("adds", function () { this["skip"](); expect(1).toBe(1); });',
   ])('blocks: %s', (line) => {
     expect(rules(spec(line)), line).toEqual(['test-skip[block]']);
   });
@@ -123,6 +133,12 @@ describe('test-skip: JavaScript spellings', () => {
     'it("adds", { timeout: 500 }, () => {});',
     'it.each([[1, 2, 3]])("adds %i %i", (a, b, c) => { expect(add(a, b)).toBe(c); });',
     'it("xit is not a word here", () => {});',
+    // #301 controls: a marker spelled inside a string literal is text, not a skip; and
+    // bracket access on a non-runner object (config, pagination) is not a skip marker.
+    'it("adds", () => { expect(label).toBe("test.skip"); });',
+    `it("adds", () => { const s = "it['skip']"; return s.length; });`,
+    'it("reads config", () => { const v = cfg["skip"]; return v === 0; });',
+    'it("paginates", () => { expect(page["skip"]).toBe(10); });',
   ])('passes: %s', (line) => {
     expect(spec(line), line).toHaveLength(0);
   });
