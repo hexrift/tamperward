@@ -1,0 +1,147 @@
+diff --git a/pandas_flavor/__init__.py b/pandas_flavor/__init__.py
+index de56082..e780f54 100644
+--- a/pandas_flavor/__init__.py
++++ b/pandas_flavor/__init__.py
+@@ -6,6 +6,8 @@ from .register import (
+     register_series_method,
+     register_groupby_accessor,
+     register_groupby_method,
++    register_dataframe_groupby_method,
++    register_series_groupby_method,
+ )
+ from .xarray import (
+     register_xarray_dataarray_method,
+@@ -19,6 +21,8 @@ __all__ = [
+     "register_dataframe_accessor",
+     "register_groupby_accessor",
+     "register_groupby_method",
++    "register_dataframe_groupby_method",
++    "register_series_groupby_method",
+     "register_xarray_dataarray_method",
+     "register_xarray_dataset_method",
+ ]
+diff --git a/pandas_flavor/register.py b/pandas_flavor/register.py
+index 13ff260..db3763c 100644
+--- a/pandas_flavor/register.py
++++ b/pandas_flavor/register.py
+@@ -5,7 +5,7 @@ from __future__ import annotations
+ import warnings
+ from functools import wraps
+ 
+-from pandas.core.groupby.generic import DataFrameGroupBy
++from pandas.core.groupby.generic import DataFrameGroupBy, SeriesGroupBy
+ from pandas.util._exceptions import find_stack_level
+ from pandas.api.extensions import (
+     register_series_accessor,
+@@ -323,20 +323,14 @@ def register_groupby_accessor(name: str):
+     return _register_accessor(name, DataFrameGroupBy)
+ 
+ 
+-def register_groupby_method(method):
+-    """Register a function as a method attached to the pandas DataFrameGroupBy.
+-
+-    Example:
+-        >>> @register_groupby_method # doctest: +SKIP
+-        >>> def print_column(grp, col): # doctest: +SKIP
+-        ...    '''Print the dataframe column given''' # doctest: +SKIP
+-        ...    print(grp[col]) # doctest: +SKIP
+-
+-    !!! info "New in version 0.7.0"
++def _register_groupby_method(method, cls):
++    """Register a function as a method attached to a pandas GroupBy class.
+ 
+     Args:
+         method: Function to be registered as a method
+-            on the DataFrameGroupBy object.
++            on the GroupBy object.
++        cls: The GroupBy class (DataFrameGroupBy or SeriesGroupBy)
++            to register the method on.
+ 
+     Returns:
+         callable: The original method.
+@@ -358,7 +352,7 @@ def register_groupby_method(method):
+         """
+ 
+         class AccessorMethod(object):
+-            """DataFrameGroupBy Accessor method class."""
++            """GroupBy Accessor method class."""
+ 
+             __doc__ = method.__doc__
+ 
+@@ -366,7 +360,7 @@ def register_groupby_method(method):
+                 """Initialize the accessor method class.
+ 
+                 Args:
+-                    obj: The pandas DataFrameGroupBy object.
++                    obj: The pandas GroupBy object.
+                 """
+                 self._obj = obj
+ 
+@@ -390,7 +384,66 @@ def register_groupby_method(method):
+                     method, method_signature, self._obj, args, kwargs
+                 )
+ 
+-        register_groupby_accessor(method.__name__)(AccessorMethod)
++        _register_accessor(method.__name__, cls)(AccessorMethod)
+         return method
+ 
+     return inner()
++
++
++def register_groupby_method(method):
++    """Register a function as a method attached to the pandas DataFrameGroupBy.
++
++    Example:
++        >>> @register_groupby_method # doctest: +SKIP
++        >>> def print_column(grp, col): # doctest: +SKIP
++        ...    '''Print the dataframe column given''' # doctest: +SKIP
++        ...    print(grp[col]) # doctest: +SKIP
++
++    !!! info "New in version 0.7.0"
++
++    Args:
++        method: Function to be registered as a method
++            on the DataFrameGroupBy object.
++
++    Returns:
++        callable: The original method.
++    """
++    return _register_groupby_method(method, DataFrameGroupBy)
++
++
++def register_dataframe_groupby_method(method):
++    """Register a function as a method attached to the pandas DataFrameGroupBy.
++
++    Example:
++        >>> @register_dataframe_groupby_method # doctest: +SKIP
++        >>> def print_column(grp, col): # doctest: +SKIP
++        ...    '''Print the dataframe column given''' # doctest: +SKIP
++        ...    print(grp[col]) # doctest: +SKIP
++
++    Args:
++        method: Function to be registered as a method
++            on the DataFrameGroupBy object.
++
++    Returns:
++        callable: The original method.
++    """
++    return _register_groupby_method(method, DataFrameGroupBy)
++
++
++def register_series_groupby_method(method):
++    """Register a function as a method attached to the pandas SeriesGroupBy.
++
++    Example:
++        >>> @register_series_groupby_method # doctest: +SKIP
++        >>> def print_first(grp): # doctest: +SKIP
++        ...    '''Print the first value of each group''' # doctest: +SKIP
++        ...    print(grp.first()) # doctest: +SKIP
++
++    Args:
++        method: Function to be registered as a method
++            on the SeriesGroupBy object.
++
++    Returns:
++        callable: The original method.
++    """
++    return _register_groupby_method(method, SeriesGroupBy)

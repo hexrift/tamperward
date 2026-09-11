@@ -1,0 +1,194 @@
+diff --git a/python-pam/pam/__init__.py b/python-pam/pam/__init__.py
+index 5ac52d8..eedd73c 100644
+--- a/python-pam/pam/__init__.py
++++ b/python-pam/pam/__init__.py
+@@ -116,9 +116,6 @@ __all__ = [
+     'PAM_XDISPLAY',
+     ]
+ 
+-__PA: PamAuthenticator | None = None
+-
+-
+ def authenticate(
+     username: str | bytes,
+     password: str | bytes,
+@@ -131,8 +128,12 @@ def authenticate(
+ ) -> bool:
+     """Authenticate a user against PAM.
+ 
+-    This is a convenience function that creates a PamAuthenticator instance
+-    (reusing a global instance if available) and calls its authenticate method.
++    This is a convenience function that creates a fresh PamAuthenticator
++    instance for every call and calls its authenticate method. A fresh
++    instance is required (#40): reusing a process-global authenticator would
++    let PAM handle/conversation state from one authentication call leak into
++    the next. The underlying shared libraries are still only loaded once per
++    process (see PamAuthenticator._load_libs), so this stays cheap.
+ 
+     Args:
+         username: Username to authenticate
+@@ -147,12 +148,8 @@ def authenticate(
+     Returns:
+         bool: True if authentication succeeded, False otherwise
+     """
+-    global __PA  # noqa: W0603, PLW0603
+-
+-    if __PA is None:  # pragma: no branch
+-        __PA = PamAuthenticator()
+-
+-    return __PA.authenticate(username, password, service, env, call_end, encoding, resetcreds, print_failure_messages)
++    return PamAuthenticator().authenticate(
++        username, password, service, env, call_end, encoding, resetcreds, print_failure_messages)
+ 
+ 
+ # legacy implementations used pam.pam()
+diff --git a/python-pam/pam/__internals.py b/python-pam/pam/__internals.py
+index 92ba1cc..57e8c5f 100644
+--- a/python-pam/pam/__internals.py
++++ b/python-pam/pam/__internals.py
+@@ -193,7 +193,18 @@ class PamAuthenticator:
+     code: int = 0
+     reason: str | bytes | None = None
+ 
+-    def __init__(self):
++    _libs_ready: bool = False
++
++    @classmethod
++    def _load_libs(cls) -> None:
++        """Load and bind the PAM/libc shared libraries once per process.
++
++        The bound function pointers are stored as class attributes so every
++        instance shares them instead of re-dlopen()'ing on each construction.
++        """
++        if cls._libs_ready:  # pragma: no branch
++            return
++
+         # use a trick of dlopen(), this effectively becomes
+         # dlopen("", ...) which opens our own executable. since 'python' has
+         # a libc dependency, this means libc symbols are already available
+@@ -201,72 +212,77 @@ class PamAuthenticator:
+ 
+         # libc = CDLL(find_library("c"))
+         libc = cdll.LoadLibrary(None)  # type: ignore[arg-type]
+-        self.libc = libc
++        cls.libc = libc
+ 
+         libpam = CDLL(find_library("pam"))
+         libpam_misc = CDLL(find_library("pam_misc"))
+ 
+-        self.handle: PamHandle | None = None
+-        self.messages: list[str] = []
+-
+-        self.calloc = libc.calloc
+-        self.calloc.restype = c_void_p
+-        self.calloc.argtypes = [c_size_t, c_size_t]
++        cls.calloc = libc.calloc
++        cls.calloc.restype = c_void_p
++        cls.calloc.argtypes = [c_size_t, c_size_t]
+ 
+         # bug #6 (@NIPE-SYSTEMS), some libpam versions don't include this
+         # function
+         if hasattr(libpam, 'pam_end'):  # pragma: no branch
+-            self.pam_end = libpam.pam_end
+-            self.pam_end.restype = c_int
+-            self.pam_end.argtypes = [PamHandle, c_int]
++            cls.pam_end = libpam.pam_end
++            cls.pam_end.restype = c_int
++            cls.pam_end.argtypes = [PamHandle, c_int]
+ 
+-        self.pam_start = libpam.pam_start
+-        self.pam_start.restype = c_int
+-        self.pam_start.argtypes = [c_char_p, c_char_p, POINTER(PamConv),
+-                                   POINTER(PamHandle)]
++        cls.pam_start = libpam.pam_start
++        cls.pam_start.restype = c_int
++        cls.pam_start.argtypes = [c_char_p, c_char_p, POINTER(PamConv),
++                                  POINTER(PamHandle)]
+ 
+-        self.pam_acct_mgmt = libpam.pam_acct_mgmt
+-        self.pam_acct_mgmt.restype = c_int
+-        self.pam_acct_mgmt.argtypes = [PamHandle, c_int]
++        cls.pam_acct_mgmt = libpam.pam_acct_mgmt
++        cls.pam_acct_mgmt.restype = c_int
++        cls.pam_acct_mgmt.argtypes = [PamHandle, c_int]
+ 
+-        self.pam_set_item = libpam.pam_set_item
+-        self.pam_set_item.restype = c_int
+-        self.pam_set_item.argtypes = [PamHandle, c_int, c_void_p]
++        cls.pam_set_item = libpam.pam_set_item
++        cls.pam_set_item.restype = c_int
++        cls.pam_set_item.argtypes = [PamHandle, c_int, c_void_p]
+ 
+-        self.pam_setcred = libpam.pam_setcred
+-        self.pam_strerror = libpam.pam_strerror
+-        self.pam_strerror.restype = c_char_p
+-        self.pam_strerror.argtypes = [PamHandle, c_int]
++        cls.pam_setcred = libpam.pam_setcred
++        cls.pam_strerror = libpam.pam_strerror
++        cls.pam_strerror.restype = c_char_p
++        cls.pam_strerror.argtypes = [PamHandle, c_int]
+ 
+-        self.pam_authenticate = libpam.pam_authenticate
+-        self.pam_authenticate.restype = c_int
+-        self.pam_authenticate.argtypes = [PamHandle, c_int]
++        cls.pam_authenticate = libpam.pam_authenticate
++        cls.pam_authenticate.restype = c_int
++        cls.pam_authenticate.argtypes = [PamHandle, c_int]
+ 
+-        self.pam_open_session = libpam.pam_open_session
+-        self.pam_open_session.restype = c_int
+-        self.pam_open_session.argtypes = [PamHandle, c_int]
++        cls.pam_open_session = libpam.pam_open_session
++        cls.pam_open_session.restype = c_int
++        cls.pam_open_session.argtypes = [PamHandle, c_int]
+ 
+-        self.pam_close_session = libpam.pam_close_session
+-        self.pam_close_session.restype = c_int
+-        self.pam_close_session.argtypes = [PamHandle, c_int]
++        cls.pam_close_session = libpam.pam_close_session
++        cls.pam_close_session.restype = c_int
++        cls.pam_close_session.argtypes = [PamHandle, c_int]
+ 
+-        self.pam_putenv = libpam.pam_putenv
+-        self.pam_putenv.restype = c_int
+-        self.pam_putenv.argtypes = [PamHandle, c_char_p]
++        cls.pam_putenv = libpam.pam_putenv
++        cls.pam_putenv.restype = c_int
++        cls.pam_putenv.argtypes = [PamHandle, c_char_p]
+ 
+         if libpam_misc._name:  # pragma: no branch
+-            self.pam_misc_setenv = libpam_misc.pam_misc_setenv
+-            self.pam_misc_setenv.restype = c_int
+-            self.pam_misc_setenv.argtypes = [PamHandle, c_char_p, c_char_p,
+-                                             c_int]
+-
+-        self.pam_getenv = libpam.pam_getenv
+-        self.pam_getenv.restype = c_char_p
+-        self.pam_getenv.argtypes = [PamHandle, c_char_p]
+-
+-        self.pam_getenvlist = libpam.pam_getenvlist
+-        self.pam_getenvlist.restype = POINTER(c_char_p)
+-        self.pam_getenvlist.argtypes = [PamHandle]
++            cls.pam_misc_setenv = libpam_misc.pam_misc_setenv
++            cls.pam_misc_setenv.restype = c_int
++            cls.pam_misc_setenv.argtypes = [PamHandle, c_char_p, c_char_p,
++                                            c_int]
++
++        cls.pam_getenv = libpam.pam_getenv
++        cls.pam_getenv.restype = c_char_p
++        cls.pam_getenv.argtypes = [PamHandle, c_char_p]
++
++        cls.pam_getenvlist = libpam.pam_getenvlist
++        cls.pam_getenvlist.restype = POINTER(c_char_p)
++        cls.pam_getenvlist.argtypes = [PamHandle]
++
++        cls._libs_ready = True
++
++    def __init__(self):
++        type(self)._load_libs()
++
++        self.handle: PamHandle | None = None
++        self.messages: list[str] = []
+ 
+     def authenticate(
+         self,

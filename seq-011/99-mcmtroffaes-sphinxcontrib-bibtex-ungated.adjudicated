@@ -1,0 +1,17 @@
+# PRE_SAMPLING_LIVENESS_UNAVAILABLE — DEVIATIONS D39 (applied); see D40 (census).
+# Recorded 2026-09-09. Task 99-mcmtroffaes-sphinxcontrib-bibtex is measurement-unavailable:
+# the frozen editable-liveness probe deterministically returns TARGET_DISCOVERY_FAILED
+# because it is a PEP 420 namespace package (src/sphinxcontrib/bibtex/...) — the probe
+# searches sphinxcontrib/__init__.py, src/sphinxcontrib/__init__.py (a namespace has
+# neither) and sphinxcontrib_bibtex/... (the dir is sphinxcontrib/bibtex/), never the
+# dotted path. Read-only diagnosis established determinism; the frozen probe is unchanged.
+# seq 11: attempted; run-task4 exited at the PRE_AGENT liveness guard before sampling (the recorded pre-sampling failure).
+disposition=PRE_SAMPLING_LIVENESS_UNAVAILABLE
+task=99-mcmtroffaes-sphinxcontrib-bibtex
+seq=11
+arm=ungated
+sampled=false
+model_output=none
+budget_spent=0
+deviation=D39
+recorded=2026-09-09

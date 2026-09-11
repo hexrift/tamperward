@@ -1,0 +1,34 @@
+diff --git a/dataset/database.py b/dataset/database.py
+index 4eb79ad..cb15634 100644
+--- a/dataset/database.py
++++ b/dataset/database.py
+@@ -168,6 +168,7 @@ class Database:
+                     tx.commit()
+                 else:
+                     self.executable.commit()
++                self._release_connection()
+ 
+     def rollback(self) -> None:
+         """Roll back the current transaction.
+@@ -181,8 +182,21 @@ class Database:
+                     tx.rollback()
+                 else:
+                     self.executable.rollback()
++                self._release_connection()
+             self._flush_tables()
+ 
++    def _release_connection(self) -> None:
++        """Return the current thread's connection to the pool.
++
++        Called once a thread's outermost transaction has ended, so that
++        connections opened by short-lived worker threads (e.g. via
++        ``with db:``) don't accumulate in ``self.connections`` forever.
++        """
++        with self.lock:
++            conn = self.connections.pop(threading.get_ident(), None)
++        if conn is not None:
++            conn.close()
++
+     def __enter__(self) -> "Database":
+         """Start a transaction."""
+         self.begin()

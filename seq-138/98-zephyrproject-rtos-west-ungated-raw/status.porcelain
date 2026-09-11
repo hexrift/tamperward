@@ -1,0 +1,3 @@
+ M src/west/app/project.py
+ M src/west/manifest.py
+ M tests/test_config.py

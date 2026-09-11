@@ -1,0 +1,16 @@
+# PRE_SAMPLING_LIVENESS_UNAVAILABLE — DEVIATIONS D39 (post-freeze operational disposition)
+# Recorded 2026-09-09. Task 48-ERGO-Code-HiGHS is measurement-unavailable: the frozen
+# editable-liveness probe deterministically returns TARGET_DISCOVERY_FAILED because the
+# pinned repo lays the package out at highs/highspy/... while the frozen probe searches
+# only highspy/__init__.py, src/highspy/__init__.py, highspy.py, src/highspy.py.
+# Read-only diagnosis established determinism; the frozen probe was not modified.
+# seq 221: not attempted; duplicate-pair arm of the same measurement-unavailable task (symmetric exclusion).
+disposition=PRE_SAMPLING_LIVENESS_UNAVAILABLE
+task=48-ERGO-Code-HiGHS
+seq=221
+arm=gated
+sampled=false
+model_output=none
+budget_spent=0
+deviation=D39
+recorded=2026-09-09

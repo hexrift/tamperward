@@ -1,0 +1,80 @@
+diff --git a/xhtml2pdf/builders/watermarks.py b/xhtml2pdf/builders/watermarks.py
+index a01c724..2149380 100644
+--- a/xhtml2pdf/builders/watermarks.py
++++ b/xhtml2pdf/builders/watermarks.py
+@@ -109,7 +109,7 @@ class WaterMarks:
+             for counter, (page, bgfile, pgcontext) in enumerate(
+                 context.pisaBackgroundList
+             ):
+-                if not bgfile.notFound():
++                if bgfile is not None and not bgfile.notFound():
+                     yield range(page, pages[counter]), bgfile, int(pgcontext["step"])
+ 
+     @staticmethod
+diff --git a/xhtml2pdf/xhtml2pdf_reportlab.py b/xhtml2pdf/xhtml2pdf_reportlab.py
+index bd8207d..2c79756 100644
+--- a/xhtml2pdf/xhtml2pdf_reportlab.py
++++ b/xhtml2pdf/xhtml2pdf_reportlab.py
+@@ -102,6 +102,15 @@ class PmlMaxHeightMixIn:
+ class PmlBaseDoc(BaseDocTemplate):
+     """We use our own document template to get access to the canvas and set some information once."""
+ 
++    def handle_documentBegin(self) -> None:
++        # Each pass of a multiBuild (e.g. for TOC pagination) redraws every
++        # page from scratch, so background bookkeeping from earlier passes
++        # must not leak into the pass that actually gets used downstream.
++        self._pisaLastTemplateId = None
++        for pt in self.pageTemplates:
++            pt.pisaBackgroundList.clear()
++        super().handle_documentBegin()
++
+     def beforePage(self) -> None:
+         self.canv._doc.info.producer = PRODUCER
+ 
+@@ -198,6 +207,7 @@ class PmlPageTemplate(PageTemplate):
+         self.pisaStaticList: list = []
+         self.pisaBackgroundList: list[tuple] = []
+         self.pisaBackground = None
++        self.backgroundContext = None
+         super().__init__(**kw)
+         self._page_count: int = 0
+         self._first_flow: bool = True
+@@ -208,8 +218,6 @@ class PmlPageTemplate(PageTemplate):
+         self.h: int = 0
+         self.w: int = 0
+ 
+-        self.backgroundids: list[int] = []
+-
+     def isFirstFlow(self, canvas: Canvas) -> bool:
+         if self._first_flow:
+             if canvas.getPageNumber() <= self._page_count:
+@@ -228,7 +236,13 @@ class PmlPageTemplate(PageTemplate):
+     def beforeDrawPage(self, canvas: Canvas, doc):
+         canvas.saveState()
+         try:
+-            if doc.pageTemplate.id not in self.backgroundids:
++            # Record a boundary every time the active page template changes
++            # (not just the first time a given template is seen), so that
++            # background ranges are recomputed correctly when a template
++            # without a background follows one with a background, or when a
++            # template is revisited later in the document.
++            if doc.pageTemplate.id != getattr(doc, "_pisaLastTemplateId", None):
++                doc._pisaLastTemplateId = doc.pageTemplate.id
+                 pisaBackground = None
+                 if (
+                     hasattr(self, "pisaBackground")
+@@ -244,11 +258,9 @@ class PmlPageTemplate(PageTemplate):
+                         )
+                     else:
+                         pisaBackground = self.pisaBackground
+-                    self.backgroundids.append(doc.pageTemplate.id)
+-                if pisaBackground:
+-                    self.pisaBackgroundList.append(
+-                        (canvas.getPageNumber(), pisaBackground, self.backgroundContext)
+-                    )
++                self.pisaBackgroundList.append(
++                    (canvas.getPageNumber(), pisaBackground, self.backgroundContext)
++                )
+ 
+             def pageNumbering(objList):
+                 for obj in flatten(objList):

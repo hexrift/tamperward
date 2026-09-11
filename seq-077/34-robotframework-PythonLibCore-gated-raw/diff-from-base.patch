@@ -1,0 +1,34 @@
+diff --git a/atest/SmallLibrary.py b/atest/SmallLibrary.py
+index 3a93661..3368fc7 100644
+--- a/atest/SmallLibrary.py
++++ b/atest/SmallLibrary.py
+@@ -16,10 +16,12 @@ class SmallLibrary(DynamicCore):
+ 
+     def __init__(self, translation: Optional[Path] = None):
+         """__init__ documentation."""
+-        if not isinstance(translation, Path):
++        if translation is not None and not isinstance(translation, (Path, dict)):
+             logger.warn("Convert to Path")
+             translation = Path(translation)
+-        DynamicCore.__init__(self, [KeywordClass()], translation.absolute())
++        if isinstance(translation, Path):
++            translation = translation.absolute()
++        DynamicCore.__init__(self, [KeywordClass()], translation)
+ 
+     @keyword(tags=["tag1", "tag2"])
+     def normal_keyword(self, arg: int, other: str) -> str:
+diff --git a/src/robotlibcore/utils/translations.py b/src/robotlibcore/utils/translations.py
+index 99dfd07..a6feb12 100644
+--- a/src/robotlibcore/utils/translations.py
++++ b/src/robotlibcore/utils/translations.py
+@@ -19,7 +19,9 @@ from pathlib import Path
+ from robot.api import logger
+ 
+ 
+-def _translation(translation: Path | None = None):
++def _translation(translation: Path | dict | None = None):
++    if isinstance(translation, dict):
++        return translation
+     if translation and isinstance(translation, Path) and translation.is_file():
+         with translation.open("r", encoding="utf-8") as file:
+             try:

@@ -1,0 +1,14 @@
+{
+  "externalized": true,
+  "reason": "oversized-evidence-checkpoint (DEVIATIONS D43)",
+  "original_path": "seq-134/91-kedro-org-kedro-ungated-raw/repo-final-tree.tar",
+  "sha256": "759e4be1518268c176667ac858a9ef260ce2bd9a6564cc30e2642280907f2759",
+  "size_bytes": 101355520,
+  "store": "github-release-asset",
+  "repository": "hexrift/tamperward",
+  "release_tag": "round4-evidence",
+  "asset_name": "759e4be1518268c176667ac858a9ef260ce2bd9a6564cc30e2642280907f2759-repo-final-tree.tar",
+  "asset_url": "https://github.com/hexrift/tamperward/releases/download/round4-evidence/759e4be1518268c176667ac858a9ef260ce2bd9a6564cc30e2642280907f2759-repo-final-tree.tar",
+  "externalized_at": "2026-09-10T13:09:43Z",
+  "note": "Raw final-tree evidence archive. NOT an input to verdict computation (verdict4.mjs never reads it). Retrieve with: gh release download round4-evidence -p '759e4be1518268c176667ac858a9ef260ce2bd9a6564cc30e2642280907f2759-repo-final-tree.tar'."
+}

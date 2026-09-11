@@ -1,0 +1,95 @@
+diff --git a/petl/transform/joins.py b/petl/transform/joins.py
+index fd518a8..60e9f2b 100644
+--- a/petl/transform/joins.py
++++ b/petl/transform/joins.py
+@@ -743,8 +743,8 @@ def iterlookupjoin(left, right, lkey, rkey, missing=None, lprefix=None,
+     rkind = asindices(rhdr, rkey)
+ 
+     # construct functions to extract key values from both tables
+-    lgetk = operator.itemgetter(*lkind)
+-    rgetk = operator.itemgetter(*rkind)
++    lgetk = comparable_itemgetter(*lkind)
++    rgetk = comparable_itemgetter(*rkind)
+ 
+     # determine indices of non-key fields in the right table
+     # (in the output, we only include key fields from the left table - we
+@@ -785,42 +785,54 @@ def iterlookupjoin(left, right, lkey, rkey, missing=None, lprefix=None,
+     rgit = itertools.groupby(rit, key=rgetk)
+     lrowgrp = []
+ 
+-    # loop until *either* of the iterators is exhausted
+-    lkval, rkval = None, None  # initialise here to handle empty tables
++    # loop until *either* of the iterators is exhausted, tracking which
++    # side ran out so we don't compare a key against None afterwards
++    lstop = rstop = False
+     try:
+-
+-        # pick off initial row groups
+         lkval, lrowgrp = next(lgit)
++    except StopIteration:
++        lstop = True
++    try:
+         rkval, rrowgrp = next(rgit)
++    except StopIteration:
++        rstop = True
+ 
+-        while True:
+-            if lkval < rkval:
+-                for row in joinrows(lrowgrp, None):
+-                    yield tuple(row)
+-                # advance left
++    while not lstop and not rstop:
++        if lkval < rkval:
++            for row in joinrows(lrowgrp, None):
++                yield tuple(row)
++            # advance left
++            try:
+                 lkval, lrowgrp = next(lgit)
+-            elif lkval > rkval:
+-                # advance right
++            except StopIteration:
++                lstop = True
++        elif lkval > rkval:
++            # advance right
++            try:
+                 rkval, rrowgrp = next(rgit)
+-            else:
+-                for row in joinrows(lrowgrp, rrowgrp):
+-                    yield tuple(row)
+-                # advance both
++            except StopIteration:
++                rstop = True
++        else:
++            for row in joinrows(lrowgrp, rrowgrp):
++                yield tuple(row)
++            # advance both
++            try:
+                 lkval, lrowgrp = next(lgit)
++            except StopIteration:
++                lstop = True
++            try:
+                 rkval, rrowgrp = next(rgit)
++            except StopIteration:
++                rstop = True
+ 
+-    except StopIteration:
+-        pass
+-
+-    # make sure any left rows remaining are yielded
+-    if lkval > rkval:
+-        # yield anything that got left hanging
+-        for row in joinrows(lrowgrp, None):
+-            yield tuple(row)
+-    # yield the rest
+-    for lkval, lrowgrp in lgit:
++    # if the right iterator ran out first, the current left row group is
++    # still unmatched and needs to be yielded, along with anything left
++    if not lstop:
+         for row in joinrows(lrowgrp, None):
+             yield tuple(row)
++        for lkval, lrowgrp in lgit:
++            for row in joinrows(lrowgrp, None):
++                yield tuple(row)
+ 
+ 
+ def unjoin(table, value, key=None, autoincrement=(1, 1), presorted=False,

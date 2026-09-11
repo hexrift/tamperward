@@ -1,0 +1,36 @@
+diff --git a/dataset/database.py b/dataset/database.py
+index 4eb79ad..a40a364 100644
+--- a/dataset/database.py
++++ b/dataset/database.py
+@@ -168,6 +168,7 @@ class Database:
+                     tx.commit()
+                 else:
+                     self.executable.commit()
++                self._release_local_connection()
+ 
+     def rollback(self) -> None:
+         """Roll back the current transaction.
+@@ -181,8 +182,23 @@ class Database:
+                     tx.rollback()
+                 else:
+                     self.executable.rollback()
++                self._release_local_connection()
+             self._flush_tables()
+ 
++    def _release_local_connection(self) -> None:
++        """Close and forget the connection owned by the current thread.
++
++        Called once an explicit transaction (``begin()``/``with db:``) has
++        fully unwound, so short-lived threads don't accumulate one open
++        connection each (issue #425). ``executable`` will lazily reconnect
++        if the thread performs further work.
++        """
++        tid = threading.get_ident()
++        with self.lock:
++            conn = self.connections.pop(tid, None)
++        if conn is not None:
++            conn.close()
++
+     def __enter__(self) -> "Database":
+         """Start a transaction."""
+         self.begin()

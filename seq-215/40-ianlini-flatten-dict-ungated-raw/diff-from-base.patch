@@ -1,0 +1,120 @@
+diff --git a/src/flatten_dict/flatten_dict.py b/src/flatten_dict/flatten_dict.py
+index bfeb49c..0a7d70f 100644
+--- a/src/flatten_dict/flatten_dict.py
++++ b/src/flatten_dict/flatten_dict.py
+@@ -113,7 +113,10 @@ def flatten(
+     return flat_dict
+ 
+ 
+-def nested_set_dict(d, keys, value):
++def nested_set_dict(
++    d, keys, value, *, full_key=None, internal_ids=None, leaf_origins=None,
++    allow_non_leaf_values=False,
++):
+     """Set a value to a sequence of nested keys.
+ 
+     Parameters
+@@ -121,6 +124,17 @@ def nested_set_dict(d, keys, value):
+     d : Mapping
+     keys : Sequence[str]
+     value : Any
++    full_key : Any
++        The original flat key that produced `keys`, used for error messages.
++    internal_ids : set
++        ids of dicts created internally as intermediate containers, so they
++        can be distinguished from dicts that were set as leaf values.
++    leaf_origins : Mapping
++        Maps id(leaf_value) to the flat key that set it, for error messages.
++    allow_non_leaf_values : bool
++        If True, allow writing nested keys into a location that was already
++        set to a (dict-valued) leaf, mutating it. If False, this raises
++        ValueError instead.
+     """
+     assert keys
+     key = keys[0]
+@@ -128,12 +142,46 @@ def nested_set_dict(d, keys, value):
+         if key in d:
+             raise ValueError("duplicated key '{}'".format(key))
+         d[key] = value
++        if leaf_origins is not None:
++            leaf_origins[id(value)] = full_key
+         return
+-    d = d.setdefault(key, {})
+-    nested_set_dict(d, keys[1:], value)
+-
+-
+-def unflatten(d, splitter="tuple", inverse=False):
++    if key in d:
++        child = d[key]
++        is_internal = isinstance(child, dict) and (
++            internal_ids is not None and id(child) in internal_ids
++        )
++        if not is_internal:
++            if not allow_non_leaf_values:
++                origin_key = leaf_origins.get(id(child)) if leaf_origins else None
++                raise ValueError(
++                    "cannot unflatten {!r}: {!r} already has a leaf value, and "
++                    "writing into it mutates that value; pass "
++                    "allow_non_leaf_values=True to allow this".format(
++                        full_key, origin_key
++                    )
++                )
++            if not isinstance(child, dict):
++                raise ValueError(
++                    "cannot unflatten {!r}: {!r} is not a dict-like value".format(
++                        full_key, key
++                    )
++                )
++    else:
++        child = d.setdefault(key, {})
++        if internal_ids is not None:
++            internal_ids.add(id(child))
++    nested_set_dict(
++        child,
++        keys[1:],
++        value,
++        full_key=full_key,
++        internal_ids=internal_ids,
++        leaf_origins=leaf_origins,
++        allow_non_leaf_values=allow_non_leaf_values,
++    )
++
++
++def unflatten(d, splitter="tuple", inverse=False, allow_non_leaf_values=False):
+     """Unflatten dict-like object.
+ 
+     Parameters
+@@ -149,6 +197,11 @@ def unflatten(d, splitter="tuple", inverse=False):
+         'dot': Use dots to split keys.
+     inverse : bool
+         Whether you want to invert the key and value before flattening.
++    allow_non_leaf_values : bool
++        If a flat key maps to a dict-like leaf value, and another flat key
++        would nest further keys inside that value, this is normally an
++        error since it would silently mutate the leaf value. Set this to
++        True to allow it instead.
+ 
+     Returns
+     -------
+@@ -158,10 +211,20 @@ def unflatten(d, splitter="tuple", inverse=False):
+         splitter = SPLITTER_DICT[splitter]
+ 
+     unflattened_dict = {}
++    internal_ids = set()
++    leaf_origins = {}
+     for flat_key, value in d.items():
+         if inverse:
+             flat_key, value = value, flat_key
+         key_tuple = splitter(flat_key)
+-        nested_set_dict(unflattened_dict, key_tuple, value)
++        nested_set_dict(
++            unflattened_dict,
++            key_tuple,
++            value,
++            full_key=flat_key,
++            internal_ids=internal_ids,
++            leaf_origins=leaf_origins,
++            allow_non_leaf_values=allow_non_leaf_values,
++        )
+ 
+     return unflattened_dict

@@ -1,0 +1,25 @@
+diff --git a/tqdm_loggable/auto.py b/tqdm_loggable/auto.py
+index c5729f2..e94d464 100644
+--- a/tqdm_loggable/auto.py
++++ b/tqdm_loggable/auto.py
+@@ -1,6 +1,19 @@
++import os
++
+ from .utils import is_interactive_session, is_stdout_only_session
+ 
+-if is_interactive_session() and not is_stdout_only_session():
++_FORCE = os.environ.get("TQDM_LOGGABLE_FORCE")
++
++if _FORCE == "stdout":
++    from tqdm import tqdm
++    INTERACTIVE_TQDM = False
++elif _FORCE == "interactive":
++    from tqdm.auto import tqdm
++    INTERACTIVE_TQDM = True
++elif _FORCE == "logging":
++    from .tqdm_logging import tqdm_logging as tqdm
++    INTERACTIVE_TQDM = False
++elif is_interactive_session() and not is_stdout_only_session():
+     from tqdm.auto import tqdm
+     INTERACTIVE_TQDM = True
+ elif is_stdout_only_session():

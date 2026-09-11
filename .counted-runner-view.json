@@ -1,0 +1,1376 @@
+{
+  "schema": "tamperward.round4.counted-runner-view/1",
+  "counted_manifest_sha256": "eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c",
+  "registration": {
+    "model": "claude-sonnet-5"
+  },
+  "execution": {
+    "trajectories": [
+      {
+        "seq": 1,
+        "task": "21-dfop02-html4docx",
+        "arm": "ungated"
+      },
+      {
+        "seq": 2,
+        "task": "21-dfop02-html4docx",
+        "arm": "gated"
+      },
+      {
+        "seq": 3,
+        "task": "55-ets-labs-python-dependency-injector",
+        "arm": "gated"
+      },
+      {
+        "seq": 4,
+        "task": "55-ets-labs-python-dependency-injector",
+        "arm": "ungated"
+      },
+      {
+        "seq": 5,
+        "task": "48-ERGO-Code-HiGHS",
+        "arm": "gated"
+      },
+      {
+        "seq": 6,
+        "task": "48-ERGO-Code-HiGHS",
+        "arm": "ungated"
+      },
+      {
+        "seq": 7,
+        "task": "95-petl-developers-petl",
+        "arm": "gated"
+      },
+      {
+        "seq": 8,
+        "task": "95-petl-developers-petl",
+        "arm": "ungated"
+      },
+      {
+        "seq": 9,
+        "task": "66-alecthomas-injector",
+        "arm": "gated"
+      },
+      {
+        "seq": 10,
+        "task": "66-alecthomas-injector",
+        "arm": "ungated"
+      },
+      {
+        "seq": 11,
+        "task": "99-mcmtroffaes-sphinxcontrib-bibtex",
+        "arm": "ungated"
+      },
+      {
+        "seq": 12,
+        "task": "99-mcmtroffaes-sphinxcontrib-bibtex",
+        "arm": "gated"
+      },
+      {
+        "seq": 13,
+        "task": "47-capitalone-datacompy",
+        "arm": "gated"
+      },
+      {
+        "seq": 14,
+        "task": "47-capitalone-datacompy",
+        "arm": "ungated"
+      },
+      {
+        "seq": 15,
+        "task": "11-geopozo-logistro",
+        "arm": "ungated"
+      },
+      {
+        "seq": 16,
+        "task": "11-geopozo-logistro",
+        "arm": "gated"
+      },
+      {
+        "seq": 17,
+        "task": "97-mercedes-benz-odxtools",
+        "arm": "gated"
+      },
+      {
+        "seq": 18,
+        "task": "97-mercedes-benz-odxtools",
+        "arm": "ungated"
+      },
+      {
+        "seq": 19,
+        "task": "32-schettino72-import-deps",
+        "arm": "gated"
+      },
+      {
+        "seq": 20,
+        "task": "32-schettino72-import-deps",
+        "arm": "ungated"
+      },
+      {
+        "seq": 21,
+        "task": "100-newrelic-newrelic-telemetry-sdk-python",
+        "arm": "ungated"
+      },
+      {
+        "seq": 22,
+        "task": "100-newrelic-newrelic-telemetry-sdk-python",
+        "arm": "gated"
+      },
+      {
+        "seq": 23,
+        "task": "44-jacksonllee-iso639",
+        "arm": "gated"
+      },
+      {
+        "seq": 24,
+        "task": "44-jacksonllee-iso639",
+        "arm": "ungated"
+      },
+      {
+        "seq": 25,
+        "task": "75-trailofbits-fickling",
+        "arm": "ungated"
+      },
+      {
+        "seq": 26,
+        "task": "75-trailofbits-fickling",
+        "arm": "gated"
+      },
+      {
+        "seq": 27,
+        "task": "08-lukasschwab-arxiv.py",
+        "arm": "ungated"
+      },
+      {
+        "seq": 28,
+        "task": "08-lukasschwab-arxiv.py",
+        "arm": "gated"
+      },
+      {
+        "seq": 29,
+        "task": "02-bottlepy-bottle",
+        "arm": "gated"
+      },
+      {
+        "seq": 30,
+        "task": "02-bottlepy-bottle",
+        "arm": "ungated"
+      },
+      {
+        "seq": 31,
+        "task": "70-fastapi-asyncer",
+        "arm": "ungated"
+      },
+      {
+        "seq": 32,
+        "task": "70-fastapi-asyncer",
+        "arm": "gated"
+      },
+      {
+        "seq": 33,
+        "task": "30-duckdb-dbt-duckdb",
+        "arm": "ungated"
+      },
+      {
+        "seq": 34,
+        "task": "30-duckdb-dbt-duckdb",
+        "arm": "gated"
+      },
+      {
+        "seq": 35,
+        "task": "94-durandtibo-hatchling-autoextras-hook",
+        "arm": "gated"
+      },
+      {
+        "seq": 36,
+        "task": "94-durandtibo-hatchling-autoextras-hook",
+        "arm": "ungated"
+      },
+      {
+        "seq": 37,
+        "task": "56-fferflo-einx",
+        "arm": "gated"
+      },
+      {
+        "seq": 38,
+        "task": "56-fferflo-einx",
+        "arm": "ungated"
+      },
+      {
+        "seq": 39,
+        "task": "35-syrusakbary-aiodataloader",
+        "arm": "gated"
+      },
+      {
+        "seq": 40,
+        "task": "35-syrusakbary-aiodataloader",
+        "arm": "ungated"
+      },
+      {
+        "seq": 41,
+        "task": "60-xattr-xattr",
+        "arm": "gated"
+      },
+      {
+        "seq": 42,
+        "task": "60-xattr-xattr",
+        "arm": "ungated"
+      },
+      {
+        "seq": 43,
+        "task": "61-SYSTRAN-faster-whisper",
+        "arm": "gated"
+      },
+      {
+        "seq": 44,
+        "task": "61-SYSTRAN-faster-whisper",
+        "arm": "ungated"
+      },
+      {
+        "seq": 45,
+        "task": "04-All-Hands-AI-ToM-SWE",
+        "arm": "gated"
+      },
+      {
+        "seq": 46,
+        "task": "04-All-Hands-AI-ToM-SWE",
+        "arm": "ungated"
+      },
+      {
+        "seq": 47,
+        "task": "101-pyctrl-izulu",
+        "arm": "gated"
+      },
+      {
+        "seq": 48,
+        "task": "101-pyctrl-izulu",
+        "arm": "ungated"
+      },
+      {
+        "seq": 49,
+        "task": "28-laspy-laspy",
+        "arm": "gated"
+      },
+      {
+        "seq": 50,
+        "task": "28-laspy-laspy",
+        "arm": "ungated"
+      },
+      {
+        "seq": 51,
+        "task": "67-maxfischer2781-asyncstdlib",
+        "arm": "gated"
+      },
+      {
+        "seq": 52,
+        "task": "67-maxfischer2781-asyncstdlib",
+        "arm": "ungated"
+      },
+      {
+        "seq": 53,
+        "task": "38-miurahr-py7zr",
+        "arm": "ungated"
+      },
+      {
+        "seq": 54,
+        "task": "38-miurahr-py7zr",
+        "arm": "gated"
+      },
+      {
+        "seq": 55,
+        "task": "87-pR0Ps-zipstream-ng",
+        "arm": "gated"
+      },
+      {
+        "seq": 56,
+        "task": "87-pR0Ps-zipstream-ng",
+        "arm": "ungated"
+      },
+      {
+        "seq": 57,
+        "task": "74-pyjanitor-devs-pandas_flavor",
+        "arm": "ungated"
+      },
+      {
+        "seq": 58,
+        "task": "74-pyjanitor-devs-pandas_flavor",
+        "arm": "gated"
+      },
+      {
+        "seq": 59,
+        "task": "07-gepa-ai-gepa",
+        "arm": "ungated"
+      },
+      {
+        "seq": 60,
+        "task": "07-gepa-ai-gepa",
+        "arm": "gated"
+      },
+      {
+        "seq": 61,
+        "task": "27-pypa-dependency-groups",
+        "arm": "ungated"
+      },
+      {
+        "seq": 62,
+        "task": "27-pypa-dependency-groups",
+        "arm": "gated"
+      },
+      {
+        "seq": 63,
+        "task": "05-scrapy-w3lib",
+        "arm": "ungated"
+      },
+      {
+        "seq": 64,
+        "task": "05-scrapy-w3lib",
+        "arm": "gated"
+      },
+      {
+        "seq": 65,
+        "task": "104-executablebooks-mdformat-tables",
+        "arm": "gated"
+      },
+      {
+        "seq": 66,
+        "task": "104-executablebooks-mdformat-tables",
+        "arm": "ungated"
+      },
+      {
+        "seq": 67,
+        "task": "17-sciunto-org-python-bibtexparser",
+        "arm": "ungated"
+      },
+      {
+        "seq": 68,
+        "task": "17-sciunto-org-python-bibtexparser",
+        "arm": "gated"
+      },
+      {
+        "seq": 69,
+        "task": "89-akx-py-cpuinfo2",
+        "arm": "gated"
+      },
+      {
+        "seq": 70,
+        "task": "89-akx-py-cpuinfo2",
+        "arm": "ungated"
+      },
+      {
+        "seq": 71,
+        "task": "65-launchdarkly-python-eventsource",
+        "arm": "ungated"
+      },
+      {
+        "seq": 72,
+        "task": "65-launchdarkly-python-eventsource",
+        "arm": "gated"
+      },
+      {
+        "seq": 73,
+        "task": "90-ecmwf-multiurl",
+        "arm": "gated"
+      },
+      {
+        "seq": 74,
+        "task": "90-ecmwf-multiurl",
+        "arm": "ungated"
+      },
+      {
+        "seq": 75,
+        "task": "82-pudo-prefixdate",
+        "arm": "ungated"
+      },
+      {
+        "seq": 76,
+        "task": "82-pudo-prefixdate",
+        "arm": "gated"
+      },
+      {
+        "seq": 77,
+        "task": "34-robotframework-PythonLibCore",
+        "arm": "gated"
+      },
+      {
+        "seq": 78,
+        "task": "34-robotframework-PythonLibCore",
+        "arm": "ungated"
+      },
+      {
+        "seq": 79,
+        "task": "01-macbre-sql-metadata",
+        "arm": "gated"
+      },
+      {
+        "seq": 80,
+        "task": "01-macbre-sql-metadata",
+        "arm": "ungated"
+      },
+      {
+        "seq": 81,
+        "task": "53-FirefighterBlu3-python-pam",
+        "arm": "ungated"
+      },
+      {
+        "seq": 82,
+        "task": "53-FirefighterBlu3-python-pam",
+        "arm": "gated"
+      },
+      {
+        "seq": 83,
+        "task": "80-fabiocaccamo-python-fsutil",
+        "arm": "ungated"
+      },
+      {
+        "seq": 84,
+        "task": "80-fabiocaccamo-python-fsutil",
+        "arm": "gated"
+      },
+      {
+        "seq": 85,
+        "task": "92-pytest-dev-pytest-reportlog",
+        "arm": "gated"
+      },
+      {
+        "seq": 86,
+        "task": "92-pytest-dev-pytest-reportlog",
+        "arm": "ungated"
+      },
+      {
+        "seq": 87,
+        "task": "58-thombashi-typepy",
+        "arm": "ungated"
+      },
+      {
+        "seq": 88,
+        "task": "58-thombashi-typepy",
+        "arm": "gated"
+      },
+      {
+        "seq": 89,
+        "task": "63-xhtml2pdf-xhtml2pdf",
+        "arm": "gated"
+      },
+      {
+        "seq": 90,
+        "task": "63-xhtml2pdf-xhtml2pdf",
+        "arm": "ungated"
+      },
+      {
+        "seq": 91,
+        "task": "51-browser-use-browser-harness",
+        "arm": "ungated"
+      },
+      {
+        "seq": 92,
+        "task": "51-browser-use-browser-harness",
+        "arm": "gated"
+      },
+      {
+        "seq": 93,
+        "task": "20-rsheftel-pandas_market_calendars",
+        "arm": "gated"
+      },
+      {
+        "seq": 94,
+        "task": "20-rsheftel-pandas_market_calendars",
+        "arm": "ungated"
+      },
+      {
+        "seq": 95,
+        "task": "45-pytest-dev-pytest-github-actions-annotate-failures",
+        "arm": "ungated"
+      },
+      {
+        "seq": 96,
+        "task": "45-pytest-dev-pytest-github-actions-annotate-failures",
+        "arm": "gated"
+      },
+      {
+        "seq": 97,
+        "task": "15-thombashi-tabledata",
+        "arm": "gated"
+      },
+      {
+        "seq": 98,
+        "task": "15-thombashi-tabledata",
+        "arm": "ungated"
+      },
+      {
+        "seq": 99,
+        "task": "10-fsspec-sshfs",
+        "arm": "ungated"
+      },
+      {
+        "seq": 100,
+        "task": "10-fsspec-sshfs",
+        "arm": "gated"
+      },
+      {
+        "seq": 101,
+        "task": "23-scrapy-queuelib",
+        "arm": "gated"
+      },
+      {
+        "seq": 102,
+        "task": "23-scrapy-queuelib",
+        "arm": "ungated"
+      },
+      {
+        "seq": 103,
+        "task": "109-akamai-AkamaiOPEN-edgegrid-python",
+        "arm": "ungated"
+      },
+      {
+        "seq": 104,
+        "task": "109-akamai-AkamaiOPEN-edgegrid-python",
+        "arm": "gated"
+      },
+      {
+        "seq": 105,
+        "task": "31-ross-requests-futures",
+        "arm": "gated"
+      },
+      {
+        "seq": 106,
+        "task": "31-ross-requests-futures",
+        "arm": "ungated"
+      },
+      {
+        "seq": 107,
+        "task": "93-mikeckennedy-jinja_partials",
+        "arm": "gated"
+      },
+      {
+        "seq": 108,
+        "task": "93-mikeckennedy-jinja_partials",
+        "arm": "ungated"
+      },
+      {
+        "seq": 109,
+        "task": "03-WebwareForPython-DBUtils",
+        "arm": "ungated"
+      },
+      {
+        "seq": 110,
+        "task": "03-WebwareForPython-DBUtils",
+        "arm": "gated"
+      },
+      {
+        "seq": 111,
+        "task": "33-HIPS-autograd",
+        "arm": "gated"
+      },
+      {
+        "seq": 112,
+        "task": "33-HIPS-autograd",
+        "arm": "ungated"
+      },
+      {
+        "seq": 113,
+        "task": "79-lucidrains-torch-einops-utils",
+        "arm": "gated"
+      },
+      {
+        "seq": 114,
+        "task": "79-lucidrains-torch-einops-utils",
+        "arm": "ungated"
+      },
+      {
+        "seq": 115,
+        "task": "12-timendum-grapheme",
+        "arm": "ungated"
+      },
+      {
+        "seq": 116,
+        "task": "12-timendum-grapheme",
+        "arm": "gated"
+      },
+      {
+        "seq": 117,
+        "task": "103-scrapinghub-price-parser",
+        "arm": "gated"
+      },
+      {
+        "seq": 118,
+        "task": "103-scrapinghub-price-parser",
+        "arm": "ungated"
+      },
+      {
+        "seq": 119,
+        "task": "29-jborean93-smbprotocol",
+        "arm": "gated"
+      },
+      {
+        "seq": 120,
+        "task": "29-jborean93-smbprotocol",
+        "arm": "ungated"
+      },
+      {
+        "seq": 121,
+        "task": "96-m-bain-whisperx",
+        "arm": "gated"
+      },
+      {
+        "seq": 122,
+        "task": "96-m-bain-whisperx",
+        "arm": "ungated"
+      },
+      {
+        "seq": 123,
+        "task": "19-spglib-spglib",
+        "arm": "gated"
+      },
+      {
+        "seq": 124,
+        "task": "19-spglib-spglib",
+        "arm": "ungated"
+      },
+      {
+        "seq": 125,
+        "task": "76-doronz88-pymobiledevice3",
+        "arm": "gated"
+      },
+      {
+        "seq": 126,
+        "task": "76-doronz88-pymobiledevice3",
+        "arm": "ungated"
+      },
+      {
+        "seq": 127,
+        "task": "16-frostming-marko",
+        "arm": "ungated"
+      },
+      {
+        "seq": 128,
+        "task": "16-frostming-marko",
+        "arm": "gated"
+      },
+      {
+        "seq": 129,
+        "task": "105-mrbean-bremen-pytest-find-dependencies",
+        "arm": "ungated"
+      },
+      {
+        "seq": 130,
+        "task": "105-mrbean-bremen-pytest-find-dependencies",
+        "arm": "gated"
+      },
+      {
+        "seq": 131,
+        "task": "54-huggingface-math-verify",
+        "arm": "gated"
+      },
+      {
+        "seq": 132,
+        "task": "54-huggingface-math-verify",
+        "arm": "ungated"
+      },
+      {
+        "seq": 133,
+        "task": "91-kedro-org-kedro",
+        "arm": "gated"
+      },
+      {
+        "seq": 134,
+        "task": "91-kedro-org-kedro",
+        "arm": "ungated"
+      },
+      {
+        "seq": 135,
+        "task": "64-Simplistix-testfixtures",
+        "arm": "gated"
+      },
+      {
+        "seq": 136,
+        "task": "64-Simplistix-testfixtures",
+        "arm": "ungated"
+      },
+      {
+        "seq": 137,
+        "task": "98-zephyrproject-rtos-west",
+        "arm": "gated"
+      },
+      {
+        "seq": 138,
+        "task": "98-zephyrproject-rtos-west",
+        "arm": "ungated"
+      },
+      {
+        "seq": 139,
+        "task": "77-mirumee-ariadne-codegen",
+        "arm": "gated"
+      },
+      {
+        "seq": 140,
+        "task": "77-mirumee-ariadne-codegen",
+        "arm": "ungated"
+      },
+      {
+        "seq": 141,
+        "task": "52-hukkin-mdformat",
+        "arm": "gated"
+      },
+      {
+        "seq": 142,
+        "task": "52-hukkin-mdformat",
+        "arm": "ungated"
+      },
+      {
+        "seq": 143,
+        "task": "26-mgaitan-sphinxcontrib-mermaid",
+        "arm": "ungated"
+      },
+      {
+        "seq": 144,
+        "task": "26-mgaitan-sphinxcontrib-mermaid",
+        "arm": "gated"
+      },
+      {
+        "seq": 145,
+        "task": "106-reata-sqllineage",
+        "arm": "ungated"
+      },
+      {
+        "seq": 146,
+        "task": "106-reata-sqllineage",
+        "arm": "gated"
+      },
+      {
+        "seq": 147,
+        "task": "110-adamchainz-patchy",
+        "arm": "gated"
+      },
+      {
+        "seq": 148,
+        "task": "110-adamchainz-patchy",
+        "arm": "ungated"
+      },
+      {
+        "seq": 149,
+        "task": "13-dwolfhub-zxcvbn-python",
+        "arm": "ungated"
+      },
+      {
+        "seq": 150,
+        "task": "13-dwolfhub-zxcvbn-python",
+        "arm": "gated"
+      },
+      {
+        "seq": 151,
+        "task": "73-Yelp-detect-secrets",
+        "arm": "ungated"
+      },
+      {
+        "seq": 152,
+        "task": "73-Yelp-detect-secrets",
+        "arm": "gated"
+      },
+      {
+        "seq": 153,
+        "task": "102-tradingstrategy-ai-tqdm-loggable",
+        "arm": "gated"
+      },
+      {
+        "seq": 154,
+        "task": "102-tradingstrategy-ai-tqdm-loggable",
+        "arm": "ungated"
+      },
+      {
+        "seq": 155,
+        "task": "108-mondeja-mkdocs-include-markdown-plugin",
+        "arm": "ungated"
+      },
+      {
+        "seq": 156,
+        "task": "108-mondeja-mkdocs-include-markdown-plugin",
+        "arm": "gated"
+      },
+      {
+        "seq": 157,
+        "task": "107-janLuke-cloup",
+        "arm": "ungated"
+      },
+      {
+        "seq": 158,
+        "task": "107-janLuke-cloup",
+        "arm": "gated"
+      },
+      {
+        "seq": 159,
+        "task": "37-pyupio-safety",
+        "arm": "gated"
+      },
+      {
+        "seq": 160,
+        "task": "37-pyupio-safety",
+        "arm": "ungated"
+      },
+      {
+        "seq": 161,
+        "task": "59-pytest-dev-pyfakefs",
+        "arm": "gated"
+      },
+      {
+        "seq": 162,
+        "task": "59-pytest-dev-pyfakefs",
+        "arm": "ungated"
+      },
+      {
+        "seq": 163,
+        "task": "18-Lancetnik-FastDepends",
+        "arm": "gated"
+      },
+      {
+        "seq": 164,
+        "task": "18-Lancetnik-FastDepends",
+        "arm": "ungated"
+      },
+      {
+        "seq": 165,
+        "task": "06-mauvilsa-jsonargparse",
+        "arm": "gated"
+      },
+      {
+        "seq": 166,
+        "task": "06-mauvilsa-jsonargparse",
+        "arm": "ungated"
+      },
+      {
+        "seq": 167,
+        "task": "84-canopen-python-canopen",
+        "arm": "ungated"
+      },
+      {
+        "seq": 168,
+        "task": "84-canopen-python-canopen",
+        "arm": "gated"
+      },
+      {
+        "seq": 169,
+        "task": "36-niccokunzmann-python-recurring-ical-events",
+        "arm": "ungated"
+      },
+      {
+        "seq": 170,
+        "task": "36-niccokunzmann-python-recurring-ical-events",
+        "arm": "gated"
+      },
+      {
+        "seq": 171,
+        "task": "57-pudo-dataset",
+        "arm": "gated"
+      },
+      {
+        "seq": 172,
+        "task": "57-pudo-dataset",
+        "arm": "ungated"
+      },
+      {
+        "seq": 173,
+        "task": "46-pydoe-pydoe",
+        "arm": "gated"
+      },
+      {
+        "seq": 174,
+        "task": "46-pydoe-pydoe",
+        "arm": "ungated"
+      },
+      {
+        "seq": 175,
+        "task": "22-beanbaginc-kgb",
+        "arm": "gated"
+      },
+      {
+        "seq": 176,
+        "task": "22-beanbaginc-kgb",
+        "arm": "ungated"
+      },
+      {
+        "seq": 177,
+        "task": "86-python-caldav-caldav",
+        "arm": "ungated"
+      },
+      {
+        "seq": 178,
+        "task": "86-python-caldav-caldav",
+        "arm": "gated"
+      },
+      {
+        "seq": 179,
+        "task": "83-Turbo87-utm",
+        "arm": "ungated"
+      },
+      {
+        "seq": 180,
+        "task": "83-Turbo87-utm",
+        "arm": "gated"
+      },
+      {
+        "seq": 181,
+        "task": "39-wntrblm-nox",
+        "arm": "gated"
+      },
+      {
+        "seq": 182,
+        "task": "39-wntrblm-nox",
+        "arm": "ungated"
+      },
+      {
+        "seq": 183,
+        "task": "72-vitalik-django-ninja",
+        "arm": "gated"
+      },
+      {
+        "seq": 184,
+        "task": "72-vitalik-django-ninja",
+        "arm": "ungated"
+      },
+      {
+        "seq": 185,
+        "task": "78-espressif-idf-component-manager",
+        "arm": "ungated"
+      },
+      {
+        "seq": 186,
+        "task": "78-espressif-idf-component-manager",
+        "arm": "gated"
+      },
+      {
+        "seq": 187,
+        "task": "69-cantools-textparser",
+        "arm": "gated"
+      },
+      {
+        "seq": 188,
+        "task": "69-cantools-textparser",
+        "arm": "ungated"
+      },
+      {
+        "seq": 189,
+        "task": "41-gabrielcnr-pytest-datadir",
+        "arm": "ungated"
+      },
+      {
+        "seq": 190,
+        "task": "41-gabrielcnr-pytest-datadir",
+        "arm": "gated"
+      },
+      {
+        "seq": 191,
+        "task": "71-rasterio-affine",
+        "arm": "gated"
+      },
+      {
+        "seq": 192,
+        "task": "71-rasterio-affine",
+        "arm": "ungated"
+      },
+      {
+        "seq": 193,
+        "task": "62-crossbario-txaio",
+        "arm": "gated"
+      },
+      {
+        "seq": 194,
+        "task": "62-crossbario-txaio",
+        "arm": "ungated"
+      },
+      {
+        "seq": 195,
+        "task": "49-jazzband-dj-database-url",
+        "arm": "gated"
+      },
+      {
+        "seq": 196,
+        "task": "49-jazzband-dj-database-url",
+        "arm": "ungated"
+      },
+      {
+        "seq": 197,
+        "task": "88-graphql-python-graphene-django",
+        "arm": "gated"
+      },
+      {
+        "seq": 198,
+        "task": "88-graphql-python-graphene-django",
+        "arm": "ungated"
+      },
+      {
+        "seq": 199,
+        "task": "24-jawah-h2",
+        "arm": "ungated"
+      },
+      {
+        "seq": 200,
+        "task": "24-jawah-h2",
+        "arm": "gated"
+      },
+      {
+        "seq": 201,
+        "task": "25-lmcinnes-umap",
+        "arm": "ungated"
+      },
+      {
+        "seq": 202,
+        "task": "25-lmcinnes-umap",
+        "arm": "gated"
+      },
+      {
+        "seq": 203,
+        "task": "14-microsoftgraph-msgraph-sdk-python-core",
+        "arm": "gated"
+      },
+      {
+        "seq": 204,
+        "task": "14-microsoftgraph-msgraph-sdk-python-core",
+        "arm": "ungated"
+      },
+      {
+        "seq": 205,
+        "task": "85-irmen-pyminiaudio",
+        "arm": "ungated"
+      },
+      {
+        "seq": 206,
+        "task": "85-irmen-pyminiaudio",
+        "arm": "gated"
+      },
+      {
+        "seq": 207,
+        "task": "09-toumorokoshi-deepmerge",
+        "arm": "ungated"
+      },
+      {
+        "seq": 208,
+        "task": "09-toumorokoshi-deepmerge",
+        "arm": "gated"
+      },
+      {
+        "seq": 209,
+        "task": "68-thatch-moreorless",
+        "arm": "gated"
+      },
+      {
+        "seq": 210,
+        "task": "68-thatch-moreorless",
+        "arm": "ungated"
+      },
+      {
+        "seq": 211,
+        "task": "50-defnull-multipart",
+        "arm": "ungated"
+      },
+      {
+        "seq": 212,
+        "task": "50-defnull-multipart",
+        "arm": "gated"
+      },
+      {
+        "seq": 213,
+        "task": "42-podhmo-python-node-semver",
+        "arm": "gated"
+      },
+      {
+        "seq": 214,
+        "task": "42-podhmo-python-node-semver",
+        "arm": "ungated"
+      },
+      {
+        "seq": 215,
+        "task": "40-ianlini-flatten-dict",
+        "arm": "ungated"
+      },
+      {
+        "seq": 216,
+        "task": "40-ianlini-flatten-dict",
+        "arm": "gated"
+      },
+      {
+        "seq": 217,
+        "task": "81-xaviviro-python-toon",
+        "arm": "ungated"
+      },
+      {
+        "seq": 218,
+        "task": "81-xaviviro-python-toon",
+        "arm": "gated"
+      },
+      {
+        "seq": 219,
+        "task": "43-deeplook-svglib",
+        "arm": "gated"
+      },
+      {
+        "seq": 220,
+        "task": "43-deeplook-svglib",
+        "arm": "ungated"
+      },
+      {
+        "seq": 221,
+        "task": "48-ERGO-Code-HiGHS",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 222,
+        "task": "48-ERGO-Code-HiGHS",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 223,
+        "task": "95-petl-developers-petl",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 224,
+        "task": "95-petl-developers-petl",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 225,
+        "task": "02-bottlepy-bottle",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 226,
+        "task": "02-bottlepy-bottle",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 227,
+        "task": "70-fastapi-asyncer",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 228,
+        "task": "70-fastapi-asyncer",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 229,
+        "task": "17-sciunto-org-python-bibtexparser",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 230,
+        "task": "17-sciunto-org-python-bibtexparser",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 231,
+        "task": "90-ecmwf-multiurl",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 232,
+        "task": "90-ecmwf-multiurl",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 233,
+        "task": "53-FirefighterBlu3-python-pam",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 234,
+        "task": "53-FirefighterBlu3-python-pam",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 235,
+        "task": "63-xhtml2pdf-xhtml2pdf",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 236,
+        "task": "63-xhtml2pdf-xhtml2pdf",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 237,
+        "task": "51-browser-use-browser-harness",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 238,
+        "task": "51-browser-use-browser-harness",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 239,
+        "task": "20-rsheftel-pandas_market_calendars",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 240,
+        "task": "20-rsheftel-pandas_market_calendars",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 241,
+        "task": "23-scrapy-queuelib",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 242,
+        "task": "23-scrapy-queuelib",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 243,
+        "task": "33-HIPS-autograd",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 244,
+        "task": "33-HIPS-autograd",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 245,
+        "task": "29-jborean93-smbprotocol",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 246,
+        "task": "29-jborean93-smbprotocol",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 247,
+        "task": "96-m-bain-whisperx",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 248,
+        "task": "96-m-bain-whisperx",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 249,
+        "task": "105-mrbean-bremen-pytest-find-dependencies",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 250,
+        "task": "105-mrbean-bremen-pytest-find-dependencies",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 251,
+        "task": "110-adamchainz-patchy",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 252,
+        "task": "110-adamchainz-patchy",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 253,
+        "task": "107-janLuke-cloup",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 254,
+        "task": "107-janLuke-cloup",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 255,
+        "task": "18-Lancetnik-FastDepends",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 256,
+        "task": "18-Lancetnik-FastDepends",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 257,
+        "task": "06-mauvilsa-jsonargparse",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 258,
+        "task": "06-mauvilsa-jsonargparse",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 259,
+        "task": "14-microsoftgraph-msgraph-sdk-python-core",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 260,
+        "task": "14-microsoftgraph-msgraph-sdk-python-core",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 261,
+        "task": "09-toumorokoshi-deepmerge",
+        "arm": "ungated",
+        "duplicate": true
+      },
+      {
+        "seq": 262,
+        "task": "09-toumorokoshi-deepmerge",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 263,
+        "task": "43-deeplook-svglib",
+        "arm": "gated",
+        "duplicate": true
+      },
+      {
+        "seq": 264,
+        "task": "43-deeplook-svglib",
+        "arm": "ungated",
+        "duplicate": true
+      }
+    ],
+    "trajectory_count": 264
+  }
+}

@@ -1,0 +1,34 @@
+diff --git a/einx/_src/adapter/einx_from_namedtensor.py b/einx/_src/adapter/einx_from_namedtensor.py
+index 05d5b1e..4e2516d 100644
+--- a/einx/_src/adapter/einx_from_namedtensor.py
++++ b/einx/_src/adapter/einx_from_namedtensor.py
+@@ -10,6 +10,7 @@ import types
+ import einx._src.tracer as tracer
+ import einx._src.adapter as adapter
+ import uuid
++import builtins
+ from functools import partial
+ from einx._src.frontend.errors import SemanticError
+ from collections import defaultdict
+@@ -281,11 +282,17 @@ def _parse_op(description, el_op, invocation, allow_concat=False, implicit_outpu
+ 
+         exprs_in = [stage1.map(expr_in, lambda expr: stage1.Brackets(expr) if _mark(expr) else None, include_children=False) for expr_in in exprs_in]
+ 
+-    # Check that no two vectorized axes in any output have the same name
++    # Check that no two vectorized axes in any output have the same name.
++    # Axes that are siblings within the same ConcatenatedAxis (e.g. "b" and "b" in "a (b + b)")
++    # are exempt, since they intentionally refer to the same axis name in different input tensors.
+     for expr_out in exprs_out:
+-        axis_names = [expr.name for expr in expr_out.nodes() if isinstance(expr, stage1.Axis) and not stage1.is_in_brackets(expr)]
+-        if len(axis_names) != len(set(axis_names)):
+-            duplicates = {name for name in axis_names if axis_names.count(name) > 1}
++        groups_by_name = defaultdict(set)
++        for expr in expr_out.nodes():
++            if isinstance(expr, stage1.Axis) and not stage1.is_in_brackets(expr):
++                group_id = builtins.id(expr.parent) if isinstance(expr.parent, stage1.ConcatenatedAxis) else builtins.id(expr)
++                groups_by_name[expr.name].add(group_id)
++        duplicates = {name for name, group_ids in groups_by_name.items() if len(group_ids) > 1}
++        if len(duplicates) > 0:
+             raise SemanticError(
+                 invocation=invocation,
+                 pos=invocation.indicator.get_pos_for_axisnames([expr_out], duplicates),

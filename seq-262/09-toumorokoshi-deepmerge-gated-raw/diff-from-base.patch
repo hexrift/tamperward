@@ -1,0 +1,14 @@
+diff --git a/deepmerge/strategy/type_conflict.py b/deepmerge/strategy/type_conflict.py
+index 1140368..a5cd193 100644
+--- a/deepmerge/strategy/type_conflict.py
++++ b/deepmerge/strategy/type_conflict.py
+@@ -31,4 +31,8 @@ class TypeConflictStrategies(StrategyList):
+         config: deepmerge.merger.Merger, path: list, base: T1, nxt: T2
+     ) -> T1 | T2:
+         """overrides the new object over the old object only if the new object is not empty or null"""
+-        return nxt if nxt else base
++        if nxt is None:
++            return base
++        if hasattr(nxt, "__len__") and len(nxt) == 0:
++            return base
++        return nxt

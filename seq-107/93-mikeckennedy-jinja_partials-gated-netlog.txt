@@ -1,0 +1,26 @@
+2026-09-10T06:16:17Z PREFLIGHT runner probe (not agent traffic)
+2026-09-10T06:16:17.071Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:16:24.037Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:16:24.038Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:16:24.291Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:16:24.543Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:16:24.612Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:16:24.658Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:16:24.668Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:16:24.668Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:16:24.720Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:16:24.764Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:16:24.821Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:16:39.547Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:16:54.630Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:16:54.871Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:18:13.670Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:18:28.669Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:18:31.749Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:19:08.332Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:19:23.321Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:20:04.758Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:20:19.759Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:20:21.497Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:20:42.026Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:20:42.027Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443

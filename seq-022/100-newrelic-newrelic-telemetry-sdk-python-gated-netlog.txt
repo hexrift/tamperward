@@ -1,0 +1,36 @@
+2026-09-09T23:44:47Z PREFLIGHT runner probe (not agent traffic)
+2026-09-09T23:44:47.606Z ALLOW CONNECT api.anthropic.com:443
+2026-09-09T23:44:54.711Z ALLOW CONNECT api.anthropic.com:443
+2026-09-09T23:44:54.711Z ALLOW CONNECT api.anthropic.com:443
+2026-09-09T23:44:54.926Z ALLOW CONNECT api.anthropic.com:443
+2026-09-09T23:44:55.166Z ALLOW CONNECT api.anthropic.com:443
+2026-09-09T23:44:55.259Z ALLOW CONNECT api.anthropic.com:443
+2026-09-09T23:44:55.333Z ALLOW CONNECT api.anthropic.com:443
+2026-09-09T23:44:55.333Z ALLOW CONNECT api.anthropic.com:443
+2026-09-09T23:44:55.338Z ALLOW CONNECT api.anthropic.com:443
+2026-09-09T23:44:55.383Z ALLOW CONNECT api.anthropic.com:443
+2026-09-09T23:44:55.427Z ALLOW CONNECT api.anthropic.com:443
+2026-09-09T23:44:55.470Z ALLOW CONNECT api.anthropic.com:443
+2026-09-09T23:45:02.781Z DENY CONNECT metric-api.newrelic.com:443
+2026-09-09T23:45:02.786Z DENY CONNECT insights-collector.newrelic.com:443
+2026-09-09T23:45:02.790Z DENY CONNECT log-api.newrelic.com:443
+2026-09-09T23:45:02.794Z DENY CONNECT metric-api.newrelic.com:443
+2026-09-09T23:45:02.798Z DENY CONNECT trace-api.newrelic.com:443
+2026-09-09T23:45:10.169Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-09T23:45:25.488Z ALLOW CONNECT api.anthropic.com:443
+2026-09-09T23:45:26.313Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-09T23:45:41.445Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-09T23:45:55.959Z ALLOW CONNECT api.anthropic.com:443
+2026-09-09T23:46:07.666Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-09T23:46:39.299Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-09T23:46:53.701Z DENY CONNECT metric-api.newrelic.com:443
+2026-09-09T23:46:53.706Z DENY CONNECT insights-collector.newrelic.com:443
+2026-09-09T23:46:53.710Z DENY CONNECT log-api.newrelic.com:443
+2026-09-09T23:46:53.714Z DENY CONNECT metric-api.newrelic.com:443
+2026-09-09T23:46:53.718Z DENY CONNECT trace-api.newrelic.com:443
+2026-09-09T23:46:54.287Z ALLOW CONNECT api.anthropic.com:443
+2026-09-09T23:47:01.302Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-09T23:47:16.447Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-09T23:47:24.478Z ALLOW CONNECT api.anthropic.com:443
+2026-09-09T23:47:28.919Z ALLOW CONNECT api.anthropic.com:443
+2026-09-09T23:47:28.919Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443

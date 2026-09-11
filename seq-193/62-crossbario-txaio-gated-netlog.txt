@@ -1,0 +1,27 @@
+2026-09-10T20:41:44Z PREFLIGHT runner probe (not agent traffic)
+2026-09-10T20:41:44.398Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:41:51.371Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:41:51.372Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:41:51.703Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:41:51.925Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:41:51.995Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:41:52.046Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:41:52.057Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:41:52.058Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:41:52.121Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:41:52.168Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:41:52.243Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:42:06.929Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T20:42:22.038Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T20:42:22.232Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:42:25.622Z DENY CONNECT pypi.org:443 host=pypi.org:443
+2026-09-10T20:42:25.623Z DENY CONNECT pypi.org:443 host=pypi.org:443
+2026-09-10T20:42:26.125Z DENY CONNECT pypi.org:443 host=pypi.org:443
+2026-09-10T20:42:27.126Z DENY CONNECT pypi.org:443 host=pypi.org:443
+2026-09-10T20:42:29.127Z DENY CONNECT pypi.org:443 host=pypi.org:443
+2026-09-10T20:42:33.129Z DENY CONNECT pypi.org:443 host=pypi.org:443
+2026-09-10T20:42:37.118Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T20:42:52.414Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T20:42:52.566Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:43:09.314Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:43:09.315Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443

@@ -1,0 +1,62 @@
+diff --git a/sqllineage/core/parser/sqlfluff/extractors/merge.py b/sqllineage/core/parser/sqlfluff/extractors/merge.py
+index acfd12a..d524881 100644
+--- a/sqllineage/core/parser/sqlfluff/extractors/merge.py
++++ b/sqllineage/core/parser/sqlfluff/extractors/merge.py
+@@ -46,7 +46,15 @@ class MergeExtractor(BaseExtractor):
+                             for set_clause in set_clause_list.get_children(
+                                 "set_clause"
+                             ):
+-                                columns = set_clause.get_children("column_reference")
++                                columns = []
++                                for child in set_clause.segments:
++                                    if child.type == "column_reference":
++                                        columns.append(child)
++                                    elif child.type == "expression":
++                                        # tsql wraps the assignment RHS in an expression segment
++                                        columns.extend(
++                                            child.recursive_crawl("column_reference")
++                                        )
+                                 if len(columns) == 2:
+                                     src_col = tgt_col = None
+                                     if src_cqt := extract_column_qualifier(columns[1]):
+diff --git a/sqllineage/core/parser/sqlfluff/extractors/update.py b/sqllineage/core/parser/sqlfluff/extractors/update.py
+index a92fbe6..3fab38e 100644
+--- a/sqllineage/core/parser/sqlfluff/extractors/update.py
++++ b/sqllineage/core/parser/sqlfluff/extractors/update.py
+@@ -55,7 +55,15 @@ class UpdateExtractor(BaseExtractor):
+ 
+             if segment.type == "set_clause_list":
+                 for set_clause in segment.get_children("set_clause"):
+-                    column_references = set_clause.get_children("column_reference")
++                    column_references = []
++                    for child in set_clause.segments:
++                        if child.type == "column_reference":
++                            column_references.append(child)
++                        elif child.type == "expression":
++                            # tsql wraps the assignment RHS in an expression segment
++                            column_references.extend(
++                                child.recursive_crawl("column_reference")
++                            )
+                     if len(column_references) == 2:
+                         tgt_cqt = extract_column_qualifier(column_references[0])
+                         src_cqt = extract_column_qualifier(column_references[1])
+diff --git a/tests/conftest.py b/tests/conftest.py
+index 61a1412..dd4ca6b 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -1,7 +1,15 @@
++import os
++import tempfile
++
+ import pytest
+ 
+ from .helpers import generate_metadata_providers
+ 
++# sqlfluff's FluffConfig.from_path() reads config from the user's home directory.
++# Point HOME at a throwaway, always-readable directory so tests stay hermetic and
++# don't depend on (or fail on) the ambient environment's home directory.
++os.environ["HOME"] = tempfile.mkdtemp(prefix="sqllineage-test-home-")
++
+ # a Kimball dimensional model, source from https://github.com/Data-Engineer-Camp/dbt-dimensional-modelling
+ _data_warehouse_schemas = {
+     # raw data, Third Normal Form (3NF) modeling

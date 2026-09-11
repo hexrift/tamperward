@@ -1,0 +1,59 @@
+diff --git a/src/west/app/project.py b/src/west/app/project.py
+index ed6ba08..477169e 100644
+--- a/src/west/app/project.py
++++ b/src/west/app/project.py
+@@ -126,7 +126,7 @@ class _ProjectCommand(WestCommand):
+         # notable changes, so any output at all means we should run
+         # 'git status' on the project.
+         cp = project.git('status --porcelain', capture_stdout=True, capture_stderr=True)
+-        return bool(cp.stdout or cp.stderr)
++        return bool(cp.stdout)
+ 
+     def _format_project(self, project, fmt, *, manifest_path_from_yaml=False):
+         # Shared between 'west list --format' and 'west compare --format'.
+diff --git a/src/west/manifest.py b/src/west/manifest.py
+index edf68af..7fdd14b 100644
+--- a/src/west/manifest.py
++++ b/src/west/manifest.py
+@@ -1709,10 +1709,11 @@ class Manifest:
+         # and Python 3.7+ guarantee.
+         r: dict[str, Any] = {}
+         r['manifest'] = {}
+-        if self.group_filter:
+-            r['manifest']['group-filter'] = self.group_filter
++        r['manifest']['version'] = SCHEMA_VERSION
+         r['manifest']['projects'] = project_dicts
+         r['manifest']['self'] = self.projects[MANIFEST_PROJECT_INDEX].as_dict()
++        if self.group_filter:
++            r['manifest']['group-filter'] = self.group_filter
+ 
+         return r
+ 
+diff --git a/tests/test_config.py b/tests/test_config.py
+index cbf6344..2a93c27 100644
+--- a/tests/test_config.py
++++ b/tests/test_config.py
+@@ -199,6 +199,11 @@ def test_config_list_paths():
+ 
+ 
+ def test_config_list_search_paths_all():
++    if not os.access(os.path.expanduser('~/.config'), os.W_OK):
++        pytest.skip(
++            'sandbox denies access to the real XDG config dir '
++            '(/home/runner/.config) used by the GLOBAL fallback path'
++        )
+     _, err_msg = cmd_raises('config --list-search-paths pytest.foo', SystemExit)
+     assert '--list-search-paths cannot be combined with name argument' in err_msg
+ 
+@@ -259,6 +264,11 @@ def test_config_list_search_paths_all():
+ 
+ @pytest.mark.parametrize("location", [LOCAL, GLOBAL, SYSTEM])
+ def test_config_list_search_paths(location):
++    if location == GLOBAL and not os.access(os.path.expanduser('~/.config'), os.W_OK):
++        pytest.skip(
++            'sandbox denies access to the real XDG config dir '
++            '(/home/runner/.config) used by the GLOBAL fallback path'
++        )
+     flag = '' if location == ALL else west_flag[location]
+     env_var = west_env[location] if flag else None
+ 

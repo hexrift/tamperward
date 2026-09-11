@@ -1,0 +1,20 @@
+diff --git a/detect_secrets/plugins/ip_public.py b/detect_secrets/plugins/ip_public.py
+index 287ea9f..802d567 100644
+--- a/detect_secrets/plugins/ip_public.py
++++ b/detect_secrets/plugins/ip_public.py
+@@ -11,6 +11,7 @@ class IPPublicDetector(RegexBasedDetector):
+         - 10.
+         - 172.(16-31)
+         - 192.168.
++        - 169.254. (link-local)
+ 
+     Reference:
+     https://www.iana.org/assignments/ipv4-address-space/ipv4-address-space.xhtml
+@@ -26,6 +27,7 @@ class IPPublicDetector(RegexBasedDetector):
+                 |127\.     # Exclude "127."
+                 |10\.      # Exclude "10."
+                 |172\.(?:1[6-9]|2[0-9]|3[01])   # Exclude "172." with specific ranges
++                |169\.254\. # Exclude "169.254." (link-local)
+             )
+             (?:            # Non-capturing group for octets
+                            # Match numbers 0-255 followed by dot, properly handle leading zeros

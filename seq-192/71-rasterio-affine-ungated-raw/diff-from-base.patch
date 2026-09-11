@@ -1,0 +1,22 @@
+diff --git a/src/affine/__init__.py b/src/affine/__init__.py
+index 9fdee0e..6f7cc4b 100644
+--- a/src/affine/__init__.py
++++ b/src/affine/__init__.py
+@@ -616,12 +616,11 @@ class Affine:
+         -------
+         Affine or a tuple of two items
+         """
+-        # TODO: consider enabling this for 3.1
+-        # warnings.warn(
+-        #     "Use `@` matmul instead of `*` mul operator for matrix multiplication",
+-        #     PendingDeprecationWarning,
+-        #     stacklevel=2,
+-        # )
++        warnings.warn(
++            "Use `@` matmul instead of `*` mul operator for matrix multiplication",
++            PendingDeprecationWarning,
++            stacklevel=2,
++        )
+         if isinstance(other, Affine):
+             return self.__matmul__(other)
+         try:

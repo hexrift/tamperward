@@ -1,0 +1,56 @@
+diff --git a/dbutils/steady_db.py b/dbutils/steady_db.py
+index a7fc2d3..b735504 100644
+--- a/dbutils/steady_db.py
++++ b/dbutils/steady_db.py
+@@ -212,7 +212,23 @@ class SteadyDBConnection:
+         if isfatal is not None and not callable(isfatal):
+             raise TypeError("'isfatal' must be a callable.")
+         self._isfatal = isfatal
++        if isinstance(ping, tuple):
++            if len(ping) != 2:
++                raise TypeError(
++                    "'ping' tuple must have exactly two elements.")
++            ping, pinger = ping
++            if not callable(pinger) and not isinstance(pinger, str):
++                raise TypeError(
++                    "'ping' checker must be a string or a callable.")
++            if not isinstance(ping, int):
++                raise TypeError("'ping' trigger must be an integer.")
++        elif not isinstance(ping, int) and (
++                callable(ping) or isinstance(ping, str)):
++            ping, pinger = 1, ping
++        else:
++            pinger = None
+         self._ping = ping if isinstance(ping, int) else 0
++        self._pinger = pinger
+         self._closeable = closeable
+         self._args, self._kwargs = args, kwargs
+         self._store(self._create())
+@@ -361,11 +377,22 @@ class SteadyDBConnection:
+         unless the connection is currently inside a transaction.
+         """
+         if ping & self._ping:
+-            try:  # if possible, ping the connection
+-                try:  # pass a reconnect=False flag if this is supported
+-                    alive = self._con.ping(False)
+-                except TypeError:  # the reconnect flag is not supported
+-                    alive = self._con.ping()
++            pinger = self._pinger
++            try:
++                if pinger is None:
++                    try:  # pass a reconnect=False flag if this is supported
++                        alive = self._con.ping(False)
++                    except TypeError:  # the reconnect flag is not supported
++                        alive = self._con.ping()
++                elif isinstance(pinger, str):
++                    cursor = self._con.cursor()
++                    try:
++                        cursor.execute(pinger)
++                    finally:
++                        cursor.close()
++                    alive = True
++                else:
++                    alive = pinger(self._con)
+             except (AttributeError, IndexError, TypeError, ValueError):
+                 self._ping = 0  # ping() is not available
+                 alive = None

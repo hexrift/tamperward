@@ -1,0 +1,57 @@
+diff --git a/src/patchy/api.py b/src/patchy/api.py
+index 1fd878d..72d4c00 100644
+--- a/src/patchy/api.py
++++ b/src/patchy/api.py
+@@ -2,6 +2,8 @@ from __future__ import annotations
+ 
+ import ast
+ import inspect
++import itertools
++import linecache
+ from collections.abc import Callable
+ from functools import wraps
+ from textwrap import dedent
+@@ -157,6 +159,10 @@ FEATURE_MASK = _get_flags_mask()
+ # Stores the source of functions that have had their source changed
+ _source_map: WeakKeyDictionary[Callable[..., Any], str] = WeakKeyDictionary()
+ 
++# Used to give each patched function its own fake filename, so that linecache
++# and inspect can distinguish between them and find the right source.
++_filename_counter = itertools.count()
++
+ 
+ def _get_source(func: Callable[..., Any]) -> str:
+     real_func = _get_real_func(func)
+@@ -188,12 +194,14 @@ def _set_source(func: Callable[..., Any], func_source: str) -> None:
+ 
+     class_name = _class_name(func)
+ 
++    filename = f"<patchy #{next(_filename_counter)}>"
++
+     def _compile(
+         code: str | ast.Module,
+         flags: int = 0,
+     ) -> CodeType | ast.Module:
+         result: CodeType | ast.Module = compile(
+-            code, "<patchy>", "exec", flags=feature_flags | flags, dont_inherit=True
++            code, filename, "exec", flags=feature_flags | flags, dont_inherit=True
+         )
+         return result
+ 
+@@ -322,6 +330,16 @@ def _set_source(func: Callable[..., Any], func_source: str) -> None:
+     # that is a bit naughty
+     _source_map[real_func] = func_source
+ 
++    # Register the source with linecache so tools like inspect and pdb can
++    # find it. Use mtime=None so linecache.checkcache() does not evict it,
++    # since there's no real file to check against.
++    linecache.cache[filename] = (
++        len(func_source),
++        None,
++        func_source.splitlines(keepends=True),
++        filename,
++    )
++
+ 
+ def _get_real_func(func: Callable[..., Any]) -> Callable[..., Any]:
+     """

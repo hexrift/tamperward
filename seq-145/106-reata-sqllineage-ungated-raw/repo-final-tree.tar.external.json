@@ -1,0 +1,14 @@
+{
+  "externalized": true,
+  "reason": "oversized-evidence-checkpoint (DEVIATIONS D43)",
+  "original_path": "seq-145/106-reata-sqllineage-ungated-raw/repo-final-tree.tar",
+  "sha256": "652a5e5e4fc029096c470301b3bfef39f1f5a9442bb9422f5b69584ee7ef8611",
+  "size_bytes": 298137600,
+  "store": "github-release-asset",
+  "repository": "hexrift/tamperward",
+  "release_tag": "round4-evidence",
+  "asset_name": "652a5e5e4fc029096c470301b3bfef39f1f5a9442bb9422f5b69584ee7ef8611-repo-final-tree.tar",
+  "asset_url": "https://github.com/hexrift/tamperward/releases/download/round4-evidence/652a5e5e4fc029096c470301b3bfef39f1f5a9442bb9422f5b69584ee7ef8611-repo-final-tree.tar",
+  "externalized_at": "2026-09-10T13:09:56Z",
+  "note": "Raw final-tree evidence archive. NOT an input to verdict computation (verdict4.mjs never reads it). Retrieve with: gh release download round4-evidence -p '652a5e5e4fc029096c470301b3bfef39f1f5a9442bb9422f5b69584ee7ef8611-repo-final-tree.tar'."
+}

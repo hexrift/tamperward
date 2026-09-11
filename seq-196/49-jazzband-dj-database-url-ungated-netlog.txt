@@ -1,0 +1,110 @@
+2026-09-10T20:51:25Z PREFLIGHT runner probe (not agent traffic)
+2026-09-10T20:51:25.442Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:51:32.041Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:51:32.041Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:51:32.231Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:51:32.543Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:51:32.553Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:51:32.574Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:51:32.574Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:51:32.602Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:51:32.650Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:51:32.703Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:51:32.748Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:51:44.870Z DENY CONNECT pypi.org:443 host=pypi.org:443
+2026-09-10T20:51:44.871Z DENY CONNECT pypi.org:443 host=pypi.org:443
+2026-09-10T20:51:45.373Z DENY CONNECT pypi.org:443 host=pypi.org:443
+2026-09-10T20:51:46.374Z DENY CONNECT pypi.org:443 host=pypi.org:443
+2026-09-10T20:51:47.475Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T20:51:48.376Z DENY CONNECT pypi.org:443 host=pypi.org:443
+2026-09-10T20:51:52.377Z DENY CONNECT pypi.org:443 host=pypi.org:443
+2026-09-10T20:52:02.590Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T20:52:02.805Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:52:18.241Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T20:52:33.237Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:52:33.955Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T20:52:35.740Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.741Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.741Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.741Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.741Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.741Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.741Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.741Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.741Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.741Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.741Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.742Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.743Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.743Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.743Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.743Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.743Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.743Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.743Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.743Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.743Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.743Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.743Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.744Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.744Z DENY CONNECT pypi.org:443 host=pypi.org:443
+2026-09-10T20:52:35.748Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.780Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.907Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.912Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.920Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.936Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.938Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:35.982Z DENY CONNECT pypi.org:443 host=pypi.org:443
+2026-09-10T20:52:35.993Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.082Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.087Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.118Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.147Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.154Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.177Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.180Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.189Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.218Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.224Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.239Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.248Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.251Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.264Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.283Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.296Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.316Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.341Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.341Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.352Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.367Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.373Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.373Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.375Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.419Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:36.435Z DENY CONNECT files.pythonhosted.org:443 host=files.pythonhosted.org:443
+2026-09-10T20:52:50.688Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T20:53:05.688Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:53:06.485Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T20:53:17.631Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T20:53:17.631Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443

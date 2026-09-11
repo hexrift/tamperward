@@ -1,0 +1,118 @@
+diff --git a/torch_einops_utils/shape.py b/torch_einops_utils/shape.py
+index a5b558c..11e748a 100644
+--- a/torch_einops_utils/shape.py
++++ b/torch_einops_utils/shape.py
+@@ -355,6 +355,25 @@ class ParsedShape:
+     def axis(self, name):
+         return self._indices.get(name)
+ 
++    def keys(self):
++        return self._dims.keys()
++
++    def values(self):
++        return self._dims.values()
++
++    def items(self):
++        return self._dims.items()
++
++    def get(self, name, default = None):
++        if name == '...':
++            return self._ellipsis if exists(self._ellipsis) else default
++        return self._dims.get(name, default)
++
++    def __contains__(self, name):
++        if name == '...':
++            return exists(self._ellipsis)
++        return name in self._dims
++
+     def replace(self, **sizes):
+         shape = list(self._shape)
+ 
+@@ -428,35 +447,57 @@ class ParsedShape:
+ 
+ # decorator
+ 
+-def assert_shape(spec, **assertions):
++def assert_shape(spec, *extra_specs, **assertions):
+     is_dict = isinstance(spec, dict)
+-    assert is_dict or isinstance(spec, str), f'assert_shape() expects a pattern string or dict, got {type(spec).__name__}'
+-
+-    def decorator(fn):
+-        signature = inspect.signature(fn)
+-
+-        @wraps(fn)
+-        def inner(*args, **kwargs):
+-            bound = signature.bind(*args, **kwargs)
+-            bound.apply_defaults()
+-
+-            if is_dict:
+-                for name, pattern in spec.items():
+-                    if is_tensor(bound.arguments.get(name)):
+-                        shape(bound.arguments[name], pattern, **assertions)
+-            else:
+-                arg_name = next(
+-                    (
+-                        p.name for p in signature.parameters.values()
+-                        if p.name not in ('self', 'cls') and p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+-                    ),
+-                    None
+-                )
+-                if is_tensor(bound.arguments.get(arg_name)):
+-                    shape(bound.arguments[arg_name], spec, **assertions)
+-
+-            return fn(*args, **kwargs)
+-
+-        return inner
+ 
+-    return decorator
++    if is_dict or isinstance(spec, str):
++        assert len(extra_specs) == 0, f'assert_shape() takes 1 positional argument but {1 + len(extra_specs)} were given'
++
++        def decorator(fn):
++            signature = inspect.signature(fn)
++
++            @wraps(fn)
++            def inner(*args, **kwargs):
++                bound = signature.bind(*args, **kwargs)
++                bound.apply_defaults()
++
++                if is_dict:
++                    known = dict(assertions)
++                    for name, pattern in spec.items():
++                        tensor = bound.arguments.get(name)
++                        if not is_tensor(tensor):
++                            continue
++                        _, pattern_names, _ = parse_pattern(pattern)
++                        filtered = {k: v for k, v in known.items() if k in pattern_names}
++                        try:
++                            parsed = shape(tensor, pattern, **filtered)
++                        except ShapeError as e:
++                            raise ShapeError(f'argument "{name}": {e}') from None
++                        known.update(parsed.dims)
++                else:
++                    arg_name = next(
++                        (
++                            p.name for p in signature.parameters.values()
++                            if p.name not in ('self', 'cls') and p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
++                        ),
++                        None
++                    )
++                    if is_tensor(bound.arguments.get(arg_name)):
++                        shape(bound.arguments[arg_name], spec, **assertions)
++
++                return fn(*args, **kwargs)
++
++            return inner
++
++        return decorator
++
++    # direct-call form: assert_shape((tensor, pattern), **assertions)
++    assert len(extra_specs) == 0, f'assert_shape() takes 1 positional argument but {1 + len(extra_specs)} were given'
++    assert isinstance(spec, (tuple, list)), f'assert_shape() expects a pattern string, dict, or (tensor, pattern) pair, got {type(spec).__name__}'
++    assert len(spec) == 2, f'assert_shape() expects a (tensor, pattern) pair of length 2, got length {len(spec)}'
++
++    tensor, pattern = spec
++    assert is_tensor(tensor), f'assert_shape() expects a tensor as the first element of the pair, got {type(tensor).__name__}'
++    assert isinstance(pattern, str), f'assert_shape() expects a pattern string as the second element of the pair, got {type(pattern).__name__}'
++
++    shape(tensor, pattern, **assertions)

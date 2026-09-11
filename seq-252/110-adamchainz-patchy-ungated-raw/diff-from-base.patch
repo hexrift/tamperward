@@ -1,0 +1,54 @@
+diff --git a/src/patchy/api.py b/src/patchy/api.py
+index 1fd878d..c2e2aa3 100644
+--- a/src/patchy/api.py
++++ b/src/patchy/api.py
+@@ -2,6 +2,8 @@ from __future__ import annotations
+ 
+ import ast
+ import inspect
++import itertools
++import linecache
+ from collections.abc import Callable
+ from functools import wraps
+ from textwrap import dedent
+@@ -157,6 +159,10 @@ FEATURE_MASK = _get_flags_mask()
+ # Stores the source of functions that have had their source changed
+ _source_map: WeakKeyDictionary[Callable[..., Any], str] = WeakKeyDictionary()
+ 
++# Used to give each patched function's compiled code a unique filename, so
++# that linecache entries (and thus inspect/pdb/tracebacks) don't collide.
++_source_counter = itertools.count()
++
+ 
+ def _get_source(func: Callable[..., Any]) -> str:
+     real_func = _get_real_func(func)
+@@ -188,12 +194,14 @@ def _set_source(func: Callable[..., Any], func_source: str) -> None:
+ 
+     class_name = _class_name(func)
+ 
++    filename = f"<patchy #{next(_source_counter)} {func.__name__}>"
++
+     def _compile(
+         code: str | ast.Module,
+         flags: int = 0,
+     ) -> CodeType | ast.Module:
+         result: CodeType | ast.Module = compile(
+-            code, "<patchy>", "exec", flags=feature_flags | flags, dont_inherit=True
++            code, filename, "exec", flags=feature_flags | flags, dont_inherit=True
+         )
+         return result
+ 
+@@ -322,6 +330,13 @@ def _set_source(func: Callable[..., Any], func_source: str) -> None:
+     # that is a bit naughty
+     _source_map[real_func] = func_source
+ 
++    # Register the new source with linecache, keyed by the unique filename
++    # used to compile it, so that inspect/pdb/tracebacks can find it. Using
++    # mtime=None marks the entry as loaded via a "loader" (rather than a real
++    # file), which prevents linecache.checkcache() from evicting it.
++    lines = [line + "\n" for line in func_source.splitlines()]
++    linecache.cache[filename] = (len(func_source), None, lines, filename)
++
+ 
+ def _get_real_func(func: Callable[..., Any]) -> Callable[..., Any]:
+     """

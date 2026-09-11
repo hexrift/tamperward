@@ -1,0 +1,113 @@
+diff --git a/pymobiledevice3/tunneld/api.py b/pymobiledevice3/tunneld/api.py
+index 994def0..ee9af94 100644
+--- a/pymobiledevice3/tunneld/api.py
++++ b/pymobiledevice3/tunneld/api.py
+@@ -58,7 +58,10 @@ class TunneldConnectDialer:
+         if host is None or str(host) != self._tunnel_address:
+             return await asyncio.open_connection(host, port, **kwargs)
+         assert port is not None
+-        upstream = await ws_bridge.connect(self._tunneld_address[0], self._tunneld_address[1], self._udid, port)
++        upstream = await ws_bridge.connect(
++            self._tunneld_address[0], self._tunneld_address[1], self._udid, port,
++            tunnel_address=self._tunnel_address,
++        )
+         caller_sock, bridge_sock = socket.socketpair()
+         try:
+             bridge_reader, bridge_writer = await asyncio.open_connection(sock=bridge_sock)
+diff --git a/pymobiledevice3/tunneld/server.py b/pymobiledevice3/tunneld/server.py
+index 4b9d973..ab6a833 100644
+--- a/pymobiledevice3/tunneld/server.py
++++ b/pymobiledevice3/tunneld/server.py
+@@ -866,6 +866,7 @@ class TunneldRunner:
+             websocket: fastapi.WebSocket,
+             udid: str,
+             port: Optional[int] = fastapi.Query(default=None, ge=1, le=65535),
++            address: Optional[str] = fastapi.Query(default=None),
+             hops_remaining: int = fastapi.Header(default=UPSTREAM_MAX_HOPS, alias=UPSTREAM_HOPS_HEADER),
+         ) -> None:
+             """Bridge a websocket client into the tunnel interface of a given device.
+@@ -884,19 +885,28 @@ class TunneldRunner:
+                 return
+             self._connect_bridge_count += 1
+             try:
+-                await self._bridge_websocket(websocket, udid, port, hops_remaining)
++                await self._bridge_websocket(websocket, udid, port, hops_remaining, address)
+             finally:
+                 self._connect_bridge_count -= 1
+ 
+     async def _bridge_websocket(
+-        self, websocket: fastapi.WebSocket, udid: str, port: Optional[int], hops_remaining: int = UPSTREAM_MAX_HOPS
++        self,
++        websocket: fastapi.WebSocket,
++        udid: str,
++        port: Optional[int],
++        hops_remaining: int = UPSTREAM_MAX_HOPS,
++        address: Optional[str] = None,
+     ) -> None:
+         tunnel = self._tunneld_core.get_tunnel(udid)
++        if tunnel is not None and address is not None and tunnel.address != address:
++            # this instance's own tunnel for udid exists, but the client named a different tunnel
++            # address (e.g. an upstream's) — not the one to use here
++            tunnel = None
+         if tunnel is None:
+             # not ours — the device may belong to a registered upstream, whose tunnel interface
+             # is no more reachable from the client than it is from here, so relay rather than
+             # redirect
+-            if await self._bridge_to_upstream(websocket, udid, port, hops_remaining):
++            if await self._bridge_to_upstream(websocket, udid, port, hops_remaining, address):
+                 return
+             await _close_quietly(websocket, code=WS_CLOSE_NO_TUNNEL, reason=f"no tunnel exists for udid: {udid}")
+             return
+@@ -987,7 +997,12 @@ class TunneldRunner:
+         return None
+ 
+     async def _bridge_to_upstream(
+-        self, websocket: fastapi.WebSocket, udid: str, port: Optional[int], hops_remaining: int
++        self,
++        websocket: fastapi.WebSocket,
++        udid: str,
++        port: Optional[int],
++        hops_remaining: int,
++        address: Optional[str] = None,
+     ) -> bool:
+         """Relay this ``/connect`` to the upstream tunneld that owns ``udid``.
+ 
+@@ -1007,6 +1022,7 @@ class TunneldRunner:
+                     parsed.port or 80,
+                     udid,
+                     port,
++                    tunnel_address=address,
+                     extra_headers=[(UPSTREAM_HOPS_HEADER.encode(), str(hops_remaining - 1).encode())],
+                 ),
+                 timeout=CONNECT_TCP_TIMEOUT,
+diff --git a/pymobiledevice3/tunneld/ws_bridge.py b/pymobiledevice3/tunneld/ws_bridge.py
+index 3fc7e25..ef81a93 100644
+--- a/pymobiledevice3/tunneld/ws_bridge.py
++++ b/pymobiledevice3/tunneld/ws_bridge.py
+@@ -93,6 +93,7 @@ async def connect(
+     port: int,
+     udid: str,
+     device_port: Optional[int] = None,
++    tunnel_address: Optional[str] = None,
+     extra_headers: Optional[list[tuple[bytes, bytes]]] = None,
+ ) -> ConnectWebsocket:
+     """Open a ``/connect`` websocket on the tunneld at ``host``:``port``.
+@@ -100,6 +101,9 @@ async def connect(
+     :param udid: UDID of the target device.
+     :param device_port: port to reach over the device's tunnel; ``None`` lets the serving tunneld
+         apply its own default (the tunnel's RSD port).
++    :param tunnel_address: the device's tunnel address to dial; disambiguates when the serving
++        tunneld has more than one tunnel for ``udid`` (its own plus an upstream's). ``None`` lets
++        the serving tunneld apply its own default (its own tunnel for ``udid``, if any).
+     :param extra_headers: additional handshake headers (tunneld passes its federation hop budget).
+     :raises ConnectionError: if the handshake fails, including a tunneld too old to serve
+         ``/connect``.
+@@ -111,6 +115,8 @@ async def connect(
+         target = f"/connect?udid={urllib.parse.quote(udid)}"
+         if device_port is not None:
+             target += f"&port={device_port}"
++        if tunnel_address is not None:
++            target += f"&address={urllib.parse.quote(tunnel_address)}"
+         writer.write(ws.send(Request(host=f"{host}:{port}", target=target, extra_headers=extra_headers or [])))
+         await writer.drain()
+         while True:

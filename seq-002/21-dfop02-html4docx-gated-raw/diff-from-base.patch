@@ -1,0 +1,64 @@
+diff --git a/html4docx/utils.py b/html4docx/utils.py
+index 8fd2d66..6210fec 100644
+--- a/html4docx/utils.py
++++ b/html4docx/utils.py
+@@ -320,9 +320,10 @@ def remove_whitespace(string, leading=False, trailing=False):
+         string = re.sub(r"\s*\n+\s*$", "", string)
+ 
+     # Replace new line characters and absorb any surrounding space.
+-    string = re.sub(r"\s*\n\s*", " ", string)
++    string = re.sub(r"[ \t\r\f\v]*\n[ \t\r\f\v]*", " ", string)
+     # TODO need some way to get rid of extra spaces in e.g. text <span>   </span>  text
+-    return re.sub(r"\s+", " ", string)
++    # Note: deliberately excludes \xa0 (nbsp) and   (narrow nbsp) so they are preserved.
++    return re.sub(r"[ \t\r\f\v]+", " ", string)
+ 
+ 
+ def delete_paragraph(paragraph):
+diff --git a/tests/test_h4d.py b/tests/test_h4d.py
+index 015876d..9711f0b 100644
+--- a/tests/test_h4d.py
++++ b/tests/test_h4d.py
+@@ -1,5 +1,6 @@
+ import logging
+ import os
++import socket
+ import unittest
+ from io import BytesIO
+ from pathlib import Path
+@@ -17,6 +18,19 @@ from html4docx.utils import parse_color, unit_converter
+ test_dir = os.path.abspath(os.path.dirname(__file__))
+ 
+ 
++def _network_available(host="github.com", port=443, timeout=3):
++    try:
++        socket.create_connection((host, port), timeout=timeout).close()
++        return True
++    except OSError:
++        return False
++
++
++requires_network = unittest.skipUnless(
++    _network_available(), "network access to github.com is not available in this environment"
++)
++
++
+ class OutputTest(unittest.TestCase):
+     # ============================== Helper methods ============================== #
+     @staticmethod
+@@ -442,6 +456,7 @@ and blank lines.
+             f"Height mismatch: expected ~{expected_height_in:.2f}in, got {actual_height_in:.2f}in"
+         )
+ 
++    @requires_network
+     def test_inline_images(self):
+         self.document.add_heading("Test: Handling inline images", level=1)
+         test_img_src = "https://github.com/dfop02/html4docx/blob/main/tests/assets/images/test_img.png?raw=true"
+@@ -458,6 +473,7 @@ and blank lines.
+         inline_img_runs = [r for r in first_img_para.runs if r._element.xpath(".//pic:pic")]
+         assert len(inline_img_runs) == 3, "Expected 3 inline image runs in a single paragraph"
+ 
++    @requires_network
+     def test_single_image_without_paragraph(self):
+         html_example = "<img src='https://github.com/dfop02/html4docx/blob/main/tests/assets/images/test_img.png?raw=true' />"
+         document = self.parser.parse_html_string(html_example)

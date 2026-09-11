@@ -1,0 +1,91 @@
+diff --git a/torch_einops_utils/shape.py b/torch_einops_utils/shape.py
+index a5b558c..9929ce9 100644
+--- a/torch_einops_utils/shape.py
++++ b/torch_einops_utils/shape.py
+@@ -355,6 +355,25 @@ class ParsedShape:
+     def axis(self, name):
+         return self._indices.get(name)
+ 
++    def keys(self):
++        return self._dims.keys()
++
++    def values(self):
++        return self._dims.values()
++
++    def items(self):
++        return self._dims.items()
++
++    def get(self, name, default = None):
++        if name == '...':
++            return self._ellipsis if exists(self._ellipsis) else default
++        return self._dims.get(name, default)
++
++    def __contains__(self, name):
++        if name == '...':
++            return exists(self._ellipsis)
++        return name in self._dims
++
+     def replace(self, **sizes):
+         shape = list(self._shape)
+ 
+@@ -428,8 +447,35 @@ class ParsedShape:
+ 
+ # decorator
+ 
+-def assert_shape(spec, **assertions):
++def assert_shape(spec, *extra, **assertions):
++    assert len(extra) == 0, 'assert_shape() takes a single positional argument'
++
+     is_dict = isinstance(spec, dict)
++    is_tuple_spec = isinstance(spec, tuple)
++    is_list_spec = isinstance(spec, list)
++
++    if is_tuple_spec or is_list_spec:
++        items = [spec] if is_tuple_spec else spec
++        assert len(items) > 0, 'assert_shape() got an empty spec'
++
++        known = dict(assertions)
++        parsed_list = []
++
++        for item in items:
++            assert isinstance(item, tuple) and len(item) == 2, f'assert_shape() direct-call items must be (tensor, pattern) tuples, got {item!r}'
++            tensor, pattern = item
++            assert is_tensor(tensor), f'assert_shape() expects a tensor, got {type(tensor).__name__}'
++            assert isinstance(pattern, str), f'assert_shape() expects a pattern string, got {type(pattern).__name__}'
++
++            _, names, _ = parse_pattern(pattern)
++            relevant = {k: v for k, v in known.items() if k in names}
++
++            parsed = shape(tensor, pattern, **relevant)
++            known.update(parsed.dims)
++            parsed_list.append(parsed)
++
++        return parsed_list[0] if is_tuple_spec else parsed_list
++
+     assert is_dict or isinstance(spec, str), f'assert_shape() expects a pattern string or dict, got {type(spec).__name__}'
+ 
+     def decorator(fn):
+@@ -441,9 +487,21 @@ def assert_shape(spec, **assertions):
+             bound.apply_defaults()
+ 
+             if is_dict:
++                known = dict(assertions)
+                 for name, pattern in spec.items():
+-                    if is_tensor(bound.arguments.get(name)):
+-                        shape(bound.arguments[name], pattern, **assertions)
++                    tensor = bound.arguments.get(name)
++                    if not is_tensor(tensor):
++                        continue
++
++                    _, names, _ = parse_pattern(pattern)
++                    relevant = {k: v for k, v in known.items() if k in names}
++
++                    try:
++                        parsed = shape(tensor, pattern, **relevant)
++                    except ShapeError as e:
++                        raise ShapeError(f'argument "{name}": {e}') from e
++
++                    known.update(parsed.dims)
+             else:
+                 arg_name = next(
+                     (

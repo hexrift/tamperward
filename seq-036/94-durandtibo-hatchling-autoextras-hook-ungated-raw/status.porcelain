@@ -1,0 +1,2 @@
+ M src/hatchling_autoextras_hook/hooks.py
+ M tests/integration/test_hooks.py

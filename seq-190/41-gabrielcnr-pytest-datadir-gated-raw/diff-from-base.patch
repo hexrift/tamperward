@@ -1,0 +1,23 @@
+diff --git a/src/pytest_datadir/plugin.py b/src/pytest_datadir/plugin.py
+index a9284b0..449e779 100644
+--- a/src/pytest_datadir/plugin.py
++++ b/src/pytest_datadir/plugin.py
+@@ -115,3 +115,18 @@ def lazy_datadir(original_datadir: Path, tmp_path: Path) -> LazyDataDir:
+         tmp_path: Pytest's built-in fixture providing a temporary directory path.
+     """
+     return LazyDataDir(original_datadir, tmp_path)
++
++
++@pytest.fixture
++def lazy_shared_datadir(request: pytest.FixtureRequest, tmp_path: Path) -> LazyDataDir:
++    """
++    Return a lazy shared data directory.
++
++    Like ``lazy_datadir``, but sourced from the shared "data" directory next to the
++    test file (as used by ``shared_datadir``) instead of the module's own data
++    directory.
++    """
++    original_shared_path = Path(request.fspath.dirname) / "data"
++    temp_path = tmp_path / "data"
++    temp_path.mkdir()
++    return LazyDataDir(original_shared_path, temp_path)

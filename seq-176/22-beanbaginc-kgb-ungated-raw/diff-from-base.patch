@@ -1,0 +1,52 @@
+diff --git a/kgb/spies.py b/kgb/spies.py
+index 06bbc2a..1ae8e60 100644
+--- a/kgb/spies.py
++++ b/kgb/spies.py
+@@ -206,7 +206,9 @@ class FunctionSpy(object):
+         self._real_func = sig.real_func
+         self._call_orig_func = self._clone_function(self.orig_func)
+ 
+-        if self._get_owner_needs_patching():
++        self._owner_patched = self._get_owner_needs_patching()
++
++        if self._owner_patched:
+             # We need to store the original attribute value for the function,
+             # as defined in the class that owns it. That may be the provided
+             # or calculated owner, or a parent of it.
+@@ -332,7 +334,7 @@ class FunctionSpy(object):
+ 
+         setattr(real_func, FunctionSig.FUNC_CODE_ATTR, self._old_code)
+ 
+-        if owner is not None:
++        if owner is not None and self._owner_patched:
+             self._set_method(owner, self.func_name,
+                              self._owner_func_attr_value)
+ 
+diff --git a/kgb/tests/base.py b/kgb/tests/base.py
+index 7ef4679..c4c135e 100644
+--- a/kgb/tests/base.py
++++ b/kgb/tests/base.py
+@@ -40,6 +40,10 @@ class MathClass(object):
+ 
+         return a * b
+ 
++    @staticmethod
++    def static_do_math(a=2, b=5, *args, **kwargs):
++        return a * b
++
+ 
+ class TestCase(unittest.TestCase):
+     """Base class for test cases for kgb."""
+@@ -49,9 +53,11 @@ class TestCase(unittest.TestCase):
+     def setUp(self):
+         self.agency = SpyAgency()
+         self.orig_class_do_math = MathClass.class_do_math
++        self._orig_class_do_math_descriptor = \
++            MathClass.__dict__['class_do_math']
+ 
+     def tearDown(self):
+-        MathClass.class_do_math = self.orig_class_do_math
++        MathClass.class_do_math = self._orig_class_do_math_descriptor
+         self.agency.unspy_all()
+ 
+     def shortDescription(self):

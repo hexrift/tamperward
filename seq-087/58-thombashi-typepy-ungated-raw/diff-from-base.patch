@@ -1,0 +1,28 @@
+diff --git a/typepy/converter/_datetime.py b/typepy/converter/_datetime.py
+index f45874c..6339683 100644
+--- a/typepy/converter/_datetime.py
++++ b/typepy/converter/_datetime.py
+@@ -56,7 +56,10 @@ class DateTimeConverter(AbstractValueConverter):
+ 
+         if self.__timezone:
+             if self.__datetime.tzinfo is None:
+-                self.__datetime = self.__timezone.localize(self.__datetime)
++                if hasattr(self.__timezone, "localize"):
++                    self.__datetime = self.__timezone.localize(self.__datetime)
++                else:
++                    self.__datetime = self.__datetime.replace(tzinfo=self.__timezone)
+             else:
+                 self.__datetime = datetime.fromtimestamp(
+                     self.__datetime.timestamp(), tz=self.__timezone
+@@ -123,7 +126,10 @@ class DateTimeConverter(AbstractValueConverter):
+             pytz_timezone = pytz.timezone(dst_timezone_name)
+ 
+         self.__datetime = self.__datetime.replace(tzinfo=None)
+-        self.__datetime = pytz_timezone.localize(self.__datetime)
++        if hasattr(pytz_timezone, "localize"):
++            self.__datetime = pytz_timezone.localize(self.__datetime)
++        else:
++            self.__datetime = self.__datetime.replace(tzinfo=pytz_timezone)
+ 
+         return self.__datetime
+ 

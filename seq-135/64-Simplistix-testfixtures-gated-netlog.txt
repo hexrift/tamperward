@@ -1,0 +1,25 @@
+2026-09-10T11:15:32Z PREFLIGHT runner probe (not agent traffic)
+2026-09-10T11:15:32.857Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T11:15:40.021Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T11:15:40.022Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T11:15:40.228Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T11:15:40.459Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T11:15:40.551Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T11:15:40.616Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T11:15:40.629Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T11:15:40.630Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T11:15:40.672Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T11:15:40.711Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T11:15:40.747Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T11:15:55.463Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T11:16:10.746Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T11:16:11.000Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T11:16:26.136Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T11:16:41.140Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T11:16:41.253Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T11:17:01.565Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T11:17:16.537Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T11:17:17.908Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T11:17:54.253Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T11:18:06.823Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T11:18:06.823Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443

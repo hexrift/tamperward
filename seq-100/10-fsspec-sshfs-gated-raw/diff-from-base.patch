@@ -1,0 +1,46 @@
+diff --git a/sshfs/spec.py b/sshfs/spec.py
+index d3a8e05..f8f5940 100644
+--- a/sshfs/spec.py
++++ b/sshfs/spec.py
+@@ -265,7 +265,7 @@ class SSHFileSystem(AsyncFileSystem):
+         await self._execute(cmd)
+ 
+     @wrap_exceptions
+-    async def _ls(self, path, detail=False, **kwargs):
++    async def _ls(self, path, detail=True, **kwargs):
+         async with self._pool.get() as channel:
+             file_attrs = await channel.readdir(path)
+ 
+diff --git a/tests/conftest.py b/tests/conftest.py
+index cd5eba3..ef6887e 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -1,7 +1,28 @@
++import os
++import tempfile
+ import threading
+ from queue import Queue
+ 
+ import mockssh.server
++import pytest
++
++
++@pytest.fixture(autouse=True, scope="session")
++def _isolated_home():
++    # asyncssh probes default paths under ~/.ssh (e.g. for X.509 certs)
++    # when constructing connection options. Point HOME at a throwaway
++    # directory so tests don't depend on (or fail due to permissions on)
++    # the real user's home directory.
++    with tempfile.TemporaryDirectory() as tmp_home:
++        old_home = os.environ.get("HOME")
++        os.environ["HOME"] = tmp_home
++        try:
++            yield
++        finally:
++            if old_home is None:
++                os.environ.pop("HOME", None)
++            else:
++                os.environ["HOME"] = old_home
+ 
+ 
+ def _handler_run(self):

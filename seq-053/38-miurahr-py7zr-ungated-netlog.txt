@@ -1,0 +1,42 @@
+2026-09-10T02:04:37Z PREFLIGHT runner probe (not agent traffic)
+2026-09-10T02:04:37.943Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:04:44.591Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:04:44.592Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:04:44.837Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:04:45.168Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:04:45.190Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:04:45.206Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:04:45.206Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:04:45.240Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:04:45.283Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:04:45.323Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:04:45.378Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:05:00.091Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T02:05:15.472Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:05:26.694Z DENY HTTP PUT http://localhost:42377/scripts/py7zr
+2026-09-10T02:05:26.698Z DENY HTTP PUT http://localhost:42377/setup.cfg
+2026-09-10T02:05:26.701Z DENY HTTP PUT http://localhost:42377/setup.py
+2026-09-10T02:05:26.703Z DENY HTTP GET http://localhost:42377/setup.cfg
+2026-09-10T02:05:42.299Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T02:05:45.651Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:05:58.024Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T02:06:13.455Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T02:06:17.075Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:06:30.632Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T02:06:47.658Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:06:49.041Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T02:07:14.102Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T02:07:18.649Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:07:30.313Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T02:07:40.950Z DENY HTTP PUT http://localhost:40425/scripts/py7zr
+2026-09-10T02:07:40.952Z DENY HTTP PUT http://localhost:40425/setup.cfg
+2026-09-10T02:07:40.954Z DENY HTTP PUT http://localhost:40425/setup.py
+2026-09-10T02:07:40.956Z DENY HTTP GET http://localhost:40425/setup.cfg
+2026-09-10T02:07:49.240Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:07:56.693Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T02:08:19.912Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:08:23.199Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T02:08:39.735Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T02:08:50.369Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:09:09.633Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T02:09:09.633Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443

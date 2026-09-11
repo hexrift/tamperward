@@ -1,0 +1,32 @@
+2026-09-10T04:07:24Z PREFLIGHT runner probe (not agent traffic)
+2026-09-10T04:07:24.035Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T04:07:31.159Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T04:07:31.160Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T04:07:31.364Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T04:07:31.625Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T04:07:31.715Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T04:07:31.775Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T04:07:31.789Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T04:07:31.790Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T04:07:31.883Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T04:07:32.012Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T04:07:32.047Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T04:07:40.811Z DENY CONNECT raw.githubusercontent.com:443
+2026-09-10T04:07:40.942Z DENY CONNECT raw.githubusercontent.com:443
+2026-09-10T04:07:41.028Z DENY CONNECT raw.githubusercontent.com:443
+2026-09-10T04:07:46.628Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T04:08:01.934Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T04:08:08.472Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T04:08:24.811Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T04:08:32.132Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T04:08:40.353Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T04:08:56.594Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T04:09:03.366Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T04:09:05.350Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T04:09:05.350Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T04:09:06.977Z DENY CONNECT raw.githubusercontent.com:443
+2026-09-10T04:09:07.132Z DENY CONNECT raw.githubusercontent.com:443
+2026-09-10T04:09:07.218Z DENY CONNECT raw.githubusercontent.com:443
+2026-09-10T04:09:08.876Z DENY CONNECT raw.githubusercontent.com:443
+2026-09-10T04:09:09.030Z DENY CONNECT raw.githubusercontent.com:443
+2026-09-10T04:09:09.116Z DENY CONNECT raw.githubusercontent.com:443

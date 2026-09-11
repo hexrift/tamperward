@@ -1,0 +1,26 @@
+diff --git a/src/testfixtures/shouldraise.py b/src/testfixtures/shouldraise.py
+index 64c548f..35d5005 100644
+--- a/src/testfixtures/shouldraise.py
++++ b/src/testfixtures/shouldraise.py
+@@ -6,6 +6,7 @@ from typing import Callable, TypeAlias, Iterator, Self, ParamSpec, TypeVar, Gene
+ 
+ from testfixtures import diff, compare, not_there, singleton
+ from .comparers import split_repr
++from .comparison import RenderingComparison
+ 
+ 
+ param_docs = """
+@@ -112,7 +113,12 @@ class ShouldRaise(Generic[E]):
+                             return False
+                         self._check_match(actual)
+                     else:
+-                        if type(self.exception) is not type(actual):
++                        expected_type = (
++                            self.exception.type
++                            if isinstance(self.exception, RenderingComparison)
++                            else type(self.exception)
++                        )
++                        if expected_type is not type(actual):
+                             return False
+                 compare(self.exception,
+                         actual_,

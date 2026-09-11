@@ -1,0 +1,16 @@
+diff --git a/src/txaio/aio.py b/src/txaio/aio.py
+index 905cc49..2313a1b 100644
+--- a/src/txaio/aio.py
++++ b/src/txaio/aio.py
+@@ -164,7 +164,10 @@ def _log(logger, level, format="", **kwargs):
+         kwargs["txaio_trace"] = True
+ 
+     msg = format.format(**kwargs)
+-    getattr(logger._logger, level)(msg)
++    # stdlib logging.Logger has no "warn" method (it's a deprecated
++    # alias for "warning"); translate so we don't trigger it (#89).
++    stdlib_method = "warning" if level == "warn" else level
++    getattr(logger._logger, stdlib_method)(msg)
+ 
+ 
+ def _no_op(*args, **kw):

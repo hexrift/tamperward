@@ -1,0 +1,192 @@
+# environment drift acknowledged for the round-4 counted run
+# recorded 2026-09-09T13:43:01Z against manifest eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# recorded drift  environment.node
+#   frozen:  v22.22.2
+#   on disk: v22.23.2
+# recorded drift  environment.kernel
+#   frozen:  6.18.44-fc-v24
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.15
+#   on disk: Python 3.11.16
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+fingerprint:fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+# environment drift acknowledged for the round-4 counted run
+# recorded 2026-09-09T14:21:43Z against manifest eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# recorded drift  environment.node
+#   frozen:  v22.22.2
+#   on disk: v22.23.2
+# recorded drift  environment.kernel
+#   frozen:  6.18.44-fc-v24
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.15
+#   on disk: Python 3.11.16
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+fingerprint:fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+# environment drift acknowledged for the round-4 counted run
+# recorded 2026-09-09T14:58:53Z against manifest eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# recorded drift  environment.node
+#   frozen:  v22.22.2
+#   on disk: v22.23.2
+# recorded drift  environment.kernel
+#   frozen:  6.18.44-fc-v24
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.15
+#   on disk: Python 3.11.16
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+fingerprint:fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+# environment drift acknowledged for the round-4 counted run
+# recorded 2026-09-09T16:19:39Z against manifest eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# recorded drift  environment.node
+#   frozen:  v22.22.2
+#   on disk: v22.23.2
+# recorded drift  environment.kernel
+#   frozen:  6.18.44-fc-v24
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.15
+#   on disk: Python 3.11.16
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+fingerprint:fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+# environment drift acknowledged for the round-4 counted run
+# recorded 2026-09-09T23:23:53Z against manifest eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# recorded drift  environment.node
+#   frozen:  v22.22.2
+#   on disk: v22.23.2
+# recorded drift  environment.kernel
+#   frozen:  6.18.44-fc-v24
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.15
+#   on disk: Python 3.11.16
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+fingerprint:fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+# environment drift acknowledged for the round-4 counted run
+# recorded 2026-09-10T05:06:00Z against manifest eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# recorded drift  environment.node
+#   frozen:  v22.22.2
+#   on disk: v22.23.2
+# recorded drift  environment.kernel
+#   frozen:  6.18.44-fc-v24
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.15
+#   on disk: Python 3.11.16
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+fingerprint:fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+# environment drift acknowledged for the round-4 counted run
+# recorded 2026-09-10T07:09:37Z against manifest eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# recorded drift  environment.node
+#   frozen:  v22.22.2
+#   on disk: v22.23.2
+# recorded drift  environment.kernel
+#   frozen:  6.18.44-fc-v24
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.15
+#   on disk: Python 3.11.16
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+fingerprint:fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+# environment drift acknowledged for the round-4 counted run
+# recorded 2026-09-10T09:41:37Z against manifest eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# recorded drift  environment.node
+#   frozen:  v22.22.2
+#   on disk: v22.23.2
+# recorded drift  environment.kernel
+#   frozen:  6.18.44-fc-v24
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.15
+#   on disk: Python 3.11.16
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+fingerprint:fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+# environment drift acknowledged for the round-4 counted run
+# recorded 2026-09-10T13:58:11Z against manifest eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# recorded drift  environment.node
+#   frozen:  v22.22.2
+#   on disk: v22.23.2
+# recorded drift  environment.kernel
+#   frozen:  6.18.44-fc-v24
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.15
+#   on disk: Python 3.11.16
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+fingerprint:fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+# environment drift acknowledged for the round-4 counted run
+# recorded 2026-09-10T17:47:23Z against manifest eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# recorded drift  environment.node
+#   frozen:  v22.22.2
+#   on disk: v22.23.2
+# recorded drift  environment.kernel
+#   frozen:  6.18.44-fc-v24
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.15
+#   on disk: Python 3.11.16
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+fingerprint:fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+# environment drift acknowledged for the round-4 counted run
+# recorded 2026-09-10T19:44:12Z against manifest eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# recorded drift  environment.node
+#   frozen:  v22.22.2
+#   on disk: v22.23.2
+# recorded drift  environment.kernel
+#   frozen:  6.18.44-fc-v24
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.15
+#   on disk: Python 3.11.16
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+fingerprint:fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+# environment drift acknowledged for the round-4 counted run
+# recorded 2026-09-10T23:47:06Z against manifest eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# this acknowledgement covers EXACTLY the drift below and no other
+# sha256: eeb85c26bf47a83e28feecc6ae5ce73590f66fe4be393dfb06bea2a0eeb5fb7c
+# recorded drift  environment.node
+#   frozen:  v22.22.2
+#   on disk: v22.23.2
+# recorded drift  environment.kernel
+#   frozen:  6.18.44-fc-v24
+#   on disk: 6.17.0-1022-azure
+# recorded drift  environment.python3
+#   frozen:  Python 3.11.15
+#   on disk: Python 3.11.16
+# binding drift: 0   recorded drift: 3
+# environment drift fingerprint: fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647
+fingerprint:fe301c7667e27ffd369f65a034b843031f2f30f7367400490e84752eb1ad2647

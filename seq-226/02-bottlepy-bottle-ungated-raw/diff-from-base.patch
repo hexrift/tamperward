@@ -1,0 +1,24 @@
+diff --git a/bottle.py b/bottle.py
+index 053f9b4..28a7d95 100755
+--- a/bottle.py
++++ b/bottle.py
+@@ -2820,13 +2820,16 @@ def static_file(filename, root,
+                                    clen, filename)
+         etag = hashlib.sha1(tob(etag)).hexdigest()
+ 
++    inm_present = False
+     if etag:
+         headers['ETag'] = etag
+         check = getenv('HTTP_IF_NONE_MATCH')
+-        if check and check == etag:
+-            return HTTPResponse(status=304, **headers)
++        if check:
++            inm_present = True
++            if check == etag:
++                return HTTPResponse(status=304, **headers)
+ 
+-    ims = getenv('HTTP_IF_MODIFIED_SINCE')
++    ims = getenv('HTTP_IF_MODIFIED_SINCE') if not inm_present else None
+     if ims:
+         ims = parse_date(ims.split(";")[0].strip())
+         if ims is not None and ims >= int(stats.st_mtime):

@@ -1,0 +1,32 @@
+diff --git a/dj_database_url/__init__.py b/dj_database_url/__init__.py
+index 47d76d3..4166fce 100644
+--- a/dj_database_url/__init__.py
++++ b/dj_database_url/__init__.py
+@@ -53,15 +53,22 @@ class UnknownSchemeError(ValueError):
+         )
+ 
+ 
++_LIBPQ_OPTION_SEPARATORS = " \t\n\v\f\r"
++
++
+ def _escape_libpq_option_value(value: str) -> str:
+     """Escape a value for the libpq ``options`` connection parameter.
+ 
+-    libpq treats unescaped spaces in ``options`` as separators between
+-    command-line arguments, so a value containing a space would otherwise be
+-    read as further arguments rather than as part of this one. A backslash
+-    escapes the next character, and a doubled backslash is a literal one.
++    ``pg_split_opts`` terminates an argument on any ``isspace()`` character,
++    not just the space character, so a value containing one would otherwise
++    be read as further arguments rather than as part of this one. A
++    backslash escapes the next character, and a doubled backslash is a
++    literal one.
+     """
+-    return value.replace("\\", "\\\\").replace(" ", "\\ ")
++    return "".join(
++        "\\" + char if char == "\\" or char in _LIBPQ_OPTION_SEPARATORS else char
++        for char in value
++    )
+ 
+ 
+ def default_postprocess(parsed_config: DBConfig) -> None:

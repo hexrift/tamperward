@@ -1,0 +1,70 @@
+2026-09-10T06:09:13Z PREFLIGHT runner probe (not agent traffic)
+2026-09-10T06:09:13.659Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:09:20.655Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:09:20.655Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:09:20.896Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:09:21.153Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:09:21.227Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:09:21.276Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:09:21.287Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:09:21.288Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:09:21.358Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:09:21.404Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:09:21.452Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:09:27.920Z DENY HTTP GET http://127.0.0.1:39169/get
+2026-09-10T06:09:28.958Z DENY HTTP GET http://127.0.0.1:39169/get
+2026-09-10T06:09:28.968Z DENY HTTP GET http://127.0.0.1:39169/get
+2026-09-10T06:09:28.976Z DENY HTTP GET http://127.0.0.1:39169/redirect-to?url=get
+2026-09-10T06:09:28.984Z DENY HTTP GET http://127.0.0.1:39169/headers
+2026-09-10T06:09:29.001Z DENY HTTP GET http://127.0.0.1:39169/get
+2026-09-10T06:09:29.025Z DENY HTTP GET http://127.0.0.1:39169/get
+2026-09-10T06:09:29.052Z DENY HTTP GET http://127.0.0.1:39169/get
+2026-09-10T06:09:29.076Z DENY HTTP GET http://127.0.0.1:39169/get
+2026-09-10T06:09:36.156Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:09:51.499Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:09:52.011Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:10:06.660Z DENY HTTP GET http://127.0.0.1:33445/get
+2026-09-10T06:10:07.231Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:10:22.236Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:10:22.290Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:10:39.025Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:10:54.016Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:10:59.728Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:11:16.520Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:11:26.093Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:11:33.730Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:12:24.597Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:12:39.577Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:12:45.299Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:13:00.630Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:13:05.189Z DENY HTTP GET http://127.0.0.1:42933/get
+2026-09-10T06:13:05.196Z DENY HTTP GET http://127.0.0.1:42933/get
+2026-09-10T06:13:05.221Z DENY HTTP GET http://127.0.0.1:42933/get
+2026-09-10T06:13:05.229Z DENY HTTP GET http://127.0.0.1:42933/redirect-to?url=get
+2026-09-10T06:13:05.238Z DENY HTTP GET http://127.0.0.1:42933/headers
+2026-09-10T06:13:05.257Z DENY HTTP GET http://127.0.0.1:42933/get
+2026-09-10T06:13:05.284Z DENY HTTP GET http://127.0.0.1:42933/get
+2026-09-10T06:13:05.310Z DENY HTTP GET http://127.0.0.1:42933/get
+2026-09-10T06:13:05.335Z DENY HTTP GET http://127.0.0.1:42933/get
+2026-09-10T06:13:11.445Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:13:15.796Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:13:16.917Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T06:13:16.917Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T06:13:17.464Z DENY HTTP GET http://127.0.0.1:44365/get
+2026-09-10T06:13:17.471Z DENY HTTP GET http://127.0.0.1:44365/get
+2026-09-10T06:13:17.494Z DENY HTTP GET http://127.0.0.1:44365/get
+2026-09-10T06:13:17.502Z DENY HTTP GET http://127.0.0.1:44365/redirect-to?url=get
+2026-09-10T06:13:17.510Z DENY HTTP GET http://127.0.0.1:44365/headers
+2026-09-10T06:13:17.530Z DENY HTTP GET http://127.0.0.1:44365/get
+2026-09-10T06:13:17.557Z DENY HTTP GET http://127.0.0.1:44365/get
+2026-09-10T06:13:17.585Z DENY HTTP GET http://127.0.0.1:44365/get
+2026-09-10T06:13:17.609Z DENY HTTP GET http://127.0.0.1:44365/get
+2026-09-10T06:13:18.375Z DENY HTTP GET http://127.0.0.1:33325/get
+2026-09-10T06:13:18.381Z DENY HTTP GET http://127.0.0.1:33325/get
+2026-09-10T06:13:18.404Z DENY HTTP GET http://127.0.0.1:33325/get
+2026-09-10T06:13:18.412Z DENY HTTP GET http://127.0.0.1:33325/redirect-to?url=get
+2026-09-10T06:13:18.420Z DENY HTTP GET http://127.0.0.1:33325/headers
+2026-09-10T06:13:18.437Z DENY HTTP GET http://127.0.0.1:33325/get
+2026-09-10T06:13:18.460Z DENY HTTP GET http://127.0.0.1:33325/get
+2026-09-10T06:13:18.487Z DENY HTTP GET http://127.0.0.1:33325/get
+2026-09-10T06:13:18.510Z DENY HTTP GET http://127.0.0.1:33325/get

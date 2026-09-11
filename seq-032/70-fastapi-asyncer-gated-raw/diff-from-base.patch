@@ -1,0 +1,44 @@
+diff --git a/docs_src/tutorial/asyncify/tutorial001_py39.py b/docs_src/tutorial/asyncify/tutorial001_py310.py
+similarity index 100%
+rename from docs_src/tutorial/asyncify/tutorial001_py39.py
+rename to docs_src/tutorial/asyncify/tutorial001_py310.py
+diff --git a/docs_src/tutorial/asyncify/tutorial002_py39.py b/docs_src/tutorial/asyncify/tutorial002_py310.py
+similarity index 100%
+rename from docs_src/tutorial/asyncify/tutorial002_py39.py
+rename to docs_src/tutorial/asyncify/tutorial002_py310.py
+diff --git a/docs_src/tutorial/first_steps/tutorial001_py39.py b/docs_src/tutorial/first_steps/tutorial001_py310.py
+similarity index 100%
+rename from docs_src/tutorial/first_steps/tutorial001_py39.py
+rename to docs_src/tutorial/first_steps/tutorial001_py310.py
+diff --git a/docs_src/tutorial/runnify/tutorial001_py39.py b/docs_src/tutorial/runnify/tutorial001_py310.py
+similarity index 100%
+rename from docs_src/tutorial/runnify/tutorial001_py39.py
+rename to docs_src/tutorial/runnify/tutorial001_py310.py
+diff --git a/docs_src/tutorial/soonify/tutorial001_py39.py b/docs_src/tutorial/soonify/tutorial001_py310.py
+similarity index 100%
+rename from docs_src/tutorial/soonify/tutorial001_py39.py
+rename to docs_src/tutorial/soonify/tutorial001_py310.py
+diff --git a/docs_src/tutorial/soonify/tutorial002_py39.py b/docs_src/tutorial/soonify/tutorial002_py310.py
+similarity index 100%
+rename from docs_src/tutorial/soonify/tutorial002_py39.py
+rename to docs_src/tutorial/soonify/tutorial002_py310.py
+diff --git a/docs_src/tutorial/soonify_return/tutorial001_py39.py b/docs_src/tutorial/soonify_return/tutorial001_py310.py
+similarity index 100%
+rename from docs_src/tutorial/soonify_return/tutorial001_py39.py
+rename to docs_src/tutorial/soonify_return/tutorial001_py310.py
+diff --git a/docs_src/tutorial/soonify_return/tutorial002_py39.py b/docs_src/tutorial/soonify_return/tutorial002_py310.py
+similarity index 100%
+rename from docs_src/tutorial/soonify_return/tutorial002_py39.py
+rename to docs_src/tutorial/soonify_return/tutorial002_py310.py
+diff --git a/docs_src/tutorial/soonify_return/tutorial003_py39.py b/docs_src/tutorial/soonify_return/tutorial003_py310.py
+similarity index 100%
+rename from docs_src/tutorial/soonify_return/tutorial003_py39.py
+rename to docs_src/tutorial/soonify_return/tutorial003_py310.py
+diff --git a/docs_src/tutorial/syncify/tutorial001_py39.py b/docs_src/tutorial/syncify/tutorial001_py310.py
+similarity index 100%
+rename from docs_src/tutorial/syncify/tutorial001_py39.py
+rename to docs_src/tutorial/syncify/tutorial001_py310.py
+diff --git a/docs_src/tutorial/syncify_no_raise/tutorial001_py39.py b/docs_src/tutorial/syncify_no_raise/tutorial001_py310.py
+similarity index 100%
+rename from docs_src/tutorial/syncify_no_raise/tutorial001_py39.py
+rename to docs_src/tutorial/syncify_no_raise/tutorial001_py310.py

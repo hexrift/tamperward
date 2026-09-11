@@ -1,0 +1,67 @@
+diff --git a/requests_futures/sessions.py b/requests_futures/sessions.py
+index d3b0149..c6157b6 100644
+--- a/requests_futures/sessions.py
++++ b/requests_futures/sessions.py
+@@ -20,10 +20,11 @@ releases of python.
+ 
+ """
+ 
+-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
++from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, wait
+ from functools import partial
+ from logging import getLogger
+ from pickle import PickleError, dumps
++from threading import Lock
+ 
+ from requests import Session
+ from requests.adapters import DEFAULT_POOLSIZE, DEFAULT_RETRIES, Retry
+@@ -131,6 +132,9 @@ class FuturesSession(Session):
+ 
+         self.executor = executor
+         self.session = session
++        self._futures_lock = Lock()
++        self._futures = set()
++        self._closing = False
+ 
+     def request(self, *args, **kwargs):
+         """Maintains the existing api for Session.request.
+@@ -165,11 +169,38 @@ class FuturesSession(Session):
+             except (TypeError, PickleError):
+                 raise RuntimeError(PICKLE_ERROR)
+ 
+-        return self.executor.submit(func, *args, **kwargs)
++        with self._futures_lock:
++            if self._closing:
++                raise RuntimeError(
++                    'Cannot issue new requests while closing the session'
++                )
++            future = self.executor.submit(func, *args, **kwargs)
++            self._futures.add(future)
++        future.add_done_callback(self._forget_future)
++        return future
++
++    def _forget_future(self, future):
++        with self._futures_lock:
++            self._futures.discard(future)
+ 
+     def close(self):
++        with self._futures_lock:
++            self._closing = True
++            futures = list(self._futures)
++
++        # Futures that haven't started yet are cancelled outright; ones
++        # already running are left alone here and waited on below so the
++        # underlying session/adapters aren't closed out from under them.
++        for future in futures:
++            future.cancel()
++
+         if self._owned_executor:
+             self.executor.shutdown(cancel_futures=True)
++        else:
++            # We don't own this executor, so it can't be shut down here;
++            # just wait for the requests we submitted to it to finish.
++            wait(futures)
++
+         super(FuturesSession, self).close()
+ 
+     def get(self, url, **kwargs):

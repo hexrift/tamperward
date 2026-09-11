@@ -1,0 +1,56 @@
+diff --git a/bibtexparser/library.py b/bibtexparser/library.py
+index c19e144..30b9dd0 100644
+--- a/bibtexparser/library.py
++++ b/bibtexparser/library.py
+@@ -89,12 +89,22 @@ class Library:
+             blocks = [blocks]
+ 
+         for block in blocks:
+-            self._blocks.remove(block)
++            index = self._index_of_identical_block(block)
++            del self._blocks[index]
+             if isinstance(block, Entry):
+                 del self._entries_by_key[block.key]
+             elif isinstance(block, String):
+                 del self._strings_by_key[block.key]
+ 
++    def _index_of_identical_block(self, block: Block) -> int:
++        """Find the index of the exact block instance (by identity, not equality).
++
++        :raises ValueError: If block is not in library."""
++        for i, b in enumerate(self._blocks):
++            if b is block:
++                return i
++        raise ValueError(f"{block} not in library")
++
+     def replace(self, old_block: Block, new_block: Block, fail_on_duplicate_key: bool = True):
+         """Replace a block with another block, at the same position.
+ 
+@@ -104,11 +114,8 @@ class Library:
+                 a block with new_block.key (other than old_block) already exists.
+         :raises ValueError: If old_block is not in library or if fail_on_duplicate_key is True
+                 and a block with new_block.key (other than old_block) already exists."""
+-        try:
+-            index = self._blocks.index(old_block)
+-            self.remove(old_block)
+-        except ValueError:
+-            raise ValueError("Block to replace is not in library.")
++        index = self._index_of_identical_block(old_block)
++        self.remove(old_block)
+ 
+         block_after_add = self._add_to_dicts(new_block)
+         self._blocks.insert(index, block_after_add)
+diff --git a/bibtexparser/model.py b/bibtexparser/model.py
+index 421aef9..c650881 100644
+--- a/bibtexparser/model.py
++++ b/bibtexparser/model.py
+@@ -86,6 +86,9 @@ class Block(abc.ABC):
+             and self.__dict__ == other.__dict__
+         )
+ 
++    def __hash__(self) -> int:
++        return hash((self.__class__, self._start_line_in_file, self._raw))
++
+ 
+ class String(Block):
+     """Bibtex Blocks of the ``@string`` type, e.g. ``@string{me = "My Name"}``."""

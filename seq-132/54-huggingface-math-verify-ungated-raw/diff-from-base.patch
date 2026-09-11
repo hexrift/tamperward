@@ -1,0 +1,18 @@
+diff --git a/src/math_verify/grader.py b/src/math_verify/grader.py
+index 4695b5c..3ab7aa6 100644
+--- a/src/math_verify/grader.py
++++ b/src/math_verify/grader.py
+@@ -159,6 +159,13 @@ def sympy_numeric_eq(
+             # Now if both are numbers, we can use precision
+             if isinstance(a, (Number)) and isinstance(b, (Number)):
+                 return a.round(float_rounding) == b.round(float_rounding)
++            # One side may be an unevaluated numeric expression (e.g. sqrt(17)); evalf it first
++            try:
++                return round(float(a.evalf(numeric_precision)), float_rounding) == round(
++                    float(b.evalf(numeric_precision)), float_rounding
++                )
++            except Exception:
++                return False
+         else:
+             return safe_sympy_doit(a) == safe_sympy_doit(b)
+ 

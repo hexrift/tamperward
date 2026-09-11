@@ -1,0 +1,16 @@
+diff --git a/canopen/emcy.py b/canopen/emcy.py
+index 6a860f0..8b7d3bf 100644
+--- a/canopen/emcy.py
++++ b/canopen/emcy.py
+@@ -39,7 +39,10 @@ class EmcyConsumer:
+             self.emcy_received.notify_all()
+ 
+         for callback in self.callbacks:
+-            callback(entry)
++            try:
++                callback(entry)
++            except Exception:
++                logger.exception("Exception in EMCY callback")
+ 
+     def add_callback(self, callback: Callable[[EmcyError], None]):
+         """Get notified on EMCY messages from this node.

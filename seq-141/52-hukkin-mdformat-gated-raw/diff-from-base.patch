@@ -1,0 +1,25 @@
+diff --git a/src/mdformat/_cli.py b/src/mdformat/_cli.py
+index 0e13d3f..2b292c3 100644
+--- a/src/mdformat/_cli.py
++++ b/src/mdformat/_cli.py
+@@ -302,6 +302,20 @@ def make_arg_parser(
+             group = parser.add_argument_group(title=f"{plugin_id} plugin")
+             plugin.add_cli_argument_group(group)
+             for action in group._group_actions:
++                if action.default is not None:
++                    import warnings
++
++                    plugin_file, plugin_line = get_source_file_and_line(plugin)
++                    warnings.warn_explicit(
++                        f"Plugin '{plugin_id}' CLI argument"
++                        f" '{action.option_strings[0]}' has a default value"
++                        " that is not `None`."
++                        " This makes it always override the TOML config value."
++                        " Set `default=None` instead.",
++                        DeprecationWarning,
++                        filename=plugin_file,
++                        lineno=plugin_line,
++                    )
+                 action.dest = f"plugin.{plugin_id}.{action.dest}"
+     return parser
+ 

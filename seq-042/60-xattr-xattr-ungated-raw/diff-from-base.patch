@@ -1,0 +1,37 @@
+diff --git a/xattr/__init__.py b/xattr/__init__.py
+index 2180ba6..106830f 100644
+--- a/xattr/__init__.py
++++ b/xattr/__init__.py
+@@ -22,6 +22,8 @@ __all__ = [
+     "xattr", "listxattr", "getxattr", "setxattr", "removexattr"
+ ]
+ 
++_sentinel = object()
++
+ 
+ class xattr(object):
+     """
+@@ -59,14 +61,20 @@ class xattr(object):
+         else:
+             return name_func(self.value, *args)
+ 
+-    def get(self, name, options=0):
++    def get(self, name, options=0, *, default=_sentinel):
+         """
+         Retrieve the extended attribute ``name`` as a ``str``.
+-        Raises ``IOError`` on failure.
++        Raises ``IOError`` on failure, unless ``default`` is given, in
++        which case it is returned instead of raising.
+ 
+         See x-man-page://2/getxattr for options and possible errors.
+         """
+-        return self._call(_getxattr, _fgetxattr, name, 0, 0, options | self.options)
++        try:
++            return self._call(_getxattr, _fgetxattr, name, 0, 0, options | self.options)
++        except OSError:
++            if default is not _sentinel:
++                return default
++            raise
+ 
+     def set(self, name, value, options=0):
+         """

@@ -1,0 +1,60 @@
+diff --git a/py7zr/io.py b/py7zr/io.py
+index 795122f..9ae7751 100644
+--- a/py7zr/io.py
++++ b/py7zr/io.py
+@@ -199,7 +199,8 @@ class MemIO:
+     def close(self) -> None:
+         self._closed = True
+         if self._buf is not None:
+-            self._buf.seek(0)
++            if getattr(self._buf, "seekable", lambda: True)():
++                self._buf.seek(0)
+             self._buf.close()
+ 
+     def seek(self, offset: int, whence: int = 0) -> int:
+@@ -207,6 +208,11 @@ class MemIO:
+             return -1
+         return self._buf.seek(offset, whence)
+ 
++    def seekable(self) -> bool:
++        if self._buf is None:
++            return True
++        return getattr(self._buf, "seekable", lambda: True)()
++
+     def open(self, mode: str = "w"):
+         self._mode = mode
+         self._closed = False
+diff --git a/py7zr/py7zr.py b/py7zr/py7zr.py
+index 33d0ea6..82a62e2 100644
+--- a/py7zr/py7zr.py
++++ b/py7zr/py7zr.py
+@@ -1450,7 +1450,8 @@ class Worker:
+                     else:
+                         with fileish.open(mode="wb") as obfp:
+                             crc32 = self.decompress(fp, f.folder, obfp, f.uncompressed, f.compressed, src_end, q)
+-                            obfp.seek(0)
++                            if getattr(obfp, "seekable", lambda: True)():
++                                obfp.seek(0)
+                             if f.crc32 is not None and crc32 != f.crc32:
+                                 raise CrcError(crc32, f.crc32, f.filename)
+                 else:
+diff --git a/tests/test_stream_nwstorage.py b/tests/test_stream_nwstorage.py
+index 80a520b..19f5387 100644
+--- a/tests/test_stream_nwstorage.py
++++ b/tests/test_stream_nwstorage.py
+@@ -39,11 +39,13 @@ class StreamWriter(py7zr.io.Py7zIO):
+ 
+     def write(self, data: [bytes, bytearray]):
+         self.length += len(data)
+-        requests.put(self.httpserver.url_for(self.fname), data=data)
++        # Bypass any HTTP(S)_PROXY env config: this hits the in-process test
++        # server on localhost and must never be routed through a proxy.
++        requests.put(self.httpserver.url_for(self.fname), data=data, proxies={"http": None, "https": None})
+         self.httpserver.check_assertions()
+ 
+     def read(self, size: Optional[int] = None) -> bytes:
+-        response = requests.get(self.httpserver.url_for(self.fname))
++        response = requests.get(self.httpserver.url_for(self.fname), proxies={"http": None, "https": None})
+         return response.content
+ 
+     def seek(self, offset: int, whence: int = 0) -> int:

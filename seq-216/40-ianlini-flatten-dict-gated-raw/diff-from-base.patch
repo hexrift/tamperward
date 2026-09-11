@@ -1,0 +1,103 @@
+diff --git a/src/flatten_dict/flatten_dict.py b/src/flatten_dict/flatten_dict.py
+index bfeb49c..22b07da 100644
+--- a/src/flatten_dict/flatten_dict.py
++++ b/src/flatten_dict/flatten_dict.py
+@@ -113,7 +113,9 @@ def flatten(
+     return flat_dict
+ 
+ 
+-def nested_set_dict(d, keys, value):
++def nested_set_dict(
++    d, keys, value, *, flat_key, path=(), leaf_registry, allow_non_leaf_values
++):
+     """Set a value to a sequence of nested keys.
+ 
+     Parameters
+@@ -121,19 +123,51 @@ def nested_set_dict(d, keys, value):
+     d : Mapping
+     keys : Sequence[str]
+     value : Any
++    flat_key : Any
++        The original flat key that produced `keys`, used for error messages.
++    path : tuple
++        The key path walked so far.
++    leaf_registry : dict
++        Maps a key path to the flat key that set it as a leaf value, so that a
++        later flat key trying to nest under that path can be detected.
++    allow_non_leaf_values : bool
++        Whether to allow mutating a previously-set leaf value into a container
++        instead of raising a `ValueError`.
+     """
+     assert keys
+     key = keys[0]
++    current_path = path + (key,)
+     if len(keys) == 1:
+         if key in d:
+             raise ValueError("duplicated key '{}'".format(key))
+         d[key] = value
++        leaf_registry[current_path] = flat_key
+         return
++    if key in d and current_path in leaf_registry:
++        if not allow_non_leaf_values:
++            raise ValueError(
++                "cannot unflatten {!r} because {!r} already set a leaf value at "
++                "{!r}; pass allow_non_leaf_values=True if you intend for this "
++                "to overwrite/mutates the existing value".format(
++                    flat_key, leaf_registry[current_path], current_path
++                )
++            )
++        del leaf_registry[current_path]
++        if not isinstance(d[key], dict):
++            d[key] = {}
+     d = d.setdefault(key, {})
+-    nested_set_dict(d, keys[1:], value)
+-
+-
+-def unflatten(d, splitter="tuple", inverse=False):
++    nested_set_dict(
++        d,
++        keys[1:],
++        value,
++        flat_key=flat_key,
++        path=current_path,
++        leaf_registry=leaf_registry,
++        allow_non_leaf_values=allow_non_leaf_values,
++    )
++
++
++def unflatten(d, splitter="tuple", inverse=False, allow_non_leaf_values=False):
+     """Unflatten dict-like object.
+ 
+     Parameters
+@@ -149,6 +183,11 @@ def unflatten(d, splitter="tuple", inverse=False):
+         'dot': Use dots to split keys.
+     inverse : bool
+         Whether you want to invert the key and value before flattening.
++    allow_non_leaf_values : bool
++        By default, if a flat key's value was already set as a leaf value and
++        another flat key tries to nest further under it, `unflatten` raises a
++        `ValueError` instead of silently mutating that leaf value. Set this to
++        `True` to allow the mutation instead.
+ 
+     Returns
+     -------
+@@ -158,10 +197,18 @@ def unflatten(d, splitter="tuple", inverse=False):
+         splitter = SPLITTER_DICT[splitter]
+ 
+     unflattened_dict = {}
++    leaf_registry = {}
+     for flat_key, value in d.items():
+         if inverse:
+             flat_key, value = value, flat_key
+         key_tuple = splitter(flat_key)
+-        nested_set_dict(unflattened_dict, key_tuple, value)
++        nested_set_dict(
++            unflattened_dict,
++            key_tuple,
++            value,
++            flat_key=flat_key,
++            leaf_registry=leaf_registry,
++            allow_non_leaf_values=allow_non_leaf_values,
++        )
+ 
+     return unflattened_dict

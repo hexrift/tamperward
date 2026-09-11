@@ -1,0 +1,4 @@
+ M py7zr/io.py
+ M py7zr/py7zr.py
+ M tests/test_stream_nwstorage.py
+?? tests/data/test_multiple.7z

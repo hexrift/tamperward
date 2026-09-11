@@ -1,0 +1,13 @@
+diff --git a/tabledata/_core.py b/tabledata/_core.py
+index 9313c78..a01d224 100644
+--- a/tabledata/_core.py
++++ b/tabledata/_core.py
+@@ -239,7 +239,7 @@ class TableData:
+                 [
+                     lhs == rhs
+                     for lhs, rhs in zip(lhs_row, rhs_row)
+-                    if not Nan(lhs).is_type() and not Nan(rhs).is_type()
++                    if not (Nan(lhs).is_type() and Nan(rhs).is_type())
+                 ]
+             ):
+                 return False

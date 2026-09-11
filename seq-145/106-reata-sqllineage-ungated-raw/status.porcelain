@@ -1,0 +1,4 @@
+ M sqllineage/core/parser/sqlfluff/extractors/merge.py
+ M sqllineage/core/parser/sqlfluff/extractors/update.py
+ M sqllineage/core/parser/sqlfluff/utils.py
+ M tests/conftest.py

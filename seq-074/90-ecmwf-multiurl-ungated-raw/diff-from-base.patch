@@ -1,0 +1,34 @@
+diff --git a/multiurl/http.py b/multiurl/http.py
+index d5a7992..7a24e4e 100644
+--- a/multiurl/http.py
++++ b/multiurl/http.py
+@@ -460,7 +460,9 @@ RETRIABLE = (
+ )
+ 
+ 
+-def robust(call, maximum_tries=500, retry_after=120, mirrors=None):
++def robust(
++    call, maximum_tries=500, retry_after=120, mirrors=None, use_server_retry_after=False
++):
+     def retriable(code):
+         return code in RETRIABLE
+ 
+@@ -534,8 +536,16 @@ def robust(call, maximum_tries=500, retry_after=120, mirrors=None):
+                 LOG.warning("Retrying using mirror %s", mirror)
+                 main_url = f"{mirror}{url[replace:]}"
+             else:
+-                LOG.warning("Retrying in %s seconds", sleep)
+-                time.sleep(sleep)
++                wait = sleep
++                if use_server_retry_after and r is not None:
++                    server_retry_after = r.headers.get("Retry-After")
++                    if server_retry_after is not None:
++                        try:
++                            wait = float(server_retry_after)
++                        except ValueError:
++                            pass
++                LOG.warning("Retrying in %s seconds", wait)
++                time.sleep(wait)
+                 sleep = (
+                     min(sleep * sleep_incremental_ratio, sleep_max)
+                     if sleep_incremental_ratio >= 1

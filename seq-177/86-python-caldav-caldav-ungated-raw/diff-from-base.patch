@@ -1,0 +1,18 @@
+diff --git a/tests/test_servers/config_loader.py b/tests/test_servers/config_loader.py
+index c7467e4..a1bc056 100644
+--- a/tests/test_servers/config_loader.py
++++ b/tests/test_servers/config_loader.py
+@@ -59,7 +59,12 @@ def load_test_server_config(
+     # Try test-specific config files
+     for loc in TEST_CONFIG_LOCATIONS:
+         path = Path(loc).expanduser()
+-        if path.exists():
++        try:
++            found = path.exists()
++        except OSError:
++            # Inaccessible (e.g. permission denied) - treat as not found
++            continue
++        if found:
+             return _load_config_file(str(path))
+ 
+     # Try main caldav config (sections with testing_allowed)

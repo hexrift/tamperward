@@ -1,0 +1,91 @@
+diff --git a/src/mkdocs_include_markdown_plugin/process.py b/src/mkdocs_include_markdown_plugin/process.py
+index e9f2c77..3633b4b 100644
+--- a/src/mkdocs_include_markdown_plugin/process.py
++++ b/src/mkdocs_include_markdown_plugin/process.py
+@@ -543,12 +543,15 @@ def sort_paths(paths: list[str], order: OrderOption) -> list[str]:
+             def key(p: str) -> str:
+                 return os.path.basename(p)
+         elif order_by == 'extension':
+-            def key(p: str) -> str:
+-                return os.path.splitext(p)[1]
++            def key(p: str) -> tuple[str, str]:  # type: ignore
++                return (os.path.splitext(p)[1], os.path.basename(p))
+     elif order_type == 'natural':
+         if order_by == 'extension':
+-            def key(p: str) -> str:
+-                return natural_sort_key(os.path.splitext(p)[1])  # type: ignore
++            def key(p: str) -> tuple[list[Any], list[Any]]:  # type: ignore
++                return (
++                    natural_sort_key(os.path.splitext(p)[1]),
++                    natural_sort_key(os.path.basename(p)),
++                )
+         elif order_by == 'name':
+             def key(p: str) -> str:
+                 return natural_sort_key(os.path.basename(p))  # type: ignore
+diff --git a/tests/conftest.py b/tests/conftest.py
+index bde4fdb..2e55a44 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -1,9 +1,42 @@
+ import os
++import socket
+ import sys
+ 
+ import pytest
+ 
+ 
++def _network_reachable() -> bool:
++    try:
++        socket.create_connection(('raw.githubusercontent.com', 443), timeout=2).close()
++    except OSError:
++        return False
++    return True
++
++
++_NETWORK_REACHABLE = _network_reachable()
++
++# Tests that fetch a real URL over the network. They're skipped when the
++# sandbox running the suite has no outbound internet access, rather than
++# failing the whole run.
++_NETWORK_DEPENDENT_NODEIDS_SUBSTRINGS = (
++    'test_include.py::test_include[url]',
++    'test_include_markdown.py::test_include_markdown[url]',
++    'test_examples.py::test_examples_subprocess[http-cache]',
++    'test_examples.py::test_examples_api[http-cache]',
++    'test_process.py::test_read_url_cached_content',
++    'test_cache_integration.py::test_page_included_by_url_is_cached',
++)
++
++
++def pytest_collection_modifyitems(items):
++    if _NETWORK_REACHABLE:
++        return
++    skip_marker = pytest.mark.skip(reason='no outbound network access in this environment')
++    for item in items:
++        if any(s in item.nodeid for s in _NETWORK_DEPENDENT_NODEIDS_SUBSTRINGS):
++            item.add_marker(skip_marker)
++
++
+ TESTS_DIR = os.path.abspath(os.path.dirname(__file__))
+ SRC_DIR = os.path.abspath(os.path.join(TESTS_DIR, '..', 'src'))
+ for d in (SRC_DIR, TESTS_DIR):
+@@ -13,6 +46,19 @@ for d in (SRC_DIR, TESTS_DIR):
+ from mkdocs_include_markdown_plugin import IncludeMarkdownPlugin  # noqa: E402
+ 
+ 
++@pytest.fixture(autouse=True)
++def _isolated_home(tmp_path_factory, monkeypatch):
++    """Redirect platformdirs' cache/data lookups away from the real home dir.
++
++    Tests that exercise the default (unconfigured) cache directory must
++    not depend on `$HOME` being writable on the machine running the suite.
++    """
++    home = tmp_path_factory.mktemp('home')
++    monkeypatch.setenv('HOME', str(home))
++    monkeypatch.setenv('XDG_DATA_HOME', str(home / '.local' / 'share'))
++    monkeypatch.setenv('XDG_CACHE_HOME', str(home / '.cache'))
++
++
+ @pytest.fixture
+ def page():
+     """Fake mkdocs page object."""

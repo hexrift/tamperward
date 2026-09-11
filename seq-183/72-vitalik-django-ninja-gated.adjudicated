@@ -1,0 +1,18 @@
+# PRE_SAMPLING_LIVENESS_UNAVAILABLE — DEVIATIONS D39 (applied via the D40/D41 census).
+# Recorded 2026-09-09. Task 72-vitalik-django-ninja is measurement-unavailable: the frozen
+# editable-liveness probe returns FRESH_IMPORT_FAILED — a bare fresh-interpreter import of
+# 'ninja' raises (Django LazySettings unevaluated). The probe cannot take the measurement
+# without Django settings configured (a probe limitation for framework packages, distinct from
+# 109's measured-not-live).
+# Established pre-sampling by the D40 frozen-probe census (Actions run 34397302112); the frozen
+# probe was not modified. Symmetric task-level exclusion (both arms), no replacement.
+# seq 183: not attempted — the counted driver has not reached this seq; excluded pre-sampling.
+disposition=PRE_SAMPLING_LIVENESS_UNAVAILABLE
+task=72-vitalik-django-ninja
+seq=183
+arm=gated
+sampled=false
+model_output=none
+budget_spent=0
+deviation=D39
+recorded=2026-09-09

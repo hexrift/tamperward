@@ -1,0 +1,12 @@
+diff --git a/cloup/formatting/_formatter.py b/cloup/formatting/_formatter.py
+index b7f97ec..c475311 100644
+--- a/cloup/formatting/_formatter.py
++++ b/cloup/formatting/_formatter.py
+@@ -229,6 +229,7 @@ class HelpFormatter(click.HelpFormatter):
+                 self.write("\n")
+                 with self.indentation():
+                     self.write_text(constraint_text, theme.constraint)
++                self.write("\n")
+ 
+         with self.indentation():
+             if s.help:

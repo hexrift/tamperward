@@ -1,0 +1,5 @@
+ M src/dependency_injector/wiring.py
+ M tests/unit/samples/wiring/container.py
+ M tests/unit/samples/wiring/module.py
+ M tests/unit/samples/wiringstringids/container.py
+ M tests/unit/samples/wiringstringids/module.py

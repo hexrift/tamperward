@@ -1,0 +1,14 @@
+diff --git a/dj_database_url/__init__.py b/dj_database_url/__init__.py
+index 47d76d3..24bedd5 100644
+--- a/dj_database_url/__init__.py
++++ b/dj_database_url/__init__.py
+@@ -61,7 +61,8 @@ def _escape_libpq_option_value(value: str) -> str:
+     read as further arguments rather than as part of this one. A backslash
+     escapes the next character, and a doubled backslash is a literal one.
+     """
+-    return value.replace("\\", "\\\\").replace(" ", "\\ ")
++    escaped = value.replace("\\", "\\\\")
++    return "".join(f"\\{char}" if char.isspace() else char for char in escaped)
+ 
+ 
+ def default_postprocess(parsed_config: DBConfig) -> None:

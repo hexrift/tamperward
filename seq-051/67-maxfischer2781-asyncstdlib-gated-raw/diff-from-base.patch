@@ -1,0 +1,65 @@
+diff --git a/asyncstdlib/itertools.py b/asyncstdlib/itertools.py
+index 42ce4df..b9df81a 100644
+--- a/asyncstdlib/itertools.py
++++ b/asyncstdlib/itertools.py
+@@ -357,12 +357,14 @@ class TeePeer(Generic[T]):
+         self,
+         iterator: AsyncIterator[T],
+         buffer: "_TeeNode[T]",
++        frontier: "list[_TeeNode[T]]",
+         lock: AsyncContextManager[Any],
+         tee_peers: "set[int]",
+     ) -> None:
+         self._iterator = iterator
+         self._lock = lock
+         self._buffer: _TeeNode[T] = buffer
++        self._frontier = frontier
+         self._tee_peers = tee_peers
+         self._tee_idx = _get_tee_index()
+         self._tee_peers.add(self._tee_idx)
+@@ -378,9 +380,29 @@ class TeePeer(Generic[T]):
+         # fetch the next value so we can mutate the node to [value, [...]]
+         if not next_node:
+             async with self._lock:
+-                # Check if another peer produced an item while we were waiting for the lock
++                # Check if another peer produced an item while we were
++                # waiting for the lock -- with a real lock this is the only
++                # way a concurrent fetch can already have landed here.
+                 if not next_node:
+-                    next_node[:] = await self._iterator.__anext__(), []
++                    value = await self._iterator.__anext__()
++                    # Multiple peers may still race to fill the same node
++                    # (only safe if the underlying iterator is itself
++                    # concurrency safe, e.g. under a no-op lock). This block
++                    # contains no ``await``, so it runs atomically with
++                    # respect to other tasks.
++                    if next_node:
++                        # A faster peer filled our node while we were
++                        # fetching. Our value is "extra": append it to
++                        # whatever is currently the shared frontier so it
++                        # is not lost.
++                        tail_node = self._frontier[0]
++                        new_tail: "_TeeNode[T]" = []
++                        tail_node[:] = value, new_tail
++                        self._frontier[0] = new_tail
++                    else:
++                        new_tail = []
++                        next_node[:] = value, new_tail
++                        self._frontier[0] = new_tail
+         # for any other TeePeer, the node is already some [value, [...]]
+         value, self._buffer = next_node  # type: ignore
+         return value
+@@ -444,11 +466,13 @@ class Tee(Generic[T]):
+     ):
+         iterator = aiter(iterable)
+         buffer: _TeeNode[T] = []
++        frontier: "list[_TeeNode[T]]" = [buffer]
+         peers: set[int] = set()
+         self._children = tuple(
+             TeePeer(
+                 iterator,
+                 buffer,
++                frontier,
+                 lock if lock is not None else NoLock(),
+                 peers,
+             )

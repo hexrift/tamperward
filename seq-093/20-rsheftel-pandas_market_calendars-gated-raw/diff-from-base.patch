@@ -1,0 +1,55 @@
+diff --git a/pandas_market_calendars/calendars/bse.py b/pandas_market_calendars/calendars/bse.py
+index 36fc6c0..c7155e5 100644
+--- a/pandas_market_calendars/calendars/bse.py
++++ b/pandas_market_calendars/calendars/bse.py
+@@ -435,7 +435,7 @@ class BSEExchangeCalendar(MarketCalendar):
+     early closes or late opens.
+     """
+ 
+-    aliases = ["BSE"]
++    aliases = ["BSE", "XBOM"]
+     regular_market_times = {
+         "market_open": ((None, time(9, 15)),),
+         "market_close": ((None, time(15, 30)),),
+diff --git a/pandas_market_calendars/calendars/cme_globex_energy_and_metals.py b/pandas_market_calendars/calendars/cme_globex_energy_and_metals.py
+index 48badfb..cb7800c 100644
+--- a/pandas_market_calendars/calendars/cme_globex_energy_and_metals.py
++++ b/pandas_market_calendars/calendars/cme_globex_energy_and_metals.py
+@@ -15,6 +15,7 @@
+ 
+ from datetime import time
+ 
++from pandas import DatetimeIndex, Timestamp
+ from pandas.tseries.holiday import (
+     AbstractHolidayCalendar,
+ )  # , GoodFriday, USLaborDay, USPresidentsDay, USThanksgivingDay
+@@ -219,3 +220,12 @@ class CMEGlobexEnergyAndMetalsExchangeCalendar(CMEGlobexBaseExchangeCalendar):
+                 ),
+             ),
+         ]
++
++    @property
++    def special_closes_adhoc(self):
++        # New Year's Day 2011 fell on a Saturday, so no holiday was observed;
++        # instead CME closed early (15:15) on the preceding Friday.
++        # https://github.com/rsheftel/pandas_market_calendars/files/14588227/2011-new-years.pdf
++        return [
++            (time(15, 15), DatetimeIndex([Timestamp("2010-12-31")])),
++        ]
+diff --git a/pandas_market_calendars/calendars/mirror.py b/pandas_market_calendars/calendars/mirror.py
+index a4e9f6d..9804581 100644
+--- a/pandas_market_calendars/calendars/mirror.py
++++ b/pandas_market_calendars/calendars/mirror.py
+@@ -130,6 +130,12 @@ time_props = {
+ }
+ 
+ for exchange in calendars:
++    if exchange in MarketCalendar._regmeta_class_registry:
++        # A native calendar (or alias thereof) already claims this name, e.g. BSE
++        # claims "XBOM"; keep the more complete native implementation instead of
++        # overwriting it with the generic mirrored one.
++        continue
++
+     cal = calendars[exchange]
+ 
+     # this loop will set up the newly required regular_market_times dictionary

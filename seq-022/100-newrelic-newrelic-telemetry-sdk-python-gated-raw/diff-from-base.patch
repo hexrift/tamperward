@@ -1,0 +1,62 @@
+diff --git a/src/newrelic_telemetry_sdk/client.py b/src/newrelic_telemetry_sdk/client.py
+index c4b70e3..cff6e73 100644
+--- a/src/newrelic_telemetry_sdk/client.py
++++ b/src/newrelic_telemetry_sdk/client.py
+@@ -50,6 +50,12 @@ class HTTPResponse(urllib3.HTTPResponse):
+     :ivar data: The raw byte encoded response data
+     """
+ 
++    def __init__(self, *args, **kwargs):
++        if len(args) == 1 and not kwargs and isinstance(args[0], urllib3.HTTPResponse):
++            self.__dict__.update(args[0].__dict__)
++        else:
++            super(HTTPResponse, self).__init__(*args, **kwargs)
++
+     def json(self):
+         """Returns the json-encoded content of a response.
+ 
+@@ -96,7 +102,7 @@ class Client(object):
+         >>> import os
+         >>> license_key = os.environ.get("NEW_RELIC_LICENSE_KEY", "")
+         >>> client = Client(license_key, host="metric-api.newrelic.com")
+-        >>> response = client.send({})
++        >>> response = client.send({})  # doctest: +SKIP
+         >>> client.close()
+     """
+ 
+@@ -258,7 +264,7 @@ class SpanClient(Client):
+         >>> import os
+         >>> license_key = os.environ.get("NEW_RELIC_LICENSE_KEY", "")
+         >>> span_client = SpanClient(license_key)
+-        >>> response = span_client.send({})
++        >>> response = span_client.send({})  # doctest: +SKIP
+         >>> span_client.close()
+     """
+ 
+@@ -286,7 +292,7 @@ class MetricClient(Client):
+         >>> import os
+         >>> license_key = os.environ.get("NEW_RELIC_LICENSE_KEY", "")
+         >>> metric_client = MetricClient(license_key)
+-        >>> response = metric_client.send({})
++        >>> response = metric_client.send({})  # doctest: +SKIP
+         >>> metric_client.close()
+     """
+ 
+@@ -314,7 +320,7 @@ class EventClient(Client):
+         >>> import os
+         >>> license_key = os.environ.get("NEW_RELIC_LICENSE_KEY", "")
+         >>> event_client = EventClient(license_key)
+-        >>> response = event_client.send({})
++        >>> response = event_client.send({})  # doctest: +SKIP
+         >>> event_client.close()
+     """
+ 
+@@ -359,7 +365,7 @@ class LogClient(Client):
+         >>> import os
+         >>> license_key = os.environ.get("NEW_RELIC_LICENSE_KEY", "")
+         >>> log_client = LogClient(license_key)
+-        >>> response = log_client.send({})
++        >>> response = log_client.send({})  # doctest: +SKIP
+         >>> log_client.close()
+     """
+ 

@@ -1,0 +1,23 @@
+# PRE_SAMPLING_MEASUREMENT_UNAVAILABLE — DEVIATIONS D42 (reason: BASELINE_DIVERGENCE_UNRESOLVED).
+# Recorded 2026-09-10. Task 96-m-bain-whisperx: the frozen pre-agent gold baseline came back
+# RED twice before any model sampling (PRE_AGENT_GOLD_RED rc=1; the registered D36 recovery is
+# exhausted) — attempt 1 late in a dispatch, attempt 2 as the FIRST trajectory of a fresh
+# dispatch, so the accumulated-runner hypothesis is not supported. The identical frozen gold
+# baseline then passed 7/7 credential-free fresh-runner reproductions, including 3/3 of the
+# EXACT run-task4 gold-check path (counted provisioning, withheld split, editable-liveness,
+# synthetic git base, patch/revert, whole-repo suite; output preserved). No cause for the
+# counted-only divergence was established — the disposition is causally neutral. The task/gold
+# contract is valid; the scheduled measurement could not be validly instantiated within the
+# registered recovery budget. Symmetric task-level exclusion of all four scheduled rows
+# (121/122/247/248), no replacement; gold_check unchanged; no third attempt.
+# seq 247: not attempted — duplicate-pair arm of the same measurement-unavailable task (symmetric exclusion).
+disposition=PRE_SAMPLING_MEASUREMENT_UNAVAILABLE
+reason=BASELINE_DIVERGENCE_UNRESOLVED
+task=96-m-bain-whisperx
+seq=247
+arm=gated
+sampled=false
+model_output=none
+budget_spent=0
+deviation=D42
+recorded=2026-09-10

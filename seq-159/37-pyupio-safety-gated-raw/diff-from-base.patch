@@ -1,0 +1,136 @@
+diff --git a/safety/util.py b/safety/util.py
+index 89ad11d..dddb60c 100644
+--- a/safety/util.py
++++ b/safety/util.py
+@@ -46,6 +46,10 @@ if TYPE_CHECKING:
+ 
+ LOG = logging.getLogger(__name__)
+ 
++# Safety-issued vulnerability ids (assigned before/instead of a CVE),
++# formatted as SFTY-YYYYMMDD-NNNNN.
++SFTY_VULNERABILITY_ID_PATTERN = re.compile(r"^SFTY-\d{8}-\d+$")
++
+ 
+ def is_a_remote_mirror(mirror: str) -> bool:
+     """
+@@ -1078,16 +1082,17 @@ class SafetyPolicyFile(click.ParamType):
+                     expires = ignored_vuln_config.get("expires", "")
+                     expires = str(expires) if expires else None
+ 
+-                    try:
+-                        if int(ignored_vuln_id) < 0:
+-                            raise ValueError("Negative Vulnerability ID")
+-                    except ValueError:
+-                        self.fail(
+-                            msg.format(
+-                                hint=f"vulnerability id {ignored_vuln_id} under the 'ignore-vulnerabilities' root needs to "
+-                                f"be a positive integer"
++                    if not SFTY_VULNERABILITY_ID_PATTERN.match(str(ignored_vuln_id)):
++                        try:
++                            if int(ignored_vuln_id) < 0:
++                                raise ValueError("Negative Vulnerability ID")
++                        except ValueError:
++                            self.fail(
++                                msg.format(
++                                    hint=f"vulnerability id {ignored_vuln_id} under the 'ignore-vulnerabilities' root needs to "
++                                    f"be a positive integer or a SFTY-YYYYMMDD-NNNNN id"
++                                )
+                             )
+-                        )
+ 
+                     # Validate expires date
+                     d = validate_expiration_date(expires)
+diff --git a/tests/.policy_with_ignores.yml b/tests/.policy_with_ignores.yml
+index 80a551c..0d33ec3 100644
+--- a/tests/.policy_with_ignores.yml
++++ b/tests/.policy_with_ignores.yml
+@@ -8,3 +8,5 @@ security:
+             expires: '2022-02-22 14:00:00'
+         35797:
+         23231:
++        SFTY-20260218-01424:
++            reason: Fixed nltk version 3.9.3 requires Python>=3.10
+diff --git a/tests/conftest.py b/tests/conftest.py
+index cb46e79..75416bc 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -1,3 +1,18 @@
++import os
++import tempfile
++
++# Redirect HOME (and the Windows equivalents) to a throwaway, writable
++# directory before anything below imports `safety`. Several modules
++# (e.g. safety.constants) compute user/config directory paths at import
++# time from the real home directory, which may not be writable (or even
++# readable) in CI/sandboxed environments. Tests must not depend on the
++# ambient environment's home directory.
++_TEST_HOME = tempfile.mkdtemp(prefix="safety-test-home-")
++os.environ["HOME"] = _TEST_HOME
++os.environ["USERPROFILE"] = _TEST_HOME
++os.environ["LOCALAPPDATA"] = _TEST_HOME
++os.environ["APPDATA"] = _TEST_HOME
++
+ from importlib.metadata import distributions
+ from packaging.requirements import Requirement
+ from packaging.utils import canonicalize_name
+diff --git a/tests/firewall/test_command.py b/tests/firewall/test_command.py
+index 07f064e..5462f22 100644
+--- a/tests/firewall/test_command.py
++++ b/tests/firewall/test_command.py
+@@ -26,7 +26,7 @@ class TestFirewallInit:
+         runner = CliRunner()
+ 
+         with (
+-            patch("safety.auth.cli_utils.configure_auth_session"),
++            patch("safety.cli_util.configure_auth_session"),
+             patch("safety.firewall.command.resolve_org_slug", return_value=None),
+             patch("safety.firewall.command.configure_system") as mock_configure,
+             patch("safety.firewall.command.create_interceptor") as mock_interceptor,
+@@ -54,7 +54,7 @@ class TestFirewallInit:
+         ]
+ 
+         with (
+-            patch("safety.auth.cli_utils.configure_auth_session"),
++            patch("safety.cli_util.configure_auth_session"),
+             patch("safety.firewall.command.resolve_org_slug", return_value="my-org"),
+             patch("safety.firewall.command.configure_system") as mock_configure,
+             patch(
+@@ -83,7 +83,7 @@ class TestFirewallInit:
+         mock_interceptor_instance = MagicMock()
+ 
+         with (
+-            patch("safety.auth.cli_utils.configure_auth_session"),
++            patch("safety.cli_util.configure_auth_session"),
+             patch("safety.firewall.command.resolve_org_slug", return_value="my-org"),
+             patch("safety.firewall.command.configure_system") as mock_configure,
+             patch(
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index 03901b4..be4a016 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -18,6 +18,7 @@ from safety_schemas.models.base import AuthenticationType
+ 
+ from safety.auth.models import Auth
+ from safety.cli import cli
++from safety.utils.tls_probe import TLSProbeResult
+ from safety.console import main_console as console
+ from safety.models import CVE, SafetyCLI, SafetyRequirement, Severity, Vulnerability
+ from safety.util import Package, SafetyContext
+@@ -125,6 +126,17 @@ class TestSafetyCLI(unittest.TestCase):
+         self.mock_get_system_dir.return_value = self.temp_system_dir
+         self.mock_user_config_dir = self.temp_user_dir
+ 
++        # Prevent SafetyPlatformClient.__init__ from making a real network
++        # TLS probe (safety/platform/client.py::_initialize_with_tls_fallback).
++        self.probe_tls_patcher = patch(
++            "safety.platform.client.probe_tls_connectivity",
++            side_effect=lambda probe_url, tls_config, **kwargs: TLSProbeResult(
++                tls_config=tls_config, fell_back=False
++            ),
++        )
++        self.probe_tls_patcher.start()
++        self.addCleanup(self.probe_tls_patcher.stop)
++
+         self.get_keys_patcher = patch(
+             "safety.auth.cli_utils.SafetyPlatformClient.get_jwks"
+         )

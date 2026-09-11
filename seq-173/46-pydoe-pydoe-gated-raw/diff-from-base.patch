@@ -1,0 +1,177 @@
+diff --git a/pydoe/factorial/factorial.py b/pydoe/factorial/factorial.py
+index 4223cfe..cee4a10 100644
+--- a/pydoe/factorial/factorial.py
++++ b/pydoe/factorial/factorial.py
+@@ -383,35 +383,94 @@ def fracfact_by_res(n: int, res: int) -> np.ndarray:
+     if res < 3:
+         raise ValueError("resolution must be >= 3")
+ 
+-    # trying the standard DOE tables first
++    # trying the standard DOE tables first, as a starting guess for k
+     k = _get_base_factors_from_table(n, res)
+     if k is None:
+         k = _calculate_min_base_factors(n, res)
++    k = min(k, n)
++
++    generated = None
++    while generated is None:
++        if k > 26:
++            raise ValueError("design requires more than 26 base factors")
++        if k >= n:
++            k = n
++            generated = []
++            break
++        generated = _select_generators(k, n, res)
++        if generated is None:
++            k += 1
+ 
+-    if k > 26:
+-        raise ValueError("design requires more than 26 base factors")
++    base = list(string.ascii_lowercase[:k])
++    gen_str = " ".join(base + generated)
++    return fracfact(gen_str)
+ 
+-    #  validation
+-    max_n = _max_factors_for_resolution(k, res)
+-    if n > max_n:
+-        raise ValueError(
+-            f"{n} factors not possible at resolution {res} with {2**k} runs "
+-            f"(max supported: {max_n})"
+-        )
+ 
+-    # Base factor names: a, b, c, ...
+-    base = list(string.ascii_lowercase[:k])
++def _select_generators(k: int, n: int, res: int) -> list[str] | None:
++    """
++    Greedily pick `n - k` generator words (each of order >= res - 1) over
++    `k` base factors so that the resulting design achieves resolution
++    `res`, i.e. no product of fewer than `res` of the `n` factor columns
++    equals the identity column.
+ 
+-    # Generator terms must be of order >= (res - 1)
+-    combos = (
+-        "".join(c)
+-        for r in range(res - 1, len(base) + 1)
+-        for c in itertools.combinations(base, r)
+-    )
+-    generated = list(itertools.islice(combos, n - k))
++    Parameters
++    ----------
++    k : int
++        Number of base factors.
++    n : int
++        Total number of factors requested.
++    res : int
++        Desired design resolution.
+ 
+-    gen_str = " ".join(base + generated)
+-    return fracfact(gen_str)
++    Returns
++    -------
++    list[str] or None
++        The `n - k` generator words if a valid set was found, otherwise
++        None (meaning `k` base factors are not enough).
++    """
++    needed = n - k
++    base = list(string.ascii_lowercase[:k])
++
++    # GF(2) vector (as a bitmask) for each already-placed factor column,
++    # starting with the k base factors themselves.
++    vectors = [1 << i for i in range(k)]
++    words: list[str] = []
++
++    # A candidate word is safe to add if no subset of at most (res - 2)
++    # already-placed vectors XORs to the candidate's own vector: such a
++    # subset, together with the candidate, would form a defining word of
++    # length < res.
++    max_subset = res - 2
++
++    def collides(candidate: int) -> bool:
++        for size in range(1, max_subset + 1):
++            if size > len(vectors):
++                break
++            for combo in itertools.combinations(vectors, size):
++                xor_val = 0
++                for v in combo:
++                    xor_val ^= v
++                if xor_val == candidate:
++                    return True
++        return False
++
++    for order in range(res - 1, k + 1):
++        for combo in itertools.combinations(range(k), order):
++            if len(words) >= needed:
++                break
++            candidate = 0
++            for idx in combo:
++                candidate |= 1 << idx
++            if collides(candidate):
++                continue
++            vectors.append(candidate)
++            words.append("".join(base[i] for i in combo))
++        if len(words) >= needed:
++            break
++
++    if len(words) < needed:
++        return None
++    return words
+ 
+ 
+ def _get_base_factors_from_table(n: int, res: int) -> int | None:
+@@ -432,12 +491,13 @@ def _get_base_factors_from_table(n: int, res: int) -> int | None:
+         The number of base factors k if found, otherwise None.
+     """
+     table = {
+-        # Resolution III
++        # Resolution III: 2^(n-p) designs (NIST Table 3.17,
++        # Montgomery Table 8.14)
+         (3, 3): 2,
+         (4, 3): 3,
+         (5, 3): 3,
+         (6, 3): 3,
+-        (7, 3): 4,
++        (7, 3): 3,
+         (8, 3): 4,
+         (9, 3): 4,
+         (10, 3): 4,
+@@ -448,24 +508,24 @@ def _get_base_factors_from_table(n: int, res: int) -> int | None:
+         (15, 3): 4,
+         # Resolution IV
+         (3, 4): 3,
+-        (4, 4): 4,
+-        (5, 4): 5,
+-        (6, 4): 5,
+-        (7, 4): 5,
+-        (8, 4): 5,
+-        (9, 4): 6,
+-        (10, 4): 6,
+-        (11, 4): 6,
+-        (12, 4): 6,
+-        (13, 4): 6,
+-        (14, 4): 6,
+-        (15, 4): 6,
++        (4, 4): 3,
++        (5, 4): 4,
++        (6, 4): 4,
++        (7, 4): 4,
++        (8, 4): 4,
++        (9, 4): 5,
++        (10, 4): 5,
++        (11, 4): 5,
++        (12, 4): 5,
++        (13, 4): 5,
++        (14, 4): 5,
++        (15, 4): 5,
+         # Resolution V
+-        (4, 5): 5,
+-        (5, 5): 5,
+-        (6, 5): 6,
++        (4, 5): 4,
++        (5, 5): 4,
++        (6, 5): 5,
+         (7, 5): 6,
+-        (8, 5): 7,
++        (8, 5): 6,
+         (9, 5): 7,
+         (10, 5): 7,
+         (11, 5): 7,

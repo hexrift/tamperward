@@ -1,0 +1,13 @@
+diff --git a/src/txaio/aio.py b/src/txaio/aio.py
+index 905cc49..592c5e1 100644
+--- a/src/txaio/aio.py
++++ b/src/txaio/aio.py
+@@ -162,6 +162,8 @@ def _log(logger, level, format="", **kwargs):
+     if level == "trace":
+         level = "debug"
+         kwargs["txaio_trace"] = True
++    elif level == "warn":
++        level = "warning"
+ 
+     msg = format.format(**kwargs)
+     getattr(logger._logger, level)(msg)

@@ -1,0 +1,12 @@
+diff --git a/src/west/manifest.py b/src/west/manifest.py
+index edf68af..5bd822e 100644
+--- a/src/west/manifest.py
++++ b/src/west/manifest.py
+@@ -1709,6 +1709,7 @@ class Manifest:
+         # and Python 3.7+ guarantee.
+         r: dict[str, Any] = {}
+         r['manifest'] = {}
++        r['manifest']['version'] = SCHEMA_VERSION
+         if self.group_filter:
+             r['manifest']['group-filter'] = self.group_filter
+         r['manifest']['projects'] = project_dicts

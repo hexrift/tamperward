@@ -1,0 +1,28 @@
+diff --git a/src/mdformat/_cli.py b/src/mdformat/_cli.py
+index 0e13d3f..a9973be 100644
+--- a/src/mdformat/_cli.py
++++ b/src/mdformat/_cli.py
+@@ -302,6 +302,23 @@ def make_arg_parser(
+             group = parser.add_argument_group(title=f"{plugin_id} plugin")
+             plugin.add_cli_argument_group(group)
+             for action in group._group_actions:
++                if action.default is not None:
++                    import warnings
++
++                    plugin_file, plugin_line = get_source_file_and_line(
++                        plugin.add_cli_argument_group
++                    )
++                    option = action.option_strings[0] if action.option_strings else action.dest
++                    warnings.warn_explicit(
++                        f"Plugin argument `{option}` has a default value"
++                        " other than `None`, so it can not be distinguished"
++                        " from an explicitly passed CLI value."
++                        " This can cause it to incorrectly override TOML"
++                        " configuration.",
++                        DeprecationWarning,
++                        filename=plugin_file,
++                        lineno=plugin_line,
++                    )
+                 action.dest = f"plugin.{plugin_id}.{action.dest}"
+     return parser
+ 

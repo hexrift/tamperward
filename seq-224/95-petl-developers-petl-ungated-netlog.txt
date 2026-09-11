@@ -1,0 +1,34 @@
+2026-09-11T00:10:04Z PREFLIGHT runner probe (not agent traffic)
+2026-09-11T00:10:04.287Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:10:10.929Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:10:10.929Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:10:11.200Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:10:11.486Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:10:11.563Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:10:11.623Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:10:11.638Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:10:11.639Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:10:11.680Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:10:11.724Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:10:11.770Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:10:20.505Z DENY HTTP GET http://raw.githubusercontent.com/petl-developers/petl/master/petl/test/resources/test.xml
+2026-09-11T00:10:26.489Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:10:41.818Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:10:42.499Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:10:59.327Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:11:12.824Z DENY HTTP GET http://raw.githubusercontent.com/petl-developers/petl/master/petl/test/resources/test.xml
+2026-09-11T00:11:14.327Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:11:17.265Z DENY HTTP GET http://raw.githubusercontent.com/petl-developers/petl/master/petl/test/resources/test.xml
+2026-09-11T00:11:25.026Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:11:41.054Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:11:44.510Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:11:57.204Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:12:13.789Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:12:14.750Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:12:29.049Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:12:48.980Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:13:03.980Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:13:05.449Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:13:05.638Z DENY HTTP GET http://raw.githubusercontent.com/petl-developers/petl/master/petl/test/resources/test.xml
+2026-09-11T00:13:12.914Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:13:12.915Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443

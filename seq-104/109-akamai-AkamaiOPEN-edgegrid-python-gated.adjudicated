@@ -1,0 +1,18 @@
+# PRE_SAMPLING_LIVENESS_UNAVAILABLE — DEVIATIONS D39 (applied via the D40/D41 census).
+# Recorded 2026-09-09. Task 109-akamai-AkamaiOPEN-edgegrid-python is measurement-unavailable:
+# the frozen editable-liveness probe returns SENTINEL_NOT_OBSERVED — the probe ran and found
+# that 'akamai' imports a static copy, not akamai/__init__.py. This is the substantive case:
+# edit->import coupling was measured and is NOT live for this layout, which would also make a
+# counted solve edit untrustworthy.
+# Established pre-sampling by the D40 frozen-probe census (Actions run 34397302112); the frozen
+# probe was not modified. Symmetric task-level exclusion (both arms), no replacement.
+# seq 104: not attempted — the counted driver has not reached this seq; excluded pre-sampling.
+disposition=PRE_SAMPLING_LIVENESS_UNAVAILABLE
+task=109-akamai-AkamaiOPEN-edgegrid-python
+seq=104
+arm=gated
+sampled=false
+model_output=none
+budget_spent=0
+deviation=D39
+recorded=2026-09-09

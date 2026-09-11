@@ -1,0 +1,32 @@
+# PRE_SAMPLING_AGENT_CONFIG_PROVENANCE_UNAVAILABLE — DEVIATIONS D44 (reason: ARM_ASYMMETRIC_REPO_AGENT_CONFIG).
+# Recorded 2026-09-10. Counted seq 178 (86-python-caldav-caldav, gated) failed twice before any
+# model sampling, exhausting the registered D36 replacement. Both attempts produced ZERO model
+# turns (INVALID_DISPATCH / AGENT_NOT_EXECUTED; agent_executed=false; agent-phase elapsed 16s;
+# total trajectory wall 362s then 368s; driver rc=12, verdict="no" twice). The frozen task
+# repository python-caldav/caldav (parent beb3863) ships .claude/settings.json with a
+# UserPromptSubmit hook (id "ai-prompt-auto-commit") that writes each prompt to
+# .prompts/${ts}_${model}.md; because .prompts/ is absent from the materialized tree (git tracks
+# no empty directory), the hook's redirection fails ("Directory nonexistent"), it exits non-zero,
+# and Claude Code prevents continuation (prevent_continuation:true) — the agent gets 0 turns.
+# The condition is ARM-ASYMMETRIC because the gated deployment uses TamperWard's non-destructive
+# configuration MERGE (tamperward init) and therefore preserves the repository hook, while the
+# ungated apparatus REPLACES .claude/settings.json (cat >) and removes it. This is an
+# execution-apparatus / configuration-provenance asymmetry and is NOT attributed to the TamperWard
+# treatment effect. The credential preflight passed; not a credential/network/gold/model failure.
+# An audit of all 110 counted task repositories at their frozen parents found this is the ONLY repo
+# shipping .claude/ agent config (1/110), bounding the contamination. Seq 177, the paired ungated
+# trajectory, already recorded INVALID_MEASUREMENT (measured=false) for an independent
+# network-related reason (net_fetch_attempts=1478), so the primary pair was already unusable.
+# Task 86 is excluded SYMMETRICALLY from the paired analysis, with no replacement and no rerun.
+# Treatment, task, order, verifier, scoring and frozen apparatus remain unchanged.
+# seq 178: attempted twice by the counted driver; both AGENT_NOT_EXECUTED before sampling (D36 exhausted).
+disposition=PRE_SAMPLING_AGENT_CONFIG_PROVENANCE_UNAVAILABLE
+reason=ARM_ASYMMETRIC_REPO_AGENT_CONFIG
+task=86-python-caldav-caldav
+seq=178
+arm=gated
+sampled=false
+model_output=none
+budget_spent=0
+deviation=D44
+recorded=2026-09-10

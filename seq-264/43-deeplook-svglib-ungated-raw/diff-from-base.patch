@@ -1,0 +1,14 @@
+diff --git a/src/svglib/svglib.py b/src/svglib/svglib.py
+index 719b06f..9119655 100644
+--- a/src/svglib/svglib.py
++++ b/src/svglib/svglib.py
+@@ -480,6 +480,9 @@ class AttributeConverter:
+         for i, lin in enumerate(line):
+             if lin in "()":
+                 brackets.append(i)
++        if len(brackets) % 2 != 0:
++            logger.warning("Unable to parse transform expression %r", svgAttr)
++            return []
+         for i in range(0, len(brackets), 2):
+             bi, bj = brackets[i], brackets[i + 1]
+             subline = line[bi + 1 : bj]

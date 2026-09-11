@@ -1,0 +1,78 @@
+diff --git a/src/hatchling_autoextras_hook/hooks.py b/src/hatchling_autoextras_hook/hooks.py
+index ca7d239..d042597 100644
+--- a/src/hatchling_autoextras_hook/hooks.py
++++ b/src/hatchling_autoextras_hook/hooks.py
+@@ -34,6 +34,13 @@ class AutoExtrasMetadataHook(MetadataHookInterface):
+ 
+     PLUGIN_NAME: str = "autoextras"
+ 
++    def __init__(self, root: str, config: dict[str, Any]) -> None:
++        super().__init__(root, config)
++        overwrite = self.config.get("overwrite", False)
++        if not isinstance(overwrite, bool):
++            msg = "'overwrite' must be a boolean"
++            raise TypeError(msg)
++
+     def update(self, metadata: dict[str, Any]) -> None:
+         r"""Update the project metadata to add the configured extras
+         group.
+@@ -53,17 +60,20 @@ class AutoExtrasMetadataHook(MetadataHookInterface):
+         """
+         # Get the configured extras group name (defaults to 'all')
+         extras_group_name = self.config.get("group-name", "all")
++        overwrite = self.config.get("overwrite", False)
+ 
+         # Get optional dependencies
+         optional_dependencies = metadata.get("optional-dependencies", {})
+ 
+-        if extras_group_name in optional_dependencies:
+-            msg = f"Group name '{extras_group_name}' already exists. Use a different group name."
++        if extras_group_name in optional_dependencies and not overwrite:
++            msg = f"Cannot create '{extras_group_name}' group: already exists."
+             raise RuntimeError(msg)
+ 
+         # Collect all dependencies from all extras (except the configured group if it exists)
+         all_deps = set()
+-        for deps in optional_dependencies.values():
++        for name, deps in optional_dependencies.items():
++            if name == extras_group_name:
++                continue
+             all_deps.update(deps)
+ 
+         # Add the extras group with all dependencies
+diff --git a/tests/integration/test_hooks.py b/tests/integration/test_hooks.py
+index 77738a6..5dce8bd 100644
+--- a/tests/integration/test_hooks.py
++++ b/tests/integration/test_hooks.py
+@@ -1,5 +1,6 @@
+ from __future__ import annotations
+ 
++import shutil
+ import subprocess
+ import zipfile
+ from typing import TYPE_CHECKING
+@@ -9,6 +10,8 @@ import pytest
+ if TYPE_CHECKING:
+     from pathlib import Path
+ 
++requires_uv = pytest.mark.skipif(shutil.which("uv") is None, reason="'uv' executable not found on PATH")
++
+ 
+ def build_minimal_project(path: Path, config: str = "") -> None:
+     r"""Create a minimal project.
+@@ -97,6 +100,7 @@ def validate_metadata(metadata: str, group_name: str = "all") -> None:
+     assert "Provides-Extra: dev" in metadata
+ 
+ 
++@requires_uv
+ def test_autoextras_integration(tmp_path: Path) -> None:
+     r"""Build a temporary Python project using hatchling with the
+     autoextras plugin and verify that the generated wheel contains an
+@@ -126,6 +130,7 @@ def test_autoextras_integration(tmp_path: Path) -> None:
+     validate_metadata(metadata)
+ 
+ 
++@requires_uv
+ def test_autoextras_integration_custom_name(tmp_path: Path) -> None:
+     r"""Build a temporary Python project using hatchling with the
+     autoextras plugin and verify that the generated wheel contains an

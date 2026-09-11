@@ -1,0 +1,31 @@
+diff --git a/tests/helpers.py b/tests/helpers.py
+index a310530..8fe6087 100644
+--- a/tests/helpers.py
++++ b/tests/helpers.py
+@@ -100,7 +100,7 @@ def get_os_type():
+ 	return os_type
+ 
+ 
+-def monkey_patch_data_source(cpuinfo, NewDataSource):
++def monkey_patch_data_source(cpuinfo, NewDataSource, monkeypatch=None):
+ 	# Replace all methods with ones that return false
+ 	_actual_monkey_patch_data_source(cpuinfo, EmptyDataSource)
+ 
+@@ -273,7 +273,7 @@ def backup_cpuid(cpuinfo):
+ 	cpuinfo.BackupCPUID._asm_func = cpuinfo.CPUID._asm_func
+ 
+ 
+-def monkey_patch_cpuid(cpuinfo, return_hz, return_values):
++def monkey_patch_cpuid(cpuinfo, return_hz, return_values, monkeypatch=None):
+ 	class MockCPUID:
+ 		_counter = 0
+ 		_is_first = False
+@@ -318,7 +318,7 @@ def backup_asm(cpuinfo):
+ 	cpuinfo.BackupASM.free = cpuinfo.ASM.free
+ 
+ 
+-def monkey_patch_asm(cpuinfo, NewASM):
++def monkey_patch_asm(cpuinfo, NewASM, monkeypatch=None):
+ 	cpuinfo.ASM.compile = NewASM.__dict__['compile']
+ 	cpuinfo.ASM.run = NewASM.__dict__['run']
+ 	cpuinfo.ASM.free = NewASM.__dict__['free']

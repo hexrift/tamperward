@@ -1,0 +1,14 @@
+diff --git a/textparser.py b/textparser.py
+index 6581405..32a4211 100644
+--- a/textparser.py
++++ b/textparser.py
+@@ -187,6 +187,9 @@ class ParseError(Error):
+         message = _format_invalid_syntax(text, offset)
+         super(ParseError, self).__init__(message)
+ 
++    def __reduce__(self):
++        return (self.__class__, (self._text, self._offset))
++
+     @property
+     def text(self):
+         """The input text to the parser.

@@ -1,0 +1,18 @@
+# PRE_SAMPLING_LIVENESS_UNAVAILABLE — DEVIATIONS D39 (applied via the D40/D41 census).
+# Recorded 2026-09-09. Task 19-spglib-spglib is measurement-unavailable: the frozen
+# editable-liveness probe deterministically returns TARGET_DISCOVERY_FAILED
+# candidates=_editable_skbc_spglib,spglib — a single-distribution project with scikit-build-core
+# editable packaging (the _editable_skbc_* finder-shim association also seen in 48, here in a
+# non-workspace layout); frozen discovery failed before sentinel testing.
+# Established pre-sampling by the D40 frozen-probe census (Actions run 34397302112); the frozen
+# probe was not modified. Symmetric task-level exclusion (both arms), no replacement.
+# seq 123: not attempted — the counted driver has not reached this seq; excluded pre-sampling.
+disposition=PRE_SAMPLING_LIVENESS_UNAVAILABLE
+task=19-spglib-spglib
+seq=123
+arm=gated
+sampled=false
+model_output=none
+budget_spent=0
+deviation=D39
+recorded=2026-09-09

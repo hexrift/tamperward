@@ -1,0 +1,144 @@
+diff --git a/multiurl/http.py b/multiurl/http.py
+index d5a7992..a63c3be 100644
+--- a/multiurl/http.py
++++ b/multiurl/http.py
+@@ -460,7 +460,7 @@ RETRIABLE = (
+ )
+ 
+ 
+-def robust(call, maximum_tries=500, retry_after=120, mirrors=None):
++def robust(call, maximum_tries=500, retry_after=120, mirrors=None, use_server_retry_after=False):
+     def retriable(code):
+         return code in RETRIABLE
+ 
+@@ -534,6 +534,13 @@ def robust(call, maximum_tries=500, retry_after=120, mirrors=None):
+                 LOG.warning("Retrying using mirror %s", mirror)
+                 main_url = f"{mirror}{url[replace:]}"
+             else:
++                if use_server_retry_after and r is not None:
++                    retry_after_header = r.headers.get("Retry-After")
++                    if retry_after_header is not None:
++                        try:
++                            sleep = float(retry_after_header)
++                        except ValueError:
++                            pass
+                 LOG.warning("Retrying in %s seconds", sleep)
+                 time.sleep(sleep)
+                 sleep = (
+diff --git a/tests/test_auth.py b/tests/test_auth.py
+index 9d3586a..9bc0aa2 100644
+--- a/tests/test_auth.py
++++ b/tests/test_auth.py
+@@ -10,6 +10,8 @@
+ import logging
+ import os
+ 
++import pytest
++
+ from multiurl import download
+ 
+ # NOTE: we just test if the auth object is properly called with the
+@@ -28,6 +30,7 @@ class Auth:
+         return r
+ 
+ 
++@pytest.mark.network
+ def test_auth_single():
+     auth = Auth()
+     url = "http://get.ecmwf.int/test-data/metview/gallery/temp.bufr"
+@@ -37,6 +40,7 @@ def test_auth_single():
+     assert auth.calls["get"] == set([url])
+ 
+ 
++@pytest.mark.network
+ def test_auth_single_fake_headers():
+     auth = Auth()
+     url = "http://get.ecmwf.int/test-data/metview/gallery/temp.bufr"
+@@ -46,6 +50,7 @@ def test_auth_single_fake_headers():
+     assert auth.calls["get"] == set([url])
+ 
+ 
++@pytest.mark.network
+ def test_auth_single_parts():
+     auth = Auth()
+     url = "http://get.ecmwf.int/test-data/metview/gallery/temp.bufr"
+@@ -60,6 +65,7 @@ def test_auth_single_parts():
+         assert f.read() == b"BUFR"
+ 
+ 
++@pytest.mark.network
+ def test_auth_single_multi_parts():
+     auth = Auth()
+     url = "http://get.ecmwf.int/test-data/metview/gallery/temp.bufr"
+@@ -74,6 +80,7 @@ def test_auth_single_multi_parts():
+         assert f.read(4) == b"BUFR"
+ 
+ 
++@pytest.mark.network
+ def test_auth_multi():
+     auth = Auth()
+     urls = [
+@@ -91,6 +98,7 @@ def test_auth_multi():
+         assert f.read(4) == b"GRIB"
+ 
+ 
++@pytest.mark.network
+ def test_auth_multi_parts():
+     auth = Auth()
+     urls = [
+diff --git a/tests/test_downloader.py b/tests/test_downloader.py
+index 1d12f70..50894c6 100644
+--- a/tests/test_downloader.py
++++ b/tests/test_downloader.py
+@@ -24,6 +24,7 @@ def test_ftp():
+     Downloader("ftp://localhost")
+ 
+ 
++@pytest.mark.network
+ def test_parts():
+     download(
+         url="http://get.ecmwf.int/test-data/metview/gallery/temp.bufr",
+@@ -53,6 +54,7 @@ def test_parts():
+         assert f.read()[:4] == b"BUFR"
+ 
+ 
++@pytest.mark.network
+ def test_order():
+     d = Downloader(
+         url="http://get.ecmwf.int/test-data/metview/gallery/temp.bufr",
+@@ -78,6 +80,7 @@ def test_order():
+         assert f.read()[:4] == b"BUFR"
+ 
+ 
++@pytest.mark.network
+ def test_content_disposition_handling():
+     class TestDownloader(FullHTTPDownloader):
+         def headers(self):
+diff --git a/tests/test_robust.py b/tests/test_robust.py
+index d93bafb..4c20ab8 100644
+--- a/tests/test_robust.py
++++ b/tests/test_robust.py
+@@ -37,6 +37,7 @@ def timeout(s):
+         save.cancel()
+ 
+ 
++@pytest.mark.network
+ def test_robust():
+     sleep = 5
+     with timeout(len(RETRIABLE * sleep * 10)):
+@@ -77,6 +78,7 @@ def test_robust():
+         ],
+     ],
+ )
++@pytest.mark.network
+ def test_robust_incremental_sleep(caplog, retry_after, expected_logs):
+     robust_get = robust(requests.get, retry_after=retry_after, maximum_tries=4)
+     codes = ",".join(map(str, RETRIABLE))
+@@ -101,6 +103,7 @@ def test_mirror():
+     "use_server_retry_after,expected_log",
+     [(True, "Retrying in 0.1 seconds"), (False, "Retrying in 0.2 seconds")],
+ )
++@pytest.mark.network
+ def test_robust_use_server_retry_after(caplog, use_server_retry_after, expected_log):
+     def patched_get(*args, **kwargs):
+         r = requests.get(*args, **kwargs)

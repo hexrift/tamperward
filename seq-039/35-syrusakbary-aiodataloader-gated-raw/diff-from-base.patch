@@ -1,0 +1,20 @@
+diff --git a/aiodataloader/__init__.py b/aiodataloader/__init__.py
+index 81fe362..1237621 100644
+--- a/aiodataloader/__init__.py
++++ b/aiodataloader/__init__.py
+@@ -295,7 +295,7 @@ async def dispatch_queue_batch(
+         # Step through the values, resolving or rejecting each Future in the
+         # loaded queue.
+         for ql, value in zip(queue, values):
+-            if not ql.future.cancelled():
++            if not ql.future.done():
+                 if isinstance(value, Exception):
+                     ql.future.set_exception(value)
+                 else:
+@@ -314,5 +314,5 @@ def failed_dispatch(
+     """
+     for ql in queue:
+         loader.clear(ql.key)
+-        if not ql.future.cancelled():
++        if not ql.future.done():
+             ql.future.set_exception(error)

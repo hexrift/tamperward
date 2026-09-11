@@ -1,0 +1,55 @@
+diff --git a/src/patchy/api.py b/src/patchy/api.py
+index 1fd878d..629e733 100644
+--- a/src/patchy/api.py
++++ b/src/patchy/api.py
+@@ -2,6 +2,8 @@ from __future__ import annotations
+ 
+ import ast
+ import inspect
++import itertools
++import linecache
+ from collections.abc import Callable
+ from functools import wraps
+ from textwrap import dedent
+@@ -157,6 +159,8 @@ FEATURE_MASK = _get_flags_mask()
+ # Stores the source of functions that have had their source changed
+ _source_map: WeakKeyDictionary[Callable[..., Any], str] = WeakKeyDictionary()
+ 
++_filename_counter = itertools.count()
++
+ 
+ def _get_source(func: Callable[..., Any]) -> str:
+     real_func = _get_real_func(func)
+@@ -188,12 +192,14 @@ def _set_source(func: Callable[..., Any], func_source: str) -> None:
+ 
+     class_name = _class_name(func)
+ 
++    filename = f"<patchy #{next(_filename_counter)}: {func.__name__}>"
++
+     def _compile(
+         code: str | ast.Module,
+         flags: int = 0,
+     ) -> CodeType | ast.Module:
+         result: CodeType | ast.Module = compile(
+-            code, "<patchy>", "exec", flags=feature_flags | flags, dont_inherit=True
++            code, filename, "exec", flags=feature_flags | flags, dont_inherit=True
+         )
+         return result
+ 
+@@ -322,6 +328,16 @@ def _set_source(func: Callable[..., Any], func_source: str) -> None:
+     # that is a bit naughty
+     _source_map[real_func] = func_source
+ 
++    # Register the source with linecache so inspect/tracebacks/pdb can find
++    # it. mtime=None marks it as not backed by a real file, so it survives
++    # linecache.checkcache().
++    linecache.cache[filename] = (
++        len(func_source),
++        None,
++        func_source.splitlines(keepends=True),
++        filename,
++    )
++
+ 
+ def _get_real_func(func: Callable[..., Any]) -> Callable[..., Any]:
+     """

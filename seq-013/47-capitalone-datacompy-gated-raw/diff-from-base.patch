@@ -1,0 +1,22 @@
+diff --git a/datacompy/comparator/string.py b/datacompy/comparator/string.py
+index cbe706d..9240c75 100644
+--- a/datacompy/comparator/string.py
++++ b/datacompy/comparator/string.py
+@@ -445,10 +445,13 @@ def pandas_normalize_string_column(
+     -----
+     Will not operate on categorical columns.
+     """
+-    if (column.dtype.kind == "O" and pd.api.types.infer_dtype(column) == "string") or (
+-        pd.api.types.is_string_dtype(column)
+-        and not isinstance(column.dtype, pd.CategoricalDtype)
+-    ):
++    if (
++        (column.dtype.kind == "O" and pd.api.types.infer_dtype(column) == "string")
++        or (
++            pd.api.types.is_string_dtype(column)
++            and not isinstance(column.dtype, pd.CategoricalDtype)
++        )
++    ) and len(column) > 0:
+         column = column.str.strip() if ignore_spaces else column
+         column = column.str.upper() if ignore_case else column
+     return column

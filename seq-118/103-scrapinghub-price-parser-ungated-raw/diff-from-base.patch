@@ -1,0 +1,14 @@
+diff --git a/price_parser/_currencies.py b/price_parser/_currencies.py
+index 7e11a71..07f4728 100644
+--- a/price_parser/_currencies.py
++++ b/price_parser/_currencies.py
+@@ -1734,6 +1734,9 @@ CURRENCIES["CHF"]["sn2"] = ["Fr."]
+ CURRENCIES["PLN"]["sn2"] = ["pln"]
+ CURRENCIES["INR"]["sn2"] = ["₹", "र"]
+ CURRENCIES["IRR"]["sn2"] = ["ریال"]
++CURRENCIES["EGP"]["sn2"] = ["جنيه"]
++CURRENCIES["AED"]["sn2"] = ["درهم"]
++CURRENCIES["SAR"]["sn2"] = ["ريال"]
+ 
+ 
+ CURRENCY_CODES: list[str] = list(CURRENCIES.keys())

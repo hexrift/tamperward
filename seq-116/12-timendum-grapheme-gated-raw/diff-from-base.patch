@@ -1,0 +1,60 @@
+diff --git a/grapheme/__init__.py b/grapheme/__init__.py
+index d909587..3329688 100644
+--- a/grapheme/__init__.py
++++ b/grapheme/__init__.py
+@@ -12,6 +12,7 @@ from .api import (
+     endswith,
+     grapheme_lengths,
+     graphemes,
++    index,
+     length,
+     safe_split_index,
+     slice,
+@@ -24,6 +25,7 @@ __all__ = [
+     "grapheme_lengths",
+     "slice",
+     "contains",
++    "index",
+     "safe_split_index",
+     "startswith",
+     "endswith",
+diff --git a/grapheme/api.py b/grapheme/api.py
+index 9b36386..6c6e998 100644
+--- a/grapheme/api.py
++++ b/grapheme/api.py
+@@ -148,6 +148,35 @@ def contains(string: str, substring: str) -> bool:
+         return str_sub_part == substr_graphemes
+ 
+ 
++def index(string: str, substring: str) -> int:
++    """
++    Returns the grapheme-based index of the first occurrence of substring in string.
++
++    Like `contains`, this respects grapheme boundaries, so a match is only reported
++    if the sequence of graphemes in substring aligns with grapheme boundaries in string.
++
++    Returns -1 if the substring is not found.
++
++    >>> grapheme.index("🇪🇸🇪🇪", "🇸🇪")
++    -1
++    """
++    if substring == "":
++        return 0
++
++    if substring not in string:
++        return -1
++
++    substr_graphemes = list(graphemes(substring))
++    str_graphemes = list(graphemes(string))
++    n = len(substr_graphemes)
++
++    for i in range(len(str_graphemes) - n + 1):
++        if str_graphemes[i : i + n] == substr_graphemes:
++            return i
++
++    return -1
++
++
+ def startswith(string: str, prefix: str) -> bool:
+     """
+     Like str.startswith, but also checks that the string starts with the given prefixes sequence of

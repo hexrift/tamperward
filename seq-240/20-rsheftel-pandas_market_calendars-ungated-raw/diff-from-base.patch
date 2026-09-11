@@ -1,0 +1,62 @@
+diff --git a/pandas_market_calendars/calendars/bse.py b/pandas_market_calendars/calendars/bse.py
+index 36fc6c0..c7155e5 100644
+--- a/pandas_market_calendars/calendars/bse.py
++++ b/pandas_market_calendars/calendars/bse.py
+@@ -435,7 +435,7 @@ class BSEExchangeCalendar(MarketCalendar):
+     early closes or late opens.
+     """
+ 
+-    aliases = ["BSE"]
++    aliases = ["BSE", "XBOM"]
+     regular_market_times = {
+         "market_open": ((None, time(9, 15)),),
+         "market_close": ((None, time(15, 30)),),
+diff --git a/pandas_market_calendars/calendars/cme_globex_energy_and_metals.py b/pandas_market_calendars/calendars/cme_globex_energy_and_metals.py
+index 48badfb..9ab275d 100644
+--- a/pandas_market_calendars/calendars/cme_globex_energy_and_metals.py
++++ b/pandas_market_calendars/calendars/cme_globex_energy_and_metals.py
+@@ -15,6 +15,7 @@
+ 
+ from datetime import time
+ 
++import pandas as pd
+ from pandas.tseries.holiday import (
+     AbstractHolidayCalendar,
+ )  # , GoodFriday, USLaborDay, USPresidentsDay, USThanksgivingDay
+@@ -181,6 +182,20 @@ class CMEGlobexEnergyAndMetalsExchangeCalendar(CMEGlobexBaseExchangeCalendar):
+     # def adhoc_holidays(self):
+     #     return USNationalDaysofMourning
+ 
++    @property
++    def special_closes_adhoc(self):
++        return [
++            (
++                time(15, 15),
++                [
++                    # New Year's Day 2011 fell on a Saturday; per the documented
++                    # CME schedule the preceding Friday had an early close.
++                    # https://github.com/rsheftel/pandas_market_calendars/issues/340
++                    pd.Timestamp("2010-12-31"),
++                ],
++            ),
++        ]
++
+     @property
+     def special_closes(self):
+         return [
+diff --git a/pandas_market_calendars/calendars/mirror.py b/pandas_market_calendars/calendars/mirror.py
+index a4e9f6d..b6e66b7 100644
+--- a/pandas_market_calendars/calendars/mirror.py
++++ b/pandas_market_calendars/calendars/mirror.py
+@@ -130,6 +130,11 @@ time_props = {
+ }
+ 
+ for exchange in calendars:
++    if exchange == "XBOM":
++        # BSEExchangeCalendar already claims the "XBOM" alias with a hand-maintained
++        # holiday schedule; don't let the generic exchange_calendars version clobber it.
++        continue
++
+     cal = calendars[exchange]
+ 
+     # this loop will set up the newly required regular_market_times dictionary

@@ -1,0 +1,44 @@
+diff --git a/py7zr/io.py b/py7zr/io.py
+index 795122f..397dedd 100644
+--- a/py7zr/io.py
++++ b/py7zr/io.py
+@@ -199,7 +199,10 @@ class MemIO:
+     def close(self) -> None:
+         self._closed = True
+         if self._buf is not None:
+-            self._buf.seek(0)
++            try:
++                self._buf.seek(0)
++            except io.UnsupportedOperation:
++                pass
+             self._buf.close()
+ 
+     def seek(self, offset: int, whence: int = 0) -> int:
+@@ -213,7 +216,10 @@ class MemIO:
+         if self._buf is None:
+             self._buf = self.factory.create(self.fname)
+         else:
+-            self._buf.seek(0)
++            try:
++                self._buf.seek(0)
++            except io.UnsupportedOperation:
++                pass
+         return self
+ 
+     @property
+diff --git a/py7zr/py7zr.py b/py7zr/py7zr.py
+index 33d0ea6..db60504 100644
+--- a/py7zr/py7zr.py
++++ b/py7zr/py7zr.py
+@@ -1450,7 +1450,10 @@ class Worker:
+                     else:
+                         with fileish.open(mode="wb") as obfp:
+                             crc32 = self.decompress(fp, f.folder, obfp, f.uncompressed, f.compressed, src_end, q)
+-                            obfp.seek(0)
++                            try:
++                                obfp.seek(0)
++                            except io.UnsupportedOperation:
++                                pass
+                             if f.crc32 is not None and crc32 != f.crc32:
+                                 raise CrcError(crc32, f.crc32, f.filename)
+                 else:

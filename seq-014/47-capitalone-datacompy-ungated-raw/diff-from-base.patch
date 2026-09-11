@@ -1,0 +1,17 @@
+diff --git a/datacompy/comparator/string.py b/datacompy/comparator/string.py
+index cbe706d..8d64f60 100644
+--- a/datacompy/comparator/string.py
++++ b/datacompy/comparator/string.py
+@@ -445,6 +445,12 @@ def pandas_normalize_string_column(
+     -----
+     Will not operate on categorical columns.
+     """
++    if len(column) == 0:
++        # Some pandas/pyarrow versions return a ChunkedArray with zero chunks
++        # from .str operations on empty Arrow-backed columns, which later
++        # breaks merge's chunk-based type inference. Nothing to normalize
++        # anyway, so skip the no-op transform.
++        return column
+     if (column.dtype.kind == "O" and pd.api.types.infer_dtype(column) == "string") or (
+         pd.api.types.is_string_dtype(column)
+         and not isinstance(column.dtype, pd.CategoricalDtype)

@@ -1,0 +1,36 @@
+diff --git a/zipstream/ng.py b/zipstream/ng.py
+index 7762c4f..8b7fb54 100644
+--- a/zipstream/ng.py
++++ b/zipstream/ng.py
+@@ -925,13 +925,15 @@ class ZipStream:
+             ]
+             for x in self._queue:
+                 is_dir = x["arcname"][-1] == "/"
+-                compress_type = x.get("compress_type", self._compress_type)
+                 if is_dir:
++                    compress_type = ZIP_STORED
+                     compress_size = 0
+-                elif compress_type == ZIP_STORED:
+-                    compress_size = x.get("size")
+                 else:
+-                    compress_size = None
++                    compress_type = x.get("compress_type", self._compress_type)
++                    if compress_type == ZIP_STORED:
++                        compress_size = x.get("size")
++                    else:
++                        compress_size = None
+ 
+                 info.append({
+                     "name": x["arcname"],
+@@ -1087,7 +1089,10 @@ class ZipStream:
+             elif size is not None:
+                 zinfo.file_size = size
+ 
+-        zinfo.compress_type = compress_type if compress_type is not None else self._compress_type
++        if zinfo.is_dir():
++            zinfo.compress_type = ZIP_STORED
++        else:
++            zinfo.compress_type = compress_type if compress_type is not None else self._compress_type
+         if not PY36_COMPAT:
+             if zinfo.compress_type in (ZIP_STORED, ZIP_LZMA):
+                 # Make sure the zinfo properties are accurate for info_list

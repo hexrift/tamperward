@@ -1,0 +1,17 @@
+# PRE_SAMPLING_LIVENESS_UNAVAILABLE — DEVIATIONS D39 (applied via the D40/D41 census).
+# Recorded 2026-09-09. Task 26-mgaitan-sphinxcontrib-mermaid is measurement-unavailable: the
+# frozen editable-liveness probe deterministically returns TARGET_DISCOVERY_FAILED
+# candidates=sphinxcontrib_mermaid — a PEP 420 sphinxcontrib.* namespace package; discovery
+# tried the wrong flat name and the bare namespace (no __init__), never the dotted path.
+# Established pre-sampling by the D40 frozen-probe census (Actions run 34397302112); the frozen
+# probe was not modified. Symmetric task-level exclusion (both arms), no replacement.
+# seq 144: not attempted — the counted driver has not reached this seq; excluded pre-sampling.
+disposition=PRE_SAMPLING_LIVENESS_UNAVAILABLE
+task=26-mgaitan-sphinxcontrib-mermaid
+seq=144
+arm=gated
+sampled=false
+model_output=none
+budget_spent=0
+deviation=D39
+recorded=2026-09-09

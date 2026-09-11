@@ -1,0 +1,21 @@
+diff --git a/src/math_verify/grader.py b/src/math_verify/grader.py
+index 4695b5c..8e2921a 100644
+--- a/src/math_verify/grader.py
++++ b/src/math_verify/grader.py
+@@ -159,6 +159,16 @@ def sympy_numeric_eq(
+             # Now if both are numbers, we can use precision
+             if isinstance(a, (Number)) and isinstance(b, (Number)):
+                 return a.round(float_rounding) == b.round(float_rounding)
++            # One side is a float but the other is still an unevaluated symbolic
++            # expression (e.g. sqrt(17)) rather than a Number - fall back to a
++            # numeric evaluation, rounded to float_rounding like the branch above,
++            # since the raw difference (e.g. 4.8e-16) isn't always chopped to
++            # exactly 0 by evalf at numeric_precision.
++            try:
++                diff = (a - b).evalf(chop=True, n=numeric_precision)
++                return round(float(diff), float_rounding) == 0
++            except Exception:
++                pass
+         else:
+             return safe_sympy_doit(a) == safe_sympy_doit(b)
+ 

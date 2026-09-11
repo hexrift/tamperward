@@ -1,0 +1,106 @@
+diff --git a/src/dependency_injector/wiring.py b/src/dependency_injector/wiring.py
+index 6b13e05..191694f 100644
+--- a/src/dependency_injector/wiring.py
++++ b/src/dependency_injector/wiring.py
+@@ -959,8 +959,8 @@ class ProvidedInstance(Modifier):
+         self.segments.append((self.TYPE_ITEM, item))
+         return self
+ 
+-    def call(self) -> Self:
+-        self.segments.append((self.TYPE_CALL, None))
++    def call(self, *args, **kwargs) -> Self:
++        self.segments.append((self.TYPE_CALL, (args, kwargs)))
+         return self
+ 
+     def modify(
+@@ -975,7 +975,8 @@ class ProvidedInstance(Modifier):
+             elif type_ == ProvidedInstance.TYPE_ITEM:
+                 provider = provider[value]
+             elif type_ == ProvidedInstance.TYPE_CALL:
+-                provider = provider.call()
++                args, kwargs = value
++                provider = provider.call(*args, **kwargs)
+             else:
+                 assert_never(type_)
+         return provider
+@@ -988,7 +989,12 @@ class ProvidedInstance(Modifier):
+             elif type_ == ProvidedInstance.TYPE_ITEM:
+                 segments.append(f"[{value!r}]")
+             elif type_ == ProvidedInstance.TYPE_CALL:
+-                segments.append(".call()")
++                call_args, call_kwargs = value
++                call_args_str = ", ".join(
++                    [repr(arg) for arg in call_args]
++                    + [f"{key}={val!r}" for key, val in call_kwargs.items()],
++                )
++                segments.append(f".call({call_args_str})")
+             else:
+                 assert_never(type_)
+         return "".join(segments)
+diff --git a/tests/unit/samples/wiring/module.py b/tests/unit/samples/wiring/module.py
+index 3925b29..302e423 100644
+--- a/tests/unit/samples/wiring/module.py
++++ b/tests/unit/samples/wiring/module.py
+@@ -100,6 +100,13 @@ def test_provided_instance(some_value: int = Provide[Container.service.provided.
+     return some_value
+ 
+ 
++@inject
++def test_provided_instance_call_with_kwargs(
++        some_value: dict = Provide[Container.service.provided.foo["bar"].call(a=1, b=2)],
++):
++    return some_value
++
++
+ @inject
+ def test_subcontainer_provider(some_value: int = Provide[Container.sub.int_object]):
+     return some_value
+diff --git a/tests/unit/samples/wiring/service.py b/tests/unit/samples/wiring/service.py
+index 4151b94..c6b9d74 100644
+--- a/tests/unit/samples/wiring/service.py
++++ b/tests/unit/samples/wiring/service.py
+@@ -1,2 +1,7 @@
+ class Service:
+     service_attr: int
++
++    foo = {
++        "bar": lambda **kwargs: kwargs,
++        "baz": lambda *args, **kwargs: {"args": args, "kwargs": kwargs},
++    }
+diff --git a/tests/unit/samples/wiringstringids/module.py b/tests/unit/samples/wiringstringids/module.py
+index aac85aa..300ed2e 100644
+--- a/tests/unit/samples/wiringstringids/module.py
++++ b/tests/unit/samples/wiringstringids/module.py
+@@ -109,6 +109,20 @@ def test_provided_instance(some_value: int = Provide["service", provided().foo["
+     return some_value
+ 
+ 
++@inject
++def test_provided_instance_call_with_kwargs(
++        some_value: dict = Provide["service", provided().foo["bar"].call(a=1, b=2)],
++):
++    return some_value
++
++
++@inject
++def test_provided_instance_call_with_args_and_kwargs(
++        some_value: dict = Provide["service", provided().foo["baz"].call(1, 2, key="value")],
++):
++    return some_value
++
++
+ @inject
+ def test_subcontainer_provider(some_value: int = Provide["sub.int_object"]):
+     return some_value
+diff --git a/tests/unit/samples/wiringstringids/service.py b/tests/unit/samples/wiringstringids/service.py
+index 4151b94..c6b9d74 100644
+--- a/tests/unit/samples/wiringstringids/service.py
++++ b/tests/unit/samples/wiringstringids/service.py
+@@ -1,2 +1,7 @@
+ class Service:
+     service_attr: int
++
++    foo = {
++        "bar": lambda **kwargs: kwargs,
++        "baz": lambda *args, **kwargs: {"args": args, "kwargs": kwargs},
++    }

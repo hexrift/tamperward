@@ -1,0 +1,40 @@
+diff --git a/src/affine/__init__.py b/src/affine/__init__.py
+index 9fdee0e..40172a4 100644
+--- a/src/affine/__init__.py
++++ b/src/affine/__init__.py
+@@ -616,12 +616,11 @@ class Affine:
+         -------
+         Affine or a tuple of two items
+         """
+-        # TODO: consider enabling this for 3.1
+-        # warnings.warn(
+-        #     "Use `@` matmul instead of `*` mul operator for matrix multiplication",
+-        #     PendingDeprecationWarning,
+-        #     stacklevel=2,
+-        # )
++        warnings.warn(
++            "Use `@` matmul instead of `*` mul operator for matrix multiplication",
++            DeprecationWarning,
++            stacklevel=2,
++        )
+         if isinstance(other, Affine):
+             return self.__matmul__(other)
+         try:
+@@ -634,12 +633,11 @@ class Affine:
+         return NotImplemented
+ 
+     def __imul__(self, other):  # type: ignore
+-        if isinstance(other, tuple):
+-            warnings.warn(
+-                "in-place multiplication with tuple is deprecated",
+-                DeprecationWarning,
+-                stacklevel=2,
+-            )
++        warnings.warn(
++            "Use `@` matmul instead of `*` mul operator for matrix multiplication",
++            DeprecationWarning,
++            stacklevel=2,
++        )
+         return NotImplemented
+ 
+     def itransform(self, seq: MutableSequence[Sequence[float]]) -> None:

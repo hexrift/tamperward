@@ -1,0 +1,143 @@
+diff --git a/import_deps/__init__.py b/import_deps/__init__.py
+index 57635aa..a9093e0 100644
+--- a/import_deps/__init__.py
++++ b/import_deps/__init__.py
+@@ -1,5 +1,5 @@
+ __version__ = (0, 5, 0, 'dev0')
+ 
+-from .core import ast_imports, ast_defined_names, PyModule, ModuleSet
++from .core import ast_imports, ast_defined_names, ast_inner_imports, PyModule, ModuleSet
+ 
+-__all__ = ['ast_imports', 'ast_defined_names', 'PyModule', 'ModuleSet', '__version__']
++__all__ = ['ast_imports', 'ast_defined_names', 'ast_inner_imports', 'PyModule', 'ModuleSet', '__version__']
+diff --git a/import_deps/__main__.py b/import_deps/__main__.py
+index df6c818..dfc5bbb 100644
+--- a/import_deps/__main__.py
++++ b/import_deps/__main__.py
+@@ -5,7 +5,7 @@ import json
+ import pathlib
+ import sys
+ 
+-from . import __version__, PyModule, ModuleSet, ast_defined_names
++from . import __version__, PyModule, ModuleSet, ast_defined_names, ast_inner_imports
+ from .graph import ModuleResult, get_all_imports, detect_cycles, topological_sort
+ 
+ 
+@@ -178,10 +178,8 @@ def main(argv=sys.argv):
+                         help='Output results in JSON format')
+     parser.add_argument('--dot', action='store_true',
+                         help='Output results in DOT format for graphviz')
+-    parser.add_argument('--check', action='store_true',
+-                        help='Check for circular dependencies and exit with error if found')
+-    parser.add_argument('--check-reimports', action='store_true',
+-                        help='Check for re-imports (importing from re-exporting module instead of original)')
++    parser.add_argument('--check', choices=['circular', 'reimports', 'inner'],
++                        help='Check for issues (circular deps, re-imports, or inner imports) and exit with error if found')
+     parser.add_argument('--sort', action='store_true',
+                         help='Output modules in topological sort order (dependencies first)')
+     parser.add_argument('--all-imports', action='store_true',
+@@ -245,7 +243,7 @@ def main(argv=sys.argv):
+             result['all_imports'] = sorted(all_imports_map.get(result['module'], set()))
+ 
+     # Check for circular dependencies
+-    if config.check:
++    if config.check == 'circular':
+         cycle_edges = detect_cycles(results)
+         if cycle_edges:
+             print("Circular dependencies detected:", file=sys.stderr)
+@@ -267,7 +265,7 @@ def main(argv=sys.argv):
+             sys.exit(0)
+ 
+     # Check for re-imports
+-    if config.check_reimports:
++    if config.check == 'reimports':
+         violations = detect_reimports(mset)
+         if violations:
+             print("Re-imports detected:", file=sys.stderr)
+@@ -279,6 +277,24 @@ def main(argv=sys.argv):
+             print("No re-imports found.")
+             sys.exit(0)
+ 
++    # Check for inner imports (imports nested inside function bodies)
++    if config.check == 'inner':
++        inner_by_file = {}
++        for f in sorted(requested_files):
++            inner = ast_inner_imports(f)
++            if inner:
++                inner_by_file[f] = inner
++
++        if inner_by_file:
++            print("Inner imports detected:", file=sys.stderr)
++            for f in sorted(inner_by_file.keys()):
++                for entry in sorted(inner_by_file[f], key=lambda e: e['lineno']):
++                    print(f"  {f}:{entry['lineno']} in {entry['function']}(): {entry['module']}", file=sys.stderr)
++            sys.exit(1)
++        else:
++            print("No inner imports found.")
++            sys.exit(0)
++
+     # Output results
+     if config.json:
+         print(json.dumps(results, indent=2))
+diff --git a/import_deps/core.py b/import_deps/core.py
+index 9b631f2..7e6ced5 100644
+--- a/import_deps/core.py
++++ b/import_deps/core.py
+@@ -87,6 +87,57 @@ def ast_defined_names(file_path):
+     return finder.defined
+ 
+ 
++class _InnerImportsFinder(ast.NodeVisitor):
++    """find import statements nested inside function bodies
++    :ivar inner_imports: (list - dict) each with keys: module, lineno, function
++    """
++    def __init__(self):
++        ast.NodeVisitor.__init__(self)
++        self.inner_imports = []
++        self._func_stack = []
++
++    def visit_FunctionDef(self, node):
++        self._func_stack.append(node.name)
++        self.generic_visit(node)
++        self._func_stack.pop()
++
++    def visit_AsyncFunctionDef(self, node):
++        self.visit_FunctionDef(node)
++
++    def visit_Import(self, node):
++        if self._func_stack:
++            for n in node.names:
++                self.inner_imports.append({
++                    'module': n.name,
++                    'lineno': node.lineno,
++                    'function': self._func_stack[-1],
++                })
++        ast.NodeVisitor.generic_visit(self, node)
++
++    def visit_ImportFrom(self, node):
++        if self._func_stack:
++            for n in node.names:
++                module = '.'.join(s for s in (node.module, n.name) if s)
++                self.inner_imports.append({
++                    'module': module,
++                    'lineno': node.lineno,
++                    'function': self._func_stack[-1],
++                })
++        ast.NodeVisitor.generic_visit(self, node)
++
++
++def ast_inner_imports(file_path):
++    """get list of import statements found nested inside function bodies
++    :return: (list - dict) each with keys: module, lineno, function
++    """
++    with pathlib.Path(file_path).open('r') as fp:
++        text = fp.read()
++    mod_ast = ast.parse(text, str(file_path))
++    finder = _InnerImportsFinder()
++    finder.visit(mod_ast)
++    return finder.inner_imports
++
++
+ class PyModule(object):
+     """Represents a python module
+ 

@@ -1,0 +1,22 @@
+# PRE_SAMPLING_CONTRACT_UNAVAILABLE — DEVIATIONS D41 (post-freeze operational disposition).
+# Recorded 2026-09-09. Task 07-gepa-ai-gepa is LIVE, but its frozen P/R/G qualification contract
+# cannot be established pre-sampling on the counted runner. Under the counted net-jail the
+# untouched parent is RED (P rc=1: 13 failed / 679 passed / 6 errors, all httpx.ProxyError 403 —
+# the suite's network-dependent tests, which the jail's allowlist denies); the open-net census
+# saw P green only because it ran open-net, but the counted verdict suite runs jailed.
+# Secondary/compounding: R is a pytest INTERNAL_ERROR rc=3 (NotImplementedError: cannot
+# instantiate 'WindowsPath' in _pytest report formatting), deterministic on every failing test,
+# so R cannot be a clean RED either. Confirmed under the faithful counted net-jail + full
+# inherited GHA environment (Actions run 34413592725; read-only, credential-free, no model
+# sampling, no edits to task/tests/probe/harness). Symmetric task-level exclusion (both arms),
+# no replacement; not duplicated (primary pair only).
+# seq 60: not attempted — the counted driver has not reached this seq; excluded pre-sampling.
+disposition=PRE_SAMPLING_CONTRACT_UNAVAILABLE
+task=07-gepa-ai-gepa
+seq=60
+arm=gated
+sampled=false
+model_output=none
+budget_spent=0
+deviation=D41
+recorded=2026-09-09

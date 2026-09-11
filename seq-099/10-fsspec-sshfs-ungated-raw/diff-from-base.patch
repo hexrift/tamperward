@@ -1,0 +1,35 @@
+diff --git a/sshfs/spec.py b/sshfs/spec.py
+index d3a8e05..f8f5940 100644
+--- a/sshfs/spec.py
++++ b/sshfs/spec.py
+@@ -265,7 +265,7 @@ class SSHFileSystem(AsyncFileSystem):
+         await self._execute(cmd)
+ 
+     @wrap_exceptions
+-    async def _ls(self, path, detail=False, **kwargs):
++    async def _ls(self, path, detail=True, **kwargs):
+         async with self._pool.get() as channel:
+             file_attrs = await channel.readdir(path)
+ 
+diff --git a/tests/conftest.py b/tests/conftest.py
+index cd5eba3..7989ed5 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -1,7 +1,17 @@
++import os
+ import threading
+ from queue import Queue
+ 
+ import mockssh.server
++import pytest
++
++
++@pytest.fixture(autouse=True, scope="session")
++def _isolated_home(tmp_path_factory):
++    # asyncssh probes files under $HOME/.ssh (e.g. for default X.509 cert
++    # paths) while establishing a connection. Point HOME at a throwaway
++    # directory so tests don't depend on the ambient user's ~/.ssh state.
++    os.environ["HOME"] = str(tmp_path_factory.mktemp("home"))
+ 
+ 
+ def _handler_run(self):

@@ -1,0 +1,48 @@
+diff --git a/kgb/spies.py b/kgb/spies.py
+index 06bbc2a..36e8b23 100644
+--- a/kgb/spies.py
++++ b/kgb/spies.py
+@@ -220,6 +220,15 @@ class FunctionSpy(object):
+ 
+             # Now we can patch the owner to prevent conflicts between spies.
+             self._patch_owner()
++        elif (self.owner is not None and
++              inspect.isclass(self.owner) and
++              self.func_name in self.owner.__dict__):
++            # The owner doesn't need patching, but we still need to record
++            # whatever is actually defined on the class (e.g. a classmethod
++            # or staticmethod descriptor) rather than the resolved function,
++            # so that unspy() can restore the original descriptor instead of
++            # replacing it with a plain function/bound method.
++            self._owner_func_attr_value = self.owner.__dict__[self.func_name]
+         else:
+             self._owner_func_attr_value = self.orig_func
+ 
+diff --git a/kgb/tests/base.py b/kgb/tests/base.py
+index 7ef4679..c4c135e 100644
+--- a/kgb/tests/base.py
++++ b/kgb/tests/base.py
+@@ -40,6 +40,10 @@ class MathClass(object):
+ 
+         return a * b
+ 
++    @staticmethod
++    def static_do_math(a=2, b=5, *args, **kwargs):
++        return a * b
++
+ 
+ class TestCase(unittest.TestCase):
+     """Base class for test cases for kgb."""
+@@ -49,9 +53,11 @@ class TestCase(unittest.TestCase):
+     def setUp(self):
+         self.agency = SpyAgency()
+         self.orig_class_do_math = MathClass.class_do_math
++        self._orig_class_do_math_descriptor = \
++            MathClass.__dict__['class_do_math']
+ 
+     def tearDown(self):
+-        MathClass.class_do_math = self.orig_class_do_math
++        MathClass.class_do_math = self._orig_class_do_math_descriptor
+         self.agency.unspy_all()
+ 
+     def shortDescription(self):

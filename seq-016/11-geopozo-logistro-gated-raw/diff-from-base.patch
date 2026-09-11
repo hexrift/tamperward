@@ -1,0 +1,72 @@
+diff --git a/logistro/__init__.py b/logistro/__init__.py
+index b18a8a4..8598965 100644
+--- a/logistro/__init__.py
++++ b/logistro/__init__.py
+@@ -1,4 +1,5 @@
+ from .custom_logging import betterConfig
++from .custom_logging import coerce_logger
+ from .custom_logging import DEBUG2
+ from .custom_logging import getLogger
+ from .custom_logging import getPipeLogger
+@@ -14,6 +15,7 @@ __all__ = [
+     set_human,
+     set_structured,
+     betterConfig,
++    coerce_logger,
+     getLogger,
+     getPipeLogger,
+ ]
+diff --git a/logistro/custom_logging.py b/logistro/custom_logging.py
+index bfa0726..027b85a 100644
+--- a/logistro/custom_logging.py
++++ b/logistro/custom_logging.py
+@@ -60,7 +60,7 @@ def set_structured():
+     args.parsed.human = False
+ 
+ 
+-def _coerce_logger(logger, formatter=None):
++def coerce_logger(logger, formatter=None):
+     if not formatter:
+         if args.parsed.human:
+             formatter = human_formatter
+@@ -83,10 +83,10 @@ def run_once(f):
+ @run_once
+ def betterConfig(**kwargs):
+     logging.basicConfig(**kwargs)
+-    _coerce_logger(logging.getLogger())
++    coerce_logger(logging.getLogger())
+ 
+ 
+-def getLogger(name):
++def getLogger(name=None):
+     betterConfig()
+     logger = logging.getLogger(name)
+     return logger
+@@ -132,23 +132,23 @@ def getPipeLogger(
+                 )
+                 if last_size == len(raw_buffer):
+                     if raw_buffer:
+-                        logger.log(default_level, raw_buffer)
++                        logger.log(default_level, raw_buffer.decode("utf-8"))
+                     return
+             except Exception:
+                 while raw_buffer:
+                     line, m, raw_buffer = raw_buffer.partition(IFS)
+                     if not m:
+                         if line:
+-                            logger.log(default_level, line)
++                            logger.log(default_level, line.decode("utf-8"))
+                         break
+-                    logger.log(default_level, line)
++                    logger.log(default_level, line.decode("utf-8"))
+                 return
+             while raw_buffer:
+                 line, m, raw_buffer = raw_buffer.partition(IFS)
+                 if not m:
+                     raw_buffer = line
+                     break
+-                logger.log(default_level, line)
++                logger.log(default_level, line.decode("utf-8"))
+ 
+     pipeReader = Thread(
+         target=readPipe,

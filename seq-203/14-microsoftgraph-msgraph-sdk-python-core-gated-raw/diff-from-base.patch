@@ -1,0 +1,13 @@
+diff --git a/src/msgraph_core/requests/batch_request_content.py b/src/msgraph_core/requests/batch_request_content.py
+index 0235df8..fad6053 100644
+--- a/src/msgraph_core/requests/batch_request_content.py
++++ b/src/msgraph_core/requests/batch_request_content.py
+@@ -125,7 +125,7 @@ class BatchRequestContent(Parsable):
+         Finalizes the batch request content.
+         """
+         self.is_finalized = True
+-        return self._requests
++        return self
+ 
+     def _request_by_id(self, request_id: str) -> Optional[BatchRequestItem]:
+         """

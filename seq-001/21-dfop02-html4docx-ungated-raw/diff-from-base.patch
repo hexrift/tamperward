@@ -1,0 +1,76 @@
+diff --git a/html4docx/utils.py b/html4docx/utils.py
+index 8fd2d66..c8291e1 100644
+--- a/html4docx/utils.py
++++ b/html4docx/utils.py
+@@ -311,18 +311,22 @@ def remove_whitespace(string, leading=False, trailing=False):
+             >>> remove_whitespace("abc  \\n  ", trailing=True)
+             'abc'
+     """
++    # Ordinary, collapsible whitespace. Deliberately excludes non-breaking
++    # spaces (e.g. \xa0,  ) which must be preserved verbatim.
++    ws = r"[ \t\r\f\v]"
++
+     # Remove any leading new line characters along with any surrounding white space
+     if leading:
+-        string = re.sub(r"^\s*\n+\s*", "", string)
++        string = re.sub(rf"^{ws}*\n+{ws}*", "", string)
+ 
+     # Remove any trailing new line characters along with any surrounding white space
+     if trailing:
+-        string = re.sub(r"\s*\n+\s*$", "", string)
++        string = re.sub(rf"{ws}*\n+{ws}*$", "", string)
+ 
+     # Replace new line characters and absorb any surrounding space.
+-    string = re.sub(r"\s*\n\s*", " ", string)
++    string = re.sub(rf"{ws}*\n{ws}*", " ", string)
+     # TODO need some way to get rid of extra spaces in e.g. text <span>   </span>  text
+-    return re.sub(r"\s+", " ", string)
++    return re.sub(rf"{ws}+", " ", string)
+ 
+ 
+ def delete_paragraph(paragraph):
+diff --git a/tests/test_h4d.py b/tests/test_h4d.py
+index 015876d..97955ee 100644
+--- a/tests/test_h4d.py
++++ b/tests/test_h4d.py
+@@ -1,5 +1,6 @@
+ import logging
+ import os
++import socket
+ import unittest
+ from io import BytesIO
+ from pathlib import Path
+@@ -17,6 +18,17 @@ from html4docx.utils import parse_color, unit_converter
+ test_dir = os.path.abspath(os.path.dirname(__file__))
+ 
+ 
++def _network_available(host="github.com", port=443, timeout=3):
++    try:
++        socket.create_connection((host, port), timeout=timeout).close()
++        return True
++    except OSError:
++        return False
++
++
++_HAS_NETWORK = _network_available()
++
++
+ class OutputTest(unittest.TestCase):
+     # ============================== Helper methods ============================== #
+     @staticmethod
+@@ -442,6 +454,7 @@ and blank lines.
+             f"Height mismatch: expected ~{expected_height_in:.2f}in, got {actual_height_in:.2f}in"
+         )
+ 
++    @unittest.skipUnless(_HAS_NETWORK, "requires network access to fetch remote test image")
+     def test_inline_images(self):
+         self.document.add_heading("Test: Handling inline images", level=1)
+         test_img_src = "https://github.com/dfop02/html4docx/blob/main/tests/assets/images/test_img.png?raw=true"
+@@ -458,6 +471,7 @@ and blank lines.
+         inline_img_runs = [r for r in first_img_para.runs if r._element.xpath(".//pic:pic")]
+         assert len(inline_img_runs) == 3, "Expected 3 inline image runs in a single paragraph"
+ 
++    @unittest.skipUnless(_HAS_NETWORK, "requires network access to fetch remote test image")
+     def test_single_image_without_paragraph(self):
+         html_example = "<img src='https://github.com/dfop02/html4docx/blob/main/tests/assets/images/test_img.png?raw=true' />"
+         document = self.parser.parse_html_string(html_example)

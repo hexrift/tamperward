@@ -1,0 +1,113 @@
+diff --git a/src/dependency_injector/wiring.py b/src/dependency_injector/wiring.py
+index 6b13e05..32feb34 100644
+--- a/src/dependency_injector/wiring.py
++++ b/src/dependency_injector/wiring.py
+@@ -959,8 +959,8 @@ class ProvidedInstance(Modifier):
+         self.segments.append((self.TYPE_ITEM, item))
+         return self
+ 
+-    def call(self) -> Self:
+-        self.segments.append((self.TYPE_CALL, None))
++    def call(self, *args: Any, **kwargs: Any) -> Self:
++        self.segments.append((self.TYPE_CALL, (args, kwargs)))
+         return self
+ 
+     def modify(
+@@ -975,7 +975,8 @@ class ProvidedInstance(Modifier):
+             elif type_ == ProvidedInstance.TYPE_ITEM:
+                 provider = provider[value]
+             elif type_ == ProvidedInstance.TYPE_CALL:
+-                provider = provider.call()
++                call_args, call_kwargs = value
++                provider = provider.call(*call_args, **call_kwargs)
+             else:
+                 assert_never(type_)
+         return provider
+@@ -988,7 +989,10 @@ class ProvidedInstance(Modifier):
+             elif type_ == ProvidedInstance.TYPE_ITEM:
+                 segments.append(f"[{value!r}]")
+             elif type_ == ProvidedInstance.TYPE_CALL:
+-                segments.append(".call()")
++                call_args, call_kwargs = value
++                call_params = [repr(arg) for arg in call_args]
++                call_params.extend(f"{key}={value!r}" for key, value in call_kwargs.items())
++                segments.append(f".call({', '.join(call_params)})")
+             else:
+                 assert_never(type_)
+         return "".join(segments)
+diff --git a/tests/unit/samples/wiring/container.py b/tests/unit/samples/wiring/container.py
+index 95681db..851dd0e 100644
+--- a/tests/unit/samples/wiring/container.py
++++ b/tests/unit/samples/wiring/container.py
+@@ -14,4 +14,8 @@ class Container(containers.DeclarativeContainer):
+ 
+     service = providers.Factory(Service)
+ 
++    kwargs_callable = providers.Object(lambda **kwargs: kwargs)
++
++    args_kwargs_callable = providers.Object(lambda *args, **kwargs: {"args": args, "kwargs": kwargs})
++
+     sub = providers.Container(SubContainer)
+diff --git a/tests/unit/samples/wiring/module.py b/tests/unit/samples/wiring/module.py
+index 3925b29..a814522 100644
+--- a/tests/unit/samples/wiring/module.py
++++ b/tests/unit/samples/wiring/module.py
+@@ -100,6 +100,20 @@ def test_provided_instance(some_value: int = Provide[Container.service.provided.
+     return some_value
+ 
+ 
++@inject
++def test_provided_instance_call_with_kwargs(
++        some_value: dict = Provide[Container.kwargs_callable.provided.call(a=1, b=2)],
++):
++    return some_value
++
++
++@inject
++def test_provided_instance_call_with_args_and_kwargs(
++        some_value: dict = Provide[Container.args_kwargs_callable.provided.call(1, 2, key="value")],
++):
++    return some_value
++
++
+ @inject
+ def test_subcontainer_provider(some_value: int = Provide[Container.sub.int_object]):
+     return some_value
+diff --git a/tests/unit/samples/wiringstringids/container.py b/tests/unit/samples/wiringstringids/container.py
+index 95681db..851dd0e 100644
+--- a/tests/unit/samples/wiringstringids/container.py
++++ b/tests/unit/samples/wiringstringids/container.py
+@@ -14,4 +14,8 @@ class Container(containers.DeclarativeContainer):
+ 
+     service = providers.Factory(Service)
+ 
++    kwargs_callable = providers.Object(lambda **kwargs: kwargs)
++
++    args_kwargs_callable = providers.Object(lambda *args, **kwargs: {"args": args, "kwargs": kwargs})
++
+     sub = providers.Container(SubContainer)
+diff --git a/tests/unit/samples/wiringstringids/module.py b/tests/unit/samples/wiringstringids/module.py
+index aac85aa..a15c0a4 100644
+--- a/tests/unit/samples/wiringstringids/module.py
++++ b/tests/unit/samples/wiringstringids/module.py
+@@ -109,6 +109,20 @@ def test_provided_instance(some_value: int = Provide["service", provided().foo["
+     return some_value
+ 
+ 
++@inject
++def test_provided_instance_call_with_kwargs(
++        some_value: dict = Provide["kwargs_callable", provided().call(a=1, b=2)],
++):
++    return some_value
++
++
++@inject
++def test_provided_instance_call_with_args_and_kwargs(
++        some_value: dict = Provide["args_kwargs_callable", provided().call(1, 2, key="value")],
++):
++    return some_value
++
++
+ @inject
+ def test_subcontainer_provider(some_value: int = Provide["sub.int_object"]):
+     return some_value

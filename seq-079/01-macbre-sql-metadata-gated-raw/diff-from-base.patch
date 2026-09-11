@@ -1,0 +1,16 @@
+diff --git a/sql_metadata/token.py b/sql_metadata/token.py
+index 52686f8..253adc9 100644
+--- a/sql_metadata/token.py
++++ b/sql_metadata/token.py
+@@ -176,7 +176,10 @@ class SQLToken:  # pylint: disable=R0902, R0904
+             self.is_keyword
+             and self.normalized not in RELEVANT_KEYWORDS
+             and self.previous_token.normalized in [",", "SELECT"]
+-            and self.next_token.normalized in [",", "AS"]
++            and (
++                self.next_token.normalized in [",", "AS"]
++                or self.next_token.normalized in TABLE_ADJUSTMENT_KEYWORDS
++            )
+         )
+ 
+     @property

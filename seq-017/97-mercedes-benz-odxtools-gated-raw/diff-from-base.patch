@@ -1,0 +1,28 @@
+diff --git a/odxtools/parameters/parameterwithdop.py b/odxtools/parameters/parameterwithdop.py
+index 6e8f228..0aa6fbe 100644
+--- a/odxtools/parameters/parameterwithdop.py
++++ b/odxtools/parameters/parameterwithdop.py
+@@ -32,7 +32,7 @@ class ParameterWithDOP(Parameter):
+         return self._dop
+ 
+     @property
+-    def _dop_description(self) -> str:
++    def dop_info(self) -> str:
+         """Describe the referenced DOP for diagnostic messages.
+ 
+         Names the reference as it appears in the ODX file and, if it could be
+@@ -42,9 +42,13 @@ class ParameterWithDOP(Parameter):
+             self.dop_ref.ref_id if self.dop_ref is not None else "<unspecified>")
+         dop = getattr(self, "_dop", None)
+         if dop is None:
+-            return f"DOP '{name}' which could not be resolved"
++            return f"DOP '{name}' which is unresolvable"
+         return f"DOP '{name}' which is a {type(dop).__name__}"
+ 
++    @property
++    def _dop_description(self) -> str:
++        return self.dop_info
++
+     @staticmethod
+     @override
+     def from_et(et_element: ElementTree.Element, context: OdxDocContext) -> "ParameterWithDOP":

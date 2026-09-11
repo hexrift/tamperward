@@ -1,0 +1,60 @@
+diff --git a/src/patchy/api.py b/src/patchy/api.py
+index 1fd878d..fa49818 100644
+--- a/src/patchy/api.py
++++ b/src/patchy/api.py
+@@ -2,8 +2,10 @@ from __future__ import annotations
+ 
+ import ast
+ import inspect
++import linecache
+ from collections.abc import Callable
+ from functools import wraps
++from itertools import count
+ from textwrap import dedent
+ from types import CodeType, TracebackType
+ from typing import Any, TypeVar, cast
+@@ -157,6 +159,10 @@ FEATURE_MASK = _get_flags_mask()
+ # Stores the source of functions that have had their source changed
+ _source_map: WeakKeyDictionary[Callable[..., Any], str] = WeakKeyDictionary()
+ 
++# Used to give each patched function its own synthetic filename, so that
++# linecache/inspect can tell them apart and locate the right source.
++_filename_counter = count()
++
+ 
+ def _get_source(func: Callable[..., Any]) -> str:
+     real_func = _get_real_func(func)
+@@ -188,12 +194,14 @@ def _set_source(func: Callable[..., Any], func_source: str) -> None:
+ 
+     class_name = _class_name(func)
+ 
++    filename = f"<patchy {func.__qualname__}-{next(_filename_counter)}>"
++
+     def _compile(
+         code: str | ast.Module,
+         flags: int = 0,
+     ) -> CodeType | ast.Module:
+         result: CodeType | ast.Module = compile(
+-            code, "<patchy>", "exec", flags=feature_flags | flags, dont_inherit=True
++            code, filename, "exec", flags=feature_flags | flags, dont_inherit=True
+         )
+         return result
+ 
+@@ -322,6 +330,17 @@ def _set_source(func: Callable[..., Any], func_source: str) -> None:
+     # that is a bit naughty
+     _source_map[real_func] = func_source
+ 
++    # Register the source with linecache, under the synthetic filename, so
++    # that inspect/pdb/tracebacks can find it. A mtime of None marks this as
++    # a "lazy"/loader-backed entry, which linecache.checkcache() leaves alone
++    # since there is no real file on disk to compare against.
++    linecache.cache[filename] = (
++        len(func_source),
++        None,
++        func_source.splitlines(keepends=True),
++        filename,
++    )
++
+ 
+ def _get_real_func(func: Callable[..., Any]) -> Callable[..., Any]:
+     """

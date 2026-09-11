@@ -1,0 +1,4 @@
+ M import_deps/__init__.py
+ M import_deps/__main__.py
+ M import_deps/core.py
+?? tests/sample-inner-imports/

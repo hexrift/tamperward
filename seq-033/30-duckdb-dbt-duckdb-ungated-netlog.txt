@@ -1,0 +1,62 @@
+2026-09-10T00:32:49Z PREFLIGHT runner probe (not agent traffic)
+2026-09-10T00:32:49.835Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:32:56.499Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:32:56.499Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:32:56.740Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:32:56.999Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:32:57.087Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:32:57.147Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:32:57.162Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:32:57.165Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:32:57.206Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:32:57.247Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:32:57.287Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:33:12.004Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T00:33:27.308Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:33:40.428Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T00:33:50.570Z DENY HTTP GET http://extensions.duckdb.org/v1.5.5/linux_amd64/httpfs.duckdb_extension.gz
+2026-09-10T00:33:50.572Z DENY HTTP GET http://extensions.duckdb.org/v1.5.5/linux_amd64/ducklake.duckdb_extension.gz
+2026-09-10T00:33:58.744Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T00:34:00.663Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:34:23.451Z DENY HTTP GET http://community-extensions.duckdb.org/v1.5.5/linux_amd64/capi_quack.duckdb_extension.gz
+2026-09-10T00:34:23.463Z DENY HTTP GET http://community-extensions.duckdb.org/v1.5.5/linux_amd64/capi_quack.duckdb_extension.gz
+2026-09-10T00:34:23.477Z DENY HTTP GET http://community-extensions.duckdb.org/v1.5.5/linux_amd64/capi_quack.duckdb_extension.gz
+2026-09-10T00:34:31.636Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:35:01.766Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:35:32.647Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:35:50.826Z DENY CONNECT hub.getdbt.com:443
+2026-09-10T00:35:51.830Z DENY CONNECT hub.getdbt.com:443
+2026-09-10T00:35:52.834Z DENY CONNECT hub.getdbt.com:443
+2026-09-10T00:35:53.838Z DENY CONNECT hub.getdbt.com:443
+2026-09-10T00:35:54.842Z DENY CONNECT hub.getdbt.com:443
+2026-09-10T00:35:55.846Z DENY CONNECT hub.getdbt.com:443
+2026-09-10T00:36:02.663Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T00:36:02.853Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:36:10.077Z DENY CONNECT api.github.com:443
+2026-09-10T00:36:10.091Z DENY CONNECT api.github.com:443
+2026-09-10T00:36:10.105Z DENY CONNECT api.github.com:443
+2026-09-10T00:36:12.891Z DENY HTTP GET http://extensions.duckdb.org/v1.5.5/linux_amd64/sqlite_scanner.duckdb_extension.gz
+2026-09-10T00:36:12.892Z DENY HTTP GET http://extensions.duckdb.org/v1.5.5/linux_amd64/sqlite_scanner.duckdb_extension.gz
+2026-09-10T00:36:12.906Z DENY HTTP GET http://extensions.duckdb.org/v1.5.5/linux_amd64/sqlite_scanner.duckdb_extension.gz
+2026-09-10T00:36:12.907Z DENY HTTP GET http://extensions.duckdb.org/v1.5.5/linux_amd64/sqlite_scanner.duckdb_extension.gz
+2026-09-10T00:36:12.921Z DENY HTTP GET http://extensions.duckdb.org/v1.5.5/linux_amd64/sqlite_scanner.duckdb_extension.gz
+2026-09-10T00:36:12.921Z DENY HTTP GET http://extensions.duckdb.org/v1.5.5/linux_amd64/sqlite_scanner.duckdb_extension.gz
+2026-09-10T00:36:13.521Z DENY HTTP GET http://extensions.duckdb.org/v1.5.5/linux_amd64/sqlite_scanner.duckdb_extension.gz
+2026-09-10T00:36:13.521Z DENY HTTP GET http://extensions.duckdb.org/v1.5.5/linux_amd64/sqlite_scanner.duckdb_extension.gz
+2026-09-10T00:36:13.535Z DENY HTTP GET http://extensions.duckdb.org/v1.5.5/linux_amd64/sqlite_scanner.duckdb_extension.gz
+2026-09-10T00:36:13.535Z DENY HTTP GET http://extensions.duckdb.org/v1.5.5/linux_amd64/sqlite_scanner.duckdb_extension.gz
+2026-09-10T00:36:13.549Z DENY HTTP GET http://extensions.duckdb.org/v1.5.5/linux_amd64/sqlite_scanner.duckdb_extension.gz
+2026-09-10T00:36:13.549Z DENY HTTP GET http://extensions.duckdb.org/v1.5.5/linux_amd64/sqlite_scanner.duckdb_extension.gz
+2026-09-10T00:36:13.844Z DENY HTTP GET http://extensions.duckdb.org/v1.5.5/linux_amd64/httpfs.duckdb_extension.gz
+2026-09-10T00:36:34.112Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T00:36:49.116Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:36:49.296Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T00:37:08.505Z DENY HTTP GET http://extensions.duckdb.org/v1.5.5/linux_amd64/httpfs.duckdb_extension.gz
+2026-09-10T00:37:08.506Z DENY HTTP GET http://extensions.duckdb.org/v1.5.5/linux_amd64/ducklake.duckdb_extension.gz
+2026-09-10T00:37:08.551Z DENY HTTP GET http://extensions.duckdb.org/v1.5.5/linux_amd64/httpfs.duckdb_extension.gz
+2026-09-10T00:37:11.543Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T00:37:26.540Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:37:27.969Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T00:37:42.982Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T00:37:45.640Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T00:37:45.640Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443

@@ -1,0 +1,55 @@
+diff --git a/utm/conversion.py b/utm/conversion.py
+index d3d6a6f..b927494 100644
+--- a/utm/conversion.py
++++ b/utm/conversion.py
+@@ -184,7 +184,7 @@ def to_latlon(easting, northing, zone_number, zone_letter=None, northern=None, s
+             mathlib.degrees(longitude))
+ 
+ 
+-def from_latlon(latitude, longitude, force_zone_number=None, force_zone_letter=None):
++def from_latlon(latitude, longitude, force_zone_number=None, force_zone_letter=None, force_northern=None):
+     """This function converts Latitude and Longitude to UTM coordinate
+ 
+         Parameters
+@@ -204,6 +204,11 @@ def from_latlon(latitude, longitude, force_zone_number=None, force_zone_letter=N
+             You may force conversion to be included within one UTM zone
+             letter.  For more information see utmzones [1]_
+ 
++        force_northern: bool
++            You may force conversion to be for the northern (True) or
++            southern (False) hemisphere. May not be combined with
++            force_zone_letter.
++
+         Returns
+         -------
+         easting: float or NumPy array
+@@ -227,6 +232,9 @@ def from_latlon(latitude, longitude, force_zone_number=None, force_zone_letter=N
+         raise OutOfRangeError('latitude out of range (must be between 80 deg S and 84 deg N)')
+     if not in_bounds(longitude, -180, 180):
+         raise OutOfRangeError('longitude out of range (must be between 180 deg W and 180 deg E)')
++    if force_zone_letter is not None and force_northern is not None:
++        raise ValueError("You may set either force_zone_letter or "
++                          "force_northern, but not both")
+     if force_zone_number is not None:
+         check_valid_zone(force_zone_number, force_zone_letter)
+ 
+@@ -275,9 +283,16 @@ def from_latlon(latitude, longitude, force_zone_number=None, force_zone_letter=N
+                                         a4 / 24 * (5 - lat_tan2 + 9 * c + 4 * c**2) +
+                                         a6 / 720 * (61 - 58 * lat_tan2 + lat_tan4 + 600 * c - 330 * E_P2)))
+ 
+-    if mixed_signs(latitude):
+-        raise ValueError("latitudes must all have the same sign")
+-    elif negative(latitude):
++    if force_northern is not None:
++        northern = force_northern
++    elif force_zone_letter is not None:
++        northern = force_zone_letter.upper() >= 'N'
++    else:
++        if mixed_signs(latitude):
++            raise ValueError("latitudes must all have the same sign")
++        northern = not negative(latitude)
++
++    if not northern:
+         northing += 10000000
+ 
+     return easting, northing, zone_number, zone_letter

@@ -1,0 +1,115 @@
+diff --git a/README.md b/README.md
+index d6371e8..bd03e54 100644
+--- a/README.md
++++ b/README.md
+@@ -116,20 +116,22 @@ Use the `match` classmethod:
+ True
+ ```
+ 
+-By default, the classmethod `match` supports case-insensitive matching
+-and ignores leading/trailing whitespace.
+-To enforce exact matching instead, pass in `exact=True`:
++By default, the classmethod `match` ignores leading/trailing whitespace but
++enforces case-sensitive matching.
++To also enable case-insensitive matching, pass in `strict_case=False`:
+ 
+ ```python
+->>> lang5 = iso639.Language.match('FRA')
+ >>> lang6 = iso639.Language.match('fra ')
+->>> lang7 = iso639.Language.match('french')
+->>> lang4 == lang5 == lang6 == lang7
++>>> lang4 == lang6
+ True
+->>> iso639.Language.match("french", exact=True)
++>>> iso639.Language.match("french")
+ Traceback (most recent call last):
+   File "<stdin>", line 1, in <module>
+ LanguageNotFoundError: 'french' isn't an ISO language code or name
++>>> lang5 = iso639.Language.match('FRA', strict_case=False)
++>>> lang7 = iso639.Language.match('french', strict_case=False)
++>>> lang4 == lang5 == lang7
++True
+ ```
+ 
+ The classmethod `match` is particularly useful for consistently
+diff --git a/src/iso639/__pycache__/__init__.cpython-311.pyc b/src/iso639/__pycache__/__init__.cpython-311.pyc
+index 7126927..bb21778 100644
+Binary files a/src/iso639/__pycache__/__init__.cpython-311.pyc and b/src/iso639/__pycache__/__init__.cpython-311.pyc differ
+diff --git a/src/iso639/__pycache__/language.cpython-311.pyc b/src/iso639/__pycache__/language.cpython-311.pyc
+index f6f2dee..4297048 100644
+Binary files a/src/iso639/__pycache__/language.cpython-311.pyc and b/src/iso639/__pycache__/language.cpython-311.pyc differ
+diff --git a/src/iso639/language.py b/src/iso639/language.py
+index f514d43..3c50f68 100644
+--- a/src/iso639/language.py
++++ b/src/iso639/language.py
+@@ -101,17 +101,17 @@ class Language:
+         return isinstance(other, Language) and self.part3 == other.part3
+ 
+     @classmethod
+-    def match(cls, user_input: str, /, *, exact: bool = False) -> Language:
++    def match(cls, user_input: str, /, *, strict_case: bool = True) -> Language:
+         """Return a ``Language`` instance by matching on the user input.
+ 
+         Parameters
+         ----------
+         user_input : str
+             A language code or name.
+-        exact : bool, optional
+-            Whether to enforce exact matching against the user input.
+-            Defaults to `False`. If `False`, matching is case-insensitive
+-            and ignores leading/trailing whitespace.
++        strict_case : bool, optional
++            Whether to enforce case-sensitive matching against the user input.
++            Defaults to `True`. Leading/trailing whitespace is always ignored.
++            If `False`, matching is also case-insensitive.
+ 
+         Returns
+         -------
+@@ -145,7 +145,7 @@ class Language:
+             _NameIndexColumn.PRINT_NAME,
+             _NameIndexColumn.INVERTED_NAME,
+         ]
+-        return _PART3_TO_LANGUAGES[_get_part3(user_input, query_order, exact)]
++        return _PART3_TO_LANGUAGES[_get_part3(user_input, query_order, strict_case)]
+ 
+     @classmethod
+     def from_part3(cls, user_input: str, /) -> Language:
+@@ -185,7 +185,7 @@ def _raise_language_not_found_error(user_input: str) -> NoReturn:
+ 
+ 
+ def _get_part3(
+-    user_input: str, query_order: list[_COLUMN_TYPE], exact: bool = True
++    user_input: str, query_order: list[_COLUMN_TYPE], strict_case: bool = True
+ ) -> str:
+     """Get the part 3 code of a language.
+ 
+@@ -195,9 +195,11 @@ def _get_part3(
+         The user-provided language code or name.
+     query_order : List[_COLUMN_TYPE]
+         A list of columns to specify query order.
+-    exact : bool, optional
+-        Whether to enforce exact matching against the user input. Defaults to `True`.
+-        If `False`, basic string cleaning is applied to the user input.
++    strict_case : bool, optional
++        Whether to enforce case-sensitive matching against the user input.
++        Defaults to `True`. Leading/trailing whitespace is always stripped
++        before matching. If `False`, case-insensitive matching is also
++        attempted.
+ 
+     Returns
+     -------
+@@ -211,7 +213,13 @@ def _get_part3(
+     try:
+         return _get_part3_exact(user_input, query_order)
+     except LanguageNotFoundError as e:
+-        if exact:
++        stripped_input = user_input.strip()
++        if stripped_input != user_input:
++            try:
++                return _get_part3_exact(stripped_input, query_order, user_input)
++            except LanguageNotFoundError:
++                pass
++        if strict_case:
+             raise e
+         else:
+             for func in _STRING_CLEANING_FUNCS:

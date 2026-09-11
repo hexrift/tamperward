@@ -1,0 +1,31 @@
+diff --git a/src/smbprotocol/open.py b/src/smbprotocol/open.py
+index 2c41de0..410ee11 100644
+--- a/src/smbprotocol/open.py
++++ b/src/smbprotocol/open.py
+@@ -6,7 +6,7 @@ from collections import OrderedDict
+ 
+ from smbprotocol import MAX_PAYLOAD_SIZE, Dialects
+ from smbprotocol.create_contexts import SMB2CreateContextRequest
+-from smbprotocol.exceptions import FileClosed, SMBException, SMBUnsupportedFeature
++from smbprotocol.exceptions import FileClosed, SMBException, SMBResponseException, SMBUnsupportedFeature
+ from smbprotocol.file_info import (  # While this shouldn't ever be removed, we need to keep this imported so we stay backwards compat. These were; originally defined here.
+     FileAttributes,
+     FileBothDirectoryInformation,
+@@ -1599,12 +1599,16 @@ class Open:
+             self._connected = False
+             self.tree_connect.session.open_table.pop(self.file_id, None)
+             return
++        except SMBResponseException:
++            self._connected = False
++            self.tree_connect.session.open_table.pop(self.file_id, None)
++            raise
+ 
+         c_resp = SMB2CloseResponse()
+         c_resp.unpack(response["data"].get_value())
+         log.debug(c_resp)
+         self._connected = False
+-        del self.tree_connect.session.open_table[self.file_id]
++        self.tree_connect.session.open_table.pop(self.file_id, None)
+ 
+         # update the attributes if requested
+         close_request = SMB2CloseRequest()

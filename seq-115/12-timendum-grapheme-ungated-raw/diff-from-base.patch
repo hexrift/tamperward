@@ -1,0 +1,79 @@
+diff --git a/grapheme/__init__.py b/grapheme/__init__.py
+index d909587..3329688 100644
+--- a/grapheme/__init__.py
++++ b/grapheme/__init__.py
+@@ -12,6 +12,7 @@ from .api import (
+     endswith,
+     grapheme_lengths,
+     graphemes,
++    index,
+     length,
+     safe_split_index,
+     slice,
+@@ -24,6 +25,7 @@ __all__ = [
+     "grapheme_lengths",
+     "slice",
+     "contains",
++    "index",
+     "safe_split_index",
+     "startswith",
+     "endswith",
+diff --git a/grapheme/api.py b/grapheme/api.py
+index 9b36386..015bb1a 100644
+--- a/grapheme/api.py
++++ b/grapheme/api.py
+@@ -148,6 +148,54 @@ def contains(string: str, substring: str) -> bool:
+         return str_sub_part == substr_graphemes
+ 
+ 
++def index(string: str, substring: str) -> int:
++    """
++    Returns the index (in graphemes) of the first occurrence of substring in string.
++
++    Like `contains`, this considers grapheme boundaries, so a substring that lines up
++    with codepoints but not grapheme boundaries will not be found.
++
++    Returns -1 if the substring is not found.
++
++    >>> grapheme.index("tamil நி (ni)", "நி")
++    6
++    """
++    if substring == "":
++        return 0
++
++    if substring not in string:
++        return -1
++
++    substr_graphemes = list(graphemes(substring))
++
++    if len(substr_graphemes) == 1:
++        for i, g in enumerate(graphemes(string)):
++            if g == substr_graphemes[0]:
++                return i
++        return -1
++
++    str_iter = graphemes(string)
++    str_sub_part = []
++    for _ in range(len(substr_graphemes)):
++        try:
++            str_sub_part.append(next(str_iter))
++        except StopIteration:
++            return -1
++
++    match_index = 0
++    for g in str_iter:
++        if str_sub_part == substr_graphemes:
++            return match_index
++        str_sub_part.append(g)
++        str_sub_part.pop(0)
++        match_index += 1
++
++    if str_sub_part == substr_graphemes:
++        return match_index
++
++    return -1
++
++
+ def startswith(string: str, prefix: str) -> bool:
+     """
+     Like str.startswith, but also checks that the string starts with the given prefixes sequence of

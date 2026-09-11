@@ -1,0 +1,68 @@
+diff --git a/src/browser_harness/helpers.py b/src/browser_harness/helpers.py
+index ad7a7aa..0090e1f 100644
+--- a/src/browser_harness/helpers.py
++++ b/src/browser_harness/helpers.py
+@@ -237,11 +237,43 @@ _KEYS = {  # key → (windowsVirtualKeyCode, code, text)
+     "Home": (36, "Home", ""), "End": (35, "End", ""),
+     "PageUp": (33, "PageUp", ""), "PageDown": (34, "PageDown", ""),
+ }
++
++_SHIFTED_TO_BASE = {  # shifted symbol → unshifted key that produces it on a US layout
++    "!": "1", "@": "2", "#": "3", "$": "4", "%": "5", "^": "6", "&": "7", "*": "8", "(": "9", ")": "0",
++    "_": "-", "+": "=", "{": "[", "}": "]", "|": "\\", ":": ";", '"': "'", "<": ",", ">": ".", "?": "/", "~": "`",
++}
++_PUNCT_CODE = {  # unshifted symbol → physical key name
++    "`": "Backquote", "-": "Minus", "=": "Equal", "[": "BracketLeft", "]": "BracketRight",
++    "\\": "Backslash", ";": "Semicolon", "'": "Quote", ",": "Comma", ".": "Period", "/": "Slash",
++}
++
++def _physical_key(char):
++    """Map a character to (code, windowsVirtualKeyCode, shift) for the US keyboard
++    layout. Returns ("", 0, False) when no US key types this character (accented
++    letters, CJK, emoji, ...) so callers report none rather than a fabricated one."""
++    shift = char in _SHIFTED_TO_BASE
++    base = _SHIFTED_TO_BASE.get(char, char)
++    if base.isascii() and base.isalpha():
++        return f"Key{base.upper()}", ord(base.upper()), shift or base.isupper()
++    if base.isascii() and base.isdigit():
++        return f"Digit{base}", ord(base), shift
++    if base in _PUNCT_CODE:
++        return _PUNCT_CODE[base], ord(base), shift
++    return "", 0, False
++
+ def press_key(key, modifiers=0):
+     """Modifiers bitfield: 1=Alt, 2=Ctrl, 4=Meta(Cmd), 8=Shift.
+     Special keys (Enter, Tab, Arrow*, Backspace, etc.) carry their virtual key codes
+-    so listeners checking e.keyCode / e.key all fire."""
+-    vk, code, text = _KEYS.get(key, (ord(key[0]) if len(key) == 1 else 0, key, key if len(key) == 1 else ""))
++    so listeners checking e.keyCode / e.key all fire. Single characters are mapped to
++    the physical US-layout key that types them, adding Shift automatically when needed."""
++    if key in _KEYS:
++        vk, code, text = _KEYS[key]
++    elif len(key) == 1:
++        code, vk, shift = _physical_key(key)
++        text = key
++        modifiers |= 8 if shift else 0
++    else:
++        vk, code, text = 0, key, ""
+     base = {"key": key, "code": code, "modifiers": modifiers, "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk}
+     shortcut_modifiers = modifiers & (1 | 2 | 4)  # Alt/Ctrl/Meta turn single keys into shortcuts.
+     printable_char = len(key) == 1 and bool(text) and not shortcut_modifiers
+diff --git a/tests/conftest.py b/tests/conftest.py
+index b6109f4..8743829 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -1,5 +1,13 @@
+ import base64
+ import io
++import os
++import tempfile
++
++# browser_harness computes its home/tmp dirs at import time (see
++# src/browser_harness/_ipc.py) and creates them eagerly. Point BH_HOME at a
++# throwaway directory before anything imports the package, so tests never
++# touch (or depend on the permissions of) the real user home directory.
++os.environ.setdefault("BH_HOME", tempfile.mkdtemp(prefix="browser-harness-test-"))
+ 
+ import pytest
+ from PIL import Image

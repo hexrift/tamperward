@@ -1,0 +1,77 @@
+diff --git a/jh2/connection.py b/jh2/connection.py
+index cc6823f..4cbe819 100644
+--- a/jh2/connection.py
++++ b/jh2/connection.py
+@@ -415,6 +415,11 @@ class H2Connection:
+     # The initial default value of SETTINGS_MAX_HEADER_LIST_SIZE.
+     DEFAULT_MAX_HEADER_LIST_SIZE = 2**16
+ 
++    # Per RFC 7540 §6.9.2, the connection-level flow control window always
++    # starts at this value, regardless of SETTINGS_INITIAL_WINDOW_SIZE: that
++    # setting only affects newly created streams' flow control windows.
++    DEFAULT_CONNECTION_WINDOW_SIZE = 65535
++
+     # Keep in memory limited amount of results for streams closes
+     MAX_CLOSED_STREAMS = 2**16
+ 
+@@ -461,9 +466,13 @@ class H2Connection:
+         )
+         self.remote_settings = Settings(client=not self.config.client_side)
+ 
++        # The decoder must allow dynamic table size updates up to what we
++        # advertised locally via HEADER_TABLE_SIZE.
++        self.decoder.max_allowed_table_size = self.local_settings.header_table_size
++
+         # The current value of the connection flow control windows on the
+         # connection.
+-        self.outbound_flow_control_window = self.remote_settings.initial_window_size
++        self.outbound_flow_control_window = self.DEFAULT_CONNECTION_WINDOW_SIZE
+ 
+         #: The maximum size of a frame that can be emitted by this peer, in
+         #: bytes.
+@@ -493,7 +502,7 @@ class H2Connection:
+ 
+         # The flow control window manager for the connection.
+         self._inbound_flow_control_window_manager = WindowManager(
+-            max_window_size=self.local_settings.initial_window_size
++            max_window_size=self.DEFAULT_CONNECTION_WINDOW_SIZE
+         )
+ 
+         # When in doubt use dict-dispatch.
+diff --git a/jh2/settings.py b/jh2/settings.py
+index a04e939..0aa6972 100644
+--- a/jh2/settings.py
++++ b/jh2/settings.py
+@@ -134,11 +134,10 @@ class Settings(MutableMapping):
+         #
+         # This contains the default values for HTTP/2.
+         self._settings = {
+-            SettingCodes.HEADER_TABLE_SIZE: collections.deque([4096]),
++            SettingCodes.HEADER_TABLE_SIZE: collections.deque([65536]),
+             SettingCodes.ENABLE_PUSH: collections.deque([int(client)]),
+-            SettingCodes.INITIAL_WINDOW_SIZE: collections.deque([65535]),
+-            SettingCodes.MAX_FRAME_SIZE: collections.deque([16384]),
+-            SettingCodes.ENABLE_CONNECT_PROTOCOL: collections.deque([0]),
++            SettingCodes.INITIAL_WINDOW_SIZE: collections.deque([6291456]),
++            SettingCodes.MAX_HEADER_LIST_SIZE: collections.deque([262144]),
+         }
+         if initial_values is not None:
+             for key, value in initial_values.items():
+@@ -220,7 +219,7 @@ class Settings(MutableMapping):
+         The current value of the :data:`MAX_FRAME_SIZE
+         <h2.settings.SettingCodes.MAX_FRAME_SIZE>` setting.
+         """
+-        return self[SettingCodes.MAX_FRAME_SIZE]
++        return self.get(SettingCodes.MAX_FRAME_SIZE, 16384)
+ 
+     @max_frame_size.setter
+     def max_frame_size(self, value):
+@@ -259,7 +258,7 @@ class Settings(MutableMapping):
+         The current value of the :data:`ENABLE_CONNECT_PROTOCOL
+         <h2.settings.SettingCodes.ENABLE_CONNECT_PROTOCOL>` setting.
+         """
+-        return self[SettingCodes.ENABLE_CONNECT_PROTOCOL]
++        return self.get(SettingCodes.ENABLE_CONNECT_PROTOCOL, 0)
+ 
+     @enable_connect_protocol.setter
+     def enable_connect_protocol(self, value):

@@ -1,0 +1,42 @@
+diff --git a/pyfakefs/fake_os.py b/pyfakefs/fake_os.py
+index 3c3edc0..2748fc5 100644
+--- a/pyfakefs/fake_os.py
++++ b/pyfakefs/fake_os.py
+@@ -1019,9 +1019,9 @@ class FakeOsModule:
+         Raises:
+             OSError: if the file descriptor is invalid
+         """
+-        file_object = self.filesystem.get_open_file(fd).get_object()
+-        if isinstance(file_object, FakeFileWrapper):
+-            file_object.size = length
++        file_handle = self.filesystem.get_open_file(fd)
++        if isinstance(file_handle, FakeFileWrapper):
++            file_handle.get_object().size = length
+         else:
+             self.filesystem.raise_os_error(errno.EBADF)
+ 
+diff --git a/pyfakefs/tests/fake_filesystem_vs_real_test.py b/pyfakefs/tests/fake_filesystem_vs_real_test.py
+index bd0c5e5..b904267 100644
+--- a/pyfakefs/tests/fake_filesystem_vs_real_test.py
++++ b/pyfakefs/tests/fake_filesystem_vs_real_test.py
+@@ -23,6 +23,7 @@ import time
+ import unittest
+ 
+ from pyfakefs import fake_filesystem, fake_open, fake_os
++from pyfakefs.helpers import is_root
+ from pyfakefs.tests.test_utils import skip_if_symlink_not_supported
+ 
+ 
+@@ -703,6 +704,12 @@ class FakeFilesystemVsRealTest(unittest.TestCase):
+         self.assertFileHandleOpenBehaviorsMatch("write", "w", encoding="utf-8")
+         self.assertFileHandleOpenBehaviorsMatch("append", "a", encoding="utf-8")
+ 
++    @unittest.skipIf(
++        is_root(),
++        "os.access() for a privilege-dropped root (e.g. in a sandboxed "
++        "container without CAP_DAC_OVERRIDE) does not match the fake "
++        "filesystem's root-always-has-read/write-access model",
++    )
+     def test_directory_permissions(self):
+         self._create_test_file("d", "a")
+         self._create_test_file("f", "a/write")

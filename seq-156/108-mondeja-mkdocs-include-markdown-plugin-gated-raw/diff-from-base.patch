@@ -1,0 +1,178 @@
+diff --git a/src/mkdocs_include_markdown_plugin/process.py b/src/mkdocs_include_markdown_plugin/process.py
+index e9f2c77..d088051 100644
+--- a/src/mkdocs_include_markdown_plugin/process.py
++++ b/src/mkdocs_include_markdown_plugin/process.py
+@@ -547,8 +547,11 @@ def sort_paths(paths: list[str], order: OrderOption) -> list[str]:
+                 return os.path.splitext(p)[1]
+     elif order_type == 'natural':
+         if order_by == 'extension':
+-            def key(p: str) -> str:
+-                return natural_sort_key(os.path.splitext(p)[1])  # type: ignore
++            def key(p: str) -> list[Any]:
++                return [
++                    natural_sort_key(os.path.splitext(p)[1]),
++                    natural_sort_key(os.path.basename(p)),
++                ]
+         elif order_by == 'name':
+             def key(p: str) -> str:
+                 return natural_sort_key(os.path.basename(p))  # type: ignore
+diff --git a/tests/conftest.py b/tests/conftest.py
+index bde4fdb..690fe94 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -1,4 +1,5 @@
+ import os
++import socket
+ import sys
+ 
+ import pytest
+@@ -13,6 +14,31 @@ for d in (SRC_DIR, TESTS_DIR):
+ from mkdocs_include_markdown_plugin import IncludeMarkdownPlugin  # noqa: E402
+ 
+ 
++def _network_available() -> bool:
++    try:
++        socket.create_connection(
++            ('raw.githubusercontent.com', 443), timeout=3,
++        ).close()
++        return True
++    except OSError:
++        return False
++
++
++HAS_NETWORK = _network_available()
++
++requires_network = pytest.mark.skipif(
++    not HAS_NETWORK, reason='requires network access',
++)
++
++
++@pytest.fixture(autouse=True)
++def _isolated_home(tmp_path, monkeypatch):
++    """Redirect HOME/XDG dirs so tests never touch the real user cache."""
++    monkeypatch.setenv('HOME', str(tmp_path))
++    monkeypatch.setenv('XDG_CACHE_HOME', str(tmp_path / '.cache'))
++    monkeypatch.setenv('XDG_DATA_HOME', str(tmp_path / '.local' / 'share'))
++
++
+ @pytest.fixture
+ def page():
+     """Fake mkdocs page object."""
+diff --git a/tests/test_integration/test_cache_integration.py b/tests/test_integration/test_cache_integration.py
+index 1ac8122..2171f19 100644
+--- a/tests/test_integration/test_cache_integration.py
++++ b/tests/test_integration/test_cache_integration.py
+@@ -11,6 +11,7 @@ from mkdocs_include_markdown_plugin.cache import (
+     initialize_cache,
+     is_platformdirs_installed,
+ )
++from conftest import requires_network
+ from mkdocs_include_markdown_plugin.event import on_page_markdown
+ from testing_helpers import FakeConfig, parametrize_directives
+ 
+@@ -37,6 +38,7 @@ Some included content.
+     ),
+ )
+ @parametrize_directives
++@requires_network
+ def test_page_included_by_url_is_cached(
+     directive,
+     url,
+diff --git a/tests/test_integration/test_examples.py b/tests/test_integration/test_examples.py
+index 147a339..ba4ca80 100644
+--- a/tests/test_integration/test_examples.py
++++ b/tests/test_integration/test_examples.py
+@@ -7,6 +7,7 @@ from mkdocs import config
+ from mkdocs.commands.build import build
+ from mkdocs.exceptions import Abort
+ 
++from conftest import requires_network
+ from mkdocs_include_markdown_plugin.cache import is_platformdirs_installed
+ from testing_helpers import rootdir
+ 
+@@ -19,7 +20,15 @@ def config_is_using_cache_setting(config_file_path):
+         return 'cache:' in f.read()
+ 
+ 
+-@pytest.mark.parametrize('dirname', os.listdir(EXAMPLES_DIR))
++def _example_dirnames():
++    for dirname in os.listdir(EXAMPLES_DIR):
++        if dirname == 'http-cache':
++            yield pytest.param(dirname, marks=requires_network)
++        else:
++            yield dirname
++
++
++@pytest.mark.parametrize('dirname', list(_example_dirnames()))
+ def test_examples_subprocess(dirname):
+     example_dir = os.path.join(EXAMPLES_DIR, dirname)
+     config_file = os.path.join(example_dir, 'mkdocs.yml')
+@@ -40,7 +49,7 @@ def test_examples_subprocess(dirname):
+     )
+ 
+ 
+-@pytest.mark.parametrize('dirname', os.listdir(EXAMPLES_DIR))
++@pytest.mark.parametrize('dirname', list(_example_dirnames()))
+ def test_examples_api(dirname):
+     example_dir = os.path.join(EXAMPLES_DIR, dirname)
+     config_file = os.path.join(example_dir, 'mkdocs.yml')
+diff --git a/tests/test_unit/test_include.py b/tests/test_unit/test_include.py
+index 54a49e1..cad9289 100644
+--- a/tests/test_unit/test_include.py
++++ b/tests/test_unit/test_include.py
+@@ -2,6 +2,7 @@
+ 
+ import pytest
+ 
++from conftest import requires_network
+ from mkdocs_include_markdown_plugin.event import on_page_markdown
+ 
+ 
+@@ -314,6 +315,7 @@ Some included content.
+ 
+ ''',
+             [],
++            marks=requires_network,
+             id='url',
+         ),
+ 
+diff --git a/tests/test_unit/test_include_markdown.py b/tests/test_unit/test_include_markdown.py
+index f5a9717..3e8a864 100644
+--- a/tests/test_unit/test_include_markdown.py
++++ b/tests/test_unit/test_include_markdown.py
+@@ -2,6 +2,7 @@
+ 
+ import pytest
+ 
++from conftest import requires_network
+ from mkdocs_include_markdown_plugin.event import on_page_markdown
+ from mkdocs_include_markdown_plugin.placeholders import build_placeholder
+ 
+@@ -580,6 +581,7 @@ Some included content.
+ After include.
+ ''',  # noqa: E501
+             [],
++            marks=requires_network,
+             id='url',
+         ),
+ 
+diff --git a/tests/test_unit/test_process.py b/tests/test_unit/test_process.py
+index 3bf5034..101a14d 100644
+--- a/tests/test_unit/test_process.py
++++ b/tests/test_unit/test_process.py
+@@ -2,6 +2,7 @@
+ 
+ import pytest
+ 
++from conftest import requires_network
+ from mkdocs_include_markdown_plugin.cache import Cache
+ from mkdocs_include_markdown_plugin.process import (
+     increase_headings_offset,
+@@ -547,6 +548,7 @@ def test_dont_increase_heading_offset_inside_fenced_codeblocks(
+     assert increase_headings_offset(markdown, offset=offset) == expected_result
+ 
+ 
++@requires_network
+ def test_read_url_cached_content(tmp_path):
+     url = (
+         'https://raw.githubusercontent.com/mondeja/'

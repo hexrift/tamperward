@@ -1,0 +1,23 @@
+diff --git a/src/toon/primitives.py b/src/toon/primitives.py
+index f05744a..945d420 100644
+--- a/src/toon/primitives.py
++++ b/src/toon/primitives.py
+@@ -90,6 +90,10 @@ def is_safe_unquoted(value: str, delimiter: str = COMMA) -> bool:
+     except ValueError:
+         pass
+ 
++    # A leading list-item marker would conflict with list syntax
++    if value.startswith(LIST_ITEM_MARKER):
++        return False
++
+     # Check for structural characters (including current delimiter)
+     unsafe_chars = [
+         COLON,
+@@ -98,7 +102,6 @@ def is_safe_unquoted(value: str, delimiter: str = COMMA) -> bool:
+         CLOSE_BRACKET,
+         OPEN_BRACE,
+         CLOSE_BRACE,
+-        LIST_ITEM_MARKER,
+         DOUBLE_QUOTE,
+         BACKSLASH,
+         NEWLINE,

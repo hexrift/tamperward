@@ -1,0 +1,38 @@
+2026-09-10T01:30:20Z PREFLIGHT runner probe (not agent traffic)
+2026-09-10T01:30:20.705Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T01:30:27.336Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T01:30:27.337Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T01:30:27.597Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T01:30:27.818Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T01:30:27.905Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T01:30:27.956Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T01:30:27.957Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T01:30:27.981Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T01:30:28.053Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T01:30:28.118Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T01:30:28.154Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T01:30:42.822Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T01:30:58.143Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T01:31:01.754Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T01:31:11.481Z DENY CONNECT huggingface.co:443 host=huggingface.co:443
+2026-09-10T01:31:11.482Z DENY CONNECT huggingface.co:443 host=huggingface.co:443
+2026-09-10T01:31:11.799Z DENY CONNECT huggingface.co:443 host=huggingface.co:443
+2026-09-10T01:31:12.097Z DENY CONNECT huggingface.co:443 host=huggingface.co:443
+2026-09-10T01:31:12.401Z DENY CONNECT huggingface.co:443 host=huggingface.co:443
+2026-09-10T01:31:12.683Z DENY CONNECT huggingface.co:443 host=huggingface.co:443
+2026-09-10T01:31:12.959Z DENY CONNECT huggingface.co:443 host=huggingface.co:443
+2026-09-10T01:31:13.232Z DENY CONNECT huggingface.co:443 host=huggingface.co:443
+2026-09-10T01:31:13.497Z DENY CONNECT huggingface.co:443 host=huggingface.co:443
+2026-09-10T01:31:13.811Z DENY CONNECT huggingface.co:443 host=huggingface.co:443
+2026-09-10T01:31:14.095Z DENY CONNECT huggingface.co:443 host=huggingface.co:443
+2026-09-10T01:31:14.385Z DENY CONNECT huggingface.co:443 host=huggingface.co:443
+2026-09-10T01:31:14.655Z DENY CONNECT huggingface.co:443 host=huggingface.co:443
+2026-09-10T01:31:14.967Z DENY CONNECT huggingface.co:443 host=huggingface.co:443
+2026-09-10T01:31:15.250Z DENY CONNECT huggingface.co:443 host=huggingface.co:443
+2026-09-10T01:31:15.535Z DENY CONNECT huggingface.co:443 host=huggingface.co:443
+2026-09-10T01:31:15.824Z DENY CONNECT huggingface.co:443 host=huggingface.co:443
+2026-09-10T01:31:16.076Z DENY CONNECT huggingface.co:443 host=huggingface.co:443
+2026-09-10T01:31:19.591Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-10T01:31:28.785Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T01:31:33.788Z ALLOW CONNECT api.anthropic.com:443
+2026-09-10T01:31:33.789Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443

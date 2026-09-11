@@ -1,0 +1,66 @@
+2026-09-11T00:54:31Z PREFLIGHT runner probe (not agent traffic)
+2026-09-11T00:54:31.467Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:54:38.132Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:54:38.133Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:54:38.432Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:54:38.754Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:54:38.782Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:54:38.796Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:54:38.797Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:54:38.823Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:54:38.870Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:54:38.910Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:54:38.952Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:54:47.311Z DENY HTTP HEAD http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.314Z DENY HTTP HEAD http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.325Z DENY HTTP GET http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.377Z DENY HTTP GET http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.414Z DENY HTTP HEAD http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.416Z DENY HTTP HEAD http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.418Z DENY HTTP GET http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.446Z DENY HTTP HEAD http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.448Z DENY HTTP HEAD http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.450Z DENY HTTP GET http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.478Z DENY HTTP HEAD http://get.ecmwf.int/test-data/earthkit-data/examples/test.grib
+2026-09-11T00:54:47.480Z DENY HTTP HEAD http://get.ecmwf.int/test-data/earthkit-data/examples/test6.grib
+2026-09-11T00:54:47.482Z DENY HTTP GET http://get.ecmwf.int/test-data/earthkit-data/examples/test.grib
+2026-09-11T00:54:47.510Z DENY HTTP HEAD http://get.ecmwf.int/test-data/earthkit-data/examples/test.grib
+2026-09-11T00:54:47.512Z DENY HTTP HEAD http://get.ecmwf.int/test-data/earthkit-data/examples/test6.grib
+2026-09-11T00:54:47.514Z DENY HTTP GET http://get.ecmwf.int/test-data/earthkit-data/examples/test.grib
+2026-09-11T00:54:47.544Z DENY HTTP HEAD http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.546Z DENY HTTP HEAD http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.548Z DENY HTTP GET http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.576Z DENY HTTP HEAD http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.578Z DENY HTTP HEAD http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.579Z DENY HTTP HEAD http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.581Z DENY HTTP HEAD http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.583Z DENY HTTP GET http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.622Z DENY HTTP HEAD http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.623Z DENY HTTP HEAD http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.626Z DENY HTTP GET http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:54:47.656Z DENY HTTP HEAD http://httpbin.org/status/200,408
+2026-09-11T00:54:47.658Z DENY HTTP HEAD http://httpbin.org/status/200,408
+2026-09-11T00:54:47.660Z DENY HTTP GET http://httpbin.org/status/200,408
+2026-09-11T00:54:47.688Z DENY HTTP GET http://httpbin.org/status/500,502,503,504,429,408
+2026-09-11T00:54:47.693Z DENY HTTP GET http://httpbin.org/status/500,502,503,504,429,408
+2026-09-11T00:54:47.698Z DENY HTTP GET http://httpbin.org/status/500,502,503,504,429,408
+2026-09-11T00:54:53.677Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:55:09.008Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:55:10.491Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:55:26.662Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:55:40.417Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:55:42.268Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:55:58.012Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:56:13.013Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:56:17.422Z DENY HTTP GET http://httpbin.org/status/429
+2026-09-11T00:56:17.447Z DENY HTTP GET http://httpbin.org/status/429
+2026-09-11T00:56:21.004Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:56:44.322Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:56:58.445Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:57:14.904Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:57:21.991Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:57:27.954Z DENY HTTP HEAD http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:57:34.697Z DENY HTTP HEAD http://get.ecmwf.int/test-data/metview/gallery/temp.bufr
+2026-09-11T00:57:37.955Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443
+2026-09-11T00:57:44.253Z ALLOW CONNECT api.anthropic.com:443
+2026-09-11T00:57:44.253Z DENY CONNECT http-intake.logs.us5.datadoghq.com:443 host=http-intake.logs.us5.datadoghq.com:443

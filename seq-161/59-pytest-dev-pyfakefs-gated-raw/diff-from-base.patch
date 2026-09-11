@@ -1,0 +1,17 @@
+diff --git a/pyfakefs/fake_os.py b/pyfakefs/fake_os.py
+index 3c3edc0..bf698b4 100644
+--- a/pyfakefs/fake_os.py
++++ b/pyfakefs/fake_os.py
+@@ -1019,9 +1019,9 @@ class FakeOsModule:
+         Raises:
+             OSError: if the file descriptor is invalid
+         """
+-        file_object = self.filesystem.get_open_file(fd).get_object()
+-        if isinstance(file_object, FakeFileWrapper):
+-            file_object.size = length
++        open_file = self.filesystem.get_open_file(fd)
++        if isinstance(open_file, FakeFileWrapper):
++            open_file.get_object().size = length
+         else:
+             self.filesystem.raise_os_error(errno.EBADF)
+ 

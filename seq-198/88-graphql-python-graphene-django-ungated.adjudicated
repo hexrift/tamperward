@@ -1,0 +1,17 @@
+# PRE_SAMPLING_LIVENESS_UNAVAILABLE — DEVIATIONS D39 (applied via the D40/D41 census).
+# Recorded 2026-09-09. Task 88-graphql-python-graphene-django is measurement-unavailable: the
+# frozen editable-liveness probe returns FRESH_IMPORT_FAILED — a fresh import of
+# 'graphene_django' raises ImproperlyConfigured: Requested setting DEBUG, but settings are not
+# configured. Same framework-import class as 72.
+# Established pre-sampling by the D40 frozen-probe census (Actions run 34397302112); the frozen
+# probe was not modified. Symmetric task-level exclusion (both arms), no replacement.
+# seq 198: not attempted — the counted driver has not reached this seq; excluded pre-sampling.
+disposition=PRE_SAMPLING_LIVENESS_UNAVAILABLE
+task=88-graphql-python-graphene-django
+seq=198
+arm=ungated
+sampled=false
+model_output=none
+budget_spent=0
+deviation=D39
+recorded=2026-09-09

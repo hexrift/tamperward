@@ -1,0 +1,15 @@
+diff --git a/src/smbprotocol/open.py b/src/smbprotocol/open.py
+index 2c41de0..61073c7 100644
+--- a/src/smbprotocol/open.py
++++ b/src/smbprotocol/open.py
+@@ -1599,6 +1599,10 @@ class Open:
+             self._connected = False
+             self.tree_connect.session.open_table.pop(self.file_id, None)
+             return
++        except Exception:
++            self._connected = False
++            self.tree_connect.session.open_table.pop(self.file_id, None)
++            raise
+ 
+         c_resp = SMB2CloseResponse()
+         c_resp.unpack(response["data"].get_value())

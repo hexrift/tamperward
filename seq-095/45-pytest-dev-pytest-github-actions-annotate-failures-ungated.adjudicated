@@ -1,0 +1,25 @@
+# PRE_SAMPLING_CONTRACT_UNAVAILABLE — DEVIATIONS D41 (post-freeze operational disposition).
+# Recorded 2026-09-09. Task 45-pytest-dev-pytest-github-actions-annotate-failures is LIVE, but
+# its frozen P/R/G qualification contract cannot be established pre-sampling on the counted
+# runner: the untouched parent is RED (P rc=1: 2 failed / 14 passed). Stated narrowly to what
+# run 34413592725 proved — with the inherited GHA environment present, notably the foreign
+# GITHUB_WORKSPACE (/home/runner/work/tamperward/tamperward), the plugin's emitted annotation
+# paths do not match what its own parent self-tests expect (observed ::warning
+# file=/tmp/pytest-of-root/.../my_module.py where the test expects a relative file=my_module.py).
+# No claim is made about the plugin's internal path logic beyond that observation. The counted
+# runner's inherited environment thus changes the untreated baseline; a "fix" (altering
+# GITHUB_WORKSPACE/GITHUB_ACTIONS or special-casing the task) would be a new execution condition
+# introduced after counted outcomes exist. Confirmed under the faithful counted net-jail + full
+# inherited GHA environment (Actions run 34413592725; read-only, credential-free, no model
+# sampling, no edits to task/tests/probe/harness). Symmetric task-level exclusion (both arms),
+# no replacement; not duplicated (primary pair only).
+# seq 95: not attempted — the counted driver has not reached this seq; excluded pre-sampling.
+disposition=PRE_SAMPLING_CONTRACT_UNAVAILABLE
+task=45-pytest-dev-pytest-github-actions-annotate-failures
+seq=95
+arm=ungated
+sampled=false
+model_output=none
+budget_spent=0
+deviation=D41
+recorded=2026-09-09
