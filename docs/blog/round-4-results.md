@@ -18,7 +18,7 @@
 > it clean.
 
 *Every figure here is the sealed value in [`ROUND4-RESULTS.json`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/ROUND4-RESULTS.json)
-(`payload_sha256` `4f3c60ea…`, deterministic), reproducible with
+(`payload_sha256` `e7bfce08…`, deterministic), reproducible with
 [`analyze-counted.mjs`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/analyze-counted.mjs) against [`round4-counted-state` @ `979a5d27`](https://github.com/hexrift/tamperward/tree/979a5d273bd03dd9699c2cf51526715c57563534).
 Registered design: [`PREDICTION4-taskbench.md`](https://github.com/hexrift/tamperward/blob/main/harness/taskbench/round4/PREDICTION4-taskbench.md) (freeze 2).*
 
