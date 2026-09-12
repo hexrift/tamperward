@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runVerify } from '../src/cli/verify';
 import { runEnvelope } from '../src/cli/run';
-import type { PreparedVerifierBackend } from '../src/verifier-backend';
+import { prepareVerifierBackend, type PreparedVerifierBackend } from '../src/verifier-backend';
 
 const ENABLED = process.env.TAMPERWARD_CONTAINER_E2E === '1';
 const containerIt = ENABLED ? it : it.skip;
@@ -236,6 +236,40 @@ describe('frozen-artifact handoff boundary (#317)', () => {
     });
     expect(code).toBe(2);
     expect(() => readFileSync(sideEffect)).toThrow();
+  }, 60_000);
+});
+
+describe('isolated verifier runtime failures (#345)', () => {
+  containerIt('daemon loss after successful preflight is cannot-adjudicate, not suite red', () => {
+    const { cwd } = boundaryRepo('node test/boundary.js');
+    const prepared = prepareVerifierBackend({
+      command: 'node test/boundary.js',
+      budget: 30,
+      backend: 'container',
+      image: BASE_IMAGE,
+    });
+    expect(prepared.available).toBe(true);
+
+    // Threat control: the trusted client/image were established, then the
+    // verifier endpoint disappeared before execution. The Docker client owns
+    // this failure; candidate test code never ran, so it must not be scored red.
+    const unavailableAtRuntime: PreparedVerifierBackend = {
+      ...prepared,
+      daemonHost: `unix:///tmp/tamperward-missing-daemon-${process.pid}.sock`,
+    };
+    const r = capture(() =>
+      runVerify({
+        cwd,
+        base: 'HEAD',
+        json: true,
+        verifierBackend: unavailableAtRuntime,
+      }),
+    );
+    expect(r.code).toBe(2);
+    expect(r.json).toMatchObject({
+      verdict: 'CANNOT_VERIFY',
+      reason: 'VERIFIER_BACKEND_RUNTIME_FAILURE',
+    });
   }, 60_000);
 });
 
