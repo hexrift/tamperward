@@ -293,18 +293,36 @@ is the variable list. What remains is stated below.
   does not upgrade the default local backend into a sandbox; it gives operators
   a stronger final-verification mode with a different trust boundary.
 
-- **Source-level interference is out of scope here** and belongs to the oracle
-  boundary, not this one. That includes both a semantically wrong fix that the
-  base tests simply accept and active in-process interference by the candidate
-  code under test. For example, candidate source can terminate a trusted
-  single-process test script with `process.exit(0)` while it is being imported,
-  before the trusted assertion runs; equivalent runner monkeypatching can alter
-  registration/assertion behavior without writing policy, tests, dependencies or
-  the verifier filesystem. Container isolation cannot generically forbid that
-  without also forbidding execution of the candidate. #350 tracks completion /
-  collection evidence and held-out/out-of-process oracle directions. The
-  `isolated-container` trust label therefore describes execution-domain
-  integrity, not semantic/oracle isolation.
+- **Source-level interference is a separate oracle boundary.** That includes
+  both a semantically wrong fix that the base tests simply accept and active
+  in-process interference by the candidate code under test. The committed #350
+  threat control demonstrates the concrete form: candidate `src.js` calls
+  `process.exit(0)` while a trusted single-process test imports it, so the
+  process exits successfully before the trusted assertion is reached. Policy,
+  tests, dependencies, image/runtime authority and the read-only verifier
+  filesystem all remain intact. Container isolation cannot generically forbid
+  this without also forbidding execution of the candidate.
+
+  From 2.11.1 the verifier therefore exposes this ceiling in both JSON and text
+  output. JSON verdicts include `oracle_assurance` with
+  `level: "suite-exit-only"`, `semantic_isolation: false`, and
+  `candidate_code_executes_in_oracle_process: true`. This is deliberately not
+  a heuristic detector or a blacklist for `process.exit`; equivalent
+  termination, assertion monkeypatching, test-registration interposition and
+  framework hooks are too broad for such a claim.
+
+### Oracle/completion evidence families
+
+| Family | Current assurance | Why |
+|---|---|---|
+| Arbitrary shell commands, Node scripts, Jest/Vitest, pytest and similar in-process suites | **suite-exit-only** | Candidate code executes in the same process or descendant process whose successful exit is interpreted as the suite result. TamperWard cannot prove every trusted assertion/collection hook ran. |
+| Runner-native test counts, coverage or collection summaries produced inside that same candidate-controlled process | **advisory only** | Useful evidence, but the producer can itself be terminated or interposed on by candidate code unless the result protocol is outside that process. |
+| Held-out probes/oracles executed by a separate trusted process that does not import candidate code into the oracle process, with candidate interaction only through a constrained external interface | **structurally stronger** | Candidate code cannot directly call the oracle process's exit/assertion APIs; the external protocol can distinguish missing/invalid completion from a valid result. |
+| Runner-specific completion/result protocol whose producer and evidence channel are outside candidate write/process authority | **potentially trustworthy when explicitly implemented and attested** | This can bind expected collection/completion to the trusted side, but TamperWard does not currently infer such a protocol from an arbitrary `verify.command`. |
+
+  The `isolated-container` trust label therefore describes execution-domain
+  integrity only. A future stronger oracle protocol must be explicit rather than
+  inferred from a zero exit code.
 
 ## What this means for the published record
 
