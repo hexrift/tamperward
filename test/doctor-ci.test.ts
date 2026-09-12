@@ -10,7 +10,7 @@ import {
   maxStageBudgetForOuterTimeout,
   requiredVerifierAuthoritySeconds,
 } from '../src/verifier-limits';
-import { evaluateGitHubProtection, githubApiInvocation, runDoctor } from '../src/cli/doctor';
+import { evaluateGitHubProtection, githubApiInvocation, githubRepoFromRemote, runDoctor } from '../src/cli/doctor';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -282,5 +282,21 @@ describe('GitHub doctor transport boundary (#332)', () => {
     expect(invocation.env).not.toHaveProperty('PATH');
     expect(invocation.env).not.toHaveProperty('NODE_OPTIONS');
     expect(invocation.env).not.toHaveProperty('NODE_PATH');
+  });
+});
+
+
+describe('GitHub repository inference (#332)', () => {
+  it.each([
+    ['https://github.com/acme/project.git', 'acme/project'],
+    ['git@github.com:acme/project.git', 'acme/project'],
+    ['ssh://git@github.com/acme/project.git', 'acme/project'],
+  ])('parses %s', (remote, expected) => {
+    expect(githubRepoFromRemote(remote)).toBe(expected);
+  });
+
+  it('refuses non-GitHub and malformed remotes', () => {
+    expect(githubRepoFromRemote('https://gitlab.com/acme/project.git')).toBeNull();
+    expect(githubRepoFromRemote('not-a-remote')).toBeNull();
   });
 });
