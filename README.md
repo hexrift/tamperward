@@ -261,7 +261,9 @@ candidate/pristine tree is mounted read-only, the image owns runtime/dependencie
 network is disabled, HOME/tmp are private, and optional suite output belongs in
 `$TAMPERWARD_OUTPUT_DIR` (`/workspace-out`). Images that declare Dockerfile
 `VOLUME` paths are refused: Docker mounts those paths writable even with
-`--read-only`, which would undermine the immutable verifier-image boundary.
+`--read-only`, which would undermine the immutable verifier-image boundary. Image
+`ENTRYPOINT` is also overridden; the pinned image supplies the runtime/dependencies,
+while the trusted policy's `verify.command` remains the command that is adjudicated.
 
 That block is itself a guarded surface: changing the command, lowering the budget,
 narrowing `inputs`, removing `backend: container`, or changing its pinned image is
