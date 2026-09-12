@@ -219,11 +219,18 @@ function linkEscape(label: string, target: string): Error {
   return new Error(`${label} is a symlink that escapes the materialised tree (${JSON.stringify(target)})`);
 }
 
+function rootedLinkTarget(target: string): boolean {
+  // On Windows, C:foo is drive-relative rather than absolute and resolves via
+  // that drive's process working directory, not the symlink's parent. It is
+  // therefore outside a copy-local containment proof just like C:\\foo.
+  return isAbsolute(target) || (sep === '\\' && /^[A-Za-z]:/.test(target));
+}
+
 /** Reproduce a link without giving its own target lexical access outside the
  * materialised tree. The graph-aware pass below closes the second-order case
  * where an apparently in-tree target crosses the external node_modules link. */
 function safeSymlink(target: string, out: string, root: string, label: string): void {
-  if (isAbsolute(target) || !inside(root, resolve(dirname(out), target))) {
+  if (rootedLinkTarget(target) || !inside(root, resolve(dirname(out), target))) {
     throw linkEscape(label, target);
   }
   rmSync(out, { force: true });
@@ -299,7 +306,7 @@ function validateSymlinkGraph(
 
     const next = readlinkSync(current);
     stack.pop(); // link target is relative to the link's parent
-    if (isAbsolute(next)) {
+    if (rootedLinkTarget(next)) {
       if (domain === 'tree' || !dependencyRoot || !inside(dependencyRoot, next)) {
         throw linkEscape(label, target);
       }
