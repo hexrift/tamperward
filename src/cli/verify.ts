@@ -92,8 +92,10 @@ export interface VerifyOpts {
 }
 
 interface RunResult {
-  exit: number | null; // null = budget exceeded
+  exit: number | null;
   secs: number;
+  failure?: 'budget' | 'backend';
+  reason?: string;
 }
 
 const OVERLAY_CLASSES = ['tests', 'snapshots', 'config'];
@@ -945,6 +947,23 @@ export function runVerify(opts: VerifyOpts): number {
 
   const visible = runStage(visDir);
 
+  if (visible.failure === 'backend') {
+    cleanup([visRoot]);
+    if (opts.json) {
+      out(JSON.stringify({
+        verdict: 'CANNOT_VERIFY',
+        reason: 'VERIFIER_BACKEND_RUNTIME_FAILURE',
+        stage: 'visible',
+        detail: visible.reason,
+        verifier_backend: backendReport(),
+      }));
+    } else {
+      out('verify: isolated verifier backend failed while running the visible stage — failing closed');
+      if (visible.reason) out('verify: ' + visible.reason);
+    }
+    return 2;
+  }
+
   if (treeFingerprint(cwd, protectedIgnored) !== treeBefore) {
     cleanup([visRoot]);
     out('verify: the working tree changed while the visible suite was running — the pristine copy');
@@ -977,6 +996,22 @@ export function runVerify(opts: VerifyOpts): number {
 
   const overlayBefore = overlayDigest(priDir, restored);
   const pristine = runStage(priDir);
+  if (pristine.failure === 'backend') {
+    cleanup([visRoot, priRoot]);
+    if (opts.json) {
+      out(JSON.stringify({
+        verdict: 'CANNOT_VERIFY',
+        reason: 'VERIFIER_BACKEND_RUNTIME_FAILURE',
+        stage: 'pristine',
+        detail: pristine.reason,
+        verifier_backend: backendReport(),
+      }));
+    } else {
+      out('verify: isolated verifier backend failed while running the pristine stage — failing closed');
+      if (pristine.reason) out('verify: ' + pristine.reason);
+    }
+    return 2;
+  }
   const overlayMoved = overlayDigest(priDir, restored) !== overlayBefore;
   const treeMoved = treeFingerprint(cwd, protectedIgnored) !== treeBefore;
   const dependencyAfterPristine = checkDeps();
