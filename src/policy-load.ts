@@ -138,7 +138,7 @@ function validate(r: RawPolicy, where: string): void {
     const backend = v.backend ?? 'local';
     if (backend === 'container') {
       if (typeof v.image !== 'string') bad('verify.image is required when verify.backend is "container"');
-      if (!/^(?!-)[^\\s@]+@sha256:[0-9a-f]{64}$/i.test(v.image as string)) {
+      if (!/^(?!-)[^\s@]+@sha256:[0-9a-f]{64}$/i.test(v.image as string)) {
         bad(`verify.image must be pinned by sha256 digest (name@sha256:<64 hex>), got ${show(v.image)}`);
       }
     } else if (v.image !== undefined) {
