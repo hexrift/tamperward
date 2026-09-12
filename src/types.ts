@@ -146,6 +146,17 @@ export interface Policy {
      * decidable. Narrowing it is policy weakening.
      */
     inputs?: string[];
+    /**
+     * Execution trust boundary. "local" retains the checkpointed same-host
+     * verifier; "container" runs each stage in an isolated local container.
+     * The governing value comes from the trusted base for authority paths.
+     */
+    backend?: 'local' | 'container';
+    /**
+     * Immutable verifier image identity for the container backend. Mutable
+     * tags are forbidden: changing this digest changes the authority itself.
+     */
+    image?: string;
   };
 }
 
