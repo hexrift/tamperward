@@ -183,7 +183,7 @@ function githubAuthority(
   cwd: string,
 ): { repo: string; branch: string; findings: string[] } {
   const repo = opts.repo ?? inferGitHubRepo(cwd);
-  if (!repo || !/^[^/\\s]+\\/[^/\\s]+$/.test(repo)) {
+  if (!repo || !/^[^/\s]+\/[^/\s]+$/.test(repo)) {
     throw new Error(
       'cannot determine GitHub repository; pass --repo OWNER/REPO or configure a github.com origin',
     );
