@@ -435,19 +435,30 @@ machine. In CI it's fatal: the same PR that triggers a block can append its own
 sign-off. The escape valve would guard nothing.
 
 CI sign-off is therefore **out-of-band**: a PR **label** applied by someone with triage
-access or higher (GitHub's triage role can label, so label permission IS approval permission), gated by **branch protection** plus **`CODEOWNERS`** on the protected paths and
-on `.tamperward.yml`. Never a committed file.
+access or higher (GitHub's triage role can label, so label permission IS approval permission),
+and the repository authority itself is gated by **three independent GitHub controls** on
+the protected branch:
 
-Those two are not belt-and-braces, they are load-bearing, and 1.14.6 confirmed why.
-A `pull_request` workflow runs from the PR's OWN head and a required check is matched
-by JOB NAME, so a PR that keeps the job name and replaces the gate with `true` reports
-a green required check over anything it likes — reproduced on this project's own CI in
-three seconds. No detector can object, because the detector is defined by the candidate.
-`CODEOWNERS` on `/.github/workflows/` (which `tamperward init` now writes) plus
-"Require review from Code Owners" is the only thing that puts a human in that path.
-**Without both, the CI layer of this tool is advisory.** This is the "who guards the guardrail"
-problem turned on us — getting it right is on-thesis; getting it wrong quietly
-undermines the whole pitch.
+1. the `tamperward` status check is required;
+2. `CODEOWNERS` covers the gate-critical paths and **Require review from Code Owners**
+   is enabled; and
+3. **Dismiss stale pull request approvals when new commits are pushed** is enabled.
+
+All three are load-bearing. A `pull_request` workflow runs from the PR's OWN head and
+a required check is matched by JOB NAME, so a PR that keeps the job name and replaces
+the gate with `true` reports a green required check over anything it likes — reproduced
+on this project's own CI in three seconds. No detector can object, because the detector
+is defined by the candidate. Code Owner review without stale-review dismissal is weaker
+than this boundary: an approval granted to an older gate-critical diff can otherwise
+remain valid after the candidate pushes a different one. GitHub's "require approval of
+the most recent reviewable push" is useful defense in depth but is not equivalent,
+because the fresh approver is not necessarily the Code Owner for that path.
+
+From 2.13.0, `tamperward doctor --github` can inspect the active branch rulesets and
+classic branch protection and refuses to call the repository authority healthy unless
+all three requirements are proven. **Without all three, the CI layer of this tool is
+advisory.** This is the "who guards the guardrail" problem turned on us — getting it
+right is on-thesis; getting it wrong quietly undermines the whole pitch.
 
 ---
 
