@@ -136,8 +136,9 @@ Formats:
              [--github] [--repo O/R]        --github also validates repository
              [--branch B]                   authority: required tamperward status,
                                             Code Owner review, and stale-review
-                                            dismissal after new pushes. Uses the
-                                            authenticated gh CLI.
+                                            dismissal after new pushes. Public
+                                            rules can be read anonymously; set
+                                            GH_TOKEN/GITHUB_TOKEN when needed.
 
 Exit codes: 0 clean · 1 a blocking finding (check), MASKED_FAILURE or SUITE_RED
             (verify), any blocking finding or masked failure (run) · 2 cannot
