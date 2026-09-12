@@ -16,17 +16,25 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+/** A plain release version: what init pins. Tags (`latest`), ranges, git URLs,
+ *  pre-releases and leading zeros (`02.5.0`, `2.5.00000000000000000001` — npm
+ *  resolves them loosely, to a version this comparator cannot name) are not pins
+ *  the gate can reason about, so they are not accepted. */
+export const PLAIN_SEMVER = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
+
 // The gate resolves ITSELF from the registry at gate time, so it is pinned to
 // the version that wrote the wiring: an unpinned `npx --yes tamperward` is a
 // floating dependency in the one component whose job is integrity.
 // (P2-15, external review.)
-function shippedVersion(): string {
+function shippedVersion(): string | null {
   try {
     const here = dirname(fileURLToPath(import.meta.url));
     for (const rel of ['../package.json', '../../package.json', '../../../package.json']) {
       try {
         const pkg = JSON.parse(readFileSync(join(here, rel), 'utf8')) as { name?: string; version?: string };
-        if (pkg.name === 'tamperward' && pkg.version) return pkg.version;
+        if (pkg.name === 'tamperward' && typeof pkg.version === 'string' && PLAIN_SEMVER.test(pkg.version)) {
+          return pkg.version;
+        }
       } catch {
         /* keep looking */
       }
@@ -34,9 +42,23 @@ function shippedVersion(): string {
   } catch {
     /* fall through */
   }
-  return 'latest'; // unknown: prefer a working gate over a broken pin
+  return null;
 }
-export const TW_VERSION = shippedVersion();
+
+const RESOLVED_TW_VERSION = shippedVersion();
+// This sentinel is deliberately NOT a plain semver and therefore cannot be
+// mistaken for a valid pin by the canonical-shape comparators. planInit()
+// refuses before any command carrying it can be emitted or written.
+export const TW_VERSION = RESOLVED_TW_VERSION ?? '0.0.0-unresolved';
+
+export function requireShippedVersion(): string {
+  if (RESOLVED_TW_VERSION === null) {
+    throw new Error(
+      'cannot resolve a plain TamperWard release version from package.json; refusing to generate canonical wiring',
+    );
+  }
+  return RESOLVED_TW_VERSION;
+}
 
 // The tools whose calls the PreToolUse gate must see. NotebookEdit was added in
 // 1.13; an install wired before that has a matcher without it (see init's repair).
@@ -70,12 +92,6 @@ export const PRECOMMIT_CMD = `${NPX_AUTHORITY} tamperward@${TW_VERSION} check --
 /** The exact hardened `npx <fixed npm config> tamperward[@v] <ours>` form init
  * writes; group 1 is the pin and group 2 the subcommand. */
 export const OURS = /^\s*npx --yes --global --userconfig=\/dev\/null --globalconfig=\/dev\/null\/npmrc-global --registry=https:\/\/registry\.npmjs\.org\/ --node-options=' ' --script-shell= --ignore-scripts --offline=false --prefer-online tamperward(?:@(\S+))? (?:(hook claude|sweep claude) \|\| \(echo tamperward: authority failed to start >&2 && exit 2\)|(check --staged))\s*$/;
-
-/** A plain release version: what init pins. Tags (`latest`), ranges, git URLs,
- *  pre-releases and leading zeros (`02.5.0`, `2.5.00000000000000000001` — npm
- *  resolves them loosely, to a version this comparator cannot name) are not pins
- *  the gate can reason about, so they are not accepted. */
-export const PLAIN_SEMVER = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
 
 /** -1 / 0 / 1 over two plain versions; null when either is not one. */
 export function compareVersions(a: string, b: string): number | null {
