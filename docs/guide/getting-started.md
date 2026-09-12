@@ -41,7 +41,9 @@ must already be provisioned, Docker is never allowed to pull during adjudication
 candidate/pristine input is read-only, runtime/dependencies belong to the image, network
 is disabled, and HOME/tmp/output are private to the container. Images with Dockerfile
 `VOLUME` declarations are rejected because those mount points would remain writable
-despite `--read-only`. Write suite artifacts to `$TAMPERWARD_OUTPUT_DIR` if needed.
+despite `--read-only`. Image `ENTRYPOINT` is overridden so the trusted
+`verify.command`, not an image startup default, controls suite execution. Write suite
+artifacts to `$TAMPERWARD_OUTPUT_DIR` if needed.
 
 Changing the command, lowering the budget, narrowing `inputs`, removing an isolated
 backend, or changing its image is itself reported as policy weakening.
