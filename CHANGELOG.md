@@ -44,6 +44,16 @@ Additional mandatory Docker tests cover trusted-test/policy immutability, host-s
 socket absence, private writable output, budget timeout cleanup, and detached-child
 cleanup.
 
+**Docker client status is not treated as the suite verdict.** The host keeps the named
+container long enough to inspect its trusted runtime state, then removes it. A daemon/client
+or container-runtime failure after preflight is `CANNOT_VERIFY` / exit 2 rather than
+`SUITE_RED` or `MASKED_FAILURE`; a real candidate suite exit such as 125 remains a
+suite failure because the container's own state proves it actually ran. This closes #345.
+
+The isolated backend still relies on wall-clock and PID limits rather than explicit CPU and
+memory ceilings. Host resource-exhaustion hardening is tracked separately in #346; it is an
+availability/process-interference residual, not a known false-green path.
+
 The existing backend remains available as `backend: local` (and is the default) and is
 reported explicitly as **`checkpointed-local`** trust. Its checkpoint limitations are
 unchanged. `tamperward run` intentionally refuses `backend: container` before the
