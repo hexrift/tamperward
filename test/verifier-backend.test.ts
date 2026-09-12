@@ -68,6 +68,11 @@ describe('trusted verifier backend boundary', () => {
       kind: 'local',
       trust: 'checkpointed-local',
     });
+    expect(r.json.oracle_assurance).toMatchObject({
+      level: 'suite-exit-only',
+      semantic_isolation: false,
+      candidate_code_executes_in_oracle_process: true,
+    });
   });
 
   it('never silently falls back to local when the pinned isolated image cannot be established', () => {
@@ -82,6 +87,11 @@ describe('trusted verifier backend boundary', () => {
         kind: 'container',
         trust: 'isolated-container',
         image: FAKE_IMAGE,
+      },
+      oracle_assurance: {
+        level: 'suite-exit-only',
+        semantic_isolation: false,
+        candidate_code_executes_in_oracle_process: true,
       },
     });
   });
