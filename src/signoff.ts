@@ -107,7 +107,7 @@ export function applyLocalSignoffs(findings: Finding[], cwd: string, policy: Pol
  *  same PR — the local ledger is fingerprint-bound, this channel was not.
  *  (P1-6, external review.)
  *
- *  A token may carry `@<head-sha>`. When the caller supplies the head it is
+ *  A token may carry `@<full-head-object-id>`. When the caller supplies the head it is
  *  running on (the shipped workflow does), an UNBOUND token no longer clears
  *  anything: the approval must name the commit it was granted for, so the next
  *  push re-blocks. Callers that pass no head keep the old behaviour, so
@@ -123,7 +123,12 @@ export function oobToken(want: string, oob: string[], head?: string): string | n
     }
     const [rule, sha] = [t.slice(0, at), t.slice(at + 1)];
     if (rule !== want) continue;
-    if (!head || (sha.length >= 7 && head.startsWith(sha))) return t;
+    // Security approval is object-bound, not display-SHA-bound. Prefixes are
+    // convenient UI identifiers but do not uniquely name the object forever.
+    // Normalize case and require the complete object ID the authority supplied.
+    const normalizedHead = head?.trim().toLowerCase();
+    const normalizedSha = sha.trim().toLowerCase();
+    if (!head || (/^[0-9a-f]+$/.test(normalizedHead!) && normalizedSha === normalizedHead)) return t;
   }
   return null;
 }
@@ -143,8 +148,8 @@ export function applyOobSignoffs(findings: Finding[], oob: string[], head?: stri
 
 /** The head SHA the CI gate is adjudicating, when the workflow supplies it. */
 export function oobHeadFromEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  const v = (env.TAMPERWARD_OOB_HEAD ?? '').trim();
-  return v.length >= 7 ? v : undefined;
+  const v = (env.TAMPERWARD_OOB_HEAD ?? '').trim().toLowerCase();
+  return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(v) ? v : undefined;
 }
 
 /** Parse the out-of-band approval env the CI workflow sets (only after verifying a

@@ -44,14 +44,22 @@ export const PRE_TOOLS: readonly string[] = ['Bash', 'Edit', 'Write', 'MultiEdit
 export const PRE_MATCHER = PRE_TOOLS.join('|');
 export const MARKER = '# tamperward: block agent shortcuts before they land';
 
-// PINNED, like the workflow (see init.ts for the history).
-export const HOOK_CMD = `npx --yes tamperward@${TW_VERSION} hook claude`;
-export const SWEEP_CMD = `npx --yes tamperward@${TW_VERSION} sweep claude`;
-export const PRECOMMIT_CMD = `npx --yes tamperward@${TW_VERSION} check --staged`;
+// npm reads a candidate-controlled project .npmrc before it launches the pinned
+// binary. Command-line config has the highest npm precedence, so the generated
+// local authority fixes the registry, disables install hooks, clears both ways
+// npm can choose a startup shell/Node preload, and refuses an offline poisoned
+// cache. A single space is deliberate: npm ignores an empty environment value,
+// then trims this to the empty NODE_OPTIONS value (the same control verify uses).
+export const NPX_AUTHORITY = "npx --yes --registry=https://registry.npmjs.org/ --node-options=' ' --script-shell= --ignore-scripts --offline=false --prefer-online";
 
-/** The exact `npx --yes tamperward[@v] <ours>` form init writes; group 1 is the
- *  pin, group 2 the subcommand. */
-export const OURS = /^\s*npx\s+(?:--yes|-y)\s+tamperward(?:@(\S+))?\s+(hook claude|sweep claude|check --staged)\s*$/;
+// PINNED, like the workflow (see init.ts for the history).
+export const HOOK_CMD = `${NPX_AUTHORITY} tamperward@${TW_VERSION} hook claude`;
+export const SWEEP_CMD = `${NPX_AUTHORITY} tamperward@${TW_VERSION} sweep claude`;
+export const PRECOMMIT_CMD = `${NPX_AUTHORITY} tamperward@${TW_VERSION} check --staged`;
+
+/** The exact hardened `npx <fixed npm config> tamperward[@v] <ours>` form init
+ * writes; group 1 is the pin and group 2 the subcommand. */
+export const OURS = /^\s*npx --yes --registry=https:\/\/registry\.npmjs\.org\/ --node-options=' ' --script-shell= --ignore-scripts --offline=false --prefer-online tamperward(?:@(\S+))? (hook claude|sweep claude|check --staged)\s*$/;
 
 /** A plain release version: what init pins. Tags (`latest`), ranges, git URLs,
  *  pre-releases and leading zeros (`02.5.0`, `2.5.00000000000000000001` — npm
@@ -79,7 +87,7 @@ export function pinNotBelow(now: string | null | undefined, floor: string): bool
 /** The pre-commit script init creates from nothing: shebang, marker, the pinned
  *  staged check. Group 1 is the pin ('' when unpinned, as init wrote before 1.14.7).
  *  Trailing newlines are not shape: none, one or two are the same script. */
-const INIT_SCRIPT = /^#!\/bin\/sh\n# tamperward: block agent shortcuts before they land\nnpx --yes tamperward(?:@(\S+))? check --staged\n*$/;
+const INIT_SCRIPT = /^#!\/bin\/sh\n# tamperward: block agent shortcuts before they land\nnpx --yes --registry=https:\/\/registry\.npmjs\.org\/ --node-options=' ' --script-shell= --ignore-scripts --offline=false --prefer-online tamperward(?:@(\S+))? check --staged\n*$/;
 
 /** The pin a script carries when it is byte-equal to what init writes (modulo the
  *  pin): a version, '' for unpinned, or null when the script is not init's shape. */

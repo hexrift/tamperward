@@ -252,8 +252,8 @@ describe('H4 the overlay restores mode, not only content', () => {
   });
 });
 
-describe('H5 the CI gate is fetched from a registry the candidate does not choose', () => {
-  it('the generated workflow pins the registry', () => {
+describe('H5 the CI authority starts before candidate npm configuration exists', () => {
+  it('installs from trusted cwd before checkout, then runs without npm/npx', () => {
     // `npm` reads `.npmrc` from the working directory — which, in a
     // pull_request workflow, is the checked-out pull request. One committed
     // line chose where the authority judging it came from. An environment
@@ -262,8 +262,15 @@ describe('H5 the CI gate is fetched from a registry the candidate does not choos
     const ci = planInit(cwd).find((a) => a.item === 'ci')!;
     ci.apply!();
     const src = execFileSync('cat', [join(cwd, '.github/workflows/tamperward.yml')], { encoding: 'utf8' });
-    expect(src).toContain('NPM_CONFIG_REGISTRY: https://registry.npmjs.org/');
-    // and it must cover BOTH npx invocations, i.e. be set at job level
-    expect(src.indexOf('NPM_CONFIG_REGISTRY')).toBeLessThan(src.indexOf('npx --yes tamperward@'));
+    const install = src.indexOf('working-directory: ${{ runner.temp }}');
+    const checkout = src.indexOf('uses: actions/checkout@v5');
+    expect(install).toBeGreaterThan(0);
+    expect(install).toBeLessThan(checkout);
+    expect(src).toContain('npm install --global --registry=https://registry.npmjs.org/');
+    expect(src).toContain("--node-options=' ' --script-shell= --ignore-scripts --offline=false --prefer-online");
+    const afterCheckout = src.slice(checkout);
+    expect(afterCheckout).toContain('run: tamperward check --diff');
+    expect(afterCheckout).toContain('run: tamperward verify --require-ancestor');
+    expect(afterCheckout).not.toMatch(/run:\s+npx\b/);
   });
 });

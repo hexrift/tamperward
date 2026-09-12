@@ -32,7 +32,7 @@ import { synthFileChange } from '../src/adapters/claude/changes';
 import { defaultPolicy } from '../src/policy';
 import { parsePolicy } from '../src/policy-load';
 import { oobFromEnv } from '../src/signoff';
-import { MARKER, TW_VERSION, initScriptPin } from '../src/wiring';
+import { MARKER, PRECOMMIT_CMD, TW_VERSION, initScriptPin } from '../src/wiring';
 import type { Change, FileChange, Finding } from '../src/types';
 
 // Section 7 spawns the built CLI many times over fresh repositories.
@@ -399,7 +399,7 @@ describe('5 · lefthook and pre-commit entries: the mode flag, `env`, `args` and
 
 // ── 6 · the init shape ───────────────────────────────────────────────────────
 describe('6 · the init-written script: byte-equal modulo the pin, trailing newlines not counted', () => {
-  const INIT = `#!/bin/sh\n${MARKER}\nnpx --yes tamperward@${V} check --staged\n`;
+  const INIT = `#!/bin/sh\n${MARKER}\n${PRECOMMIT_CMD}\n`;
   it('a double trailing newline is the same script as a single one, or none', () => {
     expect(initScriptPin(INIT + '\n')).toBe(V);
     expect(initScriptPin(INIT.trimEnd())).toBe(V);

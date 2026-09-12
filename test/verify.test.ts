@@ -287,11 +287,11 @@ describe('verify — out-of-band sign-off (MASKED_FAILURE only, head-bound)', ()
   it('a head-bound verify token turns MASKED_FAILURE into exit 0 and records the approval', () => {
     const cwd = repo();
     masked(cwd);
-    withOob(`verify@${HEAD.slice(0, 12)}`, HEAD, () => {
+    withOob(`verify@${HEAD}`, HEAD, () => {
       const r = capture(() => run(cwd));
       expect(r.code).toBe(0);
       expect(r.json.verdict).toBe('MASKED_FAILURE'); // still reported as what it is
-      expect(r.json.oob_signoff).toBe(`verify@${HEAD.slice(0, 12)}`);
+      expect(r.json.oob_signoff).toBe(`verify@${HEAD}`);
     });
   });
 
@@ -316,14 +316,14 @@ describe('verify — out-of-band sign-off (MASKED_FAILURE only, head-bound)', ()
   it('a rule token (test-deletion@sha) is not a verify approval', () => {
     const cwd = repo();
     masked(cwd);
-    withOob(`test-deletion@${HEAD.slice(0, 12)},test-skip@${HEAD.slice(0, 12)}`, HEAD, () => {
+    withOob(`test-deletion@${HEAD},test-skip@${HEAD}`, HEAD, () => {
       expect(capture(() => run(cwd)).code).toBe(1);
     });
   });
 
   it('SUITE_RED is not an approvable state — the label leaves it red', () => {
     const cwd = repo(); // bug unfixed, suite honest: visible red
-    withOob(`verify@${HEAD.slice(0, 12)}`, HEAD, () => {
+    withOob(`verify@${HEAD}`, HEAD, () => {
       const r = capture(() => run(cwd));
       expect(r.code).toBe(1);
       expect(r.json.verdict).toBe('SUITE_RED');
@@ -334,7 +334,7 @@ describe('verify — out-of-band sign-off (MASKED_FAILURE only, head-bound)', ()
   it('cannot-verify is not an approvable state — the label leaves it failing closed', () => {
     const cwd = repo();
     masked(cwd);
-    withOob(`verify@${HEAD.slice(0, 12)}`, HEAD, () => {
+    withOob(`verify@${HEAD}`, HEAD, () => {
       const r = capture(() => run(cwd, { cmd: 'sleep 30', budget: 1 }));
       expect(r.code).toBe(2);
       expect(r.json.verdict).toBe('BUDGET_EXCEEDED');

@@ -5,6 +5,45 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.10.5] — 2026-09-12
+
+**The authority now starts outside candidate-controlled npm configuration.** Local hook,
+Stop-sweep and pre-commit wiring fixes npm's registry, Node options, script shell,
+lifecycle-script, offline and cache-selection settings on the `npx` command line, where
+they outrank a repository `.npmrc`. Generated CI installs the pinned authority before
+checkout and invokes `tamperward` directly afterwards, so npm never starts from the
+candidate working directory. Re-running `tamperward init` migrates the older generated
+wiring automatically.
+
+**Trusted git reads now disable replace-object resolution everywhere.** The shared git
+adapter uses the same scrubbed environment as `verify`, covering policy and file reads,
+merge-base resolution and range/worktree construction. A regression test creates a real
+`git replace` ref, proves ordinary `git show` follows it, and proves Tamperward still reads
+the original object.
+
+**The independent worktree boundary now sees hidden tracked drift.** `check --worktree`
+and therefore `tamperward run` reconstruct protected paths marked `skip-worktree` or
+`assume-unchanged` from HEAD and disk, matching the Stop sweep instead of silently trusting
+git's abbreviated worktree view.
+
+**Quiescence fingerprints cover executable filesystem identity.** A tree fingerprint now
+includes entry kind and complete mode as well as path and content, and includes ignored
+files when they are protected by the frozen policy. Mode-only test-runner changes and
+mutations to ignored protected config can no longer alias the starting tree. On Linux,
+survivor detection checks executable and open descriptors as well as cwd, so a detached
+worker cannot evade the envelope merely by changing directory while retaining a handle
+into the repository.
+
+**Out-of-band approvals require the complete normalized object ID.** Abbreviated SHA
+prefixes are refused once CI supplies its head, while uppercase full SHA-1/SHA-256 values
+normalize safely. A commit-bound approval now names exactly the object being adjudicated.
+
+References: [npm configuration precedence](https://docs.npmjs.com/cli/v11/using-npm/config#description),
+[npm `node-options`](https://docs.npmjs.com/cli/v11/using-npm/config#node-options),
+[Git replace objects](https://git-scm.com/docs/git-replace),
+[Git `skip-worktree` / `assume-unchanged`](https://git-scm.com/docs/git-update-index), and
+[Linux `/proc/<pid>/fd`](https://docs.kernel.org/filesystems/proc.html).
+
 ## [2.10.4] — 2026-09-11
 
 **`test.skip` written as `test['skip']` or `test . skip` is the same skip, and the

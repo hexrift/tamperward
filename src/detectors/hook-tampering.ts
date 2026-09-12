@@ -41,7 +41,7 @@ const ownerExec = (mode: string): boolean => (parseInt(mode.slice(-3), 8) & 0o10
 //     chose to call tamperward;
 //   - `tamperward@0.1.0` is present, live, and a gate with every bypass since fixed.
 // So the gate's entry is compared to the CANONICAL SHAPE init writes — exactly
-// `{ "type": "command", "command": "npx --yes tamperward@<ver> hook claude" }` on a
+// `{ "type": "command", "command": "npx --yes <fixed npm config> tamperward@<ver> hook claude" }` on a
 // matcher covering every tool init lists, `sweep claude` under Stop, the pin a
 // plain version never below the one it replaces — and the matcher is evaluated
 // with the runtime's own semantics (exact list or regex). Hooks MERGE across the
@@ -83,7 +83,7 @@ const GATE_KEYS = new Set(['type', 'command', 'timeout', 'statusMessage']);
 const HOOK_TYPES = new Set(['command', 'prompt', 'agent', 'http']);
 /** Keys a hook entry beside the gate may carry and still be a plain command entry. */
 const SIBLING_KEYS = GATE_KEYS;
-const CANONICAL_CMD = /^npx --yes tamperward@(\S+) (hook|sweep) claude$/;
+const CANONICAL_CMD = /^npx --yes --registry=https:\/\/registry\.npmjs\.org\/ --node-options=' ' --script-shell= --ignore-scripts --offline=false --prefer-online tamperward@(\S+) (hook|sweep) claude$/;
 /** An entry that carries the gate's words at all — in any launcher, any pin, any
  *  wrapping. The candidates the shape comparison then judges. */
 const MENTIONS_GATE = /\btamperward\b.*\b(?:hook|sweep)\b/;

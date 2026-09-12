@@ -8,6 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { planInit, runInit } from '../src/cli/init';
+import { NPX_AUTHORITY } from '../src/wiring';
 
 const VERSION = (JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')) as { version: string }).version;
 
@@ -44,10 +45,10 @@ describe('init pins the local hooks', () => {
     const d = repo();
     apply(d);
     expect(commands(d).sort()).toEqual([
-      `npx --yes tamperward@${VERSION} hook claude`,
-      `npx --yes tamperward@${VERSION} sweep claude`,
+      `${NPX_AUTHORITY} tamperward@${VERSION} hook claude`,
+      `${NPX_AUTHORITY} tamperward@${VERSION} sweep claude`,
     ]);
-    expect(readFileSync(join(d, '.git/hooks/pre-commit'), 'utf8')).toContain(`npx --yes tamperward@${VERSION} check --staged`);
+    expect(readFileSync(join(d, '.git/hooks/pre-commit'), 'utf8')).toContain(`${NPX_AUTHORITY} tamperward@${VERSION} check --staged`);
     expect(VERSION).not.toBe('latest');
   });
 
@@ -78,12 +79,12 @@ describe('init pins the local hooks', () => {
 
     apply(d);
     expect(commands(d).sort()).toEqual([
-      `npx --yes tamperward@${VERSION} hook claude`,
-      `npx --yes tamperward@${VERSION} sweep claude`,
+      `${NPX_AUTHORITY} tamperward@${VERSION} hook claude`,
+      `${NPX_AUTHORITY} tamperward@${VERSION} sweep claude`,
     ]);
     expect(settings(d).other).toBe(true); // everything else preserved
     const hook = readFileSync(join(d, '.git/hooks/pre-commit'), 'utf8');
-    expect(hook).toBe(`#!/bin/sh\n# tamperward: block agent shortcuts before they land\nnpx --yes tamperward@${VERSION} check --staged\n`);
+    expect(hook).toBe(`#!/bin/sh\n# tamperward: block agent shortcuts before they land\n${NPX_AUTHORITY} tamperward@${VERSION} check --staged\n`);
 
     // and now everything is current
     expect(planInit(d).filter((a) => a.item === 'agent' || a.item === 'pre-commit').map((a) => a.status)).toEqual(['ok', 'ok']);

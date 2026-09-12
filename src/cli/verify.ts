@@ -678,7 +678,8 @@ export function runVerify(opts: VerifyOpts): number {
   // run that reaches back into the original working tree (its path is one
   // readlink away, through the node_modules symlink) would be choosing what the
   // pristine copy is made of.
-  const treeBefore = treeFingerprint(cwd);
+  const protectedIgnored = (rel: string): boolean => isProtected(rel, policy);
+  const treeBefore = treeFingerprint(cwd, protectedIgnored);
   const depsBefore = depsFingerprint(cwd);
 
   try {
@@ -692,7 +693,7 @@ export function runVerify(opts: VerifyOpts): number {
 
   const visible = runSuite(visDir, cmd, budget);
 
-  if (treeFingerprint(cwd) !== treeBefore) {
+  if (treeFingerprint(cwd, protectedIgnored) !== treeBefore) {
     cleanup([visRoot]);
     out('verify: the working tree changed while the visible suite was running — the pristine copy');
     out('would be materialised from a tree the candidate just edited. Failing closed, not open.');
@@ -722,7 +723,7 @@ export function runVerify(opts: VerifyOpts): number {
   const overlayBefore = overlayDigest(priDir, restored);
   const pristine = runSuite(priDir, cmd, budget);
   const overlayMoved = overlayDigest(priDir, restored) !== overlayBefore;
-  const treeMoved = treeFingerprint(cwd) !== treeBefore;
+  const treeMoved = treeFingerprint(cwd, protectedIgnored) !== treeBefore;
   const depsMoved = depsFingerprint(cwd) !== depsBefore;
   cleanup([visRoot, priRoot]);
 

@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { planInit } from '../src/cli/init';
-import { TW_VERSION } from '../src/wiring';
+import { HOOK_CMD, SWEEP_CMD } from '../src/wiring';
 
 let dirs: string[] = [];
 afterEach(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); dirs = []; });
@@ -54,8 +54,8 @@ describe('fresh repo', () => {
     expect(statSync(join(d, '.git/hooks/pre-commit')).mode & 0o111).toBeTruthy();
     const s = JSON.parse(readFileSync(join(d, '.claude/settings.json'), 'utf8'));
     // Pinned to the shipped version since 1.14.7 (the exact string is init-pin.test.ts's).
-    expect(JSON.stringify(s.hooks.PreToolUse)).toMatch(/npx --yes tamperward@\S+ hook claude/);
-    expect(JSON.stringify(s.hooks.Stop)).toMatch(/npx --yes tamperward@\S+ sweep claude/);
+    expect(s.hooks.PreToolUse[0].hooks[0].command).toBe(HOOK_CMD);
+    expect(s.hooks.Stop[0].hooks[0].command).toBe(SWEEP_CMD);
     // NotebookEdit joined the matcher in 1.14.0: the adapter always modelled it,
     // but the installed wiring never fired it, so that branch was unreachable.
     expect(s.hooks.PreToolUse[0].matcher).toBe('Bash|Edit|Write|MultiEdit|NotebookEdit');
@@ -69,8 +69,8 @@ describe('fresh repo', () => {
     mkdirSync(join(d, '.claude'), { recursive: true });
     writeFileSync(join(d, '.claude/settings.json'), JSON.stringify({
       hooks: {
-        PreToolUse: [{ matcher: 'Bash, Edit, Write, MultiEdit, NotebookEdit', hooks: [{ type: 'command', command: `npx --yes tamperward@${TW_VERSION} hook claude` }] }],
-        Stop: [{ hooks: [{ type: 'command', command: `npx --yes tamperward@${TW_VERSION} sweep claude` }] }],
+        PreToolUse: [{ matcher: 'Bash, Edit, Write, MultiEdit, NotebookEdit', hooks: [{ type: 'command', command: HOOK_CMD }] }],
+        Stop: [{ hooks: [{ type: 'command', command: SWEEP_CMD }] }],
       },
       disableAllHooks: false,
     }));
@@ -78,8 +78,8 @@ describe('fresh repo', () => {
     // a comma list missing a tool is widened by appending the missing one
     writeFileSync(join(d, '.claude/settings.json'), JSON.stringify({
       hooks: {
-        PreToolUse: [{ matcher: 'Bash, Edit, Write, MultiEdit', hooks: [{ type: 'command', command: `npx --yes tamperward@${TW_VERSION} hook claude` }] }],
-        Stop: [{ hooks: [{ type: 'command', command: `npx --yes tamperward@${TW_VERSION} sweep claude` }] }],
+        PreToolUse: [{ matcher: 'Bash, Edit, Write, MultiEdit', hooks: [{ type: 'command', command: HOOK_CMD }] }],
+        Stop: [{ hooks: [{ type: 'command', command: SWEEP_CMD }] }],
       },
       disableAllHooks: false,
     }));
@@ -93,8 +93,8 @@ describe('fresh repo', () => {
     mkdirSync(join(d, '.claude'), { recursive: true });
     const wired = {
       hooks: {
-        PreToolUse: [{ matcher: 'Bash|Edit|Write|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: `npx --yes tamperward@${TW_VERSION} hook claude` }] }],
-        Stop: [{ hooks: [{ type: 'command', command: `npx --yes tamperward@${TW_VERSION} sweep claude` }] }],
+        PreToolUse: [{ matcher: 'Bash|Edit|Write|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: HOOK_CMD }] }],
+        Stop: [{ hooks: [{ type: 'command', command: SWEEP_CMD }] }],
       },
     };
     writeFileSync(join(d, '.claude/settings.json'), JSON.stringify(wired));

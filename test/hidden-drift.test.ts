@@ -12,6 +12,7 @@ import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { preToolUseVerdict, stopVerdict } from '../src/cli/hook';
+import { runCheck } from '../src/cli/check';
 import { hiddenTrackedPaths } from '../src/git/build';
 
 const dirs: string[] = [];
@@ -110,6 +111,14 @@ describe('a protected file hidden from git (skip-worktree) is still judged', () 
     git(cwd, 'update-index', '--skip-worktree', 'test/a.test.ts');
     writeFileSync(join(cwd, 'test', 'a.test.ts'), SKIPPED);
     expect(reason(stopVerdict({ cwd }))).toContain('test-skip');
+  });
+
+  it('the independent check --worktree / envelope path also sees it', () => {
+    const cwd = repo();
+    git(cwd, 'update-index', '--skip-worktree', 'test/a.test.ts');
+    writeFileSync(join(cwd, 'test', 'a.test.ts'), SKIPPED);
+    expect(git(cwd, 'diff', 'HEAD')).toBe(''); // exploit control: git omits it
+    expect(runCheck({ cwd, worktree: true, includeUntracked: true, json: true, ciLayer: true })).toBe(1);
   });
 
   it('hiddenTrackedPaths lists exactly the S / assume-unchanged entries', () => {
