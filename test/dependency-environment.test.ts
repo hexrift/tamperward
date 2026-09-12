@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runEnvelope } from '../src/cli/run';
@@ -9,11 +9,14 @@ import { runVerify } from '../src/cli/verify';
 const dirs: string[] = [];
 const originalPath = process.env.PATH;
 const originalVirtualEnv = process.env.VIRTUAL_ENV;
+const originalTransientCounter = process.env.TW_TRANSIENT_COUNTER;
 
 afterEach(() => {
   process.env.PATH = originalPath;
   if (originalVirtualEnv === undefined) delete process.env.VIRTUAL_ENV;
   else process.env.VIRTUAL_ENV = originalVirtualEnv;
+  if (originalTransientCounter === undefined) delete process.env.TW_TRANSIENT_COUNTER;
+  else process.env.TW_TRANSIENT_COUNTER = originalTransientCounter;
   vi.restoreAllMocks();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
@@ -35,6 +38,28 @@ function repoWithIgnoredVenv(fixed = false): string {
     join(cwd, 'test', 'check.test.js'),
     `if (require('../src.js') !== 42) process.exit(1);\n`,
   );
+  writeFileSync(
+    join(cwd, 'run-suite.js'),
+    [
+      "const cp = require('node:child_process');",
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const venv = process.env.VIRTUAL_ENV;",
+      "const py = path.join(venv, 'bin', 'python');",
+      "const original = fs.readFileSync(py);",
+      "const mode = fs.statSync(py).mode & 0o777;",
+      "fs.writeFileSync(py, '#!/bin/sh\\nexit 0\\n', { mode: 0o755 });",
+      "const child = cp.spawnSync('python', ['test/check.test.js'], { env: process.env, stdio: 'ignore' });",
+      "fs.writeFileSync(py, original, { mode });",
+      "const counter = process.env.TW_TRANSIENT_COUNTER;",
+      "let n = 0;",
+      "try { n = Number(fs.readFileSync(counter, 'utf8')) || 0; } catch {}",
+      "n += 1; fs.writeFileSync(counter, String(n));",
+      "if (n >= 2) fs.writeFileSync(path.join(venv, '.two-suite-calls'), '2\\n');",
+      "process.exit(child.status ?? 1);",
+      "",
+    ].join('\n'),
+  );
 
   // A minimal venv-shaped tree. The runner is intentionally a shell wrapper so
   // these tests do not depend on Python being installed on every Node CI image.
@@ -44,7 +69,7 @@ function repoWithIgnoredVenv(fixed = false): string {
   chmodSync(python, 0o755);
   writeFileSync(join(cwd, '.venv', 'lib', 'python3.11', 'site-packages', 'helper.py'), 'VALUE = 1\n');
 
-  git('add', '.gitignore', 'src.js', 'test/check.test.js');
+  git('add', '.gitignore', 'src.js', 'test/check.test.js', 'run-suite.js');
   git('commit', '-qm', 'base');
   return cwd;
 }
@@ -89,24 +114,29 @@ describe('dependency environment attestation', () => {
     expect(code).toBe(1);
   });
 
-  it('convicts a self-restoring interpreter that would fool both suites then put its bytes back', () => {
+  it('catches a transient interpreter substitution only after both suites were fooled and bytes restored', () => {
     const cwd = repoWithIgnoredVenv();
     selectVenv(cwd);
+    const counter = join(mkdtempSync(join(tmpdir(), 'tw-dep-counter-')), 'calls');
+    dirs.push(join(counter, '..'));
+    process.env.TW_TRANSIENT_COUNTER = counter;
+    const original = readFileSync(join(cwd, '.venv', 'bin', 'python'), 'utf8');
 
-    const fake = [
-      'cp .venv/bin/python .venv/bin/python.real',
-      `cat > .venv/bin/python <<'EOF'`,
-      '#!/bin/sh',
-      'n=$(cat "$VIRTUAL_ENV/.calls" 2>/dev/null || echo 0)',
-      'n=$((n+1))',
-      'echo "$n" > "$VIRTUAL_ENV/.calls"',
-      'if [ "$n" -ge 2 ]; then cp "$0.real" "$0"; chmod +x "$0"; fi',
-      'exit 0',
-      'EOF',
-      'chmod +x .venv/bin/python',
-    ].join('\n');
+    const code = runEnvelope({
+      cwd,
+      cmd: 'node run-suite.js',
+      budget: 30,
+      argv: ['bash', '-c', 'true'],
+    });
 
-    expect(run(cwd, fake)).toBe(1);
+    // The dependency bytes match at pre-adjudication and after each individual
+    // interpreter invocation. Both visible and pristine suites actually ran the
+    // substitute (counter=2), the interpreter restored its entry bytes, and the
+    // post-pristine dependency check convicts the second-call marker.
+    expect(code).toBe(1);
+    expect(readFileSync(counter, 'utf8')).toBe('2');
+    expect(readFileSync(join(cwd, '.venv', 'bin', 'python'), 'utf8')).toBe(original);
+    expect(readFileSync(join(cwd, '.venv', '.two-suite-calls'), 'utf8')).toBe('2\n');
   });
 
   it('fails closed when an attested root contains a directory link outside its bounded closure', () => {
@@ -136,6 +166,20 @@ describe('dependency environment attestation', () => {
     expect(run(cwd, 'true')).toBe(0);
   });
 
+  it('accepts the normal venv shape where bin/python is a symlink to an external interpreter file', () => {
+    const cwd = repoWithIgnoredVenv(true);
+    selectVenv(cwd);
+    const external = mkdtempSync(join(tmpdir(), 'tw-base-python-'));
+    dirs.push(external);
+    const basePython = join(external, 'python3');
+    writeFileSync(basePython, '#!/bin/sh\nexec node "$@"\n');
+    chmodSync(basePython, 0o755);
+    rmSync(join(cwd, '.venv', 'bin', 'python'));
+    symlinkSync(basePython, join(cwd, '.venv', 'bin', 'python'));
+
+    expect(run(cwd, 'true')).toBe(0);
+  });
+
   it('a Node verifier with no node_modules remains a legitimate no-dependency environment', () => {
     const cwd = repoWithIgnoredVenv(true);
     delete process.env.VIRTUAL_ENV;
@@ -146,6 +190,63 @@ describe('dependency environment attestation', () => {
         cmd: 'node test/check.test.js',
         budget: 30,
         argv: ['bash', '-c', 'true'],
+      }),
+    ).toBe(0);
+  });
+
+  it.each([
+    ['bundle exec rspec', 'ruby'],
+    ['mvn test', 'jvm'],
+    ['gradle test', 'jvm'],
+    ['dotnet test', 'dotnet'],
+  ])('classifies unsupported %s dependency environments as unattestable', (cmd) => {
+    const cwd = repoWithIgnoredVenv(true);
+    delete process.env.VIRTUAL_ENV;
+    process.env.PATH = originalPath;
+    expect(
+      runEnvelope({ cwd, cmd, budget: 30, argv: ['bash', '-c', 'true'] }),
+    ).toBe(2);
+  });
+
+  it('freezes a direct .venv/bin/python root even when the executable is absent at entry', () => {
+    const cwd = repoWithIgnoredVenv(true);
+    delete process.env.VIRTUAL_ENV;
+    process.env.PATH = originalPath;
+    rmSync(join(cwd, '.venv', 'bin', 'python'));
+
+    expect(
+      runEnvelope({
+        cwd,
+        cmd: '.venv/bin/python test/check.test.js',
+        budget: 30,
+        argv: ['bash', '-c', `printf '#!/bin/sh\\nexit 0\\n' > .venv/bin/python && chmod +x .venv/bin/python`],
+      }),
+    ).toBe(1);
+  });
+
+  it('does not fold an npm workspace source target into immutable dependency state', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'tw-workspace-dep-'));
+    dirs.push(cwd);
+    const git = (...args: string[]) => execFileSync('git', args, { cwd });
+    git('init', '-q');
+    git('config', 'user.email', 't@b');
+    git('config', 'user.name', 'tb');
+    mkdirSync(join(cwd, 'packages', 'pkg'), { recursive: true });
+    mkdirSync(join(cwd, 'node_modules'), { recursive: true });
+    mkdirSync(join(cwd, 'test'));
+    writeFileSync(join(cwd, '.gitignore'), 'node_modules/\n');
+    writeFileSync(join(cwd, 'packages', 'pkg', 'value.js'), 'module.exports = 1;\n');
+    writeFileSync(join(cwd, 'test', 'check.test.js'), "if (require('pkg/value.js') !== 2) process.exit(1);\n");
+    symlinkSync('../packages/pkg', join(cwd, 'node_modules', 'pkg'), 'dir');
+    git('add', '.gitignore', 'packages/pkg/value.js', 'test/check.test.js');
+    git('commit', '-qm', 'base');
+
+    expect(
+      runEnvelope({
+        cwd,
+        cmd: 'node test/check.test.js',
+        budget: 30,
+        argv: ['bash', '-c', `printf 'module.exports = 2;\\n' > packages/pkg/value.js`],
       }),
     ).toBe(0);
   });
