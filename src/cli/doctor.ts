@@ -124,22 +124,43 @@ function inferGitHubRepo(cwd: string): string | null {
   return m ? m[1] + '/' + m[2].replace(/\.git$/i, '') : null;
 }
 
-function ghApi(cwd: string, endpoint: string): unknown {
+const GITHUB_API_SCRIPT = [
+  "const endpoint = process.argv[1];",
+  "const token = process.env.TAMPERWARD_GITHUB_TOKEN || '';",
+  "const headers = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10', 'User-Agent': 'tamperward-doctor' };",
+  "if (token) headers.Authorization = 'Bearer ' + token;",
+  "fetch('https://api.github.com/' + endpoint, { headers }).then(async (r) => {",
+  "  const body = await r.text();",
+  "  if (!r.ok) { process.stderr.write('HTTP ' + r.status + ': ' + body); process.exit(22); }",
+  "  process.stdout.write(body);",
+  "}).catch((e) => { process.stderr.write(String(e)); process.exit(23); });",
+].join('\n');
+
+function githubApi(cwd: string, endpoint: string): unknown {
+  const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN ?? '';
   try {
     const stdout = execFileSync(
-      'gh',
-      ['api', endpoint, '-H', 'Accept: application/vnd.github+json'],
+      process.execPath,
+      ['-e', GITHUB_API_SCRIPT, endpoint],
       {
         cwd,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+          TAMPERWARD_GITHUB_TOKEN: token,
+          LANG: 'C',
+          LC_ALL: 'C',
+        },
+        timeout: 15_000,
       },
     );
     return JSON.parse(stdout);
   } catch (e) {
     const x = e as Error & { stderr?: string | Buffer };
     const detail = x.stderr ? String(x.stderr).replace(/\s+/g, ' ').trim() : x.message;
-    throw new Error('gh api ' + endpoint + ' failed: ' + (detail || 'unknown error'));
+    throw new Error(
+      'GitHub API ' + endpoint + ' failed: ' + (detail || 'unknown error'),
+    );
   }
 }
 
@@ -156,7 +177,7 @@ function githubAuthority(
 
   let branch = opts.branch ?? process.env.GITHUB_BASE_REF ?? '';
   if (!branch) {
-    const meta = asMapping(ghApi(cwd, 'repos/' + repo));
+    const meta = asMapping(githubApi(cwd, 'repos/' + repo));
     if (typeof meta?.default_branch === 'string') branch = meta.default_branch;
   }
   if (!branch) throw new Error('cannot determine protected branch; pass --branch BRANCH');
@@ -164,7 +185,7 @@ function githubAuthority(
   let rules: unknown;
   let rulesError: Error | null = null;
   try {
-    rules = ghApi(cwd, 'repos/' + repo + '/rules/branches/' + encodeURIComponent(branch));
+    rules = githubApi(cwd, 'repos/' + repo + '/rules/branches/' + encodeURIComponent(branch));
   } catch (e) {
     rulesError = e instanceof Error ? e : new Error(String(e));
   }
@@ -196,7 +217,7 @@ function githubAuthority(
 
   if (findings.length > 0 && branchProtection === undefined && classicError) {
     findings.push(
-      'classic branch protection could not be inspected; if it supplies a missing requirement, authenticate gh with Administration read',
+      'classic branch protection could not be inspected; if it supplies a missing requirement, use GH_TOKEN/GITHUB_TOKEN with Administration read',
     );
   }
 
