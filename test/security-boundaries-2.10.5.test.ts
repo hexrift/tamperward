@@ -7,7 +7,7 @@ import { fileAt } from '../src/git/build';
 import { loadPolicyAt } from '../src/policy-load';
 import { treeFingerprint } from '../src/fingerprint';
 import { defaultPolicy, isProtected } from '../src/policy';
-import { HOOK_CMD, PRECOMMIT_CMD, SWEEP_CMD } from '../src/wiring';
+import { HOOK_CMD, NPX_AUTHORITY, PRECOMMIT_CMD, SWEEP_CMD, TW_VERSION } from '../src/wiring';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -35,6 +35,37 @@ function repo(): string {
 }
 
 describe('candidate npm configuration cannot start the authority under injected code', () => {
+  it('excludes HOME and its selected global rc while starting a pinned package', () => {
+    const cwd = tmp('tw-rc-sources-');
+    const userHome = tmp('tw-rc-home-');
+    const prefix = tmp('tw-rc-prefix-');
+    const globalRc = join(prefix, 'operator.npmrc');
+    writeFileSync(join(userHome, '.npmrc'), `fetch-retries=37\nglobalconfig=${globalRc}\n`);
+    writeFileSync(globalRc, 'fetch-retries=37\n');
+    const pkg = join(cwd, 'node_modules', 'tamperward');
+    mkdirSync(pkg, { recursive: true });
+    mkdirSync(join(cwd, 'node_modules', '.bin'));
+    writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: 'tamperward', version: TW_VERSION, bin: { tamperward: 'cli.cjs' } }));
+    const cli = '#!/usr/bin/env node\nconsole.log(JSON.stringify({started:true,user:process.env.npm_config_userconfig,global:process.env.npm_config_globalconfig,registry:process.env.npm_config_registry}));\n';
+    writeFileSync(join(cwd, 'node_modules', '.bin', 'tamperward'), cli);
+    chmodSync(join(cwd, 'node_modules', '.bin', 'tamperward'), 0o755);
+    writeFileSync(join(pkg, 'cli.cjs'), cli);
+    chmodSync(join(pkg, 'cli.cjs'), 0o755);
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^npm_config_/i.test(k)));
+    const r = spawnSync('/bin/sh', ['-c', `${NPX_AUTHORITY} tamperward@${TW_VERSION} hook claude`], {
+      cwd, encoding: 'utf8', timeout: 15000,
+      env: { ...env, HOME: userHome },
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect(JSON.parse(r.stdout)).toMatchObject({started:true,user:'/dev/null'});
+    // npm does not rewrite every inherited npm_config_* in the child environment.
+    // Query its effective configuration rather than confusing that with an env echo.
+    const config = spawnSync('/bin/sh', ['-c', `${NPX_AUTHORITY.replace('npx --yes', 'npm')} config get fetch-retries`], {
+      cwd, encoding: 'utf8', env: { ...env, HOME: userHome },
+    });
+    expect(config.status, config.stderr).toBe(0);
+    expect(config.stdout.trim()).toBe('2');
+  });
   it('keeps every generated local npx call out of project configuration', () => {
     for (const cmd of [HOOK_CMD, SWEEP_CMD, PRECOMMIT_CMD]) {
       expect(cmd).toContain('--global');

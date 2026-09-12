@@ -169,12 +169,13 @@ version: 1
 /** The pin an `npx --yes tamperward…` command of ours carries: a version, '' for
  *  unpinned, or null when the command is not one init writes. */
 function pinOf(command: string): string | null {
-  const m = command.match(OURS) ?? command.match(PRE_GLOBAL_OURS) ?? command.match(LEGACY_OURS);
+  const m = ours(command);
   return m ? (m[1] ?? '') : null;
 }
 
 function ours(command: string): RegExpMatchArray | null {
-  return command.match(OURS) ?? command.match(PRE_GLOBAL_OURS) ?? command.match(LEGACY_OURS);
+  const previous = command.replace(' --global', '').replace(' || (echo tamperward: authority failed to start >&2 && exit 2)', '');
+  return command.match(OURS) ?? previous.match(PRE_GLOBAL_OURS) ?? command.match(LEGACY_OURS);
 }
 
 /** Whether a command init wrote needs re-pinning to this build. */

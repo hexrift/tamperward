@@ -48,10 +48,13 @@ export const MARKER = '# tamperward: block agent shortcuts before they land';
 // the pinned binary. `--global` puts npm in global mode, where npm documents that
 // the project file is not read; this removes the whole project-config namespace
 // rather than trying to enumerate settings such as call, workspace, proxy and CA.
-// The remaining command-line controls govern trusted user/global configuration.
+// User/global rc paths are fixed to the OS null device and a path beneath that
+// device (necessarily ENOTDIR). Distinct paths avoid npm's double-load error.
+// Neither can become a candidate-owned rc file. This generated shell wiring
+// requires a POSIX host with /dev/null; npm's own installation remains trusted.
 // A single space is deliberate: npm ignores an empty environment value, then
 // trims this to the empty NODE_OPTIONS value (the same control verify uses).
-export const NPX_AUTHORITY = "npx --yes --global --registry=https://registry.npmjs.org/ --node-options=' ' --script-shell= --ignore-scripts --offline=false --prefer-online";
+export const NPX_AUTHORITY = "npx --yes --global --userconfig=/dev/null --globalconfig=/dev/null/npmrc-global --registry=https://registry.npmjs.org/ --node-options=' ' --script-shell= --ignore-scripts --offline=false --prefer-online";
 
 // Claude treats an ordinary non-zero hook exit as a non-blocking error. If npm
 // cannot resolve or start the authority, map that failure to its blocking-error
@@ -66,7 +69,7 @@ export const PRECOMMIT_CMD = `${NPX_AUTHORITY} tamperward@${TW_VERSION} check --
 
 /** The exact hardened `npx <fixed npm config> tamperward[@v] <ours>` form init
  * writes; group 1 is the pin and group 2 the subcommand. */
-export const OURS = /^\s*npx --yes --global --registry=https:\/\/registry\.npmjs\.org\/ --node-options=' ' --script-shell= --ignore-scripts --offline=false --prefer-online tamperward(?:@(\S+))? (?:(hook claude|sweep claude) \|\| \(echo tamperward: authority failed to start >&2 && exit 2\)|(check --staged))\s*$/;
+export const OURS = /^\s*npx --yes --global --userconfig=\/dev\/null --globalconfig=\/dev\/null\/npmrc-global --registry=https:\/\/registry\.npmjs\.org\/ --node-options=' ' --script-shell= --ignore-scripts --offline=false --prefer-online tamperward(?:@(\S+))? (?:(hook claude|sweep claude) \|\| \(echo tamperward: authority failed to start >&2 && exit 2\)|(check --staged))\s*$/;
 
 /** A plain release version: what init pins. Tags (`latest`), ranges, git URLs,
  *  pre-releases and leading zeros (`02.5.0`, `2.5.00000000000000000001` — npm
@@ -94,7 +97,7 @@ export function pinNotBelow(now: string | null | undefined, floor: string): bool
 /** The pre-commit script init creates from nothing: shebang, marker, the pinned
  *  staged check. Group 1 is the pin ('' when unpinned, as init wrote before 1.14.7).
  *  Trailing newlines are not shape: none, one or two are the same script. */
-const INIT_SCRIPT = /^#!\/bin\/sh\n# tamperward: block agent shortcuts before they land\nnpx --yes --global --registry=https:\/\/registry\.npmjs\.org\/ --node-options=' ' --script-shell= --ignore-scripts --offline=false --prefer-online tamperward(?:@(\S+))? check --staged\n*$/;
+const INIT_SCRIPT = /^#!\/bin\/sh\n# tamperward: block agent shortcuts before they land\nnpx --yes --global --userconfig=\/dev\/null --globalconfig=\/dev\/null\/npmrc-global --registry=https:\/\/registry\.npmjs\.org\/ --node-options=' ' --script-shell= --ignore-scripts --offline=false --prefer-online tamperward(?:@(\S+))? check --staged\n*$/;
 
 /** The pin a script carries when it is byte-equal to what init writes (modulo the
  *  pin): a version, '' for unpinned, or null when the script is not init's shape. */
