@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runVerify } from '../src/cli/verify';
+import { runEnvelope } from '../src/cli/run';
 import type { PreparedVerifierBackend } from '../src/verifier-backend';
 
 const ENABLED = process.env.TAMPERWARD_CONTAINER_E2E === '1';
@@ -224,6 +225,19 @@ function remainingVerifierContainers(): string[] {
   );
   return raw.split('\n').map((x) => x.trim()).filter(Boolean);
 }
+
+describe('frozen-artifact handoff boundary (#317)', () => {
+  containerIt('run refuses before the agent when the verifier engine would share its host identity', () => {
+    const { cwd } = boundaryRepo('node test/boundary.js');
+    const sideEffect = join(cwd, 'agent-ran');
+    const code = runEnvelope({
+      cwd,
+      argv: ['sh', '-c', 'touch agent-ran'],
+    });
+    expect(code).toBe(2);
+    expect(() => readFileSync(sideEffect)).toThrow();
+  }, 60_000);
+});
 
 describe('isolated verifier boundary attack corpus (#317)', () => {
   containerIt('trusted inputs/evidence stay immutable and host secret/socket/env are absent', () => {
