@@ -67,15 +67,179 @@ function parseCheck(args: string[]): CheckOpts {
     else if (a === '--format') {
       const v = args[++i];
       if (v !== undefined && isFormat(v)) o.format = v;
-      else process.stderr.write(`tamperward: unknown --format "${v ?? ''}" (expected ${FORMATS.join(' | ')})\n`);
     }
     else if (a === '--diff') o.diff = args[++i];
     else if (a === '--cwd') o.cwd = args[++i];
-    else {
-      process.stderr.write(`tamperward: unknown flag "${a}"\n`);
-    }
   }
   return o;
+}
+
+type ValueRule = 'string' | 'positive' | 'non-negative' | 'format';
+
+interface CliGrammar {
+  flags?: readonly string[];
+  values?: Readonly<Record<string, ValueRule>>;
+  positional?: 'none' | 'one';
+}
+
+interface ValidatedArgs {
+  error?: string;
+  seen: Set<string>;
+  positionals: string[];
+}
+
+function validateFlatArgs(args: string[], grammar: CliGrammar): ValidatedArgs {
+  const flags = new Set(grammar.flags ?? []);
+  const values = grammar.values ?? {};
+  const seen = new Set<string>();
+  const positionals: string[] = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+
+    if (flags.has(a) || Object.prototype.hasOwnProperty.call(values, a)) {
+      if (seen.has(a)) {
+        return { error: `option "${a}" specified more than once`, seen, positionals };
+      }
+      seen.add(a);
+
+      const rule = values[a];
+      if (!rule) continue;
+
+      const v = args[i + 1];
+      if (v === undefined || v.startsWith('--')) {
+        return {
+          error: `${a} needs a value` + (v === undefined ? '' : ` (got the flag "${v}")`),
+          seen,
+          positionals,
+        };
+      }
+      i++;
+
+      if (rule === 'positive') {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n <= 0) {
+          return { error: `${a} needs a positive number (got "${v}")`, seen, positionals };
+        }
+      } else if (rule === 'non-negative') {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0) {
+          return { error: `${a} needs a non-negative number (got "${v}")`, seen, positionals };
+        }
+      } else if (rule === 'format' && !isFormat(v)) {
+        return {
+          error: `--format needs one of ${FORMATS.join(' | ')} (got "${v}")`,
+          seen,
+          positionals,
+        };
+      }
+      continue;
+    }
+
+    if (a.startsWith('-')) {
+      return { error: `unknown option "${a}"`, seen, positionals };
+    }
+
+    if (grammar.positional === 'one' && positionals.length === 0) {
+      positionals.push(a);
+      continue;
+    }
+    return { error: `unexpected argument "${a}"`, seen, positionals };
+  }
+
+  return { seen, positionals };
+}
+
+/**
+ * Process-level CLI grammar. This runs before command-specific parsing or any
+ * filesystem/git/agent side effect. Programmatic APIs still accept typed opts;
+ * only user-supplied argv is governed here.
+ */
+export function validateCliArgs(cmd: string, args: string[]): string | undefined {
+  if (cmd === 'hook' || cmd === 'sweep') {
+    if (args.length === 0) return `${cmd} requires an agent name`;
+    if (args.length > 1) return `unexpected argument "${args[1]}"`;
+    return undefined;
+  }
+
+  if (cmd === 'run') {
+    const delimiter = args.indexOf('--');
+    if (delimiter < 0) return 'run requires an explicit "--" before the wrapped command';
+    const prefix = args.slice(0, delimiter);
+    const command = args.slice(delimiter + 1);
+    const parsed = validateFlatArgs(prefix, {
+      flags: ['--allow-dirty', '--allow-dep-drift'],
+      values: {
+        '--base': 'string',
+        '--cmd': 'string',
+        '--budget': 'positive',
+        '--agent-budget': 'positive',
+        '--settle': 'non-negative',
+        '--cwd': 'string',
+      },
+    });
+    if (parsed.error) return parsed.error;
+    if (command.length === 0) return 'run requires a wrapped command after "--"';
+    return undefined;
+  }
+
+  if (cmd === 'check') {
+    const parsed = validateFlatArgs(args, {
+      flags: ['--staged', '--worktree', '--json'],
+      values: { '--diff': 'string', '--format': 'format', '--cwd': 'string' },
+    });
+    if (parsed.error) return parsed.error;
+    const views = ['--staged', '--worktree', '--diff'].filter((x) => parsed.seen.has(x));
+    if (views.length > 1) return 'choose exactly one of --staged, --worktree, or --diff';
+    if (parsed.seen.has('--json') && parsed.seen.has('--format')) {
+      return '--json cannot be combined with --format';
+    }
+    return undefined;
+  }
+
+  if (cmd === 'allow') {
+    const parsed = validateFlatArgs(args, {
+      values: { '--file': 'string', '--reason': 'string', '--cwd': 'string' },
+      positional: 'one',
+    });
+    if (parsed.error) return parsed.error;
+    if (parsed.positionals.length === 0) return 'allow requires a rule';
+    return undefined;
+  }
+
+  if (cmd === 'init') {
+    return validateFlatArgs(args, {
+      flags: ['--dry-run', '--force-workflow'],
+      values: { '--cwd': 'string' },
+    }).error;
+  }
+
+  if (cmd === 'doctor') {
+    return validateFlatArgs(args, {
+      flags: ['--github'],
+      values: {
+        '--cwd': 'string',
+        '--base': 'string',
+        '--workflow': 'string',
+        '--repo': 'string',
+        '--branch': 'string',
+      },
+    }).error;
+  }
+
+  if (cmd === 'verify') {
+    return validateFlatArgs(args, {
+      flags: ['--json', '--keep', '--require-ancestor'],
+      values: {
+        '--base': 'string',
+        '--cmd': 'string',
+        '--cwd': 'string',
+        '--budget': 'positive',
+      },
+    }).error;
+  }
+
+  return undefined;
 }
 
 function printHelp(): void {
@@ -153,6 +317,13 @@ Exit codes: 0 clean · 1 a blocking finding (check), MASKED_FAILURE or SUITE_RED
 
 export function main(argv: string[]): number {
   const [cmd, ...rest] = argv;
+  if (cmd !== undefined && cmd !== '-h' && cmd !== '--help') {
+    const invalid = validateCliArgs(cmd, rest);
+    if (invalid) {
+      process.stderr.write(`tamperward: ${invalid}\n`);
+      return 2;
+    }
+  }
   switch (cmd) {
     case 'check':
       return runCheck(parseCheck(rest));
