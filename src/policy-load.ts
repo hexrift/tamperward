@@ -8,6 +8,7 @@ import { parse } from 'yaml';
 import { Policy, Severity } from './types';
 import { defaultPolicy, mergeProtected, mergeRules, normalizeGlob, POLICY_FILE } from './policy';
 import { fileAt } from './git/build';
+import { MAX_POLICY_VERIFY_BUDGET_SECS } from './verifier-limits';
 
 /** A policy file that exists but cannot be understood. Never swallowed into the
  *  baseline: falling back silently would run a WEAKER gate than the author wrote. */
@@ -127,6 +128,11 @@ function validate(r: RawPolicy, where: string): void {
     if (v.command !== undefined && typeof v.command !== 'string') bad(`verify.command must be a string, got ${show(v.command)}`);
     if (v.budget !== undefined && !(typeof v.budget === 'number' && Number.isFinite(v.budget) && v.budget > 0)) {
       bad(`verify.budget must be a positive number of seconds, got ${show(v.budget)}`);
+    }
+    if (typeof v.budget === 'number' && v.budget > MAX_POLICY_VERIFY_BUDGET_SECS) {
+      bad(
+        `verify.budget must be <= ${MAX_POLICY_VERIFY_BUDGET_SECS} seconds so two verifier stages fit inside the generated CI authority, got ${show(v.budget)}`,
+      );
     }
     if (v.inputs !== undefined && !isStringList(v.inputs)) bad(`verify.inputs must be a list of globs, got ${show(v.inputs)}`);
     if (v.backend !== undefined && v.backend !== 'local' && v.backend !== 'container') {
