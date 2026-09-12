@@ -317,8 +317,8 @@ export function containerRunArgs(input: ContainerRunArgsInput): string[] {
     // needing outputs writes to /workspace-out, HOME or /tmp instead.
     '--mount', `type=bind,src=${input.workspace},dst=/workspace,ro`,
     '--tmpfs', '/tmp:rw,nosuid,nodev,mode=1777',
-    '--tmpfs', '/home/tamperward:rw,nosuid,nodev,mode=700',
-    '--tmpfs', '/workspace-out:rw,nosuid,nodev,mode=700',
+    '--tmpfs', `/home/tamperward:rw,nosuid,nodev,mode=700,uid=${input.uid},gid=${input.gid}`,
+    '--tmpfs', `/workspace-out:rw,nosuid,nodev,mode=700,uid=${input.uid},gid=${input.gid}`,
     '--workdir', '/workspace',
     '--env', 'HOME=/home/tamperward',
     '--env', 'TMPDIR=/tmp',
