@@ -65,6 +65,13 @@ The isolated backend still relies on wall-clock and PID limits rather than expli
 memory ceilings. Host resource-exhaustion hardening is tracked separately in #346; it is an
 availability/process-interference residual, not a known false-green path.
 
+The container boundary is also **not a semantic/oracle sandbox**. Candidate source must
+execute in the suite and can therefore attempt in-process early termination or runner
+interposition without modifying trusted files or dependencies. #350 tracks this distinct
+false-green class and completion/collection-evidence mitigations; `isolated-container`
+means execution-domain integrity, not proof that arbitrary candidate code cannot fool the
+test oracle.
+
 The existing backend remains available as `backend: local` (and is the default) and is
 reported explicitly as **`checkpointed-local`** trust. Its checkpoint limitations are
 unchanged. `tamperward run` intentionally refuses `backend: container` before the
