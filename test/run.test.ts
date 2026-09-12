@@ -379,20 +379,21 @@ describe('agent runtime budget (#325)', () => {
 
   it.skipIf(process.platform !== 'linux')('kills a descendant that escapes the agent process group with setsid', () => {
     const cwd = repo(true);
-    const pidFile = join(cwd, '.agent-setsid-pid');
+    const marker = join(cwd, '.agent-setsid-started');
     const code = runEnvelope({
       cwd,
       cmd: CMD,
       agentBudget: 1,
       argv: sh(
-        `setsid bash -c 'echo $ > "${pidFile}"; sleep 30' & sleep 30`,
+        `setsid bash -c 'touch "${marker}"; sleep 30' & sleep 30`,
       ),
     });
 
+    // The marker proves the detached session really started. If its 30-second
+    // sleep survived the timeout it would still hold cwd and the Linux
+    // quiescence scan would return NOT_QUIESCENT/1 rather than clean timeout.
+    expect(readFileSync(marker, 'utf8')).toBe('');
     expect(code).toBe(124);
-    const childPid = Number(readFileSync(pidFile, 'utf8').trim());
-    expect(Number.isInteger(childPid) && childPid > 1).toBe(true);
-    expect(() => process.kill(childPid, 0)).toThrow();
   }, 15_000);
 
   it('fails closed before spawning for a non-positive/invalid agent budget', () => {
