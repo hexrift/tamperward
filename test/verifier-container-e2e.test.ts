@@ -273,6 +273,17 @@ describe('isolated verifier runtime failures (#345)', () => {
   }, 60_000);
 });
 
+describe('isolated verifier suite exit attribution (#345)', () => {
+  containerIt('a real candidate exit 125 remains suite red rather than runtime failure', () => {
+    const { cwd } = boundaryRepo("sh -c 'exit 125'");
+    const r = capture(() => runVerify({ cwd, base: 'HEAD', json: true }));
+    expect(r.code).toBe(1);
+    expect(r.json.verdict).toBe('SUITE_RED');
+    expect(r.json.visible.exit).toBe(125);
+    expect(r.json.pristine.exit).toBe(125);
+  }, 60_000);
+});
+
 describe('isolated verifier boundary attack corpus (#317)', () => {
   containerIt('trusted inputs/evidence stay immutable and host secret/socket/env are absent', () => {
     const { cwd } = boundaryRepo('node test/boundary.js');
