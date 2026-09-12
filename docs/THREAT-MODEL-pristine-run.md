@@ -209,13 +209,24 @@ is the variable list. What remains is stated below.
   shared-dependency class the copies never addressed. A runner can add either
   kind of source at any time.
 
-- **Isolation is sequencing plus detection, not a sandbox.** From 1.14.5 the
-  pristine copy does not exist while the candidate's code runs, and its restored
-  files are digested either side of the pristine run. Neither is confinement: a
-  process that outlives the visible run can enumerate the temp directory, and
-  what it does between the digest and the next digest is caught after the fact,
-  not prevented. The copies are separate directories. They are not a sandbox,
-  and no amount of ordering makes them one.
+- **The default `local` backend is sequencing plus detection, not a sandbox.**
+  From 1.14.5 the pristine copy does not exist while the candidate's code runs,
+  and its restored files are digested either side of the pristine run. Neither
+  is confinement: a process that outlives the visible run can enumerate the temp
+  directory, and what it does between checkpoints is caught after the fact, not
+  prevented. The local copies are separate directories, not a security boundary.
+
+  **2.11.0 adds an opt-in structural boundary for final verification.**
+  `verify.backend: container` runs the materialised candidate/pristine tree
+  read-only inside a digest-pinned, pre-provisioned image with image-owned
+  runtime/dependencies, no host dependency tree/HOME/temp/socket/credentials,
+  no network, a read-only rootfs, dropped capabilities and private scratch
+  storage. Boundary establishment or runtime loss fails closed; there is no
+  local fallback. `tamperward run` deliberately refuses this backend before
+  launching the agent because an agent running under the same host identity
+  could also control Docker authority. Isolated verification therefore belongs
+  in trusted CI or after an externally isolated agent hands off a frozen
+  candidate.
 
 - **The verifier's own inputs are bounded, not enumerated.** 1.14.4 restores what
   the command executes — tokens naming a file present at the base, plus an
@@ -266,17 +277,34 @@ is the variable list. What remains is stated below.
   verifier copy resolve back into the original worktree. This is detection, not a
   sandbox: fresh, verifier-owned dependencies remain the stronger architecture.
 
-- **Dependency attestation is checkpoint-based.** 2.10.9 compares the frozen
-  dependency closure before/after the adjudication stages. It closes persistent
-  substitutions and mutations that survive to a checkpoint. It does **not** prove
-  observation of a mutation performed entirely during one suite execution and
-  restored byte-for-byte (including mode/link identity) before the next checkpoint.
-  That fully self-restoring case is tracked as #341 and requires a structural
-  boundary—preferably verifier-owned, non-candidate-writable dependencies—rather
-  than a faster polling race.
+- **Dependency attestation remains checkpoint-based on the default local
+  backend.** Since 2.10.9 it closes persistent substitutions and mutations that
+  survive to a checkpoint, but it does not prove observation of a mutation
+  performed entirely during one suite execution and restored byte-for-byte
+  (including mode/link identity) before the next checkpoint. That is an honest
+  residual of `checkpointed-local` trust.
+
+  **2.11.0 structurally closes the demonstrated #341 class for the isolated
+  container backend.** Host `node_modules`/venvs are not mounted; the
+  digest-pinned image owns the runtime/dependencies and the frozen candidate is
+  read-only. The mandatory E2E threat control first demonstrates that the local
+  checkpoint verifier is fooled by the fully self-restoring substitution, then
+  shows the same candidate return `SUITE_RED` under the isolated backend. This
+  does not upgrade the default local backend into a sandbox; it gives operators
+  a stronger final-verification mode with a different trust boundary.
+
 - **Source-level interference is out of scope here** and belongs to the oracle
-  boundary, not this one: a semantically wrong fix that the base tests accept is
-  invisible to any materialisation rule. That is round 3.1's tableau finding.
+  boundary, not this one. That includes both a semantically wrong fix that the
+  base tests simply accept and active in-process interference by the candidate
+  code under test. For example, candidate source can terminate a trusted
+  single-process test script with `process.exit(0)` while it is being imported,
+  before the trusted assertion runs; equivalent runner monkeypatching can alter
+  registration/assertion behavior without writing policy, tests, dependencies or
+  the verifier filesystem. Container isolation cannot generically forbid that
+  without also forbidding execution of the candidate. #350 tracks completion /
+  collection evidence and held-out/out-of-process oracle directions. The
+  `isolated-container` trust label therefore describes execution-domain
+  integrity, not semantic/oracle isolation.
 
 ## What this means for the published record
 

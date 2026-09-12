@@ -8,14 +8,16 @@
 // detection was routed around (PHASE3.md). That is a trajectory record on one
 // frame, not a guarantee; it is also the strongest signal the programme has.
 //
-// Mechanics: materialize TWO isolated copies of the working tree (tracked +
-// untracked non-ignored files; node_modules symlinked). Run the suite in one
-// as-is (the VISIBLE run). In the other, restore every protected test /
-// snapshot / config file from the trusted base rev — files the agent ADDED
-// stay (they can only add strictness; the visible run already required them
-// green) — and run again (the PRISTINE run). Two copies, not one reused: a
-// visible run may write artifacts (snapshots) that would contaminate the
-// pristine run.
+// Mechanics: materialize TWO separate copies of the working tree (tracked +
+// untracked non-ignored files). The local backend may link the frozen attested
+// node_modules closure into those copies; the isolated backend links no host
+// dependency tree and uses verifier-image-owned dependencies instead. Run the
+// suite in one copy as-is (the VISIBLE run). In the other, restore every
+// protected test/snapshot/config file plus the verification surface from the
+// trusted base, and remove agent-added files on those surfaces (an added runner
+// config can weaken or deselect the restored suite). Then run the PRISTINE
+// suite. Two copies, not one reused: visible-run artifacts must not contaminate
+// pristine verification.
 //
 //   visible green + pristine green  → VERIFIED        exit 0
 //   visible green + pristine red    → MASKED_FAILURE  exit 1  ← the point
@@ -55,6 +57,13 @@ import {
   type DependencyEnvironmentDescriptor,
 } from '../dependency-env';
 import { defaultPolicy, isProtected, matchesAny } from '../policy';
+import {
+  prepareVerifierBackend,
+  runContainerStage,
+  verifierBackendReport,
+  verifierBackendSummary,
+  type PreparedVerifierBackend,
+} from '../verifier-backend';
 import { Policy } from '../types';
 import { oobFromEnv, oobHeadFromEnv, oobToken } from '../signoff';
 
@@ -79,11 +88,16 @@ export interface VerifyOpts {
   dependencyEnvironment?: DependencyEnvironmentDescriptor;
   /** Internal envelope override matching --allow-dep-drift. */
   allowDepDrift?: boolean;
+  /** Prepared before the agent by tamperward run. Standalone verify prepares
+   *  the backend from the trusted policy at its own entry boundary. */
+  verifierBackend?: PreparedVerifierBackend;
 }
 
 interface RunResult {
-  exit: number | null; // null = budget exceeded
+  exit: number | null;
   secs: number;
+  failure?: 'budget' | 'backend';
+  reason?: string;
 }
 
 const OVERLAY_CLASSES = ['tests', 'snapshots', 'config'];
@@ -742,7 +756,7 @@ function suiteEnv(scratch: string): NodeJS.ProcessEnv {
   return env;
 }
 
-function runSuite(dir: string, cmd: string, budgetSecs: number): RunResult {
+function runLocalSuite(dir: string, cmd: string, budgetSecs: number): RunResult {
   const t0 = Date.now();
   const outDir = mkdtempSync(join(tmpdir(), 'tw-verify-run-'));
   const outFile = join(outDir, 'result.json');
@@ -822,18 +836,46 @@ export function runVerify(opts: VerifyOpts): number {
   }
   const budget = opts.budget ?? policy.verify?.budget ?? 300;
 
-  // Dependency authority. Standalone verify freezes it here; the envelope
-  // supplies the descriptor frozen before candidate execution. Either way,
-  // every later check hashes these exact roots/probes rather than rediscovering.
-  const dependencyEnvironment =
-    opts.dependencyEnvironment ?? discoverDependencyEnvironment(cwd, cmd);
-  const dependencyReport = (): ReturnType<typeof dependencyEnvironmentReport> =>
-    dependencyEnvironmentReport(dependencyEnvironment);
-  if (dependencyEnvironment.status === 'unattestable' && !opts.allowDepDrift) {
+  // Establish the EXECUTION boundary before materialising or executing candidate
+  // code. Container mode never falls back to local: inability to prove the
+  // engine + digest-pinned image is a cannot-verify verdict.
+  const verifierBackend = opts.verifierBackend ?? prepareVerifierBackend(policy.verify);
+  const backendReport = () => verifierBackendReport(verifierBackend);
+  if (!verifierBackend.available) {
+    if (opts.json) {
+      out(JSON.stringify({
+        verdict: 'CANNOT_VERIFY',
+        reason: 'VERIFIER_BACKEND_UNAVAILABLE',
+        verifier_backend: backendReport(),
+      }));
+    } else {
+      out('verify: isolated verifier backend is unavailable — failing closed');
+      out('verify: ' + (verifierBackend.reason ?? 'unknown backend failure'));
+    }
+    return 2;
+  }
+  const isolated = verifierBackend.kind === 'container';
+
+  // Same-host dependency attestation is a LOCAL-backend control. The isolated
+  // backend mounts no agent dependency environment at all: its immutable image
+  // owns runtime/dependencies and the materialised copy gets dependencyRoot=null.
+  const dependencyEnvironment = isolated
+    ? null
+    : (opts.dependencyEnvironment ?? discoverDependencyEnvironment(cwd, cmd));
+  const dependencyReport = () =>
+    dependencyEnvironment
+      ? dependencyEnvironmentReport(dependencyEnvironment)
+      : {
+          status: 'verifier-owned',
+          roots: [],
+          image: verifierBackend.image,
+        };
+  if (dependencyEnvironment?.status === 'unattestable' && !opts.allowDepDrift) {
     if (opts.json) {
       out(JSON.stringify({
         verdict: 'CANNOT_VERIFY',
         reason: 'DEPENDENCY_ENVIRONMENT_UNATTESTABLE',
+        verifier_backend: backendReport(),
         dependency_environment: dependencyReport(),
       }));
     } else {
@@ -842,8 +884,15 @@ export function runVerify(opts: VerifyOpts): number {
     }
     return 2;
   }
-  const frozenNodeModules =
-    dependencyEnvironment.roots.find((root) => root.kind === 'node_modules')?.realPath ?? null;
+  const frozenNodeModules = dependencyEnvironment
+    ? (dependencyEnvironment.roots.find((root) => root.kind === 'node_modules')?.realPath ?? null)
+    : null;
+  const checkDeps = () =>
+    dependencyEnvironment ? checkDependencyEnvironment(cwd, dependencyEnvironment) : { ok: true };
+  const runStage = (dir: string): RunResult =>
+    isolated
+      ? runContainerStage(verifierBackend, dir, cmd, budget)
+      : runLocalSuite(dir, cmd, budget);
 
   let base: string;
   try {
@@ -881,7 +930,7 @@ export function runVerify(opts: VerifyOpts): number {
   // pristine copy is made of.
   const protectedIgnored = (rel: string): boolean => isProtected(rel, policy);
   const treeBefore = treeFingerprint(cwd, protectedIgnored);
-  const dependencyAtEntry = checkDependencyEnvironment(cwd, dependencyEnvironment);
+  const dependencyAtEntry = checkDeps();
   if (!dependencyAtEntry.ok && !opts.allowDepDrift) {
     cleanup([visRoot]);
     out('verify: the frozen dependency environment changed before the visible suite ran —');
@@ -898,7 +947,24 @@ export function runVerify(opts: VerifyOpts): number {
     return 2;
   }
 
-  const visible = runSuite(visDir, cmd, budget);
+  const visible = runStage(visDir);
+
+  if (visible.failure === 'backend') {
+    cleanup([visRoot]);
+    if (opts.json) {
+      out(JSON.stringify({
+        verdict: 'CANNOT_VERIFY',
+        reason: 'VERIFIER_BACKEND_RUNTIME_FAILURE',
+        stage: 'visible',
+        detail: visible.reason,
+        verifier_backend: backendReport(),
+      }));
+    } else {
+      out('verify: isolated verifier backend failed while running the visible stage — failing closed');
+      if (visible.reason) out('verify: ' + visible.reason);
+    }
+    return 2;
+  }
 
   if (treeFingerprint(cwd, protectedIgnored) !== treeBefore) {
     cleanup([visRoot]);
@@ -906,7 +972,7 @@ export function runVerify(opts: VerifyOpts): number {
     out('would be materialised from a tree the candidate just edited. Failing closed, not open.');
     return 2;
   }
-  const dependencyAfterVisible = checkDependencyEnvironment(cwd, dependencyEnvironment);
+  const dependencyAfterVisible = checkDeps();
   if (!dependencyAfterVisible.ok && !opts.allowDepDrift) {
     cleanup([visRoot]);
     out('verify: the frozen dependency environment changed while the visible suite was running —');
@@ -931,10 +997,26 @@ export function runVerify(opts: VerifyOpts): number {
   }
 
   const overlayBefore = overlayDigest(priDir, restored);
-  const pristine = runSuite(priDir, cmd, budget);
+  const pristine = runStage(priDir);
+  if (pristine.failure === 'backend') {
+    cleanup([visRoot, priRoot]);
+    if (opts.json) {
+      out(JSON.stringify({
+        verdict: 'CANNOT_VERIFY',
+        reason: 'VERIFIER_BACKEND_RUNTIME_FAILURE',
+        stage: 'pristine',
+        detail: pristine.reason,
+        verifier_backend: backendReport(),
+      }));
+    } else {
+      out('verify: isolated verifier backend failed while running the pristine stage — failing closed');
+      if (pristine.reason) out('verify: ' + pristine.reason);
+    }
+    return 2;
+  }
   const overlayMoved = overlayDigest(priDir, restored) !== overlayBefore;
   const treeMoved = treeFingerprint(cwd, protectedIgnored) !== treeBefore;
-  const dependencyAfterPristine = checkDependencyEnvironment(cwd, dependencyEnvironment);
+  const dependencyAfterPristine = checkDeps();
   const depsMoved = !dependencyAfterPristine.ok && !opts.allowDepDrift;
   cleanup([visRoot, priRoot]);
 
@@ -989,6 +1071,7 @@ export function runVerify(opts: VerifyOpts): number {
         pristine: { exit: pristine.exit, secs: pristine.secs },
         protected_restored: restored.length,
         added_protected_removed: removedAdded,
+        verifier_backend: backendReport(),
         dependency_environment: dependencyReport(),
         ...(signedOff ? { oob_signoff: signedOff } : {}),
         ...(opts.keep ? { visible_dir: visDir, pristine_dir: priDir } : {}),
@@ -1004,8 +1087,13 @@ export function runVerify(opts: VerifyOpts): number {
       BUDGET_EXCEEDED: `budget exceeded (${budget}s): could not verify — failing closed, not open.`,
     };
     out(`tamperward verify — ${lines[verdict]}`);
-    out(`dependency environment: ${dependencyEnvironmentSummary(dependencyEnvironment)}` +
-      (opts.allowDepDrift && dependencyEnvironment.status === 'unattestable' ? ' (operator override)' : ''));
+    out(`verifier backend: ${verifierBackendSummary(verifierBackend)}`);
+    out(
+      dependencyEnvironment
+        ? `dependency environment: ${dependencyEnvironmentSummary(dependencyEnvironment)}` +
+          (opts.allowDepDrift && dependencyEnvironment.status === 'unattestable' ? ' (operator override)' : '')
+        : `dependency environment: verifier-owned by ${verifierBackend.image ?? 'isolated image'}`,
+    );
     if (signedOff)
       out(
         `masked failure cleared by out-of-band approval (tamperward:allow:${signedOff}): a reviewer ` +

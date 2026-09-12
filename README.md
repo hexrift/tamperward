@@ -207,8 +207,11 @@ request would need the verify label; the self-gate stays a diff-time gate.
 
 This guarantee depends on a protected and immutable base, required status checks, a
 pinned Tamperward version, and label permissions restricted to trusted humans.
-Tamperward provides no OS isolation, no network confinement, no secret isolation,
-and no semantic-correctness oracle.
+The default local verifier is checkpointed same-host execution, not OS isolation.
+An optional digest-pinned container backend isolates final verification with no network,
+host dependency tree, HOME, temp, credential or socket sharing. Tamperward still is not a
+semantic-correctness oracle, and `tamperward run` does not pretend that a same-identity
+host agent is isolated from the Docker daemon.
 
 Full assumptions and residual risks: [SPEC.md](./SPEC.md),
 [SECURITY-ENVELOPE.md](./SECURITY-ENVELOPE.md), and the
@@ -246,11 +249,26 @@ verify:
   command: npm test
   budget: 300
   inputs: ['scripts/**']   # what the command DELEGATES to
+  # Optional stronger final-verification boundary:
+  # backend: container
+  # image: ghcr.io/acme/verifier@sha256:<64-hex-digest>
 ```
 
+`backend: local` is the default and is reported as `checkpointed-local`. With
+`backend: container`, the image must be digest-pinned and already present on the fixed
+local Docker daemon; Tamperward never pulls during adjudication. The materialised
+candidate/pristine tree is mounted read-only, the image owns runtime/dependencies,
+network is disabled, HOME/tmp are private, and optional suite output belongs in
+`$TAMPERWARD_OUTPUT_DIR` (`/workspace-out`). Images that declare Dockerfile
+`VOLUME` paths are refused: Docker mounts those paths writable even with
+`--read-only`, which would undermine the immutable verifier-image boundary. Image
+`ENTRYPOINT` is also overridden; the pinned image supplies the runtime/dependencies,
+while the trusted policy's `verify.command` remains the command that is adjudicated.
+
 That block is itself a guarded surface: changing the command, lowering the budget,
-narrowing `inputs`, or removing it is flagged as policy weakening — a verifier an
-agent can point at `true` is no verification at all.
+narrowing `inputs`, removing `backend: container`, or changing its pinned image is
+flagged as policy weakening — a verifier an agent can redirect is no verification at
+all.
 
 `inputs` names the files the command *executes*, so the pristine run gets the
 base's copy of them too. A command token that names a file present at the base is
@@ -266,8 +284,13 @@ The four primitives:
 npx tamperward check --staged                # pre-commit view
 npx tamperward check --diff "main...HEAD"    # CI view over the PR's commit range
 npx tamperward verify --base main            # pristine-suite re-execution
-npx tamperward run -- <agent command...>     # the outer envelope around an agent
+npx tamperward run -- <agent command...>     # same-host envelope (local verifier only)
 ```
+
+The isolated backend is a **frozen-artifact final verifier**. `tamperward run`
+deliberately refuses `backend: container` before launching the agent because the agent
+would share the host identity that controls Docker. Use isolated `tamperward verify`
+from trusted CI, or after an externally isolated agent hands off the frozen candidate.
 
 ### CLI reference
 

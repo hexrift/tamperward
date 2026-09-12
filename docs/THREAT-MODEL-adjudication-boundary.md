@@ -141,6 +141,11 @@ enforcement alongside the agent:
                           TRUST BOUNDARY   ──▶ PASS / FAIL
 ```
 
+As of 2.11.0 the shipped product implements the frozen-candidate container
+boundary for standalone final verification. It does **not** yet move round-4's
+in-loop evidence writer out of the agent process tree, so the append-forgery
+residual below remains a measurement-harness concern.
+
 What this converts: today's guarantee is "no hole we have found" (claims 1–2)
 **plus one irreducible residual** (claim 3). Moving the evidence writer out of
 the agent's process tree makes append-forgery stop being irreducible — the
@@ -165,18 +170,17 @@ Stated as one invariant to engineer against:
   seams enumerated in `THREAT-MODEL-pristine-run.md` still apply across the
   boundary. The boundary changes *who is in the blast radius of a miss*, not
   whether attacker code runs.
-- **Shared mutable dependencies are now explicitly attested by the shipped
-  product where their closure is supported, but fresh verifier-owned resolution is
-  still the stronger boundary.** Since 2.10.9 `tamperward run` freezes the
-  repository `node_modules` closure and an identifiable selected Python virtualenv
-  before candidate execution, and standalone `verify` freezes the same descriptor
-  at its own entry. Unsupported or unbounded environments fail closed as
-  unattestable rather than silently reading as dependency-free. The attestation is
-  checkpoint-based: a fully self-restoring mutation contained inside a suite window
-  remains residual #341. This reduces the shared-dependency risk; it does not
-  eliminate the architectural advantage of provisioning dependencies inside the
-  trusted domain, where candidate code never has write authority over them in the
-  first place.
+- **Shared mutable dependencies have two product trust levels now.** The
+  default `checkpointed-local` verifier keeps the 2.10.9 dependency attestation
+  and therefore retains the fully self-restoring in-window residual. The 2.11.0
+  `isolated-container` verifier instead supplies image-owned dependencies and
+  mounts only a frozen read-only candidate/pristine tree; the #341 E2E threat
+  control demonstrates the local miss and the isolated conviction. This product
+  backend is for standalone final verification in trusted CI or after an
+  externally isolated agent handoff: `tamperward run` refuses to claim Docker
+  isolation while it is also launching the agent under the same host identity.
+  The round-4 measurement jail described by this document is a separate boundary
+  and is not retroactively replaced by the product backend.
 - **Liveness and parity get harder, not easier.** The trusted verifier must
   independently establish that the candidate's edit actually takes effect in its
   pristine environment (edit→import coupling). That is precisely what the round-4

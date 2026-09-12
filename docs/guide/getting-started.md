@@ -31,10 +31,22 @@ verify:
   command: npm test
   budget: 300              # seconds
   inputs: ['scripts/**']   # what the command DELEGATES to — optional
+  # backend: container
+  # image: ghcr.io/acme/verifier@sha256:<64-hex-digest>
 ```
 
-Changing the command, lowering the budget, narrowing `inputs`, or removing the block is
-itself reported as policy weakening.
+The default `local` backend is checkpointed same-host verification. The optional
+`container` backend is a stronger frozen-artifact boundary: its digest-pinned image
+must already be provisioned, Docker is never allowed to pull during adjudication, the
+candidate/pristine input is read-only, runtime/dependencies belong to the image, network
+is disabled, and HOME/tmp/output are private to the container. Images with Dockerfile
+`VOLUME` declarations are rejected because those mount points would remain writable
+despite `--read-only`. Image `ENTRYPOINT` is overridden so the trusted
+`verify.command`, not an image startup default, controls suite execution. Write suite
+artifacts to `$TAMPERWARD_OUTPUT_DIR` if needed.
+
+Changing the command, lowering the budget, narrowing `inputs`, removing an isolated
+backend, or changing its image is itself reported as policy weakening.
 
 Or run the commands directly:
 
@@ -86,7 +98,10 @@ masked failure, even if the agent "succeeded"; `2` when it cannot adjudicate —
 start (unless `--allow-dirty`), a policy error, or a verify that cannot run.
 `--settle <seconds>` waits before the final quiescence check to catch a background
 worker; `--allow-dep-drift` accepts, explicitly, an agent that rewrote the installed
-dependency tree.
+dependency tree. The container verifier is intentionally **not** available through
+`tamperward run`: a same-identity host agent could control the Docker authority itself,
+so `run` fails closed before starting that agent. Use container verification as the
+final frozen-artifact step in trusted CI or after external agent isolation.
 
 ## CLI reference
 
