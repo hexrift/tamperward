@@ -259,7 +259,9 @@ verify:
 local Docker daemon; Tamperward never pulls during adjudication. The materialised
 candidate/pristine tree is mounted read-only, the image owns runtime/dependencies,
 network is disabled, HOME/tmp are private, and optional suite output belongs in
-`$TAMPERWARD_OUTPUT_DIR` (`/workspace-out`).
+`$TAMPERWARD_OUTPUT_DIR` (`/workspace-out`). Images that declare Dockerfile
+`VOLUME` paths are refused: Docker mounts those paths writable even with
+`--read-only`, which would undermine the immutable verifier-image boundary.
 
 That block is itself a guarded surface: changing the command, lowering the budget,
 narrowing `inputs`, removing `backend: container`, or changing its pinned image is
