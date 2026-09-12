@@ -10,7 +10,7 @@ import {
   maxStageBudgetForOuterTimeout,
   requiredVerifierAuthoritySeconds,
 } from '../src/verifier-limits';
-import { runDoctor } from '../src/cli/doctor';
+import { evaluateGitHubProtection, runDoctor } from '../src/cli/doctor';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -188,5 +188,76 @@ describe('tamperward doctor CI envelope (#331)', () => {
       base: 'HEAD',
       workflow: '.github/workflows/tamperward.yml',
     })).toBe(0);
+  });
+});
+
+
+describe('GitHub human-boundary freshness (#332)', () => {
+  const healthyRules = [
+    {
+      type: 'pull_request',
+      parameters: {
+        require_code_owner_review: true,
+        dismiss_stale_reviews_on_push: true,
+        require_last_push_approval: false,
+      },
+    },
+    {
+      type: 'required_status_checks',
+      parameters: {
+        required_status_checks: [{ context: 'tamperward' }],
+      },
+    },
+  ];
+
+  it('accepts an active ruleset that binds Code Owner approval to the current pushed diff', () => {
+    expect(evaluateGitHubProtection({ rules: healthyRules })).toEqual([]);
+  });
+
+  it('does not treat last-push approval alone as fresh Code Owner approval', () => {
+    const rules = structuredClone(healthyRules);
+    (rules[0].parameters as Record<string, unknown>).dismiss_stale_reviews_on_push = false;
+    (rules[0].parameters as Record<string, unknown>).require_last_push_approval = true;
+    const findings = evaluateGitHubProtection({ rules });
+    expect(findings).toContain('dismiss stale pull request approvals on new pushes');
+    expect(findings).not.toContain('require Code Owner review');
+  });
+
+  it('accepts equivalent classic branch protection fields', () => {
+    expect(evaluateGitHubProtection({
+      branchProtection: {
+        required_pull_request_reviews: {
+          require_code_owner_reviews: true,
+          dismiss_stale_reviews: true,
+          require_last_push_approval: false,
+        },
+        required_status_checks: {
+          contexts: ['tamperward'],
+        },
+      },
+    })).toEqual([]);
+  });
+
+  it('composes effective rules across rulesets and classic branch protection', () => {
+    expect(evaluateGitHubProtection({
+      rules: [{
+        type: 'required_status_checks',
+        parameters: { required_status_checks: [{ context: 'tamperward' }] },
+      }],
+      branchProtection: {
+        required_pull_request_reviews: {
+          require_code_owner_reviews: true,
+          dismiss_stale_reviews: true,
+        },
+      },
+    })).toEqual([]);
+  });
+
+  it('reports every missing repository-authority requirement', () => {
+    expect(evaluateGitHubProtection({ rules: [] })).toEqual([
+      'require the tamperward status check',
+      'require Code Owner review',
+      'dismiss stale pull request approvals on new pushes',
+    ]);
   });
 });
