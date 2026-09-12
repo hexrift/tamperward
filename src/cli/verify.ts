@@ -511,6 +511,7 @@ function overlayPristine(
     verifierOwned.has(p) ||
     (verifierGlobs.length > 0 && matchesAny(p, verifierGlobs));
   const restored: string[] = [];
+  const restoredLinks: Array<{ path: string; out: string; target: string }> = [];
   const baseProtected = new Set<string>();
   for (const e of entries) {
     if (!isOverlay(e.path)) continue;
@@ -538,7 +539,9 @@ function overlayPristine(
     mkdirSync(dirname(out), { recursive: true });
     rmSync(out, { force: true }); // never write THROUGH whatever is there now
     if (e.mode === '120000') {
-      safeSymlink(content.toString('utf8'), out, dest, `the base's ${e.path}`);
+      const target = content.toString('utf8');
+      safeSymlink(target, out, dest, `the base's ${e.path}`);
+      restoredLinks.push({ path: e.path, out, target });
     } else {
       writeFileSync(out, content);
       chmodSync(out, parseInt(e.mode.slice(-4), 8) & 0o777); // the mode is part of the file
@@ -567,6 +570,18 @@ function overlayPristine(
     rmSync(join(dest, rel), { force: true });
     removed++;
   }
+
+  // Overlay restoration can introduce a base-owned symlink after materialize()
+  // has already validated the candidate graph. Validate those links against the
+  // FINAL pristine graph as well: a trusted-base path such as
+  // ../node_modules/../fixture is ordinary inside the original worktree, but
+  // would cross the verifier's external dependency edge inside the copy.
+  const nm = resolve(cwd, 'node_modules');
+  const dependencyRoot = existsSync(nm) ? realpathSync(nm) : null;
+  for (const link of restoredLinks) {
+    validateSymlinkGraph(link.target, link.out, dest, dependencyRoot, `the base's ${link.path}`);
+  }
+
   return { restored, removed };
 }
 
