@@ -5,6 +5,20 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.10.7] — 2026-09-12
+
+**Canonical wiring no longer falls back to a floating `tamperward@latest` when the
+running package cannot identify its own release.** Version discovery now accepts only
+the package named `tamperward` with a plain release semver. Missing, malformed,
+tag-like or prerelease metadata is an unresolved build state, and `tamperward init`
+fails closed before planning or writing hooks, pre-commit or CI authority wiring.
+
+The unresolved internal sentinel is deliberately not a valid pin, so non-init code that
+imports the wiring module cannot accidentally treat it as an upgrade-compatible release.
+Regression coverage bundles the CLI into an isolated package layout and proves both
+missing metadata and `version: "latest"` return the process-level cannot-evaluate exit
+without emitting floating authority wiring.
+
 ## [2.10.6] — 2026-09-12
 
 **Verifier materialisation now preserves safe tracked symlinks faithfully and fails
