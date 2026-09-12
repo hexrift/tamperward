@@ -5,6 +5,31 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.11.1] — 2026-09-12
+
+**Verifier verdicts now state their semantic/oracle assurance ceiling explicitly.**
+Every structured verifier verdict carries `oracle_assurance` with
+`level: "suite-exit-only"`, `semantic_isolation: false`, and
+`candidate_code_executes_in_oracle_process: true`. Human-readable output carries
+the same warning. This prevents `isolated-container` from being interpreted as a
+claim that arbitrary candidate code cannot fool an in-process test oracle.
+
+The mandatory Docker threat control reproduces #350 directly: candidate source calls
+`process.exit(0)` while a trusted test imports it, so both visible and pristine
+processes exit successfully before the trusted assertion runs even though policy,
+tests, dependencies and the read-only execution boundary remain intact. TamperWard
+does not paper over this with a spelling-specific `process.exit` blacklist; equivalent
+termination/interposition mechanisms make that claim unsound.
+
+The threat model now classifies arbitrary shell/Node/Jest/Vitest/pytest-style
+in-process suites as **suite-exit-only**, runner-native counts/coverage as advisory when
+produced inside the same process, and held-out/out-of-process oracle protocols as the
+structurally stronger direction. SPEC M4 is also corrected to distinguish the default
+checkpointed-local backend from the optional 2.11.0 isolated-container backend.
+
+This closes #350 and #352 by making the remaining oracle limitation explicit and
+machine-readable rather than falsely widening the execution-domain trust claim.
+
 ## [2.11.0] — 2026-09-12
 
 **Final verification can now run in an isolated, digest-pinned container domain.**

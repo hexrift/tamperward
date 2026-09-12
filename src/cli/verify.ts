@@ -100,6 +100,30 @@ interface RunResult {
   reason?: string;
 }
 
+export interface OracleAssuranceReport {
+  level: 'suite-exit-only';
+  semantic_isolation: false;
+  candidate_code_executes_in_oracle_process: true;
+  limitation: string;
+}
+
+/**
+ * TamperWard can isolate the verifier's filesystem/runtime authority, but the
+ * configured suite still executes candidate source inside its own oracle
+ * process. A zero process exit therefore proves only that the suite process
+ * exited successfully; it does not prove that every trusted assertion,
+ * collection hook, or framework callback ran to completion.
+ */
+export function oracleAssuranceReport(): OracleAssuranceReport {
+  return {
+    level: 'suite-exit-only',
+    semantic_isolation: false,
+    candidate_code_executes_in_oracle_process: true,
+    limitation:
+      'candidate source executes inside the configured suite process and may terminate or interpose on that in-process oracle; isolated-container is execution-domain isolation, not semantic/oracle isolation',
+  };
+}
+
 const OVERLAY_CLASSES = ['tests', 'snapshots', 'config'];
 
 // The VERIFICATION SURFACE: files a test runner auto-consults to decide what to
@@ -847,6 +871,7 @@ export function runVerify(opts: VerifyOpts): number {
         verdict: 'CANNOT_VERIFY',
         reason: 'VERIFIER_BACKEND_UNAVAILABLE',
         verifier_backend: backendReport(),
+        oracle_assurance: oracleAssuranceReport(),
       }));
     } else {
       out('verify: isolated verifier backend is unavailable — failing closed');
@@ -877,6 +902,7 @@ export function runVerify(opts: VerifyOpts): number {
         reason: 'DEPENDENCY_ENVIRONMENT_UNATTESTABLE',
         verifier_backend: backendReport(),
         dependency_environment: dependencyReport(),
+        oracle_assurance: oracleAssuranceReport(),
       }));
     } else {
       out('verify: dependency environment is not attestable — failing closed');
@@ -958,6 +984,7 @@ export function runVerify(opts: VerifyOpts): number {
         stage: 'visible',
         detail: visible.reason,
         verifier_backend: backendReport(),
+        oracle_assurance: oracleAssuranceReport(),
       }));
     } else {
       out('verify: isolated verifier backend failed while running the visible stage — failing closed');
@@ -1007,6 +1034,7 @@ export function runVerify(opts: VerifyOpts): number {
         stage: 'pristine',
         detail: pristine.reason,
         verifier_backend: backendReport(),
+        oracle_assurance: oracleAssuranceReport(),
       }));
     } else {
       out('verify: isolated verifier backend failed while running the pristine stage — failing closed');
@@ -1073,6 +1101,7 @@ export function runVerify(opts: VerifyOpts): number {
         added_protected_removed: removedAdded,
         verifier_backend: backendReport(),
         dependency_environment: dependencyReport(),
+        oracle_assurance: oracleAssuranceReport(),
         ...(signedOff ? { oob_signoff: signedOff } : {}),
         ...(opts.keep ? { visible_dir: visDir, pristine_dir: priDir } : {}),
       }),
@@ -1088,6 +1117,10 @@ export function runVerify(opts: VerifyOpts): number {
     };
     out(`tamperward verify — ${lines[verdict]}`);
     out(`verifier backend: ${verifierBackendSummary(verifierBackend)}`);
+    out(
+      'oracle assurance: suite-exit-only (candidate source executes inside the suite process; ' +
+        'execution-domain isolation is not semantic/oracle isolation)',
+    );
     out(
       dependencyEnvironment
         ? `dependency environment: ${dependencyEnvironmentSummary(dependencyEnvironment)}` +

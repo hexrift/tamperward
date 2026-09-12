@@ -359,3 +359,74 @@ describe('isolated verifier boundary attack corpus (#317)', () => {
     expect(remainingVerifierContainers()).toEqual([]);
   }, 60_000);
 });
+
+
+function oracleInterpositionRepo(): string {
+  const cwd = mkdtempSync(join(tmpdir(), 'tw-oracle-e2e-'));
+  dirs.push(cwd);
+  const git = (...args: string[]) => execFileSync('git', args, { cwd });
+  git('init', '-q');
+  git('config', 'user.email', 't@b');
+  git('config', 'user.name', 'tb');
+  mkdirSync(join(cwd, 'test'));
+
+  writeFileSync(join(cwd, 'src.js'), 'module.exports = 42;\n');
+  writeFileSync(
+    join(cwd, 'test', 'check.js'),
+    [
+      "const value = require('../src.js');",
+      "if (value !== 42) process.exit(1);",
+      "require('node:fs').writeFileSync(process.env.TAMPERWARD_OUTPUT_DIR + '/assertion-reached', 'yes');",
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(cwd, '.tamperward.yml'),
+    [
+      'version: 1',
+      'verify:',
+      '  command: node test/check.js',
+      '  budget: 30',
+      '  backend: container',
+      `  image: ${BASE_IMAGE}`,
+      '',
+    ].join('\n'),
+  );
+  git('add', '-A');
+  git('commit', '-qm', 'trusted oracle fixture');
+
+  // Candidate source executes inside the trusted test process. It terminates
+  // that process successfully before the trusted assertion can run, without
+  // changing tests, policy, dependencies or any verifier-owned file.
+  writeFileSync(
+    join(cwd, 'src.js'),
+    [
+      'process.exit(0);',
+      'module.exports = 41;',
+      '',
+    ].join('\n'),
+  );
+  return cwd;
+}
+
+describe('oracle-strength reporting (#350)', () => {
+  containerIt('reproduces in-process early-success false-green and reports the semantic limitation', () => {
+    const cwd = oracleInterpositionRepo();
+    const r = capture(() => runVerify({ cwd, base: 'HEAD', json: true }));
+
+    // Characterization: execution-domain isolation is intact, yet candidate
+    // source can terminate the oracle process before its trusted assertion.
+    expect(r.code).toBe(0);
+    expect(r.json.verdict).toBe('VERIFIED');
+    expect(r.json.verifier_backend.trust).toBe('isolated-container');
+
+    // The verdict must therefore carry an explicit machine-readable assurance
+    // ceiling. "isolated-container" must never be readable as semantic/oracle
+    // isolation.
+    expect(r.json.oracle_assurance).toMatchObject({
+      level: 'suite-exit-only',
+      semantic_isolation: false,
+      candidate_code_executes_in_oracle_process: true,
+    });
+  }, 60_000);
+});
