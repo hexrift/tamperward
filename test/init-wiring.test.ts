@@ -42,6 +42,16 @@ function captured(fn: () => number): { code: number; out: string } {
   }
 }
 
+describe('repository authority instructions (#332)', () => {
+  it('requires fresh Code Owner approval on the version that is actually merged', () => {
+    const d = repo();
+    const r = captured(() => runInit({ cwd: d, dryRun: true }));
+    expect(r.out).toContain('Require review from Code Owners');
+    expect(r.out).toContain('Dismiss stale pull request approvals when new commits are pushed');
+    expect(r.out).toContain('require the tamperward check');
+  });
+});
+
 describe('D-3: the hook goes where git will run it', () => {
   it('honours core.hooksPath and reports it', () => {
     const d = repo();
