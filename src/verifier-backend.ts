@@ -2,19 +2,22 @@
 //
 // The local backend preserves the historical same-host verifier and reports that
 // weaker trust level explicitly. The container backend establishes a separate
-// execution domain before candidate code is allowed to run: the verifier image
-// is immutable-by-digest and must already be present locally (TamperWard never
-// pulls a mutable/remote image as a side effect of adjudication).
+// execution domain for a FROZEN candidate: immutable image identity, immutable
+// verifier input, no network, no shared dependency/home/temp/socket/cache.
+//
+// Docker is deliberately the first supported engine. Podman can implement the
+// same interface later, but it is not accepted until its client/storage
+// authority has equivalent tests.
 
-import { randomUUID } from 'node:crypto';
-import { getgid, getuid } from 'node:process';
-import { resolve } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { accessSync, constants, readFileSync, realpathSync, statSync } from 'node:fs';
+import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { Policy } from './types';
 
 export type VerifierBackendKind = 'local' | 'container';
 export type VerifierBackendTrust = 'checkpointed-local' | 'isolated-container';
-export type ContainerEngine = 'docker' | 'podman';
+export type ContainerEngine = 'docker';
 
 export interface PreparedVerifierBackend {
   kind: VerifierBackendKind;
@@ -22,6 +25,9 @@ export interface PreparedVerifierBackend {
   available: boolean;
   image?: string;
   engine?: ContainerEngine;
+  enginePath?: string;
+  engineSha256?: string;
+  daemonHost?: string;
   reason?: string;
 }
 
@@ -30,14 +36,86 @@ export interface BackendRunResult {
   secs: number;
 }
 
-const DIGEST_IMAGE = /^[^\s@]+@sha256:[0-9a-f]{64}$/i;
+const DIGEST_IMAGE = /^(?!-)[^\s@]+@sha256:[0-9a-f]{64}$/i;
+const DEFAULT_DOCKER_HOST = 'unix:///var/run/docker.sock';
 
-function engineAvailable(engine: ContainerEngine): boolean {
+function identity(): { uid: number | null; groups: number[] } {
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+  const groups = typeof process.getgroups === 'function' ? process.getgroups() : [];
+  return { uid, groups };
+}
+
+function writableByCaller(path: string): boolean {
   try {
-    const r = spawnSync(engine, ['version'], {
+    const st = statSync(path);
+    const { uid, groups } = identity();
+    // A root caller can rewrite any ordinary host executable. That is not a
+    // separation boundary for a same-identity agent, so refuse it.
+    if (uid === 0) return true;
+    if ((st.mode & 0o002) !== 0) return true;
+    if (uid !== null && st.uid === uid && (st.mode & 0o200) !== 0) return true;
+    if (groups.includes(st.gid) && (st.mode & 0o020) !== 0) return true;
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function replaceableByCaller(path: string): boolean {
+  // An immutable file in a caller-writable directory is still replaceable by
+  // rename/unlink. Check the real target and every ancestor directory.
+  let current = resolve(path);
+  if (writableByCaller(current)) return true;
+  current = dirname(current);
+  while (true) {
+    if (writableByCaller(current)) return true;
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return false;
+}
+
+function findExecutable(name: string): string | null {
+  for (const raw of (process.env.PATH ?? '').split(delimiter)) {
+    if (!raw) continue; // never resolve from cwd implicitly
+    const candidate = join(raw, name);
+    try {
+      accessSync(candidate, constants.X_OK);
+      return realpathSync(candidate);
+    } catch {
+      // keep looking
+    }
+  }
+  return null;
+}
+
+function fileSha256(path: string): string {
+  return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+function engineClientEnv(): NodeJS.ProcessEnv {
+  // No caller HOME, Docker config/context, DOCKER_HOST, credential-helper or
+  // dynamic-loader variables cross this client boundary. --host is explicit.
+  return {
+    PATH: '/usr/bin:/bin',
+    HOME: '/nonexistent',
+    LANG: 'C',
+    LC_ALL: 'C',
+  };
+}
+
+function dockerArgs(host: string, args: string[]): string[] {
+  return ['--host', host, ...args];
+}
+
+function dockerAvailable(enginePath: string, host: string): boolean {
+  try {
+    const r = spawnSync(enginePath, dockerArgs(host, ['version']), {
       stdio: 'ignore',
       timeout: 5_000,
       killSignal: 'SIGKILL',
+      env: engineClientEnv(),
     });
     return r.status === 0;
   } catch {
@@ -45,24 +123,37 @@ function engineAvailable(engine: ContainerEngine): boolean {
   }
 }
 
-function imagePresent(engine: ContainerEngine, image: string): boolean {
+function imagePresent(enginePath: string, host: string, image: string): boolean {
   try {
-    const r = spawnSync(engine, ['image', 'inspect', image], {
+    const r = spawnSync(enginePath, dockerArgs(host, ['image', 'inspect', image]), {
       stdio: 'ignore',
       timeout: 10_000,
       killSignal: 'SIGKILL',
+      env: engineClientEnv(),
     });
     return r.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+function engineStable(backend: PreparedVerifierBackend): boolean {
+  if (!backend.enginePath || !backend.engineSha256) return false;
+  try {
+    if (realpathSync(backend.enginePath) !== backend.enginePath) return false;
+    if (replaceableByCaller(backend.enginePath)) return false;
+    return fileSha256(backend.enginePath) === backend.engineSha256;
   } catch {
     return false;
   }
 }
 
 /**
- * Resolve the authority backend before candidate execution.
+ * Resolve container authority before candidate execution.
  *
- * Container mode never falls back to local. The image is never pulled here:
- * availability must already have been established by trusted provisioning.
+ * Container mode NEVER falls back to local. The image is not pulled here. Only
+ * a digest-pinned image already present on the fixed local Docker daemon is
+ * eligible.
  */
 export function prepareVerifierBackend(
   verify: Policy['verify'] | undefined,
@@ -79,33 +170,69 @@ export function prepareVerifierBackend(
       trust: 'isolated-container',
       available: false,
       ...(image ? { image } : {}),
-      reason: 'container verifier requires an immutable image reference name@sha256:<64 hex>',
+      reason: 'container verifier requires an immutable runtime-safe image reference name@sha256:<64 hex>',
     };
   }
 
   const forced = process.env.TAMPERWARD_CONTAINER_ENGINE;
-  const candidates: ContainerEngine[] =
-    forced === 'docker' || forced === 'podman' ? [forced] : ['docker', 'podman'];
-
-  const engine = candidates.find(engineAvailable);
-  if (!engine) {
+  if (forced && forced !== 'docker') {
     return {
       kind: 'container',
       trust: 'isolated-container',
       available: false,
       image,
-      reason: 'neither Docker nor Podman is available for the isolated verifier backend',
+      reason: `unsupported isolated verifier engine ${JSON.stringify(forced)}; Docker is the tested backend`,
     };
   }
-  if (!imagePresent(engine, image)) {
+
+  const enginePath = findExecutable('docker');
+  if (!enginePath) {
     return {
       kind: 'container',
       trust: 'isolated-container',
       available: false,
       image,
-      engine,
-      reason:
-        'the digest-pinned verifier image is not present locally; TamperWard refuses to pull during adjudication',
+      reason: 'Docker executable was not found on the operator PATH',
+    };
+  }
+  if (replaceableByCaller(enginePath)) {
+    return {
+      kind: 'container',
+      trust: 'isolated-container',
+      available: false,
+      image,
+      engine: 'docker',
+      enginePath,
+      reason: 'Docker engine executable is writable/replaceable by the caller identity; it cannot be verifier authority',
+    };
+  }
+
+  // We intentionally ignore DOCKER_HOST/DOCKER_CONTEXT/DOCKER_CONFIG. Reading
+  // those after an agent turn would hand daemon selection back to candidate-
+  // writable user state. v1 supports the conventional local system socket.
+  const daemonHost = DEFAULT_DOCKER_HOST;
+  if (!dockerAvailable(enginePath, daemonHost)) {
+    return {
+      kind: 'container',
+      trust: 'isolated-container',
+      available: false,
+      image,
+      engine: 'docker',
+      enginePath,
+      daemonHost,
+      reason: `Docker is unavailable at the fixed verifier endpoint ${daemonHost}`,
+    };
+  }
+  if (!imagePresent(enginePath, daemonHost, image)) {
+    return {
+      kind: 'container',
+      trust: 'isolated-container',
+      available: false,
+      image,
+      engine: 'docker',
+      enginePath,
+      daemonHost,
+      reason: 'the digest-pinned verifier image is not present locally; TamperWard refuses to pull during adjudication',
     };
   }
 
@@ -114,7 +241,10 @@ export function prepareVerifierBackend(
     trust: 'isolated-container',
     available: true,
     image,
-    engine,
+    engine: 'docker',
+    enginePath,
+    engineSha256: fileSha256(enginePath),
+    daemonHost,
   };
 }
 
@@ -144,30 +274,23 @@ export function verifierBackendSummary(backend: PreparedVerifierBackend): string
   if (!backend.available) {
     return `container (isolated; unavailable: ${backend.reason ?? 'unknown reason'}; image ${identity})`;
   }
-  return `container (isolated via ${backend.engine}; image ${identity})`;
+  return `container (isolated via Docker; image ${identity})`;
 }
 
-function cleanupContainer(engine: ContainerEngine, name: string): void {
+function cleanupContainer(backend: PreparedVerifierBackend, name: string): void {
+  if (!backend.enginePath || !backend.daemonHost || !engineStable(backend)) return;
   try {
-    spawnSync(engine, ['rm', '-f', name], {
+    spawnSync(backend.enginePath, dockerArgs(backend.daemonHost, ['rm', '-f', name]), {
       stdio: 'ignore',
       timeout: 10_000,
       killSignal: 'SIGKILL',
+      env: engineClientEnv(),
     });
   } catch {
     // Best effort after timeout/error. The caller already fails closed.
   }
 }
 
-/**
- * Execute one visible/pristine stage in the isolated domain.
- *
- * Only the already-materialised stage directory crosses the boundary. No agent
- * worktree, dependency tree, HOME, host temp, credential, socket or network is
- * mounted/inherited. The image root is read-only; project scratch lives in
- * private tmpfs mounts. A numeric non-root uid/gid keeps the workspace writable
- * without granting container root.
- */
 export interface ContainerRunArgsInput {
   image: string;
   name: string;
@@ -183,8 +306,6 @@ export function containerRunArgs(input: ContainerRunArgsInput): string[] {
     'run',
     '--name', input.name,
     '--rm',
-    // Image identity was checked during prepare; never let the daemon perform
-    // network resolution/pulling between that check and candidate execution.
     '--pull', 'never',
     '--network', 'none',
     '--read-only',
@@ -192,9 +313,9 @@ export function containerRunArgs(input: ContainerRunArgsInput): string[] {
     '--security-opt', 'no-new-privileges',
     '--pids-limit', '256',
     '--user', `${input.uid}:${input.gid}`,
-    // The ONLY host bind. This is a one-stage materialised candidate/pristine
-    // copy, not the agent worktree or any host dependency/home/cache surface.
-    '--mount', `type=bind,src=${input.workspace},dst=/workspace,rw`,
+    // Frozen candidate/pristine input is immutable in the verifier. A suite
+    // needing outputs writes to /workspace-out, HOME or /tmp instead.
+    '--mount', `type=bind,src=${input.workspace},dst=/workspace,ro`,
     '--tmpfs', '/tmp:rw,nosuid,nodev,mode=1777',
     '--tmpfs', '/home/tamperward:rw,nosuid,nodev,mode=700',
     '--tmpfs', '/workspace-out:rw,nosuid,nodev,mode=700',
@@ -209,15 +330,7 @@ export function containerRunArgs(input: ContainerRunArgsInput): string[] {
   ];
 }
 
-/**
- * Execute one visible/pristine stage in the isolated domain.
- *
- * Only the already-materialised stage directory crosses the boundary. No agent
- * worktree, dependency tree, HOME, host temp, credential, socket or network is
- * mounted/inherited. The image root is read-only; project scratch lives in
- * private tmpfs mounts. A numeric uid/gid keeps the workspace ownership aligned
- * with the caller; capabilities are still dropped and the rootfs is read-only.
- */
+/** Execute one visible/pristine stage inside the prepared isolated domain. */
 export function runContainerStage(
   backend: PreparedVerifierBackend,
   dir: string,
@@ -228,16 +341,18 @@ export function runContainerStage(
   if (
     backend.kind !== 'container' ||
     !backend.available ||
-    !backend.engine ||
-    !backend.image
+    !backend.image ||
+    !backend.enginePath ||
+    !backend.engineSha256 ||
+    !backend.daemonHost ||
+    !engineStable(backend)
   ) {
     return { exit: null, secs: 0 };
   }
 
-  const engine = backend.engine;
   const name = `tamperward-verify-${process.pid}-${randomUUID().slice(0, 12)}`;
-  const uid = typeof getuid === 'function' ? getuid() : 65534;
-  const gid = typeof getgid === 'function' ? getgid() : 65534;
+  const uid = typeof process.getuid === 'function' ? process.getuid() : 65534;
+  const gid = typeof process.getgid === 'function' ? process.getgid() : 65534;
   const args = containerRunArgs({
     image: backend.image,
     name,
@@ -248,22 +363,24 @@ export function runContainerStage(
   });
 
   try {
-    const r = spawnSync(engine, args, {
-      stdio: 'ignore',
-      timeout: budgetSecs * 1000,
-      killSignal: 'SIGKILL',
-      // The container gets ONLY the explicit --env values in containerRunArgs.
-      // This environment belongs to the trusted engine client process.
-      env: process.env,
-    });
+    const r = spawnSync(
+      backend.enginePath,
+      dockerArgs(backend.daemonHost, args),
+      {
+        stdio: 'ignore',
+        timeout: budgetSecs * 1000,
+        killSignal: 'SIGKILL',
+        env: engineClientEnv(),
+      },
+    );
     const secs = Math.round((Date.now() - t0) / 1000);
     if (r.error || r.status === null) {
-      cleanupContainer(engine, name);
+      cleanupContainer(backend, name);
       return { exit: null, secs };
     }
     return { exit: r.status, secs };
   } catch {
-    cleanupContainer(engine, name);
+    cleanupContainer(backend, name);
     return { exit: null, secs: Math.round((Date.now() - t0) / 1000) };
   }
 }
