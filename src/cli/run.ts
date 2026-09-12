@@ -97,14 +97,54 @@ function writeResult(value) {
   try { fs.writeFileSync(resultFile, JSON.stringify(value)); } catch {}
 }
 
+function linuxDescendants(rootPid) {
+  if (process.platform !== 'linux') return [];
+  const byParent = new Map();
+  let names = [];
+  try { names = fs.readdirSync('/proc').filter((x) => /^\\d+$/.test(x)); } catch { return []; }
+  for (const name of names) {
+    const pid = Number(name);
+    try {
+      const stat = fs.readFileSync('/proc/' + name + '/stat', 'utf8');
+      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+      const ppid = Number(fields[1]);
+      if (!Number.isFinite(ppid)) continue;
+      const kids = byParent.get(ppid) || [];
+      kids.push(pid);
+      byParent.set(ppid, kids);
+    } catch {}
+  }
+  const out = [];
+  const seen = new Set([rootPid]);
+  const stack = [rootPid];
+  while (stack.length) {
+    const parent = stack.pop();
+    for (const childPid of (byParent.get(parent) || [])) {
+      if (seen.has(childPid)) continue;
+      seen.add(childPid);
+      out.push(childPid);
+      stack.push(childPid);
+    }
+  }
+  return out;
+}
+
 function killTree(pid) {
   if (!pid) return;
   if (process.platform === 'win32') {
     try { spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' }); } catch {}
     return;
   }
+
+  // Snapshot Linux descendants BEFORE killing the process-group leader. A
+  // descendant may have called setsid() and escaped the group while remaining
+  // in the agent's parent/child tree; /proc still lets us identify it.
+  const descendants = linuxDescendants(pid);
   try { process.kill(-pid, 'SIGKILL'); } catch {
     try { process.kill(pid, 'SIGKILL'); } catch {}
+  }
+  for (const childPid of descendants.reverse()) {
+    try { process.kill(childPid, 'SIGKILL'); } catch {}
   }
 }
 
@@ -149,6 +189,44 @@ child.once('exit', (code, signal) => {
 });
 `;
 
+function linuxDescendantPids(rootPid: number): number[] {
+  if (process.platform !== 'linux') return [];
+  const byParent = new Map<number, number[]>();
+  let names: string[];
+  try {
+    names = readdirSync('/proc').filter((x) => /^\d+$/.test(x));
+  } catch {
+    return [];
+  }
+  for (const name of names) {
+    const pid = Number(name);
+    try {
+      const stat = readFileSync(`/proc/${name}/stat`, 'utf8');
+      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+      const ppid = Number(fields[1]);
+      if (!Number.isFinite(ppid)) continue;
+      const kids = byParent.get(ppid) ?? [];
+      kids.push(pid);
+      byParent.set(ppid, kids);
+    } catch {
+      // raced with process exit
+    }
+  }
+  const out: number[] = [];
+  const seen = new Set<number>([rootPid]);
+  const stack = [rootPid];
+  while (stack.length) {
+    const parent = stack.pop()!;
+    for (const childPid of byParent.get(parent) ?? []) {
+      if (seen.has(childPid)) continue;
+      seen.add(childPid);
+      out.push(childPid);
+      stack.push(childPid);
+    }
+  }
+  return out;
+}
+
 function killAgentTree(pid: number): void {
   if (!Number.isInteger(pid) || pid <= 1) return;
   if (process.platform === 'win32') {
@@ -160,10 +238,15 @@ function killAgentTree(pid: number): void {
     }
     return;
   }
+
+  const descendants = linuxDescendantPids(pid);
   try {
     process.kill(-pid, 'SIGKILL');
   } catch {
     try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+  }
+  for (const childPid of descendants.reverse()) {
+    try { process.kill(childPid, 'SIGKILL'); } catch { /* already gone */ }
   }
 }
 
