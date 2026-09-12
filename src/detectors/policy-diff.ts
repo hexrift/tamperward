@@ -20,7 +20,7 @@ interface RawPolicyShape {
   ignore?: string[];
   protected?: Record<string, string[]>;
   signoff?: { required_for?: string[]; requiredFor?: string[]; ledger?: string };
-  verify?: { command?: string; budget?: number; inputs?: string[] };
+  verify?: { command?: string; budget?: number; inputs?: string[]; backend?: string; image?: string };
 }
 
 interface EffectivePolicy {
@@ -200,6 +200,28 @@ export function policyWeakening(before: string, after: string): string[] | null 
       if (droppedInputs.length) {
         reasons.push(
           `verify.inputs narrowed (removed ${droppedInputs.join(', ')}) — the pristine run would execute the candidate's copy of those files`,
+        );
+      }
+
+      // Backend identity is authority identity. Once a trusted policy requires
+      // container isolation, omitting/changing it falls back to the weaker
+      // same-host verifier. Changing the pinned image swaps the verifier's
+      // runtime/dependency authority just as surely as changing command swaps
+      // the suite.
+      const beforeBackend = bv.backend ?? 'local';
+      const afterBackend = av.backend ?? 'local';
+      if (beforeBackend === 'container' && afterBackend !== 'container') {
+        reasons.push(
+          `verify.backend lowered container → ${afterBackend} — final verification would leave the isolated trust domain`,
+        );
+      }
+      if (
+        beforeBackend === 'container' &&
+        afterBackend === 'container' &&
+        av.image !== bv.image
+      ) {
+        reasons.push(
+          `verify.image changed (${bv.image ?? '<missing>'} → ${av.image ?? '<missing>'}) — the trusted verifier image identity changed`,
         );
       }
     }
