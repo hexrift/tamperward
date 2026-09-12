@@ -39,8 +39,9 @@ The default `local` backend is checkpointed same-host verification. The optional
 `container` backend is a stronger frozen-artifact boundary: its digest-pinned image
 must already be provisioned, Docker is never allowed to pull during adjudication, the
 candidate/pristine input is read-only, runtime/dependencies belong to the image, network
-is disabled, and HOME/tmp/output are private to the container. Write suite artifacts to
-`$TAMPERWARD_OUTPUT_DIR` if needed.
+is disabled, and HOME/tmp/output are private to the container. Images with Dockerfile
+`VOLUME` declarations are rejected because those mount points would remain writable
+despite `--read-only`. Write suite artifacts to `$TAMPERWARD_OUTPUT_DIR` if needed.
 
 Changing the command, lowering the budget, narrowing `inputs`, removing an isolated
 backend, or changing its image is itself reported as policy weakening.
