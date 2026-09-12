@@ -42,6 +42,7 @@ import { loadPolicy, loadPolicyAt } from '../policy-load';
 import { objectRewriteState, trustedGitEnv } from '../git/trusted';
 import { treeFingerprint } from '../fingerprint';
 import { checkDependencyEnvironment, dependencyEnvironmentSummary, discoverDependencyEnvironment } from '../dependency-env';
+import { prepareVerifierBackend, verifierBackendSummary } from '../verifier-backend';
 import { defaultPolicy, isProtected } from '../policy';
 import { Policy } from '../types';
 
@@ -206,17 +207,36 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     }
   }
 
-  // Freeze the runner/interpreter/package environment BEFORE the agent. This is
-  // a descriptor, not a rediscovery recipe: every later check re-hashes exactly
-  // these roots, so candidate mutation cannot move the boundary it is judged by.
-  const dependencyEnvironment = discoverDependencyEnvironment(cwd, frozenCmd);
+  // Establish the FINAL verification execution boundary BEFORE the agent is
+  // allowed to run. Container mode never degrades to local: if the engine or
+  // digest-pinned image is unavailable, there is no authority boundary and the
+  // envelope refuses before candidate code gets a turn.
+  const verifierBackend = prepareVerifierBackend(frozenPolicy.verify);
   out(`tamperward run — trusted base ${base.slice(0, 10)}; agent exit is untrusted.`);
-  out(`tamperward run — dependency environment: ${dependencyEnvironmentSummary(dependencyEnvironment)}`);
-  if (dependencyEnvironment.status === 'unattestable' && !opts.allowDepDrift) {
-    err('tamperward run: the verifier dependency environment cannot be attested —');
-    err(`${dependencyEnvironment.reason ?? 'unknown dependency environment'}. Failing closed before the agent starts.`);
-    err('(Pass --allow-dep-drift only if you explicitly own this dependency-integrity risk.)');
+  out(`tamperward run — verifier backend: ${verifierBackendSummary(verifierBackend)}`);
+  if (!verifierBackend.available) {
+    err('tamperward run: the requested verifier backend cannot be established —');
+    err(`${verifierBackend.reason ?? 'unknown backend failure'}. Failing closed before the agent starts.`);
     return 2;
+  }
+
+  // Dependency attestation is the weaker LOCAL-backend control. The isolated
+  // backend deliberately shares no host dependency tree at all: its immutable
+  // image owns runtime/dependencies and only a materialised candidate copy
+  // crosses the boundary.
+  const dependencyEnvironment = verifierBackend.kind === 'local'
+    ? discoverDependencyEnvironment(cwd, frozenCmd)
+    : null;
+  if (dependencyEnvironment) {
+    out(`tamperward run — dependency environment: ${dependencyEnvironmentSummary(dependencyEnvironment)}`);
+    if (dependencyEnvironment.status === 'unattestable' && !opts.allowDepDrift) {
+      err('tamperward run: the verifier dependency environment cannot be attested —');
+      err(`${dependencyEnvironment.reason ?? 'unknown dependency environment'}. Failing closed before the agent starts.`);
+      err('(Pass --allow-dep-drift only if you explicitly own this dependency-integrity risk.)');
+      return 2;
+    }
+  } else {
+    out(`tamperward run — dependency environment: verifier-owned by ${verifierBackend.image ?? 'isolated image'}`);
   }
   // What the object layer resolves to. Every read of the trusted base — the
   // pristine overlay, the ancestry assertion, the ranged diff — goes through
@@ -254,7 +274,9 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   // leaves the entry-vs-exit fingerprints identical. Reproduced end to end —
   // GREEN MEANS GREEN over an unfixed bug. The state that matters is the one
   // the checks are about to execute, so it is compared HERE, before them.
-  const dependencyBeforeAdjudication = checkDependencyEnvironment(cwd, dependencyEnvironment);
+  const dependencyBeforeAdjudication = dependencyEnvironment
+    ? checkDependencyEnvironment(cwd, dependencyEnvironment)
+    : { ok: true as const };
   if (!dependencyBeforeAdjudication.ok) {
     err('tamperward run: the frozen dependency environment changed before adjudication began —');
     err(`${dependencyBeforeAdjudication.reason ?? 'dependency identity changed'}.`);
@@ -295,8 +317,9 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     cmd: frozenCmd,
     budget: frozenBudget,
     policyOverride: frozenPolicy,
-    dependencyEnvironment,
+    ...(dependencyEnvironment ? { dependencyEnvironment } : {}),
     allowDepDrift: opts.allowDepDrift,
+    verifierBackend,
   });
 
   // Quiescence. A survivor that edits the tree during — or after — the checks
@@ -314,8 +337,10 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     err('tamperward run: the working tree changed while it was being adjudicated —');
     err('the verdict below would describe a tree that no longer exists.');
   }
-  const dependencyAfter = checkDependencyEnvironment(cwd, dependencyEnvironment);
-  const depsDrifted = !opts.allowDepDrift && !dependencyAfter.ok;
+  const dependencyAfter = dependencyEnvironment
+    ? checkDependencyEnvironment(cwd, dependencyEnvironment)
+    : { ok: true as const };
+  const depsDrifted = Boolean(dependencyEnvironment) && !opts.allowDepDrift && !dependencyAfter.ok;
   if (depsDrifted) {
     err('tamperward run: the frozen dependency environment changed during this run —');
     err(`${dependencyAfter.reason ?? 'dependency identity changed'}. Both verification runs depend on it.`);
