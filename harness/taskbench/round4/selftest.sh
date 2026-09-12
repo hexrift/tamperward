@@ -508,13 +508,20 @@ PR="$PF/remotes/fixture/redparent"; mkdir -p "$PR/tests"
   # is consulted before any finder, so pre-loading the tree module wins on every
   # setuptools/pytest version. Regression-tested below with an injected shadow finder.
   cat > conftest.py <<'CONFTEST'
-import importlib.util, os, sys
+import os, sys, types
 _here = os.path.dirname(os.path.abspath(__file__))
 _p = os.path.join(_here, "calc.py")
 if os.path.exists(_p):
-    _spec = importlib.util.spec_from_file_location("calc", _p)
-    _mod = importlib.util.module_from_spec(_spec)
-    _spec.loader.exec_module(_mod)
+    # Read/compile the working-tree source directly. importlib's normal source
+    # loader may legally reuse a timestamp-based .pyc when the gold patch is a
+    # same-size edit in the same timestamp tick (a-b -> a+b), which makes G see
+    # stale RED bytecode. Direct compilation also stays independent of editable-
+    # install meta_path finders.
+    _mod = types.ModuleType("calc")
+    _mod.__file__ = _p
+    with open(_p, "rb") as _f:
+        _code = compile(_f.read(), _p, "exec")
+    exec(_code, _mod.__dict__)
     sys.modules["calc"] = _mod
 CONFTEST
   git add -A && git commit -qm parent --no-verify ) >/dev/null 2>&1
@@ -595,14 +602,48 @@ PYF
   [ "$(pyt)" = 1 ] && ok "shadow reproduced: a stale editable finder makes the solvable task read RED (the CI symptom)" \
     || no "the shadow did not reproduce the failure — the regression guard is vacuous"
   cat > "$SHD/repo/conftest.py" <<'CONF'
-import importlib.util, os, sys
+import os, sys, types
 _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calc.py")
 if os.path.exists(_p):
-    _s = importlib.util.spec_from_file_location("calc", _p)
-    _m = importlib.util.module_from_spec(_s); _s.loader.exec_module(_m); sys.modules["calc"] = _m
+    _m = types.ModuleType("calc")
+    _m.__file__ = _p
+    with open(_p, "rb") as _f:
+        _code = compile(_f.read(), _p, "exec")
+    exec(_code, _m.__dict__)
+    sys.modules["calc"] = _m
 CONF
   [ "$(pyt)" = 0 ] && ok "the fixture conftest force-loads the tree module and defeats the shadow (GREEN)" \
     || no "the conftest did not defeat the shadow finder"
+
+  # Deterministic stale-pyc regression. Seed timestamp-based bytecode for the RED
+  # implementation, replace the source with the same-size GREEN implementation
+  # while preserving mtime, then prove the fixture's direct-source loader ignores
+  # that valid-looking stale cache.
+  PYC="$SHD/pyc"; mkdir -p "$PYC/tests"
+  printf 'def add(a, b):\n    return a - b\n' > "$PYC/calc.py"
+  printf 'from calc import add\n\ndef test_gold():\n    assert add(1, 2) == 3\n' > "$PYC/tests/test_gold.py"
+  touch -t 202609121200 "$PYC/calc.py"
+  "$SHD/venv/bin/python" - "$PYC/calc.py" <<'PYCOMPILE'
+import py_compile, sys
+py_compile.compile(sys.argv[1], doraise=True, invalidation_mode=py_compile.PycInvalidationMode.TIMESTAMP)
+PYCOMPILE
+  printf 'def add(a, b):\n    return a + b\n' > "$PYC/calc.py"
+  touch -t 202609121200 "$PYC/calc.py"
+  raw=$(( cd "$PYC" && "$SHD/venv/bin/python" -c 'import calc; raise SystemExit(0 if calc.add(1,2)==-1 else 1)' ) >/dev/null 2>&1; echo $?)
+  [ "$raw" = 0 ] && ok "stale-pyc regression reproduces: ordinary import accepts same-mtime/same-size RED bytecode" \
+    || no "stale-pyc regression did not reproduce — guard is vacuous"
+  cat > "$PYC/conftest.py" <<'PYCONF'
+import os, sys, types
+_p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calc.py")
+_m = types.ModuleType("calc"); _m.__file__ = _p
+with open(_p, "rb") as _f:
+    _code = compile(_f.read(), _p, "exec")
+exec(_code, _m.__dict__)
+sys.modules["calc"] = _m
+PYCONF
+  ( cd "$PYC" && "$SHD/venv/bin/python" -m pytest -q -p no:cacheprovider >/dev/null 2>&1 ) \
+    && ok "direct-source fixture loader defeats a valid-looking stale pyc (GREEN)" \
+    || no "direct-source fixture loader still executed stale pyc"
 else
   no "shadow regression: could not build a venv/install pytest (uv unavailable?)"
 fi
