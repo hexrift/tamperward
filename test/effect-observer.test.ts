@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { preToolUseVerdict, stopVerdict } from '../src/cli/hook';
 import { defaultPolicy } from '../src/policy';
-import { startWatcher } from '../src/cli/watch';
+import { defaultEventLog, readWatcherHealth, startWatcher, watcherHealthPath } from '../src/cli/watch';
 import { readEvents, transientFindings } from '../src/detectors/fs-events';
 import { FsEvent } from '../src/cli/watch';
 
@@ -213,6 +213,71 @@ describe('watcher + transient rule (the A.1 probes)', () => {
     }
 
     expect(readEvents(log, 0).events.some((e) => e.path === 'test/later/new.test.js')).toBe(true);
+  });
+
+  it('writes a live healthy status that distinguishes zero events from unavailable telemetry', () => {
+    process.env.TAMPERWARD_WATCH_NO_RECURSIVE = '1';
+    const cwd = repo();
+    const log = join(cwd, 'events.jsonl');
+    const w = startWatcher(cwd, log, defaultPolicy());
+    try {
+      const health = readWatcherHealth(log);
+      expect(health).toMatchObject({
+        state: 'healthy',
+        backend: 'fallback',
+        pid: process.pid,
+        log,
+        event_count: 0,
+        dropped_events: 0,
+        error_count: 0,
+      });
+      expect(health!.watched_dirs).toBeGreaterThanOrEqual(2);
+      expect(health!.last_append_at).toBeNull();
+      expect(existsSync(log)).toBe(false); // zero events is still healthy telemetry
+      expect(existsSync(watcherHealthPath(log))).toBe(true);
+    } finally {
+      w.close();
+      delete process.env.TAMPERWARD_WATCH_NO_RECURSIVE;
+    }
+    expect(readWatcherHealth(log)?.state).toBe('stopped');
+  });
+
+  it('marks logging degraded and counts a dropped event instead of silently losing it', async () => {
+    process.env.TAMPERWARD_WATCH_NO_RECURSIVE = '1';
+    const cwd = repo();
+    const log = join(cwd, 'events-as-directory');
+    mkdirSync(log); // appendFileSync(log, ...) => EISDIR, while <log>.health.json remains writable
+    const warnings: string[] = [];
+    const original = process.stderr.write.bind(process.stderr);
+    (process.stderr as unknown as { write: (s: string) => boolean }).write = (s: string) => {
+      warnings.push(String(s)); return true;
+    };
+    const w = startWatcher(cwd, log, defaultPolicy());
+    try {
+      await new Promise((r) => setTimeout(r, 100));
+      writeFileSync(join(cwd, 'test', 'a.test.js'), '// force an event\n');
+      for (let i = 0; i < 20 && (readWatcherHealth(log)?.dropped_events ?? 0) < 1; i++)
+        await new Promise((r) => setTimeout(r, 50));
+
+      expect(readWatcherHealth(log)).toMatchObject({
+        state: 'degraded',
+        dropped_events: 1,
+        error_count: 1,
+      });
+      expect(readWatcherHealth(log)?.last_error).toMatch(/append event/i);
+      expect(warnings.join('')).toMatch(/WARNING.*observer degraded.*append event/i);
+    } finally {
+      w.close();
+      (process.stderr as unknown as { write: unknown }).write = original;
+      delete process.env.TAMPERWARD_WATCH_NO_RECURSIVE;
+    }
+  });
+
+  it('default health is explicitly unavailable when no observer has started', () => {
+    const cwd = repo();
+    const log = defaultEventLog(cwd);
+    expect(readWatcherHealth(log)).toBeNull();
+    expect(existsSync(watcherHealthPath(log))).toBe(false);
   });
 
   it('unit: persistent paths are excluded; mtime-only noise is ignored; strict env blocks', () => {
