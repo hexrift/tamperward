@@ -209,7 +209,10 @@ function inside(root: string, path: string): boolean {
 }
 
 function linkParts(path: string): string[] {
-  return path.split(sep).filter((part) => part !== '' && part !== '.');
+  // Windows path APIs accept both separators in symlink targets. Split both
+  // there, but keep backslash as an ordinary filename character on POSIX.
+  const parts = sep === '\\' ? path.split(/[\\/]+/) : path.split('/');
+  return parts.filter((part) => part !== '' && part !== '.');
 }
 
 function linkEscape(label: string, target: string): Error {
