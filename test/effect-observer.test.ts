@@ -305,6 +305,29 @@ describe('watcher + transient rule (the A.1 probes)', () => {
     }
   });
 
+  it('Stop audit distinguishes unavailable observer from healthy zero-event telemetry', () => {
+    const cwd = repo();
+    const deny = join(cwd, 'deny.log');
+    process.env.TAMPERWARD_DENYLOG = deny;
+    try {
+      stopVerdict({ cwd, session_id: 'health-none' });
+      expect(readFileSync(deny, 'utf8')).toContain('warn:transient-observer:unavailable');
+
+      rmSync(deny, { force: true });
+      process.env.TAMPERWARD_WATCH_NO_RECURSIVE = '1';
+      const w = startWatcher(cwd, defaultEventLog(cwd), defaultPolicy());
+      try {
+        stopVerdict({ cwd, session_id: 'health-ok' });
+        expect(existsSync(deny) ? readFileSync(deny, 'utf8') : '').not.toContain('transient-observer');
+      } finally {
+        w.close();
+        delete process.env.TAMPERWARD_WATCH_NO_RECURSIVE;
+      }
+    } finally {
+      delete process.env.TAMPERWARD_DENYLOG;
+    }
+  });
+
   it('Stop consumes the event log and surfaces strict transients as blocks', async () => {
     const cwd = repo();
     const gitDirEvents = join(cwd, '.git', 'tamperward');
