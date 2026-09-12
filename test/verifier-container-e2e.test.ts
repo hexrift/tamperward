@@ -430,3 +430,87 @@ describe('oracle-strength reporting (#350)', () => {
     });
   }, 60_000);
 });
+
+
+describe('isolated verifier resource envelope (#346)', () => {
+  containerIt('reports Docker-confirmed memory exhaustion as cannot-adjudicate', () => {
+    const memoryBytes = 96 * 1024 * 1024;
+    const { cwd } = boundaryRepo(
+      `node -e "const a=[]; setInterval(() => a.push(Buffer.alloc(8*1024*1024, 1)), 1)"`,
+      30,
+    );
+    const prepared = prepareVerifierBackend({
+      command: `node -e "const a=[]; setInterval(() => a.push(Buffer.alloc(8*1024*1024, 1)), 1)"`,
+      budget: 30,
+      backend: 'container',
+      image: BASE_IMAGE,
+    });
+    expect(prepared.available).toBe(true);
+    prepared.resources = {
+      memoryBytes,
+      memorySwapBytes: memoryBytes,
+      cpus: 1,
+      pids: 64,
+    };
+
+    const r = capture(() =>
+      runVerify({
+        cwd,
+        base: 'HEAD',
+        json: true,
+        verifierBackend: prepared,
+      }),
+    );
+
+    expect(r.code).toBe(2);
+    expect(r.json).toMatchObject({
+      verdict: 'CANNOT_VERIFY',
+      reason: 'VERIFIER_RESOURCE_EXHAUSTED',
+      stage: 'visible',
+      resource: 'memory',
+      verifier_backend: {
+        resources: {
+          memory_bytes: memoryBytes,
+          memory_swap_bytes: memoryBytes,
+          cpus: 1,
+          pids: 64,
+        },
+      },
+    });
+    expect(remainingVerifierContainers()).toEqual([]);
+  }, 60_000);
+
+  containerIt('CPU-bound hostile code remains bounded by CPU quota plus wall-clock budget', () => {
+    const { cwd } = boundaryRepo(`node -e "while (true) {}"`, 1);
+    const prepared = prepareVerifierBackend({
+      command: `node -e "while (true) {}"`,
+      budget: 1,
+      backend: 'container',
+      image: BASE_IMAGE,
+    });
+    expect(prepared.available).toBe(true);
+    prepared.resources = {
+      memoryBytes: 256 * 1024 * 1024,
+      memorySwapBytes: 256 * 1024 * 1024,
+      cpus: 0.25,
+      pids: 64,
+    };
+
+    const r = capture(() =>
+      runVerify({
+        cwd,
+        base: 'HEAD',
+        json: true,
+        verifierBackend: prepared,
+      }),
+    );
+
+    expect(r.code).toBe(2);
+    expect(r.json.verdict).toBe('BUDGET_EXCEEDED');
+    expect(r.json.verifier_backend.resources).toMatchObject({
+      cpus: 0.25,
+      pids: 64,
+    });
+    expect(remainingVerifierContainers()).toEqual([]);
+  }, 60_000);
+});
