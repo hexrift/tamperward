@@ -114,14 +114,17 @@ function gitText(cwd: string, args: string[]): string | null {
   }
 }
 
+export function githubRepoFromRemote(remote: string): string | null {
+  const m = remote.match(/github\.com(?::|\/)([^/\s]+)\/([^/\s]+?)(?:\.git)?$/i);
+  return m ? m[1] + '/' + m[2].replace(/\.git$/i, '') : null;
+}
+
 function inferGitHubRepo(cwd: string): string | null {
   const envRepo = process.env.GITHUB_REPOSITORY;
   if (envRepo && /^[^/\s]+\/[^/\s]+$/.test(envRepo)) return envRepo;
 
   const remote = gitText(cwd, ['config', '--get', 'remote.origin.url']);
-  if (!remote) return null;
-  const m = remote.match(/github\.com(?::|\/)([^/\s]+)\/([^/\s]+?)(?:\.git)?$/i);
-  return m ? m[1] + '/' + m[2].replace(/\.git$/i, '') : null;
+  return remote ? githubRepoFromRemote(remote) : null;
 }
 
 const GITHUB_API_SCRIPT = [
@@ -210,7 +213,7 @@ function githubAuthority(
   let branchProtection: unknown;
   let classicError: Error | null = null;
   try {
-    branchProtection = ghApi(
+    branchProtection = githubApi(
       cwd,
       'repos/' + repo + '/branches/' + encodeURIComponent(branch) + '/protection',
     );
