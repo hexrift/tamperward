@@ -50,6 +50,11 @@ or container-runtime failure after preflight is `CANNOT_VERIFY` / exit 2 rather 
 `SUITE_RED` or `MASKED_FAILURE`; a real candidate suite exit such as 125 remains a
 suite failure because the container's own state proves it actually ran. This closes #345.
 
+**Image-declared writable volumes are refused.** Dockerfile `VOLUME` paths become
+separate writable mounts even when the container root filesystem is `--read-only`, so
+backend preflight inspects the pinned image metadata and fails closed when any are
+declared. Container cleanup also removes anonymous volumes defensively. This closes #347.
+
 The isolated backend still relies on wall-clock and PID limits rather than explicit CPU and
 memory ceilings. Host resource-exhaustion hardening is tracked separately in #346; it is an
 availability/process-interference residual, not a known false-green path.
