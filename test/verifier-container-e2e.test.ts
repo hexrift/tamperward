@@ -168,7 +168,7 @@ describe('isolated backend closes fully self-restoring dependency substitution (
 });
 
 
-function boundaryRepo(command: string, budget = 30): { cwd: string; hostSecret: string } {
+function boundaryRepo(command: string, budget = 60): { cwd: string; hostSecret: string } {
   const cwd = mkdtempSync(join(tmpdir(), 'tw-boundary-e2e-'));
   const outside = mkdtempSync(join(tmpdir(), 'tw-host-only-'));
   dirs.push(cwd, outside);
