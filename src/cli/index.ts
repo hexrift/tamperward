@@ -3,12 +3,9 @@
 // allow commands are dispatched in main.ts.
 
 import { guardedMain } from './main';
-import { runWatch } from './watch';
 
 const argv = process.argv.slice(2);
-if (argv[0] === 'watch') {
-  // Daemon: the fs watcher keeps the event loop alive; exit is via signal.
-  runWatch(argv.slice(1));
-} else {
-  process.exit(guardedMain(argv));
-}
+const code = guardedMain(argv);
+// watch returns -1 after installing its daemon watchers; do not call
+// process.exit in that case because the event loop is the daemon lifetime.
+if (code >= 0) process.exit(code);
