@@ -351,7 +351,12 @@ export function runContainerStage(
     !backend.daemonHost ||
     !engineStable(backend)
   ) {
-    return { exit: null, secs: 0 };
+    return {
+      exit: null,
+      secs: 0,
+      failure: 'backend',
+      reason: 'isolated verifier authority is incomplete or changed before stage execution',
+    };
   }
 
   const name = `tamperward-verify-${process.pid}-${randomUUID().slice(0, 12)}`;
