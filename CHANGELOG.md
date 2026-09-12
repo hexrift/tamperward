@@ -55,6 +55,12 @@ separate writable mounts even when the container root filesystem is `--read-only
 backend preflight inspects the pinned image metadata and fails closed when any are
 declared. Container cleanup also removes anonymous volumes defensively. This closes #347.
 
+**Verifier image startup defaults cannot replace the trusted suite command.** Docker
+normally appends positional commands to an image `ENTRYPOINT`; the isolated backend now
+overrides that entrypoint with `/bin/sh` and passes the frozen policy command directly as
+`-c`. The image remains runtime/dependency authority, while `verify.command` remains
+command authority. This closes #349.
+
 The isolated backend still relies on wall-clock and PID limits rather than explicit CPU and
 memory ceilings. Host resource-exhaustion hardening is tracked separately in #346; it is an
 availability/process-interference residual, not a known false-green path.
