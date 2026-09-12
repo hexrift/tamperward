@@ -210,8 +210,11 @@ pinned Tamperward version, and label permissions restricted to trusted humans.
 The default local verifier is checkpointed same-host execution, not OS isolation.
 An optional digest-pinned container backend isolates final verification with no network,
 host dependency tree, HOME, temp, credential or socket sharing. Tamperward still is not a
-semantic-correctness oracle, and `tamperward run` does not pretend that a same-identity
-host agent is isolated from the Docker daemon.
+semantic-correctness oracle: verifier output reports `oracle_assurance: suite-exit-only`
+because candidate source still executes inside the configured suite process and can
+terminate or interpose on that in-process oracle. `isolated-container` therefore means
+execution-domain isolation, not semantic/oracle isolation. `tamperward run` also does
+not pretend that a same-identity host agent is isolated from the Docker daemon.
 
 Full assumptions and residual risks: [SPEC.md](./SPEC.md),
 [SECURITY-ENVELOPE.md](./SECURITY-ENVELOPE.md), and the
