@@ -850,14 +850,21 @@ export function runInit(opts: InitOpts): number {
   // one thing without which the CI half of this tool is decorative.
   w.write(
     '\nONE STEP LEFT, AND IT IS NOT OPTIONAL. In your branch-protection or ruleset\n' +
-      'settings for the default branch, require the tamperward check AND enable\n' +
-      '"Require review from Code Owners".\n\n' +
-      'Until you do, the CI gate is advisory. A pull request runs the workflow from\n' +
-      'its OWN head, and a required check is matched by job name — so a pull request\n' +
-      'can keep the job called `tamperward`, replace the gate with `true`, and present\n' +
-      'a green required check over a change the gate would have blocked. That is\n' +
-      'reproduced, not theoretical. CODEOWNERS is what puts a human in front of it;\n' +
-      'branch protection is what makes CODEOWNERS bind.\n',
+      'settings for the default branch, configure ALL THREE repository-authority controls:\n' +
+      '  1. require the tamperward check;\n' +
+      '  2. enable "Require review from Code Owners"; and\n' +
+      '  3. enable "Dismiss stale pull request approvals when new commits are pushed".\n\n' +
+      'The freshness control is part of the security boundary: an approval for an older\n' +
+      'gate-critical diff must not authorize a later push. "Require approval of the most\n' +
+      'recent reviewable push" can be useful in addition, but is not a substitute here\n' +
+      'because the fresh approver is not necessarily the Code Owner for the gate path.\n\n' +
+      'Until all three are enforced, the CI gate is advisory. A pull request runs the\n' +
+      'workflow from its OWN head, and a required check is matched by job name — so a\n' +
+      'pull request can keep the job called `tamperward`, replace the gate with `true`,\n' +
+      'and present a green required check over a change the gate would have blocked.\n' +
+      'CODEOWNERS puts a human in front of gate-critical paths; branch protection or an\n' +
+      'active ruleset makes that review fresh and binding. Verify with: tamperward doctor\n' +
+      '--github --repo OWNER/REPO --branch <default-branch>.\n',
   );
   return 0;
 }

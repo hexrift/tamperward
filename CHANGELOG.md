@@ -5,6 +5,39 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.13.0] — 2026-09-12
+
+**The GitHub repository-authority boundary now requires fresh Code Owner approval
+after every new push to gate-critical paths.** `tamperward init` previously named
+the required `tamperward` status check and **Require review from Code Owners**, but
+did not require GitHub to invalidate approvals granted to an older diff.
+
+The documented deployment contract now requires all three:
+1. required `tamperward` status check;
+2. required Code Owner review over the gate-critical CODEOWNERS paths; and
+3. **Dismiss stale pull request approvals when new commits are pushed**.
+
+"Require approval of the most recent reviewable push" is not treated as an equivalent
+freshness control: that setting guarantees a fresh approver distinct from the last
+pusher, not that the fresh approver is the Code Owner for the gate-critical path.
+
+`tamperward doctor --github [--repo OWNER/REPO] [--branch BRANCH]` adds an executable
+check of that human boundary. It reads the active rules that apply to the protected
+branch and, where needed/available, classic branch protection; requirements can compose
+across those two GitHub mechanisms. The doctor fails closed if it cannot prove the
+required status check, Code Owner review, and stale-review dismissal.
+
+The GitHub query path does not invoke a `gh` binary from candidate-influenced `PATH`.
+TamperWard launches its own Node executable with a minimal environment and passes only
+the selected `GH_TOKEN`/`GITHUB_TOKEN` through a dedicated child variable, excluding
+`PATH`, `NODE_OPTIONS`, `NODE_PATH`, and loader variables from startup authority.
+
+TDD began with a missing `evaluateGitHubProtection` API and explicit controls for
+rulesets, classic protection, composed protection, last-push-only insufficiency, and
+the operator instructions. The transport boundary is separately regression-tested.
+
+This closes #332.
+
 ## [2.12.0] — 2026-09-12
 
 **Generated CI now owns an explicit verifier outer-time contract, without breaking

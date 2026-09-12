@@ -50,6 +50,9 @@ function parseDoctor(args: string[]): DoctorOpts {
     if (a === '--cwd') o.cwd = args[++i];
     else if (a === '--base') o.base = args[++i];
     else if (a === '--workflow') o.workflow = args[++i];
+    else if (a === '--github') o.github = true;
+    else if (a === '--repo') o.repo = args[++i];
+    else if (a === '--branch') o.branch = args[++i];
   }
   return o;
 }
@@ -130,9 +133,12 @@ Formats:
                                             did not write, or one you have edited.
   tamperward doctor [--base R]              validate the CI verifier's outer-time
              [--workflow F] [--cwd D]       envelope against the trusted policy.
-                                            Generated PR CI passes the base SHA so
-                                            candidate policy edits cannot choose
-                                            their own timing requirement.
+             [--github] [--repo O/R]        --github also validates repository
+             [--branch B]                   authority: required tamperward status,
+                                            Code Owner review, and stale-review
+                                            dismissal after new pushes. Public
+                                            rules can be read anonymously; set
+                                            GH_TOKEN/GITHUB_TOKEN when needed.
 
 Exit codes: 0 clean · 1 a blocking finding (check), MASKED_FAILURE or SUITE_RED
             (verify), any blocking finding or masked failure (run) · 2 cannot
