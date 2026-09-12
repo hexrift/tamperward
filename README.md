@@ -254,13 +254,26 @@ CI workflow that runs both the diff-time check and pristine verification, and a
 `CODEOWNERS` requirement on the paths that decide whether the gate runs at all.
 It never overwrites anything you wrote; `--dry-run` prints the plan.
 
-**`init` is not sufficient on its own, and it will tell you so.** In your
-branch-protection or ruleset settings you must require the check *and* enable
-"Require review from Code Owners". A `pull_request` workflow runs from the pull
-request's own head and a required check is matched by job name, so without that
-a PR can keep the job name, replace the gate with `true`, and present a green
-required check over a change the gate would have blocked. That is reproduced on
-this project's own CI, not a theoretical concern.
+**`init` is not sufficient on its own, and it will tell you so.** The protected
+branch needs all three repository-authority controls:
+
+1. require the **`tamperward`** status check;
+2. enable **Require review from Code Owners**; and
+3. enable **Dismiss stale pull request approvals when new commits are pushed**.
+
+The third control is load-bearing: an approval for an older gate-critical diff must
+not authorize a later push. GitHub's "require approval of the most recent reviewable
+push" can be useful in addition, but it is not equivalent here because that fresh
+approver is not necessarily the Code Owner for the gate path. A `pull_request`
+workflow runs from the pull request's own head and a required check is matched by job
+name, so without this human boundary a PR can keep the job name, replace the gate with
+`true`, and present a green required check over a change the gate would have blocked.
+That is reproduced on this project's own CI, not a theoretical concern.
+
+After configuring GitHub, verify the boundary with
+`tamperward doctor --github --repo OWNER/REPO --branch <default-branch>`.
+Public rulesets can be read anonymously; set `GH_TOKEN` or `GITHUB_TOKEN` when
+authentication is required.
 
 A real deployment needs a verify command configured — the generated CI verify step
 **fails closed (exit 2) without one** rather than passing quietly. In
