@@ -294,8 +294,17 @@ is the variable list. What remains is stated below.
   a stronger final-verification mode with a different trust boundary.
 
 - **Source-level interference is out of scope here** and belongs to the oracle
-  boundary, not this one: a semantically wrong fix that the base tests accept is
-  invisible to any materialisation rule. That is round 3.1's tableau finding.
+  boundary, not this one. That includes both a semantically wrong fix that the
+  base tests simply accept and active in-process interference by the candidate
+  code under test. For example, candidate source can terminate a trusted
+  single-process test script with `process.exit(0)` while it is being imported,
+  before the trusted assertion runs; equivalent runner monkeypatching can alter
+  registration/assertion behavior without writing policy, tests, dependencies or
+  the verifier filesystem. Container isolation cannot generically forbid that
+  without also forbidding execution of the candidate. #350 tracks completion /
+  collection evidence and held-out/out-of-process oracle directions. The
+  `isolated-container` trust label therefore describes execution-domain
+  integrity, not semantic/oracle isolation.
 
 ## What this means for the published record
 
