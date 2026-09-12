@@ -181,11 +181,16 @@ function fingerprintRoot(
             continue;
           }
           if (inside(cwdReal, resolved)) {
-            // npm workspaces point back into candidate source. Hash the link
-            // identity, but leave target bytes to the candidate-tree checks so
-            // an honest source edit is not mislabeled DEPENDENCY_DRIFT.
-            h.update('@candidate-tree:' + relative(cwdReal, resolved) + '\0');
-            continue;
+            // A workspace link into candidate source cannot stay pointed at the
+            // ORIGINAL worktree: visible/pristine copies would otherwise escape
+            // their materialised trees and execute live candidate bytes. Until
+            // materialisation can remap this edge faithfully into each copy,
+            // refusing is safer than certifying a contaminated pristine run.
+            throw new Unattestable(
+              'dependency workspace symlink ' + JSON.stringify(path) +
+              ' points into the candidate worktree at ' + JSON.stringify(resolved) +
+              '; faithful per-copy remapping is not available',
+            );
           }
           throw new Unattestable(
             'dependency directory symlink ' + JSON.stringify(path) +
