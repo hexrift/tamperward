@@ -20,9 +20,11 @@ selected Python virtual environment. The fingerprint covers bytes, entry kind, l
 target and executable mode across the frozen root, including site-packages and the
 interpreter identity. A normal virtualenv interpreter symlink to an external interpreter
 file is accounted for by hashing the target file's bytes and mode. Directory links that
-leave the bounded dependency root fail closed; npm workspace links back into candidate
-source record only their link identity, leaving the source bytes to ordinary tree/policy
-adjudication rather than falsely making honest source edits dependency drift.
+leave the bounded dependency root fail closed. npm workspace links back into candidate
+source also fail closed for now: allowing the external link would make each materialised
+verifier copy resolve back into the original live worktree. Faithful per-copy workspace
+remapping belongs to the isolated/materialised dependency backend rather than being
+papered over as a hash exception.
 
 The same descriptor is reused — never rediscovered from candidate-mutated state — before
 adjudication, around visible/pristine verification and at final quiescence. The verifier's
@@ -35,11 +37,17 @@ attestor; they fail closed unless the operator explicitly passes `--allow-dep-dr
 
 `verify --json` now reports the dependency-environment status, attested roots and
 fingerprint, and text output states the same trust assumption. Regression coverage includes
-persistent interpreter replacement, site-packages drift, a transient substitution that
-actually fools both suite runs and restores the interpreter, external-root refusal,
+persistent interpreter replacement, site-packages drift, stage-delayed dependency drift
+after both suite invocations restored the interpreter, external-root refusal,
 normal external-interpreter symlinks, unsupported ecosystems, an unresolved direct venv
-executable, npm workspace source edits, honest Python/Node controls and the explicit
-operator override.
+executable, workspace-link fail-closed behavior, honest Python/Node controls and the
+explicit operator override.
+
+**Checkpoint attestation is not mutation prevention.** A dependency mutation that occurs
+entirely inside one suite-execution window and restores every attested byte/mode/link
+before the next checkpoint is not proven observable by this release. That narrower
+residual is tracked in #341 and is expected to close structurally with verifier-owned,
+non-candidate-writable dependencies rather than with a sampling race.
 
 ## [2.10.8] — 2026-09-12
 
