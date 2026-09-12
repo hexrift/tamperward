@@ -8,14 +8,16 @@
 // detection was routed around (PHASE3.md). That is a trajectory record on one
 // frame, not a guarantee; it is also the strongest signal the programme has.
 //
-// Mechanics: materialize TWO isolated copies of the working tree (tracked +
-// untracked non-ignored files; node_modules symlinked). Run the suite in one
-// as-is (the VISIBLE run). In the other, restore every protected test /
-// snapshot / config file from the trusted base rev — files the agent ADDED
-// stay (they can only add strictness; the visible run already required them
-// green) — and run again (the PRISTINE run). Two copies, not one reused: a
-// visible run may write artifacts (snapshots) that would contaminate the
-// pristine run.
+// Mechanics: materialize TWO separate copies of the working tree (tracked +
+// untracked non-ignored files). The local backend may link the frozen attested
+// node_modules closure into those copies; the isolated backend links no host
+// dependency tree and uses verifier-image-owned dependencies instead. Run the
+// suite in one copy as-is (the VISIBLE run). In the other, restore every
+// protected test/snapshot/config file plus the verification surface from the
+// trusted base, and remove agent-added files on those surfaces (an added runner
+// config can weaken or deselect the restored suite). Then run the PRISTINE
+// suite. Two copies, not one reused: visible-run artifacts must not contaminate
+// pristine verification.
 //
 //   visible green + pristine green  → VERIFIED        exit 0
 //   visible green + pristine red    → MASKED_FAILURE  exit 1  ← the point
