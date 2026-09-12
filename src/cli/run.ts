@@ -101,7 +101,7 @@ function linuxDescendants(rootPid) {
   if (process.platform !== 'linux') return [];
   const byParent = new Map();
   let names = [];
-  try { names = fs.readdirSync('/proc').filter((x) => /^\\d+$/.test(x)); } catch { return []; }
+  try { names = fs.readdirSync('/proc').filter((x) => /^\d+$/.test(x)); } catch { return []; }
   for (const name of names) {
     const pid = Number(name);
     try {
