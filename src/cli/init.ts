@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync, statSync
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { POLICY_FILE } from '../policy';
 import { loadPolicy } from '../policy-load';
-import { HOOK_CMD, MARKER, OURS, PRECOMMIT_CMD, PRE_MATCHER, SWEEP_CMD, TW_VERSION } from '../wiring';
+import { HOOK_CMD, MARKER, OURS, PRECOMMIT_CMD, PRE_MATCHER, SWEEP_CMD, TW_VERSION, requireShippedVersion } from '../wiring';
 
 export interface InitOpts {
   cwd?: string;
@@ -782,6 +782,11 @@ function planned(item: string, path: string, plan: () => Action): Action {
 }
 
 export function planInit(cwd: string, opts: { forceWorkflow?: boolean } = {}): Action[] {
+  // Canonical hook/pre-commit/CI wiring is a trust anchor. If this build cannot
+  // identify its own plain release version, generating a floating or synthetic
+  // pin would let the authority change underneath the repository. Refuse before
+  // planning any writable action.
+  requireShippedVersion();
   return [
     planned('policy', POLICY_FILE, () => planPolicy(cwd)),
     planned('agent', '.claude/settings.json', () => planClaudeHooks(cwd)),
