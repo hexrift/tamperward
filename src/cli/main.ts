@@ -7,6 +7,7 @@ import { FORMATS, isFormat } from './report';
 import { runHookClaude, runSweepClaude } from './hook';
 import { runAllow, AllowOpts } from './allow';
 import { runInit, InitOpts } from './init';
+import { runDoctor, DoctorOpts } from './doctor';
 import { runVerify, parseVerify } from './verify';
 import { runEnvelope, parseRun } from './run';
 
@@ -38,6 +39,17 @@ function parseInit(args: string[]): InitOpts {
     if (a === '--cwd') o.cwd = args[++i];
     else if (a === '--dry-run') o.dryRun = true;
     else if (a === '--force-workflow') o.forceWorkflow = true;
+  }
+  return o;
+}
+
+function parseDoctor(args: string[]): DoctorOpts {
+  const o: DoctorOpts = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--cwd') o.cwd = args[++i];
+    else if (a === '--base') o.base = args[++i];
+    else if (a === '--workflow') o.workflow = args[++i];
   }
   return o;
 }
@@ -116,6 +128,11 @@ Formats:
                                             every tool the gate must see.
                                             --force-workflow replaces a workflow it
                                             did not write, or one you have edited.
+  tamperward doctor [--base R]              validate the CI verifier's outer-time
+             [--workflow F] [--cwd D]       envelope against the trusted policy.
+                                            Generated PR CI passes the base SHA so
+                                            candidate policy edits cannot choose
+                                            their own timing requirement.
 
 Exit codes: 0 clean · 1 a blocking finding (check), MASKED_FAILURE or SUITE_RED
             (verify), any blocking finding or masked failure (run) · 2 cannot
@@ -141,6 +158,8 @@ export function main(argv: string[]): number {
       return runAllow(parseAllow(rest));
     case 'init':
       return runInit(parseInit(rest));
+    case 'doctor':
+      return runDoctor(parseDoctor(rest));
     case 'verify':
       return runVerify(parseVerify(rest));
     case 'run':

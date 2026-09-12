@@ -199,6 +199,16 @@ are involved here, and they are not the same thing.
    its policy, verification surface and verifier command and budget from that same
    trusted base — so neither step's verdict is governed by the candidate.
 
+Since **2.12.0**, the generated job uses GitHub Actions' 360-minute outer timeout and
+runs `tamperward doctor` before verification. The doctor reads the **trusted base**
+policy, finds the job(s) that actually invoke `tamperward verify`, and requires enough
+static outer time for both independently budgeted stages plus a 60-minute authority
+reserve. With the generated 360-minute job that means budgets up to 9,000 seconds per
+stage fit. Larger positive finite policy budgets remain valid — there is no schema cap —
+but this generated GitHub-hosted authority refuses deterministically and tells you how
+much outer time is required, so a custom runner/workflow can provide it instead of
+GitHub killing verification mid-verdict.
+
 Legitimate exceptions are out-of-band PR labels, `tamperward:allow:<rule>@<head-sha>`.
 The workflow passes the head SHA to both steps through `TAMPERWARD_OOB_HEAD`, so an
 approval is bound to the exact commit it was granted for and a new push invalidates it.
@@ -321,6 +331,7 @@ commands ignore what they do not know.
 | --- | --- |
 | `check` | one view — `--staged` · `--worktree` · `--diff <base>...<head>` — plus `--format text\|json\|github\|auto` (default `auto`) · `--json` (alias for `--format json`) · `--cwd <dir>` |
 | `verify` | `--base <rev>` (default `HEAD`) · `--cmd <suite command>` · `--budget <seconds>` · `--json` · `--keep` (keep the two materialised copies and report their paths) · `--require-ancestor` (refuse a base that is not an ancestor of `HEAD`) · `--cwd <dir>` |
+| `doctor` | `--base <rev>` (trusted policy revision) · `--workflow <path>` (default `.github/workflows/tamperward.yml`) · `--cwd <dir>` — validates every job that runs `tamperward verify` has a static outer timeout covering visible + pristine + authority reserve |
 | `run` | `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` (per verifier suite) · `--agent-budget <seconds>` (optional wrapped-agent wall clock) · `--allow-dirty` · `--settle <seconds>` (wait before the final quiescence check) · `--allow-dep-drift` · `--cwd <dir>` · then `-- <agent command...>` |
 | `allow` | `<rule>` · `--file <path>` · `--reason "<why>"` (required) · `--cwd <dir>` |
 | `init` | `--cwd <dir>` · `--dry-run` · `--force-workflow` |
@@ -333,6 +344,7 @@ commands ignore what they do not know.
 | --- | --- | --- | --- | --- |
 | `check` | no blocking finding | at least one blocking finding | cannot evaluate: policy parse error, malformed `--diff` range, no view given, not a git repository, or an unresolvable revision — any failure the gate cannot recover from is one clean `tamperward: …` line on stderr at exit 2, never a stack trace at exit 1 | — |
 | `verify` | `VERIFIED` — visible and pristine both green; or a `MASKED_FAILURE` cleared by an out-of-band `verify@<head-sha>` approval | `MASKED_FAILURE` (visible green, pristine red) or `SUITE_RED` | cannot verify, failing closed: no suite command, unresolvable base, `--require-ancestor` refused, budget exceeded, or the working or dependency tree moved during the run | — |
+| `doctor` | configured verify job(s) have sufficient static outer time for the trusted policy | — | missing/invalid workflow, no verify job, missing/malformed/insufficient timeout, or trusted policy cannot be loaded | — |
 | `run` | enforcement clean and the agent exited 0 — another non-zero agent exit is passed through unchanged | any blocking finding or masked failure, including a non-quiescent process after timeout | cannot adjudicate: dirty start, policy error, verify cannot run | `AGENT_TIMEOUT`: `--agent-budget` expired and post-timeout enforcement was clean |
 | `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0, never exit 2 | — | only for an unsupported agent name | — |
 | `allow` | sign-off recorded | — | no rule or `--reason`, not a git repo, or no current blocking finding to sign off | — |

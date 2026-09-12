@@ -48,6 +48,16 @@ artifacts to `$TAMPERWARD_OUTPUT_DIR` if needed.
 Changing the command, lowering the budget, narrowing `inputs`, removing an isolated
 backend, or changing its image is itself reported as policy weakening.
 
+The generated CI job has a 360-minute outer timeout. Before `verify`, it runs
+`tamperward doctor --base <trusted-base-sha>`, which requires enough static job time
+for **two full verifier budgets plus a 60-minute authority reserve**. The standard
+template therefore accommodates `verify.budget <= 9000` seconds per stage. This is
+not a policy-schema limit: larger positive finite budgets remain valid for custom
+runners/workflows with sufficient outer time. Re-running `init` migrates an untouched
+stamped older TamperWard workflow to the current template; an operator-edited workflow
+is left untouched unless `--force-workflow` is explicit. For a custom workflow, run
+`tamperward doctor --workflow <path> --base <trusted-rev>` to validate its envelope.
+
 Or run the commands directly:
 
 ```bash

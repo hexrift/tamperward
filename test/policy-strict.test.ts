@@ -152,3 +152,12 @@ describe('D-7: the sign-off ledger stays inside the repository', () => {
     expect(policyWeakening('version: 1\n', 'signoff: { ledger: .tamperward/ledger.jsonl }\n')).toEqual([]);
   });
 });
+
+
+describe('generated-CI verifier budget compatibility (#331)', () => {
+  it('keeps every previously valid positive finite policy budget valid', () => {
+    expect(parsePolicy({ verify: { command: 'npm test', budget: 9_000 } }).verify?.budget).toBe(9_000);
+    expect(parsePolicy({ verify: { command: 'npm test', budget: 9_001 } }).verify?.budget).toBe(9_001);
+    expect(parsePolicy({ verify: { command: 'npm test', budget: 9_000.5 } }).verify?.budget).toBe(9_000.5);
+  });
+});

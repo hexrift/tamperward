@@ -18,6 +18,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync, statSync
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { POLICY_FILE } from '../policy';
 import { loadPolicy } from '../policy-load';
+import { GENERATED_CI_TIMEOUT_MINUTES } from '../verifier-limits';
 import { HOOK_CMD, MARKER, OURS, PRECOMMIT_CMD, PRE_MATCHER, SWEEP_CMD, TW_VERSION, requireShippedVersion } from '../wiring';
 
 export interface InitOpts {
@@ -205,7 +206,7 @@ permissions:
 jobs:
   tamperward:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: ${GENERATED_CI_TIMEOUT_MINUTES}
     steps:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -223,6 +224,12 @@ jobs:
           # Candidate code runs later in this job. Do not leave the checkout
           # token in .git/config where a verifier command can read/reuse it.
           persist-credentials: false
+      - name: Tamperward doctor (CI verifier envelope)
+        # Validate the outer GitHub job budget against the TRUSTED base policy
+        # before starting visible/pristine execution. Large policy budgets remain
+        # valid for custom runners; this generated authority refuses if its host
+        # cannot accommodate both stages plus cleanup/reporting reserve.
+        run: tamperward doctor --base "\${{ github.event.pull_request.base.sha }}" --workflow .github/workflows/tamperward.yml
       - name: Resolve out-of-band sign-off from PR labels
         id: oob
         env:
