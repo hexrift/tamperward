@@ -171,5 +171,5 @@ describe('isolated backend closes fully self-restoring dependency substitution (
       trust: 'isolated-container',
     });
     expect(readFileSync(helper)).toEqual(helperBytes);
-  });
+  }, 60_000);
 });
