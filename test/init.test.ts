@@ -3,6 +3,7 @@
 // an unparseable shared file aborts that item instead of clobbering it.
 
 import { afterEach, describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -166,6 +167,47 @@ describe('merging, never clobbering', () => {
   it('skips pre-commit gracefully outside a git repo', () => {
     const d = repo(false);
     expect(statuses(d)['pre-commit']).toBe('skip');
+  });
+});
+
+describe('generated workflow timeout migration (#331)', () => {
+  const hash16 = (body: string) => createHash('sha256').update(body).digest('hex').slice(0, 16);
+
+  it('migrates an untouched stamped 10-minute template to the current outer timeout', () => {
+    const d = repo();
+    apply(d);
+    const path = join(d, '.github/workflows/tamperward.yml');
+    const current = readFileSync(path, 'utf8');
+    const body = current.replace(/^# tamperward:generated[^\n]*\n/, '');
+    const oldBody = body.replace('timeout-minutes: 360', 'timeout-minutes: 10');
+    const old = `# tamperward:generated v2.11.3 sha256:${hash16(oldBody)}\n${oldBody}`;
+    writeFileSync(path, old);
+
+    const ci = planInit(d).find((a) => a.item === 'ci')!;
+    expect(ci.status).toBe('update');
+    expect(ci.detail).toMatch(/unmodified.*migrating/);
+    ci.apply?.();
+
+    const migrated = readFileSync(path, 'utf8');
+    expect(migrated).toContain('timeout-minutes: 360');
+    expect(migrated).not.toContain('timeout-minutes: 10');
+  });
+
+  it('does not overwrite an operator-edited stamped workflow', () => {
+    const d = repo();
+    apply(d);
+    const path = join(d, '.github/workflows/tamperward.yml');
+    const edited = readFileSync(path, 'utf8').replace(
+      'timeout-minutes: 360',
+      'timeout-minutes: 10\n    # operator customisation',
+    );
+    writeFileSync(path, edited);
+
+    const ci = planInit(d).find((a) => a.item === 'ci')!;
+    expect(ci.status).toBe('skip');
+    expect(ci.detail).toMatch(/edited since tamperward/);
+    ci.apply?.();
+    expect(readFileSync(path, 'utf8')).toBe(edited);
   });
 });
 
