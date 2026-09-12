@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -10,14 +10,11 @@ import {
   maxStageBudgetForOuterTimeout,
   requiredVerifierAuthoritySeconds,
 } from '../src/verifier-limits';
-import { evaluateGitHubProtection, runDoctor } from '../src/cli/doctor';
+import { evaluateGitHubProtection, githubApiInvocation, runDoctor } from '../src/cli/doctor';
 
 const dirs: string[] = [];
-const originalPath = process.env.PATH;
 afterEach(() => {
   vi.restoreAllMocks();
-  if (originalPath === undefined) delete process.env.PATH;
-  else process.env.PATH = originalPath;
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
@@ -49,27 +46,6 @@ function workflow(cwd: string, timeout: string | number | undefined, job = 'ci')
     'tamperward.yml',
     `name: ci\non: pull_request\njobs:\n  ${job}:\n    runs-on: ubuntu-latest\n${timeoutLine}    steps:\n      - run: tamperward verify --base main\n`,
   );
-}
-
-function fakeGh(cwd: string, rules: unknown, classic: unknown): void {
-  const bin = join(cwd, '.fake-bin');
-  mkdirSync(bin, { recursive: true });
-  const rulesPath = join(cwd, '.fake-rules.json');
-  const classicPath = join(cwd, '.fake-classic.json');
-  writeFileSync(rulesPath, JSON.stringify(rules));
-  writeFileSync(classicPath, JSON.stringify(classic));
-  const script = join(bin, 'gh');
-  writeFileSync(
-    script,
-    '#!/bin/sh\n' +
-      'case "$2" in\n' +
-      '  */rules/branches/*) cat ' + JSON.stringify(rulesPath) + ' ;;\n' +
-      '  */branches/*/protection) cat ' + JSON.stringify(classicPath) + ' ;;\n' +
-      '  *) printf \'{"default_branch":"main"}\\n\' ;;\n' +
-      'esac\n',
-  );
-  chmodSync(script, 0o755);
-  process.env.PATH = bin + ':' + (originalPath ?? '');
 }
 
 function capture(fn: () => number): { code: number; out: string; err: string } {
@@ -287,75 +263,24 @@ describe('GitHub human-boundary freshness (#332)', () => {
 });
 
 
-describe('tamperward doctor --github integration (#332)', () => {
-  const healthyRules = [
-    {
-      type: 'pull_request',
-      parameters: {
-        require_code_owner_review: true,
-        dismiss_stale_reviews_on_push: true,
-        require_last_push_approval: false,
-      },
-    },
-    {
-      type: 'required_status_checks',
-      parameters: {
-        required_status_checks: [{ context: 'tamperward' }],
-      },
-    },
-  ];
 
-  it('accepts active rulesets through the authenticated gh API path', () => {
-    const cwd = repo(300);
-    workflow(cwd, 70);
-    fakeGh(cwd, healthyRules, {});
-    const r = capture(() => runDoctor({
-      cwd,
-      base: 'HEAD',
-      github: true,
-      repo: 'acme/project',
-      branch: 'main',
-    }));
-    expect(r.code).toBe(0);
-    expect(r.out).toMatch(/GitHub repository authority OK.*acme\/project#main/i);
-  });
 
-  it('falls back to classic branch protection when active rulesets do not supply the boundary', () => {
-    const cwd = repo(300);
-    workflow(cwd, 70);
-    fakeGh(cwd, [], {
-      required_pull_request_reviews: {
-        require_code_owner_reviews: true,
-        dismiss_stale_reviews: true,
-      },
-      required_status_checks: {
-        contexts: ['tamperward'],
-      },
+describe('GitHub doctor transport boundary (#332)', () => {
+  it('uses TamperWard own Node executable and a minimal environment, not candidate PATH startup authority', () => {
+    const invocation = githubApiInvocation(
+      'repos/acme/project/rules/branches/main',
+      'secret-token',
+    );
+    expect(invocation.executable).toBe(process.execPath);
+    expect(invocation.args[0]).toBe('-e');
+    expect(invocation.args.at(-1)).toBe('repos/acme/project/rules/branches/main');
+    expect(invocation.env).toEqual({
+      TAMPERWARD_GITHUB_TOKEN: 'secret-token',
+      LANG: 'C',
+      LC_ALL: 'C',
     });
-    expect(runDoctor({
-      cwd,
-      base: 'HEAD',
-      github: true,
-      repo: 'acme/project',
-      branch: 'main',
-    })).toBe(0);
-  });
-
-  it('fails closed when GitHub leaves an older Code Owner approval valid after a new push', () => {
-    const cwd = repo(300);
-    workflow(cwd, 70);
-    const weakRules = structuredClone(healthyRules);
-    (weakRules[0].parameters as Record<string, unknown>).dismiss_stale_reviews_on_push = false;
-    (weakRules[0].parameters as Record<string, unknown>).require_last_push_approval = true;
-    fakeGh(cwd, weakRules, {});
-    const r = capture(() => runDoctor({
-      cwd,
-      base: 'HEAD',
-      github: true,
-      repo: 'acme/project',
-      branch: 'main',
-    }));
-    expect(r.code).toBe(2);
-    expect(r.err).toMatch(/dismiss stale pull request approvals on new pushes/i);
+    expect(invocation.env).not.toHaveProperty('PATH');
+    expect(invocation.env).not.toHaveProperty('NODE_OPTIONS');
+    expect(invocation.env).not.toHaveProperty('NODE_PATH');
   });
 });
