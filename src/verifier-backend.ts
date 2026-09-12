@@ -125,17 +125,48 @@ function dockerAvailable(enginePath: string, host: string): boolean {
   }
 }
 
-function imagePresent(enginePath: string, host: string, image: string): boolean {
+export function declaredImageVolumePaths(metadata: unknown): string[] {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    throw new Error('image metadata must be a Docker image-inspect object');
+  }
+  const config = (metadata as { Config?: unknown }).Config;
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    throw new Error('image metadata Config must be an object');
+  }
+  const volumes = (config as { Volumes?: unknown }).Volumes;
+  if (volumes === undefined || volumes === null) return [];
+  if (typeof volumes !== 'object' || Array.isArray(volumes)) {
+    throw new Error('image metadata Config.Volumes must be a mapping or null');
+  }
+  return Object.keys(volumes as Record<string, unknown>).sort();
+}
+
+function inspectImageMetadata(
+  enginePath: string,
+  host: string,
+  image: string,
+): { metadata: unknown | null; reason?: string } {
   try {
     const r = spawnSync(enginePath, dockerArgs(host, ['image', 'inspect', image]), {
-      stdio: 'ignore',
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 10_000,
       killSignal: 'SIGKILL',
       env: engineClientEnv(),
     });
-    return r.status === 0;
+    if (r.error || r.status !== 0) {
+      return {
+        metadata: null,
+        reason: 'the digest-pinned verifier image is not present locally; TamperWard refuses to pull during adjudication',
+      };
+    }
+    const parsed: unknown = JSON.parse(r.stdout ?? '');
+    if (!Array.isArray(parsed) || parsed.length !== 1) {
+      return { metadata: null, reason: 'Docker returned malformed verifier image metadata' };
+    }
+    return { metadata: parsed[0] };
   } catch {
-    return false;
+    return { metadata: null, reason: 'Docker returned unreadable verifier image metadata' };
   }
 }
 
@@ -225,7 +256,8 @@ export function prepareVerifierBackend(
       reason: `Docker is unavailable at the fixed verifier endpoint ${daemonHost}`,
     };
   }
-  if (!imagePresent(enginePath, daemonHost, image)) {
+  const inspectedImage = inspectImageMetadata(enginePath, daemonHost, image);
+  if (!inspectedImage.metadata) {
     return {
       kind: 'container',
       trust: 'isolated-container',
@@ -234,7 +266,36 @@ export function prepareVerifierBackend(
       engine: 'docker',
       enginePath,
       daemonHost,
-      reason: 'the digest-pinned verifier image is not present locally; TamperWard refuses to pull during adjudication',
+      reason: inspectedImage.reason ?? 'Docker could not attest the verifier image metadata',
+    };
+  }
+  let declaredVolumes: string[];
+  try {
+    declaredVolumes = declaredImageVolumePaths(inspectedImage.metadata);
+  } catch (e) {
+    return {
+      kind: 'container',
+      trust: 'isolated-container',
+      available: false,
+      image,
+      engine: 'docker',
+      enginePath,
+      daemonHost,
+      reason: `Docker verifier image metadata is invalid: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+  if (declaredVolumes.length > 0) {
+    return {
+      kind: 'container',
+      trust: 'isolated-container',
+      available: false,
+      image,
+      engine: 'docker',
+      enginePath,
+      daemonHost,
+      reason:
+        `the verifier image declares writable Docker VOLUME path(s): ${declaredVolumes.join(', ')}; ` +
+        '--read-only does not make image-declared volumes immutable',
     };
   }
 
@@ -282,7 +343,7 @@ export function verifierBackendSummary(backend: PreparedVerifierBackend): string
 function cleanupContainer(backend: PreparedVerifierBackend, name: string): void {
   if (!backend.enginePath || !backend.daemonHost || !engineStable(backend)) return;
   try {
-    spawnSync(backend.enginePath, dockerArgs(backend.daemonHost, ['rm', '-f', name]), {
+    spawnSync(backend.enginePath, dockerArgs(backend.daemonHost, ['rm', '-f', '-v', name]), {
       stdio: 'ignore',
       timeout: 10_000,
       killSignal: 'SIGKILL',
