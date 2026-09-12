@@ -263,7 +263,7 @@ describe('H5 the CI authority starts before candidate npm configuration exists',
     ci.apply!();
     const src = execFileSync('cat', [join(cwd, '.github/workflows/tamperward.yml')], { encoding: 'utf8' });
     const install = src.indexOf('working-directory: ${{ runner.temp }}');
-    const checkout = src.indexOf('uses: actions/checkout@v5');
+    const checkout = src.indexOf('uses: actions/checkout@');
     expect(install).toBeGreaterThan(0);
     expect(install).toBeLessThan(checkout);
     expect(src).toContain('npm install --global --registry=https://registry.npmjs.org/');

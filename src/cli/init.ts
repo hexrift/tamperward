@@ -207,7 +207,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
       # Install the authority before candidate files exist in the job workspace.
@@ -217,9 +217,12 @@ jobs:
       - name: Install Tamperward authority
         working-directory: \${{ runner.temp }}
         run: npm install --global --registry=https://registry.npmjs.org/ --node-options=' ' --script-shell= --ignore-scripts --offline=false --prefer-online tamperward@${TW_VERSION}
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0 # the range diff needs both endpoints
+          # Candidate code runs later in this job. Do not leave the checkout
+          # token in .git/config where a verifier command can read/reuse it.
+          persist-credentials: false
       - name: Resolve out-of-band sign-off from PR labels
         id: oob
         env:

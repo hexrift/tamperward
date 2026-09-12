@@ -1,0 +1,70 @@
+# tamperward:generated v2.10.7 sha256:356505c928cb600e
+name: tamperward
+
+# The CI authority for main: the same engine as the agent hook and pre-commit, run over
+# the PR's commit range. A block fails the check and clears ONLY via the out-of-band
+# label `tamperward:allow:<rule>@<head-sha>` applied by someone with triage access or higher —
+# never a file the PR itself can commit. The verify step reads the same labels:
+# `tamperward:allow:verify@<head-sha>` accepts a masked failure a reviewer has judged.
+#
+# labeled/unlabeled re-run the gate because the sign-off is read from the EVENT payload:
+# a label applied after a failure could otherwise never take effect, and REVOKING a
+# sign-off must re-block rather than linger green.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  tamperward:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      # Install the authority before candidate files exist in the job workspace.
+      # npm therefore cannot discover a pull-request .npmrc, and every security-
+      # relevant npm setting is fixed on the command line. Later steps invoke the
+      # installed binary directly: npm/npx never starts from candidate-controlled cwd.
+      - name: Install Tamperward authority
+        working-directory: ${{ runner.temp }}
+        run: npm install --global --registry=https://registry.npmjs.org/ --node-options=' ' --script-shell= --ignore-scripts --offline=false --prefer-online tamperward@2.10.7
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the range diff needs both endpoints
+      - name: Resolve out-of-band sign-off from PR labels
+        id: oob
+        env:
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          RULES="$(printf '%s' "$LABELS" | jq -r '.[] | select(startswith("tamperward:allow:")) | sub("^tamperward:allow:"; "")' | paste -sd, -)"
+          echo "rules=$RULES" >> "$GITHUB_OUTPUT"
+      - name: Tamperward gate (diff-time)
+        env:
+          TAMPERWARD_OOB_SIGNOFF: ${{ steps.oob.outputs.rules }}
+          # Binds each approval to the commit it was granted for: labels persist
+          # across pushes, so an unbound one would clear every later finding on
+          # the same PR. Labels must read tamperward:allow:<rule>@<head-sha>.
+          TAMPERWARD_OOB_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: tamperward check --diff "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}"
+      # Diff-time detection is spelling-dependent by nature; pristine
+      # re-execution is not, and it was the layer nothing got past in the
+      # taskbench sweeps. Shipping a CI template WITHOUT it meant every
+      # masked-failure class was adjudicated only at the local layer — the
+      # layer an agent shares a filesystem with. (P1-5, external review.)
+      #
+      # Requires a `verify:` block in .tamperward.yml naming the suite command;
+      # without one this step fails closed (exit 2) rather than passing quietly.
+      - name: Tamperward verify (pristine re-execution)
+        env:
+          # The same channel as the gate. `tamperward:allow:verify@<head-sha>`
+          # accepts a MASKED_FAILURE — a reviewer has read the intentional test
+          # change and agrees the original suite no longer applies. It clears
+          # nothing else: a red visible suite, or a run that could not verify,
+          # stays red whatever the labels say.
+          TAMPERWARD_OOB_SIGNOFF: ${{ steps.oob.outputs.rules }}
+          TAMPERWARD_OOB_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: tamperward verify --require-ancestor --base "${{ github.event.pull_request.base.sha }}"

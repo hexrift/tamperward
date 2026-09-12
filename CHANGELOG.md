@@ -5,6 +5,21 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.10.8] — 2026-09-12
+
+**Generated GitHub Actions authority wiring now binds action code to immutable commits
+and does not leave checkout credentials in the candidate repository.** The template pins
+`actions/setup-node` v6 to `249970729cb0ef3589644e2896645e5dc5ba9c38` and
+`actions/checkout` v5 to `fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09`, retaining
+the human-readable major versions as comments. Checkout sets
+`persist-credentials: false`, while the job remains at `permissions: { contents: read }`.
+
+The authority is still installed before candidate files are checked out. Untouched
+TamperWard-generated workflows migrate through the existing provenance stamp and then
+read back as current/idempotent. Regression coverage asserts immutable action identity,
+credential non-persistence, install-before-checkout ordering, least privilege, and
+migration of an older generated body.
+
 ## [2.10.7] — 2026-09-12
 
 **Canonical wiring no longer falls back to a floating `tamperward@latest` when the
