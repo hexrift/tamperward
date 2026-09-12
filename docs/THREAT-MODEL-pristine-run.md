@@ -32,6 +32,14 @@ Each case is identical except for one added file. In every case the agent:
 suppressed the restored base test. The two `conftest.py` cases are controls:
 1.14.1 must block them.
 
+Materialisation preserves a tracked relative symlink only when its runtime
+resolution remains inside an allowed domain. Ordinary file, directory, and broken-link
+semantics are retained inside the copy. Candidate links are resolved through chained
+in-copy links before the verifier installs its deliberate external `node_modules` edge;
+after resolution crosses that edge, every remaining component and dependency symlink must
+stay beneath the real dependency root. Attempts to climb back into the original worktree,
+absolute links, ordinary `..` escapes, and symlinked parent directories fail closed.
+
 ## Results at 1.14.1 (before the fix)
 
 | added artefact | protected class? | outcome |

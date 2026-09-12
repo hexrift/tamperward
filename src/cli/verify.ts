@@ -40,9 +40,9 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
+import { chmodSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { loadPolicy, loadPolicyAt } from '../policy-load';
 import { assertRev } from '../git/build';
 import { trustedGitEnv } from '../git/trusted';
@@ -203,35 +203,163 @@ function baseIsAncestorOfHead(base: string, cwd: string): boolean {
   return r.status === 0;
 }
 
-/** Copy the working tree (tracked + untracked, not ignored) into dest; symlink
- *  node_modules so the copy is cheap and the suite resolves its dependencies. */
+function inside(root: string, path: string): boolean {
+  const rel = relative(resolve(root), resolve(path));
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+function linkParts(path: string): string[] {
+  return path.split(sep).filter((part) => part !== '' && part !== '.');
+}
+
+function linkEscape(label: string, target: string): Error {
+  return new Error(`${label} is a symlink that escapes the materialised tree (${JSON.stringify(target)})`);
+}
+
+/** Reproduce a link without giving its own target lexical access outside the
+ * materialised tree. The graph-aware pass below closes the second-order case
+ * where an apparently in-tree target crosses the external node_modules link. */
+function safeSymlink(target: string, out: string, root: string, label: string): void {
+  if (isAbsolute(target) || !inside(root, resolve(dirname(out), target))) {
+    throw linkEscape(label, target);
+  }
+  rmSync(out, { force: true });
+  symlinkSync(target, out);
+}
+
+/** Resolve a candidate link one pathname component at a time.
+ *
+ * A plain path.resolve() check is not sufficient once dest/node_modules is an
+ * external symlink. For example, "../node_modules/../secret" lexically lands
+ * back in dest, but the kernel follows node_modules into the original
+ * dependency tree before applying "..", so the same text lands in the original
+ * worktree. Candidate links may also reach node_modules through another
+ * in-copy link, and dependencies themselves may contain links.
+ *
+ * Model exactly that domain transition. Once resolution enters the real
+ * dependency root it may move around beneath that root, but may never climb
+ * above it or follow a dependency symlink outside it. Broken descendants are
+ * still representable: their unresolved suffix is checked lexically in the
+ * domain reached by the deepest existing component.
+ */
+function validateSymlinkGraph(
+  target: string,
+  out: string,
+  root: string,
+  dependencyRoot: string | null,
+  label: string,
+): void {
+  type Domain = 'tree' | 'deps';
+  let domain: Domain = 'tree';
+  let stack = linkParts(relative(root, dirname(out)));
+  const pending = linkParts(target);
+  const seen = new Set<string>();
+  let hops = 0;
+
+  while (pending.length) {
+    const part = pending.shift()!;
+    if (part === '..') {
+      if (!stack.length) throw linkEscape(label, target);
+      stack.pop();
+      continue;
+    }
+
+    stack.push(part);
+
+    // The generated copy deliberately exposes only this top-level external
+    // dependency edge. Enter it before inspecting the on-disk destination:
+    // node_modules is installed only after every candidate link validates.
+    if (domain === 'tree' && dependencyRoot && stack.length === 1 && stack[0] === 'node_modules') {
+      domain = 'deps';
+      stack = [];
+      continue;
+    }
+
+    const base = domain === 'tree' ? root : dependencyRoot!;
+    const current = join(base, ...stack);
+    let st;
+    try {
+      st = lstatSync(current);
+    } catch {
+      continue; // broken/missing suffix: later ".." is still domain-checked above
+    }
+    if (!st.isSymbolicLink()) continue;
+
+    if (++hops > 128) {
+      throw new Error(`${label} contains a symlink cycle while materialising (${JSON.stringify(target)})`);
+    }
+    const key = `${domain}:${current}:${pending.join(sep)}`;
+    if (seen.has(key)) {
+      throw new Error(`${label} contains a symlink cycle while materialising (${JSON.stringify(target)})`);
+    }
+    seen.add(key);
+
+    const next = readlinkSync(current);
+    stack.pop(); // link target is relative to the link's parent
+    if (isAbsolute(next)) {
+      if (domain === 'tree' || !dependencyRoot || !inside(dependencyRoot, next)) {
+        throw linkEscape(label, target);
+      }
+      stack = [];
+      pending.unshift(...linkParts(relative(dependencyRoot, resolve(next))));
+    } else {
+      pending.unshift(...linkParts(next));
+    }
+  }
+}
+
+/** Git does not record directories. If a worktree directory component is
+ * replaced by a link, copying a listed child would silently read through that
+ * link and could import bytes from outside the repository. */
+function rejectLinkedParent(cwd: string, rel: string): void {
+  const parts = rel.split('/').slice(0, -1);
+  let current = cwd;
+  for (const part of parts) {
+    current = join(current, part);
+    let st;
+    try {
+      st = lstatSync(current);
+    } catch {
+      // A racing deletion is handled when the final entry is inspected.
+      continue;
+    }
+    if (st.isSymbolicLink()) {
+      throw new Error(`${rel} has a symlinked parent directory (${relative(cwd, current)})`);
+    }
+  }
+}
+
+/** Copy the working tree (tracked + untracked, not ignored) into dest. Regular
+ * files retain bytes/mode; safe relative links retain their exact link target;
+ * unrepresentable links and special files fail closed. node_modules remains a
+ * deliberate same-domain dependency link until the isolated backend replaces it. */
 function materialize(cwd: string, dest: string): void {
   const listed = git(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd)
     .split('\0')
     .filter(Boolean);
+  const links: Array<{ rel: string; out: string; target: string }> = [];
   for (const rel of listed) {
     const src = join(cwd, rel);
+    rejectLinkedParent(cwd, rel);
     let st;
     try {
-      st = statSync(src);
+      st = lstatSync(src);
     } catch {
       continue; // listed but gone (racing deletion)
     }
-    if (!st.isFile()) continue;
     const out = join(dest, rel);
     mkdirSync(dirname(out), { recursive: true });
-    // statSync FOLLOWS links while cpSync preserves them, so a tracked path
-    // replaced by a symlink was copied as a link and then written and chmod'd
-    // THROUGH — landing base content and permissions on a file outside the
-    // sandbox entirely, whatever the verdict turned out to be. Never write
-    // through a link: drop it and materialise the real content. (P1-1, review.)
     dropSymlink(out);
-    if (lstatSync(src).isSymbolicLink()) {
-      writeFileSync(out, readFileSync(src));
-    } else {
+    if (st.isSymbolicLink()) {
+      const target = readlinkSync(src);
+      safeSymlink(target, out, dest, rel);
+      links.push({ rel, out, target });
+    } else if (st.isFile()) {
       cpSync(src, out, { dereference: true });
+      chmodSync(out, st.mode);
+    } else {
+      throw new Error(`${rel} is ${st.isDirectory() ? 'a directory' : 'a special file'} where git expects a file`);
     }
-    chmodSync(out, st.mode);
   }
   // ABSOLUTE target. A relative cwd (`--cwd .`, which the envelope passes
   // through) produced a symlink whose target resolved against the COPY's own
@@ -239,7 +367,17 @@ function materialize(cwd: string, dest: string): void {
   // verify degraded to permanent SUITE_RED. Fails closed, but an oracle that
   // always says red is one people switch off.
   const nm = resolve(cwd, 'node_modules');
-  if (existsSync(nm)) symlinkSync(nm, join(dest, 'node_modules'), 'dir');
+  let dependencyRoot: string | null = null;
+  if (existsSync(nm)) dependencyRoot = realpathSync(nm);
+
+  // Validate only after every candidate link exists, so chained links are
+  // resolved as the suite will see them. Do this before installing the
+  // external node_modules edge; the validator models that edge explicitly.
+  for (const link of links) {
+    validateSymlinkGraph(link.target, link.out, dest, dependencyRoot, link.rel);
+  }
+
+  if (dependencyRoot) symlinkSync(nm, join(dest, 'node_modules'), 'dir');
 }
 
 /** Remove `p` when it is a symlink, so a later write lands in the sandbox
@@ -397,7 +535,7 @@ function overlayPristine(
     mkdirSync(dirname(out), { recursive: true });
     rmSync(out, { force: true }); // never write THROUGH whatever is there now
     if (e.mode === '120000') {
-      symlinkSync(content.toString('utf8'), out); // the base's own link, reproduced
+      safeSymlink(content.toString('utf8'), out, dest, `the base's ${e.path}`);
     } else {
       writeFileSync(out, content);
       chmodSync(out, parseInt(e.mode.slice(-4), 8) & 0o777); // the mode is part of the file

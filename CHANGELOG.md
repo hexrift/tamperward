@@ -5,6 +5,23 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.10.6] — 2026-09-12
+
+**Verifier materialisation now preserves safe tracked symlinks faithfully and fails
+closed on links whose runtime resolution can leave the copy boundary.** The copier uses
+`lstat` before deciding entry type, reproduces relative in-tree link targets exactly, and
+retains broken-link and directory-link semantics. Absolute links, lexical `..` escapes,
+symlinked parent directories, and special-file replacements fail closed.
+
+**The external `node_modules` edge is now part of symlink validation rather than an
+exception to it.** Candidate links are resolved component-by-component across chained
+in-copy links and the real dependency graph. Once resolution enters the dependency root it
+may not climb back into the original worktree or follow a dependency symlink outside that
+root. Pristine restoration still removes the destination before writing, so candidate
+links cannot redirect trusted base bytes.
+
+Reference: [Node.js filesystem links and `lstat`](https://nodejs.org/api/fs.html#fslstatsyncpath-options).
+
 ## [2.10.5] — 2026-09-12
 
 **The authority now starts outside candidate-controlled npm configuration.** Local hook,
