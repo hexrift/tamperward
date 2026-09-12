@@ -155,7 +155,15 @@ After the runtime exits its exit code is treated as untrusted, and the envelope
 checks that post-agent `HEAD` still descends from the entry commit; the committed
 changes over `entry...HEAD`; staged, unstaged and untracked non-ignored worktree
 changes; dependency drift and whether the tree stayed quiescent; and the
-verification outcome.
+verification outcome. For agent runtimes that may hang, `--agent-budget <seconds>`
+adds an operator-owned wall-clock boundary around the **agent itself** (separate from
+the verifier's `--budget`). On expiry TamperWard terminates the owned process tree,
+then still performs the same post-timeout adjudication. A clean timeout is
+`AGENT_TIMEOUT` / exit 124; any enforcement failure or cannot-adjudicate result
+still outranks that runtime status. On POSIX the agent starts in its own process
+group; on Linux the timeout also enumerates the agent's `/proc` descendant tree so
+a child that escaped the group with `setsid()` is terminated before adjudication.
+Windows uses `taskkill /T /F` as the explicit process-tree fallback.
 
 `tamperward verify` materialises two temporary copies — they are **not
 sandboxes**, and both execute agent-controlled code. The visible copy runs the
@@ -175,6 +183,7 @@ semantic correctness nor a substitute for independent held-out tests.
 | Enforcement clean and agent exits 0 | exit 0 |
 | Blocking finding, masked failure, dependency drift, or non-quiescent tree | exit 1 |
 | Required adjudication cannot be completed | exit 2, failing closed |
+| Enforcement clean but the agent exceeded `--agent-budget` | `AGENT_TIMEOUT`, exit 124 |
 | Enforcement clean but the agent failed | the agent's non-zero exit is preserved |
 
 ### CI authority
@@ -294,7 +303,7 @@ The four primitives:
 npx tamperward check --staged                # pre-commit view
 npx tamperward check --diff "main...HEAD"    # CI view over the PR's commit range
 npx tamperward verify --base main            # pristine-suite re-execution
-npx tamperward run -- <agent command...>     # same-host envelope (local verifier only)
+npx tamperward run --agent-budget 1800 -- <agent command...>  # optional agent-runtime bound
 ```
 
 The isolated backend is a **frozen-artifact final verifier**. `tamperward run`
@@ -312,7 +321,7 @@ commands ignore what they do not know.
 | --- | --- |
 | `check` | one view — `--staged` · `--worktree` · `--diff <base>...<head>` — plus `--format text\|json\|github\|auto` (default `auto`) · `--json` (alias for `--format json`) · `--cwd <dir>` |
 | `verify` | `--base <rev>` (default `HEAD`) · `--cmd <suite command>` · `--budget <seconds>` · `--json` · `--keep` (keep the two materialised copies and report their paths) · `--require-ancestor` (refuse a base that is not an ancestor of `HEAD`) · `--cwd <dir>` |
-| `run` | `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` · `--allow-dirty` · `--settle <seconds>` (wait before the final quiescence check) · `--allow-dep-drift` · `--cwd <dir>` · then `-- <agent command...>` |
+| `run` | `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` (per verifier suite) · `--agent-budget <seconds>` (optional wrapped-agent wall clock) · `--allow-dirty` · `--settle <seconds>` (wait before the final quiescence check) · `--allow-dep-drift` · `--cwd <dir>` · then `-- <agent command...>` |
 | `allow` | `<rule>` · `--file <path>` · `--reason "<why>"` (required) · `--cwd <dir>` |
 | `init` | `--cwd <dir>` · `--dry-run` · `--force-workflow` |
 | `watch` | `--dir <dir>` · `--log <file>` — a daemon; it runs until signalled |
@@ -320,15 +329,15 @@ commands ignore what they do not know.
 
 **Exit codes** — part of the public surface:
 
-| command | 0 | 1 | 2 |
-| --- | --- | --- | --- |
-| `check` | no blocking finding | at least one blocking finding | cannot evaluate: policy parse error, malformed `--diff` range, no view given, not a git repository, or an unresolvable revision — any failure the gate cannot recover from is one clean `tamperward: …` line on stderr at exit 2, never a stack trace at exit 1 |
-| `verify` | `VERIFIED` — visible and pristine both green; or a `MASKED_FAILURE` cleared by an out-of-band `verify@<head-sha>` approval | `MASKED_FAILURE` (visible green, pristine red) or `SUITE_RED` | cannot verify, failing closed: no suite command, unresolvable base, `--require-ancestor` refused, budget exceeded, or the working or dependency tree moved during the run |
-| `run` | enforcement clean and the agent exited 0 — a non-zero agent exit is passed through unchanged | any blocking finding or masked failure, whatever the agent returned | cannot adjudicate: dirty start, policy error, verify cannot run |
-| `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0, never exit 2 | — | only for an unsupported agent name |
-| `allow` | sign-off recorded | — | no rule or `--reason`, not a git repo, or no current blocking finding to sign off |
-| `init` | wired, or already wired | — | an item needs attention |
-| no or unknown command | help printed (no command) | — | unknown command, help printed |
+| command | 0 | 1 | 2 | 124 |
+| --- | --- | --- | --- | --- |
+| `check` | no blocking finding | at least one blocking finding | cannot evaluate: policy parse error, malformed `--diff` range, no view given, not a git repository, or an unresolvable revision — any failure the gate cannot recover from is one clean `tamperward: …` line on stderr at exit 2, never a stack trace at exit 1 | — |
+| `verify` | `VERIFIED` — visible and pristine both green; or a `MASKED_FAILURE` cleared by an out-of-band `verify@<head-sha>` approval | `MASKED_FAILURE` (visible green, pristine red) or `SUITE_RED` | cannot verify, failing closed: no suite command, unresolvable base, `--require-ancestor` refused, budget exceeded, or the working or dependency tree moved during the run | — |
+| `run` | enforcement clean and the agent exited 0 — another non-zero agent exit is passed through unchanged | any blocking finding or masked failure, including a non-quiescent process after timeout | cannot adjudicate: dirty start, policy error, verify cannot run | `AGENT_TIMEOUT`: `--agent-budget` expired and post-timeout enforcement was clean |
+| `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0, never exit 2 | — | only for an unsupported agent name | — |
+| `allow` | sign-off recorded | — | no rule or `--reason`, not a git repo, or no current blocking finding to sign off | — |
+| `init` | wired, or already wired | — | an item needs attention | — |
+| no or unknown command | help printed (no command) | — | unknown command, help printed | — |
 
 ### Environment variables
 
