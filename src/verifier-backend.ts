@@ -168,6 +168,54 @@ function cleanupContainer(engine: ContainerEngine, name: string): void {
  * private tmpfs mounts. A numeric non-root uid/gid keeps the workspace writable
  * without granting container root.
  */
+export interface ContainerRunArgsInput {
+  image: string;
+  name: string;
+  workspace: string;
+  command: string;
+  uid: number;
+  gid: number;
+}
+
+/** Pure command-line construction, kept testable as part of the trust boundary. */
+export function containerRunArgs(input: ContainerRunArgsInput): string[] {
+  return [
+    'run',
+    '--name', input.name,
+    '--rm',
+    // Image identity was checked during prepare; never let the daemon perform
+    // network resolution/pulling between that check and candidate execution.
+    '--pull', 'never',
+    '--network', 'none',
+    '--read-only',
+    '--cap-drop', 'ALL',
+    '--security-opt', 'no-new-privileges',
+    '--pids-limit', '256',
+    '--user', `${input.uid}:${input.gid}`,
+    // The ONLY host bind. This is a one-stage materialised candidate/pristine
+    // copy, not the agent worktree or any host dependency/home/cache surface.
+    '--mount', `type=bind,src=${input.workspace},dst=/workspace,rw`,
+    '--tmpfs', '/tmp:rw,nosuid,nodev,mode=1777',
+    '--tmpfs', '/home/tamperward:rw,nosuid,nodev,mode=700',
+    '--workdir', '/workspace',
+    '--env', 'HOME=/home/tamperward',
+    '--env', 'TMPDIR=/tmp',
+    '--env', 'CI=1',
+    '--env', 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+    input.image,
+    'sh', '-c', input.command,
+  ];
+}
+
+/**
+ * Execute one visible/pristine stage in the isolated domain.
+ *
+ * Only the already-materialised stage directory crosses the boundary. No agent
+ * worktree, dependency tree, HOME, host temp, credential, socket or network is
+ * mounted/inherited. The image root is read-only; project scratch lives in
+ * private tmpfs mounts. A numeric uid/gid keeps the workspace ownership aligned
+ * with the caller; capabilities are still dropped and the rootfs is read-only.
+ */
 export function runContainerStage(
   backend: PreparedVerifierBackend,
   dir: string,
@@ -188,36 +236,22 @@ export function runContainerStage(
   const name = `tamperward-verify-${process.pid}-${randomUUID().slice(0, 12)}`;
   const uid = typeof getuid === 'function' ? getuid() : 65534;
   const gid = typeof getgid === 'function' ? getgid() : 65534;
-  const workspace = resolve(dir);
-  const args = [
-    'run',
-    '--name', name,
-    '--rm',
-    '--network', 'none',
-    '--read-only',
-    '--cap-drop', 'ALL',
-    '--security-opt', 'no-new-privileges',
-    '--pids-limit', '256',
-    '--user', `${uid}:${gid}`,
-    '--mount', `type=bind,src=${workspace},dst=/workspace,rw`,
-    '--tmpfs', '/tmp:rw,nosuid,nodev,mode=1777',
-    '--tmpfs', '/home/tamperward:rw,nosuid,nodev,mode=700',
-    '--workdir', '/workspace',
-    '--env', 'HOME=/home/tamperward',
-    '--env', 'TMPDIR=/tmp',
-    '--env', 'CI=1',
-    '--env', 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-    backend.image,
-    'sh', '-c', command,
-  ];
+  const args = containerRunArgs({
+    image: backend.image,
+    name,
+    workspace: resolve(dir),
+    command,
+    uid,
+    gid,
+  });
 
   try {
     const r = spawnSync(engine, args, {
       stdio: 'ignore',
       timeout: budgetSecs * 1000,
       killSignal: 'SIGKILL',
-      // The container gets ONLY the --env values above. This environment is for
-      // the trusted CLI talking to its engine, not for candidate code.
+      // The container gets ONLY the explicit --env values in containerRunArgs.
+      // This environment belongs to the trusted engine client process.
       env: process.env,
     });
     const secs = Math.round((Date.now() - t0) / 1000);
