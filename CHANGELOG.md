@@ -5,6 +5,57 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.11.0] — 2026-09-12
+
+**Final verification can now run in an isolated, digest-pinned container domain.**
+A trusted `verify:` policy may opt into:
+
+```yaml
+verify:
+  command: npm test
+  budget: 300
+  backend: container
+  image: ghcr.io/acme/tamperward-verifier@sha256:<64-hex-digest>
+```
+
+The image must already be provisioned locally and is never pulled during adjudication.
+The Docker client executable is resolved before candidate execution, must not be
+writable/replaceable by the caller identity, is content-bound, and is invoked through a
+minimal client environment against the fixed local Unix endpoint. Mutable tags,
+option-shaped image names, backend removal, and verifier-image changes fail closed or
+are reported as policy weakening.
+
+**The isolated verifier receives a frozen read-only materialised candidate/pristine
+tree—not the agent worktree or its dependency environment.** Host `node_modules`,
+venvs, HOME, temp directories, Docker socket, credentials and mutable caches are not
+mounted. The container has no network, a read-only root filesystem, dropped
+capabilities, no-new-privileges, private HOME/tmp, and a dedicated writable
+`/workspace-out` exposed as `TAMPERWARD_OUTPUT_DIR`. Verdict/evidence is emitted by
+the trusted host process, outside candidate write authority. Failure to establish or run
+the requested boundary is `CANNOT_VERIFY` / exit 2; it never silently falls back to
+the local verifier.
+
+**This structurally closes #341 for the isolated backend.** The end-to-end threat
+control first proves the local/checkpointed verifier is still fooled by a
+`node_modules` executable that is substituted during each suite invocation and
+restored byte-for-byte/mode-for-mode before every checkpoint. The same candidate under
+the container backend cannot replace the image-owned runtime and returns `SUITE_RED`.
+Additional mandatory Docker tests cover trusted-test/policy immutability, host-secret and
+socket absence, private writable output, budget timeout cleanup, and detached-child
+cleanup.
+
+The existing backend remains available as `backend: local` (and is the default) and is
+reported explicitly as **`checkpointed-local`** trust. Its checkpoint limitations are
+unchanged. `tamperward run` intentionally refuses `backend: container` before the
+agent starts: because `run` launches the agent under the same host identity, it cannot
+honestly keep Docker daemon authority outside that agent domain. Use isolated
+`tamperward verify` in trusted CI or after an externally isolated agent hands off a
+frozen candidate.
+
+This is a minor release under the project versioning policy: it adds optional policy and
+execution surface; repositories that do not opt into the container backend keep the
+existing local behavior.
+
 ## [2.10.9] — 2026-09-12
 
 **Dependency-drift protection is now ecosystem-aware instead of treating
