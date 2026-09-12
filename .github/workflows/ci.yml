@@ -209,6 +209,32 @@ jobs:
             echo "no pilot iteration is registered — no freeze claim is made about this tree"
           }
 
+  # Structural verifier isolation: this is the #341 threat control, not a unit
+  # approximation. It first proves the same-host/checkpointed backend can be
+  # fooled by a dependency substitute that restores every byte/mode before the
+  # checkpoint, then proves the isolated backend cannot mutate its image-owned
+  # dependency at all.
+  verifier-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Immutable multi-platform Node 22 Alpine index. The product itself never
+      # pulls during adjudication (--pull never); trusted provisioning happens
+      # here, before the threat control starts.
+      - name: Provision pinned verifier base image
+        run: docker pull node@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
+      - name: Isolated verifier end-to-end threat control
+        env:
+          TAMPERWARD_CONTAINER_E2E: '1'
+          TAMPERWARD_CONTAINER_ENGINE: docker
+        run: npx vitest run test/verifier-container-e2e.test.ts
+
   # Is the ARTIFACT sound? Distinct question from "is the code correct", and it has its
   # own failure mode: `files: [dist]` with dist/ gitignored once shipped a tarball
   # containing no binary at all. Nothing in CI installed what npm would actually publish,
@@ -285,7 +311,7 @@ jobs:
     # repository's required-status ruleset, so the protection survives an edit to
     # this file.
     if: ${{ always() }}
-    needs: [typecheck, test, build, harness-core, round4-harness, pilot-provisioning]
+    needs: [typecheck, test, build, harness-core, round4-harness, pilot-provisioning, verifier-container]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -298,6 +324,7 @@ jobs:
             harness-core=${{ needs.harness-core.result }}
             round4-harness=${{ needs.round4-harness.result }}
             pilot-provisioning=${{ needs.pilot-provisioning.result }}
+            verifier-container=${{ needs.verifier-container.result }}
         run: |
           echo "$RESULTS"
           bad=$(printf '%s\n' $RESULTS | grep -v '=success$' || true)
