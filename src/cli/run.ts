@@ -14,8 +14,8 @@
 // runtime's exit as untrusted, and re-adjudicates the tree the agent left
 // behind — committed or not — before anything downstream can read "green".
 //
-//   tamperward run [--base R] [--cmd C] [--budget S] [--allow-dirty] \
-//                  [--cwd D] -- <agent command...>
+//   tamperward run [--base R] [--cmd C] [--budget S] [--agent-budget S] \
+//                  [--allow-dirty] [--cwd D] -- <agent command...>
 //
 // After the agent exits, three verdicts, all against the entry-time base:
 //   1. policy check over base...HEAD   (weakening the agent COMMITTED)
@@ -34,7 +34,8 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, readlinkSync, realpathSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { runCheck } from './check';
 import { runVerify } from './verify';
@@ -51,6 +52,9 @@ export interface RunEnvelopeOpts {
   base?: string;
   cmd?: string;
   budget?: number;
+  /** Operator-owned wall-clock budget for the wrapped agent runtime itself.
+   *  Distinct from verify.budget, which bounds each suite execution. */
+  agentBudget?: number;
   allowDirty?: boolean;
   /** Seconds to wait after adjudication before the final quiescence check, to
    *  catch a background worker that sleeps through it. 0 = no wait. */
@@ -63,6 +67,254 @@ export interface RunEnvelopeOpts {
 
 const out = (s: string) => process.stdout.write(s + '\n');
 const err = (s: string) => process.stderr.write(s + '\n');
+
+interface AgentRunResult {
+  exit: number;
+  timedOut: boolean;
+  signal?: string | null;
+  failure?: string;
+}
+
+/**
+ * Small trusted supervisor used only when --agent-budget is set.
+ *
+ * The agent is placed in its own POSIX process group so the timeout signal can
+ * target the whole ordinary descendant tree. On Windows, taskkill /T /F is the
+ * explicit fallback. The supervisor writes its result outside the candidate
+ * worktree, then the envelope continues normal post-agent adjudication.
+ */
+const AGENT_SUPERVISOR = String.raw`
+const { spawn, spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+
+const [resultFile, budgetRaw, command, ...args] = process.argv.slice(1);
+const budgetMs = Number(budgetRaw);
+let child;
+let timedOut = false;
+let finished = false;
+
+function writeResult(value) {
+  try { fs.writeFileSync(resultFile, JSON.stringify(value)); } catch {}
+}
+
+function linuxDescendants(rootPid) {
+  if (process.platform !== 'linux') return [];
+  const byParent = new Map();
+  let names = [];
+  try { names = fs.readdirSync('/proc').filter((x) => /^\d+$/.test(x)); } catch { return []; }
+  for (const name of names) {
+    const pid = Number(name);
+    try {
+      const stat = fs.readFileSync('/proc/' + name + '/stat', 'utf8');
+      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+      const ppid = Number(fields[1]);
+      if (!Number.isFinite(ppid)) continue;
+      const kids = byParent.get(ppid) || [];
+      kids.push(pid);
+      byParent.set(ppid, kids);
+    } catch {}
+  }
+  const out = [];
+  const seen = new Set([rootPid]);
+  const stack = [rootPid];
+  while (stack.length) {
+    const parent = stack.pop();
+    for (const childPid of (byParent.get(parent) || [])) {
+      if (seen.has(childPid)) continue;
+      seen.add(childPid);
+      out.push(childPid);
+      stack.push(childPid);
+    }
+  }
+  return out;
+}
+
+function killTree(pid) {
+  if (!pid) return;
+  if (process.platform === 'win32') {
+    try { spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' }); } catch {}
+    return;
+  }
+
+  // Snapshot Linux descendants BEFORE killing the process-group leader. A
+  // descendant may have called setsid() and escaped the group while remaining
+  // in the agent's parent/child tree; /proc still lets us identify it.
+  const descendants = linuxDescendants(pid);
+  try { process.kill(-pid, 'SIGKILL'); } catch {
+    try { process.kill(pid, 'SIGKILL'); } catch {}
+  }
+  for (const childPid of descendants.reverse()) {
+    try { process.kill(childPid, 'SIGKILL'); } catch {}
+  }
+}
+
+try {
+  child = spawn(command, args, {
+    stdio: 'inherit',
+    detached: process.platform !== 'win32',
+  });
+} catch (e) {
+  writeResult({ exit: 1, timedOut: false, failure: String(e) });
+  process.exit(0);
+}
+
+writeResult({ pid: child.pid, started: true });
+
+const timer = setTimeout(() => {
+  timedOut = true;
+  killTree(child.pid);
+}, budgetMs);
+timer.unref();
+
+child.once('error', (e) => {
+  if (finished) return;
+  finished = true;
+  clearTimeout(timer);
+  writeResult({ exit: 1, timedOut, failure: String(e) });
+  process.exit(0);
+});
+
+child.once('exit', (code, signal) => {
+  if (finished) return;
+  finished = true;
+  clearTimeout(timer);
+  // A timeout owns the public status even when the killed process reports a
+  // shell-specific signal/exit value. The envelope will still adjudicate.
+  writeResult({
+    exit: timedOut ? 124 : (code == null ? 1 : code),
+    timedOut,
+    signal: signal == null ? null : String(signal),
+  });
+  process.exit(0);
+});
+`;
+
+function linuxDescendantPids(rootPid: number): number[] {
+  if (process.platform !== 'linux') return [];
+  const byParent = new Map<number, number[]>();
+  let names: string[];
+  try {
+    names = readdirSync('/proc').filter((x) => /^\d+$/.test(x));
+  } catch {
+    return [];
+  }
+  for (const name of names) {
+    const pid = Number(name);
+    try {
+      const stat = readFileSync(`/proc/${name}/stat`, 'utf8');
+      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+      const ppid = Number(fields[1]);
+      if (!Number.isFinite(ppid)) continue;
+      const kids = byParent.get(ppid) ?? [];
+      kids.push(pid);
+      byParent.set(ppid, kids);
+    } catch {
+      // raced with process exit
+    }
+  }
+  const out: number[] = [];
+  const seen = new Set<number>([rootPid]);
+  const stack = [rootPid];
+  while (stack.length) {
+    const parent = stack.pop()!;
+    for (const childPid of byParent.get(parent) ?? []) {
+      if (seen.has(childPid)) continue;
+      seen.add(childPid);
+      out.push(childPid);
+      stack.push(childPid);
+    }
+  }
+  return out;
+}
+
+function killAgentTree(pid: number): void {
+  if (!Number.isInteger(pid) || pid <= 1) return;
+  if (process.platform === 'win32') {
+    try {
+      spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore', timeout: 5_000 });
+    } catch {
+      // The timeout is already a failure state; post-timeout adjudication will
+      // also refuse certification if a surviving process still holds the tree.
+    }
+    return;
+  }
+
+  const descendants = linuxDescendantPids(pid);
+  try {
+    process.kill(-pid, 'SIGKILL');
+  } catch {
+    try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+  }
+  for (const childPid of descendants.reverse()) {
+    try { process.kill(childPid, 'SIGKILL'); } catch { /* already gone */ }
+  }
+}
+
+function runAgentWithBudget(
+  argv: string[],
+  cwd: string,
+  budgetSecs: number,
+): AgentRunResult {
+  const stateDir = mkdtempSync(join(tmpdir(), 'tw-agent-supervisor-'));
+  const resultFile = join(stateDir, 'result.json');
+  let supervisorTimedOut = false;
+  try {
+    const supervisor = spawnSync(
+      process.execPath,
+      ['-e', AGENT_SUPERVISOR, resultFile, String(budgetSecs * 1000), ...argv],
+      {
+        cwd,
+        stdio: 'inherit',
+        // Backstop only. The inner supervisor owns the intended budget and
+        // process-tree kill. This prevents a broken supervisor hanging run.
+        timeout: Math.ceil(budgetSecs * 1000) + 10_000,
+        killSignal: 'SIGKILL',
+      },
+    );
+    supervisorTimedOut =
+      Boolean(supervisor.error) &&
+      (supervisor.error as NodeJS.ErrnoException).code === 'ETIMEDOUT';
+
+    let state: {
+      pid?: number;
+      exit?: number;
+      timedOut?: boolean;
+      signal?: string | null;
+      failure?: string;
+    } = {};
+    try {
+      state = JSON.parse(readFileSync(resultFile, 'utf8'));
+    } catch {
+      // If the supervisor did not produce a final record, fail closed below.
+    }
+
+    if (supervisorTimedOut || state.timedOut) {
+      if (state.pid) killAgentTree(state.pid);
+      return {
+        exit: 124,
+        timedOut: true,
+        signal: state.signal ?? null,
+        ...(state.failure ? { failure: state.failure } : {}),
+      };
+    }
+    if (typeof state.exit === 'number') {
+      return {
+        exit: state.exit,
+        timedOut: false,
+        signal: state.signal ?? null,
+        ...(state.failure ? { failure: state.failure } : {}),
+      };
+    }
+    if (state.pid) killAgentTree(state.pid);
+    return {
+      exit: 1,
+      timedOut: false,
+      failure: state.failure ?? 'agent supervisor did not produce a final status',
+    };
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+}
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 1 << 28, env: trustedGitEnv() });
@@ -151,6 +403,15 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   const cwd = resolve(opts.cwd ?? process.cwd()); // absolute: relative cwds break the verify overlay
   if (!opts.argv.length) {
     err('tamperward run: no agent command given (usage: tamperward run [options] -- <command...>)');
+    return 2;
+  }
+  if (
+    opts.agentBudget !== undefined &&
+    (!Number.isFinite(opts.agentBudget) || opts.agentBudget <= 0)
+  ) {
+    err(
+      `tamperward run: --agent-budget needs a positive number of seconds (got ${JSON.stringify(opts.agentBudget)}) — failing closed.`,
+    );
     return 2;
   }
 
@@ -252,8 +513,27 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   // without moving a ref or touching a file (src/git/trusted.ts).
   const rewritesBefore = objectRewriteState(cwd);
   const spawnTicks = nowTicks(); // survivors are what appears after this
-  const agent = spawnSync(opts.argv[0], opts.argv.slice(1), { cwd, stdio: 'inherit' });
-  const agentExit = agent.status ?? 1; // killed-by-signal is not success
+  const agentRun: AgentRunResult = opts.agentBudget === undefined
+    ? (() => {
+        const agent = spawnSync(opts.argv[0], opts.argv.slice(1), { cwd, stdio: 'inherit' });
+        return {
+          exit: agent.status ?? 1,
+          timedOut: false,
+          signal: agent.signal ? String(agent.signal) : null,
+          ...(agent.error ? { failure: agent.error.message } : {}),
+        };
+      })()
+    : runAgentWithBudget(opts.argv, cwd, opts.agentBudget);
+  const agentExit = agentRun.exit;
+  const agentTimedOut = agentRun.timedOut;
+  if (agentRun.failure && !agentTimedOut) {
+    err(`tamperward run: agent runtime failed to start/report cleanly (${agentRun.failure}) — continuing to adjudicate the released tree.`);
+  }
+  if (agentTimedOut) {
+    err(
+      `tamperward run: AGENT_TIMEOUT — wrapped agent exceeded ${opts.agentBudget}s; its owned process tree was terminated. Post-timeout adjudication continues.`,
+    );
+  }
 
   // The trust anchor must not have moved: both the diff check and verify
   // resolve bases with merge-base semantics (right for PR review), so an
@@ -383,11 +663,18 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     : depsDrifted ? 'DEPENDENCY_DRIFT — the suite runner changed under the envelope'
     : notQuiescent ? 'NOT_QUIESCENT — the tree moved, or something still holds it'
     : enforcement === 1 ? 'ENFORCEMENT_FAILED — the tree the runtime released does not stand'
+    : agentTimedOut ? 'AGENT_TIMEOUT — runtime budget expired; post-timeout enforcement clean'
     : agentExit !== 0 ? `agent exited ${agentExit} (enforcement clean)`
     : 'GREEN MEANS GREEN';
-  out(`\ntamperward run — agent exit ${agentExit}; checks diff=${diffCode} worktree=${workCode} verify=${verifyCode} → ${verdict}`);
+  const agentSummary = agentTimedOut
+    ? `AGENT_TIMEOUT (${opts.agentBudget}s; exit 124)`
+    : `agent exit ${agentExit}`;
+  out(`\ntamperward run — ${agentSummary}; checks diff=${diffCode} worktree=${workCode} verify=${verifyCode} → ${verdict}`);
 
-  return enforcement !== 0 ? enforcement : agentExit;
+  // Enforcement always outranks runtime status. A clean timeout uses the
+  // conventional 124 so automation can distinguish it from success while the
+  // textual verdict remains explicitly AGENT_TIMEOUT.
+  return enforcement !== 0 ? enforcement : agentTimedOut ? 124 : agentExit;
 }
 
 export function parseRun(args: string[]): RunEnvelopeOpts {
@@ -398,6 +685,7 @@ export function parseRun(args: string[]): RunEnvelopeOpts {
     else if (a === '--base') o.base = args[++i];
     else if (a === '--cmd') o.cmd = args[++i];
     else if (a === '--budget') o.budget = Number(args[++i]);
+    else if (a === '--agent-budget') o.agentBudget = Number(args[++i]);
     else if (a === '--allow-dirty') o.allowDirty = true;
     else if (a === '--settle') o.settle = Number(args[++i]);
     else if (a === '--allow-dep-drift') o.allowDepDrift = true;

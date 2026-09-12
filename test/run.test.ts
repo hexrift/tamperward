@@ -6,7 +6,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runEnvelope, parseRun } from '../src/cli/run';
@@ -100,6 +100,15 @@ describe('parseRun', () => {
     });
     expect(parseRun(['npm', 'test']).argv).toEqual(['npm', 'test']);
     expect(parseRun(['--budget', '60', '--', 'sh', '--', '-c']).argv).toEqual(['sh', '--', '-c']);
+    expect(parseRun(['--agent-budget', '12.5', '--', 'claude', '-p'])).toMatchObject({
+      agentBudget: 12.5,
+      argv: ['claude', '-p'],
+    });
+  });
+
+  it('records invalid agent budgets so the envelope can fail closed before spawn', () => {
+    expect(parseRun(['--agent-budget', '0', '--', 'true']).agentBudget).toBe(0);
+    expect(parseRun(['--agent-budget', 'nope', '--', 'true']).agentBudget).toBeNaN();
   });
 });
 
@@ -329,5 +338,73 @@ describe('P0-6: the suite runner lives outside every git view', () => {
     } finally {
       process.chdir(prev);
     }
+  });
+});
+
+
+describe('agent runtime budget (#325)', () => {
+  it('terminates a hung agent, still adjudicates its honest fix, and reports timeout distinctly', () => {
+    const cwd = repo();
+    const started = Date.now();
+    const code = runEnvelope({
+      cwd,
+      cmd: CMD,
+      agentBudget: 1,
+      argv: sh('echo "module.exports = 42;" > src.js; sleep 30'),
+    });
+    const elapsed = Date.now() - started;
+
+    expect(code).toBe(124);
+    expect(elapsed).toBeLessThan(10_000);
+    expect(readFileSync(join(cwd, 'src.js'), 'utf8')).toContain('42');
+  }, 15_000);
+
+  it.skipIf(process.platform === 'win32')('kills the agent process group, including ordinary children/grandchildren', () => {
+    const cwd = repo(true);
+    const pidFile = join(cwd, '.agent-child-pid');
+    const code = runEnvelope({
+      cwd,
+      cmd: CMD,
+      agentBudget: 1,
+      argv: sh(
+        `bash -c 'sleep 30 & echo $! > "${pidFile}"; wait' & wait`,
+      ),
+    });
+
+    expect(code).toBe(124);
+    const childPid = Number(readFileSync(pidFile, 'utf8').trim());
+    expect(Number.isInteger(childPid) && childPid > 1).toBe(true);
+    expect(() => process.kill(childPid, 0)).toThrow();
+  }, 15_000);
+
+  it.skipIf(process.platform !== 'linux')('kills a descendant that escapes the agent process group with setsid', () => {
+    const cwd = repo(true);
+    const marker = join(cwd, '.agent-setsid-started');
+    const code = runEnvelope({
+      cwd,
+      cmd: CMD,
+      agentBudget: 1,
+      argv: sh(
+        `setsid bash -c 'touch "${marker}"; sleep 30' & sleep 30`,
+      ),
+    });
+
+    // The marker proves the detached session really started. If its 30-second
+    // sleep survived the timeout it would still hold cwd and the Linux
+    // quiescence scan would return NOT_QUIESCENT/1 rather than clean timeout.
+    expect(readFileSync(marker, 'utf8')).toBe('');
+    expect(code).toBe(124);
+  }, 15_000);
+
+  it('fails closed before spawning for a non-positive/invalid agent budget', () => {
+    const cwd = repo(true);
+    const sideEffect = join(cwd, 'agent-ran');
+    expect(runEnvelope({
+      cwd,
+      cmd: CMD,
+      agentBudget: 0,
+      argv: sh('touch agent-ran'),
+    })).toBe(2);
+    expect(() => readFileSync(sideEffect)).toThrow();
   });
 });

@@ -96,13 +96,14 @@ Formats:
                                             fails closed (2)
   tamperward run [opts] -- <agent cmd...>   enforcement envelope: record the trusted
              [--base R] [--cmd C]           base, run the agent, treat its exit as
-             [--budget S] [--allow-dirty]   untrusted, then re-adjudicate the tree it
-             [--settle S] [--allow-dep-drift] left (policy over base...HEAD and the
-             [--cwd D]
-                                            worktree, plus verify). Exit: agent's code
-                                            when clean; 1 on any blocking finding or
-                                            masked failure; 2 when it cannot
-                                            adjudicate (fails closed)
+             [--budget S] [--agent-budget S] untrusted, then re-adjudicate the tree it
+             [--allow-dirty] [--settle S]   left (policy over base...HEAD and the
+             [--allow-dep-drift] [--cwd D]  worktree, plus verify). --agent-budget
+                                            bounds the agent runtime itself and still
+                                            adjudicates after timeout. Exit: agent's
+                                            code when clean; 124 on clean AGENT_TIMEOUT;
+                                            1 on any blocking finding/masked failure;
+                                            2 when it cannot adjudicate (fails closed)
   tamperward allow <rule> --reason "..."    record a human sign-off (local audit ledger)
              [--file F] [--cwd D]
   tamperward init [--dry-run]               wire the policy file plus every

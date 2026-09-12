@@ -5,6 +5,37 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.11.3] — 2026-09-12
+
+**`tamperward run` can now own the wrapped agent's wall-clock lifecycle.**
+`--agent-budget <seconds>` is an operator-owned runtime bound distinct from
+`verify --budget`, which still applies per suite execution. Invalid or non-positive
+agent budgets fail closed before the agent starts.
+
+When the agent budget expires, TamperWard terminates the owned process tree and then
+continues normal post-agent adjudication against the frozen entry boundary. A timeout
+whose released tree passes every enforcement check is reported as **`AGENT_TIMEOUT`**
+with exit **124**. Any blocking finding/non-quiescent tree still returns 1, and
+cannot-adjudicate still returns 2; enforcement therefore outranks runtime timeout status.
+
+On POSIX, the wrapped agent starts in its own process group and timeout kills that group.
+The regression corpus also covers the harder Linux case where a descendant calls
+`setsid()` and escapes the group: the trusted supervisor snapshots the actual `/proc`
+descendant tree before termination and kills those descendants individually. Windows
+uses `taskkill /T /F` as the explicit process-tree fallback. Any survivor the platform
+cannot terminate is still caught by the existing quiescence boundary where supported,
+rather than being certified green.
+
+The TDD sequence includes:
+- the original red API/budget tests;
+- a clean timed-out honest fix that is still adjudicated;
+- ordinary child/grandchild termination;
+- a deliberate red `setsid()` escape that initially became `NOT_QUIESCENT`;
+- the fixed Linux descendant-tree termination path;
+- invalid-budget refusal before agent side effects.
+
+This closes #325.
+
 ## [2.11.2] — 2026-09-12
 
 **The isolated verifier now has an explicit host-resource envelope.** Each Docker
