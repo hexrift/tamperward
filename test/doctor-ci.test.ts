@@ -34,11 +34,16 @@ function repo(budget: number): string {
   return cwd;
 }
 
-function workflow(cwd: string, timeout: string | number | undefined, job = 'ci'): void {
+function writeWorkflow(cwd: string, name: string, body: string): void {
   mkdirSync(join(cwd, '.github', 'workflows'), { recursive: true });
+  writeFileSync(join(cwd, '.github', 'workflows', name), body);
+}
+
+function workflow(cwd: string, timeout: string | number | undefined, job = 'ci'): void {
   const timeoutLine = timeout === undefined ? '' : `    timeout-minutes: ${timeout}\n`;
-  writeFileSync(
-    join(cwd, '.github', 'workflows', 'tamperward.yml'),
+  writeWorkflow(
+    cwd,
+    'tamperward.yml',
     `name: ci\non: pull_request\njobs:\n  ${job}:\n    runs-on: ubuntu-latest\n${timeoutLine}    steps:\n      - run: tamperward verify --base main\n`,
   );
 }
@@ -109,5 +114,79 @@ describe('tamperward doctor CI envelope (#331)', () => {
     const r = capture(() => runDoctor({ cwd, base: 'HEAD' }));
     expect(r.code).toBe(2);
     expect(r.err).toMatch(/requires at least 360/i);
+  });
+  it('discovers custom workflow files when no explicit --workflow is supplied', () => {
+    const cwd = repo(300);
+    writeWorkflow(
+      cwd,
+      'security.yaml',
+      'name: security\njobs:\n  verify-security:\n    timeout-minutes: 70\n    steps:\n      - run: /usr/local/bin/tamperward verify --base main\n',
+    );
+    expect(runDoctor({ cwd, base: 'HEAD' })).toBe(0);
+  });
+
+  it('validates every discovered verify job and never lets an unrelated roomy job mask an undersized authority', () => {
+    const cwd = repo(300);
+    writeWorkflow(
+      cwd,
+      'unrelated.yml',
+      'name: unrelated\njobs:\n  roomy:\n    timeout-minutes: 360\n    steps:\n      - run: echo tamperward is installed\n',
+    );
+    writeWorkflow(
+      cwd,
+      'verify-a.yml',
+      'name: a\njobs:\n  verify-a:\n    timeout-minutes: 70\n    steps:\n      - run: tamperward verify --base main\n',
+    );
+    writeWorkflow(
+      cwd,
+      'verify-b.yaml',
+      'name: b\njobs:\n  verify-b:\n    timeout-minutes: 10\n    steps:\n      - run: tamperward verify --base main\n',
+    );
+    const r = capture(() => runDoctor({ cwd, base: 'HEAD' }));
+    expect(r.code).toBe(2);
+    expect(r.err).toMatch(/verify-b\.yaml.*verify-b.*timeout-minutes 10/i);
+  });
+
+  it('validates all verify jobs in one workflow, not just a convenient sufficient one', () => {
+    const cwd = repo(300);
+    writeWorkflow(
+      cwd,
+      'multi.yml',
+      'name: multi\njobs:\n  good:\n    timeout-minutes: 70\n    steps:\n      - run: tamperward verify\n  bad:\n    timeout-minutes: 5\n    steps:\n      - run: tamperward verify\n',
+    );
+    const r = capture(() => runDoctor({ cwd, base: 'HEAD' }));
+    expect(r.code).toBe(2);
+    expect(r.err).toMatch(/multi\.yml.*bad.*timeout-minutes 5/i);
+  });
+
+  it('fails closed on invalid YAML while discovering workflows', () => {
+    const cwd = repo(300);
+    writeWorkflow(cwd, 'broken.yml', 'jobs:\n  x: [unterminated\n');
+    const r = capture(() => runDoctor({ cwd, base: 'HEAD' }));
+    expect(r.code).toBe(2);
+    expect(r.err).toMatch(/broken\.yml.*not valid YAML/i);
+  });
+
+  it('fails closed when discovery finds no TamperWard verify job', () => {
+    const cwd = repo(300);
+    writeWorkflow(
+      cwd,
+      'build.yml',
+      'name: build\njobs:\n  build:\n    timeout-minutes: 360\n    steps:\n      - run: npm test\n',
+    );
+    const r = capture(() => runDoctor({ cwd, base: 'HEAD' }));
+    expect(r.code).toBe(2);
+    expect(r.err).toMatch(/no job contains a tamperward verify step/i);
+  });
+
+  it('an explicit workflow path validates only that authority, even if another workflow is malformed', () => {
+    const cwd = repo(300);
+    workflow(cwd, 70);
+    writeWorkflow(cwd, 'broken.yml', 'jobs:\n  x: [unterminated\n');
+    expect(runDoctor({
+      cwd,
+      base: 'HEAD',
+      workflow: '.github/workflows/tamperward.yml',
+    })).toBe(0);
   });
 });
