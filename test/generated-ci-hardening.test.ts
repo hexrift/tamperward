@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,11 +29,6 @@ function generated(cwd: string): string {
   const a = ciAction(cwd);
   a.apply!();
   return readFileSync(join(cwd, REL), 'utf8');
-}
-
-function stamp(body: string, version = '2.10.7'): string {
-  const hash = createHash('sha256').update(body).digest('hex').slice(0, 16);
-  return `# tamperward:generated v${version} sha256:${hash}\n`;
 }
 
 function workflow(src: string): any {
@@ -76,25 +70,12 @@ describe('generated CI supply-chain hardening', () => {
     expect(steps[checkout].with['persist-credentials']).toBe(false);
   });
 
-  it('migrates an untouched older generated workflow to the hardened template and is idempotent', () => {
+  it('migrates the byte-exact 2.10.7 generated workflow and is idempotent', () => {
     const cwd = repo();
-    const old = `name: tamperward
-
-permissions:
-  contents: read
-
-jobs:
-  tamperward:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/setup-node@v6
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-`;
+    const prior = readFileSync(join(__dirname, 'fixtures', 'generated-workflow-2.10.7.yml'), 'utf8');
     const path = join(cwd, REL);
     mkdirSync(join(cwd, '.github', 'workflows'), { recursive: true });
-    writeFileSync(path, stamp(old) + old);
+    writeFileSync(path, prior);
 
     const migrate = ciAction(cwd);
     expect(migrate.status).toBe('update');
@@ -105,5 +86,19 @@ jobs:
     expect(now).toContain(`actions/checkout@${CHECKOUT_SHA} # v5`);
     expect(workflow(now).jobs.tamperward.steps.find((s: any) => String(s.uses ?? '').startsWith('actions/checkout@')).with['persist-credentials']).toBe(false);
     expect(ciAction(cwd).status).toBe('ok');
+  });
+
+  it('preserves an edited historical generated workflow unless force is explicit', () => {
+    const cwd = repo();
+    const prior = readFileSync(join(__dirname, 'fixtures', 'generated-workflow-2.10.7.yml'), 'utf8');
+    const edited = prior + '# maintainer edit\n';
+    const path = join(cwd, REL);
+    mkdirSync(join(cwd, '.github', 'workflows'), { recursive: true });
+    writeFileSync(path, edited);
+
+    const a = ciAction(cwd);
+    expect(a.status).toBe('skip');
+    expect(a.apply).toBeUndefined();
+    expect(readFileSync(path, 'utf8')).toBe(edited);
   });
 });
