@@ -34,14 +34,14 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { readdirSync, readFileSync, readlinkSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { runCheck } from './check';
 import { runVerify } from './verify';
 import { loadPolicy, loadPolicyAt } from '../policy-load';
 import { objectRewriteState, trustedGitEnv } from '../git/trusted';
 import { depsFingerprint, treeFingerprint } from '../fingerprint';
-import { defaultPolicy } from '../policy';
+import { defaultPolicy, isProtected } from '../policy';
 import { Policy } from '../types';
 
 export interface RunEnvelopeOpts {
@@ -87,7 +87,8 @@ function nowTicks(): number {
  *
  *  Start time is the discriminator that keeps this from convicting the
  *  caller's own shell pipeline, an editor, or a dev server: only what appeared
- *  after the agent spawned can be the agent's doing. Linux-only (/proc);
+ *  after the agent spawned can be the agent's doing. Cwd, executable and open
+ *  descriptors are all inspected. Linux-only (/proc);
  *  elsewhere the fingerprint and --settle guards carry the load. */
 function survivorsHoldingTree(cwd: string, spawnedAfterTicks: number): number[] {
   const out: number[] = [];
@@ -106,22 +107,40 @@ function survivorsHoldingTree(cwd: string, spawnedAfterTicks: number): number[] 
   for (const pid of pids) {
     const n = Number(pid);
     if (n === process.pid) continue;
-    let held: string;
-    try {
-      held = realpathSync(`/proc/${pid}/cwd`);
-    } catch {
-      continue; // exited, or not ours to inspect
-    }
-    if (held !== real && !held.startsWith(real + '/')) continue;
     try {
       // stat field 22 is starttime; comm can contain spaces and parens, so
       // parse after the final ')'.
       const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
       const startTicks = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]);
-      if (Number.isFinite(startTicks) && startTicks >= spawnedAfterTicks) out.push(n);
+      if (!Number.isFinite(startTicks) || startTicks < spawnedAfterTicks) continue;
     } catch {
-      /* raced with exit */
+      continue; // raced with exit, or not ours to inspect
     }
+
+    // CWD alone is not containment: a detached worker can chdir /tmp while it
+    // keeps an open repository directory/file descriptor and later mutate via
+    // that absolute handle. Inspect cwd, executable and every live fd. readlink
+    // (not realpath) also preserves " (deleted)" proc targets for classification.
+    const procLinks = [`/proc/${pid}/cwd`, `/proc/${pid}/exe`];
+    try {
+      for (const fd of readdirSync(`/proc/${pid}/fd`)) procLinks.push(`/proc/${pid}/fd/${fd}`);
+    } catch {
+      // Restricted procfs: cwd/exe still give the older conservative signal.
+    }
+    let holds = false;
+    for (const link of procLinks) {
+      try {
+        const raw = readlinkSync(link).replace(/ \(deleted\)$/, '');
+        const held = raw.startsWith('/') ? resolve(raw) : raw;
+        if (held === real || held.startsWith(real + '/')) {
+          holds = true;
+          break;
+        }
+      } catch {
+        /* fd closed or process exited */
+      }
+    }
+    if (holds) out.push(n);
   }
   return out;
 }
@@ -244,7 +263,8 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   }
 
   // The tree under adjudication must not move while we adjudicate it.
-  const fpBefore = treeFingerprint(cwd);
+  const protectedIgnored = (rel: string): boolean => isProtected(rel, frozenPolicy);
+  const fpBefore = treeFingerprint(cwd, protectedIgnored);
 
   // Re-adjudicate the tree the runtime released, committed and uncommitted,
   // against the entry-time base. Order is cheap-to-expensive; every step
@@ -269,7 +289,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
       /* sleep unavailable; the checks below still run */
     }
   }
-  const mutatedDuringAdjudication = treeFingerprint(cwd) !== fpBefore;
+  const mutatedDuringAdjudication = treeFingerprint(cwd, protectedIgnored) !== fpBefore;
   if (mutatedDuringAdjudication) {
     err('tamperward run: the working tree changed while it was being adjudicated —');
     err('the verdict below would describe a tree that no longer exists.');
@@ -294,7 +314,12 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   }
   const notQuiescent = mutatedDuringAdjudication || survivors.length > 0 || depsDrifted || rewrote;
 
-  const cannot = diffCode === 2 || workCode === 2 || verifyCode === 2;
+  // A concurrent tree mutation can also make verify return 2 before this outer
+  // layer reaches its fingerprint comparison. Once the envelope independently
+  // proves non-quiescence, the result is the concrete enforcement finding (1),
+  // not an unexplained cannot-adjudicate (2). This keeps timing from changing
+  // the public classification of the same attack.
+  const cannot = !notQuiescent && (diffCode === 2 || workCode === 2 || verifyCode === 2);
   const blocked = diffCode === 1 || workCode === 1 || verifyCode === 1 || notQuiescent;
   const enforcement = cannot ? 2 : blocked ? 1 : 0;
 

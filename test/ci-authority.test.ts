@@ -60,7 +60,7 @@ describe('P1-6: a CI approval is bound to the commit it was granted for', () => 
   });
 
   it('a label bound to THIS head clears', () => {
-    expect(applyOobSignoffs([finding()], [`test-deletion@${HEAD.slice(0, 8)}`], HEAD).cleared).toHaveLength(1);
+    expect(applyOobSignoffs([finding()], [`test-deletion@${HEAD}`], HEAD).cleared).toHaveLength(1);
   });
 
   it('a label bound to a DIFFERENT head does not — the next push re-blocks', () => {
@@ -74,5 +74,7 @@ describe('P1-6: a CI approval is bound to the commit it was granted for', () => 
   it('a too-short sha is not accepted as a binding', () => {
     expect(applyOobSignoffs([finding()], ['test-deletion@abc'], HEAD).cleared).toHaveLength(0);
     expect(oobHeadFromEnv({ TAMPERWARD_OOB_HEAD: 'abc' })).toBeUndefined();
+    expect(oobHeadFromEnv({ TAMPERWARD_OOB_HEAD: HEAD.slice(0, 12) })).toBeUndefined();
+    expect(oobHeadFromEnv({ TAMPERWARD_OOB_HEAD: HEAD.toUpperCase() })).toBe(HEAD);
   });
 });

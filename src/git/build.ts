@@ -15,6 +15,7 @@ import { inspectRel, textOf } from '../disk';
 import { parseDiff } from '../diff/parse';
 import { addHunks } from '../diff/synth';
 import { Change } from '../types';
+import { trustedGitEnv } from './trusted';
 
 export interface GitOpts {
   cwd?: string;
@@ -41,6 +42,11 @@ function git(args: string[], cwd?: string): string {
       // as a smaller change than the one landing), which is the documented stance.
       maxBuffer: 256 * 1024 * 1024,
       stdio: ['ignore', 'pipe', 'pipe'],
+      // Every object read in this shared adapter can feed a trust decision:
+      // policy-at-base, merge-base selection, range enrichment, and the HEAD
+      // side of worktree/staged comparisons. A pre-existing replace ref must
+      // never make those callers see an attacker-selected object.
+      env: trustedGitEnv(),
     });
   } catch (e) {
     const err = e as { stderr?: string | Buffer; message?: string };

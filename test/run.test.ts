@@ -250,6 +250,19 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
     expect(code).toBe(1);
   });
 
+  it.skipIf(process.platform !== 'linux')('a detached worker cannot hide by chdir while retaining a repository fd', () => {
+    const cwd = repo();
+    const code = runEnvelope({
+      cwd,
+      cmd: CMD,
+      argv: sh(
+        `setsid nohup bash -c 'exec 9<"${join(cwd, 'src.js')}"; cd /tmp; sleep 6' >/dev/null 2>&1 & ` +
+          `echo "module.exports = 42;" > src.js`,
+      ),
+    });
+    expect(code).toBe(1);
+  });
+
   it('an honest agent with no survivors is still clean (the scan must not convict the caller)', () => {
     // The caller's own shell pipeline shares this working directory, so the
     // survivor scan is keyed on processes that appear AFTER the agent spawns.

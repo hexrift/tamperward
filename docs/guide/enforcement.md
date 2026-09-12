@@ -50,6 +50,21 @@ At the CLI that means exit 2 with one `tamperward: …` line on stderr, whatever
 (a revision git cannot resolve, a directory where `init` expected a file); the hook
 and the sweep deny as JSON at exit 0 instead, as their wire contract requires.
 
+The generated local wiring also protects the step before that contract begins. npm
+[does not read a project `.npmrc` in global mode](https://docs.npmjs.com/cli/v11/configuring-npm/npmrc#per-project-config-file),
+so candidate `call`, workspace, proxy, CA and startup settings cannot control the pinned
+`npx` authority. If npm still cannot start it, the hook command converts that launcher
+failure to Claude's blocking-error exit channel rather than leaving an ordinary non-zero
+exit that the runtime could treat as non-blocking. Generated CI installs before checkout
+and invokes the installed binary directly.
+
+Generated local shell wiring requires a POSIX host with `/dev/null`. The user rc
+is fixed to that OS device; the global rc is fixed to
+`/dev/null/npmrc-global`, which cannot exist below a device. Distinct paths
+avoid npm's double-load error. HOME cannot select those sources.
+The invoking environment and Node/npm installation remain
+trusted prerequisites. Native Windows launchers need a separate template.
+
 The policy loader is strict for the same reason: an unknown top-level key (`Rules:`,
 `ignored:`) is refused rather than silently ignored, and `signoff.ledger` must stay
 inside the repository. A leading `/` on a `protected`, `ignore` or `exclude` glob is

@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { planInit, runInit, unconditionalExitAt } from '../src/cli/init';
+import { PRECOMMIT_CMD } from '../src/wiring';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -94,8 +95,8 @@ describe('D-3: the hook goes where git will run it', () => {
   });
 
   it.each([
-    ['lefthook.yml', 'lefthook', /run: npx --yes tamperward@\S+ check --staged/],
-    ['.pre-commit-config.yaml', 'pre-commit', /entry: npx --yes tamperward@\S+ check --staged/],
+    ['lefthook.yml', 'lefthook', `run: ${PRECOMMIT_CMD}`],
+    ['.pre-commit-config.yaml', 'pre-commit', `entry: ${PRECOMMIT_CMD}`],
   ])('skips a %s-managed repository with the exact line to add', (config, name, hint) => {
     const d = repo();
     writeFileSync(join(d, config), '');
@@ -103,7 +104,7 @@ describe('D-3: the hook goes where git will run it', () => {
     expect(a.status).toBe('skip');
     expect(a.apply).toBeUndefined();
     expect(a.detail).toContain(name);
-    expect(a.detail).toMatch(hint);
+    expect(a.detail).toContain(hint);
     expect(existsSync(join(d, '.git/hooks/pre-commit'))).toBe(false);
   });
 

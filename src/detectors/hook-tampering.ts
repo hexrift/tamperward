@@ -9,7 +9,7 @@ import { Change, Detector, DetectorContext, FileChange, Finding, Policy } from '
 import { addedLines, removedLines } from '../diff/select';
 import { inspectRel, textOf } from '../disk';
 import { isProtected, POLICY_FILE } from '../policy';
-import { PLAIN_SEMVER, PRE_TOOLS, TW_VERSION, compareVersions, initScriptPin, isClaudeSettings, pinNotBelow, resolvesToClaudeSettings } from '../wiring';
+import { OURS, PLAIN_SEMVER, PRE_TOOLS, TW_VERSION, compareVersions, initScriptPin, isClaudeSettings, pinNotBelow, resolvesToClaudeSettings } from '../wiring';
 import { makeFinding } from './finding';
 import { policyAddWeakening, policyWeakening } from './policy-diff';
 import { segments, tokens, unquote } from './command';
@@ -41,7 +41,7 @@ const ownerExec = (mode: string): boolean => (parseInt(mode.slice(-3), 8) & 0o10
 //     chose to call tamperward;
 //   - `tamperward@0.1.0` is present, live, and a gate with every bypass since fixed.
 // So the gate's entry is compared to the CANONICAL SHAPE init writes — exactly
-// `{ "type": "command", "command": "npx --yes tamperward@<ver> hook claude" }` on a
+// `{ "type": "command", "command": "npx --yes <fixed npm config> tamperward@<ver> hook claude" }` on a
 // matcher covering every tool init lists, `sweep claude` under Stop, the pin a
 // plain version never below the one it replaces — and the matcher is evaluated
 // with the runtime's own semantics (exact list or regex). Hooks MERGE across the
@@ -83,7 +83,6 @@ const GATE_KEYS = new Set(['type', 'command', 'timeout', 'statusMessage']);
 const HOOK_TYPES = new Set(['command', 'prompt', 'agent', 'http']);
 /** Keys a hook entry beside the gate may carry and still be a plain command entry. */
 const SIBLING_KEYS = GATE_KEYS;
-const CANONICAL_CMD = /^npx --yes tamperward@(\S+) (hook|sweep) claude$/;
 /** An entry that carries the gate's words at all — in any launcher, any pin, any
  *  wrapping. The candidates the shape comparison then judges. */
 const MENTIONS_GATE = /\btamperward\b.*\b(?:hook|sweep)\b/;
@@ -114,9 +113,10 @@ function analyseGateCommand(cmd: string, event: HookEvent): { runs: boolean; pro
   const want = event === 'PreToolUse' ? 'hook' : 'sweep';
   const problems: string[] = [];
   let runs = true;
-  const canonical = cmd.match(CANONICAL_CMD);
+  const canonical = cmd.match(OURS);
   if (canonical) {
-    if (canonical[2] !== want) { problems.push(`runs \`${canonical[2]} claude\` under ${event}`); runs = false; }
+    const kind = canonical[2];
+    if (kind !== `${want} claude`) { problems.push(`runs \`${kind}\` under ${event}`); runs = false; }
     if (!PLAIN_SEMVER.test(canonical[1])) { problems.push(`the pin \`${canonical[1]}\` is not a plain version`); runs = false; }
     return { runs, problems, pin: canonical[1] };
   }

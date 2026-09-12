@@ -3,7 +3,18 @@
 // blocking finding so it can serve as a gate at pre-commit and in CI.
 
 import { Change, Policy, View } from '../types';
-import { diffRange, diffStaged, diffWorktree, diffWorktreeWithUntracked, isGitRepo, mergeBaseOf } from '../git/build';
+import {
+  diffRange,
+  diffStaged,
+  diffWorktree,
+  diffWorktreeWithUntracked,
+  fileAt,
+  fileOnDisk,
+  hiddenTrackedPaths,
+  isGitRepo,
+  mergeBaseOf,
+} from '../git/build';
+import { synthFileChange } from '../adapters/claude/changes';
 import { evaluate, hasBlocking, isSuppressed } from '../engine';
 import { loadPolicy, loadPolicyAt, PolicyError } from '../policy-load';
 import { defaultPolicy, isProtected } from '../policy';
@@ -51,6 +62,15 @@ function check(opts: CheckOpts): number {
     changes = opts.includeUntracked
       ? diffWorktreeWithUntracked({ cwd: opts.cwd }, (rel) => isProtected(rel, p))
       : diffWorktree({ cwd: opts.cwd });
+    // `git diff HEAD` deliberately obeys skip-worktree / assume-unchanged and
+    // omits those paths. The hook layer already reconstructed them by hand;
+    // the standalone worktree check and outer envelope must carry the same
+    // protection or the independent boundary is weaker than the steering hook.
+    const seen = new Set(changes.filter((c) => c.kind === 'file').map((c) => c.path));
+    for (const rel of hiddenTrackedPaths({ cwd: opts.cwd })) {
+      if (seen.has(rel) || !isProtected(rel, p)) continue;
+      changes.push(...synthFileChange(rel, fileAt('HEAD', rel, { cwd: opts.cwd }), fileOnDisk(rel, { cwd: opts.cwd })));
+    }
     layer = opts.ciLayer ? 'ci' : 'local';
     view = 'worktree';
   } else if (opts.diff) {

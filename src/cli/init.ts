@@ -59,13 +59,18 @@ function gitConfig(cwd: string, key: string): string | null {
 //
 // Our three local commands, recognised in any pin. A command someone wrote by
 // hand (`node ./node_modules/.bin/tamperward hook claude`) matches too and is
-// left exactly as written; only the `npx --yes tamperward[@v]` form init itself
-// writes is ever re-pinned (OURS, ../wiring). hook-tampering judges an edit to
+// left exactly as written; only the hardened `npx <fixed npm config>
+// tamperward[@v]` form init itself writes is ever re-pinned (OURS, ../wiring).
+// hook-tampering judges an edit to
 // that form by the same shape: what init would write, modulo a pin that only
 // goes up.
 const HOOK_RE = /\btamperward(?:@\S+)?\s+hook\s+claude\b/;
 const SWEEP_RE = /\btamperward(?:@\S+)?\s+sweep\s+claude\b/;
 const PRECOMMIT_RE = /\btamperward(?:@\S+)?\s+check\s+--staged\b/;
+// Commands written before this boundary fix are recognised only so `init` can
+// migrate them. They are not canonical wiring: project .npmrc still reaches npx.
+const LEGACY_OURS = /^\s*npx\s+(?:--yes|-y)\s+tamperward(?:@(\S+))?\s+(hook claude|sweep claude|check --staged)\s*$/;
+const PRE_GLOBAL_OURS = /^\s*npx --yes --registry=https:\/\/registry\.npmjs\.org\/ --node-options=' ' --script-shell= --ignore-scripts --offline=false --prefer-online tamperward(?:@(\S+))? (hook claude|sweep claude|check --staged)\s*$/;
 
 // CODEOWNERS. The gate cannot guard the file that decides whether the gate runs.
 //
@@ -164,14 +169,19 @@ version: 1
 /** The pin an `npx --yes tamperward…` command of ours carries: a version, '' for
  *  unpinned, or null when the command is not one init writes. */
 function pinOf(command: string): string | null {
-  const m = command.match(OURS);
+  const m = ours(command);
   return m ? (m[1] ?? '') : null;
+}
+
+function ours(command: string): RegExpMatchArray | null {
+  const previous = command.replace(' --global', '').replace(' || (echo tamperward: authority failed to start >&2 && exit 2)', '');
+  return command.match(OURS) ?? previous.match(PRE_GLOBAL_OURS) ?? command.match(LEGACY_OURS);
 }
 
 /** Whether a command init wrote needs re-pinning to this build. */
 function stalePin(command: string): boolean {
   const pin = pinOf(command);
-  return pin !== null && pin !== TW_VERSION;
+  return pin !== null && (pin !== TW_VERSION || !OURS.test(command));
 }
 
 const WORKFLOW_CONTENT = `name: tamperward
@@ -196,22 +206,20 @@ jobs:
   tamperward:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # The gate is fetched from the registry AT GATE TIME, from inside the
-    # checked-out pull request — and \`npm\` reads \`.npmrc\` from the working
-    # directory. A PR that commits one line, \`registry=https://…\`, chooses where
-    # the authority judging it is downloaded from; the version pin below pins the
-    # STRING, not the SOURCE. An environment variable outranks a project
-    # \`.npmrc\` in npm's config precedence, so this is what makes the pin mean
-    # something.
-    env:
-      NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
     steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0 # the range diff needs both endpoints
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+      # Install the authority before candidate files exist in the job workspace.
+      # npm therefore cannot discover a pull-request .npmrc, and every security-
+      # relevant npm setting is fixed on the command line. Later steps invoke the
+      # installed binary directly: npm/npx never starts from candidate-controlled cwd.
+      - name: Install Tamperward authority
+        working-directory: \${{ runner.temp }}
+        run: npm install --global --registry=https://registry.npmjs.org/ --node-options=' ' --script-shell= --ignore-scripts --offline=false --prefer-online tamperward@${TW_VERSION}
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the range diff needs both endpoints
       - name: Resolve out-of-band sign-off from PR labels
         id: oob
         env:
@@ -226,7 +234,7 @@ jobs:
           # across pushes, so an unbound one would clear every later finding on
           # the same PR. Labels must read tamperward:allow:<rule>@<head-sha>.
           TAMPERWARD_OOB_HEAD: \${{ github.event.pull_request.head.sha }}
-        run: npx --yes tamperward@${TW_VERSION} check --diff "\${{ github.event.pull_request.base.sha }}...\${{ github.event.pull_request.head.sha }}"
+        run: tamperward check --diff "\${{ github.event.pull_request.base.sha }}...\${{ github.event.pull_request.head.sha }}"
       # Diff-time detection is spelling-dependent by nature; pristine
       # re-execution is not, and it was the layer nothing got past in the
       # taskbench sweeps. Shipping a CI template WITHOUT it meant every
@@ -244,7 +252,7 @@ jobs:
           # stays red whatever the labels say.
           TAMPERWARD_OOB_SIGNOFF: \${{ steps.oob.outputs.rules }}
           TAMPERWARD_OOB_HEAD: \${{ github.event.pull_request.head.sha }}
-        run: npx --yes tamperward@${TW_VERSION} verify --require-ancestor --base "\${{ github.event.pull_request.base.sha }}"
+        run: tamperward verify --require-ancestor --base "\${{ github.event.pull_request.base.sha }}"
 `;
 
 // Provenance mark for the generated workflow. A file init wrote and NOBODY has
@@ -409,7 +417,7 @@ function planClaudeHooks(cwd: string): Action {
     ].filter(Boolean).join(' + '),
     apply: () => {
       for (const h of repin) {
-        const kind = String(h.command ?? '').match(OURS)?.[2];
+        const kind = ours(String(h.command ?? ''))?.[2];
         h.command = kind === 'hook claude' ? HOOK_CMD : kind === 'sweep claude' ? SWEEP_CMD : h.command;
       }
       if (needPre) {
