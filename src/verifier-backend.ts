@@ -19,6 +19,21 @@ export type VerifierBackendKind = 'local' | 'container';
 export type VerifierBackendTrust = 'checkpointed-local' | 'isolated-container';
 export type ContainerEngine = 'docker';
 
+export interface VerifierResourceLimits {
+  memoryBytes: number;
+  memorySwapBytes: number;
+  cpus: number;
+  pids: number;
+}
+
+export const DEFAULT_CONTAINER_RESOURCE_LIMITS: Readonly<VerifierResourceLimits> = Object.freeze({
+  memoryBytes: 2 * 1024 * 1024 * 1024,
+  // Docker interprets memory-swap == memory as no additional swap allowance.
+  memorySwapBytes: 2 * 1024 * 1024 * 1024,
+  cpus: 2,
+  pids: 256,
+});
+
 export interface PreparedVerifierBackend {
   kind: VerifierBackendKind;
   trust: VerifierBackendTrust;
@@ -28,13 +43,15 @@ export interface PreparedVerifierBackend {
   enginePath?: string;
   engineSha256?: string;
   daemonHost?: string;
+  resources?: VerifierResourceLimits;
   reason?: string;
 }
 
 export interface BackendRunResult {
   exit: number | null;
   secs: number;
-  failure?: 'budget' | 'backend';
+  failure?: 'budget' | 'backend' | 'resource';
+  resource?: 'memory';
   reason?: string;
 }
 
@@ -308,6 +325,7 @@ export function prepareVerifierBackend(
     enginePath,
     engineSha256: fileSha256(enginePath),
     daemonHost,
+    resources: { ...DEFAULT_CONTAINER_RESOURCE_LIMITS },
   };
 }
 
@@ -317,6 +335,12 @@ export function verifierBackendReport(backend: PreparedVerifierBackend): {
   image?: string;
   engine?: ContainerEngine;
   available: boolean;
+  resources?: {
+    memory_bytes: number;
+    memory_swap_bytes: number;
+    cpus: number;
+    pids: number;
+  };
   reason?: string;
 } {
   return {
@@ -325,6 +349,16 @@ export function verifierBackendReport(backend: PreparedVerifierBackend): {
     available: backend.available,
     ...(backend.image ? { image: backend.image } : {}),
     ...(backend.engine ? { engine: backend.engine } : {}),
+    ...(backend.kind === 'container'
+      ? {
+          resources: {
+            memory_bytes: (backend.resources ?? DEFAULT_CONTAINER_RESOURCE_LIMITS).memoryBytes,
+            memory_swap_bytes: (backend.resources ?? DEFAULT_CONTAINER_RESOURCE_LIMITS).memorySwapBytes,
+            cpus: (backend.resources ?? DEFAULT_CONTAINER_RESOURCE_LIMITS).cpus,
+            pids: (backend.resources ?? DEFAULT_CONTAINER_RESOURCE_LIMITS).pids,
+          },
+        }
+      : {}),
     ...(backend.reason ? { reason: backend.reason } : {}),
   };
 }
@@ -337,7 +371,12 @@ export function verifierBackendSummary(backend: PreparedVerifierBackend): string
   if (!backend.available) {
     return `container (isolated; unavailable: ${backend.reason ?? 'unknown reason'}; image ${identity})`;
   }
-  return `container (isolated via Docker; image ${identity})`;
+  const resources = backend.resources ?? DEFAULT_CONTAINER_RESOURCE_LIMITS;
+  return (
+    `container (isolated via Docker; image ${identity}; ` +
+    `${Math.round(resources.memoryBytes / (1024 * 1024))} MiB memory, no extra swap, ` +
+    `${resources.cpus} CPUs, ${resources.pids} PIDs)`
+  );
 }
 
 function cleanupContainer(backend: PreparedVerifierBackend, name: string): void {
@@ -361,10 +400,12 @@ export interface ContainerRunArgsInput {
   command: string;
   uid: number;
   gid: number;
+  resources?: VerifierResourceLimits;
 }
 
 /** Pure command-line construction, kept testable as part of the trust boundary. */
 export function containerRunArgs(input: ContainerRunArgsInput): string[] {
+  const resources = input.resources ?? DEFAULT_CONTAINER_RESOURCE_LIMITS;
   return [
     'run',
     '--name', input.name,
@@ -376,7 +417,10 @@ export function containerRunArgs(input: ContainerRunArgsInput): string[] {
     '--read-only',
     '--cap-drop', 'ALL',
     '--security-opt', 'no-new-privileges',
-    '--pids-limit', '256',
+    '--memory', String(resources.memoryBytes),
+    '--memory-swap', String(resources.memorySwapBytes),
+    '--cpus', String(resources.cpus),
+    '--pids-limit', String(resources.pids),
     '--user', `${input.uid}:${input.gid}`,
     // Frozen candidate/pristine input is immutable in the verifier. A suite
     // needing outputs writes to /workspace-out, HOME or /tmp instead.
@@ -396,6 +440,49 @@ export function containerRunArgs(input: ContainerRunArgsInput): string[] {
     input.image,
     '-c', input.command,
   ];
+}
+
+export interface DockerContainerState {
+  ExitCode?: number;
+  Error?: string;
+  OOMKilled?: boolean;
+  Status?: string;
+}
+
+/**
+ * Attribute the stopped container using Docker's trusted state, never an exit
+ * number heuristic. In particular, exit 137 is only memory exhaustion when the
+ * runtime independently says OOMKilled=true.
+ */
+export function containerStateResult(
+  state: DockerContainerState | null,
+  secs: number,
+): BackendRunResult {
+  if (state?.OOMKilled) {
+    return {
+      exit: null,
+      secs,
+      failure: 'resource',
+      resource: 'memory',
+      reason: 'verifier container exceeded its memory limit and was OOM-killed',
+    };
+  }
+  if (
+    !state ||
+    state.Status !== 'exited' ||
+    typeof state.ExitCode !== 'number' ||
+    (state.Error ?? '') !== ''
+  ) {
+    return {
+      exit: null,
+      secs,
+      failure: 'backend',
+      reason: state?.Error
+        ? `verifier container runtime error: ${state.Error}`
+        : 'Docker did not provide a trustworthy exited-container state',
+    };
+  }
+  return { exit: state.ExitCode, secs };
 }
 
 /** Execute one visible/pristine stage inside the prepared isolated domain. */
@@ -433,6 +520,7 @@ export function runContainerStage(
     command,
     uid,
     gid,
+    resources: backend.resources ?? DEFAULT_CONTAINER_RESOURCE_LIMITS,
   });
 
   try {
@@ -488,9 +576,7 @@ export function runContainerStage(
         env: engineClientEnv(),
       },
     );
-    let state:
-      | { ExitCode?: number; Error?: string; OOMKilled?: boolean; Status?: string }
-      | null = null;
+    let state: DockerContainerState | null = null;
     if (!inspected.error && inspected.status === 0) {
       try {
         state = JSON.parse((inspected.stdout ?? '').trim());
@@ -500,25 +586,7 @@ export function runContainerStage(
     }
     cleanupContainer(backend, name);
 
-    if (
-      !state ||
-      state.Status !== 'exited' ||
-      typeof state.ExitCode !== 'number' ||
-      state.OOMKilled ||
-      (state.Error ?? '') !== ''
-    ) {
-      return {
-        exit: null,
-        secs,
-        failure: 'backend',
-        reason: state?.OOMKilled
-          ? 'verifier container was OOM-killed'
-          : state?.Error
-            ? `verifier container runtime error: ${state.Error}`
-            : 'Docker did not provide a trustworthy exited-container state',
-      };
-    }
-    return { exit: state.ExitCode, secs };
+    return containerStateResult(state, secs);
   } catch (e) {
     cleanupContainer(backend, name);
     return {
