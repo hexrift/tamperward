@@ -165,11 +165,16 @@ Stated as one invariant to engineer against:
   seams enumerated in `THREAT-MODEL-pristine-run.md` still apply across the
   boundary. The boundary changes *who is in the blast radius of a miss*, not
   whether attacker code runs.
-- **Shared mutable dependencies move to the trusted side and must be solved
-  there.** Both runs still execute against installed packages; a verifier that
-  reuses a mutable environment inherits the pristine-run note's
-  shared-dependency residual. Fresh, verifier-owned dependency resolution is
-  part of the far side, not a free consequence of the split.
+- **Shared mutable dependencies are now explicitly attested by the shipped
+  product where their closure is supported, but fresh verifier-owned resolution is
+  still the stronger boundary.** Since 2.10.9 `tamperward run` freezes the
+  repository `node_modules` closure and an identifiable selected Python virtualenv
+  before candidate execution, and standalone `verify` freezes the same descriptor
+  at its own entry. Unsupported or unbounded environments fail closed as
+  unattestable rather than silently reading as dependency-free. This reduces the
+  shared-dependency residual; it does not eliminate the architectural advantage of
+  provisioning dependencies inside the trusted domain, where candidate code never
+  has write authority over them in the first place.
 - **Liveness and parity get harder, not easier.** The trusted verifier must
   independently establish that the candidate's edit actually takes effect in its
   pristine environment (edit→import coupling). That is precisely what the round-4
