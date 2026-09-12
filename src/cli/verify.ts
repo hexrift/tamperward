@@ -219,11 +219,15 @@ function linkEscape(label: string, target: string): Error {
   return new Error(`${label} is a symlink that escapes the materialised tree (${JSON.stringify(target)})`);
 }
 
+function driveRelativeLinkTarget(target: string): boolean {
+  return sep === '\\' && /^[A-Za-z]:(?![\\/])/.test(target);
+}
+
 function rootedLinkTarget(target: string): boolean {
   // On Windows, C:foo is drive-relative rather than absolute and resolves via
   // that drive's process working directory, not the symlink's parent. It is
   // therefore outside a copy-local containment proof just like C:\\foo.
-  return isAbsolute(target) || (sep === '\\' && /^[A-Za-z]:/.test(target));
+  return isAbsolute(target) || driveRelativeLinkTarget(target);
 }
 
 /** Reproduce a link without giving its own target lexical access outside the
@@ -306,7 +310,10 @@ function validateSymlinkGraph(
 
     const next = readlinkSync(current);
     stack.pop(); // link target is relative to the link's parent
-    if (rootedLinkTarget(next)) {
+    if (driveRelativeLinkTarget(next)) {
+      throw linkEscape(label, target);
+    }
+    if (isAbsolute(next)) {
       if (domain === 'tree' || !dependencyRoot || !inside(dependencyRoot, next)) {
         throw linkEscape(label, target);
       }
