@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -35,8 +35,9 @@ function repo(): string {
 }
 
 describe('candidate npm configuration cannot start the authority under injected code', () => {
-  it('pins every generated local npx call at command-line precedence', () => {
+  it('keeps every generated local npx call out of project configuration', () => {
     for (const cmd of [HOOK_CMD, SWEEP_CMD, PRECOMMIT_CMD]) {
+      expect(cmd).toContain('--global');
       expect(cmd).toContain('--registry=https://registry.npmjs.org/');
       expect(cmd).toContain("--node-options=' '");
       expect(cmd).toContain('--script-shell=');
@@ -45,6 +46,9 @@ describe('candidate npm configuration cannot start the authority under injected 
       expect(cmd).toContain('--prefer-online');
       expect(cmd.indexOf('--node-options')).toBeLessThan(cmd.indexOf('tamperward@'));
     }
+    expect(HOOK_CMD).toContain('authority failed to start');
+    expect(SWEEP_CMD).toContain('authority failed to start');
+    expect(PRECOMMIT_CMD).not.toContain('authority failed to start');
   });
 
   it('the npx controls override a hostile project .npmrc before its child Node starts', () => {
@@ -63,6 +67,7 @@ describe('candidate npm configuration cannot start the authority under injected 
       'npx',
       [
         '--yes',
+        '--global',
         '--registry=https://registry.npmjs.org/',
         '--node-options= ',
         '--script-shell=',
@@ -75,6 +80,84 @@ describe('candidate npm configuration cannot start the authority under injected 
       { cwd, stdio: 'ignore' },
     );
     expect(existsSync(marker)).toBe(false);
+  });
+
+  it('ignores project call, workspace, proxy and CA settings as one namespace', () => {
+    const cwd = tmp('tw-npmrc-all-');
+    const seen = join(cwd, 'seen.json');
+    const callMarker = join(cwd, 'call-marker');
+    const preloadMarker = join(cwd, 'preload-marker');
+    const preload = join(cwd, 'preload.cjs');
+    const inspect = join(cwd, 'inspect.cjs');
+    const sentinelProxy = 'http://127.0.0.1:9';
+    const sentinelCa = '/definitely/candidate-ca.pem';
+    writeFileSync(preload, `require('fs').writeFileSync(${JSON.stringify(preloadMarker)}, 'loaded')\n`);
+    writeFileSync(
+      inspect,
+      `require('fs').writeFileSync(process.env.TW_SEEN, JSON.stringify({\n` +
+        `  call: process.env.npm_config_call,\n` +
+        `  workspace: process.env.npm_config_workspace,\n` +
+        `  proxy: process.env.npm_config_proxy,\n` +
+        `  httpsProxy: process.env.npm_config_https_proxy,\n` +
+        `  cafile: process.env.npm_config_cafile,\n` +
+        `  nodeOptions: process.env.npm_config_node_options,\n` +
+        `}))\n`,
+    );
+    writeFileSync(
+      join(cwd, '.npmrc'),
+      [
+        `call=sh -c 'printf injected > ${callMarker}'`,
+        'workspace=definitely-not-a-workspace',
+        `proxy=${sentinelProxy}`,
+        `https-proxy=${sentinelProxy}`,
+        `cafile=${sentinelCa}`,
+        `node-options=--require=${preload}`,
+        '',
+      ].join('\n'),
+    );
+
+    execFileSync(
+      'npx',
+      [
+        '--yes',
+        '--global',
+        '--registry=https://registry.npmjs.org/',
+        '--node-options= ',
+        '--script-shell=',
+        '--ignore-scripts',
+        '--offline=false',
+        '--prefer-online',
+        '-c',
+        `node "${inspect}"`,
+      ],
+      { cwd, env: { ...process.env, TW_SEEN: seen }, stdio: 'ignore' },
+    );
+
+    const effective = JSON.parse(readFileSync(seen, 'utf8')) as Record<string, string | undefined>;
+    expect(effective.call).toContain('inspect.cjs');
+    expect(effective.workspace).toBeUndefined();
+    expect(effective.proxy).not.toBe(sentinelProxy);
+    expect(effective.httpsProxy).not.toBe(sentinelProxy);
+    expect(effective.cafile).not.toBe(sentinelCa);
+    expect(effective.nodeOptions).toBe('');
+    expect(existsSync(callMarker)).toBe(false);
+    expect(existsSync(preloadMarker)).toBe(false);
+  });
+
+  it.each([HOOK_CMD, SWEEP_CMD])('maps launcher failure to Claude\'s blocking exit channel', (command) => {
+    const cwd = tmp('tw-npx-fail-');
+    const bin = join(cwd, 'bin');
+    mkdirSync(bin);
+    const npx = join(bin, 'npx');
+    writeFileSync(npx, '#!/bin/sh\nexit 1\n');
+    chmodSync(npx, 0o755);
+    const r = spawnSync('/bin/sh', ['-c', command], {
+      cwd,
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` },
+    });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('tamperward: authority failed to start');
   });
 });
 

@@ -14,7 +14,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { NPX_AUTHORITY, TW_VERSION } from '../src/wiring';
+import { AUTHORITY_FAIL_CLOSED, NPX_AUTHORITY, TW_VERSION } from '../src/wiring';
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -51,8 +51,8 @@ const json = (o: object): string => JSON.stringify(o, null, 2) + '\n';
 /** The project file as init writes it at `v` (the `disableAllHooks: false` declaration since 2.9.0). */
 const wired = (v: string, top: Loose = {}): Loose => ({
   hooks: {
-    PreToolUse: [{ matcher: FULL, hooks: [{ type: 'command', command: `${NPX_AUTHORITY} tamperward@${v} hook claude` }] }],
-    Stop: [{ hooks: [{ type: 'command', command: `${NPX_AUTHORITY} tamperward@${v} sweep claude` }] }],
+    PreToolUse: [{ matcher: FULL, hooks: [{ type: 'command', command: `${NPX_AUTHORITY} tamperward@${v} hook claude${AUTHORITY_FAIL_CLOSED}` }] }],
+    Stop: [{ hooks: [{ type: 'command', command: `${NPX_AUTHORITY} tamperward@${v} sweep claude${AUTHORITY_FAIL_CLOSED}` }] }],
   },
   disableAllHooks: false,
   ...top,

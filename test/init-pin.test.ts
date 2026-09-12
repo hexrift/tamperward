@@ -8,9 +8,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { planInit, runInit } from '../src/cli/init';
-import { NPX_AUTHORITY } from '../src/wiring';
+import { HOOK_CMD, NPX_AUTHORITY, SWEEP_CMD } from '../src/wiring';
 
 const VERSION = (JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')) as { version: string }).version;
+const PRE_GLOBAL_NPX = "npx --yes --registry=https://registry.npmjs.org/ --node-options=' ' --script-shell= --ignore-scripts --offline=false --prefer-online";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -45,8 +46,8 @@ describe('init pins the local hooks', () => {
     const d = repo();
     apply(d);
     expect(commands(d).sort()).toEqual([
-      `${NPX_AUTHORITY} tamperward@${VERSION} hook claude`,
-      `${NPX_AUTHORITY} tamperward@${VERSION} sweep claude`,
+      HOOK_CMD,
+      SWEEP_CMD,
     ]);
     expect(readFileSync(join(d, '.git/hooks/pre-commit'), 'utf8')).toContain(`${NPX_AUTHORITY} tamperward@${VERSION} check --staged`);
     expect(VERSION).not.toBe('latest');
@@ -79,8 +80,8 @@ describe('init pins the local hooks', () => {
 
     apply(d);
     expect(commands(d).sort()).toEqual([
-      `${NPX_AUTHORITY} tamperward@${VERSION} hook claude`,
-      `${NPX_AUTHORITY} tamperward@${VERSION} sweep claude`,
+      HOOK_CMD,
+      SWEEP_CMD,
     ]);
     expect(settings(d).other).toBe(true); // everything else preserved
     const hook = readFileSync(join(d, '.git/hooks/pre-commit'), 'utf8');
@@ -88,6 +89,27 @@ describe('init pins the local hooks', () => {
 
     // and now everything is current
     expect(planInit(d).filter((a) => a.item === 'agent' || a.item === 'pre-commit').map((a) => a.status)).toEqual(['ok', 'ok']);
+  });
+
+  it('migrates the incomplete command-line-config launcher to global mode and fail-closed hooks', () => {
+    const d = repo();
+    mkdirSync(join(d, '.claude'));
+    writeFileSync(
+      join(d, '.claude/settings.json'),
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [{ matcher: 'Bash|Edit|Write|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: `${PRE_GLOBAL_NPX} tamperward@${VERSION} hook claude` }] }],
+          Stop: [{ hooks: [{ type: 'command', command: `${PRE_GLOBAL_NPX} tamperward@${VERSION} sweep claude` }] }],
+        },
+        disableAllHooks: false,
+      }),
+    );
+    writeFileSync(join(d, '.git/hooks/pre-commit'), `#!/bin/sh\n# tamperward: block agent shortcuts before they land\n${PRE_GLOBAL_NPX} tamperward@${VERSION} check --staged\n`);
+
+    expect(planInit(d).filter((a) => a.item === 'agent' || a.item === 'pre-commit').map((a) => a.status)).toEqual(['update', 'update']);
+    apply(d);
+    expect(commands(d).sort()).toEqual([HOOK_CMD, SWEEP_CMD]);
+    expect(readFileSync(join(d, '.git/hooks/pre-commit'), 'utf8')).toContain(`${NPX_AUTHORITY} tamperward@${VERSION} check --staged`);
   });
 
   it('never rewrites a command somebody wrote by hand', () => {

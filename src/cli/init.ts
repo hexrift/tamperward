@@ -67,9 +67,10 @@ function gitConfig(cwd: string, key: string): string | null {
 const HOOK_RE = /\btamperward(?:@\S+)?\s+hook\s+claude\b/;
 const SWEEP_RE = /\btamperward(?:@\S+)?\s+sweep\s+claude\b/;
 const PRECOMMIT_RE = /\btamperward(?:@\S+)?\s+check\s+--staged\b/;
-// Commands written before 2.10.5 are recognised only so `init` can migrate
-// them. They are not canonical wiring: project .npmrc still reaches npx.
+// Commands written before this boundary fix are recognised only so `init` can
+// migrate them. They are not canonical wiring: project .npmrc still reaches npx.
 const LEGACY_OURS = /^\s*npx\s+(?:--yes|-y)\s+tamperward(?:@(\S+))?\s+(hook claude|sweep claude|check --staged)\s*$/;
+const PRE_GLOBAL_OURS = /^\s*npx --yes --registry=https:\/\/registry\.npmjs\.org\/ --node-options=' ' --script-shell= --ignore-scripts --offline=false --prefer-online tamperward(?:@(\S+))? (hook claude|sweep claude|check --staged)\s*$/;
 
 // CODEOWNERS. The gate cannot guard the file that decides whether the gate runs.
 //
@@ -168,12 +169,12 @@ version: 1
 /** The pin an `npx --yes tamperward…` command of ours carries: a version, '' for
  *  unpinned, or null when the command is not one init writes. */
 function pinOf(command: string): string | null {
-  const m = command.match(OURS) ?? command.match(LEGACY_OURS);
+  const m = command.match(OURS) ?? command.match(PRE_GLOBAL_OURS) ?? command.match(LEGACY_OURS);
   return m ? (m[1] ?? '') : null;
 }
 
 function ours(command: string): RegExpMatchArray | null {
-  return command.match(OURS) ?? command.match(LEGACY_OURS);
+  return command.match(OURS) ?? command.match(PRE_GLOBAL_OURS) ?? command.match(LEGACY_OURS);
 }
 
 /** Whether a command init wrote needs re-pinning to this build. */

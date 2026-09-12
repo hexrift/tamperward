@@ -314,7 +314,12 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   }
   const notQuiescent = mutatedDuringAdjudication || survivors.length > 0 || depsDrifted || rewrote;
 
-  const cannot = diffCode === 2 || workCode === 2 || verifyCode === 2;
+  // A concurrent tree mutation can also make verify return 2 before this outer
+  // layer reaches its fingerprint comparison. Once the envelope independently
+  // proves non-quiescence, the result is the concrete enforcement finding (1),
+  // not an unexplained cannot-adjudicate (2). This keeps timing from changing
+  // the public classification of the same attack.
+  const cannot = !notQuiescent && (diffCode === 2 || workCode === 2 || verifyCode === 2);
   const blocked = diffCode === 1 || workCode === 1 || verifyCode === 1 || notQuiescent;
   const enforcement = cannot ? 2 : blocked ? 1 : 0;
 
