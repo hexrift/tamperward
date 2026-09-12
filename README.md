@@ -199,6 +199,14 @@ are involved here, and they are not the same thing.
    its policy, verification surface and verifier command and budget from that same
    trusted base — so neither step's verdict is governed by the candidate.
 
+Since **2.11.4**, the generated job uses GitHub Actions' 360-minute outer timeout and
+policy `verify.budget` is capped at **9,000 seconds per stage**. Because visible and
+pristine each receive the full verifier budget, two worst-case stages consume at most
+300 minutes, leaving a deliberate 60-minute reserve for authority install, checkout,
+materialisation, hashing, cleanup and reporting. A larger direct CLI `--budget` is an
+operator/custom-runner override; it is not a supported policy value for the generated
+authority.
+
 Legitimate exceptions are out-of-band PR labels, `tamperward:allow:<rule>@<head-sha>`.
 The workflow passes the head SHA to both steps through `TAMPERWARD_OOB_HEAD`, so an
 approval is bound to the exact commit it was granted for and a new push invalidates it.
