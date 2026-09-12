@@ -390,8 +390,11 @@ export function containerRunArgs(input: ContainerRunArgsInput): string[] {
     '--env', 'CI=1',
     '--env', 'TAMPERWARD_OUTPUT_DIR=/workspace-out',
     '--env', 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+    // The image supplies immutable runtime/dependencies, not command policy.
+    // Docker otherwise appends our command to an image ENTRYPOINT.
+    '--entrypoint', '/bin/sh',
     input.image,
-    'sh', '-c', input.command,
+    '-c', input.command,
   ];
 }
 
