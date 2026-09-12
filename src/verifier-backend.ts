@@ -12,7 +12,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants, readFileSync, realpathSync, statSync } from 'node:fs';
-import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import { Policy } from './types';
 
 export type VerifierBackendKind = 'local' | 'container';
@@ -34,6 +34,8 @@ export interface PreparedVerifierBackend {
 export interface BackendRunResult {
   exit: number | null;
   secs: number;
+  failure?: 'budget' | 'backend';
+  reason?: string;
 }
 
 const DIGEST_IMAGE = /^(?!-)[^\s@]+@sha256:[0-9a-f]{64}$/i;
@@ -305,7 +307,9 @@ export function containerRunArgs(input: ContainerRunArgsInput): string[] {
   return [
     'run',
     '--name', input.name,
-    '--rm',
+    // Keep the stopped container until the trusted host has inspected .State.
+    // Docker CLI exit codes overlap candidate exit codes; container metadata is
+    // the authority that tells us whether the suite actually ran.
     '--pull', 'never',
     '--network', 'none',
     '--read-only',
@@ -374,13 +378,85 @@ export function runContainerStage(
       },
     );
     const secs = Math.round((Date.now() - t0) / 1000);
-    if (r.error || r.status === null) {
+
+    if (r.error) {
       cleanupContainer(backend, name);
-      return { exit: null, secs };
+      const code = (r.error as NodeJS.ErrnoException).code;
+      return code === 'ETIMEDOUT'
+        ? { exit: null, secs, failure: 'budget', reason: 'verifier stage exceeded its budget' }
+        : { exit: null, secs, failure: 'backend', reason: `Docker client failed: ${r.error.message}` };
     }
-    return { exit: r.status, secs };
-  } catch {
+    if (r.status === null) {
+      cleanupContainer(backend, name);
+      return {
+        exit: null,
+        secs,
+        failure: 'backend',
+        reason: `Docker client did not return a status${r.signal ? ` (signal ${r.signal})` : ''}`,
+      };
+    }
+
+    // Docker run's process status is NOT the suite verdict: Docker itself
+    // reserves 125/126/127, while a real suite is also free to return those
+    // same integers. Inspect the named stopped container and trust its State
+    // instead. If no trustworthy state exists, adjudication did not happen.
+    if (!engineStable(backend)) {
+      return {
+        exit: null,
+        secs,
+        failure: 'backend',
+        reason: 'Docker engine identity changed before verifier result inspection',
+      };
+    }
+    const inspected = spawnSync(
+      backend.enginePath,
+      dockerArgs(backend.daemonHost, ['inspect', '--format', '{{json .State}}', name]),
+      {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 10_000,
+        killSignal: 'SIGKILL',
+        env: engineClientEnv(),
+      },
+    );
+    let state:
+      | { ExitCode?: number; Error?: string; OOMKilled?: boolean; Status?: string }
+      | null = null;
+    if (!inspected.error && inspected.status === 0) {
+      try {
+        state = JSON.parse((inspected.stdout ?? '').trim());
+      } catch {
+        state = null;
+      }
+    }
     cleanupContainer(backend, name);
-    return { exit: null, secs: Math.round((Date.now() - t0) / 1000) };
+
+    if (
+      !state ||
+      state.Status !== 'exited' ||
+      typeof state.ExitCode !== 'number' ||
+      state.OOMKilled ||
+      (state.Error ?? '') !== ''
+    ) {
+      return {
+        exit: null,
+        secs,
+        failure: 'backend',
+        reason: state?.OOMKilled
+          ? 'verifier container was OOM-killed'
+          : state?.Error
+            ? `verifier container runtime error: ${state.Error}`
+            : 'Docker did not provide a trustworthy exited-container state',
+      };
+    }
+    return { exit: state.ExitCode, secs };
+  } catch (e) {
+    cleanupContainer(backend, name);
+    return {
+      exit: null,
+      secs: Math.round((Date.now() - t0) / 1000),
+      failure: 'backend',
+      reason: `Docker verifier execution failed: ${e instanceof Error ? e.message : String(e)}`,
+    };
   }
 }
