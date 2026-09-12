@@ -5,30 +5,47 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [2.11.4] — 2026-09-12
+## [2.12.0] — 2026-09-12
 
-**The generated CI authority now has enough outer time to report TamperWard's own
-verifier verdicts.** The workflow written by `tamperward init` previously set
-`timeout-minutes: 10`, while `verify.budget` applies independently to visible and
-pristine runs. Two default 300-second stages could therefore consume the entire job
-before checkout/setup/materialisation/hash/cleanup/reporting overhead, and larger policy
-budgets made the mismatch worse.
+**Generated CI now owns an explicit verifier outer-time contract, without breaking
+existing policy files.** The workflow written by `tamperward init` previously used
+`timeout-minutes: 10`, while `verify.budget` is applied independently to the visible
+and pristine stages. Two default 300-second stages could consume the entire outer job
+before setup/materialisation/hash/cleanup/reporting overhead, and a larger trusted
+budget made premature GitHub termination even more likely.
 
-The time contract is now shared in code:
-- generated GitHub Actions job timeout: **360 minutes**;
-- maximum policy `verify.budget`: **9,000 seconds (150 minutes) per stage**;
-- two worst-case verifier stages: **300 minutes**;
-- reserved outer authority time: **60 minutes**.
+The generated job now declares a 360-minute outer timeout and runs the new
+`tamperward doctor` command before verification. Doctor reads `verify.budget` from
+the trusted base revision, finds every workflow job that actually invokes
+`tamperward verify`, and requires a static numeric `timeout-minutes` covering:
 
-GitHub documents `jobs.<job_id>.timeout-minutes` as defaulting to 360 minutes. The
-generated workflow now states that limit explicitly. Direct CLI `--budget` remains an
-operator/custom-runner override; the 9,000-second ceiling applies to the trusted policy
-surface consumed by generated CI.
+```
+2 × verify.budget + 3600 seconds
+```
 
-TDD reproduced both sides before implementation: the generated workflow parsed with a
-10-minute timeout, and policy accepted 9,001 seconds. The implementation uses shared
-constants so the outer workflow timeout and supported policy ceiling cannot silently
-drift apart.
+The two independently budgeted stages and the one-hour authority reserve are shared
+production constants with executable invariants. The standard 360-minute template
+therefore accommodates up to 9,000 seconds per verifier stage.
+
+**Compatibility is preserved.** Positive finite policy budgets above 9,000 seconds
+remain valid exactly as before; doctor reports that the generated GitHub-hosted
+authority is too small and tells the operator how much outer time is required. A custom
+runner/workflow may provide that larger envelope. This avoids turning a reliability fix
+into a breaking policy-schema change.
+
+Doctor also fails closed on a missing workflow, invalid YAML, no verify job, a missing
+or dynamic/non-numeric/non-positive timeout, or an insufficient numeric timeout. The
+generated PR workflow passes the pull-request base SHA, so candidate edits to
+`.tamperward.yml` cannot choose their own timing requirement.
+
+Re-running `tamperward init` safely migrates an untouched, hash-stamped older workflow
+to the new 360-minute/doctor template. A stamped workflow edited by its operator remains
+untouched unless `--force-workflow` is explicit. Regression tests cover both paths.
+
+TDD record: the original red phase reproduced the 10-minute template; the compatibility
+review then added red tests proving that 9,001 and fractional positive budgets must keep
+loading, that the timing relationship is derived rather than duplicated literals, and
+that doctor diagnoses sufficient, insufficient, missing and malformed workflow limits.
 
 This closes #331.
 
