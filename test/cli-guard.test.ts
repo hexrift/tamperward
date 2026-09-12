@@ -132,12 +132,14 @@ describe('strict CLI argument boundary (#312)', () => {
     ['init unknown option', ['init', '--dry-rnu'], /unknown option "--dry-rnu"/],
     ['doctor unknown option', ['doctor', '--githbu'], /unknown option "--githbu"/],
     ['verify unknown option', ['verify', '--json', '--bogus'], /unknown option "--bogus"/],
+    ['watch unknown option', ['watch', '--bogus'], /unknown option "--bogus"/],
 
     ['check missing value', ['check', '--diff'], /--diff needs a value/],
     ['allow missing value', ['allow', 'test-deletion', '--reason'], /--reason needs a value/],
     ['init missing value', ['init', '--cwd'], /--cwd needs a value/],
     ['doctor missing value', ['doctor', '--base'], /--base needs a value/],
     ['verify missing value', ['verify', '--base'], /--base needs a value/],
+    ['watch missing value', ['watch', '--dir'], /--dir needs a value/],
     ['run missing value', ['run', '--budget', '--', 'true'], /--budget needs a value/],
 
     ['verify zero budget', ['verify', '--budget', '0'], /--budget needs a positive number/],
