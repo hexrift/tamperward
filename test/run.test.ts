@@ -377,6 +377,24 @@ describe('agent runtime budget (#325)', () => {
     expect(() => process.kill(childPid, 0)).toThrow();
   }, 15_000);
 
+  it.skipIf(process.platform !== 'linux')('kills a descendant that escapes the agent process group with setsid', () => {
+    const cwd = repo(true);
+    const pidFile = join(cwd, '.agent-setsid-pid');
+    const code = runEnvelope({
+      cwd,
+      cmd: CMD,
+      agentBudget: 1,
+      argv: sh(
+        `setsid bash -c 'echo $ > "${pidFile}"; sleep 30' & sleep 30`,
+      ),
+    });
+
+    expect(code).toBe(124);
+    const childPid = Number(readFileSync(pidFile, 'utf8').trim());
+    expect(Number.isInteger(childPid) && childPid > 1).toBe(true);
+    expect(() => process.kill(childPid, 0)).toThrow();
+  }, 15_000);
+
   it('fails closed before spawning for a non-positive/invalid agent budget', () => {
     const cwd = repo(true);
     const sideEffect = join(cwd, 'agent-ran');
