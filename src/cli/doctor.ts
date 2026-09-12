@@ -136,21 +136,35 @@ const GITHUB_API_SCRIPT = [
   "}).catch((e) => { process.stderr.write(String(e)); process.exit(23); });",
 ].join('\n');
 
+/** @internal Pure description of the trusted GitHub API subprocess. */
+export function githubApiInvocation(endpoint: string, token: string): {
+  executable: string;
+  args: string[];
+  env: Record<string, string>;
+} {
+  return {
+    executable: process.execPath,
+    args: ['-e', GITHUB_API_SCRIPT, endpoint],
+    env: {
+      TAMPERWARD_GITHUB_TOKEN: token,
+      LANG: 'C',
+      LC_ALL: 'C',
+    },
+  };
+}
+
 function githubApi(cwd: string, endpoint: string): unknown {
   const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN ?? '';
+  const invocation = githubApiInvocation(endpoint, token);
   try {
     const stdout = execFileSync(
-      process.execPath,
-      ['-e', GITHUB_API_SCRIPT, endpoint],
+      invocation.executable,
+      invocation.args,
       {
         cwd,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: {
-          TAMPERWARD_GITHUB_TOKEN: token,
-          LANG: 'C',
-          LC_ALL: 'C',
-        },
+        env: invocation.env,
         timeout: 15_000,
       },
     );
