@@ -114,7 +114,7 @@ describe('dependency environment attestation', () => {
     expect(code).toBe(1);
   });
 
-  it('catches a transient interpreter substitution only after both suites were fooled and bytes restored', () => {
+  it('catches dependency drift introduced only after the pristine suite, after both interpreter substitutions restored', () => {
     const cwd = repoWithIgnoredVenv();
     selectVenv(cwd);
     const counter = join(mkdtempSync(join(tmpdir(), 'tw-dep-counter-')), 'calls');
@@ -129,10 +129,12 @@ describe('dependency environment attestation', () => {
       argv: ['bash', '-c', 'true'],
     });
 
-    // The dependency bytes match at pre-adjudication and after each individual
-    // interpreter invocation. Both visible and pristine suites actually ran the
-    // substitute (counter=2), the interpreter restored its entry bytes, and the
-    // post-pristine dependency check convicts the second-call marker.
+    // The interpreter itself is restored after each invocation, and the
+    // out-of-root counter proves both visible and pristine suites actually ran
+    // the substitute. The second suite then leaves a NEW dependency-root marker,
+    // which is intentionally what the post-pristine checkpoint convicts. This
+    // does not claim detection of a fully self-restoring mutation that leaves
+    // every attested byte identical between checkpoints.
     expect(code).toBe(1);
     expect(readFileSync(counter, 'utf8')).toBe('2');
     expect(readFileSync(join(cwd, '.venv', 'bin', 'python'), 'utf8')).toBe(original);
@@ -224,7 +226,7 @@ describe('dependency environment attestation', () => {
     ).toBe(1);
   });
 
-  it('does not fold an npm workspace source target into immutable dependency state', () => {
+  it('fails closed instead of letting an npm workspace link escape the materialised verifier copy', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'tw-workspace-dep-'));
     dirs.push(cwd);
     const git = (...args: string[]) => execFileSync('git', args, { cwd });
@@ -248,7 +250,7 @@ describe('dependency environment attestation', () => {
         budget: 30,
         argv: ['bash', '-c', `printf 'module.exports = 2;\\n' > packages/pkg/value.js`],
       }),
-    ).toBe(0);
+    ).toBe(2);
   });
 
   it('reports the carried dependency trust assumption in verify JSON', () => {
