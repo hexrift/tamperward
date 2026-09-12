@@ -116,12 +116,12 @@ function gitText(cwd: string, args: string[]): string | null {
 
 function inferGitHubRepo(cwd: string): string | null {
   const envRepo = process.env.GITHUB_REPOSITORY;
-  if (envRepo && /^[^/\\s]+\\/[^/\\s]+$/.test(envRepo)) return envRepo;
+  if (envRepo && /^[^/\s]+\/[^/\s]+$/.test(envRepo)) return envRepo;
 
   const remote = gitText(cwd, ['config', '--get', 'remote.origin.url']);
   if (!remote) return null;
-  const m = remote.match(/github\\.com(?::|\\/)([^/\\s]+)\\/([^/\\s]+?)(?:\\.git)?$/i);
-  return m ? m[1] + '/' + m[2].replace(/\\.git$/i, '') : null;
+  const m = remote.match(/github\.com(?::|\/)([^/\s]+)\/([^/\s]+?)(?:\.git)?$/i);
+  return m ? m[1] + '/' + m[2].replace(/\.git$/i, '') : null;
 }
 
 function ghApi(cwd: string, endpoint: string): unknown {
@@ -138,7 +138,7 @@ function ghApi(cwd: string, endpoint: string): unknown {
     return JSON.parse(stdout);
   } catch (e) {
     const x = e as Error & { stderr?: string | Buffer };
-    const detail = x.stderr ? String(x.stderr).replace(/\\s+/g, ' ').trim() : x.message;
+    const detail = x.stderr ? String(x.stderr).replace(/\s+/g, ' ').trim() : x.message;
     throw new Error('gh api ' + endpoint + ' failed: ' + (detail || 'unknown error'));
   }
 }
