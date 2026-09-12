@@ -125,6 +125,24 @@ describe('#315 verifier symlink fidelity', () => {
     expect(result.out).toMatch(/symlink that escapes the materialised tree/);
   });
 
+  it('fails closed when pristine restoration would make a trusted-base link cross the dependency edge', () => {
+    const cwd = repo();
+    mkdirSync(join(cwd, 'node_modules', 'pkg'), { recursive: true });
+    writeFileSync(join(cwd, 'secret.txt'), 'candidate-controlled original-worktree bytes\n');
+    symlinkSync('../node_modules/../secret.txt', join(cwd, 'test', 'base-link.test.js'));
+    commit(cwd);
+
+    // The visible candidate removes the troublesome base link. The pristine
+    // overlay later restores it, so the post-overlay graph check must still
+    // refuse rather than executing through the original worktree.
+    rmSync(join(cwd, 'test', 'base-link.test.js'));
+    writeFileSync(join(cwd, 'test', 'base-link.test.js'), 'module.exports = 1;\n');
+
+    const result = capture(() => runVerify({ cwd, base: 'HEAD', cmd: 'true', budget: 30 }));
+    expect(result.code).toBe(2);
+    expect(result.out).toMatch(/symlink that escapes the materialised tree/);
+  });
+
   it('never writes trusted overlay bytes through a candidate escape link', () => {
     const cwd = repo();
     writeFileSync(join(cwd, 'test', 'guard.test.js'), 'trusted test\n');
