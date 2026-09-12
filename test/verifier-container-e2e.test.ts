@@ -273,6 +273,37 @@ describe('isolated verifier runtime failures (#345)', () => {
   }, 60_000);
 });
 
+describe('isolated verifier authority drift (#345)', () => {
+  containerIt('engine identity drift after preflight is cannot-adjudicate, not budget exceeded', () => {
+    const { cwd } = boundaryRepo('node test/boundary.js');
+    const prepared = prepareVerifierBackend({
+      command: 'node test/boundary.js',
+      budget: 30,
+      backend: 'container',
+      image: BASE_IMAGE,
+    });
+    expect(prepared.available).toBe(true);
+
+    const drifted: PreparedVerifierBackend = {
+      ...prepared,
+      engineSha256: '0'.repeat(64),
+    };
+    const r = capture(() =>
+      runVerify({
+        cwd,
+        base: 'HEAD',
+        json: true,
+        verifierBackend: drifted,
+      }),
+    );
+    expect(r.code).toBe(2);
+    expect(r.json).toMatchObject({
+      verdict: 'CANNOT_VERIFY',
+      reason: 'VERIFIER_BACKEND_RUNTIME_FAILURE',
+    });
+  }, 60_000);
+});
+
 describe('isolated verifier suite exit attribution (#345)', () => {
   containerIt('a real candidate exit 125 remains suite red rather than runtime failure', () => {
     const { cwd } = boundaryRepo("sh -c 'exit 125'");
