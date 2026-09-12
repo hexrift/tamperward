@@ -176,10 +176,15 @@ function fingerprintRoot(
           continue;
         }
         if (followed.isDirectory()) {
-          // npm workspaces may link back into the candidate tree. External
-          // package-store directories are not bounded yet and fail closed.
-          if (inside(root.realPath, resolved) || inside(cwdReal, resolved)) {
+          if (inside(root.realPath, resolved)) {
             walk(resolved, '@target:' + rel);
+            continue;
+          }
+          if (inside(cwdReal, resolved)) {
+            // npm workspaces point back into candidate source. Hash the link
+            // identity, but leave target bytes to the candidate-tree checks so
+            // an honest source edit is not mislabeled DEPENDENCY_DRIFT.
+            h.update('@candidate-tree:' + relative(cwdReal, resolved) + '\0');
             continue;
           }
           throw new Unattestable(
@@ -282,10 +287,44 @@ function resolveExecutable(
   return null;
 }
 
-function looksPython(command: string, executable: string | null): boolean {
-  const exe = executable ? basename(executable).toLowerCase() : '';
-  if (/^(?:python(?:\d+(?:\.\d+)*)?|pytest|py\.test|pip(?:\d+(?:\.\d+)*)?)$/.test(exe)) return true;
+function pythonName(name: string): boolean {
+  return /^(?:python(?:\d+(?:\.\d+)*)?|pytest|py\.test|pip(?:\d+(?:\.\d+)*)?)$/.test(name.toLowerCase());
+}
+
+function looksPython(command: string, executable: string | null, token: string | null): boolean {
+  const exe = executable ? basename(executable) : '';
+  const raw = token ? basename(token) : '';
+  if (pythonName(exe) || pythonName(raw)) return true;
   return /(?:^|[\s;&|()])(?:python(?:\d+(?:\.\d+)*)?|pytest|py\.test|pip(?:\d+(?:\.\d+)*)?)(?=$|[\s;&|()])/.test(command);
+}
+
+function inferredVenvFromToken(token: string | null, cwd: string): string | null {
+  if (!token || (!token.includes('/') && !token.includes('\\'))) return null;
+  const path = isAbsolute(token) ? token : resolve(cwd, token);
+  if (!pythonName(basename(path))) return null;
+  const parent = dirname(path);
+  const parentName = basename(parent).toLowerCase();
+  if (parentName !== 'bin' && parentName !== 'scripts') return null;
+  const root = dirname(parent);
+  return existsSync(join(root, 'pyvenv.cfg')) ? root : null;
+}
+
+function unsupportedEcosystem(command: string, token: string | null): string | null {
+  const name = token ? basename(token).toLowerCase() : '';
+  const raw = command.toLowerCase();
+  if (
+    ['ruby', 'bundle', 'bundler', 'rspec', 'rake'].includes(name) ||
+    /(?:^|[\s;&|()])(?:bundle\s+exec|ruby|rspec|rake)(?=$|[\s;&|()])/.test(raw)
+  ) return 'Ruby dependency environment discovery is not yet attestable';
+  if (
+    ['mvn', 'mvnw', 'gradle', 'gradlew', 'java'].includes(name) ||
+    /(?:^|[\s;&|()])(?:mvn|mvnw|gradle|gradlew|java)(?=$|[\s;&|()])/.test(raw)
+  ) return 'JVM dependency environment discovery is not yet attestable';
+  if (
+    name === 'dotnet' ||
+    /(?:^|[\s;&|()])dotnet(?=$|[\s;&|()])/.test(raw)
+  ) return '.NET dependency environment discovery is not yet attestable';
+  return null;
 }
 
 function inferredVenv(executable: string | null): string | null {
@@ -348,7 +387,7 @@ export function discoverDependencyEnvironment(
       }
       venv = resolve(env.VIRTUAL_ENV);
     } else {
-      venv = inferredVenv(executable);
+      venv = inferredVenv(executable) ?? inferredVenvFromToken(token, cwd);
       if (
         !venv &&
         /(?:^|\s)uv\s+run(?:\s|$)/.test(command) &&
@@ -362,12 +401,15 @@ export function discoverDependencyEnvironment(
       const problem = venvProblem(venv);
       if (problem) throw new Unattestable(problem);
       addRoot('python-venv', venv);
-    } else if (looksPython(command, executable)) {
+    } else if (looksPython(command, executable, token)) {
       throw new Unattestable(
         'Python verifier selected without an identifiable virtual environment; ' +
         'global/user site-packages are not bounded',
       );
     }
+
+    const unsupported = unsupportedEcosystem(command, token);
+    if (unsupported) throw new Unattestable(unsupported);
 
     const status: DependencyEnvironmentStatus = roots.length ? 'attested' : 'none';
     const fingerprint = snapshot(roots, probes, cwd);
