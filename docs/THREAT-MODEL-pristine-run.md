@@ -251,10 +251,29 @@ is the variable list. What remains is stated below.
   no environment switch disables the repository's own config. The one read
   whose point is that the candidate did not choose it must not run the
   candidate's filter.
-- **Shared mutable dependencies are not addressed.** Both copies execute against
-  the same installed environment. An agent that mutates an installed package
-  affects the pristine run too. The copies are separate directories, not a
-  sandbox.
+- **Shared mutable dependencies are attested where the execution environment can
+  be bounded, not assumed away.** Since 2.10.9 the envelope freezes one dependency
+  descriptor before candidate execution and reuses it through both verifier runs.
+  Repository `node_modules` and an identifiable selected Python virtualenv are
+  content/type/mode/link fingerprinted; Python site-packages and interpreter identity
+  are therefore inside the check. A normal venv interpreter symlink to an external
+  interpreter file is bound by hashing that target's bytes and mode. Known Ruby,
+  JVM and .NET verifier commands, Python without an identifiable venv, and external
+  dependency-directory stores outside the bounded closure are reported
+  **unattestable** and fail closed unless the operator explicitly accepts the risk
+  with `--allow-dep-drift`. npm workspace directory links back into candidate
+  source also fail closed today: leaving that link live would make the materialised
+  verifier copy resolve back into the original worktree. This is detection, not a
+  sandbox: fresh, verifier-owned dependencies remain the stronger architecture.
+
+- **Dependency attestation is checkpoint-based.** 2.10.9 compares the frozen
+  dependency closure before/after the adjudication stages. It closes persistent
+  substitutions and mutations that survive to a checkpoint. It does **not** prove
+  observation of a mutation performed entirely during one suite execution and
+  restored byte-for-byte (including mode/link identity) before the next checkpoint.
+  That fully self-restoring case is tracked as #341 and requires a structural
+  boundary—preferably verifier-owned, non-candidate-writable dependencies—rather
+  than a faster polling race.
 - **Source-level interference is out of scope here** and belongs to the oracle
   boundary, not this one: a semantically wrong fix that the base tests accept is
   invisible to any materialisation rule. That is round 3.1's tableau finding.

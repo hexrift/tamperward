@@ -1,16 +1,12 @@
-// Filesystem fingerprints of the two things a verdict is about but no diff view
-// covers: the working tree it describes, and the installed dependency tree it
-// executes through.
+// Filesystem fingerprint of the candidate working tree a verdict describes.
 //
-// `verify` symlinks node_modules into the visible AND the pristine copy: it is
-// gitignored, so no diff view sees it, and it is where the suite's own runner
-// lives. Hashed rather than stat-compared, because P1-8 is the standing lesson
-// that mtime and size are the agent's to choose.
+// Installed dependency environments have a different trust model and are
+// frozen/attested in src/dependency-env.ts. Keeping that boundary separate is
+// deliberate: absence of node_modules is not evidence that a Python/Ruby/JVM
+// verifier has no mutable execution environment.
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, readlinkSync, statSync } from 'node:fs';
-import { join } from 'node:path';
 import { inspectRel } from './disk';
 import { ignoredPaths } from './git/build';
 import { trustedGitEnv } from './git/trusted';
@@ -53,54 +49,5 @@ export function treeFingerprint(cwd: string, keepIgnored?: (rel: string) => bool
     h.update(entry.content ?? `<${entry.kind}:${entry.detail}>`);
     h.update('\0');
   }
-  return h.digest('hex');
-}
-
-/** Content fingerprint of the installed dependency tree.
- *
- *  `verify` symlinks node_modules into BOTH copies, so an agent that writes
- *  `node_modules/.bin/<runner>` replaces the program that decides both
- *  verdicts. Neither the policy check (git-scoped) nor the tree fingerprint
- *  (ls-files, ignores excluded) can see it. (P0-6, external review.)
- *
- *  Measured 3.4s over 145MB / 5.4k files, inside a command that already runs
- *  the suite twice. */
-export function depsFingerprint(cwd: string): string {
-  const root = join(cwd, 'node_modules');
-  const h = createHash('sha256');
-  const walk = (dir: string): void => {
-    let entries;
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
-      const p = join(dir, e.name);
-      if (e.isDirectory()) walk(p);
-      else if (e.isFile()) {
-        h.update(p);
-        try {
-          h.update(readFileSync(p));
-          h.update(String(statSync(p).mode)); // the exec bit is part of identity
-        } catch {
-          h.update('<unreadable>');
-        }
-      } else if (e.isSymbolicLink()) {
-        h.update(p);
-        try {
-          h.update(readlinkSync(p));
-        } catch {
-          h.update('<unreadable-link>');
-        }
-      }
-    }
-  };
-  try {
-    if (!statSync(root).isDirectory()) return 'none';
-  } catch {
-    return 'none'; // no installed tree: nothing to drift
-  }
-  walk(root);
   return h.digest('hex');
 }

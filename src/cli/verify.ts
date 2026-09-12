@@ -46,7 +46,14 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { loadPolicy, loadPolicyAt } from '../policy-load';
 import { assertRev } from '../git/build';
 import { trustedGitEnv } from '../git/trusted';
-import { depsFingerprint, treeFingerprint } from '../fingerprint';
+import { treeFingerprint } from '../fingerprint';
+import {
+  checkDependencyEnvironment,
+  dependencyEnvironmentReport,
+  dependencyEnvironmentSummary,
+  discoverDependencyEnvironment,
+  type DependencyEnvironmentDescriptor,
+} from '../dependency-env';
 import { defaultPolicy, isProtected, matchesAny } from '../policy';
 import { Policy } from '../types';
 import { oobFromEnv, oobHeadFromEnv, oobToken } from '../signoff';
@@ -67,6 +74,11 @@ export interface VerifyOpts {
   /** A parse fault (`--base --json`): recorded rather than guessed around, so
    *  runVerify fails closed on it instead of verifying against a flag. */
   invalid?: string;
+  /** Frozen by tamperward run before the agent. Standalone verify discovers
+   *  once at its own entry boundary. Never rediscovered after candidate code. */
+  dependencyEnvironment?: DependencyEnvironmentDescriptor;
+  /** Internal envelope override matching --allow-dep-drift. */
+  allowDepDrift?: boolean;
 }
 
 interface RunResult {
@@ -350,7 +362,7 @@ function rejectLinkedParent(cwd: string, rel: string): void {
  * files retain bytes/mode; safe relative links retain their exact link target;
  * unrepresentable links and special files fail closed. node_modules remains a
  * deliberate same-domain dependency link until the isolated backend replaces it. */
-function materialize(cwd: string, dest: string): void {
+function materialize(cwd: string, dest: string, dependencyRoot: string | null): void {
   const listed = git(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd)
     .split('\0')
     .filter(Boolean);
@@ -383,18 +395,15 @@ function materialize(cwd: string, dest: string): void {
   // directory — i.e. to itself — so every suite in both runs exited 127 and
   // verify degraded to permanent SUITE_RED. Fails closed, but an oracle that
   // always says red is one people switch off.
-  const nm = resolve(cwd, 'node_modules');
-  let dependencyRoot: string | null = null;
-  if (existsSync(nm)) dependencyRoot = realpathSync(nm);
-
   // Validate only after every candidate link exists, so chained links are
-  // resolved as the suite will see them. Do this before installing the
-  // external node_modules edge; the validator models that edge explicitly.
+  // resolved as the suite will see them. The dependency root is the one frozen
+  // at verifier entry (or before the agent by tamperward run), never a
+  // rediscovery from candidate-mutated state.
   for (const link of links) {
     validateSymlinkGraph(link.target, link.out, dest, dependencyRoot, link.rel);
   }
 
-  if (dependencyRoot) symlinkSync(nm, join(dest, 'node_modules'), 'dir');
+  if (dependencyRoot) symlinkSync(dependencyRoot, join(dest, 'node_modules'), 'dir');
 }
 
 /** Remove `p` when it is a symlink, so a later write lands in the sandbox
@@ -507,6 +516,7 @@ function overlayPristine(
   dest: string,
   policy: Policy,
   cmd: string,
+  dependencyRoot: string | null,
 ): { restored: string[]; removed: number } {
   const entries = baseEntries(base, cwd);
   const atBase = entries.map((e) => e.path);
@@ -590,8 +600,6 @@ function overlayPristine(
   // FINAL pristine graph as well: a trusted-base path such as
   // ../node_modules/../fixture is ordinary inside the original worktree, but
   // would cross the verifier's external dependency edge inside the copy.
-  const nm = resolve(cwd, 'node_modules');
-  const dependencyRoot = existsSync(nm) ? realpathSync(nm) : null;
   for (const link of restoredLinks) {
     validateSymlinkGraph(link.target, link.out, dest, dependencyRoot, `the base's ${link.path}`);
   }
@@ -814,6 +822,29 @@ export function runVerify(opts: VerifyOpts): number {
   }
   const budget = opts.budget ?? policy.verify?.budget ?? 300;
 
+  // Dependency authority. Standalone verify freezes it here; the envelope
+  // supplies the descriptor frozen before candidate execution. Either way,
+  // every later check hashes these exact roots/probes rather than rediscovering.
+  const dependencyEnvironment =
+    opts.dependencyEnvironment ?? discoverDependencyEnvironment(cwd, cmd);
+  const dependencyReport = (): ReturnType<typeof dependencyEnvironmentReport> =>
+    dependencyEnvironmentReport(dependencyEnvironment);
+  if (dependencyEnvironment.status === 'unattestable' && !opts.allowDepDrift) {
+    if (opts.json) {
+      out(JSON.stringify({
+        verdict: 'CANNOT_VERIFY',
+        reason: 'DEPENDENCY_ENVIRONMENT_UNATTESTABLE',
+        dependency_environment: dependencyReport(),
+      }));
+    } else {
+      out('verify: dependency environment is not attestable — failing closed');
+      out('verify: ' + (dependencyEnvironment.reason ?? 'unknown dependency environment'));
+    }
+    return 2;
+  }
+  const frozenNodeModules =
+    dependencyEnvironment.roots.find((root) => root.kind === 'node_modules')?.realPath ?? null;
+
   let base: string;
   try {
     base = resolveBase(opts.base ?? 'HEAD', cwd);
@@ -850,11 +881,17 @@ export function runVerify(opts: VerifyOpts): number {
   // pristine copy is made of.
   const protectedIgnored = (rel: string): boolean => isProtected(rel, policy);
   const treeBefore = treeFingerprint(cwd, protectedIgnored);
-  const depsBefore = depsFingerprint(cwd);
+  const dependencyAtEntry = checkDependencyEnvironment(cwd, dependencyEnvironment);
+  if (!dependencyAtEntry.ok && !opts.allowDepDrift) {
+    cleanup([visRoot]);
+    out('verify: the frozen dependency environment changed before the visible suite ran —');
+    out((dependencyAtEntry.reason ?? 'dependency identity changed') + '. Failing closed, not open.');
+    return 2;
+  }
 
   try {
     mkdirSync(visDir);
-    materialize(cwd, visDir);
+    materialize(cwd, visDir, frozenNodeModules);
   } catch (e) {
     cleanup([visRoot]);
     out(`verify: could not materialize (${e instanceof Error ? e.message : String(e)}) — failing closed`);
@@ -869,10 +906,11 @@ export function runVerify(opts: VerifyOpts): number {
     out('would be materialised from a tree the candidate just edited. Failing closed, not open.');
     return 2;
   }
-  if (depsFingerprint(cwd) !== depsBefore) {
+  const dependencyAfterVisible = checkDependencyEnvironment(cwd, dependencyEnvironment);
+  if (!dependencyAfterVisible.ok && !opts.allowDepDrift) {
     cleanup([visRoot]);
-    out('verify: the installed dependency tree changed while the visible suite was running — the');
-    out('pristine run executes through it too. Failing closed, not open.');
+    out('verify: the frozen dependency environment changed while the visible suite was running —');
+    out((dependencyAfterVisible.reason ?? 'dependency identity changed') + '. Failing closed, not open.');
     return 2;
   }
 
@@ -882,8 +920,10 @@ export function runVerify(opts: VerifyOpts): number {
   let removedAdded = 0;
   try {
     mkdirSync(priDir);
-    materialize(cwd, priDir);
-    ({ restored, removed: removedAdded } = overlayPristine(cwd, base, priDir, policy, cmd));
+    materialize(cwd, priDir, frozenNodeModules);
+    ({ restored, removed: removedAdded } = overlayPristine(
+      cwd, base, priDir, policy, cmd, frozenNodeModules,
+    ));
   } catch (e) {
     cleanup([visRoot, priRoot]);
     out(`verify: could not materialize (${e instanceof Error ? e.message : String(e)}) — failing closed`);
@@ -894,7 +934,8 @@ export function runVerify(opts: VerifyOpts): number {
   const pristine = runSuite(priDir, cmd, budget);
   const overlayMoved = overlayDigest(priDir, restored) !== overlayBefore;
   const treeMoved = treeFingerprint(cwd, protectedIgnored) !== treeBefore;
-  const depsMoved = depsFingerprint(cwd) !== depsBefore;
+  const dependencyAfterPristine = checkDependencyEnvironment(cwd, dependencyEnvironment);
+  const depsMoved = !dependencyAfterPristine.ok && !opts.allowDepDrift;
   cleanup([visRoot, priRoot]);
 
   if (overlayMoved || treeMoved || depsMoved) {
@@ -904,7 +945,7 @@ export function runVerify(opts: VerifyOpts): number {
           ? 'a restored file in the pristine copy changed while the pristine suite was running'
           : treeMoved
             ? 'the working tree changed while the pristine suite was running'
-            : 'the installed dependency tree changed while the pristine suite was running') +
+            : 'the frozen dependency environment changed while the pristine suite was running') +
         ' —',
     );
     out('the verdict would describe something other than what ran. Failing closed, not open.');
@@ -948,6 +989,7 @@ export function runVerify(opts: VerifyOpts): number {
         pristine: { exit: pristine.exit, secs: pristine.secs },
         protected_restored: restored.length,
         added_protected_removed: removedAdded,
+        dependency_environment: dependencyReport(),
         ...(signedOff ? { oob_signoff: signedOff } : {}),
         ...(opts.keep ? { visible_dir: visDir, pristine_dir: priDir } : {}),
       }),
@@ -962,6 +1004,8 @@ export function runVerify(opts: VerifyOpts): number {
       BUDGET_EXCEEDED: `budget exceeded (${budget}s): could not verify — failing closed, not open.`,
     };
     out(`tamperward verify — ${lines[verdict]}`);
+    out(`dependency environment: ${dependencyEnvironmentSummary(dependencyEnvironment)}` +
+      (opts.allowDepDrift && dependencyEnvironment.status === 'unattestable' ? ' (operator override)' : ''));
     if (signedOff)
       out(
         `masked failure cleared by out-of-band approval (tamperward:allow:${signedOff}): a reviewer ` +

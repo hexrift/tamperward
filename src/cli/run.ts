@@ -40,7 +40,8 @@ import { runCheck } from './check';
 import { runVerify } from './verify';
 import { loadPolicy, loadPolicyAt } from '../policy-load';
 import { objectRewriteState, trustedGitEnv } from '../git/trusted';
-import { depsFingerprint, treeFingerprint } from '../fingerprint';
+import { treeFingerprint } from '../fingerprint';
+import { checkDependencyEnvironment, dependencyEnvironmentSummary, discoverDependencyEnvironment } from '../dependency-env';
 import { defaultPolicy, isProtected } from '../policy';
 import { Policy } from '../types';
 
@@ -205,8 +206,18 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     }
   }
 
+  // Freeze the runner/interpreter/package environment BEFORE the agent. This is
+  // a descriptor, not a rediscovery recipe: every later check re-hashes exactly
+  // these roots, so candidate mutation cannot move the boundary it is judged by.
+  const dependencyEnvironment = discoverDependencyEnvironment(cwd, frozenCmd);
   out(`tamperward run — trusted base ${base.slice(0, 10)}; agent exit is untrusted.`);
-  const depsBefore = depsFingerprint(cwd); // the runner the suite will execute
+  out(`tamperward run — dependency environment: ${dependencyEnvironmentSummary(dependencyEnvironment)}`);
+  if (dependencyEnvironment.status === 'unattestable' && !opts.allowDepDrift) {
+    err('tamperward run: the verifier dependency environment cannot be attested —');
+    err(`${dependencyEnvironment.reason ?? 'unknown dependency environment'}. Failing closed before the agent starts.`);
+    err('(Pass --allow-dep-drift only if you explicitly own this dependency-integrity risk.)');
+    return 2;
+  }
   // What the object layer resolves to. Every read of the trusted base — the
   // pristine overlay, the ancestry assertion, the ranged diff — goes through
   // it, and `git replace` / info/grafts / shallow can redirect all three
@@ -243,9 +254,10 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   // leaves the entry-vs-exit fingerprints identical. Reproduced end to end —
   // GREEN MEANS GREEN over an unfixed bug. The state that matters is the one
   // the checks are about to execute, so it is compared HERE, before them.
-  if (depsFingerprint(cwd) !== depsBefore) {
-    err('tamperward run: the installed dependency tree changed before adjudication began — the program');
-    err('that runs the suite is not the one we started with, and both verification runs execute it.');
+  const dependencyBeforeAdjudication = checkDependencyEnvironment(cwd, dependencyEnvironment);
+  if (!dependencyBeforeAdjudication.ok) {
+    err('tamperward run: the frozen dependency environment changed before adjudication began —');
+    err(`${dependencyBeforeAdjudication.reason ?? 'dependency identity changed'}.`);
     if (!opts.allowDepDrift) {
       out(`\ntamperward run — agent exit ${agentExit}; DEPENDENCY_DRIFT → ENFORCEMENT_FAILED`);
       return 1;
@@ -277,7 +289,15 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   out('\n[envelope] policy check over the working tree (frozen policy, untracked included, no local ledger):');
   const workCode = runCheck({ worktree: true, cwd, policyOverride: frozenPolicy, includeUntracked: true, ciLayer: true });
   out('\n[envelope] pristine verification against the trusted base:');
-  const verifyCode = runVerify({ cwd, base, cmd: frozenCmd, budget: frozenBudget, policyOverride: frozenPolicy });
+  const verifyCode = runVerify({
+    cwd,
+    base,
+    cmd: frozenCmd,
+    budget: frozenBudget,
+    policyOverride: frozenPolicy,
+    dependencyEnvironment,
+    allowDepDrift: opts.allowDepDrift,
+  });
 
   // Quiescence. A survivor that edits the tree during — or after — the checks
   // makes the verdict describe a tree that no longer exists: the masked-green
@@ -294,10 +314,11 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     err('tamperward run: the working tree changed while it was being adjudicated —');
     err('the verdict below would describe a tree that no longer exists.');
   }
-  const depsDrifted = !opts.allowDepDrift && depsFingerprint(cwd) !== depsBefore;
+  const dependencyAfter = checkDependencyEnvironment(cwd, dependencyEnvironment);
+  const depsDrifted = !opts.allowDepDrift && !dependencyAfter.ok;
   if (depsDrifted) {
-    err('tamperward run: the installed dependency tree changed during this run — the program that');
-    err('runs the suite is not the one we started with. Both verification runs execute it.');
+    err('tamperward run: the frozen dependency environment changed during this run —');
+    err(`${dependencyAfter.reason ?? 'dependency identity changed'}. Both verification runs depend on it.`);
   }
   // And again after the checks: a survivor can install a replace ref while the
   // suite is running, which would leave the verdict above describing a base
