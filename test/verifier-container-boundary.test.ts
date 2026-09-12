@@ -37,8 +37,10 @@ describe('isolated verifier container invocation', () => {
     expect(joined).not.toMatch(/node_modules|\.venv|VIRTUAL_ENV/);
     expect(joined).not.toMatch(/type=bind[^\n]*(?:\/home|\/tmp)(?:,|$)/);
 
+    expect(args).toContain('--entrypoint');
+    expect(args[args.indexOf('--entrypoint') + 1]).toBe('/bin/sh');
     expect(args).toContain(IMAGE);
-    expect(args.slice(-3)).toEqual(['sh', '-c', 'npm test']);
+    expect(args.slice(-2)).toEqual(['-c', 'npm test']);
   });
 
   it('sets a private HOME/TMP and fixed PATH inside the verifier domain', () => {
