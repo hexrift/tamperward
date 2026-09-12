@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildSync } from 'esbuild';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -15,6 +15,7 @@ afterEach(() => {
 function isolatedCli(): string {
   const d = mkdtempSync(join(tmpdir(), 'tw-version-resolution-'));
   dirs.push(d);
+  symlinkSync(join(ROOT, 'node_modules'), join(d, 'node_modules'), 'dir');
   mkdirSync(join(d, 'cli'));
   const out = join(d, 'cli', 'index.js');
   buildSync({
