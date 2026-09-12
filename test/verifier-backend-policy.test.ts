@@ -49,6 +49,19 @@ describe('isolated verifier policy', () => {
     ).toThrow(PolicyError);
   });
 
+  it('rejects a digest reference whose image name could be parsed as a runtime option', () => {
+    expect(() =>
+      parsePolicy({
+        verify: {
+          command: 'sh test/check.sh',
+          budget: 60,
+          backend: 'container',
+          image: '-evil@sha256:' + 'a'.repeat(64),
+        },
+      } as any),
+    ).toThrow(PolicyError);
+  });
+
   it('treats weakening isolated -> local and changing the pinned verifier image as policy weakening', () => {
     const before =
       'verify:\n' +
@@ -70,7 +83,20 @@ describe('isolated verifier policy', () => {
       '  backend: container\n' +
       `  image: ghcr.io/example/tamperward-verifier@sha256:${'b'.repeat(64)}\n`;
 
+    const omittedBackend =
+      'verify:\n' +
+      '  command: sh test/check.sh\n' +
+      '  budget: 60\n';
+
+    const omittedImage =
+      'verify:\n' +
+      '  command: sh test/check.sh\n' +
+      '  budget: 60\n' +
+      '  backend: container\n';
+
     expect(policyWeakening(before, local)?.join('\n')).toMatch(/backend|container|local/i);
+    expect(policyWeakening(before, omittedBackend)?.join('\n')).toMatch(/backend|container|local/i);
     expect(policyWeakening(before, other)?.join('\n')).toMatch(/image|verifier/i);
+    expect(policyWeakening(before, omittedImage)?.join('\n')).toMatch(/image|verifier/i);
   });
 });
