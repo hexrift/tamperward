@@ -171,10 +171,12 @@ Stated as one invariant to engineer against:
   repository `node_modules` closure and an identifiable selected Python virtualenv
   before candidate execution, and standalone `verify` freezes the same descriptor
   at its own entry. Unsupported or unbounded environments fail closed as
-  unattestable rather than silently reading as dependency-free. This reduces the
-  shared-dependency residual; it does not eliminate the architectural advantage of
-  provisioning dependencies inside the trusted domain, where candidate code never
-  has write authority over them in the first place.
+  unattestable rather than silently reading as dependency-free. The attestation is
+  checkpoint-based: a fully self-restoring mutation contained inside a suite window
+  remains residual #341. This reduces the shared-dependency risk; it does not
+  eliminate the architectural advantage of provisioning dependencies inside the
+  trusted domain, where candidate code never has write authority over them in the
+  first place.
 - **Liveness and parity get harder, not easier.** The trusted verifier must
   independently establish that the candidate's edit actually takes effect in its
   pristine environment (edit→import coupling). That is precisely what the round-4
