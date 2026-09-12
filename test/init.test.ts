@@ -188,5 +188,10 @@ describe('generated artifacts are valid', () => {
     const steps = wf.jobs.tamperward.steps;
     expect(JSON.stringify(steps)).toContain('TAMPERWARD_OOB_SIGNOFF');
     expect(wf.permissions).toEqual({ contents: 'read' });
+
+    // #331: verify.budget applies independently to visible + pristine. The
+    // generated authority must outlive both stages plus materialisation,
+    // hashing, cleanup and reporting, rather than GitHub killing the job first.
+    expect(wf.jobs.tamperward['timeout-minutes']).toBe(360);
   });
 });
