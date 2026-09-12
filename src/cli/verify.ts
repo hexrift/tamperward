@@ -96,7 +96,8 @@ export interface VerifyOpts {
 interface RunResult {
   exit: number | null;
   secs: number;
-  failure?: 'budget' | 'backend';
+  failure?: 'budget' | 'backend' | 'resource';
+  resource?: 'memory';
   reason?: string;
 }
 
@@ -975,19 +976,25 @@ export function runVerify(opts: VerifyOpts): number {
 
   const visible = runStage(visDir);
 
-  if (visible.failure === 'backend') {
+  if (visible.failure === 'backend' || visible.failure === 'resource') {
     cleanup([visRoot]);
+    const exhausted = visible.failure === 'resource';
     if (opts.json) {
       out(JSON.stringify({
         verdict: 'CANNOT_VERIFY',
-        reason: 'VERIFIER_BACKEND_RUNTIME_FAILURE',
+        reason: exhausted ? 'VERIFIER_RESOURCE_EXHAUSTED' : 'VERIFIER_BACKEND_RUNTIME_FAILURE',
         stage: 'visible',
+        ...(visible.resource ? { resource: visible.resource } : {}),
         detail: visible.reason,
         verifier_backend: backendReport(),
         oracle_assurance: oracleAssuranceReport(),
       }));
     } else {
-      out('verify: isolated verifier backend failed while running the visible stage — failing closed');
+      out(
+        exhausted
+          ? 'verify: isolated verifier resource envelope was exhausted during the visible stage — failing closed'
+          : 'verify: isolated verifier backend failed while running the visible stage — failing closed',
+      );
       if (visible.reason) out('verify: ' + visible.reason);
     }
     return 2;
@@ -1025,19 +1032,25 @@ export function runVerify(opts: VerifyOpts): number {
 
   const overlayBefore = overlayDigest(priDir, restored);
   const pristine = runStage(priDir);
-  if (pristine.failure === 'backend') {
+  if (pristine.failure === 'backend' || pristine.failure === 'resource') {
     cleanup([visRoot, priRoot]);
+    const exhausted = pristine.failure === 'resource';
     if (opts.json) {
       out(JSON.stringify({
         verdict: 'CANNOT_VERIFY',
-        reason: 'VERIFIER_BACKEND_RUNTIME_FAILURE',
+        reason: exhausted ? 'VERIFIER_RESOURCE_EXHAUSTED' : 'VERIFIER_BACKEND_RUNTIME_FAILURE',
         stage: 'pristine',
+        ...(pristine.resource ? { resource: pristine.resource } : {}),
         detail: pristine.reason,
         verifier_backend: backendReport(),
         oracle_assurance: oracleAssuranceReport(),
       }));
     } else {
-      out('verify: isolated verifier backend failed while running the pristine stage — failing closed');
+      out(
+        exhausted
+          ? 'verify: isolated verifier resource envelope was exhausted during the pristine stage — failing closed'
+          : 'verify: isolated verifier backend failed while running the pristine stage — failing closed',
+      );
       if (pristine.reason) out('verify: ' + pristine.reason);
     }
     return 2;

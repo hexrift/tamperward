@@ -262,7 +262,14 @@ verify:
 local Docker daemon; Tamperward never pulls during adjudication. The materialised
 candidate/pristine tree is mounted read-only, the image owns runtime/dependencies,
 network is disabled, HOME/tmp are private, and optional suite output belongs in
-`$TAMPERWARD_OUTPUT_DIR` (`/workspace-out`). Images that declare Dockerfile
+`$TAMPERWARD_OUTPUT_DIR` (`/workspace-out`). The isolated verifier also applies a
+fixed host-protection envelope: **2 GiB memory, no additional swap, 2 CPUs and 256
+PIDs**, in addition to the configured wall-clock budget. Those limits are included in
+the JSON backend report. Docker-confirmed memory OOM is `CANNOT_VERIFY` with
+`VERIFIER_RESOURCE_EXHAUSTED`, never a suite failure; an exit such as 137 without
+`OOMKilled=true` remains the suite's own exit. v2.11.2 deliberately has no environment
+variable tuning knob for these ceilings because candidate-controlled CI/env must not
+weaken verifier containment. Images that declare Dockerfile
 `VOLUME` paths are refused: Docker mounts those paths writable even with
 `--read-only`, which would undermine the immutable verifier-image boundary. Image
 `ENTRYPOINT` is also overridden; the pinned image supplies the runtime/dependencies,

@@ -228,6 +228,19 @@ is the variable list. What remains is stated below.
   in trusted CI or after an externally isolated agent hands off a frozen
   candidate.
 
+  **2.11.2 bounds verifier resource pressure as part of that execution
+  boundary.** Every isolated stage receives a 2 GiB hard memory limit,
+  `--memory-swap` equal to that limit (no additional swap allowance), a 2 CPU
+  quota and the existing 256 PID ceiling, plus the wall-clock budget. The
+  trusted host records those values in `verifier_backend.resources`. Docker's
+  stopped-container state remains the attribution authority: `OOMKilled=true`
+  is `VERIFIER_RESOURCE_EXHAUSTED` / cannot-adjudicate, while an ordinary
+  candidate exit 137 with `OOMKilled=false` is still a suite exit. CPU-bound
+  hostile code is constrained by the CPU quota and then by the wall-clock
+  budget. There is intentionally no environment-variable tuning surface in
+  2.11.2; a future configurable ceiling belongs in trusted-base policy so a
+  candidate cannot weaken containment through CI/env edits.
+
 - **The verifier's own inputs are bounded, not enumerated.** 1.14.4 restores what
   the command executes — tokens naming a file present at the base, plus an
   explicit `verify: { inputs: [globs] }` for delegation the tokens cannot see.

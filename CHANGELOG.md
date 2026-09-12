@@ -5,6 +5,32 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.11.2] — 2026-09-12
+
+**The isolated verifier now has an explicit host-resource envelope.** Each Docker
+stage is started with a 2 GiB hard memory limit, `--memory-swap` equal to the
+memory limit (no additional swap allowance), a 2 CPU quota, and the existing
+256 PID ceiling, alongside the trusted wall-clock budget.
+
+The active resource limits are emitted in `verifier_backend.resources`. Docker's
+stopped-container metadata remains the authority for attribution: a confirmed
+`OOMKilled=true` becomes `CANNOT_VERIFY` with
+`reason: "VERIFIER_RESOURCE_EXHAUSTED"` and `resource: "memory"`; a candidate
+suite that exits 137 without Docker OOM evidence remains an ordinary suite exit.
+CPU-bound hostile code is constrained by the CPU quota and then fails closed on
+the wall-clock budget if it does not complete.
+
+Mandatory Docker E2E coverage now includes real memory pressure under a small
+test-only cap and an infinite CPU loop under a 0.25 CPU quota, with container
+cleanup asserted in both paths.
+
+v2.11.2 deliberately exposes no environment-variable tuning knob for these
+ceilings. Any future configurable resource surface should be part of trusted-base
+policy and policy-diff protection so candidate-controlled CI/env cannot weaken
+containment.
+
+This closes #346.
+
 ## [2.11.1] — 2026-09-12
 
 **Verifier verdicts now state their semantic/oracle assurance ceiling explicitly.**
@@ -86,9 +112,8 @@ overrides that entrypoint with `/bin/sh` and passes the frozen policy command di
 `-c`. The image remains runtime/dependency authority, while `verify.command` remains
 command authority. This closes #349.
 
-The isolated backend still relies on wall-clock and PID limits rather than explicit CPU and
-memory ceilings. Host resource-exhaustion hardening is tracked separately in #346; it is an
-availability/process-interference residual, not a known false-green path.
+The 2.11.0 release shipped wall-clock and PID limits only. Explicit CPU/memory containment
+was added in 2.11.2 (#346).
 
 The container boundary is also **not a semantic/oracle sandbox**. Candidate source must
 execute in the suite and can therefore attempt in-process early termination or runner

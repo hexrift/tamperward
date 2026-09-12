@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { containerRunArgs } from '../src/verifier-backend';
+import { containerRunArgs, containerStateResult } from '../src/verifier-backend';
 
 const IMAGE = 'ghcr.io/example/verifier@sha256:' + 'a'.repeat(64);
 
@@ -24,6 +24,13 @@ describe('isolated verifier container invocation', () => {
 
     expect(args).toContain('--pull');
     expect(args[args.indexOf('--pull') + 1]).toBe('never');
+
+    // Candidate code is intentionally hostile. The verifier must bound host
+    // resource exposure as well as wall-clock time and process count.
+    expect(args[args.indexOf('--memory') + 1]).toBe('2147483648');
+    expect(args[args.indexOf('--memory-swap') + 1]).toBe('2147483648');
+    expect(args[args.indexOf('--cpus') + 1]).toBe('2');
+    expect(args[args.indexOf('--pids-limit') + 1]).toBe('256');
 
     const mounts = args
       .map((v, i) => (args[i - 1] === '--mount' ? v : null))
@@ -63,5 +70,31 @@ describe('isolated verifier container invocation', () => {
       'TAMPERWARD_OUTPUT_DIR=/workspace-out',
       'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
     ]);
+  });
+});
+
+
+describe('isolated verifier resource attribution (#346)', () => {
+  it('treats Docker-confirmed OOM kill as resource exhaustion, not suite red', () => {
+    expect(
+      containerStateResult(
+        { Status: 'exited', ExitCode: 137, OOMKilled: true, Error: '' },
+        2,
+      ),
+    ).toMatchObject({
+      exit: null,
+      secs: 2,
+      failure: 'resource',
+      resource: 'memory',
+    });
+  });
+
+  it('does not infer OOM from exit 137 alone', () => {
+    expect(
+      containerStateResult(
+        { Status: 'exited', ExitCode: 137, OOMKilled: false, Error: '' },
+        1,
+      ),
+    ).toEqual({ exit: 137, secs: 1 });
   });
 });
