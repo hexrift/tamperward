@@ -11,6 +11,8 @@ import {
   requiredVerifierAuthoritySeconds,
 } from '../src/verifier-limits';
 import { evaluateGitHubProtection, githubApiInvocation, githubRepoFromRemote, runDoctor } from '../src/cli/doctor';
+import { startWatcher } from '../src/cli/watch';
+import { defaultPolicy } from '../src/policy';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -298,5 +300,49 @@ describe('GitHub repository inference (#332)', () => {
   it('refuses non-GitHub and malformed remotes', () => {
     expect(githubRepoFromRemote('https://gitlab.com/acme/project.git')).toBeNull();
     expect(githubRepoFromRemote('not-a-remote')).toBeNull();
+  });
+});
+
+
+describe('doctor transient-observer health (#329)', () => {
+  it('reports unavailable distinctly from a healthy observer that saw zero events', () => {
+    const cwd = repo(300);
+    workflow(cwd, 70);
+
+    const unavailable = capture(() => runDoctor({ cwd, base: 'HEAD' }));
+    expect(unavailable.code).toBe(0);
+    expect(unavailable.out).toMatch(/transient observer: unavailable/i);
+    expect(unavailable.out).toMatch(/zero events.*not evidence/i);
+
+    process.env.TAMPERWARD_WATCH_NO_RECURSIVE = '1';
+    const w = startWatcher(cwd, join(cwd, 'events.jsonl'), defaultPolicy());
+    try {
+      // doctor uses the canonical event log, so this custom observer must not
+      // make the canonical channel look healthy.
+      const stillUnavailable = capture(() => runDoctor({ cwd, base: 'HEAD' }));
+      expect(stillUnavailable.code).toBe(0);
+      expect(stillUnavailable.out).toMatch(/transient observer: unavailable/i);
+    } finally {
+      w.close();
+      delete process.env.TAMPERWARD_WATCH_NO_RECURSIVE;
+    }
+  });
+
+  it('reports canonical healthy observer state without turning it into authority', () => {
+    const cwd = repo(300);
+    workflow(cwd, 70);
+    process.env.TAMPERWARD_WATCH_NO_RECURSIVE = '1';
+    const { defaultEventLog } = require('../src/cli/watch') as typeof import('../src/cli/watch');
+    const w = startWatcher(cwd, defaultEventLog(cwd), defaultPolicy());
+    try {
+      const r = capture(() => runDoctor({ cwd, base: 'HEAD' }));
+      expect(r.code).toBe(0);
+      expect(r.out).toMatch(/transient observer: healthy/i);
+      expect(r.out).toMatch(/0 event/i);
+      expect(r.out).toMatch(/advisory/i);
+    } finally {
+      w.close();
+      delete process.env.TAMPERWARD_WATCH_NO_RECURSIVE;
+    }
   });
 });
