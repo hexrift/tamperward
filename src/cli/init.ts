@@ -224,6 +224,12 @@ jobs:
           # Candidate code runs later in this job. Do not leave the checkout
           # token in .git/config where a verifier command can read/reuse it.
           persist-credentials: false
+      - name: Tamperward doctor (CI verifier envelope)
+        # Validate the outer GitHub job budget against the TRUSTED base policy
+        # before starting visible/pristine execution. Large policy budgets remain
+        # valid for custom runners; this generated authority refuses if its host
+        # cannot accommodate both stages plus cleanup/reporting reserve.
+        run: tamperward doctor --base "${{ github.event.pull_request.base.sha }}" --workflow .github/workflows/tamperward.yml
       - name: Resolve out-of-band sign-off from PR labels
         id: oob
         env:
