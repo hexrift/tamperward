@@ -19,10 +19,28 @@ Flags: `--cwd <dir>` · `--dry-run` · `--force-workflow` (replace a workflow `i
 write, or one you have edited — a generated workflow nobody touched is migrated
 automatically when the template changes).
 
-`init` ends by naming the one thing it cannot do for you: in branch protection, require
-the check **and** enable "Require review from Code Owners". Until then the CI gate is
-advisory — a pull request runs the workflow from its own head, so it could keep the job
-name and replace the gate with `true`.
+`init` ends by naming the GitHub-side controls it cannot set for you. On the
+protected branch, configure **all three**:
+
+1. require the **`tamperward`** status check;
+2. enable **Require review from Code Owners**; and
+3. enable **Dismiss stale pull request approvals when new commits are pushed**.
+
+The freshness setting makes the Code Owner approval bind to the current gate-critical
+diff. "Require approval of the most recent reviewable push" is not a substitute for
+this boundary because its fresh approver need not be the Code Owner for the changed
+gate path. Until all three controls are enforced the CI gate is advisory — a pull
+request runs the workflow from its own head, so it could keep the job name and replace
+the gate with `true`.
+
+Verify the live GitHub configuration with:
+
+```bash
+npx tamperward doctor --github --repo OWNER/REPO --branch main
+```
+
+Set `GH_TOKEN` or `GITHUB_TOKEN` if GitHub requires authentication for the
+repository/settings being inspected.
 
 The minimal `verify:` block the CI step needs:
 
