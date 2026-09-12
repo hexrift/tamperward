@@ -123,3 +123,76 @@ describe('F10: an empty range is reported on stderr and stays clean', () => {
     expect(r.err).not.toMatch(/contains no changes/);
   });
 });
+
+
+describe('strict CLI argument boundary (#312)', () => {
+  const malformed: Array<[string, string[], RegExp]> = [
+    ['check unknown option', ['check', '--staged', '--typo'], /unknown option "--typo"/],
+    ['allow unknown option', ['allow', 'test-deletion', '--reason', 'x', '--typo'], /unknown option "--typo"/],
+    ['init unknown option', ['init', '--dry-rnu'], /unknown option "--dry-rnu"/],
+    ['doctor unknown option', ['doctor', '--githbu'], /unknown option "--githbu"/],
+    ['verify unknown option', ['verify', '--json', '--bogus'], /unknown option "--bogus"/],
+    ['watch unknown option', ['watch', '--bogus'], /unknown option "--bogus"/],
+
+    ['check missing value', ['check', '--diff'], /--diff needs a value/],
+    ['allow missing value', ['allow', 'test-deletion', '--reason'], /--reason needs a value/],
+    ['init missing value', ['init', '--cwd'], /--cwd needs a value/],
+    ['doctor missing value', ['doctor', '--base'], /--base needs a value/],
+    ['verify missing value', ['verify', '--base'], /--base needs a value/],
+    ['watch missing value', ['watch', '--dir'], /--dir needs a value/],
+    ['run missing value', ['run', '--budget', '--', 'true'], /--budget needs a value/],
+
+    ['verify zero budget', ['verify', '--budget', '0'], /--budget needs a positive number/],
+    ['verify NaN budget', ['verify', '--budget', 'nope'], /--budget needs a positive number/],
+    ['run zero verifier budget', ['run', '--budget', '0', '--', 'true'], /--budget needs a positive number/],
+    ['run NaN verifier budget', ['run', '--budget', 'nope', '--', 'true'], /--budget needs a positive number/],
+    ['run zero agent budget', ['run', '--agent-budget', '0', '--', 'true'], /--agent-budget needs a positive number/],
+    ['run negative agent budget', ['run', '--agent-budget', '-1', '--', 'true'], /--agent-budget needs a positive number/],
+    ['run negative settle', ['run', '--settle', '-1', '--', 'true'], /--settle needs a non-negative number/],
+    ['run NaN settle', ['run', '--settle', 'nope', '--', 'true'], /--settle needs a non-negative number/],
+
+    ['check conflicting views', ['check', '--staged', '--worktree'], /choose exactly one of --staged, --worktree, or --diff/],
+    ['check json and format conflict', ['check', '--staged', '--json', '--format', 'text'], /--json cannot be combined with --format/],
+    ['run implicit command grammar', ['run', 'true'], /requires an explicit "--" before the wrapped command/],
+    ['run unknown option before delimiter', ['run', '--bogus', '--', 'true'], /unknown option "--bogus"/],
+  ];
+
+  it.each(malformed)('%s fails closed before command execution', (_name, argv, diagnostic) => {
+    const r = run(argv);
+    expect(r.code).toBe(2);
+    expect(r.out).toBe('');
+    expect(r.err).toMatch(ONE_CLEAN_LINE);
+    expect(r.err).toMatch(diagnostic);
+  });
+
+  it('rejects a flag in place of a value without consuming the next option', () => {
+    const r = run(['check', '--diff', '--staged']);
+    expect(r.code).toBe(2);
+    expect(r.out).toBe('');
+    expect(r.err).toBe('tamperward: --diff needs a value (got the flag "--staged")\n');
+  });
+
+  it('rejects extra positional arguments instead of silently ignoring them', () => {
+    expect(run(['allow', 'test-deletion', 'extra', '--reason', 'x']).err)
+      .toBe('tamperward: unexpected argument "extra"\n');
+    expect(run(['init', 'extra']).err)
+      .toBe('tamperward: unexpected argument "extra"\n');
+    expect(run(['verify', 'extra']).err)
+      .toBe('tamperward: unexpected argument "extra"\n');
+  });
+
+  it('preserves valid command grammars', () => {
+    const d = repo();
+    expect(run(['check', '--staged', '--cwd', d]).code).toBe(0);
+
+    const initDry = run(['init', '--dry-run', '--cwd', d]);
+    expect(initDry.code).toBe(0);
+    expect(initDry.out).toMatch(/change\(s\) planned|everything already wired/);
+
+    const verify = run(['verify', '--cmd', 'true', '--budget', '1', '--cwd', d]);
+    expect(verify.code).toBe(0);
+
+    const envelope = run(['run', '--cmd', 'true', '--budget', '1', '--cwd', d, '--', 'true']);
+    expect(envelope.code).toBe(0);
+  }, 15_000);
+});

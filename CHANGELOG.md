@@ -5,6 +5,34 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.13.1] — 2026-09-12
+
+**Malformed CLI input now fails closed consistently before command execution.**
+The process-level dispatcher validates user-supplied argv before any command-specific
+parser, git/filesystem access, verifier setup, init mutation, sign-off write, GitHub
+doctor request, or wrapped-agent spawn.
+
+The shared grammar now rejects:
+- unknown options;
+- missing option values, including a flag appearing where a value was required;
+- zero/negative/NaN verifier and agent budgets;
+- negative/NaN settle durations;
+- duplicate or conflicting `check` views;
+- `--json` combined with an explicit `--format`;
+- unexpected positional arguments; and
+- `tamperward run` invocations that omit the explicit `--` separator before the
+  wrapped command.
+
+Every malformed invocation returns exit 2 with one deterministic
+`tamperward: ...` line. This removes the previous mix of silent ignores, warnings
+followed by execution, values accidentally consuming flags, and `run` treating its
+first unrecognised token as the agent command.
+
+TDD began with 25 deliberately failing process-level cases across `check`, `allow`,
+`init`, `doctor`, `verify`, and `run`, while preserving valid happy paths.
+
+This closes #312.
+
 ## [2.13.0] — 2026-09-12
 
 **The GitHub repository-authority boundary now requires fresh Code Owner approval

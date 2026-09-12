@@ -133,8 +133,12 @@ final frozen-artifact step in trusted CI or after external agent isolation.
 
 ## CLI reference
 
-Every flag below is what the command's parser actually reads. `check` reports an
-unknown flag on stderr; the other commands ignore what they do not know.
+Every flag below is what the command parser actually reads. Since **2.13.1**,
+malformed argv is rejected before the selected command can touch git, files, the
+verifier, or an agent: unknown options, missing values, invalid numeric
+budgets/timeouts, conflicting `check` views, and extra positionals all return exit 2
+with one `tamperward: ...` diagnostic. `run` requires the explicit `--` delimiter
+before the wrapped command.
 
 | command | flags |
 | --- | --- |
