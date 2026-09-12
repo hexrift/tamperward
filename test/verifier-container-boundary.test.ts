@@ -29,7 +29,7 @@ describe('isolated verifier container invocation', () => {
       .map((v, i) => (args[i - 1] === '--mount' ? v : null))
       .filter((v): v is string => v !== null);
     expect(mounts).toEqual([
-      'type=bind,src=/tmp/materialised-stage,dst=/workspace,rw',
+      'type=bind,src=/tmp/materialised-stage,dst=/workspace,ro',
     ]);
 
     const joined = args.join('\n');
@@ -58,6 +58,7 @@ describe('isolated verifier container invocation', () => {
       'HOME=/home/tamperward',
       'TMPDIR=/tmp',
       'CI=1',
+      'TAMPERWARD_OUTPUT_DIR=/workspace-out',
       'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
     ]);
   });
