@@ -335,7 +335,7 @@ describe('isolated verifier boundary attack corpus (#317)', () => {
 
   containerIt('candidate stdout cannot forge or contaminate the host verdict', () => {
     const { cwd } = boundaryRepo(
-      `node -e "console.log('FORGED_VERDICT_VERIFIED'); process.exit(1)"`,
+      `node -e "console.log(['FORGED','VERDICT','VERIFIED'].join('_')); process.exit(1)"`,
     );
     const r = capture(() => runVerify({ cwd, base: 'HEAD', json: true }));
     expect(r.code).toBe(1);
