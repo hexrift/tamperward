@@ -5,6 +5,25 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.13.2] — 2026-09-12
+
+**The per-directory filesystem-watcher fallback no longer follows directory
+symlinks.** Its initial tree walk and its "new directory appeared" path previously
+used `statSync()`, so a symlink to a directory was treated as a real directory.
+That could install watchers outside the repository, duplicate a tree through an
+in-repository alias, or recurse through a symlink cycle.
+
+Both directory decisions now use `lstatSync()`. Symlinked directories are leaves;
+real directories retain the existing dynamic watcher-extension behavior.
+
+Regression coverage forces the fallback backend and verifies:
+- a protected-path symlink to an external directory produces no external/alias event;
+- a cycle symlink back into the watched tree produces no `test/cycle/**` duplicate
+  path while the canonical protected file is still observed; and
+- a real directory created after startup still receives fallback coverage.
+
+This closes #314.
+
 ## [2.13.1] — 2026-09-12
 
 **Malformed CLI input now fails closed consistently before command execution.**

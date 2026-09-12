@@ -21,7 +21,7 @@
 // reach. The loop layer has always been the correction layer, not the
 // authority; CI is the authority.
 
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, statSync, watch } from 'node:fs';
+import { appendFileSync, lstatSync, mkdirSync, readdirSync, readFileSync, watch } from 'node:fs';
 import { inspectPath } from '../disk';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -90,7 +90,7 @@ function watchTree(dir: string, cb: TreeCb): Watcher {
         const child = rel ? `${rel}/${String(fname)}` : String(fname);
         cb(kind, child);
         try {
-          if (statSync(join(dir, child)).isDirectory()) addDir(child); // new directory: extend coverage
+          if (lstatSync(join(dir, child)).isDirectory()) addDir(child); // new directory: extend coverage
         } catch {
           /* gone already */
         }
@@ -112,7 +112,7 @@ function watchTree(dir: string, cb: TreeCb): Watcher {
       const child = rel ? `${rel}/${name}` : name;
       if (SKIP.test(child + '/')) continue;
       try {
-        if (statSync(join(dir, child)).isDirectory()) walk(child);
+        if (lstatSync(join(dir, child)).isDirectory()) walk(child);
       } catch {
         /* raced */
       }

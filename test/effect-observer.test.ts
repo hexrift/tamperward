@@ -8,7 +8,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { preToolUseVerdict, stopVerdict } from '../src/cli/hook';
@@ -143,6 +143,76 @@ describe('watcher + transient rule (the A.1 probes)', () => {
     expect(findings.length).toBeGreaterThanOrEqual(1);
     expect(findings[0].rule).toBe('transient-protected-mutation');
     expect(findings[0].severity).toBe('warn');
+  });
+
+  it.skipIf(process.platform === 'win32')('fallback never follows a directory symlink outside the repository', async () => {
+    process.env.TAMPERWARD_WATCH_NO_RECURSIVE = '1';
+    const cwd = repo();
+    const outside = mkdtempSync(join(tmpdir(), 'tw-watch-outside-'));
+    dirs.push(outside);
+    const target = join(outside, 'escape.test.js');
+    writeFileSync(target, 'before\n');
+    symlinkSync(outside, join(cwd, 'test', 'external'), 'dir');
+
+    const log = join(cwd, 'events.jsonl');
+    const w = startWatcher(cwd, log, defaultPolicy());
+    try {
+      await new Promise((r) => setTimeout(r, 150));
+      writeFileSync(target, 'after\n');
+      for (let i = 0; i < 12; i++)
+        await new Promise((r) => setTimeout(r, 50));
+    } finally {
+      w.close();
+      delete process.env.TAMPERWARD_WATCH_NO_RECURSIVE;
+    }
+
+    const { events } = readEvents(log, 0);
+    expect(events.some((e) => e.path.startsWith('test/external/'))).toBe(false);
+  });
+
+  it.skipIf(process.platform === 'win32')('fallback treats a cyclic directory symlink as a leaf', async () => {
+    process.env.TAMPERWARD_WATCH_NO_RECURSIVE = '1';
+    const cwd = repo();
+    symlinkSync(join(cwd, 'test'), join(cwd, 'test', 'cycle'), 'dir');
+
+    const log = join(cwd, 'events.jsonl');
+    const w = startWatcher(cwd, log, defaultPolicy());
+    const target = join(cwd, 'test', 'a.test.js');
+    try {
+      await new Promise((r) => setTimeout(r, 150));
+      writeFileSync(target, '// changed through canonical path\n');
+      for (let i = 0; i < 20 && readEvents(log, 0).events.length < 1; i++)
+        await new Promise((r) => setTimeout(r, 50));
+    } finally {
+      w.close();
+      delete process.env.TAMPERWARD_WATCH_NO_RECURSIVE;
+    }
+
+    const { events } = readEvents(log, 0);
+    expect(events.some((e) => e.path === 'test/a.test.js')).toBe(true);
+    expect(events.some((e) => e.path.startsWith('test/cycle/'))).toBe(false);
+  });
+
+  it('fallback still extends coverage to a real directory created after startup', async () => {
+    process.env.TAMPERWARD_WATCH_NO_RECURSIVE = '1';
+    const cwd = repo();
+    const log = join(cwd, 'events.jsonl');
+    const w = startWatcher(cwd, log, defaultPolicy());
+    const later = join(cwd, 'test', 'later');
+    const target = join(later, 'new.test.js');
+    try {
+      await new Promise((r) => setTimeout(r, 150));
+      mkdirSync(later);
+      await new Promise((r) => setTimeout(r, 150));
+      writeFileSync(target, 'test("later", () => {})\n');
+      for (let i = 0; i < 20 && !readEvents(log, 0).events.some((e) => e.path === 'test/later/new.test.js'); i++)
+        await new Promise((r) => setTimeout(r, 50));
+    } finally {
+      w.close();
+      delete process.env.TAMPERWARD_WATCH_NO_RECURSIVE;
+    }
+
+    expect(readEvents(log, 0).events.some((e) => e.path === 'test/later/new.test.js')).toBe(true);
   });
 
   it('unit: persistent paths are excluded; mtime-only noise is ignored; strict env blocks', () => {
