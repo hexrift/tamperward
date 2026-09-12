@@ -10,6 +10,7 @@ import { runInit, InitOpts } from './init';
 import { runDoctor, DoctorOpts } from './doctor';
 import { runVerify, parseVerify } from './verify';
 import { runEnvelope, parseRun } from './run';
+import { runWatch } from './watch';
 
 function parseAllow(args: string[]): AllowOpts {
   const o: AllowOpts = {};
@@ -239,6 +240,12 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     }).error;
   }
 
+  if (cmd === 'watch') {
+    return validateFlatArgs(args, {
+      values: { '--dir': 'string', '--log': 'string' },
+    }).error;
+  }
+
   return undefined;
 }
 
@@ -337,6 +344,8 @@ export function main(argv: string[]): number {
       return runInit(parseInit(rest));
     case 'doctor':
       return runDoctor(parseDoctor(rest));
+    case 'watch':
+      return runWatch(rest);
     case 'verify':
       return runVerify(parseVerify(rest));
     case 'run':
