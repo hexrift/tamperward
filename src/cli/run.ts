@@ -219,6 +219,14 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     err(`${verifierBackend.reason ?? 'unknown backend failure'}. Failing closed before the agent starts.`);
     return 2;
   }
+  if (verifierBackend.kind === 'container') {
+    err('tamperward run: container verification requires a frozen candidate handoff from an');
+    err('agent domain that cannot control the verifier engine. `run` executes the agent under');
+    err('this host identity, so it cannot honestly provide that separation. Failing closed');
+    err('before the agent starts; use standalone `tamperward verify` in trusted CI or after');
+    err('an externally isolated agent produces the frozen candidate artifact.');
+    return 2;
+  }
 
   // Dependency attestation is the weaker LOCAL-backend control. The isolated
   // backend deliberately shares no host dependency tree at all: its immutable
