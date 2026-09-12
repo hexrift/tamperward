@@ -336,9 +336,13 @@ from trusted CI, or after an externally isolated agent hands off the frozen cand
 
 ### CLI reference
 
-Every flag below is what the command's parser actually reads (`src/cli/index.ts`,
-`parseVerify`, `parseRun`). `check` reports an unknown flag on stderr; the other
-commands ignore what they do not know.
+Every flag below is what the command's parser actually reads (`src/cli/main.ts`,
+`parseVerify`, `parseRun`). Since **2.13.1**, user-supplied argv is validated before
+any command-specific parser or side effect runs: unknown options, missing values,
+invalid numeric budgets/timeouts, duplicate/conflicting `check` views, and unexpected
+positionals fail closed with exit 2 and one deterministic `tamperward: ...` diagnostic.
+`run` requires an explicit `--` before the wrapped command, so a typoed TamperWard
+option can never be reinterpreted as the agent command.
 
 | command | flags |
 | --- | --- |
