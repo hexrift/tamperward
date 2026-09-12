@@ -19,7 +19,7 @@ type RawPolicy = {
   rules?: Policy['rules'];
   ignore?: string[];
   signoff?: { required_for?: Severity[]; requiredFor?: Severity[]; ledger?: string };
-  verify?: { command?: string; budget?: number; inputs?: string[] };
+  verify?: { command?: string; budget?: number; inputs?: string[]; backend?: 'local' | 'container'; image?: string };
 };
 
 /** `version:` opts in to rule graduations, so a value that cannot be understood must
@@ -129,6 +129,21 @@ function validate(r: RawPolicy, where: string): void {
       bad(`verify.budget must be a positive number of seconds, got ${show(v.budget)}`);
     }
     if (v.inputs !== undefined && !isStringList(v.inputs)) bad(`verify.inputs must be a list of globs, got ${show(v.inputs)}`);
+    if (v.backend !== undefined && v.backend !== 'local' && v.backend !== 'container') {
+      bad(`verify.backend must be "local" or "container", got ${show(v.backend)}`);
+    }
+    if (v.image !== undefined && typeof v.image !== 'string') {
+      bad(`verify.image must be an immutable container image reference, got ${show(v.image)}`);
+    }
+    const backend = v.backend ?? 'local';
+    if (backend === 'container') {
+      if (typeof v.image !== 'string') bad('verify.image is required when verify.backend is "container"');
+      if (!/^[^\\s@]+@sha256:[0-9a-f]{64}$/i.test(v.image as string)) {
+        bad(`verify.image must be pinned by sha256 digest (name@sha256:<64 hex>), got ${show(v.image)}`);
+      }
+    } else if (v.image !== undefined) {
+      bad('verify.image is only valid when verify.backend is "container"');
+    }
   }
 }
 
@@ -171,6 +186,8 @@ export function parsePolicy(raw: RawPolicy | null | undefined, where: string = P
             // not listed here is SILENTLY DROPPED — which is how `inputs` first
             // shipped as a no-op that parsed, validated, and restored nothing.
             ...(Array.isArray(r.verify.inputs) ? { inputs: r.verify.inputs.map(String) } : {}),
+            ...(r.verify.backend ? { backend: r.verify.backend } : {}),
+            ...(r.verify.image ? { image: r.verify.image } : {}),
           },
         }
       : {}),
