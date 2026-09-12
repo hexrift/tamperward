@@ -152,3 +152,15 @@ describe('D-7: the sign-off ledger stays inside the repository', () => {
     expect(policyWeakening('version: 1\n', 'signoff: { ledger: .tamperward/ledger.jsonl }\n')).toEqual([]);
   });
 });
+
+
+describe('generated-CI verifier budget envelope (#331)', () => {
+  it('accepts at most 150 minutes per stage so two stages leave one hour of a 360-minute job', () => {
+    const p = parsePolicy({ verify: { command: 'npm test', budget: 9_000 } });
+    expect(p.verify?.budget).toBe(9_000);
+
+    expect(() =>
+      parsePolicy({ verify: { command: 'npm test', budget: 9_001 } }),
+    ).toThrow(/verify\.budget.*9000/i);
+  });
+});
