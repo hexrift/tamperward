@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [2.20.1] — 2026-09-13
+## [2.20.2] — 2026-09-13
 
 **The documentation now has a Research & Benchmarks section that presents the
 committed evidence in one place and is bound to it by CI.** `docs/research/`
@@ -35,6 +35,22 @@ SECURITY-ENVELOPE measurements; plus the sidebar wiring, the landing links, and
 the absence of any aggregate score. A page that drifts from its artifact fails CI.
 
 Documentation only; no gate behaviour changes. This closes #390.
+## [2.20.1] — 2026-09-13
+
+**`ts-any-cast` diff-only fallback: the double cast is classified structurally.** The
+additive-line fallback (a change with no BEFORE/AFTER content) parses each added line
+as a TypeScript snippet and applies the same `isDoubleCast` classification the
+full-source path uses, so `(<unknown>raw) as T`, `<T>(raw as unknown)` and every
+parenthesised spelling are the same block on diff-only input as with full content.
+Previously the fallback matched only the text `as unknown as`, so the angle-bracket
+double cast was silent there while blocked with full source. Partial lines recover and
+still classify; comment and string text does not fire. Bypass fix, patch.
+
+The `cast-growth-evidence` workflow now also runs when the rule's behavioural
+dependencies change (`src/policy.ts`, `src/detectors/files.ts`,
+`src/detectors/finding.ts`, `src/diff/select.ts`), so a change to the protected test
+surface or the code-file test cannot move the recorded eligible-source denominator
+without the replay re-running.
 
 ## [2.20.0] — 2026-09-13
 
