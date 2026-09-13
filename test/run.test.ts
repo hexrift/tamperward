@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runEnvelope, parseRun } from '../src/cli/run';
+import { canReuseAdjacentDependencyAttestation, runEnvelope, parseRun } from '../src/cli/run';
 import { runVerify } from '../src/cli/verify';
 import { loadPolicy } from '../src/policy-load';
 import { diffWorktree, diffWorktreeWithUntracked } from '../src/git/build';
@@ -429,6 +429,15 @@ describe('P0-6: the suite runner lives outside every git view', () => {
   });
 });
 
+
+describe('adjacent dependency attestation lifecycle gate (#376)', () => {
+  it('reuses only when Linux descendant ownership was actually established', () => {
+    expect(canReuseAdjacentDependencyAttestation(true, 'linux')).toBe(true);
+    expect(canReuseAdjacentDependencyAttestation(false, 'linux')).toBe(false);
+    expect(canReuseAdjacentDependencyAttestation(true, 'darwin')).toBe(false);
+    expect(canReuseAdjacentDependencyAttestation(true, 'win32')).toBe(false);
+  });
+});
 
 describe('agent runtime budget (#325)', () => {
   it('terminates a hung agent, still adjudicates its honest fix, and reports timeout distinctly', () => {
