@@ -41,7 +41,7 @@
     "node": ">=20.19"
   },
   "scripts": {
-    "build": "esbuild src/cli/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/cli/index.js",
+    "build": "esbuild src/cli/index.ts src/cli/main.ts --bundle --platform=node --format=esm --packages=external --outdir=dist/cli",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",

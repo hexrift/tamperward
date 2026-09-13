@@ -182,7 +182,8 @@ describe('fallback: absent, dead, stale or foreign service', () => {
     const paths = privatePaths();
     // A listener that accepts and never answers: the client's timeout is the
     // fallback, not a hung hook.
-    const srv2 = createServer();
+    const held = new Set<import('node:net').Socket>();
+    const srv2 = createServer((c) => held.add(c));
     await new Promise<void>((r) => srv2.listen(paths.socket, r));
     chmodSync(paths.socket, 0o600);
     // A state file naming a pid that is not running.
@@ -194,6 +195,7 @@ describe('fallback: absent, dead, stale or foreign service', () => {
     });
     // srv2 accepts but never answers: the client times out → null.
     expect(viaService).toBeNull();
+    for (const c of held) c.destroy();
     await new Promise<void>((r) => srv2.close(() => r()));
     expect(await requestVerdict('PreToolUse', '', { paths, cwd: root })).toBeNull();
     expect(await stopHookService(paths)).toBe('not-running');
@@ -300,6 +302,7 @@ describe.skipIf(!existsSync(DIST) || process.platform === 'win32')('built CLI en
       expect(status.stdout).toMatch(/running/);
       expect(status.stdout).toMatch(/served: 1\b/);
       const stop = spawnSync('node', [DIST, 'hook-service', 'stop'], { env, encoding: 'utf8' });
+      expect(stop.stderr).toBe('');
       expect(stop.status).toBe(0);
       await new Promise<void>((r) => child.on('exit', () => r()));
       expect(existsSync(join(rt, 'hook.sock'))).toBe(false);
