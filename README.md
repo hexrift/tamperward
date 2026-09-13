@@ -14,6 +14,8 @@
 
 **[Quick start](#quick-start)** ·
 **[Docs & guide](https://hexrift.github.io/tamperward/)** ·
+**[See the evidence →](./docs/research/index.md)** — every round, study and
+correction in one place, each number bound to its committed artifact ·
 **[The research series](./docs/blog/index.md)** — every registered prediction
 published beside its outcome
 

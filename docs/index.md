@@ -14,6 +14,9 @@ hero:
       text: Get started
       link: /guide/getting-started
     - theme: alt
+      text: See the evidence →
+      link: /research/
+    - theme: alt
       text: Read the launch post
       link: /blog/what-agents-do-when-you-block-their-shortcuts
     - theme: alt
