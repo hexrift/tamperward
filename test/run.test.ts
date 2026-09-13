@@ -385,15 +385,19 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
 
   it.skipIf(process.platform !== 'linux')('ignores candidate PATH/PYTHON* when bootstrapping the lifecycle supervisor', () => {
     const cwd = repo(true);
-    const fake = join(cwd, 'python3');
-    const marker = join(cwd, '.fake-python-ran');
+    const poison = mkdtempSync(join(tmpdir(), 'tw-python-path-poison-'));
+    dirs.push(poison);
+    const fake = join(poison, 'python3');
+    const marker = join(poison, 'fake-python-ran');
     writeFileSync(fake, `#!/bin/sh\ntouch "${marker}"\nexit 99\n`);
     chmodSync(fake, 0o755);
     const oldPath = process.env.PATH;
     const oldPythonPath = process.env.PYTHONPATH;
     try {
-      process.env.PATH = `${cwd}:${oldPath ?? ''}`;
-      process.env.PYTHONPATH = cwd;
+      // Poison only the caller/agent environment. Keeping the poison outside
+      // the repository avoids tripping run's independent dirty-start guard.
+      process.env.PATH = `${poison}:${oldPath ?? ''}`;
+      process.env.PYTHONPATH = poison;
       expect(trustedLinuxPython().path).toMatch(/^\/(?:usr\/)?bin\/python3/);
       expect(runEnvelope({ cwd, cmd: CMD, argv: sh('true') })).toBe(0);
       expect(() => readFileSync(marker)).toThrow();
