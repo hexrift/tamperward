@@ -22,7 +22,11 @@ frozen copy of the caller's original cwd and environment, so candidate
 `PATH`/`PYTHONPATH`, user site-packages and candidate cwd do not govern the
 supervisor bootstrap. Linux therefore requires a trusted system Python 3 with
 the standard `ctypes`/process modules; if that interpreter cannot be
-established, `run` fails closed before agent side effects.
+established, `run` fails closed before agent side effects. Linux root/euid-0 is also
+an explicit unsupported lifecycle mode: root can write ordinary system interpreter
+paths, so the same-UID trust argument is invalid. `run` therefore refuses before
+agent start and `doctor` reports a root-specific BROKEN platform reason rather than
+the generic missing-interpreter diagnostic.
 
 The Linux supervisor calls `PR_SET_CHILD_SUBREAPER`. Descendants that
 double-fork, `setsid()` or otherwise orphan are therefore reparented to the
