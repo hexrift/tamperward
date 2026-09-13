@@ -18,7 +18,8 @@
 // ambiguous on either side, comparison is declined rather than pairing blocks
 // by array position. This deliberately biases toward misses.
 
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../ts-lazy';
 import type { Change, Detector, Finding, Policy } from '../types';
 import { isProtected } from '../policy';
 import { makeFinding } from './finding';
@@ -54,13 +55,13 @@ interface TestBlock {
 
 const compact = (s: string): string => s.replace(/\s+/g, '');
 
-function literalTitle(node: ts.Expression | undefined): string | null {
+function literalTitle(node: TS.Expression | undefined): string | null {
   if (!node) return null;
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
   return null;
 }
 
-function scriptKindForPath(path: string): ts.ScriptKind {
+function scriptKindForPath(path: string): TS.ScriptKind {
   const lower = path.toLowerCase();
   if (lower.endsWith('.tsx')) return ts.ScriptKind.TSX;
   if (lower.endsWith('.ts') || lower.endsWith('.mts') || lower.endsWith('.cts')) {
@@ -70,7 +71,7 @@ function scriptKindForPath(path: string): ts.ScriptKind {
   return ts.ScriptKind.JS;
 }
 
-function staticFacts(node: ts.Expression | undefined): StaticFacts | null {
+function staticFacts(node: TS.Expression | undefined): StaticFacts | null {
   if (!node) return null;
 
   if (node.kind === ts.SyntaxKind.TrueKeyword) return { defined: true, truthy: true };
@@ -117,10 +118,10 @@ function staticFacts(node: ts.Expression | undefined): StaticFacts | null {
   return null;
 }
 
-function expectAssertion(node: ts.CallExpression, sf: ts.SourceFile): Assertion | null {
+function expectAssertion(node: TS.CallExpression, sf: TS.SourceFile): Assertion | null {
   if (!ts.isPropertyAccessExpression(node.expression)) return null;
   const matcher = node.expression.name.text;
-  let receiver: ts.Expression = node.expression.expression;
+  let receiver: TS.Expression = node.expression.expression;
   let polarity: '' | 'not' = '';
 
   if (ts.isPropertyAccessExpression(receiver) && receiver.name.text === 'not') {
@@ -151,11 +152,11 @@ function expectAssertion(node: ts.CallExpression, sf: ts.SourceFile): Assertion 
   };
 }
 
-function simpleCallName(node: ts.CallExpression): string | null {
+function simpleCallName(node: TS.CallExpression): string | null {
   return ts.isIdentifier(node.expression) ? node.expression.text : null;
 }
 
-function callbackFor(node: ts.CallExpression): ts.ArrowFunction | ts.FunctionExpression | null {
+function callbackFor(node: TS.CallExpression): TS.ArrowFunction | TS.FunctionExpression | null {
   const cb = node.arguments[1];
   return cb && (ts.isArrowFunction(cb) || ts.isFunctionExpression(cb)) ? cb : null;
 }
@@ -167,7 +168,7 @@ function blocks(src: string, path: string): Map<string, TestBlock[]> {
   try {
     const sf = ts.createSourceFile(path, src, ts.ScriptTarget.Latest, true, scriptKindForPath(path));
 
-    const visit = (node: ts.Node, suites: string[]): void => {
+    const visit = (node: TS.Node, suites: string[]): void => {
       if (ts.isCallExpression(node)) {
         const call = simpleCallName(node);
         const title = literalTitle(node.arguments[0]);
@@ -181,7 +182,7 @@ function blocks(src: string, path: string): Map<string, TestBlock[]> {
 
         if (call && TEST_CALLS.has(call) && title !== null && cb) {
           const assertions: Assertion[] = [];
-          const collect = (child: ts.Node): void => {
+          const collect = (child: TS.Node): void => {
             if (child !== cb && ts.isCallExpression(child)) {
               const nestedCall = simpleCallName(child);
               if (nestedCall && (TEST_CALLS.has(nestedCall) || SUITE_CALLS.has(nestedCall))) {

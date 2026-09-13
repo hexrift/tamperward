@@ -19,7 +19,8 @@
 // `unknown` (the honest narrowing target) is UnknownKeyword, never counted. Diff-only changes
 // (no before/after) fall back to additive-line regex, also split, so nothing regresses or throws.
 
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../ts-lazy';
 import { Change, Detector, Finding } from '../types';
 import { addedLines } from '../diff/select';
 import { protectedCategory } from '../policy';
@@ -54,14 +55,14 @@ function countAny(src: string): AnyCounts {
   const r: AnyCounts = { cast: 0, broad: 0, double: 0 };
   try {
     const sf = ts.createSourceFile('f.ts', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-    const visit = (node: ts.Node): void => {
+    const visit = (node: TS.Node): void => {
       // The double cast is structural: `(raw as unknown) as T` is the same
       // escape as `raw as unknown as T`, whatever the text regex sees.
       if ((ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) && isDoubleCast(node)) r.double++;
       if (node.kind === ts.SyntaxKind.AnyKeyword) {
         // `x as (any)` parents the keyword under a ParenthesizedType; the cast is the
         // same, so unwrap the parens before asking what the target type is.
-        let target: ts.Node = node;
+        let target: TS.Node = node;
         let p = target.parent;
         while (p && ts.isParenthesizedTypeNode(p)) {
           target = p;

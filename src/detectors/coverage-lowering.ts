@@ -40,7 +40,8 @@
 // line-based checks so behaviour never regresses or throws.
 
 import picomatch from 'picomatch';
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../ts-lazy';
 import { Change, Detector, DetectorContext, FileChange, Finding, Policy } from '../types';
 import { addedLines, removedLines } from '../diff/select';
 import { isProtected } from '../policy';
@@ -90,14 +91,14 @@ interface Switches {
 
 const norm = (p: string) => p.replace(/^\.\//, '');
 
-function keyName(name: ts.PropertyName): string | null {
+function keyName(name: TS.PropertyName): string | null {
   if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
   return null;
 }
 
 /** A numeric literal, including Jest's negative "at most N uncovered" form and a
  *  numeric string (`"80"` in a hand-edited JSON). */
-function numericOf(e: ts.Expression): number | undefined {
+function numericOf(e: TS.Expression): number | undefined {
   if (ts.isNumericLiteral(e)) return Number(e.text);
   if (ts.isStringLiteral(e) && /^-?\d+(?:\.\d+)?$/.test(e.text.trim())) return Number(e.text);
   if (
@@ -110,11 +111,11 @@ function numericOf(e: ts.Expression): number | undefined {
   return undefined;
 }
 
-type Resolver = (e: ts.Expression) => ts.Expression;
+type Resolver = (e: TS.Expression) => TS.Expression;
 
 /** Every threshold metric on an object literal — not just `lines`. Reading one metric
  *  meant `branches: 90 → 0` (which fails the build exactly as hard) passed in silence. */
-function metricsOf(expr: ts.Expression, resolve: Resolver): MetricSet | undefined {
+function metricsOf(expr: TS.Expression, resolve: Resolver): MetricSet | undefined {
   const obj = resolve(expr);
   if (!ts.isObjectLiteralExpression(obj)) return undefined;
   const out: MetricSet = { values: {}, opaque: false };
@@ -137,18 +138,18 @@ function metricsOf(expr: ts.Expression, resolve: Resolver): MetricSet | undefine
 }
 
 /** `thresholds` is only a coverage gate when it sits under a `coverage` key (Vitest). */
-function underKey(node: ts.Node, key: string): boolean {
-  for (let p: ts.Node | undefined = node.parent; p; p = p.parent) {
+function underKey(node: TS.Node, key: string): boolean {
+  for (let p: TS.Node | undefined = node.parent; p; p = p.parent) {
     if (ts.isPropertyAssignment(p) && keyName(p.name) === key) return true;
   }
   return false;
 }
 
 /** The key of the property whose object literal directly holds `node`. */
-function ownerKey(node: ts.PropertyAssignment): string | null {
+function ownerKey(node: TS.PropertyAssignment): string | null {
   const obj = node.parent;
   if (!obj || !ts.isObjectLiteralExpression(obj)) return null;
-  let q: ts.Node | undefined = obj.parent;
+  let q: TS.Node | undefined = obj.parent;
   while (q && (ts.isParenthesizedExpression(q) || ts.isAsExpression(q) || q.kind === ts.SyntaxKind.SatisfiesExpression)) q = q.parent;
   return q && ts.isPropertyAssignment(q) ? keyName(q.name) : null;
 }
@@ -168,15 +169,15 @@ function asExpression(src: string): string {
   return t.startsWith('{') ? `(${t})` : src;
 }
 
-function sourceOf(src: string): ts.SourceFile {
+function sourceOf(src: string): TS.SourceFile {
   return ts.createSourceFile('cfg.ts', asExpression(src), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 }
 
 /** Resolve an identifier to the object literal a top-level `const` binds it to, so
  *  `const thresholds = {…}; module.exports = { coverageThreshold: thresholds }` reads
  *  as the gate it is rather than as "the gate was removed". One hop, same file. */
-function resolverFor(sf: ts.SourceFile): Resolver {
-  const consts = new Map<string, ts.Expression>();
+function resolverFor(sf: TS.SourceFile): Resolver {
+  const consts = new Map<string, TS.Expression>();
   for (const st of sf.statements) {
     if (!ts.isVariableStatement(st)) continue;
     for (const d of st.declarationList.declarations) {
@@ -204,7 +205,7 @@ export function parseThresholds(src: string): Thresholds {
   try {
     const sf = sourceOf(src);
     const resolve = resolverFor(sf);
-    const visit = (node: ts.Node): void => {
+    const visit = (node: TS.Node): void => {
       if (ts.isPropertyAssignment(node)) {
         const key = keyName(node.name);
         if (key === 'coverageThreshold' || (key === 'thresholds' && underKey(node, 'coverage'))) {
@@ -250,7 +251,7 @@ function merge(a: MetricSet | undefined, b: MetricSet): MetricSet {
 }
 
 /** String literals of an array; `opaque` when anything else sits in it. */
-function literals(e: ts.Expression): { items: string[]; opaque: boolean } {
+function literals(e: TS.Expression): { items: string[]; opaque: boolean } {
   if (ts.isStringLiteral(e)) return { items: [e.text], opaque: false };
   if (!ts.isArrayLiteralExpression(e)) return { items: [], opaque: true };
   const items: string[] = [];
@@ -270,7 +271,7 @@ export function parseLists(src: string): Lists {
   try {
     const sf = sourceOf(src);
     const resolve = resolverFor(sf);
-    const visit = (node: ts.Node): void => {
+    const visit = (node: TS.Node): void => {
       if (ts.isPropertyAssignment(node)) {
         const k = keyName(node.name);
         const vitestCoverage = ownerKey(node) === 'coverage';
@@ -299,9 +300,9 @@ export function parseSwitches(src: string): Switches {
   const res: Switches = {};
   try {
     const sf = sourceOf(src);
-    const bool = (e: ts.Expression): boolean | undefined =>
+    const bool = (e: TS.Expression): boolean | undefined =>
       e.kind === ts.SyntaxKind.TrueKeyword ? true : e.kind === ts.SyntaxKind.FalseKeyword ? false : undefined;
-    const visit = (node: ts.Node): void => {
+    const visit = (node: TS.Node): void => {
       if (ts.isPropertyAssignment(node)) {
         const k = keyName(node.name);
         const owner = ownerKey(node);
@@ -323,7 +324,7 @@ function sectionText(src: string, key: string): string {
   try {
     const sf = sourceOf(src);
     let out = '';
-    const visit = (node: ts.Node): void => {
+    const visit = (node: TS.Node): void => {
       if (out) return;
       if (ts.isPropertyAssignment(node) && keyName(node.name) === key && ts.isObjectLiteralExpression(node.initializer)) {
         out = node.initializer.getText(sf);

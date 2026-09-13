@@ -29,7 +29,8 @@
 // before/after and is silent, because growth is only meaningful net of what
 // the same change removed.
 
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../ts-lazy';
 import { Change, Detector, Finding } from '../types';
 import { protectedCategory } from '../policy';
 import { addedLines } from '../diff/select';
@@ -45,7 +46,7 @@ const OUT_OF_BUDGET_PATH =
 const GENERATED_HEADER = /@generated\b|\bAUTO-?GENERATED\b|\bDO NOT EDIT\b/i;
 const HEADER_LINES = 20;
 
-function scriptKind(path: string): ts.ScriptKind {
+function scriptKind(path: string): TS.ScriptKind {
   const lower = path.toLowerCase();
   if (lower.endsWith('.tsx')) return ts.ScriptKind.TSX;
   if (lower.endsWith('.ts') || lower.endsWith('.mts') || lower.endsWith('.cts')) return ts.ScriptKind.TS;
@@ -65,7 +66,7 @@ function outOfBudget(path: string, before: string | null): boolean {
 
 /** `x` with any `(…)` wrappers removed, so `(raw as unknown) as T` reads as
  *  the same double cast as `raw as unknown as T`. */
-function unparenthesized(e: ts.Expression): ts.Expression {
+function unparenthesized(e: TS.Expression): TS.Expression {
   let x = e;
   while (ts.isParenthesizedExpression(x)) x = x.expression;
   return x;
@@ -74,15 +75,15 @@ function unparenthesized(e: ts.Expression): ts.Expression {
 /** The asserted type with any `(…)` wrappers removed: `as (unknown)` is
  *  `as unknown`, `as ((any))` is `as any`. Both rules classify the target
  *  through this one helper so they cannot drift apart. */
-export function assertedType(node: ts.AsExpression | ts.TypeAssertion): ts.TypeNode {
-  let t: ts.TypeNode = node.type;
+export function assertedType(node: TS.AsExpression | TS.TypeAssertion): TS.TypeNode {
+  let t: TS.TypeNode = node.type;
   while (ts.isParenthesizedTypeNode(t)) t = t.type;
   return t;
 }
 
 /** Row 4's double cast: an assertion whose operand is itself an assertion to
  *  `unknown`, expression and type parentheses notwithstanding. */
-export function isDoubleCast(node: ts.AsExpression | ts.TypeAssertion): boolean {
+export function isDoubleCast(node: TS.AsExpression | TS.TypeAssertion): boolean {
   const inner = unparenthesized(node.expression);
   return (ts.isAsExpression(inner) || ts.isTypeAssertionExpression(inner)) && assertedType(inner).kind === ts.SyntaxKind.UnknownKeyword;
 }
@@ -105,7 +106,7 @@ interface Surface {
 /** The parse-clean assertion surface of one file, or null when the file does
  *  not parse: an unparseable side is a declined comparison, never a count. */
 function surfaceOf(path: string, src: string): Surface | null {
-  let sf: ts.SourceFile;
+  let sf: TS.SourceFile;
   try {
     sf = ts.createSourceFile(path, src, ts.ScriptTarget.Latest, true, scriptKind(path));
   } catch {
@@ -118,13 +119,13 @@ function surfaceOf(path: string, src: string): Surface | null {
 
   const surface: Surface = { type: 0, nonNull: 0, assertions: [] };
   const lines = src.split('\n');
-  const record = (kind: Assertion['kind'], node: ts.Node): void => {
+  const record = (kind: Assertion['kind'], node: TS.Node): void => {
     const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
     surface.assertions.push({ kind, line, text: node.getText(sf).replace(/\s+/g, ' '), lineText: (lines[line - 1] ?? '').trim() });
     if (kind === 'type') surface.type++;
     else surface.nonNull++;
   };
-  const isRow4OrHonest = (node: ts.AsExpression | ts.TypeAssertion): boolean => {
+  const isRow4OrHonest = (node: TS.AsExpression | TS.TypeAssertion): boolean => {
     // `as const` is a literal-type request, `as unknown` the honest widening,
     // `as any` row 4's block; none of them is the ordinary assertion budgeted
     // here — however many parentheses the target type wears.
@@ -132,7 +133,7 @@ function surfaceOf(path: string, src: string): Surface | null {
     if (type.kind === ts.SyntaxKind.AnyKeyword || type.kind === ts.SyntaxKind.UnknownKeyword) return true;
     return ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName) && type.typeName.text === 'const';
   };
-  const visit = (node: ts.Node): void => {
+  const visit = (node: TS.Node): void => {
     if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
       // `x as unknown as T` (parenthesised or not): the outer assertion is
       // row 4's double cast, not an ordinary narrowing — leave it to ts-any-cast.

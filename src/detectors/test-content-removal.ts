@@ -25,7 +25,8 @@
 // When the block count itself drops, this rule stays silent: that is
 // test-deletion's finding, and one mechanism reports once.
 
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../ts-lazy';
 import { Change, Detector, Finding } from '../types';
 import { isProtected } from '../policy';
 import { makeFinding } from './finding';
@@ -53,7 +54,7 @@ function eachTables(src: string, path: string): { rows: Map<string, string>; ope
   if (langOf(path) !== 'js' && langOf(path) !== null) return { rows, open };
   try {
     const sf = ts.createSourceFile('spec.ts', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-    const visit = (node: ts.Node): void => {
+    const visit = (node: TS.Node): void => {
       if (
         ts.isCallExpression(node) &&
         ts.isPropertyAccessExpression(node.expression) &&
