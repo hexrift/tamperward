@@ -1009,6 +1009,29 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   );
   const agentExit = agentRun.exit;
   const agentTimedOut = agentRun.timedOut;
+  const emitRunJson = (
+    verdict: string,
+    exitCode: number,
+    extra: Record<string, unknown> = {},
+  ): void => {
+    if (!opts.json) return;
+    out(JSON.stringify(machineOutput({
+      verdict,
+      exit_code: exitCode,
+      base,
+      agent: {
+        exit_code: agentExit,
+        timed_out: agentTimedOut,
+        lifecycle_owned: agentRun.lifecycleOwned,
+        ...(opts.agentBudget !== undefined ? { budget_secs: opts.agentBudget } : {}),
+      },
+      verifier_backend: verifierBackendReport(verifierBackend),
+      dependency_environment: dependencyEnvironment
+        ? dependencyEnvironmentReport(dependencyEnvironment)
+        : { status: 'verifier-owned', roots: [], image: verifierBackend.image },
+      ...extra,
+    })));
+  };
   if (agentRun.failure && !agentTimedOut) {
     err(`tamperward run: agent runtime failed to start/report cleanly (${agentRun.failure}).`);
   }
@@ -1019,6 +1042,9 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   if (process.platform === 'linux' && !agentRun.lifecycleOwned) {
     err('tamperward run: the Linux agent lifecycle boundary was not established/drained — failing closed before adjudication.');
     finishObserverAdvisory(observer, say);
+    emitRunJson('CANNOT_ADJUDICATE', 2, {
+      reason: 'AGENT_LIFECYCLE_NOT_OWNED',
+    });
     return 2;
   }
   if (agentTimedOut) {
@@ -1051,6 +1077,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     err('read against the anchor we started from. That is the finding.');
     say(`\ntamperward run — agent exit ${agentExit}; OBJECT_REWRITE → ENFORCEMENT_FAILED`);
     finishObserverAdvisory(observer, say);
+    emitRunJson('OBJECT_REWRITE', 1);
     return 1;
   }
 
@@ -1061,6 +1088,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     err('the agent rewrote history out from under the anchor. That is the finding.');
     say(`\ntamperward run — agent exit ${agentExit}; HISTORY_REWRITE → ENFORCEMENT_FAILED`);
     finishObserverAdvisory(observer, say);
+    emitRunJson('HISTORY_REWRITE', 1, { head });
     return 1;
   }
 
@@ -1095,6 +1123,10 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     if (!opts.allowDepDrift) {
       say(`\ntamperward run — agent exit ${agentExit}; DEPENDENCY_DRIFT → ENFORCEMENT_FAILED`);
       finishObserverAdvisory(observer, say);
+      emitRunJson('DEPENDENCY_DRIFT', 1, {
+        head,
+        checks: { diff: diffCode, worktree: workCode },
+      });
       return 1;
     }
     err('(--allow-dep-drift: proceeding anyway, on the operator\'s judgement.)');
@@ -1230,27 +1262,14 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   const exitCode = enforcement !== 0 ? enforcement : agentTimedOut ? 124 : agentExit;
 
   if (opts.json) {
-    out(JSON.stringify(machineOutput({
-      verdict: machineVerdict,
-      exit_code: exitCode,
-      base,
+    emitRunJson(machineVerdict, exitCode, {
       head,
-      agent: {
-        exit_code: agentExit,
-        timed_out: agentTimedOut,
-        lifecycle_owned: agentRun.lifecycleOwned,
-        ...(opts.agentBudget !== undefined ? { budget_secs: opts.agentBudget } : {}),
-      },
       checks: { diff: diffCode, worktree: workCode, verify: verifyCode },
-      verifier_backend: verifierBackendReport(verifierBackend),
-      dependency_environment: dependencyEnvironment
-        ? dependencyEnvironmentReport(dependencyEnvironment)
-        : { status: 'verifier-owned', roots: [], image: verifierBackend.image },
       observer: {
         enabled: Boolean(opts.observeTransients),
         blocking: observerBlocked,
       },
-    })));
+    });
   } else {
     say(`\ntamperward run — ${agentSummary}; checks diff=${diffCode} worktree=${workCode} verify=${verifyCode} → ${verdict}`);
   }
