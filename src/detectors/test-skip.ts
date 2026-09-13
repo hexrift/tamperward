@@ -186,21 +186,91 @@ function requiredModule(expr: ts.Expression): string | null {
   return moduleName(expr.arguments[0]);
 }
 
-function importAliases(sf: ts.SourceFile): Set<string> {
-  const out = new Set(JS_RUNNERS);
-  const simpleAliases: Array<{ local: string; source: string }> = [];
 
-  for (const stmt of sf.statements) {
+type AstContext = {
+  sf: ts.SourceFile;
+  checker: ts.TypeChecker;
+};
+
+type StaticValue = {
+  value: string;
+  causes: ts.Node[];
+};
+
+type RunnerBinding = {
+  causes: ts.Node[];
+};
+
+type SemanticHit = {
+  semanticKey: string;
+  terminalNode: ts.Node;
+  causeNodes: ts.Node[];
+  why: string;
+  evidence: string;
+};
+
+function astContext(path: string, source: string): AstContext | null {
+  const rootName = path.startsWith('/') ? path : '/tamperward/' + path;
+  const sf = ts.createSourceFile(
+    rootName,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKind(path),
+  );
+
+  const diagnostics = (
+    sf as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }
+  ).parseDiagnostics ?? [];
+  if (diagnostics.length > 0) return null;
+
+  const options: ts.CompilerOptions = {
+    allowJs: true,
+    checkJs: false,
+    noLib: true,
+    noResolve: true,
+    target: ts.ScriptTarget.Latest,
+    module: ts.ModuleKind.ESNext,
+  };
+  const host = ts.createCompilerHost(options, true);
+  host.getSourceFile = (fileName) => fileName === rootName ? sf : undefined;
+  host.fileExists = (fileName) => fileName === rootName;
+  host.readFile = (fileName) => fileName === rootName ? source : undefined;
+  host.writeFile = () => {};
+  host.getDefaultLibFileName = () => '';
+  host.getCurrentDirectory = () => '/tamperward';
+  host.getCanonicalFileName = (fileName) => fileName;
+  host.useCaseSensitiveFileNames = () => true;
+  host.getNewLine = () => '\n';
+
+  const program = ts.createProgram([rootName], options, host);
+  return { sf, checker: program.getTypeChecker() };
+}
+
+function symbolAt(ctx: AstContext, node: ts.Node): ts.Symbol | null {
+  return ctx.checker.getSymbolAtLocation(node) ?? null;
+}
+
+function importAliases(ctx: AstContext): Map<ts.Symbol, RunnerBinding> {
+  const out = new Map<ts.Symbol, RunnerBinding>();
+  const simpleAliases: Array<{ local: ts.Identifier; source: ts.Identifier }> = [];
+
+  const add = (id: ts.Identifier, causes: ts.Node[] = [id]): void => {
+    const sym = symbolAt(ctx, id);
+    if (sym) out.set(sym, { causes });
+  };
+
+  for (const stmt of ctx.sf.statements) {
     if (ts.isImportDeclaration(stmt) && ts.isStringLiteralLike(stmt.moduleSpecifier)) {
       if (!JS_TEST_MODULES.has(stmt.moduleSpecifier.text)) continue;
       const clause = stmt.importClause;
       if (!clause) continue;
-      if (clause.name && stmt.moduleSpecifier.text.startsWith('node:test')) out.add(clause.name.text);
+      if (clause.name && stmt.moduleSpecifier.text.startsWith('node:test')) add(clause.name);
       const bindings = clause.namedBindings;
       if (bindings && ts.isNamedImports(bindings)) {
         for (const el of bindings.elements) {
           const imported = el.propertyName?.text ?? el.name.text;
-          if (JS_RUNNERS.has(imported)) out.add(el.name.text);
+          if (JS_RUNNERS.has(imported)) add(el.name);
         }
       }
       continue;
@@ -216,95 +286,119 @@ function importAliases(sf: ts.SourceFile): Set<string> {
           const imported = el.propertyName && ts.isIdentifier(el.propertyName)
             ? el.propertyName.text
             : el.name.text;
-          if (JS_RUNNERS.has(imported)) out.add(el.name.text);
+          if (JS_RUNNERS.has(imported)) add(el.name);
         }
       } else if (ts.isIdentifier(decl.name) && decl.initializer && ts.isIdentifier(decl.initializer)) {
-        simpleAliases.push({ local: decl.name.text, source: decl.initializer.text });
+        simpleAliases.push({ local: decl.name, source: decl.initializer });
       }
     }
   }
 
-  // Resolve only direct/simple aliases of an already-known runner. Repeating to a
-  // fixed point covers `const a = test; const b = a` without attempting dataflow.
   for (let pass = 0; pass < simpleAliases.length + 1; pass++) {
     let changed = false;
     for (const alias of simpleAliases) {
-      if (out.has(alias.source) && !out.has(alias.local)) {
-        out.add(alias.local);
-        changed = true;
-      }
+      const localSym = symbolAt(ctx, alias.local);
+      if (!localSym || out.has(localSym)) continue;
+
+      const sourceSym = symbolAt(ctx, alias.source);
+      const sourceBinding = sourceSym ? out.get(sourceSym) : undefined;
+      const implicitGlobal = sourceSym == null && JS_RUNNERS.has(alias.source.text);
+
+      if (!sourceBinding && !implicitGlobal) continue;
+      out.set(localSym, {
+        causes: [alias.local, ...(sourceBinding?.causes ?? [])],
+      });
+      changed = true;
     }
     if (!changed) break;
   }
   return out;
 }
 
-function topLevelStaticStrings(sf: ts.SourceFile): Map<string, string> {
-  const pending = new Map<string, ts.Expression>();
-  const ambiguous = new Set<string>();
+function topLevelStaticStrings(ctx: AstContext): Map<ts.Symbol, StaticValue> {
+  const pending = new Map<ts.Symbol, { decl: ts.Identifier; expr: ts.Expression }>();
 
-  for (const stmt of sf.statements) {
+  for (const stmt of ctx.sf.statements) {
     if (!ts.isVariableStatement(stmt)) continue;
     const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0;
+    if (!isConst) continue;
     for (const decl of stmt.declarationList.declarations) {
-      if (!ts.isIdentifier(decl.name)) continue;
-      if (!isConst || !decl.initializer || pending.has(decl.name.text)) {
-        ambiguous.add(decl.name.text);
-        pending.delete(decl.name.text);
-        continue;
-      }
-      if (!ambiguous.has(decl.name.text)) pending.set(decl.name.text, decl.initializer);
+      if (!ts.isIdentifier(decl.name) || !decl.initializer) continue;
+      const sym = symbolAt(ctx, decl.name);
+      if (sym) pending.set(sym, { decl: decl.name, expr: decl.initializer });
     }
   }
 
-  const resolved = new Map<string, string>();
-  const valueOf = (expr: ts.Expression, stack = new Set<string>()): string | null => {
-    if (ts.isStringLiteralLike(expr)) return expr.text;
-    if (ts.isParenthesizedExpression(expr)) return valueOf(expr.expression, stack);
-    if (
-      ts.isBinaryExpression(expr) &&
-      expr.operatorToken.kind === ts.SyntaxKind.PlusToken
-    ) {
-      const left = valueOf(expr.left, stack);
-      const right = valueOf(expr.right, stack);
-      return left == null || right == null ? null : left + right;
+  const resolved = new Map<ts.Symbol, StaticValue>();
+  const resolving = new Set<ts.Symbol>();
+
+  const valueOf = (expr: ts.Expression): StaticValue | null => {
+    if (ts.isStringLiteralLike(expr)) return { value: expr.text, causes: [] };
+    if (ts.isParenthesizedExpression(expr)) return valueOf(expr.expression);
+    if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      const left = valueOf(expr.left);
+      const right = valueOf(expr.right);
+      if (!left || !right) return null;
+      return { value: left.value + right.value, causes: [...left.causes, ...right.causes] };
     }
-    if (ts.isIdentifier(expr) && pending.has(expr.text) && !stack.has(expr.text)) {
-      const next = new Set(stack);
-      next.add(expr.text);
-      return valueOf(pending.get(expr.text)!, next);
+    if (ts.isIdentifier(expr)) {
+      const sym = symbolAt(ctx, expr);
+      if (!sym) return null;
+      const cached = resolved.get(sym);
+      if (cached) return cached;
+      const item = pending.get(sym);
+      if (!item || resolving.has(sym)) return null;
+      resolving.add(sym);
+      const nested = valueOf(item.expr);
+      resolving.delete(sym);
+      if (!nested) return null;
+      const result = { value: nested.value, causes: [item.decl, ...nested.causes] };
+      resolved.set(sym, result);
+      return result;
     }
     return null;
   };
 
-  for (const [name, expr] of pending) {
-    const value = valueOf(expr, new Set([name]));
-    if (value != null) resolved.set(name, value);
+  for (const [sym, item] of pending) {
+    if (resolved.has(sym)) continue;
+    resolving.add(sym);
+    const nested = valueOf(item.expr);
+    resolving.delete(sym);
+    if (nested) resolved.set(sym, { value: nested.value, causes: [item.decl, ...nested.causes] });
   }
   return resolved;
 }
 
 function staticPropertyName(
   expr: ts.Expression,
-  strings: Map<string, string>,
-): string | null {
-  if (ts.isStringLiteralLike(expr)) return expr.text;
-  if (ts.isParenthesizedExpression(expr)) return staticPropertyName(expr.expression, strings);
+  ctx: AstContext,
+  strings: Map<ts.Symbol, StaticValue>,
+): { name: string; causes: ts.Node[] } | null {
+  if (ts.isStringLiteralLike(expr)) return { name: expr.text, causes: [] };
+  if (ts.isParenthesizedExpression(expr)) return staticPropertyName(expr.expression, ctx, strings);
   if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.PlusToken) {
-    const left = staticPropertyName(expr.left, strings);
-    const right = staticPropertyName(expr.right, strings);
-    return left == null || right == null ? null : left + right;
+    const left = staticPropertyName(expr.left, ctx, strings);
+    const right = staticPropertyName(expr.right, ctx, strings);
+    if (!left || !right) return null;
+    return { name: left.name + right.name, causes: [...left.causes, ...right.causes] };
   }
-  if (ts.isIdentifier(expr)) return strings.get(expr.text) ?? null;
+  if (ts.isIdentifier(expr)) {
+    const sym = symbolAt(ctx, expr);
+    if (!sym) return null;
+    const value = strings.get(sym);
+    return value ? { name: value.value, causes: value.causes } : null;
+  }
   return null;
 }
 
 function runnerChain(
   expr: ts.Expression,
-  runners: Set<string>,
-  strings: Map<string, string>,
-): { root: string; props: string[]; terminalNode: ts.Node } | null {
+  ctx: AstContext,
+  runners: Map<ts.Symbol, RunnerBinding>,
+  strings: Map<ts.Symbol, StaticValue>,
+): { root: string; props: string[]; terminalNode: ts.Node; causes: ts.Node[] } | null {
   const props: string[] = [];
+  const causes: ts.Node[] = [];
   let cur: ts.Expression = expr;
   let terminalNode: ts.Node = expr;
 
@@ -316,15 +410,25 @@ function runnerChain(
       continue;
     }
     if (!cur.argumentExpression) return null;
-    const name = staticPropertyName(cur.argumentExpression, strings);
-    if (name == null) return null;
-    props.unshift(name);
+    const property = staticPropertyName(cur.argumentExpression, ctx, strings);
+    if (!property) return null;
+    props.unshift(property.name);
+    causes.push(...property.causes);
     if (props.length === 1) terminalNode = cur.argumentExpression;
     cur = cur.expression;
   }
 
-  if (!ts.isIdentifier(cur) || !runners.has(cur.text)) return null;
-  return { root: cur.text, props, terminalNode };
+  if (!ts.isIdentifier(cur)) return null;
+  const sym = symbolAt(ctx, cur);
+  if (sym) {
+    const binding = runners.get(sym);
+    if (!binding) return null;
+    causes.push(...binding.causes);
+  } else if (!JS_RUNNERS.has(cur.text)) {
+    return null;
+  }
+
+  return { root: cur.text, props, terminalNode, causes };
 }
 
 function optionDisables(value: ts.Expression): boolean {
@@ -334,107 +438,132 @@ function optionDisables(value: ts.Expression): boolean {
   );
 }
 
-function astSkipHits(c: FileChange): AstHit[] {
-  if (c.after == null) return [];
-  const added = addedLineNumbers(c);
-  if (added.size === 0) return [];
+function semanticSkipHits(ctx: AstContext): SemanticHit[] {
+  const runners = importAliases(ctx);
+  const strings = topLevelStaticStrings(ctx);
+  const hits: SemanticHit[] = [];
+  const callOrdinals = new Map<string, number>();
 
-  try {
-    const sf = ts.createSourceFile(
-      c.path,
-      c.after,
-      ts.ScriptTarget.Latest,
-      true,
-      scriptKind(c.path),
-    );
-    const runners = importAliases(sf);
-    const strings = topLevelStaticStrings(sf);
-    const hits: AstHit[] = [];
-    const seen = new Set<number>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const callText = node.getText(ctx.sf).trim();
+      const ordinal = (callOrdinals.get(callText) ?? 0) + 1;
+      callOrdinals.set(callText, ordinal);
+      const callKey = `\${callText}\u0000\${ordinal}`;
 
-    const lineOf = (node: ts.Node): number =>
-      sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
-    const emit = (node: ts.Node, why: string): void => {
-      const line = lineOf(node);
-      if (!added.has(line) || seen.has(line)) return;
-      seen.add(line);
-      hits.push({
-        line,
-        why,
-        evidence: sf.text.slice(node.getStart(sf), node.getEnd()).trim(),
-      });
-    };
+      const chain = runnerChain(node.expression, ctx, runners, strings);
+      if (chain) {
+        const { props, terminalNode, causes } = chain;
+        const terminal = props.at(-1);
+        const push = (target: ts.Node, extraCauses: ts.Node[], why: string): void => {
+          hits.push({
+            semanticKey: `\${callKey}\u0000\${why}`,
+            terminalNode: target,
+            causeNodes: [...causes, ...extraCauses],
+            why,
+            evidence: callText,
+          });
+        };
 
-    const visit = (node: ts.Node): void => {
-      if (ts.isCallExpression(node)) {
-        const chain = runnerChain(node.expression, runners, strings);
-        if (chain) {
-          const { props, terminalNode } = chain;
-          const terminal = props.at(-1);
+        if (
+          terminal &&
+          (terminal === 'skip' || terminal === 'only' || terminal === 'todo') &&
+          props.slice(0, -1).every((p) => JS_CHAIN_MODIFIERS.has(p))
+        ) {
+          push(terminalNode, [], 'a .skip/.only/.todo marker');
+        } else if (terminal && ['skipIf', 'runIf'].includes(terminal) && props.length === 1) {
+          push(terminalNode, [], 'a .skipIf()/.runIf() condition (the test runs only when the condition allows)');
+        } else if (terminal && ['fails', 'failing'].includes(terminal) && props.length === 1) {
+          push(terminalNode, [], 'a .fails/.failing marker (the test now passes by failing)');
+        } else if (
+          terminal === 'each' &&
+          props.length === 1 &&
+          node.arguments.length > 0 &&
+          ts.isArrayLiteralExpression(node.arguments[0]) &&
+          node.arguments[0].elements.length === 0
+        ) {
+          push(terminalNode, [], 'an empty .each table (no case ever runs)');
+        }
 
-          if (
-            terminal &&
-            (terminal === 'skip' || terminal === 'only' || terminal === 'todo') &&
-            props.slice(0, -1).every((p) => JS_CHAIN_MODIFIERS.has(p))
-          ) {
-            emit(terminalNode, 'a .skip/.only/.todo marker');
-          } else if (
-            terminal &&
-            ['skipIf', 'runIf'].includes(terminal) &&
-            props.length === 1
-          ) {
-            emit(terminalNode, 'a .skipIf()/.runIf() condition (the test runs only when the condition allows)');
-          } else if (
-            terminal &&
-            ['fails', 'failing'].includes(terminal) &&
-            props.length === 1
-          ) {
-            emit(terminalNode, 'a .fails/.failing marker (the test now passes by failing)');
-          } else if (
-            terminal === 'each' &&
-            props.length === 1 &&
-            node.arguments.length > 0 &&
-            ts.isArrayLiteralExpression(node.arguments[0]) &&
-            node.arguments[0].elements.length === 0
-          ) {
-            emit(terminalNode, 'an empty .each table (no case ever runs)');
-          }
-
-          if (props.length === 0) {
-            for (const arg of node.arguments) {
-              if (!ts.isObjectLiteralExpression(arg)) continue;
-              for (const prop of arg.properties) {
-                if (ts.isPropertyAssignment(prop)) {
-                  const name = ts.isIdentifier(prop.name) || ts.isStringLiteralLike(prop.name)
-                    ? prop.name.text
-                    : ts.isComputedPropertyName(prop.name)
-                      ? staticPropertyName(prop.name.expression, strings)
-                      : null;
-                  if (!name || !['skip', 'todo', 'only'].includes(name)) continue;
-                  if (!optionDisables(prop.initializer)) continue;
-                  const why = name === 'only'
-                    ? 'an { only: ... } option focusing the test'
-                    : name === 'todo'
-                      ? 'a { todo: ... } option (the test no longer fails the run)'
-                      : 'a { skip: ... } option disabling the test';
-                  emit(prop.name, why);
-                } else if (ts.isShorthandPropertyAssignment(prop) && ['skip', 'todo', 'only'].includes(prop.name.text)) {
-                  emit(prop.name, `a { ${prop.name.text} } option that conditionally narrows the test run`);
+        if (props.length === 0) {
+          for (const arg of node.arguments) {
+            if (!ts.isObjectLiteralExpression(arg)) continue;
+            for (const prop of arg.properties) {
+              if (ts.isPropertyAssignment(prop)) {
+                let name: string | null = null;
+                let propertyCauses: ts.Node[] = [];
+                if (ts.isIdentifier(prop.name) || ts.isStringLiteralLike(prop.name)) {
+                  name = prop.name.text;
+                } else if (ts.isComputedPropertyName(prop.name)) {
+                  const resolved = staticPropertyName(prop.name.expression, ctx, strings);
+                  name = resolved?.name ?? null;
+                  propertyCauses = resolved?.causes ?? [];
                 }
+                if (!name || !['skip', 'todo', 'only'].includes(name)) continue;
+                if (!optionDisables(prop.initializer)) continue;
+                const why = name === 'only'
+                  ? 'an { only: ... } option focusing the test'
+                  : name === 'todo'
+                    ? 'a { todo: ... } option (the test no longer fails the run)'
+                    : 'a { skip: ... } option disabling the test';
+                push(prop.name, propertyCauses, why);
+              } else if (
+                ts.isShorthandPropertyAssignment(prop) &&
+                ['skip', 'todo', 'only'].includes(prop.name.text)
+              ) {
+                push(prop.name, [], `a { \${prop.name.text} } option that conditionally narrows the test run`);
               }
             }
           }
         }
       }
-      ts.forEachChild(node, visit);
-    };
-    visit(sf);
-    return hits;
-  } catch {
-    // Full-content enrichment is an optimization for stronger semantics. A
-    // parser failure must not erase the existing diff-only mechanical path.
-    return [];
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(ctx.sf);
+  return hits;
+}
+
+function astSkipHits(c: FileChange): AstHit[] {
+  if (c.after == null) return [];
+  const added = addedLineNumbers(c);
+  if (added.size === 0) return [];
+
+  const afterCtx = astContext(c.path, c.after);
+  if (!afterCtx) return [];
+
+  const beforeCtx = c.before == null ? null : astContext(c.path, c.before);
+  const beforeKeys = beforeCtx == null
+    ? null
+    : new Set(semanticSkipHits(beforeCtx).map((hit) => hit.semanticKey));
+
+  const lineOf = (node: ts.Node): number =>
+    afterCtx.sf.getLineAndCharacterOfPosition(node.getStart(afterCtx.sf)).line + 1;
+
+  const hits: AstHit[] = [];
+  const seen = new Set<string>();
+  for (const hit of semanticSkipHits(afterCtx)) {
+    const directLine = lineOf(hit.terminalNode);
+    let findingLine: number | null = added.has(directLine) ? directLine : null;
+
+    if (findingLine == null) {
+      for (const cause of hit.causeNodes) {
+        const line = lineOf(cause);
+        if (added.has(line)) {
+          findingLine = line;
+          break;
+        }
+      }
+      if (findingLine == null) continue;
+      if (beforeKeys == null || beforeKeys.has(hit.semanticKey)) continue;
+    }
+
+    const dedupe = `\${findingLine}\u0000\${hit.semanticKey}`;
+    if (seen.has(dedupe)) continue;
+    seen.add(dedupe);
+    hits.push({ line: findingLine, why: hit.why, evidence: hit.evidence });
   }
+  return hits;
 }
 
 export const testSkip: Detector = {
