@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/main/schemas/verify-v1.schema.json",
+  "title": "TamperWard verify JSON output v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "verdict"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "verdict": {
+      "enum": [
+        "VERIFIED",
+        "MASKED_FAILURE",
+        "SUITE_RED",
+        "BUDGET_EXCEEDED",
+        "CANNOT_VERIFY"
+      ]
+    },
+    "reason": {
+      "type": "string"
+    },
+    "base": {
+      "type": "string"
+    },
+    "command": {
+      "type": "string"
+    },
+    "budget_secs": {
+      "type": "number"
+    },
+    "stage": {
+      "enum": [
+        "visible",
+        "pristine"
+      ]
+    },
+    "resource": {
+      "type": "string"
+    },
+    "detail": {
+      "type": "string"
+    },
+    "visible": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "pristine": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "protected_restored": {
+      "type": "integer"
+    },
+    "added_protected_removed": {
+      "type": "integer"
+    },
+    "verifier_backend": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "dependency_environment": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "oracle_assurance": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "oob_signoff": {
+      "type": "string"
+    },
+    "visible_dir": {
+      "type": "string"
+    },
+    "pristine_dir": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}
