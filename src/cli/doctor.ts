@@ -99,7 +99,7 @@ function permissionWrites(value: unknown): string[] | null {
   if (!mapping) return null;
   return Object.entries(mapping)
     .filter(([, permission]) => typeof permission === 'string' && /write/i.test(permission))
-    .map(([name]) => name);
+    .map(([name, permission]) => `${name}=${String(permission)}`);
 }
 
 function workflowPermissionCheck(
