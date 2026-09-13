@@ -5,6 +5,29 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.16.4] — 2026-09-13
+
+**`tamperward run` now fails closed before agent start on every platform that lacks
+an authoritative detached-domain lifecycle backend.** #379 showed that the portable
+fallback could not honestly prove a detached descendant was gone before certification:
+a worker could leave the process group/repository-holder surface, retain an absolute
+repository path, sleep past adjudication, and mutate later.
+
+Linux remains supported through the 2.16.3 trusted-system-Python
+`PR_SET_CHILD_SUBREAPER` backend and authoritative `waitpid(...)=ECHILD` drain.
+Windows, macOS and other non-Linux platforms now return exit 2 before launching the
+wrapped agent. Best-effort `taskkill /T /F`, process groups, holder scans and tree
+fingerprints remain useful evidence but are no longer treated as sufficient to produce
+a lifecycle-authoritative GREEN verdict.
+
+`tamperward doctor` reports unsupported run platforms as **BROKEN** and states that
+standalone `tamperward check` / `tamperward verify` remain available. Dependency
+attestation reuse remains disabled everywhere.
+
+Regression coverage projects both macOS and Windows lifecycle platforms and proves
+refusal happens before agent side effects. This closes #379 by removing the unprovable
+certification path rather than weakening the lifecycle invariant.
+
 ## [2.16.3] — 2026-09-13
 
 **`tamperward run` now owns the wrapped agent's descendant lifecycle on normal
