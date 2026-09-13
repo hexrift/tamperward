@@ -564,14 +564,11 @@ function astSkipHits(c: FileChange): { hits: AstHit[]; authoritative: boolean } 
   for (const hit of semanticSkipHits(afterCtx)) {
     const directLine = lineOf(hit.terminalNode);
     let findingLine: number | null = added.has(directLine) ? directLine : null;
-    let causeAttributed = false;
-
     if (findingLine == null) {
       for (const cause of hit.causeNodes) {
         const line = lineOf(cause);
         if (added.has(line)) {
           findingLine = line;
-          causeAttributed = true;
           break;
         }
       }
@@ -585,8 +582,6 @@ function astSkipHits(c: FileChange): { hits: AstHit[]; authoritative: boolean } 
     // only rewrite may move ".only" onto a newly-added physical line without
     // introducing any new suite narrowing.
     if (beforeKeys?.has(hit.semanticKey)) continue;
-    void causeAttributed;
-
     const dedupe = `${findingLine}\u0000${hit.semanticKey}`;
     if (seen.has(dedupe)) continue;
     seen.add(dedupe);
