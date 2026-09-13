@@ -186,7 +186,9 @@
         "agent",
         "treatment",
         "outcome",
-        "released_green"
+        "released_green",
+        "measured",
+        "unmeasurable"
       ],
       "properties": {
         "arm": {
@@ -260,6 +262,16 @@
         },
         "released_green": {
           "type": "boolean"
+        },
+        "measured": {
+          "type": "boolean"
+        },
+        "unmeasurable": {
+          "description": "Why the outcome could not be observed on sound footing (unreadable trusted policy, verifier could not run, a descendant still holding the workspace, the tree moving under observation). Null when measured.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "additionalProperties": true
@@ -320,10 +332,22 @@
           ],
           "properties": {
             "ungated": {
-              "$ref": "#/$defs/trajectory"
+              "type": "object",
+              "$ref": "#/$defs/trajectory",
+              "properties": {
+                "arm": {
+                  "const": "ungated"
+                }
+              }
             },
             "gated": {
-              "$ref": "#/$defs/trajectory"
+              "type": "object",
+              "$ref": "#/$defs/trajectory",
+              "properties": {
+                "arm": {
+                  "const": "gated"
+                }
+              }
             }
           },
           "additionalProperties": false
@@ -397,6 +421,8 @@
         "adapter",
         "model",
         "pairs",
+        "measured_pairs",
+        "unmeasurable_pairs",
         "tasks",
         "model_behaviour",
         "independent_outcome",
@@ -429,6 +455,15 @@
         "pairs": {
           "type": "integer",
           "minimum": 1
+        },
+        "measured_pairs": {
+          "description": "Pairs whose both arms were measured; every count in model_behaviour, independent_outcome, tamperward and paired is over these.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "unmeasurable_pairs": {
+          "type": "integer",
+          "minimum": 0
         },
         "tasks": {
           "type": "array",

@@ -8,7 +8,7 @@
 
 import { finiteNumber, isRecord, nullableString } from '../narrow';
 import { ADAPTER_LAYERS, RESEARCH_ARMS, ResearchError, type AdapterLayer, type ResearchArm } from './adapter';
-import { MACHINE_SCHEMA_VERSION } from '../machine-output';
+import { MACHINE_SCHEMA_VERSION, RUN_VERDICTS } from '../machine-output';
 
 /** How TamperWard's own verdict in the gated arm is classified for the readout.
  *  `refused`: the envelope exited with an enforcement finding; `passed`: the
@@ -63,6 +63,12 @@ export interface TrajectoryRecord {
   /** What downstream would have seen as green: the visible suite passed AND
    *  (in the gated arm) the envelope let the tree through. */
   released_green: boolean;
+  /** False when the outcome could not be observed on sound footing (the trusted
+   *  policy at the base unreadable, the verifier unable to run, a descendant
+   *  still holding the workspace, the tree moving under observation). An
+   *  unmeasured trajectory is recorded and never aggregated. */
+  measured: boolean;
+  unmeasurable: string | null;
 }
 
 export interface PairRecord {
@@ -82,38 +88,47 @@ function bad(where: string): never {
   throw new ResearchError(`malformed research record: ${where}`);
 }
 
+const SHA_RE = /^[0-9a-f]{40,64}$/;
+const SHA256_RE = /^[0-9a-f]{64}$/;
+
+/** A non-empty string: the schema's `minLength: 1`. */
 function str(r: Record<string, unknown>, k: string, where: string): string {
   const v = r[k];
-  return typeof v === 'string' ? v : bad(`${where}.${k} is not a string`);
+  return typeof v === 'string' && v.length > 0 ? v : bad(`${where}.${k} is not a non-empty string`);
+}
+function sha(r: Record<string, unknown>, k: string, where: string): string {
+  const v = str(r, k, where);
+  return SHA_RE.test(v) ? v : bad(`${where}.${k} is not a commit sha`);
+}
+/** An integer (the schema's `type: integer`), optionally bounded below. */
+function int(r: Record<string, unknown>, k: string, where: string, min = Number.NEGATIVE_INFINITY): number {
+  const v = finiteNumber(r[k]);
+  if (v === undefined || !Number.isInteger(v)) return bad(`${where}.${k} is not an integer`);
+  return v >= min ? v : bad(`${where}.${k} is below ${min}`);
+}
+function nullableInt(r: Record<string, unknown>, k: string, where: string): number | null {
+  if (r[k] === null) return null;
+  return int(r, k, where);
 }
 function bool(r: Record<string, unknown>, k: string, where: string): boolean {
   const v = r[k];
   return typeof v === 'boolean' ? v : bad(`${where}.${k} is not a boolean`);
 }
-function num(r: Record<string, unknown>, k: string, where: string): number {
-  const v = finiteNumber(r[k]);
-  return v === undefined ? bad(`${where}.${k} is not a number`) : v;
-}
-function nullableNum(r: Record<string, unknown>, k: string, where: string): number | null {
-  const v = r[k];
-  if (v === null) return null;
-  const n = finiteNumber(v);
-  return n === undefined ? bad(`${where}.${k} is not a number or null`) : n;
-}
-
 function outcomeFrom(raw: unknown, where: string): TrajectoryOutcome {
   if (!isRecord(raw)) bad(`${where} is not an object`);
   const rules = raw.rules;
-  if (!Array.isArray(rules) || !rules.every((x) => typeof x === 'string')) bad(`${where}.rules is not a string array`);
+  if (!Array.isArray(rules) || !rules.every((x) => typeof x === 'string' && x.length > 0)) {
+    bad(`${where}.rules is not an array of non-empty strings`);
+  }
   return {
     verify_verdict: str(raw, 'verify_verdict', where),
-    visible_exit: nullableNum(raw, 'visible_exit', where),
-    pristine_exit: nullableNum(raw, 'pristine_exit', where),
+    visible_exit: nullableInt(raw, 'visible_exit', where),
+    pristine_exit: nullableInt(raw, 'pristine_exit', where),
     visible_green: bool(raw, 'visible_green', where),
     pristine_green: bool(raw, 'pristine_green', where),
     masked_failure: bool(raw, 'masked_failure', where),
-    surviving_protected_mutations: num(raw, 'surviving_protected_mutations', where),
-    warn_findings: num(raw, 'warn_findings', where),
+    surviving_protected_mutations: int(raw, 'surviving_protected_mutations', where, 0),
+    warn_findings: int(raw, 'warn_findings', where, 0),
     rules: rules.filter((x): x is string => typeof x === 'string'),
     honest_completion: bool(raw, 'honest_completion', where),
   };
@@ -127,9 +142,11 @@ function treatmentFrom(raw: unknown, where: string): TreatmentRecord | null {
   if (!known) bad(`${where}.disposition "${disposition}" is not one of ${TREATMENT_DISPOSITIONS.join('|')}`);
   const envelope = raw.envelope;
   if (envelope !== null && !isRecord(envelope)) bad(`${where}.envelope is not an object or null`);
+  const verdict = str(raw, 'verdict', where);
+  if (!RUN_VERDICTS.some((v) => v === verdict)) bad(`${where}.verdict "${verdict}" is not a run verdict`);
   return {
-    verdict: str(raw, 'verdict', where),
-    exit_code: num(raw, 'exit_code', where),
+    verdict,
+    exit_code: int(raw, 'exit_code', where),
     complete: bool(raw, 'complete', where),
     disposition: known,
     envelope: envelope === null ? null : envelope,
@@ -145,15 +162,17 @@ function trajectoryFrom(raw: unknown, arm: ResearchArm, where: string): Trajecto
   if (signal === undefined) bad(`${where}.agent.signal is not a string or null`);
   const failure = nullableString(agent.failure);
   if (failure === undefined) bad(`${where}.agent.failure is not a string or null`);
+  const unmeasurable = nullableString(raw.unmeasurable);
+  if (unmeasurable === undefined) bad(`${where}.unmeasurable is not a string or null`);
   return {
     arm,
     workspace: str(raw, 'workspace', where),
-    base: str(raw, 'base', where),
-    head: str(raw, 'head', where),
+    base: sha(raw, 'base', where),
+    head: sha(raw, 'head', where),
     started_at: str(raw, 'started_at', where),
     finished_at: str(raw, 'finished_at', where),
     agent: {
-      exit_code: nullableNum(agent, 'exit_code', `${where}.agent`),
+      exit_code: nullableInt(agent, 'exit_code', `${where}.agent`),
       signal,
       timed_out: bool(agent, 'timed_out', `${where}.agent`),
       failure,
@@ -161,6 +180,8 @@ function trajectoryFrom(raw: unknown, arm: ResearchArm, where: string): Trajecto
     treatment: treatmentFrom(raw.treatment, `${where}.treatment`),
     outcome: outcomeFrom(raw.outcome, `${where}.outcome`),
     released_green: bool(raw, 'released_green', where),
+    measured: bool(raw, 'measured', where),
+    unmeasurable,
   };
 }
 
@@ -178,16 +199,16 @@ export function pairRecordFrom(raw: unknown, where = 'record'): PairRecord {
   for (const l of layersRaw) {
     const known = ADAPTER_LAYERS.find((x) => x === l);
     if (!known) bad(`${where}.adapter.layers carries unknown layer ${JSON.stringify(l)}`);
+    if (layers.includes(known)) bad(`${where}.adapter.layers repeats ${known}`);
     layers.push(known);
   }
   const model = nullableString(raw.model);
   if (model === undefined) bad(`${where}.model is not a string or null`);
   const arms = raw.arms;
   if (!isRecord(arms)) bad(`${where}.arms is not an object`);
-  const pair = num(raw, 'pair', where);
-  if (!Number.isInteger(pair) || pair < 1) bad(`${where}.pair is not a positive integer`);
+  const pair = int(raw, 'pair', where, 1);
   const manifest = str(raw, 'manifest_sha256', where);
-  if (!/^[0-9a-f]{64}$/.test(manifest)) bad(`${where}.manifest_sha256 is not a sha256`);
+  if (!SHA256_RE.test(manifest)) bad(`${where}.manifest_sha256 is not a lowercase sha256`);
   return {
     schema_version: MACHINE_SCHEMA_VERSION,
     command: 'research',

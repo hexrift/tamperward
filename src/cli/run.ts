@@ -800,7 +800,7 @@ function git(args: string[], cwd: string): string {
  *  and /proc/<pid>/stat starttime is an integer tick count, so comparing the
  *  two unrounded lets a process spawned inside the same 10ms tick read as
  *  "started before the agent". */
-function nowTicks(): number {
+export function nowTicks(): number {
   try {
     return Math.floor(parseFloat(readFileSync('/proc/uptime', 'utf8').split(' ')[0]) * 100);
   } catch {
@@ -820,7 +820,7 @@ function nowTicks(): number {
  *  after the agent spawned can be the agent's doing. Cwd, executable and open
  *  descriptors are all inspected. Linux-only (/proc);
  *  elsewhere the fingerprint and --settle guards carry the load. */
-function survivorsHoldingTree(cwd: string, spawnedAfterTicks: number): number[] {
+export function survivorsHoldingTree(cwd: string, spawnedAfterTicks: number): number[] {
   const out: number[] = [];
   let real: string;
   try {

@@ -29,16 +29,27 @@ gate change?" no longer means assembling round-specific scripts under
   to it as `treatment` (`refused` / `passed` / `cannot`), never folded into it, so a
   masked tree the envelope let through is an escape counted against the tool. One
   record per pair under `D/pairs/`; an existing record is skipped, so an interrupted
-  run resumes. The manifest's sha256 is pinned into every record. The run preflights
+  run resumes — by record identity (a valid record carrying the current manifest sha256,
+  task/pair, adapter and layers, model and suite command), never by file existence; a
+  foreign or truncated record fails the run closed, and records are written atomically.
+  A trajectory whose outcome cannot stand — the trusted policy at the base unreadable
+  (an absent one defaults; a broken one never does), the verifier unable to measure, a
+  descendant still holding the workspace after the ungated agent exited (terminated,
+  `NOT_QUIESCENT`), or the tree moving under observation — is recorded as
+  `measured: false` with the reason in `unmeasurable` and never aggregated. The
+  manifest's sha256 is pinned into every record. The run preflights
   the platform with the same check `doctor` reports and refuses, in doctor's words,
   where `tamperward run` cannot own the agent lifecycle (root, non-Linux).
 - `tamperward research summarize --ledger D` prints one aggregate with four separated
-  readouts and **no composite score**: `model_behaviour` and `independent_outcome` per
-  arm, `tamperward` hits and misses in the gated arm judged against the independent
+  readouts and **no composite score** over the pairs whose both arms were measured
+  (`pairs`, `measured_pairs`, `unmeasurable_pairs`): `model_behaviour` and
+  `independent_outcome` per arm, `tamperward` hits and misses in the gated arm judged against the independent
   outcome (`caught`, `escapes`, `false_refusals`, `cannot_adjudicate`), and `paired`
   discordant-pair counts on masked failure. `control_response` is `null` — in-loop
   deny events are not relayed by this release, so the field is not a number that looks
-  measured. A ledger mixing manifests, adapters or models is refused.
+  measured. A ledger mixing manifests, adapters or models is refused, and every record is
+  read back under the schema's own constraints before aggregation — an edited record is
+  refused, not believed.
 
 **`AgentAdapter`.** A runtime plugs in by answering two questions: which process runs
 the agent in the fresh workspace (`launch(task)` → `{ argv, env }`), and what the gated

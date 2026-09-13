@@ -305,7 +305,7 @@ describe('ledger record reader enforces the published schema, not just JSON shap
     const dir = tmp();
     mkdirSync(join(dir, 'pairs'));
     writeFileSync(join(dir, 'pairs', 'honest--1.json'), JSON.stringify(edited('arms.ungated.outcome.surviving_protected_mutations', -1)));
-    expect(() => summarizeLedger(dir)).toThrow(/malformed research record .*surviving_protected_mutations/);
+    expect(() => summarizeLedger(dir)).toThrow(/malformed research record: .*surviving_protected_mutations/);
   });
 });
 

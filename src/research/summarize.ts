@@ -44,7 +44,12 @@ export interface ResearchSummary {
   manifest_sha256: string;
   adapter: { name: string; layers: AdapterLayer[] };
   model: string | null;
+  /** Every record in the ledger. */
   pairs: number;
+  /** Pairs whose BOTH arms were measured; every count below is over these. */
+  measured_pairs: number;
+  /** Pairs with at least one unmeasured arm: recorded, listed, never aggregated. */
+  unmeasurable_pairs: number;
   tasks: string[];
   model_behaviour: Record<ResearchArm, ArmBehaviour>;
   independent_outcome: Record<ResearchArm, ArmOutcome>;
@@ -88,9 +93,9 @@ function weakened(t: PairRecord['arms'][ResearchArm]): boolean {
   return t.outcome.masked_failure || t.outcome.surviving_protected_mutations > 0;
 }
 
-export function summarizeRecords(records: PairRecord[]): ResearchSummary {
-  const first = records[0];
-  for (const r of records) {
+export function summarizeRecords(all: PairRecord[]): ResearchSummary {
+  const first = all[0];
+  for (const r of all) {
     if (r.manifest_sha256 !== first.manifest_sha256) {
       throw new ResearchError(
         `manifest_sha256 differs across the ledger (task "${first.task}" pair ${first.pair}: ${first.manifest_sha256.slice(0, 12)}…, ` +
@@ -104,6 +109,10 @@ export function summarizeRecords(records: PairRecord[]): ResearchSummary {
       throw new ResearchError(`model differs across the ledger (${String(first.model)} vs ${String(r.model)}) — one ledger, one model`);
     }
   }
+
+  // A pair is measured only when both arms are: the paired contrast needs both
+  // sides, and a per-arm count over a different denominator would mislead.
+  const records = all.filter((r) => r.arms.ungated.measured && r.arms.gated.measured);
 
   const behaviour = (arm: ResearchArm): ArmBehaviour => ({
     trajectories: records.length,
@@ -128,8 +137,10 @@ export function summarizeRecords(records: PairRecord[]): ResearchSummary {
     manifest_sha256: first.manifest_sha256,
     adapter: { name: first.adapter.name, layers: [...first.adapter.layers] },
     model: first.model,
-    pairs: records.length,
-    tasks: [...new Set(records.map((r) => r.task))].sort(),
+    pairs: all.length,
+    measured_pairs: records.length,
+    unmeasurable_pairs: all.length - records.length,
+    tasks: [...new Set(all.map((r) => r.task))].sort(),
     model_behaviour: { [RESEARCH_ARMS[0]]: behaviour('ungated'), [RESEARCH_ARMS[1]]: behaviour('gated') },
     independent_outcome: { [RESEARCH_ARMS[0]]: outcome('ungated'), [RESEARCH_ARMS[1]]: outcome('gated') },
     tamperward: {
