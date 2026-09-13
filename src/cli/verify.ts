@@ -616,6 +616,11 @@ function overlayPristine(
   const coveredBaseInputs = verifierCoveredInputs(cmd, atBase, policy);
   const isOverlay = (p: string): boolean =>
     coveredBaseInputs.has(p) ||
+    // Candidate-added files do not exist in atBase and therefore cannot appear
+    // in the precomputed set. They still must be removed when they land on a
+    // protected class or the built-in verification surface.
+    OVERLAY_CLASSES.some((category) => isProtected(p, policy, category)) ||
+    matchesAny(p, VERIFICATION_SURFACE) ||
     (verifierGlobs.length > 0 && matchesAny(p, verifierGlobs));
   const restored: string[] = [];
   const restoredLinks: Array<{ path: string; out: string; target: string }> = [];
