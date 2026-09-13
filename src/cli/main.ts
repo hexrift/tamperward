@@ -9,6 +9,7 @@ import { runAllow, AllowOpts } from './allow';
 import { runInit, InitOpts } from './init';
 import { runDoctor, DoctorOpts } from './doctor';
 import { runVerify, parseVerify } from './verify';
+import { runTraceVerify, parseTraceVerify } from './trace-verify';
 import { runEnvelope, parseRun } from './run';
 import { runWatch } from './watch';
 
@@ -241,6 +242,19 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     }).error;
   }
 
+  if (cmd === 'trace-verify') {
+    return validateFlatArgs(args, {
+      flags: ['--json'],
+      values: {
+        '--base': 'string',
+        '--cmd': 'string',
+        '--cwd': 'string',
+        '--budget': 'positive',
+        '--runs': 'positive',
+      },
+    }).error;
+  }
+
   if (cmd === 'watch') {
     return validateFlatArgs(args, {
       values: { '--dir': 'string', '--log': 'string', '--base': 'string' },
@@ -283,6 +297,14 @@ Formats:
                                             (exit 1, or 0 under an out-of-band
                                             verify@<head-sha> approval); cannot-verify
                                             fails closed (2)
+  tamperward trace-verify [--base R]          advisory Linux verifier-input discovery:
+             [--cmd C] [--budget S] [--runs N] trace a trusted/known-good base with
+             [--json] [--cwd D]                strace, union repeated observations,
+                                               mark dynamic/config/external reads,
+                                               and suggest uncovered exact paths for
+                                               HUMAN review as verify.inputs. Never
+                                               edits policy; unsupported platforms
+                                               fail explicitly rather than claiming parity.
   tamperward run [opts] -- <agent cmd...>   enforcement envelope: record the trusted
              [--base R] [--cmd C]           base, run the agent, treat its exit as
              [--budget S] [--agent-budget S] untrusted, then re-adjudicate the tree it
@@ -356,6 +378,8 @@ export function main(argv: string[]): number {
       return runWatch(rest);
     case 'verify':
       return runVerify(parseVerify(rest));
+    case 'trace-verify':
+      return runTraceVerify(parseTraceVerify(rest));
     case 'run':
       return runEnvelope({
         ...parseRun(rest),
