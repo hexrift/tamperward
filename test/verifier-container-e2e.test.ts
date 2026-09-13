@@ -435,12 +435,15 @@ describe('oracle-strength reporting (#350)', () => {
 describe('isolated verifier resource envelope (#346)', () => {
   containerIt('reports Docker-confirmed memory exhaustion as cannot-adjudicate', () => {
     const memoryBytes = 96 * 1024 * 1024;
+    // Use tmpfs pages charged to the container cgroup and exec dd as PID 1.
+    // A language runtime may return ENOMEM/abort itself before the kernel records
+    // a cgroup OOM. This fixture specifically needs Docker's OOMKilled authority.
     const { cwd } = boundaryRepo(
-      `node -e "const a=[]; setInterval(() => a.push(Buffer.alloc(8*1024*1024, 1)), 1)"`,
+      `exec dd if=/dev/zero of=/tmp/tamperward-oom-fill bs=1M status=none`,
       30,
     );
     const prepared = prepareVerifierBackend({
-      command: `node -e "const a=[]; setInterval(() => a.push(Buffer.alloc(8*1024*1024, 1)), 1)"`,
+      command: `exec dd if=/dev/zero of=/tmp/tamperward-oom-fill bs=1M status=none`,
       budget: 30,
       backend: 'container',
       image: BASE_IMAGE,
