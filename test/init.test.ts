@@ -229,6 +229,17 @@ describe('verifier setup posture (#320)', () => {
     expect(r.output).not.toContain('Suggested verifier command:');
   });
 
+  it('still reports verifier incompleteness when the policy itself needs repair', () => {
+    const d = repo();
+    writeFileSync(join(d, '.tamperward.yml'), 'version: [broken\n');
+
+    const r = captureInit(d, true);
+    expect(r.code).toBe(2);
+    expect(r.output).toContain('policy');
+    expect(r.output).toContain('INCOMPLETE: verification not configured');
+    expect(r.output).toContain('CI will fail closed until the policy is fixed');
+  });
+
   it('ignores npm default placeholder test scripts as non-runnable suggestions', () => {
     const d = repo();
     writeFileSync(
