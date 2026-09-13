@@ -48,7 +48,7 @@ import { defaultPolicy, isProtected } from '../policy';
 import { diffRange, diffWorktreeWithUntracked, gitDir } from '../git/build';
 import { inspectRel } from '../disk';
 import { contentHash } from '../effect';
-import { readEvents, transientFindings } from '../detectors/fs-events';
+import { MAX_EVENT_READ_BYTES, readEvents, transientFindings } from '../detectors/fs-events';
 import { watcherTelemetry, type WatcherTelemetry } from './watch';
 import { Policy } from '../types';
 
@@ -439,7 +439,20 @@ function collectObserverFindings(
   policy: Policy,
 ): { blocking: boolean } {
   observerSummary(observer, telemetry);
-  const { events } = readEvents(observer.log, 0);
+  const batch = readEvents(observer.log, 0);
+  const { events } = batch;
+  if (batch.limitReached) {
+    out(
+      `tamperward run — transient observer: telemetry exceeded the ${MAX_EVENT_READ_BYTES}-byte read ceiling; ` +
+        'only the bounded complete-record prefix was classified (advisory telemetry degraded).',
+    );
+  }
+  if (batch.malformedLines > 0) {
+    out(
+      `tamperward run — transient observer: ${batch.malformedLines} malformed complete JSONL record(s) were skipped ` +
+        '(advisory telemetry degraded).',
+    );
+  }
   if (events.length === 0) return { blocking: false };
 
   let persistent = new Set<string>();
