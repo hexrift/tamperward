@@ -5,6 +5,34 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.13.3] — 2026-09-13
+
+**Filesystem-observer health is now explicit instead of silently best-effort.**
+`tamperward watch` writes a versioned health sidecar next to its JSONL event log
+with the active backend, watcher PID/start time, watched-directory count, last
+successful append, total event count, dropped-event count, error count and last
+error.
+
+A failed event append or fallback directory-watch/enumeration failure changes the
+observer to `degraded`, updates the counters, persists the status when possible,
+and emits an unmistakable stderr warning. Clean shutdown records `stopped`.
+
+Consumers can now distinguish the important three states:
+- **healthy** — including the valid “observer ran and saw zero events” case;
+- **degraded** — observer ran, but telemetry may be incomplete;
+- **unavailable** — no valid live observer health record exists.
+
+`tamperward doctor` reports that status while keeping it explicitly advisory.
+The Stop sweep records degraded/unavailable state in `TAMPERWARD_DENYLOG` when
+that audit channel is configured; watcher loss still does not become CI authority
+or turn absence of telemetry into evidence of absence.
+
+Regression coverage includes healthy-zero-event state, stopped/unavailable state,
+append failure with dropped/error counters and warnings, doctor reporting, and Stop
+audit distinction.
+
+This closes #329.
+
 ## [2.13.2] — 2026-09-12
 
 **The per-directory filesystem-watcher fallback no longer follows directory
