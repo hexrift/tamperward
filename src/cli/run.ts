@@ -34,9 +34,9 @@
 
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync } from 'node:fs';
+import { accessSync, constants as fsConstants, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { runCheck } from './check';
 import { runVerify } from './verify';
 import { loadPolicy, loadPolicyAt } from '../policy-load';
@@ -80,6 +80,12 @@ export interface RunEnvelopeOpts {
   /** @internal CLI entrypoint used to launch the supervised watcher. Tests
    *  inject a tiny fixture; normal CLI dispatch passes its own entry file. */
   observerEntry?: string;
+  /** @internal Test-only trusted override for Linux interpreter discovery. Not parsed by the CLI. */
+  linuxPythonCandidates?: string[];
+  /** @internal Test-only fault injection owned by the caller, never read from candidate env. */
+  lifecycleTestMode?: 'proc-read-fail' | 'drain-timeout';
+  /** @internal Test checkpoint after lifecycle drain and before any adjudication starts. */
+  onBeforeAdjudication?: () => void;
   argv: string[];
 }
 
@@ -105,6 +111,75 @@ export function canReuseAdjacentDependencyAttestation(
   // checkpoint must remain independent of the run-side checkpoint. Re-enable
   // only when the agent execution domain itself is independently isolated.
   return false;
+}
+
+const DEFAULT_TRUSTED_PYTHON_CANDIDATES = ['/usr/bin/python3', '/bin/python3'] as const;
+
+function supervisorEnv(): NodeJS.ProcessEnv {
+  return {
+    PATH: '/usr/bin:/bin',
+    HOME: '/nonexistent',
+    LANG: 'C',
+    LC_ALL: 'C',
+    PYTHONNOUSERSITE: '1',
+    PYTHONSAFEPATH: '1',
+  };
+}
+
+function writableByCaller(path: string): boolean {
+  // Root has write authority over every ordinary system interpreter path, so
+  // same-UID separation is not meaningful in that mode.
+  if (typeof process.getuid === 'function' && process.getuid() === 0) return true;
+  let cur = path;
+  for (;;) {
+    try {
+      accessSync(cur, fsConstants.W_OK);
+      return true;
+    } catch {
+      // not writable by this caller
+    }
+    const parent = dirname(cur);
+    if (parent === cur) break;
+    cur = parent;
+  }
+  return false;
+}
+
+/**
+ * Resolve a Linux supervisor interpreter from fixed system paths only.
+ * Candidate cwd/PATH/PYTHON* settings are never consulted. The interpreter and
+ * every ancestor must be non-writable by the caller, and isolated startup must
+ * successfully import the exact stdlib modules used by the supervisor.
+ */
+export function trustedLinuxPython(
+  candidates: readonly string[] = DEFAULT_TRUSTED_PYTHON_CANDIDATES,
+): { path: string | null; reason?: string } {
+  if (process.platform !== 'linux') return { path: null, reason: 'Linux lifecycle backend is unavailable on this platform' };
+  for (const candidate of candidates) {
+    try {
+      const real = realpathSync(candidate);
+      const st = statSync(real);
+      if (!st.isFile() || writableByCaller(real)) continue;
+      const probe = spawnSync(
+        real,
+        ['-I', '-S', '-E', '-c', 'import ctypes,json,os,signal,subprocess,sys,time'],
+        {
+          cwd: '/',
+          env: supervisorEnv(),
+          stdio: 'ignore',
+          timeout: 5_000,
+        },
+      );
+      if (!probe.error && probe.status === 0 && probe.signal == null) return { path: real };
+    } catch {
+      // try the next fixed system candidate
+    }
+  }
+  return {
+    path: null,
+    reason:
+      'no trusted Linux python3 interpreter is available at a fixed non-writable system path with isolated stdlib startup',
+  };
 }
 
 /**
@@ -194,58 +269,74 @@ child.once('exit', (code, signal) => finish(code, signal));
 const LINUX_SUBREAPER_SUPERVISOR = String.raw`
 import ctypes, json, os, signal, subprocess, sys, time
 
-result_file, budget_raw, command, *args = sys.argv[1:]
+result_file, agent_env_file, agent_cwd, budget_raw, test_mode, command, *args = sys.argv[1:]
 budget = None if budget_raw == "" else float(budget_raw)
 libc = ctypes.CDLL(None, use_errno=True)
 PR_SET_DUMPABLE = 4
 PR_SET_CHILD_SUBREAPER = 36
 
+def write_result(value):
+    tmp = result_file + ".tmp-" + str(os.getpid())
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(value, fh)
+    os.replace(tmp, result_file)
+
 def fail(msg, code=70):
     try:
-        tmp = result_file + ".tmp-" + str(os.getpid())
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump({"exit": 1, "timedOut": False, "lifecycleOwned": False, "failure": msg}, fh)
-        os.replace(tmp, result_file)
+        write_result({"exit": 1, "timedOut": False, "lifecycleOwned": False, "failure": msg})
     except Exception:
         pass
     raise SystemExit(code)
 
+# The agent gets the caller's frozen environment, but the supervisor itself was
+# launched with a minimal trusted environment and isolated Python startup. Read
+# and unlink this snapshot before candidate code starts.
+try:
+    with open(agent_env_file, "r", encoding="utf-8") as fh:
+        agent_env = json.load(fh)
+    os.unlink(agent_env_file)
+    if not isinstance(agent_env, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in agent_env.items()):
+        fail("agent environment snapshot was malformed")
+except Exception as exc:
+    fail("could not load frozen agent environment: %s" % exc)
+
 if libc.prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
     fail("PR_SET_CHILD_SUBREAPER failed: errno=%d" % ctypes.get_errno())
-# Hide the supervisor's file descriptors/environment from same-UID descendants.
-# This does not make SIGKILL impossible; abnormal supervisor death is handled by
-# the outer process as an untrusted lifecycle failure.
-libc.prctl(PR_SET_DUMPABLE, 0, 0, 0, 0)
+# Reduce same-UID introspection of the supervisor. Same-UID SIGKILL remains
+# possible; the outer process treats abnormal supervisor completion as untrusted.
+if libc.prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0:
+    fail("PR_SET_DUMPABLE failed: errno=%d" % ctypes.get_errno())
 
 def direct_children():
-    out = []
+    if test_mode == "proc-read-fail":
+        raise RuntimeError("injected child-observation failure")
+    path = "/proc/self/task/%d/children" % os.getpid()
     try:
-        names = os.listdir("/proc")
-    except Exception:
-        return None
-    me = os.getpid()
-    for name in names:
-        if not name.isdigit():
-            continue
-        try:
-            data = open("/proc/" + name + "/stat", "r", encoding="utf-8").read()
-            fields = data[data.rfind(")") + 2:].split()
-            if int(fields[1]) == me:
-                out.append(int(name))
-        except Exception:
-            pass
-    return out
+        raw = open(path, "r", encoding="ascii").read().strip()
+    except Exception as exc:
+        raise RuntimeError("could not read adopted-child list: %s" % exc)
+    if not raw:
+        return []
+    try:
+        return [int(part) for part in raw.split()]
+    except Exception as exc:
+        raise RuntimeError("malformed adopted-child list: %s" % exc)
 
-def reap_nonblocking():
+def reap_state():
+    # ECHILD/ChildProcessError is the authoritative kernel statement that this
+    # subreaper has no children. pid==0 means at least one live child remains.
     while True:
         try:
             pid, _ = os.waitpid(-1, os.WNOHANG)
         except ChildProcessError:
-            return
+            return "empty", None
         except InterruptedError:
             continue
-        if pid <= 0:
-            return
+        except Exception as exc:
+            return "error", "waitpid failed while draining: %s" % exc
+        if pid == 0:
+            return "live", None
+        # Reaped one child; continue until either ECHILD or a live child blocks.
 
 def kill_domain(pgid):
     try:
@@ -255,13 +346,25 @@ def kill_domain(pgid):
     except Exception as exc:
         return False, "killpg failed: %s" % exc
 
+    if test_mode == "drain-timeout":
+        return False, "injected lifecycle drain failure"
+
     deadline = time.monotonic() + 3.0
-    stable_empty = 0
     while time.monotonic() < deadline:
-        reap_nonblocking()
-        kids = direct_children()
-        if kids is None:
-            return False, "/proc unavailable while draining adopted descendants"
+        state, reason = reap_state()
+        if state == "empty":
+            return True, None
+        if state == "error":
+            return False, reason
+        try:
+            kids = direct_children()
+        except Exception as exc:
+            return False, str(exc)
+        if not kids:
+            # waitpid says a live child exists but proc cannot name it. Never
+            # reinterpret incomplete observation as an empty execution domain.
+            time.sleep(0.01)
+            continue
         for pid in kids:
             try:
                 os.kill(pid, signal.SIGKILL)
@@ -269,26 +372,26 @@ def kill_domain(pgid):
                 pass
             except Exception as exc:
                 return False, "failed to kill adopted descendant %d: %s" % (pid, exc)
-        reap_nonblocking()
-        remaining = direct_children()
-        if remaining == []:
-            stable_empty += 1
-            if stable_empty >= 3:
-                return True, None
-        else:
-            stable_empty = 0
         time.sleep(0.01)
-    return False, "adopted descendant execution domain did not drain within 3 seconds"
+
+    state, reason = reap_state()
+    if state == "empty":
+        return True, None
+    if state == "error":
+        return False, reason
+    return False, "adopted descendant execution domain did not reach kernel ECHILD within 3 seconds"
 
 timed_out = False
 try:
-    child = subprocess.Popen([command] + args, start_new_session=True)
+    child = subprocess.Popen(
+        [command] + args,
+        cwd=agent_cwd,
+        env=agent_env,
+        start_new_session=True,
+    )
 except Exception as exc:
     # No candidate process exists, so the lifecycle domain is trivially empty.
-    tmp = result_file + ".tmp-" + str(os.getpid())
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump({"exit": 1, "timedOut": False, "lifecycleOwned": True, "failure": str(exc)}, fh)
-    os.replace(tmp, result_file)
+    write_result({"exit": 1, "timedOut": False, "lifecycleOwned": True, "failure": str(exc)})
     raise SystemExit(0)
 
 try:
@@ -306,15 +409,12 @@ finally:
 if not ok:
     fail(reason or "lifecycle drain failed")
 
-tmp = result_file + ".tmp-" + str(os.getpid())
-with open(tmp, "w", encoding="utf-8") as fh:
-    json.dump({
-        "exit": 124 if timed_out else int(code),
-        "timedOut": timed_out,
-        "lifecycleOwned": True,
-        "signal": None,
-    }, fh)
-os.replace(tmp, result_file)
+write_result({
+    "exit": 124 if timed_out else int(code),
+    "timedOut": timed_out,
+    "lifecycleOwned": True,
+    "signal": None,
+})
 raise SystemExit(0)
 `;
 
@@ -383,30 +483,66 @@ function runAgentSupervised(
   argv: string[],
   cwd: string,
   budgetSecs?: number,
+  linuxPythonCandidates?: readonly string[],
+  lifecycleTestMode?: 'proc-read-fail' | 'drain-timeout',
 ): AgentRunResult {
   const stateDir = mkdtempSync(join(tmpdir(), 'tw-agent-supervisor-'));
   const resultFile = join(stateDir, 'result.json');
+  const agentEnvFile = join(stateDir, 'agent-env.json');
   try {
     const linux = process.platform === 'linux';
-    const supervisor = spawnSync(
-      linux ? 'python3' : process.execPath,
-      linux
-        ? [
-            '-c',
-            LINUX_SUBREAPER_SUPERVISOR,
-            resultFile,
-            budgetSecs === undefined ? '' : String(budgetSecs),
-            ...argv,
-          ]
-        : [
-            '-e',
-            AGENT_SUPERVISOR,
-            resultFile,
-            budgetSecs === undefined ? '' : String(budgetSecs * 1000),
-            ...argv,
-          ],
-      {
+    let executable: string;
+    let args: string[];
+    let supervisorCwd = cwd;
+    let env: NodeJS.ProcessEnv = process.env;
+
+    if (linux) {
+      const trustedPython = trustedLinuxPython(linuxPythonCandidates ?? DEFAULT_TRUSTED_PYTHON_CANDIDATES);
+      if (!trustedPython.path) {
+        return {
+          exit: 1,
+          timedOut: false,
+          lifecycleOwned: false,
+          failure: trustedPython.reason ?? 'trusted Linux python3 interpreter is unavailable',
+        };
+      }
+      writeFileSync(agentEnvFile, JSON.stringify(process.env), { mode: 0o600 });
+      executable = trustedPython.path;
+      args = [
+        '-I',
+        '-S',
+        '-E',
+        '-c',
+        LINUX_SUBREAPER_SUPERVISOR,
+        resultFile,
+        agentEnvFile,
         cwd,
+        budgetSecs === undefined ? '' : String(budgetSecs),
+        lifecycleTestMode ?? '',
+        ...argv,
+      ];
+      // Supervisor startup/import resolution is independent of candidate cwd,
+      // PATH, HOME, PYTHONPATH, user site-packages and startup hooks. The agent
+      // itself receives the separately frozen caller environment and cwd.
+      supervisorCwd = '/';
+      env = supervisorEnv();
+    } else {
+      executable = process.execPath;
+      args = [
+        '-e',
+        AGENT_SUPERVISOR,
+        resultFile,
+        budgetSecs === undefined ? '' : String(budgetSecs * 1000),
+        ...argv,
+      ];
+    }
+
+    const supervisor = spawnSync(
+      executable,
+      args,
+      {
+        cwd: supervisorCwd,
+        env,
         stdio: 'inherit',
         // Inner supervision owns the intended deadline. This is only a
         // dead-supervisor backstop and therefore has extra drain headroom.
@@ -429,8 +565,9 @@ function runAgentSupervised(
       supervisor.signal == null;
 
     // The result file is same-UID writable by design. It is evidence only after
-    // the supervisor itself completed normally. A candidate can discover/write
-    // the path, but killing or crashing the supervisor invalidates the record.
+    // the supervisor itself completed normally. The Linux supervisor writes its
+    // final record only after waitpid has reached ECHILD, so no candidate-owned
+    // process remains to race this read.
     if (!completedNormally) {
       return {
         exit: supervisorTimedOut ? 124 : 1,
@@ -860,7 +997,13 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   const spawnTicks = nowTicks(); // survivors are what appears after this
   // Always use the trusted lifecycle supervisor. A runtime budget controls
   // elapsed time; it does not control whether TamperWard owns descendants.
-  const agentRun = runAgentSupervised(opts.argv, cwd, opts.agentBudget);
+  const agentRun = runAgentSupervised(
+    opts.argv,
+    cwd,
+    opts.agentBudget,
+    opts.linuxPythonCandidates,
+    opts.lifecycleTestMode,
+  );
   const agentExit = agentRun.exit;
   const agentTimedOut = agentRun.timedOut;
   if (agentRun.failure && !agentTimedOut) {
@@ -880,6 +1023,11 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
       `tamperward run: AGENT_TIMEOUT — wrapped agent exceeded ${opts.agentBudget}s; its owned process tree was terminated. Post-timeout adjudication continues.`,
     );
   }
+
+  // Internal security-test checkpoint: on Linux this is reached only after the
+  // subreaper has received the authoritative kernel ECHILD condition. No policy,
+  // dependency or verifier adjudication has started yet.
+  opts.onBeforeAdjudication?.();
 
   // The trust anchor must not have moved: both the diff check and verify
   // resolve bases with merge-base semantics (right for PR review), so an
