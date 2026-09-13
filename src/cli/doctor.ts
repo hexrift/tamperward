@@ -70,7 +70,7 @@ export function lifecyclePlatformCheck(
       id: 'platform',
       state: 'BROKEN',
       detail:
-        'Windows: authoritative tamperward run lifecycle ownership is unavailable; taskkill /T /F is only a best-effort tree fallback, so run fails closed before agent start. Standalone check/verify remain available.',
+        'Windows: authoritative tamperward run lifecycle ownership is unavailable; taskkill /T /F is only a best-effort tree fallback, so run fails closed before agent start. Standalone check remains available; checkpointed-local verify is unsupported because this release defines verifier command semantics only through POSIX /bin/sh. A container verifier must pass its own Docker authority preflight.',
     };
   }
   return {
