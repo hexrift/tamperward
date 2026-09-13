@@ -864,6 +864,89 @@ describe('supervised transient observer (#335)', () => {
     }
   }, 15_000);
 
+  it('stop completes on observer process exit, not on its stopped health record (#394)', () => {
+    // The race: an observer publishes `state: "stopped"` first and only then
+    // finishes its signal handler (final writes, exit). Treating the health
+    // record as completion let runEnvelope() return while the observer was
+    // still writing. The fixture reproduces exactly that ordering, with a
+    // deliberate gap between the stopped record and the exit, so a stop that
+    // keys on health returns before `observer-stop` exists. No wait/sleep is
+    // needed on the test side: runEnvelope() returning is the boundary.
+    const cwd = repo(true);
+    const helperDir = mkdtempSync(join(tmpdir(), 'tw-observer-fixture-'));
+    dirs.push(helperDir);
+    const observerEntry = join(helperDir, 'observer-lingering.js');
+    const trace = join(helperDir, 'trace.txt');
+    const exitAt = join(helperDir, 'exit-at.txt');
+
+    writeFileSync(
+      observerEntry,
+      [
+        "const fs = require('node:fs');",
+        "const args = process.argv.slice(2);",
+        "const value = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };",
+        "const log = value('--log');",
+        "const trace = process.env.TW_OBSERVER_TRACE;",
+        "const exitAt = process.env.TW_OBSERVER_EXIT_AT;",
+        "if (!log || !trace || !exitAt || !value('--base') || args[0] !== 'watch') process.exit(22);",
+        "fs.mkdirSync(require('node:path').dirname(log), { recursive: true });",
+        "const healthPath = log + '.health.json';",
+        "const health = { version: 1, state: 'healthy', backend: 'fallback', pid: process.pid, started_at: new Date().toISOString(), stopped_at: null, watched_dirs: 1, last_append_at: null, event_count: 0, dropped_events: 0, error_count: 0, last_error: null, log };",
+        "fs.appendFileSync(trace, 'observer-start\\n');",
+        "fs.writeFileSync(healthPath, JSON.stringify(health) + '\\n');",
+        "process.on('SIGTERM', () => {",
+        "  health.state = 'stopped'; health.stopped_at = new Date().toISOString();",
+        "  fs.writeFileSync(healthPath, JSON.stringify(health) + '\\n');",
+        "  // Still running after the stopped record: the final write and the exit",
+        "  // land only after a short, bounded delay inside the envelope's drain window.",
+        "  setTimeout(() => { fs.appendFileSync(trace, 'observer-stop\\n'); fs.writeFileSync(exitAt, String(Date.now())); process.exit(0); }, 150);",
+        "});",
+        "setInterval(() => {}, 1000);",
+        "",
+      ].join('\n'),
+    );
+
+    const savedTrace = process.env.TW_OBSERVER_TRACE;
+    const savedExitAt = process.env.TW_OBSERVER_EXIT_AT;
+    process.env.TW_OBSERVER_TRACE = trace;
+    process.env.TW_OBSERVER_EXIT_AT = exitAt;
+    vi.spyOn(process.stdout, 'write').mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      const code = runEnvelope({
+        cwd,
+        cmd: CMD,
+        observeTransients: true,
+        observerEntry,
+        argv: sh(`printf 'agent-start\\n' >> "${trace}"`),
+      });
+      const returnedAt = Date.now();
+
+      expect(code).toBe(0);
+      // Completion means the observer's final write happened before runEnvelope
+      // returned: the stopped health record alone is not the boundary.
+      expect(readFileSync(trace, 'utf8').trim().split('\n')).toEqual([
+        'observer-start',
+        'agent-start',
+        'observer-stop',
+      ]);
+      // And completion is keyed to the process actually exiting, not to the
+      // 2s drain deadline running out: a stop that cannot see the exit (the
+      // parent's event loop is blocked while the envelope waits synchronously,
+      // so the exited child stays a zombie that `kill(pid, 0)` still reports
+      // alive) can only return >= 2s after SIGTERM. Post-exit work in the
+      // envelope is a handful of git reads; the bound leaves it wide headroom.
+      const exitedAt = Number(readFileSync(exitAt, 'utf8'));
+      expect(Number.isFinite(exitedAt)).toBe(true);
+      expect(returnedAt - exitedAt).toBeLessThan(1_500);
+    } finally {
+      vi.restoreAllMocks();
+      if (savedTrace === undefined) delete process.env.TW_OBSERVER_TRACE;
+      else process.env.TW_OBSERVER_TRACE = savedTrace;
+      if (savedExitAt === undefined) delete process.env.TW_OBSERVER_EXIT_AT;
+      else process.env.TW_OBSERVER_EXIT_AT = savedExitAt;
+    }
+  }, 15_000);
+
   it('only the explicit strict transient policy lets observer findings block the envelope', () => {
     const cwd = repo(true);
     const helperDir = mkdtempSync(join(tmpdir(), 'tw-observer-fixture-'));

@@ -635,6 +635,30 @@ function pidAlive(pid: number | null): boolean {
   }
 }
 
+/** True once the observer process has exited, reaped or not.
+ *
+ *  `kill(pid, 0)` alone cannot say so here: the envelope waits synchronously
+ *  (Atomics.wait), so the parent's event loop never gets to reap the child, and
+ *  an exited child lingers as a zombie that `kill(pid, 0)` still reports alive.
+ *  On Linux the process state is read from /proc; `Z` (zombie) or `X` (dead)
+ *  is an exit that only the reaper has not collected yet. Elsewhere pid
+ *  liveness is the only signal and the caller's bounded deadline is the
+ *  backstop. */
+function observerExited(pid: number | null): boolean {
+  if (!pidAlive(pid)) return true;
+  if (process.platform !== 'linux') return false;
+  try {
+    // comm can contain spaces and parens, so parse after the final ')'.
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const state = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0];
+    return state === 'Z' || state === 'X';
+  } catch (e) {
+    // ENOENT: exited and reaped between the two probes. Anything else
+    // (restricted procfs) leaves the answer to the pid probe above.
+    return errnoCode(e) === 'ENOENT';
+  }
+}
+
 function supervisedObserverLog(cwd: string): string {
   const gd = gitDir(cwd) ?? join(cwd, '.git');
   return join(
@@ -673,7 +697,7 @@ function startSupervisedObserver(
   while (Date.now() < deadline) {
     const telemetry = watcherTelemetry(log);
     if (telemetry.state === 'healthy' || telemetry.state === 'degraded') break;
-    if (!pidAlive(pid)) break;
+    if (observerExited(pid)) break;
     waitMs(25);
   }
   return { log, pid, finished: false };
@@ -685,17 +709,16 @@ function stopObserverProcess(observer: SupervisedObserver): WatcherTelemetry {
   waitMs(100);
   const beforeStop = watcherTelemetry(observer.log);
   const pid = observer.pid;
-  if (pid !== null && pidAlive(pid)) {
+  if (pid !== null && !observerExited(pid)) {
     try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
+    // Health is evidence, not lifecycle completion authority. The observer
+    // persists its "stopped" record before the signal handler has finished its
+    // final writes and exited, so returning on that record can return while
+    // the observer is still writing. Only the process exit proves shutdown
+    // drained (#394); the drain window stays bounded, with SIGKILL behind it.
     const deadline = Date.now() + 2_000;
-    while (Date.now() < deadline) {
-      // Health is evidence, not lifecycle completion authority. The observer
-      // may persist its "stopped" record before the signal handler has finished
-      // its final writes and exited. Only process death proves shutdown drained.
-      if (!pidAlive(pid)) break;
-      waitMs(25);
-    }
-    if (pidAlive(pid)) {
+    while (!observerExited(pid) && Date.now() < deadline) waitMs(25);
+    if (!observerExited(pid)) {
       try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
     }
   }
