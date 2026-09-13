@@ -24,6 +24,15 @@ interface AbsentProbe {
   path: string;
 }
 
+export interface DependencyEnvironmentMetrics {
+  /** Complete dependency-root/probe snapshots performed for this frozen descriptor. */
+  fullSnapshots: number;
+  /** Adjacent boundary checks satisfied by a same-descriptor attestation. */
+  reusedSnapshots: number;
+  /** Wall time spent traversing dependency snapshots, for diagnostic/benchmark use. */
+  totalMs: number;
+}
+
 export interface DependencyEnvironmentDescriptor {
   status: DependencyEnvironmentStatus;
   command: string;
@@ -31,12 +40,26 @@ export interface DependencyEnvironmentDescriptor {
   probes: AbsentProbe[];
   fingerprint?: string;
   reason?: string;
+  /** Internal mutable counters; never part of the frozen identity itself. */
+  metrics?: DependencyEnvironmentMetrics;
 }
 
 export interface DependencyEnvironmentCheck {
   ok: boolean;
   fingerprint?: string;
   reason?: string;
+}
+
+export interface DependencyEnvironmentAttestation {
+  cwd: string;
+  descriptor: DependencyEnvironmentDescriptor;
+  check: DependencyEnvironmentCheck;
+}
+
+const issuedAttestations = new WeakSet<object>();
+
+function metricsFor(descriptor: DependencyEnvironmentDescriptor): DependencyEnvironmentMetrics {
+  return (descriptor.metrics ??= { fullSnapshots: 0, reusedSnapshots: 0, totalMs: 0 });
 }
 
 class Unattestable extends Error {}
@@ -219,6 +242,22 @@ function snapshot(roots: DependencyRoot[], probes: AbsentProbe[], cwd: string): 
   return h.digest('hex');
 }
 
+function measuredSnapshot(
+  roots: DependencyRoot[],
+  probes: AbsentProbe[],
+  cwd: string,
+  metrics: DependencyEnvironmentMetrics,
+): string {
+  const started = process.hrtime.bigint();
+  try {
+    const fingerprint = snapshot(roots, probes, cwd);
+    metrics.fullSnapshots += 1;
+    return fingerprint;
+  } finally {
+    metrics.totalMs += Number(process.hrtime.bigint() - started) / 1_000_000;
+  }
+}
+
 function freezeRoot(kind: DependencyRootKind, path: string): DependencyRoot {
   try {
     if (!statSync(path).isDirectory()) {
@@ -367,6 +406,7 @@ export function discoverDependencyEnvironment(
   const roots: DependencyRoot[] = [];
   const probes: AbsentProbe[] = [];
   const seen = new Set<string>();
+  const metrics: DependencyEnvironmentMetrics = { fullSnapshots: 0, reusedSnapshots: 0, totalMs: 0 };
 
   const addRoot = (kind: DependencyRootKind, path: string): void => {
     const root = freezeRoot(kind, path);
@@ -417,8 +457,8 @@ export function discoverDependencyEnvironment(
     if (unsupported) throw new Unattestable(unsupported);
 
     const status: DependencyEnvironmentStatus = roots.length ? 'attested' : 'none';
-    const fingerprint = snapshot(roots, probes, cwd);
-    return { status, command, roots, probes, fingerprint };
+    const fingerprint = measuredSnapshot(roots, probes, cwd, metrics);
+    return { status, command, roots, probes, fingerprint, metrics };
   } catch (e) {
     return {
       status: 'unattestable',
@@ -426,6 +466,7 @@ export function discoverDependencyEnvironment(
       roots,
       probes,
       reason: e instanceof Error ? e.message : String(e),
+      metrics,
     };
   }
 }
@@ -438,7 +479,12 @@ export function checkDependencyEnvironment(
     return { ok: false, reason: descriptor.reason ?? 'dependency environment is not attestable' };
   }
   try {
-    const fingerprint = snapshot(descriptor.roots, descriptor.probes, resolve(cwdInput));
+    const fingerprint = measuredSnapshot(
+      descriptor.roots,
+      descriptor.probes,
+      resolve(cwdInput),
+      metricsFor(descriptor),
+    );
     if (fingerprint !== descriptor.fingerprint) {
       return { ok: false, fingerprint, reason: 'dependency environment fingerprint changed' };
     }
@@ -448,17 +494,75 @@ export function checkDependencyEnvironment(
   }
 }
 
+export function attestDependencyEnvironment(
+  cwdInput: string,
+  descriptor: DependencyEnvironmentDescriptor,
+): DependencyEnvironmentAttestation {
+  const attestation: DependencyEnvironmentAttestation = {
+    cwd: resolve(cwdInput),
+    descriptor,
+    check: checkDependencyEnvironment(cwdInput, descriptor),
+  };
+  issuedAttestations.add(attestation);
+  return attestation;
+}
+
+/**
+ * Reuse is deliberately narrow: only an attestation issued by this module for
+ * the same descriptor object and resolved cwd is accepted. The envelope uses
+ * this for the immediately adjacent pre-verifier → verifier-entry boundary.
+ */
+export function reuseDependencyEnvironmentAttestation(
+  cwdInput: string,
+  descriptor: DependencyEnvironmentDescriptor,
+  attestation: DependencyEnvironmentAttestation | undefined,
+): DependencyEnvironmentCheck | null {
+  if (
+    !attestation ||
+    !issuedAttestations.has(attestation) ||
+    attestation.descriptor !== descriptor ||
+    attestation.cwd !== resolve(cwdInput)
+  ) return null;
+  metricsFor(descriptor).reusedSnapshots += 1;
+  return attestation.check;
+}
+
+export function dependencyEnvironmentDiagnostics(
+  descriptor: DependencyEnvironmentDescriptor,
+): DependencyEnvironmentMetrics {
+  const metrics = metricsFor(descriptor);
+  return {
+    fullSnapshots: metrics.fullSnapshots,
+    reusedSnapshots: metrics.reusedSnapshots,
+    totalMs: metrics.totalMs,
+  };
+}
+
 export function dependencyEnvironmentReport(descriptor: DependencyEnvironmentDescriptor): {
   status: DependencyEnvironmentStatus;
   roots: Array<{ kind: DependencyRootKind; path: string }>;
   fingerprint?: string;
   reason?: string;
+  diagnostics?: {
+    full_snapshots: number;
+    reused_snapshots: number;
+    total_ms: number;
+  };
 } {
   return {
     status: descriptor.status,
     roots: descriptor.roots.map((root) => ({ kind: root.kind, path: root.path })),
     ...(descriptor.fingerprint ? { fingerprint: descriptor.fingerprint } : {}),
     ...(descriptor.reason ? { reason: descriptor.reason } : {}),
+    ...(process.env.TAMPERWARD_DIAGNOSTICS === '1'
+      ? {
+          diagnostics: {
+            full_snapshots: metricsFor(descriptor).fullSnapshots,
+            reused_snapshots: metricsFor(descriptor).reusedSnapshots,
+            total_ms: Number(metricsFor(descriptor).totalMs.toFixed(3)),
+          },
+        }
+      : {}),
   };
 }
 
