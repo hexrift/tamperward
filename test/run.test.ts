@@ -408,6 +408,19 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
     }
   }, 15_000);
 
+  it.skipIf(process.platform !== 'linux')('reports Linux root/euid-0 as a distinct unsupported lifecycle mode', () => {
+    const getuid = vi.spyOn(process, 'getuid').mockReturnValue(0);
+    try {
+      expect(trustedLinuxPython()).toEqual({
+        path: null,
+        reason:
+          'Linux lifecycle supervision is unavailable when TamperWard runs as root/euid 0; same-UID separation cannot trust any system interpreter path',
+      });
+    } finally {
+      getuid.mockRestore();
+    }
+  });
+
   it.skipIf(process.platform !== 'linux')('fails closed before agent side effects when no trusted Python supervisor is available', () => {
     const cwd = repo(true);
     const marker = join(cwd, 'agent-ran');
