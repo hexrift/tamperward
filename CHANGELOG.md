@@ -5,6 +5,37 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.20.1] — 2026-09-13
+
+**The documentation now has a Research & Benchmarks section that presents the
+committed evidence in one place and is bound to it by CI.** `docs/research/`
+carries an overview with a landing table for Taskbench rounds 1, 2, 3, 3.1 and 4
+(model/runtime, sample, treatment version, result, status), one page per round
+naming what the result supports, what it does not establish and every correction
+that touched it, and separate views for detector precision / false positives,
+performance / overhead (only the two committed measurements, with the missing
+end-to-end and production-pilot data stated as missing), security and adversarial
+evaluations (each bypass, the releases that carried it, whether any counted
+trajectory exercised it, and the open residuals), model comparisons (the single
+common-16 comparison the record supports, and the four-panel shape any future
+comparison takes — no composite score), and methodology / limitations / errata.
+Failed and non-replicated results carry the same prominence as confirmed ones.
+The docs home page and the README gain a "See the evidence →" link; neither
+becomes a leaderboard.
+
+The section is a presentation layer, not a second research record: no sealed or
+frozen artifact is changed, and `test/research-docs-consistency.test.ts`
+re-derives every headline number on the pages from the artifacts on every change
+— rounds 1–3.1 (pairs, `b`, `c`, exact McNemar `p`, model, trajectory count)
+from their frozen `results.jsonl` ledgers and registered treatment versions;
+round 4 from `ROUND4-RESULTS.json`, including the landing-table status derived
+from its sealed completeness and provenance fields; detector precision from the
+fp-study corpus JSON and study totals; performance from the CHANGELOG and
+SECURITY-ENVELOPE measurements; plus the sidebar wiring, the landing links, and
+the absence of any aggregate score. A page that drifts from its artifact fails CI.
+
+Documentation only; no gate behaviour changes. This closes #390.
+
 ## [2.20.0] — 2026-09-13
 
 **TamperWard's own trust boundaries no longer assert their inputs, and a bounded
