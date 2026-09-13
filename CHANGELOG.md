@@ -5,6 +5,40 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.19.0] — 2026-09-13
+
+**Machine-readable verdicts now have a versioned public compatibility contract.**
+
+`check --json`, `verify --json`, `run --json`, and `doctor --json` now
+emit top-level `schema_version: 1`. TamperWard publishes JSON Schema Draft 2020-12
+documents for each surface under `schemas/`, and the npm package includes that
+directory so CI/services can validate verdicts without importing internal TypeScript
+types.
+
+Schema major 1 is additive: new evidence/diagnostic fields may be added without a
+schema bump. Removing or renaming a required field, changing its type, or changing the
+meaning of a discriminator requires a new schema major and new `*-vN.schema.json`
+files; the existing v1 schemas remain published for existing consumers.
+
+`run` gains an explicit `--json` mode. Once the wrapped agent has started, stdout is
+owned by the outer envelope and contains one final document rather than nested
+`check` / `verify` output. Normal results include the agent status, nested check
+exit codes, verifier/dependency authority evidence and observer posture. Post-agent
+early convictions such as object/history rewrite, dependency drift and lifecycle
+cannot-adjudicate also produce versioned run documents. Pre-agent/preflight errors
+remain deterministic stderr + exit 2 because no agent adjudication occurred.
+
+Exit codes remain a separate public protocol rather than being encoded into JSON
+Schema. README documents both contracts side by side.
+
+TDD began with real emitted documents and five deliberate failures on Node 20/22/24:
+missing `schema_version` on check/verify/doctor, rejected `run --json`, and schemas
+absent from the npm package file set. The schema tests validate live CLI documents
+against the committed schemas, so implementation and published contracts cannot drift
+silently.
+
+This closes #333.
+
 ## [2.18.0] — 2026-09-13
 
 **Advisory verifier-input discovery is now available on Linux.**
