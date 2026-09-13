@@ -5,6 +5,52 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.16.2] — 2026-09-13
+
+**Local run→verify dependency attestation removes one redundant complete tree read
+without weakening a hostile-code boundary.** Before this release, a clean
+`tamperward run` with an attested local dependency environment performed six complete
+dependency snapshots: discovery, envelope pre-adjudication, nested verifier entry,
+post-visible, post-pristine, and envelope-final.
+
+The envelope now takes its pre-verifier checkpoint immediately before `runVerify` and
+passes a module-issued attestation object into the verifier. The verifier consumes that
+same-descriptor/same-cwd checkpoint at entry, so a clean run performs **five** complete
+snapshots plus **one** attestation reuse. Every boundary separated by candidate suite
+execution remains a full cryptographic tree read.
+
+The post-pristine verifier attestation is also returned to the envelope for diagnostics,
+but it is deliberately **not** reused for the envelope-final check: a detached/background
+process can still mutate ignored dependencies after verifier return or during
+`--settle`. That independent final read remains the quiescence control.
+
+`TAMPERWARD_DIAGNOSTICS=1` now reports complete snapshot count, reuse count and
+aggregate snapshot wall time. Node 24 / GitHub-hosted synthetic benchmark evidence from
+workflow run **34758006027**:
+
+| fixture | files | payload bytes | complete snapshot |
+| --- | ---: | ---: | ---: |
+| small | 100 | 409,600 | 3.281 ms |
+| medium | 1,000 | 4,096,000 | 25.015 ms |
+| large | 5,000 | 20,480,000 | 95.382 ms |
+
+These are CI-runner measurements rather than universal performance guarantees; the
+important invariant is that a clean envelope removes one full tree traversal while
+persistent/transient dependency-drift regressions retain their original checkpoints.
+
+Exact TDD red evidence came from run **34757684020**, Node 24 job
+**103724803679**: 2,382 existing tests passed and only the new
+`full_snapshots=5 / reused_snapshots=1` diagnostic assertion failed before production
+reuse existed.
+
+The same validation uncovered #375: the real-Docker OOM regression over-specified that
+memory exhaustion must occur in the visible stage. Docker correctly attributed
+`VERIFIER_RESOURCE_EXHAUSTED` in the pristine stage on one runner. The test now accepts
+either verifier stage while preserving the verdict/reason/resource/resource-limit and
+cleanup assertions.
+
+This closes #321 and #375.
+
 ## [2.16.1] — 2026-09-13
 
 **`tamperward init` no longer lets a partially wired installation look complete.**
