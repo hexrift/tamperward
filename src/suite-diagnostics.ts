@@ -70,6 +70,15 @@ export function emptySuiteDiagnostics(): SuiteDiagnostics {
   };
 }
 
+function decodeUtf8Tail(tail: Buffer): string {
+  // The retained byte window can begin in the middle of a UTF-8 code point.
+  // Drop only leading continuation bytes; never manufacture U+FFFD at the
+  // trust boundary merely because the byte cap cut through a character.
+  let start = 0;
+  while (start < tail.length && (tail[start] & 0xc0) === 0x80) start++;
+  return tail.subarray(start).toString('utf8');
+}
+
 function streamFromRaw(raw: RawStream | undefined): StreamDiagnostics {
   let tail = Buffer.alloc(0);
   try {
@@ -84,7 +93,7 @@ function streamFromRaw(raw: RawStream | undefined): StreamDiagnostics {
     captured_bytes: captured,
     retained_bytes: tail.length,
     truncated: captured > tail.length,
-    tail: tail.toString('utf8'),
+    tail: decodeUtf8Tail(tail),
   };
 }
 
@@ -149,6 +158,49 @@ const fresh = () => ({ total: 0, tail: Buffer.alloc(0) });
 const stdout = fresh();
 const stderr = fresh();
 
+// Linux ordinary-exit hardening (#371): process-group ownership alone misses a
+// descendant that calls setsid(). Track the real descendant tree while the
+// suite is alive so a reparented session escape is still known when the main
+// child exits. This supplements, rather than replaces, group termination.
+const trackedDescendants = new Set();
+
+function linuxDescendants(rootPid) {
+  if (process.platform !== 'linux' || !rootPid) return [];
+  const byParent = new Map();
+  let names = [];
+  try { names = fs.readdirSync('/proc').filter((x) => /^\d+$/.test(x)); } catch { return []; }
+  for (const name of names) {
+    const pid = Number(name);
+    try {
+      const stat = fs.readFileSync('/proc/' + name + '/stat', 'utf8');
+      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+      const ppid = Number(fields[1]);
+      if (!Number.isFinite(ppid)) continue;
+      const kids = byParent.get(ppid) || [];
+      kids.push(pid);
+      byParent.set(ppid, kids);
+    } catch {}
+  }
+  const out = [];
+  const seen = new Set([rootPid]);
+  const stack = [rootPid];
+  while (stack.length) {
+    const parent = stack.pop();
+    for (const pid of (byParent.get(parent) || [])) {
+      if (seen.has(pid)) continue;
+      seen.add(pid);
+      out.push(pid);
+      stack.push(pid);
+    }
+  }
+  return out;
+}
+
+function trackDescendants() {
+  if (!child || !child.pid || process.platform !== 'linux') return;
+  for (const pid of linuxDescendants(child.pid)) trackedDescendants.add(pid);
+}
+
 function append(state, chunk) {
   const b = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
   state.total += b.length;
@@ -175,18 +227,28 @@ let child;
 let done = false;
 let timedOut = false;
 let exitInfo = { exit: null, signal: null };
+let descendantTracker = null;
 
 function killOwned() {
   if (!child || !child.pid) return;
+  trackDescendants();
   if (cfg.detached && process.platform !== 'win32') {
     try { process.kill(-child.pid, 'SIGKILL'); } catch {}
   }
   try { child.kill('SIGKILL'); } catch {}
+  if (process.platform === 'linux') {
+    // Deepest-first is friendlier to short-lived process trees. PIDs are still
+    // rechecked by kill(2); races with natural exit are harmless.
+    for (const pid of Array.from(trackedDescendants).reverse()) {
+      try { process.kill(pid, 'SIGKILL'); } catch {}
+    }
+  }
 }
 
 function finish(extra) {
   if (done) return;
   done = true;
+  if (descendantTracker) clearInterval(descendantTracker);
   try {
     // stdout is reserved for the trusted supervisor result. Candidate suite
     // stdout/stderr are separate pipes and are never inherited here.
@@ -213,6 +275,11 @@ try {
 }
 
 if (child) {
+  if (process.platform === 'linux') {
+    trackDescendants();
+    descendantTracker = setInterval(trackDescendants, 5);
+    descendantTracker.unref();
+  }
   child.stdout.on('data', (b) => append(stdout, b));
   child.stderr.on('data', (b) => append(stderr, b));
 
@@ -248,6 +315,32 @@ if (child) {
   });
 }
 `;
+
+/**
+ * Parse the supervisor's reserved result channel as exactly one JSON value.
+ * Candidate bytes prefixed/appended through same-UID /proc access must corrupt
+ * the whole channel and fail closed; never scan for a plausible JSON suffix.
+ */
+export function parseCapturedSupervisorResult(stdoutText: string): CapturedProcessResult | null {
+  let raw: RawResult;
+  try {
+    raw = JSON.parse(stdoutText) as RawResult;
+  } catch {
+    return null;
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const diagnostics: SuiteDiagnostics = {
+    stdout: streamFromRaw(raw.stdout),
+    stderr: streamFromRaw(raw.stderr),
+  };
+  return {
+    exit: typeof raw.exit === 'number' ? raw.exit : null,
+    signal: typeof raw.signal === 'string' ? raw.signal : null,
+    timedOut: Boolean(raw.timedOut),
+    ...(typeof raw.error === 'string' && raw.error ? { error: raw.error } : {}),
+    diagnostics,
+  };
+}
 
 export function runCapturedProcessSync(
   executable: string,
@@ -290,21 +383,10 @@ export function runCapturedProcessSync(
       },
     );
 
-    let raw: RawResult | null = null;
-    try {
-      raw = JSON.parse(supervisor.stdout ?? '') as RawResult;
-    } catch {
-      raw = null;
-    }
+    const parsed = parseCapturedSupervisorResult(supervisor.stdout ?? '');
+    const diagnostics = parsed?.diagnostics ?? emptySuiteDiagnostics();
 
-    const diagnostics: SuiteDiagnostics = raw
-      ? {
-          stdout: streamFromRaw(raw.stdout),
-          stderr: streamFromRaw(raw.stderr),
-        }
-      : emptySuiteDiagnostics();
-
-    if (!raw) {
+    if (!parsed) {
       const supervisorTimedOut =
         Boolean(supervisor.error) &&
         (supervisor.error as NodeJS.ErrnoException).code === 'ETIMEDOUT';
@@ -317,13 +399,7 @@ export function runCapturedProcessSync(
       };
     }
 
-    return {
-      exit: typeof raw.exit === 'number' ? raw.exit : null,
-      signal: raw.signal ?? null,
-      timedOut: Boolean(raw.timedOut),
-      ...(raw.error ? { error: raw.error } : {}),
-      diagnostics,
-    };
+    return parsed;
   } finally {
     rmSync(stateDir, { recursive: true, force: true });
   }
