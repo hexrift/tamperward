@@ -78,3 +78,88 @@ protected path that is not a regular file the gate can read. A symbolic link is 
 followed (git records it as its target text), a FIFO, a socket or a device is never
 opened for content, and a file above 64 MiB is not read: a new or changed one at a
 protected path is blocked by name, not read through.
+
+## The persistent hook service (opt-in, off by default)
+
+Every Claude Code tool call launches the pinned hook as a fresh Node process, and
+most of the call's wall time was process startup rather than gate work. Since
+**2.21.0** two things address that, in order of how little they ask you to trust:
+
+1. **The `typescript` parser is loaded lazily.** The eight AST detectors used to
+   import it at startup, so every hook call — a `Bash` command, an edit to a Python
+   test, `--help` — paid to read and evaluate a 9 MB module it might never use. It is
+   now read on first use, through `require`, which also skips the ESM named-export
+   discovery pass; a protected JS/TS edit reaches the same AST path with the same
+   verdict (`test/ts-lazy.test.ts`). Nothing to enable; nothing about trust changes.
+2. **An optional persistent hook service** amortises the remaining startup across
+   calls: `tamperward hook-service start` keeps one warm process per user and
+   repository, and the hook hands it the stdin payload over a private unix socket
+   instead of loading the engine itself.
+
+### Enabling the service
+
+```bash
+tamperward hook-service start --dir /path/to/repo   # foreground; run it from a terminal,
+                                                    # a SessionStart hook, or a supervisor
+TAMPERWARD_HOOK_SERVICE=1 claude                    # hooks consult the service only under this
+tamperward hook-service status                      # pid, version, served count, cache hit rate
+tamperward hook-service stop                        # SIGTERM; the socket and state file are removed
+```
+
+Both halves are required: a running service is never consulted unless
+`TAMPERWARD_HOOK_SERVICE=1` is in Claude Code's own environment (a hook inherits it
+from there; the hook command `init` writes is unchanged), and the variable does
+nothing without a service. The socket lives at `$XDG_RUNTIME_DIR/tamperward-hook/hook.sock`
+or `<tmpdir>/tamperward-hook-<uid>/hook.sock` (`TAMPERWARD_HOOK_SERVICE_DIR` overrides
+the directory), mode `0600`, in a directory the service holds at `0700`. Not available
+on Windows: `hook-service start` refuses with a clear message, and the hook runs
+in-process there as it always has.
+
+### What the service is, and is not, trusted with
+
+The service runs **the same functions on the same bytes**: `hook claude` reads stdin,
+sends the raw payload with its cwd and the three per-session variables the hook honours
+(`TAMPERWARD_DENYLOG`, `TAMPERWARD_FSEVENTS`, `TAMPERWARD_TRANSIENT`), and the service
+runs `preToolUseFromRaw` / `stopFromRaw` — the in-process entry points — and relays the
+`HookResult` unchanged. The wire contract with Claude Code (JSON on stdout at exit 0)
+is untouched; only where the evaluation happens moves. A parity test replays a fixture
+set through both paths and requires byte-identical verdicts.
+
+**The hook never fails open on the service's account.** The client refuses — and
+"refuses" means it loads the engine and evaluates in-process, exactly as before —
+when the opt-in is absent; when the socket's directory or the socket is not owned by
+the hook's own uid, is not a directory / not a socket (a planted symlink is not a
+socket), or is readable or connectable by any other user; when the service is of another
+TamperWard version or protocol than the pinned hook; when it refuses the request (a cwd
+outside the repository it was started for); when it does not answer in time; or when
+its answer is not a `HookResult`. A dead service, a stale socket and a crashed one are
+the same fallback. `stop` removes the socket and state file even when nothing was
+running, so a stale socket is never what the next client meets.
+
+**The snapshot cache never believes the stat triple.** The one thing the service keeps
+warm besides the process is the protected-tree snapshot, in its own memory, and the
+P1-8 lesson stands: mtime, size and mode are the candidate's to set
+(`touch -r` restores an mtime byte for byte; a same-length rewrite keeps the size), so
+a hash remembered against them is a hash the candidate can keep alive over content it
+changed. The cache key is `(device, inode, size, mode, mtime, ctime)` at nanosecond
+precision, and **ctime is not settable from user space** — every write, rename, chmod
+and `utimes` call, the `touch -r` itself, moves it to the kernel clock. An entry is
+reused only when all six match *and* the file had been stable for two seconds when its
+hash was taken (git's own "racy" rule, wider than any filesystem's timestamp
+granularity); anything younger is rehashed every call. The whole map is dropped every
+minute, so a full content verification is never further away than that, and the map
+lives only in the service's memory — never on disk, where a same-uid candidate could
+write an entry into it. The in-process hook has no cache at all and hashes every
+protected file every time, as it always has. `test/hook-service.test.ts` proves the
+`touch -r` same-size rewrite is still reported as drift through the cache.
+
+**Residual, stated plainly.** The service runs as the same uid as the candidate. A
+candidate that can kill a same-uid process and start its own listener on the socket
+can answer "allow" to the hook — the same class of move as rewriting
+`.git/tamperward/*` or the settings file that wires the hook, which the loop layer has
+never been able to prevent and CI has never depended on. The service adds no
+authority: the Stop sweep, `run`, pre-commit and CI read none of its state. The
+ownership and mode checks close the cross-uid case (a shared `/tmp` on a multi-user
+host) and the accidental one (a stale socket, a wrong version); they do not, and cannot,
+make the loop layer the authority.
+

@@ -385,6 +385,13 @@ every way a file gets mutated.
   with `--dangerously-skip-permissions`**. The agent cannot escape the gate by changing
   permission mode. This is the property the whole agent layer rests on — and it holds.
 - A payload the hook cannot read or parse is **denied, not allowed** (fail closed, 1.14.4).
+- **The process boundary may move; the contract does not.** Since 2.21.0 an operator
+  may run `tamperward hook-service` and set `TAMPERWARD_HOOK_SERVICE=1`; the hook then
+  hands the same stdin bytes to that warm process over a per-user `0600` unix socket and
+  relays its `HookResult`. The service runs the same `preToolUseFromRaw` / `stopFromRaw`;
+  stdout/exit semantics above are unchanged; and every failure of the service — absent,
+  stale, another version, a socket that fails the ownership and mode checks, no answer —
+  is an in-process evaluation, never an allow. Off by default (docs/guide/enforcement.md).
   Genuinely empty stdin is a well-formed absence of a tool call and stays an allow, which
   is what lets `tamperward hook claude < /dev/null` smoke-test the wiring.
 
