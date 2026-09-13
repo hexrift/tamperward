@@ -5,6 +5,50 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.18.0] — 2026-09-13
+
+**Advisory verifier-input discovery is now available on Linux.**
+`tamperward trace-verify` addresses the residual behind manual
+`verify.inputs`: delegated verifier commands such as `npm test` can read or
+execute repository files that are not statically visible in the command string.
+
+The command:
+- materialises a caller-selected trusted/known-good base rather than tracing the
+  candidate worktree;
+- runs the verifier under `strace` on Linux;
+- repeats the observation (two runs by default) and unions the observed file/
+  exec set;
+- marks paths seen in fewer than all runs as dynamic;
+- separates tracked repository inputs from external dependency/runtime paths;
+- classifies likely configuration reads;
+- compares tracked inputs with the exact pristine-verification coverage model
+  used by `tamperward verify`;
+- emits only uncovered **exact paths** as candidate `verify.inputs` entries for
+  human review.
+
+The mode is deliberately advisory. It never edits `.tamperward.yml`, never
+widens a path into a glob, and never treats absence from a trace as proof that a
+path can never be read. A non-zero known-good verifier run still emits the
+observation report but returns 1 so incomplete evidence is not presented as a
+clean trace. Missing tooling, malformed input or an unsupported platform return
+2. macOS and Windows explicitly report unsupported rather than implying feature
+parity.
+
+TDD started with a missing-module red contract for strace parsing, repeated-run
+union/dynamic classification, coverage/suggestion semantics and strict CLI
+grammar. A real Linux integration control then traces a committed
+`node runner.js` fixture, observes an uncovered `config/custom.json`, confirms
+the implicit runner file is already covered, and verifies the policy file is
+byte-identical afterwards. Cross-platform CI asserts the non-Linux refusal.
+
+During implementation the existing verify regression suite caught a refactor
+mistake that would have stopped candidate-added protected/runner-config files
+being removed from the pristine copy. That code never landed: the added-file
+predicate is preserved while base coverage is precomputed once, avoiding an
+O(N²) verifier slowdown.
+
+This closes #324.
+
 ## [2.17.1] — 2026-09-13
 
 **The mechanical `test-skip` block rule now closes statically-decidable JS/TS

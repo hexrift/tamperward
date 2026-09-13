@@ -141,7 +141,7 @@ export function oracleAssuranceReport(): OracleAssuranceReport {
   };
 }
 
-const OVERLAY_CLASSES = ['tests', 'snapshots', 'config'];
+export const OVERLAY_CLASSES = ['tests', 'snapshots', 'config'] as const;
 
 // The VERIFICATION SURFACE: files a test runner auto-consults to decide what to
 // collect, how to configure it, and which plugins to load. Deliberately NOT the
@@ -171,7 +171,7 @@ const OVERLAY_CLASSES = ['tests', 'snapshots', 'config'];
 // `~/.npmrc`, which the candidate owns inside the envelope — is closed in the
 // environment the suites run in (runSuite). What remains residual is a runner
 // input that is neither a file here nor a variable there.
-const VERIFICATION_SURFACE = [
+export const VERIFICATION_SURFACE = [
   // Python / pytest — read from the rootdir, and conftest at any depth
   '**/conftest.py',
   '**/pytest.ini',
@@ -501,7 +501,7 @@ function dropSymlink(p: string): void {
  * reach a file neither source names. It is documented as a residual in
  * docs/THREAT-MODEL-pristine-run.md.
  */
-function verifierInputs(cmd: string, atBase: string[], policy: Policy): Set<string> {
+export function verifierInputs(cmd: string, atBase: string[], policy: Policy): Set<string> {
   const baseFiles = new Set(atBase);
   const picked = new Set<string>();
   for (const raw of cmd.split(/[\s;&|()<>]+/)) {
@@ -513,6 +513,36 @@ function verifierInputs(cmd: string, atBase: string[], policy: Policy): Set<stri
     for (const rel of atBase) if (matchesAny(rel, globs)) picked.add(rel);
   }
   return picked;
+}
+
+export function verifierCoveredInputs(
+  cmd: string,
+  atBase: string[],
+  policy: Policy,
+): Set<string> {
+  const verifierOwned = verifierInputs(cmd, atBase, policy);
+  const verifierGlobs = policy.verify?.inputs ?? [];
+  const covered = new Set<string>();
+  for (const path of atBase) {
+    if (
+      OVERLAY_CLASSES.some((category) => isProtected(path, policy, category)) ||
+      matchesAny(path, VERIFICATION_SURFACE) ||
+      verifierOwned.has(path) ||
+      (verifierGlobs.length > 0 && matchesAny(path, verifierGlobs))
+    ) {
+      covered.add(path);
+    }
+  }
+  return covered;
+}
+
+export function verifierInputCovered(
+  path: string,
+  cmd: string,
+  atBase: string[],
+  policy: Policy,
+): boolean {
+  return verifierCoveredInputs(cmd, atBase, policy).has(path);
 }
 
 interface BaseEntry {
@@ -577,17 +607,20 @@ function overlayPristine(
   const atBase = entries.map((e) => e.path);
   // Base-owned = the policy's overlay classes UNION the verification surface
   // UNION whatever the verifier command itself executes.
-  const verifierOwned = verifierInputs(cmd, atBase, policy);
   // The EXPLICIT half is a glob, so it also governs removal: a file the agent
   // ADDED under `verify.inputs` is a new input to the verifier — the added
   // conftest.py argument, one layer down. The implicit half cannot do this
   // (it can only recognise a path that exists at the base), which is exactly
   // why delegation needs the explicit list.
   const verifierGlobs = policy.verify?.inputs ?? [];
+  const coveredBaseInputs = verifierCoveredInputs(cmd, atBase, policy);
   const isOverlay = (p: string): boolean =>
-    OVERLAY_CLASSES.some((c) => isProtected(p, policy, c)) ||
+    coveredBaseInputs.has(p) ||
+    // Candidate-added files do not exist in atBase and therefore cannot appear
+    // in the precomputed set. They still must be removed when they land on a
+    // protected class or the built-in verification surface.
+    OVERLAY_CLASSES.some((category) => isProtected(p, policy, category)) ||
     matchesAny(p, VERIFICATION_SURFACE) ||
-    verifierOwned.has(p) ||
     (verifierGlobs.length > 0 && matchesAny(p, verifierGlobs));
   const restored: string[] = [];
   const restoredLinks: Array<{ path: string; out: string; target: string }> = [];

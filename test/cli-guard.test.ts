@@ -139,6 +139,7 @@ describe('strict CLI argument boundary (#312)', () => {
     ['init unknown option', ['init', '--dry-rnu'], /unknown option "--dry-rnu"/],
     ['doctor unknown option', ['doctor', '--githbu'], /unknown option "--githbu"/],
     ['verify unknown option', ['verify', '--json', '--bogus'], /unknown option "--bogus"/],
+    ['trace-verify unknown option', ['trace-verify', '--bogus'], /unknown option "--bogus"/],
     ['watch unknown option', ['watch', '--bogus'], /unknown option "--bogus"/],
 
     ['check missing value', ['check', '--diff'], /--diff needs a value/],
@@ -146,6 +147,9 @@ describe('strict CLI argument boundary (#312)', () => {
     ['init missing value', ['init', '--cwd'], /--cwd needs a value/],
     ['doctor missing value', ['doctor', '--base'], /--base needs a value/],
     ['verify missing value', ['verify', '--base'], /--base needs a value/],
+    ['trace-verify missing runs', ['trace-verify', '--runs'], /--runs needs a value/],
+    ['trace-verify zero runs', ['trace-verify', '--runs', '0'], /--runs needs a positive integer/],
+    ['trace-verify fractional runs', ['trace-verify', '--runs', '1.5'], /--runs needs a positive integer/],
     ['watch missing value', ['watch', '--dir'], /--dir needs a value/],
     ['run missing value', ['run', '--budget', '--', 'true'], /--budget needs a value/],
 
@@ -186,6 +190,8 @@ describe('strict CLI argument boundary (#312)', () => {
       .toBe('tamperward: unexpected argument "extra"\n');
     expect(run(['verify', 'extra']).err)
       .toBe('tamperward: unexpected argument "extra"\n');
+    expect(run(['trace-verify', 'extra']).err)
+      .toBe('tamperward: unexpected argument "extra"\n');
   });
 
   it('preserves valid command grammars', () => {
@@ -198,6 +204,10 @@ describe('strict CLI argument boundary (#312)', () => {
 
     const verify = run(['verify', '--cmd', 'true', '--budget', '1', '--cwd', d]);
     expect(verify.code).toBe(0);
+
+    // Grammar-only control: a real trace needs Linux + strace and a verifier command.
+    expect(validateCliArgs('trace-verify', ['--base', 'HEAD', '--cmd', 'true', '--runs', '2', '--json', '--cwd', d]))
+      .toBeUndefined();
 
     const envelope = run(['run', '--cmd', 'true', '--budget', '1', '--cwd', d, '--', 'true']);
     expect(envelope.code).toBe(0);

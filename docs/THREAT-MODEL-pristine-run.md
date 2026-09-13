@@ -209,6 +209,18 @@ is the variable list. What remains is stated below.
   shared-dependency class the copies never addressed. A runner can add either
   kind of source at any time.
 
+  **2.18.0 adds discovery, not a completeness claim.** On Linux,
+  `tamperward trace-verify` materialises a caller-selected known-good base and
+  observes the verifier with `strace`. It unions repeated runs, marks inputs
+  seen in only some executions as dynamic, separates tracked repository inputs
+  from external runtime/dependency paths, and compares the tracked set with the
+  exact surface `verify` already restores. Uncovered tracked paths are emitted
+  as exact candidate `verify.inputs` entries for human review. The command is
+  deliberately advisory and never edits policy. A path absent from one or many
+  traces remains possible on another control-flow/environment branch, so trace
+  absence is never treated as proof of non-use. macOS/Windows report this mode
+  unsupported rather than inferring parity from a different observer.
+
 - **The default `local` backend is sequencing plus detection, not a sandbox.**
   From 1.14.5 the pristine copy does not exist while the candidate's code runs,
   and its restored files are digested either side of the pristine run. Neither

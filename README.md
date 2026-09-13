@@ -240,6 +240,7 @@ platforms.
 | `watch` / observer telemetry | Supported; backend health is reported | Supported/degraded according to `fs.watch` health | Supported/degraded according to `fs.watch` health |
 | checkpointed-local `verify` | Supported via `/bin/sh` | Supported via `/bin/sh` | **Unsupported; fails before candidate execution** |
 | isolated-container `verify` | Supported when Docker authority preflight passes | Not claimed beyond Docker preflight | Not claimed beyond Docker preflight |
+| advisory `trace-verify` | **Supported with `strace` + `tar`** | **Unsupported; reports no parity** | **Unsupported; reports no parity** |
 | authoritative `run` | **Supported only with trusted non-root subreaper backend** | **Unsupported; fails before agent start** | **Unsupported; fails before agent start** |
 | CI coverage for this contract | Full suite + platform contract | Platform-contract job | Platform-contract job |
 
@@ -430,6 +431,30 @@ restored `"test": "sh scripts/test.sh"` will happily call a script nothing
 restored. It bounds the class rather than closing it — see
 [the threat model](./docs/THREAT-MODEL-pristine-run.md).
 
+From **2.18.0**, Linux can turn that residual into an auditable observation with
+`tamperward trace-verify`. It materialises the caller-selected trusted base, runs the
+known-good verifier under `strace`, repeats the trace (two runs by default), unions the
+file/exec observations, and reports:
+- tracked repository inputs the verifier actually read or executed;
+- likely config inputs;
+- external dependency/runtime paths;
+- paths seen in only some runs as **dynamic**;
+- whether each tracked input is already covered by the same pristine-verification
+  surface used by `verify`;
+- exact uncovered paths as candidate `verify.inputs` entries for **human review**.
+
+It is advisory only: it never edits `.tamperward.yml`, never widens a glob, and never
+treats absence from one or several traces as proof a path can never be read. Use a
+known-good base; `trace-verify` observes what those executions did, it does not prove
+the base or external runtime/dependencies are trustworthy. macOS and Windows report the
+feature unsupported rather than implying parity.
+
+Example:
+
+```bash
+npx tamperward trace-verify --base main --cmd "npm test" --runs 3
+```
+
 From **2.16.0**, verifier suite output is diagnostic evidence instead of discarded
 noise. Both visible and pristine stages continuously drain stdout/stderr through a
 trusted supervisor, retain only the final **16 KiB per stream**, and count the total
@@ -448,6 +473,7 @@ The four primitives:
 npx tamperward check --staged                # pre-commit view
 npx tamperward check --diff "main...HEAD"    # CI view over the PR's commit range
 npx tamperward verify --base main            # pristine-suite re-execution
+npx tamperward trace-verify --base main --runs 2 # advisory observed-input discovery (Linux)
 npx tamperward run --agent-budget 1800 -- <agent command...>  # optional agent-runtime bound
 ```
 
@@ -470,6 +496,7 @@ option can never be reinterpreted as the agent command.
 | --- | --- |
 | `check` | one view — `--staged` · `--worktree` · `--diff <base>...<head>` — plus `--format text\|json\|github\|auto` (default `auto`) · `--json` (alias for `--format json`) · `--cwd <dir>` |
 | `verify` | `--base <rev>` (default `HEAD`) · `--cmd <suite command>` · `--budget <seconds>` · `--json` · `--keep` (keep the two materialised copies and report their paths) · `--require-ancestor` (refuse a base that is not an ancestor of `HEAD`) · `--cwd <dir>` |
+| `trace-verify` | Linux-only advisory discovery: `--base <rev>` (default `HEAD`) · `--cmd <suite command>` · `--budget <seconds>` · `--runs <positive integer>` (default 2) · `--json` · `--cwd <dir>` |
 | `doctor` | `--base <rev>` (trusted policy revision) · `--workflow <path>` · `--cwd <dir>` · `--json` · `--github` · `--repo <owner/repo>` · `--branch <name>` — read-only installation/authority posture plus CI verifier outer-time validation |
 | `run` | `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` (per verifier suite) · `--agent-budget <seconds>` (optional wrapped-agent wall clock) · `--observe-transients` (start a session-scoped transient observer) · `--allow-dirty` · `--settle <seconds>` (wait before the final quiescence check) · `--allow-dep-drift` · `--cwd <dir>` · then `-- <agent command...>` |
 | `allow` | `<rule>` · `--file <path>` · `--reason "<why>"` (required) · `--cwd <dir>` |
@@ -483,6 +510,7 @@ option can never be reinterpreted as the agent command.
 | --- | --- | --- | --- | --- |
 | `check` | no blocking finding | at least one blocking finding | cannot evaluate: policy parse error, malformed `--diff` range, no view given, not a git repository, or an unresolvable revision — any failure the gate cannot recover from is one clean `tamperward: …` line on stderr at exit 2, never a stack trace at exit 1 | — |
 | `verify` | `VERIFIED` — visible and pristine both green; or a `MASKED_FAILURE` cleared by an out-of-band `verify@<head-sha>` approval | `MASKED_FAILURE` (visible green, pristine red) or `SUITE_RED` | cannot verify, failing closed: no suite command, unresolvable base, `--require-ancestor` refused, budget exceeded, or the working or dependency tree moved during the run | — |
+| `trace-verify` | all requested known-good traces exited 0; advisory report emitted | one or more traced verifier runs were non-zero/incomplete; report still emitted | unsupported platform, missing tracer/materialiser, bad base/policy/options, or tracing failure | — |
 | `doctor` | configured verify job(s) have sufficient static outer time for the trusted policy | — | missing/invalid workflow, no verify job, missing/malformed/insufficient timeout, or trusted policy cannot be loaded | — |
 | `run` | enforcement clean and the agent exited 0 — another non-zero agent exit is passed through unchanged | any blocking finding or masked failure, including a non-quiescent process after timeout | cannot adjudicate: dirty start, policy error, verify cannot run | `AGENT_TIMEOUT`: `--agent-budget` expired and post-timeout enforcement was clean |
 | `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0, never exit 2 | — | only for an unsupported agent name | — |
