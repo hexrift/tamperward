@@ -89,8 +89,20 @@ const err = (s: string) => process.stderr.write(s + '\n');
 interface AgentRunResult {
   exit: number;
   timedOut: boolean;
+  /** True only when this platform/supervisor established ownership of descendants
+   *  strong enough to make the immediately-adjacent dependency attestation reusable. */
+  lifecycleOwned: boolean;
   signal?: string | null;
   failure?: string;
+}
+
+export function canReuseAdjacentDependencyAttestation(
+  lifecycleOwned: boolean,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  // Linux is the only backend that currently tracks descendants which escape
+  // the agent process group (for example via setsid) before adjudication.
+  return platform === 'linux' && lifecycleOwned;
 }
 
 /**
@@ -101,68 +113,100 @@ interface AgentRunResult {
  * explicit fallback. The supervisor writes its result outside the candidate
  * worktree, then the envelope continues normal post-agent adjudication.
  */
-const AGENT_SUPERVISOR = String.raw`
+const AGENT_SUPERVISOR = String.raw\`
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 
 const [resultFile, budgetRaw, command, ...args] = process.argv.slice(1);
-const budgetMs = Number(budgetRaw);
+const budgetMs = budgetRaw === '' ? null : Number(budgetRaw);
 let child;
 let timedOut = false;
 let finished = false;
+let linuxTracking = process.platform === 'linux';
+const tracked = new Map();
 
 function writeResult(value) {
   try { fs.writeFileSync(resultFile, JSON.stringify(value)); } catch {}
 }
 
-function linuxDescendants(rootPid) {
-  if (process.platform !== 'linux') return [];
-  const byParent = new Map();
-  let names = [];
-  try { names = fs.readdirSync('/proc').filter((x) => /^\d+$/.test(x)); } catch { return []; }
-  for (const name of names) {
-    const pid = Number(name);
-    try {
-      const stat = fs.readFileSync('/proc/' + name + '/stat', 'utf8');
-      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-      const ppid = Number(fields[1]);
-      if (!Number.isFinite(ppid)) continue;
-      const kids = byParent.get(ppid) || [];
-      kids.push(pid);
-      byParent.set(ppid, kids);
-    } catch {}
+function procRecord(pid) {
+  try {
+    const stat = fs.readFileSync('/proc/' + pid + '/stat', 'utf8');
+    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    const ppid = Number(fields[1]);
+    const start = Number(fields[19]);
+    if (!Number.isFinite(ppid) || !Number.isFinite(start)) return null;
+    return { pid: Number(pid), ppid, start };
+  } catch {
+    return null;
   }
-  const out = [];
-  const seen = new Set([rootPid]);
-  const stack = [rootPid];
-  while (stack.length) {
-    const parent = stack.pop();
-    for (const childPid of (byParent.get(parent) || [])) {
-      if (seen.has(childPid)) continue;
-      seen.add(childPid);
-      out.push(childPid);
-      stack.push(childPid);
-    }
-  }
-  return out;
 }
 
-function killTree(pid) {
+function scanLinuxDescendants(rootPid) {
+  if (!linuxTracking) return;
+  let names;
+  try {
+    names = fs.readdirSync('/proc').filter((x) => /^\d+$/.test(x));
+  } catch {
+    linuxTracking = false;
+    return;
+  }
+
+  const byParent = new Map();
+  for (const name of names) {
+    const rec = procRecord(Number(name));
+    if (!rec) continue;
+    const kids = byParent.get(rec.ppid) || [];
+    kids.push(rec);
+    byParent.set(rec.ppid, kids);
+  }
+
+  // Previously-seen descendants remain roots for later scans. This matters
+  // after setsid/double-fork reparents them away from the original agent.
+  const queue = [rootPid, ...tracked.keys()];
+  const seenParents = new Set();
+  while (queue.length) {
+    const parent = queue.pop();
+    if (seenParents.has(parent)) continue;
+    seenParents.add(parent);
+    for (const rec of (byParent.get(parent) || [])) {
+      const knownStart = tracked.get(rec.pid);
+      if (knownStart === undefined || knownStart === rec.start) {
+        tracked.set(rec.pid, rec.start);
+        queue.push(rec.pid);
+      }
+    }
+  }
+}
+
+function sameTrackedProcess(pid, start) {
+  const rec = procRecord(pid);
+  return rec != null && rec.start === start;
+}
+
+function killOwnedTree(pid) {
   if (!pid) return;
+  scanLinuxDescendants(pid);
+
   if (process.platform === 'win32') {
     try { spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' }); } catch {}
     return;
   }
 
-  // Snapshot Linux descendants BEFORE killing the process-group leader. A
-  // descendant may have called setsid() and escaped the group while remaining
-  // in the agent's parent/child tree; /proc still lets us identify it.
-  const descendants = linuxDescendants(pid);
+  // Kill the ordinary process group first. It remains addressable by PGID even
+  // after the group leader exits while descendants are still alive.
   try { process.kill(-pid, 'SIGKILL'); } catch {
     try { process.kill(pid, 'SIGKILL'); } catch {}
   }
-  for (const childPid of descendants.reverse()) {
-    try { process.kill(childPid, 'SIGKILL'); } catch {}
+
+  // Linux descendants can escape that group with setsid(). Kill only PIDs whose
+  // /proc starttime still matches the process we observed, avoiding PID-reuse
+  // collateral.
+  if (linuxTracking) {
+    for (const [childPid, start] of [...tracked.entries()].reverse()) {
+      if (!sameTrackedProcess(childPid, start)) continue;
+      try { process.kill(childPid, 'SIGKILL'); } catch {}
+    }
   }
 }
 
@@ -172,40 +216,52 @@ try {
     detached: process.platform !== 'win32',
   });
 } catch (e) {
-  writeResult({ exit: 1, timedOut: false, failure: String(e) });
+  writeResult({ exit: 1, timedOut: false, lifecycleOwned: false, failure: String(e) });
   process.exit(0);
 }
 
 writeResult({ pid: child.pid, started: true });
 
-const timer = setTimeout(() => {
-  timedOut = true;
-  killTree(child.pid);
-}, budgetMs);
-timer.unref();
+// Track while the agent is alive, not only after it exits. A setsid descendant
+// may be reparented immediately when the main agent releases; preserving the
+// observed ancestry is what lets normal-exit cleanup still own that process.
+scanLinuxDescendants(child.pid);
+const tracker = process.platform === 'linux'
+  ? setInterval(() => scanLinuxDescendants(child.pid), 2)
+  : null;
+if (tracker) tracker.unref();
 
-child.once('error', (e) => {
+const timer = budgetMs == null
+  ? null
+  : setTimeout(() => {
+      timedOut = true;
+      killOwnedTree(child.pid);
+    }, budgetMs);
+if (timer) timer.unref();
+
+function finish(code, signal, failure) {
   if (finished) return;
   finished = true;
-  clearTimeout(timer);
-  writeResult({ exit: 1, timedOut, failure: String(e) });
-  process.exit(0);
-});
+  if (timer) clearTimeout(timer);
+  if (tracker) clearInterval(tracker);
 
-child.once('exit', (code, signal) => {
-  if (finished) return;
-  finished = true;
-  clearTimeout(timer);
-  // A timeout owns the public status even when the killed process reports a
-  // shell-specific signal/exit value. The envelope will still adjudicate.
+  // Normal exit owns descendants too. This is the security distinction from
+  // the pre-#376 supervisor, which only killed the tree on timeout.
+  killOwnedTree(child && child.pid);
+
   writeResult({
     exit: timedOut ? 124 : (code == null ? 1 : code),
     timedOut,
+    lifecycleOwned: process.platform === 'linux' && linuxTracking,
     signal: signal == null ? null : String(signal),
+    ...(failure ? { failure } : {}),
   });
   process.exit(0);
-});
-`;
+}
+
+child.once('error', (e) => finish(1, null, String(e)));
+child.once('exit', (code, signal) => finish(code, signal));
+\`;
 
 function linuxDescendantPids(rootPid: number): number[] {
   if (process.platform !== 'linux') return [];
@@ -268,10 +324,10 @@ function killAgentTree(pid: number): void {
   }
 }
 
-function runAgentWithBudget(
+function runAgentSupervised(
   argv: string[],
   cwd: string,
-  budgetSecs: number,
+  budgetSecs?: number,
 ): AgentRunResult {
   const stateDir = mkdtempSync(join(tmpdir(), 'tw-agent-supervisor-'));
   const resultFile = join(stateDir, 'result.json');
@@ -279,14 +335,25 @@ function runAgentWithBudget(
   try {
     const supervisor = spawnSync(
       process.execPath,
-      ['-e', AGENT_SUPERVISOR, resultFile, String(budgetSecs * 1000), ...argv],
+      [
+        '-e',
+        AGENT_SUPERVISOR,
+        resultFile,
+        budgetSecs === undefined ? '' : String(budgetSecs * 1000),
+        ...argv,
+      ],
       {
         cwd,
         stdio: 'inherit',
-        // Backstop only. The inner supervisor owns the intended budget and
-        // process-tree kill. This prevents a broken supervisor hanging run.
-        timeout: Math.ceil(budgetSecs * 1000) + 10_000,
-        killSignal: 'SIGKILL',
+        // When a runtime budget exists, retain an outer backstop. Without one,
+        // preserve the historical "no wall-clock limit" behavior while still
+        // owning descendants at normal exit.
+        ...(budgetSecs === undefined
+          ? {}
+          : {
+              timeout: Math.ceil(budgetSecs * 1000) + 10_000,
+              killSignal: 'SIGKILL' as const,
+            }),
       },
     );
     supervisorTimedOut =
@@ -298,6 +365,7 @@ function runAgentWithBudget(
       exit?: number;
       timedOut?: boolean;
       signal?: string | null;
+      lifecycleOwned?: boolean;
       failure?: string;
     } = {};
     try {
@@ -311,6 +379,7 @@ function runAgentWithBudget(
       return {
         exit: 124,
         timedOut: true,
+        lifecycleOwned: state.lifecycleOwned === true,
         signal: state.signal ?? null,
         ...(state.failure ? { failure: state.failure } : {}),
       };
@@ -319,6 +388,7 @@ function runAgentWithBudget(
       return {
         exit: state.exit,
         timedOut: false,
+        lifecycleOwned: state.lifecycleOwned === true,
         signal: state.signal ?? null,
         ...(state.failure ? { failure: state.failure } : {}),
       };
@@ -327,6 +397,7 @@ function runAgentWithBudget(
     return {
       exit: 1,
       timedOut: false,
+      lifecycleOwned: false,
       failure: state.failure ?? 'agent supervisor did not produce a final status',
     };
   } finally {
@@ -709,17 +780,9 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   // without moving a ref or touching a file (src/git/trusted.ts).
   const rewritesBefore = objectRewriteState(cwd);
   const spawnTicks = nowTicks(); // survivors are what appears after this
-  const agentRun: AgentRunResult = opts.agentBudget === undefined
-    ? (() => {
-        const agent = spawnSync(opts.argv[0], opts.argv.slice(1), { cwd, stdio: 'inherit' });
-        return {
-          exit: agent.status ?? 1,
-          timedOut: false,
-          signal: agent.signal ? String(agent.signal) : null,
-          ...(agent.error ? { failure: agent.error.message } : {}),
-        };
-      })()
-    : runAgentWithBudget(opts.argv, cwd, opts.agentBudget);
+  // Always use the trusted lifecycle supervisor. A runtime budget controls
+  // elapsed time; it does not control whether TamperWard owns descendants.
+  const agentRun = runAgentSupervised(opts.argv, cwd, opts.agentBudget);
   const agentExit = agentRun.exit;
   const agentTimedOut = agentRun.timedOut;
   if (agentRun.failure && !agentTimedOut) {
@@ -810,7 +873,8 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     ...(dependencyEnvironment
       ? {
           dependencyEnvironment,
-          ...(dependencyBeforeVerificationAttestation
+          ...(dependencyBeforeVerificationAttestation &&
+          canReuseAdjacentDependencyAttestation(agentRun.lifecycleOwned)
             ? { dependencyEntryAttestation: dependencyBeforeVerificationAttestation }
             : {}),
           onDependencyFinalAttestation: (attestation: DependencyEnvironmentAttestation) => {
@@ -851,7 +915,9 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
       `full_snapshots=${metrics.fullSnapshots} ` +
       `reused_snapshots=${metrics.reusedSnapshots} ` +
       `total_ms=${Number(metrics.totalMs.toFixed(3))} ` +
-      `verifier_final_attestation=${verifierFinalDependencyAttestation ? 'yes' : 'no'}`,
+      `verifier_final_attestation=${verifierFinalDependencyAttestation ? 'yes' : 'no'} ` +
+      `run_lifecycle_owned=${agentRun.lifecycleOwned ? 'yes' : 'no'} ` +
+      `entry_reuse=${canReuseAdjacentDependencyAttestation(agentRun.lifecycleOwned) ? 'yes' : 'no'}`,
     );
   }
   const depsDrifted = Boolean(dependencyEnvironment) && !opts.allowDepDrift && !dependencyAfter.ok;
