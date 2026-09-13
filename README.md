@@ -144,16 +144,19 @@ Before starting the agent, the envelope
 3. records the installed `node_modules` content fingerprint, where one exists; and
 4. refuses an already-dirty tree unless the operator explicitly accepts the risk.
 
-Since **2.16.2**, the local run→verify path carries the dependency attestation from the
+Since **2.16.2**, the local run→verify path can carry the dependency attestation from the
 checkpoint immediately before `runVerify` into the verifier's entry boundary instead of
-re-reading the same tree twice with no hostile execution in between. A clean local
-envelope therefore performs **5 complete dependency snapshots instead of 6**. The checks
-after visible execution, after pristine execution, and at the envelope's final
-quiescence boundary remain independent full reads. In particular, the verifier-final
-snapshot is **not** reused for the envelope-final check because a detached/background
-process may still mutate ignored dependencies after verifier return. Set
-`TAMPERWARD_DIAGNOSTICS=1` to report `full_snapshots`, `reused_snapshots`, and
-aggregate snapshot wall time.
+re-reading the same tree twice. **2.16.3 tightens the condition for that reuse:** it is
+enabled only when the Linux agent-lifecycle supervisor established descendant ownership
+before adjudication. A clean Linux envelope therefore performs **5 complete dependency
+snapshots instead of 6**; platforms without equivalent descendant ownership perform the
+fresh verifier-entry snapshot rather than claiming that no hostile execution can remain
+between the two checkpoints. The checks after visible execution, after pristine execution,
+and at the envelope's final quiescence boundary remain independent full reads. In
+particular, the verifier-final snapshot is **not** reused for the envelope-final check
+because a detached/background process may still mutate ignored dependencies after verifier
+return. Set `TAMPERWARD_DIAGNOSTICS=1` to report `full_snapshots`, `reused_snapshots`,
+aggregate snapshot wall time, lifecycle ownership, and whether entry reuse was enabled.
 
 The hooks then steer the agent while it works: they read live state, deny known
 weakening operations, detect protected-tree drift, and sweep the turn's net
@@ -195,15 +198,18 @@ After the runtime exits its exit code is treated as untrusted, and the envelope
 checks that post-agent `HEAD` still descends from the entry commit; the committed
 changes over `entry...HEAD`; staged, unstaged and untracked non-ignored worktree
 changes; dependency drift and whether the tree stayed quiescent; and the
-verification outcome. For agent runtimes that may hang, `--agent-budget <seconds>`
-adds an operator-owned wall-clock boundary around the **agent itself** (separate from
-the verifier's `--budget`). On expiry TamperWard terminates the owned process tree,
-then still performs the same post-timeout adjudication. A clean timeout is
-`AGENT_TIMEOUT` / exit 124; any enforcement failure or cannot-adjudicate result
-still outranks that runtime status. On POSIX the agent starts in its own process
-group; on Linux the timeout also enumerates the agent's `/proc` descendant tree so
-a child that escaped the group with `setsid()` is terminated before adjudication.
-Windows uses `taskkill /T /F` as the explicit process-tree fallback.
+verification outcome. Since **2.16.3**, every wrapped agent goes through the trusted
+lifecycle supervisor even when no runtime budget is requested: ordinary POSIX descendants
+share an owned process group, and Linux continuously tracks the actual `/proc` descendant
+ancestry so a child that escapes the group with `setsid()` is still terminated on normal
+agent exit before adjudication begins. `--agent-budget <seconds>` adds an operator-owned
+wall-clock boundary around that same supervised agent lifecycle (separate from the
+verifier's `--budget`). On expiry TamperWard terminates the owned process tree and still
+performs post-timeout adjudication. A clean timeout is `AGENT_TIMEOUT` / exit 124; any
+enforcement failure or cannot-adjudicate result still outranks that runtime status.
+Windows uses `taskkill /T /F` as the explicit process-tree fallback, but non-Linux
+platforms do not claim Linux-style detached-descendant ownership for dependency-attestation
+reuse.
 
 `tamperward verify` materialises two temporary copies — they are **not
 sandboxes**, and both execute agent-controlled code. The visible copy runs the
