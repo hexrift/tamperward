@@ -917,6 +917,13 @@ export function runInit(opts: InitOpts): number {
 
   const errors = plan.filter((a) => a.status === 'error');
   const changed = opts.dryRun ? plan.filter((a) => a.apply).length : applied;
+
+  // Presence of wiring is not the same as a runnable CI authority. Print this
+  // even when another init item is broken: a malformed policy is itself an
+  // incomplete verifier configuration, and returning before saying so would
+  // recreate the ambiguity #320 is closing.
+  w.write(`\nVERIFICATION SETUP\n${verifierSetupMessage(cwd)}\n`);
+
   if (errors.length) {
     w.write(`\ntamperward init: ${errors.length} item(s) need your attention above; the rest ${opts.dryRun ? 'are planned' : 'were applied'}.\n`);
     return 2;
@@ -928,12 +935,6 @@ export function runInit(opts: InitOpts): number {
         ? `\ntamperward init: ${changed} change(s) planned. Re-run without --dry-run to apply.\n`
         : `\ntamperward init: ${changed} change(s) applied. Commit them so the gate travels with the repo.\n`,
   );
-
-  // Presence of wiring is not the same as a runnable CI authority. The
-  // generated verify job intentionally fails closed without verify.command, so
-  // make that installation posture impossible to miss. Discovery is advisory:
-  // the trust-anchor command is never inferred/written without operator review.
-  w.write(`\nVERIFICATION SETUP\n${verifierSetupMessage(cwd)}\n`);
   // Always, and last, because it is the one thing init CANNOT do for you and the
   // one thing without which the CI half of this tool is decorative.
   w.write(
