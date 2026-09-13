@@ -94,11 +94,11 @@ function err(
 ): number {
   if (opts?.json) {
     const report: DoctorReport = machineOutput({
-      command: 'doctor',
+      command: 'doctor' as const,
       authoritative: false,
       checks: [
         ...checks.filter((check) => check.id !== id),
-        { id, state: 'BROKEN', detail: message },
+        { id, state: 'BROKEN' as const, detail: message },
       ],
     });
     process.stdout.write(JSON.stringify(report) + '\n');
@@ -363,7 +363,7 @@ function observerCheck(cwd: string): DoctorCheck {
 function emitReport(opts: DoctorOpts, checks: DoctorCheck[]): void {
   const authoritative = !checks.some((x) => x.state === 'BROKEN');
   if (opts.json) {
-    const report: DoctorReport = machineOutput({ command: 'doctor', authoritative, checks });
+    const report: DoctorReport = machineOutput({ command: 'doctor' as const, authoritative, checks });
     process.stdout.write(JSON.stringify(report) + '\n');
     return;
   }
