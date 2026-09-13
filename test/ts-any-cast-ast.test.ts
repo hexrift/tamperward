@@ -71,4 +71,29 @@ describe('ts-any-cast — precision-split: BLOCK unambiguous casts, WARN broad a
     const honest = parseDiff('diff --git a/src/y.ts b/src/y.ts\nindex 1..2 100644\n--- a/src/y.ts\n+++ b/src/y.ts\n@@ -1,1 +1,1 @@\n-const v = raw;\n+const v = raw as (unknown);');
     expect(block(tsAnyCast.run(honest, P))).toHaveLength(0);
   });
+
+  it('diff-only fallback agrees with the AST contract on every row-4 double-cast spelling, partial lines included', () => {
+    // The fallback may see less than full-source analysis, but it must never treat one
+    // spelling of the double cast as block and a structurally identical one as clean.
+    const spellings = [
+      '(<unknown>raw) as Config',
+      '<unknown>raw as Config',
+      '<Config>(<unknown>raw)',
+      '<Config>(raw as unknown)',
+      '((<unknown>raw)) as Config',
+      '(<(unknown)>raw) as Config',
+    ];
+    for (const spelling of spellings) {
+      const whole = parseDiff(`diff --git a/src/y.ts b/src/y.ts\nindex 1..2 100644\n--- a/src/y.ts\n+++ b/src/y.ts\n@@ -1,1 +1,1 @@\n-const v = raw;\n+const v = ${spelling};`);
+      expect(block(tsAnyCast.run(whole, P)), spelling).toHaveLength(1);
+      // A partial line (an argument in a multi-line call) does not parse on its own.
+      const partial = parseDiff(`diff --git a/src/y.ts b/src/y.ts\nindex 1..2 100644\n--- a/src/y.ts\n+++ b/src/y.ts\n@@ -2,1 +2,1 @@\n-  raw,\n+  ${spelling},`);
+      expect(block(tsAnyCast.run(partial, P)), `partial: ${spelling}`).toHaveLength(1);
+    }
+    // Honest and non-cast spellings stay clean on the fallback too.
+    for (const clean of ['<unknown>raw', 'raw as unknown', '<Config>raw', 'raw satisfies Config', '// (<unknown>raw) as Config', 'const s = "(<unknown>raw) as Config"']) {
+      const d = parseDiff(`diff --git a/src/y.ts b/src/y.ts\nindex 1..2 100644\n--- a/src/y.ts\n+++ b/src/y.ts\n@@ -1,1 +1,1 @@\n-const v = raw;\n+const v = ${clean};`);
+      expect(block(tsAnyCast.run(d, P)), clean).toHaveLength(0);
+    }
+  });
 });
