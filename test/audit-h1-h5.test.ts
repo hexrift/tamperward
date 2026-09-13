@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { runVerify } from '../src/cli/verify';
 import { runEnvelope } from '../src/cli/run';
 import { planInit } from '../src/cli/init';
+import { rootless } from './rootless';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -166,7 +167,7 @@ describe('H3 a transient dependency substitution is not invisible', () => {
     return { cwd, helper, stash, count };
   }
 
-  it('a runner that restores itself on its way out is still DEPENDENCY_DRIFT', () => {
+  it.skipIf(!rootless)('a runner that restores itself on its way out is still DEPENDENCY_DRIFT', () => {
     // Entry-vs-exit fingerprints are identical by construction: the fake returns
     // 0 for the visible run, 0 for the pristine run, and puts the original bytes
     // and mode back on the second invocation.
@@ -184,7 +185,7 @@ describe('H3 a transient dependency substitution is not invisible', () => {
     expect(existsSync(count)).toBe(false);
   });
 
-  it('an honest agent that leaves the dependency tree alone is still green', () => {
+  it.skipIf(!rootless)('an honest agent that leaves the dependency tree alone is still green', () => {
     const { cwd } = depsRepo();
     expect(runEnvelope({ cwd, budget: 60, argv: ['bash', '-c', 'echo "module.exports = 42;" > src.js'] })).toBe(0);
   });

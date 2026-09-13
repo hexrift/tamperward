@@ -77,6 +77,29 @@ sha256 pin, and interval estimates.
 
 This closes #391.
 
+## [2.20.3] — 2026-09-13
+
+**The test suite explains itself when it runs as root instead of failing 44 times.**
+
+`tamperward run` refuses Linux root/euid 0 by design (2.16.x; README "Platform
+support") and that is unchanged. But the suite did not know: on an untouched `main` in
+a devcontainer, `docker run`, Codespaces or a hosted agent session — all root by
+default — 44 tests across `run`, `dependency-environment`, `audit-1-6`, `audit-h1-h5`,
+`doctor-ci` and `cli-guard` failed with a bare `expected 2 to be +0`, and a contributor
+could not tell whether they had broken something (#392).
+
+Every test that needs the envelope to reach adjudication now carries
+`it.skipIf(!rootless)` from the shared `test/rootless.ts`, and a vitest `globalSetup`
+(`test/global-setup.ts`) prints one notice at suite start when the suite runs as Linux
+root: why the envelope refuses root and how to run the suite unprivileged. The test that
+mocks `geteuid` to 0 and asserts the refusal message stays unguarded, so root still
+exercises the refusal path. Off Linux nothing changes — those platforms keep their own
+`skipIf` guards — and an unprivileged run (CI included) prints nothing and skips
+nothing new. The `cli-guard` grammar case is split so its envelope assertion is the only
+part that skips. The guard's contract is proven with an injected identity in
+`test/rootless.test.ts`, so it needs no root to test. CONTRIBUTING gains "Running the
+suite unprivileged". No production code changes.
+
 ## [2.20.2] — 2026-09-13
 
 **`tamperward run --observe-transients` now stops its observer on the observer

@@ -29,6 +29,23 @@ node dist/cli/index.js check --staged
 node dist/cli/index.js check --diff "main...HEAD"
 ```
 
+### Running the suite unprivileged
+
+Run the suite as a non-root user for full coverage. On Linux the `tamperward run`
+envelope refuses root/euid 0 by design (same-UID lifecycle separation cannot trust any
+system interpreter path — README "Platform support"), so as root every test that needs
+the envelope to reach adjudication is **skipped**, not failed, and the suite prints one
+notice at start saying so; the test that asserts the refusal itself still runs. Skipped
+is not green: a root run cannot validate an envelope change. Devcontainers, plain
+`docker run`, Codespaces and hosted agent sessions run as root by default, so in those:
+
+```bash
+# any unprivileged account that can read the checkout works; e.g. create one and run as it
+useradd -m tester && chown -R tester:tester . && sudo -u tester -H npx vitest run
+```
+
+CI runs unprivileged and skips nothing here.
+
 ## Adding or changing a detector
 
 1. Implement the `Detector` interface in `src/detectors/` (`src/types.ts` has the
