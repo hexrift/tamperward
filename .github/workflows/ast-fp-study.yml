@@ -1,0 +1,43 @@
+name: ast-fp-study
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: build candidate and trusted base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          npm run build
+          cp dist/cli/index.js /tmp/tw-candidate.mjs
+          git worktree add --detach /tmp/tw-base "$BASE_SHA"
+          cd /tmp/tw-base
+          npm ci
+          npm run build
+          cp dist/cli/index.js /tmp/tw-base.mjs
+      - name: compare recent real mainline diffs
+        run: |
+          set -eu
+          mkdir -p /tmp/corpus
+          git clone -q --depth 101 https://github.com/immerjs/immer.git /tmp/corpus/immer
+          git clone -q --depth 101 https://github.com/pmndrs/zustand.git /tmp/corpus/zustand
+          git clone -q --depth 101 https://github.com/colinhacks/zod.git /tmp/corpus/zod
+          git clone -q --depth 101 https://github.com/honojs/hono.git /tmp/corpus/hono
+          for repo in immer zustand zod hono; do
+            node harness/fp-study/test-skip-ast-delta.mjs "$repo" "/tmp/corpus/$repo" /tmp/tw-base.mjs /tmp/tw-candidate.mjs
+          done
