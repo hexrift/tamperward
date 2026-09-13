@@ -6,7 +6,7 @@
 // leaves the working tree byte-for-byte as it was; non-interactive stdin refuses
 // unless scripted; abort and re-run are idempotent and diagnosable.
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,6 +24,14 @@ import { TW_VERSION } from '../src/wiring';
 // test, ~2s each) after a real init; under a loaded parallel run that exceeds
 // vitest's 5s default.
 vi.setConfig({ testTimeout: 60_000 });
+
+// The GitHub step reuses doctor's repository inference, which prefers
+// GITHUB_REPOSITORY over the origin remote. Under Actions that variable names
+// THIS repository, so the fixture's acme/project origin would never be seen;
+// scrub it for this file (test/setup.ts only scrubs GITHUB_ACTIONS/STEP_SUMMARY).
+const inheritedRepo = process.env.GITHUB_REPOSITORY;
+beforeAll(() => { delete process.env.GITHUB_REPOSITORY; });
+afterAll(() => { if (inheritedRepo !== undefined) process.env.GITHUB_REPOSITORY = inheritedRepo; });
 
 const dirs: string[] = [];
 afterEach(() => {
