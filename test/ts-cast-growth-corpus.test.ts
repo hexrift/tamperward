@@ -36,6 +36,7 @@ type Corpus = {
     mainline_pairs_touching_eligible_source: number;
     mainline_findings: number;
     mainline_by_repo: RepoRecord[];
+    recomputed_by: string;
     negative_cases: number;
     positive_cases: number;
   };
