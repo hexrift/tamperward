@@ -5,6 +5,31 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.15.1] — 2026-09-13
+
+**Doctor's authority verdict now binds to the authority surface it actually inspected.**
+A post-merge review of 2.15.0 found three cases where the one-shot posture report could
+misstate repository authority:
+
+- workflow-level `permissions: { contents: read }` was treated as sufficient even when
+  a job overrode it with a write scope;
+- a policy version newer than this binary's `POLICY_VERSION` was only WARN, so unknown
+  policy semantics could still coexist with `authoritative: true`;
+- `doctor --workflow <path>` validated that path's verifier timeout but local posture and
+  permission checks still hard-coded `.github/workflows/tamperward.yml`.
+
+2.15.1 fixes all three. Workflow permission diagnostics inspect root permissions and
+job-level overrides across every verifier-authority workflow that doctor actually
+validated. An unsupported future policy schema is BROKEN/non-authoritative. Explicit
+custom workflow selection and automatic multi-workflow discovery now feed the same
+workflow set into timeout, wiring and token-permission posture.
+
+Regression coverage includes root-safe/job-write escalation, root-write/job-safe
+control, future policy schema, explicit custom workflow authority, multi-workflow
+permission aggregation, and a positive fully authoritative canonical installation.
+
+This follow-up completes #318's original acceptance criterion after #363.
+
 ## [2.15.0] — 2026-09-13
 
 **`tamperward doctor` now answers whether TamperWard is merely present or actually

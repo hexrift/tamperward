@@ -229,10 +229,19 @@ Since **2.15.0**, `tamperward doctor` is also the one-shot installation/posture
 report promised by `init`'s security model. It reuses `init`'s canonical wiring
 planner rather than maintaining a second definition of “installed correctly”, and
 reports named `OK`, `WARN`, or `BROKEN` checks for policy/schema, Claude hooks,
-pre-commit, generated CI wiring, CODEOWNERS, workflow permissions, binary/pin
+pre-commit, CI authority wiring, CODEOWNERS, workflow permissions, binary/pin
 alignment, verifier trust mode + declared inputs, platform residuals, CI verifier
 outer time, observer health, and (with `--github`) repository authority. Use
 `--json` for one machine-readable document with `authoritative: true|false`.
+
+**2.15.1 closes an authority-reporting gap in that surface.** The permission check now
+includes job-level overrides, not only workflow-root permissions; a policy schema newer
+than the running binary is BROKEN rather than certifiable; and the exact workflow(s)
+selected by `--workflow` or discovered as verifier authorities are also the workflow(s)
+used for CI-wiring and token-permission posture. A custom verifier workflow therefore
+does not get judged against an unrelated/missing generated file, and a second verifier
+workflow with a write-scoped job cannot hide behind a safe canonical workflow.
+
 Local early-layer gaps remain posture findings rather than silently changing the
 existing generated-CI exit contract; hard CI/GitHub validation failures still exit 2.
 

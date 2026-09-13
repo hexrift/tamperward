@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -12,7 +12,7 @@ import {
 } from '../src/verifier-limits';
 import { collectLocalPosture, evaluateGitHubProtection, githubApiInvocation, githubRepoFromRemote, runDoctor } from '../src/cli/doctor';
 import { defaultEventLog, startWatcher } from '../src/cli/watch';
-import { defaultPolicy } from '../src/policy';
+import { defaultPolicy, POLICY_VERSION } from '../src/policy';
 import { loadPolicy } from '../src/policy-load';
 import { runInit } from '../src/cli/init';
 
@@ -50,6 +50,14 @@ function workflow(cwd: string, timeout: string | number | undefined, job = 'ci')
     'tamperward.yml',
     `name: ci\non: pull_request\njobs:\n  ${job}:\n    runs-on: ubuntu-latest\n${timeoutLine}    steps:\n      - run: tamperward verify --base main\n`,
   );
+}
+
+function installedRepo(budget = 300): string {
+  const cwd = repo(budget);
+  execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/project.git'], { cwd });
+  execFileSync('git', ['config', 'user.name', 'acme'], { cwd });
+  expect(runInit({ cwd })).toBe(0);
+  return cwd;
 }
 
 function capture(fn: () => number): { code: number; out: string; err: string } {
@@ -195,6 +203,156 @@ describe('tamperward doctor CI envelope (#331)', () => {
   });
 });
 
+
+
+describe('doctor authority verdict completeness (#318 follow-up)', () => {
+  it('rejects a job-level write permission even when workflow root is contents: read', () => {
+    const cwd = installedRepo();
+    const rel = join(cwd, '.github', 'workflows', 'tamperward.yml');
+    const src = readFileSync(rel, 'utf8');
+    writeFileSync(
+      rel,
+      src.replace(
+        '  tamperward:\n    runs-on: ubuntu-latest\n',
+        '  tamperward:\n    runs-on: ubuntu-latest\n    permissions:\n      contents: write\n',
+      ),
+    );
+
+    const checks = collectLocalPosture(cwd, loadPolicyForTest(cwd));
+    const permissions = checks.find((x) => x.id === 'workflow-permissions');
+    expect(permissions).toMatchObject({ state: 'BROKEN' });
+    expect(permissions?.detail).toMatch(/tamperward.*contents.*write/i);
+  });
+
+  it('keeps a root write grant broken even if the verify job narrows itself', () => {
+    const cwd = installedRepo();
+    const rel = join(cwd, '.github', 'workflows', 'tamperward.yml');
+    const src = readFileSync(rel, 'utf8');
+    writeFileSync(
+      rel,
+      src
+        .replace('permissions:\n  contents: read\n', 'permissions:\n  contents: write\n')
+        .replace(
+          '  tamperward:\n    runs-on: ubuntu-latest\n',
+          '  tamperward:\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n',
+        ),
+    );
+
+    const checks = collectLocalPosture(cwd, loadPolicyForTest(cwd));
+    expect(checks.find((x) => x.id === 'workflow-permissions')).toMatchObject({
+      state: 'BROKEN',
+    });
+  });
+
+  it('cannot certify authority under a policy schema newer than this binary understands', () => {
+    const cwd = installedRepo();
+    writeFileSync(
+      join(cwd, '.tamperward.yml'),
+      `version: ${POLICY_VERSION + 1}\nverify:\n  command: npm test\n  budget: 300\n`,
+    );
+
+    const r = capture(() => runDoctor({ cwd, json: true }));
+    expect(r.code).toBe(0);
+    const doc = JSON.parse(r.out);
+    expect(doc.authoritative).toBe(false);
+    expect(doc.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'policy',
+        state: 'BROKEN',
+        detail: expect.stringMatching(/newer than.*schema/i),
+      }),
+    ]));
+  });
+
+  it('uses an explicit custom workflow consistently for timeout, wiring and permission posture', () => {
+    const cwd = installedRepo();
+    rmSync(join(cwd, '.github', 'workflows', 'tamperward.yml'));
+    writeWorkflow(
+      cwd,
+      'security.yml',
+      [
+        'name: security',
+        'on: pull_request',
+        'permissions:',
+        '  contents: read',
+        'jobs:',
+        '  authority:',
+        '    runs-on: ubuntu-latest',
+        '    timeout-minutes: 70',
+        '    steps:',
+        '      - run: tamperward verify --base main',
+        '',
+      ].join('\n'),
+    );
+
+    const r = capture(() => runDoctor({
+      cwd,
+      workflow: '.github/workflows/security.yml',
+      json: true,
+    }));
+    expect(r.code).toBe(0);
+    const doc = JSON.parse(r.out);
+    expect(doc.authoritative).toBe(true);
+    expect(doc.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'ci-wiring',
+        state: 'OK',
+        detail: expect.stringMatching(/security\.yml/i),
+      }),
+      expect.objectContaining({
+        id: 'workflow-permissions',
+        state: 'OK',
+        detail: expect.stringMatching(/security\.yml/i),
+      }),
+    ]));
+  });
+
+  it('aggregates permissions across every discovered workflow that carries verifier authority', () => {
+    const cwd = installedRepo();
+    writeWorkflow(
+      cwd,
+      'secondary.yml',
+      [
+        'name: secondary',
+        'permissions:',
+        '  contents: read',
+        'jobs:',
+        '  verify-secondary:',
+        '    permissions:',
+        '      contents: write',
+        '    runs-on: ubuntu-latest',
+        '    timeout-minutes: 70',
+        '    steps:',
+        '      - run: tamperward verify --base main',
+        '',
+      ].join('\n'),
+    );
+
+    const r = capture(() => runDoctor({ cwd, json: true }));
+    expect(r.code).toBe(0);
+    const doc = JSON.parse(r.out);
+    expect(doc.authoritative).toBe(false);
+    expect(doc.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'workflow-permissions',
+        state: 'BROKEN',
+        detail: expect.stringMatching(/secondary\.yml.*verify-secondary.*contents.*write/i),
+      }),
+    ]));
+  });
+
+  it('reports a fully installed canonical repository as authoritative in JSON', () => {
+    const cwd = installedRepo();
+    const r = capture(() => runDoctor({ cwd, json: true }));
+    expect(r.code).toBe(0);
+    const doc = JSON.parse(r.out);
+    expect(doc).toMatchObject({
+      command: 'doctor',
+      authoritative: true,
+    });
+    expect(doc.checks.filter((x: any) => x.state === 'BROKEN')).toEqual([]);
+  });
+});
 
 describe('GitHub human-boundary freshness (#332)', () => {
   const healthyRules = [
