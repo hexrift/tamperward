@@ -223,9 +223,31 @@ verifier's `--budget`). A clean timeout is `AGENT_TIMEOUT` / exit 124; enforceme
 cannot-adjudicate still outranks it. **From 2.16.4, `tamperward run` is Linux-only
 for authoritative lifecycle certification.** Windows, macOS and other non-Linux platforms
 fail closed before the agent starts because this release has no OS primitive there that can
-prove the detached execution domain is drained. Standalone `tamperward check` and
-`tamperward verify` remain available on those platforms. Dependency-attestation reuse
-remains disabled on all platforms.
+prove the detached execution domain is drained. From **2.16.5**, checkpointed-local
+`tamperward verify` also has an explicit host-shell contract: Linux, macOS and the
+supported POSIX Node platforms use `/bin/sh -c`; Windows local verification fails closed
+before candidate execution rather than depending on an incidental MSYS/Git-for-Windows
+`sh` on PATH. A digest-pinned container verifier is a separate backend and must pass its
+own Docker authority preflight. Dependency-attestation reuse remains disabled on all
+platforms.
+
+### Platform support
+
+| Capability | Linux | macOS | Windows |
+| --- | --- | --- | --- |
+| `check` / policy evaluation | Supported | Supported | Supported |
+| Claude hook / Stop adapter | Supported where Claude Code command hooks are available | Same | Same |
+| `watch` / observer telemetry | Supported; backend health is reported | Supported/degraded according to `fs.watch` health | Supported/degraded according to `fs.watch` health |
+| checkpointed-local `verify` | Supported via `/bin/sh` | Supported via `/bin/sh` | **Unsupported; fails before candidate execution** |
+| isolated-container `verify` | Supported when Docker authority preflight passes | Not claimed beyond Docker preflight | Not claimed beyond Docker preflight |
+| authoritative `run` | **Supported only with trusted non-root subreaper backend** | **Unsupported; fails before agent start** | **Unsupported; fails before agent start** |
+| CI coverage for this contract | Full suite + platform contract | Platform-contract job | Platform-contract job |
+
+The platform-contract CI job runs on real `ubuntu-latest`, `macos-latest` and
+`windows-latest` hosts. It verifies the declared shell/lifecycle selection and proves
+that Windows local verification refuses before a candidate command can produce a side
+effect. This matrix is intentionally narrower than the Linux adversarial suite; it tests
+the support boundary rather than implying feature parity where none is claimed.
 
 `tamperward verify` materialises two temporary copies — they are **not
 sandboxes**, and both execute agent-controlled code. The visible copy runs the
