@@ -82,6 +82,8 @@ export interface RunEnvelopeOpts {
   observerEntry?: string;
   /** @internal Test-only trusted override for Linux interpreter discovery. Not parsed by the CLI. */
   linuxPythonCandidates?: string[];
+  /** @internal Test-only platform projection for lifecycle preflight. Not parsed by the CLI. */
+  lifecyclePlatformOverride?: NodeJS.Platform;
   /** @internal Test-only fault injection owned by the caller, never read from candidate env. */
   lifecycleTestMode?: 'proc-read-fail' | 'drain-timeout';
   /** @internal Test checkpoint after lifecycle drain and before any adjudication starts. */
@@ -102,6 +104,12 @@ interface AgentRunResult {
   lifecycleOwned: boolean;
   signal?: string | null;
   failure?: string;
+}
+
+export function authoritativeRunLifecyclePlatform(
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return platform === 'linux';
 }
 
 export function canReuseAdjacentDependencyAttestation(
@@ -895,6 +903,16 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
       err('attribute changes. Commit or stash first, or pass --allow-dirty to own the risk.');
       return 2;
     }
+  }
+
+  const lifecyclePlatform = opts.lifecyclePlatformOverride ?? process.platform;
+  if (!authoritativeRunLifecyclePlatform(lifecyclePlatform)) {
+    err(
+      `tamperward run: authoritative agent lifecycle ownership is unavailable on ${lifecyclePlatform}; ` +
+      'this release only certifies run on Linux with the trusted subreaper/ECHILD backend. ' +
+      'Failing closed before the agent starts. Use standalone tamperward check/verify or an isolated execution domain.',
+    );
+    return 2;
   }
 
   // Establish the FINAL verification execution boundary BEFORE the agent is
