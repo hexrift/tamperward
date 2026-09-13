@@ -305,11 +305,15 @@ is the variable list. What remains is stated below.
   regression corpus includes a descendant that calls `setsid()` for both clean
   main-child exit and noisy timeout, and proves the detached PID is gone before
   adjudication continues. This closes #371 for the supported Linux local-backend
-  path. Other platforms retain the explicit weaker lifecycle guarantee: Windows
-  receives child/process-group-equivalent cleanup available to the runtime, but
-  TamperWard does not claim Linux-style `/proc` descendant discovery there. The
-  isolated-container backend remains structurally stronger because container
-  teardown owns the whole container process set.
+  path. From 2.16.5 the local verifier's shell contract is explicit rather than
+  accidental: Linux, macOS and the supported POSIX Node platforms execute the
+  frozen command through `/bin/sh -c`; Windows checkpointed-local verification
+  fails closed **before candidate execution** because TamperWard does not define
+  equivalent `cmd.exe`/PowerShell semantics for an existing POSIX policy string.
+  On non-Linux POSIX hosts process-group cleanup remains weaker than Linux's
+  `/proc` descendant observation and is stated as such. The isolated-container
+  backend remains structurally stronger because container teardown owns the whole
+  container process set and carries its own Docker authority preflight.
 
   **2.11.0 structurally closes the demonstrated #341 class for the isolated
   container backend.** Host `node_modules`/venvs are not mounted; the
