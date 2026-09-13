@@ -436,18 +436,38 @@ function optionDisables(value: ts.Expression): boolean {
   );
 }
 
+function shorthandOptionDisables(
+  prop: ts.ShorthandPropertyAssignment,
+  ctx: AstContext,
+): boolean {
+  const sym = ctx.checker.getShorthandAssignmentValueSymbol(prop) ?? symbolAt(ctx, prop.name);
+  const decl =
+    sym?.valueDeclaration ??
+    sym?.declarations?.find((d): d is ts.VariableDeclaration => ts.isVariableDeclaration(d));
+  if (!decl || !ts.isVariableDeclaration(decl) || !decl.initializer) return true;
+  return optionDisables(decl.initializer);
+}
+
 function semanticSkipHits(ctx: AstContext): SemanticHit[] {
   const runners = importAliases(ctx);
   const strings = topLevelStaticStrings(ctx);
   const hits: SemanticHit[] = [];
   const callOrdinals = new Map<string, number>();
+  const printer = ts.createPrinter({
+    removeComments: true,
+    newLine: ts.NewLineKind.LineFeed,
+  });
 
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node)) {
       const callText = node.getText(ctx.sf).trim();
-      const ordinal = (callOrdinals.get(callText) ?? 0) + 1;
-      callOrdinals.set(callText, ordinal);
-      const callKey = `${callText}\u0000${ordinal}`;
+      // TypeScript's printer normalises trivia/line wrapping, so formatting-only
+      // rewrites retain the same semantic identity while real expression/argument
+      // changes remain distinguishable.
+      const callIdentity = printer.printNode(ts.EmitHint.Unspecified, node, ctx.sf);
+      const ordinal = (callOrdinals.get(callIdentity) ?? 0) + 1;
+      callOrdinals.set(callIdentity, ordinal);
+      const callKey = `${callIdentity}\u0000${ordinal}`;
 
       const chain = runnerChain(node.expression, ctx, runners, strings);
       if (chain) {
@@ -509,6 +529,7 @@ function semanticSkipHits(ctx: AstContext): SemanticHit[] {
                 ts.isShorthandPropertyAssignment(prop) &&
                 ['skip', 'todo', 'only'].includes(prop.name.text)
               ) {
+                if (!shorthandOptionDisables(prop, ctx)) continue;
                 push(prop.name, [], `a { ${prop.name.text} } option that conditionally narrows the test run`);
               }
             }
@@ -543,18 +564,28 @@ function astSkipHits(c: FileChange): { hits: AstHit[]; authoritative: boolean } 
   for (const hit of semanticSkipHits(afterCtx)) {
     const directLine = lineOf(hit.terminalNode);
     let findingLine: number | null = added.has(directLine) ? directLine : null;
+    let causeAttributed = false;
 
     if (findingLine == null) {
       for (const cause of hit.causeNodes) {
         const line = lineOf(cause);
         if (added.has(line)) {
           findingLine = line;
+          causeAttributed = true;
           break;
         }
       }
       if (findingLine == null) continue;
-      if (beforeKeys == null || beforeKeys.has(hit.semanticKey)) continue;
+      // A binding-attributed hit needs a trustworthy BEFORE semantic set;
+      // otherwise we cannot prove the edit introduced the skip/focus meaning.
+      if (beforeKeys == null) continue;
     }
+
+    // Apply BEFORE/AFTER semantic suppression to direct hits too. A formatting-
+    // only rewrite may move ".only" onto a newly-added physical line without
+    // introducing any new suite narrowing.
+    if (beforeKeys?.has(hit.semanticKey)) continue;
+    void causeAttributed;
 
     const dedupe = `${findingLine}\u0000${hit.semanticKey}`;
     if (seen.has(dedupe)) continue;
