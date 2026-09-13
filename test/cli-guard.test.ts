@@ -148,7 +148,8 @@ describe('strict CLI argument boundary (#312)', () => {
     ['doctor missing value', ['doctor', '--base'], /--base needs a value/],
     ['verify missing value', ['verify', '--base'], /--base needs a value/],
     ['trace-verify missing runs', ['trace-verify', '--runs'], /--runs needs a value/],
-    ['trace-verify zero runs', ['trace-verify', '--runs', '0'], /--runs needs a positive number/],
+    ['trace-verify zero runs', ['trace-verify', '--runs', '0'], /--runs needs a positive integer/],
+    ['trace-verify fractional runs', ['trace-verify', '--runs', '1.5'], /--runs needs a positive integer/],
     ['watch missing value', ['watch', '--dir'], /--dir needs a value/],
     ['run missing value', ['run', '--budget', '--', 'true'], /--budget needs a value/],
 
