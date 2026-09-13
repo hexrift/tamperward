@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { canReuseAdjacentDependencyAttestation, runEnvelope, parseRun } from '../src/cli/run';
+import { canReuseAdjacentDependencyAttestation, runEnvelope, parseRun, trustedLinuxPython } from '../src/cli/run';
 import { runVerify } from '../src/cli/verify';
 import { loadPolicy } from '../src/policy-load';
 import { diffWorktree, diffWorktreeWithUntracked } from '../src/git/build';
@@ -269,32 +269,98 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
   // otherwise honest fix is GREEN rather than merely NOT_QUIESCENT.
   it.skipIf(process.platform !== 'linux')('reaps a detached worker that would mutate the tree after the agent exits', () => {
     const cwd = repo(); // failing suite; agent writes the honest fix
-    const code = runEnvelope({
-      cwd,
-      cmd: CMD,
-      argv: sh(
-        `setsid nohup bash -c "sleep 6; echo > test/check.test.js" >/dev/null 2>&1 & ` +
-          `echo "module.exports = 42;" > src.js`,
-      ),
-    });
-    expect(code).toBe(0);
-  });
+    const outside = mkdtempSync(join(tmpdir(), 'tw-run-historical-worker-'));
+    dirs.push(outside);
+    const script = join(outside, 'historical-detached-mutator.sh');
+    const started = join(outside, 'started');
+    writeFileSync(
+      script,
+      [
+        '#!/bin/bash',
+        `touch "${started}"`,
+        'cd /tmp',
+        'sleep 30',
+        `echo > "${join(cwd, 'test', 'check.test.js')}"`,
+        '',
+      ].join('\n'),
+    );
+    chmodSync(script, 0o755);
+
+    try {
+      let checkpointReached = false;
+      const code = runEnvelope({
+        cwd,
+        cmd: CMD,
+        argv: sh(
+          `setsid nohup bash "${script}" >/dev/null 2>&1 & ` +
+            `while [ ! -e "${started}" ]; do sleep 0.005; done; ` +
+            `echo "module.exports = 42;" > src.js`,
+        ),
+        onBeforeAdjudication: () => {
+          checkpointReached = true;
+          expect(readFileSync(started, 'utf8')).toBe('');
+          expect(linuxPidsWithCmdline(script)).toEqual([]);
+        },
+      });
+      expect(checkpointReached).toBe(true);
+      expect(code).toBe(0);
+      expect(linuxPidsWithCmdline(script)).toEqual([]);
+      expect(readFileSync(join(cwd, 'test', 'check.test.js'), 'utf8')).toContain('expected 42');
+    } finally {
+      for (const pid of linuxPidsWithCmdline(script)) {
+        try { process.kill(pid, 'SIGKILL'); } catch { /* expected after fix */ }
+      }
+    }
+  }, 15_000);
 
   it.skipIf(process.platform !== 'linux')('reaps a detached worker that chdirs away while retaining a repository fd', () => {
     const cwd = repo();
-    const code = runEnvelope({
-      cwd,
-      cmd: CMD,
-      argv: sh(
-        `setsid nohup bash -c 'exec 9<"${join(cwd, 'src.js')}"; cd /tmp; sleep 6' >/dev/null 2>&1 & ` +
-          `echo "module.exports = 42;" > src.js`,
-      ),
-    });
-    expect(code).toBe(0);
-  });
+    const outside = mkdtempSync(join(tmpdir(), 'tw-run-historical-fd-'));
+    dirs.push(outside);
+    const script = join(outside, 'historical-fd-holder.sh');
+    const started = join(outside, 'started');
+    writeFileSync(
+      script,
+      [
+        '#!/bin/bash',
+        `touch "${started}"`,
+        `exec 9<"${join(cwd, 'src.js')}"`,
+        'cd /tmp',
+        'sleep 30',
+        '',
+      ].join('\n'),
+    );
+    chmodSync(script, 0o755);
+
+    try {
+      let checkpointReached = false;
+      const code = runEnvelope({
+        cwd,
+        cmd: CMD,
+        argv: sh(
+          `setsid nohup bash "${script}" >/dev/null 2>&1 & ` +
+            `while [ ! -e "${started}" ]; do sleep 0.005; done; ` +
+            `echo "module.exports = 42;" > src.js`,
+        ),
+        onBeforeAdjudication: () => {
+          checkpointReached = true;
+          expect(linuxPidsWithCmdline(script)).toEqual([]);
+        },
+      });
+      expect(checkpointReached).toBe(true);
+      expect(code).toBe(0);
+      expect(linuxPidsWithCmdline(script)).toEqual([]);
+    } finally {
+      for (const pid of linuxPidsWithCmdline(script)) {
+        try { process.kill(pid, 'SIGKILL'); } catch { /* expected after fix */ }
+      }
+    }
+  }, 15_000);
 
   it.skipIf(process.platform !== 'linux')('rejects a forged lifecycle result when the same-UID agent kills its supervisor', () => {
     const cwd = repo(true);
+    const setup = join(cwd, '.forgery-setup');
+    let adjudicationStarted = false;
     const code = runEnvelope({
       cwd,
       cmd: CMD,
@@ -303,19 +369,97 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
           'parent=$PPID',
           'result=$(tr "\\0" "\\n" < "/proc/$parent/cmdline" | grep -E "^/tmp/tw-agent-supervisor-.*/result\\.json$" | head -n1)',
           'test -n "$result"',
+          `touch "${setup}"`,
           'printf %s \'{"exit":0,"timedOut":false,"lifecycleOwned":true}\' > "$result"',
           'kill -9 "$parent"',
           'exit 0',
         ].join('; '),
       ),
+      onBeforeAdjudication: () => { adjudicationStarted = true; },
     });
 
-    // The result path is intentionally discoverable: the security property is
-    // that same-UID file forgery is never trusted without normal supervisor
-    // completion. Killing the subreaper invalidates the record and Linux run
-    // fails closed before adjudication.
+    expect(readFileSync(setup, 'utf8')).toBe('');
     expect(code).toBe(2);
+    expect(adjudicationStarted).toBe(false);
   }, 15_000);
+
+  it.skipIf(process.platform !== 'linux')('ignores candidate PATH/PYTHON* when bootstrapping the lifecycle supervisor', () => {
+    const cwd = repo(true);
+    const fake = join(cwd, 'python3');
+    const marker = join(cwd, '.fake-python-ran');
+    writeFileSync(fake, `#!/bin/sh\ntouch "${marker}"\nexit 99\n`);
+    chmodSync(fake, 0o755);
+    const oldPath = process.env.PATH;
+    const oldPythonPath = process.env.PYTHONPATH;
+    try {
+      process.env.PATH = `${cwd}:${oldPath ?? ''}`;
+      process.env.PYTHONPATH = cwd;
+      expect(trustedLinuxPython().path).toMatch(/^\/(?:usr\/)?bin\/python3/);
+      expect(runEnvelope({ cwd, cmd: CMD, argv: sh('true') })).toBe(0);
+      expect(() => readFileSync(marker)).toThrow();
+    } finally {
+      process.env.PATH = oldPath;
+      if (oldPythonPath === undefined) delete process.env.PYTHONPATH;
+      else process.env.PYTHONPATH = oldPythonPath;
+    }
+  }, 15_000);
+
+  it.skipIf(process.platform !== 'linux')('fails closed before agent side effects when no trusted Python supervisor is available', () => {
+    const cwd = repo(true);
+    const marker = join(cwd, 'agent-ran');
+    let adjudicationStarted = false;
+    const code = runEnvelope({
+      cwd,
+      cmd: CMD,
+      argv: sh('touch agent-ran'),
+      linuxPythonCandidates: [],
+      onBeforeAdjudication: () => { adjudicationStarted = true; },
+    });
+    expect(code).toBe(2);
+    expect(() => readFileSync(marker)).toThrow();
+    expect(adjudicationStarted).toBe(false);
+  });
+
+  it.skipIf(process.platform !== 'linux')('fails closed when adopted-child observation cannot be read', () => {
+    const cwd = repo(true);
+    const outside = mkdtempSync(join(tmpdir(), 'tw-run-proc-fail-'));
+    dirs.push(outside);
+    const script = join(outside, 'proc-fail-descendant.sh');
+    const started = join(outside, 'started');
+    writeFileSync(script, ['#!/bin/sh', `touch "${started}"`, 'cd /tmp', 'sleep 30', ''].join('\n'));
+    chmodSync(script, 0o755);
+    let adjudicationStarted = false;
+    try {
+      const code = runEnvelope({
+        cwd,
+        cmd: CMD,
+        argv: sh(`setsid -f "${script}"; while [ ! -e "${started}" ]; do sleep 0.005; done`),
+        lifecycleTestMode: 'proc-read-fail',
+        onBeforeAdjudication: () => { adjudicationStarted = true; },
+      });
+      expect(readFileSync(started, 'utf8')).toBe('');
+      expect(code).toBe(2);
+      expect(adjudicationStarted).toBe(false);
+    } finally {
+      for (const pid of linuxPidsWithCmdline(script)) {
+        try { process.kill(pid, 'SIGKILL'); } catch { /* fail-closed fixture cleanup */ }
+      }
+    }
+  }, 15_000);
+
+  it.skipIf(process.platform !== 'linux')('fails closed when the lifecycle domain cannot be authoritatively drained', () => {
+    const cwd = repo(true);
+    let adjudicationStarted = false;
+    const code = runEnvelope({
+      cwd,
+      cmd: CMD,
+      argv: sh('true'),
+      lifecycleTestMode: 'drain-timeout',
+      onBeforeAdjudication: () => { adjudicationStarted = true; },
+    });
+    expect(code).toBe(2);
+    expect(adjudicationStarted).toBe(false);
+  });
 
   it.skipIf(process.platform !== 'linux')('owns a fast setsid --fork descendant that reparents before user-space polling could observe it', () => {
     const cwd = repo(true);
@@ -427,15 +571,65 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
     expect(runEnvelope({ cwd, cmd: CMD, argv: sh('echo "module.exports = 42;" > src.js') })).toBe(0);
   });
 
-  it('a mutation landing DURING adjudication is caught by the fingerprint guard', () => {
+  it.skipIf(process.platform !== 'linux')('Linux kills the would-be DURING-adjudication mutator before adjudication starts', () => {
     const cwd = repo();
-    const code = runEnvelope({
-      cwd,
-      cmd: CMD,
-      argv: sh(`setsid nohup bash -c "sleep 1; echo > test/check.test.js" >/dev/null 2>&1 & echo "module.exports = 42;" > src.js`),
-    });
-    expect(code).toBe(1);
-  });
+    const outside = mkdtempSync(join(tmpdir(), 'tw-run-during-adjudication-'));
+    dirs.push(outside);
+    const script = join(outside, 'during-adjudication-mutator.sh');
+    const started = join(outside, 'started');
+    writeFileSync(
+      script,
+      [
+        '#!/bin/bash',
+        `touch "${started}"`,
+        'cd /tmp',
+        'sleep 30',
+        `echo > "${join(cwd, 'test', 'check.test.js')}"`,
+        '',
+      ].join('\n'),
+    );
+    chmodSync(script, 0o755);
+    try {
+      let checkpointReached = false;
+      const code = runEnvelope({
+        cwd,
+        cmd: CMD,
+        argv: sh(
+          `setsid nohup bash "${script}" >/dev/null 2>&1 & ` +
+            `while [ ! -e "${started}" ]; do sleep 0.005; done; ` +
+            `echo "module.exports = 42;" > src.js`,
+        ),
+        onBeforeAdjudication: () => {
+          checkpointReached = true;
+          expect(linuxPidsWithCmdline(script)).toEqual([]);
+        },
+      });
+      expect(checkpointReached).toBe(true);
+      expect(code).toBe(0);
+      expect(readFileSync(join(cwd, 'test', 'check.test.js'), 'utf8')).toContain('expected 42');
+    } finally {
+      for (const pid of linuxPidsWithCmdline(script)) {
+        try { process.kill(pid, 'SIGKILL'); } catch { /* expected after fix */ }
+      }
+    }
+  }, 15_000);
+
+  it.skipIf(process.platform === 'linux' || process.platform === 'win32')(
+    'unsupported POSIX lifecycle backends retain the historical fail-closed fingerprint control',
+    () => {
+      const cwd = repo();
+      const code = runEnvelope({
+        cwd,
+        cmd: CMD,
+        argv: sh(
+          `setsid nohup bash -c "sleep 1; echo > test/check.test.js" >/dev/null 2>&1 & ` +
+            `echo "module.exports = 42;" > src.js`,
+        ),
+      });
+      expect(code).toBe(1);
+    },
+    15_000,
+  );
 });
 
 describe('P0-6: the suite runner lives outside every git view', () => {
