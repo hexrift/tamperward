@@ -5,18 +5,19 @@
 > through — the agent loop, pre-commit, the run envelope, pristine verification,
 > and protected CI authority.
 
-**Implementation status:** TamperWard 2.17.x
+**Implementation status:** TamperWard 2.18.x
 
 **Current supported surface:** JavaScript/TypeScript · Python · Go · Rust · Ruby ·
 JVM · PHP · .NET test/skip/suppression/config patterns; Claude Code hook + Stop
 sweep; git pre-commit; protected CI; pristine visible/pristine re-execution;
 `tamperward run` lifecycle ownership; optional transient observation; and
-`tamperward doctor` installation/authority diagnostics. The seventeen-row rule
+`tamperward doctor` installation/authority diagnostics; and Linux-only advisory
+`tamperward trace-verify` observed-input discovery. The seventeen-row rule
 table remains the canonical detector/enforcement taxonomy: fifteen mechanical
 rows ship, `assertion-weakening` now ships as a measured warning-only heuristic,
 and `guard-removal` remains reserved and unbuilt.
 
-v0.9 reconciles the live architecture narrative with the 2.17.x implementation.
+v0.9 reconciles the live architecture narrative with the 2.18.x implementation.
 It does **not** rewrite the historical research record below: earlier v0.x
 revision notes, taskbench claims and old finding IDs remain dated evidence. The
 current security-residual index lives in `SECURITY-ENVELOPE.md`; detailed
