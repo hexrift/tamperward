@@ -369,6 +369,18 @@ restored `"test": "sh scripts/test.sh"` will happily call a script nothing
 restored. It bounds the class rather than closing it — see
 [the threat model](./docs/THREAT-MODEL-pristine-run.md).
 
+From **2.16.0**, verifier suite output is diagnostic evidence instead of discarded
+noise. Both visible and pristine stages continuously drain stdout/stderr through a
+trusted supervisor, retain only the final **16 KiB per stream**, and count the total
+bytes observed. Structured output exposes this under
+`visible.diagnostics` / `pristine.diagnostics` with
+`captured_bytes`, `retained_bytes`, `truncated`, and a bounded `tail` on a
+failed stage. Default human output remains quiet on success. On failure, retained
+diagnostics are rendered with every line prefixed and terminal/control characters
+escaped, so candidate output cannot become ANSI control traffic or a GitHub
+`::command::`. These bytes are evidence produced by candidate code; they never own
+the verifier verdict.
+
 The four primitives:
 
 ```bash
