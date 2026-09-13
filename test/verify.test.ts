@@ -506,3 +506,98 @@ describe('parseVerify', () => {
     });
   });
 });
+
+
+describe('verify diagnostics (#319)', () => {
+  it('captures bounded visible/pristine stdout/stderr metadata in JSON on failure', () => {
+    const cwd = repo();
+    writeFileSync(
+      join(cwd, 'test', 'check.test.js'),
+      [
+        "process.stdout.write('visible-out\\n');",
+        "process.stderr.write('expected 42, got 41\\n');",
+        'process.exit(1);',
+        '',
+      ].join('\n'),
+    );
+
+    const r = capture(() => runVerify({ cwd, cmd: CMD, budget: 30, json: true }));
+    expect(r.code).toBe(1);
+    expect(r.json.verdict).toBe('SUITE_RED');
+    expect(r.json.visible).toMatchObject({
+      exit: 1,
+      diagnostics: {
+        stdout: { truncated: false },
+        stderr: { truncated: false },
+      },
+    });
+    expect((r.json.visible as any).diagnostics.stdout.captured_bytes).toBeGreaterThan(0);
+    expect((r.json.visible as any).diagnostics.stderr.captured_bytes).toBeGreaterThan(0);
+    expect((r.json.visible as any).diagnostics.stdout.tail).toContain('visible-out');
+    expect((r.json.visible as any).diagnostics.stderr.tail).toContain('expected 42');
+  });
+
+  it('drains noisy output but retains only a strict bounded tail', () => {
+    const cwd = repo();
+    const noisy =
+      `node -e "process.stdout.write('A'.repeat(200000)); process.stderr.write('B'.repeat(200000)); process.exit(1)"`;
+    const r = capture(() => runVerify({ cwd, cmd: noisy, budget: 30, json: true }));
+    expect(r.code).toBe(1);
+    const d = (r.json.visible as any).diagnostics;
+    expect(d.stdout.captured_bytes).toBe(200000);
+    expect(d.stderr.captured_bytes).toBe(200000);
+    expect(d.stdout.truncated).toBe(true);
+    expect(d.stderr.truncated).toBe(true);
+    expect(Buffer.byteLength(d.stdout.tail, 'utf8')).toBeLessThanOrEqual(16384);
+    expect(Buffer.byteLength(d.stderr.tail, 'utf8')).toBeLessThanOrEqual(16384);
+  });
+
+  it('scrubs terminal/workflow control characters before rendering failure diagnostics', () => {
+    const cwd = repo();
+    const chunks: string[] = [];
+    const orig = process.stdout.write;
+    process.stdout.write = ((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const code = runVerify({
+        cwd,
+        cmd: `node -e "process.stderr.write('\\x1b[31m::error::boom\\rX\\n'); process.exit(1)"`,
+        budget: 30,
+      });
+      expect(code).toBe(1);
+    } finally {
+      process.stdout.write = orig;
+    }
+    const rendered = chunks.join('');
+    expect(rendered).toContain('suite stderr');
+    expect(rendered).toContain('\\x1b');
+    expect(rendered).toContain('\\r');
+    expect(rendered).not.toContain('\x1b[31m');
+    expect(rendered.split('\n').some((line) => line.startsWith('::error::'))).toBe(false);
+  });
+
+  it('keeps successful suite output out of default human output', () => {
+    const cwd = repo();
+    writeFileSync(join(cwd, 'src.js'), 'module.exports = 42;\n');
+    const chunks: string[] = [];
+    const orig = process.stdout.write;
+    process.stdout.write = ((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      expect(
+        runVerify({
+          cwd,
+          cmd: `node -e "console.log('SHOULD_NOT_RENDER_ON_SUCCESS'); process.exit(0)"`,
+          budget: 30,
+        }),
+      ).toBe(0);
+    } finally {
+      process.stdout.write = orig;
+    }
+    expect(chunks.join('')).not.toContain('SHOULD_NOT_RENDER_ON_SUCCESS');
+  });
+});
