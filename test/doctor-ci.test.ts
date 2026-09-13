@@ -522,6 +522,18 @@ describe('doctor lifecycle backend posture (#376/#379)', () => {
     });
   });
 
+  it('surfaces Linux root/euid-0 as an explicit BROKEN operator diagnostic', () => {
+    const check = lifecyclePlatformCheck('linux', {
+      path: null,
+      reason:
+        'Linux lifecycle supervision is unavailable when TamperWard runs as root/euid 0; same-UID separation cannot trust any system interpreter path',
+    });
+    expect(check.state).toBe('BROKEN');
+    expect(check.detail).toMatch(/root\/euid 0/i);
+    expect(check.detail).toMatch(/same-UID separation/i);
+    expect(check.detail).not.toMatch(/missing python/i);
+  });
+
   it('does not advertise the Linux lifecycle boundary on unsupported platforms', () => {
     const mac = lifecyclePlatformCheck('darwin', null);
     expect(mac.state).toBe('WARN');
