@@ -52,9 +52,29 @@ function scriptKind(path: string): ts.ScriptKind {
   return ts.ScriptKind.JS;
 }
 
-function outOfBudget(path: string, ...contents: Array<string | null>): boolean {
+/** Whether the file is outside the budget. Path rules apply to every file. The
+ *  generated-header rule reads only the TRUSTED side: a header the candidate
+ *  adds in the same change is candidate-controlled and must not exempt the
+ *  assertions it adds beside it, and a newly added file's own header is not
+ *  evidence of anything — only its path can exempt it. */
+function outOfBudget(path: string, before: string | null): boolean {
   if (DECLARATION.test(path) || OUT_OF_BUDGET_PATH.test(path)) return true;
-  return contents.some((c) => c != null && GENERATED_HEADER.test(c.split('\n', HEADER_LINES).join('\n')));
+  return before != null && GENERATED_HEADER.test(before.split('\n', HEADER_LINES).join('\n'));
+}
+
+/** `x` with any `(…)` wrappers removed, so `(raw as unknown) as T` reads as
+ *  the same double cast as `raw as unknown as T`. */
+function unparenthesized(e: ts.Expression): ts.Expression {
+  let x = e;
+  while (ts.isParenthesizedExpression(x)) x = x.expression;
+  return x;
+}
+
+/** Row 4's double cast: an assertion whose operand is itself an assertion to
+ *  `unknown`, parentheses notwithstanding. */
+export function isDoubleCast(node: ts.AsExpression | ts.TypeAssertion): boolean {
+  const inner = unparenthesized(node.expression);
+  return (ts.isAsExpression(inner) || ts.isTypeAssertionExpression(inner)) && inner.type.kind === ts.SyntaxKind.UnknownKeyword;
 }
 
 interface Assertion {
@@ -97,13 +117,10 @@ function surfaceOf(path: string, src: string): Surface | null {
     return ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName) && type.typeName.text === 'const';
   };
   const visit = (node: ts.Node): void => {
-    if (ts.isAsExpression(node)) {
-      // `x as unknown as T`: the outer assertion is row 4's double cast, not
-      // an ordinary narrowing — leave the whole chain to ts-any-cast.
-      const inner = ts.isAsExpression(node.expression) && node.expression.type.kind === ts.SyntaxKind.UnknownKeyword;
-      if (!inner && !isRow4OrHonest(node.type)) record('type', node);
-    } else if (ts.isTypeAssertionExpression(node)) {
-      if (!isRow4OrHonest(node.type)) record('type', node);
+    if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
+      // `x as unknown as T` (parenthesised or not): the outer assertion is
+      // row 4's double cast, not an ordinary narrowing — leave it to ts-any-cast.
+      if (!isDoubleCast(node) && !isRow4OrHonest(node.type)) record('type', node);
     } else if (ts.isNonNullExpression(node)) {
       record('non-null', node);
     }
@@ -121,7 +138,7 @@ export const tsCastGrowth: Detector = {
     const out: Finding[] = [];
     for (const c of changes) {
       if (c.kind !== 'file' || c.op === 'delete' || c.after == null) continue;
-      if (!isCodeFile(c.path) || outOfBudget(c.path, c.before, c.after)) continue;
+      if (!isCodeFile(c.path) || outOfBudget(c.path, c.before)) continue;
       if (protectedCategory(c.path, policy) === 'tests') continue;
 
       const after = surfaceOf(c.path, c.after);
@@ -132,11 +149,20 @@ export const tsCastGrowth: Detector = {
       const dNonNull = after.nonNull - before.nonNull;
       if (dType <= 0 && dNonNull <= 0) continue;
 
-      // Point at the first assertion whose spelling was not there before —
-      // the one a reviewer will want to look at first.
-      const known = new Set(before.assertions.map((a) => a.text));
+      // Point at the first assertion that is a genuinely new OCCURRENCE: each
+      // BEFORE spelling consumes one AFTER occurrence, so a second identical
+      // assertion is reported at its own line, not at the unchanged first one.
+      const budget = new Map<string, number>();
+      for (const a of before.assertions) budget.set(a.text, (budget.get(a.text) ?? 0) + 1);
       const grownKinds = new Set<Assertion['kind']>([...(dType > 0 ? ['type' as const] : []), ...(dNonNull > 0 ? ['non-null' as const] : [])]);
-      const first = after.assertions.find((a) => grownKinds.has(a.kind) && !known.has(a.text)) ?? after.assertions.find((a) => grownKinds.has(a.kind));
+      const first = after.assertions.find((a) => {
+        const left = budget.get(a.text) ?? 0;
+        if (left > 0) {
+          budget.set(a.text, left - 1);
+          return false;
+        }
+        return grownKinds.has(a.kind);
+      }) ?? after.assertions.find((a) => grownKinds.has(a.kind));
 
       const parts: string[] = [];
       if (dType > 0) parts.push(`+${dType} type assertion${dType === 1 ? '' : 's'} (\`as T\` / \`<T>x\`)`);

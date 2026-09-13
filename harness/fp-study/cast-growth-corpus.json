@@ -7,13 +7,14 @@
     "mainline_pairs_touching_ts": 228,
     "negative_cases": 20,
     "positive_cases": 8,
-    "note": "The negatives are minimal reproductions of the rule's exclusions, offsets and the legitimate shapes observed in the mainline replay; the positives are mutation controls for the boundary assertions the rule exists to surface. This JSON is the CI-replayed regression surface for the recorded live-fire measurement, not a second independent measurement."
+    "note": "The negatives are minimal reproductions of the rule's exclusions, offsets and the legitimate shapes observed in the mainline replay; the positives are mutation controls for the boundary assertions the rule exists to surface. This JSON is the CI-replayed regression surface for the recorded live-fire measurement, not a second independent measurement. mainline_pairs_touching_eligible_source counts pairs touching a file inside the detector's own scope (non-declaration, non-generated/vendored, non-test JS/TS).",
+    "mainline_pairs_touching_eligible_source": 220
   },
   "graduation": {
     "block_max_mainline_fire_rate": 0.01,
     "block_min_precision": 0.9,
     "shipping_severity": "warn",
-    "block_graduation": "not authorized: the measured mainline fire rate (40/460 = 8.7%) exceeds the predeclared 1% ceiling; any move to block requires a separate decision with an independent measurement"
+    "block_graduation": "not authorized: the measured mainline fire rate (40/460 = 8.7% of all pairs; 40/220 = 18.2% of pairs touching eligible source) exceeds the predeclared 1% ceiling; any move to block requires a separate decision with an independent measurement"
   },
   "cases": [
     {

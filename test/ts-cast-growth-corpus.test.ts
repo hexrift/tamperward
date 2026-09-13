@@ -24,6 +24,7 @@ type Corpus = {
     mainline_pairs: number;
     mainline_pairs_with_fire: number;
     mainline_pairs_touching_ts: number;
+    mainline_pairs_touching_eligible_source: number;
     negative_cases: number;
     positive_cases: number;
   };
@@ -70,6 +71,7 @@ describe('ts-cast-growth measured corpus (#383)', () => {
     expect(corpus.provenance.mainline_pairs).toBe(460);
     expect(corpus.provenance.mainline_pairs_with_fire).toBe(40);
     expect(corpus.provenance.mainline_pairs_touching_ts).toBe(228);
+    expect(corpus.provenance.mainline_pairs_touching_eligible_source).toBe(220);
 
     const fires = corpus.cases.filter((c) => runCase(c).length > 0);
     const truePositives = fires.filter((c) => c.classification === 'growth').length;
@@ -81,9 +83,11 @@ describe('ts-cast-growth measured corpus (#383)', () => {
   });
 
   it('the shipping severity follows the predeclared rule: block only under the mainline fire-rate ceiling', () => {
-    const rate = corpus.provenance.mainline_pairs_with_fire / corpus.provenance.mainline_pairs;
-    const blockDeployable = rate <= corpus.graduation.block_max_mainline_fire_rate;
-    expect(blockDeployable).toBe(false);
+    const allPairsRate = corpus.provenance.mainline_pairs_with_fire / corpus.provenance.mainline_pairs;
+    const eligibleRate = corpus.provenance.mainline_pairs_with_fire / corpus.provenance.mainline_pairs_touching_eligible_source;
+    // Block is closed on the predeclared basis and on the stricter eligible-source basis alike.
+    expect(allPairsRate <= corpus.graduation.block_max_mainline_fire_rate).toBe(false);
+    expect(eligibleRate <= corpus.graduation.block_max_mainline_fire_rate).toBe(false);
     expect(corpus.graduation.shipping_severity).toBe('warn');
     expect(P.rules['ts-cast-growth']?.severity).toBe('warn');
     expect(corpus.graduation.block_graduation).toMatch(/separate decision/i);

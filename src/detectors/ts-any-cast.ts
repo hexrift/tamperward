@@ -25,6 +25,7 @@ import { addedLines } from '../diff/select';
 import { protectedCategory } from '../policy';
 import { isCodeFile } from './files';
 import { makeFinding } from './finding';
+import { isDoubleCast } from './ts-cast-growth';
 
 const BLOCK_RULE = 'ts-any-cast';
 const WARN_RULE = 'ts-any-launder';
@@ -41,15 +42,19 @@ const countMatches = (s: string, re: RegExp): number => (s.match(re) || []).leng
 interface AnyCounts {
   cast: number; // `as any` / `<any>` — an explicit cast TO any (unambiguous escape)
   broad: number; // any in any other position (`: any`, generic <…any…>) — common in legit code
+  double: number; // `x as unknown as T`, parenthesised or not — the laundering double cast
 }
 
 /** Count `any`-as-a-type AST nodes, classified by whether they are an explicit cast to `any`
  *  (parent is an `as`/`<>` assertion whose target type IS the `any`) vs any other position. */
 function countAny(src: string): AnyCounts {
-  const r: AnyCounts = { cast: 0, broad: 0 };
+  const r: AnyCounts = { cast: 0, broad: 0, double: 0 };
   try {
     const sf = ts.createSourceFile('f.ts', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
     const visit = (node: ts.Node): void => {
+      // The double cast is structural: `(raw as unknown) as T` is the same
+      // escape as `raw as unknown as T`, whatever the text regex sees.
+      if ((ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) && isDoubleCast(node)) r.double++;
       if (node.kind === ts.SyntaxKind.AnyKeyword) {
         // `x as (any)` parents the keyword under a ParenthesizedType; the cast is the
         // same, so unwrap the parens before asking what the target type is.
@@ -102,7 +107,7 @@ export const tsAnyCast: Detector = {
         const b = countAny(before);
         const dCast = a.cast - b.cast;
         const dBroad = a.broad - b.broad;
-        const dDouble = countMatches(c.after, DOUBLE_CAST) - countMatches(before, DOUBLE_CAST);
+        const dDouble = Math.max(a.double - b.double, countMatches(c.after, DOUBLE_CAST) - countMatches(before, DOUBLE_CAST));
         const dSuppr = countMatches(c.after, SUPPRESS) - countMatches(before, SUPPRESS);
         const dJsdoc = JS_FILE.test(c.path) ? countMatches(c.after, JSDOC_ANY_CAST) - countMatches(before, JSDOC_ANY_CAST) : 0;
 

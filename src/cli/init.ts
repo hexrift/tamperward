@@ -290,8 +290,11 @@ function readWorkflowMark(src: string): { version: string; hash: string; body: s
   return { version: m[1], hash: m[2], body: src.replace(WORKFLOW_MARK_RE, '') };
 }
 
-interface HookEntry { type?: string; command?: string }
-interface HookMatcher { matcher?: string; hooks?: HookEntry[] }
+// The fields TamperWard reads or writes are named; everything else a user put on
+// a matcher or entry is carried as-is — init merges its two hooks in and must
+// preserve the rest byte-for-byte (`description`, `timeout`, anything newer).
+interface HookEntry { type?: unknown; command?: unknown; [key: string]: unknown }
+interface HookMatcher { matcher?: unknown; hooks?: HookEntry[]; [key: string]: unknown }
 interface ClaudeSettings {
   hooks?: Record<string, HookMatcher[] | undefined>;
   [key: string]: unknown;
@@ -302,39 +305,26 @@ interface ClaudeSettings {
  *  matcher of letters, digits, `_`, `-`, spaces, `,` and `|` as an exact list
  *  separated by `|` or `,` with optional surrounding whitespace, so `Edit, Write`
  *  is the same list as `Edit|Write`. */
-function toolSet(matcher: string | undefined): Set<string> | null {
+function toolSet(matcher: unknown): Set<string> | null {
   const m = String(matcher ?? '').trim();
   if (m === '' || m === '*') return null;
   return new Set(m.split(/[|,]/).map((t) => t.trim()).filter(Boolean));
 }
 
 /** Tools PRE_MATCHER requires that this matcher does not select. */
-function missingTools(matcher: string | undefined): string[] {
+function missingTools(matcher: unknown): string[] {
   const have = toolSet(matcher);
   if (have === null) return []; // matches every tool: nothing is missing
   return PRE_MATCHER.split('|').filter((t) => !have.has(t));
 }
 
 /** Why `hooks` is not the shape Claude Code reads, or null when it is. */
-/** The hooks mapping once hooksShapeError has passed it: each event's list is
- *  rebuilt from the checked fields, so the typed view holds by construction. */
-function hooksOf(hooks: unknown): ClaudeSettings['hooks'] {
-  if (!isPlainObject(hooks)) return undefined;
-  const out: NonNullable<ClaudeSettings['hooks']> = {};
-  for (const [event, arr] of Object.entries(hooks)) {
-    if (!Array.isArray(arr)) continue;
-    out[event] = arr.flatMap((m): HookMatcher[] => {
-      if (!isPlainObject(m)) return [];
-      const entries = Array.isArray(m.hooks)
-        ? m.hooks.flatMap((h): HookEntry[] => (isPlainObject(h) ? [{
-            ...(typeof h.type === 'string' ? { type: h.type } : {}),
-            ...(typeof h.command === 'string' ? { command: h.command } : {}),
-          }] : []))
-        : undefined;
-      return [{ ...(typeof m.matcher === 'string' ? { matcher: m.matcher } : {}), ...(entries ? { hooks: entries } : {}) }];
-    });
-  }
-  return out;
+/** The shape check as a type predicate: what hooksShapeError accepts IS the
+ *  typed mapping (every matcher an object, every entry list a list of objects;
+ *  the named fields are read tolerantly). The original objects are kept, so
+ *  nothing a user put beside our fields is lost when init rewrites the file. */
+function isHooksShape(hooks: unknown): hooks is ClaudeSettings['hooks'] | null {
+  return hooksShapeError(hooks) === null;
 }
 
 function hooksShapeError(hooks: unknown): string | null {
@@ -487,10 +477,10 @@ function planClaudeHooks(cwd: string): Action {
     // Anything else used to throw halfway through apply (after the policy was already
     // written) — planned here, so a malformed file is an error row and nothing else.
     const shapeError = hooksShapeError(parsed.hooks);
-    if (shapeError) {
-      return { item: 'agent', path: rel, status: 'error', detail: `${shapeError} — fix it, then re-run init (refusing to overwrite)` };
+    if (shapeError || !isHooksShape(parsed.hooks)) {
+      return { item: 'agent', path: rel, status: 'error', detail: `${shapeError ?? 'hooks is not the shape Claude Code reads'} — fix it, then re-run init (refusing to overwrite)` };
     }
-    settings = { ...parsed, hooks: hooksOf(parsed.hooks) };
+    settings = { ...parsed, hooks: parsed.hooks ?? undefined };
   }
 
   const hooks = (settings.hooks ??= {});

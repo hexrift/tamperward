@@ -49,6 +49,11 @@ let pairs = 0;
 let pairsWithFire = 0;
 let fires = 0;
 let tsPairs = 0;
+let eligiblePairs = 0;
+const ELIGIBLE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
+const DECLARATION = /\.d\.(?:ts|mts|cts)$/;
+const OUT_OF_BUDGET = /(?:^|\/)(?:node_modules|vendor|third_party|dist|build|generated|__generated__)\/|\.(?:generated|gen)\.[cm]?[jt]sx?$/;
+const TEST_FILE = /\.(?:test|spec)\.(?:ts|tsx|cts|mts|js|jsx|cjs|mjs)$|(?:^|\/)__tests__\//;
 const files = new Set();
 
 for (let i = 1; i < commits.length; i++) {
@@ -56,9 +61,14 @@ for (let i = 1; i < commits.length; i++) {
   const head = commits[i];
   const touched = git('diff', '--name-only', `${base}...${head}`).trim().split('\n').filter(Boolean);
   const touchesTs = touched.some((f) => /\.(?:ts|tsx|mts|cts)$/.test(f) && !/\.d\.[cm]?ts$/.test(f));
+  // The detector's own eligible surface: a code file that is not a declaration,
+  // not on a generated/vendored path and not a protected test file under the
+  // default policy. This is the denominator on which the rule actually runs.
+  const touchesEligible = touched.some((f) => ELIGIBLE.test(f) && !DECLARATION.test(f) && !OUT_OF_BUDGET.test(f) && !TEST_FILE.test(f));
   const doc = verdict(base, head);
   pairs++;
   if (touchesTs) tsPairs++;
+  if (touchesEligible) eligiblePairs++;
   const hits = (doc.findings || []).filter((f) => f.rule === 'ts-cast-growth');
   if (hits.length) pairsWithFire++;
   for (const f of hits) {
@@ -88,9 +98,11 @@ console.log(
     corpus_head: commits[commits.length - 1],
     pairs,
     pairs_touching_ts: tsPairs,
+    pairs_touching_eligible_source: eligiblePairs,
     pairs_with_fire: pairsWithFire,
     fire_rate_all_pairs: pairs ? Number((pairsWithFire / pairs).toFixed(4)) : 0,
     fire_rate_ts_pairs: tsPairs ? Number((pairsWithFire / tsPairs).toFixed(4)) : 0,
+    fire_rate_eligible_pairs: eligiblePairs ? Number((pairsWithFire / eligiblePairs).toFixed(4)) : 0,
     findings: fires,
     files_flagged: files.size,
   }),

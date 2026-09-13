@@ -373,3 +373,33 @@ describe('generated artifacts are valid', () => {
     expect(wf.jobs.tamperward['timeout-minutes']).toBe(360);
   });
 });
+
+describe('foreign fields on existing Claude hook objects survive a TamperWard rewrite (#383)', () => {
+  it('keeps unknown matcher and entry properties structure-equivalent while adding our two hooks', () => {
+    const d = repo();
+    mkdirSync(join(d, '.claude'), { recursive: true });
+    const theirs = {
+      permissions: { allow: ['Bash(npm test)'] },
+      hooks: {
+        PreToolUse: [{
+          matcher: 'Bash',
+          description: 'keep me',
+          hooks: [{ type: 'command', command: './my-hook', timeout: 30, env: { KEEP: '1' } }],
+        }],
+        PostToolUse: [{ matcher: 'Edit', hooks: [{ type: 'command', command: './after', async: true }] }],
+      },
+    };
+    writeFileSync(join(d, '.claude', 'settings.json'), JSON.stringify(theirs, null, 2) + '\n');
+    apply(d);
+    const after = JSON.parse(readFileSync(join(d, '.claude', 'settings.json'), 'utf8'));
+    // everything they wrote is still there, structure-equivalent
+    expect(after.permissions).toEqual(theirs.permissions);
+    expect(after.hooks.PreToolUse[0]).toEqual(theirs.hooks.PreToolUse[0]);
+    expect(after.hooks.PostToolUse).toEqual(theirs.hooks.PostToolUse);
+    // and ours were merged in beside it
+    const commands = (after.hooks.PreToolUse as Array<{ hooks: Array<{ command: string }> }>).flatMap((m) => m.hooks.map((h) => h.command));
+    expect(commands).toContain(HOOK_CMD);
+    expect((after.hooks.Stop as Array<{ hooks: Array<{ command: string }> }>).flatMap((m) => m.hooks.map((h) => h.command))).toContain(SWEEP_CMD);
+    expect(after.disableAllHooks).toBe(false);
+  });
+});
