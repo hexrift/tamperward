@@ -921,10 +921,14 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
 
   const lifecyclePlatform = opts.lifecyclePlatformOverride ?? process.platform;
   if (!authoritativeRunLifecyclePlatform(lifecyclePlatform)) {
+    const alternative =
+      lifecyclePlatform === 'win32'
+        ? 'Use standalone tamperward check; checkpointed-local verify is unsupported on Windows, while container verify must pass its own Docker authority preflight.'
+        : 'Use standalone tamperward check/verify or an isolated execution domain.';
     err(
       `tamperward run: authoritative agent lifecycle ownership is unavailable on ${lifecyclePlatform}; ` +
       'this release only certifies run on Linux with the trusted subreaper/ECHILD backend. ' +
-      'Failing closed before the agent starts. Use standalone tamperward check/verify or an isolated execution domain.',
+      `Failing closed before the agent starts. ${alternative}`,
     );
     return 2;
   }
