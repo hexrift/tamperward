@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { parse } from 'yaml';
 import { localVerifierShell, runVerify } from '../src/cli/verify';
 import { authoritativeRunLifecyclePlatform, waitForSettleSync } from '../src/cli/run';
 
@@ -59,5 +60,19 @@ describe('platform execution contract (#326)', () => {
 
     expect(existsSync(marker)).toBe(false);
     expect(output).toMatch(/LOCAL_VERIFIER_UNSUPPORTED_PLATFORM/);
+  });
+
+
+  it('keeps a real Linux/macOS/Windows platform-contract job under the final gate', () => {
+    const workflow = parse(
+      readFileSync(join(__dirname, '..', '.github', 'workflows', 'ci.yml'), 'utf8'),
+    ) as any;
+    expect(workflow.jobs['platform-contract'].strategy.matrix.os).toEqual([
+      'ubuntu-latest',
+      'macos-latest',
+      'windows-latest',
+    ]);
+    const needs = workflow.jobs.gate.needs;
+    expect(needs).toContain('platform-contract');
   });
 });
