@@ -217,7 +217,9 @@ adds an operator-owned wall-clock boundary around the same lifecycle (separate f
 verifier's `--budget`). A clean timeout is `AGENT_TIMEOUT` / exit 124; enforcement or
 cannot-adjudicate still outranks it. Windows retains `taskkill /T /F`; other non-Linux
 platforms retain process-group/fingerprint/quiescence safeguards but do not claim the Linux
-subreaper boundary. Dependency-attestation reuse remains disabled on all platforms.
+subreaper boundary. A detached process that escapes those weaker platform controls remains
+an explicit residual tracked in **#379**, not part of the Linux guarantee.
+Dependency-attestation reuse remains disabled on all platforms.
 
 `tamperward verify` materialises two temporary copies — they are **not
 sandboxes**, and both execute agent-controlled code. The visible copy runs the
