@@ -5,6 +5,10 @@ export default defineConfig({
     // Scrubs the GitHub Actions variables so fixture verdicts never reach a real job
     // summary (see test/setup.ts).
     setupFiles: ['test/setup.ts'],
+    // Runs once in the main process: when the suite runs as Linux root/euid 0 it prints
+    // the one explanation for the envelope tests being skipped (see test/rootless.ts).
+    // Unprivileged runs write nothing.
+    globalSetup: ['test/global-setup.ts'],
     // harness/seed/* are fixtures run by `node --test` inside an isolated repo, not by
     // vitest — they are intentionally CommonJS and would fail to load here.
     exclude: ['**/node_modules/**', '**/dist/**', '**/harness/**'],

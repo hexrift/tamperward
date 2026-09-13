@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [2.20.2] — 2026-09-13
+## [2.20.4] — 2026-09-13
 
 **The README and SPEC status now report Round 4 as complete, with the sealed
 numbers.** The front page still said Round 4 was "registered and frozen, not yet
@@ -21,6 +21,53 @@ pair. SPEC §9.1 M2 no longer calls Round 4 "the undrawn fresh pool". A vitest
 (`test/readme-round4.test.ts`) asserts the README's Round 4 numbers equal the
 sealed values in `harness/taskbench/round4/ROUND4-RESULTS.json`, so the two cannot
 drift. No sealed record was modified; no product behaviour changed.
+## [2.20.3] — 2026-09-13
+
+**The test suite explains itself when it runs as root instead of failing 44 times.**
+
+`tamperward run` refuses Linux root/euid 0 by design (2.16.x; README "Platform
+support") and that is unchanged. But the suite did not know: on an untouched `main` in
+a devcontainer, `docker run`, Codespaces or a hosted agent session — all root by
+default — 44 tests across `run`, `dependency-environment`, `audit-1-6`, `audit-h1-h5`,
+`doctor-ci` and `cli-guard` failed with a bare `expected 2 to be +0`, and a contributor
+could not tell whether they had broken something (#392).
+
+Every test that needs the envelope to reach adjudication now carries
+`it.skipIf(!rootless)` from the shared `test/rootless.ts`, and a vitest `globalSetup`
+(`test/global-setup.ts`) prints one notice at suite start when the suite runs as Linux
+root: why the envelope refuses root and how to run the suite unprivileged. The test that
+mocks `geteuid` to 0 and asserts the refusal message stays unguarded, so root still
+exercises the refusal path. Off Linux nothing changes — those platforms keep their own
+`skipIf` guards — and an unprivileged run (CI included) prints nothing and skips
+nothing new. The `cli-guard` grammar case is split so its envelope assertion is the only
+part that skips. The guard's contract is proven with an injected identity in
+`test/rootless.test.ts`, so it needs no root to test. CONTRIBUTING gains "Running the
+suite unprivileged". No production code changes.
+
+## [2.20.2] — 2026-09-13
+
+**`tamperward run --observe-transients` now stops its observer on the observer
+process's exit, never on its health record.** (#394)
+
+The envelope's observer stop used to complete as soon as the watcher's health sidecar
+read `state: "stopped"` or the pid was gone. A watcher writes that record inside its
+signal handler *before* it finishes its final writes and exits, so `run` could return
+while the observer was still writing; PR #393's exact-head CI caught the lost final
+write on Node 24 while Node 20/22 passed. The health record is telemetry, and it is
+candidate-reachable; it was never fit to be the lifecycle boundary.
+
+The stop now waits for the observer *process* to exit. Because the envelope waits
+synchronously, its own event loop cannot reap the child, and an exited child lingers
+as a zombie that `kill(pid, 0)` still reports as alive — a pid-liveness poll alone
+therefore never sees the exit and runs to its deadline. On Linux (the only platform
+where `run` reaches the observer) the exit is read from the process state in
+`/proc/<pid>/stat`; elsewhere pid liveness remains the only signal. The drain window
+stays bounded at 2 s with SIGKILL behind it. Every observed envelope now stops its
+observer as soon as it has exited instead of burning the full window: the #335
+lifecycle regression drops from ~2.7 s to well under a second, and the new regression
+pins both halves of the contract — the observer's final write is present when
+`runEnvelope()` returns, and the return is keyed to the exit, not to the deadline —
+without a test-side sleep.
 
 ## [2.20.1] — 2026-09-13
 
