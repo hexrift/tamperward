@@ -337,6 +337,26 @@ is the variable list. What remains is stated below.
   integrity only. A future stronger oracle protocol must be explicit rather than
   inferred from a zero exit code.
 
+### Suite-output diagnostics are untrusted evidence
+
+From 2.16.0, both verifier backends continuously drain candidate suite stdout/stderr
+while retaining only the final **16 KiB per stream**. The trusted host records total
+captured bytes, retained bytes and truncation state. This closes two operational
+failure modes without widening the trust claim:
+
+- a noisy suite cannot fill an unbounded `spawnSync` buffer or verifier-owned evidence
+  file; the capture ring is fixed-size while the pipes keep draining;
+- failed verification can show the actual assertion/runtime tail rather than only an
+  exit code.
+
+The retained text is still **candidate-controlled data**. It is not parsed as a verdict
+or workflow command. Human rendering escapes C0/C1/DEL controls (including ESC and CR)
+and prefixes every output line, so ANSI sequences and literal GitHub `::error::`
+syntax cannot begin at the command channel's first column. JSON keeps candidate output
+nested under the stage diagnostics object; the host-owned `verdict`, exit attribution
+and backend state remain separate fields. Successful human output does not render suite
+stdout/stderr at all.
+
 ## What this means for the published record
 
 The bypass class was live from **v1.9.0 through 1.14.1 inclusive** and is closed
