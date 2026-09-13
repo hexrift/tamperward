@@ -100,7 +100,10 @@
       "then": {
         "required": [
           "reason"
-        ]
+        ],
+        "properties": {
+          "reason": {}
+        }
       }
     },
     {
@@ -131,7 +134,19 @@
           "verifier_backend",
           "dependency_environment",
           "oracle_assurance"
-        ]
+        ],
+        "properties": {
+          "base": {},
+          "command": {},
+          "budget_secs": {},
+          "visible": {},
+          "pristine": {},
+          "protected_restored": {},
+          "added_protected_removed": {},
+          "verifier_backend": {},
+          "dependency_environment": {},
+          "oracle_assurance": {}
+        }
       }
     },
     {
