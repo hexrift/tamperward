@@ -115,6 +115,27 @@ verification surface and suite command are read from that commit, so the candida
 cannot supply the configuration for its own re-execution. `--require-ancestor` refuses
 a base that is not an ancestor of `HEAD` instead of silently anchoring older.
 
+## Discovering delegated verifier inputs: `tamperward trace-verify`
+
+On Linux, `trace-verify` is an **advisory** discovery tool for the gap that remains
+when a command delegates to files TamperWard cannot infer statically:
+
+```bash
+npx tamperward trace-verify --base main --cmd "npm test" --runs 3
+```
+
+It materialises the trusted base and observes the known-good verifier with `strace`.
+Repeated runs are unioned; inputs that appear in only some runs are marked dynamic.
+The report separates tracked repository inputs, likely runner/config inputs, and
+external runtime/dependency paths. Each tracked input is compared with the same
+pristine-verification surface used by `verify`, and uncovered exact paths are printed
+as candidate `verify.inputs` entries for a maintainer to review.
+
+It never writes `.tamperward.yml` and never broadens an exact path into a glob. An
+unobserved path is **not** proof that the verifier can never read it: tracing is evidence
+from the executions you ran, not a completeness proof. Use a base you already trust.
+macOS and Windows explicitly report this mode unsupported in 2.18.0.
+
 ## The enforcement envelope: `tamperward run`
 
 Hooks decide; runtimes terminate. `run` wraps the agent invocation so that its exit is
@@ -152,6 +173,7 @@ before the wrapped command.
 | --- | --- |
 | `check` | one view — `--staged` · `--worktree` · `--diff <base>...<head>` — plus `--format text\|json\|github\|auto` (default `auto`) · `--json` (alias for `--format json`) · `--cwd <dir>` |
 | `verify` | `--base <rev>` (default `HEAD`) · `--cmd <suite command>` · `--budget <seconds>` · `--json` · `--keep` (keep the two materialised copies and report their paths) · `--require-ancestor` · `--cwd <dir>` |
+| `trace-verify` | Linux-only advisory discovery: `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` · `--runs <N>` (default 2) · `--json` · `--cwd <dir>` |
 | `run` | `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` · `--allow-dirty` · `--settle <seconds>` · `--allow-dep-drift` · `--cwd <dir>` · then `-- <agent command...>` |
 | `allow` | `<rule>` · `--file <path>` · `--reason "<why>"` (required) · `--cwd <dir>` |
 | `init` | `--cwd <dir>` · `--dry-run` · `--force-workflow` |
@@ -164,6 +186,7 @@ Exit codes are part of the public surface:
 | --- | --- | --- | --- |
 | `check` | no blocking finding | at least one blocking finding | cannot evaluate: policy parse error, malformed `--diff` range, no view given, not a git repository, or an unresolvable revision — any failure the gate cannot recover from is one clean `tamperward: …` line on stderr at exit 2, never a stack trace at exit 1 |
 | `verify` | `VERIFIED`, or a `MASKED_FAILURE` cleared by an out-of-band `verify@<head-sha>` approval | `MASKED_FAILURE` or `SUITE_RED` | cannot verify — fails closed |
+| `trace-verify` | every requested trace run completed green | one or more traced verifier runs were non-zero/incomplete; report still emitted | unsupported platform, missing tooling, bad trusted base/policy/options, or tracing failure |
 | `run` | enforcement clean and the agent exited 0 (a non-zero agent exit is passed through) | any blocking finding or masked failure | cannot adjudicate |
 | `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0 | — | only for an unsupported agent name |
 | `allow` | sign-off recorded | — | no rule or `--reason`, not a git repo, or no current blocking finding to sign off |
