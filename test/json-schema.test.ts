@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -143,40 +142,43 @@ function healthyDoctorRepo(): string {
 function buildPackExtract(): { packageRoot: string; tarball: string } {
   const tmp = mkdtempSync(join(ROOT, '.tw-pack-schema-'));
   dirs.push(tmp);
-  const stage = join(tmp, 'stage');
   const packageRoot = join(tmp, 'extract', 'package');
-  mkdirSync(join(stage, 'dist', 'cli'), { recursive: true });
-  mkdirSync(join(stage, 'schemas'), { recursive: true });
+  const dist = join(ROOT, 'dist');
+  const hadDist = existsSync(dist);
   mkdirSync(dirname(packageRoot), { recursive: true });
+  mkdirSync(join(dist, 'cli'), { recursive: true });
 
-  buildSync({
-    entryPoints: [join(ROOT, 'src', 'cli', 'index.ts')],
-    bundle: true,
-    platform: 'node',
-    format: 'esm',
-    packages: 'external',
-    outfile: join(stage, 'dist', 'cli', 'index.js'),
-  });
+  try {
+    buildSync({
+      entryPoints: [join(ROOT, 'src', 'cli', 'index.ts')],
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      packages: 'external',
+      outfile: join(dist, 'cli', 'index.js'),
+    });
 
-  for (const file of ['package.json', 'LICENSE', 'NOTICE']) {
-    copyFileSync(join(ROOT, file), join(stage, file));
+    // Pack the ACTUAL repository/package manifest, not a reconstructed staging
+    // directory. This is the publish surface users receive.
+    const packed = JSON.parse(execFileSync(
+      'npm',
+      ['pack', '--ignore-scripts', '--json', '--pack-destination', tmp],
+      { cwd: ROOT, encoding: 'utf8' },
+    )) as Array<{ filename: string; files?: Array<{ path: string }> }>;
+    expect(packed).toHaveLength(1);
+
+    const paths = new Set((packed[0].files ?? []).map((x) => x.path));
+    expect(paths.has('dist/cli/index.js')).toBe(true);
+    for (const name of SCHEMA_NAMES) {
+      expect(paths.has(`schemas/${name}-v1.schema.json`)).toBe(true);
+    }
+
+    const tarball = join(tmp, packed[0].filename);
+    execFileSync('tar', ['-xzf', tarball, '-C', dirname(packageRoot)]);
+    return { packageRoot, tarball };
+  } finally {
+    if (!hadDist) rmSync(dist, { recursive: true, force: true });
   }
-  for (const name of SCHEMA_NAMES) {
-    copyFileSync(
-      join(ROOT, 'schemas', `${name}-v1.schema.json`),
-      join(stage, 'schemas', `${name}-v1.schema.json`),
-    );
-  }
-
-  const packed = JSON.parse(execFileSync(
-    'npm',
-    ['pack', '--ignore-scripts', '--json', '--pack-destination', tmp],
-    { cwd: stage, encoding: 'utf8' },
-  )) as Array<{ filename: string }>;
-  expect(packed).toHaveLength(1);
-  const tarball = join(tmp, packed[0].filename);
-  execFileSync('tar', ['-xzf', tarball, '-C', dirname(packageRoot)]);
-  return { packageRoot, tarball };
 }
 
 function packagedCli(
