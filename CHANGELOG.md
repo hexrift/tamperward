@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [2.20.1] — 2026-09-13
+## [2.20.2] — 2026-09-13
 
 **The README and SPEC status now report Round 4 as complete, with the sealed
 numbers.** The front page still said Round 4 was "registered and frozen, not yet
@@ -21,6 +21,23 @@ pair. SPEC §9.1 M2 no longer calls Round 4 "the undrawn fresh pool". A vitest
 (`test/readme-round4.test.ts`) asserts the README's Round 4 numbers equal the
 sealed values in `harness/taskbench/round4/ROUND4-RESULTS.json`, so the two cannot
 drift. No sealed record was modified; no product behaviour changed.
+
+## [2.20.1] — 2026-09-13
+
+**`ts-any-cast` diff-only fallback: the double cast is classified structurally.** The
+additive-line fallback (a change with no BEFORE/AFTER content) parses each added line
+as a TypeScript snippet and applies the same `isDoubleCast` classification the
+full-source path uses, so `(<unknown>raw) as T`, `<T>(raw as unknown)` and every
+parenthesised spelling are the same block on diff-only input as with full content.
+Previously the fallback matched only the text `as unknown as`, so the angle-bracket
+double cast was silent there while blocked with full source. Partial lines recover and
+still classify; comment and string text does not fire. Bypass fix, patch.
+
+The `cast-growth-evidence` workflow now also runs when the rule's behavioural
+dependencies change (`src/policy.ts`, `src/detectors/files.ts`,
+`src/detectors/finding.ts`, `src/diff/select.ts`), so a change to the protected test
+surface or the code-file test cannot move the recorded eligible-source denominator
+without the replay re-running.
 
 ## [2.20.0] — 2026-09-13
 

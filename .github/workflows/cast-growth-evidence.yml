@@ -13,6 +13,14 @@ on:
     paths:
       - 'src/detectors/ts-cast-growth.ts'
       - 'src/detectors/ts-any-cast.ts'
+      # Behavioural dependencies of the rule's scope: the protected test globs
+      # (protectedCategory), the code-file test (isCodeFile) and the shared
+      # selection/finding helpers can move the eligible-source denominator without
+      # touching the detector file.
+      - 'src/policy.ts'
+      - 'src/detectors/files.ts'
+      - 'src/detectors/finding.ts'
+      - 'src/diff/select.ts'
       - 'harness/fp-study/cast-growth-*'
       - 'harness/fp-study/CAST-GROWTH-CORPUS.md'
       - '.github/workflows/cast-growth-evidence.yml'
