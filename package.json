@@ -1,6 +1,6 @@
 {
   "name": "tamperward",
-  "version": "2.20.1",
+  "version": "2.21.0",
   "description": "The deterministic agent-integrity gate. One ruleset, evaluated on the actual diff/commands as a verdict, enforced everywhere a change can be made.",
   "license": "Apache-2.0",
   "author": "hexrift",
@@ -41,7 +41,7 @@
     "node": ">=20.19"
   },
   "scripts": {
-    "build": "esbuild src/cli/index.ts src/cli/main.ts --bundle --platform=node --format=esm --packages=external --outdir=dist/cli",
+    "build": "esbuild src/cli/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/cli/index.js",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",

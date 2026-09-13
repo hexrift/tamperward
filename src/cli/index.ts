@@ -2,21 +2,21 @@
 // tamperward CLI entry. `check` is the gate; the agent hook, Stop sweep, init, and
 // allow commands are dispatched in main.ts.
 //
-// main.js is loaded DYNAMICALLY, and built as its own bundle, so that the one
-// path which must stay thin — `hook claude` / `sweep claude` under the opt-in
-// persistent hook service (#322, src/cli/hook-client.ts) — can hand the payload
-// to the warm service without first paying for the engine, the detectors and
-// the `typescript` package they import. That path loads main.js only when the
-// service does not answer, and then evaluates in-process exactly as before.
-// Every other invocation loads main.js immediately.
+// main is imported DYNAMICALLY so that the one path which must stay thin —
+// `hook claude` / `sweep claude` under the opt-in persistent hook service (#322,
+// src/cli/hook-client.ts) — can hand the payload to the warm service without
+// first evaluating the engine, the detectors and the parsers they load. esbuild
+// bundles a dynamically imported module behind a lazy initialiser, so the single
+// dist/cli/index.js still carries everything; it just does not run main's module
+// graph until this asks for it. The service path asks only when the service does
+// not answer, and then evaluates in-process exactly as before. Every other
+// invocation loads main immediately.
 
 import { readFileSync } from 'node:fs';
 import { hookServiceEnabled, requestVerdict, type HookKind } from './hook-client';
 
-type MainModule = typeof import('./main');
-
-function loadMain(): Promise<MainModule> {
-  return import(new URL('./main.js', import.meta.url).href);
+function loadMain(): Promise<typeof import('./main')> {
+  return import('./main');
 }
 
 function hookKind(argv: string[]): HookKind | null {

@@ -11,7 +11,7 @@
 // Both sides are merged onto the baseline first, so an inherited value is compared like a
 // written one and only a real drop in effective strength is reported.
 
-import { parse } from 'yaml';
+import { yaml } from '../lazy-deps';
 import { defaultPolicy, mergeProtected, normalizeGlob } from '../policy';
 import { isRecord } from '../narrow';
 
@@ -57,7 +57,7 @@ const globs = (list: unknown): string[] =>
  *  throws — a malformed `.tamperward.yml` must not be able to crash the gate. */
 function safeParse(src: string): RawPolicyShape | null {
   try {
-    const v = parse(src);
+    const v = yaml.parse(src);
     if (isRecord(v)) return v;
     return null; // empty doc / scalar / list → not a policy
   } catch {
@@ -268,7 +268,7 @@ export function policyWeakening(before: string, after: string): string[] | null 
 export function policyAddWeakening(after: string): string[] {
   let doc: unknown;
   try {
-    doc = parse(after);
+    doc = yaml.parse(after);
   } catch {
     return ['the added policy is not valid YAML — the gate fails closed until it is fixed'];
   }

@@ -39,7 +39,7 @@
 // When full before/after content is unavailable (diff-only Change), fall back to the
 // line-based checks so behaviour never regresses or throws.
 
-import picomatch from 'picomatch';
+import { picomatch } from '../lazy-deps';
 import type TS from 'typescript';
 import { ts } from '../ts-lazy';
 import { Change, Detector, DetectorContext, FileChange, Finding, Policy } from '../types';

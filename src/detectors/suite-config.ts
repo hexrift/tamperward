@@ -32,7 +32,7 @@
 // project inherits the root's selection — and is seeded from it; a project's
 // `test.root` rebases its globs exactly like `test.dir`.
 
-import picomatch from 'picomatch';
+import { picomatch } from '../lazy-deps';
 import type TS from 'typescript';
 import { ts } from '../ts-lazy';
 
