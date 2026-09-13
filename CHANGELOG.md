@@ -8,40 +8,67 @@ All notable changes to this project are documented here. The format follows
 ## [2.16.3] — 2026-09-13
 
 **`tamperward run` now owns the wrapped agent's descendant lifecycle on normal
-exit as well as timeout.** The #321/#374 dependency-attestation optimisation exposed
-the remaining gap: without `--agent-budget`, the envelope launched the agent with a
-plain synchronous spawn and only performed a final Linux scan for processes that still
-held the repository tree. A candidate descendant could call `setsid()`, remember the
-repository's absolute path, `chdir` elsewhere, outlive the main agent, and continue
-executing after the envelope had begun adjudication.
+exit as well as timeout, with a fail-closed Linux subreaper boundary.** The
+#321/#374 dependency-attestation work exposed the remaining lifecycle gap:
+without a runtime budget, a detached descendant could `setsid()`, leave the
+repository cwd, outlive the main agent and continue executing while the envelope
+began adjudication.
 
-Every wrapped agent now runs through the trusted lifecycle supervisor. Ordinary POSIX
-descendants are placed in the owned process group and killed when the main agent exits,
-even when no runtime budget was requested. On Linux the supervisor additionally tracks
-the live `/proc` ancestry set while the agent runs, preserving descendant identity
-across reparenting/`setsid()`; normal exit and timeout both kill the group plus those
-tracked descendants before post-agent adjudication begins. PID start-time matching
-prevents a tracked PID from being killed after reuse.
+Every wrapped agent now runs through a lifecycle supervisor. Ordinary POSIX
+descendants remain in an owned process group. On Linux, TamperWard resolves only
+a fixed non-caller-writable system `python3` and starts it with `-I -S -E`,
+cwd `/`, and a minimal supervisor environment. The agent receives a separately
+frozen copy of the caller's original cwd and environment, so candidate
+`PATH`/`PYTHONPATH`, user site-packages and candidate cwd do not govern the
+supervisor bootstrap. Linux therefore requires a trusted system Python 3 with
+the standard `ctypes`/process modules; if that interpreter cannot be
+established, `run` fails closed before agent side effects.
 
-The adjacent run→verify dependency attestation is now reused only when that Linux
-descendant-ownership signal was actually established. Other platforms keep the
-correctness checkpoints but perform a fresh verifier-entry dependency snapshot rather
-than claiming the stronger adjacency invariant. Final tree/dependency quiescence remains
-an independent fail-closed safety net.
+The Linux supervisor calls `PR_SET_CHILD_SUBREAPER`. Descendants that
+double-fork, `setsid()` or otherwise orphan are therefore reparented to the
+supervisor by the kernel rather than depending on a sampling race over ancestry.
+Normal exit and timeout both kill the agent process group and adopted children.
+The supervisor reports lifecycle ownership only after
+`waitpid(-1, WNOHANG)` reaches **ECHILD**, the kernel's no-children condition.
+Unreadable/malformed child state, kill failure, drain deadline or abnormal
+supervisor completion fails closed before adjudication. The same-UID result file
+is evidence only after the supervisor itself exits normally, so an agent that
+discovers/forges that file and kills its supervisor cannot manufacture a trusted
+lifecycle result.
 
-TDD red evidence:
-- run **34766853029**: Node 22/24 failed the two new normal-exit descendant controls
-  while the existing suite remained green;
-- the fixed supervisor then made both the ordinary-background and detached-`setsid`
-  controls green;
-- a separate release-integrity regression reproduced #378: run **34767258006** failed
-  only because package metadata still said 2.16.1 while the changelog already declared
-  2.16.2.
+The 2.16.2 adjacent run→verify dependency-attestation reuse is deliberately
+disabled again. The envelope pre-verifier checkpoint and nested verifier-entry
+checkpoint are independent full reads on every platform and lifecycle outcome:
+a clean local run reports **6 full snapshots, 0 reused snapshots,
+`entry_reuse=no`**. Post-visible, post-pristine and envelope-final dependency
+checks remain independent as well.
 
-A new docs-status invariant now requires the package version to equal the newest
-changelog release, and package/lock metadata are synchronized at **2.16.3**.
+The regression corpus now proves:
+- a same-UID forged lifecycle result plus supervisor `SIGKILL` fails closed and
+  never reaches the pre-adjudication checkpoint;
+- a fast `setsid -f`/reparent descendant and a detached worker outside the
+  repository cwd are gone before adjudication begins;
+- candidate `PATH`/`PYTHONPATH` do not select the Linux supervisor;
+- missing trusted Python, child-observation failure and an undrained lifecycle
+  domain fail closed before adjudication;
+- the historical detached mutator/fd-holder controls identify real workers and
+  prove they are dead at the pre-adjudication checkpoint;
+- a #374-style post-handoff dependency substitution attempt cannot execute
+  before the fresh verifier-entry checkpoint;
+- unsupported non-Linux POSIX retains the historical fingerprint/quiescence
+  rejection rather than claiming the Linux subreaper guarantee;
+- timeout lifecycle tests remain intact.
 
-This closes #376 and #378.
+TDD began with workflow run **34766853029**, where the new normal-exit
+descendant controls failed before production ownership existed. A separate
+release-integrity regression reproduced #378 in run **34767258006**:
+`package.json`/`package-lock.json` still identified 2.16.1 while the
+changelog declared 2.16.2. Package and lock metadata are synchronized at
+**2.16.3**, and a repository-wide docs-status invariant now requires package
+identity to equal the newest changelog release.
+
+This release addresses #376 and #378; the pull request closes those issues when
+the exact-head matrix and final security review pass and the change is merged.
 
 ## [2.16.2] — 2026-09-13
 
