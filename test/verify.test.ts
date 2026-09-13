@@ -578,20 +578,25 @@ describe('verify diagnostics (#319)', () => {
     expect(rendered.split('\n').some((line) => line.startsWith('::error::'))).toBe(false);
   });
 
-  it.skipIf(process.platform !== 'linux')('fails closed if candidate code writes into the supervisor result fd', () => {
+  it.skipIf(process.platform !== 'linux')('cannot forge green by targeting the supervisor result fd', () => {
     const cwd = repo();
     const r = capture(() =>
       runVerify({
         cwd,
         cmd:
-          `exec node -e "const f=require('fs'); try { f.writeFileSync('/proc/'+process.ppid+'/fd/1', '{\\\"forged\\\":true}'); } catch {} process.exit(1)"`,
+          `exec node -e "const f=require('fs'); try { f.writeFileSync('/proc/'+process.ppid+'/fd/1', '{\\\"verdict\\\":\\\"VERIFIED\\\",\\\"exit\\\":0}'); } catch {} process.exit(1)"`,
         budget: 30,
         json: true,
       }),
     );
-    expect(r.code).toBe(2);
-    expect(r.json.verdict).toBe('CANNOT_VERIFY');
-    expect(r.json.reason).toBe('VERIFIER_BACKEND_RUNTIME_FAILURE');
+
+    // Linux /proc policy may reject the cross-process fd open entirely. If it
+    // permits it, the bytes prefix the supervisor's one trusted JSON object and
+    // strict whole-stream parsing fails closed. Either way candidate bytes can
+    // never manufacture a green host verdict.
+    expect(r.code).not.toBe(0);
+    expect(r.json.verdict).not.toBe('VERIFIED');
+    expect((r.json as any).forged).toBeUndefined();
   });
 
   it('keeps successful suite output out of default human output', () => {
