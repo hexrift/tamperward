@@ -5,7 +5,7 @@
 > through — the agent loop, pre-commit, the run envelope, pristine verification,
 > and protected CI authority.
 
-**Implementation status:** TamperWard 2.14.x
+**Implementation status:** TamperWard 2.15.x
 
 **Current supported surface:** JavaScript/TypeScript · Python · Go · Rust · Ruby ·
 JVM · PHP · .NET test/skip/suppression/config patterns; Claude Code hook + Stop
@@ -15,7 +15,7 @@ sweep; git pre-commit; protected CI; pristine visible/pristine re-execution;
 table remains the canonical detector/enforcement taxonomy: fifteen mechanical
 rows are shipped and the two heuristic rows remain intentionally unbuilt.
 
-v0.9 reconciles the live architecture narrative with the 2.14.x implementation.
+v0.9 reconciles the live architecture narrative with the 2.15.x implementation.
 It does **not** rewrite the historical research record below: earlier v0.x
 revision notes, taskbench claims and old finding IDs remain dated evidence. The
 current security-residual index lives in `SECURITY-ENVELOPE.md`; detailed
@@ -472,6 +472,18 @@ classic branch protection and refuses to call the repository authority healthy u
 all three requirements are proven. **Without all three, the CI layer of this tool is
 advisory.** This is the "who guards the guardrail" problem turned on us — getting it
 right is on-thesis; getting it wrong quietly undermines the whole pitch.
+
+From 2.15.0, plain `tamperward doctor` also produces a read-only installation/posture
+inventory. The local checks deliberately reuse `planInit()`'s canonical wiring model
+for Claude hooks, pre-commit, generated CI and CODEOWNERS, then add policy-schema,
+least-privilege workflow permissions, current-binary vs wiring pins, verifier trust mode
+and declared `verify.inputs`, platform residuals, CI outer-time authority and transient
+observer health. States are `OK`, `WARN`/residual and `BROKEN`; `--json` returns one
+document with the named checks and an `authoritative` boolean. The report does not
+mutate anything. Missing optional/early layers can make the report non-authoritative
+without changing the generated CI doctor's historical hard-failure contract; malformed
+policy, insufficient verifier authority and failed requested GitHub authority still
+exit 2.
 
 ---
 
