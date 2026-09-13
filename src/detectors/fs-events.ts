@@ -19,7 +19,7 @@
 // Change stream — existing detectors branch file/command and must not start
 // seeing a third kind.
 
-import { readFileSync, statSync } from 'node:fs';
+import { closeSync, openSync, readSync, statSync } from 'node:fs';
 import { Finding, Policy } from '../types';
 import { isProtected } from '../policy';
 import { isEnabled, makeFinding } from './finding';
@@ -27,31 +27,122 @@ import type { FsEvent } from '../cli/watch';
 
 const RULE = 'transient-protected-mutation';
 
+export const MAX_EVENT_READ_BYTES = 4 * 1024 * 1024;
+
 export interface EventBatch {
   events: FsEvent[];
+  /** Byte offset immediately after the last complete JSONL record consumed. */
   newOffset: number;
+  /** Physical bytes read from the log for this batch (testable I/O cost). */
+  bytesRead: number;
+  /** True when the current log had more bytes than this bounded read consumed. */
+  limitReached: boolean;
+  /** Complete newline-terminated records that were not valid JSON. */
+  malformedLines: number;
+  /** True when bytes after newOffset do not yet form a complete newline record. */
+  incompleteTail: boolean;
 }
 
-/** Read events appended since `offset` (byte offset into the JSONL log). */
-export function readEvents(log: string, offset: number): EventBatch {
+/**
+ * Read events appended since `offset` using a positioned fd read.
+ *
+ * Cursor safety is byte-based, not string-based: only complete newline-terminated
+ * records advance the cursor. A torn final write is therefore replayed on the next
+ * call after the watcher completes it.
+ */
+export function readEvents(
+  log: string,
+  offset: number,
+  maxBytes = MAX_EVENT_READ_BYTES,
+): EventBatch {
   let size = 0;
   try {
     size = statSync(log).size;
   } catch {
-    return { events: [], newOffset: offset };
+    return {
+      events: [],
+      newOffset: Math.max(0, Number.isFinite(offset) ? Math.floor(offset) : 0),
+      bytesRead: 0,
+      limitReached: false,
+      malformedLines: 0,
+      incompleteTail: false,
+    };
   }
-  if (size <= offset) return { events: [], newOffset: offset >= 0 ? Math.min(offset, size) : 0 };
-  const raw = readFileSync(log, 'utf8').slice(offset);
+
+  let start = Number.isFinite(offset) ? Math.max(0, Math.floor(offset)) : 0;
+  // Rotation/truncation: an old cursor beyond EOF cannot describe this file.
+  if (start > size) start = 0;
+  if (size <= start) {
+    return {
+      events: [],
+      newOffset: start,
+      bytesRead: 0,
+      limitReached: false,
+      malformedLines: 0,
+      incompleteTail: false,
+    };
+  }
+
+  const cap = Number.isFinite(maxBytes) && maxBytes > 0
+    ? Math.max(1, Math.floor(maxBytes))
+    : MAX_EVENT_READ_BYTES;
+  const available = size - start;
+  const requested = Math.min(available, cap);
+  const buffer = Buffer.allocUnsafe(requested);
+  const fd = openSync(log, 'r');
+  let bytesRead = 0;
+  try {
+    bytesRead = readSync(fd, buffer, 0, requested, start);
+  } finally {
+    closeSync(fd);
+  }
+
+  if (bytesRead <= 0) {
+    return {
+      events: [],
+      newOffset: start,
+      bytesRead: 0,
+      limitReached: available > 0,
+      malformedLines: 0,
+      incompleteTail: available > 0,
+    };
+  }
+
+  const chunk = buffer.subarray(0, bytesRead);
+  const lastNewline = chunk.lastIndexOf(0x0a);
+  const limitReached = start + bytesRead < size;
+  if (lastNewline < 0) {
+    return {
+      events: [],
+      newOffset: start,
+      bytesRead,
+      limitReached,
+      malformedLines: 0,
+      incompleteTail: true,
+    };
+  }
+
   const events: FsEvent[] = [];
-  for (const line of raw.split('\n')) {
+  let malformedLines = 0;
+  const complete = chunk.subarray(0, lastNewline + 1).toString('utf8');
+  for (const line of complete.split('\n')) {
     if (!line.trim()) continue;
     try {
       events.push(JSON.parse(line) as FsEvent);
     } catch {
-      /* torn write at the tail; it will re-read next time */
+      malformedLines++;
     }
   }
-  return { events, newOffset: size };
+
+  const newOffset = start + lastNewline + 1;
+  return {
+    events,
+    newOffset,
+    bytesRead,
+    limitReached,
+    malformedLines,
+    incompleteTail: newOffset < start + bytesRead,
+  };
 }
 
 /**

@@ -5,6 +5,32 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.15.2] — 2026-09-13
+
+**Filesystem-event consumption is now proportional to new telemetry, not total session
+history.** The Stop-sweep cursor had always been stored as a byte offset, but
+`readEvents()` still decoded the entire append-only JSONL file and sliced the resulting
+string afterwards. Long agent sessions therefore re-read old telemetry on every turn.
+
+The reader now opens the log and performs a positioned read beginning at the saved
+cursor. One batch is bounded to **4 MiB**, reports its physical `bytesRead`, and advances
+the cursor only through complete newline-terminated JSONL records. Remaining telemetry
+is deferred to the next sweep and surfaced as degraded advisory telemetry rather than
+triggering unbounded allocation.
+
+This also fixes a cursor correctness bug in the old implementation: a torn final JSONL
+write was caught during parsing but the cursor still advanced to EOF, permanently
+skipping the record. The cursor now stops before an incomplete final record and replays
+it after the watcher finishes the line. Malformed **complete** records are counted,
+surfaced as degraded telemetry, skipped, and safely advanced past.
+
+TDD coverage includes a multi-megabyte historical prefix with a tiny appended tail
+(where `bytesRead` equals only the tail), torn-record completion/replay, and a bounded
+chunk that cuts into the next record and advances only through the preceding complete
+line.
+
+This closes #313.
+
 ## [2.15.1] — 2026-09-13
 
 **Doctor's authority verdict now binds to the authority surface it actually inspected.**
