@@ -1,15 +1,28 @@
-# Tamperward — Build Spec v0.8
+# Tamperward — Build Spec v0.9
 
 > The deterministic agent-integrity gate. One ruleset, evaluated on the actual
 > diff/commands as a verdict (not a probability), at every stage a change passes
-> through — the agent loop (a Claude Code hook today), pre-commit, and CI, which is
-> the authority.
+> through — the agent loop, pre-commit, the run envelope, pristine verification,
+> and protected CI authority.
 
-**Slice:** TypeScript/Jest · Claude Code · 17 rules specified, 15 shipped ·
-agent-loop + pre-commit + CI + pristine re-execution · the agent-correction
-loop measured, not asserted.
+**Implementation status:** TamperWard 2.14.x
 
-v0.8 reconciles the spec with 1.15.0. No new row: the seventeen-row table (§4) had
+**Current supported surface:** JavaScript/TypeScript · Python · Go · Rust · Ruby ·
+JVM · PHP · .NET test/skip/suppression/config patterns; Claude Code hook + Stop
+sweep; git pre-commit; protected CI; pristine visible/pristine re-execution;
+`tamperward run` lifecycle ownership; optional transient observation; and
+`tamperward doctor` installation/authority diagnostics. The seventeen-row rule
+table remains the canonical detector/enforcement taxonomy: fifteen mechanical
+rows are shipped and the two heuristic rows remain intentionally unbuilt.
+
+v0.9 reconciles the live architecture narrative with the 2.14.x implementation.
+It does **not** rewrite the historical research record below: earlier v0.x
+revision notes, taskbench claims and old finding IDs remain dated evidence. The
+current security-residual index lives in `SECURITY-ENVELOPE.md`; detailed
+pristine-verifier limits live in `docs/THREAT-MODEL-pristine-run.md`.
+
+**Historical revision note — v0.8 / TamperWard 1.15.0.** No new row: the
+seventeen-row table (§4) had
 outgrown its heading, the canonical policy example had not kept pace with
 `defaultPolicy`, and §5.1 still described the hook's output contract as a plan when
 it has shipped on the JSON channel since v0.2. This revision brings the counts, the
