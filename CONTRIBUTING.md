@@ -73,7 +73,16 @@ CLI, the policy schema, and the hook contract** — specifically:
   runtime ignore the JSON)
 - the `.tamperward.yml` schema — `version`, `protected`, `rules`, `ignore`, `signoff`, `verify`
   (`src/types.ts` `Policy`)
-- the `Finding` shape emitted by `--json`
+- the versioned machine-output contracts emitted by `check --json`,
+  `verify --json`, `run --json`, and `doctor --json`; their public Draft 2020-12
+  schemas ship under `schemas/`. Additive fields remain compatible within a schema
+  major; removing/renaming/retyping a required field or changing a discriminator's
+  meaning requires a new machine-output schema major.
+
+The machine-output `schema_version` is independent of the npm package version: a minor
+npm release may add compatible fields or a new machine-output surface without breaking
+schema v1. An incompatible JSON contract is also a breaking CLI/API change for SemVer,
+in addition to requiring new `*-vN.schema.json` files.
 
 Everything under `src/` is internal. The package publishes no `main` and no `exports`; it
 is a binary, not a library, so refactoring internals is never a breaking change.
