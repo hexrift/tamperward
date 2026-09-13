@@ -166,7 +166,7 @@ describe('dependency environment attestation', () => {
     expect(run(cwd, 'true', { allowDepDrift: true })).toBe(0);
   });
 
-  it('reuses only the adjacent run→verify entry attestation and reports five full snapshots', () => {
+  it('keeps verifier-entry attestation independent of the run-side checkpoint', () => {
     const cwd = repoWithIgnoredVenv(true);
     selectVenv(cwd);
     process.env.TAMPERWARD_DIAGNOSTICS = '1';
@@ -179,8 +179,9 @@ describe('dependency environment attestation', () => {
 
     expect(run(cwd, 'true')).toBe(0);
     expect(output).toMatch(
-      /dependency attestation diagnostics: full_snapshots=5 reused_snapshots=1 total_ms=\d+(?:\.\d+)?/i,
+      /dependency attestation diagnostics: full_snapshots=6 reused_snapshots=0 total_ms=\d+(?:\.\d+)?/i,
     );
+    expect(output).toMatch(/entry_reuse=no/i);
   });
 
   it('an honest selected venv stays green', () => {
