@@ -220,11 +220,12 @@ BROKEN platform posture rather than misdiagnosing it as a missing Python install
 `--agent-budget <seconds>`
 adds an operator-owned wall-clock boundary around the same lifecycle (separate from the
 verifier's `--budget`). A clean timeout is `AGENT_TIMEOUT` / exit 124; enforcement or
-cannot-adjudicate still outranks it. Windows retains `taskkill /T /F`; other non-Linux
-platforms retain process-group/fingerprint/quiescence safeguards but do not claim the Linux
-subreaper boundary. A detached process that escapes those weaker platform controls remains
-an explicit residual tracked in **#379**, not part of the Linux guarantee.
-Dependency-attestation reuse remains disabled on all platforms.
+cannot-adjudicate still outranks it. **From 2.16.4, `tamperward run` is Linux-only
+for authoritative lifecycle certification.** Windows, macOS and other non-Linux platforms
+fail closed before the agent starts because this release has no OS primitive there that can
+prove the detached execution domain is drained. Standalone `tamperward check` and
+`tamperward verify` remain available on those platforms. Dependency-attestation reuse
+remains disabled on all platforms.
 
 `tamperward verify` materialises two temporary copies — they are **not
 sandboxes**, and both execute agent-controlled code. The visible copy runs the
