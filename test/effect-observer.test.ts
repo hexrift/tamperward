@@ -337,6 +337,39 @@ describe('watcher + transient rule (the A.1 probes)', () => {
     expect(readEvents(log, 0).events.some((e) => e.path === 'test/later/new.test.js')).toBe(true);
   });
 
+  it('close is idempotent and no queued watcher callback can write after shutdown begins', async () => {
+    process.env.TAMPERWARD_WATCH_NO_RECURSIVE = '1';
+    const cwd = repo();
+    const log = join(cwd, 'events.jsonl');
+    const w = startWatcher(cwd, log, defaultPolicy());
+    const target = join(cwd, 'test', 'a.test.js');
+
+    try {
+      await new Promise((r) => setTimeout(r, 75));
+      // Queue real filesystem churn immediately before shutdown. The regression
+      // in #372 let a fallback watcher callback race teardown and recreate/write
+      // health state while rmSync was removing the fixture.
+      writeFileSync(target, '// queued just before close\n');
+      w.close();
+      w.close(); // lifecycle API must be safe for layered cleanup paths
+
+      const stopped = readWatcherHealth(log);
+      expect(stopped?.state).toBe('stopped');
+      const frozen = JSON.stringify(stopped);
+
+      await new Promise((r) => setTimeout(r, 150));
+      expect(JSON.stringify(readWatcherHealth(log))).toBe(frozen);
+
+      rmSync(cwd, { recursive: true, force: true });
+      expect(existsSync(cwd)).toBe(false);
+      await new Promise((r) => setTimeout(r, 75));
+      expect(existsSync(cwd)).toBe(false);
+    } finally {
+      w.close();
+      delete process.env.TAMPERWARD_WATCH_NO_RECURSIVE;
+    }
+  });
+
   it('writes a live healthy status that distinguishes zero events from unavailable telemetry', () => {
     process.env.TAMPERWARD_WATCH_NO_RECURSIVE = '1';
     const cwd = repo();
