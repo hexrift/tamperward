@@ -167,6 +167,14 @@ observer down deterministically. Observer health remains advisory; transient fin
 remain warnings by default and affect the envelope only when the operator explicitly
 sets `TAMPERWARD_TRANSIENT=block`.
 
+Since **2.15.2**, Stop-sweep event consumption uses the saved cursor as a real byte
+offset: it performs a positioned read of only new JSONL bytes instead of decoding the
+whole historical log on every turn. A read is capped at **4 MiB**; only complete
+newline-terminated records advance the cursor, so a torn final watcher write is replayed
+after completion instead of being lost. A backlog beyond the cap or malformed complete
+records is surfaced as degraded **advisory** telemetry and remaining bytes are deferred
+rather than allocating without bound.
+
 After the runtime exits its exit code is treated as untrusted, and the envelope
 checks that post-agent `HEAD` still descends from the entry commit; the committed
 changes over `entry...HEAD`; staged, unstaged and untracked non-ignored worktree
