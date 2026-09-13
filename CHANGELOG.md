@@ -5,6 +5,37 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.16.0] — 2026-09-13
+
+**Verifier failures now carry bounded, tamper-safe suite diagnostics.** Visible and
+pristine execution previously used `stdio: 'ignore'`, so a red suite, masked failure
+or timeout exposed only an exit code and duration. That made ordinary failures hard to
+diagnose and discarded useful forensic evidence.
+
+Both local and isolated-container stages now run their child process through the same
+trusted bounded-capture supervisor. stdout and stderr are continuously drained to avoid
+pipe backpressure, while only the final **16 KiB per stream** is retained in memory.
+No candidate-controlled stream is written to an unbounded evidence file. Reports record
+the total observed byte count, retained byte count and truncation state.
+
+`--json` exposes per-stage `diagnostics.stdout` / `diagnostics.stderr` metadata and
+a bounded tail for failed stages. Human output remains quiet on VERIFIED runs; failure
+tails are control-character scrubbed and every line is prefixed before rendering, so
+candidate ANSI escapes, carriage returns and literal GitHub `::command::` text remain
+data rather than terminal/workflow control traffic.
+
+Container execution no longer discards Docker-run stdout/stderr either: the Docker
+client is drained by the same bounded supervisor, while stopped-container state remains
+the authority for suite exit/OOM/runtime attribution. Candidate output can therefore be
+shown without being allowed to forge the host-owned verdict.
+
+TDD started with three deliberate failures: missing structured diagnostics, unbounded
+noisy-output expectations, and missing safe human rendering. Regression coverage also
+keeps successful human output silent and updates the existing forged-verdict container
+control to prove verdict-shaped candidate text remains nested diagnostic data.
+
+This closes #319.
+
 ## [2.15.2] — 2026-09-13
 
 **Filesystem-event consumption is now proportional to new telemetry, not total session
