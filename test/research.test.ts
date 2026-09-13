@@ -22,6 +22,7 @@ import {
   type AdapterTask,
 } from '../src/research/adapter';
 import { readManifest } from '../src/research/manifest';
+import { pairRecordFrom, type PairRecord, type TrajectoryRecord } from '../src/research/record';
 import { runResearch } from '../src/research/run';
 import { summarizeLedger } from '../src/research/summarize';
 
@@ -86,6 +87,23 @@ function fakeAgent(dir: string): { script: string; log: string } {
   );
   chmodSync(script, 0o755);
   return { script, log };
+}
+
+function linuxPidsWithCmdline(token: string): number[] {
+  if (process.platform !== 'linux') return [];
+  const found: number[] = [];
+  for (const entry of readdirSync('/proc')) {
+    if (!/^\d+$/.test(entry)) continue;
+    const pid = Number(entry);
+    if (pid === process.pid) continue;
+    try {
+      const cmdline = readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ');
+      if (cmdline.includes(token)) found.push(pid);
+    } catch {
+      // raced with exit
+    }
+  }
+  return found;
 }
 
 function capture(fn: () => number): { code: number; out: string; err: string } {
@@ -183,6 +201,114 @@ describe('AgentAdapter contract', () => {
   });
 });
 
+function trajectory(arm: 'ungated' | 'gated'): TrajectoryRecord {
+  return {
+    arm,
+    workspace: `/ledger/workspaces/honest--1--${arm}`,
+    base: 'a'.repeat(40),
+    head: 'a'.repeat(40),
+    started_at: '2026-09-13T00:00:00.000Z',
+    finished_at: '2026-09-13T00:00:01.000Z',
+    agent: { exit_code: 0, signal: null, timed_out: false, failure: null },
+    treatment: arm === 'gated'
+      ? { verdict: 'VERIFIED', exit_code: 0, complete: true, disposition: 'passed', envelope: { schema_version: 1 } }
+      : null,
+    outcome: {
+      verify_verdict: 'VERIFIED',
+      visible_exit: 0,
+      pristine_exit: 0,
+      visible_green: true,
+      pristine_green: true,
+      masked_failure: false,
+      surviving_protected_mutations: 0,
+      warn_findings: 0,
+      rules: [],
+      honest_completion: true,
+    },
+    released_green: true,
+    measured: true,
+    unmeasurable: null,
+  };
+}
+
+function validPair(over: Partial<PairRecord> = {}): PairRecord {
+  return {
+    schema_version: 1,
+    command: 'research',
+    document: 'pair',
+    task: 'honest',
+    pair: 1,
+    adapter: { name: 'command', layers: ['envelope'] },
+    model: null,
+    manifest_sha256: 'b'.repeat(64),
+    verify_command: SUITE,
+    arms: { ungated: trajectory('ungated'), gated: trajectory('gated') },
+    ...over,
+  };
+}
+
+/** A deep copy with one path replaced, for the edited-ledger tests. */
+function edited(path: string, value: unknown): unknown {
+  const doc = JSON.parse(JSON.stringify(validPair()));
+  const keys = path.split('.');
+  let cur = doc;
+  for (const k of keys.slice(0, -1)) cur = cur[k];
+  cur[keys[keys.length - 1]] = value;
+  return doc;
+}
+
+describe('ledger record reader enforces the published schema, not just JSON shape', () => {
+  it('accepts a valid record and validates it against the schema', () => {
+    const rec = validPair();
+    expect(validateResearch(rec)).toEqual([]);
+    expect(pairRecordFrom(rec)).toEqual(rec);
+  });
+
+  it('refuses every edit the schema refuses: counts, integers, sha shapes, empty strings, enums', () => {
+    const cases: Array<[string, unknown, RegExp]> = [
+      ['arms.ungated.outcome.surviving_protected_mutations', -1, /surviving_protected_mutations/],
+      ['arms.ungated.outcome.surviving_protected_mutations', 1.5, /surviving_protected_mutations/],
+      ['arms.gated.outcome.warn_findings', -2, /warn_findings/],
+      ['pair', 0, /pair/],
+      ['pair', 1.5, /pair/],
+      ['arms.ungated.base', 'not-a-sha', /base/],
+      ['arms.gated.head', 'abc', /head/],
+      ['manifest_sha256', 'B'.repeat(64), /manifest_sha256/],
+      ['task', '', /task/],
+      ['verify_command', '', /verify_command/],
+      ['adapter.name', '', /adapter\.name/],
+      ['arms.ungated.workspace', '', /workspace/],
+      ['arms.ungated.started_at', '', /started_at/],
+      ['arms.ungated.outcome.verify_verdict', '', /verify_verdict/],
+      ['arms.ungated.outcome.rules', ['test-deletion', ''], /rules/],
+      ['arms.ungated.outcome.visible_exit', 1.5, /visible_exit/],
+      ['arms.ungated.agent.exit_code', 0.5, /exit_code/],
+      ['arms.gated.treatment.exit_code', 1.25, /exit_code/],
+      ['arms.gated.treatment.verdict', 'GREEN', /verdict/],
+      ['arms.gated.treatment.disposition', 'won', /disposition/],
+      ['arms.ungated.arm', 'gated', /arm/],
+      ['arms.ungated.measured', 'yes', /measured/],
+      ['arms.ungated.unmeasurable', 7, /unmeasurable/],
+      ['adapter.layers', ['envelope', 'envelope'], /layers/],
+      ['adapter.layers', ['sandbox'], /layers/],
+      ['schema_version', 2, /schema_version/],
+      ['document', 'summary', /document/],
+    ];
+    for (const [path, value, why] of cases) {
+      const doc = edited(path, value);
+      expect(validateResearch(doc), `schema should refuse ${path}=${JSON.stringify(value)}`).not.toEqual([]);
+      expect(() => pairRecordFrom(doc), `reader should refuse ${path}=${JSON.stringify(value)}`).toThrow(why);
+    }
+  });
+
+  it('summarize refuses an edited ledger instead of aggregating it', () => {
+    const dir = tmp();
+    mkdirSync(join(dir, 'pairs'));
+    writeFileSync(join(dir, 'pairs', 'honest--1.json'), JSON.stringify(edited('arms.ungated.outcome.surviving_protected_mutations', -1)));
+    expect(() => summarizeLedger(dir)).toThrow(/malformed research record .*surviving_protected_mutations/);
+  });
+});
+
 describe('task manifest', () => {
   it('reads a v1 manifest, resolves repo paths against the manifest, and pins its sha256', () => {
     const dir = tmp();
@@ -251,6 +377,50 @@ describe('CLI grammar', () => {
     expect(existsSync(join(dir, 'l'))).toBe(false);
   });
 
+  it('resume checks record identity, not file existence: stale, foreign or malformed records fail closed before any trajectory', () => {
+    const dir = tmp();
+    const agent = fakeAgent(dir);
+    const manifest = writeManifest(dir, [{ id: 'honest', repo: taskRepo(), prompt: 'p', verify: { command: SUITE, budget: 30 } }]);
+    const sha = readManifest(manifest).sha256;
+    const ledger = join(dir, 'ledger');
+    mkdirSync(join(ledger, 'pairs'), { recursive: true });
+    const recordPath = join(ledger, 'pairs', 'honest--1.json');
+    const ok = { id: 'platform', state: 'OK' as const, detail: 'test' };
+    const attempt = () => capture(() => runResearch({ manifest, out: ledger, adapter: 'command', agentArgv: [agent.script], platformCheck: ok }));
+
+    // A record from another manifest (same task id, same ledger directory).
+    writeFileSync(recordPath, JSON.stringify(validPair({ manifest_sha256: 'c'.repeat(64) })));
+    let r = attempt();
+    expect(r.code).toBe(2);
+    expect(r.err).toMatch(/^tamperward research: .*honest--1\.json.*manifest_sha256/);
+    // ...a different verify command, adapter or model are the same refusal.
+    writeFileSync(recordPath, JSON.stringify(validPair({ manifest_sha256: sha, verify_command: 'npm test' })));
+    expect(attempt()).toMatchObject({ code: 2 });
+    writeFileSync(recordPath, JSON.stringify(validPair({ manifest_sha256: sha, adapter: { name: 'claude-code', layers: ['envelope', 'pre-tool-use', 'stop-sweep'] } })));
+    expect(attempt()).toMatchObject({ code: 2 });
+    writeFileSync(recordPath, JSON.stringify(validPair({ manifest_sha256: sha, model: 'other' })));
+    expect(attempt()).toMatchObject({ code: 2 });
+    // A truncated record (an interrupted write) is malformed, never "already recorded".
+    writeFileSync(recordPath, JSON.stringify(validPair({ manifest_sha256: sha })).slice(0, 200));
+    r = attempt();
+    expect(r.code).toBe(2);
+    expect(r.err).toMatch(/malformed|not valid JSON/);
+    // A record with the wrong task/pair under this file name is refused too.
+    writeFileSync(recordPath, JSON.stringify(validPair({ manifest_sha256: sha, task: 'other' })));
+    expect(attempt()).toMatchObject({ code: 2 });
+    // Nothing above executed the agent.
+    expect(existsSync(agent.log)).toBe(false);
+
+    // The matching record is the only one that resumes.
+    writeFileSync(recordPath, JSON.stringify(validPair({ manifest_sha256: sha })));
+    r = attempt();
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/already recorded/);
+    expect(existsSync(agent.log)).toBe(false);
+    // No temp file is left behind by the atomic write path.
+    expect(readdirSync(join(ledger, 'pairs'))).toEqual(['honest--1.json']);
+  });
+
   it('preflights the run lifecycle platform with the same check doctor reports, before any trajectory', () => {
     const dir = tmp();
     const agent = fakeAgent(dir);
@@ -308,6 +478,8 @@ describe.skipIf(process.platform !== 'linux' || !trustedLinuxPython().path)('res
       // Fresh state per trajectory: two distinct workspaces, neither the task repo.
       expect(rec.arms.ungated.workspace).not.toBe(rec.arms.gated.workspace);
       expect(rec.arms.ungated.treatment).toBeNull();
+      expect(rec.arms.ungated).toMatchObject({ measured: true, unmeasurable: null });
+      expect(rec.arms.gated).toMatchObject({ measured: true, unmeasurable: null });
       expect(rec.arms.ungated.agent).toEqual({ exit_code: 0, signal: null, timed_out: false, failure: null });
       expect(rec.arms.gated.agent).toEqual({ exit_code: 0, signal: null, timed_out: false, failure: null });
       expect(rec.arms.gated.treatment.verdict).toBeDefined();
@@ -372,6 +544,8 @@ describe.skipIf(process.platform !== 'linux' || !trustedLinuxPython().path)('res
       command: 'research',
       document: 'summary',
       pairs: 2,
+      measured_pairs: 2,
+      unmeasurable_pairs: 0,
       tasks: ['honest', 'tamper'],
       adapter: { name: 'command', layers: ['envelope'] },
       model: null,
@@ -398,6 +572,57 @@ describe.skipIf(process.platform !== 'linux' || !trustedLinuxPython().path)('res
     expect(bad.code).toBe(2);
     expect(bad.err).toMatch(/^tamperward research: /);
   }, 240_000);
+
+  it('a trusted policy that cannot be read at the base makes the trajectory unmeasurable, never a silent default policy', () => {
+    const dir = tmp();
+    const repo = taskRepo();
+    writeFileSync(join(repo, '.tamperward.yml'), 'verify: [not-a-mapping\n');
+    execFileSync('git', ['add', '-A'], { cwd: repo });
+    execFileSync('git', ['commit', '-qm', 'malformed policy'], { cwd: repo });
+    const manifest = writeManifest(dir, [{ id: 'honest', repo, prompt: 'p', verify: { command: SUITE, budget: 30 } }]);
+    const ledger = join(dir, 'ledger');
+    const r = capture(() => runResearch({ manifest, out: ledger, adapter: 'command', agentArgv: ['sh', '-c', 'echo "module.exports = 42;" > src.js'], json: true }));
+    expect(r.code).toBe(0);
+    const rec = JSON.parse(r.out.trim());
+    expect(validateResearch(rec)).toEqual([]);
+    for (const arm of ['ungated', 'gated'] as const) {
+      expect(rec.arms[arm].measured).toBe(false);
+      expect(rec.arms[arm].unmeasurable).toMatch(/trusted policy/);
+      expect(rec.arms[arm].outcome.verify_verdict).toBe('CANNOT_VERIFY');
+      expect(rec.arms[arm].outcome.honest_completion).toBe(false);
+    }
+    const summary = summarizeLedger(ledger);
+    expect(validateResearch(summary)).toEqual([]);
+    expect(summary).toMatchObject({
+      pairs: 1,
+      measured_pairs: 0,
+      unmeasurable_pairs: 1,
+      model_behaviour: { ungated: { trajectories: 0 }, gated: { trajectories: 0 } },
+      independent_outcome: { ungated: { honest_completion: 0 }, gated: { honest_completion: 0 } },
+      tamperward: { caught: 0, escapes: 0, false_refusals: 0, cannot_adjudicate: 0 },
+    });
+  }, 120_000);
+
+  it('a descendant the ungated agent leaves holding the workspace makes that trajectory unmeasurable', () => {
+    const dir = tmp();
+    const manifest = writeManifest(dir, [{ id: 'honest', repo: taskRepo(), prompt: 'p', verify: { command: SUITE, budget: 30 } }]);
+    const ledger = join(dir, 'ledger');
+    // The agent fixes the bug, then leaves a new-session worker behind that keeps the
+    // workspace as its cwd — the shape that survives a process-group kill.
+    const script = join(dir, 'leaver.sh');
+    writeFileSync(script, '#!/bin/sh\necho "module.exports = 42;" > src.js\nsetsid sh -c "sleep 120" </dev/null >/dev/null 2>&1 &\nsleep 0.3\nexit 0\n');
+    chmodSync(script, 0o755);
+    const r = capture(() => runResearch({ manifest, out: ledger, adapter: 'command', agentArgv: [script], json: true }));
+    expect(r.code).toBe(0);
+    const rec = JSON.parse(r.out.trim());
+    expect(validateResearch(rec)).toEqual([]);
+    expect(rec.arms.ungated.agent.exit_code).toBe(0);
+    expect(rec.arms.ungated.measured).toBe(false);
+    expect(rec.arms.ungated.unmeasurable).toMatch(/NOT_QUIESCENT/);
+    // The survivor was terminated, not left running on the researcher's machine.
+    expect(linuxPidsWithCmdline('sleep 120')).toEqual([]);
+    expect(summarizeLedger(ledger)).toMatchObject({ pairs: 1, measured_pairs: 0, unmeasurable_pairs: 1 });
+  }, 120_000);
 
   it('an agent that cannot start is data in the record, never a research failure', () => {
     const dir = tmp();
