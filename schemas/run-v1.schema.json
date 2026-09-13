@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/main/schemas/run-v1.schema.json",
+  "title": "TamperWard run JSON output v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "verdict",
+    "exit_code",
+    "agent",
+    "checks"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "verdict": {
+      "enum": [
+        "VERIFIED",
+        "AGENT_TIMEOUT",
+        "AGENT_FAILED",
+        "ENFORCEMENT_FAILED",
+        "CANNOT_ADJUDICATE",
+        "OBJECT_REWRITE",
+        "HISTORY_REWRITE",
+        "DEPENDENCY_DRIFT",
+        "NOT_QUIESCENT",
+        "TRANSIENT_OBSERVER_BLOCK"
+      ]
+    },
+    "exit_code": {
+      "type": "integer"
+    },
+    "base": {
+      "type": "string"
+    },
+    "head": {
+      "type": "string"
+    },
+    "agent": {
+      "type": "object",
+      "required": [
+        "exit_code",
+        "timed_out",
+        "lifecycle_owned"
+      ],
+      "properties": {
+        "exit_code": {
+          "type": "integer"
+        },
+        "timed_out": {
+          "type": "boolean"
+        },
+        "lifecycle_owned": {
+          "type": "boolean"
+        },
+        "budget_secs": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": true
+    },
+    "checks": {
+      "type": "object",
+      "required": [
+        "diff",
+        "worktree",
+        "verify"
+      ],
+      "properties": {
+        "diff": {
+          "type": "integer"
+        },
+        "worktree": {
+          "type": "integer"
+        },
+        "verify": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": true
+    },
+    "verifier_backend": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "dependency_environment": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "observer": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
