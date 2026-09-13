@@ -11,7 +11,7 @@ import {
   requiredVerifierAuthoritySeconds,
 } from '../src/verifier-limits';
 import { evaluateGitHubProtection, githubApiInvocation, githubRepoFromRemote, runDoctor } from '../src/cli/doctor';
-import { startWatcher } from '../src/cli/watch';
+import { defaultEventLog, startWatcher } from '../src/cli/watch';
 import { defaultPolicy } from '../src/policy';
 
 const dirs: string[] = [];
@@ -332,7 +332,6 @@ describe('doctor transient-observer health (#329)', () => {
     const cwd = repo(300);
     workflow(cwd, 70);
     process.env.TAMPERWARD_WATCH_NO_RECURSIVE = '1';
-    const { defaultEventLog } = require('../src/cli/watch') as typeof import('../src/cli/watch');
     const w = startWatcher(cwd, defaultEventLog(cwd), defaultPolicy());
     try {
       const r = capture(() => runDoctor({ cwd, base: 'HEAD' }));
