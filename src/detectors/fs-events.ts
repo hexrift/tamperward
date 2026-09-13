@@ -28,6 +28,41 @@ import type { FsEvent } from '../cli/watch';
 const RULE = 'transient-protected-mutation';
 
 export const MAX_EVENT_READ_BYTES = 4 * 1024 * 1024;
+/** Maximum observer bytes one authority decision will classify in aggregate. */
+export const MAX_EVENT_SWEEP_BYTES = 16 * 1024 * 1024;
+
+export interface EventReadIo {
+  read(
+    fd: number,
+    buffer: Buffer,
+    bufferOffset: number,
+    length: number,
+    position: number,
+  ): number;
+}
+
+const DEFAULT_EVENT_READ_IO: EventReadIo = {
+  read: (fd, buffer, bufferOffset, length, position) =>
+    readSync(fd, buffer, bufferOffset, length, position),
+};
+
+export type EventDrainIssue =
+  | 'malformed-record'
+  | 'oversized-record'
+  | 'incomplete-record'
+  | 'aggregate-limit'
+  | 'read-stalled';
+
+export interface EventDrain {
+  events: FsEvent[];
+  /** Cursor after the last fully classified record. Commit only when complete=true. */
+  newOffset: number;
+  bytesRead: number;
+  batches: number;
+  malformedLines: number;
+  complete: boolean;
+  issue?: EventDrainIssue;
+}
 
 export interface EventBatch {
   events: FsEvent[];
@@ -54,6 +89,7 @@ export function readEvents(
   log: string,
   offset: number,
   maxBytes = MAX_EVENT_READ_BYTES,
+  io: EventReadIo = DEFAULT_EVENT_READ_IO,
 ): EventBatch {
   let size = 0;
   try {
@@ -92,7 +128,7 @@ export function readEvents(
   const fd = openSync(log, 'r');
   let bytesRead = 0;
   try {
-    bytesRead = readSync(fd, buffer, 0, requested, start);
+    bytesRead = io.read(fd, buffer, 0, requested, start);
   } finally {
     closeSync(fd);
   }
@@ -142,6 +178,147 @@ export function readEvents(
     limitReached,
     malformedLines,
     incompleteTail: newOffset < start + bytesRead,
+  };
+}
+
+/**
+ * Drain observer telemetry in bounded positioned reads.
+ *
+ * A single read is capped at MAX_EVENT_READ_BYTES; one authority decision is
+ * capped at MAX_EVENT_SWEEP_BYTES. We only report complete=true when every byte
+ * present at the time of the drain was represented by newline-terminated,
+ * parseable JSONL records. Consumers may commit newOffset only in that case.
+ *
+ * This avoids both failure modes #313 exposed:
+ * - O(total-history) reads on every Stop; and
+ * - bounded-prefix false greens where later telemetry stayed unclassified.
+ */
+export function drainEvents(
+  log: string,
+  offset: number,
+  maxTotalBytes = MAX_EVENT_SWEEP_BYTES,
+  io: EventReadIo = DEFAULT_EVENT_READ_IO,
+): EventDrain {
+  const start = Number.isFinite(offset) ? Math.max(0, Math.floor(offset)) : 0;
+  const aggregateCap =
+    Number.isFinite(maxTotalBytes) && maxTotalBytes > 0
+      ? Math.max(1, Math.floor(maxTotalBytes))
+      : MAX_EVENT_SWEEP_BYTES;
+
+  const events: FsEvent[] = [];
+  let cursor = start;
+  let bytesRead = 0;
+  let batches = 0;
+  let malformedLines = 0;
+
+  while (bytesRead < aggregateCap) {
+    const remainingBudget = aggregateCap - bytesRead;
+    const batch = readEvents(
+      log,
+      cursor,
+      Math.min(MAX_EVENT_READ_BYTES, remainingBudget),
+      io,
+    );
+    batches++;
+    bytesRead += batch.bytesRead;
+    malformedLines += batch.malformedLines;
+    events.push(...batch.events);
+
+    if (batch.malformedLines > 0) {
+      return {
+        events,
+        newOffset: cursor,
+        bytesRead,
+        batches,
+        malformedLines,
+        complete: false,
+        issue: 'malformed-record',
+      };
+    }
+
+    if (batch.bytesRead === 0) {
+      if (batch.limitReached || batch.incompleteTail) {
+        return {
+          events,
+          newOffset: cursor,
+          bytesRead,
+          batches,
+          malformedLines,
+          complete: false,
+          issue: 'read-stalled',
+        };
+      }
+      return {
+        events,
+        newOffset: cursor,
+        bytesRead,
+        batches,
+        malformedLines,
+        complete: true,
+      };
+    }
+
+    // No complete newline in a full bounded chunk means the current record
+    // itself exceeds the per-read ceiling. Do not scan/allocate the whole line.
+    if (batch.limitReached && batch.newOffset === cursor) {
+      return {
+        events,
+        newOffset: cursor,
+        bytesRead,
+        batches,
+        malformedLines,
+        complete: false,
+        issue: 'oversized-record',
+      };
+    }
+
+    // EOF with a partial record: retain it from its beginning for the next turn.
+    if (!batch.limitReached && batch.incompleteTail) {
+      return {
+        events,
+        newOffset: cursor,
+        bytesRead,
+        batches,
+        malformedLines,
+        complete: false,
+        issue: 'incomplete-record',
+      };
+    }
+
+    cursor = batch.newOffset;
+
+    if (!batch.limitReached) {
+      return {
+        events,
+        newOffset: cursor,
+        bytesRead,
+        batches,
+        malformedLines,
+        complete: true,
+      };
+    }
+
+    if (bytesRead >= aggregateCap) {
+      return {
+        events,
+        newOffset: cursor,
+        bytesRead,
+        batches,
+        malformedLines,
+        complete: false,
+        issue: 'aggregate-limit',
+      };
+    }
+  }
+
+  return {
+    events,
+    newOffset: cursor,
+    bytesRead,
+    batches,
+    malformedLines,
+    complete: false,
+    issue: 'aggregate-limit',
   };
 }
 
