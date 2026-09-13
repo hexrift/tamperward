@@ -184,6 +184,31 @@ describe('test-skip AST semantics (#330)', () => {
     expect(f[0].line).toBe(1);
   });
 
+  it('does not re-block a pre-existing imported focus for formatting-only edits', () => {
+    const before = [
+      "import { test as check } from 'vitest';",
+      "check.only('x', () => {});",
+    ].join('\n');
+    const after = [
+      "import { test as check } from 'vitest';",
+      'check',
+      "  .only('x', () => {});",
+    ].join('\n');
+
+    expect(findings(modifiedFile('src/a.spec.ts', before, after, [2, 3]))).toHaveLength(0);
+  });
+
+  it('does not block shorthand skip/only options whose bound value is statically false', () => {
+    const f = findings(addedFile('src/a.spec.ts', [
+      'const skip = false;',
+      'const only = false;',
+      "test('x', { skip }, () => {});",
+      "test('y', { only }, () => {});",
+    ].join('\n')));
+
+    expect(f).toHaveLength(0);
+  });
+
   it('declines AST-only classification when TypeScript reports parse diagnostics', () => {
     const f = findings(addedFile('src/a.spec.ts', [
       "const mode = 'skip';",
