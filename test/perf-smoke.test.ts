@@ -1,10 +1,14 @@
-// Performance smoke: the cheapest items of the harness/perf suite, under LOOSE
-// absolute budgets. This is not the regression gate — that is the nightly/manual
-// `perf` workflow and `harness/perf/compare.mjs` against the committed baseline —
-// it only proves the suite still runs end to end on every Node the package
-// supports and that no ordinary PR multiplies the per-tool-call hook latency by
-// an order of magnitude without CI noticing. Budgets are wide enough that a busy
-// shared runner stays quiet; a hook call that takes seconds is the signal.
+// Performance smoke: the cheapest items of the harness/perf suite, judged as
+// RATIOS between items measured in the same run, never as absolute wall-clock
+// budgets — a shared runner's clock is not a stable reference, and a smoke that
+// flakes on a slow runner is a smoke nobody trusts. `cli.noop` (process start +
+// module load, no evaluation) is the in-run yardstick: a hook call, a Stop sweep
+// or a small `check --diff` costing many multiples of it is the regression this
+// catches — the per-tool-call latency multiplied by work that used to be cheap —
+// whatever the machine. This is not the regression gate; that is the nightly /
+// manual `perf` workflow and `harness/perf/compare.mjs` against the committed
+// baseline. Here the suite is proved to run end to end on every Node the package
+// supports, and the ratios are loose enough that ordinary PR CI stays quiet.
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildSync } from 'esbuild';
@@ -19,12 +23,20 @@ const BENCH = join(ROOT, 'harness', 'perf', 'bench.mjs');
 const COMPARE = join(ROOT, 'harness', 'perf', 'compare.mjs');
 const BASELINE = join(ROOT, 'harness', 'perf', 'BASELINE.json');
 
-/** The smoke subset and its absolute p50 wall budgets, in milliseconds. */
-const SMOKE_BUDGETS_MS: Record<string, number> = {
-  'hook.warm.100': 4000,
-  'snapshot.100': 4000,
-  'check.diff.small': 4000,
+/** The in-run yardstick every ratio is taken against. */
+const YARDSTICK = 'cli.noop';
+
+/** The smoke subset: p50 wall budgets as a RATIO to the yardstick's p50 wall in
+ *  the same run. Measured on the baseline machine these sit at 1.2–1.4x; 4x is
+ *  loose enough for a loaded runner and tight enough that an order-of-magnitude
+ *  regression cannot hide behind it. */
+const SMOKE_BUDGET_RATIOS: Record<string, number> = {
+  'hook.warm.100': 4,
+  'snapshot.100': 4,
+  'check.diff.small': 4,
 };
+
+const SMOKE_ITEMS = [YARDSTICK, ...Object.keys(SMOKE_BUDGET_RATIOS)];
 
 interface Percentiles {
   p50: number;
@@ -85,7 +97,7 @@ afterAll(() => {
 });
 
 describe('harness/perf smoke subset', () => {
-  it('runs the smoke profile and every item stays under its loose absolute budget', () => {
+  it('runs the smoke profile and every item stays within its ratio to the in-run yardstick', () => {
     const out = join(work, 'perf.json');
     const md = join(work, 'perf.md');
     const r = spawnSync(
@@ -100,24 +112,31 @@ describe('harness/perf smoke subset', () => {
     const report: unknown = JSON.parse(readFileSync(out, 'utf8'));
     const items = itemsOf(report);
     const ids = items.map((i) => i.id);
-    for (const id of Object.keys(SMOKE_BUDGETS_MS)) expect(ids).toContain(id);
+    for (const id of SMOKE_ITEMS) expect(ids).toContain(id);
+
+    const yardstick = items.find((i) => i.id === YARDSTICK);
+    expect(yardstick).toBeDefined();
+    const unit = yardstick ? yardstick.wall_ms.p50 : NaN;
+    expect(unit).toBeGreaterThan(0);
 
     for (const item of items) {
       expect(item.runs).toBe(3);
       expect(item.wall_ms.p95).toBeGreaterThanOrEqual(item.wall_ms.p50);
       expect(item.cpu_ms.p50).toBeGreaterThan(0);
-      const budget = SMOKE_BUDGETS_MS[item.id];
-      if (budget !== undefined) expect(item.wall_ms.p50, `${item.id} p50 wall`).toBeLessThan(budget);
+      const ratio = SMOKE_BUDGET_RATIOS[item.id];
+      if (ratio !== undefined) {
+        expect(item.wall_ms.p50 / unit, `${item.id} p50 wall ${item.wall_ms.p50} ms vs ${YARDSTICK} ${unit} ms`).toBeLessThan(ratio);
+      }
     }
 
     const table = readFileSync(md, 'utf8');
-    for (const id of Object.keys(SMOKE_BUDGETS_MS)) expect(table).toContain(`| ${id} |`);
+    for (const id of SMOKE_ITEMS) expect(table).toContain(`| ${id} |`);
   }, 300_000);
 
   it('the committed baseline carries every item the full profile measures', () => {
     const baseline: unknown = JSON.parse(readFileSync(BASELINE, 'utf8'));
     const ids = itemsOf(baseline).map((i) => i.id);
-    for (const id of Object.keys(SMOKE_BUDGETS_MS)) expect(ids).toContain(id);
+    for (const id of SMOKE_ITEMS) expect(ids).toContain(id);
     expect(ids).toEqual(
       expect.arrayContaining([
         'hook.cold.1k',
