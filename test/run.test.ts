@@ -264,6 +264,32 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
     expect(code).toBe(1);
   });
 
+  it.skipIf(process.platform !== 'linux')('normal agent exit reaps a setsid descendant even after it chdirs away from the repository (#376)', () => {
+    const cwd = repo();
+    const state = mkdtempSync(join(tmpdir(), 'tw-agent-detached-'));
+    dirs.push(state);
+    const pidFile = join(state, 'pid');
+
+    const code = runEnvelope({
+      cwd,
+      cmd: CMD,
+      argv: sh(
+        `setsid bash -c 'echo $ > "${pidFile}"; cd /tmp; sleep 30' >/dev/null 2>&1 & ` +
+          `echo "module.exports = 42;" > src.js`,
+      ),
+    });
+
+    expect(code).toBe(0);
+    const pid = Number(readFileSync(pidFile, 'utf8').trim());
+    expect(Number.isInteger(pid) && pid > 1).toBe(true);
+    try {
+      expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+      // Red-phase cleanup: production currently lets this descendant survive.
+      try { process.kill(pid, 'SIGKILL'); } catch { /* already gone after the fix */ }
+    }
+  }, 15_000);
+
   it.skipIf(process.platform !== 'linux')('a detached worker cannot hide by chdir while retaining a repository fd', () => {
     const cwd = repo();
     const code = runEnvelope({
