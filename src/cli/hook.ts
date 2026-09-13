@@ -30,7 +30,7 @@ import {
   snapshotProtected,
 } from '../effect';
 import { defaultEventLog, watcherTelemetry } from './watch';
-import { readEvents, transientFindings } from '../detectors/fs-events';
+import { MAX_EVENT_READ_BYTES, readEvents, transientFindings } from '../detectors/fs-events';
 import { isProtected } from '../policy';
 import { inspectRel, unjudgeableFinding, unjudgeableProtected } from '../disk';
 import { Change, FileChange, Finding, Policy } from '../types';
@@ -484,7 +484,20 @@ function turnTransientBlocks(cwd: string, sessionId: string | undefined, policy:
     const n = Number(readFileSync(cp, 'utf8'));
     offset = Number.isFinite(n) ? n : 0;
   }
-  const { events, newOffset } = readEvents(log, offset);
+  const batch = readEvents(log, offset);
+  const { events, newOffset } = batch;
+  if (batch.limitReached) {
+    recordObserverHealth(
+      'degraded',
+      `event telemetry exceeded the ${MAX_EVENT_READ_BYTES}-byte Stop-sweep read ceiling; remaining bytes are deferred`,
+    );
+  }
+  if (batch.malformedLines > 0) {
+    recordObserverHealth(
+      'degraded',
+      `event telemetry contained ${batch.malformedLines} malformed complete JSONL record(s)`,
+    );
+  }
   if (events.length === 0) return { ...none, commit: () => { if (cp) try { writeFileSync(cp, String(newOffset)); } catch { /* best effort */ } } };
   const persistent = new Set(changes.filter((c) => c.kind === 'file').map((c) => c.path));
   const finalHash = (path: string): string | null => {
