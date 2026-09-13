@@ -13,6 +13,7 @@ import { runEnvelope, parseRun } from '../src/cli/run';
 import { runVerify } from '../src/cli/verify';
 import { loadPolicy } from '../src/policy-load';
 import { diffWorktree, diffWorktreeWithUntracked } from '../src/git/build';
+import { MAX_EVENT_READ_BYTES } from '../src/detectors/fs-events';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -508,6 +509,52 @@ describe('supervised transient observer (#335)', () => {
       observerEntry,
       argv: sh('true'),
     })).toBe(0);
+
+    process.env.TAMPERWARD_TRANSIENT = 'block';
+    try {
+      expect(runEnvelope({
+        cwd,
+        cmd: CMD,
+        observeTransients: true,
+        observerEntry,
+        argv: sh('true'),
+      })).toBe(1);
+    } finally {
+      delete process.env.TAMPERWARD_TRANSIENT;
+    }
+  }, 20_000);
+
+  it('strict observer mode cannot miss a blocking transient after the first bounded telemetry chunk', () => {
+    const cwd = repo(true);
+    const helperDir = mkdtempSync(join(tmpdir(), 'tw-observer-fixture-'));
+    dirs.push(helperDir);
+    const observerEntry = join(helperDir, 'observer-backlog.js');
+
+    writeFileSync(
+      observerEntry,
+      [
+        "const fs = require('node:fs');",
+        "const path = require('node:path');",
+        "const args = process.argv.slice(2);",
+        "const value = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };",
+        "const log = value('--log');",
+        "if (!log || !value('--base') || args[0] !== 'watch') process.exit(22);",
+        "fs.mkdirSync(path.dirname(log), { recursive: true });",
+        "const healthPath = log + '.health.json';",
+        "const benign = JSON.stringify({ ts: new Date().toISOString(), path: 'src.js', kind: 'change', mode: 33188, size: 10, hash: 'same' }) + '\\n';",
+        `const repeats = Math.ceil((${MAX_EVENT_READ_BYTES} + 32768) / Buffer.byteLength(benign));`,
+        "const tail = [",
+        "  { ts: new Date().toISOString(), path: 'test/check.test.js', kind: 'change', mode: 33188, size: 10, hash: 'weakened' },",
+        "  { ts: new Date().toISOString(), path: 'test/check.test.js', kind: 'change', mode: 33188, size: 10, hash: 'restored' },",
+        "].map((x) => JSON.stringify(x)).join('\\n') + '\\n';",
+        "fs.writeFileSync(log, benign.repeat(repeats) + tail);",
+        "const health = { version: 1, state: 'healthy', backend: 'fallback', pid: process.pid, started_at: new Date().toISOString(), stopped_at: null, watched_dirs: 1, last_append_at: new Date().toISOString(), event_count: repeats + 2, dropped_events: 0, error_count: 0, last_error: null, log };",
+        "fs.writeFileSync(healthPath, JSON.stringify(health) + '\\n');",
+        "process.on('SIGTERM', () => { health.state = 'stopped'; health.stopped_at = new Date().toISOString(); fs.writeFileSync(healthPath, JSON.stringify(health) + '\\n'); process.exit(0); });",
+        "setInterval(() => {}, 1000);",
+        "",
+      ].join('\n'),
+    );
 
     process.env.TAMPERWARD_TRANSIENT = 'block';
     try {
