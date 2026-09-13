@@ -12,22 +12,30 @@ history.** The Stop-sweep cursor had always been stored as a byte offset, but
 `readEvents()` still decoded the entire append-only JSONL file and sliced the resulting
 string afterwards. Long agent sessions therefore re-read old telemetry on every turn.
 
-The reader now opens the log and performs a positioned read beginning at the saved
-cursor. One batch is bounded to **4 MiB**, reports its physical `bytesRead`, and advances
-the cursor only through complete newline-terminated JSONL records. Remaining telemetry
-is deferred to the next sweep and surfaced as degraded advisory telemetry rather than
-triggering unbounded allocation.
+The reader now opens the log and performs positioned reads beginning at the saved
+cursor. Each physical read is bounded to **4 MiB**, and one authority decision drains at
+most **16 MiB** in bounded batches. Cursor movement is byte-based and only
+newline-terminated JSONL records can advance it. The instrumented regression asserts
+the real read position/length against a multi-megabyte historical prefix rather than
+trusting a self-reported counter.
 
-This also fixes a cursor correctness bug in the old implementation: a torn final JSONL
-write was caught during parsing but the cursor still advanced to EOF, permanently
-skipping the record. The cursor now stops before an incomplete final record and replays
-it after the watcher finishes the line. Malformed **complete** records are counted,
-surfaced as degraded telemetry, skipped, and safely advanced past.
+This also fixes the torn-tail correctness bug in the old implementation: parse failure
+no longer advances the cursor to EOF. A torn final record is replayed after completion,
+and a chunk split inside multibyte UTF-8 keeps the cursor at the preceding byte-safe
+newline. Stop commits its saved cursor only when every byte in the bounded tail was
+successfully parsed and classified. Malformed complete telemetry, an oversized single
+record, a torn tail, or more than 16 MiB requiring classification blocks Stop and
+retains the prior cursor instead of silently discarding or deferring authority evidence.
 
-TDD coverage includes a multi-megabyte historical prefix with a tiny appended tail
-(where `bytesRead` equals only the tail), torn-record completion/replay, and a bounded
-chunk that cuts into the next record and advances only through the preceding complete
-line.
+The supervised run observer drains the same bounded batches. Observer evidence remains
+advisory by default, but explicit `TAMPERWARD_TRANSIENT=block` now fails closed when
+telemetry is incomplete/unclassifiable or final-diff classification fails, so a
+blocking transient after the first 4 MiB cannot be hidden behind a benign prefix.
+
+TDD coverage includes the positioned-read instrumentation, UTF-8 split boundary,
+torn-record completion/replay, bounded multi-batch progress, Stop backlog/malformed/
+oversized authority cases, and a strict run case with the blocking event after the
+first 4 MiB.
 
 This closes #313.
 
