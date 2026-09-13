@@ -35,12 +35,15 @@ function verdict(cli, base, head) {
 
   const text = String(r.stdout || '').trim();
   if (!text) {
-    throw new Error(`CLI produced no JSON for ${base.slice(0, 12)}...${head.slice(0, 12)}`);
+    throw new Error(
+      `CLI produced no JSON for ${base.slice(0, 12)}...${head.slice(0, 12)}` +
+      ` (exit ${String(r.status)}${stderr ? `; stderr: ${stderr}` : ''})`,
+    );
   }
 
   let parsed;
   try {
-    parsed = JSON.parse(text.split('\n').at(-1));
+    parsed = JSON.parse(text);
   } catch (error) {
     throw new Error(
       `CLI produced malformed JSON for ${base.slice(0, 12)}...${head.slice(0, 12)}: ${error instanceof Error ? error.message : String(error)}`,
