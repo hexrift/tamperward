@@ -28,7 +28,8 @@
         ],
         "properties": {
           "rule": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "severity": {
             "enum": [
@@ -40,7 +41,8 @@
             "type": "string"
           },
           "line": {
-            "type": "integer"
+            "type": "integer",
+            "minimum": 1
           },
           "message": {
             "type": "string"
