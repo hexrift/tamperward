@@ -21,13 +21,35 @@ function verdict(cli, base, head) {
     encoding: 'utf8',
     maxBuffer: 128 * 1024 * 1024,
   });
-  const text = String(r.stdout || '').trim();
-  if (!text) return { findings: [] };
-  try {
-    return JSON.parse(text.split('\n').at(-1));
-  } catch {
-    return { findings: [] };
+
+  const stderr = String(r.stderr || '').trim();
+  if (r.error) {
+    throw new Error(`CLI spawn failed for ${base.slice(0, 12)}...${head.slice(0, 12)}: ${r.error.message}`);
   }
+  if (r.signal) {
+    throw new Error(`CLI terminated by ${r.signal} for ${base.slice(0, 12)}...${head.slice(0, 12)}${stderr ? `: ${stderr}` : ''}`);
+  }
+  if (r.status !== 0 && r.status !== 1) {
+    throw new Error(`unexpected CLI exit ${String(r.status)} for ${base.slice(0, 12)}...${head.slice(0, 12)}${stderr ? `: ${stderr}` : ''}`);
+  }
+
+  const text = String(r.stdout || '').trim();
+  if (!text) {
+    throw new Error(`CLI produced no JSON for ${base.slice(0, 12)}...${head.slice(0, 12)}`);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text.split('\n').at(-1));
+  } catch (error) {
+    throw new Error(
+      `CLI produced malformed JSON for ${base.slice(0, 12)}...${head.slice(0, 12)}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (!parsed || !Array.isArray(parsed.findings)) {
+    throw new Error(`CLI JSON is missing findings[] for ${base.slice(0, 12)}...${head.slice(0, 12)}`);
+  }
+  return parsed;
 }
 
 const key = (f) => [f.rule, f.file || '', String(f.line || ''), f.evidence || ''].join('\u0000');
@@ -56,4 +78,4 @@ for (let i = 1; i < commits.length; i++) {
   }
 }
 
-console.log(JSON.stringify({ repo: label, pairs, new_findings: newFindings.length, findings: newFindings }));
+console.log(JSON.stringify({ repo: label, corpus_head: git('rev-parse', 'HEAD').trim(), pairs, new_findings: newFindings.length, findings: newFindings }));
