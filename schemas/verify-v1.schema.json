@@ -1,0 +1,606 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/main/schemas/verify-v1.schema.json",
+  "title": "TamperWard verify JSON output v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "verdict"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "verdict": {
+      "enum": [
+        "VERIFIED",
+        "MASKED_FAILURE",
+        "SUITE_RED",
+        "BUDGET_EXCEEDED",
+        "CANNOT_VERIFY"
+      ]
+    },
+    "reason": {
+      "enum": [
+        "INVALID_ARGUMENTS",
+        "POLICY_ERROR",
+        "BASE_NOT_ANCESTOR",
+        "NO_SUITE_COMMAND",
+        "VERIFIER_BACKEND_UNAVAILABLE",
+        "LOCAL_VERIFIER_UNSUPPORTED_PLATFORM",
+        "DEPENDENCY_ENVIRONMENT_UNATTESTABLE",
+        "BASE_UNRESOLVABLE",
+        "DEPENDENCY_DRIFT",
+        "MATERIALIZATION_FAILED",
+        "VERIFIER_BACKEND_RUNTIME_FAILURE",
+        "VERIFIER_RESOURCE_EXHAUSTED",
+        "WORKTREE_CHANGED",
+        "PRISTINE_INTEGRITY_CHANGED"
+      ],
+      "description": "Machine reason for CANNOT_VERIFY. `stage` names the suite execution in flight, where one was."
+    },
+    "detail": {
+      "type": "string"
+    },
+    "base": {
+      "type": "string"
+    },
+    "command": {
+      "type": "string"
+    },
+    "budget_secs": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "stage": {
+      "enum": [
+        "visible",
+        "pristine"
+      ]
+    },
+    "resource": {
+      "type": "string"
+    },
+    "diagnostics": {
+      "$ref": "#/$defs/diagnostics"
+    },
+    "visible": {
+      "$ref": "#/$defs/stage"
+    },
+    "pristine": {
+      "$ref": "#/$defs/stage"
+    },
+    "protected_restored": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "added_protected_removed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "verifier_backend": {
+      "$ref": "#/$defs/backend"
+    },
+    "dependency_environment": {
+      "$ref": "#/$defs/dependency_environment"
+    },
+    "oracle_assurance": {
+      "$ref": "#/$defs/oracle_assurance"
+    },
+    "oob_signoff": {
+      "type": "string"
+    },
+    "visible_dir": {
+      "type": "string"
+    },
+    "pristine_dir": {
+      "type": "string"
+    },
+    "platform": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "CANNOT_VERIFY"
+          }
+        },
+        "required": [
+          "verdict"
+        ],
+        "type": "object"
+      },
+      "then": {
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {}
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "enum": [
+              "VERIFIED",
+              "MASKED_FAILURE",
+              "SUITE_RED",
+              "BUDGET_EXCEEDED"
+            ]
+          }
+        },
+        "required": [
+          "verdict"
+        ],
+        "type": "object"
+      },
+      "then": {
+        "required": [
+          "base",
+          "command",
+          "budget_secs",
+          "visible",
+          "pristine",
+          "protected_restored",
+          "added_protected_removed",
+          "verifier_backend",
+          "dependency_environment",
+          "oracle_assurance"
+        ],
+        "properties": {
+          "base": {},
+          "command": {},
+          "budget_secs": {},
+          "visible": {},
+          "pristine": {},
+          "protected_restored": {},
+          "added_protected_removed": {},
+          "verifier_backend": {},
+          "dependency_environment": {},
+          "oracle_assurance": {}
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "VERIFIED"
+          }
+        },
+        "required": [
+          "verdict"
+        ],
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "visible": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/stage"
+              },
+              {
+                "properties": {
+                  "exit": {
+                    "const": 0
+                  }
+                },
+                "required": [
+                  "exit"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "pristine": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/stage"
+              },
+              {
+                "properties": {
+                  "exit": {
+                    "const": 0
+                  }
+                },
+                "required": [
+                  "exit"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "MASKED_FAILURE"
+          }
+        },
+        "required": [
+          "verdict"
+        ],
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "visible": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/stage"
+              },
+              {
+                "properties": {
+                  "exit": {
+                    "const": 0
+                  }
+                },
+                "required": [
+                  "exit"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "pristine": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/stage"
+              },
+              {
+                "properties": {
+                  "exit": {
+                    "type": "integer",
+                    "not": {
+                      "const": 0
+                    }
+                  }
+                },
+                "required": [
+                  "exit"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "SUITE_RED"
+          }
+        },
+        "required": [
+          "verdict"
+        ],
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "visible": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/stage"
+              },
+              {
+                "properties": {
+                  "exit": {
+                    "type": "integer",
+                    "not": {
+                      "const": 0
+                    }
+                  }
+                },
+                "required": [
+                  "exit"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "BUDGET_EXCEEDED"
+          }
+        },
+        "required": [
+          "verdict"
+        ],
+        "type": "object"
+      },
+      "then": {
+        "anyOf": [
+          {
+            "properties": {
+              "visible": {
+                "properties": {
+                  "exit": {
+                    "const": null
+                  }
+                },
+                "required": [
+                  "exit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "visible"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "pristine": {
+                "properties": {
+                  "exit": {
+                    "const": null
+                  }
+                },
+                "required": [
+                  "exit"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "pristine"
+            ],
+            "type": "object"
+          }
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "stream": {
+      "type": "object",
+      "required": [
+        "captured_bytes",
+        "retained_bytes",
+        "truncated"
+      ],
+      "properties": {
+        "captured_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "retained_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "tail": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "diagnostics": {
+      "type": "object",
+      "required": [
+        "stdout",
+        "stderr"
+      ],
+      "properties": {
+        "stdout": {
+          "$ref": "#/$defs/stream"
+        },
+        "stderr": {
+          "$ref": "#/$defs/stream"
+        }
+      },
+      "additionalProperties": true
+    },
+    "stage": {
+      "type": "object",
+      "required": [
+        "exit",
+        "secs"
+      ],
+      "properties": {
+        "exit": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "secs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "reason": {
+          "type": "string"
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/diagnostics"
+        }
+      },
+      "additionalProperties": true
+    },
+    "backend": {
+      "type": "object",
+      "required": [
+        "kind",
+        "trust",
+        "available"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "local",
+            "container"
+          ]
+        },
+        "trust": {
+          "enum": [
+            "checkpointed-local",
+            "isolated-container"
+          ]
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "string"
+        },
+        "engine": {
+          "const": "docker"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "resources": {
+          "type": "object",
+          "required": [
+            "memory_bytes",
+            "memory_swap_bytes",
+            "cpus",
+            "pids"
+          ],
+          "properties": {
+            "memory_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "memory_swap_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "cpus": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "pids": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "dependency_environment": {
+      "type": "object",
+      "required": [
+        "status",
+        "roots"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "none",
+            "attested",
+            "unattestable",
+            "verifier-owned"
+          ]
+        },
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "kind",
+              "path"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "node_modules",
+                  "python-venv"
+                ]
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "fingerprint": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        },
+        "diagnostics": {
+          "type": "object",
+          "required": [
+            "full_snapshots",
+            "reused_snapshots",
+            "total_ms"
+          ],
+          "properties": {
+            "full_snapshots": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "reused_snapshots": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "total_ms": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "oracle_assurance": {
+      "type": "object",
+      "required": [
+        "level",
+        "semantic_isolation",
+        "candidate_code_executes_in_oracle_process",
+        "limitation"
+      ],
+      "properties": {
+        "level": {
+          "const": "suite-exit-only"
+        },
+        "semantic_isolation": {
+          "const": false
+        },
+        "candidate_code_executes_in_oracle_process": {
+          "const": true
+        },
+        "limitation": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

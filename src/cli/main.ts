@@ -176,7 +176,7 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     const prefix = args.slice(0, delimiter);
     const command = args.slice(delimiter + 1);
     const parsed = validateFlatArgs(prefix, {
-      flags: ['--allow-dirty', '--allow-dep-drift', '--observe-transients'],
+      flags: ['--allow-dirty', '--allow-dep-drift', '--observe-transients', '--json'],
       values: {
         '--base': 'string',
         '--cmd': 'string',
@@ -286,7 +286,8 @@ Formats:
   github  GitHub Actions view: one inline annotation per finding (so it shows up
           on the line in "Files changed") plus a job-summary table on the run
           page, alongside the same text output in the log.
-  json    the findings verbatim, plus a summary count.
+  json    versioned machine-readable output. Top-level schema_version identifies
+          the public JSON-schema major; published schemas live under schemas/.
   auto    github when GITHUB_ACTIONS=true, otherwise text.
   tamperward hook claude                    PreToolUse gate (reads hook JSON on stdin)
   tamperward sweep claude                   Stop sweep (re-scan the turn's working tree)
@@ -315,11 +316,13 @@ Formats:
              [--budget S] [--agent-budget S] untrusted, then re-adjudicate the tree it
              [--allow-dirty] [--settle S]   left (policy over base...HEAD and the
              [--allow-dep-drift] [--cwd D]  worktree, plus verify).
-             [--observe-transients]          --observe-transients starts a session-
+             [--observe-transients] [--json] --observe-transients starts a session-
                                             scoped observer before the agent and
                                             reports temporal evidence/health after it.
                                             --agent-budget bounds the agent runtime
                                             itself and still adjudicates after timeout.
+                                            --json emits one final versioned run verdict
+                                            document on stdout after agent adjudication.
                                             Exit: agent's
                                             code when clean; 124 on clean AGENT_TIMEOUT;
                                             1 on any blocking finding/masked failure;

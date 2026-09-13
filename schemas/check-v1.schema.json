@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/main/schemas/check-v1.schema.json",
+  "title": "TamperWard check JSON output v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "findings",
+    "scanned",
+    "ignoredFiles",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "rule",
+          "severity",
+          "message",
+          "evidence",
+          "remediation",
+          "signoff"
+        ],
+        "properties": {
+          "rule": {
+            "type": "string",
+            "minLength": 1
+          },
+          "severity": {
+            "enum": [
+              "block",
+              "warn"
+            ]
+          },
+          "file": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "message": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "remediation": {
+            "type": "string"
+          },
+          "signoff": {
+            "type": "object",
+            "required": [
+              "required",
+              "command"
+            ],
+            "properties": {
+              "required": {
+                "type": "boolean"
+              },
+              "command": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "scanned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ignoredFiles": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "block",
+        "warn"
+      ],
+      "properties": {
+        "block": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warn": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

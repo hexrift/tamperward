@@ -11,6 +11,7 @@
 // the detection when you want a specific view.
 
 import { Finding } from '../types';
+import { machineOutput } from '../machine-output';
 import { colourEnabled, renderText, terminalWidth } from './render/text';
 import { annotations, isGitHubActions, renderSummary, writeSummary } from './render/github';
 
@@ -52,7 +53,7 @@ export function report(input: ReportInput): void {
       JSON.stringify(
         // `findings`, `scanned` and `ignoredFiles` keep their exact prior shape; `summary`
         // is additive, so an existing consumer reading only the old keys is unaffected.
-        { findings, scanned, ignoredFiles, summary: { block: blocks, warn: findings.length - blocks } },
+        machineOutput({ findings, scanned, ignoredFiles, summary: { block: blocks, warn: findings.length - blocks } }),
         null,
         2,
       ) + '\n',

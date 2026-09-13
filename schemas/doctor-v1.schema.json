@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/main/schemas/doctor-v1.schema.json",
+  "title": "TamperWard doctor JSON output v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "command",
+    "authoritative",
+    "checks"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "command": {
+      "const": "doctor"
+    },
+    "authoritative": {
+      "type": "boolean"
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "state",
+          "detail"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "enum": [
+              "OK",
+              "WARN",
+              "BROKEN"
+            ]
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true,
+  "description": "Emitted by `tamperward doctor --json`. `authoritative` is derived: false exactly when any check is BROKEN. Additive within schema major 1.",
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "checks": {
+            "type": "array",
+            "contains": {
+              "type": "object",
+              "required": [
+                "state"
+              ],
+              "properties": {
+                "state": {
+                  "const": "BROKEN"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "checks"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "authoritative": {
+            "const": false
+          }
+        }
+      },
+      "else": {
+        "type": "object",
+        "properties": {
+          "authoritative": {
+            "const": true
+          }
+        }
+      }
+    }
+  ]
+}

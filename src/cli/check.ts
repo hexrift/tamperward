@@ -28,6 +28,8 @@ export interface CheckOpts {
   worktree?: boolean; // stop-sweep view
   json?: boolean;
   format?: Format;
+  /** @internal Suppress verdict stdout when check is nested inside another JSON envelope. */
+  silent?: boolean;
   cwd?: string;
   /** Enforcement-envelope overrides (SPEC row 17). The envelope adjudicates the
    *  post-agent tree, so it cannot trust that tree's own policy, file view, or
@@ -127,7 +129,9 @@ function check(opts: CheckOpts): number {
     process.stderr.write(`tamperward: ${cleared.length} blocking finding(s) cleared by ${how}: ${cleared.map((f) => f.rule + (f.file ? `(${f.file})` : '')).join(', ')}\n`);
   }
 
-  report({ findings, scanned: changes.length, ignoredFiles, json: opts.json, format: opts.format });
+  if (!opts.silent) {
+    report({ findings, scanned: changes.length, ignoredFiles, json: opts.json, format: opts.format });
+  }
   return hasBlocking(findings) ? 1 : 0;
 }
 

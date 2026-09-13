@@ -68,6 +68,7 @@ import {
   type PreparedVerifierBackend,
 } from '../verifier-backend';
 import { Policy } from '../types';
+import { MACHINE_SCHEMA_VERSION, type VerifyCannotVerifyReason } from '../machine-output';
 import { oobFromEnv, oobHeadFromEnv, oobToken } from '../signoff';
 import {
   diagnosticLines,
@@ -81,6 +82,8 @@ export interface VerifyOpts {
   cmd?: string;
   budget?: number;
   json?: boolean;
+  /** @internal Suppress human/machine stdout when verify is nested inside another JSON envelope. */
+  silent?: boolean;
   keep?: boolean;
   /** Refuse when the requested base is not an ancestor of HEAD — i.e. when
    *  merge-base would silently anchor to something older. The envelope
@@ -934,11 +937,31 @@ function renderStageDiagnostics(
 
 export function runVerify(opts: VerifyOpts): number {
   const cwd = opts.cwd ?? process.cwd();
-  const out = (s: string): void => void process.stdout.write(s + '\n');
+  const out = opts.silent
+    ? (_s: string): void => {}
+    : (s: string): void => void process.stdout.write(s + '\n');
+
+  const cannotVerify = (
+    reason: VerifyCannotVerifyReason,
+    detail?: string,
+    extra: Record<string, unknown> = {},
+  ): number => {
+    if (opts.json) {
+      out(JSON.stringify({
+        schema_version: MACHINE_SCHEMA_VERSION,
+        verdict: 'CANNOT_VERIFY',
+        reason,
+        ...(detail ? { detail } : {}),
+        ...extra,
+      }));
+    } else if (detail) {
+      out(`verify: ${detail} — failing closed`);
+    }
+    return 2;
+  };
 
   if (opts.invalid) {
-    out(`verify: ${opts.invalid} — failing closed`);
-    return 2;
+    return cannotVerify('INVALID_ARGUMENTS', opts.invalid);
   }
 
   // POLICY PROVENANCE. The candidate must not choose the rules it is judged by.
@@ -959,29 +982,26 @@ export function runVerify(opts: VerifyOpts): number {
     else if (opts.base) policy = loadPolicyAt(resolveBase(opts.base, cwd), cwd) ?? defaultPolicy();
     else policy = loadPolicy(cwd);
   } catch (e) {
-    out(`verify: cannot load policy (${e instanceof Error ? e.message : String(e)}) — failing closed`);
-    return 2;
+    return cannotVerify('POLICY_ERROR', `cannot load policy (${e instanceof Error ? e.message : String(e)})`);
   }
   if (opts.requireAncestor) {
     const requested = git(['rev-parse', '--verify', `${opts.base ?? 'HEAD'}^{commit}`], cwd).trim();
     if (!baseIsAncestorOfHead(requested, cwd)) {
-      out(
-        `verify: --require-ancestor: ${requested.slice(0, 10)} is not an ancestor of HEAD — the anchor ` +
-          'would silently resolve to an older commit. Failing closed.',
+      return cannotVerify(
+        'BASE_NOT_ANCESTOR',
+        `--require-ancestor: ${requested.slice(0, 10)} is not an ancestor of HEAD; the anchor would silently resolve to an older commit`,
+        { base: requested },
       );
-      return 2;
     }
   }
   const cmd = opts.cmd ?? policy.verify?.command;
   if (!cmd) {
-    out(
+    return cannotVerify(
+      'NO_SUITE_COMMAND',
       opts.base
-        ? 'verify: no suite command in the policy at the trusted base — the base governs the ' +
-          'verifier, so a `verify:` block added only on the candidate is not used. Add it at ' +
-          'the base, or pass --cmd explicitly.'
-        : 'verify: no suite command — set policy `verify: { command: ... }` or pass --cmd',
+        ? 'no suite command in the policy at the trusted base; add it at the base or pass --cmd explicitly'
+        : 'no suite command; set policy verify.command or pass --cmd',
     );
-    return 2;
   }
   const budget = opts.budget ?? policy.verify?.budget ?? 300;
 
@@ -993,6 +1013,7 @@ export function runVerify(opts: VerifyOpts): number {
   if (!verifierBackend.available) {
     if (opts.json) {
       out(JSON.stringify({
+        schema_version: MACHINE_SCHEMA_VERSION,
         verdict: 'CANNOT_VERIFY',
         reason: 'VERIFIER_BACKEND_UNAVAILABLE',
         verifier_backend: backendReport(),
@@ -1008,6 +1029,7 @@ export function runVerify(opts: VerifyOpts): number {
   if (!isolated && !localVerifierShell(process.platform, cmd)) {
     if (opts.json) {
       out(JSON.stringify({
+        schema_version: MACHINE_SCHEMA_VERSION,
         verdict: 'CANNOT_VERIFY',
         reason: 'LOCAL_VERIFIER_UNSUPPORTED_PLATFORM',
         platform: process.platform,
@@ -1040,6 +1062,7 @@ export function runVerify(opts: VerifyOpts): number {
   if (dependencyEnvironment?.status === 'unattestable' && !opts.allowDepDrift) {
     if (opts.json) {
       out(JSON.stringify({
+        schema_version: MACHINE_SCHEMA_VERSION,
         verdict: 'CANNOT_VERIFY',
         reason: 'DEPENDENCY_ENVIRONMENT_UNATTESTABLE',
         verifier_backend: backendReport(),
@@ -1066,8 +1089,7 @@ export function runVerify(opts: VerifyOpts): number {
   try {
     base = resolveBase(opts.base ?? 'HEAD', cwd);
   } catch {
-    out(`verify: cannot resolve base rev "${opts.base ?? 'HEAD'}" — failing closed`);
-    return 2;
+    return cannotVerify('BASE_UNRESOLVABLE', `cannot resolve base rev "${opts.base ?? 'HEAD'}"`);
   }
 
   // SEQUENCING IS THE CONTROL (H1). The two copies used to be siblings under one
@@ -1109,9 +1131,11 @@ export function runVerify(opts: VerifyOpts): number {
     : { ok: true };
   if (!dependencyAtEntry.ok && !opts.allowDepDrift) {
     cleanup([visRoot]);
-    out('verify: the frozen dependency environment changed before the visible suite ran —');
-    out((dependencyAtEntry.reason ?? 'dependency identity changed') + '. Failing closed, not open.');
-    return 2;
+    return cannotVerify(
+      'DEPENDENCY_DRIFT',
+      dependencyAtEntry.reason ?? 'dependency identity changed before the visible suite ran',
+      { dependency_environment: dependencyReport(), verifier_backend: backendReport(), oracle_assurance: oracleAssuranceReport() },
+    );
   }
 
   try {
@@ -1119,8 +1143,11 @@ export function runVerify(opts: VerifyOpts): number {
     materialize(cwd, visDir, frozenNodeModules);
   } catch (e) {
     cleanup([visRoot]);
-    out(`verify: could not materialize (${e instanceof Error ? e.message : String(e)}) — failing closed`);
-    return 2;
+    return cannotVerify(
+      'MATERIALIZATION_FAILED',
+      `could not materialize (${e instanceof Error ? e.message : String(e)})`,
+      { verifier_backend: backendReport(), dependency_environment: dependencyReport(), oracle_assurance: oracleAssuranceReport() },
+    );
   }
 
   const visible = runStage(visDir);
@@ -1130,6 +1157,7 @@ export function runVerify(opts: VerifyOpts): number {
     const exhausted = visible.failure === 'resource';
     if (opts.json) {
       out(JSON.stringify({
+        schema_version: MACHINE_SCHEMA_VERSION,
         verdict: 'CANNOT_VERIFY',
         reason: exhausted ? 'VERIFIER_RESOURCE_EXHAUSTED' : 'VERIFIER_BACKEND_RUNTIME_FAILURE',
         stage: 'visible',
@@ -1153,16 +1181,20 @@ export function runVerify(opts: VerifyOpts): number {
 
   if (treeFingerprint(cwd, protectedIgnored) !== treeBefore) {
     cleanup([visRoot]);
-    out('verify: the working tree changed while the visible suite was running — the pristine copy');
-    out('would be materialised from a tree the candidate just edited. Failing closed, not open.');
-    return 2;
+    return cannotVerify(
+      'WORKTREE_CHANGED',
+      'the working tree changed while the visible suite was running',
+      { stage: 'visible', verifier_backend: backendReport(), dependency_environment: dependencyReport(), oracle_assurance: oracleAssuranceReport() },
+    );
   }
   const dependencyAfterVisible = checkDeps();
   if (!dependencyAfterVisible.ok && !opts.allowDepDrift) {
     cleanup([visRoot]);
-    out('verify: the frozen dependency environment changed while the visible suite was running —');
-    out((dependencyAfterVisible.reason ?? 'dependency identity changed') + '. Failing closed, not open.');
-    return 2;
+    return cannotVerify(
+      'DEPENDENCY_DRIFT',
+      dependencyAfterVisible.reason ?? 'dependency identity changed while the visible suite was running',
+      { stage: 'visible', dependency_environment: dependencyReport(), verifier_backend: backendReport(), oracle_assurance: oracleAssuranceReport() },
+    );
   }
 
   const priRoot = mkdtempSync(join(tmpdir(), 'tw-verify-pri-'));
@@ -1177,8 +1209,11 @@ export function runVerify(opts: VerifyOpts): number {
     ));
   } catch (e) {
     cleanup([visRoot, priRoot]);
-    out(`verify: could not materialize (${e instanceof Error ? e.message : String(e)}) — failing closed`);
-    return 2;
+    return cannotVerify(
+      'MATERIALIZATION_FAILED',
+      `could not materialize pristine copy (${e instanceof Error ? e.message : String(e)})`,
+      { stage: 'pristine', verifier_backend: backendReport(), dependency_environment: dependencyReport(), oracle_assurance: oracleAssuranceReport() },
+    );
   }
 
   const overlayBefore = overlayDigest(priDir, restored);
@@ -1188,6 +1223,7 @@ export function runVerify(opts: VerifyOpts): number {
     const exhausted = pristine.failure === 'resource';
     if (opts.json) {
       out(JSON.stringify({
+        schema_version: MACHINE_SCHEMA_VERSION,
         verdict: 'CANNOT_VERIFY',
         reason: exhausted ? 'VERIFIER_RESOURCE_EXHAUSTED' : 'VERIFIER_BACKEND_RUNTIME_FAILURE',
         stage: 'pristine',
@@ -1222,19 +1258,22 @@ export function runVerify(opts: VerifyOpts): number {
   cleanup([visRoot, priRoot]);
 
   if (overlayMoved || treeMoved || depsMoved) {
-    out(
-      'verify: ' +
-        (overlayMoved
-          ? 'a restored file in the pristine copy changed while the pristine suite was running'
-          : treeMoved
-            ? 'the working tree changed while the pristine suite was running'
-            : 'the frozen dependency environment changed while the pristine suite was running') +
-        ' —',
-    );
-    out('the verdict would describe something other than what ran. Failing closed, not open.');
-    out('(A suite that rewrites its own snapshots or test files in place will trip this; run it in');
-    out('whatever mode your runner calls CI, so verification observes rather than updates.)');
-    return 2;
+    const reason: VerifyCannotVerifyReason = overlayMoved
+      ? 'PRISTINE_INTEGRITY_CHANGED'
+      : treeMoved
+        ? 'WORKTREE_CHANGED'
+        : 'DEPENDENCY_DRIFT';
+    const detail = overlayMoved
+      ? 'a restored file in the pristine copy changed while the pristine suite was running'
+      : treeMoved
+        ? 'the working tree changed while the pristine suite was running'
+        : (dependencyAfterPristine.reason ?? 'the frozen dependency environment changed while the pristine suite was running');
+    return cannotVerify(reason, detail, {
+      stage: 'pristine',
+      verifier_backend: backendReport(),
+      dependency_environment: dependencyReport(),
+      oracle_assurance: oracleAssuranceReport(),
+    });
   }
 
   let verdict: string;
@@ -1264,6 +1303,7 @@ export function runVerify(opts: VerifyOpts): number {
   if (opts.json) {
     out(
       JSON.stringify({
+        schema_version: MACHINE_SCHEMA_VERSION,
         verdict,
         base,
         command: cmd,

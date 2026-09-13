@@ -46,11 +46,12 @@ import {
   attestDependencyEnvironment,
   checkDependencyEnvironment,
   dependencyEnvironmentDiagnostics,
+  dependencyEnvironmentReport,
   dependencyEnvironmentSummary,
   discoverDependencyEnvironment,
   type DependencyEnvironmentAttestation,
 } from '../dependency-env';
-import { prepareVerifierBackend, verifierBackendSummary } from '../verifier-backend';
+import { prepareVerifierBackend, verifierBackendReport, verifierBackendSummary } from '../verifier-backend';
 import { defaultPolicy, isProtected } from '../policy';
 import { diffRange, diffWorktreeWithUntracked, gitDir } from '../git/build';
 import { inspectRel } from '../disk';
@@ -58,12 +59,15 @@ import { contentHash } from '../effect';
 import { drainEvents, MAX_EVENT_READ_BYTES, MAX_EVENT_SWEEP_BYTES, transientFindings } from '../detectors/fs-events';
 import { watcherTelemetry, type WatcherTelemetry } from './watch';
 import { Policy } from '../types';
+import { machineOutput, type RunCannotAdjudicateReason, type RunVerdict } from '../machine-output';
 
 export interface RunEnvelopeOpts {
   cwd?: string;
   base?: string;
   cmd?: string;
   budget?: number;
+  /** Emit one machine-readable final adjudication document on stdout. */
+  json?: boolean;
   /** Operator-owned wall-clock budget for the wrapped agent runtime itself.
    *  Distinct from verify.budget, which bounds each suite execution. */
   agentBudget?: number;
@@ -230,8 +234,9 @@ const AGENT_SUPERVISOR = String.raw`
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 
-const [resultFile, budgetRaw, command, ...args] = process.argv.slice(1);
+const [resultFile, budgetRaw, machineRaw, command, ...args] = process.argv.slice(1);
 const budgetMs = budgetRaw === '' ? null : Number(budgetRaw);
+const machineMode = machineRaw === '1';
 let child;
 let timedOut = false;
 let finished = false;
@@ -257,7 +262,9 @@ function killTree(pid) {
 
 try {
   child = spawn(command, args, {
-    stdio: 'inherit',
+    // Machine mode owns stdout for the final envelope document. Preserve agent
+    // diagnostics by routing both child streams to the parent's stderr.
+    stdio: machineMode ? ['inherit', 2, 2] : 'inherit',
     detached: process.platform !== 'win32',
   });
 } catch (e) {
@@ -306,8 +313,9 @@ child.once('exit', (code, signal) => finish(code, signal));
 const LINUX_SUBREAPER_SUPERVISOR = String.raw`
 import ctypes, json, os, signal, subprocess, sys, time
 
-result_file, agent_env_file, agent_cwd, budget_raw, test_mode, command, *args = sys.argv[1:]
+result_file, agent_env_file, agent_cwd, budget_raw, test_mode, machine_raw, command, *args = sys.argv[1:]
 budget = None if budget_raw == "" else float(budget_raw)
+machine_mode = machine_raw == "1"
 libc = ctypes.CDLL(None, use_errno=True)
 PR_SET_DUMPABLE = 4
 PR_SET_CHILD_SUBREAPER = 36
@@ -425,6 +433,10 @@ try:
         cwd=agent_cwd,
         env=agent_env,
         start_new_session=True,
+        # In machine mode stdout is reserved for TamperWard's one final JSON
+        # document. Agent stdout is retained as diagnostics on stderr.
+        stdout=sys.stderr if machine_mode else None,
+        stderr=None,
     )
 except Exception as exc:
     # No candidate process exists, so the lifecycle domain is trivially empty.
@@ -462,6 +474,7 @@ function runAgentSupervised(
   budgetSecs?: number,
   linuxPythonCandidates?: readonly string[],
   lifecycleTestMode?: 'proc-read-fail' | 'drain-timeout',
+  machineMode = false,
 ): AgentRunResult {
   const stateDir = mkdtempSync(join(tmpdir(), 'tw-agent-supervisor-'));
   const resultFile = join(stateDir, 'result.json');
@@ -496,6 +509,7 @@ function runAgentSupervised(
         cwd,
         budgetSecs === undefined ? '' : String(budgetSecs),
         lifecycleTestMode ?? '',
+        machineMode ? '1' : '0',
         ...argv,
       ];
       // Supervisor startup/import resolution is independent of candidate cwd,
@@ -510,6 +524,7 @@ function runAgentSupervised(
         AGENT_SUPERVISOR,
         resultFile,
         budgetSecs === undefined ? '' : String(budgetSecs * 1000),
+        machineMode ? '1' : '0',
         ...argv,
       ];
     }
@@ -673,8 +688,10 @@ function stopObserverProcess(observer: SupervisedObserver): WatcherTelemetry {
     try { process.kill(pid!, 'SIGTERM'); } catch { /* already gone */ }
     const deadline = Date.now() + 2_000;
     while (Date.now() < deadline) {
-      const health = watcherTelemetry(observer.log);
-      if (health.health?.state === 'stopped' || !pidAlive(pid)) break;
+      // Health is evidence, not lifecycle completion authority. The observer
+      // may persist its "stopped" record before the signal handler has finished
+      // its final writes and exited. Only process death proves shutdown drained.
+      if (!pidAlive(pid)) break;
       waitMs(25);
     }
     if (pidAlive(pid)) {
@@ -685,16 +702,19 @@ function stopObserverProcess(observer: SupervisedObserver): WatcherTelemetry {
   return beforeStop;
 }
 
+type RunWriter = (s: string) => void;
+
 function observerSummary(
   observer: SupervisedObserver,
   telemetry: WatcherTelemetry,
+  write: RunWriter = out,
 ): void {
   const h = telemetry.health;
   const counts = h
     ? `${h.event_count} event(s), ${h.dropped_events} dropped, ${h.error_count} error(s)`
     : 'no valid health record';
   const reason = telemetry.reason ? `; ${telemetry.reason}` : '';
-  out(
+  write(
     `tamperward run — transient observer: ${telemetry.state} ` +
       `(advisory; ${counts}; log ${observer.log}${reason})`,
   );
@@ -707,15 +727,16 @@ function collectObserverFindings(
   base: string,
   head: string,
   policy: Policy,
+  write: RunWriter = out,
 ): { blocking: boolean } {
-  observerSummary(observer, telemetry);
+  observerSummary(observer, telemetry, write);
   const strict = process.env.TAMPERWARD_TRANSIENT === 'block';
   const drained = drainEvents(observer.log, 0);
   const { events } = drained;
 
   if (!drained.complete) {
     const issue = drained.issue ?? 'read-stalled';
-    out(
+    write(
       `tamperward run — transient observer: telemetry was not fully classified (${issue}; ` +
         `${drained.bytesRead}/${MAX_EVENT_SWEEP_BYTES} bytes read). ` +
         (strict
@@ -739,7 +760,7 @@ function collectObserverFindings(
         .map((change) => change.path),
     );
   } catch (e) {
-    out(
+    write(
       `tamperward run — transient observer: recorded ${events.length} event(s), but ` +
         `could not classify them against the final diff (${e instanceof Error ? e.message : String(e)}).` +
         (strict ? ' Strict transient policy fails closed.' : ''),
@@ -753,7 +774,7 @@ function collectObserverFindings(
   };
   const findings = transientFindings(events, persistent, policy, finalHash);
   for (const finding of findings) {
-    out(
+    write(
       `[observer] ${finding.severity === 'block' ? 'BLOCK' : 'warn'} ${finding.rule}` +
         `${finding.file ? ' ' + finding.file : ''}: ${finding.message}`,
     );
@@ -761,10 +782,13 @@ function collectObserverFindings(
   return { blocking: findings.some((finding) => finding.severity === 'block') };
 }
 
-function finishObserverAdvisory(observer: SupervisedObserver | null): void {
+function finishObserverAdvisory(
+  observer: SupervisedObserver | null,
+  write: RunWriter = out,
+): void {
   if (!observer || observer.finished) return;
   const telemetry = stopObserverProcess(observer);
-  observerSummary(observer, telemetry);
+  observerSummary(observer, telemetry, write);
 }
 
 function git(args: string[], cwd: string): string {
@@ -852,6 +876,7 @@ function survivorsHoldingTree(cwd: string, spawnedAfterTicks: number): number[] 
 
 export function runEnvelope(opts: RunEnvelopeOpts): number {
   const cwd = resolve(opts.cwd ?? process.cwd()); // absolute: relative cwds break the verify overlay
+  const say: RunWriter = opts.json ? (_s: string): void => {} : out;
   if (!opts.argv.length) {
     err('tamperward run: no agent command given (usage: tamperward run [options] -- <command...>)');
     return 2;
@@ -938,8 +963,8 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   // digest-pinned image is unavailable, there is no authority boundary and the
   // envelope refuses before candidate code gets a turn.
   const verifierBackend = prepareVerifierBackend(frozenPolicy.verify);
-  out(`tamperward run — trusted base ${base.slice(0, 10)}; agent exit is untrusted.`);
-  out(`tamperward run — verifier backend: ${verifierBackendSummary(verifierBackend)}`);
+  say(`tamperward run — trusted base ${base.slice(0, 10)}; agent exit is untrusted.`);
+  say(`tamperward run — verifier backend: ${verifierBackendSummary(verifierBackend)}`);
   if (!verifierBackend.available) {
     err('tamperward run: the requested verifier backend cannot be established —');
     err(`${verifierBackend.reason ?? 'unknown backend failure'}. Failing closed before the agent starts.`);
@@ -962,7 +987,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     ? discoverDependencyEnvironment(cwd, frozenCmd)
     : null;
   if (dependencyEnvironment) {
-    out(`tamperward run — dependency environment: ${dependencyEnvironmentSummary(dependencyEnvironment)}`);
+    say(`tamperward run — dependency environment: ${dependencyEnvironmentSummary(dependencyEnvironment)}`);
     if (dependencyEnvironment.status === 'unattestable' && !opts.allowDepDrift) {
       err('tamperward run: the verifier dependency environment cannot be attested —');
       err(`${dependencyEnvironment.reason ?? 'unknown dependency environment'}. Failing closed before the agent starts.`);
@@ -970,14 +995,14 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
       return 2;
     }
   } else {
-    out(`tamperward run — dependency environment: verifier-owned by ${verifierBackend.image ?? 'isolated image'}`);
+    say(`tamperward run — dependency environment: verifier-owned by ${verifierBackend.image ?? 'isolated image'}`);
   }
 
   const observer = opts.observeTransients
     ? startSupervisedObserver(cwd, base, opts.observerEntry)
     : null;
   if (!observer) {
-    out('tamperward run — transient observer: disabled (advisory; pass --observe-transients to enable)');
+    say('tamperward run — transient observer: disabled (advisory; pass --observe-transients to enable)');
   }
 
   // What the object layer resolves to. Every read of the trusted base — the
@@ -994,19 +1019,54 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     opts.agentBudget,
     opts.linuxPythonCandidates,
     opts.lifecycleTestMode,
+    opts.json === true,
   );
   const agentExit = agentRun.exit;
   const agentTimedOut = agentRun.timedOut;
+  // `complete` is the run document's shape discriminator: true only when the
+  // full post-agent adjudication (both policy checks, verification, quiescence)
+  // ran, so `head`, `checks.{diff,worktree,verify}` and `observer` are present.
+  // Early convictions and lifecycle refusals emit `complete: false`.
+  const emitRunJson = (
+    verdict: RunVerdict,
+    exitCode: number,
+    extra: Record<string, unknown> = {},
+    complete = false,
+  ): void => {
+    if (!opts.json) return;
+    out(JSON.stringify(machineOutput({
+      verdict,
+      exit_code: exitCode,
+      complete,
+      base,
+      agent: {
+        exit_code: agentExit,
+        timed_out: agentTimedOut,
+        lifecycle_owned: agentRun.lifecycleOwned,
+        ...(opts.agentBudget !== undefined ? { budget_secs: opts.agentBudget } : {}),
+      },
+      verifier_backend: verifierBackendReport(verifierBackend),
+      dependency_environment: dependencyEnvironment
+        ? dependencyEnvironmentReport(dependencyEnvironment)
+        : { status: 'verifier-owned', roots: [], image: verifierBackend.image },
+      ...extra,
+    })));
+  };
   if (agentRun.failure && !agentTimedOut) {
     err(`tamperward run: agent runtime failed to start/report cleanly (${agentRun.failure}).`);
   }
-  // Linux is the only platform where this release claims durable normal-exit
-  // descendant ownership. If the subreaper did not complete and drain
-  // authoritatively, adjudication cannot safely begin: a same-UID candidate
-  // may still be executing outside the repository holder scan.
-  if (process.platform === 'linux' && !agentRun.lifecycleOwned) {
-    err('tamperward run: the Linux agent lifecycle boundary was not established/drained — failing closed before adjudication.');
-    finishObserverAdvisory(observer);
+  // Adjudication begins only behind an authoritatively drained lifecycle
+  // boundary, on EVERY platform. Linux is the only platform where this release
+  // claims that boundary (the preflight above refuses the others before the
+  // agent starts); the portable supervisor never reports ownership. If the
+  // supervisor did not complete and drain, a same-UID candidate may still be
+  // executing outside the repository holder scan, so no verdict is rendered.
+  if (!agentRun.lifecycleOwned) {
+    err('tamperward run: the agent lifecycle boundary was not established/drained — failing closed before adjudication.');
+    finishObserverAdvisory(observer, say);
+    emitRunJson('CANNOT_ADJUDICATE', 2, {
+      reason: 'AGENT_LIFECYCLE_NOT_OWNED',
+    });
     return 2;
   }
   if (agentTimedOut) {
@@ -1037,8 +1097,9 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     err('tamperward run: git object-replacement state changed during this run — a replace ref, graft');
     err('or shallow boundary now redirects what the trusted base resolves to. Nothing below could be');
     err('read against the anchor we started from. That is the finding.');
-    out(`\ntamperward run — agent exit ${agentExit}; OBJECT_REWRITE → ENFORCEMENT_FAILED`);
-    finishObserverAdvisory(observer);
+    say(`\ntamperward run — agent exit ${agentExit}; OBJECT_REWRITE → ENFORCEMENT_FAILED`);
+    finishObserverAdvisory(observer, say);
+    emitRunJson('OBJECT_REWRITE', 1);
     return 1;
   }
 
@@ -1047,8 +1108,9 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   if (isAncestor.status !== 0) {
     err(`tamperward run: HEAD ${head.slice(0, 10)} is not a descendant of the trusted base ${base.slice(0, 10)} —`);
     err('the agent rewrote history out from under the anchor. That is the finding.');
-    out(`\ntamperward run — agent exit ${agentExit}; HISTORY_REWRITE → ENFORCEMENT_FAILED`);
-    finishObserverAdvisory(observer);
+    say(`\ntamperward run — agent exit ${agentExit}; HISTORY_REWRITE → ENFORCEMENT_FAILED`);
+    finishObserverAdvisory(observer, say);
+    emitRunJson('HISTORY_REWRITE', 1, { head });
     return 1;
   }
 
@@ -1061,11 +1123,11 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   // runs regardless so the report is complete.
   let diffCode = 0;
   if (head !== base) {
-    out(`\n[envelope] policy check over committed changes (${base.slice(0, 10)}...${head.slice(0, 10)}):`);
-    diffCode = runCheck({ diff: `${base}...${head}`, cwd, policyOverride: frozenPolicy });
+    say(`\n[envelope] policy check over committed changes (${base.slice(0, 10)}...${head.slice(0, 10)}):`);
+    diffCode = runCheck({ diff: `${base}...${head}`, cwd, policyOverride: frozenPolicy, silent: opts.json });
   }
-  out('\n[envelope] policy check over the working tree (frozen policy, untracked included, no local ledger):');
-  const workCode = runCheck({ worktree: true, cwd, policyOverride: frozenPolicy, includeUntracked: true, ciLayer: true });
+  say('\n[envelope] policy check over the working tree (frozen policy, untracked included, no local ledger):');
+  const workCode = runCheck({ worktree: true, cwd, policyOverride: frozenPolicy, includeUntracked: true, ciLayer: true, silent: opts.json });
 
   // H3 dependency boundary. Policy checks above do not execute the verifier's
   // dependencies, so take this run-side checkpoint immediately before
@@ -1081,15 +1143,19 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     err('tamperward run: the frozen dependency environment changed before verification began —');
     err(`${dependencyBeforeVerification.reason ?? 'dependency identity changed'}.`);
     if (!opts.allowDepDrift) {
-      out(`\ntamperward run — agent exit ${agentExit}; DEPENDENCY_DRIFT → ENFORCEMENT_FAILED`);
-      finishObserverAdvisory(observer);
+      say(`\ntamperward run — agent exit ${agentExit}; DEPENDENCY_DRIFT → ENFORCEMENT_FAILED`);
+      finishObserverAdvisory(observer, say);
+      emitRunJson('DEPENDENCY_DRIFT', 1, {
+        head,
+        checks: { diff: diffCode, worktree: workCode },
+      });
       return 1;
     }
     err('(--allow-dep-drift: proceeding anyway, on the operator\'s judgement.)');
   }
 
   let verifierFinalDependencyAttestation: DependencyEnvironmentAttestation | undefined;
-  out('\n[envelope] pristine verification against the trusted base:');
+  say('\n[envelope] pristine verification against the trusted base:');
   const verifyCode = runVerify({
     cwd,
     base,
@@ -1110,6 +1176,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
       : {}),
     allowDepDrift: opts.allowDepDrift,
     verifierBackend,
+    silent: opts.json,
   });
 
   // Quiescence. A survivor that edits the tree during — or after — the checks
@@ -1132,7 +1199,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     : { ok: true as const };
   if (dependencyEnvironment && process.env.TAMPERWARD_DIAGNOSTICS === '1') {
     const metrics = dependencyEnvironmentDiagnostics(dependencyEnvironment);
-    out(
+    say(
       'tamperward run — dependency attestation diagnostics: ' +
       `full_snapshots=${metrics.fullSnapshots} ` +
       `reused_snapshots=${metrics.reusedSnapshots} ` +
@@ -1171,6 +1238,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
       base,
       head,
       frozenPolicy,
+      say,
     );
     observerBlocked = observed.blocking;
   }
@@ -1197,15 +1265,46 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     : agentTimedOut ? 'AGENT_TIMEOUT — runtime budget expired; post-timeout enforcement clean'
     : agentExit !== 0 ? `agent exited ${agentExit} (enforcement clean)`
     : 'GREEN MEANS GREEN';
+  const machineVerdict: RunVerdict =
+    enforcement === 2 ? 'CANNOT_ADJUDICATE'
+    : rewrote ? 'OBJECT_REWRITE'
+    : depsDrifted ? 'DEPENDENCY_DRIFT'
+    : notQuiescent ? 'NOT_QUIESCENT'
+    : observerBlocked ? 'TRANSIENT_OBSERVER_BLOCK'
+    : enforcement === 1 ? 'ENFORCEMENT_FAILED'
+    : agentTimedOut ? 'AGENT_TIMEOUT'
+    : agentExit !== 0 ? 'AGENT_FAILED'
+    : 'VERIFIED';
   const agentSummary = agentTimedOut
     ? `AGENT_TIMEOUT (${opts.agentBudget}s; exit 124)`
     : `agent exit ${agentExit}`;
-  out(`\ntamperward run — ${agentSummary}; checks diff=${diffCode} worktree=${workCode} verify=${verifyCode} → ${verdict}`);
 
   // Enforcement always outranks runtime status. A clean timeout uses the
-  // conventional 124 so automation can distinguish it from success while the
-  // textual verdict remains explicitly AGENT_TIMEOUT.
-  return enforcement !== 0 ? enforcement : agentTimedOut ? 124 : agentExit;
+  // conventional 124 so automation can distinguish it from success.
+  const exitCode = enforcement !== 0 ? enforcement : agentTimedOut ? 124 : agentExit;
+
+  if (opts.json) {
+    // Which nested layer could not judge. `cannot` is only set when the tree was
+    // quiescent, so exactly one of the three codes is 2 here.
+    const cannotReason: RunCannotAdjudicateReason | null =
+      enforcement !== 2 ? null
+      : verifyCode === 2 ? 'VERIFY_CANNOT_VERIFY'
+      : diffCode === 2 ? 'CHECK_DIFF_UNJUDGEABLE'
+      : 'CHECK_WORKTREE_UNJUDGEABLE';
+    emitRunJson(machineVerdict, exitCode, {
+      head,
+      checks: { diff: diffCode, worktree: workCode, verify: verifyCode },
+      observer: {
+        enabled: Boolean(opts.observeTransients),
+        blocking: observerBlocked,
+      },
+      ...(cannotReason ? { reason: cannotReason } : {}),
+    }, true);
+  } else {
+    say(`\ntamperward run — ${agentSummary}; checks diff=${diffCode} worktree=${workCode} verify=${verifyCode} → ${verdict}`);
+  }
+
+  return exitCode;
 }
 
 export function parseRun(args: string[]): RunEnvelopeOpts {
@@ -1216,6 +1315,7 @@ export function parseRun(args: string[]): RunEnvelopeOpts {
     else if (a === '--base') o.base = args[++i];
     else if (a === '--cmd') o.cmd = args[++i];
     else if (a === '--budget') o.budget = Number(args[++i]);
+    else if (a === '--json') o.json = true;
     else if (a === '--agent-budget') o.agentBudget = Number(args[++i]);
     else if (a === '--allow-dirty') o.allowDirty = true;
     else if (a === '--settle') o.settle = Number(args[++i]);

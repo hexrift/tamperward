@@ -9,6 +9,7 @@ import { defaultEventLog, watcherTelemetry } from './watch';
 import { planInit } from './init';
 import { compareVersions, TW_VERSION } from '../wiring';
 import { trustedLinuxPython } from './run';
+import { machineOutput, type MachineSchemaVersion } from '../machine-output';
 
 export interface DoctorOpts {
   cwd?: string;
@@ -35,6 +36,7 @@ export interface DoctorCheck {
 }
 
 export interface DoctorReport {
+  schema_version: MachineSchemaVersion;
   command: 'doctor';
   authoritative: boolean;
   checks: DoctorCheck[];
@@ -91,14 +93,14 @@ function err(
   checks: DoctorCheck[] = [],
 ): number {
   if (opts?.json) {
-    const report: DoctorReport = {
-      command: 'doctor',
+    const report: DoctorReport = machineOutput({
+      command: 'doctor' as const,
       authoritative: false,
       checks: [
         ...checks.filter((check) => check.id !== id),
-        { id, state: 'BROKEN', detail: message },
+        { id, state: 'BROKEN' as const, detail: message },
       ],
-    };
+    });
     process.stdout.write(JSON.stringify(report) + '\n');
   } else {
     process.stderr.write(`tamperward doctor: ${message}\n`);
@@ -361,7 +363,7 @@ function observerCheck(cwd: string): DoctorCheck {
 function emitReport(opts: DoctorOpts, checks: DoctorCheck[]): void {
   const authoritative = !checks.some((x) => x.state === 'BROKEN');
   if (opts.json) {
-    const report: DoctorReport = { command: 'doctor', authoritative, checks };
+    const report: DoctorReport = machineOutput({ command: 'doctor' as const, authoritative, checks });
     process.stdout.write(JSON.stringify(report) + '\n');
     return;
   }
