@@ -1,0 +1,306 @@
+{
+  "schema": 1,
+  "provenance": {
+    "negative_frame": "harness/fp-study/TCR-CORPUS.md",
+    "parent_mainline_diffs": 2304,
+    "negative_cases": 20,
+    "note": "The negatives are normalized minimal reproductions of the 20 assertion-touching legitimate maintainer records retained from the pre-ship test-content-removal study. They preserve the assertion transformation being adjudicated; they are not a claim that all 2,304 parent diffs were replayable by this AST detector.",
+    "positive_cases": 12,
+    "positive_source": "representative mutation controls for the detector's intentionally supported one-way subset"
+  },
+  "graduation": {
+    "build_precision_threshold": 0.9,
+    "shipping_severity": "warn",
+    "block_graduation": "not authorized by this corpus; requires a separate decision with additional independent ordinary-maintenance evidence and live-fire adjudication"
+  },
+  "cases": [
+    {
+      "id": "neg-01-literal-number-correction",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: expected value correction",
+      "path": "test/corpus.test.ts",
+      "before": "it('value',()=>{expect(score()).toBe(2);});",
+      "after": "it('value',()=>{expect(score()).toBe(2.5);});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-02-literal-string-correction",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: expected message correction",
+      "path": "test/corpus.test.ts",
+      "before": "it('label',()=>{expect(label()).toBe('old');});",
+      "after": "it('label',()=>{expect(label()).toBe('new');});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-03-structural-correction",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: structural expected value update",
+      "path": "test/corpus.test.ts",
+      "before": "it('shape',()=>{expect(build()).toEqual({count:2});});",
+      "after": "it('shape',()=>{expect(build()).toEqual({count:3});});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-04-stricter-matcher",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: matcher strengthening",
+      "path": "test/corpus.test.ts",
+      "before": "it('shape',()=>{expect(build()).toEqual({x:1});});",
+      "after": "it('shape',()=>{expect(build()).toStrictEqual({x:1});});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-05-throw-to-snapshot",
+      "classification": "legitimate",
+      "source": "TCR-CORPUS: immer inline throw assertion migrated to snapshot",
+      "path": "test/corpus.test.ts",
+      "before": "it('throws',()=>{expect(()=>parse('!')).toThrow('invalid token');});",
+      "after": "it('throws',()=>{expect(()=>parse('!')).toThrowErrorMatchingSnapshot();});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-06-throw-regex-to-snapshot",
+      "classification": "legitimate",
+      "source": "TCR-CORPUS: inline throw regex migrated to snapshot",
+      "path": "test/corpus.test.ts",
+      "before": "it('throws',()=>{expect(()=>parse('!')).toThrow(/invalid token/);});",
+      "after": "it('throws',()=>{expect(()=>parse('!')).toThrowErrorMatchingSnapshot();});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-07-assertion-relocation",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: assertion relocation",
+      "path": "test/corpus.test.ts",
+      "before": "it('value',()=>{const v=make();expect(v).toBe(42);cleanup();});",
+      "after": "it('value',()=>{const v=make();cleanup();expect(v).toBe(42);});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-08-title-rename",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: test wording change",
+      "path": "test/corpus.test.ts",
+      "before": "it('old wording',()=>{expect(value).toBe(42);});",
+      "after": "it('clearer wording',()=>{expect(value).toBe(42);});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-09-add-assertion",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: coverage strengthened",
+      "path": "test/corpus.test.ts",
+      "before": "it('pair',()=>{expect(pair.left).toBe(1);});",
+      "after": "it('pair',()=>{expect(pair.left).toBe(1);expect(pair.right).toBe(2);});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-10-replace-assertion-contract",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: behavior contract changed",
+      "path": "test/corpus.test.ts",
+      "before": "it('status',()=>{expect(result.status).toBe('pending');});",
+      "after": "it('status',()=>{expect(result.ok).toBe(true);});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-11-false-to-truthy-opposite",
+      "classification": "legitimate",
+      "source": "counterexample: opposite assertion is not directional weakening",
+      "path": "test/corpus.test.ts",
+      "before": "it('flag',()=>{expect(flag).toBe(false);});",
+      "after": "it('flag',()=>{expect(flag).toBeTruthy();});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-12-undefined-to-defined-opposite",
+      "classification": "legitimate",
+      "source": "counterexample: opposite definedness assertion",
+      "path": "test/corpus.test.ts",
+      "before": "it('missing',()=>{expect(value).toBe(undefined);});",
+      "after": "it('missing',()=>{expect(value).toBeDefined();});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-13-negated-throw-specificity",
+      "classification": "legitimate",
+      "source": "counterexample: .not direction reverses specificity",
+      "path": "test/corpus.test.ts",
+      "before": "it('throws',()=>{expect(()=>f()).not.toThrow(/boom/);});",
+      "after": "it('throws',()=>{expect(()=>f()).not.toThrow();});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-14-suite-reorder-duplicate-title",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: describe blocks reordered",
+      "path": "test/corpus.test.ts",
+      "before": "describe('a',()=>{it('same',()=>{expect(value).toBe(1);});});describe('b',()=>{it('same',()=>{expect(value).toBeTruthy();});});",
+      "after": "describe('b',()=>{it('same',()=>{expect(value).toBeTruthy();});});describe('a',()=>{it('same',()=>{expect(value).toBe(1);});});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-15-ambiguous-duplicate-identity",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: duplicate test names reordered",
+      "path": "test/corpus.test.ts",
+      "before": "describe('a',()=>{it('dup',()=>{expect(value).toBe(1);});it('dup',()=>{expect(value).toBeTruthy();});});",
+      "after": "describe('a',()=>{it('dup',()=>{expect(value).toBeTruthy();});it('dup',()=>{expect(value).toBe(1);});});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-16-to-have-length-change",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: expected collection size changed",
+      "path": "test/corpus.test.ts",
+      "before": "it('rows',()=>{expect(rows).toHaveLength(2);});",
+      "after": "it('rows',()=>{expect(rows).toHaveLength(3);});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-17-to-contain-contract-change",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: expected member changed",
+      "path": "test/corpus.test.ts",
+      "before": "it('rows',()=>{expect(rows).toContain('a');});",
+      "after": "it('rows',()=>{expect(rows).toContain('b');});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-18-object-expectation-change",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: API shape changed",
+      "path": "test/corpus.test.ts",
+      "before": "it('api',()=>{expect(result).toMatchObject({status:'old'});});",
+      "after": "it('api',()=>{expect(result).toMatchObject({status:'new'});});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-19-snapshot-addition",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: snapshot introduced",
+      "path": "test/corpus.test.ts",
+      "before": "it('render',()=>{expect(render()).toBe('<x>');});",
+      "after": "it('render',()=>{expect(render()).toMatchSnapshot();});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-20-replacement-not-removal",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: assertion replaced while count shrinks",
+      "path": "test/corpus.test.ts",
+      "before": "it('pair',()=>{expect(a).toBe(1);expect(b).toBe(2);});",
+      "after": "it('pair',()=>{expect(sum).toBe(3);});",
+      "expectedFindings": 0
+    },
+    {
+      "id": "pos-01-number-to-truthy",
+      "classification": "weakening",
+      "source": "mutation control",
+      "path": "test/corpus.test.ts",
+      "before": "it('value',()=>{expect(value).toBe(42);});",
+      "after": "it('value',()=>{expect(value).toBeTruthy();});",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-02-true-to-truthy",
+      "classification": "weakening",
+      "source": "mutation control",
+      "path": "test/corpus.test.ts",
+      "before": "it('flag',()=>{expect(flag).toBe(true);});",
+      "after": "it('flag',()=>{expect(flag).toBeTruthy();});",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-03-object-to-defined",
+      "classification": "weakening",
+      "source": "mutation control",
+      "path": "test/corpus.test.ts",
+      "before": "it('shape',()=>{expect(value).toEqual({x:1});});",
+      "after": "it('shape',()=>{expect(value).toBeDefined();});",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-04-array-to-truthy",
+      "classification": "weakening",
+      "source": "mutation control",
+      "path": "test/corpus.test.ts",
+      "before": "it('rows',()=>{expect(rows).toStrictEqual([1,2]);});",
+      "after": "it('rows',()=>{expect(rows).toBeTruthy();});",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-05-string-to-truthy",
+      "classification": "weakening",
+      "source": "mutation control",
+      "path": "test/corpus.test.ts",
+      "before": "it('label',()=>{expect(label).toBe('ready');});",
+      "after": "it('label',()=>{expect(label).toBeTruthy();});",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-06-null-to-defined",
+      "classification": "weakening",
+      "source": "mutation control",
+      "path": "test/corpus.test.ts",
+      "before": "it('nil',()=>{expect(value).toBe(null);});",
+      "after": "it('nil',()=>{expect(value).toBeDefined();});",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-07-throw-string-to-bare",
+      "classification": "weakening",
+      "source": "mutation control",
+      "path": "test/corpus.test.ts",
+      "before": "it('throws',()=>{expect(()=>f()).toThrow('boom');});",
+      "after": "it('throws',()=>{expect(()=>f()).toThrow();});",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-08-throw-regex-to-bare",
+      "classification": "weakening",
+      "source": "mutation control",
+      "path": "test/corpus.test.ts",
+      "before": "it('throws',()=>{expect(()=>f()).toThrow(/boom/);});",
+      "after": "it('throws',()=>{expect(()=>f()).toThrow();});",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-09-remove-one-assertion",
+      "classification": "weakening",
+      "source": "mutation control",
+      "path": "test/corpus.test.ts",
+      "before": "it('pair',()=>{expect(a).toBe(1);expect(b).toBe(2);});",
+      "after": "it('pair',()=>{expect(a).toBe(1);});",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-10-remove-only-assertion",
+      "classification": "weakening",
+      "source": "mutation control",
+      "path": "test/corpus.test.ts",
+      "before": "it('value',()=>{expect(value).toBe(42);});",
+      "after": "it('value',()=>{});",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-11-match-object-to-defined",
+      "classification": "weakening",
+      "source": "mutation control",
+      "path": "test/corpus.test.ts",
+      "before": "it('shape',()=>{expect(value).toMatchObject({x:1});});",
+      "after": "it('shape',()=>{expect(value).toBeDefined();});",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-12-regexp-object-to-truthy",
+      "classification": "weakening",
+      "source": "mutation control",
+      "path": "test/corpus.test.ts",
+      "before": "it('pattern',()=>{expect(value).toBe(/abc/);});",
+      "after": "it('pattern',()=>{expect(value).toBeTruthy();});",
+      "expectedFindings": 1
+    }
+  ]
+}
