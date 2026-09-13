@@ -5,6 +5,7 @@ import { parse } from 'yaml';
 import { defaultPolicy } from '../policy';
 import { loadPolicy, loadPolicyAt, PolicyError } from '../policy-load';
 import { requiredVerifierAuthoritySeconds } from '../verifier-limits';
+import { defaultEventLog, watcherTelemetry } from './watch';
 
 export interface DoctorOpts {
   cwd?: string;
@@ -388,6 +389,26 @@ export function runDoctor(opts: DoctorOpts = {}): number {
       'tamperward doctor: GitHub repository authority OK — ' + github.repo + '#' +
         github.branch +
         ' requires tamperward, Code Owner review, and stale-review dismissal on new pushes.\n',
+    );
+  }
+
+  const observer = watcherTelemetry(defaultEventLog(cwd));
+  if (observer.state === 'healthy' && observer.health) {
+    process.stdout.write(
+      `tamperward doctor: transient observer: healthy — ${observer.health.backend}, ` +
+        `${observer.health.watched_dirs} watched dir(s), ${observer.health.event_count} event(s); ` +
+        'advisory telemetry only, not verification authority.\n',
+    );
+  } else if (observer.state === 'degraded' && observer.health) {
+    process.stdout.write(
+      `tamperward doctor: transient observer: degraded — ${observer.health.error_count} error(s), ` +
+        `${observer.health.dropped_events} dropped event(s); ${observer.reason ?? 'telemetry may be incomplete'}. ` +
+        'Advisory only; zero events are not evidence of no transient activity.\n',
+    );
+  } else {
+    process.stdout.write(
+      `tamperward doctor: transient observer: unavailable${observer.reason ? ' — ' + observer.reason : ''}. ` +
+        'Observer telemetry is optional/advisory; zero events are not evidence of no transient activity.\n',
     );
   }
   return 0;

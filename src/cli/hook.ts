@@ -29,7 +29,7 @@ import {
   saveTurnTree,
   snapshotProtected,
 } from '../effect';
-import { defaultEventLog } from './watch';
+import { defaultEventLog, watcherTelemetry } from './watch';
 import { readEvents, transientFindings } from '../detectors/fs-events';
 import { isProtected } from '../policy';
 import { inspectRel, unjudgeableFinding, unjudgeableProtected } from '../disk';
@@ -473,6 +473,10 @@ function cursorPath(cwd: string, sessionId?: string): string | null {
 function turnTransientBlocks(cwd: string, sessionId: string | undefined, policy: Policy, changes: Change[]): { blocks: Finding[]; commit: () => void } {
   const none = { blocks: [] as Finding[], commit: () => {} };
   const log = defaultEventLog(cwd);
+  const telemetry = watcherTelemetry(log);
+  if (telemetry.state !== 'healthy') {
+    recordObserverHealth(telemetry.state, telemetry.reason);
+  }
   const cp = cursorPath(cwd, sessionId);
   if (!existsSync(log)) return none;
   let offset = 0;
@@ -505,6 +509,23 @@ function recordWarns(warns: Finding[]): void {
     appendFileSync(log, warns.map((w) => `warn:${w.rule}:${w.file ?? ''}`).join('\n') + '\n');
   } catch {
     /* best effort */
+  }
+}
+
+function recordObserverHealth(
+  state: 'degraded' | 'unavailable',
+  reason?: string,
+): void {
+  const log = process.env.TAMPERWARD_DENYLOG;
+  if (!log) return;
+  const detail = (reason ?? '').replace(/[\r\n]+/g, ' ').trim();
+  try {
+    appendFileSync(
+      log,
+      `warn:transient-observer:${state}${detail ? ':' + detail : ''}\n`,
+    );
+  } catch {
+    /* advisory audit channel only */
   }
 }
 

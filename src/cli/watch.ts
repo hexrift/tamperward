@@ -21,7 +21,7 @@
 // reach. The loop layer has always been the correction layer, not the
 // authority; CI is the authority.
 
-import { appendFileSync, lstatSync, mkdirSync, readdirSync, readFileSync, watch } from 'node:fs';
+import { appendFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, watch, writeFileSync } from 'node:fs';
 import { inspectPath } from '../disk';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -59,28 +59,108 @@ export function defaultEventLog(cwd: string): string {
   return join(gitDir(cwd) ?? join(cwd, '.git'), 'tamperward', 'fsevents.jsonl');
 }
 
+export type WatcherBackend = 'initializing' | 'recursive' | 'fallback';
+export type WatcherHealthState = 'healthy' | 'degraded' | 'stopped';
+
+export interface WatcherHealth {
+  version: 1;
+  state: WatcherHealthState;
+  backend: WatcherBackend;
+  pid: number;
+  started_at: string;
+  stopped_at: string | null;
+  watched_dirs: number;
+  last_append_at: string | null;
+  event_count: number;
+  dropped_events: number;
+  error_count: number;
+  last_error: string | null;
+  log: string;
+}
+
+export interface WatcherTelemetry {
+  state: 'healthy' | 'degraded' | 'unavailable';
+  health: WatcherHealth | null;
+  reason?: string;
+}
+
+export function watcherHealthPath(log: string): string {
+  return `${log}.health.json`;
+}
+
+export function readWatcherHealth(log: string): WatcherHealth | null {
+  try {
+    const value = JSON.parse(readFileSync(watcherHealthPath(log), 'utf8')) as Partial<WatcherHealth>;
+    if (
+      value.version !== 1 ||
+      typeof value.pid !== 'number' ||
+      typeof value.started_at !== 'string' ||
+      !['healthy', 'degraded', 'stopped'].includes(String(value.state))
+    ) return null;
+    return value as WatcherHealth;
+  } catch {
+    return null;
+  }
+}
+
+function pidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/** Interpret the persisted observer record for consumers. The record is advisory
+ *  (candidate-accessible like the event log), but it prevents "no events" from
+ *  being confused with "there was no live observer". */
+export function watcherTelemetry(log: string): WatcherTelemetry {
+  const health = readWatcherHealth(log);
+  if (!health) return { state: 'unavailable', health: null, reason: 'no health record' };
+  if (health.state === 'stopped')
+    return { state: 'unavailable', health, reason: 'observer stopped' };
+  if (!pidAlive(health.pid))
+    return { state: 'unavailable', health, reason: `observer pid ${health.pid} is not running` };
+  if (health.state === 'degraded')
+    return { state: 'degraded', health, reason: health.last_error ?? 'observer reported an error' };
+  return { state: 'healthy', health };
+}
+
 export interface Watcher {
   close(): void;
 }
 
 type TreeCb = (kind: string, rel: string) => void;
+type TreeStateCb = (backend: Exclude<WatcherBackend, 'initializing'>, watchedDirs: number) => void;
+type TreeErrorCb = (detail: string) => void;
 
 /** Recursive watch where the platform has it (Linux needs Node >= 20); otherwise a
  *  per-directory fallback that adds watchers for directories as they appear. The
  *  fallback is force-selectable (TAMPERWARD_WATCH_NO_RECURSIVE=1) so CI exercises
  *  it on every platform, not only the ones that lack the feature. */
-function watchTree(dir: string, cb: TreeCb): Watcher {
+function watchTree(
+  dir: string,
+  cb: TreeCb,
+  onState: TreeStateCb,
+  onError: TreeErrorCb,
+): Watcher {
   if (process.env.TAMPERWARD_WATCH_NO_RECURSIVE !== '1') {
     try {
       const w = watch(dir, { recursive: true }, (kind, fname) => {
         if (fname) cb(kind, String(fname));
       });
+      onState('recursive', 1);
       return { close: () => w.close() };
     } catch {
       /* ERR_FEATURE_UNAVAILABLE_ON_PLATFORM -> per-directory fallback */
     }
   }
+
   const watchers = new Map<string, ReturnType<typeof watch>>();
+  onState('fallback', 0);
+
   const addDir = (rel: string): void => {
     if (watchers.has(rel) || SKIP.test(rel + '/')) return;
     let w: ReturnType<typeof watch>;
@@ -95,17 +175,25 @@ function watchTree(dir: string, cb: TreeCb): Watcher {
           /* gone already */
         }
       });
-    } catch {
-      return; // directory vanished between walk and watch
+    } catch (e) {
+      onError(
+        `watch directory ${rel || '.'}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return;
     }
     watchers.set(rel, w);
+    onState('fallback', watchers.size);
   };
+
   const walk = (rel: string): void => {
     addDir(rel);
     let names: string[] = [];
     try {
       names = readdirSync(rel ? join(dir, rel) : dir);
-    } catch {
+    } catch (e) {
+      onError(
+        `enumerate directory ${rel || '.'}: ${e instanceof Error ? e.message : String(e)}`,
+      );
       return;
     }
     for (const name of names) {
@@ -114,10 +202,11 @@ function watchTree(dir: string, cb: TreeCb): Watcher {
       try {
         if (lstatSync(join(dir, child)).isDirectory()) walk(child);
       } catch {
-        /* raced */
+        /* raced with deletion; no persistent health defect */
       }
     }
   };
+
   walk('');
   return { close: () => { for (const w of watchers.values()) w.close(); } };
 }
@@ -127,22 +216,96 @@ export function startWatcher(dir: string, log: string, policy: Policy): Watcher 
   try {
     mkdirSync(join(log, '..'), { recursive: true });
   } catch {
-    /* the append below will surface a real failure */
+    // Persisting health below will produce the explicit diagnostic.
   }
-  const last = new Map<string, string>(); // path -> hash|mode dedupe key
-  return watchTree(dir, (kind, rel) => {
-    if (SKIP.test(rel) || !isProtected(rel, policy)) return;
-    const s = snap(join(dir, rel));
-    const key = `${s.hash}:${s.mode}`;
-    if (last.get(rel) === key) return; // duplicate notification for the same state
-    last.set(rel, key);
-    const ev: FsEvent = { ts: new Date().toISOString(), path: rel, kind: kind === 'rename' ? 'rename' : 'change', ...s };
+
+  const healthPath = watcherHealthPath(log);
+  const health: WatcherHealth = {
+    version: 1,
+    state: 'healthy',
+    backend: 'initializing',
+    pid: process.pid,
+    started_at: new Date().toISOString(),
+    stopped_at: null,
+    watched_dirs: 0,
+    last_append_at: null,
+    event_count: 0,
+    dropped_events: 0,
+    error_count: 0,
+    last_error: null,
+    log,
+  };
+  let healthWriteWarningEmitted = false;
+
+  const persistHealth = (): void => {
     try {
-      appendFileSync(log, JSON.stringify(ev) + '\n');
-    } catch {
-      /* best effort */
+      writeFileSync(healthPath, JSON.stringify(health) + '\n', { mode: 0o600 });
+      healthWriteWarningEmitted = false;
+    } catch (e) {
+      if (!healthWriteWarningEmitted) {
+        process.stderr.write(
+          `tamperward watch: WARNING: observer health cannot be recorded at ${healthPath} (${e instanceof Error ? e.message : String(e)}); telemetry availability is unknown.\n`,
+        );
+        healthWriteWarningEmitted = true;
+      }
     }
-  });
+  };
+
+  const degrade = (detail: string, droppedEvent = false): void => {
+    health.state = 'degraded';
+    health.error_count++;
+    if (droppedEvent) health.dropped_events++;
+    health.last_error = detail;
+    persistHealth();
+    process.stderr.write(
+      `tamperward watch: WARNING: observer degraded — ${detail}. Transient telemetry may be incomplete.\n`,
+    );
+  };
+
+  persistHealth();
+  const last = new Map<string, string>(); // path -> hash|mode dedupe key
+  const tree = watchTree(
+    dir,
+    (kind, rel) => {
+      if (SKIP.test(rel) || !isProtected(rel, policy)) return;
+      const s = snap(join(dir, rel));
+      const key = `${s.hash}:${s.mode}`;
+      if (last.get(rel) === key) return; // duplicate notification for the same state
+      last.set(rel, key);
+      const ev: FsEvent = {
+        ts: new Date().toISOString(),
+        path: rel,
+        kind: kind === 'rename' ? 'rename' : 'change',
+        ...s,
+      };
+      try {
+        appendFileSync(log, JSON.stringify(ev) + '\n');
+        health.event_count++;
+        health.last_append_at = new Date().toISOString();
+        persistHealth();
+      } catch (e) {
+        degrade(
+          `append event to ${log}: ${e instanceof Error ? e.message : String(e)}`,
+          true,
+        );
+      }
+    },
+    (backend, watchedDirs) => {
+      health.backend = backend;
+      health.watched_dirs = watchedDirs;
+      persistHealth();
+    },
+    (detail) => degrade(detail),
+  );
+
+  return {
+    close: () => {
+      tree.close();
+      health.state = 'stopped';
+      health.stopped_at = new Date().toISOString();
+      persistHealth();
+    },
+  };
 }
 
 export function runWatch(args: string[]): number {
@@ -155,7 +318,7 @@ export function runWatch(args: string[]): number {
   const policy = loadPolicy(dir);
   const out = log ?? defaultEventLog(dir);
   startWatcher(dir, out, policy);
-  process.stdout.write(`tamperward watch: recording protected-file events under ${dir} -> ${out}\n`);
+  process.stdout.write(`tamperward watch: recording protected-file events under ${dir} -> ${out} (health: ${watcherHealthPath(out)})\n`);
   // Daemon: run until killed. SIGINT/SIGTERM exit cleanly via default handlers.
   return -1; // sentinel: caller must not exit
 }
