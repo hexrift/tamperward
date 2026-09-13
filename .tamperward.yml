@@ -36,9 +36,9 @@ rules:
   ci-tampering: { severity: block }
   hook-tampering: { severity: block }
   no-verify: { severity: block }
-  # RESERVED names with no detector behind them (SPEC §4 rows 3 and 10, §10): they
-  # get built only against the negatives corpus and stay warn until precision is
-  # measured. Listed so the severity is on record, not because anything fires.
+  # assertion-weakening ships in 2.17.0 as a measured JS/TS AST heuristic and
+  # deliberately remains warn-only; guard-removal is still a reserved name with
+  # no detector behind it (SPEC §4 / §10).
   assertion-weakening: { severity: warn }
   guard-removal: { severity: warn }
 

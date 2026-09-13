@@ -1,16 +1,18 @@
 # The rules
 
 Thirteen mechanical rules on the diff, command and event surfaces, deterministic by
-construction — nine `block`, four `warn` — plus the outcome layer, `tamperward verify`,
-which interprets no diff at all. Two further heuristic names are reserved and unbuilt
-(below). Every id here is a key under `rules:` in `.tamperward.yml`, and the baseline
-severities are the ones `defaultPolicy` ships.
+construction — nine `block`, four `warn` — plus one measured JS/TS heuristic,
+`assertion-weakening`, which ships `warn`, and the outcome layer,
+`tamperward verify`, which interprets no diff at all. `guard-removal` remains the
+one reserved/unbuilt heuristic name. Every id here is a key under `rules:` in
+`.tamperward.yml`, and the baseline severities are the ones `defaultPolicy` ships.
 
 | rule | severity | catches |
 | --- | --- | --- |
 | `test-deletion` | block | deleted spec files, renames out of the tests glob, net removal of `it()`/`test()` blocks (counted via the AST; a literal `it.each` table counts one test per row), shell mutation of protected test paths (`rm`, `sed -i`, `truncate`, redirects, `cp /dev/null`, `tee`, `find -delete`, `git checkout <rev> [--] <path>`, a directory that holds protected specs, the whole cwd as `.` / `*` / a `..`-relative token), and the runner told not to open a spec — jest `testPathIgnorePatterns` / `testMatch` / `testRegex` / `roots` / `rootDir` / `modulePathIgnorePatterns` / `projects`, vitest `test.exclude` / `test.include` (a `!` entry included) / `test.dir` / `test.projects`, a `vitest.workspace.*` file, a `vite.config.*` carrying a `test:` key — evaluated as the selection predicate over the repository's own spec files (a multi-project config is the union of its projects; `typecheck.*` and `benchmark.*` are other suites; a `fixtures/` / `__mocks__/` ignore is not a narrowing), and a narrowing flag (`--testPathPattern`, `-t`, `--exclude`, `--dir`, `--project`, …) added to a `scripts.test*` entry that runs jest or vitest; a `describe.each` table multiplies the tests it encloses; a test moved into another spec in the same change (split, merge) is a relocation, not a deletion — held only by added tests that have a body, never by `it("noop", () => {})` stubs. Since 2.7.1 the predicate is read the way the runner reads it: `it.for` / `describe.for` count like `each` and a loop over a literal array counts once per element; only `scripts.test` and `test:ci` are the suite a flag can narrow, and `--exclude e2e/**` is set-up; `extends: true` projects inherit the root selection while `extends: '<path>'`, `mergeConfig` over an imported base and a `...base` spread are opaque; `test.root` rebases like `test.dir`; a `.snap` inside `__tests__/` belongs to `snapshot-rewrite`; `git checkout main -- test/` while on `main` restores nothing older |
 | `test-content-removal` | block | content stripped out of a spec that survives — the failing rows of a data-driven table, the expected-message arguments of `throws(...)` calls, a gutted mock-setup region — which leaves the block count untouched and walks past `test-deletion`; a removed significant line is excused only if its text is still kept in the changeset's protected tests after the edit, and a comment does not count as kept; rows of an each-table that spreads from elsewhere (or is built by a call) are compared as elements — one-line tables included — and two rows gone that reappear nowhere in the change fire on their own; content added to a non-spec file under a test directory (a case table moved to `test/fixtures/`) counts as kept |
 | `test-skip` | block | added `.skip` / `.only` / `.todo` / `xit` / `xdescribe` — `.only` narrows the suite, same class. Read per language of the protected file since 1.15.0: `@pytest.mark.skip` / `pytest.skip()` / `@unittest.skip`, Go `t.Skip()`, Rust `#[ignore]`, Ruby `skip` / `xit`, JUnit `@Disabled` / `@Ignore`, PHPUnit `markTestSkipped()`, .NET `[Ignore]` / `Skip = "…"` |
+| `assertion-weakening` | warn | JS/TS AST-proven one-way weakening inside the same unambiguous suite-qualified test: a statically proven exact/structural value becomes only truthy/defined, positive `toThrow(message|regexp)` becomes bare `toThrow()`, or an assertion is purely removed. Literal→literal expected-value changes, negated specificity changes, ambiguous duplicate identities and unsupported chains are deliberately silent. The committed detector-specific replay reports 12/12 true-positive fires and 0/20 false positives on retained ordinary-maintenance negatives; this clears the 90% build threshold but **does not** authorize block severity. |
 | `ts-any-cast` | block | added `as any`, `<any>` casts, `as unknown as`, `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck` — the unambiguous escape hatches, rare in honest code |
 | `ts-any-launder` | warn | `any` introduced in an annotation or generic position (`: any`, `Record<string, any>`, `Array<any>`) — the spelling agents launder with, but common enough in honest code that it surfaces for human review rather than blocking; a permanent warn |
 | `lint-suppression` | block | added `eslint-disable` (inline or block), `prettier-ignore`, `biome-ignore`; per language since 1.15.0: `# noqa`, `# type: ignore`, `# pylint: disable`, `//nolint`, `# rubocop:disable`, `@SuppressWarnings`, `phpcs:ignore`, `#pragma warning disable`. Rust `#[allow]` is deliberately excluded (too common in honest code for a block rule) |
@@ -139,10 +141,13 @@ in the round-1 trajectories while diff-time detection was routed around. It runs
 commit and CI granularity, not per tool call, and the `verify:` block that configures
 it is itself a guarded surface. See [Getting started](./getting-started.md#pristine-verification-tamperward-verify).
 
-Two heuristic rule names — `assertion-weakening` and `guard-removal` — are **reserved
-in the baseline policy but not yet built**: they get detectors only once a measured
-negatives corpus exists (SPEC §7.A), enter as `warn`, and never block until their
-precision clears the bar.
+`assertion-weakening` is now **built but warning-only**. Its first committed
+measurement lives in `harness/fp-study/AW-CORPUS.md`: 20 adjudicated legitimate
+assertion-touching negatives retained from the earlier 2,304-diff OSS study plus
+12 mutation positives, with 12/12 precision among fires and 0/20 false positives.
+That measurement permits shipping the narrow predicate, not graduating it to block.
+`guard-removal` remains **reserved and unbuilt** until it has its own measured
+negatives corpus (SPEC §7.A).
 
 ## Why snapshot-rewrite warns
 
