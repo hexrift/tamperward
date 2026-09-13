@@ -1,0 +1,272 @@
+{
+  "schema": 1,
+  "provenance": {
+    "mainline_frame": "harness/fp-study/CAST-GROWTH-CORPUS.md",
+    "mainline_pairs": 460,
+    "mainline_pairs_with_fire": 40,
+    "mainline_pairs_touching_ts": 228,
+    "negative_cases": 20,
+    "positive_cases": 8,
+    "note": "The negatives are minimal reproductions of the rule's exclusions, offsets and the legitimate shapes observed in the mainline replay; the positives are mutation controls for the boundary assertions the rule exists to surface. This JSON is the CI-replayed regression surface for the recorded live-fire measurement, not a second independent measurement."
+  },
+  "graduation": {
+    "block_max_mainline_fire_rate": 0.01,
+    "block_min_precision": 0.9,
+    "shipping_severity": "warn",
+    "block_graduation": "not authorized: the measured mainline fire rate (40/460 = 8.7%) exceeds the predeclared 1% ceiling; any move to block requires a separate decision with an independent measurement"
+  },
+  "cases": [
+    {
+      "id": "neg-01-cast-moved",
+      "classification": "legitimate",
+      "source": "mainline: cast relocated within the file",
+      "path": "src/a.ts",
+      "before": "const a = x as A;\nconst b = y;\n",
+      "after": "const b = y;\nconst a = x as A;\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-02-cast-offset",
+      "classification": "legitimate",
+      "source": "mainline: one cast added, one removed",
+      "path": "src/a.ts",
+      "before": "const a = x as A;\nconst b = y;\n",
+      "after": "const a = x;\nconst b = y as B;\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-03-cast-removed",
+      "classification": "legitimate",
+      "source": "hardening: cast replaced by a guard",
+      "path": "src/a.ts",
+      "before": "const a = JSON.parse(s) as { k: string };\n",
+      "after": "const a: unknown = JSON.parse(s);\nif (typeof a !== 'object' || a === null) throw new Error('bad');\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-04-untouched",
+      "classification": "legitimate",
+      "source": "mainline: unrelated edit beside existing casts",
+      "path": "src/a.ts",
+      "before": "const a = x as A;\nconst c = z!;\nexport const v = 1;\n",
+      "after": "const a = x as A;\nconst c = z!;\nexport const v = 2;\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-05-satisfies",
+      "classification": "legitimate",
+      "source": "mainline: satisfies is not a cast",
+      "path": "src/a.ts",
+      "before": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed;\n}\n",
+      "after": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return { ok: true } satisfies { ok: boolean };\n}\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-06-as-const",
+      "classification": "legitimate",
+      "source": "mainline: as const literal",
+      "path": "src/a.ts",
+      "before": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed;\n}\n",
+      "after": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return ['a', 'b'] as const;\n}\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-07-as-unknown",
+      "classification": "legitimate",
+      "source": "hardening: widening to unknown",
+      "path": "src/a.ts",
+      "before": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed;\n}\n",
+      "after": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed as unknown;\n}\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-08-row4-any",
+      "classification": "legitimate",
+      "source": "row 4 owns `as any`",
+      "path": "src/a.ts",
+      "before": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed;\n}\n",
+      "after": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed as any;\n}\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-09-row4-double",
+      "classification": "legitimate",
+      "source": "row 4 owns `as unknown as T`",
+      "path": "src/a.ts",
+      "before": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed;\n}\n",
+      "after": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed as unknown as { ok: boolean };\n}\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-10-comment-string",
+      "classification": "legitimate",
+      "source": "mainline: cast-like text in comment and string",
+      "path": "src/a.ts",
+      "before": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed;\n}\n",
+      "after": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  // was `parsed as Foo`\n  const s = 'x as Bar and <Baz>y and z!';\n  return parsed;\n}\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-11-logical-not",
+      "classification": "legitimate",
+      "source": "mainline: `!` operator and `!==`",
+      "path": "src/a.ts",
+      "before": "export const f = (a: boolean, b: number) => a;\n",
+      "after": "export const f = (a: boolean, b: number) => !a && b !== 1;\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-12-tsx-generic",
+      "classification": "legitimate",
+      "source": "mainline: generic JSX element",
+      "path": "src/v.tsx",
+      "before": "export const A = () => <div />;\n",
+      "after": "const L = <T,>(p: { items: T[] }) => <ul>{p.items.length}</ul>;\nexport const A = () => <L<number> items={[1]} />;\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-13-declaration",
+      "classification": "legitimate",
+      "source": "exclusion: declaration file",
+      "path": "src/t.d.ts",
+      "before": "declare const a: unknown;\n",
+      "after": "declare const a: unknown;\nexport const b = a as string;\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-14-generated-path",
+      "classification": "legitimate",
+      "source": "exclusion: generated path",
+      "path": "src/__generated__/x.ts",
+      "before": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed;\n}\n",
+      "after": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed as { ok: boolean };\n}\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-15-generated-header",
+      "classification": "legitimate",
+      "source": "exclusion: @generated header",
+      "path": "src/proto.ts",
+      "before": "// @generated by protoc. DO NOT EDIT.\nexport function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed;\n}\n",
+      "after": "// @generated by protoc. DO NOT EDIT.\nexport function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed as { ok: boolean };\n}\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-16-vendor",
+      "classification": "legitimate",
+      "source": "exclusion: vendored path",
+      "path": "vendor/lib/x.ts",
+      "before": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed;\n}\n",
+      "after": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed as { ok: boolean };\n}\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-17-test-file",
+      "classification": "legitimate",
+      "source": "exclusion: protected test file",
+      "path": "test/x.test.ts",
+      "before": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed;\n}\n",
+      "after": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed as { ok: boolean };\n}\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-18-parse-failure",
+      "classification": "legitimate",
+      "source": "decline: after side does not parse",
+      "path": "src/a.ts",
+      "before": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed;\n}\n",
+      "after": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed as { ok: boolean };\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-19-net-reduction",
+      "classification": "legitimate",
+      "source": "hardening: two casts become one",
+      "path": "src/a.ts",
+      "before": "const a = x as A;\nconst b = y as B;\n",
+      "after": "const a = x as A;\nconst b = isB(y) ? y : null;\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-20-generic-call",
+      "classification": "legitimate",
+      "source": "mainline: generic call argument is not an angle cast",
+      "path": "src/a.ts",
+      "before": "export const v = make(1);\n",
+      "after": "export const v = make<number>(1);\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "pos-01-json-parse-as",
+      "classification": "growth",
+      "source": "JSON.parse asserted to a shape",
+      "path": "src/a.ts",
+      "before": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed;\n}\n",
+      "after": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed as { ok: boolean };\n}\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-02-angle-cast",
+      "classification": "growth",
+      "source": "angle-bracket assertion",
+      "path": "src/a.ts",
+      "before": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed;\n}\n",
+      "after": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return <{ ok: boolean }>parsed;\n}\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-03-errno-cast",
+      "classification": "growth",
+      "source": "thrown error asserted as ErrnoException",
+      "path": "src/a.ts",
+      "before": "export function code(e: unknown): string | undefined {\n  return undefined;\n}\n",
+      "after": "export function code(e: unknown): string | undefined {\n  return (e as NodeJS.ErrnoException).code;\n}\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-04-non-null",
+      "classification": "growth",
+      "source": "non-null assertion replaces a check",
+      "path": "src/a.ts",
+      "before": "export const f = (m: Map<string, number>) => m.get('a');\n",
+      "after": "export const f = (m: Map<string, number>) => m.get('a')!;\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-05-new-file",
+      "classification": "growth",
+      "source": "new file carrying a cast",
+      "path": "src/new.ts",
+      "before": null,
+      "after": "export const v = JSON.parse('{}') as { a: number };\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-06-record-cast",
+      "classification": "growth",
+      "source": "object asserted as a Record",
+      "path": "src/a.ts",
+      "before": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return parsed;\n}\n",
+      "after": "export function read(raw: string): unknown {\n  const parsed: unknown = JSON.parse(raw);\n  return Object.keys(parsed as Record<string, unknown>);\n}\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-07-fetch-json",
+      "classification": "growth",
+      "source": "external JSON asserted (zod scripts/check-lockstep shape)",
+      "path": "scripts/check.ts",
+      "before": "export async function v(res: Response): Promise<unknown> {\n  return res.json();\n}\n",
+      "after": "export async function v(res: Response): Promise<{ latest: string }> {\n  return (await res.json()) as { latest: string };\n}\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-08-keyof-cast",
+      "classification": "growth",
+      "source": "index asserted as keyof",
+      "path": "src/a.ts",
+      "before": "export const g = (r: Record<string, number>, k: string) => r[k];\n",
+      "after": "export const g = (r: { a: number }, k: string) => r[k as keyof typeof r];\n",
+      "expectedFindings": 1
+    }
+  ]
+}
