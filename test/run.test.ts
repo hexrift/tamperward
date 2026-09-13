@@ -275,7 +275,8 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
       cmd: CMD,
       argv: sh(
         `setsid bash -c 'echo $ > "${pidFile}"; cd /tmp; sleep 30' >/dev/null 2>&1 & ` +
-          `echo "module.exports = 42;" > src.js`,
+          `for i in $(seq 1 100); do [ -s "${pidFile}" ] && break; sleep 0.01; done; ` +
+          `test -s "${pidFile}"; echo "module.exports = 42;" > src.js`,
       ),
     });
 
