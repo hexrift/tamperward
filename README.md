@@ -212,7 +212,12 @@ trusted lifecycle result.
 
 Linux therefore requires Python 3 with the standard `ctypes`/process modules available at
 a fixed trusted system path; TamperWard does not resolve this supervisor through candidate
-`PATH`, `PYTHONPATH`, user site-packages, or candidate cwd. `--agent-budget <seconds>`
+`PATH`, `PYTHONPATH`, user site-packages, or candidate cwd. **Linux `tamperward run`
+also refuses to start when the caller's uid or effective uid is 0/root.** Root can write
+ordinary system interpreter paths, so the same-UID trust argument used by this lifecycle
+backend is not meaningful there. `tamperward doctor` reports this explicitly as a
+BROKEN platform posture rather than misdiagnosing it as a missing Python installation.
+`--agent-budget <seconds>`
 adds an operator-owned wall-clock boundary around the same lifecycle (separate from the
 verifier's `--budget`). A clean timeout is `AGENT_TIMEOUT` / exit 124; enforcement or
 cannot-adjudicate still outranks it. Windows retains `taskkill /T /F`; other non-Linux
