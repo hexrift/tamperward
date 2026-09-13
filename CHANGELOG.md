@@ -5,6 +5,37 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.15.0] — 2026-09-13
+
+**`tamperward doctor` now answers whether TamperWard is merely present or actually
+wired for the guarantees the repository claims.** The command remains read-only and
+reuses `tamperward init`'s canonical planner instead of inventing a second wiring
+definition.
+
+The posture report now includes named `OK`, `WARN`, and `BROKEN` checks for:
+- policy parsing/schema generation;
+- canonical Claude PreToolUse + Stop wiring and pins;
+- pre-commit wiring;
+- generated CI wiring and least-privilege workflow permissions;
+- CODEOWNERS coverage of gate-critical paths;
+- running binary version versus repository wiring pins;
+- verifier command, budget, `verify.inputs` count and local/container trust mode;
+- host/platform residuals;
+- CI verifier outer-time authority;
+- transient-observer health; and
+- optional GitHub required-status / Code Owner / fresh-review authority.
+
+`doctor --json` emits one machine-readable document with those checks and an
+`authoritative` boolean. Hard doctor failures remain structured JSON at exit 2 when
+that mode is selected, rather than falling back to prose on stderr.
+
+This is diagnostic rather than a new enforcement layer: local early-path/residual gaps
+are surfaced in the report without unexpectedly turning generated CI red. Existing
+malformed-policy, insufficient-verifier-authority and requested-GitHub-authority
+failures retain their fail-closed exit-2 behavior.
+
+This closes #318.
+
 ## [2.14.0] — 2026-09-13
 
 **`tamperward run` can now supervise transient filesystem observation as an
