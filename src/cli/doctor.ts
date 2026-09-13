@@ -235,7 +235,11 @@ function emitReport(opts: DoctorOpts, checks: DoctorCheck[]): void {
     return;
   }
   for (const check of checks) {
-    process.stdout.write(`tamperward doctor: [${check.state}] ${check.id} — ${check.detail}\n`);
+    if (check.id === 'observer') {
+      process.stdout.write(`tamperward doctor: transient observer: ${check.detail}\n`);
+    } else {
+      process.stdout.write(`tamperward doctor: [${check.state}] ${check.id} — ${check.detail}\n`);
+    }
   }
 }
 
