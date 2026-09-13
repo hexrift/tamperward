@@ -448,23 +448,35 @@ function shorthandOptionDisables(
   return optionDisables(decl.initializer);
 }
 
+/**
+ * Stable syntax identity for BEFORE/AFTER semantic comparison.
+ *
+ * Source positions, whitespace and comments are deliberately absent. Leaf
+ * identifiers/literals retain their values; punctuation/operators/keywords are
+ * represented by SyntaxKind, so a formatting-only rewrite keeps the same key
+ * while real expression changes remain distinct.
+ */
+function structuralNodeKey(node: ts.Node, sf: ts.SourceFile): string {
+  const children = node.getChildren(sf);
+  const text = (node as ts.Node & { text?: unknown }).text;
+  if (children.length === 0) {
+    return typeof text === 'string'
+      ? `${node.kind}:${JSON.stringify(text)}`
+      : String(node.kind);
+  }
+  return `${node.kind}(${children.map((child) => structuralNodeKey(child, sf)).join(',')})`;
+}
+
 function semanticSkipHits(ctx: AstContext): SemanticHit[] {
   const runners = importAliases(ctx);
   const strings = topLevelStaticStrings(ctx);
   const hits: SemanticHit[] = [];
   const callOrdinals = new Map<string, number>();
-  const printer = ts.createPrinter({
-    removeComments: true,
-    newLine: ts.NewLineKind.LineFeed,
-  });
 
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node)) {
       const callText = node.getText(ctx.sf).trim();
-      // TypeScript's printer normalises trivia/line wrapping, so formatting-only
-      // rewrites retain the same semantic identity while real expression/argument
-      // changes remain distinguishable.
-      const callIdentity = printer.printNode(ts.EmitHint.Unspecified, node, ctx.sf);
+      const callIdentity = structuralNodeKey(node, ctx.sf);
       const ordinal = (callOrdinals.get(callIdentity) ?? 0) + 1;
       callOrdinals.set(callIdentity, ordinal);
       const callKey = `${callIdentity}\u0000${ordinal}`;
