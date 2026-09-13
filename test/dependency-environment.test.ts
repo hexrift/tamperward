@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runEnvelope } from '../src/cli/run';
 import { runVerify } from '../src/cli/verify';
+import { dependencyEnvironmentDiagnostics, discoverDependencyEnvironment } from '../src/dependency-env';
 
 const dirs: string[] = [];
 const originalPath = process.env.PATH;
@@ -272,6 +273,40 @@ describe('dependency environment attestation', () => {
       }),
     ).toBe(2);
   });
+
+  it.skipIf(Number(process.versions.node.split('.')[0]) !== 24)(
+    'benchmarks complete dependency snapshots on small/medium/large synthetic trees',
+    () => {
+      const cases = [
+        { name: 'small', files: 100, bytesPerFile: 4096 },
+        { name: 'medium', files: 1000, bytesPerFile: 4096 },
+        { name: 'large', files: 5000, bytesPerFile: 4096 },
+      ] as const;
+
+      for (const sample of cases) {
+        const cwd = mkdtempSync(join(tmpdir(), `tw-dep-bench-${sample.name}-`));
+        dirs.push(cwd);
+        const root = join(cwd, 'node_modules', 'fixture');
+        mkdirSync(root, { recursive: true });
+        const payload = Buffer.alloc(sample.bytesPerFile, 0x61);
+        for (let i = 0; i < sample.files; i++) {
+          writeFileSync(join(root, `f-${String(i).padStart(5, '0')}.bin`), payload);
+        }
+
+        const descriptor = discoverDependencyEnvironment(cwd, 'node -e "process.exit(0)"');
+        expect(descriptor.status).toBe('attested');
+        const metrics = dependencyEnvironmentDiagnostics(descriptor);
+        expect(metrics.fullSnapshots).toBe(1);
+        expect(descriptor.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+
+        // Stable prefix so CI evidence can be extracted into the release record.
+        process.stdout.write(
+          `[dependency-benchmark] ${sample.name} files=${sample.files} bytes=${sample.files * sample.bytesPerFile} snapshot_ms=${metrics.totalMs.toFixed(3)}\n`,
+        );
+      }
+    },
+    60_000,
+  );
 
   it('reports the carried dependency trust assumption in verify JSON', () => {
     const cwd = repoWithIgnoredVenv(true);
