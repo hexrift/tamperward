@@ -202,6 +202,55 @@ describe('verifier setup posture (#320)', () => {
     expect(existsSync(join(d, '.tamperward.yml'))).toBe(false); // dry-run is still non-mutating
   });
 
+  it('real init suggests but never writes an inferred verifier command into the trust anchor', () => {
+    const d = repo();
+    writeFileSync(
+      join(d, 'package.json'),
+      JSON.stringify({ name: 'demo', version: '1.0.0', scripts: { test: 'vitest run' } }),
+    );
+
+    const r = captureInit(d, false);
+    expect(r.code).toBe(0);
+    expect(r.output).toContain('INCOMPLETE: verification not configured');
+    expect(r.output).toContain('Suggested verifier command: npm test');
+
+    const written = readFileSync(join(d, '.tamperward.yml'), 'utf8');
+    expect(written).not.toMatch(/^\s*verify\s*:/m);
+    expect(written).not.toContain('command: "npm test"');
+  });
+
+  it('does not call empty/malformed Cargo or Go markers high-confidence verifier suites', () => {
+    const d = repo();
+
+    writeFileSync(join(d, 'Cargo.toml'), '');
+    writeFileSync(join(d, 'go.mod'), '');
+    let r = captureInit(d, true);
+    expect(r.output).not.toContain('cargo test');
+    expect(r.output).not.toContain('go test ./...');
+
+    rmSync(join(d, 'Cargo.toml'));
+    rmSync(join(d, 'go.mod'));
+    mkdirSync(join(d, 'Cargo.toml'));
+    mkdirSync(join(d, 'go.mod'));
+    r = captureInit(d, true);
+    expect(r.output).not.toContain('cargo test');
+    expect(r.output).not.toContain('go test ./...');
+  });
+
+  it('recognises structurally valid Cargo package/workspace and Go module files', () => {
+    const cargo = repo();
+    writeFileSync(join(cargo, 'Cargo.toml'), '[package]\nname = "demo"\nversion = "0.1.0"\n');
+    expect(captureInit(cargo, true).output).toContain('Suggested verifier command: cargo test');
+
+    const workspace = repo();
+    writeFileSync(join(workspace, 'Cargo.toml'), '[workspace]\nmembers = ["crates/*"]\n');
+    expect(captureInit(workspace, true).output).toContain('Suggested verifier command: cargo test');
+
+    const go = repo();
+    writeFileSync(join(go, 'go.mod'), 'module example.com/demo\n\ngo 1.24\n');
+    expect(captureInit(go, true).output).toContain('Suggested verifier command: go test ./...');
+  });
+
   it('reports verification configured when the real policy names a suite command', () => {
     const d = repo();
     writeFileSync(
