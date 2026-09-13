@@ -2,10 +2,12 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parse } from 'yaml';
-import { defaultPolicy } from '../policy';
+import { defaultPolicy, POLICY_VERSION } from '../policy';
 import { loadPolicy, loadPolicyAt, PolicyError } from '../policy-load';
 import { requiredVerifierAuthoritySeconds } from '../verifier-limits';
 import { defaultEventLog, watcherTelemetry } from './watch';
+import { planInit } from './init';
+import { compareVersions, TW_VERSION } from '../wiring';
 
 export interface DoctorOpts {
   cwd?: string;
@@ -19,6 +21,22 @@ export interface DoctorOpts {
   repo?: string;
   /** Protected branch. Defaults to GITHUB_BASE_REF or GitHub's default branch. */
   branch?: string;
+  /** Emit one machine-readable posture document instead of prose. */
+  json?: boolean;
+}
+
+export type DoctorState = 'OK' | 'WARN' | 'BROKEN';
+
+export interface DoctorCheck {
+  id: string;
+  state: DoctorState;
+  detail: string;
+}
+
+export interface DoctorReport {
+  command: 'doctor';
+  authoritative: boolean;
+  checks: DoctorCheck[];
 }
 
 const VERIFY_COMMAND = /\btamperward(?:@\S+)?\s+verify\b/;
@@ -38,6 +56,187 @@ function asMapping(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+
+function wiringState(status: string, authority: boolean): DoctorState {
+  if (status === 'ok') return 'OK';
+  if (status === 'skip') return 'WARN';
+  return authority ? 'BROKEN' : 'WARN';
+}
+
+function pinsInFile(path: string): string[] {
+  if (!existsSync(path)) return [];
+  let src = '';
+  try { src = readFileSync(path, 'utf8'); } catch { return []; }
+  return Array.from(src.matchAll(/\btamperward@((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))\b/g), (m) => m[1]);
+}
+
+function workflowPermissionCheck(cwd: string): DoctorCheck {
+  const rel = '.github/workflows/tamperward.yml';
+  const path = join(cwd, rel);
+  if (!existsSync(path)) return { id: 'workflow-permissions', state: 'BROKEN', detail: `${rel} is missing` };
+  let doc: unknown;
+  try {
+    doc = parse(readFileSync(path, 'utf8'));
+  } catch (e) {
+    return {
+      id: 'workflow-permissions',
+      state: 'BROKEN',
+      detail: `${rel} is not valid YAML (${e instanceof Error ? e.message : String(e)})`,
+    };
+  }
+  const root = asMapping(doc);
+  const permissions = asMapping(root?.permissions);
+  if (!permissions) {
+    return {
+      id: 'workflow-permissions',
+      state: 'BROKEN',
+      detail: 'workflow does not declare least-privilege permissions; repository defaults could grant write access',
+    };
+  }
+  const writes = Object.entries(permissions).filter(([, value]) =>
+    typeof value === 'string' && /write/i.test(value),
+  );
+  if (writes.length) {
+    return {
+      id: 'workflow-permissions',
+      state: 'BROKEN',
+      detail: 'workflow grants write permission: ' + writes.map(([name]) => name).join(', '),
+    };
+  }
+  if (permissions.contents !== 'read') {
+    return {
+      id: 'workflow-permissions',
+      state: 'WARN',
+      detail: 'workflow permissions are explicit but contents: read is not declared',
+    };
+  }
+  return { id: 'workflow-permissions', state: 'OK', detail: 'workflow token is explicitly read-only (contents: read)' };
+}
+
+/**
+ * Read-only local/repository posture. Reuse init's canonical wiring planner so
+ * doctor cannot drift into a second definition of "correctly installed".
+ */
+export function collectLocalPosture(cwd: string, policy: ReturnType<typeof loadPolicy>): DoctorCheck[] {
+  const checks: DoctorCheck[] = [];
+
+  checks.push(
+    policy.version <= POLICY_VERSION
+      ? { id: 'policy', state: 'OK', detail: `policy version ${policy.version} is understood (current schema ${POLICY_VERSION})` }
+      : { id: 'policy', state: 'WARN', detail: `policy version ${policy.version} is newer than this binary's schema ${POLICY_VERSION}; only known gates can be evaluated` },
+  );
+
+  let plan: ReturnType<typeof planInit> = [];
+  try {
+    plan = planInit(cwd);
+  } catch (e) {
+    checks.push({
+      id: 'installation-plan',
+      state: 'BROKEN',
+      detail: `canonical wiring could not be evaluated: ${e instanceof Error ? e.message : String(e)}`,
+    });
+  }
+
+  const byItem = new Map(plan.map((x) => [x.item, x]));
+  const addWiring = (id: string, item: string, authority: boolean): void => {
+    const action = byItem.get(item);
+    if (!action) {
+      checks.push({ id, state: authority ? 'BROKEN' : 'WARN', detail: `${item} wiring could not be evaluated` });
+      return;
+    }
+    checks.push({
+      id,
+      state: wiringState(action.status, authority),
+      detail: action.status === 'ok'
+        ? action.detail
+        : `${action.status}: ${action.detail}`,
+    });
+  };
+
+  addWiring('claude-hooks', 'agent', true);
+  addWiring('pre-commit', 'pre-commit', false);
+  addWiring('ci-wiring', 'ci', true);
+  addWiring('codeowners', 'codeowners', true);
+  checks.push(workflowPermissionCheck(cwd));
+
+  const pins = [
+    ...pinsInFile(join(cwd, '.claude', 'settings.json')),
+    ...pinsInFile(join(cwd, '.git', 'hooks', 'pre-commit')),
+    ...pinsInFile(join(cwd, '.husky', 'pre-commit')),
+  ];
+  const below = pins.filter((pin) => (compareVersions(pin, TW_VERSION) ?? 0) < 0);
+  const above = pins.filter((pin) => (compareVersions(TW_VERSION, pin) ?? 0) < 0);
+  checks.push(
+    below.length
+      ? { id: 'binary-version', state: 'BROKEN', detail: `wiring pins older TamperWard version(s): ${Array.from(new Set(below)).join(', ')}; running binary is ${TW_VERSION}` }
+      : above.length
+        ? { id: 'binary-version', state: 'WARN', detail: `repository wiring targets newer TamperWard version(s): ${Array.from(new Set(above)).join(', ')}; running binary is ${TW_VERSION}` }
+        : pins.length
+          ? { id: 'binary-version', state: 'OK', detail: `wiring pins agree with running TamperWard ${TW_VERSION}` }
+          : { id: 'binary-version', state: 'WARN', detail: `no canonical TamperWard version pin was found; running binary is ${TW_VERSION}` },
+  );
+
+  if (!policy.verify?.command) {
+    checks.push({ id: 'verifier', state: 'BROKEN', detail: 'verify.command is not configured' });
+  } else {
+    const backend = policy.verify.backend ?? 'local';
+    const inputs = policy.verify.inputs?.length ?? 0;
+    checks.push({
+      id: 'verifier',
+      state: backend === 'container' ? 'OK' : 'WARN',
+      detail:
+        backend === 'container'
+          ? `isolated-container verifier; budget ${policy.verify.budget}s/stage; ${inputs} declared verify.inputs glob(s); runtime/image availability is checked by verify`
+          : `checkpointed-local verifier; budget ${policy.verify.budget}s/stage; ${inputs} declared verify.inputs glob(s); same-host/self-restoring mutation remains a documented residual`,
+    });
+  }
+
+  checks.push(
+    process.platform === 'linux'
+      ? { id: 'platform', state: 'OK', detail: 'Linux: POSIX generated wiring and /proc runtime/quiescence controls are available' }
+      : process.platform === 'win32'
+        ? { id: 'platform', state: 'WARN', detail: 'Windows: generated shell wiring has POSIX assumptions and Linux /proc survivor controls are unavailable' }
+        : { id: 'platform', state: 'WARN', detail: `${process.platform}: POSIX wiring is available, but Linux /proc survivor controls are unavailable` },
+  );
+
+  return checks;
+}
+
+function observerCheck(cwd: string): DoctorCheck {
+  const observer = watcherTelemetry(defaultEventLog(cwd));
+  if (observer.state === 'healthy' && observer.health) {
+    return {
+      id: 'observer',
+      state: 'OK',
+      detail: `healthy ${observer.health.backend}; ${observer.health.watched_dirs} watched dir(s), ${observer.health.event_count} event(s); advisory telemetry only`,
+    };
+  }
+  if (observer.state === 'degraded' && observer.health) {
+    return {
+      id: 'observer',
+      state: 'WARN',
+      detail: `degraded: ${observer.health.error_count} error(s), ${observer.health.dropped_events} dropped event(s); ${observer.reason ?? 'telemetry may be incomplete'}; advisory only`,
+    };
+  }
+  return {
+    id: 'observer',
+    state: 'WARN',
+    detail: `unavailable${observer.reason ? ': ' + observer.reason : ''}; optional/advisory, and zero events are not evidence of no transient activity`,
+  };
+}
+
+function emitReport(opts: DoctorOpts, checks: DoctorCheck[]): void {
+  const authoritative = !checks.some((x) => x.state === 'BROKEN');
+  if (opts.json) {
+    const report: DoctorReport = { command: 'doctor', authoritative, checks };
+    process.stdout.write(JSON.stringify(report) + '\n');
+    return;
+  }
+  for (const check of checks) {
+    process.stdout.write(`tamperward doctor: [${check.state}] ${check.id} — ${check.detail}\n`);
+  }
 }
 
 export interface GitHubProtectionSnapshot {
@@ -381,35 +580,35 @@ export function runDoctor(opts: DoctorOpts = {}): number {
     }
   }
 
-  process.stdout.write(
-    `tamperward doctor: CI verifier envelope OK — ${verifyJobCount} verify job(s), trusted budget ${policy.verify.budget}s/stage, requires >=${requiredMinutes}m outer timeout.\n`,
-  );
+  const checks = collectLocalPosture(cwd, policy);
+  checks.push({
+    id: 'ci-verifier',
+    state: 'OK',
+    detail: `${verifyJobCount} verify job(s); trusted budget ${policy.verify.budget}s/stage requires >=${requiredMinutes}m outer timeout`,
+  });
   if (github) {
-    process.stdout.write(
-      'tamperward doctor: GitHub repository authority OK — ' + github.repo + '#' +
-        github.branch +
-        ' requires tamperward, Code Owner review, and stale-review dismissal on new pushes.\n',
-    );
+    checks.push({
+      id: 'github-authority',
+      state: 'OK',
+      detail:
+        github.repo + '#' + github.branch +
+        ' requires tamperward status, Code Owner review, and stale-review dismissal on new pushes',
+    });
   }
+  checks.push(observerCheck(cwd));
 
-  const observer = watcherTelemetry(defaultEventLog(cwd));
-  if (observer.state === 'healthy' && observer.health) {
+  if (!opts.json) {
     process.stdout.write(
-      `tamperward doctor: transient observer: healthy — ${observer.health.backend}, ` +
-        `${observer.health.watched_dirs} watched dir(s), ${observer.health.event_count} event(s); ` +
-        'advisory telemetry only, not verification authority.\n',
+      `tamperward doctor: CI verifier envelope OK — ${verifyJobCount} verify job(s), trusted budget ${policy.verify.budget}s/stage, requires >=${requiredMinutes}m outer timeout.\n`,
     );
-  } else if (observer.state === 'degraded' && observer.health) {
-    process.stdout.write(
-      `tamperward doctor: transient observer: degraded — ${observer.health.error_count} error(s), ` +
-        `${observer.health.dropped_events} dropped event(s); ${observer.reason ?? 'telemetry may be incomplete'}. ` +
-        'Advisory only; zero events are not evidence of no transient activity.\n',
-    );
-  } else {
-    process.stdout.write(
-      `tamperward doctor: transient observer: unavailable${observer.reason ? ' — ' + observer.reason : ''}. ` +
-        'Observer telemetry is optional/advisory; zero events are not evidence of no transient activity.\n',
-    );
+    if (github) {
+      process.stdout.write(
+        'tamperward doctor: GitHub repository authority OK — ' + github.repo + '#' +
+          github.branch +
+          ' requires tamperward, Code Owner review, and stale-review dismissal on new pushes.\n',
+      );
+    }
   }
+  emitReport(opts, checks);
   return 0;
 }
