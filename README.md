@@ -158,6 +158,15 @@ This distinguishes “healthy observer, zero events” from “observer telemetr
 unavailable” without turning absence of watcher telemetry into an enforcement pass
 or failure.
 
+Since **2.14.0**, `tamperward run --observe-transients -- <agent...>` can supervise
+that observer as part of the envelope lifecycle. It creates a unique session log under
+the repository git directory, pins the watcher's protected-path policy to the same
+trusted base used by the envelope, waits for observer health before launching the
+agent, consumes the temporal events itself after the agent exits, and shuts the
+observer down deterministically. Observer health remains advisory; transient findings
+remain warnings by default and affect the envelope only when the operator explicitly
+sets `TAMPERWARD_TRANSIENT=block`.
+
 After the runtime exits its exit code is treated as untrusted, and the envelope
 checks that post-agent `HEAD` still descends from the entry commit; the committed
 changes over `entry...HEAD`; staged, unstaged and untracked non-ignored worktree
@@ -356,7 +365,7 @@ option can never be reinterpreted as the agent command.
 | `check` | one view — `--staged` · `--worktree` · `--diff <base>...<head>` — plus `--format text\|json\|github\|auto` (default `auto`) · `--json` (alias for `--format json`) · `--cwd <dir>` |
 | `verify` | `--base <rev>` (default `HEAD`) · `--cmd <suite command>` · `--budget <seconds>` · `--json` · `--keep` (keep the two materialised copies and report their paths) · `--require-ancestor` (refuse a base that is not an ancestor of `HEAD`) · `--cwd <dir>` |
 | `doctor` | `--base <rev>` (trusted policy revision) · `--workflow <path>` (default `.github/workflows/tamperward.yml`) · `--cwd <dir>` — validates every job that runs `tamperward verify` has a static outer timeout covering visible + pristine + authority reserve |
-| `run` | `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` (per verifier suite) · `--agent-budget <seconds>` (optional wrapped-agent wall clock) · `--allow-dirty` · `--settle <seconds>` (wait before the final quiescence check) · `--allow-dep-drift` · `--cwd <dir>` · then `-- <agent command...>` |
+| `run` | `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` (per verifier suite) · `--agent-budget <seconds>` (optional wrapped-agent wall clock) · `--observe-transients` (start a session-scoped transient observer) · `--allow-dirty` · `--settle <seconds>` (wait before the final quiescence check) · `--allow-dep-drift` · `--cwd <dir>` · then `-- <agent command...>` |
 | `allow` | `<rule>` · `--file <path>` · `--reason "<why>"` (required) · `--cwd <dir>` |
 | `init` | `--cwd <dir>` · `--dry-run` · `--force-workflow` |
 | `watch` | `--dir <dir>` · `--log <file>` — a daemon; it runs until signalled |
