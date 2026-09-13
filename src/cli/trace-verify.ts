@@ -443,13 +443,13 @@ export function runTraceVerify(opts: TraceVerifyOpts = {}): number {
     process.stderr.write(`tamperward trace-verify: --runs needs a positive integer (got ${JSON.stringify(opts.runs)}).\n`);
     return 2;
   }
-  let baseArg: string;
+  const requestedBase = opts.base ?? 'HEAD';
   let base: string;
   try {
-    baseArg = assertRev(opts.base ?? 'HEAD');
+    const baseArg = assertRev(requestedBase);
     base = git(['rev-parse', '--verify', `${baseArg}^{commit}`], cwd).trim();
   } catch (e) {
-    process.stderr.write(`tamperward trace-verify: cannot resolve trusted base ${JSON.stringify(baseArg)} (${e instanceof Error ? e.message : String(e)}).\n`);
+    process.stderr.write(`tamperward trace-verify: cannot resolve trusted base ${JSON.stringify(requestedBase)} (${e instanceof Error ? e.message : String(e)}).\n`);
     return 2;
   }
 
