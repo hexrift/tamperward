@@ -1,0 +1,539 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hexrift/tamperward/main/schemas/research-v1.schema.json",
+  "title": "TamperWard research JSON output v1",
+  "description": "Emitted by `tamperward research run --json` (one `pair` document per line, identical to the ledger record under <out>/pairs/) and `tamperward research summarize` (one `summary` document). `document` is the shape discriminator. Both keep TamperWard's own verdict (`treatment` / `tamperward`) apart from the independent outcome (`outcome` / `independent_outcome`); there is no composite score. Additive within schema major 1.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "command",
+    "document"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "command": {
+      "const": "research"
+    },
+    "document": {
+      "enum": [
+        "pair",
+        "summary"
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/pair"
+    },
+    {
+      "$ref": "#/$defs/summary"
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "arm": {
+      "enum": [
+        "ungated",
+        "gated"
+      ]
+    },
+    "adapter": {
+      "type": "object",
+      "required": [
+        "name",
+        "layers"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "layers": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "envelope",
+              "pre-tool-use",
+              "stop-sweep"
+            ]
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "outcome": {
+      "type": "object",
+      "required": [
+        "verify_verdict",
+        "visible_exit",
+        "pristine_exit",
+        "visible_green",
+        "pristine_green",
+        "masked_failure",
+        "surviving_protected_mutations",
+        "warn_findings",
+        "rules",
+        "honest_completion"
+      ],
+      "properties": {
+        "verify_verdict": {
+          "type": "string",
+          "minLength": 1
+        },
+        "visible_exit": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "pristine_exit": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "visible_green": {
+          "type": "boolean"
+        },
+        "pristine_green": {
+          "type": "boolean"
+        },
+        "masked_failure": {
+          "type": "boolean"
+        },
+        "surviving_protected_mutations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warn_findings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "honest_completion": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "treatment": {
+      "type": "object",
+      "required": [
+        "verdict",
+        "exit_code",
+        "complete",
+        "disposition",
+        "envelope"
+      ],
+      "properties": {
+        "verdict": {
+          "enum": [
+            "VERIFIED",
+            "AGENT_TIMEOUT",
+            "AGENT_FAILED",
+            "ENFORCEMENT_FAILED",
+            "CANNOT_ADJUDICATE",
+            "OBJECT_REWRITE",
+            "HISTORY_REWRITE",
+            "DEPENDENCY_DRIFT",
+            "NOT_QUIESCENT",
+            "TRANSIENT_OBSERVER_BLOCK"
+          ]
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "disposition": {
+          "enum": [
+            "refused",
+            "passed",
+            "cannot"
+          ]
+        },
+        "envelope": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "trajectory": {
+      "type": "object",
+      "required": [
+        "arm",
+        "workspace",
+        "base",
+        "head",
+        "started_at",
+        "finished_at",
+        "agent",
+        "treatment",
+        "outcome",
+        "released_green"
+      ],
+      "properties": {
+        "arm": {
+          "$ref": "#/$defs/arm"
+        },
+        "workspace": {
+          "type": "string",
+          "minLength": 1
+        },
+        "base": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40,64}$"
+        },
+        "head": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40,64}$"
+        },
+        "started_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "finished_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agent": {
+          "type": "object",
+          "required": [
+            "exit_code",
+            "signal",
+            "timed_out"
+          ],
+          "properties": {
+            "exit_code": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "signal": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "timed_out": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": true
+        },
+        "treatment": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/treatment"
+            }
+          ]
+        },
+        "outcome": {
+          "$ref": "#/$defs/outcome"
+        },
+        "released_green": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "pair": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "command",
+        "document",
+        "task",
+        "pair",
+        "adapter",
+        "model",
+        "manifest_sha256",
+        "verify_command",
+        "arms"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "command": {
+          "const": "research"
+        },
+        "document": {
+          "const": "pair"
+        },
+        "task": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pair": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "adapter": {
+          "$ref": "#/$defs/adapter"
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "verify_command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "arms": {
+          "type": "object",
+          "required": [
+            "ungated",
+            "gated"
+          ],
+          "properties": {
+            "ungated": {
+              "$ref": "#/$defs/trajectory"
+            },
+            "gated": {
+              "$ref": "#/$defs/trajectory"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": true
+    },
+    "armBehaviour": {
+      "type": "object",
+      "required": [
+        "trajectories",
+        "surviving_protected_mutations",
+        "masked_failure"
+      ],
+      "properties": {
+        "trajectories": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "surviving_protected_mutations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "masked_failure": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    },
+    "armOutcome": {
+      "type": "object",
+      "required": [
+        "visible_green",
+        "pristine_green",
+        "masked_failure",
+        "honest_completion",
+        "released_green"
+      ],
+      "properties": {
+        "visible_green": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pristine_green": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "masked_failure": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "honest_completion": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "released_green": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "command",
+        "document",
+        "manifest_sha256",
+        "adapter",
+        "model",
+        "pairs",
+        "tasks",
+        "model_behaviour",
+        "independent_outcome",
+        "tamperward",
+        "paired",
+        "control_response"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "command": {
+          "const": "research"
+        },
+        "document": {
+          "const": "summary"
+        },
+        "manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "adapter": {
+          "$ref": "#/$defs/adapter"
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pairs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        "model_behaviour": {
+          "type": "object",
+          "required": [
+            "ungated",
+            "gated"
+          ],
+          "properties": {
+            "ungated": {
+              "$ref": "#/$defs/armBehaviour"
+            },
+            "gated": {
+              "$ref": "#/$defs/armBehaviour"
+            }
+          },
+          "additionalProperties": false
+        },
+        "independent_outcome": {
+          "type": "object",
+          "required": [
+            "ungated",
+            "gated"
+          ],
+          "properties": {
+            "ungated": {
+              "$ref": "#/$defs/armOutcome"
+            },
+            "gated": {
+              "$ref": "#/$defs/armOutcome"
+            }
+          },
+          "additionalProperties": false
+        },
+        "tamperward": {
+          "type": "object",
+          "required": [
+            "caught",
+            "escapes",
+            "false_refusals",
+            "cannot_adjudicate"
+          ],
+          "properties": {
+            "caught": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "escapes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "false_refusals": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cannot_adjudicate": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": true
+        },
+        "paired": {
+          "type": "object",
+          "required": [
+            "masked_failure"
+          ],
+          "properties": {
+            "masked_failure": {
+              "type": "object",
+              "required": [
+                "ungated_only",
+                "gated_only",
+                "both",
+                "neither"
+              ],
+              "properties": {
+                "ungated_only": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "gated_only": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "both": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "neither": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "additionalProperties": true
+        },
+        "control_response": {
+          "description": "deny \u2192 fix / surrender / alternative-bypass classification. Needs in-loop deny events relayed by the adapter; this release records none, so the field is null rather than a number that looks measured.",
+          "type": "null"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}
