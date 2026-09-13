@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { preToolUseVerdict, stopVerdict } from '../src/cli/hook';
 import { defaultPolicy } from '../src/policy';
 import { defaultEventLog, readWatcherHealth, startWatcher, watcherHealthPath } from '../src/cli/watch';
-import { readEvents, transientFindings } from '../src/detectors/fs-events';
+import { MAX_EVENT_READ_BYTES, readEvents, transientFindings } from '../src/detectors/fs-events';
 import { FsEvent } from '../src/cli/watch';
 
 const dirs: string[] = [];
@@ -107,6 +107,73 @@ describe('applyEdit fail-open closed (07-fastify regression)', () => {
     });
     expect(r.stdout).toContain('"deny"');
     expect(r.stdout).toContain('test-skip');
+  });
+});
+
+
+describe('fs-event cursor I/O (#313)', () => {
+  const event = (path: string, hash: string): FsEvent => ({
+    ts: '2026-09-13T06:00:00Z',
+    path,
+    kind: 'change',
+    mode: 0o100644,
+    size: 10,
+    hash,
+  });
+
+  it('reads only bytes appended after the saved byte offset, not a multi-megabyte history', () => {
+    const cwd = repo();
+    const log = join(cwd, 'events.jsonl');
+    const oldLine = JSON.stringify(event('test/old.test.js', 'old')) + '\n';
+    const repeats = Math.ceil((3 * 1024 * 1024) / Buffer.byteLength(oldLine));
+    const history = oldLine.repeat(repeats);
+    const offset = Buffer.byteLength(history);
+    const tail = JSON.stringify(event('test/new.test.js', 'new')) + '\n';
+    writeFileSync(log, history + tail);
+
+    const batch = readEvents(log, offset);
+    expect(batch.events.map((x) => x.path)).toEqual(['test/new.test.js']);
+    expect(batch.bytesRead).toBe(Buffer.byteLength(tail));
+    expect(batch.bytesRead).toBeLessThan(1024);
+    expect(batch.newOffset).toBe(offset + Buffer.byteLength(tail));
+  });
+
+  it('does not advance past a torn final JSONL record and replays it once completed', () => {
+    const cwd = repo();
+    const log = join(cwd, 'events.jsonl');
+    const first = JSON.stringify(event('test/a.test.js', 'a')) + '\n';
+    const second = JSON.stringify(event('test/b.test.js', 'b'));
+    const split = Math.floor(second.length / 2);
+    writeFileSync(log, first + second.slice(0, split));
+
+    const a = readEvents(log, 0);
+    expect(a.events.map((x) => x.path)).toEqual(['test/a.test.js']);
+    expect(a.newOffset).toBe(Buffer.byteLength(first));
+
+    writeFileSync(log, second.slice(split) + '\n', { flag: 'a' });
+    const b = readEvents(log, a.newOffset);
+    expect(b.events.map((x) => x.path)).toEqual(['test/b.test.js']);
+    expect(b.newOffset).toBe(Buffer.byteLength(first + second + '\n'));
+  });
+
+  it('bounds one read and advances only through complete records when more telemetry remains', () => {
+    const cwd = repo();
+    const log = join(cwd, 'events.jsonl');
+    const first = JSON.stringify(event('test/a.test.js', 'a')) + '\n';
+    const second = JSON.stringify(event('test/b.test.js', 'b')) + '\n';
+    writeFileSync(log, first + second);
+
+    const cap = Buffer.byteLength(first) + 5;
+    const a = readEvents(log, 0, cap);
+    expect(MAX_EVENT_READ_BYTES).toBeGreaterThan(cap);
+    expect(a.bytesRead).toBe(cap);
+    expect(a.limitReached).toBe(true);
+    expect(a.events.map((x) => x.path)).toEqual(['test/a.test.js']);
+    expect(a.newOffset).toBe(Buffer.byteLength(first));
+
+    const b = readEvents(log, a.newOffset);
+    expect(b.events.map((x) => x.path)).toEqual(['test/b.test.js']);
+    expect(b.limitReached).toBe(false);
   });
 });
 
