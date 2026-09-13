@@ -46,7 +46,9 @@ workspace needs before it starts (`prepareGated?(task)`). It declares which Tamp
 `layers` are live in its gated arm, recorded in every document. Two adapters ship:
 `claude-code` (`claude -p <prompt> [--model M]`, `prepareGated` = `tamperward init`;
 envelope + PreToolUse deny + Stop sweep) and `command` (any argv after `--`, with
-`{prompt}` `{task}` `{cwd}` `{base}` `{arm}` `{model}` substituted; envelope only).
+`{prompt}` `{task}` `{cwd}` `{base}` `{arm}` `{model}` substituted and a relative agent path
+anchored to the operator's directory; envelope only). An agent process that cannot be
+started is recorded (`agent.failure`) rather than failing the run: its trajectory is data.
 Every agent process receives the task as `TAMPERWARD_RESEARCH_*` environment variables.
 The contract, the manifest reader, the runner and the summarizer are exported from the
 package entry for programmatic use.
@@ -63,6 +65,7 @@ pre-specified retry rules, history stripping, signed manifest freezing beyond th
 sha256 pin, and interval estimates.
 
 This closes #391.
+
 ## [2.20.1] — 2026-09-13
 
 **`ts-any-cast` diff-only fallback: the double cast is classified structurally.** The

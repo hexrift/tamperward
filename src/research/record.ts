@@ -50,7 +50,13 @@ export interface TrajectoryRecord {
   head: string;
   started_at: string;
   finished_at: string;
-  agent: { exit_code: number | null; signal: string | null; timed_out: boolean };
+  agent: {
+    exit_code: number | null;
+    signal: string | null;
+    timed_out: boolean;
+    /** Why the agent process could not be started or reported, when it could not. */
+    failure: string | null;
+  };
   /** TamperWard's own verdict: gated arm only, recorded separately from the outcome. */
   treatment: TreatmentRecord | null;
   outcome: TrajectoryOutcome;
@@ -137,6 +143,8 @@ function trajectoryFrom(raw: unknown, arm: ResearchArm, where: string): Trajecto
   if (!isRecord(agent)) bad(`${where}.agent is not an object`);
   const signal = nullableString(agent.signal);
   if (signal === undefined) bad(`${where}.agent.signal is not a string or null`);
+  const failure = nullableString(agent.failure);
+  if (failure === undefined) bad(`${where}.agent.failure is not a string or null`);
   return {
     arm,
     workspace: str(raw, 'workspace', where),
@@ -148,6 +156,7 @@ function trajectoryFrom(raw: unknown, arm: ResearchArm, where: string): Trajecto
       exit_code: nullableNum(agent, 'exit_code', `${where}.agent`),
       signal,
       timed_out: bool(agent, 'timed_out', `${where}.agent`),
+      failure,
     },
     treatment: treatmentFrom(raw.treatment, `${where}.treatment`),
     outcome: outcomeFrom(raw.outcome, `${where}.outcome`),

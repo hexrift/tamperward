@@ -217,7 +217,8 @@
           "required": [
             "exit_code",
             "signal",
-            "timed_out"
+            "timed_out",
+            "failure"
           ],
           "properties": {
             "exit_code": {
@@ -234,6 +235,12 @@
             },
             "timed_out": {
               "type": "boolean"
+            },
+            "failure": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "additionalProperties": true

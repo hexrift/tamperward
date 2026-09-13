@@ -20,6 +20,7 @@
 // gets the effect-layer view — the record says which layers were live, so a
 // comparison across runtimes never silently compares different treatments.
 
+import { isAbsolute, resolve } from 'node:path';
 import { runInit } from '../cli/init';
 
 export const ADAPTER_LAYERS = ['envelope', 'pre-tool-use', 'stop-sweep'] as const;
@@ -92,21 +93,26 @@ const PLACEHOLDERS: Record<string, (task: AdapterTask) => string> = {
 };
 
 /**
- * The generic adapter: any argv. `{prompt}`, `{task}`, `{cwd}`, `{base}`,
+ * The generic adapter: any argv (a relative path with a slash in argv[0] is
+ * anchored to the operator's cwd). `{prompt}`, `{task}`, `{cwd}`, `{base}`,
  * `{arm}` and `{model}` are substituted verbatim in each argument, and the
  * same values travel as TAMPERWARD_RESEARCH_* environment variables. Only
  * the effect layer is live in its gated arm: the envelope wraps the command,
  * the tree it leaves is re-adjudicated, and nothing steers it mid-turn.
  */
-export function commandAdapter(argv: string[]): AgentAdapter {
+export function commandAdapter(argv: string[], cwd: string = process.cwd()): AgentAdapter {
   if (argv.length === 0) {
     throw new ResearchError('the command adapter needs an agent command after "--"');
   }
+  // The agent runs inside the fresh workspace, so `./agent.sh` typed at the
+  // operator's prompt must mean the operator's file, not one in the clone.
+  const head = argv[0];
+  const anchored = head.includes('/') && !isAbsolute(head) ? [resolve(cwd, head), ...argv.slice(1)] : argv;
   return {
     name: 'command',
     layers: ['envelope'],
     launch(task) {
-      const substituted = argv.map((arg) =>
+      const substituted = anchored.map((arg) =>
         Object.entries(PLACEHOLDERS).reduce((acc, [token, value]) => acc.split(token).join(value(task)), arg),
       );
       return { argv: substituted, env: taskEnv(task) };

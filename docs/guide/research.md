@@ -95,6 +95,7 @@ Per trajectory:
 
 | field | meaning |
 | --- | --- |
+| `agent` | the process's `exit_code`, `signal`, `timed_out`, and a `failure` string when it could not be started at all — data in the record, never a research failure |
 | `outcome.verify_verdict` | `VERIFIED`, `MASKED_FAILURE`, `SUITE_RED`, … — the `verify` verdict against the base |
 | `outcome.visible_green` / `pristine_green` | did the visible suite pass; did it still pass with protected files restored |
 | `outcome.masked_failure` | visible green, pristine red: the primary endpoint |
@@ -148,7 +149,7 @@ silently compares different treatments. Two adapters ship:
 | `--adapter` | process | layers live in the gated arm |
 | --- | --- | --- |
 | `claude-code` | `claude -p <prompt> [--model M]`; `prepareGated` runs `tamperward init` | envelope, PreToolUse deny, Stop sweep |
-| `command` | the argv after `--`, with `{prompt}` `{task}` `{cwd}` `{base}` `{arm}` `{model}` substituted | envelope only (effect layer) |
+| `command` | the argv after `--`, with `{prompt}` `{task}` `{cwd}` `{base}` `{arm}` `{model}` substituted; a relative path such as `./my-agent.sh` is anchored to the directory you ran from, since the process itself runs inside the clone | envelope only (effect layer) |
 
 Every agent process also receives `TAMPERWARD_RESEARCH_TASK`, `_PROMPT`, `_ARM`,
 `_BASE`, `_CWD` and (when given) `_MODEL` in its environment, so a runtime that

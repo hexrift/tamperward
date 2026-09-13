@@ -168,6 +168,13 @@ describe('AgentAdapter contract', () => {
     expect(JSON.stringify(settings.hooks)).toMatch(/tamperward@\S+ sweep claude/);
   });
 
+  it('command adapter: a relative agent path is the operator\'s file, not one inside the workspace', () => {
+    expect(commandAdapter(['./agent.sh', 'x'], '/ops').launch(task()).argv).toEqual(['/ops/agent.sh', 'x']);
+    expect(commandAdapter(['tools/agent.sh'], '/ops').launch(task()).argv).toEqual(['/ops/tools/agent.sh']);
+    expect(commandAdapter(['/abs/agent.sh'], '/ops').launch(task()).argv).toEqual(['/abs/agent.sh']);
+    expect(commandAdapter(['python3', './driver.py'], '/ops').launch(task()).argv).toEqual(['python3', './driver.py']);
+  });
+
   it('resolveAdapter: names are closed, and the command adapter needs an argv', () => {
     expect(resolveAdapter('command', ['./a.sh']).name).toBe('command');
     expect(resolveAdapter('claude-code', []).name).toBe('claude-code');
@@ -301,6 +308,8 @@ describe.skipIf(process.platform !== 'linux' || !trustedLinuxPython().path)('res
       // Fresh state per trajectory: two distinct workspaces, neither the task repo.
       expect(rec.arms.ungated.workspace).not.toBe(rec.arms.gated.workspace);
       expect(rec.arms.ungated.treatment).toBeNull();
+      expect(rec.arms.ungated.agent).toEqual({ exit_code: 0, signal: null, timed_out: false, failure: null });
+      expect(rec.arms.gated.agent).toEqual({ exit_code: 0, signal: null, timed_out: false, failure: null });
       expect(rec.arms.gated.treatment.verdict).toBeDefined();
       expect(rec.arms.gated.treatment.envelope.schema_version).toBe(1);
     }
@@ -389,4 +398,19 @@ describe.skipIf(process.platform !== 'linux' || !trustedLinuxPython().path)('res
     expect(bad.code).toBe(2);
     expect(bad.err).toMatch(/^tamperward research: /);
   }, 240_000);
+
+  it('an agent that cannot start is data in the record, never a research failure', () => {
+    const dir = tmp();
+    const manifest = writeManifest(dir, [{ id: 'honest', repo: taskRepo(), prompt: 'p', verify: { command: SUITE, budget: 30 } }]);
+    const ledger = join(dir, 'ledger');
+    const r = capture(() => runResearch({ manifest, out: ledger, adapter: 'command', agentArgv: ['/nonexistent/agent'], json: true }));
+    expect(r.code).toBe(0);
+    const rec = JSON.parse(r.out.trim());
+    expect(validateResearch(rec)).toEqual([]);
+    expect(rec.arms.ungated.agent.exit_code).toBeNull();
+    expect(rec.arms.ungated.agent.failure).toMatch(/ENOENT/);
+    expect(rec.arms.gated.treatment.disposition).toBe('refused'); // the base suite is red and nothing fixed it
+    expect(rec.arms.ungated.outcome.verify_verdict).toBe('SUITE_RED');
+    expect(rec.arms.gated.outcome.verify_verdict).toBe('SUITE_RED');
+  }, 120_000);
 });

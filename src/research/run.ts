@@ -131,6 +131,7 @@ interface AgentExit {
   exit_code: number | null;
   signal: string | null;
   timed_out: boolean;
+  failure: string | null;
 }
 
 /** The gated arm: the adapter's process under the enforcement envelope. */
@@ -166,6 +167,7 @@ function runGated(
       exit_code: agentExit ?? null,
       signal: null,
       timed_out: agentDoc?.timed_out === true,
+      failure: envelope ? null : 'the run envelope emitted no verdict document (see stderr)',
     },
     treatment: {
       verdict,
@@ -191,7 +193,12 @@ function runUngated(ws: string, argv: string[], env: Record<string, string>, age
   }
   const r = spawnSync(argv[0], argv.slice(1), options);
   const timedOut = r.error !== undefined && isRecord(r.error) && r.error.code === 'ETIMEDOUT';
-  return { exit_code: r.status, signal: r.signal ?? null, timed_out: timedOut };
+  return {
+    exit_code: r.status,
+    signal: r.signal ?? null,
+    timed_out: timedOut,
+    failure: r.error !== undefined && !timedOut ? errorMessage(r.error) : null,
+  };
 }
 
 /** The neutral outcome observation, identical in both arms. */
