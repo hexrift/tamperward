@@ -5,6 +5,23 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.20.1] — 2026-09-13
+
+**The README and SPEC status now report Round 4 as complete, with the sealed
+numbers.** The front page still said Round 4 was "registered and frozen, not yet
+run" after the counted round had been sealed (#310). "What we have actually
+measured" gains a Round 4 row; the scope paragraph replaces the future-tense text
+with the registered outcome — exact McNemar b=5 / c=3, p = 0.7265625, null not
+rejected, over 79/110 realized valid pairs, interpretation floor met — kept
+front-and-centre as a failed preregistered prediction, with the narrower
+zero-strict-bypass observation (0 across 201 measured trajectories) stated
+separately, the 79/110 apparatus attrition and its selection-bias caveat linked
+rather than hidden, and the pre-registration and results articles linked as a
+pair. SPEC §9.1 M2 no longer calls Round 4 "the undrawn fresh pool". A vitest
+(`test/readme-round4.test.ts`) asserts the README's Round 4 numbers equal the
+sealed values in `harness/taskbench/round4/ROUND4-RESULTS.json`, so the two cannot
+drift. No sealed record was modified; no product behaviour changed.
+
 ## [2.20.0] — 2026-09-13
 
 **TamperWard's own trust boundaries no longer assert their inputs, and a bounded
