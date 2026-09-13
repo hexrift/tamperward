@@ -89,6 +89,9 @@ judged. In architectural terms, Tamperward separates **steering** from
 "pristine" verification restores the protected verification state from the
 trusted starting point and runs the checks again.
 
+For the complete component map, trust boundaries, data flows, and deployment
+surfaces, see [the full architecture diagram](./docs/architecture.md).
+
 > **Core invariant:** the agent may author the candidate tree, but it must not
 > choose the trusted baseline, the governing policy, the verifier, or the final
 > verdict.
@@ -110,31 +113,28 @@ trusted starting point and runs the checks again.
 ### The local enforcement envelope
 
 ```mermaid
-flowchart TB
-    subgraph R["tamperward run — outer enforcement envelope"]
-        E["Capture entry state"]
-        subgraph U["Agent-controlled lifecycle"]
-            H["In-loop steering hooks"]
-            A["Agent runtime"]
-            W["Candidate HEAD and worktree"]
-            H -.-> A
-            A --> W
-        end
-        J["Post-exit adjudication"]
-        C["Committed and worktree checks"]
-        V["Visible and pristine verification"]
-        Q["Ancestry, dependency drift, quiescence"]
-        X["Final exit verdict"]
-        E --> A
-        E --> J
-        W --> J
-        J --> C
-        J --> V
-        J --> Q
-        C --> X
-        V --> X
-        Q --> X
-    end
+graph TD
+    entry["Trusted entry snapshot"]
+    hooks["In-loop hooks and observer"]
+    agent["Agent runtime"]
+    tree["Candidate commit and worktree"]
+    adjudicate["Post-exit adjudication"]
+    checks["Diff and worktree checks"]
+    verify["Visible and pristine verification"]
+    integrity["Ancestry dependency and quiescence"]
+    verdict["Final exit verdict"]
+
+    entry --> agent
+    hooks --> agent
+    agent --> tree
+    entry --> adjudicate
+    tree --> adjudicate
+    adjudicate --> checks
+    adjudicate --> verify
+    adjudicate --> integrity
+    checks --> verdict
+    verify --> verdict
+    integrity --> verdict
 ```
 
 Before starting the agent, the envelope
