@@ -1,10 +1,25 @@
 # `tamperward run` envelope — security findings tracker
 
 External P0/P1/P2 review of the 1.10.0/1.10.1 envelope (executed exploits +
-source audit). Every finding is recorded with status; the envelope's boundary
-is only as honest as this table. REPRO = executed end-to-end; AUDIT = code path.
+source audit). Every historical finding remains preserved below. REPRO = executed
+end-to-end; AUDIT = code path.
 
-## Closed
+**Status note:** the P0/P1/P2 identifiers below are historical audit identifiers,
+not the repository's current issue-priority queue. The current shipped line is
+TamperWard 2.14.x; use the next table to answer "what security residuals are open
+now" without interpreting old rows whose disposition later became Closed.
+
+## Current open residuals
+
+| residual | current boundary | live evidence |
+|---|---|---|
+| `checkpointed-local` dependency mutation window | The default local verifier hashes/attests mutable dependency state at checkpoints. A dependency mutation that is introduced and fully restored inside one suite window can evade those checkpoints. The opt-in `isolated-container` backend structurally removes the demonstrated shared-dependency class by using image-owned dependencies. | [pristine threat model](docs/THREAT-MODEL-pristine-run.md#residual-risk-stated); `test/verifier-container-e2e.test.ts` reproduces the local miss and isolated conviction. |
+| `suite-exit-only` semantic/oracle assurance | Execution-domain isolation does not make arbitrary in-process test oracles unforgeable: candidate code may terminate or interpose on the suite process before every trusted assertion/collection hook completes. Verdicts expose `oracle_assurance.level: suite-exit-only`; stronger assurance needs an out-of-process/held-out protocol. | [pristine threat model](docs/THREAT-MODEL-pristine-run.md#residual-risk-stated); `test/verifier-container-e2e.test.ts` contains the real early-success oracle-interposition control. |
+| bounded verification surface, not exhaustive reachability | TamperWard restores the known runner/config surface plus explicit `verify.inputs`, but an arbitrary verifier command can reach an input neither source names. The surface is a declared bound, not a claim of complete dynamic dependency discovery. | [pristine threat model](docs/THREAT-MODEL-pristine-run.md#residual-risk-stated); SPEC row 16 records the same bound. |
+| same-host `run` cannot claim Docker authority isolation | `tamperward run` launches the agent under the host identity, so that same agent identity could control a local Docker daemon. It therefore refuses `backend: container` before agent launch; isolated verification belongs in trusted CI or an externally isolated frozen-artifact handoff. | [pristine threat model](docs/THREAT-MODEL-pristine-run.md#residual-risk-stated); `test/verifier-container-e2e.test.ts` asserts the refusal. |
+| transient observer is advisory unless explicitly raised | The watcher log/health sidecar remain candidate-reachable and filesystem-event delivery can be degraded or unavailable. `--observe-transients` gives the envelope lifecycle ownership and direct evidence consumption, but observer absence is not treated as proof of absence or CI authority. | SPEC rows 15/17; `test/run.test.ts` exercises the session-scoped observer lifecycle/health path. |
+
+## Historical findings — closed
 
 | # | sev | finding | closed in | how |
 |---|-----|---------|-----------|-----|
@@ -19,7 +34,7 @@ is only as honest as this table. REPRO = executed end-to-end; AUDIT = code path.
 | P2-11 | REPRO | repo content injected raw ESC bytes into the terminal verdict (clear-screen + forged "clean" line) | 1.10.3 | C0/C1 control bytes replaced before rendering; the human-facing surface the steering story depends on |
 | P1-8 | REPRO | effect-drift reused the previous snapshot entry when mtime+size+mode matched — a same-size edit (`it(` → `it.skip(` paid for by a shorter test name) plus `touch -r` slipped a skip past the per-call check | 1.10.4 | the stat fast path is removed: every protected file is hashed on every snapshot. Measured cost 4.0ms → 17.2ms on a 1000-file/4MB protected tree, against ~450ms of node startup per hook call |
 
-## Open — scoped, not yet closed (honest boundary)
+## Historical findings — residual/disposition record
 
 | # | sev | finding | disposition |
 |---|-----|---------|-------------|
@@ -40,7 +55,7 @@ is only as honest as this table. REPRO = executed end-to-end; AUDIT = code path.
 | repository-authority freshness | AUDIT | `CODEOWNERS` + required Code Owner review allowed an approval on an older gate-critical diff to remain authoritative after a later push unless GitHub dismissed stale approvals | **Closed 2.13.0** at the deployment-contract layer: `init` now requires the `tamperward` status check, Code Owner review, and stale-review dismissal on every new push; `doctor --github` verifies those effective controls across active rulesets and classic branch protection. `require_last_push_approval` alone is not accepted as equivalent because the fresh approver need not own the gate-critical path. |
 | P2-1..P2-10 | mixed | crash paths return 1 not 2; `.git/tamperward/*` agent-writable; shared env between runs; group-timeout leak; materialize drops ignored/empty/.git; warn findings affect no exit code; self-hosting ignore blind spot; env-var provenance; enumerate-by-cwd; `--keep` lifetime | Backlog. P2-1 (crash → exit 1 not fail-closed 2) and P2-6 (warn findings invisible to the envelope verdict) are the two worth pulling forward. |
 
-## WITHDRAWN claim (1.10.2 → corrected in 1.10.3)
+## Historical findings — withdrawn/corrected
 
 1.10.2 recorded that `check --diff` — the CI authority path — "survives every
 finding except P0-6", and every local-layer finding leaned on that as the
