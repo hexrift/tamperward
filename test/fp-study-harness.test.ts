@@ -25,7 +25,7 @@ function fixture(): { repo: string; good: string } {
   const good = join(root, 'good.mjs');
   writeFileSync(
     good,
-    "console.log(JSON.stringify({ verdict: 'PASS', findings: [] })); process.exit(0);\n",
+    "console.log(JSON.stringify({ verdict: 'PASS', findings: [] }, null, 2)); process.exit(0);\n",
   );
   chmodSync(good, 0o755);
   return { repo, good };
