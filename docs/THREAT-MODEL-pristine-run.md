@@ -297,6 +297,20 @@ is the variable list. What remains is stated below.
   (including mode/link identity) before the next checkpoint. That is an honest
   residual of `checkpointed-local` trust.
 
+- **The local suite lifecycle is bounded separately from dependency checkpoints.**
+  In 2.16.0 the shared suite supervisor retains POSIX process-group ownership and,
+  on Linux, continuously snapshots the real `/proc` descendant tree while the
+  suite is alive. On timeout or ordinary main-child exit it kills the process
+  group plus every tracked descendant before returning the stage result. The
+  regression corpus includes a descendant that calls `setsid()` for both clean
+  main-child exit and noisy timeout, and proves the detached PID is gone before
+  adjudication continues. This closes #371 for the supported Linux local-backend
+  path. Other platforms retain the explicit weaker lifecycle guarantee: Windows
+  receives child/process-group-equivalent cleanup available to the runtime, but
+  TamperWard does not claim Linux-style `/proc` descendant discovery there. The
+  isolated-container backend remains structurally stronger because container
+  teardown owns the whole container process set.
+
   **2.11.0 structurally closes the demonstrated #341 class for the isolated
   container backend.** Host `node_modules`/venvs are not mounted; the
   digest-pinned image owns the runtime/dependencies and the frozen candidate is
