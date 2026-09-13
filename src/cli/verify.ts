@@ -515,20 +515,34 @@ export function verifierInputs(cmd: string, atBase: string[], policy: Policy): S
   return picked;
 }
 
+export function verifierCoveredInputs(
+  cmd: string,
+  atBase: string[],
+  policy: Policy,
+): Set<string> {
+  const verifierOwned = verifierInputs(cmd, atBase, policy);
+  const verifierGlobs = policy.verify?.inputs ?? [];
+  const covered = new Set<string>();
+  for (const path of atBase) {
+    if (
+      OVERLAY_CLASSES.some((category) => isProtected(path, policy, category)) ||
+      matchesAny(path, VERIFICATION_SURFACE) ||
+      verifierOwned.has(path) ||
+      (verifierGlobs.length > 0 && matchesAny(path, verifierGlobs))
+    ) {
+      covered.add(path);
+    }
+  }
+  return covered;
+}
+
 export function verifierInputCovered(
   path: string,
   cmd: string,
   atBase: string[],
   policy: Policy,
 ): boolean {
-  const verifierOwned = verifierInputs(cmd, atBase, policy);
-  const verifierGlobs = policy.verify?.inputs ?? [];
-  return (
-    OVERLAY_CLASSES.some((category) => isProtected(path, policy, category)) ||
-    matchesAny(path, VERIFICATION_SURFACE) ||
-    verifierOwned.has(path) ||
-    (verifierGlobs.length > 0 && matchesAny(path, verifierGlobs))
-  );
+  return verifierCoveredInputs(cmd, atBase, policy).has(path);
 }
 
 interface BaseEntry {
@@ -599,8 +613,9 @@ function overlayPristine(
   // (it can only recognise a path that exists at the base), which is exactly
   // why delegation needs the explicit list.
   const verifierGlobs = policy.verify?.inputs ?? [];
+  const coveredBaseInputs = verifierCoveredInputs(cmd, atBase, policy);
   const isOverlay = (p: string): boolean =>
-    verifierInputCovered(p, cmd, atBase, policy) ||
+    coveredBaseInputs.has(p) ||
     (verifierGlobs.length > 0 && matchesAny(p, verifierGlobs));
   const restored: string[] = [];
   const restoredLinks: Array<{ path: string; out: string; target: string }> = [];
