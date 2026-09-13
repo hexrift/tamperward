@@ -5,7 +5,7 @@
 > through — the agent loop, pre-commit, the run envelope, pristine verification,
 > and protected CI authority.
 
-**Implementation status:** TamperWard 2.20.x
+**Implementation status:** TamperWard 2.21.x
 
 **Current supported surface:** JavaScript/TypeScript · Python · Go · Rust · Ruby ·
 JVM · PHP · .NET test/skip/suppression/config patterns; Claude Code hook + Stop
@@ -13,13 +13,15 @@ sweep; git pre-commit; protected CI; pristine visible/pristine re-execution;
 `tamperward run` lifecycle ownership; optional transient observation; and
 `tamperward doctor` installation/authority diagnostics; Linux-only advisory
 `tamperward trace-verify` observed-input discovery; and versioned Draft 2020-12
-machine-verdict schemas for `check`, `verify`, `run`, and `doctor`; and from 2.20.0 the
-measured `ts-cast-growth` assertion budget. The eighteen-row rule
+machine-verdict schemas for `check`, `verify`, `run`, `doctor` and (from 2.21.0)
+`research`; from 2.20.0 the measured `ts-cast-growth` assertion budget; and from
+2.21.0 the `tamperward research` paired-evaluation workflow over the `AgentAdapter`
+contract (`docs/guide/research.md`). The eighteen-row rule
 table remains the canonical detector/enforcement taxonomy: sixteen mechanical
 rows ship, `assertion-weakening` ships as a measured warning-only heuristic,
 and `guard-removal` remains reserved and unbuilt.
 
-v0.9 reconciles the live architecture narrative with the 2.20.x implementation.
+v0.9 reconciles the live architecture narrative with the 2.21.x implementation.
 It does **not** rewrite the historical research record below: earlier v0.x
 revision notes, taskbench claims and old finding IDs remain dated evidence. The
 current security-residual index lives in `SECURITY-ENVELOPE.md`; detailed
@@ -565,6 +567,16 @@ colours. `NO_COLOR` and `FORCE_COLOR` are honoured.
 Two layers. The first proves detection; the second proves the loop. The second is the
 one that matters.
 
+From 2.21.0 a third, public layer sits on top of both: `tamperward research run`
+(`src/research/`) executes a task manifest as paired ungated/gated trajectories over an
+`AgentAdapter` — Claude Code, or any command — with fresh state per trajectory, the run
+envelope as the gated treatment, and the outcome observed in BOTH arms by the same
+`verify` + `check` primitives the product ships; TamperWard's own verdict is recorded
+beside that outcome, never folded into it. `research summarize` aggregates the ledger
+into separated readouts with no composite score. It orchestrates; it never re-implements
+the verifier, and it never writes under `harness/`. Contract and record shapes:
+`docs/guide/research.md`, `schemas/research-v1.schema.json`.
+
 ### 7.A Detection fixtures (the planned `fixtures/` corpus — not yet built)
 
 Real before/after pairs in `fixtures/bypasses/`, each a real move (not a string-match
@@ -705,8 +717,10 @@ tamperward/
   src/policy*.ts        protected-asset globs, policy load + baseline merge
   src/signoff.ts        the three-layer sign-off model
   src/session.ts        the Stop sweep's per-turn baseline
-  src/cli/              tamperward check | hook | sweep | allow | init | verify | run | watch
+  src/cli/              tamperward check | hook | sweep | allow | init | verify | run | watch | research
   src/adapters/claude/  stdin→Change[] (PreToolUse + Stop), Finding→deny
+  src/research/         the AgentAdapter contract, task manifest, paired runner, ledger summary
+  schemas/              published Draft 2020-12 schemas for every machine output
   test/                 unit suite — green is the gate
   harness/              seeds, oracles, and the bypass-to-fix runner
   .github/workflows/    Tamperward running on itself

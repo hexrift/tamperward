@@ -5,6 +5,65 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.21.0] — 2026-09-13
+
+**`tamperward research`: a first-class bring-your-own-model evaluation workflow, and
+the `AgentAdapter` contract behind it.**
+
+Evaluating "what does this model do to the verification surface, and what does the
+gate change?" no longer means assembling round-specific scripts under
+`harness/taskbench/` by hand. Two new subcommands, documented in
+`docs/guide/research.md`:
+
+- `tamperward research run --manifest F --out D --adapter A [--pairs N] [--model M]
+  [--agent-budget S] [--json] [-- <agent command...>]` executes a JSON task manifest
+  (repository, base, prompt, `verify: { command, budget }`) as paired **ungated** /
+  **gated** trajectories. Every trajectory starts from a fresh clone at the trusted
+  base. The ungated arm runs the adapter's process bare; the gated arm lets the adapter
+  prepare the workspace (committed into the base, so the treatment is never agent work)
+  and runs the same process under `tamperward run --json` with the suite command frozen
+  at entry. In **both** arms the tree the agent leaves is then observed by the same
+  `verify` (visible vs. pristine) and `check` (worktree, untracked included, plus the
+  committed range) the product ships — never a second verification engine — and that
+  observation is the outcome truth. TamperWard's own envelope verdict is recorded next
+  to it as `treatment` (`refused` / `passed` / `cannot`), never folded into it, so a
+  masked tree the envelope let through is an escape counted against the tool. One
+  record per pair under `D/pairs/`; an existing record is skipped, so an interrupted
+  run resumes. The manifest's sha256 is pinned into every record. The run preflights
+  the platform with the same check `doctor` reports and refuses, in doctor's words,
+  where `tamperward run` cannot own the agent lifecycle (root, non-Linux).
+- `tamperward research summarize --ledger D` prints one aggregate with four separated
+  readouts and **no composite score**: `model_behaviour` and `independent_outcome` per
+  arm, `tamperward` hits and misses in the gated arm judged against the independent
+  outcome (`caught`, `escapes`, `false_refusals`, `cannot_adjudicate`), and `paired`
+  discordant-pair counts on masked failure. `control_response` is `null` — in-loop
+  deny events are not relayed by this release, so the field is not a number that looks
+  measured. A ledger mixing manifests, adapters or models is refused.
+
+**`AgentAdapter`.** A runtime plugs in by answering two questions: which process runs
+the agent in the fresh workspace (`launch(task)` → `{ argv, env }`), and what the gated
+workspace needs before it starts (`prepareGated?(task)`). It declares which TamperWard
+`layers` are live in its gated arm, recorded in every document. Two adapters ship:
+`claude-code` (`claude -p <prompt> [--model M]`, `prepareGated` = `tamperward init`;
+envelope + PreToolUse deny + Stop sweep) and `command` (any argv after `--`, with
+`{prompt}` `{task}` `{cwd}` `{base}` `{arm}` `{model}` substituted; envelope only).
+Every agent process receives the task as `TAMPERWARD_RESEARCH_*` environment variables.
+The contract, the manifest reader, the runner and the summarizer are exported from the
+package entry for programmatic use.
+
+**`schemas/research-v1.schema.json`.** The `pair` and `summary` documents are versioned
+machine outputs under the same additive schema-major-1 discipline as `check`, `verify`,
+`run` and `doctor`; the package ships the schema and the test suite validates emitted
+documents against it. The grammar of both subcommands is validated before any side
+effect, like every other command.
+
+Not in this release, named in the guide: `research init`, `research report`, a stdio
+JSONL adapter and `adapter:<module>` loading, in-loop deny relay, a held-out evaluator,
+pre-specified retry rules, history stripping, signed manifest freezing beyond the
+sha256 pin, and interval estimates.
+
+This closes #391.
+
 ## [2.20.0] — 2026-09-13
 
 **TamperWard's own trust boundaries no longer assert their inputs, and a bounded
