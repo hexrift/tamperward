@@ -21,7 +21,7 @@ import { assertRev } from '../git/build';
 import { trustedGitEnv } from '../git/trusted';
 import { defaultPolicy } from '../policy';
 import { loadPolicyAt } from '../policy-load';
-import { verifierInputCovered } from './verify';
+import { verifierCoveredInputs } from './verify';
 
 export interface TraceVerifyOpts {
   cwd?: string;
@@ -464,9 +464,7 @@ export function runTraceVerify(opts: TraceVerifyOpts = {}): number {
 
   const atBase = trackedAt(base, cwd);
   const tracked = new Set(atBase);
-  const covered = new Set(
-    atBase.filter((path) => verifierInputCovered(path, command, atBase, policy)),
-  );
+  const covered = verifierCoveredInputs(command, atBase, policy);
 
   const observed: TraceFileAccess[][] = [];
   const runExits: number[] = [];
