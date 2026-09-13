@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { guardedMain } from '../src/cli/main';
+import { guardedMain, validateCliArgs } from '../src/cli/main';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -124,6 +124,13 @@ describe('F10: an empty range is reported on stderr and stays clean', () => {
   });
 });
 
+
+describe('run observer CLI grammar (#335)', () => {
+  it('accepts --observe-transients only as an explicit run flag before the delimiter', () => {
+    expect(validateCliArgs('run', ['--observe-transients', '--', 'true'])).toBeUndefined();
+    expect(validateCliArgs('run', ['--observe-transients', '--allow-dirty', '--', 'true'])).toBeUndefined();
+  });
+});
 
 describe('strict CLI argument boundary (#312)', () => {
   const malformed: Array<[string, string[], RegExp]> = [
