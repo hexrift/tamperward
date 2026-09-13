@@ -413,7 +413,7 @@ function renderText(report: TraceVerifyReport): void {
   out();
   out('candidate verify.inputs entries for HUMAN REVIEW:');
   if (!report.suggested_verify_inputs.length) out('  (none — all observed tracked inputs are already covered)');
-  for (const path of report.suggested_verify_inputs) out(`  - ${path}`);
+  for (const path of report.suggested_verify_inputs) out(`  - ${JSON.stringify(path)}`);
 
   out();
   for (const note of report.notes) out(`note: ${note}`);
@@ -431,6 +431,10 @@ export function runTraceVerify(opts: TraceVerifyOpts = {}): number {
   }
   if (!commandExists('tar')) {
     process.stderr.write('tamperward trace-verify: tar is required to materialize the trusted base but was not found.\n');
+    return 2;
+  }
+  if (!commandExists('timeout')) {
+    process.stderr.write('tamperward trace-verify: GNU timeout is required to bound traced verifier runs but was not found.\n');
     return 2;
   }
 
