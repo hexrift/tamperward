@@ -161,6 +161,7 @@ function likelyConfig(path: string): boolean {
   const base = path.split('/').at(-1) ?? path;
   return (
     CONFIG_BASENAMES.has(base) ||
+    /(?:^|\/)(?:config|configs)\//.test(path) ||
     /^\.env(?:\.|$)/.test(base) ||
     /^(?:jest|vitest|playwright|cypress|vite|babel|karma|ava)\.config\./.test(base) ||
     /^tsconfig(?:\..+)?\.json$/.test(base) ||
