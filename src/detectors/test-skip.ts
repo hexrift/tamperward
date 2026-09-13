@@ -23,7 +23,8 @@
 // and a member chain split across PHYSICAL lines (`test\n  .skip(...)`) is not joined,
 // since matching is line-based.
 
-import { Change, Detector, Finding } from '../types';
+import ts from 'typescript';
+import { Change, Detector, FileChange, Finding } from '../types';
 import { addedLines } from '../diff/select';
 import { isProtected } from '../policy';
 import { insideStringLiteral, isCommentLine, Lang, langOf } from './files';
@@ -140,6 +141,302 @@ function matchesOutsideString(p: Pattern, content: string, lang: Lang | null): b
   return false;
 }
 
+const JS_RUNNERS = new Set(['it', 'test', 'describe', 'suite']);
+const JS_CHAIN_MODIFIERS = new Set(['concurrent', 'sequential', 'shuffle']);
+const JS_TEST_MODULES = new Set([
+  'vitest',
+  '@jest/globals',
+  'node:test',
+  'node:test/promises',
+  'mocha',
+  'bun:test',
+  '@playwright/test',
+]);
+
+type AstHit = { line: number; why: string; evidence: string };
+
+function scriptKind(path: string): ts.ScriptKind {
+  if (/\.tsx$/i.test(path)) return ts.ScriptKind.TSX;
+  if (/\.jsx$/i.test(path)) return ts.ScriptKind.JSX;
+  if (/\.(?:js|mjs|cjs)$/i.test(path)) return ts.ScriptKind.JS;
+  return ts.ScriptKind.TS;
+}
+
+function addedLineNumbers(c: FileChange): Set<number> {
+  const out = new Set<number>();
+  for (const h of c.hunks) {
+    for (const line of h.lines) {
+      if (line.type === 'add' && line.newLine != null) out.add(line.newLine);
+    }
+  }
+  return out;
+}
+
+function moduleName(expr: ts.Expression): string | null {
+  return ts.isStringLiteralLike(expr) ? expr.text : null;
+}
+
+function requiredModule(expr: ts.Expression): string | null {
+  if (
+    !ts.isCallExpression(expr) ||
+    !ts.isIdentifier(expr.expression) ||
+    expr.expression.text !== 'require' ||
+    expr.arguments.length !== 1
+  ) return null;
+  return moduleName(expr.arguments[0]);
+}
+
+function importAliases(sf: ts.SourceFile): Set<string> {
+  const out = new Set(JS_RUNNERS);
+  const simpleAliases: Array<{ local: string; source: string }> = [];
+
+  for (const stmt of sf.statements) {
+    if (ts.isImportDeclaration(stmt) && ts.isStringLiteralLike(stmt.moduleSpecifier)) {
+      if (!JS_TEST_MODULES.has(stmt.moduleSpecifier.text)) continue;
+      const clause = stmt.importClause;
+      if (!clause) continue;
+      if (clause.name && stmt.moduleSpecifier.text.startsWith('node:test')) out.add(clause.name.text);
+      const bindings = clause.namedBindings;
+      if (bindings && ts.isNamedImports(bindings)) {
+        for (const el of bindings.elements) {
+          const imported = el.propertyName?.text ?? el.name.text;
+          if (JS_RUNNERS.has(imported)) out.add(el.name.text);
+        }
+      }
+      continue;
+    }
+
+    if (!ts.isVariableStatement(stmt)) continue;
+    for (const decl of stmt.declarationList.declarations) {
+      if (ts.isObjectBindingPattern(decl.name) && decl.initializer) {
+        const mod = requiredModule(decl.initializer);
+        if (!mod || !JS_TEST_MODULES.has(mod)) continue;
+        for (const el of decl.name.elements) {
+          if (!ts.isIdentifier(el.name)) continue;
+          const imported = el.propertyName && ts.isIdentifier(el.propertyName)
+            ? el.propertyName.text
+            : el.name.text;
+          if (JS_RUNNERS.has(imported)) out.add(el.name.text);
+        }
+      } else if (ts.isIdentifier(decl.name) && decl.initializer && ts.isIdentifier(decl.initializer)) {
+        simpleAliases.push({ local: decl.name.text, source: decl.initializer.text });
+      }
+    }
+  }
+
+  // Resolve only direct/simple aliases of an already-known runner. Repeating to a
+  // fixed point covers `const a = test; const b = a` without attempting dataflow.
+  for (let pass = 0; pass < simpleAliases.length + 1; pass++) {
+    let changed = false;
+    for (const alias of simpleAliases) {
+      if (out.has(alias.source) && !out.has(alias.local)) {
+        out.add(alias.local);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return out;
+}
+
+function topLevelStaticStrings(sf: ts.SourceFile): Map<string, string> {
+  const pending = new Map<string, ts.Expression>();
+  const ambiguous = new Set<string>();
+
+  for (const stmt of sf.statements) {
+    if (!ts.isVariableStatement(stmt)) continue;
+    const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0;
+    for (const decl of stmt.declarationList.declarations) {
+      if (!ts.isIdentifier(decl.name)) continue;
+      if (!isConst || !decl.initializer || pending.has(decl.name.text)) {
+        ambiguous.add(decl.name.text);
+        pending.delete(decl.name.text);
+        continue;
+      }
+      if (!ambiguous.has(decl.name.text)) pending.set(decl.name.text, decl.initializer);
+    }
+  }
+
+  const resolved = new Map<string, string>();
+  const valueOf = (expr: ts.Expression, stack = new Set<string>()): string | null => {
+    if (ts.isStringLiteralLike(expr)) return expr.text;
+    if (ts.isParenthesizedExpression(expr)) return valueOf(expr.expression, stack);
+    if (
+      ts.isBinaryExpression(expr) &&
+      expr.operatorToken.kind === ts.SyntaxKind.PlusToken
+    ) {
+      const left = valueOf(expr.left, stack);
+      const right = valueOf(expr.right, stack);
+      return left == null || right == null ? null : left + right;
+    }
+    if (ts.isIdentifier(expr) && pending.has(expr.text) && !stack.has(expr.text)) {
+      const next = new Set(stack);
+      next.add(expr.text);
+      return valueOf(pending.get(expr.text)!, next);
+    }
+    return null;
+  };
+
+  for (const [name, expr] of pending) {
+    const value = valueOf(expr, new Set([name]));
+    if (value != null) resolved.set(name, value);
+  }
+  return resolved;
+}
+
+function staticPropertyName(
+  expr: ts.Expression,
+  strings: Map<string, string>,
+): string | null {
+  if (ts.isStringLiteralLike(expr)) return expr.text;
+  if (ts.isParenthesizedExpression(expr)) return staticPropertyName(expr.expression, strings);
+  if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = staticPropertyName(expr.left, strings);
+    const right = staticPropertyName(expr.right, strings);
+    return left == null || right == null ? null : left + right;
+  }
+  if (ts.isIdentifier(expr)) return strings.get(expr.text) ?? null;
+  return null;
+}
+
+function runnerChain(
+  expr: ts.Expression,
+  runners: Set<string>,
+  strings: Map<string, string>,
+): { root: string; props: string[]; terminalNode: ts.Node } | null {
+  const props: string[] = [];
+  let cur: ts.Expression = expr;
+  let terminalNode: ts.Node = expr;
+
+  while (ts.isPropertyAccessExpression(cur) || ts.isElementAccessExpression(cur)) {
+    if (ts.isPropertyAccessExpression(cur)) {
+      props.unshift(cur.name.text);
+      if (props.length === 1) terminalNode = cur.name;
+      cur = cur.expression;
+      continue;
+    }
+    if (!cur.argumentExpression) return null;
+    const name = staticPropertyName(cur.argumentExpression, strings);
+    if (name == null) return null;
+    props.unshift(name);
+    if (props.length === 1) terminalNode = cur.argumentExpression;
+    cur = cur.expression;
+  }
+
+  if (!ts.isIdentifier(cur) || !runners.has(cur.text)) return null;
+  return { root: cur.text, props, terminalNode };
+}
+
+function optionDisables(value: ts.Expression): boolean {
+  return !(
+    value.kind === ts.SyntaxKind.FalseKeyword ||
+    (ts.isNumericLiteral(value) && Number(value.text) === 0)
+  );
+}
+
+function astSkipHits(c: FileChange): AstHit[] {
+  if (c.after == null) return [];
+  const added = addedLineNumbers(c);
+  if (added.size === 0) return [];
+
+  try {
+    const sf = ts.createSourceFile(
+      c.path,
+      c.after,
+      ts.ScriptTarget.Latest,
+      true,
+      scriptKind(c.path),
+    );
+    const runners = importAliases(sf);
+    const strings = topLevelStaticStrings(sf);
+    const hits: AstHit[] = [];
+    const seen = new Set<number>();
+
+    const lineOf = (node: ts.Node): number =>
+      sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+    const emit = (node: ts.Node, why: string): void => {
+      const line = lineOf(node);
+      if (!added.has(line) || seen.has(line)) return;
+      seen.add(line);
+      hits.push({
+        line,
+        why,
+        evidence: sf.text.slice(node.getStart(sf), node.getEnd()).trim(),
+      });
+    };
+
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node)) {
+        const chain = runnerChain(node.expression, runners, strings);
+        if (chain) {
+          const { props, terminalNode } = chain;
+          const terminal = props.at(-1);
+
+          if (
+            terminal &&
+            (terminal === 'skip' || terminal === 'only' || terminal === 'todo') &&
+            props.slice(0, -1).every((p) => JS_CHAIN_MODIFIERS.has(p))
+          ) {
+            emit(terminalNode, 'a .skip/.only/.todo marker');
+          } else if (
+            terminal &&
+            ['skipIf', 'runIf'].includes(terminal) &&
+            props.length === 1
+          ) {
+            emit(terminalNode, 'a .skipIf()/.runIf() condition (the test runs only when the condition allows)');
+          } else if (
+            terminal &&
+            ['fails', 'failing'].includes(terminal) &&
+            props.length === 1
+          ) {
+            emit(terminalNode, 'a .fails/.failing marker (the test now passes by failing)');
+          } else if (
+            terminal === 'each' &&
+            props.length === 1 &&
+            node.arguments.length > 0 &&
+            ts.isArrayLiteralExpression(node.arguments[0]) &&
+            node.arguments[0].elements.length === 0
+          ) {
+            emit(terminalNode, 'an empty .each table (no case ever runs)');
+          }
+
+          if (props.length === 0) {
+            for (const arg of node.arguments) {
+              if (!ts.isObjectLiteralExpression(arg)) continue;
+              for (const prop of arg.properties) {
+                if (ts.isPropertyAssignment(prop)) {
+                  const name = ts.isIdentifier(prop.name) || ts.isStringLiteralLike(prop.name)
+                    ? prop.name.text
+                    : ts.isComputedPropertyName(prop.name)
+                      ? staticPropertyName(prop.name.expression, strings)
+                      : null;
+                  if (!name || !['skip', 'todo', 'only'].includes(name)) continue;
+                  if (!optionDisables(prop.initializer)) continue;
+                  const why = name === 'only'
+                    ? 'an { only: ... } option focusing the test'
+                    : name === 'todo'
+                      ? 'a { todo: ... } option (the test no longer fails the run)'
+                      : 'a { skip: ... } option disabling the test';
+                  emit(prop.name, why);
+                } else if (ts.isShorthandPropertyAssignment(prop) && ['skip', 'todo', 'only'].includes(prop.name.text)) {
+                  emit(prop.name, `a { ${prop.name.text} } option that conditionally narrows the test run`);
+                }
+              }
+            }
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+    return hits;
+  } catch {
+    // Full-content enrichment is an optimization for stronger semantics. A
+    // parser failure must not erase the existing diff-only mechanical path.
+    return [];
+  }
+}
+
 export const testSkip: Detector = {
   id: RULE,
   surface: ['file'],
@@ -151,7 +448,30 @@ export const testSkip: Detector = {
       if (!isProtected(c.path, policy, 'tests')) continue;
       const lang = langOf(c.path);
       const patterns = PATTERNS[lang ?? 'js'];
+      const astHitLines = new Set<number>();
+
+      // Enriched JS/TS changes carry the whole AFTER file. Use that only for
+      // statically provable structure; diff-only producers retain the historical
+      // line matcher below. Findings remain scoped to added hunk lines so an
+      // unchanged pre-existing skip is never re-reported.
+      if (lang === 'js' && c.after != null) {
+        for (const hit of astSkipHits(c)) {
+          astHitLines.add(hit.line);
+          out.push(
+            makeFinding(RULE, policy, {
+              file: c.path,
+              line: hit.line,
+              message: `Test skipped or narrowed: ${hit.why}.`,
+              evidence: hit.evidence,
+              remediation:
+                'Make the test pass rather than skipping it. If it is genuinely obsolete, a human must sign off.',
+            }),
+          );
+        }
+      }
+
       for (const l of addedLines(c)) {
+        if (l.newLine != null && astHitLines.has(l.newLine)) continue;
         const comment = isCommentLine(l.content.trim(), lang);
         for (const p of patterns) {
           if (comment && !p.comment) continue;
