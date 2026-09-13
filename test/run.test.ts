@@ -4,7 +4,7 @@
 // tree with a success code. The envelope must convert that into a failing
 // pipeline regardless of what the runtime claimed.
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -102,6 +102,10 @@ describe('parseRun', () => {
     expect(parseRun(['--budget', '60', '--', 'sh', '--', '-c']).argv).toEqual(['sh', '--', '-c']);
     expect(parseRun(['--agent-budget', '12.5', '--', 'claude', '-p'])).toMatchObject({
       agentBudget: 12.5,
+      argv: ['claude', '-p'],
+    });
+    expect(parseRun(['--observe-transients', '--', 'claude', '-p'])).toMatchObject({
+      observeTransients: true,
       argv: ['claude', '-p'],
     });
   });
@@ -407,4 +411,142 @@ describe('agent runtime budget (#325)', () => {
     })).toBe(2);
     expect(() => readFileSync(sideEffect)).toThrow();
   });
+});
+
+
+describe('supervised transient observer (#335)', () => {
+  it('starts before the agent, stays independent of enforcement, and stops deterministically', () => {
+    const cwd = repo(true);
+    const helperDir = mkdtempSync(join(tmpdir(), 'tw-observer-fixture-'));
+    dirs.push(helperDir);
+    const observerEntry = join(helperDir, 'observer.js');
+    const trace = join(helperDir, 'trace.txt');
+
+    writeFileSync(
+      observerEntry,
+      [
+        "const fs = require('node:fs');",
+        "const args = process.argv.slice(2);",
+        "const value = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };",
+        "const log = value('--log');",
+        "const trace = process.env.TW_OBSERVER_TRACE;",
+        "if (!log || !trace || !value('--base') || args[0] !== 'watch') process.exit(22);",
+        "fs.mkdirSync(require('node:path').dirname(log), { recursive: true });",
+        "const healthPath = log + '.health.json';",
+        "const health = { version: 1, state: 'healthy', backend: 'fallback', pid: process.pid, started_at: new Date().toISOString(), stopped_at: null, watched_dirs: 1, last_append_at: null, event_count: 0, dropped_events: 0, error_count: 0, last_error: null, log };",
+        "fs.appendFileSync(trace, 'observer-start\\n');",
+        "fs.writeFileSync(healthPath, JSON.stringify(health) + '\\n');",
+        "process.on('SIGTERM', () => { health.state = 'stopped'; health.stopped_at = new Date().toISOString(); fs.writeFileSync(healthPath, JSON.stringify(health) + '\\n'); fs.appendFileSync(trace, 'observer-stop\\n'); process.exit(0); });",
+        "setInterval(() => {}, 1000);",
+        "",
+      ].join('\n'),
+    );
+
+    const saved = process.env.TW_OBSERVER_TRACE;
+    process.env.TW_OBSERVER_TRACE = trace;
+    let output = '';
+    vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+      output += String(chunk);
+      return true;
+    }) as typeof process.stdout.write);
+    try {
+      const code = runEnvelope({
+        cwd,
+        cmd: CMD,
+        observeTransients: true,
+        observerEntry,
+        argv: sh(`printf 'agent-start\\n' >> "${trace}"`),
+      });
+
+      expect(code).toBe(0);
+      expect(readFileSync(trace, 'utf8').trim().split('\n')).toEqual([
+        'observer-start',
+        'agent-start',
+        'observer-stop',
+      ]);
+      expect(output).toMatch(/transient observer: healthy/i);
+      expect(output).toMatch(/advisory/i);
+    } finally {
+      vi.restoreAllMocks();
+      if (saved === undefined) delete process.env.TW_OBSERVER_TRACE;
+      else process.env.TW_OBSERVER_TRACE = saved;
+    }
+  }, 15_000);
+
+  it('only the explicit strict transient policy lets observer findings block the envelope', () => {
+    const cwd = repo(true);
+    const helperDir = mkdtempSync(join(tmpdir(), 'tw-observer-fixture-'));
+    dirs.push(helperDir);
+    const observerEntry = join(helperDir, 'observer-events.js');
+
+    writeFileSync(
+      observerEntry,
+      [
+        "const fs = require('node:fs');",
+        "const path = require('node:path');",
+        "const args = process.argv.slice(2);",
+        "const value = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };",
+        "const log = value('--log');",
+        "if (!log || !value('--base') || args[0] !== 'watch') process.exit(22);",
+        "fs.mkdirSync(path.dirname(log), { recursive: true });",
+        "const healthPath = log + '.health.json';",
+        "const health = { version: 1, state: 'healthy', backend: 'fallback', pid: process.pid, started_at: new Date().toISOString(), stopped_at: null, watched_dirs: 1, last_append_at: new Date().toISOString(), event_count: 2, dropped_events: 0, error_count: 0, last_error: null, log };",
+        "fs.appendFileSync(log, JSON.stringify({ ts: new Date().toISOString(), path: 'test/check.test.js', kind: 'change', mode: 33188, size: 10, hash: 'weakened' }) + '\\n');",
+        "fs.appendFileSync(log, JSON.stringify({ ts: new Date().toISOString(), path: 'test/check.test.js', kind: 'change', mode: 33188, size: 10, hash: 'restored' }) + '\\n');",
+        "fs.writeFileSync(healthPath, JSON.stringify(health) + '\\n');",
+        "process.on('SIGTERM', () => { health.state = 'stopped'; health.stopped_at = new Date().toISOString(); fs.writeFileSync(healthPath, JSON.stringify(health) + '\\n'); process.exit(0); });",
+        "setInterval(() => {}, 1000);",
+        "",
+      ].join('\n'),
+    );
+
+    // Default observer evidence is descriptive/warn-only.
+    expect(runEnvelope({
+      cwd,
+      cmd: CMD,
+      observeTransients: true,
+      observerEntry,
+      argv: sh('true'),
+    })).toBe(0);
+
+    process.env.TAMPERWARD_TRANSIENT = 'block';
+    try {
+      expect(runEnvelope({
+        cwd,
+        cmd: CMD,
+        observeTransients: true,
+        observerEntry,
+        argv: sh('true'),
+      })).toBe(1);
+    } finally {
+      delete process.env.TAMPERWARD_TRANSIENT;
+    }
+  }, 20_000);
+
+  it('observer unavailability is reported but does not become an enforcement verdict', () => {
+    const cwd = repo(true);
+    const helperDir = mkdtempSync(join(tmpdir(), 'tw-observer-fixture-'));
+    dirs.push(helperDir);
+    const observerEntry = join(helperDir, 'observer-exits.js');
+    writeFileSync(observerEntry, 'process.exit(0);\n');
+
+    let output = '';
+    vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+      output += String(chunk);
+      return true;
+    }) as typeof process.stdout.write);
+    try {
+      expect(runEnvelope({
+        cwd,
+        cmd: CMD,
+        observeTransients: true,
+        observerEntry,
+        argv: sh('true'),
+      })).toBe(0);
+      expect(output).toMatch(/transient observer: unavailable/i);
+      expect(output).toMatch(/advisory/i);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  }, 15_000);
 });

@@ -169,7 +169,7 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     const prefix = args.slice(0, delimiter);
     const command = args.slice(delimiter + 1);
     const parsed = validateFlatArgs(prefix, {
-      flags: ['--allow-dirty', '--allow-dep-drift'],
+      flags: ['--allow-dirty', '--allow-dep-drift', '--observe-transients'],
       values: {
         '--base': 'string',
         '--cmd': 'string',
@@ -242,7 +242,7 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
 
   if (cmd === 'watch') {
     return validateFlatArgs(args, {
-      values: { '--dir': 'string', '--log': 'string' },
+      values: { '--dir': 'string', '--log': 'string', '--base': 'string' },
     }).error;
   }
 
@@ -271,8 +271,10 @@ Formats:
   tamperward hook claude                    PreToolUse gate (reads hook JSON on stdin)
   tamperward sweep claude                   Stop sweep (re-scan the turn's working tree)
   tamperward watch [--dir D] [--log F]      filesystem-event observer daemon: records
-                                            protected-file events so the sweep can
-                                            observe supported transient effects
+             [--base R]                     protected-file events so the sweep can
+                                            observe supported transient effects.
+                                            --base freezes observer policy to a
+                                            trusted revision
   tamperward verify [--base R] [--cmd C]    pristine-suite re-execution: run the suite
              [--budget S] [--json] [--keep] as-is AND with protected files restored
              [--require-ancestor] [--cwd D]  from the trusted base; a visible-green /
@@ -284,9 +286,13 @@ Formats:
              [--base R] [--cmd C]           base, run the agent, treat its exit as
              [--budget S] [--agent-budget S] untrusted, then re-adjudicate the tree it
              [--allow-dirty] [--settle S]   left (policy over base...HEAD and the
-             [--allow-dep-drift] [--cwd D]  worktree, plus verify). --agent-budget
-                                            bounds the agent runtime itself and still
-                                            adjudicates after timeout. Exit: agent's
+             [--allow-dep-drift] [--cwd D]  worktree, plus verify).
+             [--observe-transients]          --observe-transients starts a session-
+                                            scoped observer before the agent and
+                                            reports temporal evidence/health after it.
+                                            --agent-budget bounds the agent runtime
+                                            itself and still adjudicates after timeout.
+                                            Exit: agent's
                                             code when clean; 124 on clean AGENT_TIMEOUT;
                                             1 on any blocking finding/masked failure;
                                             2 when it cannot adjudicate (fails closed)
@@ -349,7 +355,12 @@ export function main(argv: string[]): number {
     case 'verify':
       return runVerify(parseVerify(rest));
     case 'run':
-      return runEnvelope(parseRun(rest));
+      return runEnvelope({
+        ...parseRun(rest),
+        // The supervised observer re-launches this exact TamperWard CLI under
+        // process.execPath rather than resolving another binary from PATH.
+        observerEntry: process.argv[1],
+      });
     case undefined:
     case '-h':
     case '--help':

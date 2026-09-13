@@ -32,8 +32,8 @@
 // The hooks remain the fast path — they steer the agent in-session. This
 // envelope, or `check --diff` + `verify` in CI, is the boundary.
 
-import { execFileSync, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -45,6 +45,11 @@ import { treeFingerprint } from '../fingerprint';
 import { checkDependencyEnvironment, dependencyEnvironmentSummary, discoverDependencyEnvironment } from '../dependency-env';
 import { prepareVerifierBackend, verifierBackendSummary } from '../verifier-backend';
 import { defaultPolicy, isProtected } from '../policy';
+import { diffRange, diffWorktreeWithUntracked, gitDir } from '../git/build';
+import { inspectRel } from '../disk';
+import { contentHash } from '../effect';
+import { readEvents, transientFindings } from '../detectors/fs-events';
+import { watcherTelemetry, type WatcherTelemetry } from './watch';
 import { Policy } from '../types';
 
 export interface RunEnvelopeOpts {
@@ -62,6 +67,12 @@ export interface RunEnvelopeOpts {
   /** Accept the risk that the agent rewrote the installed dependencies the
    *  suite runs through. Operator-owned, like --allow-dirty. */
   allowDepDrift?: boolean;
+  /** Start a session-scoped filesystem observer before the wrapped agent and
+   *  report/consume its temporal evidence after the agent releases the tree. */
+  observeTransients?: boolean;
+  /** @internal CLI entrypoint used to launch the supervised watcher. Tests
+   *  inject a tiny fixture; normal CLI dispatch passes its own entry file. */
+  observerEntry?: string;
   argv: string[];
 }
 
@@ -316,6 +327,160 @@ function runAgentWithBudget(
   }
 }
 
+
+interface SupervisedObserver {
+  log: string;
+  pid: number | null;
+  finished: boolean;
+}
+
+const waitCell = new Int32Array(new SharedArrayBuffer(4));
+function waitMs(ms: number): void {
+  Atomics.wait(waitCell, 0, 0, ms);
+}
+
+function pidAlive(pid: number | null): boolean {
+  if (!pid || !Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+function supervisedObserverLog(cwd: string): string {
+  const gd = gitDir(cwd) ?? join(cwd, '.git');
+  return join(
+    gd,
+    'tamperward',
+    `run-observer-${process.pid}-${Date.now()}-${randomBytes(4).toString('hex')}.jsonl`,
+  );
+}
+
+function startSupervisedObserver(
+  cwd: string,
+  base: string,
+  entry: string | undefined,
+): SupervisedObserver {
+  const log = supervisedObserverLog(cwd);
+  const cliEntry = entry ?? process.argv[1];
+  if (!cliEntry) return { log, pid: null, finished: false };
+
+  let child;
+  try {
+    child = spawn(
+      process.execPath,
+      [resolve(cliEntry), 'watch', '--dir', cwd, '--log', log, '--base', base],
+      {
+        cwd,
+        stdio: ['ignore', 'ignore', 'inherit'],
+        env: process.env,
+      },
+    );
+  } catch {
+    return { log, pid: null, finished: false };
+  }
+
+  const pid = child.pid ?? null;
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline) {
+    const telemetry = watcherTelemetry(log);
+    if (telemetry.state === 'healthy' || telemetry.state === 'degraded') break;
+    if (!pidAlive(pid)) break;
+    waitMs(25);
+  }
+  return { log, pid, finished: false };
+}
+
+function stopObserverProcess(observer: SupervisedObserver): WatcherTelemetry {
+  // Give the external watcher a short independent drain window after the
+  // synchronous agent/adjudication activity before asking it to shut down.
+  waitMs(100);
+  const beforeStop = watcherTelemetry(observer.log);
+  const pid = observer.pid;
+  if (pidAlive(pid)) {
+    try { process.kill(pid!, 'SIGTERM'); } catch { /* already gone */ }
+    const deadline = Date.now() + 2_000;
+    while (Date.now() < deadline) {
+      const health = watcherTelemetry(observer.log);
+      if (health.health?.state === 'stopped' || !pidAlive(pid)) break;
+      waitMs(25);
+    }
+    if (pidAlive(pid)) {
+      try { process.kill(pid!, 'SIGKILL'); } catch { /* already gone */ }
+    }
+  }
+  observer.finished = true;
+  return beforeStop;
+}
+
+function observerSummary(
+  observer: SupervisedObserver,
+  telemetry: WatcherTelemetry,
+): void {
+  const h = telemetry.health;
+  const counts = h
+    ? `${h.event_count} event(s), ${h.dropped_events} dropped, ${h.error_count} error(s)`
+    : 'no valid health record';
+  const reason = telemetry.reason ? `; ${telemetry.reason}` : '';
+  out(
+    `tamperward run — transient observer: ${telemetry.state} ` +
+      `(advisory; ${counts}; log ${observer.log}${reason})`,
+  );
+}
+
+function collectObserverFindings(
+  observer: SupervisedObserver,
+  telemetry: WatcherTelemetry,
+  cwd: string,
+  base: string,
+  head: string,
+  policy: Policy,
+): { blocking: boolean } {
+  observerSummary(observer, telemetry);
+  const { events } = readEvents(observer.log, 0);
+  if (events.length === 0) return { blocking: false };
+
+  let persistent = new Set<string>();
+  try {
+    const changes = [
+      ...(head !== base ? diffRange(base, head, { cwd }) : []),
+      ...diffWorktreeWithUntracked({ cwd }, (rel) => isProtected(rel, policy)),
+    ];
+    persistent = new Set(
+      changes
+        .filter((change) => change.kind === 'file')
+        .map((change) => change.path),
+    );
+  } catch (e) {
+    out(
+      `tamperward run — transient observer: recorded ${events.length} event(s), but ` +
+        `could not classify them against the final diff (${e instanceof Error ? e.message : String(e)}).`,
+    );
+    return { blocking: false };
+  }
+
+  const finalHash = (path: string): string | null => {
+    const e = inspectRel(cwd, path);
+    return e.kind === 'file' && e.content != null ? contentHash(e.content) : null;
+  };
+  const findings = transientFindings(events, persistent, policy, finalHash);
+  for (const finding of findings) {
+    out(
+      `[observer] ${finding.severity === 'block' ? 'BLOCK' : 'warn'} ${finding.rule}` +
+        `${finding.file ? ' ' + finding.file : ''}: ${finding.message}`,
+    );
+  }
+  return { blocking: findings.some((finding) => finding.severity === 'block') };
+}
+
+function finishObserverAdvisory(observer: SupervisedObserver | null): void {
+  if (!observer || observer.finished) return;
+  const telemetry = stopObserverProcess(observer);
+  observerSummary(observer, telemetry);
+}
+
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 1 << 28, env: trustedGitEnv() });
 }
@@ -507,6 +672,14 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   } else {
     out(`tamperward run — dependency environment: verifier-owned by ${verifierBackend.image ?? 'isolated image'}`);
   }
+
+  const observer = opts.observeTransients
+    ? startSupervisedObserver(cwd, base, opts.observerEntry)
+    : null;
+  if (!observer) {
+    out('tamperward run — transient observer: disabled (advisory; pass --observe-transients to enable)');
+  }
+
   // What the object layer resolves to. Every read of the trusted base — the
   // pristine overlay, the ancestry assertion, the ranged diff — goes through
   // it, and `git replace` / info/grafts / shallow can redirect all three
@@ -553,6 +726,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     err('or shallow boundary now redirects what the trusted base resolves to. Nothing below could be');
     err('read against the anchor we started from. That is the finding.');
     out(`\ntamperward run — agent exit ${agentExit}; OBJECT_REWRITE → ENFORCEMENT_FAILED`);
+    finishObserverAdvisory(observer);
     return 1;
   }
 
@@ -570,6 +744,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     err(`${dependencyBeforeAdjudication.reason ?? 'dependency identity changed'}.`);
     if (!opts.allowDepDrift) {
       out(`\ntamperward run — agent exit ${agentExit}; DEPENDENCY_DRIFT → ENFORCEMENT_FAILED`);
+      finishObserverAdvisory(observer);
       return 1;
     }
     err('(--allow-dep-drift: proceeding anyway, on the operator\'s judgement.)');
@@ -581,6 +756,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     err(`tamperward run: HEAD ${head.slice(0, 10)} is not a descendant of the trusted base ${base.slice(0, 10)} —`);
     err('the agent rewrote history out from under the anchor. That is the finding.');
     out(`\ntamperward run — agent exit ${agentExit}; HISTORY_REWRITE → ENFORCEMENT_FAILED`);
+    finishObserverAdvisory(observer);
     return 1;
   }
 
@@ -646,6 +822,21 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     err(`tamperward run: ${survivors.length} process(es) started during this run still hold the`);
     err(`working tree (pid ${survivors.join(', ')}). A verdict cannot outlive the tree it describes.`);
   }
+
+  let observerBlocked = false;
+  if (observer && !observer.finished) {
+    const telemetry = stopObserverProcess(observer);
+    const observed = collectObserverFindings(
+      observer,
+      telemetry,
+      cwd,
+      base,
+      head,
+      frozenPolicy,
+    );
+    observerBlocked = observed.blocking;
+  }
+
   const notQuiescent = mutatedDuringAdjudication || survivors.length > 0 || depsDrifted || rewrote;
 
   // A concurrent tree mutation can also make verify return 2 before this outer
@@ -654,7 +845,8 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   // not an unexplained cannot-adjudicate (2). This keeps timing from changing
   // the public classification of the same attack.
   const cannot = !notQuiescent && (diffCode === 2 || workCode === 2 || verifyCode === 2);
-  const blocked = diffCode === 1 || workCode === 1 || verifyCode === 1 || notQuiescent;
+  const blocked =
+    diffCode === 1 || workCode === 1 || verifyCode === 1 || notQuiescent || observerBlocked;
   const enforcement = cannot ? 2 : blocked ? 1 : 0;
 
   const verdict =
@@ -662,6 +854,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     : rewrote ? 'OBJECT_REWRITE — the base the checks read is not the base we anchored to'
     : depsDrifted ? 'DEPENDENCY_DRIFT — the suite runner changed under the envelope'
     : notQuiescent ? 'NOT_QUIESCENT — the tree moved, or something still holds it'
+    : observerBlocked ? 'TRANSIENT_OBSERVER_BLOCK — observed temporal weakening under strict transient policy'
     : enforcement === 1 ? 'ENFORCEMENT_FAILED — the tree the runtime released does not stand'
     : agentTimedOut ? 'AGENT_TIMEOUT — runtime budget expired; post-timeout enforcement clean'
     : agentExit !== 0 ? `agent exited ${agentExit} (enforcement clean)`
@@ -689,6 +882,7 @@ export function parseRun(args: string[]): RunEnvelopeOpts {
     else if (a === '--allow-dirty') o.allowDirty = true;
     else if (a === '--settle') o.settle = Number(args[++i]);
     else if (a === '--allow-dep-drift') o.allowDepDrift = true;
+    else if (a === '--observe-transients') o.observeTransients = true;
     else if (a === '--cwd') o.cwd = args[++i];
     else { o.argv = args.slice(i); break; } // first non-flag starts the command
   }

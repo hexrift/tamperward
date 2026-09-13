@@ -25,8 +25,8 @@ import { appendFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, watch,
 import { inspectPath } from '../disk';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { loadPolicy } from '../policy-load';
-import { isProtected } from '../policy';
+import { loadPolicy, loadPolicyAt } from '../policy-load';
+import { defaultPolicy, isProtected } from '../policy';
 import { gitDir } from '../git/build';
 import { Policy } from '../types';
 
@@ -311,14 +311,35 @@ export function startWatcher(dir: string, log: string, policy: Policy): Watcher 
 export function runWatch(args: string[]): number {
   let dir = process.cwd();
   let log: string | null = null;
+  let base: string | null = null;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--dir' && args[i + 1]) dir = args[++i];
     else if (args[i] === '--log' && args[i + 1]) log = args[++i];
+    else if (args[i] === '--base' && args[i + 1]) base = args[++i];
   }
-  const policy = loadPolicy(dir);
+
+  // Supervised run mode pins the observer's protected-path policy to the same
+  // trusted revision that governs final adjudication. A standalone watcher
+  // without --base retains the historical live-policy behavior.
+  const policy = base ? (loadPolicyAt(base, dir) ?? defaultPolicy()) : loadPolicy(dir);
   const out = log ?? defaultEventLog(dir);
-  startWatcher(dir, out, policy);
-  process.stdout.write(`tamperward watch: recording protected-file events under ${dir} -> ${out} (health: ${watcherHealthPath(out)})\n`);
-  // Daemon: run until killed. SIGINT/SIGTERM exit cleanly via default handlers.
+  const watcher = startWatcher(dir, out, policy);
+
+  let closing = false;
+  const shutdown = (): void => {
+    if (closing) return;
+    closing = true;
+    watcher.close();
+    process.exit(0);
+  };
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
+
+  process.stdout.write(
+    `tamperward watch: recording protected-file events under ${dir} -> ${out} ` +
+      `(health: ${watcherHealthPath(out)}${base ? `; trusted base: ${base}` : ''})\n`,
+  );
+  // Daemon: run until signalled. Signal handlers close the watcher first so the
+  // health sidecar records "stopped" rather than looking like a crashed daemon.
   return -1; // sentinel: caller must not exit
 }
