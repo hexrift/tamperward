@@ -169,6 +169,27 @@ describe('machine-readable schema v1 (#333)', () => {
     expect(validate(doc, schema('run'))).toEqual([]);
   }, 20_000);
 
+  it.skipIf(process.platform !== 'linux')('run --json remains schema-valid on a post-agent lifecycle cannot-adjudicate path', () => {
+    const cwd = repo();
+    const r = capture(() => runEnvelope({
+      cwd,
+      cmd: 'true',
+      budget: 2,
+      json: true,
+      lifecycleTestMode: 'proc-read-fail',
+      argv: ['sh', '-c', 'true'],
+    }));
+    expect(r.code).toBe(2);
+    const doc = parseOnlyJson(r.out);
+    expect(doc).toMatchObject({
+      schema_version: 1,
+      verdict: 'CANNOT_ADJUDICATE',
+      exit_code: 2,
+      reason: 'AGENT_LIFECYCLE_NOT_OWNED',
+    });
+    expect(validate(doc, schema('run'))).toEqual([]);
+  }, 20_000);
+
   it('ships all v1 schemas in the npm package file set', () => {
     const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
     expect(pkg.files).toContain('schemas');
