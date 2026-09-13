@@ -37,6 +37,8 @@ function run(argv: string[]): { code: number; out: string; err: string } {
   (process.stderr as unknown as { write: (s: string) => boolean }).write = (s: string) => { err += s; return true; };
   try {
     const code = guardedMain(argv);
+    // Every command here is synchronous; only `onboard` (prompting) returns a promise.
+    if (typeof code !== 'number') throw new Error('a synchronous command returned a promise');
     return { code, out, err };
   } finally {
     (process.stdout as unknown as { write: unknown }).write = so;

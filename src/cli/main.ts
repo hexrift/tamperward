@@ -12,6 +12,7 @@ import { runVerify, parseVerify } from './verify';
 import { runTraceVerify, parseTraceVerify } from './trace-verify';
 import { runEnvelope, parseRun } from './run';
 import { runWatch } from './watch';
+import { runOnboard, OnboardOpts } from './onboard';
 
 function parseAllow(args: string[]): AllowOpts {
   const o: AllowOpts = {};
@@ -41,6 +42,23 @@ function parseInit(args: string[]): InitOpts {
     if (a === '--cwd') o.cwd = args[++i];
     else if (a === '--dry-run') o.dryRun = true;
     else if (a === '--force-workflow') o.forceWorkflow = true;
+  }
+  return o;
+}
+
+function parseOnboard(args: string[]): OnboardOpts {
+  const o: OnboardOpts = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--cwd') o.cwd = args[++i];
+    else if (a === '--base') o.base = args[++i];
+    else if (a === '--repo') o.repo = args[++i];
+    else if (a === '--branch') o.branch = args[++i];
+    else if (a === '--verify-command') o.verifyCommand = args[++i];
+    else if (a === '--skip-demo') o.skipDemo = true;
+    else if (a === '--demo') o.demo = true;
+    else if (a === '--no-github') o.noGithub = true;
+    else if (a === '--yes') o.yes = true;
   }
   return o;
 }
@@ -235,6 +253,22 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     }).error;
   }
 
+  if (cmd === 'onboard') {
+    const parsed = validateFlatArgs(args, {
+      flags: ['--yes', '--skip-demo', '--demo', '--no-github'],
+      values: {
+        '--cwd': 'string',
+        '--base': 'string',
+        '--repo': 'string',
+        '--branch': 'string',
+        '--verify-command': 'string',
+      },
+    });
+    if (parsed.error) return parsed.error;
+    if (parsed.seen.has('--demo') && parsed.seen.has('--skip-demo')) return '--demo cannot be combined with --skip-demo';
+    return undefined;
+  }
+
   if (cmd === 'verify') {
     return validateFlatArgs(args, {
       flags: ['--json', '--keep', '--require-ancestor'],
@@ -329,6 +363,21 @@ Formats:
                                             2 when it cannot adjudicate (fails closed)
   tamperward allow <rule> --reason "..."    record a human sign-off (local audit ledger)
              [--file F] [--cwd D]
+  tamperward onboard [--yes] [--cwd D]      guided first-run setup: preflight, the
+             [--base R] [--repo O/R]        init plan with a confirmation before any
+             [--branch B] [--verify-command C] write, canonical init, explicit verifier
+             [--skip-demo | --demo]         acceptance (a detected suite command is
+             [--no-github]                  never written without it), the first
+                                            verify explained, an optional demo on a
+                                            disposable worktree, GitHub authority via
+                                            doctor --github or the manual controls,
+                                            and a READY / READY WITH WARNINGS /
+                                            BROKEN / INCOMPLETE posture from doctor.
+                                            Non-interactive stdin refuses unless
+                                            --yes scripts it (then --verify-command
+                                            is the only way to configure verify).
+                                            Exit: 0 READY[ WITH WARNINGS], 1
+                                            BROKEN/INCOMPLETE, 2 refused or aborted
   tamperward init [--dry-run]               wire the policy file plus every
              [--force-workflow] [--cwd D]   enforcement point: Claude Code hooks,
                                             pre-commit, CI. Idempotent; never
@@ -360,7 +409,7 @@ Exit codes: 0 clean · 1 a blocking finding (check), MASKED_FAILURE or SUITE_RED
 `);
 }
 
-export function main(argv: string[]): number {
+export function main(argv: string[]): number | Promise<number> {
   const [cmd, ...rest] = argv;
   if (cmd !== undefined && cmd !== '-h' && cmd !== '--help') {
     const invalid = validateCliArgs(cmd, rest);
@@ -382,6 +431,8 @@ export function main(argv: string[]): number {
       return runInit(parseInit(rest));
     case 'doctor':
       return runDoctor(parseDoctor(rest));
+    case 'onboard':
+      return runOnboard(parseOnboard(rest));
     case 'watch':
       return runWatch(rest);
     case 'verify':
@@ -416,14 +467,20 @@ export function main(argv: string[]): number {
  * never 0, never 1) with one clean line. `hook`/`sweep` catch their own errors
  * and deny as JSON at exit 0 (src/cli/hook.ts); nothing of theirs arrives here.
  */
-export function guardedMain(argv: string[], stderr: { write: (s: string) => unknown } = process.stderr): number {
-  try {
-    return main(argv);
-  } catch (e) {
+export function guardedMain(argv: string[], stderr: { write: (s: string) => unknown } = process.stderr): number | Promise<number> {
+  const failClosed = (e: unknown): number => {
     // The first line only: git folds its usage text into some errors, and a
     // screenful of options is not a diagnostic.
     const first = (e instanceof Error ? e.message : String(e)).split('\n').map((l) => l.trim()).find(Boolean) ?? '';
     stderr.write(`tamperward: ${first || 'unexpected failure'}\n`);
     return 2;
+  };
+  try {
+    const result = main(argv);
+    // `onboard` prompts, so it is asynchronous; a rejection is guarded exactly
+    // like a throw. Every other command still returns its code synchronously.
+    return typeof result === 'number' ? result : result.catch(failClosed);
+  } catch (e) {
+    return failClosed(e);
   }
 }

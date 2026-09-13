@@ -6,7 +6,7 @@
 // leaves the working tree byte-for-byte as it was; non-interactive stdin refuses
 // unless scripted; abort and re-run are idempotent and diagnosable.
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -19,6 +19,11 @@ import { loadPolicy } from '../src/policy-load';
 import { treeFingerprint } from '../src/fingerprint';
 import { guardedMain } from '../src/cli/main';
 import { TW_VERSION } from '../src/wiring';
+
+// Several scenarios run the fixture suite twice through the real verify (npm
+// test, ~2s each) after a real init; under a loaded parallel run that exceeds
+// vitest's 5s default.
+vi.setConfig({ testTimeout: 60_000 });
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -45,10 +50,12 @@ function repo(opts: { pkg?: boolean; pytest?: boolean; origin?: boolean; commit?
   }
   if (opts.pytest) writeFileSync(join(d, 'pytest.ini'), '[pytest]\n');
   writeFileSync(join(d, 'src.js'), 'module.exports = 42;\n');
+  // A real runner (node:test), not a local `it` shim: the test-skip AST path
+  // deliberately ignores a locally shadowed runner, so the demo needs the real one.
   writeFileSync(
     join(d, 'test', 'check.test.js'),
-    "const v = require('../src.js');\nfunction it(name, fn) { fn(); }\n" +
-      "it('returns 42', () => { if (v !== 42) { console.error('expected 42'); process.exit(1); } });\n",
+    "const { it } = require('node:test');\nconst assert = require('node:assert');\n" +
+      "it('returns 42', () => { assert.strictEqual(require('../src.js'), 42); });\n",
   );
   if (opts.origin) git(d, 'remote', 'add', 'origin', 'https://github.com/acme/project.git');
   if (opts.commit !== false) {
@@ -252,7 +259,7 @@ describe('the first verification is explained without changing verify semantics'
   it('explains MASKED_FAILURE as a weakened check, exit 1', async () => {
     const d = repo();
     writeFileSync(join(d, 'src.js'), 'module.exports = 41;\n');
-    writeFileSync(join(d, 'test', 'check.test.js'), "function it(name, fn) { fn(); }\nit('trivially passes', () => {});\n");
+    writeFileSync(join(d, 'test', 'check.test.js'), "const { it } = require('node:test');\nit('trivially passes', () => {});\n");
     git(d, 'add', '-A');
     // Onboard is run against the committed base; the weakening is the working tree.
     const s = await onboard(d, ['y', 'y', 'y', 'y'], { noGithub: true, skipDemo: true });

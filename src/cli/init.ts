@@ -343,7 +343,10 @@ function hooksShapeError(hooks: unknown): string | null {
   return null;
 }
 
-function verifierCandidates(cwd: string): string[] {
+/** Advisory high-confidence suite-command candidates, in discovery order. Read by
+ *  init's VERIFICATION SETUP status and by `tamperward onboard`, which asks the
+ *  operator before any of them reaches the policy. */
+export function verifierCandidates(cwd: string): string[] {
   const candidates: string[] = [];
   const add = (command: string): void => {
     if (!candidates.includes(command)) candidates.push(command);
