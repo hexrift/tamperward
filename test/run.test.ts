@@ -633,6 +633,32 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
     }
   }, 15_000);
 
+  it('refuses unsupported lifecycle platforms before agent side effects', () => {
+    const cwd = repo(true);
+    const marker = join(cwd, 'agent-ran');
+    const code = runEnvelope({
+      cwd,
+      cmd: CMD,
+      lifecyclePlatformOverride: 'darwin',
+      argv: sh('touch agent-ran'),
+    });
+    expect(code).toBe(2);
+    expect(() => readFileSync(marker, 'utf8')).toThrow();
+  });
+
+  it('refuses Windows best-effort tree control before agent side effects', () => {
+    const cwd = repo(true);
+    const marker = join(cwd, 'agent-ran');
+    const code = runEnvelope({
+      cwd,
+      cmd: CMD,
+      lifecyclePlatformOverride: 'win32',
+      argv: sh('touch agent-ran'),
+    });
+    expect(code).toBe(2);
+    expect(() => readFileSync(marker, 'utf8')).toThrow();
+  });
+
   it.skipIf(process.platform === 'linux' || process.platform === 'win32')(
     'unsupported POSIX lifecycle backends retain the historical fail-closed fingerprint control',
     () => {

@@ -534,16 +534,18 @@ describe('doctor lifecycle backend posture (#376/#379)', () => {
     expect(check.detail).not.toMatch(/missing python/i);
   });
 
-  it('does not advertise the Linux lifecycle boundary on unsupported platforms', () => {
+  it('fails doctor posture closed when authoritative run lifecycle is unavailable', () => {
     const mac = lifecyclePlatformCheck('darwin', null);
-    expect(mac.state).toBe('WARN');
-    expect(mac.detail).toMatch(/#379/);
-    expect(mac.detail).toMatch(/attestation reuse stays disabled/i);
+    expect(mac.state).toBe('BROKEN');
+    expect(mac.detail).toMatch(/run fails closed before agent start/i);
+    expect(mac.detail).toMatch(/standalone check\/verify remain available/i);
 
     const win = lifecyclePlatformCheck('win32', null);
-    expect(win.state).toBe('WARN');
+    expect(win.state).toBe('BROKEN');
+    expect(win.detail).toMatch(/run fails closed before agent start/i);
     expect(win.detail).toMatch(/best-effort/i);
-    expect(win.detail).toMatch(/#379/);
+    expect(win.detail).toMatch(/standalone check\/verify remain available/i);
+    expect(win.detail).not.toMatch(/#379/);
   });
 });
 

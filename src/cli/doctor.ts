@@ -68,19 +68,17 @@ export function lifecyclePlatformCheck(
   if (platform === 'win32') {
     return {
       id: 'platform',
-      state: 'WARN',
+      state: 'BROKEN',
       detail:
-        'Windows: taskkill /T /F is a best-effort tree fallback, not the Linux subreaper/ECHILD boundary; ' +
-        'detached-domain residual tracked in #379 and verifier-entry attestation reuse stays disabled',
+        'Windows: authoritative tamperward run lifecycle ownership is unavailable; taskkill /T /F is only a best-effort tree fallback, so run fails closed before agent start. Standalone check/verify remain available.',
     };
   }
   return {
     id: 'platform',
-    state: 'WARN',
+    state: 'BROKEN',
     detail:
-      `${platform}: POSIX process-group/fingerprint/quiescence safeguards are available, but the Linux ` +
-      'subreaper/ECHILD detached-domain boundary is unavailable; residual tracked in #379 and ' +
-      'verifier-entry attestation reuse stays disabled',
+      `${platform}: authoritative tamperward run lifecycle ownership is unavailable because this release has no ` +
+      'subreaper/ECHILD-equivalent backend; run fails closed before agent start. Standalone check/verify remain available.',
   };
 }
 
