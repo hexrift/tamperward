@@ -277,6 +277,57 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
     expect(code).toBe(1);
   });
 
+  it.skipIf(process.platform !== 'linux')('normal exit kills a setsid descendant even after it leaves the repository cwd', () => {
+    const cwd = repo(true);
+    const outside = mkdtempSync(join(tmpdir(), 'tw-run-descendant-'));
+    dirs.push(outside);
+    const pidFile = join(outside, 'pid');
+    const late = join(cwd, 'late.txt');
+    let childPid = 0;
+
+    try {
+      const command =
+        `setsid bash -c 'echo $ > "${pidFile}"; cd /tmp; sleep 30; echo late > "${late}"' >/dev/null 2>&1 & ` +
+        `while [ ! -s "${pidFile}" ]; do sleep 0.01; done`;
+      const code = runEnvelope({ cwd, cmd: CMD, argv: sh(command) });
+
+      childPid = Number(readFileSync(pidFile, 'utf8').trim());
+      expect(Number.isInteger(childPid) && childPid > 1).toBe(true);
+      expect(code).toBe(0);
+      expect(() => process.kill(childPid, 0)).toThrow();
+      expect(() => readFileSync(late, 'utf8')).toThrow();
+    } finally {
+      if (childPid > 1) {
+        try { process.kill(childPid, 'SIGKILL'); } catch { /* expected after fix */ }
+      }
+    }
+  }, 15_000);
+
+  it.skipIf(process.platform === 'win32')('normal exit reaps ordinary background descendants before adjudication', () => {
+    const cwd = repo(true);
+    const outside = mkdtempSync(join(tmpdir(), 'tw-run-child-'));
+    dirs.push(outside);
+    const pidFile = join(outside, 'pid');
+    let childPid = 0;
+
+    try {
+      const code = runEnvelope({
+        cwd,
+        cmd: CMD,
+        argv: sh(`sleep 30 >/dev/null 2>&1 & echo $! > "${pidFile}"`),
+      });
+
+      childPid = Number(readFileSync(pidFile, 'utf8').trim());
+      expect(Number.isInteger(childPid) && childPid > 1).toBe(true);
+      expect(code).toBe(0);
+      expect(() => process.kill(childPid, 0)).toThrow();
+    } finally {
+      if (childPid > 1) {
+        try { process.kill(childPid, 'SIGKILL'); } catch { /* expected after fix */ }
+      }
+    }
+  }, 15_000);
+
   it('an honest agent with no survivors is still clean (the scan must not convict the caller)', () => {
     // The caller's own shell pipeline shares this working directory, so the
     // survivor scan is keyed on processes that appear AFTER the agent spawns.
