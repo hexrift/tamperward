@@ -10,6 +10,7 @@ const dirs: string[] = [];
 const originalPath = process.env.PATH;
 const originalVirtualEnv = process.env.VIRTUAL_ENV;
 const originalTransientCounter = process.env.TW_TRANSIENT_COUNTER;
+const originalDiagnostics = process.env.TAMPERWARD_DIAGNOSTICS;
 
 afterEach(() => {
   process.env.PATH = originalPath;
@@ -17,6 +18,8 @@ afterEach(() => {
   else process.env.VIRTUAL_ENV = originalVirtualEnv;
   if (originalTransientCounter === undefined) delete process.env.TW_TRANSIENT_COUNTER;
   else process.env.TW_TRANSIENT_COUNTER = originalTransientCounter;
+  if (originalDiagnostics === undefined) delete process.env.TAMPERWARD_DIAGNOSTICS;
+  else process.env.TAMPERWARD_DIAGNOSTICS = originalDiagnostics;
   vi.restoreAllMocks();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
@@ -160,6 +163,23 @@ describe('dependency environment attestation', () => {
     symlinkSync(outside, join(cwd, '.venv', 'lib', 'python3.11', 'site-packages', 'escape'), 'dir');
 
     expect(run(cwd, 'true', { allowDepDrift: true })).toBe(0);
+  });
+
+  it('reuses only the adjacent run→verify entry attestation and reports five full snapshots', () => {
+    const cwd = repoWithIgnoredVenv(true);
+    selectVenv(cwd);
+    process.env.TAMPERWARD_DIAGNOSTICS = '1';
+
+    let output = '';
+    vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+      output += String(chunk);
+      return true;
+    }) as typeof process.stdout.write);
+
+    expect(run(cwd, 'true')).toBe(0);
+    expect(output).toMatch(
+      /dependency attestation diagnostics: full_snapshots=5 reused_snapshots=1 total_ms=\d+(?:\.\d+)?/i,
+    );
   });
 
   it('an honest selected venv stays green', () => {
