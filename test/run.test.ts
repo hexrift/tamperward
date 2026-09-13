@@ -491,8 +491,8 @@ describe('P0-6: the suite runner lives outside every git view', () => {
 
 
 describe('adjacent dependency attestation lifecycle gate (#376)', () => {
-  it('reuses only when Linux descendant ownership was actually established', () => {
-    expect(canReuseAdjacentDependencyAttestation(true, 'linux')).toBe(true);
+  it('never reuses the run-side attestation at verifier entry', () => {
+    expect(canReuseAdjacentDependencyAttestation(true, 'linux')).toBe(false);
     expect(canReuseAdjacentDependencyAttestation(false, 'linux')).toBe(false);
     expect(canReuseAdjacentDependencyAttestation(true, 'darwin')).toBe(false);
     expect(canReuseAdjacentDependencyAttestation(true, 'win32')).toBe(false);
