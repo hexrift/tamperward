@@ -77,7 +77,7 @@ function parseCheck(args: string[]): CheckOpts {
   return o;
 }
 
-type ValueRule = 'string' | 'positive' | 'non-negative' | 'format';
+type ValueRule = 'string' | 'positive' | 'positive-integer' | 'non-negative' | 'format';
 
 interface CliGrammar {
   flags?: readonly string[];
@@ -123,6 +123,11 @@ function validateFlatArgs(args: string[], grammar: CliGrammar): ValidatedArgs {
         const n = Number(v);
         if (!Number.isFinite(n) || n <= 0) {
           return { error: `${a} needs a positive number (got "${v}")`, seen, positionals };
+        }
+      } else if (rule === 'positive-integer') {
+        const n = Number(v);
+        if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+          return { error: `${a} needs a positive integer (got "${v}")`, seen, positionals };
         }
       } else if (rule === 'non-negative') {
         const n = Number(v);
@@ -250,7 +255,7 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
         '--cmd': 'string',
         '--cwd': 'string',
         '--budget': 'positive',
-        '--runs': 'positive',
+        '--runs': 'positive-integer',
       },
     }).error;
   }
