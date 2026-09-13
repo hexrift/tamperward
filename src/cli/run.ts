@@ -48,7 +48,7 @@ import { defaultPolicy, isProtected } from '../policy';
 import { diffRange, diffWorktreeWithUntracked, gitDir } from '../git/build';
 import { inspectRel } from '../disk';
 import { contentHash } from '../effect';
-import { readEvents, transientFindings } from '../detectors/fs-events';
+import { drainEvents, MAX_EVENT_READ_BYTES, MAX_EVENT_SWEEP_BYTES, transientFindings } from '../detectors/fs-events';
 import { watcherTelemetry, type WatcherTelemetry } from './watch';
 import { Policy } from '../types';
 
@@ -439,7 +439,22 @@ function collectObserverFindings(
   policy: Policy,
 ): { blocking: boolean } {
   observerSummary(observer, telemetry);
-  const { events } = readEvents(observer.log, 0);
+  const strict = process.env.TAMPERWARD_TRANSIENT === 'block';
+  const drained = drainEvents(observer.log, 0);
+  const { events } = drained;
+
+  if (!drained.complete) {
+    const issue = drained.issue ?? 'read-stalled';
+    out(
+      `tamperward run — transient observer: telemetry was not fully classified (${issue}; ` +
+        `${drained.bytesRead}/${MAX_EVENT_SWEEP_BYTES} bytes read). ` +
+        (strict
+          ? 'Strict transient policy fails closed.'
+          : 'Observer telemetry remains advisory, so this degrades evidence but does not independently fail the envelope.'),
+    );
+    if (strict) return { blocking: true };
+  }
+
   if (events.length === 0) return { blocking: false };
 
   let persistent = new Set<string>();
@@ -456,9 +471,10 @@ function collectObserverFindings(
   } catch (e) {
     out(
       `tamperward run — transient observer: recorded ${events.length} event(s), but ` +
-        `could not classify them against the final diff (${e instanceof Error ? e.message : String(e)}).`,
+        `could not classify them against the final diff (${e instanceof Error ? e.message : String(e)}).` +
+        (strict ? ' Strict transient policy fails closed.' : ''),
     );
-    return { blocking: false };
+    return { blocking: strict };
   }
 
   const finalHash = (path: string): string | null => {

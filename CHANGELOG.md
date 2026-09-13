@@ -5,6 +5,40 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.15.2] — 2026-09-13
+
+**Filesystem-event consumption is now proportional to new telemetry, not total session
+history.** The Stop-sweep cursor had always been stored as a byte offset, but
+`readEvents()` still decoded the entire append-only JSONL file and sliced the resulting
+string afterwards. Long agent sessions therefore re-read old telemetry on every turn.
+
+The reader now opens the log and performs positioned reads beginning at the saved
+cursor. Each physical read is bounded to **4 MiB**, and one authority decision drains at
+most **16 MiB** in bounded batches. Cursor movement is byte-based and only
+newline-terminated JSONL records can advance it. The instrumented regression asserts
+the real read position/length against a multi-megabyte historical prefix rather than
+trusting a self-reported counter.
+
+This also fixes the torn-tail correctness bug in the old implementation: parse failure
+no longer advances the cursor to EOF. A torn final record is replayed after completion,
+and a chunk split inside multibyte UTF-8 keeps the cursor at the preceding byte-safe
+newline. Stop commits its saved cursor only when every byte in the bounded tail was
+successfully parsed and classified. Malformed complete telemetry, an oversized single
+record, a torn tail, or more than 16 MiB requiring classification blocks Stop and
+retains the prior cursor instead of silently discarding or deferring authority evidence.
+
+The supervised run observer drains the same bounded batches. Observer evidence remains
+advisory by default, but explicit `TAMPERWARD_TRANSIENT=block` now fails closed when
+telemetry is incomplete/unclassifiable or final-diff classification fails, so a
+blocking transient after the first 4 MiB cannot be hidden behind a benign prefix.
+
+TDD coverage includes the positioned-read instrumentation, UTF-8 split boundary,
+torn-record completion/replay, bounded multi-batch progress, Stop backlog/malformed/
+oversized authority cases, and a strict run case with the blocking event after the
+first 4 MiB.
+
+This closes #313.
+
 ## [2.15.1] — 2026-09-13
 
 **Doctor's authority verdict now binds to the authority surface it actually inspected.**

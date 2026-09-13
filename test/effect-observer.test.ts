@@ -8,13 +8,13 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readSync as fsReadSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { preToolUseVerdict, stopVerdict } from '../src/cli/hook';
 import { defaultPolicy } from '../src/policy';
 import { defaultEventLog, readWatcherHealth, startWatcher, watcherHealthPath } from '../src/cli/watch';
-import { readEvents, transientFindings } from '../src/detectors/fs-events';
+import { drainEvents, MAX_EVENT_READ_BYTES, MAX_EVENT_SWEEP_BYTES, readEvents, transientFindings } from '../src/detectors/fs-events';
 import { FsEvent } from '../src/cli/watch';
 
 const dirs: string[] = [];
@@ -107,6 +107,128 @@ describe('applyEdit fail-open closed (07-fastify regression)', () => {
     });
     expect(r.stdout).toContain('"deny"');
     expect(r.stdout).toContain('test-skip');
+  });
+});
+
+
+describe('fs-event cursor I/O (#313)', () => {
+  const event = (path: string, hash: string): FsEvent => ({
+    ts: '2026-09-13T06:00:00Z',
+    path,
+    kind: 'change',
+    mode: 0o100644,
+    size: 10,
+    hash,
+  });
+
+  it('reads only bytes appended after the saved byte offset, not a multi-megabyte history', () => {
+    const cwd = repo();
+    const log = join(cwd, 'events.jsonl');
+    const oldLine = JSON.stringify(event('test/old.test.js', 'old')) + '\n';
+    const repeats = Math.ceil((3 * 1024 * 1024) / Buffer.byteLength(oldLine));
+    const history = oldLine.repeat(repeats);
+    const offset = Buffer.byteLength(history);
+    const tail = JSON.stringify(event('test/new.test.js', 'new')) + '\n';
+    writeFileSync(log, history + tail);
+
+    const batch = readEvents(log, offset);
+    expect(batch.events.map((x) => x.path)).toEqual(['test/new.test.js']);
+    expect(batch.bytesRead).toBe(Buffer.byteLength(tail));
+    expect(batch.bytesRead).toBeLessThan(1024);
+    expect(batch.newOffset).toBe(offset + Buffer.byteLength(tail));
+  });
+
+  it('does not advance past a torn final JSONL record and replays it once completed', () => {
+    const cwd = repo();
+    const log = join(cwd, 'events.jsonl');
+    const first = JSON.stringify(event('test/a.test.js', 'a')) + '\n';
+    const second = JSON.stringify(event('test/b.test.js', 'b'));
+    const split = Math.floor(second.length / 2);
+    writeFileSync(log, first + second.slice(0, split));
+
+    const a = readEvents(log, 0);
+    expect(a.events.map((x) => x.path)).toEqual(['test/a.test.js']);
+    expect(a.newOffset).toBe(Buffer.byteLength(first));
+
+    writeFileSync(log, second.slice(split) + '\n', { flag: 'a' });
+    const b = readEvents(log, a.newOffset);
+    expect(b.events.map((x) => x.path)).toEqual(['test/b.test.js']);
+    expect(b.newOffset).toBe(Buffer.byteLength(first + second + '\n'));
+  });
+
+  it('bounds one read and advances only through complete records when more telemetry remains', () => {
+    const cwd = repo();
+    const log = join(cwd, 'events.jsonl');
+    const first = JSON.stringify(event('test/a.test.js', 'a')) + '\n';
+    const second = JSON.stringify(event('test/b.test.js', 'b')) + '\n';
+    writeFileSync(log, first + second);
+
+    const cap = Buffer.byteLength(first) + 5;
+    const a = readEvents(log, 0, cap);
+    expect(MAX_EVENT_READ_BYTES).toBeGreaterThan(cap);
+    expect(a.bytesRead).toBe(cap);
+    expect(a.limitReached).toBe(true);
+    expect(a.events.map((x) => x.path)).toEqual(['test/a.test.js']);
+    expect(a.newOffset).toBe(Buffer.byteLength(first));
+
+    const b = readEvents(log, a.newOffset);
+    expect(b.events.map((x) => x.path)).toEqual(['test/b.test.js']);
+    expect(b.limitReached).toBe(false);
+  });
+
+
+  it('uses the saved byte offset as the physical positioned-read start', () => {
+    const cwd = repo();
+    const log = join(cwd, 'events.jsonl');
+    const oldLine = JSON.stringify(event('test/old.test.js', 'old')) + '\n';
+    const history = oldLine.repeat(Math.ceil((3 * 1024 * 1024) / Buffer.byteLength(oldLine)));
+    const offset = Buffer.byteLength(history);
+    const tail = JSON.stringify(event('test/new.test.js', 'new')) + '\n';
+    writeFileSync(log, history + tail);
+
+    const reads: Array<{ position: number | null; length: number }> = [];
+    const batch = readEvents(log, offset, MAX_EVENT_READ_BYTES, {
+      read(fd, buffer, bufferOffset, length, position) {
+        reads.push({ position, length });
+        return fsReadSync(fd, buffer, bufferOffset, length, position);
+      },
+    });
+
+    expect(batch.events.map((x) => x.path)).toEqual(['test/new.test.js']);
+    expect(reads).toEqual([{ position: offset, length: Buffer.byteLength(tail) }]);
+  });
+
+  it('caps aggregate drain work at 16 MiB and reports the remaining complete-record backlog', () => {
+    const cwd = repo();
+    const log = join(cwd, 'events.jsonl');
+    const line = JSON.stringify(event('src.js', 'same')) + '\n';
+    const repeats = Math.ceil((MAX_EVENT_SWEEP_BYTES + 64 * 1024) / Buffer.byteLength(line));
+    writeFileSync(log, line.repeat(repeats));
+
+    const batch = drainEvents(log, 0);
+    expect(batch.complete).toBe(false);
+    expect(batch.issue).toBe('aggregate-limit');
+    expect(batch.bytesRead).toBeLessThanOrEqual(MAX_EVENT_SWEEP_BYTES);
+    expect(batch.bytesRead).toBeGreaterThanOrEqual(MAX_EVENT_SWEEP_BYTES - MAX_EVENT_READ_BYTES);
+    expect(batch.newOffset).toBeGreaterThan(0);
+  });
+
+  it('keeps byte cursors valid when a bounded chunk splits a multibyte UTF-8 record', () => {
+    const cwd = repo();
+    const log = join(cwd, 'events.jsonl');
+    const first = JSON.stringify(event('test/a.test.js', 'ascii')) + '\n';
+    const second = JSON.stringify(event('test/é漢.test.js', 'utf8')) + '\n';
+    writeFileSync(log, first + second);
+
+    const secondBeforeAccent = second.slice(0, second.indexOf('é'));
+    const cap = Buffer.byteLength(first) + Buffer.byteLength(secondBeforeAccent) + 1; // inside é
+    const a = readEvents(log, 0, cap);
+    expect(a.events.map((x) => x.path)).toEqual(['test/a.test.js']);
+    expect(a.newOffset).toBe(Buffer.byteLength(first));
+
+    const b = readEvents(log, a.newOffset);
+    expect(b.events.map((x) => x.path)).toEqual(['test/é漢.test.js']);
+    expect(b.newOffset).toBe(Buffer.byteLength(first + second));
   });
 });
 
@@ -326,6 +448,91 @@ describe('watcher + transient rule (the A.1 probes)', () => {
     } finally {
       delete process.env.TAMPERWARD_DENYLOG;
     }
+  });
+
+  it('Stop cannot succeed while a blocking transient remains after the first 4 MiB chunk', () => {
+    const cwd = repo();
+    const tw = join(cwd, '.git', 'tamperward');
+    mkdirSync(tw, { recursive: true });
+    const log = join(tw, 'fsevents.jsonl');
+    const benign = JSON.stringify({
+      ts: '2026-09-13T06:00:00Z',
+      path: 'src.js',
+      kind: 'change',
+      mode: 0o100644,
+      size: 10,
+      hash: 'same',
+    }) + '\n';
+    const repeats = Math.ceil((MAX_EVENT_READ_BYTES + 32 * 1024) / Buffer.byteLength(benign));
+    const tail = [
+      { ts: '2026-09-13T06:00:01Z', path: 'test/a.test.js', kind: 'change', mode: 0o100644, size: 5, hash: 'weakened' },
+      { ts: '2026-09-13T06:00:02Z', path: 'test/a.test.js', kind: 'change', mode: 0o100644, size: 50, hash: 'restored' },
+    ].map((x) => JSON.stringify(x)).join('\n') + '\n';
+    writeFileSync(log, benign.repeat(repeats) + tail);
+
+    process.env.TAMPERWARD_TRANSIENT = 'block';
+    try {
+      const r = stopVerdict({ cwd, session_id: 'backlog' });
+      expect(r.stdout).toContain('transient-protected-mutation');
+      expect(existsSync(join(tw, 'fscursor-backlog.json'))).toBe(false);
+    } finally {
+      delete process.env.TAMPERWARD_TRANSIENT;
+    }
+  });
+
+  it('Stop fails closed and retains its cursor on malformed complete observer telemetry', () => {
+    const cwd = repo();
+    const tw = join(cwd, '.git', 'tamperward');
+    mkdirSync(tw, { recursive: true });
+    writeFileSync(join(tw, 'fsevents.jsonl'), '{not-json}\n');
+
+    const r = stopVerdict({ cwd, session_id: 'malformed' });
+    expect(r.stdout).toMatch(/block/);
+    expect(r.stdout).toMatch(/observer|telemetry|malformed/i);
+    expect(existsSync(join(tw, 'fscursor-malformed.json'))).toBe(false);
+  });
+
+  it('Stop blocks and retains its cursor when more than 16 MiB of valid telemetry remains', () => {
+    const cwd = repo();
+    const tw = join(cwd, '.git', 'tamperward');
+    mkdirSync(tw, { recursive: true });
+    const log = join(tw, 'fsevents.jsonl');
+    const line = JSON.stringify({
+      ts: '2026-09-13T06:00:00Z',
+      path: 'src.js',
+      kind: 'change',
+      mode: 0o100644,
+      size: 10,
+      hash: 'same',
+    }) + '\n';
+    const repeats = Math.ceil((MAX_EVENT_SWEEP_BYTES + 64 * 1024) / Buffer.byteLength(line));
+    writeFileSync(log, line.repeat(repeats));
+
+    const r = stopVerdict({ cwd, session_id: 'aggregate' });
+    expect(r.stdout).toMatch(/block/);
+    expect(r.stdout).toMatch(/observer|telemetry|16|aggregate/i);
+    expect(existsSync(join(tw, 'fscursor-aggregate.json'))).toBe(false);
+  });
+
+  it('Stop fails closed without cursor progress on an oversized single JSONL record', () => {
+    const cwd = repo();
+    const tw = join(cwd, '.git', 'tamperward');
+    mkdirSync(tw, { recursive: true });
+    const huge = {
+      ts: '2026-09-13T06:00:00Z',
+      path: 'src.js',
+      kind: 'change',
+      mode: 0o100644,
+      size: 10,
+      hash: 'same',
+      padding: 'x'.repeat(MAX_EVENT_READ_BYTES + 1024),
+    };
+    writeFileSync(join(tw, 'fsevents.jsonl'), JSON.stringify(huge) + '\n');
+
+    const r = stopVerdict({ cwd, session_id: 'oversized' });
+    expect(r.stdout).toMatch(/block/);
+    expect(r.stdout).toMatch(/observer|telemetry|record|limit/i);
+    expect(existsSync(join(tw, 'fscursor-oversized.json'))).toBe(false);
   });
 
   it('Stop consumes the event log and surfaces strict transients as blocks', async () => {

@@ -30,7 +30,7 @@ import {
   snapshotProtected,
 } from '../effect';
 import { defaultEventLog, watcherTelemetry } from './watch';
-import { readEvents, transientFindings } from '../detectors/fs-events';
+import { drainEvents, MAX_EVENT_READ_BYTES, MAX_EVENT_SWEEP_BYTES, transientFindings, type EventDrainIssue } from '../detectors/fs-events';
 import { isProtected } from '../policy';
 import { inspectRel, unjudgeableFinding, unjudgeableProtected } from '../disk';
 import { Change, FileChange, Finding, Policy } from '../types';
@@ -470,6 +470,32 @@ function cursorPath(cwd: string, sessionId?: string): string | null {
 
 /** Watcher events for the turn: judged only when the daemon is running (log exists).
  *  The cursor advances with the turn, mirroring the baseline's semantics. */
+function observerIntegrityBlock(
+  issue: EventDrainIssue,
+  bytesRead: number,
+  malformedLines: number,
+): Finding {
+  const detail =
+    issue === 'malformed-record'
+      ? `${malformedLines} malformed complete JSONL record(s)`
+      : issue === 'oversized-record'
+        ? `one event record exceeded the ${MAX_EVENT_READ_BYTES}-byte per-record/read ceiling`
+        : issue === 'incomplete-record'
+          ? 'the event log ended with an incomplete JSONL record'
+          : issue === 'aggregate-limit'
+            ? `more than ${MAX_EVENT_SWEEP_BYTES} observer bytes required classification in one Stop sweep`
+            : 'the positioned event-log read made no safe progress';
+  return {
+    rule: 'tamperward-unavailable',
+    severity: 'block',
+    message: `TamperWard could not fully classify transient observer telemetry (${detail}), so Stop is blocked rather than certifying an unjudged tail.`,
+    evidence: `observer_issue=${issue}; bytes_read=${bytesRead}; malformed_lines=${malformedLines}`,
+    remediation:
+      'Let the watcher finish its current record or repair/rotate the malformed observer log, then retry Stop. Do not delete the cursor/log to bypass unjudged telemetry.',
+    signoff: { required: true, command: 'tamperward allow --reason "..."' },
+  };
+}
+
 function turnTransientBlocks(cwd: string, sessionId: string | undefined, policy: Policy, changes: Change[]): { blocks: Finding[]; commit: () => void } {
   const none = { blocks: [] as Finding[], commit: () => {} };
   const log = defaultEventLog(cwd);
@@ -484,8 +510,27 @@ function turnTransientBlocks(cwd: string, sessionId: string | undefined, policy:
     const n = Number(readFileSync(cp, 'utf8'));
     offset = Number.isFinite(n) ? n : 0;
   }
-  const { events, newOffset } = readEvents(log, offset);
-  if (events.length === 0) return { ...none, commit: () => { if (cp) try { writeFileSync(cp, String(newOffset)); } catch { /* best effort */ } } };
+
+  const drained = drainEvents(log, offset);
+  if (!drained.complete) {
+    const issue = drained.issue ?? 'read-stalled';
+    recordObserverHealth(
+      'degraded',
+      `event telemetry was not fully classified (${issue}); Stop retained the prior cursor`,
+    );
+    return {
+      blocks: [observerIntegrityBlock(issue, drained.bytesRead, drained.malformedLines)],
+      commit: () => {},
+    };
+  }
+
+  const { events, newOffset } = drained;
+  if (events.length === 0) {
+    return {
+      ...none,
+      commit: () => { if (cp) try { writeFileSync(cp, String(newOffset)); } catch { /* best effort */ } },
+    };
+  }
   const persistent = new Set(changes.filter((c) => c.kind === 'file').map((c) => c.path));
   const finalHash = (path: string): string | null => {
     const e = inspectRel(cwd, path);
