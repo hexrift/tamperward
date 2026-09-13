@@ -73,7 +73,10 @@
         "properties": {
           "exit_code": {
             "const": 0
-          }
+          },
+          "head": {},
+          "checks": {},
+          "observer": {}
         },
         "required": [
           "head",
@@ -114,7 +117,10 @@
                 ]
               }
             ]
-          }
+          },
+          "head": {},
+          "checks": {},
+          "observer": {}
         },
         "required": [
           "head",
