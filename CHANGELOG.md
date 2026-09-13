@@ -5,6 +5,38 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.14.0] — 2026-09-13
+
+**`tamperward run` can now supervise transient filesystem observation as an
+optional first-class envelope mode.** Pass `--observe-transients` to start a
+session-scoped watcher before the wrapped agent, consume its temporal evidence in
+the envelope itself, and stop it deterministically when the run finishes.
+
+The supervised observer:
+- gets a unique JSONL log under the repository's git directory, so previous runs
+  and cursors cannot be confused with the current session;
+- loads protected-path policy from the same trusted base revision frozen by
+  `tamperward run`, not from candidate-edited working-tree policy;
+- must publish health before the agent is launched;
+- reports **healthy**, **degraded**, or **unavailable** separately from findings;
+- is stopped on normal completion and early post-agent enforcement exits; and
+- has its session log classified against the final committed + worktree diff by
+  `run` itself rather than assuming a Claude Stop hook occurred.
+
+The trust boundary remains explicit: watcher health/logs are descriptive and
+candidate-reachable, not final CI authority. Transient findings remain warnings by
+default. Only the existing explicit operator opt-in
+`TAMPERWARD_TRANSIENT=block` lets an observed transient finding change the envelope
+to exit 1; observer degradation/unavailability itself does not silently become
+either “no events” or a blocking authority verdict.
+
+TDD began with a missing `observeTransients` API and lifecycle controls requiring
+observer-ready-before-agent ordering, trusted-base propagation, deterministic stop,
+process-level CLI grammar, unavailable-health reporting, and the strict-policy-only
+blocking rule.
+
+This closes #335.
+
 ## [2.13.3] — 2026-09-13
 
 **Filesystem-observer health is now explicit instead of silently best-effort.**
