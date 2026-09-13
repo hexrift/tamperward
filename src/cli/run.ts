@@ -97,12 +97,14 @@ interface AgentRunResult {
 }
 
 export function canReuseAdjacentDependencyAttestation(
-  lifecycleOwned: boolean,
-  platform: NodeJS.Platform = process.platform,
+  _lifecycleOwned: boolean,
+  _platform: NodeJS.Platform = process.platform,
 ): boolean {
-  // Linux is the only backend that currently tracks descendants which escape
-  // the agent process group (for example via setsid) before adjudication.
-  return platform === 'linux' && lifecycleOwned;
+  // Security > one saved tree walk. #376 showed that coupling this optimization
+  // to same-UID lifecycle supervision is too subtle: the verifier-entry
+  // checkpoint must remain independent of the run-side checkpoint. Re-enable
+  // only when the agent execution domain itself is independently isolated.
+  return false;
 }
 
 /**
