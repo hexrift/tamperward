@@ -34,6 +34,7 @@ import { drainEvents, MAX_EVENT_READ_BYTES, MAX_EVENT_SWEEP_BYTES, transientFind
 import { isProtected } from '../policy';
 import { inspectRel, unjudgeableFinding, unjudgeableProtected } from '../disk';
 import { Change, FileChange, Finding, Policy } from '../types';
+import { isRecord } from '../narrow';
 
 export interface HookResult {
   exitCode: number;
@@ -75,10 +76,17 @@ function parseInput(raw: string): ClaudeHookInput {
   } catch (e) {
     throw new HookInputError(`the hook payload is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
   }
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+  if (!isRecord(parsed)) {
     throw new HookInputError(`the hook payload is not a JSON object (got ${Array.isArray(parsed) ? 'an array' : typeof parsed})`);
   }
-  return parsed as ClaudeHookInput;
+  // Field by field: a value of the wrong type is absent, not believed.
+  return {
+    ...(typeof parsed.tool_name === 'string' ? { tool_name: parsed.tool_name } : {}),
+    ...(isRecord(parsed.tool_input) ? { tool_input: parsed.tool_input } : {}),
+    ...(typeof parsed.cwd === 'string' ? { cwd: parsed.cwd } : {}),
+    ...(typeof parsed.stop_hook_active === 'boolean' ? { stop_hook_active: parsed.stop_hook_active } : {}),
+    ...(typeof parsed.session_id === 'string' ? { session_id: parsed.session_id } : {}),
+  };
 }
 
 function recordDenylog(blocks: Finding[]): void {
@@ -497,7 +505,7 @@ function observerIntegrityBlock(
 }
 
 function turnTransientBlocks(cwd: string, sessionId: string | undefined, policy: Policy, changes: Change[]): { blocks: Finding[]; commit: () => void } {
-  const none = { blocks: [] as Finding[], commit: () => {} };
+  const none: { blocks: Finding[]; commit: () => void } = { blocks: [], commit: () => {} };
   const log = defaultEventLog(cwd);
   const telemetry = watcherTelemetry(log);
   if (telemetry.state !== 'healthy') {

@@ -863,7 +863,7 @@ export function scriptWeakening(before: string[], after: string[], opts: ScriptO
   // whatever else stayed live — and so is a pin that is no longer a plain version:
   // `@^1` resolves to 1.x, `@latest` to whatever the registry serves, a
   // pre-release to a build nobody released.
-  const floor = beforeInv.filter((i) => i.state === 'live' && i.pin && PLAIN_SEMVER.test(i.pin)).map((i) => i.pin as string).sort((a, b) => compareVersions(a, b) ?? 0)[0];
+  const floor = beforeInv.flatMap((i) => (i.state === 'live' && i.pin && PLAIN_SEMVER.test(i.pin) ? [i.pin] : [])).sort((a, b) => compareVersions(a, b) ?? 0)[0];
   if (floor) {
     for (const inv of afterInv) {
       if (inv.state !== 'live' || !inv.pin) continue;
@@ -1345,7 +1345,10 @@ function destinations(cmd: string, args: string[], isDir: (p: string) => boolean
     positional.push(a);
   }
   const base = (p: string): string => p.replace(/\/+$/, '').split('/').pop() ?? p;
-  if (target !== null) return positional.map((p) => `${target!.replace(/\/+$/, '')}/${base(p)}`);
+  if (target !== null) {
+    const dir = target.replace(/\/+$/, '');
+    return positional.map((p) => `${dir}/${base(p)}`);
+  }
   if (positional.length < 2) return [];
   const dest = positional[positional.length - 1];
   const srcs = positional.slice(0, -1);
@@ -1395,8 +1398,11 @@ export function expandShellPath(t: string, env: NodeJS.ProcessEnv = process.env)
  *  are outside every repository glob. */
 export function hookTests(policy: Policy, ctx?: DetectorContext) {
   const cwd = ctx?.cwd;
-  const onDisk = cwd !== undefined && existsSync(cwd);
-  const root = onDisk ? canonicalPath(cwd) : cwd;
+  // The repository directory when it exists on disk; relative tokens resolve
+  // against it and only then.
+  const diskCwd = cwd !== undefined && existsSync(cwd) ? cwd : undefined;
+  const onDisk = diskCwd !== undefined;
+  const root = diskCwd !== undefined ? canonicalPath(diskCwd) : cwd;
   const memo = new Map<string, string>();
   const rel = (t: string): string => {
     const hit = memo.get(t);
@@ -1404,8 +1410,9 @@ export function hookTests(policy: Policy, ctx?: DetectorContext) {
     let p = expandShellPath(t.replace(/^["']|["']$/g, ''));
     // `s/a/b/`, `:/`, `{}`, `-name`: not paths — only a path-shaped token is resolved.
     const pathy = isAbsolute(p) || (p.includes('/') && !/^[-:]/.test(p));
-    if (pathy && (isAbsolute(p) || onDisk)) {
-      p = canonicalPath(isAbsolute(p) ? p : resolve(cwd as string, p));
+    const abs = isAbsolute(p) ? p : diskCwd !== undefined ? resolve(diskCwd, p) : null;
+    if (pathy && abs !== null) {
+      p = canonicalPath(abs);
       if (root !== undefined) {
         if (p === root) p = '.';
         else if (p.startsWith(root + '/')) p = p.slice(root.length + 1);

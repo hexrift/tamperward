@@ -217,9 +217,9 @@ function astContext(path: string, source: string): AstContext | null {
     scriptKind(path),
   );
 
-  const diagnostics = (
-    sf as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }
-  ).parseDiagnostics ?? [];
+  // parseDiagnostics is not on the public SourceFile type; asking the object
+  // whether it carries the property is the one way to learn the parser recovered.
+  const diagnostics = 'parseDiagnostics' in sf && Array.isArray(sf.parseDiagnostics) ? sf.parseDiagnostics : [];
   if (diagnostics.length > 0) return null;
 
   const options: ts.CompilerOptions = {
@@ -458,7 +458,7 @@ function shorthandOptionDisables(
  */
 function structuralNodeKey(node: ts.Node, sf: ts.SourceFile): string {
   const children = node.getChildren(sf);
-  const text = (node as ts.Node & { text?: unknown }).text;
+  const text = 'text' in node ? node.text : undefined;
   if (children.length === 0) {
     return typeof text === 'string'
       ? `${node.kind}:${JSON.stringify(text)}`

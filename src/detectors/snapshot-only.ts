@@ -20,7 +20,7 @@
 // detection, so a commit pairing a snapshot with only ignored-path changes reads as
 // snapshot-only here. That errs toward asking a human (warn), never toward missing.
 
-import { Change, Detector, Finding, Policy, View } from '../types';
+import { Change, Detector, FileChange, Finding, Policy, View } from '../types';
 import { isProtected } from '../policy';
 import { makeFinding } from './finding';
 
@@ -43,17 +43,14 @@ export const snapshotOnlyRewrite: Detector = {
   certainty: 'mechanical',
   run(changes: Change[], policy, view?: View): Finding[] {
     if (!view || !COMMIT_VIEWS.includes(view)) return [];
-    const files = changes.filter((c) => c.kind === 'file');
+    const files = changes.filter((c): c is FileChange => c.kind === 'file');
     if (files.length === 0) return [];
     const snaps = files.filter((c) => isSnapshotChange(c, policy));
     if (snaps.length === 0 || snaps.length !== files.length) return [];
 
-    const first = snaps[0] as Extract<Change, { kind: 'file' }>;
-    const names = snaps
-      .map((c) => (c.kind === 'file' ? c.path : ''))
-      .filter(Boolean)
-      .slice(0, 3)
-      .join(', ');
+    const first = snaps[0];
+    if (!first) return [];
+    const names = snaps.map((c) => c.path).slice(0, 3).join(', ');
     return [
       makeFinding(RULE, policy, {
         file: first.path,

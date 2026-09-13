@@ -13,19 +13,37 @@
 
 import { parse } from 'yaml';
 import { defaultPolicy, mergeProtected, normalizeGlob } from '../policy';
+import { isRecord } from '../narrow';
 
-interface RawPolicyShape {
-  version?: unknown;
-  rules?: Record<string, { severity?: string; enabled?: boolean; exclude?: string[] }>;
-  ignore?: string[];
-  protected?: Record<string, string[]>;
-  signoff?: { required_for?: string[]; requiredFor?: string[]; ledger?: string };
-  verify?: { command?: string; budget?: number; inputs?: string[]; backend?: string; image?: string };
+/** A policy document as parsed, before any validation: every field is unknown
+ *  and is narrowed where it is read. This detector must never crash the gate. */
+type RawPolicyShape = Record<string, unknown>;
+
+/** The verify block as written, each field kept only when it has the type the
+ *  comparison below reads; a mistyped field compares as absent. */
+function verifyBlock(v: unknown): { command?: string; budget?: number; inputs?: string[]; backend?: string; image?: string } | undefined {
+  if (!isRecord(v)) return undefined;
+  return {
+    ...(typeof v.command === 'string' ? { command: v.command } : {}),
+    ...(typeof v.budget === 'number' ? { budget: v.budget } : {}),
+    ...(Array.isArray(v.inputs) ? { inputs: v.inputs.filter((g): g is string => typeof g === 'string') } : {}),
+    ...(typeof v.backend === 'string' ? { backend: v.backend } : {}),
+    ...(typeof v.image === 'string' ? { image: v.image } : {}),
+  };
+}
+
+/** The rule overrides as written: each entry a mapping whose fields are read
+ *  with the same tolerance the loader's validation would reject on. */
+function ruleOverrides(v: unknown): Record<string, { severity?: unknown; enabled?: unknown; exclude?: unknown }> {
+  if (!isRecord(v)) return {};
+  return Object.fromEntries(Object.entries(v).map(([name, cfg]) => [name, isRecord(cfg) ? cfg : {}]));
 }
 
 interface EffectivePolicy {
   version: number;
-  rules: Record<string, { severity?: string; enabled?: boolean; exclude?: string[] }>;
+  /** Overrides are carried as written so a mistyped value (`BLOCK`, `7`) is
+   *  reported as the lowering it is, not silently read as the baseline. */
+  rules: Record<string, { severity?: unknown; enabled?: unknown; exclude?: string[] }>;
   ignore: string[];
   protected: Record<string, string[]>;
   requiredFor: string[];
@@ -40,7 +58,7 @@ const globs = (list: unknown): string[] =>
 function safeParse(src: string): RawPolicyShape | null {
   try {
     const v = parse(src);
-    if (v && typeof v === 'object' && !Array.isArray(v)) return v as RawPolicyShape;
+    if (isRecord(v)) return v;
     return null; // empty doc / scalar / list → not a policy
   } catch {
     return null;
@@ -64,20 +82,26 @@ function effective(raw: RawPolicyShape): EffectivePolicy {
   // finding on top of the exclude finding that IS the weakening. Done inline rather
   // than through mergeRules because the raw shape here is unvalidated.
   const rules: EffectivePolicy['rules'] = { ...base.rules };
-  for (const [name, cfg] of Object.entries(raw.rules ?? {})) {
-    const over = cfg && typeof cfg === 'object' && !Array.isArray(cfg) ? cfg : {};
-    rules[name] = { ...(rules[name] ?? {}), ...over, ...(over.exclude ? { exclude: globs(over.exclude) } : {}) };
+  for (const [name, over] of Object.entries(ruleOverrides(raw.rules))) {
+    rules[name] = {
+      ...(rules[name] ?? {}),
+      ...(over.severity !== undefined ? { severity: over.severity } : {}),
+      ...(over.enabled !== undefined ? { enabled: over.enabled } : {}),
+      ...(over.exclude !== undefined ? { exclude: globs(over.exclude) } : {}),
+    };
   }
-  const userProtected = raw.protected && typeof raw.protected === 'object'
+  const userProtected = isRecord(raw.protected)
     ? Object.fromEntries(Object.entries(raw.protected).map(([cat, list]) => [cat, globs(list)]))
     : undefined;
+  const signoff = isRecord(raw.signoff) ? raw.signoff : {};
+  const requiredFor = [signoff.required_for, signoff.requiredFor].find(Array.isArray);
   return {
     version,
     rules,
     ignore: raw.ignore ? globs(raw.ignore) : (base.ignore ?? []),
     protected: mergeProtected(base.protected, userProtected),
-    requiredFor: raw.signoff?.required_for ?? raw.signoff?.requiredFor ?? base.signoff.requiredFor,
-    ledger: typeof raw.signoff?.ledger === 'string' ? raw.signoff.ledger : base.signoff.ledger,
+    requiredFor: requiredFor ? requiredFor.filter((s): s is string => typeof s === 'string') : base.signoff.requiredFor,
+    ledger: typeof signoff.ledger === 'string' ? signoff.ledger : base.signoff.ledger,
   };
 }
 
@@ -175,8 +199,8 @@ export function policyWeakening(before: string, after: string): string[] | null 
   // or whose budget can be starved is no verification at all, so ANY command
   // change and any budget lowering read as weakening; removal likewise. Adding
   // verify where none existed is a strengthening and passes.
-  const bv = b.verify;
-  const av = a.verify;
+  const bv = verifyBlock(b.verify);
+  const av = verifyBlock(a.verify);
   if (bv?.command) {
     if (!av?.command) {
       reasons.push('verify block removed — pristine-suite re-execution disabled');

@@ -8,13 +8,17 @@ import { parse } from 'yaml';
 import { Policy, Severity } from './types';
 import { defaultPolicy, mergeProtected, mergeRules, normalizeGlob, POLICY_FILE } from './policy';
 import { fileAt } from './git/build';
+import { errorMessage } from './narrow';
 
 /** A policy file that exists but cannot be understood. Never swallowed into the
  *  baseline: falling back silently would run a WEAKER gate than the author wrote. */
 export class PolicyError extends Error {}
 
+/** The file's contents once every value has been CHECKED, built field by field
+ *  from the narrowed values inside `validate` — never asserted from the parsed
+ *  document. What the loader consumes is what validation proved. */
 type RawPolicy = {
-  version?: number;
+  version?: unknown;
   protected?: Record<string, string[]>;
   rules?: Policy['rules'];
   ignore?: string[];
@@ -34,7 +38,7 @@ function normalizeVersion(v: unknown, where = POLICY_FILE): number {
 }
 
 const SEVERITIES: ReadonlyArray<Severity> = ['block', 'warn'];
-const isSeverity = (v: unknown): v is Severity => (SEVERITIES as readonly unknown[]).includes(v);
+const isSeverity = (v: unknown): v is Severity => SEVERITIES.some((s) => s === v);
 const isStringList = (v: unknown): v is string[] => Array.isArray(v) && v.every((s) => typeof s === 'string');
 const isMapping = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -68,11 +72,13 @@ export function ledgerInsideRepo(ledger: string): boolean {
  * Unknown RULE NAMES are still accepted (a policy written for a newer build
  * must keep loading on an older one); it is the VALUES that must be exact.
  */
-function validate(r: RawPolicy, where: string): void {
+function validate(r: Record<string, unknown>, where: string): RawPolicy {
   function bad(msg: string): never {
     throw new PolicyError(`${where}: ${msg}`);
   }
   const show = (v: unknown): string => JSON.stringify(v) ?? String(v);
+  const out: RawPolicy = {};
+  if (r.version !== undefined) out.version = r.version;
 
   // UNKNOWN TOP-LEVEL KEYS fail closed like unknown values do. `Rules:` (a
   // capital) or `ignored:` parsed as a policy that said nothing — the author
@@ -80,77 +86,105 @@ function validate(r: RawPolicy, where: string): void {
   // "weaker gate than written" case every other check here exists to refuse.
   // Rule NAMES under `rules` stay open (a policy for a newer build must load);
   // it is the schema's own vocabulary that must be exact.
-  const unknown = Object.keys(r as Record<string, unknown>).filter((k) => !TOP_LEVEL_KEYS.has(k));
+  const unknown = Object.keys(r).filter((k) => !TOP_LEVEL_KEYS.has(k));
   if (unknown.length) {
     bad(`unknown top-level key${unknown.length === 1 ? '' : 's'} ${unknown.map((k) => JSON.stringify(k)).join(', ')} (expected one of ${[...TOP_LEVEL_KEYS].join(', ')})`);
   }
 
   if (r.rules !== undefined) {
     if (!isMapping(r.rules)) bad(`rules must be a mapping of rule name to { severity, enabled, exclude }, got ${show(r.rules)}`);
-    for (const [name, cfg] of Object.entries(r.rules as Record<string, unknown>)) {
+    const rules: Policy['rules'] = {};
+    for (const [name, cfg] of Object.entries(r.rules)) {
       if (!isMapping(cfg)) bad(`rules.${name} must be a mapping like { severity: block }, got ${show(cfg)}`);
-      if (cfg.severity !== undefined && !isSeverity(cfg.severity)) {
-        bad(`rules.${name}.severity must be "block" or "warn", got ${show(cfg.severity)}`);
+      const { severity, enabled, exclude } = cfg;
+      if (severity !== undefined && !isSeverity(severity)) {
+        bad(`rules.${name}.severity must be "block" or "warn", got ${show(severity)}`);
       }
-      if (cfg.enabled !== undefined && typeof cfg.enabled !== 'boolean') {
-        bad(`rules.${name}.enabled must be true or false, got ${show(cfg.enabled)}`);
+      if (enabled !== undefined && typeof enabled !== 'boolean') {
+        bad(`rules.${name}.enabled must be true or false, got ${show(enabled)}`);
       }
-      if (cfg.exclude !== undefined && !isStringList(cfg.exclude)) {
-        bad(`rules.${name}.exclude must be a list of globs, got ${show(cfg.exclude)}`);
+      if (exclude !== undefined && !isStringList(exclude)) {
+        bad(`rules.${name}.exclude must be a list of globs, got ${show(exclude)}`);
       }
+      rules[name] = {
+        ...(severity !== undefined ? { severity } : {}),
+        ...(enabled !== undefined ? { enabled } : {}),
+        ...(exclude !== undefined ? { exclude } : {}),
+      };
     }
+    out.rules = rules;
   }
-  if (r.ignore !== undefined && !isStringList(r.ignore)) bad(`ignore must be a list of globs, got ${show(r.ignore)}`);
+  if (r.ignore !== undefined) {
+    if (!isStringList(r.ignore)) bad(`ignore must be a list of globs, got ${show(r.ignore)}`);
+    out.ignore = r.ignore;
+  }
   if (r.protected !== undefined) {
     if (!isMapping(r.protected)) bad(`protected must be a mapping of category to a list of globs, got ${show(r.protected)}`);
-    for (const [cat, globs] of Object.entries(r.protected as Record<string, unknown>)) {
+    const categories: Record<string, string[]> = {};
+    for (const [cat, globs] of Object.entries(r.protected)) {
       if (!isStringList(globs)) bad(`protected.${cat} must be a list of globs, got ${show(globs)}`);
+      categories[cat] = globs;
     }
+    out.protected = categories;
   }
   if (r.signoff !== undefined) {
     if (!isMapping(r.signoff)) bad(`signoff must be a mapping, got ${show(r.signoff)}`);
+    const signoff: NonNullable<RawPolicy['signoff']> = {};
     for (const key of ['required_for', 'requiredFor'] as const) {
-      const v = (r.signoff as Record<string, unknown>)[key];
-      if (v !== undefined && !(Array.isArray(v) && v.every(isSeverity))) {
+      const v = r.signoff[key];
+      if (v === undefined) continue;
+      if (!(Array.isArray(v) && v.every(isSeverity))) {
         bad(`signoff.${key} must be a list of "block" / "warn", got ${show(v)}`);
       }
+      signoff[key] = v;
     }
-    const ledger = (r.signoff as Record<string, unknown>).ledger;
+    const ledger = r.signoff.ledger;
     if (ledger !== undefined && typeof ledger !== 'string') bad(`signoff.ledger must be a path, got ${show(ledger)}`);
-    if (typeof ledger === 'string' && !ledgerInsideRepo(ledger)) {
-      bad(`signoff.ledger must be a relative path inside the repository, got ${show(ledger)}`);
+    if (typeof ledger === 'string') {
+      if (!ledgerInsideRepo(ledger)) bad(`signoff.ledger must be a relative path inside the repository, got ${show(ledger)}`);
+      signoff.ledger = ledger;
     }
+    out.signoff = signoff;
   }
   if (r.verify !== undefined) {
     if (!isMapping(r.verify)) bad(`verify must be a mapping like { command: "npm test" }, got ${show(r.verify)}`);
-    const v = r.verify as Record<string, unknown>;
-    if (v.command !== undefined && typeof v.command !== 'string') bad(`verify.command must be a string, got ${show(v.command)}`);
-    if (v.budget !== undefined && !(typeof v.budget === 'number' && Number.isFinite(v.budget) && v.budget > 0)) {
-      bad(`verify.budget must be a positive number of seconds, got ${show(v.budget)}`);
+    const v = r.verify;
+    const { command, budget, inputs, backend, image } = v;
+    if (command !== undefined && typeof command !== 'string') bad(`verify.command must be a string, got ${show(command)}`);
+    if (budget !== undefined && !(typeof budget === 'number' && Number.isFinite(budget) && budget > 0)) {
+      bad(`verify.budget must be a positive number of seconds, got ${show(budget)}`);
     }
-    if (v.inputs !== undefined && !isStringList(v.inputs)) bad(`verify.inputs must be a list of globs, got ${show(v.inputs)}`);
-    if (v.backend !== undefined && v.backend !== 'local' && v.backend !== 'container') {
-      bad(`verify.backend must be "local" or "container", got ${show(v.backend)}`);
+    if (inputs !== undefined && !isStringList(inputs)) bad(`verify.inputs must be a list of globs, got ${show(inputs)}`);
+    if (backend !== undefined && backend !== 'local' && backend !== 'container') {
+      bad(`verify.backend must be "local" or "container", got ${show(backend)}`);
     }
-    if (v.image !== undefined && typeof v.image !== 'string') {
-      bad(`verify.image must be an immutable container image reference, got ${show(v.image)}`);
+    if (image !== undefined && typeof image !== 'string') {
+      bad(`verify.image must be an immutable container image reference, got ${show(image)}`);
     }
-    const backend = v.backend ?? 'local';
-    if (backend === 'container') {
-      if (typeof v.image !== 'string') bad('verify.image is required when verify.backend is "container"');
-      if (!/^(?!-)[^\s@]+@sha256:[0-9a-f]{64}$/i.test(v.image as string)) {
-        bad(`verify.image must be pinned by sha256 digest (name@sha256:<64 hex>), got ${show(v.image)}`);
+    if ((backend ?? 'local') === 'container') {
+      if (typeof image !== 'string') bad('verify.image is required when verify.backend is "container"');
+      if (!/^(?!-)[^\s@]+@sha256:[0-9a-f]{64}$/i.test(image)) {
+        bad(`verify.image must be pinned by sha256 digest (name@sha256:<64 hex>), got ${show(image)}`);
       }
-    } else if (v.image !== undefined) {
+    } else if (image !== undefined) {
       bad('verify.image is only valid when verify.backend is "container"');
     }
+    out.verify = {
+      ...(command !== undefined ? { command } : {}),
+      ...(budget !== undefined ? { budget } : {}),
+      ...(inputs !== undefined ? { inputs } : {}),
+      ...(backend !== undefined ? { backend } : {}),
+      ...(image !== undefined ? { image } : {}),
+    };
   }
+  return out;
 }
 
-export function parsePolicy(raw: RawPolicy | null | undefined, where: string = POLICY_FILE): Policy {
-  const r = raw ?? {};
-  const version = normalizeVersion(r.version, where);
-  validate(r, where);
+export function parsePolicy(raw: unknown, where: string = POLICY_FILE): Policy {
+  const doc = raw ?? {};
+  if (!isMapping(doc)) throw new PolicyError(`${where} is not a policy mapping`);
+  const version = normalizeVersion(doc.version, where);
+  const r = validate(doc, where);
   // The baseline is gated by the DECLARED version before user rules overlay it, so a
   // gated graduation applies only to opted-in policies while an explicit severity —
   // written by the user, in either direction — always wins.
@@ -199,12 +233,9 @@ function parseOrThrow(src: string, where: string): Policy {
   try {
     raw = parse(src);
   } catch (e) {
-    throw new PolicyError(`${where} is not valid YAML: ${(e as Error).message}`);
+    throw new PolicyError(`${where} is not valid YAML: ${errorMessage(e)}`);
   }
-  if (raw !== null && raw !== undefined && (typeof raw !== 'object' || Array.isArray(raw))) {
-    throw new PolicyError(`${where} is not a policy mapping`);
-  }
-  return parsePolicy(raw as RawPolicy, where);
+  return parsePolicy(raw, where);
 }
 
 export function loadPolicy(cwd: string = process.cwd()): Policy {

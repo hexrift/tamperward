@@ -15,6 +15,7 @@ import { accessSync, constants, readFileSync, realpathSync, statSync } from 'nod
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { Policy } from './types';
 import { runCapturedProcessSync, type SuiteDiagnostics } from './suite-diagnostics';
+import { isRecord } from './narrow';
 
 export type VerifierBackendKind = 'local' | 'container';
 export type VerifierBackendTrust = 'checkpointed-local' | 'isolated-container';
@@ -145,19 +146,19 @@ function dockerAvailable(enginePath: string, host: string): boolean {
 }
 
 export function declaredImageVolumePaths(metadata: unknown): string[] {
-  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+  if (!isRecord(metadata)) {
     throw new Error('image metadata must be a Docker image-inspect object');
   }
-  const config = (metadata as { Config?: unknown }).Config;
-  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+  const config = metadata.Config;
+  if (!isRecord(config)) {
     throw new Error('image metadata Config must be an object');
   }
-  const volumes = (config as { Volumes?: unknown }).Volumes;
+  const volumes = config.Volumes;
   if (volumes === undefined || volumes === null) return [];
-  if (typeof volumes !== 'object' || Array.isArray(volumes)) {
+  if (!isRecord(volumes)) {
     throw new Error('image metadata Config.Volumes must be a mapping or null');
   }
-  return Object.keys(volumes as Record<string, unknown>).sort();
+  return Object.keys(volumes).sort();
 }
 
 function inspectImageMetadata(

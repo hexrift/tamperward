@@ -340,8 +340,7 @@ function validateSymlinkGraph(
   const seen = new Set<string>();
   let hops = 0;
 
-  while (pending.length) {
-    const part = pending.shift()!;
+  for (let part = pending.shift(); part !== undefined; part = pending.shift()) {
     if (part === '..') {
       if (!stack.length) throw linkEscape(label, target);
       stack.pop();
@@ -359,7 +358,9 @@ function validateSymlinkGraph(
       continue;
     }
 
-    const base = domain === 'tree' ? root : dependencyRoot!;
+    // The deps domain is only ever entered through the guard above, which
+    // requires a dependency root; the tree domain resolves against the root.
+    const base = domain === 'deps' && dependencyRoot ? dependencyRoot : root;
     const current = join(base, ...stack);
     let st;
     try {

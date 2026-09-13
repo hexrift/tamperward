@@ -60,6 +60,7 @@ import { drainEvents, MAX_EVENT_READ_BYTES, MAX_EVENT_SWEEP_BYTES, transientFind
 import { watcherTelemetry, type WatcherTelemetry } from './watch';
 import { Policy } from '../types';
 import { machineOutput, type RunCannotAdjudicateReason, type RunVerdict } from '../machine-output';
+import { errnoCode } from '../narrow';
 
 export interface RunEnvelopeOpts {
   cwd?: string;
@@ -549,7 +550,7 @@ function runAgentSupervised(
 
     const supervisorTimedOut =
       Boolean(supervisor.error) &&
-      (supervisor.error as NodeJS.ErrnoException).code === 'ETIMEDOUT';
+      errnoCode(supervisor.error) === 'ETIMEDOUT';
     const completedNormally =
       !supervisorTimedOut &&
       !supervisor.error &&
@@ -630,7 +631,7 @@ function pidAlive(pid: number | null): boolean {
     process.kill(pid, 0);
     return true;
   } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'EPERM';
+    return errnoCode(e) === 'EPERM';
   }
 }
 
@@ -684,8 +685,8 @@ function stopObserverProcess(observer: SupervisedObserver): WatcherTelemetry {
   waitMs(100);
   const beforeStop = watcherTelemetry(observer.log);
   const pid = observer.pid;
-  if (pidAlive(pid)) {
-    try { process.kill(pid!, 'SIGTERM'); } catch { /* already gone */ }
+  if (pid !== null && pidAlive(pid)) {
+    try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
     const deadline = Date.now() + 2_000;
     while (Date.now() < deadline) {
       // Health is evidence, not lifecycle completion authority. The observer
@@ -695,7 +696,7 @@ function stopObserverProcess(observer: SupervisedObserver): WatcherTelemetry {
       waitMs(25);
     }
     if (pidAlive(pid)) {
-      try { process.kill(pid!, 'SIGKILL'); } catch { /* already gone */ }
+      try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
     }
   }
   observer.finished = true;

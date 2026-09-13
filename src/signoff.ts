@@ -25,6 +25,7 @@ import { appendFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Finding, Policy } from './types';
 import { ledgerInsideRepo, PolicyError } from './policy-load';
+import { isRecord } from './narrow';
 
 export interface LedgerEntry {
   rule: string;
@@ -36,6 +37,18 @@ export interface LedgerEntry {
 }
 
 const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+/** A ledger line as an entry, or null when it lacks any field an entry needs to
+ *  clear a finding: a line that names a fingerprint but no expiry or rule never
+ *  cleared anything before either; now it is also never carried as one. */
+export function ledgerEntryFrom(value: unknown): LedgerEntry | null {
+  if (!isRecord(value)) return null;
+  const { rule, file, fingerprint, reason, recordedAt, expiresAt } = value;
+  if (typeof rule !== 'string' || typeof fingerprint !== 'string' || typeof reason !== 'string') return null;
+  if (typeof recordedAt !== 'number' || typeof expiresAt !== 'number') return null;
+  if (file !== undefined && typeof file !== 'string') return null;
+  return { rule, ...(file !== undefined ? { file } : {}), fingerprint, reason, recordedAt, expiresAt };
+}
 
 /** Stable id of the specific tamper a finding flagged (rule + file + evidence). */
 export function fingerprint(rule: string, file: string | undefined, evidence: string): string {
@@ -61,8 +74,8 @@ export function readLedger(cwd: string, policy: Policy): LedgerEntry[] {
   for (const line of readFileSync(p, 'utf8').split('\n')) {
     if (!line.trim()) continue;
     try {
-      const e = JSON.parse(line);
-      if (e && typeof e.fingerprint === 'string') out.push(e as LedgerEntry);
+      const e = ledgerEntryFrom(JSON.parse(line));
+      if (e) out.push(e);
     } catch {
       /* skip malformed line */
     }
@@ -126,9 +139,10 @@ export function oobToken(want: string, oob: string[], head?: string): string | n
     // Security approval is object-bound, not display-SHA-bound. Prefixes are
     // convenient UI identifiers but do not uniquely name the object forever.
     // Normalize case and require the complete object ID the authority supplied.
-    const normalizedHead = head?.trim().toLowerCase();
+    if (!head) return t;
+    const normalizedHead = head.trim().toLowerCase();
     const normalizedSha = sha.trim().toLowerCase();
-    if (!head || (/^[0-9a-f]+$/.test(normalizedHead!) && normalizedSha === normalizedHead)) return t;
+    if (/^[0-9a-f]+$/.test(normalizedHead) && normalizedSha === normalizedHead) return t;
   }
   return null;
 }

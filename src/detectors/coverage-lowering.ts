@@ -54,7 +54,7 @@ const METRICS = ['branches', 'functions', 'lines', 'statements'] as const;
 type Metric = (typeof METRICS)[number];
 type Metrics = Partial<Record<Metric, number>>;
 
-const isMetric = (k: string): k is Metric => (METRICS as readonly string[]).includes(k);
+const isMetric = (k: string): k is Metric => METRICS.some((m) => m === k);
 
 interface MetricSet {
   values: Metrics;
@@ -502,10 +502,10 @@ interface SimpleSpec {
   /** YAML: numbers are compared within their nearest `project:` / `patch:` scope. */
   scoped?: boolean;
 }
-const NYC_KEYS: SimpleKey[] = METRICS.map((m) => ({
+const NYC_KEYS: SimpleKey[] = METRICS.map((m): SimpleKey => ({
   key: new RegExp(`(?:^|[\\s{,])"?${m}"?\\s*[:=]\\s*"?(\\d+(?:\\.\\d+)?)`, 'g'),
   label: m,
-  weakens: 'lower' as Direction,
+  weakens: 'lower',
 }));
 const COVERAGE_PY = /(?:^|\/)(?:\.coveragerc|pyproject\.toml)$/;
 const CODECOV = /(?:^|\/)\.?codecov\.yml$/;
@@ -735,13 +735,13 @@ const isJsConfig = (path: string) => /\.(?:[cm]?[jt]sx?|json)$/.test(path);
  *  `jest.config.js` → package.json), not a removal. */
 function gateMovedElsewhere(c: FileChange, changes: Change[], policy: Policy): boolean {
   const before = c.before ?? '';
-  const others = changes.filter((o): o is FileChange => o.kind === 'file' && o !== c && o.after != null && isProtected(o.path, policy, 'config'));
+  const others = changes.filter((o): o is FileChange & { after: string } => o.kind === 'file' && o !== c && o.after != null && isProtected(o.path, policy, 'config'));
   if (isJsConfig(c.path)) {
     const was = parseThresholds(before);
     if (!was.present) return false;
     return others.some((o) => {
       if (!isJsConfig(o.path)) return false;
-      const now = parseThresholds(o.after!);
+      const now = parseThresholds(o.after);
       if (!now.present) return false;
       if (now.opaque) return true;
       return METRICS.every((m) => {
@@ -757,7 +757,7 @@ function gateMovedElsewhere(c: FileChange, changes: Change[], policy: Policy): b
     const b = numbersOf(before, k.key, spec.scoped).map((n) => n.v);
     if (b.length === 0) return true;
     return others.some((o) => {
-      const a = numbersOf(o.after!, k.key, spec.scoped).map((n) => n.v);
+      const a = numbersOf(o.after, k.key, spec.scoped).map((n) => n.v);
       return a.length > 0 && b.every((bv) => a.some((av) => (k.weakens === 'lower' ? !lessThan(av, bv) : !lessThan(bv, av))));
     });
   });

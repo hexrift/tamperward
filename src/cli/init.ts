@@ -20,6 +20,7 @@ import { POLICY_FILE } from '../policy';
 import { loadPolicy } from '../policy-load';
 import { GENERATED_CI_TIMEOUT_MINUTES } from '../verifier-limits';
 import { HOOK_CMD, MARKER, OURS, PRECOMMIT_CMD, PRE_MATCHER, SWEEP_CMD, TW_VERSION, requireShippedVersion } from '../wiring';
+import { isRecord } from '../narrow';
 
 export interface InitOpts {
   cwd?: string;
@@ -315,6 +316,27 @@ function missingTools(matcher: string | undefined): string[] {
 }
 
 /** Why `hooks` is not the shape Claude Code reads, or null when it is. */
+/** The hooks mapping once hooksShapeError has passed it: each event's list is
+ *  rebuilt from the checked fields, so the typed view holds by construction. */
+function hooksOf(hooks: unknown): ClaudeSettings['hooks'] {
+  if (!isPlainObject(hooks)) return undefined;
+  const out: NonNullable<ClaudeSettings['hooks']> = {};
+  for (const [event, arr] of Object.entries(hooks)) {
+    if (!Array.isArray(arr)) continue;
+    out[event] = arr.flatMap((m): HookMatcher[] => {
+      if (!isPlainObject(m)) return [];
+      const entries = Array.isArray(m.hooks)
+        ? m.hooks.flatMap((h): HookEntry[] => (isPlainObject(h) ? [{
+            ...(typeof h.type === 'string' ? { type: h.type } : {}),
+            ...(typeof h.command === 'string' ? { command: h.command } : {}),
+          }] : []))
+        : undefined;
+      return [{ ...(typeof m.matcher === 'string' ? { matcher: m.matcher } : {}), ...(entries ? { hooks: entries } : {}) }];
+    });
+  }
+  return out;
+}
+
 function hooksShapeError(hooks: unknown): string | null {
   if (hooks === undefined || hooks === null) return null;
   if (!isPlainObject(hooks)) return 'hooks is not an object';
@@ -339,10 +361,8 @@ function verifierCandidates(cwd: string): string[] {
 
   // package.json is high-confidence only when it has a real test script.
   try {
-    const pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8')) as {
-      scripts?: Record<string, unknown>;
-    };
-    const test = pkg.scripts?.test;
+    const pkg: unknown = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8'));
+    const test = isRecord(pkg) && isRecord(pkg.scripts) ? pkg.scripts.test : undefined;
     if (
       typeof test === 'string' &&
       test.trim() !== '' &&
@@ -460,18 +480,17 @@ function planClaudeHooks(cwd: string): Action {
         detail: 'exists but is not valid JSON — fix it, then re-run init (refusing to overwrite)',
       };
     }
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    if (!isRecord(parsed)) {
       return { item: 'agent', path: rel, status: 'error', detail: 'exists but is not a JSON object — refusing to overwrite' };
     }
-    settings = parsed as ClaudeSettings;
-  }
-
-  // The shape Claude Code reads: hooks → event → [{ matcher, hooks: [{ type, command }] }].
-  // Anything else used to throw halfway through apply (after the policy was already
-  // written) — planned here, so a malformed file is an error row and nothing else.
-  const shapeError = hooksShapeError(settings.hooks);
-  if (shapeError) {
-    return { item: 'agent', path: rel, status: 'error', detail: `${shapeError} — fix it, then re-run init (refusing to overwrite)` };
+    // The shape Claude Code reads: hooks → event → [{ matcher, hooks: [{ type, command }] }].
+    // Anything else used to throw halfway through apply (after the policy was already
+    // written) — planned here, so a malformed file is an error row and nothing else.
+    const shapeError = hooksShapeError(parsed.hooks);
+    if (shapeError) {
+      return { item: 'agent', path: rel, status: 'error', detail: `${shapeError} — fix it, then re-run init (refusing to overwrite)` };
+    }
+    settings = { ...parsed, hooks: hooksOf(parsed.hooks) };
   }
 
   const hooks = (settings.hooks ??= {});
@@ -776,8 +795,8 @@ function planCodeowners(cwd: string): Action {
   const existing = existingRel ? readFileSync(path, 'utf8') : null;
 
   const missing = CODEOWNERS_PATHS.filter((p) => existing === null || !coveredBy(existing, p));
-  if (missing.length === 0) {
-    return { item: 'codeowners', path: existingRel!, status: 'ok', detail: 'gate paths already have code owners' };
+  if (existingRel !== undefined && missing.length === 0) {
+    return { item: 'codeowners', path: existingRel, status: 'ok', detail: 'gate paths already have code owners' };
   }
 
   const inferred = inferOwner(cwd);

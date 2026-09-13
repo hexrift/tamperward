@@ -26,6 +26,7 @@ import {
 } from './suite-config';
 import type { Runner } from './suite-config';
 import { SUITE_NARROWING_FLAGS } from './ci-tampering';
+import { isRecord } from '../narrow';
 
 const RULE = 'test-deletion';
 
@@ -97,9 +98,9 @@ function templateRows(node: ts.TaggedTemplateExpression): number {
  *  that "moves" three tests into three stubs moved no test. A test whose body is
  *  not a function literal (`it("x", fn)`) cannot be judged and counts as real. */
 function hasSubstantiveBody(call: ts.CallExpression): boolean {
-  const fn = call.arguments.find((a) => ts.isArrowFunction(a) || ts.isFunctionExpression(a));
+  const fn = call.arguments.find((a): a is ts.ArrowFunction | ts.FunctionExpression => ts.isArrowFunction(a) || ts.isFunctionExpression(a));
   if (!fn) return true;
-  const body = (fn as ts.ArrowFunction | ts.FunctionExpression).body;
+  const body = fn.body;
   const text = ts.isBlock(body) ? body.getText().slice(1, -1) : body.getText();
   return text.split('\n').some((l) => isSignificantLine(l.trim(), 'js'));
 }
@@ -272,7 +273,8 @@ function scriptNarrowings(before: string | null, after: string, path: string): S
   if ((path.split('/').pop() ?? path) !== 'package.json') return [];
   const scriptsOf = (src: string | null): Record<string, string> => {
     try {
-      const s = (JSON.parse(src ?? '{}') as { scripts?: Record<string, unknown> }).scripts ?? {};
+      const pkg: unknown = JSON.parse(src ?? '{}');
+      const s = isRecord(pkg) && isRecord(pkg.scripts) ? pkg.scripts : {};
       return Object.fromEntries(Object.entries(s).filter((e): e is [string, string] => typeof e[1] === 'string'));
     } catch {
       return {};
@@ -605,11 +607,10 @@ export const testDeletion: Detector = {
  * still caught by the pristine boundary, which refuses to inherit these files.
  */
 function pytestPrecedenceFindings(changes: Change[], policy: Policy, ctx?: DetectorContext): Finding[] {
-  const order = PYTEST_INI_ORDER as readonly string[];
   const touched = new Map<string, FileChange>();
   for (const c of changes) {
     if (c.kind !== 'file' || c.oldPath) continue; // a rename is not a precedence move
-    if (order.includes(c.path)) touched.set(c.path, c);
+    if (PYTEST_INI_ORDER.some((name) => name === c.path)) touched.set(c.path, c);
   }
   if (touched.size === 0) return [];
   const listing = trackedFiles(ctx);
@@ -618,7 +619,7 @@ function pytestPrecedenceFindings(changes: Change[], policy: Policy, ctx?: Detec
 
   const base = new Map<string, string | null>();
   const head = new Map<string, string | null>();
-  for (const name of order) {
+  for (const name of PYTEST_INI_ORDER) {
     const c = touched.get(name);
     if (c) {
       base.set(name, c.before);

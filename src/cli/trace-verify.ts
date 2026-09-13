@@ -193,7 +193,7 @@ export function summarizeTraceRuns(opts: SummarizeOpts): TraceSummary {
     for (const item of run) {
       const rel = normalRepoPath(opts.root, item.path);
       const isTracked = rel !== null && opts.tracked.has(rel);
-      const keyPath = isTracked ? rel! : (rel === null ? resolve(opts.root, item.path) : null);
+      const keyPath = rel !== null ? (opts.tracked.has(rel) ? rel : null) : resolve(opts.root, item.path);
       if (keyPath === null) continue; // generated/untracked path inside the trace root
 
       const target = isTracked ? repo : external;
@@ -299,7 +299,7 @@ function materializeBase(base: string, cwd: string, dest: string): void {
 
 function traceFiles(prefix: string): string[] {
   const dir = resolve(prefix, '..');
-  const base = prefix.split(sep).at(-1)!;
+  const base = prefix.split(sep).at(-1) ?? prefix;
   return readdirSync(dir)
     .filter((name) => name === base || name.startsWith(base + '.'))
     .map((name) => join(dir, name))

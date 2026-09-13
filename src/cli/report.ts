@@ -20,7 +20,7 @@ export type Format = 'auto' | 'text' | 'json' | 'github';
 export const FORMATS: Format[] = ['auto', 'text', 'json', 'github'];
 
 export function isFormat(s: string): s is Format {
-  return (FORMATS as string[]).includes(s);
+  return FORMATS.some((f) => f === s);
 }
 
 export interface ReportInput {

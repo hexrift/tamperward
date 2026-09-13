@@ -24,6 +24,27 @@ import { Finding, Policy } from '../types';
 import { isProtected } from '../policy';
 import { isEnabled, makeFinding } from './finding';
 import type { FsEvent } from '../cli/watch';
+import { isRecord, nullableNumber, nullableString } from '../narrow';
+
+/** One telemetry record, or null when the line is not JSON or not the shape the
+ *  watcher writes. A record that cannot be classified is malformed telemetry —
+ *  counted, and blocking under strict policy — never a guessed event. */
+export function fsEventFrom(line: string): FsEvent | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (!isRecord(value)) return null;
+  const { ts, path, kind } = value;
+  if (typeof ts !== 'string' || typeof path !== 'string' || (kind !== 'change' && kind !== 'rename')) return null;
+  const mode = nullableNumber(value.mode);
+  const size = nullableNumber(value.size);
+  const hash = nullableString(value.hash);
+  if (mode === undefined || size === undefined || hash === undefined) return null;
+  return { ts, path, kind, mode, size, hash };
+}
 
 const RULE = 'transient-protected-mutation';
 
@@ -163,11 +184,9 @@ export function readEvents(
   const complete = chunk.subarray(0, lastNewline + 1).toString('utf8');
   for (const line of complete.split('\n')) {
     if (!line.trim()) continue;
-    try {
-      events.push(JSON.parse(line) as FsEvent);
-    } catch {
-      malformedLines++;
-    }
+    const event = fsEventFrom(line);
+    if (event) events.push(event);
+    else malformedLines++;
   }
 
   const newOffset = start + lastNewline + 1;

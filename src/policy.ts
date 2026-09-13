@@ -62,7 +62,7 @@ export function normalizeGlob(glob: string): string {
 export function mergeRules(base: Policy['rules'], user?: Policy['rules']): Policy['rules'] {
   const out: Policy['rules'] = { ...base };
   for (const [name, cfg] of Object.entries(user ?? {})) {
-    out[name] = { ...(out[name] ?? {}), ...(cfg ?? {}) } as Policy['rules'][string];
+    out[name] = { ...(out[name] ?? {}), ...(cfg ?? {}) };
   }
   return out;
 }

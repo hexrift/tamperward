@@ -10,6 +10,7 @@ import { planInit } from './init';
 import { compareVersions, TW_VERSION } from '../wiring';
 import { trustedLinuxPython } from './run';
 import { machineOutput, type MachineSchemaVersion } from '../machine-output';
+import { execFailure, isRecord } from '../narrow';
 
 export interface DoctorOpts {
   cwd?: string;
@@ -115,9 +116,7 @@ function policyFor(opts: DoctorOpts, cwd: string) {
 }
 
 function asMapping(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
+  return isRecord(value) ? value : null;
 }
 
 
@@ -510,8 +509,8 @@ function githubApi(cwd: string, endpoint: string): unknown {
     );
     return JSON.parse(stdout);
   } catch (e) {
-    const x = e as Error & { stderr?: string | Buffer };
-    const detail = x.stderr ? String(x.stderr).replace(/\s+/g, ' ').trim() : x.message;
+    const failure = execFailure(e);
+    const detail = failure.stderr ? failure.stderr.replace(/\s+/g, ' ').trim() : failure.message;
     throw new Error(
       'GitHub API ' + endpoint + ' failed: ' + (detail || 'unknown error'),
     );

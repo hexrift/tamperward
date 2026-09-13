@@ -91,7 +91,9 @@ export interface Finding {
 }
 
 export interface RuleConfig {
-  severity: Severity;
+  /** Absent only for a rule the baseline does not ship (a policy written for a
+   *  newer build); every reader falls back to the detector's own default. */
+  severity?: Severity;
   enabled?: boolean;
   /**
    * Path globs this ONE rule ignores, leaving every other rule's coverage intact —
