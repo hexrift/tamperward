@@ -263,12 +263,11 @@ describe('envelope hardening — the tree the agent left cannot judge itself', (
 });
 
 describe('P0-5: a verdict cannot outlive the tree it describes', () => {
-  // `run` owns the agent's exit code, not its descendants. A worker detached
-  // with setsid/nohup survives every check and edits the tree afterwards — the
-  // masked-green escape one level up from the runtime hole this command closes.
-  // A synchronous wrapper cannot reap a new session, so the envelope refuses to
-  // certify a tree something is still holding.
-  it('a detached worker still holding the tree is NOT_QUIESCENT, not GREEN', () => {
+  // Historical P0-5 first closed by refusing to certify a tree held by a
+  // detached worker. Since 2.16.3 the stronger contract is active lifecycle
+  // ownership: these descendants are terminated before adjudication, so an
+  // otherwise honest fix is GREEN rather than merely NOT_QUIESCENT.
+  it.skipIf(process.platform === 'win32')('reaps a detached worker that would mutate the tree after the agent exits', () => {
     const cwd = repo(); // failing suite; agent writes the honest fix
     const code = runEnvelope({
       cwd,
@@ -278,10 +277,10 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
           `echo "module.exports = 42;" > src.js`,
       ),
     });
-    expect(code).toBe(1);
+    expect(code).toBe(0);
   });
 
-  it.skipIf(process.platform !== 'linux')('a detached worker cannot hide by chdir while retaining a repository fd', () => {
+  it.skipIf(process.platform !== 'linux')('reaps a detached worker that chdirs away while retaining a repository fd', () => {
     const cwd = repo();
     const code = runEnvelope({
       cwd,
@@ -291,7 +290,7 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
           `echo "module.exports = 42;" > src.js`,
       ),
     });
-    expect(code).toBe(1);
+    expect(code).toBe(0);
   });
 
   it.skipIf(process.platform !== 'linux')('normal exit kills a setsid descendant even after it leaves the repository cwd', () => {
