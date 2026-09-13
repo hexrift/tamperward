@@ -513,6 +513,13 @@ Seventeen rules are specified and sixteen ship (see the table in
 (`ts-any-cast`, `ts-any-launder`, `lint-suppression`), pipeline protection
 (`ci-tampering`, `hook-tampering`, `no-verify`), and the effect/outcome layers
 (`transient-protected-mutation`, `pristine-verification`, plus the `run` envelope).
+`test-skip` keeps the established regex coverage for diff-only inputs and non-JS
+ecosystems, while full parse-clean JS/TS BEFORE/AFTER changes also use a conservative
+TypeScript AST path for multiline member chains, statically-computable properties,
+known test-runner aliases and node:test-style option objects. Resolution is lexical
+(symbol-based), dynamic computed properties are not guessed, statically false shorthand
+options are clean, and trivia-free BEFORE/AFTER semantic identity prevents formatting-only
+rewrites from re-blocking an already-existing skip/focus.
 `assertion-weakening` ships only the AST-proven one-way subset — statically
 proven exact/structural values weakened to truthy/defined, positive exception
 specificity removed, or a pure assertion removed from the same suite-qualified
