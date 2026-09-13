@@ -166,6 +166,64 @@ describe('dependency environment attestation', () => {
     expect(run(cwd, 'true', { allowDepDrift: true })).toBe(0);
   });
 
+  it.skipIf(process.platform !== 'linux')(
+    'kills a post-handoff dependency substitute before verifier-entry adjudication (#374/#376)',
+    () => {
+      const cwd = repoWithIgnoredVenv(true);
+      selectVenv(cwd);
+      const outside = mkdtempSync(join(tmpdir(), 'tw-dep-handoff-'));
+      dirs.push(outside);
+      const script = join(outside, 'post-handoff-substitute.sh');
+      const started = join(outside, 'started');
+      const release = join(outside, 'release');
+      const ran = join(outside, 'substitution-ran');
+      const python = join(cwd, '.venv', 'bin', 'python');
+      const original = readFileSync(python, 'utf8');
+
+      writeFileSync(
+        script,
+        [
+          '#!/bin/bash',
+          `touch "${started}"`,
+          `while [ ! -e "${release}" ]; do sleep 0.005; done`,
+          `cp "${python}" "${outside}/python.orig"`,
+          `printf '#!/bin/sh\\nexit 0\\n' > "${python}"`,
+          `chmod +x "${python}"`,
+          `touch "${ran}"`,
+          'sleep 0.05',
+          `cp "${outside}/python.orig" "${python}"`,
+          '',
+        ].join('\n'),
+      );
+      chmodSync(script, 0o755);
+
+      let checkpointReached = false;
+      const code = runEnvelope({
+        cwd,
+        cmd: 'python test/check.test.js',
+        budget: 30,
+        argv: [
+          'bash',
+          '-c',
+          `setsid nohup bash "${script}" >/dev/null 2>&1 & while [ ! -e "${started}" ]; do sleep 0.005; done`,
+        ],
+        onBeforeAdjudication: () => {
+          checkpointReached = true;
+          writeFileSync(release, 'go\n');
+          execFileSync('sleep', ['0.15']);
+          expect(() => readFileSync(ran)).toThrow();
+          expect(readFileSync(python, 'utf8')).toBe(original);
+        },
+      });
+
+      expect(checkpointReached).toBe(true);
+      expect(code).toBe(0);
+      expect(() => readFileSync(ran)).toThrow();
+      expect(readFileSync(python, 'utf8')).toBe(original);
+    },
+    15_000,
+  );
+
   it('keeps verifier-entry attestation independent of the run-side checkpoint', () => {
     const cwd = repoWithIgnoredVenv(true);
     selectVenv(cwd);
