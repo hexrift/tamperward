@@ -106,13 +106,11 @@ export function canReuseAdjacentDependencyAttestation(
 }
 
 /**
- * Trusted agent-lifecycle supervisor used for every wrapped run.
- *
- * The agent is placed in its own POSIX process group. Linux additionally tracks
- * the live descendant ancestry so a child that escapes the group with setsid()
- * is still owned at normal exit or timeout. On Windows, taskkill /T /F remains
- * the explicit tree-kill fallback. The supervisor writes its result outside the
- * candidate worktree, then the envelope performs normal post-agent adjudication.
+ * Portable fallback supervisor. It owns the ordinary process group, but does
+ * NOT claim Linux-style detached-descendant ownership. Its result is trusted
+ * only when the supervisor itself exits normally; a same-UID candidate that
+ * forges the result file and kills the supervisor therefore cannot create a
+ * trusted lifecycle result.
  */
 const AGENT_SUPERVISOR = String.raw`
 const { spawn, spawnSync } = require('node:child_process');
@@ -123,91 +121,23 @@ const budgetMs = budgetRaw === '' ? null : Number(budgetRaw);
 let child;
 let timedOut = false;
 let finished = false;
-let linuxTracking = process.platform === 'linux';
-const tracked = new Map();
 
 function writeResult(value) {
-  try { fs.writeFileSync(resultFile, JSON.stringify(value)); } catch {}
-}
-
-function procRecord(pid) {
   try {
-    const stat = fs.readFileSync('/proc/' + pid + '/stat', 'utf8');
-    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-    const ppid = Number(fields[1]);
-    const start = Number(fields[19]);
-    if (!Number.isFinite(ppid) || !Number.isFinite(start)) return null;
-    return { pid: Number(pid), ppid, start };
-  } catch {
-    return null;
-  }
+    const tmp = resultFile + '.tmp-' + process.pid;
+    fs.writeFileSync(tmp, JSON.stringify(value));
+    fs.renameSync(tmp, resultFile);
+  } catch {}
 }
 
-function scanLinuxDescendants(rootPid) {
-  if (!linuxTracking) return;
-  let names;
-  try {
-    names = fs.readdirSync('/proc').filter((x) => /^\d+$/.test(x));
-  } catch {
-    linuxTracking = false;
-    return;
-  }
-
-  const byParent = new Map();
-  for (const name of names) {
-    const rec = procRecord(Number(name));
-    if (!rec) continue;
-    const kids = byParent.get(rec.ppid) || [];
-    kids.push(rec);
-    byParent.set(rec.ppid, kids);
-  }
-
-  // Previously-seen descendants remain roots for later scans. This matters
-  // after setsid/double-fork reparents them away from the original agent.
-  const queue = [rootPid, ...tracked.keys()];
-  const seenParents = new Set();
-  while (queue.length) {
-    const parent = queue.pop();
-    if (seenParents.has(parent)) continue;
-    seenParents.add(parent);
-    for (const rec of (byParent.get(parent) || [])) {
-      const knownStart = tracked.get(rec.pid);
-      if (knownStart === undefined || knownStart === rec.start) {
-        tracked.set(rec.pid, rec.start);
-        queue.push(rec.pid);
-      }
-    }
-  }
-}
-
-function sameTrackedProcess(pid, start) {
-  const rec = procRecord(pid);
-  return rec != null && rec.start === start;
-}
-
-function killOwnedTree(pid) {
+function killTree(pid) {
   if (!pid) return;
-  scanLinuxDescendants(pid);
-
   if (process.platform === 'win32') {
     try { spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' }); } catch {}
     return;
   }
-
-  // Kill the ordinary process group first. It remains addressable by PGID even
-  // after the group leader exits while descendants are still alive.
   try { process.kill(-pid, 'SIGKILL'); } catch {
     try { process.kill(pid, 'SIGKILL'); } catch {}
-  }
-
-  // Linux descendants can escape that group with setsid(). Kill only PIDs whose
-  // /proc starttime still matches the process we observed, avoiding PID-reuse
-  // collateral.
-  if (linuxTracking) {
-    for (const [childPid, start] of [...tracked.entries()].reverse()) {
-      if (!sameTrackedProcess(childPid, start)) continue;
-      try { process.kill(childPid, 'SIGKILL'); } catch {}
-    }
   }
 }
 
@@ -221,22 +151,11 @@ try {
   process.exit(0);
 }
 
-writeResult({ pid: child.pid, started: true });
-
-// Track while the agent is alive, not only after it exits. A setsid descendant
-// may be reparented immediately when the main agent releases; preserving the
-// observed ancestry is what lets normal-exit cleanup still own that process.
-scanLinuxDescendants(child.pid);
-const tracker = process.platform === 'linux'
-  ? setInterval(() => scanLinuxDescendants(child.pid), 2)
-  : null;
-if (tracker) tracker.unref();
-
 const timer = budgetMs == null
   ? null
   : setTimeout(() => {
       timedOut = true;
-      killOwnedTree(child.pid);
+      killTree(child.pid);
     }, budgetMs);
 if (timer) timer.unref();
 
@@ -244,16 +163,11 @@ function finish(code, signal, failure) {
   if (finished) return;
   finished = true;
   if (timer) clearTimeout(timer);
-  if (tracker) clearInterval(tracker);
-
-  // Normal exit owns descendants too. This is the security distinction from
-  // the pre-#376 supervisor, which only killed the tree on timeout.
-  killOwnedTree(child && child.pid);
-
+  killTree(child && child.pid);
   writeResult({
     exit: timedOut ? 124 : (code == null ? 1 : code),
     timedOut,
-    lifecycleOwned: process.platform === 'linux' && linuxTracking,
+    lifecycleOwned: false,
     signal: signal == null ? null : String(signal),
     ...(failure ? { failure } : {}),
   });
@@ -262,6 +176,144 @@ function finish(code, signal, failure) {
 
 child.once('error', (e) => finish(1, null, String(e)));
 child.once('exit', (code, signal) => finish(code, signal));
+`;
+
+/**
+ * Linux lifecycle backend.
+ *
+ * prctl(PR_SET_CHILD_SUBREAPER) is the kernel ownership primitive: descendants
+ * that double-fork, setsid(), or otherwise orphan are reparented to this
+ * supervisor rather than escaping to init. The supervisor does not report
+ * success until the process group is killed, every adopted child is killed,
+ * and /proc shows the execution domain drained. A candidate may SIGKILL this
+ * same-UID supervisor, but the outer process then observes abnormal supervisor
+ * termination and refuses to trust any forged result file.
+ */
+const LINUX_SUBREAPER_SUPERVISOR = String.raw`
+import ctypes, json, os, signal, subprocess, sys, time
+
+result_file, budget_raw, command, *args = sys.argv[1:]
+budget = None if budget_raw == "" else float(budget_raw)
+libc = ctypes.CDLL(None, use_errno=True)
+PR_SET_DUMPABLE = 4
+PR_SET_CHILD_SUBREAPER = 36
+
+def fail(msg, code=70):
+    try:
+        tmp = result_file + ".tmp-" + str(os.getpid())
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"exit": 1, "timedOut": False, "lifecycleOwned": False, "failure": msg}, fh)
+        os.replace(tmp, result_file)
+    except Exception:
+        pass
+    raise SystemExit(code)
+
+if libc.prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
+    fail("PR_SET_CHILD_SUBREAPER failed: errno=%d" % ctypes.get_errno())
+# Hide the supervisor's file descriptors/environment from same-UID descendants.
+# This does not make SIGKILL impossible; abnormal supervisor death is handled by
+# the outer process as an untrusted lifecycle failure.
+libc.prctl(PR_SET_DUMPABLE, 0, 0, 0, 0)
+
+def direct_children():
+    out = []
+    try:
+        names = os.listdir("/proc")
+    except Exception:
+        return None
+    me = os.getpid()
+    for name in names:
+        if not name.isdigit():
+            continue
+        try:
+            data = open("/proc/" + name + "/stat", "r", encoding="utf-8").read()
+            fields = data[data.rfind(")") + 2:].split()
+            if int(fields[1]) == me:
+                out.append(int(name))
+        except Exception:
+            pass
+    return out
+
+def reap_nonblocking():
+    while True:
+        try:
+            pid, _ = os.waitpid(-1, os.WNOHANG)
+        except ChildProcessError:
+            return
+        except InterruptedError:
+            continue
+        if pid <= 0:
+            return
+
+def kill_domain(pgid):
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except Exception as exc:
+        return False, "killpg failed: %s" % exc
+
+    deadline = time.monotonic() + 3.0
+    stable_empty = 0
+    while time.monotonic() < deadline:
+        reap_nonblocking()
+        kids = direct_children()
+        if kids is None:
+            return False, "/proc unavailable while draining adopted descendants"
+        for pid in kids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except Exception as exc:
+                return False, "failed to kill adopted descendant %d: %s" % (pid, exc)
+        reap_nonblocking()
+        remaining = direct_children()
+        if remaining == []:
+            stable_empty += 1
+            if stable_empty >= 3:
+                return True, None
+        else:
+            stable_empty = 0
+        time.sleep(0.01)
+    return False, "adopted descendant execution domain did not drain within 3 seconds"
+
+timed_out = False
+try:
+    child = subprocess.Popen([command] + args, start_new_session=True)
+except Exception as exc:
+    # No candidate process exists, so the lifecycle domain is trivially empty.
+    tmp = result_file + ".tmp-" + str(os.getpid())
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump({"exit": 1, "timedOut": False, "lifecycleOwned": True, "failure": str(exc)}, fh)
+    os.replace(tmp, result_file)
+    raise SystemExit(0)
+
+try:
+    if budget is None:
+        code = child.wait()
+    else:
+        try:
+            code = child.wait(timeout=budget)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            code = 124
+finally:
+    ok, reason = kill_domain(child.pid)
+
+if not ok:
+    fail(reason or "lifecycle drain failed")
+
+tmp = result_file + ".tmp-" + str(os.getpid())
+with open(tmp, "w", encoding="utf-8") as fh:
+    json.dump({
+        "exit": 124 if timed_out else int(code),
+        "timedOut": timed_out,
+        "lifecycleOwned": True,
+        "signal": None,
+    }, fh)
+os.replace(tmp, result_file)
+raise SystemExit(0)
 `;
 
 function linuxDescendantPids(rootPid: number): number[] {
