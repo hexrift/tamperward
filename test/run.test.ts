@@ -6,7 +6,7 @@
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runEnvelope, parseRun } from '../src/cli/run';
@@ -44,6 +44,23 @@ function repo(fixed = false): string {
 }
 
 const sh = (script: string) => ['bash', '-c', script];
+
+function linuxPidsWithCmdline(token: string): number[] {
+  if (process.platform !== 'linux') return [];
+  const found: number[] = [];
+  for (const entry of readdirSync('/proc')) {
+    if (!/^\d+$/.test(entry)) continue;
+    const pid = Number(entry);
+    if (pid === process.pid) continue;
+    try {
+      const cmdline = readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ');
+      if (cmdline.includes(token)) found.push(pid);
+    } catch {
+      // raced with exit
+    }
+  }
+  return found;
+}
 const run = (cwd: string, argv: string[], extra: Partial<Parameters<typeof runEnvelope>[0]> = {}) =>
   runEnvelope({ cwd, cmd: CMD, budget: 30, argv, ...extra });
 
@@ -281,24 +298,39 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
     const cwd = repo(true);
     const outside = mkdtempSync(join(tmpdir(), 'tw-run-descendant-'));
     dirs.push(outside);
-    const pidFile = join(outside, 'pid');
+    const script = join(outside, 'detached-agent-descendant.sh');
+    const started = join(outside, 'started');
     const late = join(cwd, 'late.txt');
-    let childPid = 0;
+    writeFileSync(
+      script,
+      [
+        '#!/bin/bash',
+        `touch "${started}"`,
+        'cd /tmp',
+        'sleep 30',
+        `echo late > "${late}"`,
+        '',
+      ].join('\n'),
+    );
+    chmodSync(script, 0o755);
 
     try {
-      const command =
-        `setsid bash -c 'echo $ > "${pidFile}"; cd /tmp; sleep 30; echo late > "${late}"' >/dev/null 2>&1 & ` +
-        `while [ ! -s "${pidFile}" ]; do sleep 0.01; done`;
-      const code = runEnvelope({ cwd, cmd: CMD, argv: sh(command) });
+      const code = runEnvelope({
+        cwd,
+        cmd: CMD,
+        argv: sh(
+          `setsid nohup bash "${script}" >/dev/null 2>&1 & ` +
+            `while [ ! -e "${started}" ]; do sleep 0.01; done`,
+        ),
+      });
 
-      childPid = Number(readFileSync(pidFile, 'utf8').trim());
-      expect(Number.isInteger(childPid) && childPid > 1).toBe(true);
+      expect(readFileSync(started, 'utf8')).toBe('');
       expect(code).toBe(0);
-      expect(() => process.kill(childPid, 0)).toThrow();
+      expect(linuxPidsWithCmdline(script)).toEqual([]);
       expect(() => readFileSync(late, 'utf8')).toThrow();
     } finally {
-      if (childPid > 1) {
-        try { process.kill(childPid, 'SIGKILL'); } catch { /* expected after fix */ }
+      for (const pid of linuxPidsWithCmdline(script)) {
+        try { process.kill(pid, 'SIGKILL'); } catch { /* expected after fix */ }
       }
     }
   }, 15_000);
