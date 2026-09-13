@@ -95,7 +95,8 @@
         },
         "required": [
           "verdict"
-        ]
+        ],
+        "type": "object"
       },
       "then": {
         "required": [
@@ -103,7 +104,8 @@
         ],
         "properties": {
           "reason": {}
-        }
+        },
+        "type": "object"
       }
     },
     {
@@ -120,7 +122,8 @@
         },
         "required": [
           "verdict"
-        ]
+        ],
+        "type": "object"
       },
       "then": {
         "required": [
@@ -146,7 +149,8 @@
           "verifier_backend": {},
           "dependency_environment": {},
           "oracle_assurance": {}
-        }
+        },
+        "type": "object"
       }
     },
     {
@@ -158,7 +162,8 @@
         },
         "required": [
           "verdict"
-        ]
+        ],
+        "type": "object"
       },
       "then": {
         "properties": {
@@ -175,7 +180,8 @@
                 },
                 "required": [
                   "exit"
-                ]
+                ],
+                "type": "object"
               }
             ]
           },
@@ -192,11 +198,13 @@
                 },
                 "required": [
                   "exit"
-                ]
+                ],
+                "type": "object"
               }
             ]
           }
-        }
+        },
+        "type": "object"
       }
     },
     {
@@ -208,7 +216,8 @@
         },
         "required": [
           "verdict"
-        ]
+        ],
+        "type": "object"
       },
       "then": {
         "properties": {
@@ -225,7 +234,8 @@
                 },
                 "required": [
                   "exit"
-                ]
+                ],
+                "type": "object"
               }
             ]
           },
@@ -245,11 +255,13 @@
                 },
                 "required": [
                   "exit"
-                ]
+                ],
+                "type": "object"
               }
             ]
           }
-        }
+        },
+        "type": "object"
       }
     },
     {
@@ -261,7 +273,8 @@
         },
         "required": [
           "verdict"
-        ]
+        ],
+        "type": "object"
       },
       "then": {
         "properties": {
@@ -281,11 +294,13 @@
                 },
                 "required": [
                   "exit"
-                ]
+                ],
+                "type": "object"
               }
             ]
           }
-        }
+        },
+        "type": "object"
       }
     },
     {
@@ -297,7 +312,8 @@
         },
         "required": [
           "verdict"
-        ]
+        ],
+        "type": "object"
       },
       "then": {
         "anyOf": [
@@ -311,12 +327,14 @@
                 },
                 "required": [
                   "exit"
-                ]
+                ],
+                "type": "object"
               }
             },
             "required": [
               "visible"
-            ]
+            ],
+            "type": "object"
           },
           {
             "properties": {
@@ -328,12 +346,14 @@
                 },
                 "required": [
                   "exit"
-                ]
+                ],
+                "type": "object"
               }
             },
             "required": [
               "pristine"
-            ]
+            ],
+            "type": "object"
           }
         ]
       }
