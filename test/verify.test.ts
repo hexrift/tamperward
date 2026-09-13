@@ -578,6 +578,22 @@ describe('verify diagnostics (#319)', () => {
     expect(rendered.split('\n').some((line) => line.startsWith('::error::'))).toBe(false);
   });
 
+  it.skipIf(process.platform !== 'linux')('fails closed if candidate code writes into the supervisor result fd', () => {
+    const cwd = repo();
+    const r = capture(() =>
+      runVerify({
+        cwd,
+        cmd:
+          `exec node -e "const f=require('fs'); try { f.writeFileSync('/proc/'+process.ppid+'/fd/1', '{\\\"forged\\\":true}'); } catch {} process.exit(1)"`,
+        budget: 30,
+        json: true,
+      }),
+    );
+    expect(r.code).toBe(2);
+    expect(r.json.verdict).toBe('CANNOT_VERIFY');
+    expect(r.json.reason).toBe('VERIFIER_BACKEND_RUNTIME_FAILURE');
+  });
+
   it('keeps successful suite output out of default human output', () => {
     const cwd = repo();
     writeFileSync(join(cwd, 'src.js'), 'module.exports = 42;\n');
