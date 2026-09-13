@@ -207,6 +207,60 @@ describe('harness/perf/compare.mjs', () => {
     expect(r.stdout + r.stderr).toContain('check.diff.small');
   });
 
+  it('refuses a baseline whose selected metric is missing or invalid for a baselined item', () => {
+    const cur = report({ 'hook.warm.100': 100, 'check.diff.small': 200 });
+    const missing = join(work, 'missing-metric.json');
+    writeFileSync(
+      missing,
+      JSON.stringify({
+        schema: 1,
+        items: [
+          { id: 'hook.warm.100', runs: 3, wall_ms: { p50: 100, p95: 120 }, cpu_ms: { p50: 50, p95: 60 } },
+          { id: 'check.diff.small', runs: 3, wall_ms: { p95: 240 }, cpu_ms: { p50: 100, p95: 110 } },
+        ],
+      }),
+    );
+    const r = compare(['--baseline', missing, '--current', cur]);
+    expect(r.status).not.toBe(0);
+    expect(r.stdout + r.stderr).toContain('check.diff.small');
+
+    const invalid = join(work, 'invalid-metric.json');
+    writeFileSync(
+      invalid,
+      JSON.stringify({
+        schema: 1,
+        items: [{ id: 'hook.warm.100', runs: 3, wall_ms: { p50: 'fast', p95: 120 }, cpu_ms: { p50: 50, p95: 60 } }],
+      }),
+    );
+    expect(compare(['--baseline', invalid, '--current', cur]).status).not.toBe(0);
+  });
+
+  it('refuses duplicate item ids and a report that is not a perf report', () => {
+    const cur = report({ 'hook.warm.100': 100 });
+    const dup = join(work, 'dup.json');
+    writeFileSync(
+      dup,
+      JSON.stringify({
+        schema: 1,
+        items: [
+          { id: 'hook.warm.100', runs: 3, wall_ms: { p50: 100, p95: 120 }, cpu_ms: { p50: 50, p95: 60 } },
+          { id: 'hook.warm.100', runs: 3, wall_ms: { p50: 900, p95: 950 }, cpu_ms: { p50: 50, p95: 60 } },
+        ],
+      }),
+    );
+    let r = compare(['--baseline', dup, '--current', cur]);
+    expect(r.status).not.toBe(0);
+    expect(r.stdout + r.stderr).toMatch(/duplicate/i);
+    r = compare(['--baseline', cur, '--current', dup]);
+    expect(r.status).not.toBe(0);
+
+    const notReport = join(work, 'not-a-report.json');
+    writeFileSync(notReport, JSON.stringify({ schema: 1, items: [{ runs: 3 }] }));
+    expect(compare(['--baseline', notReport, '--current', cur]).status).not.toBe(0);
+    writeFileSync(notReport, JSON.stringify({ schema: 2, items: [] }));
+    expect(compare(['--baseline', notReport, '--current', cur]).status).not.toBe(0);
+  });
+
   it('fails closed when the current report lacks a baselined item', () => {
     const base = report({ 'hook.warm.100': 100, 'check.diff.small': 200 });
     const cur = report({ 'hook.warm.100': 100 });
