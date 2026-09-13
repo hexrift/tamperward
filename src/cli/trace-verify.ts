@@ -12,6 +12,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   symlinkSync,
 } from 'node:fs';
@@ -316,7 +317,7 @@ function rewriteTraceRoot(
 
     // Resolve external dependency links while the materialisation still exists.
     try {
-      const real = resolve(execFileSync('realpath', [abs], { encoding: 'utf8' }).trim());
+      const real = resolve(realpathSync(abs));
       if (!inside(actualRoot, real)) return { ...item, path: real };
     } catch {
       // Missing/generated path: preserve the lexical in-root spelling.
@@ -365,8 +366,11 @@ function runOneTrace(
     );
     if (traced.error) throw traced.error;
 
-    const accesses = traceFiles(prefix)
-      .flatMap((path) => parseStraceFileAccess(readFileSync(path, 'utf8')));
+    const logs = traceFiles(prefix);
+    if (logs.length === 0) {
+      throw new Error('strace produced no trace files');
+    }
+    const accesses = logs.flatMap((path) => parseStraceFileAccess(readFileSync(path, 'utf8')));
     return {
       exit: traced.status ?? 1,
       accesses: rewriteTraceRoot(accesses, root),
@@ -435,9 +439,10 @@ export function runTraceVerify(opts: TraceVerifyOpts = {}): number {
     process.stderr.write(`tamperward trace-verify: --runs needs a positive integer (got ${JSON.stringify(opts.runs)}).\n`);
     return 2;
   }
-  const baseArg = assertRev(opts.base ?? 'HEAD');
+  let baseArg: string;
   let base: string;
   try {
+    baseArg = assertRev(opts.base ?? 'HEAD');
     base = git(['rev-parse', '--verify', `${baseArg}^{commit}`], cwd).trim();
   } catch (e) {
     process.stderr.write(`tamperward trace-verify: cannot resolve trusted base ${JSON.stringify(baseArg)} (${e instanceof Error ? e.message : String(e)}).\n`);
