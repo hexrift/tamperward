@@ -775,15 +775,55 @@ function suiteEnv(scratch: string): NodeJS.ProcessEnv {
   return env;
 }
 
+export interface LocalVerifierShell {
+  executable: string;
+  args: string[];
+}
+
+/**
+ * Shell contract for the checkpointed-local verifier.
+ *
+ * Verification commands are policy strings and therefore require shell
+ * semantics. TamperWard intentionally supports that contract only on hosts
+ * where a POSIX /bin/sh is part of the platform contract. Windows is refused
+ * before any candidate stage is materialised/executed rather than relying on
+ * Git-for-Windows/MSYS PATH accidents or silently changing command semantics.
+ */
+export function localVerifierShell(
+  platform: NodeJS.Platform = process.platform,
+  command: string,
+): LocalVerifierShell | null {
+  switch (platform) {
+    case 'linux':
+    case 'darwin':
+    case 'freebsd':
+    case 'openbsd':
+    case 'aix':
+    case 'sunos':
+      return { executable: '/bin/sh', args: ['-c', command] };
+    default:
+      return null;
+  }
+}
+
 function runLocalSuite(dir: string, cmd: string, budgetSecs: number): RunResult {
   const t0 = Date.now();
+  const shell = localVerifierShell(process.platform, cmd);
+  if (!shell) {
+    return {
+      exit: null,
+      secs: 0,
+      failure: 'backend',
+      reason: `checkpointed-local verifier is unsupported on ${process.platform}; no trusted local shell contract is defined`,
+    };
+  }
   const scratch = mkdtempSync(join(tmpdir(), 'tw-verify-run-'));
   try {
-    const r = runCapturedProcessSync('sh', ['-c', cmd], {
+    const r = runCapturedProcessSync(shell.executable, shell.args, {
       cwd: dir,
       env: suiteEnv(scratch),
       timeoutMs: budgetSecs * 1000,
-      detached: process.platform !== 'win32',
+      detached: true,
       killGroupOnFinish: true,
       backstopMs: 30_000,
     });
@@ -932,6 +972,23 @@ export function runVerify(opts: VerifyOpts): number {
     return 2;
   }
   const isolated = verifierBackend.kind === 'container';
+  if (!isolated && !localVerifierShell(process.platform, cmd)) {
+    if (opts.json) {
+      out(JSON.stringify({
+        verdict: 'CANNOT_VERIFY',
+        reason: 'LOCAL_VERIFIER_UNSUPPORTED_PLATFORM',
+        platform: process.platform,
+        verifier_backend: backendReport(),
+        oracle_assurance: oracleAssuranceReport(),
+      }));
+    } else {
+      out(
+        `verify: checkpointed-local verifier is unsupported on ${process.platform}; ` +
+          'no trusted local shell contract is defined. Failing closed before candidate execution.',
+      );
+    }
+    return 2;
+  }
 
   // Same-host dependency attestation is a LOCAL-backend control. The isolated
   // backend mounts no agent dependency environment at all: its immutable image
