@@ -129,6 +129,69 @@ describe('test-skip AST semantics (#330)', () => {
     expect(findings(modifiedFile('src/a.spec.ts', before, after, [2]))).toHaveLength(0);
   });
 
+  it('does not resolve a shadowed computed-property identifier to a top-level const', () => {
+    const f = findings(addedFile('src/a.spec.ts', [
+      "const mode = 'skip';",
+      'function helper(mode: string) {',
+      "  test[mode]('x', () => {});",
+      '}',
+    ].join('\n')));
+    expect(f).toHaveLength(0);
+  });
+
+  it('does not resolve shadowed imported or implicit runner names', () => {
+    const imported = findings(addedFile('src/a.spec.ts', [
+      "import { test as check } from 'vitest';",
+      'function helper(check: SomeOtherApi) {',
+      "  check.only('x');",
+      '}',
+    ].join('\n')));
+    expect(imported).toHaveLength(0);
+
+    const implicit = findings(addedFile('src/b.spec.ts', [
+      'function helper(test: SomeOtherApi) {',
+      "  test.only('x');",
+      '}',
+    ].join('\n')));
+    expect(implicit).toHaveLength(0);
+  });
+
+  it('attributes a newly-static skip to the changed binding when the call site is unchanged', () => {
+    const before = [
+      "const mode = 'concurrent';",
+      "test[mode]('x', () => {});",
+    ].join('\n');
+    const after = [
+      "const mode = 'skip';",
+      "test[mode]('x', () => {});",
+    ].join('\n');
+    const f = findings(modifiedFile('src/a.spec.ts', before, after, [1]));
+    expect(f).toHaveLength(1);
+    expect(f[0].line).toBe(1);
+  });
+
+  it('attributes a newly-resolved runner alias to the changed import when the call site is unchanged', () => {
+    const before = [
+      "import { test as check } from './helper';",
+      "check.only('x', () => {});",
+    ].join('\n');
+    const after = [
+      "import { test as check } from 'vitest';",
+      "check.only('x', () => {});",
+    ].join('\n');
+    const f = findings(modifiedFile('src/a.spec.ts', before, after, [1]));
+    expect(f).toHaveLength(1);
+    expect(f[0].line).toBe(1);
+  });
+
+  it('declines AST-only classification when TypeScript reports parse diagnostics', () => {
+    const f = findings(addedFile('src/a.spec.ts', [
+      "const mode = 'skip';",
+      "test[mode]('x', () => {};",
+    ].join('\n')));
+    expect(f).toHaveLength(0);
+  });
+
   it('keeps diff-only regex fallback without pretending it can resolve AST-only forms', () => {
     const direct = addedFile('src/a.spec.ts', "test.skip('x', () => {});");
     direct.after = null;
