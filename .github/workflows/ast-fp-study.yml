@@ -8,8 +8,26 @@ permissions:
 
 jobs:
   study:
+    name: study (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: immer
+            url: https://github.com/immerjs/immer.git
+            sha: 061c2425e1c9dff89e4e4189d42af1b7839dfe0a
+          - name: zustand
+            url: https://github.com/pmndrs/zustand.git
+            sha: b57db4f86ef179285da216eeb291266da82c361c
+          - name: zod
+            url: https://github.com/colinhacks/zod.git
+            sha: ca0229a404818290e6cdcfefcd7eb2d04bcbb543
+          - name: hono
+            url: https://github.com/honojs/hono.git
+            sha: 8755b17fbcfdee76511eeb460e18e94e6c9a8d30
+
     steps:
       - uses: actions/checkout@v5
         with:
@@ -28,36 +46,15 @@ jobs:
           cd /tmp/tw-base
           npm ci
           npm run build
-      - name: compare pinned real mainline diffs
-        env:
-          IMMER_SHA: 061c2425e1c9dff89e4e4189d42af1b7839dfe0a
-          ZUSTAND_SHA: b57db4f86ef179285da216eeb291266da82c361c
-          ZOD_SHA: ca0229a404818290e6cdcfefcd7eb2d04bcbb543
-          HONO_SHA: 8755b17fbcfdee76511eeb460e18e94e6c9a8d30
+      - name: compare pinned real mainline diff
         run: |
           set -eu
+          dir="/tmp/corpus/${{ matrix.name }}"
           mkdir -p /tmp/corpus
+          git init -q "$dir"
+          git -C "$dir" remote add origin "${{ matrix.url }}"
+          git -C "$dir" fetch -q --depth 101 origin "${{ matrix.sha }}"
+          git -C "$dir" checkout -q --detach "${{ matrix.sha }}"
+          test "$(git -C "$dir" rev-parse HEAD)" = "${{ matrix.sha }}"
 
-          fetch_pinned () {
-            name="$1"
-            url="$2"
-            sha="$3"
-            dir="/tmp/corpus/$name"
-            git init -q "$dir"
-            git -C "$dir" remote add origin "$url"
-            git -C "$dir" fetch -q --depth 101 origin "$sha"
-            git -C "$dir" checkout -q --detach "$sha"
-            test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
-          }
-
-          fetch_pinned immer https://github.com/immerjs/immer.git "$IMMER_SHA"
-          fetch_pinned zustand https://github.com/pmndrs/zustand.git "$ZUSTAND_SHA"
-          fetch_pinned zod https://github.com/colinhacks/zod.git "$ZOD_SHA"
-          fetch_pinned hono https://github.com/honojs/hono.git "$HONO_SHA"
-
-          for repo in immer zustand zod hono; do
-            node harness/fp-study/test-skip-ast-delta.mjs \
-              "$repo" "/tmp/corpus/$repo" \
-              /tmp/tw-base/dist/cli/index.js \
-              "$GITHUB_WORKSPACE/dist/cli/index.js"
-          done
+          node harness/fp-study/test-skip-ast-delta.mjs             "${{ matrix.name }}" "$dir"             /tmp/tw-base/dist/cli/index.js             "$GITHUB_WORKSPACE/dist/cli/index.js"
