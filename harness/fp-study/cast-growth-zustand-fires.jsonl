@@ -1,0 +1,1 @@
+{"repo":"zustand","base":"e7d4593594ad","head":"6e026d753096","file":"src/middleware/devtools.ts","line":35,"message":"The unsafe assertion surface grew: +2 type assertions (`as T` / `<T>x`) net of any removed in this change (now 12 type / 0 non-null in this file).","evidence":"api as WithDispatch","verdict":""}

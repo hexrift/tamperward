@@ -16,6 +16,7 @@ import { parseDiff } from '../diff/parse';
 import { addHunks } from '../diff/synth';
 import { Change } from '../types';
 import { trustedGitEnv } from './trusted';
+import { execFailure } from '../narrow';
 
 export interface GitOpts {
   cwd?: string;
@@ -49,9 +50,9 @@ function git(args: string[], cwd?: string): string {
       env: trustedGitEnv(),
     });
   } catch (e) {
-    const err = e as { stderr?: string | Buffer; message?: string };
-    const detail = String(err.stderr ?? '').trim();
-    throw new Error(detail ? `git ${args[0]}: ${detail}` : (err.message ?? `git ${args[0]} failed`));
+    const failure = execFailure(e);
+    const detail = failure.stderr.trim();
+    throw new Error(detail ? `git ${args[0]}: ${detail}` : (failure.message || `git ${args[0]} failed`));
   }
 }
 
@@ -304,7 +305,7 @@ export function ignoredAdds(opts: GitOpts = {}, keep: (rel: string) => boolean, 
  *  untracked one, and used to be the one file no view enumerated. */
 export function diffWorktreeWithUntracked(opts: GitOpts = {}, keepIgnored?: (rel: string) => boolean): Change[] {
   const tracked = diffWorktree(opts);
-  const seen = new Set(tracked.filter((c) => c.kind === 'file').map((c) => (c as { path: string }).path));
+  const seen = new Set(tracked.flatMap((c) => (c.kind === 'file' ? [c.path] : [])));
   const untracked = untrackedAdds(opts, undefined, seen);
   for (const c of untracked) if (c.kind === 'file') seen.add(c.path);
   const ignored = keepIgnored ? ignoredAdds(opts, keepIgnored, seen) : [];

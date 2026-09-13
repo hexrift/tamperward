@@ -62,4 +62,13 @@ describe('ts-any-cast — precision-split: BLOCK unambiguous casts, WARN broad a
     const ann = parseDiff('diff --git a/src/y.ts b/src/y.ts\nindex 1..2 100644\n--- a/src/y.ts\n+++ b/src/y.ts\n@@ -1,1 +1,1 @@\n-const v = read();\n+const v: any = read();');
     expect(warn(tsAnyCast.run(ann, P))).toHaveLength(1);
   });
+
+  it('diff-only fallback: the parenthesised double cast is the same BLOCK as the bare spelling', () => {
+    for (const spelling of ['raw as unknown as T', '(raw as unknown) as T', '(raw as (unknown)) as T', '((raw as (unknown))) as T']) {
+      const d = parseDiff(`diff --git a/src/y.ts b/src/y.ts\nindex 1..2 100644\n--- a/src/y.ts\n+++ b/src/y.ts\n@@ -1,1 +1,1 @@\n-const v = raw;\n+const v = ${spelling};`);
+      expect(block(tsAnyCast.run(d, P)), spelling).toHaveLength(1);
+    }
+    const honest = parseDiff('diff --git a/src/y.ts b/src/y.ts\nindex 1..2 100644\n--- a/src/y.ts\n+++ b/src/y.ts\n@@ -1,1 +1,1 @@\n-const v = raw;\n+const v = raw as (unknown);');
+    expect(block(tsAnyCast.run(honest, P))).toHaveLength(0);
+  });
 });

@@ -29,6 +29,7 @@ import { loadPolicy, loadPolicyAt } from '../policy-load';
 import { defaultPolicy, isProtected } from '../policy';
 import { gitDir } from '../git/build';
 import { Policy } from '../types';
+import { errnoCode, finiteNumber, isRecord, nullableString, stringOrUndefined } from '../narrow';
 
 export interface FsEvent {
   ts: string;
@@ -90,14 +91,29 @@ export function watcherHealthPath(log: string): string {
 
 export function readWatcherHealth(log: string): WatcherHealth | null {
   try {
-    const value = JSON.parse(readFileSync(watcherHealthPath(log), 'utf8')) as Partial<WatcherHealth>;
-    if (
-      value.version !== 1 ||
-      typeof value.pid !== 'number' ||
-      typeof value.started_at !== 'string' ||
-      !['healthy', 'degraded', 'stopped'].includes(String(value.state))
-    ) return null;
-    return value as WatcherHealth;
+    // Same-UID writable evidence: every field that carries meaning is checked
+    // before it is believed. The identity fields decide validity; the counters
+    // and optional strings fall back to their zero/absent values.
+    const value: unknown = JSON.parse(readFileSync(watcherHealthPath(log), 'utf8'));
+    if (!isRecord(value)) return null;
+    const { state, backend, pid, started_at } = value;
+    if (value.version !== 1 || typeof pid !== 'number' || typeof started_at !== 'string') return null;
+    if (state !== 'healthy' && state !== 'degraded' && state !== 'stopped') return null;
+    return {
+      version: 1,
+      state,
+      backend: backend === 'initializing' || backend === 'recursive' ? backend : 'fallback',
+      pid,
+      started_at,
+      stopped_at: nullableString(value.stopped_at) ?? null,
+      watched_dirs: finiteNumber(value.watched_dirs) ?? 0,
+      last_append_at: nullableString(value.last_append_at) ?? null,
+      event_count: finiteNumber(value.event_count) ?? 0,
+      dropped_events: finiteNumber(value.dropped_events) ?? 0,
+      error_count: finiteNumber(value.error_count) ?? 0,
+      last_error: nullableString(value.last_error) ?? null,
+      log: stringOrUndefined(value.log) ?? log,
+    };
   } catch {
     return null;
   }
@@ -109,7 +125,7 @@ function pidAlive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'EPERM';
+    return errnoCode(e) === 'EPERM';
   }
 }
 

@@ -27,6 +27,7 @@ import { Policy } from './types';
 import { isProtected } from './policy';
 import { DiskEntry, inspectRel } from './disk';
 import { ignoredTree } from './git/build';
+import { isRecord } from './narrow';
 
 export interface PEntry {
   hash: string;
@@ -35,6 +36,21 @@ export interface PEntry {
   mtimeMs: number;
 }
 export type PTree = Record<string, PEntry>;
+
+/** A saved ptree read back as evidence, or null when any entry is not the shape
+ *  this module wrote: an absent ptree forces a full re-snapshot, which is the
+ *  safe direction — a half-believed one would let a stale hash stand. */
+export function ptreeFrom(value: unknown): PTree | null {
+  if (!isRecord(value)) return null;
+  const out: PTree = {};
+  for (const [path, entry] of Object.entries(value)) {
+    if (!isRecord(entry)) return null;
+    const { hash, mode, size, mtimeMs } = entry;
+    if (typeof hash !== 'string' || typeof mode !== 'number' || typeof size !== 'number' || typeof mtimeMs !== 'number') return null;
+    out[path] = { hash, mode, size, mtimeMs };
+  }
+  return out;
+}
 
 const UNSAFE = /[^A-Za-z0-9._-]/g;
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.hg', '.svn']);
@@ -197,7 +213,7 @@ export function driftBetween(expected: PTree, current: PTree): Drift {
 function loadTree(p: string | null): PTree | null {
   if (!p || !existsSync(p)) return null;
   try {
-    return JSON.parse(readFileSync(p, 'utf8')) as PTree;
+    return ptreeFrom(JSON.parse(readFileSync(p, 'utf8')));
   } catch {
     return null;
   }

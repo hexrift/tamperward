@@ -22,6 +22,7 @@ import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, readlin
 import { join } from 'node:path';
 import { escapeControl, isProtected } from './policy';
 import { Change, Finding, Policy } from './types';
+import { errnoCode } from './narrow';
 
 /** The most a protected file is read for judgement. A larger one is judged by name. */
 export const READ_CAP = 64 * 1024 * 1024;
@@ -47,7 +48,7 @@ function errText(e: unknown): string {
 }
 
 function errCode(e: unknown): string {
-  return String((e as { code?: unknown })?.code ?? '');
+  return errnoCode(e) ?? '';
 }
 
 function irregularName(st: Stats): string {

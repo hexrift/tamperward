@@ -214,14 +214,13 @@ export function effectivePytestFile(files: Map<string, string | null>): { path: 
 export function effectivePytestConfig(path: string, ctx?: { trackedFiles?: string[] }): boolean {
   if (path.includes('/')) return false; // nested: not the rootdir config
   const base = path;
-  const ORDER = PYTEST_INI_ORDER as readonly string[];
-  const rank = ORDER.indexOf(base);
+  const rank = PYTEST_INI_ORDER.findIndex((name) => name === base);
   if (rank < 0) return false;
   const files = ctx?.trackedFiles;
   if (!files) return true; // no listing: cannot establish a shadow, so do not invent one
   const rootNames = new Set(files.filter((f) => !f.includes('/')));
   // any higher-precedence root config present may be the one pytest opens
-  return !ORDER.slice(0, rank).some((n) => rootNames.has(n));
+  return !PYTEST_INI_ORDER.slice(0, rank).some((n) => rootNames.has(n));
 }
 
 /**
@@ -437,8 +436,8 @@ function collect(root: ts.Node, runner: Runner): Selection {
 /** `defineConfig({...})` / `defineProject({...})` around a literal is the literal. */
 function unwrapConfigCall(e: ts.Expression): ts.Expression {
   let x = e;
-  while (ts.isParenthesizedExpression(x) || ts.isAsExpression(x) || x.kind === ts.SyntaxKind.SatisfiesExpression) {
-    x = (x as ts.ParenthesizedExpression | ts.AsExpression | ts.SatisfiesExpression).expression;
+  while (ts.isParenthesizedExpression(x) || ts.isAsExpression(x) || ts.isSatisfiesExpression(x)) {
+    x = x.expression;
   }
   if (ts.isCallExpression(x) && /^(?:\w+\.)?define(?:Config|Project)$/.test(x.expression.getText()) && x.arguments[0]) return unwrapConfigCall(x.arguments[0]);
   return x;
@@ -514,8 +513,8 @@ function workspaceArray(sf: ts.SourceFile): ts.ArrayLiteralExpression | null {
     if (ts.isExportAssignment(st)) e = st.expression;
     else if (ts.isExpressionStatement(st) && ts.isBinaryExpression(st.expression) && /module\.exports/.test(st.expression.left.getText())) e = st.expression.right;
     if (!e) continue;
-    while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || e.kind === ts.SyntaxKind.SatisfiesExpression) {
-      e = (e as ts.ParenthesizedExpression | ts.AsExpression | ts.SatisfiesExpression).expression;
+    while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e)) {
+      e = e.expression;
     }
     if (ts.isCallExpression(e) && e.arguments.length > 0) e = e.arguments[0];
     return ts.isArrayLiteralExpression(e) ? e : null;

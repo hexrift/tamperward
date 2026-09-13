@@ -11,6 +11,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import { Change, FileChange, FileOp } from '../../types';
 import { parseDiff } from '../../diff/parse';
 import { inspectResolved, textOf } from '../../disk';
+import { execFailure, isRecord } from '../../narrow';
 
 export interface ClaudeHookInput {
   tool_name?: string;
@@ -99,11 +100,11 @@ export function synthFileChange(displayPath: string, before: string | null, afte
       // Anything else — the buffer overflowing, git missing, a signal — is not a
       // diff: partial stdout would parse as a SMALLER change than the one about
       // to land, and the hook would allow on that partial view. Fail closed.
-      const err = e as { stdout?: string | Buffer; status?: number | null; code?: string; message?: string };
-      if (err.status !== 1) {
-        throw new Error(`cannot diff the incoming edit to ${displayPath}: ${err.code ?? err.message ?? String(e)}`);
+      const failure = execFailure(e);
+      if (failure.status !== 1) {
+        throw new Error(`cannot diff the incoming edit to ${displayPath}: ${failure.code ?? failure.message}`);
       }
-      raw = err.stdout ? String(err.stdout) : '';
+      raw = failure.stdout;
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -142,8 +143,8 @@ export function changesFromClaudeHook(input: ClaudeHookInput, cwd: string): Chan
       let after: string | null = before;
       const edits = Array.isArray(ti.edits) ? ti.edits : [];
       for (const raw of edits) {
-        const ed = raw as { old_string?: string; new_string?: string };
-        after = applyEdit(after, ed.old_string ?? '', ed.new_string ?? '');
+        const ed = isRecord(raw) ? raw : {};
+        after = applyEdit(after, asStr(ed.old_string), asStr(ed.new_string));
       }
       return synthFileChange(relForDisplay(abs(fp, cwd), cwd), before, after);
     }

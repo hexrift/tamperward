@@ -11,6 +11,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { errnoCode, isRecord } from './narrow';
 
 export const DIAGNOSTIC_TAIL_BYTES = 16 * 1024;
 
@@ -46,16 +47,6 @@ export interface CapturedProcessOptions {
   backstopMs?: number;
 }
 
-type RawStream = { captured_bytes?: number; tail_b64?: string };
-type RawResult = {
-  exit?: number | null;
-  signal?: string | null;
-  timedOut?: boolean;
-  error?: string;
-  stdout?: RawStream;
-  stderr?: RawStream;
-};
-
 const EMPTY_STREAM: StreamDiagnostics = {
   captured_bytes: 0,
   retained_bytes: 0,
@@ -79,15 +70,16 @@ function decodeUtf8Tail(tail: Buffer): string {
   return tail.subarray(start).toString('utf8');
 }
 
-function streamFromRaw(raw: RawStream | undefined): StreamDiagnostics {
+function streamFromRaw(value: unknown): StreamDiagnostics {
+  const raw = isRecord(value) ? value : {};
   let tail = Buffer.alloc(0);
   try {
-    tail = Buffer.from(raw?.tail_b64 ?? '', 'base64');
+    tail = Buffer.from(typeof raw.tail_b64 === 'string' ? raw.tail_b64 : '', 'base64');
   } catch {
     tail = Buffer.alloc(0);
   }
-  const captured = Number.isFinite(raw?.captured_bytes)
-    ? Math.max(0, Number(raw?.captured_bytes))
+  const captured = typeof raw.captured_bytes === 'number' && Number.isFinite(raw.captured_bytes)
+    ? Math.max(0, raw.captured_bytes)
     : tail.length;
   return {
     captured_bytes: captured,
@@ -108,7 +100,7 @@ function streamFromRaw(raw: RawStream | undefined): StreamDiagnostics {
 export function scrubDiagnosticText(input: string): string {
   let out = '';
   for (const ch of input) {
-    const cp = ch.codePointAt(0)!;
+    const cp = ch.codePointAt(0) ?? 0;
     if (ch === '\n' || ch === '\t') {
       out += ch;
     } else if (cp === 0x0d) {
@@ -322,13 +314,13 @@ if (child) {
  * the whole channel and fail closed; never scan for a plausible JSON suffix.
  */
 export function parseCapturedSupervisorResult(stdoutText: string): CapturedProcessResult | null {
-  let raw: RawResult;
+  let raw: unknown;
   try {
-    raw = JSON.parse(stdoutText) as RawResult;
+    raw = JSON.parse(stdoutText);
   } catch {
     return null;
   }
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (!isRecord(raw)) return null;
   const diagnostics: SuiteDiagnostics = {
     stdout: streamFromRaw(raw.stdout),
     stderr: streamFromRaw(raw.stderr),
@@ -389,7 +381,7 @@ export function runCapturedProcessSync(
     if (!parsed) {
       const supervisorTimedOut =
         Boolean(supervisor.error) &&
-        (supervisor.error as NodeJS.ErrnoException).code === 'ETIMEDOUT';
+        errnoCode(supervisor.error) === 'ETIMEDOUT';
       return {
         exit: null,
         signal: supervisor.signal ? String(supervisor.signal) : null,

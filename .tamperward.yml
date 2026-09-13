@@ -31,6 +31,9 @@ rules:
   test-deletion: { severity: block } # AST (count-based) + rename-out-of-glob + rm/sed/>
   test-skip: { severity: block }
   ts-any-cast: { severity: block }
+  # net growth of ordinary `as T` / `x!` assertions in non-test source; warn by
+  # corpus (harness/fp-study/CAST-GROWTH-CORPUS.md). src/ now carries none.
+  ts-cast-growth: { severity: warn }
   lint-suppression: { severity: block }
   coverage-lowering: { severity: block }
   ci-tampering: { severity: block }

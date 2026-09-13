@@ -102,7 +102,7 @@ export const snapshotRewrite: Detector = {
         c.op === 'rename' && !isSnap ? `renamed out of the protected snapshot set (to ${c.path})` :
         'rewritten';
       warn({
-        file: c.op === 'rename' && !isSnap ? (c.oldPath as string) : c.path,
+        file: c.op === 'rename' && !isSnap ? (c.oldPath ?? c.path) : c.path,
         message: `A recorded expected output was ${what}.`,
         evidence: c.op === 'rename' ? `${c.oldPath} -> ${c.path}` : c.path,
         remediation:

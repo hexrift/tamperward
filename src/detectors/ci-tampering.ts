@@ -416,7 +416,7 @@ export function isTruthy(raw: string): boolean {
  *  (`-e`, `-eo pipefail`, `-euxo`) or `-o errexit`. */
 const SHELL_ERREXIT = /(?:^|\s)-[a-zA-Z]*e[a-zA-Z]*(?:\s|$)|-o\s+errexit\b/;
 
-const indentOf = (l: string) => l.match(/^\s*/)![0].length;
+const indentOf = (l: string) => l.length - l.trimStart().length;
 const STEP_START = /^\s*-\s+(?:name|uses|run|if|id|with|env|shell|continue-on-error|working-directory|timeout-minutes):/;
 
 /** The step (list item) a workflow line at index `i` belongs to: its line range, or
@@ -790,9 +790,9 @@ export const ciTampering: Detector = {
           );
         }
         // `on:` narrowed so the workflow no longer runs where the check matters.
-        if (c.before != null) {
+        if (c.before != null && c.after != null) {
           triggerOpts ??= { defaultBranch: defaultBranch(ctx), sources: sourceProbes(ctx), hasBranch: (b) => branchExists(b, ctx) };
-          for (const reason of triggerNarrowings(parseTriggers(c.before), parseTriggers(c.after!), triggerOpts)) {
+          for (const reason of triggerNarrowings(parseTriggers(c.before), parseTriggers(c.after), triggerOpts)) {
             out.push(
               makeFinding(RULE, policy, {
                 file: c.path,

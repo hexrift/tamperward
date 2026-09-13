@@ -577,12 +577,12 @@ option can never be reinterpreted as the agent command.
 
 ### The rules
 
-Seventeen rules are specified and sixteen ship (see the table in
+Eighteen rules are specified and seventeen ship (see the table in
 [SPEC.md](./SPEC.md)). The families: test protection (`test-deletion`,
 `test-skip`, `test-content-removal`, plus the warning-only JS/TS
 `assertion-weakening` heuristic), verification-signal protection
 (`coverage-lowering`, `snapshot-rewrite`, `snapshot-only-rewrite`), suppression
-(`ts-any-cast`, `ts-any-launder`, `lint-suppression`), pipeline protection
+(`ts-any-cast`, `ts-any-launder`, `ts-cast-growth`, `lint-suppression`), pipeline protection
 (`ci-tampering`, `hook-tampering`, `no-verify`), and the effect/outcome layers
 (`transient-protected-mutation`, `pristine-verification`, plus the `run` envelope).
 `test-skip` keeps the established regex coverage for diff-only inputs and non-JS
@@ -598,6 +598,12 @@ specificity removed, or a pure assertion removed from the same suite-qualified
 test. It measured 12/12 true-positive fires with 0/20 false positives on the
 committed detector-specific replay and remains `warn`; `guard-removal` is still
 reserved with no detector, and `ts-any-launder` is a permanent warn.
+`ts-cast-growth` (2.20.0) is the assertion budget: net growth of ordinary `as T` /
+`<T>x` / `x!` assertions in non-test source, counted on the AST net of casts the same
+change removed, reported as a warning that never blocks by default. It fires on 8.7%
+of legitimate mainline pairs across four real TypeScript libraries
+(`harness/fp-study/CAST-GROWTH-CORPUS.md`), so block is closed by corpus; the same
+pass removed every assertion from TamperWard's own `src/` (`docs/CAST-INVENTORY.md`).
 
 ## What Tamperward does not do
 

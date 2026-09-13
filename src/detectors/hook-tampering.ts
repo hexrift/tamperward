@@ -59,7 +59,7 @@ const isObj = (v: unknown): v is Obj => v !== null && typeof v === 'object' && !
 function parseSettings(src: string): Settings | null {
   try {
     const v: unknown = JSON.parse(src);
-    return isObj(v) ? (v as Settings) : null;
+    return isObj(v) ? v : null;
   } catch {
     return null;
   }
@@ -310,7 +310,7 @@ function coverage(cs: Candidate[]): Set<string> | null | 'none' {
   const live = cs.filter((c) => c.runs);
   if (live.length === 0) return 'none';
   if (live.some((c) => c.tools === null)) return null;
-  return new Set(live.flatMap((c) => [...(c.tools as Set<string>)]));
+  return new Set(live.flatMap((c) => (c.tools ? [...c.tools] : [])));
 }
 
 /** Keys that appear twice in one JSON object: the runtime's reading of the file
@@ -443,8 +443,9 @@ function settingsWeakening(before: Settings | null, after: Settings, local: bool
       const schema = schemaProblem(e.group, e.h);
       if (schema) {
         reasons.push(`a ${e.event} hook entry carries a value the runtime's schema rejects (${schema}) — the runtime continues without the broken file, the gate included`);
-      } else if (e.event === 'PreToolUse' || e.event === 'Stop') {
-        reasons.push(`a ${e.event} hook entry beside the gate ${siblingProblem(e.h as Obj)}`);
+      } else if ((e.event === 'PreToolUse' || e.event === 'Stop') && isObj(e.h)) {
+        // schemaProblem has already named any entry that is not an object.
+        reasons.push(`a ${e.event} hook entry beside the gate ${siblingProblem(e.h)}`);
       }
     }
   } else {
@@ -502,7 +503,7 @@ function claudeSettingsFindings(c: FileChange, policy: Policy): Finding[] | null
 function policyFindings(c: FileChange, policy: Policy): Finding[] | null {
   if (c.after == null) return null;
   const added = c.before == null;
-  const reasons = added ? policyAddWeakening(c.after) : policyWeakening(c.before as string, c.after);
+  const reasons = c.before == null ? policyAddWeakening(c.after) : policyWeakening(c.before, c.after);
   if (reasons === null) return null;
   return reasons.map((reason) =>
     makeFinding(RULE, policy, {
@@ -552,7 +553,7 @@ function lefthookBase(c: FileChange, changes: Change[], ctx?: DetectorContext): 
  *  entries under the gate's name are read as the gate: `tamperward: { skip: true }`
  *  in a local file has one purpose. */
 function syntheticBase(over: Record<string, unknown>): Record<string, unknown> {
-  const base: Record<string, unknown> = {};
+  const base: Record<string, Record<string, Record<string, unknown>>> = {};
   for (const [section, v] of Object.entries(over)) {
     if (!isObj(v)) continue;
     for (const group of ['commands', 'scripts']) {
@@ -560,8 +561,8 @@ function syntheticBase(over: Record<string, unknown>): Record<string, unknown> {
       if (!isObj(g)) continue;
       for (const name of Object.keys(g)) {
         if (!/tamperward/.test(name)) continue;
-        const sec = (base[section] ??= {}) as Record<string, unknown>;
-        const grp = (sec[group] ??= {}) as Record<string, unknown>;
+        const sec = (base[section] ??= {});
+        const grp = (sec[group] ??= {});
         grp[name] = { run: 'npx tamperward check --staged' };
       }
     }
@@ -866,8 +867,8 @@ export const hookTampering: Detector = {
           const husky = isHuskyScript(c.path);
           const opts: ScriptOpts = husky ? { errexit: true } : {};
           const beforePin = c.before != null && c.after != null ? initScriptPin(c.before) : null;
-          if (beforePin !== null) {
-            const afterPin = initScriptPin(c.after as string);
+          if (beforePin !== null && c.after != null) {
+            const afterPin = initScriptPin(c.after);
             const kept = afterPin !== null && (beforePin === '' ? afterPin === '' || PLAIN_SEMVER.test(afterPin) : pinNotBelow(afterPin, beforePin));
             if (!kept) {
               out.push(

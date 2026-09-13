@@ -1,0 +1,71 @@
+name: cast-growth-evidence
+
+# Recomputes the ts-cast-growth live-fire measurement recorded in
+# harness/fp-study/CAST-GROWTH-CORPUS.md from the four pinned real-repository
+# histories, and fails when the fresh replay diverges from the committed record
+# (pinned head, pair counts, eligible-source count, fired pairs, findings, and
+# the exact set of fire records). Ordinary PR CI replays the labeled regression
+# corpus instead; this job is the reproducible evidence behind the recorded
+# rate and runs when the rule, the harness or the record changes, or on demand.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src/detectors/ts-cast-growth.ts'
+      - 'src/detectors/ts-any-cast.ts'
+      - 'harness/fp-study/cast-growth-*'
+      - 'harness/fp-study/CAST-GROWTH-CORPUS.md'
+      - '.github/workflows/cast-growth-evidence.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cast-growth-evidence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - repo: immer
+            source: immerjs/immer
+            head: 061c2425e1c9dff89e4e4189d42af1b7839dfe0a
+            depth: 138
+          - repo: zustand
+            source: pmndrs/zustand
+            head: b57db4f86ef179285da216eeb291266da82c361c
+            depth: 101
+          - repo: zod
+            source: colinhacks/zod
+            head: ca0229a404818290e6cdcfefcd7eb2d04bcbb543
+            depth: 101
+          - repo: hono
+            source: honojs/hono
+            head: 8755b17fbcfdee76511eeb460e18e94e6c9a8d30
+            depth: 124
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Fetch the pinned corpus head
+        run: |
+          mkdir -p corpus && cd corpus
+          git init -q
+          git remote add origin "https://github.com/${{ matrix.source }}.git"
+          git fetch -q --depth ${{ matrix.depth }} origin ${{ matrix.head }}
+          git checkout -q FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "${{ matrix.head }}"
+      - name: Replay the rule over adjacent first-parent pairs
+        run: |
+          node harness/fp-study/cast-growth-fires.mjs ${{ matrix.repo }} corpus dist/cli/index.js fresh-fires.jsonl | tee summary.json
+      - name: Compare with the committed record
+        run: node harness/fp-study/cast-growth-verify.mjs summary.json fresh-fires.jsonl

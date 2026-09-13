@@ -84,7 +84,7 @@ export function evaluate(
       // the verdict, and the gate reports "clean". Those layers fail CLOSED.
       // (P1-7, external review.)
       if (view === 'staged' || view === 'worktree' || view === 'range') {
-        out.push({
+        const failed: Finding = {
           rule: 'detector-error',
           severity: 'block',
           message: `Detector "${d.id}" failed to run; the verdict is incomplete.`,
@@ -92,7 +92,8 @@ export function evaluate(
           remediation:
             'A rule that cannot run is not a rule that passed. Fix the input or the detector; do not read this as clean.',
           signoff: { required: true, command: `tamperward allow detector-error --reason "..."` },
-        } as Finding);
+        };
+        out.push(failed);
       }
     }
   }

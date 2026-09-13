@@ -5,6 +5,54 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.20.0] — 2026-09-13
+
+**TamperWard's own trust boundaries no longer assert their inputs, and a bounded
+cast-growth rule keeps it that way.**
+
+`src/` carried 60 ordinary `as T` type assertions and 14 non-null `x!` assertions
+(no `as any`, no double cast). It now carries none. Every JSON document that
+same-UID, candidate or third-party code can write — the protected-tree snapshot,
+watcher telemetry and health, the local sign-off ledger, the Claude hook payload,
+`package.json` discovery, the existing Claude settings file, the suite supervisor's
+result channel, Docker image-inspect metadata and the policy file — is built field by
+field from checked values through `src/narrow.ts` and per-document readers; a record
+that is not the shape TamperWard wrote is malformed evidence, never a believed value.
+Thrown exec/errno failures are read through `execFailure` / `errnoCode`. The policy
+loader's `validate()` returns what it proved and `parsePolicy` takes `unknown`;
+`policy-diff` keeps mistyped overrides as written so they still report as lowerings.
+The inventory of every site and its replacement is committed in
+`docs/CAST-INVENTORY.md`; `harness/fp-study/cast-inventory.mjs` recounts it on the AST.
+
+**New rule `ts-cast-growth` (warn).** Net growth of ordinary `as T` / `<T>x` and
+non-null `x!` assertions in non-test JS/TS source, counted on the TypeScript AST
+before and after a change and net of casts the same change removed. Row 4
+(`ts-any-cast`) keeps the unambiguous escapes; `as const`, `as unknown`, `satisfies`,
+generic call/JSX arguments, comment and string text, declaration/generated/vendored
+paths and protected test files are outside the budget; a side that does not parse
+declines and diff-only inputs are silent. The severity is decided by corpus:
+`harness/fp-study/cast-growth-fires.mjs` replayed the rule over 460 adjacent
+first-parent pairs of immer, zustand, zod and hono and it fired on **40 (8.7%)**,
+18.2% of the 220 pairs touching files inside the rule's own scope, against the
+study's 1% ceiling for block. The
+record, every fire's evidence, and a CI-replayed labeled corpus with the study's
+decision rule (`harness/fp-study/CAST-GROWTH-CORPUS.md`, `cast-growth-corpus.json`,
+`test/ts-cast-growth-corpus.test.ts`) are committed. `warn` never requires sign-off
+under the default policy; operators may raise the rule to `block` in their own policy.
+
+**`ts-any-cast` reads the double cast structurally.** `(raw as unknown) as T` and
+`(raw as (unknown)) as T` are the same laundering escape as `raw as unknown as T`
+and are blocked as such on the AST path and, with the same parenthesised spelling,
+on the diff-only fallback.
+
+Behaviour changes to note: a malformed watcher telemetry record now counts as
+malformed telemetry rather than passing through as an event (blocking under strict
+transient policy, as documented); a ledger line missing any entry field is skipped
+instead of carried; `RuleConfig.severity` is optional in the public types, which is
+what a user override for a rule the baseline does not ship always produced.
+
+This closes #383.
+
 ## [2.19.0] — 2026-09-13
 
 **Machine-readable verdicts now have a versioned public compatibility contract.**

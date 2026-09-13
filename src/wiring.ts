@@ -15,6 +15,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isRecord } from './narrow';
 
 /** A plain release version: what init pins. Tags (`latest`), ranges, git URLs,
  *  pre-releases and leading zeros (`02.5.0`, `2.5.00000000000000000001` — npm
@@ -31,8 +32,8 @@ function shippedVersion(): string | null {
     const here = dirname(fileURLToPath(import.meta.url));
     for (const rel of ['../package.json', '../../package.json', '../../../package.json']) {
       try {
-        const pkg = JSON.parse(readFileSync(join(here, rel), 'utf8')) as { name?: string; version?: string };
-        if (pkg.name === 'tamperward' && typeof pkg.version === 'string' && PLAIN_SEMVER.test(pkg.version)) {
+        const pkg: unknown = JSON.parse(readFileSync(join(here, rel), 'utf8'));
+        if (isRecord(pkg) && pkg.name === 'tamperward' && typeof pkg.version === 'string' && PLAIN_SEMVER.test(pkg.version)) {
           return pkg.version;
         }
       } catch {
