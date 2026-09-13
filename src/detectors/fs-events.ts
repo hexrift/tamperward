@@ -19,7 +19,7 @@
 // Change stream — existing detectors branch file/command and must not start
 // seeing a third kind.
 
-import { readFileSync, statSync } from 'node:fs';
+import { closeSync, openSync, readSync, statSync } from 'node:fs';
 import { Finding, Policy } from '../types';
 import { isProtected } from '../policy';
 import { isEnabled, makeFinding } from './finding';
@@ -29,29 +29,105 @@ const RULE = 'transient-protected-mutation';
 
 export interface EventBatch {
   events: FsEvent[];
+  /** Byte offset immediately after the last COMPLETE JSONL record consumed. */
   newOffset: number;
+  /** Bytes actually read from disk for this batch (not historical prefix bytes). */
+  bytesRead: number;
+  /** True when maxBytes bounded this call and unread log bytes remain. */
+  capped: boolean;
 }
 
-/** Read events appended since `offset` (byte offset into the JSONL log). */
-export function readEvents(log: string, offset: number): EventBatch {
+/** Advisory Stop sweeps bound one allocation. Strict/block mode may choose an
+ *  unbounded call so a backlog cannot hide a later blocking transient. */
+export const MAX_STOP_EVENT_READ_BYTES = 1 << 20; // 1 MiB
+
+/**
+ * Read only the bytes appended since `offset`.
+ *
+ * The cursor is a BYTE offset, not a decoded-string index. Advancing only through
+ * the final newline is load-bearing: a watcher append can be observed mid-write,
+ * and the incomplete tail must be retried after the writer completes it.
+ */
+export function readEvents(
+  log: string,
+  offset: number,
+  maxBytes = Number.POSITIVE_INFINITY,
+): EventBatch {
+  const start = Number.isFinite(offset) && offset > 0 ? Math.floor(offset) : 0;
   let size = 0;
   try {
     size = statSync(log).size;
   } catch {
-    return { events: [], newOffset: offset };
+    return { events: [], newOffset: start, bytesRead: 0, capped: false };
   }
-  if (size <= offset) return { events: [], newOffset: offset >= 0 ? Math.min(offset, size) : 0 };
-  const raw = readFileSync(log, 'utf8').slice(offset);
+
+  // Log rotation/truncation: reset to the current end just like the prior reader
+  // did when its saved cursor was beyond the file.
+  if (size <= start) {
+    return {
+      events: [],
+      newOffset: Math.min(start, size),
+      bytesRead: 0,
+      capped: false,
+    };
+  }
+
+  const unread = size - start;
+  const finiteCap = Number.isFinite(maxBytes)
+    ? Math.max(0, Math.floor(maxBytes))
+    : unread;
+  const requested = Math.min(unread, finiteCap);
+  const capped = requested < unread;
+  if (requested === 0) {
+    return { events: [], newOffset: start, bytesRead: 0, capped };
+  }
+
+  const buf = Buffer.allocUnsafe(requested);
+  let bytesRead = 0;
+  let fd: number | null = null;
+  try {
+    fd = openSync(log, 'r');
+    while (bytesRead < requested) {
+      const n = readSync(fd, buf, bytesRead, requested - bytesRead, start + bytesRead);
+      if (n === 0) break; // raced with truncation/rotation
+      bytesRead += n;
+    }
+  } catch {
+    // Never advance a cursor across telemetry we could not read.
+    return { events: [], newOffset: start, bytesRead: 0, capped };
+  } finally {
+    if (fd !== null) {
+      try { closeSync(fd); } catch { /* best effort */ }
+    }
+  }
+
+  if (bytesRead === 0) return { events: [], newOffset: start, bytesRead: 0, capped };
+
+  const bytes = buf.subarray(0, bytesRead);
+  const lastNewline = bytes.lastIndexOf(0x0a);
+  if (lastNewline < 0) {
+    // One incomplete record (or a capped chunk ending before its newline).
+    return { events: [], newOffset: start, bytesRead, capped };
+  }
+
+  const raw = bytes.subarray(0, lastNewline + 1).toString('utf8');
   const events: FsEvent[] = [];
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
     try {
       events.push(JSON.parse(line) as FsEvent);
     } catch {
-      /* torn write at the tail; it will re-read next time */
+      // A complete malformed line is not a torn write. Preserve historical
+      // semantics: skip it and advance past its newline.
     }
   }
-  return { events, newOffset: size };
+
+  return {
+    events,
+    newOffset: start + lastNewline + 1,
+    bytesRead,
+    capped,
+  };
 }
 
 /**
