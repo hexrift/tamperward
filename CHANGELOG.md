@@ -5,6 +5,39 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.16.5] — 2026-09-13
+
+**Platform support is now explicit and enforced instead of depending on incidental
+POSIX utilities.**
+
+- `tamperward run --settle` no longer shells out to an external `sleep` binary.
+  The quiescence delay is an internal synchronous wait, so a missing/poisoned PATH
+  cannot silently erase the requested settle window.
+- checkpointed-local `tamperward verify` now has a declared shell contract.
+  Linux, macOS and the supported POSIX Node platforms execute the frozen verifier
+  command through `/bin/sh -c`. Windows local verification returns
+  `CANNOT_VERIFY / LOCAL_VERIFIER_UNSUPPORTED_PLATFORM` before candidate execution
+  rather than relying on an incidental Git-for-Windows/MSYS `sh`.
+- `tamperward doctor`, the run refusal text, README, SPEC and pristine threat
+  model now agree on the Windows limitation. A digest-pinned container verifier
+  remains a separate Docker-authority path and must pass its own preflight.
+- a required `platform-contract` CI matrix runs on real `ubuntu-latest`,
+  `macos-latest` and `windows-latest` hosts. The Windows leg proves the local
+  verifier refuses before a candidate command can create a side effect; the
+  POSIX legs prove the documented shell/lifecycle selection.
+
+The support matrix is intentionally asymmetric: authoritative `tamperward run`
+remains Linux-only with the trusted non-root subreaper/ECHILD backend. macOS and
+Windows fail closed before wrapped-agent execution rather than being described as
+equivalent.
+
+TDD began on run **34772555802**: typecheck failed exactly because
+`localVerifierShell` and `waitForSettleSync` did not exist. The implementation
+then replaced the external utility dependency and made verifier shell selection an
+explicit preflight boundary.
+
+This closes #326.
+
 ## [2.16.4] — 2026-09-13
 
 **`tamperward run` now fails closed before agent start on every platform that lacks
