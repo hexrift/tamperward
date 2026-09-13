@@ -52,6 +52,7 @@ function parseDoctor(args: string[]): DoctorOpts {
     else if (a === '--base') o.base = args[++i];
     else if (a === '--workflow') o.workflow = args[++i];
     else if (a === '--github') o.github = true;
+    else if (a === '--json') o.json = true;
     else if (a === '--repo') o.repo = args[++i];
     else if (a === '--branch') o.branch = args[++i];
   }
@@ -217,7 +218,7 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
 
   if (cmd === 'doctor') {
     return validateFlatArgs(args, {
-      flags: ['--github'],
+      flags: ['--github', '--json'],
       values: {
         '--cwd': 'string',
         '--base': 'string',
@@ -308,8 +309,9 @@ Formats:
                                             every tool the gate must see.
                                             --force-workflow replaces a workflow it
                                             did not write, or one you have edited.
-  tamperward doctor [--base R]              validate the CI verifier's outer-time
-             [--workflow F] [--cwd D]       envelope against the trusted policy.
+  tamperward doctor [--base R]              report installation + authority posture
+             [--workflow F] [--cwd D]       and validate the CI verifier's outer-time
+             [--json]                       envelope against the trusted policy.
              [--github] [--repo O/R]        --github also validates repository
              [--branch B]                   authority: required tamperward status,
                                             Code Owner review, and stale-review
