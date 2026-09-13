@@ -24,12 +24,10 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           npm run build
-          cp dist/cli/index.js /tmp/tw-candidate.mjs
           git worktree add --detach /tmp/tw-base "$BASE_SHA"
           cd /tmp/tw-base
           npm ci
           npm run build
-          cp dist/cli/index.js /tmp/tw-base.mjs
       - name: compare pinned real mainline diffs
         env:
           IMMER_SHA: 061c2425e1c9dff89e4e4189d42af1b7839dfe0a
@@ -58,5 +56,8 @@ jobs:
           fetch_pinned hono https://github.com/honojs/hono.git "$HONO_SHA"
 
           for repo in immer zustand zod hono; do
-            node harness/fp-study/test-skip-ast-delta.mjs "$repo" "/tmp/corpus/$repo" /tmp/tw-base.mjs /tmp/tw-candidate.mjs
+            node harness/fp-study/test-skip-ast-delta.mjs \
+              "$repo" "/tmp/corpus/$repo" \
+              /tmp/tw-base/dist/cli/index.js \
+              "$GITHUB_WORKSPACE/dist/cli/index.js"
           done
