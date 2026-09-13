@@ -4,8 +4,8 @@
 // a finite maxBuffer and stops the child when that buffer fills. Candidate test
 // output is untrusted, so "very noisy" must not silently become a different
 // verifier outcome. The tiny async supervisor continuously drains both pipes,
-// retains only a fixed tail, and reports through a file outside the candidate
-// worktree. The caller remains synchronous.
+// retains only a fixed tail, and reports through the supervisor's reserved
+// stdout channel. The caller remains synchronous.
 
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
