@@ -475,7 +475,7 @@ right is on-thesis; getting it wrong quietly undermines the whole pitch.
 
 From 2.15.0, plain `tamperward doctor` also produces a read-only installation/posture
 inventory. The local checks deliberately reuse `planInit()`'s canonical wiring model
-for Claude hooks, pre-commit, generated CI and CODEOWNERS, then add policy-schema,
+for Claude hooks, pre-commit and CODEOWNERS, then add policy-schema, CI-authority wiring,
 least-privilege workflow permissions, current-binary vs wiring pins, verifier trust mode
 and declared `verify.inputs`, platform residuals, CI outer-time authority and transient
 observer health. States are `OK`, `WARN`/residual and `BROKEN`; `--json` returns one
@@ -484,6 +484,13 @@ mutate anything. Missing optional/early layers can make the report non-authorita
 without changing the generated CI doctor's historical hard-failure contract; malformed
 policy, insufficient verifier authority and failed requested GitHub authority still
 exit 2.
+
+**2.15.1 binds that posture to the same workflow authority doctor actually validates.**
+An explicit `--workflow` and automatic discovery both feed the validated verifier
+workflow set into CI-wiring and permission posture; every selected authority workflow's
+root token permissions and every job-level override are checked for write scopes. A
+future policy version above this binary's `POLICY_VERSION` is `BROKEN`, because the
+binary cannot honestly certify authority over semantics it does not understand.
 
 ---
 
