@@ -366,6 +366,8 @@ describe('doctor installation posture (#318)', () => {
     expect(byId['pre-commit'].state).toBe('OK');
     expect(byId['ci-wiring'].state).toBe('OK');
     expect(byId.codeowners.state).toBe('OK');
+    expect(byId['workflow-permissions'].state).toBe('OK');
+    expect(byId['binary-version'].state).toBe('OK');
     expect(byId.verifier.state).toMatch(/OK|WARN/);
     expect(byId.platform.state).toMatch(/OK|WARN/);
   });
