@@ -22,9 +22,11 @@ Every successful init/dry-run now prints a separate **VERIFICATION SETUP** statu
 - npm's stock `Error: no test specified` placeholder is not treated as a valid suite.
 
 Advisory detection currently recognizes real npm test scripts, explicit pytest/tox
-configuration, `Cargo.toml`, and `go.mod`. It is intentionally non-mutating:
-TamperWard never writes an inferred verifier command because that command is part of
-the trust anchor.
+configuration, a readable Cargo manifest with a `[package]` or `[workspace]` root,
+and a readable `go.mod` with a real `module` directive. Empty files, directories or
+other path-only markers are not called high-confidence suites. Detection is intentionally
+non-mutating: TamperWard never writes an inferred verifier command because that command
+is part of the trust anchor.
 
 The contract was committed test-first in `911c681...`. Its workflow was superseded
 before the Node matrix completed, so the release record does not mislabel that cancelled
