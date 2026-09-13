@@ -30,7 +30,10 @@ import { isDoubleCast } from './ts-cast-growth';
 const BLOCK_RULE = 'ts-any-cast';
 const WARN_RULE = 'ts-any-launder';
 
-const DOUBLE_CAST = /\bas\s+unknown\s+as\b/g;
+// The text spelling of the double cast accepts parentheses around `unknown` and the
+// closing wrappers of a parenthesised operand, so `(raw as (unknown)) as T` is read
+// the same way as `raw as unknown as T` on the diff-only path as it is on the AST path.
+const DOUBLE_CAST = /\bas\s+\(*\s*unknown\s*\)*\s+as\b/g;
 const SUPPRESS = /@ts-(?:ignore|expect-error|nocheck)\b/g;
 // The JavaScript spelling of `as any`: a JSDoc cast, `/** @type {any} */ (x)`. Only the
 // parenthesised form is a cast (an annotation before a declaration is the launder
@@ -80,7 +83,7 @@ function countAny(src: string): AnyCounts {
 }
 
 // Additive-line fallback for diff-only changes (no before/after content).
-const NARROW_LINE = /\bas\s+\(*\s*any\b|<\s*any\s*>|\bas\s+unknown\s+as\b|@ts-(?:ignore|expect-error|nocheck)\b/;
+const NARROW_LINE = /\bas\s+\(*\s*any\b|<\s*any\s*>|\bas\s+\(*\s*unknown\s*\)*\s+as\b|@ts-(?:ignore|expect-error|nocheck)\b/;
 const BROAD_LINE = /:\s*any\b|<[^<>]*\bany\b[^<>]*>/;
 
 const BLOCK_REMEDIATION = 'Fix the underlying type instead of silencing the checker; do not cast to `any`.';

@@ -1,5 +1,5 @@
 // The committed ts-cast-growth corpus (#383): CI recomputes the labeled replay
-// and checks that the shipping severity follows the predeclared decision rule
+// and checks that the shipping severity follows the study's decision rule
 // against the recorded mainline fire rate in CAST-GROWTH-CORPUS.md.
 import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
@@ -97,7 +97,7 @@ describe('ts-cast-growth measured corpus (#383)', () => {
   it("the shipping severity follows the study's decision rule: block only under the mainline fire-rate ceiling", () => {
     const allPairsRate = corpus.provenance.mainline_pairs_with_fire / corpus.provenance.mainline_pairs;
     const eligibleRate = corpus.provenance.mainline_pairs_with_fire / corpus.provenance.mainline_pairs_touching_eligible_source;
-    // Block is closed on the predeclared basis and on the stricter eligible-source basis alike.
+    // Block is closed on the study's chosen basis (all pairs) and on the stricter eligible-source basis alike.
     expect(allPairsRate <= corpus.graduation.block_max_mainline_fire_rate).toBe(false);
     expect(eligibleRate <= corpus.graduation.block_max_mainline_fire_rate).toBe(false);
     expect(corpus.graduation.shipping_severity).toBe('warn');

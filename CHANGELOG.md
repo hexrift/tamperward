@@ -35,10 +35,15 @@ declines and diff-only inputs are silent. The severity is decided by corpus:
 first-parent pairs of immer, zustand, zod and hono and it fired on **40 (8.7%)**,
 18.2% of the 220 pairs touching files inside the rule's own scope, against the
 study's 1% ceiling for block. The
-record, every fire's evidence, and a CI-replayed labeled corpus with the predeclared
-rule (`harness/fp-study/CAST-GROWTH-CORPUS.md`, `cast-growth-corpus.json`,
+record, every fire's evidence, and a CI-replayed labeled corpus with the study's
+decision rule (`harness/fp-study/CAST-GROWTH-CORPUS.md`, `cast-growth-corpus.json`,
 `test/ts-cast-growth-corpus.test.ts`) are committed. `warn` never requires sign-off
 under the default policy; operators may raise the rule to `block` in their own policy.
+
+**`ts-any-cast` reads the double cast structurally.** `(raw as unknown) as T` and
+`(raw as (unknown)) as T` are the same laundering escape as `raw as unknown as T`
+and are blocked as such on the AST path and, with the same parenthesised spelling,
+on the diff-only fallback.
 
 Behaviour changes to note: a malformed watcher telemetry record now counts as
 malformed telemetry rather than passing through as an event (blocking under strict
