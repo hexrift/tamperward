@@ -7,7 +7,9 @@
     "schema_version",
     "verdict",
     "exit_code",
-    "agent"
+    "agent",
+    "verifier_backend",
+    "dependency_environment"
   ],
   "properties": {
     "schema_version": {
@@ -37,6 +39,138 @@
       "type": "string"
     },
     "agent": {
+      "$ref": "#/$defs/agent"
+    },
+    "checks": {
+      "$ref": "#/$defs/checks"
+    },
+    "verifier_backend": {
+      "$ref": "#/$defs/backend"
+    },
+    "dependency_environment": {
+      "$ref": "#/$defs/dependency_environment"
+    },
+    "observer": {
+      "$ref": "#/$defs/observer"
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "VERIFIED"
+          }
+        },
+        "required": [
+          "verdict"
+        ]
+      },
+      "then": {
+        "properties": {
+          "exit_code": {
+            "const": 0
+          }
+        },
+        "required": [
+          "head",
+          "checks",
+          "observer"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "AGENT_TIMEOUT"
+          }
+        },
+        "required": [
+          "verdict"
+        ]
+      },
+      "then": {
+        "properties": {
+          "exit_code": {
+            "const": 124
+          },
+          "agent": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/agent"
+              },
+              {
+                "properties": {
+                  "timed_out": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "timed_out"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "head",
+          "checks",
+          "observer"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "enum": [
+              "ENFORCEMENT_FAILED",
+              "OBJECT_REWRITE",
+              "HISTORY_REWRITE",
+              "DEPENDENCY_DRIFT",
+              "NOT_QUIESCENT",
+              "TRANSIENT_OBSERVER_BLOCK"
+            ]
+          }
+        },
+        "required": [
+          "verdict"
+        ]
+      },
+      "then": {
+        "properties": {
+          "exit_code": {
+            "const": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "CANNOT_ADJUDICATE"
+          }
+        },
+        "required": [
+          "verdict"
+        ]
+      },
+      "then": {
+        "properties": {
+          "exit_code": {
+            "const": 2
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "agent": {
       "type": "object",
       "required": [
         "exit_code",
@@ -54,41 +188,183 @@
           "type": "boolean"
         },
         "budget_secs": {
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         }
       },
       "additionalProperties": true
     },
     "checks": {
       "type": "object",
-      "required": [],
       "properties": {
         "diff": {
-          "type": "integer"
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
         },
         "worktree": {
-          "type": "integer"
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
         },
         "verify": {
-          "type": "integer"
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
         }
       },
       "additionalProperties": true
     },
-    "verifier_backend": {
+    "observer": {
       "type": "object",
+      "required": [
+        "enabled",
+        "blocking"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "blocking": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "backend": {
+      "type": "object",
+      "required": [
+        "kind",
+        "trust",
+        "available"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "local",
+            "container"
+          ]
+        },
+        "trust": {
+          "enum": [
+            "checkpointed-local",
+            "isolated-container"
+          ]
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "string"
+        },
+        "engine": {
+          "const": "docker"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "resources": {
+          "type": "object",
+          "required": [
+            "memory_bytes",
+            "memory_swap_bytes",
+            "cpus",
+            "pids"
+          ],
+          "properties": {
+            "memory_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "memory_swap_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "cpus": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "pids": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "additionalProperties": true
+        }
+      },
       "additionalProperties": true
     },
     "dependency_environment": {
       "type": "object",
+      "required": [
+        "status",
+        "roots"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "none",
+            "attested",
+            "unattestable",
+            "verifier-owned"
+          ]
+        },
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "kind",
+              "path"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "node_modules",
+                  "python-venv"
+                ]
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "fingerprint": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        },
+        "diagnostics": {
+          "type": "object",
+          "required": [
+            "full_snapshots",
+            "reused_snapshots",
+            "total_ms"
+          ],
+          "properties": {
+            "full_snapshots": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "reused_snapshots": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "total_ms": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": true
+        }
+      },
       "additionalProperties": true
-    },
-    "observer": {
-      "type": "object",
-      "additionalProperties": true
-    },
-    "reason": {
-      "type": "string"
     }
   },
   "additionalProperties": true
