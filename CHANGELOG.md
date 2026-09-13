@@ -33,8 +33,8 @@ paths and protected test files are outside the budget; a side that does not pars
 declines and diff-only inputs are silent. The severity is decided by corpus:
 `harness/fp-study/cast-growth-fires.mjs` replayed the rule over 460 adjacent
 first-parent pairs of immer, zustand, zod and hono and it fired on **40 (8.7%)**,
-18.2% of the 220 pairs touching files inside the rule's own scope, against a
-predeclared 1% ceiling for block. The
+18.2% of the 220 pairs touching files inside the rule's own scope, against the
+study's 1% ceiling for block. The
 record, every fire's evidence, and a CI-replayed labeled corpus with the predeclared
 rule (`harness/fp-study/CAST-GROWTH-CORPUS.md`, `cast-growth-corpus.json`,
 `test/ts-cast-growth-corpus.test.ts`) are committed. `warn` never requires sign-off

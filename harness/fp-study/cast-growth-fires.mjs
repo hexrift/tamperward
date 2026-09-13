@@ -54,6 +54,7 @@ const ELIGIBLE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const DECLARATION = /\.d\.(?:ts|mts|cts)$/;
 const OUT_OF_BUDGET = /(?:^|\/)(?:node_modules|vendor|third_party|dist|build|generated|__generated__)\/|\.(?:generated|gen)\.[cm]?[jt]sx?$/;
 const TEST_FILE = /\.(?:test|spec)\.(?:ts|tsx|cts|mts|js|jsx|cjs|mjs)$|(?:^|\/)__tests__\//;
+const GENERATED_HEADER = /@generated\b|\bAUTO-?GENERATED\b|\bDO NOT EDIT\b/i;
 const files = new Set();
 
 for (let i = 1; i < commits.length; i++) {
@@ -64,7 +65,16 @@ for (let i = 1; i < commits.length; i++) {
   // The detector's own eligible surface: a code file that is not a declaration,
   // not on a generated/vendored path and not a protected test file under the
   // default policy. This is the denominator on which the rule actually runs.
-  const touchesEligible = touched.some((f) => ELIGIBLE.test(f) && !DECLARATION.test(f) && !OUT_OF_BUDGET.test(f) && !TEST_FILE.test(f));
+  // Same trusted-side rule as the detector: a file whose BEFORE header (first
+  // 20 lines at `base`) declares itself generated is outside the budget.
+  const generatedAtBase = (f) => {
+    const r = spawnSync('git', ['show', `${base}:${f}`], { cwd: repoDir, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    if (r.status !== 0) return false; // added in this pair: only its path can exempt it
+    return GENERATED_HEADER.test(String(r.stdout || '').split('\n', 20).join('\n'));
+  };
+  const touchesEligible = touched.some(
+    (f) => ELIGIBLE.test(f) && !DECLARATION.test(f) && !OUT_OF_BUDGET.test(f) && !TEST_FILE.test(f) && !generatedAtBase(f),
+  );
   const doc = verdict(base, head);
   pairs++;
   if (touchesTs) tsPairs++;

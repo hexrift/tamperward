@@ -8,13 +8,50 @@
     "negative_cases": 20,
     "positive_cases": 8,
     "note": "The negatives are minimal reproductions of the rule's exclusions, offsets and the legitimate shapes observed in the mainline replay; the positives are mutation controls for the boundary assertions the rule exists to surface. This JSON is the CI-replayed regression surface for the recorded live-fire measurement, not a second independent measurement. mainline_pairs_touching_eligible_source counts pairs touching a file inside the detector's own scope (non-declaration, non-generated/vendored, non-test JS/TS).",
-    "mainline_pairs_touching_eligible_source": 220
+    "mainline_pairs_touching_eligible_source": 220,
+    "mainline_by_repo": [
+      {
+        "repo": "immer",
+        "head": "061c2425e1c9dff89e4e4189d42af1b7839dfe0a",
+        "pairs": 137,
+        "pairs_touching_eligible_source": 38,
+        "pairs_with_fire": 9,
+        "findings": 15
+      },
+      {
+        "repo": "zustand",
+        "head": "b57db4f86ef179285da216eeb291266da82c361c",
+        "pairs": 100,
+        "pairs_touching_eligible_source": 15,
+        "pairs_with_fire": 1,
+        "findings": 1
+      },
+      {
+        "repo": "zod",
+        "head": "ca0229a404818290e6cdcfefcd7eb2d04bcbb543",
+        "pairs": 100,
+        "pairs_touching_eligible_source": 73,
+        "pairs_with_fire": 24,
+        "findings": 34
+      },
+      {
+        "repo": "hono",
+        "head": "8755b17fbcfdee76511eeb460e18e94e6c9a8d30",
+        "pairs": 123,
+        "pairs_touching_eligible_source": 94,
+        "pairs_with_fire": 6,
+        "findings": 11
+      }
+    ],
+    "mainline_findings": 61,
+    "recomputed_by": ".github/workflows/cast-growth-evidence.yml (fetches the pinned heads and replays cast-growth-fires.mjs; cast-growth-verify.mjs fails on any divergence from this record or the committed fire records)"
   },
   "graduation": {
     "block_max_mainline_fire_rate": 0.01,
     "block_min_precision": 0.9,
     "shipping_severity": "warn",
-    "block_graduation": "not authorized: the measured mainline fire rate (40/460 = 8.7% of all pairs; 40/220 = 18.2% of pairs touching eligible source) exceeds the predeclared 1% ceiling; any move to block requires a separate decision with an independent measurement"
+    "block_graduation": "not authorized: the measured mainline fire rate (40/460 = 8.7% of all pairs; 18.2% of pairs touching eligible source) exceeds the study's 1% ceiling; any move to block requires a separate decision with an independent measurement",
+    "rule_provenance": "chosen before the fires were adjudicated and recorded with this study; not a repository-verifiable preregistration"
   },
   "cases": [
     {

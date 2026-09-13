@@ -141,6 +141,33 @@ describe('ts-cast-growth — what does NOT count', () => {
     }
   });
 
+  it('a PARENTHESISED TYPE does not change the classification: `as (unknown)` is `as unknown`, `as ((any))` is `as any`', () => {
+    for (const spelling of [
+      'return (parsed as (unknown)) as { ok: boolean };',
+      'return ((parsed as (unknown))) as { ok: boolean };',
+      'return (parsed as ((unknown))) as { ok: boolean };',
+      'return <{ ok: boolean }>(<(unknown)>parsed);',
+    ]) {
+      const after = BASE.replace('return parsed;', spelling);
+      expect(run(BASE, after), spelling).toHaveLength(0); // never downgraded to warning-class growth
+      const row4 = tsAnyCast.run([change('src/x.ts', BASE, after)], P).filter((f) => f.rule === 'ts-any-cast');
+      expect(row4, spelling).toHaveLength(1);
+      expect(row4[0].severity, spelling).toBe('block');
+    }
+    // and the honest/literal targets stay outside the budget under parentheses too
+    expect(run(BASE, BASE.replace('return parsed;', 'return parsed as (unknown);'))).toHaveLength(0);
+    expect(run(BASE, BASE.replace('return parsed;', 'return ["a"] as (const);'))).toHaveLength(0);
+    expect(run(BASE, BASE.replace('return parsed;', 'return parsed as ((any));'))).toHaveLength(0);
+  });
+
+  it('an identical assertion inserted BEFORE an existing one is the occurrence reported, not the shifted original', () => {
+    const before = 'export const n = 1;\nconst a = x as A;\n';
+    const after = 'export const n = 1;\nconst b = x as A;\nconst a = x as A;\n';
+    const [f] = fires(run(before, after));
+    expect(f).toBeDefined();
+    expect(f.line).toBe(2);
+  });
+
   it('a second identical assertion is reported at its own line, not at the unchanged first occurrence', () => {
     const before = 'const a = x as A;\nexport const n = 1;\n';
     const after = 'const a = x as A;\nexport const n = 1;\nconst b = x as A;\n';

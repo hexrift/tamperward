@@ -32,6 +32,7 @@
 import ts from 'typescript';
 import { Change, Detector, Finding } from '../types';
 import { protectedCategory } from '../policy';
+import { addedLines } from '../diff/select';
 import { isCodeFile } from './files';
 import { makeFinding } from './finding';
 
@@ -70,17 +71,29 @@ function unparenthesized(e: ts.Expression): ts.Expression {
   return x;
 }
 
+/** The asserted type with any `(…)` wrappers removed: `as (unknown)` is
+ *  `as unknown`, `as ((any))` is `as any`. Both rules classify the target
+ *  through this one helper so they cannot drift apart. */
+export function assertedType(node: ts.AsExpression | ts.TypeAssertion): ts.TypeNode {
+  let t: ts.TypeNode = node.type;
+  while (ts.isParenthesizedTypeNode(t)) t = t.type;
+  return t;
+}
+
 /** Row 4's double cast: an assertion whose operand is itself an assertion to
- *  `unknown`, parentheses notwithstanding. */
+ *  `unknown`, expression and type parentheses notwithstanding. */
 export function isDoubleCast(node: ts.AsExpression | ts.TypeAssertion): boolean {
   const inner = unparenthesized(node.expression);
-  return (ts.isAsExpression(inner) || ts.isTypeAssertionExpression(inner)) && inner.type.kind === ts.SyntaxKind.UnknownKeyword;
+  return (ts.isAsExpression(inner) || ts.isTypeAssertionExpression(inner)) && assertedType(inner).kind === ts.SyntaxKind.UnknownKeyword;
 }
 
 interface Assertion {
   kind: 'type' | 'non-null';
   line: number;
   text: string;
+  /** The whole source line, trimmed: the alignment key. Two identical
+   *  assertions on different lines are told apart by what surrounds them. */
+  lineText: string;
 }
 
 interface Surface {
@@ -104,15 +117,18 @@ function surfaceOf(path: string, src: string): Surface | null {
   if (diagnostics.length > 0) return null;
 
   const surface: Surface = { type: 0, nonNull: 0, assertions: [] };
+  const lines = src.split('\n');
   const record = (kind: Assertion['kind'], node: ts.Node): void => {
     const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
-    surface.assertions.push({ kind, line, text: node.getText(sf).replace(/\s+/g, ' ') });
+    surface.assertions.push({ kind, line, text: node.getText(sf).replace(/\s+/g, ' '), lineText: (lines[line - 1] ?? '').trim() });
     if (kind === 'type') surface.type++;
     else surface.nonNull++;
   };
-  const isRow4OrHonest = (type: ts.TypeNode): boolean => {
+  const isRow4OrHonest = (node: ts.AsExpression | ts.TypeAssertion): boolean => {
     // `as const` is a literal-type request, `as unknown` the honest widening,
-    // `as any` row 4's block; none of them is the ordinary assertion budgeted here.
+    // `as any` row 4's block; none of them is the ordinary assertion budgeted
+    // here — however many parentheses the target type wears.
+    const type = assertedType(node);
     if (type.kind === ts.SyntaxKind.AnyKeyword || type.kind === ts.SyntaxKind.UnknownKeyword) return true;
     return ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName) && type.typeName.text === 'const';
   };
@@ -120,7 +136,7 @@ function surfaceOf(path: string, src: string): Surface | null {
     if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
       // `x as unknown as T` (parenthesised or not): the outer assertion is
       // row 4's double cast, not an ordinary narrowing — leave it to ts-any-cast.
-      if (!isDoubleCast(node) && !isRow4OrHonest(node.type)) record('type', node);
+      if (!isDoubleCast(node) && !isRow4OrHonest(node)) record('type', node);
     } else if (ts.isNonNullExpression(node)) {
       record('non-null', node);
     }
@@ -128,6 +144,36 @@ function surfaceOf(path: string, src: string): Surface | null {
   };
   visit(sf);
   return surface;
+}
+
+/** The AFTER assertions that no BEFORE assertion aligns with, under a
+ *  longest-common-subsequence alignment on the whole source line. */
+function unmatchedAfter(before: Assertion[], after: Assertion[]): Assertion[] {
+  const n = before.length;
+  const m = after.length;
+  const same = (i: number, j: number): boolean => before[i].lineText === after[j].lineText && before[i].text === after[j].text;
+  // lcs[i][j]: LCS length of before[i..] and after[j..]
+  const lcs: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      lcs[i][j] = same(i, j) ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+  const out: Assertion[] = [];
+  let i = 0;
+  let j = 0;
+  while (j < m) {
+    if (i < n && same(i, j)) {
+      i++;
+      j++;
+    } else if (i < n && lcs[i + 1][j] >= lcs[i][j + 1]) {
+      i++; // a BEFORE occurrence that was removed
+    } else {
+      out.push(after[j]); // an AFTER occurrence nothing aligns with: new
+      j++;
+    }
+  }
+  return out;
 }
 
 export const tsCastGrowth: Detector = {
@@ -149,20 +195,19 @@ export const tsCastGrowth: Detector = {
       const dNonNull = after.nonNull - before.nonNull;
       if (dType <= 0 && dNonNull <= 0) continue;
 
-      // Point at the first assertion that is a genuinely new OCCURRENCE: each
-      // BEFORE spelling consumes one AFTER occurrence, so a second identical
-      // assertion is reported at its own line, not at the unchanged first one.
-      const budget = new Map<string, number>();
-      for (const a of before.assertions) budget.set(a.text, (budget.get(a.text) ?? 0) + 1);
+      // Point at the first assertion that is a genuinely new OCCURRENCE. When
+      // the producer supplied hunks, an occurrence on a line the diff added is
+      // new by definition. Otherwise the BEFORE and AFTER sequences are aligned
+      // by longest common subsequence on the whole source line, so an identical
+      // assertion inserted before an existing one is the unmatched (new)
+      // occurrence and the shifted-down original is not.
       const grownKinds = new Set<Assertion['kind']>([...(dType > 0 ? ['type' as const] : []), ...(dNonNull > 0 ? ['non-null' as const] : [])]);
-      const first = after.assertions.find((a) => {
-        const left = budget.get(a.text) ?? 0;
-        if (left > 0) {
-          budget.set(a.text, left - 1);
-          return false;
-        }
-        return grownKinds.has(a.kind);
-      }) ?? after.assertions.find((a) => grownKinds.has(a.kind));
+      const addedLineNumbers = new Set(addedLines(c).flatMap((l) => (l.newLine == null ? [] : [l.newLine])));
+      const onAddedLine = after.assertions.find((a) => grownKinds.has(a.kind) && addedLineNumbers.has(a.line));
+      const first =
+        onAddedLine ??
+        unmatchedAfter(before.assertions, after.assertions).find((a) => grownKinds.has(a.kind)) ??
+        after.assertions.find((a) => grownKinds.has(a.kind));
 
       const parts: string[] = [];
       if (dType > 0) parts.push(`+${dType} type assertion${dType === 1 ? '' : 's'} (\`as T\` / \`<T>x\`)`);

@@ -37,9 +37,11 @@ this pull request (`src/detectors/ts-cast-growth.ts`). Replayed locally on
 | hono | `8755b17fbcfdee76511eeb460e18e94e6c9a8d30` | 123 | 100 | 94 | 6 | 11 | 8 |
 | **total** | — | **460** | **228** | **220** | **40** | **61** | **38** |
 
-"Eligible source" is the detector's own scope: a JS/TS code file that is not a
-declaration, not on a generated/vendored path and not a protected test file under
-the default policy — the files the rule actually runs on. "Touching `.ts`" is the
+"Eligible source" is the detector's own scope, applied by the harness with the same
+rules the detector uses: a JS/TS code file that is not a declaration, not on a
+generated/vendored path, not a protected test file under the default policy, and
+whose trusted BEFORE header (first 20 lines at `base`) does not declare it
+generated — the files the rule actually runs on. "Touching `.ts`" is the
 broader count the test-skip study used and is kept only for comparison; it includes
 tests and generated paths the rule excludes, so a rate on it would flatter the rule.
 
@@ -47,7 +49,7 @@ Fire rate on legitimate mainline maintenance:
 
 | measure | result |
 | --- | ---: |
-| pairs with ≥1 fire / all pairs (**the predeclared metric**) | **40 / 460 = 8.7%** |
+| pairs with ≥1 fire / all pairs (**the study's chosen metric**) | **40 / 460 = 8.7%** |
 | pairs with ≥1 fire / pairs touching eligible source (the rule's own scope) | **40 / 220 = 18.2%** |
 | pairs with ≥1 fire / pairs touching any `.ts` (comparison only) | 40 / 228 = 17.5% |
 | per-repository range (all pairs) | 1.0% (zustand) – 24.0% (zod) |
@@ -62,10 +64,13 @@ The per-repository workflow results were:
 {"repo":"hono","corpus_head":"8755b17fbcfdee76511eeb460e18e94e6c9a8d30","pairs":123,"pairs_touching_ts":100,"pairs_touching_eligible_source":94,"pairs_with_fire":6,"fire_rate_all_pairs":0.0488,"fire_rate_ts_pairs":0.06,"fire_rate_eligible_pairs":0.0638,"findings":11,"files_flagged":8}
 ```
 
-The replay was run twice: once on the first detector head and again after review
+The replay was run three times: on the first detector head, again after review
 closed the candidate-controlled generated-header exemption and the parenthesised
-double cast; the fire counts were identical on both runs, so the numbers above are
-those of the shipped detector.
+double cast, and once more after the harness adopted the detector's trusted-header
+rule for the eligible-source denominator and the type-parenthesis fix landed. Fire
+counts and denominators were identical on every run, so the numbers above are
+those of the shipped detector, and the committed fire records are byte-identical to
+the last run.
 
 Every fire, with its evidence line, is committed beside this record:
 [`cast-growth-immer-fires.jsonl`](./cast-growth-immer-fires.jsonl),
@@ -87,9 +92,13 @@ the boundary the rule exists to make visible; the first two are ordinary
 type-library plumbing. A rule that cannot distinguish them at the diff must not
 block.
 
-## Predeclared decision rule and outcome
+## Decision rule and outcome
 
-Written before the replay, from the thresholds the project already applies:
+The rule below was chosen before the fires were adjudicated, from the thresholds the
+project already applies. It is **not** a repository-verifiable preregistration: the
+first pushed harness did not encode it, and it entered the history with this record.
+It is the decision rule used for this study, stated so the reader can apply it to the
+numbers above.
 
 - **block** requires a fire rate on legitimate mainline maintenance at or below
   **1%** of all adjacent pairs across the corpus **and** an adjudicated
@@ -99,7 +108,7 @@ Written before the replay, from the thresholds the project already applies:
 - otherwise the rule ships **warn** as a review prompt, and any later move to
   block is a separate decision with its own independent measurement.
 
-The all-pairs rate is the predeclared metric because it is the same basis on which
+The all-pairs rate is the chosen metric because it is the same basis on which
 row 13 was closed; the eligible-source rate is reported beside it because it is the
 rate on files where the rule actually runs, and it is the stricter of the two.
 Measured: **8.7%** of all pairs, **18.2%** of eligible-source pairs. The block
@@ -115,10 +124,17 @@ own policy, accepting the measured cost.
   controls in [`cast-growth-corpus.json`](./cast-growth-corpus.json).
 - The four corpora are type-heavy TypeScript libraries; application code with
   fewer casts would fire less often, which changes nothing about the decision.
-- The committed labeled corpus that CI replays
-  (`test/ts-cast-growth-corpus.test.ts`) covers the rule's exclusions and
-  offsets and a small set of boundary-assertion positives; it is the regression
-  surface for this record, not a second independent measurement.
+- Ordinary PR CI does **not** recompute this study. `test/ts-cast-growth-corpus.test.ts`
+  replays a separate labeled regression corpus ([`cast-growth-corpus.json`](./cast-growth-corpus.json):
+  the rule's exclusions and offsets plus a small set of boundary-assertion positives),
+  checks that the severity decision follows the rule against the numbers recorded
+  here, and checks that the committed per-repository fire records reproduce those
+  numbers and name the pins. The 460-pair replay itself is recomputed by the
+  [`cast-growth-evidence`](../../.github/workflows/cast-growth-evidence.yml) workflow:
+  it fetches the four pinned heads, runs `cast-growth-fires.mjs`, and
+  `cast-growth-verify.mjs` fails on any divergence from this record or from the
+  committed fire records. It runs when the rule, the harness or the record changes,
+  and on demand.
 
 ## Companion: the repository's own cast surface
 
