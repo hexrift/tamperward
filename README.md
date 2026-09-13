@@ -168,12 +168,17 @@ remain warnings by default and affect the envelope only when the operator explic
 sets `TAMPERWARD_TRANSIENT=block`.
 
 Since **2.15.2**, Stop-sweep event consumption uses the saved cursor as a real byte
-offset: it performs a positioned read of only new JSONL bytes instead of decoding the
-whole historical log on every turn. A read is capped at **4 MiB**; only complete
+offset: it performs positioned reads of only new JSONL bytes instead of decoding the
+whole historical log on every turn. Each physical read is capped at **4 MiB**, and one
+authority decision drains at most **16 MiB** in bounded chunks. Only complete
 newline-terminated records advance the cursor, so a torn final watcher write is replayed
-after completion instead of being lost. A backlog beyond the cap or malformed complete
-records is surfaced as degraded **advisory** telemetry and remaining bytes are deferred
-rather than allocating without bound.
+after completion instead of being lost. Stop commits the cursor only after the entire
+bounded telemetry tail has been parsed and classified; malformed records, an oversized
+single record, a torn tail, or telemetry beyond the 16 MiB aggregate ceiling blocks Stop
+and retains the previous cursor rather than certifying unjudged bytes. Supervised
+`run --observe-transients` keeps observer evidence advisory by default, but when
+`TAMPERWARD_TRANSIENT=block` is explicitly enabled, any unclassified observer tail
+also fails the envelope closed.
 
 After the runtime exits its exit code is treated as untrusted, and the envelope
 checks that post-agent `HEAD` still descends from the entry commit; the committed
