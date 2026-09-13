@@ -5,6 +5,44 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.17.1] — 2026-09-13
+
+**The mechanical `test-skip` block rule now closes statically-decidable JS/TS
+alias/computed-property bypasses without widening into spelling-only false positives.**
+
+When a protected JS/TS test change carries full, parse-clean BEFORE/AFTER content,
+TamperWard supplements the historical line matcher with a TypeScript AST analysis:
+
+- multiline `test\n  .skip(...)` / member chains are structural rather than line-bound;
+- known test-runner imports, destructured requires and simple aliases are resolved by
+  lexical TypeScript symbol identity, so shadowing does not inherit an outer runner;
+- statically-computable bracket properties such as `test[mode]` are resolved when
+  provable and left alone when dynamic;
+- binding-only edits can be convicted when they newly turn an unchanged call site into
+  skip/focus semantics;
+- formatting-only rewrites of an already-existing AST-only skip/focus are suppressed by
+  trivia-free structural BEFORE/AFTER identity;
+- shorthand option objects use their bound value when statically knowable, so
+  `const skip = false; test('x', { skip }, ...)` and the equivalent `only = false`
+  do not block;
+- parse-diagnostic/recovery trees decline AST-only classification instead of making a
+  block claim from damaged syntax;
+- diff-only producers and non-JS ecosystems keep the established regex path.
+
+The precision harness itself was hardened during review (#385): base/candidate CLIs run
+from their own checkouts, execution/exit/JSON failures abort the study, and every corpus
+repository is commit-pinned. The final implementation head
+`47a4477625a54d653d49dfbaf5304095a24e23a1` was compared against the trusted-base
+detector over **460 pinned adjacent real mainline diffs** (immer 137, zustand 100,
+zod 100, hono 123) with **0 newly introduced findings**. The exact record and
+adjudication are committed in `harness/fp-study/TEST-SKIP-AST-CORPUS.md`.
+
+The one-time evidence workflow was parallelized during review (#386), reducing the final
+four-corpus study from roughly ten minutes serially to about 3m16s wall-clock, and is
+removed before merge.
+
+This closes #330 and #385.
+
 ## [2.17.0] — 2026-09-13
 
 **The reserved `assertion-weakening` rule now has its first detector, deliberately
@@ -71,21 +109,6 @@ TDD began on run **34772555802**: typecheck failed exactly because
 `localVerifierShell` and `waitForSettleSync` did not exist. The implementation
 then replaced the external utility dependency and made verifier shell selection an
 explicit preflight boundary.
-
-This closes #326.
-
-## [2.16.5] — 2026-09-13
-
-**Platform support is now explicit and enforced instead of depending on incidental POSIX utilities.**
-
-- `tamperward run --settle` uses an internal synchronous wait rather than an external `sleep` executable.
-- checkpointed-local `tamperward verify` uses a declared POSIX `/bin/sh -c` contract; Windows returns `CANNOT_VERIFY / LOCAL_VERIFIER_UNSUPPORTED_PLATFORM` before candidate execution.
-- doctor, run diagnostics, README, SPEC and the pristine threat model now agree on the Windows limitation.
-- required `platform-contract` CI runs on Ubuntu, macOS and Windows and exercises the declared boundary on real hosts.
-
-Authoritative `tamperward run` remains Linux-only with the trusted non-root subreaper/ECHILD backend. A digest-pinned container verifier remains a separate Docker-authority path.
-
-TDD began on workflow run **34772555802**, where typecheck failed exactly because `localVerifierShell` and `waitForSettleSync` did not yet exist.
 
 This closes #326.
 
