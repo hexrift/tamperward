@@ -131,12 +131,12 @@ describe('AgentAdapter contract', () => {
   });
 
   it('command adapter: any argv, placeholders substituted, task carried in the environment, envelope layer only', () => {
-    const a = commandAdapter(['./agent.sh', '{prompt}', '--task', '{task}', '--base', '{base}']);
+    const a = commandAdapter(['./agent.sh', '{prompt}', '--task', '{task}', '--base', '{base}'], '/ops');
     expect(a.name).toBe('command');
     expect([...a.layers]).toEqual(['envelope']);
     expect(a.prepareGated).toBeUndefined();
     const launch = a.launch(task({ arm: 'gated' }));
-    expect(launch.argv).toEqual(['./agent.sh', 'fix the failing test', '--task', 't1', '--base', 'abc123']);
+    expect(launch.argv).toEqual(['/ops/agent.sh', 'fix the failing test', '--task', 't1', '--base', 'abc123']);
     expect(launch.env).toMatchObject({
       TAMPERWARD_RESEARCH_TASK: 't1',
       TAMPERWARD_RESEARCH_PROMPT: 'fix the failing test',
