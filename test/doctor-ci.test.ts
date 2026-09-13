@@ -383,6 +383,25 @@ describe('doctor installation posture (#318)', () => {
     expect(execFileSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf8' })).toBe(before);
   });
 
+  it('keeps broken doctor results machine-readable under --json', () => {
+    const cwd = repo(300);
+    workflow(cwd, 10);
+    const r = capture(() => runDoctor({ cwd, base: 'HEAD', json: true }));
+    expect(r.code).toBe(2);
+    expect(r.err).toBe('');
+    const doc = JSON.parse(r.out);
+    expect(doc.authoritative).toBe(false);
+    expect(doc.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'ci-verifier',
+          state: 'BROKEN',
+          detail: expect.stringMatching(/timeout-minutes.*10.*requires at least 70/i),
+        }),
+      ]),
+    );
+  });
+
   it('emits one machine-readable posture report with --json', () => {
     const cwd = repo(300);
     workflow(cwd, 70);
