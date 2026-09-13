@@ -14,6 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { accessSync, constants, readFileSync, realpathSync, statSync } from 'node:fs';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { Policy } from './types';
+import { runCapturedProcessSync, type SuiteDiagnostics } from './suite-diagnostics';
 
 export type VerifierBackendKind = 'local' | 'container';
 export type VerifierBackendTrust = 'checkpointed-local' | 'isolated-container';
@@ -53,6 +54,7 @@ export interface BackendRunResult {
   failure?: 'budget' | 'backend' | 'resource';
   resource?: 'memory';
   reason?: string;
+  diagnostics?: SuiteDiagnostics;
 }
 
 const DIGEST_IMAGE = /^(?!-)[^\s@]+@sha256:[0-9a-f]{64}$/i;
@@ -524,32 +526,46 @@ export function runContainerStage(
   });
 
   try {
-    const r = spawnSync(
+    const r = runCapturedProcessSync(
       backend.enginePath,
       dockerArgs(backend.daemonHost, args),
       {
-        stdio: 'ignore',
-        timeout: budgetSecs * 1000,
-        killSignal: 'SIGKILL',
+        cwd: dirname(backend.enginePath),
         env: engineClientEnv(),
+        timeoutMs: budgetSecs * 1000,
+        backstopMs: 30_000,
       },
     );
     const secs = Math.round((Date.now() - t0) / 1000);
 
+    if (r.timedOut) {
+      cleanupContainer(backend, name);
+      return {
+        exit: null,
+        secs,
+        failure: 'budget',
+        reason: 'verifier stage exceeded its budget',
+        diagnostics: r.diagnostics,
+      };
+    }
     if (r.error) {
       cleanupContainer(backend, name);
-      const code = (r.error as NodeJS.ErrnoException).code;
-      return code === 'ETIMEDOUT'
-        ? { exit: null, secs, failure: 'budget', reason: 'verifier stage exceeded its budget' }
-        : { exit: null, secs, failure: 'backend', reason: `Docker client failed: ${r.error.message}` };
+      return {
+        exit: null,
+        secs,
+        failure: 'backend',
+        reason: `Docker client failed: ${r.error}`,
+        diagnostics: r.diagnostics,
+      };
     }
-    if (r.status === null) {
+    if (r.exit === null) {
       cleanupContainer(backend, name);
       return {
         exit: null,
         secs,
         failure: 'backend',
         reason: `Docker client did not return a status${r.signal ? ` (signal ${r.signal})` : ''}`,
+        diagnostics: r.diagnostics,
       };
     }
 
@@ -563,6 +579,7 @@ export function runContainerStage(
         secs,
         failure: 'backend',
         reason: 'Docker engine identity changed before verifier result inspection',
+        diagnostics: r.diagnostics,
       };
     }
     const inspected = spawnSync(
@@ -586,7 +603,10 @@ export function runContainerStage(
     }
     cleanupContainer(backend, name);
 
-    return containerStateResult(state, secs);
+    return {
+      ...containerStateResult(state, secs),
+      diagnostics: r.diagnostics,
+    };
   } catch (e) {
     cleanupContainer(backend, name);
     return {
