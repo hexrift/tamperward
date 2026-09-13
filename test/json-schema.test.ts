@@ -32,6 +32,32 @@ const ROOT = resolve(__dirname, '..');
 const dirs: string[] = [];
 const SCHEMA_NAMES = ['check', 'verify', 'run', 'doctor'] as const;
 type SchemaName = typeof SCHEMA_NAMES[number];
+type NpmPackEntry = { filename: string; files?: Array<{ path: string }> };
+
+function normalizeNpmPackJson(value: unknown): NpmPackEntry[] {
+  const entries = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object'
+      ? Object.values(value as Record<string, unknown>)
+      : null;
+
+  if (
+    !entries ||
+    !entries.every(
+      (entry): entry is NpmPackEntry =>
+        !!entry &&
+        typeof entry === 'object' &&
+        typeof (entry as { filename?: unknown }).filename === 'string' &&
+        (
+          (entry as { files?: unknown }).files === undefined ||
+          Array.isArray((entry as { files?: unknown }).files)
+        ),
+    )
+  ) {
+    throw new Error('npm pack --json returned an unsupported result shape');
+  }
+  return entries;
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -167,11 +193,11 @@ function buildPackExtract(): { packageRoot: string; tarball: string } {
 
     // Pack the ACTUAL repository/package manifest, not a reconstructed staging
     // directory. This is the publish surface users receive.
-    const packed = JSON.parse(execFileSync(
+    const packed = normalizeNpmPackJson(JSON.parse(execFileSync(
       'npm',
       ['pack', '--ignore-scripts', '--json', '--pack-destination', tmp],
       { cwd: ROOT, encoding: 'utf8' },
-    )) as Array<{ filename: string; files?: Array<{ path: string }> }>;
+    )));
     expect(packed).toHaveLength(1);
 
     const paths = new Set((packed[0].files ?? []).map((x) => x.path));
@@ -200,6 +226,20 @@ function packagedCli(
   );
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
 }
+
+describe('npm pack JSON compatibility', () => {
+  it('accepts both the legacy array and npm 12 package-keyed object shapes', () => {
+    const entry: NpmPackEntry = {
+      filename: 'tamperward-2.19.0.tgz',
+      files: [{ path: 'dist/cli/index.js' }],
+    };
+
+    expect(normalizeNpmPackJson([entry])).toEqual([entry]);
+    expect(normalizeNpmPackJson({ tamperward: entry })).toEqual([entry]);
+    expect(() => normalizeNpmPackJson({ tamperward: 'not-a-pack-entry' }))
+      .toThrow(/unsupported result shape/);
+  });
+});
 
 describe('machine-readable schema v1 (#333)', () => {
   it('all published schemas are valid Draft 2020-12 schemas, and the validator is not permissive', () => {
