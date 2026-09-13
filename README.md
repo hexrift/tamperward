@@ -482,6 +482,35 @@ deliberately refuses `backend: container` before launching the agent because the
 would share the host identity that controls Docker. Use isolated `tamperward verify`
 from trusted CI, or after an externally isolated agent hands off the frozen candidate.
 
+### Machine-readable verdict API
+
+From **2.19.0**, the public JSON verdict surfaces are versioned independently of the
+npm package version. `check --json`, `verify --json`, `run --json`, and
+`doctor --json` include top-level `"schema_version": 1`. TamperWard publishes the
+corresponding JSON Schema Draft 2020-12 documents in the npm package and repository:
+
+- [`schemas/check-v1.schema.json`](./schemas/check-v1.schema.json)
+- [`schemas/verify-v1.schema.json`](./schemas/verify-v1.schema.json)
+- [`schemas/run-v1.schema.json`](./schemas/run-v1.schema.json)
+- [`schemas/doctor-v1.schema.json`](./schemas/doctor-v1.schema.json)
+
+Schema major **1** is deliberately additive: consumers should ignore fields they do not
+understand. Adding new evidence/diagnostic fields does not require a schema bump.
+Removing or renaming a required field, changing its type, or changing the meaning of a
+discriminator requires `schema_version: 2` and new `*-v2.schema.json` files; the v1
+files remain published for existing integrations.
+
+`run --json` owns stdout after the wrapped agent starts and emits one final envelope
+document, including post-agent early convictions such as `OBJECT_REWRITE`,
+`HISTORY_REWRITE`, `DEPENDENCY_DRIFT`, or lifecycle cannot-adjudicate. Argument,
+trusted-base, policy, dirty-start, and other **pre-agent/preflight** failures still fail
+closed on stderr at exit 2 because no agent adjudication occurred.
+
+The JSON schemas describe **data shape**, not process status. Exit codes are a separate
+public protocol and are documented in the table immediately below. Consumers should
+validate both independently: schema validation answers “can I parse this verdict?”;
+the process exit answers “did the gate allow, block, time out, or fail to adjudicate?”
+
 ### CLI reference
 
 Every flag below is what the command's parser actually reads (`src/cli/main.ts`,
@@ -498,7 +527,7 @@ option can never be reinterpreted as the agent command.
 | `verify` | `--base <rev>` (default `HEAD`) · `--cmd <suite command>` · `--budget <seconds>` · `--json` · `--keep` (keep the two materialised copies and report their paths) · `--require-ancestor` (refuse a base that is not an ancestor of `HEAD`) · `--cwd <dir>` |
 | `trace-verify` | Linux-only advisory discovery: `--base <rev>` (default `HEAD`) · `--cmd <suite command>` · `--budget <seconds>` · `--runs <positive integer>` (default 2) · `--json` · `--cwd <dir>` |
 | `doctor` | `--base <rev>` (trusted policy revision) · `--workflow <path>` · `--cwd <dir>` · `--json` · `--github` · `--repo <owner/repo>` · `--branch <name>` — read-only installation/authority posture plus CI verifier outer-time validation |
-| `run` | `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` (per verifier suite) · `--agent-budget <seconds>` (optional wrapped-agent wall clock) · `--observe-transients` (start a session-scoped transient observer) · `--allow-dirty` · `--settle <seconds>` (wait before the final quiescence check) · `--allow-dep-drift` · `--cwd <dir>` · then `-- <agent command...>` |
+| `run` | `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` (per verifier suite) · `--agent-budget <seconds>` (optional wrapped-agent wall clock) · `--json` (one versioned final envelope document) · `--observe-transients` (start a session-scoped transient observer) · `--allow-dirty` · `--settle <seconds>` (wait before the final quiescence check) · `--allow-dep-drift` · `--cwd <dir>` · then `-- <agent command...>` |
 | `allow` | `<rule>` · `--file <path>` · `--reason "<why>"` (required) · `--cwd <dir>` |
 | `init` | `--cwd <dir>` · `--dry-run` · `--force-workflow` |
 | `watch` | `--dir <dir>` · `--log <file>` — a daemon; it runs until signalled |
@@ -619,8 +648,11 @@ and the posts in [docs/blog/](./docs/blog/index.md).
 ## Stability
 
 The public surface is the CLI and its **exit codes**, the hook wire format, the
-`.tamperward.yml` schema, and the `--json` `Finding` shape. No `main`, no `exports` —
-it is a binary, not a library. The version answers one question: *can taking this
+`.tamperward.yml` schema, and the versioned `check` / `verify` / `run` / `doctor`
+machine-output schemas under `schemas/`. No `main`, no `exports` — it is a binary,
+not a library. The machine-output schema major is intentionally independent of the npm
+version: additive fields stay compatible within the major; breaking shape/semantic
+changes require a new schema major. The version answers one question: *can taking this
 upgrade turn a green build red without me changing anything?* **Patch never can** —
 bypass fixes and false-positive fixes ship as patches so they reach you automatically.
 Rule graduations (`warn` → `block`) are **opt-in**: they gate on the `version:` field in
