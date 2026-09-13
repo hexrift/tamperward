@@ -234,8 +234,9 @@ const AGENT_SUPERVISOR = String.raw`
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 
-const [resultFile, budgetRaw, command, ...args] = process.argv.slice(1);
+const [resultFile, budgetRaw, machineRaw, command, ...args] = process.argv.slice(1);
 const budgetMs = budgetRaw === '' ? null : Number(budgetRaw);
+const machineMode = machineRaw === '1';
 let child;
 let timedOut = false;
 let finished = false;
@@ -261,7 +262,9 @@ function killTree(pid) {
 
 try {
   child = spawn(command, args, {
-    stdio: 'inherit',
+    // Machine mode owns stdout for the final envelope document. Preserve agent
+    // diagnostics by routing both child streams to the parent's stderr.
+    stdio: machineMode ? ['inherit', 2, 2] : 'inherit',
     detached: process.platform !== 'win32',
   });
 } catch (e) {
@@ -310,8 +313,9 @@ child.once('exit', (code, signal) => finish(code, signal));
 const LINUX_SUBREAPER_SUPERVISOR = String.raw`
 import ctypes, json, os, signal, subprocess, sys, time
 
-result_file, agent_env_file, agent_cwd, budget_raw, test_mode, command, *args = sys.argv[1:]
+result_file, agent_env_file, agent_cwd, budget_raw, test_mode, machine_raw, command, *args = sys.argv[1:]
 budget = None if budget_raw == "" else float(budget_raw)
+machine_mode = machine_raw == "1"
 libc = ctypes.CDLL(None, use_errno=True)
 PR_SET_DUMPABLE = 4
 PR_SET_CHILD_SUBREAPER = 36
@@ -429,6 +433,10 @@ try:
         cwd=agent_cwd,
         env=agent_env,
         start_new_session=True,
+        # In machine mode stdout is reserved for TamperWard's one final JSON
+        # document. Agent stdout is retained as diagnostics on stderr.
+        stdout=sys.stderr if machine_mode else None,
+        stderr=None,
     )
 except Exception as exc:
     # No candidate process exists, so the lifecycle domain is trivially empty.
@@ -466,6 +474,7 @@ function runAgentSupervised(
   budgetSecs?: number,
   linuxPythonCandidates?: readonly string[],
   lifecycleTestMode?: 'proc-read-fail' | 'drain-timeout',
+  machineMode = false,
 ): AgentRunResult {
   const stateDir = mkdtempSync(join(tmpdir(), 'tw-agent-supervisor-'));
   const resultFile = join(stateDir, 'result.json');
@@ -500,6 +509,7 @@ function runAgentSupervised(
         cwd,
         budgetSecs === undefined ? '' : String(budgetSecs),
         lifecycleTestMode ?? '',
+        machineMode ? '1' : '0',
         ...argv,
       ];
       // Supervisor startup/import resolution is independent of candidate cwd,
@@ -514,6 +524,7 @@ function runAgentSupervised(
         AGENT_SUPERVISOR,
         resultFile,
         budgetSecs === undefined ? '' : String(budgetSecs * 1000),
+        machineMode ? '1' : '0',
         ...argv,
       ];
     }
@@ -1008,6 +1019,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     opts.agentBudget,
     opts.linuxPythonCandidates,
     opts.lifecycleTestMode,
+    opts.json === true,
   );
   const agentExit = agentRun.exit;
   const agentTimedOut = agentRun.timedOut;
