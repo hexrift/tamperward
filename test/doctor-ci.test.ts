@@ -15,6 +15,7 @@ import { defaultEventLog, startWatcher } from '../src/cli/watch';
 import { defaultPolicy, POLICY_VERSION } from '../src/policy';
 import { loadPolicy } from '../src/policy-load';
 import { runInit } from '../src/cli/init';
+import { rootless } from './rootless';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -264,7 +265,7 @@ describe('doctor authority verdict completeness (#318 follow-up)', () => {
     ]));
   });
 
-  it('uses an explicit custom workflow consistently for timeout, wiring and permission posture', () => {
+  it.skipIf(!rootless)('uses an explicit custom workflow consistently for timeout, wiring and permission posture', () => {
     const cwd = installedRepo();
     rmSync(join(cwd, '.github', 'workflows', 'tamperward.yml'));
     writeWorkflow(
@@ -341,7 +342,7 @@ describe('doctor authority verdict completeness (#318 follow-up)', () => {
     ]));
   });
 
-  it('reports a fully installed canonical repository as authoritative in JSON', () => {
+  it.skipIf(!rootless)('reports a fully installed canonical repository as authoritative in JSON', () => {
     const cwd = installedRepo();
     const r = capture(() => runDoctor({ cwd, json: true }));
     expect(r.code).toBe(0);
