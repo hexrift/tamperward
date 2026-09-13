@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { preToolUseVerdict, stopVerdict } from '../src/cli/hook';
 import { defaultPolicy } from '../src/policy';
 import { defaultEventLog, readWatcherHealth, startWatcher, watcherHealthPath } from '../src/cli/watch';
-import { MAX_EVENT_READ_BYTES, readEvents, transientFindings } from '../src/detectors/fs-events';
+import { drainEvents, MAX_EVENT_READ_BYTES, MAX_EVENT_SWEEP_BYTES, readEvents, transientFindings } from '../src/detectors/fs-events';
 import { FsEvent } from '../src/cli/watch';
 
 const dirs: string[] = [];
@@ -196,6 +196,21 @@ describe('fs-event cursor I/O (#313)', () => {
 
     expect(batch.events.map((x) => x.path)).toEqual(['test/new.test.js']);
     expect(reads).toEqual([{ position: offset, length: Buffer.byteLength(tail) }]);
+  });
+
+  it('caps aggregate drain work at 16 MiB and reports the remaining complete-record backlog', () => {
+    const cwd = repo();
+    const log = join(cwd, 'events.jsonl');
+    const line = JSON.stringify(event('src.js', 'same')) + '\n';
+    const repeats = Math.ceil((MAX_EVENT_SWEEP_BYTES + 64 * 1024) / Buffer.byteLength(line));
+    writeFileSync(log, line.repeat(repeats));
+
+    const batch = drainEvents(log, 0);
+    expect(batch.complete).toBe(false);
+    expect(batch.issue).toBe('aggregate-limit');
+    expect(batch.bytesRead).toBeLessThanOrEqual(MAX_EVENT_SWEEP_BYTES);
+    expect(batch.bytesRead).toBeGreaterThanOrEqual(MAX_EVENT_SWEEP_BYTES - MAX_EVENT_READ_BYTES);
+    expect(batch.newOffset).toBeGreaterThan(0);
   });
 
   it('keeps byte cursors valid when a bounded chunk splits a multibyte UTF-8 record', () => {
@@ -475,6 +490,28 @@ describe('watcher + transient rule (the A.1 probes)', () => {
     expect(r.stdout).toMatch(/block/);
     expect(r.stdout).toMatch(/observer|telemetry|malformed/i);
     expect(existsSync(join(tw, 'fscursor-malformed.json'))).toBe(false);
+  });
+
+  it('Stop blocks and retains its cursor when more than 16 MiB of valid telemetry remains', () => {
+    const cwd = repo();
+    const tw = join(cwd, '.git', 'tamperward');
+    mkdirSync(tw, { recursive: true });
+    const log = join(tw, 'fsevents.jsonl');
+    const line = JSON.stringify({
+      ts: '2026-09-13T06:00:00Z',
+      path: 'src.js',
+      kind: 'change',
+      mode: 0o100644,
+      size: 10,
+      hash: 'same',
+    }) + '\n';
+    const repeats = Math.ceil((MAX_EVENT_SWEEP_BYTES + 64 * 1024) / Buffer.byteLength(line));
+    writeFileSync(log, line.repeat(repeats));
+
+    const r = stopVerdict({ cwd, session_id: 'aggregate' });
+    expect(r.stdout).toMatch(/block/);
+    expect(r.stdout).toMatch(/observer|telemetry|16|aggregate/i);
+    expect(existsSync(join(tw, 'fscursor-aggregate.json'))).toBe(false);
   });
 
   it('Stop fails closed without cursor progress on an oversized single JSONL record', () => {
