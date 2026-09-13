@@ -176,7 +176,7 @@ describe('machine-readable schema v1 (#333)', () => {
       cmd: 'true',
       budget: 2,
       json: true,
-      lifecycleTestMode: 'proc-read-fail',
+      lifecycleTestMode: 'drain-timeout',
       argv: ['sh', '-c', 'true'],
     }));
     expect(r.code).toBe(2);
