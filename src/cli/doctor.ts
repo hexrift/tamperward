@@ -89,60 +89,115 @@ function pinsInFile(path: string): string[] {
   return Array.from(src.matchAll(/\btamperward@((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))\b/g), (m) => m[1]);
 }
 
-function workflowPermissionCheck(cwd: string): DoctorCheck {
-  const rel = '.github/workflows/tamperward.yml';
-  const path = join(cwd, rel);
-  if (!existsSync(path)) return { id: 'workflow-permissions', state: 'BROKEN', detail: `${rel} is missing` };
-  let doc: unknown;
-  try {
-    doc = parse(readFileSync(path, 'utf8'));
-  } catch (e) {
+function permissionWrites(value: unknown): string[] | null {
+  if (typeof value === 'string') {
+    if (/write/i.test(value)) return [value];
+    if (/^(?:read-all|none)$/i.test(value)) return [];
+    return null;
+  }
+  const mapping = asMapping(value);
+  if (!mapping) return null;
+  return Object.entries(mapping)
+    .filter(([, permission]) => typeof permission === 'string' && /write/i.test(permission))
+    .map(([name]) => name);
+}
+
+function workflowPermissionCheck(
+  cwd: string,
+  workflowRels: string[] = ['.github/workflows/tamperward.yml'],
+): DoctorCheck {
+  const broken: string[] = [];
+  const warnings: string[] = [];
+
+  for (const rel of workflowRels) {
+    const path = resolve(cwd, rel);
+    if (!existsSync(path)) {
+      broken.push(`${rel} is missing`);
+      continue;
+    }
+
+    let doc: unknown;
+    try {
+      doc = parse(readFileSync(path, 'utf8'));
+    } catch (e) {
+      broken.push(`${rel} is not valid YAML (${e instanceof Error ? e.message : String(e)})`);
+      continue;
+    }
+
+    const root = asMapping(doc);
+    if (!root) {
+      broken.push(`${rel} is not a YAML mapping`);
+      continue;
+    }
+
+    const rootPermissions = root.permissions;
+    if (rootPermissions === undefined) {
+      broken.push(`${rel}: workflow does not declare least-privilege permissions; repository defaults could grant write access`);
+    } else {
+      const writes = permissionWrites(rootPermissions);
+      if (writes === null) {
+        broken.push(`${rel}: workflow permissions shape is unsupported`);
+      } else if (writes.length) {
+        broken.push(`${rel}: workflow grants write permission: ${writes.join(', ')}`);
+      } else {
+        const mapping = asMapping(rootPermissions);
+        if (mapping && mapping.contents !== 'read') {
+          warnings.push(`${rel}: workflow permissions contain no writes but contents: read is not declared`);
+        }
+      }
+    }
+
+    const jobs = asMapping(root.jobs);
+    if (!jobs) continue;
+    for (const [name, rawJob] of Object.entries(jobs)) {
+      const job = asMapping(rawJob);
+      if (!job || job.permissions === undefined) continue;
+      const writes = permissionWrites(job.permissions);
+      if (writes === null) {
+        broken.push(`${rel} job "${name}": permissions shape is unsupported`);
+      } else if (writes.length) {
+        broken.push(`${rel} job "${name}" grants write permission: ${writes.join(', ')}`);
+      }
+    }
+  }
+
+  if (broken.length) {
     return {
       id: 'workflow-permissions',
       state: 'BROKEN',
-      detail: `${rel} is not valid YAML (${e instanceof Error ? e.message : String(e)})`,
+      detail: broken.join('; '),
     };
   }
-  const root = asMapping(doc);
-  const permissions = asMapping(root?.permissions);
-  if (!permissions) {
-    return {
-      id: 'workflow-permissions',
-      state: 'BROKEN',
-      detail: 'workflow does not declare least-privilege permissions; repository defaults could grant write access',
-    };
-  }
-  const writes = Object.entries(permissions).filter(([, value]) =>
-    typeof value === 'string' && /write/i.test(value),
-  );
-  if (writes.length) {
-    return {
-      id: 'workflow-permissions',
-      state: 'BROKEN',
-      detail: 'workflow grants write permission: ' + writes.map(([name]) => name).join(', '),
-    };
-  }
-  if (permissions.contents !== 'read') {
+  if (warnings.length) {
     return {
       id: 'workflow-permissions',
       state: 'WARN',
-      detail: 'workflow permissions are explicit but contents: read is not declared',
+      detail: warnings.join('; '),
     };
   }
-  return { id: 'workflow-permissions', state: 'OK', detail: 'workflow token is explicitly read-only (contents: read)' };
+  return {
+    id: 'workflow-permissions',
+    state: 'OK',
+    detail: `${workflowRels.join(', ')}: workflow/job token permissions contain no write grants and workflow contents access is read-only`,
+  };
 }
 
 /**
  * Read-only local/repository posture. Reuse init's canonical wiring planner so
  * doctor cannot drift into a second definition of "correctly installed".
  */
-export function collectLocalPosture(cwd: string, policy: ReturnType<typeof loadPolicy>): DoctorCheck[] {
+export function collectLocalPosture(
+  cwd: string,
+  policy: ReturnType<typeof loadPolicy>,
+  authorityWorkflows?: string[],
+  explicitWorkflow = false,
+): DoctorCheck[] {
   const checks: DoctorCheck[] = [];
 
   checks.push(
     policy.version <= POLICY_VERSION
       ? { id: 'policy', state: 'OK', detail: `policy version ${policy.version} is understood (current schema ${POLICY_VERSION})` }
-      : { id: 'policy', state: 'WARN', detail: `policy version ${policy.version} is newer than this binary's schema ${POLICY_VERSION}; only known gates can be evaluated` },
+      : { id: 'policy', state: 'BROKEN', detail: `policy version ${policy.version} is newer than this binary's schema ${POLICY_VERSION}; authority cannot be certified for unknown policy semantics` },
   );
 
   let plan: ReturnType<typeof planInit> = [];
@@ -174,9 +229,31 @@ export function collectLocalPosture(cwd: string, policy: ReturnType<typeof loadP
 
   addWiring('claude-hooks', 'agent', true);
   addWiring('pre-commit', 'pre-commit', false);
-  addWiring('ci-wiring', 'ci', true);
+
+  const canonicalWorkflow = '.github/workflows/tamperward.yml';
+  if (authorityWorkflows?.length) {
+    const normalized = authorityWorkflows.map((x) => x.replace(/\\/g, '/'));
+    if (explicitWorkflow) {
+      checks.push({
+        id: 'ci-wiring',
+        state: 'OK',
+        detail: `explicit verifier authority workflow: ${normalized.join(', ')}; verifier step/timeout validated by doctor`,
+      });
+    } else if (normalized.includes(canonicalWorkflow)) {
+      addWiring('ci-wiring', 'ci', true);
+    } else {
+      checks.push({
+        id: 'ci-wiring',
+        state: 'OK',
+        detail: `discovered verifier authority workflow(s): ${normalized.join(', ')}; verifier step/timeout validated by doctor`,
+      });
+    }
+  } else {
+    addWiring('ci-wiring', 'ci', true);
+  }
+
   addWiring('codeowners', 'codeowners', true);
-  checks.push(workflowPermissionCheck(cwd));
+  checks.push(workflowPermissionCheck(cwd, authorityWorkflows));
 
   const pins = [
     ...pinsInFile(join(cwd, '.claude', 'settings.json')),
@@ -502,8 +579,14 @@ export function runDoctor(opts: DoctorOpts = {}): number {
     );
   }
 
+  let postureWorkflows: string[] | undefined = opts.workflow ? [opts.workflow] : undefined;
   const fail = (id: string, message: string): number =>
-    err(message, opts, id, collectLocalPosture(cwd, policy));
+    err(
+      message,
+      opts,
+      id,
+      collectLocalPosture(cwd, policy, postureWorkflows, Boolean(opts.workflow)),
+    );
 
   if (!policy.verify?.command) {
     return fail('verifier', 'trusted policy has no verify.command; generated CI cannot verify this repository');
@@ -534,6 +617,7 @@ export function runDoctor(opts: DoctorOpts = {}): number {
   const requiredSecs = requiredVerifierAuthoritySeconds(policy.verify.budget);
   const requiredMinutes = Math.ceil(requiredSecs / 60);
   let verifyJobCount = 0;
+  const authorityWorkflows: string[] = [];
 
   for (const workflowRel of workflowRels) {
     const workflowPath = resolve(cwd, workflowRel);
@@ -552,6 +636,10 @@ export function runDoctor(opts: DoctorOpts = {}): number {
 
     const jobs = verifyJobs(doc);
     verifyJobCount += jobs.length;
+    if (jobs.length > 0) {
+      authorityWorkflows.push(workflowRel);
+      postureWorkflows = [...authorityWorkflows];
+    }
 
     for (const { name, job } of jobs) {
       const timeout = job['timeout-minutes'];
@@ -609,7 +697,12 @@ export function runDoctor(opts: DoctorOpts = {}): number {
     }
   }
 
-  const checks = collectLocalPosture(cwd, policy);
+  const checks = collectLocalPosture(
+    cwd,
+    policy,
+    authorityWorkflows,
+    Boolean(opts.workflow),
+  );
   checks.push({
     id: 'ci-verifier',
     state: 'OK',
