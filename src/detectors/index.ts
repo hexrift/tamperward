@@ -10,9 +10,10 @@ import { testDeletion } from './test-deletion';
 import { testContentRemoval } from './test-content-removal';
 import { snapshotRewrite } from './snapshot-rewrite';
 import { snapshotOnlyRewrite } from './snapshot-only';
+import { assertionWeakening } from './assertion-weakening';
 
-/** The eleven mechanical detectors. The heuristic rules (assertion-weakening,
- *  guard-removal) are reserved names with no detector yet — SPEC §4 rows 3 and 10. */
+/** Mechanical detectors plus measured warning-only heuristics. guard-removal remains
+ *  reserved; assertion-weakening is AST-backed and stays warn while precision accrues. */
 export const allDetectors: Detector[] = [
   noVerify,
   tsAnyCast,
@@ -25,6 +26,7 @@ export const allDetectors: Detector[] = [
   testContentRemoval,
   snapshotRewrite,
   snapshotOnlyRewrite,
+  assertionWeakening,
 ];
 
 export {
@@ -39,4 +41,5 @@ export {
   testContentRemoval,
   snapshotRewrite,
   snapshotOnlyRewrite,
+  assertionWeakening,
 };
