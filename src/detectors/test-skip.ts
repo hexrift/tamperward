@@ -449,7 +449,7 @@ function semanticSkipHits(ctx: AstContext): SemanticHit[] {
       const callText = node.getText(ctx.sf).trim();
       const ordinal = (callOrdinals.get(callText) ?? 0) + 1;
       callOrdinals.set(callText, ordinal);
-      const callKey = `\${callText}\u0000\${ordinal}`;
+      const callKey = `${callText}\u0000${ordinal}`;
 
       const chain = runnerChain(node.expression, ctx, runners, strings);
       if (chain) {
@@ -457,7 +457,7 @@ function semanticSkipHits(ctx: AstContext): SemanticHit[] {
         const terminal = props.at(-1);
         const push = (target: ts.Node, extraCauses: ts.Node[], why: string): void => {
           hits.push({
-            semanticKey: `\${callKey}\u0000\${why}`,
+            semanticKey: `${callKey}\u0000${why}`,
             terminalNode: target,
             causeNodes: [...causes, ...extraCauses],
             why,
@@ -511,7 +511,7 @@ function semanticSkipHits(ctx: AstContext): SemanticHit[] {
                 ts.isShorthandPropertyAssignment(prop) &&
                 ['skip', 'todo', 'only'].includes(prop.name.text)
               ) {
-                push(prop.name, [], `a { \${prop.name.text} } option that conditionally narrows the test run`);
+                push(prop.name, [], `a { ${prop.name.text} } option that conditionally narrows the test run`);
               }
             }
           }
@@ -558,7 +558,7 @@ function astSkipHits(c: FileChange): AstHit[] {
       if (beforeKeys == null || beforeKeys.has(hit.semanticKey)) continue;
     }
 
-    const dedupe = `\${findingLine}\u0000\${hit.semanticKey}`;
+    const dedupe = `${findingLine}\u0000${hit.semanticKey}`;
     if (seen.has(dedupe)) continue;
     seen.add(dedupe);
     hits.push({ line: findingLine, why: hit.why, evidence: hit.evidence });
