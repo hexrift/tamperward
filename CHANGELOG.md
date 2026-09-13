@@ -56,8 +56,15 @@ The regression corpus now proves:
 - a #374-style post-handoff dependency substitution attempt cannot execute
   before the fresh verifier-entry checkpoint;
 - unsupported non-Linux POSIX retains the historical fingerprint/quiescence
-  rejection rather than claiming the Linux subreaper guarantee;
+  rejection for mutations that land during adjudication rather than claiming the Linux
+  subreaper guarantee; the later-mutation detached-domain residual is tracked separately
+  as **#379**;
 - timeout lifecycle tests remain intact.
+
+`tamperward doctor` now reports whether the trusted Linux supervisor interpreter is
+actually available. Linux without that backend is **BROKEN** because `run` will fail
+closed before agent start; Windows/other platforms are **WARN** and explicitly name the
+#379 residual.
 
 TDD began with workflow run **34766853029**, where the new normal-exit
 descendant controls failed before production ownership existed. A separate
