@@ -106,14 +106,15 @@ export function canReuseAdjacentDependencyAttestation(
 }
 
 /**
- * Small trusted supervisor used only when --agent-budget is set.
+ * Trusted agent-lifecycle supervisor used for every wrapped run.
  *
- * The agent is placed in its own POSIX process group so the timeout signal can
- * target the whole ordinary descendant tree. On Windows, taskkill /T /F is the
- * explicit fallback. The supervisor writes its result outside the candidate
- * worktree, then the envelope continues normal post-agent adjudication.
+ * The agent is placed in its own POSIX process group. Linux additionally tracks
+ * the live descendant ancestry so a child that escapes the group with setsid()
+ * is still owned at normal exit or timeout. On Windows, taskkill /T /F remains
+ * the explicit tree-kill fallback. The supervisor writes its result outside the
+ * candidate worktree, then the envelope performs normal post-agent adjudication.
  */
-const AGENT_SUPERVISOR = String.raw\`
+const AGENT_SUPERVISOR = String.raw`
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 
@@ -261,7 +262,7 @@ function finish(code, signal, failure) {
 
 child.once('error', (e) => finish(1, null, String(e)));
 child.once('exit', (code, signal) => finish(code, signal));
-\`;
+`;
 
 function linuxDescendantPids(rootPid: number): number[] {
   if (process.platform !== 'linux') return [];
