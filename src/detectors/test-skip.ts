@@ -33,7 +33,7 @@ import { makeFinding } from './finding';
 
 const RULE = 'test-skip';
 
-type Pattern = { re: RegExp; why: string; comment?: true };
+type Pattern = { re: RegExp; why: string; comment?: true; astOwned?: true };
 
 // Line-fallback member access to one of `names` (a `|`-alternation), reached by dot
 // or literal string-bracket access. This intentionally stays line-local; the AST path
@@ -48,10 +48,10 @@ const PATTERNS: Record<Lang, Pattern[]> = {
   js: [
     // The skip/only/todo family on a runner, by dot-or-bracket access, with one optional
     // vitest concurrency modifier hop: test.skip, test . skip, test['skip'], it.concurrent.skip.
-    { re: new RegExp(JS_RUNNER + acc(JS_MOD) + '?' + acc('skip|only|todo')), why: 'a .skip/.only/.todo marker' },
-    { re: new RegExp(JS_RUNNER + acc('skipIf|runIf') + '\\s*\\('), why: 'a .skipIf()/.runIf() condition (the test runs only when the condition allows)' },
-    { re: new RegExp(JS_RUNNER + acc('fails|failing') + '\\s*\\('), why: 'a .fails/.failing marker (the test now passes by failing)' },
-    { re: /\b(?:it|test|describe)\.each\s*\(\s*\[\s*\]\s*\)/, why: 'an empty .each table (no case ever runs)' },
+    { re: new RegExp(JS_RUNNER + acc(JS_MOD) + '?' + acc('skip|only|todo')), why: 'a .skip/.only/.todo marker', astOwned: true },
+    { re: new RegExp(JS_RUNNER + acc('skipIf|runIf') + '\\s*\\('), why: 'a .skipIf()/.runIf() condition (the test runs only when the condition allows)', astOwned: true },
+    { re: new RegExp(JS_RUNNER + acc('fails|failing') + '\\s*\\('), why: 'a .fails/.failing marker (the test now passes by failing)', astOwned: true },
+    { re: /\b(?:it|test|describe)\.each\s*\(\s*\[\s*\]\s*\)/, why: 'an empty .each table (no case ever runs)', astOwned: true },
     { re: /\b(?:xit|xtest|xdescribe)\s*\(/, why: 'an x-prefixed disabled test' },
     { re: /\b(?:fit|ftest|fdescribe)\s*\(/, why: 'an f-prefixed focused test (narrows the suite)' },
     { re: /\bpending\(\s*\)/, why: 'a pending() marker' },
@@ -61,7 +61,7 @@ const PATTERNS: Record<Lang, Pattern[]> = {
     // In options position (right after the title) ANY value but false/0 skips — a
     // non-literal `{ skip: process.env.CI }` included. Elsewhere on a line only the
     // literal forms count: `list({ skip: 1, take: 5 })` is pagination.
-    { re: /\b(?:it|test|describe|suite)\s*\(\s*(['"`])(?:(?!\1).)*\1\s*,\s*\{[^}]*?\bskip:(?!\s*(?:false|0)\b)/, why: 'a { skip: ... } option disabling the test (node:test options form)' },
+    { re: /\b(?:it|test|describe|suite)\s*\(\s*(['"`])(?:(?!\1).)*\1\s*,\s*\{[^}]*?\bskip:(?!\s*(?:false|0)\b)/, why: 'a { skip: ... } option disabling the test (node:test options form)', astOwned: true },
     { re: /\bskip:\s*(?:true|['"`])/, why: 'a { skip: ... } option disabling the test (node:test options form)' },
     { re: /\btodo:\s*(?:true|['"`])/, why: 'a { todo: ... } option (the test no longer fails the run)' },
     { re: new RegExp('\\b(?:t|ctx|context|this)' + acc('skip') + '\\s*\\('), why: 'a runtime t.skip()/this.skip() call' },
@@ -522,13 +522,13 @@ function semanticSkipHits(ctx: AstContext): SemanticHit[] {
   return hits;
 }
 
-function astSkipHits(c: FileChange): AstHit[] {
-  if (c.after == null) return [];
+function astSkipHits(c: FileChange): { hits: AstHit[]; authoritative: boolean } {
+  if (c.after == null) return { hits: [], authoritative: false };
   const added = addedLineNumbers(c);
-  if (added.size === 0) return [];
+  if (added.size === 0) return { hits: [], authoritative: false };
 
   const afterCtx = astContext(c.path, c.after);
-  if (!afterCtx) return [];
+  if (!afterCtx) return { hits: [], authoritative: false };
 
   const beforeCtx = c.before == null ? null : astContext(c.path, c.before);
   const beforeKeys = beforeCtx == null
@@ -561,7 +561,7 @@ function astSkipHits(c: FileChange): AstHit[] {
     seen.add(dedupe);
     hits.push({ line: findingLine, why: hit.why, evidence: hit.evidence });
   }
-  return hits;
+  return { hits, authoritative: true };
 }
 
 export const testSkip: Detector = {
@@ -576,13 +576,17 @@ export const testSkip: Detector = {
       const lang = langOf(c.path);
       const patterns = PATTERNS[lang ?? 'js'];
       const astHitLines = new Set<number>();
+      let astAuthoritative = false;
 
-      // Enriched JS/TS changes carry the whole AFTER file. Use that only for
-      // statically provable structure; diff-only producers retain the historical
-      // line matcher below. Findings remain scoped to added hunk lines so an
-      // unchanged pre-existing skip is never re-reported.
+      // Enriched JS/TS changes carry the whole AFTER file. For the JS forms the
+      // AST models, a parse-clean AST is authoritative even when the result is
+      // deliberately "not a test runner" because lexical shadowing must not be
+      // overridden by the spelling-only regex fallback. Diff-only inputs and
+      // parse-recovery trees keep the historical regex behavior.
       if (lang === 'js' && c.after != null) {
-        for (const hit of astSkipHits(c)) {
+        const analysis = astSkipHits(c);
+        astAuthoritative = analysis.authoritative;
+        for (const hit of analysis.hits) {
           astHitLines.add(hit.line);
           out.push(
             makeFinding(RULE, policy, {
@@ -601,6 +605,7 @@ export const testSkip: Detector = {
         if (l.newLine != null && astHitLines.has(l.newLine)) continue;
         const comment = isCommentLine(l.content.trim(), lang);
         for (const p of patterns) {
+          if (astAuthoritative && p.astOwned) continue;
           if (comment && !p.comment) continue;
           if (matchesOutsideString(p, l.content, lang)) {
             out.push(
