@@ -30,7 +30,8 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "state": {
             "enum": [
