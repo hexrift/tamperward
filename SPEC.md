@@ -5,19 +5,20 @@
 > through — the agent loop, pre-commit, the run envelope, pristine verification,
 > and protected CI authority.
 
-**Implementation status:** TamperWard 2.18.x
+**Implementation status:** TamperWard 2.19.x
 
 **Current supported surface:** JavaScript/TypeScript · Python · Go · Rust · Ruby ·
 JVM · PHP · .NET test/skip/suppression/config patterns; Claude Code hook + Stop
 sweep; git pre-commit; protected CI; pristine visible/pristine re-execution;
 `tamperward run` lifecycle ownership; optional transient observation; and
-`tamperward doctor` installation/authority diagnostics; and Linux-only advisory
-`tamperward trace-verify` observed-input discovery. The seventeen-row rule
+`tamperward doctor` installation/authority diagnostics; Linux-only advisory
+`tamperward trace-verify` observed-input discovery; and versioned Draft 2020-12
+machine-verdict schemas for `check`, `verify`, `run`, and `doctor`. The seventeen-row rule
 table remains the canonical detector/enforcement taxonomy: fifteen mechanical
 rows ship, `assertion-weakening` now ships as a measured warning-only heuristic,
 and `guard-removal` remains reserved and unbuilt.
 
-v0.9 reconciles the live architecture narrative with the 2.18.x implementation.
+v0.9 reconciles the live architecture narrative with the 2.19.x implementation.
 It does **not** rewrite the historical research record below: earlier v0.x
 revision notes, taskbench claims and old finding IDs remain dated evidence. The
 current security-residual index lives in `SECURITY-ENVELOPE.md`; detailed
@@ -536,7 +537,16 @@ the audience gets does change, because a verdict nobody reads gates nothing:
   table on the run page. Annotations were chosen over SARIF deliberately: they need no
   `security-events: write` and no Advanced Security, so they work on every repo. The text
   output still goes to the log unchanged.
-- **JSON** — the findings verbatim for downstream tooling.
+- **JSON** — versioned public machine output for downstream tooling. From 2.19.0,
+  `check --json`, `verify --json`, `run --json` and `doctor --json` carry
+  top-level `schema_version: 1`; their Draft 2020-12 schemas ship under
+  `schemas/*-v1.schema.json`. Schema v1 allows additive fields so new evidence does
+  not break existing consumers. Removing/renaming/retyping a required field or changing
+  a discriminator's meaning requires a new schema major. The schemas describe document
+  shape only: CLI exit codes remain the independent process-level verdict protocol
+  documented in README and tested separately. The Claude hook JSON and advisory
+  `trace-verify` evidence are separate protocols, not members of this verdict-schema
+  family.
 
 Severity is carried by the word `BLOCK` / `warn` in every format. Colour, where it exists,
 is decoration over text that already says the same thing — so the verdict survives being
