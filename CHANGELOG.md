@@ -5,6 +5,25 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.14.1] — 2026-09-13
+
+**The security specification and audit tracker now have a machine-checked current
+status instead of mixing live guarantees with historical wording.**
+
+- `SPEC.md` is reconciled with the 2.14.x implementation surface, including the
+  supported JavaScript/TypeScript, Python, Go, Rust, Ruby, JVM, PHP and .NET rule
+  families plus the run/verifier/observer/doctor authority layers.
+- `SECURITY-ENVELOPE.md` starts with a single **Current open residuals** table and
+  keeps the original P0/P1/P2 audit findings under explicitly historical headings.
+  Old research claims and IDs are preserved rather than silently rewritten.
+- Current residuals now link directly to the pristine-verifier threat model and
+  executable regression evidence.
+- `test/docs-status.test.ts` binds the spec to the shipped major/minor line and
+  fails CI if the current-residual/historical split disappears or the ecosystem
+  surface regresses to the old TS/Jest-only description.
+
+This closes #311.
+
 ## [2.14.0] — 2026-09-13
 
 **`tamperward run` can now supervise transient filesystem observation as an
