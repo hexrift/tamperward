@@ -5,6 +5,42 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.17.0] — 2026-09-13
+
+**The reserved `assertion-weakening` rule now has its first detector, deliberately
+narrow and warning-only.**
+
+The JS/TS AST detector reports only transformations for which the old assertion
+provably implies the new weaker one:
+
+- a positive exact/structural expectation with a statically truthy/defined expected
+  value becomes only `toBeTruthy()` / `toBeDefined()` on the same subject;
+- a positive `toThrow(message|regexp)` becomes bare `toThrow()`;
+- an assertion is purely removed from the same unambiguous suite-qualified test.
+
+The initial implementation was held back after review found unsound direction rules:
+`toBe(false) -> toBeTruthy()`, `toBe(undefined) -> toBeDefined()`, and
+`.not.toThrow(/boom/) -> .not.toThrow()` are **not** weakening. Test identity now
+includes literal suite ancestry and ambiguous duplicate identities are skipped instead
+of paired by array position. ScriptKind selection is explicit for JS/JSX/TS/TSX/MTS/CTS.
+
+A detector-specific measurement is committed under
+`harness/fp-study/AW-CORPUS.md` / `assertion-weakening-corpus.json`.
+The negative slice is 20 adjudicated legitimate assertion-touching records retained
+from the earlier 2,304-diff ordinary-maintenance study; 12 mutation positives cover the
+supported one-way subset. CI recomputes the result: **12 fires = 12 TP / 0 FP, 100%
+precision among fires, 0/20 false positives on the retained ordinary-maintenance
+slice**, clearing the predeclared 90% build threshold.
+
+That threshold authorizes building the warning, **not graduating it to block**.
+`assertion-weakening` remains `heuristic` / `warn`; a block proposal requires a
+separate independent-corpus/live-fire decision. Literal-to-literal expected-value
+changes, negated specificity changes, ambiguous test identity and unsupported chained
+assertion APIs remain pristine-verifier jurisdiction. `guard-removal` remains
+reserved and unbuilt.
+
+This closes #323.
+
 ## [2.16.5] — 2026-09-13
 
 **Platform support is now explicit and enforced instead of depending on incidental

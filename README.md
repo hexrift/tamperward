@@ -505,17 +505,20 @@ option can never be reinterpreted as the agent command.
 
 ### The rules
 
-Seventeen rules are specified and fifteen ship (see the table in
+Seventeen rules are specified and sixteen ship (see the table in
 [SPEC.md](./SPEC.md)). The families: test protection (`test-deletion`,
-`test-skip`, `test-content-removal`), verification-signal protection
+`test-skip`, `test-content-removal`, plus the warning-only JS/TS
+`assertion-weakening` heuristic), verification-signal protection
 (`coverage-lowering`, `snapshot-rewrite`, `snapshot-only-rewrite`), suppression
 (`ts-any-cast`, `ts-any-launder`, `lint-suppression`), pipeline protection
 (`ci-tampering`, `hook-tampering`, `no-verify`), and the effect/outcome layers
 (`transient-protected-mutation`, `pristine-verification`, plus the `run` envelope).
-Some ambiguous syntactic classes deliberately remain warnings or unimplemented —
-`assertion-weakening` and `guard-removal` are reserved names with no detector, and
-`ts-any-launder` is a permanent warn — rather than being promoted to blockers
-without precision evidence.
+`assertion-weakening` ships only the AST-proven one-way subset — statically
+proven exact/structural values weakened to truthy/defined, positive exception
+specificity removed, or a pure assertion removed from the same suite-qualified
+test. It measured 12/12 true-positive fires with 0/20 false positives on the
+committed detector-specific replay and remains `warn`; `guard-removal` is still
+reserved with no detector, and `ts-any-launder` is a permanent warn.
 
 ## What Tamperward does not do
 

@@ -5,7 +5,7 @@
 > through — the agent loop, pre-commit, the run envelope, pristine verification,
 > and protected CI authority.
 
-**Implementation status:** TamperWard 2.16.x
+**Implementation status:** TamperWard 2.17.x
 
 **Current supported surface:** JavaScript/TypeScript · Python · Go · Rust · Ruby ·
 JVM · PHP · .NET test/skip/suppression/config patterns; Claude Code hook + Stop
@@ -13,9 +13,10 @@ sweep; git pre-commit; protected CI; pristine visible/pristine re-execution;
 `tamperward run` lifecycle ownership; optional transient observation; and
 `tamperward doctor` installation/authority diagnostics. The seventeen-row rule
 table remains the canonical detector/enforcement taxonomy: fifteen mechanical
-rows are shipped and the two heuristic rows remain intentionally unbuilt.
+rows ship, `assertion-weakening` now ships as a measured warning-only heuristic,
+and `guard-removal` remains reserved and unbuilt.
 
-v0.9 reconciles the live architecture narrative with the 2.16.x implementation.
+v0.9 reconciles the live architecture narrative with the 2.17.x implementation.
 It does **not** rewrite the historical research record below: earlier v0.x
 revision notes, taskbench claims and old finding IDs remain dated evidence. The
 current security-residual index lives in `SECURITY-ENVELOPE.md`; detailed
@@ -91,8 +92,9 @@ Two assertions have to become true or false here:
    message redirects the agent to fix the *real* failure rather than hunt for another
    bypass.
 
-Fifteen of the seventeen specified rules are mechanical, and those fifteen are the
-ones that shipped — so #1 is largely engineering. The two heuristics remain unbuilt (§4). #2 —
+Fifteen of the seventeen specified rows are mechanical and all fifteen ship. Of the
+two heuristic rows, `assertion-weakening` now ships warn-only against a committed
+precision corpus while `guard-removal` remains unbuilt (§4). #2 —
 whether a denied agent fixes the truth or fights the gate — is the harder question. The
 metric that quantifies it is the **bypass-to-fix conversion rate** (§7.B); see the
 README for the measured result, now including its no-gate control arm.
@@ -203,7 +205,7 @@ rules:
   test-deletion:         { severity: block }   # AST
   test-content-removal:  { severity: block }   # content gutted from a surviving spec (§4 row 14)
   test-skip:             { severity: block }
-  assertion-weakening:   { severity: warn  }   # heuristic — RESERVED, not yet built (§4)
+  assertion-weakening:   { severity: warn  }   # measured JS/TS AST heuristic; warn-only (§4)
   ts-any-cast:           { severity: block }
   ts-any-launder:        { severity: warn  }   # permanent warn — graduation closed by corpus (§4 row 13)
   lint-suppression:      { severity: block }
@@ -267,21 +269,20 @@ rule is 100% mechanical**; heuristics may only ever be `warn` until measured (§
 
 ---
 
-## 4. The seventeen rules — fifteen shipped, two reserved
+## 4. The seventeen rules — sixteen shipped, one reserved
 
-Surface · signal · and **certainty class**, because fifteen are mechanical and two are
-heuristic, and the spec must not pretend otherwise. Rows 1–15 are policy rule ids
+Surface · signal · and **certainty class**, because fifteen rows are mechanical and two
+are heuristic, and the spec must not pretend otherwise. Rows 1–15 are policy rule ids
 (`src/policy.ts` `defaultPolicy`); rows 16 and 17 are the outcome and process layers,
-which interpret no diff and carry no severity — their verdict is an exit code. The two heuristics (rows 3 and 10)
-are **specified here and reserved in the baseline policy, but no detector implements
-them yet** — their names exist so a user policy written today keeps meaning the same
-thing on the release that builds them.
+which interpret no diff and carry no severity — their verdict is an exit code.
+`assertion-weakening` (row 3) now ships as a measured **warn-only** JS/TS AST
+heuristic. `guard-removal` (row 10) remains specified/reserved with no detector.
 
 | # | id | Surface | Signal (TS/Jest concrete) | Certainty | Parser |
 |---|----|---------|---------------------------|-----------|--------|
 | 1 | `test-deletion` | file/cmd | test file `op: delete`; **rename out of the tests glob** (`git mv x.spec.ts x.spec.bak`); net removal of `it()`/`test()` blocks in a modified spec (a literal `it.each` table counts one per row; a test moved into another spec in the same change is a relocation); `rm`/`sed -i`/`truncate`/`> `/`cp /dev/null`/`tee`/`find -delete`/`git checkout <rev> [--] <path>` of a protected-tests path, a directory holding one, or the whole cwd (`.`, `*`, a `..`-relative token resolved against the cwd); **the runner told not to open a spec** — jest `testPathIgnorePatterns`/`testMatch`/`testRegex`, vitest `test.exclude`/`test.include` — evaluated as the selection predicate over the repository's own specs (2.5.0); the rest of that predicate's dials — jest `roots`/`rootDir`/`modulePathIgnorePatterns`/`projects`, vitest `test.dir`, a `!` entry in `include`, `test.projects`, `vitest.workspace.*`, a `vite.config.*` carrying `test:` (multi-project configs compared as the UNION of their projects; `typecheck.*`/`benchmark.*` are other suites) — and a narrowing flag (`--testPathPattern`, `-t`, `--exclude`, `--dir`, `--project`, …) added to a `scripts.test*` entry that runs jest/vitest; a `describe.each` table multiplies the tests it encloses, and a relocation is held only by added blocks with a body (stubs hold nothing). Read the way the runner reads it (2.7.1, the pass-3d sweep): `it.for` / `describe.for` count like `each`, a test inside a loop over a literal array counts once per element and any other loop is open; only `scripts.test` and `test:ci` are the suite a flag can narrow, and `--exclude` of another runner's directory (`e2e/**`) is set-up; a project with `extends: true` inherits the root selection, while `extends: '<path>'`, `mergeConfig` over an imported base and a `...base` spread are opaque, and `test.root` rebases like `test.dir`; a `.snap` inside `__tests__/` is row 11's file, on the file and command surfaces alike; `git checkout <rev> -- <path>` where `<rev>` resolves to HEAD (`main` while on main) restores nothing older | mechanical | **AST** |
 | 2 | `test-skip` | file | added `.skip` / `.only` / `xit` / `xdescribe` / `it.todo` / `test.skip` (`.only` *narrows* the suite — same class); the **node:test options spelling** — `test('x', { skip: true }, …)`, `{ todo: … }`, runtime `t.skip()` (1.5.1, closing a gap a live agent found: denied the crude `rm`, it skipped by option, and the shipped rule was blind to that spelling — coverage of a class must mean the whole class) | mechanical | regex |
-| 3 | `assertion-weakening` | file | net decrease in `expect(` count inside a kept test; strong matcher → weak (`toBeDefined`/`toBeTruthy`/`not.toThrow`); **changed literal inside a kept `expect()`** (the sly-genie `toBe(42)`→`toBe(43)` move) | heuristic — **reserved, not built** | **AST** |
+| 3 | `assertion-weakening` | file | JS/TS protected tests only, paired by literal suite/test ancestry. Warn when the AST proves a one-way weakening on the same subject: a positive exact/structural expectation whose static expected value proves truthy/defined becomes `toBeTruthy()`/`toBeDefined()`; a positive `toThrow(message|regexp)` becomes bare `toThrow()`; or an assertion is purely removed from a kept unambiguous test identity. Deliberately silent on literal→literal expected-value changes, negated specificity changes, renamed/ambiguous tests and unsupported chains. Extension parsing is explicit for JS/JSX/TS/TSX/MTS/CTS. Precision replay beside the implementation: 20 adjudicated legitimate assertion-touching negatives from the earlier 2,304-diff OSS frame plus 12 mutation positives; 12 fires = 12 TP / 0 FP, **100% measured precision**, clearing the predeclared 90% build threshold. It nevertheless remains **warn-only**; any block graduation requires a separate independent-corpus/live-fire decision. See `harness/fp-study/AW-CORPUS.md`. | heuristic — **shipped warn** | **AST** |
 | 4 | `ts-any-cast` | file | added `as any`, `as unknown as`, `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck` (`: any` and generic-position `any` are `ts-any-launder`, row 14, warn) | mechanical | regex |
 | 5 | `lint-suppression` | file | added `eslint-disable[-next-line]`, `/* eslint-disable */`, `// prettier-ignore` | mechanical | regex |
 | 6 | `coverage-lowering` | file | `coverageThreshold` numbers reduced, moved or deleted; `--coverage` stripped from the test script, `--coverage=false`/`--coverageThreshold=` added; `passWithNoTests` as flag or config key; vitest `thresholds.autoUpdate`; the denominator narrowed (`collectCoverageFrom`/vitest `coverage.include` compared as the predicate over the repository's own source files — a respelling that measures the same files is silent; `coveragePathIgnorePatterns`/`coverage.exclude` grown, `.coveragerc` `[run] omit` grown, codecov `ignore:` grown); vitest `coverage.enabled: false`, `thresholds.perFile` dropped; `.coveragerc`/`pyproject.toml` `fail_under`, nyc thresholds (also under package.json `nyc`), codecov `target` (a number or `auto`, compared within its `project:`/`patch:` scope)/`threshold`/`project: off` (2.5.0). Never claims a removal it cannot see (a spread, an expression, a stricter one-metric override), and looks for a gate that MOVED to another config in the same change before reporting its old home deleted. Housekeeping exemptions (2.7.1): generated code and codegen output, migrations, `*.generated.*` / `*.gen.*` / `*.pb.*`, `*.e2e-spec.*`, Django's `manage.py` / `wsgi.py` / `asgi.py`, `__init__.py` and the `main.ts` entrypoint join tests, types and tooling in the benign list (`**/index.ts` stays reported); vitest `thresholds: { 100: true }` is every metric at 100; codecov `informational: true` is a gate switched off under `project:` only; `passWithNoTests` in a package whose directory holds no spec is not a dodge | mechanical | regex/JSON |
@@ -703,9 +704,9 @@ out-of-band label. The self-gate does not run `verify` on this repo (§6).
 
 ## 9. Build order and status
 
-1. **Engine + `Change` model + the 8 mechanical detectors.** *Shipped.* Detector 1
-   landed with its count-based AST; detector 3 (`assertion-weakening`) did **not**
-   land in any form — its name is reserved in the policy, nothing more.
+1. **Engine + `Change` model + the mechanical detectors.** *Shipped.* Detector 1
+   landed with its count-based AST. Detector 3 (`assertion-weakening`) joined later
+   in 2.17.0 as a deliberately narrow measured JS/TS AST heuristic and remains warn-only.
 2. **CLI + git adapter + pre-commit & CI wiring**, incl. the out-of-band CI sign-off.
    *Shipped* — the sign-off channel is a PR label read by `.github/workflows/ci.yml`.
 3. **Claude PreToolUse hook + Stop sweep + the correction message.** *Shipped*, on the
@@ -737,10 +738,9 @@ out-of-band label. The self-gate does not run `verify` on this repo (§6).
     decision, not a feature): permanent warn on syntactic evidence, per the
     laundering-corpus numbers in §4 row 13.
 
-Still open: the §7.A negatives corpus (there is no `fixtures/` tree yet — the
-precision work so far lives in `harness/fp-study/` and the corpus sweeps of
-`PREDICTION-baselines/tuned-fp/launder-corpus.md`), the two heuristic detectors it
-gates, languages beyond TS, agents beyond Claude Code, and the task-level
+Still open: broader independent negatives beyond the committed
+`assertion-weakening` replay, the remaining `guard-removal` heuristic, languages
+beyond the shipped detector surfaces, agents beyond Claude Code, and the task-level
 multi-repository benchmark (the repo, not the run, as the sampling unit) that the
 external review placed at the top of the roadmap.
 
@@ -813,10 +813,12 @@ do" and §10 below, and no milestone here removes them.
 
 ## 10. The honest caveats
 
-- **The heuristics are unbuilt, not merely warn-tier.** `assertion-weakening` and
-  `guard-removal` are reserved names with no detector behind them; they get built only
-  against the §7.A negatives corpus, and if they can't clear the bar they stay
-  unbuilt. Quote the measured number, not the intent.
+- **Heuristic evidence is scoped, not universal.** `assertion-weakening` now ships
+  only the AST-proven JS/TS subset measured in `harness/fp-study/AW-CORPUS.md`:
+  12/12 fires were labeled true positives and 0/20 retained ordinary-maintenance
+  negatives fired. That clears its 90% build threshold but does **not** authorize
+  block severity or claim recall over the broader semantic class. `guard-removal`
+  remains reserved/unbuilt. Quote the measured number and corpus boundary, not intent.
 - **The loop is measured on a finite sample.** §7.B has run (see the README), but a
   conversion rate is an observation over the seeds and models exercised — Claude
   models, on a Claude Code harness — not a guarantee about every agent on every
