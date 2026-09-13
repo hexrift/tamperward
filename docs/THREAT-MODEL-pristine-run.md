@@ -297,6 +297,20 @@ is the variable list. What remains is stated below.
   (including mode/link identity) before the next checkpoint. That is an honest
   residual of `checkpointed-local` trust.
 
+- **The local suite lifecycle is bounded separately from dependency checkpoints.**
+  In 2.16.0 the shared suite supervisor retains POSIX process-group ownership and,
+  on Linux, continuously snapshots the real `/proc` descendant tree while the
+  suite is alive. On timeout or ordinary main-child exit it kills the process
+  group plus every tracked descendant before returning the stage result. The
+  regression corpus includes a descendant that calls `setsid()` for both clean
+  main-child exit and noisy timeout, and proves the detached PID is gone before
+  adjudication continues. This closes #371 for the supported Linux local-backend
+  path. Other platforms retain the explicit weaker lifecycle guarantee: Windows
+  receives child/process-group-equivalent cleanup available to the runtime, but
+  TamperWard does not claim Linux-style `/proc` descendant discovery there. The
+  isolated-container backend remains structurally stronger because container
+  teardown owns the whole container process set.
+
   **2.11.0 structurally closes the demonstrated #341 class for the isolated
   container backend.** Host `node_modules`/venvs are not mounted; the
   digest-pinned image owns the runtime/dependencies and the frozen candidate is
@@ -336,6 +350,26 @@ is the variable list. What remains is stated below.
   The `isolated-container` trust label therefore describes execution-domain
   integrity only. A future stronger oracle protocol must be explicit rather than
   inferred from a zero exit code.
+
+### Suite-output diagnostics are untrusted evidence
+
+From 2.16.0, both verifier backends continuously drain candidate suite stdout/stderr
+while retaining only the final **16 KiB per stream**. The trusted host records total
+captured bytes, retained bytes and truncation state. This closes two operational
+failure modes without widening the trust claim:
+
+- a noisy suite cannot fill an unbounded `spawnSync` buffer or verifier-owned evidence
+  file; the capture ring is fixed-size while the pipes keep draining;
+- failed verification can show the actual assertion/runtime tail rather than only an
+  exit code.
+
+The retained text is still **candidate-controlled data**. It is not parsed as a verdict
+or workflow command. Human rendering escapes C0/C1/DEL controls (including ESC and CR)
+and prefixes every output line, so ANSI sequences and literal GitHub `::error::`
+syntax cannot begin at the command channel's first column. JSON keeps candidate output
+nested under the stage diagnostics object; the host-owned `verdict`, exit attribution
+and backend state remain separate fields. Successful human output does not render suite
+stdout/stderr at all.
 
 ## What this means for the published record
 

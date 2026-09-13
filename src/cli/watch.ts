@@ -159,14 +159,15 @@ function watchTree(
   }
 
   const watchers = new Map<string, ReturnType<typeof watch>>();
+  let closed = false;
   onState('fallback', 0);
 
   const addDir = (rel: string): void => {
-    if (watchers.has(rel) || SKIP.test(rel + '/')) return;
+    if (closed || watchers.has(rel) || SKIP.test(rel + '/')) return;
     let w: ReturnType<typeof watch>;
     try {
       w = watch(rel ? join(dir, rel) : dir, (kind, fname) => {
-        if (!fname) return;
+        if (closed || !fname) return;
         const child = rel ? `${rel}/${String(fname)}` : String(fname);
         cb(kind, child);
         try {
@@ -208,7 +209,17 @@ function watchTree(
   };
 
   walk('');
-  return { close: () => { for (const w of watchers.values()) w.close(); } };
+  return {
+    close: () => {
+      if (closed) return;
+      // Flip the lifecycle guard BEFORE closing individual FSWatchers. Node may
+      // already have callbacks queued for delivery; those callbacks must become
+      // no-ops before teardown can remove the watched tree.
+      closed = true;
+      for (const w of watchers.values()) w.close();
+      watchers.clear();
+    },
+  };
 }
 
 /** Start watching. Exported (rather than CLI-only) so tests drive it in-process. */
@@ -298,8 +309,14 @@ export function startWatcher(dir: string, log: string, policy: Policy): Watcher 
     (detail) => degrade(detail),
   );
 
+  let closed = false;
   return {
     close: () => {
+      if (closed) return;
+      // Mark this wrapper closed first as well: layered callers may invoke
+      // close() more than once, and no second health write should race fixture
+      // teardown after the first shutdown completed.
+      closed = true;
       tree.close();
       health.state = 'stopped';
       health.stopped_at = new Date().toISOString();

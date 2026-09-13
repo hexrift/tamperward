@@ -5,6 +5,54 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.16.0] — 2026-09-13
+
+**Verifier failures now carry bounded, tamper-safe suite diagnostics.** Visible and
+pristine execution previously used `stdio: 'ignore'`, so a red suite, masked failure
+or timeout exposed only an exit code and duration. That made ordinary failures hard to
+diagnose and discarded useful forensic evidence.
+
+Both local and isolated-container stages now run their child process through the same
+trusted bounded-capture supervisor. stdout and stderr are continuously drained to avoid
+pipe backpressure, while only the final **16 KiB per stream** is retained in memory.
+No candidate-controlled stream is written to an unbounded evidence file. Reports record
+the total observed byte count, retained byte count and truncation state.
+
+`--json` exposes per-stage `diagnostics.stdout` / `diagnostics.stderr` metadata and
+a bounded tail for failed stages. Human output remains quiet on VERIFIED runs; failure
+tails are control-character scrubbed and every line is prefixed before rendering, so
+candidate ANSI escapes, carriage returns and literal GitHub `::command::` text remain
+data rather than terminal/workflow control traffic.
+
+Container execution no longer discards Docker-run stdout/stderr either: the Docker
+client is drained by the same bounded supervisor, while stopped-container state remains
+the authority for suite exit/OOM/runtime attribution. Candidate output can therefore be
+shown without being allowed to forge the host-owned verdict.
+
+TDD started with three deliberate failures: missing structured diagnostics, unbounded
+noisy-output expectations, and missing safe human rendering. Regression coverage also keeps successful human output silent, proves
+visible-green/pristine-red diagnostics are attributed to the pristine stage, requires
+every multiline stdout/stderr workflow-command line to carry the inert `  | ` prefix,
+and pins multibyte UTF-8 behavior when the 16 KiB retained-byte window begins inside a
+code point. Supervisor-result parsing is strict whole-stream JSON: deterministic tests
+prove prefixed/appended attacker bytes fail closed rather than being scanned for a
+plausible green suffix.
+
+The same supervisor hardening closes #371 on Linux: while a local suite is alive it
+tracks the actual `/proc` descendant tree in addition to the POSIX process group, then
+kills tracked descendants before returning on ordinary main-child exit or timeout.
+Regressions exercise a `setsid()` escape in both cases, including a noisy detached
+writer, and assert the detached PID is gone before stage adjudication returns. Other
+platforms remain explicitly weaker rather than claiming Linux-style descendant
+discovery; the isolated-container backend still owns the stronger process-set boundary.
+
+The observer teardown flake found during exact-head validation is also fixed in this
+release (#372): fallback watcher callbacks become no-ops as soon as shutdown begins and
+`close()` is idempotent, preventing queued filesystem notifications from racing temp
+tree removal.
+
+This closes #319, #371, and #372.
+
 ## [2.15.2] — 2026-09-13
 
 **Filesystem-event consumption is now proportional to new telemetry, not total session

@@ -4,11 +4,16 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseVerify, runVerify } from '../src/cli/verify';
 import { policyWeakening } from '../src/detectors/policy-diff';
+import {
+  DIAGNOSTIC_TAIL_BYTES,
+  parseCapturedSupervisorResult,
+  runCapturedProcessSync,
+} from '../src/suite-diagnostics';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -59,6 +64,23 @@ const capture = (fn: () => number): { code: number; json: Record<string, unknown
 
 /** Set env vars for the duration of `fn` and always restore them, so nothing
  *  set here can leak into another test's suite environment. */
+const pidAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const waitForPidsGone = async (pids: number[]): Promise<void> => {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline && pids.some(pidAlive)) {
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  expect(pids.filter(pidAlive)).toEqual([]);
+};
+
 const withEnv = (vars: Record<string, string | undefined>, fn: () => void): void => {
   const saved = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
   for (const [k, v] of Object.entries(vars)) {
@@ -504,5 +526,300 @@ describe('parseVerify', () => {
       keep: true,
       requireAncestor: true,
     });
+  });
+});
+
+
+describe('suite supervisor lifecycle and result authority (#319, #371)', () => {
+  it('strictly rejects prefixed/appended supervisor-channel bytes instead of scanning for a green JSON suffix', () => {
+    const good = JSON.stringify({
+      exit: 0,
+      signal: null,
+      timedOut: false,
+      stdout: { captured_bytes: 0, tail_b64: '' },
+      stderr: { captured_bytes: 0, tail_b64: '' },
+    });
+    expect(parseCapturedSupervisorResult(good)?.exit).toBe(0);
+    expect(parseCapturedSupervisorResult('FORGED' + good)).toBeNull();
+    expect(parseCapturedSupervisorResult(good + 'FORGED')).toBeNull();
+  });
+
+  it.skipIf(process.platform !== 'linux')('kills a setsid descendant before an ordinary local stage returns', async () => {
+    const cwd = repo();
+    const control = mkdtempSync(join(tmpdir(), 'tw-suite-desc-'));
+    dirs.push(control);
+    const pidFile = join(control, 'pids');
+    const sleeper = join(cwd, 'sleeper.js');
+    writeFileSync(
+      sleeper,
+      [
+        "const fs = require('fs');",
+        "fs.appendFileSync(process.argv[2], process.pid + '\\n');",
+        "setInterval(() => {}, 1000);",
+        '',
+      ].join('\n'),
+    );
+
+    const cmd =
+      `setsid node ${JSON.stringify(sleeper)} ${JSON.stringify(pidFile)} >/dev/null 2>&1 & ` +
+      `for i in $(seq 1 100); do [ -s ${JSON.stringify(pidFile)} ] && break; sleep 0.01; done; ` +
+      'sleep 0.05; exit 0';
+    const result = runCapturedProcessSync('sh', ['-c', cmd], {
+      cwd,
+      env: process.env,
+      timeoutMs: 5_000,
+      detached: true,
+      killGroupOnFinish: true,
+      backstopMs: 5_000,
+    });
+
+    expect(result).toMatchObject({ exit: 0, timedOut: false });
+    expect(existsSync(pidFile)).toBe(true);
+    const pids = readFileSync(pidFile, 'utf8').trim().split(/\s+/).map(Number).filter(Number.isFinite);
+    expect(pids.length).toBeGreaterThan(0);
+    await waitForPidsGone(pids);
+  }, 15_000);
+
+  it.skipIf(process.platform !== 'linux')('bounds noisy timeout output and kills a setsid descendant writer before returning', async () => {
+    const cwd = repo();
+    const control = mkdtempSync(join(tmpdir(), 'tw-suite-desc-'));
+    dirs.push(control);
+    const pidFile = join(control, 'pids');
+    const writer = join(cwd, 'writer.js');
+    writeFileSync(
+      writer,
+      [
+        "const fs = require('fs');",
+        "fs.appendFileSync(process.argv[2], process.pid + '\\n');",
+        "const a = Buffer.alloc(4096, 65), b = Buffer.alloc(4096, 66);",
+        "setInterval(() => { fs.writeSync(1, a); fs.writeSync(2, b); }, 1);",
+        '',
+      ].join('\n'),
+    );
+
+    const cmd =
+      `setsid node ${JSON.stringify(writer)} ${JSON.stringify(pidFile)} & ` +
+      'node -e "setInterval(() => {}, 1000)"';
+    const started = Date.now();
+    const result = runCapturedProcessSync('sh', ['-c', cmd], {
+      cwd,
+      env: process.env,
+      timeoutMs: 500,
+      detached: true,
+      killGroupOnFinish: true,
+      backstopMs: 5_000,
+    });
+
+    expect(result.timedOut).toBe(true);
+    expect(Date.now() - started).toBeLessThan(6_000);
+    for (const stream of [result.diagnostics.stdout, result.diagnostics.stderr]) {
+      expect(stream.captured_bytes).toBeGreaterThan(DIAGNOSTIC_TAIL_BYTES);
+      expect(stream.retained_bytes).toBeLessThanOrEqual(DIAGNOSTIC_TAIL_BYTES);
+      expect(stream.truncated).toBe(true);
+    }
+    const pids = existsSync(pidFile)
+      ? readFileSync(pidFile, 'utf8').trim().split(/\s+/).map(Number).filter(Number.isFinite)
+      : [];
+    expect(pids.length).toBeGreaterThan(0);
+    await waitForPidsGone(pids);
+  }, 15_000);
+
+  it('preserves authoritative nonzero exit while draining noisy stdout/stderr', () => {
+    const cwd = repo();
+    const code =
+      "const fs=require('fs');" +
+      "fs.writeSync(1,Buffer.alloc(50000,65));" +
+      "fs.writeSync(2,Buffer.alloc(50000,66));" +
+      "process.exit(7)";
+    const result = runCapturedProcessSync(process.execPath, ['-e', code], {
+      cwd,
+      env: process.env,
+      timeoutMs: 5_000,
+      detached: process.platform !== 'win32',
+      killGroupOnFinish: true,
+    });
+    expect(result.exit).toBe(7);
+    expect(result.timedOut).toBe(false);
+    expect(result.diagnostics.stdout.captured_bytes).toBe(50_000);
+    expect(result.diagnostics.stderr.captured_bytes).toBe(50_000);
+    expect(result.diagnostics.stdout.truncated).toBe(true);
+    expect(result.diagnostics.stderr.truncated).toBe(true);
+  });
+
+  it('drops a split leading UTF-8 continuation rather than rendering replacement characters', () => {
+    const cwd = repo();
+    const code =
+      `const fs=require('fs');` +
+      `const b=Buffer.concat([Buffer.from('€'),Buffer.alloc(${DIAGNOSTIC_TAIL_BYTES - 1},65)]);` +
+      `fs.writeSync(1,b);process.exit(1)`;
+    const result = runCapturedProcessSync(process.execPath, ['-e', code], {
+      cwd,
+      env: process.env,
+      timeoutMs: 5_000,
+      detached: process.platform !== 'win32',
+      killGroupOnFinish: true,
+    });
+    const d = result.diagnostics.stdout;
+    expect(d.captured_bytes).toBe(DIAGNOSTIC_TAIL_BYTES + 2);
+    expect(d.retained_bytes).toBe(DIAGNOSTIC_TAIL_BYTES);
+    expect(d.truncated).toBe(true);
+    expect(d.tail).not.toContain('�');
+    expect(Buffer.byteLength(d.tail, 'utf8')).toBeLessThanOrEqual(d.retained_bytes);
+    expect(d.tail).toBe('A'.repeat(DIAGNOSTIC_TAIL_BYTES - 1));
+  });
+});
+
+describe('verify diagnostics (#319)', () => {
+  it('captures bounded visible/pristine stdout/stderr metadata in JSON on failure', () => {
+    const cwd = repo();
+    writeFileSync(
+      join(cwd, 'test', 'check.test.js'),
+      [
+        "process.stdout.write('visible-out\\n');",
+        "process.stderr.write('expected 42, got 41\\n');",
+        'process.exit(1);',
+        '',
+      ].join('\n'),
+    );
+
+    const r = capture(() => runVerify({ cwd, cmd: CMD, budget: 30, json: true }));
+    expect(r.code).toBe(1);
+    expect(r.json.verdict).toBe('SUITE_RED');
+    expect(r.json.visible).toMatchObject({
+      exit: 1,
+      diagnostics: {
+        stdout: { truncated: false },
+        stderr: { truncated: false },
+      },
+    });
+    expect((r.json.visible as any).diagnostics.stdout.captured_bytes).toBeGreaterThan(0);
+    expect((r.json.visible as any).diagnostics.stderr.captured_bytes).toBeGreaterThan(0);
+    expect((r.json.visible as any).diagnostics.stdout.tail).toContain('visible-out');
+    expect((r.json.visible as any).diagnostics.stderr.tail).toContain('expected 42');
+  });
+
+  it('attributes MASKED_FAILURE output to the pristine stage independently', () => {
+    const cwd = repo();
+    const testPath = join(cwd, 'test', 'check.test.js');
+    writeFileSync(
+      testPath,
+      [
+        "process.stdout.write('PRISTINE_STDOUT\\n');",
+        "process.stderr.write('PRISTINE_STDERR\\n');",
+        "if (require('../src.js') !== 42) process.exit(1);",
+        '',
+      ].join('\n'),
+    );
+    execFileSync('git', ['add', 'test/check.test.js'], { cwd });
+    execFileSync('git', ['commit', '--amend', '--no-edit', '-q'], { cwd });
+
+    // Candidate masks the base failure. Visible is green/quiet; pristine restores
+    // the base test and must carry that stage's independent diagnostics.
+    writeFileSync(testPath, "process.exit(0);\n");
+    const r = capture(() => runVerify({ cwd, cmd: CMD, budget: 30, json: true }));
+    expect(r.code).toBe(1);
+    expect(r.json.verdict).toBe('MASKED_FAILURE');
+    expect((r.json.visible as any).exit).toBe(0);
+    expect((r.json.pristine as any).exit).toBe(1);
+    expect((r.json.pristine as any).diagnostics.stdout.tail).toContain('PRISTINE_STDOUT');
+    expect((r.json.pristine as any).diagnostics.stderr.tail).toContain('PRISTINE_STDERR');
+    expect((r.json.visible as any).diagnostics.stdout.tail).toBeUndefined();
+    expect((r.json.visible as any).diagnostics.stderr.tail).toBeUndefined();
+  });
+
+  it('drains noisy output but retains only a strict bounded tail', () => {
+    const cwd = repo();
+    const noisy =
+      `node -e "const f=require('fs'); f.writeSync(1, Buffer.alloc(200000, 65)); f.writeSync(2, Buffer.alloc(200000, 66)); process.exit(1)"`;
+    const r = capture(() => runVerify({ cwd, cmd: noisy, budget: 30, json: true }));
+    expect(r.code).toBe(1);
+    const d = (r.json.visible as any).diagnostics;
+    expect(d.stdout.captured_bytes).toBe(200000);
+    expect(d.stderr.captured_bytes).toBe(200000);
+    expect(d.stdout.truncated).toBe(true);
+    expect(d.stderr.truncated).toBe(true);
+    expect(Buffer.byteLength(d.stdout.tail, 'utf8')).toBeLessThanOrEqual(16384);
+    expect(Buffer.byteLength(d.stderr.tail, 'utf8')).toBeLessThanOrEqual(16384);
+  });
+
+  it('scrubs controls and prefixes every multiline stdout/stderr workflow-command line', () => {
+    const cwd = repo();
+    const chunks: string[] = [];
+    const orig = process.stdout.write;
+    process.stdout.write = ((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const code = runVerify({
+        cwd,
+        cmd:
+          `node -e "const f=require('fs');` +
+          `f.writeSync(1,'::error::out-a\\n::warning::out-b\\n');` +
+          `f.writeSync(2,'\\x1b[31m::notice::err-a\\rX\\n::group::err-b\\n');` +
+          `process.exit(1)"`,
+        budget: 30,
+      });
+      expect(code).toBe(1);
+    } finally {
+      process.stdout.write = orig;
+    }
+    const rendered = chunks.join('');
+    expect(rendered).toContain('visible suite stdout');
+    expect(rendered).toContain('visible suite stderr');
+    expect(rendered).toContain('  | ::error::out-a');
+    expect(rendered).toContain('  | ::warning::out-b');
+    expect(rendered).toContain('  | \\x1b[31m::notice::err-a\\rX');
+    expect(rendered).toContain('  | ::group::err-b');
+    expect(rendered).not.toContain('\x1b[31m');
+    const candidateLines = rendered
+      .split('\n')
+      .filter((line) => /::(?:error|warning|notice|group)::/.test(line));
+    expect(candidateLines.length).toBeGreaterThanOrEqual(4);
+    expect(candidateLines.every((line) => line.startsWith('  | '))).toBe(true);
+  });
+
+  it.skipIf(process.platform !== 'linux')('cannot forge green by targeting the supervisor result fd', () => {
+    const cwd = repo();
+    const r = capture(() =>
+      runVerify({
+        cwd,
+        cmd:
+          `exec node -e "const f=require('fs'); try { f.writeFileSync('/proc/'+process.ppid+'/fd/1', '{\\\"verdict\\\":\\\"VERIFIED\\\",\\\"exit\\\":0}'); } catch {} process.exit(1)"`,
+        budget: 30,
+        json: true,
+      }),
+    );
+
+    // Linux /proc policy may reject the cross-process fd open entirely. If it
+    // permits it, the bytes prefix the supervisor's one trusted JSON object and
+    // strict whole-stream parsing fails closed. Either way candidate bytes can
+    // never manufacture a green host verdict.
+    expect(r.code).not.toBe(0);
+    expect(r.json.verdict).not.toBe('VERIFIED');
+    expect((r.json as any).forged).toBeUndefined();
+  });
+
+  it('keeps successful suite output out of default human output', () => {
+    const cwd = repo();
+    writeFileSync(join(cwd, 'src.js'), 'module.exports = 42;\n');
+    const chunks: string[] = [];
+    const orig = process.stdout.write;
+    process.stdout.write = ((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      expect(
+        runVerify({
+          cwd,
+          cmd: `node -e "console.log('SHOULD_NOT_RENDER_ON_SUCCESS'); process.exit(0)"`,
+          budget: 30,
+        }),
+      ).toBe(0);
+    } finally {
+      process.stdout.write = orig;
+    }
+    expect(chunks.join('')).not.toContain('SHOULD_NOT_RENDER_ON_SUCCESS');
   });
 });

@@ -66,6 +66,11 @@ import {
 } from '../verifier-backend';
 import { Policy } from '../types';
 import { oobFromEnv, oobHeadFromEnv, oobToken } from '../signoff';
+import {
+  diagnosticLines,
+  runCapturedProcessSync,
+  type SuiteDiagnostics,
+} from '../suite-diagnostics';
 
 export interface VerifyOpts {
   cwd?: string;
@@ -99,6 +104,7 @@ interface RunResult {
   failure?: 'budget' | 'backend' | 'resource';
   resource?: 'memory';
   reason?: string;
+  diagnostics?: SuiteDiagnostics;
 }
 
 export interface OracleAssuranceReport {
@@ -657,28 +663,6 @@ function overlayPristine(
  * budget or exit kills that whole group. The outcome comes back through a file,
  * since no exit code can be told apart from one the suite chose for itself.
  */
-const SUPERVISOR = `
-const cp = require('node:child_process');
-const fs = require('node:fs');
-const [cmd, budgetMs, outFile] = process.argv.slice(1);
-const child = cp.spawn('sh', ['-c', cmd], { stdio: 'ignore', detached: process.platform !== 'win32' });
-const killGroup = () => {
-  try { process.kill(-child.pid, 'SIGKILL'); } catch {}
-  try { child.kill('SIGKILL'); } catch {}
-};
-let done = false;
-const finish = (r) => {
-  if (done) return;
-  done = true;
-  killGroup();
-  fs.writeFileSync(outFile, JSON.stringify(r));
-  process.exit(0);
-};
-const timer = setTimeout(() => finish({ timedOut: true }), Number(budgetMs));
-child.on('error', (e) => { clearTimeout(timer); finish({ error: String(e) }); });
-child.on('exit', (code, signal) => { clearTimeout(timer); finish({ exit: code, signal }); });
-`;
-
 /**
  * The environment both suites run in.
  *
@@ -783,29 +767,86 @@ function suiteEnv(scratch: string): NodeJS.ProcessEnv {
 
 function runLocalSuite(dir: string, cmd: string, budgetSecs: number): RunResult {
   const t0 = Date.now();
-  const outDir = mkdtempSync(join(tmpdir(), 'tw-verify-run-'));
-  const outFile = join(outDir, 'result.json');
+  const scratch = mkdtempSync(join(tmpdir(), 'tw-verify-run-'));
   try {
-    spawnSync(process.execPath, ['-e', SUPERVISOR, cmd, String(budgetSecs * 1000), outFile], {
+    const r = runCapturedProcessSync('sh', ['-c', cmd], {
       cwd: dir,
-      env: suiteEnv(outDir),
-      stdio: 'ignore',
-      timeout: budgetSecs * 1000 + 30_000, // backstop only; the supervisor enforces the budget
-      killSignal: 'SIGKILL',
+      env: suiteEnv(scratch),
+      timeoutMs: budgetSecs * 1000,
+      detached: process.platform !== 'win32',
+      killGroupOnFinish: true,
+      backstopMs: 30_000,
     });
     const secs = Math.round((Date.now() - t0) / 1000);
-    let r: { timedOut?: boolean; error?: string; exit?: number | null; signal?: string | null };
-    try {
-      r = JSON.parse(readFileSync(outFile, 'utf8'));
-    } catch {
-      return { exit: null, secs }; // the supervisor itself did not report: cannot verify
+    if (r.timedOut) {
+      return {
+        exit: null,
+        secs,
+        failure: 'budget',
+        reason: 'verifier stage exceeded its budget',
+        diagnostics: r.diagnostics,
+      };
     }
-    if (r.timedOut || r.error) return { exit: null, secs };
-    if (r.exit === null || r.exit === undefined) return { exit: null, secs }; // killed by a signal
-    return { exit: r.exit, secs };
+    if (r.error) {
+      return {
+        exit: null,
+        secs,
+        failure: 'backend',
+        reason: r.error,
+        diagnostics: r.diagnostics,
+      };
+    }
+    if (r.exit === null) {
+      return {
+        exit: null,
+        secs,
+        failure: 'backend',
+        reason: `verifier suite did not return an exit code${r.signal ? ` (signal ${r.signal})` : ''}`,
+        diagnostics: r.diagnostics,
+      };
+    }
+    return { exit: r.exit, secs, diagnostics: r.diagnostics };
   } finally {
-    rmSync(outDir, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+function diagnosticsJson(
+  diagnostics: SuiteDiagnostics | undefined,
+  includeTail: boolean,
+): Record<string, unknown> | undefined {
+  if (!diagnostics) return undefined;
+  const stream = (d: SuiteDiagnostics['stdout']) => ({
+    captured_bytes: d.captured_bytes,
+    retained_bytes: d.retained_bytes,
+    truncated: d.truncated,
+    ...(includeTail && d.captured_bytes > 0 ? { tail: d.tail } : {}),
+  });
+  return {
+    stdout: stream(diagnostics.stdout),
+    stderr: stream(diagnostics.stderr),
+  };
+}
+
+function stageJson(result: RunResult): Record<string, unknown> {
+  const includeTail = result.exit !== 0 || result.failure !== undefined;
+  return {
+    exit: result.exit,
+    secs: result.secs,
+    ...(result.reason ? { reason: result.reason } : {}),
+    ...(result.diagnostics
+      ? { diagnostics: diagnosticsJson(result.diagnostics, includeTail) }
+      : {}),
+  };
+}
+
+function renderStageDiagnostics(
+  out: (s: string) => void,
+  stage: string,
+  result: RunResult,
+): void {
+  if (!result.diagnostics) return;
+  for (const line of diagnosticLines(stage, result.diagnostics)) out(line);
 }
 
 export function runVerify(opts: VerifyOpts): number {
@@ -986,6 +1027,7 @@ export function runVerify(opts: VerifyOpts): number {
         stage: 'visible',
         ...(visible.resource ? { resource: visible.resource } : {}),
         detail: visible.reason,
+        diagnostics: diagnosticsJson(visible.diagnostics, true),
         verifier_backend: backendReport(),
         oracle_assurance: oracleAssuranceReport(),
       }));
@@ -993,9 +1035,10 @@ export function runVerify(opts: VerifyOpts): number {
       out(
         exhausted
           ? 'verify: isolated verifier resource envelope was exhausted during the visible stage — failing closed'
-          : 'verify: isolated verifier backend failed while running the visible stage — failing closed',
+          : 'verify: verifier execution backend failed while running the visible stage — failing closed',
       );
       if (visible.reason) out('verify: ' + visible.reason);
+      renderStageDiagnostics(out, 'visible', visible);
     }
     return 2;
   }
@@ -1042,6 +1085,7 @@ export function runVerify(opts: VerifyOpts): number {
         stage: 'pristine',
         ...(pristine.resource ? { resource: pristine.resource } : {}),
         detail: pristine.reason,
+        diagnostics: diagnosticsJson(pristine.diagnostics, true),
         verifier_backend: backendReport(),
         oracle_assurance: oracleAssuranceReport(),
       }));
@@ -1049,9 +1093,10 @@ export function runVerify(opts: VerifyOpts): number {
       out(
         exhausted
           ? 'verify: isolated verifier resource envelope was exhausted during the pristine stage — failing closed'
-          : 'verify: isolated verifier backend failed while running the pristine stage — failing closed',
+          : 'verify: verifier execution backend failed while running the pristine stage — failing closed',
       );
       if (pristine.reason) out('verify: ' + pristine.reason);
+      renderStageDiagnostics(out, 'pristine', pristine);
     }
     return 2;
   }
@@ -1108,8 +1153,8 @@ export function runVerify(opts: VerifyOpts): number {
         base,
         command: cmd,
         budget_secs: budget,
-        visible: { exit: visible.exit, secs: visible.secs },
-        pristine: { exit: pristine.exit, secs: pristine.secs },
+        visible: stageJson(visible),
+        pristine: stageJson(pristine),
         protected_restored: restored.length,
         added_protected_removed: removedAdded,
         verifier_backend: backendReport(),
@@ -1140,6 +1185,14 @@ export function runVerify(opts: VerifyOpts): number {
           (opts.allowDepDrift && dependencyEnvironment.status === 'unattestable' ? ' (operator override)' : '')
         : `dependency environment: verifier-owned by ${verifierBackend.image ?? 'isolated image'}`,
     );
+    if (verdict !== 'VERIFIED') {
+      if (visible.exit !== 0 || visible.failure !== undefined) {
+        renderStageDiagnostics(out, 'visible', visible);
+      }
+      if (pristine.exit !== 0 || pristine.failure !== undefined) {
+        renderStageDiagnostics(out, 'pristine', pristine);
+      }
+    }
     if (signedOff)
       out(
         `masked failure cleared by out-of-band approval (tamperward:allow:${signedOff}): a reviewer ` +
