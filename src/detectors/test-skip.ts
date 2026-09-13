@@ -13,15 +13,16 @@
 // Call-position spellings (`fit(`, `xit(`) are matched with their paren: the bare
 // word blocked `expect(label).toBe("fit")`.
 //
-// Member access is formatting-robust for the JS skip/focus family: `test.skip`,
-// `test . skip` (whitespace-separated) and `test['skip']` (literal string-bracket) are
-// the same operation, so all three are matched (via `acc()` below). A marker spelled
-// inside a string literal (`expect(x).toBe("test.skip")`) is text, not a skip, and is
-// masked out (via `insideStringLiteral`). Documented limits — NOT covered, by design,
-// because the pristine boundary is the backstop, not this in-loop detector: computed or
-// aliased access (`const s = 'skip'; test[s](...)`, `test['sk' + 'ip']`) is not resolved;
-// and a member chain split across PHYSICAL lines (`test\n  .skip(...)`) is not joined,
-// since matching is line-based.
+// The historical line matcher remains the fallback for diff-only producers and non-JS
+// ecosystems. When a JS/TS FileChange carries full BEFORE/AFTER content, an AST path
+// additionally resolves formatting-independent member chains, statically computable
+// property names, and simple locally provable runner aliases from known test APIs.
+// Resolution is keyed by TypeScript symbol identity, not identifier spelling, so a local
+// parameter/binding that shadows `test`, an imported alias, or a static property name
+// is deliberately not inherited from the outer binding. Binding-only changes are judged
+// as BEFORE/AFTER semantic deltas and attributed to the changed binding. Syntax-recovery
+// ASTs are not trusted for block findings: parse diagnostics decline the AST path and
+// leave the established line matcher as the fallback.
 
 import ts from 'typescript';
 import { Change, Detector, FileChange, Finding } from '../types';
@@ -34,13 +35,10 @@ const RULE = 'test-skip';
 
 type Pattern = { re: RegExp; why: string; comment?: true };
 
-// A member access to one of `names` (a `|`-alternation), reached by dot — with optional
-// surrounding whitespace — OR by literal string-bracket access: `.skip`, ` . skip`,
-// `['skip']`, `[ "only" ]`. Formatting-robust so a spacing or bracket rewrite cannot evade
-// the marker. NOT resolved (documented in the header): computed/aliased access (`t[s]`,
-// `t['sk'+'ip']`) and chains split across physical lines. The dot form keeps a trailing
-// non-word guard so `.skip` never swallows `.skipIf`; the bracket form is bounded by its
-// closing quote for the same reason.
+// Line-fallback member access to one of `names` (a `|`-alternation), reached by dot
+// or literal string-bracket access. This intentionally stays line-local; the AST path
+// above this fallback owns multiline/static-computed/alias semantics when full content
+// is available.
 const acc = (names: string): string =>
   `(?:\\s*\\.\\s*(?:${names})(?![\\w$])|\\s*\\[\\s*['"\`](?:${names})['"\`]\\s*\\])`;
 const JS_RUNNER = '\\b(?:it|test|describe|suite)';
