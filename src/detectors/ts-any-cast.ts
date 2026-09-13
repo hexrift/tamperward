@@ -99,14 +99,14 @@ const BROAD_LINE = /:\s*any\b|<[^<>]*\bany\b[^<>]*>/;
  *  than full-source analysis; it must never call one double-cast spelling block and a
  *  structurally identical one clean. */
 function lineHasDoubleCast(line: string): boolean {
-  let sf: ts.SourceFile;
+  let sf: TS.SourceFile;
   try {
     sf = ts.createSourceFile('line.ts', line, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   } catch {
     return false;
   }
   let found = false;
-  const visit = (n: ts.Node): void => {
+  const visit = (n: TS.Node): void => {
     if (found) return;
     if ((ts.isAsExpression(n) || ts.isTypeAssertionExpression(n)) && isDoubleCast(n)) {
       found = true;
