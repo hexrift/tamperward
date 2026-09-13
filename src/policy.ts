@@ -310,6 +310,10 @@ export function defaultPolicy(version = 1): Policy {
       // broad any in annotation/generic position is common in legit code (measured ~84-100% FP as a
       // block rule on real TS), so it WARNs until a semantic (error-silencing-aware) signal earns block.
       'ts-any-launder': { severity: 'warn' },
+      // net growth of ordinary `as T` / `<T>x` / `x!` assertions in non-test source (#383).
+      // Fires on a large share of legitimate TypeScript mainline diffs (measured in
+      // harness/fp-study/CAST-GROWTH-CORPUS.md), so it is a review prompt, not a gate.
+      'ts-cast-growth': { severity: 'warn' },
       'lint-suppression': { severity: 'block' },
       'coverage-lowering': { severity: 'block' },
       'ci-tampering': { severity: 'block' },
