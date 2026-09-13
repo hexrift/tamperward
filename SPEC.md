@@ -715,6 +715,11 @@ out-of-band label. The self-gate does not run `verify` on this repo (§6).
    for the studies and their outcomes.
 5. **`tamperward init`** — *shipped* (1.4.0): wires the policy, the agent hooks,
    pre-commit, and CI in one idempotent command; `--dry-run` prints the plan first.
+   Since 2.16.1 its final status distinguishes repository wiring from verifier readiness:
+   a loaded `verify.command` is reported as configured; otherwise init says CI will
+   fail closed, prints the YAML shape required, and may suggest high-confidence suite
+   commands for operator review. Detection is advisory only and never mutates the
+   trust-anchor verifier command.
 6. **`snapshot-rewrite`** — *shipped* (1.2.0) as the first detector built from
    measured demand; *warn* per its own 1,652-commit FP study.
 7. **The `version:` graduation gate** — *shipped* (1.3.0); no graduation uses it yet

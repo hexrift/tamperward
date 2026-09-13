@@ -5,6 +5,36 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.16.1] — 2026-09-13
+
+**`tamperward init` no longer lets a partially wired installation look complete.**
+The generated workflow has always failed closed when the trusted policy has no
+`verify.command`, but init's normal success summary did not surface that fact. A new
+operator could therefore see all five wiring rows applied and only discover the missing
+verifier when CI failed.
+
+Every successful init/dry-run now prints a separate **VERIFICATION SETUP** status:
+- an existing policy command is reported as `verification configured — <command>`;
+- otherwise init prints **INCOMPLETE: verification not configured — CI will fail
+  closed**, plus the exact `verify:` YAML shape to review and add;
+- one high-confidence suite is suggested; multiple candidates are listed without
+  silently choosing one;
+- npm's stock `Error: no test specified` placeholder is not treated as a valid suite.
+
+Advisory detection currently recognizes real npm test scripts, explicit pytest/tox
+configuration, a readable Cargo manifest with a `[package]` or `[workspace]` root,
+and a readable `go.mod` with a real `module` directive. Empty files, directories or
+other path-only markers are not called high-confidence suites. Detection is intentionally
+non-mutating: TamperWard never writes an inferred verifier command because that command
+is part of the trust anchor.
+
+The contract was committed test-first in `911c681...`. Its workflow was superseded
+before the Node matrix completed, so the release record does not mislabel that cancelled
+run as red CI; the production implementation follows in later commits and final
+exact-head CI is the merge gate.
+
+This closes #320.
+
 ## [2.16.0] — 2026-09-13
 
 **Verifier failures now carry bounded, tamper-safe suite diagnostics.** Visible and

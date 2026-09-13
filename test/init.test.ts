@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { planInit } from '../src/cli/init';
+import { planInit, runInit } from '../src/cli/init';
 import { HOOK_CMD, SWEEP_CMD } from '../src/wiring';
 
 let dirs: string[] = [];
@@ -22,6 +22,21 @@ function repo(withGit = true): string {
 
 const apply = (d: string) => { for (const a of planInit(d)) a.apply?.(); };
 const statuses = (d: string) => Object.fromEntries(planInit(d).map((a) => [a.item, a.status]));
+
+const captureInit = (cwd: string, dryRun = false): { code: number; output: string } => {
+  const original = process.stdout.write;
+  const chunks: string[] = [];
+  process.stdout.write = ((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    const code = runInit({ cwd, dryRun });
+    return { code, output: chunks.join('') };
+  } finally {
+    process.stdout.write = original;
+  }
+};
 
 describe('fresh repo', () => {
   it('creates all five enforcement points', () => {
@@ -167,6 +182,127 @@ describe('merging, never clobbering', () => {
   it('skips pre-commit gracefully outside a git repo', () => {
     const d = repo(false);
     expect(statuses(d)['pre-commit']).toBe('skip');
+  });
+});
+
+describe('verifier setup posture (#320)', () => {
+  it('makes an unconfigured fresh install unmistakably incomplete and suggests one high-confidence suite', () => {
+    const d = repo();
+    writeFileSync(
+      join(d, 'package.json'),
+      JSON.stringify({ name: 'demo', version: '1.0.0', scripts: { test: 'vitest run' } }),
+    );
+
+    const r = captureInit(d, true);
+    expect(r.code).toBe(0);
+    expect(r.output).toContain('INCOMPLETE: verification not configured');
+    expect(r.output).toContain('CI will fail closed');
+    expect(r.output).toContain('Suggested verifier command: npm test');
+    expect(r.output).toContain('verify:\n  command: "npm test"');
+    expect(existsSync(join(d, '.tamperward.yml'))).toBe(false); // dry-run is still non-mutating
+  });
+
+  it('real init suggests but never writes an inferred verifier command into the trust anchor', () => {
+    const d = repo();
+    writeFileSync(
+      join(d, 'package.json'),
+      JSON.stringify({ name: 'demo', version: '1.0.0', scripts: { test: 'vitest run' } }),
+    );
+
+    const r = captureInit(d, false);
+    expect(r.code).toBe(0);
+    expect(r.output).toContain('INCOMPLETE: verification not configured');
+    expect(r.output).toContain('Suggested verifier command: npm test');
+
+    const written = readFileSync(join(d, '.tamperward.yml'), 'utf8');
+    expect(written).not.toMatch(/^\s*verify\s*:/m);
+    expect(written).not.toContain('command: "npm test"');
+  });
+
+  it('does not call empty/malformed Cargo or Go markers high-confidence verifier suites', () => {
+    const d = repo();
+
+    writeFileSync(join(d, 'Cargo.toml'), '');
+    writeFileSync(join(d, 'go.mod'), '');
+    let r = captureInit(d, true);
+    expect(r.output).not.toContain('cargo test');
+    expect(r.output).not.toContain('go test ./...');
+
+    rmSync(join(d, 'Cargo.toml'));
+    rmSync(join(d, 'go.mod'));
+    mkdirSync(join(d, 'Cargo.toml'));
+    mkdirSync(join(d, 'go.mod'));
+    r = captureInit(d, true);
+    expect(r.output).not.toContain('cargo test');
+    expect(r.output).not.toContain('go test ./...');
+  });
+
+  it('recognises structurally valid Cargo package/workspace and Go module files', () => {
+    const cargo = repo();
+    writeFileSync(join(cargo, 'Cargo.toml'), '[package]\nname = "demo"\nversion = "0.1.0"\n');
+    expect(captureInit(cargo, true).output).toContain('Suggested verifier command: cargo test');
+
+    const workspace = repo();
+    writeFileSync(join(workspace, 'Cargo.toml'), '[workspace]\nmembers = ["crates/*"]\n');
+    expect(captureInit(workspace, true).output).toContain('Suggested verifier command: cargo test');
+
+    const go = repo();
+    writeFileSync(join(go, 'go.mod'), 'module example.com/demo\n\ngo 1.24\n');
+    expect(captureInit(go, true).output).toContain('Suggested verifier command: go test ./...');
+  });
+
+  it('reports verification configured when the real policy names a suite command', () => {
+    const d = repo();
+    writeFileSync(
+      join(d, '.tamperward.yml'),
+      ['version: 1', 'verify:', '  command: npm test', '  budget: 300', ''].join('\n'),
+    );
+
+    const r = captureInit(d, true);
+    expect(r.code).toBe(0);
+    expect(r.output).toContain('verification configured — npm test');
+    expect(r.output).not.toContain('INCOMPLETE: verification not configured');
+  });
+
+  it('does not silently choose when multiple high-confidence verifier commands exist', () => {
+    const d = repo();
+    writeFileSync(
+      join(d, 'package.json'),
+      JSON.stringify({ name: 'polyglot', version: '1.0.0', scripts: { test: 'vitest run' } }),
+    );
+    writeFileSync(join(d, 'Cargo.toml'), '[package]\nname="polyglot"\nversion="0.1.0"\n');
+
+    const r = captureInit(d, true);
+    expect(r.output).toContain('INCOMPLETE: verification not configured');
+    expect(r.output).toContain('Detected verifier candidates: npm test, cargo test');
+    expect(r.output).not.toContain('Suggested verifier command:');
+  });
+
+  it('still reports verifier incompleteness when the policy itself needs repair', () => {
+    const d = repo();
+    writeFileSync(join(d, '.tamperward.yml'), 'version: [broken\n');
+
+    const r = captureInit(d, true);
+    expect(r.code).toBe(2);
+    expect(r.output).toContain('policy');
+    expect(r.output).toContain('INCOMPLETE: verification not configured');
+    expect(r.output).toContain('CI will fail closed until the policy is fixed');
+  });
+
+  it('ignores npm default placeholder test scripts as non-runnable suggestions', () => {
+    const d = repo();
+    writeFileSync(
+      join(d, 'package.json'),
+      JSON.stringify({
+        name: 'demo',
+        version: '1.0.0',
+        scripts: { test: 'echo "Error: no test specified" && exit 1' },
+      }),
+    );
+
+    const r = captureInit(d, true);
+    expect(r.output).toContain('INCOMPLETE: verification not configured');
+    expect(r.output).not.toContain('Suggested verifier command: npm test');
   });
 });
 

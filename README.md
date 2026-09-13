@@ -325,8 +325,14 @@ Public rulesets can be read anonymously; set `GH_TOKEN` or `GITHUB_TOKEN` when
 authentication is required.
 
 A real deployment needs a verify command configured — the generated CI verify step
-**fails closed (exit 2) without one** rather than passing quietly. In
-`.tamperward.yml`:
+**fails closed (exit 2) without one** rather than passing quietly. Since 2.16.1,
+`tamperward init` ends with a separate **VERIFICATION SETUP** status: it says either
+`verification configured — <command>` or prominently reports
+`INCOMPLETE: verification not configured — CI will fail closed`. It can suggest a
+single high-confidence command such as `npm test`, `pytest`, `tox`, `cargo test`
+or `go test ./...`; multiple candidates are listed without choosing one. Suggestions
+are advisory only — init never writes an inferred verifier command because that command
+is part of the trust anchor. In `.tamperward.yml`:
 
 ```yaml
 verify:

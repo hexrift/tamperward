@@ -331,6 +331,100 @@ function hooksShapeError(hooks: unknown): string | null {
   return null;
 }
 
+function verifierCandidates(cwd: string): string[] {
+  const candidates: string[] = [];
+  const add = (command: string): void => {
+    if (!candidates.includes(command)) candidates.push(command);
+  };
+
+  // package.json is high-confidence only when it has a real test script.
+  try {
+    const pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8')) as {
+      scripts?: Record<string, unknown>;
+    };
+    const test = pkg.scripts?.test;
+    if (
+      typeof test === 'string' &&
+      test.trim() !== '' &&
+      !/error:\s*no test specified/i.test(test)
+    ) add('npm test');
+  } catch {
+    // Advisory discovery only. A malformed/missing package.json is not an init
+    // wiring error; the actual verifier remains operator-owned.
+  }
+
+  // Python: require an explicit runner config rather than guessing from
+  // pyproject existence alone.
+  try {
+    const pyproject = readFileSync(join(cwd, 'pyproject.toml'), 'utf8');
+    if (/^\s*\[tool\.pytest(?:\.ini_options)?\]\s*$/m.test(pyproject)) add('pytest');
+  } catch { /* absent */ }
+  if (existsSync(join(cwd, 'pytest.ini'))) add('pytest');
+  try {
+    const setupCfg = readFileSync(join(cwd, 'setup.cfg'), 'utf8');
+    if (/^\s*\[tool:pytest\]\s*$/m.test(setupCfg)) add('pytest');
+  } catch { /* absent */ }
+  try {
+    const tox = readFileSync(join(cwd, 'tox.ini'), 'utf8');
+    if (/^\s*\[tox\]\s*$/m.test(tox)) add('tox');
+  } catch { /* absent */ }
+
+  // Rust: a readable Cargo manifest with an actual package or workspace root.
+  // Mere path existence is not a runnable-suite signal: an empty file or a
+  // directory named Cargo.toml must not become a "high-confidence" suggestion.
+  try {
+    const cargo = readFileSync(join(cwd, 'Cargo.toml'), 'utf8');
+    if (/^\s*\[(?:package|workspace)\]\s*(?:#.*)?$/m.test(cargo)) add('cargo test');
+  } catch { /* absent, unreadable, or not a regular readable file */ }
+
+  // Go: require the module directive that makes this a module root. As above,
+  // existence alone is deliberately insufficient.
+  try {
+    const goMod = readFileSync(join(cwd, 'go.mod'), 'utf8');
+    if (/^\s*module\s+\S+\s*(?:\/\/.*)?$/m.test(goMod)) add('go test ./...');
+  } catch { /* absent, unreadable, or not a regular readable file */ }
+
+  return candidates;
+}
+
+function verifierSetupMessage(cwd: string): string {
+  try {
+    const policy = loadPolicy(cwd);
+    const command = policy.verify?.command?.trim();
+    if (command) return `verification configured — ${command}`;
+  } catch (e) {
+    return (
+      'INCOMPLETE: verification not configured — policy cannot currently be loaded; ' +
+      `CI will fail closed until the policy is fixed (${errText(e)}).`
+    );
+  }
+
+  const candidates = verifierCandidates(cwd);
+  const lines = [
+    'INCOMPLETE: verification not configured — CI will fail closed until .tamperward.yml names a trusted suite command.',
+  ];
+  if (candidates.length === 1) {
+    lines.push(`Suggested verifier command: ${candidates[0]}`);
+    lines.push('Review it, then add:');
+    lines.push('verify:');
+    lines.push(`  command: "${candidates[0]}"`);
+    lines.push('  budget: 300');
+  } else if (candidates.length > 1) {
+    lines.push(`Detected verifier candidates: ${candidates.join(', ')}`);
+    lines.push('Choose the suite that defines merge authority, then add for example:');
+    lines.push('verify:');
+    lines.push('  command: "<reviewed suite command>"');
+    lines.push('  budget: 300');
+  } else {
+    lines.push('Add the reviewed suite command to .tamperward.yml, for example:');
+    lines.push('verify:');
+    lines.push('  command: "<your test command>"');
+    lines.push('  budget: 300');
+  }
+  lines.push('TamperWard does not write an inferred verifier command automatically because it is part of the trust anchor.');
+  return lines.join('\n');
+}
+
 function planPolicy(cwd: string): Action {
   const path = join(cwd, POLICY_FILE);
   if (existsSync(path)) {
@@ -835,6 +929,13 @@ export function runInit(opts: InitOpts): number {
 
   const errors = plan.filter((a) => a.status === 'error');
   const changed = opts.dryRun ? plan.filter((a) => a.apply).length : applied;
+
+  // Presence of wiring is not the same as a runnable CI authority. Print this
+  // even when another init item is broken: a malformed policy is itself an
+  // incomplete verifier configuration, and returning before saying so would
+  // recreate the ambiguity #320 is closing.
+  w.write(`\nVERIFICATION SETUP\n${verifierSetupMessage(cwd)}\n`);
+
   if (errors.length) {
     w.write(`\ntamperward init: ${errors.length} item(s) need your attention above; the rest ${opts.dryRun ? 'are planned' : 'were applied'}.\n`);
     return 2;

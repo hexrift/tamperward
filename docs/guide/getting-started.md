@@ -42,6 +42,14 @@ npx tamperward doctor --github --repo OWNER/REPO --branch main
 Set `GH_TOKEN` or `GITHUB_TOKEN` if GitHub requires authentication for the
 repository/settings being inspected.
 
+Every init run now prints a separate **VERIFICATION SETUP** status. If the loaded
+policy already names `verify.command`, it prints `verification configured — <command>`.
+Otherwise it prints **INCOMPLETE: verification not configured — CI will fail closed**
+and the exact YAML shape to add. A single high-confidence detected suite is suggested
+for review; if several are detected they are listed without choosing one. Detection is
+advisory and non-mutating — init never writes an inferred verifier command, including
+during a non-dry run, because the verifier is part of the trust anchor.
+
 The minimal `verify:` block the CI step needs:
 
 ```yaml
