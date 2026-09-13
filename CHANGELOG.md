@@ -38,6 +38,21 @@ explicit preflight boundary.
 
 This closes #326.
 
+## [2.16.5] — 2026-09-13
+
+**Platform support is now explicit and enforced instead of depending on incidental POSIX utilities.**
+
+- `tamperward run --settle` uses an internal synchronous wait rather than an external `sleep` executable.
+- checkpointed-local `tamperward verify` uses a declared POSIX `/bin/sh -c` contract; Windows returns `CANNOT_VERIFY / LOCAL_VERIFIER_UNSUPPORTED_PLATFORM` before candidate execution.
+- doctor, run diagnostics, README, SPEC and the pristine threat model now agree on the Windows limitation.
+- required `platform-contract` CI runs on Ubuntu, macOS and Windows and exercises the declared boundary on real hosts.
+
+Authoritative `tamperward run` remains Linux-only with the trusted non-root subreaper/ECHILD backend. A digest-pinned container verifier remains a separate Docker-authority path.
+
+TDD began on workflow run **34772555802**, where typecheck failed exactly because `localVerifierShell` and `waitForSettleSync` did not yet exist.
+
+This closes #326.
+
 ## [2.16.4] — 2026-09-13
 
 **`tamperward run` now fails closed before agent start on every platform that lacks
