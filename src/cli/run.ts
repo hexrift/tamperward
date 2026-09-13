@@ -384,37 +384,66 @@ function runAgentSupervised(
 ): AgentRunResult {
   const stateDir = mkdtempSync(join(tmpdir(), 'tw-agent-supervisor-'));
   const resultFile = join(stateDir, 'result.json');
-  let supervisorTimedOut = false;
   try {
+    const linux = process.platform === 'linux';
     const supervisor = spawnSync(
-      process.execPath,
-      [
-        '-e',
-        AGENT_SUPERVISOR,
-        resultFile,
-        budgetSecs === undefined ? '' : String(budgetSecs * 1000),
-        ...argv,
-      ],
+      linux ? 'python3' : process.execPath,
+      linux
+        ? [
+            '-c',
+            LINUX_SUBREAPER_SUPERVISOR,
+            resultFile,
+            budgetSecs === undefined ? '' : String(budgetSecs),
+            ...argv,
+          ]
+        : [
+            '-e',
+            AGENT_SUPERVISOR,
+            resultFile,
+            budgetSecs === undefined ? '' : String(budgetSecs * 1000),
+            ...argv,
+          ],
       {
         cwd,
         stdio: 'inherit',
-        // When a runtime budget exists, retain an outer backstop. Without one,
-        // preserve the historical "no wall-clock limit" behavior while still
-        // owning descendants at normal exit.
+        // Inner supervision owns the intended deadline. This is only a
+        // dead-supervisor backstop and therefore has extra drain headroom.
         ...(budgetSecs === undefined
           ? {}
           : {
-              timeout: Math.ceil(budgetSecs * 1000) + 10_000,
+              timeout: Math.ceil(budgetSecs * 1000) + 15_000,
               killSignal: 'SIGKILL' as const,
             }),
       },
     );
-    supervisorTimedOut =
+
+    const supervisorTimedOut =
       Boolean(supervisor.error) &&
       (supervisor.error as NodeJS.ErrnoException).code === 'ETIMEDOUT';
+    const completedNormally =
+      !supervisorTimedOut &&
+      !supervisor.error &&
+      supervisor.status === 0 &&
+      supervisor.signal == null;
+
+    // The result file is same-UID writable by design. It is evidence only after
+    // the supervisor itself completed normally. A candidate can discover/write
+    // the path, but killing or crashing the supervisor invalidates the record.
+    if (!completedNormally) {
+      return {
+        exit: supervisorTimedOut ? 124 : 1,
+        timedOut: supervisorTimedOut,
+        lifecycleOwned: false,
+        signal: supervisor.signal ? String(supervisor.signal) : null,
+        failure: supervisorTimedOut
+          ? 'agent lifecycle supervisor exceeded its cleanup backstop'
+          : supervisor.error
+            ? `agent lifecycle supervisor failed: ${supervisor.error.message}`
+            : `agent lifecycle supervisor did not complete normally (status=${String(supervisor.status)}, signal=${String(supervisor.signal)})`,
+      };
+    }
 
     let state: {
-      pid?: number;
       exit?: number;
       timedOut?: boolean;
       signal?: string | null;
@@ -424,40 +453,34 @@ function runAgentSupervised(
     try {
       state = JSON.parse(readFileSync(resultFile, 'utf8'));
     } catch {
-      // If the supervisor did not produce a final record, fail closed below.
+      return {
+        exit: 1,
+        timedOut: false,
+        lifecycleOwned: false,
+        failure: 'agent lifecycle supervisor completed without a valid final status',
+      };
     }
 
-    if (supervisorTimedOut || state.timedOut) {
-      if (state.pid) killAgentTree(state.pid);
+    if (typeof state.exit !== 'number' || typeof state.timedOut !== 'boolean') {
       return {
-        exit: 124,
-        timedOut: true,
-        lifecycleOwned: state.lifecycleOwned === true,
-        signal: state.signal ?? null,
-        ...(state.failure ? { failure: state.failure } : {}),
-      };
-    }
-    if (typeof state.exit === 'number') {
-      return {
-        exit: state.exit,
+        exit: 1,
         timedOut: false,
-        lifecycleOwned: state.lifecycleOwned === true,
-        signal: state.signal ?? null,
-        ...(state.failure ? { failure: state.failure } : {}),
+        lifecycleOwned: false,
+        failure: 'agent lifecycle supervisor final status was malformed',
       };
     }
-    if (state.pid) killAgentTree(state.pid);
+
     return {
-      exit: 1,
-      timedOut: false,
-      lifecycleOwned: false,
-      failure: state.failure ?? 'agent supervisor did not produce a final status',
+      exit: state.timedOut ? 124 : state.exit,
+      timedOut: state.timedOut,
+      lifecycleOwned: state.lifecycleOwned === true,
+      signal: state.signal ?? null,
+      ...(state.failure ? { failure: state.failure } : {}),
     };
   } finally {
     rmSync(stateDir, { recursive: true, force: true });
   }
 }
-
 
 interface SupervisedObserver {
   log: string;
