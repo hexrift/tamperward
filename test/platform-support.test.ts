@@ -1,6 +1,14 @@
-import { describe, expect, it } from 'vitest';
-import { localVerifierShell } from '../src/cli/verify';
+import { afterEach, describe, expect, it } from 'vitest';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { localVerifierShell, runVerify } from '../src/cli/verify';
 import { authoritativeRunLifecyclePlatform, waitForSettleSync } from '../src/cli/run';
+
+const dirs: string[] = [];
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
 
 describe('platform execution contract (#326)', () => {
   it('keeps authoritative tamperward run Linux-only', () => {
@@ -29,5 +37,27 @@ describe('platform execution contract (#326)', () => {
     const started = Date.now();
     waitForSettleSync(0.02);
     expect(Date.now() - started).toBeGreaterThanOrEqual(10);
+  });
+
+  it.skipIf(process.platform !== 'win32')('Windows local verify refuses before candidate command side effects', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'tw-platform-verify-'));
+    dirs.push(cwd);
+    const marker = join(cwd, 'candidate-ran');
+    const command = `"${process.execPath}" -e "require('node:fs').writeFileSync(${JSON.stringify(JSON.stringify(marker))}, 'x')"`;
+
+    let output = '';
+    const write = process.stdout.write;
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      output += String(chunk);
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      expect(runVerify({ cwd, cmd: command, budget: 1, json: true })).toBe(2);
+    } finally {
+      process.stdout.write = write;
+    }
+
+    expect(existsSync(marker)).toBe(false);
+    expect(output).toMatch(/LOCAL_VERIFIER_UNSUPPORTED_PLATFORM/);
   });
 });
