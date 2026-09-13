@@ -8,7 +8,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
+import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { preToolUseVerdict, stopVerdict } from '../src/cli/hook';
@@ -347,5 +347,90 @@ describe('watcher + transient rule (the A.1 probes)', () => {
     }
     // a blocked stop must NOT advance the cursor: the churn stays visible
     expect(existsSync(join(gitDirEvents, 'fscursor-s3.json'))).toBe(false);
+  });
+});
+
+
+describe('fs-event cursor I/O (#313)', () => {
+  const event = (path: string, hash: string): FsEvent => ({
+    ts: '2026-09-13T00:00:00Z',
+    path,
+    kind: 'change',
+    mode: 0o100644,
+    size: 1,
+    hash,
+  });
+
+  it('reads only bytes appended after the saved byte offset', () => {
+    const d = mkdtempSync(join(tmpdir(), 'tw-event-tail-'));
+    dirs.push(d);
+    const log = join(d, 'events.jsonl');
+
+    const historicalLine = JSON.stringify(event('test/history.test.js', 'old')) + '\n';
+    const historical = historicalLine.repeat(50_000);
+    const tail = JSON.stringify(event('test/new.test.js', 'new')) + '\n';
+    writeFileSync(log, historical + tail);
+
+    const offset = Buffer.byteLength(historical);
+    const batch = readEvents(log, offset);
+
+    expect(batch.events.map((e) => e.path)).toEqual(['test/new.test.js']);
+    expect(batch.bytesRead).toBe(Buffer.byteLength(tail));
+    expect(batch.newOffset).toBe(offset + Buffer.byteLength(tail));
+  });
+
+  it('treats the cursor as a byte offset when historical JSON contains multibyte UTF-8', () => {
+    const d = mkdtempSync(join(tmpdir(), 'tw-event-utf8-'));
+    dirs.push(d);
+    const log = join(d, 'events.jsonl');
+
+    const prefix = JSON.stringify(event('test/💥-历史.test.js', 'old')) + '\n';
+    const tailEvent = event('test/tail.test.js', 'new');
+    const tail = JSON.stringify(tailEvent) + '\n';
+    writeFileSync(log, prefix + tail);
+
+    const batch = readEvents(log, Buffer.byteLength(prefix));
+    expect(batch.events).toEqual([tailEvent]);
+    expect(batch.bytesRead).toBe(Buffer.byteLength(tail));
+  });
+
+  it('does not advance past an incomplete final JSONL record', () => {
+    const d = mkdtempSync(join(tmpdir(), 'tw-event-torn-'));
+    dirs.push(d);
+    const log = join(d, 'events.jsonl');
+
+    const first = JSON.stringify(event('test/first.test.js', 'a')) + '\n';
+    const secondEvent = event('test/second.test.js', 'b');
+    const second = JSON.stringify(secondEvent) + '\n';
+    const split = Math.floor(second.length / 2);
+
+    writeFileSync(log, first + second.slice(0, split));
+    const one = readEvents(log, 0);
+    expect(one.events.map((e) => e.path)).toEqual(['test/first.test.js']);
+    expect(one.newOffset).toBe(Buffer.byteLength(first));
+
+    appendFileSync(log, second.slice(split));
+    const two = readEvents(log, one.newOffset);
+    expect(two.events).toEqual([secondEvent]);
+    expect(two.newOffset).toBe(Buffer.byteLength(first + second));
+  });
+
+  it('caps one advisory sweep without advancing past unread telemetry', () => {
+    const d = mkdtempSync(join(tmpdir(), 'tw-event-cap-'));
+    dirs.push(d);
+    const log = join(d, 'events.jsonl');
+
+    const a = JSON.stringify(event('test/a.test.js', 'a')) + '\n';
+    const b = JSON.stringify(event('test/b.test.js', 'b')) + '\n';
+    writeFileSync(log, a + b);
+
+    const batch = readEvents(log, 0, Buffer.byteLength(a) + 1);
+    expect(batch.capped).toBe(true);
+    expect(batch.events.map((e) => e.path)).toEqual(['test/a.test.js']);
+    expect(batch.newOffset).toBe(Buffer.byteLength(a));
+    expect(batch.bytesRead).toBe(Buffer.byteLength(a) + 1);
+
+    const rest = readEvents(log, batch.newOffset);
+    expect(rest.events.map((e) => e.path)).toEqual(['test/b.test.js']);
   });
 });
