@@ -544,7 +544,8 @@ describe('doctor lifecycle backend posture (#376/#379)', () => {
     expect(win.state).toBe('BROKEN');
     expect(win.detail).toMatch(/run fails closed before agent start/i);
     expect(win.detail).toMatch(/best-effort/i);
-    expect(win.detail).toMatch(/#379/);
+    expect(win.detail).toMatch(/standalone check\/verify remain available/i);
+    expect(win.detail).not.toMatch(/#379/);
   });
 });
 
