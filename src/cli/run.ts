@@ -34,9 +34,9 @@
 
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync } from 'node:fs';
+import { accessSync, constants as fsConstants, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { runCheck } from './check';
 import { runVerify } from './verify';
 import { loadPolicy, loadPolicyAt } from '../policy-load';
@@ -80,6 +80,12 @@ export interface RunEnvelopeOpts {
   /** @internal CLI entrypoint used to launch the supervised watcher. Tests
    *  inject a tiny fixture; normal CLI dispatch passes its own entry file. */
   observerEntry?: string;
+  /** @internal Test-only trusted override for Linux interpreter discovery. Not parsed by the CLI. */
+  linuxPythonCandidates?: string[];
+  /** @internal Test-only fault injection owned by the caller, never read from candidate env. */
+  lifecycleTestMode?: 'proc-read-fail' | 'drain-timeout';
+  /** @internal Test checkpoint after lifecycle drain and before any adjudication starts. */
+  onBeforeAdjudication?: () => void;
   argv: string[];
 }
 
@@ -89,62 +95,131 @@ const err = (s: string) => process.stderr.write(s + '\n');
 interface AgentRunResult {
   exit: number;
   timedOut: boolean;
+  /** True only when this platform/supervisor established the stronger lifecycle
+   *  boundary for the wrapped agent domain. This records lifecycle ownership only:
+   *  verifier-entry dependency attestation deliberately remains an independent
+   *  checkpoint and is never reused from the run-side snapshot. */
+  lifecycleOwned: boolean;
   signal?: string | null;
   failure?: string;
 }
 
+export function canReuseAdjacentDependencyAttestation(
+  _lifecycleOwned: boolean,
+  _platform: NodeJS.Platform = process.platform,
+): boolean {
+  // Security > one saved tree walk. #376 showed that coupling this optimization
+  // to same-UID lifecycle supervision is too subtle: the verifier-entry
+  // checkpoint must remain independent of the run-side checkpoint. Re-enable
+  // only when the agent execution domain itself is independently isolated.
+  return false;
+}
+
+const DEFAULT_TRUSTED_PYTHON_CANDIDATES = ['/usr/bin/python3', '/bin/python3'] as const;
+
+function supervisorEnv(): NodeJS.ProcessEnv {
+  return {
+    PATH: '/usr/bin:/bin',
+    HOME: '/nonexistent',
+    LANG: 'C',
+    LC_ALL: 'C',
+    PYTHONNOUSERSITE: '1',
+    PYTHONSAFEPATH: '1',
+  };
+}
+
+function callerIsRoot(): boolean {
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+  const euid = typeof process.geteuid === 'function' ? process.geteuid() : uid;
+  return uid === 0 || euid === 0;
+}
+
+function writableByCaller(path: string): boolean {
+  // Root/euid-0 has write authority over every ordinary system interpreter
+  // path, so same-UID separation is not meaningful in that mode.
+  if (callerIsRoot()) return true;
+  let cur = path;
+  for (;;) {
+    try {
+      accessSync(cur, fsConstants.W_OK);
+      return true;
+    } catch {
+      // not writable by this caller
+    }
+    const parent = dirname(cur);
+    if (parent === cur) break;
+    cur = parent;
+  }
+  return false;
+}
+
 /**
- * Small trusted supervisor used only when --agent-budget is set.
- *
- * The agent is placed in its own POSIX process group so the timeout signal can
- * target the whole ordinary descendant tree. On Windows, taskkill /T /F is the
- * explicit fallback. The supervisor writes its result outside the candidate
- * worktree, then the envelope continues normal post-agent adjudication.
+ * Resolve a Linux supervisor interpreter from fixed system paths only.
+ * Candidate cwd/PATH/PYTHON* settings are never consulted. The interpreter and
+ * every ancestor must be non-writable by the caller, and isolated startup must
+ * successfully import the exact stdlib modules used by the supervisor.
+ */
+export function trustedLinuxPython(
+  candidates: readonly string[] = DEFAULT_TRUSTED_PYTHON_CANDIDATES,
+): { path: string | null; reason?: string } {
+  if (process.platform !== 'linux') return { path: null, reason: 'Linux lifecycle backend is unavailable on this platform' };
+  if (callerIsRoot()) {
+    return {
+      path: null,
+      reason:
+        'Linux lifecycle supervision is unavailable when TamperWard runs as root/euid 0; same-UID separation cannot trust any system interpreter path',
+    };
+  }
+  for (const candidate of candidates) {
+    try {
+      const real = realpathSync(candidate);
+      const st = statSync(real);
+      if (!st.isFile() || writableByCaller(real)) continue;
+      const probe = spawnSync(
+        real,
+        ['-I', '-S', '-E', '-c', 'import ctypes,json,os,signal,subprocess,sys,time'],
+        {
+          cwd: '/',
+          env: supervisorEnv(),
+          stdio: 'ignore',
+          timeout: 5_000,
+        },
+      );
+      if (!probe.error && probe.status === 0 && probe.signal == null) return { path: real };
+    } catch {
+      // try the next fixed system candidate
+    }
+  }
+  return {
+    path: null,
+    reason:
+      'no trusted Linux python3 interpreter is available at a fixed non-writable system path with isolated stdlib startup',
+  };
+}
+
+/**
+ * Portable fallback supervisor. It owns the ordinary process group, but does
+ * NOT claim Linux-style detached-descendant ownership. Its result is trusted
+ * only when the supervisor itself exits normally; a same-UID candidate that
+ * forges the result file and kills the supervisor therefore cannot create a
+ * trusted lifecycle result.
  */
 const AGENT_SUPERVISOR = String.raw`
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 
 const [resultFile, budgetRaw, command, ...args] = process.argv.slice(1);
-const budgetMs = Number(budgetRaw);
+const budgetMs = budgetRaw === '' ? null : Number(budgetRaw);
 let child;
 let timedOut = false;
 let finished = false;
 
 function writeResult(value) {
-  try { fs.writeFileSync(resultFile, JSON.stringify(value)); } catch {}
-}
-
-function linuxDescendants(rootPid) {
-  if (process.platform !== 'linux') return [];
-  const byParent = new Map();
-  let names = [];
-  try { names = fs.readdirSync('/proc').filter((x) => /^\d+$/.test(x)); } catch { return []; }
-  for (const name of names) {
-    const pid = Number(name);
-    try {
-      const stat = fs.readFileSync('/proc/' + name + '/stat', 'utf8');
-      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-      const ppid = Number(fields[1]);
-      if (!Number.isFinite(ppid)) continue;
-      const kids = byParent.get(ppid) || [];
-      kids.push(pid);
-      byParent.set(ppid, kids);
-    } catch {}
-  }
-  const out = [];
-  const seen = new Set([rootPid]);
-  const stack = [rootPid];
-  while (stack.length) {
-    const parent = stack.pop();
-    for (const childPid of (byParent.get(parent) || [])) {
-      if (seen.has(childPid)) continue;
-      seen.add(childPid);
-      out.push(childPid);
-      stack.push(childPid);
-    }
-  }
-  return out;
+  try {
+    const tmp = resultFile + '.tmp-' + process.pid;
+    fs.writeFileSync(tmp, JSON.stringify(value));
+    fs.renameSync(tmp, resultFile);
+  } catch {}
 }
 
 function killTree(pid) {
@@ -153,16 +228,8 @@ function killTree(pid) {
     try { spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' }); } catch {}
     return;
   }
-
-  // Snapshot Linux descendants BEFORE killing the process-group leader. A
-  // descendant may have called setsid() and escaped the group while remaining
-  // in the agent's parent/child tree; /proc still lets us identify it.
-  const descendants = linuxDescendants(pid);
   try { process.kill(-pid, 'SIGKILL'); } catch {
     try { process.kill(pid, 'SIGKILL'); } catch {}
-  }
-  for (const childPid of descendants.reverse()) {
-    try { process.kill(childPid, 'SIGKILL'); } catch {}
   }
 }
 
@@ -172,168 +239,342 @@ try {
     detached: process.platform !== 'win32',
   });
 } catch (e) {
-  writeResult({ exit: 1, timedOut: false, failure: String(e) });
+  writeResult({ exit: 1, timedOut: false, lifecycleOwned: false, failure: String(e) });
   process.exit(0);
 }
 
-writeResult({ pid: child.pid, started: true });
+const timer = budgetMs == null
+  ? null
+  : setTimeout(() => {
+      timedOut = true;
+      killTree(child.pid);
+    }, budgetMs);
+if (timer) timer.unref();
 
-const timer = setTimeout(() => {
-  timedOut = true;
-  killTree(child.pid);
-}, budgetMs);
-timer.unref();
-
-child.once('error', (e) => {
+function finish(code, signal, failure) {
   if (finished) return;
   finished = true;
-  clearTimeout(timer);
-  writeResult({ exit: 1, timedOut, failure: String(e) });
-  process.exit(0);
-});
-
-child.once('exit', (code, signal) => {
-  if (finished) return;
-  finished = true;
-  clearTimeout(timer);
-  // A timeout owns the public status even when the killed process reports a
-  // shell-specific signal/exit value. The envelope will still adjudicate.
+  if (timer) clearTimeout(timer);
+  killTree(child && child.pid);
   writeResult({
     exit: timedOut ? 124 : (code == null ? 1 : code),
     timedOut,
+    lifecycleOwned: false,
     signal: signal == null ? null : String(signal),
+    ...(failure ? { failure } : {}),
   });
   process.exit(0);
-});
+}
+
+child.once('error', (e) => finish(1, null, String(e)));
+child.once('exit', (code, signal) => finish(code, signal));
 `;
 
-function linuxDescendantPids(rootPid: number): number[] {
-  if (process.platform !== 'linux') return [];
-  const byParent = new Map<number, number[]>();
-  let names: string[];
-  try {
-    names = readdirSync('/proc').filter((x) => /^\d+$/.test(x));
-  } catch {
-    return [];
-  }
-  for (const name of names) {
-    const pid = Number(name);
-    try {
-      const stat = readFileSync(`/proc/${name}/stat`, 'utf8');
-      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-      const ppid = Number(fields[1]);
-      if (!Number.isFinite(ppid)) continue;
-      const kids = byParent.get(ppid) ?? [];
-      kids.push(pid);
-      byParent.set(ppid, kids);
-    } catch {
-      // raced with process exit
-    }
-  }
-  const out: number[] = [];
-  const seen = new Set<number>([rootPid]);
-  const stack = [rootPid];
-  while (stack.length) {
-    const parent = stack.pop()!;
-    for (const childPid of byParent.get(parent) ?? []) {
-      if (seen.has(childPid)) continue;
-      seen.add(childPid);
-      out.push(childPid);
-      stack.push(childPid);
-    }
-  }
-  return out;
-}
+/**
+ * Linux lifecycle backend.
+ *
+ * prctl(PR_SET_CHILD_SUBREAPER) is the kernel ownership primitive: descendants
+ * that double-fork, setsid(), or otherwise orphan are reparented to this
+ * supervisor rather than escaping to init. The supervisor does not report
+ * success until the process group is killed, every adopted child is killed,
+ * and /proc shows the execution domain drained. A candidate may SIGKILL this
+ * same-UID supervisor, but the outer process then observes abnormal supervisor
+ * termination and refuses to trust any forged result file.
+ */
+const LINUX_SUBREAPER_SUPERVISOR = String.raw`
+import ctypes, json, os, signal, subprocess, sys, time
 
-function killAgentTree(pid: number): void {
-  if (!Number.isInteger(pid) || pid <= 1) return;
-  if (process.platform === 'win32') {
-    try {
-      spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore', timeout: 5_000 });
-    } catch {
-      // The timeout is already a failure state; post-timeout adjudication will
-      // also refuse certification if a surviving process still holds the tree.
-    }
-    return;
-  }
+result_file, agent_env_file, agent_cwd, budget_raw, test_mode, command, *args = sys.argv[1:]
+budget = None if budget_raw == "" else float(budget_raw)
+libc = ctypes.CDLL(None, use_errno=True)
+PR_SET_DUMPABLE = 4
+PR_SET_CHILD_SUBREAPER = 36
 
-  const descendants = linuxDescendantPids(pid);
-  try {
-    process.kill(-pid, 'SIGKILL');
-  } catch {
-    try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
-  }
-  for (const childPid of descendants.reverse()) {
-    try { process.kill(childPid, 'SIGKILL'); } catch { /* already gone */ }
-  }
-}
+def write_result(value):
+    tmp = result_file + ".tmp-" + str(os.getpid())
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(value, fh)
+    os.replace(tmp, result_file)
 
-function runAgentWithBudget(
+def fail(msg, code=70):
+    try:
+        write_result({"exit": 1, "timedOut": False, "lifecycleOwned": False, "failure": msg})
+    except Exception:
+        pass
+    raise SystemExit(code)
+
+# The agent gets the caller's frozen environment, but the supervisor itself was
+# launched with a minimal trusted environment and isolated Python startup. Read
+# and unlink this snapshot before candidate code starts.
+try:
+    with open(agent_env_file, "r", encoding="utf-8") as fh:
+        agent_env = json.load(fh)
+    os.unlink(agent_env_file)
+    if not isinstance(agent_env, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in agent_env.items()):
+        fail("agent environment snapshot was malformed")
+except Exception as exc:
+    fail("could not load frozen agent environment: %s" % exc)
+
+if libc.prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
+    fail("PR_SET_CHILD_SUBREAPER failed: errno=%d" % ctypes.get_errno())
+# Reduce same-UID introspection of the supervisor. Same-UID SIGKILL remains
+# possible; the outer process treats abnormal supervisor completion as untrusted.
+if libc.prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0:
+    fail("PR_SET_DUMPABLE failed: errno=%d" % ctypes.get_errno())
+
+def direct_children():
+    if test_mode == "proc-read-fail":
+        raise RuntimeError("injected child-observation failure")
+    path = "/proc/self/task/%d/children" % os.getpid()
+    try:
+        raw = open(path, "r", encoding="ascii").read().strip()
+    except Exception as exc:
+        raise RuntimeError("could not read adopted-child list: %s" % exc)
+    if not raw:
+        return []
+    try:
+        return [int(part) for part in raw.split()]
+    except Exception as exc:
+        raise RuntimeError("malformed adopted-child list: %s" % exc)
+
+def reap_state():
+    # ECHILD/ChildProcessError is the authoritative kernel statement that this
+    # subreaper has no children. pid==0 means at least one live child remains.
+    while True:
+        try:
+            pid, _ = os.waitpid(-1, os.WNOHANG)
+        except ChildProcessError:
+            return "empty", None
+        except InterruptedError:
+            continue
+        except Exception as exc:
+            return "error", "waitpid failed while draining: %s" % exc
+        if pid == 0:
+            return "live", None
+        # Reaped one child; continue until either ECHILD or a live child blocks.
+
+def kill_domain(pgid):
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except Exception as exc:
+        return False, "killpg failed: %s" % exc
+
+    if test_mode == "drain-timeout":
+        return False, "injected lifecycle drain failure"
+
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        state, reason = reap_state()
+        if state == "empty":
+            return True, None
+        if state == "error":
+            return False, reason
+        try:
+            kids = direct_children()
+        except Exception as exc:
+            return False, str(exc)
+        if not kids:
+            # waitpid says a live child exists but proc cannot name it. Never
+            # reinterpret incomplete observation as an empty execution domain.
+            time.sleep(0.01)
+            continue
+        for pid in kids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except Exception as exc:
+                return False, "failed to kill adopted descendant %d: %s" % (pid, exc)
+        time.sleep(0.01)
+
+    state, reason = reap_state()
+    if state == "empty":
+        return True, None
+    if state == "error":
+        return False, reason
+    return False, "adopted descendant execution domain did not reach kernel ECHILD within 3 seconds"
+
+timed_out = False
+try:
+    child = subprocess.Popen(
+        [command] + args,
+        cwd=agent_cwd,
+        env=agent_env,
+        start_new_session=True,
+    )
+except Exception as exc:
+    # No candidate process exists, so the lifecycle domain is trivially empty.
+    write_result({"exit": 1, "timedOut": False, "lifecycleOwned": True, "failure": str(exc)})
+    raise SystemExit(0)
+
+try:
+    if budget is None:
+        code = child.wait()
+    else:
+        try:
+            code = child.wait(timeout=budget)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            code = 124
+finally:
+    ok, reason = kill_domain(child.pid)
+
+if not ok:
+    fail(reason or "lifecycle drain failed")
+
+write_result({
+    "exit": 124 if timed_out else int(code),
+    "timedOut": timed_out,
+    "lifecycleOwned": True,
+    "signal": None,
+})
+raise SystemExit(0)
+`;
+
+
+function runAgentSupervised(
   argv: string[],
   cwd: string,
-  budgetSecs: number,
+  budgetSecs?: number,
+  linuxPythonCandidates?: readonly string[],
+  lifecycleTestMode?: 'proc-read-fail' | 'drain-timeout',
 ): AgentRunResult {
   const stateDir = mkdtempSync(join(tmpdir(), 'tw-agent-supervisor-'));
   const resultFile = join(stateDir, 'result.json');
-  let supervisorTimedOut = false;
+  const agentEnvFile = join(stateDir, 'agent-env.json');
   try {
-    const supervisor = spawnSync(
-      process.execPath,
-      ['-e', AGENT_SUPERVISOR, resultFile, String(budgetSecs * 1000), ...argv],
-      {
+    const linux = process.platform === 'linux';
+    let executable: string;
+    let args: string[];
+    let supervisorCwd = cwd;
+    let env: NodeJS.ProcessEnv = process.env;
+
+    if (linux) {
+      const trustedPython = trustedLinuxPython(linuxPythonCandidates ?? DEFAULT_TRUSTED_PYTHON_CANDIDATES);
+      if (!trustedPython.path) {
+        return {
+          exit: 1,
+          timedOut: false,
+          lifecycleOwned: false,
+          failure: trustedPython.reason ?? 'trusted Linux python3 interpreter is unavailable',
+        };
+      }
+      writeFileSync(agentEnvFile, JSON.stringify(process.env), { mode: 0o600 });
+      executable = trustedPython.path;
+      args = [
+        '-I',
+        '-S',
+        '-E',
+        '-c',
+        LINUX_SUBREAPER_SUPERVISOR,
+        resultFile,
+        agentEnvFile,
         cwd,
+        budgetSecs === undefined ? '' : String(budgetSecs),
+        lifecycleTestMode ?? '',
+        ...argv,
+      ];
+      // Supervisor startup/import resolution is independent of candidate cwd,
+      // PATH, HOME, PYTHONPATH, user site-packages and startup hooks. The agent
+      // itself receives the separately frozen caller environment and cwd.
+      supervisorCwd = '/';
+      env = supervisorEnv();
+    } else {
+      executable = process.execPath;
+      args = [
+        '-e',
+        AGENT_SUPERVISOR,
+        resultFile,
+        budgetSecs === undefined ? '' : String(budgetSecs * 1000),
+        ...argv,
+      ];
+    }
+
+    const supervisor = spawnSync(
+      executable,
+      args,
+      {
+        cwd: supervisorCwd,
+        env,
         stdio: 'inherit',
-        // Backstop only. The inner supervisor owns the intended budget and
-        // process-tree kill. This prevents a broken supervisor hanging run.
-        timeout: Math.ceil(budgetSecs * 1000) + 10_000,
-        killSignal: 'SIGKILL',
+        // Inner supervision owns the intended deadline. This is only a
+        // dead-supervisor backstop and therefore has extra drain headroom.
+        ...(budgetSecs === undefined
+          ? {}
+          : {
+              timeout: Math.ceil(budgetSecs * 1000) + 15_000,
+              killSignal: 'SIGKILL' as const,
+            }),
       },
     );
-    supervisorTimedOut =
+
+    const supervisorTimedOut =
       Boolean(supervisor.error) &&
       (supervisor.error as NodeJS.ErrnoException).code === 'ETIMEDOUT';
+    const completedNormally =
+      !supervisorTimedOut &&
+      !supervisor.error &&
+      supervisor.status === 0 &&
+      supervisor.signal == null;
+
+    // The result file is same-UID writable by design. It is evidence only after
+    // the supervisor itself completed normally. The Linux supervisor writes its
+    // final record only after waitpid has reached ECHILD, so no candidate-owned
+    // process remains to race this read.
+    if (!completedNormally) {
+      return {
+        exit: supervisorTimedOut ? 124 : 1,
+        timedOut: supervisorTimedOut,
+        lifecycleOwned: false,
+        signal: supervisor.signal ? String(supervisor.signal) : null,
+        failure: supervisorTimedOut
+          ? 'agent lifecycle supervisor exceeded its cleanup backstop'
+          : supervisor.error
+            ? `agent lifecycle supervisor failed: ${supervisor.error.message}`
+            : `agent lifecycle supervisor did not complete normally (status=${String(supervisor.status)}, signal=${String(supervisor.signal)})`,
+      };
+    }
 
     let state: {
-      pid?: number;
       exit?: number;
       timedOut?: boolean;
       signal?: string | null;
+      lifecycleOwned?: boolean;
       failure?: string;
     } = {};
     try {
       state = JSON.parse(readFileSync(resultFile, 'utf8'));
     } catch {
-      // If the supervisor did not produce a final record, fail closed below.
+      return {
+        exit: 1,
+        timedOut: false,
+        lifecycleOwned: false,
+        failure: 'agent lifecycle supervisor completed without a valid final status',
+      };
     }
 
-    if (supervisorTimedOut || state.timedOut) {
-      if (state.pid) killAgentTree(state.pid);
+    if (typeof state.exit !== 'number' || typeof state.timedOut !== 'boolean') {
       return {
-        exit: 124,
-        timedOut: true,
-        signal: state.signal ?? null,
-        ...(state.failure ? { failure: state.failure } : {}),
-      };
-    }
-    if (typeof state.exit === 'number') {
-      return {
-        exit: state.exit,
+        exit: 1,
         timedOut: false,
-        signal: state.signal ?? null,
-        ...(state.failure ? { failure: state.failure } : {}),
+        lifecycleOwned: false,
+        failure: 'agent lifecycle supervisor final status was malformed',
       };
     }
-    if (state.pid) killAgentTree(state.pid);
+
     return {
-      exit: 1,
-      timedOut: false,
-      failure: state.failure ?? 'agent supervisor did not produce a final status',
+      exit: state.timedOut ? 124 : state.exit,
+      timedOut: state.timedOut,
+      lifecycleOwned: state.lifecycleOwned === true,
+      signal: state.signal ?? null,
+      ...(state.failure ? { failure: state.failure } : {}),
     };
   } finally {
     rmSync(stateDir, { recursive: true, force: true });
   }
 }
-
 
 interface SupervisedObserver {
   log: string;
@@ -709,27 +950,39 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   // without moving a ref or touching a file (src/git/trusted.ts).
   const rewritesBefore = objectRewriteState(cwd);
   const spawnTicks = nowTicks(); // survivors are what appears after this
-  const agentRun: AgentRunResult = opts.agentBudget === undefined
-    ? (() => {
-        const agent = spawnSync(opts.argv[0], opts.argv.slice(1), { cwd, stdio: 'inherit' });
-        return {
-          exit: agent.status ?? 1,
-          timedOut: false,
-          signal: agent.signal ? String(agent.signal) : null,
-          ...(agent.error ? { failure: agent.error.message } : {}),
-        };
-      })()
-    : runAgentWithBudget(opts.argv, cwd, opts.agentBudget);
+  // Always use the trusted lifecycle supervisor. A runtime budget controls
+  // elapsed time; it does not control whether TamperWard owns descendants.
+  const agentRun = runAgentSupervised(
+    opts.argv,
+    cwd,
+    opts.agentBudget,
+    opts.linuxPythonCandidates,
+    opts.lifecycleTestMode,
+  );
   const agentExit = agentRun.exit;
   const agentTimedOut = agentRun.timedOut;
   if (agentRun.failure && !agentTimedOut) {
-    err(`tamperward run: agent runtime failed to start/report cleanly (${agentRun.failure}) — continuing to adjudicate the released tree.`);
+    err(`tamperward run: agent runtime failed to start/report cleanly (${agentRun.failure}).`);
+  }
+  // Linux is the only platform where this release claims durable normal-exit
+  // descendant ownership. If the subreaper did not complete and drain
+  // authoritatively, adjudication cannot safely begin: a same-UID candidate
+  // may still be executing outside the repository holder scan.
+  if (process.platform === 'linux' && !agentRun.lifecycleOwned) {
+    err('tamperward run: the Linux agent lifecycle boundary was not established/drained — failing closed before adjudication.');
+    finishObserverAdvisory(observer);
+    return 2;
   }
   if (agentTimedOut) {
     err(
       `tamperward run: AGENT_TIMEOUT — wrapped agent exceeded ${opts.agentBudget}s; its owned process tree was terminated. Post-timeout adjudication continues.`,
     );
   }
+
+  // Internal security-test checkpoint: on Linux this is reached only after the
+  // subreaper has received the authoritative kernel ECHILD condition. No policy,
+  // dependency or verifier adjudication has started yet.
+  opts.onBeforeAdjudication?.();
 
   // The trust anchor must not have moved: both the diff check and verify
   // resolve bases with merge-base semantics (right for PR review), so an
@@ -779,10 +1032,10 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   const workCode = runCheck({ worktree: true, cwd, policyOverride: frozenPolicy, includeUntracked: true, ciLayer: true });
 
   // H3 dependency boundary. Policy checks above do not execute the verifier's
-  // dependencies, so take this checkpoint immediately before runVerify and
-  // carry the issued attestation into its entry boundary. That removes one
-  // duplicate full-tree read without moving any checkpoint across hostile
-  // suite execution.
+  // dependencies, so take this run-side checkpoint immediately before
+  // runVerify. The nested verifier still performs its own independent entry
+  // checkpoint: #374/#376 showed that lifecycle ownership must not be coupled
+  // to dependency-attestation reuse across this trust boundary.
   const dependencyBeforeVerificationAttestation = dependencyEnvironment
     ? attestDependencyEnvironment(cwd, dependencyEnvironment)
     : undefined;
@@ -810,7 +1063,8 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     ...(dependencyEnvironment
       ? {
           dependencyEnvironment,
-          ...(dependencyBeforeVerificationAttestation
+          ...(dependencyBeforeVerificationAttestation &&
+          canReuseAdjacentDependencyAttestation(agentRun.lifecycleOwned)
             ? { dependencyEntryAttestation: dependencyBeforeVerificationAttestation }
             : {}),
           onDependencyFinalAttestation: (attestation: DependencyEnvironmentAttestation) => {
@@ -851,7 +1105,9 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
       `full_snapshots=${metrics.fullSnapshots} ` +
       `reused_snapshots=${metrics.reusedSnapshots} ` +
       `total_ms=${Number(metrics.totalMs.toFixed(3))} ` +
-      `verifier_final_attestation=${verifierFinalDependencyAttestation ? 'yes' : 'no'}`,
+      `verifier_final_attestation=${verifierFinalDependencyAttestation ? 'yes' : 'no'} ` +
+      `run_lifecycle_owned=${agentRun.lifecycleOwned ? 'yes' : 'no'} ` +
+      `entry_reuse=${canReuseAdjacentDependencyAttestation(agentRun.lifecycleOwned) ? 'yes' : 'no'}`,
     );
   }
   const depsDrifted = Boolean(dependencyEnvironment) && !opts.allowDepDrift && !dependencyAfter.ok;

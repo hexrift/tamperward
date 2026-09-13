@@ -10,7 +10,7 @@ import {
   maxStageBudgetForOuterTimeout,
   requiredVerifierAuthoritySeconds,
 } from '../src/verifier-limits';
-import { collectLocalPosture, evaluateGitHubProtection, githubApiInvocation, githubRepoFromRemote, runDoctor } from '../src/cli/doctor';
+import { collectLocalPosture, evaluateGitHubProtection, githubApiInvocation, githubRepoFromRemote, lifecyclePlatformCheck, runDoctor } from '../src/cli/doctor';
 import { defaultEventLog, startWatcher } from '../src/cli/watch';
 import { defaultPolicy, POLICY_VERSION } from '../src/policy';
 import { loadPolicy } from '../src/policy-load';
@@ -506,6 +506,46 @@ describe('doctor transient-observer health (#329)', () => {
   });
 });
 
+
+describe('doctor lifecycle backend posture (#376/#379)', () => {
+  it('reports authoritative Linux subreaper readiness only with trusted Python', () => {
+    expect(lifecyclePlatformCheck('linux', { path: '/usr/bin/python3' })).toMatchObject({
+      id: 'platform',
+      state: 'OK',
+    });
+    expect(lifecyclePlatformCheck('linux', {
+      path: null,
+      reason: 'no trusted interpreter',
+    })).toMatchObject({
+      id: 'platform',
+      state: 'BROKEN',
+    });
+  });
+
+  it('surfaces Linux root/euid-0 as an explicit BROKEN operator diagnostic', () => {
+    const check = lifecyclePlatformCheck('linux', {
+      path: null,
+      reason:
+        'Linux lifecycle supervision is unavailable when TamperWard runs as root/euid 0; same-UID separation cannot trust any system interpreter path',
+    });
+    expect(check.state).toBe('BROKEN');
+    expect(check.detail).toMatch(/root\/euid 0/i);
+    expect(check.detail).toMatch(/same-UID separation/i);
+    expect(check.detail).not.toMatch(/missing python/i);
+  });
+
+  it('does not advertise the Linux lifecycle boundary on unsupported platforms', () => {
+    const mac = lifecyclePlatformCheck('darwin', null);
+    expect(mac.state).toBe('WARN');
+    expect(mac.detail).toMatch(/#379/);
+    expect(mac.detail).toMatch(/attestation reuse stays disabled/i);
+
+    const win = lifecyclePlatformCheck('win32', null);
+    expect(win.state).toBe('WARN');
+    expect(win.detail).toMatch(/best-effort/i);
+    expect(win.detail).toMatch(/#379/);
+  });
+});
 
 describe('doctor installation posture (#318)', () => {
   it('projects canonical init wiring plus verifier/platform state into named posture checks', () => {

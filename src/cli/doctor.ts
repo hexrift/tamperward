@@ -8,6 +8,7 @@ import { requiredVerifierAuthoritySeconds } from '../verifier-limits';
 import { defaultEventLog, watcherTelemetry } from './watch';
 import { planInit } from './init';
 import { compareVersions, TW_VERSION } from '../wiring';
+import { trustedLinuxPython } from './run';
 
 export interface DoctorOpts {
   cwd?: string;
@@ -37,6 +38,50 @@ export interface DoctorReport {
   command: 'doctor';
   authoritative: boolean;
   checks: DoctorCheck[];
+}
+
+/** @internal Pure platform rendering for tests; runtime calls trustedLinuxPython itself. */
+export function lifecyclePlatformCheck(
+  platform: NodeJS.Platform = process.platform,
+  linuxPython: { path: string | null; reason?: string } | null =
+    platform === 'linux' ? trustedLinuxPython() : null,
+): DoctorCheck {
+  if (platform === 'linux') {
+    if (linuxPython?.path) {
+      return {
+        id: 'platform',
+        state: 'OK',
+        detail:
+          `Linux: authoritative run lifecycle uses PR_SET_CHILD_SUBREAPER via trusted ${linuxPython.path} ` +
+          'with isolated Python startup and ECHILD drain; verifier-entry dependency attestation remains independent',
+      };
+    }
+    return {
+      id: 'platform',
+      state: 'BROKEN',
+      detail:
+        'Linux: authoritative run lifecycle is unavailable (' +
+        (linuxPython?.reason ?? 'trusted system python3 unavailable') +
+        '); tamperward run fails closed before agent start',
+    };
+  }
+  if (platform === 'win32') {
+    return {
+      id: 'platform',
+      state: 'WARN',
+      detail:
+        'Windows: taskkill /T /F is a best-effort tree fallback, not the Linux subreaper/ECHILD boundary; ' +
+        'detached-domain residual tracked in #379 and verifier-entry attestation reuse stays disabled',
+    };
+  }
+  return {
+    id: 'platform',
+    state: 'WARN',
+    detail:
+      `${platform}: POSIX process-group/fingerprint/quiescence safeguards are available, but the Linux ` +
+      'subreaper/ECHILD detached-domain boundary is unavailable; residual tracked in #379 and ' +
+      'verifier-entry attestation reuse stays disabled',
+  };
 }
 
 const VERIFY_COMMAND = /\btamperward(?:@\S+)?\s+verify\b/;
@@ -287,13 +332,7 @@ export function collectLocalPosture(
     });
   }
 
-  checks.push(
-    process.platform === 'linux'
-      ? { id: 'platform', state: 'OK', detail: 'Linux: POSIX generated wiring and /proc runtime/quiescence controls are available' }
-      : process.platform === 'win32'
-        ? { id: 'platform', state: 'WARN', detail: 'Windows: generated shell wiring has POSIX assumptions and Linux /proc survivor controls are unavailable' }
-        : { id: 'platform', state: 'WARN', detail: `${process.platform}: POSIX wiring is available, but Linux /proc survivor controls are unavailable` },
-  );
+  checks.push(lifecyclePlatformCheck());
 
   return checks;
 }

@@ -5,6 +5,15 @@ import { join } from 'node:path';
 const root = join(__dirname, '..');
 
 describe('security documentation status (#311)', () => {
+  it('keeps package identity aligned with the newest changelog release (#378)', () => {
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version: string };
+    const changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8');
+    const newest = changelog.match(/^## \[([^\]]+)\]/m)?.[1];
+
+    expect(newest).toBeDefined();
+    expect(pkg.version).toBe(newest);
+  });
+
   it('binds the build spec to the shipped major/minor line', () => {
     const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version: string };
     const [major, minor] = pkg.version.split('.');
