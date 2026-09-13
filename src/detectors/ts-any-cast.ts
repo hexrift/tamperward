@@ -31,8 +31,9 @@ const BLOCK_RULE = 'ts-any-cast';
 const WARN_RULE = 'ts-any-launder';
 
 // The text spelling of the double cast accepts parentheses around `unknown` and the
-// closing wrappers of a parenthesised operand, so `(raw as (unknown)) as T` is read
-// the same way as `raw as unknown as T` on the diff-only path as it is on the AST path.
+// closing wrappers of a parenthesised operand. It is only a floor for the full-source
+// count; the diff-only fallback classifies the double cast structurally (see
+// `lineHasDoubleCast`) so the angle spellings are not a second contract.
 const DOUBLE_CAST = /\bas\s+\(*\s*unknown\s*\)*\s+as\b/g;
 const SUPPRESS = /@ts-(?:ignore|expect-error|nocheck)\b/g;
 // The JavaScript spelling of `as any`: a JSDoc cast, `/** @type {any} */ (x)`. Only the
@@ -82,9 +83,39 @@ function countAny(src: string): AnyCounts {
   return r;
 }
 
-// Additive-line fallback for diff-only changes (no before/after content).
-const NARROW_LINE = /\bas\s+\(*\s*any\b|<\s*any\s*>|\bas\s+\(*\s*unknown\s*\)*\s+as\b|@ts-(?:ignore|expect-error|nocheck)\b/;
+// Additive-line fallback for diff-only changes (no before/after content). The `any`
+// spellings and the directives are token patterns; the double cast is NOT — every
+// spelling `isDoubleCast` accepts on full source (`raw as unknown as T`,
+// `(raw as (unknown)) as T`, `(<unknown>raw) as T`, `<T>(raw as unknown)`) must be the
+// same block here, so the line is parsed for it instead of enumerated.
+const NARROW_LINE = /\bas\s+\(*\s*any\b|<\s*any\s*>|@ts-(?:ignore|expect-error|nocheck)\b/;
 const BROAD_LINE = /:\s*any\b|<[^<>]*\bany\b[^<>]*>/;
+
+/** Best-effort structural read of one added line: does it contain the row-4 double
+ *  cast? The line is parsed as a TypeScript snippet; a partial line (an argument in a
+ *  multi-line call, a trailing comma) recovers with diagnostics but still yields the
+ *  assertion node, and comment or string text yields none. The fallback may see less
+ *  than full-source analysis; it must never call one double-cast spelling block and a
+ *  structurally identical one clean. */
+function lineHasDoubleCast(line: string): boolean {
+  let sf: ts.SourceFile;
+  try {
+    sf = ts.createSourceFile('line.ts', line, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  } catch {
+    return false;
+  }
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    if ((ts.isAsExpression(n) || ts.isTypeAssertionExpression(n)) && isDoubleCast(n)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return found;
+}
 
 const BLOCK_REMEDIATION = 'Fix the underlying type instead of silencing the checker; do not cast to `any`.';
 const WARN_REMEDIATION = 'Prefer a precise type or `unknown` + a guard over `any` here — flagged for review.';
@@ -151,7 +182,7 @@ export const tsAnyCast: Detector = {
       // Fallback: diff-only change → additive-line regex, split narrow(block)/broad(warn).
       const jsdocCast = JS_FILE.test(c.path) ? new RegExp(JSDOC_ANY_CAST.source) : null;
       for (const l of addedLines(c)) {
-        if (NARROW_LINE.test(l.content) || (jsdocCast && jsdocCast.test(l.content))) {
+        if (NARROW_LINE.test(l.content) || lineHasDoubleCast(l.content) || (jsdocCast && jsdocCast.test(l.content))) {
           out.push(
             makeFinding(inTest ? WARN_RULE : BLOCK_RULE, policy, {
               file: c.path,
