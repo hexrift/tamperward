@@ -112,6 +112,20 @@ export function authoritativeRunLifecyclePlatform(
   return platform === 'linux';
 }
 
+/**
+ * Synchronous settle wait owned by TamperWard itself.
+ *
+ * The previous implementation executed an external `sleep` binary and silently
+ * skipped the requested quiescence window when that binary was unavailable. A
+ * security boundary must not depend on PATH or a POSIX utility for elapsed time.
+ */
+export function waitForSettleSync(seconds: number): void {
+  if (!Number.isFinite(seconds) || seconds <= 0) return;
+  const ms = Math.ceil(seconds * 1000);
+  const word = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+  Atomics.wait(word, 0, 0, ms);
+}
+
 export function canReuseAdjacentDependencyAttestation(
   _lifecycleOwned: boolean,
   _platform: NodeJS.Platform = process.platform,
@@ -1098,11 +1112,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   // makes the verdict describe a tree that no longer exists: the masked-green
   // escape one level up from the runtime hole this command closes.
   if (opts.settle && opts.settle > 0) {
-    try {
-      execFileSync('sleep', [String(opts.settle)]);
-    } catch {
-      /* sleep unavailable; the checks below still run */
-    }
+    waitForSettleSync(opts.settle);
   }
   const mutatedDuringAdjudication = treeFingerprint(cwd, protectedIgnored) !== fpBefore;
   if (mutatedDuringAdjudication) {
