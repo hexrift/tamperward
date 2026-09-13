@@ -68,6 +68,7 @@ import {
   type PreparedVerifierBackend,
 } from '../verifier-backend';
 import { Policy } from '../types';
+import { MACHINE_SCHEMA_VERSION } from '../machine-output';
 import { oobFromEnv, oobHeadFromEnv, oobToken } from '../signoff';
 import {
   diagnosticLines,
@@ -81,6 +82,8 @@ export interface VerifyOpts {
   cmd?: string;
   budget?: number;
   json?: boolean;
+  /** @internal Suppress human/machine stdout when verify is nested inside another JSON envelope. */
+  silent?: boolean;
   keep?: boolean;
   /** Refuse when the requested base is not an ancestor of HEAD — i.e. when
    *  merge-base would silently anchor to something older. The envelope
@@ -934,7 +937,9 @@ function renderStageDiagnostics(
 
 export function runVerify(opts: VerifyOpts): number {
   const cwd = opts.cwd ?? process.cwd();
-  const out = (s: string): void => void process.stdout.write(s + '\n');
+  const out = opts.silent
+    ? (_s: string): void => {}
+    : (s: string): void => void process.stdout.write(s + '\n');
 
   if (opts.invalid) {
     out(`verify: ${opts.invalid} — failing closed`);
@@ -992,8 +997,7 @@ export function runVerify(opts: VerifyOpts): number {
   const backendReport = () => verifierBackendReport(verifierBackend);
   if (!verifierBackend.available) {
     if (opts.json) {
-      out(JSON.stringify({
-        verdict: 'CANNOT_VERIFY',
+      out(JSON.stringify({\n        schema_version: MACHINE_SCHEMA_VERSION,\n        verdict: 'CANNOT_VERIFY',
         reason: 'VERIFIER_BACKEND_UNAVAILABLE',
         verifier_backend: backendReport(),
         oracle_assurance: oracleAssuranceReport(),
@@ -1007,8 +1011,7 @@ export function runVerify(opts: VerifyOpts): number {
   const isolated = verifierBackend.kind === 'container';
   if (!isolated && !localVerifierShell(process.platform, cmd)) {
     if (opts.json) {
-      out(JSON.stringify({
-        verdict: 'CANNOT_VERIFY',
+      out(JSON.stringify({\n        schema_version: MACHINE_SCHEMA_VERSION,\n        verdict: 'CANNOT_VERIFY',
         reason: 'LOCAL_VERIFIER_UNSUPPORTED_PLATFORM',
         platform: process.platform,
         verifier_backend: backendReport(),
@@ -1039,8 +1042,7 @@ export function runVerify(opts: VerifyOpts): number {
         };
   if (dependencyEnvironment?.status === 'unattestable' && !opts.allowDepDrift) {
     if (opts.json) {
-      out(JSON.stringify({
-        verdict: 'CANNOT_VERIFY',
+      out(JSON.stringify({\n        schema_version: MACHINE_SCHEMA_VERSION,\n        verdict: 'CANNOT_VERIFY',
         reason: 'DEPENDENCY_ENVIRONMENT_UNATTESTABLE',
         verifier_backend: backendReport(),
         dependency_environment: dependencyReport(),
@@ -1129,8 +1131,7 @@ export function runVerify(opts: VerifyOpts): number {
     cleanup([visRoot]);
     const exhausted = visible.failure === 'resource';
     if (opts.json) {
-      out(JSON.stringify({
-        verdict: 'CANNOT_VERIFY',
+      out(JSON.stringify({\n        schema_version: MACHINE_SCHEMA_VERSION,\n        verdict: 'CANNOT_VERIFY',
         reason: exhausted ? 'VERIFIER_RESOURCE_EXHAUSTED' : 'VERIFIER_BACKEND_RUNTIME_FAILURE',
         stage: 'visible',
         ...(visible.resource ? { resource: visible.resource } : {}),
@@ -1187,8 +1188,7 @@ export function runVerify(opts: VerifyOpts): number {
     cleanup([visRoot, priRoot]);
     const exhausted = pristine.failure === 'resource';
     if (opts.json) {
-      out(JSON.stringify({
-        verdict: 'CANNOT_VERIFY',
+      out(JSON.stringify({\n        schema_version: MACHINE_SCHEMA_VERSION,\n        verdict: 'CANNOT_VERIFY',
         reason: exhausted ? 'VERIFIER_RESOURCE_EXHAUSTED' : 'VERIFIER_BACKEND_RUNTIME_FAILURE',
         stage: 'pristine',
         ...(pristine.resource ? { resource: pristine.resource } : {}),
@@ -1263,8 +1263,7 @@ export function runVerify(opts: VerifyOpts): number {
 
   if (opts.json) {
     out(
-      JSON.stringify({
-        verdict,
+      JSON.stringify({\n        schema_version: MACHINE_SCHEMA_VERSION,\n        verdict,
         base,
         command: cmd,
         budget_secs: budget,
