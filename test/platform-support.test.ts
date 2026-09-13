@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { parse } from 'yaml';
 import { localVerifierShell, runVerify } from '../src/cli/verify';
 import { authoritativeRunLifecyclePlatform, waitForSettleSync } from '../src/cli/run';
+import { runTraceVerify } from '../src/cli/trace-verify';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -32,6 +33,22 @@ describe('platform execution contract (#326)', () => {
       args: ['-c', 'npm test'],
     });
     expect(localVerifierShell('win32', 'npm test')).toBeNull();
+  });
+
+  it.skipIf(process.platform === 'linux')('non-Linux trace-verify refuses explicitly instead of implying strace parity', () => {
+    let stderr = '';
+    const write = process.stderr.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      expect(runTraceVerify({})).toBe(2);
+    } finally {
+      process.stderr.write = write;
+    }
+    expect(stderr).toMatch(/Linux only/);
+    expect(stderr).toMatch(/unsupported platform/);
   });
 
   it('implements settle internally rather than delegating to an external sleep executable', () => {
