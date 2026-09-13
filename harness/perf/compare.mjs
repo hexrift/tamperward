@@ -10,10 +10,13 @@
 // tighter or looser ratio per item under `budgets: { "<item id>": <ratio> }`.
 // An item the baseline carries and the current report does not is a failure
 // unless --allow-missing is given: a benchmark that silently stopped running is
-// the regression nobody sees.
+// the regression nobody sees. Both reports must be the shape bench.mjs writes
+// (schema 1, unique string ids, finite wall_ms/cpu_ms percentiles) and the
+// selected metric must exist on every baselined item; otherwise the input is
+// malformed and the comparison refuses rather than comparing against nothing.
 //
 // Exit 0 when every item is within budget, 1 when any is over (or missing), 2
-// on bad arguments or unreadable input. Node built-ins only.
+// on bad arguments, unreadable or malformed input. Node built-ins only.
 
 import { readFileSync } from 'node:fs';
 
@@ -36,14 +39,36 @@ function isRecord(v) {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
+function isPercentiles(v) {
+  return isRecord(v) && Number.isFinite(v.p50) && Number.isFinite(v.p95);
+}
+
+/**
+ * A report is believed only in the shape bench.mjs writes: schema 1, an items
+ * array of records each carrying a string id, `wall_ms` and `cpu_ms` with finite
+ * p50/p95, and no id twice. Anything else is a malformed input and the
+ * comparison refuses (exit 2) — a baseline that silently lost an item, or a
+ * duplicated id whose second entry overwrote the first, would make a regression
+ * compare against the wrong number.
+ */
 function loadItems(path) {
   const doc = JSON.parse(readFileSync(path, 'utf8'));
   if (!isRecord(doc) || !Array.isArray(doc.items)) throw new Error(`${path}: not a perf report (no items array)`);
+  if (doc.schema !== undefined && doc.schema !== 1) throw new Error(`${path}: unsupported report schema ${JSON.stringify(doc.schema)} (expected 1)`);
   const items = new Map();
-  for (const it of doc.items) {
-    if (isRecord(it) && typeof it.id === 'string') items.set(it.id, it);
-  }
+  doc.items.forEach((it, i) => {
+    if (!isRecord(it) || typeof it.id !== 'string' || !it.id) throw new Error(`${path}: items[${i}] has no string id`);
+    if (!isPercentiles(it.wall_ms) || !isPercentiles(it.cpu_ms)) {
+      throw new Error(`${path}: item "${it.id}" lacks finite wall_ms/cpu_ms p50 and p95`);
+    }
+    if (items.has(it.id)) throw new Error(`${path}: duplicate item id "${it.id}"`);
+    items.set(it.id, it);
+  });
+  if (doc.budgets !== undefined && !isRecord(doc.budgets)) throw new Error(`${path}: budgets must be a map of item id to ratio`);
   const budgets = isRecord(doc.budgets) ? doc.budgets : {};
+  for (const [id, ratio] of Object.entries(budgets)) {
+    if (typeof ratio !== 'number' || !Number.isFinite(ratio) || ratio <= 0) throw new Error(`${path}: budgets["${id}"] must be a positive number`);
+  }
   return { items, budgets };
 }
 
@@ -86,17 +111,22 @@ function main() {
     return 2;
   }
 
+  // The selected metric must exist on every baselined item: a baseline that
+  // cannot answer for an item is malformed, never "nothing to compare".
+  for (const [id, b] of base.items) {
+    if (metricOf(b, o.metric) == null) {
+      process.stderr.write(`compare: ${o.baseline}: baseline item "${id}" has no finite metric ${o.metric}\n`);
+      return 2;
+    }
+  }
+
   const rows = [];
   let failures = 0;
   for (const [id, b] of base.items) {
-    const budgetRatio = typeof base.budgets[id] === 'number' && base.budgets[id] > 0 ? base.budgets[id] : o.ratio;
+    const budgetRatio = typeof base.budgets[id] === 'number' ? base.budgets[id] : o.ratio;
     const bv = metricOf(b, o.metric);
     const c = cur.items.get(id);
     const cv = c ? metricOf(c, o.metric) : null;
-    if (bv == null) {
-      rows.push({ id, base: bv, cur: cv, ratio: null, budget: budgetRatio, status: 'no baseline metric' });
-      continue;
-    }
     if (cv == null) {
       const status = o.allowMissing ? 'missing (allowed)' : 'MISSING';
       if (!o.allowMissing) failures++;

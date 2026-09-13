@@ -78,7 +78,11 @@ baseline's (default **2×**: a doubling is the regression the issue asks to make
 visible, and ordinary shared-runner variance is well inside it), or when a
 baselined item is missing from the report (`--allow-missing` waives that). A
 baseline may pin a different ratio per item under `"budgets": { "<item>": 1.5 }`.
-`--metric` picks another `a.b` path (for example `cpu_ms.p50`).
+`--metric` picks another `a.b` path (for example `cpu_ms.p50`). Both files must be
+the shape `bench.mjs` writes — schema 1, unique string ids, finite `wall_ms` /
+`cpu_ms` p50 and p95 — and the selected metric must exist on every baselined
+item; a malformed report or baseline is refused with exit 2 rather than compared
+against nothing.
 
 Where it runs:
 
