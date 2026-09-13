@@ -862,7 +862,16 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   const agentExit = agentRun.exit;
   const agentTimedOut = agentRun.timedOut;
   if (agentRun.failure && !agentTimedOut) {
-    err(`tamperward run: agent runtime failed to start/report cleanly (${agentRun.failure}) — continuing to adjudicate the released tree.`);
+    err(`tamperward run: agent runtime failed to start/report cleanly (${agentRun.failure}).`);
+  }
+  // Linux is the only platform where this release claims durable normal-exit
+  // descendant ownership. If the subreaper did not complete and drain
+  // authoritatively, adjudication cannot safely begin: a same-UID candidate
+  // may still be executing outside the repository holder scan.
+  if (process.platform === 'linux' && !agentRun.lifecycleOwned) {
+    err('tamperward run: the Linux agent lifecycle boundary was not established/drained — failing closed before adjudication.');
+    finishObserverAdvisory(observer);
+    return 2;
   }
   if (agentTimedOut) {
     err(
