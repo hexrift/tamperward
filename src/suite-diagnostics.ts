@@ -141,7 +141,7 @@ const CAPTURE_SUPERVISOR = String.raw`
 const cp = require('node:child_process');
 const fs = require('node:fs');
 
-const [configFile, resultFile] = process.argv.slice(1);
+const [configFile] = process.argv.slice(1);
 const cfg = JSON.parse(fs.readFileSync(configFile, 'utf8'));
 const CAP = Number(cfg.captureBytes);
 
@@ -188,7 +188,9 @@ function finish(extra) {
   if (done) return;
   done = true;
   try {
-    fs.writeFileSync(resultFile, JSON.stringify({
+    // stdout is reserved for the trusted supervisor result. Candidate suite
+    // stdout/stderr are separate pipes and are never inherited here.
+    process.stdout.write(JSON.stringify({
       ...exitInfo,
       timedOut,
       ...extra,
@@ -254,7 +256,6 @@ export function runCapturedProcessSync(
 ): CapturedProcessResult {
   const stateDir = mkdtempSync(join(tmpdir(), 'tw-suite-capture-'));
   const configFile = join(stateDir, 'config.json');
-  const resultFile = join(stateDir, 'result.json');
   const backstop = opts.backstopMs ?? 30_000;
   try {
     writeFileSync(
@@ -273,11 +274,17 @@ export function runCapturedProcessSync(
 
     const supervisor = spawnSync(
       process.execPath,
-      ['-e', CAPTURE_SUPERVISOR, configFile, resultFile],
+      ['-e', CAPTURE_SUPERVISOR, configFile],
       {
         cwd: opts.cwd,
         env: opts.env,
-        stdio: 'ignore',
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        // The trusted result is at most two 16 KiB tails plus small metadata.
+        // A candidate that somehow writes into the supervisor's stdout through
+        // same-UID /proc can only overflow/corrupt this bounded channel and make
+        // parsing fail closed; its suite streams are never inherited here.
+        maxBuffer: 256 * 1024,
         timeout: opts.timeoutMs + backstop,
         killSignal: 'SIGKILL',
       },
@@ -285,7 +292,7 @@ export function runCapturedProcessSync(
 
     let raw: RawResult | null = null;
     try {
-      raw = JSON.parse(readFileSync(resultFile, 'utf8')) as RawResult;
+      raw = JSON.parse(supervisor.stdout ?? '') as RawResult;
     } catch {
       raw = null;
     }
