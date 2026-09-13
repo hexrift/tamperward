@@ -340,7 +340,11 @@ describe('isolated verifier boundary attack corpus (#317)', () => {
     const r = capture(() => runVerify({ cwd, base: 'HEAD', json: true }));
     expect(r.code).toBe(1);
     expect(r.json.verdict).toBe('SUITE_RED');
-    expect(JSON.stringify(r.json)).not.toContain('FORGED_VERDICT_VERIFIED');
+    // Candidate output is now retained as bounded diagnostic DATA. It may
+    // contain verdict-shaped text, but it cannot alter host-owned verdict
+    // fields or inject a second JSON record.
+    expect(r.json.visible.diagnostics.stdout.tail).toContain('FORGED_VERDICT_VERIFIED');
+    expect(r.json.FORGED_VERDICT_VERIFIED).toBeUndefined();
   }, 60_000);
 
   containerIt('kills a verifier that exceeds budget and leaves no container behind', () => {
