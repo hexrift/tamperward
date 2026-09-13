@@ -85,16 +85,20 @@ Every Claude Code tool call launches the pinned hook as a fresh Node process, an
 most of the call's wall time was process startup rather than gate work. Since
 **2.21.0** two things address that, in order of how little they ask you to trust:
 
-1. **The `typescript` parser is loaded lazily.** The eight AST detectors used to
-   import it at startup, so every hook call — a `Bash` command, an edit to a Python
-   test, `--help` — paid to read and evaluate a 9 MB module it might never use. It is
-   now read on first use, through `require`, which also skips the ESM named-export
-   discovery pass; a protected JS/TS edit reaches the same AST path with the same
-   verdict (`test/ts-lazy.test.ts`). Nothing to enable; nothing about trust changes.
+1. **The `typescript` parser (and `yaml`, `picomatch`) are loaded lazily.** The eight
+   AST detectors used to import the parser at startup, so every hook call — a `Bash`
+   command, an edit to a Python test, `--help` — paid to read and evaluate a 9 MB module
+   it might never use. It is now read on first use, through `require`, which also skips
+   the ESM named-export discovery pass; a protected JS/TS edit reaches the same AST path
+   with the same verdict (`test/ts-lazy.test.ts`). On a 1,000-protected-file fixture a
+   `Bash`-payload hook call went from ~600 ms to ~190 ms, and a JS edit (which still
+   needs the parser) from ~600 ms to ~400 ms. Nothing to enable; nothing about trust
+   changes.
 2. **An optional persistent hook service** amortises the remaining startup across
    calls: `tamperward hook-service start` keeps one warm process per user and
    repository, and the hook hands it the stdin payload over a private unix socket
-   instead of loading the engine itself.
+   instead of loading the engine itself (~115–135 ms per call on the same fixture,
+   whatever the payload).
 
 ### Enabling the service
 
