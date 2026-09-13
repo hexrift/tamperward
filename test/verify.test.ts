@@ -540,7 +540,7 @@ describe('verify diagnostics (#319)', () => {
   it('drains noisy output but retains only a strict bounded tail', () => {
     const cwd = repo();
     const noisy =
-      `node -e "process.stdout.write('A'.repeat(200000)); process.stderr.write('B'.repeat(200000)); process.exit(1)"`;
+      `node -e "const f=require('fs'); f.writeSync(1, Buffer.alloc(200000, 65)); f.writeSync(2, Buffer.alloc(200000, 66)); process.exit(1)"`;
     const r = capture(() => runVerify({ cwd, cmd: noisy, budget: 30, json: true }));
     expect(r.code).toBe(1);
     const d = (r.json.visible as any).diagnostics;
