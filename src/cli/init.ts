@@ -369,8 +369,20 @@ function verifierCandidates(cwd: string): string[] {
     if (/^\s*\[tox\]\s*$/m.test(tox)) add('tox');
   } catch { /* absent */ }
 
-  if (existsSync(join(cwd, 'Cargo.toml'))) add('cargo test');
-  if (existsSync(join(cwd, 'go.mod'))) add('go test ./...');
+  // Rust: a readable Cargo manifest with an actual package or workspace root.
+  // Mere path existence is not a runnable-suite signal: an empty file or a
+  // directory named Cargo.toml must not become a "high-confidence" suggestion.
+  try {
+    const cargo = readFileSync(join(cwd, 'Cargo.toml'), 'utf8');
+    if (/^\s*\[(?:package|workspace)\]\s*(?:#.*)?$/m.test(cargo)) add('cargo test');
+  } catch { /* absent, unreadable, or not a regular readable file */ }
+
+  // Go: require the module directive that makes this a module root. As above,
+  // existence alone is deliberately insufficient.
+  try {
+    const goMod = readFileSync(join(cwd, 'go.mod'), 'utf8');
+    if (/^\s*module\s+\S+\s*(?:\/\/.*)?$/m.test(goMod)) add('go test ./...');
+  } catch { /* absent, unreadable, or not a regular readable file */ }
 
   return candidates;
 }
