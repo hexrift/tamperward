@@ -5,6 +5,31 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.20.1] — 2026-09-13
+
+**`tamperward run --observe-transients` now stops its observer on the observer
+process's exit, never on its health record.** (#394)
+
+The envelope's observer stop used to complete as soon as the watcher's health sidecar
+read `state: "stopped"` or the pid was gone. A watcher writes that record inside its
+signal handler *before* it finishes its final writes and exits, so `run` could return
+while the observer was still writing; PR #393's exact-head CI caught the lost final
+write on Node 24 while Node 20/22 passed. The health record is telemetry, and it is
+candidate-reachable; it was never fit to be the lifecycle boundary.
+
+The stop now waits for the observer *process* to exit. Because the envelope waits
+synchronously, its own event loop cannot reap the child, and an exited child lingers
+as a zombie that `kill(pid, 0)` still reports as alive — a pid-liveness poll alone
+therefore never sees the exit and runs to its deadline. On Linux (the only platform
+where `run` reaches the observer) the exit is read from the process state in
+`/proc/<pid>/stat`; elsewhere pid liveness remains the only signal. The drain window
+stays bounded at 2 s with SIGKILL behind it. Every observed envelope now stops its
+observer as soon as it has exited instead of burning the full window: the #335
+lifecycle regression drops from ~2.7 s to well under a second, and the new regression
+pins both halves of the contract — the observer's final write is present when
+`runEnvelope()` returns, and the return is keyed to the exit, not to the deadline —
+without a test-side sleep.
+
 ## [2.20.0] — 2026-09-13
 
 **TamperWard's own trust boundaries no longer assert their inputs, and a bounded
