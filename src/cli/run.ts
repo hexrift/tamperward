@@ -677,8 +677,10 @@ function stopObserverProcess(observer: SupervisedObserver): WatcherTelemetry {
     try { process.kill(pid!, 'SIGTERM'); } catch { /* already gone */ }
     const deadline = Date.now() + 2_000;
     while (Date.now() < deadline) {
-      const health = watcherTelemetry(observer.log);
-      if (health.health?.state === 'stopped' || !pidAlive(pid)) break;
+      // Health is evidence, not lifecycle completion authority. The observer
+      // may persist its "stopped" record before the signal handler has finished
+      // its final writes and exited. Only process death proves shutdown drained.
+      if (!pidAlive(pid)) break;
       waitMs(25);
     }
     if (pidAlive(pid)) {
