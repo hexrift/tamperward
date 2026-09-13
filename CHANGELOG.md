@@ -30,11 +30,28 @@ the authority for suite exit/OOM/runtime attribution. Candidate output can there
 shown without being allowed to forge the host-owned verdict.
 
 TDD started with three deliberate failures: missing structured diagnostics, unbounded
-noisy-output expectations, and missing safe human rendering. Regression coverage also
-keeps successful human output silent and updates the existing forged-verdict container
-control to prove verdict-shaped candidate text remains nested diagnostic data.
+noisy-output expectations, and missing safe human rendering. Regression coverage also keeps successful human output silent, proves
+visible-green/pristine-red diagnostics are attributed to the pristine stage, requires
+every multiline stdout/stderr workflow-command line to carry the inert `  | ` prefix,
+and pins multibyte UTF-8 behavior when the 16 KiB retained-byte window begins inside a
+code point. Supervisor-result parsing is strict whole-stream JSON: deterministic tests
+prove prefixed/appended attacker bytes fail closed rather than being scanned for a
+plausible green suffix.
 
-This closes #319.
+The same supervisor hardening closes #371 on Linux: while a local suite is alive it
+tracks the actual `/proc` descendant tree in addition to the POSIX process group, then
+kills tracked descendants before returning on ordinary main-child exit or timeout.
+Regressions exercise a `setsid()` escape in both cases, including a noisy detached
+writer, and assert the detached PID is gone before stage adjudication returns. Other
+platforms remain explicitly weaker rather than claiming Linux-style descendant
+discovery; the isolated-container backend still owns the stronger process-set boundary.
+
+The observer teardown flake found during exact-head validation is also fixed in this
+release (#372): fallback watcher callbacks become no-ops as soon as shutdown begins and
+`close()` is idempotent, preventing queued filesystem notifications from racing temp
+tree removal.
+
+This closes #319, #371, and #372.
 
 ## [2.15.2] — 2026-09-13
 
