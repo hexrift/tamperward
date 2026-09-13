@@ -10,9 +10,11 @@ import {
   maxStageBudgetForOuterTimeout,
   requiredVerifierAuthoritySeconds,
 } from '../src/verifier-limits';
-import { evaluateGitHubProtection, githubApiInvocation, githubRepoFromRemote, runDoctor } from '../src/cli/doctor';
+import { collectLocalPosture, evaluateGitHubProtection, githubApiInvocation, githubRepoFromRemote, runDoctor } from '../src/cli/doctor';
 import { defaultEventLog, startWatcher } from '../src/cli/watch';
 import { defaultPolicy } from '../src/policy';
+import { loadPolicy } from '../src/policy-load';
+import { runInit } from '../src/cli/init';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -345,3 +347,59 @@ describe('doctor transient-observer health (#329)', () => {
     }
   });
 });
+
+
+describe('doctor installation posture (#318)', () => {
+  it('projects canonical init wiring plus verifier/platform state into named posture checks', () => {
+    const cwd = repo(300);
+    execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/project.git'], { cwd });
+    execFileSync('git', ['config', 'user.name', 'acme'], { cwd });
+
+    // Policy already contains a verifier; init leaves it intact and wires the
+    // remaining local/repository enforcement surfaces canonically.
+    expect(runInit({ cwd })).toBe(0);
+
+    const checks = collectLocalPosture(cwd, loadPolicyForTest(cwd));
+    const byId = Object.fromEntries(checks.map((x) => [x.id, x]));
+    expect(byId.policy.state).toBe('OK');
+    expect(byId['claude-hooks'].state).toBe('OK');
+    expect(byId['pre-commit'].state).toBe('OK');
+    expect(byId['ci-wiring'].state).toBe('OK');
+    expect(byId.codeowners.state).toBe('OK');
+    expect(byId.verifier.state).toMatch(/OK|WARN/);
+    expect(byId.platform.state).toMatch(/OK|WARN/);
+  });
+
+  it('reports missing local enforcement surfaces without mutating them', () => {
+    const cwd = repo(300);
+    workflow(cwd, 70);
+    const before = execFileSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf8' });
+    const checks = collectLocalPosture(cwd, loadPolicyForTest(cwd));
+    const byId = Object.fromEntries(checks.map((x) => [x.id, x]));
+
+    expect(byId['claude-hooks'].state).not.toBe('OK');
+    expect(byId['pre-commit'].state).not.toBe('OK');
+    expect(byId.codeowners.state).not.toBe('OK');
+    expect(execFileSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf8' })).toBe(before);
+  });
+
+  it('emits one machine-readable posture report with --json', () => {
+    const cwd = repo(300);
+    workflow(cwd, 70);
+    const r = capture(() => runDoctor({ cwd, base: 'HEAD', json: true }));
+    expect(r.code).toBe(0);
+    const doc = JSON.parse(r.out);
+    expect(doc).toMatchObject({
+      command: 'doctor',
+      authoritative: false,
+    });
+    expect(Array.isArray(doc.checks)).toBe(true);
+    expect(doc.checks.some((x: any) => x.id === 'ci-verifier' && x.state === 'OK')).toBe(true);
+    expect(doc.checks.some((x: any) => x.id === 'claude-hooks')).toBe(true);
+    expect(doc.checks.some((x: any) => x.id === 'observer')).toBe(true);
+  });
+});
+
+function loadPolicyForTest(cwd: string) {
+  return loadPolicy(cwd);
+}
