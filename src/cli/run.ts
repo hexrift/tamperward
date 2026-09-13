@@ -95,8 +95,10 @@ const err = (s: string) => process.stderr.write(s + '\n');
 interface AgentRunResult {
   exit: number;
   timedOut: boolean;
-  /** True only when this platform/supervisor established ownership of descendants
-   *  strong enough to make the immediately-adjacent dependency attestation reusable. */
+  /** True only when this platform/supervisor established the stronger lifecycle
+   *  boundary for the wrapped agent domain. This records lifecycle ownership only:
+   *  verifier-entry dependency attestation deliberately remains an independent
+   *  checkpoint and is never reused from the run-side snapshot. */
   lifecycleOwned: boolean;
   signal?: string | null;
   failure?: string;
@@ -155,6 +157,13 @@ export function trustedLinuxPython(
   candidates: readonly string[] = DEFAULT_TRUSTED_PYTHON_CANDIDATES,
 ): { path: string | null; reason?: string } {
   if (process.platform !== 'linux') return { path: null, reason: 'Linux lifecycle backend is unavailable on this platform' };
+  if (typeof process.getuid === 'function' && process.getuid() === 0) {
+    return {
+      path: null,
+      reason:
+        'Linux lifecycle supervision is unavailable when TamperWard runs as root/euid 0; same-UID separation cannot trust any system interpreter path',
+    };
+  }
   for (const candidate of candidates) {
     try {
       const real = realpathSync(candidate);
@@ -1017,10 +1026,10 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   const workCode = runCheck({ worktree: true, cwd, policyOverride: frozenPolicy, includeUntracked: true, ciLayer: true });
 
   // H3 dependency boundary. Policy checks above do not execute the verifier's
-  // dependencies, so take this checkpoint immediately before runVerify and
-  // carry the issued attestation into its entry boundary. That removes one
-  // duplicate full-tree read without moving any checkpoint across hostile
-  // suite execution.
+  // dependencies, so take this run-side checkpoint immediately before
+  // runVerify. The nested verifier still performs its own independent entry
+  // checkpoint: #374/#376 showed that lifecycle ownership must not be coupled
+  // to dependency-attestation reuse across this trust boundary.
   const dependencyBeforeVerificationAttestation = dependencyEnvironment
     ? attestDependencyEnvironment(cwd, dependencyEnvironment)
     : undefined;
