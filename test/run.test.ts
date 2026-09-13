@@ -13,7 +13,7 @@ import { runEnvelope, parseRun } from '../src/cli/run';
 import { runVerify } from '../src/cli/verify';
 import { loadPolicy } from '../src/policy-load';
 import { diffWorktree, diffWorktreeWithUntracked } from '../src/git/build';
-import { MAX_EVENT_READ_BYTES } from '../src/detectors/fs-events';
+import { MAX_EVENT_READ_BYTES, MAX_EVENT_SWEEP_BYTES } from '../src/detectors/fs-events';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -569,6 +569,57 @@ describe('supervised transient observer (#335)', () => {
       delete process.env.TAMPERWARD_TRANSIENT;
     }
   }, 20_000);
+
+  it('aggregate observer ceiling stays advisory by default but strict mode fails closed', () => {
+    const cwd = repo(true);
+    const helperDir = mkdtempSync(join(tmpdir(), 'tw-observer-fixture-'));
+    dirs.push(helperDir);
+    const observerEntry = join(helperDir, 'observer-aggregate.js');
+
+    writeFileSync(
+      observerEntry,
+      [
+        "const fs = require('node:fs');",
+        "const path = require('node:path');",
+        "const args = process.argv.slice(2);",
+        "const value = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };",
+        "const log = value('--log');",
+        "if (!log || !value('--base') || args[0] !== 'watch') process.exit(22);",
+        "fs.mkdirSync(path.dirname(log), { recursive: true });",
+        "const healthPath = log + '.health.json';",
+        "const benign = JSON.stringify({ ts: new Date().toISOString(), path: 'src.js', kind: 'change', mode: 33188, size: 10, hash: 'same' }) + '\\n';",
+        `const repeats = Math.ceil((${MAX_EVENT_SWEEP_BYTES} + 65536) / Buffer.byteLength(benign));`,
+        "fs.writeFileSync(log, benign.repeat(repeats));",
+        "const health = { version: 1, state: 'healthy', backend: 'fallback', pid: process.pid, started_at: new Date().toISOString(), stopped_at: null, watched_dirs: 1, last_append_at: new Date().toISOString(), event_count: repeats, dropped_events: 0, error_count: 0, last_error: null, log };",
+        "fs.writeFileSync(healthPath, JSON.stringify(health) + '\\n');",
+        "process.on('SIGTERM', () => { health.state = 'stopped'; health.stopped_at = new Date().toISOString(); fs.writeFileSync(healthPath, JSON.stringify(health) + '\\n'); process.exit(0); });",
+        "setInterval(() => {}, 1000);",
+        "",
+      ].join('\n'),
+    );
+
+    // The observer is still advisory unless the operator explicitly raises it.
+    expect(runEnvelope({
+      cwd,
+      cmd: CMD,
+      observeTransients: true,
+      observerEntry,
+      argv: sh('true'),
+    })).toBe(0);
+
+    process.env.TAMPERWARD_TRANSIENT = 'block';
+    try {
+      expect(runEnvelope({
+        cwd,
+        cmd: CMD,
+        observeTransients: true,
+        observerEntry,
+        argv: sh('true'),
+      })).toBe(1);
+    } finally {
+      delete process.env.TAMPERWARD_TRANSIENT;
+    }
+  }, 40_000);
 
   it('observer unavailability is reported but does not become an enforcement verdict', () => {
     const cwd = repo(true);
