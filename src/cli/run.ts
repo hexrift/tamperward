@@ -128,10 +128,16 @@ function supervisorEnv(): NodeJS.ProcessEnv {
   };
 }
 
+function callerIsRoot(): boolean {
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+  const euid = typeof process.geteuid === 'function' ? process.geteuid() : uid;
+  return uid === 0 || euid === 0;
+}
+
 function writableByCaller(path: string): boolean {
-  // Root has write authority over every ordinary system interpreter path, so
-  // same-UID separation is not meaningful in that mode.
-  if (typeof process.getuid === 'function' && process.getuid() === 0) return true;
+  // Root/euid-0 has write authority over every ordinary system interpreter
+  // path, so same-UID separation is not meaningful in that mode.
+  if (callerIsRoot()) return true;
   let cur = path;
   for (;;) {
     try {
@@ -157,7 +163,7 @@ export function trustedLinuxPython(
   candidates: readonly string[] = DEFAULT_TRUSTED_PYTHON_CANDIDATES,
 ): { path: string | null; reason?: string } {
   if (process.platform !== 'linux') return { path: null, reason: 'Linux lifecycle backend is unavailable on this platform' };
-  if (typeof process.getuid === 'function' && process.getuid() === 0) {
+  if (callerIsRoot()) {
     return {
       path: null,
       reason:
