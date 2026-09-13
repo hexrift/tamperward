@@ -144,6 +144,17 @@ Before starting the agent, the envelope
 3. records the installed `node_modules` content fingerprint, where one exists; and
 4. refuses an already-dirty tree unless the operator explicitly accepts the risk.
 
+Since **2.16.2**, the local run→verify path carries the dependency attestation from the
+checkpoint immediately before `runVerify` into the verifier's entry boundary instead of
+re-reading the same tree twice with no hostile execution in between. A clean local
+envelope therefore performs **5 complete dependency snapshots instead of 6**. The checks
+after visible execution, after pristine execution, and at the envelope's final
+quiescence boundary remain independent full reads. In particular, the verifier-final
+snapshot is **not** reused for the envelope-final check because a detached/background
+process may still mutate ignored dependencies after verifier return. Set
+`TAMPERWARD_DIAGNOSTICS=1` to report `full_snapshots`, `reused_snapshots`, and
+aggregate snapshot wall time.
+
 The hooks then steer the agent while it works: they read live state, deny known
 weakening operations, detect protected-tree drift, and sweep the turn's net
 changes. The `Stop` hook runs that sweep — it does **not** invoke `verify`.

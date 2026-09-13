@@ -42,7 +42,14 @@ import { runVerify } from './verify';
 import { loadPolicy, loadPolicyAt } from '../policy-load';
 import { objectRewriteState, trustedGitEnv } from '../git/trusted';
 import { treeFingerprint } from '../fingerprint';
-import { checkDependencyEnvironment, dependencyEnvironmentSummary, discoverDependencyEnvironment } from '../dependency-env';
+import {
+  attestDependencyEnvironment,
+  checkDependencyEnvironment,
+  dependencyEnvironmentDiagnostics,
+  dependencyEnvironmentSummary,
+  discoverDependencyEnvironment,
+  type DependencyEnvironmentAttestation,
+} from '../dependency-env';
 import { prepareVerifierBackend, verifierBackendSummary } from '../verifier-backend';
 import { defaultPolicy, isProtected } from '../policy';
 import { diffRange, diffWorktreeWithUntracked, gitDir } from '../git/build';
@@ -746,26 +753,6 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     return 1;
   }
 
-  // H3. The final comparison below cannot see a TRANSIENT substitution: a
-  // replacement runner that returns 0 for the visible run, returns 0 for the
-  // pristine run, and puts the original bytes and mode back on its way out
-  // leaves the entry-vs-exit fingerprints identical. Reproduced end to end —
-  // GREEN MEANS GREEN over an unfixed bug. The state that matters is the one
-  // the checks are about to execute, so it is compared HERE, before them.
-  const dependencyBeforeAdjudication = dependencyEnvironment
-    ? checkDependencyEnvironment(cwd, dependencyEnvironment)
-    : { ok: true as const };
-  if (!dependencyBeforeAdjudication.ok) {
-    err('tamperward run: the frozen dependency environment changed before adjudication began —');
-    err(`${dependencyBeforeAdjudication.reason ?? 'dependency identity changed'}.`);
-    if (!opts.allowDepDrift) {
-      out(`\ntamperward run — agent exit ${agentExit}; DEPENDENCY_DRIFT → ENFORCEMENT_FAILED`);
-      finishObserverAdvisory(observer);
-      return 1;
-    }
-    err('(--allow-dep-drift: proceeding anyway, on the operator\'s judgement.)');
-  }
-
   const head = git(['rev-parse', 'HEAD'], cwd).trim();
   const isAncestor = spawnSync('git', ['merge-base', '--is-ancestor', base, head], { cwd, env: trustedGitEnv() });
   if (isAncestor.status !== 0) {
@@ -790,6 +777,29 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   }
   out('\n[envelope] policy check over the working tree (frozen policy, untracked included, no local ledger):');
   const workCode = runCheck({ worktree: true, cwd, policyOverride: frozenPolicy, includeUntracked: true, ciLayer: true });
+
+  // H3 dependency boundary. Policy checks above do not execute the verifier's
+  // dependencies, so take this checkpoint immediately before runVerify and
+  // carry the issued attestation into its entry boundary. That removes one
+  // duplicate full-tree read without moving any checkpoint across hostile
+  // suite execution.
+  const dependencyBeforeVerificationAttestation = dependencyEnvironment
+    ? attestDependencyEnvironment(cwd, dependencyEnvironment)
+    : undefined;
+  const dependencyBeforeVerification =
+    dependencyBeforeVerificationAttestation?.check ?? { ok: true as const };
+  if (!dependencyBeforeVerification.ok) {
+    err('tamperward run: the frozen dependency environment changed before verification began —');
+    err(`${dependencyBeforeVerification.reason ?? 'dependency identity changed'}.`);
+    if (!opts.allowDepDrift) {
+      out(`\ntamperward run — agent exit ${agentExit}; DEPENDENCY_DRIFT → ENFORCEMENT_FAILED`);
+      finishObserverAdvisory(observer);
+      return 1;
+    }
+    err('(--allow-dep-drift: proceeding anyway, on the operator\'s judgement.)');
+  }
+
+  let verifierFinalDependencyAttestation: DependencyEnvironmentAttestation | undefined;
   out('\n[envelope] pristine verification against the trusted base:');
   const verifyCode = runVerify({
     cwd,
@@ -797,7 +807,17 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     cmd: frozenCmd,
     budget: frozenBudget,
     policyOverride: frozenPolicy,
-    ...(dependencyEnvironment ? { dependencyEnvironment } : {}),
+    ...(dependencyEnvironment
+      ? {
+          dependencyEnvironment,
+          ...(dependencyBeforeVerificationAttestation
+            ? { dependencyEntryAttestation: dependencyBeforeVerificationAttestation }
+            : {}),
+          onDependencyFinalAttestation: (attestation: DependencyEnvironmentAttestation) => {
+            verifierFinalDependencyAttestation = attestation;
+          },
+        }
+      : {}),
     allowDepDrift: opts.allowDepDrift,
     verifierBackend,
   });
@@ -817,9 +837,23 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     err('tamperward run: the working tree changed while it was being adjudicated —');
     err('the verdict below would describe a tree that no longer exists.');
   }
+  // Keep this independent. A detached/background process may still mutate an
+  // ignored dependency after runVerify returns (or during --settle), so the
+  // verifier-final attestation is observable but not equivalent to this final
+  // envelope/quiescence boundary.
   const dependencyAfter = dependencyEnvironment
     ? checkDependencyEnvironment(cwd, dependencyEnvironment)
     : { ok: true as const };
+  if (dependencyEnvironment && process.env.TAMPERWARD_DIAGNOSTICS === '1') {
+    const metrics = dependencyEnvironmentDiagnostics(dependencyEnvironment);
+    out(
+      'tamperward run — dependency attestation diagnostics: ' +
+      `full_snapshots=${metrics.fullSnapshots} ` +
+      `reused_snapshots=${metrics.reusedSnapshots} ` +
+      `total_ms=${Number(metrics.totalMs.toFixed(3))} ` +
+      `verifier_final_attestation=${verifierFinalDependencyAttestation ? 'yes' : 'no'}`,
+    );
+  }
   const depsDrifted = Boolean(dependencyEnvironment) && !opts.allowDepDrift && !dependencyAfter.ok;
   if (depsDrifted) {
     err('tamperward run: the frozen dependency environment changed during this run —');

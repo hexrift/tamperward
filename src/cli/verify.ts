@@ -50,10 +50,13 @@ import { assertRev } from '../git/build';
 import { trustedGitEnv } from '../git/trusted';
 import { treeFingerprint } from '../fingerprint';
 import {
+  attestDependencyEnvironment,
   checkDependencyEnvironment,
   dependencyEnvironmentReport,
   dependencyEnvironmentSummary,
   discoverDependencyEnvironment,
+  reuseDependencyEnvironmentAttestation,
+  type DependencyEnvironmentAttestation,
   type DependencyEnvironmentDescriptor,
 } from '../dependency-env';
 import { defaultPolicy, isProtected, matchesAny } from '../policy';
@@ -91,6 +94,13 @@ export interface VerifyOpts {
   /** Frozen by tamperward run before the agent. Standalone verify discovers
    *  once at its own entry boundary. Never rediscovered after candidate code. */
   dependencyEnvironment?: DependencyEnvironmentDescriptor;
+  /** @internal Just-computed same-descriptor checkpoint from tamperward run.
+   *  Reused only at the immediately adjacent verifier-entry boundary. */
+  dependencyEntryAttestation?: DependencyEnvironmentAttestation;
+  /** @internal Carries the post-pristine checkpoint back to the envelope for
+   *  diagnostics/future equivalence decisions. The envelope currently keeps
+   *  its independent final check because background processes may still run. */
+  onDependencyFinalAttestation?: (attestation: DependencyEnvironmentAttestation) => void;
   /** Internal envelope override matching --allow-dep-drift. */
   allowDepDrift?: boolean;
   /** Prepared before the agent by tamperward run. Standalone verify prepares
@@ -998,7 +1008,15 @@ export function runVerify(opts: VerifyOpts): number {
   // pristine copy is made of.
   const protectedIgnored = (rel: string): boolean => isProtected(rel, policy);
   const treeBefore = treeFingerprint(cwd, protectedIgnored);
-  const dependencyAtEntry = checkDeps();
+  const dependencyAtEntry = dependencyEnvironment
+    ? (
+        reuseDependencyEnvironmentAttestation(
+          cwd,
+          dependencyEnvironment,
+          opts.dependencyEntryAttestation,
+        ) ?? checkDeps()
+      )
+    : { ok: true };
   if (!dependencyAtEntry.ok && !opts.allowDepDrift) {
     cleanup([visRoot]);
     out('verify: the frozen dependency environment changed before the visible suite ran —');
@@ -1102,7 +1120,14 @@ export function runVerify(opts: VerifyOpts): number {
   }
   const overlayMoved = overlayDigest(priDir, restored) !== overlayBefore;
   const treeMoved = treeFingerprint(cwd, protectedIgnored) !== treeBefore;
-  const dependencyAfterPristine = checkDeps();
+  const dependencyAfterPristineAttestation = dependencyEnvironment
+    ? attestDependencyEnvironment(cwd, dependencyEnvironment)
+    : undefined;
+  const dependencyAfterPristine =
+    dependencyAfterPristineAttestation?.check ?? { ok: true };
+  if (dependencyAfterPristineAttestation) {
+    opts.onDependencyFinalAttestation?.(dependencyAfterPristineAttestation);
+  }
   const depsMoved = !dependencyAfterPristine.ok && !opts.allowDepDrift;
   cleanup([visRoot, priRoot]);
 

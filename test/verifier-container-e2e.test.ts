@@ -473,7 +473,6 @@ describe('isolated verifier resource envelope (#346)', () => {
     expect(r.json).toMatchObject({
       verdict: 'CANNOT_VERIFY',
       reason: 'VERIFIER_RESOURCE_EXHAUSTED',
-      stage: 'visible',
       resource: 'memory',
       verifier_backend: {
         resources: {
@@ -484,6 +483,9 @@ describe('isolated verifier resource envelope (#346)', () => {
         },
       },
     });
+    // The cgroup boundary is the contract; real allocator/runtime scheduling can
+    // cross it in either of the two equivalent verifier stages.
+    expect(['visible', 'pristine']).toContain(r.json.stage);
     expect(remainingVerifierContainers()).toEqual([]);
   }, 60_000);
 
