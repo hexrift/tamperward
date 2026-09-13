@@ -660,18 +660,17 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
   });
 
   it.skipIf(process.platform === 'linux' || process.platform === 'win32')(
-    'unsupported POSIX lifecycle backends retain the historical fail-closed fingerprint control',
+    'unsupported POSIX lifecycle backends fail closed before the agent starts (2.16.4 platform contract)',
     () => {
       const cwd = repo();
+      const marker = join(cwd, 'agent-ran');
       const code = runEnvelope({
         cwd,
         cmd: CMD,
-        argv: sh(
-          `setsid nohup bash -c "sleep 1; echo > test/check.test.js" >/dev/null 2>&1 & ` +
-            `echo "module.exports = 42;" > src.js`,
-        ),
+        argv: sh(`touch agent-ran; echo "module.exports = 42;" > src.js`),
       });
-      expect(code).toBe(1);
+      expect(code).toBe(2);
+      expect(() => readFileSync(marker, 'utf8')).toThrow();
     },
     15_000,
   );

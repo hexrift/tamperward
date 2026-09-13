@@ -7,6 +7,8 @@
     "schema_version",
     "verdict",
     "exit_code",
+    "complete",
+    "base",
     "agent",
     "verifier_backend",
     "dependency_environment"
@@ -32,6 +34,10 @@
     "exit_code": {
       "type": "integer"
     },
+    "complete": {
+      "type": "boolean",
+      "description": "true when both policy checks, verification and the quiescence boundary ran on the tree the agent left; false for early convictions (object/history rewrite, dependency drift before verification) and lifecycle refusals, which carry no `checks.verify`/`observer`."
+    },
     "base": {
       "type": "string"
     },
@@ -54,10 +60,125 @@
       "$ref": "#/$defs/observer"
     },
     "reason": {
-      "type": "string"
+      "enum": [
+        "AGENT_LIFECYCLE_NOT_OWNED",
+        "VERIFY_CANNOT_VERIFY",
+        "CHECK_DIFF_UNJUDGEABLE",
+        "CHECK_WORKTREE_UNJUDGEABLE"
+      ],
+      "description": "Present exactly when verdict is CANNOT_ADJUDICATE: which layer could not judge."
     }
   },
   "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "complete": {
+            "const": true
+          }
+        },
+        "required": [
+          "complete"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "head",
+          "checks",
+          "observer"
+        ],
+        "properties": {
+          "head": {},
+          "checks": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/checks"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "diff",
+                  "worktree",
+                  "verify"
+                ],
+                "properties": {
+                  "diff": {},
+                  "worktree": {},
+                  "verify": {}
+                }
+              }
+            ]
+          },
+          "observer": {}
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "verdict": {
+            "const": "CANNOT_ADJUDICATE"
+          }
+        },
+        "required": [
+          "verdict"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {},
+          "exit_code": {
+            "const": 2
+          }
+        }
+      },
+      "else": {
+        "not": {
+          "type": "object",
+          "required": [
+            "reason"
+          ],
+          "properties": {
+            "reason": {}
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "verdict": {
+            "enum": [
+              "VERIFIED",
+              "AGENT_FAILED",
+              "AGENT_TIMEOUT",
+              "ENFORCEMENT_FAILED",
+              "NOT_QUIESCENT",
+              "TRANSIENT_OBSERVER_BLOCK"
+            ]
+          }
+        },
+        "required": [
+          "verdict"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "complete": {
+            "const": true
+          }
+        }
+      }
+    },
     {
       "if": {
         "properties": {
@@ -382,5 +503,6 @@
       "additionalProperties": true
     }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "description": "Emitted by `tamperward run --json` as the single stdout document once the wrapped agent has started; agent stdout is routed to stderr in this mode. Pre-agent failures emit no document (stderr + exit 2). Additive within schema major 1."
 }

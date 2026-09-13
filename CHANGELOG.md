@@ -28,6 +28,20 @@ early convictions such as object/history rewrite, dependency drift and lifecycle
 cannot-adjudicate also produce versioned run documents. Pre-agent/preflight errors
 remain deterministic stderr + exit 2 because no agent adjudication occurred.
 
+In `run --json` the agent's stdout is routed to stderr so stdout is exactly one
+document; run documents carry a `complete` discriminator (full post-agent adjudication
+ran, so `head`/`checks`/`observer` are present) and a `CANNOT_ADJUDICATE` document
+always names the layer that could not judge in `reason`. `verify --json` emits a
+`CANNOT_VERIFY` document with an enumerated `reason` on every fail-closed path,
+including the argument, policy, base, materialisation and mid-run drift exits that were
+previously prose. The verdict and reason vocabularies are defined once in
+`src/machine-output.ts` and the test suite asserts the published schema enums equal
+them. The schemas pin the required core of every nested evidence object
+(`verifier_backend`, `dependency_environment`, `oracle_assurance`, stage results,
+`agent`, `checks`, `observer`) and use verdict-discriminated conditionals, while keeping
+`additionalProperties: true` so schema major 1 stays additive; `doctor.authoritative`
+is constrained to agree with the check states.
+
 Exit codes remain a separate public protocol rather than being encoded into JSON
 Schema. README documents both contracts side by side.
 

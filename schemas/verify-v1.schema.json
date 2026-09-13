@@ -21,8 +21,23 @@
       ]
     },
     "reason": {
-      "type": "string",
-      "minLength": 1
+      "enum": [
+        "INVALID_ARGUMENTS",
+        "POLICY_ERROR",
+        "BASE_NOT_ANCESTOR",
+        "NO_SUITE_COMMAND",
+        "VERIFIER_BACKEND_UNAVAILABLE",
+        "LOCAL_VERIFIER_UNSUPPORTED_PLATFORM",
+        "DEPENDENCY_ENVIRONMENT_UNATTESTABLE",
+        "BASE_UNRESOLVABLE",
+        "DEPENDENCY_DRIFT",
+        "MATERIALIZATION_FAILED",
+        "VERIFIER_BACKEND_RUNTIME_FAILURE",
+        "VERIFIER_RESOURCE_EXHAUSTED",
+        "WORKTREE_CHANGED",
+        "PRISTINE_INTEGRITY_CHANGED"
+      ],
+      "description": "Machine reason for CANNOT_VERIFY. `stage` names the suite execution in flight, where one was."
     },
     "detail": {
       "type": "string"

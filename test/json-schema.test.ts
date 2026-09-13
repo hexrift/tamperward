@@ -20,6 +20,13 @@ import { runInit } from '../src/cli/init';
 import { validateCliArgs } from '../src/cli/main';
 import { defaultPolicy } from '../src/policy';
 import { defaultEventLog } from '../src/cli/watch';
+import {
+  MACHINE_SCHEMA_VERSION,
+  RUN_CANNOT_ADJUDICATE_REASONS,
+  RUN_VERDICTS,
+  VERIFY_CANNOT_VERIFY_REASONS,
+  VERIFY_VERDICTS,
+} from '../src/machine-output';
 
 const ROOT = resolve(__dirname, '..');
 const dirs: string[] = [];
@@ -460,4 +467,86 @@ describe('machine-readable schema v1 (#333)', () => {
       expect(validateDoc('run', runDoc, packageRoot)).toEqual([]);
     }
   }, 60_000);
+
+  it('every discriminator vocabulary in the schemas equals the constant the emitters use', () => {
+    // One source: a verdict or reason added to the CLI without the schema (or
+    // vice versa) fails here, so the published contract cannot lag the code.
+    const verify = schemaFrom(ROOT, 'verify');
+    expect(verify.properties.verdict.enum).toEqual([...VERIFY_VERDICTS]);
+    expect(verify.properties.reason.enum).toEqual([...VERIFY_CANNOT_VERIFY_REASONS]);
+    const run = schemaFrom(ROOT, 'run');
+    expect(run.properties.verdict.enum).toEqual([...RUN_VERDICTS]);
+    expect(run.properties.reason.enum).toEqual([...RUN_CANNOT_ADJUDICATE_REASONS]);
+    for (const name of SCHEMA_NAMES) {
+      expect(schemaFrom(ROOT, name).properties.schema_version).toEqual({ const: MACHINE_SCHEMA_VERSION });
+    }
+  });
+
+  it('negative fixtures: machine reasons are closed vocabularies, run documents declare completeness, doctor authority agrees with its checks', () => {
+    expect(validateDoc('verify', { schema_version: 1, verdict: 'CANNOT_VERIFY', reason: 'NO_SUITE_COMMAND', detail: 'x' })).toEqual([]);
+    expect(validateDoc('verify', { schema_version: 1, verdict: 'CANNOT_VERIFY', reason: 'because it felt like it', detail: 'x' })).not.toEqual([]);
+    expect(validateDoc('verify', { schema_version: 1, verdict: 'CANNOT_VERIFY', detail: 'x' })).not.toEqual([]);
+
+    const core = {
+      schema_version: 1, exit_code: 0, complete: false, base: 'a'.repeat(40),
+      agent: { exit_code: 0, timed_out: false, lifecycle_owned: true },
+      verifier_backend: { kind: 'local', trust: 'checkpointed-local', available: true },
+      dependency_environment: { status: 'none', roots: [] },
+    };
+    const full = { head: 'b'.repeat(40), checks: { diff: 0, worktree: 0, verify: 0 }, observer: { enabled: false, blocking: false } };
+    expect(validateDoc('run', { ...core, ...full, verdict: 'VERIFIED', complete: true })).toEqual([]);
+    expect(validateDoc('run', { ...core, ...full, verdict: 'VERIFIED' })).not.toEqual([]); // VERIFIED is always complete
+    const { complete: _c, ...noComplete } = { ...core, ...full, verdict: 'VERIFIED' };
+    expect(validateDoc('run', noComplete)).not.toEqual([]);
+    expect(validateDoc('run', { ...core, verdict: 'HISTORY_REWRITE', exit_code: 1, head: 'b'.repeat(40) })).toEqual([]);
+    expect(validateDoc('run', { ...core, verdict: 'HISTORY_REWRITE', exit_code: 1, complete: true, head: 'b'.repeat(40) })).not.toEqual([]); // complete needs checks/observer
+    expect(validateDoc('run', { ...core, ...full, verdict: 'ENFORCEMENT_FAILED', exit_code: 1 })).not.toEqual([]); // enforcement verdicts are complete
+    expect(validateDoc('run', { ...core, verdict: 'CANNOT_ADJUDICATE', exit_code: 2, reason: 'AGENT_LIFECYCLE_NOT_OWNED' })).toEqual([]);
+    expect(validateDoc('run', { ...core, verdict: 'CANNOT_ADJUDICATE', exit_code: 2 })).not.toEqual([]); // reason required
+    expect(validateDoc('run', { ...core, verdict: 'CANNOT_ADJUDICATE', exit_code: 2, reason: 'shrug' })).not.toEqual([]);
+    expect(validateDoc('run', { ...core, verdict: 'HISTORY_REWRITE', exit_code: 1, reason: 'VERIFY_CANNOT_VERIFY' })).not.toEqual([]); // reason only on CANNOT_ADJUDICATE
+
+    const ok = { id: 'policy', state: 'OK', detail: 'fine' };
+    const broken = { id: 'hooks', state: 'BROKEN', detail: 'missing' };
+    expect(validateDoc('doctor', { schema_version: 1, command: 'doctor', authoritative: true, checks: [ok] })).toEqual([]);
+    expect(validateDoc('doctor', { schema_version: 1, command: 'doctor', authoritative: false, checks: [ok, broken] })).toEqual([]);
+    expect(validateDoc('doctor', { schema_version: 1, command: 'doctor', authoritative: true, checks: [ok, broken] })).not.toEqual([]);
+    expect(validateDoc('doctor', { schema_version: 1, command: 'doctor', authoritative: false, checks: [ok] })).not.toEqual([]);
+  });
+
+  it.skipIf(process.platform !== 'linux' || !trustedLinuxPython().path)('run v1 discriminates early convictions from complete adjudication and names the layer that could not judge', () => {
+    const rewritten = repo(true);
+    let r = capture(() => runEnvelope({
+      cwd: rewritten,
+      cmd: 'node test/check.test.js',
+      budget: 2,
+      json: true,
+      argv: ['sh', '-c', 'git -c user.email=a@b -c user.name=a commit -q --amend --allow-empty -m rewritten'],
+    }));
+    expect(r.code).toBe(1);
+    let doc = parseOnlyJson(r.out);
+    expect(doc).toMatchObject({ verdict: 'HISTORY_REWRITE', exit_code: 1, complete: false });
+    expect(doc.checks).toBeUndefined();
+    expect(doc.observer).toBeUndefined();
+    expect(validateDoc('run', doc)).toEqual([]);
+
+    const cannot = repo(true);
+    r = capture(() => runEnvelope({
+      cwd: cannot,
+      cmd: `${JSON.stringify(process.execPath)} -e "setTimeout(()=>{},5000)"`,
+      budget: 0.1,
+      json: true,
+      argv: ['sh', '-c', 'true'],
+    }));
+    expect(r.code).toBe(2);
+    doc = parseOnlyJson(r.out);
+    expect(doc).toMatchObject({
+      verdict: 'CANNOT_ADJUDICATE',
+      exit_code: 2,
+      complete: true,
+      reason: 'VERIFY_CANNOT_VERIFY',
+      checks: { diff: 0, worktree: 0, verify: 2 },
+    });
+    expect(validateDoc('run', doc)).toEqual([]);
+  }, 45_000);
 });

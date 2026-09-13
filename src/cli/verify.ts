@@ -68,7 +68,7 @@ import {
   type PreparedVerifierBackend,
 } from '../verifier-backend';
 import { Policy } from '../types';
-import { MACHINE_SCHEMA_VERSION } from '../machine-output';
+import { MACHINE_SCHEMA_VERSION, type VerifyCannotVerifyReason } from '../machine-output';
 import { oobFromEnv, oobHeadFromEnv, oobToken } from '../signoff';
 import {
   diagnosticLines,
@@ -942,7 +942,7 @@ export function runVerify(opts: VerifyOpts): number {
     : (s: string): void => void process.stdout.write(s + '\n');
 
   const cannotVerify = (
-    reason: string,
+    reason: VerifyCannotVerifyReason,
     detail?: string,
     extra: Record<string, unknown> = {},
   ): number => {
@@ -1258,7 +1258,7 @@ export function runVerify(opts: VerifyOpts): number {
   cleanup([visRoot, priRoot]);
 
   if (overlayMoved || treeMoved || depsMoved) {
-    const reason = overlayMoved
+    const reason: VerifyCannotVerifyReason = overlayMoved
       ? 'PRISTINE_INTEGRITY_CHANGED'
       : treeMoved
         ? 'WORKTREE_CHANGED'

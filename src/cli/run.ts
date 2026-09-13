@@ -59,7 +59,7 @@ import { contentHash } from '../effect';
 import { drainEvents, MAX_EVENT_READ_BYTES, MAX_EVENT_SWEEP_BYTES, transientFindings } from '../detectors/fs-events';
 import { watcherTelemetry, type WatcherTelemetry } from './watch';
 import { Policy } from '../types';
-import { machineOutput } from '../machine-output';
+import { machineOutput, type RunCannotAdjudicateReason, type RunVerdict } from '../machine-output';
 
 export interface RunEnvelopeOpts {
   cwd?: string;
@@ -1023,15 +1023,21 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   );
   const agentExit = agentRun.exit;
   const agentTimedOut = agentRun.timedOut;
+  // `complete` is the run document's shape discriminator: true only when the
+  // full post-agent adjudication (both policy checks, verification, quiescence)
+  // ran, so `head`, `checks.{diff,worktree,verify}` and `observer` are present.
+  // Early convictions and lifecycle refusals emit `complete: false`.
   const emitRunJson = (
-    verdict: string,
+    verdict: RunVerdict,
     exitCode: number,
     extra: Record<string, unknown> = {},
+    complete = false,
   ): void => {
     if (!opts.json) return;
     out(JSON.stringify(machineOutput({
       verdict,
       exit_code: exitCode,
+      complete,
       base,
       agent: {
         exit_code: agentExit,
@@ -1049,12 +1055,14 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   if (agentRun.failure && !agentTimedOut) {
     err(`tamperward run: agent runtime failed to start/report cleanly (${agentRun.failure}).`);
   }
-  // Linux is the only platform where this release claims durable normal-exit
-  // descendant ownership. If the subreaper did not complete and drain
-  // authoritatively, adjudication cannot safely begin: a same-UID candidate
-  // may still be executing outside the repository holder scan.
-  if (process.platform === 'linux' && !agentRun.lifecycleOwned) {
-    err('tamperward run: the Linux agent lifecycle boundary was not established/drained — failing closed before adjudication.');
+  // Adjudication begins only behind an authoritatively drained lifecycle
+  // boundary, on EVERY platform. Linux is the only platform where this release
+  // claims that boundary (the preflight above refuses the others before the
+  // agent starts); the portable supervisor never reports ownership. If the
+  // supervisor did not complete and drain, a same-UID candidate may still be
+  // executing outside the repository holder scan, so no verdict is rendered.
+  if (!agentRun.lifecycleOwned) {
+    err('tamperward run: the agent lifecycle boundary was not established/drained — failing closed before adjudication.');
     finishObserverAdvisory(observer, say);
     emitRunJson('CANNOT_ADJUDICATE', 2, {
       reason: 'AGENT_LIFECYCLE_NOT_OWNED',
@@ -1257,7 +1265,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     : agentTimedOut ? 'AGENT_TIMEOUT — runtime budget expired; post-timeout enforcement clean'
     : agentExit !== 0 ? `agent exited ${agentExit} (enforcement clean)`
     : 'GREEN MEANS GREEN';
-  const machineVerdict =
+  const machineVerdict: RunVerdict =
     enforcement === 2 ? 'CANNOT_ADJUDICATE'
     : rewrote ? 'OBJECT_REWRITE'
     : depsDrifted ? 'DEPENDENCY_DRIFT'
@@ -1276,6 +1284,13 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
   const exitCode = enforcement !== 0 ? enforcement : agentTimedOut ? 124 : agentExit;
 
   if (opts.json) {
+    // Which nested layer could not judge. `cannot` is only set when the tree was
+    // quiescent, so exactly one of the three codes is 2 here.
+    const cannotReason: RunCannotAdjudicateReason | null =
+      enforcement !== 2 ? null
+      : verifyCode === 2 ? 'VERIFY_CANNOT_VERIFY'
+      : diffCode === 2 ? 'CHECK_DIFF_UNJUDGEABLE'
+      : 'CHECK_WORKTREE_UNJUDGEABLE';
     emitRunJson(machineVerdict, exitCode, {
       head,
       checks: { diff: diffCode, worktree: workCode, verify: verifyCode },
@@ -1283,7 +1298,8 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
         enabled: Boolean(opts.observeTransients),
         blocking: observerBlocked,
       },
-    });
+      ...(cannotReason ? { reason: cannotReason } : {}),
+    }, true);
   } else {
     say(`\ntamperward run — ${agentSummary}; checks diff=${diffCode} worktree=${workCode} verify=${verifyCode} → ${verdict}`);
   }

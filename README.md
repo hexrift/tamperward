@@ -502,9 +502,24 @@ files remain published for existing integrations.
 
 `run --json` owns stdout after the wrapped agent starts and emits one final envelope
 document, including post-agent early convictions such as `OBJECT_REWRITE`,
-`HISTORY_REWRITE`, `DEPENDENCY_DRIFT`, or lifecycle cannot-adjudicate. Argument,
-trusted-base, policy, dirty-start, and other **pre-agent/preflight** failures still fail
-closed on stderr at exit 2 because no agent adjudication occurred.
+`HISTORY_REWRITE`, `DEPENDENCY_DRIFT`, or lifecycle cannot-adjudicate. In this mode the
+agent's own stdout is routed to stderr (its stderr is unchanged), so stdout carries
+exactly one document however noisy the agent is. The document's `complete` field says
+whether the full post-agent adjudication ran: `true` documents carry `head`,
+`checks.{diff,worktree,verify}` and `observer`; early convictions and lifecycle refusals
+are `complete: false`. A `CANNOT_ADJUDICATE` document always names which layer could not
+judge in `reason` (`AGENT_LIFECYCLE_NOT_OWNED`, `VERIFY_CANNOT_VERIFY`,
+`CHECK_DIFF_UNJUDGEABLE`, `CHECK_WORKTREE_UNJUDGEABLE`). Argument, trusted-base, policy,
+dirty-start, and other **pre-agent/preflight** failures still fail closed on stderr at
+exit 2 because no agent adjudication occurred.
+
+`verify --json` never falls back to prose: every fail-closed exit before a verdict exists
+is a `CANNOT_VERIFY` document whose `reason` is one of the enumerated codes in the schema
+(`POLICY_ERROR`, `NO_SUITE_COMMAND`, `VERIFIER_BACKEND_UNAVAILABLE`, `WORKTREE_CHANGED`,
+`PRISTINE_INTEGRITY_CHANGED`, …) with a human `detail` beside it and, once a suite
+execution was in flight, the `stage` it happened in. The reason vocabularies for both
+`verify` and `run` are defined once in the source and asserted equal to the schema enums
+by the test suite, so a new code cannot ship without the contract.
 
 The JSON schemas describe **data shape**, not process status. Exit codes are a separate
 public protocol and are documented in the table immediately below. Consumers should

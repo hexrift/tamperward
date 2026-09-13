@@ -48,5 +48,48 @@
       }
     }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "description": "Emitted by `tamperward doctor --json`. `authoritative` is derived: false exactly when any check is BROKEN. Additive within schema major 1.",
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "checks": {
+            "type": "array",
+            "contains": {
+              "type": "object",
+              "required": [
+                "state"
+              ],
+              "properties": {
+                "state": {
+                  "const": "BROKEN"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "checks"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "authoritative": {
+            "const": false
+          }
+        }
+      },
+      "else": {
+        "type": "object",
+        "properties": {
+          "authoritative": {
+            "const": true
+          }
+        }
+      }
+    }
+  ]
 }
