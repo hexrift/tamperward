@@ -267,7 +267,7 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
   // detached worker. Since 2.16.3 the stronger contract is active lifecycle
   // ownership: these descendants are terminated before adjudication, so an
   // otherwise honest fix is GREEN rather than merely NOT_QUIESCENT.
-  it.skipIf(process.platform === 'win32')('reaps a detached worker that would mutate the tree after the agent exits', () => {
+  it.skipIf(process.platform !== 'linux')('reaps a detached worker that would mutate the tree after the agent exits', () => {
     const cwd = repo(); // failing suite; agent writes the honest fix
     const code = runEnvelope({
       cwd,
@@ -292,6 +292,67 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
     });
     expect(code).toBe(0);
   });
+
+  it.skipIf(process.platform !== 'linux')('rejects a forged lifecycle result when the same-UID agent kills its supervisor', () => {
+    const cwd = repo(true);
+    const code = runEnvelope({
+      cwd,
+      cmd: CMD,
+      argv: sh(
+        [
+          'parent=$PPID',
+          'result=$(tr "\\0" "\\n" < "/proc/$parent/cmdline" | grep -E "^/tmp/tw-agent-supervisor-.*/result\\.json$" | head -n1)',
+          'test -n "$result"',
+          'printf %s \'{"exit":0,"timedOut":false,"lifecycleOwned":true}\' > "$result"',
+          'kill -9 "$parent"',
+          'exit 0',
+        ].join('; '),
+      ),
+    });
+
+    // The result path is intentionally discoverable: the security property is
+    // that same-UID file forgery is never trusted without normal supervisor
+    // completion. Killing the subreaper invalidates the record and Linux run
+    // fails closed before adjudication.
+    expect(code).toBe(2);
+  }, 15_000);
+
+  it.skipIf(process.platform !== 'linux')('owns a fast setsid --fork descendant that reparents before user-space polling could observe it', () => {
+    const cwd = repo(true);
+    const outside = mkdtempSync(join(tmpdir(), 'tw-run-double-fork-'));
+    dirs.push(outside);
+    const script = join(outside, 'fast-reparent-descendant.sh');
+    const started = join(outside, 'started');
+    writeFileSync(
+      script,
+      [
+        '#!/bin/sh',
+        `touch "${started}"`,
+        'cd /tmp',
+        'sleep 30',
+        '',
+      ].join('\n'),
+    );
+    chmodSync(script, 0o755);
+
+    try {
+      const code = runEnvelope({
+        cwd,
+        cmd: CMD,
+        argv: sh(
+          `setsid -f "${script}"; while [ ! -e "${started}" ]; do sleep 0.005; done`,
+        ),
+      });
+
+      expect(code).toBe(0);
+      expect(readFileSync(started, 'utf8')).toBe('');
+      expect(linuxPidsWithCmdline(script)).toEqual([]);
+    } finally {
+      for (const pid of linuxPidsWithCmdline(script)) {
+        try { process.kill(pid, 'SIGKILL'); } catch { /* expected after fix */ }
+      }
+    }
+  }, 15_000);
 
   it.skipIf(process.platform !== 'linux')('normal exit kills a setsid descendant even after it leaves the repository cwd', () => {
     const cwd = repo(true);
