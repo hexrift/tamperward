@@ -41,8 +41,25 @@ export interface DoctorReport {
 
 const VERIFY_COMMAND = /\btamperward(?:@\S+)?\s+verify\b/;
 
-function err(message: string): number {
-  process.stderr.write(`tamperward doctor: ${message}\n`);
+function err(
+  message: string,
+  opts?: DoctorOpts,
+  id = 'doctor',
+  checks: DoctorCheck[] = [],
+): number {
+  if (opts?.json) {
+    const report: DoctorReport = {
+      command: 'doctor',
+      authoritative: false,
+      checks: [
+        ...checks.filter((check) => check.id !== id),
+        { id, state: 'BROKEN', detail: message },
+      ],
+    };
+    process.stdout.write(JSON.stringify(report) + '\n');
+  } else {
+    process.stderr.write(`tamperward doctor: ${message}\n`);
+  }
   return 2;
 }
 
@@ -478,11 +495,18 @@ export function runDoctor(opts: DoctorOpts = {}): number {
   try {
     policy = policyFor(opts, cwd);
   } catch (e) {
-    return err(e instanceof PolicyError || e instanceof Error ? e.message : String(e));
+    return err(
+      e instanceof PolicyError || e instanceof Error ? e.message : String(e),
+      opts,
+      'policy',
+    );
   }
 
+  const fail = (id: string, message: string): number =>
+    err(message, opts, id, collectLocalPosture(cwd, policy));
+
   if (!policy.verify?.command) {
-    return err('trusted policy has no verify.command; generated CI cannot verify this repository');
+    return fail('verifier', 'trusted policy has no verify.command; generated CI cannot verify this repository');
   }
 
   const workflowRels: string[] = [];
@@ -492,7 +516,7 @@ export function runDoctor(opts: DoctorOpts = {}): number {
     const workflowDirRel = '.github/workflows';
     const workflowDir = resolve(cwd, workflowDirRel);
     if (!existsSync(workflowDir)) {
-      return err(`${workflowDirRel}: workflow directory does not exist`);
+      return fail('ci-verifier', `${workflowDirRel}: workflow directory does not exist`);
     }
     let entries: string[];
     try {
@@ -500,7 +524,7 @@ export function runDoctor(opts: DoctorOpts = {}): number {
         .filter((name) => /\.ya?ml$/i.test(name))
         .sort();
     } catch (e) {
-      return err(
+      return fail('ci-verifier', 
         `${workflowDirRel}: could not enumerate workflows (${e instanceof Error ? e.message : String(e)})`,
       );
     }
@@ -514,14 +538,14 @@ export function runDoctor(opts: DoctorOpts = {}): number {
   for (const workflowRel of workflowRels) {
     const workflowPath = resolve(cwd, workflowRel);
     if (!existsSync(workflowPath)) {
-      return err(`${workflowRel}: workflow does not exist`);
+      return fail('ci-verifier', `${workflowRel}: workflow does not exist`);
     }
 
     let doc: unknown;
     try {
       doc = parse(readFileSync(workflowPath, 'utf8'));
     } catch (e) {
-      return err(
+      return fail('ci-verifier', 
         `${workflowRel}: workflow is not valid YAML (${e instanceof Error ? e.message : String(e)})`,
       );
     }
@@ -532,32 +556,32 @@ export function runDoctor(opts: DoctorOpts = {}): number {
     for (const { name, job } of jobs) {
       const timeout = job['timeout-minutes'];
       if (timeout === undefined || timeout === null) {
-        return err(
+        return fail('ci-verifier', 
           `${workflowRel} job "${name}": timeout-minutes is missing; requires at least ${requiredMinutes} minutes`,
         );
       }
       if (typeof timeout === 'string' && timeout.includes('${{')) {
-        return err(
+        return fail('ci-verifier', 
           `${workflowRel} job "${name}": timeout-minutes must be a static numeric value; requires at least ${requiredMinutes} minutes`,
         );
       }
       if (typeof timeout !== 'number' || !Number.isFinite(timeout)) {
-        return err(
+        return fail('ci-verifier', 
           `${workflowRel} job "${name}": timeout-minutes must be numeric; got ${JSON.stringify(timeout)}`,
         );
       }
       if (timeout <= 0) {
-        return err(
+        return fail('ci-verifier', 
           `${workflowRel} job "${name}": timeout-minutes must be positive; got ${timeout}`,
         );
       }
       if (!Number.isInteger(timeout)) {
-        return err(
+        return fail('ci-verifier', 
           `${workflowRel} job "${name}": timeout-minutes must be a whole number; got ${timeout}`,
         );
       }
       if (timeout < requiredMinutes) {
-        return err(
+        return fail('ci-verifier', 
           `${workflowRel} job "${name}": timeout-minutes ${timeout} is too small; trusted verify.budget ${policy.verify.budget}s requires at least ${requiredMinutes} minutes for visible + pristine + authority overhead`,
         );
       }
@@ -566,7 +590,7 @@ export function runDoctor(opts: DoctorOpts = {}): number {
 
   if (verifyJobCount === 0) {
     const scope = opts.workflow ?? '.github/workflows/*.yml|*.yaml';
-    return err(`${scope}: no job contains a tamperward verify step`);
+    return fail('ci-verifier', `${scope}: no job contains a tamperward verify step`);
   }
 
   let github: { repo: string; branch: string; findings: string[] } | null = null;
@@ -574,10 +598,11 @@ export function runDoctor(opts: DoctorOpts = {}): number {
     try {
       github = githubAuthority(opts, cwd);
     } catch (e) {
-      return err(e instanceof Error ? e.message : String(e));
+      return fail('github-authority', e instanceof Error ? e.message : String(e));
     }
     if (github.findings.length > 0) {
-      return err(
+      return fail(
+        'github-authority',
         'GitHub repository authority for ' + github.repo + '#' + github.branch +
           ' is incomplete: ' + github.findings.join('; '),
       );
