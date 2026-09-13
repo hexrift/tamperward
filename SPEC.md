@@ -460,6 +460,18 @@ all three requirements are proven. **Without all three, the CI layer of this too
 advisory.** This is the "who guards the guardrail" problem turned on us — getting it
 right is on-thesis; getting it wrong quietly undermines the whole pitch.
 
+From 2.15.0, plain `tamperward doctor` also produces a read-only installation/posture
+inventory. The local checks deliberately reuse `planInit()`'s canonical wiring model
+for Claude hooks, pre-commit, generated CI and CODEOWNERS, then add policy-schema,
+least-privilege workflow permissions, current-binary vs wiring pins, verifier trust mode
+and declared `verify.inputs`, platform residuals, CI outer-time authority and transient
+observer health. States are `OK`, `WARN`/residual and `BROKEN`; `--json` returns one
+document with the named checks and an `authoritative` boolean. The report does not
+mutate anything. Missing optional/early layers can make the report non-authoritative
+without changing the generated CI doctor's historical hard-failure contract; malformed
+policy, insufficient verifier authority and failed requested GitHub authority still
+exit 2.
+
 ---
 
 ## 6. Pre-commit & CI wiring
