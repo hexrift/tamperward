@@ -1,6 +1,52 @@
 # Getting started
 
 ```bash
+npx tamperward onboard
+```
+
+The guided first run (2.21.0). It walks a new repository through the sequence below
+without writing anything before you say so, and teaches the three layers on the way —
+**agent steering** (the hooks), **verification** (`verify`) and **repository
+authority** (GitHub's controls):
+
+1. **Preflight** — a git repository, the Node/platform support contract, the TamperWard
+   version, and whether the working tree is clean (it never stashes or resets your
+   work; a dirty tree asks before continuing).
+2. **Preview** — the same plan as `init --dry-run`, one sentence per enforcement point,
+   and an explicit confirmation before any write.
+3. **Initialize** — the canonical `init`, unchanged.
+4. **Configure verification** — init's own suite-command detection: one
+   high-confidence candidate is offered for your acceptance, several are listed for a
+   numbered choice, none means manual entry. Nothing is written to `verify.command`
+   without your explicit yes, because that command is part of the trust anchor.
+5. **First verification** — `verify` runs and its result is explained in plain
+   language: `VERIFIED`, `SUITE_RED`, `MASKED_FAILURE` or cannot-verify. Exit
+   semantics are reported, never reinterpreted.
+6. **Safe demonstration** (optional, Enter skips it) — a detached temporary worktree of
+   `HEAD` gets a `.skip` on one test block and `check --worktree` shows the
+   `test-skip` finding; your working tree is never edited and its fingerprint is
+   printed before and after.
+7. **GitHub authority** — `doctor --github` when a repository can be determined (set
+   `GH_TOKEN`/`GITHUB_TOKEN` if needed), otherwise the exact three controls and the
+   doctor command to run later. Nothing is reported as enforced unless doctor verified it.
+8. **Posture** — `doctor`'s checks, summarised as `READY`, `READY WITH WARNINGS`,
+   `BROKEN` or `INCOMPLETE`, plus whether GitHub authority is **enforced** or merely
+   **locally configured**.
+9. **Next steps** — the day-to-day commands and when the container verifier is the
+   stronger final check.
+
+Flags: `--cwd <dir>` · `--base <rev>` · `--repo OWNER/REPO` · `--branch <branch>` ·
+`--skip-demo` / `--demo` · `--no-github` · `--yes` · `--verify-command "<cmd>"`. A
+non-interactive stdin or a CI environment refuses with one message instead of hanging;
+`--yes` scripts every confirmation with its safe default, still never writes a detected
+verifier command (pass `--verify-command`), and runs the demo only with `--demo`. Every
+step is idempotent: abort at any prompt and nothing is half-applied; re-run to continue;
+`tamperward doctor` describes the state in between. Exit `0` for `READY` /
+`READY WITH WARNINGS`, `1` for `BROKEN` / `INCOMPLETE`, `2` when refused or aborted.
+
+The deterministic, non-interactive primitive it drives is still the one to script:
+
+```bash
 npx tamperward init
 ```
 
@@ -177,6 +223,7 @@ before the wrapped command.
 | `run` | `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` · `--allow-dirty` · `--settle <seconds>` · `--allow-dep-drift` · `--cwd <dir>` · then `-- <agent command...>` |
 | `allow` | `<rule>` · `--file <path>` · `--reason "<why>"` (required) · `--cwd <dir>` |
 | `init` | `--cwd <dir>` · `--dry-run` · `--force-workflow` |
+| `onboard` | `--cwd <dir>` · `--base <rev>` · `--repo <owner/repo>` · `--branch <name>` · `--skip-demo` / `--demo` · `--no-github` · `--yes` · `--verify-command "<suite command>"` |
 | `watch` | `--dir <dir>` · `--log <file>` — a daemon; it runs until signalled |
 | `hook claude` / `sweep claude` | none — the Claude Code payload arrives on stdin |
 
@@ -191,6 +238,7 @@ Exit codes are part of the public surface:
 | `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0 | — | only for an unsupported agent name |
 | `allow` | sign-off recorded | — | no rule or `--reason`, not a git repo, or no current blocking finding to sign off |
 | `init` | wired, or already wired | — | an item needs attention |
+| `onboard` | posture `READY` or `READY WITH WARNINGS` | posture `BROKEN` or `INCOMPLETE` (a declined write or an unconfigured verifier included) | refused — not a git repository, non-interactive stdin without `--yes`, a dirty tree not continued — or aborted at a prompt |
 
 The variables the gate reads — `TAMPERWARD_OOB_SIGNOFF`, `TAMPERWARD_OOB_HEAD`,
 `TAMPERWARD_DENYLOG`, `TAMPERWARD_FSEVENTS`, `TAMPERWARD_WATCH_NO_RECURSIVE`,

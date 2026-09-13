@@ -5,6 +5,51 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.21.0] — 2026-09-13
+
+**New command: `tamperward onboard` — the guided first run.** `npx tamperward onboard`
+is now the recommended first command for a new repository; `init` remains the
+deterministic, non-interactive primitive. `onboard` is orchestration over the existing
+trusted primitives and adds no second setup engine: it runs a preflight (git
+repository, Node/platform support contract, working-tree cleanliness, TamperWard
+version), previews the installation with the same planner as `init --dry-run` and
+explains each enforcement point in one sentence, asks for explicit confirmation before
+any write, applies the canonical `init`, reuses init's verifier-command detection and
+requires explicit operator acceptance before writing `verify.command` (one
+high-confidence candidate is offered, several are listed for a numbered choice, none
+means manual entry; the policy file is merged, comments intact), runs the first
+`verify` and explains `VERIFIED`, `SUITE_RED`, `MASKED_FAILURE` and cannot-verify in
+plain language without changing verify's exit semantics, offers an optional safe
+demonstration that adds a `.skip` to one test block inside a detached temporary
+worktree it created — the operator's working tree is never edited and its fingerprint
+is printed before and after — runs `doctor --github` for the repository authority
+(or prints the exact three manual controls and the doctor command to run later),
+and ends with a `READY` / `READY WITH WARNINGS` / `BROKEN` / `INCOMPLETE` posture
+derived from `doctor`, saying explicitly whether GitHub authority is enforced
+(verified by `doctor --github`) or merely configured locally, followed by the
+day-to-day command set and when the digest-pinned container verifier is the stronger
+final check.
+
+Flags: `--cwd <dir>` · `--base <rev>` · `--repo OWNER/REPO` · `--branch <branch>` ·
+`--skip-demo` / `--demo` · `--no-github` · `--yes` · `--verify-command "<cmd>"`.
+Exit `0` when the posture is `READY` or `READY WITH WARNINGS`, `1` for `BROKEN` /
+`INCOMPLETE`, `2` when refused or aborted. A non-interactive stdin (or a CI
+environment) refuses with one clear message instead of hanging; `--yes` is the scripted
+mode, in which a detected verifier command is still never written — only
+`--verify-command` configures it — and the demo runs only with `--demo`. Every step is
+idempotent: aborting leaves nothing half-applied and names the step, `doctor` describes
+the state, and a re-run continues. A dirty tree consisting only of init-owned paths (a
+previous run's uncommitted output) is noted; any other change prompts before continuing
+and is never stashed or reset.
+
+Internals: `doctor` now exposes `diagnose()` (the outcome before rendering) so onboard
+reads doctor's checks instead of parsing its output; `verify` gained an internal
+`onVerdict` observer with no effect on its verdict or exit code; init's
+`verifierCandidates` is exported. `guardedMain` returns a promise for `onboard` only;
+every other command exits synchronously as before.
+
+This closes #388.
+
 ## [2.20.1] — 2026-09-13
 
 **`ts-any-cast` diff-only fallback: the double cast is classified structurally.** The
