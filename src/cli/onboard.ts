@@ -249,10 +249,11 @@ function writeVerifyCommand(cwd: string, command: string): string | null {
 }
 
 export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise<number> {
-  const cwd = resolve(opts.cwd ?? process.cwd());
+  const requestedCwd = resolve(opts.cwd ?? process.cwd());
   const out = io.out ?? ((line: string): void => void process.stdout.write(line + '\n'));
-  const err = (line: string): void => void process.stderr.write(line + '\n');
+  const rawErr = (line: string): void => void process.stderr.write(line + '\n');
   const platform = io.platform ?? process.platform;
+  const colour = io.colour ?? colourEnabled(process.env, process.stdout);
   const runners: OnboardRunners = {
     init: runInit,
     verify: runVerify,
@@ -263,22 +264,40 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
   const interactive = io.interactive ?? (Boolean(process.stdin.isTTY) && !process.env.CI && !process.env.GITHUB_ACTIONS);
   const scripted = Boolean(opts.yes);
 
-  // Refuse before touching anything: a prompt with nobody to answer it hangs a
-  // CI job until its timeout, which is the opposite of diagnosable.
+  const tone = (kind: 'ok' | 'warn' | 'bad' | 'info' | 'dim'): string => {
+    if (kind === 'ok') return GREEN;
+    if (kind === 'warn') return YELLOW;
+    if (kind === 'bad') return RED;
+    if (kind === 'info') return CYAN;
+    return DIM;
+  };
+  const status = (label: string, text: string, kind: 'ok' | 'warn' | 'bad' | 'info' | 'dim' = 'info'): void => {
+    out(paint(label.padEnd(8), (kind === 'bad' ? BOLD : '') + tone(kind), colour) + ' ' + text);
+  };
+  const fail = (text: string): void => rawErr(paint('ERROR   ', BOLD + RED, colour) + ' ' + text);
+
   if (!interactive && !scripted) {
-    err('tamperward onboard: stdin is not interactive (or a CI environment was detected), so the guided');
-    err('setup cannot ask questions. Re-run with --yes for the scripted mode (add --verify-command');
-    err('"<suite command>" to configure verification; a detected command is never written unscripted),');
-    err('or run the deterministic primitive directly: tamperward init.');
-    return 2;
-  }
-  if (!isGitRepo(cwd)) {
-    err(`tamperward onboard: ${cwd} is not inside a git repository — run \`git init\` first; every enforcement point is git-anchored`);
+    fail('onboard needs an interactive terminal.');
+    rawErr('Use `tamperward onboard --yes --verify-command "<suite command>"` for scripted setup,');
+    rawErr('or run `tamperward init` for the deterministic wiring step only.');
     return 2;
   }
 
-  // Created on the first question only: a run that never asks (scripted, or
-  // refused in preflight) must not put stdin into readline's hands.
+  const rootText = git(requestedCwd, ['rev-parse', '--show-toplevel'])?.trim() ?? '';
+  if (!rootText) {
+    fail(requestedCwd + ' is not inside a Git repository. Run `git init` first.');
+    return 2;
+  }
+  const cwd = resolve(rootText);
+  if (cwd !== requestedCwd) {
+    fail('current directory is not the Git repository root.');
+    rawErr('Current: ' + requestedCwd);
+    rawErr('Git root: ' + cwd);
+    rawErr('TamperWard installs repository-wide hooks and CI, so it will not mix a child directory with its parent repository.');
+    rawErr('Run from the Git root, or run `git init` in the child directory if it should be a separate repository.');
+    return 2;
+  }
+
   const prompt: { asker: Asker | null } = { asker: null };
   const rawAsk: (q: string) => Promise<string | null> =
     io.ask ?? ((q) => (prompt.asker ??= readlineAsker(process.stdin, process.stdout))(q));
@@ -287,19 +306,18 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
     if (answer === null) throw new Aborted();
     return answer.trim();
   };
-  /** A yes/no question. Enter takes `fallback`; a scripted run takes `scriptedAnswer`. */
   const confirm = async (question: string, fallback: boolean, scriptedAnswer: boolean): Promise<boolean> => {
     if (scripted) return scriptedAnswer;
-    const a = (await ask(`${question} ${fallback ? '[Y/n]' : '[y/N]'} `)).toLowerCase();
+    const a = (await ask(question + ' ' + (fallback ? '[Y/n]' : '[y/N]') + ' ')).toLowerCase();
     if (a === '') return fallback;
     return a === 'y' || a === 'yes';
   };
 
-  let step = 0;
-  const header = (n: number): void => {
-    step = n;
+  let sectionNo = 0;
+  const section = (n: number): void => {
+    sectionNo = n;
     out('');
-    out(`== ${n}/${STEPS.length} ${STEPS[n - 1]} ==`);
+    out(paint(n + '/' + SECTIONS.length + '  ' + SECTIONS[n - 1], BOLD + CYAN, colour));
   };
 
   const wrote: string[] = [];
@@ -311,207 +329,181 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
   let doctorOutcome: DoctorOutcome | null = null;
 
   try {
-    // ---- 1. Preflight -----------------------------------------------------
-    header(1);
-    out(`TamperWard ${TW_VERSION} on Node ${process.versions.node} (${platform}/${process.arch}), repository ${cwd}`);
+    out(paint('TamperWard onboarding', BOLD, colour));
+    out(paint('v' + TW_VERSION + ' · Node ' + process.versions.node + ' · ' + platformLabel(platform) + '/' + process.arch, DIM, colour));
+    out(paint(cwd, DIM, colour));
+
+    // ---- 1. Environment ---------------------------------------------------
+    section(1);
     const lifecycle = lifecyclePlatformCheck(platform);
-    out(`platform: [${lifecycle.state}] ${lifecycle.detail}`);
     const localVerifySupported = localVerifierShell(platform, 'true') !== null;
-    if (!localVerifySupported) {
-      out('platform: checkpointed-local verify is unsupported here; only a digest-pinned container verifier');
-      out('  (verify.backend: container) can verify on this platform, exactly as the support contract states.');
+    if (platform === 'linux' && lifecycle.state === 'OK') {
+      status('OK', 'Full check / verify / run support is available.', 'ok');
+    } else if (localVerifySupported) {
+      status('LIMITED', platformLabel(platform) + ': check + verify work here; `tamperward run` requires Linux in this release.', 'warn');
+    } else {
+      status('LIMITED', platformLabel(platform) + ': check works here; local verify and `run` are unavailable. Use the container verifier for final verification.', 'warn');
     }
+
     const head = git(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'])?.trim() ?? null;
-    if (!head) {
-      out('history: no commit yet. Verification and the demonstration need a committed base; the wiring can still be written.');
-    }
-    const status = git(cwd, ['status', '--porcelain', '--untracked-files=all']) ?? '';
-    const dirty = status
+    if (!head) status('ACTION', 'No commit yet. Commit once before pristine verification or the safe demo.', 'warn');
+
+    const treeStatus = git(cwd, ['status', '--porcelain', '--untracked-files=all']) ?? '';
+    const dirty = treeStatus
       .split('\n')
       .filter(Boolean)
       .map((line) => line.slice(3).split(' -> ').at(-1) ?? '');
-    // Onboarding's own uncommitted output (a previous run, or `init`) is not
-    // user work at risk: a re-run before the commit should not have to answer
-    // for it. Anything init does not own still gets the question.
     const owned = new Set(planInit(cwd).map((a) => a.path));
     const foreign = dirty.filter((p) => !owned.has(p));
-    if (dirty.length && foreign.length === 0) {
-      out(`working tree: ${dirty.length} uncommitted path(s), all written by init — commit them so the gate travels with the repository.`);
-    } else if (dirty.length) {
-      out(`working tree is not clean: ${dirty.length} changed or untracked path(s). Onboarding never stashes,`);
-      out('resets or edits your changes, but a clean tree makes the first verification easier to read:');
-      out('commit or stash your work first for the cleanest result.');
-      if (!(await confirm('Continue with a dirty working tree?', false, true))) {
-        out('Stopped before writing anything. Commit or stash your work, then re-run: tamperward onboard');
+    if (dirty.length === 0) {
+      status('OK', 'Working tree is clean.', 'ok');
+    } else if (foreign.length === 0) {
+      status('ACTION', dirty.length + ' uncommitted setup file(s) from TamperWard; commit them when setup is complete.', 'warn');
+    } else {
+      status('ACTION', dirty.length + ' existing changed/untracked path(s). TamperWard will not stash or reset them.', 'warn');
+      if (!(await confirm('Continue with the existing working-tree changes?', false, true))) {
+        status('STOPPED', 'Commit or stash your work, then re-run `tamperward onboard`.', 'warn');
         return 2;
       }
-    } else {
-      out('working tree: clean');
     }
 
-    // ---- 2. Preview -------------------------------------------------------
-    header(2);
-    out('This is the plan `tamperward init` would apply (the same planner as `init --dry-run`):');
-    out('');
-    runners.init({ cwd, dryRun: true });
-    out('');
-    out('What each item is for:');
-    out(`  policy      — ${POLICY_FILE} holds your overrides; the baseline rules apply even without it.`);
-    out('  agent hooks — Claude Code PreToolUse deny + Stop sweep: the steering layer, judged in the loop.');
-    out('  pre-commit  — the same engine over the staged diff, so a shortcut cannot be committed quietly.');
-    out('  CI          — the authority for the protected branch: check --diff over the PR range plus');
-    out('                pristine verify; cleared only by a reviewer label bound to the head SHA.');
-    out('  CODEOWNERS  — a human requirement on the paths that decide whether the gate runs at all.');
+    // ---- 2. Local protection ---------------------------------------------
+    section(2);
     const plan = planInit(cwd);
+    const names: Record<string, string> = {
+      policy: 'Policy',
+      agent: 'Claude hooks',
+      'pre-commit': 'Pre-commit',
+      ci: 'CI workflow',
+      codeowners: 'CODEOWNERS',
+    };
+    const renderPlan = (a: ReturnType<typeof planInit>[number]): void => {
+      const name = (names[a.item] ?? a.item).padEnd(13);
+      if (a.status === 'ok') status('OK', name + ' ' + a.path, 'ok');
+      else if (a.status === 'create') status('ADD', name + ' ' + a.path, 'info');
+      else if (a.status === 'update') status('UPDATE', name + ' ' + a.path, 'info');
+      else if (a.status === 'skip') status('ACTION', name + ' ' + a.path + ' — ' + a.detail, 'warn');
+      else status('ERROR', name + ' ' + a.path + ' — ' + a.detail, 'bad');
+      if (a.warning) status('ACTION', a.warning, 'warn');
+    };
+    plan.forEach(renderPlan);
+
     const pending = plan.filter((a) => a.apply).length;
-    const errors = plan.filter((a) => a.status === 'error').length;
+    const planErrors = plan.filter((a) => a.status === 'error').length;
     if (pending === 0) {
-      out('');
-      out(errors ? 'Nothing to write, but item(s) above need your attention.' : 'Everything is already wired — nothing to write.');
-    } else {
-      out('');
-      out('init never overwrites a file you wrote: it creates what is absent and merges what is shared.');
-      if (!(await confirm(`Write these ${pending} change(s) now?`, false, true))) {
-        declined = true;
-        out('Declined: nothing was written. Re-run `tamperward onboard` when ready, or apply the plan');
-        out('yourself with `tamperward init` (`--dry-run` prints it again).');
-      }
-    }
-
-    // ---- 3. Initialize ----------------------------------------------------
-    if (!declined && pending > 0) {
-      header(3);
-      const code = runners.init({ cwd });
+      status(planErrors ? 'ACTION' : 'OK', planErrors ? 'Nothing can be written until the error(s) above are fixed.' : 'Local protection is already wired.', planErrors ? 'warn' : 'ok');
+    } else if (await confirm('Apply ' + pending + ' setup change(s)?', true, true)) {
+      const code = runners.init({ cwd, quiet: true });
       wrote.push(...plan.filter((a) => a.apply).map((a) => a.path));
-      if (code !== 0) out('init reported item(s) that need your attention (above); onboarding continues so you can see the rest.');
-    }
-
-    // ---- 4. Configure verification ---------------------------------------
-    if (!declined) {
-      header(4);
-      let configured: string | undefined;
-      try {
-        configured = loadPolicy(cwd).verify?.command?.trim() || undefined;
-      } catch (e) {
-        out(`${POLICY_FILE} does not load (${errorMessage(e)}); fix it, then re-run. verify.command was not configured.`);
-      }
-      if (configured) {
-        out(`verification configured — ${configured}`);
-        verifyCommand = configured;
+      if (code === 0) {
+        status('OK', 'Applied ' + pending + ' setup change(s).', 'ok');
       } else {
-        out('The verifier command is part of the trust anchor: `verify` re-runs it against a pristine copy of');
-        out('your suite, and CI fails closed without it. TamperWard never chooses it for you.');
-        const candidates = verifierCandidates(cwd);
-        let chosen: string | undefined;
-        if (scripted) {
-          if (opts.verifyCommand?.trim()) {
-            chosen = opts.verifyCommand.trim();
-          } else {
-            out(candidates.length ? `Detected candidate(s): ${candidates.join(', ')}.` : 'No suite command was detected.');
-            out('Scripted mode: verify.command was not written. Pass --verify-command "<suite command>" to set it explicitly.');
-          }
-        } else if (candidates.length === 1) {
-          out(`Detected one high-confidence suite command: ${candidates[0]}`);
-          if (await confirm(`Use \`${candidates[0]}\` as verify.command?`, false, false)) chosen = candidates[0];
-          else chosen = (await ask('Enter the suite command to trust (empty to skip): ')) || undefined;
-        } else if (candidates.length > 1) {
-          out('Several suite commands were detected; choose the one that defines merge authority:');
-          candidates.forEach((c, i) => out(`  ${i + 1}. ${c}`));
-          const a = await ask(`Choose 1-${candidates.length} (${candidates.join(' / ')}), type a command, or press Enter to skip: `);
-          const n = Number(a);
-          chosen = a === '' ? undefined : Number.isInteger(n) && n >= 1 && n <= candidates.length ? candidates[n - 1] : a;
-        } else {
-          out('No suite command was detected (no test script, pytest/tox config, Cargo or Go module root).');
-          chosen = (await ask('Enter the suite command to trust (empty to skip): ')) || undefined;
-        }
-        if (chosen) {
-          const problem = writeVerifyCommand(cwd, chosen);
-          if (problem) {
-            out(`verify.command was not written: ${problem}`);
-          } else {
-            out(`Wrote verify.command: ${chosen} (budget 300s) to ${POLICY_FILE}. Commit it: with a --base, verify reads`);
-            out('the policy from that commit, so an uncommitted command is invisible to CI.');
-            verifyCommand = chosen;
-            wrote.push(POLICY_FILE);
-          }
-        } else {
-          out('verify.command was not configured. CI will fail closed (exit 2) until it is; add it to');
-          out(`${POLICY_FILE} under verify: and re-run \`tamperward doctor\`.`);
-        }
+        status('ACTION', 'Some setup items still need attention.', 'warn');
+        planInit(cwd).filter((a) => a.status === 'error' || a.status === 'skip').forEach(renderPlan);
       }
-    }
-
-    // ---- 5. First verification -------------------------------------------
-    if (!declined) {
-      header(5);
-      out('`verify` runs your suite twice: as-is (visible), and with every protected test/snapshot/config');
-      out('file restored from the trusted base (pristine). The pair is what no diff rule can fake.');
-      if (!verifyCommand) {
-        out('Skipped: no verify.command. Standalone `tamperward verify` would report CANNOT_VERIFY');
-        out('(exit 2) here — it fails closed rather than pretending to verify.');
-      } else if (!localVerifySupported) {
-        out(`Skipped: checkpointed-local verify is unsupported on ${platform}; \`tamperward verify\` fails closed`);
-        out('(exit 2) before running anything. Configure a digest-pinned container verifier for this platform.');
-      } else if (!head) {
-        out('Skipped: no commit to anchor the pristine copy to. Commit, then run: tamperward verify');
-      } else if (await confirm(`Run the first verification now (${verifyCommand}, twice)?`, true, true)) {
-        let summary: VerifyVerdictSummary | null = null;
-        const verifyOpts: VerifyOpts = { cwd, onVerdict: (v) => { summary = v; } };
-        if (opts.base) verifyOpts.base = opts.base;
-        const code = runners.verify(verifyOpts);
-        verifyResult = { code, summary };
-        out('');
-        for (const line of explainVerdict(summary, code)) out(line);
-        out(`(verify exited ${code}; onboarding reports it and changes nothing about it.)`);
-      } else {
-        out(`Skipped. Run it any time: tamperward verify${opts.base ? ` --base ${opts.base}` : ''}`);
-      }
-    }
-
-    // ---- 6. Safe demonstration -------------------------------------------
-    if (!declined && !opts.skipDemo) {
-      header(6);
-      out('Optional: see a finding without risking anything. TamperWard creates a detached temporary');
-      out('worktree of HEAD, adds `.skip` to one test block THERE, runs `check --worktree` on it, then');
-      out('removes the worktree. Your working tree is not touched; its fingerprint is shown before and after.');
-      const wanted = scripted ? Boolean(opts.demo) : opts.demo ? true : await confirm('Run the demonstration?', false, false);
-      if (!wanted) {
-        out('Demo skipped.');
-      } else if (!head) {
-        out('Demo skipped: no commit to build disposable state from.');
-      } else {
-        runDemo(cwd, head, runners, out);
-      }
-    }
-
-    // ---- 7. GitHub repository authority ----------------------------------
-    header(7);
-    out('Local wiring steers the agent and gates commits; only the repository can make CI binding.');
-    repo = opts.repo ?? inferGitHubRepo(cwd);
-    const doctorCommand = `tamperward doctor --github --repo ${repo ?? 'OWNER/REPO'} --branch ${opts.branch ?? '<default-branch>'}`;
-    if (opts.noGithub) {
-      out('--no-github: the GitHub API is not consulted, so nothing below is reported as enforced.');
-      for (const line of MANUAL_CONTROLS) out(line);
-      out(`Then verify it with: ${doctorCommand}`);
-    } else if (!repo) {
-      out('No GitHub repository could be determined (no github.com origin; pass --repo OWNER/REPO).');
-      for (const line of MANUAL_CONTROLS) out(line);
-      out(`Then verify it with: ${doctorCommand}`);
     } else {
-      out(`Repository: ${repo}${opts.branch ? `, branch ${opts.branch}` : ''}.`);
-      githubChecked = await confirm(
-        'Check the live GitHub controls now with `doctor --github`? (reads the GitHub API; set GH_TOKEN/GITHUB_TOKEN if needed)',
-        true,
-        true,
-      );
-      if (!githubChecked) {
-        for (const line of MANUAL_CONTROLS) out(line);
-        out(`Then verify it with: ${doctorCommand}`);
+      declined = true;
+      status('SKIP', 'No setup files were changed.', 'dim');
+    }
+
+    // ---- 3. Verification --------------------------------------------------
+    section(3);
+    let configured: string | undefined;
+    try {
+      configured = loadPolicy(cwd).verify?.command?.trim() || undefined;
+    } catch (e) {
+      status('ERROR', POLICY_FILE + ' does not load — ' + errorMessage(e), 'bad');
+    }
+
+    if (configured) {
+      verifyCommand = configured;
+      status('OK', 'Trusted test command: ' + configured, 'ok');
+    } else if (!declined) {
+      const candidates = verifierCandidates(cwd);
+      let chosen: string | undefined;
+      if (scripted) {
+        if (opts.verifyCommand?.trim()) {
+          chosen = opts.verifyCommand.trim();
+        } else {
+          status('ACTION', 'No trusted test command configured. Pass --verify-command "<suite command>".', 'warn');
+        }
+      } else if (candidates.length === 1) {
+        status('FOUND', candidates[0], 'info');
+        if (await confirm('Trust `' + candidates[0] + '` as the verifier command?', false, false)) {
+          chosen = candidates[0];
+        } else {
+          chosen = (await ask('Test command to trust (Enter to skip): ')) || undefined;
+        }
+      } else if (candidates.length > 1) {
+        status('ACTION', 'Choose the command that decides whether this repository passes:', 'warn');
+        candidates.forEach((candidate, i) => out('  ' + (i + 1) + '. ' + candidate));
+        const a = await ask('Choose 1-' + candidates.length + ', type a command, or press Enter to skip: ');
+        const n = Number(a);
+        chosen = a === '' ? undefined : Number.isInteger(n) && n >= 1 && n <= candidates.length ? candidates[n - 1] : a;
+      } else {
+        status('ACTION', 'No test command was detected automatically.', 'warn');
+        chosen = (await ask('Test command to trust (Enter to skip): ')) || undefined;
+      }
+
+      if (chosen) {
+        const problem = writeVerifyCommand(cwd, chosen);
+        if (problem) {
+          status('ERROR', 'verify.command was not written — ' + problem, 'bad');
+        } else {
+          verifyCommand = chosen;
+          wrote.push(POLICY_FILE);
+          status('OK', 'Saved verify.command: ' + chosen + ' (budget 300s).', 'ok');
+        }
       }
     }
 
-    // ---- 8. Posture -------------------------------------------------------
-    header(8);
+    if (!verifyCommand) {
+      status('ACTION', 'Verification is not configured; CI will fail closed until it is.', 'warn');
+      out(paint('         Set it later with: tamperward onboard --verify-command "<suite command>"', DIM, colour));
+    } else if (!localVerifySupported) {
+      status('LIMITED', 'Local verification is unavailable on ' + platformLabel(platform) + '; use a digest-pinned container verifier.', 'warn');
+    } else if (!head) {
+      status('ACTION', 'Commit once, then run `tamperward verify`.', 'warn');
+    } else if (await confirm('Run the first verification now? (the suite runs twice)', true, true)) {
+      let summary: VerifyVerdictSummary | null = null;
+      const verifyOpts: VerifyOpts = {
+        cwd,
+        silent: true,
+        onVerdict: (v) => { summary = v; },
+      };
+      if (opts.base) verifyOpts.base = opts.base;
+      const code = runners.verify(verifyOpts);
+      verifyResult = { code, summary };
+      status(code === 0 ? 'OK' : code === 1 ? 'ACTION' : 'ERROR', explainVerdict(summary, code), code === 0 ? 'ok' : code === 1 ? 'warn' : 'bad');
+    } else {
+      status('SKIP', 'Verification skipped. Run `tamperward verify` when ready.', 'dim');
+    }
+
+    if (!opts.skipDemo) {
+      const wanted = scripted ? Boolean(opts.demo) : opts.demo ? true : await confirm('Run the optional safe tamper demo? (temporary worktree only)', false, false);
+      if (wanted && head) {
+        runDemo(cwd, head, runners, out);
+      } else if (wanted) {
+        status('SKIP', 'Demo needs at least one commit.', 'dim');
+      }
+    }
+
+    // ---- 4. GitHub protection --------------------------------------------
+    section(4);
+    repo = opts.repo ?? inferGitHubRepo(cwd);
+    const doctorCommand = 'tamperward doctor --github --repo ' + (repo ?? 'OWNER/REPO') + ' --branch ' + (opts.branch ?? '<default-branch>');
+    if (opts.noGithub) {
+      status('SKIP', 'GitHub repository controls were not checked.', 'dim');
+    } else if (!repo) {
+      status('ACTION', 'No github.com origin detected. Pass --repo OWNER/REPO to check repository protection.', 'warn');
+    } else {
+      status('INFO', (repo + (opts.branch ? '#' + opts.branch : '')), 'info');
+      githubChecked = await confirm('Check GitHub branch protection now?', true, true);
+      if (!githubChecked) status('SKIP', 'GitHub repository controls were not checked.', 'dim');
+    }
+
+    // ---- 5. Summary -------------------------------------------------------
+    section(5);
     const doctorOpts: DoctorOpts = { cwd };
     if (githubChecked && repo) {
       doctorOpts.github = true;
@@ -519,57 +511,56 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
       if (opts.branch) doctorOpts.branch = opts.branch;
     }
     doctorOutcome = runners.doctor(doctorOpts);
-    for (const line of doctorOutcome.summary) out(line);
-    if (doctorOutcome.failure) out(`tamperward doctor: ${doctorOutcome.failure.message}`);
-    for (const check of doctorOutcome.checks) renderCheck(check, out);
 
-    const posture = postureOf(doctorOutcome);
-    const warnings = doctorOutcome.checks.filter((c) => c.state === 'WARN').length;
-    const broken = doctorOutcome.checks.filter((c) => c.state === 'BROKEN');
-    out('');
-    out(
-      `POSTURE: ${posture}` +
-        (posture === 'READY WITH WARNINGS' ? ` — ${warnings} warning(s) above` : '') +
-        (posture === 'BROKEN' ? ` — ${broken.map((c) => c.id).join(', ')}` : '') +
-        (posture === 'INCOMPLETE' && doctorOutcome.failure ? ` — doctor could not certify: ${doctorOutcome.failure.id}` : ''),
-    );
-    if (doctorOutcome.github) {
-      out(`GitHub repository authority: ENFORCED — doctor --github verified ${doctorOutcome.github.repo}#${doctorOutcome.github.branch}`);
-      out('  requires the tamperward check, Code Owner review, and stale-approval dismissal.');
-    } else {
-      out('GitHub repository authority: NOT VERIFIED — locally configured only. Until doctor --github');
-      out(`  confirms the three controls, CI is advisory. Run: ${doctorCommand}`);
-      if (githubChecked && doctorOutcome.failure?.id === 'github-authority') {
-        for (const line of MANUAL_CONTROLS) out(line);
+    const seenFailure = new Set<string>();
+    for (const check of doctorOutcome.checks) {
+      if (check.state === 'OK' || check.id === 'observer') continue;
+      seenFailure.add(check.id);
+      if (check.id === 'platform' && platform !== 'linux') {
+        const detail = localVerifySupported
+          ? platformLabel(platform) + ': `tamperward run` requires Linux; check + verify remain available.'
+          : platformLabel(platform) + ': `tamperward run` and local verify are unavailable; check remains available.';
+        status('LIMITED', detail, 'warn');
+      } else {
+        renderCheck(check, out, colour);
       }
     }
-    if (declined) out('Nothing was written this run; the posture above describes the repository as it was.');
-    if (verifyResult) out(`First verification: ${verifyResult.summary?.verdict ?? `exit ${verifyResult.code}`}.`);
+    if (doctorOutcome.failure && !seenFailure.has(doctorOutcome.failure.id)) {
+      status('ACTION', doctorOutcome.failure.message, 'warn');
+    }
 
-    // ---- 9. Next steps ----------------------------------------------------
-    header(9);
-    out('Day to day:');
-    out('  tamperward check --worktree              the stop-sweep view of everything changed since HEAD');
-    out(`  tamperward verify --base ${opts.base ?? '<base>'}${opts.base ? '' : '          '}pristine re-execution against a base the agent cannot rewrite`);
-    out(`  tamperward run --base ${opts.base ?? '<base>'} -- <agent...>  the enforcement envelope (Linux; fails closed elsewhere)`);
-    out(`  ${doctorCommand}`);
-    out('When the final verification matters most — a release, a merge into the protected branch — prefer');
-    out('the digest-pinned container verifier (verify.backend: container, image: <ref>@sha256:<digest>):');
-    out('it owns the runtime and dependencies, mounts the tree read-only and disables the network, so the');
-    out('candidate cannot reach the verifier from the same host. `run` deliberately does not offer it.');
-    if (wrote.length) out(`Commit what onboarding wrote (${[...new Set(wrote)].join(', ')}) so the gate travels with the repository.`);
+    const posture = postureOf(doctorOutcome);
+    if (posture === 'READY') status('READY', 'TamperWard is configured for this repository.', 'ok');
+    else if (posture === 'READY WITH WARNINGS') status('READY', 'Configured with the limitation(s) above.', 'warn');
+    else if (posture === 'INCOMPLETE') status('INCOMPLETE', 'Setup needs the action(s) above.', 'warn');
+    else status('BLOCKED', 'Fix the broken item(s) above before relying on the gate.', 'bad');
+
+    if (doctorOutcome.github) {
+      status('OK', 'GitHub authority enforced for ' + doctorOutcome.github.repo + '#' + doctorOutcome.github.branch + '.', 'ok');
+    } else {
+      status('ACTION', 'GitHub authority is not verified yet.', 'warn');
+      out(paint('         ' + doctorCommand, DIM, colour));
+      for (const line of MANUAL_CONTROLS) out(paint('         ' + line, DIM, colour));
+    }
+
+    if (wrote.length) {
+      status('NEXT', 'Commit setup files: ' + [...new Set(wrote)].join(', '), 'info');
+    }
+    if (!verifyCommand) {
+      status('NEXT', 'Choose the test command TamperWard should trust for verification.', 'info');
+    }
+    if (verifyResult) {
+      status('VERIFY', verifyResult.summary?.verdict ?? ('exit ' + verifyResult.code), verifyResult.code === 0 ? 'ok' : 'warn');
+    }
+    out(paint('         Daily: tamperward check --worktree · tamperward verify --base <base>', DIM, colour));
 
     return posture === 'READY' || posture === 'READY WITH WARNINGS' ? 0 : 1;
   } catch (e) {
     if (e instanceof Aborted) {
       out('');
-      out(`tamperward onboard: aborted during step ${step} (${STEPS[step - 1]}).`);
-      out(
-        wrote.length
-          ? `Written so far: ${[...new Set(wrote)].join(', ')} — all through init, all idempotent; nothing is half-applied.`
-          : 'Nothing was written.',
-      );
-      out('Re-run `tamperward onboard` to continue from the same place, or `tamperward doctor` to see the current posture.');
+      status('STOPPED', 'Onboarding was cancelled during ' + (SECTIONS[sectionNo - 1] ?? 'setup') + '.', 'warn');
+      if (wrote.length) status('INFO', 'Already written: ' + [...new Set(wrote)].join(', ') + '. Re-running is safe.', 'dim');
+      else status('INFO', 'Nothing was written.', 'dim');
       return 2;
     }
     throw e;
