@@ -24,9 +24,10 @@
 // re-run simply continues.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { lstatSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 import { parseDocument } from 'yaml';
 import { planInit, runInit, verifierCandidates, type InitOpts } from './init';
@@ -196,12 +197,33 @@ function explainVerdict(v: VerifyVerdictSummary | null, code: number): string[] 
   }
 }
 
+/** Replace a file without ever opening the destination for writing. The bytes go
+ * to a fresh sibling and rename replaces the directory entry atomically. That
+ * means a final-component symlink (or a hard link to operator state) is never
+ * followed; a hard link is broken rather than mutated in place. */
+function atomicReplaceFile(path: string, content: string, mode: number): void {
+  const tmp = `${path}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
+  try {
+    writeFileSync(tmp, content, { encoding: 'utf8', flag: 'wx', mode });
+    renameSync(tmp, path);
+  } finally {
+    rmSync(tmp, { force: true });
+  }
+}
+
 /** Merge `verify.command` (and a default budget) into the policy file, keeping
- *  everything else — comments included — as written. Returns an error message
- *  when the result would not load; the file is then restored byte-for-byte. */
+ * everything else — comments included — as written. A repository-controlled
+ * symlink/special file is refused before any read or write, and the replacement
+ * itself is atomic so the destination is never followed. Returns an error message
+ * when the result would not load; the file is then restored byte-for-byte. */
 function writeVerifyCommand(cwd: string, command: string): string | null {
   const path = join(cwd, POLICY_FILE);
-  const original = existsSync(path) ? readFileSync(path, 'utf8') : null;
+  const st = lstatSync(path, { throwIfNoEntry: false });
+  if (st && (!st.isFile() || st.isSymbolicLink())) {
+    return `${POLICY_FILE} is not a regular file; refusing to follow or replace a symlink or special file`;
+  }
+  const mode = st ? st.mode & 0o777 : 0o644;
+  const original = st ? readFileSync(path, 'utf8') : null;
   let next: string;
   try {
     const doc = parseDocument(original && original.trim() ? original : 'version: 1\n');
@@ -212,14 +234,14 @@ function writeVerifyCommand(cwd: string, command: string): string | null {
   } catch (e) {
     return `${POLICY_FILE} could not be updated: ${errorMessage(e)}`;
   }
-  writeFileSync(path, next);
+  atomicReplaceFile(path, next, mode);
   try {
     const loaded = loadPolicy(cwd);
     if (loaded.verify?.command !== command) throw new Error('verify.command did not round-trip');
     return null;
   } catch (e) {
     if (original === null) rmSync(path, { force: true });
-    else writeFileSync(path, original);
+    else atomicReplaceFile(path, original, mode);
     return `the updated ${POLICY_FILE} does not load (${errorMessage(e)}); restored the previous file`;
   }
 }
@@ -570,7 +592,19 @@ function postureOf(outcome: DoctorOutcome): Posture {
  *  added there, `check --worktree` over it, then the worktree removed. Only
  *  state this function created is ever written to. */
 function runDemo(cwd: string, head: string, runners: OnboardRunners, out: (line: string) => void): void {
-  const files = (git(cwd, ['ls-tree', '-r', '--name-only', '-z', head]) ?? '').split('\0').filter((f) => JS_TEST_PATH.test(f));
+  // The tree mode is part of the safety boundary: a test-shaped symlink's blob
+  // is its link target, and that text can itself begin with "it(" / "test(".
+  // Never select mode 120000 (or any other non-regular entry) for the demo.
+  const files = (git(cwd, ['ls-tree', '-r', '-z', head]) ?? '')
+    .split('\0')
+    .filter(Boolean)
+    .flatMap((row) => {
+      const tab = row.indexOf('\t');
+      if (tab < 0) return [];
+      const mode = row.slice(0, tab).split(' ')[0];
+      const path = row.slice(tab + 1);
+      return (mode === '100644' || mode === '100755') && JS_TEST_PATH.test(path) ? [path] : [];
+    });
   let target: { path: string; before: string; after: string } | null = null;
   for (const path of files) {
     const before = git(cwd, ['show', `${head}:${path}`]);
@@ -591,9 +625,29 @@ function runDemo(cwd: string, head: string, runners: OnboardRunners, out: (line:
       out('Demo skipped: could not create a temporary worktree (git worktree add failed).');
       return;
     }
+    const targetPath = join(wt, target.path);
+    const targetStat = lstatSync(targetPath, { throwIfNoEntry: false });
+    if (!targetStat || !targetStat.isFile() || targetStat.isSymbolicLink()) {
+      out('Demo skipped: the selected test is not a regular file in the disposable worktree.');
+      return;
+    }
+    let worktreeRoot: string;
+    let realTarget: string;
+    try {
+      worktreeRoot = realpathSync(wt);
+      realTarget = realpathSync(targetPath);
+    } catch {
+      out('Demo skipped: the selected test could not be resolved safely inside the disposable worktree.');
+      return;
+    }
+    const prefix = worktreeRoot.endsWith(sep) ? worktreeRoot : worktreeRoot + sep;
+    if (!realTarget.startsWith(prefix)) {
+      out('Demo skipped: the selected test resolves outside the disposable worktree.');
+      return;
+    }
     out(`disposable worktree: ${wt}`);
     out(`weakening move: ${target.path} — the first test block becomes .skip (only in the disposable copy)`);
-    writeFileSync(join(wt, target.path), target.after);
+    atomicReplaceFile(targetPath, target.after, targetStat.mode & 0o777);
     out('');
     out(`$ tamperward check --worktree   (in ${wt})`);
     const code = runners.check({ cwd: wt, worktree: true });
