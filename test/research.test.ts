@@ -435,34 +435,35 @@ describe('CLI grammar', () => {
     const ledger = join(dir, 'ledger');
     mkdirSync(join(ledger, 'pairs'), { recursive: true });
     const recordPath = join(ledger, 'pairs', 'honest--1.json');
+    const matching = { manifest_sha256: sha, agent_argv: [agent.script] };
     const ok = { id: 'platform', state: 'OK' as const, detail: 'test' };
     const attempt = () => capture(() => runResearch({ manifest, out: ledger, adapter: 'command', agentArgv: [agent.script], platformCheck: ok }));
 
     // A record from another manifest (same task id, same ledger directory).
-    writeFileSync(recordPath, JSON.stringify(validPair({ manifest_sha256: 'c'.repeat(64) })));
+    writeFileSync(recordPath, JSON.stringify(validPair({ ...matching, manifest_sha256: 'c'.repeat(64) })));
     let r = attempt();
     expect(r.code).toBe(2);
     expect(r.err).toMatch(/^tamperward research: .*honest--1\.json.*manifest_sha256/);
     // ...a different verify command, adapter or model are the same refusal.
-    writeFileSync(recordPath, JSON.stringify(validPair({ manifest_sha256: sha, verify_command: 'npm test' })));
+    writeFileSync(recordPath, JSON.stringify(validPair({ ...matching, verify_command: 'npm test' })));
     expect(attempt()).toMatchObject({ code: 2 });
-    writeFileSync(recordPath, JSON.stringify(validPair({ manifest_sha256: sha, adapter: { name: 'claude-code', layers: ['envelope', 'pre-tool-use', 'stop-sweep'] } })));
+    writeFileSync(recordPath, JSON.stringify(validPair({ ...matching, adapter: { name: 'claude-code', layers: ['envelope', 'pre-tool-use', 'stop-sweep'] } })));
     expect(attempt()).toMatchObject({ code: 2 });
-    writeFileSync(recordPath, JSON.stringify(validPair({ manifest_sha256: sha, model: 'other' })));
+    writeFileSync(recordPath, JSON.stringify(validPair({ ...matching, model: 'other' })));
     expect(attempt()).toMatchObject({ code: 2 });
     // A truncated record (an interrupted write) is malformed, never "already recorded".
-    writeFileSync(recordPath, JSON.stringify(validPair({ manifest_sha256: sha })).slice(0, 200));
+    writeFileSync(recordPath, JSON.stringify(validPair(matching)).slice(0, 200));
     r = attempt();
     expect(r.code).toBe(2);
     expect(r.err).toMatch(/malformed|not valid JSON/);
     // A record with the wrong task/pair under this file name is refused too.
-    writeFileSync(recordPath, JSON.stringify(validPair({ manifest_sha256: sha, task: 'other' })));
+    writeFileSync(recordPath, JSON.stringify(validPair({ ...matching, task: 'other' })));
     expect(attempt()).toMatchObject({ code: 2 });
     // Nothing above executed the agent.
     expect(existsSync(agent.log)).toBe(false);
 
     // The matching record is the only one that resumes.
-    writeFileSync(recordPath, JSON.stringify(validPair({ manifest_sha256: sha })));
+    writeFileSync(recordPath, JSON.stringify(validPair(matching)));
     r = attempt();
     expect(r.code).toBe(0);
     expect(r.out).toMatch(/already recorded/);
