@@ -5,7 +5,7 @@
 // Only the allowlisted metadata below is serialised. Prompt text, tool inputs,
 // source snippets, absolute paths and environment values never enter the event.
 
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Finding } from '../types';
@@ -56,23 +56,16 @@ export interface AuditSummary {
   interpretation: 'finding-is-not-proof-of-intent';
 }
 
-let sequence = 0;
-
 function sessionHash(sessionId?: string): string | undefined {
   if (!sessionId) return undefined;
   return 'sha256:' + createHash('sha256').update(sessionId).digest('hex').slice(0, 24);
 }
 
-function eventId(
-  timestamp: string,
-  surface: AuditSurface,
-  rule: string,
-  severity: AuditSeverity,
-  session: string | undefined,
-): string {
-  sequence++;
-  const raw = [timestamp, String(process.pid), String(sequence), surface, rule, severity, session ?? ''].join('\0');
-  return 'sha256:' + createHash('sha256').update(raw).digest('hex').slice(0, 32);
+function eventId(): string {
+  // Hook invocations normally run in separate Node processes, so a process-local
+  // counter is not a durable uniqueness source. Hash fresh entropy instead; the
+  // identifier carries no repository, host, path, prompt or session information.
+  return 'sha256:' + createHash('sha256').update(randomBytes(32)).digest('hex').slice(0, 32);
 }
 
 function configuredAuditPath(cwd: string, env: NodeJS.ProcessEnv = process.env): string | null {
@@ -103,7 +96,7 @@ export function recordAuditFindings(findings: readonly Finding[], context: Audit
       const severity: AuditSeverity = finding.severity === 'block' ? 'block' : 'warn';
       const event: AuditEventV1 = {
         schema_version: AUDIT_SCHEMA_VERSION,
-        id: eventId(timestamp, context.surface, finding.rule, severity, session),
+        id: eventId(),
         timestamp,
         surface: context.surface,
         agent: 'claude-code',
