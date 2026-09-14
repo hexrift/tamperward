@@ -30,6 +30,7 @@ import type { Runner } from './suite-config';
 import { checkKinds, invocationWeakening } from './invocation';
 import type { Kind, Weakening } from './invocation';
 import { isRecord } from '../narrow';
+import { readCallee } from './runner-chain';
 
 const RULE = 'test-deletion';
 
@@ -56,6 +57,11 @@ function calleeName(expr: TS.Expression): string | null {
   if (ts.isPropertyAccessExpression(expr) && ts.isIdentifier(expr.expression)) {
     return expr.expression.text; // it.skip(...), it.each(...), test.only(...)
   }
+  // it.concurrent.skip(...), test.sequential.only(...): a modifier chain that ends
+  // in the call is still one definition (#429). A chain ending in a table method is
+  // `isEachOf`'s, counted per row.
+  const chain = readCallee(expr);
+  if (chain && !chain.table) return chain.runner;
   // NOT recursing into a CallExpression callee on purpose: `it.each(table)(body)`
   // is two nested calls, and the inner `it.each(table)` already counts as the one
   // test definition. Recursing would count the outer invocation a second time.
@@ -63,17 +69,17 @@ function calleeName(expr: TS.Expression): string | null {
 }
 
 // `it.each(table)` and vitest 3's `it.for(table)` define one test per row alike —
-// `for` differs only in how the row reaches the callback.
-const TABLE_METHOD = /^(?:each|for)$/;
+// `for` differs only in how the row reaches the callback. A modifier between the
+// runner and the table method (`it.concurrent.each`, `describe.skip.each`) changes
+// how the rows run, not how many there are (#429): the chain reader unwraps it.
+const isTableOf = (expr: TS.Expression, runners: readonly string[]): boolean => {
+  const chain = readCallee(expr);
+  return chain != null && chain.table != null && runners.includes(chain.runner);
+};
 
-const isEachOf = (expr: TS.Expression): boolean =>
-  ts.isPropertyAccessExpression(expr) &&
-  ts.isIdentifier(expr.expression) &&
-  (expr.expression.text === 'it' || expr.expression.text === 'test') &&
-  TABLE_METHOD.test(expr.name.text);
+const isEachOf = (expr: TS.Expression): boolean => isTableOf(expr, ['it', 'test']);
 
-const isDescribeEach = (expr: TS.Expression): boolean =>
-  ts.isPropertyAccessExpression(expr) && ts.isIdentifier(expr.expression) && expr.expression.text === 'describe' && TABLE_METHOD.test(expr.name.text);
+const isDescribeEach = (expr: TS.Expression): boolean => isTableOf(expr, ['describe']);
 
 /** The rows a loop runs its body over: a literal array is counted (`for (const n of
  *  [1, 2, 3])`, `[1, 2, 3].forEach(...)`), anything else is open. */
