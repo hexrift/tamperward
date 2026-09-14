@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [2.23.12] — 2026-09-14
+## [2.23.17] — 2026-09-14
 
 ### Fixed
 
@@ -27,6 +27,124 @@ All notable changes to this project are documented here. The format follows
   search, so it is `would update … append the staged check` / `[WARN] pre-commit`, and
   re-running init writes a live line. A correctly wired repository, including a
   `timeout` at or above the floor, stays `ok` / `OK`.
+
+## [2.23.16] — 2026-09-14
+
+### Security
+
+- **`init` no longer follows a symlink planted in repository content** (#414). Every
+  file init writes — `.tamperward.yml`, `.claude/settings.json`, the pre-commit hook in
+  whichever hooks directory is resolved or `.husky/pre-commit`, CODEOWNERS in any of
+  its three locations, the workflow — went through `existsSync` / `writeFileSync` with
+  no `lstat`, so a `.claude/settings.json` symlinked to `~/.claude/settings.json` had
+  the project hooks written into the user's file, a `.git/hooks/pre-commit` symlink had
+  the gate line appended to whatever it pointed at, and a tracked `.husky/pre-commit`
+  symlink let a pull request aim a reviewer's later `init` or `onboard` at any file the
+  reviewer can write. Each target is now `lstat`ed first; a symlink or non-regular file
+  is an error row reading `refusing: symlink` / `refusing: not a regular file` (exit 2
+  when applying, the same row under `--dry-run`), the link and its target are left
+  byte-identical, and the rest of the plan still applies. Every write is a temp file in
+  the same directory plus rename, so the destination is never opened for writing and a
+  crash mid-write cannot leave a truncated settings.json.
+- The symlink refusal and atomic replacement `onboard` had since the #402 review now
+  live in `src/safe-write.ts` (`refuseNonRegular`, `writeTargetKind`, `existingMode`,
+  `atomicReplaceFile`) and both commands use it; a directory where init expected a file
+  is reported as the refusal above rather than as an `EISDIR` planning failure.
+
+## [2.23.15] — 2026-09-14
+
+### Changed
+
+- **Docs site: the reference pages are in the navigation and the architecture diagram
+  draws the authority edges and the trust boundary** (#451). `architecture`, `PERF`,
+  `CAST-INVENTORY` and both threat models were built but appeared in no nav or
+  sidebar; they now form a "Reference" group (and nav entry). `CAST-INVENTORY` linked
+  `../harness/…`, which resolves on GitHub but 404s on the site because `harness/` is
+  not served; it now uses the GitHub blob URL like every other page. The architecture
+  diagram is redrawn as three lanes — Steering (agent runtime → Claude hooks →
+  `tamperward hook` → protected-tree snapshot → deny/allow), Verification (`run`
+  envelope → `check` + `verify` → visible and pristine → local verdict/JSON) and
+  Authority (protected CI running the same `check` and `verify` against the trusted
+  base → required gate → branch rules + CODEOWNERS → merge) — with the Authority lane
+  shaded as the trust boundary, the previously missing `ci → check`, `ci → verify`,
+  `policy → pristine` and `observer → Stop sweep` edges, `init` writing across all
+  three lanes and `doctor` reading them, and nodes for `onboard`, `trace-verify`,
+  `hook-service` and `research`. The "Data flow" prose matches the redrawn diagram.
+  The docs consistency test now asserts every built page is in the sidebar or nav and
+  that no docs link targets `harness/` relatively.
+
+## [2.23.14] — 2026-09-14
+
+### Security
+
+- **A content-triggered detector crash failed OPEN at the Stop sweep and at
+  PreToolUse** (#444). The engine emitted the fail-closed `detector-error` block only
+  for the `staged`, `worktree` and `range` views; the Stop sweep evaluates the `turn`
+  view and PreToolUse the `tool-call` view, so a rule that threw on repository content
+  was silently dropped at exactly the two layers the agent meets. A spec beginning with
+  `const deep = [[[…30 000 deep…]]];` plus `it.skip(...)` made `test-skip`,
+  `test-deletion` and `test-content-removal` throw `RangeError` — 0 findings, allow —
+  while the same content was `block:detector-error` at pre-commit. Two fixes. The
+  engine now fails closed at **every** view (a caller that names no view included): a
+  thrown detector is a blocking `detector-error` naming the rule, carried on the
+  PreToolUse deny channel and the Stop block channel like any other block. And the
+  crash is no longer reachable from content: every `ts.createSourceFile` in the
+  detectors (`test-skip`, `test-deletion`, `test-content-removal`,
+  `assertion-weakening`, `ts-any-cast`, `ts-cast-growth`, `coverage-lowering`,
+  `suite-config`) goes through one guarded entry, `parseSource` in `src/ts-lazy.ts`,
+  with a 4 MiB byte ceiling and a 256-level bracket-nesting ceiling that **declines**
+  (null) instead of throwing, and declines a `RangeError` the parser still raises the
+  same way. A declined parse is not a verdict: the rule's line-level matcher judges the
+  file, as it does for a diff-only change — so the fixture is denied at PreToolUse,
+  blocked at Stop and blocked at `check --staged` by `test-skip`, not by
+  `detector-error`, and the same deep literal without a skip is clean at all three. A
+  declined `test-deletion` count is an open count (no deletion asserted, no relocation
+  credit granted); a declined config parse selects like the default, as its catch
+  already did.
+
+## [2.23.13] — 2026-09-14
+
+### Security
+
+- **Workflow supply chain: every action pinned to a commit SHA, nothing fetched
+  unpinned at publish time, no persisted token on the root-privileged runners** (#423).
+  All 69 `uses:` lines across the 14 workflows now name a full commit SHA with a
+  `# vX.Y.Z` comment (`checkout` v5.1.0, `setup-node` v6.5.0, `setup-python` v5.6.0,
+  `setup-uv` v7.6.0, `upload-pages-artifact` v4.0.0, `deploy-pages` v4.0.5), resolved
+  from the tags themselves; the release job — which holds `id-token: write` and mints
+  the npm publish credential — no longer trusts a mutable tag. `upload-artifact` and
+  `download-artifact` are on one pinned v5.0.0 everywhere (the mixed v4/v5 could not
+  read each other's artifacts across workflows). `.github/dependabot.yml` moves the pins
+  weekly for `github-actions` and `npm`. The release guard that refuses a downgrade
+  runs on a lock-pinned `semver` 7.8.5 devDependency after `npm ci` instead of
+  `npx --yes semver@7.8.5` fetched from the registry at publish time. `mine.yml` reads
+  the dispatch input `POOL` from `process.env` inside `node -e` instead of splicing it
+  into the JavaScript source. `pilot.yml` and `counted.yml` check out with
+  `persist-credentials: false` and unset `GITHUB_TOKEN` in the `sudo -E env` wrapper
+  around every privileged call, so the task code and the agent running as root never
+  see the checkout credential; only the unprivileged state restore/save/checkpoint
+  steps receive it. `test/workflow-pins.test.ts` pins all of this against the
+  repository's own workflows.
+
+## [2.23.12] — 2026-09-14
+
+### Fixed
+
+- **The Stop sweep no longer allows on a cwd it could not resolve** (#417). A payload
+  whose `cwd` did not exist or could not be read produced the same empty stdout at exit 0
+  as a plain non-repository directory, while PreToolUse denied the same cwd. The sweep now
+  allows only when the directory exists, is readable, and `git rev-parse` itself reports
+  *not a git repository*; a missing or unreadable cwd, a bare repository, or any other git
+  failure is denied as `tamperward-unavailable` with the diagnostic in the reason.
+- **The turn baseline fails closed** (#417). The marker the sweep compares against was
+  written with a plain `writeFileSync`, a parallel hook could read a half-written sha, the
+  guard accepted 7–40 hex characters so a truncated prefix passed, and any write failure
+  silently downgraded the sweep to `git diff HEAD` — making a mid-turn commit invisible
+  again, the case the baseline exists for. The marker is now written to a temp file and
+  renamed into place (as the effect state already was), read only as exactly 40 hex
+  characters (anything else is absent and re-established), and a write that fails denies
+  the turn as `tamperward-unavailable` naming the path, at Stop and at the PreToolUse
+  call that pins it.
 
 ## [2.23.11] — 2026-09-14
 

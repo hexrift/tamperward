@@ -14,7 +14,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync, chmodSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { POLICY_FILE } from '../policy';
 import { loadPolicy } from '../policy-load';
@@ -23,6 +23,7 @@ import { HOOK_CMD, MARKER, OURS, PRECOMMIT_CMD, PRE_MATCHER, SWEEP_CMD, TW_VERSI
 import { isRecord } from '../narrow';
 import { judgeGateEntry, type HookEvent } from '../detectors/hook-tampering';
 import { repoRoot } from '../repo-context';
+import { atomicReplaceFile, existingMode, refuseNonRegular, writeTargetKind } from '../safe-write';
 
 export interface InitOpts {
   cwd?: string;
@@ -445,6 +446,8 @@ function verifierSetupMessage(cwd: string): string {
 
 function planPolicy(cwd: string): Action {
   const path = join(cwd, POLICY_FILE);
+  const refused = refuseNonRegular(path);
+  if (refused) return { item: 'policy', path: POLICY_FILE, status: 'error', detail: refused };
   if (existsSync(path)) {
     // "Present" is not "in force": a policy that does not load switches the gate
     // off (check exits 2, the hook denies everything) — init used to report it as
@@ -459,7 +462,7 @@ function planPolicy(cwd: string): Action {
   return {
     item: 'policy', path: POLICY_FILE, status: 'create',
     detail: 'baseline policy with commented overrides',
-    apply: () => writeFileSync(path, POLICY_CONTENT),
+    apply: () => atomicReplaceFile(path, POLICY_CONTENT, 0o644),
   };
 }
 
@@ -478,25 +481,15 @@ function planGitignore(cwd: string): Action | null {
   if (!existsSync(join(cwd, 'node_modules'))) return null;
 
   let existing = '';
-  if (existsSync(path)) {
-    let st;
-    try {
-      st = lstatSync(path);
-    } catch (e) {
-      return { item: 'gitignore', path: rel, status: 'error', detail: 'cannot inspect — ' + errText(e) };
-    }
-    if (!st.isFile()) {
-      return {
-        item: 'gitignore',
-        path: rel,
-        status: 'error',
-        detail: st.isSymbolicLink()
-          ? 'is a symbolic link — refusing to follow it'
-          : 'exists but is not a regular file — refusing to write',
-      };
-    }
-    existing = readFileSync(path, 'utf8');
+  let kind;
+  try {
+    kind = writeTargetKind(path);
+  } catch (e) {
+    return { item: 'gitignore', path: rel, status: 'error', detail: 'cannot inspect — ' + errText(e) };
   }
+  const refused = refuseNonRegular(path);
+  if (refused) return { item: 'gitignore', path: rel, status: 'error', detail: refused };
+  if (kind === 'file') existing = readFileSync(path, 'utf8');
 
   // Do not hide a dependency tree the repository has chosen to track. --cached
   // includes index entries on an unborn branch, so this also catches git add .
@@ -549,9 +542,9 @@ function planGitignore(cwd: string): Action | null {
   return {
     item: 'gitignore',
     path: rel,
-    status: existsSync(path) ? 'update' : 'create',
+    status: kind === 'file' ? 'update' : 'create',
     detail: 'exclude installed Node dependencies from repository diffs',
-    apply: () => writeFileSync(path, next),
+    apply: () => atomicReplaceFile(path, next, existingMode(path, 0o644)),
   };
 }
 
@@ -572,6 +565,8 @@ function gateVerdicts(event: HookEvent, groups: HookMatcher[], needle: RegExp): 
 function planClaudeHooks(cwd: string): Action {
   const rel = '.claude/settings.json';
   const path = join(cwd, rel);
+  const refused = refuseNonRegular(path);
+  if (refused) return { item: 'agent', path: rel, status: 'error', detail: refused };
   let settings: ClaudeSettings = {};
   if (existsSync(path)) {
     let parsed: unknown;
@@ -694,7 +689,7 @@ function planClaudeHooks(cwd: string): Action {
       }
       if (needDisableFalse) settings.disableAllHooks = false;
       mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, JSON.stringify(settings, null, 2) + '\n');
+      atomicReplaceFile(path, JSON.stringify(settings, null, 2) + '\n', existingMode(path, 0o644));
     },
   };
 }
@@ -813,17 +808,17 @@ function planPreCommit(cwd: string): Action {
   }
   const rel = display(cwd, path);
 
-  if (existsSync(path) && !statSync(path).isFile()) {
-    return { item: 'pre-commit', path: rel, status: 'error', detail: 'exists but is not a regular file — refusing to write' };
-  }
+  const refused = refuseNonRegular(path);
+  if (refused) return { item: 'pre-commit', path: rel, status: 'error', detail: refused };
   const existing = existsSync(path) ? readFileSync(path, 'utf8') : null;
+  // Executable, and whatever else the existing script's mode carried.
+  const hookMode = (): number => existingMode(path, 0o755) | 0o111;
   if (existing === null) {
     return {
       item: 'pre-commit', path: rel, status: 'create', detail: `create via ${note}`,
       apply: () => {
         mkdirSync(dirname(path), { recursive: true });
-        writeFileSync(path, `#!/bin/sh\n${block.join('\n')}\n`);
-        chmodSync(path, 0o755);
+        atomicReplaceFile(path, `#!/bin/sh\n${block.join('\n')}\n`, hookMode());
       },
     };
   }
@@ -839,10 +834,7 @@ function planPreCommit(cwd: string): Action {
   // check --staged` is the common "temporarily disable" edit, and it used to
   // read as wired (#413). The gate is what the shell runs, not what the file says.
   const at = lines.findIndex((l) => !/^\s*#/.test(l) && PRECOMMIT_RE.test(l));
-  const write = (out: string[]): void => {
-    writeFileSync(path, out.join('\n'));
-    chmodSync(path, 0o755);
-  };
+  const write = (out: string[]): void => atomicReplaceFile(path, out.join('\n'), hookMode());
 
   if (at !== -1 && (dead === -1 || at < dead)) {
     // Present AND reachable. Re-pin the line init wrote if it carries another
@@ -926,10 +918,14 @@ function planPreCommit(cwd: string): Action {
 function planCodeowners(cwd: string): Action {
   const rel = '.github/CODEOWNERS';
   // GitHub reads whichever of these exists; do not add a second one.
+  // lstat, not existsSync: a dangling symlink is still the file GitHub would
+  // read, and it is refused below rather than shadowed by a fresh one.
   const existingRel = ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS'].find((r) =>
-    existsSync(join(cwd, r)),
+    writeTargetKind(join(cwd, r)) !== 'absent',
   );
   const path = join(cwd, existingRel ?? rel);
+  const refused = refuseNonRegular(path);
+  if (refused) return { item: 'codeowners', path: existingRel ?? rel, status: 'error', detail: refused };
   const existing = existingRel ? readFileSync(path, 'utf8') : null;
 
   const missing = CODEOWNERS_PATHS.filter((p) => existing === null || !coveredBy(existing, p));
@@ -973,7 +969,7 @@ function planCodeowners(cwd: string): Action {
       : {}),
     apply: () => {
       mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, existing === null ? block.replace(/^\n/, '') : existing.replace(/\n?$/, '\n') + block);
+      atomicReplaceFile(path, existing === null ? block.replace(/^\n/, '') : existing.replace(/\n?$/, '\n') + block, existingMode(path, 0o644));
     },
   };
 }
@@ -983,8 +979,10 @@ function planWorkflow(cwd: string, force: boolean): Action {
   const path = join(cwd, rel);
   const write = (): void => {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, workflowFile(WORKFLOW_CONTENT));
+    atomicReplaceFile(path, workflowFile(WORKFLOW_CONTENT), existingMode(path, 0o644));
   };
+  const refused = refuseNonRegular(path);
+  if (refused) return { item: 'ci', path: rel, status: 'error', detail: refused };
   if (!existsSync(path)) {
     return {
       item: 'ci', path: rel, status: 'create',

@@ -101,7 +101,7 @@ describe('D-6: crash paths exit 2 with one clean line', () => {
     expect(r.code).toBe(2);
     expect(r.err).toBe('');
     expect(r.out).toMatch(/policy\s+error\s+\.tamperward\.yml/);
-    expect(r.out).toMatch(/pre-commit\s+error\s+\.git\/hooks\/pre-commit\s+— exists but is not a regular file/);
+    expect(r.out).toMatch(/pre-commit\s+error\s+\.git\/hooks\/pre-commit\s+— refusing: not a regular file/);
     expect(r.out).toMatch(/agent\s+create/);
     expect(r.out).toMatch(/2 item\(s\) need your attention/);
   });

@@ -176,6 +176,19 @@ computed in the parser and are the only thing every `Finding.line` can trust.
 One engine means a rule written once fires identically everywhere. That's not a
 nicety — it *is* the "block the class, not the flag" promise.
 
+**A rule that cannot run is not a rule that passed.** The engine isolates each
+detector, and a detector that throws is reported as a blocking `detector-error`
+finding naming the rule — at **every** view, the agent-facing `tool-call` and `turn`
+included (2.23.14, #444; until then only the staged, worktree and range views carried
+it, so content that made a detector throw was denied at pre-commit and allowed at
+PreToolUse and Stop). `detector-error` is not a policy rule: it cannot be disabled,
+lowered or excluded by the file under evaluation. And the crash the issue exhibited is
+not reachable from content any more: every `ts.createSourceFile` in the detectors goes
+through one guarded entry (`parseSource`, `src/ts-lazy.ts`) with a 4 MiB byte ceiling
+and a 256-level bracket-nesting ceiling that **declines** — the rule's line-level
+matcher judges the file instead, as it does for a diff-only change — rather than
+overflowing the stack; a `RangeError` the parser still raises is declined the same way.
+
 ---
 
 ## 3. The rule schema
@@ -452,6 +465,31 @@ matches it and no honest path carries one. And the drift check's walk of the pro
 tree does not enter a directory git reports as wholly ignored: the protected files git
 lists under it are snapshotted from that listing, so a 50k-file `dist/` costs one
 listing per call, not one stat per file.
+
+The sweep compares against the commit the turn STARTED from, not HEAD: the marker
+(`.git/tamperward/session-<id>`) is pinned on the session's first tool call, so a tamper
+the agent committed mid-turn is still the turn's work. From 2.23.12 (#417) the marker is
+written to a temp file and renamed into place, so a parallel hook never reads a torn sha;
+it is read only as a full 40-hex object name, and anything else (a truncated prefix, an
+empty file) is treated as absent and re-established; and a marker that cannot be
+recorded — a read-only or occupied state path — **denies** the turn as
+`tamperward-unavailable` with the path in the reason, never a silent downgrade to
+`git diff HEAD`. A clean turn advances the marker; a blocked turn keeps it, so the
+tamper stays visible until fixed.
+
+"Nothing to compare" is decided narrowly (#417): the sweep allows with empty stdout only
+when the session's cwd is a real, readable directory that `git rev-parse` itself reports
+as *not a git repository*. A cwd that does not exist, one the hook cannot read, a bare
+repository, or any other git failure (dubious ownership, a broken `.git` file) is a
+verdict the gate could not compute and is denied as `tamperward-unavailable` with the
+diagnostic — the same stance PreToolUse already took for the same cwd.
+
+The sweep is an adjudicating layer and fails closed like one (2.23.14, #444): a
+detector that throws over the turn's diff is a blocking `detector-error` on the Stop
+deny channel, exactly as at pre-commit — never a rule silently dropped from the
+verdict. The same holds at the PreToolUse hook (§5.1): a detector that throws on the
+tool payload is a deny, never an allow. Neither is reachable by nesting or size alone,
+since the parser declines pathological content before it can overflow (§2).
 
 Handle `stop_hook_active`: Claude Code sets it on the Stop payload when the agent is
 already continuing because a Stop hook blocked it. The sweep honours it **immediately**
