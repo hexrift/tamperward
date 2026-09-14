@@ -159,7 +159,7 @@ describe('coverage-lowering — workflow lines (#438)', () => {
   it('fires when a workflow step lowers --cov-fail-under', () => {
     const before = 'jobs:\n  test:\n    steps:\n      - run: pytest --cov=src --cov-fail-under=90\n';
     const f = run('.github/workflows/ci.yml', before, before.replace('=90', '=10'));
-    expect(f.some((x) => x.rule === 'coverage-lowering' && /--cov-fail-under.*90.*10/.test(x.evidence))).toBe(true);
+    expect(f.some((x) => x.rule === 'coverage-lowering' && /--cov-fail-under lowered 90 → 10/.test(x.message))).toBe(true);
   });
 
   it('fires when a workflow step drops nyc --check-coverage', () => {
