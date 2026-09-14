@@ -14,14 +14,16 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync, chmodSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { POLICY_FILE } from '../policy';
 import { loadPolicy } from '../policy-load';
 import { GENERATED_CI_TIMEOUT_MINUTES } from '../verifier-limits';
 import { HOOK_CMD, MARKER, OURS, PRECOMMIT_CMD, PRE_MATCHER, SWEEP_CMD, TW_VERSION, requireShippedVersion } from '../wiring';
 import { isRecord } from '../narrow';
+import { judgeGateEntry, type HookEvent } from '../detectors/hook-tampering';
 import { repoRoot } from '../repo-context';
+import { atomicReplaceFile, existingMode, refuseNonRegular, writeTargetKind } from '../safe-write';
 
 export interface InitOpts {
   cwd?: string;
@@ -444,6 +446,8 @@ function verifierSetupMessage(cwd: string): string {
 
 function planPolicy(cwd: string): Action {
   const path = join(cwd, POLICY_FILE);
+  const refused = refuseNonRegular(path);
+  if (refused) return { item: 'policy', path: POLICY_FILE, status: 'error', detail: refused };
   if (existsSync(path)) {
     // "Present" is not "in force": a policy that does not load switches the gate
     // off (check exits 2, the hook denies everything) — init used to report it as
@@ -458,7 +462,7 @@ function planPolicy(cwd: string): Action {
   return {
     item: 'policy', path: POLICY_FILE, status: 'create',
     detail: 'baseline policy with commented overrides',
-    apply: () => writeFileSync(path, POLICY_CONTENT),
+    apply: () => atomicReplaceFile(path, POLICY_CONTENT, 0o644),
   };
 }
 
@@ -477,25 +481,15 @@ function planGitignore(cwd: string): Action | null {
   if (!existsSync(join(cwd, 'node_modules'))) return null;
 
   let existing = '';
-  if (existsSync(path)) {
-    let st;
-    try {
-      st = lstatSync(path);
-    } catch (e) {
-      return { item: 'gitignore', path: rel, status: 'error', detail: 'cannot inspect — ' + errText(e) };
-    }
-    if (!st.isFile()) {
-      return {
-        item: 'gitignore',
-        path: rel,
-        status: 'error',
-        detail: st.isSymbolicLink()
-          ? 'is a symbolic link — refusing to follow it'
-          : 'exists but is not a regular file — refusing to write',
-      };
-    }
-    existing = readFileSync(path, 'utf8');
+  let kind;
+  try {
+    kind = writeTargetKind(path);
+  } catch (e) {
+    return { item: 'gitignore', path: rel, status: 'error', detail: 'cannot inspect — ' + errText(e) };
   }
+  const refused = refuseNonRegular(path);
+  if (refused) return { item: 'gitignore', path: rel, status: 'error', detail: refused };
+  if (kind === 'file') existing = readFileSync(path, 'utf8');
 
   // Do not hide a dependency tree the repository has chosen to track. --cached
   // includes index entries on an unborn branch, so this also catches git add .
@@ -548,16 +542,31 @@ function planGitignore(cwd: string): Action | null {
   return {
     item: 'gitignore',
     path: rel,
-    status: existsSync(path) ? 'update' : 'create',
+    status: kind === 'file' ? 'update' : 'create',
     detail: 'exclude installed Node dependencies from repository diffs',
-    apply: () => writeFileSync(path, next),
+    apply: () => atomicReplaceFile(path, next, existingMode(path, 0o644)),
   };
+}
+
+/** The detector's verdict on every entry under `event` that carries our command. */
+function gateVerdicts(event: HookEvent, groups: HookMatcher[], needle: RegExp): Array<{ event: HookEvent; group: HookMatcher; h: HookEntry; runs: boolean; problems: string[] }> {
+  const out: Array<{ event: HookEvent; group: HookMatcher; h: HookEntry; runs: boolean; problems: string[] }> = [];
+  for (const group of groups) {
+    for (const h of group.hooks ?? []) {
+      if (!needle.test(String(h.command ?? ''))) continue;
+      const { runs, problems } = judgeGateEntry(event, group.matcher, h);
+      out.push({ event, group, h, runs, problems });
+    }
+  }
+  return out;
 }
 
 /** Merge our two hooks into .claude/settings.json, preserving everything else. */
 function planClaudeHooks(cwd: string): Action {
   const rel = '.claude/settings.json';
   const path = join(cwd, rel);
+  const refused = refuseNonRegular(path);
+  if (refused) return { item: 'agent', path: rel, status: 'error', detail: refused };
   let settings: ClaudeSettings = {};
   if (existsSync(path)) {
     let parsed: unknown;
@@ -591,6 +600,28 @@ function planClaudeHooks(cwd: string): Action {
   const stopEntries = entriesWith(hooks.Stop, SWEEP_RE);
   const needStop = stopEntries.length === 0;
 
+  // NEUTRALISED entries: our command is present, and the runtime would not run
+  // the gate through the entry — `"async": true` beside a perfect command means
+  // the verdict is never awaited, `"timeout": 1` kills it before it answers, an
+  // `if` means it is never asked, a matcher on the Stop entry, a pipe or chain
+  // around the invocation. Presence was the whole of the check before (#413),
+  // so the file `check --staged` blocks as hook-tampering was the file init and
+  // doctor certified as wired. The verdict is the detector's own comparator
+  // (judgeGateEntry): one definition of the canonical shape, three consumers.
+  // An entry whose COMMAND is one init wrote is restored to the shape init
+  // writes; a hand-written command is reported, never rewritten.
+  const neutralised = [
+    ...gateVerdicts('PreToolUse', preEntries, HOOK_RE),
+    ...gateVerdicts('Stop', stopEntries, SWEEP_RE),
+  ].filter((v) => !v.runs);
+  const foreign = neutralised.filter((v) => ours(String(v.h.command ?? '')) === null);
+  if (foreign.length > 0) {
+    return {
+      item: 'agent', path: rel, status: 'error',
+      detail: `${foreign.map((v) => `the ${v.event} gate entry is neutralised (${v.problems.join('; ')})`).join('; ')} — the runtime would not run the gate through it; remove the entry, then re-run init (refusing to rewrite a hand-written entry)`,
+    };
+  }
+
   // REPAIR an existing PreToolUse matcher that does not cover every tool the
   // gate must see. Presence of our command was the only thing checked before,
   // so an install wired against an older PRE_MATCHER stayed narrow forever and
@@ -599,9 +630,10 @@ function planClaudeHooks(cwd: string): Action {
   const stale = preEntries.filter((m) => missingTools(m.matcher).length > 0);
   // RE-PIN commands init wrote for another version (or wrote unpinned, before
   // 1.14.7). Only the exact `npx --yes tamperward[@v] <ours>` shape qualifies.
+  const restoring = new Set(neutralised.map((v) => v.h));
   const repin = [...preEntries, ...stopEntries]
     .flatMap((m) => m.hooks ?? [])
-    .filter((h) => stalePin(String(h.command ?? '')));
+    .filter((h) => !restoring.has(h) && stalePin(String(h.command ?? '')));
   // DECLARE `disableAllHooks: false`. The runtime honours the key from any settings
   // file, the project file overriding the user file, and reloads every file live
   // in-session — so a `true` written to `~/.claude/settings.json` (outside every
@@ -610,7 +642,7 @@ function planClaudeHooks(cwd: string): Action {
   // hook-tampering holds the declaration in place: removing or flipping it is
   // the tamper. (Pass 3a, P0-1.)
   const needDisableFalse = settings.disableAllHooks !== false;
-  if (!needPre && !needStop && stale.length === 0 && repin.length === 0 && !needDisableFalse) {
+  if (!needPre && !needStop && stale.length === 0 && repin.length === 0 && neutralised.length === 0 && !needDisableFalse) {
     return { item: 'agent', path: rel, status: 'ok', detail: 'PreToolUse + Stop hooks already wired' };
   }
 
@@ -623,11 +655,20 @@ function planClaudeHooks(cwd: string): Action {
       needStop && 'wire Stop sweep',
       repairing.length > 0 && `widen the PreToolUse matcher to cover ${repairing.join(', ')}`,
       repin.length > 0 && `re-pin the hook commands to tamperward@${TW_VERSION} (was ${pins.join(', ')})`,
+      ...neutralised.map((v) => `restore the ${v.event} gate entry to the shape init writes — it is neutralised (${v.problems.join('; ')})`),
       needDisableFalse && (settings.disableAllHooks === undefined
         ? 'declare disableAllHooks: false so the user settings file cannot switch the hooks off'
         : `set disableAllHooks: false (was ${JSON.stringify(settings.disableAllHooks)})`),
     ].filter(Boolean).join(' + '),
     apply: () => {
+      for (const v of neutralised) {
+        // The entry as init writes it and nothing else: every key the runtime
+        // would honour against the gate (`async`, `if`, a short `timeout`) goes.
+        for (const k of Object.keys(v.h)) delete v.h[k];
+        v.h.type = 'command';
+        v.h.command = v.event === 'PreToolUse' ? HOOK_CMD : SWEEP_CMD;
+        if (v.event === 'Stop') delete v.group.matcher;
+      }
       for (const h of repin) {
         const kind = ours(String(h.command ?? ''))?.[2];
         h.command = kind === 'hook claude' ? HOOK_CMD : kind === 'sweep claude' ? SWEEP_CMD : h.command;
@@ -648,7 +689,7 @@ function planClaudeHooks(cwd: string): Action {
       }
       if (needDisableFalse) settings.disableAllHooks = false;
       mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, JSON.stringify(settings, null, 2) + '\n');
+      atomicReplaceFile(path, JSON.stringify(settings, null, 2) + '\n', existingMode(path, 0o644));
     },
   };
 }
@@ -767,17 +808,17 @@ function planPreCommit(cwd: string): Action {
   }
   const rel = display(cwd, path);
 
-  if (existsSync(path) && !statSync(path).isFile()) {
-    return { item: 'pre-commit', path: rel, status: 'error', detail: 'exists but is not a regular file — refusing to write' };
-  }
+  const refused = refuseNonRegular(path);
+  if (refused) return { item: 'pre-commit', path: rel, status: 'error', detail: refused };
   const existing = existsSync(path) ? readFileSync(path, 'utf8') : null;
+  // Executable, and whatever else the existing script's mode carried.
+  const hookMode = (): number => existingMode(path, 0o755) | 0o111;
   if (existing === null) {
     return {
       item: 'pre-commit', path: rel, status: 'create', detail: `create via ${note}`,
       apply: () => {
         mkdirSync(dirname(path), { recursive: true });
-        writeFileSync(path, `#!/bin/sh\n${block.join('\n')}\n`);
-        chmodSync(path, 0o755);
+        atomicReplaceFile(path, `#!/bin/sh\n${block.join('\n')}\n`, hookMode());
       },
     };
   }
@@ -789,11 +830,11 @@ function planPreCommit(cwd: string): Action {
 
   const lines = existing.split('\n');
   const dead = unconditionalExitAt(lines);
-  const at = lines.findIndex((l) => PRECOMMIT_RE.test(l));
-  const write = (out: string[]): void => {
-    writeFileSync(path, out.join('\n'));
-    chmodSync(path, 0o755);
-  };
+  // A line whose first non-blank character is `#` is a comment: `# npx …
+  // check --staged` is the common "temporarily disable" edit, and it used to
+  // read as wired (#413). The gate is what the shell runs, not what the file says.
+  const at = lines.findIndex((l) => !/^\s*#/.test(l) && PRECOMMIT_RE.test(l));
+  const write = (out: string[]): void => atomicReplaceFile(path, out.join('\n'), hookMode());
 
   if (at !== -1 && (dead === -1 || at < dead)) {
     // Present AND reachable. Re-pin the line init wrote if it carries another
@@ -877,10 +918,14 @@ function planPreCommit(cwd: string): Action {
 function planCodeowners(cwd: string): Action {
   const rel = '.github/CODEOWNERS';
   // GitHub reads whichever of these exists; do not add a second one.
+  // lstat, not existsSync: a dangling symlink is still the file GitHub would
+  // read, and it is refused below rather than shadowed by a fresh one.
   const existingRel = ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS'].find((r) =>
-    existsSync(join(cwd, r)),
+    writeTargetKind(join(cwd, r)) !== 'absent',
   );
   const path = join(cwd, existingRel ?? rel);
+  const refused = refuseNonRegular(path);
+  if (refused) return { item: 'codeowners', path: existingRel ?? rel, status: 'error', detail: refused };
   const existing = existingRel ? readFileSync(path, 'utf8') : null;
 
   const missing = CODEOWNERS_PATHS.filter((p) => existing === null || !coveredBy(existing, p));
@@ -924,7 +969,7 @@ function planCodeowners(cwd: string): Action {
       : {}),
     apply: () => {
       mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, existing === null ? block.replace(/^\n/, '') : existing.replace(/\n?$/, '\n') + block);
+      atomicReplaceFile(path, existing === null ? block.replace(/^\n/, '') : existing.replace(/\n?$/, '\n') + block, existingMode(path, 0o644));
     },
   };
 }
@@ -934,8 +979,10 @@ function planWorkflow(cwd: string, force: boolean): Action {
   const path = join(cwd, rel);
   const write = (): void => {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, workflowFile(WORKFLOW_CONTENT));
+    atomicReplaceFile(path, workflowFile(WORKFLOW_CONTENT), existingMode(path, 0o644));
   };
+  const refused = refuseNonRegular(path);
+  if (refused) return { item: 'ci', path: rel, status: 'error', detail: refused };
   if (!existsSync(path)) {
     return {
       item: 'ci', path: rel, status: 'create',

@@ -30,7 +30,7 @@
 // the same change removed.
 
 import type TS from 'typescript';
-import { ts } from '../ts-lazy';
+import { parseSource, ts } from '../ts-lazy';
 import { Change, Detector, Finding } from '../types';
 import { protectedCategory } from '../policy';
 import { addedLines } from '../diff/select';
@@ -106,12 +106,8 @@ interface Surface {
 /** The parse-clean assertion surface of one file, or null when the file does
  *  not parse: an unparseable side is a declined comparison, never a count. */
 function surfaceOf(path: string, src: string): Surface | null {
-  let sf: TS.SourceFile;
-  try {
-    sf = ts.createSourceFile(path, src, ts.ScriptTarget.Latest, true, scriptKind(path));
-  } catch {
-    return null;
-  }
+  const sf = parseSource(path, src, scriptKind(path));
+  if (!sf) return null;
   // parseDiagnostics is not on the public SourceFile type; reading it through
   // the object shape is the one way to ask the parser whether it recovered.
   const diagnostics = 'parseDiagnostics' in sf && Array.isArray(sf.parseDiagnostics) ? sf.parseDiagnostics : [];

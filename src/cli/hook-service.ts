@@ -32,6 +32,7 @@ import { TW_VERSION } from '../wiring';
 import { SnapshotCache } from '../ptree-cache';
 import { repoRoot } from '../repo-context';
 import { preToolUseFromRaw, setSnapshotCache, stopFromRaw } from './hook';
+import { exitAfterFlush } from './exit';
 import {
   exchange,
   FORWARDED_ENV,
@@ -423,7 +424,7 @@ export function runHookService(args: string[]): number | Promise<number> {
       })
       .catch((e: unknown) => {
         process.stderr.write(`tamperward hook-service: ${e instanceof Error ? e.message : String(e)}\n`);
-        process.exit(2);
+        exitAfterFlush(2);
       });
     return -1;
   }
@@ -445,14 +446,15 @@ export function runHookService(args: string[]): number | Promise<number> {
   void exchange(paths, req, 5000).then((res) => {
     if (!isRecord(res) || typeof res.served !== 'number') {
       process.stdout.write(`tamperward hook-service: not running (pid ${state.pid} did not answer, or is another version); ${optIn}\n`);
-      process.exit(0);
+      exitAfterFlush(0);
+      return;
     }
     const cache = isRecord(res.cache) ? res.cache : {};
     process.stdout.write(
       `tamperward hook-service: running (pid ${state.pid}, tamperward@${state.version}, root ${state.root}, since ${state.started_at}); ` +
         `served: ${res.served}; snapshot cache hits/misses/entries: ${String(cache.hits ?? 0)}/${String(cache.misses ?? 0)}/${String(cache.size ?? 0)}; ${optIn}\n`,
     );
-    process.exit(0);
+    exitAfterFlush(0);
   });
   return -1;
 }
