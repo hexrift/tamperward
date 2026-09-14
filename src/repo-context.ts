@@ -15,7 +15,7 @@
 // policy file read beside the cwd) — the bug was never about those.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { accessSync, constants, existsSync, statSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 
 export interface RepoContext {
@@ -74,6 +74,61 @@ export function repoContext(cwd: string): RepoContext | null {
  *  the base every worktree read is joined onto. */
 export function repoRoot(cwd: string): string {
   return repoContext(cwd)?.root ?? cwd;
+}
+
+/**
+ * Why `cwd` resolved to no repository, or null when it is a real, readable directory
+ * that git itself reports as lying outside every repository — the ONE case in which
+ * "nothing to compare" is the truth. A directory that does not exist, one the hook
+ * cannot read, a bare repository, or any other git failure (dubious ownership, a
+ * broken `.git` file) is a verdict the gate could not compute, and the caller denies
+ * it with this diagnostic rather than passing it as empty (#417).
+ */
+export function outsideRepository(cwd: string): string | null {
+  const key = resolve(cwd);
+  let isDir: boolean;
+  try {
+    isDir = statSync(key).isDirectory();
+  } catch (e) {
+    return `cwd ${key} cannot be read: ${errCode(e)}`;
+  }
+  if (!isDir) return `cwd ${key} is not a directory`;
+  try {
+    accessSync(key, constants.R_OK | constants.X_OK);
+  } catch (e) {
+    return `cwd ${key} cannot be read: ${errCode(e)}`;
+  }
+  try {
+    execFileSync('git', ['rev-parse', '--git-dir'], {
+      cwd: key,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (e) {
+    const detail = errDetail(e);
+    if (/not a git repository/i.test(detail)) return null;
+    return `git could not resolve cwd ${key}: ${detail || 'unknown failure'}`;
+  }
+  // rev-parse succeeded but no working-tree root resolved: a bare repository, or a
+  // git directory the hook can see with no tree it can judge.
+  return `cwd ${key} lies in a repository with no working tree the gate can judge`;
+}
+
+function errCode(e: unknown): string {
+  if (typeof e === 'object' && e !== null) {
+    const code = Reflect.get(e, 'code');
+    if (typeof code === 'string') return code;
+  }
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** The stderr git wrote, else the error's code or message, on one line. */
+function errDetail(e: unknown): string {
+  if (typeof e === 'object' && e !== null) {
+    const stderr = Reflect.get(e, 'stderr');
+    if (typeof stderr === 'string' && stderr.trim()) return stderr.replace(/\s+/g, ' ').trim();
+  }
+  return errCode(e);
 }
 
 /** Forget every resolved context (tests that re-initialise a fixture in place). */

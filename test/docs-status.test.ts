@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const root = join(__dirname, '..');
@@ -42,5 +42,46 @@ describe('security documentation status (#311)', () => {
     expect(tracker).toMatch(/checkpointed-local[\s\S]*THREAT-MODEL-pristine-run[\s\S]*verifier-container-e2e/);
     expect(tracker).toMatch(/suite-exit-only[\s\S]*THREAT-MODEL-pristine-run[\s\S]*verifier-container-e2e/);
     expect(tracker).toMatch(/verification surface[\s\S]*THREAT-MODEL-pristine-run/);
+  });
+});
+
+// Every page the docs site builds must be reachable from its sidebar or nav (#451):
+// the five top-level reference pages were built but reachable only through search,
+// and one of them linked a `harness/` path that resolves on GitHub but 404s on the
+// site because `harness/` is not served — the site form is the GitHub blob URL.
+describe('docs site navigation and links (#451)', () => {
+  const docsDir = join(root, 'docs');
+
+  function markdownPages(dir: string, prefix = ''): string[] {
+    const pages: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === '.vitepress' || entry.name === 'public') continue;
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) pages.push(...markdownPages(join(dir, entry.name), rel));
+      else if (entry.name.endsWith('.md')) pages.push(rel);
+    }
+    return pages.sort();
+  }
+
+  it('lists every built page in the sidebar or nav', () => {
+    const config = readFileSync(join(docsDir, '.vitepress', 'config.mts'), 'utf8');
+    const pages = markdownPages(docsDir);
+    expect(pages.length).toBeGreaterThan(40);
+    for (const page of pages) {
+      // `index.md` is the home page the logo links to; every other page needs a
+      // `link:` entry so it is reachable without the search box.
+      if (page === 'index.md') continue;
+      const link = page.endsWith('/index.md')
+        ? `/${page.slice(0, -'index.md'.length)}`
+        : `/${page.replace(/\.md$/, '')}`;
+      expect(config, `sidebar/nav link for docs/${page}`).toContain(`link: '${link}'`);
+    }
+  });
+
+  it('never links a harness/ path relatively — the site does not serve it', () => {
+    for (const page of markdownPages(docsDir)) {
+      const md = readFileSync(join(docsDir, page), 'utf8');
+      expect(md, `docs/${page}`).not.toMatch(/\]\((?:\.\.\/)+harness\//);
+    }
   });
 });

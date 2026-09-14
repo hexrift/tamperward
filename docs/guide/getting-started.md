@@ -78,7 +78,7 @@ write, or one you have edited — a generated workflow nobody touched is migrate
 automatically when the template changes).
 
 Every file `init` writes is checked before it is touched and replaced atomically
-(2.23.12). The target is `lstat`ed: a symlink, a directory or a special file standing
+(2.23.16). The target is `lstat`ed: a symlink, a directory or a special file standing
 where the policy, `.claude/settings.json`, the pre-commit hook (in whichever hooks
 directory, husky's included), CODEOWNERS or the workflow should be is refused with a
 plan row reading `refusing: symlink` (or `refusing: not a regular file`), in `--dry-run`
