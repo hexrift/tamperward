@@ -30,7 +30,7 @@ import {
 
 const ROOT = resolve(__dirname, '..');
 const dirs: string[] = [];
-const SCHEMA_NAMES = ['check', 'verify', 'run', 'doctor', 'research'] as const;
+const SCHEMA_NAMES = ['check', 'verify', 'run', 'doctor', 'research', 'stats', 'audit-event'] as const;
 type SchemaName = typeof SCHEMA_NAMES[number];
 type NpmPackEntry = { filename: string; files?: Array<{ path: string }> };
 
