@@ -368,12 +368,28 @@ Full assumptions and residual risks: [SPEC.md](./SPEC.md),
 ## Quick start
 
 ```bash
-npx tamperward init
+npx tamperward onboard
 ```
 
 Requires Node.js 20.19 or later. JavaScript and TypeScript are the fully
 supported detector surface; the other documented ecosystems get file-level and
 pattern-based protection.
+
+`onboard` (2.21.0) is the guided first run: it previews the installation with the
+same planner as `init --dry-run`, explains each enforcement point, asks before writing
+anything, runs the canonical `init`, offers the detected suite command for your
+explicit acceptance (it is never written without one), runs and explains the first
+`verify`, offers a safe demonstration of a weakening move on a disposable worktree that
+leaves your tree byte-for-byte as it was, checks the GitHub controls with
+`doctor --github` (or prints them), and ends with a `READY` / `READY WITH WARNINGS` /
+`BROKEN` / `INCOMPLETE` posture taken from `doctor`. Non-interactive stdin refuses
+rather than hangs; `--yes --verify-command "<cmd>"` is the scripted form.
+
+The deterministic primitive underneath is unchanged:
+
+```bash
+npx tamperward init
+```
 
 One idempotent command wires the policy, the agent hooks, the pre-commit hook, a
 CI workflow that runs both the diff-time check and pristine verification, and a
@@ -566,6 +582,7 @@ option can never be reinterpreted as the agent command.
 | `run` | `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` (per verifier suite) · `--agent-budget <seconds>` (optional wrapped-agent wall clock) · `--json` (one versioned final envelope document) · `--observe-transients` (start a session-scoped transient observer) · `--allow-dirty` · `--settle <seconds>` (wait before the final quiescence check) · `--allow-dep-drift` · `--cwd <dir>` · then `-- <agent command...>` |
 | `allow` | `<rule>` · `--file <path>` · `--reason "<why>"` (required) · `--cwd <dir>` |
 | `init` | `--cwd <dir>` · `--dry-run` · `--force-workflow` |
+| `onboard` | `--cwd <dir>` · `--base <rev>` · `--repo <owner/repo>` · `--branch <name>` · `--skip-demo` / `--demo` (mutually exclusive) · `--no-github` · `--yes` (scripted: no prompts; the demo runs only with `--demo`) · `--verify-command "<suite command>"` (the only way a scripted run configures `verify.command`) |
 | `watch` | `--dir <dir>` · `--log <file>` — a daemon; it runs until signalled |
 | `hook claude` / `sweep claude` | none — the Claude Code payload arrives on stdin |
 
@@ -581,6 +598,7 @@ option can never be reinterpreted as the agent command.
 | `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0, never exit 2 | — | only for an unsupported agent name | — |
 | `allow` | sign-off recorded | — | no rule or `--reason`, not a git repo, or no current blocking finding to sign off | — |
 | `init` | wired, or already wired | — | an item needs attention | — |
+| `onboard` | posture `READY` or `READY WITH WARNINGS` (from `doctor`) | posture `BROKEN` or `INCOMPLETE`, including a declined write or an unconfigured verifier | refused (not a git repository, non-interactive stdin without `--yes`, a dirty tree the operator would not continue on) or aborted at a prompt | — |
 | no or unknown command | help printed (no command) | — | unknown command, help printed | — |
 
 ### Environment variables
