@@ -14,6 +14,9 @@ hero:
       text: Get started
       link: /guide/getting-started
     - theme: alt
+      text: See the evidence →
+      link: /research/
+    - theme: alt
       text: Read the launch post
       link: /blog/what-agents-do-when-you-block-their-shortcuts
     - theme: alt
@@ -28,5 +31,5 @@ features:
   - title: Measured, not asserted
     details: Across 77 guarded harness runs and four models, 0 tampers reached green and all 25 denials converted to honest fixes — and a pre-registered no-gate control arm shows 6/10 tampers without it, so the gate causes the difference. Refuted bets ship in the repo next to the confirmed ones.
   - title: One command to wire it all
-    details: npx tamperward init writes the policy and every enforcement point, idempotently, without overwriting anything you wrote.
+    details: npx tamperward onboard guides the first run — preview, explicit confirmation, verifier acceptance, first verify, posture from doctor — over npx tamperward init, which writes the policy and every enforcement point idempotently, without overwriting anything you wrote.
 ---

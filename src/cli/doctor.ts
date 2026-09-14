@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { yaml } from '../lazy-deps';
+import { parse } from 'yaml';
 import { defaultPolicy, POLICY_VERSION } from '../policy';
 import { loadPolicy, loadPolicyAt, PolicyError } from '../policy-load';
 import { requiredVerifierAuthoritySeconds } from '../verifier-limits';
@@ -87,26 +87,35 @@ export function lifecyclePlatformCheck(
 
 const VERIFY_COMMAND = /\btamperward(?:@\S+)?\s+verify\b/;
 
-function err(
-  message: string,
-  opts?: DoctorOpts,
-  id = 'doctor',
-  checks: DoctorCheck[] = [],
-): number {
-  if (opts?.json) {
-    const report: DoctorReport = machineOutput({
-      command: 'doctor' as const,
-      authoritative: false,
-      checks: [
-        ...checks.filter((check) => check.id !== id),
-        { id, state: 'BROKEN' as const, detail: message },
-      ],
-    });
-    process.stdout.write(JSON.stringify(report) + '\n');
-  } else {
-    process.stderr.write(`tamperward doctor: ${message}\n`);
-  }
-  return 2;
+/**
+ * What doctor concluded, before anything is printed. `runDoctor` renders it;
+ * `tamperward onboard` reads it to derive its final posture from doctor rather
+ * than from a second definition of a valid installation (#388).
+ */
+export interface DoctorOutcome {
+  /** 0 when every check could be evaluated, 2 when doctor could not certify. */
+  code: 0 | 2;
+  authoritative: boolean;
+  checks: DoctorCheck[];
+  /** Set when doctor stopped early: the failing check id and its message. */
+  failure?: { id: string; message: string };
+  /** Human summary lines runDoctor prints before the check report on success. */
+  summary: string[];
+  /** Present when `--github` was requested and the authority was verified. */
+  github?: { repo: string; branch: string };
+}
+
+function failed(message: string, id = 'doctor', checks: DoctorCheck[] = []): DoctorOutcome {
+  return {
+    code: 2,
+    authoritative: false,
+    checks: [
+      ...checks.filter((check) => check.id !== id),
+      { id, state: 'BROKEN', detail: message },
+    ],
+    failure: { id, message },
+    summary: [],
+  };
 }
 
 function policyFor(opts: DoctorOpts, cwd: string) {
@@ -162,7 +171,7 @@ function workflowPermissionCheck(
 
     let doc: unknown;
     try {
-      doc = yaml.parse(readFileSync(path, 'utf8'));
+      doc = parse(readFileSync(path, 'utf8'));
     } catch (e) {
       broken.push(`${rel} is not valid YAML (${e instanceof Error ? e.message : String(e)})`);
       continue;
@@ -359,8 +368,7 @@ function observerCheck(cwd: string): DoctorCheck {
   };
 }
 
-function emitReport(opts: DoctorOpts, checks: DoctorCheck[]): void {
-  const authoritative = !checks.some((x) => x.state === 'BROKEN');
+function emitReport(opts: DoctorOpts, checks: DoctorCheck[], authoritative: boolean): void {
   if (opts.json) {
     const report: DoctorReport = machineOutput({ command: 'doctor' as const, authoritative, checks });
     process.stdout.write(JSON.stringify(report) + '\n');
@@ -455,7 +463,8 @@ export function githubRepoFromRemote(remote: string): string | null {
   return m ? m[1] + '/' + m[2].replace(/\.git$/i, '') : null;
 }
 
-function inferGitHubRepo(cwd: string): string | null {
+/** OWNER/REPO from GITHUB_REPOSITORY or a github.com origin remote, or null. */
+export function inferGitHubRepo(cwd: string): string | null {
   const envRepo = process.env.GITHUB_REPOSITORY;
   if (envRepo && /^[^/\s]+\/[^/\s]+$/.test(envRepo)) return envRepo;
 
@@ -603,25 +612,23 @@ function verifyJobs(doc: unknown): Array<{ name: string; job: Record<string, unk
  * verify.budget remains valid for custom runners; generated GitHub CI refuses
  * to pretend its own outer timeout can accommodate one that exceeds its host.
  */
-export function runDoctor(opts: DoctorOpts = {}): number {
+export function diagnose(opts: DoctorOpts = {}): DoctorOutcome {
   const cwd = resolve(opts.cwd ?? process.cwd());
 
   let policy;
   try {
     policy = policyFor(opts, cwd);
   } catch (e) {
-    return err(
+    return failed(
       e instanceof PolicyError || e instanceof Error ? e.message : String(e),
-      opts,
       'policy',
     );
   }
 
   let postureWorkflows: string[] | undefined = opts.workflow ? [opts.workflow] : undefined;
-  const fail = (id: string, message: string): number =>
-    err(
+  const fail = (id: string, message: string): DoctorOutcome =>
+    failed(
       message,
-      opts,
       id,
       collectLocalPosture(cwd, policy, postureWorkflows, Boolean(opts.workflow)),
     );
@@ -665,7 +672,7 @@ export function runDoctor(opts: DoctorOpts = {}): number {
 
     let doc: unknown;
     try {
-      doc = yaml.parse(readFileSync(workflowPath, 'utf8'));
+      doc = parse(readFileSync(workflowPath, 'utf8'));
     } catch (e) {
       return fail('ci-verifier', 
         `${workflowRel}: workflow is not valid YAML (${e instanceof Error ? e.message : String(e)})`,
@@ -757,18 +764,38 @@ export function runDoctor(opts: DoctorOpts = {}): number {
   }
   checks.push(observerCheck(cwd));
 
-  if (!opts.json) {
-    process.stdout.write(
-      `tamperward doctor: CI verifier envelope OK — ${verifyJobCount} verify job(s), trusted budget ${policy.verify.budget}s/stage, requires >=${requiredMinutes}m outer timeout.\n`,
+  const summary = [
+    `tamperward doctor: CI verifier envelope OK — ${verifyJobCount} verify job(s), trusted budget ${policy.verify.budget}s/stage, requires >=${requiredMinutes}m outer timeout.`,
+  ];
+  if (github) {
+    summary.push(
+      'tamperward doctor: GitHub repository authority OK — ' + github.repo + '#' +
+        github.branch +
+        ' requires tamperward, Code Owner review, and stale-review dismissal on new pushes.',
     );
-    if (github) {
-      process.stdout.write(
-        'tamperward doctor: GitHub repository authority OK — ' + github.repo + '#' +
-          github.branch +
-          ' requires tamperward, Code Owner review, and stale-review dismissal on new pushes.\n',
-      );
-    }
   }
-  emitReport(opts, checks);
-  return 0;
+  return {
+    code: 0,
+    authoritative: !checks.some((x) => x.state === 'BROKEN'),
+    checks,
+    summary,
+    ...(github ? { github: { repo: github.repo, branch: github.branch } } : {}),
+  };
+}
+
+export function runDoctor(opts: DoctorOpts = {}): number {
+  const outcome = diagnose(opts);
+  if (outcome.failure) {
+    if (opts.json) {
+      emitReport(opts, outcome.checks, false);
+    } else {
+      process.stderr.write(`tamperward doctor: ${outcome.failure.message}\n`);
+    }
+    return outcome.code;
+  }
+  if (!opts.json) {
+    for (const line of outcome.summary) process.stdout.write(line + '\n');
+  }
+  emitReport(opts, outcome.checks, outcome.authoritative);
+  return outcome.code;
 }

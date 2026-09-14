@@ -5,70 +5,167 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [2.22.0] — 2026-09-14
+## [2.21.0] — 2026-09-13
 
-**The hook no longer pays for the TypeScript parser on every call, and an opt-in
-persistent hook service amortises the rest.** (#322)
+**New command: `tamperward onboard` — the guided first run.** `npx tamperward onboard`
+is now the recommended first command for a new repository; `init` remains the
+deterministic, non-interactive primitive. `onboard` is orchestration over the existing
+trusted primitives and adds no second setup engine: it runs a preflight (git
+repository, Node/platform support contract, working-tree cleanliness, TamperWard
+version), previews the installation with the same planner as `init --dry-run` and
+explains each enforcement point in one sentence, asks for explicit confirmation before
+any write, applies the canonical `init`, reuses init's verifier-command detection and
+requires explicit operator acceptance before writing `verify.command` (one
+high-confidence candidate is offered, several are listed for a numbered choice, none
+means manual entry; the policy file is merged, comments intact), runs the first
+`verify` and explains `VERIFIED`, `SUITE_RED`, `MASKED_FAILURE` and cannot-verify in
+plain language without changing verify's exit semantics, offers an optional safe
+demonstration that adds a `.skip` to one test block inside a detached temporary
+worktree it created — the operator's working tree is never edited and its fingerprint
+is printed before and after — runs `doctor --github` for the repository authority
+(or prints the exact three manual controls and the doctor command to run later),
+and ends with a `READY` / `READY WITH WARNINGS` / `BROKEN` / `INCOMPLETE` posture
+derived from `doctor`, saying explicitly whether GitHub authority is enforced
+(verified by `doctor --github`) or merely configured locally, followed by the
+day-to-day command set and when the digest-pinned container verifier is the stronger
+final check.
 
-Measured first, on a fixture repository of 1,000 protected test files (Node 22, Linux
-x64, sequential runs, p50 of 20): every PreToolUse call spent ~500 ms of its ~600 ms
-before a byte of policy was read, in Node's ESM load of the CommonJS `typescript`
-package that eight AST detectors imported at the top of their modules; the protected-tree
-snapshot of 1,000 files was ~50–120 ms of the remainder, the git views and policy load
-~30 ms, and the `npx` launcher `init` writes adds roughly 100 ms on top of the direct
-binary (the issue's own measurement). Two changes, in order of how little they ask you
-to trust:
+Flags: `--cwd <dir>` · `--base <rev>` · `--repo OWNER/REPO` · `--branch <branch>` ·
+`--skip-demo` / `--demo` · `--no-github` · `--yes` · `--verify-command "<cmd>"`.
+Exit `0` when the posture is `READY` or `READY WITH WARNINGS`, `1` for `BROKEN` /
+`INCOMPLETE`, `2` when refused or aborted. A non-interactive stdin (or a CI
+environment) refuses with one clear message instead of hanging; `--yes` is the scripted
+mode, in which a detected verifier command is still never written — only
+`--verify-command` configures it — and the demo runs only with `--demo`. Every step is
+idempotent: aborting leaves nothing half-applied and names the step, `doctor` describes
+the state, and a re-run continues. A dirty tree consisting only of init-owned paths (a
+previous run's uncommitted output) is noted; any other change prompts before continuing
+and is never stashed or reset.
 
-**Lazy parser and dependency loading — nothing to enable, no trust change.**
-`typescript`, `yaml` and `picomatch` are read from disk on first use, through
-`require`, which also skips the named-export discovery pass the ESM import paid for.
-A `Bash` call, an edit to a Python test and `--help` never load the parser; a
-protected JS/TS edit reaches the same AST path with the same verdict, and
-`ts-cast-growth` still parses any JS/TS source it is given (`test/ts-lazy.test.ts`).
-`--help` 527 ms → 79 ms; `hook claude` on a `Bash` payload 603 ms → 189 ms; on a JS
-edit (the parser is still needed) 597 ms → 399 ms; on a protected test edit that
-denies 637 ms → 421 ms. `dist/cli/index.js` now evaluates `main` behind a lazy
-initialiser; every command behaves as before.
+Internals: `doctor` now exposes `diagnose()` (the outcome before rendering) so onboard
+reads doctor's checks instead of parsing its output; `verify` gained an internal
+`onVerdict` observer with no effect on its verdict or exit code; init's
+`verifierCandidates` is exported. `guardedMain` returns a promise for `onboard` only;
+every other command exits synchronously as before.
 
-**`tamperward hook-service start | stop | status` — opt-in, off by default.** One warm
-process per user and repository, started and stopped by the operator (foreground; a
-SessionStart hook or a supervisor owns its lifetime), that evaluates `hook claude` /
-`sweep claude` payloads over a per-user unix socket held at mode `0600` inside a `0700`
-directory (`$XDG_RUNTIME_DIR/tamperward-hook` or `<tmpdir>/tamperward-hook-<uid>`;
-`TAMPERWARD_HOOK_SERVICE_DIR` overrides). Hooks consult it **only** when
-`TAMPERWARD_HOOK_SERVICE=1` is in Claude Code's environment; the hook command `init`
-writes, and the wire contract with Claude Code (JSON on stdout at exit 0), are
-unchanged. The service runs the same `preToolUseFromRaw` / `stopFromRaw` on the same
-stdin bytes, with the client's cwd and every request-time environment value that affects hook path/telemetry semantics (`TAMPERWARD_DENYLOG`, `TAMPERWARD_FSEVENTS`, `TAMPERWARD_TRANSIENT`, `CLAUDE_CONFIG_DIR`, `HOME`, `USERPROFILE`), and the client relays the `HookResult` unchanged; a parity
-test replays a fixture set through both paths and requires byte-identical verdicts.
-With the service warm: `Bash` payload 116 ms, JS edit 130 ms, protected test edit
-that denies 134 ms (p50; the first call after start, with a cold cache, 170–315 ms).
+This closes #388.
 
-Before request handoff, the client **falls back to the in-process gate, never to an
-allow**, when the opt-in is absent, the socket is unavailable/untrusted, or the service
-explicitly refuses before evaluation (wrong protocol/version, cwd outside the bound
-repository). After the socket connects and the request is handed off, the service is
-the single owner of that evaluation: an ambiguous timeout, disconnect, oversized or
-malformed final response becomes a fail-closed hook denial rather than a second
-in-process evaluation racing the same session state. `stop` removes the socket and
-state file even when nothing was running. Not available on Windows: `start` refuses
-with a clear message and the hook runs in-process there.
 
-The service's protected-tree snapshot cache lives only in its memory and is keyed on
-`(device, inode, size, mode, mtime, ctime)` at nanosecond precision — never on the
-stat triple the candidate can set (P1-8): `ctime` is not settable from user space and
-moves on every write, rename, chmod and `utimes`, `touch -r` included. An entry is
-reused only when all six match *and* the file had been stable for two seconds when its
-hash was taken (git's racy rule); the map is dropped every minute so a full content
-walk is never further away than that. `test/hook-service.test.ts` proves a same-size
-rewrite with a restored mtime is still reported as drift through the cache, and that
-the in-process hook, which has no cache, is unchanged.
+## [2.20.6] — 2026-09-13
 
-Residual, stated in `docs/guide/enforcement.md`: the service runs as the candidate's
-uid, so a candidate that can kill a same-uid process and start its own listener can
-answer the hook — the same class of move as rewriting `.git/tamperward/*`, which the
-loop layer has never been able to prevent and CI has never depended on. The service
-adds no authority; the Stop sweep, `run`, pre-commit and CI read none of its state.
+**Repeatable performance budgets for the hook, the sweep, `check`, `verify` and
+`run`.** `harness/perf/bench.mjs` measures the built CLI on deterministic synthetic
+repositories (`harness/perf/fixtures.mjs`, Node built-ins only): process start
+(`cli.noop`), the `PreToolUse` hook cold and warm, the Stop sweep with its
+protected-tree snapshot at 100 / 1k / 10k files, `check --diff` over 3 and 500
+files, ignored/untracked enumeration under a 20k-file ignored build tree, the
+dependency fingerprint over a `--dep-mb` `node_modules`, visible + pristine
+materialisation around a trivial verifier, the whole `run` envelope, and Stop
+consumption of an 8 MB watcher log. Each item reports p50/p95 wall and CPU as JSON
+and a markdown table. `harness/perf/BASELINE.json` is the committed reference (its
+`machine` block says where it was taken) and `harness/perf/compare.mjs` fails when
+an item's p50 wall exceeds a configurable ratio to it (2× by default, per-item
+`budgets` honoured). `test/perf-smoke.test.ts` runs the four cheapest items on every
+PR and asserts only ratios between items of the same run (each under 4× the
+process-start `cli.noop`), never an absolute clock; `.github/workflows/perf.yml` runs
+the full suite nightly and on demand, compares against the baseline, and uploads the
+report. Documented in `docs/PERF.md`. No
+runtime behaviour changes; the CLI is unchanged.
+
+
+## [2.20.5] — 2026-09-13
+
+**The documentation now has a Research & Benchmarks section that presents the
+committed evidence in one place and is bound to it by CI.** `docs/research/`
+carries an overview with a landing table for Taskbench rounds 1, 2, 3, 3.1 and 4
+(model/runtime, sample, treatment version, result, status), one page per round
+naming what the result supports, what it does not establish and every correction
+that touched it, and separate views for detector precision / false positives,
+performance / overhead (only the two committed measurements, with the missing
+end-to-end and production-pilot data stated as missing), security and adversarial
+evaluations (each bypass, the releases that carried it, whether any counted
+trajectory exercised it, and the open residuals), model comparisons (the single
+common-16 comparison the record supports, and the four-panel shape any future
+comparison takes — no composite score), and methodology / limitations / errata.
+Failed and non-replicated results carry the same prominence as confirmed ones.
+The docs home page and the README gain a "See the evidence →" link; neither
+becomes a leaderboard.
+
+The section is a presentation layer, not a second research record: no sealed or
+frozen artifact is changed, and `test/research-docs-consistency.test.ts`
+re-derives every headline number on the pages from the artifacts on every change
+— rounds 1–3.1 (pairs, `b`, `c`, exact McNemar `p`, model, trajectory count)
+from their frozen `results.jsonl` ledgers and registered treatment versions;
+round 4 from `ROUND4-RESULTS.json`, including the landing-table status derived
+from its sealed completeness and provenance fields; detector precision from the
+fp-study corpus JSON and study totals; performance from the CHANGELOG and
+SECURITY-ENVELOPE measurements; plus the sidebar wiring, the landing links, and
+the absence of any aggregate score. A page that drifts from its artifact fails CI.
+
+Documentation only; no gate behaviour changes. This closes #390.
+## [2.20.4] — 2026-09-13
+
+**The README and SPEC status now report Round 4 as complete, with the sealed
+numbers.** The front page still said Round 4 was "registered and frozen, not yet
+run" after the counted round had been sealed (#310). "What we have actually
+measured" gains a Round 4 row; the scope paragraph replaces the future-tense text
+with the registered outcome — exact McNemar b=5 / c=3, p = 0.7265625, null not
+rejected, over 79/110 realized valid pairs, interpretation floor met — kept
+front-and-centre as a failed preregistered prediction, with the narrower
+zero-strict-bypass observation (0 across 201 measured trajectories) stated
+separately, the 79/110 apparatus attrition and its selection-bias caveat linked
+rather than hidden, and the pre-registration and results articles linked as a
+pair. SPEC §9.1 M2 no longer calls Round 4 "the undrawn fresh pool". A vitest
+(`test/readme-round4.test.ts`) asserts the README's Round 4 numbers equal the
+sealed values in `harness/taskbench/round4/ROUND4-RESULTS.json`, so the two cannot
+drift. No sealed record was modified; no product behaviour changed.
+## [2.20.3] — 2026-09-13
+
+**The test suite explains itself when it runs as root instead of failing 44 times.**
+
+`tamperward run` refuses Linux root/euid 0 by design (2.16.x; README "Platform
+support") and that is unchanged. But the suite did not know: on an untouched `main` in
+a devcontainer, `docker run`, Codespaces or a hosted agent session — all root by
+default — 44 tests across `run`, `dependency-environment`, `audit-1-6`, `audit-h1-h5`,
+`doctor-ci` and `cli-guard` failed with a bare `expected 2 to be +0`, and a contributor
+could not tell whether they had broken something (#392).
+
+Every test that needs the envelope to reach adjudication now carries
+`it.skipIf(!rootless)` from the shared `test/rootless.ts`, and a vitest `globalSetup`
+(`test/global-setup.ts`) prints one notice at suite start when the suite runs as Linux
+root: why the envelope refuses root and how to run the suite unprivileged. The test that
+mocks `geteuid` to 0 and asserts the refusal message stays unguarded, so root still
+exercises the refusal path. Off Linux nothing changes — those platforms keep their own
+`skipIf` guards — and an unprivileged run (CI included) prints nothing and skips
+nothing new. The `cli-guard` grammar case is split so its envelope assertion is the only
+part that skips. The guard's contract is proven with an injected identity in
+`test/rootless.test.ts`, so it needs no root to test. CONTRIBUTING gains "Running the
+suite unprivileged". No production code changes.
+
+## [2.20.2] — 2026-09-13
+
+**`tamperward run --observe-transients` now stops its observer on the observer
+process's exit, never on its health record.** (#394)
+
+The envelope's observer stop used to complete as soon as the watcher's health sidecar
+read `state: "stopped"` or the pid was gone. A watcher writes that record inside its
+signal handler *before* it finishes its final writes and exits, so `run` could return
+while the observer was still writing; PR #393's exact-head CI caught the lost final
+write on Node 24 while Node 20/22 passed. The health record is telemetry, and it is
+candidate-reachable; it was never fit to be the lifecycle boundary.
+
+The stop now waits for the observer *process* to exit. Because the envelope waits
+synchronously, its own event loop cannot reap the child, and an exited child lingers
+as a zombie that `kill(pid, 0)` still reports as alive — a pid-liveness poll alone
+therefore never sees the exit and runs to its deadline. On Linux (the only platform
+where `run` reaches the observer) the exit is read from the process state in
+`/proc/<pid>/stat`; elsewhere pid liveness remains the only signal. The drain window
+stays bounded at 2 s with SIGKILL behind it. Every observed envelope now stops its
+observer as soon as it has exited instead of burning the full window: the #335
+lifecycle regression drops from ~2.7 s to well under a second, and the new regression
+pins both halves of the contract — the observer's final write is present when
+`runEnvelope()` returns, and the return is keyed to the exit, not to the deadline —
+without a test-side sleep.
 
 ## [2.20.1] — 2026-09-13
 

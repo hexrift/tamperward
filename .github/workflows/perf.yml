@@ -1,0 +1,97 @@
+name: perf
+
+# The repeatable performance budgets (issue #334): harness/perf/bench.mjs measures
+# the built CLI on deterministic synthetic repositories — hook cold/warm, the
+# protected-tree snapshot at 100/1k/10k files, `check --diff` small/large, ignored
+# and untracked enumeration under a large build tree, the dependency fingerprint,
+# visible+pristine materialisation, the whole `run` envelope, and Stop consumption
+# of a long watcher log — and compare.mjs fails the job when any item exceeds its
+# budget against the committed harness/perf/BASELINE.json.
+#
+# MANUAL AND NIGHTLY, never on a pull request. The full suite takes minutes and a
+# shared runner's wall clock is noisy, so it is deliberately NOT a required check:
+# ordinary PR CI runs only test/perf-smoke.test.ts, the cheapest items judged as
+# ratios to the process-start cost of the same run, never an absolute clock. Read a
+# red run here as a regression to investigate, not a
+# merge blocker; the JSON artifact is the evidence to compare against the baseline
+# and, when the change is intended, to replace it with (docs/PERF.md).
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: 'timed runs per item'
+        default: '7'
+        type: string
+      ratio:
+        description: 'budget as a ratio to the baseline p50 wall (compare.mjs --ratio)'
+        default: '2'
+        type: string
+      dep_mb:
+        description: 'synthetic node_modules size in MB for deps.fingerprint (the baseline uses 8; 100 or 1000 for the representative trees)'
+        default: '8'
+        type: string
+  schedule:
+    - cron: '41 3 * * *' # nightly, off-peak
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      - name: Full suite
+        env:
+          RUNS: ${{ inputs.runs || '7' }}
+          DEP_MB: ${{ inputs.dep_mb || '8' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/perf"
+          node harness/perf/bench.mjs --profile full --runs "$RUNS" --dep-mb "$DEP_MB" \
+            --work "$RUNNER_TEMP/perf-work" \
+            --out "$RUNNER_TEMP/perf/perf.json" --md "$RUNNER_TEMP/perf/perf.md"
+          {
+            echo "### perf — full suite"
+            echo ""
+            cat "$RUNNER_TEMP/perf/perf.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Compare against the committed baseline
+        env:
+          RATIO: ${{ inputs.ratio || '2' }}
+        run: |
+          set +e
+          node harness/perf/compare.mjs --baseline harness/perf/BASELINE.json \
+            --current "$RUNNER_TEMP/perf/perf.json" --ratio "$RATIO" | tee "$RUNNER_TEMP/perf/compare.md"
+          code=${PIPESTATUS[0]}
+          {
+            echo ""
+            echo "### perf — budget comparison"
+            echo ""
+            cat "$RUNNER_TEMP/perf/compare.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"
+
+      # The JSON is the record: it is what a new BASELINE.json is copied from when a
+      # measured change is intended, and what a regression is diagnosed against.
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: perf-report
+          path: ${{ runner.temp }}/perf/
+          retention-days: 90
+          if-no-files-found: warn
