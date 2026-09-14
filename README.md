@@ -493,7 +493,7 @@ corresponding JSON Schema Draft 2020-12 documents in the npm package and reposit
 - [`schemas/verify-v1.schema.json`](./schemas/verify-v1.schema.json)
 - [`schemas/run-v1.schema.json`](./schemas/run-v1.schema.json)
 - [`schemas/doctor-v1.schema.json`](./schemas/doctor-v1.schema.json)
-- [`schemas/research-v1.schema.json`](./schemas/research-v1.schema.json) — from **2.21.0**, the `pair` records `research run` writes (and prints with `--json`) and the `summary` document `research summarize` prints
+- [`schemas/research-v1.schema.json`](./schemas/research-v1.schema.json) — from **2.23.0**, the `pair` records `research run` writes (and prints with `--json`) and the `summary` document `research summarize` prints
 
 Schema major **1** is deliberately additive: consumers should ignore fields they do not
 understand. Adding new evidence/diagnostic fields does not require a schema bump.
@@ -642,7 +642,7 @@ predictions and corrections remain in the public record rather than being
 removed after the result is known; the series and its errata carry the ledger
 and its totals.
 
-Since **2.21.0** the paired ungated/gated evaluation is a supported command rather
+Since **2.23.0** the paired ungated/gated evaluation is a supported command rather
 than a hand-assembled harness run: `tamperward research run` takes a task manifest
 and an agent runtime (Claude Code, or any command through the `AgentAdapter`
 contract), adjudicates both arms with the same `verify` + `check` primitives, records
