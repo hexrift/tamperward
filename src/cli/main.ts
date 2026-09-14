@@ -4,7 +4,8 @@
 
 import { runCheck, CheckOpts } from './check';
 import { FORMATS, isFormat } from './report';
-import { runHookClaude, runSweepClaude } from './hook';
+import { runHookClaude, runHookFromRaw, runSweepClaude } from './hook';
+import { runHookService } from './hook-service';
 import { runAllow, AllowOpts } from './allow';
 import { runInit, InitOpts } from './init';
 import { runDoctor, DoctorOpts } from './doctor';
@@ -12,6 +13,7 @@ import { runVerify, parseVerify } from './verify';
 import { runTraceVerify, parseTraceVerify } from './trace-verify';
 import { runEnvelope, parseRun } from './run';
 import { runWatch } from './watch';
+import { runOnboard, OnboardOpts } from './onboard';
 import { runResearchCommand, RESEARCH_SUBCOMMANDS } from './research';
 
 function parseAllow(args: string[]): AllowOpts {
@@ -42,6 +44,23 @@ function parseInit(args: string[]): InitOpts {
     if (a === '--cwd') o.cwd = args[++i];
     else if (a === '--dry-run') o.dryRun = true;
     else if (a === '--force-workflow') o.forceWorkflow = true;
+  }
+  return o;
+}
+
+function parseOnboard(args: string[]): OnboardOpts {
+  const o: OnboardOpts = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--cwd') o.cwd = args[++i];
+    else if (a === '--base') o.base = args[++i];
+    else if (a === '--repo') o.repo = args[++i];
+    else if (a === '--branch') o.branch = args[++i];
+    else if (a === '--verify-command') o.verifyCommand = args[++i];
+    else if (a === '--skip-demo') o.skipDemo = true;
+    else if (a === '--demo') o.demo = true;
+    else if (a === '--no-github') o.noGithub = true;
+    else if (a === '--yes') o.yes = true;
   }
   return o;
 }
@@ -236,6 +255,28 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     }).error;
   }
 
+  if (cmd === 'onboard') {
+    const parsed = validateFlatArgs(args, {
+      flags: ['--yes', '--skip-demo', '--demo', '--no-github'],
+      values: {
+        '--cwd': 'string',
+        '--base': 'string',
+        '--repo': 'string',
+        '--branch': 'string',
+        '--verify-command': 'string',
+      },
+    });
+    if (parsed.error) return parsed.error;
+    if (parsed.seen.has('--demo') && parsed.seen.has('--skip-demo')) return '--demo cannot be combined with --skip-demo';
+    return undefined;
+  }
+
+  if (cmd === 'hook-service') {
+    const sub = args[0];
+    if (sub !== 'start' && sub !== 'stop' && sub !== 'status') return 'hook-service requires one of start | stop | status';
+    return validateFlatArgs(args.slice(1), sub === 'start' ? { values: { '--dir': 'string' } } : {}).error;
+  }
+
   if (cmd === 'verify') {
     return validateFlatArgs(args, {
       flags: ['--json', '--keep', '--require-ancestor'],
@@ -326,6 +367,18 @@ Formats:
   auto    github when GITHUB_ACTIONS=true, otherwise text.
   tamperward hook claude                    PreToolUse gate (reads hook JSON on stdin)
   tamperward sweep claude                   Stop sweep (re-scan the turn's working tree)
+  tamperward hook-service start [--dir D]   OPT-IN persistent hook service: one warm
+  tamperward hook-service stop | status     process per user and repository that
+                                            evaluates hook/sweep requests over a
+                                            private unix socket, so each tool call
+                                            skips Node + bundle startup. Hooks
+                                            consult it only with
+                                            TAMPERWARD_HOOK_SERVICE=1 in Claude
+                                            Code's environment, and run in-process
+                                            (the ordinary path, same verdict) when
+                                            it is absent, stale, another version
+                                            or its socket fails the ownership and
+                                            mode checks. Not available on Windows.
   tamperward watch [--dir D] [--log F]      filesystem-event observer daemon: records
              [--base R]                     protected-file events so the sweep can
                                             observe supported transient effects.
@@ -363,19 +416,31 @@ Formats:
                                             1 on any blocking finding/masked failure;
                                             2 when it cannot adjudicate (fails closed)
   tamperward research run --manifest F      bring-your-own-model evaluation: for every
-             --out D --adapter A [--pairs N]  task in the manifest, clone a fresh workspace
-             [--model M] [--agent-budget S]   per arm, run the agent bare (ungated) and
-             [--json] [-- <agent cmd...>]     under the run envelope (gated), then observe
-                                            the outcome with verify + check against the
-                                            base in BOTH arms. One resumable pair record
-                                            per task under D/pairs/. Adapters: claude-code
-                                            (hooks + envelope) · command (any argv after
-                                            "--"; {prompt} {task} {base} substituted).
-  tamperward research summarize --ledger D  aggregate the ledger: model behaviour,
-                                            independent outcome, TamperWard hits/misses
-                                            and paired counts — no composite score
+             --out D --adapter A [--pairs N]  task in the manifest, pin one source commit,
+             [--model M] [--agent-budget S]   clone fresh state per arm, run the agent
+             [--json] [-- <agent cmd...>]     ungated and under the run envelope, then
+                                             observe both with verify + check. Records
+                                             are resumable by full experiment identity.
+  tamperward research summarize --ledger D  aggregate measured pairs into model behaviour,
+                                             independent outcome, TamperWard hits/misses
+                                             and paired counts — no composite score
   tamperward allow <rule> --reason "..."    record a human sign-off (local audit ledger)
              [--file F] [--cwd D]
+  tamperward onboard [--yes] [--cwd D]      guided first-run setup: preflight, the
+             [--base R] [--repo O/R]        init plan with a confirmation before any
+             [--branch B] [--verify-command C] write, canonical init, explicit verifier
+             [--skip-demo | --demo]         acceptance (a detected suite command is
+             [--no-github]                  never written without it), the first
+                                            verify explained, an optional demo on a
+                                            disposable worktree, GitHub authority via
+                                            doctor --github or the manual controls,
+                                            and a READY / READY WITH WARNINGS /
+                                            BROKEN / INCOMPLETE posture from doctor.
+                                            Non-interactive stdin refuses unless
+                                            --yes scripts it (then --verify-command
+                                            is the only way to configure verify).
+                                            Exit: 0 READY[ WITH WARNINGS], 1
+                                            BROKEN/INCOMPLETE, 2 refused or aborted
   tamperward init [--dry-run]               wire the policy file plus every
              [--force-workflow] [--cwd D]   enforcement point: Claude Code hooks,
                                             pre-commit, CI. Idempotent; never
@@ -407,7 +472,10 @@ Exit codes: 0 clean · 1 a blocking finding (check), MASKED_FAILURE or SUITE_RED
 `);
 }
 
-export function main(argv: string[]): number {
+/** The thin service client's in-process fallback (src/cli/index.ts). */
+export { runHookFromRaw };
+
+export function main(argv: string[]): number | Promise<number> {
   const [cmd, ...rest] = argv;
   if (cmd !== undefined && cmd !== '-h' && cmd !== '--help') {
     const invalid = validateCliArgs(cmd, rest);
@@ -429,8 +497,12 @@ export function main(argv: string[]): number {
       return runInit(parseInit(rest));
     case 'doctor':
       return runDoctor(parseDoctor(rest));
+    case 'onboard':
+      return runOnboard(parseOnboard(rest));
     case 'watch':
       return runWatch(rest);
+    case 'hook-service':
+      return runHookService(rest);
     case 'verify':
       return runVerify(parseVerify(rest));
     case 'trace-verify':
@@ -465,14 +537,20 @@ export function main(argv: string[]): number {
  * never 0, never 1) with one clean line. `hook`/`sweep` catch their own errors
  * and deny as JSON at exit 0 (src/cli/hook.ts); nothing of theirs arrives here.
  */
-export function guardedMain(argv: string[], stderr: { write: (s: string) => unknown } = process.stderr): number {
-  try {
-    return main(argv);
-  } catch (e) {
+export function guardedMain(argv: string[], stderr: { write: (s: string) => unknown } = process.stderr): number | Promise<number> {
+  const failClosed = (e: unknown): number => {
     // The first line only: git folds its usage text into some errors, and a
     // screenful of options is not a diagnostic.
     const first = (e instanceof Error ? e.message : String(e)).split('\n').map((l) => l.trim()).find(Boolean) ?? '';
     stderr.write(`tamperward: ${first || 'unexpected failure'}\n`);
     return 2;
+  };
+  try {
+    const result = main(argv);
+    // `onboard` prompts, so it is asynchronous; a rejection is guarded exactly
+    // like a throw. Every other command still returns its code synchronously.
+    return typeof result === 'number' ? result : result.catch(failClosed);
+  } catch (e) {
+    return failClosed(e);
   }
 }
