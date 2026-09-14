@@ -180,8 +180,9 @@ describe('fallback: absent, dead, stale or foreign service', () => {
   it('a stale socket file with no listener and a dead pid fall back to in-process', async () => {
     const root = repo();
     const paths = privatePaths();
-    // A listener that accepts and never answers: the client's timeout is the
-    // fallback, not a hung hook.
+    // A listener that accepts the connection and then becomes ambiguous. Once
+    // the request is handed off, timeout is fail-closed: the client cannot prove
+    // the peer did not receive/start it, so it must not evaluate a second time.
     const held = new Set<import('node:net').Socket>();
     const srv2 = createServer((c) => held.add(c));
     await new Promise<void>((r) => srv2.listen(paths.socket, r));
@@ -193,8 +194,10 @@ describe('fallback: absent, dead, stale or foreign service', () => {
       cwd: root,
       timeoutMs: 500,
     });
-    // srv2 accepts but never answers: the client times out → null.
-    expect(viaService).toBeNull();
+    // No explicit refusal came back, so this is NOT safe fallback.
+    expect(viaService).not.toBeNull();
+    expect(viaService?.stdout).toMatch(/permissionDecision":"deny"/);
+    expect(viaService?.stdout).toMatch(/did not return a verdict/);
     for (const c of held) c.destroy();
     await new Promise<void>((r) => srv2.close(() => r()));
     expect(await requestVerdict('PreToolUse', '', { paths, cwd: root })).toBeNull();
