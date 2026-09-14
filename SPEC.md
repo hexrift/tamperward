@@ -5,7 +5,7 @@
 > through — the agent loop, pre-commit, the run envelope, pristine verification,
 > and protected CI authority.
 
-**Implementation status:** TamperWard 2.21.x
+**Implementation status:** TamperWard 2.23.x
 
 **Current supported surface:** JavaScript/TypeScript · Python · Go · Rust · Ruby ·
 JVM · PHP · .NET test/skip/suppression/config patterns; Claude Code hook + Stop
@@ -13,7 +13,7 @@ sweep; git pre-commit; protected CI; pristine visible/pristine re-execution;
 `tamperward run` lifecycle ownership; optional transient observation; and
 `tamperward doctor` installation/authority diagnostics; Linux-only advisory
 `tamperward trace-verify` observed-input discovery; and versioned Draft 2020-12
-machine-verdict schemas for `check`, `verify`, `run`, `doctor` and (from 2.21.0)
+machine-verdict schemas for `check`, `verify`, `run`, `doctor` and (from 2.23.0)
 `research`; from 2.20.0 the measured `ts-cast-growth` assertion budget; and from
 2.21.0 the `tamperward research` paired-evaluation workflow over the `AgentAdapter`
 contract (`docs/guide/research.md`). The eighteen-row rule
@@ -21,7 +21,7 @@ table remains the canonical detector/enforcement taxonomy: sixteen mechanical
 rows ship, `assertion-weakening` ships as a measured warning-only heuristic,
 and `guard-removal` remains reserved and unbuilt.
 
-v0.9 reconciles the live architecture narrative with the 2.21.x implementation.
+v0.9 reconciles the live architecture narrative with the 2.23.x implementation.
 It does **not** rewrite the historical research record below: earlier v0.x
 revision notes, taskbench claims and old finding IDs remain dated evidence. The
 current security-residual index lives in `SECURITY-ENVELOPE.md`; detailed
@@ -567,7 +567,7 @@ colours. `NO_COLOR` and `FORCE_COLOR` are honoured.
 Two layers. The first proves detection; the second proves the loop. The second is the
 one that matters.
 
-From 2.21.0 a third, public layer sits on top of both: `tamperward research run`
+From 2.23.0 a third, public layer sits on top of both: `tamperward research run`
 (`src/research/`) executes a task manifest as paired ungated/gated trajectories over an
 `AgentAdapter` — Claude Code, or any command — with fresh state per trajectory, the run
 envelope as the gated treatment, and the outcome observed in BOTH arms by the same
