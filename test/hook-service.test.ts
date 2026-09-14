@@ -17,7 +17,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:net';
+import { createConnection, createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { driftBetween, snapshotProtected } from '../src/effect';
@@ -201,7 +201,7 @@ describe('fallback: absent, dead, stale or foreign service', () => {
     for (const c of held) c.destroy();
     await new Promise<void>((r) => srv2.close(() => r()));
     expect(await requestVerdict('PreToolUse', '', { paths, cwd: root })).toBeNull();
-    expect(await stopHookService(paths)).toBe('not-running');
+    expect((await stopHookService(paths)).outcome).toBe('not-running');
     expect(existsSync(paths.socket)).toBe(false);
     expect(existsSync(paths.state)).toBe(false);
   });
@@ -272,7 +272,7 @@ describe('lifecycle', () => {
       { mode: 0o600 },
     );
     try {
-      expect(await stopHookService(paths)).toBe('not-running');
+      expect((await stopHookService(paths)).outcome).toBe('not-running');
       expect(() => process.kill(child.pid!, 0)).not.toThrow();
       expect(existsSync(paths.state)).toBe(false);
     } finally {
@@ -296,6 +296,87 @@ describe('lifecycle', () => {
     expect(validateCliArgs('hook-service', [])).toMatch(/start|stop|status/);
     expect(validateCliArgs('hook-service', ['restart'])).toMatch(/start|stop|status/);
     expect(validateCliArgs('hook-service', ['stop', '--bogus'])).toMatch(/unknown option/);
+  });
+});
+
+describe('stop never orphans a live listener (#416)', () => {
+  it('a mismatched state file + a live listener → stop reports the mismatch and the pid, socket left intact', async () => {
+    const root = repo();
+    const paths = privatePaths();
+    const s = await serve(root, paths);
+    // Rewrite the state file to a mismatched version, exactly as the issue
+    // describes: the listener is still alive with the real version, but the
+    // (candidate-writable) state file now disagrees.
+    writeFileSync(paths.state, JSON.stringify({ pid: process.pid, version: '9.9.9', root, started_at: 'tampered' }) + '\n', { mode: 0o600 });
+
+    const res = await stopHookService(paths);
+    // Never "not running" for a socket that answered, and never an unlink of it.
+    expect(res.outcome).toBe('mismatch');
+    expect(res.pid).toBe(process.pid); // the pid the live socket reports, not the state file's
+    expect(res.detail).toMatch(/9\.9\.9/); // names the disagreement
+    expect(existsSync(paths.socket)).toBe(true); // the answering socket is left intact
+    expect(socketRefusal(paths)).toBeNull(); // still a healthy, connectable socket
+    // The listener is still serving after the failed stop.
+    expect(await requestVerdict('PreToolUse', '', { paths, cwd: root })).toEqual({ exitCode: 0, stdout: '' });
+  });
+
+  it('a wrong pid in the state file is a mismatch too, reported with the socket\'s own pid', async () => {
+    const root = repo();
+    const paths = privatePaths();
+    await serve(root, paths);
+    writeFileSync(paths.state, JSON.stringify({ pid: 2 ** 22 - 1, version: TW_VERSION, root, started_at: 'x' }) + '\n', { mode: 0o600 });
+
+    const res = await stopHookService(paths);
+    expect(res.outcome).toBe('mismatch');
+    expect(res.pid).toBe(process.pid); // NOT the bogus pid in the state file
+    expect(existsSync(paths.socket)).toBe(true);
+  });
+});
+
+describe('concurrent requests are serialized safely (#416)', () => {
+  it('a second request in flight is refused so the client falls back in-process, with no service side effects', async () => {
+    const root = repo();
+    const s = await serve(root);
+    const raw = JSON.stringify({ tool_name: 'Bash', session_id: 'concurrent', cwd: root, tool_input: { command: 'git commit --no-verify -m wip' } });
+    const line = JSON.stringify({ v: HOOK_SERVICE_PROTOCOL, version: TW_VERSION, kind: 'PreToolUse', raw, cwd: root, env: {} }) + '\n';
+
+    const open = (): Promise<Socket> =>
+      new Promise((resolve, reject) => {
+        const sock = createConnection(s.paths.socket);
+        sock.setEncoding('utf8');
+        sock.once('error', reject);
+        sock.once('connect', () => resolve(sock));
+      });
+    const readAll = (sock: Socket): Promise<Array<Record<string, unknown>>> =>
+      new Promise((resolve) => {
+        let buf = '';
+        sock.on('data', (c: string) => { buf += c; });
+        sock.on('close', () => resolve(buf.split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>)));
+      });
+
+    // Both connections fully established, then both requests written in one
+    // synchronous burst so the service reads them in a single event-loop poll:
+    // it takes the first as the sole owner (the evaluation is deferred to the
+    // check phase, after both reads) and must refuse the second BEFORE any
+    // acceptance, so that client falls back in-process.
+    const [a, b] = await Promise.all([open(), open()]);
+    const ra = readAll(a);
+    const rb = readAll(b);
+    await new Promise((r) => setTimeout(r, 25));
+    a.write(line);
+    b.write(line);
+    const [la, lb] = await Promise.all([ra, rb]);
+
+    const conversations = [la, lb];
+    const servedConvos = conversations.filter((c) => c.some((m) => m.accepted === true) && c.some((m) => typeof m.exitCode === 'number'));
+    const refusedConvos = conversations.filter((c) => c.some((m) => typeof m.refused === 'string' && /in flight/.test(String(m.refused))));
+    // Exactly one served, exactly one refused (→ the client falls back in-process).
+    expect(servedConvos.length).toBe(1);
+    expect(refusedConvos.length).toBe(1);
+    // The refused request applied NO side effects: only the served one counts.
+    expect(s.served).toBe(1);
+    // The refused conversation never carried an acceptance line.
+    expect(refusedConvos[0].some((m) => m.accepted === true)).toBe(false);
   });
 });
 
