@@ -5,6 +5,27 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.24.8] — 2026-09-14
+
+### Fixed
+
+- **`ts-any-cast` closes the escapes beyond the literal `as any` / `as unknown as`
+  spellings** (#440). Row 4 now blocks `as never` (assignable in the dangerous
+  direction) and the double cast through `unknown` / `never` / `{}` / `object` /
+  `Object` — `(x as {}) as T` launders exactly as `x as unknown as T`, and a lone
+  `as {}` / `as object` stays the ordinary `ts-cast-growth` assertion it always was.
+  A local `type` alias of any of those keywords is resolved within the file, so
+  `type A = any; x as A` is `as any` (declared before or after its use, exported,
+  parenthesised, or reached through another alias; generic, cyclic and honest aliases
+  stay clean). `@ts-ignore` / `@ts-expect-error` / `@ts-nocheck` directives are counted
+  live on the AST's comment ranges instead of by a whole-file regex, so removing a
+  comment that merely *mentions* one no longer offsets adding a real one, and directive
+  text inside a string, template or regex is not a directive. JSDoc `@type {*}` and
+  `{?}` join `{any}` as the `any` cast in a `.js` file. Each fixture blocks on both the
+  full-content (AST) path and the diff-only fallback — which resolves aliases declared
+  on the change's own added lines — and `ts-cast-growth` no longer double-counts any of
+  the moved spellings.
+
 ## [2.24.7] — 2026-09-14
 
 ### Changed
