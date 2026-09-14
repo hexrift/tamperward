@@ -19,13 +19,14 @@ import {
   BUILTIN_ADAPTERS,
   claudeCodeAdapter,
   commandAdapter,
+  normalizeCommandArgv,
   resolveAdapter,
   type AdapterTask,
 } from '../src/research/adapter';
 import { readManifest } from '../src/research/manifest';
 import { pairRecordFrom, type PairRecord, type TrajectoryRecord } from '../src/research/record';
 import { runResearch } from '../src/research/run';
-import { summarizeLedger } from '../src/research/summarize';
+import { summarizeLedger, summarizeRecords } from '../src/research/summarize';
 
 const ROOT = resolve(__dirname, '..');
 const dirs: string[] = [];
@@ -192,6 +193,8 @@ describe('AgentAdapter contract', () => {
     expect(commandAdapter(['tools/agent.sh'], '/ops').launch(task()).argv).toEqual(['/ops/tools/agent.sh']);
     expect(commandAdapter(['/abs/agent.sh'], '/ops').launch(task()).argv).toEqual(['/abs/agent.sh']);
     expect(commandAdapter(['python3', './driver.py'], '/ops').launch(task()).argv).toEqual(['python3', './driver.py']);
+    expect(normalizeCommandArgv(['./agent.sh', '{prompt}'], '/ops-a')).toEqual(['/ops-a/agent.sh', '{prompt}']);
+    expect(normalizeCommandArgv(['./agent.sh', '{prompt}'], '/ops-b')).toEqual(['/ops-b/agent.sh', '{prompt}']);
   });
 
   it('resolveAdapter: names are closed, and the command adapter needs an argv', () => {
@@ -314,6 +317,45 @@ describe('ledger record reader enforces the published schema, not just JSON shap
     mkdirSync(join(dir, 'pairs'));
     writeFileSync(join(dir, 'pairs', 'honest--1.json'), JSON.stringify(edited('arms.ungated.outcome.surviving_protected_mutations', -1)));
     expect(() => summarizeLedger(dir)).toThrow(/malformed research record: .*surviving_protected_mutations/);
+  });
+
+  it('refuses semantic contradictions that field shapes alone cannot catch', () => {
+    const ungatedTreatment = edited('arms.ungated.treatment', {
+      verdict: 'VERIFIED', exit_code: 0, complete: true, disposition: 'passed', envelope: {},
+    });
+    expect(() => pairRecordFrom(ungatedTreatment)).toThrow(/treatment must be null in the ungated arm/);
+    expect(() => pairRecordFrom(edited('arms.gated.treatment', null))).toThrow(/treatment must be present in the gated arm/);
+    expect(() => pairRecordFrom(edited('arms.ungated.unmeasurable', 'not measured'))).toThrow(/must be null when measured=true/);
+
+    const unmeasured = JSON.parse(JSON.stringify(validPair()));
+    unmeasured.arms.ungated.measured = false;
+    unmeasured.arms.ungated.unmeasurable = null;
+    unmeasured.arms.ungated.outcome = {
+      verify_verdict: 'CANNOT_VERIFY', visible_exit: null, pristine_exit: null,
+      visible_green: false, pristine_green: false, masked_failure: false,
+      surviving_protected_mutations: 0, warn_findings: 0, rules: [], honest_completion: false,
+    };
+    unmeasured.arms.ungated.released_green = false;
+    expect(() => pairRecordFrom(unmeasured)).toThrow(/must name the reason when measured=false/);
+
+    const falseGreen = JSON.parse(JSON.stringify(validPair()));
+    falseGreen.arms.ungated.agent.exit_code = 7;
+    expect(() => pairRecordFrom(falseGreen)).toThrow(/released_green is inconsistent/);
+  });
+
+  it('summary refuses duplicate pair identities and per-task source/verifier drift', () => {
+    const a = validPair();
+    expect(() => summarizeRecords([a, JSON.parse(JSON.stringify(a))])).toThrow(/duplicate pair identity/);
+
+    const moved = JSON.parse(JSON.stringify(a)) as PairRecord;
+    moved.pair = 2;
+    moved.arms.ungated.base = 'c'.repeat(40);
+    expect(() => summarizeRecords([a, moved])).toThrow(/source base differs within task/);
+
+    const changedVerifier = JSON.parse(JSON.stringify(a)) as PairRecord;
+    changedVerifier.pair = 2;
+    changedVerifier.verify_command = 'npm test';
+    expect(() => summarizeRecords([a, changedVerifier])).toThrow(/verify_command differs within task/);
   });
 });
 
@@ -709,5 +751,58 @@ describe.skipIf(process.platform !== 'linux' || !trustedLinuxPython().path)('res
     expect(rec.arms.gated.treatment.disposition).toBe('refused'); // the base suite is red and nothing fixed it
     expect(rec.arms.ungated.outcome.verify_verdict).toBe('SUITE_RED');
     expect(rec.arms.gated.outcome.verify_verdict).toBe('SUITE_RED');
+    expect(rec.arms.ungated.released_green).toBe(false);
+    expect(rec.arms.gated.released_green).toBe(false);
   }, 120_000);
+
+  it('does not report released_green when an agent fixes the suite but exits non-zero', () => {
+    const dir = tmp();
+    const repo = taskRepo();
+    const manifest = writeManifest(dir, [{ id: 'honest', repo, prompt: 'p', verify: { command: SUITE, budget: 30 } }]);
+    const script = join(dir, 'fix-then-fail.sh');
+    writeFileSync(script, '#!/bin/sh\necho "module.exports = 42;" > src.js\nexit 7\n');
+    chmodSync(script, 0o755);
+    const ledger = join(dir, 'ledger');
+    const r = capture(() => runResearch({ manifest, out: ledger, adapter: 'command', agentArgv: [script], json: true }));
+    expect(r.code).toBe(0);
+    const rec = JSON.parse(r.out.trim());
+    expect(rec.arms.ungated.outcome.verify_verdict).toBe('VERIFIED');
+    expect(rec.arms.gated.outcome.verify_verdict).toBe('VERIFIED');
+    expect(rec.arms.ungated.agent.exit_code).toBe(7);
+    expect(rec.arms.gated.treatment).toMatchObject({ verdict: 'AGENT_FAILED', exit_code: 7, disposition: 'passed' });
+    expect(rec.arms.ungated.released_green).toBe(false);
+    expect(rec.arms.gated.released_green).toBe(false);
+    expect(summarizeLedger(ledger).independent_outcome).toMatchObject({
+      ungated: { visible_green: 1, released_green: 0 },
+      gated: { visible_green: 1, released_green: 0 },
+    });
+  }, 120_000);
+
+  it('pins a moving HEAD to the source commit recorded by the first pair when a run resumes', () => {
+    const dir = tmp();
+    const repo = taskRepo();
+    const agent = fakeAgent(dir);
+    const manifest = writeManifest(dir, [{ id: 'honest', repo, prompt: 'p', verify: { command: SUITE, budget: 30 } }]);
+    const ledger = join(dir, 'ledger');
+
+    expect(capture(() => runResearch({
+      manifest, out: ledger, adapter: 'command', agentArgv: [agent.script], pairs: 1, json: true,
+    })).code).toBe(0);
+    const first = JSON.parse(readFileSync(join(ledger, 'pairs', 'honest--1.json'), 'utf8'));
+    const pinned = first.arms.ungated.base;
+
+    writeFileSync(join(repo, 'src.js'), 'module.exports = 13; // moved source HEAD\n');
+    execFileSync('git', ['add', '-A'], { cwd: repo });
+    execFileSync('git', ['commit', '-qm', 'move source head'], { cwd: repo });
+    const movedHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim();
+    expect(movedHead).not.toBe(pinned);
+
+    const resumed = capture(() => runResearch({
+      manifest, out: ledger, adapter: 'command', agentArgv: [agent.script], pairs: 2, json: true,
+    }));
+    expect(resumed.code).toBe(0);
+    const second = JSON.parse(readFileSync(join(ledger, 'pairs', 'honest--2.json'), 'utf8'));
+    expect(second.arms.ungated.base).toBe(pinned);
+    expect(second.arms.gated.base).toBe(pinned);
+  }, 180_000);
 });
