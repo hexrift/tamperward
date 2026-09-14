@@ -850,9 +850,12 @@ describe('verify — case-insensitive filesystem overlay (#426)', () => {
     const d = greenBase();
     writeFileSync(join(d, 'src.js'), 'module.exports = 41; // bug reintroduced\n');
     // Two steps, because a case-only rename is a same-inode rename on the
-    // filesystems the issue is about and a distinct file here.
+    // filesystems the issue is about and a distinct file here; staged, as
+    // `git mv` leaves it, so the index carries one spelling — the shape git
+    // produces on such a filesystem, where it never lists both.
     rmSync(join(d, 'test', 'check.test.js'));
     writeFileSync(join(d, 'test', 'CHECK.test.js'), '// gutted\n');
+    execFileSync('git', ['add', '-A'], { cwd: d });
     return d;
   }
   const keptDirs = (json: Record<string, unknown>): void => {
