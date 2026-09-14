@@ -197,7 +197,7 @@ describe('fallback: absent, dead, stale or foreign service', () => {
     // No explicit refusal came back, so this is NOT safe fallback.
     expect(viaService).not.toBeNull();
     expect(viaService?.stdout).toMatch(/permissionDecision":"deny"/);
-    expect(viaService?.stdout).toMatch(/did not return a verdict/);
+    expect(viaService?.stdout).toMatch(/did not receive a verdict/);
     for (const c of held) c.destroy();
     await new Promise<void>((r) => srv2.close(() => r()));
     expect(await requestVerdict('PreToolUse', '', { paths, cwd: root })).toBeNull();
@@ -261,6 +261,26 @@ describe('lifecycle', () => {
     expect(readServiceState(paths)).toBeNull();
   });
 
+  it('never signals a stale reused pid unless the live service socket authenticates it', async () => {
+    const root = repo();
+    const paths = privatePaths();
+    const child = spawn('sleep', ['30'], { stdio: 'ignore' });
+    expect(child.pid).toBeDefined();
+    writeFileSync(
+      paths.state,
+      JSON.stringify({ pid: child.pid, version: TW_VERSION, root, started_at: 'stale' }) + '\n',
+      { mode: 0o600 },
+    );
+    try {
+      expect(await stopHookService(paths)).toBe('not-running');
+      expect(() => process.kill(child.pid!, 0)).not.toThrow();
+      expect(existsSync(paths.state)).toBe(false);
+    } finally {
+      child.kill('SIGKILL');
+      await new Promise<void>((resolve) => child.once('exit', () => resolve()));
+    }
+  });
+
   it('a second start on the same socket is refused while the first is alive', async () => {
     const root = repo();
     const paths = privatePaths();
@@ -312,10 +332,12 @@ describe('verdict parity: service vs in-process', () => {
     const config = tmp('tw-claude-config-');
     const settings = join(config, 'settings.json');
     const raw = JSON.stringify({
-      tool_name: 'Write',
+      tool_name: 'Bash',
       session_id: 'env-parity',
       cwd: root,
-      tool_input: { file_path: settings, content: '{"hooks":{}}\n' },
+      // This command is classified only if the evaluator expands the CLIENT'S
+      // relocated Claude config root. The service was started without it.
+      tool_input: { command: 'rm $CLAUDE_CONFIG_DIR/settings.json' },
     });
 
     const previous = process.env.CLAUDE_CONFIG_DIR;
