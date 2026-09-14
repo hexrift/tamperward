@@ -154,6 +154,18 @@ Every release with a behaviour change gets a `CHANGELOG.md` entry naming what it
 Security advisories reference versions, so "which release fixed that bypass" must be
 answerable from the changelog alone.
 
+### Actions are SHA-pinned; Dependabot moves them
+
+Every `uses:` in `.github/workflows/` names a full commit SHA with a `# vX.Y.Z` comment
+beside it — never a mutable tag — and `test/workflow-pins.test.ts` fails the suite on
+any line that does not. `.github/dependabot.yml` opens a weekly PR when an action (or a
+lock-pinned npm devDependency) has a new release; that PR rewrites both the SHA and the
+comment and goes through review like any other change. To update a pin by hand, resolve
+the tag yourself (`git ls-remote https://github.com/<owner>/<action> refs/tags/<tag>`,
+dereferencing `^{}` for an annotated tag) rather than copying a SHA from a web page. The
+publish job fetches nothing outside the lockfile at release time: the forward-version
+guard runs on the `semver` devDependency `npm ci` installs, not an ad-hoc `npx` download.
+
 ## Pull requests
 
 - Branch, then open a PR. `main` is protected; CI must be green.
