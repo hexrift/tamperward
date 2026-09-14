@@ -30,7 +30,7 @@ gate change?" no longer means assembling round-specific scripts under
   masked tree the envelope let through is an escape counted against the tool. One
   record per pair under `D/pairs/`; an existing record is skipped, so an interrupted
   run resumes — by record identity (a valid record carrying the current manifest sha256,
-  task/pair, adapter and layers, model and suite command), never by file existence; a
+  task/pair, adapter and layers, model, TamperWard version, agent argv/budget and suite command), never by file existence; a
   foreign or truncated record fails the run closed, and records are written atomically.
   A trajectory whose outcome cannot stand — the trusted policy at the base unreadable
   (an absent one defaults; a broken one never does), the verifier unable to measure, a
