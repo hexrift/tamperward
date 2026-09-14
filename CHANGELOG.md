@@ -5,6 +5,33 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.26.0] — 2026-09-14
+
+### Added
+
+- **Privacy-minimised structured audit history for hook and Stop findings.**
+  TamperWard now records finding-only JSONL under the repository's real git directory
+  at `.git/tamperward/audit-v1.jsonl` by default. Records contain the rule,
+  severity/decision, hook surface, a one-way hashed session correlation token and Git
+  HEAD only. Prompts, commands, source/evidence snippets, file paths, environment
+  values, raw session ids and sign-off reasons are not part of the schema.
+  `TAMPERWARD_AUDITLOG` can override the path or disable this observational channel
+  with `off` / `0`. The legacy `TAMPERWARD_DENYLOG` format is unchanged.
+- **`tamperward stats`** summarizes the local structured history by rule, hook
+  surface, block/warn counts and sessions with findings, with `--since` windows and
+  a versioned `--json` document. `--github OWNER/REPO` reads the same sanitized
+  history from a dedicated GitHub audit branch without checking it out.
+- **Explicit GitHub audit publishing.** `tamperward audit publish --github OWNER/REPO`
+  publishes only new structured events to the separate `tamperward-audit` branch
+  (customizable with `--branch` / `--path`) in append-only monthly bundles.
+  Publishing is never automatic, requires `GH_TOKEN` / `GITHUB_TOKEN` with
+  Contents write, keeps a local publish cursor, and the stats reader deduplicates by
+  event id. The GitHub copy remains observational rather than enforcement authority;
+  stronger provenance requires keeping the publishing credential outside the measured
+  agent.
+- **Published JSON schemas** for audit events and stats:
+  `schemas/audit-event-v1.schema.json` and `schemas/stats-v1.schema.json`.
+
 ## [2.25.1] — 2026-09-14
 
 ### Fixed
