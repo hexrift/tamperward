@@ -33,6 +33,7 @@ import { errorMessage, finiteNumber, isRecord, stringOrUndefined } from '../narr
 import { defaultPolicy, isProtected } from '../policy';
 import { loadPolicyAt } from '../policy-load';
 import { Policy } from '../types';
+import { TW_VERSION } from '../wiring';
 import {
   RESEARCH_ARMS,
   ResearchError,
@@ -82,6 +83,9 @@ interface PairIdentity {
   manifest_sha256: string;
   adapter: { name: string; layers: readonly string[] };
   model: string | null;
+  tamperward_version: string;
+  agent_argv: readonly string[];
+  agent_budget: number | null;
   verify_command: string;
 }
 
@@ -112,6 +116,15 @@ function resumableRecord(path: string, expected: PairIdentity): PairRecord {
     mismatch.push(`adapter ${record.adapter.name}[${record.adapter.layers.join(',')}] != ${expected.adapter.name}[${expected.adapter.layers.join(',')}]`);
   }
   if (record.model !== expected.model) mismatch.push(`model ${String(record.model)} != ${String(expected.model)}`);
+  if (record.tamperward_version !== expected.tamperward_version) {
+    mismatch.push(`tamperward_version ${record.tamperward_version} != ${expected.tamperward_version}`);
+  }
+  if (JSON.stringify(record.agent_argv) !== JSON.stringify(expected.agent_argv)) {
+    mismatch.push(`agent_argv ${JSON.stringify(record.agent_argv)} != ${JSON.stringify(expected.agent_argv)}`);
+  }
+  if (record.agent_budget !== expected.agent_budget) {
+    mismatch.push(`agent_budget ${String(record.agent_budget)} != ${String(expected.agent_budget)}`);
+  }
   if (record.verify_command !== expected.verify_command) mismatch.push(`verify_command ${JSON.stringify(record.verify_command)} != ${JSON.stringify(expected.verify_command)}`);
   if (mismatch.length) {
     throw new ResearchError(
@@ -483,6 +496,9 @@ export function runResearch(opts: ResearchRunOpts): number {
             manifest_sha256: manifestSha,
             adapter: { name: adapter.name, layers: adapter.layers },
             model: opts.model ?? null,
+            tamperward_version: TW_VERSION,
+            agent_argv: opts.agentArgv,
+            agent_budget: opts.agentBudget ?? null,
             verify_command: task.verify.command,
           });
           if (!opts.json) out(`tamperward research — task ${task.id} pair ${pair}: already recorded (${path}); skipping`);
@@ -504,6 +520,9 @@ export function runResearch(opts: ResearchRunOpts): number {
           pair,
           adapter: { name: adapter.name, layers: [...adapter.layers] },
           model: opts.model ?? null,
+          tamperward_version: TW_VERSION,
+          agent_argv: [...opts.agentArgv],
+          agent_budget: opts.agentBudget ?? null,
           manifest_sha256: manifestSha,
           verify_command: task.verify.command,
           arms: { ungated, gated },
