@@ -96,18 +96,63 @@ or an ISO timestamp.
 
 TamperWard itself ships
 [`.github/workflows/tamperward-audit.yml`](https://github.com/hexrift/tamperward/blob/main/.github/workflows/tamperward-audit.yml).
-The hook does **not** push anything to GitHub. Publishing is an explicit operator
-action, and GitHub Actions is the writer.
+The hook does **not** push anything to GitHub. Publishing goes through a pull
+request, and GitHub Actions is the writer. The invariant is not "nothing
+automatic ever writes the evidence branch" but: nothing unreviewed or
+candidate-controlled may cause evidence to enter it — automation only ingests,
+deterministically, what reached `main` through a PR. How strong "reviewed" is
+depends on the repository's branch protection (a `CODEOWNERS` entry covers
+`audit/` and the workflow, binding where "Require review from Code Owners" and a
+minimum approval count are enabled); independently, committed batches are
+validated pre-merge by CI and the write-capable job runs no candidate code (see
+below). There are two entry points, both running only from the trusted copy on
+`main`:
+
+- an operator **dispatches** a validated batch by hand (`workflow_dispatch`), or
+- a reviewed PR adds an **immutable** batch file
+  `audit/pending/<batch-id>.jsonl` and, **on merge to `main`**, the workflow
+  ingests any batch whose id/content hash is not already recorded.
+
+There is deliberately no `pull_request` / `pull_request_target` trigger: an
+untrusted fork PR must never run the workflow that writes the evidence branch.
+The post-merge `push` fires only after a merge, is gated again by
+`if: github.ref == 'refs/heads/main'`, and re-validates the schema before
+touching the branch. A merge with no new batch is a clean no-op that never
+touches the evidence branch and never even builds.
 
 The workflow:
 
-1. can be dispatched only from the copy committed on `main`;
-2. validates every submitted line with TamperWard's strict audit-v1 parser;
-3. rejects unknown fields rather than trying to redact them after upload;
-4. creates or updates a separate `tamperward-audit` branch;
-5. deduplicates records by event id;
-6. writes `events/all.jsonl`;
-7. regenerates `summaries/all-time.json` and a human-readable branch `README.md`.
+1. runs only from the copy committed on `main`, whether dispatched by hand or
+   fired by a post-merge push;
+2. hashes each committed batch and ingests only those whose id/content hash is
+   not already in the ledger, so repeated runs are idempotent;
+3. validates every new batch with TamperWard's strict audit-v1 parser, and fails
+   closed if an already-ingested batch id reappears with changed content;
+4. rejects unknown fields rather than trying to redact them after upload;
+5. creates or updates a separate `tamperward-audit` branch;
+6. deduplicates records by event id;
+7. writes `events/all.jsonl` and records each batch in `ingested/batches.jsonl`
+   with its source commit SHA, content hash, schema version and timestamp;
+8. regenerates `summaries/all-time.json` and a human-readable branch `README.md`.
+
+The write credential is isolated: a read-only `prepare` job builds and computes
+the append (no write token while `npm ci`/build/candidate code runs), and a
+minimal `publish` job holds the write token but runs no `npm ci` and no candidate
+code — only first-party actions, a dependency-free re-validation against the
+committed schema, and `git`. Committed batches are additionally validated
+pre-merge by the normal CI suite, so a malformed batch never reaches the
+privileged job.
+
+### On merge to `main` (the reviewed-batch path)
+
+Add each set of events as an immutable `audit/pending/<batch-id>.jsonl` in a pull
+request — review is the curation step — and merge. See
+[`audit/README.md`](https://github.com/hexrift/tamperward/blob/main/audit/README.md).
+Batches are immutable once merged: to correct evidence, add a new batch rather
+than editing an old one. Ingestion never writes `main`; it only ever appends to
+the dedicated `tamperward-audit` branch.
+
+### By hand (the dispatch path)
 
 A typical bounded upload is:
 
