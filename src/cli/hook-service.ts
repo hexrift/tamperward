@@ -17,10 +17,11 @@
 //
 // Lifecycle is the OPERATOR'S: `start` is a foreground process (run it from a
 // SessionStart hook, a terminal, or a supervisor), `stop` signals it, `status`
-// asks it. The client only ever consults it under TAMPERWARD_HOOK_SERVICE=1, and
-// when the service is absent, stale, dead, of another version, or reachable
-// through a socket that fails the ownership and mode checks, the hook runs
-// in-process exactly as it does today. Nothing here can turn into an allow.
+// asks it. The client only ever consults it under TAMPERWARD_HOOK_SERVICE=1.
+// Before a request is handed off, an absent/stale/dead/wrong-version/untrusted
+// service falls back to the ordinary in-process hook. After handoff, ambiguous
+// transport failure fails closed rather than launching a concurrent second
+// evaluation. Nothing here can turn service failure into an allow.
 
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createConnection, createServer, Server, Socket } from 'node:net';
@@ -208,7 +209,7 @@ export async function startHookService(opts: StartOptions): Promise<RunningServi
     try {
       sock.end(JSON.stringify({ v: HOOK_SERVICE_PROTOCOL, version: TW_VERSION, ...body }) + '\n');
     } catch {
-      /* the client is gone; it falls back */
+      /* the client is gone; pre-accept refusal may fall back, post-handoff loss is fail-closed */
     }
   };
 
