@@ -24,6 +24,28 @@ All notable changes to this project are documented here. The format follows
   Replay of the test-skip suites (`test-skip-ast`, `fp-study-harness`,
   `detector-spellings`, `coverage-gaps`): 0 new findings.
 
+## [2.24.1] — 2026-09-14
+
+### Fixed
+
+- **`hook-tampering` no longer judges every file added under `protected.hooks` as a
+  shell script** (#442). Adding a `.pre-commit-config.yaml` with a linter repo, a
+  `lefthook.yml` with a lint command, or husky's own `.husky/.gitignore` blocked with
+  *a protected hook script was added that does not run the gate live: it runs no
+  `tamperward check`* — a guarded block no policy could exclude — because the config
+  comparator returned nothing for an add and the add branch ran before the note check.
+  An added file is now classified by kind first: a YAML hook config
+  (`.pre-commit-config.yaml`, `lefthook.yml`, `.lefthook.yml`, `lefthook-local.yml`) is
+  compared by the config comparator against a fresh base carrying every gate entry the
+  file names as `init` would write it (live, unskipped, unscoped, on the commit stages),
+  so a config that names no gate or carries it live is clean while one that arrives with
+  its own gate under `skip:`/`only:`, scoped by `glob`/`exclude`/tags/`stages`, rerouted
+  by `env` or not live (`… || true`) reports the weakening; a note or git dotfile
+  (`.husky/.gitignore`, `.gitattributes`, `*.md`, `*.txt`) is silent on add as on edit;
+  a genuine shell hook script keeps the sign-off stance — a new `.husky/pre-commit` that
+  does not run the gate live still blocks. `SPEC.md` row 8 and `docs/guide/rules.md`
+  carry the contract.
+
 ## [2.24.0] — 2026-09-14
 
 ### Added
