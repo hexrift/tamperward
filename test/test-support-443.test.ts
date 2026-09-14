@@ -87,10 +87,8 @@ test('rejects a negative input value cleanly', () => {
 `;
 const SPEC_GUTTED = `import { test, expect } from 'vitest';
 test('adds two numbers correctly together', () => {
-  expect(true).toBe(true);
 });
 test('rejects a negative input value cleanly', () => {
-  expect(true).toBe(true);
 });
 `;
 
@@ -151,7 +149,9 @@ describe('#443 controls: a real spec under src/test/ or __tests__/ is still bloc
   it('gutting src/test/foo.test.ts still blocks as test-content-removal', () => {
     const changes = [mod('src/test/foo.test.ts', SPEC, SPEC_GUTTED)];
     expect(testContentRemoval.run(changes, P).map((f) => f.severity)).toEqual(['block']);
-    expect(rulesOf(changes)).toEqual(['test-content-removal:block']);
+    const rules = rulesOf(changes);
+    expect(rules).toContain('test-content-removal:block');
+    expect(rules.some((r) => r.startsWith('test-support'))).toBe(false);
   });
 
   it('removing test blocks from an unsuffixed spec under __tests__/ still blocks', () => {

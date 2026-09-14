@@ -16,6 +16,7 @@ import { makeFinding } from './finding';
 import { segments, tokens, unquote } from './command';
 import { Lang, isSignificantLine, langOf } from './files';
 import { containsProtected, revIsHead, trackedContent, trackedFiles } from './repo';
+import { isSpecShaped } from './spec-shape';
 import {
   CANONICAL_SAMPLES,
   PYTEST_CANONICAL_SAMPLES,
@@ -413,7 +414,9 @@ export const testDeletion: Detector = {
 
     for (const c of changes) {
       if (c.kind === 'file') {
-        const isTest = isSpec(c.path);
+        // A glob match that is not spec-shaped — a helper, a setup module, a JSON
+        // fixture — is test-support's warn, not this rule's block (#443).
+        const isTest = isSpec(c.path) && isSpecShaped(c.path, c.before, c.after);
 
         if (c.op === 'delete' && isTest) {
           if (c.before != null && isRelocation(significantLines(c.before, c.path), countTestBlocks(c.before, c.path))) continue; // moved, not deleted
@@ -429,7 +432,8 @@ export const testDeletion: Detector = {
           c.op === 'rename' &&
           c.oldPath &&
           isSpec(c.oldPath) &&
-          !isTest
+          isSpecShaped(c.oldPath, c.before, c.after) &&
+          !isSpec(c.path)
         ) {
           // renamed OUT of the test glob — a deletion git would otherwise hide
           out.push(
@@ -475,7 +479,7 @@ export const testDeletion: Detector = {
               }),
             );
           }
-        } else if (c.op !== 'delete' && c.after != null && !isTest && isProtected(c.path, policy, 'config') && runnerOf(c.path, c.after)) {
+        } else if (c.op !== 'delete' && c.after != null && !isSpec(c.path) && isProtected(c.path, policy, 'config') && runnerOf(c.path, c.after)) {
           // The runner's selection config: a protected spec the runner opened before
           // and will not open after is out of the suite as surely as if deleted.
           const rn = runnerOf(c.path, c.after);
@@ -544,6 +548,10 @@ export const testDeletion: Detector = {
             const resolved = root !== null && /(?:^|\/)\.{1,2}(?:\/|$)/.test(t) ? joinRoot(root, t) : null;
             const probe = resolved ?? t;
             if (!isSpec(probe)) return false;
+            // a support file named by path shape (a JSON fixture, a `__mocks__/`
+            // module) or by content the gate can read is not a spec (#443); content
+            // it cannot read fails closed
+            if (!isSpecShaped(probe, root === null ? null : trackedContent(resolved ?? inRepo(t), ctx), null)) return false;
             if (!listing || root === null) return true;
             const looksLikeFile = /\.[A-Za-z0-9]+$/.test(probe.split('/').pop() ?? '');
             if (looksLikeFile || listing.includes(resolved ?? inRepo(t))) return true;

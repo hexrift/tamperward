@@ -32,6 +32,7 @@ import { isProtected } from '../policy';
 import { makeFinding } from './finding';
 import { countTests } from './test-deletion';
 import { isSignificantLine, langOf } from './files';
+import { isSpecShaped } from './spec-shape';
 
 const RULE = 'test-content-removal';
 const MIN_REMOVED_LINES = 3;
@@ -141,6 +142,9 @@ export const testContentRemoval: Detector = {
       // one rule. The corpus sweep showed legitimate snapshot updates dominating
       // this rule's fires until excluded here.
       if (isProtected(c.path, policy, 'snapshots')) continue;
+      // A helper, setup module or fixture under the test globs defines no test:
+      // trimming it is test-support's warn, not a gutted spec (#443).
+      if (!isSpecShaped(c.path, c.before, c.after)) continue;
       const blocksBefore = countTests(c.before, c.path);
       const blocksAfter = countTests(c.after, c.path);
       if (blocksAfter.min < blocksBefore.min && !blocksAfter.open) continue; // test-deletion's case

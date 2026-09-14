@@ -319,6 +319,10 @@ export function defaultPolicy(version = 1): Policy {
       // through the block-count rule (rows, assertion arguments, setup). Severity
       // backed by the real-commit corpus measurement recorded in the rule's SPEC row.
       'test-content-removal': { severity: 'block' },
+      // the files that SERVE the specs under the same globs — helpers, setup
+      // modules, mocks, JSON fixtures — deleted, moved out or shrunk (#443). They
+      // define no test, so a review prompt, not a gate; the spec rules cede them.
+      'test-support': { severity: 'warn' },
       'test-skip': { severity: 'block' },
       'ts-any-cast': { severity: 'block' }, // the unambiguous explicit casts + ts-suppression directives
       // broad any in annotation/generic position is common in legit code (measured ~84-100% FP as a
