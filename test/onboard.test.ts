@@ -433,7 +433,7 @@ describe('preflight refusals', () => {
     expect(s.questions).toEqual([]);
   });
 
-  it('refuses a child directory instead of mixing it with the parent Git repository', async () => {
+  it('refuses a child directory with a compact root-mismatch diagnostic', async () => {
     const parent = repo();
     const child = join(parent, 'test-proj');
     mkdirSync(child);
@@ -441,11 +441,28 @@ describe('preflight refusals', () => {
 
     const s = await onboard(child, [], { noGithub: true });
     expect(s.code).toBe(2);
-    expect(s.err).toMatch(/not the Git repository root/i);
+    expect(s.err).toMatch(/ERROR\s+Repository root mismatch/i);
+    expect(s.err).toMatch(/CURRENT\s+/);
+    expect(s.err).toMatch(/GIT ROOT\s+/);
     expect(s.err).toContain(parent);
     expect(s.err).toContain(child);
-    expect(s.err).toMatch(/git init/);
+    expect(s.err).toMatch(/NEXT\s+Run `tamperward onboard` from the Git root/i);
+    expect(s.err).toMatch(/OR\s+Run `git init` here/i);
     expect(existsSync(join(child, '.tamperward.yml'))).toBe(false);
+  });
+
+  it('preserves ANSI colour in preflight errors instead of exposing escape fragments', async () => {
+    const parent = repo();
+    const child = join(parent, 'test-proj');
+    mkdirSync(child);
+
+    const s = await onboard(child, [], { noGithub: true }, { colour: true });
+    expect(s.code).toBe(2);
+    expect(s.err).toContain('\u001b[1m\u001b[31mERROR');
+    expect(s.err).toContain('\u001b[36mGIT ROOT');
+    expect(s.err).toContain('\u001b[33mNEXT');
+    expect(s.err).not.toContain('\uFFFD[1m');
+    expect(s.err).not.toContain('\uFFFD[31m');
   });
 
   it('accepts a symlink alias that resolves to the repository root', async () => {
