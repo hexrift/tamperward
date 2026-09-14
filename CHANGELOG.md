@@ -5,6 +5,34 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.9] — 2026-09-14
+
+### Security
+
+- **A policy edit can no longer demote the test rules by growing `protected.snapshots`,
+  and a negated protected glob no longer makes every file "protected" (#434).**
+  `mergeProtected` is additive, policy-diff counted only removed globs as a narrowing,
+  and the spec rules judge `tests && !snapshots` — so
+  `protected: { snapshots: ['**/*.test.ts'] }` lowered `test-deletion` to
+  `snapshot-rewrite` with no finding, and `protected: { tests: ['!zzz'] }` (picomatch:
+  every path) made every source file a test file, silencing `ts-cast-growth` and
+  lowering `ts-any-cast`. `hook-tampering`'s policy-diff now reports both as a policy
+  weakening: any glob added to `protected.snapshots`, any negated glob added to any
+  protected category, any `tests` glob that also matches snapshot paths, and — in
+  general — every rule whose jurisdiction is a category predicate compared by its
+  **reach** over a probe listing (the repository's tracked files when the gate has
+  them, joined with the conventional samples) before and after the edit; a path that
+  leaves a rule's reach is reported naming the path and the rule. The edit is judged
+  under the policy in force before it, so the exclusion cannot be weaponised by the
+  change that writes it (regression covered).
+- **The loader refuses negated globs** (`!x`) in every `protected` category, in
+  `ignore` and in a per-rule `exclude`, with a message naming the mechanism — a `!`
+  pattern matches every path — and fails closed like any other unparseable policy.
+- Precision: the cast rules cede test files by design, so a new `tests` glob that
+  names a real layout (`packages/new/**/*.integration.ts`) stays clean; their loss of
+  reach is reported only when the same edit also takes a conventional source path
+  out of reach. Widening `config`, `ci` or `hooks` is unchanged (a strengthening).
+
 ## [2.23.8] — 2026-09-14
 
 ### Fixed
