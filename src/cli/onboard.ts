@@ -27,7 +27,7 @@ import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { lstatSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 import { parseDocument } from 'yaml';
 import { planInit, runInit, verifierCandidates, type InitOpts } from './init';
@@ -41,7 +41,7 @@ import {
   type DoctorOutcome,
 } from './doctor';
 import { runCheck, type CheckOpts } from './check';
-import { colourEnabled } from './render/text';
+import { colourEnabled, stripControl } from './render/text';
 import { treeFingerprint } from '../fingerprint';
 import { POLICY_FILE } from '../policy';
 import { loadPolicy } from '../policy-load';
@@ -166,6 +166,19 @@ function paint(text: string, code: string, on: boolean): string {
   return on ? code + text + RESET : text;
 }
 
+/** Repository paths, policy commands and doctor details are untrusted terminal
+ * input. Keep the compact UI on one physical line and remove terminal-control
+ * bytes before adding our own ANSI decoration. */
+function terminalText(text: string): string {
+  return stripControl(text).replace(/\s+/g, ' ').trim();
+}
+
+function committableSetupPath(cwd: string, path: string): boolean {
+  const rel = relative(cwd, resolve(cwd, path));
+  if (!rel || rel === '..' || rel.startsWith('..' + sep)) return false;
+  return rel !== '.git' && !rel.startsWith('.git' + sep);
+}
+
 function platformLabel(platform: NodeJS.Platform): string {
   if (platform === 'darwin') return 'macOS';
   if (platform === 'win32') return 'Windows';
@@ -251,7 +264,7 @@ function writeVerifyCommand(cwd: string, command: string): string | null {
 export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise<number> {
   const requestedCwd = resolve(opts.cwd ?? process.cwd());
   const out = io.out ?? ((line: string): void => void process.stdout.write(line + '\n'));
-  const rawErr = (line: string): void => void process.stderr.write(line + '\n');
+  const rawErr = (line: string): void => void process.stderr.write(terminalText(line) + '\n');
   const platform = io.platform ?? process.platform;
   const colour = io.colour ?? colourEnabled(process.env, process.stdout);
   const runners: OnboardRunners = {
@@ -272,7 +285,7 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
     return DIM;
   };
   const status = (label: string, text: string, kind: 'ok' | 'warn' | 'bad' | 'info' | 'dim' = 'info'): void => {
-    out(paint(label.padEnd(8), (kind === 'bad' ? BOLD : '') + tone(kind), colour) + ' ' + text);
+    out(paint(label.padEnd(8), (kind === 'bad' ? BOLD : '') + tone(kind), colour) + ' ' + terminalText(text));
   };
   const fail = (text: string): void => rawErr(paint('ERROR   ', BOLD + RED, colour) + ' ' + text);
 
@@ -302,7 +315,7 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
   const rawAsk: (q: string) => Promise<string | null> =
     io.ask ?? ((q) => (prompt.asker ??= readlineAsker(process.stdin, process.stdout))(q));
   const ask = async (question: string): Promise<string> => {
-    const answer = await rawAsk(question);
+    const answer = await rawAsk(terminalText(question) + (question.endsWith(' ') ? ' ' : ''));
     if (answer === null) throw new Aborted();
     return answer.trim();
   };
@@ -331,7 +344,7 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
   try {
     out(paint('TamperWard onboarding', BOLD, colour));
     out(paint('v' + TW_VERSION + ' · Node ' + process.versions.node + ' · ' + platformLabel(platform) + '/' + process.arch, DIM, colour));
-    out(paint(cwd, DIM, colour));
+    out(paint(terminalText(cwd), DIM, colour));
 
     // ---- 1. Environment ---------------------------------------------------
     section(1);
@@ -398,8 +411,14 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
       );
     } else if (await confirm('Apply ' + pending + ' setup change(s)?', true, true)) {
       const code = runners.init({ cwd, quiet: true });
-      wrote.push(...plan.filter((a) => a.apply).map((a) => a.path));
-      const remaining = planInit(cwd).filter((a) => a.status === 'error' || a.status === 'skip');
+      const afterPlan = planInit(cwd);
+      const remainingItems = new Set(afterPlan.filter((a) => a.status !== 'ok').map((a) => a.item));
+      wrote.push(
+        ...plan
+          .filter((a) => a.apply && !remainingItems.has(a.item))
+          .map((a) => a.path),
+      );
+      const remaining = afterPlan.filter((a) => a.status !== 'ok');
       if (code === 0 && remaining.length === 0) {
         status('OK', 'Applied ' + pending + ' setup change(s).', 'ok');
       } else {
@@ -441,7 +460,7 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
         }
       } else if (candidates.length > 1) {
         status('ACTION', 'Choose the command that decides whether this repository passes:', 'warn');
-        candidates.forEach((candidate, i) => out('  ' + (i + 1) + '. ' + candidate));
+        candidates.forEach((candidate, i) => out('  ' + (i + 1) + '. ' + terminalText(candidate)));
         const a = await ask('Choose 1-' + candidates.length + ', type a command, or press Enter to skip: ');
         const n = Number(a);
         chosen = a === '' ? undefined : Number.isInteger(n) && n >= 1 && n <= candidates.length ? candidates[n - 1] : a;
@@ -487,7 +506,7 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
     if (!opts.skipDemo) {
       const wanted = scripted ? Boolean(opts.demo) : opts.demo ? true : await confirm('Run the optional safe tamper demo? (temporary worktree only)', false, false);
       if (wanted && head) {
-        runDemo(cwd, head, runners, out);
+        runDemo(cwd, head, runners, (line) => out(terminalText(line)));
       } else if (wanted) {
         status('SKIP', 'Demo needs at least one commit.', 'dim');
       }
@@ -544,12 +563,13 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
       status('OK', 'GitHub authority enforced for ' + doctorOutcome.github.repo + '#' + doctorOutcome.github.branch + '.', 'ok');
     } else {
       status('ACTION', 'GitHub authority is not verified yet.', 'warn');
-      out(paint('         ' + doctorCommand, DIM, colour));
+      out(paint('         ' + terminalText(doctorCommand), DIM, colour));
       for (const line of MANUAL_CONTROLS) out(paint('         ' + line, DIM, colour));
     }
 
-    if (wrote.length) {
-      status('NEXT', 'Commit setup files: ' + [...new Set(wrote)].join(', '), 'info');
+    const commitPaths = [...new Set(wrote)].filter((path) => committableSetupPath(cwd, path));
+    if (commitPaths.length) {
+      status('NEXT', 'Commit repository setup files: ' + commitPaths.join(', '), 'info');
     }
     if (!verifyCommand) {
       status('NEXT', 'Choose the test command TamperWard should trust for verification.', 'info');
@@ -579,7 +599,7 @@ function renderCheck(check: DoctorCheck, out: (line: string) => void, colour: bo
   const broken = check.state === 'BROKEN';
   const label = broken ? 'ERROR' : 'WARN';
   const code = broken ? BOLD + RED : YELLOW;
-  out(paint(label.padEnd(8), code, colour) + ' ' + check.id + ' — ' + check.detail);
+  out(paint(label.padEnd(8), code, colour) + ' ' + terminalText(check.id + ' — ' + check.detail));
 }
 
 function postureOf(outcome: DoctorOutcome): Posture {
