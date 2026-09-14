@@ -42,7 +42,6 @@ import {
 } from './doctor';
 import { runCheck, type CheckOpts } from './check';
 import { colourEnabled } from './render/text';
-import { isGitRepo } from '../git/build';
 import { treeFingerprint } from '../fingerprint';
 import { POLICY_FILE } from '../policy';
 import { loadPolicy } from '../policy-load';
@@ -186,31 +185,17 @@ function git(cwd: string, args: string[]): string | null {
   }
 }
 
-function explainVerdict(v: VerifyVerdictSummary | null, code: number): string[] {
+function explainVerdict(v: VerifyVerdictSummary | null, code: number): string {
   const verdict = v?.verdict ?? (code === 0 ? 'VERIFIED' : code === 1 ? 'SUITE_RED' : 'CANNOT_VERIFY');
   switch (verdict) {
     case 'VERIFIED':
-      return [
-        'VERIFIED: your suite passes, and still passes with every protected test, snapshot and',
-        'config file restored from the base. Nothing was masked. Exit 0.',
-      ];
+      return 'Verification passed — visible and pristine suites are green.';
     case 'SUITE_RED':
-      return [
-        'SUITE_RED: your suite fails as it is. That is not a TamperWard finding — fix the code',
-        '(or the suite) first; verify exits 1 until the visible run is green.',
-      ];
+      return 'Your test suite is red. Fix it, then run verification again.';
     case 'MASKED_FAILURE':
-      return [
-        'MASKED_FAILURE: your suite passes as it is, but FAILS once the protected files are restored',
-        'from the base. Something weakened the checks; the code does not pass the original suite.',
-        'Exit 1. In CI only a reviewer label (`tamperward:allow:verify@<head-sha>`) clears it.',
-      ];
+      return 'Verification blocked — the visible suite passes, but the pristine suite fails.';
     default:
-      return [
-        `CANNOT VERIFY${v?.reason ? ` (${v.reason})` : ''}: TamperWard could not verify this repository and fails closed`,
-        '(exit 2) rather than reporting success. Nothing above is a verdict about your code.',
-        ...(v?.detail ? [`  ${v.detail}`] : []),
-      ];
+      return `Could not verify${v?.reason ? ` (${v.reason})` : ''} — TamperWard failed closed${v?.detail ? `: ${v.detail}` : '.'}`;
   }
 }
 
