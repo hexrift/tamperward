@@ -419,10 +419,14 @@ describe('test-skip: collection-time and configuration-time skips (#431)', () =>
 
   it.each([
     ['#[cfg(all(test, feature = "never"))]', 'mod tests {'],
-    ['#[cfg(feature = "never")]', '#[test]'],
+    ['#[cfg(feature = "never")]', 'fn never_runs() {}'],
     ['#[cfg(not(test))]', 'fn adds() {'],
   ])('Rust %s on %s', (attr, next) => {
-    expect(skip('tests/a.rs', attr, next)).toEqual(['test-skip[block]']);
+    expect(skip('tests/a.rs', '#[test]', attr, next)).toEqual(['test-skip[block]']);
+  });
+
+  it('Rust #[cfg(unix)] on a plain helper in a test file is not a skip (control)', () => {
+    expect(skip('tests/a.rs', '#[cfg(unix)]', 'fn helper() -> u32 { 1 }')).toEqual([]);
   });
 
   it('Rust #[cfg(test)] on the test module is the idiom (control)', () => {

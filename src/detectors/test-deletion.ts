@@ -30,6 +30,7 @@ import type { Runner } from './suite-config';
 import { checkKinds, invocationWeakening } from './invocation';
 import type { Kind, Weakening } from './invocation';
 import { isRecord } from '../narrow';
+import { pytestCollectedDefs, unreachableNodes } from './reachability';
 
 const RULE = 'test-deletion';
 
@@ -146,6 +147,10 @@ export interface TestCount {
  *  stub) is not counted. */
 export function countTests(src: string, path = 'spec.ts', substantiveOnly = false): TestCount {
   const lang = langOf(path);
+  // pytest collects a class-bound `def test_*` only under a `Test*` class (or a
+  // TestCase subclass): `class TestMath` → `class MathTests` removes its tests
+  // without touching a def (#431).
+  if (lang === 'py') return { min: pytestCollectedDefs(src), open: false };
   if (lang && lang !== 'js') {
     const re = TEST_DEFS[lang];
     let n = 0;
@@ -159,7 +164,11 @@ export function countTests(src: string, path = 'spec.ts', substantiveOnly = fals
   if (!sf) return { min: 0, open: true };
   let n = 0;
   let open = false;
+  // A test the runner never reaches — inside `if (false)`, after a `return` in
+  // its describe callback, in a function nobody calls — is not defined (#431).
+  const dead = unreachableNodes(sf);
   const visit = (node: TS.Node, mult: number): void => {
+    if (dead.has(node)) return;
     if (ts.isForOfStatement(node)) {
       const r = loopRows(node.expression);
       if (r.open) open = true;
