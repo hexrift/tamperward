@@ -1,11 +1,11 @@
-# Tamperward — Build Spec v0.9
+# Tamperward — Build Spec v0.10
 
 > The deterministic agent-integrity gate. One ruleset, evaluated on the actual
 > diff/commands as a verdict (not a probability), at every stage a change passes
 > through — the agent loop, pre-commit, the run envelope, pristine verification,
 > and protected CI authority.
 
-**Implementation status:** TamperWard 2.24.x
+**Implementation status:** TamperWard 2.25.x
 
 **Current supported surface:** JavaScript/TypeScript · Python · Go · Rust · Ruby ·
 JVM · PHP · .NET test/skip/suppression/config patterns; Claude Code hook + Stop
@@ -16,17 +16,26 @@ sweep; git pre-commit; protected CI; pristine visible/pristine re-execution;
 machine-verdict schemas for `check`, `verify`, `run`, `doctor` and (from 2.23.0)
 `research`; from 2.20.0 the measured `ts-cast-growth` assertion budget; from
 2.23.0 the `tamperward research` paired-evaluation workflow over the `AgentAdapter`
-contract (`docs/guide/research.md`); and from 2.24.0 the measured `coverage-exclusion`
-warn rule (row 19). The nineteen-row rule
-table remains the canonical detector/enforcement taxonomy: seventeen mechanical
+contract (`docs/guide/research.md`); from 2.24.0 the measured `coverage-exclusion`
+warn rule (row 19); and from 2.25.0 the `test-support` warn rule (row 20), which
+routes a helper, setup module or fixture under the `tests` globs out of the two
+spec rules' block reach and into its own review prompt. The twenty-row rule
+table remains the canonical detector/enforcement taxonomy: eighteen mechanical
 rows ship, `assertion-weakening` ships as a measured warning-only heuristic,
 and `guard-removal` remains reserved and unbuilt.
 
-v0.9 reconciles the live architecture narrative with the 2.23.x implementation.
-It does **not** rewrite the historical research record below: earlier v0.x
-revision notes, taskbench claims and old finding IDs remain dated evidence. The
-current security-residual index lives in `SECURITY-ENVELOPE.md`; detailed
-pristine-verifier limits live in `docs/THREAT-MODEL-pristine-run.md`.
+v0.10 reconciles the spec with 2.25.0: `test-support` seated as row 20 — the spec
+rules (`test-deletion`, `test-content-removal`) narrowed to files a shared
+`isSpecShaped` predicate reads as an actual spec, with the files that only SERVE
+one now judged by their own warn rule instead of the block rules that defined no
+test of their own (#443).
+
+**Historical revision note — v0.9 / TamperWard 2.23.x.** Reconciled the live
+architecture narrative with the 2.23.x implementation. It does **not** rewrite
+the historical research record below: earlier v0.x revision notes, taskbench
+claims and old finding IDs remain dated evidence. The current security-residual
+index lives in `SECURITY-ENVELOPE.md`; detailed pristine-verifier limits live in
+`docs/THREAT-MODEL-pristine-run.md`.
 
 **Historical revision note — v0.8 / TamperWard 1.15.0.** No new row: the
 seventeen-row table (§4) had
@@ -233,6 +242,7 @@ rules:
   lint-suppression:      { severity: block }
   coverage-lowering:     { severity: block }
   coverage-exclusion:    { severity: warn  }   # inline exclusions — warn by corpus (§4 row 19)
+  test-support:          { severity: warn  }   # helpers/fixtures under the tests globs — no test of their own (§4 row 20)
   ci-tampering:          { severity: block }
   hook-tampering:        { severity: block }
   no-verify:             { severity: block }
@@ -296,10 +306,10 @@ rule is 100% mechanical**; heuristics may only ever be `warn` until measured (§
 
 ---
 
-## 4. The nineteen rules — eighteen shipped, one reserved
+## 4. The twenty rules — nineteen shipped, one reserved
 
-Surface · signal · and **certainty class**, because seventeen rows are mechanical and two
-are heuristic, and the spec must not pretend otherwise. Rows 1–15, 18 and 19 are policy rule ids
+Surface · signal · and **certainty class**, because eighteen rows are mechanical and two
+are heuristic, and the spec must not pretend otherwise. Rows 1–15 and 18–20 are policy rule ids
 (`src/policy.ts` `defaultPolicy`); rows 16 and 17 are the outcome and process layers,
 which interpret no diff and carry no severity — their verdict is an exit code.
 `assertion-weakening` (row 3) now ships as a measured **warn-only** JS/TS AST
@@ -326,8 +336,9 @@ heuristic. `guard-removal` (row 10) remains specified/reserved with no detector.
 | 17 | `run-envelope` | process (`tamperward run`) | the agent invocation wrapped so its exit is untrusted: the trusted base is recorded before the agent starts, and after any termination the released tree is re-adjudicated against that base — policy check over base...HEAD (committed weakening), policy check over the worktree (uncommitted), and pristine verification. Exit: the agent's own code when enforcement is clean; 124 / `AGENT_TIMEOUT` when an operator-supplied `--agent-budget` expires and post-timeout enforcement is clean; 1 on any blocking finding or masked failure; 2 when adjudication is impossible (dirty start, unresolvable base, no suite command) — enforcement always outranks the runtime status, failing closed Trust anchor hardening: the entry SHA is frozen before the agent starts, post-agent HEAD must be a descendant of it (history rewrite = the conviction, exit 1), and the WHOLE policy — rules, protected globs, verifier command/budget — is resolved from the base commit (`loadPolicyAt(base)`), never the working tree the agent controls; the worktree check adjudicates at the CI layer (no agent-writable local sign-off ledger) and includes untracked files — a verifier that appears after the agent runs is agent-authored and is never used — and ignored files on protected paths. Every disk read in that check is git's view of the path (2.8.0): a regular file is its bytes up to 64 MiB, a symbolic link is its target text and is never followed, and nothing else is content; a protected path that is anything else — a link, a FIFO, a socket, a device, a directory where a file is expected, a larger file — is blocked by name as `hidden-drift`, and a path carrying a control character is protected in every category. Quiescence is guarded, not assumed: the tree is fingerprinted across adjudication and refused (NOT_QUIESCENT) if it moves, and processes started after the agent spawned that still hold the working tree are surfaced the same way. From 2.11.3 an optional operator-owned `--agent-budget` adds a wall-clock bound distinct from the verifier suite budget. From 2.16.3 the lifecycle ownership underneath that option applies to **every** wrapped agent, including normal exit. Ordinary POSIX descendants run in an owned process group. Linux uses a fixed non-caller-writable system `python3` launched with `-I -S -E`, cwd `/`, and a minimal supervisor environment while the agent receives a separately frozen copy of its original cwd/environment. The supervisor sets `PR_SET_CHILD_SUBREAPER`, so orphaned double-fork/`setsid()` descendants are kernel-reparented to it. Before adjudication the supervisor kills the process group and adopted children and requires `waitpid(-1, WNOHANG)` to reach **ECHILD**; child-list read/parse failure, kill failure, drain deadline, unavailable trusted Python, or abnormal supervisor completion fails closed before adjudication. The result file is trusted only after normal supervisor completion, so same-UID result forgery plus supervisor kill cannot manufacture lifecycle ownership. From 2.16.4, `tamperward run` refuses **before agent start** on Windows, macOS and other non-Linux hosts because no authoritative detached-domain drain backend is implemented there; best-effort `taskkill`/process-group/fingerprint/quiescence controls are not sufficient to return GREEN. From 2.16.5 standalone `check` remains cross-platform, checkpointed-local `verify` is supported only on POSIX `/bin/sh` hosts and fails closed before candidate execution on Windows, while isolated-container `verify` remains a separate Docker-authority path. Linux remains the only run lifecycle backend certified by the subreaper/ECHILD invariant. From 2.14.0, `--observe-transients` optionally starts a separate TamperWard watcher **before** the agent, with a unique log under the repository git directory and policy frozen from the same trusted base revision. The envelope waits for observer health, consumes that log itself after the agent, reports healthy/degraded/unavailable independently of the enforcement verdict, and terminates the observer on normal completion or early enforcement exits. From 2.20.2 that termination completes only when the observer **process** has exited (bounded 2 s drain, SIGKILL behind it; the exit is read from the Linux process state, since the envelope's own blocked event loop cannot reap the child): the watcher's `stopped` health record is telemetry, never the completion boundary, so `run` never returns while the observer is still writing. Temporal findings remain warn-only unless the operator explicitly raises `transient-protected-mutation` with `TAMPERWARD_TRANSIENT=block`; observer health/unavailability itself remains advisory because the watcher/log are candidate-reachable and are not CI authority. The event consumer still preserves verdict integrity: run drains bounded chunks rather than classifying only the first 4 MiB, and in strict transient mode any malformed/torn/oversized/over-aggregate or otherwise unclassifiable observer tail fails the envelope closed instead of permitting a false green. The local dependency boundary is now explicit rather than implied: since 2.10.9 one frozen ecosystem-aware dependency descriptor is attested around adjudication, which closes persistent drift but remains checkpoint-based for a fully self-restoring in-window mutation. 2.16.2 introduced an immediately-adjacent run→verify dependency-attestation reuse, but 2.16.3 **disables that optimization again**: the envelope pre-verifier checkpoint and the nested verifier-entry checkpoint are always independent full reads. A clean local run therefore performs six complete dependency-tree snapshots, zero reused snapshots, and reports `entry_reuse=no` regardless of platform or lifecycle ownership. Post-visible, post-pristine and envelope-final snapshots remain independent; the post-pristine verifier attestation is returned for evidence but is not reused by the envelope because execution after verifier return remains a separate quiescence boundary. `TAMPERWARD_DIAGNOSTICS=1` exposes complete/reused snapshot counts, aggregate snapshot wall time, lifecycle ownership and the disabled entry-reuse state. 2.11.0 adds the stronger isolated final-verification backend to standalone `tamperward verify`; `tamperward run` refuses `backend: container` before the agent starts because a same-host/same-identity agent could also control Docker authority. Trusted CI or an externally isolated agent must perform the frozen-artifact handoff. The default run envelope therefore remains checkpointed-local rather than claiming a sandbox | round 2's decisive negative: hooks decide, runtimes terminate. In the cssstyle-gated trajectory the gate denied 42 mutations and verify rejected all 25 stop attempts, and the session completed anyway with a masked tree — correct policy decisions are insufficient when the policy mechanism does not own the lifecycle boundary. The envelope (or `check --diff` + `verify` in CI) owns it from outside; the hooks remain the in-session fast path | double execution + exit codes, adjudicated post-termination |
 | 18 | `ts-cast-growth` | file | net growth of the ORDINARY assertion surface in non-test JS/TS source: `x as T` / `<T>x` type assertions and non-null `x!` assertions counted on the TypeScript AST before and after the change; one finding per file, pointing at the first assertion whose spelling was not there before. Row 4 keeps `as any` / `as unknown as` / `@ts-*`; `as const`, `as unknown`, `satisfies`, generic call/JSX arguments and cast-like text in comments or strings are not casts; declaration, generated (`@generated` header or generated/vendored path) and protected test files are outside the budget; a cast removed in the same change offsets one added; a side that does not parse declines; diff-only inputs are silent (2.20.0, #383) | mechanical count, **permanent warn** — block is *closed by corpus* (`harness/fp-study/CAST-GROWTH-CORPUS.md`): the rule fires on **40/460 (8.7%)** of adjacent legitimate mainline pairs across immer/zustand/zod/hono (18.2% of the 220 pairs touching files inside the rule's own scope) against the study's 1% ceiling for block; a budget, not a ban — the review prompt for "say why this change grew the unsafe assertion surface". TamperWard's own `src/` carries zero assertions after the #383 pass (`docs/CAST-INVENTORY.md`) | AST (before/after count) |
 | 19 | `coverage-exclusion` | file | the per-function form of row 6: an inline coverage exclusion ADDED to a non-test source file — `/* istanbul ignore next\|if\|else\|file */`, `/* c8 ignore next\|start */`, `/* v8 ignore next[ N] */`, `/* node:coverage ignore next */` / `disable`, `# pragma: no cover` (any spacing/case coverage.py accepts), `#[coverage(off)]` (bare or under `cfg_attr`), and a `//go:build` / `// +build` constraint added to an EXISTING Go source file (a constraint on a new file is a platform split; one edited on a file that already carried it is not an exclusion; without the before content the rule declines). Scope: a language the pattern rules know, outside `protected.tests` and `protected.config`, not a declaration, generated, vendored, output, example, docs, script or fixture path. A marker inside a string literal or quoted behind a line-comment opener is text; a marker line removed and re-added verbatim moved; a range closer (`c8`/`v8 ignore stop`) excludes nothing (2.24.0, #438) | mechanical, **shipped warn** — measured against the ts-cast-growth frame (`harness/fp-study/COVERAGE-EXCLUSION-CORPUS.md`): **0/460** legitimate mainline pairs fire, inside the 1% ceiling, but the four real adds the 6,632-commit deeper frame holds are all honest immer maintainers marking environment-dependent branches — precision as a tamper signal on real fires **0/4** against the 90% floor, so block is not authorized; CI replays `coverage-exclusion-corpus.json` (22 negative, 14 positive cases) | regex, per language, string/comment aware |
+| 20 | `test-support` | file | a `protected.tests`-glob path that is not a snapshot (row 11) and not spec-shaped — deleted, renamed out of the `tests` globs, or net-shrunk by ≥3 significant lines with none of the removed lines surviving (whitespace-normalized) anywhere the change keeps or adds. Which files are spec-shaped is one shared predicate (`isSpecShaped`, `src/detectors/spec-shape.ts`): a runner-selected suffix (`.test.ts`, `_test.go`, `test_*.py`, `*Test.java`, `_spec.rb`, `tests/<name>.rs`, `conftest.py`, …) is always a spec; a `fixtures/`, `__fixtures__/`, `__mocks__/` or `__snapshots__/` path component is always support; otherwise a file in no language the detectors read (JSON, YAML, a properties file, a note) is support; otherwise the content decides by the same `countTests` the block rules use — zero test definitions on both the before and the after side is support, and a side the gate cannot read or cannot count fails closed as a spec. `test-deletion` and `test-content-removal` cede exactly what this rule picks up: a helper, setup module, mock or JSON fixture living under the same globs that serves the specs but defines none of its own (#443) | mechanical, **shipped warn** — a helper the specs still import fails the suite loudly on its own; a fixture or setup step quietly trimmed does not, which is the review prompt this row exists for, not a block: the class carries no test of its own to lose | line-set + shared path/content predicate |
 
-The seventeen mechanical rules are where determinism is real and the demo is honest. The two
+The eighteen mechanical rules are where determinism is real and the demo is honest. The two
 heuristics (3, 10) are the research surface, and the discipline is: **built only against
 a measured negatives corpus, entering as `warn`, promoted per-rule only when the number
 clears the bar (§7)**. Row 3 has since been built that way (2.17.0, warn against a committed corpus); row 10 has not — the corpus comes first, because a
