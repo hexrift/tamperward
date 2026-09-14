@@ -5,6 +5,29 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.25.2] — 2026-09-14
+
+### Fixed
+
+- **`ci-tampering` reaches composite actions and the other CI systems' entry files
+  (false negative).** `protected.ci` covered only `.github/workflows/**`: a workflow
+  that kept `- uses: ./.github/actions/test` while `.github/actions/test/action.yml`
+  changed `run: npm test` → `run: echo ok` passed `check --staged` clean, and the same
+  was true of `.gitlab-ci.yml`, `.circleci/config.yml`, `Jenkinsfile`,
+  `azure-pipelines.yml`, `bitbucket-pipelines.yml` and `.travis.yml`. `protected.ci`
+  now also names `.github/actions/**/action.y?(a)ml` and the other systems' entry
+  files. A composite action gets the workflow rule's full removal/neutralisation pass
+  over its `runs.steps`; the other systems' entry files get the generic check-line
+  pass — a check line removed or neutralised in place, read from `script:` /
+  `command:` / `sh` / `bash` / `pwsh` lines as from `run:` — with none of the
+  GitHub-shaped logic (`on:` triggers, `if:` folding, `continue-on-error`, `shell: …
+  {0}`), whose keys mean other things there. Two further readings keep this from
+  over-firing: a neutralising suffix the removed line already carried (a piped
+  typecheck's redirect target renamed, a Travis `|| travis_terminate` line rewritten
+  around the same `||`) is a respelling, not a new neutraliser; and a deleted entry
+  file whose checks move into a workflow the same change adds is a migration, not a
+  removal. (#437)
+
 ## [2.25.1] — 2026-09-14
 
 ### Fixed
@@ -25,6 +48,7 @@ All notable changes to this project are documented here. The format follows
   full-content (AST) path and the diff-only fallback — which resolves aliases declared
   on the change's own added lines — and `ts-cast-growth` no longer double-counts any of
   the moved spellings.
+
 
 ## [2.25.0] — 2026-09-14
 

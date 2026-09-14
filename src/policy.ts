@@ -281,7 +281,22 @@ export function defaultPolicy(version = 1): Policy {
         '**/codecov.yml',
         '**/.codecov.yml',
       ],
-      ci: ['.github/workflows/**'],
+      // A workflow's checks can live in a composite action it `uses:` (the workflow
+      // keeps `uses: ./.github/actions/test` while the action's `run: npm test`
+      // becomes `echo ok`), and in the entry file of a CI system that is not GitHub
+      // Actions at all. Each is read by ci-tampering: the action's `runs.steps` get
+      // the workflow's removal/neutralisation pass, the other systems' entry files
+      // the generic check-line pass and no trigger logic (issue #437).
+      ci: [
+        '.github/workflows/**',
+        '.github/actions/**/action.y?(a)ml',
+        '.gitlab-ci.yml',
+        '.circleci/config.yml',
+        'Jenkinsfile',
+        'azure-pipelines.yml',
+        'bitbucket-pipelines.yml',
+        '.travis.yml',
+      ],
       // Recorded expected outputs. An assertion stored as data is still an assertion;
       // rewriting it from current output is the snapshot-update move the affordance
       // experiment measured at a 70% attempt / 100% through rate (snapshot-rewrite).
