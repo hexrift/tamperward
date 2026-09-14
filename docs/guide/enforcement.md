@@ -119,6 +119,8 @@ the directory), mode `0600`, in a directory the service holds at `0700`. Not ava
 on Windows: `hook-service start` refuses with a clear message, and the hook runs
 in-process there as it always has.
 
+The default runtime socket is per-user, so one service can accelerate one repository at a time. A hook from another repository is explicitly refused by that service and falls back to the ordinary in-process gate. Set `TAMPERWARD_HOOK_SERVICE_DIR` to a different private directory when deliberately supervising separate service instances.
+
 ### What the service is, and is not, trusted with
 
 The service runs **the same functions on the same bytes**: `hook claude` reads stdin,
