@@ -5,6 +5,7 @@ import { tsCastGrowth } from './ts-cast-growth';
 import { lintSuppression } from './lint-suppression';
 import { testSkip } from './test-skip';
 import { coverageLowering } from './coverage-lowering';
+import { configWeakening } from './config-weakening';
 import { coverageExclusion } from './coverage-exclusion';
 import { ciTampering } from './ci-tampering';
 import { hookTampering } from './hook-tampering';
@@ -18,7 +19,8 @@ import { testSupport } from './test-support';
 /** Mechanical detectors plus measured warning-only heuristics. guard-removal remains
  *  reserved; assertion-weakening is AST-backed and stays warn while precision accrues;
  *  ts-cast-growth is a mechanical count that stays warn by corpus (#383);
- *  coverage-exclusion is mechanical and stays warn until its corpus says otherwise (#438). */
+ *  coverage-exclusion is mechanical and stays warn until its corpus says otherwise (#438);
+ *  config-weakening is mechanical and stays warn pending an fp-study replay (#447). */
 export const allDetectors: Detector[] = [
   noVerify,
   tsAnyCast,
@@ -26,6 +28,7 @@ export const allDetectors: Detector[] = [
   lintSuppression,
   testSkip,
   coverageLowering,
+  configWeakening,
   coverageExclusion,
   ciTampering,
   hookTampering,
@@ -44,6 +47,7 @@ export {
   lintSuppression,
   testSkip,
   coverageLowering,
+  configWeakening,
   coverageExclusion,
   ciTampering,
   hookTampering,

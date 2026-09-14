@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [2.26.0] — 2026-09-14
+## [2.27.0] — 2026-09-14
 
 ### Added
 
@@ -54,6 +54,69 @@ All notable changes to this project are documented here. The format follows
 
 
 
+## [2.26.0] — 2026-09-14
+
+### Added
+
+- **New `config-weakening` warn rule reads tsconfig, eslint, biome and the runner's
+  setup modules (#447).** Three protected config families were protected in name
+  only: `strict: true → false` and other tsconfig strictness lowerings, an eslint
+  rule turned `off`, and an `ignores` / `exclude` / `.eslintignore` entry grown to
+  hide source fired nothing, because no detector read the effective config, only
+  the file's protected-glob membership. `config-weakening` now reads each family
+  the way its tool does — tsconfig strictness flags (explicit or implied by
+  `strict`) and loosening flags (`skipLibCheck`, `allowUnreachableCode`, …),
+  `exclude` grown to hide a tracked source file, `extends` dropped or redirected
+  off the protected set; eslint (flat and legacy) and `.eslintignore` — a rule
+  turned `off` / `0` that was not off in any config of the family before the
+  edit (a `.eslintrc` → `eslint.config.js` migration is not itself a weakening),
+  `ignores` / `ignorePatterns` / `globalIgnores([...])` grown, a base rule
+  retired beside its plugin-prefixed twin read as a replacement; biome
+  `linter.enabled: false`, a rule or `rules.recommended` off, `files.ignore` /
+  `linter.ignore` grown; and a NEW jest/vitest `setupFiles` /
+  `setupFilesAfterEnv` / `globalSetup` / `runner` / `testEnvironment` /
+  `reporters` entry pointing at a file this change adds or that no protected
+  glob covers. `.eslintignore` and `biome.json[c]` join `protected.config` by
+  default. Ships `warn` pending an fp-study replay
+  (`harness/fp-study/CONFIG-WEAKENING-CORPUS.md`) before any block decision.
+- **`test-deletion` reads a protected runner config delegating its selection to
+  an unreviewed file, and `testNamePattern` (#447).** `export { default } from
+  './vitest.real'`, `module.exports = require('./jest.real')`, a `...base`
+  spread, `mergeConfig(base, …)`, `extends` / `preset`, and a `projects` entry
+  were read as opaque and silent when the target was a file the same change
+  added or that no protected glob covered — selection moved to a file the gate
+  cannot read, and the config stayed nominally protected while selecting
+  nothing. The delegation itself is now the finding, naming the target and
+  whether it is a newly added file or simply unprotected; a delegation to an
+  already-protected file stays silent, since the selection just moved where the
+  gate can still read it. `testNamePattern` is read as a further selection
+  predicate alongside the existing file-level narrowings.
+
+## [2.25.2] — 2026-09-14
+
+### Fixed
+
+- **`ci-tampering` reaches composite actions and the other CI systems' entry files
+  (false negative).** `protected.ci` covered only `.github/workflows/**`: a workflow
+  that kept `- uses: ./.github/actions/test` while `.github/actions/test/action.yml`
+  changed `run: npm test` → `run: echo ok` passed `check --staged` clean, and the same
+  was true of `.gitlab-ci.yml`, `.circleci/config.yml`, `Jenkinsfile`,
+  `azure-pipelines.yml`, `bitbucket-pipelines.yml` and `.travis.yml`. `protected.ci`
+  now also names `.github/actions/**/action.y?(a)ml` and the other systems' entry
+  files. A composite action gets the workflow rule's full removal/neutralisation pass
+  over its `runs.steps`; the other systems' entry files get the generic check-line
+  pass — a check line removed or neutralised in place, read from `script:` /
+  `command:` / `sh` / `bash` / `pwsh` lines as from `run:` — with none of the
+  GitHub-shaped logic (`on:` triggers, `if:` folding, `continue-on-error`, `shell: …
+  {0}`), whose keys mean other things there. Two further readings keep this from
+  over-firing: a neutralising suffix the removed line already carried (a piped
+  typecheck's redirect target renamed, a Travis `|| travis_terminate` line rewritten
+  around the same `||`) is a respelling, not a new neutraliser; and a deleted entry
+  file whose checks move into a workflow the same change adds is a migration, not a
+  removal. (#437)
+
+## [2.25.1] — 2026-09-14
+
 ### Fixed
 
 - **`ts-any-cast` closes the escapes beyond the literal `as any` / `as unknown as`
@@ -72,6 +135,7 @@ All notable changes to this project are documented here. The format follows
   full-content (AST) path and the diff-only fallback — which resolves aliases declared
   on the change's own added lines — and `ts-cast-growth` no longer double-counts any of
   the moved spellings.
+
 
 ## [2.25.0] — 2026-09-14
 
