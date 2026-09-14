@@ -5,6 +5,28 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.25.0] — 2026-09-14
+
+### Added
+
+- **New `test-support` warn rule: helpers, setup modules and fixtures under the test
+  globs are a review prompt, not a gutted spec.** The `tests` globs are deliberately
+  wide, so they also cover the files that only SERVE the specs — a helper module, a
+  `setup.ts`, a `vi.mock` list, a JSON fixture, a case table. Before this change those
+  read as a spec to `test-deletion` and `test-content-removal`: deleting
+  `src/test/helpers.ts` or trimming `src/__tests__/fixtures/data.json` blocked as
+  "test file deleted" / "test content removed" on files that define no test of their
+  own. A shared `isSpecShaped` predicate (`src/detectors/spec-shape.ts`) now routes a
+  `tests`-glob path to one of two outcomes: a runner-selected suffix (`.test.ts`,
+  `_test.go`, `test_*.py`, `*Test.java`, `conftest.py`, …) stays a spec whatever it
+  contains; a `fixtures/` / `__fixtures__/` / `__mocks__/` / `__snapshots__/` path
+  component, a file in no language the detectors read, or content that defines no test
+  on either side of the edit is support instead. `test-deletion` and
+  `test-content-removal` now cede that class; the new `test-support` rule (row 20)
+  picks it up at `warn` — deletion, a rename out of the `tests` globs, or a net-shrink
+  of three or more significant lines with none of the removed lines kept elsewhere in
+  the change. (#443)
+
 ## [2.24.7] — 2026-09-14
 
 ### Changed
