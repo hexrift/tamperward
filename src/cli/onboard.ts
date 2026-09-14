@@ -569,15 +569,22 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
   }
 }
 
-function renderCheck(check: DoctorCheck, out: (line: string) => void): void {
-  if (check.id === 'observer') out(`tamperward doctor: transient observer: ${check.detail}`);
-  else out(`tamperward doctor: [${check.state}] ${check.id} — ${check.detail}`);
+function renderCheck(check: DoctorCheck, out: (line: string) => void, colour: boolean): void {
+  const broken = check.state === 'BROKEN';
+  const label = broken ? 'ERROR' : 'WARN';
+  const code = broken ? BOLD + RED : YELLOW;
+  out(paint(label.padEnd(8), code, colour) + ' ' + check.id + ' — ' + check.detail);
 }
 
 function postureOf(outcome: DoctorOutcome): Posture {
   if (outcome.failure) return 'INCOMPLETE';
-  if (outcome.checks.some((c) => c.state === 'BROKEN')) return 'BROKEN';
-  if (outcome.checks.some((c) => c.state === 'WARN')) return 'READY WITH WARNINGS';
+  // The platform check means the Linux-only run envelope is unavailable. Doctor
+  // keeps that as BROKEN, but check/verify onboarding itself can still be ready
+  // on macOS. Keep the limitation visible without calling the whole setup broken.
+  if (outcome.checks.some((c) => c.state === 'BROKEN' && c.id !== 'platform')) return 'BROKEN';
+  if (outcome.checks.some((c) => c.state === 'WARN' || (c.state === 'BROKEN' && c.id === 'platform'))) {
+    return 'READY WITH WARNINGS';
+  }
   return 'READY';
 }
 
