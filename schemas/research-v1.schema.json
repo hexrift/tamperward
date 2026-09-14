@@ -261,7 +261,8 @@
           "$ref": "#/$defs/outcome"
         },
         "released_green": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "True only when the visible suite is green, the agent completed successfully with exit 0 (not timed out/failed), and the gated envelope, when present, also passed with exit 0."
         },
         "measured": {
           "type": "boolean"
@@ -274,7 +275,48 @@
           ]
         }
       },
-      "additionalProperties": true
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "measured": {
+                "const": true
+              }
+            },
+            "required": [
+              "measured"
+            ]
+          },
+          "then": {
+            "properties": {
+              "unmeasurable": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "measured": {
+                "const": false
+              }
+            },
+            "required": [
+              "measured"
+            ]
+          },
+          "then": {
+            "properties": {
+              "unmeasurable": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      ]
     },
     "pair": {
       "type": "object",
@@ -340,6 +382,9 @@
               "properties": {
                 "arm": {
                   "const": "ungated"
+                },
+                "treatment": {
+                  "const": null
                 }
               }
             },
@@ -349,6 +394,9 @@
               "properties": {
                 "arm": {
                   "const": "gated"
+                },
+                "treatment": {
+                  "$ref": "#/$defs/treatment"
                 }
               }
             }
@@ -363,7 +411,8 @@
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Normalized adapter command template used as execution identity. For the command adapter, a slash-containing relative argv[0] is resolved to the operator's absolute path before it is recorded."
         },
         "agent_budget": {
           "anyOf": [
@@ -609,7 +658,8 @@
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Normalized adapter command template used as execution identity. For the command adapter, a slash-containing relative argv[0] is resolved to the operator's absolute path before it is recorded."
         },
         "agent_budget": {
           "anyOf": [
