@@ -1,0 +1,20 @@
+# Dependabot moves the pins. Every `uses:` in .github/workflows is pinned to a full
+# commit SHA with a `# vX.Y.Z` comment (#423); Dependabot rewrites both the SHA and the
+# comment, so an action update arrives as a reviewable PR rather than a mutable tag
+# resolving to whatever it points at on release day. npm devDependencies (the build,
+# test and release toolchain, all lock-pinned) get the same treatment.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
