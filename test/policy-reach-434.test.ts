@@ -98,6 +98,14 @@ describe('#434 precision: legitimate policy edits stay clean', () => {
     expect(policyWeakening(V1, "version: 1\nprotected:\n  tests: ['packages/new/**/*.integration.ts']\n", ['packages/new/src/a.ts', 'packages/new/a.integration.ts'])).toEqual([]);
   });
 
+  it('a tests glob naming a real layout cedes those files to the test rules by design, but a glob that swallows source does not', () => {
+    // packages/new/a.ts is now a test file: casts there warn instead of block — the documented trade-off, not a weakening
+    expect(policyWeakening(V1, "version: 1\nprotected:\n  tests: ['packages/new/**/*.ts']\n", ['packages/new/a.ts', 'src/index.ts'])).toEqual([]);
+    // `**/*.ts` takes src/index.ts with it: every TypeScript file is a test file and the cast rules go quiet
+    const broad = policyWeakening(V1, "version: 1\nprotected:\n  tests: ['**/*.ts']\n", ['packages/new/a.ts', 'src/index.ts']) ?? [];
+    expect(broad.some((r) => /rule "ts-any-cast" no longer reaches packages\/new\/a\.ts, src\/index\.ts/.test(r))).toBe(true);
+  });
+
   it('widening config, ci or hooks is not a weakening', () => {
     expect(policyWeakening(V1, "version: 1\nprotected:\n  config: ['**/karma.conf.*']\n  ci: ['.gitlab-ci.yml']\n  hooks: ['scripts/git-hooks/**']\n")).toEqual([]);
   });

@@ -500,10 +500,12 @@ function claudeSettingsFindings(c: FileChange, policy: Policy): Finding[] | null
  * `.tamperward.yml` with `ignore: ['**']` has been switched off exactly as an edited
  * one would be, and used to be compared to nothing because there was no before-text.
  */
-function policyFindings(c: FileChange, policy: Policy): Finding[] | null {
+function policyFindings(c: FileChange, policy: Policy, ctx?: DetectorContext): Finding[] | null {
   if (c.after == null) return null;
   const added = c.before == null;
-  const reasons = c.before == null ? policyAddWeakening(c.after) : policyWeakening(c.before, c.after);
+  // The repository listing lets the reach comparison (#434) name real files.
+  const probe = trackedFiles(ctx) ?? undefined;
+  const reasons = c.before == null ? policyAddWeakening(c.after, probe) : policyWeakening(c.before, c.after, probe);
   if (reasons === null) return null;
   return reasons.map((reason) =>
     makeFinding(RULE, policy, {
@@ -823,7 +825,7 @@ export const hookTampering: Detector = {
           );
         } else if (
           (c.path.endsWith(POLICY_FILE) || resolvesToClaudeSettings(c.path)) &&
-          (semantic = c.path.endsWith(POLICY_FILE) ? policyFindings(c, policy) : claudeSettingsFindings(c, policy)) !== null
+          (semantic = c.path.endsWith(POLICY_FILE) ? policyFindings(c, policy, ctx) : claudeSettingsFindings(c, policy)) !== null
         ) {
           // Full content available and parseable → compare SEMANTICALLY: the policy
           // as the loader would merge it (every weakening move, incl. the multiline

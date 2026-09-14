@@ -53,6 +53,20 @@ export function normalizeGlob(glob: string): string {
 }
 
 /**
+ * Whether a glob is a picomatch NEGATION. `!x` compiles to "every path except x",
+ * so `protected.tests: ['!zzz']` made every source file a test file (the cast
+ * rules fell to warn or went silent) and `ignore: ['!keep']` switched detection
+ * off everywhere. Neither is a shape any honest policy needs — the lists are
+ * inclusions — so the loader refuses them (#434); policy-diff reports
+ * one that reaches a protected list as the weakening it is. The leading slash is looked
+ * past because `normalizeGlob` would strip it and expose the `!` underneath.
+ * A `!` inside a bracket class (`[!a]*.ts`) is not a negation and still loads.
+ */
+export function isNegatedGlob(glob: string): boolean {
+  return glob.replace(/^\/+/, '').startsWith('!');
+}
+
+/**
  * Overlay user rule overrides on the baseline FIELD BY FIELD. Replacing the whole
  * rule object meant `test-deletion: { exclude: ['**'] }` dropped the baseline
  * `severity: block` on the floor — the rule loaded with no severity at all, and
