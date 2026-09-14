@@ -99,6 +99,23 @@ Restated as a materialisation rule, which is what makes it enforceable:
 > The verification surface is the protected classes **plus** everything the test
 > runner auto-consults.
 
+"Exactly the base's" is a statement about paths, and what a path *is* belongs
+to the filesystem the copy is written on, not to the strings git lists. On a
+case-insensitive filesystem (macOS default, Windows) `test/FOO.test.js` and
+`test/foo.test.js` are one file, and an overlay that keyed its base-protected
+set on exact case restored the base test and then, walking the working tree,
+unlinked the "agent-added" case variant — the same inode (#426). From 2.23.5
+`verify` probes the copies' filesystem once and, when it folds case, applies
+the invariant under that fold: membership in the overlay classes, the surface
+and the verifier's inputs is tested on the folded path as well as the exact
+one, the base-protected set is keyed on the fold so a case variant of a
+restored file is never removed, and two in-tree paths that collide under the
+fold are `CANNOT_VERIFY` / `PATH_CASE_COLLISION` before any candidate code
+runs — a copy that cannot hold both is not the tree under verification. The
+probe's answer is reported as `filesystem_case_sensitive`. On a case-sensitive
+filesystem the fold is the identity and the overlay is byte-for-byte what it
+was.
+
 The polarity matters. Today the default is *inherit unless removed*. For a
 verifier it must be *do not inherit unless the base had it*.
 
@@ -260,6 +277,14 @@ is the variable list. What remains is stated below.
   a tool config outside the surface list, or any indirection the base script
   reaches through can still be the agent's. The explicit list is the escape
   hatch, and it has to be written by hand.
+- **The case fold is `toLowerCase()`, not the filesystem's.** A case-insensitive
+  filesystem is detected by probe, and the overlay then reasons about paths under
+  a simple lower-casing. APFS additionally normalises Unicode (NFD) and NTFS
+  folds by its own table, so two paths the filesystem identifies but the fold
+  does not (a precomposed and a decomposed spelling of the same name) are still
+  keyed apart. The probe also answers for the temp filesystem the copies are
+  materialised on, which is the one that matters for the overlay, not for the
+  repository's own checkout.
 - **A git rewrite that predates the envelope is not detected.** `run`
   fingerprints replace refs, `info/grafts` and `shallow` before the agent starts
   and convicts a change; a rewrite already installed when it starts is part of

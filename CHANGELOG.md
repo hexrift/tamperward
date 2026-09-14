@@ -5,6 +5,28 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.5] — 2026-09-14
+
+### Fixed
+
+- **The pristine overlay no longer unlinks the file it just restored on a
+  case-insensitive filesystem** (#426). `verify` keyed the base-protected set on
+  exact-case paths while macOS-default and Windows filesystems collapse case, so a
+  case-only rename of a base test (`test/foo.test.js` → `test/FOO.test.js`, gutted)
+  resolved to the restored inode and the removal loop deleted it; a runner that exits
+  0 on an empty set then reported VERIFIED over an unfixed bug. The destination
+  filesystem's case sensitivity is now probed once per verify (a probe file and its
+  case variant, removed afterwards). When it is case-insensitive, overlay/surface
+  membership and the base-protected set are case-folded, so the case variant is never
+  removed and an agent-added `CONFTEST.PY` or `Pytest.ini` is removed like its
+  lower-case spelling; two in-tree paths that collide under folding are refused
+  before any candidate code runs as `CANNOT_VERIFY` / `PATH_CASE_COLLISION`. On a
+  case-sensitive filesystem (Linux) the fold is the identity and behaviour is
+  unchanged.
+- `verify --json` reports the probed assumption as `filesystem_case_sensitive`
+  (additive optional boolean in `verify-v1.schema.json`; `PATH_CASE_COLLISION` is an
+  additive `reason` value). No schema major.
+
 ## [2.23.4] — 2026-09-14
 
 ### Fixed
