@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" width="1200" height="760" role="img" aria-labelledby="tw-envelope-title tw-envelope-desc" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="tw-envelope-title">TamperWard local enforcement envelope</title>
+<desc id="tw-envelope-desc">The trusted entry snapshot and in-loop hooks feed the agent lifecycle. The agent produces a candidate commit and worktree. After the agent exits, TamperWard adjudicates that candidate using diff and worktree checks, visible and pristine verification, and ancestry, dependency, and quiescence integrity checks. All three paths converge on the final exit verdict.</desc>
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#334155"/></marker>
+  <filter id="shadow" x="-10%" y="-15%" width="120%" height="140%">
+    <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.08"/>
+  </filter>
+</defs>
+
+<rect width="1200" height="760" fill="#ffffff"/>
+
+<!-- lifecycle and adjudication regions -->
+<rect x="90" y="105" width="1020" height="250" rx="18" fill="#f7fafd" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="118" y="137" font-size="16" font-weight="700" fill="#64748b">Agent-controlled lifecycle</text>
+
+<rect x="90" y="390" width="1020" height="300" rx="18" fill="#f6fdf9" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="118" y="422" font-size="16" font-weight="700" fill="#64748b">TamperWard post-exit adjudication</text>
+
+<!-- arrows: trusted state + lifecycle -->
+<path d="M300 78V172H475" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M300 215H475" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M655 215H790" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M895 255V365H600V460" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M300 78V370H600V460" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+<!-- arrows: adjudication fan-out -->
+<path d="M600 520V550H260V580" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M600 520V580" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M600 550H940V580" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+<!-- arrows: checks to verdict -->
+<path d="M260 640V670H600V704" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M600 640V704" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M940 640V670H600V704" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+<!-- trusted entry -->
+<g filter="url(#shadow)">
+  <rect x="185" y="28" width="230" height="50" rx="10" fill="#eefbf3" stroke="#0f9d58" stroke-width="1.8"/>
+</g>
+<text x="300" y="58" text-anchor="middle" font-size="15" font-weight="700" fill="#0b3d24">Trusted entry snapshot</text>
+
+<!-- hooks -->
+<g filter="url(#shadow)">
+  <rect x="175" y="186" width="250" height="58" rx="10" fill="#eef6ff" stroke="#2563eb" stroke-width="1.8"/>
+</g>
+<text x="300" y="210" text-anchor="middle" font-size="14" font-weight="600" fill="#0f2a4a">In-loop hooks</text>
+<text x="300" y="229" text-anchor="middle" font-size="13" fill="#35506d">and optional observer</text>
+
+<!-- agent -->
+<g filter="url(#shadow)">
+  <rect x="475" y="186" width="180" height="58" rx="10" fill="#eef6ff" stroke="#2563eb" stroke-width="1.8"/>
+</g>
+<text x="565" y="220" text-anchor="middle" font-size="15" font-weight="700" fill="#0f2a4a">Agent runtime</text>
+
+<!-- tree -->
+<g filter="url(#shadow)">
+  <rect x="790" y="176" width="210" height="78" rx="10" fill="#eef6ff" stroke="#2563eb" stroke-width="1.8"/>
+</g>
+<text x="895" y="208" text-anchor="middle" font-size="14" font-weight="600" fill="#0f2a4a">Candidate commit</text>
+<text x="895" y="229" text-anchor="middle" font-size="14" fill="#35506d">and worktree</text>
+
+<!-- adjudicate -->
+<g filter="url(#shadow)">
+  <rect x="470" y="460" width="260" height="60" rx="10" fill="#eefbf3" stroke="#0f9d58" stroke-width="1.8"/>
+</g>
+<text x="600" y="496" text-anchor="middle" font-size="15" font-weight="700" fill="#0b3d24">Post-exit adjudication</text>
+
+<!-- checks -->
+<g filter="url(#shadow)">
+  <rect x="145" y="580" width="230" height="60" rx="10" fill="#eefbf3" stroke="#0f9d58" stroke-width="1.8"/>
+  <rect x="485" y="580" width="230" height="60" rx="10" fill="#eefbf3" stroke="#0f9d58" stroke-width="1.8"/>
+  <rect x="825" y="580" width="230" height="60" rx="10" fill="#eefbf3" stroke="#0f9d58" stroke-width="1.8"/>
+</g>
+<text x="260" y="605" text-anchor="middle" font-size="14" font-weight="600" fill="#0b3d24">Diff and worktree</text>
+<text x="260" y="624" text-anchor="middle" font-size="14" fill="#315844">checks</text>
+
+<text x="600" y="605" text-anchor="middle" font-size="14" font-weight="600" fill="#0b3d24">Visible and pristine</text>
+<text x="600" y="624" text-anchor="middle" font-size="14" fill="#315844">verification</text>
+
+<text x="940" y="605" text-anchor="middle" font-size="14" font-weight="600" fill="#0b3d24">Ancestry · dependency</text>
+<text x="940" y="624" text-anchor="middle" font-size="14" fill="#315844">and quiescence</text>
+
+<!-- verdict -->
+<g filter="url(#shadow)">
+  <rect x="475" y="704" width="250" height="44" rx="10" fill="#eef2ff" stroke="#4338ca" stroke-width="1.8"/>
+</g>
+<text x="600" y="731" text-anchor="middle" font-size="15" font-weight="700" fill="#1e1b4b">Final exit verdict</text>
+
+<!-- small flow labels -->
+<text x="382" y="99" font-size="12.5" fill="#64748b">trusted baseline</text>
+<text x="705" y="205" font-size="12.5" fill="#64748b">produces</text>
+<text x="760" y="382" font-size="12.5" fill="#64748b">candidate state</text>
+</svg>
