@@ -5,6 +5,17 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.24.5] — 2026-09-14
+
+### Fixed
+
+- **`tamperward onboard` preflight errors keep their colour and make repository-root
+  mismatches easier to scan.** Error text is now sanitised before TamperWard adds ANSI
+  decoration, so terminals no longer expose fragments such as `[1m[31mERROR` in place
+  of colour. The child-directory refusal is rendered as a compact
+  `ERROR / CURRENT / GIT ROOT / NEXT / OR` diagnostic with the two safe recovery
+  choices called out explicitly.
+
 ## [2.24.4] — 2026-09-14
 
 ### Fixed
