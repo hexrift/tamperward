@@ -26,7 +26,8 @@ All notable changes to this project are documented here. The format follows
   cannot classify — a package it does not know, a fixture it cannot read — leaves that
   call to the regex, so the full-content and diff-only paths agree. `test.describe.skip`
   / `test.describe.only` under Playwright count as the chain they are. Corpus replay
-  (`harness/fp-study/TEST-SKIP-AST-CORPUS.md`) re-run: 0 newly introduced findings.
+  (`harness/fp-study/TEST-SKIP-AST-CORPUS.md`) re-run over the same pinned immer /
+  zustand / zod / hono heads: 524 adjacent pairs, 0 newly introduced findings.
 
 ## [2.23.4] — 2026-09-14
 
