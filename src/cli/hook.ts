@@ -36,7 +36,7 @@ import { inspectRel, unjudgeableFinding, unjudgeableProtected } from '../disk';
 import { Change, FileChange, Finding, Policy } from '../types';
 import { isRecord } from '../narrow';
 import type { SnapshotCache } from '../ptree-cache';
-import { outsideRepository, repoContext, repoRoot } from '../repo-context';
+import { outsideRepository, repoContext, repoRoot, validateClaimAgainstRoot } from '../repo-context';
 
 export interface HookResult {
   exitCode: number;
@@ -78,7 +78,7 @@ function readStdin(): string {
  * call — there is nothing to deny, and denying it would break `tamperward hook
  * claude < /dev/null`, which is how the wiring is smoke-tested.
  */
-function parseInput(raw: string): ClaudeHookInput {
+export function parseInput(raw: string): ClaudeHookInput {
   if (!raw.trim()) return {};
   let parsed: unknown;
   try {
@@ -140,11 +140,12 @@ function failClosed(kind: 'PreToolUse' | 'Stop', detail: string): HookResult {
   return verdict([f], kind);
 }
 
-/** Deny via JSON on stdout at exit 0. Empty stdout + exit 0 = allow. */
-function verdict(blocks: Finding[], kind: 'PreToolUse' | 'Stop'): HookResult {
-  if (blocks.length === 0) return { exitCode: 0, stdout: '' };
-  recordDenylog(blocks);
-  const reason = formatDenial(blocks);
+/** The exact deny WIRE BYTES for a Claude hook `kind`, given the already-formatted
+ *  reason. This is the one place the PreToolUse / Stop payload shapes are serialised;
+ *  `verdict()` below and the Claude RuntimeAdapter's `denyPayload` (src/adapters/claude/
+ *  adapter.ts) both go through it, so the neutral-contract wire can never drift from the
+ *  live hook wire. Behaviour is byte-identical to the previous inline serialisation. */
+export function denyWire(reason: string, kind: 'PreToolUse' | 'Stop'): string {
   const payload =
     kind === 'PreToolUse'
       ? {
@@ -155,7 +156,15 @@ function verdict(blocks: Finding[], kind: 'PreToolUse' | 'Stop'): HookResult {
           },
         }
       : { decision: 'block', reason };
-  return { exitCode: 0, stdout: JSON.stringify(payload) + '\n' };
+  return JSON.stringify(payload) + '\n';
+}
+
+/** Deny via JSON on stdout at exit 0. Empty stdout + exit 0 = allow. */
+function verdict(blocks: Finding[], kind: 'PreToolUse' | 'Stop'): HookResult {
+  if (blocks.length === 0) return { exitCode: 0, stdout: '' };
+  recordDenylog(blocks);
+  const reason = formatDenial(blocks);
+  return { exitCode: 0, stdout: denyWire(reason, kind) };
 }
 
 /** PreToolUse: deny the shortcut before the tool runs. Pure — testable without stdin.
@@ -464,13 +473,25 @@ function sanctionPredictedWrites(cwd: string, sessionId: string | undefined, pol
 }
 
 /** `defaultCwd` stands in for `process.cwd()` when the payload carries no cwd —
- *  the persistent service evaluates on behalf of a client whose cwd is not its own. */
-export function preToolUseVerdict(input: ClaudeHookInput, defaultCwd?: string): HookResult {
+ *  the persistent service evaluates on behalf of a client whose cwd is not its own.
+ *
+ *  `trustedRoot`, when supplied by a runner that HAS an independent trusted repository
+ *  root (the persistent hook service's bound root; a RuntimeAdapter's runner cwd), makes
+ *  the runtime-supplied `input.cwd` a CLAIM validated against it: a claim that resolves to
+ *  a different repository, a non-repository, or a malformed path fails CLOSED (#482 review
+ *  point 5). It is OPTIONAL and defaults to unset — the direct in-loop hook is launched by
+ *  the runtime in the repository it names, so it has no separate anchor, and every existing
+ *  caller passing no `trustedRoot` behaves byte-identically. */
+export function preToolUseVerdict(input: ClaudeHookInput, defaultCwd?: string, trustedRoot?: string): HookResult {
   try {
     // The session's cwd names the repository; the verdict is computed at its ROOT.
     // The policy, the effect snapshot and every disk read are root-relative, so
     // an Edit judged from `packages/x` is the Edit judged from the root (#412).
     const sessionCwd = input.cwd ?? defaultCwd ?? process.cwd();
+    if (trustedRoot !== undefined) {
+      const v = validateClaimAgainstRoot(input.cwd, trustedRoot, defaultCwd ?? process.cwd());
+      if (!v.ok) return failClosed('PreToolUse', `repository identity claim rejected: ${v.rejected}`);
+    }
     const cwd = repoRoot(sessionCwd);
     // First tool call of the session pins the commit the Stop sweep will compare against.
     turnBaseline(cwd, input.session_id);
@@ -599,9 +620,16 @@ function recordObserverHealth(
   }
 }
 
-export function stopVerdict(input: ClaudeHookInput, defaultCwd?: string): HookResult {
+export function stopVerdict(input: ClaudeHookInput, defaultCwd?: string, trustedRoot?: string): HookResult {
   if (input.stop_hook_active) return { exitCode: 0, stdout: '' };
   const sessionCwd = input.cwd ?? defaultCwd ?? process.cwd();
+  // The runtime-supplied cwd is a CLAIM validated against the runner's independently
+  // derived trusted root when one is supplied; a cross-repo/invalid claim fails closed
+  // (#482 review point 5). Unset for the direct hook and every existing caller → no change.
+  if (trustedRoot !== undefined) {
+    const v = validateClaimAgainstRoot(input.cwd, trustedRoot, defaultCwd ?? process.cwd());
+    if (!v.ok) return failClosed('Stop', `repository identity claim rejected: ${v.rejected}`);
+  }
   // "Nothing to compare" and "the comparison failed" must not share a code path: a blanket
   // catch→allow turned a broken policy or a git failure into a silent pass, and a bare
   // `isGitRepo` test allowed a cwd that does not exist or cannot be read exactly as it
@@ -663,17 +691,17 @@ function emit(r: HookResult): number {
 
 /** The whole PreToolUse path from RAW BYTES, so the payload-parsing failures are
  *  reachable from a test without a real stdin. */
-export function preToolUseFromRaw(raw: string, defaultCwd?: string): HookResult {
+export function preToolUseFromRaw(raw: string, defaultCwd?: string, trustedRoot?: string): HookResult {
   try {
-    return preToolUseVerdict(parseInput(raw), defaultCwd);
+    return preToolUseVerdict(parseInput(raw), defaultCwd, trustedRoot);
   } catch (e) {
     return failClosed('PreToolUse', errText(e));
   }
 }
 
-export function stopFromRaw(raw: string, defaultCwd?: string): HookResult {
+export function stopFromRaw(raw: string, defaultCwd?: string, trustedRoot?: string): HookResult {
   try {
-    return stopVerdict(parseInput(raw), defaultCwd);
+    return stopVerdict(parseInput(raw), defaultCwd, trustedRoot);
   } catch (e) {
     return failClosed('Stop', errText(e));
   }
