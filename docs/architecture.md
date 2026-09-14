@@ -1,93 +1,158 @@
 # Tamperward architecture
 
-This page is the component-level map of Tamperward. It complements the lifecycle
-diagram in the README: the README focuses on what happens during
-`tamperward run`; this diagram shows how the local enforcement surfaces,
-trusted base, verification backends, repository authority, and release path fit
-together.
+This page is the component-level map of Tamperward. The README explains the local
+`tamperward run` lifecycle; this page shows how setup, agent steering, local
+adjudication, protected CI, and release fit together.
 
 ## Complete architecture
 
-The diagram is drawn as three lanes. **Steering** and **Verification** run on the
-agent's host, where the agent shares the filesystem with everything that judges
-it; **Authority** runs in protected CI, on the other side of the trust boundary
-(the shaded, dashed lane), and re-runs the same `check` and `verify` against the
-trusted base. `init` writes into all three lanes; `doctor` reads all three.
-Dotted edges are optional or advisory paths.
+The diagram is intentionally read **left to right**. It shows the main decision
+path only; supporting and advisory tools are kept in a separate row so they do
+not obscure the security boundary.
 
-![Tamperward architecture — three lanes (Steering, Verification, Authority) with the Authority lane across a shaded, dashed-red trust boundary](./architecture.svg)
+![Tamperward complete architecture — setup establishes trusted inputs and local wiring; the agent works under in-loop steering; Tamperward adjudicates the candidate locally; protected CI repeats the authoritative checks before merge; release publishes the reviewed main commit](./architecture.svg)
 
-The `ci` edges into `check` and `verify` are the authority argument in one
-picture: the generated workflow runs `doctor`, `check --diff` and
-`verify --require-ancestor` against the pull request's **base** — the same
-commands the local envelope ran, but with inputs the candidate could not have
-written. The `policy → pristine` edge is why a pristine run is different from a
-visible one: the verification surface is restored from the trusted base, not
-read from the candidate tree. There is deliberately no `check → pristine` edge;
-diff-time detection and re-execution are independent layers.
+### How to read it
+
+1. **Setup** — `onboard` guides first use and `init` installs the repository
+   wiring: hooks, the `.tamperward.yml` policy, CI integration, and CODEOWNERS.
+   `init` deliberately does **not** invent a trusted `verify.command`; onboarding
+   saves one only after explicit operator acceptance.
+2. **Agent work** — the coding agent edits the candidate tree. In-loop hooks can
+   deny known weakening operations and detect protected-state drift while work is
+   happening. These hooks steer; they are not the final authority.
+3. **Local adjudication** — `tamperward run` owns the lifecycle boundary. After
+   the agent exits, it independently judges the resulting candidate with
+   `check` and `verify`, then emits one local verdict.
+4. **Repository authority** — protected CI sits across the trust boundary. The
+   pull request runs the workflow on its own head, so authority does not come from
+   the workflow copy being trusted; it comes from the repository rules around it —
+   a required `tamperward` check, Code Owner review, and dismissal of stale
+   approvals — re-adjudicating the candidate against the trusted base.
+5. **Release** — only a commit that reaches protected `main` can enter the
+   release path and become the published npm package.
+
+The green **Trusted inputs** bar is deliberately separate from the candidate
+flow. The core invariant is:
+
+> The agent may author the candidate tree, but it must not choose the trusted
+> baseline, governing policy, verifier, protected workflow, or final repository
+> verdict.
+
+## Why the diagram is shaped this way
+
+The architecture has two different jobs and they should not be confused:
+
+- **Steering** happens while the agent is working. It provides fast feedback and
+  can stop known weakening moves before they land.
+- **Adjudication** happens outside the agent's normal completion path. It asks
+  what actually changed and whether the candidate still passes when trusted
+  verification state is restored.
+
+Local adjudication is valuable because it gives immediate, independent feedback,
+but the **repository authority** is the final merge boundary. A process sharing
+the agent's host and filesystem is not equivalent to protected CI.
+
+Supporting commands such as `doctor`, `hook-service`, `watch`,
+`trace-verify`, and `research` are shown below the primary path because they
+assist setup, observation, diagnosis, or evaluation without being separate
+final-verdict authorities.
 
 ## Trust boundaries
 
-The central rule is that the candidate may control the working tree, but must
-not control the inputs used to judge it.
-
 | Boundary | Trusted input | Candidate-controlled input | Result |
 | --- | --- | --- | --- |
-| In-loop steering | Installed Tamperward wiring and live protected-state reads | Tool-call payload and working tree | Immediate deny or correction signal |
+| In-loop steering | Installed Tamperward wiring and protected-state reads | Tool-call payload and working tree | Immediate deny or correction signal |
 | Local envelope | Entry commit, base policy, verifier definition, lifecycle supervisor | Agent process, exit code, candidate tree | Independent post-exit adjudication |
 | Verification | Base-restored protected files and trusted command definition | Candidate implementation and runtime effects | Visible/pristine outcome |
-| Repository authority | Protected workflow and branch rules | Pull request contents and proposed commit | Merge allowed or refused |
-| Release | Reviewed main commit and trusted publishing identity | Version metadata within the reviewed commit | Published package or failed release |
+| Repository authority | Protected workflow, required checks, branch rules | Pull request contents and proposed commit | Merge allowed or refused |
+| Release | Reviewed commit on protected `main` and trusted publishing identity | Version metadata within that reviewed commit | Published package or failed release |
 
-## Data flow
+## Main data flow
 
-1. `init` installs the supported enforcement surfaces in every lane: the Claude
-   hook wiring (Steering), the committed `.tamperward.yml` policy and verifier
-   definition (Verification), and the protected workflow (Authority). `onboard`
-   is the guided first run around `init` and `doctor`.
-2. `doctor` reads all three lanes — hook wiring, the trusted base policy and the
-   workflow — and reports posture; the generated workflow runs it before
-   verification, and it is a report, not a verdict.
-3. Hooks provide fast feedback while the agent works: `tamperward hook` reads a
-   live protected-tree snapshot and denies or allows each tool call, and the
-   Stop hook sweeps the turn's net changes. The opt-in `hook-service` evaluates
-   the same payloads from a warm process; `tamperward watch` is an optional
-   observer whose only consumer is the Stop sweep. None of this is the final
-   authority.
-4. `run` freezes the entry state and trusted policy, supervises the agent, then
-   adjudicates the released tree with `check` and `verify` and reports a local
-   verdict as an exit code and JSON.
-5. `check` evaluates committed and worktree changes. `verify` runs the candidate
-   as it stands (visible) and a copy whose verification surface is restored from
-   the trusted base (pristine). `trace-verify` observes what the verifier reads
-   and proposes `verify.inputs` entries for human review; it edits nothing.
-   `research` adjudicates both arms of a paired evaluation with the same `check`
-   and `verify` primitives.
-6. Protected CI runs the same `doctor`, `check --diff` and `verify` against the
-   trusted base, and the required gate, branch protection rules and CODEOWNERS
-   decide what reaches `main`.
-7. The release workflow publishes only the reviewed version from `main`, then
-   records it with a tag and GitHub release.
+### 1. Establish the trusted starting point
+
+`init` writes the supported enforcement surfaces: local hook wiring, the
+committed `.tamperward.yml` policy (its verifier command is left unset — `init`
+never invents a trusted `verify.command`; `onboard` saves one only after explicit
+operator acceptance), the repository workflow, and CODEOWNERS. `onboard` is the
+guided path around setup and posture checks.
+
+At the start of an adjudicated run, Tamperward freezes the entry state used as
+the trusted reference. Candidate changes are judged *against* that state; they
+do not redefine it.
+
+### 2. Steer the agent while it works
+
+Supported hooks call `tamperward hook` for live decisions. The Stop hook sweeps
+the turn's net changes. The optional `hook-service` can evaluate the same hook
+payloads from a warm process, and `tamperward watch` can observe transient
+filesystem activity.
+
+These surfaces reduce the chance of a weakening move surviving, but they are
+not relied on as the final proof of integrity.
+
+### 3. Adjudicate the released candidate
+
+`tamperward run` supervises the agent lifecycle and then evaluates the state
+left behind.
+
+- `check` evaluates committed and worktree changes for protected weakening
+  classes.
+- `verify` runs the candidate visibly and again with the protected
+  verification surface restored from the trusted base.
+- ancestry, dependency, and quiescence checks protect the adjudication boundary
+  itself.
+
+Those signals converge on one local exit verdict and machine-readable report.
+
+### 4. Re-adjudicate in protected CI
+
+The generated repository workflow repeats the relevant posture, diff, and
+verification checks against the trusted base. A pull request runs that workflow
+from its own head and a required check is matched by job name, so the workflow
+copy is not intrinsically trusted; the authority is the repository rules around
+it — the required `tamperward` status check, Code Owner review (CODEOWNERS over
+the gate-critical paths), and dismissal of stale approvals when new commits are
+pushed. Those three controls, enforced by branch protection, decide whether the
+candidate may reach `main`.
+
+This is the key authority separation: the pull request proposes code, but it
+does not get to replace the protected rules that decide whether that proposal is
+accepted.
+
+### 5. Release reviewed `main`
+
+The release workflow runs on pushes to protected `main`, but publishes only
+when the reviewed package version is not already on the registry; an ordinary
+merge that does not change the version is a no-op. When it does publish, it
+records the release and tag using the trusted publishing path.
+
+## Supporting tools
+
+These commands are intentionally outside the main arrow path in the diagram:
+
+| Tool | Role |
+| --- | --- |
+| `doctor` | Reports repository posture and wiring. A diagnosis, not a verdict. |
+| `hook-service` | Optional warm evaluator for supported hook payloads. |
+| `watch` | Optional observer for transient protected-state mutations. |
+| `trace-verify` | Observes verifier reads and proposes `verify.inputs` entries for human review; it does not edit policy. |
+| `research` | Runs paired evaluations using the same underlying `check` and `verify` primitives. |
 
 ## Compatibility
 
-The diagram on this page is a standalone, dependency-free SVG
-(`architecture.svg`) referenced as a Markdown image, rather than a fenced
-Mermaid block:
+The architecture is a standalone, dependency-free SVG
+(`architecture.svg`) referenced as a Markdown image rather than an inline
+Mermaid graph.
 
-- it renders identically on GitHub, the VitePress documentation site, Markdown
-  previewers, and older browser clients, because no Mermaid runtime has to be
-  present or on a compatible version to draw it;
-- GitHub's Markdown sanitiser strips inline `<svg>`, so the diagram is a linked
-  file (`![...](./architecture.svg)`) that GitHub serves as an image, VitePress
-  serves as a static asset, and previewers display directly;
-- the file is self-contained — a `viewBox` with a generic system-font stack, no
-  external fonts, scripts, or references — with a `role="img"`, `<title>`, and
-  `<desc>` for accessibility, so it degrades gracefully everywhere;
-- the three lanes, every node and edge, the solid-versus-dotted edge meaning,
-  and the shaded dashed-red trust boundary around the Authority lane are drawn
-  explicitly, so the picture is exactly what ships rather than what a given
-  renderer happens to produce.
+That keeps the same layout on GitHub, the VitePress documentation site, Markdown
+previewers, and older browser clients without depending on a Mermaid runtime.
+The SVG is self-contained, uses a generic system-font stack, has no scripts or
+external assets, and includes `<title>` / `<desc>` accessibility text.
 
-The lifecycle diagram in the README still uses conservative Mermaid syntax; this
-note applies only to this page's architecture diagram.
+The diagram deliberately avoids encoding every implementation relationship as an
+arrow. Only the primary security flow and trusted-input feeds are connected;
+secondary tools are grouped separately. Detailed lifecycle mechanics remain in
+the README's local enforcement diagram and the implementation/specification
+docs.
