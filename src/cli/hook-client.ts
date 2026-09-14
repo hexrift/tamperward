@@ -20,9 +20,13 @@
 //   - the service answers on a different protocol, or is a different TamperWard
 //     version from the client (the pinned hook command decides the version, not
 //     whatever process happens to be listening);
-//   - the service refuses the request (a cwd outside the repository it was
-//     started for), does not answer in time, or answers something that is not a
-//     HookResult.
+//   - the service refuses the request before accepting ownership (for example a
+//     cwd outside the bound repository), or cannot be reached at all.
+//
+// Once the service ACKS `accepted: true`, fallback is deliberately no longer
+// allowed: it may already be mutating the session baseline/ptree/cursor state.
+// A timeout, disconnect or malformed final response after that ACK is returned
+// as a fail-closed HookResult so there is still exactly one authority evaluation.
 //
 // Trust argument, stated once. The service runs as the same uid as the hook and
 // as the candidate; a same-uid candidate could stop it and start something else
@@ -233,10 +237,10 @@ function acceptedFailureResult(kind: HookKind, failure: string): HookResult {
 }
 
 /**
- * The verdict the service gives `raw`, or null when the in-process gate must
- * decide instead. A HookResult here was produced by the same preToolUseFromRaw /
- * stopFromRaw the in-process path runs, inside the service; the client relays
- * it byte for byte.
+ * The verdict the service gives `raw`, or null only while it is still safe for
+ * the in-process gate to decide instead (the service has not accepted ownership).
+ * After acceptance, transport failure becomes a synthetic fail-closed HookResult
+ * rather than a concurrent retry. Normal HookResults are still relayed byte for byte.
  */
 export async function requestVerdict(kind: HookKind, raw: string, opts: RequestOptions = {}): Promise<HookResult | null> {
   const paths = opts.paths === undefined ? servicePaths() : opts.paths;
