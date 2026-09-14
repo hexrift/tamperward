@@ -271,6 +271,7 @@ before the wrapped command.
 | `verify` | `--base <rev>` (default `HEAD`) · `--cmd <suite command>` · `--budget <seconds>` · `--json` · `--keep` (keep the two materialised copies and report their paths) · `--require-ancestor` · `--cwd <dir>` |
 | `trace-verify` | Linux-only advisory discovery: `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` · `--runs <N>` (default 2) · `--json` · `--cwd <dir>` |
 | `run` | `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` · `--allow-dirty` · `--settle <seconds>` · `--allow-dep-drift` · `--cwd <dir>` · then `-- <agent command...>` |
+| `stats` | `--file <audit.jsonl>` · `--since <30d|12h|90m|ISO-time>` · `--json` · `--cwd <dir>` — see [Audit history & stats](./audit.md) |
 | `allow` | `<rule>` · `--file <path>` · `--reason "<why>"` (required) · `--cwd <dir>` |
 | `init` | `--cwd <dir>` · `--dry-run` · `--force-workflow` |
 | `onboard` | `--cwd <dir>` · `--base <rev>` · `--repo <owner/repo>` · `--branch <name>` · `--skip-demo` / `--demo` · `--no-github` · `--yes` · `--verify-command "<suite command>"` |
@@ -286,6 +287,7 @@ Exit codes are part of the public surface:
 | `verify` | `VERIFIED`, or a `MASKED_FAILURE` cleared by an out-of-band `verify@<head-sha>` approval | `MASKED_FAILURE` or `SUITE_RED` | cannot verify — fails closed |
 | `trace-verify` | every requested trace run completed green | one or more traced verifier runs were non-zero/incomplete; report still emitted | unsupported platform, missing tooling, bad trusted base/policy/options, or tracing failure |
 | `run` | enforcement clean and the agent exited 0 (a non-zero agent exit is passed through) | any blocking finding or masked failure | cannot adjudicate |
+| `stats` | audit events validated and summary printed | — | explicit file missing, malformed/unknown event, bad `--since`, or no default store can be resolved |
 | `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0 | — | only for an unsupported agent name |
 | `hook-service` | started, stopped (or nothing to stop), or status printed | — | unsupported platform (Windows), a runtime directory another uid owns, or a service already listening |
 | `allow` | sign-off recorded | — | no rule or `--reason`, not a git repo, or no current blocking finding to sign off |
@@ -293,7 +295,7 @@ Exit codes are part of the public surface:
 | `onboard` | posture `READY` or `READY WITH WARNINGS` | posture `BROKEN` or `INCOMPLETE` (a declined write or an unconfigured verifier included) | refused — not a git repository, non-interactive stdin without `--yes`, a dirty tree not continued — or aborted at a prompt |
 
 The variables the gate reads — `TAMPERWARD_OOB_SIGNOFF`, `TAMPERWARD_OOB_HEAD`,
-`TAMPERWARD_DENYLOG`, `TAMPERWARD_FSEVENTS`, `TAMPERWARD_HOOK_SERVICE`,
+`TAMPERWARD_DENYLOG`, `TAMPERWARD_AUDIT_LOG`, `TAMPERWARD_FSEVENTS`, `TAMPERWARD_HOOK_SERVICE`,
 `TAMPERWARD_HOOK_SERVICE_DIR`, `TAMPERWARD_WATCH_NO_RECURSIVE`,
 `TAMPERWARD_TRANSIENT`, `NO_COLOR`, `FORCE_COLOR`, `GITHUB_ACTIONS` — are listed on
 the [environment variables](./environment.md) page.
