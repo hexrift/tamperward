@@ -8,7 +8,7 @@
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -251,6 +251,28 @@ describe('verifier configuration is explicit', () => {
     expect(before()).toBe(written);
     expect(loadPolicy(d).verify?.command).toBeUndefined();
     expect(s.out).toMatch(/verify\.command (was )?not (written|configured)/);
+  });
+
+  it('refuses a symlink policy instead of writing through it to operator state', async () => {
+    const d = repo();
+    expect(runInit({ cwd: d })).toBe(0);
+    const outside = mkdtempSync(join(tmpdir(), 'tw-onboard-outside-policy-'));
+    dirs.push(outside);
+    const sentinel = join(outside, 'policy.yml');
+    const original = 'version: 1\n# operator-owned sentinel\n';
+    writeFileSync(sentinel, original);
+    rmSync(join(d, '.tamperward.yml'));
+    symlinkSync(sentinel, join(d, '.tamperward.yml'));
+
+    // Stub init because this test is specifically the onboarding-owned verifier
+    // write boundary; no earlier primitive gets a chance to alter the symlink.
+    const s = await onboard(d, ['y', 'y'], { noGithub: true, skipDemo: true }, {
+      runners: { init: () => 0 },
+    });
+
+    expect(readFileSync(sentinel, 'utf8')).toBe(original);
+    expect(s.out).toMatch(/verify\.command was not written/);
+    expect(s.out).toMatch(/not a regular file|symlink/i);
   });
 });
 
@@ -564,6 +586,34 @@ describe('the safe demo', () => {
     const s = await onboard(d, ['y', 'y', 'y', 'n', 'y'], { noGithub: true });
     expect(s.out).toMatch(/no commit/i);
     expect(s.out).not.toMatch(/BLOCK\s+test-skip/);
+  });
+
+  it('never selects a test-shaped symlink whose write would escape the disposable worktree', async () => {
+    const d = repo();
+    // Leave no ordinary JS test block for the demo, then add the exact shape
+    // that used to be exploitable: the symlink blob begins with "it(", while
+    // following it reaches an external sentinel through a second tracked link.
+    writeFileSync(join(d, 'test', 'check.test.js'), "require('../src.js');\n");
+    const outside = mkdtempSync(join(tmpdir(), 'tw-onboard-outside-demo-'));
+    dirs.push(outside);
+    const sentinel = join(outside, 'sentinel');
+    const original = 'operator-owned\n';
+    writeFileSync(sentinel, original);
+    symlinkSync(outside, join(d, 'test', 'it('));
+    symlinkSync('it(/sentinel', join(d, 'test', 'evil.test.js'));
+    git(d, 'add', '-A');
+    git(d, 'commit', '-qm', 'symlink-shaped test');
+
+    const s = await onboard(
+      d,
+      [],
+      { noGithub: true, yes: true, verifyCommand: 'npm test', demo: true },
+      { runners: { verify: () => 0 } },
+    );
+
+    expect(readFileSync(sentinel, 'utf8')).toBe(original);
+    expect(s.out).toMatch(/no JavaScript test block .*to demonstrate/i);
+    expect(s.out).not.toMatch(/weakening move: test\/evil\.test\.js/);
   });
 });
 
