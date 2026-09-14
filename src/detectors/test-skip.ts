@@ -47,6 +47,54 @@ const acc = (names: string): string =>
 const JS_RUNNER = '\\b(?:it|test|describe|suite)';
 const JS_MOD = 'concurrent|sequential|shuffle|serial|parallel'; // it.concurrent.skip, describe.serial.only
 
+// ── #441 · Go any-receiver Skip and pytest conftest hooks ─────────────────────
+// Kept as their own constants so the language rows below stay one spread each.
+//
+// Go: `testing.TB` is passed around under any name (`tb`, `tt` for a subtest,
+// `testingT`), and testify reaches the runner through `s.T()`. The one-letter
+// receiver `\b[tb]\.` left every other spelling silent.
+const GO_SKIP_PATTERNS: Pattern[] = [
+  { re: /\b\w+\.Skip(?:f|Now)?\(/, why: 'a runtime t.Skip()/Skipf()/SkipNow() call' },
+  { re: /\bT\(\)\.Skip(?:f|Now)?\(/, why: 'a runtime T().Skip()/Skipf()/SkipNow() call (testify suite)' },
+];
+// pytest: a conftest.py is a protected test file and these hooks are how a suite is
+// narrowed or its verdict rewritten without a marker ever appearing in a test:
+// `pytest_collection_modifyitems` filters `items` or marks them, `pytest_pycollect_makeitem`
+// decides what becomes a test at all, and a `pytest_runtest_makereport` hookwrapper can
+// set `rep.outcome = 'passed'` on a failed call. `add_marker(mark.skip)` is the
+// programmatic decorator; `sk = pytest.mark.skip` then `@sk` is the aliased one.
+const PY_MARK = '(?:\\w+\\.)?mark\\.(?:skip|skipif|xfail)\\b';
+const PY_CONFTEST_PATTERNS: Pattern[] = [
+  { re: /\bdef\s+pytest_collection_modifyitems\s*\(/, why: 'a pytest_collection_modifyitems hook (collected tests are filtered or marked before they run)' },
+  { re: /\bdef\s+pytest_pycollect_makeitem\s*\(/, why: 'a pytest_pycollect_makeitem hook (what counts as a test is decided here)' },
+  { re: /\bdef\s+pytest_runtest_makereport\s*\(/, why: 'a pytest_runtest_makereport hook (the test report can be rewritten)' },
+  { re: new RegExp('\\.add_marker\\(\\s*' + PY_MARK), why: 'an add_marker(mark.skip/skipif/xfail) call (the test is skipped programmatically)' },
+  { re: new RegExp('^\\s*\\w+\\s*=\\s*' + PY_MARK), why: 'a skip/skipif/xfail marker bound to a name (an aliased decorator)' },
+  { re: /\b\w+\.outcome\s*=\s*['"](?:passed|skipped)['"]/, why: 'a report outcome rewritten to passed/skipped' },
+];
+// An alias bound earlier (`sk = pytest.mark.skip`) makes a later `@sk` the marker.
+const PY_MARK_ALIAS = new RegExp('^\\s*(\\w+)\\s*=\\s*' + PY_MARK, 'gm');
+const PY_DECORATOR = /^\s*@(\w+)\s*(?:\(|$)/;
+/** Names bound to a pytest skip marker anywhere in `source` (the AFTER file, or the added lines). */
+function pyMarkAliases(source: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of source.matchAll(PY_MARK_ALIAS)) out.add(m[1]);
+  return out;
+}
+/** Added lines that decorate with an aliased skip marker, as [line number, evidence]. */
+function pyAliasDecoratorHits(c: FileChange): Array<{ line: number | undefined; evidence: string }> {
+  const added = addedLines(c);
+  const aliases = pyMarkAliases(c.after ?? added.map((l) => l.content).join('\n'));
+  if (aliases.size === 0) return [];
+  const hits: Array<{ line: number | undefined; evidence: string }> = [];
+  for (const l of added) {
+    const m = PY_DECORATOR.exec(l.content);
+    if (m && aliases.has(m[1])) hits.push({ line: l.newLine ?? undefined, evidence: l.content.trim() });
+  }
+  return hits;
+}
+// ── end #441 ──────────────────────────────────────────────────────────────────
+
 const PATTERNS: Record<Lang, Pattern[]> = {
   js: [
     // The skip/only/todo family on a runner, by dot-or-bracket access, with one optional
@@ -91,9 +139,11 @@ const PATTERNS: Record<Lang, Pattern[]> = {
     { re: /\bself\.skipTest\(/, why: 'a runtime self.skipTest() call' },
     { re: /\braise\s+(?:unittest\.)?SkipTest\b/, why: 'a raised SkipTest' },
     { re: /\b__test__\s*=\s*False\b/, why: '__test__ = False hides the test from collection' },
+    ...PY_CONFTEST_PATTERNS, // #441
   ],
   go: [
-    { re: /\b[tb]\.Skip(?:f|Now)?\(/, why: 'a runtime t.Skip()/Skipf()/SkipNow() call' },
+    ...GO_SKIP_PATTERNS, // #441: any receiver, and testify's T()
+
     { re: /\bif\s+testing\.Short\(\)/, why: 'a testing.Short() guard (the body is skipped under -short)' },
     { re: /^\s*\/\/\s*(?:go:build|\+build)\s+ignore\b/, why: 'a build-ignore constraint (the file is excluded from the test run)', comment: true },
   ],
@@ -1018,6 +1068,23 @@ export const testSkip: Detector = {
               file: c.path,
               line: hit.line,
               message: `Test skipped or narrowed: ${hit.why}.`,
+              evidence: hit.evidence,
+              remediation:
+                'Make the test pass rather than skipping it. If it is genuinely obsolete, a human must sign off.',
+            }),
+          );
+        }
+      }
+
+      // #441: `@sk` where `sk = pytest.mark.skip` was bound in the file or the change.
+      if (lang === 'py') {
+        for (const hit of pyAliasDecoratorHits(c)) {
+          if (hit.line != null) astHitLines.add(hit.line);
+          out.push(
+            makeFinding(RULE, policy, {
+              file: c.path,
+              line: hit.line,
+              message: 'Test skipped or narrowed: a decorator aliasing a pytest skip/skipif/xfail marker.',
               evidence: hit.evidence,
               remediation:
                 'Make the test pass rather than skipping it. If it is genuinely obsolete, a human must sign off.',
