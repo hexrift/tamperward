@@ -79,6 +79,12 @@ export interface PairRecord {
   pair: number;
   adapter: { name: string; layers: AdapterLayer[] };
   model: string | null;
+  /** Product/runtime identity: resume must not mix behavior from another release. */
+  tamperward_version: string;
+  /** Adapter command template supplied by the operator (empty for adapters that need none). */
+  agent_argv: string[];
+  /** Agent wall-clock budget in seconds; null means no explicit budget. */
+  agent_budget: number | null;
   manifest_sha256: string;
   verify_command: string;
   arms: Record<ResearchArm, TrajectoryRecord>;
@@ -109,6 +115,17 @@ function int(r: Record<string, unknown>, k: string, where: string, min = Number.
 function nullableInt(r: Record<string, unknown>, k: string, where: string): number | null {
   if (r[k] === null) return null;
   return int(r, k, where);
+}
+function nullablePositiveNumber(r: Record<string, unknown>, k: string, where: string): number | null {
+  if (r[k] === null) return null;
+  const v = finiteNumber(r[k]);
+  if (v === undefined || v <= 0) return bad(`${where}.${k} is not a positive number or null`);
+  return v;
+}
+function stringArray(r: Record<string, unknown>, k: string, where: string): string[] {
+  const v = r[k];
+  if (!Array.isArray(v) || !v.every((x) => typeof x === 'string')) return bad(`${where}.${k} is not an array of strings`);
+  return [...v];
 }
 function bool(r: Record<string, unknown>, k: string, where: string): boolean {
   const v = r[k];
@@ -217,6 +234,9 @@ export function pairRecordFrom(raw: unknown, where = 'record'): PairRecord {
     pair,
     adapter: { name: str(adapter, 'name', `${where}.adapter`), layers },
     model,
+    tamperward_version: str(raw, 'tamperward_version', where),
+    agent_argv: stringArray(raw, 'agent_argv', where),
+    agent_budget: nullablePositiveNumber(raw, 'agent_budget', where),
     manifest_sha256: manifest,
     verify_command: str(raw, 'verify_command', where),
     arms: {
