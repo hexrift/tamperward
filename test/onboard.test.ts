@@ -347,6 +347,60 @@ describe('dirty working tree', () => {
   });
 });
 
+describe('installed dependency hygiene', () => {
+  it('wires node_modules into .gitignore before the first git add', async () => {
+    const d = repo({ commit: false });
+    mkdirSync(join(d, 'node_modules', 'dep'), { recursive: true });
+    writeFileSync(join(d, 'node_modules', 'dep', 'index.js'), '// eslint-disable-next-line no-new\n');
+
+    const s = await onboard(d, ['y', 'n', ''], { noGithub: true, skipDemo: true });
+
+    expect(s.out).toMatch(/ADD\s+Git ignore\s+\.gitignore/);
+    expect(readFileSync(join(d, '.gitignore'), 'utf8')).toContain('node_modules/');
+    expect(s.out).toMatch(/NEXT\s+Commit repository setup files:.*\.gitignore/);
+
+    git(d, 'add', '.');
+    expect(git(d, 'ls-files', '--cached', '--', 'node_modules')).toBe('');
+    expect(git(d, 'status', '--porcelain', '--', 'node_modules')).toBe('');
+  });
+
+  it('the real CLI path stays green after onboard -> git add . on an unborn Node repo', async () => {
+    const d = repo({ commit: false });
+    mkdirSync(join(d, 'node_modules', 'dep'), { recursive: true });
+    writeFileSync(
+      join(d, 'node_modules', 'dep', 'index.js'),
+      '// eslint-disable-next-line no-new\nconst x = value as unknown as Thing;\n',
+    );
+
+    const so = process.stdout.write;
+    const se = process.stderr.write;
+    let out = '';
+    let err = '';
+    process.stdout.write = ((chunk: unknown) => { out += String(chunk); return true; }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: unknown) => { err += String(chunk); return true; }) as typeof process.stderr.write;
+    try {
+      const onboardCode = await guardedMain([
+        'onboard', '--yes', '--cwd', d, '--verify-command', 'npm test', '--skip-demo', '--no-github',
+      ]);
+      expect(onboardCode).toBe(0);
+      expect(out).toMatch(/Git ignore\s+\.gitignore/);
+
+      git(d, 'add', '.');
+      expect(git(d, 'ls-files', '--cached', '--', 'node_modules')).toBe('');
+
+      out = '';
+      err = '';
+      const checkCode = await guardedMain(['check', '--staged', '--cwd', d]);
+      expect(checkCode).toBe(0);
+      expect(out).not.toMatch(/node_modules/);
+      expect(out).not.toMatch(/BLOCK/);
+      expect(err).toBe('');
+    } finally {
+      process.stdout.write = so;
+      process.stderr.write = se;
+    }
+  });
+});
 describe('first commit guidance', () => {
   it('does not mislabel an unborn repository as a dirty working tree or ask to continue', async () => {
     const d = repo({ commit: false });

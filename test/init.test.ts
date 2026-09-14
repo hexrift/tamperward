@@ -4,6 +4,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -126,6 +127,59 @@ describe('fresh repo', () => {
   });
 });
 
+describe('dependency-tree repository hygiene', () => {
+  it('adds node_modules/ to .gitignore when installed dependencies are present but unignored', () => {
+    const d = repo();
+    mkdirSync(join(d, 'node_modules', 'dep'), { recursive: true });
+    writeFileSync(join(d, 'node_modules', 'dep', 'index.js'), '// eslint-disable-next-line no-new\n');
+
+    const action = planInit(d).find((a) => a.item === 'gitignore')!;
+    expect(action.status).toBe('create');
+    expect(action.detail).toMatch(/exclude installed Node dependencies/);
+    action.apply?.();
+
+    expect(readFileSync(join(d, '.gitignore'), 'utf8')).toBe('node_modules/\n');
+    expect(statuses(d).gitignore).toBe('ok');
+  });
+
+  it('appends without clobbering an existing .gitignore', () => {
+    const d = repo();
+    mkdirSync(join(d, 'node_modules'), { recursive: true });
+    writeFileSync(join(d, '.gitignore'), 'dist/\n# keep this comment\n');
+
+    const action = planInit(d).find((a) => a.item === 'gitignore')!;
+    expect(action.status).toBe('update');
+    action.apply?.();
+    expect(readFileSync(join(d, '.gitignore'), 'utf8')).toBe('dist/\n# keep this comment\nnode_modules/\n');
+  });
+
+  it('does not hide node_modules once the repository has chosen to track it', () => {
+    const d = repo();
+    execFileSync('git', ['init', '-q'], { cwd: d });
+    mkdirSync(join(d, 'node_modules', 'dep'), { recursive: true });
+    writeFileSync(join(d, 'node_modules', 'dep', 'index.js'), 'tracked\n');
+    execFileSync('git', ['add', 'node_modules/dep/index.js'], { cwd: d });
+
+    const action = planInit(d).find((a) => a.item === 'gitignore')!;
+    expect(action.status).toBe('skip');
+    expect(action.detail).toMatch(/already tracked\/staged/);
+    expect(action.apply).toBeUndefined();
+    expect(existsSync(join(d, '.gitignore'))).toBe(false);
+  });
+
+  it('respects an explicit node_modules negation instead of overriding repository intent', () => {
+    const d = repo();
+    mkdirSync(join(d, 'node_modules'), { recursive: true });
+    writeFileSync(join(d, '.gitignore'), 'node_modules/*\n!node_modules/vendor-patch/\n');
+
+    const before = readFileSync(join(d, '.gitignore'), 'utf8');
+    const action = planInit(d).find((a) => a.item === 'gitignore')!;
+    expect(action.status).toBe('skip');
+    expect(action.detail).toMatch(/explicit node_modules negation/);
+    action.apply?.();
+    expect(readFileSync(join(d, '.gitignore'), 'utf8')).toBe(before);
+  });
+});
 describe('merging, never clobbering', () => {
   it('preserves existing settings.json content and hooks', () => {
     const d = repo();

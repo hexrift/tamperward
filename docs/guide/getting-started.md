@@ -14,10 +14,13 @@ It has five sections:
    macOS the message is simply that `check` + local `verify` work while the
    lifecycle-owning `run` envelope requires Linux; the low-level subreaper/ECHILD
    explanation stays in `doctor`, where it belongs.
-2. **Local protection** — one compact line each for policy, Claude hooks, pre-commit,
-   CI and CODEOWNERS. The plan is still the canonical `init` plan; Enter applies the
-   displayed non-destructive changes. No second copy of init's long explanation is
-   printed inside onboarding.
+2. **Local protection** — compact lines for policy, Claude hooks, pre-commit,
+   CI and CODEOWNERS, plus a `Git ignore` item when an installed `node_modules/`
+   tree would otherwise be staged as repository source. The plan is still the
+   canonical `init` plan; Enter applies the displayed non-destructive changes.
+   Existing `.gitignore` content is preserved, and TamperWard does not hide a
+   `node_modules` tree that is already tracked/staged or explicitly re-included.
+   No second copy of init's long explanation is printed inside onboarding.
 3. **Verification** — choose the test command TamperWard should trust, optionally run
    the first visible/pristine verification, and optionally run the disposable-worktree
    demo. The verifier is never inferred silently: a detected command still needs
