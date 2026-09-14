@@ -840,7 +840,12 @@ const isHuskyScript = (path: string): boolean => /(?:^|\/)\.husky\/[^/]+$/.test(
 /** A file in a hooks directory that nothing executes or sources: notes and git's
  *  own dotfiles. Everything else a `protected.hooks` glob matches is a script, or
  *  something a script reads, and is held byte-for-byte. */
-const isHookNote = (path: string): boolean => /\.(?:md|markdown|txt)$|(?:^|\/)\.git(?:ignore|attributes)$/i.test(path);
+// A note or git dotfile is benign — but only OUTSIDE `.husky/_/`. A `.gitignore`
+// or `.gitattributes` inside husky's runtime directory that is not husky's own
+// exact write (recognised by huskyRuntimeWrite above) is a runtime tamper and
+// stays blocked; only the top-level `.husky/.gitignore` and ordinary notes are silent.
+const isHookNote = (path: string): boolean =>
+  !/(?:^|\/)\.husky\/_\//.test(path) && /\.(?:md|markdown|txt)$|(?:^|\/)\.git(?:ignore|attributes)$/i.test(path);
 
 export const hookTampering: Detector = {
   id: RULE,

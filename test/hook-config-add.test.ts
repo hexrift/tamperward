@@ -57,7 +57,6 @@ describe('1 · an added YAML config or note under protected.hooks is not judged 
 
   it.each([
     ["husky's own .husky/.gitignore", '.husky/.gitignore', HUSKY_GITIGNORE],
-    ['.husky/_/.gitignore', '.husky/_/.gitignore', '*\n'],
     ['.husky/.gitattributes', '.husky/.gitattributes', '* text=auto\n'],
     ['.husky/README.md', '.husky/README.md', '# hooks\n\nRun `npm install` to wire them.\n'],
     ['.husky/NOTES.txt', '.husky/NOTES.txt', 'pre-commit runs the gate\n'],
