@@ -5,6 +5,20 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.3] — 2026-09-14
+
+### Fixed
+
+- **Claude adapter ignored `Edit`/`MultiEdit` `replace_all`** (#418). `applyEdit` modelled a
+  single replacement even when `replace_all: true`, so the PreToolUse layer's predicted
+  write (and the hash `sanctionPredictedWrites` records) was smaller than what the tool
+  writes to disk — the next call re-judged via drift and threshold-based rules saw less
+  than actually landed. `replace_all` now rewrites every occurrence (a function replacer
+  keeps `$&`/`$1`/`` $` `` literal); the unique-match single path is unchanged. A new
+  `test/claude-payload-corpus.test.ts` pins the projected `Change[]` for each recorded
+  tool/mode shape (Write, Edit, Edit replace_all, MultiEdit, NotebookEdit insert/replace/
+  delete) so weaker modelling of a future field surfaces as a test failure.
+
 ## [2.29.2] — 2026-09-14
 
 ### Fixed
