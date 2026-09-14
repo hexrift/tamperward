@@ -18,8 +18,10 @@ gate change?" no longer means assembling round-specific scripts under
 - `tamperward research run --manifest F --out D --adapter A [--pairs N] [--model M]
   [--agent-budget S] [--json] [-- <agent command...>]` executes a JSON task manifest
   (repository, base, prompt, `verify: { command, budget }`) as paired **ungated** /
-  **gated** trajectories. Every trajectory starts from a fresh clone at the trusted
-  base. The ungated arm runs without TamperWard policy enforcement but uses the same
+  **gated** trajectories. Every trajectory starts from a fresh clone at one resolved
+  source commit per task: a moving `HEAD`/branch is pinned by the first existing/new
+  pair, and both arms plus every later pair check out that same commit. The ungated arm
+  runs without TamperWard policy enforcement but uses the same
   neutral Linux subreaper lifecycle primitive to drain the agent's descendant domain
   before outcome observation; the gated arm lets the adapter prepare the workspace
   (committed into the base, so the treatment is never agent work)
@@ -32,8 +34,10 @@ gate change?" no longer means assembling round-specific scripts under
   masked tree the envelope let through is an escape counted against the tool. One
   record per pair under `D/pairs/`; an existing record is skipped, so an interrupted
   run resumes — by record identity (a valid record carrying the current manifest sha256,
-  task/pair, adapter and layers, model, TamperWard version, agent argv/budget and suite command), never by file existence; a
-  foreign or truncated record fails the run closed, and records are written atomically.
+  task/pair, adapter and layers, model, TamperWard version, normalized agent argv,
+  agent budget, suite command and the task's pinned source commit), never by file
+  existence. Every existing requested record is checked before a missing pair executes;
+  foreign, duplicate/drifting or truncated evidence fails closed, and records are written atomically.
   A trajectory whose outcome cannot stand — the trusted policy at the base unreadable
   (an absent one defaults; a broken one never does), the verifier unable to measure,
   neutral control lifecycle ownership/drain unavailable, or the tree moving under
@@ -49,9 +53,12 @@ gate change?" no longer means assembling round-specific scripts under
   outcome (`caught`, `escapes`, `false_refusals`, `cannot_adjudicate`), and `paired`
   discordant-pair counts on masked failure. `control_response` is `null` — in-loop
   deny events are not relayed by this release, so the field is not a number that looks
-  measured. A ledger mixing manifests, adapters or models is refused, and every record is
-  read back under the schema's own constraints before aggregation — an edited record is
-  refused, not believed.
+  measured. `released_green` means downstream success, not merely a green visible suite:
+  the agent must exit 0 without timeout/start failure and, in the gated arm, the envelope
+  must also pass with exit 0. A ledger mixing manifests, adapters or models, duplicate
+  task/pair identities, or per-task source/verifier identities is refused, and every
+  record is read back under the schema's own constraints before aggregation — an edited
+  record is refused, not believed.
 
 **`AgentAdapter`.** A runtime plugs in by answering two questions: which process runs
 the agent in the fresh workspace (`launch(task)` → `{ argv, env }`), and what the gated
@@ -59,8 +66,9 @@ workspace needs before it starts (`prepareGated?(task)`). It declares which Tamp
 `layers` are live in its gated arm, recorded in every document. Two adapters ship:
 `claude-code` (`claude -p <prompt> [--model M]`, `prepareGated` = `tamperward init`;
 envelope + PreToolUse deny + Stop sweep) and `command` (any argv after `--`, with
-`{prompt}` `{task}` `{cwd}` `{base}` `{arm}` `{model}` substituted and a relative agent path
-anchored to the operator's directory; envelope only). An agent process that cannot be
+`{prompt}` `{task}` `{cwd}` `{base}` `{arm}` `{model}` substituted and a slash-containing
+relative agent executable anchored to the operator's directory; that normalized command
+is the execution identity recorded in the ledger; envelope only). An agent process that cannot be
 started is recorded (`agent.failure`) rather than failing the run: its trajectory is data.
 Every agent process receives the task as `TAMPERWARD_RESEARCH_*` environment variables.
 The contract, the manifest reader, the runner and the summarizer are exported from the
