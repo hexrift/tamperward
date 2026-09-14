@@ -130,39 +130,37 @@ describe('happy path', () => {
     expect(s.err).toBe('');
     expect(s.out).toContain(`v${TW_VERSION}`);
     expect(s.out).toMatch(/1\/5\s+Environment/);
-    // Preview came from the init planner (dry-run rows), then explanations, then the write.
-    expect(s.out).toMatch(/would create\s+\.tamperward\.yml/);
-    expect(s.out).toMatch(/5 change\(s\) applied/);
+    // The canonical init plan is rendered compactly, then applied silently.
+    expect(s.out).toMatch(/ADD\s+Policy\s+\.tamperward\.yml/);
+    expect(s.out).toMatch(/Applied 5 setup change\(s\)/);
     expect(wired(d)).toBe(true);
     // The verifier suggestion was accepted explicitly and written to the policy.
-    expect(s.questions.some((q) => /npm test/.test(q) && /verify\.command/.test(q))).toBe(true);
+    expect(s.questions.some((q) => /npm test/.test(q) && /verifier command/.test(q))).toBe(true);
     expect(loadPolicy(d).verify?.command).toBe('npm test');
-    // The first verify ran through runVerify and was explained in plain language.
-    expect(s.out).toMatch(/tamperward verify — verified/);
+    // The first verify ran through runVerify silently and was summarized once.
     expect(s.out).toMatch(/Verification passed — visible and pristine suites are green/);
+    expect(s.out).not.toMatch(/tamperward verify — verified/);
     // The demo showed a real finding and restored the tree byte-for-byte.
     expect(s.out).toMatch(/BLOCK\s+test-skip/);
     expect(s.out).toMatch(/restored byte-for-byte/);
-    // The posture came from doctor; the GitHub half is honestly unverified.
-    expect(s.out).toMatch(/tamperward doctor: \[/);
-    expect(s.out).toMatch(/READY\\s+Configured with the limitation/);
+    // Doctor is summarized rather than replayed; the GitHub half is honestly unverified.
+    expect(s.out).not.toMatch(/tamperward doctor: \[/);
+    expect(s.out).toMatch(/READY\s+(Configured with the limitation|TamperWard is configured)/);
     expect(s.out).toMatch(/GitHub authority is not verified yet/);
-    // Next steps name the day-to-day command set and the container verifier.
     expect(s.out).toContain('tamperward check --worktree');
     expect(s.out).toContain('tamperward verify --base');
-    expect(s.out).toContain('tamperward run --base');
     expect(s.out).toContain('tamperward doctor --github');
-    expect(s.out).toMatch(/backend: container/);
+    expect(s.out).not.toMatch(/ONE STEP LEFT|subreaper\/ECHILD|backend: container/);
     expect(s.code).toBe(0);
   });
 
   it('shows the canonical local-protection plan without the old installation essay', async () => {
     const d = repo();
     const s = await onboard(d, ['n'], { noGithub: true, skipDemo: true });
-    const preview = s.out.slice(0, s.out.indexOf('POSTURE'));
-    for (const item of ['policy', 'hooks', 'pre-commit', 'CI', 'CODEOWNERS']) {
-      expect(preview).toMatch(new RegExp(`${item}[^\\n]*—`));
+    for (const item of ['Policy', 'Claude hooks', 'Pre-commit', 'CI workflow', 'CODEOWNERS']) {
+      expect(s.out).toContain(item);
     }
+    expect(s.out).not.toMatch(/What each item is for|ONE STEP LEFT|workflow from its OWN head/);
   });
 });
 
@@ -176,11 +174,11 @@ describe('declined writes', () => {
     expect(s.code).toBe(1);
   });
 
-  it('defaults to NOT writing when the operator just presses Enter', async () => {
+  it('defaults to applying the displayed non-destructive setup plan when the operator presses Enter', async () => {
     const d = repo();
-    const s = await onboard(d, [''], { noGithub: true, skipDemo: true });
-    expect(snapshot(d)).toEqual({});
-    expect(s.code).toBe(1);
+    const s = await onboard(d, ['', 'n', ''], { noGithub: true, skipDemo: true });
+    expect(wired(d)).toBe(true);
+    expect(s.out).toMatch(/Applied 5 setup change/);
   });
 });
 
@@ -192,8 +190,8 @@ describe('existing and partial installation', () => {
     const before = snapshot(d);
     const s = await onboard(d, ['n'], { noGithub: true, skipDemo: true });
     expect(s.questions.some((q) => /write/i.test(q))).toBe(false);
-    expect(s.out).toMatch(/already wired/);
-    expect(s.out).toMatch(/verification configured — npm test/);
+    expect(s.out).toMatch(/Local protection is already wired/);
+    expect(s.out).toMatch(/Trusted test command: npm test/);
     expect(snapshot(d)).toEqual(before);
     expect(s.code).toBe(0);
   });
@@ -204,8 +202,8 @@ describe('existing and partial installation', () => {
     rmSync(join(d, '.github', 'CODEOWNERS'));
     const policy = readFileSync(join(d, '.tamperward.yml'), 'utf8');
     const s = await onboard(d, ['y', 'n', ''], { noGithub: true, skipDemo: true });
-    expect(s.out).toMatch(/would create\s+\.github\/CODEOWNERS/);
-    expect(s.out).not.toMatch(/would create\s+\.tamperward\.yml/);
+    expect(s.out).toMatch(/ADD\s+CODEOWNERS\s+\.github\/CODEOWNERS/);
+    expect(s.out).toMatch(/OK\s+Policy\s+\.tamperward\.yml/);
     expect(existsSync(join(d, '.github', 'CODEOWNERS'))).toBe(true);
     // Declining the verifier suggestion and the manual entry leaves the policy untouched.
     expect(readFileSync(join(d, '.tamperward.yml'), 'utf8')).toBe(policy);
@@ -217,7 +215,7 @@ describe('verifier configuration is explicit', () => {
     const d = repo();
     const s = await onboard(d, ['y', 'n', ''], { noGithub: true, skipDemo: true });
     expect(loadPolicy(d).verify?.command).toBeUndefined();
-    expect(s.out).toMatch(/verify\.command (was )?not (written|configured)/);
+    expect(s.out).toMatch(/Verification is not configured|verify\.command was not written/);
     expect(s.out).toMatch(/CI will fail closed/i);
     expect(s.out).toMatch(/INCOMPLETE\\s+Setup needs/);
     expect(s.code).toBe(1);
@@ -237,7 +235,7 @@ describe('verifier configuration is explicit', () => {
   it('accepts a manually typed command when nothing is detected', async () => {
     const d = repo({ pkg: false });
     const s = await onboard(d, ['y', 'node test/check.test.js', 'y'], { noGithub: true, skipDemo: true });
-    expect(s.out).toMatch(/no suite command (was )?detected/i);
+    expect(s.out).toMatch(/No test command was detected automatically/i);
     expect(loadPolicy(d).verify?.command).toBe('node test/check.test.js');
     expect(s.out).toMatch(/Verification passed — visible and pristine suites are green/);
   });
@@ -250,7 +248,7 @@ describe('verifier configuration is explicit', () => {
     const s = await onboard(d, ['   '], { noGithub: true, skipDemo: true });
     expect(before()).toBe(written);
     expect(loadPolicy(d).verify?.command).toBeUndefined();
-    expect(s.out).toMatch(/verify\.command (was )?not (written|configured)/);
+    expect(s.out).toMatch(/Verification is not configured|verify\.command was not written/);
   });
 
   it('refuses a symlink policy instead of writing through it to operator state', async () => {
@@ -534,7 +532,7 @@ describe('interrupted and re-run', () => {
 
     const again = await onboard(d, ['n'], { skipDemo: true, noGithub: true });
     expect(again.code).toBe(0);
-    expect(again.out).toMatch(/already wired/);
+    expect(again.out).toMatch(/Local protection is already wired/);
     expect(snapshot(d)).toEqual(after);
   });
 
