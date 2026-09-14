@@ -5,6 +5,33 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.18] — 2026-09-14
+
+### Fixed
+
+- **The CLI no longer exits before its stdout has drained** (#415). Every exit after
+  output a consumer parses — `check --json`, `check --format github`, the Claude
+  `hook` deny and `sweep` block JSON, `verify` / `run` / `doctor` / `research` machine
+  documents, `hook-service status` — went through `process.exit(code)` straight after
+  `process.stdout.write(...)`. That is only safe when the write completed synchronously:
+  Node makes pipe writes asynchronous on macOS and Windows, and even a Linux pipe backs
+  up in the stream once the kernel buffer is full and the reader is slow, so a document
+  larger than the pipe buffer was cut off at exit. For the hook that was a fail-open —
+  a truncated deny is a malformed hook response, which Claude Code ignores, so the deny
+  became an allow. The CLI now exits through one `exitAfterFlush(code)`
+  (`src/cli/exit.ts`): it sets `process.exitCode` and calls `process.exit` from the
+  stdout/stderr write callbacks, which the streams invoke only once everything queued
+  before them has reached the OS. Exit codes and output are unchanged; on a synchronous
+  stream the callbacks fire on the next tick. `watch` and `hook-service start` still
+  never exit on their own (the event loop is the daemon lifetime). Regression:
+  `test/stdout-drain.test.ts` spawns the built CLI with stdout as a pipe the test does
+  not read for a while and with `test/fixtures/async-stdout.cjs` preloaded, which
+  makes every stdout write complete on a timer the way a macOS/Windows pipe does, and
+  asserts that a 2.4 MB `check --json`, a 1200-annotation `--format github` verdict,
+  a 300 KB hook deny and a Stop block each arrive complete and parse. README's platform
+  table now states the contract: parsed output is complete before exit on every
+  platform.
+
 ## [2.23.17] — 2026-09-14
 
 ### Fixed
