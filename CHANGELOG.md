@@ -5,6 +5,45 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.20] — 2026-09-14
+
+### Fixed
+
+- **The perf smoke measures the parser again, on CPU, alone on its runner** (#421).
+  After the parser went lazy (#407) the smoke's yardstick `cli.noop` (an empty-stdin
+  hook) no longer loaded the 9 MB TypeScript parser, but `check.diff.small` did, so
+  its ratio measured "parser load versus process start" — `check.diff.small` sat at
+  4.5× a 6× wall budget on an idle box — and inside the parallel `npm test` matrix
+  the remaining headroom went to sibling test files, not regressions. The smoke now
+  lives at `harness/perf/smoke.test.ts`, judges **p50 CPU** ratios to a new
+  `cli.parse` item (a PreToolUse `Edit` of one `.ts` source with no session: process
+  start + module load + parser load + one file evaluated) with budgets of 1.25× for
+  `hook.warm.100` and `snapshot.100` and 3× for `check.diff.small` (measured 0.44×,
+  0.48×, 1.46×), and runs alone from `npm run test:perf-smoke` (`vitest run --config
+  vitest.perf-smoke.config.ts --no-file-parallelism`) in a new `perf-smoke` CI job on
+  Node 20 / 22 / 24 that `gate` requires; `npm test` no longer runs it. The smoke pins
+  itself with injected regressions: the real run's report with `check.diff.small`
+  scaled 3× must fail the judge that passed the real run, and the committed baseline
+  with `hook.warm.100` doubled must fail `compare.mjs`.
+- **`harness/perf/BASELINE.json` says what it is, and the `perf` workflow says how
+  to replace it** (#421). The committed baseline had been captured in a busy
+  sandbox before the parser went lazy (`cli.noop` p50 1.7 s where an idle box
+  measures 0.12 s), so every hook, snapshot and check item would have had to regress
+  roughly 30× before the nightly compare went red — and `compare.mjs`'s budget is
+  exclusive, so its 2× default never failed an exact 2× either. Its numbers are kept
+  byte-for-byte (another loaded sandbox is a different wrong machine, not the right
+  one); it now carries a `note` (*captured in a loaded sandbox; reference baseline
+  pending the first green perf workflow artifact*), `machine.ci: false`, and
+  `budgets` pinning the hook items (`hook.warm.100`, `hook.cold.1k`, `hook.warm.1k`,
+  `hook.ignored`) at 1.5×, and the smoke holds it to that state: a reference
+  baseline (`machine.ci` set) must carry `cli.parse` clearly above `cli.noop`, a
+  stand-in must confess. `perf.yml` uploads its report as `perf-baseline-candidate`
+  and prints the promotion recipe in the job summary; the new
+  `harness/perf/promote-baseline.mjs <perf.json>` copies a green run's report into
+  place — budgets carried over, `machine.ci` stamped, `note` dropped, a report that
+  lost a baselined item refused — and prints the old-versus-new p50 table the
+  replacing PR must carry (docs/PERF.md, "The baseline").
+
 ## [2.23.19] — 2026-09-14
 
 ### Fixed
