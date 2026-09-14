@@ -25,6 +25,9 @@ import { isRecord } from '../narrow';
 export interface InitOpts {
   cwd?: string;
   dryRun?: boolean;
+  /** @internal Suppress the standalone init narrative when another command
+   *  (currently onboard) renders the same canonical plan itself. */
+  quiet?: boolean;
   /** Overwrite a CI workflow init did not write, or one that has been edited
    *  since it did. Operator-owned: the default never destroys your work. */
   forceWorkflow?: boolean;
@@ -915,7 +918,9 @@ export function planInit(cwd: string, opts: { forceWorkflow?: boolean } = {}): A
 export function runInit(opts: InitOpts): number {
   const cwd = opts.cwd ?? process.cwd();
   const plan = planInit(cwd, { forceWorkflow: opts.forceWorkflow });
-  const w = process.stdout;
+  const w = opts.quiet
+    ? { write: (_text: string): boolean => true }
+    : process.stdout;
 
   // The plan is complete before the first write (planInit never throws). An apply
   // that fails anyway is reported as its own error row and never as a crash that
