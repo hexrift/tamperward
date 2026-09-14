@@ -69,6 +69,8 @@ function unpublished(events: AuditFindingEventV1[], cursorPath: string): AuditFi
   return index < 0 ? events : events.slice(index + 1);
 }
 
+const MAX_EVENTS_PER_BUNDLE = 500;
+
 function groupsByMonth(events: AuditFindingEventV1[]): Map<string, AuditFindingEventV1[]> {
   const groups = new Map<string, AuditFindingEventV1[]>();
   for (const event of events) {
@@ -111,26 +113,29 @@ export function publishAudit(opts: AuditPublishOpts): number {
     let published = 0;
 
     for (const [month, events] of groupsByMonth(pending)) {
-      const first = events[0];
-      const last = events.at(-1) ?? first;
-      const name = `${first.id}--${last.id}.jsonl`;
-      const path = `${root}/${month}/${name}`;
-      const endpoint = `repos/${repo}/contents/${encoded(path)}`;
-      const check = githubRequest(cwd, 'GET', endpoint + '?ref=' + encodeURIComponent(branch));
-      if (check.status === 404) {
-        const data = events.map((event) => JSON.stringify(event)).join('\n') + '\n';
-        requireGitHubOk(
-          githubRequest(cwd, 'PUT', endpoint, {
-            message: `audit: publish ${events.length} TamperWard finding event(s)`,
-            content: Buffer.from(data, 'utf8').toString('base64'),
-            branch,
-          }),
-          'publish GitHub audit bundle',
-        );
-      } else {
-        requireGitHubOk(check, 'check GitHub audit bundle');
+      for (let offset = 0; offset < events.length; offset += MAX_EVENTS_PER_BUNDLE) {
+        const bundle = events.slice(offset, offset + MAX_EVENTS_PER_BUNDLE);
+        const first = bundle[0];
+        const last = bundle.at(-1) ?? first;
+        const name = `${first.id}--${last.id}.jsonl`;
+        const path = `${root}/${month}/${name}`;
+        const endpoint = `repos/${repo}/contents/${encoded(path)}`;
+        const check = githubRequest(cwd, 'GET', endpoint + '?ref=' + encodeURIComponent(branch));
+        if (check.status === 404) {
+          const data = bundle.map((event) => JSON.stringify(event)).join('\n') + '\n';
+          requireGitHubOk(
+            githubRequest(cwd, 'PUT', endpoint, {
+              message: `audit: publish ${bundle.length} TamperWard finding event(s)`,
+              content: Buffer.from(data, 'utf8').toString('base64'),
+              branch,
+            }),
+            'publish GitHub audit bundle',
+          );
+        } else {
+          requireGitHubOk(check, 'check GitHub audit bundle');
+        }
+        published += bundle.length;
       }
-      published += events.length;
     }
 
     if (existsSync(cursor) && lstatSync(cursor).isSymbolicLink()) {
