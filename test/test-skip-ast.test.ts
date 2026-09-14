@@ -230,3 +230,202 @@ describe('test-skip AST semantics (#330)', () => {
     expect(findings(computed)).toHaveLength(0);
   });
 });
+
+// #428: the AST path claimed ownership of every `x.skip(...)` call whose root it
+// could not resolve to a known runner module, and in doing so also silenced the
+// regex that catches the call on diff-only input. Ownership is now claimed only
+// for a proven non-runner; an unknown root falls through to the regex, and the
+// runner bindings the Playwright/vitest fixture convention produces are followed.
+describe('test-skip AST runner binding (#428)', () => {
+  const withFixture = (spec: string, fixtureSource: string, fixturePath = 'e2e/fixtures.ts') =>
+    testSkip.run([addedFile('e2e/a.spec.ts', spec)], P, undefined, {
+      trackedContents: { [fixturePath]: fixtureSource },
+    });
+
+  it('blocks a skip reached through a namespace import of a known runner module', () => {
+    const f = findings(addedFile('src/a.spec.ts', [
+      "import * as v from 'vitest';",
+      "v.it.skip('x', () => {});",
+    ].join('\n')));
+    expect(f).toHaveLength(1);
+    expect(f[0].line).toBe(2);
+  });
+
+  it('blocks a skip on a runner imported from an unresolvable relative fixture module (regex fallback)', () => {
+    const f = findings(addedFile('e2e/a.spec.ts', [
+      "import { test } from './fixtures';",
+      "test.skip('x', async () => {});",
+    ].join('\n')));
+    expect(f).toHaveLength(1);
+    expect(f[0].line).toBe(2);
+  });
+
+  it('blocks a skip on `base.extend({})` from @playwright/test and from vitest', () => {
+    for (const mod of ['@playwright/test', 'vitest']) {
+      const f = findings(addedFile('e2e/a.spec.ts', [
+        `import { test as base } from '${mod}';`,
+        'const test = base.extend({});',
+        "test.skip('x', async () => {});",
+      ].join('\n')));
+      expect(f, mod).toHaveLength(1);
+      expect(f[0].line, mod).toBe(3);
+    }
+  });
+
+  it('blocks a skip on a generic `base.extend<T>({})` initialiser', () => {
+    const f = findings(addedFile('e2e/a.spec.ts', [
+      "import { test as base } from '@playwright/test';",
+      'const test = base.extend<{ page: unknown }>({});',
+      "test.skip('x', async () => {});",
+    ].join('\n')));
+    expect(f).toHaveLength(1);
+    expect(f[0].line).toBe(3);
+  });
+
+  it('follows `export const test = base.extend(...)` through a relative fixture module', () => {
+    const fixture = [
+      "import { test as base } from '@playwright/test';",
+      'export const test = base.extend<{ user: string }>({ user: async ({}, use) => use("u") });',
+      "export { expect } from '@playwright/test';",
+    ].join('\n');
+    const f = withFixture([
+      "import { test, expect } from './fixtures';",
+      "test.skip('x', async () => {});",
+    ].join('\n'), fixture);
+    expect(f).toHaveLength(1);
+    expect(f[0].line).toBe(2);
+    expect(f[0].message).toContain('.skip/.only/.todo');
+  });
+
+  it('follows a fixture module supplied by the same change, and a `.js` specifier to a `.ts` file', () => {
+    const fixture = addedFile('e2e/fixtures.ts', [
+      "import { test as base } from '@playwright/test';",
+      'export const test = base.extend({});',
+    ].join('\n'));
+    const spec = addedFile('e2e/a.spec.ts', [
+      "import { test } from './fixtures.js';",
+      "test.only('x', async () => {});",
+    ].join('\n'));
+    const f = testSkip.run([fixture, spec], P);
+    expect(f).toHaveLength(1);
+    expect(f[0].file).toBe('e2e/a.spec.ts');
+    expect(f[0].line).toBe(2);
+  });
+
+  it('keeps a fixture-module export that is proven not to be a runner clean', () => {
+    const fixture = [
+      'export const test = { skip(_name: string, _fn: () => void) {} };',
+    ].join('\n');
+    const f = withFixture([
+      "import { test } from './fixtures';",
+      "test.skip('x', () => {});",
+    ].join('\n'), fixture);
+    expect(f).toHaveLength(0);
+  });
+
+  it('keeps a local `function it()` shadow clean', () => {
+    const f = findings(addedFile('src/a.spec.ts', [
+      'function it(_name: string, _fn: () => void) {}',
+      'it.skip = () => {};',
+      "it.skip('x', () => {});",
+    ].join('\n')));
+    expect(f).toHaveLength(0);
+  });
+
+  it('keeps a local object shadow of a runner clean', () => {
+    const f = findings(addedFile('src/a.spec.ts', [
+      'const test = { skip: (_n: string) => {} };',
+      "test.skip('x');",
+    ].join('\n')));
+    expect(f).toHaveLength(0);
+  });
+
+  it('resolves `const { it } = require("vitest")` and a destructured relative fixture require', () => {
+    const direct = findings(addedFile('src/a.spec.ts', [
+      "const { it } = require('vitest');",
+      "it.skip('x', () => {});",
+    ].join('\n')));
+    expect(direct).toHaveLength(1);
+    expect(direct[0].line).toBe(2);
+
+    const viaFixture = withFixture([
+      "const { it } = require('./fixtures');",
+      "it.only('x', () => {});",
+    ].join('\n'), "const { it: base } = require('vitest'); module.exports = { it: base.extend({}) };");
+    expect(viaFixture).toHaveLength(1);
+    expect(viaFixture[0].line).toBe(2);
+  });
+
+  it('blocks a chained `test.describe.skip` under Playwright', () => {
+    const f = findings(addedFile('e2e/a.spec.ts', [
+      "import { test } from '@playwright/test';",
+      "test.describe.skip('group', () => {",
+      "  test('x', async () => {});",
+      '});',
+    ].join('\n')));
+    expect(f).toHaveLength(1);
+    expect(f[0].line).toBe(2);
+  });
+
+  it('blocks a `test.describe.serial.only` Playwright mode chain and a default-imported runner', () => {
+    const serial = findings(addedFile('e2e/a.spec.ts', [
+      "import { test } from '@playwright/test';",
+      "test.describe.serial.only('group', () => {});",
+    ].join('\n')));
+    expect(serial).toHaveLength(1);
+    expect(serial[0].line).toBe(2);
+
+    const dflt = findings(addedFile('e2e/b.spec.ts', [
+      "import test from '@playwright/test';",
+      "test.skip('x', async () => {});",
+    ].join('\n')));
+    expect(dflt).toHaveLength(1);
+    expect(dflt[0].line).toBe(2);
+  });
+
+  it('follows a re-export chain of fixture modules and stops at an unreadable link', () => {
+    const chained = testSkip.run([addedFile('e2e/a.spec.ts', [
+      "import { test } from './fixtures';",
+      "test.skip('x', async () => {});",
+    ].join('\n'))], P, undefined, {
+      trackedContents: {
+        'e2e/fixtures/index.ts': "export { test } from './base';",
+        'e2e/fixtures/base.ts': "import { test as base } from '@playwright/test';\nexport const test = base.extend({});",
+      },
+    });
+    expect(chained).toHaveLength(1);
+    expect(chained[0].line).toBe(2);
+
+    // The last link cannot be read: unknown, so the regex keeps the finding.
+    const broken = testSkip.run([addedFile('e2e/a.spec.ts', [
+      "import { test } from './fixtures';",
+      "test.skip('x', async () => {});",
+    ].join('\n'))], P, undefined, {
+      trackedContents: { 'e2e/fixtures/index.ts': "export { test } from './base';" },
+    });
+    expect(broken).toHaveLength(1);
+  });
+
+  it('falls through to the regex for a runner whose binding is unknown on the AST', () => {
+    const f = findings(addedFile('src/a.spec.ts', [
+      "import { test } from 'some-runner-wrapper';",
+      "test.skip('x', () => {});",
+    ].join('\n')));
+    expect(f).toHaveLength(1);
+    expect(f[0].line).toBe(2);
+  });
+
+  it('does not re-report a pre-existing fixture-bound skip when another line changes', () => {
+    const before = [
+      "import { test } from './fixtures';",
+      "test.skip('existing', () => {});",
+      'const n = 1;',
+    ].join('\n');
+    const after = [
+      "import { test } from './fixtures';",
+      "test.skip('existing', () => {});",
+      'const n = 2;',
+    ].join('\n');
+    expect(findings(modifiedFile('e2e/a.spec.ts', before, after, [3]))).toHaveLength(0);
+  });
+});

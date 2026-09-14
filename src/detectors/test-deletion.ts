@@ -23,6 +23,7 @@ import {
   effectivePytestConfig,
   effectivePytestFile,
   runnerOf,
+  runnerSkips,
   suiteNarrowings,
 } from './suite-config';
 import type { Runner } from './suite-config';
@@ -350,6 +351,13 @@ function leavesGlob(dir: string, dest: string, policy: Policy, ctx?: DetectorCon
   return files.some((f) => f.startsWith(src) && isProtected(f, policy, 'tests') && !isProtected(to + f.slice(src.length), policy, 'tests'));
 }
 
+/** Why moving a spec from `from` to `to` takes it out of the runner's walk, or null.
+ *  Only a target that WAS walked can be removed by the move: a module beside
+ *  `tests/x/main.rs` renamed to another module name changes nothing the runner sees. */
+function leavesWalk(from: string, to: string): string | null {
+  return runnerSkips(from) === null ? runnerSkips(to) : null;
+}
+
 // Shell spellings that erase or replace a protected spec. Each is a distinct
 // command with the file in WRITE position; a command that merely reads the file
 // (cat, grep, diff, cp FROM it) is not here.
@@ -426,6 +434,18 @@ export const testDeletion: Detector = {
               message: `A test file was renamed out of the test glob (${c.oldPath} → ${c.path}).`,
               evidence: `${c.oldPath} → ${c.path}`,
               remediation: 'Restoring the path. Renaming a spec out of the glob silently removes it from the suite.',
+            }),
+          );
+        } else if (c.op === 'rename' && c.oldPath && isSpec(c.oldPath) && isTest && leavesWalk(c.oldPath, c.path)) {
+          // renamed INTO a path the runner never walks — still inside the glob, so the
+          // branch above is silent, but `cypress/a.test.ts`, `tests/x/mod.rs`,
+          // `pkg/testdata/a_test.go` and `tests/.archive/test_a.py` run nothing (#430)
+          out.push(
+            makeFinding(RULE, policy, {
+              file: c.path,
+              message: `A test file was renamed into a path the runner does not walk (${c.oldPath} → ${c.path}): ${leavesWalk(c.oldPath, c.path)}.`,
+              evidence: `${c.oldPath} → ${c.path}`,
+              remediation: 'Restoring the path. A spec the runner never opens is removed from the suite as surely as a deleted one.',
             }),
           );
         } else if ((c.op === 'modify' || c.op === 'rename') && isTest && c.before != null && c.after != null) {
@@ -594,6 +614,9 @@ export const testDeletion: Detector = {
             const dest = toks[toks.length - 1];
             if (dest && testToks.length > 0 && !isSpec(dest)) {
               why = 'mv renames a test file out of the test glob';
+              evidence = `${testToks[0]} → ${dest}`;
+            } else if (dest && testToks.length > 0 && testToks[0] !== dest && leavesWalk(testToks[0], dest)) {
+              why = 'mv renames a test file into a path the runner does not walk';
               evidence = `${testToks[0]} → ${dest}`;
             } else if (dest && testToks.length === 0 && dirToks[0] !== dest && leavesGlob(dirToks[0] ?? '', dest, policy, ctx)) {
               // a moved DIRECTORY only tampers when its specs land outside the glob

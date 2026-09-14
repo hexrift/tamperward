@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [2.23.6] — 2026-09-14
+## [2.23.10] — 2026-09-14
 
 ### Fixed
 
@@ -58,6 +58,104 @@ All notable changes to this project are documented here. The format follows
   `[main]` → `[feature]` keeps blocking; a matrix or caching change stays clean.
 - `- run: pytest` (a bare tool right after the `run:` key) is now recognised as a check
   invocation on the step line, as `npm test` already was.
+## [2.23.9] — 2026-09-14
+
+### Security
+
+- **A policy edit can no longer demote the test rules by growing `protected.snapshots`,
+  and a negated protected glob no longer makes every file "protected" (#434).**
+  `mergeProtected` is additive, policy-diff counted only removed globs as a narrowing,
+  and the spec rules judge `tests && !snapshots` — so
+  `protected: { snapshots: ['**/*.test.ts'] }` lowered `test-deletion` to
+  `snapshot-rewrite` with no finding, and `protected: { tests: ['!zzz'] }` (picomatch:
+  every path) made every source file a test file, silencing `ts-cast-growth` and
+  lowering `ts-any-cast`. `hook-tampering`'s policy-diff now reports both as a policy
+  weakening: any glob added to `protected.snapshots`, any negated glob added to any
+  protected category, any `tests` glob that also matches snapshot paths, and — in
+  general — every rule whose jurisdiction is a category predicate compared by its
+  **reach** over a probe listing (the repository's tracked files when the gate has
+  them, joined with the conventional samples) before and after the edit; a path that
+  leaves a rule's reach is reported naming the path and the rule. The edit is judged
+  under the policy in force before it, so the exclusion cannot be weaponised by the
+  change that writes it (regression covered).
+- **The loader refuses negated globs** (`!x`) in every `protected` category, in
+  `ignore` and in a per-rule `exclude`, with a message naming the mechanism — a `!`
+  pattern matches every path — and fails closed like any other unparseable policy.
+- Precision: the cast rules cede test files by design, so a new `tests` glob that
+  names a real layout (`packages/new/**/*.integration.ts`) stays clean; their loss of
+  reach is reported only when the same edit also takes a conventional source path
+  out of reach. Widening `config`, `ci` or `hooks` is unchanged (a strengthening).
+
+## [2.23.8] — 2026-09-14
+
+### Fixed
+
+- **`test-skip` no longer goes silent on a runner it cannot name (#428).** The
+  JS/TS AST path claimed every `x.skip(...)` / `x.only(...)` call once it had parsed
+  the file, and declared the file clean whenever the chain root was not one of the
+  runner imports it knew — while also suppressing the line matcher that catches the
+  same call on a bare diff. A Playwright-style repository (`import { test } from
+  './fixtures'`, `const test = base.extend({})`), a namespace import
+  (`import * as v from 'vitest'; v.it.skip(...)`) or a wrapper package therefore got no
+  skip coverage at all on full content. The AST now claims a call only when the root is
+  proven: a runner (a known runner module's export by name, default import, namespace
+  member or `require`, a `X.extend(...)` / `X.extend<T>(...)` of one, an alias, or a
+  relative fixture module's `export const test = base.extend(...)` / re-export /
+  `module.exports`, followed through the change's own content or the repository's copy)
+  or a non-runner (a parameter, a local `function it()`, a local declaration whose
+  initialiser is none of those, a non-runner name from a known runner module). A root it
+  cannot classify — a package it does not know, a fixture it cannot read — leaves that
+  call to the regex, so the full-content and diff-only paths agree. `test.describe.skip`
+  / `test.describe.only` under Playwright count as the chain they are. Corpus replay
+  (`harness/fp-study/TEST-SKIP-AST-CORPUS.md`) re-run over the same pinned immer /
+  zustand / zod / hono heads: 524 adjacent pairs, 0 newly introduced findings.
+
+## [2.23.7] — 2026-09-14
+
+### Fixed
+
+- **`test-deletion` blocks a spec renamed into a path the runner does not walk** (#430).
+  A rename that stayed inside the tests glob was silent even when the runner would
+  never open the new path: `src/a.test.ts → cypress/a.test.ts` (vitest's default
+  exclude), `tests/integration.rs → tests/integration/mod.rs` (cargo builds only
+  `tests/<name>.rs` and `tests/<name>/main.rs`), `pkg/a_test.go → pkg/testdata/a_test.go`
+  (`go test` skips `testdata`, `_*` and `.*` components) and
+  `tests/test_a.py → tests/.archive/test_a.py` (pytest's default `norecursedirs`).
+  The rename branch now evaluates the new path against the runner's default exclusion
+  set — the same `test.exclude` / `norecursedirs` defaults the suite-narrowing
+  predicate already reads — plus the per-ecosystem target rules above, and reports
+  *renamed into a path the runner does not walk*. The `mv` spelling on the command
+  surface is held the same way. Only a rename whose old path was itself walked fires,
+  so an ordinary move within the walked tree (`src/a.test.ts → src/unit/a.test.ts`,
+  `tests/x.rs → tests/x/main.rs`) stays clean.
+- **`policy.ignore` can no longer hide the old path of a rename** (#430). Suppression
+  tested the new path only, so with an ordinary `ignore: ['docs/**']` the rename
+  `test/a.test.ts → docs/a.md` produced no finding. A rename is now suppressed only
+  when both of its ends are ignored, and never when the old path is in a protected
+  category.
+
+## [2.23.6] — 2026-09-14
+
+### Fixed
+
+- **Every worktree-reading path is rooted at the repository, not at cwd (#412).**
+  Git views report root-relative paths, but `check --worktree` / `--staged`, the Stop
+  sweep, PreToolUse, `allow`, `doctor` and the protected-tree snapshot joined those
+  paths onto the directory the command ran from. From a subdirectory of the repository
+  the after-content of every changed file resolved to a path that did not exist, the
+  content/AST detectors went blind, and the root `.tamperward.yml` was silently replaced
+  by the baseline — `check --worktree` and `sweep claude` failed OPEN for a monorepo or
+  subdirectory session, and `hook claude` enforced the wrong policy. A shared
+  `repoContext(cwd)` resolver (`git rev-parse --show-toplevel` / `--absolute-git-dir`,
+  cached per cwd) now anchors policy loading, every disk read, the snapshot, the sign-off
+  ledger, the hook service's root binding and `init`. Verdicts and plans from `r1/pkg`
+  equal those from `r1`; a policy file planted in a subdirectory governs nothing; a
+  relative tool path in a hook payload still resolves against the session's own cwd.
+- `init` run from a subdirectory wires the repository root (and says so on stderr)
+  instead of planning `.tamperward.yml` and the CI files under the subdirectory while
+  installing the pre-commit hook into the parent's `.git/hooks`.
+- A directory outside any repository keeps its previous behaviour: `check` refuses with
+  the not-inside-a-repository message, and a policy file beside it is read as before.
 
 ## [2.23.5] — 2026-09-14
 

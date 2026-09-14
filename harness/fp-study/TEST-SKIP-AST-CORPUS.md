@@ -68,3 +68,36 @@ The one-time study workflow initially ran all four corpora serially and took rou
 minutes. During review it was converted to four independent matrix jobs (#386); the final
 run completed all four in about 3m16s wall-clock. The workflow was temporary evidence
 machinery and is removed before merge.
+
+## Re-run for #428 (2.23.5) — runner-binding fix
+
+The #428 change moves the AST path from "authoritative for every call it parsed" to
+"authoritative only for a call whose chain root it PROVES is a runner or a non-runner";
+an unclassifiable root now falls through to the line matcher, and runner bindings are
+followed through namespace imports, `X.extend(...)` and relative fixture modules. Both
+directions can move precision, so the same delta harness was replayed with the
+2.23.4 `main` CLI (`57c98bb`) as the base and the #428 head as the candidate, over the
+same four pinned corpus heads. The corpora were fetched with the `--depth` values the
+`cast-growth-evidence` workflow uses (138 / 101 / 101 / 124); `rev-list` over a shallow
+fetch walks every parent, so immer and hono yield more adjacent pairs than the 2.17.1
+run counted — a superset of that frame, not a different one.
+
+| repository | pinned head | adjacent diff pairs | new findings |
+| --- | --- | ---: | ---: |
+| immer | `061c2425e1c9dff89e4e4189d42af1b7839dfe0a` | 178 | 0 |
+| zustand | `b57db4f86ef179285da216eeb291266da82c361c` | 100 | 0 |
+| zod | `ca0229a404818290e6cdcfefcd7eb2d04bcbb543` | 100 | 0 |
+| hono | `8755b17fbcfdee76511eeb460e18e94e6c9a8d30` | 146 | 0 |
+| **total** | — | **524** | **0** |
+
+```json
+{"repo":"immer","corpus_head":"061c2425e1c9dff89e4e4189d42af1b7839dfe0a","pairs":178,"new_findings":0,"findings":[]}
+{"repo":"zustand","corpus_head":"b57db4f86ef179285da216eeb291266da82c361c","pairs":100,"new_findings":0,"findings":[]}
+{"repo":"zod","corpus_head":"ca0229a404818290e6cdcfefcd7eb2d04bcbb543","pairs":100,"new_findings":0,"findings":[]}
+{"repo":"hono","corpus_head":"8755b17fbcfdee76511eeb460e18e94e6c9a8d30","pairs":146,"new_findings":0,"findings":[]}
+```
+
+**0/524 newly introduced findings.** The negative set is unchanged by the fix; the
+detector now also blocks the four fixtures from #428 (namespace import, unreadable
+fixture module, `base.extend({})` from `@playwright/test` and from `vitest`) on the
+full-content path, where 2.17.1–2.23.4 reported nothing.
