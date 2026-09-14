@@ -19,8 +19,10 @@ gate change?" no longer means assembling round-specific scripts under
   [--agent-budget S] [--json] [-- <agent command...>]` executes a JSON task manifest
   (repository, base, prompt, `verify: { command, budget }`) as paired **ungated** /
   **gated** trajectories. Every trajectory starts from a fresh clone at the trusted
-  base. The ungated arm runs the adapter's process bare; the gated arm lets the adapter
-  prepare the workspace (committed into the base, so the treatment is never agent work)
+  base. The ungated arm runs without TamperWard policy enforcement but uses the same
+  neutral Linux subreaper lifecycle primitive to drain the agent's descendant domain
+  before outcome observation; the gated arm lets the adapter prepare the workspace
+  (committed into the base, so the treatment is never agent work)
   and runs the same process under `tamperward run --json` with the suite command frozen
   at entry. In **both** arms the tree the agent leaves is then observed by the same
   `verify` (visible vs. pristine) and `check` (worktree, untracked included, plus the
@@ -33,9 +35,9 @@ gate change?" no longer means assembling round-specific scripts under
   task/pair, adapter and layers, model, TamperWard version, agent argv/budget and suite command), never by file existence; a
   foreign or truncated record fails the run closed, and records are written atomically.
   A trajectory whose outcome cannot stand — the trusted policy at the base unreadable
-  (an absent one defaults; a broken one never does), the verifier unable to measure, a
-  descendant still holding the workspace after the ungated agent exited (terminated,
-  `NOT_QUIESCENT`), or the tree moving under observation — is recorded as
+  (an absent one defaults; a broken one never does), the verifier unable to measure,
+  neutral control lifecycle ownership/drain unavailable, or the tree moving under
+  observation — is recorded as
   `measured: false` with the reason in `unmeasurable` and never aggregated. The
   manifest's sha256 is pinned into every record. The run preflights
   the platform with the same check `doctor` reports and refuses, in doctor's words,
