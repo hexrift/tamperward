@@ -10,7 +10,15 @@ protected:
     - '**/.eslintrc*'
     - '**/eslint.config.*'
     - '**/package.json'
-  ci: ['.github/workflows/**']
+  ci:
+    - '.github/workflows/**'
+    - '.github/actions/**/action.y?(a)ml' # composite actions a workflow `uses:`
+    - '.gitlab-ci.yml'
+    - '.circleci/config.yml'
+    - 'Jenkinsfile'
+    - 'azure-pipelines.yml'
+    - 'bitbucket-pipelines.yml'
+    - '.travis.yml'
   hooks: ['.husky/**', '**/lefthook.*', '.tamperward.yml', '**/.tamperward.yml']
 
 # Excluded from file-surface detection. This is a SELF-HOSTING exception, reported and
@@ -38,6 +46,9 @@ rules:
   # corpus (harness/fp-study/CAST-GROWTH-CORPUS.md). src/ now carries none.
   ts-cast-growth: { severity: warn }
   lint-suppression: { severity: block }
+  # tsconfig strictness lowered, eslint/biome rules off or ignores grown, runner
+  # setup modules from unprotected files; warn by corpus (#447).
+  config-weakening: { severity: warn }
   coverage-lowering: { severity: block }
   # inline coverage exclusions in non-test source; warn until the corpus in
   # harness/fp-study/coverage-exclusion-corpus.json earns block (#438)

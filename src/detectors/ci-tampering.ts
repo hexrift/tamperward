@@ -39,6 +39,17 @@
 // pipefail {0}` keeps fail-fast; a reporter/upload action is not the check whose
 // `continue-on-error` matters; and `[master]` → `[main]` when `main` is a branch the
 // repository has is a rename, whatever a stale `origin/HEAD` still says.
+//
+// The category reaches past the workflow files (issue #437): a composite action the
+// workflow `uses:` (`.github/actions/**/action.yml`, `runs.using: composite`) carries
+// the same `run:` steps and gets the same removal/neutralisation pass — the workflow
+// keeping `uses: ./.github/actions/test` while the action's `run: npm test` becomes
+// `echo ok` was silent. The entry files of the other CI systems (`.gitlab-ci.yml`,
+// `.circleci/config.yml`, `Jenkinsfile`, `azure-pipelines.yml`,
+// `bitbucket-pipelines.yml`, `.travis.yml`) get the generic check-line pass — a check
+// line removed or neutralised in place, read from `script:` / `sh` lines as from
+// `run:` — and none of the GitHub-shaped logic (`on:` triggers, `if:` folding,
+// `continue-on-error`, the `{0}` shell), whose keys mean other things there.
 
 import { Change, Detector, DetectorContext, Finding } from '../types';
 import { addedLines, removedLines } from '../diff/select';
@@ -68,6 +79,23 @@ function isActiveWorkflow(path: string): boolean {
   return /(^|\/)\.github\/workflows\/[^/]+\.ya?ml$/.test(path);
 }
 
+/** A composite action's metadata file: `.github/actions/<name>/action.yml`, the
+ *  `runs.steps` of which a workflow runs through `uses: ./.github/actions/<name>`. */
+const isCompositeAction = (path: string): boolean => /(^|\/)\.github\/actions\/.+\/action\.ya?ml$/.test(path);
+
+/** A file GitHub Actions reads — a workflow or a composite action — as opposed to
+ *  another CI system's entry file. Only GitHub's files carry `on:` triggers, `if:`
+ *  expressions, `continue-on-error` and `shell: … {0}` with the meaning this rule
+ *  folds; on `.gitlab-ci.yml` or a Jenkinsfile those spellings mean other things
+ *  (`rules: - if: $CI_…`), so there only the check-line pass applies (issue #437). */
+const isGithubFile = (path: string): boolean => /(^|\/)\.github\//.test(path);
+
+/** The key a CI file hangs a shell command from. GitHub: `run:`. The other systems:
+ *  `script:` (GitLab, Azure, Bitbucket, Travis), CircleCI's `command:`, plus the
+ *  `sh` / `bash` / `pwsh` spellings a Jenkinsfile or Azure step uses. */
+const GH_RUN_KEY = /^\s*-?\s*run:/;
+const GENERIC_RUN_KEY = /^\s*-?\s*(?:run|script|command|before_script|after_script|sh|bash|pwsh|powershell):/;
+
 // `- run: pytest` carries the tool right after the `run:` key, which is not one of the
 // shell separators INVOKES_TOOL knows — read the line's command core as well, so a
 // bare tool invocation on a step line is a check like `npm test` is (issue #436).
@@ -81,7 +109,7 @@ function commandCore(line: string): string {
   return line
     .trim()
     .replace(/^-\s*/, '')
-    .replace(/^(?:run|uses):\s*/, '')
+    .replace(/^(?:run|uses|script|command|before_script|after_script|sh|bash|pwsh|powershell):\s*/, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -440,7 +468,18 @@ function triggerNarrowings(before: Triggers, after: Triggers, opts: TriggerOpts)
   return out;
 }
 
-const REUSED_WORKFLOW = /^\s*uses:\s*\.\/(\.github\/workflows\/[^\s@]+)/;
+const REUSED_WORKFLOW = /^\s*-?\s*uses:\s*\.\/(\.github\/workflows\/[^\s@]+)/;
+/** A local composite action: `uses: ./.github/actions/test` runs
+ *  `.github/actions/test/action.yml` (or `.yaml`). */
+const LOCAL_ACTION = /^\s*-?\s*uses:\s*\.\/(\.github\/actions\/[^\s@]+?)\/?\s*(?:#.*)?$/;
+/** The files a `uses:` line runs from this repository, so a check moved into one the
+ *  same change adds is found there — a reusable workflow, or a composite action. */
+function localUses(line: string): string[] {
+  const wf = line.match(REUSED_WORKFLOW)?.[1];
+  if (wf) return [wf];
+  const action = line.match(LOCAL_ACTION)?.[1];
+  return action ? [`${action}/action.yml`, `${action}/action.yaml`] : [];
+}
 
 // ── issue #436: a check pointed somewhere it runs nothing ───────────────────────
 /** A manifest that makes a directory a package the check could run in. */
@@ -529,8 +568,12 @@ export const ciTampering: Detector = {
 
       const afterLines = c.after != null ? c.after.split('\n') : null;
       const addedAt = new Set(addedLines(c).map((l) => l.newLine).filter((n): n is number => n != null));
+      // The GitHub-shaped passes below read `if:`, `continue-on-error:`, `shell:`,
+      // `working-directory:`, `ref:` and `on:` with the runner's meaning; another CI
+      // system's entry file gets only the check-line pass at the end (issue #437).
+      const github = isGithubFile(c.path);
 
-      for (const l of addedLines(c)) {
+      for (const l of github ? addedLines(c) : []) {
         const coe = l.content.match(/^\s*-?\s*continue-on-error:\s*(.+?)\s*$/);
         const cond = l.content.match(/^\s*-?\s*if:\s*(.+?)\s*$/);
         if (!coe && !cond) continue;
@@ -567,7 +610,7 @@ export const ciTampering: Detector = {
         }
       }
 
-      if (afterLines) {
+      if (afterLines && github) {
         // Neutralisers ADDED inside a run block that carries a check. A block that
         // propagates the status itself (`exit $code`) is excused: `set +e` there is
         // the capture-then-report idiom, not a mask.
@@ -657,8 +700,10 @@ export const ciTampering: Detector = {
             }),
           );
         }
-        // `on:` narrowed so the workflow no longer runs where the check matters.
-        if (c.before != null && c.after != null) {
+        // `on:` narrowed so the workflow no longer runs where the check matters. A
+        // composite action has no `on:` block (parseTriggers reads none) — only a
+        // workflow is read for its triggers.
+        if (c.before != null && c.after != null && !isCompositeAction(c.path)) {
           triggerOpts ??= { defaultBranch: defaultBranch(ctx), sources: sourceProbes(ctx), hasBranch: (b) => branchExists(b, ctx) };
           for (const reason of triggerNarrowings(parseTriggers(c.before), parseTriggers(c.after), triggerOpts)) {
             out.push(
@@ -687,15 +732,32 @@ export const ciTampering: Detector = {
       const afterCommands = afterLines ? commandLines(afterLines) : null;
       const afterCores = (afterCommands ?? addedLines(c).map((l) => l.content)).map(commandCore);
       const addedCores = addedLines(c).map((l) => commandCore(afterCommands && l.newLine != null ? afterCommands[l.newLine - 1] : l.content));
-      // A check moved into a reusable workflow the same change carries is kept there.
+      // A check moved into a reusable workflow or a composite action the same change
+      // carries is kept there.
       for (const l of afterLines ?? []) {
-        const reused = l.match(REUSED_WORKFLOW)?.[1];
-        const content = reused ? afterByPath.get(reused) : undefined;
-        if (content == null || reused === c.path) continue;
-        const cores = commandLines(content.split('\n')).map(commandCore);
-        afterCores.push(...cores);
-        addedCores.push(...cores);
+        for (const reused of localUses(l)) {
+          const content = afterByPath.get(reused);
+          if (content == null || reused === c.path) continue;
+          const cores = commandLines(content.split('\n')).map(commandCore);
+          afterCores.push(...cores);
+          addedCores.push(...cores);
+        }
       }
+      // A CI migration: another system's entry file deleted while a CI file the same
+      // change ADDS carries its checks (`.travis.yml` → `.github/workflows/ci.yml`).
+      // The checks moved with the system; only a deletion with nothing added in its
+      // place is a removal. A GitHub file is never excused this way — its checks
+      // have `uses:` to move through, and a workflow deleted beside a new one would
+      // otherwise dodge the trigger comparison (issue #437).
+      if (!github && c.after == null) {
+        for (const o of changes) {
+          if (o.kind !== 'file' || o.op !== 'add' || o.after == null || !isProtected(o.path, policy, 'ci')) continue;
+          const cores = commandLines(o.after.split('\n')).map(commandCore);
+          afterCores.push(...cores);
+          addedCores.push(...cores);
+        }
+      }
+      const runKey = github ? GH_RUN_KEY : GENERIC_RUN_KEY;
       for (const l of removedLines(c)) {
         // A YAML comment is prose, not a step. Rewording a comment that quoted
         // `tamperward:allow:<rule>` in a code span read as "a check command was
@@ -704,7 +766,7 @@ export const ciTampering: Detector = {
         if (/^\s*#/.test(l.content)) continue;
         const isUsesLine = usesCheck(l.content);
         const isCheckCommand = !isUsesLine && !/^\s*-?\s*uses:/.test(l.content) &&
-          (YAML_KEY.test(l.content) ? /^\s*-?\s*run:/.test(l.content) : true) && invokesCheck(l.content);
+          (YAML_KEY.test(l.content) ? runKey.test(l.content) : true) && invokesCheck(l.content);
         if (!isUsesLine && !isCheckCommand) continue;
         const s = survives(commandCore(l.content), isUsesLine, afterCores, addedCores);
         if (s.state === 'kept') continue; // moved, reformatted, respelled or extended — not removed
