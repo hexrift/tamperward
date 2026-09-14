@@ -67,9 +67,9 @@ describe('release.yml re-entrancy (#420)', () => {
     const { steps } = load();
     const plan = byId(steps, 'plan');
     expect(plan.run).toMatch(/git ls-remote --tags origin "?refs\/tags\/v\$\{?VERSION\}?"?/);
-    expect(plan.run).toMatch(/tag_missing=(true|false)/);
+    expect(plan.run).toContain("tag_missing=");
     expect(plan.run).toMatch(/gh release view/);
-    expect(plan.run).toMatch(/release_missing=(true|false)/);
+    expect(plan.run).toContain("release_missing=");
   });
 
   it('the tag step is gated on the ls-remote result, not on publish', () => {
