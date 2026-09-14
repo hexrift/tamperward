@@ -144,6 +144,8 @@ describe('strict CLI argument boundary (#312)', () => {
     ['verify unknown option', ['verify', '--json', '--bogus'], /unknown option "--bogus"/],
     ['trace-verify unknown option', ['trace-verify', '--bogus'], /unknown option "--bogus"/],
     ['watch unknown option', ['watch', '--bogus'], /unknown option "--bogus"/],
+    ['stats unknown option', ['stats', '--bogus'], /unknown option "--bogus"/],
+    ['audit unknown option', ['audit', 'publish', '--github', 'x/y', '--bogus'], /unknown option "--bogus"/],
 
     ['check missing value', ['check', '--diff'], /--diff needs a value/],
     ['allow missing value', ['allow', 'test-deletion', '--reason'], /--reason needs a value/],
@@ -154,6 +156,8 @@ describe('strict CLI argument boundary (#312)', () => {
     ['trace-verify zero runs', ['trace-verify', '--runs', '0'], /--runs needs a positive integer/],
     ['trace-verify fractional runs', ['trace-verify', '--runs', '1.5'], /--runs needs a positive integer/],
     ['watch missing value', ['watch', '--dir'], /--dir needs a value/],
+    ['stats missing window', ['stats', '--since'], /--since needs a value/],
+    ['audit missing repo value', ['audit', 'publish', '--github'], /--github needs a value/],
     ['run missing value', ['run', '--budget', '--', 'true'], /--budget needs a value/],
 
     ['verify zero budget', ['verify', '--budget', '0'], /--budget needs a positive number/],
@@ -169,6 +173,8 @@ describe('strict CLI argument boundary (#312)', () => {
     ['check json and format conflict', ['check', '--staged', '--json', '--format', 'text'], /--json cannot be combined with --format/],
     ['run implicit command grammar', ['run', 'true'], /requires an explicit "--" before the wrapped command/],
     ['run unknown option before delimiter', ['run', '--bogus', '--', 'true'], /unknown option "--bogus"/],
+    ['stats branch without github', ['stats', '--branch', 'tamperward-audit'], /require --github/],
+    ['audit publish without github', ['audit', 'publish'], /requires --github/],
   ];
 
   it.each(malformed)('%s fails closed before command execution', (_name, argv, diagnostic) => {
