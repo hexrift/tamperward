@@ -99,7 +99,7 @@ export interface RunEnvelopeOpts {
 const out = (s: string) => process.stdout.write(s + '\n');
 const err = (s: string) => process.stderr.write(s + '\n');
 
-interface AgentRunResult {
+export interface AgentRunResult {
   exit: number;
   timedOut: boolean;
   /** True only when this platform/supervisor established the stronger lifecycle
@@ -469,7 +469,7 @@ raise SystemExit(0)
 `;
 
 
-function runAgentSupervised(
+export function runAgentSupervised(
   argv: string[],
   cwd: string,
   budgetSecs?: number,
