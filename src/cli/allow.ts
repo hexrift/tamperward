@@ -9,6 +9,7 @@ import { diffWorktree } from '../git/build';
 import { evaluate } from '../engine';
 import { loadPolicy } from '../policy-load';
 import { appendEntry, fingerprintOf, makeEntry } from '../signoff';
+import { repoRoot } from '../repo-context';
 
 export interface AllowOpts {
   rule?: string;
@@ -26,7 +27,9 @@ export function runAllow(opts: AllowOpts): number {
     process.stderr.write('tamperward: a --reason is required — sign-offs must be justified.\n');
     return 2;
   }
-  const cwd = opts.cwd ?? process.cwd();
+  // The sign-off binds to a root-relative finding and lands in the root ledger,
+  // from any subdirectory of the repository (#412).
+  const cwd = repoRoot(opts.cwd ?? process.cwd());
   const policy = loadPolicy(cwd);
 
   let findings;

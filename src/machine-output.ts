@@ -49,6 +49,7 @@ export const VERIFY_CANNOT_VERIFY_REASONS = [
   'VERIFIER_RESOURCE_EXHAUSTED',
   'WORKTREE_CHANGED',
   'PRISTINE_INTEGRITY_CHANGED',
+  'PATH_CASE_COLLISION',
 ] as const;
 export type VerifyCannotVerifyReason = (typeof VERIFY_CANNOT_VERIFY_REASONS)[number];
 
