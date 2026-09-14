@@ -9,6 +9,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { guardedMain, validateCliArgs } from '../src/cli/main';
+import { rootless } from './rootless';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -210,7 +211,12 @@ describe('strict CLI argument boundary (#312)', () => {
     // Grammar-only control: a real trace needs Linux + strace and a verifier command.
     expect(validateCliArgs('trace-verify', ['--base', 'HEAD', '--cmd', 'true', '--runs', '2', '--json', '--cwd', d]))
       .toBeUndefined();
+  }, 15_000);
 
+  // Split from the grammar case above (#392): this one needs the envelope to reach
+  // adjudication, which Linux root/euid 0 refuses by design.
+  it.skipIf(!rootless)('preserves the run envelope grammar through to adjudication', () => {
+    const d = repo();
     const envelope = run(['run', '--cmd', 'true', '--budget', '1', '--cwd', d, '--', 'true']);
     expect(envelope.code).toBe(0);
   }, 15_000);
