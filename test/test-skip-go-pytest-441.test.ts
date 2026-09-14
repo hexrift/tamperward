@@ -21,7 +21,7 @@ index 1..2 100644
 ${lines.map((l) => `+${l}`).join('\n')}`);
 
 const rules = (c: Change[]) => testSkip.run(c, P).map((f) => f.rule);
-const lines = (c: Change[]) => testSkip.run(c, P).map((f) => f.line);
+const lines = (c: Change[]) => testSkip.run(c, P).map((f) => f.line).sort((a, b) => (a ?? 0) - (b ?? 0));
 
 describe('#441 · Go: any receiver name reaches Skip/Skipf/SkipNow', () => {
   it.each([
