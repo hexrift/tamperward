@@ -100,14 +100,21 @@ const PLACEHOLDERS: Record<string, (task: AdapterTask) => string> = {
  * the effect layer is live in its gated arm: the envelope wraps the command,
  * the tree it leaves is re-adjudicated, and nothing steers it mid-turn.
  */
-export function commandAdapter(argv: string[], cwd: string = process.cwd()): AgentAdapter {
+export function normalizeCommandArgv(argv: string[], cwd: string = process.cwd()): string[] {
   if (argv.length === 0) {
     throw new ResearchError('the command adapter needs an agent command after "--"');
   }
   // The agent runs inside the fresh workspace, so `./agent.sh` typed at the
   // operator's prompt must mean the operator's file, not one in the clone.
+  // Return a fresh array because the normalized template is also the experiment
+  // identity persisted in the ledger: two runs from different operator
+  // directories must not both record the same misleading `./agent.sh`.
   const head = argv[0];
-  const anchored = head.includes('/') && !isAbsolute(head) ? [resolve(cwd, head), ...argv.slice(1)] : argv;
+  return head.includes('/') && !isAbsolute(head) ? [resolve(cwd, head), ...argv.slice(1)] : [...argv];
+}
+
+export function commandAdapter(argv: string[], cwd: string = process.cwd()): AgentAdapter {
+  const anchored = normalizeCommandArgv(argv, cwd);
   return {
     name: 'command',
     layers: ['envelope'],
