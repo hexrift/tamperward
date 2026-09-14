@@ -128,59 +128,69 @@ describe('happy path', () => {
     // write the plan? / accept `npm test`? / run first verify? / run the demo? / check GitHub?
     const s = await onboard(d, ['y', 'y', 'y', 'y'], { noGithub: true });
     expect(s.err).toBe('');
-    expect(s.out).toContain(`TamperWard ${TW_VERSION}`);
-    expect(s.out).toMatch(/Preflight/);
-    // Preview came from the init planner (dry-run rows), then explanations, then the write.
-    expect(s.out).toMatch(/would create\s+\.tamperward\.yml/);
-    expect(s.out).toMatch(/5 change\(s\) applied/);
+    expect(s.out).toContain(`v${TW_VERSION}`);
+    expect(s.out).toMatch(/1\/5\s+Environment/);
+    // The canonical init plan is rendered compactly, then applied silently.
+    expect(s.out).toMatch(/ADD\s+Policy\s+\.tamperward\.yml/);
+    expect(s.out).toMatch(/Applied 5 setup change\(s\)/);
     expect(wired(d)).toBe(true);
     // The verifier suggestion was accepted explicitly and written to the policy.
-    expect(s.questions.some((q) => /npm test/.test(q) && /verify\.command/.test(q))).toBe(true);
+    expect(s.questions.some((q) => /npm test/.test(q) && /verifier command/.test(q))).toBe(true);
     expect(loadPolicy(d).verify?.command).toBe('npm test');
-    // The first verify ran through runVerify and was explained in plain language.
-    expect(s.out).toMatch(/tamperward verify — verified/);
-    expect(s.out).toMatch(/VERIFIED: your suite passes/);
+    // The first verify ran through runVerify silently and was summarized once.
+    expect(s.out).toMatch(/Verification passed — visible and pristine suites are green/);
+    expect(s.out).not.toMatch(/tamperward verify — verified/);
     // The demo showed a real finding and restored the tree byte-for-byte.
     expect(s.out).toMatch(/BLOCK\s+test-skip/);
     expect(s.out).toMatch(/restored byte-for-byte/);
-    // The posture came from doctor; the GitHub half is honestly unverified.
-    expect(s.out).toMatch(/tamperward doctor: \[/);
-    expect(s.out).toMatch(/^POSTURE: READY WITH WARNINGS/m);
-    expect(s.out).toMatch(/GitHub repository authority: NOT VERIFIED/);
-    // Next steps name the day-to-day command set and the container verifier.
+    // Doctor is summarized rather than replayed; the GitHub half is honestly unverified.
+    expect(s.out).not.toMatch(/tamperward doctor: \[/);
+    expect(s.out).toMatch(/READY\s+(Configured with the limitation|TamperWard is configured)/);
+    expect(s.out).toMatch(/GitHub authority is not verified yet/);
     expect(s.out).toContain('tamperward check --worktree');
     expect(s.out).toContain('tamperward verify --base');
-    expect(s.out).toContain('tamperward run --base');
     expect(s.out).toContain('tamperward doctor --github');
-    expect(s.out).toMatch(/backend: container/);
+    expect(s.out).toMatch(/NEXT\s+Commit repository setup files:/);
+    expect(s.out).not.toMatch(/NEXT[^\n]*\.git\/hooks\/pre-commit/);
+    expect(s.out).not.toMatch(/ONE STEP LEFT|subreaper\/ECHILD|backend: container/);
     expect(s.code).toBe(0);
   });
 
-  it('explains each enforcement point in one sentence before asking to write', async () => {
+  it('shows the canonical local-protection plan without the old installation essay', async () => {
     const d = repo();
     const s = await onboard(d, ['n'], { noGithub: true, skipDemo: true });
-    const preview = s.out.slice(0, s.out.indexOf('POSTURE'));
-    for (const item of ['policy', 'hooks', 'pre-commit', 'CI', 'CODEOWNERS']) {
-      expect(preview).toMatch(new RegExp(`${item}[^\\n]*—`));
+    for (const item of ['Policy', 'Claude hooks', 'Pre-commit', 'CI workflow', 'CODEOWNERS']) {
+      expect(s.out).toContain(item);
     }
+    expect(s.out).not.toMatch(/What each item is for|ONE STEP LEFT|workflow from its OWN head/);
   });
 });
 
 describe('declined writes', () => {
+  it('does not claim planned files were written when init returns before applying them', async () => {
+    const d = repo();
+    const s = await onboard(d, ['y', ''], { noGithub: true, skipDemo: true }, {
+      runners: { init: () => 2 },
+    });
+    expect(s.out).toMatch(/some setup items still need attention|some setup items remain/i);
+    expect(s.out).toMatch(/ADD\s+Policy\s+\.tamperward\.yml/);
+    expect(s.out).not.toMatch(/NEXT\s+Commit repository setup files:/);
+  });
+
   it('writes nothing when the operator declines the plan and reports an incomplete posture', async () => {
     const d = repo();
     const s = await onboard(d, ['n'], { noGithub: true, skipDemo: true });
     expect(snapshot(d)).toEqual({});
-    expect(s.out).toMatch(/nothing was written/i);
-    expect(s.out).toMatch(/^POSTURE: INCOMPLETE/m);
+    expect(s.out).toMatch(/No setup files were changed/i);
+    expect(s.out).toMatch(/INCOMPLETE\s+Setup needs/);
     expect(s.code).toBe(1);
   });
 
-  it('defaults to NOT writing when the operator just presses Enter', async () => {
+  it('defaults to applying the displayed non-destructive setup plan when the operator presses Enter', async () => {
     const d = repo();
-    const s = await onboard(d, [''], { noGithub: true, skipDemo: true });
-    expect(snapshot(d)).toEqual({});
-    expect(s.code).toBe(1);
+    const s = await onboard(d, ['', 'n', ''], { noGithub: true, skipDemo: true });
+    expect(wired(d)).toBe(true);
+    expect(s.out).toMatch(/Applied 5 setup change/);
   });
 });
 
@@ -192,8 +202,8 @@ describe('existing and partial installation', () => {
     const before = snapshot(d);
     const s = await onboard(d, ['n'], { noGithub: true, skipDemo: true });
     expect(s.questions.some((q) => /write/i.test(q))).toBe(false);
-    expect(s.out).toMatch(/already wired/);
-    expect(s.out).toMatch(/verification configured — npm test/);
+    expect(s.out).toMatch(/Local protection is already wired/);
+    expect(s.out).toMatch(/Trusted test command: npm test/);
     expect(snapshot(d)).toEqual(before);
     expect(s.code).toBe(0);
   });
@@ -204,8 +214,8 @@ describe('existing and partial installation', () => {
     rmSync(join(d, '.github', 'CODEOWNERS'));
     const policy = readFileSync(join(d, '.tamperward.yml'), 'utf8');
     const s = await onboard(d, ['y', 'n', ''], { noGithub: true, skipDemo: true });
-    expect(s.out).toMatch(/would create\s+\.github\/CODEOWNERS/);
-    expect(s.out).not.toMatch(/would create\s+\.tamperward\.yml/);
+    expect(s.out).toMatch(/ADD\s+CODEOWNERS\s+\.github\/CODEOWNERS/);
+    expect(s.out).toMatch(/OK\s+Policy\s+\.tamperward\.yml/);
     expect(existsSync(join(d, '.github', 'CODEOWNERS'))).toBe(true);
     // Declining the verifier suggestion and the manual entry leaves the policy untouched.
     expect(readFileSync(join(d, '.tamperward.yml'), 'utf8')).toBe(policy);
@@ -217,17 +227,18 @@ describe('verifier configuration is explicit', () => {
     const d = repo();
     const s = await onboard(d, ['y', 'n', ''], { noGithub: true, skipDemo: true });
     expect(loadPolicy(d).verify?.command).toBeUndefined();
-    expect(s.out).toMatch(/verify\.command (was )?not (written|configured)/);
-    expect(s.out).toMatch(/cannot verify|CANNOT_VERIFY/i);
-    expect(s.out).toMatch(/^POSTURE: INCOMPLETE/m);
+    expect(s.out).toMatch(/Verification is not configured|verify\.command was not written/);
+    expect(s.out).toMatch(/CI will fail closed/i);
+    expect(s.out).toMatch(/INCOMPLETE\s+Setup needs/);
     expect(s.code).toBe(1);
   });
 
   it('lists ambiguous candidates and writes the operator’s numbered choice', async () => {
     const d = repo({ pytest: true });
     const s = await onboard(d, ['y', '2', 'n'], { noGithub: true, skipDemo: true });
-    const q = s.questions.find((x) => /npm test/.test(x) && /pytest/.test(x));
-    expect(q).toBeDefined();
+    expect(s.out).toContain('1. npm test');
+    expect(s.out).toContain('2. pytest');
+    expect(s.questions.some((q) => /Choose 1-2/.test(q))).toBe(true);
     expect(loadPolicy(d).verify?.command).toBe('pytest');
     expect(loadPolicy(d).verify?.budget).toBe(300);
     // The policy file keeps init's commented baseline: the block was merged, not rewritten.
@@ -237,9 +248,9 @@ describe('verifier configuration is explicit', () => {
   it('accepts a manually typed command when nothing is detected', async () => {
     const d = repo({ pkg: false });
     const s = await onboard(d, ['y', 'node test/check.test.js', 'y'], { noGithub: true, skipDemo: true });
-    expect(s.out).toMatch(/no suite command (was )?detected/i);
+    expect(s.out).toMatch(/No test command was detected automatically/i);
     expect(loadPolicy(d).verify?.command).toBe('node test/check.test.js');
-    expect(s.out).toMatch(/VERIFIED: your suite passes/);
+    expect(s.out).toMatch(/Verification passed — visible and pristine suites are green/);
   });
 
   it('treats a blank manual entry as a skip and leaves the policy bytes untouched', async () => {
@@ -250,7 +261,7 @@ describe('verifier configuration is explicit', () => {
     const s = await onboard(d, ['   '], { noGithub: true, skipDemo: true });
     expect(before()).toBe(written);
     expect(loadPolicy(d).verify?.command).toBeUndefined();
-    expect(s.out).toMatch(/verify\.command (was )?not (written|configured)/);
+    expect(s.out).toMatch(/Verification is not configured|verify\.command was not written/);
   });
 
   it('refuses a symlink policy instead of writing through it to operator state', async () => {
@@ -282,8 +293,8 @@ describe('the first verification is explained without changing verify semantics'
     writeFileSync(join(d, 'src.js'), 'module.exports = 41;\n');
     git(d, 'commit', '-qam', 'break');
     const s = await onboard(d, ['y', 'y', 'y'], { noGithub: true, skipDemo: true });
-    expect(s.out).toMatch(/SUITE_RED: your suite fails as it is/);
-    expect(s.out).toMatch(/verify exited 1/);
+    expect(s.out).toMatch(/Your test suite is red/);
+    expect(s.out).toMatch(/ACTION\s+Your test suite is red|ACTION\s+Verification blocked/);
   });
 
   it('explains MASKED_FAILURE as a weakened check, exit 1', async () => {
@@ -293,9 +304,9 @@ describe('the first verification is explained without changing verify semantics'
     git(d, 'add', '-A');
     // Onboard is run against the committed base; the weakening is the working tree.
     const s = await onboard(d, ['y', 'y', 'y', 'y'], { noGithub: true, skipDemo: true });
-    expect(s.out).toMatch(/working tree is not clean/);
-    expect(s.out).toMatch(/MASKED_FAILURE: your suite passes as it is, but FAILS/);
-    expect(s.out).toMatch(/verify exited 1/);
+    expect(s.out).toMatch(/existing changed\/untracked path/);
+    expect(s.out).toMatch(/Verification blocked — the visible suite passes, but the pristine suite fails/);
+    expect(s.out).toMatch(/ACTION\s+Your test suite is red|ACTION\s+Verification blocked/);
   });
 
   it('explains a cannot-verify result as failing closed, exit 2', async () => {
@@ -304,8 +315,8 @@ describe('the first verification is explained without changing verify semantics'
     const s = await onboard(d, ['y', 'y', 'y'], { noGithub: true, skipDemo: true }, {
       runners: { verify },
     });
-    expect(s.out).toMatch(/could not verify .* fails closed/i);
-    expect(s.out).toMatch(/verify exited 2/);
+    expect(s.out).toMatch(/Could not verify.*failed closed/i);
+    expect(s.out).toMatch(/ERROR\s+Could not verify/);
   });
 });
 
@@ -315,7 +326,7 @@ describe('dirty working tree', () => {
     writeFileSync(join(d, 'src.js'), 'module.exports = 42; // wip\n');
     writeFileSync(join(d, 'scratch.txt'), 'untracked\n');
     const s = await onboard(d, ['y', 'y', 'y', 'y', 'y'], { noGithub: true });
-    expect(s.out).toMatch(/working tree is not clean/);
+    expect(s.out).toMatch(/existing changed\/untracked path/);
     expect(s.questions[0]).toMatch(/continue/i);
     expect(readFileSync(join(d, 'src.js'), 'utf8')).toBe('module.exports = 42; // wip\n');
     expect(readFileSync(join(d, 'scratch.txt'), 'utf8')).toBe('untracked\n');
@@ -339,15 +350,72 @@ describe('preflight refusals', () => {
     dirs.push(d);
     const s = await onboard(d, [], { noGithub: true });
     expect(s.code).toBe(2);
-    expect(s.err).toMatch(/not (inside )?a git repository/);
+    expect(s.err).toMatch(/not (inside )?a git repository/i);
     expect(s.questions).toEqual([]);
+  });
+
+  it('refuses a child directory instead of mixing it with the parent Git repository', async () => {
+    const parent = repo();
+    const child = join(parent, 'test-proj');
+    mkdirSync(child);
+    writeFileSync(join(child, 'package.json'), JSON.stringify({ name: 'child', scripts: { test: 'node --test' } }) + '\n');
+
+    const s = await onboard(child, [], { noGithub: true });
+    expect(s.code).toBe(2);
+    expect(s.err).toMatch(/not the Git repository root/i);
+    expect(s.err).toContain(parent);
+    expect(s.err).toContain(child);
+    expect(s.err).toMatch(/git init/);
+    expect(existsSync(join(child, '.tamperward.yml'))).toBe(false);
+  });
+
+  it('accepts a symlink alias that resolves to the repository root', async () => {
+    const d = repo();
+    const holder = mkdtempSync(join(tmpdir(), 'tw-onboard-root-alias-'));
+    dirs.push(holder);
+    const alias = join(holder, 'repo');
+    symlinkSync(d, alias, 'dir');
+
+    const s = await onboard(alias, ['n'], { noGithub: true, skipDemo: true });
+    expect(s.err).toBe('');
+    expect(s.out).toMatch(/Local protection/);
+    expect(s.code).toBe(1);
+  });
+
+  it('presents macOS as a clear run limitation instead of dumping lifecycle internals', async () => {
+    const d = repo();
+    const s = await onboard(d, ['n'], { noGithub: true, skipDemo: true }, { platform: 'darwin' });
+    expect(s.out).toMatch(/LIMITED\s+macOS: check \+ verify work here; .*run.*requires Linux/);
+    expect(s.out).not.toMatch(/subreaper|ECHILD/);
+  });
+
+  it('uses colour for interactive status while keeping words as the source of meaning', async () => {
+    const d = repo();
+    const s = await onboard(d, ['n'], { noGithub: true, skipDemo: true }, { colour: true });
+    expect(s.out).toContain('\u001b[36m');
+    expect(s.out).toContain('Environment');
+    expect(s.out).toMatch(/ACTION|INCOMPLETE/);
+  });
+
+  it('strips repository-controlled terminal control bytes from compact output and prompts', async () => {
+    const d = repo();
+    const pkg = JSON.parse(readFileSync(join(d, 'package.json'), 'utf8')) as { scripts: { test: string } };
+    pkg.scripts.test = "node test/check.test.js\u001b[2J\nFORGED";
+    writeFileSync(join(d, 'package.json'), JSON.stringify(pkg, null, 2) + '\n');
+    git(d, 'add', '-A');
+    git(d, 'commit', '-qm', 'hostile display text');
+
+    const s = await onboard(d, ['y', 'n', ''], { noGithub: true, skipDemo: true }, { colour: false });
+    expect(s.out).not.toContain('\u001b[2J');
+    expect(s.questions.join('\n')).not.toContain('\u001b[2J');
+    expect(s.out).not.toContain('\nFORGED');
   });
 
   it('refuses a non-interactive stdin without a scripted mode, and never hangs', async () => {
     const d = repo();
     const s = await onboard(d, [], { noGithub: true }, { interactive: false });
     expect(s.code).toBe(2);
-    expect(s.err).toMatch(/not interactive/);
+    expect(s.err).toMatch(/interactive terminal/);
     expect(s.err).toMatch(/--yes/);
     expect(s.questions).toEqual([]);
     expect(snapshot(d)).toEqual({});
@@ -366,7 +434,7 @@ describe('preflight refusals', () => {
     const s2 = await onboard(d2, [], { noGithub: true, yes: true, verifyCommand: 'npm test' }, { interactive: false });
     expect(s2.questions).toEqual([]);
     expect(loadPolicy(d2).verify?.command).toBe('npm test');
-    expect(s2.out).toMatch(/VERIFIED: your suite passes/);
+    expect(s2.out).toMatch(/Verification passed — visible and pristine suites are green/);
     // The demo is opt-in under --yes: nothing ran that was not asked for.
     expect(s2.out).not.toMatch(/test-skip/);
     expect(s2.code).toBe(0);
@@ -389,7 +457,7 @@ describe('unsupported platform', () => {
       runners: { verify: (o) => { calls.push(o); return 0; } },
     });
     expect(s.out).toMatch(/Windows/);
-    expect(s.out).toMatch(/checkpointed-local verify is unsupported/);
+    expect(s.out).toMatch(/local verify and `run` are unavailable|Local verification is unavailable/);
     expect(calls).toEqual([]);
     expect(s.out).not.toMatch(/VERIFIED: your suite passes/);
   });
@@ -397,7 +465,7 @@ describe('unsupported platform', () => {
 
 describe('GitHub authority', () => {
   const manual = (out: string): void => {
-    expect(out).toMatch(/require the .?tamperward.? (status )?check/i);
+    expect(out).toMatch(/required check: tamperward/i);
     expect(out).toMatch(/Code Owner/);
     expect(out).toMatch(/[Dd]ismiss stale/);
   };
@@ -407,7 +475,7 @@ describe('GitHub authority', () => {
     const s = await onboard(d, ['y', 'y', 'n'], { skipDemo: true });
     manual(s.out);
     expect(s.out).toContain('tamperward doctor --github --repo OWNER/REPO --branch <default-branch>');
-    expect(s.out).toMatch(/GitHub repository authority: NOT VERIFIED/);
+    expect(s.out).toMatch(/GitHub authority is not verified yet/);
     expect(s.questions.some((q) => /GitHub/.test(q))).toBe(false);
   });
 
@@ -428,13 +496,13 @@ describe('GitHub authority', () => {
       };
     };
     const s = await onboard(d, ['y', 'y', 'n', 'y'], { skipDemo: true, branch: 'main' }, { runners: { doctor } });
-    expect(s.questions.some((q) => /doctor --github/.test(q))).toBe(true);
+    expect(s.questions.some((q) => /GitHub branch protection/.test(q))).toBe(true);
     expect(doctorCalls).toEqual([{ cwd: d, github: true, repo: 'acme/project', branch: 'main' }]);
-    expect(s.out).toMatch(/GitHub repository authority: NOT VERIFIED/);
+    expect(s.out).toMatch(/GitHub authority is not verified yet/);
     expect(s.out).toMatch(/HTTP 401/);
     expect(s.out).toContain('tamperward doctor --github --repo acme/project --branch main');
     manual(s.out);
-    expect(s.out).toMatch(/^POSTURE: INCOMPLETE/m);
+    expect(s.out).toMatch(/INCOMPLETE\s+Setup needs/);
     expect(s.code).toBe(1);
   });
 
@@ -451,8 +519,8 @@ describe('GitHub authority', () => {
       github: { repo: 'acme/project', branch: 'main' },
     });
     const s = await onboard(d, ['y', 'y', 'n', 'y'], { skipDemo: true, branch: 'main' }, { runners: { doctor } });
-    expect(s.out).toMatch(/GitHub repository authority: ENFORCED/);
-    expect(s.out).toMatch(/^POSTURE: READY$/m);
+    expect(s.out).toMatch(/GitHub authority enforced/);
+    expect(s.out).toMatch(/READY\s+TamperWard is configured/);
     expect(s.code).toBe(0);
   });
 
@@ -466,11 +534,33 @@ describe('GitHub authority', () => {
     const s = await onboard(d, ['y', 'y', 'n'], { skipDemo: true, noGithub: true }, { runners: { doctor } });
     expect(doctorCalls.map((c) => c.github ?? false)).toEqual([false]);
     expect(s.out).toContain('tamperward doctor --github --repo acme/project --branch <default-branch>');
-    expect(s.out).toMatch(/GitHub repository authority: NOT VERIFIED/);
+    expect(s.out).toMatch(/GitHub authority is not verified yet/);
   });
 });
 
 describe('posture is derived from doctor', () => {
+  it('treats the macOS run limitation as READY WITH WARNINGS, not a broken installation', async () => {
+    const d = repo();
+    const doctor = (): DoctorOutcome => ({
+      code: 0,
+      authoritative: false,
+      summary: [],
+      checks: [
+        { id: 'policy', state: 'OK', detail: 'ok' },
+        { id: 'verifier', state: 'WARN', detail: 'checkpointed-local verifier' },
+        { id: 'platform', state: 'BROKEN', detail: 'darwin: run lifecycle unavailable' },
+      ],
+    });
+    const s = await onboard(d, ['y', 'y', 'n'], { skipDemo: true, noGithub: true }, {
+      platform: 'darwin',
+      runners: { doctor },
+    });
+    expect(s.out).toMatch(/LIMITED\s+macOS: .*run.*requires Linux/);
+    expect(s.out).toMatch(/READY\s+Configured with the limitation/);
+    expect(s.out).not.toMatch(/BLOCKED\s+Fix the broken item/);
+    expect(s.code).toBe(0);
+  });
+
   it('READY WITH WARNINGS when doctor completes with warnings only', async () => {
     const d = repo();
     const doctor = (): DoctorOutcome => ({
@@ -483,8 +573,8 @@ describe('posture is derived from doctor', () => {
       ],
     });
     const s = await onboard(d, ['y', 'y', 'n'], { skipDemo: true, noGithub: true }, { runners: { doctor } });
-    expect(s.out).toMatch(/^POSTURE: READY WITH WARNINGS/m);
-    expect(s.out).toMatch(/1 warning/);
+    expect(s.out).toMatch(/READY\s+Configured with the limitation/);
+    expect(s.out).toMatch(/verifier — checkpointed-local verifier/);
     expect(s.code).toBe(0);
   });
 
@@ -499,7 +589,7 @@ describe('posture is derived from doctor', () => {
       ],
     });
     const s = await onboard(d, ['y', 'y', 'n'], { skipDemo: true, noGithub: true }, { runners: { doctor } });
-    expect(s.out).toMatch(/^POSTURE: BROKEN/m);
+    expect(s.out).toMatch(/BLOCKED\s+Fix the broken item/);
     expect(s.out).toMatch(/claude-hooks/);
     expect(s.code).toBe(1);
   });
@@ -511,7 +601,7 @@ describe('posture is derived from doctor', () => {
     const wf = join(d, '.github', 'workflows', 'tamperward.yml');
     writeFileSync(wf, readFileSync(wf, 'utf8').replace(/timeout-minutes: \d+/, 'timeout-minutes: 1'));
     const s = await onboard(d, ['n'], { skipDemo: true, noGithub: true });
-    expect(s.out).toMatch(/^POSTURE: INCOMPLETE/m);
+    expect(s.out).toMatch(/INCOMPLETE\s+Setup needs/);
     expect(s.out).toMatch(/timeout-minutes 1 is too small/);
     expect(s.code).toBe(1);
   });
@@ -522,7 +612,7 @@ describe('interrupted and re-run', () => {
     const d = repo();
     const aborted = await onboard(d, [null], { skipDemo: true, noGithub: true });
     expect(aborted.code).toBe(2);
-    expect(aborted.out).toMatch(/aborted/i);
+    expect(aborted.out).toMatch(/cancelled/i);
     expect(aborted.out).toMatch(/tamperward onboard/);
     expect(aborted.out).toMatch(/tamperward doctor/);
     expect(snapshot(d)).toEqual({});
@@ -534,7 +624,7 @@ describe('interrupted and re-run', () => {
 
     const again = await onboard(d, ['n'], { skipDemo: true, noGithub: true });
     expect(again.code).toBe(0);
-    expect(again.out).toMatch(/already wired/);
+    expect(again.out).toMatch(/Local protection is already wired/);
     expect(snapshot(d)).toEqual(after);
   });
 
@@ -544,7 +634,7 @@ describe('interrupted and re-run', () => {
     expect(s.code).toBe(2);
     expect(wired(d)).toBe(true);
     expect(loadPolicy(d).verify?.command).toBeUndefined();
-    expect(s.out).toMatch(/aborted/i);
+    expect(s.out).toMatch(/cancelled/i);
   });
 });
 
@@ -569,7 +659,7 @@ describe('the safe demo', () => {
     const s = await onboard(d, ['y', 'y', 'n', ''], { noGithub: true });
     expect(s.questions.some((q) => /demo/i.test(q))).toBe(true);
     expect(s.out).not.toMatch(/test-skip/);
-    expect(s.out).toMatch(/demo skipped/i);
+    expect(s.out).not.toMatch(/test-skip/);
   });
 
   it('is skipped with an explanation when the repository has no JavaScript test block to skip', async () => {
@@ -661,7 +751,7 @@ describe('CLI dispatch', () => {
     const d = repo();
     const r = await run(['onboard', '--cwd', d, '--no-github']);
     expect(r.code).toBe(2);
-    expect(r.err).toMatch(/not interactive/);
+    expect(r.err).toMatch(/interactive terminal/);
     expect(snapshot(d)).toEqual({});
   });
 });

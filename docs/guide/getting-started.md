@@ -4,45 +4,42 @@
 npx tamperward onboard
 ```
 
-The guided first run (2.21.0). It walks a new repository through the sequence below
-without writing anything before you say so, and teaches the three layers on the way —
-**agent steering** (the hooks), **verification** (`verify`) and **repository
-authority** (GitHub's controls):
+The guided first run is deliberately short. It uses colour on a terminal (while
+keeping every state spelled out as `OK`, `ACTION`, `LIMITED`, `ERROR` or
+`READY`) and honours `NO_COLOR` / `FORCE_COLOR`.
 
-1. **Preflight** — a git repository, the Node/platform support contract, the TamperWard
-   version, and whether the working tree is clean (it never stashes or resets your
-   work; a dirty tree asks before continuing).
-2. **Preview** — the same plan as `init --dry-run`, one sentence per enforcement point,
-   and an explicit confirmation before any write.
-3. **Initialize** — the canonical `init`, unchanged.
-4. **Configure verification** — init's own suite-command detection: one
-   high-confidence candidate is offered for your acceptance, several are listed for a
-   numbered choice, none means manual entry. Nothing is written to `verify.command`
-   without your explicit yes, because that command is part of the trust anchor.
-5. **First verification** — `verify` runs and its result is explained in plain
-   language: `VERIFIED`, `SUITE_RED`, `MASKED_FAILURE` or cannot-verify. Exit
-   semantics are reported, never reinterpreted.
-6. **Safe demonstration** (optional, Enter skips it) — a detached temporary worktree of
-   `HEAD` gets a `.skip` on one test block and `check --worktree` shows the
-   `test-skip` finding; your working tree is never edited and its fingerprint is
-   printed before and after.
-7. **GitHub authority** — `doctor --github` when a repository can be determined (set
-   `GH_TOKEN`/`GITHUB_TOKEN` if needed), otherwise the exact three controls and the
-   doctor command to run later. Nothing is reported as enforced unless doctor verified it.
-8. **Posture** — `doctor`'s checks, summarised as `READY`, `READY WITH WARNINGS`,
-   `BROKEN` or `INCOMPLETE`, plus whether GitHub authority is **enforced** or merely
-   **locally configured**.
-9. **Next steps** — the day-to-day commands and when the container verifier is the
-   stronger final check.
+It has five sections:
+
+1. **Environment** — repository root, working-tree state and platform capability. On
+   macOS the message is simply that `check` + local `verify` work while the
+   lifecycle-owning `run` envelope requires Linux; the low-level subreaper/ECHILD
+   explanation stays in `doctor`, where it belongs.
+2. **Local protection** — one compact line each for policy, Claude hooks, pre-commit,
+   CI and CODEOWNERS. The plan is still the canonical `init` plan; Enter applies the
+   displayed non-destructive changes. No second copy of init's long explanation is
+   printed inside onboarding.
+3. **Verification** — choose the test command TamperWard should trust, optionally run
+   the first visible/pristine verification, and optionally run the disposable-worktree
+   demo. The verifier is never inferred silently: a detected command still needs
+   explicit acceptance (or `--verify-command` in scripted mode).
+4. **GitHub protection** — optionally inspect the live protected-branch controls.
+5. **Summary** — only the items that need attention, the verified GitHub state, and
+   the next action. Successful doctor checks are not replayed line by line.
+
+Onboarding must run at the **Git repository root**. If the current directory is merely
+inside a parent repository, it refuses before writing anything and prints both paths.
+This prevents a child folder from receiving `.tamperward.yml` / CI files while the
+pre-commit hook and GitHub remote belong to the parent repository. Run from the parent
+root, or run `git init` in the child first if it is meant to be an independent project.
 
 Flags: `--cwd <dir>` · `--base <rev>` · `--repo OWNER/REPO` · `--branch <branch>` ·
-`--skip-demo` / `--demo` · `--no-github` · `--yes` · `--verify-command "<cmd>"`. A
-non-interactive stdin or a CI environment refuses with one message instead of hanging;
-`--yes` scripts every confirmation with its safe default, still never writes a detected
-verifier command (pass `--verify-command`), and runs the demo only with `--demo`. Every
-step is idempotent: abort at any prompt and nothing is half-applied; re-run to continue;
-`tamperward doctor` describes the state in between. Exit `0` for `READY` /
-`READY WITH WARNINGS`, `1` for `BROKEN` / `INCOMPLETE`, `2` when refused or aborted.
+`--skip-demo` / `--demo` · `--no-github` · `--yes` · `--verify-command "<cmd>"`.
+A non-interactive stdin or CI environment refuses instead of hanging; `--yes` applies
+the local setup without prompts, still never trusts a detected verifier command unless
+`--verify-command` is supplied, and runs the demo only with `--demo`. Re-running is
+idempotent. Exit `0` means the supported onboarding surfaces are ready (possibly with
+a clearly printed platform limitation), `1` means setup still needs action, and `2`
+means onboarding was refused or cancelled.
 
 The deterministic, non-interactive primitive it drives is still the one to script:
 

@@ -5,6 +5,30 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.1] — 2026-09-14
+
+### Changed
+
+- **A quieter, clearer `tamperward onboard`.** The guided first run is now five compact
+  sections instead of nine verbose ones. Terminal output uses the same
+  `NO_COLOR`/`FORCE_COLOR` convention as the verdict renderer and spells every state
+  out (`OK`, `ACTION`, `LIMITED`, `ERROR`, `READY`) so colour is never the only
+  signal. Onboarding renders the canonical init plan itself, applies it silently, runs
+  the first verification silently and reports its verdict once, suppresses successful
+  doctor detail, and ends with only the remaining actions. macOS is described as a
+  `run` limitation rather than dumping the subreaper/ECHILD implementation detail.
+- **Repository-root safety.** `onboard` now refuses when invoked from a child directory
+  of another Git repository. The previous behaviour could write policy/CI files into
+  the child while installing the pre-commit hook and inferring the GitHub remote from
+  the parent. The refusal prints both paths and tells the operator to run from the Git
+  root or initialise the child as its own repository.
+- The displayed local setup plan now defaults to apply on Enter; inferred verifier
+  commands still require explicit acceptance because they are part of the trust anchor.
+- Compact onboarding treats repository-derived paths, commands and doctor detail as
+  untrusted terminal text: control bytes and embedded line breaks are neutralised before
+  rendering. Its final commit instruction also excludes local-only `.git/` files, and
+  partial init failures only report files that actually became wired as written.
+
 ## [2.23.0] — 2026-09-14
 
 **`tamperward research`: a first-class bring-your-own-model evaluation workflow, and
