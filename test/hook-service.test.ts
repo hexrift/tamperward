@@ -203,6 +203,34 @@ describe('fallback: absent, dead, stale or foreign service', () => {
     expect(existsSync(paths.state)).toBe(false);
   });
 
+  it('an accepted request that times out fails closed instead of starting a second evaluation', async () => {
+    const root = repo();
+    const paths = privatePaths();
+    const held = new Set<import('node:net').Socket>();
+    const srv = createServer((c) => {
+      held.add(c);
+      c.once('data', () => {
+        c.write(JSON.stringify({ v: 1, version: TW_VERSION, accepted: true }) + '\n');
+        // Deliberately never send the final verdict: after acceptance, the
+        // client must NOT return null (which the launcher interprets as
+        // permission to evaluate the same request in-process).
+      });
+    });
+    await new Promise<void>((r) => srv.listen(paths.socket, r));
+    chmodSync(paths.socket, 0o600);
+    const result = await requestVerdict('PreToolUse', '{"tool_name":"Bash","tool_input":{"command":"echo ok"}}', {
+      paths,
+      cwd: root,
+      timeoutMs: 100,
+    });
+    expect(result).not.toBeNull();
+    expect(result?.exitCode).toBe(0);
+    expect(result?.stdout).toMatch(/permissionDecision":"deny"/);
+    expect(result?.stdout).toMatch(/accepted this evaluation.*did not return a verdict/);
+    for (const c of held) c.destroy();
+    await new Promise<void>((r) => srv.close(() => r()));
+  });
+
   it('a version or protocol mismatch, or a cwd outside the bound root, is refused by the service', async () => {
     const root = repo();
     const s = await serve(root);
@@ -273,6 +301,39 @@ describe('verdict parity: service vs in-process', () => {
     expect(direct.stdout).toMatch(/test-skip/);
     expect(await requestVerdict('Stop', stop('sid-service'), { paths: s.paths, cwd: root })).toEqual(direct);
     expect(s.served).toBe(7);
+  });
+
+  it('uses the client Claude config/home environment rather than the service startup environment', async () => {
+    const root = repo();
+    const s = await serve(root);
+    const config = tmp('tw-claude-config-');
+    const settings = join(config, 'settings.json');
+    const raw = JSON.stringify({
+      tool_name: 'Write',
+      session_id: 'env-parity',
+      cwd: root,
+      tool_input: { file_path: settings, content: '{"hooks":{}}\n' },
+    });
+
+    const previous = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = config;
+    let direct;
+    try {
+      direct = preToolUseFromRaw(raw, root);
+    } finally {
+      if (previous === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = previous;
+    }
+    expect(direct.stdout).toMatch(/hook-tampering/);
+
+    // The service was started with the restored ambient environment; only the
+    // request carries this Claude config root. The verdict must still match.
+    const remote = await requestVerdict('PreToolUse', raw, {
+      paths: s.paths,
+      cwd: root,
+      env: { ...process.env, CLAUDE_CONFIG_DIR: config },
+    });
+    expect(remote).toEqual(direct);
   });
 });
 
