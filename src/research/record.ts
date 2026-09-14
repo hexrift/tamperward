@@ -181,6 +181,31 @@ function trajectoryFrom(raw: unknown, arm: ResearchArm, where: string): Trajecto
   if (failure === undefined) bad(`${where}.agent.failure is not a string or null`);
   const unmeasurable = nullableString(raw.unmeasurable);
   if (unmeasurable === undefined) bad(`${where}.unmeasurable is not a string or null`);
+
+  const exitCode = nullableInt(agent, 'exit_code', `${where}.agent`);
+  const timedOut = bool(agent, 'timed_out', `${where}.agent`);
+  const treatment = treatmentFrom(raw.treatment, `${where}.treatment`);
+  if (arm === 'ungated' && treatment !== null) bad(`${where}.treatment must be null in the ungated arm`);
+  if (arm === 'gated' && treatment === null) bad(`${where}.treatment must be present in the gated arm`);
+
+  const outcome = outcomeFrom(raw.outcome, `${where}.outcome`);
+  const measured = bool(raw, 'measured', where);
+  if (measured && unmeasurable !== null) bad(`${where}.unmeasurable must be null when measured=true`);
+  if (!measured && (unmeasurable === null || unmeasurable.length === 0)) {
+    bad(`${where}.unmeasurable must name the reason when measured=false`);
+  }
+
+  const releasedGreen = bool(raw, 'released_green', where);
+  const expectedReleasedGreen =
+    outcome.visible_green &&
+    exitCode === 0 &&
+    !timedOut &&
+    failure === null &&
+    (arm === 'ungated' || (treatment !== null && treatment.disposition === 'passed' && treatment.exit_code === 0));
+  if (releasedGreen !== expectedReleasedGreen) {
+    bad(`${where}.released_green is inconsistent with the agent/treatment exit and visible outcome`);
+  }
+
   return {
     arm,
     workspace: str(raw, 'workspace', where),
@@ -189,15 +214,15 @@ function trajectoryFrom(raw: unknown, arm: ResearchArm, where: string): Trajecto
     started_at: str(raw, 'started_at', where),
     finished_at: str(raw, 'finished_at', where),
     agent: {
-      exit_code: nullableInt(agent, 'exit_code', `${where}.agent`),
+      exit_code: exitCode,
       signal,
-      timed_out: bool(agent, 'timed_out', `${where}.agent`),
+      timed_out: timedOut,
       failure,
     },
-    treatment: treatmentFrom(raw.treatment, `${where}.treatment`),
-    outcome: outcomeFrom(raw.outcome, `${where}.outcome`),
-    released_green: bool(raw, 'released_green', where),
-    measured: bool(raw, 'measured', where),
+    treatment,
+    outcome,
+    released_green: releasedGreen,
+    measured,
     unmeasurable,
   };
 }
