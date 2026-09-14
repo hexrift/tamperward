@@ -235,16 +235,33 @@ export async function startHookService(opts: StartOptions): Promise<RunningServi
     if (!within(root, req.cwd)) return respond(sock, { refused: 'cwd outside the bound repository' });
     const named = payloadCwd(req.raw);
     if (named !== null && !within(root, named)) return respond(sock, { refused: 'payload cwd outside the bound repository' });
-    let result;
-    try {
-      result = withEnv(req.env, () => (req.kind === 'PreToolUse' ? preToolUseFromRaw(req.raw, req.cwd) : stopFromRaw(req.raw, req.cwd)));
-    } catch (e) {
-      // preToolUseFromRaw / stopFromRaw fail closed on their own; anything that
-      // still escapes is refused so the client evaluates in-process.
-      return respond(sock, { refused: `internal: ${e instanceof Error ? e.message : String(e)}` });
-    }
-    served++;
-    respond(sock, { exitCode: result.exitCode, stdout: result.stdout });
+
+    // Ownership handoff. The client may fall back in-process only BEFORE this
+    // line. Once it sees accepted=true, this service is the sole evaluator for
+    // the request; a later timeout/connection loss must fail closed instead of
+    // starting a second evaluation over the same session state. Run the
+    // evaluator from the write callback so the acceptance line has been handed
+    // to the socket before synchronous hook work blocks this event loop.
+    sock.write(JSON.stringify({ v: HOOK_SERVICE_PROTOCOL, version: TW_VERSION, accepted: true }) + '\n', () => {
+      let result;
+      try {
+        result = withEnv(req.env, () => (req.kind === 'PreToolUse' ? preToolUseFromRaw(req.raw, req.cwd) : stopFromRaw(req.raw, req.cwd)));
+      } catch (e) {
+        // The request is already accepted, so returning a refusal would invite
+        // an unsafe fallback. Send a fail-closed HookResult-shaped denial.
+        const detail = e instanceof Error ? e.message : String(e);
+        const reason =
+          `Tamperward's hook service could not complete the accepted evaluation (${detail}), so it is denied rather than retried concurrently.`;
+        const stdout =
+          req.kind === 'PreToolUse'
+            ? JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } }) + '\n'
+            : JSON.stringify({ decision: 'block', reason }) + '\n';
+        served++;
+        return respond(sock, { exitCode: 0, stdout });
+      }
+      served++;
+      respond(sock, { exitCode: result.exitCode, stdout: result.stdout });
+    });
   };
 
   const server: Server = createServer((sock) => {
