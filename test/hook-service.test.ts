@@ -24,7 +24,7 @@ import { driftBetween, snapshotProtected } from '../src/effect';
 import { SnapshotCache, RACY_MARGIN_NS } from '../src/ptree-cache';
 import { loadPolicy } from '../src/policy-load';
 import { preToolUseFromRaw, stopFromRaw } from '../src/cli/hook';
-import { requestVerdict, servicePaths, socketRefusal, type ServicePaths } from '../src/cli/hook-client';
+import { HOOK_SERVICE_PROTOCOL, requestVerdict, servicePaths, socketRefusal, type ServicePaths } from '../src/cli/hook-client';
 import { readServiceState, startHookService, stopHookService, type RunningService } from '../src/cli/hook-service';
 import { TW_VERSION } from '../src/wiring';
 import { validateCliArgs } from '../src/cli/main';
@@ -210,7 +210,7 @@ describe('fallback: absent, dead, stale or foreign service', () => {
     const srv = createServer((c) => {
       held.add(c);
       c.once('data', () => {
-        c.write(JSON.stringify({ v: 1, version: TW_VERSION, accepted: true }) + '\n');
+        c.write(JSON.stringify({ v: HOOK_SERVICE_PROTOCOL, version: TW_VERSION, accepted: true }) + '\n');
         // Deliberately never send the final verdict: after acceptance, the
         // client must NOT return null (which the launcher interprets as
         // permission to evaluate the same request in-process).
@@ -317,7 +317,7 @@ describe('verdict parity: service vs in-process', () => {
 
     const previous = process.env.CLAUDE_CONFIG_DIR;
     process.env.CLAUDE_CONFIG_DIR = config;
-    let direct;
+    let direct: ReturnType<typeof preToolUseFromRaw>;
     try {
       direct = preToolUseFromRaw(raw, root);
     } finally {
