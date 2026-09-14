@@ -17,6 +17,7 @@ import { addHunks } from '../diff/synth';
 import { Change } from '../types';
 import { trustedGitEnv } from './trusted';
 import { execFailure } from '../narrow';
+import { repoRoot } from '../repo-context';
 
 export interface GitOpts {
   cwd?: string;
@@ -71,7 +72,9 @@ function blobAt(rev: string, path: string, cwd?: string): string | null {
  *  opened for content; a file past the cap is not read), which the callers that
  *  judge the working tree report by name (src/disk.ts unjudgeableProtected). */
 function fromDisk(path: string, cwd?: string): string | null {
-  return textOf(inspectRel(cwd ?? process.cwd(), path));
+  // `path` is root-relative (every git view reports it so); the read is rooted
+  // with it, whatever subdirectory the caller ran from (#412).
+  return textOf(inspectRel(repoRoot(cwd ?? process.cwd()), path));
 }
 
 /**

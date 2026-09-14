@@ -5,7 +5,7 @@
 import { Change, Detector, DetectorContext, Finding, Policy, View } from './types';
 import { allDetectors } from './detectors';
 import { isEnabled } from './detectors/finding';
-import { defaultPolicy, isIgnored, isPolicyFile, matchesAny } from './policy';
+import { defaultPolicy, isIgnored, isPolicyFile, isProtected, matchesAny } from './policy';
 import { resolvesToClaudeSettings } from './wiring';
 
 /**
@@ -42,11 +42,17 @@ function key(f: Finding): string {
 /** Whether policy.ignore suppresses this change from file-surface detection.
  *  A change to the POLICY FILE is never suppressible: `ignore` is read from the same file
  *  it would be hiding, so allowing it to cover itself lets one edit switch the whole gate
- *  off — including the detection of that edit. Command changes are never path-scoped. */
+ *  off — including the detection of that edit. Command changes are never path-scoped.
+ *  A RENAME is suppressed only when both of its ends are ignored, and never when the
+ *  old path sits in a protected category: `ignore: ['docs/**']` is an ordinary entry,
+ *  and testing the new path alone let `test/a.test.ts → docs/a.md` — a deletion of the
+ *  spec — vanish behind it (#430). */
 export function isSuppressed(c: Change, policy: Policy): boolean {
   if (c.kind !== 'file') return false;
   if (isPolicyFile(c.path) || (c.oldPath != null && isPolicyFile(c.oldPath))) return false;
-  return isIgnored(c.path, policy);
+  if (!isIgnored(c.path, policy)) return false;
+  if (c.oldPath == null) return true;
+  return isIgnored(c.oldPath, policy) && !isProtected(c.oldPath, policy);
 }
 
 /** File changes suppressed by policy.ignore are dropped before detection. */

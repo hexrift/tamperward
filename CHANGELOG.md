@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [2.23.5] — 2026-09-14
+## [2.23.8] — 2026-09-14
 
 ### Fixed
 
@@ -28,6 +28,75 @@ All notable changes to this project are documented here. The format follows
   / `test.describe.only` under Playwright count as the chain they are. Corpus replay
   (`harness/fp-study/TEST-SKIP-AST-CORPUS.md`) re-run over the same pinned immer /
   zustand / zod / hono heads: 524 adjacent pairs, 0 newly introduced findings.
+
+## [2.23.7] — 2026-09-14
+
+### Fixed
+
+- **`test-deletion` blocks a spec renamed into a path the runner does not walk** (#430).
+  A rename that stayed inside the tests glob was silent even when the runner would
+  never open the new path: `src/a.test.ts → cypress/a.test.ts` (vitest's default
+  exclude), `tests/integration.rs → tests/integration/mod.rs` (cargo builds only
+  `tests/<name>.rs` and `tests/<name>/main.rs`), `pkg/a_test.go → pkg/testdata/a_test.go`
+  (`go test` skips `testdata`, `_*` and `.*` components) and
+  `tests/test_a.py → tests/.archive/test_a.py` (pytest's default `norecursedirs`).
+  The rename branch now evaluates the new path against the runner's default exclusion
+  set — the same `test.exclude` / `norecursedirs` defaults the suite-narrowing
+  predicate already reads — plus the per-ecosystem target rules above, and reports
+  *renamed into a path the runner does not walk*. The `mv` spelling on the command
+  surface is held the same way. Only a rename whose old path was itself walked fires,
+  so an ordinary move within the walked tree (`src/a.test.ts → src/unit/a.test.ts`,
+  `tests/x.rs → tests/x/main.rs`) stays clean.
+- **`policy.ignore` can no longer hide the old path of a rename** (#430). Suppression
+  tested the new path only, so with an ordinary `ignore: ['docs/**']` the rename
+  `test/a.test.ts → docs/a.md` produced no finding. A rename is now suppressed only
+  when both of its ends are ignored, and never when the old path is in a protected
+  category.
+
+## [2.23.6] — 2026-09-14
+
+### Fixed
+
+- **Every worktree-reading path is rooted at the repository, not at cwd (#412).**
+  Git views report root-relative paths, but `check --worktree` / `--staged`, the Stop
+  sweep, PreToolUse, `allow`, `doctor` and the protected-tree snapshot joined those
+  paths onto the directory the command ran from. From a subdirectory of the repository
+  the after-content of every changed file resolved to a path that did not exist, the
+  content/AST detectors went blind, and the root `.tamperward.yml` was silently replaced
+  by the baseline — `check --worktree` and `sweep claude` failed OPEN for a monorepo or
+  subdirectory session, and `hook claude` enforced the wrong policy. A shared
+  `repoContext(cwd)` resolver (`git rev-parse --show-toplevel` / `--absolute-git-dir`,
+  cached per cwd) now anchors policy loading, every disk read, the snapshot, the sign-off
+  ledger, the hook service's root binding and `init`. Verdicts and plans from `r1/pkg`
+  equal those from `r1`; a policy file planted in a subdirectory governs nothing; a
+  relative tool path in a hook payload still resolves against the session's own cwd.
+- `init` run from a subdirectory wires the repository root (and says so on stderr)
+  instead of planning `.tamperward.yml` and the CI files under the subdirectory while
+  installing the pre-commit hook into the parent's `.git/hooks`.
+- A directory outside any repository keeps its previous behaviour: `check` refuses with
+  the not-inside-a-repository message, and a policy file beside it is read as before.
+
+## [2.23.5] — 2026-09-14
+
+### Fixed
+
+- **The pristine overlay no longer unlinks the file it just restored on a
+  case-insensitive filesystem** (#426). `verify` keyed the base-protected set on
+  exact-case paths while macOS-default and Windows filesystems collapse case, so a
+  case-only rename of a base test (`test/foo.test.js` → `test/FOO.test.js`, gutted)
+  resolved to the restored inode and the removal loop deleted it; a runner that exits
+  0 on an empty set then reported VERIFIED over an unfixed bug. The destination
+  filesystem's case sensitivity is now probed once per verify (a probe file and its
+  case variant, removed afterwards). When it is case-insensitive, overlay/surface
+  membership and the base-protected set are case-folded, so the case variant is never
+  removed and an agent-added `CONFTEST.PY` or `Pytest.ini` is removed like its
+  lower-case spelling; two in-tree paths that collide under folding are refused
+  before any candidate code runs as `CANNOT_VERIFY` / `PATH_CASE_COLLISION`. On a
+  case-sensitive filesystem (Linux) the fold is the identity and behaviour is
+  unchanged.
+- `verify --json` reports the probed assumption as `filesystem_case_sensitive`
+  (additive optional boolean in `verify-v1.schema.json`; `PATH_CASE_COLLISION` is an
+  additive `reason` value). No schema major.
 
 ## [2.23.4] — 2026-09-14
 
