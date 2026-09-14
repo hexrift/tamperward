@@ -144,6 +144,23 @@ export function recordAuditFindings(
 export function isAuditEvent(value: unknown): value is AuditFindingEventV1 {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const v = value as Record<string, unknown>;
+  const allowed = new Set([
+    'schema_version',
+    'id',
+    'recorded_at',
+    'event',
+    'agent',
+    'source',
+    'rule',
+    'severity',
+    'decision',
+    'session_hash',
+    'head',
+  ]);
+  if (Object.keys(v).some((key) => !allowed.has(key))) return false;
+  const consistentDecision =
+    (v.severity === 'block' && v.decision === 'deny') ||
+    (v.severity === 'warn' && v.decision === 'warn');
   return (
     v.schema_version === AUDIT_SCHEMA_VERSION &&
     typeof v.id === 'string' &&
@@ -156,7 +173,7 @@ export function isAuditEvent(value: unknown): value is AuditFindingEventV1 {
     typeof v.rule === 'string' &&
     v.rule.length > 0 &&
     (v.severity === 'block' || v.severity === 'warn') &&
-    (v.decision === 'deny' || v.decision === 'warn') &&
+    consistentDecision &&
     (v.session_hash === undefined || (typeof v.session_hash === 'string' && /^[0-9a-f]{20}$/i.test(v.session_hash))) &&
     (v.head === undefined || (typeof v.head === 'string' && /^[0-9a-f]{40,64}$/i.test(v.head)))
   );
