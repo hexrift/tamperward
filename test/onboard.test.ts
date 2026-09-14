@@ -229,6 +229,8 @@ describe('verifier configuration is explicit', () => {
     expect(loadPolicy(d).verify?.command).toBeUndefined();
     expect(s.out).toMatch(/Verification is not configured|verify\.command was not written/);
     expect(s.out).toMatch(/CI will fail closed/i);
+    expect(s.out).toMatch(/ACTION\s+Verification is not configured; choose the trusted test command/);
+    expect(s.out).not.toMatch(/ERROR\s+verifier/);
     expect(s.out).toMatch(/INCOMPLETE\s+Setup needs/);
     expect(s.code).toBe(1);
   });
@@ -344,6 +346,28 @@ describe('dirty working tree', () => {
   });
 });
 
+describe('first commit guidance', () => {
+  it('does not mislabel an unborn repository as a dirty working tree or ask to continue', async () => {
+    const d = repo({ commit: false });
+    const s = await onboard(d, ['n'], { noGithub: true, skipDemo: true });
+
+    expect(s.out).toMatch(/No first commit yet; \d+ path\(s\) are not part of a committed baseline/);
+    expect(s.out).not.toMatch(/existing changed\/untracked path/);
+    expect(s.questions.some((q) => /Continue with the existing working-tree changes/.test(q))).toBe(false);
+    expect(s.questions[0]).toMatch(/Apply \d+ setup change/);
+    expect(s.out).toMatch(/NEXT\s+Create the initial repository commit before verify or the safe demo/);
+  });
+
+  it('skips the safe demo without prompting when HEAD does not exist', async () => {
+    const d = repo({ commit: false });
+    const s = await onboard(d, ['n'], { noGithub: true });
+
+    expect(s.questions.some((q) => /demo/i.test(q))).toBe(false);
+    expect(s.out).toMatch(/SKIP\s+Safe demo becomes available after the first commit/);
+    expect(s.out).not.toMatch(/Demo needs at least one commit/);
+  });
+});
+
 describe('preflight refusals', () => {
   it('refuses outside a git repository', async () => {
     const d = mkdtempSync(join(tmpdir(), 'tw-onboard-nogit-'));
@@ -386,6 +410,7 @@ describe('preflight refusals', () => {
     const d = repo();
     const s = await onboard(d, ['n'], { noGithub: true, skipDemo: true }, { platform: 'darwin' });
     expect(s.out).toMatch(/LIMITED\s+macOS: check \+ verify work here; .*run.*requires Linux/);
+    expect(s.out.match(/macOS:.*run.*requires Linux/g) ?? []).toHaveLength(1);
     expect(s.out).not.toMatch(/subreaper|ECHILD/);
   });
 
@@ -475,7 +500,9 @@ describe('GitHub authority', () => {
     const s = await onboard(d, ['y', 'y', 'n'], { skipDemo: true });
     manual(s.out);
     expect(s.out).toContain('tamperward doctor --github --repo OWNER/REPO --branch <default-branch>');
-    expect(s.out).toMatch(/GitHub authority is not verified yet/);
+    expect(s.out).toMatch(/GitHub authority is not configured for this repository/);
+    expect(s.out).toMatch(/If this repository will use GitHub CI authority, configure/);
+    expect(s.out).not.toMatch(/GitHub still needs three repository controls/);
     expect(s.questions.some((q) => /GitHub/.test(q))).toBe(false);
   });
 
@@ -671,10 +698,11 @@ describe('the safe demo', () => {
     expect(s.out).not.toMatch(/BLOCK\s+test-skip/);
   });
 
-  it('is skipped when there is no commit to build disposable state from', async () => {
+  it('is skipped without a demo prompt when there is no commit to build disposable state from', async () => {
     const d = repo({ commit: false });
-    const s = await onboard(d, ['y', 'y', 'y', 'n', 'y'], { noGithub: true });
-    expect(s.out).toMatch(/no commit/i);
+    const s = await onboard(d, ['n'], { noGithub: true });
+    expect(s.questions.some((q) => /demo/i.test(q))).toBe(false);
+    expect(s.out).toMatch(/Safe demo becomes available after the first commit/i);
     expect(s.out).not.toMatch(/BLOCK\s+test-skip/);
   });
 
