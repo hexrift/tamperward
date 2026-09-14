@@ -5,6 +5,21 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.24.7] — 2026-09-14
+
+### Changed
+
+- **Architecture diagram is now a standalone SVG instead of a Mermaid block**.
+  `docs/architecture.md` embedded the component map as a fenced ```mermaid``` graph,
+  which does not render where a Mermaid runtime is absent or too old. The diagram is
+  now a hand-authored, dependency-free `docs/architecture.svg` referenced as a Markdown
+  image (`![...](./architecture.svg)`), so it renders identically on GitHub, the
+  VitePress site, and Markdown previewers. The SVG reproduces the graph faithfully — the
+  Steering, Verification, and Authority lanes; every node and edge; solid-versus-dotted
+  edge meaning with labels; and the shaded, dashed-red trust boundary around the
+  Authority lane — and carries `role="img"`, `<title>`, and `<desc>` for accessibility.
+  The README lifecycle diagram is unchanged. (docs)
+
 ## [2.24.6] — 2026-09-14
 
 ### Fixed
