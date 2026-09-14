@@ -29,6 +29,23 @@ All notable changes to this project are documented here. The format follows
   the end-of-turn stop. The deny/allow paths, `failClosed`, repo-root resolution (#412), the
   turn baseline, and the hook-service transport are untouched; the existing hook test suite
   is the guardrail and stays green unchanged.
+- **Identity validation is enforced, not just typed.** `decide()` runs `parse → validate →
+  decide`: it derives the runner's trusted repository root INDEPENDENTLY of the claim and,
+  via the shared `validateClaimAgainstRoot` (`src/repo-context.ts`), fails **closed** (deny)
+  BEFORE any content evaluation when the runtime-supplied `cwd` resolves to a different
+  repository, a non-repository, a malformed path, or a symlink that escapes into another
+  repository. The same helper is wired into the live `preToolUseVerdict` / `stopVerdict` via
+  an optional `trustedRoot`: a runner that has an independently-derived trusted root gets the
+  cross-repo claim rejected on the live path too. The parameter defaults to unset, so the
+  direct in-loop hook and every existing caller are byte-identical — only a cross-repo /
+  invalid claim newly denies.
+- **`post-action` is observation-only.** For Claude, `decide(..., 'post-action')` returns the
+  `unsupported` outcome and can never produce a deny wire; the phase→hook mapping refuses to
+  route `post-action` to a deny-capable hook rather than falling through to PreToolUse.
+- **Neutral contract ↔ research `layers` mapping** (`CONTRACT_TO_RESEARCH_LAYER`): `pre-action`
+  ↔ `pre-tool-use`, `end-of-turn` ↔ `stop-sweep`, the post-exit envelope ↔ `envelope`, with
+  the per-operation capabilities refining the coarse layers so cross-runtime records do not
+  drift.
 - **Docs:** a vendor-neutral runtime-adapter guide (`docs/guide/runtime-adapters.md`) and an
   OWASP ACS mapping (`docs/ACS-mapping.md`) that maps only implemented event/control
   semantics, states the unsupported ones (no identity/authN, no network-egress control), and

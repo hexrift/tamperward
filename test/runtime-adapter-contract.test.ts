@@ -6,13 +6,15 @@
 
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { claudeAdapter, ClaudeRuntimeAdapter } from '../src/adapters/claude/adapter';
-import { preToolUseFromRaw, stopFromRaw, denyWire } from '../src/cli/hook';
+import { preToolUseFromRaw, stopFromRaw, denyWire, preToolUseVerdict, stopVerdict } from '../src/cli/hook';
+import { repoContext } from '../src/repo-context';
 import { formatDenial } from '../src/adapters/claude/deny';
-import { OPERATION_KINDS, failsClosed, steeringUnavailableFinding } from '../src/adapters/contract';
+import { OPERATION_KINDS, failsClosed, steeringUnavailableFinding, CONTRACT_TO_RESEARCH_LAYER } from '../src/adapters/contract';
+import { ADAPTER_LAYERS } from '../src/research/adapter';
 import { Finding } from '../src/types';
 
 // A git repo with a protected spec, a policy, and a wired hook + CI, committed as the
@@ -122,7 +124,7 @@ describe('ClaudeRuntimeAdapter.decide — byte-identical to the legacy hook path
     try {
       for (const fx of preActionDenyFixtures(cwd)) {
         const legacy = preToolUseFromRaw(fx.raw);
-        const result = claudeAdapter.decide(fx.raw, 'pre-action');
+        const result = claudeAdapter.decide(fx.raw, 'pre-action', cwd);
         // The fixture is real tampering: the legacy path must deny it...
         expect(legacy.stdout.length, `${fx.name}: legacy should deny`).toBeGreaterThan(0);
         expect(legacy.exitCode).toBe(0);
@@ -145,7 +147,7 @@ describe('ClaudeRuntimeAdapter.decide — byte-identical to the legacy hook path
         tool_input: { file_path: join(cwd, 'src', 'feature.ts'), content: 'export const x = 1;\n' },
       });
       const legacy = preToolUseFromRaw(raw);
-      const result = claudeAdapter.decide(raw, 'pre-action');
+      const result = claudeAdapter.decide(raw, 'pre-action', cwd);
       expect(legacy.stdout).toBe('');
       expect(result.wire).toBe('');
       expect(result.outcome).toBe('ok');
@@ -171,7 +173,7 @@ describe('ClaudeRuntimeAdapter.decide — byte-identical to the legacy hook path
       writeFileSync(join(cwd, 'src', 'a.spec.ts'), `it('one', () => {});\n`);
       const raw = JSON.stringify({ cwd });
       const legacy = stopFromRaw(raw);
-      const result = claudeAdapter.decide(raw, 'end-of-turn');
+      const result = claudeAdapter.decide(raw, 'end-of-turn', cwd);
       expect(legacy.stdout.length).toBeGreaterThan(0);
       expect(legacy.stdout).toContain('test-deletion');
       expect(result.wire).toBe(legacy.stdout);
@@ -264,13 +266,14 @@ describe('ClaudeRuntimeAdapter — failure states fail closed (deny)', () => {
 });
 
 describe('ClaudeRuntimeAdapter.validateIdentity — runtime cwd is a claim, not authority', () => {
-  it('derives the trusted root INDEPENDENTLY from a valid repo cwd', () => {
+  it('accepts a claim that matches the runner trusted root, derived INDEPENDENTLY of the claim', () => {
     const cwd = repoFixture();
     try {
-      const v = claudeAdapter.validateIdentity({ claimedCwd: cwd });
+      // Runner (defaultCwd) IS the repo; the claim names the same repo → accepted.
+      const v = claudeAdapter.validateIdentity({ claimedCwd: cwd }, cwd);
       expect(v.ok).toBe(true);
-      // The trusted root is git's canonical toplevel, derived without trusting the claim.
-      expect(v.trustedRoot && v.trustedRoot.length).toBeGreaterThan(0);
+      // The trusted root is git's canonical toplevel — realpath of the fixture dir.
+      expect(v.trustedRoot).toBe(realpathSync(cwd));
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -279,8 +282,8 @@ describe('ClaudeRuntimeAdapter.validateIdentity — runtime cwd is a claim, not 
   it('a subdirectory claim still resolves to the repository ROOT (#412 boundary preserved)', () => {
     const cwd = repoFixture();
     try {
-      const root = claudeAdapter.validateIdentity({ claimedCwd: cwd }).trustedRoot;
-      const sub = claudeAdapter.validateIdentity({ claimedCwd: join(cwd, 'src') }).trustedRoot;
+      const root = claudeAdapter.validateIdentity({ claimedCwd: cwd }, cwd).trustedRoot;
+      const sub = claudeAdapter.validateIdentity({ claimedCwd: join(cwd, 'src') }, cwd).trustedRoot;
       expect(sub).toBe(root);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -288,14 +291,217 @@ describe('ClaudeRuntimeAdapter.validateIdentity — runtime cwd is a claim, not 
   });
 
   it('rejects a malformed (empty) cwd claim', () => {
-    const v = claudeAdapter.validateIdentity({ claimedCwd: '   ' });
-    expect(v.ok).toBe(false);
-    expect(v.rejected).toMatch(/malformed/);
+    const cwd = repoFixture();
+    try {
+      const v = claudeAdapter.validateIdentity({ claimedCwd: '   ' }, cwd);
+      expect(v.ok).toBe(false);
+      expect(v.rejected).toMatch(/malformed/);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 
   it('rejects a claim that resolves to no repository', () => {
-    const v = claudeAdapter.validateIdentity({ claimedCwd: join(tmpdir(), 'hf-not-a-repo-xyz-482') });
-    expect(v.ok).toBe(false);
-    expect(v.rejected).toMatch(/no repository/);
+    const cwd = repoFixture();
+    try {
+      const v = claudeAdapter.validateIdentity({ claimedCwd: join(tmpdir(), 'hf-not-a-repo-xyz-482') }, cwd);
+      expect(v.ok).toBe(false);
+      expect(v.rejected).toMatch(/no repository/);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a claim that resolves to a DIFFERENT repository than the runner (cross-repo)', () => {
+    const runner = repoFixture(); // repo A
+    const other = repoFixture(); // repo B
+    try {
+      const v = claudeAdapter.validateIdentity({ claimedCwd: other }, runner);
+      expect(v.ok).toBe(false);
+      expect(v.rejected).toMatch(/different repository/);
+    } finally {
+      rmSync(runner, { recursive: true, force: true });
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a symlink claim that escapes into another repository', () => {
+    const runner = repoFixture(); // repo A
+    const other = repoFixture(); // repo B
+    const link = join(runner, 'escape'); // lives in A, points into B
+    try {
+      symlinkSync(other, link);
+      const v = claudeAdapter.validateIdentity({ claimedCwd: link }, runner);
+      expect(v.ok).toBe(false);
+      expect(v.rejected).toMatch(/different repository/);
+    } finally {
+      rmSync(runner, { recursive: true, force: true });
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects when the runner cwd itself is not in a repository (no trusted root)', () => {
+    const notRepo = mkdtempSync(join(tmpdir(), 'hf-runner-norepo-'));
+    try {
+      const v = claudeAdapter.validateIdentity({ claimedCwd: notRepo }, notRepo);
+      expect(v.ok).toBe(false);
+      expect(v.rejected).toMatch(/not in a repository/);
+    } finally {
+      rmSync(notRepo, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('BLOCKER 1 — decide() ENFORCES identity validation and fails closed on a bad claim', () => {
+  // The tampering payload is real (a shell test-deletion): if decide evaluated it in the
+  // CLAIMED repo it would deny on test-deletion; if it ignored identity it would evaluate
+  // the wrong repo. We assert it denies on IDENTITY, before any content evaluation.
+  function tamperRawInRepo(repo: string): string {
+    return JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm src/a.spec.ts' }, cwd: repo });
+  }
+
+  it('runner in repo A + claimed cwd in a DIFFERENT repo B → decide denies on identity', () => {
+    const A = repoFixture();
+    const B = repoFixture();
+    try {
+      const result = claudeAdapter.decide(tamperRawInRepo(B), 'pre-action', A);
+      expect(result.decision?.verdict).toBe('deny');
+      expect(result.wire && result.wire.length).toBeGreaterThan(0);
+      // The deny is the identity rejection, NOT a content finding evaluated in B.
+      expect(result.detail).toMatch(/different repository/);
+      const j = JSON.parse(result.wire as string);
+      expect(j.hookSpecificOutput.permissionDecision).toBe('deny');
+      expect(j.hookSpecificOutput.permissionDecisionReason).toMatch(/identity claim rejected/i);
+    } finally {
+      rmSync(A, { recursive: true, force: true });
+      rmSync(B, { recursive: true, force: true });
+    }
+  });
+
+  it('non-repo claim → decide fails closed to deny', () => {
+    const A = repoFixture();
+    const nonRepo = mkdtempSync(join(tmpdir(), 'hf-nonrepo-claim-'));
+    try {
+      const raw = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm x' }, cwd: nonRepo });
+      const result = claudeAdapter.decide(raw, 'pre-action', A);
+      expect(result.decision?.verdict).toBe('deny');
+      expect(result.detail).toMatch(/no repository/);
+    } finally {
+      rmSync(A, { recursive: true, force: true });
+      rmSync(nonRepo, { recursive: true, force: true });
+    }
+  });
+
+  it('malformed claim → decide fails closed to deny', () => {
+    const A = repoFixture();
+    try {
+      const raw = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm x' }, cwd: '   ' });
+      const result = claudeAdapter.decide(raw, 'pre-action', A);
+      expect(result.decision?.verdict).toBe('deny');
+      expect(result.detail).toMatch(/malformed/);
+    } finally {
+      rmSync(A, { recursive: true, force: true });
+    }
+  });
+
+  it('symlink-escape claim → decide fails closed to deny', () => {
+    const A = repoFixture();
+    const B = repoFixture();
+    const link = join(A, 'escape');
+    try {
+      symlinkSync(B, link);
+      const raw = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm x' }, cwd: link });
+      const result = claudeAdapter.decide(raw, 'pre-action', A);
+      expect(result.decision?.verdict).toBe('deny');
+      expect(result.detail).toMatch(/different repository/);
+    } finally {
+      rmSync(A, { recursive: true, force: true });
+      rmSync(B, { recursive: true, force: true });
+    }
+  });
+
+  it('the SAME-repo claim is unaffected: decide evaluates and denies on CONTENT, not identity', () => {
+    const A = repoFixture();
+    try {
+      const result = claudeAdapter.decide(tamperRawInRepo(A), 'pre-action', A);
+      expect(result.decision?.verdict).toBe('deny');
+      // This deny is the content finding — byte-identical to the plain legacy path.
+      expect(result.wire).toBe(preToolUseFromRaw(tamperRawInRepo(A)).stdout);
+      expect(result.wire).toContain('test-deletion');
+    } finally {
+      rmSync(A, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('BLOCKER 1 — the LIVE verdict functions enforce a supplied trusted root (shared helper)', () => {
+  it('preToolUseVerdict fails closed when input.cwd is a different repo than trustedRoot', () => {
+    const A = repoFixture();
+    const B = repoFixture();
+    try {
+      const rootA = repoContext(A)!.root;
+      const input = { tool_name: 'Bash', tool_input: { command: 'rm src/a.spec.ts' }, cwd: B };
+      // With the trusted root supplied, a cross-repo claim fails closed...
+      const guarded = preToolUseVerdict(input, A, rootA);
+      expect(guarded.stdout.length).toBeGreaterThan(0);
+      expect(guarded.stdout).toMatch(/identity claim rejected/i);
+      // ...and WITHOUT a trusted root, behaviour is exactly as before (dormant), so it
+      // evaluates repo B normally (here: denies on B's own test-deletion).
+      const dormant = preToolUseVerdict(input, A);
+      expect(dormant.stdout).toContain('test-deletion');
+    } finally {
+      rmSync(A, { recursive: true, force: true });
+      rmSync(B, { recursive: true, force: true });
+    }
+  });
+
+  it('stopVerdict fails closed on a cross-repo trusted-root mismatch, and is byte-identical when the claim matches', () => {
+    const A = repoFixture();
+    const B = repoFixture();
+    try {
+      const rootA = repoContext(A)!.root;
+      // cross-repo claim → deny
+      expect(stopVerdict({ cwd: B }, A, rootA).stdout).toMatch(/identity claim rejected/i);
+      // same-repo claim → identical to the un-guarded call (both allow a clean tree)
+      expect(stopVerdict({ cwd: A }, A, repoContext(A)!.root)).toEqual(stopVerdict({ cwd: A }, A));
+    } finally {
+      rmSync(A, { recursive: true, force: true });
+      rmSync(B, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('BLOCKER 2 — post-action is observation-only and can NEVER produce a deny wire', () => {
+  it('decide(..., post-action) returns unsupported, no wire, no decision, for Claude', () => {
+    const cwd = repoFixture();
+    try {
+      // A payload that WOULD be denied at pre-action must not be denied via post-action.
+      const raw = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm src/a.spec.ts' }, cwd });
+      const result = claudeAdapter.decide(raw, 'post-action', cwd);
+      expect(result.outcome).toBe('unsupported');
+      expect(result.wire).toBeUndefined();
+      expect(result.decision).toBeUndefined();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('Claude declares no post-observe capability, so post-action carries no veto', () => {
+    expect(claudeAdapter.capabilities.postObserve).toEqual([]);
+  });
+});
+
+describe('COMPLETENESS — neutral contract maps onto the research adapter layers', () => {
+  it('maps pre-action↔pre-tool-use, end-of-turn↔stop-sweep, post-exit-envelope↔envelope', () => {
+    const byLayer = Object.fromEntries(CONTRACT_TO_RESEARCH_LAYER.map((m) => [m.source, m.layer]));
+    expect(byLayer['pre-action']).toBe('pre-tool-use');
+    expect(byLayer['end-of-turn']).toBe('stop-sweep');
+    expect(byLayer['post-exit-envelope']).toBe('envelope');
+  });
+
+  it('every mapped layer is a real research ADAPTER_LAYERS value (cannot drift)', () => {
+    for (const m of CONTRACT_TO_RESEARCH_LAYER) {
+      expect(ADAPTER_LAYERS).toContain(m.layer);
+    }
   });
 });

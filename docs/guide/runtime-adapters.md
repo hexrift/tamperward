@@ -55,6 +55,30 @@ tools and can deny any of them — it simply finds nothing to block on a pure re
 `unsupported` names that, along with the boundaries TamperWard does not police at all
 (network-egress control, identity/authentication).
 
+Because `post-action` is observation-only, `decide(..., 'post-action')` for Claude returns
+the `unsupported` outcome — **no decision, no deny wire**. The phase→hook mapping refuses to
+route `post-action` to any deny-capable hook rather than silently falling through to
+PreToolUse: a post-edit observation must never be treated as a pre-execution veto.
+
+## Mapping to the research adapter layers
+
+The research runner (`src/research/adapter.ts`) records, per gated run, a coarse `layers`
+list — `envelope` / `pre-tool-use` / `stop-sweep` — so a cross-runtime comparison never
+silently compares different treatments. The neutral contract maps onto it directly
+(`CONTRACT_TO_RESEARCH_LAYER` in `src/adapters/contract.ts`):
+
+| Neutral contract | Research `layer` |
+| --- | --- |
+| `pre-action` (synchronous pre-execution deny) | `pre-tool-use` |
+| `end-of-turn` (mandatory reconciliation sweep) | `stop-sweep` |
+| the post-exit run envelope around the agent process | `envelope` |
+
+The per-**operation** capabilities refine this coarse mapping: a runtime records the
+`pre-tool-use` layer only for the operation kinds it can actually pre-deny, so a partial
+adapter's shell/MCP interception is never recorded as the same treatment as Claude's
+all-operation PreToolUse. (This is a doc/type mapping; it changes no research-runtime
+behaviour.)
+
 ### Partial adapters are scoped, not equivalent
 
 A runtime that supplies only a **subset** — for example shell and MCP pre-deny but not
@@ -104,11 +128,25 @@ derives the real repository root **independently** with `git rev-parse --show-to
 - path escapes and symlink escapes out of the trusted root are **rejected**;
 - a relative claim resolves against the **runner's** cwd, never against itself.
 
-This is the explicit boundary in `RuntimeAdapter.validateIdentity`. It mirrors — and never
-weakens — what the live `preToolUseVerdict` already does by resolving through `repoRoot()`
-(#412: the verdict is always computed at the repository root, so an edit judged from
-`packages/x` is the edit judged from the root). The payload's `cwd` is a fact to check,
-not authority to accept.
+This is enforced, not merely documented. `RuntimeAdapter.validateIdentity` derives the
+runner's trusted root from the **runner** context (the runner cwd the adapter is given),
+INDEPENDENTLY of the claim, then validates the claim against it with the shared
+`validateClaimAgainstRoot` helper (`src/repo-context.ts`). `RuntimeAdapter.decide` calls it
+**first** — `parse → validate → decide` — and returns a fail-closed **deny** on rejection,
+before any content reaches the detectors, so a runtime-supplied cwd pointing at another
+repository can never be evaluated as if it were the one under enforcement.
+
+The same helper closes the boundary on the live path: `preToolUseVerdict` / `stopVerdict`
+accept an optional `trustedRoot`, and when a runner supplies one (a `RuntimeAdapter`'s
+validated root; the persistent hook service's bound root), a cross-repo / non-repo /
+malformed `input.cwd` fails closed there too. The parameter is optional and defaults to
+unset: the **direct** in-loop hook is launched by the runtime inside the repository it
+names, so it has no separate anchor, and every existing caller that supplies no
+`trustedRoot` behaves byte-identically — only a runner with its own independently-derived
+trusted root turns the claim into something to reject. This mirrors — and never weakens —
+what the live path already does by resolving through `repoRoot()` (#412: the verdict is
+always computed at the repository root, so an edit judged from `packages/x` is the edit
+judged from the root). The payload's `cwd` is a fact to check, not authority to accept.
 
 ## How to add a runtime
 

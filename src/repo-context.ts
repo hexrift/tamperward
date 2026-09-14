@@ -76,6 +76,36 @@ export function repoRoot(cwd: string): string {
   return repoContext(cwd)?.root ?? cwd;
 }
 
+/** The outcome of validating a runtime-supplied cwd CLAIM against a trusted repo root. */
+export type ClaimValidation = { ok: true; trustedRoot: string } | { ok: false; rejected: string };
+
+/**
+ * Validate a runtime-supplied `claimedCwd` against `trustedRoot` — the repository root the
+ * RUNNER derived INDEPENDENTLY of the claim (#482 review point 5). The payload's cwd is an
+ * input to check, not a fact to trust:
+ *
+ *  - no claim (undefined) → the runner's own trusted root stands (`ok`);
+ *  - a non-string / empty claim → rejected (malformed);
+ *  - a claim that resolves to NO repository → rejected;
+ *  - a claim that resolves to a DIFFERENT repository than `trustedRoot` → rejected.
+ *
+ * `repoContext` resolves through git (`--show-toplevel`, symlinks included), so a claim that
+ * is a symlink escaping into another repository resolves to THAT repo's root and is rejected
+ * here — a subdirectory or linked path genuinely inside `trustedRoot` resolves back to it and
+ * is accepted. `trustedRoot` must itself be a canonical `repoContext(...).root`, so the
+ * comparison is root-to-root. `base` is the runner directory a RELATIVE claim resolves from
+ * (never the claim itself).
+ */
+export function validateClaimAgainstRoot(claimedCwd: string | undefined, trustedRoot: string, base: string): ClaimValidation {
+  if (claimedCwd === undefined) return { ok: true, trustedRoot };
+  if (typeof claimedCwd !== 'string' || claimedCwd.trim() === '') return { ok: false, rejected: 'malformed cwd claim' };
+  const abs = isAbsolute(claimedCwd) ? claimedCwd : resolve(base, claimedCwd);
+  const ctx = repoContext(abs);
+  if (!ctx) return { ok: false, rejected: `cwd claim resolves to no repository (${abs})` };
+  if (ctx.root !== trustedRoot) return { ok: false, rejected: `cwd claim resolves to a different repository (${ctx.root} != trusted ${trustedRoot})` };
+  return { ok: true, trustedRoot };
+}
+
 /**
  * Why `cwd` resolved to no repository, or null when it is a real, readable directory
  * that git itself reports as lying outside every repository — the ONE case in which

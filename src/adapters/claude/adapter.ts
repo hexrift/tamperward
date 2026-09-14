@@ -17,8 +17,7 @@ import { Finding } from '../../types';
 import { ClaudeHookInput } from './changes';
 import { formatDenial } from './deny';
 import { parseInput, denyWire, preToolUseFromRaw, stopFromRaw, HookInputError } from '../../cli/hook';
-import { repoContext } from '../../repo-context';
-import { isAbsolute, resolve } from 'node:path';
+import { repoContext, validateClaimAgainstRoot } from '../../repo-context';
 import {
   IdentityValidation,
   OPERATION_KINDS,
@@ -31,13 +30,18 @@ import {
   SteeringResult,
   UntrustedIdentity,
   failClosedResult,
+  steeringUnavailableFinding,
 } from '../contract';
 
-/** A steering phase maps to exactly one Claude hook kind. `post-action` has no live
- *  Claude wiring (Claude's post-execution reconciliation is the end-of-turn Stop sweep,
- *  not a per-tool PostToolUse veto), so it never reaches the deny/decide path. */
+/** A steering phase maps to exactly one DENY-CAPABLE Claude hook kind. `post-action` is
+ *  observation-only — Claude's post-execution reconciliation is the end-of-turn Stop sweep,
+ *  not a per-tool PostToolUse veto — so it must NEVER map to a deny-capable hook. This
+ *  refuses it (throws) rather than silently falling through to PreToolUse; `decide` and
+ *  `denyPayload` never call it for `post-action`. */
 function hookKindFor(phase: SteeringPhase): 'PreToolUse' | 'Stop' {
-  return phase === 'end-of-turn' ? 'Stop' : 'PreToolUse';
+  if (phase === 'end-of-turn') return 'Stop';
+  if (phase === 'pre-action') return 'PreToolUse';
+  throw new Error(`no deny-capable Claude hook for the observation-only phase "${phase}"`);
 }
 
 /** Claude's tool name → neutral operation kind. Read-only tools and unknown tools are
@@ -98,29 +102,26 @@ export class ClaudeRuntimeAdapter implements RuntimeAdapter {
   }
 
   /**
-   * REVIEW POINT 5 — the runtime cwd is a CLAIM, not authority. Derive the repository
-   * root INDEPENDENTLY via git (repoContext → `git rev-parse --show-toplevel`, which
-   * resolves symlinks to a canonical path), reject a malformed claim, and surface the
-   * trusted root. This mirrors — and never weakens — what `preToolUseVerdict` already does
-   * via `repoRoot()`; the live decide path re-derives the root itself, so this method is the
-   * EXPLICIT boundary, not a new authority. A claim that resolves outside the repository the
-   * runner is enforcing (no git root, or a git root other than the runner's) is rejected.
+   * REVIEW POINT 5 — the runtime cwd is a CLAIM, not authority.
+   *
+   * The trusted repository root is derived from the RUNNER context (`defaultCwd`, else the
+   * process cwd) — INDEPENDENTLY of the claim — via git (`repoContext` →
+   * `git rev-parse --show-toplevel`, which resolves symlinks to a canonical path). The
+   * claim is then validated against THAT root with the shared `validateClaimAgainstRoot`:
+   * accepted only when it resolves to the same repository (its root, or a path inside it);
+   * rejected for a malformed path, a non-repository, a different repository, or a symlink
+   * that escapes into another repository. It never weakens what `preToolUseVerdict` does via
+   * `repoRoot()` — it is the explicit boundary that `decide` enforces BEFORE evaluating.
    */
   validateIdentity(claim: UntrustedIdentity, defaultCwd?: string): IdentityValidation {
-    const claimed = claim.claimedCwd;
-    if (claimed !== undefined && (typeof claimed !== 'string' || claimed.trim() === '')) {
-      return { ok: false, rejected: 'malformed cwd claim' };
-    }
-    // The path a relative claim resolves against is the runner's own cwd, never the claim.
     const base = defaultCwd ?? process.cwd();
-    const sessionCwd = claimed == null ? base : isAbsolute(claimed) ? claimed : resolve(base, claimed);
-    const ctx = repoContext(sessionCwd);
-    if (!ctx) {
-      // No repository independently derivable from the claim: the runner cannot bind the
-      // operation to a trusted root, so the identity is not accepted as authority.
-      return { ok: false, rejected: `no repository root derivable from cwd claim (${sessionCwd})` };
+    // The runner's OWN trusted root — derived from the runner, not from `claim`.
+    const runnerCtx = repoContext(base);
+    if (!runnerCtx) {
+      return { ok: false, rejected: `runner cwd (${base}) is not in a repository, so there is no trusted root to validate against` };
     }
-    return { ok: true, trustedRoot: ctx.root };
+    const v = validateClaimAgainstRoot(claim.claimedCwd, runnerCtx.root, base);
+    return v.ok ? { ok: true, trustedRoot: v.trustedRoot } : { ok: false, rejected: v.rejected };
   }
 
   /** The exact deny wire bytes for `phase`, through the SAME `denyWire` the live
@@ -131,31 +132,51 @@ export class ClaudeRuntimeAdapter implements RuntimeAdapter {
   }
 
   /**
-   * The authoritative synchronous path. Delegates entirely to the canonical
-   * `preToolUseFromRaw` / `stopFromRaw`, so `wire` is byte-identical to the live CLI —
-   * every deny/allow decision, the fail-closed wrapping, repo-root resolution, the turn
-   * baseline and the transport all remain exactly as src/cli/hook.ts computes them.
+   * The authoritative synchronous path, enforced in order: parse → validate identity →
+   * decide. Each step that fails does so CLOSED (deny), except `post-action`, which is
+   * observation-only and returns `unsupported` (never a deny wire, never a PreToolUse
+   * fallthrough — BLOCKER 2).
    *
-   * The adapter only CLASSIFIES the outcome on top of that unchanged verdict: a payload
-   * the parser rejects is reported as `parse-failure` (the live path has already failed
-   * CLOSED — `wire` is a deny), everything else as `ok` with the live allow/deny.
+   *  1. `post-action` → `unsupported` (Claude has no per-tool post-action veto).
+   *  2. parse failure → `parse-failure`, byte-identical to the live fail-closed deny.
+   *  3. identity claim rejected → a fail-closed DENY, BEFORE any content evaluation, so a
+   *     runtime-supplied cwd pointing at another repository can never reach the detectors.
+   *  4. otherwise → delegate to the canonical `preToolUseFromRaw` / `stopFromRaw`, PASSING
+   *     the validated trusted root so the live path re-runs the same shared identity check.
+   *     `wire` is byte-identical to the live CLI — every deny/allow decision, the fail-closed
+   *     wrapping, repo-root resolution (#412), the turn baseline and the transport remain
+   *     exactly as src/cli/hook.ts computes them.
    */
   decide(raw: string, phase: SteeringPhase, defaultCwd?: string): SteeringResult {
-    const kind = hookKindFor(phase);
-    const live = kind === 'Stop' ? stopFromRaw(raw, defaultCwd) : preToolUseFromRaw(raw, defaultCwd);
-    const wire = live.stdout;
-    const denied = wire.length > 0;
+    if (phase === 'post-action') {
+      return {
+        outcome: 'unsupported',
+        detail: 'Claude Code has no per-tool post-action veto; the end-of-turn Stop sweep is its post-turn reconciliation.',
+      };
+    }
     const parsed = this.parseEvent(raw, phase);
     if ('failure' in parsed) {
-      // The live path already denied (fail closed on the unparseable payload); we relabel
-      // the OUTCOME as parse-failure without touching the byte-identical `wire`.
+      // The live path fails CLOSED on an unparseable payload; take its byte-identical wire
+      // and relabel the outcome as parse-failure.
+      const live = phase === 'end-of-turn' ? stopFromRaw(raw, defaultCwd) : preToolUseFromRaw(raw, defaultCwd);
       return {
         outcome: 'parse-failure',
         detail: parsed.detail,
-        wire,
-        decision: { verdict: 'deny', findings: [], reason: wire },
+        wire: live.stdout,
+        decision: { verdict: 'deny', findings: [], reason: live.stdout },
       };
     }
+    const idv = this.validateIdentity(parsed.identity, defaultCwd);
+    if (!idv.ok) {
+      // The runtime's repository identity is a claim, and this one did not validate against
+      // the runner's trusted root — deny before evaluating anything.
+      const findings = [steeringUnavailableFinding(`repository identity claim rejected: ${idv.rejected}`)];
+      const wire = this.denyPayload(findings, phase);
+      return { outcome: 'ok', wire, detail: idv.rejected, decision: { verdict: 'deny', findings, reason: wire } };
+    }
+    const live = phase === 'end-of-turn' ? stopFromRaw(raw, defaultCwd, idv.trustedRoot) : preToolUseFromRaw(raw, defaultCwd, idv.trustedRoot);
+    const wire = live.stdout;
+    const denied = wire.length > 0;
     return {
       outcome: 'ok',
       wire,

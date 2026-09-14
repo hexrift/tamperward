@@ -192,6 +192,39 @@ export interface RuntimeAdapter {
 /** The three phases, for iteration in tests/docs. */
 export const STEERING_PHASES: readonly SteeringPhase[] = ['pre-action', 'post-action', 'end-of-turn'];
 
+/**
+ * The coarse research-ledger layer names (`src/research/adapter.ts` `ADAPTER_LAYERS`).
+ * Declared here as a literal union so this neutral module stays free of a research import;
+ * the conformance test asserts it stays equal to `ADAPTER_LAYERS` so the two cannot drift.
+ */
+export type ResearchLayer = 'envelope' | 'pre-tool-use' | 'stop-sweep';
+
+/** One row of the neutral-contract → research-`layers` mapping. `source` is the neutral
+ *  phase, or the post-exit run envelope that wraps the whole agent process. */
+export interface ContractLayerMapping {
+  source: SteeringPhase | 'post-exit-envelope';
+  layer: ResearchLayer;
+  note: string;
+}
+
+/**
+ * How the neutral steering contract maps onto the research runner's coarse `layers`
+ * (#482 completeness). The per-OPERATION capabilities (`RuntimeCapabilities`) REFINE this
+ * coarse mapping: a runtime records `layer: pre-tool-use` only for the operation kinds it
+ * can actually pre-deny, so a cross-runtime ledger never presents a partial adapter's
+ * shell/MCP interception as the same treatment as Claude's all-operation PreToolUse. This
+ * is a doc/type mapping only — it changes no research-runtime behaviour.
+ */
+export const CONTRACT_TO_RESEARCH_LAYER: readonly ContractLayerMapping[] = [
+  { source: 'pre-action', layer: 'pre-tool-use', note: 'synchronous pre-execution deny (Claude PreToolUse)' },
+  { source: 'end-of-turn', layer: 'stop-sweep', note: 'mandatory end-of-turn reconciliation (Claude Stop)' },
+  {
+    source: 'post-exit-envelope',
+    layer: 'envelope',
+    note: "the run envelope around the whole agent process; post-action outcome observation lives here, not in a per-tool veto",
+  },
+];
+
 /** The operation kinds, for iteration and for declaring "all kinds" capabilities. */
 export const OPERATION_KINDS: readonly OperationKind[] = ['shell', 'file-edit', 'file-read', 'mcp', 'other'];
 
