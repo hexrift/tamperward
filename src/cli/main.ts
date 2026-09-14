@@ -15,6 +15,8 @@ import { runEnvelope, parseRun } from './run';
 import { runWatch } from './watch';
 import { runOnboard, OnboardOpts } from './onboard';
 import { runResearchCommand, RESEARCH_SUBCOMMANDS } from './research';
+import { runStats, type StatsOpts } from './stats';
+import { runAuditCommand } from './audit';
 
 function parseAllow(args: string[]): AllowOpts {
   const o: AllowOpts = {};
@@ -61,6 +63,21 @@ function parseOnboard(args: string[]): OnboardOpts {
     else if (a === '--demo') o.demo = true;
     else if (a === '--no-github') o.noGithub = true;
     else if (a === '--yes') o.yes = true;
+  }
+  return o;
+}
+
+function parseStats(args: string[]): StatsOpts {
+  const o: StatsOpts = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--cwd') o.cwd = args[++i];
+    else if (a === '--log') o.log = args[++i];
+    else if (a === '--github') o.github = args[++i];
+    else if (a === '--branch') o.branch = args[++i];
+    else if (a === '--path') o.path = args[++i];
+    else if (a === '--since') o.since = args[++i];
+    else if (a === '--json') o.json = true;
   }
   return o;
 }
@@ -308,6 +325,45 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     }).error;
   }
 
+  if (cmd === 'stats') {
+    const parsed = validateFlatArgs(args, {
+      flags: ['--json'],
+      values: {
+        '--cwd': 'string',
+        '--log': 'string',
+        '--github': 'string',
+        '--branch': 'string',
+        '--path': 'string',
+        '--since': 'string',
+      },
+    });
+    if (parsed.error) return parsed.error;
+    if (parsed.seen.has('--log') && parsed.seen.has('--github')) {
+      return '--log cannot be combined with --github';
+    }
+    if ((parsed.seen.has('--branch') || parsed.seen.has('--path')) && !parsed.seen.has('--github')) {
+      return '--branch and --path require --github';
+    }
+    return undefined;
+  }
+
+  if (cmd === 'audit') {
+    const [sub, ...rest] = args;
+    if (sub !== 'publish') return 'audit requires subcommand publish';
+    const parsed = validateFlatArgs(rest, {
+      values: {
+        '--cwd': 'string',
+        '--log': 'string',
+        '--github': 'string',
+        '--branch': 'string',
+        '--path': 'string',
+      },
+    });
+    if (parsed.error) return parsed.error;
+    if (!parsed.seen.has('--github')) return 'audit publish requires --github OWNER/REPO';
+    return undefined;
+  }
+
   if (cmd === 'research') {
     const [sub, ...rest] = args;
     if (sub === undefined) return `research requires a subcommand (${RESEARCH_SUBCOMMANDS.join(' | ')})`;
@@ -365,6 +421,14 @@ Formats:
   json    versioned machine-readable output. Top-level schema_version identifies
           the public JSON-schema major; published schemas live under schemas/.
   auto    github when GITHUB_ACTIONS=true, otherwise text.
+  tamperward stats [--since 30d] [--json]  summarize structured audit findings
+             [--github OWNER/REPO]           locally, or from the dedicated GitHub
+             [--branch tamperward-audit]     audit branch. Findings are observations,
+                                            never claims about agent intent.
+  tamperward audit publish                   explicitly publish NEW sanitized local
+             --github OWNER/REPO             finding events to a dedicated GitHub
+             [--branch tamperward-audit]     audit branch. Requires GH_TOKEN or
+                                            GITHUB_TOKEN with Contents write access.
   tamperward hook claude                    PreToolUse gate (reads hook JSON on stdin)
   tamperward sweep claude                   Stop sweep (re-scan the turn's working tree)
   tamperward hook-service start [--dir D]   OPT-IN persistent hook service: one warm
@@ -507,6 +571,10 @@ export function main(argv: string[]): number | Promise<number> {
       return runVerify(parseVerify(rest));
     case 'trace-verify':
       return runTraceVerify(parseTraceVerify(rest));
+    case 'stats':
+      return runStats(parseStats(rest));
+    case 'audit':
+      return runAuditCommand(rest);
     case 'research':
       return runResearchCommand(rest);
     case 'run':
