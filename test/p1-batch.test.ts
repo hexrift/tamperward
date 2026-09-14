@@ -30,16 +30,15 @@ const aChange = (): Change[] => [
 ];
 
 describe('P1-7: a detector that cannot run is not a rule that passed', () => {
-  it('fails CLOSED at the adjudicating views (range/worktree/staged)', () => {
-    for (const view of ['range', 'worktree', 'staged'] as const) {
+  it('fails CLOSED at every view — the agent-facing tool-call and turn included (#444)', () => {
+    // Until 2.23.12 the tool-call and turn views stayed "isolated": the rule was
+    // dropped and the verdict read clean, on the reasoning that a throw would have
+    // failed the hook open anyway. The throw is caught here, and a block is exactly
+    // what the hook's deny channel carries — so those two views were the fail-open.
+    for (const view of ['range', 'worktree', 'staged', 'turn', 'tool-call'] as const) {
       const findings = evaluate(aChange(), defaultPolicy(), [throwing], view);
       expect(hasBlocking(findings), `view ${view}`).toBe(true);
     }
-  });
-
-  it('stays isolated (non-blocking) at the tool-call hook, where a throw already fails open', () => {
-    const findings = evaluate(aChange(), defaultPolicy(), [throwing], 'tool-call');
-    expect(hasBlocking(findings)).toBe(false);
   });
 });
 

@@ -26,7 +26,7 @@
 
 import { posix } from 'node:path';
 import type TS from 'typescript';
-import { ts } from '../ts-lazy';
+import { parseSource, ts } from '../ts-lazy';
 import { Change, Detector, DetectorContext, FileChange, Finding } from '../types';
 import { addedLines } from '../diff/select';
 import { isProtected } from '../policy';
@@ -212,13 +212,10 @@ type SemanticHit = {
 
 function astContext(path: string, source: string): AstContext | null {
   const rootName = path.startsWith('/') ? path : '/tamperward/' + path;
-  const sf = ts.createSourceFile(
-    rootName,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    scriptKind(path),
-  );
+  // A declined parse (size, nesting, overflow — #444) is not a verdict: the line
+  // matcher judges the file instead, exactly as it does for a diff-only change.
+  const sf = parseSource(rootName, source, scriptKind(path));
+  if (!sf) return null;
 
   // parseDiagnostics is not on the public SourceFile type; asking the object
   // whether it carries the property is the one way to learn the parser recovered.
