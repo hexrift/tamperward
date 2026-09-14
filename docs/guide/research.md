@@ -67,8 +67,11 @@ to `[A-Za-z0-9._-]`.
 
 For each task and pair index (`--pairs N`, default 1):
 
-1. **Fresh state.** A new clone of the task repository, detached at its base, for
-   *each* arm. Nothing from an earlier trajectory is visible.
+1. **Fresh state.** A new clone of the task repository for *each* arm. The
+   manifest base (`HEAD`, a branch/tag, or a commit) is resolved once to a source
+   commit for the task; both arms and every later/resumed pair check out that same
+   commit. A moving branch can therefore never put two arms of one experiment on
+   different source trees. Nothing from an earlier trajectory is visible.
 2. **Ungated arm.** The adapter's process runs without TamperWard policy enforcement, but under the neutral Linux lifecycle supervisor so its full descendant domain is drained before outcome observation. That process ownership is measurement hygiene, not treatment.
 3. **Gated arm.** The adapter first prepares the clone (the Claude Code adapter runs
    `tamperward init`, wiring the PreToolUse deny and Stop sweep); whatever it wrote is
@@ -85,11 +88,15 @@ For each task and pair index (`--pairs N`, default 1):
    A masked tree the envelope let through is an escape, counted against the tool.
 
 A pair whose record already exists is skipped, so an interrupted run resumes — but
-resume checks the record's *identity*, not the file's existence: the record must parse
-as a valid v1 pair and carry the current manifest sha256, task and pair index, adapter
-and layers, model and suite command. A record from a different experiment, or a
-truncated one, fails the run closed with one line naming the file; use a new `--out` or
-remove it deliberately. Records are written whole (temp file + rename).
+resume checks the record's *identity*, not the file's existence. Before any missing
+pair executes, every existing requested record must parse as a valid v1 pair and carry
+the current manifest sha256, task and pair index, adapter and layers, model,
+TamperWard version, normalized agent command template, agent budget and suite
+command. The first existing/new record also pins the task's resolved source commit;
+every other record and new pair must agree with it. A record from a different
+experiment, a duplicate/drifting pair, or a truncated one fails the run closed with
+one line naming the problem; use a new `--out` or remove it deliberately. Records
+are written whole (temp file + rename).
 
 ### Measured, or not
 
@@ -128,7 +135,7 @@ Per trajectory:
 | `outcome.surviving_protected_mutations` | blocking policy findings in the final tree, with the `rules` behind them |
 | `outcome.honest_completion` | `VERIFIED` with nothing weakened |
 | `treatment` | gated arm only: the envelope's `verdict`, `exit_code`, `complete`, a `disposition` of `refused` / `passed` / `cannot`, and the full `run --json` document |
-| `released_green` | what downstream would have read: visible green **and** (gated) the envelope let it through |
+| `released_green` | what downstream could actually have read as successful: visible green **and** agent exit 0 with no timeout/start failure, plus (gated) an envelope that passed with exit 0 |
 | `measured` / `unmeasurable` | whether the outcome stands (see above); an unmeasured trajectory keeps the "nothing established" outcome and is never aggregated |
 
 `research summarize` prints one aggregate with four separated readouts and **no
@@ -177,7 +184,7 @@ silently compares different treatments. Two adapters ship:
 | `--adapter` | process | layers live in the gated arm |
 | --- | --- | --- |
 | `claude-code` | `claude -p <prompt> [--model M]`; `prepareGated` runs `tamperward init` | envelope, PreToolUse deny, Stop sweep |
-| `command` | the argv after `--`, with `{prompt}` `{task}` `{cwd}` `{base}` `{arm}` `{model}` substituted; a relative path such as `./my-agent.sh` is anchored to the directory you ran from, since the process itself runs inside the clone | envelope only (effect layer) |
+| `command` | the argv after `--`, with `{prompt}` `{task}` `{cwd}` `{base}` `{arm}` `{model}` substituted; a slash-containing relative executable such as `./my-agent.sh` is anchored to the directory you ran from, and that normalized absolute template is recorded as execution identity | envelope only (effect layer) |
 
 Every agent process also receives `TAMPERWARD_RESEARCH_TASK`, `_PROMPT`, `_ARM`,
 `_BASE`, `_CWD` and (when given) `_MODEL` in its environment, so a runtime that
