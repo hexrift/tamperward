@@ -27,7 +27,8 @@ smoke profile). Per item the report carries **p50 / p95 / min / max / mean** of:
 
 | item | fixture | command | what it stands for |
 | --- | --- | --- | --- |
-| `cli.noop` | 100 protected files | `hook claude` with **empty** stdin | process start + module load with no evaluation: the fixed cost every other item pays (the bundled TypeScript parser dominates it) |
+| `cli.noop` | 100 protected files | `hook claude` with **empty** stdin | process start + module load with no evaluation: the fixed cost every other item pays. Since the parser went lazy (#407) this does **not** load the TypeScript parser |
+| `cli.parse` | 100 protected files | `hook claude`, a PreToolUse `Edit` of one `.ts` source, **no session** | `cli.noop` plus the lazily loaded 9 MB parser and one file's AST evaluation, with nothing pinned or snapshotted: the fixed cost every item that touches a `.ts` file pays, and the smoke's yardstick |
 | `hook.warm.100` | 100 protected files | `hook claude`, established session | a per-tool-call `PreToolUse` deny/allow on a small tree |
 | `hook.cold.1k` | 1k protected files | `hook claude`, **new session every run** | the first call of a session: pins the turn baseline and takes the first protected-tree snapshot |
 | `hook.warm.1k` | 1k protected files | `hook claude`, established session | the steady-state per-tool-call cost: policy load, full protected-tree re-hash (no stat fast path, by design), drift compare, evaluation |
@@ -66,6 +67,12 @@ node harness/perf/bench.mjs --dep-mb 100 --ignored-files 50000 --log-mb 15 --kee
 otherwise). `run.envelope` refuses to run as root (Linux lifecycle supervision needs
 a real UID), so run the suite unprivileged.
 
+The PR smoke is its own script, deliberately outside `npm test`:
+
+```bash
+npm run test:perf-smoke      # harness/perf/smoke.test.ts, alone, --no-file-parallelism
+```
+
 Compare a report against the committed baseline:
 
 ```bash
@@ -77,7 +84,14 @@ node harness/perf/compare.mjs --baseline harness/perf/BASELINE.json --current pe
 baseline's (default **2×**: a doubling is the regression the issue asks to make
 visible, and ordinary shared-runner variance is well inside it), or when a
 baselined item is missing from the report (`--allow-missing` waives that). A
-baseline may pin a different ratio per item under `"budgets": { "<item>": 1.5 }`.
+baseline may pin a different ratio per item under `"budgets": { "<item>": 1.5 }`;
+the committed baseline pins the **hook items** (`hook.warm.100`, `hook.cold.1k`,
+`hook.warm.1k`, `hook.ignored`) at **1.5×**, because a per-tool-call gate that takes
+half again as long is exactly the regression the nightly compare exists to show, and
+`harness/perf/smoke.test.ts` fails the PR if those budgets are missing or loosened
+past 1.5×. Note that the budget is exclusive: a current p50 at exactly `ratio ×` the
+baseline is still within budget, so a 2× budget does not fail a 2× regression — the
+1.5× pins are what make a doubled hook visible.
 `--metric` picks another `a.b` path (for example `cpu_ms.p50`). Both files must be
 the shape `bench.mjs` writes — schema 1, unique string ids, finite `wall_ms` /
 `cpu_ms` p50 and p95 — and the selected metric must exist on every baselined
@@ -86,19 +100,34 @@ against nothing.
 
 Where it runs:
 
-* **Every PR** — `test/perf-smoke.test.ts` runs the `smoke` profile (`cli.noop`,
-  `hook.warm.100`, `snapshot.100`, `check.diff.small`), builds an isolated CLI
-  itself, and unit-tests `compare.mjs`. It asserts **no absolute wall-clock
-  budget** — a shared runner's clock is not a stable reference — only **ratios
-  between items measured in the same run**: each of the three work items must stay
-  under 4× `cli.noop`, the process-start-plus-module-load cost with no evaluation.
-  Measured on the baseline machine they sit at 1.2–1.4×, so the smoke stays quiet on
-  a slow runner and still catches an order-of-magnitude regression in the work a
-  tool call does. Absolute numbers are the nightly workflow's business.
+* **Every PR** — `harness/perf/smoke.test.ts` runs the `smoke` profile (`cli.noop`,
+  `cli.parse`, `hook.warm.100`, `snapshot.100`, `check.diff.small`), builds an
+  isolated CLI itself, and unit-tests `compare.mjs`. It runs **alone**: the
+  `perf-smoke` job of `ci.yml` (on Node 20 / 22 / 24, required by `gate`) runs
+  `npm run test:perf-smoke` — `vitest run --config vitest.perf-smoke.config.ts
+  --no-file-parallelism` — and `npm test` never sees the file (`vitest.config.ts`
+  excludes `**/harness/**`), so no sibling test file shares its runner. It asserts
+  **no absolute wall-clock budget** — a shared runner's clock is not a stable
+  reference — only **ratios between items measured in the same run**, taken on
+  **p50 CPU** (`cpu_ms`, user + system of the process and its children) rather than
+  wall, because a loaded runner stretches wall for everything and leaves CPU nearly
+  alone. The yardstick is `cli.parse`: since the parser went lazy (#407) `cli.noop`
+  no longer loads it, but every smoke item that touches a `.ts` file does, so a ratio
+  to `cli.noop` measured "parser load versus process start" and its headroom went to
+  the parser, not to regressions (#421). Against `cli.parse` the budgets are
+  `hook.warm.100` < 1.25×, `snapshot.100` < 1.25× and `check.diff.small` < 3×;
+  measured on an idle 4-core box they sit at 0.44×, 0.48× and 1.46×, so a slower
+  Node or runner has 2–3× of room and a 3× slowdown of any budgeted item fails.
+  The smoke pins that with an **injected regression**: the real run's report with
+  `check.diff.small` scaled 3× must fail the same judge that passed the real run,
+  and the committed baseline with `hook.warm.100` doubled must fail `compare.mjs`.
+  Absolute numbers are the nightly workflow's business.
 * **Nightly and on demand** — `.github/workflows/perf.yml` (`workflow_dispatch` with
   `runs`, `ratio` and `dep_mb` inputs, plus a nightly schedule) runs the full suite,
   writes the table to the job summary, compares against the baseline, and uploads
-  `perf.json`, `perf.md` and `compare.md` as the `perf-report` artifact. It is
+  `perf.json`, `perf.md` and `compare.md` as the `perf-baseline-candidate` artifact
+  (the runner is the reference machine, so the report is what the baseline is promoted
+  from). It is
   deliberately not a required check.
 
 ## The baseline
@@ -110,19 +139,60 @@ only as meaningful as the match between that machine and the one measuring now;
 the 2× default budget is what absorbs the difference between a developer laptop and
 a hosted runner, not a licence to compare across architectures.
 
-Update it when a change **intends** to move a number (a new detector on the diff
-path, a cheaper snapshot, a bigger dependency read) or when the set of items
+**The reference machine is the hosted runner** the `perf` workflow runs on, because
+that is the machine every nightly comparison is made on. The baseline is in one of
+two states, and `harness/perf/smoke.test.ts` holds it to whichever it claims:
+
+* **reference** — `machine.ci` is set (`github-actions` as `bench.mjs` writes on a
+  runner, or `true` as `promote-baseline.mjs` stamps): it carries every item of the
+  full profile, `cli.parse` included, and its `cli.parse` costs clearly more CPU
+  than its `cli.noop` (a baseline taken before the parser went lazy cannot say that);
+* **sandbox stand-in** — `machine.ci` is `false` and a top-level `note` says so:
+  *captured in a loaded sandbox; reference baseline pending the first green perf
+  workflow artifact*. **The committed baseline is in this state** (#421): its numbers
+  were taken on a busy sandbox before #407, at `tamperward_version` 2.20.6, with
+  `cli.noop` at 1.7 s where an idle box measures 0.12 s, so a compare against it can
+  only fail an item that regresses by roughly the same factor. It is committed
+  byte-for-byte as measured — the only edits are the `note`, `machine.ci: false`
+  and the `budgets` — because a baseline regenerated on another loaded sandbox would
+  be a different wrong machine, not the right one.
+
+**Promote the first green `perf` run's report** on `main` after #421 lands, so the
+baseline and every comparison share a machine:
+
+1. open the green run (Actions → perf) — a run whose compare step failed is a
+   regression to investigate, not a baseline — and download its
+   `perf-baseline-candidate` artifact (`perf.json`, `perf.md`, `compare.md`; the
+   run's job summary prints this same recipe);
+2. from the artifact's directory, in a checkout of `main`:
+   `node harness/perf/promote-baseline.mjs perf.json`
+   — it copies the report into `harness/perf/BASELINE.json` unedited except that the
+   previous baseline's `budgets` are carried over verbatim (the hook items at 1.5×),
+   `machine.ci` is stamped when the report does not already name its CI, and the
+   `note` is dropped; it refuses a report that is not the shape `bench.mjs` writes or
+   that lost a baselined item; and it prints the old-versus-new p50 wall per item;
+3. open a PR with that table in its body — the sandbox baseline versus the runner is
+   expected to differ by a broadly constant factor; an item that moved by a
+   different factor from its neighbours is a change to explain, not to bless.
+
+Update it again when a change **intends** to move a number (a new detector on the
+diff path, a cheaper snapshot, a bigger dependency read) or when the set of items
 changes:
 
-1. `npm run build`, then run the full profile unprivileged on a quiet machine, with
-   the default options:
-   `node harness/perf/bench.mjs --out harness/perf/BASELINE.json`
-   (or download `perf.json` from a green `perf` workflow run and copy it there when
-   the runner is the reference machine);
-2. keep any per-item `budgets` you want from the previous baseline;
+1. prefer the `perf-baseline-candidate` artifact of a green `perf` run on the
+   change's head (`workflow_dispatch` on the branch) promoted the same way, so the
+   machine stays the reference runner; otherwise `npm run build`, then run the full
+   profile unprivileged on a quiet machine (`uptime` load below 2, nothing else
+   running), with the default options:
+   `node harness/perf/bench.mjs --out harness/perf/BASELINE.json`, and say in the
+   `note` what machine that was;
+2. keep the per-item `budgets` from the previous baseline;
 3. state in the PR what moved, by how much, and why — the old and new p50 per item
    is the evidence a reviewer needs; a baseline replaced without a reason is how a
    regression becomes the new normal.
 
-`test/perf-smoke.test.ts` checks the baseline still names every item of the full
-profile, so an item added to `bench.mjs` without a baseline entry fails the PR.
+`harness/perf/smoke.test.ts` checks the baseline still names every item of the full
+profile (`cli.parse` once it is a reference baseline), carries its `machine` block
+and `tamperward_version`, budgets every hook item at 1.5× or tighter, and is
+honest about its state, so an item added to `bench.mjs` without a baseline entry —
+or a sandbox baseline passing as the runner's — fails the PR.

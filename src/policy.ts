@@ -330,6 +330,12 @@ export function defaultPolicy(version = 1): Policy {
       'ts-cast-growth': { severity: 'warn' },
       'lint-suppression': { severity: 'block' },
       'coverage-lowering': { severity: 'block' },
+      // the per-function form of coverage-lowering: an inline `istanbul ignore` /
+      // `c8 ignore` / `v8 ignore` / `node:coverage ignore` / `# pragma: no cover` /
+      // `#[coverage(off)]` added to non-test source (#438). Also the ordinary way to
+      // mark a genuinely unreachable branch, so it WARNs until the corpus in
+      // harness/fp-study/coverage-exclusion-corpus.json earns block (SPEC §7).
+      'coverage-exclusion': { severity: 'warn' },
       'ci-tampering': { severity: 'block' },
       'hook-tampering': { severity: 'block' },
       'no-verify': { severity: 'block' },

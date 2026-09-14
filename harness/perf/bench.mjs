@@ -13,6 +13,10 @@
 //
 // Items (see docs/PERF.md for what each one stands for):
 //   cli.noop           hook claude with empty stdin: process start + module load only
+//                      (the parser is lazy, #407: this item never loads it)
+//   cli.parse          hook claude PreToolUse Edit of one .ts source, no session: process
+//                      start + module load + parser load + one file's evaluation — the
+//                      smoke's yardstick, since every item that touches a .ts file pays it
 //   hook.warm.100      PreToolUse hook, established session, 100 protected files
 //   hook.cold.1k       PreToolUse hook, NEW session (baseline pin + first snapshot), 1k files
 //   hook.warm.1k       PreToolUse hook, established session, 1k files
@@ -28,8 +32,9 @@
 //   run.envelope       run --cmd true -- true: the whole envelope around a trivial agent
 //   sweep.longlog      Stop sweep consuming a --log-mb watcher event log from offset 0
 //
-// The smoke profile is the cheapest items on the 100-file tree; test/perf-smoke.test.ts
-// runs it and judges ratios to cli.noop within the run. Node built-ins only.
+// The smoke profile is the cheapest items on the 100-file tree; harness/perf/smoke.test.ts
+// runs it (alone, from `npm run test:perf-smoke`) and judges CPU ratios to cli.parse
+// within the run. Node built-ins only.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -140,6 +145,17 @@ function hookPayload(cwd, sessionId) {
   return JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'ls' }, cwd, session_id: sessionId });
 }
 
+/** An Edit of the fixture's first plain source (src/d000/mod0.ts, a `.ts` file
+ *  the cast rules read on the AST), with NO session: the parser is loaded and
+ *  one file evaluated, and nothing is pinned or snapshotted. */
+function editTsPayload(cwd) {
+  return JSON.stringify({
+    tool_name: 'Edit',
+    tool_input: { file_path: join(cwd, 'src', 'd000', 'mod0.ts'), old_string: 'return n;', new_string: 'return n + 1;' },
+    cwd,
+  });
+}
+
 function stopPayload(cwd, sessionId) {
   return JSON.stringify({ cwd, session_id: sessionId, stop_hook_active: false });
 }
@@ -178,6 +194,11 @@ function catalogue(cli, opts) {
       id: 'cli.noop', fixture: 'tree100', smoke: true,
       description: 'hook claude with EMPTY stdin: process start + module load, no evaluation (the fixed cost every item pays)',
       command: () => ({ cmd: node, args: [cli, 'hook', 'claude'], input: '' }), expect: 0,
+    },
+    {
+      id: 'cli.parse', fixture: 'tree100', smoke: true,
+      description: 'hook claude PreToolUse Edit of one .ts source, no session: process start + module load + parser load + one file evaluated (the smoke yardstick)',
+      command: (dir) => ({ cmd: node, args: [cli, 'hook', 'claude'], input: editTsPayload(dir) }), expect: 0,
     },
     {
       id: 'hook.warm.100', fixture: 'tree100', smoke: true,
