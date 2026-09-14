@@ -2,6 +2,7 @@
   "schema": 1,
   "generated_at": "2026-09-13T22:58:20.130Z",
   "tamperward_version": "2.20.6",
+  "note": "captured in a loaded sandbox; reference baseline pending the first green perf workflow artifact (docs/PERF.md: node harness/perf/promote-baseline.mjs perf.json)",
   "profile": "full",
   "runs": 7,
   "options": {
@@ -17,7 +18,14 @@
     "cores": 4,
     "mem_gb": 15.7,
     "node": "v20.20.2",
-    "git": "git version 2.43.0"
+    "git": "git version 2.43.0",
+    "ci": false
+  },
+  "budgets": {
+    "hook.warm.100": 1.5,
+    "hook.cold.1k": 1.5,
+    "hook.warm.1k": 1.5,
+    "hook.ignored": 1.5
   },
   "items": [
     {
