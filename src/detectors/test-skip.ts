@@ -24,11 +24,13 @@
 // ASTs are not trusted for block findings: parse diagnostics decline the AST path and
 // leave the established line matcher as the fallback.
 
+import { posix } from 'node:path';
 import type TS from 'typescript';
 import { ts } from '../ts-lazy';
-import { Change, Detector, FileChange, Finding } from '../types';
+import { Change, Detector, DetectorContext, FileChange, Finding } from '../types';
 import { addedLines } from '../diff/select';
 import { isProtected } from '../policy';
+import { trackedContent } from './repo';
 import { insideStringLiteral, isCommentLine, Lang, langOf } from './files';
 import { makeFinding } from './finding';
 
@@ -43,7 +45,7 @@ type Pattern = { re: RegExp; why: string; comment?: true; astOwned?: true };
 const acc = (names: string): string =>
   `(?:\\s*\\.\\s*(?:${names})(?![\\w$])|\\s*\\[\\s*['"\`](?:${names})['"\`]\\s*\\])`;
 const JS_RUNNER = '\\b(?:it|test|describe|suite)';
-const JS_MOD = 'concurrent|sequential|shuffle'; // vitest concurrency modifier: it.concurrent.skip
+const JS_MOD = 'concurrent|sequential|shuffle|serial|parallel'; // it.concurrent.skip, describe.serial.only
 
 const PATTERNS: Record<Lang, Pattern[]> = {
   js: [
@@ -141,7 +143,11 @@ function matchesOutsideString(p: Pattern, content: string, lang: Lang | null): b
 }
 
 const JS_RUNNERS = new Set(['it', 'test', 'describe', 'suite']);
-const JS_CHAIN_MODIFIERS = new Set(['concurrent', 'sequential', 'shuffle']);
+// vitest's concurrency modifiers and Playwright's describe modes: `it.concurrent.skip`,
+// `test.describe.serial.only`.
+const JS_CHAIN_MODIFIERS = new Set(['concurrent', 'sequential', 'shuffle', 'serial', 'parallel']);
+// Modules whose DEFAULT export is the runner (`import test from 'node:test'`).
+const JS_DEFAULT_RUNNER_MODULES = new Set(['node:test', 'node:test/promises', '@playwright/test']);
 const JS_TEST_MODULES = new Set([
   'vitest',
   '@jest/globals',
@@ -196,10 +202,6 @@ type StaticValue = {
   causes: TS.Node[];
 };
 
-type RunnerBinding = {
-  causes: TS.Node[];
-};
-
 type SemanticHit = {
   semanticKey: string;
   terminalNode: TS.Node;
@@ -250,68 +252,388 @@ function symbolAt(ctx: AstContext, node: TS.Node): TS.Symbol | null {
   return ctx.checker.getSymbolAtLocation(node) ?? null;
 }
 
-function importAliases(ctx: AstContext): Map<TS.Symbol, RunnerBinding> {
-  const out = new Map<TS.Symbol, RunnerBinding>();
-  const simpleAliases: Array<{ local: TS.Identifier; source: TS.Identifier }> = [];
+/**
+ * What a chain root is proven to be (#428).
+ *
+ * `runner`: the symbol is a test runner — imported from a known runner module,
+ * a `.extend(...)` of one, or an alias of one, followed through a relative
+ * fixture module whose content is in hand. `non-runner`: the symbol is proven
+ * to be something else — a parameter, a local function/class, a local
+ * declaration whose initialiser is not an import/alias/extend of a runner, or an
+ * import of a non-runner name from a known runner module. `unknown`: the AST
+ * cannot say (an import from a module it cannot read, a fixture whose content
+ * is unavailable, an initialiser it does not model); the call is then NOT the
+ * AST's to judge and the line matcher keeps its say.
+ */
+type Verdict =
+  | { kind: 'runner'; causes: TS.Node[] }
+  | { kind: 'non-runner' }
+  | { kind: 'unknown' };
 
-  const add = (id: TS.Identifier, causes: TS.Node[] = [id]): void => {
-    const sym = symbolAt(ctx, id);
-    if (sym) out.set(sym, { causes });
-  };
+const RUNNER: Verdict = { kind: 'runner', causes: [] };
+const NON_RUNNER: Verdict = { kind: 'non-runner' };
+const UNKNOWN: Verdict = { kind: 'unknown' };
 
-  for (const stmt of ctx.sf.statements) {
-    if (ts.isImportDeclaration(stmt) && ts.isStringLiteralLike(stmt.moduleSpecifier)) {
-      if (!JS_TEST_MODULES.has(stmt.moduleSpecifier.text)) continue;
-      const clause = stmt.importClause;
-      if (!clause) continue;
-      if (clause.name && stmt.moduleSpecifier.text.startsWith('node:test')) add(clause.name);
-      const bindings = clause.namedBindings;
-      if (bindings && ts.isNamedImports(bindings)) {
-        for (const el of bindings.elements) {
-          const imported = el.propertyName?.text ?? el.name.text;
-          if (JS_RUNNERS.has(imported)) add(el.name);
-        }
-      }
-      continue;
-    }
+const withCause = (v: Verdict, cause: TS.Node): Verdict =>
+  v.kind === 'runner' ? { kind: 'runner', causes: [cause, ...v.causes] } : v;
 
-    if (!ts.isVariableStatement(stmt)) continue;
-    for (const decl of stmt.declarationList.declarations) {
-      if (ts.isObjectBindingPattern(decl.name) && decl.initializer) {
-        const mod = requiredModule(decl.initializer);
-        if (!mod || !JS_TEST_MODULES.has(mod)) continue;
-        for (const el of decl.name.elements) {
-          if (!ts.isIdentifier(el.name)) continue;
-          const imported = el.propertyName && ts.isIdentifier(el.propertyName)
-            ? el.propertyName.text
-            : el.name.text;
-          if (JS_RUNNERS.has(imported)) add(el.name);
-        }
-      } else if (ts.isIdentifier(decl.name) && decl.initializer && ts.isIdentifier(decl.initializer)) {
-        simpleAliases.push({ local: decl.name, source: decl.initializer });
-      }
-    }
-  }
+/** Content of a repo-relative module path, or null when it cannot be read. */
+type ModuleSource = (path: string) => string | null;
 
-  for (let pass = 0; pass < simpleAliases.length + 1; pass++) {
-    let changed = false;
-    for (const alias of simpleAliases) {
-      const localSym = symbolAt(ctx, alias.local);
-      if (!localSym || out.has(localSym)) continue;
+const MODULE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
 
-      const sourceSym = symbolAt(ctx, alias.source);
-      const sourceBinding = sourceSym ? out.get(sourceSym) : undefined;
-      const implicitGlobal = sourceSym == null && JS_RUNNERS.has(alias.source.text);
-
-      if (!sourceBinding && !implicitGlobal) continue;
-      out.set(localSym, {
-        causes: [alias.local, ...(sourceBinding?.causes ?? [])],
-      });
-      changed = true;
-    }
-    if (!changed) break;
+/** Repo-relative candidate paths for `spec` imported from `fromPath`, in the order
+ *  a bundler or TypeScript would try them (`./fixtures` → `fixtures.ts`,
+ *  `fixtures/index.ts`; a `.js` specifier also names the `.ts` source). */
+function relativeCandidates(fromPath: string, spec: string): string[] {
+  const base = posix.normalize(posix.join(posix.dirname(fromPath), spec));
+  if (base.startsWith('../') || base.startsWith('/')) return [];
+  const bases = [base];
+  const swapped = base.replace(/\.([mc]?)js$/, '.$1ts');
+  if (swapped !== base) bases.push(swapped);
+  const out: string[] = [];
+  for (const b of bases) {
+    out.push(b);
+    for (const ext of MODULE_EXTENSIONS) out.push(b + ext);
+    for (const ext of MODULE_EXTENSIONS) out.push(b + '/index' + ext);
   }
   return out;
+}
+
+/** Whether `stmt` carries the `export` modifier. */
+function isExported(stmt: TS.Statement): boolean {
+  return ts.canHaveModifiers(stmt) &&
+    (ts.getModifiers(stmt) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+}
+
+/** `module.exports` / `exports` / `module.exports.<name>` / `exports.<name>` as an
+ *  assignment target: the exported name, `''` for the whole module object. */
+function cjsExportTarget(expr: TS.Expression): string | null {
+  const isModuleExports = (e: TS.Expression): boolean =>
+    (ts.isIdentifier(e) && e.text === 'exports') ||
+    (ts.isPropertyAccessExpression(e) &&
+      ts.isIdentifier(e.expression) && e.expression.text === 'module' && e.name.text === 'exports');
+  if (isModuleExports(expr)) return '';
+  if (ts.isPropertyAccessExpression(expr) && isModuleExports(expr.expression)) return expr.name.text;
+  return null;
+}
+
+/**
+ * Resolves runner bindings across the files a change can see. One resolver serves
+ * one side (BEFORE or AFTER) of one detector run; fixture modules are parsed at
+ * most once per side, and a chain of re-exports is followed at most `MAX_DEPTH`
+ * modules deep before it is declared unknown.
+ */
+class RunnerResolver {
+  private readonly binders = new Map<string, ModuleBinder | null>();
+  static readonly MAX_DEPTH = 4;
+
+  constructor(private readonly source: ModuleSource) {}
+
+  binderFor(path: string, ctx: AstContext): ModuleBinder {
+    const hit = this.binders.get(path);
+    if (hit && hit.ctx === ctx) return hit;
+    const binder = new ModuleBinder(ctx, path, this, 0);
+    this.binders.set(path, binder);
+    return binder;
+  }
+
+  /** The verdict for `name` exported by `spec` as imported from `fromPath`. */
+  exportOf(fromPath: string, spec: string, name: string, depth: number): Verdict {
+    if (JS_TEST_MODULES.has(spec)) {
+      if (name === 'default') return JS_DEFAULT_RUNNER_MODULES.has(spec) ? RUNNER : UNKNOWN;
+      return JS_RUNNERS.has(name) ? RUNNER : NON_RUNNER;
+    }
+    if (!spec.startsWith('./') && !spec.startsWith('../')) return UNKNOWN;
+    if (depth >= RunnerResolver.MAX_DEPTH) return UNKNOWN;
+    for (const candidate of relativeCandidates(fromPath, spec)) {
+      if (this.binders.has(candidate)) {
+        const cached = this.binders.get(candidate);
+        return cached ? cached.exported(name) : UNKNOWN;
+      }
+      const src = this.source(candidate);
+      if (src == null) continue;
+      const ctx = astContext(candidate, src);
+      const binder = ctx ? new ModuleBinder(ctx, candidate, this, depth + 1) : null;
+      this.binders.set(candidate, binder);
+      return binder ? binder.exported(name) : UNKNOWN;
+    }
+    return UNKNOWN;
+  }
+}
+
+/** Runner classification of the symbols of one parsed module. */
+class ModuleBinder {
+  private readonly memo = new Map<TS.Symbol, Verdict>();
+  private readonly resolving = new Set<TS.Symbol>();
+  private exports: Map<string, () => Verdict> | null = null;
+  private starExports: string[] = [];
+  private opaqueCjs = false;
+
+  constructor(
+    readonly ctx: AstContext,
+    private readonly path: string,
+    private readonly resolver: RunnerResolver,
+    private readonly depth: number,
+  ) {}
+
+  private moduleExport(spec: string, name: string): Verdict {
+    return this.resolver.exportOf(this.path, spec, name, this.depth);
+  }
+
+  /** The verdict for member `name` of the module object `spec` denotes. */
+  memberOf(spec: string, name: string): Verdict {
+    return this.moduleExport(spec, name);
+  }
+
+  /** The module specifier a symbol stands for as a namespace object
+   *  (`import * as v from 'vitest'`, `const v = require('vitest')`), else null. */
+  namespaceOf(sym: TS.Symbol): string | null {
+    const decl = sym.valueDeclaration ?? sym.declarations?.[0];
+    if (!decl) return null;
+    if (ts.isNamespaceImport(decl)) {
+      const imp = decl.parent.parent;
+      return ts.isImportDeclaration(imp) ? moduleName(imp.moduleSpecifier) : null;
+    }
+    if (ts.isVariableDeclaration(decl) && ts.isIdentifier(decl.name) && decl.initializer) {
+      return requiredModule(decl.initializer);
+    }
+    return null;
+  }
+
+  /** The verdict for a root identifier's symbol. */
+  classify(sym: TS.Symbol): Verdict {
+    const cached = this.memo.get(sym);
+    if (cached) return cached;
+    if (this.resolving.has(sym)) return UNKNOWN;
+    this.resolving.add(sym);
+    const verdict = this.classifyDeclaration(sym);
+    this.resolving.delete(sym);
+    this.memo.set(sym, verdict);
+    return verdict;
+  }
+
+  private classifyDeclaration(sym: TS.Symbol): Verdict {
+    const decl = sym.valueDeclaration ?? sym.declarations?.[0];
+    if (!decl) return UNKNOWN;
+
+    if (ts.isImportSpecifier(decl)) {
+      const imp = decl.parent.parent.parent;
+      const spec = ts.isImportDeclaration(imp) ? moduleName(imp.moduleSpecifier) : null;
+      if (spec == null) return UNKNOWN;
+      return withCause(this.moduleExport(spec, (decl.propertyName ?? decl.name).text), decl.name);
+    }
+    if (ts.isImportClause(decl)) {
+      const spec = ts.isImportDeclaration(decl.parent) ? moduleName(decl.parent.moduleSpecifier) : null;
+      if (spec == null || !decl.name) return UNKNOWN;
+      return withCause(this.moduleExport(spec, 'default'), decl.name);
+    }
+    if (
+      ts.isNamespaceImport(decl) ||
+      ts.isParameter(decl) ||
+      ts.isFunctionDeclaration(decl) ||
+      ts.isClassDeclaration(decl) ||
+      ts.isEnumDeclaration(decl) ||
+      ts.isModuleDeclaration(decl)
+    ) return NON_RUNNER;
+
+    if (ts.isBindingElement(decl)) return this.classifyBindingElement(decl);
+
+    if (ts.isVariableDeclaration(decl) && ts.isIdentifier(decl.name)) {
+      if (!decl.initializer) return UNKNOWN;
+      return withCause(this.classifyExpression(decl.initializer), decl.name);
+    }
+    return UNKNOWN;
+  }
+
+  /** `const { it } = require('vitest')`, `const { test } = fixtures`: the element
+   *  is what the module (or namespace) exports under its property name. */
+  private classifyBindingElement(decl: TS.BindingElement): Verdict {
+    const pattern = decl.parent;
+    const owner = pattern.parent;
+    if (ts.isParameter(owner) || !ts.isObjectBindingPattern(pattern) || !ts.isIdentifier(decl.name)) {
+      return NON_RUNNER;
+    }
+    if (!ts.isVariableDeclaration(owner) || !owner.initializer) return UNKNOWN;
+    const key = decl.propertyName
+      ? (ts.isIdentifier(decl.propertyName) || ts.isStringLiteralLike(decl.propertyName)
+        ? decl.propertyName.text
+        : null)
+      : decl.name.text;
+    if (key == null) return UNKNOWN;
+    const spec = this.namespaceSpec(owner.initializer);
+    if (spec != null) return withCause(this.moduleExport(spec, key), decl.name);
+    if (ts.isIdentifier(owner.initializer)) {
+      const inner = symbolAt(this.ctx, owner.initializer);
+      const verdict = inner ? this.classify(inner) : UNKNOWN;
+      return verdict.kind === 'unknown' ? UNKNOWN : NON_RUNNER;
+    }
+    return NON_RUNNER;
+  }
+
+  /** The module specifier `expr` denotes as a namespace object, else null. */
+  private namespaceSpec(expr: TS.Expression): string | null {
+    const direct = requiredModule(expr);
+    if (direct != null) return direct;
+    if (!ts.isIdentifier(expr)) return null;
+    const sym = symbolAt(this.ctx, expr);
+    return sym ? this.namespaceOf(sym) : null;
+  }
+
+  /** The verdict for an expression used as a runner: an initialiser or a
+   *  re-exported value. */
+  classifyExpression(expr: TS.Expression): Verdict {
+    if (
+      ts.isParenthesizedExpression(expr) ||
+      ts.isAsExpression(expr) ||
+      ts.isSatisfiesExpression(expr) ||
+      ts.isTypeAssertionExpression(expr) ||
+      ts.isNonNullExpression(expr)
+    ) return this.classifyExpression(expr.expression);
+
+    if (ts.isIdentifier(expr)) {
+      const sym = symbolAt(this.ctx, expr);
+      if (sym) return this.classify(sym);
+      return JS_RUNNERS.has(expr.text) ? RUNNER : UNKNOWN;
+    }
+
+    if (ts.isCallExpression(expr)) {
+      const spec = requiredModule(expr);
+      if (spec != null) return this.moduleExport(spec, 'default');
+      const callee = expr.expression;
+      if (ts.isPropertyAccessExpression(callee) && callee.name.text === 'extend') {
+        return this.classifyExpression(callee.expression);
+      }
+      return NON_RUNNER;
+    }
+
+    if (ts.isPropertyAccessExpression(expr)) {
+      const spec = this.namespaceSpec(expr.expression);
+      return spec != null ? this.moduleExport(spec, expr.name.text) : UNKNOWN;
+    }
+    if (ts.isElementAccessExpression(expr)) {
+      const spec = this.namespaceSpec(expr.expression);
+      const name = ts.isStringLiteralLike(expr.argumentExpression) ? expr.argumentExpression.text : null;
+      return spec != null && name != null ? this.moduleExport(spec, name) : UNKNOWN;
+    }
+
+    if (
+      ts.isLiteralExpression(expr) ||
+      ts.isTemplateExpression(expr) ||
+      ts.isObjectLiteralExpression(expr) ||
+      ts.isArrayLiteralExpression(expr) ||
+      ts.isFunctionExpression(expr) ||
+      ts.isArrowFunction(expr) ||
+      ts.isClassExpression(expr) ||
+      ts.isNewExpression(expr) ||
+      ts.isBinaryExpression(expr) ||
+      ts.isPrefixUnaryExpression(expr) ||
+      ts.isPostfixUnaryExpression(expr) ||
+      ts.isJsxElement(expr) ||
+      ts.isJsxSelfClosingElement(expr) ||
+      expr.kind === ts.SyntaxKind.TrueKeyword ||
+      expr.kind === ts.SyntaxKind.FalseKeyword ||
+      expr.kind === ts.SyntaxKind.NullKeyword
+    ) return NON_RUNNER;
+
+    return UNKNOWN;
+  }
+
+  /** The verdict for what this module exports under `name` (`default` for the
+   *  default export or a whole-module `module.exports = …`). */
+  exported(name: string): Verdict {
+    if (!this.exports) this.collectExports();
+    const local = this.exports?.get(name);
+    if (local) return local();
+    for (const spec of this.starExports) {
+      const v = this.moduleExport(spec, name);
+      if (v.kind !== 'non-runner') return v;
+    }
+    return this.opaqueCjs ? UNKNOWN : NON_RUNNER;
+  }
+
+  private collectExports(): void {
+    const exports = new Map<string, () => Verdict>();
+    this.exports = exports;
+    const ctx = this.ctx;
+    const bySymbol = (id: TS.Identifier) => (): Verdict => {
+      const sym = symbolAt(ctx, id);
+      return sym ? this.classify(sym) : UNKNOWN;
+    };
+
+    for (const stmt of ctx.sf.statements) {
+      if (ts.isExportDeclaration(stmt)) {
+        const spec = stmt.moduleSpecifier ? moduleName(stmt.moduleSpecifier) : null;
+        if (!stmt.exportClause) {
+          if (spec != null) this.starExports.push(spec);
+          else this.opaqueCjs = true;
+          continue;
+        }
+        if (!ts.isNamedExports(stmt.exportClause)) continue;
+        for (const el of stmt.exportClause.elements) {
+          const exportedName = el.name.text;
+          const localName = (el.propertyName ?? el.name).text;
+          if (spec != null) {
+            exports.set(exportedName, () => this.moduleExport(spec, localName));
+          } else {
+            exports.set(exportedName, () => {
+              const sym = ctx.checker.getExportSpecifierLocalTargetSymbol(el);
+              return sym ? this.classify(sym) : UNKNOWN;
+            });
+          }
+        }
+        continue;
+      }
+      if (ts.isExportAssignment(stmt)) {
+        exports.set('default', () => this.classifyExpression(stmt.expression));
+        continue;
+      }
+      if (isExported(stmt)) {
+        if (ts.isVariableStatement(stmt)) {
+          for (const decl of stmt.declarationList.declarations) {
+            if (ts.isIdentifier(decl.name)) exports.set(decl.name.text, bySymbol(decl.name));
+            else if (ts.isObjectBindingPattern(decl.name)) {
+              for (const el of decl.name.elements) {
+                if (ts.isIdentifier(el.name)) exports.set(el.name.text, bySymbol(el.name));
+              }
+            }
+          }
+        } else if ((ts.isFunctionDeclaration(stmt) || ts.isClassDeclaration(stmt)) && stmt.name) {
+          exports.set(stmt.name.text, () => NON_RUNNER);
+        }
+        continue;
+      }
+      if (
+        ts.isExpressionStatement(stmt) &&
+        ts.isBinaryExpression(stmt.expression) &&
+        stmt.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      ) {
+        const target = cjsExportTarget(stmt.expression.left);
+        if (target == null) continue;
+        const value = stmt.expression.right;
+        if (target !== '') {
+          exports.set(target, () => this.classifyExpression(value));
+        } else if (ts.isObjectLiteralExpression(value)) {
+          for (const prop of value.properties) {
+            if (ts.isPropertyAssignment(prop) && (ts.isIdentifier(prop.name) || ts.isStringLiteralLike(prop.name))) {
+              const init = prop.initializer;
+              exports.set(prop.name.text, () => this.classifyExpression(init));
+            } else if (ts.isShorthandPropertyAssignment(prop)) {
+              exports.set(prop.name.text, () => {
+                const sym = ctx.checker.getShorthandAssignmentValueSymbol(prop);
+                return sym ? this.classify(sym) : UNKNOWN;
+              });
+            } else {
+              this.opaqueCjs = true; // a spread or computed key: the export set is open
+            }
+          }
+        } else {
+          exports.set('default', () => this.classifyExpression(value));
+          this.opaqueCjs = true; // `module.exports = expr`: named members are the expr's
+        }
+      }
+    }
+  }
 }
 
 function topLevelStaticStrings(ctx: AstContext): Map<TS.Symbol, StaticValue> {
@@ -390,12 +712,20 @@ function staticPropertyName(
   return null;
 }
 
+type RunnerChain = { root: string; props: string[]; terminalNode: TS.Node; causes: TS.Node[] };
+
+/**
+ * The member chain of a call's callee, rooted at a runner: the chain when the root
+ * is a proven runner, `'unknown'` when the root's binding cannot be classified
+ * (the call is then the line matcher's to judge, #428), and null when the callee
+ * is proven not to be a runner chain or is not a member chain the AST models.
+ */
 function runnerChain(
   expr: TS.Expression,
   ctx: AstContext,
-  runners: Map<TS.Symbol, RunnerBinding>,
+  binder: ModuleBinder,
   strings: Map<TS.Symbol, StaticValue>,
-): { root: string; props: string[]; terminalNode: TS.Node; causes: TS.Node[] } | null {
+): RunnerChain | 'unknown' | null {
   const props: string[] = [];
   const causes: TS.Node[] = [];
   let cur: TS.Expression = expr;
@@ -417,17 +747,34 @@ function runnerChain(
     cur = cur.expression;
   }
 
-  if (!ts.isIdentifier(cur)) return null;
-  const sym = symbolAt(ctx, cur);
-  if (sym) {
-    const binding = runners.get(sym);
-    if (!binding) return null;
-    causes.push(...binding.causes);
-  } else if (!JS_RUNNERS.has(cur.text)) {
-    return null;
+  let verdict: Verdict;
+  let namespace: string | null = null;
+  if (ts.isIdentifier(cur)) {
+    const sym = symbolAt(ctx, cur);
+    if (!sym) {
+      verdict = JS_RUNNERS.has(cur.text) ? RUNNER : UNKNOWN;
+    } else {
+      verdict = binder.classify(sym);
+      if (verdict.kind !== 'runner') namespace = binder.namespaceOf(sym);
+    }
+  } else {
+    // `require('vitest').it.skip(...)`: the root is the module object itself.
+    namespace = requiredModule(cur);
+    verdict = namespace == null ? UNKNOWN : NON_RUNNER;
   }
 
-  return { root: cur.text, props, terminalNode, causes };
+  // A namespace object (`import * as v`, `const v = require(...)`) is not a runner;
+  // its first member may be one (`v.it.skip`).
+  let root = ts.isIdentifier(cur) ? cur.text : '';
+  if (namespace != null && props.length > 0) {
+    verdict = withCause(binder.memberOf(namespace, props[0]), cur);
+    if (verdict.kind === 'runner') root = props.shift() ?? root;
+  }
+
+  if (verdict.kind === 'unknown') return 'unknown';
+  if (verdict.kind === 'non-runner') return null;
+  causes.push(...verdict.causes);
+  return { root, props, terminalNode, causes };
 }
 
 function optionDisables(value: TS.Expression): boolean {
@@ -468,11 +815,19 @@ function structuralNodeKey(node: TS.Node, sf: TS.SourceFile): string {
   return `${node.kind}(${children.map((child) => structuralNodeKey(child, sf)).join(',')})`;
 }
 
-function semanticSkipHits(ctx: AstContext): SemanticHit[] {
-  const runners = importAliases(ctx);
+type SemanticAnalysis = {
+  hits: SemanticHit[];
+  /** Lines of callee chains whose root the AST could not classify: the line
+   *  matcher keeps its say on these (#428). */
+  unowned: Set<number>;
+};
+
+function semanticSkipHits(ctx: AstContext, binder: ModuleBinder): SemanticAnalysis {
   const strings = topLevelStaticStrings(ctx);
   const hits: SemanticHit[] = [];
+  const unowned = new Set<number>();
   const callOrdinals = new Map<string, number>();
+  const lineOf = (pos: number): number => ctx.sf.getLineAndCharacterOfPosition(pos).line + 1;
 
   const visit = (node: TS.Node): void => {
     if (ts.isCallExpression(node)) {
@@ -482,8 +837,13 @@ function semanticSkipHits(ctx: AstContext): SemanticHit[] {
       callOrdinals.set(callIdentity, ordinal);
       const callKey = `${callIdentity}\u0000${ordinal}`;
 
-      const chain = runnerChain(node.expression, ctx, runners, strings);
-      if (chain) {
+      const chain = runnerChain(node.expression, ctx, binder, strings);
+      if (chain === 'unknown') {
+        const callee = node.expression;
+        const first = lineOf(callee.getStart(ctx.sf));
+        const last = lineOf(callee.getEnd());
+        for (let line = first; line <= last; line++) unowned.add(line);
+      } else if (chain) {
         const { props, terminalNode, causes } = chain;
         const terminal = props.at(-1);
         const push = (target: TS.Node, extraCauses: TS.Node[], why: string): void => {
@@ -499,7 +859,7 @@ function semanticSkipHits(ctx: AstContext): SemanticHit[] {
         if (
           terminal &&
           (terminal === 'skip' || terminal === 'only' || terminal === 'todo') &&
-          props.slice(0, -1).every((p) => JS_CHAIN_MODIFIERS.has(p))
+          props.slice(0, -1).every((p) => JS_CHAIN_MODIFIERS.has(p) || JS_RUNNERS.has(p))
         ) {
           push(terminalNode, [], 'a .skip/.only/.todo marker');
         } else if (terminal && ['skipIf', 'runIf'].includes(terminal) && props.length === 1) {
@@ -553,28 +913,48 @@ function semanticSkipHits(ctx: AstContext): SemanticHit[] {
     ts.forEachChild(node, visit);
   };
   visit(ctx.sf);
-  return hits;
+  return { hits, unowned };
 }
 
-function astSkipHits(c: FileChange): { hits: AstHit[]; authoritative: boolean } {
-  if (c.after == null) return { hits: [], authoritative: false };
+type AstAnalysis = { hits: AstHit[]; authoritative: boolean; unowned: Set<number> };
+
+const NO_AST: AstAnalysis = { hits: [], authoritative: false, unowned: new Set() };
+
+/** The content of a module the change can see on one side: the change's own
+ *  BEFORE/AFTER for a path it touches, the repository's copy otherwise. */
+function moduleSource(changes: Change[], side: 'before' | 'after', ctx?: DetectorContext): ModuleSource {
+  const touched = new Map<string, string | null>();
+  for (const c of changes) {
+    if (c.kind !== 'file') continue;
+    touched.set(c.path, c[side]);
+    if (side === 'before' && c.oldPath != null) touched.set(c.oldPath, c.before);
+  }
+  return (path) => touched.has(path) ? touched.get(path) ?? null : trackedContent(path, ctx);
+}
+
+function astSkipHits(c: FileChange, resolvers: { before: RunnerResolver; after: RunnerResolver }): AstAnalysis {
+  if (c.after == null) return NO_AST;
   const added = addedLineNumbers(c);
-  if (added.size === 0) return { hits: [], authoritative: false };
+  if (added.size === 0) return NO_AST;
 
   const afterCtx = astContext(c.path, c.after);
-  if (!afterCtx) return { hits: [], authoritative: false };
+  if (!afterCtx) return NO_AST;
 
   const beforeCtx = c.before == null ? null : astContext(c.path, c.before);
   const beforeKeys = beforeCtx == null
     ? null
-    : new Set(semanticSkipHits(beforeCtx).map((hit) => hit.semanticKey));
+    : new Set(
+      semanticSkipHits(beforeCtx, resolvers.before.binderFor(c.oldPath ?? c.path, beforeCtx)).hits
+        .map((hit) => hit.semanticKey),
+    );
 
   const lineOf = (node: TS.Node): number =>
     afterCtx.sf.getLineAndCharacterOfPosition(node.getStart(afterCtx.sf)).line + 1;
 
   const hits: AstHit[] = [];
   const seen = new Set<string>();
-  for (const hit of semanticSkipHits(afterCtx)) {
+  const analysis = semanticSkipHits(afterCtx, resolvers.after.binderFor(c.path, afterCtx));
+  for (const hit of analysis.hits) {
     const directLine = lineOf(hit.terminalNode);
     let findingLine: number | null = added.has(directLine) ? directLine : null;
     if (findingLine == null) {
@@ -600,15 +980,19 @@ function astSkipHits(c: FileChange): { hits: AstHit[]; authoritative: boolean } 
     seen.add(dedupe);
     hits.push({ line: findingLine, why: hit.why, evidence: hit.evidence });
   }
-  return { hits, authoritative: true };
+  return { hits, authoritative: true, unowned: analysis.unowned };
 }
 
 export const testSkip: Detector = {
   id: RULE,
   surface: ['file'],
   certainty: 'mechanical',
-  run(changes: Change[], policy): Finding[] {
+  run(changes: Change[], policy, _view, ctx): Finding[] {
     const out: Finding[] = [];
+    const resolvers = {
+      before: new RunnerResolver(moduleSource(changes, 'before', ctx)),
+      after: new RunnerResolver(moduleSource(changes, 'after', ctx)),
+    };
     for (const c of changes) {
       if (c.kind !== 'file') continue;
       if (!isProtected(c.path, policy, 'tests')) continue;
@@ -616,15 +1000,20 @@ export const testSkip: Detector = {
       const patterns = PATTERNS[lang ?? 'js'];
       const astHitLines = new Set<number>();
       let astAuthoritative = false;
+      let unowned = new Set<number>();
 
       // Enriched JS/TS changes carry the whole AFTER file. For the JS forms the
       // AST models, a parse-clean AST is authoritative even when the result is
       // deliberately "not a test runner" because lexical shadowing must not be
-      // overridden by the spelling-only regex fallback. Diff-only inputs and
-      // parse-recovery trees keep the historical regex behavior.
+      // overridden by the spelling-only regex fallback — but only where the AST
+      // PROVED the root is not a runner. A root it cannot classify (a fixture
+      // module it cannot read, a wrapper package) leaves the call to the line
+      // matcher (#428). Diff-only inputs and parse-recovery trees keep the
+      // historical regex behavior.
       if (lang === 'js' && c.after != null) {
-        const analysis = astSkipHits(c);
+        const analysis = astSkipHits(c, resolvers);
         astAuthoritative = analysis.authoritative;
+        unowned = analysis.unowned;
         for (const hit of analysis.hits) {
           astHitLines.add(hit.line);
           out.push(
@@ -644,7 +1033,7 @@ export const testSkip: Detector = {
         if (l.newLine != null && astHitLines.has(l.newLine)) continue;
         const comment = isCommentLine(l.content.trim(), lang);
         for (const p of patterns) {
-          if (astAuthoritative && p.astOwned) continue;
+          if (astAuthoritative && p.astOwned && !(l.newLine != null && unowned.has(l.newLine))) continue;
           if (comment && !p.comment) continue;
           if (matchesOutsideString(p, l.content, lang)) {
             out.push(

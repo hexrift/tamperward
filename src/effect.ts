@@ -21,9 +21,9 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { join } from 'node:path';
 import { Policy } from './types';
+import { repoContext, repoRoot } from './repo-context';
 import { isProtected } from './policy';
 import { DiskEntry, inspectRel } from './disk';
 import { ignoredTree } from './git/build';
@@ -56,24 +56,12 @@ export function ptreeFrom(value: unknown): PTree | null {
 const UNSAFE = /[^A-Za-z0-9._-]/g;
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.hg', '.svn']);
 
-/** The ABSOLUTE git directory. `rev-parse --git-dir` answers `.git` from the
- *  top of an ordinary checkout and an absolute path from anywhere else — a
- *  subdirectory, a linked `git worktree`, a `.git` file. `join(cwd, gd)` on the
- *  absolute form produced `<cwd>/<absolute path>`, and `mkdirSync` then created
- *  that whole tree INSIDE the working tree: a Claude Code session in a worktree
- *  wrote its effect state to `<worktree>/tmp/.../main/.git/worktrees/x/…`. */
+/** The ABSOLUTE git directory — `.git` of the checkout or the linked worktree's
+ *  `.git/worktrees/<name>`, from anywhere in the working tree. Once `join(cwd,
+ *  '.git')`-shaped: a session in a worktree wrote its effect state INSIDE the
+ *  working tree, and one in a subdirectory found no state at all (#412). */
 function gitDir(cwd: string): string | null {
-  try {
-    const d = execFileSync('git', ['rev-parse', '--git-dir'], {
-      cwd,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
-    if (!d) return null;
-    return isAbsolute(d) ? d : join(cwd, d);
-  } catch {
-    return null;
-  }
+  return repoContext(cwd)?.gitDir ?? null;
 }
 
 function statePath(cwd: string, sessionId: string | undefined, kind: 'ptree' | 'turntree'): string | null {
@@ -147,6 +135,9 @@ function entryOf(e: DiskEntry): PEntry {
  */
 export function snapshotProtected(cwd: string, policy: Policy, prev?: PTree, cache?: SnapshotCache): PTree {
   void prev;
+  // The protected globs are root-relative: the walk and every read start at the
+  // repository root, whatever subdirectory the session runs in (#412).
+  cwd = repoRoot(cwd);
   cache?.beginSnapshot();
   const entryAt = (rel: string): PEntry =>
     cache ? cache.entry(cwd, rel, () => entryOf(inspectRel(cwd, rel))) : entryOf(inspectRel(cwd, rel));

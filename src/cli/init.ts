@@ -14,13 +14,14 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync, chmodSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync, chmodSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { POLICY_FILE } from '../policy';
 import { loadPolicy } from '../policy-load';
 import { GENERATED_CI_TIMEOUT_MINUTES } from '../verifier-limits';
 import { HOOK_CMD, MARKER, OURS, PRECOMMIT_CMD, PRE_MATCHER, SWEEP_CMD, TW_VERSION, requireShippedVersion } from '../wiring';
 import { isRecord } from '../narrow';
+import { repoRoot } from '../repo-context';
 
 export interface InitOpts {
   cwd?: string;
@@ -992,6 +993,15 @@ function planned(item: string, path: string, plan: () => Action): Action {
   }
 }
 
+/** The two spellings name one directory (a symlinked checkout, a `..` segment). */
+function sameDir(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
+}
+
 export function planInit(cwd: string, opts: { forceWorkflow?: boolean } = {}): Action[] {
   // Canonical hook/pre-commit/CI wiring is a trust anchor. If this build cannot
   // identify its own plain release version, generating a floating or synthetic
@@ -1010,11 +1020,19 @@ export function planInit(cwd: string, opts: { forceWorkflow?: boolean } = {}): A
 }
 
 export function runInit(opts: InitOpts): number {
-  const cwd = opts.cwd ?? process.cwd();
-  const plan = planInit(cwd, { forceWorkflow: opts.forceWorkflow });
+  // The wiring is repository-wide: the policy, the Claude settings, the workflow and
+  // CODEOWNERS belong at the root, beside the `.git` the pre-commit hook lands in.
+  // From a subdirectory the plan used to put the files under it while wiring the
+  // parent's hooks (#412); it is re-rooted, and the re-rooting is said out loud.
+  const requested = resolve(opts.cwd ?? process.cwd());
+  const cwd = repoRoot(requested);
   const w = opts.quiet
     ? { write: (_text: string): boolean => true }
     : process.stdout;
+  if (cwd !== requested && !sameDir(cwd, requested)) {
+    process.stderr.write(`tamperward init: ${requested} is inside the repository rooted at ${cwd}; wiring the root.\n`);
+  }
+  const plan = planInit(cwd, { forceWorkflow: opts.forceWorkflow });
 
   // The plan is complete before the first write (planInit never throws). An apply
   // that fails anyway is reported as its own error row and never as a crash that
