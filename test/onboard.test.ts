@@ -337,7 +337,7 @@ describe('preflight refusals', () => {
     dirs.push(d);
     const s = await onboard(d, [], { noGithub: true });
     expect(s.code).toBe(2);
-    expect(s.err).toMatch(/not (inside )?a git repository/);
+    expect(s.err).toMatch(/not (inside )?a git repository/i);
     expect(s.questions).toEqual([]);
   });
 
@@ -550,7 +550,7 @@ describe('interrupted and re-run', () => {
     const d = repo();
     const aborted = await onboard(d, [null], { skipDemo: true, noGithub: true });
     expect(aborted.code).toBe(2);
-    expect(aborted.out).toMatch(/aborted/i);
+    expect(aborted.out).toMatch(/cancelled/i);
     expect(aborted.out).toMatch(/tamperward onboard/);
     expect(aborted.out).toMatch(/tamperward doctor/);
     expect(snapshot(d)).toEqual({});
@@ -572,7 +572,7 @@ describe('interrupted and re-run', () => {
     expect(s.code).toBe(2);
     expect(wired(d)).toBe(true);
     expect(loadPolicy(d).verify?.command).toBeUndefined();
-    expect(s.out).toMatch(/aborted/i);
+    expect(s.out).toMatch(/cancelled/i);
   });
 });
 
