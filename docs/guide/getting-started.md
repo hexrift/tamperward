@@ -251,6 +251,25 @@ dependency tree. The container verifier is intentionally **not** available throu
 so `run` fails closed before starting that agent. Use container verification as the
 final frozen-artifact step in trusted CI or after external agent isolation.
 
+## Audit history and stats
+
+Hook and Stop findings are recorded by default as privacy-minimised JSONL under the
+repository's real git directory. The record contains rule/severity, hook surface, a
+hashed session correlation token and Git HEAD only — no prompts, commands, evidence,
+file paths, environment values, raw session ids or sign-off reasons.
+
+```bash
+tamperward stats
+tamperward stats --since 30d
+GH_TOKEN=... tamperward audit publish --github OWNER/REPO
+tamperward stats --github OWNER/REPO --since 30d
+```
+
+Publishing is explicit and targets a separate `tamperward-audit` branch by default.
+The history is observational rather than enforcement authority; for stronger
+provenance, publish from a context whose GitHub write token was not available to the
+agent being measured. See [Audit history & stats](./audit.md).
+
 ## CLI reference
 
 Every flag below is what the command parser actually reads. Since **2.13.1**,
@@ -269,6 +288,8 @@ before the wrapped command.
 | `allow` | `<rule>` · `--file <path>` · `--reason "<why>"` (required) · `--cwd <dir>` |
 | `init` | `--cwd <dir>` · `--dry-run` · `--force-workflow` |
 | `onboard` | `--cwd <dir>` · `--base <rev>` · `--repo <owner/repo>` · `--branch <name>` · `--skip-demo` / `--demo` · `--no-github` · `--yes` · `--verify-command "<suite command>"` |
+| `stats` | `--since <24h|30d|12w|all>` · `--json` · `--cwd <dir>` · local `--log <file>` or GitHub `--github <owner/repo>` with optional `--branch` / `--path` |
+| `audit publish` | `--github <owner/repo>` · optional `--branch` / `--path` / `--log` / `--cwd`; explicit sanitized upload requiring Contents-write GitHub credentials |
 | `watch` | `--dir <dir>` · `--log <file>` — a daemon; it runs until signalled |
 | `hook-service` | `start [--dir <repo>]` (foreground; runs until signalled) · `stop` · `status` — the opt-in persistent hook service; hooks consult it only under `TAMPERWARD_HOOK_SERVICE=1` and fall back to in-process evaluation otherwise ([enforcement](./enforcement.md#the-persistent-hook-service-opt-in-off-by-default)) |
 | `hook claude` / `sweep claude` | none — the Claude Code payload arrives on stdin |
@@ -286,11 +307,13 @@ Exit codes are part of the public surface:
 | `allow` | sign-off recorded | — | no rule or `--reason`, not a git repo, or no current blocking finding to sign off |
 | `init` | wired, or already wired | — | an item needs attention |
 | `onboard` | posture `READY` or `READY WITH WARNINGS` | posture `BROKEN` or `INCOMPLETE` (a declined write or an unconfigured verifier included) | refused — not a git repository, non-interactive stdin without `--yes`, a dirty tree not continued — or aborted at a prompt |
+| `stats` | summary printed | — | malformed audit/history options or GitHub read failure |
+| `audit publish` | published (or nothing new) | — | missing credential, invalid audit data, or GitHub write failure |
 
 The variables the gate reads — `TAMPERWARD_OOB_SIGNOFF`, `TAMPERWARD_OOB_HEAD`,
-`TAMPERWARD_DENYLOG`, `TAMPERWARD_FSEVENTS`, `TAMPERWARD_HOOK_SERVICE`,
+`TAMPERWARD_AUDITLOG`, `TAMPERWARD_DENYLOG`, `TAMPERWARD_FSEVENTS`, `TAMPERWARD_HOOK_SERVICE`,
 `TAMPERWARD_HOOK_SERVICE_DIR`, `TAMPERWARD_WATCH_NO_RECURSIVE`,
-`TAMPERWARD_TRANSIENT`, `NO_COLOR`, `FORCE_COLOR`, `GITHUB_ACTIONS` — are listed on
+`TAMPERWARD_TRANSIENT`, `GH_TOKEN`, `GITHUB_TOKEN`, `NO_COLOR`, `FORCE_COLOR`, `GITHUB_ACTIONS` — are listed on
 the [environment variables](./environment.md) page.
 
 ## Reading the verdict
