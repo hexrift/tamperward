@@ -34,6 +34,7 @@ import { drainEvents, MAX_EVENT_READ_BYTES, MAX_EVENT_SWEEP_BYTES, transientFind
 import { isProtected } from '../policy';
 import { inspectRel, unjudgeableFinding, unjudgeableProtected } from '../disk';
 import { Change, FileChange, Finding, Policy } from '../types';
+import { recordAuditFindings } from '../audit';
 import { isRecord } from '../narrow';
 import type { SnapshotCache } from '../ptree-cache';
 import { outsideRepository, repoContext, repoRoot } from '../repo-context';
@@ -141,9 +142,19 @@ function failClosed(kind: 'PreToolUse' | 'Stop', detail: string): HookResult {
 }
 
 /** Deny via JSON on stdout at exit 0. Empty stdout + exit 0 = allow. */
-function verdict(blocks: Finding[], kind: 'PreToolUse' | 'Stop'): HookResult {
+function verdict(
+  blocks: Finding[],
+  kind: 'PreToolUse' | 'Stop',
+  context: { cwd?: string; sessionId?: string } = {},
+): HookResult {
   if (blocks.length === 0) return { exitCode: 0, stdout: '' };
   recordDenylog(blocks);
+  recordAuditFindings(
+    blocks,
+    kind === 'PreToolUse' ? 'pretooluse' : 'stop',
+    context.cwd ?? process.cwd(),
+    context.sessionId,
+  );
   const reason = formatDenial(blocks);
   const payload =
     kind === 'PreToolUse'
@@ -476,11 +487,11 @@ export function preToolUseVerdict(input: ClaudeHookInput, defaultCwd?: string): 
     turnBaseline(cwd, input.session_id);
     const policy = loadPolicy(cwd);
     const driftBlocks = effectDriftBlocks(cwd, input.session_id, policy);
-    if (driftBlocks) return verdict(driftBlocks, 'PreToolUse');
+    if (driftBlocks) return verdict(driftBlocks, 'PreToolUse', { cwd, sessionId: input.session_id });
     const changes = changesFromClaudeHook(input, cwd, sessionCwd);
     const blocks = evaluate(changes, policy, undefined, 'tool-call', { cwd }).filter((f) => f.severity === 'block');
     if (blocks.length === 0) sanctionPredictedWrites(cwd, input.session_id, policy, changes);
-    return verdict(blocks, 'PreToolUse');
+    return verdict(blocks, 'PreToolUse', { cwd, sessionId: input.session_id });
   } catch (e) {
     return failClosed('PreToolUse', errText(e));
   }
@@ -562,7 +573,7 @@ function turnTransientBlocks(cwd: string, sessionId: string | undefined, policy:
     return e.kind === 'file' && e.content != null ? contentHash(e.content) : null;
   };
   const findings = transientFindings(events, persistent, policy, finalHash);
-  recordWarns(findings.filter((f) => f.severity !== 'block'));
+  recordWarns(findings.filter((f) => f.severity !== 'block'), cwd, sessionId);
   return {
     blocks: findings.filter((f) => f.severity === 'block'),
     commit: () => { if (cp) try { writeFileSync(cp, String(newOffset)); } catch { /* best effort */ } },
@@ -572,9 +583,11 @@ function turnTransientBlocks(cwd: string, sessionId: string | undefined, policy:
 /** Warn-severity transients would otherwise be invisible in the hook flow (the
  *  schema-utils lesson: an unseen warn is a no-op in an unattended loop). They at
  *  least land in the deny log's audit trail, marked as warnings. */
-function recordWarns(warns: Finding[]): void {
+function recordWarns(warns: Finding[], cwd: string, sessionId?: string): void {
+  if (warns.length === 0) return;
+  recordAuditFindings(warns, 'stop', cwd, sessionId);
   const log = process.env.TAMPERWARD_DENYLOG;
-  if (!log || warns.length === 0) return;
+  if (!log) return;
   try {
     appendFileSync(log, warns.map((w) => `warn:${w.rule}:${w.file ?? ''}`).join('\n') + '\n');
   } catch {
@@ -653,7 +666,7 @@ export function stopVerdict(input: ClaudeHookInput, defaultCwd?: string): HookRe
     advanceTurnBaseline(cwd, input.session_id);
     commitCursor();
   }
-  return verdict(blocks, 'Stop');
+  return verdict(blocks, 'Stop', { cwd, sessionId: input.session_id });
 }
 
 function emit(r: HookResult): number {
