@@ -101,6 +101,13 @@ describe('structured audit events', () => {
     expect(raw).not.toContain('private reason');
   });
 
+  it('does not manufacture a .git directory for default telemetry outside a repository', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'tw-audit-nogit-'));
+    dirs.push(cwd);
+    recordAuditFindings([finding], 'pretooluse', cwd, 's1');
+    expect(existsSync(join(cwd, '.git'))).toBe(false);
+  });
+
   it('does not follow an existing audit-log symlink', () => {
     const cwd = repo();
     const outside = join(cwd, 'outside');
