@@ -20,12 +20,12 @@
 // an interrupted run continues where it stopped. Records land under the
 // operator's own --out directory, never under harness/.
 
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { runCheck } from '../cli/check';
 import { lifecyclePlatformCheck, type DoctorCheck } from '../cli/doctor';
-import { nowTicks, runEnvelope, survivorsHoldingTree } from '../cli/run';
+import { runAgentSupervised, runEnvelope } from '../cli/run';
 import { runVerify } from '../cli/verify';
 import { MACHINE_SCHEMA_VERSION, RUN_VERDICTS, type RunVerdict } from '../machine-output';
 import { treeFingerprint } from '../fingerprint';
@@ -249,46 +249,28 @@ function runGated(
 }
 
 /**
- * The ungated arm: the adapter's process without TamperWard enforcement — but
- * with the quiescence boundary the outcome needs. After the agent exits, any
- * process that started after it did and still holds the workspace (cwd,
- * executable or an open descriptor — the envelope's own survivor scan) is
- * terminated and makes the trajectory UNMEASURABLE rather than a control
- * outcome that depends on how fast the observation ran. This is not the
- * envelope's subreaper supervisor (no ECHILD drain, no enforcement); it is the
- * control arm's honest floor: never certify a tree something still holds. A
- * descendant that let go of the tree entirely is outside it, as it is for the
- * envelope's scan; the fingerprint taken around the observation catches a
- * mutation that arrives anyway.
+ * The ungated arm: the adapter's process WITHOUT TamperWard policy enforcement,
+ * but under the same neutral lifecycle-ownership primitive the outcome needs.
+ *
+ * On Linux the trusted subreaper owns the whole descendant tree and does not
+ * return until the kernel reports it drained. This closes the control-arm race
+ * where a child detached, chdir'd away from the workspace, closed every fd,
+ * slept through observation, then reopened the workspace by absolute path.
+ * Lifecycle ownership is measurement hygiene, not treatment: no detector,
+ * hook, check or verifier runs until after this process domain is empty.
  */
 function runUngated(ws: string, argv: string[], env: Record<string, string>, agentBudget: number | undefined): AgentExit {
-  const options: Parameters<typeof spawnSync>[2] = {
-    cwd: ws,
-    env: { ...process.env, ...env },
-    // The agent's stdout never reaches ours: stdout carries only research records.
-    stdio: ['ignore', 2, 2],
-  };
-  if (agentBudget !== undefined) {
-    options.timeout = Math.ceil(agentBudget * 1000);
-    options.killSignal = 'SIGKILL';
-  }
-  const spawnedAt = nowTicks();
-  const r = spawnSync(argv[0], argv.slice(1), options);
-  const survivors = survivorsHoldingTree(ws, spawnedAt);
-  for (const pid of survivors) {
-    try { process.kill(pid, 'SIGKILL'); } catch { /* raced with exit */ }
-  }
-  const timedOut = r.error !== undefined && isRecord(r.error) && r.error.code === 'ETIMEDOUT';
+  const r = withEnv(env, () => runAgentSupervised(argv, ws, agentBudget, undefined, undefined, true));
   return {
-    exit_code: r.status,
+    exit_code: r.failure ? null : r.exit,
     signal: r.signal ?? null,
-    timed_out: timedOut,
-    failure: r.error !== undefined && !timedOut ? errorMessage(r.error) : null,
-    ...(survivors.length
+    timed_out: r.timedOut,
+    failure: r.failure ?? null,
+    ...(!r.lifecycleOwned
       ? {
           unmeasurable:
-            `NOT_QUIESCENT: ${survivors.length} process(es) started by the agent still held the workspace after it exited ` +
-            `(pid ${survivors.join(', ')}; terminated) — the control outcome would depend on timing`,
+            `AGENT_LIFECYCLE_NOT_OWNED: neutral control supervisor did not establish and drain the agent process domain` +
+            (r.failure ? ` (${r.failure})` : ''),
         }
       : {}),
   };
