@@ -15,99 +15,7 @@ it; **Authority** runs in protected CI, on the other side of the trust boundary
 trusted base. `init` writes into all three lanes; `doctor` reads all three.
 Dotted edges are optional or advisory paths.
 
-```mermaid
-graph TD
-    operator["Operator and repository owner"]
-    onboard["tamperward onboard"]
-    init["tamperward init"]
-    doctor["tamperward doctor"]
-    research["tamperward research"]
-
-    subgraph steering["Steering lane: agent host, in-loop, not the final authority"]
-        agent["Agent runtime"]
-        hooks["Claude hooks: PreToolUse, PostToolUse, Stop"]
-        hook["tamperward hook"]
-        service["tamperward hook-service: opt-in warm evaluator"]
-        snapshot["Protected-tree snapshot from live reads"]
-        steer["Deny or allow the tool call"]
-        stop["Stop sweep of the turn's net changes"]
-        observer["tamperward watch: optional transient observer"]
-        tree["Candidate commit and worktree"]
-    end
-
-    subgraph verification["Verification lane: agent host, post-exit envelope"]
-        policy["Trusted base: entry commit, policy, verifier definition"]
-        run["tamperward run envelope"]
-        check["tamperward check"]
-        verify["tamperward verify"]
-        visible["Visible verification of the candidate"]
-        pristine["Pristine verification, base-restored"]
-        trace["tamperward trace-verify: advisory input audit"]
-        local["Local verdict: exit code and JSON report"]
-    end
-
-    subgraph authority["Authority lane: protected CI, across the trust boundary"]
-        ci["Protected CI workflow on the trusted base"]
-        gate["Required tamperward gate"]
-        rules["Branch protection rules and CODEOWNERS"]
-        merge["Merge to main"]
-    end
-
-    release["Release workflow"]
-    npm["npm package with provenance"]
-
-    operator --> onboard
-    operator --> init
-    operator --> policy
-    onboard --> init
-    onboard --> doctor
-    init --> hooks
-    init --> policy
-    init --> ci
-    doctor -. reads .-> hooks
-    doctor -. reads .-> policy
-    doctor -. reads .-> ci
-
-    agent --> hooks
-    hooks --> hook
-    hook --> snapshot
-    hook -. opt-in .-> service
-    service -.-> snapshot
-    snapshot --> steer
-    steer --> agent
-    hooks --> stop
-    observer --> stop
-    stop --> steer
-    agent --> tree
-
-    tree --> run
-    policy --> run
-    run --> check
-    run --> verify
-    verify --> visible
-    verify --> pristine
-    policy --> pristine
-    check --> local
-    verify --> local
-    run --> local
-    policy --> trace
-    trace -. proposed inputs for review .-> operator
-    research --> check
-    research --> verify
-
-    tree --> ci
-    policy --> ci
-    ci --> doctor
-    ci --> check
-    ci --> verify
-    ci --> gate
-    gate --> rules
-    rules --> merge
-    merge --> release
-    release --> npm
-
-    style authority fill:#e6394614,stroke:#e63946,stroke-width:3px,stroke-dasharray:8 4
-```
+![Tamperward architecture — three lanes (Steering, Verification, Authority) with the Authority lane across a shaded, dashed-red trust boundary](./architecture.svg)
 
 The `ci` edges into `check` and `verify` are the authority argument in one
 picture: the generated workflow runs `doctor`, `check --diff` and
@@ -163,16 +71,23 @@ not control the inputs used to judge it.
 
 ## Compatibility
 
-The diagrams intentionally use conservative Mermaid syntax:
+The diagram on this page is a standalone, dependency-free SVG
+(`architecture.svg`) referenced as a Markdown image, rather than a fenced
+Mermaid block:
 
-- `graph TD`, which is supported by older Mermaid renderers as well as current
-  Mermaid implementations;
-- plain node identifiers and quoted labels;
-- one level of `subgraph` for the lanes (never nested) and a single `style`
-  line for the trust-boundary shading, both of which GitHub's renderer and
-  current Mermaid accept; no HTML labels, class definitions, click handlers, or
-  renderer-specific configuration;
-- short labels and ordinary ASCII punctuation.
+- it renders identically on GitHub, the VitePress documentation site, Markdown
+  previewers, and older browser clients, because no Mermaid runtime has to be
+  present or on a compatible version to draw it;
+- GitHub's Markdown sanitiser strips inline `<svg>`, so the diagram is a linked
+  file (`![...](./architecture.svg)`) that GitHub serves as an image, VitePress
+  serves as a static asset, and previewers display directly;
+- the file is self-contained — a `viewBox` with a generic system-font stack, no
+  external fonts, scripts, or references — with a `role="img"`, `<title>`, and
+  `<desc>` for accessibility, so it degrades gracefully everywhere;
+- the three lanes, every node and edge, the solid-versus-dotted edge meaning,
+  and the shaded dashed-red trust boundary around the Authority lane are drawn
+  explicitly, so the picture is exactly what ships rather than what a given
+  renderer happens to produce.
 
-This keeps the diagrams usable in GitHub, the VitePress documentation site,
-Markdown previewers, and browser clients that bundle an older Mermaid version.
+The lifecycle diagram in the README still uses conservative Mermaid syntax; this
+note applies only to this page's architecture diagram.
