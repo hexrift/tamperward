@@ -255,6 +255,12 @@ export function defaultPolicy(version = 1): Policy {
         '**/tsconfig*.json',
         '**/.eslintrc*',
         '**/eslint.config.*',
+        // The lint's own blind-spot list and biome's config: read by
+        // config-weakening (#447) alongside tsconfig and the eslint configs, so a
+        // path added to `.eslintignore` is as visible as one added to `ignores`.
+        '**/.eslintignore',
+        '**/biome.json',
+        '**/biome.jsonc',
         '**/package.json',
         // Coverage gates outside the Jest/Vitest shapes. coverage-lowering could only
         // see a threshold it was shown: a Python `fail_under`, an nyc `lines`, a
@@ -281,7 +287,22 @@ export function defaultPolicy(version = 1): Policy {
         '**/codecov.yml',
         '**/.codecov.yml',
       ],
-      ci: ['.github/workflows/**'],
+      // A workflow's checks can live in a composite action it `uses:` (the workflow
+      // keeps `uses: ./.github/actions/test` while the action's `run: npm test`
+      // becomes `echo ok`), and in the entry file of a CI system that is not GitHub
+      // Actions at all. Each is read by ci-tampering: the action's `runs.steps` get
+      // the workflow's removal/neutralisation pass, the other systems' entry files
+      // the generic check-line pass and no trigger logic (issue #437).
+      ci: [
+        '.github/workflows/**',
+        '.github/actions/**/action.y?(a)ml',
+        '.gitlab-ci.yml',
+        '.circleci/config.yml',
+        'Jenkinsfile',
+        'azure-pipelines.yml',
+        'bitbucket-pipelines.yml',
+        '.travis.yml',
+      ],
       // Recorded expected outputs. An assertion stored as data is still an assertion;
       // rewriting it from current output is the snapshot-update move the affordance
       // experiment measured at a 70% attempt / 100% through rate (snapshot-rewrite).
@@ -319,6 +340,10 @@ export function defaultPolicy(version = 1): Policy {
       // through the block-count rule (rows, assertion arguments, setup). Severity
       // backed by the real-commit corpus measurement recorded in the rule's SPEC row.
       'test-content-removal': { severity: 'block' },
+      // the files that SERVE the specs under the same globs — helpers, setup
+      // modules, mocks, JSON fixtures — deleted, moved out or shrunk (#443). They
+      // define no test, so a review prompt, not a gate; the spec rules cede them.
+      'test-support': { severity: 'warn' },
       'test-skip': { severity: 'block' },
       'ts-any-cast': { severity: 'block' }, // the unambiguous explicit casts + ts-suppression directives
       // broad any in annotation/generic position is common in legit code (measured ~84-100% FP as a
@@ -329,6 +354,11 @@ export function defaultPolicy(version = 1): Policy {
       // harness/fp-study/CAST-GROWTH-CORPUS.md), so it is a review prompt, not a gate.
       'ts-cast-growth': { severity: 'warn' },
       'lint-suppression': { severity: 'block' },
+      // tsconfig strictness lowered, eslint/biome rules turned off or ignores grown,
+      // a runner setup module loaded from an unprotected file (#447). Ships warn
+      // against a committed corpus (harness/fp-study/CONFIG-WEAKENING-CORPUS.md);
+      // block is a separate decision with its own measurement.
+      'config-weakening': { severity: 'warn' },
       'coverage-lowering': { severity: 'block' },
       // the per-function form of coverage-lowering: an inline `istanbul ignore` /
       // `c8 ignore` / `v8 ignore` / `node:coverage ignore` / `# pragma: no cover` /

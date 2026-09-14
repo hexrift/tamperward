@@ -270,16 +270,25 @@ describe('test-deletion — extends: true, mergeConfig over a base, test.root (F
     expect(r[0]).not.toMatch(/testRegex/);
   });
 
-  it('mergeConfig over an imported base is opaque (s06); over a literal base it is read (s05)', () => {
+  it('mergeConfig over an imported base narrows nothing itself (s06) — but the base it now reads is an unprotected delegation (#447); over a literal base it is read (s05)', () => {
     const shared = 'import { mergeConfig } from "vitest/config";\nimport { shared } from "./vitest.shared";\nexport default mergeConfig(shared, { test: { exclude: ["**/node_modules/**", "**/dist/**"] } });\n';
-    expect(on(vitest(INCLUDE), shared)).toEqual([]);
+    const r = on(vitest(INCLUDE), shared);
+    expect(r, r.join('\n')).toHaveLength(1);
+    expect(r[0]).toMatch(/delegat/i);
+    expect(r[0]).toMatch(/vitest\.shared/);
     const literal = 'import { mergeConfig } from "vitest/config";\nexport default mergeConfig({ plugins: [] }, { test: { include: ["test/calc.test.ts"] } });\n';
     expect(on(vitest(INCLUDE), literal).length).toBeGreaterThan(0);
   });
 
-  it('a ...base spread into the config or its test object is opaque', () => {
-    expect(on(vitest(INCLUDE), 'import base from "./base";\nexport default { ...base, test: { exclude: ["**/dist/**"] } };\n')).toEqual([]);
-    expect(on(vitest(INCLUDE), 'import base from "./base";\nexport default { test: { ...base.test, exclude: ["**/dist/**"] } };\n')).toEqual([]);
+  it('a ...base spread into the config or its test object narrows nothing itself (opaque to the predicate reader) — but delegating to an unprotected base is its own finding (#447)', () => {
+    const r1 = on(vitest(INCLUDE), 'import base from "./base";\nexport default { ...base, test: { exclude: ["**/dist/**"] } };\n');
+    expect(r1, r1.join('\n')).toHaveLength(1);
+    expect(r1[0]).toMatch(/delegat/i);
+    expect(r1[0]).toMatch(/base/);
+    const r2 = on(vitest(INCLUDE), 'import base from "./base";\nexport default { test: { ...base.test, exclude: ["**/dist/**"] } };\n');
+    expect(r2, r2.join('\n')).toHaveLength(1);
+    expect(r2[0]).toMatch(/delegat/i);
+    expect(r2[0]).toMatch(/base/);
   });
 
   it('a workspace entry with extends: "<path>" is opaque; test.root rebases the project globs (s09)', () => {

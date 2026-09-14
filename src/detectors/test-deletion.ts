@@ -17,6 +17,7 @@ import { expandBraces, expandGlob, gitSubcommand, isGlob, segments, shellWord, t
 import { REDIRECT_TARGET, WRAPPERS, destinations, xargsCommand } from './hook-wiring';
 import { Lang, isSignificantLine, langOf } from './files';
 import { containsProtected, revIsHead, trackedContent, trackedFiles } from './repo';
+import { isSpecShaped } from './spec-shape';
 import {
   CANONICAL_SAMPLES,
   PYTEST_CANONICAL_SAMPLES,
@@ -25,7 +26,9 @@ import {
   effectivePytestFile,
   runnerOf,
   runnerSkips,
+  suiteDelegations,
   suiteNarrowings,
+  targetCandidates,
 } from './suite-config';
 import type { Runner } from './suite-config';
 import { checkKinds, invocationWeakening } from './invocation';
@@ -429,7 +432,9 @@ export const testDeletion: Detector = {
 
     for (const c of changes) {
       if (c.kind === 'file') {
-        const isTest = isSpec(c.path);
+        // A glob match that is not spec-shaped — a helper, a setup module, a JSON
+        // fixture — is test-support's warn, not this rule's block (#443).
+        const isTest = isSpec(c.path) && isSpecShaped(c.path, c.before, c.after);
 
         if (c.op === 'delete' && isTest) {
           if (c.before != null && isRelocation(significantLines(c.before, c.path), countTestBlocks(c.before, c.path))) continue; // moved, not deleted
@@ -445,7 +450,8 @@ export const testDeletion: Detector = {
           c.op === 'rename' &&
           c.oldPath &&
           isSpec(c.oldPath) &&
-          !isTest
+          isSpecShaped(c.oldPath, c.before, c.after) &&
+          !isSpec(c.path)
         ) {
           // renamed OUT of the test glob — a deletion git would otherwise hide
           out.push(
@@ -491,7 +497,7 @@ export const testDeletion: Detector = {
               }),
             );
           }
-        } else if (c.op !== 'delete' && c.after != null && !isTest && isProtected(c.path, policy, 'config') && runnerOf(c.path, c.after)) {
+        } else if (c.op !== 'delete' && c.after != null && !isSpec(c.path) && isProtected(c.path, policy, 'config') && runnerOf(c.path, c.after)) {
           // The runner's selection config: a protected spec the runner opened before
           // and will not open after is out of the suite as surely as if deleted.
           const rn = runnerOf(c.path, c.after);
@@ -499,6 +505,26 @@ export const testDeletion: Detector = {
           // higher-precedence root file) changes nothing, so flagging it would be a
           // false positive in the gated arm only.
           const readable = rn !== 'pytest' || effectivePytestConfig(c.path, ctx);
+          // The selection handed to a file nothing reviews (#447): `export { default }
+          // from './vitest.real'`, `module.exports = require('./jest.real')`, a
+          // `...base` spread, `mergeConfig(base, …)`, `extends: './x'`, `preset:
+          // './x'`, a `projects` path. The reader goes opaque and opacity was
+          // silence; the opacity is the finding when the target is a file this
+          // change adds or that no protected glob covers.
+          for (const d of suiteDelegations(c.before, c.after, c.path)) {
+            const cands = targetCandidates(c.path, d.target);
+            const added = cands.find((f) => addedPaths.has(f));
+            if (added === undefined && cands.some((f) => isProtected(f, policy, 'config'))) continue;
+            out.push(
+              makeFinding(RULE, policy, {
+                file: c.path,
+                message: `The runner config now delegates its selection to ${d.target}, ${added !== undefined ? `a file this change adds (${added})` : 'a file no protected glob covers'}: ${d.how}.`,
+                evidence: `${c.path}: ${d.how}`,
+                remediation:
+                  'Keep the selection in the protected config, or protect the file it delegates to (protected.config in .tamperward.yml). A config the gate cannot read can select nothing.',
+              }),
+            );
+          }
           for (const n of readable ? suiteNarrowings(c.before, c.after, c.path, runnerSamples(c.path, policy, ctx, rn)) : []) {
             out.push(
               makeFinding(RULE, policy, {
@@ -585,6 +611,10 @@ export const testDeletion: Detector = {
             const resolved = root !== null && /(?:^|\/)\.{1,2}(?:\/|$)/.test(t) ? joinRoot(root, t) : null;
             const probe = resolved ?? t;
             if (!isSpec(probe)) return false;
+            // a support file named by path shape (a JSON fixture, a `__mocks__/`
+            // module) or by content the gate can read is not a spec (#443); content
+            // it cannot read fails closed
+            if (!isSpecShaped(probe, root === null ? null : trackedContent(resolved ?? inRepo(t), ctx), null)) return false;
             if (!listing || root === null) return true;
             const looksLikeFile = /\.[A-Za-z0-9]+$/.test(probe.split('/').pop() ?? '');
             if (looksLikeFile || listing.includes(resolved ?? inRepo(t))) return true;
