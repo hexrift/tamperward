@@ -259,6 +259,7 @@ platforms.
 | `check` / policy evaluation | Supported | Supported | Supported |
 | Claude hook / Stop adapter | Supported where Claude Code command hooks are available | Same | Same |
 | `watch` / observer telemetry | Supported; backend health is reported | Supported/degraded according to `fs.watch` health | Supported/degraded according to `fs.watch` health |
+| opt-in `hook-service` | Supported (per-user `0600` unix socket) | Supported (per-user `0600` unix socket) | **Unsupported; `start` refuses, hooks run in-process** |
 | checkpointed-local `verify` | Supported via `/bin/sh` | Supported via `/bin/sh` | **Unsupported; fails before candidate execution** |
 | isolated-container `verify` | Supported when Docker authority preflight passes | Not claimed beyond Docker preflight | Not claimed beyond Docker preflight |
 | advisory `trace-verify` | **Supported with `strace` + `tar`** | **Unsupported; reports no parity** | **Unsupported; reports no parity** |
@@ -584,6 +585,7 @@ option can never be reinterpreted as the agent command.
 | `init` | `--cwd <dir>` · `--dry-run` · `--force-workflow` |
 | `onboard` | `--cwd <dir>` · `--base <rev>` · `--repo <owner/repo>` · `--branch <name>` · `--skip-demo` / `--demo` (mutually exclusive) · `--no-github` · `--yes` (scripted: no prompts; the demo runs only with `--demo`) · `--verify-command "<suite command>"` (the only way a scripted run configures `verify.command`) |
 | `watch` | `--dir <dir>` · `--log <file>` — a daemon; it runs until signalled |
+| `hook-service` | `start [--dir <repo>]` (foreground; runs until signalled) · `stop` · `status` — the opt-in persistent hook service (2.22.0): one warm process per user and repository that evaluates `hook`/`sweep` payloads over a private `0600` unix socket. Hooks consult it only under `TAMPERWARD_HOOK_SERVICE=1`. Before handoff, unavailable/refusing service paths fall back to the same in-process verdict; after handoff, ambiguous transport failure fails closed rather than starting a concurrent second evaluation. Not available on Windows |
 | `hook claude` / `sweep claude` | none — the Claude Code payload arrives on stdin |
 
 **Exit codes** — part of the public surface:
@@ -596,6 +598,7 @@ option can never be reinterpreted as the agent command.
 | `doctor` | configured verify job(s) have sufficient static outer time for the trusted policy | — | missing/invalid workflow, no verify job, missing/malformed/insufficient timeout, or trusted policy cannot be loaded | — |
 | `run` | enforcement clean and the agent exited 0 — another non-zero agent exit is passed through unchanged | any blocking finding or masked failure, including a non-quiescent process after timeout | cannot adjudicate: dirty start, policy error, verify cannot run | `AGENT_TIMEOUT`: `--agent-budget` expired and post-timeout enforcement was clean |
 | `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0, never exit 2 | — | only for an unsupported agent name | — |
+| `hook-service` | started, stopped (or nothing to stop), or status printed | — | unsupported platform, a runtime directory another uid owns, or a service already listening | — |
 | `allow` | sign-off recorded | — | no rule or `--reason`, not a git repo, or no current blocking finding to sign off | — |
 | `init` | wired, or already wired | — | an item needs attention | — |
 | `onboard` | posture `READY` or `READY WITH WARNINGS` (from `doctor`) | posture `BROKEN` or `INCOMPLETE`, including a declined write or an unconfigured verifier | refused (not a git repository, non-interactive stdin without `--yes`, a dirty tree the operator would not continue on) or aborted at a prompt | — |
@@ -609,6 +612,8 @@ option can never be reinterpreted as the agent command.
 | `TAMPERWARD_OOB_HEAD` | the CI workflow (`github.event.pull_request.head.sha`) | the head SHA under adjudication; once set, an approval clears anything only if it names that commit (`@<sha>`, at least 7 characters), so a new push re-blocks |
 | `TAMPERWARD_DENYLOG` | a harness or operator | a file to which `hook claude` and `sweep claude` append the rule ids of every deny, one line per verdict, best effort |
 | `TAMPERWARD_FSEVENTS` | operator or harness | overrides the `tamperward watch` event-log path (default `.git/tamperward/fsevents.jsonl`); the Stop sweep reads the same variable |
+| `TAMPERWARD_HOOK_SERVICE` | the operator, in Claude Code's environment (`=1`) | lets the hooks hand their payload to a running `tamperward hook-service`; off by default. Pre-handoff refusal falls back to in-process evaluation; post-handoff ambiguity fails closed so two evaluations never race one session |
+| `TAMPERWARD_HOOK_SERVICE_DIR` | the operator or tests | overrides the service's runtime directory (default `$XDG_RUNTIME_DIR/tamperward-hook`, else `<tmpdir>/tamperward-hook-<uid>`); it must be the hook's own uid at `0700`, the socket `0600` |
 | `TAMPERWARD_WATCH_NO_RECURSIVE` | CI and tests (`=1`) | forces `tamperward watch` onto its per-directory fallback instead of recursive `fs.watch`, so the fallback is exercised on every platform |
 | `TAMPERWARD_TRANSIENT` | a harness that owns restore semantics (`=block`) | raises `transient-protected-mutation` from warn to block; it can never lower a severity |
 | `NO_COLOR` / `FORCE_COLOR` | the user's shell | any non-empty `NO_COLOR` disables colour in the text renderer; a non-empty, non-`0` `FORCE_COLOR` enables it |

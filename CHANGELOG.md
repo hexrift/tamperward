@@ -5,6 +5,71 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.22.0] — 2026-09-14
+
+**The hook no longer pays for the TypeScript parser on every call, and an opt-in
+persistent hook service amortises the rest.** (#322)
+
+Measured first, on a fixture repository of 1,000 protected test files (Node 22, Linux
+x64, sequential runs, p50 of 20): every PreToolUse call spent ~500 ms of its ~600 ms
+before a byte of policy was read, in Node's ESM load of the CommonJS `typescript`
+package that eight AST detectors imported at the top of their modules; the protected-tree
+snapshot of 1,000 files was ~50–120 ms of the remainder, the git views and policy load
+~30 ms, and the `npx` launcher `init` writes adds roughly 100 ms on top of the direct
+binary (the issue's own measurement). Two changes, in order of how little they ask you
+to trust:
+
+**Lazy parser and dependency loading — nothing to enable, no trust change.**
+`typescript`, `yaml` and `picomatch` are read from disk on first use, through
+`require`, which also skips the named-export discovery pass the ESM import paid for.
+A `Bash` call, an edit to a Python test and `--help` never load the parser; a
+protected JS/TS edit reaches the same AST path with the same verdict, and
+`ts-cast-growth` still parses any JS/TS source it is given (`test/ts-lazy.test.ts`).
+`--help` 527 ms → 79 ms; `hook claude` on a `Bash` payload 603 ms → 189 ms; on a JS
+edit (the parser is still needed) 597 ms → 399 ms; on a protected test edit that
+denies 637 ms → 421 ms. `dist/cli/index.js` now evaluates `main` behind a lazy
+initialiser; every command behaves as before.
+
+**`tamperward hook-service start | stop | status` — opt-in, off by default.** One warm
+process per user and repository, started and stopped by the operator (foreground; a
+SessionStart hook or a supervisor owns its lifetime), that evaluates `hook claude` /
+`sweep claude` payloads over a per-user unix socket held at mode `0600` inside a `0700`
+directory (`$XDG_RUNTIME_DIR/tamperward-hook` or `<tmpdir>/tamperward-hook-<uid>`;
+`TAMPERWARD_HOOK_SERVICE_DIR` overrides). Hooks consult it **only** when
+`TAMPERWARD_HOOK_SERVICE=1` is in Claude Code's environment; the hook command `init`
+writes, and the wire contract with Claude Code (JSON on stdout at exit 0), are
+unchanged. The service runs the same `preToolUseFromRaw` / `stopFromRaw` on the same
+stdin bytes, with the client's cwd and every request-time environment value that affects hook path/telemetry semantics (`TAMPERWARD_DENYLOG`, `TAMPERWARD_FSEVENTS`, `TAMPERWARD_TRANSIENT`, `CLAUDE_CONFIG_DIR`, `HOME`, `USERPROFILE`), and the client relays the `HookResult` unchanged; a parity
+test replays a fixture set through both paths and requires byte-identical verdicts.
+With the service warm: `Bash` payload 116 ms, JS edit 130 ms, protected test edit
+that denies 134 ms (p50; the first call after start, with a cold cache, 170–315 ms).
+
+Before request handoff, the client **falls back to the in-process gate, never to an
+allow**, when the opt-in is absent, the socket is unavailable/untrusted, or the service
+explicitly refuses before evaluation (wrong protocol/version, cwd outside the bound
+repository). After the socket connects and the request is handed off, the service is
+the single owner of that evaluation: an ambiguous timeout, disconnect, oversized or
+malformed final response becomes a fail-closed hook denial rather than a second
+in-process evaluation racing the same session state. `stop` removes the socket and
+state file even when nothing was running. Not available on Windows: `start` refuses
+with a clear message and the hook runs in-process there.
+
+The service's protected-tree snapshot cache lives only in its memory and is keyed on
+`(device, inode, size, mode, mtime, ctime)` at nanosecond precision — never on the
+stat triple the candidate can set (P1-8): `ctime` is not settable from user space and
+moves on every write, rename, chmod and `utimes`, `touch -r` included. An entry is
+reused only when all six match *and* the file had been stable for two seconds when its
+hash was taken (git's racy rule); the map is dropped every minute so a full content
+walk is never further away than that. `test/hook-service.test.ts` proves a same-size
+rewrite with a restored mtime is still reported as drift through the cache, and that
+the in-process hook, which has no cache, is unchanged.
+
+Residual, stated in `docs/guide/enforcement.md`: the service runs as the candidate's
+uid, so a candidate that can kill a same-uid process and start its own listener can
+answer the hook — the same class of move as rewriting `.git/tamperward/*`, which the
+loop layer has never been able to prevent and CI has never depended on. The service
+adds no authority; the Stop sweep, `run`, pre-commit and CI read none of its state.
+
 ## [2.21.0] — 2026-09-13
 
 **New command: `tamperward onboard` — the guided first run.** `npx tamperward onboard`

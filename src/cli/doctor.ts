@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { parse } from 'yaml';
+import { yaml } from '../lazy-deps';
 import { defaultPolicy, POLICY_VERSION } from '../policy';
 import { loadPolicy, loadPolicyAt, PolicyError } from '../policy-load';
 import { requiredVerifierAuthoritySeconds } from '../verifier-limits';
@@ -171,7 +171,7 @@ function workflowPermissionCheck(
 
     let doc: unknown;
     try {
-      doc = parse(readFileSync(path, 'utf8'));
+      doc = yaml.parse(readFileSync(path, 'utf8'));
     } catch (e) {
       broken.push(`${rel} is not valid YAML (${e instanceof Error ? e.message : String(e)})`);
       continue;
@@ -672,7 +672,7 @@ export function diagnose(opts: DoctorOpts = {}): DoctorOutcome {
 
     let doc: unknown;
     try {
-      doc = parse(readFileSync(workflowPath, 'utf8'));
+      doc = yaml.parse(readFileSync(workflowPath, 'utf8'));
     } catch (e) {
       return fail('ci-verifier', 
         `${workflowRel}: workflow is not valid YAML (${e instanceof Error ? e.message : String(e)})`,
