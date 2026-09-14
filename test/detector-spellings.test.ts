@@ -279,8 +279,8 @@ describe('ts-any-cast: parenthesised and JSDoc casts', () => {
     expect(content('src/x.js', js, '/** @type {any} */\nlet y = 1;\nexport function f(x) { return x.length; }\n')).toHaveLength(0);
   });
 
-  it('leaves `x as never` alone (deliberately: too broad to block)', () => {
-    expect(content('src/x.ts', BASE, BASE.replace('x.length', '(x as never)'))).toHaveLength(0);
+  it('blocks `x as never` — assignable to anything, the laundering cast (#440)', () => {
+    expect(content('src/x.ts', BASE, BASE.replace('x.length', '(x as never)'))).toEqual(['ts-any-cast[block]']);
   });
 
   it('diff-only fallback sees the parenthesised spelling and the JSDoc cast', () => {
