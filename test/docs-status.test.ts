@@ -85,3 +85,50 @@ describe('docs site navigation and links (#451)', () => {
     }
   });
 });
+
+
+describe('portable documentation diagrams', () => {
+  const docsDir = join(root, 'docs');
+
+  function markdownFiles(dir: string): string[] {
+    const files: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === '.vitepress' || entry.name === 'public') continue;
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) files.push(...markdownFiles(path));
+      else if (entry.name.endsWith('.md')) files.push(path);
+    }
+    return files;
+  }
+
+  it('keeps authored docs free of Mermaid fences so diagrams render everywhere', () => {
+    const files = [join(root, 'README.md'), join(root, 'CHANGELOG.md'), ...markdownFiles(docsDir)];
+    for (const path of files) {
+      const md = readFileSync(path, 'utf8');
+      expect(md, path).not.toMatch(/^\s*(?:```|~~~)mermaid\b/im);
+    }
+  });
+
+  it('keeps the README envelope as an accessible committed SVG with every original node', () => {
+    const readme = readFileSync(join(root, 'README.md'), 'utf8');
+    const svg = readFileSync(join(docsDir, 'local-enforcement-envelope.svg'), 'utf8');
+
+    expect(readme).toContain('./docs/local-enforcement-envelope.svg');
+    expect(svg).toMatch(/<title[^>]*>TamperWard local enforcement envelope<\/title>/);
+    expect(svg).toMatch(/<desc[^>]*>/);
+
+    for (const label of [
+      'Trusted entry snapshot',
+      'In-loop hooks',
+      'Agent runtime',
+      'Candidate commit',
+      'Post-exit adjudication',
+      'Diff and worktree',
+      'Visible and pristine',
+      'Ancestry · dependency',
+      'Final exit verdict',
+    ]) {
+      expect(svg).toContain(label);
+    }
+  });
+});
