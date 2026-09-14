@@ -83,7 +83,7 @@ protected path is blocked by name, not read through.
 
 Every Claude Code tool call launches the pinned hook as a fresh Node process, and
 most of the call's wall time was process startup rather than gate work. Since
-**2.21.0** two things address that, in order of how little they ask you to trust:
+**2.22.0** two things address that, in order of how little they ask you to trust:
 
 1. **The `typescript` parser (and `yaml`, `picomatch`) are loaded lazily.** The eight
    AST detectors used to import the parser at startup, so every hook call — a `Bash`
@@ -122,23 +122,26 @@ in-process there as it always has.
 ### What the service is, and is not, trusted with
 
 The service runs **the same functions on the same bytes**: `hook claude` reads stdin,
-sends the raw payload with its cwd and the three per-session variables the hook honours
-(`TAMPERWARD_DENYLOG`, `TAMPERWARD_FSEVENTS`, `TAMPERWARD_TRANSIENT`), and the service
+sends the raw payload with its cwd and the request-time environment that affects hook semantics
+(`TAMPERWARD_DENYLOG`, `TAMPERWARD_FSEVENTS`, `TAMPERWARD_TRANSIENT`, `CLAUDE_CONFIG_DIR`,
+`HOME`, `USERPROFILE`), and the service
 runs `preToolUseFromRaw` / `stopFromRaw` — the in-process entry points — and relays the
 `HookResult` unchanged. The wire contract with Claude Code (JSON on stdout at exit 0)
 is untouched; only where the evaluation happens moves. A parity test replays a fixture
 set through both paths and requires byte-identical verdicts.
 
-**The hook never fails open on the service's account.** The client refuses — and
-"refuses" means it loads the engine and evaluates in-process, exactly as before —
-when the opt-in is absent; when the socket's directory or the socket is not owned by
-the hook's own uid, is not a directory / not a socket (a planted symlink is not a
-socket), or is readable or connectable by any other user; when the service is of another
-TamperWard version or protocol than the pinned hook; when it refuses the request (a cwd
-outside the repository it was started for); when it does not answer in time; or when
-its answer is not a `HookResult`. A dead service, a stale socket and a crashed one are
-the same fallback. `stop` removes the socket and state file even when nothing was
-running, so a stale socket is never what the next client meets.
+**The hook never fails open on the service's account.** Before a request is handed to
+the socket, refusal means the engine loads and evaluates in-process exactly as before:
+the opt-in is absent; the socket cannot be reached; its directory/socket fails uid,
+type or mode checks; or the service explicitly refuses before evaluation (for example,
+the cwd is outside its bound repository or the protocol/version is wrong). **After the
+client connects and hands the request off, fallback is no longer safe**: the service may
+already be mutating the same session baseline / protected-tree / cursor state. An
+ambiguous timeout, disconnect, oversized or malformed final response therefore returns
+a fail-closed hook denial instead of launching a second in-process evaluation. The
+service sends an `accepted` protocol line before synchronous evaluation, and tests pin
+both the explicit-refusal fallback and post-handoff fail-closed paths. `stop` removes
+the socket and state file even when nothing was running.
 
 **The snapshot cache never believes the stat triple.** The one thing the service keeps
 warm besides the process is the protected-tree snapshot, in its own memory, and the
