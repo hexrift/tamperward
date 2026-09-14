@@ -23,7 +23,7 @@ export interface AuditEventV1 {
   id: string;
   timestamp: string;
   surface: AuditSurface;
-  agent: 'claude-code';
+  agent: string;
   rule: string;
   severity: AuditSeverity;
   decision: AuditDecision;
@@ -53,6 +53,7 @@ export interface AuditSummary {
   last_event: string | null;
   by_rule: Array<{ rule: string; events: number; blocked: number; warnings: number }>;
   by_surface: Array<{ surface: AuditSurface; events: number }>;
+  interpretation: 'finding-is-not-proof-of-intent';
 }
 
 let sequence = 0;
@@ -169,7 +170,9 @@ export function parseAuditEvent(value: unknown, line = 0): AuditEventV1 {
   if (value.surface !== 'pretooluse' && value.surface !== 'stop') {
     throw new Error(`${where} has an invalid surface`);
   }
-  if (value.agent !== 'claude-code') throw new Error(`${where} has an invalid agent`);
+  if (typeof value.agent !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(value.agent)) {
+    throw new Error(`${where} has an invalid agent`);
+  }
   if (typeof value.rule !== 'string' || !/^[a-z0-9][a-z0-9-]{0,79}$/.test(value.rule)) {
     throw new Error(`${where} has an invalid rule`);
   }
@@ -191,7 +194,7 @@ export function parseAuditEvent(value: unknown, line = 0): AuditEventV1 {
     id: value.id,
     timestamp: value.timestamp,
     surface: value.surface,
-    agent: 'claude-code',
+    agent: value.agent,
     rule: value.rule,
     severity: value.severity,
     decision: value.decision,
@@ -262,6 +265,7 @@ export function summarizeAudit(events: readonly AuditEventV1[]): AuditSummary {
     last_event: ordered.at(-1)?.timestamp ?? null,
     by_rule,
     by_surface,
+    interpretation: 'finding-is-not-proof-of-intent',
   };
 }
 
@@ -305,6 +309,7 @@ export function runStats(opts: StatsOpts = {}): number {
       ? (isAbsolute(configured) ? configured : resolve(cwd, configured))
       : defaultAuditPath(cwd);
 
+  const cutoff = opts.since ? parseSince(opts.since) : null;
   if (!file) throw new Error('stats needs --file outside a Git repository');
   if (!existsSync(file)) {
     if (explicitFile) throw new Error(`audit file not found: ${file}`);
@@ -314,8 +319,7 @@ export function runStats(opts: StatsOpts = {}): number {
   }
 
   let events = parseAuditJsonl(readFileSync(file, 'utf8'));
-  if (opts.since) {
-    const cutoff = parseSince(opts.since);
+  if (cutoff !== null) {
     events = events.filter((event) => Date.parse(event.timestamp) >= cutoff);
   }
   const summary = summarizeAudit(events);
