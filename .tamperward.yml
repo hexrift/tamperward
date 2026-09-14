@@ -10,7 +10,15 @@ protected:
     - '**/.eslintrc*'
     - '**/eslint.config.*'
     - '**/package.json'
-  ci: ['.github/workflows/**']
+  ci:
+    - '.github/workflows/**'
+    - '.github/actions/**/action.y?(a)ml' # composite actions a workflow `uses:`
+    - '.gitlab-ci.yml'
+    - '.circleci/config.yml'
+    - 'Jenkinsfile'
+    - 'azure-pipelines.yml'
+    - 'bitbucket-pipelines.yml'
+    - '.travis.yml'
   hooks: ['.husky/**', '**/lefthook.*', '.tamperward.yml', '**/.tamperward.yml']
 
 # Excluded from file-surface detection. This is a SELF-HOSTING exception, reported and
