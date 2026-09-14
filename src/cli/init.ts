@@ -21,6 +21,7 @@ import { loadPolicy } from '../policy-load';
 import { GENERATED_CI_TIMEOUT_MINUTES } from '../verifier-limits';
 import { HOOK_CMD, MARKER, OURS, PRECOMMIT_CMD, PRE_MATCHER, SWEEP_CMD, TW_VERSION, requireShippedVersion } from '../wiring';
 import { isRecord } from '../narrow';
+import { judgeGateEntry, type HookEvent } from '../detectors/hook-tampering';
 import { repoRoot } from '../repo-context';
 import { atomicReplaceFile, existingMode, refuseNonRegular, writeTargetKind } from '../safe-write';
 
@@ -547,6 +548,19 @@ function planGitignore(cwd: string): Action | null {
   };
 }
 
+/** The detector's verdict on every entry under `event` that carries our command. */
+function gateVerdicts(event: HookEvent, groups: HookMatcher[], needle: RegExp): Array<{ event: HookEvent; group: HookMatcher; h: HookEntry; runs: boolean; problems: string[] }> {
+  const out: Array<{ event: HookEvent; group: HookMatcher; h: HookEntry; runs: boolean; problems: string[] }> = [];
+  for (const group of groups) {
+    for (const h of group.hooks ?? []) {
+      if (!needle.test(String(h.command ?? ''))) continue;
+      const { runs, problems } = judgeGateEntry(event, group.matcher, h);
+      out.push({ event, group, h, runs, problems });
+    }
+  }
+  return out;
+}
+
 /** Merge our two hooks into .claude/settings.json, preserving everything else. */
 function planClaudeHooks(cwd: string): Action {
   const rel = '.claude/settings.json';
@@ -586,6 +600,28 @@ function planClaudeHooks(cwd: string): Action {
   const stopEntries = entriesWith(hooks.Stop, SWEEP_RE);
   const needStop = stopEntries.length === 0;
 
+  // NEUTRALISED entries: our command is present, and the runtime would not run
+  // the gate through the entry — `"async": true` beside a perfect command means
+  // the verdict is never awaited, `"timeout": 1` kills it before it answers, an
+  // `if` means it is never asked, a matcher on the Stop entry, a pipe or chain
+  // around the invocation. Presence was the whole of the check before (#413),
+  // so the file `check --staged` blocks as hook-tampering was the file init and
+  // doctor certified as wired. The verdict is the detector's own comparator
+  // (judgeGateEntry): one definition of the canonical shape, three consumers.
+  // An entry whose COMMAND is one init wrote is restored to the shape init
+  // writes; a hand-written command is reported, never rewritten.
+  const neutralised = [
+    ...gateVerdicts('PreToolUse', preEntries, HOOK_RE),
+    ...gateVerdicts('Stop', stopEntries, SWEEP_RE),
+  ].filter((v) => !v.runs);
+  const foreign = neutralised.filter((v) => ours(String(v.h.command ?? '')) === null);
+  if (foreign.length > 0) {
+    return {
+      item: 'agent', path: rel, status: 'error',
+      detail: `${foreign.map((v) => `the ${v.event} gate entry is neutralised (${v.problems.join('; ')})`).join('; ')} — the runtime would not run the gate through it; remove the entry, then re-run init (refusing to rewrite a hand-written entry)`,
+    };
+  }
+
   // REPAIR an existing PreToolUse matcher that does not cover every tool the
   // gate must see. Presence of our command was the only thing checked before,
   // so an install wired against an older PRE_MATCHER stayed narrow forever and
@@ -594,9 +630,10 @@ function planClaudeHooks(cwd: string): Action {
   const stale = preEntries.filter((m) => missingTools(m.matcher).length > 0);
   // RE-PIN commands init wrote for another version (or wrote unpinned, before
   // 1.14.7). Only the exact `npx --yes tamperward[@v] <ours>` shape qualifies.
+  const restoring = new Set(neutralised.map((v) => v.h));
   const repin = [...preEntries, ...stopEntries]
     .flatMap((m) => m.hooks ?? [])
-    .filter((h) => stalePin(String(h.command ?? '')));
+    .filter((h) => !restoring.has(h) && stalePin(String(h.command ?? '')));
   // DECLARE `disableAllHooks: false`. The runtime honours the key from any settings
   // file, the project file overriding the user file, and reloads every file live
   // in-session — so a `true` written to `~/.claude/settings.json` (outside every
@@ -605,7 +642,7 @@ function planClaudeHooks(cwd: string): Action {
   // hook-tampering holds the declaration in place: removing or flipping it is
   // the tamper. (Pass 3a, P0-1.)
   const needDisableFalse = settings.disableAllHooks !== false;
-  if (!needPre && !needStop && stale.length === 0 && repin.length === 0 && !needDisableFalse) {
+  if (!needPre && !needStop && stale.length === 0 && repin.length === 0 && neutralised.length === 0 && !needDisableFalse) {
     return { item: 'agent', path: rel, status: 'ok', detail: 'PreToolUse + Stop hooks already wired' };
   }
 
@@ -618,11 +655,20 @@ function planClaudeHooks(cwd: string): Action {
       needStop && 'wire Stop sweep',
       repairing.length > 0 && `widen the PreToolUse matcher to cover ${repairing.join(', ')}`,
       repin.length > 0 && `re-pin the hook commands to tamperward@${TW_VERSION} (was ${pins.join(', ')})`,
+      ...neutralised.map((v) => `restore the ${v.event} gate entry to the shape init writes — it is neutralised (${v.problems.join('; ')})`),
       needDisableFalse && (settings.disableAllHooks === undefined
         ? 'declare disableAllHooks: false so the user settings file cannot switch the hooks off'
         : `set disableAllHooks: false (was ${JSON.stringify(settings.disableAllHooks)})`),
     ].filter(Boolean).join(' + '),
     apply: () => {
+      for (const v of neutralised) {
+        // The entry as init writes it and nothing else: every key the runtime
+        // would honour against the gate (`async`, `if`, a short `timeout`) goes.
+        for (const k of Object.keys(v.h)) delete v.h[k];
+        v.h.type = 'command';
+        v.h.command = v.event === 'PreToolUse' ? HOOK_CMD : SWEEP_CMD;
+        if (v.event === 'Stop') delete v.group.matcher;
+      }
       for (const h of repin) {
         const kind = ours(String(h.command ?? ''))?.[2];
         h.command = kind === 'hook claude' ? HOOK_CMD : kind === 'sweep claude' ? SWEEP_CMD : h.command;
@@ -784,7 +830,10 @@ function planPreCommit(cwd: string): Action {
 
   const lines = existing.split('\n');
   const dead = unconditionalExitAt(lines);
-  const at = lines.findIndex((l) => PRECOMMIT_RE.test(l));
+  // A line whose first non-blank character is `#` is a comment: `# npx …
+  // check --staged` is the common "temporarily disable" edit, and it used to
+  // read as wired (#413). The gate is what the shell runs, not what the file says.
+  const at = lines.findIndex((l) => !/^\s*#/.test(l) && PRECOMMIT_RE.test(l));
   const write = (out: string[]): void => atomicReplaceFile(path, out.join('\n'), hookMode());
 
   if (at !== -1 && (dead === -1 || at < dead)) {
