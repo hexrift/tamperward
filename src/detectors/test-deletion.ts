@@ -27,7 +27,8 @@ import {
   suiteNarrowings,
 } from './suite-config';
 import type { Runner } from './suite-config';
-import { SUITE_NARROWING_FLAGS } from './ci-tampering';
+import { checkKinds, invocationWeakening } from './invocation';
+import type { Kind, Weakening } from './invocation';
 import { isRecord } from '../narrow';
 
 const RULE = 'test-deletion';
@@ -248,18 +249,22 @@ function runnerSamples(configPath: string, policy: Policy, ctx?: DetectorContext
   return own.length ? own : fallback;
 }
 
-interface ScriptNarrowing {
+interface ScriptWeakening {
   script: string;
-  flag: string;
+  weakening: Exclude<Weakening, { state: 'kept' }>;
   before: string;
   after: string;
 }
 
-/** The scripts that run THE suite: `npm test` and its CI twin. `test:unit` /
- *  `test:browser` with `--project`, `test:watch --changed`, `test:staged
- *  --findRelatedTests` are deliberately partial runs beside the whole one — their
- *  flags select a slice by design and narrow nothing anyone relies on. */
-const WHOLE_SUITE_SCRIPT = /^test(?::ci)?$/;
+/** The scripts that run THE suite: `npm test`, its CI twin, the `check` bundle and
+ *  the `pretest` hook npm runs before it. A flag or a positional that selects fewer
+ *  specs narrows the suite for everyone who runs `npm test`. */
+const WHOLE_SUITE_SCRIPT = /^(?:test|test:ci|check|pretest)$/;
+/** `test:unit` / `test:integration` are deliberate slices beside the whole one —
+ *  their `--project` or `test/unit` positional selects the slice by design and
+ *  narrows nothing anyone relies on. Their status still decides, so `|| true`, a
+ *  timeout or `echo skipped` in their place is read like anywhere else. */
+const SLICE_SCRIPT = /^test:(?:unit|integration)$/;
 
 /** `--exclude e2e/**` in the test script is the same set-up as `test.exclude:
  *  ['e2e/**']` in the config: another runner's directory, not a narrowing. */
@@ -269,36 +274,56 @@ function excludesOtherRunner(flag: string, cmd: string): boolean {
   return values.length > 0 && values.every((v) => OTHER_RUNNER_DIR.test(v.replace(/^\.\//, '').replace(/(?:\/\*+)*\/?$/, '') + '/'));
 }
 
-/** A runner flag that selects fewer specs, newly present in the `scripts.test`
- *  entry of package.json that invokes jest or vitest. */
-function scriptNarrowings(before: string | null, after: string, path: string): ScriptNarrowing[] {
+function scriptsOf(src: string | null): Record<string, string> {
+  try {
+    const pkg: unknown = JSON.parse(src ?? '{}');
+    const s = isRecord(pkg) && isRecord(pkg.scripts) ? pkg.scripts : {};
+    return Object.fromEntries(Object.entries(s).filter((e): e is [string, string] => typeof e[1] === 'string'));
+  } catch {
+    return {};
+  }
+}
+
+/** The test scripts of package.json read as check INVOCATIONS, before → after, the
+ *  way ci-tampering reads a workflow line (#435): a script that now runs no check
+ *  (or a check of another kind) is a removal; one whose status is masked, whose run
+ *  is cut short, or whose suite is narrowed by a flag, a positional or a `--config`
+ *  nothing reviews is a neutralisation. `addedPaths` are the files this change
+ *  adds: a `--config` pointing at one of them is unreviewed whatever the policy
+ *  protects. */
+function scriptWeakenings(before: string | null, after: string, path: string, policy: Policy, addedPaths: Set<string>): ScriptWeakening[] {
   if ((path.split('/').pop() ?? path) !== 'package.json') return [];
-  const scriptsOf = (src: string | null): Record<string, string> => {
-    try {
-      const pkg: unknown = JSON.parse(src ?? '{}');
-      const s = isRecord(pkg) && isRecord(pkg.scripts) ? pkg.scripts : {};
-      return Object.fromEntries(Object.entries(s).filter((e): e is [string, string] => typeof e[1] === 'string'));
-    } catch {
-      return {};
-    }
-  };
   const was = scriptsOf(before);
   const now = scriptsOf(after);
-  const out: ScriptNarrowing[] = [];
-  for (const [name, cmd] of Object.entries(now)) {
-    if (!WHOLE_SUITE_SCRIPT.test(name) || !/\b(?:jest|vitest)\b/.test(cmd)) continue;
-    const prev = was[name] ?? '';
-    const flags = new RegExp(SUITE_NARROWING_FLAGS.source, 'g');
-    for (const m of cmd.matchAll(flags)) {
-      const flag = m[0].trim();
-      if (!flag) continue;
-      const one = new RegExp(SUITE_NARROWING_FLAGS.source);
-      // the flag was there already (a reformat, an unrelated edit): not an addition
-      if (one.test(prev) && prev.includes(flag)) continue;
-      if (excludesOtherRunner(flag, cmd)) continue;
-      out.push({ script: name, flag, before: prev, after: cmd });
-      break;
+  const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '';
+  const configReviewed = (file: string) => {
+    const f = dir + file.replace(/^\.\//, '');
+    return isProtected(f, policy, 'config') && !addedPaths.has(f);
+  };
+  // a check kind that leaves one script for a script ADDED in the same change moved
+  const relocated = (kind: Kind) => Object.keys(now).some((n) => !(n in was) && checkKinds(now[n]).has(kind));
+  const out: ScriptWeakening[] = [];
+  for (const name of new Set([...Object.keys(was), ...Object.keys(now)])) {
+    const whole = WHOLE_SUITE_SCRIPT.test(name);
+    if (!whole && !SLICE_SCRIPT.test(name)) continue;
+    const prev = was[name];
+    const cmd = now[name];
+    if (prev === cmd) continue;
+    // A slice added new is design; a whole-suite script added new is read against
+    // nothing (only what it carries can count). A script deleted makes `npm run`
+    // fail loudly — except `pretest`, which npm runs silently before `test` and
+    // whose removal drops the check without a sound.
+    if (prev === undefined && !whole) continue;
+    if (cmd === undefined) {
+      if (name !== 'pretest' || prev === undefined) continue;
+      const gone = [...checkKinds(prev)].filter((k) => !relocated(k));
+      if (gone.length === 0) continue;
+      out.push({ script: name, weakening: { state: 'removed', kind: gone[0], what: 'the script is gone' }, before: prev, after: '' });
+      continue;
     }
+    const w = invocationWeakening(prev ?? '', cmd, undefined, { configReviewed, excuseFlag: excludesOtherRunner, sliceByDesign: !whole, relocated });
+    if (w.state === 'kept') continue;
+    out.push({ script: name, weakening: w, before: prev ?? '', after: cmd });
   }
   return out;
 }
@@ -349,6 +374,7 @@ export const testDeletion: Detector = {
     // and deleting an obsolete snapshot there is snapshot-rewrite's warn (its own
     // measured severity), not a deleted test file.
     const isSpec = (p: string) => isProtected(p, policy, 'tests') && !isProtected(p, policy, 'snapshots');
+    const addedPaths = new Set(changes.filter((c): c is FileChange => c.kind === 'file' && c.op === 'add').map((c) => c.path));
 
     // Pool the lines ADDED to protected specs in this changeset — whole files that
     // were added, plus the new lines of modified ones — to recognise relocations.
@@ -464,17 +490,27 @@ export const testDeletion: Detector = {
               }),
             );
           }
-          // The test SCRIPT told to run less: `jest --testPathPattern calc`, `-t`,
-          // `vitest run --exclude …` added to `scripts.test*` narrows the suite for
-          // everyone who runs `npm test` — the same class as the config keys above.
-          for (const n of scriptNarrowings(c.before, c.after, c.path)) {
+          // The test SCRIPT read as a check invocation (#435): `echo ok` in place of
+          // the runner, `|| true`, a spec path as a positional, `--config` to a file
+          // nothing reviews, `--shard=1/1000`, a narrowing flag — CI keeps running
+          // `npm test` unchanged and the suite no longer decides.
+          for (const n of scriptWeakenings(c.before, c.after, c.path, policy, addedPaths)) {
+            const w = n.weakening;
+            const evidence = `"${n.script}": ${JSON.stringify(n.before)} → ${n.after === '' ? 'deleted' : JSON.stringify(n.after)}`;
             out.push(
-              makeFinding(RULE, policy, {
-                file: c.path,
-                message: `The test script now narrows the suite: ${n.flag} added to scripts.${n.script}.`,
-                evidence: `"${n.script}": ${JSON.stringify(n.before)} → ${JSON.stringify(n.after)}`,
-                remediation: 'Keep the test script running the whole suite; a runner flag that selects fewer specs removes the rest from every run.',
-              }),
+              w.state === 'removed'
+                ? makeFinding(RULE, policy, {
+                    file: c.path,
+                    message: `The test script no longer runs the ${w.kind} check: scripts.${n.script} ${w.what}.`,
+                    evidence,
+                    remediation: 'Keep the script running its check. Replacing the runner in package.json removes every test from every `npm test` while the workflow line stays untouched.',
+                  })
+                : makeFinding(RULE, policy, {
+                    file: c.path,
+                    message: `The test script now narrows the suite: ${w.what} ${w.direction} ${w.direction === 'added' ? 'to' : 'from'} scripts.${n.script}.`,
+                    evidence,
+                    remediation: 'Keep the test script running the whole suite and letting it decide; a masked status, a cut-short run or a runner flag that selects fewer specs removes the rest from every run.',
+                  }),
             );
           }
         }

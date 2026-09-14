@@ -1,0 +1,500 @@
+// The reading of a check INVOCATION — `npm test`, `npx jest --coverage`, `pytest -k
+// easy`, `nyc --check-coverage mocha` — shared by the rules that compare one before
+// and after: ci-tampering over a workflow line, test-deletion over a package.json
+// script (#435). One vocabulary, so a bypass the workflow rule already names
+// (`|| true`, a spec path as a positional, `timeout 1`, a narrowing flag) is read
+// the same way wherever the invocation lives.
+//
+// Two entry points. `survives()` is ci-tampering's: a removed line against every
+// command core of the after-file, since a workflow check MOVES. `invocationWeakening()`
+// is the one-to-one form: this script was `before`, it is now `after` — kept,
+// neutralised (named), or removed (a non-check, or a check of another kind).
+
+import { MATRIX_TOKEN, foldExpressions } from './gh-expression';
+import { segments } from './command';
+
+// A check keyword only counts in INVOCATION POSITION. Matching it anywhere on the line
+// flagged `TAGS="$(npm view tamperward dist-tags ...)"` as a removed check — the word
+// "tamperward" was a PACKAGE NAME in argument position, and the line queries the
+// registry, it checks nothing. Two invocation shapes:
+//   a tool run directly (start of command, or after ; | && $( ` npx/yarn/pnpm) ...
+export const INVOKES_TOOL =
+  /(?:^\s*|[;&|`]\s*|\$\(\s*|\b(?:npx|yarn|pnpm|bunx?)\s+)(?:jest|vitest|eslint|tsc|playwright|pytest|tamperward|mocha|ava|oxlint|tsgo|mypy|golangci-lint|node\s+--test|biome\s+(?:ci|check|lint)|deno\s+(?:test|lint|check)|ruff\s+check)\b/;
+//   ... or a check script through a package runner / build tool.
+const INVOKES_SCRIPT =
+  /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|tests|lint|typecheck|type-check|coverage)\b|\b(?:make|cargo|go)\s+test\b|\bgradle\w*\s+(?:test|check)\b/;
+
+export const invokesCheck = (line: string): boolean => INVOKES_TOOL.test(line) || INVOKES_SCRIPT.test(line);
+
+/** A flag whose value is the matrix (`--project=${{ matrix.project }}`, `--shard
+ *  ${{ matrix.shard }}/${{ strategy.job-total }}`) selects the slice THIS job runs
+ *  of a suite the whole matrix covers — dropped before the narrowing flags are
+ *  read. A flag valued by any other expression (`-t ${{ github.sha }}`) keeps its
+ *  flag: a pattern nothing matches empties the suite. */
+const MATRIX_FLAG = new RegExp(`(?:^|\\s)-{1,2}[\\w-]+(?:=|\\s+)${MATRIX_TOKEN}(?:/\\S*)?(?=\\s|$)`, 'g');
+
+/** The command with its package-runner spelling normalised, so `npm test`, `npm run
+ *  test`, `npm t`, `pnpm test`, `yarn test` and a quoted `'npm test'` are one check,
+ *  and `npx jest`, `pnpm exec jest`, `yarn jest`, `bunx jest` another. */
+export function canonical(core: string): string {
+  let s = foldExpressions(core.replace(/^(['"])(.*)\1$/, '$2').trim()).replace(MATRIX_FLAG, ' ').replace(/\s+/g, ' ').trim();
+  // `cd apps/web && npm test` runs the same check from another directory: the prefix
+  // places it, and its path is not a positional of the check
+  s = s.replace(/^(?:cd|pushd)\s+\S+\s*&&\s*/, '');
+  s = s.replace(/^(?:npx|pnpm\s+(?:exec|dlx)|yarn\s+(?:exec|dlx)|bunx|bun\s+x)\s+/, 'exec ');
+  s = s.replace(/^(?:npm|pnpm|yarn|bun)\s+(?:run(?:-script)?\s+)?/, 'exec ');
+  s = s.replace(/^exec\s+(?:t|tst)(?=\s|$)/, 'exec test');
+  s = s.replace(/^exec\s+/, '');
+  return s.replace(/\s+--\s*$/, '').trim();
+}
+
+/** `uses:` identity stops at the version: `actions/setup-node@v3` → `@v4` is a bump. */
+export const usesRef = (core: string) => core.replace(/@.*$/, '');
+
+/** Runner flags that select FEWER specs. Shared with test-deletion, which reads the
+ *  same flags added to a package.json test script. */
+export const SUITE_NARROWING_FLAGS =
+  /--testPathIgnorePatterns\b|--testPathPattern\b|--testNamePattern\b|(?:^|\s)-t\s|--onlyChanged\b|--changed\b|--findRelatedTests\b|--exclude\b|--dir\b|--project\b/;
+
+// Suffixes that turn a kept check into a non-check: shell status masking, coverage
+// switched off, and runner flags that empty or narrow the suite it runs.
+export const NEUTRALISING_SUFFIX = new RegExp(
+  `\\|\\||;|(?<!&)&(?!&)|\\|(?!\\|)|--passWithNoTests\\b|--coverage=false\\b|--coverageThreshold\\b|${SUITE_NARROWING_FLAGS.source}`,
+);
+
+/** `timeout 1 npm test`: the check is killed before it can decide. */
+export const TIMEOUT_WRAP = /^timeout\s+(?:-{1,2}\S+\s+)*\d\S*\s+(.+)$/;
+
+// ── issue #436: same-kind respellings that run nothing ───────────────────────────
+// A respelling of the SAME kind of check was kept unread: `npm run tests --if-present`
+// (no such script — exit 0), `npm test --prefix packages/empty`, `-w empty`,
+// `pnpm test --filter nothing`, `jest --shard=1/1000`, `--testMatch '**/nothing.js'`,
+// `cargo test -- --skip failing`, `pytest -k nothing_matches`, a lowered
+// `--cov-fail-under`. Each runner has its own spelling of "select fewer", read here
+// per runner so that `-w` means a workspace to npm and not `--maxWorkers` to jest.
+// Kept apart from SUITE_NARROWING_FLAGS (shared with test-deletion) and from the
+// generic suffix table above, so the shared invocation-weakening module (#435) can
+// absorb them as one block.
+interface RunnerNarrowing {
+  /** Matched against the canonical command (runner prefix stripped). */
+  runner: RegExp;
+  /** Matched against the arguments, each preceded by a space. */
+  flags: RegExp;
+}
+const RUNNER_NARROWINGS: RunnerNarrowing[] = [
+  {
+    // a package-manager script: `test --prefix dir`, `-w pkg`, `--workspace=pkg`,
+    // `--if-present` (no script, no failure), pnpm's `--filter` / `-F`, npm's `-C`
+    runner: /^(?:test|tests|coverage)(?::\S+)?(?=\s|$)/,
+    flags: /\s--if-present(?=\s|$)|\s--prefix(?:=|\s)|\s-C(?:=|\s)|\s-w(?:=|\s)|\s--workspace(?:=|\s)|\s--filter(?:=|\s)|\s-F(?:=|\s)/,
+  },
+  {
+    runner: /^(?:jest|vitest)\b/,
+    flags: /\s--shard(?:=|\s)|\s--root(?:Dir)?(?:=|\s)|\s--testMatch(?:=|\s)|\s--testRegex(?:=|\s)|\s--modulePathIgnorePatterns(?:=|\s)|\s--selectProjects(?:=|\s)|\s--grep(?:=|\s)|\s-g(?:=|\s)/,
+  },
+  { runner: /^playwright\b/, flags: /\s--shard(?:=|\s)|\s--grep(?:=|\s)|\s-g(?:=|\s)|\s--grep-invert(?:=|\s)/ },
+  { runner: /^mocha\b/, flags: /\s--grep(?:=|\s)|\s-g(?:=|\s)|\s--fgrep(?:=|\s)|\s-f(?:=|\s)/ },
+  { runner: /^ava\b/, flags: /\s--match(?:=|\s)|\s-m(?:=|\s)/ },
+  { runner: /^node --test\b/, flags: /\s--test-name-pattern(?:=|\s)|\s--test-skip-pattern(?:=|\s)|\s--test-only(?=\s|$)/ },
+  {
+    // `-p no:<plugin>` disables collection when the plugin is the collector
+    // (`python`, `doctest`, `cov`); the cache, warning and output plugins select nothing
+    runner: /^pytest\b/,
+    flags:
+      /\s-k(?:=|\s)|\s-m(?:=|\s)|\s--deselect(?:=|\s)|\s--ignore(?:-glob)?(?:=|\s)|\s-p\s*no:(?!(?:cacheprovider|warnings|faulthandler|randomly|logging|legacypath|pastebin|stepwise|tmpdir|junitxml|terminal|terminalreporter)(?=\s|$))|\s--collect-only(?=\s|$)|\s--co(?=\s|$)/,
+  },
+  { runner: /^cargo test\b/, flags: /\s--\s(?:\S+\s+)*--skip(?:=|\s)|\s--exclude(?:=|\s)/ },
+  { runner: /^go test\b/, flags: /\s-run(?:=|\s)|\s-skip(?:=|\s)/ },
+];
+
+/** Whether `args` (the tail of the canonical command `cmd`) selects fewer specs for
+ *  the runner `cmd` names. */
+function runnerNarrowed(cmd: string, args: string): boolean {
+  return runnerNarrowing(cmd, args) !== null;
+}
+/** The narrowing flag `args` carries for the runner `cmd` names, spelled, or null. */
+function runnerNarrowing(cmd: string, args: string): string | null {
+  const t = RUNNER_NARROWINGS.find((x) => x.runner.test(cmd));
+  const m = t ? (' ' + args.trim()).match(t.flags) : null;
+  return m ? m[0].trim().replace(/[=\s].*$/, '') : null;
+}
+
+/** A coverage floor moved down: `--cov-fail-under=90` → `=10` still runs every test
+ *  and fails on nothing the old floor caught. */
+const COVERAGE_FLOOR = /--cov-fail-under(?:=|\s+)(\d+(?:\.\d+)?)/;
+function coverageFloorLowered(removed: string, added: string): boolean {
+  const was = removed.match(COVERAGE_FLOOR);
+  const now = added.match(COVERAGE_FLOOR);
+  return was !== null && now !== null && Number(now[1]) < Number(was[1]);
+}
+
+/** Prefixes a shell command may carry in front of the check without changing what
+ *  runs: variable assignments and the well-known wrappers. `echo npm test` is not a
+ *  wrapper: it prints the check. */
+const COMMAND_PREFIX =
+  /^(?:(?:[A-Za-z_]\w*=(?:"[^"]*"|'[^']*'|\S*)|sudo|env|nice|time|exec|command|nohup|xvfb-run|dbus-launch|cross-env|dotenv|poetry\s+run|pipenv\s+run|uv\s+run|hatch\s+run|pdm\s+run|bundle\s+exec)\s+(?:-{1,2}\S+\s+)*)*/;
+const CHECK_HEAD =
+  /^(?:(?:test|tests|lint|typecheck|type-check|coverage)(?::\S+)?(?=\s|$)|(?:jest|vitest|eslint|tsc|playwright|pytest|tamperward|mocha|ava|oxlint|tsgo|mypy|golangci-lint)\b|node --test\b|biome (?:ci|check|lint)\b|deno (?:test|lint|check)\b|ruff check\b|(?:make|cargo|go) test\b|gradle\w* (?:test|check)\b)/;
+
+/** A survival candidate must invoke the check in COMMAND POSITION: at the head of a
+ *  shell segment, behind nothing but assignments and wrappers. `echo "npm test"`, a
+ *  `name: npm test`, a folded scalar's continuation and a heredoc's body all carry the
+ *  words without running them (issue #436). */
+function inCommandPosition(core: string): boolean {
+  return canonical(core)
+    .split(/\s*(?:&&|\|\||;|\|)\s*/)
+    .some((seg) => CHECK_HEAD.test(canonical(seg.replace(COMMAND_PREFIX, ''))));
+}
+
+
+/** A positional that names a spec or a path (`test/a.test.ts`, `src/`, `test/a`)
+ *  narrows the suite exactly like `--testPathPattern` — the runner opens only what
+ *  it names. A flag's value (`--config jest.ci.js`) and a redirect target are not
+ *  positionals. */
+const PATH_SHAPED = /\/|\.(?:test|spec)\./;
+export function narrowedByPositional(args: string): boolean {
+  return positionalOf(args) !== null;
+}
+/** The first path-shaped positional of `args`, or null. */
+export function positionalOf(args: string): string | null {
+  const toks = args.trim().split(/\s+/).filter(Boolean);
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    if (t === '--' || t.startsWith('-')) continue;
+    const prev = toks[i - 1];
+    if (prev && ((prev.startsWith('-') && prev !== '--' && !prev.includes('=')) || /[<>]/.test(prev))) continue;
+    if (/[<>|;&]/.test(t)) continue;
+    if (PATH_SHAPED.test(t)) return t;
+  }
+  return null;
+}
+
+export type Kind = 'test' | 'lint' | 'types' | 'gate';
+/** What a check invocation checks — a replacement of the same kind is a respelling,
+ *  of another kind a removal (`npm test` → `npm run lint` drops the tests). */
+export function checkKind(core: string): Kind | null {
+  if (!invokesCheck(core)) return null;
+  const s = canonical(core);
+  if (/\btamperward\b/.test(s)) return 'gate';
+  if (/\b(?:lint|eslint|biome|oxlint|golangci-lint|ruff)\b/i.test(s)) return 'lint';
+  if (/\b(?:typecheck|type-check|tsc|tsgo|mypy)\b|\bdeno\s+check\b/i.test(s)) return 'types';
+  return 'test';
+}
+
+export type Kept = 'kept' | 'neutralised' | 'gone';
+
+/** Whether a removed check survives among the after-file's command cores. `addedCores`
+ *  are the cores of lines ADDED by this change — the only place a respelling of the
+ *  removed check can be. */
+export function survives(removedCore: string, isUses: boolean, afterCores: string[], addedCores: string[]): { state: Kept; by?: string } {
+  if (isUses) {
+    const ref = usesRef(removedCore);
+    return afterCores.some((a) => usesRef(a) === ref) ? { state: 'kept' } : { state: 'gone' };
+  }
+  const r = canonical(removedCore);
+  const kind = checkKind(removedCore);
+  // A path positional narrows a TEST suite (the runner opens only what it names); a
+  // lint or a typecheck given `src/` or a glob is told what to read, not what to skip.
+  const narrowed = (args: string) => kind === 'test' && narrowedByPositional(args);
+  let neutralised: string | undefined;
+  for (const raw of afterCores) {
+    const a = canonical(raw);
+    if (a === r) return { state: 'kept' };
+    if (a.startsWith(r + ' ')) {
+      const rest = a.slice(r.length);
+      if (NEUTRALISING_SUFFIX.test(rest) || narrowed(rest) || runnerNarrowed(a, rest)) neutralised ??= raw;
+      else return { state: 'kept' };
+    } else if (r.startsWith(a + ' ') && invokesCheck(a)) {
+      return { state: 'kept' }; // the check got shorter — arguments dropped, the invocation kept
+    } else {
+      const w = a.match(TIMEOUT_WRAP);
+      if (w && (canonical(w[1]) === r || canonical(w[1]).startsWith(r + ' '))) neutralised ??= raw;
+    }
+  }
+  let respelled = false;
+  for (const raw of addedCores) {
+    if (!kind || checkKind(raw) !== kind) continue;
+    const a = canonical(raw);
+    if (a.match(TIMEOUT_WRAP)) {
+      neutralised ??= raw;
+      continue;
+    }
+    if (!inCommandPosition(raw)) continue; // the words, not the check (issue #436)
+    if (coverageFloorLowered(r, a)) {
+      neutralised ??= raw;
+      continue;
+    }
+    const args = a.slice(a.indexOf(' ') + 1 || a.length);
+    if (a.includes(' ') && (NEUTRALISING_SUFFIX.test(' ' + args) || narrowed(args) || runnerNarrowed(a, args))) neutralised ??= raw;
+    else respelled = true;
+  }
+  if (respelled) return { state: 'kept' };
+  return neutralised ? { state: 'neutralised', by: neutralised } : { state: 'gone' };
+}
+
+
+// ── one invocation before → after ─────────────────────────────────────────────
+
+export type Weakening =
+  | { state: 'kept' }
+  | { state: 'neutralised'; what: string; direction: 'added' | 'removed' }
+  | { state: 'removed'; what: string; kind: Kind };
+
+export interface WeakeningOpts {
+  /** Whether `--config <file>` names a config the repository already reviews (a
+   *  protected file that is not added by this change). Absent, any new `--config`
+   *  is a narrowing: a config nothing protects can select nothing. */
+  configReviewed?: (file: string) => boolean;
+  /** A narrowing flag the caller excuses (`--exclude e2e/**` is another runner's
+   *  directory, not a narrowing). */
+  excuseFlag?: (flag: string, cmd: string) => boolean;
+  /** The script is a deliberate slice of the suite (`test:unit`): a flag or a
+   *  positional that selects its slice is its design, and only a masked status, a
+   *  timeout, a dropped gate flag or a replacement counts. */
+  sliceByDesign?: boolean;
+  /** A check kind dropped from this invocation that reappears elsewhere in the same
+   *  change (a `lint` script added beside it) is a move, not a removal. */
+  relocated?: (kind: Kind) => boolean;
+  /** Internal: `before` ran no check, so `after` is a fresh invocation — a
+   *  `--config` or a positional it carries narrows nothing that was there. */
+  fresh?: boolean;
+  /** Internal: the kinds whose `before` invocation survives verbatim in `after`, so
+   *  a further invocation of that kind beside it (`&& vitest -c other.ts --run`)
+   *  is an addition and its flags narrow nothing. */
+  extended?: Set<Kind>;
+}
+
+/** The runners whose narrowing flags are read. */
+export type RunnerName = 'jest' | 'vitest' | 'mocha' | 'pytest' | 'go' | 'cargo' | 'node';
+
+/** Flags that select FEWER tests than the runner's default, beyond the table
+ *  ci-tampering reads (`SUITE_NARROWING_FLAGS`). Keyed by runner because the short
+ *  spellings collide: `-m` selects pytest markers and is `python -m` elsewhere,
+ *  `-g` is mocha's grep, `-run` is go's. `*` applies to every runner. */
+const NARROWING_BY_RUNNER: Record<RunnerName | '*', RegExp[]> = {
+  '*': [/--shard\b/],
+  jest: [/--root\b/, /--rootDir\b/, /--testMatch\b/, /--testRegex\b/, /--modulePathIgnorePatterns\b/, /--selectProjects\b/, /--ignoreProjects\b/, /--filter\b/],
+  vitest: [/--grep\b/],
+  mocha: [/--grep\b/, /(?:^|\s)-g(?:\s|=)/, /--ignore\b/, /(?:^|\s)-f(?:\s|=)/, /--fgrep\b/],
+  pytest: [/(?:^|\s)-k(?:\s|=)/, /(?:^|\s)-m(?:\s|=)/, /--deselect\b/, /--ignore\b/, /--ignore-glob\b/, /--last-failed\b/, /(?:^|\s)--lf(?:\s|$)/, /--collect-only\b/, /(?:^|\s)--co(?:\s|$)/],
+  go: [/(?:^|\s)-run(?:\s|=)/, /(?:^|\s)-skip(?:\s|=)/],
+  cargo: [],
+  node: [/--test-name-pattern\b/, /--test-skip-pattern\b/],
+};
+/** `cargo test -- --skip <name>`: the skip sits past the `--` separator. */
+const CARGO_SKIP = /\s--\s+(?:\S+\s+)*--skip\b/;
+
+/** Flags that turn a kept check's status green whatever it found. `--if-present`
+ *  is npm's: `npm run test:unit --if-present` passes when the script is missing. */
+const MASKING_FLAGS = [/--passWithNoTests\b/, /--coverage=false\b/, /--coverageThreshold\b/, /--if-present\b/];
+
+/** Flags whose REMOVAL weakens the check: the coverage gate nyc/c8 enforce. */
+const GATE_FLAGS = [/--check-coverage\b/];
+
+/** `--config <file>` / `-c <file>`: the value, or null. */
+const CONFIG_FLAG = /(?:^|\s)(--config|-c)(?:=|\s+)(['"]?)([^\s'"]+)\2(?=\s|$)/;
+
+/** The wrappers a package script puts in front of the runner: an env prefix
+ *  (`cross-env NODE_ENV=test`, `NODE_OPTIONS=… jest`, `dotenv -e .env --`), a
+ *  coverage wrapper (`nyc --check-coverage --lines 90 mocha`, `c8`), a version or
+ *  environment manager (`nub exec --node vitest run`, `volta run`), `python -m
+ *  pytest`, or the runner's own bin file run through node. Peeled so the check
+ *  underneath is read, not the wrapper. A command that PRINTS its arguments is not
+ *  a wrapper: `echo vitest run` runs nothing, and neither does `true vitest run`. */
+const PRINTER = /^(?:echo|printf|true|false|:|cat|exit|return|sleep|test|\[|node|git|curl|wget)(?=\s|$)/;
+const PYTHON_M = /^python\d?(?:\.\d+)?\s+-m\s+(?=pytest\b)/;
+const NODE_BIN = /^node(?:\s+-\S+)*\s+\S*node_modules\/(?:\.bin\/)?(jest|vitest|mocha|ava)\b\S*/;
+/** `$(yarn bin jest)` / `$(npm bin)/jest`: the runner's binary by path, which is the
+ *  runner (zustand's `yarn node --experimental-vm-modules $(yarn bin jest)`). */
+const BIN_OF = /\$\((?:yarn|npm|pnpm)\s+bin\s+(\w+)\)|\$\((?:yarn|npm|pnpm)\s+bin\)\/(\w+)/g;
+
+/** A script segment with its wrappers peeled: the invocation itself. The wrapper's
+ *  own tokens are dropped one by one until a check is in front (`--lines 90` is
+ *  nyc's, `--check-coverage` is read from the segment BEFORE peeling); a segment
+ *  that never reaches one, or that starts with a printer, is returned as it was. */
+function unwrap(seg: string): string {
+  const s = seg.trim().replace(PYTHON_M, '').replace(NODE_BIN, '$1').replace(BIN_OF, '$1$2');
+  if (invokesCheck(s) || PRINTER.test(s) || /^["']/.test(s)) return s;
+  const toks = s.split(/\s+/);
+  for (let i = 1; i < toks.length && i <= 16; i++) {
+    const rest = toks.slice(i).join(' ');
+    if (invokesCheck(rest)) return rest;
+  }
+  return s;
+}
+
+/** What a script segment checks. A tool names its kind (`eslint`, `tsc`, `jest`);
+ *  a script run THROUGH the package runner is named by its script, and only the
+ *  name's head is the kind — `yarn test:tsc` runs a test script that happens to
+ *  mention tsc, not the typecheck (zod's `test:tsc` → `test:ts-jest` rename read
+ *  as "the types check is gone" until this). */
+function scriptKind(inner: string): Kind | null {
+  const kind = checkKind(inner);
+  if (!kind) return null;
+  const head = canonical(inner).match(/^(tests?|lint|type-?check|coverage)(?=[\s:]|$)/i)?.[1];
+  if (!head) return kind;
+  return /^type/i.test(head) ? 'types' : /^lint/i.test(head) ? 'lint' : 'test';
+}
+
+const RUNNER_NAME = /^(jest|vitest|mocha|pytest|go|cargo|node)\b/;
+function runnerOfSegment(canon: string): RunnerName | null {
+  const m = canon.match(RUNNER_NAME);
+  if (!m) return null;
+  const n = m[1];
+  return n === 'jest' || n === 'vitest' || n === 'mocha' || n === 'pytest' || n === 'go' || n === 'cargo' ? n : 'node';
+}
+
+/** The first spelling of `re` in `s`: the flag alone, its value and anchors dropped. */
+const spelled = (re: RegExp, s: string): string | null => {
+  const m = s.match(re);
+  return m ? m[0].trim().replace(/[=\s].*$/, '') : null;
+};
+
+interface Descriptor {
+  key: string; // identity, for the before/after set difference
+  what: string; // how it is reported
+  direction: 'added' | 'removed';
+}
+
+/** Statements and the operator that FOLLOWS each: `jest || true` is `jest` then
+ *  `||`. Quote-aware like `segments()`; a `|`/`&` after `>` is a redirection. */
+function statements(raw: string): Array<{ seg: string; op: string | null }> {
+  const out: Array<{ seg: string; op: string | null }> = [];
+  let single = false;
+  let double = false;
+  let last = 0;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (ch === '\\' && !single) { i++; continue; }
+    if (ch === "'" && !double) { single = !single; continue; }
+    if (ch === '"' && !single) { double = !double; continue; }
+    if (single || double) continue;
+    const prev = raw[i - 1];
+    const next = raw[i + 1];
+    let op: string | null = null;
+    if (ch === '&' && next === '&') op = '&&';
+    else if (ch === '|' && next === '|') op = '||';
+    else if (ch === '|' && next === '&') op = '|&';
+    else if (ch === ';' || ch === '\n') op = ';';
+    else if (ch === '|' && prev !== '>') op = '|';
+    else if (ch === '&' && prev !== '>' && next !== '>') op = '&';
+    if (!op) continue;
+    out.push({ seg: raw.slice(last, i).trim(), op });
+    i += op.length - 1;
+    last = i + 1;
+  }
+  out.push({ seg: raw.slice(last).trim(), op: null });
+  return out.filter((s) => s.seg !== '');
+}
+
+/** Everything in an invocation that masks, cuts short or narrows the check it runs,
+ *  as descriptors; the before/after difference is the weakening. */
+function descriptors(cmd: string, runner: RunnerName | undefined, opts: WeakeningOpts): Descriptor[] {
+  const out: Descriptor[] = [];
+  const stmts = statements(cmd);
+  for (let i = 0; i < stmts.length; i++) {
+    const { seg, op } = stmts[i];
+    const wrapped = seg.match(TIMEOUT_WRAP);
+    const inner = unwrap(wrapped ? wrapped[1] : seg);
+    if (!invokesCheck(inner)) continue;
+    const kind = scriptKind(inner);
+    const canon = canonical(inner);
+    const rn = runner ?? runnerOfSegment(canon);
+    const args = canon.includes(' ') ? ' ' + canon.slice(canon.indexOf(' ') + 1) : ' ';
+    if (wrapped) out.push({ key: 'timeout', what: 'a timeout wrapper', direction: 'added' });
+    // the shell operator after the check: `|| true`, `; exit 0`, `| tee`, `&`. A `;`
+    // before another check is sequencing (`jest; eslint .` ends on the lint's
+    // status); `; exit 0` and `; true` decide green.
+    const following = stmts[i + 1]?.seg ?? '';
+    if (op === '||' || op === '|' || op === '&' || (op === ';' && !invokesCheck(unwrap(following)))) {
+      out.push({ key: `op:${op}`, what: `${op} ${following.split(/\s+/).slice(0, 2).join(' ')}`.trim(), direction: 'added' });
+    }
+    for (const re of MASKING_FLAGS) {
+      const f = spelled(re, args);
+      if (f) out.push({ key: `flag:${f}`, what: f, direction: 'added' });
+    }
+    for (const re of GATE_FLAGS) {
+      const f = spelled(re, ' ' + seg);
+      if (f) out.push({ key: `gate:${f}`, what: f, direction: 'removed' });
+    }
+    if (kind !== 'test' || opts.sliceByDesign || opts.extended?.has(kind)) continue;
+    const flags = [SUITE_NARROWING_FLAGS, ...NARROWING_BY_RUNNER['*'], ...(rn ? NARROWING_BY_RUNNER[rn] : [])];
+    for (const re of flags) {
+      const f = spelled(re, args);
+      if (f && !opts.excuseFlag?.(f, canon)) out.push({ key: `flag:${f}`, what: f, direction: 'added' });
+    }
+    if (rn === 'cargo' && CARGO_SKIP.test(args)) out.push({ key: 'flag:-- --skip', what: '-- --skip', direction: 'added' });
+    const shared = runnerNarrowing(canon, args); // the table ci-tampering reads (#436)
+    if (shared && !opts.excuseFlag?.(shared, canon)) out.push({ key: `flag:${shared}`, what: shared, direction: 'added' });
+    if (opts.fresh) continue;
+    const cfg = args.match(CONFIG_FLAG);
+    if (cfg && !opts.configReviewed?.(cfg[3])) out.push({ key: `config:${cfg[3]}`, what: `${cfg[1]} ${cfg[3]}`, direction: 'added' });
+    const pos = positionalOf(args);
+    if (pos) out.push({ key: 'positional', what: `a path positional (${pos})`, direction: 'added' });
+  }
+  return out;
+}
+
+/** The check statements of an invocation: each one's kind and canonical form. */
+function checkStatements(cmd: string): Array<{ kind: Kind; canon: string }> {
+  const out: Array<{ kind: Kind; canon: string }> = [];
+  for (const seg of segments(cmd)) {
+    const w = seg.match(TIMEOUT_WRAP);
+    const inner = unwrap(w ? w[1] : seg);
+    const kind = scriptKind(inner);
+    if (kind) out.push({ kind, canon: canonical(inner) });
+  }
+  return out;
+}
+
+/** The kinds of check an invocation runs, across its statements. */
+export function checkKinds(cmd: string): Set<Kind> {
+  return new Set(checkStatements(cmd).map((s) => s.kind));
+}
+
+/** A script that ends by failing on purpose — npm's `echo "Error: no test
+ *  specified" && exit 1` placeholder — masks nothing: whoever runs it is told. */
+const FAILS_LOUDLY = /^(?:exit\s+(?:[1-9]\d*)|false)\s*$/;
+function failsLoudly(cmd: string): boolean {
+  const last = segments(cmd).pop();
+  return last !== undefined && FAILS_LOUDLY.test(last.trim());
+}
+
+/**
+ * One check invocation before → after. `before` empty means the invocation is new:
+ * nothing was removed, and anything that masks or narrows it counts.
+ *
+ *   - `removed`: a kind of check `before` ran no longer runs — the runner replaced
+ *     by `echo ok`, a test script now running the lint, `&& npm test` dropped from
+ *     a `check` script;
+ *   - `neutralised`: the same check, but its status is masked (`|| true`, `; exit
+ *     0`, a pipe, `--passWithNoTests`, `--if-present`), it is cut short (`timeout
+ *     1`), a gate flag was dropped (`--check-coverage`), or the suite it runs was
+ *     narrowed (a runner flag, a spec path as a positional, `--config` pointing at a
+ *     file nothing reviews);
+ *   - `kept`: a respelling (`jest` → `vitest run`), a flag added that selects nothing
+ *     fewer, or a flag that was there already.
+ */
+export function invocationWeakening(before: string, after: string, runner?: RunnerName, opts: WeakeningOpts = {}): Weakening {
+  const was = checkKinds(before);
+  const now = checkKinds(after);
+  if (now.size === 0 && failsLoudly(after)) return { state: 'kept' };
+  for (const k of was) {
+    if (now.has(k) || opts.relocated?.(k)) continue;
+    const instead = [...now].filter((x) => !was.has(x));
+    return { state: 'removed', kind: k, what: instead.length ? `runs a ${instead.join('/')} check instead` : now.size ? 'the check is gone' : 'no check is run' };
+  }
+  const survived = new Set(checkStatements(before).map((s) => s.canon));
+  const extended = new Set(checkStatements(after).filter((s) => survived.has(s.canon)).map((s) => s.kind));
+  const read = { ...opts, fresh: was.size === 0, extended };
+  const beforeDs = descriptors(before, runner, read);
+  const afterDs = descriptors(after, runner, read);
+  const seenBefore = new Set(beforeDs.map((d) => d.key));
+  const added = afterDs.find((d) => d.direction === 'added' && !seenBefore.has(d.key));
+  if (added) return { state: 'neutralised', what: added.what, direction: 'added' };
+  if (coverageFloorLowered(before, after)) return { state: 'neutralised', what: 'a lowered --cov-fail-under', direction: 'added' };
+  const seenAfter = new Set(afterDs.map((d) => d.key));
+  const dropped = beforeDs.find((d) => d.direction === 'removed' && !seenAfter.has(d.key));
+  if (dropped) return { state: 'neutralised', what: dropped.what, direction: 'removed' };
+  return { state: 'kept' };
+}
