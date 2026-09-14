@@ -129,6 +129,7 @@ export function socketRefusal(paths: ServicePaths, uid: number | undefined = cur
  * different shell/supervisor, so consulting its ambient values would make the
  * same payload produce a different verdict than the in-process hook. */
 export const FORWARDED_ENV = [
+  'TAMPERWARD_AUDITLOG',
   'TAMPERWARD_DENYLOG',
   'TAMPERWARD_FSEVENTS',
   'TAMPERWARD_TRANSIENT',
