@@ -50,7 +50,7 @@ const ownerExec = (mode: string): boolean => (parseInt(mode.slice(-3), 8) & 0o10
 // the gate command resolves through, or a neutered gate entry of its own.
 
 const EVENTS = ['PreToolUse', 'Stop'] as const;
-type HookEvent = (typeof EVENTS)[number];
+export type HookEvent = (typeof EVENTS)[number];
 
 type Settings = Record<string, unknown>;
 type Obj = Record<string, unknown>;
@@ -184,9 +184,12 @@ function entryShape(h: Obj): { problems: string[]; runs: boolean } {
   return { problems, runs };
 }
 
-interface Candidate {
-  /** The entry as written, for "was this exact entry already there". */
-  key: string;
+/** The canonical-shape verdict on one gate entry: whether the runtime would run
+ *  the gate through it and honour its verdict, and how it differs from what init
+ *  writes. ONE comparator, three consumers — this detector, `init`'s wiring
+ *  planner and `doctor`'s posture (#413) — so a settings file the detector blocks
+ *  is never one `init --dry-run` or `doctor` certifies as wired. */
+export interface GateEntryVerdict {
   /** The runtime would run the gate through this entry and honour its verdict. */
   runs: boolean;
   /** How the entry differs from what init writes. */
@@ -194,6 +197,34 @@ interface Candidate {
   pin: string | null;
   /** Tools the matcher selects; null for every tool. */
   tools: Set<string> | null;
+}
+
+/** Judge one hook entry that names the gate (`h`, the `{ type, command, … }`
+ *  object) under `event`, with the `matcher` of the group it sits in. A neutralised
+ *  entry — `async`, an `if`, a `timeout` that cuts the gate off, a key init does
+ *  not write, a wrapped or chained command, a matcher on the Stop entry — has
+ *  `runs: false` and the reason in `problems`. */
+export function judgeGateEntry(event: HookEvent, matcher: unknown, h: Record<string, unknown>): GateEntryVerdict {
+  const cmd = typeof h.command === 'string' ? h.command : '';
+  const a = analyseGateCommand(cmd, event);
+  const shape = entryShape(h);
+  const problems = [...a.problems, ...shape.problems];
+  let runs = a.runs && shape.runs;
+  let tools: Set<string> | null = null;
+  if (event === 'PreToolUse') {
+    const sel = matcherSelection(matcher);
+    tools = sel.tools;
+    if (sel.problem) { problems.push(sel.problem); }
+  } else if (matcher !== undefined && !(typeof matcher === 'string' && (matcher === '' || matcher === '*'))) {
+    problems.push(`a \`matcher\` (${JSON.stringify(matcher)}) on the Stop entry`);
+    runs = false;
+  }
+  return { runs, problems, pin: a.pin, tools };
+}
+
+interface Candidate extends GateEntryVerdict {
+  /** The entry as written, for "was this exact entry already there". */
+  key: string;
 }
 
 /** Whether a value names the gate anywhere in its JSON. */
@@ -223,20 +254,7 @@ function gateCandidates(s: Settings, event: HookEvent): Candidate[] {
         continue;
       }
       if (!MENTIONS_GATE.test(cmd)) continue;
-      const a = analyseGateCommand(cmd, event);
-      const shape = entryShape(h);
-      const problems = [...a.problems, ...shape.problems];
-      let runs = a.runs && shape.runs;
-      let tools: Set<string> | null = null;
-      if (event === 'PreToolUse') {
-        const sel = matcherSelection(group.matcher);
-        tools = sel.tools;
-        if (sel.problem) { problems.push(sel.problem); }
-      } else if (group.matcher !== undefined && !(typeof group.matcher === 'string' && (group.matcher === '' || group.matcher === '*'))) {
-        problems.push(`a \`matcher\` (${JSON.stringify(group.matcher)}) on the Stop entry`);
-        runs = false;
-      }
-      out.push({ key: JSON.stringify({ m: group.matcher, h }), runs, problems, pin: a.pin, tools });
+      out.push({ key: JSON.stringify({ m: group.matcher, h }), ...judgeGateEntry(event, group.matcher, h) });
     }
   }
   return out;
