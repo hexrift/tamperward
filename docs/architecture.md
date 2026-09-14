@@ -15,16 +15,20 @@ not obscure the security boundary.
 ### How to read it
 
 1. **Setup** — `onboard` guides first use and `init` installs the repository
-   wiring: hooks, policy, verifier configuration, and CI integration.
+   wiring: hooks, the `.tamperward.yml` policy, CI integration, and CODEOWNERS.
+   `init` deliberately does **not** invent a trusted `verify.command`; onboarding
+   saves one only after explicit operator acceptance.
 2. **Agent work** — the coding agent edits the candidate tree. In-loop hooks can
    deny known weakening operations and detect protected-state drift while work is
    happening. These hooks steer; they are not the final authority.
 3. **Local adjudication** — `tamperward run` owns the lifecycle boundary. After
    the agent exits, it independently judges the resulting candidate with
    `check` and `verify`, then emits one local verdict.
-4. **Repository authority** — protected CI sits across the trust boundary. It
-   runs from trusted repository configuration, re-adjudicates the pull request
-   against the trusted base, and exposes a required gate to branch protection.
+4. **Repository authority** — protected CI sits across the trust boundary. The
+   pull request runs the workflow on its own head, so authority does not come from
+   the workflow copy being trusted; it comes from the repository rules around it —
+   a required `tamperward` check, Code Owner review, and dismissal of stale
+   approvals — re-adjudicating the candidate against the trusted base.
 5. **Release** — only a commit that reaches protected `main` can enter the
    release path and become the published npm package.
 
@@ -69,8 +73,10 @@ final-verdict authorities.
 ### 1. Establish the trusted starting point
 
 `init` writes the supported enforcement surfaces: local hook wiring, the
-committed `.tamperward.yml` policy and verifier definition, and the repository
-workflow. `onboard` is the guided path around setup and posture checks.
+committed `.tamperward.yml` policy (its verifier command is left unset — `init`
+never invents a trusted `verify.command`; `onboard` saves one only after explicit
+operator acceptance), the repository workflow, and CODEOWNERS. `onboard` is the
+guided path around setup and posture checks.
 
 At the start of an adjudicated run, Tamperward freezes the entry state used as
 the trusted reference. Candidate changes are judged *against* that state; they
@@ -103,9 +109,13 @@ Those signals converge on one local exit verdict and machine-readable report.
 ### 4. Re-adjudicate in protected CI
 
 The generated repository workflow repeats the relevant posture, diff, and
-verification checks from a trusted workflow copy and trusted base. Required
-status checks and branch protection then decide whether the candidate may reach
-`main`.
+verification checks against the trusted base. A pull request runs that workflow
+from its own head and a required check is matched by job name, so the workflow
+copy is not intrinsically trusted; the authority is the repository rules around
+it — the required `tamperward` status check, Code Owner review (CODEOWNERS over
+the gate-critical paths), and dismissal of stale approvals when new commits are
+pushed. Those three controls, enforced by branch protection, decide whether the
+candidate may reach `main`.
 
 This is the key authority separation: the pull request proposes code, but it
 does not get to replace the protected rules that decide whether that proposal is
@@ -113,8 +123,10 @@ accepted.
 
 ### 5. Release reviewed `main`
 
-The release workflow starts from protected `main`. It publishes the reviewed
-package version and records the release/tag using the trusted publishing path.
+The release workflow runs on pushes to protected `main`, but publishes only
+when the reviewed package version is not already on the registry; an ordinary
+merge that does not change the version is a no-op. When it does publish, it
+records the release and tag using the trusted publishing path.
 
 ## Supporting tools
 

@@ -1,150 +1,169 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 920" width="1440" height="920" role="img" aria-labelledby="tw-arch-title tw-arch-desc" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 940" width="1440" height="940" role="img" aria-labelledby="tw-arch-title tw-arch-desc" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
 <title id="tw-arch-title">Tamperward complete architecture</title>
-<desc id="tw-arch-desc">A left-to-right architecture map. Setup establishes trusted inputs and local wiring. The agent works under in-loop steering and leaves a candidate tree. TamperWard independently adjudicates the candidate with change checks and visible and pristine verification. Protected CI repeats the authoritative checks across a trust boundary before branch protection permits merge to main. Release then publishes the reviewed main commit. Optional support tools sit below the primary flow and do not participate in the final verdict.</desc>
+<desc id="tw-arch-desc">A left-to-right architecture map. Setup installs the local and CI wiring. The tamperward run envelope freezes the entry state, supervises the agent while in-loop steering gates its edits, and then adjudicates the candidate the agent leaves behind with change checks and visible-and-pristine verification, emitting a local verdict that stays local. Independently, the candidate commit is pushed as a pull request into protected CI, which re-adjudicates it against the trusted base on the PR's own head; the repository rules — a required check, Code Owner review, and dismissal of stale approvals — are what authorize merge to main, not the workflow copy. Release then publishes the reviewed main commit only when its version is not already published. Trusted base inputs feed adjudication and CI, never the agent. Secondary tools sit below and are not independent final authorities.</desc>
 <defs>
   <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#334155"/></marker>
-  <marker id="arrow-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#64748b"/></marker>
+  <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#0f9d58"/></marker>
   <filter id="shadow" x="-10%" y="-15%" width="120%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.08"/></filter>
 </defs>
 
-<rect width="1440" height="920" fill="#ffffff"/>
+<rect width="1440" height="940" fill="#ffffff"/>
 
 <!-- title -->
-<text x="80" y="58" font-size="26" font-weight="750" fill="#0f172a">Tamperward complete architecture</text>
-<text x="80" y="86" font-size="14" fill="#64748b">Primary path: setup → agent work → local adjudication → protected repository authority → release</text>
+<text x="80" y="52" font-size="26" font-weight="750" fill="#0f172a">Tamperward complete architecture</text>
+<text x="80" y="80" font-size="14" fill="#64748b">Setup → the run envelope (supervise + adjudicate) → protected repository authority → release. Trusted base inputs feed the judges, never the agent.</text>
 
-<!-- trusted inputs -->
+<!-- trusted inputs bar (feeds the judges: adjudication + CI) -->
 <g filter="url(#shadow)">
-  <rect x="330" y="118" width="780" height="76" rx="14" fill="#eefbf3" stroke="#0f9d58" stroke-width="1.8"/>
+  <rect x="600" y="116" width="575" height="80" rx="14" fill="#eefbf3" stroke="#0f9d58" stroke-width="1.8"/>
 </g>
-<text x="720" y="146" text-anchor="middle" font-size="15" font-weight="700" fill="#0b3d24">Trusted inputs</text>
-<text x="720" y="170" text-anchor="middle" font-size="14" fill="#315844">entry commit · base policy · verifier definition · protected workflow</text>
+<text x="887" y="146" text-anchor="middle" font-size="15" font-weight="700" fill="#0b3d24">Trusted base inputs</text>
+<text x="887" y="169" text-anchor="middle" font-size="13.5" fill="#315844">entry commit · base policy · verifier definition · protected workflow</text>
+<text x="887" y="187" text-anchor="middle" font-size="12" fill="#4b7a5f">restored for judging — never candidate-written, never an agent input</text>
 
-<!-- primary flow regions -->
-<rect x="70" y="246" width="235" height="400" rx="18" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
-<rect x="330" y="246" width="235" height="400" rx="18" fill="#f7fafd" stroke="#94a3b8" stroke-width="1.5"/>
-<rect x="590" y="246" width="300" height="400" rx="18" fill="#f6fdf9" stroke="#94a3b8" stroke-width="1.5"/>
+<!-- setup region -->
+<rect x="70" y="250" width="240" height="430" rx="18" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="190" y="290" text-anchor="middle" font-size="16" font-weight="700" fill="#475569">1 · Setup</text>
 
-<!-- protected authority boundary -->
-<rect x="915" y="226" width="455" height="440" rx="20" fill="#e63946" fill-opacity="0.06" stroke="#c0303c" stroke-width="2.5" stroke-dasharray="9 6"/>
-<text x="940" y="258" font-size="14" font-weight="700" fill="#a01523">PROTECTED REPOSITORY AUTHORITY</text>
-<rect x="940" y="276" width="235" height="350" rx="16" fill="#fff7f7" stroke="#e4a2a8" stroke-width="1.4"/>
-<rect x="1200" y="276" width="145" height="350" rx="16" fill="#faf7ff" stroke="#c4b5fd" stroke-width="1.4"/>
+<!-- run envelope: freezes entry state, supervises the agent, then adjudicates -->
+<rect x="330" y="250" width="560" height="430" rx="18" fill="#f7fafd" stroke="#64748b" stroke-width="1.6" stroke-dasharray="8 6"/>
+<text x="350" y="276" font-size="13" font-weight="700" fill="#475569">run envelope — captures entry state · supervises the agent · adjudicates</text>
+<text x="447" y="304" text-anchor="middle" font-size="15" font-weight="700" fill="#475569">2 · Agent work</text>
+<text x="742" y="304" text-anchor="middle" font-size="15" font-weight="700" fill="#475569">3 · Post-exit adjudication</text>
 
-<!-- stage headings -->
-<text x="187" y="282" text-anchor="middle" font-size="16" font-weight="700" fill="#475569">1 · Setup</text>
-<text x="447" y="282" text-anchor="middle" font-size="16" font-weight="700" fill="#475569">2 · Agent work</text>
-<text x="740" y="282" text-anchor="middle" font-size="16" font-weight="700" fill="#475569">3 · Local adjudication</text>
-<text x="1057" y="312" text-anchor="middle" font-size="16" font-weight="700" fill="#7f1d1d">4 · CI authority</text>
-<text x="1272" y="312" text-anchor="middle" font-size="16" font-weight="700" fill="#5b21b6">5 · Release</text>
+<!-- protected repository authority boundary -->
+<rect x="930" y="250" width="440" height="430" rx="20" fill="#e63946" fill-opacity="0.06" stroke="#c0303c" stroke-width="2.5" stroke-dasharray="9 6"/>
+<text x="952" y="278" font-size="14" font-weight="700" fill="#a01523">PROTECTED REPOSITORY AUTHORITY</text>
+<text x="1065" y="304" text-anchor="middle" font-size="15" font-weight="700" fill="#7f1d1d">4 · CI authority</text>
+<text x="1290" y="304" text-anchor="middle" font-size="15" font-weight="700" fill="#5b21b6">5 · Release</text>
 
 <!-- setup boxes -->
 <g filter="url(#shadow)">
-  <rect x="100" y="320" width="175" height="58" rx="10" fill="#eef2ff" stroke="#4338ca" stroke-width="1.7"/>
-  <rect x="100" y="410" width="175" height="58" rx="10" fill="#eef2ff" stroke="#4338ca" stroke-width="1.7"/>
-  <rect x="100" y="500" width="175" height="74" rx="10" fill="#eef2ff" stroke="#4338ca" stroke-width="1.7"/>
+  <rect x="95" y="326" width="190" height="54" rx="10" fill="#eef2ff" stroke="#4338ca" stroke-width="1.7"/>
+  <rect x="95" y="430" width="190" height="96" rx="10" fill="#eef2ff" stroke="#4338ca" stroke-width="1.7"/>
 </g>
-<text x="187" y="355" text-anchor="middle" font-size="14" font-weight="700" fill="#1e1b4b">onboard</text>
-<text x="187" y="445" text-anchor="middle" font-size="14" font-weight="700" fill="#1e1b4b">init</text>
-<text x="187" y="527" text-anchor="middle" font-size="14" font-weight="700" fill="#1e1b4b">Installs wiring</text>
-<text x="187" y="548" text-anchor="middle" font-size="13" fill="#4338ca">hooks · policy · CI</text>
+<text x="190" y="349" text-anchor="middle" font-size="14" font-weight="700" fill="#1e1b4b">onboard</text>
+<text x="190" y="368" text-anchor="middle" font-size="12.5" fill="#4338ca">guided first run</text>
+<text x="190" y="459" text-anchor="middle" font-size="14" font-weight="700" fill="#1e1b4b">init</text>
+<text x="190" y="481" text-anchor="middle" font-size="12.5" fill="#4338ca">installs hooks · policy scaffold</text>
+<text x="190" y="500" text-anchor="middle" font-size="12.5" fill="#4338ca">CI workflow · CODEOWNERS</text>
 
 <!-- agent work boxes -->
 <g filter="url(#shadow)">
-  <rect x="365" y="320" width="165" height="64" rx="10" fill="#eef6ff" stroke="#2563eb" stroke-width="1.7"/>
-  <rect x="365" y="418" width="165" height="76" rx="10" fill="#eef6ff" stroke="#2563eb" stroke-width="1.7"/>
-  <rect x="365" y="528" width="165" height="74" rx="10" fill="#eef6ff" stroke="#2563eb" stroke-width="1.7"/>
+  <rect x="360" y="330" width="170" height="58" rx="10" fill="#eef6ff" stroke="#2563eb" stroke-width="1.7"/>
+  <rect x="360" y="430" width="170" height="82" rx="10" fill="#eef6ff" stroke="#2563eb" stroke-width="1.7"/>
+  <rect x="360" y="556" width="170" height="64" rx="10" fill="#eef6ff" stroke="#2563eb" stroke-width="1.7"/>
 </g>
-<text x="447" y="349" text-anchor="middle" font-size="14" font-weight="700" fill="#0f2a4a">Agent runtime</text>
-<text x="447" y="370" text-anchor="middle" font-size="13" fill="#35506d">edits the candidate</text>
-<text x="447" y="447" text-anchor="middle" font-size="14" font-weight="700" fill="#0f2a4a">In-loop steering</text>
-<text x="447" y="468" text-anchor="middle" font-size="13" fill="#35506d">PreToolUse · drift</text>
-<text x="447" y="487" text-anchor="middle" font-size="13" fill="#35506d">Stop sweep</text>
-<text x="447" y="556" text-anchor="middle" font-size="14" font-weight="700" fill="#0f2a4a">Candidate state</text>
-<text x="447" y="577" text-anchor="middle" font-size="13" fill="#35506d">commit + worktree</text>
+<text x="445" y="356" text-anchor="middle" font-size="14" font-weight="700" fill="#0f2a4a">Agent runtime</text>
+<text x="445" y="375" text-anchor="middle" font-size="12.5" fill="#35506d">edits the candidate</text>
+<text x="445" y="457" text-anchor="middle" font-size="14" font-weight="700" fill="#0f2a4a">In-loop steering</text>
+<text x="445" y="478" text-anchor="middle" font-size="12.5" fill="#35506d">PreToolUse deny · drift</text>
+<text x="445" y="496" text-anchor="middle" font-size="12.5" fill="#35506d">Stop sweep</text>
+<text x="445" y="583" text-anchor="middle" font-size="14" font-weight="700" fill="#0f2a4a">Candidate state</text>
+<text x="445" y="603" text-anchor="middle" font-size="12.5" fill="#35506d">commit + worktree</text>
 
 <!-- adjudication boxes -->
 <g filter="url(#shadow)">
-  <rect x="635" y="318" width="210" height="60" rx="10" fill="#eefbf3" stroke="#0f9d58" stroke-width="1.7"/>
-  <rect x="620" y="416" width="105" height="92" rx="10" fill="#eefbf3" stroke="#0f9d58" stroke-width="1.7"/>
-  <rect x="755" y="416" width="105" height="92" rx="10" fill="#eefbf3" stroke="#0f9d58" stroke-width="1.7"/>
-  <rect x="635" y="548" width="210" height="60" rx="10" fill="#eefbf3" stroke="#0f9d58" stroke-width="1.7"/>
+  <rect x="610" y="360" width="120" height="86" rx="10" fill="#eefbf3" stroke="#0f9d58" stroke-width="1.7"/>
+  <rect x="745" y="360" width="120" height="86" rx="10" fill="#eefbf3" stroke="#0f9d58" stroke-width="1.7"/>
+  <rect x="610" y="556" width="255" height="64" rx="10" fill="#eefbf3" stroke="#0f9d58" stroke-width="1.7"/>
 </g>
-<text x="740" y="354" text-anchor="middle" font-size="14" font-weight="700" fill="#0b3d24">run envelope</text>
-<text x="672" y="446" text-anchor="middle" font-size="14" font-weight="700" fill="#0b3d24">check</text>
-<text x="672" y="468" text-anchor="middle" font-size="12.5" fill="#315844">diff +</text>
-<text x="672" y="486" text-anchor="middle" font-size="12.5" fill="#315844">worktree</text>
-<text x="807" y="446" text-anchor="middle" font-size="14" font-weight="700" fill="#0b3d24">verify</text>
-<text x="807" y="468" text-anchor="middle" font-size="12.5" fill="#315844">visible +</text>
-<text x="807" y="486" text-anchor="middle" font-size="12.5" fill="#315844">pristine</text>
-<text x="740" y="575" text-anchor="middle" font-size="14" font-weight="700" fill="#0b3d24">Local verdict</text>
-<text x="740" y="596" text-anchor="middle" font-size="13" fill="#315844">exit code + JSON</text>
+<text x="670" y="397" text-anchor="middle" font-size="14" font-weight="700" fill="#0b3d24">check</text>
+<text x="670" y="419" text-anchor="middle" font-size="12.5" fill="#315844">diff + worktree</text>
+<text x="805" y="397" text-anchor="middle" font-size="14" font-weight="700" fill="#0b3d24">verify</text>
+<text x="805" y="419" text-anchor="middle" font-size="12.5" fill="#315844">visible + pristine</text>
+<text x="737" y="583" text-anchor="middle" font-size="14" font-weight="700" fill="#0b3d24">Local verdict</text>
+<text x="737" y="603" text-anchor="middle" font-size="12.5" fill="#315844">exit code + JSON — local only</text>
 
 <!-- CI authority boxes -->
 <g filter="url(#shadow)">
-  <rect x="970" y="348" width="175" height="66" rx="10" fill="#fdeef0" stroke="#c0303c" stroke-width="1.7"/>
-  <rect x="970" y="446" width="175" height="82" rx="10" fill="#fdeef0" stroke="#c0303c" stroke-width="1.7"/>
-  <rect x="970" y="560" width="175" height="46" rx="10" fill="#fdeef0" stroke="#c0303c" stroke-width="1.7"/>
+  <rect x="975" y="348" width="180" height="66" rx="10" fill="#fdeef0" stroke="#c0303c" stroke-width="1.7"/>
+  <rect x="975" y="440" width="180" height="86" rx="10" fill="#fdeef0" stroke="#c0303c" stroke-width="1.7"/>
+  <rect x="975" y="556" width="180" height="100" rx="10" fill="#fdeef0" stroke="#c0303c" stroke-width="1.7"/>
 </g>
-<text x="1057" y="376" text-anchor="middle" font-size="14" font-weight="700" fill="#4a0d14">Protected CI</text>
-<text x="1057" y="396" text-anchor="middle" font-size="12.5" fill="#7f1d1d">trusted workflow copy</text>
-<text x="1057" y="475" text-anchor="middle" font-size="14" font-weight="700" fill="#4a0d14">Re-adjudicate</text>
-<text x="1057" y="497" text-anchor="middle" font-size="12.5" fill="#7f1d1d">doctor · check --diff</text>
-<text x="1057" y="516" text-anchor="middle" font-size="12.5" fill="#7f1d1d">verify --require-ancestor</text>
-<text x="1057" y="589" text-anchor="middle" font-size="13.5" font-weight="700" fill="#4a0d14">Required gate</text>
+<text x="1065" y="374" text-anchor="middle" font-size="14" font-weight="700" fill="#4a0d14">Protected CI</text>
+<text x="1065" y="396" text-anchor="middle" font-size="12" fill="#7f1d1d">runs on the PR head</text>
+<text x="1065" y="465" text-anchor="middle" font-size="14" font-weight="700" fill="#4a0d14">Re-adjudicate</text>
+<text x="1065" y="486" text-anchor="middle" font-size="11.5" fill="#7f1d1d">doctor · check --diff</text>
+<text x="1065" y="504" text-anchor="middle" font-size="11.5" fill="#7f1d1d">verify --require-ancestor</text>
+<text x="1065" y="580" text-anchor="middle" font-size="13" font-weight="700" fill="#4a0d14">Repository rules</text>
+<text x="1065" y="600" text-anchor="middle" font-size="11.5" fill="#7f1d1d">required check ·</text>
+<text x="1065" y="618" text-anchor="middle" font-size="11.5" fill="#7f1d1d">Code Owner review ·</text>
+<text x="1065" y="636" text-anchor="middle" font-size="11.5" fill="#7f1d1d">stale-approval dismissal</text>
 
 <!-- release boxes -->
 <g filter="url(#shadow)">
-  <rect x="1218" y="348" width="108" height="62" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.7"/>
-  <rect x="1218" y="450" width="108" height="62" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.7"/>
-  <rect x="1218" y="552" width="108" height="62" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.7"/>
+  <rect x="1205" y="348" width="125" height="60" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.7"/>
+  <rect x="1205" y="452" width="125" height="80" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.7"/>
+  <rect x="1205" y="568" width="125" height="60" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.7"/>
 </g>
-<text x="1272" y="385" text-anchor="middle" font-size="14" font-weight="700" fill="#2e1065">Merge</text>
-<text x="1272" y="487" text-anchor="middle" font-size="14" font-weight="700" fill="#2e1065">Release</text>
-<text x="1272" y="579" text-anchor="middle" font-size="14" font-weight="700" fill="#2e1065">npm</text>
-<text x="1272" y="598" text-anchor="middle" font-size="12.5" fill="#5b21b6">provenance</text>
+<text x="1267" y="384" text-anchor="middle" font-size="14" font-weight="700" fill="#2e1065">Merge</text>
+<text x="1267" y="486" text-anchor="middle" font-size="13.5" font-weight="700" fill="#2e1065">Release workflow</text>
+<text x="1267" y="505" text-anchor="middle" font-size="11.5" fill="#5b21b6">if version unpublished</text>
+<text x="1267" y="594" text-anchor="middle" font-size="14" font-weight="700" fill="#2e1065">npm</text>
+<text x="1267" y="612" text-anchor="middle" font-size="11.5" fill="#5b21b6">provenance</text>
 
-<!-- primary arrows: deliberately short and non-crossing -->
-<path d="M275 349H365" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M447 384V418" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M447 494V528" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M530 565H590Q610 565 610 545V378Q610 348 635 348" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M740 378V400H672V416" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M740 400H807V416" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M672 508V530H740V548" fill="none" stroke="#334155" stroke-width="2"/>
-<path d="M807 508V530H740" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M845 578H915Q940 578 940 553V381Q940 381 970 381" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M1057 414V446" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M1057 528V560" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M1145 583H1180Q1200 583 1200 563V379Q1200 379 1218 379" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M1272 410V450" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M1272 512V552" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<!-- setup flow -->
+<path d="M190 380V430" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M285 471H360" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="322" y="463" text-anchor="middle" font-size="11" fill="#64748b">wiring</text>
 
-<!-- trusted input feeds -->
-<path d="M520 194V228H447V320" fill="none" stroke="#0f9d58" stroke-width="1.8" marker-end="url(#arrow)"/>
-<path d="M720 194V318" fill="none" stroke="#0f9d58" stroke-width="1.8" marker-end="url(#arrow)"/>
-<path d="M930 194V330H1057V348" fill="none" stroke="#0f9d58" stroke-width="1.8" marker-end="url(#arrow)"/>
+<!-- agent work flow (inside run envelope) -->
+<path d="M445 388V430" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M445 512V556" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 
-<!-- support row -->
-<text x="80" y="714" font-size="15" font-weight="700" fill="#475569">Supporting tools — useful, but not part of the authoritative verdict path</text>
-<rect x="80" y="742" width="1280" height="112" rx="16" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.4"/>
+<!-- candidate feeds post-exit adjudication (check + verify) -->
+<path d="M530 588H580V344H805" fill="none" stroke="#334155" stroke-width="2"/>
+<path d="M670 344V360" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M805 344V360" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<!-- check and verify each converge on the local verdict, explicitly -->
+<path d="M670 446V556" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M805 446V556" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+<!-- the candidate COMMIT (not the local verdict) is pushed into CI -->
+<path d="M445 620V648H905V381H975" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="690" y="640" text-anchor="middle" font-size="11.5" fill="#475569">PR / push · candidate commit</text>
+
+<!-- CI internal flow -->
+<path d="M1065 414V440" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M1065 526V556" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+<!-- repository rules authorize merge -->
+<path d="M1155 600H1185V378H1205" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+<!-- release flow -->
+<path d="M1267 408V452" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M1267 532V568" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+<!-- trusted base inputs feed the JUDGES only (verify + protected CI), never the agent -->
+<path d="M887 196V403H865" fill="none" stroke="#0f9d58" stroke-width="1.8" marker-end="url(#arrow-green)"/>
+<path d="M1150 196V348" fill="none" stroke="#0f9d58" stroke-width="1.8" marker-end="url(#arrow-green)"/>
+
+<!-- secondary tools -->
+<text x="80" y="716" font-size="15" font-weight="700" fill="#475569">Secondary / optional components — not independent final authorities</text>
+<rect x="80" y="740" width="1290" height="120" rx="16" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.4"/>
 
 <g filter="url(#shadow)">
-  <rect x="115" y="772" width="200" height="52" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
-  <rect x="355" y="772" width="200" height="52" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
-  <rect x="595" y="772" width="200" height="52" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
-  <rect x="835" y="772" width="200" height="52" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
-  <rect x="1075" y="772" width="245" height="52" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
+  <rect x="108" y="772" width="232" height="56" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
+  <rect x="360" y="772" width="232" height="56" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
+  <rect x="612" y="772" width="232" height="56" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
+  <rect x="864" y="772" width="232" height="56" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
+  <rect x="1116" y="772" width="226" height="56" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
 </g>
-<text x="215" y="804" text-anchor="middle" font-size="13.5" font-weight="600" fill="#334155">doctor · posture report</text>
-<text x="455" y="804" text-anchor="middle" font-size="13.5" font-weight="600" fill="#334155">hook-service · optional</text>
-<text x="695" y="804" text-anchor="middle" font-size="13.5" font-weight="600" fill="#334155">watch · transient observer</text>
-<text x="935" y="804" text-anchor="middle" font-size="13.5" font-weight="600" fill="#334155">trace-verify · advisory</text>
-<text x="1197" y="804" text-anchor="middle" font-size="13.5" font-weight="600" fill="#334155">research · paired evaluation</text>
+<text x="224" y="797" text-anchor="middle" font-size="13" font-weight="600" fill="#334155">doctor · posture</text>
+<text x="224" y="815" text-anchor="middle" font-size="11.5" fill="#64748b">also runs inside the CI gate</text>
+<text x="476" y="797" text-anchor="middle" font-size="13" font-weight="600" fill="#334155">hook-service</text>
+<text x="476" y="815" text-anchor="middle" font-size="11.5" fill="#64748b">optional warm steering evaluator</text>
+<text x="728" y="797" text-anchor="middle" font-size="13" font-weight="600" fill="#334155">watch</text>
+<text x="728" y="815" text-anchor="middle" font-size="11.5" fill="#64748b">transient observer · can feed run</text>
+<text x="980" y="797" text-anchor="middle" font-size="13" font-weight="600" fill="#334155">trace-verify</text>
+<text x="980" y="815" text-anchor="middle" font-size="11.5" fill="#64748b">advisory · edits nothing</text>
+<text x="1229" y="797" text-anchor="middle" font-size="13" font-weight="600" fill="#334155">research</text>
+<text x="1229" y="815" text-anchor="middle" font-size="11.5" fill="#64748b">paired evaluation</text>
 
 <!-- legend -->
-<line x1="1060" y1="885" x2="1105" y2="885" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<text x="1115" y="890" font-size="12.5" fill="#64748b">authoritative / normal flow</text>
-<line x1="1260" y1="885" x2="1305" y2="885" stroke="#0f9d58" stroke-width="1.8" marker-end="url(#arrow)"/>
-<text x="1315" y="890" font-size="12.5" fill="#64748b">trusted input</text>
+<line x1="965" y1="892" x2="1010" y2="892" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="1020" y="897" font-size="12.5" fill="#64748b">authoritative flow (incl. PR push)</text>
+<line x1="1250" y1="892" x2="1295" y2="892" stroke="#0f9d58" stroke-width="1.8" marker-end="url(#arrow-green)"/>
+<text x="1305" y="897" font-size="12.5" fill="#64748b">trusted base input</text>
 </svg>
