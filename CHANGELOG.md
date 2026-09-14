@@ -5,6 +5,29 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.5] — 2026-09-14
+
+### Fixed
+
+- **`test-skip` no longer goes silent on a runner it cannot name (#428).** The
+  JS/TS AST path claimed every `x.skip(...)` / `x.only(...)` call once it had parsed
+  the file, and declared the file clean whenever the chain root was not one of the
+  runner imports it knew — while also suppressing the line matcher that catches the
+  same call on a bare diff. A Playwright-style repository (`import { test } from
+  './fixtures'`, `const test = base.extend({})`), a namespace import
+  (`import * as v from 'vitest'; v.it.skip(...)`) or a wrapper package therefore got no
+  skip coverage at all on full content. The AST now claims a call only when the root is
+  proven: a runner (a known runner module's export by name, default import, namespace
+  member or `require`, a `X.extend(...)` / `X.extend<T>(...)` of one, an alias, or a
+  relative fixture module's `export const test = base.extend(...)` / re-export /
+  `module.exports`, followed through the change's own content or the repository's copy)
+  or a non-runner (a parameter, a local `function it()`, a local declaration whose
+  initialiser is none of those, a non-runner name from a known runner module). A root it
+  cannot classify — a package it does not know, a fixture it cannot read — leaves that
+  call to the regex, so the full-content and diff-only paths agree. `test.describe.skip`
+  / `test.describe.only` under Playwright count as the chain they are. Corpus replay
+  (`harness/fp-study/TEST-SKIP-AST-CORPUS.md`) re-run: 0 newly introduced findings.
+
 ## [2.23.4] — 2026-09-14
 
 ### Fixed
