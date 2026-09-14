@@ -58,6 +58,25 @@ failure to Claude's blocking-error exit channel rather than leaving an ordinary 
 exit that the runtime could treat as non-blocking. Generated CI installs before checkout
 and invokes the installed binary directly.
 
+### The repository root, from any subdirectory
+
+Every git view reports paths relative to the repository root, and since **2.23.6**
+every command that reads the working tree resolves that root first (`git rev-parse
+--show-toplevel`, plus `--absolute-git-dir` for session state) and reads against it:
+the policy file, the after-content of every changed file, the protected-tree
+snapshot, the sign-off ledger and the unjudgeable-path probe. `check --worktree`,
+`check --staged`, `sweep claude`, `hook claude`, `allow`, `doctor` and `init` therefore
+produce the same verdict or plan from `packages/x` as from the root — before that,
+a session started in a subdirectory resolved every changed file to a path that did
+not exist, the content detectors went blind, and the root `.tamperward.yml` silently
+gave way to the baseline (fail-open, #412). A `.tamperward.yml` planted in a
+subdirectory governs nothing. The hook service is bound to the repository root
+whichever directory `--dir` names, and serves any subdirectory of it. `init` from a
+subdirectory wires the root and says so on stderr; `onboard` still refuses a child
+directory, since it is interactive and can ask. A directory outside any repository
+keeps its previous behaviour (the not-inside-a-repository refusal; a policy file
+beside it is read as before).
+
 Generated local shell wiring requires a POSIX host with `/dev/null`. The user rc
 is fixed to that OS device; the global rc is fixed to
 `/dev/null/npmrc-global`, which cannot exist below a device. Distinct paths

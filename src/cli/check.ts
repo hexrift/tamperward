@@ -21,6 +21,7 @@ import { defaultPolicy, isProtected } from '../policy';
 import { unjudgeableProtected } from '../disk';
 import { applyLocalSignoffs, applyOobSignoffs, oobFromEnv, oobHeadFromEnv } from '../signoff';
 import { Format, report } from './report';
+import { repoRoot } from '../repo-context';
 
 export interface CheckOpts {
   diff?: string; // "<base>...<head>" (or "<base>..<head>")
@@ -40,20 +41,24 @@ export interface CheckOpts {
 }
 
 function check(opts: CheckOpts): number {
-  const cwd = opts.cwd ?? process.cwd();
-  if (!isGitRepo(cwd)) {
+  const requested = opts.cwd ?? process.cwd();
+  if (!isGitRepo(requested)) {
     // Every view is a git view. Said plainly here rather than as whatever git
     // prints when `diff` runs outside a repository (its usage text, at exit 1).
-    process.stderr.write(`tamperward: ${cwd} is not inside a git repository — nothing to check\n`);
+    process.stderr.write(`tamperward: ${requested} is not inside a git repository — nothing to check\n`);
     return 2;
   }
-  let policy: Policy = opts.policyOverride ?? loadPolicy(opts.cwd);
+  // Every view reports root-relative paths, so the policy, every disk read, the
+  // ledger and the unjudgeable probe are rooted too — the verdict from `r1/pkg`
+  // is the verdict from `r1` (#412).
+  const cwd = repoRoot(requested);
+  let policy: Policy = opts.policyOverride ?? loadPolicy(cwd);
 
   let changes: Change[];
   let layer: 'local' | 'ci';
   let view: View;
   if (opts.staged) {
-    changes = diffStaged({ cwd: opts.cwd });
+    changes = diffStaged({ cwd });
     layer = 'local'; // pre-commit: a human at their machine may sign off (ledger, fingerprint-bound)
     view = 'staged';
   } else if (opts.worktree) {
@@ -62,16 +67,16 @@ function check(opts: CheckOpts): number {
     // `.gitignore` line is in the tree the runner executes, whatever git lists.
     const p = policy;
     changes = opts.includeUntracked
-      ? diffWorktreeWithUntracked({ cwd: opts.cwd }, (rel) => isProtected(rel, p))
-      : diffWorktree({ cwd: opts.cwd });
+      ? diffWorktreeWithUntracked({ cwd }, (rel) => isProtected(rel, p))
+      : diffWorktree({ cwd });
     // `git diff HEAD` deliberately obeys skip-worktree / assume-unchanged and
     // omits those paths. The hook layer already reconstructed them by hand;
     // the standalone worktree check and outer envelope must carry the same
     // protection or the independent boundary is weaker than the steering hook.
     const seen = new Set(changes.filter((c) => c.kind === 'file').map((c) => c.path));
-    for (const rel of hiddenTrackedPaths({ cwd: opts.cwd })) {
+    for (const rel of hiddenTrackedPaths({ cwd })) {
       if (seen.has(rel) || !isProtected(rel, p)) continue;
-      changes.push(...synthFileChange(rel, fileAt('HEAD', rel, { cwd: opts.cwd }), fileOnDisk(rel, { cwd: opts.cwd })));
+      changes.push(...synthFileChange(rel, fileAt('HEAD', rel, { cwd }), fileOnDisk(rel, { cwd })));
     }
     layer = opts.ciLayer ? 'ci' : 'local';
     view = 'worktree';
@@ -85,7 +90,7 @@ function check(opts: CheckOpts): number {
       process.stderr.write(`tamperward: invalid --diff range "${opts.diff}" (expected <base>...<head>)\n`);
       return 2;
     }
-    changes = diffRange(base, head, { cwd: opts.cwd });
+    changes = diffRange(base, head, { cwd });
     if (changes.length === 0) {
       // Exit 0 stands — an empty pull request is clean — but say so on stderr: a
       // consumer workflow that mis-resolves the range (HEAD...HEAD, a shallow clone
@@ -102,7 +107,7 @@ function check(opts: CheckOpts): number {
     // change that added it. Govern by the merge-base's policy; if the base has none, govern
     // by the baseline, never by the branch's. The edit is still REPORTED (hook-tampering) —
     // it just takes effect only once a human has merged it.
-    policy = opts.policyOverride ?? loadPolicyAt(mergeBaseOf(base, head, { cwd: opts.cwd }), opts.cwd) ?? defaultPolicy();
+    policy = opts.policyOverride ?? loadPolicyAt(mergeBaseOf(base, head, { cwd }), cwd) ?? defaultPolicy();
   } else {
     process.stderr.write('tamperward: specify --staged, --worktree, or --diff <base>...<head>\n');
     return 2;

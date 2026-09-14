@@ -9,6 +9,7 @@ import { Policy, Severity } from './types';
 import { defaultPolicy, mergeProtected, mergeRules, normalizeGlob, POLICY_FILE } from './policy';
 import { fileAt } from './git/build';
 import { errorMessage } from './narrow';
+import { repoRoot } from './repo-context';
 
 /** A policy file that exists but cannot be understood. Never swallowed into the
  *  baseline: falling back silently would run a WEAKER gate than the author wrote. */
@@ -238,8 +239,13 @@ function parseOrThrow(src: string, where: string): Policy {
   return parsePolicy(raw, where);
 }
 
+/** The policy governing the repository `cwd` lies in. The file is read at the
+ *  REPOSITORY ROOT, whatever subdirectory the command ran from — a session started
+ *  in `packages/x` used to look beside `packages/x`, find nothing, and be governed by
+ *  the baseline instead of the root policy (#412). Outside any repository the file
+ *  beside `cwd` is read, as before. */
 export function loadPolicy(cwd: string = process.cwd()): Policy {
-  const path = join(cwd, POLICY_FILE);
+  const path = join(repoRoot(cwd), POLICY_FILE);
   if (!existsSync(path)) return defaultPolicy();
   return parseOrThrow(readFileSync(path, 'utf8'), POLICY_FILE);
 }
@@ -254,7 +260,7 @@ export function loadPolicy(cwd: string = process.cwd()): Policy {
  * up as a finding (hook-tampering); it simply doesn't take effect until a human merges it.
  */
 export function loadPolicyAt(rev: string, cwd?: string): Policy | null {
-  const src = fileAt(rev, POLICY_FILE, { cwd });
+  const src = fileAt(rev, POLICY_FILE, { cwd: cwd === undefined ? undefined : repoRoot(cwd) });
   if (src == null) return null;
   return parseOrThrow(src, `${POLICY_FILE} at ${rev}`);
 }

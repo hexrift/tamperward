@@ -5,6 +5,29 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.6] — 2026-09-14
+
+### Fixed
+
+- **Every worktree-reading path is rooted at the repository, not at cwd (#412).**
+  Git views report root-relative paths, but `check --worktree` / `--staged`, the Stop
+  sweep, PreToolUse, `allow`, `doctor` and the protected-tree snapshot joined those
+  paths onto the directory the command ran from. From a subdirectory of the repository
+  the after-content of every changed file resolved to a path that did not exist, the
+  content/AST detectors went blind, and the root `.tamperward.yml` was silently replaced
+  by the baseline — `check --worktree` and `sweep claude` failed OPEN for a monorepo or
+  subdirectory session, and `hook claude` enforced the wrong policy. A shared
+  `repoContext(cwd)` resolver (`git rev-parse --show-toplevel` / `--absolute-git-dir`,
+  cached per cwd) now anchors policy loading, every disk read, the snapshot, the sign-off
+  ledger, the hook service's root binding and `init`. Verdicts and plans from `r1/pkg`
+  equal those from `r1`; a policy file planted in a subdirectory governs nothing; a
+  relative tool path in a hook payload still resolves against the session's own cwd.
+- `init` run from a subdirectory wires the repository root (and says so on stderr)
+  instead of planning `.tamperward.yml` and the CI files under the subdirectory while
+  installing the pre-commit hook into the parent's `.git/hooks`.
+- A directory outside any repository keeps its previous behaviour: `check` refuses with
+  the not-inside-a-repository message, and a policy file beside it is read as before.
+
 ## [2.23.5] — 2026-09-14
 
 ### Fixed

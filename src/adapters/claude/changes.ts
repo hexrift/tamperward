@@ -34,16 +34,6 @@ function readDisk(path: string): string | null {
   return textOf(inspectResolved(path));
 }
 
-/** NORMALISED absolute path. The tool input is the model's own spelling of the
- *  path, and `/repo/./.claude/settings.json` or `/repo/src/../.tamperward.yml`
- *  reached the detectors as `./.claude/settings.json` / `src/../.tamperward.yml`
- *  — which no protected glob matches. Every exact-path protected asset (the
- *  policy, the Claude hooks, the workflows) could be edited unseen at the
- *  PreToolUse layer by writing its path with one redundant segment. */
-function abs(path: string, cwd: string): string {
-  return resolve(cwd, path);
-}
-
 /** The repo-relative path when the file is inside `cwd`; the absolute path otherwise. */
 function relForDisplay(path: string, cwd: string): string {
   const rel = relative(cwd, path);
@@ -115,8 +105,20 @@ export function synthFileChange(displayPath: string, before: string | null, afte
   return [{ kind: 'file', path: displayPath, oldPath: null, op, before, after, binary: false, hunks }];
 }
 
-export function changesFromClaudeHook(input: ClaudeHookInput, cwd: string): Change[] {
+/** `cwd` is the directory paths are DISPLAYED relative to — the repository root,
+ *  so a Change names the same root-relative path a git view would. `base` is the
+ *  directory a RELATIVE tool path resolves from: the session's own cwd, which may
+ *  be a subdirectory of that root (#412). The runtime sends absolute paths; the
+ *  distinction only matters for a relative one, and defaults to `cwd`. */
+export function changesFromClaudeHook(input: ClaudeHookInput, cwd: string, base: string = cwd): Change[] {
   const ti = input.tool_input ?? {};
+  // NORMALISED absolute path. The tool input is the model's own spelling of the
+  // path, and `/repo/./.claude/settings.json` or `/repo/src/../.tamperward.yml`
+  // reached the detectors as `./.claude/settings.json` / `src/../.tamperward.yml`
+  // — which no protected glob matches. Every exact-path protected asset (the
+  // policy, the Claude hooks, the workflows) could be edited unseen at the
+  // PreToolUse layer by writing its path with one redundant segment.
+  const abs = (path: string): string => resolve(base, path);
 
   switch (input.tool_name) {
     case 'Bash': {
@@ -126,27 +128,27 @@ export function changesFromClaudeHook(input: ClaudeHookInput, cwd: string): Chan
     case 'Write': {
       const fp = asStr(ti.file_path);
       if (!fp) return [];
-      const before = readDisk(abs(fp, cwd));
-      return synthFileChange(relForDisplay(abs(fp, cwd), cwd), before, asStr(ti.content));
+      const before = readDisk(abs(fp));
+      return synthFileChange(relForDisplay(abs(fp), cwd), before, asStr(ti.content));
     }
     case 'Edit': {
       const fp = asStr(ti.file_path);
       if (!fp) return [];
-      const before = readDisk(abs(fp, cwd));
+      const before = readDisk(abs(fp));
       const after = applyEdit(before, asStr(ti.old_string), asStr(ti.new_string));
-      return synthFileChange(relForDisplay(abs(fp, cwd), cwd), before, after);
+      return synthFileChange(relForDisplay(abs(fp), cwd), before, after);
     }
     case 'MultiEdit': {
       const fp = asStr(ti.file_path);
       if (!fp) return [];
-      const before = readDisk(abs(fp, cwd));
+      const before = readDisk(abs(fp));
       let after: string | null = before;
       const edits = Array.isArray(ti.edits) ? ti.edits : [];
       for (const raw of edits) {
         const ed = isRecord(raw) ? raw : {};
         after = applyEdit(after, asStr(ed.old_string), asStr(ed.new_string));
       }
-      return synthFileChange(relForDisplay(abs(fp, cwd), cwd), before, after);
+      return synthFileChange(relForDisplay(abs(fp), cwd), before, after);
     }
     case 'NotebookEdit': {
       const fp = asStr(ti.notebook_path);
@@ -156,7 +158,7 @@ export function changesFromClaudeHook(input: ClaudeHookInput, cwd: string): Chan
       // rather than the notebook JSON on purpose: the additive detectors (skip / any /
       // suppression) get the text about to be written, while the AST count detectors see
       // no phantom "blocks removed" from diffing a cell against a whole notebook.
-      return synthFileChange(relForDisplay(abs(fp, cwd), cwd), '', src);
+      return synthFileChange(relForDisplay(abs(fp), cwd), '', src);
     }
     default:
       // Anything we do not model produces no Change — including read-only tools, which is
