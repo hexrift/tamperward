@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, dirname, resolve } from 'node:path';
+import { existsSync, lstatSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   DEFAULT_AUDIT_BRANCH,
   DEFAULT_AUDIT_ROOT,
@@ -98,7 +98,7 @@ export function publishAudit(opts: AuditPublishOpts): number {
       throw new Error('--path must be a repository-relative directory');
     }
 
-    const log = resolve(opts.log ?? defaultAuditLog(cwd));
+    const log = opts.log ? resolve(cwd, opts.log) : defaultAuditLog(cwd);
     const cursor = log + '.publish-cursor';
     const all = readAuditLog(log);
     const pending = unpublished(all, cursor);
@@ -133,7 +133,12 @@ export function publishAudit(opts: AuditPublishOpts): number {
       published += events.length;
     }
 
-    writeFileSync(cursor, pending.at(-1)?.id + '\n', { encoding: 'utf8', mode: 0o600 });
+    if (existsSync(cursor) && lstatSync(cursor).isSymbolicLink()) {
+      throw new Error('refusing to follow a symlink at the local audit publish cursor');
+    }
+    const lastPublished = pending.at(-1);
+    if (!lastPublished) throw new Error('internal audit publish cursor error');
+    writeFileSync(cursor, lastPublished.id + '\n', { encoding: 'utf8', mode: 0o600 });
     process.stdout.write(
       `tamperward audit: published ${published} finding event(s) to ${repo}#${branch}/${root}\n`,
     );
