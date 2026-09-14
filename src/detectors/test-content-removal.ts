@@ -32,6 +32,8 @@ import { isProtected } from '../policy';
 import { makeFinding } from './finding';
 import { countTests } from './test-deletion';
 import { isSignificantLine, langOf } from './files';
+import { isSpecShaped } from './spec-shape';
+import { partition } from './reachability';
 
 const RULE = 'test-content-removal';
 const MIN_REMOVED_LINES = 3;
@@ -100,6 +102,58 @@ function significantLinesOrdered(src: string, path: string): string[] {
   return out;
 }
 
+/** The significant lines that can RUN: a line inside `if (false) {}`, after a
+ *  `return;` in its function, or wholly inside a string / template literal is
+ *  written, not executed, and is not content on either side (#431). */
+function liveSignificantLines(src: string, path: string): string[] {
+  return significantLinesOrdered(partition(src, path).live, path);
+}
+
+/** The content a removed line may be excused into: the whitespace-stripped live
+ *  text of the changeset's protected tests after the edit, with a per-character
+ *  mask of what sits inside a string or template literal. A line is kept only
+ *  where it occurs as CODE — an occurrence that begins inside a literal is the
+ *  line's text quoted, not the line (#431). A rewrapped or joined call still
+ *  begins outside its string arguments, so reformatting stays excused. */
+class KeptPool {
+  private text = '';
+  private readonly inLiteral: number[] = [];
+
+  addLive(src: string, path: string): void {
+    const p = partition(src, path);
+    const lang = langOf(path);
+    let lineStart = 0;
+    for (let i = 0; i <= p.live.length; i++) {
+      if (i < p.live.length && p.live[i] !== '\n') continue;
+      const line = p.live.slice(lineStart, i);
+      if (isSignificantLine(line.trim(), lang)) {
+        for (let j = lineStart; j < i; j++) {
+          if (/\s/.test(p.live[j])) continue;
+          this.text += p.live[j];
+          this.inLiteral.push(p.inLiteral[j]);
+        }
+      }
+      lineStart = i + 1;
+    }
+  }
+
+  /** Text added outside any spec (a case table moved to `test/fixtures/`): code. */
+  addCode(ws: string): void {
+    this.text += ws;
+    for (let i = 0; i < ws.length; i++) this.inLiteral.push(0);
+  }
+
+  keeps(wsLine: string): boolean {
+    if (wsLine.length === 0) return true;
+    let at = this.text.indexOf(wsLine);
+    while (at !== -1) {
+      if (this.inLiteral[at] === 0) return true;
+      at = this.text.indexOf(wsLine, at + 1);
+    }
+    return false;
+  }
+}
+
 export const testContentRemoval: Detector = {
   id: RULE,
   surface: ['file'],
@@ -111,7 +165,7 @@ export const testContentRemoval: Detector = {
     // AFTER the edits, plus what this change ADDS to a non-spec file under a test
     // directory (the `it.each` rows moved to `test/fixtures/add-cases.ts`) — the
     // only places removed content can be excused into.
-    let keptPool = '';
+    const keptPool = new KeptPool();
     // Everything ADDED anywhere in the changeset, protected or not: the only pool a
     // row of an OPEN table may be excused into (`it.each([...rows, …])` with `rows`
     // moved to a helper module is a refactor; the same edit with the rows nowhere
@@ -119,7 +173,7 @@ export const testContentRemoval: Detector = {
     let addedPool = '';
     for (const c of changes) {
       if (c.kind !== 'file' || c.after == null) continue;
-      if (isProtected(c.path, policy, 'tests')) keptPool += ws(significantLinesOrdered(c.after, c.path).join('\n'));
+      if (isProtected(c.path, policy, 'tests')) keptPool.addLive(c.after, c.path);
       let addedHere = '';
       if (c.op === 'add') addedHere = ws(c.after);
       else if (c.before != null) {
@@ -127,7 +181,7 @@ export const testContentRemoval: Detector = {
         addedHere = ws(c.after.split('\n').filter((l) => !had.has(l.trim())).join('\n'));
       }
       addedPool += addedHere;
-      if (!isProtected(c.path, policy, 'tests') && TEST_DIR_FILE.test(c.path) && langOf(c.path) === 'js') keptPool += addedHere;
+      if (!isProtected(c.path, policy, 'tests') && TEST_DIR_FILE.test(c.path) && langOf(c.path) === 'js') keptPool.addCode(addedHere);
     }
 
     for (const c of changes) {
@@ -141,12 +195,15 @@ export const testContentRemoval: Detector = {
       // one rule. The corpus sweep showed legitimate snapshot updates dominating
       // this rule's fires until excluded here.
       if (isProtected(c.path, policy, 'snapshots')) continue;
+      // A helper, setup module or fixture under the test globs defines no test:
+      // trimming it is test-support's warn, not a gutted spec (#443).
+      if (!isSpecShaped(c.path, c.before, c.after)) continue;
       const blocksBefore = countTests(c.before, c.path);
       const blocksAfter = countTests(c.after, c.path);
       if (blocksAfter.min < blocksBefore.min && !blocksAfter.open) continue; // test-deletion's case
 
-      const beforeSig = significantLinesOrdered(c.before, c.path);
-      const afterSig = significantLinesOrdered(c.after, c.path);
+      const beforeSig = liveSignificantLines(c.before, c.path);
+      const afterSig = liveSignificantLines(c.after, c.path);
       // NET removal is required: a one-for-one rewrite (expected values changed in
       // place, line count kept) is the semantic class — held-out oracles judge it,
       // not a diff rule. Gutting shrinks the spec; that is what fires here. A
@@ -157,9 +214,15 @@ export const testContentRemoval: Detector = {
       const gone: string[] = [];
       for (const line of new Set(beforeSig)) {
         if (afterSet.has(line)) continue;
-        if (keptPool.includes(ws(line))) continue; // rewrapped, merged, or relocated — kept
+        if (keptPool.keeps(ws(line))) continue; // rewrapped, merged, or relocated — kept
         gone.push(line);
       }
+      // Lines gone from the live spec whose text is still in the file — inside a
+      // string or template literal, an `if (false)` block, after a `return` — were
+      // hidden, not rewritten: the one-for-one rewrite the net count protects is a
+      // line REPLACED, and these were kept verbatim where they cannot run (#431).
+      const hiddenPool = ws(partition(c.after, c.path).hidden);
+      const hidden = gone.filter((line) => hiddenPool.includes(ws(line)));
 
       // Rows gone from an each-table whose after-shape is open — spread from
       // elsewhere, or a table that was open before and stays open with fewer
@@ -181,6 +244,19 @@ export const testContentRemoval: Detector = {
             evidence: goneRows.slice(0, 3).map((l) => l.slice(0, 80)).join(' | '),
             remediation:
               'Fix the code under test. A row of it.each is a test; moving the table out of the spec must carry every row with it.',
+          }),
+        );
+        continue;
+      }
+
+      if (hidden.length >= MIN_REMOVED_LINES) {
+        out.push(
+          makeFinding(RULE, policy, {
+            file: c.path,
+            message: `Test content made unreachable in a surviving spec: ${hidden.length} significant line(s) kept only where they cannot run (a string, a template literal, a dead branch, after a return).`,
+            evidence: hidden.slice(0, 3).map((l) => l.slice(0, 80)).join(' | '),
+            remediation:
+              'Fix the code under test. Assertions parked in a string or behind a constant-false branch or an early return no longer execute; the spec is weakened exactly as if they were deleted.',
           }),
         );
         continue;

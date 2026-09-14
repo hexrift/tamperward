@@ -249,7 +249,11 @@ function writeVerifyCommand(cwd: string, command: string): string | null {
 export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise<number> {
   const requestedCwd = resolve(opts.cwd ?? process.cwd());
   const out = io.out ?? ((line: string): void => void process.stdout.write(line + '\n'));
-  const rawErr = (line: string): void => void process.stderr.write(terminalText(line) + '\n');
+  // Sanitize repository-controlled text BEFORE adding our ANSI decoration. Sanitizing
+  // the completed line replaces ESC itself and leaves the printable tail ("[1m[31m")
+  // behind, which turns colour into visible escape fragments instead of styling.
+  const errLine = (line: string): void => void process.stderr.write(line + '\n');
+  const rawErr = (line: string): void => errLine(terminalText(line));
   const platform = io.platform ?? process.platform;
   const colour = io.colour ?? colourEnabled(process.env, process.stdout);
   const runners: OnboardRunners = {
@@ -272,7 +276,10 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
   const status = (label: string, text: string, kind: 'ok' | 'warn' | 'bad' | 'info' | 'dim' = 'info'): void => {
     out(paint(label.padEnd(8), (kind === 'bad' ? BOLD : '') + tone(kind), colour) + ' ' + terminalText(text));
   };
-  const fail = (text: string): void => rawErr(paint('ERROR   ', BOLD + RED, colour) + ' ' + text);
+  const errStatus = (label: string, text: string, kind: 'ok' | 'warn' | 'bad' | 'info' | 'dim' = 'info'): void => {
+    errLine(paint(label.padEnd(8), (kind === 'bad' ? BOLD : '') + tone(kind), colour) + ' ' + terminalText(text));
+  };
+  const fail = (text: string): void => errStatus('ERROR', text, 'bad');
 
   if (!interactive && !scripted) {
     fail('onboard needs an interactive terminal.');
@@ -296,11 +303,16 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
     // string comparison rather than weakening the child-directory refusal.
   }
   if (!sameRoot) {
-    fail('current directory is not the Git repository root.');
-    rawErr('Current: ' + requestedCwd);
-    rawErr('Git root: ' + cwd);
-    rawErr('TamperWard installs repository-wide hooks and CI, so it will not mix a child directory with its parent repository.');
-    rawErr('Run from the Git root, or run `git init` in the child directory if it should be a separate repository.');
+    fail('Repository root mismatch.');
+    rawErr('');
+    errStatus('CURRENT', requestedCwd, 'dim');
+    errStatus('GIT ROOT', cwd, 'info');
+    rawErr('');
+    rawErr('TamperWard installs repository-wide hooks and CI, so setup must run at the repository root.');
+    rawErr('It will not attach child-directory setup to a parent repository.');
+    rawErr('');
+    errStatus('NEXT', 'Run `tamperward onboard` from the Git root shown above.', 'warn');
+    errStatus('OR', 'Run `git init` here first if the current directory should be a separate repository.', 'dim');
     return 2;
   }
 

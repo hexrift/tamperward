@@ -5,6 +5,7 @@ import { tsCastGrowth } from './ts-cast-growth';
 import { lintSuppression } from './lint-suppression';
 import { testSkip } from './test-skip';
 import { coverageLowering } from './coverage-lowering';
+import { coverageExclusion } from './coverage-exclusion';
 import { ciTampering } from './ci-tampering';
 import { hookTampering } from './hook-tampering';
 import { testDeletion } from './test-deletion';
@@ -12,10 +13,12 @@ import { testContentRemoval } from './test-content-removal';
 import { snapshotRewrite } from './snapshot-rewrite';
 import { snapshotOnlyRewrite } from './snapshot-only';
 import { assertionWeakening } from './assertion-weakening';
+import { testSupport } from './test-support';
 
 /** Mechanical detectors plus measured warning-only heuristics. guard-removal remains
  *  reserved; assertion-weakening is AST-backed and stays warn while precision accrues;
- *  ts-cast-growth is a mechanical count that stays warn by corpus (#383). */
+ *  ts-cast-growth is a mechanical count that stays warn by corpus (#383);
+ *  coverage-exclusion is mechanical and stays warn until its corpus says otherwise (#438). */
 export const allDetectors: Detector[] = [
   noVerify,
   tsAnyCast,
@@ -23,10 +26,12 @@ export const allDetectors: Detector[] = [
   lintSuppression,
   testSkip,
   coverageLowering,
+  coverageExclusion,
   ciTampering,
   hookTampering,
   testDeletion,
   testContentRemoval,
+  testSupport,
   snapshotRewrite,
   snapshotOnlyRewrite,
   assertionWeakening,
@@ -39,10 +44,12 @@ export {
   lintSuppression,
   testSkip,
   coverageLowering,
+  coverageExclusion,
   ciTampering,
   hookTampering,
   testDeletion,
   testContentRemoval,
+  testSupport,
   snapshotRewrite,
   snapshotOnlyRewrite,
   assertionWeakening,

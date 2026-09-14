@@ -1,6 +1,6 @@
 {
   "name": "tamperward",
-  "version": "2.23.17",
+  "version": "2.25.0",
   "description": "The deterministic agent-integrity gate. One ruleset, evaluated on the actual diff/commands as a verdict, enforced everywhere a change can be made.",
   "license": "Apache-2.0",
   "author": "hexrift",
@@ -46,6 +46,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:perf-smoke": "vitest run --config vitest.perf-smoke.config.ts --no-file-parallelism",
     "check": "node dist/cli/index.js check"
   },
   "dependencies": {
@@ -55,11 +56,11 @@
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
-    "@types/picomatch": "^3.0.1",
-    "ajv": "^8.17.1",
-    "esbuild": "^0.25.12",
+    "@types/picomatch": "^4.0.3",
+    "ajv": "^8.20.0",
+    "esbuild": "^0.28.2",
     "semver": "7.8.5",
     "vitepress": "^2.0.0-alpha.19",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.0"
   }
 }

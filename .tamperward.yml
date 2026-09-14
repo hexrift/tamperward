@@ -37,6 +37,9 @@ ignore:
 rules:
   # mechanical — 100% deterministic, may block
   test-deletion: { severity: block } # AST (count-based) + rename-out-of-glob + rm/sed/>
+  # helpers, setup modules and fixtures under the test globs, deleted or shrunk: a
+  # review prompt (#443); the spec rules judge only spec-shaped files
+  test-support: { severity: warn }
   test-skip: { severity: block }
   ts-any-cast: { severity: block }
   # net growth of ordinary `as T` / `x!` assertions in non-test source; warn by
@@ -44,6 +47,9 @@ rules:
   ts-cast-growth: { severity: warn }
   lint-suppression: { severity: block }
   coverage-lowering: { severity: block }
+  # inline coverage exclusions in non-test source; warn until the corpus in
+  # harness/fp-study/coverage-exclusion-corpus.json earns block (#438)
+  coverage-exclusion: { severity: warn }
   ci-tampering: { severity: block }
   hook-tampering: { severity: block }
   no-verify: { severity: block }

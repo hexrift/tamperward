@@ -1,0 +1,361 @@
+{
+  "schema": 1,
+  "provenance": {
+    "mainline_frame": "harness/fp-study/COVERAGE-EXCLUSION-CORPUS.md",
+    "mainline_pairs": 460,
+    "mainline_pairs_with_fire": 0,
+    "mainline_pairs_touching_eligible_source": 240,
+    "mainline_findings": 0,
+    "mainline_by_repo": [
+      { "repo": "immer", "head": "061c2425e1c9dff89e4e4189d42af1b7839dfe0a", "pairs": 137, "pairs_touching_eligible_source": 43, "pairs_with_candidate_line": 0, "pairs_with_fire": 0, "findings": 0 },
+      { "repo": "zustand", "head": "b57db4f86ef179285da216eeb291266da82c361c", "pairs": 100, "pairs_touching_eligible_source": 22, "pairs_with_candidate_line": 0, "pairs_with_fire": 0, "findings": 0 },
+      { "repo": "zod", "head": "ca0229a404818290e6cdcfefcd7eb2d04bcbb543", "pairs": 100, "pairs_touching_eligible_source": 75, "pairs_with_candidate_line": 0, "pairs_with_fire": 0, "findings": 0 },
+      { "repo": "hono", "head": "8755b17fbcfdee76511eeb460e18e94e6c9a8d30", "pairs": 123, "pairs_touching_eligible_source": 100, "pairs_with_candidate_line": 0, "pairs_with_fire": 0, "findings": 0 }
+    ],
+    "deep_frame_first_parent_commits": 6632,
+    "deep_frame_commits_adding_a_spelling": 4,
+    "deep_frame_honest_adds": [
+      { "repo": "immer", "commit": "1913fe8", "subject": "feat: rewrote Map and Set implementation, code base cleanup", "files": ["src/common.ts", "src/immer.ts", "src/map.ts", "src/patches.ts", "src/set.ts"], "spelling": "/* istanbul ignore next */", "lines": 14 },
+      { "repo": "immer", "commit": "9f4711a", "subject": "fix: Map and Set instantions won't work on certain environments, fixes #502", "files": ["src/map.ts", "src/set.ts"], "spelling": "/* istanbul ignore next */", "lines": 2 },
+      { "repo": "immer", "commit": "f930ce1", "subject": "feat: general typing improvements for TS 3.7 and up", "files": ["src/extends.ts"], "spelling": "/* istanbul ignore next */", "lines": 1 },
+      { "repo": "immer", "commit": "0d87fc8", "subject": "Merge pull request #536 from immerjs/multi-bundle", "files": ["src/core/immerClass.ts", "src/plugins/mapset.ts", "src/plugins/patches.ts", "src/utils/env.ts"], "spelling": "/* istanbul ignore next */", "lines": 7 }
+    ],
+    "negative_cases": 22,
+    "positive_cases": 14,
+    "note": "The mainline frame is the ts-cast-growth study's: the same four repositories at the same pinned heads, the last 137/100/100/123 adjacent first-parent pairs, replayed with coverage-exclusion-fires.mjs against the built CLI; no pair in it adds any of the rule's spellings, so the rule fired on 0 of 460 legitimate mainline pairs. The deeper frame (every first-parent commit reachable in a 3000-commit deepening of the same four clones, 6,632 commits) holds four commits that add a spelling, all immer maintainers marking environment-dependent branches with `/* istanbul ignore next */` in non-test source — honest work on which the rule fires by design, which is why it ships warn: on the only real fires the corpus holds, precision as a TAMPER signal is 0/4. The negatives below are minimal reproductions of the shapes real maintainers write beside the spellings (a marker carried through a rewrite, a string constant, a prose mention, a test file, a range closed with `stop`, a platform-split Go file) and of this repository's own history (the spellings as data inside harness transcripts and seed fixtures); the positives are the fixtures in #438 and the four immer shapes.",
+    "recomputed_by": "node harness/fp-study/coverage-exclusion-fires.mjs <label> <checkout> <head> <pairs> dist/cli/index.js (one run per pinned repository; no scheduled workflow)"
+  },
+  "graduation": {
+    "block_max_mainline_fire_rate": 0.01,
+    "block_min_precision": 0.9,
+    "shipping_severity": "warn",
+    "block_graduation": "not authorized: the mainline fire rate is 0/460, inside the study's 1% ceiling, but every real fire the deeper frame holds (4 immer commits) is an honest exclusion of an environment-dependent branch — measured precision as a tamper signal on real fires is 0/4 against the 90% floor. An inline exclusion is the ordinary way to mark unreachable code; the rule is a review prompt. Any move to block requires a separate decision with adjudicated live-fire evidence.",
+    "rule_provenance": "spellings chosen from the issue (#438) and the coverage tools' own documentation before the histories were scanned"
+  },
+  "cases": [
+    {
+      "id": "neg-01-marker-carried-through-rewrite",
+      "classification": "legitimate",
+      "source": "immer 1913fe8: an existing marker moves with the code it guards",
+      "path": "src/map.ts",
+      "before": "export function proxyMap(target: any) {\n  /* istanbul ignore next */\n  if (!target) die();\n  return wrap(target);\n}\n",
+      "after": "export function proxyMap(target: any) {\n  const t = target;\n  /* istanbul ignore next */\n  if (!t) die();\n  return wrap(t);\n}\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-02-marker-in-string-constant",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: a codemod's header constant",
+      "path": "src/codemod.ts",
+      "before": "export const HEADER = '';\n",
+      "after": "export const HEADER = '/* istanbul ignore next */';\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-03-marker-in-template-literal",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: generated source text",
+      "path": "src/emit.ts",
+      "before": "export const emit = (body: string) => body;\n",
+      "after": "export const emit = (body: string) => `/* c8 ignore start */\\n${body}`;\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-04-marker-quoted-in-line-comment",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: a review note in prose",
+      "path": "src/parse.ts",
+      "before": "export const parse = (s: string) => Number(s);\n",
+      "after": "// never add /* istanbul ignore next */ here; cover the branch instead\nexport const parse = (s: string) => Number(s);\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-05-range-closed-with-stop",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: only the range CLOSER is added (the opener was there)",
+      "path": "src/env.ts",
+      "before": "/* c8 ignore start */\nexport const isNode = typeof process !== 'undefined';\n",
+      "after": "/* c8 ignore start */\nexport const isNode = typeof process !== 'undefined';\n/* c8 ignore stop */\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-06-marker-in-protected-test-file",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: a spec excludes its own helper",
+      "path": "src/parse.test.ts",
+      "before": "it('x', () => {});\n",
+      "after": "/* istanbul ignore file */\nit('x', () => {});\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-07-marker-in-__tests__",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: a helper under __tests__",
+      "path": "src/__tests__/helpers.ts",
+      "before": "export const h = 1;\n",
+      "after": "/* c8 ignore next */\nexport const h = 1;\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-08-pragma-in-pytest-file",
+      "classification": "legitimate",
+      "source": "tamperward history: harness seed `test_*.py` carrying a pragma",
+      "path": "tests/test_pool.py",
+      "before": "def test_pool():\n    assert pool()\n",
+      "after": "def test_pool():\n    if calloc is None:  # pragma: no cover\n        return\n    assert pool()\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-09-pragma-in-docstring",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: a contributing note in a docstring line",
+      "path": "pkg/lint.py",
+      "before": "def check():\n    return True\n",
+      "after": "def check():\n    \"\"\"Refuse # pragma: no cover on new code.\"\"\"\n    return True\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-10-pragma-in-hash-comment-prose",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: a comment about the pragma",
+      "path": "pkg/lint.py",
+      "before": "def check():\n    return True\n",
+      "after": "# do not sprinkle # pragma: no cover on this module\ndef check():\n    return True\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-11-spelling-inside-jsonl-transcript",
+      "classification": "legitimate",
+      "source": "tamperward history: agent transcripts under harness/ carry the spellings as data",
+      "path": "harness/transcripts/run.jsonl",
+      "before": "{\"type\":\"user\"}\n",
+      "after": "{\"type\":\"user\"}\n{\"type\":\"tool_result\",\"content\":\"    except RunFinishedError:  # pragma: no cover\"}\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-12-spelling-in-markdown",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: documentation naming the directive",
+      "path": "docs/coverage.md",
+      "before": "# Coverage\n",
+      "after": "# Coverage\n\nUse `/* istanbul ignore next */` only for unreachable defensive code.\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-13-runner-config-is-not-source",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: a jest config excluding itself",
+      "path": "jest.config.js",
+      "before": "module.exports = { testEnvironment: 'node' };\n",
+      "after": "/* istanbul ignore file */\nmodule.exports = { testEnvironment: 'node' };\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-14-declaration-file",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: a .d.ts header",
+      "path": "src/types.d.ts",
+      "before": "export {};\n",
+      "after": "/* istanbul ignore file */\nexport {};\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-15-vendored-path",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: vendored code refreshed",
+      "path": "vendor/url-template.js",
+      "before": "module.exports = {};\n",
+      "after": "/* istanbul ignore file */\nmodule.exports = {};\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-16-generated-file",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: codegen output regenerated",
+      "path": "src/schema.generated.ts",
+      "before": "export const schema = {};\n",
+      "after": "/* istanbul ignore file */\nexport const schema = {};\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-17-go-build-on-new-file",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: a platform-specific implementation added",
+      "path": "internal/fs/fs_windows.go",
+      "before": null,
+      "after": "//go:build windows\n\npackage fs\n\nfunc sep() string { return \"\\\\\" }\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-18-go-build-edited",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: an existing constraint widened",
+      "path": "internal/fs/fs_unix.go",
+      "before": "//go:build linux\n\npackage fs\n\nfunc sep() string { return \"/\" }\n",
+      "after": "//go:build linux || darwin\n\npackage fs\n\nfunc sep() string { return \"/\" }\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-19-go-build-in-test-file",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: an integration tag on a Go test",
+      "path": "internal/fs/fs_test.go",
+      "before": "package fs\n\nfunc TestSep(t *testing.T) {}\n",
+      "after": "//go:build integration\n\npackage fs\n\nfunc TestSep(t *testing.T) {}\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-20-rust-coverage-off-in-doc-comment",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: a doc comment naming the attribute",
+      "path": "src/lib.rs",
+      "before": "pub fn f() {}\n",
+      "after": "// nightly-only: #[coverage(off)] is not stable yet\npub fn f() {}\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-21-js-marker-in-python-file",
+      "classification": "legitimate",
+      "source": "ordinary-maintenance: a JS spelling is not a directive to coverage.py",
+      "path": "pkg/tool.py",
+      "before": "X = 1\n",
+      "after": "X = 1\n# /* istanbul ignore next */\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "neg-22-unrelated-edit-near-existing-marker",
+      "classification": "legitimate",
+      "source": "immer 0d87fc8 neighbourhood: code beside an existing marker changes",
+      "path": "src/utils/env.ts",
+      "before": "/* istanbul ignore next */\nexport const hasSymbol = typeof Symbol !== 'undefined';\nexport const hasMap = typeof Map !== 'undefined';\n",
+      "after": "/* istanbul ignore next */\nexport const hasSymbol = typeof Symbol !== 'undefined' && typeof Symbol('x') === 'symbol';\nexport const hasMap = typeof Map !== 'undefined';\n",
+      "expectedFindings": 0
+    },
+    {
+      "id": "pos-01-istanbul-ignore-next-block",
+      "classification": "exclusion",
+      "source": "#438 fixture",
+      "path": "src/parse.ts",
+      "before": "export function parse(raw: string): number {\n  const n = Number(raw);\n  if (Number.isNaN(n)) throw new Error(raw);\n  return n;\n}\n",
+      "after": "export function parse(raw: string): number {\n  const n = Number(raw);\n  /* istanbul ignore next */\n  if (Number.isNaN(n)) throw new Error(raw);\n  return n;\n}\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-02-istanbul-ignore-inline-ternary",
+      "classification": "exclusion",
+      "source": "immer 0d87fc8 shape: the marker inside an expression",
+      "path": "src/core/immerClass.ts",
+      "before": "autoFreeze_: boolean = __DEV__ ? true : !isMinified\n",
+      "after": "autoFreeze_: boolean = __DEV__ ? true /* istanbul ignore next */ : !isMinified\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-03-istanbul-ignore-else-branch",
+      "classification": "exclusion",
+      "source": "immer 1913fe8 shape: `: /* istanbul ignore next */ false)`",
+      "path": "src/set.ts",
+      "before": "const has = (s: any, k: any) => (s ? s.has(k) : false)\n",
+      "after": "const has = (s: any, k: any) => (s ? s.has(k) : /* istanbul ignore next */ false)\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-04-istanbul-ignore-file",
+      "classification": "exclusion",
+      "source": "#438 fixture",
+      "path": "src/legacy.ts",
+      "before": "export const legacy = () => 1;\n",
+      "after": "/* istanbul ignore file */\nexport const legacy = () => 1;\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-05-c8-ignore-start",
+      "classification": "exclusion",
+      "source": "#438 fixture",
+      "path": "src/env.ts",
+      "before": "export const isNode = typeof process !== 'undefined';\n",
+      "after": "/* c8 ignore start */\nexport const isNode = typeof process !== 'undefined';\n/* c8 ignore stop */\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-06-v8-ignore-next-n",
+      "classification": "exclusion",
+      "source": "#438 fixture",
+      "path": "lib/parse.js",
+      "before": "module.exports = (s) => {\n  if (!s) throw new Error('empty');\n  return s;\n};\n",
+      "after": "module.exports = (s) => {\n  /* v8 ignore next 2 */\n  if (!s) throw new Error('empty');\n  return s;\n};\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-07-node-coverage-ignore",
+      "classification": "exclusion",
+      "source": "#438 fixture",
+      "path": "src/parse.mjs",
+      "before": "export const parse = (s) => {\n  if (!s) throw new Error('empty');\n  return s;\n};\n",
+      "after": "export const parse = (s) => {\n  /* node:coverage ignore next */\n  if (!s) throw new Error('empty');\n  return s;\n};\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-08-node-coverage-disable",
+      "classification": "exclusion",
+      "source": "#438 fixture",
+      "path": "src/parse.mjs",
+      "before": "export const parse = (s) => s;\n",
+      "after": "/* node:coverage disable */\nexport const parse = (s) => s;\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-09-pragma-no-cover",
+      "classification": "exclusion",
+      "source": "#438 fixture",
+      "path": "pkg/parse.py",
+      "before": "def parse(raw):\n    n = int(raw)\n    if n < 0:\n        raise ValueError(raw)\n    return n\n",
+      "after": "def parse(raw):\n    n = int(raw)\n    if n < 0:  # pragma: no cover\n        raise ValueError(raw)\n    return n\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-10-pragma-nocover-spelling",
+      "classification": "exclusion",
+      "source": "tamperward history: the `# pragma: nocover` spelling coverage.py also honours",
+      "path": "pkg/parse.py",
+      "before": "def load(mod):\n    return mod\n",
+      "after": "def load(mod):\n    assert mod  # pragma: nocover\n    return mod\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-11-rust-coverage-off",
+      "classification": "exclusion",
+      "source": "#438 fixture",
+      "path": "src/parse.rs",
+      "before": "pub fn parse(raw: &str) -> i64 {\n    raw.parse().unwrap()\n}\n",
+      "after": "#[coverage(off)]\npub fn parse(raw: &str) -> i64 {\n    raw.parse().unwrap()\n}\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-12-rust-cfg-attr-coverage-off",
+      "classification": "exclusion",
+      "source": "#438 fixture, the stable spelling",
+      "path": "src/parse.rs",
+      "before": "pub fn parse(raw: &str) -> i64 {\n    raw.parse().unwrap()\n}\n",
+      "after": "#[cfg_attr(coverage_nightly, coverage(off))]\npub fn parse(raw: &str) -> i64 {\n    raw.parse().unwrap()\n}\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-13-go-build-added-to-existing-source",
+      "classification": "exclusion",
+      "source": "#438 fixture",
+      "path": "internal/parse/parse.go",
+      "before": "package parse\n\nfunc Parse(raw string) int { return len(raw) }\n",
+      "after": "//go:build !ci\n\npackage parse\n\nfunc Parse(raw string) int { return len(raw) }\n",
+      "expectedFindings": 1
+    },
+    {
+      "id": "pos-14-two-markers-two-findings",
+      "classification": "exclusion",
+      "source": "#438 fixture: one finding per added marker line",
+      "path": "src/parse.ts",
+      "before": "export const a = (s: string) => {\n  if (!s) throw new Error('a');\n  return s;\n};\nexport const b = (s: string) => {\n  if (!s) throw new Error('b');\n  return s;\n};\n",
+      "after": "export const a = (s: string) => {\n  /* istanbul ignore next */\n  if (!s) throw new Error('a');\n  return s;\n};\nexport const b = (s: string) => {\n  /* istanbul ignore next */\n  if (!s) throw new Error('b');\n  return s;\n};\n",
+      "expectedFindings": 2
+    }
+  ]
+}

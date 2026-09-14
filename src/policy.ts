@@ -334,6 +334,10 @@ export function defaultPolicy(version = 1): Policy {
       // through the block-count rule (rows, assertion arguments, setup). Severity
       // backed by the real-commit corpus measurement recorded in the rule's SPEC row.
       'test-content-removal': { severity: 'block' },
+      // the files that SERVE the specs under the same globs — helpers, setup
+      // modules, mocks, JSON fixtures — deleted, moved out or shrunk (#443). They
+      // define no test, so a review prompt, not a gate; the spec rules cede them.
+      'test-support': { severity: 'warn' },
       'test-skip': { severity: 'block' },
       'ts-any-cast': { severity: 'block' }, // the unambiguous explicit casts + ts-suppression directives
       // broad any in annotation/generic position is common in legit code (measured ~84-100% FP as a
@@ -345,6 +349,12 @@ export function defaultPolicy(version = 1): Policy {
       'ts-cast-growth': { severity: 'warn' },
       'lint-suppression': { severity: 'block' },
       'coverage-lowering': { severity: 'block' },
+      // the per-function form of coverage-lowering: an inline `istanbul ignore` /
+      // `c8 ignore` / `v8 ignore` / `node:coverage ignore` / `# pragma: no cover` /
+      // `#[coverage(off)]` added to non-test source (#438). Also the ordinary way to
+      // mark a genuinely unreachable branch, so it WARNs until the corpus in
+      // harness/fp-study/coverage-exclusion-corpus.json earns block (SPEC §7).
+      'coverage-exclusion': { severity: 'warn' },
       'ci-tampering': { severity: 'block' },
       'hook-tampering': { severity: 'block' },
       'no-verify': { severity: 'block' },
