@@ -113,6 +113,10 @@ export interface VerifyOpts {
    *  (`tamperward onboard`) can explain it without parsing output. Called at most
    *  once, before the exit code is returned; the exit code is never derived from it. */
   onVerdict?: (verdict: VerifyVerdictSummary) => void;
+  /** @internal Replaces the filesystem case-sensitivity probe (#426), so the
+   *  case-folded overlay contract can be exercised on a host whose temp
+   *  filesystem is case-sensitive. Production always probes. */
+  probeCaseSensitivity?: (dir: string) => boolean;
 }
 
 /** What `onVerdict` receives: the verdict verify printed, and for CANNOT_VERIFY
@@ -434,9 +438,7 @@ function rejectLinkedParent(cwd: string, rel: string): void {
  * unrepresentable links and special files fail closed. node_modules remains a
  * deliberate same-domain dependency link until the isolated backend replaces it. */
 function materialize(cwd: string, dest: string, dependencyRoot: string | null): void {
-  const listed = git(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd)
-    .split('\0')
-    .filter(Boolean);
+  const listed = workingTreePaths(cwd);
   const links: Array<{ rel: string; out: string; target: string }> = [];
   for (const rel of listed) {
     const src = join(cwd, rel);
@@ -475,6 +477,61 @@ function materialize(cwd: string, dest: string, dependencyRoot: string | null): 
   }
 
   if (dependencyRoot) symlinkSync(dependencyRoot, join(dest, 'node_modules'), 'dir');
+}
+
+/** The working tree as git lists it: tracked plus untracked, not ignored. The
+ *  one listing both copies are made from and the overlay's removal loop walks. */
+function workingTreePaths(cwd: string): string[] {
+  return git(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd)
+    .split('\0')
+    .filter(Boolean);
+}
+
+/**
+ * Whether the filesystem under `dir` distinguishes path case. Probed, not
+ * inferred from the platform: a case-sensitive APFS volume on macOS and a
+ * case-insensitive mount on Linux both exist, and the copies are materialised
+ * wherever the temp directory lives. One file is created and its case variant
+ * looked up; the probe never leaves the file behind.
+ *
+ * Why it matters (#426): the overlay keys the base-protected set on exact
+ * paths, and on a filesystem that collapses case a case-only rename of a base
+ * test (`test/foo.test.js` → `test/FOO.test.js`) is the SAME inode as the file
+ * the overlay just restored — so a removal loop keyed on exact case unlinked
+ * the restored test, and a runner that exits 0 on an empty set reported
+ * VERIFIED over an unfixed bug.
+ */
+export function probeFilesystemCaseSensitivity(dir: string): boolean {
+  const upper = join(dir, '.tw-case-probe-A');
+  const lower = join(dir, '.tw-case-probe-a');
+  try {
+    writeFileSync(upper, '', { flag: 'wx' });
+    return !existsSync(lower);
+  } finally {
+    rmSync(upper, { force: true });
+  }
+}
+
+/** The case-fold used when the filesystem is case-insensitive. A simple
+ *  lower-casing: it models the collapse the issue demonstrated, and is what
+ *  the glob lists (all lower-case) match against. Unicode-normalising
+ *  filesystems (APFS's NFD) fold more than this; see the residual. */
+function foldCase(p: string): string {
+  return p.toLowerCase();
+}
+
+/** The first pair of `paths` that are distinct but fold to the same name, or
+ *  null. Two such paths cannot both exist in a copy on a case-insensitive
+ *  filesystem, so nothing materialised there is the tree under verification. */
+export function caseFoldCollision(paths: string[]): [string, string] | null {
+  const seen = new Map<string, string>();
+  for (const p of paths) {
+    const key = foldCase(p);
+    const prior = seen.get(key);
+    if (prior !== undefined && prior !== p) return [prior, p];
+    if (prior === undefined) seen.set(key, p);
+  }
+  return null;
 }
 
 /** Remove `p` when it is a symlink, so a later write lands in the sandbox
@@ -618,9 +675,16 @@ function overlayPristine(
   policy: Policy,
   cmd: string,
   dependencyRoot: string | null,
+  caseSensitive: boolean,
 ): { restored: string[]; removed: number } {
   const entries = baseEntries(base, cwd);
   const atBase = entries.map((e) => e.path);
+  // On a case-insensitive filesystem the copy identifies paths by their folded
+  // form, so the overlay must too: membership tests consult the folded path as
+  // well as the exact one, and the base-protected set is keyed on the fold.
+  // On a case-sensitive filesystem the fold is the identity and every test
+  // below is exactly what it was.
+  const fold = caseSensitive ? (p: string): string => p : foldCase;
   // Base-owned = the policy's overlay classes UNION the verification surface
   // UNION whatever the verifier command itself executes.
   // The EXPLICIT half is a glob, so it also governs removal: a file the agent
@@ -630,7 +694,7 @@ function overlayPristine(
   // why delegation needs the explicit list.
   const verifierGlobs = policy.verify?.inputs ?? [];
   const coveredBaseInputs = verifierCoveredInputs(cmd, atBase, policy);
-  const isOverlay = (p: string): boolean =>
+  const isOverlayExact = (p: string): boolean =>
     coveredBaseInputs.has(p) ||
     // Candidate-added files do not exist in atBase and therefore cannot appear
     // in the precomputed set. They still must be removed when they land on a
@@ -638,12 +702,20 @@ function overlayPristine(
     OVERLAY_CLASSES.some((category) => isProtected(p, policy, category)) ||
     matchesAny(p, VERIFICATION_SURFACE) ||
     (verifierGlobs.length > 0 && matchesAny(p, verifierGlobs));
+  const coveredFolded = new Set(caseSensitive ? [] : [...coveredBaseInputs].map(foldCase));
+  // Case-insensitive: `CONFTEST.PY` is `conftest.py` to the runner, so it is
+  // on the surface; `test/FOO.test.js` is the base's `test/foo.test.js`
+  // inode, so it is a covered input. The glob lists are lower-case, which is
+  // what the folded path is matched against.
+  const isOverlay = caseSensitive
+    ? isOverlayExact
+    : (p: string): boolean => isOverlayExact(p) || isOverlayExact(foldCase(p)) || coveredFolded.has(foldCase(p));
   const restored: string[] = [];
   const restoredLinks: Array<{ path: string; out: string; target: string }> = [];
   const baseProtected = new Set<string>();
   for (const e of entries) {
     if (!isOverlay(e.path)) continue;
-    baseProtected.add(e.path);
+    baseProtected.add(fold(e.path));
     if (e.type === 'commit') {
       // A submodule inside an overlay class cannot be materialised faithfully
       // from this repository alone. "Cannot verify" is the honest answer.
@@ -689,12 +761,14 @@ function overlayPristine(
   // contributed. Added tests are not lost information — the visible run still
   // executes them; the pristine run asks only whether the agent's source passes
   // the ORIGINAL suite, to which an agent-authored file is not an input.
+  //
+  // The set is keyed on the FOLDED path when the filesystem folds (#426): a
+  // case variant of a base-protected path is, there, the restored file itself,
+  // and unlinking it unlinked the restoration. Never removed.
   let removed = 0;
-  const inCopy = git(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd)
-    .split('\0')
-    .filter(Boolean);
+  const inCopy = workingTreePaths(cwd);
   for (const rel of inCopy) {
-    if (!isOverlay(rel) || baseProtected.has(rel)) continue;
+    if (!isOverlay(rel) || baseProtected.has(fold(rel))) continue;
     rmSync(join(dest, rel), { force: true });
     removed++;
   }
@@ -954,6 +1028,12 @@ export function runVerify(opts: VerifyOpts): number {
     ? (_s: string): void => {}
     : (s: string): void => void process.stdout.write(s + '\n');
 
+  // Probed once the temp root exists, then reported in every document so the
+  // fold assumption the overlay ran under is auditable (#426).
+  let filesystemCaseSensitive: boolean | undefined;
+  const caseReport = (): Record<string, unknown> =>
+    filesystemCaseSensitive === undefined ? {} : { filesystem_case_sensitive: filesystemCaseSensitive };
+
   const cannotVerify = (
     reason: VerifyCannotVerifyReason,
     detail?: string,
@@ -966,6 +1046,7 @@ export function runVerify(opts: VerifyOpts): number {
         verdict: 'CANNOT_VERIFY',
         reason,
         ...(detail ? { detail } : {}),
+        ...caseReport(),
         ...extra,
       }));
     } else if (detail) {
@@ -1130,6 +1211,39 @@ export function runVerify(opts: VerifyOpts): number {
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
   };
 
+  // The filesystem the copies live on decides what "the same path" means
+  // (#426). Both roots come from the same temp directory, so one probe covers
+  // both materialisations. On a case-insensitive filesystem two in-tree paths
+  // that fold together cannot both exist in a copy — whichever is written
+  // second silently replaces the first — so the copy would not be the tree
+  // under verification, and neither run is evidence about it. Refused before
+  // any candidate code runs.
+  filesystemCaseSensitive = (opts.probeCaseSensitivity ?? probeFilesystemCaseSensitivity)(visRoot);
+  if (!filesystemCaseSensitive) {
+    // A listed-but-gone index entry never reaches a copy (materialize skips
+    // it), so it cannot collide there either.
+    const present = (rel: string): boolean => {
+      try {
+        lstatSync(join(cwd, rel));
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const collision =
+      caseFoldCollision(workingTreePaths(cwd).filter(present)) ??
+      caseFoldCollision(baseEntries(base, cwd).map((e) => e.path));
+    if (collision) {
+      cleanup([visRoot]);
+      return cannotVerify(
+        'PATH_CASE_COLLISION',
+        `${collision[0]} and ${collision[1]} are distinct paths that the case-insensitive filesystem the copies are ` +
+          'materialised on cannot tell apart; the copy could not be the tree under verification',
+        { verifier_backend: backendReport(), dependency_environment: dependencyReport(), oracle_assurance: oracleAssuranceReport() },
+      );
+    }
+  }
+
   // The tree under verification must not move either: the pristine copy is now
   // materialised from it AFTER the candidate's code has had a turn, so a visible
   // run that reaches back into the original working tree (its path is one
@@ -1179,6 +1293,7 @@ export function runVerify(opts: VerifyOpts): number {
         verdict: 'CANNOT_VERIFY',
         reason: exhausted ? 'VERIFIER_RESOURCE_EXHAUSTED' : 'VERIFIER_BACKEND_RUNTIME_FAILURE',
         stage: 'visible',
+        ...caseReport(),
         ...(visible.resource ? { resource: visible.resource } : {}),
         detail: visible.reason,
         diagnostics: diagnosticsJson(visible.diagnostics, true),
@@ -1223,7 +1338,7 @@ export function runVerify(opts: VerifyOpts): number {
     mkdirSync(priDir);
     materialize(cwd, priDir, frozenNodeModules);
     ({ restored, removed: removedAdded } = overlayPristine(
-      cwd, base, priDir, policy, cmd, frozenNodeModules,
+      cwd, base, priDir, policy, cmd, frozenNodeModules, filesystemCaseSensitive,
     ));
   } catch (e) {
     cleanup([visRoot, priRoot]);
@@ -1246,6 +1361,7 @@ export function runVerify(opts: VerifyOpts): number {
         verdict: 'CANNOT_VERIFY',
         reason: exhausted ? 'VERIFIER_RESOURCE_EXHAUSTED' : 'VERIFIER_BACKEND_RUNTIME_FAILURE',
         stage: 'pristine',
+        ...caseReport(),
         ...(pristine.resource ? { resource: pristine.resource } : {}),
         detail: pristine.reason,
         diagnostics: diagnosticsJson(pristine.diagnostics, true),
@@ -1332,6 +1448,7 @@ export function runVerify(opts: VerifyOpts): number {
         pristine: stageJson(pristine),
         protected_restored: restored.length,
         added_protected_removed: removedAdded,
+        filesystem_case_sensitive: filesystemCaseSensitive,
         verifier_backend: backendReport(),
         dependency_environment: dependencyReport(),
         oracle_assurance: oracleAssuranceReport(),

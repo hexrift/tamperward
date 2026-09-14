@@ -35,7 +35,8 @@
         "VERIFIER_BACKEND_RUNTIME_FAILURE",
         "VERIFIER_RESOURCE_EXHAUSTED",
         "WORKTREE_CHANGED",
-        "PRISTINE_INTEGRITY_CHANGED"
+        "PRISTINE_INTEGRITY_CHANGED",
+        "PATH_CASE_COLLISION"
       ],
       "description": "Machine reason for CANNOT_VERIFY. `stage` names the suite execution in flight, where one was."
     },
@@ -77,6 +78,10 @@
     "added_protected_removed": {
       "type": "integer",
       "minimum": 0
+    },
+    "filesystem_case_sensitive": {
+      "type": "boolean",
+      "description": "Whether the filesystem the copies are materialised on distinguishes path case (probed once per verify). When false, overlay membership and the base-protected set are case-folded and a fold collision between two in-tree paths is CANNOT_VERIFY / PATH_CASE_COLLISION. Present once the probe has run."
     },
     "verifier_backend": {
       "$ref": "#/$defs/backend"

@@ -60,7 +60,7 @@ and invokes the installed binary directly.
 
 ### The repository root, from any subdirectory
 
-Every git view reports paths relative to the repository root, and since **2.23.5**
+Every git view reports paths relative to the repository root, and since **2.23.6**
 every command that reads the working tree resolves that root first (`git rev-parse
 --show-toplevel`, plus `--absolute-git-dir` for session state) and reads against it:
 the policy file, the after-content of every changed file, the protected-tree

@@ -526,6 +526,10 @@ describe('machine-readable schema v1 (#333)', () => {
     expect(validateDoc('verify', { schema_version: 1, verdict: 'CANNOT_VERIFY', reason: 'NO_SUITE_COMMAND', detail: 'x' })).toEqual([]);
     expect(validateDoc('verify', { schema_version: 1, verdict: 'CANNOT_VERIFY', reason: 'because it felt like it', detail: 'x' })).not.toEqual([]);
     expect(validateDoc('verify', { schema_version: 1, verdict: 'CANNOT_VERIFY', detail: 'x' })).not.toEqual([]);
+    // #426: the filesystem case-fold assumption is auditable, and a fold
+    // collision is a closed-vocabulary reason, not prose.
+    expect(validateDoc('verify', { schema_version: 1, verdict: 'CANNOT_VERIFY', reason: 'PATH_CASE_COLLISION', detail: 'x', filesystem_case_sensitive: false })).toEqual([]);
+    expect(validateDoc('verify', { schema_version: 1, verdict: 'CANNOT_VERIFY', reason: 'NO_SUITE_COMMAND', detail: 'x', filesystem_case_sensitive: 'yes' })).not.toEqual([]);
 
     const core = {
       schema_version: 1, exit_code: 0, complete: false, base: 'a'.repeat(40),

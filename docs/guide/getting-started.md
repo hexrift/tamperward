@@ -79,7 +79,7 @@ automatically when the template changes).
 
 `init` wires the **repository root** from any subdirectory: run from `packages/x`, it
 writes the same files to the same places as from the root and says so on stderr
-(2.23.5; before that it planned the policy and CI files under the subdirectory while
+(2.23.6; before that it planned the policy and CI files under the subdirectory while
 wiring the parent's `.git/hooks`). The same rooting applies to every command that
 reads the working tree — see [the enforcement guide](./enforcement.md#the-repository-root-from-any-subdirectory).
 
