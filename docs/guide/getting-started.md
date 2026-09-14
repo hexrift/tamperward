@@ -175,6 +175,11 @@ stamped older TamperWard workflow to the current template; an operator-edited wo
 is left untouched unless `--force-workflow` is explicit. For a custom workflow, run
 `tamperward doctor --workflow <path> --base <trusted-rev>` to validate its envelope.
 
+For optional dogfooding/operational measurement, enable the privacy-safe local audit
+with `TAMPERWARD_AUDIT_LOG=auto` and inspect it with `tamperward stats`. This
+telemetry is deliberately non-authoritative; see [Audit history & stats](./audit.md)
+for the event schema and the separate GitHub-backed history workflow.
+
 Or run the commands directly:
 
 ```bash
