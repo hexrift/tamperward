@@ -16,10 +16,25 @@ name: release
 # signed, verifiable link from the published tarball back to this repo, this commit, and
 # this workflow. For a tool whose whole claim is verifiable integrity, publishing without
 # it would be off-message.
+#
+# RE-ENTRANT (#420). Publish, tag and release are three separate records, and each step
+# is gated on ITS OWN record being absent — the registry for publish, `git ls-remote` for
+# the tag, `gh release view` for the release — never on whether an earlier step ran in
+# this particular run. A run that published and then failed to push the tag converges
+# on re-run: publish is skipped, the tag and release are created. Gating all three on
+# "the registry lacks it" (as this file once did) made that state permanent.
 on:
   push:
     branches: [main]
-  workflow_dispatch: # re-run a failed release for the same version; the guard makes it idempotent
+  workflow_dispatch: # re-run a failed release for the same version; the per-record guards make it idempotent
+    inputs:
+      allow_non_bump_head:
+        description: >-
+          Publish even though HEAD is not the commit that last changed package.json.
+          The tag and provenance will point at HEAD, which carries changes the
+          CHANGELOG entry for this version does not describe. Off by default.
+        type: boolean
+        default: false
 
 # No NPM_TOKEN. Authentication is npm TRUSTED PUBLISHING: npm trusts this repository's
 # workflow directly, and GitHub mints a short-lived OIDC credential per run. The trust
@@ -46,7 +61,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # Full history and tags, not the default depth-1 checkout. Two things below need
+      # them: `plan` asks which commit last touched package.json, which on a depth-1
+      # clone is trivially HEAD and the check is vacuous; and the release notes look up
+      # the previous v* tag for the "Full Changelog" compare link, which on a tagless
+      # clone was always empty, so the link was never written (#420).
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       # NO registry-url. Setting it makes setup-node write an .npmrc containing
       #   //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}
@@ -61,7 +84,7 @@ jobs:
 
       # Node's bundled npm lags what trusted publishing needs — upgrade explicitly rather
       # than depending on whatever the Node line happens to bundle, which changes under us.
-      # Pinned, not `@latest`: this npm runs `npm ci`, the tests and the publish itself,
+      # Pinned, not `@latest`: this npm runs `npm ci`, the build and the publish itself,
       # so whichever npm is `latest` at release time would otherwise be part of the
       # supply chain with no review. Bump it deliberately.
       - name: Install an npm that supports trusted publishing
@@ -80,23 +103,79 @@ jobs:
             if (!ok) { console.error("npm " + process.argv[1] + " is older than 11.5.1; trusted publishing needs 11.5.1+"); process.exit(1); }
           ' "$NPM_V"
 
-      # The release gate: does the registry already have this version? Exit 0 from
-      # `npm view pkg@version` means yes -> nothing to do. If this check fails
-      # TRANSIENTLY (network), we proceed and the publish itself fails loudly on the
-      # conflict — a wasted run, never a wrong publish: the registry rejects overwrites.
+      # The release plan. Three independent questions, one output each:
+      #   publish         — does the registry lack this version? Exit 0 from
+      #                     `npm view pkg@version` means it has it -> nothing to publish.
+      #   tag_missing     — does origin lack refs/tags/v<version>?
+      #   release_missing — does GitHub lack a release named v<version>?
+      # Each later step keys on its own answer, so a partial earlier run converges here
+      # instead of being frozen by "already on the registry".
+      #
+      # If the registry check fails TRANSIENTLY (network), we proceed and the publish
+      # itself fails loudly on the conflict — a wasted run, never a wrong publish: the
+      # registry rejects overwrites. The tag check is the opposite shape: `ls-remote`
+      # failing is a hard error (set -e), because "could not ask" must not be read as
+      # "absent" and produce a second tag push that the ruleset then rejects.
+      #
+      # BUMP-COMMIT CHECK (#420). This workflow fires on every push to main and publishes
+      # whatever HEAD is. If the release of the bump commit failed and the next merge is
+      # an unrelated change, that later push would publish the unrelated commit under
+      # the reviewed version: provenance and the tag then point at code the CHANGELOG
+      # entry never described. So when there is anything to do, HEAD must be the commit
+      # that last changed package.json — the bump commit that review approved — unless
+      # a `workflow_dispatch` says `allow_non_bump_head: true`, which makes the
+      # divergence a conscious act with both SHAs in the log. When there is nothing to
+      # do (already published, tagged and released) the check is skipped, so ordinary
+      # non-bump merges stay a quiet no-op.
       - name: Decide whether this push releases
         id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ALLOW_NON_BUMP_HEAD: ${{ inputs.allow_non_bump_head || 'false' }}
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
           if npm view "tamperward@${VERSION}" version >/dev/null 2>&1; then
-            echo "tamperward@${VERSION} is already on the registry — nothing to release."
-            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "tamperward@${VERSION} is already on the registry — not publishing."
+            PUBLISH=false
           else
-            echo "tamperward@${VERSION} is not on the registry — releasing it."
-            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "tamperward@${VERSION} is not on the registry — publishing it."
+            PUBLISH=true
           fi
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          if [ -z "$(git ls-remote --tags origin "refs/tags/v${VERSION}")" ]; then
+            echo "origin has no tag v${VERSION} — it will be created."
+            TAG_MISSING=true
+          else
+            echo "origin already has tag v${VERSION}."
+            TAG_MISSING=false
+          fi
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            echo "GitHub release v${VERSION} already exists."
+            RELEASE_MISSING=false
+          else
+            echo "GitHub release v${VERSION} does not exist — it will be created."
+            RELEASE_MISSING=true
+          fi
+          BUMP_SHA="$(git log -1 --format=%H -- package.json)"
+          echo "bump commit (last to touch package.json): ${BUMP_SHA}"
+          echo "head commit (GITHUB_SHA):                  ${GITHUB_SHA}"
+          if [ "$PUBLISH" = true ] || [ "$TAG_MISSING" = true ] || [ "$RELEASE_MISSING" = true ]; then
+            if [ "$BUMP_SHA" != "$GITHUB_SHA" ]; then
+              if [ "$ALLOW_NON_BUMP_HEAD" = "true" ]; then
+                echo "::warning::HEAD ${GITHUB_SHA} is not the bump commit ${BUMP_SHA}; proceeding because allow_non_bump_head=true. The tag and provenance for v${VERSION} will point at HEAD."
+              else
+                echo "::error::HEAD ${GITHUB_SHA} is not the commit that last changed package.json (${BUMP_SHA}). Publishing it would ship changes the CHANGELOG entry for ${VERSION} never described. Re-run via workflow_dispatch with allow_non_bump_head=true to publish HEAD deliberately, or bump the version in a new PR."
+                exit 1
+              fi
+            fi
+          fi
+          {
+            echo "publish=${PUBLISH}"
+            echo "tag_missing=${TAG_MISSING}"
+            echo "release_missing=${RELEASE_MISSING}"
+            echo "version=${VERSION}"
+            echo "bump_sha=${BUMP_SHA}"
+          } >> "$GITHUB_OUTPUT"
 
       # A typo in a version-bump PR must not move `latest` BACKWARDS. npm points `latest`
       # at whatever `--tag latest` publishes, even a LOWER version — so 1.0.2 published
@@ -130,13 +209,22 @@ jobs:
           case "$VERSION" in *-*) forward "$VERSION" "$NEXT" "next";; esac
           echo "version $VERSION moves forward (latest=${LATEST:-none}, next=${NEXT:-none})"
 
-      # The gate ships only if its own checks are green. prepublishOnly builds dist/.
+      # Install and typecheck, then publish. prepublishOnly builds dist/.
+      #
+      # NO `npm test` HERE, deliberately (#420). The exact-head PR CI (ci.yml, required
+      # on every merge to main) already ran the whole suite on Node 20/22/24 for this
+      # very commit; a second run on the release runner adds no evidence about the code
+      # and adds one more place for a timing-sensitive test to fail. That is how 2.23.0
+      # sat unpublished: test/perf-smoke.test.ts measures a throughput ratio, and the
+      # release runner's ratio missed the bar the PR runner had cleared. A test that
+      # passed on the reviewed head and fails on the release runner tells us about the
+      # runner, not the release — and the bump-commit check in `plan` is what guarantees
+      # the head being published IS the reviewed head. The typecheck stays: it is
+      # deterministic, cheap, and catches a broken toolchain before `npm publish` does.
       - if: steps.plan.outputs.publish == 'true'
         run: npm ci
       - if: steps.plan.outputs.publish == 'true'
         run: npm run typecheck
-      - if: steps.plan.outputs.publish == 'true'
-        run: npm test
 
       # A prerelease must not become `latest`, or `npm install tamperward` starts handing
       # people a release candidate. Anything with a hyphen (1.1.0-rc.2) publishes under
@@ -152,11 +240,15 @@ jobs:
           esac
           npm publish --provenance --access public --tag "$TAG"
 
-      # The tag is the RECORD, cut only after the registry accepted the publish. The tag
-      # ruleset (release tags) forbids deleting or moving v* tags, so the record is
-      # append-only; it permits creation, which is all this needs.
+      # The tag is the RECORD, cut only after the registry accepted the publish — either
+      # in this run (the Publish step above succeeded, or the job would have stopped) or
+      # in an earlier one (publish=false because the registry already has the version).
+      # Gated on the tag being ABSENT FROM ORIGIN, not on `publish`, so a run that
+      # published and then failed here is repaired by re-running. The tag ruleset
+      # (release tags) forbids deleting or moving v* tags, so the record is append-only;
+      # it permits creation, which is all this needs.
       - name: Tag the published commit
-        if: steps.plan.outputs.publish == 'true'
+        if: steps.plan.outputs.tag_missing == 'true'
         run: |
           set -euo pipefail
           VERSION="${{ steps.plan.outputs.version }}"
@@ -168,9 +260,11 @@ jobs:
       # The release body is the CHANGELOG section for this version — written once, shown
       # everywhere — not the auto-generated PR list, which in a solo repo repeats
       # "by @<owner>" after every line and says nothing the changelog doesn't say better.
-      # Falls back to --generate-notes only when the section is missing.
+      # Falls back to --generate-notes only when the section is missing. Gated on the
+      # release being absent, like the tag: a run that tagged and then failed here
+      # converges on re-run. `gh release create` on an existing tag reuses it.
       - name: GitHub release
-        if: steps.plan.outputs.publish == 'true'
+        if: steps.plan.outputs.release_missing == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
