@@ -1313,7 +1313,10 @@ export function setfaclDropsExec(toks: string[]): boolean {
   }));
 }
 
-const WRAPPERS = /^(?:sudo|command|exec|time|nice|env|[A-Za-z_][A-Za-z0-9_]*=\S*)$/;
+/** A token that runs the NEXT token as the command: `sudo rm x`, `env rm x`,
+ *  `FOO=1 rm x`. Shared with test-deletion so both rules read the same word as
+ *  the command. */
+export const WRAPPERS = /^(?:sudo|command|exec|time|nice|env|[A-Za-z_][A-Za-z0-9_]*=\S*)$/;
 const INTERPRETERS = new Set(['python', 'python2', 'python3', 'node', 'perl', 'ruby', 'php', 'deno', 'bun']);
 const INLINE_FLAG = /^-(?:c|e|r|E|p|pe|pi|i|ne|ni|le)$|^--eval$|^--print$|^--exec$/;
 const EDITORS = new Set(['ex', 'ed', 'vim', 'vi', 'nvim']);
@@ -1331,7 +1334,7 @@ function nameGlob(pattern: string): (name: string) => boolean {
 
 /** The write targets a copy-like command names, dir destinations expanded: `cp
  *  x .husky/` writes `.husky/x`; `install -t .husky x` writes `.husky/x`. */
-function destinations(cmd: string, args: string[], isDir: (p: string) => boolean): string[] {
+export function destinations(cmd: string, args: string[], isDir: (p: string) => boolean): string[] {
   const positional: string[] = [];
   let target: string | null = null;
   for (let i = 0; i < args.length; i++) {
@@ -1369,7 +1372,7 @@ function destinations(cmd: string, args: string[], isDir: (p: string) => boolean
  * absolute path under the repository is the repository path.
  */
 /** A redirection's target: `>x`, `>>x`, `2>x`, `>|x` (past `noclobber`), `&>x`. */
-const REDIRECT_TARGET = /(?:^|\s)(?:\d*>{1,2}\|?|&>{1,2})\s*(\S+)/g;
+export const REDIRECT_TARGET = /(?:^|\s)(?:\d*>{1,2}\|?|&>{1,2})\s*(\S+)/g;
 
 /** A shell path token with the spellings the shell expands before a write lands:
  *  `~`, `$HOME`/`${HOME}` (perl's `$ENV{HOME}`), `%USERPROFILE%`, `$CLAUDE_CONFIG_DIR` (its value when the
@@ -1570,18 +1573,26 @@ export function shellWritesHook(seg: string, toks: string[], policy: Policy, ctx
   }
 }
 
+/** The command an `xargs` segment runs over what feeds it, past xargs's own
+ *  flags (`xargs -n1 rm -f` runs `rm`): its basename, its arguments, and the
+ *  index of the command token. Null when the segment does not run xargs. */
+export function xargsCommand(toks: string[]): { cmd: string; args: string[]; at: number } | null {
+  const at = toks.findIndex((t) => t === 'xargs' || t.endsWith('/xargs'));
+  if (at === -1) return null;
+  let i = at + 1;
+  while (i < toks.length && toks[i].startsWith('-')) i += /^-(?:I|n|L|P|d|a|s)$/.test(toks[i]) ? 2 : 1;
+  return { cmd: (toks[i] ?? '').replace(/^.*\//, ''), args: toks.slice(i + 1), at: i };
+}
+
 /** `… | xargs rm` / `xargs chmod -x`: the hook path is in the segment feeding
  *  xargs, not in xargs's own. `fed` are the tokens of the earlier segments. */
 export function xargsWritesHook(toks: string[], fed: string[], policy: Policy, ctx?: DetectorContext): string | null {
-  const at = toks.findIndex((t) => t === 'xargs' || t.endsWith('/xargs'));
-  if (at === -1) return null;
+  const run = xargsCommand(toks);
+  if (run === null) return null;
   const { hookish } = hookTests(policy, ctx);
   const fedHook = fed.some(hookish);
   if (!fedHook) return null;
-  let i = at + 1;
-  while (i < toks.length && toks[i].startsWith('-')) i += /^-(?:I|n|L|P|d|a|s)$/.test(toks[i]) ? 2 : 1;
-  const cmd = (toks[i] ?? '').replace(/^.*\//, '');
-  const args = toks.slice(i + 1);
+  const { cmd, args, at: i } = run;
   if (['rm', 'unlink', 'shred', 'truncate', 'mv', 'tee', 'sponge'].includes(cmd)) return `xargs ${cmd} rewrites or removes a protected hook named earlier in the line`;
   if (cmd === 'chmod' && chmodDropsExec(toks.slice(i))) return 'xargs chmod removes execute permission from a hook named earlier in the line';
   if ((cmd === 'sed' || cmd === 'perl') && args.some((a) => /^-[A-Za-z]*i|^--in-place/.test(a))) return `xargs ${cmd} -i rewrites a protected hook named earlier in the line`;

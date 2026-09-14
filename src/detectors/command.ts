@@ -70,3 +70,88 @@ export function gitSubcommand(toks: string[]): string | null {
   }
   return null;
 }
+
+/** The word the shell hands a command for one token: every quote span opened and
+ *  closed inside it is joined (`test/a.te""st.ts`, `'test/a.te'st.ts`) and a
+ *  backslash outside single quotes escapes the character after it
+ *  (`test/a.te\st.ts`). `unquote` strips only the outer quotes, which is the
+ *  reading a flag wants; a PATH wants this one. */
+export function shellWord(t: string): string {
+  let out = '';
+  let single = false;
+  let double = false;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (single) {
+      if (ch === "'") single = false;
+      else out += ch;
+      continue;
+    }
+    if (ch === '\\' && i + 1 < t.length && (!double || /["\\$`]/.test(t[i + 1]))) {
+      out += t[++i];
+      continue;
+    }
+    if (ch === "'" && !double) { single = true; continue; }
+    if (ch === '"') { double = !double; continue; }
+    out += ch;
+  }
+  return out;
+}
+
+const GLOB_CHARS = /[*?[]/;
+
+/** Brace expansion of one word, as bash does before globbing: `a.{ts,js}` is
+ *  `a.ts` and `a.js`; `a.{ts}` — one alternative, which bash leaves alone but
+ *  the runner would still spell the file — is `a.ts`. */
+export function expandBraces(t: string): string[] {
+  const m = t.match(/^([^{]*)\{([^{}]*)\}(.*)$/);
+  if (!m) return [t];
+  return m[2].split(',').flatMap((alt) => expandBraces(`${m[1]}${alt}${m[3]}`));
+}
+
+/** A shell glob as a matcher over listing paths: `*` and `?` stay inside a path
+ *  component, `**` crosses; a leading `./` is not part of the path. */
+export function globToRegExp(pattern: string): RegExp {
+  // a balanced `[abc]` is a class; a stray `[` (the shell's `[ -f x ]`) is literal
+  const classes: string[] = [];
+  const src = pattern
+    .replace(/^\.\//, '')
+    .replace(/\[([^\][]*)\]/g, (_, body: string) => { classes.push(`[${body.replace(/^!/, '^').replace(/\\/g, '\\\\')}]`); return ''; })
+    .replace(/[.+^${}()|\\[\]]/g, '\\$&')
+    .replace(/\*\*\/?/g, '\0')
+    .replace(/\*/g, '[^/]*')
+    .replace(/\?/g, '[^/]')
+    .replace(/\0/g, '(?:.*/)?')
+    .replace(//g, () => classes.shift() ?? '');
+  return new RegExp(`^(?:\\./)?${src}/?$`);
+}
+
+/** The concrete paths a glob token names against a listing: `test/*.test.ts`,
+ *  `test/a.tes?.ts`, `*.{ts,js}`. A token with no glob character is itself. A
+ *  directory the glob names is returned as the directory (`rm -rf packages/*`
+ *  names each package), since the listing holds files. */
+export function expandGlob(t: string, listing: readonly string[]): string[] {
+  const alts = expandBraces(t);
+  if (!alts.some((a) => GLOB_CHARS.test(a))) return alts;
+  const out = new Set<string>();
+  for (const alt of alts) {
+    if (!GLOB_CHARS.test(alt)) { out.add(alt); continue; }
+    let re: RegExp;
+    try { re = globToRegExp(alt); } catch { out.add(alt); continue; } // not a glob the shell would expand: the word itself
+    const depth = alt.replace(/^\.\//, '').replace(/\/+$/, '').split('/').length;
+    for (const f of listing) {
+      if (re.test(f)) { out.add(f); continue; }
+      const parts = f.split('/');
+      if (parts.length > depth && !alt.includes('**')) {
+        const dir = parts.slice(0, depth).join('/');
+        if (re.test(dir)) out.add(dir);
+      }
+    }
+  }
+  return [...out];
+}
+
+/** Whether a token carries a glob character or a brace alternative. */
+export function isGlob(t: string): boolean {
+  return GLOB_CHARS.test(t) || /\{[^{}]*\}/.test(t);
+}

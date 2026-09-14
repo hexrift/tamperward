@@ -14,7 +14,7 @@ const P = defaultPolicy();
 const cmd = (raw: string): CommandChange => ({ kind: 'command', raw, argv: raw.split(/\s+/) });
 const LISTING = ['test/a.test.ts', 'test/b.test.ts', 'src/junk.ts', 'src/index.ts', 'scripts/rm-cache.js', 'package.json', '.husky/pre-commit'];
 const ctx = { trackedFiles: LISTING };
-const td = (c: string, ctx2 = ctx) => testDeletion.run([cmd(c)], P, undefined, ctx2).map((f) => `${f.severity}: ${f.message}`).join(' ');
+const td = (c: string, ctx2: { trackedFiles: string[] } | null = ctx) => testDeletion.run([cmd(c)], P, undefined, ctx2 ?? undefined).map((f) => `${f.severity}: ${f.message}`).join(' ');
 
 describe('#432 · command spellings that remove or overwrite a spec block', () => {
   it.each([
@@ -41,6 +41,8 @@ describe('#432 · command spellings that remove or overwrite a spec block', () =
     "rm 'test/a.te'st.ts",
     'rm test/*.test.ts',
     'rm test/a.test.{ts,js}',
+    'rm test/[ab].test.ts',
+    '[ -f test/a.test.ts ] && rm test/a.test.ts',
     'rm -- test/a.test.ts',
     'ls test/*.test.ts | xargs rm -f',
     'printf test/a.test.ts | xargs -n1 unlink',
@@ -83,11 +85,11 @@ describe('#432 · command spellings that remove or overwrite a spec block', () =
   });
 
   it('without a listing, a wildcard is read by its literal part', () => {
-    expect(td('rm test/a.tes?.ts', undefined)).toMatch(/rm deletes/);
-    expect(td('rm src/*.test.ts', undefined)).toMatch(/rm deletes/);
-    expect(td('rm test/a.test.{ts}', undefined)).toMatch(/rm deletes/);
-    expect(td('rm src/*.ts', undefined)).toBe('');
-    expect(td('rm dist/*.js', undefined)).toBe('');
+    expect(td('rm test/a.tes?.ts', null)).toMatch(/rm deletes/);
+    expect(td('rm src/*.test.ts', null)).toMatch(/rm deletes/);
+    expect(td('rm test/a.test.{ts}', null)).toMatch(/rm deletes/);
+    expect(td('rm src/*.ts', null)).toBe('');
+    expect(td('rm dist/*.js', null)).toBe('');
   });
 });
 
@@ -130,6 +132,10 @@ describe('#432 · a read of a spec, or the word in another position, is clean', 
     'ls test/a.tes?.ts',
     'rm -rf node_modules/.cache',
     'rm -rf dist',
+    '[ -f test/a.test.ts ] && echo present',
+    'test -f test/a.test.ts || exit 1',
+    'mv test/c.test.ts.skip test/c.test.ts',
+    'cp test/a.test.ts.bak test/c.test.ts',
   ])('does not flag: %s', (c) => {
     expect(td(c), c).toBe('');
   });
