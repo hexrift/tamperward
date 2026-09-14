@@ -709,6 +709,7 @@ via npm trusted publishing with SLSA provenance. Full rule:
 npm install && npm run build    # bundles the CLI to dist/cli/index.js
 npm test                        # 2,100+ tests — parser, detectors, engine, policy, renderers
 npm run typecheck
+node harness/perf/bench.mjs      # performance budgets against harness/perf/BASELINE.json (docs/PERF.md)
 ```
 
 Tamperward's own CI runs the engine it ships over every pull request — `check --diff`

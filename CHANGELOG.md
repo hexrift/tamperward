@@ -5,6 +5,28 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.20.6] — 2026-09-13
+
+**Repeatable performance budgets for the hook, the sweep, `check`, `verify` and
+`run`.** `harness/perf/bench.mjs` measures the built CLI on deterministic synthetic
+repositories (`harness/perf/fixtures.mjs`, Node built-ins only): process start
+(`cli.noop`), the `PreToolUse` hook cold and warm, the Stop sweep with its
+protected-tree snapshot at 100 / 1k / 10k files, `check --diff` over 3 and 500
+files, ignored/untracked enumeration under a 20k-file ignored build tree, the
+dependency fingerprint over a `--dep-mb` `node_modules`, visible + pristine
+materialisation around a trivial verifier, the whole `run` envelope, and Stop
+consumption of an 8 MB watcher log. Each item reports p50/p95 wall and CPU as JSON
+and a markdown table. `harness/perf/BASELINE.json` is the committed reference (its
+`machine` block says where it was taken) and `harness/perf/compare.mjs` fails when
+an item's p50 wall exceeds a configurable ratio to it (2× by default, per-item
+`budgets` honoured). `test/perf-smoke.test.ts` runs the four cheapest items on every
+PR and asserts only ratios between items of the same run (each under 4× the
+process-start `cli.noop`), never an absolute clock; `.github/workflows/perf.yml` runs
+the full suite nightly and on demand, compares against the baseline, and uploads the
+report. Documented in `docs/PERF.md`. No
+runtime behaviour changes; the CLI is unchanged.
+
+
 ## [2.20.5] — 2026-09-13
 
 **The documentation now has a Research & Benchmarks section that presents the
