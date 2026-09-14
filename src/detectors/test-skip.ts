@@ -48,6 +48,11 @@ const acc = (names: string): string =>
 const JS_RUNNER = '\\b(?:it|test|describe|suite)';
 const JS_MOD = 'concurrent|sequential|shuffle|serial|parallel'; // it.concurrent.skip, describe.serial.only
 
+// JUnit 5 conditional execution: `@EnabledIfEnvironmentVariable(named = "NEVER", …)`,
+// `@EnabledIfSystemProperty`, `@EnabledIf("method")`, `@DisabledIf…` — the test runs
+// only when a condition the file does not carry allows it (#431).
+const JVM_CONDITIONAL = /@(?:[\w.]+\.)?(?:EnabledIf|DisabledIf)\w*\b/;
+
 // ── #441 · Go any-receiver Skip and pytest conftest hooks ─────────────────────
 // Kept as their own constants so the language rows below stay one spread each.
 //
@@ -146,7 +151,10 @@ const PATTERNS: Record<Lang, Pattern[]> = {
     ...GO_SKIP_PATTERNS, // #441: any receiver, and testify's T()
 
     { re: /\bif\s+testing\.Short\(\)/, why: 'a testing.Short() guard (the body is skipped under -short)' },
-    { re: /^\s*\/\/\s*(?:go:build|\+build)\s+ignore\b/, why: 'a build-ignore constraint (the file is excluded from the test run)', comment: true },
+    // Any constraint on a `_test.go` — `ignore`, `integration`, `never`, `!ci` — takes
+    // the file out of the default `go test ./...` run; the tag's name is the agent's
+    // to choose (#431).
+    { re: /^\s*\/\/\s*(?:go:build|\+build)\b/, why: 'a build constraint on a test file (the file is excluded from the default test run)', comment: true },
   ],
   rs: [
     { re: /#\[ignore\b/, why: 'an #[ignore] attribute (the test no longer runs by default)' },
@@ -158,13 +166,18 @@ const PATTERNS: Record<Lang, Pattern[]> = {
     { re: /(?:^|[\s;{(])f(?:it|describe|context)\s*[('"]/, why: 'an f-prefixed focused example (narrows the suite)' },
     { re: /\b(?:skip|pending):\s*(?:true|['"])/, why: 'a skip/pending metadata flag' },
     { re: /^\s*(?:it|specify|example)\s+(['"])(?:(?!\1).)*\1\s*$/, why: 'an example with no block (RSpec reports it as pending)' },
+    // `it 'x', if: false do` — RSpec's conditional filter with a constant that never
+    // lets the example run (#431). `if: ENV['SLOW']` is a real condition and passes.
+    { re: /(?:^|[\s;{(])(?:it|specify|example|describe|context|scenario|feature)\s*[('"].*(?:\bif:\s*false\b|\bunless:\s*true\b|:if\s*=>\s*false\b|:unless\s*=>\s*true\b)/, why: 'a constant-false if:/unless: filter (the example never runs)' },
   ],
   java: [
     { re: /@(?:[\w.]+\.)?(?:Ignore|Disabled)\b/, why: 'an @Ignore/@Disabled annotation' },
+    { re: JVM_CONDITIONAL, why: 'a conditional-execution annotation (@EnabledIf… / @DisabledIf…: the test runs only when the condition allows)' },
     { re: /\bassume(?:True\(\s*false|False\(\s*true)\s*[,)]/, why: 'an assumption that never holds (the test aborts as skipped)' },
   ],
   kt: [
     { re: /@(?:[\w.]+\.)?(?:Ignore|Disabled)\b/, why: 'an @Ignore/@Disabled annotation' },
+    { re: JVM_CONDITIONAL, why: 'a conditional-execution annotation (@EnabledIf… / @DisabledIf…: the test runs only when the condition allows)' },
     { re: /\bassume(?:True\(\s*false|False\(\s*true)\s*[,)]/, why: 'an assumption that never holds (the test aborts as skipped)' },
   ],
   php: [{ re: /\bmarkTest(?:Skipped|Incomplete)\(/, why: 'a markTestSkipped()/markTestIncomplete() call' }],
@@ -209,6 +222,63 @@ const JS_TEST_MODULES = new Set([
 ]);
 
 type AstHit = { line: number; why: string; evidence: string };
+
+/** The AFTER-side lines a change can show: the whole file when it carries one,
+ *  else the hunks' added and context lines by their new line number. */
+function afterLinesOf(c: FileChange): Map<number, string> {
+  const out = new Map<number, string>();
+  if (c.after != null) {
+    c.after.split('\n').forEach((l, i) => out.set(i + 1, l));
+    return out;
+  }
+  for (const h of c.hunks) for (const l of h.lines) if (l.newLine != null && l.type !== 'del') out.set(l.newLine, l.content);
+  return out;
+}
+
+const GO_TEST_MAIN = /^func\s+TestMain\s*\(\s*(\w+)\s+\*testing\.M\s*\)/;
+const RS_CFG = /^\s*#\[cfg\((.*)\)\]\s*$/;
+const RS_ATTR = /^\s*#!?\[/;
+const RS_TEST_ATTR = /^\s*#\[[\w:]*test\b/;
+const RS_MOD = /^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+/;
+const RS_FN = /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:unsafe\s+)?fn\s+\w+/;
+
+/** Skips that need the lines around them (#431): a Go `TestMain` that never
+ *  calls `m.Run()` runs no test of its package; a Rust `#[cfg(…)]` other than
+ *  `cfg(test)` on `mod tests` or beside `#[test]` compiles the tests out under
+ *  every ordinary configuration. */
+function contextSkipHits(c: FileChange, lang: Lang | null): AstHit[] {
+  if (lang !== 'go' && lang !== 'rs') return [];
+  const lines = afterLinesOf(c);
+  const hits: AstHit[] = [];
+  for (const l of addedLines(c)) {
+    if (l.newLine == null) continue;
+    if (lang === 'go') {
+      const m = GO_TEST_MAIN.exec(l.content);
+      if (!m) continue;
+      const runs = new RegExp('\\b' + m[1] + '\\.Run\\(\\)');
+      let ran = false;
+      for (const [, text] of lines) if (runs.test(text) && !isCommentLine(text.trim(), lang)) ran = true;
+      if (!ran) hits.push({ line: l.newLine, why: `a TestMain that never calls ${m[1]}.Run() (no test in the package runs)`, evidence: l.content.trim() });
+      continue;
+    }
+    const cfg = RS_CFG.exec(l.content);
+    if (!cfg || cfg[1].trim() === 'test') continue;
+    // The attribute run this cfg belongs to, and the item it decorates.
+    let first = l.newLine;
+    while (RS_ATTR.test(lines.get(first - 1) ?? '')) first--;
+    let at = l.newLine + 1;
+    while (RS_ATTR.test(lines.get(at) ?? '') || (lines.has(at) && !/\S/.test(lines.get(at) ?? ''))) at++;
+    const item = lines.get(at) ?? '';
+    let besideTest = false;
+    for (let i = first; i < at; i++) if (RS_TEST_ATTR.test(lines.get(i) ?? '')) besideTest = true;
+    if (RS_MOD.test(item)) {
+      hits.push({ line: l.newLine, why: 'a #[cfg(…)] on the test module (the tests are compiled out under every ordinary configuration)', evidence: l.content.trim() });
+    } else if (besideTest && RS_FN.test(item)) {
+      hits.push({ line: l.newLine, why: 'a #[cfg(…)] beside #[test] (the test is compiled out under every ordinary configuration)', evidence: l.content.trim() });
+    }
+  }
+  return hits;
+}
 
 function scriptKind(path: string): TS.ScriptKind {
   if (/\.tsx$/i.test(path)) return ts.ScriptKind.TSX;
@@ -1091,6 +1161,20 @@ export const testSkip: Detector = {
             }),
           );
         }
+      }
+
+      for (const hit of contextSkipHits(c, lang)) {
+        astHitLines.add(hit.line);
+        out.push(
+          makeFinding(RULE, policy, {
+            file: c.path,
+            line: hit.line,
+            message: `Test skipped or narrowed: ${hit.why}.`,
+            evidence: hit.evidence,
+            remediation:
+              'Make the test pass rather than skipping it. If it is genuinely obsolete, a human must sign off.',
+          }),
+        );
       }
 
       // #441: `@sk` where `sk = pytest.mark.skip` was bound in the file or the change.

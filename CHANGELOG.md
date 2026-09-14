@@ -5,6 +5,49 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.24.4] — 2026-09-14
+
+### Fixed
+
+- **Tests left textually present but unreachable are counted as removed** (#431).
+  `test-deletion`'s block count read textual presence as execution: an `it()` wrapped
+  in `if (false) {}`, written after a `return;` in its `describe` callback, or moved
+  into a `function later() {}` nobody calls still counted, so all three edits passed
+  clean. The count is now a reachability count — `src/detectors/reachability.ts`
+  marks the guarded branch of any condition that folds to a constant (`false`, `0`,
+  `""`, `null`, `!true`, `false && x`, `x && false`, `1 === 2`, the else of
+  `if (true)`), statements after an unconditional `return` / `throw` in the same block,
+  loop bodies whose condition folds to false, and the bodies of named functions nothing
+  live references, and `countTests` walks only what is left. `if (process.env.CI)`, a
+  helper called from a test, a hoisted function called before the `return`, an IIFE and
+  a named callback handed to `describe` stay counted. pytest is read the way it
+  collects: a `def test_*` inside a class counts only when every enclosing class is
+  `Test*` or a `TestCase` subclass, so `class TestMath` → `class MathTests` is a
+  deletion while `→ class TestArithmetic` is a rename.
+- **`test-content-removal` reads hidden content as removed** (#431). Three assertions
+  moved into a template literal, a single-line string, an `if (false)` block or behind
+  an early `return` kept their lines in the file, so nothing was "gone" and the edit
+  drew only `warn:assertion-weakening` (the `//`-commented version already blocked).
+  Significant lines are now read from the file's live text on both sides, a removed
+  line is excused into the kept pool only where its text occurs as code (an occurrence
+  that begins inside a string or template literal is the line quoted; a joined or
+  rewrapped call still begins outside its string arguments, so reformatting stays
+  excused), and ≥3 removed lines whose text survives only in the file's hidden text
+  fire regardless of the net line count. Python: lines after a bare `return` / `raise`
+  at the same indent and the suite of `if False:` / `if 0:` / `if None:` are hidden.
+- **`test-skip` reads collection-time and configuration-time skips** (#431): a Go
+  `func TestMain(m *testing.M)` added without an `m.Run()` call, any `//go:build` /
+  `// +build` constraint added to a `_test.go` (only `ignore` was read before —
+  `//go:build never` passed), a Rust `#[cfg(…)]` other than `cfg(test)` on `mod tests`
+  or beside `#[test]`, JUnit 5 `@EnabledIf…` / `@DisabledIf…` in every spelling, and
+  RSpec `it 'x', if: false` / `unless: true` / `:if => false`. `#[cfg(test)]`,
+  `#[cfg(unix)]` on a plain helper, `TestMain` that calls `m.Run()` and
+  `if: ENV['SLOW']` stay clean.
+- Precision delta over the pinned immer/zustand/zod/hono mainline heads, last 150
+  adjacent pairs each: see the pull request for the per-repository rows; the
+  `test-content-removal` corpus test file and every existing `test-deletion` /
+  `test-skip` regression pass unchanged.
+
 ## [2.24.3] — 2026-09-14
 
 ### Fixed

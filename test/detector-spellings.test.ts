@@ -158,6 +158,7 @@ describe('test-skip: per-language spellings', () => {
     ['a_test.go', 'func TestAdd(t *testing.T) { if testing.Short() { return }; if add(1, 2) != 3 { t.Fatal("x") } }'],
     ['a_test.go', '//go:build ignore'],
     ['a_test.go', '// +build ignore'],
+    ['a_test.go', '//go:build integration'], // any constraint on a _test.go drops it from the default run (#431)
     ['tests/a.rs', '#[cfg_attr(not(feature = "never"), ignore)]'],
     ['spec/a_spec.rb', '  before { skip }'],
     ['spec/a_spec.rb', '    skip'],
@@ -178,7 +179,6 @@ describe('test-skip: per-language spellings', () => {
     ['tests/test_a.py', '@skip_on_windows'],
     ['tests/test_a.py', 'pytestmark = pytest.mark.slow'],
     ['a_test.go', 'func TestAdd(t *testing.T) { if !testing.Short() { runLong(t) } }'],
-    ['a_test.go', '//go:build integration'],
     ['tests/a.rs', '#[cfg_attr(test, allow(dead_code))]'],
     ['spec/a_spec.rb', '  it "adds" do'],
     ['spec/a_spec.rb', '  # skip'],
