@@ -27,6 +27,7 @@
 import { posix } from 'node:path';
 import type TS from 'typescript';
 import { parseSource, ts } from '../ts-lazy';
+import { readRunnerChain, readTableCallee } from './runner-chain';
 import { Change, Detector, DetectorContext, FileChange, Finding } from '../types';
 import { addedLines } from '../diff/select';
 import { isProtected } from '../policy';
@@ -143,9 +144,8 @@ function matchesOutsideString(p: Pattern, content: string, lang: Lang | null): b
 }
 
 const JS_RUNNERS = new Set(['it', 'test', 'describe', 'suite']);
-// vitest's concurrency modifiers and Playwright's describe modes: `it.concurrent.skip`,
-// `test.describe.serial.only`.
-const JS_CHAIN_MODIFIERS = new Set(['concurrent', 'sequential', 'shuffle', 'serial', 'parallel']);
+// The chain modifiers (`it.concurrent.skip`, `test.describe.serial.only`) and table
+// methods live in ./runner-chain, shared with test-deletion and assertion-weakening.
 // Modules whose DEFAULT export is the runner (`import test from 'node:test'`).
 const JS_DEFAULT_RUNNER_MODULES = new Set(['node:test', 'node:test/promises', '@playwright/test']);
 const JS_TEST_MODULES = new Set([
@@ -709,7 +709,14 @@ function staticPropertyName(
   return null;
 }
 
-type RunnerChain = { root: string; props: string[]; terminalNode: TS.Node; causes: TS.Node[] };
+type RunnerChain = {
+  root: string;
+  props: string[];
+  /** The node naming each of `props`, index-aligned (#429). */
+  propNodes: TS.Node[];
+  terminalNode: TS.Node;
+  causes: TS.Node[];
+};
 
 /**
  * The member chain of a call's callee, rooted at a runner: the chain when the root
@@ -724,6 +731,7 @@ function runnerChain(
   strings: Map<TS.Symbol, StaticValue>,
 ): RunnerChain | 'unknown' | null {
   const props: string[] = [];
+  const propNodes: TS.Node[] = [];
   const causes: TS.Node[] = [];
   let cur: TS.Expression = expr;
   let terminalNode: TS.Node = expr;
@@ -731,6 +739,7 @@ function runnerChain(
   while (ts.isPropertyAccessExpression(cur) || ts.isElementAccessExpression(cur)) {
     if (ts.isPropertyAccessExpression(cur)) {
       props.unshift(cur.name.text);
+      propNodes.unshift(cur.name);
       if (props.length === 1) terminalNode = cur.name;
       cur = cur.expression;
       continue;
@@ -739,6 +748,7 @@ function runnerChain(
     const property = staticPropertyName(cur.argumentExpression, ctx, strings);
     if (!property) return null;
     props.unshift(property.name);
+    propNodes.unshift(cur.argumentExpression);
     causes.push(...property.causes);
     if (props.length === 1) terminalNode = cur.argumentExpression;
     cur = cur.expression;
@@ -757,6 +767,10 @@ function runnerChain(
   } else {
     // `require('vitest').it.skip(...)`: the root is the module object itself.
     namespace = requiredModule(cur);
+    // `describe.only.each(rows)('t', fn)`: the outer call's root is the table call,
+    // which is judged as its own chain (#429); the outer call is not one the AST
+    // models, and nothing is left for the line matcher on its lines.
+    if (namespace == null && readTableCallee(cur)) return null;
     verdict = namespace == null ? UNKNOWN : NON_RUNNER;
   }
 
@@ -765,13 +779,16 @@ function runnerChain(
   let root = ts.isIdentifier(cur) ? cur.text : '';
   if (namespace != null && props.length > 0) {
     verdict = withCause(binder.memberOf(namespace, props[0]), cur);
-    if (verdict.kind === 'runner') root = props.shift() ?? root;
+    if (verdict.kind === 'runner') {
+      root = props.shift() ?? root;
+      propNodes.shift();
+    }
   }
 
   if (verdict.kind === 'unknown') return 'unknown';
   if (verdict.kind === 'non-runner') return null;
   causes.push(...verdict.causes);
-  return { root, props, terminalNode, causes };
+  return { root, props, propNodes, terminalNode, causes };
 }
 
 function optionDisables(value: TS.Expression): boolean {
@@ -841,8 +858,10 @@ function semanticSkipHits(ctx: AstContext, binder: ModuleBinder): SemanticAnalys
         const last = lineOf(callee.getEnd());
         for (let line = first; line <= last; line++) unowned.add(line);
       } else if (chain) {
-        const { props, terminalNode, causes } = chain;
+        const { root, props, propNodes, terminalNode, causes } = chain;
         const terminal = props.at(-1);
+        // The chain's shape — modifiers in any order, a table method last (#429).
+        const shape = readRunnerChain(root, props);
         const push = (target: TS.Node, extraCauses: TS.Node[], why: string): void => {
           hits.push({
             semanticKey: `${callKey}\u0000${why}`,
@@ -853,19 +872,17 @@ function semanticSkipHits(ctx: AstContext, binder: ModuleBinder): SemanticAnalys
           });
         };
 
-        if (
-          terminal &&
-          (terminal === 'skip' || terminal === 'only' || terminal === 'todo') &&
-          props.slice(0, -1).every((p) => JS_CHAIN_MODIFIERS.has(p) || JS_RUNNERS.has(p))
-        ) {
-          push(terminalNode, [], 'a .skip/.only/.todo marker');
+        if (shape?.skipMarker) {
+          // `it.skip.each(rows)`, `describe.only.each(rows)`, `it.concurrent.skip`:
+          // the marker anywhere before `.each` / `.for` narrows the run; the
+          // finding points at the marker's own line.
+          push(propNodes[shape.skipIndex] ?? terminalNode, [], 'a .skip/.only/.todo marker');
         } else if (terminal && ['skipIf', 'runIf'].includes(terminal) && props.length === 1) {
           push(terminalNode, [], 'a .skipIf()/.runIf() condition (the test runs only when the condition allows)');
         } else if (terminal && ['fails', 'failing'].includes(terminal) && props.length === 1) {
           push(terminalNode, [], 'a .fails/.failing marker (the test now passes by failing)');
         } else if (
-          terminal === 'each' &&
-          props.length === 1 &&
+          shape?.table === 'each' &&
           node.arguments.length > 0 &&
           ts.isArrayLiteralExpression(node.arguments[0]) &&
           node.arguments[0].elements.length === 0

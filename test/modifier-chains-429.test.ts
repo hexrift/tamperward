@@ -169,8 +169,8 @@ describe('assertion-weakening compares modifier-chained and describe.each identi
 
   it('a test under describe.each(table)(title) is paired by that title', () => {
     const { full } = both(
-      "describe.each([[1], [2]])('n=%s', (n) => { it('adds', () => { expect(sum(n, 1)).toBe(n + 1); }); });",
-      "describe.each([[1], [2]])('n=%s', (n) => { it('adds', () => { expect(sum(n, 1)).toBeTruthy(); }); });",
+      "describe.each([[1], [2]])('n=%s', (n) => { it('adds', () => { expect(sum(n, 1) > n).toBe(true); }); });",
+      "describe.each([[1], [2]])('n=%s', (n) => { it('adds', () => { expect(sum(n, 1) > n).toBeTruthy(); }); });",
     );
     const f = assertionWeakening.run(full, P);
     expect(f).toHaveLength(1);
