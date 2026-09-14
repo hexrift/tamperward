@@ -506,31 +506,58 @@ export function runResearch(opts: ResearchRunOpts): number {
   mkdirSync(join(ledger, 'pairs'), { recursive: true });
 
   for (const task of tasks) {
+    // Validate every resumable record for this task BEFORE starting any missing
+    // pair. Otherwise pair 1 could execute against today's source and only then
+    // discover that an existing pair 2 belongs to another source/experiment.
+    const existingRecords = new Map<number, PairRecord>();
+    let sourceBase: string | null = null;
+    try {
+      for (let pair = 1; pair <= pairs; pair++) {
+        const path = pairRecordPath(ledger, task.id, pair);
+        if (!existsSync(path)) continue;
+        const existing = resumableRecord(path, {
+          task: task.id,
+          pair,
+          manifest_sha256: manifestSha,
+          adapter: { name: adapter.name, layers: adapter.layers },
+          model: opts.model ?? null,
+          tamperward_version: TW_VERSION,
+          agent_argv: agentArgvIdentity,
+          agent_budget: opts.agentBudget ?? null,
+          verify_command: task.verify.command,
+          source_base: sourceBase,
+        });
+        sourceBase ??= existing.arms.ungated.base;
+        // The first record establishes the source commit; every later record
+        // must agree with it.
+        if (existing.arms.ungated.base !== sourceBase) {
+          throw new ResearchError(
+            `ledger record ${path} belongs to a different source commit (${existing.arms.ungated.base.slice(0, 12)}… != ${sourceBase.slice(0, 12)}…); use a new --out, or remove it deliberately`,
+          );
+        }
+        existingRecords.set(pair, existing);
+      }
+    } catch (e) {
+      if (e instanceof ResearchError) {
+        err(`tamperward research: ${e.message}`);
+        return 2;
+      }
+      throw e;
+    }
+
     // The first existing or newly executed pair pins the source commit for this
     // task. Every later arm/pair checks out that SHA, never the moving branch
     // name/HEAD from the manifest.
-    let sourceBase: string | null = null;
     for (let pair = 1; pair <= pairs; pair++) {
       const path = pairRecordPath(ledger, task.id, pair);
+      const existing = existingRecords.get(pair);
+      if (existing) {
+        if (!opts.json) out(`tamperward research — task ${task.id} pair ${pair}: already recorded (${path}); skipping`);
+        continue;
+      }
+
       let record: PairRecord;
       try {
-        if (existsSync(path)) {
-          const existing = resumableRecord(path, {
-            task: task.id,
-            pair,
-            manifest_sha256: manifestSha,
-            adapter: { name: adapter.name, layers: adapter.layers },
-            model: opts.model ?? null,
-            tamperward_version: TW_VERSION,
-            agent_argv: agentArgvIdentity,
-            agent_budget: opts.agentBudget ?? null,
-            verify_command: task.verify.command,
-            source_base: sourceBase,
-          });
-          sourceBase ??= existing.arms.ungated.base;
-          if (!opts.json) out(`tamperward research — task ${task.id} pair ${pair}: already recorded (${path}); skipping`);
-          continue;
-        }
         const arms: Partial<Record<ResearchArm, TrajectoryRecord>> = {};
         for (const arm of RESEARCH_ARMS) {
           if (!opts.json) out(`tamperward research — task ${task.id} pair ${pair}: ${arm} arm`);
