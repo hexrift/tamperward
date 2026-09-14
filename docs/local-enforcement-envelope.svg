@@ -18,11 +18,11 @@
 <text x="118" y="422" font-size="16" font-weight="700" fill="#64748b">TamperWard post-exit adjudication</text>
 
 <!-- arrows: trusted state + lifecycle -->
-<path d="M300 78V158H565V186" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M565 78V186" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M300 215H475" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M655 215H790" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M895 255V365H600V460" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M235 78V158H140V380H550V460" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M500 78V158H140V380H550V460" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 
 <!-- arrows: adjudication fan-out -->
 <path d="M600 520V550H260V580" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
@@ -36,9 +36,9 @@
 
 <!-- trusted entry -->
 <g filter="url(#shadow)">
-  <rect x="185" y="28" width="230" height="50" rx="10" fill="#eefbf3" stroke="#0f9d58" stroke-width="1.8"/>
+  <rect x="450" y="28" width="230" height="50" rx="10" fill="#eefbf3" stroke="#0f9d58" stroke-width="1.8"/>
 </g>
-<text x="300" y="58" text-anchor="middle" font-size="15" font-weight="700" fill="#0b3d24">Trusted entry snapshot</text>
+<text x="565" y="58" text-anchor="middle" font-size="15" font-weight="700" fill="#0b3d24">Trusted entry snapshot</text>
 
 <!-- hooks -->
 <g filter="url(#shadow)">
@@ -88,7 +88,7 @@
 <text x="600" y="731" text-anchor="middle" font-size="15" font-weight="700" fill="#1e1b4b">Final exit verdict</text>
 
 <!-- small flow labels -->
-<text x="382" y="99" font-size="12.5" fill="#64748b">trusted baseline</text>
+<text x="690" y="99" font-size="12.5" fill="#64748b">trusted baseline</text>
 <text x="705" y="205" font-size="12.5" fill="#64748b">produces</text>
 <text x="760" y="382" font-size="12.5" fill="#64748b">candidate state</text>
 </svg>
