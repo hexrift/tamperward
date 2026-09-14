@@ -12,8 +12,11 @@
 // written one and only a real drop in effective strength is reported.
 
 import { yaml } from '../lazy-deps';
-import { defaultPolicy, mergeProtected, normalizeGlob } from '../policy';
+import { defaultPolicy, isNegatedGlob, isProtected, matchesAny, mergeProtected, normalizeGlob, protectedCategory } from '../policy';
+import { Policy } from '../types';
 import { isRecord } from '../narrow';
+import { isCodeFile } from './files';
+import { CANONICAL_SAMPLES, PYTEST_CANONICAL_SAMPLES } from './suite-config';
 
 /** A policy document as parsed, before any validation: every field is unknown
  *  and is narrowed where it is read. This detector must never crash the gate. */
@@ -106,6 +109,104 @@ function effective(raw: RawPolicyShape): EffectivePolicy {
 }
 
 /**
+ * Rule REACH (#434). The glob lists are not the whole story: a rule's jurisdiction is
+ * a predicate over categories, and `mergeProtected` only ever GROWS a category, so
+ * the one weakening a category ADD can cause is invisible to a per-list comparison.
+ * The spec rules judge `tests && !snapshots` — growing `snapshots` over the specs
+ * demoted test-deletion to snapshot-rewrite with no finding — and the cast rules
+ * judge `category !== tests`, so `tests: ['!zzz']` (picomatch: every path) made
+ * every source file a test file and switched them off. Each rule's predicate is
+ * evaluated over a PROBE LISTING before and after the edit; a path that leaves a
+ * rule's reach is reported naming the path and the rule. The listing is the
+ * repository's own files when the caller has them, always joined with the
+ * conventional samples so a repository that holds no `.snap` today still sees a
+ * glob that would demote its specs tomorrow.
+ */
+const SOURCE_SAMPLES = ['src/index.ts', 'src/lib/util.ts', 'app/main.tsx', 'lib/a.js', 'packages/core/src/index.ts'];
+const SNAPSHOT_SAMPLES = [
+  'src/__snapshots__/a.test.ts.snap',
+  'test/__snapshots__/a.snap',
+  'src/__tests__/__snapshots__/a.snap',
+  'tap-snapshots/a.cjs',
+  'golden/a.txt',
+  'test/a.golden.json',
+];
+
+const spec = (p: string, pol: Policy): boolean => isProtected(p, pol, 'tests') && !isProtected(p, pol, 'snapshots');
+const cast = (p: string, pol: Policy): boolean => isCodeFile(p) && protectedCategory(p, pol) !== 'tests';
+/** Each rule's jurisdiction. `broad` marks the cast rules: they cede test files BY
+ *  DESIGN (a cast in a spec warns), so a new `tests` glob that names a real test
+ *  layout (a new package's integration specs) honestly takes those files out of
+ *  their reach. That loss is reported only when the same edit also takes a
+ *  CONVENTIONAL SOURCE path (`src/index.ts`, `lib/a.js`, …) out of reach: a glob no
+ *  honest test layout names, the signature of a negated glob or a bare TS glob. The spec rules
+ *  have no such honest loss — nothing in a category add should stop judging a spec. */
+const REACH: ReadonlyArray<{ rule: string; reaches: (p: string, pol: Policy) => boolean; broad?: true }> = [
+  { rule: 'test-deletion', reaches: spec },
+  { rule: 'test-content-removal', reaches: spec },
+  { rule: 'assertion-weakening', reaches: spec },
+  { rule: 'test-skip', reaches: (p, pol) => isProtected(p, pol, 'tests') },
+  { rule: 'ts-any-cast', reaches: cast, broad: true },
+  { rule: 'ts-cast-growth', reaches: cast, broad: true },
+];
+
+/** The probe listing: the caller's paths first (so a reason names a real file), then
+ *  the conventional samples, each path once. */
+function probeListing(probe: readonly string[] | undefined): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const p of [...(probe ?? []), ...CANONICAL_SAMPLES, ...PYTEST_CANONICAL_SAMPLES, ...SOURCE_SAMPLES, ...SNAPSHOT_SAMPLES]) {
+    if (!seen.has(p)) {
+      seen.add(p);
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+/** A Policy carrying the effective protected globs, for the category predicates. */
+const withProtected = (e: EffectivePolicy): Policy => ({ ...defaultPolicy(e.version), protected: e.protected });
+
+const SHOWN = 5;
+const list = (paths: string[]): string => paths.slice(0, SHOWN).join(', ') + (paths.length > SHOWN ? ` (+${paths.length - SHOWN} more)` : '');
+
+/** Per rule, the probe paths it judged before the edit and no longer judges after. */
+function reachLost(be: EffectivePolicy, ae: EffectivePolicy, probe: readonly string[] | undefined): string[] {
+  const paths = probeListing(probe);
+  const before = withProtected(be);
+  const after = withProtected(ae);
+  const reasons: string[] = [];
+  for (const { rule, reaches, broad } of REACH) {
+    const lost = paths.filter((p) => reaches(p, before) && !reaches(p, after));
+    if (broad && !lost.some((p) => SOURCE_SAMPLES.includes(p))) continue; // a named test layout, ceded by design
+    if (lost.length) {
+      reasons.push(`rule "${rule}" no longer reaches ${list(lost)} — the protected globs changed what it judges`);
+    }
+  }
+  return reasons;
+}
+
+/**
+ * Example paths a glob matches, from the glob's own text: `**` and `*` stand in for
+ * a segment or a name, the first brace alternative and the first bracket character
+ * are taken. Each candidate is kept only if the glob really matches it. Used to ask
+ * whether a NEW `tests` glob reaches into snapshot territory — a path in both
+ * categories is judged as a snapshot, not a spec — without a listing to consult.
+ */
+function exemplars(glob: string): string[] {
+  const base = glob
+    .replace(/\{([^{}]*)\}/g, (_m, alts: string) => alts.split(',')[0] ?? '')
+    .replace(/\[!?([^\]])[^\]]*\]/g, '$1');
+  const variants = [base.replace(/\*\*\//g, ''), base.replace(/\*\*\//g, 'x/'), base.replace(/\/\*\*$/, '/x'), base.replace(/\/\*\*$/, '/x/y')];
+  const out = new Set<string>();
+  for (const v of variants) {
+    const path = v.replace(/\*\*/g, 'x').replace(/\*/g, 'a');
+    if (path && matchesAny(path, [glob])) out.add(path);
+  }
+  return [...out];
+}
+
+/**
  * Reasons the after-policy is weaker than before.
  *  - [] when it's equal or stronger.
  *  - null when `before` can't be parsed (no baseline to compare) → caller should fall
@@ -113,7 +214,7 @@ function effective(raw: RawPolicyShape): EffectivePolicy {
  *  - a finding when `after` won't parse but `before` did — emptying or corrupting the
  *    policy is itself a tamper, so this fails CLOSED.
  */
-export function policyWeakening(before: string, after: string): string[] | null {
+export function policyWeakening(before: string, after: string, probe?: readonly string[]): string[] | null {
   const b = safeParse(before);
   if (b === null) return null;
   const a = safeParse(after);
@@ -181,7 +282,36 @@ export function policyWeakening(before: string, after: string): string[] | null 
     const stillThere = new Set(ae.protected[cat] ?? []);
     const removed = (be.protected[cat] ?? []).filter((g) => !stillThere.has(g));
     if (removed.length) reasons.push(`protected.${cat} narrowed (removed ${removed.join(', ')})`);
+
+    // ADDED globs (#434). A category can only grow, but growth is not always a
+    // strengthening: membership in `snapshots` LOWERS the spec rules (they judge
+    // `tests && !snapshots`), so a glob added there demotes every spec it covers;
+    // a negated glob matches every path, so it moves every file into the category
+    // (the loader refuses it, but this detector judges the EDIT, with the pre-edit
+    // policy, before the loader ever sees the new file); and a `tests` glob that
+    // reaches into snapshot territory puts those paths in both categories, where
+    // they are judged as snapshots.
+    const had = new Set(be.protected[cat] ?? []);
+    const added = (ae.protected[cat] ?? []).filter((g) => !had.has(g));
+    if (!added.length) continue;
+    const negated = added.filter(isNegatedGlob);
+    if (negated.length) {
+      reasons.push(`protected.${cat} gained a negated glob (${negated.join(', ')}) — a "!" pattern matches every path, so every file becomes ${cat === 'tests' ? 'a test file and the source-only rules go quiet' : `a ${cat} file`}`);
+    }
+    const plain = added.filter((g) => !isNegatedGlob(g));
+    if (cat === 'snapshots' && plain.length) {
+      reasons.push(`protected.snapshots widened (added ${plain.join(', ')}) — membership in snapshots lowers test-deletion, test-content-removal and assertion-weakening on those paths`);
+    }
+    if (cat === 'tests' && plain.length) {
+      const snaps = ae.protected.snapshots ?? [];
+      const snapProbes = [...SNAPSHOT_SAMPLES, ...(probe ?? []).filter((p) => matchesAny(p, snaps))];
+      const overlapping = plain.filter((g) => [...exemplars(g), ...snapProbes].some((p) => matchesAny(p, [g]) && matchesAny(p, snaps)));
+      if (overlapping.length) {
+        reasons.push(`protected.tests gained a glob that also matches snapshot paths (${overlapping.join(', ')}) — a path in both categories is judged as a snapshot, not a spec`);
+      }
+    }
   }
+  reasons.push(...reachLost(be, ae, probe));
 
   // signoff: block no longer requires sign-off
   if (be.requiredFor.includes('block') && !new Set(ae.requiredFor).has('block')) {
@@ -265,7 +395,7 @@ export function policyWeakening(before: string, after: string): string[] | null 
  * yields nothing; a document that is not a mapping cannot be loaded at all and
  * is reported, since the loader fails closed on it.
  */
-export function policyAddWeakening(after: string): string[] {
+export function policyAddWeakening(after: string, probe?: readonly string[]): string[] {
   let doc: unknown;
   try {
     doc = yaml.parse(after);
@@ -277,5 +407,5 @@ export function policyAddWeakening(after: string): string[] {
     return ['the added policy is not a policy mapping — the gate fails closed until it is fixed'];
   }
   // `{}` is the baseline restated (`''` parses to null and would give no baseline).
-  return policyWeakening('{}', after) ?? [];
+  return policyWeakening('{}', after, probe) ?? [];
 }

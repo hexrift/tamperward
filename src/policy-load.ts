@@ -6,9 +6,10 @@ import { readFileSync, existsSync } from 'node:fs';
 import { isAbsolute, join, posix } from 'node:path';
 import { yaml } from './lazy-deps';
 import { Policy, Severity } from './types';
-import { defaultPolicy, mergeProtected, mergeRules, normalizeGlob, POLICY_FILE } from './policy';
+import { defaultPolicy, isNegatedGlob, mergeProtected, mergeRules, normalizeGlob, POLICY_FILE } from './policy';
 import { fileAt } from './git/build';
 import { errorMessage } from './narrow';
+import { repoRoot } from './repo-context';
 
 /** A policy file that exists but cannot be understood. Never swallowed into the
  *  baseline: falling back silently would run a WEAKER gate than the author wrote. */
@@ -41,6 +42,7 @@ const SEVERITIES: ReadonlyArray<Severity> = ['block', 'warn'];
 const isSeverity = (v: unknown): v is Severity => SEVERITIES.some((s) => s === v);
 const isStringList = (v: unknown): v is string[] => Array.isArray(v) && v.every((s) => typeof s === 'string');
 const isMapping = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
 
 /** The top-level keys a policy may carry — `src/types.ts` `Policy`, in file spelling. */
 const TOP_LEVEL_KEYS: ReadonlySet<string> = new Set(['version', 'protected', 'rules', 'ignore', 'signoff', 'verify']);
@@ -77,6 +79,14 @@ function validate(r: Record<string, unknown>, where: string): RawPolicy {
     throw new PolicyError(`${where}: ${msg}`);
   }
   const show = (v: unknown): string => JSON.stringify(v) ?? String(v);
+  // A negated glob in an inclusion list matches EVERY path (see isNegatedGlob):
+  // fail closed with the mechanism named, so the author lists the paths instead.
+  function refuseNegated(field: string, list: string[]): void {
+    const neg = list.find(isNegatedGlob);
+    if (neg !== undefined) {
+      bad(`${field}: negated glob ${show(neg)} is not allowed — a "!" pattern matches every path, so it would ${field === 'ignore' ? 'ignore every file' : field.startsWith('protected.') ? `put every file in ${field}` : 'blind the rule on every file'}; list the paths to include instead`);
+    }
+  }
   const out: RawPolicy = {};
   if (r.version !== undefined) out.version = r.version;
 
@@ -106,6 +116,7 @@ function validate(r: Record<string, unknown>, where: string): RawPolicy {
       if (exclude !== undefined && !isStringList(exclude)) {
         bad(`rules.${name}.exclude must be a list of globs, got ${show(exclude)}`);
       }
+      if (exclude !== undefined) refuseNegated(`rules.${name}.exclude`, exclude);
       rules[name] = {
         ...(severity !== undefined ? { severity } : {}),
         ...(enabled !== undefined ? { enabled } : {}),
@@ -116,6 +127,7 @@ function validate(r: Record<string, unknown>, where: string): RawPolicy {
   }
   if (r.ignore !== undefined) {
     if (!isStringList(r.ignore)) bad(`ignore must be a list of globs, got ${show(r.ignore)}`);
+    refuseNegated('ignore', r.ignore);
     out.ignore = r.ignore;
   }
   if (r.protected !== undefined) {
@@ -123,6 +135,7 @@ function validate(r: Record<string, unknown>, where: string): RawPolicy {
     const categories: Record<string, string[]> = {};
     for (const [cat, globs] of Object.entries(r.protected)) {
       if (!isStringList(globs)) bad(`protected.${cat} must be a list of globs, got ${show(globs)}`);
+      refuseNegated(`protected.${cat}`, globs);
       categories[cat] = globs;
     }
     out.protected = categories;
@@ -238,8 +251,13 @@ function parseOrThrow(src: string, where: string): Policy {
   return parsePolicy(raw, where);
 }
 
+/** The policy governing the repository `cwd` lies in. The file is read at the
+ *  REPOSITORY ROOT, whatever subdirectory the command ran from — a session started
+ *  in `packages/x` used to look beside `packages/x`, find nothing, and be governed by
+ *  the baseline instead of the root policy (#412). Outside any repository the file
+ *  beside `cwd` is read, as before. */
 export function loadPolicy(cwd: string = process.cwd()): Policy {
-  const path = join(cwd, POLICY_FILE);
+  const path = join(repoRoot(cwd), POLICY_FILE);
   if (!existsSync(path)) return defaultPolicy();
   return parseOrThrow(readFileSync(path, 'utf8'), POLICY_FILE);
 }
@@ -254,7 +272,7 @@ export function loadPolicy(cwd: string = process.cwd()): Policy {
  * up as a finding (hook-tampering); it simply doesn't take effect until a human merges it.
  */
 export function loadPolicyAt(rev: string, cwd?: string): Policy | null {
-  const src = fileAt(rev, POLICY_FILE, { cwd });
+  const src = fileAt(rev, POLICY_FILE, { cwd: cwd === undefined ? undefined : repoRoot(cwd) });
   if (src == null) return null;
   return parseOrThrow(src, `${POLICY_FILE} at ${rev}`);
 }
