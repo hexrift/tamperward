@@ -9,6 +9,7 @@ import {
   parseSince,
   recordAuditFindings,
   renderAuditStats,
+  runStats,
   summarizeAudit,
   type AuditEventV1,
 } from '../src/cli/audit';
@@ -91,7 +92,9 @@ describe('structured audit logging', () => {
 
   it('keeps audit failure non-authoritative', () => {
     const cwd = repo();
-    process.env.TAMPERWARD_AUDIT_LOG = join(cwd, 'missing-parent', 'nested', 'audit.jsonl');
+    const blocker = join(cwd, 'not-a-directory');
+    writeFileSync(blocker, 'operator-owned\n');
+    process.env.TAMPERWARD_AUDIT_LOG = join(blocker, 'audit.jsonl');
 
     expect(() => recordAuditFindings([finding('test-deletion')], {
       cwd,
@@ -168,6 +171,12 @@ describe('audit stats', () => {
     expect(parseSince('90m', now)).toBe(now - 90 * 60_000);
     expect(parseSince('2026-09-01T00:00:00Z', now)).toBe(Date.parse('2026-09-01T00:00:00Z'));
     expect(() => parseSince('forever', now)).toThrow(/invalid --since/);
+  });
+
+  it('validates --since even when the default audit store does not exist yet', () => {
+    const cwd = repo();
+    delete process.env.TAMPERWARD_AUDIT_LOG;
+    expect(() => runStats({ cwd, since: 'forever' })).toThrow(/invalid --since/);
   });
 
   it('parses a persisted file without depending on repository content', () => {
