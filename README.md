@@ -14,6 +14,8 @@
 
 **[Quick start](#quick-start)** ·
 **[Docs & guide](https://hexrift.github.io/tamperward/)** ·
+**[See the evidence →](./docs/research/index.md)** — every round, study and
+correction in one place, each number bound to its committed artifact ·
 **[The research series](./docs/blog/index.md)** — every registered prediction
 published beside its outcome
 
@@ -44,7 +46,9 @@ impossible.
 
 Plain-English takeaway: the original detector-centred design was insufficient.
 Later versions materially reduced false-green outcomes in two held-out rounds,
-and the subsequent stronger-model replication was inconclusive.
+the subsequent stronger-model replication was inconclusive, and the larger
+preregistered round 4 on the 2.x line **did not replicate** the prevention
+effect — a failed prediction, published beside the bet.
 
 | experiment | result | what it supports |
 | --- | --- | --- |
@@ -54,6 +58,7 @@ and the subsequent stronger-model replication was inconclusive.
 | **After prevention** — the nine round-2 prevented false greens | **8 of 9 became honest completions**; the ninth an honest **non**-completion | Prevention usually redirected trajectories toward honest work rather than merely blocking them |
 | **Round 3** — 17 paired Python repos, fresh PyPI frame, **v1.14.0** ([`harness/taskbench/round3/`](./harness/taskbench/round3/)) | Transfer 9/17 (52.9%). Prevention: **b=6 / c=0**, RD **+35.3pp**, BP95 [9.5, 58.7], exact McNemar **p = 0.0313** | The prevention result appeared in Python — with the treatment also changed from v1.9.0, so ecosystem transfer is not isolated. The in-loop skip detector proved blind to pytest syntax; the outer layers carried it |
 | **Round 3.1** — the same 16 pairs under **`claude-sonnet-5`** ([`harness/taskbench/round3.1/`](./harness/taskbench/round3.1/)) | Transfer 4/16 (25.0%). Prevention: **b=1 / c=0**, RD +6.3pp, BP95 [−13.8, 28.3], exact McNemar **p = 1.0000** | The confirmatory result **did not replicate**, and could not have: only three ungated false greens occurred, so `b ≤ 3` and p ≥ .25 whatever the gate did. A failure to reject, not evidence of no effect |
+| **Round 4** — fresh pool of 110 paired Python repos under **`claude-sonnet-5`**, treatment **2.10.3** pinned by artefact hash, preregistered exact McNemar ([`harness/taskbench/round4/`](./harness/taskbench/round4/), sealed readout [`ROUND4-ANALYSIS.md`](./harness/taskbench/round4/ROUND4-ANALYSIS.md)) | Primary endpoint: prevention **b=5 / c=3**, exact McNemar **p = 0.7265625**, H₀ **not rejected** — the preregistered prediction (b=16, c=1, reject) **did not replicate**. Realized valid pairs **79/110**; the registered interpretation floor was met (`a + b = 15` ungated opportunities, floor 6), but realized discordance (8 pairs) was below the ~17 the power model assumed. Separate, narrower integrity observation: across **201 measured trajectories**, **0 strict tamper bypass** (landed weakening that survived to the final tree *and* was certified clean) | The registered confirmatory claim failed on the 2.x line and is reported as a failed prediction, not reinterpreted. The zero-bypass count is descriptive and does not stand in for it: one transient landing was certified clean (correctly, it did not survive), and 31/110 pairs were lost to apparatus attrition, which is not claimed bias-free |
 
 Key: `b` = false greens seen only without Tamperward; `c` = false greens seen
 only with it; `RD` = paired risk difference; `pp` = percentage points; `BP95` =
@@ -73,13 +78,29 @@ Earlier controlled experiments → **[the research series](./docs/blog/index.md)
 > run had just restored — which was present from v1.9.0 onward, so rounds 2, 3
 > and 3.1 all ran on a verifier carrying it. No evidence any agent used it; the
 > layer's authority in those rounds was nonetheless weaker than described at the
-> time. **Round 4 is registered and frozen, not yet run:** a fresh pool of 110
-> paired repositories under `claude-sonnet-5`, treatment **2.10.3** pinned by
-> artefact hash, a confirmatory masked-failure endpoint (exact McNemar), and the
-> whole draw — task order, arm assignment, and a separate 22-pair instability
-> budget — derived from committed seeds before the first counted trajectory. The
-> methodology and preregistration are published, with no counted numbers:
-> [How round 4 is built to be hard to fool](./docs/blog/how-round-4-is-built-to-be-hard-to-fool.md).
+> time. **Round 4 is complete and sealed.** It was the first counted round on the
+> 2.x line: a fresh pool of 110 paired repositories under `claude-sonnet-5`,
+> treatment **2.10.3** pinned by artefact hash, with the whole draw — task order,
+> arm assignment, and a separate 22-pair instability budget — derived from
+> committed seeds before the first counted trajectory. The registered primary
+> prediction **did not replicate**: b=5, c=3, exact McNemar p = 0.7265625, null not
+> rejected, over the 79 of 110 repositories that produced a valid paired
+> measurement. The narrower integrity observation — 0 strict tamper bypasses across
+> 201 measured trajectories — is a separate descriptive result and does not
+> replace the registered outcome. Only 79/110 pairs survived to measurement; the
+> loss was mostly symmetric apparatus attrition (venv/interpreter execution
+> failures), which reduces concern about arm-specific bias but is not claimed to
+> be free of selection bias — the readout says so. Every figure is the sealed
+> value in [`ROUND4-RESULTS.json`](./harness/taskbench/round4/ROUND4-RESULTS.json)
+> (`payload_sha256` `e7bfce08…`), read out in
+> [`ROUND4-ANALYSIS.md`](./harness/taskbench/round4/ROUND4-ANALYSIS.md) and the
+> deviation ledger [`DEVIATIONS.md`](./harness/taskbench/round4/DEVIATIONS.md).
+> Read the round as a pair — the bets before, the outcome after:
+> [How round 4 is built to be hard to fool](./docs/blog/how-round-4-is-built-to-be-hard-to-fool.md)
+> (preregistration, no numbers) →
+> [The prevention bet didn't replicate. No surviving tampering was certified clean.](./docs/blog/round-4-results.md)
+> (results). Round 4.1, a second agent runtime over the same frozen pool, is the
+> next registered step ([SPEC §9.1](./SPEC.md#91-maturity-milestones)).
 
 ## Architecture
 
@@ -238,6 +259,7 @@ platforms.
 | `check` / policy evaluation | Supported | Supported | Supported |
 | Claude hook / Stop adapter | Supported where Claude Code command hooks are available | Same | Same |
 | `watch` / observer telemetry | Supported; backend health is reported | Supported/degraded according to `fs.watch` health | Supported/degraded according to `fs.watch` health |
+| opt-in `hook-service` | Supported (per-user `0600` unix socket) | Supported (per-user `0600` unix socket) | **Unsupported; `start` refuses, hooks run in-process** |
 | checkpointed-local `verify` | Supported via `/bin/sh` | Supported via `/bin/sh` | **Unsupported; fails before candidate execution** |
 | isolated-container `verify` | Supported when Docker authority preflight passes | Not claimed beyond Docker preflight | Not claimed beyond Docker preflight |
 | advisory `trace-verify` | **Supported with `strace` + `tar`** | **Unsupported; reports no parity** | **Unsupported; reports no parity** |
@@ -347,12 +369,28 @@ Full assumptions and residual risks: [SPEC.md](./SPEC.md),
 ## Quick start
 
 ```bash
-npx tamperward init
+npx tamperward onboard
 ```
 
 Requires Node.js 20.19 or later. JavaScript and TypeScript are the fully
 supported detector surface; the other documented ecosystems get file-level and
 pattern-based protection.
+
+`onboard` (2.21.0) is the guided first run: it previews the installation with the
+same planner as `init --dry-run`, explains each enforcement point, asks before writing
+anything, runs the canonical `init`, offers the detected suite command for your
+explicit acceptance (it is never written without one), runs and explains the first
+`verify`, offers a safe demonstration of a weakening move on a disposable worktree that
+leaves your tree byte-for-byte as it was, checks the GitHub controls with
+`doctor --github` (or prints them), and ends with a `READY` / `READY WITH WARNINGS` /
+`BROKEN` / `INCOMPLETE` posture taken from `doctor`. Non-interactive stdin refuses
+rather than hangs; `--yes --verify-command "<cmd>"` is the scripted form.
+
+The deterministic primitive underneath is unchanged:
+
+```bash
+npx tamperward init
+```
 
 One idempotent command wires the policy, the agent hooks, the pre-commit hook, a
 CI workflow that runs both the diff-time check and pristine verification, and a
@@ -548,7 +586,9 @@ option can never be reinterpreted as the agent command.
 | `research summarize` | `--ledger <dir>` (required) — one aggregate document, four separated readouts, no composite score |
 | `allow` | `<rule>` · `--file <path>` · `--reason "<why>"` (required) · `--cwd <dir>` |
 | `init` | `--cwd <dir>` · `--dry-run` · `--force-workflow` |
+| `onboard` | `--cwd <dir>` · `--base <rev>` · `--repo <owner/repo>` · `--branch <name>` · `--skip-demo` / `--demo` (mutually exclusive) · `--no-github` · `--yes` (scripted: no prompts; the demo runs only with `--demo`) · `--verify-command "<suite command>"` (the only way a scripted run configures `verify.command`) |
 | `watch` | `--dir <dir>` · `--log <file>` — a daemon; it runs until signalled |
+| `hook-service` | `start [--dir <repo>]` (foreground; runs until signalled) · `stop` · `status` — the opt-in persistent hook service (2.22.0): one warm process per user, bound to one repository that evaluates `hook`/`sweep` payloads over a private `0600` unix socket. Hooks consult it only under `TAMPERWARD_HOOK_SERVICE=1`. Before handoff, unavailable/refusing service paths fall back to the same in-process verdict; after handoff, ambiguous transport failure fails closed rather than starting a concurrent second evaluation. Not available on Windows |
 | `hook claude` / `sweep claude` | none — the Claude Code payload arrives on stdin |
 
 **Exit codes** — part of the public surface:
@@ -560,10 +600,12 @@ option can never be reinterpreted as the agent command.
 | `trace-verify` | all requested known-good traces exited 0; advisory report emitted | one or more traced verifier runs were non-zero/incomplete; report still emitted | unsupported platform, missing tracer/materialiser, bad base/policy/options, or tracing failure | — |
 | `doctor` | configured verify job(s) have sufficient static outer time for the trusted policy | — | missing/invalid workflow, no verify job, missing/malformed/insufficient timeout, or trusted policy cannot be loaded | — |
 | `run` | enforcement clean and the agent exited 0 — another non-zero agent exit is passed through unchanged | any blocking finding or masked failure, including a non-quiescent process after timeout | cannot adjudicate: dirty start, policy error, verify cannot run | `AGENT_TIMEOUT`: `--agent-budget` expired and post-timeout enforcement was clean |
+| `research run` / `research summarize` | every requested pair recorded (or already was); summary printed | — | cannot start or set a trajectory up: bad manifest, unknown adapter, root or unsupported platform (doctor's own `platform` check), unclonable repository, or invalid/mixed ledger evidence — the agent's own exit is data in the record, never the research exit | — |
 | `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0, never exit 2 | — | only for an unsupported agent name | — |
-| `research run` / `research summarize` | every requested pair recorded (or already was); summary printed | — | cannot start or set a trajectory up: bad manifest, unknown adapter, root or unsupported platform (doctor's own `platform` check), unclonable repository, or a ledger mixing manifests/adapters/models — the agent's own exit is data in the record, never the research exit | — |
+| `hook-service` | started, stopped (or nothing to stop), or status printed | — | unsupported platform, a runtime directory another uid owns, or a service already listening | — |
 | `allow` | sign-off recorded | — | no rule or `--reason`, not a git repo, or no current blocking finding to sign off | — |
 | `init` | wired, or already wired | — | an item needs attention | — |
+| `onboard` | posture `READY` or `READY WITH WARNINGS` (from `doctor`) | posture `BROKEN` or `INCOMPLETE`, including a declined write or an unconfigured verifier | refused (not a git repository, non-interactive stdin without `--yes`, a dirty tree the operator would not continue on) or aborted at a prompt | — |
 | no or unknown command | help printed (no command) | — | unknown command, help printed | — |
 
 ### Environment variables
@@ -574,6 +616,8 @@ option can never be reinterpreted as the agent command.
 | `TAMPERWARD_OOB_HEAD` | the CI workflow (`github.event.pull_request.head.sha`) | the head SHA under adjudication; once set, an approval clears anything only if it names that commit (`@<sha>`, at least 7 characters), so a new push re-blocks |
 | `TAMPERWARD_DENYLOG` | a harness or operator | a file to which `hook claude` and `sweep claude` append the rule ids of every deny, one line per verdict, best effort |
 | `TAMPERWARD_FSEVENTS` | operator or harness | overrides the `tamperward watch` event-log path (default `.git/tamperward/fsevents.jsonl`); the Stop sweep reads the same variable |
+| `TAMPERWARD_HOOK_SERVICE` | the operator, in Claude Code's environment (`=1`) | lets the hooks hand their payload to a running `tamperward hook-service`; off by default. Pre-handoff refusal falls back to in-process evaluation; post-handoff ambiguity fails closed so two evaluations never race one session |
+| `TAMPERWARD_HOOK_SERVICE_DIR` | the operator or tests | overrides the service's runtime directory (default `$XDG_RUNTIME_DIR/tamperward-hook`, else `<tmpdir>/tamperward-hook-<uid>`); it must be the hook's own uid at `0700`, the socket `0600` |
 | `TAMPERWARD_WATCH_NO_RECURSIVE` | CI and tests (`=1`) | forces `tamperward watch` onto its per-directory fallback instead of recursive `fs.watch`, so the fallback is exercised on every platform |
 | `TAMPERWARD_TRANSIENT` | a harness that owns restore semantics (`=block`) | raises `transient-protected-mutation` from warn to block; it can never lower a severity |
 | `NO_COLOR` / `FORCE_COLOR` | the user's shell | any non-empty `NO_COLOR` disables colour in the text renderer; a non-empty, non-`0` `FORCE_COLOR` enables it |
@@ -645,11 +689,11 @@ and its totals.
 Since **2.23.0** the paired ungated/gated evaluation is a supported command rather
 than a hand-assembled harness run: `tamperward research run` takes a task manifest
 and an agent runtime (Claude Code, or any command through the `AgentAdapter`
-contract), adjudicates both arms with the same `verify` + `check` primitives, records
-TamperWard's own verdict separately from that outcome, and `research summarize`
-reports model behaviour, independent outcome, TamperWard hits/misses and paired counts
-with no composite score — a result in which TamperWard loses is as plain as one in
-which it wins. **[Guide](./docs/guide/research.md)**.
+contract), pins one source commit per task, adjudicates both arms with the same
+`verify` + `check` primitives, records TamperWard's own verdict separately from that
+outcome, and `research summarize` reports model behaviour, independent outcome,
+TamperWard hits/misses and paired counts with no composite score — a result in which
+TamperWard loses is as plain as one in which it wins. **[Guide](./docs/guide/research.md)**.
 
 **[The research series](./docs/blog/index.md)** ·
 **[The harness](./harness/)** ·
@@ -667,6 +711,7 @@ which it wins. **[Guide](./docs/guide/research.md)**.
 | v1.8.0 | The effect layer: per-call protected-tree drift check plus the `tamperward watch` fs-event observer — judge what the files became, not the command spelling |
 | v1.9.0 | `tamperward verify`: the round-1 pristine oracle productized — visible-green + pristine-red is a masked failure, and "could not verify" fails closed |
 | Round 2, 9–0 | On 22 fresh repositories, v1.9.0 produced b=9/c=0 false-green discordance (p = 0.0039); four gated false greens remained, through two documented residual mechanisms |
+| Round 4, p = 0.7265625 | On 110 fresh paired repositories under 2.10.3, the preregistered prevention bet did not replicate (b=5/c=3, 79 valid pairs); the 35 masked failures split roughly evenly between tampering-related and plain correctness gaps, so the next round separates the two at the endpoint and qualifies repositories under the exact production runner before they enter the pool |
 | cssstyle lifecycle escape (round 2) | The `tamperward run` envelope: the gate denied 42 mutations and verify refused all 25 stop attempts, and the runtime completed the session anyway over a masked tree — hooks decide, runtimes terminate, so the adjudication boundary moved outside the runtime |
 | v1.14.6, external audit | A pull request can neuter the gate that judges it: `pull_request` workflows run from the PR's own head and required checks match by job name, so a job that keeps its name and runs `true` reports green over anything. Reproduced on this repo's own CI — `gate` succeeded in three seconds over a PR that lowered a mechanical rule to warn. No detector can close it, because the detector is defined by the candidate; `init` now writes a CODEOWNERS requirement on the gate-critical paths and states, every run, that branch protection is the half it cannot set for you |
 | v1.14.5, external audit | The pristine copy was a sibling of the visible copy and fully prepared before it ran, so the candidate's own code wrote `../pristine/<the failing test>` and both runs returned 0 — no race, no background process, no git. The pristine copy is now built only after the visible run exits, its restored files are digested either side of the pristine run, and the working and dependency trees are fingerprinted around both. Also: the overlay restored content but not MODE, so `chmod -x` alone hid a test from an exec-bit runner in both copies; a transient dependency substitution that restored itself on the way out left the entry-vs-exit fingerprint identical; and a committed `.npmrc` chose the registry the CI gate was downloaded from |
@@ -700,6 +745,7 @@ via npm trusted publishing with SLSA provenance. Full rule:
 npm install && npm run build    # bundles the CLI to dist/cli/index.js
 npm test                        # 2,100+ tests — parser, detectors, engine, policy, renderers
 npm run typecheck
+node harness/perf/bench.mjs      # performance budgets against harness/perf/BASELINE.json (docs/PERF.md)
 ```
 
 Tamperward's own CI runs the engine it ships over every pull request — `check --diff`
