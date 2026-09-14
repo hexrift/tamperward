@@ -1243,7 +1243,7 @@ export function packageJsonWeakening(before: string, after: string): string[] {
 
 // ── renames within the hooks class ─────────────────────────────────────────────
 
-const GIT_HOOKS = new Set([
+export const GIT_HOOKS: ReadonlySet<string> = new Set([
   'applypatch-msg', 'pre-applypatch', 'post-applypatch', 'pre-commit', 'pre-merge-commit', 'prepare-commit-msg',
   'commit-msg', 'post-commit', 'pre-rebase', 'post-checkout', 'post-merge', 'pre-push', 'pre-receive', 'update',
   'post-receive', 'post-update', 'push-to-checkout', 'pre-auto-gc', 'post-rewrite', 'sendemail-validate',

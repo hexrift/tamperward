@@ -15,7 +15,7 @@ import { policyAddWeakening, policyWeakening } from './policy-diff';
 import { segments, tokens, unquote } from './command';
 import { trackedFiles } from './repo';
 import {
-  ScriptOpts, chmodDropsExec, codeownersWeakening, hookIdentity, insertsDeadGuard, insertsPassingExit, invocations, isCodeowners,
+  ScriptOpts, chmodDropsExec, codeownersWeakening, gateOf, hookIdentity, insertsDeadGuard, insertsPassingExit, invocations, isCodeowners,
   isLefthook, isLefthookLocal, isPackageJson, isPreCommitConfig, lefthookWeakening, mergeDocs, packageJsonWeakening,
   parseDoc, pinRaiseOnly, preCommitWeakening, scriptWeakening, shebangProblem, shellHookTarget, shellWritesHook, xargsWritesHook,
 } from './hook-wiring';
@@ -590,12 +590,79 @@ function syntheticBase(over: Record<string, unknown>): Record<string, unknown> {
   return base;
 }
 
+const CANONICAL_GATE = 'npx tamperward check --staged';
+const COMMIT_STAGES = new Set(['pre-commit', 'pre-push', 'commit', 'push']);
+const namesGate = (v: unknown): boolean => typeof v === 'string' && /\btamperward\b/.test(v);
+/** The command an added entry runs when it runs the gate live, else the canonical
+ *  one — so a fresh base differs from the file only where the file disables it. */
+const liveOrCanonical = (cmd: string): string => (gateOf(cmd) !== null ? cmd : CANONICAL_GATE);
+
+/** The lefthook.yml an ADDED lefthook.yml is compared against (#442): every entry
+ *  that names the gate, as init would write it — the command the file runs when
+ *  live, no `skip`/`only`/`glob`/`exclude`/`env`/tags, no section-level switch.
+ *  The comparator then reports exactly what the added file switches off. */
+function freshLefthookBase(after: Record<string, unknown>): Record<string, unknown> {
+  const base: Record<string, Record<string, Record<string, unknown>>> = {};
+  for (const [section, v] of Object.entries(after)) {
+    if (!isObj(v)) continue;
+    for (const group of ['commands', 'scripts']) {
+      const g = v[group];
+      if (!isObj(g)) continue;
+      for (const [name, cfg] of Object.entries(g)) {
+        if (!isObj(cfg)) continue;
+        const run = cfg.run ?? cfg.runner;
+        if (!namesGate(name) && !namesGate(run)) continue;
+        const sec = (base[section] ??= {});
+        const grp = (sec[group] ??= {});
+        grp[name] = { run: typeof run === 'string' ? liveOrCanonical(run) : CANONICAL_GATE };
+      }
+    }
+  }
+  return base;
+}
+
+/** The .pre-commit-config.yaml an ADDED one is compared against (#442): every hook
+ *  that names the gate, live, without `exclude`/`files`/`types`/`env`/
+ *  `additional_dependencies`, at the stages the file itself puts it on when those
+ *  include a commit or push stage, else at every stage. */
+function freshPreCommitBase(after: Record<string, unknown>): Record<string, unknown> {
+  const stagesOf = (v: unknown): string[] | null =>
+    Array.isArray(v) && v.map(String).some((s) => COMMIT_STAGES.has(s)) ? v.map(String) : null;
+  const defaults = stagesOf(after.default_stages);
+  const repos: Array<Record<string, unknown>> = [];
+  for (const repo of Array.isArray(after.repos) ? after.repos : []) {
+    if (!isObj(repo)) continue;
+    const hooks: Array<Record<string, unknown>> = [];
+    for (const h of Array.isArray(repo.hooks) ? repo.hooks : []) {
+      if (!isObj(h)) continue;
+      if (![repo.repo, h.id, h.entry, h.name].some(namesGate)) continue;
+      const fresh: Record<string, unknown> = { id: h.id, name: h.name };
+      if (h.entry !== undefined) {
+        const args = Array.isArray(h.args) ? h.args.map(String).join(' ') : '';
+        fresh.entry = liveOrCanonical(`${typeof h.entry === 'string' ? h.entry : ''} ${args}`.trim());
+      }
+      const stages = stagesOf(h.stages);
+      if (stages) fresh.stages = stages;
+      hooks.push(fresh);
+    }
+    repos.push({ repo: repo.repo, hooks });
+  }
+  const base: Record<string, unknown> = { repos };
+  if (defaults) base.default_stages = defaults;
+  return base;
+}
+
 /**
  * lefthook and pre-commit configs, compared as the tool reads them: the entry
  * that runs the gate removed or no longer live, `skip:`/`only:` in any non-false
  * shape, a `glob`/`exclude`/tag narrowing, `stages` (explicit or inherited from
  * `default_stages`) no longer including the commit stages. A lefthook-local file
  * is judged as the overlay it is: merged over lefthook.yml, before and after.
+ * An ADDED config (#442) has no before and is not a script: it is compared
+ * against a fresh base carrying every gate entry it names as init would write it
+ * — live, unskipped, unscoped, on the commit stages — so it reports only when it
+ * arrives with its own gate disabled, skipped or scoped, and a config that names
+ * no gate (a linter onboarding) is silent.
  * null when there is nothing to compare — the caller falls back to the script
  * comparison.
  */
@@ -610,8 +677,13 @@ function configFindings(c: FileChange, changes: Change[], policy: Policy, ctx?: 
     reasons = overAfter === null
       ? ['the file no longer parses as YAML — the tool that reads it runs nothing']
       : lefthookWeakening(mergeDocs(base, overBefore), mergeDocs(base, overAfter));
+  } else if (c.before == null) {
+    // an add: nothing was wired before it, so a file that does not parse, or
+    // names no gate, took nothing away
+    const after = parseDoc(c.after);
+    if (after === null) return [];
+    reasons = isLefthook(c.path) ? lefthookWeakening(freshLefthookBase(after), after) : preCommitWeakening(freshPreCommitBase(after), after);
   } else {
-    if (c.before == null) return null;
     const before = parseDoc(c.before);
     const after = parseDoc(c.after);
     if (before === null) return null;
@@ -768,7 +840,12 @@ const isHuskyScript = (path: string): boolean => /(?:^|\/)\.husky\/[^/]+$/.test(
 /** A file in a hooks directory that nothing executes or sources: notes and git's
  *  own dotfiles. Everything else a `protected.hooks` glob matches is a script, or
  *  something a script reads, and is held byte-for-byte. */
-const isHookNote = (path: string): boolean => /\.(?:md|markdown|txt)$|(?:^|\/)\.git(?:ignore|attributes)$/i.test(path);
+// A note or git dotfile is benign — but only OUTSIDE `.husky/_/`. A `.gitignore`
+// or `.gitattributes` inside husky's runtime directory that is not husky's own
+// exact write (recognised by huskyRuntimeWrite above) is a runtime tamper and
+// stays blocked; only the top-level `.husky/.gitignore` and ordinary notes are silent.
+const isHookNote = (path: string): boolean =>
+  !/(?:^|\/)\.husky\/_\//.test(path) && /\.(?:md|markdown|txt)$|(?:^|\/)\.git(?:ignore|attributes)$/i.test(path);
 
 export const hookTampering: Detector = {
   id: RULE,
@@ -884,6 +961,9 @@ export const hookTampering: Detector = {
           // script has no before to be held to: the model alone judges it, and the
           // gate must be live in it.
           if ((c.op === 'add' || c.op === 'modify') && huskyRuntimeWrite(c.path, c.after, ctx)) continue;
+          // a note or git dotfile in the hooks directory is not a script, added or
+          // edited (#442): nothing executes or sources it
+          if (isHookNote(c.path)) continue;
           const husky = isHuskyScript(c.path);
           const opts: ScriptOpts = husky ? { errexit: true } : {};
           const beforePin = c.before != null && c.after != null ? initScriptPin(c.before) : null;
