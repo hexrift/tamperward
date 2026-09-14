@@ -150,6 +150,8 @@ describe('happy path', () => {
     expect(s.out).toContain('tamperward check --worktree');
     expect(s.out).toContain('tamperward verify --base');
     expect(s.out).toContain('tamperward doctor --github');
+    expect(s.out).toMatch(/NEXT\s+Commit repository setup files:/);
+    expect(s.out).not.toMatch(/NEXT[^\n]*\.git\/hooks\/pre-commit/);
     expect(s.out).not.toMatch(/ONE STEP LEFT|subreaper\/ECHILD|backend: container/);
     expect(s.code).toBe(0);
   });
@@ -165,6 +167,16 @@ describe('happy path', () => {
 });
 
 describe('declined writes', () => {
+  it('does not claim planned files were written when init returns before applying them', async () => {
+    const d = repo();
+    const s = await onboard(d, ['y', ''], { noGithub: true, skipDemo: true }, {
+      runners: { init: () => 2 },
+    });
+    expect(s.out).toMatch(/some setup items still need attention|some setup items remain/i);
+    expect(s.out).toMatch(/ADD\s+Policy\s+\.tamperward\.yml/);
+    expect(s.out).not.toMatch(/NEXT\s+Commit repository setup files:/);
+  });
+
   it('writes nothing when the operator declines the plan and reports an incomplete posture', async () => {
     const d = repo();
     const s = await onboard(d, ['n'], { noGithub: true, skipDemo: true });
@@ -372,6 +384,20 @@ describe('preflight refusals', () => {
     expect(s.out).toMatch(/ACTION|INCOMPLETE/);
   });
 
+  it('strips repository-controlled terminal control bytes from compact output and prompts', async () => {
+    const d = repo();
+    const pkg = JSON.parse(readFileSync(join(d, 'package.json'), 'utf8')) as { scripts: { test: string } };
+    pkg.scripts.test = "node test/check.test.js\u001b[2J\nFORGED";
+    writeFileSync(join(d, 'package.json'), JSON.stringify(pkg, null, 2) + '\n');
+    git(d, 'add', '-A');
+    git(d, 'commit', '-qm', 'hostile display text');
+
+    const s = await onboard(d, ['y', 'n', ''], { noGithub: true, skipDemo: true }, { colour: false });
+    expect(s.out).not.toContain('\u001b[2J');
+    expect(s.questions.join('\n')).not.toContain('\u001b[2J');
+    expect(s.out).not.toContain('\nFORGED');
+  });
+
   it('refuses a non-interactive stdin without a scripted mode, and never hangs', async () => {
     const d = repo();
     const s = await onboard(d, [], { noGithub: true }, { interactive: false });
@@ -500,6 +526,28 @@ describe('GitHub authority', () => {
 });
 
 describe('posture is derived from doctor', () => {
+  it('treats the macOS run limitation as READY WITH WARNINGS, not a broken installation', async () => {
+    const d = repo();
+    const doctor = (): DoctorOutcome => ({
+      code: 0,
+      authoritative: false,
+      summary: [],
+      checks: [
+        { id: 'policy', state: 'OK', detail: 'ok' },
+        { id: 'verifier', state: 'WARN', detail: 'checkpointed-local verifier' },
+        { id: 'platform', state: 'BROKEN', detail: 'darwin: run lifecycle unavailable' },
+      ],
+    });
+    const s = await onboard(d, ['y', 'y', 'n'], { skipDemo: true, noGithub: true }, {
+      platform: 'darwin',
+      runners: { doctor },
+    });
+    expect(s.out).toMatch(/LIMITED\s+macOS: .*run.*requires Linux/);
+    expect(s.out).toMatch(/READY\s+Configured with the limitation/);
+    expect(s.out).not.toMatch(/BLOCKED\s+Fix the broken item/);
+    expect(s.code).toBe(0);
+  });
+
   it('READY WITH WARNINGS when doctor completes with warnings only', async () => {
     const d = repo();
     const doctor = (): DoctorOutcome => ({
