@@ -5,6 +5,26 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.0] — 2026-09-14
+
+### Added
+
+- **Runtime-aware onboarding** (#482, Phase 2 — first increment). `tamperward onboard`
+  now detects which agent runtime a repository hosts and states exactly what protection
+  each gets, instead of silently assuming Claude. A new `src/runtimes.ts` registry
+  recognises Claude Code (`.claude/`), Cursor (`.cursor/` / `.cursorrules`), GitHub
+  Copilot (`.github/copilot-instructions.md`) and an AGENTS.md-aware agent
+  (`AGENTS.md` / `.codex/`) from repository-relative marker files. The Local-protection
+  step opens with a `RUNTIME` line naming the detected runtime(s) and their steering
+  coverage; when a repository uses a runtime with no shipped in-loop adapter, onboarding
+  adds a `NOTE` stating plainly that deny-before-execute ships for Claude Code only today,
+  that the live protection there is the agent-neutral layers (pre-commit + CI), and that a
+  native in-loop adapter is tracked in #482. Detection is honest reporting only: it reads
+  candidate-controlled marker files, so it shapes the setup narrative, adjudicates nothing,
+  writes nothing and opens no verdict path. Adding a runtime to the registry does not grant
+  it in-loop steering — that still requires a conforming `RuntimeAdapter` and its parity
+  suite; the registry's `in-loop` flag flips only when that adapter ships.
+
 ## [2.28.0] — 2026-09-14
 
 ### Added

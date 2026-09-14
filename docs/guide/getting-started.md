@@ -14,7 +14,14 @@ It has five sections:
    macOS the message is simply that `check` + local `verify` work while the
    lifecycle-owning `run` envelope requires Linux; the low-level subreaper/ECHILD
    explanation stays in `doctor`, where it belongs.
-2. **Local protection** — compact lines for policy, Claude hooks, pre-commit,
+2. **Local protection** — first a `RUNTIME` line naming the agent runtime(s)
+   detected in the repository (Claude Code, Cursor, Copilot, an AGENTS.md-aware
+   agent) and exactly what protection each gets, so setup never silently assumes
+   Claude. In-loop steering (deny-before-execute) ships for Claude Code today;
+   any other detected runtime is protected by the agent-neutral layers
+   (pre-commit + CI), with a native in-loop adapter tracked in #482 — onboarding
+   says so plainly rather than implying more coverage than exists. Then compact
+   lines for policy, the in-loop (Claude) hooks, pre-commit,
    CI and CODEOWNERS, plus a `Git ignore` item when an installed `node_modules/`
    tree would otherwise be staged as repository source. The plan is still the
    canonical `init` plan; Enter applies the displayed non-destructive changes.

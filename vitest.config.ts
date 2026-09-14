@@ -11,6 +11,10 @@ export default defineConfig({
     globalSetup: ['test/global-setup.ts'],
     // harness/seed/* are fixtures run by `node --test` inside an isolated repo, not by
     // vitest — they are intentionally CommonJS and would fail to load here.
-    exclude: ['**/node_modules/**', '**/dist/**', '**/harness/**'],
+    // `.claude/` can hold nested checkouts (git worktrees an agent created there): those
+    // are separate copies of THIS repository, so collecting their `test/*.test.ts` would
+    // run stale duplicate suites against old code. A fresh CI clone never has them; the
+    // exclude keeps a local run honest regardless of what a tool left under `.claude/`.
+    exclude: ['**/node_modules/**', '**/dist/**', '**/harness/**', '**/.claude/**'],
   },
 });

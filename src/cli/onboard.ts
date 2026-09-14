@@ -45,6 +45,7 @@ import { treeFingerprint } from '../fingerprint';
 import { POLICY_FILE } from '../policy';
 import { loadPolicy } from '../policy-load';
 import { errorMessage } from '../narrow';
+import { detectRuntimes, detectionHeadline, neutralOnlyCaveat } from '../runtimes';
 import { TW_VERSION } from '../wiring';
 import { atomicReplaceFile, existingMode, writeTargetKind } from '../safe-write';
 
@@ -397,11 +398,20 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
 
     // ---- 2. Local protection ---------------------------------------------
     section(2);
+    // Runtime detection first, so the operator sees WHICH agent this repository
+    // is set up for and WHAT protection it gets before the plan names files.
+    // Detection reads candidate-controlled marker files: it is a convenience for
+    // the setup narrative, never a trust input. See src/runtimes.ts.
+    const detected = detectRuntimes(cwd);
+    status('RUNTIME', detectionHeadline(detected), 'info');
+    const caveat = neutralOnlyCaveat(detected);
+    if (caveat) status('NOTE', caveat, 'warn');
+
     const plan = planInit(cwd);
     const names: Record<string, string> = {
       policy: 'Policy',
       gitignore: 'Git ignore',
-      agent: 'Claude hooks',
+      agent: 'In-loop (Claude)',
       'pre-commit': 'Pre-commit',
       ci: 'CI workflow',
       codeowners: 'CODEOWNERS',

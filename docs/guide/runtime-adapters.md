@@ -172,6 +172,27 @@ judged from the root). The payload's `cwd` is a fact to check, not authority to 
    research-adapter registration, and the parity suite are Phase 2 / Phase 3 work — see the
    issue's staged sequence. Phase 1 ships the neutral seam and the Claude conformance only.)
 
+## Runtime detection in onboarding
+
+`tamperward onboard` reports which agent runtime a repository actually hosts and what
+protection it gets, instead of silently assuming Claude. The registry lives in
+`src/runtimes.ts`: each known runtime carries repository-relative marker files
+(`.claude/` for Claude Code, `.cursor/` / `.cursorrules` for Cursor,
+`.github/copilot-instructions.md` for Copilot, `AGENTS.md` / `.codex/` for an
+AGENTS.md-aware agent) and a `steering` value — `in-loop` for a runtime with a shipped
+adapter, `neutral` otherwise.
+
+Detection is **honest reporting, never a trust input**. The marker files are
+candidate-controlled, so detection only shapes the setup narrative; it adjudicates
+nothing and opens no verdict path. When a repository uses a runtime that has no shipped
+in-loop adapter, onboarding states plainly that deny-before-execute is Claude-only today,
+that the runtime's live protection is the agent-neutral layers (pre-commit + CI), and that
+a native adapter is tracked in #482 — the same honesty rule the capabilities declaration
+enforces (`unsupported` over silent degradation). Adding a runtime to `src/runtimes.ts`
+does **not** grant it in-loop steering; that still requires a conforming `RuntimeAdapter`
+and the parity suite above. The registry's `steering` flag flips to `in-loop` only once
+that adapter ships.
+
 ## What Phase 1 is, and is not
 
 Phase 1 is the neutral contract plus Claude Code's conformance to it, with **zero** change
