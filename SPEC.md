@@ -508,7 +508,13 @@ document with the named checks and an `authoritative` boolean. The report does n
 mutate anything. Missing optional/early layers can make the report non-authoritative
 without changing the generated CI doctor's historical hard-failure contract; malformed
 policy, insufficient verifier authority and failed requested GitHub authority still
-exit 2.
+exit 2. From 2.23.12 the `claude-hooks` and `pre-commit` checks — and `init`'s own
+"already wired" verdict, which they reuse — judge a gate entry with the
+`hook-tampering` rule's canonical-shape comparator rather than by the presence of the
+command (#413): an entry carrying `async`, `if`, a short `timeout` or any other key
+init does not write is `BROKEN` with the rule's reason, and a pre-commit gate line
+commented out with `#` is not wired. The detector and doctor cannot disagree on the
+same settings file.
 
 **2.15.1 binds that posture to the same workflow authority doctor actually validates.**
 An explicit `--workflow` and automatic discovery both feed the validated verifier

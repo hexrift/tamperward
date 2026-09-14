@@ -5,6 +5,29 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.12] — 2026-09-14
+
+### Fixed
+
+- **`init` and `doctor` certify the hook wiring by the `hook-tampering` comparator**
+  (#413). `init --dry-run` reported `agent ok — already wired` and `doctor` reported
+  `[OK] claude-hooks` for a `.claude/settings.json` entry carrying the exact command
+  plus `"async": true, "timeout": 1` — a gate the runtime never awaits and kills before
+  it answers, and a file `check --staged` blocks as hook-tampering — because both tested
+  only for the presence of the command. The canonical-shape comparator is now exported
+  from the detector and consumed by `planClaudeHooks` (init) and `collectLocalPosture`
+  (doctor): an entry the runtime would not run the gate through (`async`, `if`, a
+  `timeout` below 120s, any other key init does not write, a matcher on the Stop entry,
+  text around the invocation) is `would update` from init — restored to the shape init
+  writes on the next run when the command is one init wrote — or `error` for a
+  hand-written command, and `[BROKEN] claude-hooks` from doctor with the detector's
+  reason. `onboard`'s posture summary inherits the verdict. A pre-commit gate line whose
+  first non-blank character is `#` — `sed -i 's/^npx /# npx /'`, the common "temporarily
+  disable" edit — read as wired from both; comment lines are skipped before the gate-line
+  search, so it is `would update … append the staged check` / `[WARN] pre-commit`, and
+  re-running init writes a live line. A correctly wired repository, including a
+  `timeout` at or above the floor, stays `ok` / `OK`.
+
 ## [2.23.11] — 2026-09-14
 
 ### Fixed

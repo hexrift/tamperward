@@ -106,6 +106,20 @@ npx tamperward doctor --github --repo OWNER/REPO --branch main
 Set `GH_TOKEN` or `GITHUB_TOKEN` if GitHub requires authentication for the
 repository/settings being inspected.
 
+Plain `tamperward doctor` is the one definition of "installed correctly", and its
+`claude-hooks` and `pre-commit` checks certify the wiring by the same canonical-shape
+comparison the `hook-tampering` rule applies to an edit of it — not by whether a
+`tamperward` command is still present. A Claude hook entry the runtime would not run
+the gate through (`"async": true`, an `if`, a `timeout` below 120 seconds, any other
+key `init` does not write, a pipe or chain around the command, `disableAllHooks`
+flipped) is `[BROKEN] claude-hooks` with the rule's reason, and `init --dry-run`
+reports the same entry as `would update` (an entry whose command `init` wrote is
+restored to the shape `init` writes on the next run) or `error` (a hand-written
+command is reported, never rewritten). A pre-commit gate line whose first non-blank
+character is `#` is a comment, so the "temporarily disable" edit reads as not wired
+from both. `onboard`'s posture summary inherits these verdicts, because it is
+`doctor`'s.
+
 Every init run now prints a separate **VERIFICATION SETUP** status. If the loaded
 policy already names `verify.command`, it prints `verification configured — <command>`.
 Otherwise it prints **INCOMPLETE: verification not configured — CI will fail closed**
