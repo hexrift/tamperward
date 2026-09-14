@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseVerify, runVerify } from '../src/cli/verify';
+import { parseVerify, probeFilesystemCaseSensitivity, runVerify } from '../src/cli/verify';
 import { policyWeakening } from '../src/detectors/policy-diff';
 import {
   DIAGNOSTIC_TAIL_BYTES,
@@ -821,5 +821,137 @@ describe('verify diagnostics (#319)', () => {
       process.stdout.write = orig;
     }
     expect(chunks.join('')).not.toContain('SHOULD_NOT_RENDER_ON_SUCCESS');
+  });
+});
+
+// #426 — on a case-insensitive filesystem (macOS default, Windows) the
+// filesystem collapses case while the overlay's `baseProtected` set did not:
+// a case-only rename of a base test resolved, in the copy, to the very inode
+// the overlay had just restored, and the removal loop unlinked it. The host
+// running these tests is case-sensitive, so the probe is injected; the
+// assertions are about what the overlay DOES under the folded contract, and
+// the default-probe leg pins Linux behaviour unchanged.
+describe('verify — case-insensitive filesystem overlay (#426)', () => {
+  // The suite runs EVERY *.test.js under test/ and exits 0 when there are none
+  // (the `node --test` shape): the class of runner the issue's fail-open needs.
+  const DISCOVER =
+    `node -e "for (const f of require('fs').readdirSync('test')) if (f.endsWith('.test.js')) require('./test/' + f)"`;
+  const foldedOpts = { cmd: DISCOVER, probeCaseSensitivity: () => false, keep: true } as const;
+
+  function greenBase(): string {
+    const d = repo();
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: d });
+    writeFileSync(join(d, 'src.js'), 'module.exports = 42;\n');
+    git('commit', '-qam', 'base: green');
+    return d;
+  }
+  /** The issue's reproduction: break the source, case-rename the test and gut it. */
+  function caseRenamedGutted(): string {
+    const d = greenBase();
+    writeFileSync(join(d, 'src.js'), 'module.exports = 41; // bug reintroduced\n');
+    // Two steps, because a case-only rename is a same-inode rename on the
+    // filesystems the issue is about and a distinct file here.
+    rmSync(join(d, 'test', 'check.test.js'));
+    writeFileSync(join(d, 'test', 'CHECK.test.js'), '// gutted\n');
+    return d;
+  }
+  const keptDirs = (json: Record<string, unknown>): void => {
+    for (const k of ['visible_dir', 'pristine_dir']) {
+      const v = json[k];
+      if (typeof v === 'string') dirs.push(join(v, '..'));
+    }
+  };
+
+  it('the default probe reports this host and leaves nothing behind', () => {
+    const d = mkdtempSync(join(tmpdir(), 'tw-case-'));
+    dirs.push(d);
+    const sensitive = probeFilesystemCaseSensitivity(d);
+    expect(typeof sensitive).toBe('boolean');
+    if (process.platform === 'linux') expect(sensitive).toBe(true);
+    expect(existsSync(join(d, '.tw-case-probe-A'))).toBe(false);
+    expect(existsSync(join(d, '.tw-case-probe-a'))).toBe(false);
+  });
+
+  it('case-insensitive: a case-only renamed, gutted test never unlinks the restored base file — MASKED_FAILURE, never VERIFIED', () => {
+    const cwd = caseRenamedGutted();
+    const r = capture(() => run(cwd, foldedOpts));
+    keptDirs(r.json);
+    expect(r.json.filesystem_case_sensitive).toBe(false);
+    expect(r.json.verdict).not.toBe('VERIFIED');
+    expect(r.json.verdict).toBe('MASKED_FAILURE');
+    expect(r.code).toBe(1);
+    // The case variant folds onto a base-protected path: on the filesystem
+    // this contract models it IS the restored inode, so it is never removed.
+    expect(r.json.added_protected_removed).toBe(0);
+    expect(r.json.protected_restored).toBe(1);
+    expect(readFileSync(join(String(r.json.pristine_dir), 'test', 'check.test.js'), 'utf8')).toContain('expected 42');
+  });
+
+  it('case-insensitive: an agent-added case variant of a surface file is removed from the pristine copy', () => {
+    const cwd = greenBase();
+    writeFileSync(join(cwd, 'CONFTEST.PY'), 'import sys\n');
+    writeFileSync(join(cwd, 'Pytest.ini'), '[pytest]\naddopts = -k nothing\n');
+    writeFileSync(join(cwd, 'notes.txt'), 'kept: not on any surface\n');
+    const r = capture(() => run(cwd, foldedOpts));
+    keptDirs(r.json);
+    expect(r.json.filesystem_case_sensitive).toBe(false);
+    expect(r.json.verdict).toBe('VERIFIED');
+    expect(r.json.added_protected_removed).toBe(2);
+    const pri = String(r.json.pristine_dir);
+    expect(existsSync(join(pri, 'CONFTEST.PY'))).toBe(false);
+    expect(existsSync(join(pri, 'Pytest.ini'))).toBe(false);
+    expect(existsSync(join(pri, 'notes.txt'))).toBe(true);
+  });
+
+  it('case-insensitive: two in-tree paths that collide under folding are CANNOT_VERIFY with a machine reason', () => {
+    // At the base.
+    const atBase = greenBase();
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: atBase });
+    writeFileSync(join(atBase, 'test', 'CHECK.test.js'), '// second spelling\n');
+    git('add', '-A');
+    git('commit', '-qm', 'two spellings');
+    let r = capture(() => run(atBase, foldedOpts));
+    keptDirs(r.json);
+    expect(r.json.verdict).toBe('CANNOT_VERIFY');
+    expect(r.json.reason).toBe('PATH_CASE_COLLISION');
+    expect(r.json.filesystem_case_sensitive).toBe(false);
+    expect(String(r.json.detail)).toContain('test/CHECK.test.js');
+    expect(String(r.json.detail)).toContain('test/check.test.js');
+    expect(r.code).toBe(2);
+
+    // In the working tree only, and outside every overlay class: the copy
+    // cannot hold both, so nothing about it is verifiable either.
+    const inTree = greenBase();
+    writeFileSync(join(inTree, 'SRC.js'), 'module.exports = 42;\n');
+    r = capture(() => run(inTree, foldedOpts));
+    keptDirs(r.json);
+    expect(r.json.verdict).toBe('CANNOT_VERIFY');
+    expect(r.json.reason).toBe('PATH_CASE_COLLISION');
+    expect(r.code).toBe(2);
+  });
+
+  it('case-sensitive (this host): behaviour is unchanged and the field is reported', () => {
+    const renamed = caseRenamedGutted();
+    let r = capture(() => run(renamed, { cmd: DISCOVER, keep: true }));
+    keptDirs(r.json);
+    expect(typeof r.json.filesystem_case_sensitive).toBe('boolean');
+    if (process.platform === 'linux') expect(r.json.filesystem_case_sensitive).toBe(true);
+    expect(r.json.verdict).toBe('MASKED_FAILURE');
+    // Distinct files here: the case variant is an agent-added test and is removed.
+    expect(r.json.added_protected_removed).toBe(1);
+    expect(existsSync(join(String(r.json.pristine_dir), 'test', 'CHECK.test.js'))).toBe(false);
+
+    const colliding = greenBase();
+    writeFileSync(join(colliding, 'SRC.js'), 'module.exports = 42;\n');
+    r = capture(() => run(colliding, { cmd: DISCOVER, probeCaseSensitivity: () => true }));
+    expect(r.json.verdict).toBe('VERIFIED');
+    expect(r.json.filesystem_case_sensitive).toBe(true);
+
+    const surface = greenBase();
+    writeFileSync(join(surface, 'CONFTEST.PY'), 'import sys\n');
+    r = capture(() => run(surface, { cmd: DISCOVER, probeCaseSensitivity: () => true, keep: true }));
+    keptDirs(r.json);
+    expect(r.json.added_protected_removed).toBe(0);
+    expect(existsSync(join(String(r.json.pristine_dir), 'CONFTEST.PY'))).toBe(true);
   });
 });
