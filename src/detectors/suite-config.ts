@@ -68,14 +68,57 @@ const VITEST_DEFAULT_INCLUDE = ['**/*.{test,spec}.?(c|m)[jt]s?(x)'];
 // pytest's own defaults: `python_files` is `test_*.py *_test.py`, and
 // `norecursedirs` keeps the walk out of build/venv trees.
 const PYTEST_DEFAULT_INCLUDE = ['**/test_*.py', '**/*_test.py'];
-const PYTEST_DEFAULT_IGNORE = ['**/build/**', '**/dist/**', '**/node_modules/**', '**/venv/**', '**/.*/**'];
-const VITEST_DEFAULT_EXCLUDE = [
+export const PYTEST_DEFAULT_IGNORE = ['**/build/**', '**/dist/**', '**/node_modules/**', '**/venv/**', '**/.*/**'];
+export const VITEST_DEFAULT_EXCLUDE = [
   '**/node_modules/**',
   '**/dist/**',
   '**/cypress/**',
   '**/.{idea,git,cache,output,temp}/**',
   '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*',
 ];
+// A JS/TS spec under any dot-directory (`.archive/`, `.trash/`) is outside what a
+// runner walks by default, not only the five vitest names.
+const JS_UNWALKED = [...VITEST_DEFAULT_EXCLUDE, '**/.*/**'];
+
+/**
+ * Why a runner would never OPEN `path` although it sits inside the protected tests
+ * glob, or null when the path is a test target. The glob says what a spec looks
+ * like; each runner also has a walk it never leaves, and a spec renamed into the gap
+ * between the two disappears from the suite as surely as a deleted one (#430):
+ *
+ *   - vitest / jest: the default `test.exclude` (`node_modules/`, `dist/`, `cypress/`,
+ *     `.idea/`…), and any dot-directory;
+ *   - pytest: the default `norecursedirs` (`build/`, `dist/`, `venv/`, `.*`…);
+ *   - cargo: an integration test target is `tests/<name>.rs` or `tests/<name>/main.rs`;
+ *     any deeper file is at most a module of one, never a target (a `tests/`
+ *     under `src/` is inline unit-test layout, which cargo does not walk this way);
+ *   - go test: a directory or file component named `testdata`, or beginning with
+ *     `_` or `.`, is ignored by the go tool.
+ */
+export function runnerSkips(path: string): string | null {
+  const parts = path.split('/');
+  if (/\.rs$/.test(path)) {
+    const i = parts.indexOf('tests');
+    if (i < 0 || parts.slice(0, i).includes('src')) return null;
+    const rest = parts.slice(i + 1);
+    if (rest.length === 1 || (rest.length === 2 && rest[1] === 'main.rs')) return null;
+    return 'cargo builds only tests/*.rs and tests/*/main.rs as test targets';
+  }
+  if (/\.go$/.test(path)) {
+    const hit = parts.find((p) => p === 'testdata' || p.startsWith('_') || p.startsWith('.'));
+    if (hit === undefined) return null;
+    return `go test skips ${hit === 'testdata' ? 'testdata/' : hit.startsWith('_') ? '_*' : '.*'} paths (${JSON.stringify(hit)})`;
+  }
+  if (/\.py$/.test(path)) {
+    const hit = PYTEST_DEFAULT_IGNORE.find((g) => globs([g])(path));
+    return hit === undefined ? null : `pytest's default norecursedirs matches it (${JSON.stringify(hit)})`;
+  }
+  if (/\.[cm]?[jt]sx?$/.test(path)) {
+    const hit = JS_UNWALKED.find((g) => globs([g])(path));
+    return hit === undefined ? null : `the runner's default exclude matches it (${JSON.stringify(hit)})`;
+  }
+  return null;
+}
 
 /** Conventional JS/TS spec layouts, for when no repository listing is available. */
 export const CANONICAL_SAMPLES = [
