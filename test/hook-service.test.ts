@@ -229,7 +229,7 @@ describe('fallback: absent, dead, stale or foreign service', () => {
     expect(result).not.toBeNull();
     expect(result?.exitCode).toBe(0);
     expect(result?.stdout).toMatch(/permissionDecision":"deny"/);
-    expect(result?.stdout).toMatch(/accepted this evaluation.*did not return a verdict/);
+    expect(result?.stdout).toMatch(/handed this hook evaluation.*did not receive a verdict/);
     for (const c of held) c.destroy();
     await new Promise<void>((r) => srv.close(() => r()));
   });
