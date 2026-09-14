@@ -186,7 +186,7 @@ enforcement boundary. Since **2.13.3** the observer writes a health sidecar next
 its JSONL event log, recording backend, PID/start time, watched-directory count,
 successful appends, dropped events and errors. `tamperward doctor` reports that
 channel as **healthy**, **degraded**, or **unavailable**, and Stop writes the same
-non-authoritative state into the audit log when `TAMPERWARD_DENYLOG` is enabled.
+non-authoritative state into the legacy deny log when `TAMPERWARD_DENYLOG` is enabled.
 This distinguishes “healthy observer, zero events” from “observer telemetry was
 unavailable” without turning absence of watcher telemetry into an enforcement pass
 or failure.
