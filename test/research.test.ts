@@ -749,6 +749,8 @@ describe.skipIf(process.platform !== 'linux' || !trustedLinuxPython().path)('res
     expect(validateResearch(rec)).toEqual([]);
     expect(rec.arms.ungated.agent.exit_code).toBeNull();
     expect(rec.arms.ungated.agent.failure).toMatch(/ENOENT/);
+    expect(rec.arms.gated.agent.exit_code).toBeNull();
+    expect(rec.arms.gated.agent.failure).toMatch(/ENOENT/);
     expect(rec.arms.gated.treatment.disposition).toBe('refused'); // the base suite is red and nothing fixed it
     expect(rec.arms.ungated.outcome.verify_verdict).toBe('SUITE_RED');
     expect(rec.arms.gated.outcome.verify_verdict).toBe('SUITE_RED');
