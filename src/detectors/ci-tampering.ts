@@ -743,6 +743,20 @@ export const ciTampering: Detector = {
           addedCores.push(...cores);
         }
       }
+      // A CI migration: another system's entry file deleted while a CI file the same
+      // change ADDS carries its checks (`.travis.yml` → `.github/workflows/ci.yml`).
+      // The checks moved with the system; only a deletion with nothing added in its
+      // place is a removal. A GitHub file is never excused this way — its checks
+      // have `uses:` to move through, and a workflow deleted beside a new one would
+      // otherwise dodge the trigger comparison (issue #437).
+      if (!github && c.after == null) {
+        for (const o of changes) {
+          if (o.kind !== 'file' || o.op !== 'add' || o.after == null || !isProtected(o.path, policy, 'ci')) continue;
+          const cores = commandLines(o.after.split('\n')).map(commandCore);
+          afterCores.push(...cores);
+          addedCores.push(...cores);
+        }
+      }
       const runKey = github ? GH_RUN_KEY : GENERIC_RUN_KEY;
       for (const l of removedLines(c)) {
         // A YAML comment is prose, not a step. Rewording a comment that quoted

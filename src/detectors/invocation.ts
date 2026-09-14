@@ -211,6 +211,12 @@ export function survives(removedCore: string, isUses: boolean, afterCores: strin
       if (w && (canonical(w[1]) === r || canonical(w[1]).startsWith(r + ' '))) neutralised ??= raw;
     }
   }
+  // A neutralising suffix the REMOVED line already carried is not a new one: a piped
+  // typecheck whose redirect target is renamed (`… | process > a.json` → `… > b.json`),
+  // a Travis `|| travis_terminate` line rewritten around the same `||`, are
+  // respellings of a line that was already read that way (issue #437).
+  const maskOf = (args: string): string | null => (' ' + args).match(NEUTRALISING_SUFFIX)?.[0]?.trim() ?? null;
+  const priorMask = r.includes(' ') ? maskOf(r.slice(r.indexOf(' ') + 1)) : null;
   let respelled = false;
   for (const raw of addedCores) {
     if (!kind || checkKind(raw) !== kind) continue;
@@ -225,7 +231,9 @@ export function survives(removedCore: string, isUses: boolean, afterCores: strin
       continue;
     }
     const args = a.slice(a.indexOf(' ') + 1 || a.length);
-    if (a.includes(' ') && (NEUTRALISING_SUFFIX.test(' ' + args) || narrowed(args) || runnerNarrowed(a, args))) neutralised ??= raw;
+    const mask = maskOf(args);
+    const newMask = mask !== null && mask !== priorMask;
+    if (a.includes(' ') && (newMask || narrowed(args) || runnerNarrowed(a, args))) neutralised ??= raw;
     else respelled = true;
   }
   if (respelled) return { state: 'kept' };
