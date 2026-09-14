@@ -110,6 +110,8 @@ describe('audit schema validation', () => {
     expect(() => parseAuditJsonl('{not-json}\n')).toThrow(/not valid JSON/);
     expect(() => parseAuditEvent({ ...event(), severity: 'warn', decision: 'deny' })).toThrow(/inconsistent/);
     expect(() => parseAuditEvent({ ...event(), session: 'raw-session' })).toThrow(/invalid session/);
+    expect(() => parseAuditEvent({ ...event(), agent: 'Claude Code' })).toThrow(/invalid agent/);
+    expect(parseAuditEvent({ ...event(), agent: 'future-agent' }).agent).toBe('future-agent');
   });
 });
 
@@ -142,6 +144,7 @@ describe('audit stats', () => {
       sessions: 2,
       first_event: '2026-09-14T12:00:00.000Z',
       last_event: '2026-09-14T12:02:00.000Z',
+      interpretation: 'finding-is-not-proof-of-intent',
     });
     expect(summary.by_rule).toEqual([
       { rule: 'test-skip', events: 2, blocked: 2, warnings: 0 },
