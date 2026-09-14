@@ -8,10 +8,11 @@
 // those. The launcher (src/cli/index.ts) loads the full CLI only when this
 // returns null.
 //
-// Null means FALL BACK, and fall back means the ordinary in-process evaluation:
-// the same code, the same verdict, only slower. There is no path here that turns
-// an absent, dead, slow, stale or untrusted service into an allow. Every check
-// below refuses towards the in-process gate:
+// Null means SAFE FALLBACK, and fallback means the ordinary in-process evaluation:
+// the same code, the same verdict, only slower. It is returned only while the
+// service has not taken ownership of the request (or explicitly refuses before
+// evaluation). After handoff, ambiguity is a fail-closed HookResult instead. There
+// is no path here that turns service failure into an allow:
 //
 //   - no opt-in, or Windows (no per-user unix socket contract in this release);
 //   - the socket's directory is not a directory this uid owns at mode 0700;
@@ -233,7 +234,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function acceptedFailureResult(kind: HookKind, failure: string): HookResult {
   const reason =
-    `Tamperward's hook service accepted this evaluation but did not return a verdict (${failure}). ` +
+    `Tamperward handed this hook evaluation to the service but did not receive a verdict (${failure}). ` +
     'It is denied rather than evaluated a second time concurrently.';
   const payload =
     kind === 'PreToolUse'
