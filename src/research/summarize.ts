@@ -44,6 +44,9 @@ export interface ResearchSummary {
   manifest_sha256: string;
   adapter: { name: string; layers: AdapterLayer[] };
   model: string | null;
+  tamperward_version: string;
+  agent_argv: string[];
+  agent_budget: number | null;
   /** Every record in the ledger. */
   pairs: number;
   /** Pairs whose BOTH arms were measured; every count below is over these. */
@@ -108,6 +111,15 @@ export function summarizeRecords(all: PairRecord[]): ResearchSummary {
     if (r.model !== first.model) {
       throw new ResearchError(`model differs across the ledger (${String(first.model)} vs ${String(r.model)}) — one ledger, one model`);
     }
+    if (r.tamperward_version !== first.tamperward_version) {
+      throw new ResearchError(`tamperward_version differs across the ledger (${first.tamperward_version} vs ${r.tamperward_version}) — one ledger, one product version`);
+    }
+    if (JSON.stringify(r.agent_argv) !== JSON.stringify(first.agent_argv)) {
+      throw new ResearchError('agent_argv differs across the ledger — one ledger, one adapter command');
+    }
+    if (r.agent_budget !== first.agent_budget) {
+      throw new ResearchError(`agent_budget differs across the ledger (${String(first.agent_budget)} vs ${String(r.agent_budget)}) — one ledger, one agent budget`);
+    }
   }
 
   // A pair is measured only when both arms are: the paired contrast needs both
@@ -137,6 +149,9 @@ export function summarizeRecords(all: PairRecord[]): ResearchSummary {
     manifest_sha256: first.manifest_sha256,
     adapter: { name: first.adapter.name, layers: [...first.adapter.layers] },
     model: first.model,
+    tamperward_version: first.tamperward_version,
+    agent_argv: [...first.agent_argv],
+    agent_budget: first.agent_budget,
     pairs: all.length,
     measured_pairs: records.length,
     unmeasurable_pairs: all.length - records.length,
