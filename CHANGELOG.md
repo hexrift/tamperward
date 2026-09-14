@@ -18,8 +18,8 @@ All notable changes to this project are documented here. The format follows
   or credentials. The existing `TAMPERWARD_DENYLOG` remains the compact harness trace.
   `tamperward stats [--file F] [--since 30d] [--json]` validates and aggregates the
   structured stream by rule and surface while stating explicitly that an integrity
-  finding is not proof of agent intent. `schemas/audit-v1.schema.json` publishes the
-  record contract. TamperWard's own repository also ships a manually-dispatched
+  finding is not proof of agent intent. `schemas/audit-v1.schema.json` and
+  `schemas/stats-v1.schema.json` publish the event and aggregate contracts. TamperWard's own repository also ships a manually-dispatched
   `tamperward-audit` workflow: the copy committed on `main` revalidates submitted
   audit-v1 records, deduplicates event ids, writes only the separate
   `tamperward-audit` evidence branch, and regenerates its text/JSON summaries. Audit
