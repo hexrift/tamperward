@@ -17,6 +17,7 @@ export default defineConfig({
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Blog', link: '/blog/' },
+      { text: 'Research', link: '/research/' },
       { text: 'npm', link: 'https://www.npmjs.com/package/tamperward' },
     ],
     sidebar: {
@@ -29,6 +30,29 @@ export default defineConfig({
             { text: 'Enforcement & sign-off', link: '/guide/enforcement' },
             { text: 'Environment variables', link: '/guide/environment' },
             { text: 'Research: evaluate a model', link: '/guide/research' },
+          ],
+        },
+      ],
+      '/research/': [
+        {
+          text: 'Research & Benchmarks',
+          items: [
+            { text: 'Overview', link: '/research/' },
+            {
+              text: 'Agent integrity benchmark',
+              items: [
+                { text: 'Round 1', link: '/research/round-1' },
+                { text: 'Round 2', link: '/research/round-2' },
+                { text: 'Round 3', link: '/research/round-3' },
+                { text: 'Round 3.1', link: '/research/round-3-1' },
+                { text: 'Round 4', link: '/research/round-4' },
+              ],
+            },
+            { text: 'Detector precision / false positives', link: '/research/detector-precision' },
+            { text: 'Performance / overhead', link: '/research/performance' },
+            { text: 'Security and adversarial evaluations', link: '/research/security-evaluations' },
+            { text: 'Model comparisons', link: '/research/model-comparisons' },
+            { text: 'Methodology, limitations and errata', link: '/research/methodology-limitations-errata' },
           ],
         },
       ],
