@@ -369,6 +369,19 @@ describe('preflight refusals', () => {
     expect(existsSync(join(child, '.tamperward.yml'))).toBe(false);
   });
 
+  it('accepts a symlink alias that resolves to the repository root', async () => {
+    const d = repo();
+    const holder = mkdtempSync(join(tmpdir(), 'tw-onboard-root-alias-'));
+    dirs.push(holder);
+    const alias = join(holder, 'repo');
+    symlinkSync(d, alias, 'dir');
+
+    const s = await onboard(alias, ['n'], { noGithub: true, skipDemo: true });
+    expect(s.err).toBe('');
+    expect(s.out).toMatch(/Local protection/);
+    expect(s.code).toBe(1);
+  });
+
   it('presents macOS as a clear run limitation instead of dumping lifecycle internals', async () => {
     const d = repo();
     const s = await onboard(d, ['n'], { noGithub: true, skipDemo: true }, { platform: 'darwin' });
