@@ -34,11 +34,13 @@ const SMOKE_BUDGET_RATIOS: Record<string, number> = {
   'hook.warm.100': 4,
   'snapshot.100': 4,
   // This item launches git and walks a fresh fixture, so shared-runner I/O
-  // variance is materially larger than the pure hook/snapshot cases. Two clean
-  // Node 22/24 CI legs measured 4.39–4.47x while the Node 20 leg passed; 5x
-  // keeps the smoke useful without pretending it is the regression gate. The
-  // nightly/manual perf workflow remains authoritative against BASELINE.json.
-  'check.diff.small': 5,
+  // variance is materially larger than the pure hook/snapshot cases. Clean PR
+  // legs have measured ~4.4x, while the 2.23.0 release runner hit 5.017x after
+  // the exact head had already passed on Node 20/22/24. 6x leaves enough room
+  // for shared-runner jitter while still catching the order-of-magnitude class
+  // of regression this smoke is for. The nightly/manual perf workflow remains
+  // authoritative against BASELINE.json.
+  'check.diff.small': 6,
 };
 
 const SMOKE_ITEMS = [YARDSTICK, ...Object.keys(SMOKE_BUDGET_RATIOS)];
