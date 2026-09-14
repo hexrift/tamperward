@@ -18,6 +18,7 @@ import { policyWeakening } from '../src/detectors/policy-diff';
 import { parsePolicy } from '../src/policy-load';
 import { objectRewriteState } from '../src/git/trusted';
 import { HOOK_CMD, SWEEP_CMD } from '../src/wiring';
+import { rootless } from './rootless';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -213,7 +214,7 @@ describe('#2 git object rewriting redirects the trusted base', () => {
     expect(objectRewriteState(cwd)).not.toBe(before);
   });
 
-  it('the envelope convicts an agent that installs a replace ref, however green it looks', () => {
+  it.skipIf(!rootless)('the envelope convicts an agent that installs a replace ref, however green it looks', () => {
     // The agent leaves a tree that passes every check on its face — the bug is
     // genuinely fixed — and redirects the base underneath. The anchor moving is
     // the finding, exactly as a history rewrite is.
@@ -226,7 +227,7 @@ describe('#2 git object rewriting redirects the trusted base', () => {
     expect(runEnvelope({ cwd, cmd: 'node runner.js', budget: 30, argv: ['bash', '-c', script] })).toBe(1);
   });
 
-  it('the same honest agent WITHOUT the replace ref is green — the guard convicts the rewrite, not the fix', () => {
+  it.skipIf(!rootless)('the same honest agent WITHOUT the replace ref is green — the guard convicts the rewrite, not the fix', () => {
     const cwd = runnerRepo();
     const script =
       'echo "module.exports = 42;" > src.js && ' +

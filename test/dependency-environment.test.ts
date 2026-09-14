@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { runEnvelope } from '../src/cli/run';
 import { runVerify } from '../src/cli/verify';
 import { dependencyEnvironmentDiagnostics, discoverDependencyEnvironment } from '../src/dependency-env';
+import { rootless } from './rootless';
 
 const dirs: string[] = [];
 const originalPath = process.env.PATH;
@@ -98,7 +99,7 @@ const run = (
   });
 
 describe('dependency environment attestation', () => {
-  it('convicts a rewritten VIRTUAL_ENV interpreter even when both verifier runs are fooled', () => {
+  it.skipIf(!rootless)('convicts a rewritten VIRTUAL_ENV interpreter even when both verifier runs are fooled', () => {
     const cwd = repoWithIgnoredVenv();
     selectVenv(cwd);
 
@@ -109,7 +110,7 @@ describe('dependency environment attestation', () => {
     expect(code).toBe(1);
   });
 
-  it('attests mutable site-packages, not only the interpreter path', () => {
+  it.skipIf(!rootless)('attests mutable site-packages, not only the interpreter path', () => {
     const cwd = repoWithIgnoredVenv(true);
     selectVenv(cwd);
 
@@ -118,7 +119,7 @@ describe('dependency environment attestation', () => {
     expect(code).toBe(1);
   });
 
-  it('catches dependency drift introduced only after the pristine suite, after both interpreter substitutions restored', () => {
+  it.skipIf(!rootless)('catches dependency drift introduced only after the pristine suite, after both interpreter substitutions restored', () => {
     const cwd = repoWithIgnoredVenv();
     selectVenv(cwd);
     const counter = join(mkdtempSync(join(tmpdir(), 'tw-dep-counter-')), 'calls');
@@ -156,7 +157,7 @@ describe('dependency environment attestation', () => {
     expect(run(cwd, 'true')).toBe(2);
   });
 
-  it('the operator-owned --allow-dep-drift override explicitly accepts an unattestable environment', () => {
+  it.skipIf(!rootless)('the operator-owned --allow-dep-drift override explicitly accepts an unattestable environment', () => {
     const cwd = repoWithIgnoredVenv(true);
     selectVenv(cwd);
     const outside = mkdtempSync(join(tmpdir(), 'tw-dep-outside-'));
@@ -166,7 +167,7 @@ describe('dependency environment attestation', () => {
     expect(run(cwd, 'true', { allowDepDrift: true })).toBe(0);
   });
 
-  it.skipIf(process.platform !== 'linux')(
+  it.skipIf(process.platform !== 'linux' || !rootless)(
     'kills a post-handoff dependency substitute before verifier-entry adjudication (#374/#376)',
     () => {
       const cwd = repoWithIgnoredVenv(true);
@@ -224,7 +225,7 @@ describe('dependency environment attestation', () => {
     15_000,
   );
 
-  it('keeps verifier-entry attestation independent of the run-side checkpoint', () => {
+  it.skipIf(!rootless)('keeps verifier-entry attestation independent of the run-side checkpoint', () => {
     const cwd = repoWithIgnoredVenv(true);
     selectVenv(cwd);
     process.env.TAMPERWARD_DIAGNOSTICS = '1';
@@ -242,13 +243,13 @@ describe('dependency environment attestation', () => {
     expect(output).toMatch(/entry_reuse=no/i);
   });
 
-  it('an honest selected venv stays green', () => {
+  it.skipIf(!rootless)('an honest selected venv stays green', () => {
     const cwd = repoWithIgnoredVenv(true);
     selectVenv(cwd);
     expect(run(cwd, 'true')).toBe(0);
   });
 
-  it('accepts the normal venv shape where bin/python is a symlink to an external interpreter file', () => {
+  it.skipIf(!rootless)('accepts the normal venv shape where bin/python is a symlink to an external interpreter file', () => {
     const cwd = repoWithIgnoredVenv(true);
     selectVenv(cwd);
     const external = mkdtempSync(join(tmpdir(), 'tw-base-python-'));
@@ -262,7 +263,7 @@ describe('dependency environment attestation', () => {
     expect(run(cwd, 'true')).toBe(0);
   });
 
-  it('a Node verifier with no node_modules remains a legitimate no-dependency environment', () => {
+  it.skipIf(!rootless)('a Node verifier with no node_modules remains a legitimate no-dependency environment', () => {
     const cwd = repoWithIgnoredVenv(true);
     delete process.env.VIRTUAL_ENV;
     process.env.PATH = originalPath;
@@ -290,7 +291,7 @@ describe('dependency environment attestation', () => {
     ).toBe(2);
   });
 
-  it('freezes a direct .venv/bin/python root even when the executable is absent at entry', () => {
+  it.skipIf(!rootless)('freezes a direct .venv/bin/python root even when the executable is absent at entry', () => {
     const cwd = repoWithIgnoredVenv(true);
     delete process.env.VIRTUAL_ENV;
     process.env.PATH = originalPath;

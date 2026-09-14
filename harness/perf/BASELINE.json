@@ -1,0 +1,336 @@
+{
+  "schema": 1,
+  "generated_at": "2026-09-13T22:58:20.130Z",
+  "tamperward_version": "2.20.6",
+  "profile": "full",
+  "runs": 7,
+  "options": {
+    "dep_mb": 8,
+    "ignored_files": 20000,
+    "log_mb": 8
+  },
+  "machine": {
+    "platform": "linux",
+    "release": "6.18.44-fc-v24",
+    "arch": "x64",
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+    "cores": 4,
+    "mem_gb": 15.7,
+    "node": "v20.20.2",
+    "git": "git version 2.43.0"
+  },
+  "items": [
+    {
+      "id": "cli.noop",
+      "description": "hook claude with EMPTY stdin: process start + module load, no evaluation (the fixed cost every item pays)",
+      "fixture": "tree100",
+      "runs": 7,
+      "wall_ms": {
+        "p50": 1735.9,
+        "p95": 2686.4,
+        "min": 1432.8,
+        "max": 2686.4,
+        "mean": 1811.7
+      },
+      "cpu_ms": {
+        "p50": 775,
+        "p95": 1046,
+        "min": 750,
+        "max": 1046,
+        "mean": 813.9
+      }
+    },
+    {
+      "id": "hook.warm.100",
+      "description": "PreToolUse hook, established session, 100 protected files",
+      "fixture": "tree100",
+      "runs": 7,
+      "wall_ms": {
+        "p50": 2199.6,
+        "p95": 2490,
+        "min": 1755.3,
+        "max": 2490,
+        "mean": 2232.4
+      },
+      "cpu_ms": {
+        "p50": 853,
+        "p95": 1068,
+        "min": 797,
+        "max": 1068,
+        "mean": 892.9
+      }
+    },
+    {
+      "id": "snapshot.100",
+      "description": "Stop sweep: turn view + protected-tree snapshot, 100 protected files",
+      "fixture": "tree100",
+      "runs": 7,
+      "wall_ms": {
+        "p50": 2300.7,
+        "p95": 2513.2,
+        "min": 2117.5,
+        "max": 2513.2,
+        "mean": 2303
+      },
+      "cpu_ms": {
+        "p50": 879,
+        "p95": 901,
+        "min": 849,
+        "max": 901,
+        "mean": 875.1
+      }
+    },
+    {
+      "id": "check.diff.small",
+      "description": "check --diff perf-base...perf-small (3 changed files)",
+      "fixture": "tree100",
+      "runs": 7,
+      "wall_ms": {
+        "p50": 2162,
+        "p95": 2807.6,
+        "min": 1980.4,
+        "max": 2807.6,
+        "mean": 2273.2
+      },
+      "cpu_ms": {
+        "p50": 985,
+        "p95": 1012,
+        "min": 979,
+        "max": 1012,
+        "mean": 992.9
+      }
+    },
+    {
+      "id": "hook.cold.1k",
+      "description": "PreToolUse hook, NEW session every run (baseline pin + first snapshot), 1k protected files",
+      "fixture": "tree1k",
+      "runs": 7,
+      "wall_ms": {
+        "p50": 2421.6,
+        "p95": 2950.9,
+        "min": 1996.5,
+        "max": 2950.9,
+        "mean": 2443.8
+      },
+      "cpu_ms": {
+        "p50": 897,
+        "p95": 1137,
+        "min": 866,
+        "max": 1137,
+        "mean": 933.6
+      }
+    },
+    {
+      "id": "hook.warm.1k",
+      "description": "PreToolUse hook, established session, 1k protected files",
+      "fixture": "tree1k",
+      "runs": 7,
+      "wall_ms": {
+        "p50": 2227.9,
+        "p95": 2465.2,
+        "min": 1861.2,
+        "max": 2465.2,
+        "mean": 2228.5
+      },
+      "cpu_ms": {
+        "p50": 876,
+        "p95": 927,
+        "min": 862,
+        "max": 927,
+        "mean": 887.6
+      }
+    },
+    {
+      "id": "snapshot.1k",
+      "description": "Stop sweep: turn view + protected-tree snapshot, 1k protected files",
+      "fixture": "tree1k",
+      "runs": 7,
+      "wall_ms": {
+        "p50": 2251.2,
+        "p95": 2671.4,
+        "min": 2045.8,
+        "max": 2671.4,
+        "mean": 2283.8
+      },
+      "cpu_ms": {
+        "p50": 917,
+        "p95": 992,
+        "min": 908,
+        "max": 992,
+        "mean": 934.9
+      }
+    },
+    {
+      "id": "snapshot.10k",
+      "description": "Stop sweep: turn view + protected-tree snapshot, 10k protected files",
+      "fixture": "tree10k",
+      "runs": 7,
+      "wall_ms": {
+        "p50": 3026,
+        "p95": 3887.2,
+        "min": 2660.9,
+        "max": 3887.2,
+        "mean": 3150.9
+      },
+      "cpu_ms": {
+        "p50": 1367,
+        "p95": 1395,
+        "min": 1319,
+        "max": 1395,
+        "mean": 1366.6
+      }
+    },
+    {
+      "id": "check.diff.large",
+      "description": "check --diff perf-base...perf-large (500 changed files)",
+      "fixture": "tree1k",
+      "runs": 7,
+      "wall_ms": {
+        "p50": 27791.6,
+        "p95": 31952.4,
+        "min": 24235,
+        "max": 31952.4,
+        "mean": 27881.1
+      },
+      "cpu_ms": {
+        "p50": 10916,
+        "p95": 11227,
+        "min": 10454,
+        "max": 11227,
+        "mean": 10879.9
+      }
+    },
+    {
+      "id": "hook.ignored",
+      "description": "PreToolUse hook, established session, 1k protected files + 20000-file ignored dist/ + untracked scratch",
+      "fixture": "ignored",
+      "runs": 7,
+      "wall_ms": {
+        "p50": 2287.1,
+        "p95": 2816.5,
+        "min": 2103,
+        "max": 2816.5,
+        "mean": 2362.5
+      },
+      "cpu_ms": {
+        "p50": 969,
+        "p95": 1026,
+        "min": 947,
+        "max": 1026,
+        "mean": 978.7
+      }
+    },
+    {
+      "id": "sweep.ignored",
+      "description": "Stop sweep (ignored/untracked enumeration) with a 20000-file ignored dist/",
+      "fixture": "ignored",
+      "runs": 7,
+      "wall_ms": {
+        "p50": 2531.3,
+        "p95": 2753.5,
+        "min": 2297.6,
+        "max": 2753.5,
+        "mean": 2562
+      },
+      "cpu_ms": {
+        "p50": 1119,
+        "p95": 1145,
+        "min": 1099,
+        "max": 1145,
+        "mean": 1119.1
+      }
+    },
+    {
+      "id": "deps.fingerprint",
+      "description": "verify --cmd true with a 8 MB synthetic node_modules; inner_ms = dependency fingerprint alone",
+      "fixture": "deps",
+      "runs": 7,
+      "wall_ms": {
+        "p50": 4855.4,
+        "p95": 5047.6,
+        "min": 4417.6,
+        "max": 5047.6,
+        "mean": 4794.2
+      },
+      "cpu_ms": {
+        "p50": 2046,
+        "p95": 2084,
+        "min": 1991,
+        "max": 2084,
+        "mean": 2041.7
+      },
+      "inner_ms": {
+        "p50": 836.4,
+        "p95": 989.7,
+        "min": 709.3,
+        "max": 989.7,
+        "mean": 833.9
+      },
+      "dependency_tree": {
+        "bytes": 8406422,
+        "packages": 113
+      }
+    },
+    {
+      "id": "verify.materialize",
+      "description": "verify --cmd true, no dependency tree: visible + pristine materialisation with a ~1 ms suite",
+      "fixture": "tree1k",
+      "runs": 7,
+      "wall_ms": {
+        "p50": 10519.9,
+        "p95": 21404.6,
+        "min": 7839.6,
+        "max": 21404.6,
+        "mean": 12991.8
+      },
+      "cpu_ms": {
+        "p50": 7029,
+        "p95": 7807,
+        "min": 5924,
+        "max": 7807,
+        "mean": 6985.7
+      }
+    },
+    {
+      "id": "run.envelope",
+      "description": "run --cmd true -- true: the full envelope (base pin, checks, verify) around a trivial agent",
+      "fixture": "tree1k",
+      "runs": 7,
+      "wall_ms": {
+        "p50": 17328.1,
+        "p95": 19242.1,
+        "min": 13749.3,
+        "max": 19242.1,
+        "mean": 17160.3
+      },
+      "cpu_ms": {
+        "p50": 7770,
+        "p95": 8470,
+        "min": 7330,
+        "max": 8470,
+        "mean": 7854.1
+      }
+    },
+    {
+      "id": "sweep.longlog",
+      "description": "Stop sweep consuming a 8 MB watcher event log from offset 0",
+      "fixture": "tree1k",
+      "runs": 7,
+      "wall_ms": {
+        "p50": 2310.5,
+        "p95": 2923.5,
+        "min": 2085.7,
+        "max": 2923.5,
+        "mean": 2371.2
+      },
+      "cpu_ms": {
+        "p50": 1140,
+        "p95": 1193,
+        "min": 1113,
+        "max": 1193,
+        "mean": 1144.7
+      },
+      "events": 62860
+    }
+  ]
+}

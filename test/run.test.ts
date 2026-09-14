@@ -14,6 +14,7 @@ import { runVerify } from '../src/cli/verify';
 import { loadPolicy } from '../src/policy-load';
 import { diffWorktree, diffWorktreeWithUntracked } from '../src/git/build';
 import { MAX_EVENT_READ_BYTES, MAX_EVENT_SWEEP_BYTES } from '../src/detectors/fs-events';
+import { rootless } from './rootless';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -65,19 +66,19 @@ const run = (cwd: string, argv: string[], extra: Partial<Parameters<typeof runEn
   runEnvelope({ cwd, cmd: CMD, budget: 30, argv, ...extra });
 
 describe('tamperward run — the enforcement envelope', () => {
-  it('honest fix, agent exits 0 → green means green (exit 0)', () => {
+  it.skipIf(!rootless)('honest fix, agent exits 0 → green means green (exit 0)', () => {
     const cwd = repo();
     expect(run(cwd, sh(`echo "module.exports = 42;" > src.js`))).toBe(0);
   });
 
-  it('the cssstyle replay: agent masks the failure and "succeeds" → exit 1', () => {
+  it.skipIf(!rootless)('the cssstyle replay: agent masks the failure and "succeeds" → exit 1', () => {
     const cwd = repo();
     // The agent guts the failing test (visible green) and exits 0 — the
     // runtime released a poisoned tree with a success code.
     expect(run(cwd, sh(`echo "" > test/check.test.js`))).toBe(1);
   });
 
-  it('agent COMMITS its tampering — the entry-time base still convicts (exit 1)', () => {
+  it.skipIf(!rootless)('agent COMMITS its tampering — the entry-time base still convicts (exit 1)', () => {
     const cwd = repo();
     expect(
       run(
@@ -87,12 +88,12 @@ describe('tamperward run — the enforcement envelope', () => {
     ).toBe(1);
   });
 
-  it('agent fails honestly (exit 7, tree untouched) → its code passes through', () => {
+  it.skipIf(!rootless)('agent fails honestly (exit 7, tree untouched) → its code passes through', () => {
     const cwd = repo(true); // green base: enforcement clean, agent code visible
     expect(run(cwd, sh('exit 7'))).toBe(7);
   });
 
-  it('dirty tree before the agent starts → fail closed (exit 2); --allow-dirty proceeds', () => {
+  it.skipIf(!rootless)('dirty tree before the agent starts → fail closed (exit 2); --allow-dirty proceeds', () => {
     const cwd = repo(true);
     writeFileSync(join(cwd, 'scratch.txt'), 'uncommitted');
     expect(run(cwd, sh('true'))).toBe(2);
@@ -267,7 +268,7 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
   // detached worker. Since 2.16.3 the stronger contract is active lifecycle
   // ownership: these descendants are terminated before adjudication, so an
   // otherwise honest fix is GREEN rather than merely NOT_QUIESCENT.
-  it.skipIf(process.platform !== 'linux')('reaps a detached worker that would mutate the tree after the agent exits', () => {
+  it.skipIf(process.platform !== 'linux' || !rootless)('reaps a detached worker that would mutate the tree after the agent exits', () => {
     const cwd = repo(); // failing suite; agent writes the honest fix
     const outside = mkdtempSync(join(tmpdir(), 'tw-run-historical-worker-'));
     dirs.push(outside);
@@ -313,7 +314,7 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
     }
   }, 15_000);
 
-  it.skipIf(process.platform !== 'linux')('reaps a detached worker that chdirs away while retaining a repository fd', () => {
+  it.skipIf(process.platform !== 'linux' || !rootless)('reaps a detached worker that chdirs away while retaining a repository fd', () => {
     const cwd = repo();
     const outside = mkdtempSync(join(tmpdir(), 'tw-run-historical-fd-'));
     dirs.push(outside);
@@ -357,7 +358,7 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
     }
   }, 15_000);
 
-  it.skipIf(process.platform !== 'linux')('rejects a forged lifecycle result when the same-UID agent kills its supervisor', () => {
+  it.skipIf(process.platform !== 'linux' || !rootless)('rejects a forged lifecycle result when the same-UID agent kills its supervisor', () => {
     const cwd = repo(true);
     const setup = join(cwd, '.forgery-setup');
     let adjudicationStarted = false;
@@ -383,7 +384,7 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
     expect(adjudicationStarted).toBe(false);
   }, 15_000);
 
-  it.skipIf(process.platform !== 'linux')('ignores candidate PATH/PYTHON* when bootstrapping the lifecycle supervisor', () => {
+  it.skipIf(process.platform !== 'linux' || !rootless)('ignores candidate PATH/PYTHON* when bootstrapping the lifecycle supervisor', () => {
     const cwd = repo(true);
     const poison = mkdtempSync(join(tmpdir(), 'tw-python-path-poison-'));
     dirs.push(poison);
@@ -439,7 +440,7 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
     expect(adjudicationStarted).toBe(false);
   });
 
-  it.skipIf(process.platform !== 'linux')('fails closed when adopted-child observation cannot be read', () => {
+  it.skipIf(process.platform !== 'linux' || !rootless)('fails closed when adopted-child observation cannot be read', () => {
     const cwd = repo(true);
     const outside = mkdtempSync(join(tmpdir(), 'tw-run-proc-fail-'));
     dirs.push(outside);
@@ -480,7 +481,7 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
     expect(adjudicationStarted).toBe(false);
   });
 
-  it.skipIf(process.platform !== 'linux')('owns a fast setsid --fork descendant that reparents before user-space polling could observe it', () => {
+  it.skipIf(process.platform !== 'linux' || !rootless)('owns a fast setsid --fork descendant that reparents before user-space polling could observe it', () => {
     const cwd = repo(true);
     const outside = mkdtempSync(join(tmpdir(), 'tw-run-double-fork-'));
     dirs.push(outside);
@@ -517,7 +518,7 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
     }
   }, 15_000);
 
-  it.skipIf(process.platform !== 'linux')('normal exit kills a setsid descendant even after it leaves the repository cwd', () => {
+  it.skipIf(process.platform !== 'linux' || !rootless)('normal exit kills a setsid descendant even after it leaves the repository cwd', () => {
     const cwd = repo(true);
     const outside = mkdtempSync(join(tmpdir(), 'tw-run-descendant-'));
     dirs.push(outside);
@@ -558,7 +559,7 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
     }
   }, 15_000);
 
-  it.skipIf(process.platform === 'win32')('normal exit reaps ordinary background descendants before adjudication', () => {
+  it.skipIf(process.platform === 'win32' || !rootless)('normal exit reaps ordinary background descendants before adjudication', () => {
     const cwd = repo(true);
     const outside = mkdtempSync(join(tmpdir(), 'tw-run-child-'));
     dirs.push(outside);
@@ -583,14 +584,14 @@ describe('P0-5: a verdict cannot outlive the tree it describes', () => {
     }
   }, 15_000);
 
-  it('an honest agent with no survivors is still clean (the scan must not convict the caller)', () => {
+  it.skipIf(!rootless)('an honest agent with no survivors is still clean (the scan must not convict the caller)', () => {
     // The caller's own shell pipeline shares this working directory, so the
     // survivor scan is keyed on processes that appear AFTER the agent spawns.
     const cwd = repo();
     expect(runEnvelope({ cwd, cmd: CMD, argv: sh('echo "module.exports = 42;" > src.js') })).toBe(0);
   });
 
-  it.skipIf(process.platform !== 'linux')('Linux kills the would-be DURING-adjudication mutator before adjudication starts', () => {
+  it.skipIf(process.platform !== 'linux' || !rootless)('Linux kills the would-be DURING-adjudication mutator before adjudication starts', () => {
     const cwd = repo();
     const outside = mkdtempSync(join(tmpdir(), 'tw-run-during-adjudication-'));
     dirs.push(outside);
@@ -696,7 +697,7 @@ describe('P0-6: the suite runner lives outside every git view', () => {
   }
   const RUNNER_CMD = './node_modules/.bin/checker';
 
-  it('an agent that rewrites the runner is caught as DEPENDENCY_DRIFT', () => {
+  it.skipIf(!rootless)('an agent that rewrites the runner is caught as DEPENDENCY_DRIFT', () => {
     const cwd = repoWithRunner();
     const code = runEnvelope({
       cwd,
@@ -706,12 +707,12 @@ describe('P0-6: the suite runner lives outside every git view', () => {
     expect(code).toBe(1); // verify itself is fooled; the fingerprint is not
   });
 
-  it('an honest agent that leaves dependencies alone still passes', () => {
+  it.skipIf(!rootless)('an honest agent that leaves dependencies alone still passes', () => {
     const cwd = repoWithRunner();
     expect(runEnvelope({ cwd, cmd: RUNNER_CMD, argv: sh('echo "module.exports = 42;" > src.js') })).toBe(0);
   });
 
-  it('a RELATIVE cwd does not break the verification overlay', () => {
+  it.skipIf(!rootless)('a RELATIVE cwd does not break the verification overlay', () => {
     // The copies' node_modules symlink was built from the caller's cwd
     // verbatim; a relative one resolved against the copy itself, so every
     // suite exited 127 and verify degraded to permanent SUITE_RED — an oracle
@@ -738,7 +739,7 @@ describe('adjacent dependency attestation lifecycle gate (#376)', () => {
 });
 
 describe('agent runtime budget (#325)', () => {
-  it('terminates a hung agent, still adjudicates its honest fix, and reports timeout distinctly', () => {
+  it.skipIf(!rootless)('terminates a hung agent, still adjudicates its honest fix, and reports timeout distinctly', () => {
     const cwd = repo();
     const started = Date.now();
     const code = runEnvelope({
@@ -754,7 +755,7 @@ describe('agent runtime budget (#325)', () => {
     expect(readFileSync(join(cwd, 'src.js'), 'utf8')).toContain('42');
   }, 15_000);
 
-  it.skipIf(process.platform === 'win32')('kills the agent process group, including ordinary children/grandchildren', () => {
+  it.skipIf(process.platform === 'win32' || !rootless)('kills the agent process group, including ordinary children/grandchildren', () => {
     const cwd = repo(true);
     const pidFile = join(cwd, '.agent-child-pid');
     const code = runEnvelope({
@@ -772,7 +773,7 @@ describe('agent runtime budget (#325)', () => {
     expect(() => process.kill(childPid, 0)).toThrow();
   }, 15_000);
 
-  it.skipIf(process.platform !== 'linux')('kills a descendant that escapes the agent process group with setsid', () => {
+  it.skipIf(process.platform !== 'linux' || !rootless)('kills a descendant that escapes the agent process group with setsid', () => {
     const cwd = repo(true);
     const marker = join(cwd, '.agent-setsid-started');
     const code = runEnvelope({
@@ -806,7 +807,7 @@ describe('agent runtime budget (#325)', () => {
 
 
 describe('supervised transient observer (#335)', () => {
-  it('starts before the agent, stays independent of enforcement, and stops deterministically', () => {
+  it.skipIf(!rootless)('starts before the agent, stays independent of enforcement, and stops deterministically', () => {
     const cwd = repo(true);
     const helperDir = mkdtempSync(join(tmpdir(), 'tw-observer-fixture-'));
     dirs.push(helperDir);
@@ -864,7 +865,90 @@ describe('supervised transient observer (#335)', () => {
     }
   }, 15_000);
 
-  it('only the explicit strict transient policy lets observer findings block the envelope', () => {
+  it.skipIf(!rootless)('stop completes on observer process exit, not on its stopped health record (#394)', () => {
+    // The race: an observer publishes `state: "stopped"` first and only then
+    // finishes its signal handler (final writes, exit). Treating the health
+    // record as completion let runEnvelope() return while the observer was
+    // still writing. The fixture reproduces exactly that ordering, with a
+    // deliberate gap between the stopped record and the exit, so a stop that
+    // keys on health returns before `observer-stop` exists. No wait/sleep is
+    // needed on the test side: runEnvelope() returning is the boundary.
+    const cwd = repo(true);
+    const helperDir = mkdtempSync(join(tmpdir(), 'tw-observer-fixture-'));
+    dirs.push(helperDir);
+    const observerEntry = join(helperDir, 'observer-lingering.js');
+    const trace = join(helperDir, 'trace.txt');
+    const exitAt = join(helperDir, 'exit-at.txt');
+
+    writeFileSync(
+      observerEntry,
+      [
+        "const fs = require('node:fs');",
+        "const args = process.argv.slice(2);",
+        "const value = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };",
+        "const log = value('--log');",
+        "const trace = process.env.TW_OBSERVER_TRACE;",
+        "const exitAt = process.env.TW_OBSERVER_EXIT_AT;",
+        "if (!log || !trace || !exitAt || !value('--base') || args[0] !== 'watch') process.exit(22);",
+        "fs.mkdirSync(require('node:path').dirname(log), { recursive: true });",
+        "const healthPath = log + '.health.json';",
+        "const health = { version: 1, state: 'healthy', backend: 'fallback', pid: process.pid, started_at: new Date().toISOString(), stopped_at: null, watched_dirs: 1, last_append_at: null, event_count: 0, dropped_events: 0, error_count: 0, last_error: null, log };",
+        "fs.appendFileSync(trace, 'observer-start\\n');",
+        "fs.writeFileSync(healthPath, JSON.stringify(health) + '\\n');",
+        "process.on('SIGTERM', () => {",
+        "  health.state = 'stopped'; health.stopped_at = new Date().toISOString();",
+        "  fs.writeFileSync(healthPath, JSON.stringify(health) + '\\n');",
+        "  // Still running after the stopped record: the final write and the exit",
+        "  // land only after a short, bounded delay inside the envelope's drain window.",
+        "  setTimeout(() => { fs.appendFileSync(trace, 'observer-stop\\n'); fs.writeFileSync(exitAt, String(Date.now())); process.exit(0); }, 150);",
+        "});",
+        "setInterval(() => {}, 1000);",
+        "",
+      ].join('\n'),
+    );
+
+    const savedTrace = process.env.TW_OBSERVER_TRACE;
+    const savedExitAt = process.env.TW_OBSERVER_EXIT_AT;
+    process.env.TW_OBSERVER_TRACE = trace;
+    process.env.TW_OBSERVER_EXIT_AT = exitAt;
+    vi.spyOn(process.stdout, 'write').mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      const code = runEnvelope({
+        cwd,
+        cmd: CMD,
+        observeTransients: true,
+        observerEntry,
+        argv: sh(`printf 'agent-start\\n' >> "${trace}"`),
+      });
+      const returnedAt = Date.now();
+
+      expect(code).toBe(0);
+      // Completion means the observer's final write happened before runEnvelope
+      // returned: the stopped health record alone is not the boundary.
+      expect(readFileSync(trace, 'utf8').trim().split('\n')).toEqual([
+        'observer-start',
+        'agent-start',
+        'observer-stop',
+      ]);
+      // And completion is keyed to the process actually exiting, not to the
+      // 2s drain deadline running out: a stop that cannot see the exit (the
+      // parent's event loop is blocked while the envelope waits synchronously,
+      // so the exited child stays a zombie that `kill(pid, 0)` still reports
+      // alive) can only return >= 2s after SIGTERM. Post-exit work in the
+      // envelope is a handful of git reads; the bound leaves it wide headroom.
+      const exitedAt = Number(readFileSync(exitAt, 'utf8'));
+      expect(Number.isFinite(exitedAt)).toBe(true);
+      expect(returnedAt - exitedAt).toBeLessThan(1_500);
+    } finally {
+      vi.restoreAllMocks();
+      if (savedTrace === undefined) delete process.env.TW_OBSERVER_TRACE;
+      else process.env.TW_OBSERVER_TRACE = savedTrace;
+      if (savedExitAt === undefined) delete process.env.TW_OBSERVER_EXIT_AT;
+      else process.env.TW_OBSERVER_EXIT_AT = savedExitAt;
+    }
+  }, 15_000);
+
+  it.skipIf(!rootless)('only the explicit strict transient policy lets observer findings block the envelope', () => {
     const cwd = repo(true);
     const helperDir = mkdtempSync(join(tmpdir(), 'tw-observer-fixture-'));
     dirs.push(helperDir);
@@ -914,7 +998,7 @@ describe('supervised transient observer (#335)', () => {
     }
   }, 20_000);
 
-  it('strict observer mode cannot miss a blocking transient after the first bounded telemetry chunk', () => {
+  it.skipIf(!rootless)('strict observer mode cannot miss a blocking transient after the first bounded telemetry chunk', () => {
     const cwd = repo(true);
     const helperDir = mkdtempSync(join(tmpdir(), 'tw-observer-fixture-'));
     dirs.push(helperDir);
@@ -960,7 +1044,7 @@ describe('supervised transient observer (#335)', () => {
     }
   }, 20_000);
 
-  it('aggregate observer ceiling stays advisory by default but strict mode fails closed', () => {
+  it.skipIf(!rootless)('aggregate observer ceiling stays advisory by default but strict mode fails closed', () => {
     const cwd = repo(true);
     const helperDir = mkdtempSync(join(tmpdir(), 'tw-observer-fixture-'));
     dirs.push(helperDir);
@@ -1011,7 +1095,7 @@ describe('supervised transient observer (#335)', () => {
     }
   }, 40_000);
 
-  it('observer unavailability is reported but does not become an enforcement verdict', () => {
+  it.skipIf(!rootless)('observer unavailability is reported but does not become an enforcement verdict', () => {
     const cwd = repo(true);
     const helperDir = mkdtempSync(join(tmpdir(), 'tw-observer-fixture-'));
     dirs.push(helperDir);
