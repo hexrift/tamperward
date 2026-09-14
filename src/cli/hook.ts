@@ -36,6 +36,7 @@ import { inspectRel, unjudgeableFinding, unjudgeableProtected } from '../disk';
 import { Change, FileChange, Finding, Policy } from '../types';
 import { isRecord } from '../narrow';
 import type { SnapshotCache } from '../ptree-cache';
+import { repoRoot } from '../repo-context';
 
 export interface HookResult {
   exitCode: number;
@@ -466,13 +467,17 @@ function sanctionPredictedWrites(cwd: string, sessionId: string | undefined, pol
  *  the persistent service evaluates on behalf of a client whose cwd is not its own. */
 export function preToolUseVerdict(input: ClaudeHookInput, defaultCwd?: string): HookResult {
   try {
-    const cwd = input.cwd ?? defaultCwd ?? process.cwd();
+    // The session's cwd names the repository; the verdict is computed at its ROOT.
+    // The policy, the effect snapshot and every disk read are root-relative, so
+    // an Edit judged from `packages/x` is the Edit judged from the root (#412).
+    const sessionCwd = input.cwd ?? defaultCwd ?? process.cwd();
+    const cwd = repoRoot(sessionCwd);
     // First tool call of the session pins the commit the Stop sweep will compare against.
     turnBaseline(cwd, input.session_id);
     const policy = loadPolicy(cwd);
     const driftBlocks = effectDriftBlocks(cwd, input.session_id, policy);
     if (driftBlocks) return verdict(driftBlocks, 'PreToolUse');
-    const changes = changesFromClaudeHook(input, cwd);
+    const changes = changesFromClaudeHook(input, cwd, sessionCwd);
     const blocks = evaluate(changes, policy, undefined, 'tool-call', { cwd }).filter((f) => f.severity === 'block');
     if (blocks.length === 0) sanctionPredictedWrites(cwd, input.session_id, policy, changes);
     return verdict(blocks, 'PreToolUse');
@@ -596,10 +601,13 @@ function recordObserverHealth(
 
 export function stopVerdict(input: ClaudeHookInput, defaultCwd?: string): HookResult {
   if (input.stop_hook_active) return { exitCode: 0, stdout: '' };
-  const cwd = input.cwd ?? defaultCwd ?? process.cwd();
+  const sessionCwd = input.cwd ?? defaultCwd ?? process.cwd();
   // "Nothing to compare" and "the comparison failed" must not share a code path: a blanket
   // catch→allow turned a broken policy or a git failure into a silent pass.
-  if (!isGitRepo(cwd)) return { exitCode: 0, stdout: '' };
+  if (!isGitRepo(sessionCwd)) return { exitCode: 0, stdout: '' };
+  // The sweep judges the REPOSITORY: the turn view lists root-relative paths, and
+  // the policy, the disk reads and the effect state are rooted with them (#412).
+  const cwd = repoRoot(sessionCwd);
   let blocks: Finding[];
   let commitCursor: () => void = () => {};
   try {

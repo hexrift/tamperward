@@ -30,6 +30,7 @@ import { sep } from 'node:path';
 import { errnoCode, isRecord } from '../narrow';
 import { TW_VERSION } from '../wiring';
 import { SnapshotCache } from '../ptree-cache';
+import { repoRoot } from '../repo-context';
 import { preToolUseFromRaw, setSnapshotCache, stopFromRaw } from './hook';
 import {
   exchange,
@@ -185,7 +186,10 @@ export async function startHookService(opts: StartOptions): Promise<RunningServi
   if (uid === undefined) throw new Error('no uid on this platform; refusing to start');
   let root: string;
   try {
-    root = realpathSync(opts.root);
+    // Bound to the REPOSITORY, not to the directory the service was started
+    // from: a service started in `packages/x` serves the whole checkout, and
+    // every verdict it computes is rooted (#412).
+    root = realpathSync(repoRoot(realpathSync(opts.root)));
   } catch {
     throw new Error(`cannot resolve ${opts.root}`);
   }

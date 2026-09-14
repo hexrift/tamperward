@@ -11,6 +11,7 @@ import { compareVersions, TW_VERSION } from '../wiring';
 import { trustedLinuxPython } from './run';
 import { machineOutput, type MachineSchemaVersion } from '../machine-output';
 import { execFailure, isRecord } from '../narrow';
+import { repoRoot } from '../repo-context';
 
 export interface DoctorOpts {
   cwd?: string;
@@ -613,7 +614,9 @@ function verifyJobs(doc: unknown): Array<{ name: string; job: Record<string, unk
  * to pretend its own outer timeout can accommodate one that exceeds its host.
  */
 export function diagnose(opts: DoctorOpts = {}): DoctorOutcome {
-  const cwd = resolve(opts.cwd ?? process.cwd());
+  // The posture is the repository's: policy, workflows and wiring are read at the
+  // root from any subdirectory (#412).
+  const cwd = repoRoot(resolve(opts.cwd ?? process.cwd()));
 
   let policy;
   try {

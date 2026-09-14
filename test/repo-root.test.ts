@@ -10,9 +10,9 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { runCheck } from '../src/cli/check';
 import { preToolUseVerdict, stopVerdict } from '../src/cli/hook';
 import { runAllow } from '../src/cli/allow';
@@ -20,6 +20,8 @@ import { diagnose } from '../src/cli/doctor';
 import { planInit, runInit } from '../src/cli/init';
 import { loadPolicy } from '../src/policy-load';
 import { repoContext } from '../src/repo-context';
+import { readServiceState, startHookService } from '../src/cli/hook-service';
+import { requestVerdict } from '../src/cli/hook-client';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -281,5 +283,27 @@ describe('#412 a cwd outside any repository keeps its behaviour', () => {
     const d = mkdtempSync(join(tmpdir(), 'tw-norepo-412-'));
     dirs.push(d);
     expect(stopVerdict({ session_id: 's', cwd: d })).toEqual({ exitCode: 0, stdout: '' });
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('#412 the hook service binds the repository, not the directory it started in', () => {
+  it('started from r1/pkg it serves for r1 and answers the root verdict', async () => {
+    const { root, pkg } = repo();
+    const dir = join(mkdtempSync(join(tmpdir(), 'tw-rt-412-')), 'svc');
+    dirs.push(dirname(dir));
+    mkdirSync(dir, { mode: 0o700 });
+    const paths = { dir, socket: join(dir, 'hook.sock'), state: join(dir, 'hook-service.json') };
+    const svc = await startHookService({ root: pkg, paths });
+    try {
+      expect(svc.root).toBe(realpathSync(root));
+      expect(readServiceState(paths)?.root).toBe(realpathSync(root));
+      const raw = JSON.stringify(edit(pkg, root, 's-svc'));
+      const served = await requestVerdict('PreToolUse', raw, { paths, cwd: pkg });
+      expect(served).not.toBeNull();
+      expect(served?.stdout).toContain('test-deletion');
+      expect(decision({ stdout: served?.stdout ?? '' })).toEqual(decision(preToolUseVerdict(edit(root, root, 's-root'))));
+    } finally {
+      await svc.close();
+    }
   });
 });
