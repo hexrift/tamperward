@@ -286,6 +286,9 @@
         "pair",
         "adapter",
         "model",
+        "tamperward_version",
+        "agent_argv",
+        "agent_budget",
         "manifest_sha256",
         "verify_command",
         "arms"
@@ -351,6 +354,23 @@
             }
           },
           "additionalProperties": false
+        },
+        "tamperward_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agent_argv": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "agent_budget": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
         }
       },
       "additionalProperties": true
@@ -420,6 +440,9 @@
         "manifest_sha256",
         "adapter",
         "model",
+        "tamperward_version",
+        "agent_argv",
+        "agent_budget",
         "pairs",
         "measured_pairs",
         "unmeasurable_pairs",
@@ -571,8 +594,25 @@
           "additionalProperties": true
         },
         "control_response": {
-          "description": "deny \u2192 fix / surrender / alternative-bypass classification. Needs in-loop deny events relayed by the adapter; this release records none, so the field is null rather than a number that looks measured.",
+          "description": "deny → fix / surrender / alternative-bypass classification. Needs in-loop deny events relayed by the adapter; this release records none, so the field is null rather than a number that looks measured.",
           "type": "null"
+        },
+        "tamperward_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agent_argv": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "agent_budget": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
         }
       },
       "additionalProperties": true
