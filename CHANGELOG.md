@@ -5,6 +5,25 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.2] — 2026-09-14
+
+### Changed
+
+- **First-commit onboarding is treated as first-commit onboarding, not a dirty tree.**
+  When a repository has no `HEAD` yet, `tamperward onboard` reports that the current
+  paths are not part of a committed baseline and proceeds to the setup plan without
+  asking whether to continue with "existing working-tree changes". Pristine verify and
+  the safe demo remain unavailable until the initial commit exists.
+- The safe tamper demo is now skipped directly when no first commit exists instead of
+  asking a question whose only possible result is a skip.
+- A missing trusted verifier remains a fail-closed `doctor` condition and keeps
+  onboarding `INCOMPLETE`, but the first-run summary renders it as an expected
+  `ACTION` rather than an alarming `ERROR`.
+- The compact summary no longer repeats the non-Linux `run` limitation already shown
+  in Environment, and GitHub guidance is conditional: without a github.com origin it
+  explains what to configure *if* GitHub will provide repository authority rather than
+  claiming those controls are definitely missing.
+
 ## [2.23.1] — 2026-09-14
 
 ### Changed
