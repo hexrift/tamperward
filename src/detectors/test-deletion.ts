@@ -9,7 +9,7 @@
 // BLOCK rule is poison, so this one is parsed properly.
 
 import type TS from 'typescript';
-import { ts } from '../ts-lazy';
+import { parseSource, ts } from '../ts-lazy';
 import { Change, Detector, DetectorContext, FileChange, Finding, Policy } from '../types';
 import { isProtected } from '../policy';
 import { makeFinding } from './finding';
@@ -152,7 +152,11 @@ export function countTests(src: string, path = 'spec.ts', substantiveOnly = fals
     for (const line of src.split('\n')) if (re.test(line)) n++;
     return { min: n, open: false };
   }
-  const sf = ts.createSourceFile('spec.ts', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  // A source the guarded parser declines (past the size or nesting ceiling, or
+  // one that overflows it — #444) has an OPEN count: nothing is asserted about
+  // its test blocks, so neither a deletion nor a relocation credit rests on it.
+  const sf = parseSource('spec.ts', src);
+  if (!sf) return { min: 0, open: true };
   let n = 0;
   let open = false;
   const visit = (node: TS.Node, mult: number): void => {
