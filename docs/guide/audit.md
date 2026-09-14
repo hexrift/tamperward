@@ -55,7 +55,7 @@ the raw Claude session id. The session identifier is one-way hashed before it le
 the hook.
 
 The published schema is
-[`schemas/audit-v1.schema.json`](../../schemas/audit-v1.schema.json).
+[`schemas/audit-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/audit-v1.schema.json).
 
 ### The older deny log
 
@@ -93,7 +93,7 @@ or an ISO timestamp.
 ## Keep the durable history in GitHub
 
 TamperWard itself ships
-[`.github/workflows/tamperward-audit.yml`](../../.github/workflows/tamperward-audit.yml).
+[`.github/workflows/tamperward-audit.yml`](https://github.com/hexrift/tamperward/blob/main/.github/workflows/tamperward-audit.yml).
 The hook does **not** push anything to GitHub. Publishing is an explicit operator
 action, and GitHub Actions is the writer.
 
