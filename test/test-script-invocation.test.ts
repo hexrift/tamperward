@@ -52,7 +52,7 @@ describe('test-deletion — the test script rewritten so the suite no longer dec
     ['a check of another kind replaces the runner', { test: 'npm run lint' }, /no longer runs the test check/],
     ['|| true masks the status', { test: 'vitest run || true' }, /\|\| true added to scripts\.test/],
     ['; exit 0 masks the status', { test: 'vitest run; exit 0' }, /; exit 0 added to scripts\.test/],
-    ['a pipe swallows the status', { test: 'vitest run | tee test.log' }, /\| tee added to scripts\.test/],
+    ['a pipe swallows the status', { test: 'vitest run | tee test.log' }, /\| tee test\.log added to scripts\.test/],
     ['a path positional narrows to one spec', { test: 'vitest run src/easy.test.ts' }, /path positional \(src\/easy\.test\.ts\) added to scripts\.test/],
     ['--config pointing at an unprotected file', { test: 'vitest run --config vitest.ci.ts' }, /--config vitest\.ci\.ts added to scripts\.test/],
     ['-c pointing at an unprotected file', { test: 'vitest run -c vitest.ci.ts' }, /-c vitest\.ci\.ts added to scripts\.test/],

@@ -46,6 +46,13 @@ import { isProtected } from '../policy';
 import { makeFinding } from './finding';
 import { langOf } from './files';
 import { branchExists, defaultBranch, trackedFiles } from './repo';
+import { foldConst, foldExpressions, truthy } from './gh-expression';
+import { invokesCheck, survives } from './invocation';
+
+// The expression folder and the check-invocation reading live in their own modules
+// (gh-expression, invocation); their entry points stay reachable from here.
+export { foldConst, foldExpressions };
+export { SUITE_NARROWING_FLAGS } from './invocation';
 
 const RULE = 'ci-tampering';
 const USES = /^\s*-\s*uses:/;
@@ -53,25 +60,12 @@ const CHECK = /\b(test|tests|lint|typecheck|type-check|tsc|eslint|jest|vitest|pl
 /** A line that is a YAML mapping key rather than a shell command in a `run:` body. */
 const YAML_KEY = /^\s*-?\s*[A-Za-z_][\w-]*:\s*(?:$|\S)/;
 
-// A check keyword only counts in INVOCATION POSITION. Matching it anywhere on the line
-// flagged `TAGS="$(npm view tamperward dist-tags ...)"` as a removed check — the word
-// "tamperward" was a PACKAGE NAME in argument position, and the line queries the
-// registry, it checks nothing. Two invocation shapes:
-//   a tool run directly (start of command, or after ; | && $( ` npx/yarn/pnpm) ...
-const INVOKES_TOOL =
-  /(?:^\s*|[;&|`]\s*|\$\(\s*|\b(?:npx|yarn|pnpm|bunx?)\s+)(?:jest|vitest|eslint|tsc|playwright|pytest|tamperward|mocha|ava|oxlint|tsgo|mypy|golangci-lint|node\s+--test|biome\s+(?:ci|check|lint)|deno\s+(?:test|lint|check)|ruff\s+check)\b/;
-//   ... or a check script through a package runner / build tool.
-const INVOKES_SCRIPT =
-  /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|tests|lint|typecheck|type-check|coverage)\b|\b(?:make|cargo|go)\s+test\b|\bgradle\w*\s+(?:test|check)\b/;
-
 /** GitHub runs a workflow only when it sits directly under .github/workflows
  *  with a .yml/.yaml extension. `ci.yml.disabled` is still inside the protected
  *  glob and still never runs — so glob membership is the wrong question here. */
 function isActiveWorkflow(path: string): boolean {
   return /(^|\/)\.github\/workflows\/[^/]+\.ya?ml$/.test(path);
 }
-
-const invokesCheck = (line: string): boolean => INVOKES_TOOL.test(line) || INVOKES_SCRIPT.test(line);
 
 /** Reduce a line to the command it carries: step-item dash, `run:` key, and spacing are
  *  presentation, not identity — `- run: npm test` and an indented `run: npm test` under a
@@ -85,303 +79,7 @@ function commandCore(line: string): string {
     .trim();
 }
 
-/** A `${{ }}` expression inside a command, read as the runner reads it: folded to
- *  its constant when it has one (`${{ 'unit' }}` is the literal `unit`), otherwise a
- *  single opaque token — one that says whether the value comes from the matrix, the
- *  strategy or a workflow input (the job runs once per value; the whole set is run)
- *  or from anywhere else. Tokenising the raw text read `}}/4` of
- *  `--shard=${{ matrix.shard }}/4` as a path-shaped positional and
- *  `--project=${{ matrix.project }}` as a project narrowed by hand. */
-export function foldExpressions(s: string): string {
-  return s.replace(/\$\{\{([^}]*)\}\}/g, (_m, e: string) => {
-    const v = foldConst(e.trim());
-    if (v !== undefined && v !== TRUTHY) return String(v);
-    return /\b(?:matrix|strategy|inputs)\./.test(e) ? MATRIX_TOKEN : EXPR_TOKEN;
-  });
-}
-const EXPR_TOKEN = '__expr__';
-const MATRIX_TOKEN = '__matrix__';
-/** A flag whose value is the matrix (`--project=${{ matrix.project }}`, `--shard
- *  ${{ matrix.shard }}/${{ strategy.job-total }}`) selects the slice THIS job runs
- *  of a suite the whole matrix covers — dropped before the narrowing flags are
- *  read. A flag valued by any other expression (`-t ${{ github.sha }}`) keeps its
- *  flag: a pattern nothing matches empties the suite. */
-const MATRIX_FLAG = new RegExp(`(?:^|\\s)-{1,2}[\\w-]+(?:=|\\s+)${MATRIX_TOKEN}(?:/\\S*)?(?=\\s|$)`, 'g');
-
-/** The command with its package-runner spelling normalised, so `npm test`, `npm run
- *  test`, `npm t`, `pnpm test`, `yarn test` and a quoted `'npm test'` are one check,
- *  and `npx jest`, `pnpm exec jest`, `yarn jest`, `bunx jest` another. */
-function canonical(core: string): string {
-  let s = foldExpressions(core.replace(/^(['"])(.*)\1$/, '$2').trim()).replace(MATRIX_FLAG, ' ').replace(/\s+/g, ' ').trim();
-  // `cd apps/web && npm test` runs the same check from another directory: the prefix
-  // places it, and its path is not a positional of the check
-  s = s.replace(/^(?:cd|pushd)\s+\S+\s*&&\s*/, '');
-  s = s.replace(/^(?:npx|pnpm\s+(?:exec|dlx)|yarn\s+(?:exec|dlx)|bunx|bun\s+x)\s+/, 'exec ');
-  s = s.replace(/^(?:npm|pnpm|yarn|bun)\s+(?:run(?:-script)?\s+)?/, 'exec ');
-  s = s.replace(/^exec\s+(?:t|tst)(?=\s|$)/, 'exec test');
-  s = s.replace(/^exec\s+/, '');
-  return s.replace(/\s+--\s*$/, '').trim();
-}
-
-/** `uses:` identity stops at the version: `actions/setup-node@v3` → `@v4` is a bump. */
-const usesRef = (core: string) => core.replace(/@.*$/, '');
-
-/** Runner flags that select FEWER specs. Shared with test-deletion, which reads the
- *  same flags added to a package.json test script. */
-export const SUITE_NARROWING_FLAGS =
-  /--testPathIgnorePatterns\b|--testPathPattern\b|--testNamePattern\b|(?:^|\s)-t\s|--onlyChanged\b|--changed\b|--findRelatedTests\b|--exclude\b|--dir\b|--project\b/;
-
-// Suffixes that turn a kept check into a non-check: shell status masking, coverage
-// switched off, and runner flags that empty or narrow the suite it runs.
-const NEUTRALISING_SUFFIX = new RegExp(
-  `\\|\\||;|(?<!&)&(?!&)|\\|(?!\\|)|--passWithNoTests\\b|--coverage=false\\b|--coverageThreshold\\b|${SUITE_NARROWING_FLAGS.source}`,
-);
-
-/** `timeout 1 npm test`: the check is killed before it can decide. */
-const TIMEOUT_WRAP = /^timeout\s+(?:-{1,2}\S+\s+)*\d\S*\s+(.+)$/;
-
-/** A positional that names a spec or a path (`test/a.test.ts`, `src/`, `test/a`)
- *  narrows the suite exactly like `--testPathPattern` — the runner opens only what
- *  it names. A flag's value (`--config jest.ci.js`) and a redirect target are not
- *  positionals. */
-const PATH_SHAPED = /\/|\.(?:test|spec)\./;
-function narrowedByPositional(args: string): boolean {
-  const toks = args.trim().split(/\s+/).filter(Boolean);
-  for (let i = 0; i < toks.length; i++) {
-    const t = toks[i];
-    if (t === '--' || t.startsWith('-')) continue;
-    const prev = toks[i - 1];
-    if (prev && ((prev.startsWith('-') && prev !== '--' && !prev.includes('=')) || /[<>]/.test(prev))) continue;
-    if (/[<>|;&]/.test(t)) continue;
-    if (PATH_SHAPED.test(t)) return true;
-  }
-  return false;
-}
-
-type Kind = 'test' | 'lint' | 'types' | 'gate';
-/** What a check invocation checks — a replacement of the same kind is a respelling,
- *  of another kind a removal (`npm test` → `npm run lint` drops the tests). */
-function checkKind(core: string): Kind | null {
-  if (!invokesCheck(core)) return null;
-  const s = canonical(core);
-  if (/\btamperward\b/.test(s)) return 'gate';
-  if (/\b(?:lint|eslint|biome|oxlint|golangci-lint|ruff)\b/i.test(s)) return 'lint';
-  if (/\b(?:typecheck|type-check|tsc|tsgo|mypy)\b|\bdeno\s+check\b/i.test(s)) return 'types';
-  return 'test';
-}
-
-type Kept = 'kept' | 'neutralised' | 'gone';
-
-/** Whether a removed check survives among the after-file's command cores. `addedCores`
- *  are the cores of lines ADDED by this change — the only place a respelling of the
- *  removed check can be. */
-function survives(removedCore: string, isUses: boolean, afterCores: string[], addedCores: string[]): { state: Kept; by?: string } {
-  if (isUses) {
-    const ref = usesRef(removedCore);
-    return afterCores.some((a) => usesRef(a) === ref) ? { state: 'kept' } : { state: 'gone' };
-  }
-  const r = canonical(removedCore);
-  const kind = checkKind(removedCore);
-  // A path positional narrows a TEST suite (the runner opens only what it names); a
-  // lint or a typecheck given `src/` or a glob is told what to read, not what to skip.
-  const narrowed = (args: string) => kind === 'test' && narrowedByPositional(args);
-  let neutralised: string | undefined;
-  for (const raw of afterCores) {
-    const a = canonical(raw);
-    if (a === r) return { state: 'kept' };
-    if (a.startsWith(r + ' ')) {
-      const rest = a.slice(r.length);
-      if (NEUTRALISING_SUFFIX.test(rest) || narrowed(rest)) neutralised ??= raw;
-      else return { state: 'kept' };
-    } else if (r.startsWith(a + ' ') && invokesCheck(a)) {
-      return { state: 'kept' }; // the check got shorter — arguments dropped, the invocation kept
-    } else {
-      const w = a.match(TIMEOUT_WRAP);
-      if (w && (canonical(w[1]) === r || canonical(w[1]).startsWith(r + ' '))) neutralised ??= raw;
-    }
-  }
-  let respelled = false;
-  for (const raw of addedCores) {
-    if (!kind || checkKind(raw) !== kind) continue;
-    const a = canonical(raw);
-    if (a.match(TIMEOUT_WRAP)) {
-      neutralised ??= raw;
-      continue;
-    }
-    const args = a.slice(a.indexOf(' ') + 1 || a.length);
-    if (a.includes(' ') && (NEUTRALISING_SUFFIX.test(' ' + args) || narrowed(args))) neutralised ??= raw;
-    else respelled = true;
-  }
-  if (respelled) return { state: 'kept' };
-  return neutralised ? { state: 'neutralised', by: neutralised } : { state: 'gone' };
-}
-
 const uncommented = (v: string) => v.replace(/\s+#.*$/, '').trim();
-
-// ── a constant folder for the expression subset that has no context reference ──
-//
-// GitHub evaluates `if:` and `continue-on-error:` as expressions. Literals, `==`,
-// `!=`, `&&`, `||`, `!` and parentheses fold to a value here; an identifier, a
-// context reference or a function call is UNKNOWN — but `&&` and `||` short-circuit
-// on the KNOWN side exactly as they do at runtime: `unknown && false` is always
-// falsy and `unknown || true` always truthy, whatever the context holds. An unknown
-// that survives reads as reachable — the same exposure as authoring a new guarded
-// step.
-const TRUTHY = Symbol('truthy'); // a value not known, except that it is truthy
-type Val = string | number | boolean | null | typeof TRUTHY;
-type Tok = { t: 'str' | 'num' | 'id' | 'op'; v: string };
-
-function lex(src: string): Tok[] | null {
-  const out: Tok[] = [];
-  let i = 0;
-  while (i < src.length) {
-    const ch = src[i];
-    if (/\s/.test(ch)) {
-      i++;
-      continue;
-    }
-    if (ch === "'") {
-      let j = i + 1;
-      let s = '';
-      while (j < src.length) {
-        if (src[j] === "'" && src[j + 1] === "'") {
-          s += "'";
-          j += 2;
-        } else if (src[j] === "'") break;
-        else s += src[j++];
-      }
-      if (j >= src.length) return null;
-      out.push({ t: 'str', v: s });
-      i = j + 1;
-      continue;
-    }
-    const num = src.slice(i).match(/^-?\d+(?:\.\d+)?/);
-    if (num) {
-      out.push({ t: 'num', v: num[0] });
-      i += num[0].length;
-      continue;
-    }
-    const op = src.slice(i).match(/^(?:==|!=|&&|\|\||<=|>=|[!()<>,[\]])/);
-    if (op) {
-      out.push({ t: 'op', v: op[0] });
-      i += op[0].length;
-      continue;
-    }
-    const id = src.slice(i).match(/^[A-Za-z_][\w.\-*]*/);
-    if (id) {
-      out.push({ t: 'id', v: id[0] });
-      i += id[0].length;
-      continue;
-    }
-    return null;
-  }
-  return out;
-}
-
-const truthy = (v: Val): boolean => (v === TRUTHY ? true : typeof v === 'string' ? v !== '' : typeof v === 'number' ? v !== 0 : v === true);
-
-/** Fold an expression to a constant; undefined when it depends on anything. */
-export function foldConst(src: string): Val | undefined {
-  const toks = lex(src);
-  if (!toks) return undefined;
-  let p = 0;
-  const peek = () => toks[p];
-  const eat = (v: string) => (toks[p]?.t === 'op' && toks[p].v === v ? (p++, true) : false);
-  const num = (v: Val): number =>
-    v === TRUTHY ? NaN : typeof v === 'number' ? v : typeof v === 'boolean' ? (v ? 1 : 0) : v === null ? 0 : v.trim() === '' ? 0 : Number(v);
-  const eq = (a: Val, b: Val): boolean | undefined => {
-    if (a === TRUTHY || b === TRUTHY) return undefined;
-    if (typeof a === 'string' && typeof b === 'string') return a.toLowerCase() === b.toLowerCase();
-    if (a === null && b === null) return true;
-    const x = num(a);
-    const y = num(b);
-    return !Number.isNaN(x) && x === y;
-  };
-  const or = (): Val | undefined => {
-    let l = and();
-    while (eat('||')) {
-      const r = and();
-      if (l !== undefined && truthy(l)) continue; // a truthy left decides
-      if (l !== undefined) l = r; // a falsy left yields the right
-      else l = r !== undefined && truthy(r) ? TRUTHY : undefined; // unknown || truthy is truthy
-    }
-    return l;
-  };
-  const and = (): Val | undefined => {
-    let l = cmp();
-    while (eat('&&')) {
-      const r = cmp();
-      if (l !== undefined && !truthy(l)) continue; // a falsy left decides
-      if (l !== undefined) l = r; // a truthy left yields the right
-      else l = r !== undefined && !truthy(r) ? false : undefined; // unknown && falsy is falsy
-    }
-    return l;
-  };
-  const cmp = (): Val | undefined => {
-    let l = unary();
-    for (;;) {
-      const t = peek();
-      if (!t || t.t !== 'op' || !/^(?:==|!=|<|>|<=|>=)$/.test(t.v)) return l;
-      p++;
-      const r = unary();
-      if (l === undefined || r === undefined) {
-        l = undefined;
-        continue;
-      }
-      if (t.v === '==' || t.v === '!=') {
-        const e = eq(l, r);
-        l = e === undefined ? undefined : t.v === '==' ? e : !e;
-      } else {
-        const x = num(l);
-        const y = num(r);
-        if (Number.isNaN(x) || Number.isNaN(y)) l = undefined;
-        else l = t.v === '<' ? x < y : t.v === '>' ? x > y : t.v === '<=' ? x <= y : x >= y;
-      }
-    }
-  };
-  const unary = (): Val | undefined => {
-    if (eat('!')) {
-      const v = unary();
-      return v === undefined ? undefined : !truthy(v);
-    }
-    return primary();
-  };
-  const primary = (): Val | undefined => {
-    const t = peek();
-    if (!t) return undefined;
-    if (eat('(')) {
-      const v = or();
-      return eat(')') ? v : undefined;
-    }
-    p++;
-    if (t.t === 'str') return t.v;
-    if (t.t === 'num') return Number(t.v);
-    if (t.t === 'id') {
-      if (/^true$/i.test(t.v)) return true;
-      if (/^false$/i.test(t.v)) return false;
-      if (/^null$/i.test(t.v)) return null;
-      // a function call or an index: consume its arguments so the operators
-      // AROUND it still fold, and yield unknown — not ours to decide
-      if (eat('(')) {
-        if (!eat(')')) {
-          for (;;) {
-            or();
-            if (eat(')')) break;
-            if (!eat(',')) return undefined;
-          }
-        }
-      }
-      while (eat('[')) {
-        or();
-        if (!eat(']')) return undefined;
-      }
-      return undefined;
-    }
-    return undefined;
-  };
-  const v = or();
-  return p === toks.length ? v : undefined;
-}
 
 /** The expression inside `${{ }}`, or the bare value (GitHub accepts `if:` without the
  *  braces); YAML quoting around the whole value is stripped first. */
