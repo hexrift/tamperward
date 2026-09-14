@@ -40,10 +40,6 @@ concurrency:
   group: tamperward-audit-store
   cancel-in-progress: false
 
-env:
-  AUDIT_STORE: ${{ github.workspace }}/.audit-store
-  AUDIT_WORK: ${{ runner.temp }}/audit-work
-
 jobs:
   # ---- prepare: read-only. Builds, validates, and computes the full new
   # evidence-branch content as an artifact. Has NO write credential. -----------
@@ -69,6 +65,10 @@ jobs:
           DISPATCH_BATCH: ${{ inputs.batch }}
         run: |
           set -euo pipefail
+          # `runner`/`github.workspace` are not valid in a workflow-level `env`,
+          # so derive the paths here from the always-present runtime variables.
+          AUDIT_STORE="${GITHUB_WORKSPACE}/.audit-store"
+          AUDIT_WORK="${RUNNER_TEMP}/audit-work"
           mkdir -p "${AUDIT_STORE}" "${AUDIT_WORK}/candidates"
 
           # A files-only copy of the current evidence branch (empty on first run).
@@ -113,6 +113,8 @@ jobs:
         if: steps.scan.outputs.has_new == 'true'
         run: |
           set -euo pipefail
+          AUDIT_STORE="${GITHUB_WORKSPACE}/.audit-store"
+          AUDIT_WORK="${RUNNER_TEMP}/audit-work"
           while IFS= read -r batch; do
             [ -n "${batch}" ] || continue
             node dist/cli/index.js stats --file "${batch}" --json > /dev/null

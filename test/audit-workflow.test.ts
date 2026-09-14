@@ -38,6 +38,18 @@ describe('GitHub audit store workflow', () => {
     }
   });
 
+  it('uses no runner/steps/needs context in a workflow-level env (would fail to start)', () => {
+    // A workflow-level `env` may only reference github / vars / inputs contexts.
+    // `${{ runner.* }}` (or steps/needs/job/matrix) there is an invalid-context
+    // startup failure — GitHub rejects the file before any job runs. This guards
+    // the regression that broke every tamperward-audit run.
+    const topEnv = (parse(workflowText) as { env?: Record<string, unknown> }).env;
+    const serialized = JSON.stringify(topEnv ?? {});
+    for (const ctx of ['runner.', 'steps.', 'needs.', 'job.', 'matrix.', 'strategy.']) {
+      expect(serialized, `workflow-level env must not use \${{ ${ctx}* }}`).not.toContain(ctx);
+    }
+  });
+
   it('isolates the write credential in a publish job that runs no candidate code', () => {
     // Least privilege by default; only the publish job may write.
     expect(workflow.permissions?.contents).toBe('read');

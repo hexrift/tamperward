@@ -5,6 +5,19 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.2] — 2026-09-14
+
+### Fixed
+
+- **`tamperward-audit` workflow started failing on every push to `main`** (follow-up
+  to #502). A workflow-level `env` referenced `${{ runner.temp }}`, but the `runner`
+  context is not available at workflow scope, so GitHub rejected the file before any
+  job ran (a startup failure — 0 jobs, marked failed, and evaluated even on non-`main`
+  pushes because the branch filter never applied). The paths are now derived inside
+  the `run` steps from the always-present `$GITHUB_WORKSPACE` / `$RUNNER_TEMP`
+  variables, and a regression test rejects any workflow-level `env` that uses a
+  `runner` / `steps` / `needs` / `job` / `matrix` / `strategy` context.
+
 ## [2.29.1] — 2026-09-14
 
 ### Changed
