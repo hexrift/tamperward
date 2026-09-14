@@ -208,6 +208,16 @@ export async function startHookService(opts: StartOptions): Promise<RunningServi
 
   const cache = opts.cache ?? new SnapshotCache();
   let served = 0;
+  // This process evaluates synchronously and is single-threaded. Only ONE
+  // PreToolUse/Stop evaluation may own the session state at a time; a second
+  // request that arrives while one is in flight is refused BEFORE acceptance so
+  // its client falls back in-process exactly once, rather than queueing behind
+  // the first — where the client's timer (started at connect) can fire, deny,
+  // and yet leave this service to evaluate it anyway and apply side effects
+  // (predicted-write sanctions, ptree saves, turn-baseline advances) for a tool
+  // call the client already abandoned (#416). A refused request is never
+  // evaluated here, so it records no side effects.
+  let inFlight = false;
   const startedAt = new Date().toISOString();
 
   const respond = (sock: Socket, body: Record<string, unknown>): void => {
@@ -242,31 +252,56 @@ export async function startHookService(opts: StartOptions): Promise<RunningServi
     const named = payloadCwd(req.raw);
     if (named !== null && !within(root, named)) return respond(sock, { refused: 'payload cwd outside the bound repository' });
 
+    // Single-owner evaluation. If another request already owns the evaluator,
+    // refuse this one BEFORE any acceptance: the client then falls back to the
+    // in-process gate exactly once, and this service never evaluates it, so no
+    // side effects are recorded for a request it did not serve (#416). The flag
+    // is set synchronously here and cleared only after the accepted request's
+    // evaluation completes.
+    if (inFlight) return respond(sock, { refused: 'another request is in flight' });
+    inFlight = true;
+
     // Ownership handoff. The client may fall back in-process only BEFORE this
     // line. Once it sees accepted=true, this service is the sole evaluator for
     // the request; a later timeout/connection loss must fail closed instead of
-    // starting a second evaluation over the same session state. Run the
-    // evaluator from the write callback so the acceptance line has been handed
-    // to the socket before synchronous hook work blocks this event loop.
-    sock.write(JSON.stringify({ v: HOOK_SERVICE_PROTOCOL, version: TW_VERSION, accepted: true }) + '\n', () => {
-      let result;
+    // starting a second evaluation over the same session state.
+    sock.write(JSON.stringify({ v: HOOK_SERVICE_PROTOCOL, version: TW_VERSION, accepted: true }) + '\n');
+    // Defer the synchronous evaluation to the CHECK phase (setImmediate), which
+    // runs strictly after every poll-phase read. Any request already pending on
+    // another connection is therefore read — and refused above, since inFlight
+    // is already set — before this blocks the event loop, rather than queueing
+    // behind it until the client's timer fires. It also flushes the acceptance
+    // line first (safety does not depend on the client seeing it before a
+    // timeout, but the ordering keeps the wire behaviour as before).
+    setImmediate(() => {
       try {
-        result = withEnv(req.env, () => (req.kind === 'PreToolUse' ? preToolUseFromRaw(req.raw, req.cwd) : stopFromRaw(req.raw, req.cwd)));
-      } catch (e) {
-        // The request is already accepted, so returning a refusal would invite
-        // an unsafe fallback. Send a fail-closed HookResult-shaped denial.
-        const detail = e instanceof Error ? e.message : String(e);
-        const reason =
-          `Tamperward's hook service could not complete the accepted evaluation (${detail}), so it is denied rather than retried concurrently.`;
-        const stdout =
-          req.kind === 'PreToolUse'
-            ? JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } }) + '\n'
-            : JSON.stringify({ decision: 'block', reason }) + '\n';
+        // The client already abandoned this request: its timer fired and it
+        // destroyed the socket, so its own post-handoff path fails closed.
+        // Evaluating now would apply side effects (predicted-write sanctions,
+        // ptree saves, turn-baseline advances) for a tool call no one is
+        // waiting on, diverging from the in-process path. Skip it.
+        if (sock.destroyed || sock.writableEnded) return;
+        let result;
+        try {
+          result = withEnv(req.env, () => (req.kind === 'PreToolUse' ? preToolUseFromRaw(req.raw, req.cwd) : stopFromRaw(req.raw, req.cwd)));
+        } catch (e) {
+          // The request is already accepted, so returning a refusal would invite
+          // an unsafe fallback. Send a fail-closed HookResult-shaped denial.
+          const detail = e instanceof Error ? e.message : String(e);
+          const reason =
+            `Tamperward's hook service could not complete the accepted evaluation (${detail}), so it is denied rather than retried concurrently.`;
+          const stdout =
+            req.kind === 'PreToolUse'
+              ? JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } }) + '\n'
+              : JSON.stringify({ decision: 'block', reason }) + '\n';
+          served++;
+          return respond(sock, { exitCode: 0, stdout });
+        }
         served++;
-        return respond(sock, { exitCode: 0, stdout });
+        respond(sock, { exitCode: result.exitCode, stdout: result.stdout });
+      } finally {
+        inFlight = false;
       }
-      served++;
-      respond(sock, { exitCode: result.exitCode, stdout: result.stdout });
     });
   };
 
@@ -333,58 +368,113 @@ function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-/**
- * Stop the service recorded in the state file and remove whatever it left:
- * 'stopped' when a live one was signalled and went away, 'not-running' when
- * there was none (its leftovers are removed either way, so a stale socket can
- * never be what the next client meets).
- */
-export async function stopHookService(paths: ServicePaths): Promise<'stopped' | 'not-running'> {
-  const state = readServiceState(paths);
-  let outcome: 'stopped' | 'not-running' = 'not-running';
+/** What the process actually holding the socket reports about itself, read from
+ *  the live listener rather than the candidate-writable state file. */
+export interface SocketStatus {
+  pid: number;
+  root: string;
+  version: string;
+}
 
-  // A stale state file is not authority to signal a PID: after a crashed
-  // service that PID may have been reused by an unrelated process. Confirm the
-  // private socket is trusted AND that the listener reports the same pid/root/
-  // version before sending SIGTERM. A timeout/refusal merely cleans stale
-  // service files; it never guesses that the PID still belongs to TamperWard.
-  let confirmed = false;
-  if (state && state.pid !== process.pid && pidAlive(state.pid) && state.version === TW_VERSION && socketRefusal(paths) === null) {
-    const req: ServiceRequest = {
-      v: HOOK_SERVICE_PROTOCOL,
-      version: TW_VERSION,
-      kind: 'status',
-      raw: '',
-      cwd: process.cwd(),
-      env: {},
-    };
-    const res = await exchange(paths, req, 1000);
-    confirmed =
-      isRecord(res) &&
-      res.v === HOOK_SERVICE_PROTOCOL &&
-      res.version === TW_VERSION &&
-      res.pid === state.pid &&
-      res.root === state.root;
+/**
+ * Ask the socket itself who is listening. Distinguishes three cases:
+ *   - `answered: false`  — nothing connected (no live listener; stale/absent socket);
+ *   - `answered: true, status: null`  — a listener answered but not with a status
+ *     this version can read (for example a different TamperWard version refusing
+ *     the status request);
+ *   - `answered: true, status: {...}`  — a live listener reported its pid/root/version.
+ * A trusted socket is a precondition: an untrusted socket (wrong owner/mode, not
+ * a socket) is treated as no listener, exactly as the client refuses to consult it.
+ */
+async function probeSocket(paths: ServicePaths): Promise<{ answered: boolean; status: SocketStatus | null }> {
+  if (socketRefusal(paths) !== null) return { answered: false, status: null };
+  const req: ServiceRequest = { v: HOOK_SERVICE_PROTOCOL, version: TW_VERSION, kind: 'status', raw: '', cwd: process.cwd(), env: {} };
+  const res = await exchange(paths, req, 1000);
+  // `exchange` returns null only when the connection never handed off — i.e. no
+  // listener accepted it. Any record (a status answer, a refusal, or a synthetic
+  // post-handoff failure) means something IS listening on the socket.
+  if (res === null) return { answered: false, status: null };
+  if (
+    isRecord(res) &&
+    res.v === HOOK_SERVICE_PROTOCOL &&
+    typeof res.pid === 'number' &&
+    typeof res.root === 'string' &&
+    typeof res.version === 'string'
+  ) {
+    return { answered: true, status: { pid: res.pid, root: res.root, version: res.version } };
   }
-  if (state && confirmed) {
-    try {
-      process.kill(state.pid, 'SIGTERM');
-    } catch {
-      /* raced with its exit */
+  return { answered: true, status: null };
+}
+
+function describeStateFile(state: ServiceState | null): string {
+  return state ? `records pid ${state.pid}, root ${state.root}, tamperward@${state.version}` : 'is absent or unreadable';
+}
+
+export interface StopResult {
+  /**
+   * - `stopped`   — a live listener whose state file agreed was signalled and went away;
+   * - `not-running` — nothing was listening; any stale socket/state files were removed;
+   * - `mismatch`  — a live listener answered but the state file disagrees with it (or it
+   *   could not be authenticated); the socket is LEFT INTACT and never reported as
+   *   "not running", so a live service is never orphaned behind an unlinked socket (#416).
+   */
+  outcome: 'stopped' | 'not-running' | 'mismatch';
+  /** The answering listener's pid when it reported one, else the state file's pid. */
+  pid?: number;
+  root?: string;
+  detail?: string;
+}
+
+/**
+ * Stop the service and remove whatever it left. A socket that ANSWERS is a live
+ * listener: it is never orphaned by an unlink and never reported "not running".
+ * The state file is candidate-writable, so it is advisory — the live listener's
+ * own status is authority. SIGTERM is sent only when the listener's status and
+ * the state file agree (a crash could otherwise have handed that PID to an
+ * unrelated process). When they disagree, the socket is left intact and the
+ * mismatch is reported for the operator to resolve.
+ */
+export async function stopHookService(paths: ServicePaths): Promise<StopResult> {
+  const probe = await probeSocket(paths);
+  const state = readServiceState(paths);
+
+  if (probe.answered) {
+    const st = probe.status;
+    const agrees =
+      st !== null && state !== null && state.pid === st.pid && state.root === st.root && state.version === st.version;
+    if (agrees && st.pid !== process.pid) {
+      try {
+        process.kill(st.pid, 'SIGTERM');
+      } catch {
+        /* raced with its exit */
+      }
+      // Gone means the pid is dead OR the socket is unlinked: the service removes
+      // its socket as the last act before exiting, and a parent that has not yet
+      // reaped it (a supervisor blocked in a synchronous wait) leaves a zombie
+      // that `kill(pid, 0)` still reports alive.
+      const gone = (): boolean => !pidAlive(st.pid) || !existsSync(paths.socket);
+      const until = Date.now() + STOP_WAIT_MS;
+      while (!gone() && Date.now() < until) sleepSync(50);
+      if (!gone()) throw new Error(`hook service pid ${st.pid} did not exit within ${STOP_WAIT_MS / 1000}s`);
+      removeQuietly(paths.socket);
+      removeQuietly(paths.state);
+      return { outcome: 'stopped', pid: st.pid };
     }
-    // Gone means the pid is dead OR the socket is unlinked: the service removes
-    // its socket as the last act before exiting, and a parent that has not yet
-    // reaped it (a supervisor blocked in a synchronous wait) leaves a zombie
-    // that `kill(pid, 0)` still reports alive.
-    const gone = (): boolean => !pidAlive(state.pid) || !existsSync(paths.socket);
-    const until = Date.now() + STOP_WAIT_MS;
-    while (!gone() && Date.now() < until) sleepSync(50);
-    if (!gone()) throw new Error(`hook service pid ${state.pid} did not exit within ${STOP_WAIT_MS / 1000}s`);
-    outcome = 'stopped';
+    // A live listener is on the socket but its identity cannot be confirmed
+    // against the state file. Never orphan it: leave the socket AND the state
+    // file untouched and report the mismatch. `stop` is deliberately unwilling
+    // to SIGTERM a pid it cannot authenticate from the socket's own answer.
+    const detail = st
+      ? `a listener answered on ${paths.socket} (pid ${st.pid}, root ${st.root}, tamperward@${st.version}) but the state file ${describeStateFile(state)}`
+      : `a listener answered on ${paths.socket} but did not report a readable status (possibly a different tamperward version); the state file ${describeStateFile(state)}`;
+    return { outcome: 'mismatch', pid: st?.pid ?? state?.pid, root: st?.root ?? state?.root, detail };
   }
+
+  // Nothing is listening. Whatever files remain are stale; remove them so a
+  // dead socket can never be what the next client meets.
   removeQuietly(paths.socket);
   removeQuietly(paths.state);
-  return outcome;
+  return { outcome: 'not-running' };
 }
 
 function parseStart(args: string[]): { dir: string } {
@@ -429,8 +519,21 @@ export function runHookService(args: string[]): number | Promise<number> {
     return -1;
   }
   if (sub === 'stop') {
-    return stopHookService(paths).then((outcome) => {
-      process.stdout.write(`tamperward hook-service: ${outcome === 'stopped' ? 'stopped' : 'not running'}; ${paths.socket} removed\n`);
+    return stopHookService(paths).then((res) => {
+      if (res.outcome === 'stopped') {
+        process.stdout.write(`tamperward hook-service: stopped (pid ${res.pid}); ${paths.socket} removed\n`);
+        return 0;
+      }
+      if (res.outcome === 'mismatch') {
+        // A live listener answered but could not be authenticated from the state
+        // file. Do not pretend it stopped, and do not remove its socket (#416).
+        process.stderr.write(
+          `tamperward hook-service: NOT stopped — ${res.detail}. The socket was left intact; a live listener is never orphaned. ` +
+            (res.pid ? `If you mean to stop it, signal it directly: kill ${res.pid}.\n` : `Inspect the process holding ${paths.socket} to stop it.\n`),
+        );
+        return 1;
+      }
+      process.stdout.write(`tamperward hook-service: not running; ${paths.socket} removed\n`);
       return 0;
     });
   }
@@ -438,21 +541,41 @@ export function runHookService(args: string[]): number | Promise<number> {
   const state = readServiceState(paths);
   const refusal = socketRefusal(paths);
   const optIn = hookServiceEnabled() ? `${HOOK_SERVICE_ENV}=1 (hooks consult the service)` : `${HOOK_SERVICE_ENV} unset (hooks run in-process)`;
-  if (!state || !pidAlive(state.pid) || refusal !== null) {
-    process.stdout.write(`tamperward hook-service: not running (${refusal ?? 'no live pid'}); ${optIn}\n`);
+  // A trusted socket must be consulted directly: the state file may name a wrong
+  // pid or version, but a socket that ANSWERS is a live service and must never be
+  // reported "not running" (#416). Only an untrusted/absent socket short-circuits.
+  if (refusal !== null) {
+    process.stdout.write(`tamperward hook-service: not running (${refusal}); ${optIn}\n`);
     return 0;
   }
   const req: ServiceRequest = { v: HOOK_SERVICE_PROTOCOL, version: TW_VERSION, kind: 'status', raw: '', cwd: process.cwd(), env: {} };
   void exchange(paths, req, 5000).then((res) => {
-    if (!isRecord(res) || typeof res.served !== 'number') {
-      process.stdout.write(`tamperward hook-service: not running (pid ${state.pid} did not answer, or is another version); ${optIn}\n`);
+    // `exchange` returns null only when nothing accepted the connection.
+    if (res === null) {
+      process.stdout.write(`tamperward hook-service: not running (socket did not connect); ${optIn}\n`);
+      exitAfterFlush(0);
+      return;
+    }
+    // A listener answered, but not with a status this version can read (a refusal
+    // from a different TamperWard version, say). Report that it is alive, never
+    // "not running".
+    if (!isRecord(res) || typeof res.served !== 'number' || typeof res.pid !== 'number' || typeof res.root !== 'string' || typeof res.version !== 'string') {
+      process.stdout.write(
+        `tamperward hook-service: a listener answered on ${paths.socket} but did not report a readable status ` +
+          `(possibly a different tamperward version); the state file ${state ? `records pid ${state.pid}, tamperward@${state.version}` : 'is absent or unreadable'}; ${optIn}\n`,
+      );
       exitAfterFlush(0);
       return;
     }
     const cache = isRecord(res.cache) ? res.cache : {};
+    const startedAt = typeof res.started_at === 'string' ? res.started_at : (state?.started_at ?? 'unknown');
+    // Report what the LIVE listener says about itself. Flag any disagreement with
+    // the state file rather than trusting the (candidate-writable) file.
+    const disagrees = !state || state.pid !== res.pid || state.root !== res.root || state.version !== res.version;
+    const warn = disagrees ? `WARNING: the state file ${describeStateFile(state)}, which disagrees with the live listener; ` : '';
     process.stdout.write(
-      `tamperward hook-service: running (pid ${state.pid}, tamperward@${state.version}, root ${state.root}, since ${state.started_at}); ` +
-        `served: ${res.served}; snapshot cache hits/misses/entries: ${String(cache.hits ?? 0)}/${String(cache.misses ?? 0)}/${String(cache.size ?? 0)}; ${optIn}\n`,
+      `tamperward hook-service: running (pid ${res.pid}, tamperward@${res.version}, root ${res.root}, since ${startedAt}); ` +
+        `served: ${res.served}; snapshot cache hits/misses/entries: ${String(cache.hits ?? 0)}/${String(cache.misses ?? 0)}/${String(cache.size ?? 0)}; ${warn}${optIn}\n`,
     );
     exitAfterFlush(0);
   });

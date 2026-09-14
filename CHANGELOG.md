@@ -5,6 +5,26 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.4] — 2026-09-14
+
+### Fixed
+
+- **Persistent hook service: `stop` orphaned a live listener, and concurrent requests
+  applied side effects for abandoned tool calls** (#416). `stop`/`status` trusted the
+  candidate-writable state file, so a live service whose state file was altered (wrong
+  pid/version) was reported "not running" and its socket unlinked, leaving an orphaned
+  listener. `stop`/`status` now probe the socket itself: a socket that answers is a live
+  listener that is never unlinked or reported absent; `stop` SIGTERMs only when the
+  listener's self-reported pid/root/version agree with the state file, otherwise it
+  reports the mismatch (exit 1) and leaves the socket intact, and `status` reports the
+  live listener's own identity, warning when the state file disagrees. Separately, the
+  single-threaded evaluator now refuses a second request that arrives while one is in
+  flight (the client falls back in-process exactly once, with no service side effects),
+  defers evaluation to the check phase so a concurrent request is read and refused before
+  the loop blocks, and skips an accepted request whose client already disconnected — so
+  the service never records predicted-write sanctions, ptree saves, or turn-baseline
+  advances for a tool call that was denied by timeout. The wire protocol is unchanged.
+
 ## [2.29.3] — 2026-09-14
 
 ### Fixed
