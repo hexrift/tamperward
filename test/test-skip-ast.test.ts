@@ -367,6 +367,45 @@ describe('test-skip AST runner binding (#428)', () => {
     expect(f[0].line).toBe(2);
   });
 
+  it('blocks a `test.describe.serial.only` Playwright mode chain and a default-imported runner', () => {
+    const serial = findings(addedFile('e2e/a.spec.ts', [
+      "import { test } from '@playwright/test';",
+      "test.describe.serial.only('group', () => {});",
+    ].join('\n')));
+    expect(serial).toHaveLength(1);
+    expect(serial[0].line).toBe(2);
+
+    const dflt = findings(addedFile('e2e/b.spec.ts', [
+      "import test from '@playwright/test';",
+      "test.skip('x', async () => {});",
+    ].join('\n')));
+    expect(dflt).toHaveLength(1);
+    expect(dflt[0].line).toBe(2);
+  });
+
+  it('follows a re-export chain of fixture modules and stops at an unreadable link', () => {
+    const chained = testSkip.run([addedFile('e2e/a.spec.ts', [
+      "import { test } from './fixtures';",
+      "test.skip('x', async () => {});",
+    ].join('\n'))], P, undefined, {
+      trackedContents: {
+        'e2e/fixtures/index.ts': "export { test } from './base';",
+        'e2e/fixtures/base.ts': "import { test as base } from '@playwright/test';\nexport const test = base.extend({});",
+      },
+    });
+    expect(chained).toHaveLength(1);
+    expect(chained[0].line).toBe(2);
+
+    // The last link cannot be read: unknown, so the regex keeps the finding.
+    const broken = testSkip.run([addedFile('e2e/a.spec.ts', [
+      "import { test } from './fixtures';",
+      "test.skip('x', async () => {});",
+    ].join('\n'))], P, undefined, {
+      trackedContents: { 'e2e/fixtures/index.ts': "export { test } from './base';" },
+    });
+    expect(broken).toHaveLength(1);
+  });
+
   it('falls through to the regex for a runner whose binding is unknown on the AST', () => {
     const f = findings(addedFile('src/a.spec.ts', [
       "import { test } from 'some-runner-wrapper';",

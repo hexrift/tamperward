@@ -45,7 +45,7 @@ type Pattern = { re: RegExp; why: string; comment?: true; astOwned?: true };
 const acc = (names: string): string =>
   `(?:\\s*\\.\\s*(?:${names})(?![\\w$])|\\s*\\[\\s*['"\`](?:${names})['"\`]\\s*\\])`;
 const JS_RUNNER = '\\b(?:it|test|describe|suite)';
-const JS_MOD = 'concurrent|sequential|shuffle'; // vitest concurrency modifier: it.concurrent.skip
+const JS_MOD = 'concurrent|sequential|shuffle|serial|parallel'; // it.concurrent.skip, describe.serial.only
 
 const PATTERNS: Record<Lang, Pattern[]> = {
   js: [
@@ -143,7 +143,11 @@ function matchesOutsideString(p: Pattern, content: string, lang: Lang | null): b
 }
 
 const JS_RUNNERS = new Set(['it', 'test', 'describe', 'suite']);
-const JS_CHAIN_MODIFIERS = new Set(['concurrent', 'sequential', 'shuffle']);
+// vitest's concurrency modifiers and Playwright's describe modes: `it.concurrent.skip`,
+// `test.describe.serial.only`.
+const JS_CHAIN_MODIFIERS = new Set(['concurrent', 'sequential', 'shuffle', 'serial', 'parallel']);
+// Modules whose DEFAULT export is the runner (`import test from 'node:test'`).
+const JS_DEFAULT_RUNNER_MODULES = new Set(['node:test', 'node:test/promises', '@playwright/test']);
 const JS_TEST_MODULES = new Set([
   'vitest',
   '@jest/globals',
@@ -328,7 +332,7 @@ class RunnerResolver {
 
   binderFor(path: string, ctx: AstContext): ModuleBinder {
     const hit = this.binders.get(path);
-    if (hit) return hit;
+    if (hit && hit.ctx === ctx) return hit;
     const binder = new ModuleBinder(ctx, path, this, 0);
     this.binders.set(path, binder);
     return binder;
@@ -337,7 +341,7 @@ class RunnerResolver {
   /** The verdict for `name` exported by `spec` as imported from `fromPath`. */
   exportOf(fromPath: string, spec: string, name: string, depth: number): Verdict {
     if (JS_TEST_MODULES.has(spec)) {
-      if (name === 'default') return spec.startsWith('node:test') ? RUNNER : NON_RUNNER;
+      if (name === 'default') return JS_DEFAULT_RUNNER_MODULES.has(spec) ? RUNNER : UNKNOWN;
       return JS_RUNNERS.has(name) ? RUNNER : NON_RUNNER;
     }
     if (!spec.startsWith('./') && !spec.startsWith('../')) return UNKNOWN;
@@ -367,7 +371,7 @@ class ModuleBinder {
   private opaqueCjs = false;
 
   constructor(
-    private readonly ctx: AstContext,
+    readonly ctx: AstContext,
     private readonly path: string,
     private readonly resolver: RunnerResolver,
     private readonly depth: number,
