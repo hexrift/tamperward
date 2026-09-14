@@ -91,6 +91,10 @@ export interface RunEnvelopeOpts {
   lifecyclePlatformOverride?: NodeJS.Platform;
   /** @internal Test-only fault injection owned by the caller, never read from candidate env. */
   lifecycleTestMode?: 'proc-read-fail' | 'drain-timeout';
+  /** @internal Observer for callers that need the supervised agent's raw lifecycle result
+   *  without changing the public run --json document. Called once after the
+   *  supervisor returns and before adjudication. */
+  onAgentResult?: (result: AgentRunResult) => void;
   /** @internal Test checkpoint after lifecycle drain and before any adjudication starts. */
   onBeforeAdjudication?: () => void;
   argv: string[];
@@ -1045,6 +1049,7 @@ export function runEnvelope(opts: RunEnvelopeOpts): number {
     opts.lifecycleTestMode,
     opts.json === true,
   );
+  opts.onAgentResult?.(agentRun);
   const agentExit = agentRun.exit;
   const agentTimedOut = agentRun.timedOut;
   // `complete` is the run document's shape discriminator: true only when the
