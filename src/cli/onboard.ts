@@ -389,17 +389,22 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
     plan.forEach(renderPlan);
 
     const pending = plan.filter((a) => a.apply).length;
-    const planErrors = plan.filter((a) => a.status === 'error').length;
+    const planAttention = plan.filter((a) => a.status === 'error' || a.status === 'skip').length;
     if (pending === 0) {
-      status(planErrors ? 'ACTION' : 'OK', planErrors ? 'Nothing can be written until the error(s) above are fixed.' : 'Local protection is already wired.', planErrors ? 'warn' : 'ok');
+      status(
+        planAttention ? 'ACTION' : 'OK',
+        planAttention ? 'Local protection still needs the item(s) above.' : 'Local protection is already wired.',
+        planAttention ? 'warn' : 'ok',
+      );
     } else if (await confirm('Apply ' + pending + ' setup change(s)?', true, true)) {
       const code = runners.init({ cwd, quiet: true });
       wrote.push(...plan.filter((a) => a.apply).map((a) => a.path));
-      if (code === 0) {
+      const remaining = planInit(cwd).filter((a) => a.status === 'error' || a.status === 'skip');
+      if (code === 0 && remaining.length === 0) {
         status('OK', 'Applied ' + pending + ' setup change(s).', 'ok');
       } else {
-        status('ACTION', 'Some setup items still need attention.', 'warn');
-        planInit(cwd).filter((a) => a.status === 'error' || a.status === 'skip').forEach(renderPlan);
+        status('ACTION', 'Applied what was safe; some setup items still need attention.', 'warn');
+        remaining.forEach(renderPlan);
       }
     } else {
       declined = true;
