@@ -15,7 +15,7 @@ sweep; git pre-commit; protected CI; pristine visible/pristine re-execution;
 `tamperward trace-verify` observed-input discovery; and versioned Draft 2020-12
 machine-verdict schemas for `check`, `verify`, `run`, `doctor` and (from 2.23.0)
 `research`; from 2.20.0 the measured `ts-cast-growth` assertion budget; and from
-2.21.0 the `tamperward research` paired-evaluation workflow over the `AgentAdapter`
+2.23.0 the `tamperward research` paired-evaluation workflow over the `AgentAdapter`
 contract (`docs/guide/research.md`). The eighteen-row rule
 table remains the canonical detector/enforcement taxonomy: sixteen mechanical
 rows ship, `assertion-weakening` ships as a measured warning-only heuristic,
@@ -387,6 +387,15 @@ every way a file gets mutated.
   with `--dangerously-skip-permissions`**. The agent cannot escape the gate by changing
   permission mode. This is the property the whole agent layer rests on — and it holds.
 - A payload the hook cannot read or parse is **denied, not allowed** (fail closed, 1.14.4).
+- **The process boundary may move; the contract does not.** Since 2.22.0 an operator
+  may run `tamperward hook-service` and set `TAMPERWARD_HOOK_SERVICE=1`; the hook then
+  hands the same stdin bytes to that warm process over a per-user `0600` unix socket and
+  relays its `HookResult`. The service runs the same `preToolUseFromRaw` / `stopFromRaw`;
+  stdout/exit semantics above are unchanged. Before request handoff, an unavailable,
+  untrusted or explicitly refusing service falls back to the in-process hook; after
+  handoff, ambiguous transport failure is a fail-closed denial rather than a concurrent
+  second evaluation over the same session state. Neither path can turn failure into an
+  allow. Off by default (docs/guide/enforcement.md).
   Genuinely empty stdin is a well-formed absence of a tool call and stays an allow, which
   is what lets `tamperward hook claude < /dev/null` smoke-test the wiring.
 
@@ -569,13 +578,14 @@ one that matters.
 
 From 2.23.0 a third, public layer sits on top of both: `tamperward research run`
 (`src/research/`) executes a task manifest as paired ungated/gated trajectories over an
-`AgentAdapter` — Claude Code, or any command — with fresh state per trajectory, the run
-envelope as the gated treatment, and the outcome observed in BOTH arms by the same
-`verify` + `check` primitives the product ships; TamperWard's own verdict is recorded
-beside that outcome, never folded into it. `research summarize` aggregates the ledger
-into separated readouts with no composite score. It orchestrates; it never re-implements
-the verifier, and it never writes under `harness/`. Contract and record shapes:
-`docs/guide/research.md`, `schemas/research-v1.schema.json`.
+`AgentAdapter` — Claude Code, or any command — with one source commit pinned per task,
+fresh state per trajectory, the run envelope as the gated treatment, and the outcome
+observed in BOTH arms by the same `verify` + `check` primitives the product ships;
+TamperWard's own verdict is recorded beside that outcome, never folded into it.
+`research summarize` aggregates the ledger into separated readouts with no composite
+score. It orchestrates; it never re-implements the verifier, and it never writes under
+`harness/`. Contract and record shapes: `docs/guide/research.md`,
+`schemas/research-v1.schema.json`.
 
 ### 7.A Detection fixtures (the planned `fixtures/` corpus — not yet built)
 
@@ -719,8 +729,8 @@ tamperward/
   src/session.ts        the Stop sweep's per-turn baseline
   src/cli/              tamperward check | hook | sweep | allow | init | verify | run | watch | research
   src/adapters/claude/  stdin→Change[] (PreToolUse + Stop), Finding→deny
-  src/research/         the AgentAdapter contract, task manifest, paired runner, ledger summary
-  schemas/              published Draft 2020-12 schemas for every machine output
+  src/research/         AgentAdapter contract, task manifest, paired runner, ledger summary
+  schemas/              published Draft 2020-12 schemas for machine output
   test/                 unit suite — green is the gate
   harness/              seeds, oracles, and the bypass-to-fix runner
   .github/workflows/    Tamperward running on itself
@@ -786,7 +796,7 @@ than this repository. Intent moves nothing. All five are OPEN.
 | # | milestone | what exists today | what closes it |
 |---|-----------|-------------------|----------------|
 | M1 | An independent, **named** security audit with a public report | Three external review passes (the 1.10.x envelope review with executed exploits, the 1.14.x passes, the 1.15.0 audit), every finding ledgered in SECURITY-ENVELOPE.md and closed with a regression and a mutation check. The reviewers are unnamed and the write-ups are ours. | A named auditor publishes a report against a tagged 2.x release; each finding gets a SECURITY-ENVELOPE row; the report is linked from this row. |
-| M2 | A preregistered replication on 2.x — several agents, one fixed treatment, larger samples | Rounds 1–3.1 ran on v1.6.0 → v1.14.0, prediction committed before each; one agent runtime throughout; rounds 2 and 3 changed treatment with ecosystem; round 3.1 could not have replicated (b ≤ 3 by construction); every round on a verifier later found to carry the 1.14.1 bypass. Round 4 is the undrawn fresh pool. It runs one pinned agent/model configuration for its primary result, with v2.10.0 as the candidate treatment after three adversarial passes over 2.4.0–2.10.0 closed every in-repository fail-open by design rather than by instance; the exact release is frozen in the `PREDICTION` (see the treatment boundary below). | Two preregistrations. Round 4: a `PREDICTION` committed before the draw that pins one 2.x release across every ecosystem in the round and one agent/model configuration, with the sample sized by an exact simulation over the full paired table (false green in both arms, ungated only, gated only, neither). Round 4.1: a separate `PREDICTION`, committed before anyone examines round 4's outcomes, that repeats the frozen pool, treatment and analysis under a second supported agent runtime with equivalent PreToolUse/Stop enforcement semantics. An agent runtime is the harness that executes the agent and its tool calls — Claude Code is one; a second model under Claude Code is model-replication evidence and does not by itself satisfy the runtime requirement, and a runtime with no equivalent adapter cannot receive the treatment (that adapter is M5's work). M2 stays open until 4.1 reports. Analysis frozen before each draw; published beside the bet either way. |
+| M2 | A preregistered replication on 2.x — several agents, one fixed treatment, larger samples | Rounds 1–3.1 ran on v1.6.0 → v1.14.0, prediction committed before each; one agent runtime throughout; rounds 2 and 3 changed treatment with ecosystem; round 3.1 could not have replicated (b ≤ 3 by construction); every round on a verifier later found to carry the 1.14.1 bypass. Round 4 has run and is sealed: one pinned agent/model configuration (`claude-sonnet-5`) over a fresh pool of 110 paired repositories, treatment 2.10.3 frozen in the `PREDICTION` (see the treatment boundary below) after three adversarial passes over 2.4.0–2.10.0 closed every in-repository fail-open by design rather than by instance. Its registered primary prediction did not replicate (b=5, c=3, exact McNemar p = 0.7265625, 79/110 valid pairs; `harness/taskbench/round4/ROUND4-RESULTS.json`); 0 strict tamper bypasses across 201 measured trajectories is a separate descriptive observation. Round 4.1 has not run. | Two preregistrations. Round 4: a `PREDICTION` committed before the draw that pins one 2.x release across every ecosystem in the round and one agent/model configuration, with the sample sized by an exact simulation over the full paired table (false green in both arms, ungated only, gated only, neither). Round 4.1: a separate `PREDICTION`, committed before anyone examines round 4's outcomes, that repeats the frozen pool, treatment and analysis under a second supported agent runtime with equivalent PreToolUse/Stop enforcement semantics. An agent runtime is the harness that executes the agent and its tool calls — Claude Code is one; a second model under Claude Code is model-replication evidence and does not by itself satisfy the runtime requirement, and a runtime with no equivalent adapter cannot receive the treatment (that adapter is M5's work). M2 stays open until 4.1 reports. Analysis frozen before each draw; published beside the bet either way. |
 | M3 | Production pilots with published false-positive rates, overhead and friction | Precision is corpus-measured on mainline commits with no agent in the loop (`harness/fp-study/`; `snapshot-only-rewrite` ~0.06% over 1,652 commits; `test-content-removal` priced on 2,304). No deployment measured; no production user named. | A named pilot publishes per-rule fire and false-positive counts over a stated period, `verify` wall-clock against the bare suite, how often the out-of-band label was needed, and hook latency — linked here whether or not it flatters the gate. |
 | M4 | Stronger verifier isolation and cross-ecosystem dependency integrity (partial mitigations shipped) | The default `checkpointed-local` backend still uses same-host materialised copies and checkpointed dependency attestation. Since 2.10.9 that attestation is ecosystem-aware; since 2.11.0 an opt-in `isolated-container` backend gives final verification a digest-pinned runtime/dependency image, read-only frozen candidate/pristine mount, private HOME/tmp/output, no network or host dependency tree, and fail-closed runtime attribution. Still true for **both** backends: candidate source executes inside the configured suite/oracle process, so execution-domain isolation is not semantic/oracle isolation; 2.11.1 exposes that ceiling as `suite-exit-only` assurance in verdict/audit output. The verification surface remains an enumerated bound (docs/THREAT-MODEL-pristine-run.md). | Stronger completion/collection evidence requires an oracle protocol outside candidate in-process control: held-out/out-of-process probes, runner-specific collection/result attestations whose producer is outside the candidate process, or an equivalent trusted protocol. Signed verdict attestation remains M5. |
 | M5 | Attested verdicts, broader agent integrations, org-level policy administration | `--json` verdicts and a GitHub job-summary renderer; the npm package carries SLSA provenance, but a *verdict* is not attested. In-loop hooks for Claude Code only; other agents meet the gate at pre-commit and CI. One `.tamperward.yml` per repository. | A signed verdict statement (in-toto or equivalent) binding head, base, gate version, policy hash and verdict, verifiable by a required check; an in-loop adapter for at least one more runtime with the same PreToolUse/Stop semantics; a documented organisation baseline that per-repo policy can strengthen and never weaken. |
