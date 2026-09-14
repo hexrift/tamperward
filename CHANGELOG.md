@@ -5,6 +5,28 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.15] — 2026-09-14
+
+### Changed
+
+- **Docs site: the reference pages are in the navigation and the architecture diagram
+  draws the authority edges and the trust boundary** (#451). `architecture`, `PERF`,
+  `CAST-INVENTORY` and both threat models were built but appeared in no nav or
+  sidebar; they now form a "Reference" group (and nav entry). `CAST-INVENTORY` linked
+  `../harness/…`, which resolves on GitHub but 404s on the site because `harness/` is
+  not served; it now uses the GitHub blob URL like every other page. The architecture
+  diagram is redrawn as three lanes — Steering (agent runtime → Claude hooks →
+  `tamperward hook` → protected-tree snapshot → deny/allow), Verification (`run`
+  envelope → `check` + `verify` → visible and pristine → local verdict/JSON) and
+  Authority (protected CI running the same `check` and `verify` against the trusted
+  base → required gate → branch rules + CODEOWNERS → merge) — with the Authority lane
+  shaded as the trust boundary, the previously missing `ci → check`, `ci → verify`,
+  `policy → pristine` and `observer → Stop sweep` edges, `init` writing across all
+  three lanes and `doctor` reading them, and nodes for `onboard`, `trace-verify`,
+  `hook-service` and `research`. The "Data flow" prose matches the redrawn diagram.
+  The docs consistency test now asserts every built page is in the sidebar or nav and
+  that no docs link targets `harness/` relatively.
+
 ## [2.23.14] — 2026-09-14
 
 ### Security
