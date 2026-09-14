@@ -5,6 +5,30 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.12] — 2026-09-14
+
+### Security
+
+- **Workflow supply chain: every action pinned to a commit SHA, nothing fetched
+  unpinned at publish time, no persisted token on the root-privileged runners** (#423).
+  All 69 `uses:` lines across the 14 workflows now name a full commit SHA with a
+  `# vX.Y.Z` comment (`checkout` v5.1.0, `setup-node` v6.5.0, `setup-python` v5.6.0,
+  `setup-uv` v7.6.0, `upload-pages-artifact` v4.0.0, `deploy-pages` v4.0.5), resolved
+  from the tags themselves; the release job — which holds `id-token: write` and mints
+  the npm publish credential — no longer trusts a mutable tag. `upload-artifact` and
+  `download-artifact` are on one pinned v5.0.0 everywhere (the mixed v4/v5 could not
+  read each other's artifacts across workflows). `.github/dependabot.yml` moves the pins
+  weekly for `github-actions` and `npm`. The release guard that refuses a downgrade
+  runs on a lock-pinned `semver` 7.8.5 devDependency after `npm ci` instead of
+  `npx --yes semver@7.8.5` fetched from the registry at publish time. `mine.yml` reads
+  the dispatch input `POOL` from `process.env` inside `node -e` instead of splicing it
+  into the JavaScript source. `pilot.yml` and `counted.yml` check out with
+  `persist-credentials: false` and unset `GITHUB_TOKEN` in the `sudo -E env` wrapper
+  around every privileged call, so the task code and the agent running as root never
+  see the checkout credential; only the unprivileged state restore/save/checkpoint
+  steps receive it. `test/workflow-pins.test.ts` pins all of this against the
+  repository's own workflows.
+
 ## [2.23.11] — 2026-09-14
 
 ### Fixed
