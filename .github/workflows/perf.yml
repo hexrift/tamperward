@@ -10,8 +10,9 @@ name: perf
 #
 # MANUAL AND NIGHTLY, never on a pull request. The full suite takes minutes and a
 # shared runner's wall clock is noisy, so it is deliberately NOT a required check:
-# ordinary PR CI runs only test/perf-smoke.test.ts, the cheapest items judged as
-# ratios to the process-start cost of the same run, never an absolute clock. Read a
+# ordinary PR CI runs only harness/perf/smoke.test.ts (the `perf-smoke` job, alone on
+# its runner), the cheapest items judged as CPU ratios to the parser-loading
+# `cli.parse` of the same run, never an absolute clock. Read a
 # red run here as a regression to investigate, not a
 # merge blocker; the JSON artifact is the evidence to compare against the baseline
 # and, when the change is intended, to replace it with (docs/PERF.md).
@@ -85,13 +86,30 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$code"
 
-      # The JSON is the record: it is what a new BASELINE.json is copied from when a
-      # measured change is intended, and what a regression is diagnosed against.
+      # The JSON is the record: it is what a new BASELINE.json is promoted from when
+      # a measured change is intended (or when the committed baseline is a sandbox
+      # stand-in, #421), and what a regression is diagnosed against. This runner is
+      # the reference machine, so the artifact is named for what it is.
+      - name: How to promote this report into the baseline
+        if: always()
+        run: |
+          {
+            echo ""
+            echo "### promote this report into harness/perf/BASELINE.json"
+            echo ""
+            echo "Only from a GREEN run. Download the \`perf-baseline-candidate\` artifact, then:"
+            echo ""
+            echo '```bash'
+            echo "node harness/perf/promote-baseline.mjs perf.json   # from the artifact's directory; carries budgets over, stamps machine.ci"
+            echo '```'
+            echo ""
+            echo "Open a PR with the old-versus-new p50 table the command prints (docs/PERF.md, \"The baseline\")."
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the report
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: perf-report
+          name: perf-baseline-candidate
           path: ${{ runner.temp }}/perf/
           retention-days: 90
           if-no-files-found: warn

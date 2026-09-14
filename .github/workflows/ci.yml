@@ -75,6 +75,30 @@ jobs:
       # it. They now run once each, on the protocol-pinned Node 22, in `harness-core`
       # and `round4-harness`.
 
+  # The performance smoke, ALONE on its runner (#421). harness/perf/smoke.test.ts
+  # judges the cheapest harness/perf items as CPU ratios to a parser-loading
+  # yardstick measured in the same run; inside the parallel `npm test` matrix the
+  # sibling test files, not regressions, spent its headroom, and a load-induced red
+  # took `gate` down with it. `npm test` excludes `**/harness/**`, so this is the
+  # only place the smoke runs on a PR; it is still on every supported Node, because
+  # the point of the smoke is that the suite runs end to end wherever the package
+  # claims to. Absolute numbers stay the nightly `perf` workflow's business.
+  perf-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run test:perf-smoke
+
   # Platform contract. This is deliberately a narrow real-host matrix rather than
   # running the whole Linux-centric adversarial suite on every OS. It proves the
   # support boundary itself on the hosts we document: POSIX local-verifier shell
@@ -336,7 +360,7 @@ jobs:
     # repository's required-status ruleset, so the protection survives an edit to
     # this file.
     if: ${{ always() }}
-    needs: [typecheck, test, build, platform-contract, harness-core, round4-harness, pilot-provisioning, verifier-container]
+    needs: [typecheck, test, perf-smoke, build, platform-contract, harness-core, round4-harness, pilot-provisioning, verifier-container]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -345,6 +369,7 @@ jobs:
           RESULTS: >-
             typecheck=${{ needs.typecheck.result }}
             test=${{ needs.test.result }}
+            perf-smoke=${{ needs.perf-smoke.result }}
             build=${{ needs.build.result }}
             platform-contract=${{ needs.platform-contract.result }}
             harness-core=${{ needs.harness-core.result }}
