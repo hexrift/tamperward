@@ -73,16 +73,21 @@ jobs:
           const existing = fs.existsSync(storePath)
             ? fs.readFileSync(storePath, 'utf8').split(/\r?\n/).filter(Boolean)
             : [];
-          const ids = new Set();
+          const byId = new Map();
           for (const line of existing) {
             const value = JSON.parse(line);
-            if (typeof value.id === 'string') ids.add(value.id);
+            if (typeof value.id !== 'string') throw new Error('stored audit event is missing id');
+            const prior = byId.get(value.id);
+            if (prior !== undefined && prior !== line) throw new Error('stored audit event id has conflicting content: ' + value.id);
+            byId.set(value.id, line);
           }
           const append = [];
           for (const line of incoming) {
             const value = JSON.parse(line);
-            if (!ids.has(value.id)) {
-              ids.add(value.id);
+            const prior = byId.get(value.id);
+            if (prior !== undefined && prior !== line) throw new Error('submitted audit event id conflicts with stored content: ' + value.id);
+            if (prior === undefined) {
+              byId.set(value.id, line);
               append.push(line);
             }
           }
