@@ -334,10 +334,34 @@ function sleepSync(ms: number): void {
  * there was none (its leftovers are removed either way, so a stale socket can
  * never be what the next client meets).
  */
-export function stopHookService(paths: ServicePaths): 'stopped' | 'not-running' {
+export async function stopHookService(paths: ServicePaths): Promise<'stopped' | 'not-running'> {
   const state = readServiceState(paths);
   let outcome: 'stopped' | 'not-running' = 'not-running';
-  if (state && pidAlive(state.pid) && state.pid !== process.pid) {
+
+  // A stale state file is not authority to signal a PID: after a crashed
+  // service that PID may have been reused by an unrelated process. Confirm the
+  // private socket is trusted AND that the listener reports the same pid/root/
+  // version before sending SIGTERM. A timeout/refusal merely cleans stale
+  // service files; it never guesses that the PID still belongs to TamperWard.
+  let confirmed = false;
+  if (state && state.pid !== process.pid && pidAlive(state.pid) && state.version === TW_VERSION && socketRefusal(paths) === null) {
+    const req: ServiceRequest = {
+      v: HOOK_SERVICE_PROTOCOL,
+      version: TW_VERSION,
+      kind: 'status',
+      raw: '',
+      cwd: process.cwd(),
+      env: {},
+    };
+    const res = await exchange(paths, req, 1000);
+    confirmed =
+      isRecord(res) &&
+      res.v === HOOK_SERVICE_PROTOCOL &&
+      res.version === TW_VERSION &&
+      res.pid === state.pid &&
+      res.root === state.root;
+  }
+  if (state && confirmed) {
     try {
       process.kill(state.pid, 'SIGTERM');
     } catch {
@@ -367,7 +391,7 @@ function parseStart(args: string[]): { dir: string } {
 /** The CLI. `start` returns the -1 sentinel (the event loop is the service's
  *  lifetime, like `watch`); `stop` is synchronous; `status` answers over the
  *  socket and exits itself when it has printed. */
-export function runHookService(args: string[]): number {
+export function runHookService(args: string[]): number | Promise<number> {
   const sub = args[0];
   const paths = servicePaths();
   if (!paths) {
@@ -400,9 +424,10 @@ export function runHookService(args: string[]): number {
     return -1;
   }
   if (sub === 'stop') {
-    const outcome = stopHookService(paths);
-    process.stdout.write(`tamperward hook-service: ${outcome === 'stopped' ? 'stopped' : 'not running'}; ${paths.socket} removed\n`);
-    return 0;
+    return stopHookService(paths).then((outcome) => {
+      process.stdout.write(`tamperward hook-service: ${outcome === 'stopped' ? 'stopped' : 'not running'}; ${paths.socket} removed\n`);
+      return 0;
+    });
   }
   // status
   const state = readServiceState(paths);
