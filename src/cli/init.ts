@@ -522,13 +522,9 @@ function planGitignore(cwd: string): Action | null {
     .map((line) => line.trim())
     .filter((line) => line !== '' && !line.startsWith('#'));
 
-  // Common root/all-depth spellings. We deliberately do not implement Git's full
-  // ignore grammar here; appending an equivalent root rule is harmless and makes
-  // the repository's intent explicit.
-  if (meaningful.some((line) => /^(?:\/|\*\*\/)?node_modules\/?$/.test(line))) {
-    return { item: 'gitignore', path: rel, status: 'ok', detail: 'node_modules is already ignored by the repository' };
-  }
-
+  // A negation is explicit repository intent. Check it BEFORE accepting a broad
+  // node_modules ignore: Git's last-match-wins rules may deliberately re-include
+  // a vendored patch subtree, and appending another ignore would silently undo it.
   if (meaningful.some((line) => line.startsWith('!') && line.includes('node_modules'))) {
     return {
       item: 'gitignore',
@@ -536,6 +532,13 @@ function planGitignore(cwd: string): Action | null {
       status: 'skip',
       detail: 'contains an explicit node_modules negation — left untouched; review the repository ignore policy before committing dependencies',
     };
+  }
+
+  // Common root/all-depth spellings. We deliberately do not implement Git's full
+  // ignore grammar here; appending an equivalent root rule is harmless and makes
+  // the repository's intent explicit.
+  if (meaningful.some((line) => /^(?:\/|\*\*\/)?node_modules\/?$/.test(line))) {
+    return { item: 'gitignore', path: rel, status: 'ok', detail: 'node_modules is already ignored by the repository' };
   }
 
   const next = existing.length === 0
