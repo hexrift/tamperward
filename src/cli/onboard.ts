@@ -561,6 +561,7 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
       status('STOPPED', 'Onboarding was cancelled during ' + (SECTIONS[sectionNo - 1] ?? 'setup') + '.', 'warn');
       if (wrote.length) status('INFO', 'Already written: ' + [...new Set(wrote)].join(', ') + '. Re-running is safe.', 'dim');
       else status('INFO', 'Nothing was written.', 'dim');
+      status('NEXT', 'Re-run `tamperward onboard` to continue, or `tamperward doctor` to inspect the current setup.', 'info');
       return 2;
     }
     throw e;
