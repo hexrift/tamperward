@@ -366,11 +366,15 @@
           }
         },
         "agent_budget": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "exclusiveMinimum": 0
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          ]
         }
       },
       "additionalProperties": true
@@ -608,11 +612,15 @@
           }
         },
         "agent_budget": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "exclusiveMinimum": 0
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          ]
         }
       },
       "additionalProperties": true
