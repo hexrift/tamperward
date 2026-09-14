@@ -130,6 +130,9 @@ describe('happy path', () => {
     expect(s.err).toBe('');
     expect(s.out).toContain(`v${TW_VERSION}`);
     expect(s.out).toMatch(/1\/5\s+Environment/);
+    // Runtime detection runs before the plan: a fresh repo has no runtime marker
+    // yet, so onboarding states the neutral default rather than assuming a runtime.
+    expect(s.out).toMatch(/RUNTIME\s+No agent runtime detected/);
     // The canonical init plan is rendered compactly, then applied silently.
     expect(s.out).toMatch(/ADD\s+Policy\s+\.tamperward\.yml/);
     expect(s.out).toMatch(/Applied 5 setup change\(s\)/);
@@ -160,10 +163,21 @@ describe('happy path', () => {
   it('shows the canonical local-protection plan without the old installation essay', async () => {
     const d = repo();
     const s = await onboard(d, ['n'], { noGithub: true, skipDemo: true });
-    for (const item of ['Policy', 'Claude hooks', 'Pre-commit', 'CI workflow', 'CODEOWNERS']) {
+    for (const item of ['Policy', 'In-loop (Claude)', 'Pre-commit', 'CI workflow', 'CODEOWNERS']) {
       expect(s.out).toContain(item);
     }
     expect(s.out).not.toMatch(/What each item is for|ONE STEP LEFT|workflow from its OWN head/);
+  });
+
+  it('names a neutral-only runtime and warns that in-loop steering is Claude-only', async () => {
+    const d = repo();
+    // A Cursor marker with no .claude: the runtime is detected, but in-loop
+    // steering does not ship for it yet, so onboarding must say so plainly.
+    mkdirSync(join(d, '.cursor'));
+    const s = await onboard(d, ['n'], { noGithub: true, skipDemo: true });
+    expect(s.out).toMatch(/RUNTIME\s+Detected Cursor/);
+    expect(s.out).toMatch(/NOTE[^\n]*Claude Code only/);
+    expect(s.out).toContain('#482');
   });
 });
 
