@@ -5,6 +5,333 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.24.7] — 2026-09-14
+
+### Changed
+
+- **Architecture diagram is now a standalone SVG instead of a Mermaid block**.
+  `docs/architecture.md` embedded the component map as a fenced ```mermaid``` graph,
+  which does not render where a Mermaid runtime is absent or too old. The diagram is
+  now a hand-authored, dependency-free `docs/architecture.svg` referenced as a Markdown
+  image (`![...](./architecture.svg)`), so it renders identically on GitHub, the
+  VitePress site, and Markdown previewers. The SVG reproduces the graph faithfully — the
+  Steering, Verification, and Authority lanes; every node and edge; solid-versus-dotted
+  edge meaning with labels; and the shaded, dashed-red trust boundary around the
+  Authority lane — and carries `role="img"`, `<title>`, and `<desc>` for accessibility.
+  The README lifecycle diagram is unchanged. (docs)
+
+## [2.24.6] — 2026-09-14
+
+### Fixed
+
+- **`tamperward onboard` preflight errors keep their colour and make repository-root
+  mismatches easier to scan.** Error text is now sanitised before TamperWard adds ANSI
+  decoration, so terminals no longer expose fragments such as `[1m[31mERROR` in place
+  of colour. The child-directory refusal is rendered as a compact
+  `ERROR / CURRENT / GIT ROOT / NEXT / OR` diagnostic with the two safe recovery
+  choices called out explicitly.
+
+## [2.24.5] — 2026-09-14
+
+### Fixed
+
+- **`test-deletion` reads the command surface the way `hook-tampering` reads it**
+  (#432). The rule matched `rm` and `truncate` as words anywhere in a segment and
+  compared the token as typed, so `grep -n "rm " test/a.test.ts`, `grep truncate
+  test/a.test.ts` and `node scripts/rm-cache.js test/a.test.ts` blocked as deletions
+  while `unlink test/a.test.ts`, `mv src/junk.ts test/a.test.ts` (the spec overwritten;
+  only the move OUT was read), `echo test/a.test.ts | xargs rm`, `find . -name
+  "*.test.ts" | xargs rm`, `dd if=/dev/null of=test/a.test.ts`, `rm test/a.te""st.ts`,
+  `rm test/a.te\st.ts`, `rm test/a.test.{ts}` and `rm test/a.tes?.ts` passed. The
+  command is now the word in command position past the wrappers hook-wiring skips
+  (`sudo`, `env`, `nice`, `time`, `command`, `exec`, a `VAR=` prefix, a `/bin/`
+  path) — shared `WRAPPERS`, `REDIRECT_TARGET`, `destinations` and the new
+  `xargsCommand` are exported from `hook-wiring.ts` rather than copied — and a path
+  is the word the shell hands the command (`shellWord`: embedded quote spans joined,
+  backslashes resolved) with a glob expanded against the repository listing
+  (`expandGlob`: `*`, `?`, `[ab]`, `{ts,js}`; without a listing a wildcard's literal
+  part decides, so `src/*.test.ts` is specs and `src/*.ts` is nothing in particular).
+  `unlink` and `shred` delete like `rm`; `sponge` and `dd of=` rewrite like `tee`;
+  `cp`/`install`/`rsync`/`ln`/`mv` are read by their destinations, and a spec
+  destination that is in the listing with a non-spec source is an overwrite (`mv
+  a.test.js.skip a.test.js` onto no listed spec puts one back and is not); `… | xargs
+  rm`/`unlink`/`shred`/`truncate`/`mv`/`tee`/`sponge`/`sed -i`/`perl -i` is judged over
+  the specs the feeding segments name, a `find … -name` feed narrowed to its pattern.
+  Replayed over the 1,511-command harness transcript corpus: the same 15 spec-writing
+  commands fire on both builds with a listing, and the three read-only commands above
+  are clean; the shared shell corpus fires and passes identically for a hook under
+  `hook-tampering` and a spec under `test-deletion`.
+
+
+## [2.24.4] — 2026-09-14
+
+### Fixed
+
+- **Tests left textually present but unreachable are counted as removed** (#431).
+  `test-deletion`'s block count read textual presence as execution: an `it()` wrapped
+  in `if (false) {}`, written after a `return;` in its `describe` callback, or moved
+  into a `function later() {}` nobody calls still counted, so all three edits passed
+  clean. The count is now a reachability count — `src/detectors/reachability.ts`
+  marks the guarded branch of any condition that folds to a constant (`false`, `0`,
+  `""`, `null`, `!true`, `false && x`, `x && false`, `1 === 2`, the else of
+  `if (true)`), statements after an unconditional `return` / `throw` in the same block,
+  loop bodies whose condition folds to false, and the bodies of named functions nothing
+  live references, and `countTests` walks only what is left. `if (process.env.CI)`, a
+  helper called from a test, a hoisted function called before the `return`, an IIFE and
+  a named callback handed to `describe` stay counted. pytest is read the way it
+  collects: a `def test_*` inside a class counts only when every enclosing class is
+  `Test*` or a `TestCase` subclass, so `class TestMath` → `class MathTests` is a
+  deletion while `→ class TestArithmetic` is a rename.
+- **`test-content-removal` reads hidden content as removed** (#431). Three assertions
+  moved into a template literal, a single-line string, an `if (false)` block or behind
+  an early `return` kept their lines in the file, so nothing was "gone" and the edit
+  drew only `warn:assertion-weakening` (the `//`-commented version already blocked).
+  Significant lines are now read from the file's live text on both sides, a removed
+  line is excused into the kept pool only where its text occurs as code (an occurrence
+  that begins inside a string or template literal is the line quoted; a joined or
+  rewrapped call still begins outside its string arguments, so reformatting stays
+  excused), and ≥3 removed lines whose text survives only in the file's hidden text
+  fire regardless of the net line count. Python: lines after a bare `return` / `raise`
+  at the same indent and the suite of `if False:` / `if 0:` / `if None:` are hidden.
+- **`test-skip` reads collection-time and configuration-time skips** (#431): a Go
+  `func TestMain(m *testing.M)` added without an `m.Run()` call, any `//go:build` /
+  `// +build` constraint added to a `_test.go` (only `ignore` was read before —
+  `//go:build never` passed), a Rust `#[cfg(…)]` other than `cfg(test)` on `mod tests`
+  or beside `#[test]`, JUnit 5 `@EnabledIf…` / `@DisabledIf…` in every spelling, and
+  RSpec `it 'x', if: false` / `unless: true` / `:if => false`. `#[cfg(test)]`,
+  `#[cfg(unix)]` on a plain helper, `TestMain` that calls `m.Run()` and
+  `if: ENV['SLOW']` stay clean.
+- Precision delta over the pinned immer/zustand/zod/hono mainline heads, last 150
+  adjacent pairs each: see the pull request for the per-repository rows; the
+  `test-content-removal` corpus test file and every existing `test-deletion` /
+  `test-skip` regression pass unchanged.
+
+## [2.24.3] — 2026-09-14
+
+### Fixed
+
+- **`test-skip`, `test-deletion` and `assertion-weakening` read a runner's modifier
+  chain the same way** (#429). Three rules parsed `runner.modifier.each` chains three
+  different ways. `test-skip`'s AST path required `.skip` / `.only` / `.todo` to be the
+  LAST hop, so `describe.each(rows)` → `describe.only.each(rows)` and `it.each(rows)`
+  → `it.skip.each(rows)` were never an AST hit — the single-line regex caught them by
+  luck and the multi-line spelling walked past both — and `it.skip.each` was blocked only
+  by accident, by `test-deletion` reading it as "2 → 0 blocks". `test-deletion` did not
+  unwrap a modifier between the runner and `.each` / `.for`, so the refactor `it.each`
+  → `it.concurrent.each` read as every row deleted and blocked. `assertion-weakening`
+  accepted only a bare `it(...)` / `describe(...)`, so `toBe(2)` → `toBeDefined()`
+  warned under `it('adds', …)` and was silent under `it.concurrent('adds', …)`, and a
+  test under `describe.each(rows)('title', fn)` was never compared. One chain reader
+  (`src/detectors/runner-chain.ts`) now serves all three: it unwraps `concurrent` /
+  `sequential` / `shuffle` / `serial` / `parallel` / `skip` / `only` / `todo` / `fails`
+  / `failing` in any order before `each` / `for`. `test-skip` treats a skip/focus marker
+  anywhere before the table method as the marker and points the finding at the marker's
+  own line; the outer call of a table chain (`X.each(rows)(...)`) is judged by its inner
+  chain, so a proven non-runner root stays clean there too. `test-deletion` counts
+  `it.concurrent.each` / `test.skip.each` / `describe.concurrent.each` tables per row
+  as before the modifier, so the refactor is clean while rows dropped from such a table
+  still count as deleted. `assertion-weakening` pairs `it.concurrent('adds')`,
+  `test.sequential`, `describe.skip` and `describe.each(rows)('title', fn)` blocks by
+  their literal title. Replay over the four pinned corpus heads (immer, zustand, zod,
+  hono) with the three rules compared before → after: see the pull request's precision
+  study; the assertion-weakening corpus stays 12/12 TP, 0/20 FP.
+
+## [2.24.2] — 2026-09-14
+
+### Fixed
+
+- **`test-skip` reads Go `Skip` on any receiver and the pytest conftest hooks** (#441).
+  The Go row matched `\b[tb]\.Skip`, so `tb.Skip()`, a subtest's `tt.Skip()` and
+  testify's `s.T().Skip()` were silent; it now matches `Skip`/`Skipf`/`SkipNow` on any
+  receiver and on `T()`. The pytest row knew only the decorator and runtime spellings,
+  so a `conftest.py` — a protected test file — could filter `items` in
+  `pytest_collection_modifyitems`, decide collection in `pytest_pycollect_makeitem`, mark
+  every item with `add_marker(pytest.mark.skip)`, alias `sk = pytest.mark.skip` and use
+  `@sk`, or set `rep.outcome = 'passed'` in a `pytest_runtest_makereport` hookwrapper
+  without a finding. Each of those is now a `test-skip` block; the aliased decorator is
+  resolved against the AFTER file when the change carries it, else against the added
+  lines. A conftest that only registers fixtures, `pytest_addoption`, `pytest_configure`,
+  a custom marker, a `Skip(` inside a string and the hook name in a comment stay clean.
+  Replay of the test-skip suites (`test-skip-ast`, `fp-study-harness`,
+  `detector-spellings`, `coverage-gaps`): 0 new findings.
+
+## [2.24.1] — 2026-09-14
+
+### Fixed
+
+- **`hook-tampering` no longer judges every file added under `protected.hooks` as a
+  shell script** (#442). Adding a `.pre-commit-config.yaml` with a linter repo, a
+  `lefthook.yml` with a lint command, or husky's own `.husky/.gitignore` blocked with
+  *a protected hook script was added that does not run the gate live: it runs no
+  `tamperward check`* — a guarded block no policy could exclude — because the config
+  comparator returned nothing for an add and the add branch ran before the note check.
+  An added file is now classified by kind first: a YAML hook config
+  (`.pre-commit-config.yaml`, `lefthook.yml`, `.lefthook.yml`, `lefthook-local.yml`) is
+  compared by the config comparator against a fresh base carrying every gate entry the
+  file names as `init` would write it (live, unskipped, unscoped, on the commit stages),
+  so a config that names no gate or carries it live is clean while one that arrives with
+  its own gate under `skip:`/`only:`, scoped by `glob`/`exclude`/tags/`stages`, rerouted
+  by `env` or not live (`… || true`) reports the weakening; a note or git dotfile
+  (`.husky/.gitignore`, `.gitattributes`, `*.md`, `*.txt`) is silent on add as on edit;
+  a genuine shell hook script keeps the sign-off stance — a new `.husky/pre-commit` that
+  does not run the gate live still blocks. `SPEC.md` row 8 and `docs/guide/rules.md`
+  carry the contract.
+
+## [2.24.0] — 2026-09-14
+
+### Added
+
+- **New rule `coverage-exclusion` (warn)** (#438). The per-function form of the
+  `coverage-lowering` class: an inline exclusion added to a non-test source file —
+  `/* istanbul ignore next | if | else | file */`, `/* c8 ignore next | start */`,
+  `/* v8 ignore next[ N] */`, `/* node:coverage ignore next */` / `disable`,
+  `# pragma: no cover` in every spacing and case coverage.py accepts, `#[coverage(off)]`
+  bare or under `cfg_attr`, and a `//go:build` / `// +build` constraint added to an
+  existing Go source file — takes the hard branch out of the measurement with no config
+  touched, and no rule read it. Read per language, outside `protected.tests` and
+  `protected.config` and off generated / vendored / declaration / output / example /
+  docs / script / fixture paths; a marker inside a string literal or quoted behind a
+  line comment is text, a marker line removed and re-added verbatim moved, a range
+  closer (`ignore stop`) excludes nothing, a constraint on a new Go file is a platform
+  split and one edited on a file that already carried it is not an exclusion. Severity
+  is decided by corpus (`harness/fp-study/COVERAGE-EXCLUSION-CORPUS.md`):
+  `coverage-exclusion-fires.mjs` replayed the rule over the `ts-cast-growth` study's
+  460 adjacent first-parent pairs of immer, zustand, zod and hono and it fired on
+  **none**; the 6,632 first-parent commits of the deepened clones hold four commits
+  that add a spelling, every one an immer maintainer marking an environment-dependent
+  branch with `/* istanbul ignore next */` — honest work the rule fires on by design,
+  so precision as a tamper signal on real fires is 0/4 and block is not authorized. A
+  labeled corpus (`coverage-exclusion-corpus.json`, 22 negatives reproducing the shapes
+  maintainers write beside the spellings, 14 positives) is replayed in CI by
+  `test/coverage-exclusion-corpus.test.ts`. SPEC row 19; `warn` never requires
+  sign-off under the default policy, and operators may raise it to `block` in their own.
+
+### Fixed
+
+- **`coverage-lowering` reads the rest of the denominator-narrowing surface** (#438).
+  Jest `collectCoverage: true → false` (top level, or under package.json `jest`), vitest
+  `coverage.all: true → false`, nyc `--check-coverage` dropped from a script,
+  `--cov-fail-under` lowered or dropped wherever the line lives — a package.json script,
+  `pytest.ini` / `pyproject.toml` `addopts`, a `tox.ini` command, a workflow step (the
+  one line-level reading the rule now applies to `protected.ci`) — and `setup.cfg` /
+  `tox.ini` `[coverage:report] fail_under` lowered, removed or moved (the same
+  coverage.py key as `.coveragerc` and `pyproject.toml`, so a gate moved between the
+  four is a move, not a deletion) were each zero findings. A raised floor, a floor
+  reformatted at the same number, a flag moved to another script in the same edit, and
+  an unrelated `setup.cfg` / `tox.ini` edit stay clean.
+- The benign file-suffix exemptions are read in the spelling of their list. Jest's
+  `coveragePathIgnorePatterns` are regexes, where `'.md'` is "any character, m, d" and
+  exempts `src/cmd.ts` and `src/readme-loader.ts`, yet the raw pattern passed the
+  `\.md$` benign test; now only the anchored `\\.md$` / `\\.d\\.ts$` (and the other
+  suffix literals written the same way) is benign in a regex list, while a glob
+  `**/*.md` in vitest `coverage.exclude`, `.coveragerc` `omit` or `collectCoverageFrom`
+  stays benign as before. The directory exemptions (`/dist/`, `<rootDir>/test/`) read the
+  same in either spelling. The evidence now names the list the exemption was added to.
+## [2.23.20] — 2026-09-14
+
+### Fixed
+
+- **The perf smoke measures the parser again, on CPU, alone on its runner** (#421).
+  After the parser went lazy (#407) the smoke's yardstick `cli.noop` (an empty-stdin
+  hook) no longer loaded the 9 MB TypeScript parser, but `check.diff.small` did, so
+  its ratio measured "parser load versus process start" — `check.diff.small` sat at
+  4.5× a 6× wall budget on an idle box — and inside the parallel `npm test` matrix
+  the remaining headroom went to sibling test files, not regressions. The smoke now
+  lives at `harness/perf/smoke.test.ts`, judges **p50 CPU** ratios to a new
+  `cli.parse` item (a PreToolUse `Edit` of one `.ts` source with no session: process
+  start + module load + parser load + one file evaluated) with budgets of 1.25× for
+  `hook.warm.100` and `snapshot.100` and 3× for `check.diff.small` (measured 0.44×,
+  0.48×, 1.46×), and runs alone from `npm run test:perf-smoke` (`vitest run --config
+  vitest.perf-smoke.config.ts --no-file-parallelism`) in a new `perf-smoke` CI job on
+  Node 20 / 22 / 24 that `gate` requires; `npm test` no longer runs it. The smoke pins
+  itself with injected regressions: the real run's report with `check.diff.small`
+  scaled 3× must fail the judge that passed the real run, and the committed baseline
+  with `hook.warm.100` doubled must fail `compare.mjs`.
+- **`harness/perf/BASELINE.json` says what it is, and the `perf` workflow says how
+  to replace it** (#421). The committed baseline had been captured in a busy
+  sandbox before the parser went lazy (`cli.noop` p50 1.7 s where an idle box
+  measures 0.12 s), so every hook, snapshot and check item would have had to regress
+  roughly 30× before the nightly compare went red — and `compare.mjs`'s budget is
+  exclusive, so its 2× default never failed an exact 2× either. Its numbers are kept
+  byte-for-byte (another loaded sandbox is a different wrong machine, not the right
+  one); it now carries a `note` (*captured in a loaded sandbox; reference baseline
+  pending the first green perf workflow artifact*), `machine.ci: false`, and
+  `budgets` pinning the hook items (`hook.warm.100`, `hook.cold.1k`, `hook.warm.1k`,
+  `hook.ignored`) at 1.5×, and the smoke holds it to that state: a reference
+  baseline (`machine.ci` set) must carry `cli.parse` clearly above `cli.noop`, a
+  stand-in must confess. `perf.yml` uploads its report as `perf-baseline-candidate`
+  and prints the promotion recipe in the job summary; the new
+  `harness/perf/promote-baseline.mjs <perf.json>` copies a green run's report into
+  place — budgets carried over, `machine.ci` stamped, `note` dropped, a report that
+  lost a baselined item refused — and prints the old-versus-new p50 table the
+  replacing PR must carry (docs/PERF.md, "The baseline").
+
+## [2.23.19] — 2026-09-14
+
+### Fixed
+
+- **`no-verify` reads the bypass where it actually lives** (#433). `HUSKY="0" git commit`
+  and `export HUSKY="0"` were silent: the tokeniser stripped only a token's outer quotes,
+  leaving `HUSKY="0` for `^HUSKY=0$` to miss. Tokens are now unquoted the way the shell
+  reads them (`HUSKY="0"`, `HUSKY='0'`, `--no-verify""`, `"it's"` all resolve to their
+  content), and the same spellings one shell deeper (`sh -c '…'`, `eval …`) are read
+  as the command they run. A git alias that carries the flag — `git config alias.ci
+  "commit --no-verify"` (then `git ci`), `git -c alias.ci='commit -n' ci`,
+  `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` and `GIT_CONFIG_PARAMETERS` injection, a
+  `!`-shell body — is judged as the invocation it expands to, the way `core.hooksPath`
+  already was; `alias.lg "log -n 20"` and `alias.ci "commit -v"` stay clean.
+  `pre-commit uninstall`, `lefthook uninstall`, `husky uninstall` (under `npx`, `pnpm
+  exec`, `python -m`) and `rm` / `unlink` / `mv` / `chmod -x` of the pre-commit
+  framework's install target (`.git/hooks/<hook>`, `$(git rev-parse --git-dir)/hooks/…`,
+  the whole `.git/hooks` directory) block: `.git/hooks/**` is outside every git view,
+  so `protected.hooks` never covered it. Reading the hook, installing one, `chmod +x`
+  and deleting git's `*.sample` files stay clean. The literal `--no-verify` is now read
+  on `git am`, `git rebase` and `git cherry-pick` too.
+- **`git commit -mfinal` no longer reads as `git commit -n`** (#433). The `-n`
+  cluster test ran after the option-value stripper recognised only a detached `-m`, so
+  the letters of a glued message (`-mfinal`, `-mdone`, `-mn`) were tested as flags. A
+  value-carrying short option (`-m`, `-F`, `-C`, `-c`) now ends the cluster: the letters
+  before it are the flags (`-anm x` is still `-n`), the rest of the token — or the next
+  token when nothing follows — is the value.
+
+### Added
+
+- **`no-verify` warns on the commit paths that never run pre-commit** (#433). `git
+  commit-tree`, `git update-ref <branch> <sha>`, `git am`, `git cherry-pick` and `git
+  rebase` write commits the hook never sees. They ship at warn whatever the rule's
+  severity (a rebase onto main or a cherry-picked fix lands commits the hook already
+  checked, and the 1,511-command harness corpus holds none of them either way, so block
+  would refuse routine history work on no evidence); `--continue` / `--abort` / `--skip`
+  / `--quit` on an operation in progress and `cherry-pick --no-commit` are clean. The
+  rationale is in `docs/guide/rules.md`.
+
+## [2.23.18] — 2026-09-14
+
+### Fixed
+
+- **The CLI no longer exits before its stdout has drained** (#415). Every exit after
+  output a consumer parses — `check --json`, `check --format github`, the Claude
+  `hook` deny and `sweep` block JSON, `verify` / `run` / `doctor` / `research` machine
+  documents, `hook-service status` — went through `process.exit(code)` straight after
+  `process.stdout.write(...)`. That is only safe when the write completed synchronously:
+  Node makes pipe writes asynchronous on macOS and Windows, and even a Linux pipe backs
+  up in the stream once the kernel buffer is full and the reader is slow, so a document
+  larger than the pipe buffer was cut off at exit. For the hook that was a fail-open —
+  a truncated deny is a malformed hook response, which Claude Code ignores, so the deny
+  became an allow. The CLI now exits through one `exitAfterFlush(code)`
+  (`src/cli/exit.ts`): it sets `process.exitCode` and calls `process.exit` from the
+  stdout/stderr write callbacks, which the streams invoke only once everything queued
+  before them has reached the OS. Exit codes and output are unchanged; on a synchronous
+  stream the callbacks fire on the next tick. `watch` and `hook-service start` still
+  never exit on their own (the event loop is the daemon lifetime). Regression:
+  `test/stdout-drain.test.ts` spawns the built CLI with stdout as a pipe the test does
+  not read for a while and with `test/fixtures/async-stdout.cjs` preloaded, which
+  makes every stdout write complete on a timer the way a macOS/Windows pipe does, and
+  asserts that a 2.4 MB `check --json`, a 1200-annotation `--format github` verdict,
+  a 300 KB hook deny and a Stop block each arrive complete and parse. README's platform
+  table now states the contract: parsed output is complete before exit on every
+  platform.
+
 ## [2.23.17] — 2026-09-14
 
 ### Fixed

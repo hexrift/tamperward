@@ -13,7 +13,8 @@ import { parseSource, ts } from '../ts-lazy';
 import { Change, Detector, DetectorContext, FileChange, Finding, Policy } from '../types';
 import { isProtected } from '../policy';
 import { makeFinding } from './finding';
-import { segments, tokens, unquote } from './command';
+import { expandBraces, expandGlob, gitSubcommand, isGlob, segments, shellWord, tokens } from './command';
+import { REDIRECT_TARGET, WRAPPERS, destinations, xargsCommand } from './hook-wiring';
 import { Lang, isSignificantLine, langOf } from './files';
 import { containsProtected, revIsHead, trackedContent, trackedFiles } from './repo';
 import { isSpecShaped } from './spec-shape';
@@ -31,6 +32,8 @@ import type { Runner } from './suite-config';
 import { checkKinds, invocationWeakening } from './invocation';
 import type { Kind, Weakening } from './invocation';
 import { isRecord } from '../narrow';
+import { pytestCollectedDefs, unreachableNodes } from './reachability';
+import { readCallee } from './runner-chain';
 
 const RULE = 'test-deletion';
 
@@ -57,6 +60,11 @@ function calleeName(expr: TS.Expression): string | null {
   if (ts.isPropertyAccessExpression(expr) && ts.isIdentifier(expr.expression)) {
     return expr.expression.text; // it.skip(...), it.each(...), test.only(...)
   }
+  // it.concurrent.skip(...), test.sequential.only(...): a modifier chain that ends
+  // in the call is still one definition (#429). A chain ending in a table method is
+  // `isEachOf`'s, counted per row.
+  const chain = readCallee(expr);
+  if (chain && !chain.table) return chain.runner;
   // NOT recursing into a CallExpression callee on purpose: `it.each(table)(body)`
   // is two nested calls, and the inner `it.each(table)` already counts as the one
   // test definition. Recursing would count the outer invocation a second time.
@@ -64,17 +72,17 @@ function calleeName(expr: TS.Expression): string | null {
 }
 
 // `it.each(table)` and vitest 3's `it.for(table)` define one test per row alike —
-// `for` differs only in how the row reaches the callback.
-const TABLE_METHOD = /^(?:each|for)$/;
+// `for` differs only in how the row reaches the callback. A modifier between the
+// runner and the table method (`it.concurrent.each`, `describe.skip.each`) changes
+// how the rows run, not how many there are (#429): the chain reader unwraps it.
+const isTableOf = (expr: TS.Expression, runners: readonly string[]): boolean => {
+  const chain = readCallee(expr);
+  return chain != null && chain.table != null && runners.includes(chain.runner);
+};
 
-const isEachOf = (expr: TS.Expression): boolean =>
-  ts.isPropertyAccessExpression(expr) &&
-  ts.isIdentifier(expr.expression) &&
-  (expr.expression.text === 'it' || expr.expression.text === 'test') &&
-  TABLE_METHOD.test(expr.name.text);
+const isEachOf = (expr: TS.Expression): boolean => isTableOf(expr, ['it', 'test']);
 
-const isDescribeEach = (expr: TS.Expression): boolean =>
-  ts.isPropertyAccessExpression(expr) && ts.isIdentifier(expr.expression) && expr.expression.text === 'describe' && TABLE_METHOD.test(expr.name.text);
+const isDescribeEach = (expr: TS.Expression): boolean => isTableOf(expr, ['describe']);
 
 /** The rows a loop runs its body over: a literal array is counted (`for (const n of
  *  [1, 2, 3])`, `[1, 2, 3].forEach(...)`), anything else is open. */
@@ -147,6 +155,10 @@ export interface TestCount {
  *  stub) is not counted. */
 export function countTests(src: string, path = 'spec.ts', substantiveOnly = false): TestCount {
   const lang = langOf(path);
+  // pytest collects a class-bound `def test_*` only under a `Test*` class (or a
+  // TestCase subclass): `class TestMath` → `class MathTests` removes its tests
+  // without touching a def (#431).
+  if (lang === 'py') return { min: pytestCollectedDefs(src), open: false };
   if (lang && lang !== 'js') {
     const re = TEST_DEFS[lang];
     let n = 0;
@@ -160,7 +172,11 @@ export function countTests(src: string, path = 'spec.ts', substantiveOnly = fals
   if (!sf) return { min: 0, open: true };
   let n = 0;
   let open = false;
+  // A test the runner never reaches — inside `if (false)`, after a `return` in
+  // its describe callback, in a function nobody calls — is not defined (#431).
+  const dead = unreachableNodes(sf);
   const visit = (node: TS.Node, mult: number): void => {
+    if (dead.has(node)) return;
     if (ts.isForOfStatement(node)) {
       const r = loopRows(node.expression);
       if (r.open) open = true;
@@ -528,21 +544,46 @@ export const testDeletion: Detector = {
         // resolution root. An absolute or home-relative cd makes the root unknown, and
         // an unknown root falls back to the glob-only reading.
         let root: string | null = '';
+        // The words of every segment so far: `echo test/a.test.ts | xargs rm` names
+        // the spec in the segment that FEEDS the one that deletes it — read the way
+        // hook-tampering reads the same line (hook-wiring.ts xargsWritesHook).
+        const fed: string[] = [];
         for (const seg of segments(c.raw)) {
-          const toks = tokens(seg).map(unquote);
+          // The word the shell hands the command, not the token: `test/a.te""st.ts`,
+          // `'test/a.te'st.ts` and `test/a.te\st.ts` all name test/a.test.ts.
+          const toks = tokens(seg).map(shellWord);
           const cdTo = toks[0] === 'cd' ? toks[1] : null;
           if (cdTo !== null) {
             root = cdTo === undefined || /^[/~$]/.test(cdTo) || root === null ? null : joinRoot(root, cdTo);
+            fed.push(...toks);
             continue;
           }
           const inRepo = (t: string) => (root ? `${root}/${t}` : t);
           const listing = trackedFiles(ctx);
+          const whole = (t: string) => /^(?:\.|\.\/|\*|\.\/\*)$/.test(t);
+          // A glob is read as the paths it expands to against the listing
+          // (`rm test/*.test.ts`, `rm test/a.tes?.ts`, `rm test/a.test.{ts}`);
+          // without a listing a wildcard's literal part decides: `src/*.test.ts`
+          // can only name specs, `test/*.ts` empties a test directory, `src/*.ts`
+          // names nothing in particular.
+          const expand = (raw: string): string[] => {
+            const t = raw.replace(/^(?:of|if)=/, '');
+            if (!isGlob(t) || whole(t)) return [t];
+            if (listing && root !== null) return expandGlob(inRepo(t), listing).map((p) => (root ? p.slice(root.length + 1) : p));
+            return expandBraces(t).flatMap((alt) => {
+              if (!isGlob(alt)) return [alt];
+              const base = alt.split('/').pop() ?? '';
+              if (/test|spec/i.test(base.replace(/[*?]|\[[^\]]*\]/g, ''))) return [alt.replace(/\*\*\//g, '').replace(/\*/g, 'a').replace(/\?/g, 't')];
+              const dir = alt.includes('/') ? alt.replace(/\/[^/]*$/, '') : '';
+              return dir && !isGlob(dir) && containsProtected(dir, policy, 'tests', ctx, 'snapshots') ? [dir] : [];
+            });
+          };
           // A path token is protected when it matches a test glob — whether or not it
           // exists, so a spec named from a cwd the hook cannot see stays covered. The
           // one exception is a token that matches only as a DIRECTORY (`dist/__tests__`,
           // no extension, not a tracked file): then the repository listing decides, so a
           // build output nobody protects is not the suite. (see ./repo.ts)
-          const testToks = toks.filter((t) => {
+          const specPath = (t: string): boolean => {
             // a `..`/`./` token is resolved against the cwd first: from packages/a,
             // `../../test/a.test.ts` is the root's spec
             const resolved = root !== null && /(?:^|\/)\.{1,2}(?:\/|$)/.test(t) ? joinRoot(root, t) : null;
@@ -556,42 +597,63 @@ export const testDeletion: Detector = {
             const looksLikeFile = /\.[A-Za-z0-9]+$/.test(probe.split('/').pop() ?? '');
             if (looksLikeFile || listing.includes(resolved ?? inRepo(t))) return true;
             return containsProtected(resolved ?? inRepo(t), policy, 'tests', ctx, 'snapshots');
-          });
+          };
           // A directory token counts when a protected spec lives under it: `rm -rf test`
           // erases the suite while naming no spec; `rm -rf dist/__tests__` names an
           // ignored build output and is left alone. `.`, `./`, `*` name the whole
           // current directory, and a `..`-containing token is resolved against the
           // cwd first — `git checkout v1 -- .` from the root restores every spec.
           const rootHasProtected = () => (listing ? listing.some(isSpec) : true);
-          const dirToks = toks.filter((t) => {
-            if (t.startsWith('-') || testToks.includes(t)) return false;
-            const whole = /^(?:\.|\.\/|\*|\.\/\*)$/.test(t);
-            if (!whole && /[*?{}[\]]/.test(t)) return false;
-            if (root === null) return whole ? false : containsProtected(t, policy, 'tests', ctx, 'snapshots');
-            const dir = whole ? root : joinRoot(root, t);
+          const dirPath = (t: string): boolean => {
+            if (t.startsWith('-')) return false;
+            const isWhole = whole(t);
+            if (!isWhole && isGlob(t)) return false;
+            if (root === null) return isWhole ? false : containsProtected(t, policy, 'tests', ctx, 'snapshots');
+            const dir = isWhole ? root : joinRoot(root, t);
             if (dir === null) return false; // escapes the repository: unknown
             if (dir === '') return rootHasProtected();
             return containsProtected(dir, policy, 'tests', ctx, 'snapshots');
-          });
+          };
+          // `… | xargs rm`: the paths are the ones the earlier segments name, and the
+          // command is the one xargs runs.
+          const xargs = xargsCommand(toks);
+          const source = xargs ? [...fed, ...toks] : toks;
+          fed.push(...toks);
+          const testToks = source.filter((t) => expand(t).some(specPath));
+          const dirToks = source.filter((t) => !t.startsWith('-') && !testToks.includes(t) && expand(t).some(dirPath));
           if (testToks.length === 0 && dirToks.length === 0) continue;
           const named = [...testToks, ...dirToks];
-          const cmd = toks[0] ?? '';
+          // The command is the word in COMMAND position, past the wrappers
+          // (`sudo rm`, `env rm`, `FOO=1 rm`, `/bin/rm`); `grep "rm " spec` and
+          // `node scripts/rm-cache.js spec` carry the word elsewhere.
+          let at = 0;
+          while (at < toks.length && WRAPPERS.test(toks[at])) at++;
+          const cmdToks = toks.slice(at);
+          const cmd = xargs ? xargs.cmd : (cmdToks[0] ?? '').replace(/^.*\//, '');
+          const args = xargs ? xargs.args : cmdToks.slice(1);
+          const inPlace = (a: string) => /^-[A-Za-z]*i|^--in-place/.test(a);
+          const isDir = (p: string): boolean => (listing ? listing.some((f) => f.startsWith(inRepo(p).replace(/\/+$/, '') + '/')) : /\/$/.test(p));
+          // A destination is overwritten only when it is THERE: `mv a.test.js.skip
+          // a.test.js` puts a spec back, `cp junk test/a.test.ts` over a listed spec
+          // replaces it. Without a listing the write is read as an overwrite.
+          const exists = (p: string): boolean => !listing || root === null || listing.includes(inRepo(p.replace(/^\.\//, '')));
+          const ARG_TAKING = /^-(?:t|m|o|g|S|e)$|^--(?:target-directory|mode|owner|group|suffix|rsh|exclude|include|files-from)$/;
+          const positional = args.filter((a, i) => a !== '--' && !a.startsWith('-') && !ARG_TAKING.test(args[i - 1] ?? ''));
 
           let why: string | null = null;
           let evidence = seg;
 
           // a redirect only tampers if its TARGET is the test (`cat x.spec.ts > /tmp/y`
           // reads the test and writes elsewhere — not a tamper)
-          const redirectTarget = seg.match(/>\s*(\S+)/)?.[1];
-          const redirectsOntoTest = redirectTarget ? isSpec(unquote(redirectTarget)) : false;
+          const redirectsOntoTest = [...seg.matchAll(REDIRECT_TARGET)].some((m) => isSpec(shellWord(m[1])));
           const findDeletes = cmd === 'find' && /\s(?:-delete\b|-exec\s+(?:rm|unlink)\b|-execdir\s+(?:rm|unlink)\b)/.test(seg);
+          const gitSub = cmd === 'git' ? gitSubcommand(cmdToks) : null;
           const gitRestoresOld =
-            cmd === 'git' &&
-            /^git\s+(?:checkout|restore)\b/.test(seg) &&
+            (gitSub === 'checkout' || gitSub === 'restore') &&
             (() => {
               const src = seg.match(/--source[= ]\s*(\S+)/)?.[1];
-              const revIdx = toks.findIndex((t, i) => i >= 2 && !t.startsWith('-') && !named.includes(t) && t !== '--');
-              const rev = src ?? (revIdx >= 0 ? toks[revIdx] : undefined);
+              const revIdx = cmdToks.findIndex((t, i) => i >= 2 && !t.startsWith('-') && !named.includes(t) && t !== '--');
+              const rev = src ?? (revIdx >= 0 ? cmdToks[revIdx] : undefined);
               // `git checkout -- x.test.ts` discards the agent's own edits; a REV
               // other than HEAD puts back an older version of the spec — with or
               // without the `--`: `git checkout v1 test/a.test.ts` restores it too.
@@ -599,31 +661,46 @@ export const testDeletion: Detector = {
               // nothing older: it is the `--` form under another name.
               if (!rev || rev === 'HEAD' || rev === '@' || revIsHead(rev, ctx) === true) return false;
               if (src || seg.includes(' -- ')) return true;
-              return revIdx >= 0 && toks.some((t, i) => i > revIdx && named.includes(t));
+              return revIdx >= 0 && cmdToks.some((t, i) => i > revIdx && named.includes(t));
             })();
+          // a copy-like command writes its DESTINATIONS (a directory destination
+          // expanded to the file it receives, `-t dir` unwrapped); a spec copied or
+          // moved onto another spec path is a rename, not an overwrite
+          const dests = cmd === 'cp' || cmd === 'install' || cmd === 'rsync' || cmd === 'ln' || cmd === 'mv' ? destinations(cmd, args, isDir) : [];
+          const overwrites = dests.some((d) => isSpec(d) && exists(d)) && positional.some((p) => !dests.includes(p) && !isSpec(p));
 
-          if (/\brm\b/.test(seg) && !/^(?:git|npm|yarn|pnpm|bun)\b/.test(seg)) {
-            why = 'rm deletes a test file';
-          } else if (cmd === 'git' && /^git\s+rm\b/.test(seg)) {
+          if (xargs) {
+            if (cmd === 'rm' || cmd === 'unlink' || cmd === 'shred') why = `xargs ${cmd} deletes a test file named earlier in the line`;
+            else if (cmd === 'truncate') why = 'xargs truncate empties a test file named earlier in the line';
+            else if (cmd === 'mv') why = 'xargs mv moves a test file named earlier in the line';
+            else if (cmd === 'tee' || cmd === 'sponge') why = `xargs ${cmd} rewrites a test file named earlier in the line`;
+            else if ((cmd === 'sed' || cmd === 'perl') && args.some(inPlace)) why = `xargs ${cmd} -i rewrites a test file named earlier in the line`;
+          } else if (cmd === 'rm' || cmd === 'unlink' || cmd === 'shred') {
+            why = `${cmd} deletes a test file`;
+          } else if (gitSub === 'rm') {
             why = 'git rm deletes a test file';
           } else if (cmd === 'sed' && SED_INPLACE.test(seg)) {
             why = 'sed -i rewrites a test file in place';
           } else if (cmd === 'perl' && /(?:^|\s)-[a-zA-Z]*i\b|\s-i\S*/.test(seg)) {
             why = 'perl -i rewrites a test file in place';
-          } else if (/\btruncate\b/.test(seg)) {
+          } else if (cmd === 'truncate') {
             why = 'truncate empties a test file';
           } else if (redirectsOntoTest) {
             why = 'a redirect overwrites/empties a test file';
-          } else if (cmd === 'cp' && testToks.length > 0 && isSpec(toks[toks.length - 1] ?? '') && !isSpec(toks[toks.length - 2] ?? '')) {
-            why = 'cp overwrites a test file with something else';
-          } else if (cmd === 'tee' && !toks.includes('-a') && !toks.includes('--append')) {
+          } else if (cmd !== 'mv' && overwrites) {
+            why = `${cmd} overwrites a test file with something else`;
+          } else if (cmd === 'tee' && !args.includes('-a') && !args.includes('--append')) {
             why = 'tee overwrites a test file';
+          } else if (cmd === 'sponge' && !args.includes('-a')) {
+            why = 'sponge rewrites a test file in place';
+          } else if (cmd === 'dd' && args.some((a) => a.startsWith('of=') && isSpec(a.slice(3)))) {
+            why = 'dd rewrites a test file';
           } else if (findDeletes) {
             why = 'find -delete removes test files';
           } else if (gitRestoresOld) {
             why = 'git checkout <rev> replaces a test file with an older version';
-          } else if (/\bmv\b/.test(seg)) {
-            const dest = toks[toks.length - 1];
+          } else if (cmd === 'mv') {
+            const dest = positional[positional.length - 1];
             if (dest && testToks.length > 0 && !isSpec(dest)) {
               why = 'mv renames a test file out of the test glob';
               evidence = `${testToks[0]} → ${dest}`;
@@ -634,6 +711,10 @@ export const testDeletion: Detector = {
               // a moved DIRECTORY only tampers when its specs land outside the glob
               why = 'mv renames a test directory so its specs leave the test glob';
               evidence = `${dirToks[0]} → ${dest}`;
+            } else if (overwrites) {
+              // `mv src/junk.ts test/a.test.ts`: the spec is the DESTINATION, and
+              // what lands on it is not a spec — the cp twin, moved
+              why = 'mv overwrites a test file with something else';
             }
           }
 
