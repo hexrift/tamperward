@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [2.21.0] — 2026-09-13
+## [2.22.0] — 2026-09-14
 
 **The hook no longer pays for the TypeScript parser on every call, and an opt-in
 persistent hook service amortises the rest.** (#322)
@@ -39,20 +39,20 @@ directory (`$XDG_RUNTIME_DIR/tamperward-hook` or `<tmpdir>/tamperward-hook-<uid>
 `TAMPERWARD_HOOK_SERVICE=1` is in Claude Code's environment; the hook command `init`
 writes, and the wire contract with Claude Code (JSON on stdout at exit 0), are
 unchanged. The service runs the same `preToolUseFromRaw` / `stopFromRaw` on the same
-stdin bytes, with the client's cwd and its `TAMPERWARD_DENYLOG` / `TAMPERWARD_FSEVENTS`
-/ `TAMPERWARD_TRANSIENT`, and the client relays the `HookResult` unchanged; a parity
+stdin bytes, with the client's cwd and every request-time environment value that affects hook path/telemetry semantics (`TAMPERWARD_DENYLOG`, `TAMPERWARD_FSEVENTS`, `TAMPERWARD_TRANSIENT`, `CLAUDE_CONFIG_DIR`, `HOME`, `USERPROFILE`), and the client relays the `HookResult` unchanged; a parity
 test replays a fixture set through both paths and requires byte-identical verdicts.
 With the service warm: `Bash` payload 116 ms, JS edit 130 ms, protected test edit
 that denies 134 ms (p50; the first call after start, with a cold cache, 170–315 ms).
 
-The client **falls back to the in-process gate, never to an allow**, when the opt-in
-is absent; the socket's directory or the socket is another uid's, not a directory /
-not a socket (a planted symlink is not a socket), or group/world accessible; the
-service is another TamperWard version or protocol; it refuses the request (a cwd
-outside the repository it was bound to at start); it does not answer in time; or its
-answer is not a `HookResult`. `stop` removes the socket and state file even when
-nothing was running. Not available on Windows: `start` refuses with a clear message
-and the hook runs in-process there.
+Before request handoff, the client **falls back to the in-process gate, never to an
+allow**, when the opt-in is absent, the socket is unavailable/untrusted, or the service
+explicitly refuses before evaluation (wrong protocol/version, cwd outside the bound
+repository). After the socket connects and the request is handed off, the service is
+the single owner of that evaluation: an ambiguous timeout, disconnect, oversized or
+malformed final response becomes a fail-closed hook denial rather than a second
+in-process evaluation racing the same session state. `stop` removes the socket and
+state file even when nothing was running. Not available on Windows: `start` refuses
+with a clear message and the hook runs in-process there.
 
 The service's protected-tree snapshot cache lives only in its memory and is keyed on
 `(device, inode, size, mode, mtime, ctime)` at nanosecond precision — never on the
