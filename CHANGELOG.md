@@ -5,6 +5,57 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.24.0] — 2026-09-14
+
+### Added
+
+- **New rule `coverage-exclusion` (warn)** (#438). The per-function form of the
+  `coverage-lowering` class: an inline exclusion added to a non-test source file —
+  `/* istanbul ignore next | if | else | file */`, `/* c8 ignore next | start */`,
+  `/* v8 ignore next[ N] */`, `/* node:coverage ignore next */` / `disable`,
+  `# pragma: no cover` in every spacing and case coverage.py accepts, `#[coverage(off)]`
+  bare or under `cfg_attr`, and a `//go:build` / `// +build` constraint added to an
+  existing Go source file — takes the hard branch out of the measurement with no config
+  touched, and no rule read it. Read per language, outside `protected.tests` and
+  `protected.config` and off generated / vendored / declaration / output / example /
+  docs / script / fixture paths; a marker inside a string literal or quoted behind a
+  line comment is text, a marker line removed and re-added verbatim moved, a range
+  closer (`ignore stop`) excludes nothing, a constraint on a new Go file is a platform
+  split and one edited on a file that already carried it is not an exclusion. Severity
+  is decided by corpus (`harness/fp-study/COVERAGE-EXCLUSION-CORPUS.md`):
+  `coverage-exclusion-fires.mjs` replayed the rule over the `ts-cast-growth` study's
+  460 adjacent first-parent pairs of immer, zustand, zod and hono and it fired on
+  **none**; the 6,632 first-parent commits of the deepened clones hold four commits
+  that add a spelling, every one an immer maintainer marking an environment-dependent
+  branch with `/* istanbul ignore next */` — honest work the rule fires on by design,
+  so precision as a tamper signal on real fires is 0/4 and block is not authorized. A
+  labeled corpus (`coverage-exclusion-corpus.json`, 22 negatives reproducing the shapes
+  maintainers write beside the spellings, 14 positives) is replayed in CI by
+  `test/coverage-exclusion-corpus.test.ts`. SPEC row 19; `warn` never requires
+  sign-off under the default policy, and operators may raise it to `block` in their own.
+
+### Fixed
+
+- **`coverage-lowering` reads the rest of the denominator-narrowing surface** (#438).
+  Jest `collectCoverage: true → false` (top level, or under package.json `jest`), vitest
+  `coverage.all: true → false`, nyc `--check-coverage` dropped from a script,
+  `--cov-fail-under` lowered or dropped wherever the line lives — a package.json script,
+  `pytest.ini` / `pyproject.toml` `addopts`, a `tox.ini` command, a workflow step (the
+  one line-level reading the rule now applies to `protected.ci`) — and `setup.cfg` /
+  `tox.ini` `[coverage:report] fail_under` lowered, removed or moved (the same
+  coverage.py key as `.coveragerc` and `pyproject.toml`, so a gate moved between the
+  four is a move, not a deletion) were each zero findings. A raised floor, a floor
+  reformatted at the same number, a flag moved to another script in the same edit, and
+  an unrelated `setup.cfg` / `tox.ini` edit stay clean.
+- The benign file-suffix exemptions are read in the spelling of their list. Jest's
+  `coveragePathIgnorePatterns` are regexes, where `'.md'` is "any character, m, d" and
+  exempts `src/cmd.ts` and `src/readme-loader.ts`, yet the raw pattern passed the
+  `\.md$` benign test; now only the anchored `\\.md$` / `\\.d\\.ts$` (and the other
+  suffix literals written the same way) is benign in a regex list, while a glob
+  `**/*.md` in vitest `coverage.exclude`, `.coveragerc` `omit` or `collectCoverageFrom`
+  stays benign as before. The directory exemptions (`/dist/`, `<rootDir>/test/`) read the
+  same in either spelling. The evidence now names the list the exemption was added to.
+
 ## [2.23.11] — 2026-09-14
 
 ### Fixed
