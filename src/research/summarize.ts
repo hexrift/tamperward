@@ -97,6 +97,7 @@ function weakened(t: PairRecord['arms'][ResearchArm]): boolean {
 }
 
 export function summarizeRecords(all: PairRecord[]): ResearchSummary {
+  if (all.length === 0) throw new ResearchError('cannot summarize zero pair records');
   const first = all[0];
   const seenPairs = new Set<string>();
   const sourceBaseByTask = new Map<string, string>();
