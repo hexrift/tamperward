@@ -82,25 +82,27 @@ export function evaluate(
       out.push(...d.run(active, policy, view, ctx));
     } catch (e) {
       process.stderr.write(`tamperward: detector "${d.id}" errored: ${String(e)}\n`);
-      // Isolation is right at the tool-call/turn hooks, where a thrown error
-      // exits non-(0|2) and Claude treats it as a non-blocking hook failure —
-      // there, dropping one rule beats losing the whole gate. At the layers
-      // that ADJUDICATE (staged, worktree, range), silently dropping a rule
-      // means repository content that makes a detector throw removes it from
-      // the verdict, and the gate reports "clean". Those layers fail CLOSED.
-      // (P1-7, external review.)
-      if (view === 'staged' || view === 'worktree' || view === 'range') {
-        const failed: Finding = {
-          rule: 'detector-error',
-          severity: 'block',
-          message: `Detector "${d.id}" failed to run; the verdict is incomplete.`,
-          evidence: String(e).slice(0, 200),
-          remediation:
-            'A rule that cannot run is not a rule that passed. Fix the input or the detector; do not read this as clean.',
-          signoff: { required: true, command: `tamperward allow detector-error --reason "..."` },
-        };
-        out.push(failed);
-      }
+      // Every view fails CLOSED. Silently dropping a rule means repository
+      // content that makes a detector throw removes it from the verdict, and
+      // the gate reports "clean" (P1-7, external review). Until #444 only the
+      // adjudicating views (staged, worktree, range) carried this block, on the
+      // reasoning that at the tool-call and turn hooks a thrown error would
+      // have exited non-(0|2) — but the throw is caught here, and a block
+      // finding is exactly what the hook's deny channel carries. So a spec that
+      // made `test-skip` overflow the parser was denied at pre-commit and
+      // ALLOWED at PreToolUse and Stop — the two layers the agent actually
+      // meets. The block is unconditional now: a caller that names no view is
+      // an adjudicating caller too.
+      const failed: Finding = {
+        rule: 'detector-error',
+        severity: 'block',
+        message: `Detector "${d.id}" failed to run; the verdict is incomplete.`,
+        evidence: String(e).slice(0, 200),
+        remediation:
+          'A rule that cannot run is not a rule that passed. Fix the input or the detector; do not read this as clean.',
+        signoff: { required: true, command: `tamperward allow detector-error --reason "..."` },
+      };
+      out.push(failed);
     }
   }
   // de-duplicate identical findings (e.g. a command both rm-ing and matching a path)

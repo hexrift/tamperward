@@ -19,7 +19,7 @@
 // by array position. This deliberately biases toward misses.
 
 import type TS from 'typescript';
-import { ts } from '../ts-lazy';
+import { parseSource, ts } from '../ts-lazy';
 import type { Change, Detector, Finding, Policy } from '../types';
 import { isProtected } from '../policy';
 import { makeFinding } from './finding';
@@ -166,7 +166,8 @@ function blocks(src: string, path: string): Map<string, TestBlock[]> {
   if (langOf(path) !== 'js') return out;
 
   try {
-    const sf = ts.createSourceFile(path, src, ts.ScriptTarget.Latest, true, scriptKindForPath(path));
+    const sf = parseSource(path, src, scriptKindForPath(path));
+    if (!sf) return out; // declined parse (#444): no block is read
 
     const visit = (node: TS.Node, suites: string[]): void => {
       if (ts.isCallExpression(node)) {
