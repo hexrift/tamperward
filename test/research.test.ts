@@ -13,6 +13,7 @@ import { join, resolve } from 'node:path';
 import { validateCliArgs } from '../src/cli/main';
 import { runResearchCommand } from '../src/cli/research';
 import { trustedLinuxPython } from '../src/cli/run';
+import { TW_VERSION } from '../src/wiring';
 import {
   ADAPTER_LAYERS,
   BUILTIN_ADAPTERS,
@@ -472,6 +473,9 @@ describe.skipIf(process.platform !== 'linux' || !trustedLinuxPython().path)('res
         pair: 1,
         adapter: { name: 'command', layers: ['envelope'] },
         model: null,
+        tamperward_version: TW_VERSION,
+        agent_argv: [agent.script, '{prompt}'],
+        agent_budget: 30,
         verify_command: SUITE,
       });
       expect(rec.manifest_sha256).toMatch(/^[0-9a-f]{64}$/);
@@ -528,10 +532,26 @@ describe.skipIf(process.platform !== 'linux' || !trustedLinuxPython().path)('res
 
     // Resumable: a second run over the same ledger executes nothing.
     const again = capture(() => runResearchCommand([
-      'run', '--manifest', manifest, '--out', ledger, '--adapter', 'command', '--', agent.script, '{prompt}',
+      'run', '--manifest', manifest, '--out', ledger, '--adapter', 'command', '--agent-budget', '30', '--', agent.script, '{prompt}',
     ]));
     expect(again.code).toBe(0);
     expect(again.out).toMatch(/honest.*pair 1.*already recorded/);
+    expect(readFileSync(agent.log, 'utf8').trim().split('\n')).toHaveLength(4);
+
+    // Resume identity includes the actual adapter command and agent wall-clock
+    // budget. Changing either must fail closed instead of silently reusing stale pairs.
+    const changedCommand = capture(() => runResearchCommand([
+      'run', '--manifest', manifest, '--out', ledger, '--adapter', 'command', '--agent-budget', '30',
+      '--', agent.script, '{task}',
+    ]));
+    expect(changedCommand.code).toBe(2);
+    expect(changedCommand.err).toMatch(/agent_argv/);
+    const changedBudget = capture(() => runResearchCommand([
+      'run', '--manifest', manifest, '--out', ledger, '--adapter', 'command', '--agent-budget', '31',
+      '--', agent.script, '{prompt}',
+    ]));
+    expect(changedBudget.code).toBe(2);
+    expect(changedBudget.err).toMatch(/agent_budget/);
     expect(readFileSync(agent.log, 'utf8').trim().split('\n')).toHaveLength(4);
 
     // Summarize: separated readouts, paired counts, no composite score.
@@ -549,6 +569,9 @@ describe.skipIf(process.platform !== 'linux' || !trustedLinuxPython().path)('res
       tasks: ['honest', 'tamper'],
       adapter: { name: 'command', layers: ['envelope'] },
       model: null,
+      tamperward_version: TW_VERSION,
+      agent_argv: [agent.script, '{prompt}'],
+      agent_budget: 30,
       model_behaviour: {
         ungated: { trajectories: 2, surviving_protected_mutations: 1, masked_failure: 1 },
         gated: { trajectories: 2, surviving_protected_mutations: 1, masked_failure: 1 },
@@ -563,6 +586,13 @@ describe.skipIf(process.platform !== 'linux' || !trustedLinuxPython().path)('res
     });
     expect(summary.manifest_sha256).toBe(records[0].manifest_sha256);
     expect(Object.keys(summary)).not.toContain('score');
+
+    // Product version is part of the experiment identity too: an edited/mixed
+    // ledger must never aggregate trajectories produced by different releases.
+    const mixedVersion = { ...records[0], task: 'version-mix', tamperward_version: '0.0.0' };
+    writeFileSync(join(ledger, 'pairs', 'version-mix--1.json'), JSON.stringify(mixedVersion));
+    expect(() => summarizeLedger(ledger)).toThrow(/tamperward_version differs/);
+    rmSync(join(ledger, 'pairs', 'version-mix--1.json'));
 
     // A ledger mixing two manifests is not one experiment.
     const foreign = { ...records[0], task: 'other', manifest_sha256: 'f'.repeat(64) };
