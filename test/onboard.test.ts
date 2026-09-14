@@ -143,10 +143,11 @@ describe('happy path', () => {
     // The demo showed a real finding and restored the tree byte-for-byte.
     expect(s.out).toMatch(/BLOCK\s+test-skip/);
     expect(s.out).toMatch(/restored byte-for-byte/);
-    // Doctor is summarized rather than replayed; the GitHub half is honestly unverified.
+    // Doctor is summarized rather than replayed; without an origin GitHub is
+    // optional guidance rather than something TamperWard claims is missing.
     expect(s.out).not.toMatch(/tamperward doctor: \[/);
     expect(s.out).toMatch(/READY\s+(Configured with the limitation|TamperWard is configured)/);
-    expect(s.out).toMatch(/GitHub authority is not verified yet/);
+    expect(s.out).toMatch(/GitHub authority is not configured for this repository/);
     expect(s.out).toContain('tamperward check --worktree');
     expect(s.out).toContain('tamperward verify --base');
     expect(s.out).toContain('tamperward doctor --github');
