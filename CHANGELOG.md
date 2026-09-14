@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [2.23.21] — 2026-09-14
+## [2.24.2] — 2026-09-14
 
 ### Fixed
 
@@ -23,6 +23,161 @@ All notable changes to this project are documented here. The format follows
   a custom marker, a `Skip(` inside a string and the hook name in a comment stay clean.
   Replay of the test-skip suites (`test-skip-ast`, `fp-study-harness`,
   `detector-spellings`, `coverage-gaps`): 0 new findings.
+
+## [2.24.0] — 2026-09-14
+
+### Added
+
+- **New rule `coverage-exclusion` (warn)** (#438). The per-function form of the
+  `coverage-lowering` class: an inline exclusion added to a non-test source file —
+  `/* istanbul ignore next | if | else | file */`, `/* c8 ignore next | start */`,
+  `/* v8 ignore next[ N] */`, `/* node:coverage ignore next */` / `disable`,
+  `# pragma: no cover` in every spacing and case coverage.py accepts, `#[coverage(off)]`
+  bare or under `cfg_attr`, and a `//go:build` / `// +build` constraint added to an
+  existing Go source file — takes the hard branch out of the measurement with no config
+  touched, and no rule read it. Read per language, outside `protected.tests` and
+  `protected.config` and off generated / vendored / declaration / output / example /
+  docs / script / fixture paths; a marker inside a string literal or quoted behind a
+  line comment is text, a marker line removed and re-added verbatim moved, a range
+  closer (`ignore stop`) excludes nothing, a constraint on a new Go file is a platform
+  split and one edited on a file that already carried it is not an exclusion. Severity
+  is decided by corpus (`harness/fp-study/COVERAGE-EXCLUSION-CORPUS.md`):
+  `coverage-exclusion-fires.mjs` replayed the rule over the `ts-cast-growth` study's
+  460 adjacent first-parent pairs of immer, zustand, zod and hono and it fired on
+  **none**; the 6,632 first-parent commits of the deepened clones hold four commits
+  that add a spelling, every one an immer maintainer marking an environment-dependent
+  branch with `/* istanbul ignore next */` — honest work the rule fires on by design,
+  so precision as a tamper signal on real fires is 0/4 and block is not authorized. A
+  labeled corpus (`coverage-exclusion-corpus.json`, 22 negatives reproducing the shapes
+  maintainers write beside the spellings, 14 positives) is replayed in CI by
+  `test/coverage-exclusion-corpus.test.ts`. SPEC row 19; `warn` never requires
+  sign-off under the default policy, and operators may raise it to `block` in their own.
+
+### Fixed
+
+- **`coverage-lowering` reads the rest of the denominator-narrowing surface** (#438).
+  Jest `collectCoverage: true → false` (top level, or under package.json `jest`), vitest
+  `coverage.all: true → false`, nyc `--check-coverage` dropped from a script,
+  `--cov-fail-under` lowered or dropped wherever the line lives — a package.json script,
+  `pytest.ini` / `pyproject.toml` `addopts`, a `tox.ini` command, a workflow step (the
+  one line-level reading the rule now applies to `protected.ci`) — and `setup.cfg` /
+  `tox.ini` `[coverage:report] fail_under` lowered, removed or moved (the same
+  coverage.py key as `.coveragerc` and `pyproject.toml`, so a gate moved between the
+  four is a move, not a deletion) were each zero findings. A raised floor, a floor
+  reformatted at the same number, a flag moved to another script in the same edit, and
+  an unrelated `setup.cfg` / `tox.ini` edit stay clean.
+- The benign file-suffix exemptions are read in the spelling of their list. Jest's
+  `coveragePathIgnorePatterns` are regexes, where `'.md'` is "any character, m, d" and
+  exempts `src/cmd.ts` and `src/readme-loader.ts`, yet the raw pattern passed the
+  `\.md$` benign test; now only the anchored `\\.md$` / `\\.d\\.ts$` (and the other
+  suffix literals written the same way) is benign in a regex list, while a glob
+  `**/*.md` in vitest `coverage.exclude`, `.coveragerc` `omit` or `collectCoverageFrom`
+  stays benign as before. The directory exemptions (`/dist/`, `<rootDir>/test/`) read the
+  same in either spelling. The evidence now names the list the exemption was added to.
+## [2.23.20] — 2026-09-14
+
+### Fixed
+
+- **The perf smoke measures the parser again, on CPU, alone on its runner** (#421).
+  After the parser went lazy (#407) the smoke's yardstick `cli.noop` (an empty-stdin
+  hook) no longer loaded the 9 MB TypeScript parser, but `check.diff.small` did, so
+  its ratio measured "parser load versus process start" — `check.diff.small` sat at
+  4.5× a 6× wall budget on an idle box — and inside the parallel `npm test` matrix
+  the remaining headroom went to sibling test files, not regressions. The smoke now
+  lives at `harness/perf/smoke.test.ts`, judges **p50 CPU** ratios to a new
+  `cli.parse` item (a PreToolUse `Edit` of one `.ts` source with no session: process
+  start + module load + parser load + one file evaluated) with budgets of 1.25× for
+  `hook.warm.100` and `snapshot.100` and 3× for `check.diff.small` (measured 0.44×,
+  0.48×, 1.46×), and runs alone from `npm run test:perf-smoke` (`vitest run --config
+  vitest.perf-smoke.config.ts --no-file-parallelism`) in a new `perf-smoke` CI job on
+  Node 20 / 22 / 24 that `gate` requires; `npm test` no longer runs it. The smoke pins
+  itself with injected regressions: the real run's report with `check.diff.small`
+  scaled 3× must fail the judge that passed the real run, and the committed baseline
+  with `hook.warm.100` doubled must fail `compare.mjs`.
+- **`harness/perf/BASELINE.json` says what it is, and the `perf` workflow says how
+  to replace it** (#421). The committed baseline had been captured in a busy
+  sandbox before the parser went lazy (`cli.noop` p50 1.7 s where an idle box
+  measures 0.12 s), so every hook, snapshot and check item would have had to regress
+  roughly 30× before the nightly compare went red — and `compare.mjs`'s budget is
+  exclusive, so its 2× default never failed an exact 2× either. Its numbers are kept
+  byte-for-byte (another loaded sandbox is a different wrong machine, not the right
+  one); it now carries a `note` (*captured in a loaded sandbox; reference baseline
+  pending the first green perf workflow artifact*), `machine.ci: false`, and
+  `budgets` pinning the hook items (`hook.warm.100`, `hook.cold.1k`, `hook.warm.1k`,
+  `hook.ignored`) at 1.5×, and the smoke holds it to that state: a reference
+  baseline (`machine.ci` set) must carry `cli.parse` clearly above `cli.noop`, a
+  stand-in must confess. `perf.yml` uploads its report as `perf-baseline-candidate`
+  and prints the promotion recipe in the job summary; the new
+  `harness/perf/promote-baseline.mjs <perf.json>` copies a green run's report into
+  place — budgets carried over, `machine.ci` stamped, `note` dropped, a report that
+  lost a baselined item refused — and prints the old-versus-new p50 table the
+  replacing PR must carry (docs/PERF.md, "The baseline").
+
+## [2.23.19] — 2026-09-14
+
+### Fixed
+
+- **`no-verify` reads the bypass where it actually lives** (#433). `HUSKY="0" git commit`
+  and `export HUSKY="0"` were silent: the tokeniser stripped only a token's outer quotes,
+  leaving `HUSKY="0` for `^HUSKY=0$` to miss. Tokens are now unquoted the way the shell
+  reads them (`HUSKY="0"`, `HUSKY='0'`, `--no-verify""`, `"it's"` all resolve to their
+  content), and the same spellings one shell deeper (`sh -c '…'`, `eval …`) are read
+  as the command they run. A git alias that carries the flag — `git config alias.ci
+  "commit --no-verify"` (then `git ci`), `git -c alias.ci='commit -n' ci`,
+  `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` and `GIT_CONFIG_PARAMETERS` injection, a
+  `!`-shell body — is judged as the invocation it expands to, the way `core.hooksPath`
+  already was; `alias.lg "log -n 20"` and `alias.ci "commit -v"` stay clean.
+  `pre-commit uninstall`, `lefthook uninstall`, `husky uninstall` (under `npx`, `pnpm
+  exec`, `python -m`) and `rm` / `unlink` / `mv` / `chmod -x` of the pre-commit
+  framework's install target (`.git/hooks/<hook>`, `$(git rev-parse --git-dir)/hooks/…`,
+  the whole `.git/hooks` directory) block: `.git/hooks/**` is outside every git view,
+  so `protected.hooks` never covered it. Reading the hook, installing one, `chmod +x`
+  and deleting git's `*.sample` files stay clean. The literal `--no-verify` is now read
+  on `git am`, `git rebase` and `git cherry-pick` too.
+- **`git commit -mfinal` no longer reads as `git commit -n`** (#433). The `-n`
+  cluster test ran after the option-value stripper recognised only a detached `-m`, so
+  the letters of a glued message (`-mfinal`, `-mdone`, `-mn`) were tested as flags. A
+  value-carrying short option (`-m`, `-F`, `-C`, `-c`) now ends the cluster: the letters
+  before it are the flags (`-anm x` is still `-n`), the rest of the token — or the next
+  token when nothing follows — is the value.
+
+### Added
+
+- **`no-verify` warns on the commit paths that never run pre-commit** (#433). `git
+  commit-tree`, `git update-ref <branch> <sha>`, `git am`, `git cherry-pick` and `git
+  rebase` write commits the hook never sees. They ship at warn whatever the rule's
+  severity (a rebase onto main or a cherry-picked fix lands commits the hook already
+  checked, and the 1,511-command harness corpus holds none of them either way, so block
+  would refuse routine history work on no evidence); `--continue` / `--abort` / `--skip`
+  / `--quit` on an operation in progress and `cherry-pick --no-commit` are clean. The
+  rationale is in `docs/guide/rules.md`.
+
+## [2.23.18] — 2026-09-14
+
+### Fixed
+
+- **The CLI no longer exits before its stdout has drained** (#415). Every exit after
+  output a consumer parses — `check --json`, `check --format github`, the Claude
+  `hook` deny and `sweep` block JSON, `verify` / `run` / `doctor` / `research` machine
+  documents, `hook-service status` — went through `process.exit(code)` straight after
+  `process.stdout.write(...)`. That is only safe when the write completed synchronously:
+  Node makes pipe writes asynchronous on macOS and Windows, and even a Linux pipe backs
+  up in the stream once the kernel buffer is full and the reader is slow, so a document
+  larger than the pipe buffer was cut off at exit. For the hook that was a fail-open —
+  a truncated deny is a malformed hook response, which Claude Code ignores, so the deny
+  became an allow. The CLI now exits through one `exitAfterFlush(code)`
+  (`src/cli/exit.ts`): it sets `process.exitCode` and calls `process.exit` from the
+  stdout/stderr write callbacks, which the streams invoke only once everything queued
+  before them has reached the OS. Exit codes and output are unchanged; on a synchronous
+  stream the callbacks fire on the next tick. `watch` and `hook-service start` still
+  never exit on their own (the event loop is the daemon lifetime). Regression:
+  `test/stdout-drain.test.ts` spawns the built CLI with stdout as a pipe the test does
+  not read for a while and with `test/fixtures/async-stdout.cjs` preloaded, which
+  makes every stdout write complete on a timer the way a macOS/Windows pipe does, and
+  asserts that a 2.4 MB `check --json`, a 1200-annotation `--format github` verdict,
+  a 300 KB hook deny and a Stop block each arrive complete and parse. README's platform
+  table now states the contract: parsed output is complete before exit on every
+  platform.
 
 ## [2.23.17] — 2026-09-14
 
