@@ -5,6 +5,22 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.3] — 2026-09-14
+
+### Fixed
+
+- **Fresh Node repositories no longer trip the staged gate on installed dependencies.**
+  When `node_modules/` exists and is not already repository-ignored,
+  `tamperward init` / `tamperward onboard` add it to `.gitignore` as a normal
+  setup change before the first commit. This prevents third-party dependency source
+  from producing a cascade of lint/type-suppression findings after `git add .`.
+- The fix does **not** add a TamperWard detector blind spot. If `node_modules` is
+  already tracked/staged, or `.gitignore` explicitly negates a `node_modules`
+  path, init leaves repository intent untouched and reports the item for operator
+  attention. Tracked dependencies continue to be scanned.
+- Existing `.gitignore` content is preserved; symlink and non-regular
+  `.gitignore` paths are refused rather than followed or overwritten.
+
 ## [2.23.2] — 2026-09-14
 
 ### Changed
