@@ -473,8 +473,7 @@ function planPolicy(cwd: string): Action {
 function planGitignore(cwd: string): Action | null {
   const rel = '.gitignore';
   const path = join(cwd, rel);
-  const nodeProject = existsSync(join(cwd, 'package.json')) || existsSync(join(cwd, 'node_modules'));
-  if (!nodeProject) return null;
+  if (!existsSync(join(cwd, 'node_modules'))) return null;
 
   let existing = '';
   if (existsSync(path)) {
