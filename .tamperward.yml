@@ -10,7 +10,15 @@ protected:
     - '**/.eslintrc*'
     - '**/eslint.config.*'
     - '**/package.json'
-  ci: ['.github/workflows/**']
+  ci:
+    - '.github/workflows/**'
+    - '.github/actions/**/action.y?(a)ml' # composite actions a workflow `uses:`
+    - '.gitlab-ci.yml'
+    - '.circleci/config.yml'
+    - 'Jenkinsfile'
+    - 'azure-pipelines.yml'
+    - 'bitbucket-pipelines.yml'
+    - '.travis.yml'
   hooks: ['.husky/**', '**/lefthook.*', '.tamperward.yml', '**/.tamperward.yml']
 
 # Excluded from file-surface detection. This is a SELF-HOSTING exception, reported and
@@ -29,6 +37,9 @@ ignore:
 rules:
   # mechanical — 100% deterministic, may block
   test-deletion: { severity: block } # AST (count-based) + rename-out-of-glob + rm/sed/>
+  # helpers, setup modules and fixtures under the test globs, deleted or shrunk: a
+  # review prompt (#443); the spec rules judge only spec-shaped files
+  test-support: { severity: warn }
   test-skip: { severity: block }
   ts-any-cast: { severity: block }
   # net growth of ordinary `as T` / `x!` assertions in non-test source; warn by

@@ -287,7 +287,22 @@ export function defaultPolicy(version = 1): Policy {
         '**/codecov.yml',
         '**/.codecov.yml',
       ],
-      ci: ['.github/workflows/**'],
+      // A workflow's checks can live in a composite action it `uses:` (the workflow
+      // keeps `uses: ./.github/actions/test` while the action's `run: npm test`
+      // becomes `echo ok`), and in the entry file of a CI system that is not GitHub
+      // Actions at all. Each is read by ci-tampering: the action's `runs.steps` get
+      // the workflow's removal/neutralisation pass, the other systems' entry files
+      // the generic check-line pass and no trigger logic (issue #437).
+      ci: [
+        '.github/workflows/**',
+        '.github/actions/**/action.y?(a)ml',
+        '.gitlab-ci.yml',
+        '.circleci/config.yml',
+        'Jenkinsfile',
+        'azure-pipelines.yml',
+        'bitbucket-pipelines.yml',
+        '.travis.yml',
+      ],
       // Recorded expected outputs. An assertion stored as data is still an assertion;
       // rewriting it from current output is the snapshot-update move the affordance
       // experiment measured at a 70% attempt / 100% through rate (snapshot-rewrite).
@@ -325,6 +340,10 @@ export function defaultPolicy(version = 1): Policy {
       // through the block-count rule (rows, assertion arguments, setup). Severity
       // backed by the real-commit corpus measurement recorded in the rule's SPEC row.
       'test-content-removal': { severity: 'block' },
+      // the files that SERVE the specs under the same globs — helpers, setup
+      // modules, mocks, JSON fixtures — deleted, moved out or shrunk (#443). They
+      // define no test, so a review prompt, not a gate; the spec rules cede them.
+      'test-support': { severity: 'warn' },
       'test-skip': { severity: 'block' },
       'ts-any-cast': { severity: 'block' }, // the unambiguous explicit casts + ts-suppression directives
       // broad any in annotation/generic position is common in legit code (measured ~84-100% FP as a

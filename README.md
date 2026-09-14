@@ -626,9 +626,9 @@ option can never be reinterpreted as the agent command.
 
 ### The rules
 
-Twenty rules are specified and nineteen ship (see the table in
+Twenty-one rules are specified and twenty ship (see the table in
 [SPEC.md](./SPEC.md)). The families: test protection (`test-deletion`,
-`test-skip`, `test-content-removal`, plus the warning-only JS/TS
+`test-skip`, `test-content-removal`, `test-support`, plus the warning-only JS/TS
 `assertion-weakening` heuristic), verification-signal protection
 (`coverage-lowering`, `coverage-exclusion`, `snapshot-rewrite`, `snapshot-only-rewrite`), suppression
 (`ts-any-cast`, `ts-any-launder`, `ts-cast-growth`, `lint-suppression`, `config-weakening`), pipeline protection
@@ -660,7 +660,7 @@ constraint added to an existing Go file. It fired on 0 of the same 460 mainline
 pairs, but every real add in the deeper histories is an honest unreachable-branch
 marker (`harness/fp-study/COVERAGE-EXCLUSION-CORPUS.md`), so it warns and never
 blocks by default.
-`config-weakening` (2.25.0, #447) closes the gap where `tsconfig*.json`,
+`config-weakening` (2.26.0, #447) closes the gap where `tsconfig*.json`,
 `.eslintrc*` / `eslint.config.*` / `.eslintignore` and `biome.json[c]` were
 protected by name but nothing read what changed inside them: a tsconfig
 strictness flag lowered or a loosening flag (`skipLibCheck`, …) added, `exclude`
