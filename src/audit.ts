@@ -67,9 +67,10 @@ function sessionHash(sessionId?: string): string | undefined {
   return createHash('sha256').update(sessionId).digest('hex').slice(0, 20);
 }
 
-/** Put observational telemetry under the repository's real git directory so it
- * never becomes a candidate-controlled tracked file, including linked worktrees. */
-export function defaultAuditLog(cwd: string): string {
+/** Resolve the audit file through Git itself. Null means this cwd is not backed
+ * by a Git repository (or Git could not safely answer), so the hook must not
+ * manufacture a .git directory merely to record non-authoritative telemetry. */
+function repositoryAuditLog(cwd: string): string | null {
   try {
     const p = execFileSync('git', ['rev-parse', '--git-path', 'tamperward/audit-v1.jsonl'], {
       cwd,
@@ -77,18 +78,23 @@ export function defaultAuditLog(cwd: string): string {
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 2_000,
     }).trim();
-    if (p) return resolve(cwd, p);
+    return p ? resolve(cwd, p) : null;
   } catch {
-    // Stats can still name a deterministic fallback outside a repository; hook
-    // recording simply remains best-effort and non-authoritative.
+    return null;
   }
-  return resolve(cwd, '.git', 'tamperward', 'audit-v1.jsonl');
+}
+
+/** The conventional local path used by stats when no repository-backed path can
+ * be resolved. Reading this fallback is harmless; hook recording uses the stricter
+ * configuredAuditLog() path below and never creates it outside a real repository. */
+export function defaultAuditLog(cwd: string): string {
+  return repositoryAuditLog(cwd) ?? resolve(cwd, '.git', 'tamperward', 'audit-v1.jsonl');
 }
 
 export function configuredAuditLog(cwd: string, env: NodeJS.ProcessEnv = process.env): string | null {
   const configured = env.TAMPERWARD_AUDITLOG;
   if (configured === '0' || configured?.toLowerCase() === 'off') return null;
-  return configured ? resolve(cwd, configured) : defaultAuditLog(cwd);
+  return configured ? resolve(cwd, configured) : repositoryAuditLog(cwd);
 }
 
 export function makeAuditEvents(
