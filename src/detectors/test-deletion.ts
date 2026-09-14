@@ -315,7 +315,7 @@ function scriptWeakenings(before: string | null, after: string, path: string, po
     if (prev === undefined && !whole) continue;
     if (cmd === undefined) {
       if (name !== 'pretest' || prev === undefined) continue;
-      const gone = [...checkKinds(prev)];
+      const gone = [...checkKinds(prev)].filter((k) => !relocated(k));
       if (gone.length === 0) continue;
       out.push({ script: name, weakening: { state: 'removed', kind: gone[0], what: 'the script is gone' }, before: prev, after: '' });
       continue;

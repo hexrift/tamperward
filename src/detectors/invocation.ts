@@ -167,6 +167,13 @@ export interface WeakeningOpts {
   /** A check kind dropped from this invocation that reappears elsewhere in the same
    *  change (a `lint` script added beside it) is a move, not a removal. */
   relocated?: (kind: Kind) => boolean;
+  /** Internal: `before` ran no check, so `after` is a fresh invocation — a
+   *  `--config` or a positional it carries narrows nothing that was there. */
+  fresh?: boolean;
+  /** Internal: the kinds whose `before` invocation survives verbatim in `after`, so
+   *  a further invocation of that kind beside it (`&& vitest -c other.ts --run`)
+   *  is an addition and its flags narrow nothing. */
+  extended?: Set<Kind>;
 }
 
 /** The runners whose narrowing flags are read. */
@@ -201,26 +208,44 @@ const CONFIG_FLAG = /(?:^|\s)(--config|-c)(?:=|\s+)(['"]?)([^\s'"]+)\2(?=\s|$)/;
 
 /** The wrappers a package script puts in front of the runner: an env prefix
  *  (`cross-env NODE_ENV=test`, `NODE_OPTIONS=… jest`, `dotenv -e .env --`), a
- *  coverage wrapper (`nyc --check-coverage --lines 90 mocha`, `c8`), `python -m
+ *  coverage wrapper (`nyc --check-coverage --lines 90 mocha`, `c8`), a version or
+ *  environment manager (`nub exec --node vitest run`, `volta run`), `python -m
  *  pytest`, or the runner's own bin file run through node. Peeled so the check
- *  underneath is read, not the wrapper. */
-const WRAPPER = /^(?:(?:npx\s+)?(?:cross-env|env|dotenv(?:-cli)?|nyc|c8)|[A-Za-z_]\w*=)/;
+ *  underneath is read, not the wrapper. A command that PRINTS its arguments is not
+ *  a wrapper: `echo vitest run` runs nothing, and neither does `true vitest run`. */
+const PRINTER = /^(?:echo|printf|true|false|:|cat|exit|return|sleep|test|\[|node|git|curl|wget)(?=\s|$)/;
 const PYTHON_M = /^python\d?(?:\.\d+)?\s+-m\s+(?=pytest\b)/;
 const NODE_BIN = /^node(?:\s+-\S+)*\s+\S*node_modules\/(?:\.bin\/)?(jest|vitest|mocha|ava)\b\S*/;
+/** `$(yarn bin jest)` / `$(npm bin)/jest`: the runner's binary by path, which is the
+ *  runner (zustand's `yarn node --experimental-vm-modules $(yarn bin jest)`). */
+const BIN_OF = /\$\((?:yarn|npm|pnpm)\s+bin\s+(\w+)\)|\$\((?:yarn|npm|pnpm)\s+bin\)\/(\w+)/g;
 
 /** A script segment with its wrappers peeled: the invocation itself. The wrapper's
- *  own flags are dropped token by token until a check is in front (`--lines 90`
- *  is nyc's, `--check-coverage` is read from the segment BEFORE peeling); a
- *  segment that never reaches one is returned as it was. */
+ *  own tokens are dropped one by one until a check is in front (`--lines 90` is
+ *  nyc's, `--check-coverage` is read from the segment BEFORE peeling); a segment
+ *  that never reaches one, or that starts with a printer, is returned as it was. */
 function unwrap(seg: string): string {
-  const s = seg.trim().replace(PYTHON_M, '').replace(NODE_BIN, '$1');
-  if (invokesCheck(s) || !WRAPPER.test(s)) return s;
+  const s = seg.trim().replace(PYTHON_M, '').replace(NODE_BIN, '$1').replace(BIN_OF, '$1$2');
+  if (invokesCheck(s) || PRINTER.test(s) || /^["']/.test(s)) return s;
   const toks = s.split(/\s+/);
   for (let i = 1; i < toks.length && i <= 16; i++) {
     const rest = toks.slice(i).join(' ');
     if (invokesCheck(rest)) return rest;
   }
   return s;
+}
+
+/** What a script segment checks. A tool names its kind (`eslint`, `tsc`, `jest`);
+ *  a script run THROUGH the package runner is named by its script, and only the
+ *  name's head is the kind — `yarn test:tsc` runs a test script that happens to
+ *  mention tsc, not the typecheck (zod's `test:tsc` → `test:ts-jest` rename read
+ *  as "the types check is gone" until this). */
+function scriptKind(inner: string): Kind | null {
+  const kind = checkKind(inner);
+  if (!kind) return null;
+  const head = canonical(inner).match(/^(tests?|lint|type-?check|coverage)(?=[\s:]|$)/i)?.[1];
+  if (!head) return kind;
+  return /^type/i.test(head) ? 'types' : /^lint/i.test(head) ? 'lint' : 'test';
 }
 
 const RUNNER_NAME = /^(jest|vitest|mocha|pytest|go|cargo|node)\b/;
@@ -284,7 +309,7 @@ function descriptors(cmd: string, runner: RunnerName | undefined, opts: Weakenin
     const wrapped = seg.match(TIMEOUT_WRAP);
     const inner = unwrap(wrapped ? wrapped[1] : seg);
     if (!invokesCheck(inner)) continue;
-    const kind = checkKind(inner);
+    const kind = scriptKind(inner);
     const canon = canonical(inner);
     const rn = runner ?? runnerOfSegment(canon);
     const args = canon.includes(' ') ? ' ' + canon.slice(canon.indexOf(' ') + 1) : ' ';
@@ -304,13 +329,14 @@ function descriptors(cmd: string, runner: RunnerName | undefined, opts: Weakenin
       const f = spelled(re, ' ' + seg);
       if (f) out.push({ key: `gate:${f}`, what: f, direction: 'removed' });
     }
-    if (kind !== 'test' || opts.sliceByDesign) continue;
+    if (kind !== 'test' || opts.sliceByDesign || opts.extended?.has(kind)) continue;
     const flags = [SUITE_NARROWING_FLAGS, ...NARROWING_BY_RUNNER['*'], ...(rn ? NARROWING_BY_RUNNER[rn] : [])];
     for (const re of flags) {
       const f = spelled(re, args);
       if (f && !opts.excuseFlag?.(f, canon)) out.push({ key: `flag:${f}`, what: f, direction: 'added' });
     }
     if (rn === 'cargo' && CARGO_SKIP.test(args)) out.push({ key: 'flag:-- --skip', what: '-- --skip', direction: 'added' });
+    if (opts.fresh) continue;
     const cfg = args.match(CONFIG_FLAG);
     if (cfg && !opts.configReviewed?.(cfg[3])) out.push({ key: `config:${cfg[3]}`, what: `${cfg[1]} ${cfg[3]}`, direction: 'added' });
     const pos = positionalOf(args);
@@ -319,15 +345,29 @@ function descriptors(cmd: string, runner: RunnerName | undefined, opts: Weakenin
   return out;
 }
 
-/** The kinds of check an invocation runs, across its statements. */
-export function checkKinds(cmd: string): Set<Kind> {
-  const kinds = new Set<Kind>();
+/** The check statements of an invocation: each one's kind and canonical form. */
+function checkStatements(cmd: string): Array<{ kind: Kind; canon: string }> {
+  const out: Array<{ kind: Kind; canon: string }> = [];
   for (const seg of segments(cmd)) {
     const w = seg.match(TIMEOUT_WRAP);
-    const k = checkKind(unwrap(w ? w[1] : seg));
-    if (k) kinds.add(k);
+    const inner = unwrap(w ? w[1] : seg);
+    const kind = scriptKind(inner);
+    if (kind) out.push({ kind, canon: canonical(inner) });
   }
-  return kinds;
+  return out;
+}
+
+/** The kinds of check an invocation runs, across its statements. */
+export function checkKinds(cmd: string): Set<Kind> {
+  return new Set(checkStatements(cmd).map((s) => s.kind));
+}
+
+/** A script that ends by failing on purpose — npm's `echo "Error: no test
+ *  specified" && exit 1` placeholder — masks nothing: whoever runs it is told. */
+const FAILS_LOUDLY = /^(?:exit\s+(?:[1-9]\d*)|false)\s*$/;
+function failsLoudly(cmd: string): boolean {
+  const last = segments(cmd).pop();
+  return last !== undefined && FAILS_LOUDLY.test(last.trim());
 }
 
 /**
@@ -348,13 +388,17 @@ export function checkKinds(cmd: string): Set<Kind> {
 export function invocationWeakening(before: string, after: string, runner?: RunnerName, opts: WeakeningOpts = {}): Weakening {
   const was = checkKinds(before);
   const now = checkKinds(after);
+  if (now.size === 0 && failsLoudly(after)) return { state: 'kept' };
   for (const k of was) {
     if (now.has(k) || opts.relocated?.(k)) continue;
     const instead = [...now].filter((x) => !was.has(x));
     return { state: 'removed', kind: k, what: instead.length ? `runs a ${instead.join('/')} check instead` : now.size ? 'the check is gone' : 'no check is run' };
   }
-  const beforeDs = descriptors(before, runner, opts);
-  const afterDs = descriptors(after, runner, opts);
+  const survived = new Set(checkStatements(before).map((s) => s.canon));
+  const extended = new Set(checkStatements(after).filter((s) => survived.has(s.canon)).map((s) => s.kind));
+  const read = { ...opts, fresh: was.size === 0, extended };
+  const beforeDs = descriptors(before, runner, read);
+  const afterDs = descriptors(after, runner, read);
   const seenBefore = new Set(beforeDs.map((d) => d.key));
   const added = afterDs.find((d) => d.direction === 'added' && !seenBefore.has(d.key));
   if (added) return { state: 'neutralised', what: added.what, direction: 'added' };

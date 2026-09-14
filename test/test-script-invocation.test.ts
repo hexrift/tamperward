@@ -50,6 +50,9 @@ describe('test-deletion — the test script rewritten so the suite no longer dec
   it.each([
     ['a non-check replaces the runner', { test: 'echo ok' }, /no longer runs the test check/],
     ['a check of another kind replaces the runner', { test: 'npm run lint' }, /no longer runs the test check/],
+    ['a printer that names the runner', { test: 'echo vitest run' }, /no longer runs the test check/],
+    ['true in front of the runner', { test: 'true vitest run' }, /no longer runs the test check/],
+    ['a placeholder that exits green', { test: 'echo "no tests" && exit 0' }, /no longer runs the test check/],
     ['|| true masks the status', { test: 'vitest run || true' }, /\|\| true added to scripts\.test/],
     ['; exit 0 masks the status', { test: 'vitest run; exit 0' }, /; exit 0 added to scripts\.test/],
     ['a pipe swallows the status', { test: 'vitest run | tee test.log' }, /\| tee test\.log added to scripts\.test/],
@@ -147,6 +150,19 @@ describe('test-deletion — the test script rewritten so the suite no longer dec
     ['the npm-init placeholder edited', { test: 'echo "Error: no test specified" && exit 1' }, { test: 'echo "no tests yet" && exit 1' }],
     ['a script deleted (npm test then fails loudly)', { test: 'vitest run', 'test:ci': 'vitest run' }, { test: 'vitest run' }],
     ['--exclude of another runner\'s directory', { test: 'vitest run' }, { test: 'vitest run --exclude e2e/**' }],
+    // from the zod replay: an empty script filled in, a test script whose NAME mentions
+    // tsc renamed, and a version manager in front of the runner
+    ['an empty test script filled in with --config (zod 73dc9bc)', { test: '' }, { test: 'jest --config jestconfig.json' }],
+    ['yarn test:tsc → yarn test:ts-jest (zod 73a5610)', { test: 'yarn test:tsc' }, { test: 'yarn test:ts-jest' }],
+    ['a version manager in front of the runner (zod e4d67f3)', { test: 'pnpm vitest run' }, { test: 'nub exec --node vitest run' }],
+    // from the hono replay: the npm-init placeholder fails loudly, and a further vitest
+    // invocation with its own config beside the kept one is an addition
+    ['an example\'s test script replaced by the failing npm-init placeholder (hono ffbcb3e)', { test: 'jest --verbose' }, { test: 'echo "Error: no test specified" && exit 1' }],
+    ['further runs added beside the kept one (hono 2c44ad7)', { test: 'tsc --noEmit && vitest --run' }, { test: 'tsc --noEmit && vitest --run && vitest -c .vitest.config/jsx-runtime-default.ts --run' }],
+    // from the zustand replay: the runner's binary by path, and a pretest moved into a
+    // test:types script the same change adds
+    ['jest run by its yarn bin path (zustand 9062ca6)', { test: 'jest' }, { test: 'yarn node --experimental-vm-modules $(yarn bin jest)' }],
+    ['pretest tsc moved into an added test:types (zustand 6d63830)', { pretest: 'tsc', test: 'vitest' }, { test: "pnpm run '/^test:.*/'", 'test:types': 'tsc --noEmit', 'test:spec': 'vitest' }],
   ])('stays clean on %s', (_n, before, after) => {
     const m = on(before, after);
     expect(m, m.join('\n')).toEqual([]);
