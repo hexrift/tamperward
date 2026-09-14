@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [2.23.12] — 2026-09-14
+## [2.23.13] — 2026-09-14
 
 ### Security
 
@@ -28,6 +28,26 @@ All notable changes to this project are documented here. The format follows
   see the checkout credential; only the unprivileged state restore/save/checkpoint
   steps receive it. `test/workflow-pins.test.ts` pins all of this against the
   repository's own workflows.
+
+## [2.23.12] — 2026-09-14
+
+### Fixed
+
+- **The Stop sweep no longer allows on a cwd it could not resolve** (#417). A payload
+  whose `cwd` did not exist or could not be read produced the same empty stdout at exit 0
+  as a plain non-repository directory, while PreToolUse denied the same cwd. The sweep now
+  allows only when the directory exists, is readable, and `git rev-parse` itself reports
+  *not a git repository*; a missing or unreadable cwd, a bare repository, or any other git
+  failure is denied as `tamperward-unavailable` with the diagnostic in the reason.
+- **The turn baseline fails closed** (#417). The marker the sweep compares against was
+  written with a plain `writeFileSync`, a parallel hook could read a half-written sha, the
+  guard accepted 7–40 hex characters so a truncated prefix passed, and any write failure
+  silently downgraded the sweep to `git diff HEAD` — making a mid-turn commit invisible
+  again, the case the baseline exists for. The marker is now written to a temp file and
+  renamed into place (as the effect state already was), read only as exactly 40 hex
+  characters (anything else is absent and re-established), and a write that fails denies
+  the turn as `tamperward-unavailable` naming the path, at Stop and at the PreToolUse
+  call that pins it.
 
 ## [2.23.11] — 2026-09-14
 
