@@ -4,7 +4,7 @@ import { evaluate, hasBlocking } from '../src/engine';
 import { preToolUseVerdict, stopVerdict } from '../src/cli/hook';
 import { defaultPolicy } from '../src/policy';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -120,6 +120,27 @@ describe('PreToolUse JSON deny contract', () => {
     expect(r.stdout).not.toContain('TAMPERWARD_DENYLOG');
     expect(r.stdout).not.toContain('node ');
     expect(r.stdout).not.toContain('dist/cli');
+  });
+
+  it('records a real denial to the structured audit without leaking the tool command', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tw-hook-audit-'));
+    const log = join(dir, 'audit.jsonl');
+    const previous = process.env.TAMPERWARD_AUDIT_LOG;
+    process.env.TAMPERWARD_AUDIT_LOG = log;
+    try {
+      const r = preToolUseVerdict({ tool_name: 'Bash', tool_input: { command: 'git commit --no-verify' } });
+      expect(JSON.parse(r.stdout).hookSpecificOutput.permissionDecision).toBe('deny');
+      const raw = readFileSync(log, 'utf8');
+      const line = JSON.parse(raw.trim()) as Record<string, unknown>;
+      expect(line.rule).toBe('no-verify');
+      expect(line.surface).toBe('pretooluse');
+      expect(line.severity).toBe('block');
+      expect(raw).not.toContain('git commit --no-verify');
+    } finally {
+      if (previous === undefined) delete process.env.TAMPERWARD_AUDIT_LOG;
+      else process.env.TAMPERWARD_AUDIT_LOG = previous;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('an allowed call is exit 0 + empty stdout', () => {
