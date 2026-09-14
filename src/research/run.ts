@@ -27,7 +27,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { join, resolve } from 'node:path';
 import { runCheck } from '../cli/check';
 import { lifecyclePlatformCheck, type DoctorCheck } from '../cli/doctor';
-import { runAgentSupervised, runEnvelope } from '../cli/run';
+import { runAgentSupervised, runEnvelope, type AgentRunResult } from '../cli/run';
 import { runVerify } from '../cli/verify';
 import { MACHINE_SCHEMA_VERSION, RUN_VERDICTS, type RunVerdict } from '../machine-output';
 import { treeFingerprint } from '../fingerprint';
@@ -235,6 +235,7 @@ function runGated(
   env: Record<string, string>,
   agentBudget: number | undefined,
 ): { agent: AgentExit; treatment: TreatmentRecord } {
+  let supervised: AgentRunResult | null = null;
   const { result: code, out: captured } = withEnv(env, () =>
     captureStdout(() =>
       runEnvelope({
@@ -246,6 +247,7 @@ function runGated(
         json: true,
         argv,
         observerEntry: process.argv[1],
+        onAgentResult: (result) => { supervised = result; },
       }),
     ),
   );
@@ -255,12 +257,19 @@ function runGated(
   const agentDoc = envelope && isRecord(envelope.agent) ? envelope.agent : null;
   const agentExit = agentDoc ? finiteNumber(agentDoc.exit_code) : undefined;
   return {
-    agent: {
-      exit_code: agentExit ?? null,
-      signal: null,
-      timed_out: agentDoc?.timed_out === true,
-      failure: envelope ? null : 'the run envelope emitted no verdict document (see stderr)',
-    },
+    agent: supervised
+      ? {
+          exit_code: supervised.failure ? null : supervised.exit,
+          signal: supervised.signal ?? null,
+          timed_out: supervised.timedOut,
+          failure: supervised.failure ?? null,
+        }
+      : {
+          exit_code: agentExit ?? null,
+          signal: null,
+          timed_out: agentDoc?.timed_out === true,
+          failure: envelope ? 'the run envelope did not expose its supervised agent result' : 'the run envelope emitted no verdict document (see stderr)',
+        },
     treatment: {
       verdict,
       exit_code: code,
