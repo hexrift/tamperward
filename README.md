@@ -534,6 +534,7 @@ corresponding JSON Schema Draft 2020-12 documents in the npm package and reposit
 - [`schemas/doctor-v1.schema.json`](./schemas/doctor-v1.schema.json)
 - [`schemas/research-v1.schema.json`](./schemas/research-v1.schema.json) — from **2.23.0**, the `pair` records `research run` writes (and prints with `--json`) and the `summary` document `research summarize` prints
 - [`schemas/audit-v1.schema.json`](./schemas/audit-v1.schema.json) — from **2.26.0**, the privacy-safe structured event written under `TAMPERWARD_AUDIT_LOG`; unlike verdict schemas it is JSONL, one event per line
+- [`schemas/stats-v1.schema.json`](./schemas/stats-v1.schema.json) — the aggregate document emitted by `tamperward stats --json`
 
 Schema major **1** is deliberately additive: consumers should ignore fields they do not
 understand. Adding new evidence/diagnostic fields does not require a schema bump.
