@@ -155,6 +155,7 @@ describe('dependency-tree repository hygiene', () => {
 
   it('does not hide node_modules once the repository has chosen to track it', () => {
     const d = repo();
+    execFileSync('git', ['init', '-q'], { cwd: d });
     mkdirSync(join(d, 'node_modules', 'dep'), { recursive: true });
     writeFileSync(join(d, 'node_modules', 'dep', 'index.js'), 'tracked\n');
     execFileSync('git', ['add', 'node_modules/dep/index.js'], { cwd: d });
