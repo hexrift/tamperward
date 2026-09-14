@@ -241,6 +241,9 @@ function validPair(over: Partial<PairRecord> = {}): PairRecord {
     pair: 1,
     adapter: { name: 'command', layers: ['envelope'] },
     model: null,
+    tamperward_version: TW_VERSION,
+    agent_argv: [],
+    agent_budget: null,
     manifest_sha256: 'b'.repeat(64),
     verify_command: SUITE,
     arms: { ungated: trajectory('ungated'), gated: trajectory('gated') },
@@ -643,12 +646,10 @@ describe.skipIf(process.platform !== 'linux' || !trustedLinuxPython().path)('res
     });
   }, 120_000);
 
-  it('a descendant the ungated agent leaves holding the workspace makes that trajectory unmeasurable', () => {
+  it('the ungated lifecycle supervisor drains a descendant before neutral observation', () => {
     const dir = tmp();
     const manifest = writeManifest(dir, [{ id: 'honest', repo: taskRepo(), prompt: 'p', verify: { command: SUITE, budget: 30 } }]);
     const ledger = join(dir, 'ledger');
-    // The agent fixes the bug, then leaves a new-session worker behind that keeps the
-    // workspace as its cwd — the shape that survives a process-group kill.
     const script = join(dir, 'leaver.sh');
     writeFileSync(script, '#!/bin/sh\necho "module.exports = 42;" > src.js\nsetsid sh -c "sleep 120" </dev/null >/dev/null 2>&1 &\nsleep 0.3\nexit 0\n');
     chmodSync(script, 0o755);
@@ -657,11 +658,38 @@ describe.skipIf(process.platform !== 'linux' || !trustedLinuxPython().path)('res
     const rec = JSON.parse(r.out.trim());
     expect(validateResearch(rec)).toEqual([]);
     expect(rec.arms.ungated.agent.exit_code).toBe(0);
-    expect(rec.arms.ungated.measured).toBe(false);
-    expect(rec.arms.ungated.unmeasurable).toMatch(/NOT_QUIESCENT/);
-    // The survivor was terminated, not left running on the researcher's machine.
+    expect(rec.arms.ungated.measured).toBe(true);
+    expect(rec.arms.ungated.unmeasurable).toBeNull();
+    expect(rec.arms.ungated.outcome.verify_verdict).toBe('VERIFIED');
     expect(linuxPidsWithCmdline('sleep 120')).toEqual([]);
-    expect(summarizeLedger(ledger)).toMatchObject({ pairs: 1, measured_pairs: 0, unmeasurable_pairs: 1 });
+    expect(summarizeLedger(ledger)).toMatchObject({ pairs: 1, measured_pairs: 1, unmeasurable_pairs: 0 });
+  }, 120_000);
+
+  it('drains a detached child even after it drops every workspace hold and waits to reopen by absolute path', () => {
+    const dir = tmp();
+    const manifest = writeManifest(dir, [{ id: 'honest', repo: taskRepo(), prompt: 'p', verify: { command: SUITE, budget: 30 } }]);
+    const ledger = join(dir, 'ledger');
+    const marker = join(dir, 'release-late-writer');
+    const script = join(dir, 'late-writer.sh');
+    writeFileSync(
+      script,
+      '#!/bin/sh\n' +
+        'echo "module.exports = 42;" > src.js\n' +
+        'target="$PWD/src.js"\n' +
+        `setsid sh -c 'cd /; while [ ! -e "$1" ]; do sleep 0.1; done; echo "module.exports = 0;" > "$2"' sh ${JSON.stringify(marker)} "$target" </dev/null >/dev/null 2>&1 &\n` +
+        'sleep 0.3\nexit 0\n',
+    );
+    chmodSync(script, 0o755);
+    const r = capture(() => runResearch({ manifest, out: ledger, adapter: 'command', agentArgv: [script], json: true }));
+    expect(r.code).toBe(0);
+    const rec = JSON.parse(r.out.trim());
+    expect(rec.arms.ungated.measured).toBe(true);
+    expect(rec.arms.ungated.outcome.verify_verdict).toBe('VERIFIED');
+    // The old holder scan missed this child: it had cwd=/, a system executable
+    // and no workspace fd. The subreaper still owns it by ancestry and drains it.
+    expect(linuxPidsWithCmdline(marker)).toEqual([]);
+    writeFileSync(marker, 'go\n');
+    expect(readFileSync(join(rec.arms.ungated.workspace, 'src.js'), 'utf8')).toContain('42');
   }, 120_000);
 
   it('an agent that cannot start is data in the record, never a research failure', () => {
