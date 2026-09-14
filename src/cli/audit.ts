@@ -31,6 +31,21 @@ function tokenAvailable(): boolean {
   return Boolean(process.env.GH_TOKEN || process.env.GITHUB_TOKEN);
 }
 
+function githubFileText(body: unknown, context: string): string {
+  const value = mapping(body);
+  if (!value || value.encoding !== 'base64' || typeof value.content !== 'string') {
+    throw new Error(context + ': GitHub did not return base64 file content');
+  }
+  return Buffer.from(value.content.replace(/\s+/g, ''), 'base64').toString('utf8');
+}
+
+function assertSameBundle(body: unknown, expected: string, context: string): void {
+  const actual = githubFileText(body, context);
+  if (actual !== expected) {
+    throw new Error(context + ': an audit bundle with the same event-id range already exists with different content');
+  }
+}
+
 function ensureAuditBranch(cwd: string, repo: string, branch: string): void {
   const endpoint = `repos/${repo}/git/ref/heads/${encoded(branch)}`;
   const existing = githubRequest(cwd, 'GET', endpoint);
@@ -120,19 +135,31 @@ export function publishAudit(opts: AuditPublishOpts): number {
         const name = `${first.id}--${last.id}.jsonl`;
         const path = `${root}/${month}/${name}`;
         const endpoint = `repos/${repo}/contents/${encoded(path)}`;
-        const check = githubRequest(cwd, 'GET', endpoint + '?ref=' + encodeURIComponent(branch));
+        const data = bundle.map((event) => JSON.stringify(event)).join('\n') + '\n';
+        const query = '?ref=' + encodeURIComponent(branch);
+        const check = githubRequest(cwd, 'GET', endpoint + query);
         if (check.status === 404) {
-          const data = bundle.map((event) => JSON.stringify(event)).join('\n') + '\n';
-          requireGitHubOk(
-            githubRequest(cwd, 'PUT', endpoint, {
-              message: `audit: publish ${bundle.length} TamperWard finding event(s)`,
-              content: Buffer.from(data, 'utf8').toString('base64'),
-              branch,
-            }),
-            'publish GitHub audit bundle',
-          );
+          const created = githubRequest(cwd, 'PUT', endpoint, {
+            message: `audit: publish ${bundle.length} TamperWard finding event(s)`,
+            content: Buffer.from(data, 'utf8').toString('base64'),
+            branch,
+          });
+          if (created.status < 200 || created.status >= 300) {
+            // Another trusted publisher may have won the same create race. That
+            // is idempotent only when the object it created is exactly our bundle.
+            if (created.status === 409 || created.status === 422) {
+              const raced = githubRequest(cwd, 'GET', endpoint + query);
+              if (raced.status >= 200 && raced.status < 300) {
+                assertSameBundle(raced.body, data, 'verify raced GitHub audit bundle');
+              } else {
+                requireGitHubOk(created, 'publish GitHub audit bundle');
+              }
+            } else {
+              requireGitHubOk(created, 'publish GitHub audit bundle');
+            }
+          }
         } else {
-          requireGitHubOk(check, 'check GitHub audit bundle');
+          assertSameBundle(requireGitHubOk(check, 'check GitHub audit bundle'), data, 'check GitHub audit bundle');
         }
         published += bundle.length;
       }
