@@ -66,7 +66,7 @@ jobs:
       # clone is trivially HEAD and the check is vacuous; and the release notes look up
       # the previous v* tag for the "Full Changelog" compare link, which on a tagless
       # clone was always empty, so the link was never written (#420).
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -78,7 +78,7 @@ jobs:
       # OIDC exchange, and the publish fails as an unauthenticated write — reported as
       # E404, because the registry will not disclose whether a package exists to a caller
       # lacking rights. That is exactly how the v1.1.0-rc.1 release failed.
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
 
