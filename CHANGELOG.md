@@ -24,6 +24,10 @@ All notable changes to this project are documented here. The format follows
   root or initialise the child as its own repository.
 - The displayed local setup plan now defaults to apply on Enter; inferred verifier
   commands still require explicit acceptance because they are part of the trust anchor.
+- Compact onboarding treats repository-derived paths, commands and doctor detail as
+  untrusted terminal text: control bytes and embedded line breaks are neutralised before
+  rendering. Its final commit instruction also excludes local-only `.git/` files, and
+  partial init failures only report files that actually became wired as written.
 
 ## [2.23.0] — 2026-09-14
 
