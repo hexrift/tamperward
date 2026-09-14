@@ -54,8 +54,10 @@ source/evidence text, filenames, absolute paths, environment values, credentials
 the raw Claude session id. The session identifier is one-way hashed before it leaves
 the hook.
 
-The published schema is
+The published event schema is
 [`schemas/audit-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/audit-v1.schema.json).
+The `stats --json` aggregate has its own
+[`schemas/stats-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/stats-v1.schema.json).
 
 ### The older deny log
 
