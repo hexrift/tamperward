@@ -166,6 +166,7 @@ export function isAuditEvent(value: unknown): value is AuditFindingEventV1 {
     typeof v.id === 'string' &&
     /^[0-9a-f-]{20,}$/i.test(v.id) &&
     typeof v.recorded_at === 'string' &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(v.recorded_at) &&
     Number.isFinite(Date.parse(v.recorded_at)) &&
     v.event === 'finding' &&
     v.agent === 'claude-code' &&
