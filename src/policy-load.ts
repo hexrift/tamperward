@@ -4,7 +4,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { isAbsolute, join, posix } from 'node:path';
-import { parse } from 'yaml';
+import { yaml } from './lazy-deps';
 import { Policy, Severity } from './types';
 import { defaultPolicy, mergeProtected, mergeRules, normalizeGlob, POLICY_FILE } from './policy';
 import { fileAt } from './git/build';
@@ -231,7 +231,7 @@ export function parsePolicy(raw: unknown, where: string = POLICY_FILE): Policy {
 function parseOrThrow(src: string, where: string): Policy {
   let raw: unknown;
   try {
-    raw = parse(src);
+    raw = yaml.parse(src);
   } catch (e) {
     throw new PolicyError(`${where} is not valid YAML: ${errorMessage(e)}`);
   }

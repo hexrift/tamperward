@@ -109,6 +109,18 @@ export interface VerifyOpts {
   /** Prepared before the agent by tamperward run. Standalone verify prepares
    *  the backend from the trusted policy at its own entry boundary. */
   verifierBackend?: PreparedVerifierBackend;
+  /** @internal Observes the verdict verify reached, so an orchestrator
+   *  (`tamperward onboard`) can explain it without parsing output. Called at most
+   *  once, before the exit code is returned; the exit code is never derived from it. */
+  onVerdict?: (verdict: VerifyVerdictSummary) => void;
+}
+
+/** What `onVerdict` receives: the verdict verify printed, and for CANNOT_VERIFY
+ *  the same reason/detail the JSON document carries. */
+export interface VerifyVerdictSummary {
+  verdict: 'VERIFIED' | 'MASKED_FAILURE' | 'SUITE_RED' | 'BUDGET_EXCEEDED' | 'CANNOT_VERIFY';
+  reason?: VerifyCannotVerifyReason;
+  detail?: string;
 }
 
 interface RunResult {
@@ -947,6 +959,7 @@ export function runVerify(opts: VerifyOpts): number {
     detail?: string,
     extra: Record<string, unknown> = {},
   ): number => {
+    opts.onVerdict?.({ verdict: 'CANNOT_VERIFY', reason, ...(detail ? { detail } : {}) });
     if (opts.json) {
       out(JSON.stringify({
         schema_version: MACHINE_SCHEMA_VERSION,
@@ -1012,6 +1025,7 @@ export function runVerify(opts: VerifyOpts): number {
   const verifierBackend = opts.verifierBackend ?? prepareVerifierBackend(policy.verify);
   const backendReport = () => verifierBackendReport(verifierBackend);
   if (!verifierBackend.available) {
+    opts.onVerdict?.({ verdict: 'CANNOT_VERIFY', reason: 'VERIFIER_BACKEND_UNAVAILABLE', ...(verifierBackend.reason ? { detail: verifierBackend.reason } : {}) });
     if (opts.json) {
       out(JSON.stringify({
         schema_version: MACHINE_SCHEMA_VERSION,
@@ -1028,6 +1042,7 @@ export function runVerify(opts: VerifyOpts): number {
   }
   const isolated = verifierBackend.kind === 'container';
   if (!isolated && !localVerifierShell(process.platform, cmd)) {
+    opts.onVerdict?.({ verdict: 'CANNOT_VERIFY', reason: 'LOCAL_VERIFIER_UNSUPPORTED_PLATFORM', detail: `checkpointed-local verifier is unsupported on ${process.platform}` });
     if (opts.json) {
       out(JSON.stringify({
         schema_version: MACHINE_SCHEMA_VERSION,
@@ -1061,6 +1076,7 @@ export function runVerify(opts: VerifyOpts): number {
           image: verifierBackend.image,
         };
   if (dependencyEnvironment?.status === 'unattestable' && !opts.allowDepDrift) {
+    opts.onVerdict?.({ verdict: 'CANNOT_VERIFY', reason: 'DEPENDENCY_ENVIRONMENT_UNATTESTABLE', ...(dependencyEnvironment.reason ? { detail: dependencyEnvironment.reason } : {}) });
     if (opts.json) {
       out(JSON.stringify({
         schema_version: MACHINE_SCHEMA_VERSION,
@@ -1156,6 +1172,7 @@ export function runVerify(opts: VerifyOpts): number {
   if (visible.failure === 'backend' || visible.failure === 'resource') {
     cleanup([visRoot]);
     const exhausted = visible.failure === 'resource';
+    opts.onVerdict?.({ verdict: 'CANNOT_VERIFY', reason: exhausted ? 'VERIFIER_RESOURCE_EXHAUSTED' : 'VERIFIER_BACKEND_RUNTIME_FAILURE', ...(visible.reason ? { detail: visible.reason } : {}) });
     if (opts.json) {
       out(JSON.stringify({
         schema_version: MACHINE_SCHEMA_VERSION,
@@ -1222,6 +1239,7 @@ export function runVerify(opts: VerifyOpts): number {
   if (pristine.failure === 'backend' || pristine.failure === 'resource') {
     cleanup([visRoot, priRoot]);
     const exhausted = pristine.failure === 'resource';
+    opts.onVerdict?.({ verdict: 'CANNOT_VERIFY', reason: exhausted ? 'VERIFIER_RESOURCE_EXHAUSTED' : 'VERIFIER_BACKEND_RUNTIME_FAILURE', ...(pristine.reason ? { detail: pristine.reason } : {}) });
     if (opts.json) {
       out(JSON.stringify({
         schema_version: MACHINE_SCHEMA_VERSION,
@@ -1277,7 +1295,7 @@ export function runVerify(opts: VerifyOpts): number {
     });
   }
 
-  let verdict: string;
+  let verdict: 'VERIFIED' | 'MASKED_FAILURE' | 'SUITE_RED' | 'BUDGET_EXCEEDED';
   let code: number;
   if (visible.exit === null || pristine.exit === null) {
     verdict = 'BUDGET_EXCEEDED';
@@ -1292,6 +1310,7 @@ export function runVerify(opts: VerifyOpts): number {
     verdict = 'SUITE_RED';
     code = 1;
   }
+  opts.onVerdict?.({ verdict });
 
   // Out-of-band sign-off, MASKED_FAILURE only. The verdict is still reported as
   // what it is — the source does not pass the original suite — and the exit

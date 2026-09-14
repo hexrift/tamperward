@@ -29,7 +29,7 @@
 
 import { existsSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
-import { parse as parseYaml } from 'yaml';
+import { yaml } from '../lazy-deps';
 import { isProtected } from '../policy';
 import { DetectorContext, Policy } from '../types';
 import { PLAIN_SEMVER, TW_VERSION, canonicalPath, claudeConfigDir, compareVersions, homeDir, isClaudeSettings } from '../wiring';
@@ -984,7 +984,7 @@ const isDoc = (v: unknown): v is Doc => v !== null && typeof v === 'object' && !
 
 export function parseDoc(src: string): Doc | null {
   try {
-    const v: unknown = parseYaml(src);
+    const v: unknown = yaml.parse(src);
     return isDoc(v) ? v : null;
   } catch {
     return null;

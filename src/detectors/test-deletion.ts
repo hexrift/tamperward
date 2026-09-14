@@ -8,7 +8,8 @@
 // "describe what it does" in a test name, must not register as a test. A false-firing
 // BLOCK rule is poison, so this one is parsed properly.
 
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../ts-lazy';
 import { Change, Detector, DetectorContext, FileChange, Finding, Policy } from '../types';
 import { isProtected } from '../policy';
 import { makeFinding } from './finding';
@@ -48,7 +49,7 @@ const TEST_DEFS: Record<Exclude<Lang, 'js'>, RegExp> = {
   cs: /^\s*\[(?:Fact|Theory|Test|TestMethod|TestCase|DataTestMethod)\b/,
 };
 
-function calleeName(expr: ts.Expression): string | null {
+function calleeName(expr: TS.Expression): string | null {
   if (ts.isIdentifier(expr)) return expr.text; // it(...)
   if (ts.isPropertyAccessExpression(expr) && ts.isIdentifier(expr.expression)) {
     return expr.expression.text; // it.skip(...), it.each(...), test.only(...)
@@ -63,18 +64,18 @@ function calleeName(expr: ts.Expression): string | null {
 // `for` differs only in how the row reaches the callback.
 const TABLE_METHOD = /^(?:each|for)$/;
 
-const isEachOf = (expr: ts.Expression): boolean =>
+const isEachOf = (expr: TS.Expression): boolean =>
   ts.isPropertyAccessExpression(expr) &&
   ts.isIdentifier(expr.expression) &&
   (expr.expression.text === 'it' || expr.expression.text === 'test') &&
   TABLE_METHOD.test(expr.name.text);
 
-const isDescribeEach = (expr: ts.Expression): boolean =>
+const isDescribeEach = (expr: TS.Expression): boolean =>
   ts.isPropertyAccessExpression(expr) && ts.isIdentifier(expr.expression) && expr.expression.text === 'describe' && TABLE_METHOD.test(expr.name.text);
 
 /** The rows a loop runs its body over: a literal array is counted (`for (const n of
  *  [1, 2, 3])`, `[1, 2, 3].forEach(...)`), anything else is open. */
-function loopRows(iterable: ts.Expression): { n: number; open: boolean } {
+function loopRows(iterable: TS.Expression): { n: number; open: boolean } {
   if (ts.isArrayLiteralExpression(iterable)) {
     let n = 0;
     let open = false;
@@ -88,7 +89,7 @@ function loopRows(iterable: ts.Expression): { n: number; open: boolean } {
 }
 
 /** Rows of an each-TEMPLATE table: the header row, then one test per data row. */
-function templateRows(node: ts.TaggedTemplateExpression): number {
+function templateRows(node: TS.TaggedTemplateExpression): number {
   const rows = node.template.getText().split('\n').filter((l) => /\S/.test(l.replace(/[`]/g, ''))).length - 1;
   return Math.max(rows, 1);
 }
@@ -97,8 +98,8 @@ function templateRows(node: ts.TaggedTemplateExpression): number {
  *  `it("noop", () => {})` — defines a test that tests nothing, and a relocation
  *  that "moves" three tests into three stubs moved no test. A test whose body is
  *  not a function literal (`it("x", fn)`) cannot be judged and counts as real. */
-function hasSubstantiveBody(call: ts.CallExpression): boolean {
-  const fn = call.arguments.find((a): a is ts.ArrowFunction | ts.FunctionExpression => ts.isArrowFunction(a) || ts.isFunctionExpression(a));
+function hasSubstantiveBody(call: TS.CallExpression): boolean {
+  const fn = call.arguments.find((a): a is TS.ArrowFunction | TS.FunctionExpression => ts.isArrowFunction(a) || ts.isFunctionExpression(a));
   if (!fn) return true;
   const body = fn.body;
   const text = ts.isBlock(body) ? body.getText().slice(1, -1) : body.getText();
@@ -110,7 +111,7 @@ function hasSubstantiveBody(call: ts.CallExpression): boolean {
  *  count is then a lower bound, and a comparison against it is not a comparison.
  *  Two `it()`s folded into one two-row `it.each` is the same suite, and a row
  *  deleted from a five-row table is a deleted test — both need rows counted. */
-function eachRows(call: ts.CallExpression): { n: number; open: boolean } {
+function eachRows(call: TS.CallExpression): { n: number; open: boolean } {
   const arg = call.arguments[0];
   if (!arg) return { n: 1, open: true };
   if (ts.isArrayLiteralExpression(arg)) {
@@ -152,7 +153,7 @@ export function countTests(src: string, path = 'spec.ts', substantiveOnly = fals
   const sf = ts.createSourceFile('spec.ts', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   let n = 0;
   let open = false;
-  const visit = (node: ts.Node, mult: number): void => {
+  const visit = (node: TS.Node, mult: number): void => {
     if (ts.isForOfStatement(node)) {
       const r = loopRows(node.expression);
       if (r.open) open = true;
