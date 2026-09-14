@@ -364,7 +364,10 @@ describe('verdict parity: service vs in-process', () => {
 
 const DIST = join(__dirname, '..', 'dist', 'cli', 'index.js');
 
-describe.skipIf(!existsSync(DIST) || process.platform === 'win32')('built CLI end to end', () => {
+// The full test matrix deliberately does not own dist/: other parallel tests may
+// create/remove build output transiently. Run this only from the CI build job,
+ // after that job has built the exact CLI it owns.
+describe.skipIf(process.env.TAMPERWARD_BUILT_CLI_E2E !== '1' || !existsSync(DIST) || process.platform === 'win32')('built CLI end to end', () => {
   it('the thin client uses the service only under TAMPERWARD_HOOK_SERVICE=1 and falls back when it is gone', async () => {
     const root = repo();
     const rt = join(tmp('tw-e2e-'), 'rt');
