@@ -489,7 +489,14 @@ export function preToolUseVerdict(input: ClaudeHookInput, defaultCwd?: string): 
     const driftBlocks = effectDriftBlocks(cwd, input.session_id, policy);
     if (driftBlocks) return verdict(driftBlocks, 'PreToolUse', { cwd, sessionId: input.session_id });
     const changes = changesFromClaudeHook(input, cwd, sessionCwd);
-    const blocks = evaluate(changes, policy, undefined, 'tool-call', { cwd }).filter((f) => f.severity === 'block');
+    const findings = evaluate(changes, policy, undefined, 'tool-call', { cwd });
+    recordAuditFindings(
+      findings.filter((f) => f.severity !== 'block'),
+      'pretooluse',
+      cwd,
+      input.session_id,
+    );
+    const blocks = findings.filter((f) => f.severity === 'block');
     if (blocks.length === 0) sanctionPredictedWrites(cwd, input.session_id, policy, changes);
     return verdict(blocks, 'PreToolUse', { cwd, sessionId: input.session_id });
   } catch (e) {
@@ -645,7 +652,14 @@ export function stopVerdict(input: ClaudeHookInput, defaultCwd?: string): HookRe
       changes = changes.concat(gap.changes);
       hiddenBlocks = gap.blocks;
     }
-    blocks = evaluate(changes, policy, undefined, 'turn', { cwd })
+    const evaluated = evaluate(changes, policy, undefined, 'turn', { cwd });
+    recordAuditFindings(
+      evaluated.filter((f) => f.severity !== 'block'),
+      'stop',
+      cwd,
+      input.session_id,
+    );
+    blocks = evaluated
       .filter((f) => f.severity === 'block')
       .concat(hiddenBlocks, unjudgeableProtected(cwd, policy, changes));
     const transient = turnTransientBlocks(cwd, input.session_id, policy, changes);
