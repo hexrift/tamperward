@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [2.21.0] — 2026-09-13
+## [2.23.0] — 2026-09-14
 
 **`tamperward research`: a first-class bring-your-own-model evaluation workflow, and
 the `AgentAdapter` contract behind it.**
