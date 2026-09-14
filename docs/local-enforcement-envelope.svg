@@ -18,7 +18,7 @@
 <text x="118" y="422" font-size="16" font-weight="700" fill="#64748b">TamperWard post-exit adjudication</text>
 
 <!-- arrows: trusted state + lifecycle -->
-<path d="M300 78V172H475" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M300 78V158H565V186" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M300 215H475" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M655 215H790" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M895 255V365H600V460" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
