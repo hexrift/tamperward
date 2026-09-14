@@ -493,6 +493,24 @@ describe('machine-readable schema v1 (#333)', () => {
     expect(doctor.status).toBe(2);
     expect(validateDoc('doctor', parseOnlyJson(doctor.stdout), packageRoot)).toEqual([]);
 
+    const auditEvent = {
+      schema_version: 1,
+      id: 'sha256:' + 'a'.repeat(32),
+      timestamp: '2026-09-14T12:00:00.000Z',
+      surface: 'pretooluse',
+      agent: 'claude-code',
+      rule: 'test-skip',
+      severity: 'block',
+      decision: 'deny',
+      session: 'sha256:' + 'b'.repeat(24),
+    };
+    expect(validateDoc('audit', auditEvent, packageRoot)).toEqual([]);
+    const auditFile = join(cwd, 'audit.jsonl');
+    writeFileSync(auditFile, JSON.stringify(auditEvent) + '\n');
+    const stats = packagedCli(packageRoot, cwd, ['stats', '--file', auditFile, '--json']);
+    expect(stats.status).toBe(0);
+    expect(validateDoc('stats', parseOnlyJson(stats.stdout), packageRoot)).toEqual([]);
+
     if (process.platform === 'linux' && trustedLinuxPython().path) {
       const run = packagedCli(packageRoot, cwd, [
         'run', '--json', '--cmd', 'node test/check.test.js', '--budget', '2', '--',
