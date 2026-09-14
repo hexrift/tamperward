@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import Ajv2020 from 'ajv/dist/2020.js';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   parseAuditJsonl,
   readAuditLog,
@@ -44,6 +45,16 @@ const finding: Finding = {
   signoff: { required: true, command: 'tamperward allow test-skip --reason "private reason"' },
 };
 
+function validateSchema(name: 'audit-event' | 'stats', value: unknown): boolean {
+  const root = resolve(__dirname, '..');
+  const schema = JSON.parse(readFileSync(join(root, 'schemas', `${name}-v1.schema.json`), 'utf8'));
+  const ajv = new Ajv2020({ strict: true, allErrors: true });
+  const validate = ajv.compile(schema);
+  const ok = validate(value);
+  expect(validate.errors, JSON.stringify(validate.errors)).toBeNull();
+  return Boolean(ok);
+}
+
 function capture(fn: () => number): { code: number; out: string; err: string } {
   let out = '';
   let err = '';
@@ -82,6 +93,7 @@ describe('structured audit events', () => {
     });
     expect(event.session_hash).toMatch(/^[0-9a-f]{20}$/);
     expect(event.head).toMatch(/^[0-9a-f]{40}$/);
+    expect(validateSchema('audit-event', event)).toBe(true);
     expect(raw).not.toContain('raw-secret-session-id');
     expect(raw).not.toContain('supersecret');
     expect(raw).not.toContain('do not persist this');
@@ -214,6 +226,7 @@ describe('tamperward stats', () => {
       since: 'all time',
       summary: { findings: 2, blocked: 1, warnings: 1 },
     });
+    expect(validateSchema('stats', doc)).toBe(true);
   });
 
   it('supports a bounded time window', () => {
