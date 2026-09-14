@@ -224,8 +224,9 @@ describe('verifier configuration is explicit', () => {
   it('lists ambiguous candidates and writes the operator’s numbered choice', async () => {
     const d = repo({ pytest: true });
     const s = await onboard(d, ['y', '2', 'n'], { noGithub: true, skipDemo: true });
-    const q = s.questions.find((x) => /npm test/.test(x) && /pytest/.test(x));
-    expect(q).toBeDefined();
+    expect(s.out).toContain('1. npm test');
+    expect(s.out).toContain('2. pytest');
+    expect(s.questions.some((q) => /Choose 1-2/.test(q))).toBe(true);
     expect(loadPolicy(d).verify?.command).toBe('pytest');
     expect(loadPolicy(d).verify?.budget).toBe(300);
     // The policy file keeps init's commented baseline: the block was merged, not rewritten.
@@ -291,7 +292,7 @@ describe('the first verification is explained without changing verify semantics'
     git(d, 'add', '-A');
     // Onboard is run against the committed base; the weakening is the working tree.
     const s = await onboard(d, ['y', 'y', 'y', 'y'], { noGithub: true, skipDemo: true });
-    expect(s.out).toMatch(/working tree is not clean/);
+    expect(s.out).toMatch(/existing changed\/untracked path/);
     expect(s.out).toMatch(/Verification blocked — the visible suite passes, but the pristine suite fails/);
     expect(s.out).toMatch(/ACTION\s+Your test suite is red|ACTION\s+Verification blocked/);
   });
@@ -313,7 +314,7 @@ describe('dirty working tree', () => {
     writeFileSync(join(d, 'src.js'), 'module.exports = 42; // wip\n');
     writeFileSync(join(d, 'scratch.txt'), 'untracked\n');
     const s = await onboard(d, ['y', 'y', 'y', 'y', 'y'], { noGithub: true });
-    expect(s.out).toMatch(/working tree is not clean/);
+    expect(s.out).toMatch(/existing changed\/untracked path/);
     expect(s.questions[0]).toMatch(/continue/i);
     expect(readFileSync(join(d, 'src.js'), 'utf8')).toBe('module.exports = 42; // wip\n');
     expect(readFileSync(join(d, 'scratch.txt'), 'utf8')).toBe('untracked\n');
@@ -375,7 +376,7 @@ describe('preflight refusals', () => {
     const d = repo();
     const s = await onboard(d, [], { noGithub: true }, { interactive: false });
     expect(s.code).toBe(2);
-    expect(s.err).toMatch(/not interactive/);
+    expect(s.err).toMatch(/interactive terminal/);
     expect(s.err).toMatch(/--yes/);
     expect(s.questions).toEqual([]);
     expect(snapshot(d)).toEqual({});
