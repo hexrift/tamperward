@@ -1,9 +1,17 @@
 name: tamperward-audit
 
 # Durable dogfooding evidence, deliberately separate from the enforcement gate.
-# The hook never writes GitHub directly. An operator explicitly dispatches a
-# privacy-safe audit batch; this workflow validates the strict v1 schema and is
-# the only writer to the tamperward-audit branch.
+# The hook never writes GitHub directly, and this workflow is the ONLY writer to
+# the tamperward-audit evidence branch. Audit-v1 events reach it two ways, both
+# human-curated and both running only from the trusted copy committed on main:
+#   - an operator dispatches a validated batch by hand (workflow_dispatch), or
+#   - a reviewed PR appends validated audit-v1 lines to audit/pending.jsonl and,
+#     on merge to main, this workflow ingests the new event ids.
+# There is deliberately NO pull_request / pull_request_target trigger: an
+# untrusted fork PR must never run the workflow that writes the evidence branch.
+# The push trigger fires only AFTER a merge, from main, is gated again by
+# `if: github.ref == 'refs/heads/main'`, and re-validates the strict v1 schema
+# before touching the branch. Never place TAMPERWARD_DENYLOG here — only audit-v1.
 on:
   workflow_dispatch:
     inputs:
@@ -11,6 +19,8 @@ on:
         description: "Validated TamperWard audit-v1 JSONL (never TAMPERWARD_DENYLOG)"
         required: true
         type: string
+  push:
+    branches: [main]
 
 permissions:
   contents: write
@@ -22,32 +32,64 @@ concurrency:
 jobs:
   ingest:
     # Do not let a feature branch supply the workflow that writes the evidence
-    # branch. Dispatch the copy committed on main.
+    # branch. Only the copy committed on main runs — for a dispatch and for a
+    # post-merge push alike.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Resolve the audit batch
+        id: batch
+        env:
+          # workflow_dispatch supplies the batch as an input; a push ingests the
+          # reviewed audit/pending.jsonl committed on main. Read the dispatch input
+          # through the environment so its content is never interpolated into the
+          # script. An empty batch (an unrelated merge, an empty pending file) is a
+          # clean no-op: the expensive build/validate/ingest steps are skipped.
+          DISPATCH_BATCH: ${{ inputs.batch }}
+        run: |
+          set -euo pipefail
+          BATCH="${RUNNER_TEMP}/tamperward-audit-batch.jsonl"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            printf '%s\n' "${DISPATCH_BATCH}" > "${BATCH}"
+          elif [ -f audit/pending.jsonl ]; then
+            cp audit/pending.jsonl "${BATCH}"
+          else
+            : > "${BATCH}"
+          fi
+          if grep -q '[^[:space:]]' "${BATCH}"; then
+            echo "has_events=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "has_events=false" >> "${GITHUB_OUTPUT}"
+            echo "No audit-v1 events to ingest."
+          fi
+          echo "path=${BATCH}" >> "${GITHUB_OUTPUT}"
+
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        if: steps.batch.outputs.has_events == 'true'
         with:
           node-version: 22
           cache: npm
 
-      - run: npm ci
-      - run: npm run build
+      - if: steps.batch.outputs.has_events == 'true'
+        run: npm ci
+      - if: steps.batch.outputs.has_events == 'true'
+        run: npm run build
 
       - name: Validate submitted audit batch
+        if: steps.batch.outputs.has_events == 'true'
         env:
-          AUDIT_BATCH: ${{ inputs.batch }}
+          BATCH: ${{ steps.batch.outputs.path }}
         run: |
           set -euo pipefail
-          BATCH="${RUNNER_TEMP}/tamperward-audit-batch.jsonl"
-          printf '%s\n' "${AUDIT_BATCH}" > "${BATCH}"
           node dist/cli/index.js stats --file "${BATCH}" --json > /dev/null
 
       - name: Append deduplicated events and regenerate summaries
+        if: steps.batch.outputs.has_events == 'true'
         env:
-          AUDIT_BATCH: ${{ inputs.batch }}
+          BATCH: ${{ steps.batch.outputs.path }}
         run: |
           set -euo pipefail
           STORE="${RUNNER_TEMP}/tamperward-audit-store"
@@ -63,8 +105,6 @@ jobs:
           fi
 
           mkdir -p "${STORE}/events" "${STORE}/summaries"
-          BATCH="${RUNNER_TEMP}/tamperward-audit-batch.jsonl"
-          printf '%s\n' "${AUDIT_BATCH}" > "${BATCH}"
 
           node - "${BATCH}" "${STORE}/events/all.jsonl" <<'NODE'
           const fs = require('node:fs');
@@ -94,8 +134,12 @@ jobs:
           fs.writeFileSync(storePath, [...existing, ...append].join('\n') + '\n');
           NODE
 
-          node "${GITHUB_WORKSPACE}/dist/cli/index.js" stats             --file "${STORE}/events/all.jsonl" --json             > "${STORE}/summaries/all-time.json"
-          node "${GITHUB_WORKSPACE}/dist/cli/index.js" stats             --file "${STORE}/events/all.jsonl"             > "${STORE}/README.md"
+          node "${GITHUB_WORKSPACE}/dist/cli/index.js" stats \
+            --file "${STORE}/events/all.jsonl" --json \
+            > "${STORE}/summaries/all-time.json"
+          node "${GITHUB_WORKSPACE}/dist/cli/index.js" stats \
+            --file "${STORE}/events/all.jsonl" \
+            > "${STORE}/README.md"
 
           git -C "${STORE}" config user.name github-actions[bot]
           git -C "${STORE}" config user.email 41898282+github-actions[bot]@users.noreply.github.com

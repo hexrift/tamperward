@@ -96,18 +96,43 @@ or an ISO timestamp.
 
 TamperWard itself ships
 [`.github/workflows/tamperward-audit.yml`](https://github.com/hexrift/tamperward/blob/main/.github/workflows/tamperward-audit.yml).
-The hook does **not** push anything to GitHub. Publishing is an explicit operator
-action, and GitHub Actions is the writer.
+The hook does **not** push anything to GitHub. Publishing is always a
+human-curated action, and GitHub Actions is the writer. There are two curated
+entry points, and both run only from the trusted copy on `main`:
+
+- an operator **dispatches** a validated batch by hand (`workflow_dispatch`), or
+- a reviewed PR appends validated audit-v1 lines to
+  [`audit/pending.jsonl`](https://github.com/hexrift/tamperward/blob/main/audit/pending.jsonl)
+  and, **on merge to `main`**, the workflow ingests the new event ids.
+
+There is deliberately no `pull_request` / `pull_request_target` trigger: an
+untrusted fork PR must never run the workflow that writes the evidence branch.
+The post-merge `push` fires only after a merge, is gated again by
+`if: github.ref == 'refs/heads/main'`, and re-validates the schema before
+touching the branch. An empty `pending.jsonl`, or a merge that does not change
+it, is a clean no-op.
 
 The workflow:
 
-1. can be dispatched only from the copy committed on `main`;
+1. runs only from the copy committed on `main`, whether dispatched by hand or
+   fired by a post-merge push;
 2. validates every submitted line with TamperWard's strict audit-v1 parser;
 3. rejects unknown fields rather than trying to redact them after upload;
 4. creates or updates a separate `tamperward-audit` branch;
 5. deduplicates records by event id;
 6. writes `events/all.jsonl`;
 7. regenerates `summaries/all-time.json` and a human-readable branch `README.md`.
+
+### On merge to `main` (the reviewed-file path)
+
+Append the validated lines to `audit/pending.jsonl` in a pull request — review is
+the curation step — and merge. See
+[`audit/README.md`](https://github.com/hexrift/tamperward/blob/main/audit/README.md).
+Because ingestion deduplicates by id, lines already ingested can stay in the
+pending file harmlessly or be trimmed in a later PR. Ingestion never writes
+`main`; it only ever appends to the dedicated `tamperward-audit` branch.
+
+### By hand (the dispatch path)
 
 A typical bounded upload is:
 
