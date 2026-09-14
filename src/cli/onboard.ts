@@ -402,6 +402,7 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
     const plan = planInit(cwd);
     const names: Record<string, string> = {
       policy: 'Policy',
+      gitignore: 'Git ignore',
       agent: 'Claude hooks',
       'pre-commit': 'Pre-commit',
       ci: 'CI workflow',
