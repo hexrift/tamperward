@@ -15,6 +15,7 @@ import { runEnvelope, parseRun } from './run';
 import { runWatch } from './watch';
 import { runOnboard, OnboardOpts } from './onboard';
 import { runResearchCommand, RESEARCH_SUBCOMMANDS } from './research';
+import { runStats, type StatsOpts } from './audit';
 
 function parseAllow(args: string[]): AllowOpts {
   const o: AllowOpts = {};
@@ -76,6 +77,18 @@ function parseDoctor(args: string[]): DoctorOpts {
     else if (a === '--json') o.json = true;
     else if (a === '--repo') o.repo = args[++i];
     else if (a === '--branch') o.branch = args[++i];
+  }
+  return o;
+}
+
+function parseStats(args: string[]): StatsOpts {
+  const o: StatsOpts = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--cwd') o.cwd = args[++i];
+    else if (a === '--file') o.file = args[++i];
+    else if (a === '--since') o.since = args[++i];
+    else if (a === '--json') o.json = true;
   }
   return o;
 }
@@ -255,6 +268,17 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     }).error;
   }
 
+  if (cmd === 'stats') {
+    return validateFlatArgs(args, {
+      flags: ['--json'],
+      values: {
+        '--cwd': 'string',
+        '--file': 'string',
+        '--since': 'string',
+      },
+    }).error;
+  }
+
   if (cmd === 'onboard') {
     const parsed = validateFlatArgs(args, {
       flags: ['--yes', '--skip-demo', '--demo', '--no-github'],
@@ -424,6 +448,12 @@ Formats:
   tamperward research summarize --ledger D  aggregate measured pairs into model behaviour,
                                              independent outcome, TamperWard hits/misses
                                              and paired counts — no composite score
+  tamperward stats [--file F] [--since 30d] aggregate privacy-safe hook/sweep audit
+             [--json] [--cwd D]              events by rule and enforcement surface.
+                                             Defaults to the repository-local
+                                             .git/tamperward/audit.jsonl (or
+                                             TAMPERWARD_AUDIT_LOG). A finding is an
+                                             integrity signal, not proof of agent intent.
   tamperward allow <rule> --reason "..."    record a human sign-off (local audit ledger)
              [--file F] [--cwd D]
   tamperward onboard [--yes] [--cwd D]      guided first-run setup: preflight, the
@@ -497,6 +527,8 @@ export function main(argv: string[]): number | Promise<number> {
       return runInit(parseInit(rest));
     case 'doctor':
       return runDoctor(parseDoctor(rest));
+    case 'stats':
+      return runStats(parseStats(rest));
     case 'onboard':
       return runOnboard(parseOnboard(rest));
     case 'watch':
