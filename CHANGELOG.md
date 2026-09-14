@@ -31,7 +31,7 @@ denies 637 ms → 421 ms. `dist/cli/index.js` now evaluates `main` behind a lazy
 initialiser; every command behaves as before.
 
 **`tamperward hook-service start | stop | status` — opt-in, off by default.** One warm
-process per user and repository, started and stopped by the operator (foreground; a
+process per user, bound to one repository, started and stopped by the operator (foreground; a
 SessionStart hook or a supervisor owns its lifetime), that evaluates `hook claude` /
 `sweep claude` payloads over a per-user unix socket held at mode `0600` inside a `0700`
 directory (`$XDG_RUNTIME_DIR/tamperward-hook` or `<tmpdir>/tamperward-hook-<uid>`;
