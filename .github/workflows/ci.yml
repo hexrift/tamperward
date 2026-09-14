@@ -271,6 +271,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # This e2e owns the built artifact. The Node compatibility matrix does not
+      # build dist/ and may run tests that create/remove scratch build output.
+      - name: Built hook-service CLI e2e
+        run: TAMPERWARD_BUILT_CLI_E2E=1 npx vitest run test/hook-service.test.ts -t "built CLI end to end"
 
       # The site used to build only on push to main, so a page that broke the
       # Vue template compile (2.6.0's rules row) merged and took the deploy down.

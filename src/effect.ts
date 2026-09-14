@@ -28,6 +28,7 @@ import { isProtected } from './policy';
 import { DiskEntry, inspectRel } from './disk';
 import { ignoredTree } from './git/build';
 import { isRecord } from './narrow';
+import type { SnapshotCache } from './ptree-cache';
 
 export interface PEntry {
   hash: string;
@@ -138,9 +139,17 @@ function entryOf(e: DiskEntry): PEntry {
  * and excused the way they always were. A directory is skipped ONLY on git's
  * word: an ignored directory holding one tracked file is not collapsed and is
  * walked, and outside a repository nothing is pruned.
+ *
+ * `cache` is the persistent hook service's in-memory entry cache
+ * (src/ptree-cache.ts) — keyed on the inode's ctime, which the candidate cannot
+ * set, and never on the stat triple alone. The in-process hook passes none and
+ * hashes everything, as this comment promises.
  */
-export function snapshotProtected(cwd: string, policy: Policy, prev?: PTree): PTree {
+export function snapshotProtected(cwd: string, policy: Policy, prev?: PTree, cache?: SnapshotCache): PTree {
   void prev;
+  cache?.beginSnapshot();
+  const entryAt = (rel: string): PEntry =>
+    cache ? cache.entry(cwd, rel, () => entryOf(inspectRel(cwd, rel))) : entryOf(inspectRel(cwd, rel));
   const out: PTree = {};
   const keep = (rel: string): boolean => isProtected(rel, policy);
   let pruned = new Set<string>();
@@ -171,11 +180,11 @@ export function snapshotProtected(cwd: string, policy: Policy, prev?: PTree): PT
         continue;
       }
       if (st.isDirectory()) walk(r);
-      else if (keep(r)) out[r] = entryOf(inspectRel(cwd, r));
+      else if (keep(r)) out[r] = entryAt(r);
     }
   };
   walk('');
-  for (const rel of listed) if (out[rel] === undefined) out[rel] = entryOf(inspectRel(cwd, rel));
+  for (const rel of listed) if (out[rel] === undefined) out[rel] = entryAt(rel);
   return out;
 }
 

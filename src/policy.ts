@@ -2,7 +2,7 @@
 // baseline policy `npx tamperward init` would write. Detectors ask "is this path a
 // test / config / ci / hook?" through here so the globs live in exactly one place.
 
-import picomatch from 'picomatch';
+import { picomatch } from './lazy-deps';
 import { Policy } from './types';
 
 export const POLICY_FILE = '.tamperward.yml';

@@ -35,10 +35,19 @@ import { isProtected } from '../policy';
 import { inspectRel, unjudgeableFinding, unjudgeableProtected } from '../disk';
 import { Change, FileChange, Finding, Policy } from '../types';
 import { isRecord } from '../narrow';
+import type { SnapshotCache } from '../ptree-cache';
 
 export interface HookResult {
   exitCode: number;
   stdout: string;
+}
+
+/** The persistent hook service's snapshot cache (src/ptree-cache.ts), or null —
+ *  the in-process hook, which is every hook that is not the service, never sets
+ *  one and hashes the whole protected tree on every call. */
+let snapshotCache: SnapshotCache | null = null;
+export function setSnapshotCache(cache: SnapshotCache | null): void {
+  snapshotCache = cache;
 }
 
 /** The hook could not be given its input, or the input was not a hook payload.
@@ -389,7 +398,7 @@ function uncoveredDrift(
 function effectDriftBlocks(cwd: string, sessionId: string | undefined, policy: Policy): Finding[] | null {
   if (!sessionId || !isGitRepo(cwd)) return null;
   const expected = loadPtree(cwd, sessionId);
-  const current = snapshotProtected(cwd, policy, expected ?? undefined);
+  const current = snapshotProtected(cwd, policy, expected ?? undefined, snapshotCache ?? undefined);
   if (!expected) {
     savePtree(cwd, sessionId, current);
     // First sight of the session: the turn begins here, alongside the git baseline.
@@ -448,13 +457,16 @@ function sanctionPredictedWrites(cwd: string, sessionId: string | undefined, pol
       mtimeMs: -1, // unknown until written; forces a re-hash next snapshot, which is correct
     };
     dirty = true;
+    snapshotCache?.markDirty(cwd, c.path);
   }
   if (dirty) savePtree(cwd, sessionId, tree);
 }
 
-export function preToolUseVerdict(input: ClaudeHookInput): HookResult {
+/** `defaultCwd` stands in for `process.cwd()` when the payload carries no cwd —
+ *  the persistent service evaluates on behalf of a client whose cwd is not its own. */
+export function preToolUseVerdict(input: ClaudeHookInput, defaultCwd?: string): HookResult {
   try {
-    const cwd = input.cwd ?? process.cwd();
+    const cwd = input.cwd ?? defaultCwd ?? process.cwd();
     // First tool call of the session pins the commit the Stop sweep will compare against.
     turnBaseline(cwd, input.session_id);
     const policy = loadPolicy(cwd);
@@ -582,9 +594,9 @@ function recordObserverHealth(
   }
 }
 
-export function stopVerdict(input: ClaudeHookInput): HookResult {
+export function stopVerdict(input: ClaudeHookInput, defaultCwd?: string): HookResult {
   if (input.stop_hook_active) return { exitCode: 0, stdout: '' };
-  const cwd = input.cwd ?? process.cwd();
+  const cwd = input.cwd ?? defaultCwd ?? process.cwd();
   // "Nothing to compare" and "the comparison failed" must not share a code path: a blanket
   // catch→allow turned a broken policy or a git failure into a silent pass.
   if (!isGitRepo(cwd)) return { exitCode: 0, stdout: '' };
@@ -599,7 +611,7 @@ export function stopVerdict(input: ClaudeHookInput): HookResult {
     // The effect state sees what git does not: drift on a protected path that no
     // part of the view carries is reconstructed or blocked, never passed.
     const expected = loadPtree(cwd, input.session_id);
-    const current = input.session_id ? snapshotProtected(cwd, policy, expected ?? undefined) : null;
+    const current = input.session_id ? snapshotProtected(cwd, policy, expected ?? undefined, snapshotCache ?? undefined) : null;
     let hiddenBlocks: Finding[] = [];
     if (expected && current) {
       const gap = uncoveredDrift(cwd, policy, expected, current, changes, base, loadTurnTree(cwd, input.session_id));
@@ -637,17 +649,17 @@ function emit(r: HookResult): number {
 
 /** The whole PreToolUse path from RAW BYTES, so the payload-parsing failures are
  *  reachable from a test without a real stdin. */
-export function preToolUseFromRaw(raw: string): HookResult {
+export function preToolUseFromRaw(raw: string, defaultCwd?: string): HookResult {
   try {
-    return preToolUseVerdict(parseInput(raw));
+    return preToolUseVerdict(parseInput(raw), defaultCwd);
   } catch (e) {
     return failClosed('PreToolUse', errText(e));
   }
 }
 
-export function stopFromRaw(raw: string): HookResult {
+export function stopFromRaw(raw: string, defaultCwd?: string): HookResult {
   try {
-    return stopVerdict(parseInput(raw));
+    return stopVerdict(parseInput(raw), defaultCwd);
   } catch (e) {
     return failClosed('Stop', errText(e));
   }
@@ -658,6 +670,18 @@ export function runHookClaude(): number {
     return emit(preToolUseFromRaw(readStdin()));
   } catch (e) {
     return emit(failClosed('PreToolUse', errText(e)));
+  }
+}
+
+/** The in-process fallback of the thin service client (src/cli/index.ts): the
+ *  launcher already consumed stdin to offer it to the service, so the verdict is
+ *  computed from those bytes rather than a second read. Same functions, same
+ *  fail-closed wrapping as runHookClaude / runSweepClaude. */
+export function runHookFromRaw(kind: 'PreToolUse' | 'Stop', raw: string): number {
+  try {
+    return emit(kind === 'PreToolUse' ? preToolUseFromRaw(raw) : stopFromRaw(raw));
+  } catch (e) {
+    return emit(failClosed(kind, errText(e)));
   }
 }
 

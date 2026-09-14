@@ -4,7 +4,8 @@
 
 import { runCheck, CheckOpts } from './check';
 import { FORMATS, isFormat } from './report';
-import { runHookClaude, runSweepClaude } from './hook';
+import { runHookClaude, runHookFromRaw, runSweepClaude } from './hook';
+import { runHookService } from './hook-service';
 import { runAllow, AllowOpts } from './allow';
 import { runInit, InitOpts } from './init';
 import { runDoctor, DoctorOpts } from './doctor';
@@ -269,6 +270,12 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     return undefined;
   }
 
+  if (cmd === 'hook-service') {
+    const sub = args[0];
+    if (sub !== 'start' && sub !== 'stop' && sub !== 'status') return 'hook-service requires one of start | stop | status';
+    return validateFlatArgs(args.slice(1), sub === 'start' ? { values: { '--dir': 'string' } } : {}).error;
+  }
+
   if (cmd === 'verify') {
     return validateFlatArgs(args, {
       flags: ['--json', '--keep', '--require-ancestor'],
@@ -325,6 +332,18 @@ Formats:
   auto    github when GITHUB_ACTIONS=true, otherwise text.
   tamperward hook claude                    PreToolUse gate (reads hook JSON on stdin)
   tamperward sweep claude                   Stop sweep (re-scan the turn's working tree)
+  tamperward hook-service start [--dir D]   OPT-IN persistent hook service: one warm
+  tamperward hook-service stop | status     process per user and repository that
+                                            evaluates hook/sweep requests over a
+                                            private unix socket, so each tool call
+                                            skips Node + bundle startup. Hooks
+                                            consult it only with
+                                            TAMPERWARD_HOOK_SERVICE=1 in Claude
+                                            Code's environment, and run in-process
+                                            (the ordinary path, same verdict) when
+                                            it is absent, stale, another version
+                                            or its socket fails the ownership and
+                                            mode checks. Not available on Windows.
   tamperward watch [--dir D] [--log F]      filesystem-event observer daemon: records
              [--base R]                     protected-file events so the sweep can
                                             observe supported transient effects.
@@ -409,6 +428,9 @@ Exit codes: 0 clean · 1 a blocking finding (check), MASKED_FAILURE or SUITE_RED
 `);
 }
 
+/** The thin service client's in-process fallback (src/cli/index.ts). */
+export { runHookFromRaw };
+
 export function main(argv: string[]): number | Promise<number> {
   const [cmd, ...rest] = argv;
   if (cmd !== undefined && cmd !== '-h' && cmd !== '--help') {
@@ -435,6 +457,8 @@ export function main(argv: string[]): number | Promise<number> {
       return runOnboard(parseOnboard(rest));
     case 'watch':
       return runWatch(rest);
+    case 'hook-service':
+      return runHookService(rest);
     case 'verify':
       return runVerify(parseVerify(rest));
     case 'trace-verify':

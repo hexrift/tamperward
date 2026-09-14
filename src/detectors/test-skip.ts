@@ -24,7 +24,8 @@
 // ASTs are not trusted for block findings: parse diagnostics decline the AST path and
 // leave the established line matcher as the fallback.
 
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../ts-lazy';
 import { Change, Detector, FileChange, Finding } from '../types';
 import { addedLines } from '../diff/select';
 import { isProtected } from '../policy';
@@ -153,7 +154,7 @@ const JS_TEST_MODULES = new Set([
 
 type AstHit = { line: number; why: string; evidence: string };
 
-function scriptKind(path: string): ts.ScriptKind {
+function scriptKind(path: string): TS.ScriptKind {
   if (/\.tsx$/i.test(path)) return ts.ScriptKind.TSX;
   if (/\.jsx$/i.test(path)) return ts.ScriptKind.JSX;
   if (/\.(?:js|mjs|cjs)$/i.test(path)) return ts.ScriptKind.JS;
@@ -170,11 +171,11 @@ function addedLineNumbers(c: FileChange): Set<number> {
   return out;
 }
 
-function moduleName(expr: ts.Expression): string | null {
+function moduleName(expr: TS.Expression): string | null {
   return ts.isStringLiteralLike(expr) ? expr.text : null;
 }
 
-function requiredModule(expr: ts.Expression): string | null {
+function requiredModule(expr: TS.Expression): string | null {
   if (
     !ts.isCallExpression(expr) ||
     !ts.isIdentifier(expr.expression) ||
@@ -186,23 +187,23 @@ function requiredModule(expr: ts.Expression): string | null {
 
 
 type AstContext = {
-  sf: ts.SourceFile;
-  checker: ts.TypeChecker;
+  sf: TS.SourceFile;
+  checker: TS.TypeChecker;
 };
 
 type StaticValue = {
   value: string;
-  causes: ts.Node[];
+  causes: TS.Node[];
 };
 
 type RunnerBinding = {
-  causes: ts.Node[];
+  causes: TS.Node[];
 };
 
 type SemanticHit = {
   semanticKey: string;
-  terminalNode: ts.Node;
-  causeNodes: ts.Node[];
+  terminalNode: TS.Node;
+  causeNodes: TS.Node[];
   why: string;
   evidence: string;
 };
@@ -222,7 +223,7 @@ function astContext(path: string, source: string): AstContext | null {
   const diagnostics = 'parseDiagnostics' in sf && Array.isArray(sf.parseDiagnostics) ? sf.parseDiagnostics : [];
   if (diagnostics.length > 0) return null;
 
-  const options: ts.CompilerOptions = {
+  const options: TS.CompilerOptions = {
     allowJs: true,
     checkJs: false,
     noLib: true,
@@ -245,15 +246,15 @@ function astContext(path: string, source: string): AstContext | null {
   return { sf, checker: program.getTypeChecker() };
 }
 
-function symbolAt(ctx: AstContext, node: ts.Node): ts.Symbol | null {
+function symbolAt(ctx: AstContext, node: TS.Node): TS.Symbol | null {
   return ctx.checker.getSymbolAtLocation(node) ?? null;
 }
 
-function importAliases(ctx: AstContext): Map<ts.Symbol, RunnerBinding> {
-  const out = new Map<ts.Symbol, RunnerBinding>();
-  const simpleAliases: Array<{ local: ts.Identifier; source: ts.Identifier }> = [];
+function importAliases(ctx: AstContext): Map<TS.Symbol, RunnerBinding> {
+  const out = new Map<TS.Symbol, RunnerBinding>();
+  const simpleAliases: Array<{ local: TS.Identifier; source: TS.Identifier }> = [];
 
-  const add = (id: ts.Identifier, causes: ts.Node[] = [id]): void => {
+  const add = (id: TS.Identifier, causes: TS.Node[] = [id]): void => {
     const sym = symbolAt(ctx, id);
     if (sym) out.set(sym, { causes });
   };
@@ -313,8 +314,8 @@ function importAliases(ctx: AstContext): Map<ts.Symbol, RunnerBinding> {
   return out;
 }
 
-function topLevelStaticStrings(ctx: AstContext): Map<ts.Symbol, StaticValue> {
-  const pending = new Map<ts.Symbol, { decl: ts.Identifier; expr: ts.Expression }>();
+function topLevelStaticStrings(ctx: AstContext): Map<TS.Symbol, StaticValue> {
+  const pending = new Map<TS.Symbol, { decl: TS.Identifier; expr: TS.Expression }>();
 
   for (const stmt of ctx.sf.statements) {
     if (!ts.isVariableStatement(stmt)) continue;
@@ -327,10 +328,10 @@ function topLevelStaticStrings(ctx: AstContext): Map<ts.Symbol, StaticValue> {
     }
   }
 
-  const resolved = new Map<ts.Symbol, StaticValue>();
-  const resolving = new Set<ts.Symbol>();
+  const resolved = new Map<TS.Symbol, StaticValue>();
+  const resolving = new Set<TS.Symbol>();
 
-  const valueOf = (expr: ts.Expression): StaticValue | null => {
+  const valueOf = (expr: TS.Expression): StaticValue | null => {
     if (ts.isStringLiteralLike(expr)) return { value: expr.text, causes: [] };
     if (ts.isParenthesizedExpression(expr)) return valueOf(expr.expression);
     if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.PlusToken) {
@@ -368,10 +369,10 @@ function topLevelStaticStrings(ctx: AstContext): Map<ts.Symbol, StaticValue> {
 }
 
 function staticPropertyName(
-  expr: ts.Expression,
+  expr: TS.Expression,
   ctx: AstContext,
-  strings: Map<ts.Symbol, StaticValue>,
-): { name: string; causes: ts.Node[] } | null {
+  strings: Map<TS.Symbol, StaticValue>,
+): { name: string; causes: TS.Node[] } | null {
   if (ts.isStringLiteralLike(expr)) return { name: expr.text, causes: [] };
   if (ts.isParenthesizedExpression(expr)) return staticPropertyName(expr.expression, ctx, strings);
   if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.PlusToken) {
@@ -390,15 +391,15 @@ function staticPropertyName(
 }
 
 function runnerChain(
-  expr: ts.Expression,
+  expr: TS.Expression,
   ctx: AstContext,
-  runners: Map<ts.Symbol, RunnerBinding>,
-  strings: Map<ts.Symbol, StaticValue>,
-): { root: string; props: string[]; terminalNode: ts.Node; causes: ts.Node[] } | null {
+  runners: Map<TS.Symbol, RunnerBinding>,
+  strings: Map<TS.Symbol, StaticValue>,
+): { root: string; props: string[]; terminalNode: TS.Node; causes: TS.Node[] } | null {
   const props: string[] = [];
-  const causes: ts.Node[] = [];
-  let cur: ts.Expression = expr;
-  let terminalNode: ts.Node = expr;
+  const causes: TS.Node[] = [];
+  let cur: TS.Expression = expr;
+  let terminalNode: TS.Node = expr;
 
   while (ts.isPropertyAccessExpression(cur) || ts.isElementAccessExpression(cur)) {
     if (ts.isPropertyAccessExpression(cur)) {
@@ -429,7 +430,7 @@ function runnerChain(
   return { root: cur.text, props, terminalNode, causes };
 }
 
-function optionDisables(value: ts.Expression): boolean {
+function optionDisables(value: TS.Expression): boolean {
   return !(
     value.kind === ts.SyntaxKind.FalseKeyword ||
     (ts.isNumericLiteral(value) && Number(value.text) === 0)
@@ -437,13 +438,13 @@ function optionDisables(value: ts.Expression): boolean {
 }
 
 function shorthandOptionDisables(
-  prop: ts.ShorthandPropertyAssignment,
+  prop: TS.ShorthandPropertyAssignment,
   ctx: AstContext,
 ): boolean {
   const sym = ctx.checker.getShorthandAssignmentValueSymbol(prop) ?? symbolAt(ctx, prop.name);
   const decl =
     sym?.valueDeclaration ??
-    sym?.declarations?.find((d): d is ts.VariableDeclaration => ts.isVariableDeclaration(d));
+    sym?.declarations?.find((d): d is TS.VariableDeclaration => ts.isVariableDeclaration(d));
   if (!decl || !ts.isVariableDeclaration(decl) || !decl.initializer) return true;
   return optionDisables(decl.initializer);
 }
@@ -456,7 +457,7 @@ function shorthandOptionDisables(
  * represented by SyntaxKind, so a formatting-only rewrite keeps the same key
  * while real expression changes remain distinct.
  */
-function structuralNodeKey(node: ts.Node, sf: ts.SourceFile): string {
+function structuralNodeKey(node: TS.Node, sf: TS.SourceFile): string {
   const children = node.getChildren(sf);
   const text = 'text' in node ? node.text : undefined;
   if (children.length === 0) {
@@ -473,7 +474,7 @@ function semanticSkipHits(ctx: AstContext): SemanticHit[] {
   const hits: SemanticHit[] = [];
   const callOrdinals = new Map<string, number>();
 
-  const visit = (node: ts.Node): void => {
+  const visit = (node: TS.Node): void => {
     if (ts.isCallExpression(node)) {
       const callText = node.getText(ctx.sf).trim();
       const callIdentity = structuralNodeKey(node, ctx.sf);
@@ -485,7 +486,7 @@ function semanticSkipHits(ctx: AstContext): SemanticHit[] {
       if (chain) {
         const { props, terminalNode, causes } = chain;
         const terminal = props.at(-1);
-        const push = (target: ts.Node, extraCauses: ts.Node[], why: string): void => {
+        const push = (target: TS.Node, extraCauses: TS.Node[], why: string): void => {
           hits.push({
             semanticKey: `${callKey}\u0000${why}`,
             terminalNode: target,
@@ -521,7 +522,7 @@ function semanticSkipHits(ctx: AstContext): SemanticHit[] {
             for (const prop of arg.properties) {
               if (ts.isPropertyAssignment(prop)) {
                 let name: string | null = null;
-                let propertyCauses: ts.Node[] = [];
+                let propertyCauses: TS.Node[] = [];
                 if (ts.isIdentifier(prop.name) || ts.isStringLiteralLike(prop.name)) {
                   name = prop.name.text;
                 } else if (ts.isComputedPropertyName(prop.name)) {
@@ -568,7 +569,7 @@ function astSkipHits(c: FileChange): { hits: AstHit[]; authoritative: boolean } 
     ? null
     : new Set(semanticSkipHits(beforeCtx).map((hit) => hit.semanticKey));
 
-  const lineOf = (node: ts.Node): number =>
+  const lineOf = (node: TS.Node): number =>
     afterCtx.sf.getLineAndCharacterOfPosition(node.getStart(afterCtx.sf)).line + 1;
 
   const hits: AstHit[] = [];

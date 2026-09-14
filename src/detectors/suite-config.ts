@@ -32,8 +32,9 @@
 // project inherits the root's selection — and is seeded from it; a project's
 // `test.root` rebases its globs exactly like `test.dir`.
 
-import picomatch from 'picomatch';
-import ts from 'typescript';
+import { picomatch } from '../lazy-deps';
+import type TS from 'typescript';
+import { ts } from '../ts-lazy';
 
 interface IgnoreEntry {
   pattern: string;
@@ -98,16 +99,16 @@ export const PYTEST_CANONICAL_SAMPLES = [
   'tests/conftest.py',
 ];
 
-function keyName(name: ts.PropertyName): string | null {
+function keyName(name: TS.PropertyName): string | null {
   if (ts.isIdentifier(name) || ts.isStringLiteral(name)) return name.text;
   return null;
 }
 
-const isStr = (e: ts.Node): e is ts.StringLiteral | ts.NoSubstitutionTemplateLiteral =>
+const isStr = (e: TS.Node): e is TS.StringLiteral | TS.NoSubstitutionTemplateLiteral =>
   ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e);
 
 /** String literals of an array (or a lone string); `opaque` when anything else sits in it. */
-function literals(e: ts.Expression): { items: string[]; opaque: boolean } {
+function literals(e: TS.Expression): { items: string[]; opaque: boolean } {
   if (isStr(e)) return { items: [e.text], opaque: false };
   if (!ts.isArrayLiteralExpression(e)) return { items: [], opaque: true };
   const items: string[] = [];
@@ -126,10 +127,10 @@ function literals(e: ts.Expression): { items: string[]; opaque: boolean } {
 /** The key of the property whose object literal holds `node` — `include` inside
  *  `test: { include }` answers `test`; inside `test: { typecheck: { include } }` it
  *  answers `typecheck`, which is the point: only the nearest owner scopes a key. */
-function ownerKey(node: ts.PropertyAssignment): string | null {
+function ownerKey(node: TS.PropertyAssignment): string | null {
   const obj = node.parent;
   if (!obj || !ts.isObjectLiteralExpression(obj)) return null;
-  let q: ts.Node | undefined = obj.parent;
+  let q: TS.Node | undefined = obj.parent;
   while (q && (ts.isParenthesizedExpression(q) || ts.isAsExpression(q) || q.kind === ts.SyntaxKind.SatisfiesExpression)) q = q.parent;
   return q && ts.isPropertyAssignment(q) ? keyName(q.name) : null;
 }
@@ -355,7 +356,7 @@ const empty = (): Selection => ({ include: null, regex: null, ignore: null, root
 const stripRootDir = (g: string) => g.replace(/^<rootDir>\/?/, '');
 
 /** A directory value read literally: `.`/`./` is the config's own directory. */
-function dirValue(e: ts.Expression): { dir: string | null; opaque: boolean } {
+function dirValue(e: TS.Expression): { dir: string | null; opaque: boolean } {
   if (!isStr(e)) return { dir: null, opaque: true };
   const d = stripRootDir(e.text).replace(/^\.\//, '').replace(/\/+$/, '');
   // a base outside the config's directory widens the walk — nothing to rebase onto
@@ -364,10 +365,10 @@ function dirValue(e: ts.Expression): { dir: string | null; opaque: boolean } {
 }
 
 /** Read one config object (the root, or one project of a multi-project config). */
-function collect(root: ts.Node, runner: Runner): Selection {
+function collect(root: TS.Node, runner: Runner): Selection {
   const sel = empty();
   const seen = new Set<string>();
-  const take = (key: string, e: ts.Expression): string[] => {
+  const take = (key: string, e: TS.Expression): string[] => {
     const { items, opaque } = literals(e);
     // the same key set twice at one level is not a config this reader models — opaque
     if (opaque || seen.has(key)) sel.opaque = true;
@@ -375,18 +376,18 @@ function collect(root: ts.Node, runner: Runner): Selection {
     sel.present = true;
     return items.map(stripRootDir);
   };
-  const ignores = (key: string, e: ts.Expression) => {
+  const ignores = (key: string, e: TS.Expression) => {
     const entries = take(key, e).map((pattern) => ({ pattern, key }));
     sel.ignore = [...(sel.ignore ?? []), ...entries];
   };
-  let projectList: ts.Expression | null = null;
-  const projects = (e: ts.Expression) => {
+  let projectList: TS.Expression | null = null;
+  const projects = (e: TS.Expression) => {
     sel.present = true;
     // read AFTER the root's own keys, whatever order the file wrote them in: an
     // `extends: true` project inherits the root's include/exclude/dir
     projectList = e;
   };
-  const visit = (node: ts.Node): void => {
+  const visit = (node: TS.Node): void => {
     if (ts.isSpreadAssignment(node) && spreadsIntoConfig(node, runner)) {
       sel.present = true;
       sel.opaque = true; // `{ ...base, test: {…} }`: the base's selection is not here to read
@@ -434,7 +435,7 @@ function collect(root: ts.Node, runner: Runner): Selection {
 }
 
 /** `defineConfig({...})` / `defineProject({...})` around a literal is the literal. */
-function unwrapConfigCall(e: ts.Expression): ts.Expression {
+function unwrapConfigCall(e: TS.Expression): TS.Expression {
   let x = e;
   while (ts.isParenthesizedExpression(x) || ts.isAsExpression(x) || ts.isSatisfiesExpression(x)) {
     x = x.expression;
@@ -447,13 +448,13 @@ const JEST_SELECTION_KEYS = /^(?:testMatch|testRegex|testPathIgnorePatterns|modu
 
 /** A `...base` spread that lands where a selection key would: in vitest's `test`
  *  object or the object holding it, in jest's config object. */
-function spreadsIntoConfig(node: ts.SpreadAssignment, runner: Runner): boolean {
+function spreadsIntoConfig(node: TS.SpreadAssignment, runner: Runner): boolean {
   const obj = node.parent;
   if (!ts.isObjectLiteralExpression(obj)) return false;
   const keys = obj.properties.map((p) => (ts.isPropertyAssignment(p) ? keyName(p.name) : null));
   if (runner === 'vitest') {
     if (keys.includes('test')) return true;
-    let q: ts.Node | undefined = obj.parent;
+    let q: TS.Node | undefined = obj.parent;
     while (q && (ts.isParenthesizedExpression(q) || ts.isAsExpression(q) || q.kind === ts.SyntaxKind.SatisfiesExpression)) q = q.parent;
     return !!q && ts.isPropertyAssignment(q) && keyName(q.name) === 'test';
   }
@@ -462,7 +463,7 @@ function spreadsIntoConfig(node: ts.SpreadAssignment, runner: Runner): boolean {
 
 /** The `extends` a project or workspace entry declares: `true` inherits the root
  *  config, a string names another config file, absent means the runner default. */
-function extendsOf(el: ts.ObjectLiteralExpression): true | 'path' | null {
+function extendsOf(el: TS.ObjectLiteralExpression): true | 'path' | null {
   for (const p of el.properties) {
     if (!ts.isPropertyAssignment(p) || keyName(p.name) !== 'extends') continue;
     if (p.initializer.kind === ts.SyntaxKind.TrueKeyword) return true;
@@ -473,7 +474,7 @@ function extendsOf(el: ts.ObjectLiteralExpression): true | 'path' | null {
 }
 
 /** One project of a multi-project config: its own keys over what it extends. */
-function readProject(el: ts.ObjectLiteralExpression, root: Selection | null, runner: Runner): Selection {
+function readProject(el: TS.ObjectLiteralExpression, root: Selection | null, runner: Runner): Selection {
   const p = collect(el, runner);
   const ext = extendsOf(el);
   if (ext === 'path') p.opaque = true; // another config file's selection — unreadable here
@@ -490,7 +491,7 @@ function readProject(el: ts.ObjectLiteralExpression, root: Selection | null, run
 }
 
 /** The projects list of a config (`projects: [...]`), each read over the root. */
-function readProjects(e: ts.Expression, root: Selection, runner: Runner): Selection[] {
+function readProjects(e: TS.Expression, root: Selection, runner: Runner): Selection[] {
   if (!ts.isArrayLiteralExpression(e)) {
     root.opaque = true;
     return [];
@@ -507,9 +508,9 @@ function readProjects(e: ts.Expression, root: Selection, runner: Runner): Select
 
 /** The array a `vitest.workspace.*` file exports — `export default [...]` or
  *  `defineWorkspace([...])`; null when it exports anything else. */
-function workspaceArray(sf: ts.SourceFile): ts.ArrayLiteralExpression | null {
+function workspaceArray(sf: TS.SourceFile): TS.ArrayLiteralExpression | null {
   for (const st of sf.statements) {
-    let e: ts.Expression | undefined;
+    let e: TS.Expression | undefined;
     if (ts.isExportAssignment(st)) e = st.expression;
     else if (ts.isExpressionStatement(st) && ts.isBinaryExpression(st.expression) && /module\.exports/.test(st.expression.left.getText())) e = st.expression.right;
     if (!e) continue;

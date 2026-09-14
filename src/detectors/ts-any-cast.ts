@@ -19,7 +19,8 @@
 // `unknown` (the honest narrowing target) is UnknownKeyword, never counted. Diff-only changes
 // (no before/after) fall back to additive-line regex, also split, so nothing regresses or throws.
 
-import ts from 'typescript';
+import type TS from 'typescript';
+import { ts } from '../ts-lazy';
 import { Change, Detector, Finding } from '../types';
 import { addedLines } from '../diff/select';
 import { protectedCategory } from '../policy';
@@ -55,14 +56,14 @@ function countAny(src: string): AnyCounts {
   const r: AnyCounts = { cast: 0, broad: 0, double: 0 };
   try {
     const sf = ts.createSourceFile('f.ts', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-    const visit = (node: ts.Node): void => {
+    const visit = (node: TS.Node): void => {
       // The double cast is structural: `(raw as unknown) as T` is the same
       // escape as `raw as unknown as T`, whatever the text regex sees.
       if ((ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) && isDoubleCast(node)) r.double++;
       if (node.kind === ts.SyntaxKind.AnyKeyword) {
         // `x as (any)` parents the keyword under a ParenthesizedType; the cast is the
         // same, so unwrap the parens before asking what the target type is.
-        let target: ts.Node = node;
+        let target: TS.Node = node;
         let p = target.parent;
         while (p && ts.isParenthesizedTypeNode(p)) {
           target = p;
@@ -98,14 +99,14 @@ const BROAD_LINE = /:\s*any\b|<[^<>]*\bany\b[^<>]*>/;
  *  than full-source analysis; it must never call one double-cast spelling block and a
  *  structurally identical one clean. */
 function lineHasDoubleCast(line: string): boolean {
-  let sf: ts.SourceFile;
+  let sf: TS.SourceFile;
   try {
     sf = ts.createSourceFile('line.ts', line, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   } catch {
     return false;
   }
   let found = false;
-  const visit = (n: ts.Node): void => {
+  const visit = (n: TS.Node): void => {
     if (found) return;
     if ((ts.isAsExpression(n) || ts.isTypeAssertionExpression(n)) && isDoubleCast(n)) {
       found = true;

@@ -225,6 +225,7 @@ before the wrapped command.
 | `init` | `--cwd <dir>` · `--dry-run` · `--force-workflow` |
 | `onboard` | `--cwd <dir>` · `--base <rev>` · `--repo <owner/repo>` · `--branch <name>` · `--skip-demo` / `--demo` · `--no-github` · `--yes` · `--verify-command "<suite command>"` |
 | `watch` | `--dir <dir>` · `--log <file>` — a daemon; it runs until signalled |
+| `hook-service` | `start [--dir <repo>]` (foreground; runs until signalled) · `stop` · `status` — the opt-in persistent hook service; hooks consult it only under `TAMPERWARD_HOOK_SERVICE=1` and fall back to in-process evaluation otherwise ([enforcement](./enforcement.md#the-persistent-hook-service-opt-in-off-by-default)) |
 | `hook claude` / `sweep claude` | none — the Claude Code payload arrives on stdin |
 
 Exit codes are part of the public surface:
@@ -236,12 +237,14 @@ Exit codes are part of the public surface:
 | `trace-verify` | every requested trace run completed green | one or more traced verifier runs were non-zero/incomplete; report still emitted | unsupported platform, missing tooling, bad trusted base/policy/options, or tracing failure |
 | `run` | enforcement clean and the agent exited 0 (a non-zero agent exit is passed through) | any blocking finding or masked failure | cannot adjudicate |
 | `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0 | — | only for an unsupported agent name |
+| `hook-service` | started, stopped (or nothing to stop), or status printed | — | unsupported platform (Windows), a runtime directory another uid owns, or a service already listening |
 | `allow` | sign-off recorded | — | no rule or `--reason`, not a git repo, or no current blocking finding to sign off |
 | `init` | wired, or already wired | — | an item needs attention |
 | `onboard` | posture `READY` or `READY WITH WARNINGS` | posture `BROKEN` or `INCOMPLETE` (a declined write or an unconfigured verifier included) | refused — not a git repository, non-interactive stdin without `--yes`, a dirty tree not continued — or aborted at a prompt |
 
 The variables the gate reads — `TAMPERWARD_OOB_SIGNOFF`, `TAMPERWARD_OOB_HEAD`,
-`TAMPERWARD_DENYLOG`, `TAMPERWARD_FSEVENTS`, `TAMPERWARD_WATCH_NO_RECURSIVE`,
+`TAMPERWARD_DENYLOG`, `TAMPERWARD_FSEVENTS`, `TAMPERWARD_HOOK_SERVICE`,
+`TAMPERWARD_HOOK_SERVICE_DIR`, `TAMPERWARD_WATCH_NO_RECURSIVE`,
 `TAMPERWARD_TRANSIENT`, `NO_COLOR`, `FORCE_COLOR`, `GITHUB_ACTIONS` — are listed on
 the [environment variables](./environment.md) page.
 
