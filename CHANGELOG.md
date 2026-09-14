@@ -5,6 +5,36 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.6] — 2026-09-14
+
+### Fixed
+
+- **`test-deletion` reads the package.json test scripts as check invocations** (#435).
+  Rewriting `"test": "vitest run"` to `echo ok`, `vitest run || true`, `vitest run
+  src/easy.test.ts`, `vitest run --config vitest.ci.ts` (a file nothing protects, or one
+  the same change adds), `vitest run --shard=1/1000`, or dropping nyc's `--check-coverage`
+  left CI running `npm test` unchanged and the whole suite neutralised with no finding —
+  the cheapest complete bypass in the ruleset. The `test`, `test:ci`, `check` and
+  `pretest` scripts are now compared before → after the way `ci-tampering` compares a
+  workflow line: a script that no longer runs a check, or runs a check of another kind,
+  is a removal; a masked status (`|| true`, `; exit 0`, a pipe, `--passWithNoTests`,
+  `--if-present`), a `timeout` wrapper, a dropped coverage gate, or a narrowed suite — a
+  runner flag (`--shard`, jest `--root` / `--rootDir` / `--testMatch` / `--testRegex` /
+  `--modulePathIgnorePatterns` / `--selectProjects`, pytest `-k` / `-m` / `--deselect` /
+  `--ignore`, mocha `--grep` / `-g`, `go test -run`, `cargo test -- --skip`, and the
+  flags already read), a spec path as a positional, an unreviewed `--config` — is a
+  neutralisation. `test:unit` / `test:integration` are deliberate slices: their
+  `--project` or positional is design, and only a masked status, a timeout or a
+  replacement is reported. A runner migration that keeps the suite (`jest` → `vitest
+  run`, `mocha` → `vitest`), an env prefix (`cross-env`, `NODE_OPTIONS=`), an `nyc` /
+  `c8` wrapper, `python -m pytest`, a reporter flag, a flag that was already there and a
+  check moved into a script the same change adds stay clean.
+- The invocation reading `ci-tampering` already had — `survives()`, the neutralising
+  suffixes, the narrowing-flag table, the path positional, the `timeout` wrapper — now
+  lives in `src/detectors/invocation.ts` and is consumed by both rules; the GitHub
+  expression folder moved to `src/detectors/gh-expression.ts`. `ci-tampering`'s own
+  behaviour is unchanged (its tables are extended separately, #436).
+
 ## [2.23.5] — 2026-09-14
 
 ### Fixed
