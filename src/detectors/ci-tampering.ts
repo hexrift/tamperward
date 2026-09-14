@@ -45,6 +45,7 @@ import { addedLines, removedLines } from '../diff/select';
 import { isProtected } from '../policy';
 import { makeFinding } from './finding';
 import { langOf } from './files';
+import { stripHeredocs } from './hook-wiring';
 import { branchExists, defaultBranch, trackedFiles } from './repo';
 
 const RULE = 'ci-tampering';
@@ -71,7 +72,10 @@ function isActiveWorkflow(path: string): boolean {
   return /(^|\/)\.github\/workflows\/[^/]+\.ya?ml$/.test(path);
 }
 
-const invokesCheck = (line: string): boolean => INVOKES_TOOL.test(line) || INVOKES_SCRIPT.test(line);
+// `- run: pytest` carries the tool right after the `run:` key, which is not one of the
+// shell separators INVOKES_TOOL knows — read the line's command core as well, so a
+// bare tool invocation on a step line is a check like `npm test` is (issue #436).
+const invokesCheck = (line: string): boolean => INVOKES_TOOL.test(line) || INVOKES_SCRIPT.test(line) || INVOKES_TOOL.test(commandCore(line));
 
 /** Reduce a line to the command it carries: step-item dash, `run:` key, and spacing are
  *  presentation, not identity — `- run: npm test` and an indented `run: npm test` under a
@@ -140,6 +144,82 @@ const NEUTRALISING_SUFFIX = new RegExp(
 /** `timeout 1 npm test`: the check is killed before it can decide. */
 const TIMEOUT_WRAP = /^timeout\s+(?:-{1,2}\S+\s+)*\d\S*\s+(.+)$/;
 
+// ── issue #436: same-kind respellings that run nothing ───────────────────────────
+// A respelling of the SAME kind of check was kept unread: `npm run tests --if-present`
+// (no such script — exit 0), `npm test --prefix packages/empty`, `-w empty`,
+// `pnpm test --filter nothing`, `jest --shard=1/1000`, `--testMatch '**/nothing.js'`,
+// `cargo test -- --skip failing`, `pytest -k nothing_matches`, a lowered
+// `--cov-fail-under`. Each runner has its own spelling of "select fewer", read here
+// per runner so that `-w` means a workspace to npm and not `--maxWorkers` to jest.
+// Kept apart from SUITE_NARROWING_FLAGS (shared with test-deletion) and from the
+// generic suffix table above, so the shared invocation-weakening module (#435) can
+// absorb them as one block.
+interface RunnerNarrowing {
+  /** Matched against the canonical command (runner prefix stripped). */
+  runner: RegExp;
+  /** Matched against the arguments, each preceded by a space. */
+  flags: RegExp;
+}
+const RUNNER_NARROWINGS: RunnerNarrowing[] = [
+  {
+    // a package-manager script: `test --prefix dir`, `-w pkg`, `--workspace=pkg`,
+    // `--if-present` (no script, no failure), pnpm's `--filter` / `-F`, npm's `-C`
+    runner: /^(?:test|tests|coverage)(?::\S+)?(?=\s|$)/,
+    flags: /\s--if-present(?=\s|$)|\s--prefix(?:=|\s)|\s-C(?:=|\s)|\s-w(?:=|\s)|\s--workspace(?:=|\s)|\s--filter(?:=|\s)|\s-F(?:=|\s)/,
+  },
+  {
+    runner: /^(?:jest|vitest)\b/,
+    flags: /\s--shard(?:=|\s)|\s--root(?:Dir)?(?:=|\s)|\s--testMatch(?:=|\s)|\s--testRegex(?:=|\s)|\s--modulePathIgnorePatterns(?:=|\s)|\s--selectProjects(?:=|\s)|\s--grep(?:=|\s)|\s-g(?:=|\s)/,
+  },
+  { runner: /^playwright\b/, flags: /\s--shard(?:=|\s)|\s--grep(?:=|\s)|\s-g(?:=|\s)|\s--grep-invert(?:=|\s)/ },
+  { runner: /^mocha\b/, flags: /\s--grep(?:=|\s)|\s-g(?:=|\s)|\s--fgrep(?:=|\s)|\s-f(?:=|\s)/ },
+  { runner: /^ava\b/, flags: /\s--match(?:=|\s)|\s-m(?:=|\s)/ },
+  { runner: /^node --test\b/, flags: /\s--test-name-pattern(?:=|\s)|\s--test-skip-pattern(?:=|\s)|\s--test-only(?=\s|$)/ },
+  {
+    // `-p no:<plugin>` disables collection when the plugin is the collector
+    // (`python`, `doctest`, `cov`); the cache, warning and output plugins select nothing
+    runner: /^pytest\b/,
+    flags:
+      /\s-k(?:=|\s)|\s-m(?:=|\s)|\s--deselect(?:=|\s)|\s--ignore(?:-glob)?(?:=|\s)|\s-p\s*no:(?!(?:cacheprovider|warnings|faulthandler|randomly|logging|legacypath|pastebin|stepwise|tmpdir|junitxml|terminal|terminalreporter)(?=\s|$))|\s--collect-only(?=\s|$)|\s--co(?=\s|$)/,
+  },
+  { runner: /^cargo test\b/, flags: /\s--\s(?:\S+\s+)*--skip(?:=|\s)|\s--exclude(?:=|\s)/ },
+  { runner: /^go test\b/, flags: /\s-run(?:=|\s)|\s-skip(?:=|\s)/ },
+];
+
+/** Whether `args` (the tail of the canonical command `cmd`) selects fewer specs for
+ *  the runner `cmd` names. */
+function runnerNarrowed(cmd: string, args: string): boolean {
+  const t = RUNNER_NARROWINGS.find((x) => x.runner.test(cmd));
+  return t !== undefined && t.flags.test(' ' + args.trim());
+}
+
+/** A coverage floor moved down: `--cov-fail-under=90` → `=10` still runs every test
+ *  and fails on nothing the old floor caught. */
+const COVERAGE_FLOOR = /--cov-fail-under(?:=|\s+)(\d+(?:\.\d+)?)/;
+function coverageFloorLowered(removed: string, added: string): boolean {
+  const was = removed.match(COVERAGE_FLOOR);
+  const now = added.match(COVERAGE_FLOOR);
+  return was !== null && now !== null && Number(now[1]) < Number(was[1]);
+}
+
+/** Prefixes a shell command may carry in front of the check without changing what
+ *  runs: variable assignments and the well-known wrappers. `echo npm test` is not a
+ *  wrapper: it prints the check. */
+const COMMAND_PREFIX =
+  /^(?:(?:[A-Za-z_]\w*=(?:"[^"]*"|'[^']*'|\S*)|sudo|env|nice|time|exec|command|nohup|xvfb-run|dbus-launch|cross-env|dotenv|poetry\s+run|pipenv\s+run|uv\s+run|hatch\s+run|pdm\s+run|bundle\s+exec)\s+(?:-{1,2}\S+\s+)*)*/;
+const CHECK_HEAD =
+  /^(?:(?:test|tests|lint|typecheck|type-check|coverage)(?::\S+)?(?=\s|$)|(?:jest|vitest|eslint|tsc|playwright|pytest|tamperward|mocha|ava|oxlint|tsgo|mypy|golangci-lint)\b|node --test\b|biome (?:ci|check|lint)\b|deno (?:test|lint|check)\b|ruff check\b|(?:make|cargo|go) test\b|gradle\w* (?:test|check)\b)/;
+
+/** A survival candidate must invoke the check in COMMAND POSITION: at the head of a
+ *  shell segment, behind nothing but assignments and wrappers. `echo "npm test"`, a
+ *  `name: npm test`, a folded scalar's continuation and a heredoc's body all carry the
+ *  words without running them (issue #436). */
+function inCommandPosition(core: string): boolean {
+  return canonical(core)
+    .split(/\s*(?:&&|\|\||;|\|)\s*/)
+    .some((seg) => CHECK_HEAD.test(canonical(seg.replace(COMMAND_PREFIX, ''))));
+}
+
 /** A positional that names a spec or a path (`test/a.test.ts`, `src/`, `test/a`)
  *  narrows the suite exactly like `--testPathPattern` — the runner opens only what
  *  it names. A flag's value (`--config jest.ci.js`) and a redirect target are not
@@ -191,7 +271,7 @@ function survives(removedCore: string, isUses: boolean, afterCores: string[], ad
     if (a === r) return { state: 'kept' };
     if (a.startsWith(r + ' ')) {
       const rest = a.slice(r.length);
-      if (NEUTRALISING_SUFFIX.test(rest) || narrowed(rest)) neutralised ??= raw;
+      if (NEUTRALISING_SUFFIX.test(rest) || narrowed(rest) || runnerNarrowed(a, rest)) neutralised ??= raw;
       else return { state: 'kept' };
     } else if (r.startsWith(a + ' ') && invokesCheck(a)) {
       return { state: 'kept' }; // the check got shorter — arguments dropped, the invocation kept
@@ -208,8 +288,13 @@ function survives(removedCore: string, isUses: boolean, afterCores: string[], ad
       neutralised ??= raw;
       continue;
     }
+    if (!inCommandPosition(raw)) continue; // the words, not the check (issue #436)
+    if (coverageFloorLowered(r, a)) {
+      neutralised ??= raw;
+      continue;
+    }
     const args = a.slice(a.indexOf(' ') + 1 || a.length);
-    if (a.includes(' ') && (NEUTRALISING_SUFFIX.test(' ' + args) || narrowed(args))) neutralised ??= raw;
+    if (a.includes(' ') && (NEUTRALISING_SUFFIX.test(' ' + args) || narrowed(args) || runnerNarrowed(a, args))) neutralised ??= raw;
     else respelled = true;
   }
   if (respelled) return { state: 'kept' };
@@ -360,16 +445,26 @@ export function foldConst(src: string): Val | undefined {
       if (/^true$/i.test(t.v)) return true;
       if (/^false$/i.test(t.v)) return false;
       if (/^null$/i.test(t.v)) return null;
-      // a function call or an index: consume its arguments so the operators
-      // AROUND it still fold, and yield unknown — not ours to decide
+      // a function call: its arguments are consumed so the operators AROUND it still
+      // fold; a call over CONSTANTS folds to its value (`contains('a', 'b')` is false,
+      // `fromJSON('false')` is false — issue #436), any other call yields unknown
       if (eat('(')) {
+        const args: Array<Val | undefined> = [];
         if (!eat(')')) {
           for (;;) {
-            or();
+            args.push(or());
             if (eat(')')) break;
             if (!eat(',')) return undefined;
           }
         }
+        let indexed = false;
+        while (eat('[')) {
+          or();
+          indexed = true;
+          if (!eat(']')) return undefined;
+        }
+        if (indexed) return undefined;
+        return callConst(t.v, args);
       }
       while (eat('[')) {
         or();
@@ -381,6 +476,47 @@ export function foldConst(src: string): Val | undefined {
   };
   const v = or();
   return p === toks.length ? v : undefined;
+}
+
+/** GitHub's expression functions over constant arguments, evaluated as the runner
+ *  does: string comparison is case-insensitive, a non-string is coerced the way
+ *  `format` prints it, `fromJSON` yields a primitive or (for an object/array) an
+ *  unknown-but-truthy value. Any unknown argument keeps the call unknown. */
+function callConst(name: string, args: Array<Val | undefined>): Val | undefined {
+  const vals: Array<string | number | boolean | null> = [];
+  for (const a of args) {
+    if (a === undefined || a === TRUTHY) return undefined;
+    vals.push(a);
+  }
+  const s = (i: number): string => (vals[i] == null ? '' : String(vals[i]));
+  switch (name.toLowerCase()) {
+    case 'contains':
+      return vals.length === 2 ? s(0).toLowerCase().includes(s(1).toLowerCase()) : undefined;
+    case 'startswith':
+      return vals.length === 2 ? s(0).toLowerCase().startsWith(s(1).toLowerCase()) : undefined;
+    case 'endswith':
+      return vals.length === 2 ? s(0).toLowerCase().endsWith(s(1).toLowerCase()) : undefined;
+    case 'format': {
+      if (vals.length < 1) return undefined;
+      return s(0).replace(/\{\{|\}\}|\{(\d+)\}/g, (m, i: string | undefined) => (m === '{{' ? '{' : m === '}}' ? '}' : s(Number(i) + 1)));
+    }
+    case 'join':
+      return vals.length >= 1 && vals.length <= 2 ? s(0) : undefined;
+    case 'tojson':
+      return vals.length === 1 ? JSON.stringify(vals[0]) : undefined;
+    case 'fromjson': {
+      if (vals.length !== 1) return undefined;
+      try {
+        const v: unknown = JSON.parse(s(0));
+        if (v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return v;
+        return TRUTHY; // an object or an array: truthy, its contents not ours to read
+      } catch {
+        return undefined;
+      }
+    }
+    default:
+      return undefined;
+  }
 }
 
 /** The expression inside `${{ }}`, or the bare value (GitHub accepts `if:` without the
@@ -482,6 +618,32 @@ function runBlocks(lines: string[]): RunBlock[] {
   return out;
 }
 
+/** The after-file as the shell reads it (issue #436): inside a `run: |` block a
+ *  heredoc body is data, and a `run: >` folded scalar is ONE command whose
+ *  continuation lines are its arguments. Both once counted as places where a removed
+ *  check could "survive" (`cat <<EOF >/dev/null` / `npm test` / `EOF`; `echo` /
+ *  `npm test`). Index-aligned with `lines`: a line that is not a command is blank. */
+function commandLines(lines: string[]): string[] {
+  const out = lines.slice();
+  for (const b of runBlocks(lines)) {
+    if (/^\s*-?\s*run:\s*>/.test(lines[b.start])) {
+      out[b.start + 1] = b.body.map((l) => l.trim()).filter(Boolean).join(' ');
+      for (let k = b.start + 2; k < b.end; k++) out[k] = '';
+      continue;
+    }
+    const indents = b.body.filter((l) => l.trim() !== '').map(indentOf);
+    const ind = indents.length ? Math.min(...indents) : 0;
+    const dedented = b.body.map((l) => l.slice(Math.min(ind, indentOf(l))));
+    const kept = stripHeredocs(dedented);
+    let j = 0;
+    for (let k = 0; k < dedented.length; k++) {
+      if (j < kept.length && kept[j] === dedented[k]) j++;
+      else out[b.start + 1 + k] = '';
+    }
+  }
+  return out;
+}
+
 const NEUTRALISERS: Array<{ re: RegExp; what: string }> = [
   { re: /^\s*set\s+\+e\b/, what: 'set +e — a failing check no longer fails the step' },
   { re: /^\s*exit\s+0\s*(?:$|[;#])/, what: 'exit 0 — the step ends green whatever the check did' },
@@ -490,7 +652,7 @@ const NEUTRALISERS: Array<{ re: RegExp; what: string }> = [
 ];
 
 // ── `on:` narrowing ───────────────────────────────────────────────────────────
-type ListKey = 'branches' | 'branchesIgnore' | 'pathsIgnore' | 'paths' | 'types';
+type ListKey = 'branches' | 'branchesIgnore' | 'pathsIgnore' | 'paths' | 'types' | 'tags';
 interface Triggers {
   events: Set<string>;
   branches: Map<string, string[]>; // event → branches list (literal entries)
@@ -498,6 +660,7 @@ interface Triggers {
   pathsIgnore: Map<string, string[]>;
   paths: Map<string, string[]>;
   types: Map<string, string[]>;
+  tags: Map<string, string[]>;
   present: boolean;
 }
 
@@ -507,6 +670,7 @@ const LIST_KEYS: Record<string, ListKey> = {
   'paths-ignore': 'pathsIgnore',
   paths: 'paths',
   types: 'types',
+  tags: 'tags',
 };
 
 function flowList(v: string): string[] | null {
@@ -527,6 +691,7 @@ function parseTriggers(src: string): Triggers {
     pathsIgnore: new Map(),
     paths: new Map(),
     types: new Map(),
+    tags: new Map(),
     present: false,
   };
   const lines = src.split('\n');
@@ -595,16 +760,23 @@ function ghGlob(g: string): (p: string) => boolean {
   }
 }
 
-/** Whether a `paths:` filter lets any source file through: patterns apply in order,
- *  a later `!` entry excluding what an earlier one included. */
-function pathsMatchSource(globs: string[], sources: string[]): boolean {
-  const ms = globs.map((g) => ({ neg: g.startsWith('!'), m: ghGlob(g.startsWith('!') ? g.slice(1) : g) }));
-  return sources.some((s) => {
-    let on = false;
-    for (const { neg, m } of ms) if (m(s)) on = !neg;
-    return on;
-  });
+/** Whether an ordered filter list admits `name`: patterns apply in order, a later
+ *  `!` entry excluding what an earlier one included (and a later positive entry
+ *  re-admitting it). GitHub reads `branches:`, `paths:` and `paths-ignore:` alike. */
+function admits(globs: string[], name: string): boolean {
+  let on = false;
+  for (const g of globs) {
+    const neg = g.startsWith('!');
+    if (ghGlob(neg ? g.slice(1) : g)(name)) on = !neg;
+  }
+  return on;
 }
+
+/** Whether a `paths:` filter lets any source file through. */
+const pathsMatchSource = (globs: string[], sources: string[]): boolean => sources.some((s) => admits(globs, s));
+/** Whether a `paths-ignore:` filter swallows every source file (issue #436): the
+ *  workflow then runs on docs and nothing else, exactly as `['**']` does. */
+const ignoresEverySource = (globs: string[], sources: string[]): boolean => sources.length > 0 && sources.every((s) => admits(globs, s));
 
 /** Source files a workflow's `paths:` filter must be able to match: the repository's
  *  own code files, or the conventional layouts when no listing is available. */
@@ -629,13 +801,23 @@ function triggerNarrowings(before: Triggers, after: Triggers, opts: TriggerOpts)
   const out: string[] = [];
   if (!before.present || !after.present) return out;
   const isDefault = (b: string) => (opts.defaultBranch ? b === opts.defaultBranch : DEFAULT_BRANCH.test(b));
-  const namesDefault = (l: string[]) => l.some(isDefault);
+  // The names the default branch may carry: the one the repository declares, or
+  // main and master alike when it cannot say. A filter "names the default branch"
+  // when, read in order with its `!` entries, it admits one of them.
+  const candidates = opts.defaultBranch ? [opts.defaultBranch] : ['main', 'master'];
+  const namesDefault = (l: string[]) => candidates.some((b) => admits(l, b));
   for (const e of CODE_EVENTS) {
     if (before.events.has(e) && !after.events.has(e)) out.push(`the ${e} trigger was removed — the workflow no longer runs on it`);
   }
   for (const [e, list] of after.pathsIgnore) {
     const had = before.pathsIgnore.get(e) ?? [];
-    if (list.some((g) => ALL(g) && !had.includes(g))) out.push(`on.${e}.paths-ignore now ignores every path — the workflow never runs on ${e}`);
+    if (list.some((g) => ALL(g) && !had.includes(g))) {
+      out.push(`on.${e}.paths-ignore now ignores every path — the workflow never runs on ${e}`);
+      continue;
+    }
+    if (!CODE_EVENTS.includes(e) || !after.events.has(e)) continue;
+    if (had.length && ignoresEverySource(had, opts.sources)) continue; // was already this narrow
+    if (ignoresEverySource(list, opts.sources)) out.push(`on.${e}.paths-ignore now ignores every source file (now [${list.join(', ')}]) — the workflow never runs on code`);
   }
   for (const [e, list] of after.paths) {
     if (!CODE_EVENTS.includes(e) || !after.events.has(e)) continue;
@@ -653,24 +835,94 @@ function triggerNarrowings(before: Triggers, after: Triggers, opts: TriggerOpts)
     const had = before.branchesIgnore.get(e) ?? [];
     if (list.some((g) => (ALL(g) || isDefault(g)) && !had.includes(g))) out.push(`on.${e}.branches-ignore now covers the default branch`);
   }
-  for (const [e, was] of before.branches) {
+  // An event with no `branches:` filter runs on EVERY branch — the implicit filter
+  // is `['**']`, and adding `branches: [never-exists]` narrows it exactly as
+  // `[main]` → `[never-exists]` does (issue #436). A `tags:`-only filter is the
+  // other way to lose every branch: GitHub then runs the workflow on tag pushes alone.
+  const events = new Set([...before.branches.keys(), ...CODE_EVENTS.filter((e) => before.events.has(e))]);
+  for (const e of events) {
+    const was = before.branches.get(e) ?? (before.tags.has(e) ? null : ['**']);
+    if (!was || !after.events.has(e)) continue; // the event itself is reported above
     const now = after.branches.get(e);
-    if (!now || !after.events.has(e)) continue; // filter dropped = wider, or the event itself is reported above
-    if (now.some(ALL)) continue;
+    if (!now) {
+      const tags = after.tags.get(e);
+      if (tags && namesDefault(was)) out.push(`on.${e} now filters on tags only (tags: [${tags.join(', ')}]) — no push to the default branch runs the workflow`);
+      continue; // filter dropped = wider
+    }
     // `[main]` → `[master]` is a rename of the default branch, not a narrowing, when
     // master IS the default, when the repository cannot say which name it uses, or
     // when the name it now carries is a main/master branch the repository HAS:
     // `origin/HEAD` is set once at clone and stays `master` long after the branch
-    // was renamed, so a stale remote head must not outvote a branch that exists.
-    const renamed = (b: string) => DEFAULT_BRANCH.test(b) && opts.hasBranch(b) !== false;
-    const lostDefault = namesDefault(was) && !namesDefault(now) && !now.some(renamed);
+    // was renamed, so a stale remote head must not outvote a branch that exists. The
+    // name must be carried as a literal entry the filter admits: `['**', '!main']`
+    // carries no rename, it negates the default branch.
+    const renamed = (b: string) => DEFAULT_BRANCH.test(b) && now.includes(b) && admits(now, b) && opts.hasBranch(b) !== false;
+    const lost = candidates.filter((b) => admits(was, b) && !admits(now, b));
+    const lostDefault = lost.length > 0 && !['main', 'master'].some(renamed);
     const replaced = !namesDefault(was) && !namesDefault(now) && was.length > 0 && !was.some((b) => now.includes(b));
-    if (lostDefault || replaced) out.push(`on.${e}.branches no longer names ${was.filter((b) => !now.includes(b)).join(', ')} (now [${now.join(', ')}])`);
+    if (!lostDefault && !replaced) continue;
+    const dropped = was.filter((b) => !now.includes(b) && !ALL(b));
+    out.push(
+      dropped.length
+        ? `on.${e}.branches no longer names ${dropped.join(', ')} (now [${now.join(', ')}])`
+        : `on.${e}.branches now filters to [${now.join(', ')}], which does not admit the default branch`,
+    );
   }
   return out;
 }
 
 const REUSED_WORKFLOW = /^\s*uses:\s*\.\/(\.github\/workflows\/[^\s@]+)/;
+
+// ── issue #436: a check pointed somewhere it runs nothing ───────────────────────
+/** A manifest that makes a directory a package the check could run in. */
+const MANIFEST = /(?:^|\/)(?:package\.json|pyproject\.toml|setup\.py|setup\.cfg|Cargo\.toml|go\.mod|Makefile|build\.gradle(?:\.kts)?|pom\.xml|Gemfile|deno\.jsonc?)$/;
+/** A `working-directory:` or `ref:` value read the runner's way: quoting stripped,
+ *  an expression folded to its constant, or null when it depends on a context
+ *  (`${{ matrix.dir }}`, `${{ github.event.pull_request.head.sha }}`). */
+function literalValue(raw: string): string | null {
+  const v = foldExpressions(uncommented(raw).replace(/^(['"])(.*)\1$/, '$2').trim());
+  return v.includes(EXPR_TOKEN) || v.includes(MATRIX_TOKEN) ? null : v;
+}
+/** Whether `dir` holds nothing a check could run over: no tracked code file and no
+ *  package manifest beneath it. A repository that cannot list its files cannot vouch
+ *  for the directory, and the check is then read as pointed at nothing (fail closed;
+ *  the CLI always supplies the listing). */
+function dirRunsNothing(dir: string, ctx?: DetectorContext): boolean {
+  const files = trackedFiles(ctx);
+  if (!files) return true;
+  const d = dir.replace(/^\.\//, '').replace(/\/+$/, '');
+  if (d === '' || d === '.') return false;
+  return !files.some((f) => f.startsWith(d + '/') && (langOf(f) !== null || MANIFEST.test(f)));
+}
+const WORKDIR_LINE = /^\s*-?\s*working-directory:\s*(.+?)\s*$/;
+const REF_LINE = /^\s*ref:\s*(.+?)\s*$/;
+const CHECKOUT = /^\s*-?\s*uses:\s*actions\/checkout(?:@|\s|$)/;
+/** The `defaults:` line a `defaults.run.working-directory` hangs from, or null. */
+function defaultsOf(lines: string[], i: number): number | null {
+  const run = ancestorOf(lines, i);
+  if (run === null || !/^\s*run:\s*$/.test(lines[run])) return null;
+  const d = ancestorOf(lines, run);
+  return d !== null && /^\s*defaults:\s*$/.test(lines[d]) ? d : null;
+}
+/** The step a line at ANY depth below a step item belongs to (`ref:` sits under
+ *  `with:` under the item); `stepOf` reads a direct child only. */
+function enclosingStep(lines: string[], i: number): [number, number] | null {
+  let h: number | null = i;
+  while ((h = ancestorOf(lines, h)) !== null) {
+    if (!STEP_START.test(lines[h])) continue;
+    const ind = indentOf(lines[h]);
+    let e = i + 1;
+    while (e < lines.length && (lines[e].trim() === '' || indentOf(lines[e]) > ind)) e++;
+    return [h, e];
+  }
+  return null;
+}
+function ancestorOf(lines: string[], i: number): number | null {
+  const ind = indentOf(lines[i]);
+  let h = i - 1;
+  while (h >= 0 && (lines[h].trim() === '' || /^\s*#/.test(lines[h]) || indentOf(lines[h]) >= ind)) h--;
+  return h >= 0 ? h : null;
+}
 
 export const ciTampering: Detector = {
   id: RULE,
@@ -789,6 +1041,53 @@ export const ciTampering: Detector = {
             }),
           );
         }
+        // A check step pointed at a directory holding nothing it could run
+        // (`working-directory: packages/empty`, on the step or as the job's / the
+        // workflow's `defaults.run`), and `actions/checkout` pinned to a literal ref:
+        // the suite then runs against that ref, never against the change (issue #436).
+        for (const l of addedLines(c)) {
+          if (l.newLine == null) continue;
+          const i = l.newLine - 1;
+          const wd = l.content.match(WORKDIR_LINE);
+          if (wd) {
+            const dir = literalValue(wd[1]);
+            if (dir === null || !dirRunsNothing(dir, ctx)) continue;
+            const step = stepOf(afterLines, i);
+            if (step) {
+              if (!stepHasCheck(afterLines, step)) continue;
+            } else {
+              const d = defaultsOf(afterLines, i);
+              if (d === null) continue;
+              const job = jobOf(afterLines, d);
+              if (job ? !jobHasCheck(afterLines, job) : !afterLines.some((x) => invokesCheck(x) || usesCheck(x))) continue;
+            }
+            out.push(
+              makeFinding(RULE, policy, {
+                file: c.path,
+                line: l.newLine,
+                message: `A check was pointed at ${dir} by working-directory — a directory holding no code or package the check could run.`,
+                evidence: l.content.trim(),
+                remediation: 'Run the check where the code is. A suite pointed at an empty directory passes on nothing.',
+              }),
+            );
+            continue;
+          }
+          const ref = l.content.match(REF_LINE);
+          if (!ref) continue;
+          const step = enclosingStep(afterLines, i);
+          if (!step || !afterLines.slice(step[0], step[1]).some((x) => CHECKOUT.test(x))) continue;
+          const target = literalValue(ref[1]);
+          if (target === null) continue;
+          out.push(
+            makeFinding(RULE, policy, {
+              file: c.path,
+              line: l.newLine,
+              message: `actions/checkout was pinned to ref: ${target} — the checks run against that ref, not against the change under review.`,
+              evidence: l.content.trim(),
+              remediation: "Let checkout take the event's ref (its default). A suite that checks out main proves nothing about the pull request.",
+            }),
+          );
+        }
         // `on:` narrowed so the workflow no longer runs where the check matters.
         if (c.before != null && c.after != null) {
           triggerOpts ??= { defaultBranch: defaultBranch(ctx), sources: sourceProbes(ctx), hasBranch: (b) => branchExists(b, ctx) };
@@ -814,14 +1113,17 @@ export const ciTampering: Detector = {
       // scan above; a move behind an obscure-but-reachable condition is accepted as
       // conditionalisation — the same exposure as authoring a new guarded step, which no
       // diff-based rule ever saw.
-      const afterCores = (afterLines ?? addedLines(c).map((l) => l.content)).map(commandCore);
-      const addedCores = addedLines(c).map((l) => commandCore(l.content));
+      // Read as the shell reads them: a heredoc body or a folded scalar's continuation
+      // is not a command a check could survive in (issue #436).
+      const afterCommands = afterLines ? commandLines(afterLines) : null;
+      const afterCores = (afterCommands ?? addedLines(c).map((l) => l.content)).map(commandCore);
+      const addedCores = addedLines(c).map((l) => commandCore(afterCommands && l.newLine != null ? afterCommands[l.newLine - 1] : l.content));
       // A check moved into a reusable workflow the same change carries is kept there.
       for (const l of afterLines ?? []) {
         const reused = l.match(REUSED_WORKFLOW)?.[1];
         const content = reused ? afterByPath.get(reused) : undefined;
         if (content == null || reused === c.path) continue;
-        const cores = content.split('\n').map(commandCore);
+        const cores = commandLines(content.split('\n')).map(commandCore);
         afterCores.push(...cores);
         addedCores.push(...cores);
       }
