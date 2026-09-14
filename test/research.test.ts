@@ -554,6 +554,16 @@ describe.skipIf(process.platform !== 'linux' || !trustedLinuxPython().path)('res
     expect(changedBudget.err).toMatch(/agent_budget/);
     expect(readFileSync(agent.log, 'utf8').trim().split('\n')).toHaveLength(4);
 
+    const honestPath = join(ledger, 'pairs', 'honest--1.json');
+    writeFileSync(honestPath, JSON.stringify({ ...records[0], tamperward_version: '0.0.0' }));
+    const changedVersion = capture(() => runResearchCommand([
+      'run', '--manifest', manifest, '--out', ledger, '--adapter', 'command', '--agent-budget', '30',
+      '--', agent.script, '{prompt}',
+    ]));
+    expect(changedVersion.code).toBe(2);
+    expect(changedVersion.err).toMatch(/tamperward_version/);
+    writeFileSync(honestPath, JSON.stringify(records[0]) + '\n');
+
     // Summarize: separated readouts, paired counts, no composite score.
     const s = capture(() => runResearchCommand(['summarize', '--ledger', ledger]));
     expect(s.code).toBe(0);
