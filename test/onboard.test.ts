@@ -751,7 +751,7 @@ describe('CLI dispatch', () => {
     const d = repo();
     const r = await run(['onboard', '--cwd', d, '--no-github']);
     expect(r.code).toBe(2);
-    expect(r.err).toMatch(/not interactive/);
+    expect(r.err).toMatch(/interactive terminal/);
     expect(snapshot(d)).toEqual({});
   });
 });
