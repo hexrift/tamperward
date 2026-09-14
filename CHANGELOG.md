@@ -5,6 +5,30 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.4] — 2026-09-14
+
+### Fixed
+
+- **`test-deletion` blocks a spec renamed into a path the runner does not walk** (#430).
+  A rename that stayed inside the tests glob was silent even when the runner would
+  never open the new path: `src/a.test.ts → cypress/a.test.ts` (vitest's default
+  exclude), `tests/integration.rs → tests/integration/mod.rs` (cargo builds only
+  `tests/<name>.rs` and `tests/<name>/main.rs`), `pkg/a_test.go → pkg/testdata/a_test.go`
+  (`go test` skips `testdata`, `_*` and `.*` components) and
+  `tests/test_a.py → tests/.archive/test_a.py` (pytest's default `norecursedirs`).
+  The rename branch now evaluates the new path against the runner's default exclusion
+  set — the same `test.exclude` / `norecursedirs` defaults the suite-narrowing
+  predicate already reads — plus the per-ecosystem target rules above, and reports
+  *renamed into a path the runner does not walk*. The `mv` spelling on the command
+  surface is held the same way. Only a rename whose old path was itself walked fires,
+  so an ordinary move within the walked tree (`src/a.test.ts → src/unit/a.test.ts`,
+  `tests/x.rs → tests/x/main.rs`) stays clean.
+- **`policy.ignore` can no longer hide the old path of a rename** (#430). Suppression
+  tested the new path only, so with an ordinary `ignore: ['docs/**']` the rename
+  `test/a.test.ts → docs/a.md` produced no finding. A rename is now suppressed only
+  when both of its ends are ignored, and never when the old path is in a protected
+  category.
+
 ## [2.23.3] — 2026-09-14
 
 ### Fixed
