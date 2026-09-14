@@ -89,7 +89,7 @@ tamperward audit publish \
 
 The publisher requires `GH_TOKEN` or `GITHUB_TOKEN` with **Contents write** access.
 The audit branch is created from the repository's default branch if it does not exist.
-Protect that branch if the history is meant to be a durable organisational record.
+Protect that branch so only the trusted publisher identity can write it (or explicitly bypass its rules) if the history is meant to be a durable organisational record. A rule that denies that publisher's Contents write will, correctly, make `audit publish` fail.
 
 For stronger provenance, **do not expose the publishing token to the agent being
 measured**. Run `tamperward audit publish` after the agent session from an operator
