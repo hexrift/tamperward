@@ -22,7 +22,7 @@
 <path d="M300 215H475" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M655 215H790" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 <path d="M895 255V365H600V460" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
-<path d="M300 78V370H600V460" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M235 78V158H140V380H550V460" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 
 <!-- arrows: adjudication fan-out -->
 <path d="M600 520V550H260V580" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
