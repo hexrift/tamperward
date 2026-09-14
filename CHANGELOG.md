@@ -5,6 +5,25 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.21] — 2026-09-14
+
+### Fixed
+
+- **`test-skip` reads Go `Skip` on any receiver and the pytest conftest hooks** (#441).
+  The Go row matched `\b[tb]\.Skip`, so `tb.Skip()`, a subtest's `tt.Skip()` and
+  testify's `s.T().Skip()` were silent; it now matches `Skip`/`Skipf`/`SkipNow` on any
+  receiver and on `T()`. The pytest row knew only the decorator and runtime spellings,
+  so a `conftest.py` — a protected test file — could filter `items` in
+  `pytest_collection_modifyitems`, decide collection in `pytest_pycollect_makeitem`, mark
+  every item with `add_marker(pytest.mark.skip)`, alias `sk = pytest.mark.skip` and use
+  `@sk`, or set `rep.outcome = 'passed'` in a `pytest_runtest_makereport` hookwrapper
+  without a finding. Each of those is now a `test-skip` block; the aliased decorator is
+  resolved against the AFTER file when the change carries it, else against the added
+  lines. A conftest that only registers fixtures, `pytest_addoption`, `pytest_configure`,
+  a custom marker, a `Skip(` inside a string and the hook name in a comment stay clean.
+  Replay of the test-skip suites (`test-skip-ast`, `fp-study-harness`,
+  `detector-spellings`, `coverage-gaps`): 0 new findings.
+
 ## [2.23.17] — 2026-09-14
 
 ### Fixed
