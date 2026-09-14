@@ -2,16 +2,23 @@ name: tamperward-audit
 
 # Durable dogfooding evidence, deliberately separate from the enforcement gate.
 # The hook never writes GitHub directly, and this workflow is the ONLY writer to
-# the tamperward-audit evidence branch. Audit-v1 events reach it two ways, both
-# human-curated and both running only from the trusted copy committed on main:
+# the tamperward-audit evidence branch. The invariant is not "nothing automatic
+# ever writes the branch" but the stronger, more useful one: nothing UNREVIEWED
+# or candidate-controlled may cause evidence to enter it. Humans decide what
+# evidence enters the repository; automation only performs deterministic,
+# idempotent ingestion after review.
+#
+# Two curated entry points, both running only from the trusted copy on main:
 #   - an operator dispatches a validated batch by hand (workflow_dispatch), or
-#   - a reviewed PR appends validated audit-v1 lines to audit/pending.jsonl and,
-#     on merge to main, this workflow ingests the new event ids.
+#   - a reviewed PR adds an IMMUTABLE batch file audit/pending/<batch-id>.jsonl
+#     and, on merge to main, this workflow ingests any batch whose id/content
+#     hash is not already recorded in the tamperward-audit branch.
 # There is deliberately NO pull_request / pull_request_target trigger: an
 # untrusted fork PR must never run the workflow that writes the evidence branch.
 # The push trigger fires only AFTER a merge, from main, is gated again by
-# `if: github.ref == 'refs/heads/main'`, and re-validates the strict v1 schema
-# before touching the branch. Never place TAMPERWARD_DENYLOG here — only audit-v1.
+# `if: github.ref == 'refs/heads/main'`, and re-validates the strict audit-v1
+# schema before touching the branch. Never commit TAMPERWARD_DENYLOG here — only
+# audit-v1 events.
 on:
   workflow_dispatch:
     inputs:
@@ -40,56 +47,78 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - name: Resolve the audit batch
-        id: batch
+      - name: Resolve pending batches not yet ingested
+        id: scan
         env:
-          # workflow_dispatch supplies the batch as an input; a push ingests the
-          # reviewed audit/pending.jsonl committed on main. Read the dispatch input
-          # through the environment so its content is never interpolated into the
-          # script. An empty batch (an unrelated merge, an empty pending file) is a
-          # clean no-op: the expensive build/validate/ingest steps are skipped.
+          # workflow_dispatch supplies a one-off batch as an input; a push scans
+          # the committed audit/pending/ batches. Read the dispatch input through
+          # the environment so its content is never interpolated into the script.
+          # This step needs no build: it only hashes candidate batches and diffs
+          # them against the ingestion ledger on the evidence branch, so an
+          # unrelated merge (nothing new to ingest) exits before the build.
           DISPATCH_BATCH: ${{ inputs.batch }}
         run: |
           set -euo pipefail
-          BATCH="${RUNNER_TEMP}/tamperward-audit-batch.jsonl"
+          WORK="${RUNNER_TEMP}/tw-audit"
+          mkdir -p "${WORK}/candidates"
+
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            printf '%s\n' "${DISPATCH_BATCH}" > "${BATCH}"
-          elif [ -f audit/pending.jsonl ]; then
-            cp audit/pending.jsonl "${BATCH}"
-          else
-            : > "${BATCH}"
+            printf '%s\n' "${DISPATCH_BATCH}" > "${WORK}/candidates/dispatch-${GITHUB_SHA}.jsonl"
+          elif [ -d audit/pending ]; then
+            # Copy immutable committed batches; a directory with no .jsonl is fine.
+            find audit/pending -maxdepth 1 -type f -name '*.jsonl' -exec cp {} "${WORK}/candidates/" \; 2>/dev/null || true
           fi
-          if grep -q '[^[:space:]]' "${BATCH}"; then
-            echo "has_events=true" >> "${GITHUB_OUTPUT}"
-          else
-            echo "has_events=false" >> "${GITHUB_OUTPUT}"
-            echo "No audit-v1 events to ingest."
+
+          # The ingestion ledger on the evidence branch: one JSON object per line,
+          # {batch_id, content_sha256, ...}. Absent on the first ever run.
+          LEDGER="${WORK}/ledger.jsonl"
+          : > "${LEDGER}"
+          if git ls-remote --exit-code origin refs/heads/tamperward-audit >/dev/null 2>&1; then
+            git fetch --no-tags origin refs/heads/tamperward-audit:refs/remotes/origin/tamperward-audit
+            git show refs/remotes/origin/tamperward-audit:ingested/batches.jsonl > "${LEDGER}" 2>/dev/null || : > "${LEDGER}"
           fi
-          echo "path=${BATCH}" >> "${GITHUB_OUTPUT}"
+
+          # Pure-node prescan (no build): decide which candidate batches are new,
+          # and fail closed if an already-ingested batch id reappears with changed
+          # content — immutable batches must never be rewritten.
+          node "${GITHUB_WORKSPACE}/.github/audit/audit-prescan.mjs" \
+            "${WORK}/candidates" "${LEDGER}" "${WORK}/new-batches.txt"
+
+          if [ -s "${WORK}/new-batches.txt" ]; then
+            echo "has_new=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "has_new=false" >> "${GITHUB_OUTPUT}"
+            echo "No new audit batches to ingest."
+          fi
+          echo "work=${WORK}" >> "${GITHUB_OUTPUT}"
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        if: steps.batch.outputs.has_events == 'true'
+        if: steps.scan.outputs.has_new == 'true'
         with:
           node-version: 22
           cache: npm
 
-      - if: steps.batch.outputs.has_events == 'true'
+      - if: steps.scan.outputs.has_new == 'true'
         run: npm ci
-      - if: steps.batch.outputs.has_events == 'true'
+      - if: steps.scan.outputs.has_new == 'true'
         run: npm run build
 
-      - name: Validate submitted audit batch
-        if: steps.batch.outputs.has_events == 'true'
+      - name: Validate each new batch against the strict audit-v1 schema
+        if: steps.scan.outputs.has_new == 'true'
         env:
-          BATCH: ${{ steps.batch.outputs.path }}
+          WORK: ${{ steps.scan.outputs.work }}
         run: |
           set -euo pipefail
-          node dist/cli/index.js stats --file "${BATCH}" --json > /dev/null
+          while IFS= read -r batch; do
+            [ -n "${batch}" ] || continue
+            node dist/cli/index.js stats --file "${batch}" --json > /dev/null
+          done < "${WORK}/new-batches.txt"
 
-      - name: Append deduplicated events and regenerate summaries
-        if: steps.batch.outputs.has_events == 'true'
+      - name: Ingest new batches and regenerate summaries
+        if: steps.scan.outputs.has_new == 'true'
         env:
-          BATCH: ${{ steps.batch.outputs.path }}
+          WORK: ${{ steps.scan.outputs.work }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           STORE="${RUNNER_TEMP}/tamperward-audit-store"
@@ -104,35 +133,15 @@ jobs:
             git -C "${STORE}" rm -rf . >/dev/null 2>&1 || true
           fi
 
-          mkdir -p "${STORE}/events" "${STORE}/summaries"
+          mkdir -p "${STORE}/events" "${STORE}/summaries" "${STORE}/ingested"
 
-          node - "${BATCH}" "${STORE}/events/all.jsonl" <<'NODE'
-          const fs = require('node:fs');
-          const [batchPath, storePath] = process.argv.slice(2);
-          const incoming = fs.readFileSync(batchPath, 'utf8').split(/\r?\n/).filter(Boolean);
-          const existing = fs.existsSync(storePath)
-            ? fs.readFileSync(storePath, 'utf8').split(/\r?\n/).filter(Boolean)
-            : [];
-          const byId = new Map();
-          for (const line of existing) {
-            const value = JSON.parse(line);
-            if (typeof value.id !== 'string') throw new Error('stored audit event is missing id');
-            const prior = byId.get(value.id);
-            if (prior !== undefined && prior !== line) throw new Error('stored audit event id has conflicting content: ' + value.id);
-            byId.set(value.id, line);
-          }
-          const append = [];
-          for (const line of incoming) {
-            const value = JSON.parse(line);
-            const prior = byId.get(value.id);
-            if (prior !== undefined && prior !== line) throw new Error('submitted audit event id conflicts with stored content: ' + value.id);
-            if (prior === undefined) {
-              byId.set(value.id, line);
-              append.push(line);
-            }
-          }
-          fs.writeFileSync(storePath, [...existing, ...append].join('\n') + '\n');
-          NODE
+          # Append the events of each new batch (deduplicated by event id) and
+          # record a ledger entry per batch so repeated runs are idempotent.
+          node "${GITHUB_WORKSPACE}/.github/audit/audit-ingest.mjs" \
+            "${WORK}/new-batches.txt" \
+            "${STORE}/events/all.jsonl" \
+            "${STORE}/ingested/batches.jsonl" \
+            "${SOURCE_SHA}"
 
           node "${GITHUB_WORKSPACE}/dist/cli/index.js" stats \
             --file "${STORE}/events/all.jsonl" --json \
@@ -143,7 +152,7 @@ jobs:
 
           git -C "${STORE}" config user.name github-actions[bot]
           git -C "${STORE}" config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git -C "${STORE}" add events/all.jsonl summaries/all-time.json README.md
+          git -C "${STORE}" add events/all.jsonl ingested/batches.jsonl summaries/all-time.json README.md
 
           if git -C "${STORE}" diff --cached --quiet; then
             echo "No new audit event ids to persist."

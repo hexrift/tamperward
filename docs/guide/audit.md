@@ -97,40 +97,48 @@ or an ISO timestamp.
 TamperWard itself ships
 [`.github/workflows/tamperward-audit.yml`](https://github.com/hexrift/tamperward/blob/main/.github/workflows/tamperward-audit.yml).
 The hook does **not** push anything to GitHub. Publishing is always a
-human-curated action, and GitHub Actions is the writer. There are two curated
-entry points, and both run only from the trusted copy on `main`:
+human-curated action, and GitHub Actions is the writer. The invariant is not
+"nothing automatic ever writes the evidence branch" but the stronger one:
+nothing unreviewed or candidate-controlled may cause evidence to enter it —
+humans decide what enters, automation only ingests deterministically after
+review. There are two curated entry points, both running only from the trusted
+copy on `main`:
 
 - an operator **dispatches** a validated batch by hand (`workflow_dispatch`), or
-- a reviewed PR appends validated audit-v1 lines to
-  [`audit/pending.jsonl`](https://github.com/hexrift/tamperward/blob/main/audit/pending.jsonl)
-  and, **on merge to `main`**, the workflow ingests the new event ids.
+- a reviewed PR adds an **immutable** batch file
+  `audit/pending/<batch-id>.jsonl` and, **on merge to `main`**, the workflow
+  ingests any batch whose id/content hash is not already recorded.
 
 There is deliberately no `pull_request` / `pull_request_target` trigger: an
 untrusted fork PR must never run the workflow that writes the evidence branch.
 The post-merge `push` fires only after a merge, is gated again by
 `if: github.ref == 'refs/heads/main'`, and re-validates the schema before
-touching the branch. An empty `pending.jsonl`, or a merge that does not change
-it, is a clean no-op.
+touching the branch. A merge with no new batch is a clean no-op that never
+touches the evidence branch and never even builds.
 
 The workflow:
 
 1. runs only from the copy committed on `main`, whether dispatched by hand or
    fired by a post-merge push;
-2. validates every submitted line with TamperWard's strict audit-v1 parser;
-3. rejects unknown fields rather than trying to redact them after upload;
-4. creates or updates a separate `tamperward-audit` branch;
-5. deduplicates records by event id;
-6. writes `events/all.jsonl`;
-7. regenerates `summaries/all-time.json` and a human-readable branch `README.md`.
+2. hashes each committed batch and ingests only those whose id/content hash is
+   not already in the ledger, so repeated runs are idempotent;
+3. validates every new batch with TamperWard's strict audit-v1 parser, and fails
+   closed if an already-ingested batch id reappears with changed content;
+4. rejects unknown fields rather than trying to redact them after upload;
+5. creates or updates a separate `tamperward-audit` branch;
+6. deduplicates records by event id;
+7. writes `events/all.jsonl` and records each batch in `ingested/batches.jsonl`
+   with its source commit SHA, content hash, schema version and timestamp;
+8. regenerates `summaries/all-time.json` and a human-readable branch `README.md`.
 
-### On merge to `main` (the reviewed-file path)
+### On merge to `main` (the reviewed-batch path)
 
-Append the validated lines to `audit/pending.jsonl` in a pull request — review is
-the curation step — and merge. See
+Add each set of events as an immutable `audit/pending/<batch-id>.jsonl` in a pull
+request — review is the curation step — and merge. See
 [`audit/README.md`](https://github.com/hexrift/tamperward/blob/main/audit/README.md).
-Because ingestion deduplicates by id, lines already ingested can stay in the
-pending file harmlessly or be trimmed in a later PR. Ingestion never writes
-`main`; it only ever appends to the dedicated `tamperward-audit` branch.
+Batches are immutable once merged: to correct evidence, add a new batch rather
+than editing an old one. Ingestion never writes `main`; it only ever appends to
+the dedicated `tamperward-audit` branch.
 
 ### By hand (the dispatch path)
 

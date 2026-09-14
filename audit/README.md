@@ -1,37 +1,53 @@
-# Pending audit events
+# Audit batches
 
-`pending.jsonl` is the staging area for TamperWard's own self-hosting audit
-evidence. It is **human-curated**: you add events here through a normal, reviewed
-pull request, and on merge to `main` the `tamperward-audit` workflow ingests any
-new event ids into the separate `tamperward-audit` evidence branch (its sole
-writer). The workflow re-validates every line against the strict `audit-v1`
-schema before touching that branch, and deduplicates by event `id`, so
-re-ingesting the same lines is a no-op.
+This directory is how TamperWard's own self-hosting audit evidence enters the
+repository. It is **human-curated**: you add evidence through a normal, reviewed
+pull request, and automation only performs deterministic, idempotent ingestion
+after that review and merge. The invariant is not "nothing automatic ever writes
+the evidence branch" but the stronger one:
 
-## What goes here
+> Nothing unreviewed or candidate-controlled may cause evidence to enter the
+> `tamperward-audit` branch. Humans decide what evidence enters; automation only
+> ingests, deterministically, after review.
 
-- **Only `audit-v1` events** — the privacy-safe records defined by
-  [`schemas/audit-v1.schema.json`](../schemas/audit-v1.schema.json), one JSON
-  object per line. Each event carries a generated id, timestamp, enforcement
-  surface, fixed agent id, rule, severity/decision and an optional one-way
-  hashed session id — and nothing else.
+## Immutable batches
+
+Add each set of events as its own **immutable** file:
+
+```
+audit/pending/<batch-id>.jsonl
+```
+
+- `<batch-id>` is any stable, unique name (e.g. a date plus a short random
+  suffix, `2026-09-14-a1b2c3`). It is the batch's identity in the ingestion
+  ledger.
+- One JSON object per line, each a privacy-safe `audit-v1` event as defined by
+  [`schemas/audit-v1.schema.json`](../schemas/audit-v1.schema.json): a generated
+  id, timestamp, enforcement surface, fixed agent id, rule, severity/decision and
+  an optional one-way hashed session id — and nothing else.
 - **Never `TAMPERWARD_DENYLOG`.** The compact harness trace is not privacy-safe
   and must not be committed here. See [`docs/guide/audit.md`](../docs/guide/audit.md).
+- **Do not edit a batch file after it merges.** Batches are immutable: the
+  ingestion workflow records each batch's content hash and fails closed if an
+  already-ingested batch id reappears with changed content. To correct evidence,
+  add a new batch; never rewrite an old one.
 
-## How it flows
+## How ingestion works
 
-1. Produce audit-v1 records from a run with `TAMPERWARD_AUDIT_LOG` set
-   (`tamperward stats --file <log>` validates them locally first).
-2. Append the new lines to `pending.jsonl` in a pull request; review is the
-   curation step.
-3. On merge to `main`, the workflow validates, deduplicates and appends the new
-   ids to the `tamperward-audit` branch, then regenerates its summaries.
+On merge to `main`, the [`tamperward-audit`](../.github/workflows/tamperward-audit.yml)
+workflow:
 
-An empty `pending.jsonl`, or a merge that does not change it, is a clean no-op:
-the workflow skips the build and ingest steps entirely. An operator can still
-dispatch a one-off batch by hand via the workflow's `workflow_dispatch` input.
+1. hashes every `audit/pending/<batch-id>.jsonl` and compares it against the
+   ingestion ledger on the `tamperward-audit` branch;
+2. ingests only batches whose id/content hash is not already recorded — so
+   repeated runs and unrelated merges are clean no-ops that never touch the
+   evidence branch;
+3. re-validates each new batch against the strict `audit-v1` schema;
+4. appends its events to `events/all.jsonl` (deduplicated by event id) and records
+   a ledger entry in `ingested/batches.jsonl` — `{batch_id, source_sha,
+   content_sha256, schema, ingested_at, event_count}`;
+5. regenerates the branch summaries.
 
 Ingestion never rewrites history and never writes `main`: it only ever appends to
-the dedicated `tamperward-audit` branch. Because ingestion deduplicates by id,
-lines already ingested can stay in `pending.jsonl` harmlessly, or be trimmed in a
-later PR.
+the dedicated `tamperward-audit` branch. An operator can still ingest a one-off
+batch by hand via the workflow's `workflow_dispatch` input (useful for recovery).
