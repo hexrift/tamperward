@@ -13,6 +13,7 @@ import { testContentRemoval } from './test-content-removal';
 import { snapshotRewrite } from './snapshot-rewrite';
 import { snapshotOnlyRewrite } from './snapshot-only';
 import { assertionWeakening } from './assertion-weakening';
+import { testSupport } from './test-support';
 
 /** Mechanical detectors plus measured warning-only heuristics. guard-removal remains
  *  reserved; assertion-weakening is AST-backed and stays warn while precision accrues;
@@ -30,6 +31,7 @@ export const allDetectors: Detector[] = [
   hookTampering,
   testDeletion,
   testContentRemoval,
+  testSupport,
   snapshotRewrite,
   snapshotOnlyRewrite,
   assertionWeakening,
@@ -47,6 +49,7 @@ export {
   hookTampering,
   testDeletion,
   testContentRemoval,
+  testSupport,
   snapshotRewrite,
   snapshotOnlyRewrite,
   assertionWeakening,
