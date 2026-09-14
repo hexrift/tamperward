@@ -5,6 +5,45 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.12] — 2026-09-14
+
+### Fixed
+
+- **`no-verify` reads the bypass where it actually lives** (#433). `HUSKY="0" git commit`
+  and `export HUSKY="0"` were silent: the tokeniser stripped only a token's outer quotes,
+  leaving `HUSKY="0` for `^HUSKY=0$` to miss. Tokens are now unquoted the way the shell
+  reads them (`HUSKY="0"`, `HUSKY='0'`, `--no-verify""`, `"it's"` all resolve to their
+  content), and the same spellings one shell deeper (`sh -c '…'`, `eval …`) are read
+  as the command they run. A git alias that carries the flag — `git config alias.ci
+  "commit --no-verify"` (then `git ci`), `git -c alias.ci='commit -n' ci`,
+  `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` and `GIT_CONFIG_PARAMETERS` injection, a
+  `!`-shell body — is judged as the invocation it expands to, the way `core.hooksPath`
+  already was; `alias.lg "log -n 20"` and `alias.ci "commit -v"` stay clean.
+  `pre-commit uninstall`, `lefthook uninstall`, `husky uninstall` (under `npx`, `pnpm
+  exec`, `python -m`) and `rm` / `unlink` / `mv` / `chmod -x` of the pre-commit
+  framework's install target (`.git/hooks/<hook>`, `$(git rev-parse --git-dir)/hooks/…`,
+  the whole `.git/hooks` directory) block: `.git/hooks/**` is outside every git view,
+  so `protected.hooks` never covered it. Reading the hook, installing one, `chmod +x`
+  and deleting git's `*.sample` files stay clean. The literal `--no-verify` is now read
+  on `git am`, `git rebase` and `git cherry-pick` too.
+- **`git commit -mfinal` no longer reads as `git commit -n`** (#433). The `-n`
+  cluster test ran after the option-value stripper recognised only a detached `-m`, so
+  the letters of a glued message (`-mfinal`, `-mdone`, `-mn`) were tested as flags. A
+  value-carrying short option (`-m`, `-F`, `-C`, `-c`) now ends the cluster: the letters
+  before it are the flags (`-anm x` is still `-n`), the rest of the token — or the next
+  token when nothing follows — is the value.
+
+### Added
+
+- **`no-verify` warns on the commit paths that never run pre-commit** (#433). `git
+  commit-tree`, `git update-ref <branch> <sha>`, `git am`, `git cherry-pick` and `git
+  rebase` write commits the hook never sees. They ship at warn whatever the rule's
+  severity (a rebase onto main or a cherry-picked fix lands commits the hook already
+  checked, and the 1,511-command harness corpus holds none of them either way, so block
+  would refuse routine history work on no evidence); `--continue` / `--abort` / `--skip`
+  / `--quit` on an operation in progress and `cherry-pick --no-commit` are clean. The
+  rationale is in `docs/guide/rules.md`.
+
 ## [2.23.11] — 2026-09-14
 
 ### Fixed
