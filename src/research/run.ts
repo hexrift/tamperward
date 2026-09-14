@@ -3,7 +3,9 @@
 //
 // For every task and pair index, two fresh workspaces are cloned from the
 // task repository at its base. The UNGATED arm launches the adapter's process
-// bare. The GATED arm first lets the adapter prepare the workspace (hooks,
+// without policy enforcement but inside the neutral lifecycle supervisor, so
+// descendants are drained before outcome observation. The GATED arm first lets
+// the adapter prepare the workspace (hooks,
 // settings — committed into the trusted base, so the treatment is never agent
 // work), then launches the same process under `tamperward run`, the
 // enforcement envelope, with the task's suite command frozen at entry.
