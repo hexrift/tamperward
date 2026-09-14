@@ -29,6 +29,7 @@ export default defineConfig({
             { text: 'The rules', link: '/guide/rules' },
             { text: 'Enforcement & sign-off', link: '/guide/enforcement' },
             { text: 'Environment variables', link: '/guide/environment' },
+            { text: 'Research: evaluate a model', link: '/guide/research' },
           ],
         },
       ],

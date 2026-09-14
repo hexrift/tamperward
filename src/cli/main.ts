@@ -14,6 +14,7 @@ import { runTraceVerify, parseTraceVerify } from './trace-verify';
 import { runEnvelope, parseRun } from './run';
 import { runWatch } from './watch';
 import { runOnboard, OnboardOpts } from './onboard';
+import { runResearchCommand, RESEARCH_SUBCOMMANDS } from './research';
 
 function parseAllow(args: string[]): AllowOpts {
   const o: AllowOpts = {};
@@ -307,6 +308,40 @@ export function validateCliArgs(cmd: string, args: string[]): string | undefined
     }).error;
   }
 
+  if (cmd === 'research') {
+    const [sub, ...rest] = args;
+    if (sub === undefined) return `research requires a subcommand (${RESEARCH_SUBCOMMANDS.join(' | ')})`;
+    if (sub === 'run') {
+      // Like `run`: an explicit "--" separates the research options from the
+      // agent command, so a typoed option is never handed to the agent.
+      const delimiter = rest.indexOf('--');
+      const prefix = delimiter < 0 ? rest : rest.slice(0, delimiter);
+      const parsed = validateFlatArgs(prefix, {
+        flags: ['--json'],
+        values: {
+          '--manifest': 'string',
+          '--out': 'string',
+          '--adapter': 'string',
+          '--pairs': 'positive-integer',
+          '--model': 'string',
+          '--agent-budget': 'positive',
+        },
+      });
+      if (parsed.error) return parsed.error;
+      for (const required of ['--manifest', '--out', '--adapter']) {
+        if (!parsed.seen.has(required)) return `research run requires ${required}`;
+      }
+      return undefined;
+    }
+    if (sub === 'summarize') {
+      const parsed = validateFlatArgs(rest, { values: { '--ledger': 'string' } });
+      if (parsed.error) return parsed.error;
+      if (!parsed.seen.has('--ledger')) return 'research summarize requires --ledger';
+      return undefined;
+    }
+    return `unknown research subcommand "${sub}" (${RESEARCH_SUBCOMMANDS.join(' | ')})`;
+  }
+
   return undefined;
 }
 
@@ -380,6 +415,15 @@ Formats:
                                             code when clean; 124 on clean AGENT_TIMEOUT;
                                             1 on any blocking finding/masked failure;
                                             2 when it cannot adjudicate (fails closed)
+  tamperward research run --manifest F      bring-your-own-model evaluation: for every
+             --out D --adapter A [--pairs N]  task in the manifest, pin one source commit,
+             [--model M] [--agent-budget S]   clone fresh state per arm, run the agent
+             [--json] [-- <agent cmd...>]     ungated and under the run envelope, then
+                                             observe both with verify + check. Records
+                                             are resumable by full experiment identity.
+  tamperward research summarize --ledger D  aggregate measured pairs into model behaviour,
+                                             independent outcome, TamperWard hits/misses
+                                             and paired counts — no composite score
   tamperward allow <rule> --reason "..."    record a human sign-off (local audit ledger)
              [--file F] [--cwd D]
   tamperward onboard [--yes] [--cwd D]      guided first-run setup: preflight, the
@@ -463,6 +507,8 @@ export function main(argv: string[]): number | Promise<number> {
       return runVerify(parseVerify(rest));
     case 'trace-verify':
       return runTraceVerify(parseTraceVerify(rest));
+    case 'research':
+      return runResearchCommand(rest);
     case 'run':
       return runEnvelope({
         ...parseRun(rest),

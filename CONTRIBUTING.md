@@ -91,7 +91,8 @@ CLI, the policy schema, and the hook contract** — specifically:
 - the `.tamperward.yml` schema — `version`, `protected`, `rules`, `ignore`, `signoff`, `verify`
   (`src/types.ts` `Policy`)
 - the versioned machine-output contracts emitted by `check --json`,
-  `verify --json`, `run --json`, and `doctor --json`; their public Draft 2020-12
+  `verify --json`, `run --json`, `doctor --json`, `research run --json` and
+  `research summarize`; their public Draft 2020-12
   schemas ship under `schemas/`. Additive fields remain compatible within a schema
   major; removing/renaming/retyping a required field or changing a discriminator's
   meaning requires a new machine-output schema major.

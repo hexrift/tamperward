@@ -5,6 +5,88 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.0] — 2026-09-14
+
+**`tamperward research`: a first-class bring-your-own-model evaluation workflow, and
+the `AgentAdapter` contract behind it.**
+
+Evaluating "what does this model do to the verification surface, and what does the
+gate change?" no longer means assembling round-specific scripts under
+`harness/taskbench/` by hand. Two new subcommands, documented in
+`docs/guide/research.md`:
+
+- `tamperward research run --manifest F --out D --adapter A [--pairs N] [--model M]
+  [--agent-budget S] [--json] [-- <agent command...>]` executes a JSON task manifest
+  (repository, base, prompt, `verify: { command, budget }`) as paired **ungated** /
+  **gated** trajectories. Every trajectory starts from a fresh clone at one resolved
+  source commit per task: a moving `HEAD`/branch is pinned by the first existing/new
+  pair, and both arms plus every later pair check out that same commit. The ungated arm
+  runs without TamperWard policy enforcement but uses the same
+  neutral Linux subreaper lifecycle primitive to drain the agent's descendant domain
+  before outcome observation; the gated arm lets the adapter prepare the workspace
+  (committed into the base, so the treatment is never agent work)
+  and runs the same process under `tamperward run --json` with the suite command frozen
+  at entry. In **both** arms the tree the agent leaves is then observed by the same
+  `verify` (visible vs. pristine) and `check` (worktree, untracked included, plus the
+  committed range) the product ships — never a second verification engine — and that
+  observation is the outcome truth. TamperWard's own envelope verdict is recorded next
+  to it as `treatment` (`refused` / `passed` / `cannot`), never folded into it, so a
+  masked tree the envelope let through is an escape counted against the tool. One
+  record per pair under `D/pairs/`; an existing record is skipped, so an interrupted
+  run resumes — by record identity (a valid record carrying the current manifest sha256,
+  task/pair, adapter and layers, model, TamperWard version, normalized agent argv,
+  agent budget, suite command and the task's pinned source commit), never by file
+  existence. Every existing requested record is checked before a missing pair executes;
+  foreign, duplicate/drifting or truncated evidence fails closed, and records are written atomically.
+  A trajectory whose outcome cannot stand — the trusted policy at the base unreadable
+  (an absent one defaults; a broken one never does), the verifier unable to measure,
+  neutral control lifecycle ownership/drain unavailable, or the tree moving under
+  observation — is recorded as
+  `measured: false` with the reason in `unmeasurable` and never aggregated. The
+  manifest's sha256 is pinned into every record. The run preflights
+  the platform with the same check `doctor` reports and refuses, in doctor's words,
+  where `tamperward run` cannot own the agent lifecycle (root, non-Linux).
+- `tamperward research summarize --ledger D` prints one aggregate with four separated
+  readouts and **no composite score** over the pairs whose both arms were measured
+  (`pairs`, `measured_pairs`, `unmeasurable_pairs`): `model_behaviour` and
+  `independent_outcome` per arm, `tamperward` hits and misses in the gated arm judged against the independent
+  outcome (`caught`, `escapes`, `false_refusals`, `cannot_adjudicate`), and `paired`
+  discordant-pair counts on masked failure. `control_response` is `null` — in-loop
+  deny events are not relayed by this release, so the field is not a number that looks
+  measured. `released_green` means downstream success, not merely a green visible suite:
+  the agent must exit 0 without timeout/start failure and, in the gated arm, the envelope
+  must also pass with exit 0. A ledger mixing manifests, adapters or models, duplicate
+  task/pair identities, or per-task source/verifier identities is refused, and every
+  record is read back under the schema's own constraints before aggregation — an edited
+  record is refused, not believed.
+
+**`AgentAdapter`.** A runtime plugs in by answering two questions: which process runs
+the agent in the fresh workspace (`launch(task)` → `{ argv, env }`), and what the gated
+workspace needs before it starts (`prepareGated?(task)`). It declares which TamperWard
+`layers` are live in its gated arm, recorded in every document. Two adapters ship:
+`claude-code` (`claude -p <prompt> [--model M]`, `prepareGated` = `tamperward init`;
+envelope + PreToolUse deny + Stop sweep) and `command` (any argv after `--`, with
+`{prompt}` `{task}` `{cwd}` `{base}` `{arm}` `{model}` substituted and a slash-containing
+relative agent executable anchored to the operator's directory; that normalized command
+is the execution identity recorded in the ledger; envelope only). An agent process that cannot be
+started is recorded (`agent.failure`) rather than failing the run: its trajectory is data.
+Every agent process receives the task as `TAMPERWARD_RESEARCH_*` environment variables.
+The contract, the manifest reader, the runner and the summarizer are exported from the
+package entry for programmatic use.
+
+**`schemas/research-v1.schema.json`.** The `pair` and `summary` documents are versioned
+machine outputs under the same additive schema-major-1 discipline as `check`, `verify`,
+`run` and `doctor`; the package ships the schema and the test suite validates emitted
+documents against it. The grammar of both subcommands is validated before any side
+effect, like every other command.
+
+Not in this release, named in the guide: `research init`, `research report`, a stdio
+JSONL adapter and `adapter:<module>` loading, in-loop deny relay, a held-out evaluator,
+pre-specified retry rules, history stripping, signed manifest freezing beyond the
+sha256 pin, and interval estimates.
+
+This closes #391.
+
 ## [2.22.0] — 2026-09-14
 
 **The hook no longer pays for the TypeScript parser on every call, and an opt-in

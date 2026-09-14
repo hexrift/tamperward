@@ -523,14 +523,15 @@ from trusted CI, or after an externally isolated agent hands off the frozen cand
 ### Machine-readable verdict API
 
 From **2.19.0**, the public JSON verdict surfaces are versioned independently of the
-npm package version. `check --json`, `verify --json`, `run --json`, and
-`doctor --json` include top-level `"schema_version": 1`. TamperWard publishes the
+npm package version. `check --json`, `verify --json`, `run --json`,
+`doctor --json`, `research run --json` and `research summarize` include top-level `"schema_version": 1`. TamperWard publishes the
 corresponding JSON Schema Draft 2020-12 documents in the npm package and repository:
 
 - [`schemas/check-v1.schema.json`](./schemas/check-v1.schema.json)
 - [`schemas/verify-v1.schema.json`](./schemas/verify-v1.schema.json)
 - [`schemas/run-v1.schema.json`](./schemas/run-v1.schema.json)
 - [`schemas/doctor-v1.schema.json`](./schemas/doctor-v1.schema.json)
+- [`schemas/research-v1.schema.json`](./schemas/research-v1.schema.json) — from **2.23.0**, the `pair` records `research run` writes (and prints with `--json`) and the `summary` document `research summarize` prints
 
 Schema major **1** is deliberately additive: consumers should ignore fields they do not
 understand. Adding new evidence/diagnostic fields does not require a schema bump.
@@ -581,6 +582,8 @@ option can never be reinterpreted as the agent command.
 | `trace-verify` | Linux-only advisory discovery: `--base <rev>` (default `HEAD`) · `--cmd <suite command>` · `--budget <seconds>` · `--runs <positive integer>` (default 2) · `--json` · `--cwd <dir>` |
 | `doctor` | `--base <rev>` (trusted policy revision) · `--workflow <path>` · `--cwd <dir>` · `--json` · `--github` · `--repo <owner/repo>` · `--branch <name>` — read-only installation/authority posture plus CI verifier outer-time validation |
 | `run` | `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` (per verifier suite) · `--agent-budget <seconds>` (optional wrapped-agent wall clock) · `--json` (one versioned final envelope document) · `--observe-transients` (start a session-scoped transient observer) · `--allow-dirty` · `--settle <seconds>` (wait before the final quiescence check) · `--allow-dep-drift` · `--cwd <dir>` · then `-- <agent command...>` |
+| `research run` | `--manifest <file>` · `--out <dir>` · `--adapter claude-code\|command` (all three required) · `--pairs <n>` · `--model <id>` · `--agent-budget <seconds>` · `--json` (one pair record per line) · then `-- <agent command...>` for the `command` adapter, with `{prompt}` `{task}` `{cwd}` `{base}` `{arm}` `{model}` substituted — see [the research guide](./docs/guide/research.md) |
+| `research summarize` | `--ledger <dir>` (required) — one aggregate document, four separated readouts, no composite score |
 | `allow` | `<rule>` · `--file <path>` · `--reason "<why>"` (required) · `--cwd <dir>` |
 | `init` | `--cwd <dir>` · `--dry-run` · `--force-workflow` |
 | `onboard` | `--cwd <dir>` · `--base <rev>` · `--repo <owner/repo>` · `--branch <name>` · `--skip-demo` / `--demo` (mutually exclusive) · `--no-github` · `--yes` (scripted: no prompts; the demo runs only with `--demo`) · `--verify-command "<suite command>"` (the only way a scripted run configures `verify.command`) |
@@ -597,6 +600,7 @@ option can never be reinterpreted as the agent command.
 | `trace-verify` | all requested known-good traces exited 0; advisory report emitted | one or more traced verifier runs were non-zero/incomplete; report still emitted | unsupported platform, missing tracer/materialiser, bad base/policy/options, or tracing failure | — |
 | `doctor` | configured verify job(s) have sufficient static outer time for the trusted policy | — | missing/invalid workflow, no verify job, missing/malformed/insufficient timeout, or trusted policy cannot be loaded | — |
 | `run` | enforcement clean and the agent exited 0 — another non-zero agent exit is passed through unchanged | any blocking finding or masked failure, including a non-quiescent process after timeout | cannot adjudicate: dirty start, policy error, verify cannot run | `AGENT_TIMEOUT`: `--agent-budget` expired and post-timeout enforcement was clean |
+| `research run` / `research summarize` | every requested pair recorded (or already was); summary printed | — | cannot start or set a trajectory up: bad manifest, unknown adapter, root or unsupported platform (doctor's own `platform` check), unclonable repository, or invalid/mixed ledger evidence — the agent's own exit is data in the record, never the research exit | — |
 | `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0, never exit 2 | — | only for an unsupported agent name | — |
 | `hook-service` | started, stopped (or nothing to stop), or status printed | — | unsupported platform, a runtime directory another uid owns, or a service already listening | — |
 | `allow` | sign-off recorded | — | no rule or `--reason`, not a git repo, or no current blocking finding to sign off | — |
@@ -681,6 +685,15 @@ is the count of distinct seed configurations, not the run count. Losing
 predictions and corrections remain in the public record rather than being
 removed after the result is known; the series and its errata carry the ledger
 and its totals.
+
+Since **2.23.0** the paired ungated/gated evaluation is a supported command rather
+than a hand-assembled harness run: `tamperward research run` takes a task manifest
+and an agent runtime (Claude Code, or any command through the `AgentAdapter`
+contract), pins one source commit per task, adjudicates both arms with the same
+`verify` + `check` primitives, records TamperWard's own verdict separately from that
+outcome, and `research summarize` reports model behaviour, independent outcome,
+TamperWard hits/misses and paired counts with no composite score — a result in which
+TamperWard loses is as plain as one in which it wins. **[Guide](./docs/guide/research.md)**.
 
 **[The research series](./docs/blog/index.md)** ·
 **[The harness](./harness/)** ·
