@@ -18,7 +18,7 @@ import { segments } from './command';
 // "tamperward" was a PACKAGE NAME in argument position, and the line queries the
 // registry, it checks nothing. Two invocation shapes:
 //   a tool run directly (start of command, or after ; | && $( ` npx/yarn/pnpm) ...
-const INVOKES_TOOL =
+export const INVOKES_TOOL =
   /(?:^\s*|[;&|`]\s*|\$\(\s*|\b(?:npx|yarn|pnpm|bunx?)\s+)(?:jest|vitest|eslint|tsc|playwright|pytest|tamperward|mocha|ava|oxlint|tsgo|mypy|golangci-lint|node\s+--test|biome\s+(?:ci|check|lint)|deno\s+(?:test|lint|check)|ruff\s+check)\b/;
 //   ... or a check script through a package runner / build tool.
 const INVOKES_SCRIPT =
@@ -64,6 +64,88 @@ export const NEUTRALISING_SUFFIX = new RegExp(
 
 /** `timeout 1 npm test`: the check is killed before it can decide. */
 export const TIMEOUT_WRAP = /^timeout\s+(?:-{1,2}\S+\s+)*\d\S*\s+(.+)$/;
+
+// ── issue #436: same-kind respellings that run nothing ───────────────────────────
+// A respelling of the SAME kind of check was kept unread: `npm run tests --if-present`
+// (no such script — exit 0), `npm test --prefix packages/empty`, `-w empty`,
+// `pnpm test --filter nothing`, `jest --shard=1/1000`, `--testMatch '**/nothing.js'`,
+// `cargo test -- --skip failing`, `pytest -k nothing_matches`, a lowered
+// `--cov-fail-under`. Each runner has its own spelling of "select fewer", read here
+// per runner so that `-w` means a workspace to npm and not `--maxWorkers` to jest.
+// Kept apart from SUITE_NARROWING_FLAGS (shared with test-deletion) and from the
+// generic suffix table above, so the shared invocation-weakening module (#435) can
+// absorb them as one block.
+interface RunnerNarrowing {
+  /** Matched against the canonical command (runner prefix stripped). */
+  runner: RegExp;
+  /** Matched against the arguments, each preceded by a space. */
+  flags: RegExp;
+}
+const RUNNER_NARROWINGS: RunnerNarrowing[] = [
+  {
+    // a package-manager script: `test --prefix dir`, `-w pkg`, `--workspace=pkg`,
+    // `--if-present` (no script, no failure), pnpm's `--filter` / `-F`, npm's `-C`
+    runner: /^(?:test|tests|coverage)(?::\S+)?(?=\s|$)/,
+    flags: /\s--if-present(?=\s|$)|\s--prefix(?:=|\s)|\s-C(?:=|\s)|\s-w(?:=|\s)|\s--workspace(?:=|\s)|\s--filter(?:=|\s)|\s-F(?:=|\s)/,
+  },
+  {
+    runner: /^(?:jest|vitest)\b/,
+    flags: /\s--shard(?:=|\s)|\s--root(?:Dir)?(?:=|\s)|\s--testMatch(?:=|\s)|\s--testRegex(?:=|\s)|\s--modulePathIgnorePatterns(?:=|\s)|\s--selectProjects(?:=|\s)|\s--grep(?:=|\s)|\s-g(?:=|\s)/,
+  },
+  { runner: /^playwright\b/, flags: /\s--shard(?:=|\s)|\s--grep(?:=|\s)|\s-g(?:=|\s)|\s--grep-invert(?:=|\s)/ },
+  { runner: /^mocha\b/, flags: /\s--grep(?:=|\s)|\s-g(?:=|\s)|\s--fgrep(?:=|\s)|\s-f(?:=|\s)/ },
+  { runner: /^ava\b/, flags: /\s--match(?:=|\s)|\s-m(?:=|\s)/ },
+  { runner: /^node --test\b/, flags: /\s--test-name-pattern(?:=|\s)|\s--test-skip-pattern(?:=|\s)|\s--test-only(?=\s|$)/ },
+  {
+    // `-p no:<plugin>` disables collection when the plugin is the collector
+    // (`python`, `doctest`, `cov`); the cache, warning and output plugins select nothing
+    runner: /^pytest\b/,
+    flags:
+      /\s-k(?:=|\s)|\s-m(?:=|\s)|\s--deselect(?:=|\s)|\s--ignore(?:-glob)?(?:=|\s)|\s-p\s*no:(?!(?:cacheprovider|warnings|faulthandler|randomly|logging|legacypath|pastebin|stepwise|tmpdir|junitxml|terminal|terminalreporter)(?=\s|$))|\s--collect-only(?=\s|$)|\s--co(?=\s|$)/,
+  },
+  { runner: /^cargo test\b/, flags: /\s--\s(?:\S+\s+)*--skip(?:=|\s)|\s--exclude(?:=|\s)/ },
+  { runner: /^go test\b/, flags: /\s-run(?:=|\s)|\s-skip(?:=|\s)/ },
+];
+
+/** Whether `args` (the tail of the canonical command `cmd`) selects fewer specs for
+ *  the runner `cmd` names. */
+function runnerNarrowed(cmd: string, args: string): boolean {
+  return runnerNarrowing(cmd, args) !== null;
+}
+/** The narrowing flag `args` carries for the runner `cmd` names, spelled, or null. */
+function runnerNarrowing(cmd: string, args: string): string | null {
+  const t = RUNNER_NARROWINGS.find((x) => x.runner.test(cmd));
+  const m = t ? (' ' + args.trim()).match(t.flags) : null;
+  return m ? m[0].trim().replace(/[=\s].*$/, '') : null;
+}
+
+/** A coverage floor moved down: `--cov-fail-under=90` → `=10` still runs every test
+ *  and fails on nothing the old floor caught. */
+const COVERAGE_FLOOR = /--cov-fail-under(?:=|\s+)(\d+(?:\.\d+)?)/;
+function coverageFloorLowered(removed: string, added: string): boolean {
+  const was = removed.match(COVERAGE_FLOOR);
+  const now = added.match(COVERAGE_FLOOR);
+  return was !== null && now !== null && Number(now[1]) < Number(was[1]);
+}
+
+/** Prefixes a shell command may carry in front of the check without changing what
+ *  runs: variable assignments and the well-known wrappers. `echo npm test` is not a
+ *  wrapper: it prints the check. */
+const COMMAND_PREFIX =
+  /^(?:(?:[A-Za-z_]\w*=(?:"[^"]*"|'[^']*'|\S*)|sudo|env|nice|time|exec|command|nohup|xvfb-run|dbus-launch|cross-env|dotenv|poetry\s+run|pipenv\s+run|uv\s+run|hatch\s+run|pdm\s+run|bundle\s+exec)\s+(?:-{1,2}\S+\s+)*)*/;
+const CHECK_HEAD =
+  /^(?:(?:test|tests|lint|typecheck|type-check|coverage)(?::\S+)?(?=\s|$)|(?:jest|vitest|eslint|tsc|playwright|pytest|tamperward|mocha|ava|oxlint|tsgo|mypy|golangci-lint)\b|node --test\b|biome (?:ci|check|lint)\b|deno (?:test|lint|check)\b|ruff check\b|(?:make|cargo|go) test\b|gradle\w* (?:test|check)\b)/;
+
+/** A survival candidate must invoke the check in COMMAND POSITION: at the head of a
+ *  shell segment, behind nothing but assignments and wrappers. `echo "npm test"`, a
+ *  `name: npm test`, a folded scalar's continuation and a heredoc's body all carry the
+ *  words without running them (issue #436). */
+function inCommandPosition(core: string): boolean {
+  return canonical(core)
+    .split(/\s*(?:&&|\|\||;|\|)\s*/)
+    .some((seg) => CHECK_HEAD.test(canonical(seg.replace(COMMAND_PREFIX, ''))));
+}
+
 
 /** A positional that names a spec or a path (`test/a.test.ts`, `src/`, `test/a`)
  *  narrows the suite exactly like `--testPathPattern` — the runner opens only what
@@ -120,7 +202,7 @@ export function survives(removedCore: string, isUses: boolean, afterCores: strin
     if (a === r) return { state: 'kept' };
     if (a.startsWith(r + ' ')) {
       const rest = a.slice(r.length);
-      if (NEUTRALISING_SUFFIX.test(rest) || narrowed(rest)) neutralised ??= raw;
+      if (NEUTRALISING_SUFFIX.test(rest) || narrowed(rest) || runnerNarrowed(a, rest)) neutralised ??= raw;
       else return { state: 'kept' };
     } else if (r.startsWith(a + ' ') && invokesCheck(a)) {
       return { state: 'kept' }; // the check got shorter — arguments dropped, the invocation kept
@@ -137,13 +219,19 @@ export function survives(removedCore: string, isUses: boolean, afterCores: strin
       neutralised ??= raw;
       continue;
     }
+    if (!inCommandPosition(raw)) continue; // the words, not the check (issue #436)
+    if (coverageFloorLowered(r, a)) {
+      neutralised ??= raw;
+      continue;
+    }
     const args = a.slice(a.indexOf(' ') + 1 || a.length);
-    if (a.includes(' ') && (NEUTRALISING_SUFFIX.test(' ' + args) || narrowed(args))) neutralised ??= raw;
+    if (a.includes(' ') && (NEUTRALISING_SUFFIX.test(' ' + args) || narrowed(args) || runnerNarrowed(a, args))) neutralised ??= raw;
     else respelled = true;
   }
   if (respelled) return { state: 'kept' };
   return neutralised ? { state: 'neutralised', by: neutralised } : { state: 'gone' };
 }
+
 
 // ── one invocation before → after ─────────────────────────────────────────────
 
@@ -336,6 +424,8 @@ function descriptors(cmd: string, runner: RunnerName | undefined, opts: Weakenin
       if (f && !opts.excuseFlag?.(f, canon)) out.push({ key: `flag:${f}`, what: f, direction: 'added' });
     }
     if (rn === 'cargo' && CARGO_SKIP.test(args)) out.push({ key: 'flag:-- --skip', what: '-- --skip', direction: 'added' });
+    const shared = runnerNarrowing(canon, args); // the table ci-tampering reads (#436)
+    if (shared && !opts.excuseFlag?.(shared, canon)) out.push({ key: `flag:${shared}`, what: shared, direction: 'added' });
     if (opts.fresh) continue;
     const cfg = args.match(CONFIG_FLAG);
     if (cfg && !opts.configReviewed?.(cfg[3])) out.push({ key: `config:${cfg[3]}`, what: `${cfg[1]} ${cfg[3]}`, direction: 'added' });
@@ -402,6 +492,7 @@ export function invocationWeakening(before: string, after: string, runner?: Runn
   const seenBefore = new Set(beforeDs.map((d) => d.key));
   const added = afterDs.find((d) => d.direction === 'added' && !seenBefore.has(d.key));
   if (added) return { state: 'neutralised', what: added.what, direction: 'added' };
+  if (coverageFloorLowered(before, after)) return { state: 'neutralised', what: 'a lowered --cov-fail-under', direction: 'added' };
   const seenAfter = new Set(afterDs.map((d) => d.key));
   const dropped = beforeDs.find((d) => d.direction === 'removed' && !seenAfter.has(d.key));
   if (dropped) return { state: 'neutralised', what: dropped.what, direction: 'removed' };

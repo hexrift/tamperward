@@ -82,6 +82,7 @@ function lex(src: string): Tok[] | null {
 export const truthy = (v: Val): boolean => (v === TRUTHY ? true : typeof v === 'string' ? v !== '' : typeof v === 'number' ? v !== 0 : v === true);
 
 /** Fold an expression to a constant; undefined when it depends on anything. */
+/** Fold an expression to a constant; undefined when it depends on anything. */
 export function foldConst(src: string): Val | undefined {
   const toks = lex(src);
   if (!toks) return undefined;
@@ -161,16 +162,26 @@ export function foldConst(src: string): Val | undefined {
       if (/^true$/i.test(t.v)) return true;
       if (/^false$/i.test(t.v)) return false;
       if (/^null$/i.test(t.v)) return null;
-      // a function call or an index: consume its arguments so the operators
-      // AROUND it still fold, and yield unknown — not ours to decide
+      // a function call: its arguments are consumed so the operators AROUND it still
+      // fold; a call over CONSTANTS folds to its value (`contains('a', 'b')` is false,
+      // `fromJSON('false')` is false — issue #436), any other call yields unknown
       if (eat('(')) {
+        const args: Array<Val | undefined> = [];
         if (!eat(')')) {
           for (;;) {
-            or();
+            args.push(or());
             if (eat(')')) break;
             if (!eat(',')) return undefined;
           }
         }
+        let indexed = false;
+        while (eat('[')) {
+          or();
+          indexed = true;
+          if (!eat(']')) return undefined;
+        }
+        if (indexed) return undefined;
+        return callConst(t.v, args);
       }
       while (eat('[')) {
         or();
@@ -182,4 +193,45 @@ export function foldConst(src: string): Val | undefined {
   };
   const v = or();
   return p === toks.length ? v : undefined;
+}
+
+/** GitHub's expression functions over constant arguments, evaluated as the runner
+ *  does: string comparison is case-insensitive, a non-string is coerced the way
+ *  `format` prints it, `fromJSON` yields a primitive or (for an object/array) an
+ *  unknown-but-truthy value. Any unknown argument keeps the call unknown. */
+function callConst(name: string, args: Array<Val | undefined>): Val | undefined {
+  const vals: Array<string | number | boolean | null> = [];
+  for (const a of args) {
+    if (a === undefined || a === TRUTHY) return undefined;
+    vals.push(a);
+  }
+  const s = (i: number): string => (vals[i] == null ? '' : String(vals[i]));
+  switch (name.toLowerCase()) {
+    case 'contains':
+      return vals.length === 2 ? s(0).toLowerCase().includes(s(1).toLowerCase()) : undefined;
+    case 'startswith':
+      return vals.length === 2 ? s(0).toLowerCase().startsWith(s(1).toLowerCase()) : undefined;
+    case 'endswith':
+      return vals.length === 2 ? s(0).toLowerCase().endsWith(s(1).toLowerCase()) : undefined;
+    case 'format': {
+      if (vals.length < 1) return undefined;
+      return s(0).replace(/\{\{|\}\}|\{(\d+)\}/g, (m, i: string | undefined) => (m === '{{' ? '{' : m === '}}' ? '}' : s(Number(i) + 1)));
+    }
+    case 'join':
+      return vals.length >= 1 && vals.length <= 2 ? s(0) : undefined;
+    case 'tojson':
+      return vals.length === 1 ? JSON.stringify(vals[0]) : undefined;
+    case 'fromjson': {
+      if (vals.length !== 1) return undefined;
+      try {
+        const v: unknown = JSON.parse(s(0));
+        if (v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return v;
+        return TRUTHY; // an object or an array: truthy, its contents not ours to read
+      } catch {
+        return undefined;
+      }
+    }
+    default:
+      return undefined;
+  }
 }

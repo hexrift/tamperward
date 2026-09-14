@@ -266,7 +266,7 @@ function joinContinued(lines: string[]): string[] {
 }
 
 /** Heredoc bodies are data: `cat <<EOF … EOF` carries text, not statements. */
-function stripHeredocs(lines: string[]): string[] {
+export function stripHeredocs(lines: string[]): string[] {
   const out: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];

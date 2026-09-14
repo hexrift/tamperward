@@ -32,8 +32,32 @@ All notable changes to this project are documented here. The format follows
 - The invocation reading `ci-tampering` already had — `survives()`, the neutralising
   suffixes, the narrowing-flag table, the path positional, the `timeout` wrapper — now
   lives in `src/detectors/invocation.ts` and is consumed by both rules; the GitHub
-  expression folder moved to `src/detectors/gh-expression.ts`. `ci-tampering`'s own
-  behaviour is unchanged (its tables are extended separately, #436).
+  expression folder moved to `src/detectors/gh-expression.ts`. The per-runner narrowing
+  table and the `--cov-fail-under` floor `ci-tampering` gained in #436 are read by the
+  script comparison through the same module.
+- **`ci-tampering` reads same-kind respellings that run nothing as neutralisations**
+  (#436). `npm test` → `npm run tests --if-present`, `--prefix packages/empty`, `-w empty`,
+  `pnpm test --filter nothing`, `npx jest --shard=1/1000` / `--testMatch '**/nothing.js'`,
+  `cargo test -- --skip failing`, `pytest -k nothing_matches`, a lowered
+  `--cov-fail-under`, `npx vitest run --root packages/empty` were all kept as respellings.
+  Narrowing flags are now read per runner (`-w` is a workspace to npm, not `--maxWorkers`
+  to jest); a `working-directory` (step or `defaults.run`) pointing at a directory with no
+  tracked code or manifest, and `actions/checkout` given a literal `with.ref`, are
+  neutralisers.
+- A removed check no longer "survives" inside a heredoc body, a `run: >` folded scalar's
+  continuation line, an `echo`, a step `name:` or a comment: a survival candidate must
+  invoke the check in command position, behind nothing but assignments and wrappers.
+- `if:` built from `contains` / `startsWith` / `endsWith` / `fromJSON` / `format` / `join` /
+  `toJSON` over constant arguments folds to its value, so `if: contains('a', 'b')` and
+  `if: ${{ fromJSON('false') }}` are read as `if: false`.
+- Trigger narrowings: an event with no `branches:` filter is read as `['**']`, so
+  `push:` → `push: branches: [never-exists]` and `pull_request:` →
+  `branches: [release/**]` are narrowings; a `tags:`-only filter replacing `branches:`
+  loses every branch; `!` entries apply in order (`[main, "!main"]` names nothing);
+  `paths-ignore` is evaluated against the repository's source files as `paths` is.
+  `[main]` → `[feature]` keeps blocking; a matrix or caching change stays clean.
+- `- run: pytest` (a bare tool right after the `run:` key) is now recognised as a check
+  invocation on the step line, as `npm test` already was.
 
 ## [2.23.5] — 2026-09-14
 

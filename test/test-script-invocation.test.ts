@@ -92,10 +92,21 @@ describe('test-deletion — the test script rewritten so the suite no longer dec
     ['mocha --grep', 'mocha', 'mocha --grep easy', '--grep'],
     ['mocha -g', 'mocha', 'mocha -g easy', '-g'],
     ['npm --if-present', 'npm run test:unit', 'npm run test:unit --if-present', '--if-present'],
+    // the per-runner table ci-tampering reads (#436) is consulted through the shared module
+    ['npm --prefix (#436 table)', 'npm run test:unit', 'npm run test:unit --prefix packages/empty', '--prefix'],
+    ['pnpm --filter (#436 table)', 'pnpm test:unit', 'pnpm test:unit --filter nothing', '--filter'],
+    ['pytest -p no:python (#436 table)', 'pytest', 'pytest -p no:python', '-p'],
+    ['ava --match (#436 table)', 'ava', 'ava --match easy', '--match'],
   ])('blocks %s', (_n, before, after, flag) => {
     const m = on({ test: before }, { test: after });
     expect(m, m.join('\n')).toHaveLength(1);
     expect(m[0]).toContain(`${flag} added to scripts.test`);
+  });
+
+  it('blocks a lowered --cov-fail-under (#436 floor)', () => {
+    const m = on({ test: 'pytest --cov --cov-fail-under=90' }, { test: 'pytest --cov --cov-fail-under=10' });
+    expect(m, m.join('\n')).toHaveLength(1);
+    expect(m[0]).toMatch(/a lowered --cov-fail-under added to scripts\.test/);
   });
 
   it('blocks nyc --check-coverage removed from the test script', () => {
