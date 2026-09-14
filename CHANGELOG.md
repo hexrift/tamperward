@@ -5,6 +5,27 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.26.0] — 2026-09-14
+
+### Added
+
+- **Privacy-safe self-hosting audit history and `tamperward stats`** (#495). Claude
+  PreToolUse and Stop findings can now be recorded as strict audit-v1 JSONL with
+  `TAMPERWARD_AUDIT_LOG` (`auto` uses the repository git directory). Events contain
+  only a generated id, timestamp, enforcement surface, fixed agent id, rule,
+  severity/decision and an optional one-way hashed session id — never prompts, tool
+  command bodies, source/evidence text, filenames, absolute paths, environment values
+  or credentials. The existing `TAMPERWARD_DENYLOG` remains the compact harness trace.
+  `tamperward stats [--file F] [--since 30d] [--json]` validates and aggregates the
+  structured stream by rule and surface while stating explicitly that an integrity
+  finding is not proof of agent intent. `schemas/audit-v1.schema.json` publishes the
+  record contract. TamperWard's own repository also ships a manually-dispatched
+  `tamperward-audit` workflow: the copy committed on `main` revalidates submitted
+  audit-v1 records, deduplicates event ids, writes only the separate
+  `tamperward-audit` evidence branch, and regenerates its text/JSON summaries. Audit
+  recording and persistence are measurement only; failure or alteration cannot change
+  an enforcement verdict.
+
 ## [2.25.1] — 2026-09-14
 
 ### Fixed
