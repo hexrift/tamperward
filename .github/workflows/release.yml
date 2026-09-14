@@ -66,7 +66,7 @@ jobs:
       # clone is trivially HEAD and the check is vacuous; and the release notes look up
       # the previous v* tag for the "Full Changelog" compare link, which on a tagless
       # clone was always empty, so the link was never written (#420).
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -78,7 +78,7 @@ jobs:
       # OIDC exchange, and the publish fails as an unauthenticated write — reported as
       # E404, because the registry will not disclose whether a package exists to a caller
       # lacking rights. That is exactly how the v1.1.0-rc.1 release failed.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
 
@@ -177,39 +177,8 @@ jobs:
             echo "bump_sha=${BUMP_SHA}"
           } >> "$GITHUB_OUTPUT"
 
-      # A typo in a version-bump PR must not move `latest` BACKWARDS. npm points `latest`
-      # at whatever `--tag latest` publishes, even a LOWER version — so 1.0.2 published
-      # after 1.1.0 would hand every fresh `npm install` the older code, with six green
-      # checks and nothing comparing against what is already out. New versions must move
-      # forward: a stable release must exceed the current `latest`; a prerelease must
-      # exceed the current `next` as well. A stable is deliberately NOT compared against
-      # `next` — shipping a 1.x stable while a 2.0 rc sits on `next` is legitimate.
-      # `-p` (include-prerelease) is load-bearing: without it semver ranges exclude
-      # prereleases and `1.2.0-rc.1 > 1.1.0` would wrongly fail. Backporting to an old
-      # line would need this loosened; that is a problem to design for when it exists.
-      - name: Version must move forward
-        if: steps.plan.outputs.publish == 'true'
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.plan.outputs.version }}"
-          # Per-tag queries, not `dist-tags --json`: npm 12 wraps that JSON in an ARRAY
-          # where npm 10 returns an object, and jq indexing the array killed the 1.2.0
-          # release at this step. `npm view pkg@tag version` prints a bare version on
-          # both lines; a missing tag or package exits non-zero -> empty -> guard skipped.
-          LATEST="$(npm view tamperward@latest version 2>/dev/null || true)"
-          NEXT="$(npm view tamperward@next version 2>/dev/null || true)"
-          forward() {
-            [ -z "$2" ] && return 0
-            if ! npx --yes semver@7.8.5 -p "$1" -r ">$2" >/dev/null; then
-              echo "::error::${1} is not greater than the current ${3} (${2}) — refusing to publish a downgrade. If the bump is a typo, fix package.json; a deliberate re-publish of an older line needs this guard loosened first."
-              exit 1
-            fi
-          }
-          forward "$VERSION" "$LATEST" "latest"
-          case "$VERSION" in *-*) forward "$VERSION" "$NEXT" "next";; esac
-          echo "version $VERSION moves forward (latest=${LATEST:-none}, next=${NEXT:-none})"
-
-      # Install and typecheck, then publish. prepublishOnly builds dist/.
+      # Install (which the forward-version guard below needs), typecheck, then publish.
+      # prepublishOnly builds dist/.
       #
       # NO `npm test` HERE, deliberately (#420). The exact-head PR CI (ci.yml, required
       # on every merge to main) already ran the whole suite on Node 20/22/24 for this
@@ -224,6 +193,46 @@ jobs:
       # deterministic, cheap, and catches a broken toolchain before `npm publish` does.
       - if: steps.plan.outputs.publish == 'true'
         run: npm ci
+
+      # A typo in a version-bump PR must not move `latest` BACKWARDS. npm points `latest`
+      # at whatever `--tag latest` publishes, even a LOWER version — so 1.0.2 published
+      # after 1.1.0 would hand every fresh `npm install` the older code, with six green
+      # checks and nothing comparing against what is already out. New versions must move
+      # forward: a stable release must exceed the current `latest`; a prerelease must
+      # exceed the current `next` as well. A stable is deliberately NOT compared against
+      # `next` — shipping a 1.x stable while a 2.0 rc sits on `next` is legitimate.
+      # `includePrerelease` is load-bearing: without it semver ranges exclude
+      # prereleases and `1.2.0-rc.1 > 1.1.0` would wrongly fail. Backporting to an old
+      # line would need this loosened; that is a problem to design for when it exists.
+      #
+      # The comparison runs on the `semver` devDependency that `npm ci` just installed
+      # from the lockfile (exact version, integrity-checked) — NOT an `npx`-fetched
+      # semver, which pulled an unreviewed tarball from the registry inside the very job that
+      # pins npm itself so nothing at publish time is fetched without review (#423).
+      # This job's only registry traffic is now `npm ci` against the lock and the
+      # publish itself.
+      - name: Version must move forward
+        if: steps.plan.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.plan.outputs.version }}"
+          # Per-tag queries, not `dist-tags --json`: npm 12 wraps that JSON in an ARRAY
+          # where npm 10 returns an object, and jq indexing the array killed the 1.2.0
+          # release at this step. `npm view pkg@tag version` prints a bare version on
+          # both lines; a missing tag or package exits non-zero -> empty -> guard skipped.
+          LATEST="$(npm view tamperward@latest version 2>/dev/null || true)"
+          NEXT="$(npm view tamperward@next version 2>/dev/null || true)"
+          forward() {
+            [ -z "$2" ] && return 0
+            if ! node -e 'const s = require("semver"); process.exit(s.satisfies(process.argv[1], ">" + process.argv[2], { includePrerelease: true }) ? 0 : 1)' "$1" "$2"; then
+              echo "::error::${1} is not greater than the current ${3} (${2}) — refusing to publish a downgrade. If the bump is a typo, fix package.json; a deliberate re-publish of an older line needs this guard loosened first."
+              exit 1
+            fi
+          }
+          forward "$VERSION" "$LATEST" "latest"
+          case "$VERSION" in *-*) forward "$VERSION" "$NEXT" "next";; esac
+          echo "version $VERSION moves forward (latest=${LATEST:-none}, next=${NEXT:-none})"
+
       - if: steps.plan.outputs.publish == 'true'
         run: npm run typecheck
 

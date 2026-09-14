@@ -265,13 +265,15 @@ describe('D-6: init plans everything before applying anything', () => {
     expect(r.out).toMatch(/2 item\(s\) need your attention/);
   });
 
-  it('a planner that throws outright becomes an error row and the rest of the plan survives', () => {
+  it('a directory where CODEOWNERS should be is an error row and the rest of the plan survives', () => {
     const d = repo();
-    mkdirSync(join(d, '.github/CODEOWNERS'), { recursive: true }); // readFileSync → EISDIR inside planCodeowners
+    // Used to surface as `cannot plan this item — EISDIR` thrown from readFileSync;
+    // since #414 every target is lstat'ed first and the row says what stands there.
+    mkdirSync(join(d, '.github/CODEOWNERS'), { recursive: true });
     const plan = planInit(d);
     const co = plan.find((a) => a.item === 'codeowners')!;
     expect(co.status).toBe('error');
-    expect(co.detail).toMatch(/cannot plan this item — .*EISDIR/);
+    expect(co.detail).toMatch(/^refusing: not a regular file/);
     expect(plan).toHaveLength(5);
     expect(plan.filter((a) => a.status === 'create')).toHaveLength(4);
   });

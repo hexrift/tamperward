@@ -9,13 +9,42 @@
 // So the sweep compares against the commit the turn STARTED at, recorded on the first tool
 // call of the session. The marker lives in .git/ (not the work tree): it is never committed,
 // never shows up in a diff, and does not need a policy exception.
+//
+// The marker is written to a temp file and renamed into place, so a parallel hook never
+// reads a half-written sha, and it is read only as a FULL 40-hex object name: anything
+// else is a torn or foreign file, treated as absent and re-established. A marker that
+// cannot be recorded is a turn the sweep cannot judge — `git diff HEAD` would make a
+// mid-turn commit invisible again — so the write failure is raised, and the hook denies
+// with the diagnostic rather than degrading (#417).
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { gitDir, headSha } from './git/build';
 
 const UNSAFE = /[^A-Za-z0-9_-]/g;
-const SHA = /^[0-9a-f]{7,40}$/;
+const SHA = /^[0-9a-f]{40}$/;
+
+/** The turn baseline could not be recorded; the sweep must not fall back to HEAD. */
+export class BaselineWriteError extends Error {
+  constructor(path: string, cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    super(`turn baseline could not be recorded at ${path}: ${detail}`);
+    this.name = 'BaselineWriteError';
+  }
+}
+
+/** Write `sha` atomically: a temp file beside the marker, renamed into place. */
+function writeBaseline(p: string, sha: string): void {
+  mkdirSync(dirname(p), { recursive: true });
+  const tmp = `${p}.${process.pid}.tmp`;
+  try {
+    writeFileSync(tmp, sha);
+    renameSync(tmp, p);
+  } catch (e) {
+    try { rmSync(tmp, { force: true }); } catch { /* the temp file is the lesser leak */ }
+    throw e;
+  }
+}
 
 function baselinePath(cwd: string, sessionId: string): string | null {
   const gd = gitDir(cwd);
@@ -25,26 +54,31 @@ function baselinePath(cwd: string, sessionId: string): string | null {
 
 /**
  * The commit this turn started from, recording it on first sight. Returns null when there
- * is no session id or no repo — the caller then falls back to the working-tree view, which
- * is no worse than the old behaviour.
+ * is no session id, no repo, or no commit yet (an unborn branch) — the caller then falls
+ * back to the working-tree view, which is all there is to compare. Throws
+ * `BaselineWriteError` when the marker cannot be recorded: that turn has no trustworthy
+ * baseline, and the hook denies it rather than judging against HEAD.
  */
 export function turnBaseline(cwd: string, sessionId?: string): string | null {
   if (!sessionId) return null;
+  const p = baselinePath(cwd, sessionId);
+  if (!p) return null;
   try {
-    const p = baselinePath(cwd, sessionId);
-    if (!p) return null;
     if (existsSync(p)) {
       const v = readFileSync(p, 'utf8').trim();
       if (SHA.test(v)) return v;
     }
-    const head = headSha(cwd);
-    if (!head) return null;
-    mkdirSync(dirname(p), { recursive: true });
-    writeFileSync(p, head);
-    return head;
   } catch {
-    return null; // never let bookkeeping break the verdict
+    /* an unreadable marker is absent, and is re-established below */
   }
+  const head = headSha(cwd);
+  if (!head) return null;
+  try {
+    writeBaseline(p, head);
+  } catch (e) {
+    throw new BaselineWriteError(p, e);
+  }
+  return head;
 }
 
 /** Move the baseline forward once a turn has ended clean, so the next turn is judged on
@@ -56,9 +90,9 @@ export function advanceTurnBaseline(cwd: string, sessionId?: string): void {
     const p = baselinePath(cwd, sessionId);
     const head = headSha(cwd);
     if (!p || !head) return;
-    mkdirSync(dirname(p), { recursive: true });
-    writeFileSync(p, head);
+    writeBaseline(p, head);
   } catch {
-    /* best effort */
+    /* best effort: a marker that fails to advance keeps the OLDER baseline, so the next
+       turn re-reports more, never less */
   }
 }

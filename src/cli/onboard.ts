@@ -24,8 +24,7 @@
 // re-run simply continues.
 
 import { execFileSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
-import { lstatSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -47,6 +46,7 @@ import { POLICY_FILE } from '../policy';
 import { loadPolicy } from '../policy-load';
 import { errorMessage } from '../narrow';
 import { TW_VERSION } from '../wiring';
+import { atomicReplaceFile, existingMode, writeTargetKind } from '../safe-write';
 
 export interface OnboardOpts {
   cwd?: string;
@@ -211,20 +211,6 @@ function explainVerdict(v: VerifyVerdictSummary | null, code: number): string {
   }
 }
 
-/** Replace a file without ever opening the destination for writing. The bytes go
- * to a fresh sibling and rename replaces the directory entry atomically. That
- * means a final-component symlink (or a hard link to operator state) is never
- * followed; a hard link is broken rather than mutated in place. */
-function atomicReplaceFile(path: string, content: string, mode: number): void {
-  const tmp = `${path}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
-  try {
-    writeFileSync(tmp, content, { encoding: 'utf8', flag: 'wx', mode });
-    renameSync(tmp, path);
-  } finally {
-    rmSync(tmp, { force: true });
-  }
-}
-
 /** Merge `verify.command` (and a default budget) into the policy file, keeping
  * everything else — comments included — as written. A repository-controlled
  * symlink/special file is refused before any read or write, and the replacement
@@ -232,12 +218,12 @@ function atomicReplaceFile(path: string, content: string, mode: number): void {
  * when the result would not load; the file is then restored byte-for-byte. */
 function writeVerifyCommand(cwd: string, command: string): string | null {
   const path = join(cwd, POLICY_FILE);
-  const st = lstatSync(path, { throwIfNoEntry: false });
-  if (st && (!st.isFile() || st.isSymbolicLink())) {
+  const kind = writeTargetKind(path);
+  if (kind === 'symlink' || kind === 'irregular') {
     return `${POLICY_FILE} is not a regular file; refusing to follow or replace a symlink or special file`;
   }
-  const mode = st ? st.mode & 0o777 : 0o644;
-  const original = st ? readFileSync(path, 'utf8') : null;
+  const mode = existingMode(path, 0o644);
+  const original = kind === 'file' ? readFileSync(path, 'utf8') : null;
   let next: string;
   try {
     const doc = parseDocument(original && original.trim() ? original : 'version: 1\n');

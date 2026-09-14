@@ -77,6 +77,19 @@ Flags: `--cwd <dir>` · `--dry-run` · `--force-workflow` (replace a workflow `i
 write, or one you have edited — a generated workflow nobody touched is migrated
 automatically when the template changes).
 
+Every file `init` writes is checked before it is touched and replaced atomically
+(2.23.16). The target is `lstat`ed: a symlink, a directory or a special file standing
+where the policy, `.claude/settings.json`, the pre-commit hook (in whichever hooks
+directory, husky's included), CODEOWNERS or the workflow should be is refused with a
+plan row reading `refusing: symlink` (or `refusing: not a regular file`), in `--dry-run`
+and for real alike, and init exits `2` — the rest of the plan still applies. Nothing the
+link points at is read or written: a `.claude/settings.json` symlinked to
+`~/.claude/settings.json`, or a tracked `.husky/pre-commit` aimed at a file you can
+write, never becomes a write outside the repository. Each write goes to a fresh sibling
+temp file in the same directory and is renamed over the destination, so a crash
+mid-write leaves the old file whole rather than a truncated one, and the destination is
+never opened for writing. `onboard` shares the same primitive for the policy.
+
 `init` wires the **repository root** from any subdirectory: run from `packages/x`, it
 writes the same files to the same places as from the root and says so on stderr
 (2.23.6; before that it planned the policy and CI files under the subdirectory while
@@ -105,6 +118,20 @@ npx tamperward doctor --github --repo OWNER/REPO --branch main
 
 Set `GH_TOKEN` or `GITHUB_TOKEN` if GitHub requires authentication for the
 repository/settings being inspected.
+
+Plain `tamperward doctor` is the one definition of "installed correctly", and its
+`claude-hooks` and `pre-commit` checks certify the wiring by the same canonical-shape
+comparison the `hook-tampering` rule applies to an edit of it — not by whether a
+`tamperward` command is still present. A Claude hook entry the runtime would not run
+the gate through (`"async": true`, an `if`, a `timeout` below 120 seconds, any other
+key `init` does not write, a pipe or chain around the command, `disableAllHooks`
+flipped) is `[BROKEN] claude-hooks` with the rule's reason, and `init --dry-run`
+reports the same entry as `would update` (an entry whose command `init` wrote is
+restored to the shape `init` writes on the next run) or `error` (a hand-written
+command is reported, never rewritten). A pre-commit gate line whose first non-blank
+character is `#` is a comment, so the "temporarily disable" edit reads as not wired
+from both. `onboard`'s posture summary inherits these verdicts, because it is
+`doctor`'s.
 
 Every init run now prints a separate **VERIFICATION SETUP** status. If the loaded
 policy already names `verify.command`, it prints `verification configured — <command>`.

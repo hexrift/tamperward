@@ -54,20 +54,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 350   # 285-min mining budget under this ceiling; resume by re-dispatch
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Pool sanity — the walk is disjoint from the burn set
         run: |
           set -euo pipefail
           P="harness/taskbench/round4/pools/$POOL"
           [ -s "$P/walk.json" ] || { echo "::error::no walk.json for pool $POOL"; exit 1; }
+          # The pool name is a dispatch input: read it from the environment inside the
+          # script, never spliced into the JavaScript source (the rule harness.yml
+          # states for its own inputs, #423).
           node -e '
-            const fs=require("fs"), P="harness/taskbench/round4";
-            const order=new Set(JSON.parse(fs.readFileSync(P+"/pools/'"$POOL"'/walk.json")).order);
+            const fs=require("fs"), P="harness/taskbench/round4", POOL=process.env.POOL;
+            const order=new Set(JSON.parse(fs.readFileSync(P+"/pools/"+POOL+"/walk.json")).order);
             const burn=JSON.parse(fs.readFileSync(P+"/frame/pilot-dedup.json")).repos;
             const leaked=burn.filter(r=>order.has(r));
             if (leaked.length){console.error("::error::"+leaked.length+" burnt repos leaked into the walk");process.exit(1);}
-            console.log("pool '"$POOL"': "+order.size+" repositories, burn-set disjoint: OK");
+            console.log("pool "+POOL+": "+order.size+" repositories, burn-set disjoint: OK");
           '
 
       - name: Build the pinned mining image (records its identity)
@@ -153,7 +156,7 @@ jobs:
 
       - name: Upload the pool snapshot
         if: always() && inputs.action == 'mine'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: mine-${{ env.POOL }}
           path: |

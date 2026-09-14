@@ -18,9 +18,25 @@ export default defineConfig({
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Blog', link: '/blog/' },
       { text: 'Research', link: '/research/' },
+      { text: 'Reference', link: '/architecture' },
       { text: 'npm', link: 'https://www.npmjs.com/package/tamperward' },
     ],
     sidebar: {
+      // The top-level reference pages have no path prefix of their own; `/` is the
+      // fallback sidebar VitePress uses when no longer prefix matches, so the guide,
+      // research and blog groups below still win on their own paths (#451).
+      '/': [
+        {
+          text: 'Reference',
+          items: [
+            { text: 'Architecture', link: '/architecture' },
+            { text: 'Performance budgets', link: '/PERF' },
+            { text: 'Cast inventory', link: '/CAST-INVENTORY' },
+            { text: 'Threat model: pristine run', link: '/THREAT-MODEL-pristine-run' },
+            { text: 'Threat model: adjudication boundary', link: '/THREAT-MODEL-adjudication-boundary' },
+          ],
+        },
+      ],
       '/guide/': [
         {
           text: 'Guide',

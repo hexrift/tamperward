@@ -36,7 +36,7 @@ import { inspectRel, unjudgeableFinding, unjudgeableProtected } from '../disk';
 import { Change, FileChange, Finding, Policy } from '../types';
 import { isRecord } from '../narrow';
 import type { SnapshotCache } from '../ptree-cache';
-import { repoRoot } from '../repo-context';
+import { outsideRepository, repoContext, repoRoot } from '../repo-context';
 
 export interface HookResult {
   exitCode: number;
@@ -603,11 +603,17 @@ export function stopVerdict(input: ClaudeHookInput, defaultCwd?: string): HookRe
   if (input.stop_hook_active) return { exitCode: 0, stdout: '' };
   const sessionCwd = input.cwd ?? defaultCwd ?? process.cwd();
   // "Nothing to compare" and "the comparison failed" must not share a code path: a blanket
-  // catch→allow turned a broken policy or a git failure into a silent pass.
-  if (!isGitRepo(sessionCwd)) return { exitCode: 0, stdout: '' };
-  // The sweep judges the REPOSITORY: the turn view lists root-relative paths, and
-  // the policy, the disk reads and the effect state are rooted with them (#412).
-  const cwd = repoRoot(sessionCwd);
+  // catch→allow turned a broken policy or a git failure into a silent pass, and a bare
+  // `isGitRepo` test allowed a cwd that does not exist or cannot be read exactly as it
+  // allowed a plain directory (#417). The sweep judges the REPOSITORY: the turn view
+  // lists root-relative paths, and the policy, the disk reads and the effect state are
+  // rooted with them (#412).
+  const ctx = repoContext(sessionCwd);
+  if (!ctx) {
+    const why = outsideRepository(sessionCwd);
+    return why ? failClosed('Stop', why) : { exitCode: 0, stdout: '' };
+  }
+  const cwd = ctx.root;
   let blocks: Finding[];
   let commitCursor: () => void = () => {};
   try {

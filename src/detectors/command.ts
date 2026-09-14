@@ -40,8 +40,28 @@ export function tokens(seg: string): string[] {
   return seg.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [];
 }
 
+/** A token with its shell quoting removed, the way the shell reads it: the quote
+ *  characters that OPEN and CLOSE a span go, the span's content stays, and the
+ *  other quote kind inside a span is content (`"it's"` is `it's`). Stripping the
+ *  outer quotes only left `HUSKY="0"` as `HUSKY="0`, which `^HUSKY=0$` never
+ *  matched (#433). A backslash outside single quotes escapes the next character,
+ *  which is kept as written. */
 export function unquote(t: string): string {
-  return t.replace(/^['"]+|['"]+$/g, '');
+  let out = '';
+  let single = false;
+  let double = false;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (ch === '\\' && !single) {
+      out += ch;
+      if (i + 1 < t.length) out += t[++i];
+      continue;
+    }
+    if (ch === "'" && !double) { single = !single; continue; }
+    if (ch === '"' && !single) { double = !double; continue; }
+    out += ch;
+  }
+  return out;
 }
 
 /** The segment's tokens with quotes stripped — `'--no-verify'` is the flag, while
