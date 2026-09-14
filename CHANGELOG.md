@@ -5,6 +5,35 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.12] — 2026-09-14
+
+### Security
+
+- **A content-triggered detector crash failed OPEN at the Stop sweep and at
+  PreToolUse** (#444). The engine emitted the fail-closed `detector-error` block only
+  for the `staged`, `worktree` and `range` views; the Stop sweep evaluates the `turn`
+  view and PreToolUse the `tool-call` view, so a rule that threw on repository content
+  was silently dropped at exactly the two layers the agent meets. A spec beginning with
+  `const deep = [[[…30 000 deep…]]];` plus `it.skip(...)` made `test-skip`,
+  `test-deletion` and `test-content-removal` throw `RangeError` — 0 findings, allow —
+  while the same content was `block:detector-error` at pre-commit. Two fixes. The
+  engine now fails closed at **every** view (a caller that names no view included): a
+  thrown detector is a blocking `detector-error` naming the rule, carried on the
+  PreToolUse deny channel and the Stop block channel like any other block. And the
+  crash is no longer reachable from content: every `ts.createSourceFile` in the
+  detectors (`test-skip`, `test-deletion`, `test-content-removal`,
+  `assertion-weakening`, `ts-any-cast`, `ts-cast-growth`, `coverage-lowering`,
+  `suite-config`) goes through one guarded entry, `parseSource` in `src/ts-lazy.ts`,
+  with a 4 MiB byte ceiling and a 256-level bracket-nesting ceiling that **declines**
+  (null) instead of throwing, and declines a `RangeError` the parser still raises the
+  same way. A declined parse is not a verdict: the rule's line-level matcher judges the
+  file, as it does for a diff-only change — so the fixture is denied at PreToolUse,
+  blocked at Stop and blocked at `check --staged` by `test-skip`, not by
+  `detector-error`, and the same deep literal without a skip is clean at all three. A
+  declined `test-deletion` count is an open count (no deletion asserted, no relocation
+  credit granted); a declined config parse selects like the default, as its catch
+  already did.
+
 ## [2.23.11] — 2026-09-14
 
 ### Fixed

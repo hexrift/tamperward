@@ -176,6 +176,19 @@ computed in the parser and are the only thing every `Finding.line` can trust.
 One engine means a rule written once fires identically everywhere. That's not a
 nicety — it *is* the "block the class, not the flag" promise.
 
+**A rule that cannot run is not a rule that passed.** The engine isolates each
+detector, and a detector that throws is reported as a blocking `detector-error`
+finding naming the rule — at **every** view, the agent-facing `tool-call` and `turn`
+included (2.23.12, #444; until then only the staged, worktree and range views carried
+it, so content that made a detector throw was denied at pre-commit and allowed at
+PreToolUse and Stop). `detector-error` is not a policy rule: it cannot be disabled,
+lowered or excluded by the file under evaluation. And the crash the issue exhibited is
+not reachable from content any more: every `ts.createSourceFile` in the detectors goes
+through one guarded entry (`parseSource`, `src/ts-lazy.ts`) with a 4 MiB byte ceiling
+and a 256-level bracket-nesting ceiling that **declines** — the rule's line-level
+matcher judges the file instead, as it does for a diff-only change — rather than
+overflowing the stack; a `RangeError` the parser still raises is declined the same way.
+
 ---
 
 ## 3. The rule schema
@@ -452,6 +465,13 @@ matches it and no honest path carries one. And the drift check's walk of the pro
 tree does not enter a directory git reports as wholly ignored: the protected files git
 lists under it are snapshotted from that listing, so a 50k-file `dist/` costs one
 listing per call, not one stat per file.
+
+The sweep is an adjudicating layer and fails closed like one (2.23.12, #444): a
+detector that throws over the turn's diff is a blocking `detector-error` on the Stop
+deny channel, exactly as at pre-commit — never a rule silently dropped from the
+verdict. The same holds at the PreToolUse hook (§5.1): a detector that throws on the
+tool payload is a deny, never an allow. Neither is reachable by nesting or size alone,
+since the parser declines pathological content before it can overflow (§2).
 
 Handle `stop_hook_active`: Claude Code sets it on the Stop payload when the agent is
 already continuing because a Stop hook blocked it. The sweep honours it **immediately**
