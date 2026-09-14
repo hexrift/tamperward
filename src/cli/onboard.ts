@@ -41,6 +41,7 @@ import {
   type DoctorOutcome,
 } from './doctor';
 import { runCheck, type CheckOpts } from './check';
+import { colourEnabled } from './render/text';
 import { isGitRepo } from '../git/build';
 import { treeFingerprint } from '../fingerprint';
 import { POLICY_FILE } from '../policy';
@@ -92,6 +93,8 @@ export interface OnboardIo {
   /** Whether prompting is possible at all. Defaults to a TTY stdin outside CI. */
   interactive?: boolean;
   platform?: NodeJS.Platform;
+  /** @internal Force terminal colour on/off for deterministic tests. */
+  colour?: boolean;
   runners?: Partial<OnboardRunners>;
 }
 
@@ -136,27 +139,41 @@ class Aborted extends Error {}
 
 type Posture = 'READY' | 'READY WITH WARNINGS' | 'BROKEN' | 'INCOMPLETE';
 
-const STEPS = [
-  'Preflight',
-  'Preview the installation',
-  'Initialize',
-  'Configure verification',
-  'First verification',
-  'Safe demonstration',
-  'GitHub repository authority',
-  'Posture',
-  'Next steps',
+const SECTIONS = [
+  'Environment',
+  'Local protection',
+  'Verification',
+  'GitHub protection',
+  'Summary',
 ] as const;
 
 const MANUAL_CONTROLS = [
-  'In the branch-protection or ruleset settings of the protected branch, configure ALL THREE:',
-  '  1. require the `tamperward` status check;',
-  '  2. enable "Require review from Code Owners";',
-  '  3. enable "Dismiss stale pull request approvals when new commits are pushed".',
-  'Until all three are enforced the generated CI gate is advisory: a pull request runs the',
-  'workflow from its own head and a required check is matched by job name, so it could keep',
-  'the job called `tamperward`, replace the gate with `true`, and report green.',
+  'GitHub still needs three repository controls:',
+  '  required check: tamperward',
+  '  Code Owner review',
+  '  dismiss stale approvals when new commits are pushed',
 ];
+
+const ESC = '\u001b';
+const RESET = `${ESC}[0m`;
+const BOLD = `${ESC}[1m`;
+const DIM = `${ESC}[2m`;
+const RED = `${ESC}[31m`;
+const YELLOW = `${ESC}[33m`;
+const GREEN = `${ESC}[32m`;
+const CYAN = `${ESC}[36m`;
+
+function paint(text: string, code: string, on: boolean): string {
+  return on ? code + text + RESET : text;
+}
+
+function platformLabel(platform: NodeJS.Platform): string {
+  if (platform === 'darwin') return 'macOS';
+  if (platform === 'win32') return 'Windows';
+  if (platform === 'linux') return 'Linux';
+  return platform;
+}
+
 
 const JS_TEST_PATH = /(?:^|\/)(?:[^/]+\.(?:test|spec)\.[cm]?[jt]sx?|__tests__\/[^/]+\.[cm]?[jt]sx?)$/;
 const JS_TEST_BLOCK = /^(\s*)(it|test|describe)(\s*\()/m;
