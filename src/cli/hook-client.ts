@@ -23,10 +23,11 @@
 //   - the service refuses the request before accepting ownership (for example a
 //     cwd outside the bound repository), or cannot be reached at all.
 //
-// Once the service ACKS `accepted: true`, fallback is deliberately no longer
-// allowed: it may already be mutating the session baseline/ptree/cursor state.
-// A timeout, disconnect or malformed final response after that ACK is returned
-// as a fail-closed HookResult so there is still exactly one authority evaluation.
+// Once the socket connects and the request is handed off, fallback is deliberately
+// no longer allowed: the service may have received it even if an ACK is delayed.
+// Only an explicit service refusal proves evaluation never started. An ambiguous
+// timeout, disconnect or malformed response after handoff becomes a fail-closed
+// HookResult so there is still exactly one authority evaluation.
 //
 // Trust argument, stated once. The service runs as the same uid as the hook and
 // as the candidate; a same-uid candidate could stop it and start something else
@@ -167,14 +168,16 @@ interface AcceptedFailure {
   failure: 'timeout' | 'connection-closed' | 'response-too-large' | 'malformed-response';
 }
 
-/** One request, one connection. Before evaluation the service sends an
- * `accepted` line; only then does it own the request and mutate per-session
- * state. A failure BEFORE that line is safe to retry in-process. A failure
- * AFTER it is not: the service may still be evaluating, so starting a second
- * authority over the same .git/tamperward state would race it. */
+/** One request, one connection. The request becomes single-owner as soon as
+ * the socket connects and the bytes are handed to the service: after that point
+ * a timeout cannot prove the service did not receive/start it. An explicit
+ * refusal response is the only post-connect route back to in-process fallback.
+ * The service's `accepted` line remains an observable protocol boundary, but
+ * safety does not depend on the client receiving it before a timer fires. */
 export function exchange(paths: ServicePaths, req: ServiceRequest, timeoutMs: number): Promise<unknown> {
   return new Promise((resolve) => {
     let done = false;
+    let handedOff = false;
     let accepted = false;
     let buf = '';
     const acceptedFailure = (failure: AcceptedFailure['failure']): AcceptedFailure => ({ accepted: true, failure });
@@ -186,13 +189,16 @@ export function exchange(paths: ServicePaths, req: ServiceRequest, timeoutMs: nu
       resolve(value);
     };
     const sock = createConnection(paths.socket);
-    const timer = setTimeout(() => finish(accepted ? acceptedFailure('timeout') : null), timeoutMs);
+    const timer = setTimeout(() => finish(handedOff ? acceptedFailure('timeout') : null), timeoutMs);
     sock.setEncoding('utf8');
-    sock.on('error', () => finish(accepted ? acceptedFailure('connection-closed') : null));
-    sock.on('connect', () => sock.write(JSON.stringify(req) + '\n'));
+    sock.on('error', () => finish(handedOff ? acceptedFailure('connection-closed') : null));
+    sock.on('connect', () => {
+      handedOff = true;
+      sock.write(JSON.stringify(req) + '\n');
+    });
     sock.on('data', (chunk: string) => {
       buf += chunk;
-      if (buf.length > MAX_RESPONSE_BYTES) return finish(accepted ? acceptedFailure('response-too-large') : null);
+      if (buf.length > MAX_RESPONSE_BYTES) return finish(handedOff ? acceptedFailure('response-too-large') : null);
       while (!done) {
         const nl = buf.indexOf('\n');
         if (nl < 0) return;
@@ -202,7 +208,7 @@ export function exchange(paths: ServicePaths, req: ServiceRequest, timeoutMs: nu
         try {
           parsed = JSON.parse(line);
         } catch {
-          return finish(accepted ? acceptedFailure('malformed-response') : null);
+          return finish(handedOff ? acceptedFailure('malformed-response') : null);
         }
         if (
           !accepted &&
@@ -217,7 +223,7 @@ export function exchange(paths: ServicePaths, req: ServiceRequest, timeoutMs: nu
         finish(parsed);
       }
     });
-    sock.on('close', () => finish(accepted ? acceptedFailure('connection-closed') : null));
+    sock.on('close', () => finish(handedOff ? acceptedFailure('connection-closed') : null));
   });
 }
 
