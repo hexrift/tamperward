@@ -39,6 +39,7 @@ import { TW_VERSION } from '../wiring';
 import {
   RESEARCH_ARMS,
   ResearchError,
+  normalizeCommandArgv,
   resolveAdapter,
   type AdapterTask,
   type AgentAdapter,
@@ -65,6 +66,9 @@ export interface ResearchRunOpts {
   json?: boolean;
   /** @internal Test-only projection of the platform preflight. Not parsed by the CLI. */
   platformCheck?: DoctorCheck;
+  /** @internal Operator directory used to resolve a relative command adapter argv[0].
+   *  The CLI leaves this unset and therefore uses process.cwd(). */
+  operatorCwd?: string;
 }
 
 const err = (s: string): void => void process.stderr.write(s + '\n');
@@ -89,6 +93,9 @@ interface PairIdentity {
   agent_argv: readonly string[];
   agent_budget: number | null;
   verify_command: string;
+  /** Source commit before any gated-arm treatment wiring. Null only until the
+   *  first existing/new pair pins the task. */
+  source_base: string | null;
 }
 
 /**
@@ -128,6 +135,9 @@ function resumableRecord(path: string, expected: PairIdentity): PairRecord {
     mismatch.push(`agent_budget ${String(record.agent_budget)} != ${String(expected.agent_budget)}`);
   }
   if (record.verify_command !== expected.verify_command) mismatch.push(`verify_command ${JSON.stringify(record.verify_command)} != ${JSON.stringify(expected.verify_command)}`);
+  if (expected.source_base !== null && record.arms.ungated.base !== expected.source_base) {
+    mismatch.push(`source_base ${record.arms.ungated.base.slice(0, 12)}… != ${expected.source_base.slice(0, 12)}…`);
+  }
   if (mismatch.length) {
     throw new ResearchError(
       `ledger record ${path} belongs to a different experiment (${mismatch.join('; ')}); use a new --out, or remove it deliberately`,
