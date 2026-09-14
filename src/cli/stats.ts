@@ -169,11 +169,15 @@ export function runStats(opts: StatsOpts = {}): number {
 
     if (opts.github) {
       const branch = opts.branch ?? DEFAULT_AUDIT_BRANCH;
-      events = loadGitHubAudit(cwd, opts.github, branch, opts.path ?? DEFAULT_AUDIT_ROOT, window.cutoff);
+      const root = (opts.path ?? DEFAULT_AUDIT_ROOT).replace(/^\/+|\/+$/g, '');
+      if (!root || root.split('/').some((part) => part === '..' || part === '.')) {
+        throw new Error('--path must be a repository-relative directory');
+      }
+      events = loadGitHubAudit(cwd, opts.github, branch, root, window.cutoff);
       source = { kind: 'github', repo: opts.github, branch };
       sourceText = `GitHub: ${opts.github}#${branch}`;
     } else {
-      const log = resolve(opts.log ?? defaultAuditLog(cwd));
+      const log = opts.log ? resolve(cwd, opts.log) : defaultAuditLog(cwd);
       events = filterSince(readAuditLog(log), window.cutoff);
       source = { kind: 'local' };
       sourceText = 'Local structured audit';
