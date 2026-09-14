@@ -5,6 +5,27 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.1] — 2026-09-14
+
+### Changed
+
+- **Audit evidence ingests on merge to `main`** (#502). The `tamperward-audit` workflow
+  gains a post-merge entry point beside `workflow_dispatch`: a reviewed PR adds an
+  immutable `audit/pending/<batch-id>.jsonl` batch, and on merge the workflow ingests any
+  batch whose id/content hash is not already recorded into the `tamperward-audit` evidence
+  branch. Ingestion is deterministic and idempotent (dedup by content hash and event id;
+  a build-free prescan short-circuits when nothing is new), and the write credential is
+  isolated: a read-only `prepare` job builds and validates with no write token present
+  while `npm ci`/build/candidate code runs, and a minimal `publish` job holds the write
+  token but runs no candidate code. Committed batches are validated pre-merge by CI, and
+  a `CODEOWNERS` entry covers `audit/`. There is still no `pull_request` /
+  `pull_request_target` trigger, and the workflow remains the sole writer of the evidence
+  branch and never writes `main`.
+- **The README local-enforcement-envelope diagram is now a committed SVG** (#503) instead
+  of a fenced Mermaid block, so it renders consistently on GitHub and everywhere Mermaid
+  is unavailable — matching the architecture diagram. A `docs-status` regression check
+  fails if a fenced Mermaid diagram is reintroduced into authored documentation.
+
 ## [2.29.0] — 2026-09-14
 
 ### Added
