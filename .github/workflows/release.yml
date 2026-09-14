@@ -135,15 +135,8 @@ jobs:
         run: npm ci
       - if: steps.plan.outputs.publish == 'true'
         run: npm run typecheck
-      # Release re-validates the deterministic functional suite, but not the
-      # shared-runner perf smoke. That smoke intentionally uses loose relative
-      # timing ratios and is still enforced on every PR by ci.yml; making npm
-      # publication depend on one more noisy timing sample creates false release
-      # failures after the exact head has already passed the same smoke across the
-      # supported Node matrix. The authoritative performance regression gate is
-      # the dedicated perf workflow against BASELINE.json.
       - if: steps.plan.outputs.publish == 'true'
-        run: npm test -- --exclude test/perf-smoke.test.ts
+        run: npm test
 
       # A prerelease must not become `latest`, or `npm install tamperward` starts handing
       # people a release candidate. Anything with a hyphen (1.1.0-rc.2) publishes under
