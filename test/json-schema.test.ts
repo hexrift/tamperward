@@ -510,6 +510,7 @@ describe('machine-readable schema v1 (#333)', () => {
     const stats = packagedCli(packageRoot, cwd, ['stats', '--file', auditFile, '--json']);
     expect(stats.status).toBe(0);
     expect(validateDoc('stats', parseOnlyJson(stats.stdout), packageRoot)).toEqual([]);
+    rmSync(auditFile);
 
     if (process.platform === 'linux' && trustedLinuxPython().path) {
       const run = packagedCli(packageRoot, cwd, [
