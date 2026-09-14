@@ -341,6 +341,36 @@ describe('preflight refusals', () => {
     expect(s.questions).toEqual([]);
   });
 
+  it('refuses a child directory instead of mixing it with the parent Git repository', async () => {
+    const parent = repo();
+    const child = join(parent, 'test-proj');
+    mkdirSync(child);
+    writeFileSync(join(child, 'package.json'), JSON.stringify({ name: 'child', scripts: { test: 'node --test' } }) + '\n');
+
+    const s = await onboard(child, [], { noGithub: true });
+    expect(s.code).toBe(2);
+    expect(s.err).toMatch(/not the Git repository root/i);
+    expect(s.err).toContain(parent);
+    expect(s.err).toContain(child);
+    expect(s.err).toMatch(/git init/);
+    expect(existsSync(join(child, '.tamperward.yml'))).toBe(false);
+  });
+
+  it('presents macOS as a clear run limitation instead of dumping lifecycle internals', async () => {
+    const d = repo();
+    const s = await onboard(d, ['n'], { noGithub: true, skipDemo: true }, { platform: 'darwin' });
+    expect(s.out).toMatch(/LIMITED\s+macOS: check \+ verify work here; .*run.*requires Linux/);
+    expect(s.out).not.toMatch(/subreaper|ECHILD/);
+  });
+
+  it('uses colour for interactive status while keeping words as the source of meaning', async () => {
+    const d = repo();
+    const s = await onboard(d, ['n'], { noGithub: true, skipDemo: true }, { colour: true });
+    expect(s.out).toContain('\u001b[36m');
+    expect(s.out).toContain('Environment');
+    expect(s.out).toMatch(/ACTION|INCOMPLETE/);
+  });
+
   it('refuses a non-interactive stdin without a scripted mode, and never hangs', async () => {
     const d = repo();
     const s = await onboard(d, [], { noGithub: true }, { interactive: false });
