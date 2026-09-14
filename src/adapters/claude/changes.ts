@@ -40,7 +40,7 @@ function relForDisplay(path: string, cwd: string): string {
   return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : path;
 }
 
-function applyEdit(content: string | null, oldStr: string, newStr: string): string {
+function applyEdit(content: string | null, oldStr: string, newStr: string, replaceAll = false): string {
   if (content === null) return newStr;
   // FAIL-OPEN CLOSED (taskbench Phase 3, 07-fastify): when old_string is not
   // found in the disk read, a silent no-op made after === before, which made
@@ -50,8 +50,16 @@ function applyEdit(content: string | null, oldStr: string, newStr: string): stri
   // so the additive detectors judge what is about to enter the file.
   if (oldStr !== '' && !content.includes(oldStr)) return content + '\n' + newStr;
   // Function replacer so `$&`, `$1`, `` $` `` in newStr are inserted literally, not
-  // interpreted as replacement patterns. Still replaces the first occurrence only.
-  return content.replace(oldStr, () => newStr);
+  // interpreted as replacement patterns.
+  //
+  // The Edit tool's real write semantics (#418): with `replace_all` every occurrence of
+  // old_string is rewritten; without it old_string must be UNIQUE and exactly one is
+  // rewritten. Modelling only the first occurrence when replace_all is set makes the
+  // predicted content (and the hash sanctionPredictedWrites records) SMALLER than what the
+  // tool writes to disk, so the next call re-judges via drift and threshold rules see less
+  // than lands. `replaceAll` with a string pattern touches every occurrence; the single
+  // path stays `replace` (first occurrence), preserving prior behaviour exactly.
+  return replaceAll ? content.replaceAll(oldStr, () => newStr) : content.replace(oldStr, () => newStr);
 }
 
 /** before/after full content → a FileChange with hunks, via the same diff parser. */
@@ -135,7 +143,7 @@ export function changesFromClaudeHook(input: ClaudeHookInput, cwd: string, base:
       const fp = asStr(ti.file_path);
       if (!fp) return [];
       const before = readDisk(abs(fp));
-      const after = applyEdit(before, asStr(ti.old_string), asStr(ti.new_string));
+      const after = applyEdit(before, asStr(ti.old_string), asStr(ti.new_string), ti.replace_all === true);
       return synthFileChange(relForDisplay(abs(fp), cwd), before, after);
     }
     case 'MultiEdit': {
@@ -146,7 +154,7 @@ export function changesFromClaudeHook(input: ClaudeHookInput, cwd: string, base:
       const edits = Array.isArray(ti.edits) ? ti.edits : [];
       for (const raw of edits) {
         const ed = isRecord(raw) ? raw : {};
-        after = applyEdit(after, asStr(ed.old_string), asStr(ed.new_string));
+        after = applyEdit(after, asStr(ed.old_string), asStr(ed.new_string), ed.replace_all === true);
       }
       return synthFileChange(relForDisplay(abs(fp), cwd), before, after);
     }
