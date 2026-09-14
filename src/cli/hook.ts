@@ -78,7 +78,7 @@ function readStdin(): string {
  * call — there is nothing to deny, and denying it would break `tamperward hook
  * claude < /dev/null`, which is how the wiring is smoke-tested.
  */
-function parseInput(raw: string): ClaudeHookInput {
+export function parseInput(raw: string): ClaudeHookInput {
   if (!raw.trim()) return {};
   let parsed: unknown;
   try {
@@ -140,11 +140,12 @@ function failClosed(kind: 'PreToolUse' | 'Stop', detail: string): HookResult {
   return verdict([f], kind);
 }
 
-/** Deny via JSON on stdout at exit 0. Empty stdout + exit 0 = allow. */
-function verdict(blocks: Finding[], kind: 'PreToolUse' | 'Stop'): HookResult {
-  if (blocks.length === 0) return { exitCode: 0, stdout: '' };
-  recordDenylog(blocks);
-  const reason = formatDenial(blocks);
+/** The exact deny WIRE BYTES for a Claude hook `kind`, given the already-formatted
+ *  reason. This is the one place the PreToolUse / Stop payload shapes are serialised;
+ *  `verdict()` below and the Claude RuntimeAdapter's `denyPayload` (src/adapters/claude/
+ *  adapter.ts) both go through it, so the neutral-contract wire can never drift from the
+ *  live hook wire. Behaviour is byte-identical to the previous inline serialisation. */
+export function denyWire(reason: string, kind: 'PreToolUse' | 'Stop'): string {
   const payload =
     kind === 'PreToolUse'
       ? {
@@ -155,7 +156,15 @@ function verdict(blocks: Finding[], kind: 'PreToolUse' | 'Stop'): HookResult {
           },
         }
       : { decision: 'block', reason };
-  return { exitCode: 0, stdout: JSON.stringify(payload) + '\n' };
+  return JSON.stringify(payload) + '\n';
+}
+
+/** Deny via JSON on stdout at exit 0. Empty stdout + exit 0 = allow. */
+function verdict(blocks: Finding[], kind: 'PreToolUse' | 'Stop'): HookResult {
+  if (blocks.length === 0) return { exitCode: 0, stdout: '' };
+  recordDenylog(blocks);
+  const reason = formatDenial(blocks);
+  return { exitCode: 0, stdout: denyWire(reason, kind) };
 }
 
 /** PreToolUse: deny the shortcut before the tool runs. Pure — testable without stdin.

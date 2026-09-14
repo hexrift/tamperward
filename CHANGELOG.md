@@ -5,7 +5,37 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [2.25.1] — 2026-09-14
+## [2.26.0] — 2026-09-14
+
+### Added
+
+- **A vendor-neutral in-loop steering contract, `RuntimeAdapter`** (#482, Phase 1). A new
+  `src/adapters/contract.ts` names the seam between TamperWard's runtime-neutral engine and
+  a specific agent runtime as a type: the `pre-action` / `post-action` / `end-of-turn`
+  decision-vs-observation split (a synchronous deny before execution; observation-only after;
+  a mandatory end-of-turn sweep), per-**operation** capability declaration
+  (`shell` / `file-edit` / `file-read` / `mcp` / `other`, each `preDeny` / `postObserve` /
+  `endOfTurn` / `unsupported`), and explicit outcome states — `ok` / `unsupported` /
+  `not-invoked` / `parse-failure` / `transport-failure`, where `parse-failure` and
+  `transport-failure` fail **closed** (deny), mirroring the live `HookInputError` →
+  `failClosed`. The runtime-supplied `cwd` / identity is typed as an untrusted **claim** to
+  validate against the runner's independently-derived repository root, never as authority.
+- **Claude Code is the first implementation of that contract** (`src/adapters/claude/adapter.ts`)
+  with **zero** change to live steering behaviour. It is a conformance wrapper: `decide()`
+  delegates to the unchanged canonical `preToolUseFromRaw` / `stopFromRaw` in
+  `src/cli/hook.ts` (still wired directly from the CLI), so its verdicts and wire bytes are
+  byte-identical to the live hook; `denyPayload` reuses the same `denyWire` serialisation and
+  `formatDenial` reason as the live `verdict()`. Claude declares all-operation pre-deny plus
+  the end-of-turn stop. The deny/allow paths, `failClosed`, repo-root resolution (#412), the
+  turn baseline, and the hook-service transport are untouched; the existing hook test suite
+  is the guardrail and stays green unchanged.
+- **Docs:** a vendor-neutral runtime-adapter guide (`docs/guide/runtime-adapters.md`) and an
+  OWASP ACS mapping (`docs/ACS-mapping.md`) that maps only implemented event/control
+  semantics, states the unsupported ones (no identity/authN, no network-egress control), and
+  claims **no** ACS compliance. Both are linked in the docs sidebar. SPEC M5 gains a pointer
+  to the new seam and is explicitly **not** declared met — this ships no second runtime.
+
+
 
 ### Fixed
 
