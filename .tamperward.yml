@@ -39,6 +39,9 @@ rules:
   # setup modules from unprotected files; warn by corpus (#447).
   config-weakening: { severity: warn }
   coverage-lowering: { severity: block }
+  # inline coverage exclusions in non-test source; warn until the corpus in
+  # harness/fp-study/coverage-exclusion-corpus.json earns block (#438)
+  coverage-exclusion: { severity: warn }
   ci-tampering: { severity: block }
   hook-tampering: { severity: block }
   no-verify: { severity: block }

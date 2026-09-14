@@ -390,7 +390,7 @@ describe('coverage-lowering — generated code, migrations, boilerplate, the 100
   });
 
   it('… while **/index.ts and a real module stay reported', () => {
-    expect(reasons([diffed('vitest.config.ts', VC(TH), VC(`${TH}, exclude: ["**/index.ts"]`))])).toEqual(['coverage now exempts "**/index.ts" (coveragePathIgnorePatterns / coverage.exclude)']);
+    expect(reasons([diffed('vitest.config.ts', VC(TH), VC(`${TH}, exclude: ["**/index.ts"]`))])).toEqual(['coverage now exempts "**/index.ts" (coverage.exclude)']);
     expect(reasons([diffed('vitest.config.ts', VC(TH), VC(`${TH}, exclude: ["src/discount.ts"]`))])).toHaveLength(1);
   });
 

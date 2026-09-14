@@ -27,6 +27,7 @@
 import { posix } from 'node:path';
 import type TS from 'typescript';
 import { parseSource, ts } from '../ts-lazy';
+import { readRunnerChain, readTableCallee } from './runner-chain';
 import { Change, Detector, DetectorContext, FileChange, Finding } from '../types';
 import { addedLines } from '../diff/select';
 import { isProtected } from '../policy';
@@ -46,6 +47,59 @@ const acc = (names: string): string =>
   `(?:\\s*\\.\\s*(?:${names})(?![\\w$])|\\s*\\[\\s*['"\`](?:${names})['"\`]\\s*\\])`;
 const JS_RUNNER = '\\b(?:it|test|describe|suite)';
 const JS_MOD = 'concurrent|sequential|shuffle|serial|parallel'; // it.concurrent.skip, describe.serial.only
+
+// JUnit 5 conditional execution: `@EnabledIfEnvironmentVariable(named = "NEVER", …)`,
+// `@EnabledIfSystemProperty`, `@EnabledIf("method")`, `@DisabledIf…` — the test runs
+// only when a condition the file does not carry allows it (#431).
+const JVM_CONDITIONAL = /@(?:[\w.]+\.)?(?:EnabledIf|DisabledIf)\w*\b/;
+
+// ── #441 · Go any-receiver Skip and pytest conftest hooks ─────────────────────
+// Kept as their own constants so the language rows below stay one spread each.
+//
+// Go: `testing.TB` is passed around under any name (`tb`, `tt` for a subtest,
+// `testingT`), and testify reaches the runner through `s.T()`. The one-letter
+// receiver `\b[tb]\.` left every other spelling silent.
+const GO_SKIP_PATTERNS: Pattern[] = [
+  { re: /\b\w+\.Skip(?:f|Now)?\(/, why: 'a runtime t.Skip()/Skipf()/SkipNow() call' },
+  { re: /\bT\(\)\.Skip(?:f|Now)?\(/, why: 'a runtime T().Skip()/Skipf()/SkipNow() call (testify suite)' },
+];
+// pytest: a conftest.py is a protected test file and these hooks are how a suite is
+// narrowed or its verdict rewritten without a marker ever appearing in a test:
+// `pytest_collection_modifyitems` filters `items` or marks them, `pytest_pycollect_makeitem`
+// decides what becomes a test at all, and a `pytest_runtest_makereport` hookwrapper can
+// set `rep.outcome = 'passed'` on a failed call. `add_marker(mark.skip)` is the
+// programmatic decorator; `sk = pytest.mark.skip` then `@sk` is the aliased one.
+const PY_MARK = '(?:\\w+\\.)?mark\\.(?:skip|skipif|xfail)\\b';
+const PY_CONFTEST_PATTERNS: Pattern[] = [
+  { re: /\bdef\s+pytest_collection_modifyitems\s*\(/, why: 'a pytest_collection_modifyitems hook (collected tests are filtered or marked before they run)' },
+  { re: /\bdef\s+pytest_pycollect_makeitem\s*\(/, why: 'a pytest_pycollect_makeitem hook (what counts as a test is decided here)' },
+  { re: /\bdef\s+pytest_runtest_makereport\s*\(/, why: 'a pytest_runtest_makereport hook (the test report can be rewritten)' },
+  { re: new RegExp('\\.add_marker\\(\\s*' + PY_MARK), why: 'an add_marker(mark.skip/skipif/xfail) call (the test is skipped programmatically)' },
+  { re: new RegExp('^\\s*\\w+\\s*=\\s*' + PY_MARK), why: 'a skip/skipif/xfail marker bound to a name (an aliased decorator)' },
+  { re: /\b\w+\.outcome\s*=\s*['"](?:passed|skipped)['"]/, why: 'a report outcome rewritten to passed/skipped' },
+];
+// An alias bound earlier (`sk = pytest.mark.skip`) makes a later `@sk` the marker.
+const PY_MARK_ALIAS = new RegExp('^\\s*(\\w+)\\s*=\\s*' + PY_MARK, 'gm');
+const PY_DECORATOR = /^\s*@(\w+)\s*(?:\(|$)/;
+/** Names bound to a pytest skip marker anywhere in `source` (the AFTER file, or the added lines). */
+function pyMarkAliases(source: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of source.matchAll(PY_MARK_ALIAS)) out.add(m[1]);
+  return out;
+}
+/** Added lines that decorate with an aliased skip marker, as [line number, evidence]. */
+function pyAliasDecoratorHits(c: FileChange): Array<{ line: number | undefined; evidence: string }> {
+  const added = addedLines(c);
+  const aliases = pyMarkAliases(c.after ?? added.map((l) => l.content).join('\n'));
+  if (aliases.size === 0) return [];
+  const hits: Array<{ line: number | undefined; evidence: string }> = [];
+  for (const l of added) {
+    const m = PY_DECORATOR.exec(l.content);
+    if (m && aliases.has(m[1])) hits.push({ line: l.newLine ?? undefined, evidence: l.content.trim() });
+  }
+  return hits;
+}
+// ── end #441 ──────────────────────────────────────────────────────────────────
 
 const PATTERNS: Record<Lang, Pattern[]> = {
   js: [
@@ -91,11 +145,16 @@ const PATTERNS: Record<Lang, Pattern[]> = {
     { re: /\bself\.skipTest\(/, why: 'a runtime self.skipTest() call' },
     { re: /\braise\s+(?:unittest\.)?SkipTest\b/, why: 'a raised SkipTest' },
     { re: /\b__test__\s*=\s*False\b/, why: '__test__ = False hides the test from collection' },
+    ...PY_CONFTEST_PATTERNS, // #441
   ],
   go: [
-    { re: /\b[tb]\.Skip(?:f|Now)?\(/, why: 'a runtime t.Skip()/Skipf()/SkipNow() call' },
+    ...GO_SKIP_PATTERNS, // #441: any receiver, and testify's T()
+
     { re: /\bif\s+testing\.Short\(\)/, why: 'a testing.Short() guard (the body is skipped under -short)' },
-    { re: /^\s*\/\/\s*(?:go:build|\+build)\s+ignore\b/, why: 'a build-ignore constraint (the file is excluded from the test run)', comment: true },
+    // Any constraint on a `_test.go` — `ignore`, `integration`, `never`, `!ci` — takes
+    // the file out of the default `go test ./...` run; the tag's name is the agent's
+    // to choose (#431).
+    { re: /^\s*\/\/\s*(?:go:build|\+build)\b/, why: 'a build constraint on a test file (the file is excluded from the default test run)', comment: true },
   ],
   rs: [
     { re: /#\[ignore\b/, why: 'an #[ignore] attribute (the test no longer runs by default)' },
@@ -107,13 +166,18 @@ const PATTERNS: Record<Lang, Pattern[]> = {
     { re: /(?:^|[\s;{(])f(?:it|describe|context)\s*[('"]/, why: 'an f-prefixed focused example (narrows the suite)' },
     { re: /\b(?:skip|pending):\s*(?:true|['"])/, why: 'a skip/pending metadata flag' },
     { re: /^\s*(?:it|specify|example)\s+(['"])(?:(?!\1).)*\1\s*$/, why: 'an example with no block (RSpec reports it as pending)' },
+    // `it 'x', if: false do` — RSpec's conditional filter with a constant that never
+    // lets the example run (#431). `if: ENV['SLOW']` is a real condition and passes.
+    { re: /(?:^|[\s;{(])(?:it|specify|example|describe|context|scenario|feature)\s*[('"].*(?:\bif:\s*false\b|\bunless:\s*true\b|:if\s*=>\s*false\b|:unless\s*=>\s*true\b)/, why: 'a constant-false if:/unless: filter (the example never runs)' },
   ],
   java: [
     { re: /@(?:[\w.]+\.)?(?:Ignore|Disabled)\b/, why: 'an @Ignore/@Disabled annotation' },
+    { re: JVM_CONDITIONAL, why: 'a conditional-execution annotation (@EnabledIf… / @DisabledIf…: the test runs only when the condition allows)' },
     { re: /\bassume(?:True\(\s*false|False\(\s*true)\s*[,)]/, why: 'an assumption that never holds (the test aborts as skipped)' },
   ],
   kt: [
     { re: /@(?:[\w.]+\.)?(?:Ignore|Disabled)\b/, why: 'an @Ignore/@Disabled annotation' },
+    { re: JVM_CONDITIONAL, why: 'a conditional-execution annotation (@EnabledIf… / @DisabledIf…: the test runs only when the condition allows)' },
     { re: /\bassume(?:True\(\s*false|False\(\s*true)\s*[,)]/, why: 'an assumption that never holds (the test aborts as skipped)' },
   ],
   php: [{ re: /\bmarkTest(?:Skipped|Incomplete)\(/, why: 'a markTestSkipped()/markTestIncomplete() call' }],
@@ -143,9 +207,8 @@ function matchesOutsideString(p: Pattern, content: string, lang: Lang | null): b
 }
 
 const JS_RUNNERS = new Set(['it', 'test', 'describe', 'suite']);
-// vitest's concurrency modifiers and Playwright's describe modes: `it.concurrent.skip`,
-// `test.describe.serial.only`.
-const JS_CHAIN_MODIFIERS = new Set(['concurrent', 'sequential', 'shuffle', 'serial', 'parallel']);
+// The chain modifiers (`it.concurrent.skip`, `test.describe.serial.only`) and table
+// methods live in ./runner-chain, shared with test-deletion and assertion-weakening.
 // Modules whose DEFAULT export is the runner (`import test from 'node:test'`).
 const JS_DEFAULT_RUNNER_MODULES = new Set(['node:test', 'node:test/promises', '@playwright/test']);
 const JS_TEST_MODULES = new Set([
@@ -159,6 +222,63 @@ const JS_TEST_MODULES = new Set([
 ]);
 
 type AstHit = { line: number; why: string; evidence: string };
+
+/** The AFTER-side lines a change can show: the whole file when it carries one,
+ *  else the hunks' added and context lines by their new line number. */
+function afterLinesOf(c: FileChange): Map<number, string> {
+  const out = new Map<number, string>();
+  if (c.after != null) {
+    c.after.split('\n').forEach((l, i) => out.set(i + 1, l));
+    return out;
+  }
+  for (const h of c.hunks) for (const l of h.lines) if (l.newLine != null && l.type !== 'del') out.set(l.newLine, l.content);
+  return out;
+}
+
+const GO_TEST_MAIN = /^func\s+TestMain\s*\(\s*(\w+)\s+\*testing\.M\s*\)/;
+const RS_CFG = /^\s*#\[cfg\((.*)\)\]\s*$/;
+const RS_ATTR = /^\s*#!?\[/;
+const RS_TEST_ATTR = /^\s*#\[[\w:]*test\b/;
+const RS_MOD = /^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+/;
+const RS_FN = /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:unsafe\s+)?fn\s+\w+/;
+
+/** Skips that need the lines around them (#431): a Go `TestMain` that never
+ *  calls `m.Run()` runs no test of its package; a Rust `#[cfg(…)]` other than
+ *  `cfg(test)` on `mod tests` or beside `#[test]` compiles the tests out under
+ *  every ordinary configuration. */
+function contextSkipHits(c: FileChange, lang: Lang | null): AstHit[] {
+  if (lang !== 'go' && lang !== 'rs') return [];
+  const lines = afterLinesOf(c);
+  const hits: AstHit[] = [];
+  for (const l of addedLines(c)) {
+    if (l.newLine == null) continue;
+    if (lang === 'go') {
+      const m = GO_TEST_MAIN.exec(l.content);
+      if (!m) continue;
+      const runs = new RegExp('\\b' + m[1] + '\\.Run\\(\\)');
+      let ran = false;
+      for (const [, text] of lines) if (runs.test(text) && !isCommentLine(text.trim(), lang)) ran = true;
+      if (!ran) hits.push({ line: l.newLine, why: `a TestMain that never calls ${m[1]}.Run() (no test in the package runs)`, evidence: l.content.trim() });
+      continue;
+    }
+    const cfg = RS_CFG.exec(l.content);
+    if (!cfg || cfg[1].trim() === 'test') continue;
+    // The attribute run this cfg belongs to, and the item it decorates.
+    let first = l.newLine;
+    while (RS_ATTR.test(lines.get(first - 1) ?? '')) first--;
+    let at = l.newLine + 1;
+    while (RS_ATTR.test(lines.get(at) ?? '') || (lines.has(at) && !/\S/.test(lines.get(at) ?? ''))) at++;
+    const item = lines.get(at) ?? '';
+    let besideTest = false;
+    for (let i = first; i < at; i++) if (RS_TEST_ATTR.test(lines.get(i) ?? '')) besideTest = true;
+    if (RS_MOD.test(item)) {
+      hits.push({ line: l.newLine, why: 'a #[cfg(…)] on the test module (the tests are compiled out under every ordinary configuration)', evidence: l.content.trim() });
+    } else if (besideTest && RS_FN.test(item)) {
+      hits.push({ line: l.newLine, why: 'a #[cfg(…)] beside #[test] (the test is compiled out under every ordinary configuration)', evidence: l.content.trim() });
+    }
+  }
+  return hits;
+}
 
 function scriptKind(path: string): TS.ScriptKind {
   if (/\.tsx$/i.test(path)) return ts.ScriptKind.TSX;
@@ -709,7 +829,14 @@ function staticPropertyName(
   return null;
 }
 
-type RunnerChain = { root: string; props: string[]; terminalNode: TS.Node; causes: TS.Node[] };
+type RunnerChain = {
+  root: string;
+  props: string[];
+  /** The node naming each of `props`, index-aligned (#429). */
+  propNodes: TS.Node[];
+  terminalNode: TS.Node;
+  causes: TS.Node[];
+};
 
 /**
  * The member chain of a call's callee, rooted at a runner: the chain when the root
@@ -724,6 +851,7 @@ function runnerChain(
   strings: Map<TS.Symbol, StaticValue>,
 ): RunnerChain | 'unknown' | null {
   const props: string[] = [];
+  const propNodes: TS.Node[] = [];
   const causes: TS.Node[] = [];
   let cur: TS.Expression = expr;
   let terminalNode: TS.Node = expr;
@@ -731,6 +859,7 @@ function runnerChain(
   while (ts.isPropertyAccessExpression(cur) || ts.isElementAccessExpression(cur)) {
     if (ts.isPropertyAccessExpression(cur)) {
       props.unshift(cur.name.text);
+      propNodes.unshift(cur.name);
       if (props.length === 1) terminalNode = cur.name;
       cur = cur.expression;
       continue;
@@ -739,6 +868,7 @@ function runnerChain(
     const property = staticPropertyName(cur.argumentExpression, ctx, strings);
     if (!property) return null;
     props.unshift(property.name);
+    propNodes.unshift(cur.argumentExpression);
     causes.push(...property.causes);
     if (props.length === 1) terminalNode = cur.argumentExpression;
     cur = cur.expression;
@@ -757,6 +887,10 @@ function runnerChain(
   } else {
     // `require('vitest').it.skip(...)`: the root is the module object itself.
     namespace = requiredModule(cur);
+    // `describe.only.each(rows)('t', fn)`: the outer call's root is the table call,
+    // which is judged as its own chain (#429); the outer call is not one the AST
+    // models, and nothing is left for the line matcher on its lines.
+    if (namespace == null && readTableCallee(cur)) return null;
     verdict = namespace == null ? UNKNOWN : NON_RUNNER;
   }
 
@@ -765,13 +899,16 @@ function runnerChain(
   let root = ts.isIdentifier(cur) ? cur.text : '';
   if (namespace != null && props.length > 0) {
     verdict = withCause(binder.memberOf(namespace, props[0]), cur);
-    if (verdict.kind === 'runner') root = props.shift() ?? root;
+    if (verdict.kind === 'runner') {
+      root = props.shift() ?? root;
+      propNodes.shift();
+    }
   }
 
   if (verdict.kind === 'unknown') return 'unknown';
   if (verdict.kind === 'non-runner') return null;
   causes.push(...verdict.causes);
-  return { root, props, terminalNode, causes };
+  return { root, props, propNodes, terminalNode, causes };
 }
 
 function optionDisables(value: TS.Expression): boolean {
@@ -841,8 +978,10 @@ function semanticSkipHits(ctx: AstContext, binder: ModuleBinder): SemanticAnalys
         const last = lineOf(callee.getEnd());
         for (let line = first; line <= last; line++) unowned.add(line);
       } else if (chain) {
-        const { props, terminalNode, causes } = chain;
+        const { root, props, propNodes, terminalNode, causes } = chain;
         const terminal = props.at(-1);
+        // The chain's shape — modifiers in any order, a table method last (#429).
+        const shape = readRunnerChain(root, props);
         const push = (target: TS.Node, extraCauses: TS.Node[], why: string): void => {
           hits.push({
             semanticKey: `${callKey}\u0000${why}`,
@@ -853,19 +992,17 @@ function semanticSkipHits(ctx: AstContext, binder: ModuleBinder): SemanticAnalys
           });
         };
 
-        if (
-          terminal &&
-          (terminal === 'skip' || terminal === 'only' || terminal === 'todo') &&
-          props.slice(0, -1).every((p) => JS_CHAIN_MODIFIERS.has(p) || JS_RUNNERS.has(p))
-        ) {
-          push(terminalNode, [], 'a .skip/.only/.todo marker');
+        if (shape?.skipMarker) {
+          // `it.skip.each(rows)`, `describe.only.each(rows)`, `it.concurrent.skip`:
+          // the marker anywhere before `.each` / `.for` narrows the run; the
+          // finding points at the marker's own line.
+          push(propNodes[shape.skipIndex] ?? terminalNode, [], 'a .skip/.only/.todo marker');
         } else if (terminal && ['skipIf', 'runIf'].includes(terminal) && props.length === 1) {
           push(terminalNode, [], 'a .skipIf()/.runIf() condition (the test runs only when the condition allows)');
         } else if (terminal && ['fails', 'failing'].includes(terminal) && props.length === 1) {
           push(terminalNode, [], 'a .fails/.failing marker (the test now passes by failing)');
         } else if (
-          terminal === 'each' &&
-          props.length === 1 &&
+          shape?.table === 'each' &&
           node.arguments.length > 0 &&
           ts.isArrayLiteralExpression(node.arguments[0]) &&
           node.arguments[0].elements.length === 0
@@ -1018,6 +1155,37 @@ export const testSkip: Detector = {
               file: c.path,
               line: hit.line,
               message: `Test skipped or narrowed: ${hit.why}.`,
+              evidence: hit.evidence,
+              remediation:
+                'Make the test pass rather than skipping it. If it is genuinely obsolete, a human must sign off.',
+            }),
+          );
+        }
+      }
+
+      for (const hit of contextSkipHits(c, lang)) {
+        astHitLines.add(hit.line);
+        out.push(
+          makeFinding(RULE, policy, {
+            file: c.path,
+            line: hit.line,
+            message: `Test skipped or narrowed: ${hit.why}.`,
+            evidence: hit.evidence,
+            remediation:
+              'Make the test pass rather than skipping it. If it is genuinely obsolete, a human must sign off.',
+          }),
+        );
+      }
+
+      // #441: `@sk` where `sk = pytest.mark.skip` was bound in the file or the change.
+      if (lang === 'py') {
+        for (const hit of pyAliasDecoratorHits(c)) {
+          if (hit.line != null) astHitLines.add(hit.line);
+          out.push(
+            makeFinding(RULE, policy, {
+              file: c.path,
+              line: hit.line,
+              message: 'Test skipped or narrowed: a decorator aliasing a pytest skip/skipif/xfail marker.',
               evidence: hit.evidence,
               remediation:
                 'Make the test pass rather than skipping it. If it is genuinely obsolete, a human must sign off.',
