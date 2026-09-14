@@ -45,13 +45,15 @@
             },
             "required": [
               "kind"
-            ]
+            ],
+            "type": "object"
           },
           "then": {
             "required": [
               "repo",
               "branch"
-            ]
+            ],
+            "type": "object"
           }
         }
       ]
