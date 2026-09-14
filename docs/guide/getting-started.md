@@ -26,6 +26,18 @@ It has five sections:
 5. **Summary** — only the items that need attention, the verified GitHub state, and
    the next action. Successful doctor checks are not replayed line by line.
 
+A repository with no first commit is a special first-run state, not a normal dirty
+working tree. Onboarding does not ask you to approve hundreds of "changed/untracked"
+paths in that case; it tells you to create the initial commit before pristine
+verification or the safe demo. The demo is skipped without a prompt until `HEAD`
+exists. A missing trusted verifier remains fail-closed and keeps the final posture
+`INCOMPLETE`, but onboarding presents it as an action to finish rather than a runtime
+error.
+
+If no github.com origin can be inferred, the GitHub section is also conditional: it
+shows the `doctor --github --repo OWNER/REPO` command and the three required controls
+only as guidance for repositories that will use GitHub as their repository authority.
+
 Onboarding must run at the **Git repository root**. If the current directory is merely
 inside a parent repository, it refuses before writing anything and prints both paths.
 This prevents a child folder from receiving `.tamperward.yml` / CI files while the
