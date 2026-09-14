@@ -14,7 +14,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync, chmodSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { POLICY_FILE } from '../policy';
 import { loadPolicy } from '../policy-load';
@@ -458,6 +458,96 @@ function planPolicy(cwd: string): Action {
     item: 'policy', path: POLICY_FILE, status: 'create',
     detail: 'baseline policy with commented overrides',
     apply: () => writeFileSync(path, POLICY_CONTENT),
+  };
+}
+
+/**
+ * Fresh Node repositories commonly have dependencies installed before their first
+ * commit. If node_modules is not ignored, the staged gate sees third-party source as
+ * repository source and correctly reports every suppression pattern it contains —
+ * technically sound, but disastrous onboarding. Keep the security boundary honest:
+ * make Git exclude the dependency tree instead of teaching TamperWard to ignore a
+ * tracked path. If node_modules is already tracked, or the operator has an explicit
+ * negation for it, leave the repository semantics alone and surface an action row.
+ */
+function planGitignore(cwd: string): Action | null {
+  const rel = '.gitignore';
+  const path = join(cwd, rel);
+  const nodeProject = existsSync(join(cwd, 'package.json')) || existsSync(join(cwd, 'node_modules'));
+  if (!nodeProject) return null;
+
+  let existing = '';
+  if (existsSync(path)) {
+    let st;
+    try {
+      st = lstatSync(path);
+    } catch (e) {
+      return { item: 'gitignore', path: rel, status: 'error', detail: 'cannot inspect — ' + errText(e) };
+    }
+    if (!st.isFile()) {
+      return {
+        item: 'gitignore',
+        path: rel,
+        status: 'error',
+        detail: st.isSymbolicLink()
+          ? 'is a symbolic link — refusing to follow it'
+          : 'exists but is not a regular file — refusing to write',
+      };
+    }
+    existing = readFileSync(path, 'utf8');
+  }
+
+  // Do not hide a dependency tree the repository has chosen to track. --cached
+  // includes index entries on an unborn branch, so this also catches git add .
+  // performed before onboarding.
+  try {
+    const tracked = execFileSync('git', ['ls-files', '--cached', '--', 'node_modules'], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    if (tracked) {
+      return {
+        item: 'gitignore',
+        path: rel,
+        status: 'skip',
+        detail: 'node_modules is already tracked/staged — left unchanged; TamperWard will scan it as repository content',
+      };
+    }
+  } catch {
+    // init is also usable outside Git; pre-commit planning reports that separately.
+  }
+
+  const meaningful = existing
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !line.startsWith('#'));
+
+  // Common root/all-depth spellings. We deliberately do not implement Git's full
+  // ignore grammar here; appending an equivalent root rule is harmless and makes
+  // the repository's intent explicit.
+  if (meaningful.some((line) => /^(?:\/|\*\*\/)?node_modules\/?$/.test(line))) {
+    return { item: 'gitignore', path: rel, status: 'ok', detail: 'node_modules is already ignored by the repository' };
+  }
+
+  if (meaningful.some((line) => line.startsWith('!') && line.includes('node_modules'))) {
+    return {
+      item: 'gitignore',
+      path: rel,
+      status: 'skip',
+      detail: 'contains an explicit node_modules negation — left untouched; review the repository ignore policy before committing dependencies',
+    };
+  }
+
+  const next = existing.length === 0
+    ? 'node_modules/\n'
+    : existing.replace(/\n?$/, '\n') + 'node_modules/\n';
+  return {
+    item: 'gitignore',
+    path: rel,
+    status: existsSync(path) ? 'update' : 'create',
+    detail: 'exclude installed Node dependencies from repository diffs',
+    apply: () => writeFileSync(path, next),
   };
 }
 
@@ -906,8 +996,10 @@ export function planInit(cwd: string, opts: { forceWorkflow?: boolean } = {}): A
   // pin would let the authority change underneath the repository. Refuse before
   // planning any writable action.
   requireShippedVersion();
+  const gitignore = planGitignore(cwd);
   return [
     planned('policy', POLICY_FILE, () => planPolicy(cwd)),
+    ...(gitignore ? [gitignore] : []),
     planned('agent', '.claude/settings.json', () => planClaudeHooks(cwd)),
     planned('pre-commit', '(hooks)', () => planPreCommit(cwd)),
     planned('ci', '.github/workflows/tamperward.yml', () => planWorkflow(cwd, opts.forceWorkflow ?? false)),
