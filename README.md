@@ -98,7 +98,7 @@ Earlier controlled experiments → **[the research series](./docs/blog/index.md)
 > Read the round as a pair — the bets before, the outcome after:
 > [How round 4 is built to be hard to fool](./docs/blog/how-round-4-is-built-to-be-hard-to-fool.md)
 > (preregistration, no numbers) →
-> [The prevention bet didn't replicate. No surviving tampering was certified clean.](./docs/blog/round-4-results.md)
+> [The prevention bet didn't replicate. No surviving tampering was certified clean.](./docs/blog/the-prevention-bet-didnt-replicate-no-surviving-tampering-was-certified-clean.md)
 > (results). Round 4.1, a second agent runtime over the same frozen pool, is the
 > next registered step ([SPEC §9.1](./SPEC.md#91-maturity-milestones)).
 

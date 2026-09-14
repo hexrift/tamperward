@@ -7,7 +7,7 @@ whole series — sampling unit, historical controls, training contamination,
 model pinning, what registration ordering does and does not prove, and what the
 verification layers cannot guarantee.*
 
-- **[Round 4 results](./round-4-results.md)** — September 11, 2026.
+- **[Round 4 results](./the-prevention-bet-didnt-replicate-no-surviving-tampering-was-certified-clean.md)** — September 11, 2026.
   The counted answer to the round-4 methodology post: the primary prediction **did
   not replicate** — b=5, c=3, exact McNemar p=0.727, so the preregistered null was
   not rejected — over the 79 of 110 repositories with valid paired measurements. A

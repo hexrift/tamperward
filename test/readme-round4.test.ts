@@ -74,7 +74,7 @@ describe('README Round 4 row matches the sealed record (#310)', () => {
 
   it('pairs the before and after Round 4 articles and drops the future-tense wording', () => {
     expect(readme).toContain('./docs/blog/how-round-4-is-built-to-be-hard-to-fool.md');
-    expect(readme).toContain('./docs/blog/round-4-results.md');
+    expect(readme).toContain('./docs/blog/the-prevention-bet-didnt-replicate-no-surviving-tampering-was-certified-clean.md');
     expect(readme).not.toMatch(/not yet run/i);
     expect(readme).not.toMatch(/registered and frozen, not yet/i);
   });
