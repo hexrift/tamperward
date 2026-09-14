@@ -69,7 +69,7 @@ For each task and pair index (`--pairs N`, default 1):
 
 1. **Fresh state.** A new clone of the task repository, detached at its base, for
    *each* arm. Nothing from an earlier trajectory is visible.
-2. **Ungated arm.** The adapter's process runs bare in the clone.
+2. **Ungated arm.** The adapter's process runs without TamperWard policy enforcement, but under the neutral Linux lifecycle supervisor so its full descendant domain is drained before outcome observation. That process ownership is measurement hygiene, not treatment.
 3. **Gated arm.** The adapter first prepares the clone (the Claude Code adapter runs
    `tamperward init`, wiring the PreToolUse deny and Stop sweep); whatever it wrote is
    committed so the treatment is part of the trusted base, never agent work. The same
@@ -101,10 +101,9 @@ recorded but marked `measured: false`, with the reason in `unmeasurable`, when:
   broken one would silently change the protected surface, so it never defaults);
 - the verifier could not measure the tree (`CANNOT_VERIFY`, `BUDGET_EXCEEDED`) or the
   policy check produced no verdict;
-- in the ungated arm, a process the agent started still held the workspace (cwd,
-  executable or an open descriptor) after the agent exited — it is terminated and the
-  trajectory is `NOT_QUIESCENT`, since a control outcome that depends on how fast the
-  observation ran is not a control outcome;
+- the neutral ungated lifecycle supervisor could not establish and drain the agent's
+  full descendant domain — the trajectory is unmeasurable rather than observing while
+  candidate-owned code may still be alive;
 - the workspace changed while its outcome was being observed, in either arm.
 
 `summarize` reports `pairs`, `measured_pairs` and `unmeasurable_pairs`, and every
