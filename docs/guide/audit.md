@@ -44,7 +44,7 @@ The schema deliberately has **no fields for prompt text, command text, source/ev
 snippets, file paths, environment values, raw session ids, or sign-off reasons**.
 The session value is a one-way truncated SHA-256 correlation token, and `head` is only
 the Git object id. See
-[`schemas/audit-event-v1.schema.json`](../../schemas/audit-event-v1.schema.json).
+[`schemas/audit-event-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/audit-event-v1.schema.json).
 
 ## Read the local history
 
@@ -60,7 +60,7 @@ attempts": a legitimate workflow refactor can trigger the same detector as a rea
 weakening and may need human sign-off.
 
 The JSON document is versioned by
-[`schemas/stats-v1.schema.json`](../../schemas/stats-v1.schema.json).
+[`schemas/stats-v1.schema.json`](https://github.com/hexrift/tamperward/blob/main/schemas/stats-v1.schema.json).
 
 ## Keep the durable history in GitHub
 
