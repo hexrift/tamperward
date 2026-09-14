@@ -81,12 +81,92 @@ export function assertedType(node: TS.AsExpression | TS.TypeAssertion): TS.TypeN
   return t;
 }
 
-/** Row 4's double cast: an assertion whose operand is itself an assertion to
- *  `unknown`, expression and type parentheses notwithstanding. */
-export function isDoubleCast(node: TS.AsExpression | TS.TypeAssertion): boolean {
-  const inner = unparenthesized(node.expression);
-  return (ts.isAsExpression(inner) || ts.isTypeAssertionExpression(inner)) && assertedType(inner).kind === ts.SyntaxKind.UnknownKeyword;
+// Row 4's laundering surface, classified by the target type an assertion widens
+// THROUGH. `any` / `never` are assignable in the dangerous direction on their own;
+// `unknown` / `{}` / `object` / `Object` only launder as the INNER step of a double
+// cast (`(x as {}) as T`) — alone they are an honest widening (`unknown`) or an
+// ordinary assertion the growth budget keeps (`{}` / `object`). Local `type` aliases
+// of these keywords resolve to the same kind, so `type A = any; x as A` is `as any`.
+export type LaunderKind = 'any' | 'never' | 'unknown' | 'empty' | 'objectish' | 'const';
+// The inner-step kinds a double cast may widen through to launder to an arbitrary type.
+const DOUBLE_CAST_INNER: ReadonlySet<LaunderKind> = new Set<LaunderKind>(['any', 'never', 'unknown', 'empty', 'objectish']);
+
+/** The launder kind a type node names WITHOUT resolving alias identifiers, or null for
+ *  an honest/ordinary type. `Object` and the `const` of `as const` are recognised here;
+ *  a plain alias identifier is left to the caller's resolver. */
+function bareKind(type: TS.TypeNode): LaunderKind | null {
+  let x: TS.TypeNode = type;
+  while (ts.isParenthesizedTypeNode(x)) x = x.type;
+  switch (x.kind) {
+    case ts.SyntaxKind.AnyKeyword:
+      return 'any';
+    case ts.SyntaxKind.NeverKeyword:
+      return 'never';
+    case ts.SyntaxKind.UnknownKeyword:
+      return 'unknown';
+    case ts.SyntaxKind.ObjectKeyword:
+      return 'objectish';
+  }
+  if (ts.isTypeLiteralNode(x) && x.members.length === 0) return 'empty'; // `{}`
+  if (ts.isTypeReferenceNode(x) && ts.isIdentifier(x.typeName) && !x.typeArguments) {
+    if (x.typeName.text === 'Object') return 'objectish';
+    if (x.typeName.text === 'const') return 'const';
+  }
+  return null;
 }
+
+/** The launder kind a type node names, resolving a local alias identifier through
+ *  `resolveName`. */
+function kindOfType(type: TS.TypeNode, resolveName: (name: string) => LaunderKind | null): LaunderKind | null {
+  const bare = bareKind(type);
+  if (bare) return bare;
+  let x: TS.TypeNode = type;
+  while (ts.isParenthesizedTypeNode(x)) x = x.type;
+  if (ts.isTypeReferenceNode(x) && ts.isIdentifier(x.typeName) && !x.typeArguments) return resolveName(x.typeName.text);
+  return null;
+}
+
+/** The file's resolvable non-generic `type X = <launder keyword>` aliases, collapsed to
+ *  the kind they ultimately name (through parens and other local aliases). Generic
+ *  aliases, cycles, and aliases of honest types are left out — they resolve to nothing. */
+export function buildAliasMap(sf: TS.SourceFile): Map<string, LaunderKind> {
+  const decls = new Map<string, TS.TypeNode>();
+  const collect = (node: TS.Node): void => {
+    if (ts.isTypeAliasDeclaration(node) && (!node.typeParameters || node.typeParameters.length === 0)) decls.set(node.name.text, node.type);
+    ts.forEachChild(node, collect);
+  };
+  collect(sf);
+  const resolve = (name: string, seen: Set<string>): LaunderKind | null => {
+    if (seen.has(name)) return null; // a cycle resolves to nothing
+    seen.add(name);
+    const t = decls.get(name);
+    return t ? kindOfType(t, (n) => resolve(n, seen)) : null;
+  };
+  const resolved = new Map<string, LaunderKind>();
+  for (const name of decls.keys()) {
+    const k = resolve(name, new Set());
+    if (k) resolved.set(name, k);
+  }
+  return resolved;
+}
+
+/** The launder kind an assertion widens TO, resolving local aliases. */
+export function assertedLaunderKind(node: TS.AsExpression | TS.TypeAssertion, aliasMap: Map<string, LaunderKind>): LaunderKind | null {
+  return kindOfType(assertedType(node), (n) => aliasMap.get(n) ?? null);
+}
+
+/** Row 4's double cast: an assertion whose operand is itself an assertion whose target
+ *  widens (to `unknown` / `never` / `any` / `{}` / `object` / `Object`, alias-resolved),
+ *  expression and type parentheses notwithstanding. `(x as {}) as T` launders exactly as
+ *  `x as unknown as T` does. */
+export function isDoubleCast(node: TS.AsExpression | TS.TypeAssertion, aliasMap?: Map<string, LaunderKind>): boolean {
+  const inner = unparenthesized(node.expression);
+  if (!(ts.isAsExpression(inner) || ts.isTypeAssertionExpression(inner))) return false;
+  const k = assertedLaunderKind(inner, aliasMap ?? EMPTY_ALIASES);
+  return k != null && DOUBLE_CAST_INNER.has(k);
+}
+
+const EMPTY_ALIASES: Map<string, LaunderKind> = new Map();
 
 interface Assertion {
   kind: 'type' | 'non-null';
@@ -115,25 +195,35 @@ function surfaceOf(path: string, src: string): Surface | null {
 
   const surface: Surface = { type: 0, nonNull: 0, assertions: [] };
   const lines = src.split('\n');
+  const aliasMap = buildAliasMap(sf);
   const record = (kind: Assertion['kind'], node: TS.Node): void => {
     const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
     surface.assertions.push({ kind, line, text: node.getText(sf).replace(/\s+/g, ' '), lineText: (lines[line - 1] ?? '').trim() });
     if (kind === 'type') surface.type++;
     else surface.nonNull++;
   };
+  // The inner step of a laundering double cast is part of row 4, not the ordinary
+  // budget — even when its own target (`{}` / `object`) would be budgeted alone.
+  const launderInner = new Set<TS.Node>();
+  const collectInners = (node: TS.Node): void => {
+    if ((ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) && isDoubleCast(node, aliasMap)) launderInner.add(unparenthesized(node.expression));
+    ts.forEachChild(node, collectInners);
+  };
+  collectInners(sf);
   const isRow4OrHonest = (node: TS.AsExpression | TS.TypeAssertion): boolean => {
     // `as const` is a literal-type request, `as unknown` the honest widening,
-    // `as any` row 4's block; none of them is the ordinary assertion budgeted
-    // here — however many parentheses the target type wears.
-    const type = assertedType(node);
-    if (type.kind === ts.SyntaxKind.AnyKeyword || type.kind === ts.SyntaxKind.UnknownKeyword) return true;
-    return ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName) && type.typeName.text === 'const';
+    // `as any` / `as never` row 4's block; none of them is the ordinary assertion
+    // budgeted here — parentheses and local aliases (`type A = any`) notwithstanding.
+    // `{}` / `object` stay in the budget unless they are the inner step of a launder.
+    const k = assertedLaunderKind(node, aliasMap);
+    return k === 'any' || k === 'never' || k === 'unknown' || k === 'const';
   };
   const visit = (node: TS.Node): void => {
     if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
-      // `x as unknown as T` (parenthesised or not): the outer assertion is
-      // row 4's double cast, not an ordinary narrowing — leave it to ts-any-cast.
-      if (!isDoubleCast(node) && !isRow4OrHonest(node)) record('type', node);
+      // `x as unknown as T` (parenthesised or not), and every widening spelling of
+      // it, is row 4's double cast — the outer assertion and its inner step both
+      // belong to ts-any-cast, not the ordinary narrowing budget.
+      if (!isDoubleCast(node, aliasMap) && !isRow4OrHonest(node) && !launderInner.has(node)) record('type', node);
     } else if (ts.isNonNullExpression(node)) {
       record('non-null', node);
     }
