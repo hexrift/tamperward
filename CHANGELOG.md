@@ -5,6 +5,29 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.12] — 2026-09-14
+
+### Security
+
+- **`init` no longer follows a symlink planted in repository content** (#414). Every
+  file init writes — `.tamperward.yml`, `.claude/settings.json`, the pre-commit hook in
+  whichever hooks directory is resolved or `.husky/pre-commit`, CODEOWNERS in any of
+  its three locations, the workflow — went through `existsSync` / `writeFileSync` with
+  no `lstat`, so a `.claude/settings.json` symlinked to `~/.claude/settings.json` had
+  the project hooks written into the user's file, a `.git/hooks/pre-commit` symlink had
+  the gate line appended to whatever it pointed at, and a tracked `.husky/pre-commit`
+  symlink let a pull request aim a reviewer's later `init` or `onboard` at any file the
+  reviewer can write. Each target is now `lstat`ed first; a symlink or non-regular file
+  is an error row reading `refusing: symlink` / `refusing: not a regular file` (exit 2
+  when applying, the same row under `--dry-run`), the link and its target are left
+  byte-identical, and the rest of the plan still applies. Every write is a temp file in
+  the same directory plus rename, so the destination is never opened for writing and a
+  crash mid-write cannot leave a truncated settings.json.
+- The symlink refusal and atomic replacement `onboard` had since the #402 review now
+  live in `src/safe-write.ts` (`refuseNonRegular`, `writeTargetKind`, `existingMode`,
+  `atomicReplaceFile`) and both commands use it; a directory where init expected a file
+  is reported as the refusal above rather than as an `EISDIR` planning failure.
+
 ## [2.23.11] — 2026-09-14
 
 ### Fixed
