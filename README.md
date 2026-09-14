@@ -257,6 +257,7 @@ platforms.
 | Capability | Linux | macOS | Windows |
 | --- | --- | --- | --- |
 | `check` / policy evaluation | Supported | Supported | Supported |
+| parsed output (`--json`, `--format github`, hook/sweep JSON) on a pipe | Complete before exit | Complete before exit (asynchronous pipe drained first) | Complete before exit (asynchronous pipe drained first) |
 | Claude hook / Stop adapter | Supported where Claude Code command hooks are available | Same | Same |
 | `watch` / observer telemetry | Supported; backend health is reported | Supported/degraded according to `fs.watch` health | Supported/degraded according to `fs.watch` health |
 | opt-in `hook-service` | Supported (per-user `0600` unix socket) | Supported (per-user `0600` unix socket) | **Unsupported; `start` refuses, hooks run in-process** |

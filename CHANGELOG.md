@@ -55,6 +55,251 @@ All notable changes to this project are documented here. The format follows
   `**/*.md` in vitest `coverage.exclude`, `.coveragerc` `omit` or `collectCoverageFrom`
   stays benign as before. The directory exemptions (`/dist/`, `<rootDir>/test/`) read the
   same in either spelling. The evidence now names the list the exemption was added to.
+## [2.23.20] — 2026-09-14
+
+### Fixed
+
+- **The perf smoke measures the parser again, on CPU, alone on its runner** (#421).
+  After the parser went lazy (#407) the smoke's yardstick `cli.noop` (an empty-stdin
+  hook) no longer loaded the 9 MB TypeScript parser, but `check.diff.small` did, so
+  its ratio measured "parser load versus process start" — `check.diff.small` sat at
+  4.5× a 6× wall budget on an idle box — and inside the parallel `npm test` matrix
+  the remaining headroom went to sibling test files, not regressions. The smoke now
+  lives at `harness/perf/smoke.test.ts`, judges **p50 CPU** ratios to a new
+  `cli.parse` item (a PreToolUse `Edit` of one `.ts` source with no session: process
+  start + module load + parser load + one file evaluated) with budgets of 1.25× for
+  `hook.warm.100` and `snapshot.100` and 3× for `check.diff.small` (measured 0.44×,
+  0.48×, 1.46×), and runs alone from `npm run test:perf-smoke` (`vitest run --config
+  vitest.perf-smoke.config.ts --no-file-parallelism`) in a new `perf-smoke` CI job on
+  Node 20 / 22 / 24 that `gate` requires; `npm test` no longer runs it. The smoke pins
+  itself with injected regressions: the real run's report with `check.diff.small`
+  scaled 3× must fail the judge that passed the real run, and the committed baseline
+  with `hook.warm.100` doubled must fail `compare.mjs`.
+- **`harness/perf/BASELINE.json` says what it is, and the `perf` workflow says how
+  to replace it** (#421). The committed baseline had been captured in a busy
+  sandbox before the parser went lazy (`cli.noop` p50 1.7 s where an idle box
+  measures 0.12 s), so every hook, snapshot and check item would have had to regress
+  roughly 30× before the nightly compare went red — and `compare.mjs`'s budget is
+  exclusive, so its 2× default never failed an exact 2× either. Its numbers are kept
+  byte-for-byte (another loaded sandbox is a different wrong machine, not the right
+  one); it now carries a `note` (*captured in a loaded sandbox; reference baseline
+  pending the first green perf workflow artifact*), `machine.ci: false`, and
+  `budgets` pinning the hook items (`hook.warm.100`, `hook.cold.1k`, `hook.warm.1k`,
+  `hook.ignored`) at 1.5×, and the smoke holds it to that state: a reference
+  baseline (`machine.ci` set) must carry `cli.parse` clearly above `cli.noop`, a
+  stand-in must confess. `perf.yml` uploads its report as `perf-baseline-candidate`
+  and prints the promotion recipe in the job summary; the new
+  `harness/perf/promote-baseline.mjs <perf.json>` copies a green run's report into
+  place — budgets carried over, `machine.ci` stamped, `note` dropped, a report that
+  lost a baselined item refused — and prints the old-versus-new p50 table the
+  replacing PR must carry (docs/PERF.md, "The baseline").
+
+## [2.23.19] — 2026-09-14
+
+### Fixed
+
+- **`no-verify` reads the bypass where it actually lives** (#433). `HUSKY="0" git commit`
+  and `export HUSKY="0"` were silent: the tokeniser stripped only a token's outer quotes,
+  leaving `HUSKY="0` for `^HUSKY=0$` to miss. Tokens are now unquoted the way the shell
+  reads them (`HUSKY="0"`, `HUSKY='0'`, `--no-verify""`, `"it's"` all resolve to their
+  content), and the same spellings one shell deeper (`sh -c '…'`, `eval …`) are read
+  as the command they run. A git alias that carries the flag — `git config alias.ci
+  "commit --no-verify"` (then `git ci`), `git -c alias.ci='commit -n' ci`,
+  `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` and `GIT_CONFIG_PARAMETERS` injection, a
+  `!`-shell body — is judged as the invocation it expands to, the way `core.hooksPath`
+  already was; `alias.lg "log -n 20"` and `alias.ci "commit -v"` stay clean.
+  `pre-commit uninstall`, `lefthook uninstall`, `husky uninstall` (under `npx`, `pnpm
+  exec`, `python -m`) and `rm` / `unlink` / `mv` / `chmod -x` of the pre-commit
+  framework's install target (`.git/hooks/<hook>`, `$(git rev-parse --git-dir)/hooks/…`,
+  the whole `.git/hooks` directory) block: `.git/hooks/**` is outside every git view,
+  so `protected.hooks` never covered it. Reading the hook, installing one, `chmod +x`
+  and deleting git's `*.sample` files stay clean. The literal `--no-verify` is now read
+  on `git am`, `git rebase` and `git cherry-pick` too.
+- **`git commit -mfinal` no longer reads as `git commit -n`** (#433). The `-n`
+  cluster test ran after the option-value stripper recognised only a detached `-m`, so
+  the letters of a glued message (`-mfinal`, `-mdone`, `-mn`) were tested as flags. A
+  value-carrying short option (`-m`, `-F`, `-C`, `-c`) now ends the cluster: the letters
+  before it are the flags (`-anm x` is still `-n`), the rest of the token — or the next
+  token when nothing follows — is the value.
+
+### Added
+
+- **`no-verify` warns on the commit paths that never run pre-commit** (#433). `git
+  commit-tree`, `git update-ref <branch> <sha>`, `git am`, `git cherry-pick` and `git
+  rebase` write commits the hook never sees. They ship at warn whatever the rule's
+  severity (a rebase onto main or a cherry-picked fix lands commits the hook already
+  checked, and the 1,511-command harness corpus holds none of them either way, so block
+  would refuse routine history work on no evidence); `--continue` / `--abort` / `--skip`
+  / `--quit` on an operation in progress and `cherry-pick --no-commit` are clean. The
+  rationale is in `docs/guide/rules.md`.
+
+## [2.23.18] — 2026-09-14
+
+### Fixed
+
+- **The CLI no longer exits before its stdout has drained** (#415). Every exit after
+  output a consumer parses — `check --json`, `check --format github`, the Claude
+  `hook` deny and `sweep` block JSON, `verify` / `run` / `doctor` / `research` machine
+  documents, `hook-service status` — went through `process.exit(code)` straight after
+  `process.stdout.write(...)`. That is only safe when the write completed synchronously:
+  Node makes pipe writes asynchronous on macOS and Windows, and even a Linux pipe backs
+  up in the stream once the kernel buffer is full and the reader is slow, so a document
+  larger than the pipe buffer was cut off at exit. For the hook that was a fail-open —
+  a truncated deny is a malformed hook response, which Claude Code ignores, so the deny
+  became an allow. The CLI now exits through one `exitAfterFlush(code)`
+  (`src/cli/exit.ts`): it sets `process.exitCode` and calls `process.exit` from the
+  stdout/stderr write callbacks, which the streams invoke only once everything queued
+  before them has reached the OS. Exit codes and output are unchanged; on a synchronous
+  stream the callbacks fire on the next tick. `watch` and `hook-service start` still
+  never exit on their own (the event loop is the daemon lifetime). Regression:
+  `test/stdout-drain.test.ts` spawns the built CLI with stdout as a pipe the test does
+  not read for a while and with `test/fixtures/async-stdout.cjs` preloaded, which
+  makes every stdout write complete on a timer the way a macOS/Windows pipe does, and
+  asserts that a 2.4 MB `check --json`, a 1200-annotation `--format github` verdict,
+  a 300 KB hook deny and a Stop block each arrive complete and parse. README's platform
+  table now states the contract: parsed output is complete before exit on every
+  platform.
+
+## [2.23.17] — 2026-09-14
+
+### Fixed
+
+- **`init` and `doctor` certify the hook wiring by the `hook-tampering` comparator**
+  (#413). `init --dry-run` reported `agent ok — already wired` and `doctor` reported
+  `[OK] claude-hooks` for a `.claude/settings.json` entry carrying the exact command
+  plus `"async": true, "timeout": 1` — a gate the runtime never awaits and kills before
+  it answers, and a file `check --staged` blocks as hook-tampering — because both tested
+  only for the presence of the command. The canonical-shape comparator is now exported
+  from the detector and consumed by `planClaudeHooks` (init) and `collectLocalPosture`
+  (doctor): an entry the runtime would not run the gate through (`async`, `if`, a
+  `timeout` below 120s, any other key init does not write, a matcher on the Stop entry,
+  text around the invocation) is `would update` from init — restored to the shape init
+  writes on the next run when the command is one init wrote — or `error` for a
+  hand-written command, and `[BROKEN] claude-hooks` from doctor with the detector's
+  reason. `onboard`'s posture summary inherits the verdict. A pre-commit gate line whose
+  first non-blank character is `#` — `sed -i 's/^npx /# npx /'`, the common "temporarily
+  disable" edit — read as wired from both; comment lines are skipped before the gate-line
+  search, so it is `would update … append the staged check` / `[WARN] pre-commit`, and
+  re-running init writes a live line. A correctly wired repository, including a
+  `timeout` at or above the floor, stays `ok` / `OK`.
+
+## [2.23.16] — 2026-09-14
+
+### Security
+
+- **`init` no longer follows a symlink planted in repository content** (#414). Every
+  file init writes — `.tamperward.yml`, `.claude/settings.json`, the pre-commit hook in
+  whichever hooks directory is resolved or `.husky/pre-commit`, CODEOWNERS in any of
+  its three locations, the workflow — went through `existsSync` / `writeFileSync` with
+  no `lstat`, so a `.claude/settings.json` symlinked to `~/.claude/settings.json` had
+  the project hooks written into the user's file, a `.git/hooks/pre-commit` symlink had
+  the gate line appended to whatever it pointed at, and a tracked `.husky/pre-commit`
+  symlink let a pull request aim a reviewer's later `init` or `onboard` at any file the
+  reviewer can write. Each target is now `lstat`ed first; a symlink or non-regular file
+  is an error row reading `refusing: symlink` / `refusing: not a regular file` (exit 2
+  when applying, the same row under `--dry-run`), the link and its target are left
+  byte-identical, and the rest of the plan still applies. Every write is a temp file in
+  the same directory plus rename, so the destination is never opened for writing and a
+  crash mid-write cannot leave a truncated settings.json.
+- The symlink refusal and atomic replacement `onboard` had since the #402 review now
+  live in `src/safe-write.ts` (`refuseNonRegular`, `writeTargetKind`, `existingMode`,
+  `atomicReplaceFile`) and both commands use it; a directory where init expected a file
+  is reported as the refusal above rather than as an `EISDIR` planning failure.
+
+## [2.23.15] — 2026-09-14
+
+### Changed
+
+- **Docs site: the reference pages are in the navigation and the architecture diagram
+  draws the authority edges and the trust boundary** (#451). `architecture`, `PERF`,
+  `CAST-INVENTORY` and both threat models were built but appeared in no nav or
+  sidebar; they now form a "Reference" group (and nav entry). `CAST-INVENTORY` linked
+  `../harness/…`, which resolves on GitHub but 404s on the site because `harness/` is
+  not served; it now uses the GitHub blob URL like every other page. The architecture
+  diagram is redrawn as three lanes — Steering (agent runtime → Claude hooks →
+  `tamperward hook` → protected-tree snapshot → deny/allow), Verification (`run`
+  envelope → `check` + `verify` → visible and pristine → local verdict/JSON) and
+  Authority (protected CI running the same `check` and `verify` against the trusted
+  base → required gate → branch rules + CODEOWNERS → merge) — with the Authority lane
+  shaded as the trust boundary, the previously missing `ci → check`, `ci → verify`,
+  `policy → pristine` and `observer → Stop sweep` edges, `init` writing across all
+  three lanes and `doctor` reading them, and nodes for `onboard`, `trace-verify`,
+  `hook-service` and `research`. The "Data flow" prose matches the redrawn diagram.
+  The docs consistency test now asserts every built page is in the sidebar or nav and
+  that no docs link targets `harness/` relatively.
+
+## [2.23.14] — 2026-09-14
+
+### Security
+
+- **A content-triggered detector crash failed OPEN at the Stop sweep and at
+  PreToolUse** (#444). The engine emitted the fail-closed `detector-error` block only
+  for the `staged`, `worktree` and `range` views; the Stop sweep evaluates the `turn`
+  view and PreToolUse the `tool-call` view, so a rule that threw on repository content
+  was silently dropped at exactly the two layers the agent meets. A spec beginning with
+  `const deep = [[[…30 000 deep…]]];` plus `it.skip(...)` made `test-skip`,
+  `test-deletion` and `test-content-removal` throw `RangeError` — 0 findings, allow —
+  while the same content was `block:detector-error` at pre-commit. Two fixes. The
+  engine now fails closed at **every** view (a caller that names no view included): a
+  thrown detector is a blocking `detector-error` naming the rule, carried on the
+  PreToolUse deny channel and the Stop block channel like any other block. And the
+  crash is no longer reachable from content: every `ts.createSourceFile` in the
+  detectors (`test-skip`, `test-deletion`, `test-content-removal`,
+  `assertion-weakening`, `ts-any-cast`, `ts-cast-growth`, `coverage-lowering`,
+  `suite-config`) goes through one guarded entry, `parseSource` in `src/ts-lazy.ts`,
+  with a 4 MiB byte ceiling and a 256-level bracket-nesting ceiling that **declines**
+  (null) instead of throwing, and declines a `RangeError` the parser still raises the
+  same way. A declined parse is not a verdict: the rule's line-level matcher judges the
+  file, as it does for a diff-only change — so the fixture is denied at PreToolUse,
+  blocked at Stop and blocked at `check --staged` by `test-skip`, not by
+  `detector-error`, and the same deep literal without a skip is clean at all three. A
+  declined `test-deletion` count is an open count (no deletion asserted, no relocation
+  credit granted); a declined config parse selects like the default, as its catch
+  already did.
+
+## [2.23.13] — 2026-09-14
+
+### Security
+
+- **Workflow supply chain: every action pinned to a commit SHA, nothing fetched
+  unpinned at publish time, no persisted token on the root-privileged runners** (#423).
+  All 69 `uses:` lines across the 14 workflows now name a full commit SHA with a
+  `# vX.Y.Z` comment (`checkout` v5.1.0, `setup-node` v6.5.0, `setup-python` v5.6.0,
+  `setup-uv` v7.6.0, `upload-pages-artifact` v4.0.0, `deploy-pages` v4.0.5), resolved
+  from the tags themselves; the release job — which holds `id-token: write` and mints
+  the npm publish credential — no longer trusts a mutable tag. `upload-artifact` and
+  `download-artifact` are on one pinned v5.0.0 everywhere (the mixed v4/v5 could not
+  read each other's artifacts across workflows). `.github/dependabot.yml` moves the pins
+  weekly for `github-actions` and `npm`. The release guard that refuses a downgrade
+  runs on a lock-pinned `semver` 7.8.5 devDependency after `npm ci` instead of
+  `npx --yes semver@7.8.5` fetched from the registry at publish time. `mine.yml` reads
+  the dispatch input `POOL` from `process.env` inside `node -e` instead of splicing it
+  into the JavaScript source. `pilot.yml` and `counted.yml` check out with
+  `persist-credentials: false` and unset `GITHUB_TOKEN` in the `sudo -E env` wrapper
+  around every privileged call, so the task code and the agent running as root never
+  see the checkout credential; only the unprivileged state restore/save/checkpoint
+  steps receive it. `test/workflow-pins.test.ts` pins all of this against the
+  repository's own workflows.
+
+## [2.23.12] — 2026-09-14
+
+### Fixed
+
+- **The Stop sweep no longer allows on a cwd it could not resolve** (#417). A payload
+  whose `cwd` did not exist or could not be read produced the same empty stdout at exit 0
+  as a plain non-repository directory, while PreToolUse denied the same cwd. The sweep now
+  allows only when the directory exists, is readable, and `git rev-parse` itself reports
+  *not a git repository*; a missing or unreadable cwd, a bare repository, or any other git
+  failure is denied as `tamperward-unavailable` with the diagnostic in the reason.
+- **The turn baseline fails closed** (#417). The marker the sweep compares against was
+  written with a plain `writeFileSync`, a parallel hook could read a half-written sha, the
+  guard accepted 7–40 hex characters so a truncated prefix passed, and any write failure
+  silently downgraded the sweep to `git diff HEAD` — making a mid-turn commit invisible
+  again, the case the baseline exists for. The marker is now written to a temp file and
+  renamed into place (as the effect state already was), read only as exactly 40 hex
+  characters (anything else is absent and re-established), and a write that fails denies
+  the turn as `tamperward-unavailable` naming the path, at Stop and at the PreToolUse
+  call that pins it.
 
 ## [2.23.11] — 2026-09-14
 

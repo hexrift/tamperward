@@ -34,7 +34,7 @@
 
 import { picomatch } from '../lazy-deps';
 import type TS from 'typescript';
-import { ts } from '../ts-lazy';
+import { parseSource, ts } from '../ts-lazy';
 
 interface IgnoreEntry {
   pattern: string;
@@ -570,7 +570,8 @@ export function parseSelection(src: string, runner: Runner, path = ''): Selectio
   let sel = empty();
   if (runner === 'pytest') return pytestSelection(src);
   try {
-    const sf = ts.createSourceFile('cfg.ts', asExpression(src), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const sf = parseSource('cfg.ts', asExpression(src));
+    if (!sf) return sel; // declined parse (#444): selects like the default, as the catch below does
     if (runner === 'vitest' && isWorkspaceFile(path)) {
       const arr = workspaceArray(sf);
       if (arr) {

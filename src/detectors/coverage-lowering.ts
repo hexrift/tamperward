@@ -46,7 +46,7 @@
 
 import { picomatch } from '../lazy-deps';
 import type TS from 'typescript';
-import { ts } from '../ts-lazy';
+import { parseSource, ts } from '../ts-lazy';
 import { Change, Detector, DetectorContext, DiffLine, FileChange, Finding, Policy } from '../types';
 import { addedLines, removedLines } from '../diff/select';
 import { isProtected } from '../policy';
@@ -181,8 +181,10 @@ function asExpression(src: string): string {
   return t.startsWith('{') ? `(${t})` : src;
 }
 
-function sourceOf(src: string): TS.SourceFile {
-  return ts.createSourceFile('cfg.ts', asExpression(src), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+/** The config as a tree, or null when the guarded parser declines it (#444) —
+ *  read by every caller as the fail-safe its catch already applied. */
+function sourceOf(src: string): TS.SourceFile | null {
+  return parseSource('cfg.ts', asExpression(src));
 }
 
 /** Resolve an identifier to the object literal a top-level `const` binds it to, so
@@ -216,6 +218,7 @@ export function parseThresholds(src: string): Thresholds {
   const res: Thresholds = { paths: new Map(), present: false, opaque: false };
   try {
     const sf = sourceOf(src);
+    if (!sf) return res;
     const resolve = resolverFor(sf);
     const visit = (node: TS.Node): void => {
       if (ts.isPropertyAssignment(node)) {
@@ -282,6 +285,7 @@ export function parseLists(src: string): Lists {
   const res: Lists = { collectFrom: null, collectKey: 'collectCoverageFrom', ignore: [], ignoreRe: [], opaqueCollect: false, opaqueIgnore: false };
   try {
     const sf = sourceOf(src);
+    if (!sf) return res;
     const resolve = resolverFor(sf);
     const visit = (node: TS.Node): void => {
       if (ts.isPropertyAssignment(node)) {
@@ -313,6 +317,7 @@ export function parseSwitches(src: string): Switches {
   const res: Switches = {};
   try {
     const sf = sourceOf(src);
+    if (!sf) return res;
     const bool = (e: TS.Expression): boolean | undefined =>
       e.kind === ts.SyntaxKind.TrueKeyword ? true : e.kind === ts.SyntaxKind.FalseKeyword ? false : undefined;
     const visit = (node: TS.Node): void => {
@@ -338,6 +343,7 @@ export function parseSwitches(src: string): Switches {
 function sectionText(src: string, key: string): string {
   try {
     const sf = sourceOf(src);
+    if (!sf) return '';
     let out = '';
     const visit = (node: TS.Node): void => {
       if (out) return;
