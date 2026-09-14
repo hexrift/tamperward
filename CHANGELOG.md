@@ -5,6 +5,44 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.26.0] — 2026-09-14
+
+### Added
+
+- **New `config-weakening` warn rule reads tsconfig, eslint, biome and the runner's
+  setup modules (#447).** Three protected config families were protected in name
+  only: `strict: true → false` and other tsconfig strictness lowerings, an eslint
+  rule turned `off`, and an `ignores` / `exclude` / `.eslintignore` entry grown to
+  hide source fired nothing, because no detector read the effective config, only
+  the file's protected-glob membership. `config-weakening` now reads each family
+  the way its tool does — tsconfig strictness flags (explicit or implied by
+  `strict`) and loosening flags (`skipLibCheck`, `allowUnreachableCode`, …),
+  `exclude` grown to hide a tracked source file, `extends` dropped or redirected
+  off the protected set; eslint (flat and legacy) and `.eslintignore` — a rule
+  turned `off` / `0` that was not off in any config of the family before the
+  edit (a `.eslintrc` → `eslint.config.js` migration is not itself a weakening),
+  `ignores` / `ignorePatterns` / `globalIgnores([...])` grown, a base rule
+  retired beside its plugin-prefixed twin read as a replacement; biome
+  `linter.enabled: false`, a rule or `rules.recommended` off, `files.ignore` /
+  `linter.ignore` grown; and a NEW jest/vitest `setupFiles` /
+  `setupFilesAfterEnv` / `globalSetup` / `runner` / `testEnvironment` /
+  `reporters` entry pointing at a file this change adds or that no protected
+  glob covers. `.eslintignore` and `biome.json[c]` join `protected.config` by
+  default. Ships `warn` pending an fp-study replay
+  (`harness/fp-study/CONFIG-WEAKENING-CORPUS.md`) before any block decision.
+- **`test-deletion` reads a protected runner config delegating its selection to
+  an unreviewed file, and `testNamePattern` (#447).** `export { default } from
+  './vitest.real'`, `module.exports = require('./jest.real')`, a `...base`
+  spread, `mergeConfig(base, …)`, `extends` / `preset`, and a `projects` entry
+  were read as opaque and silent when the target was a file the same change
+  added or that no protected glob covered — selection moved to a file the gate
+  cannot read, and the config stayed nominally protected while selecting
+  nothing. The delegation itself is now the finding, naming the target and
+  whether it is a newly added file or simply unprotected; a delegation to an
+  already-protected file stays silent, since the selection just moved where the
+  gate can still read it. `testNamePattern` is read as a further selection
+  predicate alongside the existing file-level narrowings.
+
 ## [2.25.2] — 2026-09-14
 
 ### Fixed

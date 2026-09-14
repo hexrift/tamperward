@@ -626,12 +626,12 @@ option can never be reinterpreted as the agent command.
 
 ### The rules
 
-Nineteen rules are specified and eighteen ship (see the table in
+Twenty-one rules are specified and twenty ship (see the table in
 [SPEC.md](./SPEC.md)). The families: test protection (`test-deletion`,
-`test-skip`, `test-content-removal`, plus the warning-only JS/TS
+`test-skip`, `test-content-removal`, `test-support`, plus the warning-only JS/TS
 `assertion-weakening` heuristic), verification-signal protection
 (`coverage-lowering`, `coverage-exclusion`, `snapshot-rewrite`, `snapshot-only-rewrite`), suppression
-(`ts-any-cast`, `ts-any-launder`, `ts-cast-growth`, `lint-suppression`), pipeline protection
+(`ts-any-cast`, `ts-any-launder`, `ts-cast-growth`, `lint-suppression`, `config-weakening`), pipeline protection
 (`ci-tampering`, `hook-tampering`, `no-verify`), and the effect/outcome layers
 (`transient-protected-mutation`, `pristine-verification`, plus the `run` envelope).
 `test-skip` keeps the established regex coverage for diff-only inputs and non-JS
@@ -660,6 +660,19 @@ constraint added to an existing Go file. It fired on 0 of the same 460 mainline
 pairs, but every real add in the deeper histories is an honest unreachable-branch
 marker (`harness/fp-study/COVERAGE-EXCLUSION-CORPUS.md`), so it warns and never
 blocks by default.
+`config-weakening` (2.26.0, #447) closes the gap where `tsconfig*.json`,
+`.eslintrc*` / `eslint.config.*` / `.eslintignore` and `biome.json[c]` were
+protected by name but nothing read what changed inside them: a tsconfig
+strictness flag lowered or a loosening flag (`skipLibCheck`, …) added, `exclude`
+grown to hide a source file, `extends` dropped or redirected off the protected
+set; an eslint/biome rule turned off, or `ignores` / `ignorePatterns` /
+`.eslintignore` grown; and a jest/vitest `setupFiles*` / `globalSetup` /
+`runner` / `testEnvironment` entry newly pointing at a file the gate cannot
+read. `test-deletion` gained the matching read for the runner config's own
+*selection* going opaque — `export { default } from './x'`, a `...base`
+spread, `mergeConfig`, `extends`/`preset`/`projects` pointing off the
+protected set, and `testNamePattern`. Both ship `warn` pending an fp-study
+replay (`harness/fp-study/CONFIG-WEAKENING-CORPUS.md`).
 
 ## What Tamperward does not do
 
