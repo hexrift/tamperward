@@ -21,12 +21,17 @@
 //   - the RUN: `--coverage=false`, `--coverageThreshold={}` on the command line,
 //     `passWithNoTests: true` as a config key (the flag was caught, the key was not),
 //     vitest `thresholds.autoUpdate` (the gate follows the number down),
-//     `coverage.enabled: false`, `thresholds.perFile` dropped (one file may now be
-//     uncovered behind the aggregate);
-//   - the OTHER RUNNERS: `.coveragerc` / `pyproject.toml` `fail_under`, nyc's
-//     `check-coverage` and metrics (also under package.json's `nyc` key), codecov's
-//     `target` (a number, or `auto` — a floor that follows the base) / `threshold` /
-//     `project: off` — simple key: value shapes in files the baseline protects as config.
+//     `coverage.enabled: false`, jest `collectCoverage: false`, vitest
+//     `coverage.all: false` (a file no test imports is no longer measured),
+//     `thresholds.perFile` dropped (one file may now be uncovered behind the
+//     aggregate); nyc's `--check-coverage` dropped from a script and pytest-cov's
+//     `--cov-fail-under` lowered or dropped wherever the line lives — a script, an
+//     ini `addopts`, a tox command, a workflow step (#438);
+//   - the OTHER RUNNERS: `.coveragerc` / `pyproject.toml` / `setup.cfg` / `tox.ini`
+//     `fail_under`, nyc's `check-coverage` and metrics (also under package.json's
+//     `nyc` key), codecov's `target` (a number, or `auto` — a floor that follows the
+//     base) / `threshold` / `project: off` — simple key: value shapes in files the
+//     baseline protects as config.
 //
 // What it will NOT claim: a removal it cannot see. A threshold object built from a
 // spread (`{ ...base, lines: 80 }`), a metric that is an expression, a per-path
@@ -42,7 +47,7 @@
 import { picomatch } from '../lazy-deps';
 import type TS from 'typescript';
 import { parseSource, ts } from '../ts-lazy';
-import { Change, Detector, DetectorContext, FileChange, Finding, Policy } from '../types';
+import { Change, Detector, DetectorContext, DiffLine, FileChange, Finding, Policy } from '../types';
 import { addedLines, removedLines } from '../diff/select';
 import { isProtected } from '../policy';
 import { langOf } from './files';
@@ -76,7 +81,10 @@ interface Lists {
   /** jest collectCoverageFrom or vitest coverage.include (globs, `!` entries included). */
   collectFrom: string[] | null;
   collectKey: string;
-  ignore: string[]; // coveragePathIgnorePatterns + vitest coverage.exclude
+  /** vitest coverage.exclude — globs, a dot is literal. */
+  ignore: string[];
+  /** jest coveragePathIgnorePatterns — REGEXES: `.md` matches `src/cmd.ts`. */
+  ignoreRe: string[];
   opaqueCollect: boolean;
   opaqueIgnore: boolean;
 }
@@ -87,6 +95,10 @@ interface Switches {
   enabled?: boolean;
   /** coverage.thresholds.perFile */
   perFile?: boolean;
+  /** jest collectCoverage (top level, or under package.json `jest`) */
+  collectCoverage?: boolean;
+  /** vitest coverage.all */
+  all?: boolean;
 }
 
 const norm = (p: string) => p.replace(/^\.\//, '');
@@ -270,7 +282,7 @@ function literals(e: TS.Expression): { items: string[]; opaque: boolean } {
  *  `coverage.include`) and what is exempted (`coveragePathIgnorePatterns`, vitest
  *  `coverage.exclude`). */
 export function parseLists(src: string): Lists {
-  const res: Lists = { collectFrom: null, collectKey: 'collectCoverageFrom', ignore: [], opaqueCollect: false, opaqueIgnore: false };
+  const res: Lists = { collectFrom: null, collectKey: 'collectCoverageFrom', ignore: [], ignoreRe: [], opaqueCollect: false, opaqueIgnore: false };
   try {
     const sf = sourceOf(src);
     if (!sf) return res;
@@ -286,7 +298,7 @@ export function parseLists(src: string): Lists {
           if (opaque) res.opaqueCollect = true;
         } else if (k === 'coveragePathIgnorePatterns' || (k === 'exclude' && vitestCoverage)) {
           const { items, opaque } = literals(resolve(node.initializer));
-          res.ignore.push(...items);
+          (k === 'exclude' ? res.ignore : res.ignoreRe).push(...items);
           if (opaque) res.opaqueIgnore = true;
         }
       }
@@ -299,7 +311,8 @@ export function parseLists(src: string): Lists {
   return res;
 }
 
-/** vitest `coverage.enabled` and `coverage.thresholds.perFile`, when literal. */
+/** vitest `coverage.enabled` / `coverage.all` / `coverage.thresholds.perFile` and jest
+ *  `collectCoverage`, when literal. */
 export function parseSwitches(src: string): Switches {
   const res: Switches = {};
   try {
@@ -312,6 +325,8 @@ export function parseSwitches(src: string): Switches {
         const k = keyName(node.name);
         const owner = ownerKey(node);
         if (k === 'enabled' && owner === 'coverage') res.enabled = bool(node.initializer);
+        else if (k === 'all' && owner === 'coverage') res.all = bool(node.initializer);
+        else if (k === 'collectCoverage' && (owner === null || owner === 'jest')) res.collectCoverage = bool(node.initializer);
         else if (k === 'perFile' && owner === 'thresholds' && underKey(node, 'coverage')) res.perFile = bool(node.initializer);
       }
       ts.forEachChild(node, visit);
@@ -352,8 +367,20 @@ function sectionText(src: string, key: string): string {
 // `main.ts` that bootstraps a Nest or Angular app, Nest's `*.e2e-spec.ts`. An added
 // entry pointing at one of these is housekeeping; anything else exempts source from
 // the gate (`**/index.ts` stays reported: a barrel re-exports, but an index is source).
-const BENIGN_EXEMPTION =
-  /node_modules|(?:^|[/!])(?:dist|build|out|coverage|tmp|temp|vendor|test|tests|__tests__|__mocks__|__fixtures__|fixtures?|mocks?|spec|specs|e2e|cypress|playwright|storybook|scripts?|examples?|docs?|bin|types?|typings|generated|__generated__|codegen|migrations?)(?:\/|$|\*)|\.(?:test|spec|stories|d|gen|generated|pb|e2e-spec)\.|\.(?:config|setup)\.|(?:^|[/!*])(?:manage|wsgi|asgi|__init__)\.py$|(?:^|[/!*])main\.[jt]sx?$|\.git\b|\.cache|\.next|\.nuxt|\.output|\.idea|\.d\.ts|\.json$|\.md$|\.css$|\.s[ac]ss$/i;
+//
+// Two spellings, because jest's `coveragePathIgnorePatterns` are REGEXES while every
+// other list is globs or paths. In a glob a dot is literal, so `*.md` exempts Markdown;
+// as a regex `.md` is "any character, m, d" and exempts `src/cmd.ts` and
+// `src/readme-loader.ts` — a file-suffix exemption is benign in a regex only when its
+// dot is escaped and it ends the pattern, `\.md$` / `\.d\.ts$` (#438). The directory
+// names are benign in either spelling: `/dist/` reads the same both ways.
+const BENIGN_DIRS =
+  /node_modules|(?:^|[/!])(?:dist|build|out|coverage|tmp|temp|vendor|test|tests|__tests__|__mocks__|__fixtures__|fixtures?|mocks?|spec|specs|e2e|cypress|playwright|storybook|scripts?|examples?|docs?|bin|types?|typings|generated|__generated__|codegen|migrations?)(?:\/|$|\*)|\.(?:config|setup)\.|(?:^|[/!*])(?:manage|wsgi|asgi|__init__)\.py$|(?:^|[/!*])main\.[jt]sx?$|\.git\b|\.cache|\.next|\.nuxt|\.output|\.idea/i;
+const BENIGN_EXEMPTION = new RegExp(`${BENIGN_DIRS.source}|\\.(?:test|spec|stories|d|gen|generated|pb|e2e-spec)\\.|\\.d\\.ts|\\.json$|\\.md$|\\.css$|\\.s[ac]ss$`, 'i');
+/** The regex spelling: the file-suffix class counts only with its dot escaped and at
+ *  the end of the pattern (`\.md`, `\.d\.ts`, an optional `$`); the infix classes
+ *  likewise need their dots escaped. */
+const BENIGN_EXEMPTION_RE = new RegExp(`${BENIGN_DIRS.source}|\\\\\\.(?:test|spec|stories|gen|generated|pb|e2e-spec)\\\\\\.|\\\\\\.(?:d\\\\\\.ts|json|md|css|s[ac]ss)\\$?$`, 'i');
 
 /** Per-metric comparison: a drop OR an outright removal of a metric weakens the gate.
  *  A metric missing from an OPAQUE after-set is unseen, not removed. */
@@ -481,7 +508,11 @@ function narrowings(before: Lists, after: Lists, sources: string[]): string[] {
   }
   const had = new Set(before.ignore);
   for (const g of after.ignore) {
-    if (!had.has(g) && !BENIGN_EXEMPTION.test(g)) out.push(`coverage now exempts ${JSON.stringify(g)} (coveragePathIgnorePatterns / coverage.exclude)`);
+    if (!had.has(g) && !BENIGN_EXEMPTION.test(g)) out.push(`coverage now exempts ${JSON.stringify(g)} (coverage.exclude)`);
+  }
+  const hadRe = new Set(before.ignoreRe);
+  for (const g of after.ignoreRe) {
+    if (!hadRe.has(g) && !BENIGN_EXEMPTION_RE.test(g)) out.push(`coverage now exempts ${JSON.stringify(g)} (coveragePathIgnorePatterns)`);
   }
   return out;
 }
@@ -490,6 +521,8 @@ function narrowings(before: Lists, after: Lists, sources: string[]): string[] {
 function switchWeakenings(before: Switches, after: Switches): string[] {
   const out: string[] = [];
   if (before.enabled === true && after.enabled === false) out.push('coverage.enabled switched off — the thresholds are never checked');
+  if (before.collectCoverage === true && after.collectCoverage === false) out.push('collectCoverage switched off — coverage is no longer collected, so the thresholds are never checked');
+  if (before.all === true && after.all === false) out.push('coverage.all switched off — a file no test imports is no longer measured');
   if (before.perFile === true && after.perFile !== true) out.push('thresholds.perFile removed — a single uncovered file now hides behind the aggregate');
   return out;
 }
@@ -514,12 +547,14 @@ const NYC_KEYS: SimpleKey[] = METRICS.map((m): SimpleKey => ({
   label: m,
   weakens: 'lower',
 }));
-const COVERAGE_PY = /(?:^|\/)(?:\.coveragerc|pyproject\.toml)$/;
+// coverage.py reads its `[report] fail_under` from .coveragerc, `[tool.coverage.report]`
+// in pyproject.toml, and `[coverage:report]` in setup.cfg / tox.ini — the same key.
+const COVERAGE_PY = /(?:^|\/)(?:\.coveragerc|pyproject\.toml|setup\.cfg|tox\.ini)$/;
 const CODECOV = /(?:^|\/)\.?codecov\.yml$/;
 const SIMPLE_FILES: SimpleSpec[] = [
   {
-    // coverage.py: `fail_under = 90` under [report] (.coveragerc, setup.cfg-style) or
-    // [tool.coverage.report] (pyproject.toml)
+    // coverage.py: `fail_under = 90` under [report] (.coveragerc), [coverage:report]
+    // (setup.cfg, tox.ini) or [tool.coverage.report] (pyproject.toml)
     file: COVERAGE_PY,
     keys: [{ key: /^\s*fail[_-]under\s*=\s*"?(\d+(?:\.\d+)?)/, label: 'fail_under', weakens: 'lower' }],
     removable: true,
@@ -770,6 +805,68 @@ function gateMovedElsewhere(c: FileChange, changes: Change[], policy: Policy): b
   });
 }
 
+/** A coverage floor on a command line, wherever the line lives. */
+const COV_FAIL_UNDER = /--cov-fail-under(?:=|\s+)(\d+(?:\.\d+)?)/;
+const CHECK_COVERAGE = /--check-coverage\b/;
+
+interface Floor {
+  v: number;
+  l: DiffLine;
+}
+const floorsOf = (lines: DiffLine[]): Floor[] =>
+  lines.flatMap((l) => {
+    const m = l.content.match(COV_FAIL_UNDER);
+    return m ? [{ v: Number(m[1]), l }] : [];
+  });
+
+/** The gate flags read on added/removed lines: nyc's `--check-coverage` dropped,
+ *  pytest-cov's `--cov-fail-under` lowered or dropped. A flag that is still on some
+ *  added line (a script reformatted, the check moved to another script in the same
+ *  edit) is kept; the floor is compared as the highest removed against the lowest
+ *  added, so a reorder is not a lowering and a lowered one is seen wherever it sits. */
+function flagWeakenings(c: FileChange, added: DiffLine[], removed: DiffLine[], policy: Policy): Finding[] {
+  const out: Finding[] = [];
+  const removedCheck = removed.find((l) => CHECK_COVERAGE.test(l.content));
+  if (removedCheck && !added.some((l) => CHECK_COVERAGE.test(l.content))) {
+    out.push(
+      makeFinding(RULE, policy, {
+        file: c.path,
+        message: 'nyc --check-coverage was removed — the coverage thresholds are no longer enforced.',
+        evidence: removedCheck.content.trim(),
+        remediation: 'Keep --check-coverage on; raise real coverage instead of switching the gate off.',
+      }),
+    );
+  }
+  const was = floorsOf(removed);
+  const now = floorsOf(added);
+  if (was.length === 0) return out;
+  const high = was.reduce((a, b) => (b.v > a.v ? b : a));
+  if (now.length === 0) {
+    out.push(
+      makeFinding(RULE, policy, {
+        file: c.path,
+        message: `--cov-fail-under removed (was ${high.v}) — the coverage floor is no longer enforced.`,
+        evidence: high.l.content.trim(),
+        remediation: 'Keep the --cov-fail-under floor; raise real coverage instead of removing the gate.',
+      }),
+    );
+    return out;
+  }
+  const low = now.reduce((a, b) => (b.v < a.v ? b : a));
+  if (low.v < high.v) {
+    out.push(
+      makeFinding(RULE, policy, {
+        file: c.path,
+        line: low.l.newLine ?? undefined,
+        message: `--cov-fail-under lowered ${high.v} → ${low.v}.`,
+        evidence: low.l.content.trim(),
+        remediation: 'Restore the coverage floor and raise real coverage; do not lower the gate to pass.',
+      }),
+    );
+  }
+  return out;
+}
+
 export const coverageLowering: Detector = {
   id: RULE,
   surface: ['file'],
@@ -778,7 +875,12 @@ export const coverageLowering: Detector = {
     const out: Finding[] = [];
     for (const c of changes) {
       if (c.kind !== 'file') continue;
-      if (!isProtected(c.path, policy, 'config')) continue;
+      if (!isProtected(c.path, policy, 'config')) {
+        // A workflow line carries the same gate flags as a script: `--cov-fail-under`
+        // lowered or dropped, `--check-coverage` dropped. Only the flag reading applies.
+        if (isProtected(c.path, policy, 'ci')) out.push(...flagWeakenings(c, addedLines(c), removedLines(c), policy));
+        continue;
+      }
 
       // Primary path: full content → semantic threshold-diff (catches the open config surface).
       if (c.after != null && c.op !== 'delete') {
@@ -834,6 +936,7 @@ export const coverageLowering: Detector = {
           }),
         );
       }
+      out.push(...flagWeakenings(c, added, removed, policy));
       for (const l of added) {
         for (const s of SWITCHES) {
           if (!s.re.test(l.content)) continue;

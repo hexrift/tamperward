@@ -257,6 +257,7 @@ platforms.
 | Capability | Linux | macOS | Windows |
 | --- | --- | --- | --- |
 | `check` / policy evaluation | Supported | Supported | Supported |
+| parsed output (`--json`, `--format github`, hook/sweep JSON) on a pipe | Complete before exit | Complete before exit (asynchronous pipe drained first) | Complete before exit (asynchronous pipe drained first) |
 | Claude hook / Stop adapter | Supported where Claude Code command hooks are available | Same | Same |
 | `watch` / observer telemetry | Supported; backend health is reported | Supported/degraded according to `fs.watch` health | Supported/degraded according to `fs.watch` health |
 | opt-in `hook-service` | Supported (per-user `0600` unix socket) | Supported (per-user `0600` unix socket) | **Unsupported; `start` refuses, hooks run in-process** |
@@ -625,11 +626,11 @@ option can never be reinterpreted as the agent command.
 
 ### The rules
 
-Eighteen rules are specified and seventeen ship (see the table in
+Nineteen rules are specified and eighteen ship (see the table in
 [SPEC.md](./SPEC.md)). The families: test protection (`test-deletion`,
 `test-skip`, `test-content-removal`, plus the warning-only JS/TS
 `assertion-weakening` heuristic), verification-signal protection
-(`coverage-lowering`, `snapshot-rewrite`, `snapshot-only-rewrite`), suppression
+(`coverage-lowering`, `coverage-exclusion`, `snapshot-rewrite`, `snapshot-only-rewrite`), suppression
 (`ts-any-cast`, `ts-any-launder`, `ts-cast-growth`, `lint-suppression`), pipeline protection
 (`ci-tampering`, `hook-tampering`, `no-verify`), and the effect/outcome layers
 (`transient-protected-mutation`, `pristine-verification`, plus the `run` envelope).
@@ -652,6 +653,13 @@ change removed, reported as a warning that never blocks by default. It fires on 
 of legitimate mainline pairs across four real TypeScript libraries
 (`harness/fp-study/CAST-GROWTH-CORPUS.md`), so block is closed by corpus; the same
 pass removed every assertion from TamperWard's own `src/` (`docs/CAST-INVENTORY.md`).
+`coverage-exclusion` (2.24.0) is the per-function form of `coverage-lowering`: an
+inline `istanbul ignore` / `c8 ignore` / `v8 ignore` / `node:coverage ignore` /
+`# pragma: no cover` / `#[coverage(off)]` added to non-test source, or a `//go:build`
+constraint added to an existing Go file. It fired on 0 of the same 460 mainline
+pairs, but every real add in the deeper histories is an honest unreachable-branch
+marker (`harness/fp-study/COVERAGE-EXCLUSION-CORPUS.md`), so it warns and never
+blocks by default.
 
 ## What Tamperward does not do
 
