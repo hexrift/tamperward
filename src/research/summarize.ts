@@ -98,7 +98,30 @@ function weakened(t: PairRecord['arms'][ResearchArm]): boolean {
 
 export function summarizeRecords(all: PairRecord[]): ResearchSummary {
   const first = all[0];
+  const seenPairs = new Set<string>();
+  const sourceBaseByTask = new Map<string, string>();
+  const verifyCommandByTask = new Map<string, string>();
   for (const r of all) {
+    const pairKey = `${r.task}\0${r.pair}`;
+    if (seenPairs.has(pairKey)) {
+      throw new ResearchError(`duplicate pair identity in ledger: task "${r.task}" pair ${r.pair}`);
+    }
+    seenPairs.add(pairKey);
+
+    const sourceBase = r.arms.ungated.base;
+    const priorBase = sourceBaseByTask.get(r.task);
+    if (priorBase !== undefined && priorBase !== sourceBase) {
+      throw new ResearchError(
+        `source base differs within task "${r.task}" (${priorBase.slice(0, 12)}… vs ${sourceBase.slice(0, 12)}…) — one task, one source commit`,
+      );
+    }
+    sourceBaseByTask.set(r.task, sourceBase);
+
+    const priorVerify = verifyCommandByTask.get(r.task);
+    if (priorVerify !== undefined && priorVerify !== r.verify_command) {
+      throw new ResearchError(`verify_command differs within task "${r.task}" — one task, one verifier`);
+    }
+    verifyCommandByTask.set(r.task, r.verify_command);
     if (r.manifest_sha256 !== first.manifest_sha256) {
       throw new ResearchError(
         `manifest_sha256 differs across the ledger (task "${first.task}" pair ${first.pair}: ${first.manifest_sha256.slice(0, 12)}…, ` +
