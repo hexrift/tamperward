@@ -14,6 +14,7 @@
 
 import { readFileSync } from 'node:fs';
 import { hookServiceEnabled, requestVerdict, type HookKind } from './hook-client';
+import { exitAfterFlush } from './exit';
 
 function loadMain(): Promise<typeof import('./main')> {
   return import('./main');
@@ -49,5 +50,7 @@ async function launch(argv: string[]): Promise<number> {
 
 const code = await launch(process.argv.slice(2));
 // watch and hook-service return -1 after installing their daemon handlers; do not
-// call process.exit in that case because the event loop is the daemon lifetime.
-if (code >= 0) process.exit(code);
+// exit in that case because the event loop is the daemon lifetime. Every other exit
+// waits for the verdict on stdout to drain first (#415): a `process.exit` straight
+// after the write truncates it on an asynchronous pipe (macOS, Windows, a slow reader).
+if (code >= 0) exitAfterFlush(code);

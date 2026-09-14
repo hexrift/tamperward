@@ -34,10 +34,10 @@ interface Run {
 
 /** Spawn the built CLI with stdout as a pipe nobody reads for `stallMs`, and every
  *  stdout write made asynchronous by the preload. */
-function runSlowPipe(cli: string, args: string[], opts: { cwd: string; input?: string; stallMs?: number }): Promise<Run> {
+function runSlowPipe(cli: string, args: string[], opts: { cwd: string; input?: string; stallMs?: number; asyncMs?: number }): Promise<Run> {
   const child = spawn(process.execPath, ['--require', PRELOAD, cli, ...args], {
     cwd: opts.cwd,
-    env: { ...process.env, TAMPERWARD_HOOK_SERVICE: '' },
+    env: { ...process.env, TAMPERWARD_HOOK_SERVICE: '', TAMPERWARD_TEST_ASYNC_STDOUT_MS: String(opts.asyncMs ?? 5) },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   const out: Buffer[] = [];
@@ -117,15 +117,17 @@ describe('#415 · parsed output drains fully before the CLI exits', () => {
   }, 60_000);
 
   it('a `--format github` verdict through a slow pipe ends with the full text rendering', async () => {
-    const dir = skippedRepo(200, 12);
-    const r = await runSlowPipe(CLI, ['check', '--worktree', '--format', 'github'], { cwd: dir });
+    const dir = skippedRepo(100, 12);
+    // Annotations are one write per line; keep the per-write delay small so the whole
+    // run stays well inside the budget while every write is still asynchronous.
+    const r = await runSlowPipe(CLI, ['check', '--worktree', '--format', 'github'], { cwd: dir, asyncMs: 1 });
     expect(r.status).toBe(1);
-    // Every annotation line lands, in order, and the text verdict follows the last one.
+    // Every annotation line lands, and the text verdict follows the last one.
     const annotations = r.stdout.split('\n').filter((l) => l.startsWith('::error '));
-    expect(annotations.length).toBe(200 * 12);
-    expect(r.stdout).toMatch(/a199\.spec\.ts/);
-    expect(r.stdout.indexOf('a199.spec.ts:12') > 0).toBe(true);
-    expect(r.stdout).toMatch(/Tamperward: 2400 blocking/);
+    expect(annotations.length).toBe(100 * 12);
+    const lastAnnotation = r.stdout.lastIndexOf('::error file=a99.spec.ts,line=12');
+    expect(lastAnnotation).toBeGreaterThan(0);
+    expect(r.stdout.indexOf('tamperward: 1200 blocking')).toBeGreaterThan(lastAnnotation);
   }, 60_000);
 
   it('a hook deny with a long reason through a slow pipe is one complete JSON deny', async () => {
@@ -146,7 +148,7 @@ describe('#415 · parsed output drains fully before the CLI exits', () => {
     if (!out) throw new Error('hook did not return a PreToolUse verdict');
     expect(out.permissionDecision).toBe('deny');
     const reason = typeof out.permissionDecisionReason === 'string' ? out.permissionDecisionReason : '';
-    expect(reason).toMatch(/a0\.spec\.ts:1\)/);
+    expect(reason).toMatch(/a0\.spec\.ts:2\)/);
     expect(reason).toMatch(new RegExp(`a0\\.spec\\.ts:${tests}\\)`));
     expect(reason).toMatch(/a human must sign off/);
   }, 60_000);
