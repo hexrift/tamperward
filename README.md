@@ -133,30 +133,7 @@ surfaces, see [the full architecture diagram](./docs/architecture.md).
 
 ### The local enforcement envelope
 
-```mermaid
-graph TD
-    entry["Trusted entry snapshot"]
-    hooks["In-loop hooks and observer"]
-    agent["Agent runtime"]
-    tree["Candidate commit and worktree"]
-    adjudicate["Post-exit adjudication"]
-    checks["Diff and worktree checks"]
-    verify["Visible and pristine verification"]
-    integrity["Ancestry dependency and quiescence"]
-    verdict["Final exit verdict"]
-
-    entry --> agent
-    hooks --> agent
-    agent --> tree
-    entry --> adjudicate
-    tree --> adjudicate
-    adjudicate --> checks
-    adjudicate --> verify
-    adjudicate --> integrity
-    checks --> verdict
-    verify --> verdict
-    integrity --> verdict
-```
+![TamperWard local enforcement envelope — trusted entry state and in-loop steering feed the agent lifecycle; post-exit adjudication fans out through change checks, visible/pristine verification, and ancestry/dependency/quiescence checks before one final verdict](./docs/local-enforcement-envelope.svg)
 
 Before starting the agent, the envelope
 
