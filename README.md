@@ -533,6 +533,7 @@ corresponding JSON Schema Draft 2020-12 documents in the npm package and reposit
 - [`schemas/run-v1.schema.json`](./schemas/run-v1.schema.json)
 - [`schemas/doctor-v1.schema.json`](./schemas/doctor-v1.schema.json)
 - [`schemas/research-v1.schema.json`](./schemas/research-v1.schema.json) — from **2.23.0**, the `pair` records `research run` writes (and prints with `--json`) and the `summary` document `research summarize` prints
+- [`schemas/audit-v1.schema.json`](./schemas/audit-v1.schema.json) — from **2.26.0**, the privacy-safe structured event written under `TAMPERWARD_AUDIT_LOG`; unlike verdict schemas it is JSONL, one event per line
 
 Schema major **1** is deliberately additive: consumers should ignore fields they do not
 understand. Adding new evidence/diagnostic fields does not require a schema bump.
@@ -603,6 +604,7 @@ option can never be reinterpreted as the agent command.
 | `doctor` | configured verify job(s) have sufficient static outer time for the trusted policy | — | missing/invalid workflow, no verify job, missing/malformed/insufficient timeout, or trusted policy cannot be loaded | — |
 | `run` | enforcement clean and the agent exited 0 — another non-zero agent exit is passed through unchanged | any blocking finding or masked failure, including a non-quiescent process after timeout | cannot adjudicate: dirty start, policy error, verify cannot run | `AGENT_TIMEOUT`: `--agent-budget` expired and post-timeout enforcement was clean |
 | `research run` / `research summarize` | every requested pair recorded (or already was); summary printed | — | cannot start or set a trajectory up: bad manifest, unknown adapter, root or unsupported platform (doctor's own `platform` check), unclonable repository, or invalid/mixed ledger evidence — the agent's own exit is data in the record, never the research exit | — |
+| `stats` | audit events validated and summary printed (including an empty default store) | — | explicit audit file missing, malformed/unknown audit record, bad `--since`, or no repository/default store can be resolved | — |
 | `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0, never exit 2 | — | only for an unsupported agent name | — |
 | `hook-service` | started, stopped (or nothing to stop), or status printed | — | unsupported platform, a runtime directory another uid owns, or a service already listening | — |
 | `allow` | sign-off recorded | — | no rule or `--reason`, not a git repo, or no current blocking finding to sign off | — |
