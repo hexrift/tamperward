@@ -5,6 +5,37 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.24.5] — 2026-09-14
+
+### Fixed
+
+- **`test-deletion` reads the command surface the way `hook-tampering` reads it**
+  (#432). The rule matched `rm` and `truncate` as words anywhere in a segment and
+  compared the token as typed, so `grep -n "rm " test/a.test.ts`, `grep truncate
+  test/a.test.ts` and `node scripts/rm-cache.js test/a.test.ts` blocked as deletions
+  while `unlink test/a.test.ts`, `mv src/junk.ts test/a.test.ts` (the spec overwritten;
+  only the move OUT was read), `echo test/a.test.ts | xargs rm`, `find . -name
+  "*.test.ts" | xargs rm`, `dd if=/dev/null of=test/a.test.ts`, `rm test/a.te""st.ts`,
+  `rm test/a.te\st.ts`, `rm test/a.test.{ts}` and `rm test/a.tes?.ts` passed. The
+  command is now the word in command position past the wrappers hook-wiring skips
+  (`sudo`, `env`, `nice`, `time`, `command`, `exec`, a `VAR=` prefix, a `/bin/`
+  path) — shared `WRAPPERS`, `REDIRECT_TARGET`, `destinations` and the new
+  `xargsCommand` are exported from `hook-wiring.ts` rather than copied — and a path
+  is the word the shell hands the command (`shellWord`: embedded quote spans joined,
+  backslashes resolved) with a glob expanded against the repository listing
+  (`expandGlob`: `*`, `?`, `[ab]`, `{ts,js}`; without a listing a wildcard's literal
+  part decides, so `src/*.test.ts` is specs and `src/*.ts` is nothing in particular).
+  `unlink` and `shred` delete like `rm`; `sponge` and `dd of=` rewrite like `tee`;
+  `cp`/`install`/`rsync`/`ln`/`mv` are read by their destinations, and a spec
+  destination that is in the listing with a non-spec source is an overwrite (`mv
+  a.test.js.skip a.test.js` onto no listed spec puts one back and is not); `… | xargs
+  rm`/`unlink`/`shred`/`truncate`/`mv`/`tee`/`sponge`/`sed -i`/`perl -i` is judged over
+  the specs the feeding segments name, a `find … -name` feed narrowed to its pattern.
+  Replayed over the 1,511-command harness transcript corpus: the same 15 spec-writing
+  commands fire on both builds with a listing, and the three read-only commands above
+  are clean; the shared shell corpus fires and passes identically for a hook under
+  `hook-tampering` and a spec under `test-deletion`.
+
 ## [2.24.4] — 2026-09-14
 
 ### Fixed
