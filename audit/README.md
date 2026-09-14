@@ -1,14 +1,22 @@
 # Audit batches
 
 This directory is how TamperWard's own self-hosting audit evidence enters the
-repository. It is **human-curated**: you add evidence through a normal, reviewed
-pull request, and automation only performs deterministic, idempotent ingestion
-after that review and merge. The invariant is not "nothing automatic ever writes
-the evidence branch" but the stronger one:
+repository. Evidence is added through a **pull request** and, on merge to `main`,
+automation performs deterministic, idempotent ingestion. The invariant is not
+"nothing automatic ever writes the evidence branch" but:
 
 > Nothing unreviewed or candidate-controlled may cause evidence to enter the
-> `tamperward-audit` branch. Humans decide what evidence enters; automation only
-> ingests, deterministically, after review.
+> `tamperward-audit` branch. Automation only ingests, deterministically, what
+> reached `main` through a pull request.
+
+**Enforcement.** How strong "reviewed" is depends on the repository's branch
+protection, which this file cannot set. A `CODEOWNERS` entry requires a code
+owner on `audit/` and on the workflow, but that is binding only where branch
+protection enables "Require review from Code Owners" and a minimum approving
+review count — turn those on for the strongest guarantee. Independently of
+review settings, two mechanisms are always enforced by the code here: every
+committed batch is validated pre-merge by CI (`test/audit-pending-batches.test.ts`),
+and the write-capable ingestion job runs no candidate/dependency code (see below).
 
 ## Immutable batches
 
@@ -51,3 +59,12 @@ workflow:
 Ingestion never rewrites history and never writes `main`: it only ever appends to
 the dedicated `tamperward-audit` branch. An operator can still ingest a one-off
 batch by hand via the workflow's `workflow_dispatch` input (useful for recovery).
+
+**Credential isolation.** The workflow is split into a read-only `prepare` job
+that builds, validates and computes the append (it has `contents: read` and
+`persist-credentials: false`, so no write credential is present while `npm ci`,
+the build, or candidate package code runs) and a minimal `publish` job that holds
+the write credential but runs no `npm ci` and no candidate code — only first-party
+actions, a dependency-free re-validation against the committed schema, and `git`.
+The prescan runs before any build, so a merge with nothing new to ingest costs
+only a checkout and a shallow read of the evidence branch.

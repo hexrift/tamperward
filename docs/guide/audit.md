@@ -96,13 +96,17 @@ or an ISO timestamp.
 
 TamperWard itself ships
 [`.github/workflows/tamperward-audit.yml`](https://github.com/hexrift/tamperward/blob/main/.github/workflows/tamperward-audit.yml).
-The hook does **not** push anything to GitHub. Publishing is always a
-human-curated action, and GitHub Actions is the writer. The invariant is not
-"nothing automatic ever writes the evidence branch" but the stronger one:
-nothing unreviewed or candidate-controlled may cause evidence to enter it —
-humans decide what enters, automation only ingests deterministically after
-review. There are two curated entry points, both running only from the trusted
-copy on `main`:
+The hook does **not** push anything to GitHub. Publishing goes through a pull
+request, and GitHub Actions is the writer. The invariant is not "nothing
+automatic ever writes the evidence branch" but: nothing unreviewed or
+candidate-controlled may cause evidence to enter it — automation only ingests,
+deterministically, what reached `main` through a PR. How strong "reviewed" is
+depends on the repository's branch protection (a `CODEOWNERS` entry covers
+`audit/` and the workflow, binding where "Require review from Code Owners" and a
+minimum approval count are enabled); independently, committed batches are
+validated pre-merge by CI and the write-capable job runs no candidate code (see
+below). There are two entry points, both running only from the trusted copy on
+`main`:
 
 - an operator **dispatches** a validated batch by hand (`workflow_dispatch`), or
 - a reviewed PR adds an **immutable** batch file
@@ -130,6 +134,14 @@ The workflow:
 7. writes `events/all.jsonl` and records each batch in `ingested/batches.jsonl`
    with its source commit SHA, content hash, schema version and timestamp;
 8. regenerates `summaries/all-time.json` and a human-readable branch `README.md`.
+
+The write credential is isolated: a read-only `prepare` job builds and computes
+the append (no write token while `npm ci`/build/candidate code runs), and a
+minimal `publish` job holds the write token but runs no `npm ci` and no candidate
+code — only first-party actions, a dependency-free re-validation against the
+committed schema, and `git`. Committed batches are additionally validated
+pre-merge by the normal CI suite, so a malformed batch never reaches the
+privileged job.
 
 ### On merge to `main` (the reviewed-batch path)
 

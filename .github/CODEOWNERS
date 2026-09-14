@@ -9,6 +9,10 @@
 # the version that triggers a release; the lockfile pins what those scripts execute.
 /.tamperward.yml        @hexrift
 /.github/               @hexrift
+# audit/pending/ batches are the reviewed input to the write-capable post-merge
+# tamperward-audit workflow; a code owner must sign off on what enters the
+# evidence set. Effective only where branch protection requires code-owner review.
+/audit/                 @hexrift
 /.husky/                @hexrift
 /src/                   @hexrift
 /package.json           @hexrift
