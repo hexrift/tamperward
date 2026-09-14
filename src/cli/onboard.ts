@@ -302,7 +302,15 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
     return 2;
   }
   const cwd = resolve(rootText);
-  if (cwd !== requestedCwd) {
+  let sameRoot = cwd === requestedCwd;
+  try {
+    sameRoot = realpathSync(cwd) === realpathSync(requestedCwd);
+  } catch {
+    // git rev-parse already proved both paths usable enough to classify the
+    // repository. If realpath itself is unavailable, keep the conservative
+    // string comparison rather than weakening the child-directory refusal.
+  }
+  if (!sameRoot) {
     fail('current directory is not the Git repository root.');
     rawErr('Current: ' + requestedCwd);
     rawErr('Git root: ' + cwd);
