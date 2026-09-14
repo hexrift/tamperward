@@ -147,10 +147,9 @@ const SECTIONS = [
 ] as const;
 
 const MANUAL_CONTROLS = [
-  'GitHub still needs three repository controls:',
-  '  required check: tamperward',
-  '  Code Owner review',
-  '  dismiss stale approvals when new commits are pushed',
+  'required check: tamperward',
+  'Code Owner review',
+  'dismiss stale approvals when new commits are pushed',
 ];
 
 const ESC = '\u001b';
@@ -367,24 +366,34 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
     }
 
     const head = git(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'])?.trim() ?? null;
-    if (!head) status('ACTION', 'No commit yet. Commit once before pristine verification or the safe demo.', 'warn');
 
     const treeStatus = git(cwd, ['status', '--porcelain', '--untracked-files=all']) ?? '';
     const dirty = treeStatus
       .split('\n')
       .filter(Boolean)
       .map((line) => line.slice(3).split(' -> ').at(-1) ?? '');
-    const owned = new Set(planInit(cwd).map((a) => a.path));
-    const foreign = dirty.filter((p) => !owned.has(p));
-    if (dirty.length === 0) {
-      status('OK', 'Working tree is clean.', 'ok');
-    } else if (foreign.length === 0) {
-      status('ACTION', dirty.length + ' uncommitted setup file(s) from TamperWard; commit them when setup is complete.', 'warn');
+    if (!head) {
+      const count = dirty.length;
+      status(
+        'ACTION',
+        count
+          ? 'No first commit yet; ' + count + ' path(s) are not part of a committed baseline. Create the initial commit before pristine verification or the safe demo.'
+          : 'No first commit yet. Create the initial commit before pristine verification or the safe demo.',
+        'warn',
+      );
     } else {
-      status('ACTION', dirty.length + ' existing changed/untracked path(s). TamperWard will not stash or reset them.', 'warn');
-      if (!(await confirm('Continue with the existing working-tree changes?', false, true))) {
-        status('STOPPED', 'Commit or stash your work, then re-run `tamperward onboard`.', 'warn');
-        return 2;
+      const owned = new Set(planInit(cwd).map((a) => a.path));
+      const foreign = dirty.filter((p) => !owned.has(p));
+      if (dirty.length === 0) {
+        status('OK', 'Working tree is clean.', 'ok');
+      } else if (foreign.length === 0) {
+        status('ACTION', dirty.length + ' uncommitted setup file(s) from TamperWard; commit them when setup is complete.', 'warn');
+      } else {
+        status('ACTION', dirty.length + ' existing changed/untracked path(s). TamperWard will not stash or reset them.', 'warn');
+        if (!(await confirm('Continue with the existing working-tree changes?', false, true))) {
+          status('STOPPED', 'Commit or stash your work, then re-run `tamperward onboard`.', 'warn');
+          return 2;
+        }
       }
     }
 
@@ -512,11 +521,11 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
     }
 
     if (!opts.skipDemo) {
-      const wanted = scripted ? Boolean(opts.demo) : opts.demo ? true : await confirm('Run the optional safe tamper demo? (temporary worktree only)', false, false);
-      if (wanted && head) {
-        runDemo(cwd, head, runners, (line) => out(terminalText(line)));
-      } else if (wanted) {
-        status('SKIP', 'Demo needs at least one commit.', 'dim');
+      if (!head) {
+        status('SKIP', 'Safe demo becomes available after the first commit.', 'dim');
+      } else {
+        const wanted = scripted ? Boolean(opts.demo) : opts.demo ? true : await confirm('Run the optional safe tamper demo? (temporary worktree only)', false, false);
+        if (wanted) runDemo(cwd, head, runners, (line) => out(terminalText(line)));
       }
     }
 
@@ -549,10 +558,12 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
       if (check.state === 'OK' || check.id === 'observer') continue;
       seenFailure.add(check.id);
       if (check.id === 'platform' && platform !== 'linux') {
-        const detail = localVerifySupported
-          ? platformLabel(platform) + ': `tamperward run` requires Linux; check + verify remain available.'
-          : platformLabel(platform) + ': `tamperward run` and local verify are unavailable; check remains available.';
-        status('LIMITED', detail, 'warn');
+        // Environment already stated the platform limitation in plain language.
+        // Do not repeat it in the compact summary.
+        continue;
+      }
+      if (check.id === 'verifier' && !verifyCommand && check.state === 'BROKEN') {
+        status('ACTION', 'Verification is not configured; choose the trusted test command.', 'warn');
       } else {
         renderCheck(check, out, colour);
       }
@@ -569,15 +580,24 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
 
     if (doctorOutcome.github) {
       status('OK', 'GitHub authority enforced for ' + doctorOutcome.github.repo + '#' + doctorOutcome.github.branch + '.', 'ok');
+    } else if (!repo) {
+      status('ACTION', 'GitHub authority is not configured for this repository.', 'warn');
+      out(paint('         If GitHub will provide repository authority, run: ' + terminalText(doctorCommand), DIM, colour));
+      out(paint('         If this repository will use GitHub CI authority, configure:', DIM, colour));
+      for (const line of MANUAL_CONTROLS) out(paint('           ' + line, DIM, colour));
     } else {
       status('ACTION', 'GitHub authority is not verified yet.', 'warn');
       out(paint('         ' + terminalText(doctorCommand), DIM, colour));
-      for (const line of MANUAL_CONTROLS) out(paint('         ' + line, DIM, colour));
+      out(paint('         GitHub authority requires all three controls:', DIM, colour));
+      for (const line of MANUAL_CONTROLS) out(paint('           ' + line, DIM, colour));
     }
 
     const commitPaths = [...new Set(wrote)].filter((path) => committableSetupPath(cwd, path));
     if (commitPaths.length) {
       status('NEXT', 'Commit repository setup files: ' + commitPaths.join(', '), 'info');
+    }
+    if (!head) {
+      status('NEXT', 'Create the initial repository commit before verify or the safe demo.', 'info');
     }
     if (!verifyCommand) {
       status('NEXT', 'Choose the test command TamperWard should trust for verification.', 'info');
