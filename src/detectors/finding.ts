@@ -20,10 +20,15 @@ export interface FindingInput {
   file?: string;
   line?: number;
   defaultSeverity?: Severity;
+  /** The strongest severity this finding may carry whatever the policy says: a
+   *  sub-class the rule ships as a review prompt (no-verify's hook-less commit
+   *  paths) under a rule whose main class blocks. */
+  maxSeverity?: Severity;
 }
 
 export function makeFinding(rule: string, policy: Policy, input: FindingInput): Finding {
-  const severity = severityOf(rule, policy, input.defaultSeverity ?? 'block');
+  const configured = severityOf(rule, policy, input.defaultSeverity ?? 'block');
+  const severity = input.maxSeverity === 'warn' ? 'warn' : configured;
   const required = (policy.signoff?.requiredFor ?? ['block']).includes(severity);
   return {
     rule,
