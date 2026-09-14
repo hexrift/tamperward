@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [2.23.10] — 2026-09-14
+## [2.23.11] — 2026-09-14
 
 ### Fixed
 
@@ -35,6 +35,11 @@ All notable changes to this project are documented here. The format follows
   expression folder moved to `src/detectors/gh-expression.ts`. The per-runner narrowing
   table and the `--cov-fail-under` floor `ci-tampering` gained in #436 are read by the
   script comparison through the same module.
+
+## [2.23.10] — 2026-09-14
+
+### Fixed
+
 - **`ci-tampering` reads same-kind respellings that run nothing as neutralisations**
   (#436). `npm test` → `npm run tests --if-present`, `--prefix packages/empty`, `-w empty`,
   `pnpm test --filter nothing`, `npx jest --shard=1/1000` / `--testMatch '**/nothing.js'`,
@@ -58,6 +63,7 @@ All notable changes to this project are documented here. The format follows
   `[main]` → `[feature]` keeps blocking; a matrix or caching change stays clean.
 - `- run: pytest` (a bare tool right after the `run:` key) is now recognised as a check
   invocation on the step line, as `npm test` already was.
+
 ## [2.23.9] — 2026-09-14
 
 ### Security
