@@ -116,9 +116,20 @@ export function socketRefusal(paths: ServicePaths, uid: number | undefined = cur
   return null;
 }
 
-/** The environment the service must evaluate under on the client's behalf: the
- *  three variables the hook reads that a harness or operator sets per session. */
-export const FORWARDED_ENV = ['TAMPERWARD_DENYLOG', 'TAMPERWARD_FSEVENTS', 'TAMPERWARD_TRANSIENT'] as const;
+/** The environment the service must evaluate under on the client's behalf.
+ * Keep this list to variables the hook engine itself interprets. In particular
+ * Claude's config/home roots are verdict inputs: they decide whether an absolute
+ * path names live hook wiring. A warm service may have been started from a
+ * different shell/supervisor, so consulting its ambient values would make the
+ * same payload produce a different verdict than the in-process hook. */
+export const FORWARDED_ENV = [
+  'TAMPERWARD_DENYLOG',
+  'TAMPERWARD_FSEVENTS',
+  'TAMPERWARD_TRANSIENT',
+  'CLAUDE_CONFIG_DIR',
+  'HOME',
+  'USERPROFILE',
+] as const;
 
 export interface ServiceRequest {
   v: number;
@@ -147,11 +158,22 @@ function forwardedEnv(env: NodeJS.ProcessEnv): Record<string, string> {
   return out;
 }
 
-/** One request, one connection, one JSON line each way; anything else is null. */
+interface AcceptedFailure {
+  accepted: true;
+  failure: 'timeout' | 'connection-closed' | 'response-too-large' | 'malformed-response';
+}
+
+/** One request, one connection. Before evaluation the service sends an
+ * `accepted` line; only then does it own the request and mutate per-session
+ * state. A failure BEFORE that line is safe to retry in-process. A failure
+ * AFTER it is not: the service may still be evaluating, so starting a second
+ * authority over the same .git/tamperward state would race it. */
 export function exchange(paths: ServicePaths, req: ServiceRequest, timeoutMs: number): Promise<unknown> {
   return new Promise((resolve) => {
     let done = false;
+    let accepted = false;
     let buf = '';
+    const acceptedFailure = (failure: AcceptedFailure['failure']): AcceptedFailure => ({ accepted: true, failure });
     const finish = (value: unknown): void => {
       if (done) return;
       done = true;
@@ -160,27 +182,54 @@ export function exchange(paths: ServicePaths, req: ServiceRequest, timeoutMs: nu
       resolve(value);
     };
     const sock = createConnection(paths.socket);
-    const timer = setTimeout(() => finish(null), timeoutMs);
+    const timer = setTimeout(() => finish(accepted ? acceptedFailure('timeout') : null), timeoutMs);
     sock.setEncoding('utf8');
-    sock.on('error', () => finish(null));
+    sock.on('error', () => finish(accepted ? acceptedFailure('connection-closed') : null));
     sock.on('connect', () => sock.write(JSON.stringify(req) + '\n'));
     sock.on('data', (chunk: string) => {
       buf += chunk;
-      if (buf.length > MAX_RESPONSE_BYTES) return finish(null);
-      const nl = buf.indexOf('\n');
-      if (nl < 0) return;
-      try {
-        finish(JSON.parse(buf.slice(0, nl)));
-      } catch {
-        finish(null);
+      if (buf.length > MAX_RESPONSE_BYTES) return finish(accepted ? acceptedFailure('response-too-large') : null);
+      while (!done) {
+        const nl = buf.indexOf('\n');
+        if (nl < 0) return;
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(line);
+        } catch {
+          return finish(accepted ? acceptedFailure('malformed-response') : null);
+        }
+        if (
+          !accepted &&
+          isRecord(parsed) &&
+          parsed.v === HOOK_SERVICE_PROTOCOL &&
+          parsed.version === req.version &&
+          parsed.accepted === true
+        ) {
+          accepted = true;
+          continue;
+        }
+        finish(parsed);
       }
     });
-    sock.on('close', () => finish(null));
+    sock.on('close', () => finish(accepted ? acceptedFailure('connection-closed') : null));
   });
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function acceptedFailureResult(kind: HookKind, failure: string): HookResult {
+  const reason =
+    `Tamperward's hook service accepted this evaluation but did not return a verdict (${failure}). ` +
+    'It is denied rather than evaluated a second time concurrently.';
+  const payload =
+    kind === 'PreToolUse'
+      ? { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } }
+      : { decision: 'block', reason };
+  return { exitCode: 0, stdout: JSON.stringify(payload) + '\n' };
 }
 
 /**
@@ -204,6 +253,9 @@ export async function requestVerdict(kind: HookKind, raw: string, opts: RequestO
   };
   const res = await exchange(paths, req, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   if (!isRecord(res)) return null;
+  if (res.accepted === true && typeof res.failure === 'string') {
+    return acceptedFailureResult(kind, res.failure);
+  }
   if (res.v !== HOOK_SERVICE_PROTOCOL || res.version !== version) return null;
   if (typeof res.exitCode !== 'number' || typeof res.stdout !== 'string') return null;
   return { exitCode: res.exitCode, stdout: res.stdout };
