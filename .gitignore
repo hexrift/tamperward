@@ -4,6 +4,7 @@ dist/
 *.log
 .DS_Store
 .tamperward/ledger.jsonl
+.tamperward/audit.jsonl
 
 harness/runs/
 

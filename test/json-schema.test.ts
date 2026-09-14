@@ -30,7 +30,7 @@ import {
 
 const ROOT = resolve(__dirname, '..');
 const dirs: string[] = [];
-const SCHEMA_NAMES = ['check', 'verify', 'run', 'doctor', 'research'] as const;
+const SCHEMA_NAMES = ['check', 'verify', 'run', 'doctor', 'research', 'audit', 'stats'] as const;
 type SchemaName = typeof SCHEMA_NAMES[number];
 type NpmPackEntry = { filename: string; files?: Array<{ path: string }> };
 
@@ -492,6 +492,25 @@ describe('machine-readable schema v1 (#333)', () => {
     const doctor = packagedCli(packageRoot, cwd, ['doctor', '--json']);
     expect(doctor.status).toBe(2);
     expect(validateDoc('doctor', parseOnlyJson(doctor.stdout), packageRoot)).toEqual([]);
+
+    const auditEvent = {
+      schema_version: 1,
+      id: 'sha256:' + 'a'.repeat(32),
+      timestamp: '2026-09-14T12:00:00.000Z',
+      surface: 'pretooluse',
+      agent: 'claude-code',
+      rule: 'test-skip',
+      severity: 'block',
+      decision: 'deny',
+      session: 'sha256:' + 'b'.repeat(24),
+    };
+    expect(validateDoc('audit', auditEvent, packageRoot)).toEqual([]);
+    const auditFile = join(cwd, 'audit.jsonl');
+    writeFileSync(auditFile, JSON.stringify(auditEvent) + '\n');
+    const stats = packagedCli(packageRoot, cwd, ['stats', '--file', auditFile, '--json']);
+    expect(stats.status).toBe(0);
+    expect(validateDoc('stats', parseOnlyJson(stats.stdout), packageRoot)).toEqual([]);
+    rmSync(auditFile);
 
     if (process.platform === 'linux' && trustedLinuxPython().path) {
       const run = packagedCli(packageRoot, cwd, [

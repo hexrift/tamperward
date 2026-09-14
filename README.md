@@ -533,6 +533,8 @@ corresponding JSON Schema Draft 2020-12 documents in the npm package and reposit
 - [`schemas/run-v1.schema.json`](./schemas/run-v1.schema.json)
 - [`schemas/doctor-v1.schema.json`](./schemas/doctor-v1.schema.json)
 - [`schemas/research-v1.schema.json`](./schemas/research-v1.schema.json) — from **2.23.0**, the `pair` records `research run` writes (and prints with `--json`) and the `summary` document `research summarize` prints
+- [`schemas/audit-v1.schema.json`](./schemas/audit-v1.schema.json) — from **2.26.0**, the privacy-safe structured event written under `TAMPERWARD_AUDIT_LOG`; unlike verdict schemas it is JSONL, one event per line
+- [`schemas/stats-v1.schema.json`](./schemas/stats-v1.schema.json) — the aggregate document emitted by `tamperward stats --json`
 
 Schema major **1** is deliberately additive: consumers should ignore fields they do not
 understand. Adding new evidence/diagnostic fields does not require a schema bump.
@@ -585,6 +587,7 @@ option can never be reinterpreted as the agent command.
 | `run` | `--base <rev>` · `--cmd <suite command>` · `--budget <seconds>` (per verifier suite) · `--agent-budget <seconds>` (optional wrapped-agent wall clock) · `--json` (one versioned final envelope document) · `--observe-transients` (start a session-scoped transient observer) · `--allow-dirty` · `--settle <seconds>` (wait before the final quiescence check) · `--allow-dep-drift` · `--cwd <dir>` · then `-- <agent command...>` |
 | `research run` | `--manifest <file>` · `--out <dir>` · `--adapter claude-code\|command` (all three required) · `--pairs <n>` · `--model <id>` · `--agent-budget <seconds>` · `--json` (one pair record per line) · then `-- <agent command...>` for the `command` adapter, with `{prompt}` `{task}` `{cwd}` `{base}` `{arm}` `{model}` substituted — see [the research guide](./docs/guide/research.md) |
 | `research summarize` | `--ledger <dir>` (required) — one aggregate document, four separated readouts, no composite score |
+| `stats` | `--file <audit.jsonl>` · `--since <30d|12h|90m|ISO-time>` · `--json` · `--cwd <dir>` — aggregate privacy-safe hook/sweep audit events; a finding is a signal, not proof of intent |
 | `allow` | `<rule>` · `--file <path>` · `--reason "<why>"` (required) · `--cwd <dir>` |
 | `init` | `--cwd <dir>` · `--dry-run` · `--force-workflow` |
 | `onboard` | `--cwd <dir>` · `--base <rev>` · `--repo <owner/repo>` · `--branch <name>` · `--skip-demo` / `--demo` (mutually exclusive) · `--no-github` · `--yes` (scripted: no prompts; the demo runs only with `--demo`) · `--verify-command "<suite command>"` (the only way a scripted run configures `verify.command`) |
@@ -602,6 +605,7 @@ option can never be reinterpreted as the agent command.
 | `doctor` | configured verify job(s) have sufficient static outer time for the trusted policy | — | missing/invalid workflow, no verify job, missing/malformed/insufficient timeout, or trusted policy cannot be loaded | — |
 | `run` | enforcement clean and the agent exited 0 — another non-zero agent exit is passed through unchanged | any blocking finding or masked failure, including a non-quiescent process after timeout | cannot adjudicate: dirty start, policy error, verify cannot run | `AGENT_TIMEOUT`: `--agent-budget` expired and post-timeout enforcement was clean |
 | `research run` / `research summarize` | every requested pair recorded (or already was); summary printed | — | cannot start or set a trajectory up: bad manifest, unknown adapter, root or unsupported platform (doctor's own `platform` check), unclonable repository, or invalid/mixed ledger evidence — the agent's own exit is data in the record, never the research exit | — |
+| `stats` | audit events validated and summary printed (including an empty default store) | — | explicit audit file missing, malformed/unknown audit record, bad `--since`, or no repository/default store can be resolved | — |
 | `hook claude` / `sweep claude` | always — a deny is JSON on stdout at exit 0, never exit 2 | — | only for an unsupported agent name | — |
 | `hook-service` | started, stopped (or nothing to stop), or status printed | — | unsupported platform, a runtime directory another uid owns, or a service already listening | — |
 | `allow` | sign-off recorded | — | no rule or `--reason`, not a git repo, or no current blocking finding to sign off | — |
@@ -615,7 +619,8 @@ option can never be reinterpreted as the agent command.
 | --- | --- | --- |
 | `TAMPERWARD_OOB_SIGNOFF` | the CI workflow, from PR labels | comma-separated out-of-band approvals — `<rule>` or `<rule>:<file>` for `check --diff`, `verify` for a `verify` masked failure — optionally `@<head-sha>`; honoured at the CI layer only, never the committed ledger |
 | `TAMPERWARD_OOB_HEAD` | the CI workflow (`github.event.pull_request.head.sha`) | the head SHA under adjudication; once set, an approval clears anything only if it names that commit (`@<sha>`, at least 7 characters), so a new push re-blocks |
-| `TAMPERWARD_DENYLOG` | a harness or operator | a file to which `hook claude` and `sweep claude` append the rule ids of every deny, one line per verdict, best effort |
+| `TAMPERWARD_DENYLOG` | a harness or operator | legacy compact rule-id/warning trace, best effort; some warning records include filenames/detail, so it is not the public audit format |
+| `TAMPERWARD_AUDIT_LOG` | an operator | privacy-safe structured audit-v1 JSONL for `tamperward stats`; `auto` uses the repository git directory. The hook records only allowlisted rule/severity/surface metadata and a hashed session id. See [Audit history & stats](./docs/guide/audit.md) |
 | `TAMPERWARD_FSEVENTS` | operator or harness | overrides the `tamperward watch` event-log path (default `.git/tamperward/fsevents.jsonl`); the Stop sweep reads the same variable |
 | `TAMPERWARD_HOOK_SERVICE` | the operator, in Claude Code's environment (`=1`) | lets the hooks hand their payload to a running `tamperward hook-service`; off by default. Pre-handoff refusal falls back to in-process evaluation; post-handoff ambiguity fails closed so two evaluations never race one session |
 | `TAMPERWARD_HOOK_SERVICE_DIR` | the operator or tests | overrides the service's runtime directory (default `$XDG_RUNTIME_DIR/tamperward-hook`, else `<tmpdir>/tamperward-hook-<uid>`); it must be the hook's own uid at `0700`, the socket `0600` |

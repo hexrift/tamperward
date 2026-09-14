@@ -1,0 +1,110 @@
+name: tamperward-audit
+
+# Durable dogfooding evidence, deliberately separate from the enforcement gate.
+# The hook never writes GitHub directly. An operator explicitly dispatches a
+# privacy-safe audit batch; this workflow validates the strict v1 schema and is
+# the only writer to the tamperward-audit branch.
+on:
+  workflow_dispatch:
+    inputs:
+      batch:
+        description: "Validated TamperWard audit-v1 JSONL (never TAMPERWARD_DENYLOG)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tamperward-audit-store
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    # Do not let a feature branch supply the workflow that writes the evidence
+    # branch. Dispatch the copy committed on main.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Validate submitted audit batch
+        env:
+          AUDIT_BATCH: ${{ inputs.batch }}
+        run: |
+          set -euo pipefail
+          BATCH="${RUNNER_TEMP}/tamperward-audit-batch.jsonl"
+          printf '%s\n' "${AUDIT_BATCH}" > "${BATCH}"
+          node dist/cli/index.js stats --file "${BATCH}" --json > /dev/null
+
+      - name: Append deduplicated events and regenerate summaries
+        env:
+          AUDIT_BATCH: ${{ inputs.batch }}
+        run: |
+          set -euo pipefail
+          STORE="${RUNNER_TEMP}/tamperward-audit-store"
+
+          if git ls-remote --exit-code origin refs/heads/tamperward-audit >/dev/null 2>&1; then
+            git fetch --no-tags origin refs/heads/tamperward-audit:refs/remotes/origin/tamperward-audit
+            git worktree add "${STORE}" refs/remotes/origin/tamperward-audit
+            git -C "${STORE}" switch -C tamperward-audit
+          else
+            git worktree add --detach "${STORE}"
+            git -C "${STORE}" switch --orphan tamperward-audit
+            git -C "${STORE}" rm -rf . >/dev/null 2>&1 || true
+          fi
+
+          mkdir -p "${STORE}/events" "${STORE}/summaries"
+          BATCH="${RUNNER_TEMP}/tamperward-audit-batch.jsonl"
+          printf '%s\n' "${AUDIT_BATCH}" > "${BATCH}"
+
+          node - "${BATCH}" "${STORE}/events/all.jsonl" <<'NODE'
+          const fs = require('node:fs');
+          const [batchPath, storePath] = process.argv.slice(2);
+          const incoming = fs.readFileSync(batchPath, 'utf8').split(/\r?\n/).filter(Boolean);
+          const existing = fs.existsSync(storePath)
+            ? fs.readFileSync(storePath, 'utf8').split(/\r?\n/).filter(Boolean)
+            : [];
+          const byId = new Map();
+          for (const line of existing) {
+            const value = JSON.parse(line);
+            if (typeof value.id !== 'string') throw new Error('stored audit event is missing id');
+            const prior = byId.get(value.id);
+            if (prior !== undefined && prior !== line) throw new Error('stored audit event id has conflicting content: ' + value.id);
+            byId.set(value.id, line);
+          }
+          const append = [];
+          for (const line of incoming) {
+            const value = JSON.parse(line);
+            const prior = byId.get(value.id);
+            if (prior !== undefined && prior !== line) throw new Error('submitted audit event id conflicts with stored content: ' + value.id);
+            if (prior === undefined) {
+              byId.set(value.id, line);
+              append.push(line);
+            }
+          }
+          fs.writeFileSync(storePath, [...existing, ...append].join('\n') + '\n');
+          NODE
+
+          node "${GITHUB_WORKSPACE}/dist/cli/index.js" stats             --file "${STORE}/events/all.jsonl" --json             > "${STORE}/summaries/all-time.json"
+          node "${GITHUB_WORKSPACE}/dist/cli/index.js" stats             --file "${STORE}/events/all.jsonl"             > "${STORE}/README.md"
+
+          git -C "${STORE}" config user.name github-actions[bot]
+          git -C "${STORE}" config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C "${STORE}" add events/all.jsonl summaries/all-time.json README.md
+
+          if git -C "${STORE}" diff --cached --quiet; then
+            echo "No new audit event ids to persist."
+            exit 0
+          fi
+
+          git -C "${STORE}" commit -m "audit: ingest TamperWard self-hosting events"
+          git -C "${STORE}" push origin HEAD:refs/heads/tamperward-audit

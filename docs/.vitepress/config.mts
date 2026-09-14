@@ -47,6 +47,7 @@ export default defineConfig({
             { text: 'Enforcement & sign-off', link: '/guide/enforcement' },
             { text: 'Runtime adapters', link: '/guide/runtime-adapters' },
             { text: 'Environment variables', link: '/guide/environment' },
+            { text: 'Audit history & stats', link: '/guide/audit' },
             { text: 'Research: evaluate a model', link: '/guide/research' },
           ],
         },

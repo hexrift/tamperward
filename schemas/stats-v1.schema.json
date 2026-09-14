@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hexrift/tamperward/blob/main/schemas/stats-v1.schema.json",
+  "title": "TamperWard audit stats v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "events",
+    "blocked",
+    "warnings",
+    "sessions",
+    "first_event",
+    "last_event",
+    "by_rule",
+    "by_surface",
+    "interpretation"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "events": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "blocked": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "warnings": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sessions": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "first_event": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$"
+        }
+      ]
+    },
+    "last_event": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$"
+        }
+      ]
+    },
+    "by_rule": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rule",
+          "events",
+          "blocked",
+          "warnings"
+        ],
+        "properties": {
+          "rule": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,79}$"
+          },
+          "events": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "blocked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "warnings": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "by_surface": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "surface",
+          "events"
+        ],
+        "properties": {
+          "surface": {
+            "enum": [
+              "pretooluse",
+              "stop"
+            ]
+          },
+          "events": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "interpretation": {
+      "const": "finding-is-not-proof-of-intent"
+    }
+  }
+}

@@ -5,7 +5,7 @@
 > through — the agent loop, pre-commit, the run envelope, pristine verification,
 > and protected CI authority.
 
-**Implementation status:** TamperWard 2.27.x
+**Implementation status:** TamperWard 2.28.x
 
 **Current supported surface:** JavaScript/TypeScript · Python · Go · Rust · Ruby ·
 JVM · PHP · .NET test/skip/suppression/config patterns; Claude Code hook + Stop
@@ -14,7 +14,8 @@ sweep; git pre-commit; protected CI; pristine visible/pristine re-execution;
 `tamperward doctor` installation/authority diagnostics; Linux-only advisory
 `tamperward trace-verify` observed-input discovery; and versioned Draft 2020-12
 machine-verdict schemas for `check`, `verify`, `run`, `doctor` and (from 2.23.0)
-`research`; from 2.20.0 the measured `ts-cast-growth` assertion budget; from
+`research`; from 2.26.0 privacy-safe hook/Stop audit-v1 telemetry plus the non-authoritative
+`tamperward stats` aggregate and separate GitHub evidence-store workflow; from 2.20.0 the measured `ts-cast-growth` assertion budget; from
 2.23.0 the `tamperward research` paired-evaluation workflow over the `AgentAdapter`
 contract (`docs/guide/research.md`); from 2.24.0 the measured `coverage-exclusion`
 warn rule (row 19); from 2.25.0 the `test-support` warn rule (row 20), which
@@ -27,6 +28,13 @@ ships as a measured warning-only heuristic, and `guard-removal` remains reserved
 and unbuilt.
 
 v0.11 reconciles the spec with 2.26.0: `config-weakening` seated as row 21 — `tsconfig*`/eslint/biome and the runner's setup/selection config, protected in name only before, now read for strictness-flag loosening, hidden-source excludes, dropped/unreadable `extends`, disabled rules and delegated selection, with `test-deletion` gaining the twin reading for a runner config that delegates its selection to an unreviewed file (#447).
+
+v0.11 reconciles the spec with 2.26.0: structured audit-v1 telemetry and
+`tamperward stats` are explicitly measurement-only. The hook serialises an allowlisted
+event shape with a one-way hashed session id, the GitHub-backed history lives on a
+separate evidence branch written by an explicit workflow, and neither local audit
+failure nor that branch can alter an enforcement verdict. This adds an observability
+surface, not a detector/enforcement row.
 
 v0.10 reconciles the spec with 2.25.0: `test-support` seated as row 20 — the spec
 rules (`test-deletion`, `test-content-removal`) narrowed to files a shared

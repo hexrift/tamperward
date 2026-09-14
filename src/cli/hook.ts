@@ -37,6 +37,7 @@ import { Change, FileChange, Finding, Policy } from '../types';
 import { isRecord } from '../narrow';
 import type { SnapshotCache } from '../ptree-cache';
 import { outsideRepository, repoContext, repoRoot, validateClaimAgainstRoot } from '../repo-context';
+import { recordAuditFindings, recordAuditSignal } from './audit';
 
 export interface HookResult {
   exitCode: number;
@@ -127,7 +128,11 @@ function errText(e: unknown): string {
  * whole guarantee is that a deny holds even under bypassPermissions; it cannot rest on
  * nothing having thrown.
  */
-function failClosed(kind: 'PreToolUse' | 'Stop', detail: string): HookResult {
+function failClosed(
+  kind: 'PreToolUse' | 'Stop',
+  detail: string,
+  audit?: { cwd: string; sessionId?: string },
+): HookResult {
   const f: Finding = {
     rule: 'tamperward-unavailable',
     severity: 'block',
@@ -137,7 +142,7 @@ function failClosed(kind: 'PreToolUse' | 'Stop', detail: string): HookResult {
       'Repair the Tamperward setup — most often an unparseable .tamperward.yml (check for merge-conflict markers) — then retry. Do not work around the gate while it is down.',
     signoff: { required: true, command: 'tamperward allow --reason "..."' },
   };
-  return verdict([f], kind);
+  return verdict([f], kind, audit);
 }
 
 /** The exact deny WIRE BYTES for a Claude hook `kind`, given the already-formatted
@@ -160,9 +165,20 @@ export function denyWire(reason: string, kind: 'PreToolUse' | 'Stop'): string {
 }
 
 /** Deny via JSON on stdout at exit 0. Empty stdout + exit 0 = allow. */
-function verdict(blocks: Finding[], kind: 'PreToolUse' | 'Stop'): HookResult {
+function verdict(
+  blocks: Finding[],
+  kind: 'PreToolUse' | 'Stop',
+  audit?: { cwd: string; sessionId?: string },
+): HookResult {
   if (blocks.length === 0) return { exitCode: 0, stdout: '' };
   recordDenylog(blocks);
+  if (audit) {
+    recordAuditFindings(blocks, {
+      cwd: audit.cwd,
+      surface: kind === 'PreToolUse' ? 'pretooluse' : 'stop',
+      sessionId: audit.sessionId,
+    });
+  }
   const reason = formatDenial(blocks);
   return { exitCode: 0, stdout: denyWire(reason, kind) };
 }
@@ -483,11 +499,11 @@ function sanctionPredictedWrites(cwd: string, sessionId: string | undefined, pol
  *  the runtime in the repository it names, so it has no separate anchor, and every existing
  *  caller passing no `trustedRoot` behaves byte-identically. */
 export function preToolUseVerdict(input: ClaudeHookInput, defaultCwd?: string, trustedRoot?: string): HookResult {
+  const sessionCwd = input.cwd ?? defaultCwd ?? process.cwd();
   try {
     // The session's cwd names the repository; the verdict is computed at its ROOT.
     // The policy, the effect snapshot and every disk read are root-relative, so
     // an Edit judged from `packages/x` is the Edit judged from the root (#412).
-    const sessionCwd = input.cwd ?? defaultCwd ?? process.cwd();
     if (trustedRoot !== undefined) {
       const v = validateClaimAgainstRoot(input.cwd, trustedRoot, defaultCwd ?? process.cwd());
       if (!v.ok) return failClosed('PreToolUse', `repository identity claim rejected: ${v.rejected}`);
@@ -497,13 +513,13 @@ export function preToolUseVerdict(input: ClaudeHookInput, defaultCwd?: string, t
     turnBaseline(cwd, input.session_id);
     const policy = loadPolicy(cwd);
     const driftBlocks = effectDriftBlocks(cwd, input.session_id, policy);
-    if (driftBlocks) return verdict(driftBlocks, 'PreToolUse');
+    if (driftBlocks) return verdict(driftBlocks, 'PreToolUse', { cwd, sessionId: input.session_id });
     const changes = changesFromClaudeHook(input, cwd, sessionCwd);
     const blocks = evaluate(changes, policy, undefined, 'tool-call', { cwd }).filter((f) => f.severity === 'block');
     if (blocks.length === 0) sanctionPredictedWrites(cwd, input.session_id, policy, changes);
-    return verdict(blocks, 'PreToolUse');
+    return verdict(blocks, 'PreToolUse', { cwd, sessionId: input.session_id });
   } catch (e) {
-    return failClosed('PreToolUse', errText(e));
+    return failClosed('PreToolUse', errText(e), { cwd: sessionCwd, sessionId: input.session_id });
   }
 }
 
@@ -547,7 +563,7 @@ function turnTransientBlocks(cwd: string, sessionId: string | undefined, policy:
   const log = defaultEventLog(cwd);
   const telemetry = watcherTelemetry(log);
   if (telemetry.state !== 'healthy') {
-    recordObserverHealth(telemetry.state, telemetry.reason);
+    recordObserverHealth(cwd, sessionId, telemetry.state, telemetry.reason);
   }
   const cp = cursorPath(cwd, sessionId);
   if (!existsSync(log)) return none;
@@ -561,6 +577,8 @@ function turnTransientBlocks(cwd: string, sessionId: string | undefined, policy:
   if (!drained.complete) {
     const issue = drained.issue ?? 'read-stalled';
     recordObserverHealth(
+      cwd,
+      sessionId,
       'degraded',
       `event telemetry was not fully classified (${issue}); Stop retained the prior cursor`,
     );
@@ -583,7 +601,7 @@ function turnTransientBlocks(cwd: string, sessionId: string | undefined, policy:
     return e.kind === 'file' && e.content != null ? contentHash(e.content) : null;
   };
   const findings = transientFindings(events, persistent, policy, finalHash);
-  recordWarns(findings.filter((f) => f.severity !== 'block'));
+  recordWarns(cwd, sessionId, findings.filter((f) => f.severity !== 'block'));
   return {
     blocks: findings.filter((f) => f.severity === 'block'),
     commit: () => { if (cp) try { writeFileSync(cp, String(newOffset)); } catch { /* best effort */ } },
@@ -593,9 +611,11 @@ function turnTransientBlocks(cwd: string, sessionId: string | undefined, policy:
 /** Warn-severity transients would otherwise be invisible in the hook flow (the
  *  schema-utils lesson: an unseen warn is a no-op in an unattended loop). They at
  *  least land in the deny log's audit trail, marked as warnings. */
-function recordWarns(warns: Finding[]): void {
+function recordWarns(cwd: string, sessionId: string | undefined, warns: Finding[]): void {
+  if (warns.length === 0) return;
+  recordAuditFindings(warns, { cwd, surface: 'stop', sessionId });
   const log = process.env.TAMPERWARD_DENYLOG;
-  if (!log || warns.length === 0) return;
+  if (!log) return;
   try {
     appendFileSync(log, warns.map((w) => `warn:${w.rule}:${w.file ?? ''}`).join('\n') + '\n');
   } catch {
@@ -604,9 +624,12 @@ function recordWarns(warns: Finding[]): void {
 }
 
 function recordObserverHealth(
+  cwd: string,
+  sessionId: string | undefined,
   state: 'degraded' | 'unavailable',
   reason?: string,
 ): void {
+  recordAuditSignal('transient-observer', 'warn', { cwd, surface: 'stop', sessionId });
   const log = process.env.TAMPERWARD_DENYLOG;
   if (!log) return;
   const detail = (reason ?? '').replace(/[\r\n]+/g, ' ').trim();
@@ -675,13 +698,13 @@ export function stopVerdict(input: ClaudeHookInput, defaultCwd?: string, trusted
       saveTurnTree(cwd, input.session_id, current);
     }
   } catch (e) {
-    return failClosed('Stop', errText(e));
+    return failClosed('Stop', errText(e), { cwd: sessionCwd, sessionId: input.session_id });
   }
   if (blocks.length === 0) {
     advanceTurnBaseline(cwd, input.session_id);
     commitCursor();
   }
-  return verdict(blocks, 'Stop');
+  return verdict(blocks, 'Stop', { cwd, sessionId: input.session_id });
 }
 
 function emit(r: HookResult): number {
