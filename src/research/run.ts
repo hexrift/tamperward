@@ -91,8 +91,8 @@ interface PairIdentity {
 
 /**
  * Resume checks record identity, not file existence. A ledger directory reused
- * after the manifest, prompt, repository, base, suite command, adapter or
- * model changed would otherwise "resume" over records of a different
+ * after the manifest, prompt, repository, base, suite command, adapter,
+ * model, TamperWard version, agent command or agent budget changed would otherwise "resume" over records of a different
  * experiment and exit 0 having executed nothing; a truncated record (an
  * interrupted write) would be skipped forever. Anything but a well-formed
  * record with the current identity fails closed; the operator chooses a new
