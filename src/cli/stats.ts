@@ -96,7 +96,9 @@ export function loadGitHubAudit(
   if (!branch || /[\x00-\x20]/.test(branch)) throw new Error('--branch is not a valid Git ref');
   const query = '?ref=' + encodeURIComponent(branch);
   const top = githubRequest(cwd, 'GET', `repos/${repo}/contents/${encoded(root)}${query}`);
-  if (top.status === 404) return [];
+  if (top.status === 404) {
+    throw new Error(`GitHub audit history not found at ${repo}#${branch}/${root}; publish it first or check --branch/--path`);
+  }
   const topBody = requireGitHubOk(top, 'read GitHub audit root');
   const floor = monthFloor(cutoff);
   const files: string[] = [];
