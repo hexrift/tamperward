@@ -235,7 +235,10 @@ function runGated(
   env: Record<string, string>,
   agentBudget: number | undefined,
 ): { agent: AgentExit; treatment: TreatmentRecord } {
-  let supervised: AgentRunResult | null = null;
+  // A mutable holder is intentional: TypeScript does not model assignments made
+  // by a callback invoked synchronously inside runEnvelope for control-flow
+  // narrowing, while an object property remains correctly optional here.
+  const observed: { agent?: AgentRunResult } = {};
   const { result: code, out: captured } = withEnv(env, () =>
     captureStdout(() =>
       runEnvelope({
@@ -247,7 +250,7 @@ function runGated(
         json: true,
         argv,
         observerEntry: process.argv[1],
-        onAgentResult: (result) => { supervised = result; },
+        onAgentResult: (result) => { observed.agent = result; },
       }),
     ),
   );
@@ -256,6 +259,7 @@ function runGated(
   const verdict: RunVerdict = verdictRaw !== undefined && isRunVerdict(verdictRaw) ? verdictRaw : 'CANNOT_ADJUDICATE';
   const agentDoc = envelope && isRecord(envelope.agent) ? envelope.agent : null;
   const agentExit = agentDoc ? finiteNumber(agentDoc.exit_code) : undefined;
+  const supervised = observed.agent;
   return {
     agent: supervised
       ? {
