@@ -74,14 +74,16 @@
         },
         "required": [
           "severity"
-        ]
+        ],
+        "type": "object"
       },
       "then": {
         "properties": {
           "decision": {
             "const": "deny"
           }
-        }
+        },
+        "type": "object"
       }
     },
     {
@@ -93,14 +95,16 @@
         },
         "required": [
           "severity"
-        ]
+        ],
+        "type": "object"
       },
       "then": {
         "properties": {
           "decision": {
             "const": "warn"
           }
-        }
+        },
+        "type": "object"
       }
     }
   ]
