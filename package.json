@@ -61,6 +61,6 @@
     "esbuild": "^0.25.12",
     "semver": "7.8.5",
     "vitepress": "^2.0.0-alpha.19",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.0"
   }
 }
