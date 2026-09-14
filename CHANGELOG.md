@@ -5,6 +5,36 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.21] — 2026-09-14
+
+### Fixed
+
+- **`test-skip`, `test-deletion` and `assertion-weakening` read a runner's modifier
+  chain the same way** (#429). Three rules parsed `runner.modifier.each` chains three
+  different ways. `test-skip`'s AST path required `.skip` / `.only` / `.todo` to be the
+  LAST hop, so `describe.each(rows)` → `describe.only.each(rows)` and `it.each(rows)`
+  → `it.skip.each(rows)` were never an AST hit — the single-line regex caught them by
+  luck and the multi-line spelling walked past both — and `it.skip.each` was blocked only
+  by accident, by `test-deletion` reading it as "2 → 0 blocks". `test-deletion` did not
+  unwrap a modifier between the runner and `.each` / `.for`, so the refactor `it.each`
+  → `it.concurrent.each` read as every row deleted and blocked. `assertion-weakening`
+  accepted only a bare `it(...)` / `describe(...)`, so `toBe(2)` → `toBeDefined()`
+  warned under `it('adds', …)` and was silent under `it.concurrent('adds', …)`, and a
+  test under `describe.each(rows)('title', fn)` was never compared. One chain reader
+  (`src/detectors/runner-chain.ts`) now serves all three: it unwraps `concurrent` /
+  `sequential` / `shuffle` / `serial` / `parallel` / `skip` / `only` / `todo` / `fails`
+  / `failing` in any order before `each` / `for`. `test-skip` treats a skip/focus marker
+  anywhere before the table method as the marker and points the finding at the marker's
+  own line; the outer call of a table chain (`X.each(rows)(...)`) is judged by its inner
+  chain, so a proven non-runner root stays clean there too. `test-deletion` counts
+  `it.concurrent.each` / `test.skip.each` / `describe.concurrent.each` tables per row
+  as before the modifier, so the refactor is clean while rows dropped from such a table
+  still count as deleted. `assertion-weakening` pairs `it.concurrent('adds')`,
+  `test.sequential`, `describe.skip` and `describe.each(rows)('title', fn)` blocks by
+  their literal title. Replay over the four pinned corpus heads (immer, zustand, zod,
+  hono) with the three rules compared before → after: see the pull request's precision
+  study; the assertion-weakening corpus stays 12/12 TP, 0/20 FP.
+
 ## [2.23.17] — 2026-09-14
 
 ### Fixed
