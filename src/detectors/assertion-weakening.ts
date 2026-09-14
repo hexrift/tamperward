@@ -24,6 +24,7 @@ import type { Change, Detector, Finding, Policy } from '../types';
 import { isProtected } from '../policy';
 import { makeFinding } from './finding';
 import { langOf } from './files';
+import { readCallee, readTableCallee } from './runner-chain';
 
 const RULE = 'assertion-weakening';
 
@@ -152,8 +153,18 @@ function expectAssertion(node: TS.CallExpression, sf: TS.SourceFile): Assertion 
   };
 }
 
+/** The runner a block-defining call belongs to: `it('x')`, `it.concurrent('x')`,
+ *  `describe.skip('x')` — a modifier chain ending in the call — and the outer call of
+ *  a table chain, `describe.each(rows)('x %s', fn)` / `` it.each`…`('x', fn) ``,
+ *  whose identity is that title (#429). null for anything else. */
 function simpleCallName(node: TS.CallExpression): string | null {
-  return ts.isIdentifier(node.expression) ? node.expression.text : null;
+  if (ts.isIdentifier(node.expression)) return node.expression.text;
+  const chain = readCallee(node.expression) ?? readTableCallee(node.expression);
+  if (!chain) return null;
+  // `it.each(rows)` itself is the inner call of a table chain; the block is the
+  // outer call. A chain the reader ends in a table method is only read there.
+  if (chain.table && !ts.isCallExpression(node.expression) && !ts.isTaggedTemplateExpression(node.expression)) return null;
+  return chain.runner;
 }
 
 function callbackFor(node: TS.CallExpression): TS.ArrowFunction | TS.FunctionExpression | null {
