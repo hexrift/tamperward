@@ -585,7 +585,7 @@ option can never be reinterpreted as the agent command.
 | `init` | `--cwd <dir>` · `--dry-run` · `--force-workflow` |
 | `onboard` | `--cwd <dir>` · `--base <rev>` · `--repo <owner/repo>` · `--branch <name>` · `--skip-demo` / `--demo` (mutually exclusive) · `--no-github` · `--yes` (scripted: no prompts; the demo runs only with `--demo`) · `--verify-command "<suite command>"` (the only way a scripted run configures `verify.command`) |
 | `watch` | `--dir <dir>` · `--log <file>` — a daemon; it runs until signalled |
-| `hook-service` | `start [--dir <repo>]` (foreground; runs until signalled) · `stop` · `status` — the opt-in persistent hook service (2.22.0): one warm process per user and repository that evaluates `hook`/`sweep` payloads over a private `0600` unix socket. Hooks consult it only under `TAMPERWARD_HOOK_SERVICE=1`. Before handoff, unavailable/refusing service paths fall back to the same in-process verdict; after handoff, ambiguous transport failure fails closed rather than starting a concurrent second evaluation. Not available on Windows |
+| `hook-service` | `start [--dir <repo>]` (foreground; runs until signalled) · `stop` · `status` — the opt-in persistent hook service (2.22.0): one warm process per user, bound to one repository that evaluates `hook`/`sweep` payloads over a private `0600` unix socket. Hooks consult it only under `TAMPERWARD_HOOK_SERVICE=1`. Before handoff, unavailable/refusing service paths fall back to the same in-process verdict; after handoff, ambiguous transport failure fails closed rather than starting a concurrent second evaluation. Not available on Windows |
 | `hook claude` / `sweep claude` | none — the Claude Code payload arrives on stdin |
 
 **Exit codes** — part of the public surface:
