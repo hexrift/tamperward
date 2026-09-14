@@ -38,7 +38,10 @@ All notable changes to this project are documented here. The format follows
   an optional `trustedRoot`: a runner that has an independently-derived trusted root gets the
   cross-repo claim rejected on the live path too. The parameter defaults to unset, so the
   direct in-loop hook and every existing caller are byte-identical — only a cross-repo /
-  invalid claim newly denies.
+  invalid claim newly denies. The claim is canonicalized with `realpathSync` BEFORE the git
+  root is derived, so a symlink primed at one repository and then retargeted to another is
+  decided on its CURRENT real target (and rejected), never a stale unresolved-path cache; a
+  claim whose path cannot be resolved (non-existent, broken symlink) fails closed.
 - **`post-action` is observation-only.** For Claude, `decide(..., 'post-action')` returns the
   `unsupported` outcome and can never produce a deny wire; the phase→hook mapping refuses to
   route `post-action` to a deny-capable hook rather than falling through to PreToolUse.

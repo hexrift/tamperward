@@ -15,7 +15,7 @@
 // policy file read beside the cwd) — the bug was never about those.
 
 import { execFileSync } from 'node:child_process';
-import { accessSync, constants, existsSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 
 export interface RepoContext {
@@ -89,21 +89,41 @@ export type ClaimValidation = { ok: true; trustedRoot: string } | { ok: false; r
  *  - a claim that resolves to NO repository → rejected;
  *  - a claim that resolves to a DIFFERENT repository than `trustedRoot` → rejected.
  *
- * `repoContext` resolves through git (`--show-toplevel`, symlinks included), so a claim that
- * is a symlink escaping into another repository resolves to THAT repo's root and is rejected
- * here — a subdirectory or linked path genuinely inside `trustedRoot` resolves back to it and
- * is accepted. `trustedRoot` must itself be a canonical `repoContext(...).root`, so the
- * comparison is root-to-root. `base` is the runner directory a RELATIVE claim resolves from
- * (never the claim itself).
+ * The decision is made on the claim's CURRENT REAL target, never a stale unresolved-path
+ * cache: `repoContext` caches keyed on the path it is given, so a symlink primed at repo A
+ * then retargeted to repo B would keep returning A if it were passed the (unchanged) link
+ * path. So the claim is canonicalized with `realpathSync` FIRST — which hits the filesystem
+ * and follows the link to where it points NOW — and the git root is derived from THAT real
+ * path. A retargeted link therefore yields a different real path (hence repo B's root), which
+ * mismatches `trustedRoot` and is rejected. `trustedRoot` is realpath-canonicalized the same
+ * way so the comparison is realpath-to-realpath. A subdirectory or a symlink genuinely inside
+ * `trustedRoot` resolves back to it and is accepted. A claim whose path cannot be resolved (a
+ * non-existent path, a broken symlink) is rejected (fail closed), never thrown. `base` is the
+ * runner directory a RELATIVE claim resolves from (never the claim itself).
  */
 export function validateClaimAgainstRoot(claimedCwd: string | undefined, trustedRoot: string, base: string): ClaimValidation {
   if (claimedCwd === undefined) return { ok: true, trustedRoot };
   if (typeof claimedCwd !== 'string' || claimedCwd.trim() === '') return { ok: false, rejected: 'malformed cwd claim' };
   const abs = isAbsolute(claimedCwd) ? claimedCwd : resolve(base, claimedCwd);
-  const ctx = repoContext(abs);
-  if (!ctx) return { ok: false, rejected: `cwd claim resolves to no repository (${abs})` };
-  if (ctx.root !== trustedRoot) return { ok: false, rejected: `cwd claim resolves to a different repository (${ctx.root} != trusted ${trustedRoot})` };
-  return { ok: true, trustedRoot };
+  // Follow the claim to its current real target BEFORE resolving/caching a git root.
+  let realClaim: string;
+  try {
+    realClaim = realpathSync(abs);
+  } catch (e) {
+    return { ok: false, rejected: `cwd claim path cannot be resolved (${abs}: ${e instanceof Error ? e.message : String(e)})` };
+  }
+  // Compare realpath-to-realpath: canonicalize the trusted root too (it is normally already
+  // a git `--show-toplevel`, so this is idempotent; guard the rare unreadable case).
+  let realTrusted: string;
+  try {
+    realTrusted = realpathSync(trustedRoot);
+  } catch {
+    realTrusted = trustedRoot;
+  }
+  const ctx = repoContext(realClaim);
+  if (!ctx) return { ok: false, rejected: `cwd claim resolves to no repository (${realClaim})` };
+  if (ctx.root !== realTrusted) return { ok: false, rejected: `cwd claim resolves to a different repository (${ctx.root} != trusted ${realTrusted})` };
+  return { ok: true, trustedRoot: realTrusted };
 }
 
 /**

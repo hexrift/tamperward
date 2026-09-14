@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { claudeAdapter, ClaudeRuntimeAdapter } from '../src/adapters/claude/adapter';
 import { preToolUseFromRaw, stopFromRaw, denyWire, preToolUseVerdict, stopVerdict } from '../src/cli/hook';
-import { repoContext } from '../src/repo-context';
+import { repoContext, validateClaimAgainstRoot } from '../src/repo-context';
 import { formatDenial } from '../src/adapters/claude/deny';
 import { OPERATION_KINDS, failsClosed, steeringUnavailableFinding, CONTRACT_TO_RESEARCH_LAYER } from '../src/adapters/contract';
 import { ADAPTER_LAYERS } from '../src/research/adapter';
@@ -301,12 +301,25 @@ describe('ClaudeRuntimeAdapter.validateIdentity — runtime cwd is a claim, not 
     }
   });
 
-  it('rejects a claim that resolves to no repository', () => {
+  it('rejects a claim that resolves to no repository (a real directory that is not a repo)', () => {
     const cwd = repoFixture();
+    const notRepo = mkdtempSync(join(tmpdir(), 'hf-norepo-claim-'));
     try {
-      const v = claudeAdapter.validateIdentity({ claimedCwd: join(tmpdir(), 'hf-not-a-repo-xyz-482') }, cwd);
+      const v = claudeAdapter.validateIdentity({ claimedCwd: notRepo }, cwd);
       expect(v.ok).toBe(false);
       expect(v.rejected).toMatch(/no repository/);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(notRepo, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a claim whose path cannot be resolved (non-existent / broken)', () => {
+    const cwd = repoFixture();
+    try {
+      const v = claudeAdapter.validateIdentity({ claimedCwd: join(tmpdir(), 'hf-nonexistent-xyz-482') }, cwd);
+      expect(v.ok).toBe(false);
+      expect(v.rejected).toMatch(/cannot be resolved/);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -428,6 +441,60 @@ describe('BLOCKER 1 — decide() ENFORCES identity validation and fails closed o
       // This deny is the content finding — byte-identical to the plain legacy path.
       expect(result.wire).toBe(preToolUseFromRaw(tamperRawInRepo(A)).stdout);
       expect(result.wire).toContain('test-deletion');
+    } finally {
+      rmSync(A, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('BLOCKER (cache staleness) — a primed-then-retargeted symlink claim is rejected', () => {
+  it('link primed at repo A, retargeted to repo B, now rejects on validateIdentity/decide/live path', () => {
+    const A = repoFixture();
+    const B = repoFixture();
+    const linkDir = mkdtempSync(join(tmpdir(), 'hf-link-'));
+    const link = join(linkDir, 'claim'); // an out-of-repo path that points INTO a repo
+    try {
+      const rootA = repoContext(A)!.root;
+      // Prime: point the link at A and validate, so any unresolved-path cache caches A.
+      symlinkSync(A, link);
+      const primed = validateClaimAgainstRoot(link, rootA, A);
+      expect(primed.ok).toBe(true);
+      // Also prime the adapter/live paths against the link->A target.
+      expect(claudeAdapter.validateIdentity({ claimedCwd: link }, A).ok).toBe(true);
+
+      // Retarget the SAME link to a different repository.
+      rmSync(link);
+      symlinkSync(B, link);
+
+      // The check must decide on the link's CURRENT real target (B), not the cached A.
+      const after = validateClaimAgainstRoot(link, rootA, A);
+      expect(after.ok).toBe(false);
+      if (!after.ok) expect(after.rejected).toMatch(/different repository/);
+
+      // decide() fails closed to deny...
+      const raw = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm x' }, cwd: link });
+      const d = claudeAdapter.decide(raw, 'pre-action', A);
+      expect(d.decision?.verdict).toBe('deny');
+      expect(d.detail).toMatch(/different repository/);
+      // ...and so does the live path with the trusted root supplied.
+      expect(preToolUseVerdict({ tool_name: 'Bash', tool_input: { command: 'rm x' }, cwd: link }, A, rootA).stdout).toMatch(/identity claim rejected/i);
+      expect(stopVerdict({ cwd: link }, A, rootA).stdout).toMatch(/identity claim rejected/i);
+    } finally {
+      rmSync(A, { recursive: true, force: true });
+      rmSync(B, { recursive: true, force: true });
+      rmSync(linkDir, { recursive: true, force: true });
+    }
+  });
+
+  it('positive: a symlink genuinely inside the trusted root still validates ok', () => {
+    const A = repoFixture();
+    const link = join(A, 'srclink'); // lives in A, points inside A
+    try {
+      const rootA = repoContext(A)!.root;
+      symlinkSync(join(A, 'src'), link);
+      const v = validateClaimAgainstRoot(link, rootA, A);
+      expect(v.ok).toBe(true);
+      expect(v.ok && v.trustedRoot).toBe(realpathSync(A));
     } finally {
       rmSync(A, { recursive: true, force: true });
     }
