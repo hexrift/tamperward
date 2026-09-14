@@ -141,6 +141,15 @@ release as the record of what shipped. A merge that does not change the version 
 no-op. A version with a prerelease component (`1.2.0-rc.1`) publishes to the `next`
 dist-tag; anything else goes to `latest`. Nobody pushes tags by hand.
 
+The workflow is re-entrant: publish, tag and GitHub release are each gated on their own
+record being absent (the registry, `git ls-remote --tags origin`, `gh release view`), so
+a run that published and then failed to tag is repaired by re-running it from the
+Actions tab. It also refuses to publish when `main`'s head is not the commit that last
+changed `package.json` — a retry after an unrelated merge must not ship code the
+changelog entry never described. To publish such a head deliberately, dispatch the
+workflow with `allow_non_bump_head: true`; the run log prints both SHAs. The gate does
+not re-run the test suite: the exact-head PR CI on the merged commit is the authority.
+
 Every release with a behaviour change gets a `CHANGELOG.md` entry naming what it closes.
 Security advisories reference versions, so "which release fixed that bypass" must be
 answerable from the changelog alone.

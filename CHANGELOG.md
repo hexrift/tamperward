@@ -5,6 +5,28 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.23.4] — 2026-09-14
+
+### Fixed
+
+- **The release workflow is re-entrant and publishes only the reviewed bump commit**
+  (#420). `release.yml` now gates each of its three records on its own absence — the
+  registry for `npm publish`, `git ls-remote --tags origin` for the `v<version>` tag,
+  `gh release view` for the GitHub release — instead of gating all three on "the
+  registry lacks this version". A run that published and then failed to push the tag
+  (or tagged and failed to create the release) converges on re-run rather than
+  reporting "nothing to release" forever. The `plan` step records the commit that last
+  changed `package.json` and refuses to publish, tag or release when `GITHUB_SHA` is
+  not that commit, printing both SHAs; a `workflow_dispatch` input
+  `allow_non_bump_head: true` overrides it as a conscious act. Ordinary non-bump
+  merges remain a quiet no-op.
+- The release gate no longer re-runs `npm test` on the release runner: the exact-head
+  PR CI already ran the suite on Node 20/22/24 for that commit, and the timing-sensitive
+  `test/perf-smoke.test.ts` is what held 2.23.0 unpublished. `npm ci` and the typecheck
+  stay. The checkout now uses `fetch-depth: 0` and `fetch-tags: true`, so the
+  bump-commit check sees history and the release notes' "Full Changelog" compare link
+  is actually written.
+
 ## [2.23.3] — 2026-09-14
 
 ### Fixed
