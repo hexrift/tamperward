@@ -153,8 +153,16 @@ function writeRecordAtomically(path: string, text: string): void {
   renameSync(tmp, path);
 }
 
-/** A fresh clone of the task repository, detached at its base revision. */
-function freshWorkspace(ledger: string, task: ResearchTask, pair: number, arm: ResearchArm): string {
+/** A fresh clone of the task repository, detached at the task's pinned source
+ * commit once one arm/record has established it. A moving branch/HEAD must not
+ * make two arms — or two resumed pairs — start from different source trees. */
+function freshWorkspace(
+  ledger: string,
+  task: ResearchTask,
+  pair: number,
+  arm: ResearchArm,
+  sourceBase?: string,
+): string {
   const ws = join(ledger, 'workspaces', `${task.id}--${pair}--${arm}`);
   rmSync(ws, { recursive: true, force: true });
   mkdirSync(join(ledger, 'workspaces'), { recursive: true });
@@ -165,7 +173,10 @@ function freshWorkspace(ledger: string, task: ResearchTask, pair: number, arm: R
   }
   git(['config', 'user.name', 'tamperward-research'], ws);
   git(['config', 'user.email', 'research@tamperward.invalid'], ws);
-  const candidates = task.base === 'HEAD' ? ['HEAD'] : [task.base, `origin/${task.base}`];
+  const requestedBase = sourceBase ?? task.base;
+  const candidates = sourceBase !== undefined
+    ? [sourceBase]
+    : task.base === 'HEAD' ? ['HEAD'] : [task.base, `origin/${task.base}`];
   for (const rev of candidates) {
     try {
       git(['checkout', '-q', '--detach', rev], ws);
@@ -174,7 +185,7 @@ function freshWorkspace(ledger: string, task: ResearchTask, pair: number, arm: R
       // try the next spelling
     }
   }
-  throw new ResearchError(`task "${task.id}": base ${task.base} does not resolve in a clone of ${task.repo}`);
+  throw new ResearchError(`task "${task.id}": base ${requestedBase} does not resolve in a clone of ${task.repo}`);
 }
 
 function isRunVerdict(v: string): v is RunVerdict {
@@ -393,8 +404,9 @@ function runTrajectory(
   arm: ResearchArm,
   adapter: AgentAdapter,
   opts: ResearchRunOpts,
+  sourceBase?: string,
 ): TrajectoryRecord {
-  const ws = freshWorkspace(ledger, task, pair, arm);
+  const ws = freshWorkspace(ledger, task, pair, arm, sourceBase);
   const prep: AdapterTask = { id: task.id, prompt: task.prompt, cwd: ws, base: git(['rev-parse', 'HEAD'], ws), arm, model: opts.model };
   if (arm === 'gated' && adapter.prepareGated) {
     captureStdout(() => adapter.prepareGated?.(prep));
@@ -431,7 +443,17 @@ function runTrajectory(
     (movedDuringObservation ? 'NOT_QUIESCENT: the workspace changed while its outcome was being observed' : null);
   const { unmeasurable: _agentUnmeasurable, ...agentRecord } = agent;
   const outcome = unmeasurable === null ? observed.outcome : unobservedOutcome();
-  const releasedGreen = outcome.visible_green && (treatment === null || treatment.disposition === 'passed');
+  // "released green" is operational, not merely "the final visible suite was
+  // green": a failed/timed-out agent is still a non-zero run, and the gated
+  // envelope likewise only releases green on exit 0.
+  const agentSucceeded =
+    agentRecord.exit_code === 0 &&
+    !agentRecord.timed_out &&
+    agentRecord.failure === null;
+  const releasedGreen =
+    outcome.visible_green &&
+    agentSucceeded &&
+    (treatment === null || (treatment.disposition === 'passed' && treatment.exit_code === 0));
   return {
     arm,
     workspace: ws,
@@ -452,8 +474,13 @@ export function runResearch(opts: ResearchRunOpts): number {
   let adapter: AgentAdapter;
   let tasks: ResearchTask[];
   let manifestSha: string;
+  let agentArgvIdentity: string[];
   try {
-    adapter = resolveAdapter(opts.adapter, opts.agentArgv, opts.model);
+    agentArgvIdentity =
+      opts.adapter === 'command'
+        ? normalizeCommandArgv(opts.agentArgv, opts.operatorCwd ?? process.cwd())
+        : [...opts.agentArgv];
+    adapter = resolveAdapter(opts.adapter, agentArgvIdentity, opts.model);
     const manifest = readManifest(opts.manifest);
     tasks = manifest.tasks;
     manifestSha = manifest.sha256;
@@ -479,29 +506,45 @@ export function runResearch(opts: ResearchRunOpts): number {
   mkdirSync(join(ledger, 'pairs'), { recursive: true });
 
   for (const task of tasks) {
+    // The first existing or newly executed pair pins the source commit for this
+    // task. Every later arm/pair checks out that SHA, never the moving branch
+    // name/HEAD from the manifest.
+    let sourceBase: string | null = null;
     for (let pair = 1; pair <= pairs; pair++) {
       const path = pairRecordPath(ledger, task.id, pair);
       let record: PairRecord;
       try {
         if (existsSync(path)) {
-          resumableRecord(path, {
+          const existing = resumableRecord(path, {
             task: task.id,
             pair,
             manifest_sha256: manifestSha,
             adapter: { name: adapter.name, layers: adapter.layers },
             model: opts.model ?? null,
             tamperward_version: TW_VERSION,
-            agent_argv: opts.agentArgv,
+            agent_argv: agentArgvIdentity,
             agent_budget: opts.agentBudget ?? null,
             verify_command: task.verify.command,
+            source_base: sourceBase,
           });
+          sourceBase ??= existing.arms.ungated.base;
           if (!opts.json) out(`tamperward research — task ${task.id} pair ${pair}: already recorded (${path}); skipping`);
           continue;
         }
         const arms: Partial<Record<ResearchArm, TrajectoryRecord>> = {};
         for (const arm of RESEARCH_ARMS) {
           if (!opts.json) out(`tamperward research — task ${task.id} pair ${pair}: ${arm} arm`);
-          arms[arm] = runTrajectory(ledger, task, pair, arm, adapter, opts);
+          arms[arm] = runTrajectory(ledger, task, pair, arm, adapter, opts, sourceBase ?? undefined);
+          if (arm === 'ungated') {
+            const resolvedSource = arms[arm]?.base;
+            if (!resolvedSource) throw new ResearchError(`task "${task.id}" pair ${pair}: ungated arm produced no source base`);
+            if (sourceBase !== null && resolvedSource !== sourceBase) {
+              throw new ResearchError(
+                `task "${task.id}" pair ${pair}: source base moved (${resolvedSource.slice(0, 12)}… != ${sourceBase.slice(0, 12)}…)`,
+              );
+            }
+            sourceBase ??= resolvedSource;
+          }
         }
         const ungated = arms.ungated;
         const gated = arms.gated;
@@ -515,7 +558,7 @@ export function runResearch(opts: ResearchRunOpts): number {
           adapter: { name: adapter.name, layers: [...adapter.layers] },
           model: opts.model ?? null,
           tamperward_version: TW_VERSION,
-          agent_argv: [...opts.agentArgv],
+          agent_argv: [...agentArgvIdentity],
           agent_budget: opts.agentBudget ?? null,
           manifest_sha256: manifestSha,
           verify_command: task.verify.command,
