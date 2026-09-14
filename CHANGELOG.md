@@ -50,6 +50,123 @@ every other command exits synchronously as before.
 
 This closes #388.
 
+
+## [2.20.6] — 2026-09-13
+
+**Repeatable performance budgets for the hook, the sweep, `check`, `verify` and
+`run`.** `harness/perf/bench.mjs` measures the built CLI on deterministic synthetic
+repositories (`harness/perf/fixtures.mjs`, Node built-ins only): process start
+(`cli.noop`), the `PreToolUse` hook cold and warm, the Stop sweep with its
+protected-tree snapshot at 100 / 1k / 10k files, `check --diff` over 3 and 500
+files, ignored/untracked enumeration under a 20k-file ignored build tree, the
+dependency fingerprint over a `--dep-mb` `node_modules`, visible + pristine
+materialisation around a trivial verifier, the whole `run` envelope, and Stop
+consumption of an 8 MB watcher log. Each item reports p50/p95 wall and CPU as JSON
+and a markdown table. `harness/perf/BASELINE.json` is the committed reference (its
+`machine` block says where it was taken) and `harness/perf/compare.mjs` fails when
+an item's p50 wall exceeds a configurable ratio to it (2× by default, per-item
+`budgets` honoured). `test/perf-smoke.test.ts` runs the four cheapest items on every
+PR and asserts only ratios between items of the same run (each under 4× the
+process-start `cli.noop`), never an absolute clock; `.github/workflows/perf.yml` runs
+the full suite nightly and on demand, compares against the baseline, and uploads the
+report. Documented in `docs/PERF.md`. No
+runtime behaviour changes; the CLI is unchanged.
+
+
+## [2.20.5] — 2026-09-13
+
+**The documentation now has a Research & Benchmarks section that presents the
+committed evidence in one place and is bound to it by CI.** `docs/research/`
+carries an overview with a landing table for Taskbench rounds 1, 2, 3, 3.1 and 4
+(model/runtime, sample, treatment version, result, status), one page per round
+naming what the result supports, what it does not establish and every correction
+that touched it, and separate views for detector precision / false positives,
+performance / overhead (only the two committed measurements, with the missing
+end-to-end and production-pilot data stated as missing), security and adversarial
+evaluations (each bypass, the releases that carried it, whether any counted
+trajectory exercised it, and the open residuals), model comparisons (the single
+common-16 comparison the record supports, and the four-panel shape any future
+comparison takes — no composite score), and methodology / limitations / errata.
+Failed and non-replicated results carry the same prominence as confirmed ones.
+The docs home page and the README gain a "See the evidence →" link; neither
+becomes a leaderboard.
+
+The section is a presentation layer, not a second research record: no sealed or
+frozen artifact is changed, and `test/research-docs-consistency.test.ts`
+re-derives every headline number on the pages from the artifacts on every change
+— rounds 1–3.1 (pairs, `b`, `c`, exact McNemar `p`, model, trajectory count)
+from their frozen `results.jsonl` ledgers and registered treatment versions;
+round 4 from `ROUND4-RESULTS.json`, including the landing-table status derived
+from its sealed completeness and provenance fields; detector precision from the
+fp-study corpus JSON and study totals; performance from the CHANGELOG and
+SECURITY-ENVELOPE measurements; plus the sidebar wiring, the landing links, and
+the absence of any aggregate score. A page that drifts from its artifact fails CI.
+
+Documentation only; no gate behaviour changes. This closes #390.
+## [2.20.4] — 2026-09-13
+
+**The README and SPEC status now report Round 4 as complete, with the sealed
+numbers.** The front page still said Round 4 was "registered and frozen, not yet
+run" after the counted round had been sealed (#310). "What we have actually
+measured" gains a Round 4 row; the scope paragraph replaces the future-tense text
+with the registered outcome — exact McNemar b=5 / c=3, p = 0.7265625, null not
+rejected, over 79/110 realized valid pairs, interpretation floor met — kept
+front-and-centre as a failed preregistered prediction, with the narrower
+zero-strict-bypass observation (0 across 201 measured trajectories) stated
+separately, the 79/110 apparatus attrition and its selection-bias caveat linked
+rather than hidden, and the pre-registration and results articles linked as a
+pair. SPEC §9.1 M2 no longer calls Round 4 "the undrawn fresh pool". A vitest
+(`test/readme-round4.test.ts`) asserts the README's Round 4 numbers equal the
+sealed values in `harness/taskbench/round4/ROUND4-RESULTS.json`, so the two cannot
+drift. No sealed record was modified; no product behaviour changed.
+## [2.20.3] — 2026-09-13
+
+**The test suite explains itself when it runs as root instead of failing 44 times.**
+
+`tamperward run` refuses Linux root/euid 0 by design (2.16.x; README "Platform
+support") and that is unchanged. But the suite did not know: on an untouched `main` in
+a devcontainer, `docker run`, Codespaces or a hosted agent session — all root by
+default — 44 tests across `run`, `dependency-environment`, `audit-1-6`, `audit-h1-h5`,
+`doctor-ci` and `cli-guard` failed with a bare `expected 2 to be +0`, and a contributor
+could not tell whether they had broken something (#392).
+
+Every test that needs the envelope to reach adjudication now carries
+`it.skipIf(!rootless)` from the shared `test/rootless.ts`, and a vitest `globalSetup`
+(`test/global-setup.ts`) prints one notice at suite start when the suite runs as Linux
+root: why the envelope refuses root and how to run the suite unprivileged. The test that
+mocks `geteuid` to 0 and asserts the refusal message stays unguarded, so root still
+exercises the refusal path. Off Linux nothing changes — those platforms keep their own
+`skipIf` guards — and an unprivileged run (CI included) prints nothing and skips
+nothing new. The `cli-guard` grammar case is split so its envelope assertion is the only
+part that skips. The guard's contract is proven with an injected identity in
+`test/rootless.test.ts`, so it needs no root to test. CONTRIBUTING gains "Running the
+suite unprivileged". No production code changes.
+
+## [2.20.2] — 2026-09-13
+
+**`tamperward run --observe-transients` now stops its observer on the observer
+process's exit, never on its health record.** (#394)
+
+The envelope's observer stop used to complete as soon as the watcher's health sidecar
+read `state: "stopped"` or the pid was gone. A watcher writes that record inside its
+signal handler *before* it finishes its final writes and exits, so `run` could return
+while the observer was still writing; PR #393's exact-head CI caught the lost final
+write on Node 24 while Node 20/22 passed. The health record is telemetry, and it is
+candidate-reachable; it was never fit to be the lifecycle boundary.
+
+The stop now waits for the observer *process* to exit. Because the envelope waits
+synchronously, its own event loop cannot reap the child, and an exited child lingers
+as a zombie that `kill(pid, 0)` still reports as alive — a pid-liveness poll alone
+therefore never sees the exit and runs to its deadline. On Linux (the only platform
+where `run` reaches the observer) the exit is read from the process state in
+`/proc/<pid>/stat`; elsewhere pid liveness remains the only signal. The drain window
+stays bounded at 2 s with SIGKILL behind it. Every observed envelope now stops its
+observer as soon as it has exited instead of burning the full window: the #335
+lifecycle regression drops from ~2.7 s to well under a second, and the new regression
+pins both halves of the contract — the observer's final write is present when
+`runEnvelope()` returns, and the return is keyed to the exit, not to the deadline —
+without a test-side sleep.
+
 ## [2.20.1] — 2026-09-13
 
 **`ts-any-cast` diff-only fallback: the double cast is classified structurally.** The
