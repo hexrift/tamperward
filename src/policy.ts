@@ -255,6 +255,12 @@ export function defaultPolicy(version = 1): Policy {
         '**/tsconfig*.json',
         '**/.eslintrc*',
         '**/eslint.config.*',
+        // The lint's own blind-spot list and biome's config: read by
+        // config-weakening (#447) alongside tsconfig and the eslint configs, so a
+        // path added to `.eslintignore` is as visible as one added to `ignores`.
+        '**/.eslintignore',
+        '**/biome.json',
+        '**/biome.jsonc',
         '**/package.json',
         // Coverage gates outside the Jest/Vitest shapes. coverage-lowering could only
         // see a threshold it was shown: a Python `fail_under`, an nyc `lines`, a
@@ -329,6 +335,11 @@ export function defaultPolicy(version = 1): Policy {
       // harness/fp-study/CAST-GROWTH-CORPUS.md), so it is a review prompt, not a gate.
       'ts-cast-growth': { severity: 'warn' },
       'lint-suppression': { severity: 'block' },
+      // tsconfig strictness lowered, eslint/biome rules turned off or ignores grown,
+      // a runner setup module loaded from an unprotected file (#447). Ships warn
+      // against a committed corpus (harness/fp-study/CONFIG-WEAKENING-CORPUS.md);
+      // block is a separate decision with its own measurement.
+      'config-weakening': { severity: 'warn' },
       'coverage-lowering': { severity: 'block' },
       'ci-tampering': { severity: 'block' },
       'hook-tampering': { severity: 'block' },

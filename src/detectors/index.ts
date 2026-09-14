@@ -5,6 +5,7 @@ import { tsCastGrowth } from './ts-cast-growth';
 import { lintSuppression } from './lint-suppression';
 import { testSkip } from './test-skip';
 import { coverageLowering } from './coverage-lowering';
+import { configWeakening } from './config-weakening';
 import { ciTampering } from './ci-tampering';
 import { hookTampering } from './hook-tampering';
 import { testDeletion } from './test-deletion';
@@ -23,6 +24,7 @@ export const allDetectors: Detector[] = [
   lintSuppression,
   testSkip,
   coverageLowering,
+  configWeakening,
   ciTampering,
   hookTampering,
   testDeletion,
@@ -39,6 +41,7 @@ export {
   lintSuppression,
   testSkip,
   coverageLowering,
+  configWeakening,
   ciTampering,
   hookTampering,
   testDeletion,

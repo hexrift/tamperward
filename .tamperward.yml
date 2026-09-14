@@ -35,6 +35,9 @@ rules:
   # corpus (harness/fp-study/CAST-GROWTH-CORPUS.md). src/ now carries none.
   ts-cast-growth: { severity: warn }
   lint-suppression: { severity: block }
+  # tsconfig strictness lowered, eslint/biome rules off or ignores grown, runner
+  # setup modules from unprotected files; warn by corpus (#447).
+  config-weakening: { severity: warn }
   coverage-lowering: { severity: block }
   ci-tampering: { severity: block }
   hook-tampering: { severity: block }

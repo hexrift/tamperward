@@ -55,6 +55,10 @@ interface Selection {
   base: string | null;
   /** Per-project selections of a multi-project config; the suite is their union. */
   projects: Selection[] | null;
+  /** Whole-run narrowings that match no path — `testNamePattern` selects by test
+   *  NAME inside every file the runner opens, so it shrinks the run everywhere
+   *  (#447), exactly like pytest's `-m`. */
+  wide: IgnoreEntry[];
   /** A selection list was present but not fully literal — never claim on it. */
   opaque: boolean;
   present: boolean;
@@ -392,7 +396,7 @@ function pytestSelection(src: string): Selection {
 
 const isWorkspaceFile = (path: string) => /^vitest\.workspace\./.test(path.split('/').pop() ?? path);
 
-const empty = (): Selection => ({ include: null, regex: null, ignore: null, roots: null, base: null, projects: null, opaque: false, present: false });
+const empty = (): Selection => ({ include: null, regex: null, ignore: null, roots: null, base: null, projects: null, wide: [], opaque: false, present: false });
 
 /** jest globs and roots are written against `<rootDir>/`, which is what the samples
  *  are relative to once rebased. */
@@ -422,6 +426,13 @@ function collect(root: TS.Node, runner: Runner): Selection {
   const ignores = (key: string, e: TS.Expression) => {
     const entries = take(key, e).map((pattern) => ({ pattern, key }));
     sel.ignore = [...(sel.ignore ?? []), ...entries];
+  };
+  // `testNamePattern` (jest root, vitest `test`) runs only the tests whose NAME
+  // matches: every file is still opened and the run still shrinks, so it is a
+  // whole-run narrowing recorded against the config rather than a path (#447).
+  const namePattern = (e: TS.Expression) => {
+    sel.present = true;
+    sel.wide.push({ pattern: '\u0000testNamePattern ' + (isStr(e) ? e.text : e.getText()), key: 'testNamePattern' });
   };
   let projectList: TS.Expression | null = null;
   const projects = (e: TS.Expression) => {
@@ -454,7 +465,7 @@ function collect(root: TS.Node, runner: Runner): Selection {
         } else if (k === 'projects') {
           projects(node.initializer);
           return; // a project's keys are its own, not the root's
-        }
+        } else if (k === 'testNamePattern') namePattern(node.initializer);
       } else if (ownerKey(node) === 'test') {
         if (k === 'include') sel.include = take(k, node.initializer);
         else if (k === 'exclude') ignores(k, node.initializer);
@@ -466,7 +477,7 @@ function collect(root: TS.Node, runner: Runner): Selection {
         } else if (k === 'projects') {
           projects(node.initializer);
           return;
-        }
+        } else if (k === 'testNamePattern') namePattern(node.initializer);
       }
     }
     ts.forEachChild(node, visit);
@@ -617,6 +628,9 @@ const regexes = (patterns: string[]) => {
   return (path: string) => rs.some((r) => r.test('/' + path));
 };
 
+/** The evidence for a whole-run narrowing: the key and what it was given. */
+const wideWhy = (hit: IgnoreEntry) => `${hit.key} narrows the whole run (${JSON.stringify(hit.pattern.slice(1).replace(/^testNamePattern /, ''))})`;
+
 interface Predicate {
   selects(path: string): boolean;
   /** Which entry dropped `path`, for the evidence line. */
@@ -628,9 +642,13 @@ const underDir = (path: string, dir: string) => dir === '' || path.startsWith(di
 function predicate(sel: Selection, runner: Runner): Predicate {
   if (sel.projects) {
     const ps = sel.projects.map((p) => predicate(p, runner));
+    const wide = sel.wide[0];
     return {
-      selects: (p) => ps.some((x) => x.selects(p)),
-      why: (p) => (ps.length ? `no project selects it (${ps[0].why(p)})` : 'the projects list is empty'),
+      selects: (p) => wide === undefined && ps.some((x) => x.selects(p)),
+      why: (p) =>
+        wide !== undefined ? wideWhy(wide)
+        : ps.length ? `no project selects it (${ps[0].why(p)})`
+        : 'the projects list is empty',
     };
   }
   const includeList =
@@ -644,7 +662,7 @@ function predicate(sel: Selection, runner: Runner): Predicate {
   // A `\u0000`-prefixed entry is a WHOLE-BLOCK narrowing (`-m`, python_classes,
   // python_functions): real, but not attributable to one path, so it applies to
   // every sample rather than being matched as a glob.
-  const blockWide = ignoreList.filter((e) => e.pattern.startsWith('\u0000'));
+  const blockWide = [...ignoreList.filter((e) => e.pattern.startsWith('\u0000')), ...sel.wide];
   const included = includeList ? globList(includeList) : sel.regex ? regexes(sel.regex) : () => true;
   const ignoredBy = (p: string): IgnoreEntry | undefined =>
     blockWide[0] ?? ignoreList.filter((e) => !e.pattern.startsWith('\u0000')).find((e) => (runner === 'jest' ? regexes([e.pattern]) : globs([e.pattern]))(p));
@@ -669,7 +687,7 @@ function predicate(sel: Selection, runner: Runner): Predicate {
         // `-p no:<plugin>`) does not MATCH a path — it shrinks what the runner
         // collects everywhere. Saying "now matches it" of a marker expression or a
         // disabled plugin would name a mechanism that did not happen.
-        if (hit.pattern.startsWith('\u0000')) return `${hit.key} narrows the whole run (${JSON.stringify(hit.pattern.slice(1))})`;
+        if (hit.pattern.startsWith('\u0000')) return wideWhy(hit);
         return `${hit.key === 'exclude' ? 'test.exclude' : hit.key} now matches it (${JSON.stringify(hit.pattern)})`;
       }
       const key = runner === 'jest' ? (sel.include ? 'testMatch' : sel.regex ? 'testRegex' : 'testMatch (default)') : sel.include ? 'test.include' : 'test.include (default)';
@@ -702,4 +720,237 @@ export function suiteNarrowings(before: string | null, after: string, path: stri
     if (pb.selects(s) && !pa.selects(s)) out.push({ path: s, reason: pa.why(s) });
   }
   return out;
+}
+
+// ── delegation: the selection handed to a file this config does not hold ──────
+//
+// A protected config can stop holding its own selection without narrowing a line
+// of it (#447): `export { default } from './vitest.real'`, `module.exports =
+// require('./jest.real')`, a `...base` spread from a relative import,
+// `mergeConfig(base, …)`, a project `extends: './x'`, a jest `preset: './x'`, a
+// `projects` entry naming a config by path. The reader above goes OPAQUE on every
+// one of these, and opacity was silence — so the runner's whole selection moved to
+// a file no glob protects and the gate said nothing. The opacity IS the weakening
+// when the target is a file the same change adds or that nothing protects; a
+// delegation that was already there, or to a protected file the change did not
+// write, is the repository's own layout.
+
+export interface Delegation {
+  /** The module specifier / path as written (`./vitest.real`, `<rootDir>/jest.unit.js`). */
+  target: string;
+  /** The construct, for the evidence line. */
+  how: string;
+}
+
+/** A path this config resolves against its own directory, as opposed to a package. */
+const isLocalPath = (s: string) => /^(?:\.\.?\/|\/|<rootDir>)/.test(s);
+const hasGlob = (s: string) => /[*?[\]{}]/.test(s);
+
+const oneLine = (node: TS.Node) => node.getText().replace(/\s+/g, ' ').slice(0, 120);
+
+/** `require('./x')` / `import('./x')`: the relative specifier, or null. */
+function requiredPath(e: TS.Expression): string | null {
+  let x = e;
+  while (ts.isParenthesizedExpression(x) || ts.isAsExpression(x) || ts.isSatisfiesExpression(x) || ts.isAwaitExpression(x)) x = x.expression;
+  if (ts.isCallExpression(x) && x.arguments.length > 0 && isStr(x.arguments[0])) {
+    const callee = x.expression;
+    if ((ts.isIdentifier(callee) && callee.text === 'require') || callee.kind === ts.SyntaxKind.ImportKeyword) return x.arguments[0].text;
+  }
+  return null;
+}
+
+function delegationsIn(src: string, runner: Runner): Delegation[] {
+  const out: Delegation[] = [];
+  const seen = new Set<string>();
+  const add = (target: string, how: string, local = true) => {
+    if ((local && !isLocalPath(target)) || hasGlob(target) || seen.has(target)) return;
+    seen.add(target);
+    out.push({ target, how });
+  };
+  let sf: TS.SourceFile | null = null;
+  try {
+    sf = parseSource('cfg.ts', asExpression(src));
+  } catch {
+    return out;
+  }
+  if (!sf) return out;
+  // identifiers bound to a relative module: `import base from './x'`,
+  // `import * as b from './x'`, `import { a } from './x'`, `const b = require('./x')`
+  const bound = new Map<string, string>();
+  const bindNames = (name: TS.BindingName, spec: string) => {
+    if (ts.isIdentifier(name)) bound.set(name.text, spec);
+    else for (const el of name.elements) if (ts.isBindingElement(el)) bindNames(el.name, spec);
+  };
+  for (const st of sf.statements) {
+    if (ts.isImportDeclaration(st) && isStr(st.moduleSpecifier) && isLocalPath(st.moduleSpecifier.text) && st.importClause) {
+      const spec = st.moduleSpecifier.text;
+      if (st.importClause.name) bound.set(st.importClause.name.text, spec);
+      const nb = st.importClause.namedBindings;
+      if (nb && ts.isNamespaceImport(nb)) bound.set(nb.name.text, spec);
+      else if (nb) for (const el of nb.elements) bound.set(el.name.text, spec);
+    } else if (ts.isVariableStatement(st)) {
+      for (const d of st.declarationList.declarations) {
+        const spec = d.initializer ? requiredPath(d.initializer) : null;
+        if (spec !== null && isLocalPath(spec)) bindNames(d.name, spec);
+      }
+    }
+  }
+  /** The relative module an expression stands for: a bound identifier (or a
+   *  member of one), or an inline `require('./x')`. */
+  const moduleOf = (e: TS.Expression): string | null => {
+    let x = e;
+    while (
+      ts.isParenthesizedExpression(x) ||
+      ts.isAsExpression(x) ||
+      ts.isSatisfiesExpression(x) ||
+      ts.isAwaitExpression(x) ||
+      ts.isPropertyAccessExpression(x) ||
+      ts.isNonNullExpression(x)
+    )
+      x = x.expression;
+    if (ts.isIdentifier(x)) return bound.get(x.text) ?? null;
+    return requiredPath(x);
+  };
+  /** The exported value, if the whole export is another module's. */
+  const exported = (e: TS.Expression, how: string) => {
+    const m = moduleOf(unwrapConfigCall(e));
+    if (m !== null) add(m, how);
+  };
+  const visit = (node: TS.Node): void => {
+    if (ts.isExportDeclaration(node) && node.moduleSpecifier && isStr(node.moduleSpecifier)) {
+      // `export * from './x'`, `export { default } from './x'`, `export { x as default } from './x'`
+      const clause = node.exportClause;
+      const whole = !clause || (ts.isNamedExports(clause) && clause.elements.some((el) => el.name.text === 'default'));
+      if (whole) add(node.moduleSpecifier.text, oneLine(node));
+    } else if (ts.isExportAssignment(node)) {
+      exported(node.expression, oneLine(node));
+    } else if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      /^(?:module\.)?exports(?:\.default)?$/.test(node.left.getText())
+    ) {
+      exported(node.right, oneLine(node));
+    } else if (ts.isSpreadAssignment(node)) {
+      const m = moduleOf(node.expression);
+      if (m !== null) add(m, `...${oneLine(node.expression)}`);
+    } else if (ts.isCallExpression(node) && /^(?:\w+\.)?mergeConfig$/.test(node.expression.getText()) && node.arguments[0]) {
+      const m = moduleOf(node.arguments[0]);
+      if (m !== null) add(m, `${oneLine(node.expression)}(${oneLine(node.arguments[0])}, …)`);
+    } else if (ts.isPropertyAssignment(node)) {
+      const k = keyName(node.name);
+      const v = node.initializer;
+      if (runner === 'vitest' && k === 'extends' && isStr(v)) add(v.text, `extends: ${JSON.stringify(v.text)}`);
+      else if (runner === 'jest' && k === 'preset' && isStr(v)) add(v.text, `preset: ${JSON.stringify(v.text)}`);
+      else if (k === 'projects' && ts.isArrayLiteralExpression(v) && (runner === 'jest' || ownerKey(node) === 'test')) {
+        // a project named by PATH has its own config file; a glob is a set of them
+        // this reader cannot enumerate (opaque, as before)
+        for (const el of v.elements) if (isStr(el)) add(el.text, `projects: [${JSON.stringify(el.text)}]`, false);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+/**
+ * Delegations `after` carries that `before` did not: the runner's selection is now
+ * read from another file. The caller judges each target — a file this change adds,
+ * or one no protected glob covers, is unreviewed and the delegation is the finding.
+ */
+export function suiteDelegations(before: string | null, after: string, path: string): Delegation[] {
+  const runner = runnerOf(path, after) ?? runnerOf(path, before);
+  if (!runner || runner === 'pytest') return [];
+  const was = new Set(delegationsIn(before ?? '', runner).map((d) => d.target));
+  return delegationsIn(after, runner).filter((d) => !was.has(d.target));
+}
+
+/**
+ * The repository paths a config-relative target may name, for a protection or
+ * added-file check: the path as written, with each module extension, and as a
+ * directory index. `<rootDir>/` and `./` are the config's own directory.
+ */
+export function targetCandidates(configPath: string, target: string): string[] {
+  const dir = configPath.includes('/') ? configPath.slice(0, configPath.lastIndexOf('/')) : '';
+  const rel = target.replace(/^<rootDir>\/?/, './');
+  const parts = rel.startsWith('/') || !dir ? [] : dir.split('/');
+  for (const seg of rel.split('/')) {
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') parts.pop();
+    else parts.push(seg);
+  }
+  const base = parts.join('/');
+  if (!base) return [];
+  const exts = ['.js', '.cjs', '.mjs', '.ts', '.cts', '.mts', '.json'];
+  return [base, ...exts.map((e) => base + e), ...exts.map((e) => `${base}/index${e}`)];
+}
+
+// ── setup: the modules a runner loads around the suite ────────────────────────
+//
+// `setupFiles`, `setupFilesAfterEnv`, `globalSetup`, a custom `runner`, a custom
+// `testEnvironment`, a `reporters` entry: each names a module the runner executes
+// with the suite's globals in reach (#447 found a global `expect` proxy in a new
+// `setupFilesAfterEach` file). A NEW entry pointing at a file nothing protects is
+// reported as a warning by `config-weakening`; the reader lives here beside the
+// selection reader because the config shapes are the same.
+
+export interface SetupEntry {
+  key: string;
+  target: string;
+}
+
+const JEST_SETUP_KEYS =
+  /^(?:setupFiles|setupFilesAfterEnv|setupFilesAfterEach|globalSetup|globalTeardown|runner|testRunner|testEnvironment|reporters|testResultsProcessor|testSequencer|snapshotResolver|resolver)$/;
+const VITEST_SETUP_KEYS = /^(?:setupFiles|setupFilesAfterEach|globalSetup|environment|runner|reporters)$/;
+
+/** A value that names a file rather than a package: relative, rooted, or carrying
+ *  a module extension (`test/setup.ts`; `dotenv/config` and `jsdom` are packages). */
+const namesFile = (s: string) => isLocalPath(s) || (/\.[cm]?[jt]sx?$/.test(s) && !s.startsWith('@'));
+
+function setupEntriesIn(src: string, runner: Runner, path: string): SetupEntry[] {
+  const out: SetupEntry[] = [];
+  let sf: TS.SourceFile | null = null;
+  try {
+    sf = parseSource('cfg.ts', asExpression(src));
+  } catch {
+    return out;
+  }
+  if (!sf) return out;
+  const inPackageJson = (path.split('/').pop() ?? path) === 'package.json';
+  const underJestKey = (node: TS.Node): boolean => {
+    for (let q: TS.Node | undefined = node.parent; q; q = q.parent) {
+      if (ts.isPropertyAssignment(q) && keyName(q.name) === 'jest') return true;
+    }
+    return false;
+  };
+  const values = (e: TS.Expression): string[] => {
+    if (isStr(e)) return [e.text];
+    if (!ts.isArrayLiteralExpression(e)) return [];
+    const vs: string[] = [];
+    for (const el of e.elements) {
+      if (isStr(el)) vs.push(el.text);
+      else if (ts.isArrayLiteralExpression(el) && el.elements[0] && isStr(el.elements[0])) vs.push(el.elements[0].text); // `['./reporter.js', { … }]`
+    }
+    return vs;
+  };
+  const visit = (node: TS.Node): void => {
+    if (ts.isPropertyAssignment(node)) {
+      const k = keyName(node.name);
+      const applies =
+        k !== null &&
+        (runner === 'jest' ? JEST_SETUP_KEYS.test(k) && (!inPackageJson || underJestKey(node)) : VITEST_SETUP_KEYS.test(k) && ownerKey(node) === 'test');
+      if (applies && k !== null) for (const v of values(node.initializer)) if (namesFile(v)) out.push({ key: k, target: v });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+/** Setup entries `after` carries that `before` did not (by key and target). */
+export function newSetupEntries(before: string | null, after: string, path: string): SetupEntry[] {
+  const runner = runnerOf(path, after) ?? runnerOf(path, before);
+  if (!runner || runner === 'pytest') return [];
+  const was = new Set(setupEntriesIn(before ?? '', runner, path).map((e) => `${e.key} ${e.target}`));
+  return setupEntriesIn(after, runner, path).filter((e) => !was.has(`${e.key} ${e.target}`));
 }

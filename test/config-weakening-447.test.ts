@@ -134,8 +134,10 @@ describe('test-deletion — the runner config delegates its selection to an unre
 
   it('delegating to a protected file the same change ADDS is still unreviewed', () => {
     const m = td([file('vitest.config.ts', vitest(''), "export { default } from './vitest.config.base';\n"), file('vitest.config.base.ts', null, realVitest)], repo);
-    expect(m, m.join('\n')).toHaveLength(1);
-    expect(m[0]).toMatch(/vitest\.config\.base/);
+    // the delegation, plus the added protected config's own narrowing against the default
+    expect(m.filter((x) => /delegates/.test(x)), m.join('\n')).toHaveLength(1);
+    expect(m.find((x) => /delegates/.test(x))).toMatch(/adds \(vitest\.config\.base\.ts\)/);
+    expect(m.some((x) => /no longer selects/.test(x))).toBe(true);
   });
 
   it('a delegation that was already there is not this change\'s doing', () => {

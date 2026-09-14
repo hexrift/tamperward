@@ -24,7 +24,9 @@ import {
   effectivePytestFile,
   runnerOf,
   runnerSkips,
+  suiteDelegations,
   suiteNarrowings,
+  targetCandidates,
 } from './suite-config';
 import type { Runner } from './suite-config';
 import { checkKinds, invocationWeakening } from './invocation';
@@ -483,6 +485,26 @@ export const testDeletion: Detector = {
           // higher-precedence root file) changes nothing, so flagging it would be a
           // false positive in the gated arm only.
           const readable = rn !== 'pytest' || effectivePytestConfig(c.path, ctx);
+          // The selection handed to a file nothing reviews (#447): `export { default }
+          // from './vitest.real'`, `module.exports = require('./jest.real')`, a
+          // `...base` spread, `mergeConfig(base, …)`, `extends: './x'`, `preset:
+          // './x'`, a `projects` path. The reader goes opaque and opacity was
+          // silence; the opacity is the finding when the target is a file this
+          // change adds or that no protected glob covers.
+          for (const d of suiteDelegations(c.before, c.after, c.path)) {
+            const cands = targetCandidates(c.path, d.target);
+            const added = cands.find((f) => addedPaths.has(f));
+            if (added === undefined && cands.some((f) => isProtected(f, policy, 'config'))) continue;
+            out.push(
+              makeFinding(RULE, policy, {
+                file: c.path,
+                message: `The runner config now delegates its selection to ${d.target}, ${added !== undefined ? `a file this change adds (${added})` : 'a file no protected glob covers'}: ${d.how}.`,
+                evidence: `${c.path}: ${d.how}`,
+                remediation:
+                  'Keep the selection in the protected config, or protect the file it delegates to (protected.config in .tamperward.yml). A config the gate cannot read can select nothing.',
+              }),
+            );
+          }
           for (const n of readable ? suiteNarrowings(c.before, c.after, c.path, runnerSamples(c.path, policy, ctx, rn)) : []) {
             out.push(
               makeFinding(RULE, policy, {
