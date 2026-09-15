@@ -32,6 +32,8 @@ export interface CapturedProcessResult {
   signal: string | null;
   timedOut: boolean;
   error?: string;
+  /** A descendant still held a stdio pipe open past the post-exit drain window. */
+  pipeHeldOpen?: boolean;
   diagnostics: SuiteDiagnostics;
 }
 
@@ -45,6 +47,10 @@ export interface CapturedProcessOptions {
   killGroupOnFinish?: boolean;
   /** Extra allowance for supervisor/cleanup after the trusted timeout. */
   backstopMs?: number;
+  /** Grace period (ms) to drain the pipes after the child exits before
+   *  finishing anyway, so a descendant holding a pipe open cannot stall it.
+   *  Defaults to 1000. */
+  drainMs?: number;
 }
 
 const EMPTY_STREAM: StreamDiagnostics = {
@@ -220,6 +226,7 @@ let done = false;
 let timedOut = false;
 let exitInfo = { exit: null, signal: null };
 let descendantTracker = null;
+let drainTimer = null;
 
 function killOwned() {
   if (!child || !child.pid) return;
@@ -241,6 +248,7 @@ function finish(extra) {
   if (done) return;
   done = true;
   if (descendantTracker) clearInterval(descendantTracker);
+  if (drainTimer) clearTimeout(drainTimer);
   try {
     // stdout is reserved for the trusted supervisor result. Candidate suite
     // stdout/stderr are separate pipes and are never inherited here.
@@ -295,12 +303,19 @@ if (child) {
       signal: signal == null ? null : String(signal),
     };
     if (cfg.killGroupOnFinish) killOwned();
+    // A leaked descendant can hold a pipe open so 'close' never fires; finish off
+    // exit after a bounded drain instead of hanging. 'close' still wins if first.
+    if (!drainTimer) {
+      drainTimer = setTimeout(() => finish({ pipeHeldOpen: true }), Number(cfg.drainMs));
+      drainTimer.unref();
+    }
   });
 
   // close fires after the stdio pipes close, so the retained tails include all
   // output that was drained before owned descendants were terminated.
   child.on('close', (code, signal) => {
     clearTimeout(timer);
+    if (drainTimer) clearTimeout(drainTimer);
     if (exitInfo.exit === null && code != null) exitInfo.exit = Number(code);
     if (exitInfo.signal === null && signal != null) exitInfo.signal = String(signal);
     finish({});
@@ -330,6 +345,7 @@ export function parseCapturedSupervisorResult(stdoutText: string): CapturedProce
     signal: typeof raw.signal === 'string' ? raw.signal : null,
     timedOut: Boolean(raw.timedOut),
     ...(typeof raw.error === 'string' && raw.error ? { error: raw.error } : {}),
+    ...(raw.pipeHeldOpen === true ? { pipeHeldOpen: true } : {}),
     diagnostics,
   };
 }
@@ -352,6 +368,7 @@ export function runCapturedProcessSync(
         timeoutMs: opts.timeoutMs,
         detached: Boolean(opts.detached),
         killGroupOnFinish: Boolean(opts.killGroupOnFinish),
+        drainMs: opts.drainMs ?? 1000,
         captureBytes: DIAGNOSTIC_TAIL_BYTES,
       }),
       { mode: 0o600 },

@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseVerify, probeFilesystemCaseSensitivity, runVerify } from '../src/cli/verify';
+import { parseVerify, probeFilesystemCaseSensitivity, runVerify, type RunResult } from '../src/cli/verify';
 import { policyWeakening } from '../src/detectors/policy-diff';
 import {
   DIAGNOSTIC_TAIL_BYTES,
@@ -143,6 +143,33 @@ describe('tamperward verify', () => {
   it('SUITE_RED: nothing fixed, nothing masked — exit 1, not a masked failure', () => {
     const cwd = repo();
     expect(run(cwd)).toBe(1);
+  });
+
+  it.skipIf(process.platform === 'win32')('CANNOT_VERIFY: a non-quiescent visible stage cannot certify — a zero exit does not become VERIFIED (exit 2)', () => {
+    const cwd = repo();
+    // Exit 0, but a process still holds stdout open — not quiescent, must not certify.
+    const leak: RunResult = { exit: 0, secs: 1, pipeHeldOpen: true };
+    const { code, json } = capture(() => run(cwd, { runStage: () => leak }));
+    expect(code).toBe(2);
+    expect(json.verdict).toBe('CANNOT_VERIFY');
+    expect(json.verdict).not.toBe('VERIFIED');
+    expect(json.reason).toBe('VERIFIER_BACKEND_RUNTIME_FAILURE');
+    expect(json.stage).toBe('visible');
+    expect(String(json.detail)).toContain('not');
+    expect(String(json.detail)).toContain('quiescent');
+  });
+
+  it.skipIf(process.platform === 'win32')('CANNOT_VERIFY: a non-quiescent pristine stage cannot certify even after a clean visible run (exit 2)', () => {
+    const cwd = repo();
+    // Clean visible run, then a pristine run that exits 0 but is not quiescent.
+    let call = 0;
+    const runStage = (): RunResult =>
+      ++call === 1 ? { exit: 0, secs: 1 } : { exit: 0, secs: 1, pipeHeldOpen: true };
+    const { code, json } = capture(() => run(cwd, { runStage }));
+    expect(code).toBe(2);
+    expect(json.verdict).toBe('CANNOT_VERIFY');
+    expect(json.reason).toBe('VERIFIER_BACKEND_RUNTIME_FAILURE');
+    expect(json.stage).toBe('pristine');
   });
 
   // This replaces a test that asserted agent-ADDED protected files are kept in
@@ -640,11 +667,57 @@ describe('suite supervisor lifecycle and result authority (#319, #371)', () => {
     });
     expect(result.exit).toBe(7);
     expect(result.timedOut).toBe(false);
+    expect(result.pipeHeldOpen).toBeUndefined();
     expect(result.diagnostics.stdout.captured_bytes).toBe(50_000);
     expect(result.diagnostics.stderr.captured_bytes).toBe(50_000);
     expect(result.diagnostics.stdout.truncated).toBe(true);
     expect(result.diagnostics.stderr.truncated).toBe(true);
   });
+
+  it.skipIf(process.platform === 'win32')('completes off the child exit when a descendant holds stdout open, and flags the leaked pipe', async () => {
+    const cwd = repo();
+    const control = mkdtempSync(join(tmpdir(), 'tw-suite-leak-'));
+    dirs.push(control);
+    const pidFile = join(control, 'pid');
+    const holder = join(cwd, 'holder.js');
+    writeFileSync(
+      holder,
+      [
+        "const fs = require('fs');",
+        "fs.appendFileSync(process.argv[2], process.pid + '\\n');",
+        'setInterval(() => {}, 1000);',
+        '',
+      ].join('\n'),
+    );
+
+    // Shell exits 0, but the backgrounded node holds stdout open; unreaped
+    // (killGroupOnFinish:false), so it must complete off exit within the drain.
+    const cmd =
+      `node ${JSON.stringify(holder)} ${JSON.stringify(pidFile)} & ` +
+      `for i in $(seq 1 100); do [ -s ${JSON.stringify(pidFile)} ] && break; sleep 0.01; done; ` +
+      'echo suite-done; exit 0';
+    const started = Date.now();
+    const result = runCapturedProcessSync('sh', ['-c', cmd], {
+      cwd,
+      env: process.env,
+      timeoutMs: 10_000,
+      detached: true,
+      killGroupOnFinish: false,
+      drainMs: 300,
+    });
+
+    expect(result).toMatchObject({ exit: 0, timedOut: false });
+    expect(result.pipeHeldOpen).toBe(true);
+    expect(result.error).toBeUndefined();
+    // Completed on exit + drain (~0.3s), not on the 10s budget or the backstop.
+    expect(Date.now() - started).toBeLessThan(5_000);
+
+    const pids = readFileSync(pidFile, 'utf8').trim().split(/\s+/).map(Number).filter(Number.isFinite);
+    for (const pid of pids) {
+      try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+    }
+    await waitForPidsGone(pids);
+  }, 15_000);
 
   it('drops a split leading UTF-8 continuation rather than rendering replacement characters', () => {
     const cwd = repo();
