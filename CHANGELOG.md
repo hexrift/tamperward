@@ -25,6 +25,16 @@ All notable changes to this project are documented here. The format follows
   one following a closed same-line block comment, which the whole-line comment guard
   previously swallowed — are unaffected.
 
+## [2.29.7] — 2026-09-15
+
+### Fixed
+
+- **snapshot-rewrite: node-tap's update triggers went unrecognised although
+  `tap-snapshots/**` is protected** (#445). `TAP_SNAPSHOT=1`, the bare `tap --snapshot`
+  flag, and `--update=true` (the `=value` form of `--update`) now warn consistently with
+  the existing jest/vitest handling. `--snapshot` and `-u`/`--update` still only count
+  next to a snapshot-capable runner, so unrelated commands stay silent.
+
 ## [2.29.6] — 2026-09-15
 
 ### Fixed
