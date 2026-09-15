@@ -148,7 +148,10 @@ all of:
    verifier — execution-domain isolation, not a semantic-correctness oracle.
 
 After configuring GitHub, confirm the boundary with
-`tamperward doctor --github --repo OWNER/REPO --branch <default-branch>`. The full
+`tamperward doctor --github --repo OWNER/REPO --branch <default-branch>`. It verifies the
+active ruleset's Code Owner requirement, stale-review dismissal, every direct CI check
+named by `ci.yml`, and the absence of bypass actors — a missing setting is an authority
+failure, not a warning, so run it with a token that can read repository rulesets. The full
 trust model, sign-off channel and CI authority separation are in the
 **[enforcement guide](./docs/guide/enforcement.md)**.
 

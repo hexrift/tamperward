@@ -5,6 +5,61 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.11] — 2026-09-15
+
+### Fixed
+
+- **doctor: verify the repository ruleset's full authority boundary** (#478). `doctor --github` now checks every direct CI status named by the self-gate, requires Code Owner review and stale-review dismissal, and fails closed when an active ruleset grants bypass actors. The required-checks list now enumerates the `platform-contract` matrix by its real per-cell contexts (`platform-contract (ubuntu-latest)`, `(macos-latest)`, `(windows-latest)`) instead of the bare job name, which could never match a published check context and always reported a false authority failure; a drift-guard test binds the list to `.github/workflows/ci.yml`. README documents the reproducible posture command.
+
+## [2.29.10] — 2026-09-15
+
+### Fixed
+
+- **docs: VitePress now fails closed when SSR leaves an empty page** (#513). The rules guide's GitHub Actions expressions are rendered inside `v-pre` so Vue no longer interpolates them, and both docs workflows smoke-test the generated HTML before Pages upload so an empty or missing `guide/rules.html` cannot deploy.
+
+## [2.29.9] — 2026-09-15
+
+### Fixed
+
+- **The privileged audit publisher accepted replacement evidence and did not fully
+  enforce the audit schema** (#514). The write-authorized job now reconstructs raw
+  candidates from the trusted checkout or manual input, validates the complete
+  supported schema including severity/decision constraints, preserves the existing
+  evidence prefix, appends only new batches/events, rejects conflicting IDs and
+  rewritten batches, rejects store symlinks, and recomputes the summary and README
+  without running npm or dependency code. The workflow no longer transfers a
+  dependency-produced replacement store across the privilege boundary.
+
+## [2.29.8] — 2026-09-15
+
+### Fixed
+
+- **Diff-only fallback: `ts-any-cast` and `test-skip` fired on comment and block-comment
+  lines** (#446). With no before/after content the detectors fall back to a per-line scan
+  that had no comment or string state, so a literal `as any` in a `//` line comment, an
+  `as any` on a line inside a `/* … */` block whose opener was an earlier added line, or a
+  `.skip`/`.only` inside a block comment all read as real code and blocked. A shared
+  comment/string masker now blanks comment bodies and string/template interiors — block,
+  string and template state carried across the change's after-view hunk stream (context
+  lines advance the lexer; only additions can produce findings), and code inside a `${…}`
+  template substitution stays scanned so a cast there is still seen — before the line
+  matchers run. `ts-any-cast` blanks string interiors; `test-skip` keeps strings intact and
+  rejects in-string hits through `insideStringLiteral`, so a computed-property marker
+  (`it['skip']`) still fires. Regex literals reuse the token-aware scanner added in #439, so
+  a real cast after `const re = /'/;` is not masked. Real casts and skip markers — including
+  one following a closed same-line block comment, which the whole-line comment guard
+  previously swallowed — are unaffected.
+
+## [2.29.7] — 2026-09-15
+
+### Fixed
+
+- **snapshot-rewrite: node-tap's update triggers went unrecognised although
+  `tap-snapshots/**` is protected** (#445). `TAP_SNAPSHOT=1`, the bare `tap --snapshot`
+  flag, and `--update=true` (the `=value` form of `--update`) now warn consistently with
+  the existing jest/vitest handling. `--snapshot` and `-u`/`--update` still only count
+  next to a snapshot-capable runner, so unrelated commands stay silent.
+
 ## [2.29.6] — 2026-09-15
 
 ### Fixed
