@@ -26,8 +26,11 @@ if (!existsSync(root)) {
   if (htmlFiles.length === 0) errors.push('output contains no HTML pages');
   for (const path of htmlFiles) {
     const html = readFileSync(path, 'utf8');
-    if (!/<main\b[^>]*>[\s\S]*?\S[\s\S]*?<\/main>/i.test(html)) {
-      errors.push('page has no non-empty <main>: ' + relative(root, path));
+    // #513's symptom is an SSR exception that leaves the layout shell but an
+    // empty <main>. Home/404/redirect pages legitimately render no <main>, so
+    // only flag a <main> that is present yet empty — an emptied content page.
+    if (/<main\b[^>]*>/i.test(html) && !/<main\b[^>]*>[\s\S]*?\S[\s\S]*?<\/main>/i.test(html)) {
+      errors.push('page has an empty <main>: ' + relative(root, path));
     }
   }
   const rules = join(root, 'guide/rules.html');
@@ -35,7 +38,9 @@ if (!existsSync(root)) {
     errors.push('guide/rules.html is missing');
   } else {
     const html = readFileSync(rules, 'utf8');
-    if (!/<h1\b[^>]*>\s*The rules\s*<\/h1>/i.test(html)) {
+    // VitePress appends a header-anchor <a> inside every heading, so match the
+    // heading text at the start of the <h1> rather than as its whole content.
+    if (!/<h1\b[^>]*>\s*The rules\b/i.test(html)) {
       errors.push('guide/rules.html has no rendered “The rules” heading');
     }
     if (!html.includes('ci-tampering')) {

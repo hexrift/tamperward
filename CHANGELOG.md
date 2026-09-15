@@ -1,15 +1,15 @@
 # Changelog
 
-## [2.29.8] — 2026-09-15
-
-### Fixed
-
-- **docs: VitePress now fails closed when SSR leaves an empty page** (#513). The rules guide's GitHub Actions expression is rendered inside `v-pre`, and both docs workflows smoke-test the generated HTML before Pages upload so an empty or missing `guide/rules.html` cannot deploy.
-
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
+
+## [2.29.10] — 2026-09-15
+
+### Fixed
+
+- **docs: VitePress now fails closed when SSR leaves an empty page** (#513). The rules guide's GitHub Actions expressions are rendered inside `v-pre` so Vue no longer interpolates them, and both docs workflows smoke-test the generated HTML before Pages upload so an empty or missing `guide/rules.html` cannot deploy.
 
 ## [2.29.8] — 2026-09-15
 
