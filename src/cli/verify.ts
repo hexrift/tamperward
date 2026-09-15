@@ -117,10 +117,8 @@ export interface VerifyOpts {
    *  case-folded overlay contract can be exercised on a host whose temp
    *  filesystem is case-sensitive. Production always probes. */
   probeCaseSensitivity?: (dir: string) => boolean;
-  /** @internal Replaces the per-stage suite runner so the not-quiescent /
-   *  backend fail-closed decisions can be exercised deterministically without
-   *  racing the OS descendant reaper. Production always runs the real
-   *  local/container stage. */
+  /** @internal Replaces the per-stage suite runner so fail-closed decisions can
+   *  be tested without racing the OS reaper. Production runs the real stage. */
   runStage?: (dir: string) => RunResult;
 }
 
@@ -138,11 +136,7 @@ export interface RunResult {
   failure?: 'budget' | 'backend' | 'resource';
   resource?: 'memory';
   reason?: string;
-  /**
-   * The suite exited but left a process holding stdout open after termination
-   * was attempted — the stage is not quiescent. The recovered exit code is kept
-   * for diagnostics only; verify fails closed rather than certifying it.
-   */
+  /** The suite exited but a process still held stdout open — not quiescent. */
   pipeHeldOpen?: boolean;
   diagnostics?: SuiteDiagnostics;
 }
@@ -1229,12 +1223,9 @@ export function runVerify(opts: VerifyOpts): number {
       ? runContainerStage(verifierBackend, dir, cmd, budget)
       : runLocalSuite(dir, cmd, budget));
 
-  // A stage that exited but left a process holding stdout open is not quiescent:
-  // that process can still mutate the tree, dependency environment or
-  // verification material between or after the visible and pristine runs. The
-  // recovered exit code is diagnostics only; verify fails closed rather than
-  // certify it. This is the same CANNOT_VERIFY / exit 2 the stage previously
-  // reached by hanging until the backstop, now prompt and with a precise reason.
+  // A stage that exits with a process still holding stdout open is not quiescent:
+  // that process can still mutate the tree or verification material before the
+  // other stage runs, so fail closed rather than certify the recovered exit code.
   const notQuiescent = (stage: 'visible' | 'pristine', r: RunResult): number => {
     const detail =
       `the ${stage} suite exited (code ${r.exit ?? 'unknown'}) but left a process ` +

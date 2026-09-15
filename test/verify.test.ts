@@ -147,8 +147,7 @@ describe('tamperward verify', () => {
 
   it.skipIf(process.platform === 'win32')('CANNOT_VERIFY: a non-quiescent visible stage cannot certify — a zero exit does not become VERIFIED (exit 2)', () => {
     const cwd = repo();
-    // The suite exited 0, but a process still holds stdout open after the stage:
-    // it is not quiescent and could still mutate the tree. It must not certify.
+    // Exit 0, but a process still holds stdout open — not quiescent, must not certify.
     const leak: RunResult = { exit: 0, secs: 1, pipeHeldOpen: true };
     const { code, json } = capture(() => run(cwd, { runStage: () => leak }));
     expect(code).toBe(2);
@@ -162,8 +161,7 @@ describe('tamperward verify', () => {
 
   it.skipIf(process.platform === 'win32')('CANNOT_VERIFY: a non-quiescent pristine stage cannot certify even after a clean visible run (exit 2)', () => {
     const cwd = repo();
-    // Visible stage is a clean zero exit; the pristine stage exits 0 but leaves a
-    // process holding stdout — the second run is not quiescent, so no MASKED/VERIFIED.
+    // Clean visible run, then a pristine run that exits 0 but is not quiescent.
     let call = 0;
     const runStage = (): RunResult =>
       ++call === 1 ? { exit: 0, secs: 1 } : { exit: 0, secs: 1, pipeHeldOpen: true };
@@ -669,8 +667,6 @@ describe('suite supervisor lifecycle and result authority (#319, #371)', () => {
     });
     expect(result.exit).toBe(7);
     expect(result.timedOut).toBe(false);
-    // An ordinary suite closes its pipes, so completion comes from `close`, not
-    // the post-exit drain: the leaked-pipe flag stays unset.
     expect(result.pipeHeldOpen).toBeUndefined();
     expect(result.diagnostics.stdout.captured_bytes).toBe(50_000);
     expect(result.diagnostics.stderr.captured_bytes).toBe(50_000);
@@ -689,15 +685,13 @@ describe('suite supervisor lifecycle and result authority (#319, #371)', () => {
       [
         "const fs = require('fs');",
         "fs.appendFileSync(process.argv[2], process.pid + '\\n');",
-        'setInterval(() => {}, 1000);', // keeps the inherited stdout pipe open
+        'setInterval(() => {}, 1000);',
         '',
       ].join('\n'),
     );
 
-    // The shell exits 0 immediately; the backgrounded node inherits and holds the
-    // stdout pipe, so `close` cannot fire. killGroupOnFinish:false leaves it
-    // unreaped, so the stage must complete off the child's exit within the drain
-    // window rather than hanging until the outer backstop.
+    // Shell exits 0, but the backgrounded node holds stdout open; unreaped
+    // (killGroupOnFinish:false), so it must complete off exit within the drain.
     const cmd =
       `node ${JSON.stringify(holder)} ${JSON.stringify(pidFile)} & ` +
       `for i in $(seq 1 100); do [ -s ${JSON.stringify(pidFile)} ] && break; sleep 0.01; done; ` +
