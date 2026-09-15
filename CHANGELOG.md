@@ -5,6 +5,22 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.13] — 2026-09-15
+
+### Fixed
+
+- **onboard: generated Claude settings no longer contaminate runtime detection**
+  (#526). `init` writes `.claude/settings.json` for every runtime, and detection
+  counted that self-written file as Claude usage — so a Cursor-only repository
+  reported a phantom "Claude Code (in-loop)" runtime on the next onboarding pass and
+  the neutral-only caveat vanished. Claude Code's markers are now files `init` never
+  writes (`CLAUDE.md`, `.claude/settings.local.json`, `.claude/commands`,
+  `.claude/agents`), and its generated `.claude/settings.json` is judged by content:
+  it establishes Claude use only when it carries configuration beyond the two hooks
+  `init` merges in. The neutral-runtime coverage note is preserved even when Claude
+  Code genuinely coexists. Adds an integration test spanning detection → canonical
+  init → detection for Cursor, Codex/AGENTS.md, and Copilot.
+
 ## [2.29.12] — 2026-09-15
 
 ### Fixed
