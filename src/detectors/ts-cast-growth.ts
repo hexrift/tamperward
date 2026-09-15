@@ -126,47 +126,92 @@ function kindOfType(type: TS.TypeNode, resolveName: (name: string) => LaunderKin
   return null;
 }
 
-/** The file's resolvable non-generic `type X = <launder keyword>` aliases, collapsed to
- *  the kind they ultimately name (through parens and other local aliases). Generic
- *  aliases, cycles, and aliases of honest types are left out — they resolve to nothing. */
-export function buildAliasMap(sf: TS.SourceFile): Map<string, LaunderKind> {
-  const decls = new Map<string, TS.TypeNode>();
+/** A lexically-scoped resolver for local `type X = <launder keyword>` aliases. Unlike a
+ *  flat name -> kind map, it resolves each alias against the scope of the assertion that
+ *  uses it, so an unrelated `type X = any` in a sibling or nested scope cannot mislabel a
+ *  cast to a same-named alias declared elsewhere (#524). */
+export interface AliasResolver {
+  /** The launder kind of alias `name` as seen at lexical position `at` (in the same source
+   *  tree), or an ambiguity-safe cross-tree resolution when `at` is absent or foreign.
+   *  Returns null whenever the name is unknown, an honest type, a generic alias, a cycle,
+   *  shadowed by a type parameter, or ambiguous across scopes — never a guessed kind. */
+  resolve(name: string, at?: TS.Node): LaunderKind | null;
+}
+
+interface AliasBinding {
+  kind: 'alias' | 'typeParam';
+  name: string;
+  scope: TS.Node; // the declaration's container: the binding is visible within it
+  type?: TS.TypeNode; // the aliased type (alias bindings only)
+}
+
+/** The empty resolver — resolves nothing. */
+export const EMPTY_ALIASES: AliasResolver = { resolve: () => null };
+
+/** Build the lexically-scoped alias resolver for a source file. Generic aliases are
+ *  excluded (they never name a bare launder keyword); type parameters are recorded so a
+ *  cast to a shadowing type parameter is not mistaken for a cast to a launder alias. */
+export function buildAliasMap(sf: TS.SourceFile): AliasResolver {
+  const bindings: AliasBinding[] = [];
   const collect = (node: TS.Node): void => {
-    if (ts.isTypeAliasDeclaration(node) && (!node.typeParameters || node.typeParameters.length === 0)) decls.set(node.name.text, node.type);
+    if (ts.isTypeAliasDeclaration(node) && (!node.typeParameters || node.typeParameters.length === 0)) {
+      bindings.push({ kind: 'alias', name: node.name.text, scope: node.parent, type: node.type });
+    } else if (ts.isTypeParameterDeclaration(node) && ts.isIdentifier(node.name) && node.parent) {
+      bindings.push({ kind: 'typeParam', name: node.name.text, scope: node.parent });
+    }
     ts.forEachChild(node, collect);
   };
   collect(sf);
-  const resolve = (name: string, seen: Set<string>): LaunderKind | null => {
+
+  const kindOfBinding = (b: AliasBinding, seen: Set<string>): LaunderKind | null =>
+    b.type ? kindOfType(b.type, (n) => resolveLexical(n, b.type as TS.Node, seen)) : null;
+
+  // Nearest enclosing binding of `name` at `at`: walk ancestors in the same tree and take
+  // the first scope that declares it. A type parameter shadows an outer alias.
+  const resolveLexical = (name: string, at: TS.Node, seen: Set<string>): LaunderKind | null => {
     if (seen.has(name)) return null; // a cycle resolves to nothing
-    seen.add(name);
-    const t = decls.get(name);
-    return t ? kindOfType(t, (n) => resolve(n, seen)) : null;
+    for (let n: TS.Node | undefined = at; n; n = n.parent) {
+      const b = bindings.find((x) => x.name === name && x.scope === n);
+      if (!b) continue;
+      if (b.kind === 'typeParam') return null; // a type parameter, not a launder alias
+      return kindOfBinding(b, new Set(seen).add(name));
+    }
+    return null; // not in scope at this position
   };
-  const resolved = new Map<string, LaunderKind>();
-  for (const name of decls.keys()) {
-    const k = resolve(name, new Set());
-    if (k) resolved.set(name, k);
-  }
-  return resolved;
+
+  // Ambiguity-safe fallback for a foreign node (the diff line-fallback parses each added
+  // line as its own tree): resolve only when every alias of `name` agrees and no type
+  // parameter shares the name; a conflict resolves to nothing rather than a guess.
+  const resolveFlat = (name: string, seen: Set<string>): LaunderKind | null => {
+    if (seen.has(name)) return null;
+    if (bindings.some((b) => b.kind === 'typeParam' && b.name === name)) return null;
+    const aliases = bindings.filter((b) => b.kind === 'alias' && b.name === name);
+    if (aliases.length === 0) return null;
+    const kinds = new Set(aliases.map((b) => kindOfBinding(b, new Set(seen).add(name))));
+    return kinds.size === 1 ? ([...kinds][0] ?? null) : null;
+  };
+
+  return {
+    resolve: (name, at) =>
+      at && at.getSourceFile() === sf ? resolveLexical(name, at, new Set()) : resolveFlat(name, new Set()),
+  };
 }
 
-/** The launder kind an assertion widens TO, resolving local aliases. */
-export function assertedLaunderKind(node: TS.AsExpression | TS.TypeAssertion, aliasMap: Map<string, LaunderKind>): LaunderKind | null {
-  return kindOfType(assertedType(node), (n) => aliasMap.get(n) ?? null);
+/** The launder kind an assertion widens TO, resolving aliases in the assertion's scope. */
+export function assertedLaunderKind(node: TS.AsExpression | TS.TypeAssertion, aliases: AliasResolver): LaunderKind | null {
+  return kindOfType(assertedType(node), (n) => aliases.resolve(n, node));
 }
 
 /** Row 4's double cast: an assertion whose operand is itself an assertion whose target
  *  widens (to `unknown` / `never` / `any` / `{}` / `object` / `Object`, alias-resolved),
  *  expression and type parentheses notwithstanding. `(x as {}) as T` launders exactly as
  *  `x as unknown as T` does. */
-export function isDoubleCast(node: TS.AsExpression | TS.TypeAssertion, aliasMap?: Map<string, LaunderKind>): boolean {
+export function isDoubleCast(node: TS.AsExpression | TS.TypeAssertion, aliases?: AliasResolver): boolean {
   const inner = unparenthesized(node.expression);
   if (!(ts.isAsExpression(inner) || ts.isTypeAssertionExpression(inner))) return false;
-  const k = assertedLaunderKind(inner, aliasMap ?? EMPTY_ALIASES);
+  const k = assertedLaunderKind(inner, aliases ?? EMPTY_ALIASES);
   return k != null && DOUBLE_CAST_INNER.has(k);
 }
-
-const EMPTY_ALIASES: Map<string, LaunderKind> = new Map();
 
 interface Assertion {
   kind: 'type' | 'non-null';
