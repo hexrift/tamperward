@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [2.29.6] — 2026-09-15
+## [2.29.9] — 2026-09-15
 
 ### Fixed
 
@@ -17,6 +17,49 @@ All notable changes to this project are documented here. The format follows
   rewritten batches, rejects store symlinks, and recomputes the summary and README
   without running npm or dependency code. The workflow no longer transfers a
   dependency-produced replacement store across the privilege boundary.
+
+## [2.29.8] — 2026-09-15
+
+### Fixed
+
+- **Diff-only fallback: `ts-any-cast` and `test-skip` fired on comment and block-comment
+  lines** (#446). With no before/after content the detectors fall back to a per-line scan
+  that had no comment or string state, so a literal `as any` in a `//` line comment, an
+  `as any` on a line inside a `/* … */` block whose opener was an earlier added line, or a
+  `.skip`/`.only` inside a block comment all read as real code and blocked. A shared
+  comment/string masker now blanks comment bodies and string/template interiors — block,
+  string and template state carried across the change's after-view hunk stream (context
+  lines advance the lexer; only additions can produce findings), and code inside a `${…}`
+  template substitution stays scanned so a cast there is still seen — before the line
+  matchers run. `ts-any-cast` blanks string interiors; `test-skip` keeps strings intact and
+  rejects in-string hits through `insideStringLiteral`, so a computed-property marker
+  (`it['skip']`) still fires. Regex literals reuse the token-aware scanner added in #439, so
+  a real cast after `const re = /'/;` is not masked. Real casts and skip markers — including
+  one following a closed same-line block comment, which the whole-line comment guard
+  previously swallowed — are unaffected.
+
+## [2.29.7] — 2026-09-15
+
+### Fixed
+
+- **snapshot-rewrite: node-tap's update triggers went unrecognised although
+  `tap-snapshots/**` is protected** (#445). `TAP_SNAPSHOT=1`, the bare `tap --snapshot`
+  flag, and `--update=true` (the `=value` form of `--update`) now warn consistently with
+  the existing jest/vitest handling. `--snapshot` and `-u`/`--update` still only count
+  next to a snapshot-capable runner, so unrelated commands stay silent.
+
+## [2.29.6] — 2026-09-15
+
+### Fixed
+
+- **lint-suppression: `# NOQA`, a closed triple-quoted string, and a JS regex literal no
+  longer hide a real directive** (#439). The `# noqa` / `# ruff|flake8: noqa` spellings now
+  match case-insensitively, as flake8 and ruff accept them. The per-line quote scanner in
+  `insideStringLiteral` treats a Python triple quote (`'''` / `"""`) as one delimiter, so a
+  string that opens and closes on the line leaves a trailing directive outside it, and it
+  recognises a JS regex literal (`/'/ `) so an apostrophe inside the pattern no longer opens
+  a string that swallows the rest of the line and hides a following `// eslint-disable`.
+  Directives genuinely inside a string or docstring stay excused.
 
 ## [2.29.5] — 2026-09-15
 
