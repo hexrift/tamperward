@@ -36,12 +36,16 @@ const PM_TEST_SCRIPT = /(?:^|\s)(?:npm|pnpm|yarn|bun)\s+(?:t|tst|test|run(?:-scr
 const UPDATE_ANY = /--(?:update-?[sS]napshots?|test-update-snapshots|snapshot-update)\b/;
 // `--update=true` and node-tap's bare `--snapshot` join `-u`/`--update`; all only
 // count next to a snapshot-capable runner (`--snapshot` is node-tap's update spelling).
-const UPDATE_WITH_RUNNER = /(?:^|\s)(?:-u|--update|--snapshot)(?:=\S+)?(?:\s|$)/;
+// Boolean flags enable in their bare form or with `=1`/`=true`; `=0`/`=false` and the
+// `--no-update`/`--no-snapshot` forms DISABLE them, so those must not fire.
+const UPDATE_WITH_RUNNER = /(?:^|\s)(?:-u|--update|--snapshot)(?:=(?:1|true))?(?:\s|$)/;
 // Other ecosystems' accept-everything spellings: insta's `cargo insta accept` (or
 // `cargo insta test --accept`), expect-test's UPDATE_EXPECT=1 and node-tap's TAP_SNAPSHOT=1.
 const INSTA_ACCEPT = /\bcargo\s+insta\s+(?:accept\b|.*\s--accept\b)/;
 const UPDATE_EXPECT = /(?:^|\s)UPDATE_EXPECT=\S+/;
-const TAP_SNAPSHOT = /(?:^|\s)TAP_SNAPSHOT=\S+/;
+// node-tap enables snapshot generation only when the env var is `1` (its boolean env
+// parsing treats `1` as true; `0`, `false` and other values do not enable it).
+const TAP_SNAPSHOT = /(?:^|\s)TAP_SNAPSHOT=1(?:\s|$)/;
 
 // Regeneration scripts by naming convention — `node update-golden.mjs` was the exact
 // observed vector, and bless/regen/rebless are the same convention in other ecosystems.

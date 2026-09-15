@@ -44,6 +44,19 @@ describe('command surface', () => {
     }
   });
 
+  it('does NOT flag disabled/irrelevant node-tap snapshot values (#445)', () => {
+    for (const c of [
+      'TAP_SNAPSHOT=0 npm test',
+      'TAP_SNAPSHOT=false npm test',
+      'vitest run --update=false',
+      'tap --snapshot=false',
+      'tap --no-snapshot',
+      'vitest run --no-update',
+    ]) {
+      expect(run(cmd(c)), c).toHaveLength(0);
+    }
+  });
+
   it('flags shell mutation of a protected snapshot path', () => {
     for (const c of [
       'rm src/__snapshots__/app.test.ts.snap',
