@@ -16,8 +16,8 @@ const workflow = parse(workflowText) as {
   }>;
 };
 const prescan = readFileSync(resolve(root, '.github', 'audit', 'audit-prescan.mjs'), 'utf8');
-const ingest = readFileSync(resolve(root, '.github', 'audit', 'audit-ingest.mjs'), 'utf8');
 const verify = readFileSync(resolve(root, '.github', 'audit', 'audit-verify.mjs'), 'utf8');
+const publish = readFileSync(resolve(root, '.github', 'audit', 'audit-publish.mjs'), 'utf8');
 
 const stepsOf = (job: string): Array<{ uses?: string; run?: string; with?: Record<string, unknown> }> =>
   workflow.jobs[job]?.steps ?? [];
@@ -74,9 +74,10 @@ describe('GitHub audit store workflow', () => {
   it('revalidates before writing, and writes only the evidence branch', () => {
     // prepare validates each new batch with the strict CLI parser.
     expect(runText('prepare')).toMatch(/stats --file/);
-    // publish re-validates dependency-free against the committed schema before the push.
+    // publish validates dependency-free against the committed schema and derives
+    // the store before the push.
     const publish = runText('publish');
-    expect(publish).toMatch(/audit-verify\.mjs schemas\/audit-v1\.schema\.json/);
+    expect(publish).toContain('audit-publish.mjs');
     expect(publish).toContain('HEAD:refs/heads/tamperward-audit');
     expect(publish).not.toMatch(/HEAD:refs\/heads\/main\b/);
     // Never commit the privacy-unsafe deny log here.
@@ -88,13 +89,17 @@ describe('GitHub audit store workflow', () => {
     // content hash is a rewrite of ingested evidence and fails closed.
     expect(prescan).toContain('immutable batches must never be rewritten');
     expect(prescan).toContain('content_sha256');
-    // The event-id conflict guard lives in the ingest script, which records each
-    // batch's provenance (source commit + content hash) in the ledger.
-    expect(ingest).toContain('submitted audit event id conflicts with stored content');
-    expect(ingest).toContain('content_sha256');
-    expect(ingest).toContain('source_sha');
+    // The privileged transition owns the event-id conflict guard, provenance,
+    // append-only prefix and derived reports. It receives raw candidates, not a
+    // replacement store produced by a dependency-running job.
+    expect(publish).toContain('candidate event id conflicts with stored content');
+    expect(publish).toContain('content_sha256');
+    expect(publish).toContain('source_sha');
+    expect(publish).toContain('summarize(allEvents)');
+    expect(runText('publish')).toContain('audit-publish.mjs');
+    expect(stepsOf('publish').some((s) => (s.uses ?? '').startsWith('actions/download-artifact@'))).toBe(false);
     // The dependency-free verifier validates against the committed schema and
-    // refuses to pass a schema keyword it does not understand.
+    // refuses to pass a schema keyword it does not understand, recursively.
     expect(verify).toContain('unsupported schema keyword');
   });
 });
