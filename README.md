@@ -311,6 +311,8 @@ used for CI-wiring and token-permission posture. A custom verifier workflow ther
 does not get judged against an unrelated/missing generated file, and a second verifier
 workflow with a write-scoped job cannot hide behind a safe canonical workflow.
 
+For this repository, `tamperward doctor --github --repo hexrift/tamperward --branch main` also verifies the active main ruleset's Code Owner requirement, stale-review dismissal, every direct CI check named by `ci.yml`, and the absence of bypass actors. A missing setting is an authority failure, not a warning; run it with a token that can read repository rulesets.
+
 Local early-layer gaps remain posture findings rather than silently changing the
 existing generated-CI exit contract; hard CI/GitHub validation failures still exit 2.
 

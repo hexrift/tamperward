@@ -387,15 +387,38 @@ function emitReport(opts: DoctorOpts, checks: DoctorCheck[], authoritative: bool
 export interface GitHubProtectionSnapshot {
   rules?: unknown;
   branchProtection?: unknown;
+  /** Bypass actors from the active ruleset detail, when available. */
+  bypassActors?: unknown;
 }
+
+export const REPOSITORY_REQUIRED_CHECKS = [
+  'typecheck',
+  'test (20)',
+  'test (22)',
+  'test (24)',
+  'build',
+  'gate',
+  // platform-contract is a matrix over os: [ubuntu-latest, macos-latest, windows-latest]
+  // (see .github/workflows/ci.yml). GitHub publishes one check context per matrix cell,
+  // named "<job> (<os>)"; the bare job name is never a real context, so it must be
+  // enumerated per cell or the required-status check reports a false authority failure.
+  'platform-contract (ubuntu-latest)',
+  'platform-contract (macos-latest)',
+  'platform-contract (windows-latest)',
+  'harness-core',
+  'round4-harness',
+  'pilot-provisioning',
+  'verifier-container',
+] as const;
 
 export function evaluateGitHubProtection(
   snapshot: GitHubProtectionSnapshot,
   requiredCheck = 'tamperward',
+  requiredChecks: readonly string[] = [requiredCheck],
 ): string[] {
-  let hasRequiredCheck = false;
   let hasCodeOwnerReview = false;
   let dismissesStaleReviews = false;
+  const presentChecks = new Set<string>();
 
   if (Array.isArray(snapshot.rules)) {
     for (const raw of snapshot.rules) {
@@ -411,10 +434,10 @@ export function evaluateGitHubProtection(
       if (rule.type === 'required_status_checks') {
         const checks = params.required_status_checks;
         if (Array.isArray(checks)) {
-          hasRequiredCheck ||= checks.some((rawCheck) => {
+          for (const rawCheck of checks) {
             const check = asMapping(rawCheck);
-            return check?.context === requiredCheck;
-          });
+            if (typeof check?.context === 'string') presentChecks.add(check.context);
+          }
         }
       }
     }
@@ -429,21 +452,29 @@ export function evaluateGitHubProtection(
   if (status) {
     const contexts = status.contexts;
     if (Array.isArray(contexts)) {
-      hasRequiredCheck ||= contexts.some((x) => x === requiredCheck);
+      for (const context of contexts) if (typeof context === 'string') presentChecks.add(context);
     }
     const checks = status.checks;
     if (Array.isArray(checks)) {
-      hasRequiredCheck ||= checks.some((rawCheck) => {
+      for (const rawCheck of checks) {
         const check = asMapping(rawCheck);
-        return check?.context === requiredCheck;
-      });
+        if (typeof check?.context === 'string') presentChecks.add(check.context);
+      }
     }
   }
 
   const findings: string[] = [];
-  if (!hasRequiredCheck) findings.push('require the tamperward status check');
+  const missing = requiredChecks.filter((check) => !presentChecks.has(check));
+  if (missing.length) findings.push(
+    missing.length === 1
+      ? 'require the ' + missing[0] + ' status check'
+      : 'require status checks: ' + missing.join(', '),
+  );
   if (!hasCodeOwnerReview) findings.push('require Code Owner review');
   if (!dismissesStaleReviews) findings.push('dismiss stale pull request approvals on new pushes');
+  if (Array.isArray(snapshot.bypassActors) && snapshot.bypassActors.length > 0) {
+    findings.push('remove unintended ruleset bypass actors');
+  }
   return findings;
 }
 
@@ -553,7 +584,35 @@ function githubAuthority(
     rulesError = e instanceof Error ? e : new Error(String(e));
   }
 
-  let findings = evaluateGitHubProtection({ rules });
+  let bypassActors: unknown;
+  let rulesetInspectionError: Error | null = null;
+  try {
+    const rulesets = githubApi(cwd, 'repos/' + repo + '/rulesets');
+    const active = Array.isArray(rulesets)
+      ? rulesets.find((raw) => {
+        const item = asMapping(raw);
+        return item?.name === 'main' && item?.target === 'branch' && item?.enforcement === 'active';
+      })
+      : null;
+    const id = asMapping(active)?.id;
+    if (typeof id !== 'number') {
+      rulesetInspectionError = new Error('no active main branch ruleset was found');
+    } else {
+      const detail = asMapping(githubApi(cwd, 'repos/' + repo + '/rulesets/' + id));
+      bypassActors = detail?.bypass_actors;
+    }
+  } catch (e) {
+    rulesetInspectionError = e instanceof Error ? e : new Error(String(e));
+  }
+
+  let findings = evaluateGitHubProtection(
+    { rules, bypassActors },
+    'tamperward',
+    REPOSITORY_REQUIRED_CHECKS,
+  );
+  if (rulesetInspectionError) {
+    findings.push('active main ruleset bypass actors could not be verified: ' + rulesetInspectionError.message);
+  }
   if (findings.length === 0) return { repo, branch, findings };
 
   let branchProtection: unknown;

@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.11] — 2026-09-15
+
+### Fixed
+
+- **doctor: verify the repository ruleset's full authority boundary** (#478). `doctor --github` now checks every direct CI status named by the self-gate, requires Code Owner review and stale-review dismissal, and fails closed when an active ruleset grants bypass actors. The required-checks list now enumerates the `platform-contract` matrix by its real per-cell contexts (`platform-contract (ubuntu-latest)`, `(macos-latest)`, `(windows-latest)`) instead of the bare job name, which could never match a published check context and always reported a false authority failure; a drift-guard test binds the list to `.github/workflows/ci.yml`. README documents the reproducible posture command.
+
 ## [2.29.10] — 2026-09-15
 
 ### Fixed

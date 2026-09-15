@@ -10,7 +10,8 @@ import {
   maxStageBudgetForOuterTimeout,
   requiredVerifierAuthoritySeconds,
 } from '../src/verifier-limits';
-import { collectLocalPosture, evaluateGitHubProtection, githubApiInvocation, githubRepoFromRemote, lifecyclePlatformCheck, runDoctor } from '../src/cli/doctor';
+import { parse } from 'yaml';
+import { REPOSITORY_REQUIRED_CHECKS, collectLocalPosture, evaluateGitHubProtection, githubApiInvocation, githubRepoFromRemote, lifecyclePlatformCheck, runDoctor } from '../src/cli/doctor';
 import { defaultEventLog, startWatcher } from '../src/cli/watch';
 import { defaultPolicy, POLICY_VERSION } from '../src/policy';
 import { loadPolicy } from '../src/policy-load';
@@ -352,6 +353,122 @@ describe('doctor authority verdict completeness (#318 follow-up)', () => {
       authoritative: true,
     });
     expect(doc.checks.filter((x: any) => x.state === 'BROKEN')).toEqual([]);
+  });
+});
+
+describe('GitHub repository ruleset completeness (#478)', () => {
+  it('reports missing direct CI checks and bypass actors', () => {
+    const findings = evaluateGitHubProtection(
+      {
+        rules: [{
+          type: 'pull_request',
+          parameters: {
+            require_code_owner_review: true,
+            dismiss_stale_reviews_on_push: true,
+          },
+        }, {
+          type: 'required_status_checks',
+          parameters: { required_status_checks: [{ context: 'gate' }] },
+        }],
+        bypassActors: [{ actor_id: 1, actor_type: 'RepositoryRole' }],
+      },
+      'tamperward',
+      ['gate', 'harness-core', 'build'],
+    );
+    expect(findings).toEqual([
+      'require status checks: harness-core, build',
+      'remove unintended ruleset bypass actors',
+    ]);
+  });
+
+  it('accepts the documented CI dependency boundary when every check is required', () => {
+    expect(evaluateGitHubProtection(
+      {
+        rules: [{
+          type: 'pull_request',
+          parameters: {
+            require_code_owner_review: true,
+            dismiss_stale_reviews_on_push: true,
+          },
+        }, {
+          type: 'required_status_checks',
+          parameters: {
+            required_status_checks: [{ context: 'gate' }, { context: 'harness-core' }],
+          },
+        }],
+        bypassActors: [],
+      },
+      'tamperward',
+      ['gate', 'harness-core'],
+    )).toEqual([]);
+  });
+});
+
+describe('REPOSITORY_REQUIRED_CHECKS drift guard against ci.yml (#478)', () => {
+  // The required-status ruleset is matched against GitHub check CONTEXTS, which for a
+  // matrix job are one per cell ("job (value)") — never the bare job name. A drift
+  // between this constant and ci.yml silently turns doctor's posture check into a false
+  // authority failure (a bare matrix job name that can never match) or a stale name that
+  // no longer exists. This test binds the constant to the workflow so either drift fails
+  // here, using the same yaml parser as test/audit-workflow.test.ts.
+  const ciWorkflow = parse(
+    readFileSync(join(__dirname, '..', '.github', 'workflows', 'ci.yml'), 'utf8'),
+  ) as { jobs: Record<string, { strategy?: { matrix?: Record<string, unknown[]> } }> };
+
+  // Erase the `as const` literal union so a re-introduced bare matrix name (the drift we
+  // guard against) is still comparable rather than a compile-time "no overlap" error.
+  const required: readonly string[] = REPOSITORY_REQUIRED_CHECKS;
+
+  /** The check contexts GitHub publishes for a job: one per matrix cell, else the job name. */
+  const contextsFor = (job: string): string[] => {
+    const matrix = ciWorkflow.jobs[job]?.strategy?.matrix;
+    if (!matrix) return [job];
+    const keys = Object.keys(matrix).filter((k) => Array.isArray(matrix[k]));
+    if (keys.length === 0) return [job];
+    let combos: unknown[][] = [[]];
+    for (const key of keys) {
+      const next: unknown[][] = [];
+      for (const combo of combos) for (const value of matrix[key]) next.push([...combo, value]);
+      combos = next;
+    }
+    return combos.map((combo) => `${job} (${combo.join(', ')})`);
+  };
+
+  it('lists every non-matrix required check as a real single-job context', () => {
+    for (const check of required) {
+      if (check.includes('(')) continue; // matrix cell — asserted below
+      const def = ciWorkflow.jobs[check];
+      expect(def, `required check "${check}" has no matching job in ci.yml`).toBeDefined();
+      expect(
+        def!.strategy?.matrix,
+        `required check "${check}" names a matrix job by its bare name; use the per-cell contexts`,
+      ).toBeUndefined();
+    }
+  });
+
+  it('expands the platform-contract matrix to exactly the required contexts', () => {
+    const expected = contextsFor('platform-contract');
+    const listed = required.filter(
+      (c) => c === 'platform-contract' || c.startsWith('platform-contract ('),
+    );
+    expect([...listed].sort()).toEqual([...expected].sort());
+  });
+
+  it('keeps every matrix-derived required check in step with its job matrix', () => {
+    // General guard: for each matrix cell listed, its job's full expansion must be
+    // present — so adding a matrix leg (e.g. a new Node) without updating this constant,
+    // or vice versa, fails here.
+    const byJob = new Map<string, string[]>();
+    for (const check of required) {
+      const m = check.match(/^(.+) \(.+\)$/);
+      if (!m) continue;
+      const job = m[1];
+      (byJob.get(job) ?? byJob.set(job, []).get(job)!).push(check);
+    }
+    for (const [job, listed] of byJob) {
+      expect(ciWorkflow.jobs[job], `matrix required check for "${job}" has no job in ci.yml`).toBeDefined();
+      expect([...listed].sort()).toEqual([...contextsFor(job)].sort());
+    }
   });
 });
 
