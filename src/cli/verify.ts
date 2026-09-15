@@ -117,6 +117,9 @@ export interface VerifyOpts {
    *  case-folded overlay contract can be exercised on a host whose temp
    *  filesystem is case-sensitive. Production always probes. */
   probeCaseSensitivity?: (dir: string) => boolean;
+  /** @internal Replaces the per-stage suite runner so fail-closed decisions can
+   *  be tested without racing the OS reaper. Production runs the real stage. */
+  runStage?: (dir: string) => RunResult;
 }
 
 /** What `onVerdict` receives: the verdict verify printed, and for CANNOT_VERIFY
@@ -127,12 +130,14 @@ export interface VerifyVerdictSummary {
   detail?: string;
 }
 
-interface RunResult {
+export interface RunResult {
   exit: number | null;
   secs: number;
   failure?: 'budget' | 'backend' | 'resource';
   resource?: 'memory';
   reason?: string;
+  /** The suite exited but a process still held stdout open — not quiescent. */
+  pipeHeldOpen?: boolean;
   diagnostics?: SuiteDiagnostics;
 }
 
@@ -978,7 +983,12 @@ function runLocalSuite(dir: string, cmd: string, budgetSecs: number): RunResult 
         diagnostics: r.diagnostics,
       };
     }
-    return { exit: r.exit, secs, diagnostics: r.diagnostics };
+    return {
+      exit: r.exit,
+      secs,
+      ...(r.pipeHeldOpen ? { pipeHeldOpen: true } : {}),
+      diagnostics: r.diagnostics,
+    };
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -1208,10 +1218,39 @@ export function runVerify(opts: VerifyOpts): number {
     : null;
   const checkDeps = () =>
     dependencyEnvironment ? checkDependencyEnvironment(cwd, dependencyEnvironment) : { ok: true };
-  const runStage = (dir: string): RunResult =>
+  const runStage = opts.runStage ?? ((dir: string): RunResult =>
     isolated
       ? runContainerStage(verifierBackend, dir, cmd, budget)
-      : runLocalSuite(dir, cmd, budget);
+      : runLocalSuite(dir, cmd, budget));
+
+  // A stage that exits with a process still holding stdout open is not quiescent:
+  // that process can still mutate the tree or verification material before the
+  // other stage runs, so fail closed rather than certify the recovered exit code.
+  const notQuiescent = (stage: 'visible' | 'pristine', r: RunResult): number => {
+    const detail =
+      `the ${stage} suite exited (code ${r.exit ?? 'unknown'}) but left a process ` +
+      'holding stdout open after termination was attempted; the stage is not ' +
+      'quiescent, so the run cannot be certified';
+    opts.onVerdict?.({ verdict: 'CANNOT_VERIFY', reason: 'VERIFIER_BACKEND_RUNTIME_FAILURE', detail });
+    if (opts.json) {
+      out(JSON.stringify({
+        schema_version: MACHINE_SCHEMA_VERSION,
+        verdict: 'CANNOT_VERIFY',
+        reason: 'VERIFIER_BACKEND_RUNTIME_FAILURE',
+        stage,
+        ...caseReport(),
+        detail,
+        diagnostics: diagnosticsJson(r.diagnostics, true),
+        verifier_backend: backendReport(),
+        oracle_assurance: oracleAssuranceReport(),
+      }));
+    } else {
+      out(`verify: the ${stage} suite exited but left a process holding stdout open — the stage is not quiescent, failing closed`);
+      out('verify: ' + detail);
+      renderStageDiagnostics(out, stage, r);
+    }
+    return 2;
+  };
 
   let base: string;
   try {
@@ -1312,6 +1351,10 @@ export function runVerify(opts: VerifyOpts): number {
   }
 
   const visible = runStage(visDir);
+  if (visible.pipeHeldOpen) {
+    cleanup([visRoot]);
+    return notQuiescent('visible', visible);
+  }
 
   if (visible.failure === 'backend' || visible.failure === 'resource') {
     cleanup([visRoot]);
@@ -1381,6 +1424,10 @@ export function runVerify(opts: VerifyOpts): number {
 
   const overlayBefore = overlayDigest(priDir, restored);
   const pristine = runStage(priDir);
+  if (pristine.pipeHeldOpen) {
+    cleanup([visRoot, priRoot]);
+    return notQuiescent('pristine', pristine);
+  }
   if (pristine.failure === 'backend' || pristine.failure === 'resource') {
     cleanup([visRoot, priRoot]);
     const exhausted = pristine.failure === 'resource';

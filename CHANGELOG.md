@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.15] — 2026-09-15
+
+### Fixed
+
+- **verify: a suite that leaves a process holding stdout no longer hangs the capture supervisor, and fails closed as not-quiescent** (#539). The checkpointed-local supervisor keyed completion on the child's stdio pipes closing; a descendant that inherited the suite's stdout (a spawned server, a `setsid()` escapee that dodges the group kill and, on macOS, the `/proc` descendant sweep) held that pipe open, so the stage hung until the outer backstop killed the supervisor and discarded the already-known exit code — surfacing as the opaque `VERIFIER_BACKEND_RUNTIME_FAILURE` / "suite capture supervisor did not produce a result". Completion is now keyed off the main child's exit with a bounded post-exit drain window (`close` still wins whenever it fires first, so the ordinary path is unchanged). A stage that exits while a process still holds stdout open is **not quiescent** — that process can still mutate the tree, dependency environment or verification material between the visible and pristine runs — so `verify` **fails closed** with `CANNOT_VERIFY` (`VERIFIER_BACKEND_RUNTIME_FAILURE`, exit 2) and a precise reason, keeping the recovered exit code as diagnostics only. This is the same verdict and exit code the stage previously reached by hanging until the backstop, now prompt and legible; a suite that closes its pipes is unaffected.
+
 ## [2.29.14] — 2026-09-15
 
 ### Fixed
