@@ -15,14 +15,16 @@ Here is the move Tamperward exists to catch. An agent's change makes the **visib
 ```
 $ tamperward verify --base main
 
-  visible verification    ✓ PASS      (suite as it stands in the candidate)
-  pristine verification   ✗ FAIL      (same suite, re-run from the trusted base)
-
-  MASKED_FAILURE
-  tests/auth.test.ts — assertion weakened between base and candidate
-
-  verdict: FAIL
+tamperward verify — MASKED FAILURE: the visible suite passes, but with the 1
+protected file restored from the trusted base it FAILS (exit 1). Something
+weakened the checks; the code does not pass the original suite.
+oracle assurance: suite-exit-only
 ```
+
+*(The transcripts on this page illustrate the real command output; `verify`
+compares the visible suite against the same suite with protected files restored
+from the trusted base — it reports that suite-level verdict and a restored-file
+count, not a per-file causal diagnosis.)*
 
 Nothing here is exotic. The agent didn't escape a sandbox or exploit anything. Under pressure to reach green, the cheaper path was to weaken the check instead of fixing the code — and a human reviewer, reading a diff where the tests still "pass," could easily wave it through. **That masked failure is the one that would have shipped.**
 
@@ -33,13 +35,18 @@ Two more moves Tamperward stops, earlier in the loop:
 $ git checkout -- tests/auth.test.ts
   DENY   protected verification state
 
-# The agent loosens an assertion in place
+# The agent skips the failing test outright
+- test('rejects an expired token', ...)
++ test.skip('rejects an expired token', ...)
+  BLOCK  test-skip — tests/auth.test.ts
+
+# The agent loosens an assertion in place — a heuristic signal, warn by default
 - expect(result).toEqual(42)
 + expect(result).toBeDefined()
-  BLOCK  assertion weakening — tests/math.test.ts
+  WARN   assertion-weakening — tests/math.test.ts
 ```
 
-`DENY` and `BLOCK` are the visible moves — the ones a sharp reviewer might catch anyway. `MASKED_FAILURE` is the quiet one. Tamperward's job is to make all three impossible to land, and to fail closed when it can't be sure.
+`DENY` and `BLOCK` stop the move inside the agent's loop. `WARN` surfaces a heuristic signal that graduates to a block only once its precision is measured (SPEC §7), never on taste — so `assertion-weakening` warns by default rather than blocking. `MASKED_FAILURE` is the quiet one: adjudication catches it after the fact, from the suite's own exit code. Tamperward's job is to make the blocking moves hard to land and the quiet one visible — and to fail closed when it can't be sure.
 
 ## Get protected
 
@@ -55,20 +62,18 @@ It writes nothing you didn't approve. The deterministic primitive underneath is 
 
 ## Read your posture
 
-The point of a security tool is knowing whether it's actually protecting you. `onboard` ends — and `tamperward doctor` re-checks, any time — with a posture report. A healthy one:
+The point of a security tool is knowing whether it's actually protecting you. `onboard` ends — and `tamperward doctor` re-checks, any time — with a posture report. It reports your **setup** posture — what is configured — and does not run your suite; `tamperward verify` is what executes and adjudicates it. A healthy one:
 
 ```
 Repository            ✓ git root
 Agent protection      ✓ Claude Code hooks
                       ✓ pre-commit gate
-Verification          ✓ npm test
-                      ✓ visible verification
-                      ✓ pristine verification
+Verification          ✓ trusted verify command configured (npm test)
 Repository authority  ✓ required status check
                       ✓ code-owner review
                       ✓ stale reviews dismissed
 ──────────────────────────────────────────────
-READY — your repository is protected.
+READY — setup is in place.
 ```
 
 Just as important, the report tells you when it **cannot** back its guarantees, instead of pretending it can:
@@ -76,19 +81,19 @@ Just as important, the report tells you when it **cannot** back its guarantees, 
 ```
 Agent protection      ✓ Claude Code hooks
                       ✓ pre-commit gate
-Verification          ✓ npm test
-                      ✓ visible verification
-                      ✓ pristine verification
+Verification          ✓ trusted verify command configured (npm test)
 Repository authority  ✓ required status check
                       ✗ code-owner review not enforced
                       ✗ stale reviews not dismissed
 ──────────────────────────────────────────────
-READY WITH WARNINGS — local enforcement is active, but the paths
-that decide whether the gate runs are not yet protected on GitHub.
+INCOMPLETE — local enforcement is active, but a required repository-authority
+control is missing, so the paths that decide whether the gate runs are not
+protected. `doctor --github` fails closed here rather than reporting a healthy
+posture.
 Fix → [Enforcement & sign-off](./enforcement.md)
 ```
 
-A posture of `INCOMPLETE` or `BROKEN` means Tamperward will not silently behave as if you're covered. Where it cannot adjudicate, it fails closed.
+The four postures are `READY`, `READY WITH WARNINGS` (a non-blocking gap, such as the Linux-only run envelope being unavailable on macOS), `INCOMPLETE`, and `BROKEN`. `INCOMPLETE` or `BROKEN` means Tamperward will not silently behave as if you're covered. Where it cannot adjudicate, it fails closed.
 
 ## How it works, briefly
 
@@ -116,7 +121,7 @@ Tamperward sits between what the agent controls and what your repository trusts:
 Tamperward names its own edge, because a gate that oversells its coverage is worse than one that tells you where it stops:
 
 - **Repository authority lives on your host.** The required status check, code-owner enforcement, and stale-review dismissal are GitHub settings. Tamperward generates and checks them, but it cannot enforce them from inside an npm process — which is why the posture report flags them rather than hiding the gap.
-- **Authoritative run lifecycle is currently Linux-only.** On other platforms you still get steering and adjudication, but not the full process-lifecycle envelope. Your posture report states exactly what you're getting.
+- **Platform coverage is not uniform.** The authoritative `tamperward run` lifecycle is Linux-only. On macOS you still get steering and checkpointed-local `verify` adjudication; on **Windows, checkpointed-local `verify` is unsupported and fails closed before the candidate runs**. Your posture report states exactly what you're getting on your platform.
 
 Treat Tamperward as one layer of defence in depth — alongside protected CI, independent tests, and human review — not a replacement for them.
 
