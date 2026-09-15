@@ -15,6 +15,19 @@ All notable changes to this project are documented here. The format follows
   the existing jest/vitest handling. `--snapshot` and `-u`/`--update` still only count
   next to a snapshot-capable runner, so unrelated commands stay silent.
 
+## [2.29.6] — 2026-09-15
+
+### Fixed
+
+- **lint-suppression: `# NOQA`, a closed triple-quoted string, and a JS regex literal no
+  longer hide a real directive** (#439). The `# noqa` / `# ruff|flake8: noqa` spellings now
+  match case-insensitively, as flake8 and ruff accept them. The per-line quote scanner in
+  `insideStringLiteral` treats a Python triple quote (`'''` / `"""`) as one delimiter, so a
+  string that opens and closes on the line leaves a trailing directive outside it, and it
+  recognises a JS regex literal (`/'/ `) so an apostrophe inside the pattern no longer opens
+  a string that swallows the rest of the line and hides a following `// eslint-disable`.
+  Directives genuinely inside a string or docstring stay excused.
+
 ## [2.29.5] — 2026-09-15
 
 ### Changed
