@@ -355,6 +355,54 @@ describe('doctor authority verdict completeness (#318 follow-up)', () => {
   });
 });
 
+describe('GitHub repository ruleset completeness (#478)', () => {
+  it('reports missing direct CI checks and bypass actors', () => {
+    const findings = evaluateGitHubProtection(
+      {
+        rules: [{
+          type: 'pull_request',
+          parameters: {
+            require_code_owner_review: true,
+            dismiss_stale_reviews_on_push: true,
+          },
+        }, {
+          type: 'required_status_checks',
+          parameters: { required_status_checks: [{ context: 'gate' }] },
+        }],
+        bypassActors: [{ actor_id: 1, actor_type: 'RepositoryRole' }],
+      },
+      'tamperward',
+      ['gate', 'harness-core'],
+    );
+    expect(findings).toEqual([
+      'require status checks: harness-core',
+      'remove unintended ruleset bypass actors',
+    ]);
+  });
+
+  it('accepts the documented CI dependency boundary when every check is required', () => {
+    expect(evaluateGitHubProtection(
+      {
+        rules: [{
+          type: 'pull_request',
+          parameters: {
+            require_code_owner_review: true,
+            dismiss_stale_reviews_on_push: true,
+          },
+        }, {
+          type: 'required_status_checks',
+          parameters: {
+            required_status_checks: [{ context: 'gate' }, { context: 'harness-core' }],
+          },
+        }],
+        bypassActors: [],
+      },
+      'tamperward',
+      ['gate', 'harness-core'],
+    )).toEqual([]);
+  });
+});
+
 describe('GitHub human-boundary freshness (#332)', () => {
   const healthyRules = [
     {
