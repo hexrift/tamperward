@@ -5,6 +5,26 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.8] — 2026-09-15
+
+### Fixed
+
+- **Diff-only fallback: `ts-any-cast` and `test-skip` fired on comment and block-comment
+  lines** (#446). With no before/after content the detectors fall back to a per-line scan
+  that had no comment or string state, so a literal `as any` in a `//` line comment, an
+  `as any` on a line inside a `/* … */` block whose opener was an earlier added line, or a
+  `.skip`/`.only` inside a block comment all read as real code and blocked. A shared
+  comment/string masker now blanks comment bodies and string/template interiors — block,
+  string and template state carried across the change's after-view hunk stream (context
+  lines advance the lexer; only additions can produce findings), and code inside a `${…}`
+  template substitution stays scanned so a cast there is still seen — before the line
+  matchers run. `ts-any-cast` blanks string interiors; `test-skip` keeps strings intact and
+  rejects in-string hits through `insideStringLiteral`, so a computed-property marker
+  (`it['skip']`) still fires. Regex literals reuse the token-aware scanner added in #439, so
+  a real cast after `const re = /'/;` is not masked. Real casts and skip markers — including
+  one following a closed same-line block comment, which the whole-line comment guard
+  previously swallowed — are unaffected.
+
 ## [2.29.6] — 2026-09-15
 
 ### Fixed
