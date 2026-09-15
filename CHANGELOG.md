@@ -5,6 +5,24 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.14] — 2026-09-15
+
+### Fixed
+
+- **trace-verify: a ptrace/seccomp denial is no longer misreported as a non-zero
+  verifier run** (#516). `trace-verify` checked `strace --version` but not whether the
+  process may actually trace, so in restricted containers and sandboxed CI where
+  `strace` is installed but ptrace is denied it emitted an advisory report with zero
+  observations and returned 1 — inviting a maintainer to read "nothing observed" as
+  verifier evidence. A tracer-capability preflight now traces a trusted no-op first and
+  returns the documented exit 2 with an explicit ptrace/seccomp/Yama diagnostic when
+  tracing is unavailable; each run distinguishes a tracer failure (empty/denied trace →
+  exit 2, no report) from an ordinary traced command that exits non-zero (a healthy
+  trace whose command exits 1 or times out is still reported as incomplete evidence,
+  exit 1). A pure `classifyTraceRun` result classifier carries the decision and is unit
+  tested, and the real-strace E2E now skips when the preflight reports tracing is
+  unavailable rather than assuming `strace --version` implies permission.
+
 ## [2.29.13] — 2026-09-15
 
 ### Fixed
