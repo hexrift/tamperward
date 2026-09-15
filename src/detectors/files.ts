@@ -90,19 +90,57 @@ export function isCommentLine(trimmed: string, lang: Lang | null): boolean {
 // not a directive. A single-line scan: quotes toggle a string state (backslash escapes
 // honoured), and a comment opener outside a string ends the scan because everything
 // after it is comment. Multi-line strings are not tracked — deliberately per line.
+//
+// Two per-language shapes the plain scan mistook for open strings: a Python triple quote
+// (`'''` / `"""`) is one delimiter, so `'''it's'''` closes on the line rather than leaving
+// the apostrophe hanging; and a JS regex literal (`/'/ `) is not a string, so its quote
+// must not swallow the rest of the line and hide the trailing `// eslint-disable`.
 export function insideStringLiteral(line: string, idx: number, lang: Lang | null): boolean {
-  const hash = HASH_COMMENT_LANGS.has(lang ?? 'js');
-  let quote: string | null = null;
+  const l = lang ?? 'js';
+  const hash = HASH_COMMENT_LANGS.has(l);
+  let quote: string | null = null; // a 1- or 3-char delimiter, or null when not in a string
+  let prev = ''; // last non-space char before a `/`, to tell a JS regex from division
   for (let j = 0; j < idx; j++) {
     const ch = line[j];
     if (quote) {
       if (ch === '\\') j++;
-      else if (ch === quote) quote = null;
+      else if (quote.length === 3) {
+        if (ch === quote[0] && line[j + 1] === quote[0] && line[j + 2] === quote[0]) {
+          quote = null;
+          j += 2;
+        }
+      } else if (ch === quote) quote = null;
       continue;
     }
-    if (ch === '"' || ch === "'" || ch === '`') quote = ch;
+    if (l === 'py' && (ch === '"' || ch === "'") && line[j + 1] === ch && line[j + 2] === ch) {
+      quote = ch.repeat(3);
+      j += 2;
+    } else if (ch === '"' || ch === "'" || ch === '`') quote = ch;
     else if (ch === '/' && (line[j + 1] === '/' || line[j + 1] === '*')) return false;
+    else if (l === 'js' && ch === '/' && regexPosition(prev)) j = skipRegexLiteral(line, j);
     else if (hash && ch === '#') return false;
+    if (ch !== ' ' && ch !== '\t') prev = ch;
   }
   return quote !== null;
+}
+
+// A `/` begins a JS regex literal (not division) when the previous token cannot end an
+// expression: at line start, or after an operator, comma, or opening bracket.
+function regexPosition(prev: string): boolean {
+  return prev === '' || !/[\w$)\]]/.test(prev);
+}
+
+// Consume a regex literal starting at `line[start]` (`/`), honouring `\` escapes and
+// `[...]` character classes, and return the index of its closing `/` (or the last index
+// when unterminated) so the caller's loop resumes just past it.
+function skipRegexLiteral(line: string, start: number): number {
+  let inClass = false;
+  for (let k = start + 1; k < line.length; k++) {
+    const c = line[k];
+    if (c === '\\') k++;
+    else if (c === '[') inClass = true;
+    else if (c === ']') inClass = false;
+    else if (c === '/' && !inClass) return k;
+  }
+  return line.length - 1;
 }

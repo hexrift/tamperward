@@ -33,8 +33,8 @@ const PATTERNS: Record<Lang, Pattern[]> = {
     { re: /\bbiome-ignore\b/, why: 'biome-ignore suppresses Biome diagnostics' },
   ],
   py: [
-    { re: /#\s*noqa\b/, why: '# noqa suppresses flake8/ruff findings' },
-    { re: /#\s*(?:ruff|flake8):\s*noqa\b/, why: '# ruff: noqa / # flake8: noqa suppresses every finding in the file' },
+    { re: /#\s*noqa\b/i, why: '# noqa suppresses flake8/ruff findings' },
+    { re: /#\s*(?:ruff|flake8):\s*noqa\b/i, why: '# ruff: noqa / # flake8: noqa suppresses every finding in the file' },
     { re: /#\s*type:\s*ignore\b/, why: '# type: ignore suppresses the type checker' },
     { re: /#\s*mypy:\s*ignore-errors\b/, why: '# mypy: ignore-errors suppresses the type checker for the file' },
     { re: /#\s*pyright:\s*ignore\b/, why: '# pyright: ignore suppresses the type checker' },
