@@ -398,7 +398,13 @@ export const REPOSITORY_REQUIRED_CHECKS = [
   'test (24)',
   'build',
   'gate',
-  'platform-contract',
+  // platform-contract is a matrix over os: [ubuntu-latest, macos-latest, windows-latest]
+  // (see .github/workflows/ci.yml). GitHub publishes one check context per matrix cell,
+  // named "<job> (<os>)"; the bare job name is never a real context, so it must be
+  // enumerated per cell or the required-status check reports a false authority failure.
+  'platform-contract (ubuntu-latest)',
+  'platform-contract (macos-latest)',
+  'platform-contract (windows-latest)',
   'harness-core',
   'round4-harness',
   'pilot-provisioning',
