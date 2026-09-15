@@ -85,6 +85,118 @@ export function isCommentLine(trimmed: string, lang: Lang | null): boolean {
   return SLASH_COMMENT.test(trimmed);
 }
 
+// Comment/string masking for the diff-only fallback (JS/TS syntax). The line matchers
+// (ts-any-cast's `NARROW_LINE`, test-skip's patterns) run on lines with no parser state, so
+// a literal `as any` or a `.skip` inside a `//` comment, inside a `/* … */` block comment,
+// inside a string, or on a continuation line of a multi-line template reads the same as
+// real code. A masker is fed the after-view lines of one hunk in order (context lines
+// advance the lexer; only additions are judged by the caller) and returns each line with
+// comment bodies and masked string/template interiors replaced by spaces — length preserved,
+// so match offsets and `insideStringLiteral` still line up. It is a small stateful lexer with
+// a stack, so state (block comment, string, template, and the code inside a `${…}` template
+// substitution) carries across the hunk's lines, and code inside `${…}` is kept VISIBLE so a
+// cast or a skip there is still scanned. A JS regex literal is recognised through the shared
+// token-aware `regexPosition`/`skipRegexLiteral` (#439), so its `/'/` does not open a string
+// that swallows a following real cast.
+//
+// `maskStrings` (ts-any-cast, whose regex has no string awareness) blanks string/template
+// interiors; test-skip leaves single-line strings intact so `insideStringLiteral` can still
+// see a computed-property marker (`it['skip']`) as code and reject genuine in-string hits.
+// Either way the CONTINUATION of a string/template opened on an earlier line is blanked,
+// because `insideStringLiteral` is per-line and cannot see the opener. Delimiters are kept.
+type MaskFrame =
+  | { kind: 'block' }
+  | { kind: 'string'; quote: string; carried: boolean }
+  | { kind: 'template'; carried: boolean }
+  | { kind: 'subst'; depth: number };
+
+export class CommentStringMasker {
+  private readonly stack: MaskFrame[] = [];
+
+  constructor(private readonly maskStrings = true) {}
+
+  mask(line: string): string {
+    const out = line.split('');
+    // A string/template still open from an earlier line is a continuation: its body is
+    // blanked for every caller, since `insideStringLiteral` cannot see the opener.
+    for (const f of this.stack) if (f.kind === 'string' || f.kind === 'template') f.carried = true;
+    let i = 0;
+    while (i < line.length) {
+      const top = this.stack[this.stack.length - 1];
+      const ch = line[i];
+      const next = line[i + 1];
+      if (top?.kind === 'block') {
+        out[i] = ' ';
+        if (ch === '*' && next === '/') {
+          out[i + 1] = ' ';
+          this.stack.pop();
+          i += 2;
+          continue;
+        }
+        i++;
+        continue;
+      }
+      if (top?.kind === 'string' || top?.kind === 'template') {
+        const blank = this.maskStrings || top.carried;
+        if (ch === '\\') {
+          if (blank) {
+            out[i] = ' ';
+            if (i + 1 < line.length) out[i + 1] = ' ';
+          }
+          i += 2;
+          continue;
+        }
+        if (top.kind === 'string' ? ch === top.quote : ch === '`') {
+          this.stack.pop(); // keep the closing delimiter
+          i++;
+          continue;
+        }
+        if (top.kind === 'template' && ch === '$' && next === '{') {
+          this.stack.push({ kind: 'subst', depth: 1 }); // ${…} re-enters code, kept visible
+          i += 2;
+          continue;
+        }
+        if (blank) out[i] = ' ';
+        i++;
+        continue;
+      }
+      // Code context: the base, or inside a `${…}` substitution.
+      if (ch === '/' && next === '/') {
+        for (let j = i; j < line.length; j++) out[j] = ' ';
+        i = line.length; // rest of the line is a comment; any open string/template resumes next line
+        continue;
+      }
+      if (ch === '/' && next === '*') {
+        out[i] = ' ';
+        out[i + 1] = ' ';
+        this.stack.push({ kind: 'block' });
+        i += 2;
+        continue;
+      }
+      if (ch === '`') {
+        this.stack.push({ kind: 'template', carried: false }); // keep the opening delimiter
+        i++;
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        this.stack.push({ kind: 'string', quote: ch, carried: false });
+        i++;
+        continue;
+      }
+      if (ch === '/' && regexPosition(line.slice(0, i))) {
+        i = skipRegexLiteral(line, i) + 1; // a regex literal is neither a comment nor a string
+        continue;
+      }
+      if (top?.kind === 'subst') {
+        if (ch === '{') top.depth++;
+        else if (ch === '}' && --top.depth === 0) this.stack.pop();
+      }
+      i++;
+    }
+    return out.join('');
+  }
+}
+
 // Whether `line[idx]` sits inside a string literal: a codemod's HEADER constant holding
 // an eslint-disable comment, or a Python docstring saying "never add # noqa", is text,
 // not a directive. A single-line scan: quotes toggle a string state (backslash escapes

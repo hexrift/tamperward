@@ -32,7 +32,7 @@ import { Change, Detector, DetectorContext, FileChange, Finding } from '../types
 import { addedLines } from '../diff/select';
 import { isProtected } from '../policy';
 import { trackedContent } from './repo';
-import { insideStringLiteral, isCommentLine, Lang, langOf } from './files';
+import { CommentStringMasker, insideStringLiteral, isCommentLine, Lang, langOf } from './files';
 import { makeFinding } from './finding';
 
 const RULE = 'test-skip';
@@ -1194,24 +1194,42 @@ export const testSkip: Detector = {
         }
       }
 
-      for (const l of addedLines(c)) {
-        if (l.newLine != null && astHitLines.has(l.newLine)) continue;
-        const comment = isCommentLine(l.content.trim(), lang);
-        for (const p of patterns) {
-          if (astAuthoritative && p.astOwned && !(l.newLine != null && unowned.has(l.newLine))) continue;
-          if (comment && !p.comment) continue;
-          if (matchesOutsideString(p, l.content, lang)) {
-            out.push(
-              makeFinding(RULE, policy, {
-                file: c.path,
-                line: l.newLine ?? undefined,
-                message: `Test skipped or narrowed: ${p.why}.`,
-                evidence: l.content.trim(),
-                remediation:
-                  'Make the test pass rather than skipping it. If it is genuinely obsolete, a human must sign off.',
-              }),
-            );
-            break;
+      // For the JS/TS family the line matchers run against a comment-masked copy of the line
+      // so a marker inside a `//` or a `/* … */`, or on a continuation line of a multi-line
+      // template, is text (#446). Single-line strings are left intact — `matchesOutsideString`
+      // already rejects in-string hits while keeping a computed-property marker (`it['skip']`)
+      // as code. Each hunk's after-view (context lines + additions, deletions excluded) advances
+      // one masker so block/string/template state carries across the hunk's lines; state is not
+      // carried across hunks (the unseen gap may open or close a construct), so an addition whose
+      // opener lies outside its context is read as code, as the per-line matcher always was.
+      // Only additions produce findings. Other languages keep the raw line and the historical
+      // whole-line comment guard. `comment:true` build-constraint patterns ARE comments and
+      // always match the raw line.
+      const maskJs = lang === 'js' || lang == null;
+      for (const h of c.hunks) {
+        const masker = maskJs ? new CommentStringMasker(false) : null;
+        for (const l of h.lines) {
+          if (l.type === 'del') continue;
+          const code = masker ? masker.mask(l.content) : l.content;
+          if (l.type !== 'add') continue;
+          if (l.newLine != null && astHitLines.has(l.newLine)) continue;
+          const comment = isCommentLine(code.trim(), lang);
+          for (const p of patterns) {
+            if (astAuthoritative && p.astOwned && !(l.newLine != null && unowned.has(l.newLine))) continue;
+            if (comment && !p.comment) continue;
+            if (matchesOutsideString(p, p.comment ? l.content : code, lang)) {
+              out.push(
+                makeFinding(RULE, policy, {
+                  file: c.path,
+                  line: l.newLine ?? undefined,
+                  message: `Test skipped or narrowed: ${p.why}.`,
+                  evidence: l.content.trim(),
+                  remediation:
+                    'Make the test pass rather than skipping it. If it is genuinely obsolete, a human must sign off.',
+                }),
+              );
+              break;
+            }
           }
         }
       }
