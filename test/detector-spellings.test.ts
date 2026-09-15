@@ -257,6 +257,8 @@ describe('lint-suppression: spellings and string-literal controls', () => {
     ['m.py', 'import os  # NOQA'], // (a) flake8/ruff accept NOQA in any case
     ['m.py', "x = '''it's'''  # noqa"], // (b) a closed triple-quoted string, then a directive
     ['src.ts', `const q = /'/; // eslint-disable-next-line`], // (c) a regex literal, not an open string
+    ['src.ts', `return /'/; // eslint-disable-next-line`], // (c') a regex after an expression keyword
+    ['src.ts', `const ok = 10 / 2; // eslint-disable-line`], // (c'') plain division, not a regex, so the directive is still read
   ])('blocks despite a quote-scanner edge (#439) in %s: %s', (path, line) => {
     expect(at(path, line), line).toEqual(['lint-suppression[block]']);
   });
@@ -268,6 +270,18 @@ describe('lint-suppression: spellings and string-literal controls', () => {
     expect(insideStringLiteral("const q = /'/; // x", 15, 'js')).toBe(false);
     // A directive genuinely inside a triple-quoted docstring stays undetected.
     expect(insideStringLiteral('"""doc # noqa"""', 7, 'py')).toBe(true);
+  });
+
+  it('regex detection is token-aware: keyword starts a regex, an operand starts division (#439)', () => {
+    // `return /'/` is a regex literal, so its apostrophe does not open a string and the
+    // trailing `//` is still recognised as a comment.
+    expect(insideStringLiteral("return /'/; // x", 12, 'js')).toBe(false);
+    // `a / b` and `10 / 2` are division: the `/` must NOT be reclassified as a regex that
+    // swallows the trailing `// comment`.
+    expect(insideStringLiteral('const x = a /b/ c; // z', 19, 'js')).toBe(false);
+    expect(insideStringLiteral('const ok = 10 / 2; // z', 19, 'js')).toBe(false);
+    // Division after a string operand stays division too.
+    expect(insideStringLiteral('const n = "x".length / 2; // z', 26, 'js')).toBe(false);
   });
 });
 

@@ -99,7 +99,6 @@ export function insideStringLiteral(line: string, idx: number, lang: Lang | null
   const l = lang ?? 'js';
   const hash = HASH_COMMENT_LANGS.has(l);
   let quote: string | null = null; // a 1- or 3-char delimiter, or null when not in a string
-  let prev = ''; // last non-space char before a `/`, to tell a JS regex from division
   for (let j = 0; j < idx; j++) {
     const ch = line[j];
     if (quote) {
@@ -117,17 +116,34 @@ export function insideStringLiteral(line: string, idx: number, lang: Lang | null
       j += 2;
     } else if (ch === '"' || ch === "'" || ch === '`') quote = ch;
     else if (ch === '/' && (line[j + 1] === '/' || line[j + 1] === '*')) return false;
-    else if (l === 'js' && ch === '/' && regexPosition(prev)) j = skipRegexLiteral(line, j);
+    else if (l === 'js' && ch === '/' && regexPosition(line.slice(0, j))) j = skipRegexLiteral(line, j);
     else if (hash && ch === '#') return false;
-    if (ch !== ' ' && ch !== '\t') prev = ch;
   }
   return quote !== null;
 }
 
-// A `/` begins a JS regex literal (not division) when the previous token cannot end an
-// expression: at line start, or after an operator, comma, or opening bracket.
-function regexPosition(prev: string): boolean {
-  return prev === '' || !/[\w$)\]]/.test(prev);
+// Keywords after which a `/` introduces an expression, so it starts a regex literal
+// rather than dividing the keyword.
+const REGEX_KEYWORDS: ReadonlySet<string> = new Set([
+  'return', 'throw', 'case', 'yield', 'do', 'else', 'in', 'of', 'typeof', 'void', 'delete',
+  'instanceof', 'new',
+]);
+
+// A `/` begins a JS regex literal (not division) when the preceding token cannot end an
+// expression: at line start, after an operator / `(` `[` `{` `,` `;` `:`, or after an
+// expression-introducing keyword. It is division after an identifier, a number, `)`, `]`,
+// or a closing quote — so `a /b/ c` and `"x" / 2` are read as division, not a regex. The
+// decision is token-aware (the trailing keyword, not just the last character) so a valid
+// literal after `return`, `yield`, `case`, … is not misread.
+function regexPosition(before: string): boolean {
+  const s = before.replace(/\s+$/, '');
+  if (s === '') return true;
+  const last = s[s.length - 1];
+  if (/[\w$]/.test(last)) {
+    const kw = /[A-Za-z_$][\w$]*$/.exec(s); // null when the token ends in a digit (a number)
+    return kw !== null && REGEX_KEYWORDS.has(kw[0]);
+  }
+  return last !== ')' && last !== ']' && last !== '"' && last !== "'" && last !== '`';
 }
 
 // Consume a regex literal starting at `line[start]` (`/`), honouring `\` escapes and
