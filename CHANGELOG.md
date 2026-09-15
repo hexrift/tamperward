@@ -5,6 +5,18 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.5] — 2026-09-15
+
+### Changed
+
+- **Terminal verdict colours now use a 24-bit palette.** The blocking header and `BLOCK`
+  render in red, `warn` and the sign-off command in amber, `clean` in green, and the
+  `path:line` locator in cyan. Colour remains pure decoration layered over text that
+  already spells the severity: the escapes strip to a byte-identical plain rendering, and
+  output stays uncoloured under `NO_COLOR`, a pipe, `TERM=dumb`, or a CI log without
+  `FORCE_COLOR`. No emoji or glyphs are introduced, and no command, flag, exit code, or
+  machine-output contract changes.
+
 ## [2.29.4] — 2026-09-14
 
 ### Fixed
