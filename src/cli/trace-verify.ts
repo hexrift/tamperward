@@ -121,6 +121,68 @@ export function parseStraceFileAccess(raw: string): TraceFileAccess[] {
   return out;
 }
 
+/**
+ * The observable result of one `strace` invocation, reduced to the signals the
+ * classifier needs. Kept as plain data so the classification is pure and unit-
+ * testable without a real tracer (which a restricted CI cannot run).
+ */
+export interface RawTraceRun {
+  /** spawnSync `.error?.message` — e.g. the `strace` binary itself was not found. */
+  spawnError: string | null;
+  /** `strace`'s own exit status. When the tracer attached, this is the tracee's. */
+  status: number | null;
+  /** The signal that killed `strace`, if any (e.g. `SIGKILL`). */
+  signal: string | null;
+  /** Bounded `strace` stderr — its own diagnostics, not the trace (which goes to files). */
+  stderr: string;
+  /** How many `-o` trace files `strace` produced. */
+  traceFileCount: number;
+  /** Parsed `%file` accesses across all trace files. Zero means the tracer saw nothing. */
+  accessCount: number;
+}
+
+export type TraceRunOutcome =
+  // The tracer attached and observed a real run; `exit` is the TRACEE's exit code
+  // (0 healthy, non-zero — including a `timeout` 124 — reportable incomplete evidence).
+  | { kind: 'ok'; exit: number }
+  // The tracer could not attach/observe: ptrace/seccomp/Yama denial, a killed tracer,
+  // a missing binary, or an empty trace. This is a tooling failure (exit 2), never a
+  // verifier result — no advisory report may be emitted from it.
+  | { kind: 'tracer-error'; diagnostic: string };
+
+// `strace`'s own diagnostics when the kernel denies tracing: ptrace blocked by
+// seccomp, Yama (`ptrace_scope`), no-new-privs, or a container policy. Matched only on
+// `strace:`-prefixed stderr lines, which carry the tracer's messages, never the trace.
+const TRACER_DENIAL_RE =
+  /\b(?:PTRACE_[A-Z_]+|ptrace|seccomp|no[-_ ]new[-_ ]privs|yama)\b|Operation not permitted|Permission denied/i;
+
+/** The first `strace:` diagnostic line that names a tracing-capability denial, or null. */
+export function tracerDenialDiagnostic(stderr: string): string | null {
+  for (const raw of stderr.split('\n')) {
+    const line = raw.trim();
+    if (line.startsWith('strace:') && TRACER_DENIAL_RE.test(line)) return line;
+  }
+  return null;
+}
+
+/**
+ * Classify one `strace` invocation as a genuine traced run or a tracer-infrastructure
+ * failure. The distinction the bug missed (#516): `strace --version` succeeding does not
+ * mean the process may trace. When ptrace is denied, `strace` exits non-zero with a
+ * denial diagnostic and an empty trace — that is a tooling failure (exit 2), NOT a
+ * known-good verifier run that happened to exit 1. Only once a valid trace exists is
+ * `strace`'s status the tracee's own exit.
+ */
+export function classifyTraceRun(r: RawTraceRun): TraceRunOutcome {
+  if (r.spawnError) return { kind: 'tracer-error', diagnostic: `strace could not be launched: ${r.spawnError}` };
+  const denial = tracerDenialDiagnostic(r.stderr);
+  if (denial) return { kind: 'tracer-error', diagnostic: denial };
+  if (r.signal) return { kind: 'tracer-error', diagnostic: `strace was killed by ${r.signal} before the trace completed` };
+  if (r.traceFileCount === 0) return { kind: 'tracer-error', diagnostic: 'strace produced no trace files; the tracer did not attach (ptrace may be denied)' };
+  if (r.accessCount === 0) return { kind: 'tracer-error', diagnostic: 'strace recorded no file syscalls; the tracer attached to nothing (ptrace may be denied)' };
+  return { kind: 'ok', exit: r.status ?? 1 };
+}
+
 function inside(root: string, path: string): boolean {
   const rel = relative(resolve(root), resolve(path));
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
@@ -326,16 +388,19 @@ function rewriteTraceRoot(
   });
 }
 
-function runOneTrace(
-  cwd: string,
-  base: string,
+/**
+ * One `strace` invocation in `root`, reduced to a RawTraceRun plus the parsed file
+ * accesses. It never throws on a tracer failure — an empty or absent trace, a denial
+ * diagnostic, or a killed tracer are returned as data for `classifyTraceRun` to judge,
+ * so the tracer's own status is never mistaken for the verifier's exit (#516).
+ */
+function straceOnce(
+  root: string,
   command: string,
   budget: number,
-): { exit: number; accesses: TraceFileAccess[] } {
-  const root = mkdtempSync(join(tmpdir(), 'tw-trace-base-'));
+): { raw: RawTraceRun; accesses: TraceFileAccess[] } {
   const traceDir = mkdtempSync(join(tmpdir(), 'tw-trace-log-'));
   try {
-    materializeBase(base, cwd, root);
     const prefix = join(traceDir, 'trace');
     const traced = spawnSync(
       'strace',
@@ -364,20 +429,55 @@ function runOneTrace(
         maxBuffer: 64 * 1024 * 1024,
       },
     );
-    if (traced.error) throw traced.error;
-
-    const logs = traceFiles(prefix);
-    if (logs.length === 0) {
-      throw new Error('strace produced no trace files');
-    }
+    const logs = traced.error ? [] : traceFiles(prefix);
     const accesses = logs.flatMap((path) => parseStraceFileAccess(readFileSync(path, 'utf8')));
-    return {
-      exit: traced.status ?? 1,
-      accesses: rewriteTraceRoot(accesses, root),
+    const raw: RawTraceRun = {
+      spawnError: traced.error ? traced.error.message : null,
+      status: traced.status,
+      signal: traced.signal ?? null,
+      stderr: String(traced.stderr ?? '').slice(0, 8192),
+      traceFileCount: logs.length,
+      accessCount: accesses.length,
     };
+    return { raw, accesses };
+  } finally {
+    rmSync(traceDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Trace the trusted base once. `materializeBase` may throw (git/tar failure) and that
+ * propagates as a genuine infrastructure error; the tracer's own outcome is classified,
+ * so a ptrace denial mid-run is a `tracer-error`, not a misread verifier exit (#516).
+ */
+function runOneTrace(
+  cwd: string,
+  base: string,
+  command: string,
+  budget: number,
+): { outcome: TraceRunOutcome; accesses: TraceFileAccess[] } {
+  const root = mkdtempSync(join(tmpdir(), 'tw-trace-base-'));
+  try {
+    materializeBase(base, cwd, root);
+    const { raw, accesses } = straceOnce(root, command, budget);
+    return { outcome: classifyTraceRun(raw), accesses: rewriteTraceRoot(accesses, root) };
   } finally {
     rmSync(root, { recursive: true, force: true });
-    rmSync(traceDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Whether this environment can actually trace, learned by tracing a trusted no-op —
+ * not by asking `strace --version`, which succeeds even when ptrace is denied (#516).
+ * Runs in a throwaway directory, so the probe touches nothing in the repository.
+ */
+export function tracerPreflight(budget = 10): TraceRunOutcome {
+  const probeRoot = mkdtempSync(join(tmpdir(), 'tw-trace-probe-'));
+  try {
+    const { raw } = straceOnce(probeRoot, 'true', Math.max(1, Math.min(budget, 10)));
+    return classifyTraceRun(raw);
+  } finally {
+    rmSync(probeRoot, { recursive: true, force: true });
   }
 }
 
@@ -471,6 +571,20 @@ export function runTraceVerify(opts: TraceVerifyOpts = {}): number {
     return 2;
   }
 
+  // Capability preflight (#516): `strace --version` succeeding does not mean the
+  // process may trace. Prove tracing works on a trusted no-op before running the
+  // verifier; a ptrace/seccomp/Yama denial is a tooling failure (exit 2), never a
+  // verifier result — and no advisory report is emitted from an environment that could
+  // observe nothing.
+  const preflight = tracerPreflight(budget);
+  if (preflight.kind === 'tracer-error') {
+    process.stderr.write(
+      `tamperward trace-verify: the tracer cannot observe in this environment, so no verifier input can be discovered — ${preflight.diagnostic}.\n` +
+        'This is a tracing/tooling limitation (e.g. ptrace denied by seccomp or Yama), not a verifier result.\n',
+    );
+    return 2;
+  }
+
   const atBase = trackedAt(base, cwd);
   const tracked = new Set(atBase);
   const covered = verifierCoveredInputs(command, atBase, policy);
@@ -479,9 +593,18 @@ export function runTraceVerify(opts: TraceVerifyOpts = {}): number {
   const runExits: number[] = [];
   try {
     for (let i = 0; i < runs; i++) {
-      const result = runOneTrace(cwd, base, command, budget);
-      observed.push(result.accesses);
-      runExits.push(result.exit);
+      const { outcome, accesses } = runOneTrace(cwd, base, command, budget);
+      if (outcome.kind === 'tracer-error') {
+        // A tracer failure mid-run compromises the whole observation. Return the
+        // tooling-failure code with a specific diagnostic and NO advisory report,
+        // rather than a report of zero observations that reads like verifier evidence.
+        process.stderr.write(
+          `tamperward trace-verify: tracing failed during run ${i + 1}/${runs} — ${outcome.diagnostic}. No advisory report emitted.\n`,
+        );
+        return 2;
+      }
+      observed.push(accesses);
+      runExits.push(outcome.exit);
     }
   } catch (e) {
     process.stderr.write(`tamperward trace-verify: tracing failed (${e instanceof Error ? e.message : String(e)}).\n`);
