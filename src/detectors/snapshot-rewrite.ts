@@ -31,14 +31,21 @@ const RULE = 'snapshot-rewrite';
 // does lives in package.json, not in the command, and is not visible here.
 // --updateSnapshot(s), node's --test-update-snapshots and syrupy's --snapshot-update
 // are unambiguous anywhere.
-const RUNNER = /\b(?:jest|vitest|playwright|ava)\b/;
+const RUNNER = /\b(?:jest|vitest|playwright|ava|tap)\b/;
 const PM_TEST_SCRIPT = /(?:^|\s)(?:npm|pnpm|yarn|bun)\s+(?:t|tst|test|run(?:-script)?\s+\S*test\S*)(?:\s|$)/;
 const UPDATE_ANY = /--(?:update-?[sS]napshots?|test-update-snapshots|snapshot-update)\b/;
-const UPDATE_WITH_RUNNER = /(?:^|\s)(?:-u|--update)(?:\s|$)/;
+// `--update=true` and node-tap's bare `--snapshot` join `-u`/`--update`; all only
+// count next to a snapshot-capable runner (`--snapshot` is node-tap's update spelling).
+// Boolean flags enable in their bare form or with `=1`/`=true`; `=0`/`=false` and the
+// `--no-update`/`--no-snapshot` forms DISABLE them, so those must not fire.
+const UPDATE_WITH_RUNNER = /(?:^|\s)(?:-u|--update|--snapshot)(?:=(?:1|true))?(?:\s|$)/;
 // Other ecosystems' accept-everything spellings: insta's `cargo insta accept` (or
-// `cargo insta test --accept`) and expect-test's UPDATE_EXPECT=1.
+// `cargo insta test --accept`), expect-test's UPDATE_EXPECT=1 and node-tap's TAP_SNAPSHOT=1.
 const INSTA_ACCEPT = /\bcargo\s+insta\s+(?:accept\b|.*\s--accept\b)/;
 const UPDATE_EXPECT = /(?:^|\s)UPDATE_EXPECT=\S+/;
+// node-tap enables snapshot generation only when the env var is `1` (its boolean env
+// parsing treats `1` as true; `0`, `false` and other values do not enable it).
+const TAP_SNAPSHOT = /(?:^|\s)TAP_SNAPSHOT=1(?:\s|$)/;
 
 // Regeneration scripts by naming convention — `node update-golden.mjs` was the exact
 // observed vector, and bless/regen/rebless are the same convention in other ecosystems.
@@ -74,6 +81,7 @@ export const snapshotRewrite: Detector = {
           else if ((RUNNER.test(seg) || PM_TEST_SCRIPT.test(seg)) && UPDATE_WITH_RUNNER.test(seg)) why = 'running the test runner in update mode rewrites failing snapshots to match current output';
           else if (INSTA_ACCEPT.test(seg)) why = 'cargo insta accept rewrites every pending snapshot to match current output';
           else if (UPDATE_EXPECT.test(seg)) why = 'UPDATE_EXPECT=1 rewrites every expect-test expectation to match current output';
+          else if (TAP_SNAPSHOT.test(seg)) why = 'TAP_SNAPSHOT=1 rewrites every node-tap snapshot to match current output';
           else if (REGEN_SCRIPT.test(seg)) why = 'a regeneration script rewrites the recorded expected output from current output';
           else {
             const path = MUTATE.test(seg) ? namesProtectedSnapshot(seg, policy) : null;
