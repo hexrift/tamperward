@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseVerify, probeFilesystemCaseSensitivity, runVerify } from '../src/cli/verify';
+import { parseVerify, probeFilesystemCaseSensitivity, runVerify, type RunResult } from '../src/cli/verify';
 import { policyWeakening } from '../src/detectors/policy-diff';
 import {
   DIAGNOSTIC_TAIL_BYTES,
@@ -143,6 +143,35 @@ describe('tamperward verify', () => {
   it('SUITE_RED: nothing fixed, nothing masked — exit 1, not a masked failure', () => {
     const cwd = repo();
     expect(run(cwd)).toBe(1);
+  });
+
+  it.skipIf(process.platform === 'win32')('CANNOT_VERIFY: a non-quiescent visible stage cannot certify — a zero exit does not become VERIFIED (exit 2)', () => {
+    const cwd = repo();
+    // The suite exited 0, but a process still holds stdout open after the stage:
+    // it is not quiescent and could still mutate the tree. It must not certify.
+    const leak: RunResult = { exit: 0, secs: 1, pipeHeldOpen: true };
+    const { code, json } = capture(() => run(cwd, { runStage: () => leak }));
+    expect(code).toBe(2);
+    expect(json.verdict).toBe('CANNOT_VERIFY');
+    expect(json.verdict).not.toBe('VERIFIED');
+    expect(json.reason).toBe('VERIFIER_BACKEND_RUNTIME_FAILURE');
+    expect(json.stage).toBe('visible');
+    expect(String(json.detail)).toContain('not');
+    expect(String(json.detail)).toContain('quiescent');
+  });
+
+  it.skipIf(process.platform === 'win32')('CANNOT_VERIFY: a non-quiescent pristine stage cannot certify even after a clean visible run (exit 2)', () => {
+    const cwd = repo();
+    // Visible stage is a clean zero exit; the pristine stage exits 0 but leaves a
+    // process holding stdout — the second run is not quiescent, so no MASKED/VERIFIED.
+    let call = 0;
+    const runStage = (): RunResult =>
+      ++call === 1 ? { exit: 0, secs: 1 } : { exit: 0, secs: 1, pipeHeldOpen: true };
+    const { code, json } = capture(() => run(cwd, { runStage }));
+    expect(code).toBe(2);
+    expect(json.verdict).toBe('CANNOT_VERIFY');
+    expect(json.reason).toBe('VERIFIER_BACKEND_RUNTIME_FAILURE');
+    expect(json.stage).toBe('pristine');
   });
 
   // This replaces a test that asserted agent-ADDED protected files are kept in
