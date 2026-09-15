@@ -640,11 +640,61 @@ describe('suite supervisor lifecycle and result authority (#319, #371)', () => {
     });
     expect(result.exit).toBe(7);
     expect(result.timedOut).toBe(false);
+    // An ordinary suite closes its pipes, so completion comes from `close`, not
+    // the post-exit drain: the leaked-pipe flag stays unset.
+    expect(result.pipeHeldOpen).toBeUndefined();
     expect(result.diagnostics.stdout.captured_bytes).toBe(50_000);
     expect(result.diagnostics.stderr.captured_bytes).toBe(50_000);
     expect(result.diagnostics.stdout.truncated).toBe(true);
     expect(result.diagnostics.stderr.truncated).toBe(true);
   });
+
+  it.skipIf(process.platform === 'win32')('completes off the child exit when a descendant holds stdout open, and flags the leaked pipe', async () => {
+    const cwd = repo();
+    const control = mkdtempSync(join(tmpdir(), 'tw-suite-leak-'));
+    dirs.push(control);
+    const pidFile = join(control, 'pid');
+    const holder = join(cwd, 'holder.js');
+    writeFileSync(
+      holder,
+      [
+        "const fs = require('fs');",
+        "fs.appendFileSync(process.argv[2], process.pid + '\\n');",
+        'setInterval(() => {}, 1000);', // keeps the inherited stdout pipe open
+        '',
+      ].join('\n'),
+    );
+
+    // The shell exits 0 immediately; the backgrounded node inherits and holds the
+    // stdout pipe, so `close` cannot fire. killGroupOnFinish:false leaves it
+    // unreaped, so the stage must complete off the child's exit within the drain
+    // window rather than hanging until the outer backstop.
+    const cmd =
+      `node ${JSON.stringify(holder)} ${JSON.stringify(pidFile)} & ` +
+      `for i in $(seq 1 100); do [ -s ${JSON.stringify(pidFile)} ] && break; sleep 0.01; done; ` +
+      'echo suite-done; exit 0';
+    const started = Date.now();
+    const result = runCapturedProcessSync('sh', ['-c', cmd], {
+      cwd,
+      env: process.env,
+      timeoutMs: 10_000,
+      detached: true,
+      killGroupOnFinish: false,
+      drainMs: 300,
+    });
+
+    expect(result).toMatchObject({ exit: 0, timedOut: false });
+    expect(result.pipeHeldOpen).toBe(true);
+    expect(result.error).toBeUndefined();
+    // Completed on exit + drain (~0.3s), not on the 10s budget or the backstop.
+    expect(Date.now() - started).toBeLessThan(5_000);
+
+    const pids = readFileSync(pidFile, 'utf8').trim().split(/\s+/).map(Number).filter(Number.isFinite);
+    for (const pid of pids) {
+      try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+    }
+    await waitForPidsGone(pids);
+  }, 15_000);
 
   it('drops a split leading UTF-8 continuation rather than rendering replacement characters', () => {
     const cwd = repo();

@@ -35,7 +35,7 @@ export interface CapturedProcessResult {
   /**
    * The main child exited, but at least one of its stdio pipes was still held
    * open past the bounded post-exit drain window — a descendant that inherited
-   * the suite's stdout/stderr and outlived it (#539). The exit code is trusted;
+   * the suite's stdout/stderr and outlived it. The exit code is trusted;
    * captured output may be short of a naturally-closed stream.
    */
   pipeHeldOpen?: boolean;
@@ -54,10 +54,10 @@ export interface CapturedProcessOptions {
   backstopMs?: number;
   /**
    * Bounded window (ms) to keep draining the stdio pipes after the main child
-   * has exited, before finishing off the exit alone (#539). A descendant that
-   * inherited the suite's stdout can hold the pipe open forever, so completion
-   * cannot wait on `close`. `close` still wins whenever it fires first, so the
-   * ordinary path is unchanged. Defaults to 1000.
+   * has exited, before finishing off the exit alone. A descendant that inherited
+   * the suite's stdout can hold the pipe open forever, so completion cannot wait
+   * on `close`. `close` still wins whenever it fires first, so the ordinary path
+   * is unchanged. Defaults to 1000.
    */
   drainMs?: number;
 }
@@ -312,13 +312,13 @@ if (child) {
       signal: signal == null ? null : String(signal),
     };
     if (cfg.killGroupOnFinish) killOwned();
-    // #539: completion is keyed off the main child's exit, not only pipe close.
-    // A descendant that inherited the suite's stdout (a spawned server, a
-    // setsid() escapee) holds the pipe open, so 'close' can never fire and the
-    // stage used to hang until the outer backstop killed the supervisor and
-    // discarded the already-known exit code. Give the pipes a bounded window to
-    // drain, then finish off the exit and flag the leak. 'close' still wins
-    // whenever it fires first, so the ordinary fast path is unchanged.
+    // Completion is keyed off the main child's exit, not only pipe close. A
+    // descendant that inherited the suite's stdout (a spawned server, a setsid()
+    // escapee) holds the pipe open, so 'close' can never fire and the stage would
+    // otherwise hang until the outer backstop killed the supervisor and discarded
+    // the already-known exit code. Give the pipes a bounded window to drain, then
+    // finish off the exit and flag the leak. 'close' still wins whenever it fires
+    // first, so the ordinary fast path is unchanged.
     if (!drainTimer) {
       drainTimer = setTimeout(() => finish({ pipeHeldOpen: true }), Number(cfg.drainMs));
       drainTimer.unref();

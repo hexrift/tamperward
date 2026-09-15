@@ -133,7 +133,7 @@ interface RunResult {
   failure?: 'budget' | 'backend' | 'resource';
   resource?: 'memory';
   reason?: string;
-  /** The suite exited but left a descendant holding stdout open (#539). */
+  /** The suite exited but left a descendant holding stdout open. */
   pipeHeldOpen?: boolean;
   diagnostics?: SuiteDiagnostics;
 }
@@ -1322,7 +1322,7 @@ export function runVerify(opts: VerifyOpts): number {
   if (visible.pipeHeldOpen && !opts.json) {
     out(
       'verify: the visible suite exited but left a process holding stdout open; ' +
-      'the verdict is taken from its exit code (see issue #539).',
+      'the verdict is taken from its exit code.',
     );
   }
 
@@ -1397,7 +1397,7 @@ export function runVerify(opts: VerifyOpts): number {
   if (pristine.pipeHeldOpen && !opts.json) {
     out(
       'verify: the pristine suite exited but left a process holding stdout open; ' +
-      'the verdict is taken from its exit code (see issue #539).',
+      'the verdict is taken from its exit code.',
     );
   }
   if (pristine.failure === 'backend' || pristine.failure === 'resource') {
