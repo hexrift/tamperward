@@ -5,6 +5,19 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.12] — 2026-09-15
+
+### Fixed
+
+- **`ts-any-cast` blocked a cast to a non-`any` alias shadowed in an unrelated scope**
+  (#524). Alias resolution was a flat name→kind map, so a nested or sibling
+  `type Value = any` overwrote a module-level `type Value = string`, and a legitimate
+  `raw as Value` was misclassified as an `as any` launder and blocked. Resolution is now
+  lexical: a name resolves against the scope of the assertion that uses it (walking
+  enclosing scopes), an enclosing type parameter of the same name resolves to no launder
+  kind, and the diff-only line fallback resolves a name only when every same-named alias
+  in the file agrees, so a genuine same-scope `type X = any; raw as X` still blocks.
+
 ## [2.29.11] — 2026-09-15
 
 ### Fixed
