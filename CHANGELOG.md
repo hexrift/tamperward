@@ -5,6 +5,19 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.6] — 2026-09-15
+
+### Fixed
+
+- **The privileged audit publisher accepted replacement evidence and did not fully
+  enforce the audit schema** (#514). The write-authorized job now reconstructs raw
+  candidates from the trusted checkout or manual input, validates the complete
+  supported schema including severity/decision constraints, preserves the existing
+  evidence prefix, appends only new batches/events, rejects conflicting IDs and
+  rewritten batches, rejects store symlinks, and recomputes the summary and README
+  without running npm or dependency code. The workflow no longer transfers a
+  dependency-produced replacement store across the privilege boundary.
+
 ## [2.29.5] — 2026-09-15
 
 ### Changed
