@@ -5,6 +5,27 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.15] — 2026-09-15
+
+### Fixed
+
+- **hooks: bound the synthetic diff so a high-churn write cannot stall PreToolUse**
+  (#517). Reconstructing a `Write`/`Edit`/`MultiEdit`/`NotebookEdit` at the hook ran an
+  unbounded synchronous `git diff --no-index` (256 MiB buffer, no timeout) and then the
+  detectors over the full content, so a 20,000-line high-churn write hung the agent-facing
+  gate for 30+ seconds with no operator-owned latency bound. `synthFileChange` now bounds
+  every path: a strict git-diff timeout and a bounded output buffer; a **hard content
+  ceiling** past which the reconstruction **fails closed** (`cannot safely reconstruct the
+  incoming edit within the hook budget`) rather than stall — the Stop sweep still
+  re-derives the turn's net diff from git; and a **linear fallback** that reconstructs one
+  conservative delete/add hunk from the full before/after when the diff cannot be produced
+  in budget, never reading a truncated diff as a smaller edit. The ceiling and timeout are
+  operator-tunable (`TAMPERWARD_RECONSTRUCT_*`). The one primitive is shared by the direct
+  hook and the persistent hook service, so the two cannot diverge. Separately,
+  `test-content-removal` gained an O(1) fast path for its kept-content check (it was O(n²)
+  in the number of removed lines, the dominant cost on a churned spec), behaviour
+  unchanged. The 20k-line regression moves off its wall-clock assertion.
+
 ## [2.29.14] — 2026-09-15
 
 ### Fixed

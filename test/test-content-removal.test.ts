@@ -150,6 +150,17 @@ it('parses', () => {
     expect(run([file('a.test.ts', before, after)])).toHaveLength(0);
   });
 
+  it('a high-churn whitespace reformat across many lines stays excused (guards the #517 fast path)', () => {
+    // Every significant line changes internal whitespace, so each removed line's trimmed
+    // form differs but its whitespace-stripped form still appears as a kept code line —
+    // exactly the case the KeptPool whole-line fast path (#517) answers in O(1). It must
+    // still be excused: reformatting is not removal.
+    const lines = Array.from({ length: 800 }, (_, i) => `  expect(f(${i})).toBe(${i});`);
+    const before = `it('many', () => {\n${lines.join('\n')}\n});\n`;
+    const after = before.replace(/toBe\((\d+)\)/g, 'toBe( $1 )'); // internal space on every line
+    expect(run([file('a.test.ts', before, after)])).toHaveLength(0);
+  });
+
   it('relocation to another protected test file in the same changeset is excused', () => {
     const moved = `
     { input: 'CARRIAGERETURN.png', expected: 'image/png' },
