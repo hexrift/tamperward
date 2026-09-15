@@ -133,31 +133,52 @@ function kindOfType(type: TS.TypeNode, resolveName: (name: string) => LaunderKin
 export interface AliasResolver {
   /** The launder kind of alias `name` as seen at lexical position `at` (in the same source
    *  tree), or an ambiguity-safe cross-tree resolution when `at` is absent or foreign.
-   *  Returns null whenever the name is unknown, an honest type, a generic alias, a cycle,
-   *  shadowed by a type parameter, or ambiguous across scopes — never a guessed kind. */
+   *  Returns null whenever the name is unknown, an honest type, a cycle, ambiguous across
+   *  scopes, or shadowed by a non-alias type binding — a type parameter, generic alias,
+   *  interface, class, enum or namespace — never a guessed kind. */
   resolve(name: string, at?: TS.Node): LaunderKind | null;
 }
 
 interface AliasBinding {
-  kind: 'alias' | 'typeParam';
+  // 'alias' — a non-generic `type X = …` whose target may name a launder keyword.
+  // 'shadow' — any other type-namespace declaration of the name (a type parameter, a
+  //   generic alias, an interface, a class, an enum, a namespace): it occupies the name
+  //   in its scope but carries no resolvable launder kind, so it stops the lexical walk.
+  kind: 'alias' | 'shadow';
   name: string;
   scope: TS.Node; // the declaration's container: the binding is visible within it
-  type?: TS.TypeNode; // the aliased type (alias bindings only)
+  type?: TS.TypeNode; // the aliased type (resolvable 'alias' bindings only)
 }
 
 /** The empty resolver — resolves nothing. */
 export const EMPTY_ALIASES: AliasResolver = { resolve: () => null };
 
-/** Build the lexically-scoped alias resolver for a source file. Generic aliases are
- *  excluded (they never name a bare launder keyword); type parameters are recorded so a
- *  cast to a shadowing type parameter is not mistaken for a cast to a launder alias. */
+/** Build the lexically-scoped alias resolver for a source file. Every declaration that
+ *  occupies the type namespace is recorded so a nearer binding shadows an outer alias of
+ *  the same name: a non-generic `type X = …` as a resolvable alias, and a type parameter,
+ *  generic alias, interface, class, enum or namespace as an opaque shadow that resolves to
+ *  no launder kind. A cast to a name whose nearest binding is a shadow is therefore not
+ *  mistaken for a cast to an outer launder alias (#524). */
 export function buildAliasMap(sf: TS.SourceFile): AliasResolver {
   const bindings: AliasBinding[] = [];
+  const shadow = (name: string, scope: TS.Node | undefined): void => {
+    if (scope) bindings.push({ kind: 'shadow', name, scope });
+  };
   const collect = (node: TS.Node): void => {
-    if (ts.isTypeAliasDeclaration(node) && (!node.typeParameters || node.typeParameters.length === 0)) {
-      bindings.push({ kind: 'alias', name: node.name.text, scope: node.parent, type: node.type });
-    } else if (ts.isTypeParameterDeclaration(node) && ts.isIdentifier(node.name) && node.parent) {
-      bindings.push({ kind: 'typeParam', name: node.name.text, scope: node.parent });
+    if (ts.isTypeAliasDeclaration(node)) {
+      // A non-generic alias may resolve to a launder keyword; a generic alias never names a
+      // bare keyword but still shadows the name in its scope.
+      if (!node.typeParameters || node.typeParameters.length === 0) {
+        bindings.push({ kind: 'alias', name: node.name.text, scope: node.parent, type: node.type });
+      } else {
+        shadow(node.name.text, node.parent);
+      }
+    } else if (ts.isInterfaceDeclaration(node) || ts.isEnumDeclaration(node)) {
+      shadow(node.name.text, node.parent);
+    } else if ((ts.isClassDeclaration(node) || ts.isModuleDeclaration(node)) && node.name && ts.isIdentifier(node.name)) {
+      shadow(node.name.text, node.parent);
+    } else if (ts.isTypeParameterDeclaration(node) && ts.isIdentifier(node.name)) {
+      shadow(node.name.text, node.parent);
     }
     ts.forEachChild(node, collect);
   };
@@ -166,25 +187,28 @@ export function buildAliasMap(sf: TS.SourceFile): AliasResolver {
   const kindOfBinding = (b: AliasBinding, seen: Set<string>): LaunderKind | null =>
     b.type ? kindOfType(b.type, (n) => resolveLexical(n, b.type as TS.Node, seen)) : null;
 
-  // Nearest enclosing binding of `name` at `at`: walk ancestors in the same tree and take
-  // the first scope that declares it. A type parameter shadows an outer alias.
+  // Nearest enclosing binding of `name` at `at`: walk ancestors in the same tree and take the
+  // first scope that declares it. Only a lone resolvable alias at that scope carries a kind; a
+  // shadow there (type parameter, generic alias, interface, class, enum, namespace) — or a
+  // shadow sharing the scope with an alias — resolves to nothing, not the outer launder alias.
   const resolveLexical = (name: string, at: TS.Node, seen: Set<string>): LaunderKind | null => {
     if (seen.has(name)) return null; // a cycle resolves to nothing
     for (let n: TS.Node | undefined = at; n; n = n.parent) {
-      const b = bindings.find((x) => x.name === name && x.scope === n);
-      if (!b) continue;
-      if (b.kind === 'typeParam') return null; // a type parameter, not a launder alias
-      return kindOfBinding(b, new Set(seen).add(name));
+      const here = bindings.filter((x) => x.name === name && x.scope === n);
+      if (here.length === 0) continue;
+      if (here.some((b) => b.kind !== 'alias' || !b.type)) return null; // shadowed at this scope
+      return kindOfBinding(here[0], new Set(seen).add(name));
     }
     return null; // not in scope at this position
   };
 
-  // Ambiguity-safe fallback for a foreign node (the diff line-fallback parses each added
-  // line as its own tree): resolve only when every alias of `name` agrees and no type
-  // parameter shares the name; a conflict resolves to nothing rather than a guess.
+  // Ambiguity-safe fallback for a foreign node (the diff line-fallback parses each added line
+  // as its own tree): resolve only when every binding of `name` is a resolvable alias and all
+  // agree on the kind. Any shadow of the name (a type parameter, generic alias, interface,
+  // class, enum or namespace anywhere in the file), or a disagreement, resolves to nothing.
   const resolveFlat = (name: string, seen: Set<string>): LaunderKind | null => {
     if (seen.has(name)) return null;
-    if (bindings.some((b) => b.kind === 'typeParam' && b.name === name)) return null;
+    if (bindings.some((b) => b.name === name && (b.kind !== 'alias' || !b.type))) return null;
     const aliases = bindings.filter((b) => b.kind === 'alias' && b.name === name);
     if (aliases.length === 0) return null;
     const kinds = new Set(aliases.map((b) => kindOfBinding(b, new Set(seen).add(name))));
