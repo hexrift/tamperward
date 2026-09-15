@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.12] — 2026-09-15
+
+### Fixed
+
+- **verify: a suite that leaves a background process holding stdout no longer hangs the capture supervisor** (#539). The checkpointed-local supervisor keyed completion on the child's stdio pipes closing; a descendant that inherited the suite's stdout (a spawned server, a `setsid()` escapee that dodges the group kill and, on macOS, the `/proc` descendant sweep) held that pipe open, so the stage hung until the outer backstop killed the supervisor and discarded the already-known exit code — surfacing as the opaque `VERIFIER_BACKEND_RUNTIME_FAILURE` / "suite capture supervisor did not produce a result". Completion is now keyed off the main child's exit with a bounded post-exit drain window (`close` still wins whenever it fires first, so the ordinary path is unchanged); the supervisor returns the real exit code, flags the leaked pipe, and `verify` prints an actionable note instead of failing closed.
+
 ## [2.29.11] — 2026-09-15
 
 ### Fixed

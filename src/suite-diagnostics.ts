@@ -32,6 +32,13 @@ export interface CapturedProcessResult {
   signal: string | null;
   timedOut: boolean;
   error?: string;
+  /**
+   * The main child exited, but at least one of its stdio pipes was still held
+   * open past the bounded post-exit drain window — a descendant that inherited
+   * the suite's stdout/stderr and outlived it (#539). The exit code is trusted;
+   * captured output may be short of a naturally-closed stream.
+   */
+  pipeHeldOpen?: boolean;
   diagnostics: SuiteDiagnostics;
 }
 
@@ -45,6 +52,14 @@ export interface CapturedProcessOptions {
   killGroupOnFinish?: boolean;
   /** Extra allowance for supervisor/cleanup after the trusted timeout. */
   backstopMs?: number;
+  /**
+   * Bounded window (ms) to keep draining the stdio pipes after the main child
+   * has exited, before finishing off the exit alone (#539). A descendant that
+   * inherited the suite's stdout can hold the pipe open forever, so completion
+   * cannot wait on `close`. `close` still wins whenever it fires first, so the
+   * ordinary path is unchanged. Defaults to 1000.
+   */
+  drainMs?: number;
 }
 
 const EMPTY_STREAM: StreamDiagnostics = {
@@ -220,6 +235,7 @@ let done = false;
 let timedOut = false;
 let exitInfo = { exit: null, signal: null };
 let descendantTracker = null;
+let drainTimer = null;
 
 function killOwned() {
   if (!child || !child.pid) return;
@@ -241,6 +257,7 @@ function finish(extra) {
   if (done) return;
   done = true;
   if (descendantTracker) clearInterval(descendantTracker);
+  if (drainTimer) clearTimeout(drainTimer);
   try {
     // stdout is reserved for the trusted supervisor result. Candidate suite
     // stdout/stderr are separate pipes and are never inherited here.
@@ -295,12 +312,24 @@ if (child) {
       signal: signal == null ? null : String(signal),
     };
     if (cfg.killGroupOnFinish) killOwned();
+    // #539: completion is keyed off the main child's exit, not only pipe close.
+    // A descendant that inherited the suite's stdout (a spawned server, a
+    // setsid() escapee) holds the pipe open, so 'close' can never fire and the
+    // stage used to hang until the outer backstop killed the supervisor and
+    // discarded the already-known exit code. Give the pipes a bounded window to
+    // drain, then finish off the exit and flag the leak. 'close' still wins
+    // whenever it fires first, so the ordinary fast path is unchanged.
+    if (!drainTimer) {
+      drainTimer = setTimeout(() => finish({ pipeHeldOpen: true }), Number(cfg.drainMs));
+      drainTimer.unref();
+    }
   });
 
   // close fires after the stdio pipes close, so the retained tails include all
   // output that was drained before owned descendants were terminated.
   child.on('close', (code, signal) => {
     clearTimeout(timer);
+    if (drainTimer) clearTimeout(drainTimer);
     if (exitInfo.exit === null && code != null) exitInfo.exit = Number(code);
     if (exitInfo.signal === null && signal != null) exitInfo.signal = String(signal);
     finish({});
@@ -330,6 +359,7 @@ export function parseCapturedSupervisorResult(stdoutText: string): CapturedProce
     signal: typeof raw.signal === 'string' ? raw.signal : null,
     timedOut: Boolean(raw.timedOut),
     ...(typeof raw.error === 'string' && raw.error ? { error: raw.error } : {}),
+    ...(raw.pipeHeldOpen === true ? { pipeHeldOpen: true } : {}),
     diagnostics,
   };
 }
@@ -352,6 +382,7 @@ export function runCapturedProcessSync(
         timeoutMs: opts.timeoutMs,
         detached: Boolean(opts.detached),
         killGroupOnFinish: Boolean(opts.killGroupOnFinish),
+        drainMs: opts.drainMs ?? 1000,
         captureBytes: DIAGNOSTIC_TAIL_BYTES,
       }),
       { mode: 0o600 },

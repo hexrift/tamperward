@@ -133,6 +133,8 @@ interface RunResult {
   failure?: 'budget' | 'backend' | 'resource';
   resource?: 'memory';
   reason?: string;
+  /** The suite exited but left a descendant holding stdout open (#539). */
+  pipeHeldOpen?: boolean;
   diagnostics?: SuiteDiagnostics;
 }
 
@@ -978,7 +980,12 @@ function runLocalSuite(dir: string, cmd: string, budgetSecs: number): RunResult 
         diagnostics: r.diagnostics,
       };
     }
-    return { exit: r.exit, secs, diagnostics: r.diagnostics };
+    return {
+      exit: r.exit,
+      secs,
+      ...(r.pipeHeldOpen ? { pipeHeldOpen: true } : {}),
+      diagnostics: r.diagnostics,
+    };
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -1282,6 +1289,12 @@ export function runVerify(opts: VerifyOpts): number {
   }
 
   const visible = runStage(visDir);
+  if (visible.pipeHeldOpen && !opts.json) {
+    out(
+      'verify: the visible suite exited but left a process holding stdout open; ' +
+      'the verdict is taken from its exit code (see issue #539).',
+    );
+  }
 
   if (visible.failure === 'backend' || visible.failure === 'resource') {
     cleanup([visRoot]);
@@ -1351,6 +1364,12 @@ export function runVerify(opts: VerifyOpts): number {
 
   const overlayBefore = overlayDigest(priDir, restored);
   const pristine = runStage(priDir);
+  if (pristine.pipeHeldOpen && !opts.json) {
+    out(
+      'verify: the pristine suite exited but left a process holding stdout open; ' +
+      'the verdict is taken from its exit code (see issue #539).',
+    );
+  }
   if (pristine.failure === 'backend' || pristine.failure === 'resource') {
     cleanup([visRoot, priRoot]);
     const exhausted = pristine.failure === 'resource';
