@@ -305,6 +305,8 @@ jobs:
       # Dead links fail it too (`ignoreDeadLinks: false`).
       - name: Build the docs site
         run: npx vitepress build docs
+      - name: Smoke-test the rendered site
+        run: node .github/docs/docs-smoke.mjs docs/.vitepress/dist
 
       - name: Smoke-test the published artifact
         run: |
