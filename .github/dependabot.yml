@@ -18,3 +18,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # TamperWard is built on the TypeScript COMPILER API (AST nodes, ScriptTarget,
+      # ts.forEachChild, isAsExpression, …). TypeScript 7.0 is the native port, whose
+      # `typescript` package no longer exports that JS API the same way, so a major bump
+      # breaks typecheck and every AST detector wholesale (#471). Hold TypeScript on 5.x
+      # — patch and minor updates still flow — until the codebase can adopt the port.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
