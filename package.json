@@ -51,7 +51,7 @@
   },
   "dependencies": {
     "picomatch": "^4.0.2",
-    "typescript": "^5.6.3",
+    "typescript": "^7.0.2",
     "yaml": "^2.6.1"
   },
   "devDependencies": {
