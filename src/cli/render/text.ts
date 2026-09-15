@@ -23,9 +23,16 @@ const ESC = '\u001b';
 const RESET = `${ESC}[0m`;
 const BOLD = `${ESC}[1m`;
 const DIM = `${ESC}[2m`;
-const RED = `${ESC}[31m`;
-const YELLOW = `${ESC}[33m`;
-const GREEN = `${ESC}[32m`;
+// 24-bit palette. Colour is decoration only (see the ACCESSIBILITY CONTRACT above):
+// it is emitted solely as SGR escapes that strip to nothing and never adds or removes
+// a printable byte, so the colour:false rendering stays byte-identical to the
+// colour:true one with the escapes removed. A terminal without truecolor down-samples
+// to its nearest colour; NO_COLOR / a pipe / TERM=dumb drop them entirely.
+const truecolour = (r: number, g: number, b: number): string => `${ESC}[38;2;${r};${g};${b}m`;
+const RED = truecolour(255, 107, 107);
+const YELLOW = truecolour(227, 179, 65);
+const GREEN = truecolour(63, 185, 80);
+const CYAN = truecolour(86, 212, 221);
 
 /**
  * Honours the NO_COLOR convention (https://no-color.org): set to any non-empty value,
@@ -161,7 +168,7 @@ export function renderText(input: TextInput, opts: TextOpts): string {
     const isBlock = f.severity === 'block';
     const mark = paint(isBlock ? 'BLOCK' : 'warn ', isBlock ? BOLD + RED : YELLOW, c);
     const loc = f.file ? `${stripControl(escapeControl(f.file))}${f.line ? `:${f.line}` : ''}` : '(command)';
-    out.push(`  ${mark}  ${paint(stripControl(f.rule), BOLD, c)}  ${paint(loc, DIM, c)}`);
+    out.push(`  ${mark}  ${paint(stripControl(f.rule), BOLD, c)}  ${paint(loc, CYAN, c)}`);
 
     // The message is the finding, so it gets the shallowest indent and no label —
     // burying the one sentence that says what happened behind a label column reads
@@ -173,7 +180,7 @@ export function renderText(input: TextInput, opts: TextOpts): string {
     };
     row('evidence', [paint(clip(f.evidence, body), DIM, c)]);
     row('instead', wrap(f.remediation, body));
-    if (f.signoff.required) row('sign-off', [stripControl(f.signoff.command)]);
+    if (f.signoff.required) row('sign-off', [paint(stripControl(f.signoff.command), YELLOW, c)]);
     out.push('');
   }
 
