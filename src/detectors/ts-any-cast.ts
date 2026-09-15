@@ -28,7 +28,7 @@ import { parseSource, ts } from '../ts-lazy';
 import { Change, Detector, Finding } from '../types';
 import { addedLines } from '../diff/select';
 import { protectedCategory } from '../policy';
-import { isCodeFile } from './files';
+import { CommentStringMasker, isCodeFile } from './files';
 import { makeFinding } from './finding';
 import { assertedLaunderKind, buildAliasMap, isDoubleCast, LaunderKind } from './ts-cast-growth';
 
@@ -244,33 +244,48 @@ export const tsAnyCast: Detector = {
       }
 
       // Fallback: diff-only change → additive-line analysis, split narrow(block)/broad(warn).
+      // The structural/literal cast reads run on a comment/string-masked copy of the line so a
+      // cast spelled inside a `//`, a `/* … */`, a string, or a multi-line template is text
+      // (#446). Each hunk's after-view (context lines + additions, deletions excluded) advances
+      // one masker so that state carries across the hunk's lines and code inside a `${…}`
+      // substitution stays scanned; state is NOT carried across hunks (the unseen gap between
+      // them may open or close a construct), so an addition whose enclosing opener lies outside
+      // the hunk's context is read as code, exactly as the per-line matcher always was. Only
+      // additions produce findings. The `@ts-*` directive and JSDoc-cast reads keep the raw
+      // line — those spellings ARE comments and are counted on the comment ranges themselves.
       const jsdocCast = JS_FILE.test(c.path) ? new RegExp(JSDOC_ANY_CAST.source) : null;
       const aliasMap = aliasMapForAddedLines(c);
-      for (const l of addedLines(c)) {
-        if (NARROW_LINE.test(l.content) || lineHasRow4Cast(l.content, aliasMap) || lineHasLiveDirective(l.content) || (jsdocCast && jsdocCast.test(l.content))) {
-          out.push(
-            makeFinding(inTest ? WARN_RULE : BLOCK_RULE, policy, {
-              file: c.path,
-              line: l.newLine ?? undefined,
-              message: inTest
-                ? 'Type-checker escape in a test file (test infrastructure — flagged, not blocked).'
-                : 'Type safety discarded: an explicit cast/suppression was added.',
-              evidence: l.content.trim(),
-              remediation: inTest ? WARN_REMEDIATION : BLOCK_REMEDIATION,
-              defaultSeverity: inTest ? 'warn' : 'block',
-            }),
-          );
-        } else if (BROAD_LINE.test(l.content)) {
-          out.push(
-            makeFinding(WARN_RULE, policy, {
-              file: c.path,
-              line: l.newLine ?? undefined,
-              message: 'Type laundered to `any` in a type/generic position.',
-              evidence: l.content.trim(),
-              remediation: WARN_REMEDIATION,
-              defaultSeverity: 'warn',
-            }),
-          );
+      for (const h of c.hunks) {
+        const masker = new CommentStringMasker();
+        for (const l of h.lines) {
+          if (l.type === 'del') continue;
+          const code = masker.mask(l.content);
+          if (l.type !== 'add') continue;
+          if (NARROW_LINE.test(code) || lineHasRow4Cast(code, aliasMap) || lineHasLiveDirective(l.content) || (jsdocCast && jsdocCast.test(l.content))) {
+            out.push(
+              makeFinding(inTest ? WARN_RULE : BLOCK_RULE, policy, {
+                file: c.path,
+                line: l.newLine ?? undefined,
+                message: inTest
+                  ? 'Type-checker escape in a test file (test infrastructure — flagged, not blocked).'
+                  : 'Type safety discarded: an explicit cast/suppression was added.',
+                evidence: l.content.trim(),
+                remediation: inTest ? WARN_REMEDIATION : BLOCK_REMEDIATION,
+                defaultSeverity: inTest ? 'warn' : 'block',
+              }),
+            );
+          } else if (BROAD_LINE.test(code)) {
+            out.push(
+              makeFinding(WARN_RULE, policy, {
+                file: c.path,
+                line: l.newLine ?? undefined,
+                message: 'Type laundered to `any` in a type/generic position.',
+                evidence: l.content.trim(),
+                remediation: WARN_REMEDIATION,
+                defaultSeverity: 'warn',
+              }),
+            );
+          }
         }
       }
     }
