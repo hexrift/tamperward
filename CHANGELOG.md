@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.29.8] — 2026-09-15
+
+### Fixed
+
+- **doctor: verify the repository ruleset's full authority boundary** (#478). `doctor --github` now checks every direct CI status named by the self-gate, requires Code Owner review and stale-review dismissal, and fails closed when an active ruleset grants bypass actors. README documents the reproducible posture command.
+
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
