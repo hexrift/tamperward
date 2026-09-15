@@ -1029,6 +1029,36 @@ function renderStageDiagnostics(
   for (const line of diagnosticLines(stage, result.diagnostics)) out(line);
 }
 
+/** Context for the human verify verdict line. */
+export interface VerifyVerdictContext {
+  restored: number;
+  base: string;
+  visibleExit: number | null;
+  pristineExit: number | null;
+  budget: number;
+}
+
+/** Pure renderer for the verdict text after "tamperward verify — ". Exported so
+ *  the documented wording is a testable production contract, not a copy. */
+export function verifyVerdictLine(verdict: string, ctx: VerifyVerdictContext): string {
+  const base10 = ctx.base.slice(0, 10);
+  switch (verdict) {
+    case 'VERIFIED':
+      return `verified: the suite passes, and still passes with all ${ctx.restored} protected files restored from ${base10}.`;
+    case 'MASKED_FAILURE':
+      return (
+        `MASKED FAILURE: the visible suite passes, but with the ${ctx.restored} protected files restored from ` +
+        `${base10} it FAILS (exit ${ctx.pristineExit}). Something weakened the checks; the code does not pass the original suite.`
+      );
+    case 'SUITE_RED':
+      return `suite red: the visible suite fails (exit ${ctx.visibleExit}) — fix the code first (pristine exit ${ctx.pristineExit}).`;
+    case 'BUDGET_EXCEEDED':
+      return `budget exceeded (${ctx.budget}s): could not verify — failing closed, not open.`;
+    default:
+      return verdict;
+  }
+}
+
 export function runVerify(opts: VerifyOpts): number {
   const cwd = opts.cwd ?? process.cwd();
   const out = opts.silent
@@ -1476,15 +1506,15 @@ export function runVerify(opts: VerifyOpts): number {
       }),
     );
   } else {
-    const lines: Record<string, string> = {
-      VERIFIED: `verified: the suite passes, and still passes with all ${restored.length} protected files restored from ${base.slice(0, 10)}.`,
-      MASKED_FAILURE:
-        `MASKED FAILURE: the visible suite passes, but with the ${restored.length} protected files restored from ` +
-        `${base.slice(0, 10)} it FAILS (exit ${pristine.exit}). Something weakened the checks; the code does not pass the original suite.`,
-      SUITE_RED: `suite red: the visible suite fails (exit ${visible.exit}) — fix the code first (pristine exit ${pristine.exit}).`,
-      BUDGET_EXCEEDED: `budget exceeded (${budget}s): could not verify — failing closed, not open.`,
-    };
-    out(`tamperward verify — ${lines[verdict]}`);
+    out(
+      `tamperward verify — ${verifyVerdictLine(verdict, {
+        restored: restored.length,
+        base,
+        visibleExit: visible.exit,
+        pristineExit: pristine.exit,
+        budget,
+      })}`,
+    );
     out(`verifier backend: ${verifierBackendSummary(verifierBackend)}`);
     out(
       'oracle assurance: suite-exit-only (candidate source executes inside the suite process; ' +

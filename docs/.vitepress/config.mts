@@ -42,6 +42,7 @@ export default defineConfig({
         {
           text: 'Guide',
           items: [
+            { text: 'Quickstart', link: '/guide/quickstart' },
             { text: 'Getting started', link: '/guide/getting-started' },
             { text: 'The rules', link: '/guide/rules' },
             { text: 'Enforcement & sign-off', link: '/guide/enforcement' },

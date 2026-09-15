@@ -4,9 +4,13 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  classifyTraceRun,
   parseStraceFileAccess,
   summarizeTraceRuns,
   runTraceVerify,
+  tracerDenialDiagnostic,
+  tracerPreflight,
+  type RawTraceRun,
   type TraceFileAccess,
 } from '../src/cli/trace-verify';
 
@@ -131,8 +135,79 @@ describe('trace-verify strace parsing (#324)', () => {
 });
 
 
+describe('trace-verify tracer classification (#516)', () => {
+  const rawRun = (over: Partial<RawTraceRun> = {}): RawTraceRun => ({
+    spawnError: null,
+    status: 0,
+    signal: null,
+    stderr: '',
+    traceFileCount: 2,
+    accessCount: 10,
+    ...over,
+  });
+
+  it('classifies a missing strace executable (spawn error) as a tracer failure', () => {
+    const out = classifyTraceRun(rawRun({ spawnError: 'spawn strace ENOENT', status: null, traceFileCount: 0, accessCount: 0 }));
+    expect(out.kind).toBe('tracer-error');
+    expect(out).toMatchObject({ diagnostic: expect.stringContaining('ENOENT') });
+  });
+
+  it('classifies a ptrace denial with an empty log as a tracer failure, quoting strace', () => {
+    const stderr = 'strace: test_ptrace_get_syscall_info: PTRACE_TRACEME: Operation not permitted\n';
+    const out = classifyTraceRun(rawRun({ status: 1, stderr, traceFileCount: 1, accessCount: 0 }));
+    expect(out.kind).toBe('tracer-error');
+    expect(out).toMatchObject({ diagnostic: expect.stringContaining('PTRACE_TRACEME') });
+  });
+
+  it('a tracer-denial diagnostic wins even if a stray access slipped through', () => {
+    const stderr = 'strace: PTRACE_TRACEME: Operation not permitted\n';
+    expect(classifyTraceRun(rawRun({ status: 1, stderr, accessCount: 3 })).kind).toBe('tracer-error');
+  });
+
+  it('classifies a killed tracer as a tracer failure', () => {
+    const out = classifyTraceRun(rawRun({ status: null, signal: 'SIGKILL', traceFileCount: 0, accessCount: 0 }));
+    expect(out).toEqual({ kind: 'tracer-error', diagnostic: expect.stringContaining('SIGKILL') });
+  });
+
+  it('classifies an empty trace with no diagnostic as a tracer failure (attached to nothing)', () => {
+    expect(classifyTraceRun(rawRun({ status: 0, stderr: '', traceFileCount: 1, accessCount: 0 })).kind).toBe('tracer-error');
+  });
+
+  it('treats a valid trace whose command exits 1 as a genuine run (incomplete evidence, not exit 2)', () => {
+    expect(classifyTraceRun(rawRun({ status: 1, accessCount: 42 }))).toEqual({ kind: 'ok', exit: 1 });
+  });
+
+  it('treats a valid trace that timed out (124) as a genuine run', () => {
+    expect(classifyTraceRun(rawRun({ status: 124, accessCount: 30 }))).toEqual({ kind: 'ok', exit: 124 });
+  });
+
+  it('treats a valid trace that exited 0 as a healthy run', () => {
+    expect(classifyTraceRun(rawRun({ status: 0, accessCount: 50 }))).toEqual({ kind: 'ok', exit: 0 });
+  });
+});
+
+describe('tracerDenialDiagnostic (#516)', () => {
+  it('recognizes the ptrace-denied diagnostic strace prints', () => {
+    expect(tracerDenialDiagnostic('strace: test_ptrace_get_syscall_info: PTRACE_TRACEME: Operation not permitted')).toContain('PTRACE_TRACEME');
+  });
+
+  it('recognizes a seccomp denial on a strace line', () => {
+    expect(tracerDenialDiagnostic('strace: seccomp filter prevents ptrace here')).not.toBeNull();
+  });
+
+  it('ignores a Permission-denied that is trace content, not a tracer message', () => {
+    expect(tracerDenialDiagnostic('100 openat(AT_FDCWD, "/etc/shadow", O_RDONLY) = -1 EACCES (Permission denied)')).toBeNull();
+  });
+
+  it('ignores benign strace progress lines', () => {
+    expect(tracerDenialDiagnostic('strace: Process 1234 attached')).toBeNull();
+  });
+});
+
 describe('trace-verify real advisory run (#324)', () => {
-  it.skipIf(process.platform !== 'linux')('traces a trusted base, suggests an uncovered config input, and never edits policy', () => {
+  // Gate on the capability preflight, not `strace --version`: where ptrace is denied
+  // (restricted CI/containers) tracing is unavailable and this E2E cannot run (#516).
+  it.skipIf(process.platform !== 'linux' || tracerPreflight().kind !== 'ok')('traces a trusted base, suggests an uncovered config input, and never edits policy', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'tw-trace-e2e-'));
     dirs.push(cwd);
     const git = (...args: string[]) => execFileSync('git', args, { cwd });

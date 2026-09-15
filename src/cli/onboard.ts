@@ -137,7 +137,7 @@ export function readlineAsker(input: NodeJS.ReadableStream, output: NodeJS.Writa
 
 class Aborted extends Error {}
 
-type Posture = 'READY' | 'READY WITH WARNINGS' | 'BROKEN' | 'INCOMPLETE';
+export type Posture = 'READY' | 'READY WITH WARNINGS' | 'BROKEN' | 'INCOMPLETE';
 
 const SECTIONS = [
   'Environment',
@@ -639,7 +639,7 @@ function renderCheck(check: DoctorCheck, out: (line: string) => void, colour: bo
   out(paint(label.padEnd(8), code, colour) + ' ' + terminalText(check.id + ' — ' + check.detail));
 }
 
-function postureOf(outcome: DoctorOutcome): Posture {
+export function postureOf(outcome: DoctorOutcome): Posture {
   if (outcome.failure) return 'INCOMPLETE';
   // The platform check means the Linux-only run envelope is unavailable. Doctor
   // keeps that as BROKEN, but check/verify onboarding itself can still be ready

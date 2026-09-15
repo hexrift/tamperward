@@ -30,7 +30,7 @@ import { addedLines } from '../diff/select';
 import { protectedCategory } from '../policy';
 import { CommentStringMasker, isCodeFile } from './files';
 import { makeFinding } from './finding';
-import { assertedLaunderKind, buildAliasMap, isDoubleCast, LaunderKind } from './ts-cast-growth';
+import { AliasResolver, assertedLaunderKind, buildAliasMap, EMPTY_ALIASES, isDoubleCast } from './ts-cast-growth';
 
 const BLOCK_RULE = 'ts-any-cast';
 const WARN_RULE = 'ts-any-launder';
@@ -150,7 +150,7 @@ function lineHasLiveDirective(line: string): boolean {
  *  recovers with diagnostics but still yields the assertion node, and comment or string text
  *  yields none. The fallback may see less than full-source analysis; it must never call one
  *  spelling block and a structurally identical one clean. */
-function lineHasRow4Cast(line: string, aliasMap: Map<string, LaunderKind>): boolean {
+function lineHasRow4Cast(line: string, aliasMap: AliasResolver): boolean {
   const sf = parseSource('line.ts', line);
   if (!sf) return false;
   let found = false;
@@ -171,12 +171,12 @@ function lineHasRow4Cast(line: string, aliasMap: Map<string, LaunderKind>): bool
 
 /** The alias map for a diff-only change: the aliases declared across ALL of the change's added
  *  lines, so an alias declared on one added line resolves a cast on another. */
-function aliasMapForAddedLines(c: Change): Map<string, LaunderKind> {
+function aliasMapForAddedLines(c: Change): AliasResolver {
   const snippet = addedLines(c)
     .map((l) => l.content)
     .join('\n');
   const sf = parseSource('lines.ts', snippet);
-  return sf ? buildAliasMap(sf) : new Map();
+  return sf ? buildAliasMap(sf) : EMPTY_ALIASES;
 }
 
 const BLOCK_REMEDIATION = 'Fix the underlying type instead of silencing the checker; do not cast to `any`.';

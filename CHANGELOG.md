@@ -5,11 +5,58 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
-## [2.29.12] — 2026-09-15
+## [2.29.15] — 2026-09-15
 
 ### Fixed
 
 - **verify: a suite that leaves a background process holding stdout no longer hangs the capture supervisor** (#539). The checkpointed-local supervisor keyed completion on the child's stdio pipes closing; a descendant that inherited the suite's stdout (a spawned server, a `setsid()` escapee that dodges the group kill and, on macOS, the `/proc` descendant sweep) held that pipe open, so the stage hung until the outer backstop killed the supervisor and discarded the already-known exit code — surfacing as the opaque `VERIFIER_BACKEND_RUNTIME_FAILURE` / "suite capture supervisor did not produce a result". Completion is now keyed off the main child's exit with a bounded post-exit drain window (`close` still wins whenever it fires first, so the ordinary path is unchanged); the supervisor returns the real exit code, flags the leaked pipe, and `verify` prints an actionable note instead of failing closed.
+
+## [2.29.14] — 2026-09-15
+
+### Fixed
+
+- **trace-verify: a ptrace/seccomp denial is no longer misreported as a non-zero
+  verifier run** (#516). `trace-verify` checked `strace --version` but not whether the
+  process may actually trace, so in restricted containers and sandboxed CI where
+  `strace` is installed but ptrace is denied it emitted an advisory report with zero
+  observations and returned 1 — inviting a maintainer to read "nothing observed" as
+  verifier evidence. A tracer-capability preflight now traces a trusted no-op first and
+  returns the documented exit 2 with an explicit ptrace/seccomp/Yama diagnostic when
+  tracing is unavailable; each run distinguishes a tracer failure (empty/denied trace →
+  exit 2, no report) from an ordinary traced command that exits non-zero (a healthy
+  trace whose command exits 1 or times out is still reported as incomplete evidence,
+  exit 1). A pure `classifyTraceRun` result classifier carries the decision and is unit
+  tested, and the real-strace E2E now skips when the preflight reports tracing is
+  unavailable rather than assuming `strace --version` implies permission.
+
+## [2.29.13] — 2026-09-15
+
+### Fixed
+
+- **onboard: generated Claude settings no longer contaminate runtime detection**
+  (#526). `init` writes `.claude/settings.json` for every runtime, and detection
+  counted that self-written file as Claude usage — so a Cursor-only repository
+  reported a phantom "Claude Code (in-loop)" runtime on the next onboarding pass and
+  the neutral-only caveat vanished. Claude Code's markers are now files `init` never
+  writes (`CLAUDE.md`, `.claude/settings.local.json`, `.claude/commands`,
+  `.claude/agents`), and its generated `.claude/settings.json` is judged by content:
+  it establishes Claude use only when it carries configuration beyond the two hooks
+  `init` merges in. The neutral-runtime coverage note is preserved even when Claude
+  Code genuinely coexists. Adds an integration test spanning detection → canonical
+  init → detection for Cursor, Codex/AGENTS.md, and Copilot.
+
+## [2.29.12] — 2026-09-15
+
+### Fixed
+
+- **`ts-any-cast` blocked a cast to a non-`any` alias shadowed in an unrelated scope**
+  (#524). Alias resolution was a flat name→kind map, so a nested or sibling
+  `type Value = any` overwrote a module-level `type Value = string`, and a legitimate
+  `raw as Value` was misclassified as an `as any` launder and blocked. Resolution is now
+  lexical: a name resolves against the scope of the assertion that uses it (walking
+  enclosing scopes), an enclosing type parameter of the same name resolves to no launder
+  kind, and the diff-only line fallback resolves a name only when every same-named alias
+  in the file agrees, so a genuine same-scope `type X = any; raw as X` still blocks.
 
 ## [2.29.11] — 2026-09-15
 
