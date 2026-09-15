@@ -12,7 +12,7 @@ import { join, relative, resolve } from 'node:path';
 const root = process.argv[2] ? resolve(process.cwd(), process.argv[2]) : resolve(process.cwd(), 'docs/.vitepress/dist');
 const errors = [];
 if (!existsSync(root)) {
-  errors.push(\`output directory does not exist: \${root}\`);
+  errors.push('output directory does not exist: ' + root);
 } else {
   const htmlFiles = [];
   const walk = (dir) => {
@@ -27,7 +27,7 @@ if (!existsSync(root)) {
   for (const path of htmlFiles) {
     const html = readFileSync(path, 'utf8');
     if (!/<main\b[^>]*>[\s\S]*?\S[\s\S]*?<\/main>/i.test(html)) {
-      errors.push(\`page has no non-empty <main>: \${relative(root, path)}\`);
+      errors.push('page has no non-empty <main>: ' + relative(root, path));
     }
   }
   const rules = join(root, 'guide/rules.html');
@@ -45,7 +45,7 @@ if (!existsSync(root)) {
 }
 if (errors.length) {
   console.error('docs smoke test failed:');
-  for (const error of errors) console.error(\`- \${error}\`);
+  for (const error of errors) console.error('- ' + error);
   process.exit(1);
 }
-console.log(\`docs smoke test passed (\${root})\`);
+console.log('docs smoke test passed (' + root + ')');
