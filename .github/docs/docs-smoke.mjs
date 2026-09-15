@@ -7,9 +7,9 @@
  * artifact before publishing it.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 
-const root = process.argv[2] ? join(process.cwd(), process.argv[2]) : join(process.cwd(), 'docs/.vitepress/dist');
+const root = process.argv[2] ? resolve(process.cwd(), process.argv[2]) : resolve(process.cwd(), 'docs/.vitepress/dist');
 const errors = [];
 if (!existsSync(root)) {
   errors.push(\`output directory does not exist: \${root}\`);
