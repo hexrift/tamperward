@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseVerify, probeFilesystemCaseSensitivity, runVerify, type RunResult } from '../src/cli/verify';
+import { loadPolicy } from '../src/policy-load';
 import { policyWeakening } from '../src/detectors/policy-diff';
 import {
   CAPTURE_SUPERVISOR,
@@ -1116,5 +1117,75 @@ describe('verify — case-insensitive filesystem overlay (#426)', () => {
     keptDirs(r.json);
     expect(r.json.added_protected_removed).toBe(0);
     expect(existsSync(join(String(r.json.pristine_dir), 'CONFTEST.PY'))).toBe(true);
+  });
+});
+
+// #547 — the direct `verify` surface loads the repository policy before it reads
+// any operator-supplied command. An incomplete `verify:` block that declares a
+// container execution boundary but omits a usable command must fail closed with
+// the loader's descriptive PolicyError, and the boundary must survive intact when
+// the block is complete. These exercise the same contract the parser unit tests
+// pin (test/verifier-backend-policy.test.ts) across the real CLI entry.
+describe('verify rejects an incomplete policy verify block before execution (#547)', () => {
+  const DIGEST = 'sha256:' + 'a'.repeat(64);
+  const IMAGE = 'ghcr.io/example/tamperward-verifier@' + DIGEST;
+
+  function repoWithPolicy(body: string): string {
+    const d = mkdtempSync(join(tmpdir(), 'tw-ver-547-'));
+    dirs.push(d);
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: d });
+    git('init', '-q');
+    git('config', 'user.email', 't@b');
+    git('config', 'user.name', 'tb');
+    writeFileSync(join(d, '.tamperward.yml'), body);
+    git('add', '-A');
+    git('commit', '-qm', 'policy');
+    return d;
+  }
+
+  const incomplete = `version: 1\nverify:\n  backend: container\n  image: ${IMAGE}\n`;
+
+  it('fails closed (POLICY_ERROR) when the container block omits a usable command', () => {
+    const cwd = repoWithPolicy(incomplete);
+    const r = capture(() => runVerify({ cwd, json: true }));
+    expect(r.code).toBe(2);
+    expect(r.json.verdict).toBe('CANNOT_VERIFY');
+    expect(r.json.reason).toBe('POLICY_ERROR');
+    expect(String(r.json.detail)).toMatch(/verify\.command is required/i);
+  });
+
+  it('an externally supplied command cannot rescue the incomplete block or relax its boundary', () => {
+    // The policy is loaded (and rejected) before any --cmd is consulted, so a
+    // separately supplied suite command cannot make the discarded container/image
+    // boundary silently come back as a permissive local run.
+    const cwd = repoWithPolicy(incomplete);
+    const r = capture(() => runVerify({ cwd, cmd: 'node -e "process.exit(0)"', json: true }));
+    expect(r.code).toBe(2);
+    expect(r.json.verdict).toBe('CANNOT_VERIFY');
+    expect(r.json.reason).toBe('POLICY_ERROR');
+  });
+
+  it('a complete container block is accepted and its backend/image/inputs survive into execution setup', () => {
+    const cwd = repoWithPolicy(
+      `version: 1\nverify:\n  command: node test/check.test.js\n  budget: 60\n  backend: container\n  image: ${IMAGE}\n  inputs:\n    - "src/**"\n`,
+    );
+    // loadPolicy is the loader doctor and verify share; the complete block keeps every field.
+    expect(loadPolicy(cwd).verify).toMatchObject({
+      command: 'node test/check.test.js',
+      budget: 60,
+      backend: 'container',
+      image: IMAGE,
+      inputs: ['src/**'],
+    });
+
+    // Through runVerify the declared boundary reaches backend preparation: with no
+    // usable container engine the run fails closed as VERIFIER_BACKEND_UNAVAILABLE
+    // while echoing the container image it was told to use — never POLICY_ERROR and
+    // never NO_SUITE_COMMAND, both of which would mean the complete block was lost.
+    const r = capture(() => runVerify({ cwd, json: true }));
+    expect(r.code).toBe(2);
+    expect(r.json.verdict).toBe('CANNOT_VERIFY');
+    expect(r.json.reason).toBe('VERIFIER_BACKEND_UNAVAILABLE');
+    expect(r.json.verifier_backend).toMatchObject({ kind: 'container', image: IMAGE, available: false });
   });
 });

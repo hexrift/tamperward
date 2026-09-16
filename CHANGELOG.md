@@ -5,6 +5,22 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.18] — 2026-09-16
+
+### Fixed
+
+- **policy: reject incomplete verify blocks instead of silently discarding verifier
+  settings** (#547). `validate` accepted a `verify:` block without checking for a usable
+  command, while `parsePolicy` retained the block only when its `command` was truthy — so
+  a block that declared a `backend`, `image`, `budget`, or `inputs` but no command (or a
+  whitespace-only command) parsed cleanly and was then dropped from the effective policy,
+  silently discarding the operator's declared execution boundary and input surface. The
+  loader now enforces one explicit contract: a `verify:` block must declare a non-empty,
+  non-whitespace `command`, and an incomplete or whitespace-only block raises a descriptive
+  `PolicyError` before execution rather than being accepted and discarded. Because a partial
+  block can no longer survive into the normalized policy, supplying the suite command
+  separately cannot alter the selected execution boundary. Complete verifier blocks preserve
+  every declared field, unchanged.
 ## [2.29.17] — 2026-09-16
 
 ### Fixed

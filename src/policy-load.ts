@@ -164,6 +164,11 @@ function validate(r: Record<string, unknown>, where: string): RawPolicy {
     const v = r.verify;
     const { command, budget, inputs, backend, image } = v;
     if (command !== undefined && typeof command !== 'string') bad(`verify.command must be a string, got ${show(command)}`);
+    // Without a command the whole block is unusable and was silently dropped, discarding a
+    // declared backend/image/budget/inputs; require one so the block cannot be lost.
+    if (typeof command !== 'string' || command.trim() === '') {
+      bad(`verify.command is required and must be a non-empty command when a verify block is present, got ${show(command)}`);
+    }
     if (budget !== undefined && !(typeof budget === 'number' && Number.isFinite(budget) && budget > 0)) {
       bad(`verify.budget must be a positive number of seconds, got ${show(budget)}`);
     }
