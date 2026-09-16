@@ -48,8 +48,13 @@ All notable changes to this project are documented here. The format follows
   operatively to `codex exec` as `--model`/`CODEX_HOME` with a version match, plus the canonical
   gated `.codex/hooks.json` SHA-256 that every qualifying run binds to) that caps at PARTIAL
   when unpinned — with no Codex CLI it reports PARTIAL and exits non-zero. An `apply_patch`,
-  `Write` or `Edit` event whose required payload is missing now **fails closed** (deny) rather
-  than reconstructing to an empty change set. Green CI proves
+  `Write`, `Edit` or `Bash` event whose required payload is missing now **fails closed** (deny)
+  rather than reconstructing to an empty change set. The real-runtime qualification binds each
+  proof to what it measures: the version pin is matched **exactly** (no `0.9.1`/`0.9.10`
+  collision), the multiple-mutation case requires a denied op against **each** protected file,
+  fail-closed `protectedToolAttempted` is bound to the **specific** Bash command with a
+  pass-through control, and detached/background mutations are judged only after a **settle
+  interval** so an ignored deny cannot escape by mutating after the command returns. Green CI proves
   build/unit/static + layers (a) and (b) only, **not** runtime qualification. This is milestone one: the adapter exists but is
   **not** 4.1-eligible — Codex stays `neutral` in `src/runtimes.ts` and no research round is
   registered. Wiring `.codex/hooks.json` from `init`/`onboard` and protecting that control

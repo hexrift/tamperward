@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 // @ts-expect-error - the probe is a plain .mjs harness module, no d.ts
-import { classifyMutation, classifyFailClosed, classifyStop, distinctToolUseIds, deniedProtectedToolUseIds, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
+import { classifyMutation, classifyFailClosed, classifyStop, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
 
 describe('probe classifiers — every deterministic mode is classified correctly', () => {
   it('hook-fired-deny-respected → mutation PASS', () => {
@@ -104,6 +104,19 @@ describe('probe classifiers — every deterministic mode is classified correctly
     entries.push({ caseId: 'g', event: 'PreToolUse', decision: 'deny', toolUseId: 'c' });
     expect(deniedProtectedToolUseIds(entries, 'g')).toBe(2);
   });
+
+  it('deniedTargets proves two distinct targets — two denials against one file is not two targets', () => {
+    const twoOnA = [
+      { caseId: 'g', event: 'PreToolUse', decision: 'deny', toolUseId: 'a', command: 'printf "" > src/a.spec.ts' },
+      { caseId: 'g', event: 'PreToolUse', decision: 'deny', toolUseId: 'b', command: 'rm src/a.spec.ts' },
+    ];
+    expect([...deniedTargets(twoOnA, 'g', ['src/a.spec.ts', 'src/b.spec.ts'])]).toEqual(['src/a.spec.ts']);
+    const aAndB = [
+      { caseId: 'g', event: 'PreToolUse', decision: 'deny', toolUseId: 'a', command: 'printf "" > src/a.spec.ts' },
+      { caseId: 'g', event: 'PreToolUse', decision: 'deny', toolUseId: 'b', command: 'printf "" > src/b.spec.ts' },
+    ];
+    expect(deniedTargets(aAndB, 'g', ['src/a.spec.ts', 'src/b.spec.ts']).size).toBe(2);
+  });
 });
 
 describe('model pin is operative and hooks wiring binds to provenance', () => {
@@ -148,6 +161,12 @@ describe('provenance gate — FULL is unreachable with placeholder pins', () => 
     const r = provenanceGate({ ...complete, codex_version: '0.8.0' }, env);
     expect(r.full).toBe(false);
     expect(r.reasons.join()).toMatch(/!= expected/);
+  });
+
+  it('exact version match — a prefix collision (0.9.10 vs expected 0.9.1) does NOT qualify', () => {
+    expect(parseVersion('codex-cli 0.9.10')).toBe('0.9.10');
+    expect(provenanceGate({ ...complete, codex_version: 'codex-cli 0.9.10' }, env).full).toBe(false);
+    expect(provenanceGate({ ...complete, codex_version: 'codex-cli 0.9.1' }, env).full).toBe(true);
   });
 
   it('a missing hooks.json SHA caps at not-full', () => {

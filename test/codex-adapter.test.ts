@@ -355,6 +355,18 @@ describe('CodexRuntimeAdapter.decide — failure states fail CLOSED (deny)', () 
     }
   });
 
+  it('a recognized shell (Bash) event with no command fails CLOSED, never allow', () => {
+    const cwd = repoFixture();
+    try {
+      for (const ti of [{}, { command: '' }, { argv: [] }]) {
+        const r = codexAdapter.decide(JSON.stringify({ tool_name: 'Bash', cwd, tool_input: ti }), 'pre-action', cwd);
+        expect(r.decision?.verdict).toBe('deny');
+      }
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('failClosed maps transport/not-invoked to a deny wire', () => {
     const t = codexAdapter.failClosed('transport-failure', 'hook unreachable', 'pre-action');
     expect(t.outcome).toBe('transport-failure');

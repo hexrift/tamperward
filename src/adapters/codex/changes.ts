@@ -37,10 +37,12 @@ function shellChanges(args: Record<string, unknown>): Change[] {
   const cmd = args.command ?? args.argv;
   if (Array.isArray(cmd)) {
     const argv = cmd.map(asStr).filter((s) => s.length > 0);
-    return argv.length ? [{ kind: 'command', raw: argv.join(' '), argv }] : [];
+    if (!argv.length) throw new Error('shell event carries no command/argv to reconstruct');
+    return [{ kind: 'command', raw: argv.join(' '), argv }];
   }
   const raw = asStr(cmd);
-  return raw ? [{ kind: 'command', raw, argv: raw.split(/\s+/) }] : [];
+  if (!raw) throw new Error('shell event carries no command to reconstruct');
+  return [{ kind: 'command', raw, argv: raw.split(/\s+/) }];
 }
 
 /** A single `*** ... File:` section of an apply_patch envelope. */
