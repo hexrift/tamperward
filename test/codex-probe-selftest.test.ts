@@ -206,6 +206,24 @@ describe('probe driver — builds, decides, and records to the parent-owned ledg
     }
   });
 
+  it('makeRepo writes Codex TOML hooks with string command values', () => {
+    const work = mkdtempSync(join(tmpdir(), 'tw-probe-config-'));
+    try {
+      const driver = buildDriver();
+      const ledger = join(work, 'ledger.jsonl');
+      const repo = makeRepo(driver, ledger);
+      const config = readFileSync(join(repo, '.codex', 'config.toml'), 'utf8');
+      const commands = [...config.matchAll(/^command = (.+)$/gm)].map((m) => JSON.parse(m[1]));
+      expect(commands).toHaveLength(3);
+      expect(commands.every((command) => typeof command === 'string')).toBe(true);
+      expect(config).not.toContain('command = {');
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(dirname(driver), { recursive: true, force: true });
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  });
+
   it('the REAL driver records deny for a protected tamper, and the classifier consumes it', () => {
     const work = mkdtempSync(join(tmpdir(), 'tw-probe-drv-'));
     try {

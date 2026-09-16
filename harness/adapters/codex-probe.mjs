@@ -245,10 +245,10 @@ export function makeRepo(driver, ledger, preCmdOverride, stopCmdOverride) {
   const stopCmd = stopCmdOverride ?? driverCmd;
   const wire = (cmd, phase) => ({ type: 'command', command: `TW_PROBE_LEDGER=${ledger} TW_CODEX_PHASE=${phase} ${cmd}` });
   const tomlString = (value) => JSON.stringify(value);
-  const hook = (command, phase) => `[[hooks.${phase}]]\nmatcher = "*"\n[[hooks.${phase}.hooks]]\ntype = "command"\ncommand = ${tomlString(command)}`;
+  const hook = (command, phase) => `[[hooks.${phase}]]\nmatcher = "*"\n[[hooks.${phase}.hooks]]\ntype = "command"\ncommand = ${tomlString(command.command)}`;
   writeFileSync(
     join(dir, '.codex', 'config.toml'),
-    `[hooks]\n${hook(wire(tracerCmd(ledger), 'pre'), 'PreToolUse')}\n${hook(wire(preCmd, 'pre'), 'PreToolUse')}\n[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = "command"\ncommand = ${tomlString(wire(stopCmd, 'stop'))}\n`,
+    `[hooks]\n${hook(wire(tracerCmd(ledger), 'pre'), 'PreToolUse')}\n${hook(wire(preCmd, 'pre'), 'PreToolUse')}\n[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = "command"\ncommand = ${tomlString(wire(stopCmd, 'stop').command)}\n`,
   );
   g(['add', '-A']);
   g(['commit', '-qm', 'seed']);
