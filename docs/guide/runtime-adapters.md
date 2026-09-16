@@ -172,6 +172,138 @@ judged from the root). The payload's `cwd` is a fact to check, not authority to 
    research-adapter registration, and the parity suite are Phase 2 / Phase 3 work — see the
    issue's staged sequence. Phase 1 ships the neutral seam and the Claude conformance only.)
 
+## Codex (EXPERIMENTAL — adapter exists, not yet 4.1-eligible)
+
+An **experimental** Codex adapter ships in `src/adapters/codex/*`
+([#482](https://github.com/hexrift/tamperward/issues/482),
+[#563](https://github.com/hexrift/tamperward/issues/563)). It is the second implementation
+of the neutral `RuntimeAdapter` contract, and it is deliberately conservative.
+
+**Grounded in the real Codex protocol.** The adapter's wire is grounded against the Codex
+source (`openai/codex`, `codex-rs/hooks/schema/generated` and `codex-rs/core/src/tools`),
+not guessed. The canonical **hook-facing** tool names are `Bash` (the whole shell/exec
+family), `apply_patch` (with `Write`/`Edit` as matcher aliases), and `mcp__<server>__<tool>`
+(`hook_names.rs`, `unified_exec.rs`, `mcp.rs`). The **apply_patch** payload is
+`tool_input.command` carrying the patch text (`apply_patch.rs`). The **deny wire differs by
+phase**: PreToolUse denies with `hookSpecificOutput.permissionDecision:"deny"` (plus the
+deprecated top-level `decision:"block"`), while Stop denies with `{decision:"block", reason}`
+and **no** `hookSpecificOutput`
+(`pre-tool-use.command.output.schema.json`, `stop.command.output.schema.json`). Those four
+schema files are copied verbatim into `test/fixtures/codex-schemas`, and
+`test/codex-protocol.test.ts` validates the adapter's inputs and deny wire against them.
+
+**Two milestones, not one.** *An adapter existing is not the same as a runtime being
+qualified for in-loop enforcement.* Milestone one — the adapter — is done: it normalizes
+Codex hook payloads, maps the canonical tool names to operation kinds, reconstructs shell
+and file-edit operations (including `apply_patch`) into the shared `Change[]` via
+`synthFileChange`, runs the **same** engine as the Claude path for its pre-action content
+decision, delegates the end-of-turn sweep to the canonical git sweep, validates identity as
+an untrusted claim, and fails closed on every failure state. Milestone two — proving that
+Codex actually **enforces** a pre-action deny and that its hook transport actually **fails
+closed** on a *pinned* Codex build — is **not** met, so Codex is **not** eligible for
+Round 4.1. The registry (`src/runtimes.ts`) keeps Codex at `steering: 'neutral'` and no
+research round is registered. This matters because Codex currently **fails open** on some
+hook failures (`pre_tool_use.rs` `serialization_failure_outcome`,
+`permission_decision_allow_without_updated_input_fails_open`): a real qualification run may
+legitimately come back PARTIAL, which is exactly why the probe *proves* fail-closed from
+evidence rather than assuming it.
+
+**Conservative capabilities.** The Codex adapter declares:
+
+- `preDeny: []` — pre-action deny enforcement is **not yet proven** on a pinned Codex build,
+  so the adapter claims no synchronous veto (per the honesty rule: only claim `preDeny` for
+  a kind proven by invocation evidence, never by the mere existence of a hook name);
+- `postObserve: shell | file-edit | file-read | mcp | other` — Codex surfaces
+  post-execution tool outcomes;
+- `endOfTurn: true` — Codex delivers a stop event that runs the mandatory git sweep;
+- `unsupported` names the real gaps in prose: *pre-action deny enforcement not yet proven on
+  a pinned Codex build*, *fail-closed hook transport not yet proven
+  ([openai/codex#41979](https://github.com/openai/codex/issues/41979))*, *network-egress
+  control*, and *identity / authentication*.
+
+**Three-layer qualification.** Qualification is layered so the parts that *can* run
+deterministically in CI are separated from the part that needs a real Codex box:
+
+- **(a) Protocol conformance** (`test/codex-protocol.test.ts`, CI) — the adapter parses the
+  real Codex input shape and its deny wire validates against the copied real output schemas.
+- **(b) Probe self-test** (`test/codex-probe-selftest.test.ts`, CI) — the probe's own
+  classifiers are asserted against every deterministic mode (hook-fired-deny-respected,
+  deny-ignored, hook-never-fired, tool-never-attempted, observed-failure-fail-closed,
+  unobserved-failure, outer-timeout-inconclusive, stop-respected/ignored/never-fired), the
+  provenance gate is asserted (a missing pin or version mismatch caps at not-full), the
+  distinct-`tool_use_id` counter is checked, and the **real** driver is built and exercised
+  end-to-end (decide → append to a parent-owned ledger → classify). This proves the probe
+  *itself* cannot false-green.
+- **(c) Real Codex E2E** (`npm run probe:codex-runtime`, **not** run in CI) — the real gate
+  for milestone two, on a pinned Codex build.
+
+**`probe:codex-runtime`** (`harness/adapters/codex-probe.mjs`) drives a real `codex` binary
+against a real repository. Each mutation class (shell edit, `apply_patch` edit, native
+edit/write, delete, rename, git checkout/reset/restore, MCP op, nested shell, *multiple tool
+calls in one turn*, detached/background mutation) is run as a **CONTROL** (fully pass-through
+hooks → the mutation must land) vs **GATED** (TamperWard hook → deny) pair. Evidence is a
+**parent-owned, append-only ledger** written **outside** the candidate repo by the hook
+driver, plus a tracer hook that records that the tool was attempted; `specIntact` alone is
+never proof. A mutation case passes only when the ledger shows the expected tool was
+attempted, PreToolUse fired, TamperWard denied, the reason reached Codex, the mutation did
+**not** land, and Codex completed, and the gated wiring **binds** to the recorded provenance
+hash. The *multiple protected mutations* case additionally requires a **denied PreToolUse
+command targeting each protected file** (`src/a.spec.ts` *and* `src/b.spec.ts`) — two denials
+against one file is not two targets — and the control arm must land both; genuine concurrency
+is not asserted. A dedicated **detached/background** case backgrounds a delayed mutation and a
+parent-owned sentinel, then judges only after a **settle interval** exceeding the child's
+delay, so a deny that was ignored cannot escape by mutating after the command returns.
+
+FULL additionally requires a **real Stop qualification**: a case that lets a protected
+mutation LAND during the turn (pre-action pass-through) and then proves from the ledger that
+Stop fired, the sweep returned the `{decision:block, reason}` wire, and Codex **honoured** it
+by continuing the turn — a subsequent Stop with `stop_hook_active:true` (codex-rs `turn.rs`
+injects a continuation), not merely that the feedback appeared and the process exited.
+
+For **fail-closed transport**, each broken hook (crash, non-zero exit, malformed JSON, empty
+output, timeout, missing executable) writes a positive `hook-failure` marker of its kind to
+the ledger **before** it triggers the fault, so `intendedHookFailure` is **observed**, never
+assumed; `protectedToolAttempted` is bound to the **specific** expected Bash command (the
+sentinel path *and* the protected file), not merely "some tool fired", and a pass-through
+control proves the prompt is potent; the protected command drops a parent-owned **dispatch
+sentinel**, so a PASS requires direct proof the tool was **not dispatched**, not merely an
+intact file; a case where the **outer harness timeout** killed Codex is treated as
+**inconclusive**, never a fail-closed PASS. Three identity-poison cases (invalid, cross-repo,
+symlink-escape claimed cwd) run the driver directly with an **explicit** adversarial cwd and
+must fail closed.
+
+Before it may print `Eligible for Round 4.1`, the probe enforces a **provenance gate**:
+`CODEX_VERSION_EXPECTED` (the running Codex version token must match it **exactly** — `0.9.1`
+never qualifies a running `0.9.10`), `CODEX_MODEL` (passed
+operatively to `codex exec` as `--model`, so the pinned model is the one that runs), and
+`CODEX_HOME` must be set, and the **canonical SHA-256 of the gated `.codex/hooks.json`** — the
+wiring every qualifying gated run is bound to — must be captured, alongside the Codex binary
+SHA-256, OS/arch, `exec` args, approval/sandbox mode, and adapter/probe/driver hashes. Any
+missing pin caps the result at PARTIAL. With no
+Codex CLI present it reports PARTIAL and exits non-zero, so "could not test" is never mistaken
+for "passed". Only a FULL verdict justifies flipping Codex to `in-loop` and registering
+Round 4.1 — deliberately not done by this PR.
+
+**CI honesty.** A green CI run proves the **build, unit/adapter tests, static gate, protocol
+conformance (a), and the probe self-test (b)** only. It does **not** prove runtime
+qualification: the real-Codex E2E (c) is not run in CI (no Codex binary there). Codex stays
+experimental and `neutral`, `preDeny` stays empty, and no Round 4.1 is registered until a FULL
+`probe:codex-runtime` verdict on a pinned build says otherwise.
+
+The Codex pre-action path pins the Stop-sweep baseline at **turn start** (`turnBaseline`) on
+every pre-action call, exactly as the canonical `preToolUseVerdict` does — because with
+`preDeny` empty the end-of-turn git sweep is Codex's only real enforcement, and a baseline
+first set at Stop time would let a mutation the turn *committed* mid-turn slip past the
+sweep. Full parity with the other two canonical pre-action steps — `effectDriftBlocks`
+(hidden out-of-band drift) and `sanctionPredictedWrites` (so an allowed pre-action edit is
+not re-flagged by the Stop sweep) — is a **PR 2** follow-up; those matter only once Codex is
+wired live with the effect observer.
+
+**PR 2 follow-up.** Generating `.codex/hooks.json` from `init` / `onboard`, and protecting
+that control surface (the same way the Claude hook wiring is protected), is the next PR,
+along with the `effectDriftBlocks` / `sanctionPredictedWrites` parity noted above. This PR
+wires hooks only inside the probe harness; it adds no init/onboard generation.
+
 ## Runtime detection in onboarding
 
 `tamperward onboard` reports which agent runtime a repository actually hosts and what

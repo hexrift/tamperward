@@ -5,6 +5,61 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.30.0] — 2026-09-16
+
+### Added
+
+- **adapters: an EXPERIMENTAL Codex runtime adapter plus a real qualification probe**
+  (#482, #563). A new `CodexRuntimeAdapter` (`src/adapters/codex/*`) implements the neutral
+  `RuntimeAdapter` contract, grounded against the real Codex protocol (`openai/codex`
+  `codex-rs/hooks/schema/generated` and `codex-rs/core/src/tools`), not guessed. It
+  normalizes Codex hook payloads into the shared `SteeringEvent` shape using the canonical
+  **hook-facing** tool names (`Bash` → `shell`; `apply_patch`, with `Write`/`Edit` matcher
+  aliases → `file-edit`; `mcp__<server>__<tool>` → `mcp`; `view_image` → `file-read`),
+  reconstructs shell and file-edit operations into the shared `Change[]` via `synthFileChange`
+  (reading the real `apply_patch` payload from `tool_input.command`, with a parser that fails
+  **closed** on a hunk it cannot locate), runs the **same** engine as the Claude path for its
+  pre-action content decision, pins the Stop-sweep baseline at turn start, and delegates the
+  end-of-turn sweep to the canonical git sweep. The deny wire is **phase-split** to match the
+  real Codex output schemas: PreToolUse denies with `hookSpecificOutput.permissionDecision:
+  "deny"` (plus the deprecated top-level `decision:"block"`), Stop denies with
+  `{decision:"block", reason}` and no `hookSpecificOutput`. Identity is validated as an
+  untrusted claim exactly as the Claude adapter does, and every failure state
+  (`parse-failure`, `transport-failure`, `not-invoked`, an unreconstructable edit, a rejected
+  identity) fails closed to a deny. Capabilities are deliberately **conservative and honest**:
+  `preDeny` is **empty** because pre-action deny enforcement is not yet proven on a pinned
+  Codex build (Codex currently fails open on some hook failures), and `unsupported` names that
+  gap along with fail-closed hook transport (openai/codex#41979), network-egress control, and
+  identity/authentication. Qualification is **three-layered**: (a) protocol-conformance tests
+  validate inputs and deny wire against the real Codex schemas copied into
+  `test/fixtures/codex-schemas`; (b) a probe self-test asserts the probe's classifiers against
+  every deterministic mode and exercises the real driver end-to-end so the probe itself cannot
+  false-green — both run in CI; (c) `probe:codex-runtime`
+  (`harness/adapters/codex-probe.mjs`) is the real gate on a pinned Codex build, using a
+  parent-owned append-only ledger (evidence, not `specIntact` alone), CONTROL-vs-GATED
+  mutation pairs, an **observed** fail-closed-transport suite (each broken hook — including a
+  missing executable — writes a positive `hook-failure` marker before the fault, the protected
+  command drops a parent-owned **dispatch sentinel** so a PASS proves the tool was not
+  dispatched rather than inferring it from an intact file, and an outer-timeout kill is treated
+  as inconclusive, never a PASS), a real **Stop-block** qualification that requires Codex to
+  **honour** the block by continuing (`stop_hook_active:true`), and an honest **multiple
+  protected mutations** check (two distinct *denied* protected `tool_use_id`s) — all required
+  for FULL, and a **provenance gate** (pinned `CODEX_VERSION_EXPECTED`/`CODEX_MODEL` passed
+  operatively to `codex exec` as `--model`/`CODEX_HOME` with a version match, plus the canonical
+  gated `.codex/hooks.json` SHA-256 that every qualifying run binds to) that caps at PARTIAL
+  when unpinned — with no Codex CLI it reports PARTIAL and exits non-zero. An `apply_patch`,
+  `Write`, `Edit` or `Bash` event whose required payload is missing now **fails closed** (deny)
+  rather than reconstructing to an empty change set. The real-runtime qualification binds each
+  proof to what it measures: the version pin is matched **exactly** (no `0.9.1`/`0.9.10`
+  collision), the multiple-mutation case requires a denied op against **each** protected file,
+  fail-closed `protectedToolAttempted` is bound to the **specific** Bash command with a
+  pass-through control, and detached/background mutations are judged only after a **settle
+  interval** so an ignored deny cannot escape by mutating after the command returns. Green CI proves
+  build/unit/static + layers (a) and (b) only, **not** runtime qualification. This is milestone one: the adapter exists but is
+  **not** 4.1-eligible — Codex stays `neutral` in `src/runtimes.ts` and no research round is
+  registered. Wiring `.codex/hooks.json` from `init`/`onboard` and protecting that control
+  surface (and full parity with `effectDriftBlocks`/`sanctionPredictedWrites`) is a **PR 2**
+  follow-up.
 ## [2.29.21] — 2026-09-16
 
 ### Fixed
