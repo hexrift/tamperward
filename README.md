@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" width="76" height="76" alt="">
+  <img src="assets/logo.png" width="76" height="76" alt="">
 </p>
 
 <h1 align="center">Tamperward</h1>
