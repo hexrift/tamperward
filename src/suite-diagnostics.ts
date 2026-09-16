@@ -249,17 +249,38 @@ function finish(extra) {
   done = true;
   if (descendantTracker) clearInterval(descendantTracker);
   if (drainTimer) clearTimeout(drainTimer);
+  // stdout is reserved for the trusted supervisor result. Candidate suite
+  // stdout/stderr are separate pipes and are never inherited here.
+  //
+  // Write the result synchronously before exiting. Node's process-I/O contract
+  // makes a pipe/socket write asynchronous on POSIX (Linux and macOS) and
+  // synchronous only on Windows, so process.stdout.write followed by an
+  // immediate process.exit(0) can truncate a multi-KiB document (up to two 16
+  // KiB base64 tails) that has not yet left the process. fs.writeSync drains it
+  // fully — retrying short writes and EAGAIN on a backpressured non-blocking fd
+  // — so the parent always sees complete, parseable JSON. A write that genuinely
+  // fails (e.g. the reader closed) exits non-zero, which the parent surfaces as a
+  // supervisor failure rather than a silently empty result.
+  const buf = Buffer.from(JSON.stringify({
+    ...exitInfo,
+    timedOut,
+    ...extra,
+    stdout: diag(stdout),
+    stderr: diag(stderr),
+  }), 'utf8');
+  let offset = 0;
   try {
-    // stdout is reserved for the trusted supervisor result. Candidate suite
-    // stdout/stderr are separate pipes and are never inherited here.
-    process.stdout.write(JSON.stringify({
-      ...exitInfo,
-      timedOut,
-      ...extra,
-      stdout: diag(stdout),
-      stderr: diag(stderr),
-    }));
-  } catch {}
+    while (offset < buf.length) {
+      try {
+        offset += fs.writeSync(1, buf, offset, buf.length - offset);
+      } catch (e) {
+        if (e && e.code === 'EAGAIN') continue;
+        throw e;
+      }
+    }
+  } catch {
+    process.exit(1);
+  }
   process.exit(0);
 }
 

@@ -651,6 +651,38 @@ describe('suite supervisor lifecycle and result authority (#319, #371)', () => {
     await waitForPidsGone(pids);
   }, 15_000);
 
+  it('flushes a maximal two-tail supervisor result completely before exiting (#555)', () => {
+    const cwd = repo();
+    // Force both retained tails to their full DIAGNOSTIC_TAIL_BYTES, so the
+    // reserved result channel carries its largest possible document (two 16 KiB
+    // base64 tails plus metadata). The supervisor must write it synchronously and
+    // in full before process.exit; an async write truncated by immediate exit
+    // would yield a null parse ("did not produce a result") or short tails.
+    const fill = DIAGNOSTIC_TAIL_BYTES + 8_000;
+    const code =
+      "const fs=require('fs');" +
+      `fs.writeSync(1,Buffer.alloc(${fill},65));` +
+      `fs.writeSync(2,Buffer.alloc(${fill},66));` +
+      'process.exit(3)';
+    const result = runCapturedProcessSync(process.execPath, ['-e', code], {
+      cwd,
+      env: process.env,
+      timeoutMs: 5_000,
+      detached: process.platform !== 'win32',
+      killGroupOnFinish: true,
+    });
+    expect(result.exit).toBe(3);
+    expect(result.timedOut).toBe(false);
+    expect(result.error).toBeUndefined();
+    for (const stream of [result.diagnostics.stdout, result.diagnostics.stderr]) {
+      expect(stream.captured_bytes).toBe(fill);
+      expect(stream.retained_bytes).toBe(DIAGNOSTIC_TAIL_BYTES);
+      expect(stream.truncated).toBe(true);
+    }
+    expect(result.diagnostics.stdout.tail).toBe('A'.repeat(DIAGNOSTIC_TAIL_BYTES));
+    expect(result.diagnostics.stderr.tail).toBe('B'.repeat(DIAGNOSTIC_TAIL_BYTES));
+  });
+
   it('preserves authoritative nonzero exit while draining noisy stdout/stderr', () => {
     const cwd = repo();
     const code =
