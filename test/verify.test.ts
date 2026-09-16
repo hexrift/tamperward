@@ -3,13 +3,14 @@
 // (node -e), plus the guarded-surface tests for the policy `verify:` block.
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseVerify, probeFilesystemCaseSensitivity, runVerify, type RunResult } from '../src/cli/verify';
 import { policyWeakening } from '../src/detectors/policy-diff';
 import {
+  CAPTURE_SUPERVISOR,
   DIAGNOSTIC_TAIL_BYTES,
   parseCapturedSupervisorResult,
   runCapturedProcessSync,
@@ -682,6 +683,56 @@ describe('suite supervisor lifecycle and result authority (#319, #371)', () => {
     expect(result.diagnostics.stdout.tail).toBe('A'.repeat(DIAGNOSTIC_TAIL_BYTES));
     expect(result.diagnostics.stderr.tail).toBe('B'.repeat(DIAGNOSTIC_TAIL_BYTES));
   });
+
+  it.skipIf(process.platform === 'win32')('writes the full result even when the parent stalls reading the reserved channel (#555)', async () => {
+    const cwd = repo();
+    const state = mkdtempSync(join(tmpdir(), 'tw-flush-stall-'));
+    dirs.push(state);
+    // captureBytes large enough that the result document exceeds a pipe buffer, so
+    // a stalled reader forces the synchronous write to back up (block / short-write
+    // / EAGAIN) rather than completing in one call.
+    const cap = 128 * 1024;
+    const suite =
+      "const fs=require('fs');" +
+      `fs.writeSync(1,Buffer.alloc(${cap + 8_000},65));` +
+      'process.exit(7)';
+    const configFile = join(state, 'config.json');
+    writeFileSync(configFile, JSON.stringify({
+      executable: process.execPath,
+      args: ['-e', suite],
+      cwd,
+      timeoutMs: 5_000,
+      detached: process.platform !== 'win32',
+      killGroupOnFinish: true,
+      drainMs: 1_000,
+      captureBytes: cap,
+    }));
+
+    const child = spawn(process.execPath, ['-e', CAPTURE_SUPERVISOR, configFile], {
+      cwd,
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    // A busy or blocked write must never hang the runner: kill the child if it does.
+    const guard = setTimeout(() => child.kill('SIGKILL'), 12_000);
+
+    const chunks: Buffer[] = [];
+    child.stdout!.pause();
+    await new Promise((r) => setTimeout(r, 700));
+    child.stdout!.on('data', (b: Buffer) => chunks.push(b));
+    child.stdout!.resume();
+
+    const exit: number = await new Promise((resolve) => child.on('close', (c) => resolve(c ?? -1)));
+    clearTimeout(guard);
+
+    expect(exit).toBe(0);
+    const result = parseCapturedSupervisorResult(Buffer.concat(chunks).toString('utf8'));
+    expect(result).not.toBeNull();
+    expect(result!.exit).toBe(7);
+    expect(result!.diagnostics.stdout.captured_bytes).toBe(cap + 8_000);
+    expect(result!.diagnostics.stdout.retained_bytes).toBe(cap);
+    expect(result!.diagnostics.stdout.tail).toBe('A'.repeat(cap));
+  }, 20_000);
 
   it('preserves authoritative nonzero exit while draining noisy stdout/stderr', () => {
     const cwd = repo();

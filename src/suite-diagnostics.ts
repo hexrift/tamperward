@@ -144,7 +144,7 @@ export function diagnosticLines(stage: string, diagnostics: SuiteDiagnostics): s
 // Configuration is read from a trusted temp file rather than argv so a long
 // suite command cannot run into platform argv limits earlier than the suite
 // itself would.
-const CAPTURE_SUPERVISOR = String.raw`
+export const CAPTURE_SUPERVISOR = String.raw`
 const cp = require('node:child_process');
 const fs = require('node:fs');
 
