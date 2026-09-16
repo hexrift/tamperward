@@ -47,11 +47,9 @@ import {
 
 const MAX_REQUEST_BYTES = 64 * 1024 * 1024; // a Write payload carries the whole file
 const STOP_WAIT_MS = 10_000;
-// A connection that never completes its request line is bounded so a stalled or
-// interrupted client cannot hold a socket open indefinitely before acceptance.
+// Cap a client that never finishes its request line, so it cannot hold a socket open.
 const REQUEST_DEADLINE_MS = 30_000;
-// During shutdown an accepted evaluation is given this long to finish before its
-// socket is destroyed, so `close` is bounded even when a client hangs mid-request.
+// Grace for an in-flight evaluation to finish during shutdown before its socket is destroyed.
 const SHUTDOWN_DRAIN_MS = 5_000;
 
 export interface ServiceState {
@@ -224,10 +222,8 @@ export async function startHookService(opts: StartOptions): Promise<RunningServi
   // call the client already abandoned (#416). A refused request is never
   // evaluated here, so it records no side effects.
   let inFlight = false;
-  // Every accepted connection, so shutdown can destroy any that outlive the
-  // drain window instead of waiting on them forever (#551). The one socket whose
-  // evaluation currently owns the evaluator is tracked separately so shutdown can
-  // give it — and only it — the drain before destroying it.
+  // All open connections, so shutdown can destroy any that outlive the drain window;
+  // acceptedSocket is the one with an evaluation in flight, which gets the drain first.
   const sockets = new Set<Socket>();
   let acceptedSocket: Socket | null = null;
   const startedAt = new Date().toISOString();
@@ -384,8 +380,7 @@ export async function startHookService(opts: StartOptions): Promise<RunningServi
         setSnapshotCache(null);
         let settled = false;
         let drain: ReturnType<typeof setTimeout>;
-        // Cleanup resolves only once every service-owned handle is gone: the
-        // server has stopped accepting AND all sockets have closed.
+        // Resolves once the server has stopped accepting and all sockets are closed.
         const finalize = (): void => {
           if (settled) return;
           settled = true;
@@ -395,10 +390,7 @@ export async function startHookService(opts: StartOptions): Promise<RunningServi
           resolve();
         };
         server.close(finalize);
-        // Stop waiting on any connection with no accepted evaluation in flight —
-        // a stalled pre-request client must not hold shutdown open. An accepted
-        // evaluation keeps its socket for a bounded drain, then it too is
-        // destroyed; either way the client's post-handoff path fails closed.
+        // Destroy idle connections at once; an in-flight evaluation gets the drain below.
         for (const sock of sockets) if (sock !== acceptedSocket) sock.destroy();
         drain = setTimeout(() => {
           for (const sock of sockets) sock.destroy();
