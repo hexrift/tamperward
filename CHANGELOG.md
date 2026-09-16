@@ -21,6 +21,25 @@ All notable changes to this project are documented here. The format follows
   block can no longer survive into the normalized policy, supplying the suite command
   separately cannot alter the selected execution boundary. Complete verifier blocks preserve
   every declared field, unchanged.
+## [2.29.17] — 2026-09-16
+
+### Fixed
+
+- **verify: the capture supervisor now flushes its result synchronously before exiting, so a
+  large diagnostic payload is never truncated by process.exit** (#555). The inline capture
+  supervisor wrote its reserved result JSON with `process.stdout.write(...)` and then called
+  `process.exit(0)`. Per Node's process-I/O contract a pipe/socket write is **asynchronous on
+  POSIX** (Linux and macOS) and synchronous only on Windows, so an immediate exit could drop a
+  still-queued multi-KiB document — up to two 16 KiB base64 diagnostic tails — leaving the
+  parent with empty or partial stdout and a spurious `VERIFIER_BACKEND_RUNTIME_FAILURE` /
+  "suite capture supervisor did not produce a result". The supervisor now serializes the
+  result once and writes it with `fs.writeSync(1, ...)`, looping over short writes and retrying
+  `EAGAIN` on a backpressured non-blocking fd, so a slow or backpressured consumer always
+  receives complete, parseable JSON with both maximum retained tails; a write that genuinely
+  fails exits non-zero and is surfaced as a supervisor failure rather than a silently empty
+  result. The bounded post-child pipe-drain and backstop behaviour from #539 is unchanged
+  (`process.exit` still fires, only after the synchronous flush completes), so normal
+  completion, suite timeout, and held-open suite pipe cases remain bounded.
 
 ## [2.29.16] — 2026-09-15
 

@@ -3,7 +3,7 @@
 // (node -e), plus the guarded-surface tests for the policy `verify:` block.
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +11,7 @@ import { parseVerify, probeFilesystemCaseSensitivity, runVerify, type RunResult 
 import { loadPolicy } from '../src/policy-load';
 import { policyWeakening } from '../src/detectors/policy-diff';
 import {
+  CAPTURE_SUPERVISOR,
   DIAGNOSTIC_TAIL_BYTES,
   parseCapturedSupervisorResult,
   runCapturedProcessSync,
@@ -651,6 +652,92 @@ describe('suite supervisor lifecycle and result authority (#319, #371)', () => {
     expect(pids.length).toBeGreaterThan(0);
     await waitForPidsGone(pids);
   }, 15_000);
+
+  it('flushes a maximal two-tail supervisor result completely before exiting (#555)', () => {
+    const cwd = repo();
+    // Force both retained tails to their full DIAGNOSTIC_TAIL_BYTES, so the
+    // reserved result channel carries its largest possible document (two 16 KiB
+    // base64 tails plus metadata). The supervisor must write it synchronously and
+    // in full before process.exit; an async write truncated by immediate exit
+    // would yield a null parse ("did not produce a result") or short tails.
+    const fill = DIAGNOSTIC_TAIL_BYTES + 8_000;
+    const code =
+      "const fs=require('fs');" +
+      `fs.writeSync(1,Buffer.alloc(${fill},65));` +
+      `fs.writeSync(2,Buffer.alloc(${fill},66));` +
+      'process.exit(3)';
+    const result = runCapturedProcessSync(process.execPath, ['-e', code], {
+      cwd,
+      env: process.env,
+      timeoutMs: 5_000,
+      detached: process.platform !== 'win32',
+      killGroupOnFinish: true,
+    });
+    expect(result.exit).toBe(3);
+    expect(result.timedOut).toBe(false);
+    expect(result.error).toBeUndefined();
+    for (const stream of [result.diagnostics.stdout, result.diagnostics.stderr]) {
+      expect(stream.captured_bytes).toBe(fill);
+      expect(stream.retained_bytes).toBe(DIAGNOSTIC_TAIL_BYTES);
+      expect(stream.truncated).toBe(true);
+    }
+    expect(result.diagnostics.stdout.tail).toBe('A'.repeat(DIAGNOSTIC_TAIL_BYTES));
+    expect(result.diagnostics.stderr.tail).toBe('B'.repeat(DIAGNOSTIC_TAIL_BYTES));
+  });
+
+  it.skipIf(process.platform === 'win32')('writes the full result even when the parent stalls reading the reserved channel (#555)', async () => {
+    const cwd = repo();
+    const state = mkdtempSync(join(tmpdir(), 'tw-flush-stall-'));
+    dirs.push(state);
+    // captureBytes large enough that the result document exceeds a pipe buffer, so
+    // a stalled reader forces the synchronous write to back up (block / short-write
+    // / EAGAIN) rather than completing in one call.
+    const cap = 128 * 1024;
+    const suite =
+      "const fs=require('fs');" +
+      `fs.writeSync(1,Buffer.alloc(${cap + 8_000},65));` +
+      'process.exit(7)';
+    const configFile = join(state, 'config.json');
+    writeFileSync(configFile, JSON.stringify({
+      executable: process.execPath,
+      args: ['-e', suite],
+      cwd,
+      timeoutMs: 5_000,
+      detached: process.platform !== 'win32',
+      killGroupOnFinish: true,
+      drainMs: 1_000,
+      captureBytes: cap,
+    }));
+
+    const child = spawn(process.execPath, ['-e', CAPTURE_SUPERVISOR, configFile], {
+      cwd,
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    // A busy or blocked write must never hang the runner: kill the child if it does.
+    const guard = setTimeout(() => child.kill('SIGKILL'), 12_000);
+
+    // Collect from listeners attached up front so the result cannot be missed, then
+    // stall the reader (pause) before resuming, so a large write is delivered whole.
+    const chunks: Buffer[] = [];
+    const drained = new Promise<void>((resolve) => {
+      child.stdout!.on('data', (b: Buffer) => chunks.push(b));
+      child.stdout!.on('end', () => resolve());
+      child.stdout!.on('close', () => resolve());
+      child.on('error', () => resolve());
+    });
+    child.stdout!.pause();
+    setTimeout(() => child.stdout!.resume(), 700);
+    await drained;
+    clearTimeout(guard);
+
+    const result = parseCapturedSupervisorResult(Buffer.concat(chunks).toString('utf8'));
+    expect(result).not.toBeNull();
+    expect(result!.exit).toBe(7);
+    expect(result!.diagnostics.stdout.captured_bytes).toBe(cap + 8_000);
+    expect(result!.diagnostics.stdout.retained_bytes).toBe(cap);
+    expect(result!.diagnostics.stdout.tail).toBe('A'.repeat(cap));
+  }, 20_000);
 
   it('preserves authoritative nonzero exit while draining noisy stdout/stderr', () => {
     const cwd = repo();
