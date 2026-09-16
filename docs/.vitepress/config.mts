@@ -11,9 +11,8 @@ export default defineConfig({
   head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/tamperward/favicon.svg' }]],
   ignoreDeadLinks: false, // a broken link fails the docs build; do not switch this back on to hide one
   themeConfig: {
-    // Dark mode here is a class toggle, invisible to a media query inside an
-    // <img>-loaded SVG — so the theme picks the variant explicitly.
-    logo: { light: '/logo.svg', dark: '/logo-dark.svg' },
+    // The badge supplies its own background, so the same asset works in either theme.
+    logo: '/logo.svg',
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Blog', link: '/blog/' },
