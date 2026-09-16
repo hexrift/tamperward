@@ -5,6 +5,23 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.20] — 2026-09-16
+
+### Fixed
+
+- **watch: handle asynchronous FSWatcher errors instead of letting them bypass health
+  reporting** (#550). Both filesystem-watcher backends handled synchronous setup failures
+  but registered no `error` listener on the returned `FSWatcher`, so an error emitted
+  *after* creation succeeded (e.g. `ENOSPC`/`EMFILE` watch-limit exhaustion) became an
+  unhandled `EventEmitter` error that could terminate the observer while its last health
+  record still described the earlier healthy state. Every watcher now attaches an `error`
+  handler immediately and routes the failure through the existing degradation callback:
+  the record goes `degraded`, the error count and `last_error` update, and a warning is
+  emitted. The failed handle is closed and removed — the recursive backend reports lost
+  coverage (`watched_dirs` → 0) rather than silently claiming complete coverage, and the
+  fallback backend decrements its watched-directory count. Cleanup is idempotent: a
+  repeated error on an already-removed handle is not re-counted and the handle is not
+  re-closed.
 ## [2.29.19] — 2026-09-16
 
 ### Fixed
