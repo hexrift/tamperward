@@ -164,6 +164,35 @@ describe('audit stats', () => {
     expect(text).toContain('not proof of agent intent');
   });
 
+  it('orders first/last by instant when timestamp precision is mixed', () => {
+    const whole = event({ id: 'sha256:' + 'c'.repeat(32), timestamp: '2026-09-15T12:00:00Z' });
+    const fractional = event({ id: 'sha256:' + 'd'.repeat(32), timestamp: '2026-09-15T12:00:00.500Z' });
+
+    for (const events of [[whole, fractional], [fractional, whole]]) {
+      const summary = summarizeAudit(events);
+      expect(summary.first_event).toBe('2026-09-15T12:00:00Z');
+      expect(summary.last_event).toBe('2026-09-15T12:00:00.500Z');
+    }
+  });
+
+  it('breaks ties deterministically for equal instants with different representations', () => {
+    const noMillis = event({ id: 'sha256:' + 'c'.repeat(32), timestamp: '2026-09-15T12:00:00Z' });
+    const withMillis = event({ id: 'sha256:' + 'd'.repeat(32), timestamp: '2026-09-15T12:00:00.000Z' });
+
+    for (const events of [[noMillis, withMillis], [withMillis, noMillis]]) {
+      const summary = summarizeAudit(events);
+      expect(summary.first_event).toBe('2026-09-15T12:00:00Z');
+      expect(summary.last_event).toBe('2026-09-15T12:00:00.000Z');
+    }
+  });
+
+  it('reports null bounds for empty input', () => {
+    const summary = summarizeAudit([]);
+    expect(summary.first_event).toBeNull();
+    expect(summary.last_event).toBeNull();
+    expect(summary.events).toBe(0);
+  });
+
   it('parses relative and absolute --since values', () => {
     const now = Date.parse('2026-09-14T12:00:00.000Z');
     expect(parseSince('30d', now)).toBe(now - 30 * 86_400_000);
