@@ -299,6 +299,55 @@ describe('lifecycle', () => {
   });
 });
 
+describe('bounded shutdown for open sockets (#551)', () => {
+  it('a stalled pre-request connection does not prevent bounded shutdown', async () => {
+    const root = repo();
+    const paths = privatePaths();
+    const s = await serve(root, paths);
+    // A client that connects and holds the socket open without ever sending a
+    // complete request line — the case that made server.close() wait forever.
+    const stalled = createConnection(paths.socket);
+    await new Promise<void>((resolve, reject) => {
+      stalled.once('connect', () => resolve());
+      stalled.once('error', reject);
+    });
+    stalled.write('{"v":1,"partial":'); // no newline: the request never completes
+
+    const outcome = await Promise.race([
+      s.close().then(() => 'closed' as const),
+      new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 3000)),
+    ]);
+    expect(outcome).toBe('closed');
+    services.splice(services.indexOf(s), 1);
+    expect(existsSync(paths.socket)).toBe(false);
+    expect(existsSync(paths.state)).toBe(false);
+    // A repeated close after a bounded one stays correct.
+    await expect(s.close()).resolves.toBeUndefined();
+    stalled.destroy();
+  });
+
+  it('an incomplete request is never evaluated and records no side effects', async () => {
+    const root = repo();
+    const paths = privatePaths();
+    const s = await serve(root, paths);
+    const partial = createConnection(paths.socket);
+    await new Promise<void>((resolve, reject) => {
+      partial.once('connect', () => resolve());
+      partial.once('error', reject);
+    });
+    // A payload that would deny if evaluated, but with no terminating newline.
+    partial.write(
+      JSON.stringify({ v: HOOK_SERVICE_PROTOCOL, version: TW_VERSION, kind: 'PreToolUse', raw: '{}', cwd: root, env: {} }),
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(s.served).toBe(0);
+    partial.destroy();
+    // A well-formed request still works after the incomplete one is gone.
+    expect(await requestVerdict('PreToolUse', '', { paths, cwd: root })).toEqual({ exitCode: 0, stdout: '' });
+    expect(s.served).toBe(1);
+  });
+});
+
 describe('stop never orphans a live listener (#416)', () => {
   it('a mismatched state file + a live listener → stop reports the mismatch and the pid, socket left intact', async () => {
     const root = repo();
@@ -484,6 +533,93 @@ describe.skipIf(process.env.TAMPERWARD_BUILT_CLI_E2E !== '1' || !existsSync(DIST
       expect(again.stdout).toMatch(/not running/);
     } finally {
       child.kill('SIGTERM');
+    }
+  }, 60000);
+
+  // #551: shutdown during an ACCEPTED request. The service runs in a separate,
+  // killable process, so an evaluation that stalled could never hang this runner —
+  // the outer wall-clock bound is enforced by SIGKILL'ing that process. A trusted
+  // in-test proxy relays the real client <-> real service byte stream and, the
+  // instant it observes the service's acceptance frame, initiates shutdown of the
+  // service and stops relaying the service side — reproducing the race where an
+  // accepted request is lost to shutdown exactly at handoff. The client must fail
+  // closed (a deny), never fall back to a SECOND in-process evaluation.
+  it('shutdown during an accepted request never triggers a second evaluation and the client fails closed (#551)', async () => {
+    const root = repo();
+    const rt = join(tmp('tw-shutdown-e2e-'), 'rt');
+    const env = { ...process.env, TAMPERWARD_HOOK_SERVICE: '1', TAMPERWARD_HOOK_SERVICE_DIR: rt };
+    const child = spawn('node', [DIST, 'hook-service', 'start', '--dir', root], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout.on('data', (b) => { out += String(b); });
+    child.stderr.on('data', (b) => { out += String(b); });
+    const started = Date.now();
+    while (!out.includes('listening') && Date.now() - started < 15000) await new Promise((r) => setTimeout(r, 50));
+    expect(out).toMatch(/listening/);
+    const realSock = join(rt, 'hook.sock');
+
+    // A proxy the real client trusts (our uid, 0600). It watches the service→client
+    // direction for the acceptance frame; on seeing it, it triggers shutdown and drops
+    // the rest, so the accepted verdict is lost to the shutdown.
+    const proxyDir = join(tmp('tw-proxy-'), 'svc');
+    mkdirSync(proxyDir, { mode: 0o700 });
+    const proxyPaths = { dir: proxyDir, socket: join(proxyDir, 'hook.sock'), state: join(proxyDir, 'hook-service.json') };
+    let acceptedFrames = 0;
+    const proxy = createServer((clientSide) => {
+      const up = createConnection(realSock);
+      up.setEncoding('utf8');
+      clientSide.on('data', (d) => up.write(d));
+      let handedOff = false;
+      let ubuf = '';
+      up.on('data', (d: string) => {
+        if (handedOff) return; // after handoff the verdict is lost to the shutdown
+        ubuf += d;
+        let nl: number;
+        while ((nl = ubuf.indexOf('\n')) >= 0) {
+          const frame = ubuf.slice(0, nl);
+          ubuf = ubuf.slice(nl + 1);
+          clientSide.write(frame + '\n');
+          if (/"accepted"\s*:\s*true/.test(frame)) {
+            handedOff = true;
+            acceptedFrames++;
+            child.kill('SIGTERM'); // shutdown during accepted work
+            break;
+          }
+        }
+      });
+      const bail = (): void => { up.destroy(); clientSide.destroy(); };
+      up.on('error', bail);
+      clientSide.on('error', bail);
+      up.on('close', () => clientSide.end());
+    });
+    await new Promise<void>((r) => proxy.listen(proxyPaths.socket, r));
+    chmodSync(proxyPaths.socket, 0o600);
+
+    try {
+      const raw = JSON.stringify({ tool_name: 'Bash', session_id: 'shutdown-e2e', cwd: root, tool_input: { command: 'git commit --no-verify -m wip' } });
+      const result = await requestVerdict('PreToolUse', raw, { paths: proxyPaths, cwd: root, timeoutMs: 1500 });
+      // Exactly one acceptance handoff was observed, and the client, having seen it,
+      // did NOT fall back (which would be a second evaluation): it fails closed with a
+      // deny. This is the #551 at-most-once guarantee under shutdown.
+      expect(acceptedFrames).toBe(1);
+      expect(result).not.toBeNull();
+      expect(result?.exitCode).toBe(0);
+      expect(result?.stdout).toMatch(/permissionDecision":"deny"/);
+      expect(result?.stdout).toMatch(/handed this hook evaluation.*did not receive a verdict/);
+
+      // Outer wall-clock bound: the separately-killable service must exit promptly once
+      // shutdown starts; if it overruns the drain window it is SIGKILL'd so a stall can
+      // never hang the runner.
+      const exited = await Promise.race([
+        new Promise<'exited'>((r) => child.once('exit', () => r('exited'))),
+        new Promise<'stall'>((r) => setTimeout(() => r('stall'), 15000)),
+      ]);
+      if (exited === 'stall') child.kill('SIGKILL');
+      expect(exited).toBe('exited');
+      expect(existsSync(realSock)).toBe(false);
+      expect(existsSync(join(rt, 'hook-service.json'))).toBe(false);
+    } finally {
+      child.kill('SIGKILL');
+      await new Promise<void>((r) => proxy.close(() => r()));
     }
   }, 60000);
 });
