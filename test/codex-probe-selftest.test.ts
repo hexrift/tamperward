@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 // @ts-expect-error - the probe is a plain .mjs harness module, no d.ts
-import { classifyMutation, classifyFailClosed, classifyStop, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
+import { classifyMutation, classifyDetached, classifyFailClosed, classifyStop, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
 
 describe('probe classifiers — every deterministic mode is classified correctly', () => {
   it('hook-fired-deny-respected → mutation PASS', () => {
@@ -80,6 +80,27 @@ describe('probe classifiers — every deterministic mode is classified correctly
     expect(noCont.reasons.join()).toMatch(/continuation/);
     expect(classifyStop({ stopFired: true, blockReturned: true, blockRespected: false, continued: true }).pass).toBe(false);
     expect(classifyStop({ stopFired: false, blockReturned: false, blockRespected: false, continued: false }).pass).toBe(false);
+  });
+
+  it('detached qualification cannot pass on an unrelated denied Bash event', () => {
+    const unrelated = classifyDetached({
+      toolAttempted: false,
+      hookFired: false,
+      denyReturned: false,
+      reasonSurfaced: true,
+      mutationLanded: false,
+      codexCompleted: true,
+    });
+    expect(unrelated.pass).toBe(false);
+    expect(unrelated.reasons.join()).toMatch(/detached Bash command/);
+    expect(classifyDetached({
+      toolAttempted: true,
+      hookFired: true,
+      denyReturned: true,
+      reasonSurfaced: true,
+      mutationLanded: false,
+      codexCompleted: true,
+    }).pass).toBe(true);
   });
 
   it('distinctToolUseIds counts distinct non-tracer tool_use_ids for a case', () => {
@@ -180,6 +201,24 @@ describe('probe driver — builds, decides, and records to the parent-owned ledg
     try {
       const r = driverSelfTest(work);
       expect(r.ok).toBe(true);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  });
+
+  it('makeRepo writes Codex TOML hooks with string command values', () => {
+    const work = mkdtempSync(join(tmpdir(), 'tw-probe-config-'));
+    try {
+      const driver = buildDriver();
+      const ledger = join(work, 'ledger.jsonl');
+      const repo = makeRepo(driver, ledger);
+      const config = readFileSync(join(repo, '.codex', 'config.toml'), 'utf8');
+      const commands = [...config.matchAll(/^command = (.+)$/gm)].map((m) => JSON.parse(m[1]));
+      expect(commands).toHaveLength(3);
+      expect(commands.every((command) => typeof command === 'string')).toBe(true);
+      expect(config).not.toContain('command = {');
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(dirname(driver), { recursive: true, force: true });
     } finally {
       rmSync(work, { recursive: true, force: true });
     }
