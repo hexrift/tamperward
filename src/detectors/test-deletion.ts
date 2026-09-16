@@ -687,17 +687,12 @@ export const testDeletion: Detector = {
               // without the `--`: `git checkout v1 test/a.test.ts` restores it too.
               // A rev that RESOLVES to HEAD (`main` while on main, `@`) restores
               // nothing older: it is the `--` form under another name.
-              // HEAD is still destructive when a path is supplied: checkout/restore
-              // replaces the worktree and discards uncommitted edits even when the
-              // source commit is the current HEAD.
-              if (rev && (rev === 'HEAD' || rev === '@' || revIsHead(rev, ctx) === true)) {
-                return Boolean(seg.includes(' -- ') || src || cmdToks.some((t) => named.includes(t)));
-              }
+              if (rev && (rev === 'HEAD' || rev === '@' || revIsHead(rev, ctx) === true)) return false;
               if (!rev) {
                 const stagedRequested = cmdToks.includes('--staged') || cmdToks.includes('-S');
                 const worktreeRequested = cmdToks.includes('--worktree') || cmdToks.includes('-W');
                 const stagedOnly = stagedRequested && !worktreeRequested;
-                return !stagedOnly && Boolean(seg.includes(' -- ') || src || gitSub === 'restore');
+                return !stagedOnly && gitSub === 'restore';
               }
               if (src || seg.includes(' -- ')) return true;
               return revIdx >= 0 && cmdToks.some((t, i) => i > revIdx && named.includes(t));

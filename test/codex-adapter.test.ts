@@ -133,9 +133,9 @@ describe('CodexRuntimeAdapter.decide — pre-action content verdict via the SAME
   it.each([
     ['rm src/a.spec.ts', 'delete'],
     ['mv src/a.spec.ts src/a.disabled.ts', 'rename'],
-    ['git checkout HEAD -- src/a.spec.ts', 'checkout'],
+    ['git checkout HEAD~1 -- src/a.spec.ts', 'checkout'],
     ['git restore src/a.spec.ts', 'restore'],
-    ['git restore --source=HEAD --worktree src/a.spec.ts', 'restore from HEAD'],
+    ['git restore --source=HEAD~1 --worktree src/a.spec.ts', 'restore from older source'],
     ['git reset --hard HEAD', 'reset'],
   ])('denies Codex Bash %s', (command) => {
     const cwd = repoFixture();
