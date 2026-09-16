@@ -5,6 +5,22 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.30.1] — 2026-09-16
+
+### Changed
+
+- **cli: one shared status palette and renderer across surfaces** (#543). A new
+  `src/cli/render/status.ts` owns the accessible 24-bit palette and the
+  `severity → colour` map as the single source of truth; `check`, `onboard`,
+  `doctor`, and `verify` now draw from it instead of re-declaring their own
+  schemes (`onboard` no longer duplicates the palette or its tone map, and
+  `doctor`/`verify` gain the same accessible colour treatment as the verdict).
+  Presentation only — no change to exit codes, `--json` output, or any message
+  text; the accessibility contract is preserved (the word carries severity,
+  colour strips to a byte-identical line, and `NO_COLOR`/pipe/`TERM=dumb` drop
+  all colour), and `test/render-status.test.ts` asserts the strip-to-identical
+  invariant and the severity map.
+
 ## [2.30.0] — 2026-09-16
 
 ### Added

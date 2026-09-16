@@ -75,6 +75,8 @@ import {
   runCapturedProcessSync,
   type SuiteDiagnostics,
 } from '../suite-diagnostics';
+import { colourEnabled } from './render/text';
+import { paint, severityColour, BOLD, type Severity } from './render/status';
 
 export interface VerifyOpts {
   cwd?: string;
@@ -1064,9 +1066,17 @@ export function verifyVerdictLine(verdict: string, ctx: VerifyVerdictContext): s
 
 export function runVerify(opts: VerifyOpts): number {
   const cwd = opts.cwd ?? process.cwd();
+  const colour = opts.silent ? false : colourEnabled(process.env, process.stdout);
+  // Colour only the shared `verify:` label so the line strips to a byte-identical one; a
+  // failing-closed line reads red, everything else the neutral info cyan.
+  const paintVerify = (s: string): string => {
+    if (!s.startsWith('verify:')) return s;
+    const sev: Severity = /failing closed/i.test(s) ? 'bad' : 'info';
+    return paint('verify:', (sev === 'bad' ? BOLD : '') + severityColour(sev), colour) + s.slice('verify:'.length);
+  };
   const out = opts.silent
     ? (_s: string): void => {}
-    : (s: string): void => void process.stdout.write(s + '\n');
+    : (s: string): void => void process.stdout.write(paintVerify(s) + '\n');
 
   // Probed once the temp root exists, then reported in every document so the
   // fold assumption the overlay ran under is auditable (#426).
