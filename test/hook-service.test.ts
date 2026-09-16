@@ -299,6 +299,55 @@ describe('lifecycle', () => {
   });
 });
 
+describe('bounded shutdown for open sockets (#551)', () => {
+  it('a stalled pre-request connection does not prevent bounded shutdown', async () => {
+    const root = repo();
+    const paths = privatePaths();
+    const s = await serve(root, paths);
+    // A client that connects and holds the socket open without ever sending a
+    // complete request line — the case that made server.close() wait forever.
+    const stalled = createConnection(paths.socket);
+    await new Promise<void>((resolve, reject) => {
+      stalled.once('connect', () => resolve());
+      stalled.once('error', reject);
+    });
+    stalled.write('{"v":1,"partial":'); // no newline: the request never completes
+
+    const outcome = await Promise.race([
+      s.close().then(() => 'closed' as const),
+      new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 3000)),
+    ]);
+    expect(outcome).toBe('closed');
+    services.splice(services.indexOf(s), 1);
+    expect(existsSync(paths.socket)).toBe(false);
+    expect(existsSync(paths.state)).toBe(false);
+    // A repeated close after a bounded one stays correct.
+    await expect(s.close()).resolves.toBeUndefined();
+    stalled.destroy();
+  });
+
+  it('an incomplete request is never evaluated and records no side effects', async () => {
+    const root = repo();
+    const paths = privatePaths();
+    const s = await serve(root, paths);
+    const partial = createConnection(paths.socket);
+    await new Promise<void>((resolve, reject) => {
+      partial.once('connect', () => resolve());
+      partial.once('error', reject);
+    });
+    // A payload that would deny if evaluated, but with no terminating newline.
+    partial.write(
+      JSON.stringify({ v: HOOK_SERVICE_PROTOCOL, version: TW_VERSION, kind: 'PreToolUse', raw: '{}', cwd: root, env: {} }),
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(s.served).toBe(0);
+    partial.destroy();
+    // A well-formed request still works after the incomplete one is gone.
+    expect(await requestVerdict('PreToolUse', '', { paths, cwd: root })).toEqual({ exitCode: 0, stdout: '' });
+    expect(s.served).toBe(1);
+  });
+});
+
 describe('stop never orphans a live listener (#416)', () => {
   it('a mismatched state file + a live listener → stop reports the mismatch and the pid, socket left intact', async () => {
     const root = repo();

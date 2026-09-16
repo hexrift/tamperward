@@ -47,6 +47,12 @@ import {
 
 const MAX_REQUEST_BYTES = 64 * 1024 * 1024; // a Write payload carries the whole file
 const STOP_WAIT_MS = 10_000;
+// A connection that never completes its request line is bounded so a stalled or
+// interrupted client cannot hold a socket open indefinitely before acceptance.
+const REQUEST_DEADLINE_MS = 30_000;
+// During shutdown an accepted evaluation is given this long to finish before its
+// socket is destroyed, so `close` is bounded even when a client hangs mid-request.
+const SHUTDOWN_DRAIN_MS = 5_000;
 
 export interface ServiceState {
   pid: number;
@@ -218,6 +224,12 @@ export async function startHookService(opts: StartOptions): Promise<RunningServi
   // call the client already abandoned (#416). A refused request is never
   // evaluated here, so it records no side effects.
   let inFlight = false;
+  // Every accepted connection, so shutdown can destroy any that outlive the
+  // drain window instead of waiting on them forever (#551). The one socket whose
+  // evaluation currently owns the evaluator is tracked separately so shutdown can
+  // give it — and only it — the drain before destroying it.
+  const sockets = new Set<Socket>();
+  let acceptedSocket: Socket | null = null;
   const startedAt = new Date().toISOString();
 
   const respond = (sock: Socket, body: Record<string, unknown>): void => {
@@ -260,6 +272,7 @@ export async function startHookService(opts: StartOptions): Promise<RunningServi
     // evaluation completes.
     if (inFlight) return respond(sock, { refused: 'another request is in flight' });
     inFlight = true;
+    acceptedSocket = sock;
 
     // Ownership handoff. The client may fall back in-process only BEFORE this
     // line. Once it sees accepted=true, this service is the sole evaluator for
@@ -301,25 +314,39 @@ export async function startHookService(opts: StartOptions): Promise<RunningServi
         respond(sock, { exitCode: result.exitCode, stdout: result.stdout });
       } finally {
         inFlight = false;
+        acceptedSocket = null;
       }
     });
   };
 
   const server: Server = createServer((sock) => {
+    sockets.add(sock);
     let buf = '';
     let answered = false;
     sock.setEncoding('utf8');
+    const deadline = setTimeout(() => {
+      if (answered) return;
+      answered = true;
+      respond(sock, { refused: 'request deadline exceeded' });
+    }, REQUEST_DEADLINE_MS);
+    deadline.unref?.();
     sock.on('error', () => sock.destroy());
+    sock.on('close', () => {
+      clearTimeout(deadline);
+      sockets.delete(sock);
+    });
     sock.on('data', (chunk: string) => {
       if (answered) return;
       buf += chunk;
       if (buf.length > MAX_REQUEST_BYTES) {
         answered = true;
+        clearTimeout(deadline);
         return respond(sock, { refused: 'request too large' });
       }
       const nl = buf.indexOf('\n');
       if (nl < 0) return;
       answered = true;
+      clearTimeout(deadline);
       handle(sock, buf.slice(0, nl));
     });
   });
@@ -355,11 +382,28 @@ export async function startHookService(opts: StartOptions): Promise<RunningServi
         if (closed) return resolve();
         closed = true;
         setSnapshotCache(null);
-        server.close(() => {
+        let settled = false;
+        let drain: ReturnType<typeof setTimeout>;
+        // Cleanup resolves only once every service-owned handle is gone: the
+        // server has stopped accepting AND all sockets have closed.
+        const finalize = (): void => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(drain);
           removeQuietly(paths.socket);
           removeQuietly(paths.state);
           resolve();
-        });
+        };
+        server.close(finalize);
+        // Stop waiting on any connection with no accepted evaluation in flight —
+        // a stalled pre-request client must not hold shutdown open. An accepted
+        // evaluation keeps its socket for a bounded drain, then it too is
+        // destroyed; either way the client's post-handoff path fails closed.
+        for (const sock of sockets) if (sock !== acceptedSocket) sock.destroy();
+        drain = setTimeout(() => {
+          for (const sock of sockets) sock.destroy();
+        }, SHUTDOWN_DRAIN_MS);
+        drain.unref?.();
       }),
   };
 }

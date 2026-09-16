@@ -5,6 +5,25 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.19] — 2026-09-16
+
+### Fixed
+
+- **hook-service: bound shutdown so an open client socket cannot stall `stop`/restart**
+  (#551). Graceful shutdown resolved only in `server.close`'s callback, which waits for
+  every accepted connection to finish; the service tracked no active sockets and set no
+  request deadline, so a client that connected and never completed its request line held the
+  socket open and left `hook-service stop` unable to complete (it then timed out while the
+  old process stayed alive). The service now tracks every accepted socket and enforces a
+  bounded pre-acceptance request deadline: a connection that never sends a complete request
+  line is refused and closed rather than held open, and an incomplete request is never
+  evaluated, so it records no side effects. Shutdown stops accepting new work, destroys any
+  connection with no accepted evaluation in flight at once, gives an in-flight evaluation a
+  bounded drain before destroying its socket too, and resolves cleanup only once every
+  service-owned handle is gone. The client's existing fail-closed behaviour for a lost
+  accepted request is preserved, a shutdown during an accepted request never triggers a
+  second evaluation, and a normal idle-service stop is unchanged.
+
 ## [2.29.16] — 2026-09-15
 
 ### Fixed
