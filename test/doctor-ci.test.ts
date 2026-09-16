@@ -740,6 +740,45 @@ describe('doctor installation posture (#318)', () => {
   });
 });
 
+// #547 — doctor loads the repository policy through the same loader as verify.
+// An incomplete `verify:` block that declares container posture but omits a usable
+// command must fail closed before any posture check with the loader's descriptive
+// PolicyError, not survive to a downstream "no verify.command" wiring complaint.
+describe('doctor rejects an incomplete verify block before any posture check (#547)', () => {
+  const DIGEST = 'sha256:' + 'a'.repeat(64);
+  const IMAGE = 'ghcr.io/example/tamperward-verifier@' + DIGEST;
+
+  function repoWithPolicy(body: string): string {
+    const cwd = mkdtempSync(join(tmpdir(), 'tw-doctor-547-'));
+    dirs.push(cwd);
+    const git = (...a: string[]) => execFileSync('git', a, { cwd });
+    git('init', '-q');
+    git('config', 'user.email', 't@b');
+    git('config', 'user.name', 'tb');
+    writeFileSync(join(cwd, '.tamperward.yml'), body);
+    git('add', '.tamperward.yml');
+    git('commit', '-qm', 'policy');
+    return cwd;
+  }
+
+  it('fails closed with a descriptive PolicyError when a container block omits its command', () => {
+    const cwd = repoWithPolicy(`version: 1\nverify:\n  backend: container\n  image: ${IMAGE}\n`);
+    const r = capture(() => runDoctor({ cwd }));
+    expect(r.code).toBe(2);
+    expect(r.err).toMatch(/verify\.command is required/i);
+    // The declared boundary is not silently dropped and then reported as a bare wiring
+    // gap: the block is rejected at load, not accepted-and-discarded.
+    expect(r.err).not.toMatch(/generated CI cannot verify/i);
+  });
+
+  it('rejects a whitespace-only command the same way', () => {
+    const cwd = repoWithPolicy('version: 1\nverify:\n  command: "   "\n');
+    const r = capture(() => runDoctor({ cwd }));
+    expect(r.code).toBe(2);
+    expect(r.err).toMatch(/verify\.command is required/i);
+  });
+});
+
 function loadPolicyForTest(cwd: string) {
   return loadPolicy(cwd);
 }

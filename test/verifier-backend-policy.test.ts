@@ -62,6 +62,20 @@ describe('isolated verifier policy', () => {
     ).toThrow(PolicyError);
   });
 
+  it('rejects a verify block that declares no command', () => {
+    expect(() => parsePolicy({ verify: { budget: 60 } } as any)).toThrow(PolicyError);
+  });
+
+  it('rejects a whitespace-only verify command', () => {
+    expect(() => parsePolicy({ verify: { command: '   ' } } as any)).toThrow(PolicyError);
+  });
+
+  it('never silently discards a declared execution boundary that lacks a command', () => {
+    expect(() =>
+      parsePolicy({ verify: { budget: 60, backend: 'container', image: IMAGE } } as any),
+    ).toThrow(PolicyError);
+  });
+
   it('treats weakening isolated -> local and changing the pinned verifier image as policy weakening', () => {
     const before =
       'verify:\n' +

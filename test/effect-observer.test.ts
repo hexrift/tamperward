@@ -7,6 +7,8 @@
 //    and judged by the transient rule, the two documented observer misses.
 
 import { describe, it, expect, afterEach } from 'vitest';
+import { EventEmitter } from 'node:events';
+import type { watch as fsWatch } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readSync as fsReadSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -566,6 +568,93 @@ describe('watcher + transient rule (the A.1 probes)', () => {
     expect(r.stdout).toMatch(/block/);
     expect(r.stdout).toMatch(/observer|telemetry|record|limit/i);
     expect(existsSync(join(tw, 'fscursor-oversized.json'))).toBe(false);
+  });
+
+  // #550: an FSWatcher can emit an `error` asynchronously, AFTER creation
+  // succeeded. Without an `error` listener that is an unhandled EventEmitter
+  // error (which crashes the observer) and its cause never reaches health.
+  interface FakeWatcher extends EventEmitter {
+    closed: boolean;
+    close(): void;
+  }
+  const fakeWatchFactory = (): { fn: typeof fsWatch; created: FakeWatcher[] } => {
+    const created: FakeWatcher[] = [];
+    const fn = ((..._args: unknown[]): FakeWatcher => {
+      const w = new EventEmitter() as FakeWatcher;
+      w.closed = false;
+      w.close = () => { w.closed = true; };
+      created.push(w);
+      return w;
+    }) as unknown as typeof fsWatch;
+    return { fn, created };
+  };
+  const captureStderr = () => {
+    const seen: string[] = [];
+    const original = process.stderr.write.bind(process.stderr);
+    (process.stderr as unknown as { write: (s: string) => boolean }).write = (s: string) => {
+      seen.push(String(s)); return true;
+    };
+    return { text: () => seen.join(''), restore: () => { (process.stderr as unknown as { write: unknown }).write = original; } };
+  };
+
+  it('routes an asynchronous recursive FSWatcher error through health, closing the failed handle (#550)', () => {
+    delete process.env.TAMPERWARD_WATCH_NO_RECURSIVE; // exercise the recursive branch
+    const cwd = repo();
+    const log = join(cwd, 'events.jsonl');
+    const { fn, created } = fakeWatchFactory();
+    const stderr = captureStderr();
+    const w = startWatcher(cwd, log, defaultPolicy(), fn);
+    try {
+      expect(readWatcherHealth(log)?.backend).toBe('recursive');
+      expect(created).toHaveLength(1);
+
+      created[0].emit('error', new Error('ENOSPC: watch limit reached')); // no listener => throws under the old code
+
+      const h = readWatcherHealth(log);
+      expect(h?.state).toBe('degraded');
+      expect(h?.error_count).toBe(1);
+      expect(h?.watched_dirs).toBe(0); // a failed recursive watcher is not complete coverage
+      expect(h?.last_error).toMatch(/watch limit reached/);
+      expect(created[0].closed).toBe(true);
+      expect(stderr.text()).toMatch(/WARNING.*observer degraded/i);
+    } finally {
+      w.close();
+      stderr.restore();
+    }
+  });
+
+  it('routes an asynchronous fallback FSWatcher error through health, updating watched-dir counts idempotently (#550)', () => {
+    process.env.TAMPERWARD_WATCH_NO_RECURSIVE = '1';
+    const cwd = repo();
+    const log = join(cwd, 'events.jsonl');
+    const { fn, created } = fakeWatchFactory();
+    const stderr = captureStderr();
+    const w = startWatcher(cwd, log, defaultPolicy(), fn);
+    try {
+      const before = readWatcherHealth(log)!;
+      expect(before.backend).toBe('fallback');
+      expect(before.watched_dirs).toBeGreaterThanOrEqual(2);
+      expect(created.length).toBe(before.watched_dirs);
+
+      created[0].emit('error', new Error('EMFILE: too many open files'));
+
+      const after = readWatcherHealth(log)!;
+      expect(after.state).toBe('degraded');
+      expect(after.error_count).toBe(1);
+      expect(after.last_error).toMatch(/watch directory/);
+      expect(after.watched_dirs).toBe(before.watched_dirs - 1); // failed handle removed from coverage
+      expect(created[0].closed).toBe(true);
+      expect(stderr.text()).toMatch(/WARNING.*observer degraded/i);
+
+      created[0].emit('error', new Error('EMFILE again')); // already removed: no double count, no re-close race
+      const again = readWatcherHealth(log)!;
+      expect(again.error_count).toBe(1);
+      expect(again.watched_dirs).toBe(before.watched_dirs - 1);
+    } finally {
+      w.close();
+      stderr.restore();
+      delete process.env.TAMPERWARD_WATCH_NO_RECURSIVE;
+    }
   });
 
   it('Stop consumes the event log and surfaces strict transients as blocks', async () => {
