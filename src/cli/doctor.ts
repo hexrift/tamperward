@@ -12,6 +12,7 @@ import { trustedLinuxPython } from './run';
 import { machineOutput, type MachineSchemaVersion } from '../machine-output';
 import { execFailure, isRecord } from '../narrow';
 import { repoRoot } from '../repo-context';
+import { colourEnabled, statusLine, StatusTone } from './render/status';
 
 export interface DoctorOpts {
   cwd?: string;
@@ -369,17 +370,22 @@ function observerCheck(cwd: string): DoctorCheck {
   };
 }
 
+/** The per-check status severities, mapped to the shared severity→colour set. */
+const CHECK_TONE: Record<DoctorState, StatusTone> = { OK: 'ok', WARN: 'warn', BROKEN: 'bad' };
+
 function emitReport(opts: DoctorOpts, checks: DoctorCheck[], authoritative: boolean): void {
   if (opts.json) {
     const report: DoctorReport = machineOutput({ command: 'doctor' as const, authoritative, checks });
     process.stdout.write(JSON.stringify(report) + '\n');
     return;
   }
+  const colour = colourEnabled();
   for (const check of checks) {
     if (check.id === 'observer') {
-      process.stdout.write(`tamperward doctor: transient observer: ${check.detail}\n`);
+      // Advisory only, so it carries a neutral NOTE label rather than a severity state.
+      process.stdout.write(statusLine('info', 'NOTE', `transient observer: ${check.detail}`, colour) + '\n');
     } else {
-      process.stdout.write(`tamperward doctor: [${check.state}] ${check.id} — ${check.detail}\n`);
+      process.stdout.write(statusLine(CHECK_TONE[check.state], check.state, `${check.id} — ${check.detail}`, colour) + '\n');
     }
   }
 }

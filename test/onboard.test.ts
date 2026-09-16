@@ -472,11 +472,11 @@ describe('preflight refusals', () => {
 
     const s = await onboard(child, [], { noGithub: true }, { colour: true });
     expect(s.code).toBe(2);
-    expect(s.err).toContain('\u001b[1m\u001b[31mERROR');
-    expect(s.err).toContain('\u001b[36mGIT ROOT');
-    expect(s.err).toContain('\u001b[33mNEXT');
+    expect(s.err).toContain('\u001b[1m\u001b[38;2;255;107;107mERROR');
+    expect(s.err).toContain('\u001b[38;2;86;212;221mGIT ROOT');
+    expect(s.err).toContain('\u001b[38;2;227;179;65mNEXT');
     expect(s.err).not.toContain('\uFFFD[1m');
-    expect(s.err).not.toContain('\uFFFD[31m');
+    expect(s.err).not.toContain('\uFFFD[38;2;');
   });
 
   it('accepts a symlink alias that resolves to the repository root', async () => {
@@ -503,7 +503,7 @@ describe('preflight refusals', () => {
   it('uses colour for interactive status while keeping words as the source of meaning', async () => {
     const d = repo();
     const s = await onboard(d, ['n'], { noGithub: true, skipDemo: true }, { colour: true });
-    expect(s.out).toContain('\u001b[36m');
+    expect(s.out).toContain('\u001b[38;2;86;212;221m');
     expect(s.out).toContain('Environment');
     expect(s.out).toMatch(/ACTION|INCOMPLETE/);
   });

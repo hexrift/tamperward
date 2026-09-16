@@ -40,7 +40,7 @@ import {
   type DoctorOutcome,
 } from './doctor';
 import { runCheck, type CheckOpts } from './check';
-import { colourEnabled, stripControl } from './render/text';
+import { BOLD, colourEnabled, CYAN, DIM, paint, statusLine, StatusTone, terminalText } from './render/status';
 import { treeFingerprint } from '../fingerprint';
 import { POLICY_FILE } from '../policy';
 import { loadPolicy } from '../policy-load';
@@ -153,26 +153,6 @@ const MANUAL_CONTROLS = [
   'dismiss stale approvals when new commits are pushed',
 ];
 
-const ESC = '\u001b';
-const RESET = `${ESC}[0m`;
-const BOLD = `${ESC}[1m`;
-const DIM = `${ESC}[2m`;
-const RED = `${ESC}[31m`;
-const YELLOW = `${ESC}[33m`;
-const GREEN = `${ESC}[32m`;
-const CYAN = `${ESC}[36m`;
-
-function paint(text: string, code: string, on: boolean): string {
-  return on ? code + text + RESET : text;
-}
-
-/** Repository paths, policy commands and doctor details are untrusted terminal
- * input. Keep the compact UI on one physical line and remove terminal-control
- * bytes before adding our own ANSI decoration. */
-function terminalText(text: string): string {
-  return stripControl(text).replace(/\s+/g, ' ').trim();
-}
-
 function committableSetupPath(cwd: string, path: string): boolean {
   const rel = relative(cwd, resolve(cwd, path));
   if (!rel || rel === '..' || rel.startsWith('..' + sep)) return false;
@@ -267,18 +247,15 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
   const interactive = io.interactive ?? (Boolean(process.stdin.isTTY) && !process.env.CI && !process.env.GITHUB_ACTIONS);
   const scripted = Boolean(opts.yes);
 
-  const tone = (kind: 'ok' | 'warn' | 'bad' | 'info' | 'dim'): string => {
-    if (kind === 'ok') return GREEN;
-    if (kind === 'warn') return YELLOW;
-    if (kind === 'bad') return RED;
-    if (kind === 'info') return CYAN;
-    return DIM;
-  };
+  // Colour and the label column come from the shared status renderer; `dim` is this
+  // surface's neutral tone for secondary lines, which the shared module names `muted`.
+  const toneOf = (kind: 'ok' | 'warn' | 'bad' | 'info' | 'dim'): StatusTone =>
+    kind === 'dim' ? 'muted' : kind;
   const status = (label: string, text: string, kind: 'ok' | 'warn' | 'bad' | 'info' | 'dim' = 'info'): void => {
-    out(paint(label.padEnd(8), (kind === 'bad' ? BOLD : '') + tone(kind), colour) + ' ' + terminalText(text));
+    out(statusLine(toneOf(kind), label, text, colour));
   };
   const errStatus = (label: string, text: string, kind: 'ok' | 'warn' | 'bad' | 'info' | 'dim' = 'info'): void => {
-    errLine(paint(label.padEnd(8), (kind === 'bad' ? BOLD : '') + tone(kind), colour) + ' ' + terminalText(text));
+    errLine(statusLine(toneOf(kind), label, text, colour));
   };
   const fail = (text: string): void => errStatus('ERROR', text, 'bad');
 
@@ -634,9 +611,7 @@ export async function runOnboard(opts: OnboardOpts, io: OnboardIo = {}): Promise
 
 function renderCheck(check: DoctorCheck, out: (line: string) => void, colour: boolean): void {
   const broken = check.state === 'BROKEN';
-  const label = broken ? 'ERROR' : 'WARN';
-  const code = broken ? BOLD + RED : YELLOW;
-  out(paint(label.padEnd(8), code, colour) + ' ' + terminalText(check.id + ' — ' + check.detail));
+  out(statusLine(broken ? 'bad' : 'warn', broken ? 'ERROR' : 'WARN', check.id + ' — ' + check.detail, colour));
 }
 
 export function postureOf(outcome: DoctorOutcome): Posture {

@@ -68,6 +68,7 @@ import {
   type PreparedVerifierBackend,
 } from '../verifier-backend';
 import { Policy } from '../types';
+import { colourEnabled, statusLine } from './render/status';
 import { MACHINE_SCHEMA_VERSION, type VerifyCannotVerifyReason } from '../machine-output';
 import { oobFromEnv, oobHeadFromEnv, oobToken } from '../signoff';
 import {
@@ -1067,6 +1068,11 @@ export function runVerify(opts: VerifyOpts): number {
   const out = opts.silent
     ? (_s: string): void => {}
     : (s: string): void => void process.stdout.write(s + '\n');
+  // Fail-closed diagnostics through the shared status renderer: a VERIFY-labelled,
+  // bad-toned line (colour is decoration that strips to a byte-identical line). The
+  // structured success provenance below keeps its own `tamperward verify —` grammar.
+  const colour = colourEnabled();
+  const failVerify = (msg: string): void => out(statusLine('bad', 'VERIFY', msg, colour));
 
   // Probed once the temp root exists, then reported in every document so the
   // fold assumption the overlay ran under is auditable (#426).
@@ -1090,7 +1096,7 @@ export function runVerify(opts: VerifyOpts): number {
         ...extra,
       }));
     } else if (detail) {
-      out(`verify: ${detail} — failing closed`);
+      failVerify(`${detail} — failing closed`);
     }
     return 2;
   };
@@ -1156,8 +1162,8 @@ export function runVerify(opts: VerifyOpts): number {
         oracle_assurance: oracleAssuranceReport(),
       }));
     } else {
-      out('verify: isolated verifier backend is unavailable — failing closed');
-      out('verify: ' + (verifierBackend.reason ?? 'unknown backend failure'));
+      failVerify('isolated verifier backend is unavailable — failing closed');
+      failVerify(verifierBackend.reason ?? 'unknown backend failure');
     }
     return 2;
   }
@@ -1174,8 +1180,8 @@ export function runVerify(opts: VerifyOpts): number {
         oracle_assurance: oracleAssuranceReport(),
       }));
     } else {
-      out(
-        `verify: checkpointed-local verifier is unsupported on ${process.platform}; ` +
+      failVerify(
+        `checkpointed-local verifier is unsupported on ${process.platform}; ` +
           'no trusted local shell contract is defined. Failing closed before candidate execution.',
       );
     }
@@ -1208,8 +1214,8 @@ export function runVerify(opts: VerifyOpts): number {
         oracle_assurance: oracleAssuranceReport(),
       }));
     } else {
-      out('verify: dependency environment is not attestable — failing closed');
-      out('verify: ' + (dependencyEnvironment.reason ?? 'unknown dependency environment'));
+      failVerify('dependency environment is not attestable — failing closed');
+      failVerify(dependencyEnvironment.reason ?? 'unknown dependency environment');
     }
     return 2;
   }
@@ -1245,8 +1251,8 @@ export function runVerify(opts: VerifyOpts): number {
         oracle_assurance: oracleAssuranceReport(),
       }));
     } else {
-      out(`verify: the ${stage} suite exited but left a process holding stdout open — the stage is not quiescent, failing closed`);
-      out('verify: ' + detail);
+      failVerify(`the ${stage} suite exited but left a process holding stdout open — the stage is not quiescent, failing closed`);
+      failVerify(detail);
       renderStageDiagnostics(out, stage, r);
     }
     return 2;
@@ -1374,12 +1380,12 @@ export function runVerify(opts: VerifyOpts): number {
         oracle_assurance: oracleAssuranceReport(),
       }));
     } else {
-      out(
+      failVerify(
         exhausted
-          ? 'verify: isolated verifier resource envelope was exhausted during the visible stage — failing closed'
-          : 'verify: verifier execution backend failed while running the visible stage — failing closed',
+          ? 'isolated verifier resource envelope was exhausted during the visible stage — failing closed'
+          : 'verifier execution backend failed while running the visible stage — failing closed',
       );
-      if (visible.reason) out('verify: ' + visible.reason);
+      if (visible.reason) failVerify(visible.reason);
       renderStageDiagnostics(out, 'visible', visible);
     }
     return 2;
@@ -1446,12 +1452,12 @@ export function runVerify(opts: VerifyOpts): number {
         oracle_assurance: oracleAssuranceReport(),
       }));
     } else {
-      out(
+      failVerify(
         exhausted
-          ? 'verify: isolated verifier resource envelope was exhausted during the pristine stage — failing closed'
-          : 'verify: verifier execution backend failed while running the pristine stage — failing closed',
+          ? 'isolated verifier resource envelope was exhausted during the pristine stage — failing closed'
+          : 'verifier execution backend failed while running the pristine stage — failing closed',
       );
-      if (pristine.reason) out('verify: ' + pristine.reason);
+      if (pristine.reason) failVerify(pristine.reason);
       renderStageDiagnostics(out, 'pristine', pristine);
     }
     return 2;

@@ -63,7 +63,7 @@ function neutraliseHookEntry(cwd: string, extra: Record<string, unknown>): void 
 
 const agentRow = (out: string): string => out.split('\n').find((l) => /^\s*agent\s/.test(l)) ?? '';
 const preCommitRow = (out: string): string => out.split('\n').find((l) => /^\s*pre-commit\s/.test(l)) ?? '';
-const doctorLine = (out: string, id: string): string => out.split('\n').find((l) => l.includes(`] ${id} `)) ?? '';
+const doctorLine = (out: string, id: string): string => out.split('\n').find((l) => l.includes(`${id} —`)) ?? '';
 
 describe('control: a correctly wired repository stays OK (#413)', () => {
   it('init --dry-run and doctor both certify the wiring init itself wrote', () => {
@@ -109,7 +109,7 @@ describe('a neutralised Claude hook entry (#413, fixture 1)', () => {
     expect(byId['claude-hooks'].detail).toMatch(/`async`/);
     expect(byId['claude-hooks'].detail).toMatch(/`timeout` 1/);
     const r = capture(() => runDoctor({ cwd, base: 'HEAD' }));
-    expect(doctorLine(r.out, 'claude-hooks')).toMatch(/\[BROKEN\] claude-hooks/);
+    expect(doctorLine(r.out, 'claude-hooks')).toMatch(/BROKEN\s+claude-hooks/);
     expect(doctorLine(r.out, 'claude-hooks')).toMatch(/`async`/);
   });
 

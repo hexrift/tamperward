@@ -5,7 +5,8 @@
 // thing. That keeps the output correct on a colour-blind reader's terminal, through a
 // screen reader, in a pipe, and in a CI log — the four places this output actually gets
 // read. For the same reason there are no emoji, no box-drawing, and no glyph anywhere
-// that is the sole carrier of meaning.
+// that is the sole carrier of meaning. The palette, the colour/width/strip primitives and
+// this contract now live in render/status.ts, shared with every other CLI surface.
 //
 // The `path:line` pair stays on the finding's own line rather than being hoisted into a
 // group heading, because terminals linkify it — clicking straight to the offending line
@@ -13,51 +14,16 @@
 
 import { escapeControl } from '../../policy';
 import { Finding } from '../../types';
+import { BOLD, colourEnabled, CYAN, DIM, GREEN, paint, RED, stripControl, terminalWidth, YELLOW } from './status';
+
+// render/status is the single source of truth for the palette, the colour/width/strip
+// primitives and the shared status line; these three are re-exported so existing importers
+// of them from render/text keep resolving.
+export { colourEnabled, stripControl, terminalWidth };
 
 export interface TextOpts {
   colour: boolean;
   width: number;
-}
-
-const ESC = '\u001b';
-const RESET = `${ESC}[0m`;
-const BOLD = `${ESC}[1m`;
-const DIM = `${ESC}[2m`;
-// 24-bit palette. Colour is decoration only (see the ACCESSIBILITY CONTRACT above):
-// it is emitted solely as SGR escapes that strip to nothing and never adds or removes
-// a printable byte, so the colour:false rendering stays byte-identical to the
-// colour:true one with the escapes removed. A terminal without truecolor down-samples
-// to its nearest colour; NO_COLOR / a pipe / TERM=dumb drop them entirely.
-const truecolour = (r: number, g: number, b: number): string => `${ESC}[38;2;${r};${g};${b}m`;
-const RED = truecolour(255, 107, 107);
-const YELLOW = truecolour(227, 179, 65);
-const GREEN = truecolour(63, 185, 80);
-const CYAN = truecolour(86, 212, 221);
-
-/**
- * Honours the NO_COLOR convention (https://no-color.org): set to any non-empty value,
- * colour is off regardless of what it says. FORCE_COLOR overrides in the other direction
- * so a CI log or a `less -R` pager can opt back in. Otherwise: colour only on a TTY.
- */
-export function colourEnabled(
-  env: NodeJS.ProcessEnv = process.env,
-  stream: { isTTY?: boolean } = process.stdout,
-): boolean {
-  if (env.NO_COLOR !== undefined && env.NO_COLOR !== '') return false;
-  if (env.FORCE_COLOR !== undefined && env.FORCE_COLOR !== '' && env.FORCE_COLOR !== '0') return true;
-  if (env.TERM === 'dumb') return false;
-  return Boolean(stream.isTTY);
-}
-
-/** Wrap to the terminal, but never past 100 columns — long measures are hard to track. */
-export function terminalWidth(stream: { columns?: number } = process.stdout): number {
-  const c = stream.columns;
-  if (!c || c < 40) return 80;
-  return Math.min(c, 100);
-}
-
-function paint(s: string, code: string, on: boolean): string {
-  return on ? code + s + RESET : s;
 }
 
 /** Greedy wrap. A word longer than the measure is emitted whole rather than split — a
@@ -78,20 +44,6 @@ function wrap(text: string, width: number): string[] {
   }
   if (cur) out.push(cur);
   return out.length ? out : [''];
-}
-
-/** Replace C0/C1 control bytes with U+FFFD. Written as a code-point scan rather
- *  than a regex literal on purpose: the character class needs `no-control-regex`
- *  suppressed, and this project's own gate blocks lint suppressions — correctly.
- *  \t \n \r are left for the \\s+ collapse below. */
-export function stripControl(v: string): string {
-  let outStr = '';
-  for (const ch of v) {
-    const cp = ch.codePointAt(0) ?? 0;
-    const control = (cp < 0x20 && cp !== 0x09 && cp !== 0x0a && cp !== 0x0d) || cp === 0x7f || (cp >= 0x80 && cp <= 0x9f);
-    outStr += control ? '\uFFFD' : ch;
-  }
-  return outStr;
 }
 
 /** Evidence is the literal offending line, so it is clipped rather than wrapped: a

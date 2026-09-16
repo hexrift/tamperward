@@ -5,6 +5,25 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.22] — 2026-09-16
+
+### Changed
+
+- **cli: one shared renderer for terminal status labels and colours across `check`,
+  `onboard`, `doctor`, and `verify`** (#543). Each surface previously re-declared its own
+  palette and status helper — `onboard` even used the basic 8-colour ANSI codes where the
+  verdict used the 24-bit accessible palette — so the same concept read several different ways
+  (`OK` vs `[OK]`; `verify:` lines with no colour at all). A new `src/cli/render/status.ts`
+  owns the palette, the `ok`/`warn`/`bad`/`info` severity→colour map, and a single
+  `statusLine(tone, label, text)` helper; `render/text.ts` (the `check` verdict) now sources
+  the palette and primitives from it. `onboard` renders every status line through the shared
+  helper, `doctor`'s per-check lines drop the `[STATE]` brackets for a consistent coloured
+  label column, and `verify`'s fail-closed diagnostics gain the same accessible colour. The
+  accessibility contract is unchanged and now lives in one place: severity is carried by the
+  word, output is byte-identical with the SGR escapes stripped, and `NO_COLOR` / a pipe /
+  `TERM=dumb` drop all colour. Presentation only — no change to exit codes, `--json`, or the
+  meaning of any message.
+
 ## [2.29.21] — 2026-09-16
 
 ### Fixed
