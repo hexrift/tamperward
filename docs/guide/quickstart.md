@@ -127,9 +127,13 @@ Treat Tamperward as one layer of defence in depth — alongside protected CI, in
 
 ## Where to next
 
+- **Introduction** — what Tamperward is, the five enforcement surfaces, and a "choose your path" → [Introduction](../introduction.md)
+- **CLI reference** — every command, flag, and exit code (`check`, `verify`, `run`, `doctor`, `init`, `onboard`, …) → [CLI reference](../reference/cli.md)
+- **Machine output** — the `--json` envelopes, verdict/reason enums, and schemas → [Machine output](../reference/machine-output.md)
+- **Policy** — the full `.tamperward.yml` contract (verify block, protected globs, sign-off) → [Policy reference](../reference/policy.md)
+- **Exit codes** — the single table for `0` / `1` / `2` / `124` → [Exit codes](../reference/exit-codes.md)
+- **Integrate** — CI, pre-commit, the in-loop hook, and consuming machine output → [Integrate](../integrate.md)
 - **Recipes** — protect Claude Code or Codex, wire GitHub Actions, add a container verifier, evaluate a model → [Runtime adapters](./runtime-adapters.md)
-- **CLI reference** — every command, flag, and exit code (`check`, `verify`, `run`, `doctor`, `init`, `onboard`, …) → [CLI reference](./getting-started.md#cli-reference)
-- **Configuration** — the `.tamperward.yml` policy, and why the policy file is itself a guarded surface → [The rules](./rules.md)
 - **Trust model & architecture** — trusted vs. untrusted input at every boundary → [Architecture](../architecture.md)
 - **Evidence & research** — preregistered predictions, outcomes, corrections, and limitations → [Evidence](../research/index.md)
 
