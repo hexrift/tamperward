@@ -1,13 +1,13 @@
 // Exit only once what was written to stdout has left the process (#415).
 //
 // `process.exit(code)` straight after `process.stdout.write(doc)` truncates `doc`
-// whenever the write did not complete synchronously. Node's contract: pipes are
-// synchronous on Linux and ASYNCHRONOUS on macOS and Windows — the normal case for
-// every consumer that parses this CLI (Claude Code reading a hook verdict, CI reading
-// `--json` / `--format github`) — and even a Linux pipe backs up in the stream once the
-// kernel buffer is full and the reader is slow. Whatever is still queued dies with the
-// process. For the hook that is a fail-open: a deny whose JSON is cut off is a
-// malformed hook response, and Claude Code ignores those and proceeds.
+// whenever the write did not complete synchronously. Node's contract: pipes and
+// sockets are ASYNCHRONOUS on POSIX (Linux and macOS) and synchronous on Windows —
+// so the async case is the normal one for every consumer that parses this CLI (Claude
+// Code reading a hook verdict, CI reading `--json` / `--format github`), and the write
+// also backs up once the kernel buffer is full and the reader is slow. Whatever is
+// still queued dies with the process. For the hook that is a fail-open: a deny whose
+// JSON is cut off is a malformed hook response, and Claude Code ignores those and proceeds.
 //
 // So the CLI never calls `process.exit` on its own after parsed output. It sets
 // `process.exitCode` — the code the process carries if it drains naturally — and exits

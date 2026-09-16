@@ -27,6 +27,41 @@ All notable changes to this project are documented here. The format follows
   fail-closed behaviour for a lost accepted request is preserved, a shutdown during an
   accepted request never triggers a second evaluation, and a normal idle-service stop is
   unchanged.
+## [2.29.18] — 2026-09-16
+
+### Fixed
+
+- **policy: reject incomplete verify blocks instead of silently discarding verifier
+  settings** (#547). `validate` accepted a `verify:` block without checking for a usable
+  command, while `parsePolicy` retained the block only when its `command` was truthy — so
+  a block that declared a `backend`, `image`, `budget`, or `inputs` but no command (or a
+  whitespace-only command) parsed cleanly and was then dropped from the effective policy,
+  silently discarding the operator's declared execution boundary and input surface. The
+  loader now enforces one explicit contract: a `verify:` block must declare a non-empty,
+  non-whitespace `command`, and an incomplete or whitespace-only block raises a descriptive
+  `PolicyError` before execution rather than being accepted and discarded. Because a partial
+  block can no longer survive into the normalized policy, supplying the suite command
+  separately cannot alter the selected execution boundary. Complete verifier blocks preserve
+  every declared field, unchanged.
+## [2.29.17] — 2026-09-16
+
+### Fixed
+
+- **verify: the capture supervisor now flushes its result synchronously before exiting, so a
+  large diagnostic payload is never truncated by process.exit** (#555). The inline capture
+  supervisor wrote its reserved result JSON with `process.stdout.write(...)` and then called
+  `process.exit(0)`. Per Node's process-I/O contract a pipe/socket write is **asynchronous on
+  POSIX** (Linux and macOS) and synchronous only on Windows, so an immediate exit could drop a
+  still-queued multi-KiB document — up to two 16 KiB base64 diagnostic tails — leaving the
+  parent with empty or partial stdout and a spurious `VERIFIER_BACKEND_RUNTIME_FAILURE` /
+  "suite capture supervisor did not produce a result". The supervisor now serializes the
+  result once and writes it with `fs.writeSync(1, ...)`, looping over short writes and retrying
+  `EAGAIN` on a backpressured non-blocking fd, so a slow or backpressured consumer always
+  receives complete, parseable JSON with both maximum retained tails; a write that genuinely
+  fails exits non-zero and is surfaced as a supervisor failure rather than a silently empty
+  result. The bounded post-child pipe-drain and backstop behaviour from #539 is unchanged
+  (`process.exit` still fires, only after the synchronous flush completes), so normal
+  completion, suite timeout, and held-open suite pipe cases remain bounded.
 
 ## [2.29.16] — 2026-09-15
 

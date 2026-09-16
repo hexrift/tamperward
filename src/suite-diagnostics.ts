@@ -144,7 +144,7 @@ export function diagnosticLines(stage: string, diagnostics: SuiteDiagnostics): s
 // Configuration is read from a trusted temp file rather than argv so a long
 // suite command cannot run into platform argv limits earlier than the suite
 // itself would.
-const CAPTURE_SUPERVISOR = String.raw`
+export const CAPTURE_SUPERVISOR = String.raw`
 const cp = require('node:child_process');
 const fs = require('node:fs');
 
@@ -249,17 +249,29 @@ function finish(extra) {
   done = true;
   if (descendantTracker) clearInterval(descendantTracker);
   if (drainTimer) clearTimeout(drainTimer);
+  // fd 1 is the reserved result channel (suite streams are separate pipes).
+  // Write synchronously: process.stdout.write is async on a POSIX pipe, so an
+  // immediate process.exit(0) can truncate the result before it flushes.
+  const buf = Buffer.from(JSON.stringify({
+    ...exitInfo,
+    timedOut,
+    ...extra,
+    stdout: diag(stdout),
+    stderr: diag(stderr),
+  }), 'utf8');
+  let offset = 0;
   try {
-    // stdout is reserved for the trusted supervisor result. Candidate suite
-    // stdout/stderr are separate pipes and are never inherited here.
-    process.stdout.write(JSON.stringify({
-      ...exitInfo,
-      timedOut,
-      ...extra,
-      stdout: diag(stdout),
-      stderr: diag(stderr),
-    }));
-  } catch {}
+    while (offset < buf.length) {
+      try {
+        offset += fs.writeSync(1, buf, offset, buf.length - offset);
+      } catch (e) {
+        if (e && e.code === 'EAGAIN') continue;
+        throw e;
+      }
+    }
+  } catch {
+    process.exit(1);
+  }
   process.exit(0);
 }
 

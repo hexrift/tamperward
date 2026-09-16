@@ -3,13 +3,15 @@
 // (node -e), plus the guarded-surface tests for the policy `verify:` block.
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseVerify, probeFilesystemCaseSensitivity, runVerify, type RunResult } from '../src/cli/verify';
+import { loadPolicy } from '../src/policy-load';
 import { policyWeakening } from '../src/detectors/policy-diff';
 import {
+  CAPTURE_SUPERVISOR,
   DIAGNOSTIC_TAIL_BYTES,
   parseCapturedSupervisorResult,
   runCapturedProcessSync,
@@ -651,6 +653,92 @@ describe('suite supervisor lifecycle and result authority (#319, #371)', () => {
     await waitForPidsGone(pids);
   }, 15_000);
 
+  it('flushes a maximal two-tail supervisor result completely before exiting (#555)', () => {
+    const cwd = repo();
+    // Force both retained tails to their full DIAGNOSTIC_TAIL_BYTES, so the
+    // reserved result channel carries its largest possible document (two 16 KiB
+    // base64 tails plus metadata). The supervisor must write it synchronously and
+    // in full before process.exit; an async write truncated by immediate exit
+    // would yield a null parse ("did not produce a result") or short tails.
+    const fill = DIAGNOSTIC_TAIL_BYTES + 8_000;
+    const code =
+      "const fs=require('fs');" +
+      `fs.writeSync(1,Buffer.alloc(${fill},65));` +
+      `fs.writeSync(2,Buffer.alloc(${fill},66));` +
+      'process.exit(3)';
+    const result = runCapturedProcessSync(process.execPath, ['-e', code], {
+      cwd,
+      env: process.env,
+      timeoutMs: 5_000,
+      detached: process.platform !== 'win32',
+      killGroupOnFinish: true,
+    });
+    expect(result.exit).toBe(3);
+    expect(result.timedOut).toBe(false);
+    expect(result.error).toBeUndefined();
+    for (const stream of [result.diagnostics.stdout, result.diagnostics.stderr]) {
+      expect(stream.captured_bytes).toBe(fill);
+      expect(stream.retained_bytes).toBe(DIAGNOSTIC_TAIL_BYTES);
+      expect(stream.truncated).toBe(true);
+    }
+    expect(result.diagnostics.stdout.tail).toBe('A'.repeat(DIAGNOSTIC_TAIL_BYTES));
+    expect(result.diagnostics.stderr.tail).toBe('B'.repeat(DIAGNOSTIC_TAIL_BYTES));
+  });
+
+  it.skipIf(process.platform === 'win32')('writes the full result even when the parent stalls reading the reserved channel (#555)', async () => {
+    const cwd = repo();
+    const state = mkdtempSync(join(tmpdir(), 'tw-flush-stall-'));
+    dirs.push(state);
+    // captureBytes large enough that the result document exceeds a pipe buffer, so
+    // a stalled reader forces the synchronous write to back up (block / short-write
+    // / EAGAIN) rather than completing in one call.
+    const cap = 128 * 1024;
+    const suite =
+      "const fs=require('fs');" +
+      `fs.writeSync(1,Buffer.alloc(${cap + 8_000},65));` +
+      'process.exit(7)';
+    const configFile = join(state, 'config.json');
+    writeFileSync(configFile, JSON.stringify({
+      executable: process.execPath,
+      args: ['-e', suite],
+      cwd,
+      timeoutMs: 5_000,
+      detached: process.platform !== 'win32',
+      killGroupOnFinish: true,
+      drainMs: 1_000,
+      captureBytes: cap,
+    }));
+
+    const child = spawn(process.execPath, ['-e', CAPTURE_SUPERVISOR, configFile], {
+      cwd,
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    // A busy or blocked write must never hang the runner: kill the child if it does.
+    const guard = setTimeout(() => child.kill('SIGKILL'), 12_000);
+
+    // Collect from listeners attached up front so the result cannot be missed, then
+    // stall the reader (pause) before resuming, so a large write is delivered whole.
+    const chunks: Buffer[] = [];
+    const drained = new Promise<void>((resolve) => {
+      child.stdout!.on('data', (b: Buffer) => chunks.push(b));
+      child.stdout!.on('end', () => resolve());
+      child.stdout!.on('close', () => resolve());
+      child.on('error', () => resolve());
+    });
+    child.stdout!.pause();
+    setTimeout(() => child.stdout!.resume(), 700);
+    await drained;
+    clearTimeout(guard);
+
+    const result = parseCapturedSupervisorResult(Buffer.concat(chunks).toString('utf8'));
+    expect(result).not.toBeNull();
+    expect(result!.exit).toBe(7);
+    expect(result!.diagnostics.stdout.captured_bytes).toBe(cap + 8_000);
+    expect(result!.diagnostics.stdout.retained_bytes).toBe(cap);
+    expect(result!.diagnostics.stdout.tail).toBe('A'.repeat(cap));
+  }, 20_000);
+
   it('preserves authoritative nonzero exit while draining noisy stdout/stderr', () => {
     const cwd = repo();
     const code =
@@ -1029,5 +1117,75 @@ describe('verify — case-insensitive filesystem overlay (#426)', () => {
     keptDirs(r.json);
     expect(r.json.added_protected_removed).toBe(0);
     expect(existsSync(join(String(r.json.pristine_dir), 'CONFTEST.PY'))).toBe(true);
+  });
+});
+
+// #547 — the direct `verify` surface loads the repository policy before it reads
+// any operator-supplied command. An incomplete `verify:` block that declares a
+// container execution boundary but omits a usable command must fail closed with
+// the loader's descriptive PolicyError, and the boundary must survive intact when
+// the block is complete. These exercise the same contract the parser unit tests
+// pin (test/verifier-backend-policy.test.ts) across the real CLI entry.
+describe('verify rejects an incomplete policy verify block before execution (#547)', () => {
+  const DIGEST = 'sha256:' + 'a'.repeat(64);
+  const IMAGE = 'ghcr.io/example/tamperward-verifier@' + DIGEST;
+
+  function repoWithPolicy(body: string): string {
+    const d = mkdtempSync(join(tmpdir(), 'tw-ver-547-'));
+    dirs.push(d);
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: d });
+    git('init', '-q');
+    git('config', 'user.email', 't@b');
+    git('config', 'user.name', 'tb');
+    writeFileSync(join(d, '.tamperward.yml'), body);
+    git('add', '-A');
+    git('commit', '-qm', 'policy');
+    return d;
+  }
+
+  const incomplete = `version: 1\nverify:\n  backend: container\n  image: ${IMAGE}\n`;
+
+  it('fails closed (POLICY_ERROR) when the container block omits a usable command', () => {
+    const cwd = repoWithPolicy(incomplete);
+    const r = capture(() => runVerify({ cwd, json: true }));
+    expect(r.code).toBe(2);
+    expect(r.json.verdict).toBe('CANNOT_VERIFY');
+    expect(r.json.reason).toBe('POLICY_ERROR');
+    expect(String(r.json.detail)).toMatch(/verify\.command is required/i);
+  });
+
+  it('an externally supplied command cannot rescue the incomplete block or relax its boundary', () => {
+    // The policy is loaded (and rejected) before any --cmd is consulted, so a
+    // separately supplied suite command cannot make the discarded container/image
+    // boundary silently come back as a permissive local run.
+    const cwd = repoWithPolicy(incomplete);
+    const r = capture(() => runVerify({ cwd, cmd: 'node -e "process.exit(0)"', json: true }));
+    expect(r.code).toBe(2);
+    expect(r.json.verdict).toBe('CANNOT_VERIFY');
+    expect(r.json.reason).toBe('POLICY_ERROR');
+  });
+
+  it('a complete container block is accepted and its backend/image/inputs survive into execution setup', () => {
+    const cwd = repoWithPolicy(
+      `version: 1\nverify:\n  command: node test/check.test.js\n  budget: 60\n  backend: container\n  image: ${IMAGE}\n  inputs:\n    - "src/**"\n`,
+    );
+    // loadPolicy is the loader doctor and verify share; the complete block keeps every field.
+    expect(loadPolicy(cwd).verify).toMatchObject({
+      command: 'node test/check.test.js',
+      budget: 60,
+      backend: 'container',
+      image: IMAGE,
+      inputs: ['src/**'],
+    });
+
+    // Through runVerify the declared boundary reaches backend preparation: with no
+    // usable container engine the run fails closed as VERIFIER_BACKEND_UNAVAILABLE
+    // while echoing the container image it was told to use — never POLICY_ERROR and
+    // never NO_SUITE_COMMAND, both of which would mean the complete block was lost.
+    const r = capture(() => runVerify({ cwd, json: true }));
+    expect(r.code).toBe(2);
+    expect(r.json.verdict).toBe('CANNOT_VERIFY');
+    expect(r.json.reason).toBe('VERIFIER_BACKEND_UNAVAILABLE');
+    expect(r.json.verifier_backend).toMatchObject({ kind: 'container', image: IMAGE, available: false });
   });
 });
