@@ -18,11 +18,15 @@ All notable changes to this project are documented here. The format follows
   bounded pre-acceptance request deadline: a connection that never sends a complete request
   line is refused and closed rather than held open, and an incomplete request is never
   evaluated, so it records no side effects. Shutdown stops accepting new work, destroys any
-  connection with no accepted evaluation in flight at once, gives an in-flight evaluation a
-  bounded drain before destroying its socket too, and resolves cleanup only once every
-  service-owned handle is gone. The client's existing fail-closed behaviour for a lost
-  accepted request is preserved, a shutdown during an accepted request never triggers a
-  second evaluation, and a normal idle-service stop is unchanged.
+  connection with no accepted evaluation in flight at once, gives the accepted request's
+  socket a bounded drain window before destroying it too, and resolves cleanup only once
+  every service-owned handle is gone. The bound is on the sockets, not on evaluation: a
+  synchronously-running accepted evaluation still completes as it does in-process (this
+  event-loop drain timer cannot preempt one that blocks) — an independently terminable
+  evaluation worker is out of scope for this reliability fix. The client's existing
+  fail-closed behaviour for a lost accepted request is preserved, a shutdown during an
+  accepted request never triggers a second evaluation, and a normal idle-service stop is
+  unchanged.
 
 ## [2.29.16] — 2026-09-15
 

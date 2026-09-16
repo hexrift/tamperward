@@ -49,7 +49,9 @@ const MAX_REQUEST_BYTES = 64 * 1024 * 1024; // a Write payload carries the whole
 const STOP_WAIT_MS = 10_000;
 // Cap a client that never finishes its request line, so it cannot hold a socket open.
 const REQUEST_DEADLINE_MS = 30_000;
-// Grace for an in-flight evaluation to finish during shutdown before its socket is destroyed.
+// After shutdown starts, an accepted request's socket gets this drain window before it
+// too is destroyed. It bounds the SOCKET, not the evaluation: a synchronous evaluation
+// runs to completion as in-process — this event-loop timer cannot preempt one that blocks.
 const SHUTDOWN_DRAIN_MS = 5_000;
 
 export interface ServiceState {
@@ -390,7 +392,7 @@ export async function startHookService(opts: StartOptions): Promise<RunningServi
           resolve();
         };
         server.close(finalize);
-        // Destroy idle connections at once; an in-flight evaluation gets the drain below.
+        // Destroy idle connections at once; the accepted request's socket gets the drain below.
         for (const sock of sockets) if (sock !== acceptedSocket) sock.destroy();
         drain = setTimeout(() => {
           for (const sock of sockets) sock.destroy();
