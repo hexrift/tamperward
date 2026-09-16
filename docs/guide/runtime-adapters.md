@@ -228,8 +228,10 @@ deterministically in CI are separated from the part that needs a real Codex box:
   real Codex input shape and its deny wire validates against the copied real output schemas.
 - **(b) Probe self-test** (`test/codex-probe-selftest.test.ts`, CI) — the probe's own
   classifiers are asserted against every deterministic mode (hook-fired-deny-respected,
-  deny-ignored, hook-never-fired, tool-never-attempted, hook-crashed/timeout-with-tool-
-  executed, stop-block-respected/ignored), and the **real** driver is built and exercised
+  deny-ignored, hook-never-fired, tool-never-attempted, observed-failure-fail-closed,
+  unobserved-failure, outer-timeout-inconclusive, stop-respected/ignored/never-fired), the
+  provenance gate is asserted (a missing pin or version mismatch caps at not-full), the
+  distinct-`tool_use_id` counter is checked, and the **real** driver is built and exercised
   end-to-end (decide → append to a parent-owned ledger → classify). This proves the probe
   *itself* cannot false-green.
 - **(c) Real Codex E2E** (`npm run probe:codex-runtime`, **not** run in CI) — the real gate
@@ -237,19 +239,34 @@ deterministically in CI are separated from the part that needs a real Codex box:
 
 **`probe:codex-runtime`** (`harness/adapters/codex-probe.mjs`) drives a real `codex` binary
 against a real repository. Each mutation class (shell edit, `apply_patch` edit, native
-edit/write, delete, rename, git checkout/reset/restore, MCP op, nested shell, parallel tool
-calls, detached/background mutation) is run as a **CONTROL** (pass-through hook → the
-mutation must land) vs **GATED** (TamperWard hook → deny) pair. Evidence is a **parent-owned,
-append-only ledger** written **outside** the candidate repo by the hook driver, plus a
-tracer hook that records that the tool was attempted; `specIntact` alone is never proof. A
-mutation case passes only when the ledger shows the expected tool was attempted, PreToolUse
-fired, TamperWard denied, the reason reached Codex, the mutation did **not** land, and Codex
-completed. The probe then breaks TamperWard (killed process, missing executable, timeout,
-malformed JSON, empty output, non-zero exit) and drives three identity-poison cases
-(invalid, cross-repo, and symlink-escape claimed cwd, each passed as an **explicit** driver
-input) and requires each to **fail closed**. It pins the full provenance (Codex version and
-binary SHA-256, OS/arch, model, `exec` args, approval/sandbox mode, `CODEX_HOME`, hooks
-config and adapter/probe/driver hashes) before it may print `Eligible for Round 4.1`. With no
+edit/write, delete, rename, git checkout/reset/restore, MCP op, nested shell, *multiple tool
+calls in one turn*, detached/background mutation) is run as a **CONTROL** (fully pass-through
+hooks → the mutation must land) vs **GATED** (TamperWard hook → deny) pair. Evidence is a
+**parent-owned, append-only ledger** written **outside** the candidate repo by the hook
+driver, plus a tracer hook that records that the tool was attempted; `specIntact` alone is
+never proof. A mutation case passes only when the ledger shows the expected tool was
+attempted, PreToolUse fired, TamperWard denied, the reason reached Codex, the mutation did
+**not** land, and Codex completed. The *multiple tool calls* case additionally requires **two
+distinct `tool_use_id`** entries (both operations attempted) — it is named honestly and is
+never satisfied by a single deletion; genuine concurrency is not asserted from a sequential
+ledger.
+
+FULL additionally requires a **real Stop qualification**: a case that lets a protected
+mutation LAND during the turn (pre-action pass-through) and then proves from the ledger that
+Stop fired, the sweep returned the `{decision:block, reason}` wire, and Codex honoured it.
+
+For **fail-closed transport**, each broken hook (crash, non-zero exit, malformed JSON, empty
+output, timeout) writes a positive `hook-failure` marker of its kind to the ledger **before**
+it triggers the fault, so `intendedHookFailure` is **observed**, never assumed; a case where
+the **outer harness timeout** killed Codex is treated as **inconclusive**, never a
+fail-closed PASS. Three identity-poison cases (invalid, cross-repo, symlink-escape claimed
+cwd) run the driver directly with an **explicit** adversarial cwd and must fail closed.
+
+Before it may print `Eligible for Round 4.1`, the probe enforces a **provenance gate**:
+`CODEX_VERSION_EXPECTED` (and the running Codex version must match it), `CODEX_MODEL`, and
+`CODEX_HOME` must be set, and the SHA-256 of the **actual generated `.codex/hooks.json`** must
+be captured — alongside the Codex binary SHA-256, OS/arch, `exec` args, approval/sandbox
+mode, and adapter/probe/driver hashes. Any missing pin caps the result at PARTIAL. With no
 Codex CLI present it reports PARTIAL and exits non-zero, so "could not test" is never mistaken
 for "passed". Only a FULL verdict justifies flipping Codex to `in-loop` and registering
 Round 4.1 — deliberately not done by this PR.

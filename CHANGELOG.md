@@ -37,9 +37,14 @@ All notable changes to this project are documented here. The format follows
   false-green — both run in CI; (c) `probe:codex-runtime`
   (`harness/adapters/codex-probe.mjs`) is the real gate on a pinned Codex build, using a
   parent-owned append-only ledger (evidence, not `specIntact` alone), CONTROL-vs-GATED
-  mutation pairs, fail-closed-transport breakage, and pinned provenance — with no Codex CLI it
-  reports PARTIAL and exits non-zero. Green CI proves build/unit/static + layers (a) and (b)
-  only, **not** runtime qualification. This is milestone one: the adapter exists but is
+  mutation pairs, an **observed** fail-closed-transport suite (each broken hook writes a
+  positive `hook-failure` marker before the fault, and an outer-timeout kill is treated as
+  inconclusive, never a PASS), a real **Stop-block** qualification and an honest
+  **multiple-tool-calls** check (two distinct `tool_use_id`s) both required for FULL, and a
+  **provenance gate** (pinned `CODEX_VERSION_EXPECTED`/`CODEX_MODEL`/`CODEX_HOME` with a
+  version match, plus the generated `.codex/hooks.json` SHA-256) that caps at PARTIAL when
+  unpinned — with no Codex CLI it reports PARTIAL and exits non-zero. Green CI proves
+  build/unit/static + layers (a) and (b) only, **not** runtime qualification. This is milestone one: the adapter exists but is
   **not** 4.1-eligible — Codex stays `neutral` in `src/runtimes.ts` and no research round is
   registered. Wiring `.codex/hooks.json` from `init`/`onboard` and protecting that control
   surface (and full parity with `effectDriftBlocks`/`sanctionPredictedWrites`) is a **PR 2**

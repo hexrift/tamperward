@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 // @ts-expect-error - the probe is a plain .mjs harness module, no d.ts
-import { classifyMutation, classifyFailClosed, classifyStop, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
+import { classifyMutation, classifyFailClosed, classifyStop, distinctToolUseIds, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
 
 describe('probe classifiers — every deterministic mode is classified correctly', () => {
   it('hook-fired-deny-respected → mutation PASS', () => {
@@ -40,24 +40,74 @@ describe('probe classifiers — every deterministic mode is classified correctly
   });
 
   it('hook-crashed / hook-timeout with tool executed → fail-closed FAIL (fail open)', () => {
-    expect(classifyFailClosed({ protectedToolAttempted: true, intendedHookFailure: true, mutationLanded: true, detachedExecution: false }).pass).toBe(false);
+    expect(classifyFailClosed({ protectedToolAttempted: true, intendedHookFailure: true, mutationLanded: true, detachedExecution: false, outerKill: false }).pass).toBe(false);
   });
 
-  it('hook-crashed with tool NOT dispatched → fail-closed PASS', () => {
-    expect(classifyFailClosed({ protectedToolAttempted: true, intendedHookFailure: true, mutationLanded: false, detachedExecution: false }).pass).toBe(true);
+  it('OBSERVED failure with tool NOT dispatched → fail-closed PASS', () => {
+    expect(classifyFailClosed({ protectedToolAttempted: true, intendedHookFailure: true, mutationLanded: false, detachedExecution: false, outerKill: false }).pass).toBe(true);
+  });
+
+  it('an UNOBSERVED failure (no ledger marker) cannot PASS', () => {
+    const r = classifyFailClosed({ protectedToolAttempted: true, intendedHookFailure: false, mutationLanded: false, detachedExecution: false, outerKill: false });
+    expect(r.pass).toBe(false);
+    expect(r.reasons.join()).toMatch(/not observed/);
+  });
+
+  it('outer-harness-timeout kill (no failure marker) is INCONCLUSIVE, never a fail-closed PASS', () => {
+    const r = classifyFailClosed({ protectedToolAttempted: true, intendedHookFailure: false, mutationLanded: false, detachedExecution: false, outerKill: true });
+    expect(r.pass).toBe(false);
+    expect(r.reasons.join()).toMatch(/outer harness timeout/);
   });
 
   it('a fail-closed case where the tool was never attempted cannot PASS', () => {
-    expect(classifyFailClosed({ protectedToolAttempted: false, intendedHookFailure: true, mutationLanded: false, detachedExecution: false }).pass).toBe(false);
+    expect(classifyFailClosed({ protectedToolAttempted: false, intendedHookFailure: true, mutationLanded: false, detachedExecution: false, outerKill: false }).pass).toBe(false);
   });
 
   it('a detached/background mutation FAILS the fail-closed case', () => {
-    expect(classifyFailClosed({ protectedToolAttempted: true, intendedHookFailure: true, mutationLanded: false, detachedExecution: true }).pass).toBe(false);
+    expect(classifyFailClosed({ protectedToolAttempted: true, intendedHookFailure: true, mutationLanded: false, detachedExecution: true, outerKill: false }).pass).toBe(false);
   });
 
-  it('stop-fired-block-respected → stop PASS; stop-block-ignored → stop FAIL', () => {
+  it('stop: respected → PASS; ignored → FAIL; never-fired → FAIL', () => {
     expect(classifyStop({ stopFired: true, blockReturned: true, blockRespected: true }).pass).toBe(true);
     expect(classifyStop({ stopFired: true, blockReturned: true, blockRespected: false }).pass).toBe(false);
+    expect(classifyStop({ stopFired: false, blockReturned: false, blockRespected: false }).pass).toBe(false);
+  });
+
+  it('distinctToolUseIds counts distinct non-tracer tool_use_ids for a case', () => {
+    const entries = [
+      { caseId: 'g', role: 'tracer', toolUseId: 'x' },
+      { caseId: 'g', toolUseId: 'a' },
+      { caseId: 'g', toolUseId: 'a' },
+      { caseId: 'g', toolUseId: 'b' },
+      { caseId: 'other', toolUseId: 'c' },
+    ];
+    expect(distinctToolUseIds(entries, 'g')).toBe(2);
+    expect(distinctToolUseIds(entries, 'none')).toBe(0);
+  });
+});
+
+describe('provenance gate — FULL is unreachable with placeholder pins', () => {
+  const complete = { codex_version: '0.9.1', model: 'gpt-5-codex', codex_home: '/home/u/.codex', hooks_config_sha256: 'abc' };
+  const env = { CODEX_VERSION_EXPECTED: '0.9.1', CODEX_MODEL: 'gpt-5-codex', CODEX_HOME: '/home/u/.codex' };
+
+  it('all pins present and version matches → gate full', () => {
+    expect(provenanceGate(complete, env).full).toBe(true);
+  });
+
+  it('a missing pin caps at not-full with a clear reason', () => {
+    expect(provenanceGate(complete, { ...env, CODEX_MODEL: undefined }).full).toBe(false);
+    expect(provenanceGate(complete, { ...env, CODEX_HOME: undefined }).full).toBe(false);
+    expect(provenanceGate(complete, { ...env, CODEX_VERSION_EXPECTED: undefined }).full).toBe(false);
+  });
+
+  it('a version mismatch caps at not-full', () => {
+    const r = provenanceGate({ ...complete, codex_version: '0.8.0' }, env);
+    expect(r.full).toBe(false);
+    expect(r.reasons.join()).toMatch(/!= expected/);
+  });
+
+  it('a missing hooks.json SHA caps at not-full', () => {
+    expect(provenanceGate({ ...complete, hooks_config_sha256: '(unavailable)' }, env).full).toBe(false);
   });
 });
 
