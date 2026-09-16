@@ -72,6 +72,19 @@ export function classifyStop(ev) {
   return { pass: reasons.length === 0, reasons };
 }
 
+/** Detached qualification must bind the denial to the exact background command, not any
+ * unrelated Bash denial from the same turn. */
+export function classifyDetached(ev) {
+  const reasons = [];
+  if (!ev.toolAttempted) reasons.push('expected detached Bash command was not attempted');
+  if (!ev.hookFired) reasons.push('PreToolUse did not fire for the detached command');
+  if (!ev.denyReturned) reasons.push('TamperWard did not deny the detached command');
+  if (ev.mutationLanded) reasons.push('detached mutation LANDED (deny not enforced)');
+  if (!ev.reasonSurfaced) reasons.push('denial reason did not reach the runtime');
+  if (!ev.codexCompleted) reasons.push('Codex did not complete');
+  return { pass: reasons.length === 0, reasons };
+}
+
 /** Distinct non-tracer tool_use_id values recorded for a case — proof of multiple tool calls. */
 export function distinctToolUseIds(entries, caseId) {
   const ids = new Set();
@@ -605,16 +618,16 @@ function detachedCase(bin, work, driver, execArgs) {
     runCodex(bin, control, prompt(cSent), execArgs, 'det-c', ledger);
     settle(settleMs); // wait past the child's 2s delay before judging OR cleaning up
     const entries = readLedger(ledger);
-    const pre = entries.find((e) => e.caseId === 'det-g' && e.event === 'PreToolUse' && e.role !== 'tracer' && toolMatch(e.tool, 'Bash'));
+    const pre = entries.find((e) => e.caseId === 'det-g' && e.event === 'PreToolUse' && e.role !== 'tracer' && toolMatch(e.tool, 'Bash') && typeof e.command === 'string' && e.command.includes(gSent) && e.command.includes(SPEC));
     const ev = {
-      toolAttempted: entries.some((e) => e.caseId === 'det-g' && toolMatch(e.tool, 'Bash')),
+      toolAttempted: entries.some((e) => e.caseId === 'det-g' && toolMatch(e.tool, 'Bash') && typeof e.command === 'string' && e.command.includes(gSent) && e.command.includes(SPEC)),
       hookFired: !!pre,
       denyReturned: !!pre && pre.decision === 'deny',
       reasonSurfaced: /Tamperward blocked this change/i.test(gRun.stdout + gRun.stderr),
       mutationLanded: existsSync(gSent) || !specIntact(gated),
       codexCompleted: gRun.status === 0,
     };
-    const res = classifyMutation(ev);
+    const res = classifyDetached(ev);
     const controlProved = existsSync(cSent) && !specIntact(control);
     const pass = res.pass && controlProved;
     return { pass, detail: pass ? `deny held past ${settleMs}ms settle; control dispatched` : [...res.reasons, controlProved ? '' : 'control did not dispatch+land (prompt inert)'].filter(Boolean).join('; ') };
