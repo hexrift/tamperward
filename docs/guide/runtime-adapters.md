@@ -172,6 +172,56 @@ judged from the root). The payload's `cwd` is a fact to check, not authority to 
    research-adapter registration, and the parity suite are Phase 2 / Phase 3 work — see the
    issue's staged sequence. Phase 1 ships the neutral seam and the Claude conformance only.)
 
+## Codex (EXPERIMENTAL — adapter exists, not yet 4.1-eligible)
+
+An **experimental** Codex adapter ships in `src/adapters/codex/*`
+([#482](https://github.com/hexrift/tamperward/issues/482),
+[#563](https://github.com/hexrift/tamperward/issues/563)). It is the second implementation
+of the neutral `RuntimeAdapter` contract, and it is deliberately conservative.
+
+**Two milestones, not one.** *An adapter existing is not the same as a runtime being
+qualified for in-loop enforcement.* Milestone one — the adapter — is done: it normalizes
+Codex hook payloads, maps Codex tool names to operation kinds, reconstructs shell and
+file-edit operations (including `apply_patch`) into the shared `Change[]` via
+`synthFileChange`, runs the **same** engine as the Claude path for its pre-action content
+decision, delegates the end-of-turn sweep to the canonical git sweep, validates identity as
+an untrusted claim, and fails closed on every failure state. Milestone two — proving that
+Codex actually **enforces** a pre-action deny and that its hook transport actually **fails
+closed** on a *pinned* Codex build — is **not** met, so Codex is **not** eligible for
+Round 4.1. The registry (`src/runtimes.ts`) keeps Codex at `steering: 'neutral'` and no
+research round is registered.
+
+**Conservative capabilities.** The Codex adapter declares:
+
+- `preDeny: []` — pre-action deny enforcement is **not yet proven** on a pinned Codex build,
+  so the adapter claims no synchronous veto (per the honesty rule: only claim `preDeny` for
+  a kind proven by invocation evidence, never by the mere existence of a hook name);
+- `postObserve: shell | file-edit | file-read | mcp | other` — Codex surfaces
+  post-execution tool outcomes;
+- `endOfTurn: true` — Codex delivers a stop event that runs the mandatory git sweep;
+- `unsupported` names the real gaps in prose: *pre-action deny enforcement not yet proven on
+  a pinned Codex build*, *fail-closed hook transport not yet proven
+  ([openai/codex#41979](https://github.com/openai/codex/issues/41979))*, *network-egress
+  control*, and *identity / authentication*.
+
+**`probe:codex-runtime` is the qualification gate.** The harness
+(`harness/adapters/codex-probe.mjs`, run with `npm run probe:codex-runtime`) is the *real*
+gate for milestone two. On a pinned Codex build it drives a real `codex` binary against a
+real repository, per mutation class (shell edit, `apply_patch` edit, native edit/write,
+delete, rename, git checkout/reset/restore, MCP op, nested shell, parallel tool calls),
+confirming the operation is denied and did not execute; then it breaks TamperWard nine ways
+(killed process, missing executable, timeout, malformed JSON, empty output, non-zero exit,
+invalid cwd, cross-repo cwd, symlink escape) and requires each to **fail closed**. It pins
+and prints the Codex version and prints a FULL / PARTIAL verdict with an explicit
+`Eligible` / `Not eligible for Round 4.1` line. With no Codex CLI present it reports PARTIAL
+and exits non-zero, so "could not test" is never mistaken for "passed". Only a FULL verdict
+justifies flipping Codex to `in-loop` and registering Round 4.1 — deliberately not done by
+this PR.
+
+**PR 2 follow-up.** Generating `.codex/hooks.json` from `init` / `onboard`, and protecting
+that control surface (the same way the Claude hook wiring is protected), is the next PR.
+This PR wires hooks only inside the probe harness; it adds no init/onboard generation.
+
 ## Runtime detection in onboarding
 
 `tamperward onboard` reports which agent runtime a repository actually hosts and what

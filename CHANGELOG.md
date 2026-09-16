@@ -5,6 +5,33 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.30.0] — 2026-09-16
+
+### Added
+
+- **adapters: an EXPERIMENTAL Codex runtime adapter plus a real qualification probe**
+  (#482, #563). A new `CodexRuntimeAdapter` (`src/adapters/codex/*`) implements the neutral
+  `RuntimeAdapter` contract: it normalizes Codex hook payloads into the shared
+  `SteeringEvent` shape (mapping `shell_command`/`exec_command`/`unified_exec` → `shell`,
+  `apply_patch` and edit/write tools → `file-edit`, read/search tools → `file-read`, MCP
+  calls → `mcp`), reconstructs shell and file-edit operations into the shared `Change[]` via
+  `synthFileChange` (including an `apply_patch` parser that fails **closed** on a hunk it
+  cannot locate), runs the **same** engine as the Claude path for its pre-action content
+  decision, delegates the end-of-turn sweep to the canonical git sweep, and emits Codex's
+  documented deny envelope. Identity is validated as an untrusted claim exactly as the
+  Claude adapter validates it, and every failure state (`parse-failure`,
+  `transport-failure`, `not-invoked`, an unreconstructable edit, a rejected identity)
+  fails closed to a deny. Capabilities are deliberately **conservative and honest**:
+  `preDeny` is **empty** because pre-action deny enforcement is not yet proven on a pinned
+  Codex build, and `unsupported` names that gap along with fail-closed hook transport
+  (openai/codex#41979), network-egress control, and identity/authentication. A new
+  `probe:codex-runtime` harness (`harness/adapters/codex-probe.mjs`) is the qualification
+  gate: on a pinned Codex build it drives real mutation classes and fail-closed-transport
+  breakage against a real `codex` binary and prints a FULL/PARTIAL verdict; with no Codex
+  CLI present it reports PARTIAL and exits non-zero rather than claim a pass. This is
+  milestone one only — the adapter exists but is **not** 4.1-eligible: Codex stays `neutral`
+  in `src/runtimes.ts` and no research round is registered. Wiring `.codex/hooks.json` from
+  `init`/`onboard` and protecting that control surface is a **PR 2** follow-up.
 ## [2.29.21] — 2026-09-16
 
 ### Fixed

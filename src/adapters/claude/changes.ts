@@ -116,7 +116,7 @@ function relForDisplay(path: string, cwd: string): string {
   return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : path;
 }
 
-function applyEdit(content: string | null, oldStr: string, newStr: string, replaceAll = false): string {
+export function applyEdit(content: string | null, oldStr: string, newStr: string, replaceAll = false): string {
   if (content === null) return newStr;
   // FAIL-OPEN CLOSED (taskbench Phase 3, 07-fastify): when old_string is not
   // found in the disk read, a silent no-op made after === before, which made
