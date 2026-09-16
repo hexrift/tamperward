@@ -9,22 +9,26 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
-- **hooks: bound the synthetic diff so a high-churn write cannot stall PreToolUse**
-  (#517). Reconstructing a `Write`/`Edit`/`MultiEdit`/`NotebookEdit` at the hook ran an
-  unbounded synchronous `git diff --no-index` (256 MiB buffer, no timeout) and then the
-  detectors over the full content, so a 20,000-line high-churn write hung the agent-facing
-  gate for 30+ seconds with no operator-owned latency bound. `synthFileChange` now bounds
-  every path: a strict git-diff timeout and a bounded output buffer; a **hard content
-  ceiling** past which the reconstruction **fails closed** (`cannot safely reconstruct the
-  incoming edit within the hook budget`) rather than stall — the Stop sweep still
-  re-derives the turn's net diff from git; and a **linear fallback** that reconstructs one
-  conservative delete/add hunk from the full before/after when the diff cannot be produced
-  in budget, never reading a truncated diff as a smaller edit. The ceiling and timeout are
-  operator-tunable (`TAMPERWARD_RECONSTRUCT_*`). The one primitive is shared by the direct
-  hook and the persistent hook service, so the two cannot diverge. Separately,
-  `test-content-removal` gained an O(1) fast path for its kept-content check (it was O(n²)
-  in the number of removed lines, the dominant cost on a churned spec), behaviour
-  unchanged. The 20k-line regression moves off its wall-clock assertion.
+- **hooks: bound reconstructing AND judging an incoming edit so a high-churn write cannot
+  stall PreToolUse** (#517). A `Write`/`Edit`/`MultiEdit`/`NotebookEdit` was reconstructed
+  with an unbounded synchronous `git diff --no-index` (256 MiB buffer, no timeout) and then
+  judged by every detector over the full content, so a 20,000-line high-churn write hung the
+  agent-facing gate for 30+ seconds. Profiling showed the reconstruction is ~90 ms; the cost
+  is detector evaluation, which grows roughly linearly with size. The shared reconstruction
+  primitive (`synthFileChange`, used by the direct hook and the persistent hook service)
+  now enforces a budget **calibrated to a demonstrated evaluation time**: an edit within
+  `TAMPERWARD_RECONSTRUCT_MAX_LINES` / `_MAX_BYTES` per side (4000 lines / 384 KiB by
+  default, ≈3 s) is judged **in full** — every detector runs and an appended `test.skip` is
+  seen by `test-skip`; an edit **past** the budget **fails closed** with an explicit deny
+  (`cannot safely reconstruct the incoming edit within the hook budget`), never a partial
+  allow and never a stall (the Stop sweep still re-derives the turn's net diff from git). A
+  strict git-diff timeout and bounded buffer, and a linear fallback that reconstructs one
+  conservative hunk from the full before/after (never a truncated diff), bound the
+  reconstruction itself. Two evaluation speed-ups keep the in-budget path fast, behaviour
+  unchanged: a content-addressed parse cache (detectors re-parsed the same source many times
+  per evaluation) and an O(1) fast path for `test-content-removal`'s kept-content check
+  (previously O(n²) in removed lines). The 20k regression moves off its wall-clock
+  assertion; an outer-process smoke test proves the built hook respects a hard maximum.
 
 ## [2.29.15] — 2026-09-15
 

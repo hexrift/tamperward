@@ -6,8 +6,8 @@
 // the bounds directly — no wall-clock assertion, no full detector suite over huge input.
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { linearFallbackHunks, synthFileChange } from '../src/adapters/claude/changes';
@@ -15,6 +15,16 @@ import { preToolUseVerdict } from '../src/cli/hook';
 import { evaluate } from '../src/engine';
 import { defaultPolicy } from '../src/policy';
 import type { FileChange } from '../src/types';
+
+const DIST = join(__dirname, '..', 'dist', 'cli', 'index.js');
+// A spec-shaped line, ~76 bytes; the churn edit rewrites a word on every line.
+const specLine = (i: number): string => `test("case ${i} does the thing number ${i}", () => { expect(1).toBe(1); });`;
+const churn = (n: number): { before: string; after: string } => {
+  let before = '';
+  for (let i = 0; i < n; i++) before += specLine(i) + '\n';
+  const after = before.replace(/does the thing/g, 'does the  thing') + 'test.skip("the failing one", () => {});\n';
+  return { before, after };
+};
 
 const P = defaultPolicy();
 const dirs: string[] = [];
@@ -124,19 +134,54 @@ describe('a fallback-built change is still judged by the hunk detectors (#517)',
   });
 });
 
-describe('the public hook denies an over-budget write promptly (#517)', () => {
-  it('a Write past the reconstruction budget returns a deny (not a hang, not a partial allow)', () => {
+describe('the public hook: within budget is judged in full, past budget fails closed (#517)', () => {
+  function initRepo(): string {
+    const cwd = gitRepo();
+    writeFileSync(join(cwd, '.tamperward.yml'), 'version: 1\n');
+    execFileSync('git', ['add', '-A'], { cwd, stdio: 'pipe' });
+    execFileSync('git', ['commit', '-qm', 'init'], { cwd, stdio: 'pipe' });
+    return cwd;
+  }
+
+  // Point 1 of the review contract: a WORST-CASE input within the ceiling is judged END TO
+  // END through the real hook — every detector runs and the appended test.skip is caught by
+  // test-skip, not sidestepped by a ceiling deny. Sized just under the 4000-line budget; the
+  // generous per-test timeout guards CI slowness (the budget itself is the calibrated ceiling,
+  // not this timer), so this is not a wall-clock flake — the assertion is detector visibility.
+  it('a worst-case UNDER-ceiling high-churn write is judged in full — test-skip blocks the appended skip', () => {
+    const cwd = initRepo();
+    const { after } = churn(3900); // ~296 KiB, just under the 384 KiB / 4000-line budget
+    const r = preToolUseVerdict({ tool_name: 'Write', tool_input: { file_path: join(cwd, 'big.test.js'), content: after }, cwd });
+    expect(r.stdout).toContain('"deny"');
+    expect(r.stdout).toContain('test-skip');
+  }, 30_000);
+
+  it('a Write PAST the reconstruction budget fails closed (deny, never a partial allow)', () => {
+    const cwd = initRepo();
+    const { after } = churn(20000);
+    const r = preToolUseVerdict({ tool_name: 'Write', tool_input: { file_path: join(cwd, 'big.test.js'), content: after }, cwd });
+    expect(r.stdout).toContain('"deny"');
+    expect(r.stdout).toContain('hook budget');
+  });
+});
+
+// Point 3 of the review contract: an OUTER-PROCESS, independently killable smoke test —
+// not an in-process synchronous call — proving the public hook PROCESS returns a deny and
+// respects a maximum. Gated on a built CLI (dist), like the repo's other built-CLI E2Es.
+describe.skipIf(!existsSync(DIST) || process.platform === 'win32')('the built hook process respects a maximum (#517)', () => {
+  it('a Write past the budget denies and the process exits well within a hard kill timeout', () => {
     const cwd = gitRepo();
     writeFileSync(join(cwd, '.tamperward.yml'), 'version: 1\n');
     execFileSync('git', ['add', '-A'], { cwd, stdio: 'pipe' });
     execFileSync('git', ['commit', '-qm', 'init'], { cwd, stdio: 'pipe' });
 
-    let content = '';
-    for (let i = 0; i < 20000; i++) content += `test("case ${i} does the thing number ${i}", () => { expect(1).toBe(1); });\n`;
-    // Returning at all within vitest's default 5s timeout is itself the "does not hang"
-    // proof: the un-bounded path took 30+s. The verdict must be a deny, never a partial allow.
-    const r = preToolUseVerdict({ tool_name: 'Write', tool_input: { file_path: join(cwd, 'big.test.js'), content }, cwd });
+    const { after } = churn(20000);
+    const input = JSON.stringify({ tool_name: 'Write', tool_input: { file_path: join(cwd, 'big.test.js'), content: after }, cwd });
+    // A real, killable process with a hard SIGKILL timeout. The unbounded path took 30+s;
+    // a deny returned with the process exiting (status !== null, not signalled) proves it.
+    const r = spawnSync('node', [DIST, 'hook', 'claude'], { input, cwd, encoding: 'utf8', timeout: 15000, killSignal: 'SIGKILL' });
+    expect(r.signal).toBeNull(); // not killed by the timeout — it returned on its own
     expect(r.stdout).toContain('"deny"');
     expect(r.stdout).toContain('hook budget');
-  });
+  }, 20_000);
 });

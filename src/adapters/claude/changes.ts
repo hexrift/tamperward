@@ -13,22 +13,24 @@ import { parseDiff } from '../../diff/parse';
 import { inspectResolved, textOf } from '../../disk';
 import { execFailure, isRecord } from '../../narrow';
 
-// ── Operator-owned budget for reconstructing an incoming edit at PreToolUse (#517) ──
+// ── Operator-owned budget for reconstructing AND judging an incoming edit (#517) ──
 //
-// The synthetic diff runs synchronously BEFORE the hook can answer, so an unbounded
-// reconstruction (or the detectors that run on its output) stalls the agent-facing
-// gate — a 20k-line high-churn write took 30+ seconds with no latency bound. Three
-// bounds, each operator-tunable by env, keep every path finite:
+// The synthetic diff and the detectors that judge it run synchronously BEFORE the hook
+// can answer, so an unbounded incoming edit stalls the agent-facing gate — a 20k-line
+// high-churn write took 30+ seconds. The reconstruction itself is cheap (~90 ms); the
+// cost is the detector evaluation over the full content, which grows ~linearly with
+// size (measured ~1.3 s at 1k lines, ~2.9 s at 4k, ~4.4 s at 6k on the churn fixture).
 //
-//   - RECONSTRUCT_TIMEOUT_MS / RECONSTRUCT_MAXBUFFER bound `git diff --no-index`.
-//   - RECONSTRUCT_MAX_BYTES / RECONSTRUCT_MAX_LINES cap the content that reaches the
-//     detectors at all: past the ceiling the reconstruction FAILS CLOSED (the hook
-//     denies) rather than spending tens of seconds — a huge single write is denied at
-//     PreToolUse and still re-derived from git by the Stop sweep (SPEC §5.2).
+// So the ceiling is calibrated to a DEMONSTRATED evaluation budget, not an arbitrary
+// size: an edit within RECONSTRUCT_MAX_LINES / RECONSTRUCT_MAX_BYTES per side is judged
+// in FULL — every detector runs, the appended `test.skip` is seen by `test-skip` — and
+// the worst such input evaluates in ~3 s. An edit PAST the ceiling FAILS CLOSED (the
+// hook denies with an explicit reason) rather than stall; it is still re-derived from
+// git by the Stop sweep (SPEC §5.2). All four bounds are operator-tunable by env.
 //
-// A timeout or an overflow is NEVER read as a smaller diff (partial stdout would parse
-// as a smaller change and allow on a partial view); the bounded linear fallback below
-// reconstructs one conservative hunk from the full before/after instead.
+// A git-diff timeout or overflow is NEVER read as a smaller diff (partial stdout would
+// parse as a smaller change and allow on a partial view); the bounded linear fallback
+// below reconstructs one conservative hunk from the full before/after instead.
 const num = (name: string, fallback: number): number => {
   const raw = process.env[name];
   const n = raw === undefined ? NaN : Number(raw);
@@ -36,8 +38,8 @@ const num = (name: string, fallback: number): number => {
 };
 const RECONSTRUCT_TIMEOUT_MS = (): number => num('TAMPERWARD_RECONSTRUCT_TIMEOUT_MS', 5000);
 const RECONSTRUCT_MAXBUFFER = (): number => num('TAMPERWARD_RECONSTRUCT_MAXBUFFER', 32 * 1024 * 1024);
-const RECONSTRUCT_MAX_BYTES = (): number => num('TAMPERWARD_RECONSTRUCT_MAX_BYTES', 1024 * 1024);
-const RECONSTRUCT_MAX_LINES = (): number => num('TAMPERWARD_RECONSTRUCT_MAX_LINES', 12000);
+const RECONSTRUCT_MAX_BYTES = (): number => num('TAMPERWARD_RECONSTRUCT_MAX_BYTES', 384 * 1024);
+const RECONSTRUCT_MAX_LINES = (): number => num('TAMPERWARD_RECONSTRUCT_MAX_LINES', 4000);
 
 /** How large a side (before or after) is, in bytes and lines — the two dimensions the
  *  detector cost scales with (content bytes to parse, significant lines to compare). */

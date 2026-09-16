@@ -142,9 +142,9 @@ describe('1 · policy values are validated; a typo fails closed', () => {
 describe('2 · large tool-call diffs fail closed, never truncated', () => {
   it('a large under-budget Write is reconstructed in full — an appended test.skip stays in the hunk', () => {
     let before = '';
-    for (let i = 0; i < 9000; i++) before += `test("case ${i} does the thing number ${i}", () => { expect(1).toBe(1); });\n`;
+    for (let i = 0; i < 3000; i++) before += `test("case ${i} does the thing number ${i}", () => { expect(1).toBe(1); });\n`;
     const after = before.replace(/does the thing/g, 'does the  thing') + 'test.skip("the failing one", () => {});\n';
-    const [c] = synthFileChange('big.test.js', before, after); // ~700 KiB, under the budget
+    const [c] = synthFileChange('big.test.js', before, after); // ~228 KiB, under the budget
     const added = c.hunks.flatMap((h) => h.lines.filter((l) => l.type === 'add').map((l) => l.content));
     expect(added[added.length - 1]).toContain('test.skip'); // past a naive 1 MiB cut, still present
   });
