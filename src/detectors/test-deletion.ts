@@ -676,6 +676,10 @@ export const testDeletion: Detector = {
             (gitSub === 'checkout' || gitSub === 'restore') &&
             (() => {
               const src = seg.match(/--source[= ]\s*(\S+)/)?.[1];
+              const stagedRequested = cmdToks.includes('--staged') || cmdToks.includes('-S');
+              const worktreeRequested = cmdToks.includes('--worktree') || cmdToks.includes('-W');
+              const stagedOnly = stagedRequested && !worktreeRequested;
+              if (stagedOnly) return false;
               const revIdx = cmdToks.findIndex((t, i) => i >= 2 && !t.startsWith('-') && !named.includes(t) && t !== '--');
               const rev = src ?? (revIdx >= 0 ? cmdToks[revIdx] : undefined);
               // `git checkout -- x.test.ts` discards the agent's own edits; a REV
