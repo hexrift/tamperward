@@ -12,6 +12,8 @@ import { trustedLinuxPython } from './run';
 import { machineOutput, type MachineSchemaVersion } from '../machine-output';
 import { execFailure, isRecord } from '../narrow';
 import { repoRoot } from '../repo-context';
+import { colourEnabled } from './render/text';
+import { paint, severityColour, BOLD, type Severity } from './render/status';
 
 export interface DoctorOpts {
   cwd?: string;
@@ -375,11 +377,14 @@ function emitReport(opts: DoctorOpts, checks: DoctorCheck[], authoritative: bool
     process.stdout.write(JSON.stringify(report) + '\n');
     return;
   }
+  const colour = colourEnabled(process.env, process.stdout);
   for (const check of checks) {
     if (check.id === 'observer') {
       process.stdout.write(`tamperward doctor: transient observer: ${check.detail}\n`);
     } else {
-      process.stdout.write(`tamperward doctor: [${check.state}] ${check.id} — ${check.detail}\n`);
+      const sev: Severity = check.state === 'OK' ? 'ok' : check.state === 'WARN' ? 'warn' : check.state === 'BROKEN' ? 'bad' : 'info';
+      const tag = paint(`[${check.state}]`, (sev === 'bad' ? BOLD : '') + severityColour(sev), colour);
+      process.stdout.write(`tamperward doctor: ${tag} ${check.id} — ${check.detail}\n`);
     }
   }
 }

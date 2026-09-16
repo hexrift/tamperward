@@ -13,26 +13,15 @@
 
 import { escapeControl } from '../../policy';
 import { Finding } from '../../types';
+// The palette and `paint` live in one place (render/status.ts) so every CLI surface —
+// this verdict renderer, onboard, doctor, verify — shares one accessible colour scheme
+// instead of re-declaring it. See the ACCESSIBILITY CONTRACT there.
+import { BOLD, DIM, RED, YELLOW, GREEN, CYAN, paint } from './status';
 
 export interface TextOpts {
   colour: boolean;
   width: number;
 }
-
-const ESC = '\u001b';
-const RESET = `${ESC}[0m`;
-const BOLD = `${ESC}[1m`;
-const DIM = `${ESC}[2m`;
-// 24-bit palette. Colour is decoration only (see the ACCESSIBILITY CONTRACT above):
-// it is emitted solely as SGR escapes that strip to nothing and never adds or removes
-// a printable byte, so the colour:false rendering stays byte-identical to the
-// colour:true one with the escapes removed. A terminal without truecolor down-samples
-// to its nearest colour; NO_COLOR / a pipe / TERM=dumb drop them entirely.
-const truecolour = (r: number, g: number, b: number): string => `${ESC}[38;2;${r};${g};${b}m`;
-const RED = truecolour(255, 107, 107);
-const YELLOW = truecolour(227, 179, 65);
-const GREEN = truecolour(63, 185, 80);
-const CYAN = truecolour(86, 212, 221);
 
 /**
  * Honours the NO_COLOR convention (https://no-color.org): set to any non-empty value,
@@ -54,10 +43,6 @@ export function terminalWidth(stream: { columns?: number } = process.stdout): nu
   const c = stream.columns;
   if (!c || c < 40) return 80;
   return Math.min(c, 100);
-}
-
-function paint(s: string, code: string, on: boolean): string {
-  return on ? code + s + RESET : s;
 }
 
 /** Greedy wrap. A word longer than the measure is emitted whole rather than split — a
@@ -89,7 +74,7 @@ export function stripControl(v: string): string {
   for (const ch of v) {
     const cp = ch.codePointAt(0) ?? 0;
     const control = (cp < 0x20 && cp !== 0x09 && cp !== 0x0a && cp !== 0x0d) || cp === 0x7f || (cp >= 0x80 && cp <= 0x9f);
-    outStr += control ? '\uFFFD' : ch;
+    outStr += control ? '�' : ch;
   }
   return outStr;
 }
