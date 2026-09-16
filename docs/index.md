@@ -6,8 +6,7 @@ hero:
   text: The deterministic agent-integrity gate
   tagline: AI coding agents optimize for "the command succeeded," not "the change is trustworthy." Tamperward blocks the class of shortcut they take to force checks green — measured, not asserted.
   image:
-    light: /logo.svg
-    dark: /logo-dark.svg
+    src: /logo.svg
     alt: Tamperward
   actions:
     - theme: brand
