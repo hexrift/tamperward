@@ -161,6 +161,18 @@ describe('CodexRuntimeAdapter.decide — pre-action content verdict via the SAME
     }
   });
 
+  it('allows a staged-only restore that leaves the worktree unchanged', () => {
+    const cwd = repoFixture();
+    try {
+      const raw = JSON.stringify({ tool_name: 'Bash', cwd, tool_input: { command: 'git restore --staged src/a.spec.ts' } });
+      const r = codexAdapter.decide(raw, 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('allow');
+      expect(r.wire).toBe('');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('denies a protected test removal reconstructed from the REAL apply_patch payload (tool_input.command)', () => {
     const cwd = repoFixture();
     try {

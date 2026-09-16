@@ -689,7 +689,10 @@ export const testDeletion: Detector = {
               if (rev && (rev === 'HEAD' || rev === '@' || revIsHead(rev, ctx) === true)) {
                 return Boolean(seg.includes(' -- ') || src || cmdToks.some((t) => named.includes(t)));
               }
-              if (!rev) return Boolean(seg.includes(' -- ') || src || gitSub === 'restore');
+              if (!rev) {
+                const stagedOnly = cmdToks.includes('--staged') || cmdToks.includes('-S');
+                return !stagedOnly && Boolean(seg.includes(' -- ') || src || gitSub === 'restore');
+              }
               if (src || seg.includes(' -- ')) return true;
               return revIdx >= 0 && cmdToks.some((t, i) => i > revIdx && named.includes(t));
             })();
