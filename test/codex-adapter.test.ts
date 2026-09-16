@@ -134,8 +134,9 @@ describe('CodexRuntimeAdapter.decide — pre-action content verdict via the SAME
     ['rm src/a.spec.ts', 'delete'],
     ['mv src/a.spec.ts src/a.disabled.ts', 'rename'],
     ['git checkout HEAD -- src/a.spec.ts', 'checkout'],
-    ['git restore --source=HEAD --worktree src/a.spec.ts', 'restore'],
-    ['git reset --hard HEAD -- src/a.spec.ts', 'reset'],
+    ['git restore src/a.spec.ts', 'restore'],
+    ['git restore --source=HEAD --worktree src/a.spec.ts', 'restore from HEAD'],
+    ['git reset --hard HEAD', 'reset'],
   ])('denies Codex Bash %s', (command) => {
     const cwd = repoFixture();
     try {
@@ -143,6 +144,18 @@ describe('CodexRuntimeAdapter.decide — pre-action content verdict via the SAME
       const r = codexAdapter.decide(raw, 'pre-action', cwd);
       expect(r.decision?.verdict).toBe('deny');
       expect(r.wire).toContain('test-deletion');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('allows a path-limited mixed reset that only unstages a protected file', () => {
+    const cwd = repoFixture();
+    try {
+      const raw = JSON.stringify({ tool_name: 'Bash', cwd, tool_input: { command: 'git reset HEAD -- src/a.spec.ts' } });
+      const r = codexAdapter.decide(raw, 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('allow');
+      expect(r.wire).toBe('');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

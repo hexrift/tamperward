@@ -643,7 +643,9 @@ export const testDeletion: Detector = {
           fed.push(...toks);
           const testToks = source.filter((t) => expand(t).some(specPath));
           const dirToks = source.filter((t) => !t.startsWith('-') && !testToks.includes(t) && expand(t).some(dirPath));
-          if (testToks.length === 0 && dirToks.length === 0) continue;
+          const gitResetHard = toks.some((t) => t === 'git' || t.endsWith('/git')) &&
+            toks.some((t) => t === '--hard' || t === '--merge' || t === '--keep');
+          if (testToks.length === 0 && dirToks.length === 0 && !(gitResetHard && rootHasProtected())) continue;
           const named = [...testToks, ...dirToks];
           // The command is the word in COMMAND position, past the wrappers
           // (`sudo rm`, `env rm`, `FOO=1 rm`, `/bin/rm`); `grep "rm " spec` and
@@ -687,7 +689,7 @@ export const testDeletion: Detector = {
               if (rev && (rev === 'HEAD' || rev === '@' || revIsHead(rev, ctx) === true)) {
                 return Boolean(seg.includes(' -- ') || src || cmdToks.some((t) => named.includes(t)));
               }
-              if (!rev) return Boolean(seg.includes(' -- ') || src);
+              if (!rev) return Boolean(seg.includes(' -- ') || src || gitSub === 'restore');
               if (src || seg.includes(' -- ')) return true;
               return revIdx >= 0 && cmdToks.some((t, i) => i > revIdx && named.includes(t));
             })();
@@ -727,7 +729,7 @@ export const testDeletion: Detector = {
             why = 'find -delete removes test files';
           } else if (gitRestoresOld) {
             why = 'git checkout <rev> replaces a test file with an older version';
-          } else if (gitSub === 'reset' && (cmdToks.includes('--hard') || cmdToks.includes('--merge') || cmdToks.includes('--keep') || named.length > 0)) {
+          } else if (gitSub === 'reset' && gitResetHard) {
             why = 'git reset can discard changes to a test file';
           } else if (cmd === 'mv') {
             const dest = positional[positional.length - 1];
