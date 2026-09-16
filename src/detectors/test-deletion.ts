@@ -681,7 +681,13 @@ export const testDeletion: Detector = {
               // without the `--`: `git checkout v1 test/a.test.ts` restores it too.
               // A rev that RESOLVES to HEAD (`main` while on main, `@`) restores
               // nothing older: it is the `--` form under another name.
-              if (!rev || rev === 'HEAD' || rev === '@' || revIsHead(rev, ctx) === true) return false;
+              // HEAD is still destructive when a path is supplied: checkout/restore
+              // replaces the worktree and discards uncommitted edits even when the
+              // source commit is the current HEAD.
+              if (rev && (rev === 'HEAD' || rev === '@' || revIsHead(rev, ctx) === true)) {
+                return Boolean(seg.includes(' -- ') || src || cmdToks.some((t) => named.includes(t)));
+              }
+              if (!rev) return Boolean(seg.includes(' -- ') || src);
               if (src || seg.includes(' -- ')) return true;
               return revIdx >= 0 && cmdToks.some((t, i) => i > revIdx && named.includes(t));
             })();
@@ -721,6 +727,8 @@ export const testDeletion: Detector = {
             why = 'find -delete removes test files';
           } else if (gitRestoresOld) {
             why = 'git checkout <rev> replaces a test file with an older version';
+          } else if (gitSub === 'reset' && (cmdToks.includes('--hard') || cmdToks.includes('--merge') || cmdToks.includes('--keep') || named.length > 0)) {
+            why = 'git reset can discard changes to a test file';
           } else if (cmd === 'mv') {
             const dest = positional[positional.length - 1];
             if (dest && testToks.length > 0 && !isSpec(dest)) {

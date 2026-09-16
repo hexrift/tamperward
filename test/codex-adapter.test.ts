@@ -130,6 +130,24 @@ describe('CodexRuntimeAdapter.decide — pre-action content verdict via the SAME
     }
   });
 
+  it.each([
+    ['rm src/a.spec.ts', 'delete'],
+    ['mv src/a.spec.ts src/a.disabled.ts', 'rename'],
+    ['git checkout HEAD -- src/a.spec.ts', 'checkout'],
+    ['git restore --source=HEAD --worktree src/a.spec.ts', 'restore'],
+    ['git reset --hard HEAD -- src/a.spec.ts', 'reset'],
+  ])('denies Codex Bash %s', (command) => {
+    const cwd = repoFixture();
+    try {
+      const raw = JSON.stringify({ tool_name: 'Bash', cwd, tool_input: { command } });
+      const r = codexAdapter.decide(raw, 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+      expect(r.wire).toContain('test-deletion');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('denies a protected test removal reconstructed from the REAL apply_patch payload (tool_input.command)', () => {
     const cwd = repoFixture();
     try {
