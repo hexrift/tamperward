@@ -1,5 +1,38 @@
 import { defineConfig } from 'vitepress'
 
+// Shared sidebar for the entry point (Introduction, Integrate) and the Reference area.
+// Kept in one const so `/` (the fallback) and `/reference/` render the same groups.
+const referenceSidebar = [
+  {
+    text: 'Getting started',
+    items: [
+      { text: 'Introduction', link: '/introduction' },
+      { text: 'Quickstart', link: '/guide/quickstart' },
+      { text: 'Integrate', link: '/integrate' },
+    ],
+  },
+  {
+    text: 'Reference',
+    items: [
+      { text: 'CLI reference', link: '/reference/cli' },
+      { text: 'Machine output', link: '/reference/machine-output' },
+      { text: 'Policy (.tamperward.yml)', link: '/reference/policy' },
+      { text: 'Exit codes', link: '/reference/exit-codes' },
+    ],
+  },
+  {
+    text: 'Concepts',
+    items: [
+      { text: 'Architecture', link: '/architecture' },
+      { text: 'Performance budgets', link: '/PERF' },
+      { text: 'Cast inventory', link: '/CAST-INVENTORY' },
+      { text: 'Threat model: pristine run', link: '/THREAT-MODEL-pristine-run' },
+      { text: 'Threat model: adjudication boundary', link: '/THREAT-MODEL-adjudication-boundary' },
+      { text: 'OWASP ACS mapping', link: '/ACS-mapping' },
+    ],
+  },
+]
+
 // Deployed to GitHub Pages at hexrift.github.io/tamperward — `base` must match the
 // repo name or every asset 404s. The docs build is a separate workflow (docs.yml);
 // nothing here ships in the npm package.
@@ -14,29 +47,21 @@ export default defineConfig({
     // The badge supplies its own background, so the same asset works in either theme.
     logo: '/logo.svg',
     nav: [
+      { text: 'Introduction', link: '/introduction' },
       { text: 'Guide', link: '/guide/getting-started' },
+      { text: 'Reference', link: '/reference/cli' },
       { text: 'Blog', link: '/blog/' },
       { text: 'Research', link: '/research/' },
-      { text: 'Reference', link: '/architecture' },
       { text: 'npm', link: 'https://www.npmjs.com/package/tamperward' },
     ],
     sidebar: {
-      // The top-level reference pages have no path prefix of their own; `/` is the
-      // fallback sidebar VitePress uses when no longer prefix matches, so the guide,
-      // research and blog groups below still win on their own paths (#451).
-      '/': [
-        {
-          text: 'Reference',
-          items: [
-            { text: 'Architecture', link: '/architecture' },
-            { text: 'Performance budgets', link: '/PERF' },
-            { text: 'Cast inventory', link: '/CAST-INVENTORY' },
-            { text: 'Threat model: pristine run', link: '/THREAT-MODEL-pristine-run' },
-            { text: 'Threat model: adjudication boundary', link: '/THREAT-MODEL-adjudication-boundary' },
-            { text: 'OWASP ACS mapping', link: '/ACS-mapping' },
-          ],
-        },
-      ],
+      // The top-level pages (introduction, integrate, architecture, threat models…)
+      // have no path prefix of their own; `/` is the fallback sidebar VitePress uses
+      // when no longer prefix matches, so the guide, research and blog groups below
+      // still win on their own paths (#451). The `/reference/` pages reuse the same
+      // groups so navigation is consistent across the reference area.
+      '/': referenceSidebar,
+      '/reference/': referenceSidebar,
       '/guide/': [
         {
           text: 'Guide',
