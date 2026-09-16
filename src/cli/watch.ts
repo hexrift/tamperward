@@ -161,14 +161,37 @@ function watchTree(
   cb: TreeCb,
   onState: TreeStateCb,
   onError: TreeErrorCb,
+  watchFn: typeof watch = watch,
 ): Watcher {
+  const describe = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
   if (process.env.TAMPERWARD_WATCH_NO_RECURSIVE !== '1') {
     try {
-      const w = watch(dir, { recursive: true }, (kind, fname) => {
+      let recursiveClosed = false;
+      const closeRecursive = (): void => {
+        if (recursiveClosed) return;
+        recursiveClosed = true;
+        w.close();
+      };
+      const w = watchFn(dir, { recursive: true }, (kind, fname) => {
         if (fname) cb(kind, String(fname));
       });
+      // An error emitted after successful creation would otherwise be an
+      // unhandled EventEmitter error. Surface it as lost coverage: a failed
+      // recursive watcher is never complete coverage.
+      w.on('error', (e: unknown) => {
+        if (recursiveClosed) return;
+        recursiveClosed = true;
+        try {
+          w.close();
+        } catch {
+          /* already closed */
+        }
+        onState('recursive', 0);
+        onError(`recursive watch on ${dir}: ${describe(e)}`);
+      });
       onState('recursive', 1);
-      return { close: () => w.close() };
+      return { close: closeRecursive };
     } catch {
       /* ERR_FEATURE_UNAVAILABLE_ON_PLATFORM -> per-directory fallback */
     }
@@ -182,7 +205,7 @@ function watchTree(
     if (closed || watchers.has(rel) || SKIP.test(rel + '/')) return;
     let w: ReturnType<typeof watch>;
     try {
-      w = watch(rel ? join(dir, rel) : dir, (kind, fname) => {
+      w = watchFn(rel ? join(dir, rel) : dir, (kind, fname) => {
         if (closed || !fname) return;
         const child = rel ? `${rel}/${String(fname)}` : String(fname);
         cb(kind, child);
@@ -193,11 +216,23 @@ function watchTree(
         }
       });
     } catch (e) {
-      onError(
-        `watch directory ${rel || '.'}: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      onError(`watch directory ${rel || '.'}: ${describe(e)}`);
       return;
     }
+    // Drop the failed handle and correct the watched-directory count, once:
+    // a later close() must not re-close it and a repeated error must not
+    // re-count it.
+    w.on('error', (e: unknown) => {
+      if (closed || watchers.get(rel) !== w) return;
+      watchers.delete(rel);
+      try {
+        w.close();
+      } catch {
+        /* already gone */
+      }
+      onError(`watch directory ${rel || '.'}: ${describe(e)}`);
+      onState('fallback', watchers.size);
+    });
     watchers.set(rel, w);
     onState('fallback', watchers.size);
   };
@@ -239,7 +274,12 @@ function watchTree(
 }
 
 /** Start watching. Exported (rather than CLI-only) so tests drive it in-process. */
-export function startWatcher(dir: string, log: string, policy: Policy): Watcher {
+export function startWatcher(
+  dir: string,
+  log: string,
+  policy: Policy,
+  watchFn: typeof watch = watch,
+): Watcher {
   try {
     mkdirSync(join(log, '..'), { recursive: true });
   } catch {
@@ -323,6 +363,7 @@ export function startWatcher(dir: string, log: string, policy: Policy): Watcher 
       persistHealth();
     },
     (detail) => degrade(detail),
+    watchFn,
   );
 
   let closed = false;
