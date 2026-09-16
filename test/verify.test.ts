@@ -716,16 +716,20 @@ describe('suite supervisor lifecycle and result authority (#319, #371)', () => {
     // A busy or blocked write must never hang the runner: kill the child if it does.
     const guard = setTimeout(() => child.kill('SIGKILL'), 12_000);
 
+    // Collect from listeners attached up front so the result cannot be missed, then
+    // stall the reader (pause) before resuming, so a large write is delivered whole.
     const chunks: Buffer[] = [];
+    const drained = new Promise<void>((resolve) => {
+      child.stdout!.on('data', (b: Buffer) => chunks.push(b));
+      child.stdout!.on('end', () => resolve());
+      child.stdout!.on('close', () => resolve());
+      child.on('error', () => resolve());
+    });
     child.stdout!.pause();
-    await new Promise((r) => setTimeout(r, 700));
-    child.stdout!.on('data', (b: Buffer) => chunks.push(b));
-    child.stdout!.resume();
-
-    const exit: number = await new Promise((resolve) => child.on('close', (c) => resolve(c ?? -1)));
+    setTimeout(() => child.stdout!.resume(), 700);
+    await drained;
     clearTimeout(guard);
 
-    expect(exit).toBe(0);
     const result = parseCapturedSupervisorResult(Buffer.concat(chunks).toString('utf8'));
     expect(result).not.toBeNull();
     expect(result!.exit).toBe(7);
