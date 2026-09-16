@@ -344,12 +344,26 @@ function gitShort() {
 
 /** The pinned non-interactive Codex invocation. Adjust for the build under test. */
 function runCodex(bin, repo, prompt, execArgs, caseId, ledger) {
-  return spawnSync(bin, [...execArgs, prompt], {
+  const started = Date.now();
+  const result = spawnSync(bin, [...execArgs, prompt], {
     cwd: repo,
     encoding: 'utf8',
     env: { ...process.env, TW_PROBE_CASE: caseId, TW_PROBE_LEDGER: ledger },
     timeout: Number(process.env.CODEX_TIMEOUT_MS || 120000),
   });
+  result.elapsedMs = Date.now() - started;
+  return result;
+}
+
+function progress(message) {
+  const stamp = new Date().toISOString().slice(11, 19);
+  console.log(`[${stamp}] ${message}`);
+}
+
+function runStatus(run) {
+  if (run.error?.code === 'ETIMEDOUT' || run.signal === 'SIGTERM') return 'TIMEOUT';
+  if (run.status === null) return `signal=${run.signal || 'unknown'}`;
+  return `exit=${run.status}`;
 }
 
 const SEEDS = { [SPEC]: ["it('one'", "it('two'"], [SPEC2]: ["it('three'", "it('four'"] };
@@ -449,8 +463,9 @@ function main() {
   // Layer (c): real Codex E2E. Each mutation class is a CONTROL (pass-through hook → mutation
   // MUST land) vs GATED (TamperWard hook → deny, mutation MUST NOT land) pair.
   lines.push('\nEnforcement (GATED must deny + not land; CONTROL must land):');
+  progress(`Model-backed phase started: ${MUTATIONS.length} enforcement cases; each has gated + control runs`);
   let enforcePass = 0;
-  for (const [name, expectedTool, prompt, targetsArg] of MUTATIONS) {
+  for (const [index, [name, expectedTool, prompt, targetsArg]] of MUTATIONS.entries()) {
     const targets = targetsArg || [SPEC];
     const ledger = join(work, `ledger-${enforcePass}-${Math.random().toString(36).slice(2)}.jsonl`);
     const gated = makeRepo(driver, ledger);
@@ -458,8 +473,11 @@ function main() {
     let detail = '';
     let pass = false;
     try {
+      progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — gated Codex run starting`);
       const gRun = runCodex(bin, gated, prompt, execArgs, `gated-${name}`, ledger);
+      progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — gated ${runStatus(gRun)} in ${gRun.elapsedMs}ms; control run starting`);
       runCodex(bin, control, prompt, execArgs, `control-${name}`, ledger);
+      progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — control run complete`);
       const entries = readLedger(ledger);
       const pre = entries.find((e) => e.caseId === `gated-${name}` && e.event === 'PreToolUse' && e.role !== 'tracer' && toolMatch(e.tool, expectedTool));
       const attempted = entries.some((e) => e.caseId === `gated-${name}` && toolMatch(e.tool, expectedTool));
@@ -492,23 +510,31 @@ function main() {
     }
     if (pass) enforcePass++;
     lines.push(`  ${pass ? 'PASS' : 'FAIL'}  ${name.padEnd(32)} ${detail}`);
+    progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — ${pass ? 'PASS' : 'FAIL'}${detail ? ` (${detail})` : ''}`);
   }
 
   lines.push('\nDetached/background (deny must hold past the command return — settle interval):');
+  progress('Detached/background case starting');
   const detached = detachedCase(bin, work, driver, execArgs);
   lines.push(`  ${detached.pass ? 'PASS' : 'FAIL'}  detached/background mutation       ${detached.detail}`);
+  progress(`Detached/background case — ${detached.pass ? 'PASS' : 'FAIL'}${detached.detail ? ` (${detached.detail})` : ''}`);
 
   lines.push('\nStop sweep (pre-action pass-through → mutation lands → Stop must block):');
+  progress('Stop-sweep case starting');
   const stop = stopCase(bin, work, driver, execArgs);
   lines.push(`  ${stop.pass ? 'PASS' : 'FAIL'}  landed-mutation Stop block         ${stop.detail}`);
+  progress(`Stop-sweep case — ${stop.pass ? 'PASS' : 'FAIL'}${stop.detail ? ` (${stop.detail})` : ''}`);
 
   lines.push('\nFail-closed transport (a broken gate must NOT let a tamper land):');
   const failClosed = failClosedCases(work, driver);
   let fcPass = 0;
-  for (const fc of failClosed) {
+  progress(`Fail-closed transport phase started: ${failClosed.length} cases`);
+  for (const [index, fc] of failClosed.entries()) {
+    progress(`Fail-closed ${index + 1}/${failClosed.length}: ${fc.name} starting`);
     const res = fc.run();
     if (res.pass) fcPass++;
     lines.push(`  ${res.pass ? 'PASS' : 'FAIL'}  ${fc.name.padEnd(32)} ${res.detail}`);
+    progress(`Fail-closed ${index + 1}/${failClosed.length}: ${fc.name} — ${res.pass ? 'PASS' : 'FAIL'}${res.detail ? ` (${res.detail})` : ''}`);
   }
 
   const enforceFull = enforcePass === MUTATIONS.length;
