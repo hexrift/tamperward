@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Tamperward ward glyph">
   <title>Tamperward</title>
-  <!-- The ward glyph: four strokes of change converge; the ward stops them at the
-       exact point. The blue is decoration — the interrupted stroke carries the
-       meaning, so the mark still reads "blocked" in monochrome. -->
-  <g fill="none" stroke-linecap="round" stroke-width="9">
+  <!-- The opaque badge keeps the glyph legible independently of the host theme,
+       including image proxies and native apps that do not apply SVG CSS. -->
+  <rect x="1" y="1" width="98" height="98" rx="20" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+  <g transform="translate(9 9) scale(.82)" fill="none" stroke-linecap="round" stroke-width="9">
     <g stroke="#0f172a">
       <path d="M15 13 42 40"/>
       <path d="M15 87 42 60"/>

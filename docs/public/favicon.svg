@@ -1,14 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Tamperward">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Tamperward ward glyph">
   <title>Tamperward</title>
-  <!-- Favicon cut: same geometry at heavier weight — at 16px the standard stroke
-       thins to ~1.4 physical pixels and the center gap closes. The browser tab
-       follows the OS scheme, so the media query is correct here. -->
-  <style>
-    .ink { stroke: #0f172a; }
-    @media (prefers-color-scheme: dark) { .ink { stroke: #e2e8f0; } }
-  </style>
-  <g fill="none" stroke-linecap="round" stroke-width="14">
-    <g class="ink">
+  <!-- The opaque badge keeps the glyph legible independently of the host theme,
+       including image proxies and native apps that do not apply SVG CSS. -->
+  <rect x="1" y="1" width="98" height="98" rx="20" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+  <g transform="translate(9 9) scale(.82)" fill="none" stroke-linecap="round" stroke-width="14">
+    <g stroke="#0f172a">
       <path d="M13 11 40 38"/>
       <path d="M13 89 40 62"/>
       <path d="M87 11 60 38"/>
