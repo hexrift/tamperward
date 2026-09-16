@@ -118,6 +118,14 @@ function liveSignificantLines(src: string, path: string): string[] {
 class KeptPool {
   private text = '';
   private readonly inLiteral: number[] = [];
+  // O(1) fast path (#517): the ws-text of each kept significant line whose retained
+  // text BEGINS at a code position (inLiteral 0). A removed line whose ws-text equals
+  // one of these is kept — necessarily the SAME answer `indexOf` gives, since that exact
+  // text then occurs in `text` at a code position — but in O(1) instead of scanning the
+  // whole concatenated pool per removed line (a 20k-line high-churn spec was O(n²) here,
+  // ~13s, #517). The substring scan below is unchanged and still covers rewrapped/joined
+  // lines and moved fixtures, so `keeps` returns exactly what it did before.
+  private readonly wholeCodeLines = new Set<string>();
 
   addLive(src: string, path: string): void {
     const p = partition(src, path);
@@ -127,11 +135,16 @@ class KeptPool {
       if (i < p.live.length && p.live[i] !== '\n') continue;
       const line = p.live.slice(lineStart, i);
       if (isSignificantLine(line.trim(), lang)) {
+        let lineWs = '';
+        let startsAtCode = false;
         for (let j = lineStart; j < i; j++) {
           if (/\s/.test(p.live[j])) continue;
+          if (lineWs.length === 0) startsAtCode = p.inLiteral[j] === 0;
           this.text += p.live[j];
           this.inLiteral.push(p.inLiteral[j]);
+          lineWs += p.live[j];
         }
+        if (lineWs.length > 0 && startsAtCode) this.wholeCodeLines.add(lineWs);
       }
       lineStart = i + 1;
     }
@@ -145,6 +158,7 @@ class KeptPool {
 
   keeps(wsLine: string): boolean {
     if (wsLine.length === 0) return true;
+    if (this.wholeCodeLines.has(wsLine)) return true; // exact kept code line — indexOf would agree
     let at = this.text.indexOf(wsLine);
     while (at !== -1) {
       if (this.inLiteral[at] === 0) return true;

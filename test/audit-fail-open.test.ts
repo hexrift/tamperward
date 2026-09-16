@@ -130,19 +130,31 @@ describe('1 · policy values are validated; a typo fails closed', () => {
   });
 });
 
-// ── 2 · a diff past 1 MiB must not be read as a smaller edit ─────────────────
+// ── 2 · a diff past the budget must not be read as a smaller edit ────────────
+// The original audit finding: Node's 1 MiB default buffer truncated a large diff and
+// the truncated patch was read as the whole edit, so a `test.skip` appended past the
+// cut was allowed. The reconstruction is bounded now (#517): under the budget the diff
+// is produced in full (a larger buffer), and PAST the budget it fails closed instead of
+// stalling or reading a partial view. Both are asserted here WITHOUT running the whole
+// detector suite over huge content — reconstruction is what the audit is about, and the
+// detector-level behaviour is exercised by the small fallback fixtures in
+// test/synth-reconstruct-bound-517.test.ts.
 describe('2 · large tool-call diffs fail closed, never truncated', () => {
-  it('a Write whose diff exceeds 1 MiB still carries the hunk with the skip', () => {
+  it('a large under-budget Write is reconstructed in full — an appended test.skip stays in the hunk', () => {
+    let before = '';
+    for (let i = 0; i < 3000; i++) before += `test("case ${i} does the thing number ${i}", () => { expect(1).toBe(1); });\n`;
+    const after = before.replace(/does the thing/g, 'does the  thing') + 'test.skip("the failing one", () => {});\n';
+    const [c] = synthFileChange('big.test.js', before, after); // ~228 KiB, under the budget
+    const added = c.hunks.flatMap((h) => h.lines.filter((l) => l.type === 'add').map((l) => l.content));
+    expect(added[added.length - 1]).toContain('test.skip'); // past a naive 1 MiB cut, still present
+  });
+
+  it('a Write past the reconstruction budget fails closed rather than stall or read a truncated diff (#517)', () => {
     let before = '';
     for (let i = 0; i < 20000; i++) before += `test("case ${i} does the thing number ${i}", () => { expect(1).toBe(1); });\n`;
     const after = before.replace(/does the thing/g, 'does the  thing') + 'test.skip("the failing one", () => {});\n';
-    const [c] = synthFileChange('big.test.js', before, after);
-    const added = c.hunks.flatMap((h) => h.lines.filter((l) => l.type === 'add').map((l) => l.content));
-    expect(added.length).toBeGreaterThan(20000);
-    expect(added[added.length - 1]).toContain('test.skip');
-    const f = evaluate([c], P, undefined, 'tool-call');
-    expect(f.some((x) => x.rule === 'test-skip' && x.severity === 'block')).toBe(true);
-  }, 30_000);
+    expect(() => synthFileChange('big.test.js', before, after)).toThrow(/within the hook budget/);
+  });
 });
 
 // ── 3 · a redundant path segment must not dodge an exact-path glob ───────────

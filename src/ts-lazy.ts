@@ -22,6 +22,7 @@
 // inputs; what moves is the moment the module is read from disk.
 
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 import type TS from 'typescript';
 
 let loaded: typeof TS | null = null;
@@ -103,18 +104,68 @@ function nestsWithinCeiling(src: string): boolean {
   return true;
 }
 
+// ── Content-addressed parse cache (#517) ─────────────────────────────────────
+//
+// One evaluation re-parses the same (fileName, src) many times: test-content-removal
+// alone parses a spec 4+ times per side through reachability.partition, and
+// test-deletion, reachability, test-skip and ts-any-cast each parse it again. On a
+// churned 20k-line spec that was ~15 s of pure re-parsing. Cache the SourceFile by the
+// exact parse inputs — the key is (kind, fileName, sha-256 of src), so a hit is byte-
+// identical, and the AST is read-only for every detector, so sharing it is safe. The
+// cache is bounded by entries AND bytes with LRU eviction, so the long-lived hook
+// service cannot grow without limit; it is content-addressed, so nothing goes stale.
+interface ParseCacheEntry {
+  key: string;
+  sf: TS.SourceFile | null;
+  bytes: number;
+}
+const PARSE_CACHE_MAX_ENTRIES = 32;
+const PARSE_CACHE_MAX_BYTES = 24 * 1024 * 1024;
+let parseCache: ParseCacheEntry[] = [];
+let parseCacheBytes = 0;
+
+/** Test seam: drop the cache so a test that measures parse work starts clean. */
+export function clearParseCache(): void {
+  parseCache = [];
+  parseCacheBytes = 0;
+}
+
 /** Parse `src` as a TypeScript source file, or decline: null when the source is
  *  past the byte ceiling, past the nesting ceiling, or overflows the parser
  *  anyway. Never throws for content-shaped reasons; a caller that gets null
- *  runs its line-level fallback. */
+ *  runs its line-level fallback. Repeated parses of identical inputs are served
+ *  from a bounded content-addressed cache (#517). */
 export function parseSource(fileName: string, src: string, kind?: TS.ScriptKind): TS.SourceFile | null {
-  if (Buffer.byteLength(src) > MAX_PARSE_BYTES) return null;
-  if (!nestsWithinCeiling(src)) return null;
-  const t = loadTs();
-  try {
-    return t.createSourceFile(fileName, src, t.ScriptTarget.Latest, true, kind ?? t.ScriptKind.TS);
-  } catch (e) {
-    if (e instanceof RangeError) return null;
-    throw e;
+  const bytes = Buffer.byteLength(src);
+  if (bytes > MAX_PARSE_BYTES) return null;
+
+  const key = `${kind ?? ''}\u0000${fileName}\u0000${createHash('sha256').update(src).digest('hex')}`;
+  const at = parseCache.findIndex((e) => e.key === key);
+  if (at !== -1) {
+    const [entry] = parseCache.splice(at, 1); // move to most-recently-used
+    parseCache.push(entry);
+    return entry.sf;
   }
+
+  let sf: TS.SourceFile | null;
+  if (!nestsWithinCeiling(src)) {
+    sf = null;
+  } else {
+    const t = loadTs();
+    try {
+      sf = t.createSourceFile(fileName, src, t.ScriptTarget.Latest, true, kind ?? t.ScriptKind.TS);
+    } catch (e) {
+      if (e instanceof RangeError) sf = null;
+      else throw e;
+    }
+  }
+
+  parseCache.push({ key, sf, bytes });
+  parseCacheBytes += bytes;
+  while (parseCache.length > PARSE_CACHE_MAX_ENTRIES || parseCacheBytes > PARSE_CACHE_MAX_BYTES) {
+    const evicted = parseCache.shift();
+    if (!evicted) break;
+    parseCacheBytes -= evicted.bytes;
+  }
+  return sf;
 }
