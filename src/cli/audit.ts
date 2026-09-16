@@ -226,7 +226,9 @@ export function parseSince(value: string, nowMs = Date.now()): number {
 }
 
 export function summarizeAudit(events: readonly AuditEventV1[]): AuditSummary {
-  const ordered = [...events].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id));
+  const ordered = [...events].sort(
+    (a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp) || a.id.localeCompare(b.id),
+  );
   const rules = new Map<string, { events: number; blocked: number; warnings: number }>();
   const surfaces = new Map<AuditSurface, number>();
   const sessions = new Set<string>();

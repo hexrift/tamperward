@@ -5,6 +5,18 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as scoped in
 [CONTRIBUTING](./CONTRIBUTING.md#versioning).
 
+## [2.29.21] — 2026-09-16
+
+### Fixed
+
+- **stats: mixed timestamp precision no longer reverses `first_event` and `last_event`**
+  (#530). `summarizeAudit` ordered events by `timestamp.localeCompare`, so a whole-second
+  timestamp (`2026-09-15T12:00:00Z`) sorted after a later fractional one
+  (`2026-09-15T12:00:00.500Z`) and the reported first event could be later than the last.
+  The published audit schema deliberately permits both representations. Events are now
+  ordered by parsed instant (`Date.parse`) with the existing `id` tie-break for equal
+  instants, so bounds follow real time regardless of wire precision. Counts and `--since`
+  semantics are unchanged.
 ## [2.29.20] — 2026-09-16
 
 ### Fixed
