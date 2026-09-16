@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, realpathSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { codexAdapter, CodexRuntimeAdapter } from '../src/adapters/codex/adapter';
@@ -211,6 +211,35 @@ describe('CodexRuntimeAdapter.decide — pre-action content verdict via the SAME
       expect(r.outcome).toBe('ok');
       expect(r.decision?.verdict).toBe('allow');
       expect(r.wire).toBe('');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('CodexRuntimeAdapter.decide — pre-action pins the Stop-sweep baseline at turn start', () => {
+  it('pins the session baseline so a mutation COMMITTED mid-turn stays visible to the sweep', () => {
+    const cwd = repoFixture();
+    const sessionId = 'codexsess1';
+    try {
+      // A benign first tool call must still pin turn start.
+      const first = codexAdapter.decide(
+        JSON.stringify({ tool_name: 'read_file', cwd, session_id: sessionId, tool_input: { path: join(cwd, 'src', 'a.spec.ts') } }),
+        'pre-action',
+        cwd,
+      );
+      expect(first.decision?.verdict).toBe('allow');
+      expect(existsSync(join(cwd, '.git', 'tamperward', `session-${sessionId}`))).toBe(true);
+
+      // Now the turn weakens the spec and COMMITS it. Without a turn-start baseline the
+      // sweep would compare post-commit HEAD against a post-commit baseline and miss it.
+      writeFileSync(join(cwd, 'src', 'a.spec.ts'), `it('one', () => {});\n`);
+      const g = (args: string[]) => execFileSync('git', args, { cwd });
+      g(['commit', '-qam', 'mid-turn tamper']);
+
+      const stop = codexAdapter.decide(JSON.stringify({ cwd, session_id: sessionId }), 'end-of-turn', cwd);
+      expect(stop.decision?.verdict).toBe('deny');
+      expect(stop.wire).toContain('test-deletion');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

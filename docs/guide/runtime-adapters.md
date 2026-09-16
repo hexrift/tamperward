@@ -218,9 +218,19 @@ and exits non-zero, so "could not test" is never mistaken for "passed". Only a F
 justifies flipping Codex to `in-loop` and registering Round 4.1 — deliberately not done by
 this PR.
 
+The Codex pre-action path pins the Stop-sweep baseline at **turn start** (`turnBaseline`) on
+every pre-action call, exactly as the canonical `preToolUseVerdict` does — because with
+`preDeny` empty the end-of-turn git sweep is Codex's only real enforcement, and a baseline
+first set at Stop time would let a mutation the turn *committed* mid-turn slip past the
+sweep. Full parity with the other two canonical pre-action steps — `effectDriftBlocks`
+(hidden out-of-band drift) and `sanctionPredictedWrites` (so an allowed pre-action edit is
+not re-flagged by the Stop sweep) — is a **PR 2** follow-up; those matter only once Codex is
+wired live with the effect observer.
+
 **PR 2 follow-up.** Generating `.codex/hooks.json` from `init` / `onboard`, and protecting
-that control surface (the same way the Claude hook wiring is protected), is the next PR.
-This PR wires hooks only inside the probe harness; it adds no init/onboard generation.
+that control surface (the same way the Claude hook wiring is protected), is the next PR,
+along with the `effectDriftBlocks` / `sanctionPredictedWrites` parity noted above. This PR
+wires hooks only inside the probe harness; it adds no init/onboard generation.
 
 ## Runtime detection in onboarding
 

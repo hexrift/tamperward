@@ -16,6 +16,7 @@ import { Finding } from '../../types';
 import { evaluate } from '../../engine';
 import { loadPolicy } from '../../policy-load';
 import { stopFromRaw } from '../../cli/hook';
+import { turnBaseline } from '../../session';
 import { repoContext, repoRoot, validateClaimAgainstRoot } from '../../repo-context';
 import { isRecord } from '../../narrow';
 import {
@@ -134,6 +135,14 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
     try {
       const root = idv.trustedRoot ?? repoRoot(defaultCwd ?? process.cwd());
       const sessionCwd = parsed.identity.claimedCwd ?? defaultCwd ?? process.cwd();
+      // Pin the Stop-sweep baseline at TURN START, on EVERY pre-action call regardless of
+      // operation kind, exactly as the canonical preToolUseVerdict does (src/cli/hook.ts).
+      // With preDeny empty the end-of-turn git sweep is Codex's only real enforcement, and
+      // a baseline first set at Stop time would compare post-commit HEAD against a
+      // post-commit baseline — a mutation the turn COMMITTED mid-turn would be invisible.
+      // PR 2 adds the remaining canonical pre-action steps (effectDriftBlocks,
+      // sanctionPredictedWrites) once Codex is wired live with the effect observer.
+      turnBaseline(root, parsed.identity.sessionId);
       const policy = loadPolicy(root);
       const changes = changesFromCodex(parsed.operation, root, sessionCwd);
       const findings = evaluate(changes, policy, undefined, 'tool-call', { cwd: root }).filter((f) => f.severity === 'block');
