@@ -246,27 +246,34 @@ hooks → the mutation must land) vs **GATED** (TamperWard hook → deny) pair. 
 driver, plus a tracer hook that records that the tool was attempted; `specIntact` alone is
 never proof. A mutation case passes only when the ledger shows the expected tool was
 attempted, PreToolUse fired, TamperWard denied, the reason reached Codex, the mutation did
-**not** land, and Codex completed. The *multiple tool calls* case additionally requires **two
-distinct `tool_use_id`** entries (both operations attempted) — it is named honestly and is
-never satisfied by a single deletion; genuine concurrency is not asserted from a sequential
-ledger.
+**not** land, and Codex completed, and the gated wiring **binds** to the recorded provenance
+hash. The *multiple protected mutations* case additionally requires **two distinct DENIED
+protected `tool_use_id`** entries (both protected operations attempted *and denied*) — it is
+never satisfied by one denial plus an unrelated allowed call; genuine concurrency is not
+asserted from a sequential ledger.
 
 FULL additionally requires a **real Stop qualification**: a case that lets a protected
 mutation LAND during the turn (pre-action pass-through) and then proves from the ledger that
-Stop fired, the sweep returned the `{decision:block, reason}` wire, and Codex honoured it.
+Stop fired, the sweep returned the `{decision:block, reason}` wire, and Codex **honoured** it
+by continuing the turn — a subsequent Stop with `stop_hook_active:true` (codex-rs `turn.rs`
+injects a continuation), not merely that the feedback appeared and the process exited.
 
 For **fail-closed transport**, each broken hook (crash, non-zero exit, malformed JSON, empty
-output, timeout) writes a positive `hook-failure` marker of its kind to the ledger **before**
-it triggers the fault, so `intendedHookFailure` is **observed**, never assumed; a case where
+output, timeout, missing executable) writes a positive `hook-failure` marker of its kind to
+the ledger **before** it triggers the fault, so `intendedHookFailure` is **observed**, never
+assumed; the protected command also drops a parent-owned **dispatch sentinel**, so a PASS
+requires direct proof the tool was **not dispatched**, not merely an intact file; a case where
 the **outer harness timeout** killed Codex is treated as **inconclusive**, never a
 fail-closed PASS. Three identity-poison cases (invalid, cross-repo, symlink-escape claimed
 cwd) run the driver directly with an **explicit** adversarial cwd and must fail closed.
 
 Before it may print `Eligible for Round 4.1`, the probe enforces a **provenance gate**:
-`CODEX_VERSION_EXPECTED` (and the running Codex version must match it), `CODEX_MODEL`, and
-`CODEX_HOME` must be set, and the SHA-256 of the **actual generated `.codex/hooks.json`** must
-be captured — alongside the Codex binary SHA-256, OS/arch, `exec` args, approval/sandbox
-mode, and adapter/probe/driver hashes. Any missing pin caps the result at PARTIAL. With no
+`CODEX_VERSION_EXPECTED` (and the running Codex version must match it), `CODEX_MODEL` (passed
+operatively to `codex exec` as `--model`, so the pinned model is the one that runs), and
+`CODEX_HOME` must be set, and the **canonical SHA-256 of the gated `.codex/hooks.json`** — the
+wiring every qualifying gated run is bound to — must be captured, alongside the Codex binary
+SHA-256, OS/arch, `exec` args, approval/sandbox mode, and adapter/probe/driver hashes. Any
+missing pin caps the result at PARTIAL. With no
 Codex CLI present it reports PARTIAL and exits non-zero, so "could not test" is never mistaken
 for "passed". Only a FULL verdict justifies flipping Codex to `in-loop` and registering
 Round 4.1 — deliberately not done by this PR.

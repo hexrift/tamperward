@@ -49,6 +49,7 @@ if (ledger) {
     sessionId: typeof payload.session_id === 'string' ? payload.session_id : '',
     turnId: typeof payload.turn_id === 'string' ? payload.turn_id : '',
     toolUseId: typeof payload.tool_use_id === 'string' ? payload.tool_use_id : '',
+    stopHookActive: payload.stop_hook_active === true,
     payloadHash: sha(raw),
     threw,
     ts: Date.now(),

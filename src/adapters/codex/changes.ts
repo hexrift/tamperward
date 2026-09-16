@@ -198,11 +198,12 @@ export function changesFromCodex(operation: ProposedOperation, cwd: string, base
     // The real apply_patch hook payload is `tool_input: { command: "*** Begin Patch ..." }`
     // (codex-rs apply_patch.rs `pre_tool_use_payload`); patch/input are lenient fallbacks.
     const patch = asStr(args.command) || asStr(args.patch) || asStr(args.input);
-    return patch ? applyPatchChanges(patch, abs, cwd) : [];
+    if (!patch) throw new Error('apply_patch event carries no command/patch/input to reconstruct');
+    return applyPatchChanges(patch, abs, cwd);
   }
 
   const fp = asStr(args.path) || asStr(args.file_path);
-  if (!fp) return [];
+  if (!fp) throw new Error(`${operation.name || 'file-edit'} event carries no path to reconstruct`);
   const before = readDisk(abs(fp));
 
   const old = args.old_string ?? args.old_str ?? args.old;
@@ -216,5 +217,5 @@ export function changesFromCodex(operation: ProposedOperation, cwd: string, base
   if (typeof content === 'string') {
     return synthFileChange(relForDisplay(abs(fp), cwd), before, content);
   }
-  return [];
+  throw new Error(`${operation.name || 'file-edit'} event for ${fp} carries no old_string/new_string/content to reconstruct`);
 }

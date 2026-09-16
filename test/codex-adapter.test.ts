@@ -333,6 +333,28 @@ describe('CodexRuntimeAdapter.decide — failure states fail CLOSED (deny)', () 
     }
   });
 
+  it('an apply_patch event with no command/patch/input fails CLOSED, never allow', () => {
+    const cwd = repoFixture();
+    try {
+      const raw = JSON.stringify({ tool_name: 'apply_patch', cwd, tool_input: {} });
+      const r = codexAdapter.decide(raw, 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('a Write/Edit event with no path fails CLOSED, never allow', () => {
+    const cwd = repoFixture();
+    try {
+      const raw = JSON.stringify({ tool_name: 'Write', cwd, tool_input: { content: 'x' } });
+      const r = codexAdapter.decide(raw, 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('failClosed maps transport/not-invoked to a deny wire', () => {
     const t = codexAdapter.failClosed('transport-failure', 'hook unreachable', 'pre-action');
     expect(t.outcome).toBe('transport-failure');
