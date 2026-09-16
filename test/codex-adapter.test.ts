@@ -130,6 +130,73 @@ describe('CodexRuntimeAdapter.decide — pre-action content verdict via the SAME
     }
   });
 
+  it.each([
+    ['rm src/a.spec.ts', 'delete'],
+    ['mv src/a.spec.ts src/a.disabled.ts', 'rename'],
+    ['git checkout HEAD~1 -- src/a.spec.ts', 'checkout'],
+    ['git restore src/a.spec.ts', 'restore'],
+    ['git restore --source=HEAD~1 --worktree src/a.spec.ts', 'restore from older source'],
+    ['git reset --hard HEAD', 'reset'],
+  ])('denies Codex Bash %s', (command) => {
+    const cwd = repoFixture();
+    try {
+      const raw = JSON.stringify({ tool_name: 'Bash', cwd, tool_input: { command } });
+      const r = codexAdapter.decide(raw, 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+      expect(r.wire).toContain('test-deletion');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('allows a path-limited mixed reset that only unstages a protected file', () => {
+    const cwd = repoFixture();
+    try {
+      const raw = JSON.stringify({ tool_name: 'Bash', cwd, tool_input: { command: 'git reset HEAD -- src/a.spec.ts' } });
+      const r = codexAdapter.decide(raw, 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('allow');
+      expect(r.wire).toBe('');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('allows a staged-only restore that leaves the worktree unchanged', () => {
+    const cwd = repoFixture();
+    try {
+      const raw = JSON.stringify({ tool_name: 'Bash', cwd, tool_input: { command: 'git restore --staged src/a.spec.ts' } });
+      const r = codexAdapter.decide(raw, 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('allow');
+      expect(r.wire).toBe('');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('allows a staged-only restore with an explicit source', () => {
+    const cwd = repoFixture();
+    try {
+      const raw = JSON.stringify({ tool_name: 'Bash', cwd, tool_input: { command: 'git restore --source=HEAD --staged src/a.spec.ts' } });
+      const r = codexAdapter.decide(raw, 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('allow');
+      expect(r.wire).toBe('');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('denies a restore that requests both index and worktree', () => {
+    const cwd = repoFixture();
+    try {
+      const raw = JSON.stringify({ tool_name: 'Bash', cwd, tool_input: { command: 'git restore --staged --worktree src/a.spec.ts' } });
+      const r = codexAdapter.decide(raw, 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+      expect(r.wire).toContain('test-deletion');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('denies a protected test removal reconstructed from the REAL apply_patch payload (tool_input.command)', () => {
     const cwd = repoFixture();
     try {
