@@ -19,7 +19,9 @@ import { execFailure, isRecord } from '../../narrow';
 // can answer, so an unbounded incoming edit stalls the agent-facing gate — a 20k-line
 // high-churn write took 30+ seconds. The reconstruction itself is cheap (~90 ms); the
 // cost is the detector evaluation over the full content, which grows ~linearly with
-// size (measured ~1.3 s at 1k lines, ~2.9 s at 4k, ~4.4 s at 6k on the churn fixture).
+// size on the high-churn MODIFY fixture (test-content-removal — the dominant detector —
+// running): ~1.3 s at 1k lines, ~2.2 s at 3k, ~2.9 s at ~3.9k lines (~291 KiB), the worst
+// input the ceiling admits. A 20k-line write is ~24 s, well past any sane hook budget.
 //
 // So the ceiling is calibrated to a DEMONSTRATED evaluation budget, not an arbitrary
 // size: an edit within RECONSTRUCT_MAX_LINES / RECONSTRUCT_MAX_BYTES per side is judged

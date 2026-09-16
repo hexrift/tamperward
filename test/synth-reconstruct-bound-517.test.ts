@@ -145,16 +145,24 @@ describe('the public hook: within budget is judged in full, past budget fails cl
 
   // Point 1 of the review contract: a WORST-CASE input within the ceiling is judged END TO
   // END through the real hook — every detector runs and the appended test.skip is caught by
-  // test-skip, not sidestepped by a ceiling deny. Sized just under the 4000-line budget; the
-  // generous per-test timeout guards CI slowness (the budget itself is the calibrated ceiling,
-  // not this timer), so this is not a wall-clock flake — the assertion is detector visibility.
-  it('a worst-case UNDER-ceiling high-churn write is judged in full — test-skip blocks the appended skip', () => {
+  // test-skip, not sidestepped by a ceiling deny. The before file is SEEDED AND COMMITTED so
+  // the hook reconstructs a real 3900-line before→after MODIFY (op: 'modify'), exercising
+  // test-content-removal — the profiled dominant cost — and real git reconstruction, not a
+  // null-before add that skips that detector. Sized just under the 4000-line / 384 KiB budget;
+  // the worst such input evaluates in ~2.9 s (measured on the modify path), so the 15 s cap is
+  // a MEANINGFUL process maximum — a regression toward the 30+ s stall trips it — with a ~5x
+  // margin for CI slowness. The assertion is detector visibility on the costly path.
+  it('a worst-case UNDER-ceiling high-churn MODIFY is judged in full — test-skip blocks the appended skip', () => {
     const cwd = initRepo();
-    const { after } = churn(3900); // ~296 KiB, just under the 384 KiB / 4000-line budget
-    const r = preToolUseVerdict({ tool_name: 'Write', tool_input: { file_path: join(cwd, 'big.test.js'), content: after }, cwd });
+    const { before, after } = churn(3900); // ~291 KiB per side, under the 384 KiB / 4000-line budget
+    const target = join(cwd, 'big.test.js');
+    writeFileSync(target, before);
+    execFileSync('git', ['add', '-A'], { cwd, stdio: 'pipe' });
+    execFileSync('git', ['commit', '-qm', 'seed the churn base'], { cwd, stdio: 'pipe' });
+    const r = preToolUseVerdict({ tool_name: 'Write', tool_input: { file_path: target, content: after }, cwd });
     expect(r.stdout).toContain('"deny"');
     expect(r.stdout).toContain('test-skip');
-  }, 30_000);
+  }, 15_000);
 
   it('a Write PAST the reconstruction budget fails closed (deny, never a partial allow)', () => {
     const cwd = initRepo();

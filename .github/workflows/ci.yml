@@ -300,6 +300,13 @@ jobs:
       - name: Built hook-service CLI e2e
         run: TAMPERWARD_BUILT_CLI_E2E=1 npx vitest run test/hook-service.test.ts -t "built CLI end to end"
 
+      # #517: the outer-process reconstruction-bound smoke is gated on a built dist/, which the
+      # test matrix never produces, so it silently skips there. Run it here, where `npm run build`
+      # just wrote dist/, so green CI actually proves the built hook denies an over-budget write
+      # and exits within a hard SIGKILL maximum instead of stalling.
+      - name: PreToolUse reconstruction bound — built-hook outer-process smoke (#517)
+        run: npx vitest run test/synth-reconstruct-bound-517.test.ts
+
       # The site used to build only on push to main, so a page that broke the
       # Vue template compile (2.6.0's rules row) merged and took the deploy down.
       # Dead links fail it too (`ignoreDeadLinks: false`).
