@@ -690,7 +690,9 @@ export const testDeletion: Detector = {
                 return Boolean(seg.includes(' -- ') || src || cmdToks.some((t) => named.includes(t)));
               }
               if (!rev) {
-                const stagedOnly = cmdToks.includes('--staged') || cmdToks.includes('-S');
+                const stagedRequested = cmdToks.includes('--staged') || cmdToks.includes('-S');
+                const worktreeRequested = cmdToks.includes('--worktree') || cmdToks.includes('-W');
+                const stagedOnly = stagedRequested && !worktreeRequested;
                 return !stagedOnly && Boolean(seg.includes(' -- ') || src || gitSub === 'restore');
               }
               if (src || seg.includes(' -- ')) return true;
