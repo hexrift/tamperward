@@ -104,7 +104,7 @@ export function execArgsFor(env = process.env) {
   return [...args, '--model', model];
 }
 
-/** Canonicalise a generated `.codex/hooks.json` by tokenising the per-run absolute paths, so
+/** Canonicalise a generated `.codex/config.toml` by tokenising the per-run absolute paths, so
  *  its hash identifies the WIRING SHAPE and binds every qualifying run's config to the recorded
  *  provenance regardless of which temp dir it ran in. */
 export function canonicalHooks(jsonString, subs) {
@@ -121,7 +121,7 @@ function canonicalHooksSha(repo, ledger, driver, work) {
     [work, '<WORK>'],
     [tmpdir(), '<TMP>'],
   ];
-  const raw = readFileSync(join(repo, '.codex', 'hooks.json'), 'utf8');
+  const raw = readFileSync(join(repo, '.codex', 'config.toml'), 'utf8');
   return createHash('sha256').update(canonicalHooks(raw, subs)).digest('hex');
 }
 
@@ -140,7 +140,7 @@ export function provenanceGate(prov, env = process.env) {
   else if (parseVersion(prov.codex_version) !== env.CODEX_VERSION_EXPECTED) reasons.push(`running Codex ${prov.codex_version} != expected ${env.CODEX_VERSION_EXPECTED}`);
   if (!env.CODEX_MODEL) reasons.push('CODEX_MODEL not set');
   if (!env.CODEX_HOME) reasons.push('CODEX_HOME not set');
-  if (!prov.hooks_config_sha256 || prov.hooks_config_sha256 === '(unavailable)') reasons.push('hooks.json SHA-256 not captured');
+  if (!prov.hooks_config_sha256 || prov.hooks_config_sha256 === '(unavailable)') reasons.push('hooks config SHA-256 not captured');
   return { full: reasons.length === 0, reasons };
 }
 
@@ -213,10 +213,9 @@ export function driverSelfTest(outDir) {
   }
 }
 
-/** An isolated git repo with a protected spec, a policy, and the Codex hooks wired to a
- *  TRACER (always records "attempted", allows) plus the DECISION driver. NOTE: the probe
- *  writes `.codex/hooks.json` itself — generating it from init/onboard and protecting that
- *  control surface is the PR 2 follow-up. */
+/** An isolated git repo with a protected spec, a policy, and project-scoped Codex hooks wired
+ *  to a TRACER (always records "attempted", allows) plus the DECISION driver. Codex discovers
+ *  project hooks from `.codex/config.toml`; writing the legacy `.codex/hooks.json` is inert. */
 export function makeRepo(driver, ledger, preCmdOverride, stopCmdOverride) {
   const dir = mkdtempSync(join(tmpdir(), 'tw-codex-probe-'));
   const g = (args) => execFileSync('git', args, { cwd: dir });
@@ -232,25 +231,18 @@ export function makeRepo(driver, ledger, preCmdOverride, stopCmdOverride) {
   const preCmd = preCmdOverride ?? driverCmd;
   const stopCmd = stopCmdOverride ?? driverCmd;
   const wire = (cmd, phase) => ({ type: 'command', command: `TW_PROBE_LEDGER=${ledger} TW_CODEX_PHASE=${phase} ${cmd}` });
+  const tomlString = (value) => JSON.stringify(value);
+  const hook = (command, phase) => `[[hooks.${phase}]]\nmatcher = "*"\n[[hooks.${phase}.hooks]]\ntype = "command"\ncommand = ${tomlString(command)}`;
   writeFileSync(
-    join(dir, '.codex', 'hooks.json'),
-    JSON.stringify(
-      {
-        hooks: {
-          PreToolUse: [{ matcher: '*', hooks: [wire(tracerCmd(ledger), 'pre'), wire(preCmd, 'pre')] }],
-          Stop: [{ hooks: [wire(stopCmd, 'stop')] }],
-        },
-      },
-      null,
-      2,
-    ),
+    join(dir, '.codex', 'config.toml'),
+    `[hooks]\n${hook(wire(tracerCmd(ledger), 'pre'), 'PreToolUse')}\n${hook(wire(preCmd, 'pre'), 'PreToolUse')}\n[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = "command"\ncommand = ${tomlString(wire(stopCmd, 'stop'))}\n`,
   );
   g(['add', '-A']);
   g(['commit', '-qm', 'seed']);
   return dir;
 }
 
-/** The canonical SHA-256 of the gated `.codex/hooks.json` wiring shape. Every qualifying gated
+/** The canonical SHA-256 of the gated `.codex/config.toml` wiring shape. Every qualifying gated
  *  run is bound to this hash by `caseHooksBound`, so provenance names the config that actually
  *  produced the evidence, not a throwaway. */
 function hooksConfigSha(driver, work) {
