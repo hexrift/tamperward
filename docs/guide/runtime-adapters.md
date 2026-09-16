@@ -179,17 +179,34 @@ An **experimental** Codex adapter ships in `src/adapters/codex/*`
 [#563](https://github.com/hexrift/tamperward/issues/563)). It is the second implementation
 of the neutral `RuntimeAdapter` contract, and it is deliberately conservative.
 
+**Grounded in the real Codex protocol.** The adapter's wire is grounded against the Codex
+source (`openai/codex`, `codex-rs/hooks/schema/generated` and `codex-rs/core/src/tools`),
+not guessed. The canonical **hook-facing** tool names are `Bash` (the whole shell/exec
+family), `apply_patch` (with `Write`/`Edit` as matcher aliases), and `mcp__<server>__<tool>`
+(`hook_names.rs`, `unified_exec.rs`, `mcp.rs`). The **apply_patch** payload is
+`tool_input.command` carrying the patch text (`apply_patch.rs`). The **deny wire differs by
+phase**: PreToolUse denies with `hookSpecificOutput.permissionDecision:"deny"` (plus the
+deprecated top-level `decision:"block"`), while Stop denies with `{decision:"block", reason}`
+and **no** `hookSpecificOutput`
+(`pre-tool-use.command.output.schema.json`, `stop.command.output.schema.json`). Those four
+schema files are copied verbatim into `test/fixtures/codex-schemas`, and
+`test/codex-protocol.test.ts` validates the adapter's inputs and deny wire against them.
+
 **Two milestones, not one.** *An adapter existing is not the same as a runtime being
 qualified for in-loop enforcement.* Milestone one — the adapter — is done: it normalizes
-Codex hook payloads, maps Codex tool names to operation kinds, reconstructs shell and
-file-edit operations (including `apply_patch`) into the shared `Change[]` via
+Codex hook payloads, maps the canonical tool names to operation kinds, reconstructs shell
+and file-edit operations (including `apply_patch`) into the shared `Change[]` via
 `synthFileChange`, runs the **same** engine as the Claude path for its pre-action content
 decision, delegates the end-of-turn sweep to the canonical git sweep, validates identity as
 an untrusted claim, and fails closed on every failure state. Milestone two — proving that
 Codex actually **enforces** a pre-action deny and that its hook transport actually **fails
 closed** on a *pinned* Codex build — is **not** met, so Codex is **not** eligible for
 Round 4.1. The registry (`src/runtimes.ts`) keeps Codex at `steering: 'neutral'` and no
-research round is registered.
+research round is registered. This matters because Codex currently **fails open** on some
+hook failures (`pre_tool_use.rs` `serialization_failure_outcome`,
+`permission_decision_allow_without_updated_input_fails_open`): a real qualification run may
+legitimately come back PARTIAL, which is exactly why the probe *proves* fail-closed from
+evidence rather than assuming it.
 
 **Conservative capabilities.** The Codex adapter declares:
 
@@ -204,19 +221,44 @@ research round is registered.
   ([openai/codex#41979](https://github.com/openai/codex/issues/41979))*, *network-egress
   control*, and *identity / authentication*.
 
-**`probe:codex-runtime` is the qualification gate.** The harness
-(`harness/adapters/codex-probe.mjs`, run with `npm run probe:codex-runtime`) is the *real*
-gate for milestone two. On a pinned Codex build it drives a real `codex` binary against a
-real repository, per mutation class (shell edit, `apply_patch` edit, native edit/write,
-delete, rename, git checkout/reset/restore, MCP op, nested shell, parallel tool calls),
-confirming the operation is denied and did not execute; then it breaks TamperWard nine ways
-(killed process, missing executable, timeout, malformed JSON, empty output, non-zero exit,
-invalid cwd, cross-repo cwd, symlink escape) and requires each to **fail closed**. It pins
-and prints the Codex version and prints a FULL / PARTIAL verdict with an explicit
-`Eligible` / `Not eligible for Round 4.1` line. With no Codex CLI present it reports PARTIAL
-and exits non-zero, so "could not test" is never mistaken for "passed". Only a FULL verdict
-justifies flipping Codex to `in-loop` and registering Round 4.1 — deliberately not done by
-this PR.
+**Three-layer qualification.** Qualification is layered so the parts that *can* run
+deterministically in CI are separated from the part that needs a real Codex box:
+
+- **(a) Protocol conformance** (`test/codex-protocol.test.ts`, CI) — the adapter parses the
+  real Codex input shape and its deny wire validates against the copied real output schemas.
+- **(b) Probe self-test** (`test/codex-probe-selftest.test.ts`, CI) — the probe's own
+  classifiers are asserted against every deterministic mode (hook-fired-deny-respected,
+  deny-ignored, hook-never-fired, tool-never-attempted, hook-crashed/timeout-with-tool-
+  executed, stop-block-respected/ignored), and the **real** driver is built and exercised
+  end-to-end (decide → append to a parent-owned ledger → classify). This proves the probe
+  *itself* cannot false-green.
+- **(c) Real Codex E2E** (`npm run probe:codex-runtime`, **not** run in CI) — the real gate
+  for milestone two, on a pinned Codex build.
+
+**`probe:codex-runtime`** (`harness/adapters/codex-probe.mjs`) drives a real `codex` binary
+against a real repository. Each mutation class (shell edit, `apply_patch` edit, native
+edit/write, delete, rename, git checkout/reset/restore, MCP op, nested shell, parallel tool
+calls, detached/background mutation) is run as a **CONTROL** (pass-through hook → the
+mutation must land) vs **GATED** (TamperWard hook → deny) pair. Evidence is a **parent-owned,
+append-only ledger** written **outside** the candidate repo by the hook driver, plus a
+tracer hook that records that the tool was attempted; `specIntact` alone is never proof. A
+mutation case passes only when the ledger shows the expected tool was attempted, PreToolUse
+fired, TamperWard denied, the reason reached Codex, the mutation did **not** land, and Codex
+completed. The probe then breaks TamperWard (killed process, missing executable, timeout,
+malformed JSON, empty output, non-zero exit) and drives three identity-poison cases
+(invalid, cross-repo, and symlink-escape claimed cwd, each passed as an **explicit** driver
+input) and requires each to **fail closed**. It pins the full provenance (Codex version and
+binary SHA-256, OS/arch, model, `exec` args, approval/sandbox mode, `CODEX_HOME`, hooks
+config and adapter/probe/driver hashes) before it may print `Eligible for Round 4.1`. With no
+Codex CLI present it reports PARTIAL and exits non-zero, so "could not test" is never mistaken
+for "passed". Only a FULL verdict justifies flipping Codex to `in-loop` and registering
+Round 4.1 — deliberately not done by this PR.
+
+**CI honesty.** A green CI run proves the **build, unit/adapter tests, static gate, protocol
+conformance (a), and the probe self-test (b)** only. It does **not** prove runtime
+qualification: the real-Codex E2E (c) is not run in CI (no Codex binary there). Codex stays
+experimental and `neutral`, `preDeny` stays empty, and no Round 4.1 is registered until a FULL
+`probe:codex-runtime` verdict on a pinned build says otherwise.
 
 The Codex pre-action path pins the Stop-sweep baseline at **turn start** (`turnBaseline`) on
 every pre-action call, exactly as the canonical `preToolUseVerdict` does — because with

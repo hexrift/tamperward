@@ -69,33 +69,33 @@ describe('CodexRuntimeAdapter — identity and capabilities honesty', () => {
 });
 
 describe('normalizeCodexEvent — tool-name → OperationKind and per-phase shape', () => {
-  it('maps each Codex tool family to the right operation kind', () => {
-    expect(codexOperationKind('shell_command')).toBe('shell');
-    expect(codexOperationKind('exec_command')).toBe('shell');
-    expect(codexOperationKind('unified_exec')).toBe('shell');
+  it('maps each canonical Codex hook tool name to the right operation kind', () => {
+    // Grounded in codex-rs/core/src/tools/hook_names.rs and handlers/{unified_exec,mcp,apply_patch}.rs.
+    expect(codexOperationKind('Bash')).toBe('shell');
     expect(codexOperationKind('apply_patch')).toBe('file-edit');
-    expect(codexOperationKind('write_file')).toBe('file-edit');
-    expect(codexOperationKind('edit_file')).toBe('file-edit');
-    expect(codexOperationKind('read_file')).toBe('file-read');
-    expect(codexOperationKind('grep')).toBe('file-read');
-    expect(codexOperationKind('mcp__server__tool')).toBe('mcp');
-    expect(codexOperationKind('something_unknown')).toBe('other');
+    expect(codexOperationKind('Write')).toBe('file-edit'); // matcher alias of apply_patch
+    expect(codexOperationKind('Edit')).toBe('file-edit'); // matcher alias of apply_patch
+    expect(codexOperationKind('mcp__filesystem__read_file')).toBe('mcp');
+    expect(codexOperationKind('mcp__foo__exec_command')).toBe('mcp');
+    expect(codexOperationKind('view_image')).toBe('file-read');
+    expect(codexOperationKind('spawn_agent')).toBe('other');
+    expect(codexOperationKind('write_stdin')).toBe('other');
     expect(codexOperationKind(undefined)).toBe('other');
   });
 
-  it('parseEvent classifies a pre-action tool call with verbatim args', () => {
-    const raw = JSON.stringify({ tool_name: 'shell_command', tool_input: { command: 'rm x' }, cwd: '/repo', session_id: 's1' });
+  it('parseEvent classifies a pre-action Bash call with verbatim args', () => {
+    const raw = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm x' }, cwd: '/repo', session_id: 's1' });
     const ev = codexAdapter.parseEvent(raw, 'pre-action');
     expect('failure' in ev).toBe(false);
     if ('failure' in ev) return;
     expect(ev.operation.kind).toBe('shell');
-    expect(ev.operation.name).toBe('shell_command');
+    expect(ev.operation.name).toBe('Bash');
     expect(ev.operation.args).toEqual({ command: 'rm x' });
     expect(ev.identity).toEqual({ claimedCwd: '/repo', sessionId: 's1' });
   });
 
   it('end-of-turn is a synthetic stop op regardless of payload tool_name', () => {
-    const raw = JSON.stringify({ tool_name: 'shell_command', cwd: '/repo' });
+    const raw = JSON.stringify({ tool_name: 'Bash', cwd: '/repo' });
     const ev = normalizeCodexEvent(raw, 'end-of-turn');
     expect('failure' in ev).toBe(false);
     if ('failure' in ev) return;
@@ -115,18 +115,13 @@ describe('normalizeCodexEvent — tool-name → OperationKind and per-phase shap
 });
 
 describe('CodexRuntimeAdapter.decide — pre-action content verdict via the SAME engine', () => {
-  it('denies a protected test-weakening edit (write of it.skip)', () => {
+  it('denies a protected test deletion via a Bash command (real hook shape)', () => {
     const cwd = repoFixture();
     try {
-      const raw = JSON.stringify({
-        tool_name: 'write_file',
-        cwd,
-        tool_input: { path: join(cwd, 'src', 'a.spec.ts'), content: `it('one', () => {});\nit.skip('two', () => {});\n` },
-      });
+      const raw = JSON.stringify({ tool_name: 'Bash', cwd, tool_input: { command: 'rm src/a.spec.ts' } });
       const r = codexAdapter.decide(raw, 'pre-action', cwd);
-      expect(r.outcome).toBe('ok');
       expect(r.decision?.verdict).toBe('deny');
-      expect(r.wire).toContain('test-skip');
+      expect(r.wire).toContain('test-deletion');
       const j = JSON.parse(r.wire as string);
       expect(j.hookSpecificOutput.hookEventName).toBe('PreToolUse');
       expect(j.hookSpecificOutput.permissionDecision).toBe('deny');
@@ -135,19 +130,7 @@ describe('CodexRuntimeAdapter.decide — pre-action content verdict via the SAME
     }
   });
 
-  it('denies a protected test deletion via shell', () => {
-    const cwd = repoFixture();
-    try {
-      const raw = JSON.stringify({ tool_name: 'shell_command', cwd, tool_input: { command: 'rm src/a.spec.ts' } });
-      const r = codexAdapter.decide(raw, 'pre-action', cwd);
-      expect(r.decision?.verdict).toBe('deny');
-      expect(r.wire).toContain('test-deletion');
-    } finally {
-      rmSync(cwd, { recursive: true, force: true });
-    }
-  });
-
-  it('denies a protected test removal reconstructed from an apply_patch update', () => {
+  it('denies a protected test removal reconstructed from the REAL apply_patch payload (tool_input.command)', () => {
     const cwd = repoFixture();
     try {
       const patch = [
@@ -158,10 +141,32 @@ describe('CodexRuntimeAdapter.decide — pre-action content verdict via the SAME
         "+it('one', () => {});",
         '*** End Patch',
       ].join('\n');
-      const raw = JSON.stringify({ tool_name: 'apply_patch', cwd, tool_input: { patch } });
+      const raw = JSON.stringify({ tool_name: 'apply_patch', cwd, tool_input: { command: patch } });
       const r = codexAdapter.decide(raw, 'pre-action', cwd);
+      // It must NOT reconstruct to empty and allow.
       expect(r.decision?.verdict).toBe('deny');
       expect(r.wire).toContain('test-deletion');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('denies a test-skip reconstructed from an apply_patch update', () => {
+    const cwd = repoFixture();
+    try {
+      const patch = [
+        '*** Begin Patch',
+        '*** Update File: src/a.spec.ts',
+        '@@',
+        "-it('one', () => {}); it('two', () => {});",
+        "+it('one', () => {});",
+        "+it.skip('two', () => {});",
+        '*** End Patch',
+      ].join('\n');
+      const raw = JSON.stringify({ tool_name: 'apply_patch', cwd, tool_input: { command: patch } });
+      const r = codexAdapter.decide(raw, 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+      expect(r.wire).toContain('test-skip');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -178,7 +183,7 @@ describe('CodexRuntimeAdapter.decide — pre-action content verdict via the SAME
         '+something else',
         '*** End Patch',
       ].join('\n');
-      const raw = JSON.stringify({ tool_name: 'apply_patch', cwd, tool_input: { patch } });
+      const raw = JSON.stringify({ tool_name: 'apply_patch', cwd, tool_input: { command: patch } });
       const r = codexAdapter.decide(raw, 'pre-action', cwd);
       expect(r.decision?.verdict).toBe('deny');
       expect(r.decision?.findings[0].rule).toBe('tamperward-unavailable');
@@ -187,14 +192,27 @@ describe('CodexRuntimeAdapter.decide — pre-action content verdict via the SAME
     }
   });
 
-  it('allows an ordinary edit to a non-protected file (empty wire = allow)', () => {
+  it('accepts the Write/Edit matcher alias via the generic edit path (it.skip → deny)', () => {
     const cwd = repoFixture();
     try {
       const raw = JSON.stringify({
-        tool_name: 'write_file',
+        tool_name: 'Write',
         cwd,
-        tool_input: { path: join(cwd, 'src', 'feature.ts'), content: 'export const x = 1;\n' },
+        tool_input: { file_path: join(cwd, 'src', 'a.spec.ts'), content: `it('one', () => {});\nit.skip('two', () => {});\n` },
       });
+      const r = codexAdapter.decide(raw, 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+      expect(r.wire).toContain('test-skip');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('allows an ordinary add of a non-protected file via apply_patch (empty wire = allow)', () => {
+    const cwd = repoFixture();
+    try {
+      const patch = ['*** Begin Patch', '*** Add File: src/feature.ts', '+export const x = 1;', '*** End Patch'].join('\n');
+      const raw = JSON.stringify({ tool_name: 'apply_patch', cwd, tool_input: { command: patch } });
       const r = codexAdapter.decide(raw, 'pre-action', cwd);
       expect(r.outcome).toBe('ok');
       expect(r.decision?.verdict).toBe('allow');
@@ -224,7 +242,7 @@ describe('CodexRuntimeAdapter.decide — pre-action pins the Stop-sweep baseline
     try {
       // A benign first tool call must still pin turn start.
       const first = codexAdapter.decide(
-        JSON.stringify({ tool_name: 'read_file', cwd, session_id: sessionId, tool_input: { path: join(cwd, 'src', 'a.spec.ts') } }),
+        JSON.stringify({ tool_name: 'Bash', cwd, session_id: sessionId, tool_input: { command: 'cat src/a.spec.ts' } }),
         'pre-action',
         cwd,
       );
@@ -247,7 +265,7 @@ describe('CodexRuntimeAdapter.decide — pre-action pins the Stop-sweep baseline
 });
 
 describe('CodexRuntimeAdapter.decide — end-of-turn sweep in Codex wire', () => {
-  it('denies a landed shell mutation and emits the Codex Stop envelope', () => {
+  it('denies a landed shell mutation and emits Codex\'s Stop envelope {decision:block, reason}', () => {
     const cwd = repoFixture();
     try {
       writeFileSync(join(cwd, 'src', 'a.spec.ts'), `it('one', () => {});\n`);
@@ -256,9 +274,10 @@ describe('CodexRuntimeAdapter.decide — end-of-turn sweep in Codex wire', () =>
       expect(r.outcome).toBe('ok');
       expect(r.decision?.verdict).toBe('deny');
       const j = JSON.parse(r.wire as string);
-      expect(j.hookSpecificOutput.hookEventName).toBe('Stop');
-      expect(j.hookSpecificOutput.permissionDecision).toBe('deny');
-      expect(j.hookSpecificOutput.permissionDecisionReason).toContain('test-deletion');
+      // Stop output has NO hookSpecificOutput (stop.command.output.schema.json).
+      expect(j.decision).toBe('block');
+      expect(j.reason).toContain('test-deletion');
+      expect(j.hookSpecificOutput).toBeUndefined();
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -350,9 +369,17 @@ describe('codexDenyWire — the documented Codex deny envelope', () => {
     expect(wire.endsWith('\n')).toBe(true);
   });
 
-  it('end-of-turn carries hookEventName Stop', () => {
+  it('pre-action also sets the deprecated top-level decision:block + reason', () => {
+    const j = JSON.parse(codexDenyWire(findings, 'pre-action'));
+    expect(j.decision).toBe('block');
+    expect(j.reason).toBe(formatDenial(findings));
+  });
+
+  it('end-of-turn carries {decision:block, reason} and NO hookSpecificOutput', () => {
     const j = JSON.parse(codexDenyWire(findings, 'end-of-turn'));
-    expect(j.hookSpecificOutput.hookEventName).toBe('Stop');
+    expect(j.decision).toBe('block');
+    expect(j.reason).toBe(formatDenial(findings));
+    expect(j.hookSpecificOutput).toBeUndefined();
   });
 
   it('an allow (no findings) writes an empty string', () => {

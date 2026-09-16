@@ -11,27 +11,39 @@ All notable changes to this project are documented here. The format follows
 
 - **adapters: an EXPERIMENTAL Codex runtime adapter plus a real qualification probe**
   (#482, #563). A new `CodexRuntimeAdapter` (`src/adapters/codex/*`) implements the neutral
-  `RuntimeAdapter` contract: it normalizes Codex hook payloads into the shared
-  `SteeringEvent` shape (mapping `shell_command`/`exec_command`/`unified_exec` → `shell`,
-  `apply_patch` and edit/write tools → `file-edit`, read/search tools → `file-read`, MCP
-  calls → `mcp`), reconstructs shell and file-edit operations into the shared `Change[]` via
-  `synthFileChange` (including an `apply_patch` parser that fails **closed** on a hunk it
-  cannot locate), runs the **same** engine as the Claude path for its pre-action content
-  decision, delegates the end-of-turn sweep to the canonical git sweep, and emits Codex's
-  documented deny envelope. Identity is validated as an untrusted claim exactly as the
-  Claude adapter validates it, and every failure state (`parse-failure`,
-  `transport-failure`, `not-invoked`, an unreconstructable edit, a rejected identity)
-  fails closed to a deny. Capabilities are deliberately **conservative and honest**:
+  `RuntimeAdapter` contract, grounded against the real Codex protocol (`openai/codex`
+  `codex-rs/hooks/schema/generated` and `codex-rs/core/src/tools`), not guessed. It
+  normalizes Codex hook payloads into the shared `SteeringEvent` shape using the canonical
+  **hook-facing** tool names (`Bash` → `shell`; `apply_patch`, with `Write`/`Edit` matcher
+  aliases → `file-edit`; `mcp__<server>__<tool>` → `mcp`; `view_image` → `file-read`),
+  reconstructs shell and file-edit operations into the shared `Change[]` via `synthFileChange`
+  (reading the real `apply_patch` payload from `tool_input.command`, with a parser that fails
+  **closed** on a hunk it cannot locate), runs the **same** engine as the Claude path for its
+  pre-action content decision, pins the Stop-sweep baseline at turn start, and delegates the
+  end-of-turn sweep to the canonical git sweep. The deny wire is **phase-split** to match the
+  real Codex output schemas: PreToolUse denies with `hookSpecificOutput.permissionDecision:
+  "deny"` (plus the deprecated top-level `decision:"block"`), Stop denies with
+  `{decision:"block", reason}` and no `hookSpecificOutput`. Identity is validated as an
+  untrusted claim exactly as the Claude adapter does, and every failure state
+  (`parse-failure`, `transport-failure`, `not-invoked`, an unreconstructable edit, a rejected
+  identity) fails closed to a deny. Capabilities are deliberately **conservative and honest**:
   `preDeny` is **empty** because pre-action deny enforcement is not yet proven on a pinned
-  Codex build, and `unsupported` names that gap along with fail-closed hook transport
-  (openai/codex#41979), network-egress control, and identity/authentication. A new
-  `probe:codex-runtime` harness (`harness/adapters/codex-probe.mjs`) is the qualification
-  gate: on a pinned Codex build it drives real mutation classes and fail-closed-transport
-  breakage against a real `codex` binary and prints a FULL/PARTIAL verdict; with no Codex
-  CLI present it reports PARTIAL and exits non-zero rather than claim a pass. This is
-  milestone one only — the adapter exists but is **not** 4.1-eligible: Codex stays `neutral`
-  in `src/runtimes.ts` and no research round is registered. Wiring `.codex/hooks.json` from
-  `init`/`onboard` and protecting that control surface is a **PR 2** follow-up.
+  Codex build (Codex currently fails open on some hook failures), and `unsupported` names that
+  gap along with fail-closed hook transport (openai/codex#41979), network-egress control, and
+  identity/authentication. Qualification is **three-layered**: (a) protocol-conformance tests
+  validate inputs and deny wire against the real Codex schemas copied into
+  `test/fixtures/codex-schemas`; (b) a probe self-test asserts the probe's classifiers against
+  every deterministic mode and exercises the real driver end-to-end so the probe itself cannot
+  false-green — both run in CI; (c) `probe:codex-runtime`
+  (`harness/adapters/codex-probe.mjs`) is the real gate on a pinned Codex build, using a
+  parent-owned append-only ledger (evidence, not `specIntact` alone), CONTROL-vs-GATED
+  mutation pairs, fail-closed-transport breakage, and pinned provenance — with no Codex CLI it
+  reports PARTIAL and exits non-zero. Green CI proves build/unit/static + layers (a) and (b)
+  only, **not** runtime qualification. This is milestone one: the adapter exists but is
+  **not** 4.1-eligible — Codex stays `neutral` in `src/runtimes.ts` and no research round is
+  registered. Wiring `.codex/hooks.json` from `init`/`onboard` and protecting that control
+  surface (and full parity with `effectDriftBlocks`/`sanctionPredictedWrites`) is a **PR 2**
+  follow-up.
 ## [2.29.21] — 2026-09-16
 
 ### Fixed

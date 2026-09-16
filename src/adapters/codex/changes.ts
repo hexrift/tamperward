@@ -195,7 +195,9 @@ export function changesFromCodex(operation: ProposedOperation, cwd: string, base
   if (operation.kind !== 'file-edit') return [];
 
   if (operation.name === 'apply_patch' || operation.name === 'patch') {
-    const patch = asStr(args.patch) || asStr(args.input);
+    // The real apply_patch hook payload is `tool_input: { command: "*** Begin Patch ..." }`
+    // (codex-rs apply_patch.rs `pre_tool_use_payload`); patch/input are lenient fallbacks.
+    const patch = asStr(args.command) || asStr(args.patch) || asStr(args.input);
     return patch ? applyPatchChanges(patch, abs, cwd) : [];
   }
 

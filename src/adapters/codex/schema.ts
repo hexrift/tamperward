@@ -23,31 +23,27 @@ export interface CodexHookInput {
   stop_hook_active?: boolean;
 }
 
-const SHELL_TOOLS = new Set(['shell_command', 'exec_command', 'unified_exec', 'exec', 'shell', 'local_shell']);
-const FILE_EDIT_TOOLS = new Set([
-  'apply_patch',
-  'write_file',
-  'create_file',
-  'edit_file',
-  'str_replace',
-  'str_replace_editor',
-  'str_replace_based_edit_tool',
-  'write',
-  'edit',
-  'patch',
-]);
-const FILE_READ_TOOLS = new Set(['read_file', 'read', 'view', 'grep', 'search', 'list_files', 'list_dir', 'glob', 'cat', 'ripgrep']);
+// Canonical HOOK-FACING tool names, grounded in codex-rs/core/src/tools:
+//  - the shell family (unified_exec / exec_command) all serialise as `Bash`
+//    (hook_names.rs `bash()`; unified_exec.rs:92; exec_command.rs:530);
+//  - file edits are `apply_patch`, with `Write` / `Edit` as matcher aliases
+//    (hook_names.rs `apply_patch()`);
+//  - MCP calls are `mcp__<server>__<tool>` (mcp.rs `ensure_mcp_prefix`, `LEGACY_MCP_TOOL_NAME_PREFIX`);
+//  - `view_image` is the one native read-shaped tool. Shell-mediated reads arrive as `Bash`
+//    and MCP reads as `mcp__…`.
+const SHELL_TOOLS = new Set(['Bash']);
+const FILE_EDIT_TOOLS = new Set(['apply_patch', 'Write', 'Edit']);
+const FILE_READ_TOOLS = new Set(['view_image']);
+const MCP_PREFIX = 'mcp__';
 
-/** Codex tool name → neutral operation kind. Shell/exec variants gate synchronously;
- *  apply_patch and the edit/write tools are file edits; read/search tools are reads;
- *  an MCP call is named by an `mcp` prefix; everything else is `other`. Read-only and
- *  unknown kinds produce no Change downstream (src/adapters/codex/changes.ts). */
+/** Codex hook-facing tool name → neutral operation kind. Read-only and unknown kinds
+ *  produce no Change downstream (src/adapters/codex/changes.ts). */
 export function codexOperationKind(toolName: string | undefined): OperationKind {
   if (!toolName) return 'other';
   if (SHELL_TOOLS.has(toolName)) return 'shell';
   if (FILE_EDIT_TOOLS.has(toolName)) return 'file-edit';
+  if (toolName.startsWith(MCP_PREFIX)) return 'mcp';
   if (FILE_READ_TOOLS.has(toolName)) return 'file-read';
-  if (toolName.startsWith('mcp')) return 'mcp';
   return 'other';
 }
 

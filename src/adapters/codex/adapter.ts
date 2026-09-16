@@ -18,7 +18,6 @@ import { loadPolicy } from '../../policy-load';
 import { stopFromRaw } from '../../cli/hook';
 import { turnBaseline } from '../../session';
 import { repoContext, repoRoot, validateClaimAgainstRoot } from '../../repo-context';
-import { isRecord } from '../../narrow';
 import {
   IdentityValidation,
   OperationKind,
@@ -32,25 +31,10 @@ import {
   steeringUnavailableFinding,
 } from '../contract';
 import { changesFromCodex } from './changes';
-import { codexDenyWire, codexWire } from './deny';
+import { codexDenyWire } from './deny';
 import { normalizeCodexEvent } from './schema';
 
 const POST_OBSERVE: readonly OperationKind[] = ['shell', 'file-edit', 'file-read', 'mcp', 'other'];
-
-/** The canonical git Stop sweep, in Codex's wire envelope. The verdict is entirely the
- *  canonical `stopFromRaw`'s; only the deny envelope is reshaped (Claude Stop carries the
- *  reason as `.reason`). An empty sweep stdout is an allow. */
-function codexStopWire(claudeStopStdout: string): string {
-  if (!claudeStopStdout) return '';
-  let reason = '';
-  try {
-    const j: unknown = JSON.parse(claudeStopStdout);
-    if (isRecord(j) && typeof j.reason === 'string') reason = j.reason;
-  } catch {
-    reason = '';
-  }
-  return codexWire(reason, 'end-of-turn');
-}
 
 export class CodexRuntimeAdapter implements RuntimeAdapter {
   readonly name = 'codex';
@@ -127,8 +111,10 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
     }
 
     if (phase === 'end-of-turn') {
-      const live = stopFromRaw(raw, defaultCwd, idv.trustedRoot);
-      const wire = codexStopWire(live.stdout);
+      // The canonical git sweep's Stop wire is ALREADY Codex's `{decision:"block",reason}`
+      // shape (stop.command.output.schema.json), so it passes through unchanged. The verdict
+      // is entirely the canonical stopFromRaw's; the adapter reshapes nothing.
+      const wire = stopFromRaw(raw, defaultCwd, idv.trustedRoot).stdout;
       return { outcome: 'ok', wire, decision: { verdict: wire ? 'deny' : 'allow', findings: [], reason: wire || undefined } };
     }
 
