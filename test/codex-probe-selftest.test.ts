@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 // @ts-expect-error - the probe is a plain .mjs harness module, no d.ts
-import { classifyMutation, classifyDetached, classifyProbeAvailability, classifyLifecycleAbort, detachedLifecycleOutcome, stopLifecycleOutcome, collectAfterSettle, classifyFailClosed, failClosedLifecycleOutcome, classifyStop, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
+import { classifyMutation, classifyDetached, classifyProbeAvailability, controlAvailabilityReason, classifyLifecycleAbort, detachedLifecycleOutcome, stopLifecycleOutcome, collectAfterSettle, classifyFailClosed, failClosedLifecycleOutcome, classifyStop, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
 
 describe('probe classifiers — every deterministic mode is classified correctly', () => {
   it('marks an unavailable tool as inconclusive rather than enforcement failure', () => {
@@ -138,6 +138,33 @@ describe('probe classifiers — every deterministic mode is classified correctly
         caseId: 'gated-case', expectedTool: 'apply_patch',
       }).denialObserved).toBe(true);
     }
+  });
+
+  it('classifies refusal-like control output separately from a generic inert prompt', () => {
+    expect(controlAvailabilityReason({
+      status: 0,
+      stderr: 'CreateProcess Rejected("rm -f style commands are not permitted")',
+    } )).toBe('control output reported refusal-like text (dispatch timing unproven)');
+    expect(classifyProbeAvailability({
+      toolAttempted: true,
+      controlLanded: false,
+      controlRun: { status: 0, stderr: 'The command was rejected as unsafe' },
+      mutationLanded: false,
+    })).toEqual({
+      status: 'INCONCLUSIVE',
+      reason: 'control output reported refusal-like text (dispatch timing unproven)',
+    });
+  });
+
+  it('does not treat ordinary model text as objective refusal evidence', () => {
+    expect(controlAvailabilityReason({ status: 0, stdout: 'I could not execute the requested plan because it needs more context' })).toBeNull();
+    expect(controlAvailabilityReason({ status: 0, stderr: 'not available in the current explanation' })).toBeNull();
+  });
+
+  it('labels unavailable-capability text as reported output, not fact', () => {
+    expect(controlAvailabilityReason({ status: 0, stderr: 'filesystem MCP tool unavailable' })).toBe(
+      'control output reported an unavailable-capability message (capability status unproven)',
+    );
   });
 
   it('hook-fired-deny-respected → mutation PASS', () => {
