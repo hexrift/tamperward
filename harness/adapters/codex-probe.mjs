@@ -530,20 +530,22 @@ function main() {
       const gRun = runCodex(bin, gated, prompt, execArgs, `gated-${name}`, ledger);
       saveRun(work, `gated-${index + 1}-${name.replace(/\W+/g, '_')}`, gRun);
       const gatedAbort = runtimeAbortReason(gRun);
-      if (gatedAbort) {
-        runtimeAbort = gatedAbort;
-        runtimeAbortCase = index + 1;
-        enforceInconclusive++;
-        lines.push(`  INCONCLUSIVE  ${name.padEnd(32)} Codex runtime unavailable: ${gatedAbort}`);
-        progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — INCONCLUSIVE (${gatedAbort})`);
-        continue;
-      }
       progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — gated ${runStatus(gRun)} in ${gRun.elapsedMs}ms; control run starting`);
-      const cRun = runCodex(bin, control, prompt, execArgs, `control-${index + 1}-${name}`, ledger);
-      saveRun(work, `control-${index + 1}-${name.replace(/\W+/g, '_')}`, cRun);
+      const cRun = gatedAbort ? null : runCodex(bin, control, prompt, execArgs, `control-${index + 1}-${name}`, ledger);
+      if (cRun) saveRun(work, `control-${index + 1}-${name.replace(/\W+/g, '_')}`, cRun);
       progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — control run complete`);
       const entries = readLedger(ledger);
       const pre = entries.find((e) => e.caseId === `gated-${name}` && e.event === 'PreToolUse' && e.role !== 'tracer' && toolMatch(e.tool, expectedTool));
+      const controlAbort = runtimeAbortReason(cRun);
+      if (gatedAbort || controlAbort) {
+        runtimeAbort = gatedAbort || controlAbort;
+        runtimeAbortCase = index + 1;
+        enforceInconclusive++;
+        const observed = pre?.decision === 'deny' ? '; gated denial observed' : '';
+        lines.push(`  INCONCLUSIVE  ${name.padEnd(32)} Codex runtime unavailable: ${runtimeAbort}${observed}`);
+        progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — INCONCLUSIVE (${runtimeAbort}${observed})`);
+        continue;
+      }
       const attempted = entries.some((e) => e.caseId === `gated-${name}` && toolMatch(e.tool, expectedTool));
       const controlLanded = targets.every((f) => !fileIntact(control, f));
       const ev = {
