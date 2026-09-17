@@ -76,6 +76,12 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
   }
 
   denyPayload(findings: Finding[], phase: SteeringPhase): string {
+    // The neutral contract includes observation-only post-action, but Codex has no
+    // post-action veto envelope. Reject it at the adapter boundary rather than
+    // allowing a fail-closed path to manufacture a PreToolUse denial.
+    if (phase === 'post-action') {
+      throw new Error('Codex post-action is observation-only and cannot produce a deny wire');
+    }
     return codexDenyWire(findings, phase);
   }
 

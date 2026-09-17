@@ -13,13 +13,24 @@
 //
 // The reason text is built by the SHARED `formatDenial`, so the correction an agent reads is
 // identical across runtimes. An allow writes an empty string.
+//
+// Observation-only `post-action` is intentionally not a Codex veto phase and is rejected
+// before serialisation.
 
 import { formatDenial } from '../claude/deny';
 import { Finding } from '../../types';
-import { SteeringPhase } from '../contract';
+
+export type CodexWirePhase = 'pre-action' | 'end-of-turn';
+
+function assertCodexWirePhase(phase: string): asserts phase is CodexWirePhase {
+  if (phase !== 'pre-action' && phase !== 'end-of-turn') {
+    throw new Error(`unsupported Codex wire phase: ${phase}`);
+  }
+}
 
 /** Serialise Codex's deny envelope for an already-formatted reason, by phase. */
-export function codexWire(reason: string, phase: SteeringPhase): string {
+export function codexWire(reason: string, phase: CodexWirePhase): string {
+  assertCodexWirePhase(phase as string);
   const payload =
     phase === 'end-of-turn'
       ? { decision: 'block', reason }
@@ -31,9 +42,10 @@ export function codexWire(reason: string, phase: SteeringPhase): string {
   return JSON.stringify(payload) + '\n';
 }
 
-/** The deny wire for `findings` at `phase`, reusing `formatDenial`. Empty findings mean an
- *  allow, which writes an empty string. */
-export function codexDenyWire(findings: Finding[], phase: SteeringPhase): string {
+/** The deny wire for `findings` at a supported veto phase, reusing `formatDenial`. Empty
+ * findings mean an allow, which writes an empty string. Observation-only phases are rejected. */
+export function codexDenyWire(findings: Finding[], phase: CodexWirePhase): string {
+  assertCodexWirePhase(phase as string);
   if (findings.length === 0) return '';
   return codexWire(formatDenial(findings), phase);
 }
