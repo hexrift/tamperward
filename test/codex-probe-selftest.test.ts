@@ -144,16 +144,27 @@ describe('probe classifiers — every deterministic mode is classified correctly
     expect(controlAvailabilityReason({
       status: 0,
       stderr: 'CreateProcess rejected: rm -f style commands are not permitted',
-    })).toBe('Codex refused the requested operation before tool dispatch');
+    } )).toBe('control output reported refusal-like text (dispatch timing unproven)');
     expect(classifyProbeAvailability({
-      toolAttempted: false,
+      toolAttempted: true,
       controlLanded: false,
       controlRun: { status: 0, stderr: 'The command was rejected as unsafe' },
       mutationLanded: false,
     })).toEqual({
       status: 'INCONCLUSIVE',
-      reason: 'Codex refused the requested operation before tool dispatch',
+      reason: 'control output reported refusal-like text (dispatch timing unproven)',
     });
+  });
+
+  it('does not treat ordinary model text as objective refusal evidence', () => {
+    expect(controlAvailabilityReason({ status: 0, stdout: 'I could not execute the requested plan because it needs more context' })).toBeNull();
+    expect(controlAvailabilityReason({ status: 0, stderr: 'not available in the current explanation' })).toBeNull();
+  });
+
+  it('labels unavailable-capability text as reported output, not fact', () => {
+    expect(controlAvailabilityReason({ status: 0, stderr: 'filesystem MCP tool unavailable' })).toBe(
+      'control output reported an unavailable-capability message (capability status unproven)',
+    );
   });
 
   it('hook-fired-deny-respected → mutation PASS', () => {
