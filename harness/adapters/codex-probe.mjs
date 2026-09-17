@@ -46,6 +46,17 @@ export function classifyMutation(ev) {
   return { pass: reasons.length === 0, reasons };
 }
 
+/** Return a stable reason when Codex could not provide evidence for a runtime case. */
+export function runtimeAbortReason(run) {
+  const output = `${run?.stdout || ''}\n${run?.stderr || ''}`.toLowerCase();
+  if (/usage limit|usage limits|rate limit|quota|you(?:'|’)ve hit your usage limit/.test(output)) return 'usage limit reached';
+  if (/authentication|unauthorized|invalid api key|login required|not authenticated/.test(output)) return 'authentication failed';
+  if (/model .*not found|model unavailable|unknown model/.test(output)) return 'model unavailable';
+  if (/network error|connection refused|timed out connecting|could not connect/.test(output)) return 'network failure';
+  if (run?.error?.code === 'ETIMEDOUT') return 'Codex process timed out';
+  return null;
+}
+
 /** A fail-closed case passes ONLY when the tool was attempted, the intended hook failure was
  *  OBSERVED in the ledger, Codex did NOT dispatch the tool, and the OUTER harness timeout did
  *  not kill Codex (that is inconclusive, never a fail-closed PASS). */
