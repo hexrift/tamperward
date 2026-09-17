@@ -501,5 +501,8 @@ describe('codexDenyWire — the documented Codex deny envelope', () => {
     expect(() => codexAdapter.denyPayload(findings, 'post-action')).toThrow(
       /observation-only and cannot produce a deny wire/,
     );
+    expect(() => codexAdapter.failClosed('transport-failure', 'broken hook', 'post-action')).toThrow(
+      /observation-only and cannot produce a deny wire/,
+    );
   });
 });
