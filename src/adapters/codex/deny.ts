@@ -18,8 +18,10 @@ import { formatDenial } from '../claude/deny';
 import { Finding } from '../../types';
 import { SteeringPhase } from '../contract';
 
+type CodexWirePhase = 'pre-action' | 'end-of-turn';
+
 /** Serialise Codex's deny envelope for an already-formatted reason, by phase. */
-export function codexWire(reason: string, phase: SteeringPhase): string {
+export function codexWire(reason: string, phase: CodexWirePhase): string {
   const payload =
     phase === 'end-of-turn'
       ? { decision: 'block', reason }
