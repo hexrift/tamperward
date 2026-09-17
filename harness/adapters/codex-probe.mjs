@@ -134,7 +134,13 @@ export function detachedLifecycleOutcome({ gatedAbort, controlAbort, mutationLan
 }
 
 export function stopLifecycleOutcome({ abort, mutationLanded, stopEvidence }) {
-  return classifyLifecycleAbort({ abort, mutationLanded, evidence: stopEvidence });
+  if (abort) return { status: 'INCONCLUSIVE', reason: `Codex runtime unavailable: ${abort}`, evidence: stopEvidence };
+  return { status: 'READY', reason: null, evidence: stopEvidence };
+}
+
+export function collectAfterSettle({ settleFn, inspectFn }) {
+  settleFn();
+  return inspectFn();
 }
 
 /** Distinct non-tracer tool_use_id values recorded for a case — proof of multiple tool calls. */
@@ -758,8 +764,10 @@ function detachedCase(bin, work, driver, execArgs) {
     const cRun = runCodex(bin, control, prompt(cSent), execArgs, 'det-c', ledger);
     saveRun(work, 'detached-control', cRun);
     const controlAbort = runtimeAbortReason(cRun);
-    settle(settleMs); // wait past the child's 2s delay before judging OR cleaning up
-    const entries = readLedger(ledger);
+    const entries = collectAfterSettle({
+      settleFn: () => settle(settleMs), // wait past the child's 2s delay before judging OR cleaning up
+      inspectFn: () => readLedger(ledger),
+    });
     const pre = entries.find((e) => e.caseId === 'det-g' && e.event === 'PreToolUse' && e.role !== 'tracer' && toolMatch(e.tool, 'Bash') && typeof e.command === 'string' && e.command.includes(gSent) && e.command.includes(SPEC));
     const ev = {
       toolAttempted: entries.some((e) => e.caseId === 'det-g' && toolMatch(e.tool, 'Bash') && typeof e.command === 'string' && e.command.includes(gSent) && e.command.includes(SPEC)),
