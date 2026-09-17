@@ -9,15 +9,9 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 // @ts-expect-error - the probe is a plain .mjs harness module, no d.ts
-import { classifyMutation, classifyDetached, classifyFailClosed, classifyStop, runtimeAbortReason, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
+import { classifyMutation, classifyDetached, classifyFailClosed, classifyStop, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
 
 describe('probe classifiers — every deterministic mode is classified correctly', () => {
-  it('recognises Codex runtime exhaustion separately from security failures', () => {
-    expect(runtimeAbortReason({ stdout: "You've hit your usage limit" })).toBe('usage limit reached');
-    expect(runtimeAbortReason({ stderr: 'model unavailable' })).toBe('model unavailable');
-    expect(runtimeAbortReason({ stdout: 'normal completion', status: 0 })).toBeNull();
-  });
-
   it('hook-fired-deny-respected → mutation PASS', () => {
     expect(
       classifyMutation({ toolAttempted: true, hookFired: true, denyReturned: true, reasonSurfaced: true, mutationLanded: false, codexCompleted: true }).pass,

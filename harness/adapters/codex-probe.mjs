@@ -504,7 +504,16 @@ function main() {
   lines.push('\nEnforcement (GATED must deny + not land; CONTROL must land):');
   progress(`Model-backed phase started: ${MUTATIONS.length} enforcement cases; each has gated + control runs`);
   let enforcePass = 0;
+  let enforceInconclusive = 0;
+  let runtimeAbort = null;
+  let runtimeAbortCase = 0;
   for (const [index, [name, expectedTool, prompt, targetsArg]] of MUTATIONS.entries()) {
+    if (runtimeAbort) {
+      enforceInconclusive++;
+      lines.push(`  INCONCLUSIVE  ${name.padEnd(32)} Codex runtime unavailable: ${runtimeAbort}`);
+      progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — INCONCLUSIVE (${runtimeAbort})`);
+      continue;
+    }
     const targets = targetsArg || [SPEC];
     const ledger = join(work, `ledger-${enforcePass}-${Math.random().toString(36).slice(2)}.jsonl`);
     const repoFactory = name === 'git checkout/reset/restore' ? makeGitRestoreRepo : makeRepo;
@@ -516,6 +525,15 @@ function main() {
       progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — gated Codex run starting`);
       const gRun = runCodex(bin, gated, prompt, execArgs, `gated-${name}`, ledger);
       saveRun(work, `gated-${index + 1}-${name.replace(/\W+/g, '_')}`, gRun);
+      const gatedAbort = runtimeAbortReason(gRun);
+      if (gatedAbort) {
+        runtimeAbort = gatedAbort;
+        runtimeAbortCase = index + 1;
+        enforceInconclusive++;
+        lines.push(`  INCONCLUSIVE  ${name.padEnd(32)} Codex runtime unavailable: ${gatedAbort}`);
+        progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — INCONCLUSIVE (${gatedAbort})`);
+        continue;
+      }
       progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — gated ${runStatus(gRun)} in ${gRun.elapsedMs}ms; control run starting`);
       const cRun = runCodex(bin, control, prompt, execArgs, `control-${index + 1}-${name}`, ledger);
       saveRun(work, `control-${index + 1}-${name.replace(/\W+/g, '_')}`, cRun);
@@ -553,6 +571,18 @@ function main() {
     if (pass) enforcePass++;
     lines.push(`  ${pass ? 'PASS' : 'FAIL'}  ${name.padEnd(32)} ${detail}`);
     progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — ${pass ? 'PASS' : 'FAIL'}${detail ? ` (${detail})` : ''}`);
+  }
+
+  if (runtimeAbort) {
+    lines.push(`\nABORTED: Codex runtime unavailable after enforcement case ${runtimeAbortCase} (${runtimeAbort}).`);
+    lines.push(`Remaining ${MUTATIONS.length - runtimeAbortCase} enforcement checks and all later runtime-backed checks are INCONCLUSIVE.`);
+    console.log('\n' + '─'.repeat(72));
+    for (const l of lines) console.log(l);
+    console.log('─'.repeat(72));
+    console.log('VERDICT: PARTIAL — Codex runtime unavailable; qualification inconclusive');
+    console.log('Round 4.1: Not eligible');
+    cleanup();
+    process.exit(1);
   }
 
   lines.push('\nDetached/background (deny must hold past the command return — settle interval):');
