@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 // @ts-expect-error - the probe is a plain .mjs harness module, no d.ts
-import { classifyMutation, classifyDetached, classifyProbeAvailability, classifyLifecycleAbort, classifyFailClosed, classifyStop, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
+import { classifyMutation, classifyDetached, classifyProbeAvailability, classifyLifecycleAbort, detachedLifecycleOutcome, stopLifecycleOutcome, classifyFailClosed, classifyStop, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
 
 describe('probe classifiers — every deterministic mode is classified correctly', () => {
   it('marks an unavailable tool as inconclusive rather than enforcement failure', () => {
@@ -55,6 +55,33 @@ describe('probe classifiers — every deterministic mode is classified correctly
   it('reports completed lifecycle evidence as ready without an abort', () => {
     expect(classifyLifecycleAbort({ abort: null, mutationLanded: false, evidence: { toolAttempted: true } })).toEqual({
       status: 'READY', reason: null, evidence: { toolAttempted: true },
+    });
+  });
+
+  it('detached orchestration keeps a landed delayed mutation as FAIL', () => {
+    expect(detachedLifecycleOutcome({
+      gatedAbort: 'usage limit reached', controlAbort: null, mutationLanded: true,
+      gatedEvidence: { toolAttempted: true, denyReturned: false },
+    })).toMatchObject({ status: 'FAIL' });
+  });
+
+  it('detached orchestration retains gated denial when control aborts', () => {
+    expect(detachedLifecycleOutcome({
+      gatedAbort: null, controlAbort: 'usage limit reached', mutationLanded: false,
+      gatedEvidence: { toolAttempted: true, denyReturned: true },
+    })).toEqual({
+      status: 'INCONCLUSIVE', reason: 'Codex runtime unavailable: usage limit reached',
+      evidence: { toolAttempted: true, denyReturned: true },
+    });
+  });
+
+  it('Stop orchestration retains fired/block/continuation evidence after abort', () => {
+    expect(stopLifecycleOutcome({
+      abort: 'network failure', mutationLanded: false,
+      stopEvidence: { stopFired: true, blockReturned: true, continued: true },
+    })).toEqual({
+      status: 'INCONCLUSIVE', reason: 'Codex runtime unavailable: network failure',
+      evidence: { stopFired: true, blockReturned: true, continued: true },
     });
   });
 
