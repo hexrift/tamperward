@@ -140,7 +140,7 @@ describe('probe classifiers — every deterministic mode is classified correctly
     }
   });
 
-  it('classifies Codex pre-execution refusal separately from a generic inert prompt', () => {
+  it('classifies refusal-like control output separately from a generic inert prompt', () => {
     expect(controlAvailabilityReason({
       status: 0,
       stderr: 'CreateProcess Rejected("rm -f style commands are not permitted")',
