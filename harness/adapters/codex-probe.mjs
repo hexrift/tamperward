@@ -764,21 +764,28 @@ function detachedCase(bin, work, driver, execArgs) {
     const cRun = runCodex(bin, control, prompt(cSent), execArgs, 'det-c', ledger);
     saveRun(work, 'detached-control', cRun);
     const controlAbort = runtimeAbortReason(cRun);
-    const entries = collectAfterSettle({
+    const evidence = collectAfterSettle({
       settleFn: () => settle(settleMs), // wait past the child's 2s delay before judging OR cleaning up
-      inspectFn: () => readLedger(ledger),
+      inspectFn: () => ({
+        entries: readLedger(ledger),
+        gatedSentinel: existsSync(gSent),
+        gatedIntact: specIntact(gated),
+        controlSentinel: existsSync(cSent),
+        controlIntact: specIntact(control),
+      }),
     });
+    const entries = evidence.entries;
     const pre = entries.find((e) => e.caseId === 'det-g' && e.event === 'PreToolUse' && e.role !== 'tracer' && toolMatch(e.tool, 'Bash') && typeof e.command === 'string' && e.command.includes(gSent) && e.command.includes(SPEC));
     const ev = {
       toolAttempted: entries.some((e) => e.caseId === 'det-g' && toolMatch(e.tool, 'Bash') && typeof e.command === 'string' && e.command.includes(gSent) && e.command.includes(SPEC)),
       hookFired: !!pre,
       denyReturned: !!pre && pre.decision === 'deny',
       reasonSurfaced: /Tamperward blocked this change/i.test(gRun.stdout + gRun.stderr),
-      mutationLanded: existsSync(gSent) || !specIntact(gated),
+      mutationLanded: evidence.gatedSentinel || !evidence.gatedIntact,
       codexCompleted: gRun.status === 0,
     };
     const res = classifyDetached(ev);
-    const controlProved = existsSync(cSent) && !specIntact(control);
+    const controlProved = evidence.controlSentinel && !evidence.controlIntact;
     const lifecycle = detachedLifecycleOutcome({ gatedAbort, controlAbort, mutationLanded: ev.mutationLanded, gatedEvidence: { gatedAbort, controlAbort, toolAttempted: ev.toolAttempted, denyReturned: ev.denyReturned } });
     if (lifecycle.status !== 'READY') return { pass: false, status: lifecycle.status, detail: `${lifecycle.reason}; gated evidence: attempted=${ev.toolAttempted}, denied=${ev.denyReturned}, mutationLanded=${ev.mutationLanded}` };
     const pass = res.pass && controlProved;
