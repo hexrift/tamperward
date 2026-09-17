@@ -1404,7 +1404,6 @@ export function hookTests(policy: Policy, ctx?: DetectorContext) {
   // The repository directory when it exists on disk; relative tokens resolve
   // against it and only then.
   const diskCwd = cwd !== undefined && existsSync(cwd) ? cwd : undefined;
-  const onDisk = diskCwd !== undefined;
   const root = diskCwd !== undefined ? canonicalPath(diskCwd) : cwd;
   const memo = new Map<string, string>();
   const rel = (t: string): string => {
@@ -1487,7 +1486,7 @@ export function shellHookTarget(seg: string, toks: string[], policy: Policy, ctx
 }
 
 export function shellWritesHook(seg: string, toks: string[], policy: Policy, ctx?: DetectorContext): string | null {
-  const { rel, hook, whole, holds, hookish } = hookTests(policy, ctx);
+  const { hook, whole, holds, hookish } = hookTests(policy, ctx);
   for (const m of seg.matchAll(REDIRECT_TARGET)) {
     if (hook(m[1])) return 'a redirect empties or rewrites a protected hook';
   }
@@ -1496,7 +1495,6 @@ export function shellWritesHook(seg: string, toks: string[], policy: Policy, ctx
   const cmd = (toks[at] ?? '').replace(/^.*\//, '');
   const args = toks.slice(at + 1);
   const positional = args.filter((a) => a !== '--' && !a.startsWith('-'));
-  const last = positional[positional.length - 1] ?? '';
   const anyHook = args.some(hook);
   const inPlace = args.some((a) => /^-[A-Za-z]*i|^--in-place/.test(a));
   // the SCRIPT an interpreter runs inline (the token after `-c`/`-e`/`-r`), not

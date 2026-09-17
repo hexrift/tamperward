@@ -83,6 +83,18 @@ describe('normalizeCodexEvent — tool-name → OperationKind and per-phase shap
     expect(codexOperationKind(undefined)).toBe('other');
   });
 
+  it('normalizes MCP operations without guessing capability availability', () => {
+    for (const tool_name of ['mcp__filesystem__read_file', 'mcp__unknown__do_thing']) {
+      const raw = JSON.stringify({ tool_name, tool_input: { path: 'src/a.spec.ts', arguments: { mode: 'read' } }, cwd: '/repo', session_id: 's1' });
+      const ev = codexAdapter.parseEvent(raw, 'pre-action');
+      expect('failure' in ev).toBe(false);
+      if ('failure' in ev) continue;
+      expect(ev.operation.kind).toBe('mcp');
+      expect(ev.operation.name).toBe(tool_name);
+      expect(ev.operation.args).toEqual({ path: 'src/a.spec.ts', arguments: { mode: 'read' } });
+    }
+  });
+
   it('parseEvent classifies a pre-action Bash call with verbatim args', () => {
     const raw = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm x' }, cwd: '/repo', session_id: 's1' });
     const ev = codexAdapter.parseEvent(raw, 'pre-action');
@@ -434,14 +446,19 @@ describe('CodexRuntimeAdapter.decide — failure states fail CLOSED (deny)', () 
     }
   });
 
-  it('failClosed maps transport/not-invoked to a deny wire', () => {
-    const t = codexAdapter.failClosed('transport-failure', 'hook unreachable', 'pre-action');
-    expect(t.outcome).toBe('transport-failure');
-    expect(t.decision?.verdict).toBe('deny');
-    expect(t.decision?.findings[0].rule).toBe('tamperward-unavailable');
-    const n = codexAdapter.failClosed('not-invoked', 'PreToolUse did not fire', 'pre-action');
-    expect(n.outcome).toBe('not-invoked');
-    expect(n.decision?.verdict).toBe('deny');
+  it('failClosed maps supported transport outcomes to an explicit deny wire', () => {
+    for (const [outcome, detail] of [
+      ['transport-failure', 'malformed, empty, timeout, missing-executable, or non-zero hook response'],
+      ['not-invoked', 'PreToolUse did not fire'],
+    ] as const) {
+      const result = codexAdapter.failClosed(outcome, detail, 'pre-action');
+      expect(result.outcome).toBe(outcome);
+      expect(result.wire).toBeTruthy();
+      expect(result.decision?.verdict).toBe('deny');
+      expect(result.decision?.findings[0].rule).toBe('tamperward-unavailable');
+      const wire = JSON.parse(result.wire as string);
+      expect(wire.hookSpecificOutput.permissionDecision).toBe('deny');
+    }
   });
 });
 
@@ -490,5 +507,19 @@ describe('codexDenyWire — the documented Codex deny envelope', () => {
   it('codexWire serialises a raw reason into the same envelope', () => {
     const j = JSON.parse(codexWire('because', 'pre-action'));
     expect(j.hookSpecificOutput.permissionDecisionReason).toBe('because');
+  });
+
+  it('rejects observation-only post-action instead of producing a veto wire', () => {
+    expect(() => codexWire('because', 'post-action' as never)).toThrow(/unsupported Codex wire phase/);
+    expect(() => codexDenyWire(findings, 'post-action' as never)).toThrow(/unsupported Codex wire phase/);
+  });
+
+  it('rejects post-action at the adapter deny boundary', () => {
+    expect(() => codexAdapter.denyPayload(findings, 'post-action')).toThrow(
+      /observation-only and cannot produce a deny wire/,
+    );
+    expect(() => codexAdapter.failClosed('transport-failure', 'broken hook', 'post-action')).toThrow(
+      /observation-only and cannot produce a deny wire/,
+    );
   });
 });
