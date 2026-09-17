@@ -19,6 +19,14 @@ describe('probe classifiers — every deterministic mode is classified correctly
     });
   });
 
+  it('never hides a landed protected mutation behind unavailable evidence', () => {
+    expect(classifyProbeAvailability({ toolAttempted: false, controlLanded: false, mutationLanded: true })).toEqual({
+      status: 'FAIL',
+      reason: 'protected mutation landed',
+    });
+    expect(classifyProbeAvailability({ toolAttempted: true, controlLanded: false, mutationLanded: true }).status).toBe('FAIL');
+  });
+
   it('marks an inert control as inconclusive', () => {
     expect(classifyProbeAvailability({ toolAttempted: true, controlLanded: false })).toEqual({
       status: 'INCONCLUSIVE',
@@ -55,6 +63,16 @@ describe('probe classifiers — every deterministic mode is classified correctly
       expectedTool: 'Bash',
     });
     expect(result).toEqual({ status: 'INCONCLUSIVE', reason: 'usage limit reached', denialObserved: true });
+  });
+
+  it('retains apply_patch denial evidence for Write and Edit aliases', () => {
+    for (const tool of ['Write', 'Edit']) {
+      expect(runtimePairOutcome({
+        gatedRun: { status: 0 }, controlRun: { status: 1, stderr: 'usage limit' },
+        entries: [{ caseId: 'gated-case', event: 'PreToolUse', role: 'decision', tool, decision: 'deny' }],
+        caseId: 'gated-case', expectedTool: 'apply_patch',
+      }).denialObserved).toBe(true);
+    }
   });
 
   it('hook-fired-deny-respected → mutation PASS', () => {
