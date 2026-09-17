@@ -48,6 +48,10 @@ export function classifyMutation(ev) {
 
 /** Return a stable reason when Codex could not provide evidence for a runtime case. */
 export function runtimeAbortReason(run) {
+  // Output is model-controlled and is not evidence by itself. Only classify an abort when the
+  // child objectively failed (non-zero exit, signal, or spawn/timeout error).
+  const failed = run && (run.status === null || (Number.isInteger(run.status) && run.status !== 0) || run.signal || run.error);
+  if (!failed) return null;
   const output = `${run?.stdout || ''}\n${run?.stderr || ''}`.toLowerCase();
   if (/usage limit|usage limits|rate limit|quota|you(?:'|’)ve hit your usage limit/.test(output)) return 'usage limit reached';
   if (/authentication|unauthorized|invalid api key|login required|not authenticated/.test(output)) return 'authentication failed';
