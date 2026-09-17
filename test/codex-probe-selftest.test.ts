@@ -279,7 +279,8 @@ describe('probe classifiers — every deterministic mode is classified correctly
   it('recognizes Codex Stop-block output while keeping continuation as separate evidence', () => {
     expect(stopBlockSurfaced('hook: Stop Blocked')).toBe(true);
     expect(stopBlockSurfaced('The change was blocked because protected tests were removed')).toBe(true);
-    expect(stopBlockSurfaced('I blocked the plan because it needs more context')).toBe(false);\n    expect(stopBlockSurfaced('The deployment was blocked because a dependency was missing')).toBe(false);
+    expect(stopBlockSurfaced('I blocked the plan because it needs more context')).toBe(false);
+    expect(stopBlockSurfaced('The deployment was blocked because a dependency was missing')).toBe(false);
   });
 
   it('stop: block honoured (continued) → PASS; not continued → FAIL; ignored → FAIL; never-fired → FAIL', () => {
