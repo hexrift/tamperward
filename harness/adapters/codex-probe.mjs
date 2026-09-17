@@ -112,7 +112,7 @@ export function failClosedLifecycleOutcome({ gatedAbort, controlAbort, evidence 
  *  codex-rs turn.rs injects a continuation and re-runs before the turn may finish). */
 /** Stop output is only a presentation signal; the ledger remains the authority for the block. */
 export function stopBlockSurfaced(output) {
-  return /(?:\\bstop\\s+blocked\\b|\\b(?:the )?change was blocked\\b|\\bblocked because\\b)/i.test(String(output || ''));
+  return /(?:^|\\n)\\s*(?:hook:\\s*stop\\s+blocked\\b|(?:the )?change was blocked\\b)/i.test(String(output || ''));
 }
 
 export function classifyStop(ev) {
