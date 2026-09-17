@@ -137,7 +137,7 @@ export function classifyDetached(ev) {
  * treats model prose as proof of dispatch timing or capability state. */
 export function controlAvailabilityReason(run) {
   const output = \`${run?.stdout || ''}\\n${run?.stderr || ''}\`.toLowerCase();
-  if (/\\brejected\\b.*\\b(?:command|commands|operation|tool)\\b.*\\b(?:unsafe|not permitted)\\b/.test(output)) {
+  if (/(?:\\brejected\\b.*\\b(?:command|commands|operation|tool)\\b.*\\b(?:unsafe|not permitted)\\b|\\b(?:command|commands|operation|tool)\\b.*\\brejected\\b.*\\b(?:unsafe|not permitted)\\b)/.test(output)) {
     return 'control output reported refusal-like text (dispatch timing unproven)';
   }
   if (/\\b(?:mcp|filesystem)\\b.*\\b(?:unavailable|not configured|no such tool)\\b/.test(output)) {
