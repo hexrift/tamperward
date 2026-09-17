@@ -33,13 +33,13 @@
 // envelope, or `check --diff` + `verify` in CI, is the boundary.
 
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { accessSync, constants as fsConstants, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { runCheck } from './check';
 import { runVerify } from './verify';
-import { loadPolicy, loadPolicyAt } from '../policy-load';
+import { loadPolicyAt } from '../policy-load';
 import { objectRewriteState, trustedGitEnv } from '../git/trusted';
 import { treeFingerprint } from '../fingerprint';
 import {
@@ -56,7 +56,7 @@ import { defaultPolicy, isProtected } from '../policy';
 import { diffRange, diffWorktreeWithUntracked, gitDir } from '../git/build';
 import { inspectRel } from '../disk';
 import { contentHash } from '../effect';
-import { drainEvents, MAX_EVENT_READ_BYTES, MAX_EVENT_SWEEP_BYTES, transientFindings } from '../detectors/fs-events';
+import { drainEvents, MAX_EVENT_SWEEP_BYTES, transientFindings } from '../detectors/fs-events';
 import { watcherTelemetry, type WatcherTelemetry } from './watch';
 import { Policy } from '../types';
 import { machineOutput, type RunCannotAdjudicateReason, type RunVerdict } from '../machine-output';

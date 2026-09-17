@@ -15,7 +15,7 @@ import { policyAddWeakening, policyWeakening } from './policy-diff';
 import { segments, tokens, unquote } from './command';
 import { trackedFiles } from './repo';
 import {
-  ScriptOpts, chmodDropsExec, codeownersWeakening, gateOf, hookIdentity, insertsDeadGuard, insertsPassingExit, invocations, isCodeowners,
+  ScriptOpts, codeownersWeakening, gateOf, hookIdentity, insertsDeadGuard, insertsPassingExit, invocations, isCodeowners,
   isLefthook, isLefthookLocal, isPackageJson, isPreCommitConfig, lefthookWeakening, mergeDocs, packageJsonWeakening,
   parseDoc, pinRaiseOnly, preCommitWeakening, scriptWeakening, shebangProblem, shellHookTarget, shellWritesHook, xargsWritesHook,
 } from './hook-wiring';
