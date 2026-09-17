@@ -143,7 +143,7 @@ describe('probe classifiers — every deterministic mode is classified correctly
   it('classifies Codex pre-execution refusal separately from a generic inert prompt', () => {
     expect(controlAvailabilityReason({
       status: 0,
-      stderr: 'CreateProcess rejected: rm -f style commands are not permitted',
+      stderr: 'CreateProcess Rejected("rm -f style commands are not permitted")',
     } )).toBe('control output reported refusal-like text (dispatch timing unproven)');
     expect(classifyProbeAvailability({
       toolAttempted: true,
