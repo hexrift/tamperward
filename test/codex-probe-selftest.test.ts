@@ -9,9 +9,36 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 // @ts-expect-error - the probe is a plain .mjs harness module, no d.ts
-import { classifyMutation, classifyDetached, classifyFailClosed, classifyStop, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
+import { classifyMutation, classifyDetached, classifyFailClosed, classifyStop, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
 
 describe('probe classifiers — every deterministic mode is classified correctly', () => {
+  it('recognises Codex runtime exhaustion separately from security failures', () => {
+    const cases = [
+      ['usage limit', 'usage limit reached', "You've hit your usage limit"],
+      ['authentication', 'authentication failed', 'authentication required'],
+      ['model', 'model unavailable', 'model unavailable'],
+      ['network', 'network failure', 'network error'],
+    ];
+    for (const [, expected, output] of cases) expect(runtimeAbortReason({ stdout: output, status: 1 })).toBe(expected);
+    expect(runtimeAbortReason({ stdout: 'process failed', status: 1 })).toBeNull();
+    expect(runtimeAbortReason({ error: { code: 'ETIMEDOUT' }, status: null })).toBe('Codex process timed out');
+    expect(runtimeAbortReason({ stderr: 'process killed', status: null, signal: 'SIGTERM' })).toBeNull();
+    expect(runtimeAbortReason({ stdout: 'normal completion', status: 0 })).toBeNull();
+    expect(runtimeAbortReason({ stdout: "You've hit your usage limit", status: 0 })).toBeNull();
+    expect(runtimeAbortReason({ stderr: 'model unavailable', status: 0 })).toBeNull();
+  });
+
+  it('retains a gated denial when the control arm hits the usage limit', () => {
+    const result = runtimePairOutcome({
+      gatedRun: { status: 0, stdout: '' },
+      controlRun: { status: 1, stderr: "You've hit your usage limit" },
+      entries: [{ caseId: 'gated-case', event: 'PreToolUse', role: 'decision', tool: 'Bash', decision: 'deny' }],
+      caseId: 'gated-case',
+      expectedTool: 'Bash',
+    });
+    expect(result).toEqual({ status: 'INCONCLUSIVE', reason: 'usage limit reached', denialObserved: true });
+  });
+
   it('hook-fired-deny-respected → mutation PASS', () => {
     expect(
       classifyMutation({ toolAttempted: true, hookFired: true, denyReturned: true, reasonSurfaced: true, mutationLanded: false, codexCompleted: true }).pass,

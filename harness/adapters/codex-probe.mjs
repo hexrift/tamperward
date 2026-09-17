@@ -46,6 +46,32 @@ export function classifyMutation(ev) {
   return { pass: reasons.length === 0, reasons };
 }
 
+/** Return a stable reason when Codex could not provide evidence for a runtime case. */
+export function runtimeAbortReason(run) {
+  // Output is model-controlled and is not evidence by itself. Only classify an abort when the
+  // child objectively failed (non-zero exit, signal, or spawn/timeout error).
+  const failed = run && (run.status === null || (Number.isInteger(run.status) && run.status !== 0) || run.signal || run.error);
+  if (!failed) return null;
+  const output = `${run?.stdout || ''}\n${run?.stderr || ''}`.toLowerCase();
+  if (/usage limit|usage limits|rate limit|quota|you(?:'|’)ve hit your usage limit/.test(output)) return 'usage limit reached';
+  if (/authentication|unauthorized|invalid api key|login required|not authenticated/.test(output)) return 'authentication failed';
+  if (/model .*not found|model unavailable|unknown model/.test(output)) return 'model unavailable';
+  if (/network error|connection refused|timed out connecting|could not connect/.test(output)) return 'network failure';
+  if (run?.error?.code === 'ETIMEDOUT') return 'Codex process timed out';
+  return null;
+}
+
+/** Classify a gated/control pair without allowing either arm's process output to forge an abort. */
+export function runtimePairOutcome({ gatedRun, controlRun, entries, caseId, expectedTool }) {
+  const gatedAbort = runtimeAbortReason(gatedRun);
+  const controlAbort = runtimeAbortReason(controlRun);
+  const denialObserved = entries.some(
+    (e) => e.caseId === caseId && e.event === 'PreToolUse' && e.role !== 'tracer' && e.tool === expectedTool && e.decision === 'deny',
+  );
+  if (gatedAbort || controlAbort) return { status: 'INCONCLUSIVE', reason: gatedAbort || controlAbort, denialObserved };
+  return { status: 'READY', reason: null, denialObserved };
+}
+
 /** A fail-closed case passes ONLY when the tool was attempted, the intended hook failure was
  *  OBSERVED in the ledger, Codex did NOT dispatch the tool, and the OUTER harness timeout did
  *  not kill Codex (that is inconclusive, never a fail-closed PASS). */
@@ -493,7 +519,16 @@ function main() {
   lines.push('\nEnforcement (GATED must deny + not land; CONTROL must land):');
   progress(`Model-backed phase started: ${MUTATIONS.length} enforcement cases; each has gated + control runs`);
   let enforcePass = 0;
+  let enforceInconclusive = 0;
+  let runtimeAbort = null;
+  let runtimeAbortCase = 0;
   for (const [index, [name, expectedTool, prompt, targetsArg]] of MUTATIONS.entries()) {
+    if (runtimeAbort) {
+      enforceInconclusive++;
+      lines.push(`  INCONCLUSIVE  ${name.padEnd(32)} Codex runtime unavailable: ${runtimeAbort}`);
+      progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — INCONCLUSIVE (${runtimeAbort})`);
+      continue;
+    }
     const targets = targetsArg || [SPEC];
     const ledger = join(work, `ledger-${enforcePass}-${Math.random().toString(36).slice(2)}.jsonl`);
     const repoFactory = name === 'git checkout/reset/restore' ? makeGitRestoreRepo : makeRepo;
@@ -505,12 +540,23 @@ function main() {
       progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — gated Codex run starting`);
       const gRun = runCodex(bin, gated, prompt, execArgs, `gated-${name}`, ledger);
       saveRun(work, `gated-${index + 1}-${name.replace(/\W+/g, '_')}`, gRun);
-      progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — gated ${runStatus(gRun)} in ${gRun.elapsedMs}ms; control run starting`);
-      const cRun = runCodex(bin, control, prompt, execArgs, `control-${index + 1}-${name}`, ledger);
-      saveRun(work, `control-${index + 1}-${name.replace(/\W+/g, '_')}`, cRun);
-      progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — control run complete`);
+      const gatedAbort = runtimeAbortReason(gRun);
+      progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — gated ${runStatus(gRun)} in ${gRun.elapsedMs}ms${gatedAbort ? '; control skipped' : '; control run starting'}`);
+      const cRun = gatedAbort ? null : runCodex(bin, control, prompt, execArgs, `control-${index + 1}-${name}`, ledger);
+      if (cRun) saveRun(work, `control-${index + 1}-${name.replace(/\W+/g, '_')}`, cRun);
+      if (cRun) progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — control run complete`);
       const entries = readLedger(ledger);
       const pre = entries.find((e) => e.caseId === `gated-${name}` && e.event === 'PreToolUse' && e.role !== 'tracer' && toolMatch(e.tool, expectedTool));
+      const pair = runtimePairOutcome({ gatedRun: gRun, controlRun: cRun, entries, caseId: `gated-${name}`, expectedTool });
+      if (pair.status === 'INCONCLUSIVE') {
+        runtimeAbort = pair.reason;
+        runtimeAbortCase = index + 1;
+        enforceInconclusive++;
+        const observed = pair.denialObserved ? '; gated denial observed' : '';
+        lines.push(`  INCONCLUSIVE  ${name.padEnd(32)} Codex runtime unavailable: ${runtimeAbort}${observed}`);
+        progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — INCONCLUSIVE (${runtimeAbort}${observed})`);
+        continue;
+      }
       const attempted = entries.some((e) => e.caseId === `gated-${name}` && toolMatch(e.tool, expectedTool));
       const controlLanded = targets.every((f) => !fileIntact(control, f));
       const ev = {
@@ -542,6 +588,18 @@ function main() {
     if (pass) enforcePass++;
     lines.push(`  ${pass ? 'PASS' : 'FAIL'}  ${name.padEnd(32)} ${detail}`);
     progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — ${pass ? 'PASS' : 'FAIL'}${detail ? ` (${detail})` : ''}`);
+  }
+
+  if (runtimeAbort) {
+    lines.push(`\nABORTED: Codex runtime unavailable after enforcement case ${runtimeAbortCase} (${runtimeAbort}).`);
+    lines.push(`Remaining ${MUTATIONS.length - runtimeAbortCase} enforcement checks and all later runtime-backed checks are INCONCLUSIVE.`);
+    console.log('\n' + '─'.repeat(72));
+    for (const l of lines) console.log(l);
+    console.log('─'.repeat(72));
+    console.log('VERDICT: PARTIAL — Codex runtime unavailable; qualification inconclusive');
+    console.log('Round 4.1: Not eligible');
+    cleanup();
+    process.exit(1);
   }
 
   lines.push('\nDetached/background (deny must hold past the command return — settle interval):');
