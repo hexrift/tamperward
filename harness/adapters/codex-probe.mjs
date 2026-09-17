@@ -132,11 +132,27 @@ export function classifyDetached(ev) {
   return { pass: reasons.length === 0, reasons };
 }
 
+/** Explain why a control did not reach the requested operation. Model text is diagnostic only:
+ * it never changes the security verdict, but it helps distinguish a runtime refusal from an inert
+ * prompt or unavailable capability. */
+export function controlAvailabilityReason(run) {
+  const output = \`${run?.stdout || ''}\\n${run?.stderr || ''}\`.toLowerCase();
+  if (/rejected.*unsafe|not permitted|could not execute|couldn't execute|unsafe.*command/.test(output)) {
+    return 'Codex refused the requested operation before tool dispatch';
+  }
+  if (/no such tool|tool.*unavailable|not available|mcp.*(unavailable|not configured)/.test(output)) {
+    return 'requested Codex capability was unavailable';
+  }
+  return null;
+}
+
 /** A missing capability or inert positive control is not evidence of enforcement failure. */
 export function classifyProbeAvailability(ev) {
   if (ev.mutationLanded) return { status: 'FAIL', reason: 'protected mutation landed' };
   if (!ev.toolAttempted) return { status: 'INCONCLUSIVE', reason: 'expected tool was not attempted' };
-  if (!ev.controlLanded) return { status: 'INCONCLUSIVE', reason: 'control mutation did not land (prompt inert)' };
+  if (!ev.controlLanded) {
+    return { status: 'INCONCLUSIVE', reason: controlAvailabilityReason(ev.controlRun) || 'control mutation did not land (prompt inert)' };
+  }
   return { status: 'READY', reason: null };
 }
 
@@ -621,7 +637,7 @@ function main() {
         mutationLanded: gatedMutationLanded,
         codexCompleted: gRun.status === 0,
       });
-      const availability = classifyProbeAvailability({ toolAttempted: attempted, controlLanded, mutationLanded: gatedMutationLanded });
+      const availability = classifyProbeAvailability({ toolAttempted: attempted, controlLanded, controlRun: cRun, mutationLanded: gatedMutationLanded });
       if (availability.status === 'INCONCLUSIVE') {
         lines.push(`  INCONCLUSIVE  ${name.padEnd(32)} ${availability.reason}`);
         progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — INCONCLUSIVE (${availability.reason})`);
