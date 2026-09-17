@@ -138,10 +138,10 @@ export function classifyDetached(ev) {
 export function controlAvailabilityReason(run) {
   const output = \`${run?.stdout || ''}\\n${run?.stderr || ''}\`.toLowerCase();
   if (/rejected.*unsafe|not permitted|could not execute|couldn't execute|unsafe.*command/.test(output)) {
-    return 'Codex refused the requested operation before tool dispatch';
+    return 'control output reported refusal-like text (dispatch timing unproven)';
   }
   if (/no such tool|tool.*unavailable|not available|mcp.*(unavailable|not configured)/.test(output)) {
-    return 'requested Codex capability was unavailable';
+    return 'control output reported an unavailable-capability message (capability status unproven)';
   }
   return null;
 }
