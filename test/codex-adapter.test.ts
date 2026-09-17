@@ -496,4 +496,10 @@ describe('codexDenyWire — the documented Codex deny envelope', () => {
     expect(() => codexWire('because', 'post-action' as never)).toThrow(/unsupported Codex wire phase/);
     expect(() => codexDenyWire(findings, 'post-action' as never)).toThrow(/unsupported Codex wire phase/);
   });
+
+  it('rejects post-action at the adapter deny boundary', () => {
+    expect(() => codexAdapter.denyPayload(findings, 'post-action')).toThrow(
+      /observation-only and cannot produce a deny wire/,
+    );
+  });
 });
