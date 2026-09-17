@@ -125,6 +125,18 @@ export function classifyLifecycleAbort({ abort, mutationLanded, evidence }) {
   return { status: 'READY', reason: null, evidence };
 }
 
+export function detachedLifecycleOutcome({ gatedAbort, controlAbort, mutationLanded, gatedEvidence }) {
+  return classifyLifecycleAbort({
+    abort: gatedAbort || controlAbort,
+    mutationLanded,
+    evidence: gatedEvidence,
+  });
+}
+
+export function stopLifecycleOutcome({ abort, mutationLanded, stopEvidence }) {
+  return classifyLifecycleAbort({ abort, mutationLanded, evidence: stopEvidence });
+}
+
 /** Distinct non-tracer tool_use_id values recorded for a case — proof of multiple tool calls. */
 export function distinctToolUseIds(entries, caseId) {
   const ids = new Set();
@@ -706,7 +718,8 @@ function stopCase(bin, work, driver, execArgs) {
     const res = classifyStop(ev);
     // The mutation must actually have landed for this to be a meaningful Stop test.
     const landed = !specIntact(repo);
-    if (abort) return { pass: false, status: 'INCONCLUSIVE', detail: `Codex runtime unavailable: ${abort}; Stop evidence: fired=${ev.stopFired}, block=${ev.blockReturned}, continued=${ev.continued}` };
+    const lifecycle = stopLifecycleOutcome({ abort, mutationLanded: landed, stopEvidence: ev });
+    if (lifecycle.status !== 'READY') return { pass: false, status: lifecycle.status, detail: `${lifecycle.reason}; Stop evidence: fired=${ev.stopFired}, block=${ev.blockReturned}, continued=${ev.continued}` };
     const pass = res.pass && landed;
     return { pass, detail: pass ? 'mutation landed; Stop blocked' : [...res.reasons, landed ? '' : 'mutation did not land (pass-through inert)'].filter(Boolean).join('; ') };
   } finally {
@@ -758,7 +771,7 @@ function detachedCase(bin, work, driver, execArgs) {
     };
     const res = classifyDetached(ev);
     const controlProved = existsSync(cSent) && !specIntact(control);
-    const lifecycle = classifyLifecycleAbort({ abort: gatedAbort || controlAbort, mutationLanded: ev.mutationLanded, evidence: { gatedAbort, controlAbort, toolAttempted: ev.toolAttempted, denyReturned: ev.denyReturned } });
+    const lifecycle = detachedLifecycleOutcome({ gatedAbort, controlAbort, mutationLanded: ev.mutationLanded, gatedEvidence: { gatedAbort, controlAbort, toolAttempted: ev.toolAttempted, denyReturned: ev.denyReturned } });
     if (lifecycle.status !== 'READY') return { pass: false, status: lifecycle.status, detail: `${lifecycle.reason}; gated evidence: attempted=${ev.toolAttempted}, denied=${ev.denyReturned}, mutationLanded=${ev.mutationLanded}` };
     const pass = res.pass && controlProved;
     return { pass, detail: pass ? `deny held past ${settleMs}ms settle; control dispatched` : [...res.reasons, controlProved ? '' : 'control did not dispatch+land (prompt inert)'].filter(Boolean).join('; ') };
