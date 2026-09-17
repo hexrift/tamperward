@@ -16,7 +16,9 @@ writeFileSync(out, '');
 let pairs = 0, blkDiffs = 0; const byRule = {}; let tdAny = 0, anyTest = 0, anySrc = 0;
 for (let i = 1; i < commits.length; i++) {
   const base = commits[i - 1], head = commits[i];
-  let o = ''; try { o = execSync(`node ${CLI} check --diff ${base}...${head} --json`, { cwd: repo, encoding: 'utf8', maxBuffer: 128e6 }); } catch (e) { o = String(e.stdout || ''); }
+  // argv form: CLI is a resolved local path and base/head are commit SHAs, but the
+  // argv call keeps them out of a shell either way (matches the git diff call below).
+  let o = ''; try { o = execFileSync('node', [CLI, 'check', '--diff', `${base}...${head}`, '--json'], { cwd: repo, encoding: 'utf8', maxBuffer: 128e6 }); } catch (e) { o = String(e.stdout || ''); }
   pairs++;
   let j; try { j = JSON.parse(o); } catch { continue; }
   const blocks = (j.findings || []).filter((f) => f.severity === 'block');

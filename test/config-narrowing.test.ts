@@ -487,7 +487,7 @@ jobs:
     ['a pnpm migration', '      - run: npm ci\n      - run: npm test\n      - run: npm run lint', '      - run: pnpm install --frozen-lockfile\n      - run: pnpm test\n      - run: pnpm run lint'],
     ['an action bump', '      - uses: golangci/golangci-lint-action@v3', '      - uses: golangci/golangci-lint-action@v4'],
     ['a checkout bump', 'actions/checkout@v4', 'actions/checkout@v5'],
-    ['an argument dropped', '      - run: npm run lint', '      - run: npm run lint'.replace('npm run lint', 'npm run lint')],
+    ['an unchanged run line', '      - run: npm run lint', '      - run: npm run lint'],
     ['a name added', '      - run: npm test', '      - name: Run the tests\n        run: npm test'],
     ['a reachable if:', '      - run: npm test', '      - run: npm test\n        if: github.event.pull_request.draft == false'],
     ['if: ${{ !cancelled() }}', '      - run: npm test', '      - run: npm test\n        if: ${{ !cancelled() }}'],

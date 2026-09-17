@@ -262,8 +262,8 @@ describe('ts-cast-growth — scope exclusions', () => {
   });
 
   it('a change that does not parse cleanly on either side declines rather than guessing', () => {
-    expect(run(BASE, grown.replace('}', ''))).toHaveLength(0);
-    expect(run(BASE.replace('}', ''), grown)).toHaveLength(0);
+    expect(run(BASE, grown.replace(/\}/g, ''))).toHaveLength(0);
+    expect(run(BASE.replace(/\}/g, ''), grown)).toHaveLength(0);
   });
 
   it('diff-only changes (no BEFORE/AFTER content) are silent: net growth needs both sides', () => {

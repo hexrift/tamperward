@@ -77,7 +77,7 @@ try {
     .sort((a, b) => parseInt(a) - parseInt(b));
   const readAll = (tar) => {
     const d = fs.mkdtempSync('/tmp/tb-snap-');
-    try { execSync(`tar -xf ${path.join(snapDir, tar)} -C ${d}`, { stdio: 'ignore' }); } catch {}
+    try { execFileSync('tar', ['-xf', path.join(snapDir, tar), '-C', d], { stdio: 'ignore' }); } catch {}
     const out = {};
     const walk = (dir) => {
       for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
