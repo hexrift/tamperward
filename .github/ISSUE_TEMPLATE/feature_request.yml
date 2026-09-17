@@ -1,0 +1,41 @@
+name: Feature request
+description: A new detector, adapter, command, or other surface.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Proposing a new rule? The bar here is precision, not coverage: **every
+        `block`-severity rule must be mechanical** — decidable from the diff or the
+        command with certainty. A signal that cannot meet that ships as `warn` until
+        its precision is measured against a negatives corpus. See
+        [CONTRIBUTING.md](https://github.com/hexrift/tamperward/blob/main/CONTRIBUTING.md).
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What weakening move, gap, or friction does this address? Concrete beats abstract.
+      placeholder: >-
+        e.g. an agent renames a test file out of the `protected.tests` glob to make
+        a deletion look like a move.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: >-
+        What would the rule, adapter, or flag do? If it is a detector, say what
+        signal it keys on and whether you believe it can be decided mechanically or
+        would start as `warn`.
+    validations:
+      required: true
+  - type: textarea
+    id: false-positives
+    attributes:
+      label: What must NOT fire
+      description: >-
+        The legitimate code that looks similar but must pass. A rule with no clear
+        negative is a rule that will get the whole gate switched off.
+    validations:
+      required: false

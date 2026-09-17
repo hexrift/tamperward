@@ -1,0 +1,75 @@
+name: Bug report
+description: A false positive, a wrong or confusing verdict, a crash, or a docs error — anything that is NOT a bypass.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        **A bypass is not a bug report.** If the gate *allowed* something it should
+        have blocked — a deleted or gutted test, a silenced check, a fail-open — that
+        is a vulnerability: report it privately, not here. See
+        [SECURITY.md](https://github.com/hexrift/tamperward/blob/main/SECURITY.md).
+
+
+        This form is for the gate doing the wrong thing in a way that is safe to
+        discuss in public: a **false positive** (it blocked honest work), a wrong or
+        confusing verdict, a crash, or a documentation error.
+  - type: checkboxes
+    id: not-a-bypass
+    attributes:
+      label: This is not a bypass
+      options:
+        - label: This report does not describe a way to get a weakening change past the gate. (Bypasses go to private vulnerability reporting.)
+          required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did Tamperward do, and what did you expect instead?
+      placeholder: >-
+        e.g. `check --staged` fired `assertion-weakening` on a legitimate refactor
+        that only renamed a variable inside the assertion.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: >-
+        The detectors are deterministic, so a concrete case either reproduces or it
+        doesn't. Give the exact command and the smallest diff (or a throwaway repo)
+        that triggers it. A minimal repro is worth far more than a description.
+      render: shell
+    validations:
+      required: true
+  - type: dropdown
+    id: enforcement-point
+    attributes:
+      label: Which enforcement point
+      description: Where did the wrong verdict come from?
+      options:
+        - Agent hook (in-loop deny)
+        - Stop sweep
+        - "check --staged (pre-commit)"
+        - "check --diff (CI)"
+        - "verify (masked-failure adjudication)"
+        - "run (envelope)"
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: policy
+    attributes:
+      label: Policy in effect (.tamperward.yml)
+      description: Policy shape changes what is protected, so the relevant part of your `.tamperward.yml` (or "none / defaults") helps a lot.
+      render: yaml
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `tamperward --version` (or the npm version), plus your Node version.
+      placeholder: "tamperward 2.30.2, Node 20.19"
+    validations:
+      required: true
