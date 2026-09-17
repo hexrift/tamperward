@@ -110,6 +110,11 @@ export function failClosedLifecycleOutcome({ gatedAbort, controlAbort, evidence 
 /** A Stop-sweep case passes ONLY when the sweep fired, returned a block, Codex surfaced it,
  *  AND Codex honoured it by CONTINUING the turn (a later Stop with stop_hook_active:true —
  *  codex-rs turn.rs injects a continuation and re-runs before the turn may finish). */
+/** Stop output is only a presentation signal; the ledger remains the authority for the block. */
+export function stopBlockSurfaced(output) {
+  return /(?:\\bstop\\s+blocked\\b|\\b(?:the )?change was blocked\\b|\\bblocked because\\b)/i.test(String(output || ''));
+}
+
 export function classifyStop(ev) {
   const reasons = [];
   if (!ev.stopFired) reasons.push('Stop did not fire');
@@ -756,7 +761,7 @@ function stopCase(bin, work, driver, execArgs) {
     const ev = {
       stopFired: entries.some((e) => e.caseId === 'stop' && e.event === 'Stop'),
       blockReturned: !!st,
-      blockRespected: /Tamperward blocked this change/i.test(run.stdout + run.stderr) && run.status === 0,
+      blockRespected: stopBlockSurfaced(run.stdout + run.stderr) && run.status === 0,
       continued: entries.some((e) => e.caseId === 'stop' && e.event === 'Stop' && e.stopHookActive === true),
     };
     const res = classifyStop(ev);
