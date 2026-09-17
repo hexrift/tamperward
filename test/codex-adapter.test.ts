@@ -83,6 +83,18 @@ describe('normalizeCodexEvent — tool-name → OperationKind and per-phase shap
     expect(codexOperationKind(undefined)).toBe('other');
   });
 
+  it('normalizes MCP operations without guessing capability availability', () => {
+    for (const tool_name of ['mcp__filesystem__read_file', 'mcp__unknown__do_thing']) {
+      const raw = JSON.stringify({ tool_name, tool_input: { path: 'src/a.spec.ts', arguments: { mode: 'read' } }, cwd: '/repo', session_id: 's1' });
+      const ev = codexAdapter.parseEvent(raw, 'pre-action');
+      expect('failure' in ev).toBe(false);
+      if ('failure' in ev) continue;
+      expect(ev.operation.kind).toBe('mcp');
+      expect(ev.operation.name).toBe(tool_name);
+      expect(ev.operation.args).toEqual({ path: 'src/a.spec.ts', arguments: { mode: 'read' } });
+    }
+  });
+
   it('parseEvent classifies a pre-action Bash call with verbatim args', () => {
     const raw = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm x' }, cwd: '/repo', session_id: 's1' });
     const ev = codexAdapter.parseEvent(raw, 'pre-action');
