@@ -71,7 +71,7 @@ export default defineConfig({
     logo: '/logo.svg',
     nav: [
       { text: 'Introduction', link: '/introduction' },
-      { text: 'Guide', link: '/guide/getting-started' },
+      { text: 'Guide', link: '/guide/quickstart' },
       { text: 'Reference', link: '/reference/cli' },
       { text: 'Blog', link: '/blog/' },
       { text: 'Research', link: '/research/' },
