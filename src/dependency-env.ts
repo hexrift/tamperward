@@ -272,8 +272,12 @@ function freezeRoot(kind: DependencyRootKind, path: string): DependencyRoot {
   }
 }
 
-function shellTokens(command: string): string[] {
-  const matches = command.match(/(?:[^\s"'\\]+|"(?:\\.|[^"])*"|'[^']*')+/g) ?? [];
+export function shellTokens(command: string): string[] {
+  // The unquoted run is one char per outer iteration (not `[^\s"'\\]+`) so the
+  // outer `+` is not a nested quantifier, and the double-quoted span is unrolled
+  // to `[^"\\]*(?:\\.[^"\\]*)*` — both remove the backtracking the previous
+  // `(?:[^\s"'\\]+|"(?:\\.|[^"])*"|'[^']*')+` allowed. Same tokens, linear time.
+  const matches = command.match(/(?:[^\s"'\\]|"[^"\\]*(?:\\.[^"\\]*)*"|'[^']*')+/g) ?? [];
   return matches.map((token) => {
     if (
       (token.startsWith("'") && token.endsWith("'")) ||

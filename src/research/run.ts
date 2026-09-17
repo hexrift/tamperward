@@ -153,6 +153,15 @@ function writeRecordAtomically(path: string, text: string): void {
   renameSync(tmp, path);
 }
 
+/** git-clone argv hardened against a second-order injection through `repo`.
+ *  `-c protocol.ext.allow=never` disables git's `ext::` transport (which runs an
+ *  arbitrary command), and `--` stops a `-`-prefixed value being read as an
+ *  option. `repo` is task-manifest config rather than agent input, but the guard
+ *  costs nothing and closes the transport regardless of where the value came from. */
+export function cloneArgs(repo: string, ws: string): string[] {
+  return ['-c', 'protocol.ext.allow=never', 'clone', '-q', '--no-hardlinks', '--', repo, ws];
+}
+
 /** A fresh clone of the task repository, detached at the task's pinned source
  * commit once one arm/record has established it. A moving branch/HEAD must not
  * make two arms — or two resumed pairs — start from different source trees. */
@@ -167,7 +176,7 @@ function freshWorkspace(
   rmSync(ws, { recursive: true, force: true });
   mkdirSync(join(ledger, 'workspaces'), { recursive: true });
   try {
-    execFileSync('git', ['clone', '-q', '--no-hardlinks', task.repo, ws], { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
+    execFileSync('git', cloneArgs(task.repo, ws), { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
   } catch (e) {
     throw new ResearchError(`task "${task.id}": cannot clone ${task.repo}: ${errorMessage(e).split('\n')[0]}`);
   }

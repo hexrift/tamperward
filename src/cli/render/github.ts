@@ -57,9 +57,10 @@ export function annotations(findings: Finding[]): string[] {
   });
 }
 
-/** Pipes would split the cell; newlines would end the row. */
-function cell(s: string): string {
-  return stripControl(s).replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
+/** Pipes would split the cell; newlines would end the row. Escape the backslash
+ *  first, or a crafted `\|` would survive as an unescaped pipe and break the cell. */
+export function cell(s: string): string {
+  return stripControl(s).replace(/\s+/g, ' ').replace(/\\/g, '\\\\').replace(/\|/g, '\\|').trim();
 }
 
 /** Deep-link a finding to the exact line in the reviewed tree, when Actions tells us

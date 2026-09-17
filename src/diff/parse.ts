@@ -114,10 +114,13 @@ function headerPaths(line: string): [string | null, string | null] {
         first = rest.slice(0, mid);
         rest = rest.slice(mid + 1);
       } else {
-        const m = rest.match(/^(.*) (b\/.*)$/);
-        if (!m) return [null, null];
-        first = m[1];
-        rest = m[2];
+        // Split on the last ` b/`, found by a linear scan rather than a
+        // backtracking `/^(.*) (b\/.*)$/` — the diff header is agent-controlled,
+        // and the two greedy `.*` made that regex O(n^2) on a crafted line.
+        const at = rest.lastIndexOf(' b/');
+        if (at < 0) return [null, null];
+        first = rest.slice(0, at);
+        rest = rest.slice(at + 1);
       }
     }
   }
