@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 // @ts-expect-error - the probe is a plain .mjs harness module, no d.ts
-import { classifyMutation, classifyDetached, classifyProbeAvailability, classifyLifecycleAbort, detachedLifecycleOutcome, stopLifecycleOutcome, collectAfterSettle, classifyFailClosed, failClosedLifecycleOutcome, classifyStop, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
+import { classifyMutation, classifyDetached, classifyProbeAvailability, controlAvailabilityReason, classifyLifecycleAbort, detachedLifecycleOutcome, stopLifecycleOutcome, collectAfterSettle, classifyFailClosed, failClosedLifecycleOutcome, classifyStop, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
 
 describe('probe classifiers — every deterministic mode is classified correctly', () => {
   it('marks an unavailable tool as inconclusive rather than enforcement failure', () => {
@@ -138,6 +138,22 @@ describe('probe classifiers — every deterministic mode is classified correctly
         caseId: 'gated-case', expectedTool: 'apply_patch',
       }).denialObserved).toBe(true);
     }
+  });
+
+  it('classifies Codex pre-execution refusal separately from a generic inert prompt', () => {
+    expect(controlAvailabilityReason({
+      status: 0,
+      stderr: 'CreateProcess rejected: rm -f style commands are not permitted',
+    })).toBe('Codex refused the requested operation before tool dispatch');
+    expect(classifyProbeAvailability({
+      toolAttempted: false,
+      controlLanded: false,
+      controlRun: { status: 0, stderr: 'The command was rejected as unsafe' },
+      mutationLanded: false,
+    })).toEqual({
+      status: 'INCONCLUSIVE',
+      reason: 'Codex refused the requested operation before tool dispatch',
+    });
   });
 
   it('hook-fired-deny-respected → mutation PASS', () => {
