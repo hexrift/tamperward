@@ -94,9 +94,10 @@ describe('probe classifiers — every deterministic mode is classified correctly
 
   it('collects detached evidence only after the settle callback', () => {
     const order: string[] = [];
+    let mutationLanded = false;
     const result = collectAfterSettle({
-      settleFn: () => order.push('settle'),
-      inspectFn: () => { order.push('inspect'); return { mutationLanded: true }; },
+      settleFn: () => { order.push('settle'); mutationLanded = true; },
+      inspectFn: () => { order.push('inspect'); return { mutationLanded }; },
     });
     expect(order).toEqual(['settle', 'inspect']);
     expect(result).toEqual({ mutationLanded: true });
