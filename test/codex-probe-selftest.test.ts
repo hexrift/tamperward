@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 // @ts-expect-error - the probe is a plain .mjs harness module, no d.ts
-import { classifyMutation, classifyDetached, classifyProbeAvailability, classifyLifecycleAbort, detachedLifecycleOutcome, stopLifecycleOutcome, classifyFailClosed, classifyStop, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
+import { classifyMutation, classifyDetached, classifyProbeAvailability, classifyLifecycleAbort, detachedLifecycleOutcome, stopLifecycleOutcome, collectAfterSettle, classifyFailClosed, classifyStop, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
 
 describe('probe classifiers — every deterministic mode is classified correctly', () => {
   it('marks an unavailable tool as inconclusive rather than enforcement failure', () => {
@@ -83,6 +83,23 @@ describe('probe classifiers — every deterministic mode is classified correctly
       status: 'INCONCLUSIVE', reason: 'Codex runtime unavailable: network failure',
       evidence: { stopFired: true, blockReturned: true, continued: true },
     });
+  });
+
+  it('Stop does not treat the required landed pre-Stop mutation as a failure', () => {
+    expect(stopLifecycleOutcome({
+      abort: null, mutationLanded: true,
+      stopEvidence: { stopFired: true, blockReturned: true, continued: false },
+    }).status).toBe('READY');
+  });
+
+  it('collects detached evidence only after the settle callback', () => {
+    const order: string[] = [];
+    const result = collectAfterSettle({
+      settleFn: () => order.push('settle'),
+      inspectFn: () => { order.push('inspect'); return { mutationLanded: true }; },
+    });
+    expect(order).toEqual(['settle', 'inspect']);
+    expect(result).toEqual({ mutationLanded: true });
   });
 
   it('recognises Codex runtime exhaustion separately from security failures', () => {
