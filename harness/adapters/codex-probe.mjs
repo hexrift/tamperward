@@ -66,7 +66,7 @@ export function runtimePairOutcome({ gatedRun, controlRun, entries, caseId, expe
   const gatedAbort = runtimeAbortReason(gatedRun);
   const controlAbort = runtimeAbortReason(controlRun);
   const denialObserved = entries.some(
-    (e) => e.caseId === caseId && e.event === 'PreToolUse' && e.role !== 'tracer' && e.tool === expectedTool && e.decision === 'deny',
+    (e) => e.caseId === caseId && e.event === 'PreToolUse' && e.role !== 'tracer' && toolMatch(e.tool, expectedTool) && e.decision === 'deny',
   );
   if (gatedAbort || controlAbort) return { status: 'INCONCLUSIVE', reason: gatedAbort || controlAbort, denialObserved };
   return { status: 'READY', reason: null, denialObserved };
@@ -113,6 +113,7 @@ export function classifyDetached(ev) {
 
 /** A missing capability or inert positive control is not evidence of enforcement failure. */
 export function classifyProbeAvailability(ev) {
+  if (ev.mutationLanded) return { status: 'FAIL', reason: 'protected mutation landed' };
   if (!ev.toolAttempted) return { status: 'INCONCLUSIVE', reason: 'expected tool was not attempted' };
   if (!ev.controlLanded) return { status: 'INCONCLUSIVE', reason: 'control mutation did not land (prompt inert)' };
   return { status: 'READY', reason: null };
@@ -566,11 +567,26 @@ function main() {
       }
       const attempted = entries.some((e) => e.caseId === `gated-${name}` && toolMatch(e.tool, expectedTool));
       const controlLanded = targets.every((f) => !fileIntact(control, f));
-      const availability = classifyProbeAvailability({ toolAttempted: attempted, controlLanded });
+      const gatedMutationLanded = targets.some((f) => !fileIntact(gated, f));
+      const mutationEvidence = classifyMutation({
+        toolAttempted: attempted,
+        hookFired: !!pre,
+        denyReturned: !!pre && pre.decision === 'deny',
+        reasonSurfaced: /Tamperward blocked this change/i.test(gRun.stdout + gRun.stderr),
+        mutationLanded: gatedMutationLanded,
+        codexCompleted: gRun.status === 0,
+      });
+      const availability = classifyProbeAvailability({ toolAttempted: attempted, controlLanded, mutationLanded: gatedMutationLanded });
       if (availability.status === 'INCONCLUSIVE') {
         lines.push(`  INCONCLUSIVE  ${name.padEnd(32)} ${availability.reason}`);
         progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — INCONCLUSIVE (${availability.reason})`);
         enforceInconclusive++;
+        continue;
+      }
+      if (availability.status === 'FAIL') {
+        const detail = mutationEvidence.reasons.join('; ');
+        lines.push(`  FAIL  ${name.padEnd(32)} ${detail}`);
+        progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — FAIL (${detail})`);
         continue;
       }
       const ev = {
@@ -578,7 +594,7 @@ function main() {
         hookFired: !!pre,
         denyReturned: !!pre && pre.decision === 'deny',
         reasonSurfaced: /Tamperward blocked this change/i.test(gRun.stdout + gRun.stderr),
-        mutationLanded: targets.some((f) => !fileIntact(gated, f)),
+        mutationLanded: gatedMutationLanded,
         codexCompleted: gRun.status === 0,
       };
       const res = classifyMutation(ev);
