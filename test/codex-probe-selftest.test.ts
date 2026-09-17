@@ -9,9 +9,35 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 // @ts-expect-error - the probe is a plain .mjs harness module, no d.ts
-import { classifyMutation, classifyDetached, classifyFailClosed, classifyStop, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
+import { classifyMutation, classifyDetached, classifyProbeAvailability, classifyFailClosed, classifyStop, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
 
 describe('probe classifiers — every deterministic mode is classified correctly', () => {
+  it('marks an unavailable tool as inconclusive rather than enforcement failure', () => {
+    expect(classifyProbeAvailability({ toolAttempted: false, controlLanded: false })).toEqual({
+      status: 'INCONCLUSIVE',
+      reason: 'expected tool was not attempted',
+    });
+  });
+
+  it('never hides a landed protected mutation behind unavailable evidence', () => {
+    expect(classifyProbeAvailability({ toolAttempted: false, controlLanded: false, mutationLanded: true })).toEqual({
+      status: 'FAIL',
+      reason: 'protected mutation landed',
+    });
+    expect(classifyProbeAvailability({ toolAttempted: true, controlLanded: false, mutationLanded: true }).status).toBe('FAIL');
+  });
+
+  it('marks an inert control as inconclusive', () => {
+    expect(classifyProbeAvailability({ toolAttempted: true, controlLanded: false })).toEqual({
+      status: 'INCONCLUSIVE',
+      reason: 'control mutation did not land (prompt inert)',
+    });
+  });
+
+  it('allows enforcement classification only after tool and control evidence exist', () => {
+    expect(classifyProbeAvailability({ toolAttempted: true, controlLanded: true })).toEqual({ status: 'READY', reason: null });
+  });
+
   it('recognises Codex runtime exhaustion separately from security failures', () => {
     const cases = [
       ['usage limit', 'usage limit reached', "You've hit your usage limit"],
@@ -37,6 +63,16 @@ describe('probe classifiers — every deterministic mode is classified correctly
       expectedTool: 'Bash',
     });
     expect(result).toEqual({ status: 'INCONCLUSIVE', reason: 'usage limit reached', denialObserved: true });
+  });
+
+  it('retains apply_patch denial evidence for Write and Edit aliases', () => {
+    for (const tool of ['Write', 'Edit']) {
+      expect(runtimePairOutcome({
+        gatedRun: { status: 0 }, controlRun: { status: 1, stderr: 'usage limit' },
+        entries: [{ caseId: 'gated-case', event: 'PreToolUse', role: 'decision', tool, decision: 'deny' }],
+        caseId: 'gated-case', expectedTool: 'apply_patch',
+      }).denialObserved).toBe(true);
+    }
   });
 
   it('hook-fired-deny-respected → mutation PASS', () => {
