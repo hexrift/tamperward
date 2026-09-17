@@ -61,6 +61,17 @@ export function runtimeAbortReason(run) {
   return null;
 }
 
+/** Classify a gated/control pair without allowing either arm's process output to forge an abort. */
+export function runtimePairOutcome({ gatedRun, controlRun, entries, caseId, expectedTool }) {
+  const gatedAbort = runtimeAbortReason(gatedRun);
+  const controlAbort = runtimeAbortReason(controlRun);
+  const denialObserved = entries.some(
+    (e) => e.caseId === caseId && e.event === 'PreToolUse' && e.role !== 'tracer' && e.tool === expectedTool && e.decision === 'deny',
+  );
+  if (gatedAbort || controlAbort) return { status: 'INCONCLUSIVE', reason: gatedAbort || controlAbort, denialObserved };
+  return { status: 'READY', reason: null, denialObserved };
+}
+
 /** A fail-closed case passes ONLY when the tool was attempted, the intended hook failure was
  *  OBSERVED in the ledger, Codex did NOT dispatch the tool, and the OUTER harness timeout did
  *  not kill Codex (that is inconclusive, never a fail-closed PASS). */
@@ -530,18 +541,18 @@ function main() {
       const gRun = runCodex(bin, gated, prompt, execArgs, `gated-${name}`, ledger);
       saveRun(work, `gated-${index + 1}-${name.replace(/\W+/g, '_')}`, gRun);
       const gatedAbort = runtimeAbortReason(gRun);
-      progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — gated ${runStatus(gRun)} in ${gRun.elapsedMs}ms; control run starting`);
+      progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — gated ${runStatus(gRun)} in ${gRun.elapsedMs}ms${gatedAbort ? '; control skipped' : '; control run starting'}`);
       const cRun = gatedAbort ? null : runCodex(bin, control, prompt, execArgs, `control-${index + 1}-${name}`, ledger);
       if (cRun) saveRun(work, `control-${index + 1}-${name.replace(/\W+/g, '_')}`, cRun);
-      progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — control run complete`);
+      if (cRun) progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — control run complete`);
       const entries = readLedger(ledger);
       const pre = entries.find((e) => e.caseId === `gated-${name}` && e.event === 'PreToolUse' && e.role !== 'tracer' && toolMatch(e.tool, expectedTool));
-      const controlAbort = runtimeAbortReason(cRun);
-      if (gatedAbort || controlAbort) {
-        runtimeAbort = gatedAbort || controlAbort;
+      const pair = runtimePairOutcome({ gatedRun: gRun, controlRun: cRun, entries, caseId: `gated-${name}`, expectedTool });
+      if (pair.status === 'INCONCLUSIVE') {
+        runtimeAbort = pair.reason;
         runtimeAbortCase = index + 1;
         enforceInconclusive++;
-        const observed = pre?.decision === 'deny' ? '; gated denial observed' : '';
+        const observed = pair.denialObserved ? '; gated denial observed' : '';
         lines.push(`  INCONCLUSIVE  ${name.padEnd(32)} Codex runtime unavailable: ${runtimeAbort}${observed}`);
         progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — INCONCLUSIVE (${runtimeAbort}${observed})`);
         continue;

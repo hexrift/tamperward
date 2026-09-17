@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 // @ts-expect-error - the probe is a plain .mjs harness module, no d.ts
-import { classifyMutation, classifyDetached, classifyFailClosed, classifyStop, runtimeAbortReason, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
+import { classifyMutation, classifyDetached, classifyFailClosed, classifyStop, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
 
 describe('probe classifiers — every deterministic mode is classified correctly', () => {
   it('recognises Codex runtime exhaustion separately from security failures', () => {
@@ -26,6 +26,17 @@ describe('probe classifiers — every deterministic mode is classified correctly
     expect(runtimeAbortReason({ stdout: 'normal completion', status: 0 })).toBeNull();
     expect(runtimeAbortReason({ stdout: "You've hit your usage limit", status: 0 })).toBeNull();
     expect(runtimeAbortReason({ stderr: 'model unavailable', status: 0 })).toBeNull();
+  });
+
+  it('retains a gated denial when the control arm hits the usage limit', () => {
+    const result = runtimePairOutcome({
+      gatedRun: { status: 0, stdout: '' },
+      controlRun: { status: 1, stderr: "You've hit your usage limit" },
+      entries: [{ caseId: 'gated-case', event: 'PreToolUse', role: 'decision', tool: 'Bash', decision: 'deny' }],
+      caseId: 'gated-case',
+      expectedTool: 'Bash',
+    });
+    expect(result).toEqual({ status: 'INCONCLUSIVE', reason: 'usage limit reached', denialObserved: true });
   });
 
   it('hook-fired-deny-respected → mutation PASS', () => {
