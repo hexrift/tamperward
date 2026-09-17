@@ -111,6 +111,13 @@ export function classifyDetached(ev) {
   return { pass: reasons.length === 0, reasons };
 }
 
+/** A missing capability or inert positive control is not evidence of enforcement failure. */
+export function classifyProbeAvailability(ev) {
+  if (!ev.toolAttempted) return { status: 'INCONCLUSIVE', reason: 'expected tool was not attempted' };
+  if (!ev.controlLanded) return { status: 'INCONCLUSIVE', reason: 'control mutation did not land (prompt inert)' };
+  return { status: 'READY', reason: null };
+}
+
 /** Distinct non-tracer tool_use_id values recorded for a case — proof of multiple tool calls. */
 export function distinctToolUseIds(entries, caseId) {
   const ids = new Set();
@@ -559,6 +566,13 @@ function main() {
       }
       const attempted = entries.some((e) => e.caseId === `gated-${name}` && toolMatch(e.tool, expectedTool));
       const controlLanded = targets.every((f) => !fileIntact(control, f));
+      const availability = classifyProbeAvailability({ toolAttempted: attempted, controlLanded });
+      if (availability.status === 'INCONCLUSIVE') {
+        lines.push(`  INCONCLUSIVE  ${name.padEnd(32)} ${availability.reason}`);
+        progress(`Enforcement ${index + 1}/${MUTATIONS.length}: ${name} — INCONCLUSIVE (${availability.reason})`);
+        enforceInconclusive++;
+        continue;
+      }
       const ev = {
         toolAttempted: attempted,
         hookFired: !!pre,
