@@ -1,7 +1,7 @@
 {
   "name": "tamperward",
   "version": "2.30.2",
-  "description": "The deterministic agent-integrity gate. One ruleset, evaluated on the actual diff/commands as a verdict, enforced everywhere a change can be made.",
+  "description": "Catch a coding agent gaming its own tests: a deterministic integrity gate that flags covered test weakening, verification manipulation and verifier tampering across the diff, commits and CI.",
   "license": "Apache-2.0",
   "author": "hexrift",
   "homepage": "https://github.com/hexrift/tamperward#readme",

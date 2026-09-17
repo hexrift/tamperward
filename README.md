@@ -19,6 +19,39 @@ correction in one place, each number bound to its committed artifact ·
 **[The research series](./docs/blog/index.md)** — every registered prediction
 published beside its outcome
 
+## Catch a coding agent gaming its own green build
+
+An AI coding agent can make broken work *look* passing by weakening the very things
+that judge it — the tests, the verification, the CI config, the verifier itself.
+Tamperward is a deterministic gate that catches that: it flags **covered** forms of
+test weakening, verification manipulation and verifier tampering, and **reports when
+the evidence is insufficient rather than certifying a misleading green build**.
+
+| The agent… | Tamperward |
+| --- | --- |
+| edits the implementation | ✓ allowed |
+| weakens a test assertion | ✗ `BLOCK` |
+| deletes or skips a failing test | ✗ `BLOCK` |
+| hides a failing verification | ✗ `MASKED_FAILURE` |
+| edits the verifier or its config | ✗ `DENY` |
+| ships a genuinely clean change | ✓ `PASS` |
+
+```bash
+npx tamperward onboard
+```
+
+`onboard` finishes by performing a **real** weakening move on a throwaway worktree,
+showing Tamperward catch it, then restoring your tree byte-for-byte — the 30-second
+version of the whole idea.
+
+> **Coverage is bounded, and we say where.** Tamperward blocks the tamper classes an
+> active detector covers — JS/TS is the full detector surface; other ecosystems get
+> file- and pattern-level protection — and **fails closed** when it cannot adjudicate.
+> What it does and does not claim is mapped in
+> [what Tamperward does not do](#what-tamperward-does-not-do), [SPEC §9–10](./SPEC.md),
+> and the published [evidence](#evidence): no headline here is more than a click from
+> its committed artifact.
+
 ## What it is
 
 Coding agents can modify both the implementation and the tests, configuration,
@@ -91,6 +124,22 @@ npx tamperward run --agent-budget 1800 -- <agent command...>  # optional agent-r
 
 Full flags, exit codes, verifier configuration and the `trace-verify` advisory tool
 are in the **[getting-started guide](./docs/guide/getting-started.md)**.
+
+## Which agents get in-loop protection
+
+Tamperward's guarantees are **composed from layers**, and a runtime's integration
+decides which apply. The agent-neutral layers — pre-commit, CI, and the `run`
+envelope — protect any agent; in-loop deny-before-execute is runtime-specific.
+
+| Runtime | In-loop (deny-before-execute) | Pre-commit + CI | Status |
+| --- | --- | --- | --- |
+| Claude Code | ✓ | ✓ | Qualified |
+| OpenAI Codex | experimental | ✓ | Adapter shipped; qualification pending |
+| Cursor | — | ✓ | Neutral layers only |
+| GitHub Copilot | — | ✓ | Neutral layers only |
+
+See [runtime adapters](./docs/guide/runtime-adapters.md) for what each layer proves,
+and why an experimental adapter is not yet counted as qualified.
 
 ## Choose your path
 

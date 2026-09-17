@@ -41,7 +41,30 @@ export default defineConfig({
   description:
     'The deterministic agent-integrity gate: blocks AI coding agents from deleting tests, lowering coverage, or rewriting snapshots — measured, not asserted.',
   base: '/tamperward/',
-  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/tamperward/favicon.svg' }]],
+  // A sitemap and Open Graph / Twitter card metadata so the docs are indexable and a
+  // pasted link renders a titled card instead of a bare URL. `transformHead` fills the
+  // per-page title/description from each page's own frontmatter (SEO, not new claims).
+  sitemap: { hostname: 'https://hexrift.github.io/tamperward/' },
+  head: [
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/tamperward/favicon.svg' }],
+    ['meta', { property: 'og:type', content: 'website' }],
+    ['meta', { property: 'og:site_name', content: 'Tamperward' }],
+    ['meta', { property: 'og:image', content: 'https://hexrift.github.io/tamperward/logo.svg' }],
+    ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
+  ],
+  transformHead({ pageData }) {
+    const title = pageData.frontmatter.title || pageData.title || 'Tamperward'
+    const description =
+      pageData.frontmatter.description ||
+      pageData.description ||
+      'The deterministic agent-integrity gate: blocks AI coding agents from deleting tests, lowering coverage, or rewriting snapshots — measured, not asserted.'
+    return [
+      ['meta', { property: 'og:title', content: title }],
+      ['meta', { property: 'og:description', content: description }],
+      ['meta', { name: 'twitter:title', content: title }],
+      ['meta', { name: 'twitter:description', content: description }],
+    ]
+  },
   ignoreDeadLinks: false, // a broken link fails the docs build; do not switch this back on to hide one
   themeConfig: {
     // The badge supplies its own background, so the same asset works in either theme.
