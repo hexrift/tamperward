@@ -434,9 +434,12 @@ describe('CodexRuntimeAdapter.decide — failure states fail CLOSED (deny)', () 
     }
   });
 
-  it('failClosed maps every transport boundary failure to an explicit deny wire', () => {
-    for (const outcome of ['transport-failure', 'not-invoked', 'malformed', 'empty', 'timeout', 'missing-executable', 'non-zero']) {
-      const result = codexAdapter.failClosed(outcome, 'hook ' + outcome, 'pre-action');
+  it('failClosed maps supported transport outcomes to an explicit deny wire', () => {
+    for (const [outcome, detail] of [
+      ['transport-failure', 'malformed, empty, timeout, missing-executable, or non-zero hook response'],
+      ['not-invoked', 'PreToolUse did not fire'],
+    ] as const) {
+      const result = codexAdapter.failClosed(outcome, detail, 'pre-action');
       expect(result.outcome).toBe(outcome);
       expect(result.wire).toBeTruthy();
       expect(result.decision?.verdict).toBe('deny');
