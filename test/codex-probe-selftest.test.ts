@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 // @ts-expect-error - the probe is a plain .mjs harness module, no d.ts
-import { classifyMutation, classifyDetached, classifyProbeAvailability, controlAvailabilityReason, classifyLifecycleAbort, detachedLifecycleOutcome, stopLifecycleOutcome, collectAfterSettle, classifyFailClosed, failClosedLifecycleOutcome, classifyStop, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
+import { classifyMutation, classifyDetached, classifyProbeAvailability, controlAvailabilityReason, classifyLifecycleAbort, detachedLifecycleOutcome, stopLifecycleOutcome, collectAfterSettle, classifyFailClosed, failClosedLifecycleOutcome, classifyStop, stopBlockSurfaced, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/codex-probe.mjs';
 
 describe('probe classifiers — every deterministic mode is classified correctly', () => {
   it('marks an unavailable tool as inconclusive rather than enforcement failure', () => {
@@ -274,6 +274,13 @@ describe('probe classifiers — every deterministic mode is classified correctly
     const r = classifyFailClosed({ protectedToolAttempted: true, intendedHookFailure: true, toolDispatched: true, mutationLanded: false, detachedExecution: false, outerKill: false });
     expect(r.pass).toBe(false);
     expect(r.reasons.join()).toMatch(/DISPATCHED/);
+  });
+
+  it('recognizes Codex Stop-block output while keeping continuation as separate evidence', () => {
+    expect(stopBlockSurfaced('hook: Stop Blocked')).toBe(true);
+    expect(stopBlockSurfaced('The change was blocked because protected tests were removed')).toBe(true);
+    expect(stopBlockSurfaced('I blocked the plan because it needs more context')).toBe(false);
+    expect(stopBlockSurfaced('The deployment was blocked because a dependency was missing')).toBe(false);
   });
 
   it('stop: block honoured (continued) → PASS; not continued → FAIL; ignored → FAIL; never-fired → FAIL', () => {
