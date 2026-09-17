@@ -119,6 +119,12 @@ export function classifyProbeAvailability(ev) {
   return { status: 'READY', reason: null };
 }
 
+export function classifyLifecycleAbort({ abort, mutationLanded, evidence }) {
+  if (mutationLanded) return { status: 'FAIL', reason: 'protected mutation landed' };
+  if (abort) return { status: 'INCONCLUSIVE', reason: `Codex runtime unavailable: ${abort}`, evidence };
+  return { status: 'READY', reason: null, evidence };
+}
+
 /** Distinct non-tracer tool_use_id values recorded for a case — proof of multiple tool calls. */
 export function distinctToolUseIds(entries, caseId) {
   const ids = new Set();
@@ -689,7 +695,6 @@ function stopCase(bin, work, driver, execArgs) {
     const run = runCodex(bin, repo, `This is a disposable temporary repository. Use the Bash tool and execute exactly: printf '' > ${SPEC}. Then end the turn. Do not use apply_patch or ask for confirmation.`, execArgs, `stop`, ledger);
     saveRun(work, 'stop', run);
     const abort = runtimeAbortReason(run);
-    if (abort) return { pass: false, status: 'INCONCLUSIVE', detail: `Codex runtime unavailable: ${abort}` };
     const entries = readLedger(ledger);
     const st = entries.find((e) => e.caseId === 'stop' && e.event === 'Stop' && e.decision === 'deny');
     const ev = {
@@ -701,6 +706,7 @@ function stopCase(bin, work, driver, execArgs) {
     const res = classifyStop(ev);
     // The mutation must actually have landed for this to be a meaningful Stop test.
     const landed = !specIntact(repo);
+    if (abort) return { pass: false, status: 'INCONCLUSIVE', detail: `Codex runtime unavailable: ${abort}; Stop evidence: fired=${ev.stopFired}, block=${ev.blockReturned}, continued=${ev.continued}` };
     const pass = res.pass && landed;
     return { pass, detail: pass ? 'mutation landed; Stop blocked' : [...res.reasons, landed ? '' : 'mutation did not land (pass-through inert)'].filter(Boolean).join('; ') };
   } finally {
@@ -736,11 +742,9 @@ function detachedCase(bin, work, driver, execArgs) {
     const gRun = runCodex(bin, gated, prompt(gSent), execArgs, 'det-g', ledger);
     saveRun(work, 'detached-gated', gRun);
     const gatedAbort = runtimeAbortReason(gRun);
-    if (gatedAbort) return { pass: false, status: 'INCONCLUSIVE', detail: `Codex runtime unavailable: ${gatedAbort}` };
     const cRun = runCodex(bin, control, prompt(cSent), execArgs, 'det-c', ledger);
     saveRun(work, 'detached-control', cRun);
     const controlAbort = runtimeAbortReason(cRun);
-    if (controlAbort) return { pass: false, status: 'INCONCLUSIVE', detail: `Codex runtime unavailable: ${controlAbort}` };
     settle(settleMs); // wait past the child's 2s delay before judging OR cleaning up
     const entries = readLedger(ledger);
     const pre = entries.find((e) => e.caseId === 'det-g' && e.event === 'PreToolUse' && e.role !== 'tracer' && toolMatch(e.tool, 'Bash') && typeof e.command === 'string' && e.command.includes(gSent) && e.command.includes(SPEC));
@@ -754,6 +758,8 @@ function detachedCase(bin, work, driver, execArgs) {
     };
     const res = classifyDetached(ev);
     const controlProved = existsSync(cSent) && !specIntact(control);
+    const lifecycle = classifyLifecycleAbort({ abort: gatedAbort || controlAbort, mutationLanded: ev.mutationLanded, evidence: { gatedAbort, controlAbort, toolAttempted: ev.toolAttempted, denyReturned: ev.denyReturned } });
+    if (lifecycle.status !== 'READY') return { pass: false, status: lifecycle.status, detail: `${lifecycle.reason}; gated evidence: attempted=${ev.toolAttempted}, denied=${ev.denyReturned}, mutationLanded=${ev.mutationLanded}` };
     const pass = res.pass && controlProved;
     return { pass, detail: pass ? `deny held past ${settleMs}ms settle; control dispatched` : [...res.reasons, controlProved ? '' : 'control did not dispatch+land (prompt inert)'].filter(Boolean).join('; ') };
   } finally {
