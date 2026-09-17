@@ -108,7 +108,7 @@ export function parseStraceFileAccess(raw: string): TraceFileAccess[] {
     const call = line.match(/\b(execveat|execve|openat2|openat|open|newfstatat|fstatat|statx|lstat|stat|access|readlinkat|readlink)\s*\(/);
     if (!call) continue;
     const afterCall = line.slice((call.index ?? 0) + call[0].length);
-    const quoted = afterCall.match(/"((?:\\.|[^"])*)"/);
+    const quoted = afterCall.match(/"([^"\\]*(?:\\.[^"\\]*)*)"/);
     if (!quoted) continue;
     const path = unescapeStraceString(quoted[1]);
     if (!path) continue;

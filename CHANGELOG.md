@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.30.3] — 2026-09-17
+
+### Fixed
+
+- **Hardened three ReDoS-class regexes and one clone surface flagged by CodeQL.**
+  The diff-header path split (`src/diff/parse.ts`) — which runs on agent-controlled
+  diffs — now splits on the last ` b/` with a linear scan instead of a backtracking
+  `/^(.*) (b\/.*)$/`; the strace path parse (`src/cli/trace-verify.ts`) and the shell
+  tokeniser (`src/dependency-env.ts`) use unrolled, unambiguous quoted-string patterns.
+  All three are proven to tokenise identically to the prior forms and to return
+  promptly on crafted inputs. The research clone (`src/research/run.ts`) disables git's
+  `ext::` transport (`-c protocol.ext.allow=never`) and ends options with `--` before
+  the repository argument. Markdown table cells (`src/cli/render/github.ts`) now escape
+  the backslash before the pipe, so a crafted `\|` cannot survive as an unescaped
+  separator. No verdict changes; each fix has an added regression test.
+
 ## [2.30.2] — 2026-09-16
 
 ### Fixed
