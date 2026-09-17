@@ -132,15 +132,15 @@ export function classifyDetached(ev) {
   return { pass: reasons.length === 0, reasons };
 }
 
-/** Explain why a control did not reach the requested operation. Model text is diagnostic only:
- * it never changes the security verdict, but it helps distinguish a runtime refusal from an inert
- * prompt or unavailable capability. */
+/** Explain why a control did not reach the requested operation. This is explicitly
+ * diagnostic: it reports narrow refusal-like text from the captured process streams, but never
+ * treats model prose as proof of dispatch timing or capability state. */
 export function controlAvailabilityReason(run) {
   const output = \`${run?.stdout || ''}\\n${run?.stderr || ''}\`.toLowerCase();
-  if (/rejected.*unsafe|not permitted|could not execute|couldn't execute|unsafe.*command/.test(output)) {
+  if (/\\brejected\\b.*\\b(?:command|commands|operation|tool)\\b.*\\b(?:unsafe|not permitted)\\b/.test(output)) {
     return 'control output reported refusal-like text (dispatch timing unproven)';
   }
-  if (/no such tool|tool.*unavailable|not available|mcp.*(unavailable|not configured)/.test(output)) {
+  if (/\\b(?:mcp|filesystem)\\b.*\\b(?:unavailable|not configured|no such tool)\\b/.test(output)) {
     return 'control output reported an unavailable-capability message (capability status unproven)';
   }
   return null;
