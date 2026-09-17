@@ -167,6 +167,26 @@ describe('probe classifiers — every deterministic mode is classified correctly
     );
   });
 
+  it('classifies inert delete and MCP controls as inconclusive, never as enforcement passes', () => {
+    for (const controlRun of [
+      { status: 0, stdout: 'I could not complete that request' },
+      { status: 0, stderr: 'MCP filesystem tool unavailable' },
+    ]) {
+      expect(classifyProbeAvailability({
+        toolAttempted: false,
+        controlLanded: false,
+        controlRun,
+        mutationLanded: false,
+      })).toEqual({ status: 'INCONCLUSIVE', reason: 'expected tool was not attempted' });
+    }
+    expect(classifyProbeAvailability({
+      toolAttempted: true,
+      controlLanded: false,
+      controlRun: { status: 0, stdout: '' },
+      mutationLanded: true,
+    })).toEqual({ status: 'FAIL', reason: 'protected mutation landed' });
+  });
+
   it('hook-fired-deny-respected → mutation PASS', () => {
     expect(
       classifyMutation({ toolAttempted: true, hookFired: true, denyReturned: true, reasonSurfaced: true, mutationLanded: false, codexCompleted: true }).pass,
