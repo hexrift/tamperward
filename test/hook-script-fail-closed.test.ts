@@ -408,7 +408,7 @@ describe('6 · the init-written script: byte-equal modulo the pin, trailing newl
     expect(msgs(edit('.husky/pre-commit', INIT.replace(`@${V}`, '@2.1.0'), INIT + '\n'))).toEqual([]);
   });
   it('anything else in the init shape stays the shape finding', () => {
-    for (const after of [INIT.replace('\n', '\r\n'), INIT + '# note\n', INIT.replace(`@${V}`, '@^1'), INIT.replace('--staged', '--diff HEAD...HEAD'), INIT.replace('check --staged', 'check  --staged')]) {
+    for (const after of [INIT.replace(/\n/g, '\r\n'), INIT + '# note\n', INIT.replace(`@${V}`, '@^1'), INIT.replace('--staged', '--diff HEAD...HEAD'), INIT.replace('check --staged', 'check  --staged')]) {
       const f = run(edit('.husky/pre-commit', INIT, after));
       expect(f.length, after).toBe(1);
       expect(f[0].evidence).toBe('the gate script no longer matches the shape init wrote; re-run init or sign off');
