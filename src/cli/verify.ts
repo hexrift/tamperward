@@ -46,6 +46,7 @@ import { chmodSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rea
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { loadPolicy, loadPolicyAt } from '../policy-load';
+import { repoRoot } from '../repo-context';
 import { assertRev } from '../git/build';
 import { trustedGitEnv } from '../git/trusted';
 import { treeFingerprint } from '../fingerprint';
@@ -1065,7 +1066,14 @@ export function verifyVerdictLine(verdict: string, ctx: VerifyVerdictContext): s
 }
 
 export function runVerify(opts: VerifyOpts): number {
-  const cwd = opts.cwd ?? process.cwd();
+  // Normalize to the repository root once, so policy load, git enumeration,
+  // materialization, verifier inputs and suite execution all agree on one tree.
+  // Invoked from a package subdirectory, the caller's cwd would otherwise
+  // enumerate only that subtree while policy came from the root — running the
+  // root suite against an incomplete copy and reporting a false SUITE_RED (#554).
+  // `repoRoot` returns the worktree root (linked worktrees included), or the
+  // path unchanged outside a repository, where git operations fail closed anyway.
+  const cwd = repoRoot(opts.cwd ?? process.cwd());
   const colour = opts.silent ? false : colourEnabled(process.env, process.stdout);
   // Colour only the shared `verify:` label so the line strips to a byte-identical one; a
   // failing-closed line reads red, everything else the neutral info cyan.
