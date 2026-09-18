@@ -15,7 +15,7 @@ import { Finding } from '../src/types';
 
 const DIR = join(__dirname, 'fixtures', 'codex-schemas');
 const schema = (name: string) => JSON.parse(readFileSync(join(DIR, name), 'utf8'));
-const ajv = new Ajv({ strict: false, allErrors: true });
+const ajv = new Ajv({ strict: false });
 const validatePreIn = ajv.compile(schema('pre-tool-use.command.input.schema.json'));
 const validatePreOut = ajv.compile(schema('pre-tool-use.command.output.schema.json'));
 const validateStopIn = ajv.compile(schema('stop.command.input.schema.json'));
@@ -106,6 +106,11 @@ describe('Codex protocol conformance — deny wire validates against the real ou
     const raw = JSON.stringify({ ...preToolUseInput(), tool_name: 'Bash', tool_input: { command: 'rm x' }, cwd: '/definitely/not/a/repo/xyz' });
     const r = codexAdapter.decide(raw, 'pre-action', process.cwd());
     expect(r.decision?.verdict).toBe('deny');
-    expect(validatePreOut(JSON.parse(r.wire as string))).toBe(true);
+    // Bound the wire before the schema walk: a pre-action deny wire is a small,
+    // fixed-shape object, so this asserts that and keeps CodeQL from reading
+    // JSON.parse → Ajv as an unbounded deep-object traversal.
+    const wire = r.wire as string;
+    expect(wire.length).toBeLessThan(10_000);
+    expect(validatePreOut(JSON.parse(wire))).toBe(true);
   });
 });
