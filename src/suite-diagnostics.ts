@@ -140,6 +140,73 @@ export function diagnosticLines(stage: string, diagnostics: SuiteDiagnostics): s
   return lines;
 }
 
+// The Linux /proc identity helpers, shared verbatim between the capture
+// supervisor (which embeds this source) and its unit tests (#545). Kept as one
+// string so the tested logic and the running logic cannot drift. `fs` and
+// `process` are free variables resolved from the enclosing scope in both places.
+//
+//  - `readStat` parses a process's ppid and start-time from /proc/<pid>/stat;
+//    a (pid, start-time) pair names one specific process instance.
+//  - `linuxDescendants` walks the live tree under a root, recording each
+//    descendant's start-time as observed.
+//  - `killableDescendants` re-reads identity at signal time and drops any tracked
+//    pid whose start-time no longer matches — a reused PID is a different,
+//    unrelated process. (A check-to-signal race still exists; only a pidfd would
+//    close it fully, but this rejects the observable reuse.)
+export const PROC_IDENTITY_SRC = String.raw`
+function readStat(pid) {
+  try {
+    const stat = fs.readFileSync('/proc/' + pid + '/stat', 'utf8');
+    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    const ppid = Number(fields[1]);
+    const starttime = fields[19];
+    if (!Number.isFinite(ppid) || starttime === undefined) return null;
+    return { ppid: ppid, starttime: starttime };
+  } catch (e) { return null; }
+}
+
+function linuxDescendants(rootPid) {
+  if (process.platform !== 'linux' || !rootPid) return [];
+  const byParent = new Map();
+  const startById = new Map();
+  let names = [];
+  try { names = fs.readdirSync('/proc').filter((x) => /^\d+$/.test(x)); } catch (e) { return []; }
+  for (const name of names) {
+    const pid = Number(name);
+    const st = readStat(pid);
+    if (!st) continue;
+    startById.set(pid, st.starttime);
+    const kids = byParent.get(st.ppid) || [];
+    kids.push(pid);
+    byParent.set(st.ppid, kids);
+  }
+  const out = [];
+  const seen = new Set([rootPid]);
+  const stack = [rootPid];
+  while (stack.length) {
+    const parent = stack.pop();
+    for (const pid of (byParent.get(parent) || [])) {
+      if (seen.has(pid)) continue;
+      seen.add(pid);
+      out.push({ pid: pid, starttime: startById.get(pid) });
+      stack.push(pid);
+    }
+  }
+  return out;
+}
+
+function killableDescendants(tracked) {
+  const out = [];
+  for (const entry of tracked) {
+    const pid = entry[0];
+    const starttime = entry[1];
+    const st = readStat(pid);
+    if (st && st.starttime === starttime) out.push(pid);
+  }
+  return out;
+}
+`;
+
 // Runs under process.execPath, with the caller-supplied trusted environment.
 // Configuration is read from a trusted temp file rather than argv so a long
 // suite command cannot run into platform argv limits earlier than the suite
@@ -160,43 +227,13 @@ const stderr = fresh();
 // descendant that calls setsid(). Track the real descendant tree while the
 // suite is alive so a reparented session escape is still known when the main
 // child exits. This supplements, rather than replaces, group termination.
-const trackedDescendants = new Set();
-
-function linuxDescendants(rootPid) {
-  if (process.platform !== 'linux' || !rootPid) return [];
-  const byParent = new Map();
-  let names = [];
-  try { names = fs.readdirSync('/proc').filter((x) => /^\d+$/.test(x)); } catch { return []; }
-  for (const name of names) {
-    const pid = Number(name);
-    try {
-      const stat = fs.readFileSync('/proc/' + name + '/stat', 'utf8');
-      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-      const ppid = Number(fields[1]);
-      if (!Number.isFinite(ppid)) continue;
-      const kids = byParent.get(ppid) || [];
-      kids.push(pid);
-      byParent.set(ppid, kids);
-    } catch {}
-  }
-  const out = [];
-  const seen = new Set([rootPid]);
-  const stack = [rootPid];
-  while (stack.length) {
-    const parent = stack.pop();
-    for (const pid of (byParent.get(parent) || [])) {
-      if (seen.has(pid)) continue;
-      seen.add(pid);
-      out.push(pid);
-      stack.push(pid);
-    }
-  }
-  return out;
-}
-
+// pid -> the /proc start-time observed for that pid, so cleanup can re-check
+// identity before signalling (a bare pid alone can be reused — #545).
+const trackedDescendants = new Map();
+${PROC_IDENTITY_SRC}
 function trackDescendants() {
   if (!child || !child.pid || process.platform !== 'linux') return;
-  for (const pid of linuxDescendants(child.pid)) trackedDescendants.add(pid);
+  for (const d of linuxDescendants(child.pid)) trackedDescendants.set(d.pid, d.starttime);
 }
 
 function append(state, chunk) {
@@ -231,14 +268,17 @@ let drainTimer = null;
 function killOwned() {
   if (!child || !child.pid) return;
   trackDescendants();
-  if (cfg.detached && process.platform !== 'win32') {
+  // Only signal the detached group while our child is still alive: once it has
+  // exited, its pid (the group id) can be reused by an unrelated group (#545).
+  if (cfg.detached && process.platform !== 'win32' && child.exitCode === null && child.signalCode === null) {
     try { process.kill(-child.pid, 'SIGKILL'); } catch {}
   }
   try { child.kill('SIGKILL'); } catch {}
   if (process.platform === 'linux') {
-    // Deepest-first is friendlier to short-lived process trees. PIDs are still
-    // rechecked by kill(2); races with natural exit are harmless.
-    for (const pid of Array.from(trackedDescendants).reverse()) {
+    // Deepest-first is friendlier to short-lived process trees. Each tracked pid
+    // is re-checked against its observed start-time before signalling, so a
+    // reused PID belonging to an unrelated process is dropped, not killed.
+    for (const pid of killableDescendants(Array.from(trackedDescendants).reverse())) {
       try { process.kill(pid, 'SIGKILL'); } catch {}
     }
   }
