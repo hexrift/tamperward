@@ -16,7 +16,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 // @ts-expect-error - the probe is a plain .mjs harness module, no d.ts
-import { classifyMutation, classifyDetached, classifyProbeAvailability, controlAvailabilityReason, classifyLifecycleAbort, detachedLifecycleOutcome, stopLifecycleOutcome, collectAfterSettle, classifyFailClosed, failClosedLifecycleOutcome, classifyStop, stopBlockSurfaced, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, classifyTimeoutFailOpen, buildCapabilityMatrix, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/copilot-probe.mjs';
+import { classifyMutation, classifyDetached, classifyProbeAvailability, controlAvailabilityReason, classifyLifecycleAbort, detachedLifecycleOutcome, stopLifecycleOutcome, collectAfterSettle, classifyFailClosed, failClosedLifecycleOutcome, classifyStop, stopBlockSurfaced, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, classifyDocumentedFailOpen, transportExpectation, buildCapabilityMatrix, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/copilot-probe.mjs';
 
 describe('probe classifiers — every deterministic mode is classified correctly', () => {
   it('marks an unavailable tool as inconclusive rather than enforcement failure', () => {
@@ -77,22 +77,35 @@ describe('probe classifiers — every deterministic mode is classified correctly
     expect(r.reasons.join()).toMatch(/DISPATCHED/);
   });
 
-  // ── Copilot-specific: command preToolUse hook TIMEOUT fails OPEN (documented) ──
-  it('classifyTimeoutFailOpen: an observed timeout that dispatches/lands is the documented FAIL-OPEN', () => {
-    const r = classifyTimeoutFailOpen({ protectedToolAttempted: true, intendedHookFailure: true, toolDispatched: true, mutationLanded: true, outerKill: false });
+  // ── Copilot-specific: documented FAIL-OPEN transports (timeout, empty stdout, malformed
+  // stdout — all leave the tool to the default permission, which under --allow-all-tools
+  // proceeds). Per the GitHub hooks reference, these are documented, not fail-closed. ──
+  it('classifyDocumentedFailOpen: an observed fail-open that dispatches/lands matches the docs', () => {
+    const r = classifyDocumentedFailOpen({ protectedToolAttempted: true, intendedHookFailure: true, toolDispatched: true, mutationLanded: true, outerKill: false });
     expect(r.semantic).toBe('FAIL-OPEN');
     expect(r.matchesDoc).toBe(true);
   });
 
-  it('classifyTimeoutFailOpen: an observed timeout that did NOT dispatch is a surprising FAIL-CLOSED (unproven), not a pass', () => {
-    const r = classifyTimeoutFailOpen({ protectedToolAttempted: true, intendedHookFailure: true, toolDispatched: false, mutationLanded: false, outerKill: false });
+  it('classifyDocumentedFailOpen: an observed non-dispatch is a surprising FAIL-CLOSED (unproven), not a pass', () => {
+    const r = classifyDocumentedFailOpen({ protectedToolAttempted: true, intendedHookFailure: true, toolDispatched: false, mutationLanded: false, outerKill: false });
     expect(r.semantic).toBe('FAIL-CLOSED');
     expect(r.matchesDoc).toBe(false);
   });
 
-  it('classifyTimeoutFailOpen: an unobserved failure or an outer kill is INCONCLUSIVE, never a claim', () => {
-    expect(classifyTimeoutFailOpen({ protectedToolAttempted: true, intendedHookFailure: false, toolDispatched: false, mutationLanded: false, outerKill: false }).semantic).toBe('INCONCLUSIVE');
-    expect(classifyTimeoutFailOpen({ protectedToolAttempted: true, intendedHookFailure: true, toolDispatched: false, mutationLanded: false, outerKill: true }).semantic).toBe('INCONCLUSIVE');
+  it('classifyDocumentedFailOpen: an unobserved failure or an outer kill is INCONCLUSIVE, never a claim', () => {
+    expect(classifyDocumentedFailOpen({ protectedToolAttempted: true, intendedHookFailure: false, toolDispatched: false, mutationLanded: false, outerKill: false }).semantic).toBe('INCONCLUSIVE');
+    expect(classifyDocumentedFailOpen({ protectedToolAttempted: true, intendedHookFailure: true, toolDispatched: false, mutationLanded: false, outerKill: true }).semantic).toBe('INCONCLUSIVE');
+  });
+
+  it('transportExpectation encodes Copilot documented semantics per broken-hook kind', () => {
+    // crash / non-zero / exit 2 must fail CLOSED; timeout / empty / malformed are documented
+    // FAIL-OPEN (no hook output → default permission → proceeds); missing-executable is measured.
+    expect(transportExpectation('crash')).toBe('FAIL-CLOSED');
+    expect(transportExpectation('nonzero')).toBe('FAIL-CLOSED');
+    expect(transportExpectation('timeout')).toBe('FAIL-OPEN');
+    expect(transportExpectation('empty')).toBe('FAIL-OPEN');
+    expect(transportExpectation('malformed')).toBe('FAIL-OPEN');
+    expect(transportExpectation('missing-executable')).toBe('MEASURE');
   });
 
   it('recognises Copilot runtime exhaustion separately from security failures', () => {
