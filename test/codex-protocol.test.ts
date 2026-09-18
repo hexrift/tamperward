@@ -15,7 +15,7 @@ import { Finding } from '../src/types';
 
 const DIR = join(__dirname, 'fixtures', 'codex-schemas');
 const schema = (name: string) => JSON.parse(readFileSync(join(DIR, name), 'utf8'));
-const ajv = new Ajv({ strict: false, allErrors: true });
+const ajv = new Ajv({ strict: false });
 const validatePreIn = ajv.compile(schema('pre-tool-use.command.input.schema.json'));
 const validatePreOut = ajv.compile(schema('pre-tool-use.command.output.schema.json'));
 const validateStopIn = ajv.compile(schema('stop.command.input.schema.json'));
