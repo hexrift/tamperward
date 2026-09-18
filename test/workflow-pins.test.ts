@@ -112,9 +112,16 @@ describe('release.yml fetches nothing unpinned at publish time (#423)', () => {
     const ci = steps.findIndex((s) => s.run !== undefined && /^npm ci\b/.test(s.run.trim()));
     expect(guard).toBeGreaterThan(-1);
     expect(ci).toBeGreaterThan(-1);
-    expect(ci, 'npm ci must run before the guard so require("semver") resolves').toBeLessThan(guard);
-    expect(steps[guard].run).toMatch(/require\(["']semver["']\)/);
-    expect(steps[guard].run).toMatch(/includePrerelease:\s*true/);
+    expect(ci, 'npm ci must run before the guard so its semver import resolves').toBeLessThan(guard);
+    // The guard delegates to a unit-tested helper (#548) that classifies each
+    // registry lookup as present/absent/failure and fails on a failure rather
+    // than skip. The semver comparison lives in that helper, still on the
+    // lock-pinned devDependency (no npx).
+    expect(steps[guard].run).toMatch(/forward-guard\.mjs/);
+    const guardSrc = readFileSync(join(DIR, '..', 'scripts', 'forward-guard.mjs'), 'utf8');
+    expect(guardSrc).toMatch(/from ['"]semver['"]/);
+    expect(guardSrc).toMatch(/includePrerelease:\s*true/);
+    expect(guardSrc).not.toMatch(/\bnpx\s/);
     const pkg: unknown = JSON.parse(readFileSync(join(DIR, '..', '..', 'package.json'), 'utf8'));
     const lock: unknown = JSON.parse(readFileSync(join(DIR, '..', '..', 'package-lock.json'), 'utf8'));
     if (!isRecord(pkg) || !isRecord(pkg.devDependencies)) throw new Error('no devDependencies');
