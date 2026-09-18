@@ -209,8 +209,9 @@ jobs:
       # from the lockfile (exact version, integrity-checked) — NOT an `npx`-fetched
       # semver, which pulled an unreviewed tarball from the registry inside the very job that
       # pins npm itself so nothing at publish time is fetched without review (#423).
-      # This job's only registry traffic is now `npm ci` against the lock and the
-      # publish itself.
+      # This job's registry traffic is now `npm ci` against the lock, the forward-version
+      # guard's read-only `npm view` lookups (#548), and the publish itself — no
+      # unreviewed code is fetched.
       - name: Version must move forward
         if: steps.plan.outputs.publish == 'true'
         # A registry lookup FAILURE must not be mistaken for an absent tag: the
