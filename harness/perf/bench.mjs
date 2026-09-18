@@ -97,35 +97,30 @@ function parseArgs(argv) {
  * `times` builtin prints the accumulated user/sys time of every child after the
  * command exits, portably on Linux and macOS, with no /usr/bin/time dependency.
  * Wall is measured around the bash process (a few ms of shell start-up are
- * included in every item alike). stdout/stderr of the command land in files.
+ * included in every item alike). The command's own stdout/stderr are captured on
+ * dedicated pipes (fds 3/4), keeping them off the stream `times` reports on.
  */
-let ioDir = tmpdir();
 function measure(cmd, args, { cwd, env, input }) {
-  // Never inside the repository under test: an untracked capture file would be
-  // a dirty tree to `run` and an untracked add to the sweep.
-  const outFile = join(ioDir, `perf-stdout-${process.pid}`);
-  const errFile = join(ioDir, `perf-stderr-${process.pid}`);
-  // out/err paths are passed as positional $1/$2 (not env vars) so no environment
-  // value is interpolated into the shell command; the command and its args stay
-  // in "$@". `times` needs a shell, hence bash -c.
-  const script = 'out="$1"; err="$2"; shift 2; "$@" >"$out" 2>"$err"; c=$?; times; exit $c';
+  // Capture the command's own stdout/stderr on fds 3/4 (pipes Node owns, never a
+  // shell path) so no environment-derived path is ever built into the command;
+  // `times` reports child CPU on fd 1. `times` needs a shell, hence bash -c.
+  const script = '"$@" >&3 2>&4; c=$?; times; exit $c';
   const t0 = performance.now();
-  const r = spawnSync('bash', ['-c', script, 'perf', outFile, errFile, cmd, ...args], {
+  const r = spawnSync('bash', ['-c', script, 'perf', cmd, ...args], {
     cwd,
     env: { ...process.env, ...env },
     input: input ?? '',
     encoding: 'utf8',
     maxBuffer: 1 << 24,
+    stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe'],
   });
   const wallMs = performance.now() - t0;
   const lines = (r.stdout ?? '').trim().split('\n');
   const children = lines[lines.length - 1] ?? '';
   const m = /(\d+)m([\d.]+)s\s+(\d+)m([\d.]+)s/.exec(children);
   const cpuMs = m ? (Number(m[1]) * 60 + Number(m[2]) + Number(m[3]) * 60 + Number(m[4])) * 1000 : NaN;
-  const stdout = existsSync(outFile) ? readFileSync(outFile, 'utf8') : '';
-  const stderr = existsSync(errFile) ? readFileSync(errFile, 'utf8') : '';
-  rmSync(outFile, { force: true });
-  rmSync(errFile, { force: true });
+  const stdout = r.output[3] ?? '';
+  const stderr = r.output[4] ?? '';
   return { wallMs, cpuMs, code: r.status, stdout, stderr };
 }
 
@@ -407,8 +402,6 @@ function main() {
 
   rmSync(opts.work, { recursive: true, force: true });
   mkdirSync(opts.work, { recursive: true });
-  ioDir = join(opts.work, '.io');
-  mkdirSync(ioDir);
   const repos = buildRepos(opts.work, opts);
   let items = catalogue(opts.cli, opts).filter((it) => (opts.profile === 'smoke' ? it.smoke === true : true));
   if (opts.items) {
