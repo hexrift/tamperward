@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.30.5] — 2026-09-18
+
+### Fixed
+
+- **`verify` now normalizes to the repository root** (#554). Standalone verification
+  loaded policy from the repository root but enumerated and materialized only the
+  caller's directory, so invoking `tamperward verify` from a package subdirectory
+  ran the root suite against an incomplete copy and reported a false `SUITE_RED`
+  for a perfectly valid repository. `runVerify` now resolves the repository root
+  once at entry (the `check`/hooks pattern from #412) and uses it consistently for
+  policy load, git enumeration, materialization, verifier inputs and suite
+  execution. A nested invocation produces the same verdict and restored-file count
+  as a root invocation; linked worktrees remain supported.
+
 ## [2.30.4] — 2026-09-18
 
 ### Fixed
