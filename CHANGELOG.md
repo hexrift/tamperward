@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.30.4] — 2026-09-18
+
+### Fixed
+
+- **Verifier descendant cleanup now checks process identity before signalling** (#545).
+  The Linux capture supervisor tracked bare descendant PID numbers and `SIGKILL`ed
+  them at completion/timeout without verifying identity, so a PID that had exited
+  and been reused could belong to an unrelated same-user process. Each descendant's
+  `/proc` start-time is now recorded and re-verified immediately before signalling
+  (a `(pid, start-time)` pair names one process instance), and the detached
+  group kill is gated on the child still being alive. A reused PID is dropped, not
+  killed; a still-live descendant with unchanged identity is still terminated.
+
 ## [2.30.3] — 2026-09-17
 
 ### Fixed
