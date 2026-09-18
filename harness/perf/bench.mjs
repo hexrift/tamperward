@@ -105,11 +105,14 @@ function measure(cmd, args, { cwd, env, input }) {
   // a dirty tree to `run` and an untracked add to the sweep.
   const outFile = join(ioDir, `perf-stdout-${process.pid}`);
   const errFile = join(ioDir, `perf-stderr-${process.pid}`);
-  const script = '"$@" >"$TW_PERF_OUT" 2>"$TW_PERF_ERR"; c=$?; times; exit $c';
+  // out/err paths are passed as positional $1/$2 (not env vars) so no environment
+  // value is interpolated into the shell command; the command and its args stay
+  // in "$@". `times` needs a shell, hence bash -c.
+  const script = 'out="$1"; err="$2"; shift 2; "$@" >"$out" 2>"$err"; c=$?; times; exit $c';
   const t0 = performance.now();
-  const r = spawnSync('bash', ['-c', script, 'perf', cmd, ...args], {
+  const r = spawnSync('bash', ['-c', script, 'perf', outFile, errFile, cmd, ...args], {
     cwd,
-    env: { ...process.env, ...env, TW_PERF_OUT: outFile, TW_PERF_ERR: errFile },
+    env: { ...process.env, ...env },
     input: input ?? '',
     encoding: 'utf8',
     maxBuffer: 1 << 24,
