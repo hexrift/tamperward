@@ -21,7 +21,12 @@ import { TW_VERSION } from '../src/wiring';
 
 const P = defaultPolicy();
 
-// The two pinned `h` variants and the pinned deprecation, byte-for-byte.
+// The two pinned `h` variants and the pinned deprecation, byte-for-byte. The
+// literal `${…}` shell expansions are written as `${'$'}{…}` (an interpolated
+// `$` then literal braces) rather than a `\${` escape: this detector compiles
+// hook content as a regex, and CodeQL reads a `\$` template escape as a useless
+// regex escape (js/useless-regexp-character-escape). The produced string is
+// identical either way.
 const H = `#!/usr/bin/env sh
 [ "$HUSKY" = "2" ] && set -x
 n=$(basename "$0")
@@ -32,10 +37,10 @@ s=$(dirname "$(dirname "$0")")/$n
 if [ -f "$HOME/.huskyrc" ]; then
 	echo "husky - '~/.huskyrc' is DEPRECATED, please move your code to ~/.config/husky/init.sh"
 fi
-i="\${XDG_CONFIG_HOME:-$HOME/.config}/husky/init.sh"
+i="${'$'}{XDG_CONFIG_HOME:-$HOME/.config}/husky/init.sh"
 [ -f "$i" ] && . "$i"
 
-[ "\${HUSKY-}" = "0" ] && exit 0
+[ "${'$'}{HUSKY-}" = "0" ] && exit 0
 
 export PATH="node_modules/.bin:$PATH"
 sh -e "$s" "$@"
