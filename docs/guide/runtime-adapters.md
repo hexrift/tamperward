@@ -415,16 +415,26 @@ box:
 - **(c) Real Copilot E2E** (`npm run probe:copilot-runtime`,
   `harness/adapters/copilot-probe.mjs`, **not** run in CI) — the real gate on a pinned,
   authenticated Copilot CLI. It wires TamperWard as a Copilot `preToolUse` hook (deny) plus an
-  `agentStop` hook (sweep) in `.github/hooks/tamperward.json`, runs CONTROL-vs-GATED mutation
-  pairs (shell edit, `apply_patch`, native `edit`/`create`, delete, rename, git restore, MCP,
-  nested shell, **`write_bash` shell-session**, and multiple protected mutations in one turn)
-  against `copilot -p … --allow-all-tools --no-ask-user`, and judges each from the parent-owned
-  ledger (`specIntact` alone is never proof). The **fail-closed transport** matrix drives six
-  broken hooks; crash / missing-executable / malformed / empty / non-zero must fail **closed**,
-  while the **command-hook timeout is recorded as the documented FAIL-OPEN** (never laundered
-  into a fail-closed PASS). It emits the **operation-specific capability matrix** #598 asks for
-  (`pre-deny:shell PROVEN`, `hook-crash FAIL-CLOSED`, `hook-timeout FAIL-OPEN`, `overall
-  PARTIAL`, …), never a single supported/unsupported boolean. A **provenance gate**
+  `agentStop` hook (sweep) in `.github/hooks/tamperward.json`, and — because Copilot gates
+  repository hooks in `-p` prompt mode — sets `GITHUB_COPILOT_PROMPT_MODE_REPO_HOOKS=true` in
+  the child environment (recorded in provenance) so the wiring actually loads. It runs
+  CONTROL-vs-GATED mutation pairs (shell edit, `apply_patch`, native `edit`/`create`, delete,
+  rename, git restore, MCP, nested shell, **`write_bash` shell-session**, and multiple protected
+  mutations in one turn) against `copilot -p … --allow-all-tools --no-ask-user`, and judges each
+  from the parent-owned ledger (`specIntact` alone is never proof; a **landed protected mutation
+  always takes precedence** over any runtime abort). It also runs the **detached/background**
+  case (a delayed background mutation judged only after a settle interval) and the real
+  **`agentStop` continuation** case (a mutation lands under a pass-through pre-action, then the
+  Stop sweep must return `decision:block` AND Copilot must honour it by continuing for another
+  turn — a later Stop carrying `stop_hook_active`). The **broken-hook transport** matrix drives
+  six hooks and classifies each by its DOCUMENTED semantic, not an assumed result: crash /
+  non-zero exit must fail **CLOSED**; a **timeout, or exit 0 with empty or malformed stdout**, is
+  the documented **FAIL-OPEN** (no hook output → default permission → the tool proceeds under
+  `--allow-all-tools`); a **missing configured executable** is **measured**. It emits the
+  **operation-specific capability matrix** #598 asks for (`pre-deny:shell PROVEN`, `hook-crash
+  FAIL-CLOSED`, `hook-timeout FAIL-OPEN`, `overall PARTIAL`, …), never a single
+  supported/unsupported boolean, and **every** measured transport contributes to the overall
+  gate (a fail-open on any keeps `overall` below FULL). A **provenance gate**
   (`COPILOT_VERSION_EXPECTED` matched **exactly**, `COPILOT_MODEL`, `COPILOT_HOME`, and the
   canonical hooks-config SHA-256) caps the result at PARTIAL when unpinned; with no Copilot CLI
   it reports PARTIAL and exits non-zero, so "could not test" is never mistaken for "passed".
