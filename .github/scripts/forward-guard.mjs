@@ -37,27 +37,27 @@ export function classifyView(r) {
   const out = String(r.stdout ?? '').trim();
   const err = String(r.stderr ?? '').trim();
   if (r.status === 0) {
-    if (out === '') return { kind: 'absent' }; // package present, tag unset
-    let v = out;
+    // A successful query must return a concrete semver. Empty stdout, JSON null,
+    // an array without a version, or a non-semver token is an unexpected
+    // registry/client response — NOT proof the tag is absent — so it fails closed
+    // (retried, then blocks). Absence is only ever a structured not-found, below.
+    let v = null;
     try {
       const p = JSON.parse(out);
       if (typeof p === 'string') v = p;
       else if (Array.isArray(p) && typeof p[0] === 'string') v = p[0]; // npm 12 wraps in an array
-      else if (p == null) return { kind: 'absent' };
     } catch {
-      // A bare (non-JSON) version line is tolerated too.
+      if (out !== '') v = out; // tolerate a bare (non-JSON) version line
     }
-    v = String(v).trim();
-    if (v === '') return { kind: 'absent' };
-    if (semver.valid(v)) return { kind: 'present', version: v };
-    return { kind: 'failure', detail: `malformed version from registry: ${JSON.stringify(v)}` };
+    v = v === null ? '' : String(v).trim();
+    if (v !== '' && semver.valid(v)) return { kind: 'present', version: v };
+    return { kind: 'failure', detail: `unexpected zero-exit registry response: ${JSON.stringify(out).slice(0, 120)}` };
   }
-  // Non-zero exit: a structured not-found is the only route to "absent".
+  // Non-zero exit: ABSENCE is permitted ONLY on npm's STRUCTURED not-found code.
+  // A free-form "404"-looking string without that code could be a proxy/auth/
+  // registry anomaly, so it is a failure — never a confirmed missing tag.
   const code = errorCode(out) || errorCode(err);
   if (code && NOT_FOUND.test(code)) return { kind: 'absent' };
-  if (!code && /E404|404 Not Found|No match(ing version)? found|is not in this registry/i.test(err)) {
-    return { kind: 'absent' };
-  }
   return { kind: 'failure', detail: code ? `registry error ${code}` : (err.split('\n').pop() || `npm view exited ${r.status}`) };
 }
 
@@ -108,9 +108,11 @@ export function forwardDecision(version, latest, next) {
   return { ok: true };
 }
 
-/** Real registry query for one tag. */
+/** Real registry query for one tag, with an explicit per-attempt timeout so one
+ *  hung query cannot stall the release beyond a bounded wall-clock — a timeout
+ *  returns status !== 0, is classified as a failure, retried, then blocks. */
 function realRunNpm(tag) {
-  const r = spawnSync('npm', ['view', `${PACKAGE}@${tag}`, 'version', '--json'], { encoding: 'utf8' });
+  const r = spawnSync('npm', ['view', `${PACKAGE}@${tag}`, 'version', '--json'], { encoding: 'utf8', timeout: 60_000 });
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 

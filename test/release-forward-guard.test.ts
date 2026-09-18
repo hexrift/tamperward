@@ -19,11 +19,18 @@ describe('#548 forward-version guard — classifyView', () => {
   it('a valid version on stdout is present', () => {
     expect(classifyView(ok('2.30.5'))).toEqual({ kind: 'present', version: '2.30.5' });
   });
-  it('exit 0 with empty stdout is an absent tag', () => {
-    expect(classifyView(emptyOk())).toEqual({ kind: 'absent' });
+  it('exit 0 with empty stdout is a lookup FAILURE, not absent (unstructured — could be an anomaly)', () => {
+    expect(classifyView(emptyOk()).kind).toBe('failure');
   });
-  it('a structured E404 is an absent tag', () => {
+  it('exit 0 with JSON null is a lookup FAILURE, not absent', () => {
+    expect(classifyView({ status: 0, stdout: 'null', stderr: '' }).kind).toBe('failure');
+  });
+  it('only a STRUCTURED npm not-found code is an absent tag', () => {
     expect(classifyView(npmErr('E404'))).toEqual({ kind: 'absent' });
+  });
+  it('a non-zero free-form "404 Not Found" WITHOUT a structured code is a FAILURE, not absent', () => {
+    const r = { status: 1, stdout: '', stderr: '404 Not Found - GET https://registry.npmjs.org/tamperward' };
+    expect(classifyView(r).kind).toBe('failure');
   });
   it.each(['ETIMEDOUT', 'E500', 'E503', 'E401', 'E403', 'ENEEDAUTH', 'ECONNRESET'])(
     'a %s error is a lookup failure, not an absent tag',
