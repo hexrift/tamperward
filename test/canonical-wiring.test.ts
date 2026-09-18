@@ -79,7 +79,7 @@ const sib = (event: string, entry: object, group: object = { matcher: 'Write' })
   return o;
 };
 /** The same file with every pin replaced. */
-const repin = (src: string, v: string): string => src.replace(new RegExp(`@${V.replace(/\./g, '\\.')}`, 'g'), `@${v}`);
+const repin = (src: string, v: string): string => src.replace(new RegExp(`@${V.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'), `@${v}`);
 const preCmd = (command: string) => json(base({ h: { command } }));
 const matcher = (m: unknown) => json(base({ m: { matcher: m } }));
 

@@ -143,7 +143,7 @@ describe('init refuses symlinked targets (#414)', () => {
       symlinkSync(target, join(d, rel));
       const r = captureInit(d);
       expect(r.code).toBe(2);
-      expect(rowFor(r.output, 'codeowners')).toMatch(new RegExp(`error\\s+${rel.replace(/[./]/g, '\\$&')}\\s+— refusing: symlink`));
+      expect(rowFor(r.output, 'codeowners')).toMatch(new RegExp(`error\\s+${rel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+— refusing: symlink`));
       expectUntouched(join(d, rel), target, before);
       // No second CODEOWNERS was created beside the refused one.
       if (rel !== '.github/CODEOWNERS') expect(existsSync(join(d, '.github', 'CODEOWNERS'))).toBe(false);

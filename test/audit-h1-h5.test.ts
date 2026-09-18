@@ -5,7 +5,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runVerify } from '../src/cli/verify';
@@ -262,7 +262,7 @@ describe('H5 the CI authority starts before candidate npm configuration exists',
     const cwd = tmp('tw-h5-');
     const ci = planInit(cwd).find((a) => a.item === 'ci')!;
     ci.apply!();
-    const src = execFileSync('cat', [join(cwd, '.github/workflows/tamperward.yml')], { encoding: 'utf8' });
+    const src = readFileSync(join(cwd, '.github/workflows/tamperward.yml'), 'utf8');
     const install = src.indexOf('working-directory: ${{ runner.temp }}');
     const checkout = src.indexOf('uses: actions/checkout@');
     expect(install).toBeGreaterThan(0);

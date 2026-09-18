@@ -189,20 +189,20 @@ describe('C2 · the PreToolUse matcher is compared as a tool set', () => {
           Stop: [{ hooks: [{ type: 'command', command: SWEEP }, { type: 'command', command: 'say done' }] }],
         },
       })],
-    ['re-pinning the gate above the version judging it', () => wired().replace(new RegExp(`@${V.replace(/\./g, '\\.')}`, 'g'), '@99.0.0')],
+    ['re-pinning the gate above the version judging it', () => wired().replace(new RegExp(`@${V.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'), '@99.0.0')],
   ])('%s is a sign-off since 2.9.0', (_name, after) => {
     const cwd = withSettings(wired());
     expect(denied(write(cwd, '.claude/settings.json', after()))).toBe(true);
   });
 
   it('control · re-pinning an older install up to the version judging it is allowed', () => {
-    const cwd = withSettings(wired().replace(new RegExp(`@${V.replace(/\./g, '\\.')}`, 'g'), '@2.5.0'));
+    const cwd = withSettings(wired().replace(new RegExp(`@${V.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'), '@2.5.0'));
     expect(allowed(write(cwd, '.claude/settings.json', wired()))).toBe(true);
   });
 
   it('re-pinning the gate to an OLDER version is a downgrade, and denied', () => {
     const cwd = withSettings(wired());
-    const r = write(cwd, '.claude/settings.json', wired().replace(new RegExp(`@${V.replace(/\./g, '\\.')}`, 'g'), '@2.1.0'));
+    const r = write(cwd, '.claude/settings.json', wired().replace(new RegExp(`@${V.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'), '@2.1.0'));
     expect(denied(r)).toBe(true);
     expect(r.stdout).toContain('below');
   });
