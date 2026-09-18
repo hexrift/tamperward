@@ -421,16 +421,23 @@ box:
   CONTROL-vs-GATED mutation pairs (shell edit, `apply_patch`, native `edit`/`create`, delete,
   rename, git restore, MCP, nested shell, **`write_bash` shell-session**, and multiple protected
   mutations in one turn) against `copilot -p … --allow-all-tools --no-ask-user`, and judges each
-  from the parent-owned ledger (`specIntact` alone is never proof; a **landed protected mutation
-  always takes precedence** over any runtime abort). It also runs the **detached/background**
-  case (a delayed background mutation judged only after a settle interval) and the real
+  from the ledger, which is written **outside the candidate's file sandbox** and treated as
+  **corroborating** evidence only — the unforgeable gate is parent-observed (spec state, the
+  CONTROL arm landing, Copilot's own stdout, the exit code), and a **landed protected mutation
+  (parent-observed) always FAILs** regardless of any ledger record. It also runs the
+  **detached/background** case (a delayed background mutation, evidence **bound to the intended
+  command** via a unique sentinel + the protected spec, with a CONTROL arm proving the prompt is
+  potent, judged only after a settle interval — a dispatched sentinel is fail-open even if the
+  file stays intact) and the real
   **`agentStop` continuation** case (a mutation lands under a pass-through pre-action, then the
   Stop sweep must return `decision:block` AND Copilot must honour it by continuing for another
   turn — a later Stop carrying `stop_hook_active`). The **broken-hook transport** matrix drives
   six hooks and classifies each by its DOCUMENTED semantic, not an assumed result: crash /
   non-zero exit must fail **CLOSED**; a **timeout, or exit 0 with empty or malformed stdout**, is
   the documented **FAIL-OPEN** (no hook output → default permission → the tool proceeds under
-  `--allow-all-tools`); a **missing configured executable** is **measured**. It emits the
+  `--allow-all-tools`); a **missing configured executable** — wired via Copilot's `exec` hook
+  form so the binary genuinely cannot be spawned (distinct from a shell reporting "command not
+  found") — is **measured**. It emits the
   **operation-specific capability matrix** #598 asks for (`pre-deny:shell PROVEN`, `hook-crash
   FAIL-CLOSED`, `hook-timeout FAIL-OPEN`, `overall PARTIAL`, …), never a single
   supported/unsupported boolean, and **every** measured transport contributes to the overall
