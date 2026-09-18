@@ -304,6 +304,72 @@ that control surface (the same way the Claude hook wiring is protected), is the 
 along with the `effectDriftBlocks` / `sanctionPredictedWrites` parity noted above. This PR
 wires hooks only inside the probe harness; it adds no init/onboard generation.
 
+## GitHub Copilot CLI (EXPERIMENTAL — adapter exists, not yet 4.1-eligible)
+
+An **experimental** GitHub Copilot CLI adapter ships in `src/adapters/copilot/*`
+([#482](https://github.com/hexrift/tamperward/issues/482),
+[#598](https://github.com/hexrift/tamperward/issues/598)). It is the third implementation of
+the neutral `RuntimeAdapter` contract, and — like Codex — it is deliberately conservative.
+
+**Grounded in the published Copilot hook contract.** Copilot CLI is closed-source, so the
+adapter's wire is grounded against the **GitHub Copilot hooks reference** (the canonical
+contract for the CLI) rather than a source tree. Every hook payload carries the common fields
+`cwd`, `session_id`, and `timestamp`; a `preToolUse` payload additionally carries `tool_name`,
+a `tool_input` object, and a `tool_use_id`. The hook-facing tool names are lowercase — `bash`
+/ `powershell` for the shell, `create` / `edit` (with `str_replace` / `write` as edit-family
+aliases) for file writes, and `mcp__<server>__<tool>` for MCP. Deletes and renames are issued
+through the shell (`rm` / `mv`), so they reconstruct via the command path, not a dedicated
+tool. The **deny wire differs by phase**, and differs in shape from Claude/Codex: `preToolUse`
+denies with a **flat** `{ permissionDecision: "deny", permissionDecisionReason }` (no
+`hookSpecificOutput` wrapper), while the `agentStop` end-of-turn event carries a flat
+`{ decision: "block", reason }` — the same shape the canonical Stop sweep already emits, so
+the adapter passes that wire through unchanged.
+
+**Only `preToolUse` is a control point.** On Copilot, `preToolUse` is the sole hook that can
+approve or deny a tool call; `postToolUse` and `agentStop` are observational (`agentStop`'s
+`decision:"block"` forces another turn, it does not veto a filesystem operation). The adapter
+treats `post-action` as observation-only and rejects a post-action deny wire at the boundary,
+exactly as the Codex adapter does.
+
+**A specific fail-open risk, recorded not masked.** Copilot's documented hook failure
+semantics are **asymmetric**: a `preToolUse` hook that **crashes**, exits non-zero, or exits
+2 **fails closed** (the tool call is denied — exit 2 denies even if stdout says allow), but a
+hook that **times out** **fails OPEN** (the tool call proceeds). That timeout-fails-open path
+is the specific qualification risk [#598](https://github.com/hexrift/tamperward/issues/598)
+names, and it is carried verbatim in the adapter's `unsupported` list so a cross-runtime study
+cannot mistake Copilot for a fail-closed transport. The real `probe:copilot-runtime`
+qualification (follow-up PR) is what measures whether the pinned build behaves as documented.
+
+**Conservative capabilities.** The Copilot adapter declares:
+
+- `preDeny: []` — pre-action deny enforcement is **not yet proven** on a pinned Copilot CLI
+  build, so the adapter claims no synchronous veto (the honesty rule: only claim `preDeny` for
+  a kind proven by invocation evidence, never by the mere existence of a hook name);
+- `postObserve: shell | file-edit | file-read | mcp | other` — Copilot surfaces
+  post-execution tool outcomes via `postToolUse`;
+- `endOfTurn: true` — Copilot delivers an `agentStop` event that runs the mandatory git sweep;
+- `unsupported` names the real gaps in prose: *pre-action deny enforcement not yet proven on a
+  pinned Copilot CLI build*, *preToolUse hook timeout fails OPEN* (crash / non-zero / exit 2
+  fail closed), *only preToolUse is a control point*, *network-egress control*, and
+  *identity / authentication*.
+
+Identity is validated as an untrusted claim exactly as the Claude and Codex adapters do, and
+every failure state (`parse-failure`, `transport-failure`, `not-invoked`, an unreconstructable
+edit, a rejected identity) fails closed to a deny. The pre-action path pins the Stop-sweep
+baseline at **turn start** on every call, for the same reason Codex does: with `preDeny` empty
+the end-of-turn git sweep is the only real enforcement, and a baseline first set at Stop time
+would let a mutation the turn *committed* mid-turn slip past.
+
+**Two milestones, not one.** This PR is milestone one — the adapter — with unit/adapter
+conformance in `test/copilot-adapter.test.ts` (CI). Milestone two — the real
+`probe:copilot-runtime` headless qualification on a pinned, authenticated Copilot CLI build
+(the mutation matrix, the broken-hook / fail-closed matrix with the timeout-fails-open case
+measured, and the provenance gate), plus protocol-conformance fixtures pinned from a real
+run — is the **follow-up PR**. Until a FULL qualification verdict on a pinned build says
+otherwise, Copilot stays `steering: 'neutral'` in `src/runtimes.ts`, `preDeny` stays empty,
+and no Round 4.1 research round is registered. A green CI run proves the build, unit/adapter
+tests, and static gate only — **not** runtime qualification.
+
 ## Runtime detection in onboarding
 
 `tamperward onboard` reports which agent runtime a repository actually hosts and what
