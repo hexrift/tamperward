@@ -15,7 +15,6 @@ import { copilotAdapter, CopilotRuntimeAdapter } from '../src/adapters/copilot/a
 import { copilotDenyWire, copilotWire } from '../src/adapters/copilot/deny';
 import { normalizeCopilotEvent, copilotOperationKind, copilotStopInput } from '../src/adapters/copilot/schema';
 import { formatDenial } from '../src/adapters/claude/deny';
-import { OPERATION_KINDS } from '../src/adapters/contract';
 import { Finding } from '../src/types';
 
 function repoFixture(): string {
@@ -82,21 +81,25 @@ describe('CopilotRuntimeAdapter — identity and capabilities honesty', () => {
     expect(new CopilotRuntimeAdapter().name).toBe('github-copilot-cli');
   });
 
-  it('is CONSERVATIVE: preDeny is empty and unsupported names the real Copilot semantics', () => {
+  it('is CONSERVATIVE: preDeny and postObserve empty; unsupported names the real Copilot semantics', () => {
     const caps = copilotAdapter.capabilities;
     expect(caps.preDeny).toEqual([]);
     expect(caps.endOfTurn).toBe(true);
-    expect([...caps.postObserve].sort()).toEqual([...OPERATION_KINDS].sort());
+    // Milestone one does not consume postToolUse (decide(post-action) → unsupported), so the
+    // adapter advertises NO post-observe capability rather than contradicting itself.
+    expect(caps.postObserve).toEqual([]);
     const u = caps.unsupported.join(' | ');
     expect(u).toMatch(/pre-action deny enforcement not yet proven/i);
-    // Blocker 4: fail-open is scoped to command hooks, and HTTP hooks fail open too.
+    // fail-open is scoped to command hooks, and HTTP hooks fail open too.
     expect(u).toMatch(/COMMAND preToolUse hook timeout fails OPEN/i);
     expect(u).toMatch(/HTTP preToolUse hook fails OPEN/i);
-    // Blocker 3: agentStop is a lifecycle continuation control, plus the 8-block override.
+    // agentStop is a lifecycle continuation control, plus the 8-block override.
     expect(u).toMatch(/agentStop can only block turn completion and force continuation/i);
     expect(u).toMatch(/8 consecutive blocks/i);
-    // Blocker 2: apply_patch / str_replace_editor payloads modelled but pending a real fixture.
+    // apply_patch / str_replace_editor payloads modelled but pending a real fixture.
     expect(u).toMatch(/apply_patch \/ str_replace_editor/i);
+    // shell-session write tools are recorded as mutation-capable, payload pending a fixture.
+    expect(u).toMatch(/write_bash \/ write_powershell/i);
   });
 });
 
@@ -105,6 +108,12 @@ describe('copilotOperationKind — both documented tool vocabularies', () => {
     // native
     expect(copilotOperationKind('bash')).toBe('shell');
     expect(copilotOperationKind('powershell')).toBe('shell');
+    // shell-SESSION write tools send input to a running shell → mutation-capable shell.
+    expect(copilotOperationKind('write_bash')).toBe('shell');
+    expect(copilotOperationKind('write_powershell')).toBe('shell');
+    // read/list/stop session tools do not send input → non-mutating.
+    expect(copilotOperationKind('read_bash')).toBe('other');
+    expect(copilotOperationKind('stop_bash')).toBe('other');
     expect(copilotOperationKind('create')).toBe('file-edit');
     expect(copilotOperationKind('edit')).toBe('file-edit');
     expect(copilotOperationKind('apply_patch')).toBe('file-edit');
@@ -198,6 +207,30 @@ describe('CopilotRuntimeAdapter.decide — pre-action denies protected mutations
       const j = JSON.parse(r.wire as string);
       expect(j.permissionDecision).toBe('deny'); // Copilot's FLAT control shape
       expect(j.hookSpecificOutput).toBeUndefined();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('denies a mutating write_bash (input sent to a shell session), not a silent allow', () => {
+    const cwd = repoFixture();
+    try {
+      // write_bash sends `input` to an existing shell session — judged as a command.
+      const raw = nativePre(cwd, 'write_bash', { input: 'rm src/a.spec.ts' });
+      const r = copilotAdapter.decide(raw, 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+      expect(r.wire).toContain('test-deletion');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('a write_bash carrying no reconstructable input fails CLOSED (never a silent allow)', () => {
+    const cwd = repoFixture();
+    try {
+      const r = copilotAdapter.decide(nativePre(cwd, 'write_bash', { sessionId: 'sh1' }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+      expect(r.decision?.findings[0].rule).toBe('tamperward-unavailable');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
