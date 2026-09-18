@@ -8,35 +8,49 @@
   `CopilotRuntimeAdapter` (`src/adapters/copilot/*`) is the third implementation of the
   neutral `RuntimeAdapter` contract, mirroring the Codex adapter's structure. Copilot CLI is
   closed-source, so the wire is grounded against the **published GitHub Copilot hooks
-  reference** (the canonical contract for the CLI): every hook payload carries `cwd`,
-  `session_id`, and `timestamp`; a `preToolUse` payload adds `tool_name`, a `tool_input`
-  object, and `tool_use_id`. The adapter maps Copilot's lowercase hook-facing tool names to
-  operation kinds (`bash` / `powershell` → `shell`; `create` / `edit`, with `str_replace` /
-  `write` aliases → `file-edit`; `mcp__<server>__<tool>` → `mcp`), reconstructs shell and
-  file-edit operations into the shared `Change[]` via `synthFileChange` (deletes/renames go
-  through the shell, so no `apply_patch`-style envelope is needed), runs the **same** engine
-  as the Claude path for its pre-action content decision, pins the Stop-sweep baseline at turn
-  start, and delegates the end-of-turn sweep to the canonical git sweep. The deny wire is
-  **phase-split** to Copilot's real, distinct shapes: `preToolUse` denies with a **flat**
-  `{ permissionDecision: "deny", permissionDecisionReason }` (no `hookSpecificOutput`
+  reference** (the canonical contract for the CLI). GitHub documents **two** hook wire formats
+  and the adapter accepts **both**: **native camelCase** (`preToolUse` → `sessionId`,
+  `timestamp`, `cwd`, `toolName`, `toolArgs` where `toolArgs` is a JSON **string** that must be
+  parsed; `agentStop` → `sessionId`, `transcriptPath`, `stopReason`) and the **PascalCase /
+  Claude-compatible** format (`PreToolUse` → `hook_event_name`, `session_id`, `timestamp`,
+  `cwd`, `tool_name`, `tool_input`, where `tool_name` is the Claude tool name `Bash` / `Write`
+  / `Edit` / `Read` / `MultiEdit`; `Stop` → `session_id`, `transcript_path`, `stop_reason`).
+  Normalization is field-by-field, snake_case winning with camelCase as a fallback; the
+  undocumented `tool_use_id` is not read. The adapter maps both tool vocabularies to operation
+  kinds (`bash` / `powershell` / `Bash` → `shell`; `create` / `edit` / `apply_patch` /
+  `str_replace_editor` / `Write` / `Edit` / `MultiEdit` → `file-edit`; `view` / `Read` →
+  `file-read`; `mcp__<server>__<tool>` → `mcp`), and reconstructs operations into the shared
+  `Change[]` via `synthFileChange`. The first-party **`apply_patch`** envelope (shared with
+  Codex via a new `src/adapters/apply-patch.ts`) is modelled explicitly; **`str_replace_editor`**
+  is modelled for its `str_replace` / `create` sub-ops and **fails closed** on any other sub-op
+  pending a real payload; deletes/renames go through the shell. It runs the **same** engine as
+  the Claude path for its pre-action content decision, pins the Stop-sweep baseline at turn
+  start, and delegates the end-of-turn sweep to the canonical git sweep after normalizing the
+  `agentStop` / `Stop` payload to the Claude Stop shape (native `sessionId` → `session_id`). The
+  deny wire is **phase-split** to Copilot's real, distinct shapes: `preToolUse` denies with a
+  **flat** `{ permissionDecision: "deny", permissionDecisionReason }` (no `hookSpecificOutput`
   wrapper), while `agentStop` denies with `{ decision: "block", reason }` — the same shape the
-  canonical Stop sweep already emits, so it passes through unchanged. Identity is validated as
-  an untrusted claim exactly as the Claude and Codex adapters do, and every failure state
-  (`parse-failure`, `transport-failure`, `not-invoked`, an unreconstructable edit, a rejected
-  identity) fails closed to a deny. Capabilities are deliberately **conservative and honest**:
-  `preDeny` is **empty** because pre-action deny enforcement is not yet proven on a pinned
-  Copilot CLI build, and `unsupported` names the real gaps — including Copilot's specific
-  **asymmetric hook-failure semantics**: a `preToolUse` hook crash / non-zero exit / exit 2
-  fails **closed**, but a hook **timeout fails OPEN** (the tool call proceeds). That
-  timeout-fails-open path is the qualification risk #598 names, and it is recorded verbatim
-  rather than masked. This is milestone one: the adapter exists but is **not** 4.1-eligible —
-  Copilot stays `neutral` in `src/runtimes.ts` and no research round is registered. The real
+  canonical Stop sweep already emits. Identity is validated as an untrusted claim exactly as the
+  Claude and Codex adapters do, and every failure state (`parse-failure`, `transport-failure`,
+  `not-invoked`, an unreconstructable edit, a rejected identity) fails closed to a deny.
+  Capabilities are deliberately **conservative and honest**: `preDeny` is **empty** because
+  pre-action deny enforcement is not yet proven on a pinned Copilot CLI build, and `unsupported`
+  names the real gaps — Copilot's **asymmetric, transport-scoped hook-failure semantics** (a
+  **command** `preToolUse` hook crash / non-zero exit / exit 2 fails **closed** but a **timeout
+  fails OPEN**; an **HTTP** `preToolUse` hook fails **OPEN** on network error / timeout /
+  non-2xx, so only the local command/exec transport is a qualification candidate), the fact
+  that **`preToolUse` is the only pre-execution veto** while **`agentStop` only forces
+  continuation** and Copilot **overrides the hook after 8 consecutive blocks** (the
+  `stop_hook_active` lifecycle), and that the `apply_patch` / `str_replace_editor` payloads are
+  modelled from the published contract but not yet confirmed against a real pinned-run fixture.
+  This is milestone one: the adapter exists but is **not** 4.1-eligible — Copilot stays
+  `neutral` in `src/runtimes.ts` and no research round is registered. The real
   `probe:copilot-runtime` headless qualification on a pinned, authenticated Copilot build (the
-  mutation and broken-hook / fail-closed matrices, with the timeout-fails-open case measured,
-  plus protocol-conformance fixtures pinned from a real run) is the **follow-up PR**; only a
-  FULL verdict on a pinned build justifies flipping Copilot to `in-loop`. Adapter conformance
-  runs in CI (`test/copilot-adapter.test.ts`); a green CI run does **not** prove runtime
-  qualification.
+  mutation and broken-hook / fail-closed matrices, with the command-hook timeout-fails-open case
+  measured and the qualified transport captured in the provenance, plus protocol-conformance
+  fixtures pinned from a real run) is the **follow-up PR**; only a FULL verdict on a pinned build
+  justifies flipping Copilot to `in-loop`. Adapter conformance runs in CI
+  (`test/copilot-adapter.test.ts`); a green CI run does **not** prove runtime qualification.
 
 ## [2.30.6] — 2026-09-18
 

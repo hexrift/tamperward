@@ -311,34 +311,55 @@ An **experimental** GitHub Copilot CLI adapter ships in `src/adapters/copilot/*`
 [#598](https://github.com/hexrift/tamperward/issues/598)). It is the third implementation of
 the neutral `RuntimeAdapter` contract, and — like Codex — it is deliberately conservative.
 
-**Grounded in the published Copilot hook contract.** Copilot CLI is closed-source, so the
-adapter's wire is grounded against the **GitHub Copilot hooks reference** (the canonical
-contract for the CLI) rather than a source tree. Every hook payload carries the common fields
-`cwd`, `session_id`, and `timestamp`; a `preToolUse` payload additionally carries `tool_name`,
-a `tool_input` object, and a `tool_use_id`. The hook-facing tool names are lowercase — `bash`
-/ `powershell` for the shell, `create` / `edit` (with `str_replace` / `write` as edit-family
-aliases) for file writes, and `mcp__<server>__<tool>` for MCP. Deletes and renames are issued
-through the shell (`rm` / `mv`), so they reconstruct via the command path, not a dedicated
-tool. The **deny wire differs by phase**, and differs in shape from Claude/Codex: `preToolUse`
+**Grounded in the published Copilot hook contract, both documented formats.** Copilot CLI is
+closed-source, so the adapter's wire is grounded against the **GitHub Copilot hooks reference**
+(the canonical contract for the CLI) rather than a source tree. GitHub documents **two** hook
+wire formats, and the adapter accepts **both**:
+
+- **Native camelCase** — `preToolUse` carries `sessionId`, `timestamp`, `cwd`, `toolName`, and
+  `toolArgs` (a JSON **string** that must be parsed); `agentStop` carries `sessionId`,
+  `transcriptPath`, `stopReason`. The native tool names are lowercase: `bash` / `powershell`
+  (shell), `create` / `edit` / `apply_patch` / `str_replace_editor` (file write), `view`
+  (read).
+- **PascalCase / Claude-compatible** — `PreToolUse` carries `hook_event_name`, `session_id`,
+  `timestamp`, `cwd`, `tool_name`, and a `tool_input` object, where `tool_name` is the **Claude
+  tool name** (`Bash`, `Write`, `Edit`, `Read`, `MultiEdit`); `Stop` carries `session_id`,
+  `transcript_path`, `stop_reason`. In this mode a native `apply_patch` / `edit` /
+  `str_replace_editor` is reported as `Edit`.
+
+Normalization is field-by-field with the snake_case spelling winning and the camelCase spelling
+as a fallback, so either mode normalizes sensibly; `tool_use_id` is **not** a documented Copilot
+field and is not read. `apply_patch` (the OpenAI patch envelope, shared with Codex) is
+reconstructed via the shared `applyPatchChanges`; `str_replace_editor` is modelled for its
+`str_replace` and `create` sub-ops and **fails closed** on any other sub-op (e.g. `insert`)
+pending a real pinned-run payload. Deletes and renames are issued through the shell (`rm` /
+`mv`). The **deny wire differs by phase**, and differs in shape from Claude/Codex: `preToolUse`
 denies with a **flat** `{ permissionDecision: "deny", permissionDecisionReason }` (no
 `hookSpecificOutput` wrapper), while the `agentStop` end-of-turn event carries a flat
-`{ decision: "block", reason }` — the same shape the canonical Stop sweep already emits, so
-the adapter passes that wire through unchanged.
+`{ decision: "block", reason }` — the same shape the canonical Stop sweep already emits. The
+raw `agentStop` / `Stop` payload is normalized to the Claude Stop shape first (native
+`sessionId` → `session_id`) so the sweep anchors the same per-session baseline the pre-action
+path pinned.
 
-**Only `preToolUse` is a control point.** On Copilot, `preToolUse` is the sole hook that can
-approve or deny a tool call; `postToolUse` and `agentStop` are observational (`agentStop`'s
-`decision:"block"` forces another turn, it does not veto a filesystem operation). The adapter
-treats `post-action` as observation-only and rejects a post-action deny wire at the boundary,
-exactly as the Codex adapter does.
+**Control points and the agentStop continuation limit.** On Copilot, `preToolUse` is the only
+**pre-execution tool veto**. `agentStop` is a **lifecycle control**: its `{decision:"block"}`
+**forces another agent turn** (it cannot undo a filesystem mutation that already landed), and
+Copilot **overrides the hook after 8 consecutive `block` continuations** (the `stop_hook_active`
+lifecycle) — so `endOfTurn: true` must **not** be read as Claude-equivalent enforcement until
+the real Stop qualification exercises that interaction (TamperWard's canonical `stopVerdict`
+immediately allows when `stop_hook_active:true`). `postToolUse` is observation-only; the adapter
+rejects a post-action deny wire at the boundary, exactly as the Codex adapter does.
 
-**A specific fail-open risk, recorded not masked.** Copilot's documented hook failure
-semantics are **asymmetric**: a `preToolUse` hook that **crashes**, exits non-zero, or exits
-2 **fails closed** (the tool call is denied — exit 2 denies even if stdout says allow), but a
-hook that **times out** **fails OPEN** (the tool call proceeds). That timeout-fails-open path
-is the specific qualification risk [#598](https://github.com/hexrift/tamperward/issues/598)
-names, and it is carried verbatim in the adapter's `unsupported` list so a cross-runtime study
-cannot mistake Copilot for a fail-closed transport. The real `probe:copilot-runtime`
-qualification (follow-up PR) is what measures whether the pinned build behaves as documented.
+**A fail-open risk scoped to the transport, recorded not masked.** For a **command**
+`preToolUse` hook, Copilot's failure semantics are **asymmetric**: a hook that **crashes**,
+exits non-zero, or exits 2 **fails closed** (exit 2 denies even if stdout says allow), but a
+hook that **times out** **fails OPEN** (the tool call proceeds). Separately, an **HTTP**
+`preToolUse` hook **fails OPEN** on network error, timeout, or a non-2xx response. TamperWard
+therefore qualifies only the **local command/exec** transport, and both facts are carried in the
+adapter's `unsupported` list so a cross-runtime study cannot mistake Copilot for a fail-closed
+transport. The real `probe:copilot-runtime` qualification (follow-up PR) measures whether the
+pinned command-hook build behaves as documented, and makes the transport part of the pinned
+provenance.
 
 **Conservative capabilities.** The Copilot adapter declares:
 
@@ -347,11 +368,14 @@ qualification (follow-up PR) is what measures whether the pinned build behaves a
   a kind proven by invocation evidence, never by the mere existence of a hook name);
 - `postObserve: shell | file-edit | file-read | mcp | other` — Copilot surfaces
   post-execution tool outcomes via `postToolUse`;
-- `endOfTurn: true` — Copilot delivers an `agentStop` event that runs the mandatory git sweep;
+- `endOfTurn: true` — Copilot delivers an `agentStop` event that runs the mandatory git sweep
+  (subject to the 8-block continuation limit above);
 - `unsupported` names the real gaps in prose: *pre-action deny enforcement not yet proven on a
-  pinned Copilot CLI build*, *preToolUse hook timeout fails OPEN* (crash / non-zero / exit 2
-  fail closed), *only preToolUse is a control point*, *network-egress control*, and
-  *identity / authentication*.
+  pinned Copilot CLI build*, the *command-hook timeout fails OPEN / HTTP-hook fails OPEN*
+  transport scoping, *`preToolUse` is the only pre-execution veto while `agentStop` only forces
+  continuation (8-block override)*, *`apply_patch` / `str_replace_editor` payloads modelled from
+  the published contract but not yet confirmed against a real fixture*, *network-egress control*,
+  and *identity / authentication*.
 
 Identity is validated as an untrusted claim exactly as the Claude and Codex adapters do, and
 every failure state (`parse-failure`, `transport-failure`, `not-invoked`, an unreconstructable

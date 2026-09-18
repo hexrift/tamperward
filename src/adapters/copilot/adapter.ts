@@ -11,14 +11,21 @@
 // It opens no second verdict path: the pre-action content decision runs the SAME `evaluate`
 // engine every other surface uses over a Change[] reconstructed by src/adapters/copilot/
 // changes.ts, and the end-of-turn sweep DELEGATES to the canonical git sweep (`stopFromRaw`
-// in src/cli/hook.ts), whose `{decision:"block",reason}` wire is already Copilot's agentStop
-// shape, so it passes through unchanged. Identity is validated exactly as the Claude and
-// Codex adapters validate it.
+// in src/cli/hook.ts), whose `{decision:"block",reason}` wire is Copilot's agentStop shape.
+// The raw agentStop payload is normalized to the Claude Stop shape first (native camelCase
+// `sessionId` → `session_id`) so the sweep anchors the same per-session baseline the
+// pre-action path pinned. Identity is validated exactly as the Claude and Codex adapters do.
 //
-// Known Copilot transport risk carried in `unsupported` until the probe measures it: a
-// preToolUse hook TIMEOUT fails OPEN (the tool call proceeds) even though a crash / non-zero
-// exit / exit 2 fails closed. That is the specific qualification risk #598 names, and it
-// must be recorded, not masked.
+// Copilot control-point and transport facts carried in `unsupported` until the probe measures
+// them on a pinned build (GitHub Copilot hooks reference):
+//  - `preToolUse` is the only PRE-EXECUTION tool veto; `agentStop`'s `{decision:"block"}`
+//    forces another turn (a lifecycle control, not a filesystem veto) and Copilot OVERRIDES
+//    the hook after 8 consecutive blocks (the `stop_hook_active` lifecycle); `postToolUse` is
+//    post-execution observation.
+//  - a COMMAND `preToolUse` hook that crashes / exits non-zero / exits 2 fails CLOSED, but a
+//    TIMEOUT fails OPEN (the tool call proceeds) — the specific qualification risk #598 names;
+//    an HTTP `preToolUse` hook fails OPEN on network error / timeout / non-2xx, so TamperWard
+//    qualifies only the local command/exec transport, recorded as such, not masked.
 
 import { Finding } from '../../types';
 import { evaluate } from '../../engine';
@@ -40,7 +47,7 @@ import {
 } from '../contract';
 import { changesFromCopilot } from './changes';
 import { copilotDenyWire } from './deny';
-import { normalizeCopilotEvent } from './schema';
+import { copilotStopInput, normalizeCopilotEvent } from './schema';
 
 const POST_OBSERVE: readonly OperationKind[] = ['shell', 'file-edit', 'file-read', 'mcp', 'other'];
 
@@ -61,8 +68,9 @@ export class CopilotRuntimeAdapter implements RuntimeAdapter {
     endOfTurn: true,
     unsupported: [
       'pre-action deny enforcement not yet proven on a pinned Copilot CLI build (see probe:copilot-runtime)',
-      'preToolUse hook timeout fails OPEN on Copilot CLI: a timed-out hook lets the tool call proceed (crash / non-zero exit / exit 2 fail closed)',
-      'only preToolUse is a control point — postToolUse and agentStop are observational on Copilot',
+      'COMMAND preToolUse hook timeout fails OPEN on Copilot CLI: a timed-out hook lets the tool call proceed (crash / non-zero exit / exit 2 fail closed); an HTTP preToolUse hook fails OPEN on network error / timeout / non-2xx, so only the local command/exec transport is a qualification candidate',
+      'preToolUse is the only PRE-EXECUTION tool veto; agentStop can only block turn completion and force continuation (a lifecycle control, not a filesystem veto), and Copilot overrides the hook after 8 consecutive blocks (stop_hook_active lifecycle); postToolUse is observation-only',
+      'apply_patch / str_replace_editor exact hook payloads are modelled from the published contract but not yet confirmed against a pinned real-run fixture (str_replace_editor sub-ops other than str_replace/create fail closed)',
       'network-egress control',
       'identity / authentication',
     ],
@@ -131,10 +139,18 @@ export class CopilotRuntimeAdapter implements RuntimeAdapter {
     }
 
     if (phase === 'end-of-turn') {
-      // The canonical git sweep's Stop wire is ALREADY Copilot's agentStop
-      // `{decision:"block",reason}` shape, so it passes through unchanged. The verdict is
-      // entirely the canonical stopFromRaw's; the adapter reshapes nothing.
-      const wire = stopFromRaw(raw, defaultCwd, idv.trustedRoot).stdout;
+      // Normalize either documented agentStop / Stop format to the Claude Stop shape the
+      // canonical git sweep consumes (native `sessionId` → `session_id`), so the sweep anchors
+      // the same per-session baseline the pre-action path pinned. The sweep's output wire is
+      // ALREADY Copilot's agentStop `{decision:"block",reason}` shape, so it passes through
+      // unchanged; the verdict is entirely the canonical stopFromRaw's.
+      const stopInput = copilotStopInput(raw);
+      if (typeof stopInput !== 'string') {
+        const findings = [steeringUnavailableFinding(`unparseable Copilot event: ${stopInput.detail}`)];
+        const wire = this.denyPayload(findings, 'end-of-turn');
+        return { outcome: 'parse-failure', detail: stopInput.detail, wire, decision: { verdict: 'deny', findings, reason: wire } };
+      }
+      const wire = stopFromRaw(stopInput, defaultCwd, idv.trustedRoot).stdout;
       return { outcome: 'ok', wire, decision: { verdict: wire ? 'deny' : 'allow', findings: [], reason: wire || undefined } };
     }
 

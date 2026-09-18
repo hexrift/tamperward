@@ -1,55 +1,56 @@
 // GitHub Copilot CLI hook payload → the neutral SteeringEvent (#482 / #598, EXPERIMENTAL).
 //
 // The Copilot counterpart to src/cli/hook.ts `parseInput` and the Codex adapter's
-// `normalizeCodexEvent`: it turns raw Copilot CLI hook bytes into the runtime-neutral
-// event the engine already understands, or a parse failure that the adapter fails CLOSED
-// on. It reads no disk and reaches no engine — only shape normalization and the
-// tool-name → OperationKind map live here.
+// `normalizeCodexEvent`: it turns raw Copilot CLI hook bytes into the runtime-neutral event
+// the engine already understands, or a parse failure that the adapter fails CLOSED on. It
+// reads no disk and reaches no engine — only shape normalization and the tool-name →
+// OperationKind map live here.
+//
+// TWO DOCUMENTED WIRE FORMATS (GitHub Copilot hooks reference). The adapter accepts both, so
+// it works whichever mode a Copilot build emits:
+//
+//   1. NATIVE camelCase — `preToolUse`:  { sessionId, timestamp, cwd, toolName, toolArgs }
+//      where `toolArgs` arrives as a JSON *string* that must be parsed; `agentStop`:
+//      { sessionId, transcriptPath, stopReason }.
+//   2. PascalCase (VS Code / Claude-compatible) — `PreToolUse`: { hook_event_name, session_id,
+//      timestamp, cwd, tool_name, tool_input } where `tool_name` is the CLAUDE tool name
+//      (`Bash`, `Write`, `Edit`, `Read`); `Stop`: { session_id, transcript_path, stop_reason }.
+//
+// Normalization is field-by-field with the PascalCase/snake_case spelling taking precedence and
+// the native camelCase spelling as a fallback, so either mode — or a build that mixes them —
+// normalizes sensibly. `tool_use_id` is NOT a documented Copilot hook field and is not read.
 //
 // Empty/absent stdin is a well-formed ABSENCE (an allow), exactly as the Claude and Codex
-// parsers treat it; a present-but-malformed payload (invalid JSON, or a non-object shape)
-// is a parse-failure that must fail closed. Field values of the wrong type are dropped,
-// not believed — never fatal — mirroring `parseInput`.
-//
-// Wire grounding: every Copilot CLI hook payload carries the common fields `cwd`,
-// `session_id` and `timestamp`; a `preToolUse` payload additionally carries `tool_name`,
-// a `tool_input` object, and a `tool_use_id` (GitHub Copilot hooks reference). The tool
-// names are lowercase — `bash` / `powershell` for the shell, `create` / `edit` (with
-// `str_replace` / `write` as edit-family aliases) for file writes; MCP tools arrive as
-// `mcp__<server>__<tool>`. Deletes and renames are issued through the shell (`rm` / `mv`),
-// so they reconstruct via the shell path, not a dedicated tool.
+// parsers treat it; a present-but-malformed payload (invalid JSON, or a non-object shape) is a
+// parse-failure that must fail closed. Field values of the wrong type are dropped, not believed.
 
 import { OperationKind, ProposedOperation, SteeringEvent, SteeringPhase, UntrustedIdentity } from '../contract';
 import { isRecord } from '../../narrow';
 
 export interface CopilotHookInput {
-  /** Copilot names its events in camelCase (`preToolUse`, `postToolUse`, `agentStop`, …);
-   *  the phase is supplied by the driver, so this is retained for diagnostics only. */
-  hook_event_name?: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
-  /** Copilot's per-call id; retained for evidence correlation, not used in reconstruction. */
-  tool_use_id?: string;
   cwd?: string;
   session_id?: string;
   stop_hook_active?: boolean;
 }
 
-// Canonical Copilot CLI hook-facing tool names (GitHub Copilot hooks reference):
-//  - the shell family is `bash` (POSIX) and `powershell` (Windows);
-//  - native file writes are `create` (new file) and `edit`, with `str_replace` / `write`
-//    accepted as edit-family aliases the reconstruction understands;
-//  - MCP calls are `mcp__<server>__<tool>`;
-//  - a native read tool produces no Change downstream. Shell-mediated reads arrive as
-//    `bash` and MCP reads as `mcp__…`.
+// Canonical Copilot CLI hook-facing tool names span BOTH documented vocabularies (GitHub
+// Copilot hooks reference), matched case-insensitively so the same map handles the native
+// lowercase names and the PascalCase Claude-compatible names:
+//  - shell: `bash` / `powershell` (native), `Bash` (PascalCase);
+//  - file write: `create` / `edit` / `apply_patch` / `str_replace_editor` (native),
+//    `Write` / `Edit` / `MultiEdit` (PascalCase). NOTE: in PascalCase mode, a native
+//    `apply_patch` / `edit` / `str_replace_editor` is reported to the hook as `Edit`;
+//  - file read: `view` (native), `Read` (PascalCase);
+//  - MCP: `mcp__<server>__<tool>`.
 const SHELL_TOOLS = new Set(['bash', 'powershell']);
-const FILE_EDIT_TOOLS = new Set(['create', 'edit', 'str_replace', 'write']);
+const FILE_EDIT_TOOLS = new Set(['create', 'edit', 'write', 'multiedit', 'apply_patch', 'str_replace_editor']);
 const FILE_READ_TOOLS = new Set(['view', 'read']);
 const MCP_PREFIX = 'mcp__';
 
-/** Copilot hook-facing tool name → neutral operation kind. Read-only and unknown kinds
- *  produce no Change downstream (src/adapters/copilot/changes.ts). Matched
- *  case-insensitively so a `Bash` / `BASH` spelling maps the same as `bash`. */
+/** Copilot hook-facing tool name → neutral operation kind, over both documented vocabularies.
+ *  Read-only and unknown kinds produce no Change downstream (src/adapters/copilot/changes.ts). */
 export function copilotOperationKind(toolName: string | undefined): OperationKind {
   if (!toolName) return 'other';
   const name = toolName.toLowerCase();
@@ -60,16 +61,38 @@ export function copilotOperationKind(toolName: string | undefined): OperationKin
   return 'other';
 }
 
-/** Field-by-field, wrong types dropped rather than believed. Never throws — the caller
- *  distinguishes an empty absence from a malformed shape before calling this. */
+/** The tool arguments, from PascalCase `tool_input` (an object) or native `toolArgs` (a JSON
+ *  string that must be parsed, per GitHub's tutorial). A `toolArgs` that is not valid JSON is
+ *  dropped, not believed — the reconstruction then carries no args and fails closed to a deny. */
+function argsFrom(parsed: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (isRecord(parsed.tool_input)) return parsed.tool_input;
+  const ta = parsed.toolArgs;
+  if (isRecord(ta)) return ta;
+  if (typeof ta === 'string' && ta.trim()) {
+    try {
+      const decoded = JSON.parse(ta);
+      return isRecord(decoded) ? decoded : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+/** Field-by-field, PascalCase/snake_case winning over native camelCase, wrong types dropped
+ *  rather than believed. Never throws — the caller distinguishes an empty absence from a
+ *  malformed shape before calling this. */
 function inputFrom(parsed: Record<string, unknown>): CopilotHookInput {
+  const toolName =
+    typeof parsed.tool_name === 'string' ? parsed.tool_name : typeof parsed.toolName === 'string' ? parsed.toolName : undefined;
+  const sessionId =
+    typeof parsed.session_id === 'string' ? parsed.session_id : typeof parsed.sessionId === 'string' ? parsed.sessionId : undefined;
+  const args = argsFrom(parsed);
   return {
-    ...(typeof parsed.hook_event_name === 'string' ? { hook_event_name: parsed.hook_event_name } : {}),
-    ...(typeof parsed.tool_name === 'string' ? { tool_name: parsed.tool_name } : {}),
-    ...(isRecord(parsed.tool_input) ? { tool_input: parsed.tool_input } : {}),
-    ...(typeof parsed.tool_use_id === 'string' ? { tool_use_id: parsed.tool_use_id } : {}),
+    ...(toolName !== undefined ? { tool_name: toolName } : {}),
+    ...(args !== undefined ? { tool_input: args } : {}),
     ...(typeof parsed.cwd === 'string' ? { cwd: parsed.cwd } : {}),
-    ...(typeof parsed.session_id === 'string' ? { session_id: parsed.session_id } : {}),
+    ...(sessionId !== undefined ? { session_id: sessionId } : {}),
     ...(typeof parsed.stop_hook_active === 'boolean' ? { stop_hook_active: parsed.stop_hook_active } : {}),
   };
 }
@@ -83,34 +106,57 @@ function eventFrom(input: CopilotHookInput, phase: SteeringPhase): SteeringEvent
   return { phase, operation, identity };
 }
 
+type ParseResult =
+  | { kind: 'absent' }
+  | { kind: 'ok'; record: Record<string, unknown> }
+  | { kind: 'fail'; detail: string };
+
+function parseRaw(raw: string): ParseResult {
+  if (!raw.trim()) return { kind: 'absent' }; // well-formed absence
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    return { kind: 'fail', detail: `the Copilot hook payload is not valid JSON: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  if (!isRecord(parsed)) {
+    return { kind: 'fail', detail: `the Copilot hook payload is not a JSON object (got ${Array.isArray(parsed) ? 'an array' : typeof parsed})` };
+  }
+  return { kind: 'ok', record: parsed };
+}
+
 /**
  * Normalize raw Copilot CLI hook bytes for `phase` into a neutral event, or a parse failure.
  *
  *  - empty/whitespace-only stdin → a well-formed ABSENCE: an event with an empty-named
- *    operation (which reconstructs to no Change, hence an allow), matching the Claude and
- *    Codex parsers' treatment of `< /dev/null`;
- *  - invalid JSON, or a JSON value that is not an object (an array, a primitive) →
- *    `parse-failure`, which the adapter maps to a fail-closed deny.
+ *    operation (which reconstructs to no Change, hence an allow);
+ *  - invalid JSON, or a JSON value that is not an object → `parse-failure` (fail-closed deny).
  */
 export function normalizeCopilotEvent(
   raw: string,
   phase: SteeringPhase,
 ): SteeringEvent | { failure: 'parse-failure'; detail: string } {
-  if (!raw.trim()) return eventFrom({}, phase);
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
-    return {
-      failure: 'parse-failure',
-      detail: `the Copilot hook payload is not valid JSON: ${e instanceof Error ? e.message : String(e)}`,
-    };
-  }
-  if (!isRecord(parsed)) {
-    return {
-      failure: 'parse-failure',
-      detail: `the Copilot hook payload is not a JSON object (got ${Array.isArray(parsed) ? 'an array' : typeof parsed})`,
-    };
-  }
-  return eventFrom(inputFrom(parsed), phase);
+  const parsed = parseRaw(raw);
+  if (parsed.kind === 'absent') return eventFrom({}, phase);
+  if (parsed.kind === 'fail') return { failure: 'parse-failure', detail: parsed.detail };
+  return eventFrom(inputFrom(parsed.record), phase);
+}
+
+/**
+ * Build the Claude-format Stop payload the canonical git sweep (`stopFromRaw`) consumes, from
+ * either documented Copilot `agentStop` / `Stop` format. This normalizes native `sessionId`
+ * → `session_id` so the sweep anchors the same per-session turn baseline the pre-action path
+ * pinned, regardless of which wire format the runtime uses. Returns a parse-failure for a
+ * malformed payload (the adapter already validates this before calling, but it stays honest).
+ */
+export function copilotStopInput(raw: string): string | { failure: 'parse-failure'; detail: string } {
+  const parsed = parseRaw(raw);
+  if (parsed.kind === 'absent') return '{}';
+  if (parsed.kind === 'fail') return { failure: 'parse-failure', detail: parsed.detail };
+  const input = inputFrom(parsed.record);
+  return JSON.stringify({
+    ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
+    ...(input.session_id !== undefined ? { session_id: input.session_id } : {}),
+    ...(input.stop_hook_active !== undefined ? { stop_hook_active: input.stop_hook_active } : {}),
+  });
 }
