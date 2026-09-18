@@ -106,6 +106,11 @@ describe('Codex protocol conformance — deny wire validates against the real ou
     const raw = JSON.stringify({ ...preToolUseInput(), tool_name: 'Bash', tool_input: { command: 'rm x' }, cwd: '/definitely/not/a/repo/xyz' });
     const r = codexAdapter.decide(raw, 'pre-action', process.cwd());
     expect(r.decision?.verdict).toBe('deny');
-    expect(validatePreOut(JSON.parse(r.wire as string))).toBe(true);
+    // Bound the wire before the schema walk: a pre-action deny wire is a small,
+    // fixed-shape object, so this asserts that and keeps CodeQL from reading
+    // JSON.parse → Ajv as an unbounded deep-object traversal.
+    const wire = r.wire as string;
+    expect(wire.length).toBeLessThan(10_000);
+    expect(validatePreOut(JSON.parse(wire))).toBe(true);
   });
 });
