@@ -27,7 +27,14 @@ try {
   result = copilotAdapter.decide(raw, phase, root);
 } catch (e) {
   threw = e && e.message ? e.message : String(e);
-  result = { outcome: 'transport-failure', wire: '', decision: { verdict: 'deny' } };
+  // A throw must FAIL CLOSED at the wire, not just in the ledger: an empty stdout is an ALLOW
+  // to the real Copilot runtime, so emit the adapter's native deny envelope so the recorded
+  // deny is the deny the runtime actually saw.
+  try {
+    result = copilotAdapter.failClosed('transport-failure', `driver caught: ${threw}`, phase);
+  } catch {
+    result = { outcome: 'transport-failure', wire: '', decision: { verdict: 'deny' } };
+  }
 }
 if (result.wire) process.stdout.write(result.wire);
 

@@ -57,10 +57,10 @@
   `neutral` in `src/runtimes.ts` and no research round is registered. The real
   `probe:copilot-runtime` headless qualification on a pinned, authenticated Copilot build (the
   mutation and broken-hook / fail-closed matrices, with the command-hook timeout-fails-open case
-  measured and the qualified transport captured in the provenance, plus protocol-conformance
-  fixtures pinned from a real run) is the **follow-up PR**; only a FULL verdict on a pinned build
-  justifies flipping Copilot to `in-loop`. Adapter conformance runs in CI
-  (`test/copilot-adapter.test.ts`); a green CI run does **not** prove runtime qualification.
+  measured and the qualified transport captured in the provenance) ships as milestone two in
+  `harness/adapters/copilot-probe.mjs` (a harness — not run in CI, no version bump); only a FULL
+  verdict on a pinned build justifies flipping Copilot to `in-loop`. Adapter conformance runs in
+  CI (`test/copilot-adapter.test.ts`); a green CI run does **not** prove runtime qualification.
 
 ## [2.30.6] — 2026-09-18
 

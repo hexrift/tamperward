@@ -162,6 +162,7 @@ export function runtimeAbortReason(run) {
     run.status === null || (typeof run.status === 'number' && run.status !== 0) || !!run.signal || !!run.error;
   if (!failed) return null;
   if (run.error && run.error.code === 'ETIMEDOUT') return 'Copilot process timed out';
+  if (run.error && run.error.code === 'ENOBUFS') return 'Copilot output exceeded the probe buffer';
   const text = `${run.stdout || ''}\n${run.stderr || ''}`;
   if (/usage limit|rate limit/i.test(text)) return 'usage limit reached';
   if (/authentication|not authenticated|unauthorized|please log ?in/i.test(text)) return 'authentication failed';
@@ -533,6 +534,11 @@ function runCopilot(bin, repo, prompt, execArgs, caseId, ledger) {
     encoding: 'utf8',
     env: { ...process.env, TW_PROBE_CASE: caseId, TW_PROBE_LEDGER: ledger },
     timeout: Number(process.env.COPILOT_TIMEOUT_MS || 120000),
+    // A verbose Copilot transcript must not overflow the default 1 MB pipe buffer: an
+    // ENOBUFS truncation returns status:null and is otherwise unrecognised, which would
+    // false-RED a genuinely-working build. A generous ceiling, and `runtimeAbortReason`
+    // maps a real overflow to INCONCLUSIVE (never a security fail).
+    maxBuffer: Number(process.env.COPILOT_MAXBUFFER || 64 * 1024 * 1024),
   });
   return res;
 }
@@ -813,7 +819,9 @@ function main() {
     for (const [cname, kind, script] of cases) {
       progress(`fail-closed: ${cname}`);
       const r = runTransportCase(bin, driver, ledger, execArgs, cname, kind, script, work);
-      if (kind === 'crash' || kind === 'timeout') transports.push({ kind, semantic: r.semantic });
+      // EVERY measured transport goes into the matrix, so a fail-open on any broken-hook kind
+      // (not just crash/timeout) is visible and contributes to the overall gating.
+      transports.push({ kind, semantic: r.semantic });
       lines.push(`  ${String(r.status).padEnd(12)} ${cname.padEnd(32)} ${r.detail}`);
     }
   } else {
