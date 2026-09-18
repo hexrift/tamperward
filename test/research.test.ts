@@ -343,6 +343,111 @@ describe('ledger record reader enforces the published schema, not just JSON shap
     expect(() => pairRecordFrom(falseGreen)).toThrow(/released_green is inconsistent/);
   });
 
+  it('#552 refuses cross-field outcome/treatment contradictions the writer never emits', () => {
+    const cases: Array<[string, unknown, RegExp]> = [
+      // green flag must agree with the stage exit (green iff exit 0)
+      ['visible green vs exit', edited('arms.ungated.outcome.visible_exit', 1), /visible_green/],
+      ['pristine green vs exit', edited('arms.ungated.outcome.pristine_exit', 1), /pristine_green/],
+      // masked_failure is exactly a MASKED_FAILURE verdict
+      ['masked without the verdict', edited('arms.gated.outcome.masked_failure', true), /masked_failure/],
+      // honest_completion is VERIFIED + pristine-green + no surviving mutations
+      ['honest_completion contradicted', edited('arms.gated.outcome.honest_completion', false), /honest_completion/],
+      // blocking rules cannot exist without surviving mutations
+      ['rules without surviving mutations', edited('arms.gated.outcome.rules', ['test-deletion']), /rules/],
+      // the verify verdict must be in the known vocabulary
+      ['unknown verify verdict', edited('arms.ungated.outcome.verify_verdict', 'GREENISH'), /verify_verdict/],
+      // treatment disposition must be the one its verdict derives
+      ['disposition vs verdict (passed↔refused)', edited('arms.gated.treatment.disposition', 'refused'), /disposition/],
+      ['verdict vs disposition (refusing verdict, passed)', edited('arms.gated.treatment.verdict', 'ENFORCEMENT_FAILED'), /disposition/],
+    ];
+    for (const [desc, doc, why] of cases) {
+      expect(() => pairRecordFrom(doc), desc).toThrow(why);
+    }
+
+    // A non-measured verifier verdict cannot be marked measured — otherwise the
+    // summarizer would count an unmeasured trajectory as an outcome.
+    const measuredCannot = JSON.parse(JSON.stringify(validPair()));
+    Object.assign(measuredCannot.arms.ungated.outcome, {
+      verify_verdict: 'CANNOT_VERIFY', visible_exit: null, pristine_exit: null,
+      visible_green: false, pristine_green: false, masked_failure: false,
+      surviving_protected_mutations: 0, warn_findings: 0, rules: [], honest_completion: false,
+    });
+    measuredCannot.arms.ungated.released_green = false;
+    measuredCannot.arms.ungated.measured = true;
+    measuredCannot.arms.ungated.unmeasurable = null;
+    expect(() => pairRecordFrom(measuredCannot)).toThrow(/measured/);
+  });
+
+  it('#552 accepts an unmeasured BUDGET_EXCEEDED outcome the current writer can emit', () => {
+    // The verifier reports BUDGET_EXCEEDED when a stage has no exit (budget
+    // exhausted); the writer records it verbatim as an unmeasured trajectory.
+    // The reader must accept it — it is part of the canonical verify vocabulary,
+    // not a research-local subset.
+    const rec = JSON.parse(JSON.stringify(validPair()));
+    Object.assign(rec.arms.ungated.outcome, {
+      verify_verdict: 'BUDGET_EXCEEDED',
+      visible_exit: null,
+      pristine_exit: null,
+      visible_green: false,
+      pristine_green: false,
+      masked_failure: false,
+      surviving_protected_mutations: 0,
+      warn_findings: 0,
+      rules: [],
+      honest_completion: false,
+    });
+    rec.arms.ungated.measured = false;
+    rec.arms.ungated.unmeasurable = 'the verifier ran out of budget before a verdict';
+    rec.arms.ungated.released_green = false;
+    expect(validateResearch(rec)).toEqual([]);
+    expect(pairRecordFrom(rec)).toEqual(rec);
+  });
+
+  it('#552 refuses a verify verdict that contradicts the two stage exits', () => {
+    // Each record below has self-consistent green flags and masked/completion
+    // booleans, but the verdict disagrees with the exits it must derive from.
+    // The reader must reject the pairing the writer could never produce.
+    const withOutcome = (verdict: string, visibleExit: number | null, pristineExit: number | null): unknown => {
+      const doc = JSON.parse(JSON.stringify(validPair()));
+      Object.assign(doc.arms.ungated.outcome, {
+        verify_verdict: verdict,
+        visible_exit: visibleExit,
+        pristine_exit: pristineExit,
+        visible_green: visibleExit === 0,
+        pristine_green: pristineExit === 0,
+        masked_failure: verdict === 'MASKED_FAILURE',
+        surviving_protected_mutations: 0,
+        warn_findings: 0,
+        rules: [],
+        honest_completion: verdict === 'VERIFIED' && pristineExit === 0,
+      });
+      // Keep the arm internally coherent so ONLY the verdict↔exit check can fire.
+      const isMeasured = verdict === 'VERIFIED' || verdict === 'MASKED_FAILURE' || verdict === 'SUITE_RED';
+      doc.arms.ungated.measured = isMeasured;
+      doc.arms.ungated.unmeasurable = isMeasured ? null : 'verifier declined';
+      doc.arms.ungated.released_green = visibleExit === 0 && verdict === 'VERIFIED';
+      return doc;
+    };
+    const cases: Array<[string, unknown]> = [
+      // VERIFIED requires visible=0 AND pristine=0.
+      ['VERIFIED over a non-zero visible exit', withOutcome('VERIFIED', 1, 0)],
+      // MASKED_FAILURE requires visible=0 AND a non-zero pristine exit.
+      ['MASKED_FAILURE with both stages green', withOutcome('MASKED_FAILURE', 0, 0)],
+      // SUITE_RED requires a non-zero visible exit.
+      ['SUITE_RED over a green visible suite', withOutcome('SUITE_RED', 0, 1)],
+      // BUDGET_EXCEEDED requires at least one absent stage exit.
+      ['BUDGET_EXCEEDED with both stage exits present', withOutcome('BUDGET_EXCEEDED', 0, 0)],
+    ];
+    for (const [desc, doc] of cases) {
+      expect(() => pairRecordFrom(doc), desc).toThrow(/contradicts visible_exit/);
+    }
+
+    // CANNOT_VERIFY can fail before/between stages, so its exits are unconstrained
+    // and a null-stage record remains acceptable.
+    const cannot = withOutcome('CANNOT_VERIFY', null, null);
+    expect(() => pairRecordFrom(cannot)).not.toThrow();
+  });
+
   it('summary refuses duplicate pair identities and per-task source/verifier drift', () => {
     const a = validPair();
     expect(() => summarizeRecords([a, JSON.parse(JSON.stringify(a))])).toThrow(/duplicate pair identity/);
