@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.30.6] — 2026-09-18
+
+### Fixed
+
+- **The research ledger reader now enforces the writer's own outcome/treatment
+  derivations** (#552). A `PairRecord` carries summary fields (`visible_green`,
+  `pristine_green`, `masked_failure`, `honest_completion`, the treatment
+  `disposition`, and the measured/verdict pairing) that the writer derives once
+  from the observed run, but the reader used by both `resume` and `summarize`
+  (`pairRecordFrom`) accepted them verbatim, so an imported, hand-edited, or
+  partially migrated record could feed the aggregator internally contradictory
+  totals without being rejected. The derivations now live in one place
+  (`src/research/derive.ts`) used by both the writer (`run.ts`) and the reader
+  (`record.ts`); the reader re-derives each field and rejects any stored value
+  that disagrees (green must match exit 0, masked must match `MASKED_FAILURE`,
+  honest completion must match `VERIFIED` + pristine-green + zero surviving
+  mutations, the disposition must match the envelope verdict, a measured
+  trajectory must carry a measured verdict, and the rules list must be sorted,
+  deduplicated, and non-empty exactly when a protected mutation survived).
+  `resume` and `summarize` now reject the same inconsistent record instead of
+  silently aggregating it.
+
 ## [2.30.5] — 2026-09-18
 
 ### Fixed

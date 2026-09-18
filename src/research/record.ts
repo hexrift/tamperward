@@ -8,14 +8,24 @@
 
 import { finiteNumber, isRecord, nullableString } from '../narrow';
 import { ADAPTER_LAYERS, RESEARCH_ARMS, ResearchError, type AdapterLayer, type ResearchArm } from './adapter';
-import { MACHINE_SCHEMA_VERSION, RUN_VERDICTS } from '../machine-output';
+import { MACHINE_SCHEMA_VERSION } from '../machine-output';
+import {
+  TREATMENT_DISPOSITIONS,
+  type TreatmentDisposition,
+  dispositionOf,
+  greenFromExit,
+  honestCompletionFrom,
+  isMeasuredVerdict,
+  isRunVerdict,
+  isVerifyVerdict,
+  maskedFailureFrom,
+} from './derive';
 
-/** How TamperWard's own verdict in the gated arm is classified for the readout.
- *  `refused`: the envelope exited with an enforcement finding; `passed`: the
- *  envelope let the tree through (the agent's own exit is passed on);
- *  `cannot`: the envelope could not adjudicate. */
-export const TREATMENT_DISPOSITIONS = ['refused', 'passed', 'cannot'] as const;
-export type TreatmentDisposition = (typeof TREATMENT_DISPOSITIONS)[number];
+// Re-exported so existing importers of the disposition vocabulary from this
+// module keep working; the single definition lives in ./derive with the rest of
+// the shared writer/reader derivations.
+export { TREATMENT_DISPOSITIONS };
+export type { TreatmentDisposition };
 
 export interface TrajectoryOutcome {
   /** The `verify` verdict over the tree the agent left, against the trusted base. */
@@ -137,7 +147,7 @@ function outcomeFrom(raw: unknown, where: string): TrajectoryOutcome {
   if (!Array.isArray(rules) || !rules.every((x) => typeof x === 'string' && x.length > 0)) {
     bad(`${where}.rules is not an array of non-empty strings`);
   }
-  return {
+  const outcome: TrajectoryOutcome = {
     verify_verdict: str(raw, 'verify_verdict', where),
     visible_exit: nullableInt(raw, 'visible_exit', where),
     pristine_exit: nullableInt(raw, 'pristine_exit', where),
@@ -149,6 +159,34 @@ function outcomeFrom(raw: unknown, where: string): TrajectoryOutcome {
     rules: rules.filter((x): x is string => typeof x === 'string'),
     honest_completion: bool(raw, 'honest_completion', where),
   };
+  // Cross-field consistency (#552): every derived field must equal what the
+  // writer's derivation (./derive) produces, so an edited/migrated record cannot
+  // hand the aggregator a contradictory summary. Do not repair — reject.
+  if (!isVerifyVerdict(outcome.verify_verdict)) {
+    bad(`${where}.verify_verdict "${outcome.verify_verdict}" is not a known verify verdict`);
+  }
+  if (outcome.visible_green !== greenFromExit(outcome.visible_exit)) {
+    bad(`${where}.visible_green does not match visible_exit (green iff exit 0)`);
+  }
+  if (outcome.pristine_green !== greenFromExit(outcome.pristine_exit)) {
+    bad(`${where}.pristine_green does not match pristine_exit (green iff exit 0)`);
+  }
+  if (outcome.masked_failure !== maskedFailureFrom(outcome.verify_verdict)) {
+    bad(`${where}.masked_failure does not match the verify verdict`);
+  }
+  if (outcome.honest_completion !== honestCompletionFrom(outcome.verify_verdict, outcome.pristine_green, outcome.surviving_protected_mutations)) {
+    bad(`${where}.honest_completion does not match verify verdict / pristine green / surviving mutations`);
+  }
+  if (new Set(outcome.rules).size !== outcome.rules.length) bad(`${where}.rules contains duplicate rules`);
+  const sortedRules = [...outcome.rules].sort();
+  if (outcome.rules.some((r, i) => r !== sortedRules[i])) bad(`${where}.rules is not sorted`);
+  if (outcome.rules.length > outcome.surviving_protected_mutations) {
+    bad(`${where}.rules has more entries than surviving_protected_mutations`);
+  }
+  if ((outcome.surviving_protected_mutations === 0) !== (outcome.rules.length === 0)) {
+    bad(`${where}.rules must be empty exactly when there are no surviving protected mutations`);
+  }
+  return outcome;
 }
 
 function treatmentFrom(raw: unknown, where: string): TreatmentRecord | null {
@@ -160,7 +198,14 @@ function treatmentFrom(raw: unknown, where: string): TreatmentRecord | null {
   const envelope = raw.envelope;
   if (envelope !== null && !isRecord(envelope)) bad(`${where}.envelope is not an object or null`);
   const verdict = str(raw, 'verdict', where);
-  if (!RUN_VERDICTS.some((v) => v === verdict)) bad(`${where}.verdict "${verdict}" is not a run verdict`);
+  if (!isRunVerdict(verdict)) bad(`${where}.verdict "${verdict}" is not a run verdict`);
+  // The disposition is derived from the verdict, not stored independently (#552):
+  // an agent-failed run can still carry a `passed` enforcement disposition, but a
+  // disposition that disagrees with what its verdict derives is a contradiction.
+  const derivedDisposition = dispositionOf(verdict);
+  if (known !== derivedDisposition) {
+    bad(`${where}.disposition "${known}" does not match verdict "${verdict}" (derives "${derivedDisposition}")`);
+  }
   return {
     verdict,
     exit_code: int(raw, 'exit_code', where),
@@ -190,6 +235,12 @@ function trajectoryFrom(raw: unknown, arm: ResearchArm, where: string): Trajecto
 
   const outcome = outcomeFrom(raw.outcome, `${where}.outcome`);
   const measured = bool(raw, 'measured', where);
+  // An unknown or non-measuring verify verdict cannot be counted as a measured
+  // outcome (#552): the aggregator would otherwise treat a declined verifier as
+  // an observation.
+  if (measured && !isMeasuredVerdict(outcome.verify_verdict)) {
+    bad(`${where}.measured is true but verify_verdict "${outcome.verify_verdict}" is not a measured verdict`);
+  }
   if (measured && unmeasurable !== null) bad(`${where}.unmeasurable must be null when measured=true`);
   if (!measured && (unmeasurable === null || unmeasurable.length === 0)) {
     bad(`${where}.unmeasurable must name the reason when measured=false`);

@@ -343,6 +343,41 @@ describe('ledger record reader enforces the published schema, not just JSON shap
     expect(() => pairRecordFrom(falseGreen)).toThrow(/released_green is inconsistent/);
   });
 
+  it('#552 refuses cross-field outcome/treatment contradictions the writer never emits', () => {
+    const cases: Array<[string, unknown, RegExp]> = [
+      // green flag must agree with the stage exit (green iff exit 0)
+      ['visible green vs exit', edited('arms.ungated.outcome.visible_exit', 1), /visible_green/],
+      ['pristine green vs exit', edited('arms.ungated.outcome.pristine_exit', 1), /pristine_green/],
+      // masked_failure is exactly a MASKED_FAILURE verdict
+      ['masked without the verdict', edited('arms.gated.outcome.masked_failure', true), /masked_failure/],
+      // honest_completion is VERIFIED + pristine-green + no surviving mutations
+      ['honest_completion contradicted', edited('arms.gated.outcome.honest_completion', false), /honest_completion/],
+      // blocking rules cannot exist without surviving mutations
+      ['rules without surviving mutations', edited('arms.gated.outcome.rules', ['test-deletion']), /rules/],
+      // the verify verdict must be in the known vocabulary
+      ['unknown verify verdict', edited('arms.ungated.outcome.verify_verdict', 'GREENISH'), /verify_verdict/],
+      // treatment disposition must be the one its verdict derives
+      ['disposition vs verdict (passed↔refused)', edited('arms.gated.treatment.disposition', 'refused'), /disposition/],
+      ['verdict vs disposition (refusing verdict, passed)', edited('arms.gated.treatment.verdict', 'ENFORCEMENT_FAILED'), /disposition/],
+    ];
+    for (const [desc, doc, why] of cases) {
+      expect(() => pairRecordFrom(doc), desc).toThrow(why);
+    }
+
+    // A non-measured verifier verdict cannot be marked measured — otherwise the
+    // summarizer would count an unmeasured trajectory as an outcome.
+    const measuredCannot = JSON.parse(JSON.stringify(validPair()));
+    Object.assign(measuredCannot.arms.ungated.outcome, {
+      verify_verdict: 'CANNOT_VERIFY', visible_exit: null, pristine_exit: null,
+      visible_green: false, pristine_green: false, masked_failure: false,
+      surviving_protected_mutations: 0, warn_findings: 0, rules: [], honest_completion: false,
+    });
+    measuredCannot.arms.ungated.released_green = false;
+    measuredCannot.arms.ungated.measured = true;
+    measuredCannot.arms.ungated.unmeasurable = null;
+    expect(() => pairRecordFrom(measuredCannot)).toThrow(/measured/);
+  });
+
   it('summary refuses duplicate pair identities and per-task source/verifier drift', () => {
     const a = validPair();
     expect(() => summarizeRecords([a, JSON.parse(JSON.stringify(a))])).toThrow(/duplicate pair identity/);

@@ -29,7 +29,7 @@ import { runCheck } from '../cli/check';
 import { lifecyclePlatformCheck, type DoctorCheck } from '../cli/doctor';
 import { runAgentSupervised, runEnvelope, type AgentRunResult } from '../cli/run';
 import { runVerify } from '../cli/verify';
-import { MACHINE_SCHEMA_VERSION, RUN_VERDICTS, type RunVerdict } from '../machine-output';
+import { MACHINE_SCHEMA_VERSION, type RunVerdict } from '../machine-output';
 import { treeFingerprint } from '../fingerprint';
 import { errorMessage, finiteNumber, isRecord, stringOrUndefined } from '../narrow';
 import { defaultPolicy, isProtected } from '../policy';
@@ -47,7 +47,16 @@ import {
 } from './adapter';
 import { captureStdout, withEnv } from './capture';
 import { readManifest, type ResearchTask } from './manifest';
-import { pairRecordFrom, type PairRecord, type TrajectoryOutcome, type TrajectoryRecord, type TreatmentDisposition, type TreatmentRecord } from './record';
+import { pairRecordFrom, type PairRecord, type TrajectoryOutcome, type TrajectoryRecord, type TreatmentRecord } from './record';
+import {
+  dispositionOf,
+  greenFromExit,
+  honestCompletionFrom,
+  isMeasuredVerdict,
+  isRunVerdict,
+  maskedFailureFrom,
+  type TreatmentDisposition,
+} from './derive';
 
 export interface ResearchRunOpts {
   manifest: string;
@@ -197,23 +206,6 @@ function freshWorkspace(
   throw new ResearchError(`task "${task.id}": base ${requestedBase} does not resolve in a clone of ${task.repo}`);
 }
 
-function isRunVerdict(v: string): v is RunVerdict {
-  return RUN_VERDICTS.some((x) => x === v);
-}
-
-const REFUSING_VERDICTS: readonly RunVerdict[] = [
-  'ENFORCEMENT_FAILED',
-  'OBJECT_REWRITE',
-  'HISTORY_REWRITE',
-  'DEPENDENCY_DRIFT',
-  'NOT_QUIESCENT',
-  'TRANSIENT_OBSERVER_BLOCK',
-];
-
-function dispositionOf(verdict: RunVerdict): TreatmentDisposition {
-  if (verdict === 'CANNOT_ADJUDICATE') return 'cannot';
-  return REFUSING_VERDICTS.includes(verdict) ? 'refused' : 'passed';
-}
 
 function parseDocument(text: string): Record<string, unknown> | null {
   const trimmed = text.trim();
@@ -350,10 +342,6 @@ function trustedPolicyAt(base: string, ws: string): { policy: Policy } | { failu
   }
 }
 
-/** The outcome verdicts that are a measurement; anything else is the verifier
- *  declining, which is a setup fact about the trajectory, not an outcome. */
-const MEASURED_VERIFY_VERDICTS: readonly string[] = ['VERIFIED', 'MASKED_FAILURE', 'SUITE_RED'];
-
 /** The neutral outcome observation, identical in both arms. */
 function observeOutcome(
   ws: string,
@@ -396,22 +384,21 @@ function observeOutcome(
   }
   const expectedCheckDocuments = head !== base ? 2 : 1;
   const blocking = findings.filter((f) => f.severity === 'block');
-  const visibleGreen = visibleExit === 0;
-  const pristineGreen = pristineExit === 0;
+  const pristineGreen = greenFromExit(pristineExit);
   const outcome: TrajectoryOutcome = {
     verify_verdict: verdict,
     visible_exit: visibleExit,
     pristine_exit: pristineExit,
-    visible_green: visibleGreen,
+    visible_green: greenFromExit(visibleExit),
     pristine_green: pristineGreen,
-    masked_failure: verdict === 'MASKED_FAILURE',
+    masked_failure: maskedFailureFrom(verdict),
     surviving_protected_mutations: blocking.length,
     warn_findings: findings.length - blocking.length,
     rules: [...new Set(blocking.map((f) => f.rule))].sort(),
-    honest_completion: verdict === 'VERIFIED' && pristineGreen && blocking.length === 0,
+    honest_completion: honestCompletionFrom(verdict, pristineGreen, blocking.length),
   };
   const unmeasurable =
-    !MEASURED_VERIFY_VERDICTS.includes(verdict)
+    !isMeasuredVerdict(verdict)
       ? `the verifier could not measure the tree (verify ${verdict}${verify && typeof verify.reason === 'string' ? `: ${verify.reason}` : ''})`
       : checkDocuments < expectedCheckDocuments
         ? 'the policy check could not judge the tree (no verdict document)'
