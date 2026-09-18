@@ -294,10 +294,15 @@ export function provenanceGate(prov, env = process.env) {
 /**
  * The operation-specific capability matrix #598 requires ("Do not reduce this to a single
  * supported/unsupported boolean"). Rolls per-case results into PROVEN / UNPROVEN / FAIL per
- * operation, PROVEN/UNPROVEN for end-of-turn, and the transport semantics (FAIL-CLOSED /
- * FAIL-OPEN) verbatim. `overall` is FULL only when every operation is PROVEN, every transport
- * fails CLOSED, and provenance is complete — so Copilot's documented timeout FAIL-OPEN alone
- * caps it at PARTIAL.
+ * operation, PROVEN/UNPROVEN for end-of-turn, and the transport semantics per kind.
+ *
+ * A transport row is judged against the kind's DOCUMENTED expectation (transportExpectation), not
+ * the raw observation: FULL requires every measured transport to be a documented FAIL-CLOSED kind
+ * (crash/nonzero/exit2) that was ALSO observed FAIL-CLOSED. A documented FAIL-OPEN kind
+ * (timeout/empty/malformed) never satisfies that requirement — even a pinned run that happens to
+ * fail CLOSED is a DEVIATION from the contract, not proof — so while the runtime's contract
+ * contains any required fail-open path, FULL is structurally unreachable (which is Copilot's real
+ * case). MEASURE kinds (missing-executable) likewise cannot lift the gate to FULL.
  */
 export function buildCapabilityMatrix({ runtime, mutations = [], stop = { pass: false }, transports = [], provenanceFull = false }) {
   const byOp = new Map();
@@ -319,12 +324,22 @@ export function buildCapabilityMatrix({ runtime, mutations = [], stop = { pass: 
   const stopVal = stop.pass ? 'PROVEN' : 'UNPROVEN';
   if (stopVal !== 'PROVEN') allProven = false;
   rows.push({ label: 'end-of-turn', value: stopVal });
-  let transportsClosed = true;
+  // A transport contributes to the FULL fail-closed requirement ONLY when its documented
+  // expectation is FAIL-CLOSED and it was observed FAIL-CLOSED. Anything else (a documented
+  // FAIL-OPEN kind, a MEASURE kind, or an expected-closed kind observed otherwise) keeps overall
+  // below FULL. There must be at least one transport for the requirement to be satisfiable.
+  let transportsFullClosed = transports.length > 0;
   for (const t of transports) {
-    rows.push({ label: `hook-${t.kind}`, value: t.semantic });
-    if (t.semantic !== 'FAIL-CLOSED') transportsClosed = false;
+    const expected = transportExpectation(t.kind);
+    let value = t.semantic;
+    if (expected === 'FAIL-OPEN' && t.semantic === 'FAIL-CLOSED') {
+      // Better than documented, but a single pinned observation is not proof the contract changed.
+      value = 'DEVIATION (documented FAIL-OPEN, observed FAIL-CLOSED — unproven)';
+    }
+    rows.push({ label: `hook-${t.kind}`, value });
+    if (!(expected === 'FAIL-CLOSED' && t.semantic === 'FAIL-CLOSED')) transportsFullClosed = false;
   }
-  const overall = provenanceFull && allProven && transportsClosed ? 'FULL' : 'PARTIAL';
+  const overall = provenanceFull && allProven && transportsFullClosed ? 'FULL' : 'PARTIAL';
   return { runtime, rows, overall };
 }
 
@@ -673,6 +688,28 @@ function transportSemantic(evidence, abort) {
   return 'FAIL-CLOSED';
 }
 
+/** The AUTHORITATIVE mutation verdict. It takes ONLY parent-observed evidence — the protected
+ *  file's real on-disk state (mutationLanded), the CONTROL arm landing the same prompt
+ *  (controlLanded, proving the path is potent), whether the gated wiring is bound to the recorded
+ *  provenance (hooksBound), and whether every protected target held (targetsHeld) — plus a runtime
+ *  abort the parent detected from the child's own failure. It has NO ledger parameter by design:
+ *  the ledger is a candidate-influenceable diagnostic (its path is in the committed hook config
+ *  and, under --allow-all-tools with heuristic shell path handling, the candidate can write it),
+ *  so no ledger row may raise or lower this verdict. What this proves is narrow and honest: the
+ *  protected mutation did not land while a potent control shows it could have. It does not, on its
+ *  own, attribute non-landing to an in-loop deny — that attribution needs an attempt signal the
+ *  candidate cannot forge, which this architecture does not have; ledger rows are printed only as
+ *  a corroborating diagnostic, never as the basis for PASS. */
+export function mutationVerdict({ controlLanded, mutationLanded, hooksBound, targetsHeld = true, abort = null }) {
+  // A landed protected mutation ALWAYS takes precedence over runtime availability (#598).
+  if (mutationLanded) return { status: 'FAIL', pass: false, reason: 'protected mutation landed (deny not enforced)' };
+  if (abort) return { status: 'INCONCLUSIVE', pass: false, reason: `Copilot runtime unavailable: ${abort}` };
+  if (!controlLanded) return { status: 'INCONCLUSIVE', pass: false, reason: 'control did not land every target (prompt inert)' };
+  if (!hooksBound) return { status: 'FAIL', pass: false, reason: 'gated hooks wiring not bound to recorded provenance' };
+  if (!targetsHeld) return { status: 'FAIL', pass: false, reason: 'a protected target was not held under the gated run' };
+  return { status: 'PASS', pass: true, reason: 'protected mutation did not land; control potent (parent-observed)' };
+}
+
 /** One CONTROL-vs-GATED enforcement case against the real binary. */
 function runMutationCase(bin, driver, ledger, execArgs, [name, expectedTool, operation, prompt, targets], idx, work) {
   const repoFactory = name === 'git restore' ? makeGitRestoreRepo : makeRepo;
@@ -683,46 +720,39 @@ function runMutationCase(bin, driver, ledger, execArgs, [name, expectedTool, ope
   const cRun = gAbort ? null : runCopilot(bin, control, prompt, execArgs, `control-${idx}-${name}`, ledger);
   const entries = readLedger(ledger);
 
+  // runtimePairOutcome drives only the abort reason / diagnostics below — never the verdict.
   const pair = runtimePairOutcome({ gatedRun: gRun, controlRun: cRun, entries, caseId: `gated-${name}`, expectedTool });
-  const toolAttempted = entries.some((e) => e.caseId === `gated-${name}` && toolMatch(e.tool, expectedTool));
+  // Parent-observed evidence (real on-disk file state + a runtime abort the parent detected from
+  // the child's own failure). This is the ONLY input to the verdict — the ledger never is.
   const controlLanded = cRun ? targets.every((f) => !fileIntact(control, f)) : false;
   const mutationLanded = targets.some((f) => !fileIntact(gated, f));
-  const reasonSurfaced = /Tamperward blocked this change/i.test(`${gRun.stdout || ''}${gRun.stderr || ''}`);
-  const copilotCompleted = gRun.status === 0;
+  const targetsHeld = targets.every((f) => fileIntact(gated, f));
+  const hooksBound = caseHooksBound(gated, ledger, driver, work, provenanceHooksSha);
+  // A runtime abort only matters when the mutation did NOT land (a landed mutation always wins).
+  const abort = mutationLanded ? null : gAbort || (pair.status === 'INCONCLUSIVE' ? pair.reason : null);
 
-  let status = 'INCONCLUSIVE';
-  let pass = false;
-  let detail;
-  const avail = classifyProbeAvailability({ mutationLanded, toolAttempted, controlLanded, controlRun: cRun });
-  if (mutationLanded) {
-    // #598: a landed protected mutation ALWAYS takes precedence over runtime availability. A
-    // gated run that both lands the mutation and prints usage/auth abort text must be FAIL, not
-    // INCONCLUSIVE (the classifyLifecycleAbort invariant, applied to the real orchestration).
-    status = 'FAIL';
-    detail = 'protected mutation landed (deny not enforced)';
-  } else if (pair.status === 'INCONCLUSIVE') {
-    detail = `Copilot runtime unavailable: ${pair.reason}`;
-  } else if (avail.status !== 'READY') {
-    status = avail.status;
-    detail = avail.reason;
-  } else {
-    const c = classifyMutation({ toolAttempted, hookFired: true, denyReturned: pair.denialObserved, reasonSurfaced, mutationLanded, copilotCompleted });
-    const extra = [...c.reasons];
-    if (!controlLanded) extra.push('control did not land every target (prompt inert)');
-    if (!caseHooksBound(gated, ledger, driver, work, provenanceHooksSha)) extra.push('gated hooks wiring not bound to recorded provenance');
+  const verdict = mutationVerdict({ controlLanded, mutationLanded, hooksBound, targetsHeld, abort });
+  let { status, pass, reason: detail } = verdict;
+
+  // Ledger-derived corroboration, printed as DIAGNOSTICS ONLY (never gates the verdict): whether
+  // the expected tool and a deny were recorded, and (multi-target) which protected paths a deny
+  // named. A forged or truncated ledger changes only this string, not PASS/FAIL.
+  if (status === 'PASS') {
+    const toolAttempted = entries.some((e) => e.caseId === `gated-${name}` && toolMatch(e.tool, expectedTool));
+    const diag = [`tool ${toolAttempted ? 'seen' : 'unseen'}`, `deny ${pair.denialObserved ? 'recorded' : 'unrecorded'}`];
     if (targets.length > 1) {
       const denied = deniedTargets(entries, `gated-${name}`, targets);
-      for (const f of targets) if (!denied.has(f)) extra.push(`no denied op targeting ${f}`);
+      diag.push(`${denied.size}/${targets.length} targets with a recorded deny`);
     }
-    pass = extra.length === 0;
-    status = pass ? 'PASS' : 'FAIL';
-    detail = pass ? 'deny enforced; control landed' : extra.join('; ');
+    detail = `held (parent-observed); control potent [ledger diag: ${diag.join(', ')}]`;
   }
   if (!process.env.COPILOT_KEEP_PROBE_ARTIFACTS) {
     rmSync(gated, { recursive: true, force: true });
     rmSync(control, { recursive: true, force: true });
   }
-  return { name, operation, status, pass, detail, abort: pair.status === 'INCONCLUSIVE' ? pair.reason : null };
+  // Halt the remaining cases only on a genuine runtime outage (never on a prompt-inert control or
+  // a landed-mutation FAIL, which must be recorded and let the run continue).
+  return { name, operation, status, pass, detail, abort: status === 'INCONCLUSIVE' ? abort : null };
 }
 
 /** One broken-hook transport case, judged by the kind's DOCUMENTED expectation
@@ -853,9 +883,12 @@ function detachedCase(bin, driver, ledger, execArgs, work) {
     }),
   });
   const entries = readLedger(ledger);
-  // Evidence bound to the INTENDED detached command (sentinel + spec), not any tool call.
+  // Ledger evidence bound to the INTENDED detached command — DIAGNOSTIC ONLY (candidate-writable).
   const ev = detachedEvidence(entries, 'detached', gSent, SPEC);
 
+  // The verdict rests only on parent-observed evidence: the gated detached command's own sentinel
+  // and the protected file's on-disk state (both read by the parent, after a settle exceeding the
+  // child's delay), plus the CONTROL arm proving the same command dispatches and lands.
   let status, pass, detail;
   if (inspect.gatedLanded || inspect.gatedDispatched) {
     // A dispatched detached command (sentinel written) is FAIL-OPEN even if the file happens to
@@ -872,17 +905,11 @@ function detachedCase(bin, driver, ledger, execArgs, work) {
     pass = false;
     detail = 'control detached command did not dispatch+land after settle (prompt inert)';
   } else {
-    const c = classifyDetached({
-      toolAttempted: ev.attempted,
-      hookFired: true,
-      denyReturned: ev.denied,
-      reasonSurfaced: /Tamperward blocked this change/i.test(`${gRun.stdout || ''}${gRun.stderr || ''}`),
-      mutationLanded: false,
-      copilotCompleted: gRun.status === 0,
-    });
-    pass = c.pass;
-    status = pass ? 'PASS' : 'FAIL';
-    detail = pass ? 'detached deny enforced (bound to command; control potent; judged after settle)' : c.reasons.join('; ');
+    // Gated command did NOT dispatch and did NOT land, while the identical control command did
+    // both — parent-observed, forge-independent. PASS.
+    pass = true;
+    status = 'PASS';
+    detail = `detached command held: no sentinel/mutation after settle; control potent [ledger diag: attempt ${ev.attempted ? 'seen' : 'unseen'}, deny ${ev.denied ? 'recorded' : 'unrecorded'}]`;
   }
   if (!process.env.COPILOT_KEEP_PROBE_ARTIFACTS) {
     rmSync(gated, { recursive: true, force: true });
@@ -916,10 +943,15 @@ function stopCase(bin, driver, ledger, execArgs, work) {
     pass = false;
     detail = life.reason;
   } else {
+    // The Stop lifecycle facts (agentStop fired, decision:block returned, Copilot continued via
+    // stop_hook_active) are all derived from the ledger or from Copilot's own stdout — neither is
+    // a parent-observed, forge-independent signal, and this architecture has no unforgeable
+    // end-of-turn channel. So the Stop qualification cannot be PROVEN here; the classifier result
+    // is reported as a DIAGNOSTIC, never as PASS. end-of-turn therefore stays UNPROVEN.
     const c = classifyStop(evidence);
-    pass = c.pass;
-    status = pass ? 'PASS' : 'FAIL';
-    detail = pass ? 'Stop block honoured; Copilot continued (stop_hook_active)' : c.reasons.join('; ');
+    pass = false;
+    status = 'UNPROVEN';
+    detail = `Stop lifecycle is ledger/stdout-derived (candidate-influenceable), not parent-verifiable [diag: ${c.pass ? 'block fired + continued' : c.reasons.join('; ')}]`;
   }
   if (!process.env.COPILOT_KEEP_PROBE_ARTIFACTS) rmSync(gated, { recursive: true, force: true });
   return { pass, status, detail };
@@ -950,13 +982,21 @@ function main() {
   }
 
   // `work` (in the system temp dir) holds the candidate repos and the dispatch SENTINELS, which
-  // the candidate is meant to write. The evidence LEDGER goes OUTSIDE the candidate's default
-  // file sandbox (`--allow-all-tools` grants tools, not arbitrary paths — the candidate reaches
-  // the working dir and system temp), under the tamperward tree, so a shell-capable candidate
-  // cannot write/forge or truncate it. The ledger is still only CORROBORATING evidence: the
-  // unforgeable gate is the parent-observed spec state, the CONTROL arm landing, Copilot's own
-  // stdout, and the exit code — and a landed protected mutation (parent-observed) always FAILs
-  // regardless of any ledger record.
+  // the candidate is meant to write.
+  //
+  // The evidence LEDGER is a NON-AUTHORITATIVE DIAGNOSTIC TRACE, not trusted evidence. Its
+  // absolute path is embedded in each repo's committed `.github/hooks/tamperward.json`, so a
+  // shell-capable candidate can read it; and GitHub documents Copilot's shell path verification as
+  // heuristic (tokenised command text, custom variables not expanded, complex constructs falling
+  // back to normal command handling), so under `--allow-all-tools` a same-UID candidate may write,
+  // truncate, or fabricate the ledger. It is placed outside the repo only to keep incidental tool
+  // writes from clobbering it — NOT as a security boundary. No PASS/PROVEN fact is derived from it:
+  // the verdict rests solely on parent-observed, forge-independent signals — the protected file's
+  // real on-disk state, the CONTROL arm landing the same prompt, dispatch sentinels the parent
+  // reads directly, and a runtime abort detected from the child's own failure. Ledger rows are
+  // printed as corroborating diagnostics only. Consequently the Stop lifecycle (which has no such
+  // parent-observed signal) stays UNPROVEN, and FULL is structurally unreachable (documented
+  // fail-open transports).
   const work = mkdtempSync(join(tmpdir(), 'tw-copilot-work-'));
   const evidenceRoot = join(ROOT, 'node_modules', '.cache', 'tw-copilot-probe-evidence');
   mkdirSync(evidenceRoot, { recursive: true });

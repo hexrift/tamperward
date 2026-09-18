@@ -1,10 +1,12 @@
 // The TamperWard GitHub Copilot CLI hook driver used by the qualification probe (#598). It
 // reads a Copilot hook payload on stdin, runs copilotAdapter.decide, writes the deny wire
 // (empty = allow) to stdout, and APPENDS one line to the ledger (TW_PROBE_LEDGER) recording
-// what it saw and decided. The ledger corroborates attempt/deny evidence; it is written to a
-// directory outside the candidate's file sandbox and is never sole proof — the probe's gate
-// rests on parent-observed signals (spec state, control-arm landing, Copilot stdout, exit
-// code). Mirror of harness/adapters/probe-driver.mjs (the Codex driver).
+// what it saw and decided. The ledger is a NON-AUTHORITATIVE DIAGNOSTIC TRACE: its path is in
+// the committed hook config and, under `--allow-all-tools` with Copilot's heuristic shell path
+// verification, a same-UID candidate may write/truncate/forge it, so the probe never derives a
+// PASS/PROVEN fact from it — the gate rests only on parent-observed signals (the protected
+// file's on-disk state, the control-arm landing, dispatch sentinels the parent reads directly,
+// and a runtime abort from the child's own failure). Mirror of harness/adapters/probe-driver.mjs.
 //
 // This is a REAL repo source file (not emitted at runtime) so esbuild resolves the adapter
 // import deterministically when the probe bundles it.
