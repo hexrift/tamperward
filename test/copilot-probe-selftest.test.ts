@@ -16,7 +16,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 // @ts-expect-error - the probe is a plain .mjs harness module, no d.ts
-import { classifyMutation, classifyDetached, classifyProbeAvailability, controlAvailabilityReason, classifyLifecycleAbort, detachedLifecycleOutcome, stopLifecycleOutcome, collectAfterSettle, classifyFailClosed, failClosedLifecycleOutcome, classifyStop, stopBlockSurfaced, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, parseVersion, execArgsFor, canonicalHooks, provenanceGate, classifyDocumentedFailOpen, transportExpectation, buildCapabilityMatrix, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/copilot-probe.mjs';
+import { classifyMutation, classifyDetached, classifyProbeAvailability, controlAvailabilityReason, classifyLifecycleAbort, detachedLifecycleOutcome, stopLifecycleOutcome, collectAfterSettle, classifyFailClosed, failClosedLifecycleOutcome, classifyStop, stopBlockSurfaced, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, detachedEvidence, parseVersion, execArgsFor, canonicalHooks, provenanceGate, classifyDocumentedFailOpen, transportExpectation, buildCapabilityMatrix, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/copilot-probe.mjs';
 
 describe('probe classifiers — every deterministic mode is classified correctly', () => {
   it('marks an unavailable tool as inconclusive rather than enforcement failure', () => {
@@ -179,6 +179,23 @@ describe('probe classifiers — every deterministic mode is classified correctly
     expect(controlAvailabilityReason({ status: 0, stderr: 'The command was rejected as unsafe' })).toMatch(/refusal-like/);
     expect(controlAvailabilityReason({ status: 0, stderr: 'filesystem MCP tool unavailable' })).toMatch(/unavailable-capability/);
     expect(controlAvailabilityReason({ status: 0, stdout: 'I could not execute the requested plan' })).toBeNull();
+  });
+
+  it('detachedEvidence binds attempted/denied to the intended command, not any tool call', () => {
+    const sentinel = '/work/detached-sentinel';
+    const spec = 'src/a.spec.ts';
+    // A tracer + a deny for the INTENDED detached command (contains sentinel AND spec).
+    const bound = [
+      { caseId: 'detached', role: 'tracer', event: 'PreToolUse', decision: 'attempted', command: `nohup bash -c "sleep 1; printf DISPATCHED > ${sentinel}; printf '' > ${spec}"` },
+      { caseId: 'detached', event: 'PreToolUse', decision: 'deny', command: `nohup bash -c "sleep 1; printf DISPATCHED > ${sentinel}; printf '' > ${spec}"` },
+    ];
+    expect(detachedEvidence(bound, 'detached', sentinel, spec)).toEqual({ attempted: true, denied: true });
+    // An UNRELATED denied tool call must NOT count as the detached path attempted/denied.
+    const unrelated = [
+      { caseId: 'detached', role: 'tracer', event: 'PreToolUse', decision: 'attempted', command: 'ls -la' },
+      { caseId: 'detached', event: 'PreToolUse', decision: 'deny', command: 'rm README.md' },
+    ];
+    expect(detachedEvidence(unrelated, 'detached', sentinel, spec)).toEqual({ attempted: false, denied: false });
   });
 
   it('distinctToolUseIds / deniedProtectedToolUseIds / deniedTargets count real distinct evidence', () => {
