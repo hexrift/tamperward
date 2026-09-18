@@ -209,29 +209,17 @@ jobs:
       # from the lockfile (exact version, integrity-checked) — NOT an `npx`-fetched
       # semver, which pulled an unreviewed tarball from the registry inside the very job that
       # pins npm itself so nothing at publish time is fetched without review (#423).
-      # This job's only registry traffic is now `npm ci` against the lock and the
-      # publish itself.
+      # This job's registry traffic is now `npm ci` against the lock, the forward-version
+      # guard's read-only `npm view` lookups (#548), and the publish itself — no
+      # unreviewed code is fetched.
       - name: Version must move forward
         if: steps.plan.outputs.publish == 'true'
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.plan.outputs.version }}"
-          # Per-tag queries, not `dist-tags --json`: npm 12 wraps that JSON in an ARRAY
-          # where npm 10 returns an object, and jq indexing the array killed the 1.2.0
-          # release at this step. `npm view pkg@tag version` prints a bare version on
-          # both lines; a missing tag or package exits non-zero -> empty -> guard skipped.
-          LATEST="$(npm view tamperward@latest version 2>/dev/null || true)"
-          NEXT="$(npm view tamperward@next version 2>/dev/null || true)"
-          forward() {
-            [ -z "$2" ] && return 0
-            if ! node -e 'const s = require("semver"); process.exit(s.satisfies(process.argv[1], ">" + process.argv[2], { includePrerelease: true }) ? 0 : 1)' "$1" "$2"; then
-              echo "::error::${1} is not greater than the current ${3} (${2}) — refusing to publish a downgrade. If the bump is a typo, fix package.json; a deliberate re-publish of an older line needs this guard loosened first."
-              exit 1
-            fi
-          }
-          forward "$VERSION" "$LATEST" "latest"
-          case "$VERSION" in *-*) forward "$VERSION" "$NEXT" "next";; esac
-          echo "version $VERSION moves forward (latest=${LATEST:-none}, next=${NEXT:-none})"
+        # A registry lookup FAILURE must not be mistaken for an absent tag: the
+        # helper (unit-tested in test/release-forward-guard.test.ts) classifies
+        # each `npm view` as present / absent / failure, retries bounded transient
+        # failures, and stops the release rather than skip the guard (#548). It
+        # keeps the stable-vs-`next` comparison semantics of the old inline check.
+        run: node .github/scripts/forward-guard.mjs "${{ steps.plan.outputs.version }}"
 
       - if: steps.plan.outputs.publish == 'true'
         run: npm run typecheck
