@@ -18,9 +18,15 @@
   honest completion must match `VERIFIED` + pristine-green + zero surviving
   mutations, the disposition must match the envelope verdict, a measured
   trajectory must carry a measured verdict, and the rules list must be sorted,
-  deduplicated, and non-empty exactly when a protected mutation survived).
-  `resume` and `summarize` now reject the same inconsistent record instead of
-  silently aggregating it.
+  deduplicated, and non-empty exactly when a protected mutation survived). The
+  verify verdict itself must also agree with the two stage exits it was derived
+  from — mirroring the verifier's own mapping (`VERIFIED` needs both stages green,
+  `MASKED_FAILURE` a green visible over a red pristine, `SUITE_RED` a red visible,
+  `BUDGET_EXCEEDED` an absent stage exit) — so a record cannot carry a verdict its
+  exits contradict. The accepted verify vocabulary is the canonical verifier set
+  (`src/machine-output.ts`), including `BUDGET_EXCEEDED`, so every verdict the
+  current writer can emit stays valid. `resume` and `summarize` now reject the
+  same inconsistent record instead of silently aggregating it.
 
 ## [2.30.5] — 2026-09-18
 

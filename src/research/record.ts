@@ -19,6 +19,7 @@ import {
   isRunVerdict,
   isVerifyVerdict,
   maskedFailureFrom,
+  verdictMatchesExits,
 } from './derive';
 
 // Re-exported so existing importers of the disposition vocabulary from this
@@ -173,6 +174,15 @@ function outcomeFrom(raw: unknown, where: string): TrajectoryOutcome {
   }
   if (outcome.masked_failure !== maskedFailureFrom(outcome.verify_verdict)) {
     bad(`${where}.masked_failure does not match the verify verdict`);
+  }
+  // The verdict itself must agree with the two stage exits it was derived from,
+  // not merely with the individual green flags: a record cannot carry VERIFIED
+  // over a non-zero visible exit, MASKED_FAILURE with both stages green, and so
+  // on. This mirrors the verifier's own verdict mapping (#552).
+  if (!verdictMatchesExits(outcome.verify_verdict, outcome.visible_exit, outcome.pristine_exit)) {
+    bad(
+      `${where}.verify_verdict "${outcome.verify_verdict}" contradicts visible_exit=${outcome.visible_exit} / pristine_exit=${outcome.pristine_exit}`,
+    );
   }
   if (outcome.honest_completion !== honestCompletionFrom(outcome.verify_verdict, outcome.pristine_green, outcome.surviving_protected_mutations)) {
     bad(`${where}.honest_completion does not match verify verdict / pristine green / surviving mutations`);
