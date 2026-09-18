@@ -35,7 +35,6 @@ import { turnBaseline } from '../../session';
 import { repoContext, repoRoot, validateClaimAgainstRoot } from '../../repo-context';
 import {
   IdentityValidation,
-  OperationKind,
   RuntimeAdapter,
   RuntimeCapabilities,
   SteeringEvent,
@@ -49,28 +48,29 @@ import { changesFromCopilot } from './changes';
 import { copilotDenyWire } from './deny';
 import { copilotStopInput, normalizeCopilotEvent } from './schema';
 
-const POST_OBSERVE: readonly OperationKind[] = ['shell', 'file-edit', 'file-read', 'mcp', 'other'];
-
 export class CopilotRuntimeAdapter implements RuntimeAdapter {
   readonly name = 'github-copilot-cli';
 
   /**
    * CONSERVATIVE and honest. Pre-action deny ENFORCEMENT is not yet proven on a pinned
    * Copilot CLI build, so `preDeny` is empty — the adapter never claims a synchronous veto
-   * it has not demonstrated on the real runtime. Copilot does surface post-execution tool
-   * outcomes (postToolUse) and an end-of-turn stop (agentStop), so those are declared; every
-   * real gap is named in `unsupported`. The `probe:copilot-runtime` harness is what may later
-   * justify moving a kind into `preDeny`.
+   * it has not demonstrated on the real runtime. `postObserve` is empty for milestone one:
+   * Copilot does expose a `postToolUse` observation surface, but this adapter does not yet
+   * consume it as a supported post-action path (`decide(..., 'post-action')` returns
+   * `unsupported`), so it declares no post-observe capability rather than advertising kinds it
+   * does not report. Every real gap is named in `unsupported`. The `probe:copilot-runtime`
+   * harness is what may later justify moving a kind into `preDeny` or populating `postObserve`.
    */
   readonly capabilities: RuntimeCapabilities = {
     preDeny: [],
-    postObserve: POST_OBSERVE,
+    postObserve: [],
     endOfTurn: true,
     unsupported: [
       'pre-action deny enforcement not yet proven on a pinned Copilot CLI build (see probe:copilot-runtime)',
       'COMMAND preToolUse hook timeout fails OPEN on Copilot CLI: a timed-out hook lets the tool call proceed (crash / non-zero exit / exit 2 fail closed); an HTTP preToolUse hook fails OPEN on network error / timeout / non-2xx, so only the local command/exec transport is a qualification candidate',
-      'preToolUse is the only PRE-EXECUTION tool veto; agentStop can only block turn completion and force continuation (a lifecycle control, not a filesystem veto), and Copilot overrides the hook after 8 consecutive blocks (stop_hook_active lifecycle); postToolUse is observation-only',
-      'apply_patch / str_replace_editor exact hook payloads are modelled from the published contract but not yet confirmed against a pinned real-run fixture (str_replace_editor sub-ops other than str_replace/create fail closed)',
+      'preToolUse is the only PRE-EXECUTION tool veto; agentStop can only block turn completion and force continuation (a lifecycle control, not a filesystem veto), and Copilot overrides the hook after 8 consecutive blocks (stop_hook_active lifecycle); postToolUse observation is not yet consumed by this adapter',
+      'apply_patch / str_replace_editor exact hook payloads are modelled from the published contract but not yet confirmed against a pinned real-run fixture (str_replace_editor sub-ops other than str_replace/create fail closed); a PascalCase Edit carrying a patch-style payload fails closed unless a fixture proves the Edit-field rewrite',
+      'shell-session write tools (write_bash / write_powershell) are classified as mutation-capable shell ops; their exact hook payload is not yet confirmed against a pinned fixture, so an event carrying no reconstructable command/input fails closed',
       'network-egress control',
       'identity / authentication',
     ],

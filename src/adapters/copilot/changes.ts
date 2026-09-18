@@ -41,18 +41,20 @@ function relForDisplay(path: string, cwd: string): string {
   return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : path;
 }
 
-/** A shell command from `command`, accepting either a raw string or an argv array. The
- *  command Change is identical to the Claude Bash shape so the command detectors judge it
- *  the same way. */
+/** A shell command from `command`, accepting a raw string or an argv array; a shell-session
+ *  write (`write_bash` / `write_powershell`) sends its text as `input`, which is judged as a
+ *  command too. The command Change is identical to the Claude Bash shape so the command
+ *  detectors judge it the same way. A shell op that carries no reconstructable command/input
+ *  THROWS → fail-closed deny, so a mutation-capable shell-session write is never a silent allow. */
 function shellChanges(args: Record<string, unknown>): Change[] {
-  const cmd = args.command ?? args.argv;
+  const cmd = args.command ?? args.input ?? args.argv;
   if (Array.isArray(cmd)) {
     const argv = cmd.map(asStr).filter((s) => s.length > 0);
-    if (!argv.length) throw new Error('shell event carries no command/argv to reconstruct');
+    if (!argv.length) throw new Error('shell event carries no command/input/argv to reconstruct');
     return [{ kind: 'command', raw: argv.join(' '), argv }];
   }
   const raw = asStr(cmd);
-  if (!raw) throw new Error('shell event carries no command to reconstruct');
+  if (!raw) throw new Error('shell event carries no command/input to reconstruct');
   return [{ kind: 'command', raw, argv: raw.split(/\s+/) }];
 }
 

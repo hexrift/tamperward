@@ -319,21 +319,30 @@ wire formats, and the adapter accepts **both**:
 - **Native camelCase** — `preToolUse` carries `sessionId`, `timestamp`, `cwd`, `toolName`, and
   `toolArgs` (a JSON **string** that must be parsed); `agentStop` carries `sessionId`,
   `transcriptPath`, `stopReason`. The native tool names are lowercase: `bash` / `powershell`
-  (shell), `create` / `edit` / `apply_patch` / `str_replace_editor` (file write), `view`
-  (read).
+  (shell), the shell-**session** tools `write_bash` / `write_powershell` (send input to a
+  running shell — mutation-capable, so classified as `shell`), `create` / `edit` /
+  `apply_patch` / `str_replace_editor` (file write), `view` (read).
 - **PascalCase / Claude-compatible** — `PreToolUse` carries `hook_event_name`, `session_id`,
   `timestamp`, `cwd`, `tool_name`, and a `tool_input` object, where `tool_name` is the **Claude
-  tool name** (`Bash`, `Write`, `Edit`, `Read`, `MultiEdit`); `Stop` carries `session_id`,
-  `transcript_path`, `stop_reason`. In this mode a native `apply_patch` / `edit` /
-  `str_replace_editor` is reported as `Edit`.
+  tool name** (`Bash`, `Write`, `Edit`, `Read`); `Stop` carries `session_id`, `transcript_path`,
+  `stop_reason`. In this mode a native `apply_patch` / `edit` / `str_replace_editor` is reported
+  as `Edit` — but whether GitHub rewrites the `tool_input` into ordinary Edit fields
+  (`file_path` + `old_string`/`new_string`) is **not confirmed**, so an `Edit` carrying a
+  patch-style payload without those fields **fails closed** pending a real fixture. `MultiEdit`
+  is accepted **defensively** (a Claude-compatible name), not because a Copilot source documents
+  it as a Copilot tool.
 
 Normalization is field-by-field with the snake_case spelling winning and the camelCase spelling
 as a fallback, so either mode normalizes sensibly; `tool_use_id` is **not** a documented Copilot
 field and is not read. `apply_patch` (the OpenAI patch envelope, shared with Codex) is
 reconstructed via the shared `applyPatchChanges`; `str_replace_editor` is modelled for its
 `str_replace` and `create` sub-ops and **fails closed** on any other sub-op (e.g. `insert`)
-pending a real pinned-run payload. Deletes and renames are issued through the shell (`rm` /
-`mv`). The **deny wire differs by phase**, and differs in shape from Claude/Codex: `preToolUse`
+pending a real pinned-run payload. A shell-session write (`write_bash` / `write_powershell`)
+reconstructs the `input` it sends as a command, and **fails closed** if it carries no
+reconstructable command/input — so a model cannot bypass the pre-action decision by piping a
+mutation into an existing session instead of opening a new `bash` call. Deletes and renames are
+issued through the shell (`rm` / `mv`). The **deny wire differs by phase**, and differs in shape
+from Claude/Codex: `preToolUse`
 denies with a **flat** `{ permissionDecision: "deny", permissionDecisionReason }` (no
 `hookSpecificOutput` wrapper), while the `agentStop` end-of-turn event carries a flat
 `{ decision: "block", reason }` — the same shape the canonical Stop sweep already emits. The
@@ -347,8 +356,11 @@ path pinned.
 Copilot **overrides the hook after 8 consecutive `block` continuations** (the `stop_hook_active`
 lifecycle) — so `endOfTurn: true` must **not** be read as Claude-equivalent enforcement until
 the real Stop qualification exercises that interaction (TamperWard's canonical `stopVerdict`
-immediately allows when `stop_hook_active:true`). `postToolUse` is observation-only; the adapter
-rejects a post-action deny wire at the boundary, exactly as the Codex adapter does.
+immediately allows when `stop_hook_active:true`). `postToolUse` is a real observation surface
+(it carries `toolName`, `toolArgs`, and the tool result), but **milestone one does not consume
+it**: `decide(..., 'post-action')` returns `unsupported` and rejects a post-action deny wire at
+the boundary, exactly as the Codex adapter does — so the adapter declares `postObserve: []`
+rather than advertising kinds it does not report.
 
 **A fail-open risk scoped to the transport, recorded not masked.** For a **command**
 `preToolUse` hook, Copilot's failure semantics are **asymmetric**: a hook that **crashes**,
@@ -366,8 +378,9 @@ provenance.
 - `preDeny: []` — pre-action deny enforcement is **not yet proven** on a pinned Copilot CLI
   build, so the adapter claims no synchronous veto (the honesty rule: only claim `preDeny` for
   a kind proven by invocation evidence, never by the mere existence of a hook name);
-- `postObserve: shell | file-edit | file-read | mcp | other` — Copilot surfaces
-  post-execution tool outcomes via `postToolUse`;
+- `postObserve: []` — Copilot exposes a `postToolUse` observation surface, but milestone one
+  does not consume it, so the adapter advertises no post-observe capability (rather than
+  contradicting its own `unsupported` post-action outcome);
 - `endOfTurn: true` — Copilot delivers an `agentStop` event that runs the mandatory git sweep
   (subject to the 8-block continuation limit above);
 - `unsupported` names the real gaps in prose: *pre-action deny enforcement not yet proven on a

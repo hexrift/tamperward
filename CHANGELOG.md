@@ -14,16 +14,22 @@
   parsed; `agentStop` → `sessionId`, `transcriptPath`, `stopReason`) and the **PascalCase /
   Claude-compatible** format (`PreToolUse` → `hook_event_name`, `session_id`, `timestamp`,
   `cwd`, `tool_name`, `tool_input`, where `tool_name` is the Claude tool name `Bash` / `Write`
-  / `Edit` / `Read` / `MultiEdit`; `Stop` → `session_id`, `transcript_path`, `stop_reason`).
+  / `Edit` / `Read`; `Stop` → `session_id`, `transcript_path`, `stop_reason`).
   Normalization is field-by-field, snake_case winning with camelCase as a fallback; the
   undocumented `tool_use_id` is not read. The adapter maps both tool vocabularies to operation
   kinds (`bash` / `powershell` / `Bash` → `shell`; `create` / `edit` / `apply_patch` /
-  `str_replace_editor` / `Write` / `Edit` / `MultiEdit` → `file-edit`; `view` / `Read` →
-  `file-read`; `mcp__<server>__<tool>` → `mcp`), and reconstructs operations into the shared
-  `Change[]` via `synthFileChange`. The first-party **`apply_patch`** envelope (shared with
-  Codex via a new `src/adapters/apply-patch.ts`) is modelled explicitly; **`str_replace_editor`**
-  is modelled for its `str_replace` / `create` sub-ops and **fails closed** on any other sub-op
-  pending a real payload; deletes/renames go through the shell. It runs the **same** engine as
+  `str_replace_editor` / `Write` / `Edit` → `file-edit`; `view` / `Read` → `file-read`;
+  `mcp__<server>__<tool>` → `mcp`), and reconstructs operations into the shared `Change[]` via
+  `synthFileChange`. The shell-**session** write tools **`write_bash`** / **`write_powershell`**
+  (which send input to a running shell) are classified as **mutation-capable `shell`** — never
+  `other`, which would have silently allowed a mutation piped into an existing session — and
+  fail closed when they carry no reconstructable command/input. `MultiEdit` is accepted
+  defensively as a Claude-compatible name, not as a documented Copilot tool. The first-party
+  **`apply_patch`** envelope (shared with Codex via a new `src/adapters/apply-patch.ts`) is
+  modelled explicitly; **`str_replace_editor`** is modelled for its `str_replace` / `create`
+  sub-ops and **fails closed** on any other sub-op pending a real payload; a PascalCase `Edit`
+  carrying a patch-style payload without ordinary Edit fields also fails closed. Deletes/renames
+  go through the shell. It runs the **same** engine as
   the Claude path for its pre-action content decision, pins the Stop-sweep baseline at turn
   start, and delegates the end-of-turn sweep to the canonical git sweep after normalizing the
   `agentStop` / `Stop` payload to the Claude Stop shape (native `sessionId` → `session_id`). The
@@ -34,15 +40,19 @@
   Claude and Codex adapters do, and every failure state (`parse-failure`, `transport-failure`,
   `not-invoked`, an unreconstructable edit, a rejected identity) fails closed to a deny.
   Capabilities are deliberately **conservative and honest**: `preDeny` is **empty** because
-  pre-action deny enforcement is not yet proven on a pinned Copilot CLI build, and `unsupported`
+  pre-action deny enforcement is not yet proven on a pinned Copilot CLI build, and
+  **`postObserve` is empty** because milestone one does not consume the `postToolUse`
+  observation surface (`decide(..., 'post-action')` returns `unsupported`), so the adapter does
+  not advertise kinds it does not report. `unsupported`
   names the real gaps — Copilot's **asymmetric, transport-scoped hook-failure semantics** (a
   **command** `preToolUse` hook crash / non-zero exit / exit 2 fails **closed** but a **timeout
   fails OPEN**; an **HTTP** `preToolUse` hook fails **OPEN** on network error / timeout /
   non-2xx, so only the local command/exec transport is a qualification candidate), the fact
   that **`preToolUse` is the only pre-execution veto** while **`agentStop` only forces
   continuation** and Copilot **overrides the hook after 8 consecutive blocks** (the
-  `stop_hook_active` lifecycle), and that the `apply_patch` / `str_replace_editor` payloads are
-  modelled from the published contract but not yet confirmed against a real pinned-run fixture.
+  `stop_hook_active` lifecycle), and that the `apply_patch` / `str_replace_editor` /
+  `write_bash` payloads are modelled from the published contract but not yet confirmed against a
+  real pinned-run fixture.
   This is milestone one: the adapter exists but is **not** 4.1-eligible — Copilot stays
   `neutral` in `src/runtimes.ts` and no research round is registered. The real
   `probe:copilot-runtime` headless qualification on a pinned, authenticated Copilot build (the

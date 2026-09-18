@@ -38,13 +38,18 @@ export interface CopilotHookInput {
 // Canonical Copilot CLI hook-facing tool names span BOTH documented vocabularies (GitHub
 // Copilot hooks reference), matched case-insensitively so the same map handles the native
 // lowercase names and the PascalCase Claude-compatible names:
-//  - shell: `bash` / `powershell` (native), `Bash` (PascalCase);
+//  - shell: `bash` / `powershell` (native), `Bash` (PascalCase). The Copilot CLI command
+//    reference also lists shell-SESSION tools — `write_bash` / `write_powershell` SEND INPUT
+//    to an existing shell session, so they are mutation-capable and classified as `shell`
+//    too (never `other`, which would produce a silent allow); the read/list/stop session
+//    tools do not send input and are left non-mutating;
 //  - file write: `create` / `edit` / `apply_patch` / `str_replace_editor` (native),
-//    `Write` / `Edit` / `MultiEdit` (PascalCase). NOTE: in PascalCase mode, a native
-//    `apply_patch` / `edit` / `str_replace_editor` is reported to the hook as `Edit`;
+//    `Write` / `Edit` (PascalCase). NOTE: in PascalCase mode, a native `apply_patch` / `edit`
+//    / `str_replace_editor` is reported to the hook as `Edit`. `MultiEdit` is accepted
+//    DEFENSIVELY (a Claude-compatible name), not because a Copilot source documents it;
 //  - file read: `view` (native), `Read` (PascalCase);
 //  - MCP: `mcp__<server>__<tool>`.
-const SHELL_TOOLS = new Set(['bash', 'powershell']);
+const SHELL_TOOLS = new Set(['bash', 'powershell', 'write_bash', 'write_powershell']);
 const FILE_EDIT_TOOLS = new Set(['create', 'edit', 'write', 'multiedit', 'apply_patch', 'str_replace_editor']);
 const FILE_READ_TOOLS = new Set(['view', 'read']);
 const MCP_PREFIX = 'mcp__';
