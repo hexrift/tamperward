@@ -140,10 +140,10 @@ export function diagnosticLines(stage: string, diagnostics: SuiteDiagnostics): s
   return lines;
 }
 
-// The Linux /proc identity helpers, shared verbatim between the capture
-// supervisor (which embeds this source) and its unit tests (#545). Kept as one
-// string so the tested logic and the running logic cannot drift. `fs` and
-// `process` are free variables resolved from the enclosing scope in both places.
+// The supervisor cleanup helpers, shared verbatim between the capture supervisor
+// (which embeds this source) and its unit tests (#545). Kept as one string so the
+// tested logic and the running logic cannot drift. `fs` and `process` are free
+// variables resolved from the enclosing scope in both places.
 //
 //  - `readStat` parses a process's ppid and start-time from /proc/<pid>/stat;
 //    a (pid, start-time) pair names one specific process instance.
@@ -153,7 +153,12 @@ export function diagnosticLines(stage: string, diagnostics: SuiteDiagnostics): s
 //    pid whose start-time no longer matches — a reused PID is a different,
 //    unrelated process. (A check-to-signal race still exists; only a pidfd would
 //    close it fully, but this rejects the observable reuse.)
-export const PROC_IDENTITY_SRC = String.raw`
+//  - `cleanupPlan` decides what killOwned signals. The main child and its
+//    detached group are signalled ONLY while the child is still reported live:
+//    after its exit event the pid (and group id) can be reused, and both
+//    `child.kill()` and `kill(-pid)` ultimately resolve the current bearer of
+//    that number. Descendants are always the identity-checked set.
+export const CLEANUP_HELPERS_SRC = String.raw`
 function readStat(pid) {
   try {
     const stat = fs.readFileSync('/proc/' + pid + '/stat', 'utf8');
@@ -205,6 +210,15 @@ function killableDescendants(tracked) {
   }
   return out;
 }
+
+function cleanupPlan(child, cfg, platform, killable) {
+  const live = !!child && child.exitCode === null && child.signalCode === null;
+  return {
+    signalGroup: !!(live && cfg.detached && platform !== 'win32'),
+    signalMainChild: live,
+    descendants: platform === 'linux' ? killable() : [],
+  };
+}
 `;
 
 // Runs under process.execPath, with the caller-supplied trusted environment.
@@ -230,7 +244,7 @@ const stderr = fresh();
 // pid -> the /proc start-time observed for that pid, so cleanup can re-check
 // identity before signalling (a bare pid alone can be reused — #545).
 const trackedDescendants = new Map();
-${PROC_IDENTITY_SRC}
+${CLEANUP_HELPERS_SRC}
 function trackDescendants() {
   if (!child || !child.pid || process.platform !== 'linux') return;
   for (const d of linuxDescendants(child.pid)) trackedDescendants.set(d.pid, d.starttime);
@@ -268,20 +282,17 @@ let drainTimer = null;
 function killOwned() {
   if (!child || !child.pid) return;
   trackDescendants();
-  // Only signal the detached group while our child is still alive: once it has
-  // exited, its pid (the group id) can be reused by an unrelated group (#545).
-  if (cfg.detached && process.platform !== 'win32' && child.exitCode === null && child.signalCode === null) {
-    try { process.kill(-child.pid, 'SIGKILL'); } catch {}
-  }
-  try { child.kill('SIGKILL'); } catch {}
-  if (process.platform === 'linux') {
-    // Deepest-first is friendlier to short-lived process trees. Each tracked pid
-    // is re-checked against its observed start-time before signalling, so a
-    // reused PID belonging to an unrelated process is dropped, not killed.
-    for (const pid of killableDescendants(Array.from(trackedDescendants).reverse())) {
-      try { process.kill(pid, 'SIGKILL'); } catch {}
-    }
-  }
+  // The main child and its detached group are signalled only while the child is
+  // still reported live: after its exit event the pid can be reused, and both
+  // child.kill() and kill(-pid) resolve the current bearer of that number (#545).
+  // Descendants are the independently identity-checked set (deepest-first, which
+  // is friendlier to short-lived process trees).
+  const plan = cleanupPlan(child, cfg, process.platform, function () {
+    return killableDescendants(Array.from(trackedDescendants).reverse());
+  });
+  if (plan.signalGroup) { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }
+  if (plan.signalMainChild) { try { child.kill('SIGKILL'); } catch {} }
+  for (const pid of plan.descendants) { try { process.kill(pid, 'SIGKILL'); } catch {} }
 }
 
 function finish(extra) {

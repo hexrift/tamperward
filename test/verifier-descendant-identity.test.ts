@@ -8,7 +8,7 @@
 // stress, exactly as the issue's acceptance criteria require.
 
 import { describe, it, expect } from 'vitest';
-import { PROC_IDENTITY_SRC } from '../src/suite-diagnostics';
+import { CLEANUP_HELPERS_SRC } from '../src/suite-diagnostics';
 
 // One /proc/<pid>/stat line: field 4 is ppid, field 22 is starttime. The parser
 // splits after the `(comm)` field, so we only need those two placed correctly.
@@ -21,10 +21,17 @@ function statLine(pid: number, ppid: number, starttime: string, comm = 'proc'): 
 }
 
 type Stat = { ppid: number; starttime: string } | null;
+type FakeChild = { pid: number; exitCode: number | null; signalCode: string | null };
 interface Helpers {
   readStat(pid: number): Stat;
   linuxDescendants(rootPid: number): { pid: number; starttime: string }[];
   killableDescendants(tracked: Iterable<[number, string]>): number[];
+  cleanupPlan(
+    child: FakeChild,
+    cfg: { detached?: boolean },
+    platform: string,
+    killable: () => number[],
+  ): { signalGroup: boolean; signalMainChild: boolean; descendants: number[] };
 }
 
 // Load the embedded helpers exactly as the supervisor does — free variables `fs`
@@ -43,7 +50,7 @@ function loadHelpers(table: Map<number, string | null>): Helpers {
   const factory = new Function(
     'fs',
     'process',
-    `${PROC_IDENTITY_SRC}\nreturn { readStat, linuxDescendants, killableDescendants };`,
+    `${CLEANUP_HELPERS_SRC}\nreturn { readStat, linuxDescendants, killableDescendants, cleanupPlan };`,
   );
   return factory(fs, { platform: 'linux' }) as Helpers;
 }
@@ -102,5 +109,34 @@ describe('#545 verifier descendant identity', () => {
       ]),
     );
     expect(h.killableDescendants(tracked)).toEqual([300]);
+  });
+
+  // The main-child / group lifetime guard (#545 review): once the child has
+  // exited its pid can be reused, so post-exit cleanup must NOT signal it.
+  it('post-exit cleanup does not signal the main child or its detached group', () => {
+    const h = loadHelpers(new Map());
+    const exited: FakeChild = { pid: 4242, exitCode: 0, signalCode: null };
+    const plan = h.cleanupPlan(exited, { detached: true }, 'linux', () => [200]);
+    expect(plan.signalMainChild).toBe(false);
+    expect(plan.signalGroup).toBe(false);
+    // Descendants are still cleaned up — they are identity-checked independently.
+    expect(plan.descendants).toEqual([200]);
+  });
+
+  it('a child terminated by signal is treated as not live', () => {
+    const h = loadHelpers(new Map());
+    const killed: FakeChild = { pid: 4242, exitCode: null, signalCode: 'SIGKILL' };
+    const plan = h.cleanupPlan(killed, { detached: true }, 'linux', () => []);
+    expect(plan.signalMainChild).toBe(false);
+    expect(plan.signalGroup).toBe(false);
+  });
+
+  it('a still-live child is signalled, and its group too when detached', () => {
+    const h = loadHelpers(new Map());
+    const live: FakeChild = { pid: 4242, exitCode: null, signalCode: null };
+    expect(h.cleanupPlan(live, { detached: true }, 'linux', () => []).signalMainChild).toBe(true);
+    expect(h.cleanupPlan(live, { detached: true }, 'linux', () => []).signalGroup).toBe(true);
+    // No group signal when the child was not put in its own group.
+    expect(h.cleanupPlan(live, { detached: false }, 'linux', () => []).signalGroup).toBe(false);
   });
 });
