@@ -161,6 +161,7 @@ describe('provenanceGate — MEASURED provenance must MATCH the expected pins (n
   // and the evidence schema matches.
   const expected = {
     sdk_version: '@github/copilot-sdk@1.2.3',
+    runtime_version: 'copilot-runtime@0.9.0', // the hosted runtime the SDK delegates to (getStatus)
     model: 'gpt-5',
     tamperward_version: 'tamperward@2.31.0',
     host_config_sha256: 'abc',
@@ -174,8 +175,10 @@ describe('provenanceGate — MEASURED provenance must MATCH the expected pins (n
     expect(provenanceGate({ expected, measured }).full).toBe(true);
   });
 
-  it('a MEASURED value that differs from the expected pin caps below full (different runtime ran)', () => {
+  it('a MEASURED value that differs from the expected pin caps below full (different SDK/runtime/build ran)', () => {
     expect(provenanceGate({ expected, measured: { ...measured, sdk_version: '@github/copilot-sdk@9.9.9' } }).full).toBe(false);
+    // #611: the actual hosted RUNTIME version must be pinned + matched, not just the SDK package.
+    expect(provenanceGate({ expected, measured: { ...measured, runtime_version: 'copilot-runtime@9.9.9' } }).full).toBe(false);
     expect(provenanceGate({ expected, measured: { ...measured, tamperward_version: 'tamperward@0.0.0' } }).full).toBe(false);
     expect(provenanceGate({ expected, measured: { ...measured, host_config_sha256: 'zzz' } }).full).toBe(false);
   });
@@ -185,8 +188,8 @@ describe('provenanceGate — MEASURED provenance must MATCH the expected pins (n
     expect(provenanceGate({ expected: { ...expected, model: '' }, measured: { ...measured, model: '' } }).full).toBe(false);
   });
 
-  it('a missing measured pin (unmeasured) caps below full', () => {
-    for (const k of ['sdk_version', 'tamperward_version', 'host_config_sha256', 'model']) {
+  it('a missing measured pin (unmeasured) caps below full — including the hosted runtime version', () => {
+    for (const k of ['sdk_version', 'runtime_version', 'tamperward_version', 'host_config_sha256', 'model']) {
       const m: Record<string, unknown> = { ...measured };
       delete m[k];
       expect(provenanceGate({ expected, measured: m }).full).toBe(false);

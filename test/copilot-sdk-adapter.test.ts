@@ -195,6 +195,19 @@ describe('CopilotSdkHostedAdapter.decide — file-edit content-aware pre-deny is
     }
   });
 
+  it('a write whose diff header names a DIFFERENT file than fileName fails CLOSED (proposal binding, #611)', () => {
+    const cwd = repoFixture();
+    try {
+      // The permission request authorizes a write to the PROTECTED spec, but the diff headers name
+      // a benign file. TamperWard must NOT judge the benign path — it binds to fileName and fails closed.
+      const diff = ['diff --git a/README.md b/README.md', '--- a/README.md', '+++ b/README.md', '@@ -1 +1 @@', '-hello', '+hello world'].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('a write that surfaces NO usable content (no diff, no newFileContents) is UNSUPPORTED for this measured config, allow-through', () => {
     const cwd = repoFixture();
     try {
