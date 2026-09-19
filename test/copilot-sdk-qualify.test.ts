@@ -12,14 +12,18 @@ import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
 // @ts-expect-error - the orchestrator is a plain .mjs harness module, no d.ts
 import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
 // @ts-expect-error - the fixtures are a plain .mjs harness module, no d.ts
-import { makeScenarioRepo, cleanupRepo, sdkCompletionEventData, PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE, PERMISSION_GATE_NONEXECUTION_CODES } from '../harness/adapters/copilot-sdk/fixtures.mjs';
+import { makeScenarioRepo, cleanupRepo, sdkCompletionEventData, PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE, CANDIDATE_PERMISSION_GATE_CODES, CONFIRMED_PERMISSION_GATE_CODES } from '../harness/adapters/copilot-sdk/fixtures.mjs';
 // @ts-expect-error - the spike is a plain .mjs harness module, no d.ts
 import { provenanceGate, sha16, resolvedPackageIntegrity, packageIntegrityHash, finalizeQualification, renderResult } from '../harness/adapters/copilot-sdk-spike.mjs';
 // @ts-expect-error - the fake binding is a plain .mjs test-support module, no d.ts
 import { createFakeBinding } from './support/fake-copilot-binding.mjs';
 
 const adapter = copilotSdkAdapter as unknown as { decide: (raw: string, phase: string, cwd?: string) => { outcome: string; wire?: string; decision?: { verdict: string; reason?: string } } };
-const CFG = (over: Record<string, unknown> = {}) => ({ model: 'gpt-5.4', keepArtifacts: false, expected: {}, errors: [], ...over });
+// The scenario-level CI tests INJECT the unconfirmed candidate permission-gate codes via
+// `confirmedDenialCodes` so they can exercise the fail-closed / non-dispatch classification LOGIC. This
+// is explicit: the shipped default (CONFIRMED_PERMISSION_GATE_CODES) is empty, so these tests prove the
+// logic, not that the codes match the live runtime — that is the credentialed rerun's job (#615 review).
+const CFG = (over: Record<string, unknown> = {}) => ({ model: 'gpt-5.4', keepArtifacts: false, expected: {}, errors: [], confirmedDenialCodes: [...CANDIDATE_PERMISSION_GATE_CODES], ...over });
 
 describe('buildConfig — exact model is required, auto is forbidden', () => {
   it('errors when the model is missing', () => {
@@ -631,24 +635,38 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     expect(s.basis).toBe('post-decision-success-completion');
   });
 
-  it('classifyHandlerDispatch: non-dispatch only from a post-decision permission-gate completion', () => {
-    const d = classifyHandlerDispatch({ mutated: false, completion: { completeSeq: 6, outcome: 'error', errorCategory: USER_NOT_AVAILABLE_CODE }, boundarySeq: 5 });
+  it('classifyHandlerDispatch: non-dispatch only from a post-decision completion whose code is CONFIRMED', () => {
+    const confirmedDenialCodes = [...CANDIDATE_PERMISSION_GATE_CODES];
+    const d = classifyHandlerDispatch({ mutated: false, completion: { completeSeq: 6, outcome: 'error', errorCategory: USER_NOT_AVAILABLE_CODE }, boundarySeq: 5, confirmedDenialCodes });
     expect(d.handlerDispatched).toBe(false);
     expect(d.basis).toBe('post-decision-denied-completion');
-    // The explicit-reject code is equally authoritative.
-    expect(classifyHandlerDispatch({ mutated: false, completion: { completeSeq: 6, outcome: 'error', errorCategory: PERMISSION_DENIED_CODE }, boundarySeq: 5 }).handlerDispatched).toBe(false);
+    // The explicit-reject code is equally authoritative when confirmed.
+    expect(classifyHandlerDispatch({ mutated: false, completion: { completeSeq: 6, outcome: 'error', errorCategory: PERMISSION_DENIED_CODE }, boundarySeq: 5, confirmedDenialCodes }).handlerDispatched).toBe(false);
   });
 
-  it('classifyHandlerDispatch: generic/ambiguous failure codes never promote to FAIL-CLOSED (#615 blocker 2)', () => {
-    // `aborted` may have already produced a side effect; generic `denied`/`rejected` are tool-result
-    // semantics, not proof the permission GATE prevented execution — all must stay INCONCLUSIVE.
-    for (const code of ['aborted', 'denied', 'rejected', 'tool-error', 'timeout', undefined]) {
+  it('classifyHandlerDispatch: UNCONFIRMED codes never produce fail-closed by default (#615 final blocker)', () => {
+    // The shipped/live default confirmed set is EMPTY (the v1.0.14 E2E establishes only message
+    // substrings, not error.code), so even a candidate permission-gate code stays INCONCLUSIVE until the
+    // credentialed rerun freezes the real code — a wrong guess can never manufacture a false FAIL-CLOSED.
+    expect([...CONFIRMED_PERMISSION_GATE_CODES]).toEqual([]);
+    for (const code of [PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE]) {
       const r = classifyHandlerDispatch({ mutated: false, completion: { completeSeq: 6, outcome: 'error', errorCategory: code }, boundarySeq: 5 });
       expect(r.handlerDispatched).toBeUndefined();
       expect(r.basis).toBe('insufficient-post-decision-evidence');
     }
-    // The permission-gate set is exactly the two established codes — nothing wider.
-    expect([...PERMISSION_GATE_NONEXECUTION_CODES].sort()).toEqual([PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE].sort());
+  });
+
+  it('classifyHandlerDispatch: generic/ambiguous failure codes never promote to FAIL-CLOSED even when confirmed set is present (#615 blocker 2)', () => {
+    // `aborted` may have already produced a side effect; generic `denied`/`rejected` are tool-result
+    // semantics, not proof the permission GATE prevented execution — all must stay INCONCLUSIVE.
+    const confirmedDenialCodes = [...CANDIDATE_PERMISSION_GATE_CODES];
+    for (const code of ['aborted', 'denied', 'rejected', 'tool-error', 'timeout', undefined]) {
+      const r = classifyHandlerDispatch({ mutated: false, completion: { completeSeq: 6, outcome: 'error', errorCategory: code }, boundarySeq: 5, confirmedDenialCodes });
+      expect(r.handlerDispatched).toBeUndefined();
+      expect(r.basis).toBe('insufficient-post-decision-evidence');
+    }
+    // The candidate set is exactly the two codes — nothing wider — and stays UNCONFIRMED (not shipped).
+    expect([...CANDIDATE_PERMISSION_GATE_CODES].sort()).toEqual([PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE].sort());
   });
 
   it('the fake emits the pinned SDK completion shape and the orchestrator normalizes error.code (#615 blocker 1)', async () => {
@@ -729,5 +747,23 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     const r = await runPreDenyScenario({ binding: createFakeBinding({ ignoreDeny: true }), adapter, config: CFG(), mechanism: 'shell' });
     expect(r.semantic).toBe('FAIL-OPEN');
     expect(r.evidence.dispatchBasis).toBe('protected-mutation');
+  });
+
+  it('with the shipped default (no confirmed codes), a broken decision path is INCONCLUSIVE, not FAIL-CLOSED (#615 final blocker)', async () => {
+    // Same broken-callback scenario as the FAIL-CLOSED test above, but with the shipped empty confirmed
+    // set: the withheld tool's completion code is not yet established, so non-dispatch cannot be proven
+    // and the path stays INCONCLUSIVE. Mutation would still be authoritative FAIL-OPEN (see above).
+    const r = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: false }), adapter, config: CFG({ confirmedDenialCodes: [] }), breakage: 'sync-throw' });
+    expect(r.evidence.finalStateMutated).toBe(false);
+    expect(r.evidence.handlerDispatched).toBeUndefined();
+    expect(r.semantic).toBe('INCONCLUSIVE');
+  });
+
+  it('with the shipped default (no confirmed codes), a pre-deny is INCOMPLETE with no non-dispatch proof (#615 final blocker)', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG({ confirmedDenialCodes: [] }), mechanism: 'shell' });
+    expect(r.evidence.finalStateMutated).toBe(false);
+    expect(r.evidence.handlerDispatched).toBeUndefined();
+    expect(r.evidence.dispatchBasis).toBe('insufficient-post-decision-evidence');
+    expect(r.semantic).toBe('INCOMPLETE');
   });
 });

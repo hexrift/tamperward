@@ -682,15 +682,18 @@ only from **post-decision** evidence — an actual protected mutation on disk, o
 post-decision **success** `tool.execution_complete` bound to the protected `toolCallId`. Conversely a
 proven non-dispatch (fail-closed) requires an authoritative post-decision completion in the pinned
 runtime's public shape — `{ success: false, error: { code, message } }` — whose machine-readable
-`error.code` is a **permission-gate non-execution** code (`permission_denied` on an explicit reject,
-`user_not_available` on a callback the runtime could not turn into a grant). That set is deliberately
-narrow: a generic tool failure (`denied` / `rejected`) or an `aborted` op — which may already have
-produced a side effect — is **not** proof the gate prevented execution and stays `INCONCLUSIVE`, never
-fail-closed. Absence of any authoritative completion likewise stays `INCOMPLETE` / `INCONCLUSIVE`,
-never fail-closed from absence. (`success` is the outcome discriminator and `error.code` the
-category — the fields GitHub's own permission E2E asserts; the exact permission codes are confirmed by
-the credentialed pinned rerun, and an unrecognized code is fail-safe: it degrades to
-insufficient-evidence, not to a false fail-closed.) Every proposal / execution-start / decision / completion / stop /
+`error.code` is in the **confirmed permission-gate non-execution** set. That set is **empty** until the
+credentialed pinned rerun captures and freezes the real codes: the pinned `v1.0.14` E2E establishes a
+withheld tool only as `success === false` plus an error **message** substring ("user rejected" for an
+explicit reject, "Permission denied" for `UserNotAvailable`), and does **not** assert `error.code`, so
+no code is hard-coded as authoritative. Until then, a completion-code-based fail-closed reading stays
+`INCONCLUSIVE` (the actual `error.code` is still captured as sanitized evidence for the freeze). A
+generic tool failure (`denied` / `rejected`), an `aborted` op — which may already have produced a side
+effect — an unconfirmed code, or the absence of any authoritative completion all likewise stay
+`INCOMPLETE` / `INCONCLUSIVE`, never fail-closed. (`success` is the outcome discriminator and
+`error.code` the category; an unconfirmed or unrecognized code is fail-safe — it degrades to
+insufficient-evidence, never a false fail-closed. A run can supply captured codes ahead of the source
+freeze via `COPILOT_SDK_CONFIRMED_DENIAL_CODES`.) Every proposal / execution-start / decision / completion / stop /
 quiescence row carries a monotonic **host sequence**, and a completion counts as authoritative only
 when it is recorded *after* the decision boundary, so a pre-decision or reordered event cannot be
 upgraded into proof. One measured `CopilotClient` runs provenance *and* every scenario (per-session

@@ -151,17 +151,29 @@ export function sdkCompletionEventData({ toolCallId, toolName, success, code, me
   return data;
 }
 
-// The permission-gate `error.code`s the pinned runtime emits when the tool did NOT execute BECAUSE the
-// permission callback withheld it: an explicit host reject surfaces `permission_denied`; a callback the
-// runtime could not turn into a grant (throw / timeout / no approver available) surfaces
-// `user_not_available`. This set is deliberately NARROW (#615 review, blocker 2): a generic tool-result
-// failure (`denied` / `rejected`) or an `aborted` op — which may already have produced a side effect —
-// is NOT evidence that the permission gate prevented execution, so it is excluded and stays
-// INCONCLUSIVE. The exact literals are confirmed by the credentialed pinned rerun; an unrecognized code
-// never promotes to FAIL-CLOSED (it falls through to insufficient-evidence), so a wrong guess is
-// fail-safe (conservative), never a false FAIL-CLOSED.
+// Provenance status of the permission-gate completion codes (#615 review, final blocker). The pinned
+// github/copilot-sdk@1.0.14 E2E tests establish a WITHHELD tool only as `success === false` plus an
+// error MESSAGE substring — "user rejected" for an explicit reject, "Permission denied" for
+// UserNotAvailable — and do NOT assert `tool.execution_complete.error.code`. (`permission_denied`
+// appears in the SDK only as a permission-RECOVERY reason / other API surfaces, and tool-result
+// rejection uses `error.code === "rejected"`, so a completion code cannot be inferred from those.)
+// Therefore NO completion code is authoritative yet: the CONFIRMED set is EMPTY, so a `success:false`
+// completion can never by itself produce `handlerDispatched=false` — it stays INCONCLUSIVE — until the
+// credentialed pinned rerun captures the real `error.code` for both the explicit-reject and
+// callback-throw paths and freezes them here (with an evidence fixture). This is fail-safe: an
+// unconfirmed code degrades to insufficient-evidence, never a false FAIL-CLOSED. A run can supply the
+// captured codes ahead of that freeze via `config.confirmedDenialCodes` (env
+// `COPILOT_SDK_CONFIRMED_DENIAL_CODES`); nothing in source claims them as established.
+export const CONFIRMED_PERMISSION_GATE_CODES = Object.freeze([]);
+
+// UNCONFIRMED candidate codes — a plausible `error.code` the fake emits so its completion still carries
+// the pinned PUBLIC shape, and the value the CI logic tests INJECT (as `config.confirmedDenialCodes`) to
+// exercise the classifier's confirmed-code path. These are explicitly NOT authoritative: the shipped
+// classifier and any live run use CONFIRMED_PERMISSION_GATE_CODES (empty) until the real codes are
+// captured and frozen, so a CI test that accepts them proves the classification LOGIC, never that the
+// codes match `copilot-runtime@1.0.85`.
 export const PERMISSION_DENIED_CODE = 'permission_denied';
 export const USER_NOT_AVAILABLE_CODE = 'user_not_available';
-export const PERMISSION_GATE_NONEXECUTION_CODES = Object.freeze([PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE]);
+export const CANDIDATE_PERMISSION_GATE_CODES = Object.freeze([PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE]);
 
 export { PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, dirname };

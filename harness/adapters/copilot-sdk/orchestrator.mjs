@@ -26,7 +26,7 @@ import {
   provenanceGate,
   EVIDENCE_SCHEMA_VERSION,
 } from '../copilot-sdk-spike.mjs';
-import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, PERMISSION_GATE_NONEXECUTION_CODES } from './fixtures.mjs';
+import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, CONFIRMED_PERMISSION_GATE_CODES } from './fixtures.mjs';
 
 const RESULT_SCHEMA_VERSION = 'copilot-sdk-qualification/v1';
 const RUNTIME_ID = 'github-copilot-sdk-hosted';
@@ -78,13 +78,15 @@ function toPermissionResult(res) {
   return { result: { kind: 'approve-once' }, deny: false, outcome: res.outcome };
 }
 
-// A completion's `error.code` authoritatively means the tool did NOT execute the side effect ONLY when
-// it is a permission-gate NON-EXECUTION code (PERMISSION_GATE_NONEXECUTION_CODES, defined once in
-// ./fixtures.mjs so the fake binding emits exactly what this classifier accepts). That set is narrow on
-// purpose (#615 review, blocker 2): a generic tool failure (`denied` / `rejected`), or an `aborted` op
-// that may already have produced a side effect, is NOT proof the permission gate prevented execution —
-// it stays INCONCLUSIVE rather than being promoted to FAIL-CLOSED.
-const DENIAL_COMPLETION_CODES = new Set(PERMISSION_GATE_NONEXECUTION_CODES);
+// The DEFAULT confirmed permission-gate non-execution code set. EMPTY until the credentialed pinned
+// rerun freezes the real `tool.execution_complete.error.code` values (see CONFIRMED_PERMISSION_GATE_CODES
+// in ./fixtures.mjs — the v1.0.14 E2E establishes only `success===false` + an error MESSAGE substring,
+// not a code, so hard-coding a code would be an unproven claim). A run overrides it via
+// `config.confirmedDenialCodes` (env `COPILOT_SDK_CONFIRMED_DENIAL_CODES`), and CI logic tests inject the
+// unconfirmed candidates explicitly. Until a code is in the ACTIVE set, a `success:false` completion
+// never produces `handlerDispatched=false` (it stays INCONCLUSIVE) — #615 review, final blocker. A
+// generic tool failure (`denied`/`rejected`) or an `aborted` op stays inconclusive regardless.
+const DEFAULT_DENIAL_COMPLETION_CODES = CONFIRMED_PERMISSION_GATE_CODES;
 
 /**
  * Classify whether the protected handler crossed the permission gate, from POST-DECISION evidence only
@@ -92,19 +94,23 @@ const DENIAL_COMPLETION_CODES = new Set(PERMISSION_GATE_NONEXECUTION_CODES);
  * BEFORE the permission callback resolves, so it can never by itself prove dispatch. FAIL-OPEN requires
  * either an actual protected mutation, or an authoritative post-decision success completion. An
  * authoritative post-decision PERMISSION-GATE non-execution completion (a `success:false` completion
- * whose `error.code` is in DENIAL_COMPLETION_CODES) proves the tool did NOT run (handler NOT
- * dispatched). Anything else — including a generic tool failure or an aborted op — is insufficient
+ * whose `error.code` is in the CONFIRMED code set) proves the tool did NOT run (handler NOT dispatched).
+ * Anything else — a generic tool failure, an aborted op, or a code not yet confirmed — is insufficient
  * (undefined → INCOMPLETE / INCONCLUSIVE), never promoted to fail-closed.
  *   - `mutated`      the protected target actually changed on disk (authoritative effect)
  *   - `completion`   the sanitized tool.execution_complete record for the protected toolCallId
  *                    ({ completeSeq, outcome, errorCategory }, where `errorCategory` is the SDK error.code)
  *   - `boundarySeq`  host sequence of the decision / callback-invocation boundary; a completion is
  *                    only authoritative when it is recorded AFTER this (never a pre-decision event)
+ *   - `confirmedDenialCodes`  the error.codes established (by the credentialed rerun) as permission-gate
+ *                    non-execution signals; EMPTY by default, so no completion code proves non-dispatch
+ *                    until the real codes are frozen (#615 review, final blocker)
  */
-export function classifyHandlerDispatch({ mutated, completion, boundarySeq } = {}) {
+export function classifyHandlerDispatch({ mutated, completion, boundarySeq, confirmedDenialCodes = DEFAULT_DENIAL_COMPLETION_CODES } = {}) {
+  const denialCodes = confirmedDenialCodes instanceof Set ? confirmedDenialCodes : new Set(confirmedDenialCodes ?? []);
   const afterBoundary = completion?.completeSeq != null && boundarySeq != null && completion.completeSeq > boundarySeq;
   const authoritativeSuccess = afterBoundary && completion.outcome === 'success';
-  const authoritativeDenied = afterBoundary && completion.outcome === 'error' && DENIAL_COMPLETION_CODES.has(completion.errorCategory);
+  const authoritativeDenied = afterBoundary && completion.outcome === 'error' && denialCodes.has(completion.errorCategory);
   if (mutated) return { handlerDispatched: true, basis: 'protected-mutation' };
   if (authoritativeSuccess) return { handlerDispatched: true, basis: 'post-decision-success-completion' };
   if (authoritativeDenied) return { handlerDispatched: false, basis: 'post-decision-denied-completion' };
@@ -494,6 +500,7 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
     mutated: state.protectedMutated,
     completion: run.completionFor(protectedRuntimeId),
     boundarySeq: run.decisionSeqFor(protectedRuntimeId),
+    confirmedDenialCodes: config.confirmedDenialCodes,
   });
   const handlerDispatched = disp.handlerDispatched;
   const executionStartObserved = protectedRuntimeId != null && run.executionStartedToolCallIds.has(protectedRuntimeId);
@@ -659,8 +666,9 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
   const state = finalState(repo);
   // As in pre-deny, FAIL-OPEN requires POST-DECISION evidence (an actual protected mutation, or an
   // authoritative post-decision success completion), and FAIL-CLOSED requires an authoritative
-  // post-decision permission-gate non-execution completion (the SDK's `user_not_available` error.code on
-  // a broken callback).
+  // post-decision permission-gate non-execution completion — a `success:false` completion whose
+  // `error.code` is in the CONFIRMED set. That set is empty until the credentialed rerun freezes the
+  // real codes, so on the broken callback path this stays INCONCLUSIVE until then (#615 review).
   // A pre-decision `tool.execution_start` never influences the classification (#611 bug fix). Without a
   // runtime-correlatable id (or without an authoritative completion) it stays undefined → INCONCLUSIVE.
   const protectedHasRuntimeId = protectedProposalId != null;
@@ -668,6 +676,7 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
     mutated: state.protectedMutated,
     completion: run.completionFor(protectedProposalId),
     boundarySeq: protectedBoundarySeq,
+    confirmedDenialCodes: config.confirmedDenialCodes,
   });
   const handlerDispatched = disp.handlerDispatched;
   const executionStartObserved = protectedHasRuntimeId && run.executionStartedToolCallIds.has(protectedProposalId);
@@ -920,9 +929,17 @@ export function buildConfig(opts = {}, env = process.env) {
   const availableTools = env.COPILOT_SDK_AVAILABLE_TOOLS
     ? env.COPILOT_SDK_AVAILABLE_TOOLS.split(',').map((s) => s.trim()).filter(Boolean)
     : undefined;
+  // The permission-gate non-execution error.codes established for this pinned runtime. Defaults to the
+  // (empty) CONFIRMED_PERMISSION_GATE_CODES so no completion code proves non-dispatch until the
+  // credentialed rerun freezes the real values; an operator that has captured them can supply them here
+  // via env ahead of that freeze (#615 review, final blocker).
+  const confirmedDenialCodes = env.COPILOT_SDK_CONFIRMED_DENIAL_CODES
+    ? env.COPILOT_SDK_CONFIRMED_DENIAL_CODES.split(',').map((s) => s.trim()).filter(Boolean)
+    : [...CONFIRMED_PERMISSION_GATE_CODES];
   return {
     model,
     availableTools, // when set, the session's tool surface is explicitly configured AND frozen
+    confirmedDenialCodes,
     preflight: opts.preflight === true,
     scenarioFilter: opts.scenario || null,
     jsonPath: opts.json || null,
