@@ -444,23 +444,32 @@ box:
   the documented **FAIL-OPEN** (no hook output → default permission → the tool proceeds under
   `--allow-all-tools`); a **missing configured executable** — wired via Copilot's `exec` hook
   form so the binary genuinely cannot be spawned (distinct from a shell reporting "command not
-  found") — is **measured**. It emits the
-  **operation-specific capability matrix** #598 asks for (`pre-deny:shell PROVEN`, `hook-crash
-  FAIL-CLOSED`, `hook-timeout FAIL-OPEN`, `overall PARTIAL`, …), never a single
-  supported/unsupported boolean. Each transport row is judged against its **documented
-  expectation**, not the raw observation: `overall FULL` requires **every** measured transport to
-  be a documented FAIL-CLOSED kind (crash/non-zero) that was **also** observed FAIL-CLOSED. A
-  documented FAIL-OPEN kind (timeout/empty/malformed) never satisfies that requirement — even a
-  pinned run that happens to fail CLOSED is recorded as a **DEVIATION** from the contract, not
-  proof — so while the runtime's contract contains any required fail-open path, **FULL is
-  structurally unreachable** (which is Copilot's real case). A **provenance gate**
+  found") — is **measured**.
+
+  It emits the **operation-specific capability matrix** #598 asks for, never a single
+  supported/unsupported boolean — but the vocabulary is bounded by what parent-observed evidence
+  can establish. Because the probe has **no forge-independent attempt/hook/deny signal**, it cannot
+  prove in-loop deny enforcement, so mutation rows report `protected-state-held:<op>`
+  (`HELD` / `NOT-HELD` / `INCONCLUSIVE`) — the protected mutation did not land under a potent
+  control — **not** `pre-deny:<op> PROVEN`, which would claim attempt + hook-fire + deny + enforced
+  non-execution that a non-land alone does not show. Likewise each transport row's **authoritative
+  semantic is parent-observed** (`transportObservation`: dispatch sentinel + spec state + a potent
+  control), never the candidate-writable ledger: a dispatch/land is a forge-independent
+  **FAIL-OPEN**; a non-dispatch is only **`NO-DISPATCH`** (attempt/hook-fire not independently
+  verified), never a proven `FAIL-CLOSED`. A documented FAIL-OPEN kind observed as anything but
+  FAIL-OPEN is a **DEVIATION**. So neither a HELD mutation row nor a NO-DISPATCH transport row can
+  lift `overall` to FULL: **FULL is structurally unreachable here** (which is Copilot's real case),
+  and the honest result is PARTIAL — a set of parent-observed observations, not an in-loop
+  enforcement proof. A **provenance gate**
   (`COPILOT_VERSION_EXPECTED` matched **exactly**, `COPILOT_MODEL`, `COPILOT_HOME`, and the
   canonical hooks-config SHA-256) caps the result at PARTIAL when unpinned; with no Copilot CLI
   it reports PARTIAL and exits non-zero, so "could not test" is never mistaken for "passed".
 
-Because Copilot's command-hook timeout fails open by documentation, a real run's `overall` is
-expected to be **PARTIAL**, not FULL — which is precisely why the probe measures it rather than
-assuming fail-closed. Until a FULL verdict on a pinned build says otherwise, Copilot stays
+A real run's `overall` is **PARTIAL**, never FULL: Copilot's command-hook timeout/empty/malformed
+states are documented fail-open, and — more fundamentally — this black-box harness has no
+forge-independent signal that a hook fired and denied, so it proves protected-state-held and
+transport observations, not in-loop deny enforcement. FULL as defined here would require a
+qualification channel #482/#598 does not yet specify. Copilot therefore stays
 `steering: 'neutral'` in `src/runtimes.ts`, `preDeny` stays empty, and no Round 4.1 research
 round is registered. A green CI run proves the build, unit/adapter tests, static gate, and the
 probe self-test only — **not** runtime qualification (layer c is not run in CI; there is no
