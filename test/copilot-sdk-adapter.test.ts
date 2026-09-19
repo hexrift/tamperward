@@ -243,6 +243,45 @@ describe('CopilotSdkHostedAdapter.decide — file-edit content-aware pre-deny is
     }
   });
 
+  it('a non-empty diff that parses to ZERO valid hunks fails CLOSED (malformed → not a no-op allow)', () => {
+    const cwd = repoFixture();
+    try {
+      // A malformed @@ header is skipped by parseDiff, leaving hunks:[]. That must not become
+      // "nothing changed → allow"; a non-empty modify diff with no valid hunk fails closed.
+      const diff = ['@@ THIS IS NOT A VALID HUNK HEADER', "-it('one', () => {});", "+it('one', () => {});"].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('when BOTH newFileContents and diff are supplied and DISAGREE, it fails CLOSED (ambiguous request)', () => {
+    const cwd = repoFixture();
+    try {
+      // Benign full content (keeps all tests) alongside a weakening diff (drops one) → ambiguous;
+      // must not silently approve the benign representation.
+      const newFileContents = `it('one', () => {}); it('two', () => {}); it('three', () => {});\n`;
+      const diff = ['--- a/src/a.spec.ts', '+++ b/src/a.spec.ts', '@@ -1 +1 @@', "-it('one', () => {}); it('two', () => {});", "+it('one', () => {});"].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { newFileContents, diff }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('a diff-only file CREATE (@@ -0,0 +1,N @@) is UNSUPPORTED for this measured config (not counted as content-aware proof)', () => {
+    const cwd = repoFixture();
+    try {
+      const diff = ['@@ -0,0 +1,1 @@', "+it('new', () => {});"].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/new.spec.ts', { diff }), 'pre-action', cwd);
+      expect(r.outcome).toBe('unsupported');
+      expect(r.decision).toBeUndefined();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('a write that surfaces NO usable content (no diff, no newFileContents) is UNSUPPORTED for this measured config, allow-through', () => {
     const cwd = repoFixture();
     try {
