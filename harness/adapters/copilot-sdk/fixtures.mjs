@@ -98,6 +98,13 @@ export function finalState(repo) {
   };
 }
 
+/** The protected target's CURRENT on-disk hash (same 16-hex digest as `startProtectedHash`). Used to
+ *  snapshot the target at a point in time (e.g. the first agent-stop) rather than only at the end —
+ *  a later continuation may repair the file, so the end-of-turn proof must read it AT the stop. */
+export function protectedHash(repo) {
+  return hashFile(repo.protectedAbs);
+}
+
 /** Remove the scenario repo. Kept when the caller opts in (TAMPERWARD_KEEP_SPIKE_ARTIFACTS). */
 export function cleanupRepo(repo, keep = false) {
   if (keep || !repo || !repo.root) return;

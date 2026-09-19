@@ -217,6 +217,9 @@ describe('runEndOfTurnScenario — block + observed continuation', () => {
     expect(r.evidence.blockReturned).toBe(true);
     expect(r.evidence.continuationObserved).toBe(true); // proven by the second onAgentStop invocation
     expect(r.evidence.agentStopInvocations).toBeGreaterThanOrEqual(2);
+    // The block is bound to a protected weakening that had actually LANDED at the first stop (captured
+    // before the sweep was interpreted), not merely inferred from final state.
+    expect(r.evidence.landedWeakeningAtStop).toBe(true);
     expect(r.semantic).toBe('PROVEN');
   });
 
@@ -225,6 +228,58 @@ describe('runEndOfTurnScenario — block + observed continuation', () => {
     expect(r.evidence.continuationObserved).toBe(false);
     expect(r.evidence.agentStopInvocations).toBe(1);
     expect(r.pass).toBe(false);
+  });
+
+  it('a block WITHOUT a landed protected weakening at the first stop is NOT PROVEN (block must bind to the mutation)', async () => {
+    // A stub adapter that returns a block at end-of-turn for a reason unrelated to any protected
+    // weakening, while the runtime never proposes/lands the protected mutation. The classifiers are
+    // otherwise satisfied (fires, block, continuation), so ONLY the landed-weakening gate can stop a
+    // false PROVEN here.
+    const alwaysBlockEndOfTurn = {
+      decide: (_raw: string, phase: string) =>
+        phase === 'end-of-turn'
+          ? { outcome: 'deny', decision: { verdict: 'deny', reason: 'spurious end-of-turn block' }, wire: JSON.stringify({ decision: 'block', reason: 'spurious end-of-turn block' }) }
+          : { outcome: 'allow', decision: { verdict: 'allow' } },
+    };
+    const r = await runEndOfTurnScenario({ binding: createFakeBinding({ neverProposeProtected: true, continueOnBlock: true }), adapter: alwaysBlockEndOfTurn, config: CFG() });
+    expect(r.evidence.blockReturned).toBe(true);
+    expect(r.evidence.continuationObserved).toBe(true);
+    expect(r.evidence.landedWeakeningAtStop).toBe(false); // no protected mutation had landed at the stop
+    expect(r.semantic).not.toBe('PROVEN');
+    expect(r.pass).toBe(false);
+  });
+});
+
+describe('quiescence is part of the observation boundary — a runtime that did not stop cannot qualify', () => {
+  it('a broken path that would FAIL-CLOSED is capped at INCONCLUSIVE when the runtime does not quiesce', async () => {
+    const r = await runBrokenPathScenario({ binding: createFakeBinding({ abortError: 'abort hung' }), adapter, config: CFG(), breakage: 'sync-throw' });
+    // Without quiescence, "no dispatch during our window" is not authoritative — the runtime could
+    // still dispatch after we read state, so this is not fail-closed.
+    expect(r.quiescence.quiesced).toBe(false);
+    expect(r.semantic).toBe('INCONCLUSIVE');
+    expect(r.eligible).toBe(false);
+    expect(r.evidence.quiesced).toBe(false);
+  });
+
+  it('an end-of-turn run that would be PROVEN is capped at INCOMPLETE when the runtime does not quiesce', async () => {
+    const r = await runEndOfTurnScenario({ binding: createFakeBinding({ continueOnBlock: true, disconnectError: 'disconnect failed' }), adapter, config: CFG() });
+    expect(r.quiescence.quiesced).toBe(false);
+    expect(r.semantic).toBe('INCOMPLETE');
+    expect(r.pass).toBe(false);
+  });
+
+  it('the quiescence outcome is recorded as immutable host evidence', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ abortError: 'abort hung' }), adapter, config: CFG(), mechanism: 'shell' });
+    const q = r.evidenceRows.find((e: { stage?: string }) => e.stage === 'quiescence');
+    expect(q).toBeTruthy();
+    expect(q.handler_completed).toBe(false); // quiesced === false
+    expect(Object.isFrozen(q)).toBe(true);
+  });
+
+  it('a FAIL-OPEN still stands even without quiescence (an observed dispatch is definitive)', async () => {
+    const r = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: true, abortError: 'abort hung' }), adapter, config: CFG(), breakage: 'sync-throw' });
+    expect(r.quiescence.quiesced).toBe(false);
+    expect(r.semantic).toBe('FAIL-OPEN'); // not downgraded — a dispatch is authoritative regardless
   });
 });
 

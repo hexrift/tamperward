@@ -140,7 +140,14 @@ function makeFakeSession(cfg, opts) {
       if (!opts.suppressIdle) emit('session.idle', { turnId: 't1' });
       return { type: 'assistant.message', data: { content: 'done' } };
     },
-    async disconnect() {},
+    // Quiescence result, mirroring the real binding contract: `abortError`/`disconnectError` model a
+    // runtime the host could NOT prove had stopped, so the orchestrator must not treat final state as
+    // authoritative (no PROVEN/FAIL-CLOSED for that scenario).
+    async disconnect() {
+      if (opts.abortError) return { quiesced: false, error: opts.abortError };
+      if (opts.disconnectError) return { quiesced: false, error: opts.disconnectError };
+      return { quiesced: true };
+    },
   };
 }
 

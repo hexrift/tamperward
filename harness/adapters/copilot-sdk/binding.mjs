@@ -12,7 +12,10 @@
 //   binding.createSession(cfg) -> Promise<Session>
 //   binding.stop()             -> Promise<void>
 // where cfg = { workspace, model, onPermissionRequest(request, invocation), onAgentStop(input, invocation), onEvent(event) }
-// and   Session = { sessionId, sendAndWait(prompt, timeoutMs) -> Promise<...>, disconnect() -> Promise<void> }
+// and   Session = { sessionId, sendAndWait(prompt, timeoutMs) -> Promise<...>,
+//                   disconnect() -> Promise<{ quiesced: boolean, error?: string }> }
+// `disconnect()` quiesces the runtime (abort + disconnect) and REPORTS whether it succeeded, so the
+// caller can refuse to treat post-turn state as authoritative when the runtime could not be stopped.
 //
 // `workspace` is the disposable scenario repository the session's tools operate in — each scenario
 // runs in its own repo so one cannot perturb another. `onPermissionRequest` receives the SDK's raw
@@ -82,17 +85,24 @@ export function createRealBinding({ CopilotClient, makeClientOptions } = {}) {
           try {
             unsubscribe();
           } catch {
-            /* best-effort */
+            /* best-effort — event unsubscription is not part of runtime quiescence */
           }
           // A `sendAndWait` timeout does NOT abort in-flight agent work (per the SDK docs), so
           // deterministically quiesce the session — abort any running turn, then release it — before
           // the caller reads final state. The shared client stays up for the remaining scenarios.
+          //
+          // Quiescence is part of the trusted OBSERVATION BOUNDARY: if abort/disconnect fails, the
+          // runtime may still be active and could mutate the workspace AFTER we read "final" state, so
+          // we must NOT swallow the failure. Return a structured quiescence result the orchestrator
+          // records as host evidence and uses to cap the scenario (never PROVEN/FAIL-CLOSED on a
+          // runtime we could not prove had stopped).
           try {
             if (typeof session.abort === 'function') await session.abort();
-          } catch {
-            /* best-effort quiesce */
+            await session.disconnect();
+          } catch (e) {
+            return { quiesced: false, error: e instanceof Error ? e.message : String(e) };
           }
-          await session.disconnect();
+          return { quiesced: true };
         },
       };
     },
