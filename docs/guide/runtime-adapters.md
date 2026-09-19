@@ -410,8 +410,8 @@ box:
   the documented timeout **fail-open**, outer-timeout-inconclusive, Stop
   respected/ignored/never-fired), the provenance gate, the distinct/denied `tool_use_id`
   counters, and the **real** driver end-to-end (build → decide over a native Copilot payload →
-  append to a parent-owned ledger → classify). This proves the probe *itself* cannot
-  false-green.
+  append to the **non-authoritative diagnostic ledger** → classify). This proves the probe
+  *itself* cannot false-green.
 - **(c) Real Copilot E2E** (`npm run probe:copilot-runtime`,
   `harness/adapters/copilot-probe.mjs`, **not** run in CI) — the real gate on a pinned,
   authenticated Copilot CLI. It wires TamperWard as a Copilot `preToolUse` hook (deny) plus an

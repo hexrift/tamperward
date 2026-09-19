@@ -313,9 +313,11 @@ export function provenanceGate(prov, env = process.env) {
 }
 
 /**
- * The operation-specific capability matrix #598 requires ("Do not reduce this to a single
- * supported/unsupported boolean"). Rolls per-case results into PROVEN / UNPROVEN / FAIL per
- * operation, PROVEN/UNPROVEN for end-of-turn, and the transport semantics per kind.
+ * The capability matrix #598 asks for ("Do not reduce this to a single supported/unsupported
+ * boolean"), bounded to what parent-observed evidence establishes. Mutation cases roll up into
+ * SCENARIO rows (`protected-final-state:<scenario>` — HELD / NOT-HELD / INCONCLUSIVE), deliberately
+ * NOT attributed to a runtime operation kind (tool identity is untrusted once the ledger is
+ * demoted); end-of-turn is PROVEN/UNPROVEN; transports carry their per-kind semantics.
  *
  * A transport row is judged against the kind's DOCUMENTED expectation (transportExpectation), not
  * the raw observation: FULL requires every measured transport to be a documented FAIL-CLOSED kind
