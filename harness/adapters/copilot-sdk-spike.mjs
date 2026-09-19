@@ -34,10 +34,11 @@
 
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 export const EVIDENCE_SCHEMA_VERSION = 'copilot-sdk-spike/v1';
 
@@ -226,17 +227,31 @@ export function provenanceGate({ expected = {}, measured = {} } = {}) {
   const reasons = [];
   // #611 freeze: pin the actual SDK package AND the hosted runtime the SDK delegates to (getStatus),
   // plus TamperWard build, host config, network/approval mode, and the evidence schema.
-  const pins = ['sdk_version', 'runtime_version', 'tamperward_version', 'host_config_sha256', 'network_mode', 'approval_mode', 'evidence_schema_version'];
+  const pins = ['sdk_version', 'runtime_version', 'tamperward_version', 'host_config_sha256', 'approval_mode', 'evidence_schema_version'];
   for (const k of pins) {
     if (!expected[k]) reasons.push(`missing expected ${k}`);
     else if (!measured[k]) reasons.push(`unmeasured ${k} (not derived from what ran)`);
     else if (measured[k] !== expected[k]) reasons.push(`${k}: measured (${measured[k]}) != expected pin (${expected[k]})`);
   }
+  // network_mode is handled separately: the runtime binding neither applies nor measures it, so an
+  // operator-declared value is UNVERIFIED and must not satisfy a FULL claim (mirrors the tool-surface
+  // cap). A genuinely verified value (equal to the expected pin, no "unverified" marker) still passes.
+  if (typeof measured.network_mode === 'string' && /unverified|unmeasured/.test(measured.network_mode)) {
+    reasons.push('network mode is operator-declared and unverified against the runtime (the SDK binding does not apply/measure it) — recorded, but cannot reach FULL');
+  } else if (!expected.network_mode) reasons.push('missing expected network_mode');
+  else if (!measured.network_mode) reasons.push('unmeasured network_mode (not derived from what ran)');
+  else if (measured.network_mode !== expected.network_mode) reasons.push(`network_mode: measured (${measured.network_mode}) != expected pin (${expected.network_mode})`);
   const em = String(expected.model ?? '').trim();
   const mm = String(measured.model ?? '').trim();
   if (!em || !mm) reasons.push('missing model pin (expected and the exact model passed to the session are both required)');
   else if (em.toLowerCase() === 'auto' || mm.toLowerCase() === 'auto') reasons.push('model is "auto" — an exact model pin is required for qualification');
   else if (em !== mm) reasons.push(`model: session model (${mm}) != expected pin (${em})`);
+  // #611 requires the tool/capability surface to be PINNED. An unmeasured runtime-default surface (no
+  // COPILOT_SDK_AVAILABLE_TOOLS configured) is recorded honestly but must cap below FULL — an operator
+  // must not be able to freeze a host-config hash without knowing what tools were actually available.
+  if (typeof measured.tool_surface === 'string' && measured.tool_surface.includes('unmeasured')) {
+    reasons.push('tool/capability surface is unmeasured (runtime default) — configure and freeze COPILOT_SDK_AVAILABLE_TOOLS (or measure the real session surface); an unmeasured surface cannot reach FULL');
+  }
   if (measured.evidence_schema_version && measured.evidence_schema_version !== EVIDENCE_SCHEMA_VERSION) {
     reasons.push(`evidence_schema_version ${measured.evidence_schema_version} != ${EVIDENCE_SCHEMA_VERSION}`);
   }
@@ -294,6 +309,88 @@ export function resolvedPackageVersion(spec, requireFn) {
   return undefined;
 }
 
+/** The installed package ROOT directory for `spec` (the dir whose package.json has name === spec),
+ *  found by resolving an entry and walking up. Undefined when the package is not installed. */
+export function resolvedPackageRoot(spec, requireFn) {
+  const req = requireFn || createRequire(import.meta.url);
+  let dir;
+  try {
+    dir = dirname(req.resolve(spec));
+  } catch {
+    return undefined; // not installed → cannot locate
+  }
+  for (let i = 0; i < 16; i++) {
+    const p = join(dir, 'package.json');
+    if (existsSync(p)) {
+      try {
+        const pkg = JSON.parse(readFileSync(p, 'utf8'));
+        if (pkg && pkg.name === spec) return dir;
+      } catch {
+        /* keep walking */
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+}
+
+/** A deterministic content hash of every shipped file under `root` (recursive, sorted by relative
+ *  path, path + bytes), EXCLUDING nested `node_modules`. This covers the whole implementation — both
+ *  conditional-export entries (ESM `dist/index.js` AND CJS `dist/cjs/index.js`) and every transitive
+ *  module (client.js, session.js, generated RPC/event files) — so a change to any executing byte
+ *  changes the hash, regardless of which entry the loader resolves. */
+export function packageIntegrityHash(root) {
+  const files = [];
+  const walk = (d, rel) => {
+    for (const name of readdirSync(d).sort()) {
+      if (name === 'node_modules') continue; // shipped nested deps are pinned separately, not here
+      const abs = join(d, name);
+      const r = rel ? `${rel}/${name}` : name;
+      let st;
+      try {
+        st = statSync(abs);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) walk(abs, r);
+      else if (st.isFile()) files.push([r, abs]);
+    }
+  };
+  walk(root, '');
+  files.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  const h = createHash('sha256');
+  for (const [r, abs] of files) {
+    h.update(r);
+    h.update('\0');
+    h.update(readFileSync(abs));
+    h.update('\0');
+  }
+  // Retain the FULL SHA-256 for the integrity identifier (not the 16-hex short form used elsewhere) —
+  // a provenance/integrity pin should carry the full digest.
+  return h.digest('hex');
+}
+
+/**
+ * A content INTEGRITY hash of the resolved package `spec`, covering ALL shipped bytes that can execute
+ * — every conditional-export entry and every transitive implementation file — not just the resolved
+ * entrypoint. Version alone is not enough for a research qualification whose evidence depends on the
+ * SDK implementation: a locally modified `node_modules/@github/copilot-sdk` (a changed `client.js` /
+ * `session.js`, or a different ESM-vs-CJS entry) carrying the same version can execute different
+ * callback/event semantics. This binds the loaded bytes (#611: "package version + integrity/hash where
+ * practical"). Undefined when the package cannot be located/read.
+ */
+export function resolvedPackageIntegrity(spec, requireFn) {
+  const root = resolvedPackageRoot(spec, requireFn);
+  if (!root) return undefined;
+  try {
+    return packageIntegrityHash(root);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * MEASURED provenance — derived from what actually loaded/ran, never echoed from an env label:
  *  - sdk_version: the real version of the resolved @github/copilot-sdk package (entrypoint-walked);
@@ -307,6 +404,7 @@ export function resolvedPackageVersion(spec, requireFn) {
 export function measuredProvenance(sessionModel, hostConfig = {}, runtimeStatus = undefined) {
   const spec = process.env.COPILOT_SDK_SPEC || '@github/copilot-sdk';
   const sdkVersion = resolvedPackageVersion(spec);
+  const sdkIntegrity = resolvedPackageIntegrity(spec);
   let twVersion;
   try {
     const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
@@ -325,71 +423,205 @@ export function measuredProvenance(sessionModel, hostConfig = {}, runtimeStatus 
   const protocolVersion = runtimeStatus && (typeof runtimeStatus.protocolVersion === 'number' || typeof runtimeStatus.protocolVersion === 'string') ? runtimeStatus.protocolVersion : undefined;
   return {
     sdk_version: sdkVersion ? `${spec}@${sdkVersion}` : undefined,
+    sdk_integrity: sdkIntegrity,
     runtime_version: runtimeVersion,
     ...(protocolVersion !== undefined ? { protocol_version: protocolVersion } : {}),
     tamperward_version: twVersion,
-    host_config_sha256: sha16(JSON.stringify({ model: sessionModel, ...hostConfig })),
-    network_mode: process.env.COPILOT_SDK_NETWORK_MODE,
+    // Fold the SDK integrity hash into host_config_sha256 so a modified SDK (same version) breaks the
+    // frozen host-config pin, and also expose it explicitly below.
+    host_config_sha256: sha16(JSON.stringify({ model: sessionModel, sdk_integrity: sdkIntegrity, ...hostConfig })),
+    // The runtime binding does NOT apply or measure a network mode, so an operator-supplied
+    // COPILOT_SDK_NETWORK_MODE is recorded honestly as UNVERIFIED (never echoed as if measured) — the
+    // gate caps it below FULL just like an unmeasured tool surface, rather than agreeing with itself.
+    network_mode: process.env.COPILOT_SDK_NETWORK_MODE ? `${process.env.COPILOT_SDK_NETWORK_MODE} (operator-declared, unverified)` : undefined,
     approval_mode: 'onPermissionRequest',
     evidence_schema_version: EVIDENCE_SCHEMA_VERSION,
     model: sessionModel,
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// LAYER (c) DRIVER — argv, real SDK/adapter wiring, rendering (see ./copilot-sdk/orchestrator.mjs)
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Plain argv parsing: --preflight, --scenario <shell|write|failure|stop>, --json <path>, --keep. */
+export function parseArgv(argv) {
+  const opts = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--preflight') opts.preflight = true;
+    else if (a === '--keep') opts.keep = true;
+    else if (a === '--scenario') opts.scenario = argv[++i];
+    else if (a.startsWith('--scenario=')) opts.scenario = a.slice('--scenario='.length);
+    else if (a === '--json') opts.json = argv[++i];
+    else if (a.startsWith('--json=')) opts.json = a.slice('--json='.length);
+    else if (a === '--model') opts.model = argv[++i];
+    else if (a.startsWith('--model=')) opts.model = a.slice('--model='.length);
+  }
+  return opts;
+}
+
+/** Human-readable summary that makes exactly the same claims as the JSON result. */
+export function renderResult(result) {
+  const L = ['', '─'.repeat(72), `Hosted Copilot SDK Phase-0 qualification — runtime ${result.runtime_id}`, '─'.repeat(72)];
+  if (result.mode === 'preflight') {
+    L.push('PREFLIGHT (measurement only — no qualification claim):');
+    for (const [k, v] of Object.entries(result.measured || {})) L.push(`  ${String(k).padEnd(24)} ${v ?? '(unmeasured)'}`);
+    if (result.auth) L.push(`  auth                     ${result.auth.isAuthenticated ? `yes (${result.auth.authType || 'unknown'}${result.auth.login ? `, ${result.auth.login}` : ''})` : 'NO'}`);
+    if (result.models?.length) L.push(`  models                   ${result.models.slice(0, 12).join(', ')}${result.models.length > 12 ? ' …' : ''}`);
+    L.push('', 'Freeze the MEASURED values above as expected pins, then run the qualification (without --preflight).');
+    L.push('─'.repeat(72), 'VERDICT: PREFLIGHT (no qualification asserted)');
+    return L.join('\n');
+  }
+  if (result.provenance) {
+    L.push('Provenance (measured vs expected pin):');
+    for (const k of Object.keys(result.provenance.expected || {})) {
+      L.push(`  ${String(k).padEnd(24)} measured=${result.provenance.measured?.[k] ?? '(unmeasured)'}  expected=${result.provenance.expected?.[k] ?? '(unpinned)'}`);
+    }
+  }
+  if (result.capability_matrix) {
+    L.push('', 'Capability matrix:');
+    for (const row of result.capability_matrix) L.push(`  ${String(row.label).padEnd(32)} ${row.value}`);
+  }
+  if (result.scenarios) {
+    L.push('', 'Scenarios:');
+    for (const s of result.scenarios) L.push(`  ${String(s.id).padEnd(28)} ${s.semantic}${s.reasons?.length ? `  (${s.reasons.join('; ')})` : ''}`);
+  }
+  if (result.reasons?.length) {
+    L.push('', 'Notes:');
+    for (const r of result.reasons) L.push(`  - ${r}`);
+  }
+  L.push(
+    '─'.repeat(72),
+    `VERDICT: ${result.overall}`,
+    `Phase-0 passed: ${result.phase0_passed ? 'YES' : 'no'}`,
+    `Round 4.1 eligible: ${result.round_4_1_eligible ? 'YES' : 'no (Phase-0 only — the extended #482 parity/follow-on matrix is out of scope here)'}`,
+  );
+  return L.join('\n');
+}
+
+/**
+ * The VERDICT COMMIT BOUNDARY for a qualifying (non-preflight) run: persistence must succeed BEFORE any
+ * verdict is emitted, so a failed artifact write can never leave a stale FULL/PARTIAL claim on stdout.
+ * Persists the evidence artifact first; on success returns the original result to render, on failure
+ * returns an INSUFFICIENT result (the original verdict is never surfaced). Preflight results are passed
+ * through unchanged (no qualification claim to back). `writeFile` is injectable for tests.
+ */
+export function finalizeQualification(result, { artifactPath, writeFile } = {}) {
+  if (result.mode === 'preflight') return { result, artifactPath: null, persisted: false };
+  const w = writeFile || ((p, data) => writeFileSync(p, data));
+  try {
+    w(artifactPath, JSON.stringify(result, null, 2));
+    return { result, artifactPath, persisted: true };
+  } catch (e) {
+    const detail = `could not persist the qualification evidence artifact to ${artifactPath}: ${e && e.message ? e.message : String(e)}`;
+    return {
+      result: {
+        schema_version: result.schema_version,
+        runtime_id: result.runtime_id,
+        overall: 'INSUFFICIENT',
+        round_4_1_eligible: false,
+        reasons: [detail, 'evidence could not be retained; a qualification claim requires a persisted host-owned artifact'],
+      },
+      artifactPath: null,
+      persisted: false,
+      persistError: detail,
+    };
+  }
+}
+
+/** Compile the neutral adapter (TypeScript) to a temporary ESM module and import it. Live-only: the
+ *  adapter is intentionally unshipped (absent from dist/cli/index.js), so the harness self-compiles it
+ *  with esbuild (a devDependency present in a dev/qualification environment) rather than shipping a
+ *  build artifact. Node builtins / node_modules stay external; the local `src` graph is bundled in. */
+async function loadAdapter() {
+  const esbuild = await import('esbuild');
+  const outfile = join(tmpdir(), `tw-sdk-adapter-${process.pid}-${Date.now()}.mjs`);
+  await esbuild.build({
+    entryPoints: [join(ROOT, 'src/adapters/copilot-sdk/adapter.ts')],
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    packages: 'external',
+    outfile,
+    logLevel: 'silent',
+  });
+  // Hash the EXACT executed bundle so provenance can bind the code that actually ran (not just the
+  // package version + HEAD sha). A changed adapter/engine — committed or not — changes this hash. Full
+  // SHA-256 (not the 16-hex short form), consistent with the SDK package-integrity pin.
+  const bundleSha = createHash('sha256').update(readFileSync(outfile)).digest('hex');
+  const mod = await import(pathToFileURL(outfile).href);
+  return { adapter: mod.copilotSdkAdapter, bundleSha };
+}
+
+/** Uncommitted-change count in the TamperWard code whose bytes decide a qualification (adapter,
+ *  engine, and this harness — orchestrator/binding/spike). A qualifying run over a dirty relevant tree
+ *  is not provenance-pinned. Returns the count, or `null` when cleanliness CANNOT be established (not
+ *  a git tree / git failed): unknown provenance must NOT collapse to "clean" (0), so the caller caps
+ *  a qualifying run below FULL on `null` just as it does on a positive count. */
+export function relevantTreeDirtyCount() {
+  try {
+    const out = execFileSync('git', ['status', '--porcelain', '--', 'src', 'harness/adapters/copilot-sdk', 'harness/adapters/copilot-sdk-spike.mjs'], { cwd: ROOT, encoding: 'utf8' });
+    return out.split('\n').filter((l) => l.trim().length > 0).length;
+  } catch {
+    return null; // cannot assess → unknown, NOT clean
+  }
+}
+
 async function main() {
-  const lines = [
-    'Layer (a) adapter conformance and layer (b) this spike self-test run in CI;',
-    'layer (c) — this real SDK spike — needs a pinned, authenticated @github/copilot-sdk + an EXACT model.',
-    '',
-    'Capability model: pre-deny:shell CANDIDATE, pre-deny:file-edit-content CANDIDATE (conditional on',
-    'surfaced write content; UNSUPPORTED only for a config lacking it), pre-deny:file-edit-path',
-    'AVAILABLE-LIMITED (never a generic pre-deny), end-of-turn:file-edit-content CANDIDATE. FULL is',
-    'reachable only after a pinned run proves those AND the broken decision path fails closed.',
-  ];
+  const opts = parseArgv(process.argv.slice(2));
+  const { buildConfig, runQualification } = await import('./copilot-sdk/orchestrator.mjs');
+  const { createRealBinding } = await import('./copilot-sdk/binding.mjs');
+  const config = buildConfig(opts);
+  if (config.errors.length) {
+    insufficient(['Configuration error:', ...config.errors.map((e) => `  - ${e}`)], config.errors.join('; '));
+    return;
+  }
 
   const sdk = await resolveSdk();
-  if (!sdk) {
-    lines.push('', '@github/copilot-sdk: NOT INSTALLED (set COPILOT_SDK_SPEC or install a pinned build).');
-    insufficient(lines, 'no pinned Copilot SDK available; the Phase-0 spike cannot run');
+  if (!sdk || typeof sdk.CopilotClient !== 'function') {
+    insufficient(
+      ['@github/copilot-sdk: NOT AVAILABLE (install a pinned build, e.g. `npm install --no-save @github/copilot-sdk@<PIN>`, or set COPILOT_SDK_SPEC).'],
+      'no pinned Copilot SDK available; the Phase-0 qualification cannot run',
+    );
     return;
   }
 
-  // The EXACT model the host will pass into createSession — this is what gets bound, not an env label.
-  const sessionModel = process.env.COPILOT_SDK_MODEL;
-  // EXPECTED pins the operator froze; MEASURED is derived from what actually loaded/ran.
-  const expected = {
-    sdk_version: process.env.COPILOT_SDK_VERSION_EXPECTED,
-    runtime_version: process.env.COPILOT_RUNTIME_VERSION_EXPECTED,
-    tamperward_version: process.env.TAMPERWARD_VERSION_EXPECTED,
-    host_config_sha256: process.env.COPILOT_SDK_HOST_CONFIG_SHA256_EXPECTED,
-    network_mode: process.env.COPILOT_SDK_NETWORK_MODE,
-    approval_mode: 'onPermissionRequest',
-    evidence_schema_version: EVIDENCE_SCHEMA_VERSION,
-    model: sessionModel,
-  };
-  // The hosted runtime version is measured from `await client.getStatus()` after connection — the
-  // SDK normally spawns/hosts the Copilot runtime, and #611 requires that version when the SDK
-  // delegates to it. No client is created in this environment, so it is left unmeasured (which,
-  // like any unmeasured pin, keeps the gate below `full` → INSUFFICIENT).
-  const runtimeStatus = undefined; // = await client.getStatus() on a pinned run
-  const measured = measuredProvenance(sessionModel, {}, runtimeStatus);
-  const gate = provenanceGate({ expected, measured });
-  lines.push('', 'Provenance (measured vs expected pin):');
-  for (const k of Object.keys(expected)) {
-    lines.push(`  ${String(k).padEnd(24)} measured=${measured[k] ?? '(unmeasured)'}  expected=${expected[k] ?? '(unpinned)'}`);
-  }
-  if (!gate.full) {
-    lines.push(`  provenance gate: INCOMPLETE — ${gate.reasons.join('; ')}`);
-    insufficient(lines, 'provenance incomplete; a qualifying run must bind the measured SDK/build/config to expected pins and pass an exact model');
+  let adapter;
+  try {
+    const loaded = await loadAdapter();
+    adapter = loaded.adapter;
+    if (!adapter || typeof adapter.decide !== 'function') throw new Error('adapter did not export copilotSdkAdapter.decide');
+    // Bind the executed adapter bytes + source-tree cleanliness into provenance (#611): the qualifying
+    // run must execute committed, provenance-pinned code, and the exact bundle hash folds into the pin.
+    config.adapterBundleSha = loaded.bundleSha;
+    config.sourceTreeDirty = relevantTreeDirtyCount();
+  } catch (e) {
+    insufficient([`could not build the neutral adapter: ${e && e.message ? e.message : String(e)}`], 'adapter unavailable');
     return;
   }
 
-  // A pinned SDK is present and provenance is complete. Running the four Phase-0 adversarial tests
-  // against the real runtime (wiring copilotSdkAdapter into onPermissionRequest / onAgentStop,
-  // recording host-owned evidence, and classifying) is the qualification work; it is intentionally
-  // gated to a real pinned environment and is not exercised here. Until it runs and every required
-  // path is proven, the hosted route is not eligible.
-  insufficient(lines, 'pinned SDK present but the Phase-0 adversarial suite has not been executed/qualified in this environment');
+  const binding = createRealBinding({ CopilotClient: sdk.CopilotClient });
+  const result = await runQualification({ binding, adapter, config });
+  // Evidence persistence is MANDATORY for a qualifying (non-preflight) run and is the VERDICT COMMIT
+  // BOUNDARY: the artifact (containing the immutable evidence rows, #611) is written to a path OUTSIDE
+  // the candidate scenario repos — the operator-chosen --json path, or an auto-named file in cwd —
+  // BEFORE any verdict is emitted. If the write fails, finalizeQualification downgrades to INSUFFICIENT
+  // so a stale FULL/PARTIAL claim can never reach stdout.
+  const artifactPath = config.jsonPath || join(process.cwd(), `tamperward-${result.runtime_id}-qualification-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+  const finalized = finalizeQualification(result, { artifactPath });
+  process.stdout.write(renderResult(finalized.result) + '\n');
+  if (finalized.persisted) {
+    process.stdout.write(`\nQualification evidence artifact written to ${finalized.artifactPath}\n`);
+  } else if (result.mode === 'preflight' && config.jsonPath) {
+    writeFileSync(config.jsonPath, JSON.stringify(result, null, 2));
+    process.stdout.write(`\nJSON result written to ${config.jsonPath}\n`);
+  } else if (finalized.persistError) {
+    process.stdout.write(`\n(evidence artifact NOT retained — qualification downgraded to INSUFFICIENT: ${finalized.persistError})\n`);
+  }
+  if (config.keepArtifacts) process.stdout.write('\n(TAMPERWARD_KEEP_SPIKE_ARTIFACTS/--keep set — scenario repos were retained; see evidence paths above)\n');
+  const ok = finalized.result.overall === 'FULL' || finalized.result.overall === 'PREFLIGHT';
+  process.exit(ok ? 0 : 1);
 }
 
 const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;

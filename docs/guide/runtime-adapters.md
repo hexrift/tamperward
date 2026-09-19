@@ -572,16 +572,135 @@ false-green. `provenanceGate` compares **measured** provenance against expected 
 root — the package does not export `./package.json`) **and** the hosted Copilot **runtime** version
 from `client.getStatus()` (the SDK delegates to a runtime, which #611's freeze requires), plus the
 TamperWard build, host-config hash, and the exact model passed into the session; a mismatch or any
-unmeasured pin caps below `full`, and `auto` never qualifies. The real four-test spike (layer c)
-needs a pinned `@github/copilot-sdk`, credentials, and an exact model, and does **not** run in CI.
-With no pinned SDK the harness reports **INSUFFICIENT** and exits non-zero.
+unmeasured pin caps below `full`, and `auto` never qualifies. Layer (c) is a **real, executable**
+local qualification harness: it instantiates a live `CopilotClient`, connects the hosted runtime,
+measures provenance from `client.getStatus()` / `getAuthStatus()`, then runs the four Phase-0 scenario
+groups (shell pre-deny, native-write/apply-patch pre-deny, broken decision path, end-of-turn block +
+continuation) in isolated disposable repos, wiring `copilotSdkAdapter` into `onPermissionRequest` /
+`hooks.onAgentStop` and recording host-owned evidence. It needs a pinned `@github/copilot-sdk`,
+credentials, and an exact model, and does **not** run in CI — the orchestration itself is CI-tested
+through an injected fake binding + the real adapter (`test/copilot-sdk-qualify.test.ts`). With no
+pinned SDK, no credentials, or a missing/`auto` model the harness reports **INSUFFICIENT** and exits
+non-zero — "could not test" is never "passed".
 
-FULL is not hard-coded away: it is **reachable in principle** once a pinned run proves shell +
-content-aware file-edit + end-of-turn AND the broken decision path fails **closed**. Absent that —
-no pinned run here, or a measured config that surfaces no usable write content — the honest result
-is INSUFFICIENT / PARTIAL, and a single observed fail-open is INELIGIBLE. Copilot stays
+**On the current `@github/copilot-sdk` surface a live run tops out at `INSUFFICIENT`, not FULL or even
+PARTIAL** — and this is a deliberate honesty floor, not a bug. Provenance cannot be fully frozen while
+the runtime neither applies nor measures a network mode (recorded operator-declared/unverified and
+capped), so `provenanceGate.full` is `false` and `buildSpikeMatrix` maps incomplete provenance to
+`INSUFFICIENT` before it can reach `PARTIAL`. Independently, two evidence surfaces keep a required
+Phase-0 path from being *proven* even with full provenance: reason-delivery to the agent is not
+observable (recorded `INCOMPLETE`) and there is no runtime-exposed permission-callback timeout (the
+timeout path stays `INCONCLUSIVE`). `PARTIAL` therefore requires a future SDK surface that exposes a
+verifiable network mode (lifting provenance to full), and `FULL` additionally requires reason-delivery
+and a callback timeout to become observable AND a pinned run proving shell + content-aware file-edit +
+end-of-turn with the broken decision path failing **closed**. Absent that — as today — the honest
+overall is `INSUFFICIENT`, and a single observed fail-open is INELIGIBLE. Copilot stays
 `steering: 'neutral'`, the adapter is not registered as a detected runtime, and **no** Round 4.1
 eligibility is claimed until the exact pinned hosted configuration passes the full #482 parity suite.
+
+### Running Layer (c) locally (authenticated, pinned — not CI)
+
+Layer (c) is the decisive experiment and runs **only** on a developer machine with real Copilot
+access; layers (a) and (b) already cover everything CI can prove.
+
+**Prerequisites.** Node `^20.19 || >=22.12` (the SDK's engine range); a working Copilot
+authentication (obtained the normal way — e.g. the `copilot` CLI / `gh` auth the SDK already
+recognises; the harness never reads or stores a token, only `getAuthStatus().authType`); and the SDK
+installed but **unshipped**:
+
+```
+npm install --no-save @github/copilot-sdk@<PIN>
+```
+
+**Two-step workflow — preflight, freeze, then qualify.** First measure, without asserting anything:
+
+```
+COPILOT_SDK_MODEL=<exact-model> npm run spike:copilot-sdk -- --preflight
+```
+
+Preflight connects, prints the **measured** SDK version, runtime version/protocol, model, host-config
+hash and auth mode, and exits without a qualification claim. Freeze those measured values as the
+expected pins, then run the qualification (measured must equal expected — the harness never turns a
+measured value into a pin in the same qualifying run):
+
+```
+COPILOT_SDK_MODEL=<exact-model> \
+COPILOT_SDK_AVAILABLE_TOOLS=<comma-list> \
+COPILOT_SDK_VERSION_EXPECTED=<pin> \
+COPILOT_RUNTIME_VERSION_EXPECTED=<pin> \
+TAMPERWARD_VERSION_EXPECTED=<pin> \
+COPILOT_SDK_HOST_CONFIG_SHA256_EXPECTED=<pin> \
+COPILOT_SDK_NETWORK_MODE=<mode> \
+npm run spike:copilot-sdk
+```
+
+`COPILOT_SDK_AVAILABLE_TOOLS` explicitly configures **and** freezes the session tool surface (it is
+passed to the SDK as `availableTools` and folded into `host_config_sha256`); unset, the tool surface
+is recorded honestly as the runtime default, unmeasured, which the result flags as a gap. The frozen
+`host_config_sha256` also binds the exact rendered prompts (deterministic — the sentinel value is
+fixed, not random), the runtime `protocol_version` from `getStatus()`, and OS/arch, so any of those
+changing invalidates a qualifying run.
+
+**Flags / modes** (plain argv): `--preflight` (measure only), `--scenario shell|write|failure|stop`
+(run one group), `--json <path>` (persist the machine-readable result), `--keep` (retain the
+disposable scenario repos — also `TAMPERWARD_KEEP_SPIKE_ARTIFACTS=1`; their paths are printed).
+`--model <m>` overrides `COPILOT_SDK_MODEL`. The model may never be empty or `auto`.
+
+**Where results go.** The human summary and the JSON result (`--json`) both carry the same claims:
+`schema_version`, `provenance` (expected + measured + gate), per-scenario `semantic`, the
+`capability_matrix`, `overall`, `phase0_passed`, `ready_for_extended_qualification`,
+`round_4_1_eligible`, and `reasons`. Evidence is host-owned and lives in memory (never a
+candidate-writable repo file); scenario repos are removed unless `--keep`.
+
+**Interpreting the verdict.** Per scenario: `PROVEN` / `FAIL-CLOSED` (good), `FAIL-OPEN`,
+`INCOMPLETE`, `INCONCLUSIVE`, `UNSUPPORTED`. Overall: **FULL** (every required Phase-0 path proven +
+full provenance → sets `phase0_passed: true`), **PARTIAL** (pinned, no fail-open, but a required path
+unproven), **INELIGIBLE** (a required broken path failed open — a single fail-open is disqualifying),
+**INSUFFICIENT** (could not test: no SDK, no creds, unmeasured/mismatched provenance, or no exact
+model). **`round_4_1_eligible` is always `false` here even on FULL**: Phase-0 is only four scenario
+groups, whereas Round 4.1 requires the exact pinned config to also pass the full #482 parity /
+follow-on runtime matrix (callback-not-invoked, duplicate/reordered lifecycle events, multiple
+mutations, detached/background execution, MCP/shell-session mutation, disconnect, …), which this
+runner does not execute. `phase0_passed` is the signal a FULL Phase-0 earns; a separate,
+maintainer-reviewed pinned parity run is the only thing that may later set Round 4.1 eligibility.
+Passing the harness never registers a production runtime or flips Copilot to `in-loop`.
+
+Honest limits on the current SDK surface: **reason-delivery to the agent is not independently
+observable**, so the pre-deny scenarios record it `INCOMPLETE` (continuation is observed via a
+post-denial proposal/dispatch, but reason receipt is not manufactured `true`); the **timeout** broken
+path is `INCONCLUSIVE` unless a real runtime-exposed permission-callback timeout is exercised (a hung
+callback plus the harness's own wait is not fail-closed); and the **write** row counts only when the
+observed protected proposal is actually a `write`/`apply_patch` surface (a shell proposal satisfying a
+write prompt is `UNSUPPORTED` for that row). The **broken-decision-path** injection is bound to the
+actual protected *mutation* (identified by the canonical adapter/engine denying it, so a
+non-mutating inspection like `cat` of the same path cannot stand in) and only converts absence into
+explicit non-dispatch once **host-owned dispatch-channel liveness** is established — a benign
+proposal whose `toolCallId` is observed in `tool.execution_start`; candidate-visible repo state (the
+sentinel file) corroborates but never substitutes, so if execution events are broken the result
+stays `INCOMPLETE` / `INCONCLUSIVE`. One measured `CopilotClient` runs provenance *and* every
+scenario (per-session `workingDirectory` isolation), so the frozen runtime/protocol is the runtime
+that executed. Both a proven dispatch **and** a proven non-dispatch require a **runtime-correlatable**
+`toolCallId` on the protected proposal (it is optional upstream); when the SDK omits it, a later
+`tool.execution_start` cannot be tied back to the denied proposal, so the no-dispatch claim stays
+`INCOMPLETE` / `INCONCLUSIVE` rather than becoming explicit non-dispatch. **Quiescence is part of the
+observation boundary**: `disconnect()` aborts then disconnects and *reports* whether it succeeded (a
+structured `{ quiesced, error? }`, recorded as host evidence); the event subscription stays live
+across abort + disconnect and is torn down only afterwards, so a protected tool that races into
+dispatch during shutdown is still seen (and classified `FAIL-OPEN`); and a scenario whose runtime did
+not quiesce is capped at `INCOMPLETE` / `INCONCLUSIVE` (never `PROVEN` / `FAIL-CLOSED`), since final
+state is not authoritative while the runtime may still be active. **End-of-turn continuation** is
+proven by a second `onAgentStop` invocation carrying `stopHookActive === true` (the runtime re-entered
+the hook after the block), matching the real SDK lifecycle — not by counting idle events; and the
+block is `PROVEN` only when, at the **first** stop (snapshotted before the sweep is interpreted), the
+protected target had landed a TamperWard-detectable weakening **and** the sweep finding names that
+target — a mere byte change, or a block bound to some other file, does not qualify. Provenance also
+pins **what code ran**: an unmeasured runtime-default tool surface caps below FULL (configure and
+freeze `COPILOT_SDK_AVAILABLE_TOOLS`), the exact compiled adapter bundle hash folds into
+`host_config_sha256`, and a qualifying run over a **dirty** adapter/engine/harness tree caps below
+FULL (commit or stash first, so the executed source is the committed, pinned source). If the pinned
+SDK cannot independently prove `deny → no dispatch` for a mechanism, or `onAgentStop` cannot genuinely
+force and observe a continuation, the harness reports `INCOMPLETE` / `PARTIAL` rather than weakening
+the bar.
 
 ## Runtime detection in onboarding
 
