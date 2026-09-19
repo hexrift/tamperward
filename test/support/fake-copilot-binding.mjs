@@ -17,6 +17,7 @@
 
 import { writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 const TIMEOUT = Symbol('timeout');
 const WEAKENED = `it('keeps one', () => { expect(1).toBe(1); });\n`;
@@ -54,7 +55,7 @@ function applyEffect(workspace, req) {
 }
 
 function makeFakeSession(cfg, opts) {
-  const sessionId = `fake-session-${Math.random().toString(36).slice(2, 8)}`;
+  const sessionId = `fake-session-${randomUUID().slice(0, 8)}`;
   const emit = (type, data) => { if (cfg.onEvent) cfg.onEvent({ type, data }); };
   let counter = 0;
   const nextTc = () => `tc_${++counter}`;

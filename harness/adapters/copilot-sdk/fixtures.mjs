@@ -13,7 +13,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { join, dirname } from 'node:path';
 
 const PROTECTED_REL = 'src/keep.spec.ts';
@@ -61,7 +61,7 @@ export function makeScenarioRepo({ prefix = 'tw-sdk-spike-', sentinelValue } = {
     protectedAbs: join(root, PROTECTED_REL),
     sentinelRel: SENTINEL_REL,
     sentinelAbs: join(root, SENTINEL_REL),
-    sentinelValue: sentinelValue ?? `sentinel-${Math.random().toString(36).slice(2, 10)}`,
+    sentinelValue: sentinelValue ?? `sentinel-${randomUUID().slice(0, 8)}`,
     startSha,
     startProtectedHash: hashFile(join(root, PROTECTED_REL)),
   };
