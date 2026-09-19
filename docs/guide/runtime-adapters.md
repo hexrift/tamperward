@@ -485,6 +485,67 @@ round is registered. A green CI run proves the build, unit/adapter tests, static
 probe self-test only — **not** runtime qualification (layer c is not run in CI; there is no
 Copilot binary there).
 
+## GitHub Copilot SDK-hosted (EXPERIMENTAL — Phase-0 spike, #611)
+
+A **separate** runtime configuration from the CLI command-hook path above (`github-copilot-cli`,
+which remains PARTIAL and stays the evidence record for the command-hook path). Here TamperWard is
+the **host**: the `@github/copilot-sdk` `onPermissionRequest` callback runs **in-process before
+each tool executes**, and `onAgentStop` (`{decision:"block",reason}`, guarded by `stopHookActive`)
+is the end-of-turn lever. #611 asks whether this hosted path can meet the frozen #482 / Round-4.1
+bar **without moving the goalposts** — it does not silently upgrade the CLI descriptor, and suggests
+the explicit ids `github-copilot-cli` vs `github-copilot-sdk-hosted`.
+
+**Adapter** (`src/adapters/copilot-sdk/*`, `github-copilot-sdk-hosted`). The host JSON-serialises
+each SDK `PermissionRequest` (`kind` / `toolName` / `toolCallId` / `fileName` / `fullCommandText`)
+and hands it to `decide`, which opens no second verdict path: a **shell** proposal reconstructs its
+`fullCommandText` through the shared `changesFromCopilot` and runs the same `evaluate` engine; the
+`end-of-turn` sweep delegates to the canonical `stopFromRaw` (its `{decision:"block",reason}` wire
+is already the SDK `onAgentStop` shape); identity is validated against the runner's independently
+derived trusted root. A deny is the SDK `{decision:"reject",feedback}` decision.
+
+**The crux — content-aware file-edit pre-deny is UNSUPPORTED.** `onPermissionRequest` surfaces a
+write's target **`fileName` but not its proposed content**, so TamperWard's content-sensitive
+judgement (a weakened assertion, an added skip, a policy change) cannot run at the callback. Native
+write **interception is present** — the callback fires before the write — but only at **path**
+level. The adapter therefore treats a `file-edit` pre-action as **`unsupported` (allow-through)**
+and the end-of-turn git sweep is the authority for a landed write; it deliberately does **not**
+blanket-deny writes, because replacing content-aware enforcement with stricter path blocking would
+inflate denials and break the parity the transfer is meant to establish. The capability vocabulary
+is granular, not a single boolean:
+
+```text
+pre-deny:shell                 CANDIDATE      (needs the pinned spike to prove a reject blocks dispatch)
+pre-deny:file-edit-content     UNSUPPORTED    (callback surfaces fileName, not content)
+pre-deny:file-edit-path        AVAILABLE-LIMITED (native write interception seen; never a generic pre-deny)
+end-of-turn:file-edit-content  CANDIDATE
+```
+
+Phase 0 investigates whether another SDK event / tool-invocation surface exposes the write payload;
+if it does the capability can be upgraded and tested, and if it does not, that is a reason the SDK
+route stays PARTIAL.
+
+**The decisive unknown (Phase-0 #3).** Whether a **rejected / thrown / timed-out** permission
+handler actually blocks tool dispatch is **undocumented** and can only be MEASURED on a pinned SDK.
+A single observed fail-open on a required path makes the hosted configuration ineligible for #482 /
+Round 4.1. That is why even `pre-deny:shell` is only a CANDIDATE and `capabilities.preDeny` is empty.
+
+**Host-owned evidence.** The spike (`spike:copilot-sdk`, `harness/adapters/copilot-sdk-spike.mjs`)
+records an append-only event stream **in the host process** (the callback runs in-process, not a
+candidate subprocess), so the candidate cannot fabricate the `proposal → callback received → deny →
+no dispatch` chain — a genuine improvement over a candidate-writable ledger. Even so, only the
+**positive** direction is trusted: a dispatched handler / a mutated final state proves fail-open;
+absence of a dispatch is not, by itself, absolute proof nothing ran. The pure classifiers
+(`classifyPreDispatchDeny`, `classifyDecisionPathFailure`, `classifyEndOfTurn`,
+`classifyIdentityBinding`, `buildSpikeMatrix`, `provenanceGate`) run in CI (layer b) and cannot
+false-green; the real four-test spike (layer c) needs a pinned `@github/copilot-sdk`, credentials,
+and an **exact model** (`auto` never qualifies) and does **not** run in CI. With no pinned SDK the
+harness reports **INSUFFICIENT** and exits non-zero.
+
+FULL is **structurally unreachable** for the hosted route while content-aware file-edit pre-deny is
+unsupported; the honest ceiling here is PARTIAL. Copilot stays `steering: 'neutral'`, the adapter is
+not registered as a detected runtime, and **no** Round 4.1 eligibility is claimed until the exact
+pinned hosted configuration passes the full #482 parity suite.
+
 ## Runtime detection in onboarding
 
 `tamperward onboard` reports which agent runtime a repository actually hosts and what

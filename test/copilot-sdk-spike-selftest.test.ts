@@ -11,16 +11,7 @@
 
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error - the spike is a plain .mjs harness module, no d.ts
-import {
-  classifyPreDispatchDeny,
-  classifyDecisionPathFailure,
-  classifyEndOfTurn,
-  classifyIdentityBinding,
-  buildSpikeMatrix,
-  provenanceGate,
-  evidenceEntry,
-  EVIDENCE_SCHEMA_VERSION,
-} from '../harness/adapters/copilot-sdk-spike.mjs';
+import { classifyPreDispatchDeny, classifyDecisionPathFailure, classifyEndOfTurn, classifyIdentityBinding, buildSpikeMatrix, provenanceGate, evidenceEntry, EVIDENCE_SCHEMA_VERSION } from '../harness/adapters/copilot-sdk-spike.mjs';
 
 describe('classifyPreDispatchDeny — the 7-point Phase-0 #1/#2 proof (host-observed)', () => {
   const full = {
@@ -102,7 +93,7 @@ describe('buildSpikeMatrix — granular, honest vocabulary (#611 review)', () =>
   // is unsupported — the honest ceiling is PARTIAL.
   it('emits the granular rows and never promotes file-edit as a generic pre-deny', () => {
     const m = buildSpikeMatrix({});
-    const rows = Object.fromEntries(m.rows.map((r) => [r.label, r.value]));
+    const rows = Object.fromEntries(m.rows.map((r: { label: string; value: string }) => [r.label, r.value]));
     expect(rows['pre-deny:shell']).toBe('CANDIDATE');
     expect(rows['pre-deny:file-edit-content']).toBe('UNSUPPORTED');
     expect(rows['pre-deny:file-edit-path']).toMatch(/AVAILABLE|LIMITED|INCONCLUSIVE/);
