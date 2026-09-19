@@ -412,6 +412,27 @@ describe('CopilotSdkHostedAdapter.decide — file-edit content-aware pre-deny is
     }
   });
 
+  it('a write diff with CONTRADICTORY duplicate endpoint pairs fails CLOSED — not repaired by last-one-wins', () => {
+    const cwd = repoFixture();
+    try {
+      // First pair says CREATE (--- /dev/null), second says MODIFY. A last-one-wins parser would treat
+      // it as a valid modify; the contradictory duplicate endpoints must fail closed instead.
+      const diff = [
+        '--- /dev/null',
+        '+++ b/src/a.spec.ts',
+        '--- a/src/a.spec.ts',
+        '+++ b/src/a.spec.ts',
+        '@@ -1 +1 @@',
+        "-it('one', () => {}); it('two', () => {});",
+        "+it('one', () => {});",
+      ].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('a write whose EXISTING target cannot be read (a directory) fails CLOSED — not treated as a create', () => {
     const cwd = repoFixture();
     try {

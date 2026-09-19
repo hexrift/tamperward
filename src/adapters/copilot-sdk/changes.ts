@@ -247,12 +247,18 @@ function canonicalPatch(raw: string, display: string, isCreate: boolean): { op: 
     if (/^(rename (from|to)|copy (from|to)|old mode|new mode|GIT binary patch)\b/.test(line) || line.startsWith('Binary files ')) {
       throw new Error(`write diff for ${display} is a rename/copy/binary/mode-only change, which is not reconstructed`);
     }
+    // A single file's pre-hunk header carries at most one of each. A DUPLICATE endpoint (or a second
+    // `diff --git`) is a contradictory / multi-file event — fail closed rather than let last-one-wins
+    // silently repair it into a valid pair.
     if (line.startsWith('diff --git ')) {
+      if (hasGitHeader) throw new Error(`write diff for ${display} carries more than one diff --git header (contradictory / multi-file) — refusing to reconstruct`);
       hasGitHeader = true;
       for (const p of line.slice('diff --git '.length).trim().split(/\s+/)) assertBound(stripPrefix(p), display);
     } else if (line.startsWith('--- ')) {
+      if (src !== undefined) throw new Error(`write diff for ${display} carries more than one --- endpoint (contradictory header) — refusing to reconstruct`);
       src = line.slice(4).split('\t')[0].trim();
     } else if (line.startsWith('+++ ')) {
+      if (dst !== undefined) throw new Error(`write diff for ${display} carries more than one +++ endpoint (contradictory header) — refusing to reconstruct`);
       dst = line.slice(4).split('\t')[0].trim();
     }
   }
