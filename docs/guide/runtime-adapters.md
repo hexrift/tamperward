@@ -664,9 +664,15 @@ path is `INCONCLUSIVE` unless a real runtime-exposed permission-callback timeout
 callback plus the harness's own wait is not fail-closed); and the **write** row counts only when the
 observed protected proposal is actually a `write`/`apply_patch` surface (a shell proposal satisfying a
 write prompt is `UNSUPPORTED` for that row). The **broken-decision-path** injection is bound to the
-actual protected proposal (a benign op arriving first cannot stand in for it) and only converts
-absence into explicit non-dispatch once same-session dispatch-channel liveness is established;
-otherwise it is `INCOMPLETE` / `INCONCLUSIVE`. **End-of-turn continuation** is proven by a second
+actual protected *mutation* (identified by the canonical adapter/engine denying it, so a
+non-mutating inspection like `cat` of the same path cannot stand in) and only converts absence into
+explicit non-dispatch once **host-owned dispatch-channel liveness** is established — a benign
+proposal whose `toolCallId` is observed in `tool.execution_start`; candidate-visible repo state (the
+sentinel file) corroborates but never substitutes, so if execution events are broken the result
+stays `INCOMPLETE` / `INCONCLUSIVE`. One measured `CopilotClient` runs provenance *and* every
+scenario (per-session `workingDirectory` isolation), so the frozen runtime/protocol is the runtime
+that executed; each scenario's session is aborted + disconnected in a `finally` before final state is
+read, so a `sendAndWait` timeout cannot leave the runtime running past the evidence window. **End-of-turn continuation** is proven by a second
 `onAgentStop` invocation carrying `stopHookActive === true` (the runtime re-entered the hook after the
 block), matching the real SDK lifecycle — not by counting idle events. If the pinned SDK cannot
 independently prove `deny → no dispatch` for a mechanism, or `onAgentStop` cannot genuinely force and

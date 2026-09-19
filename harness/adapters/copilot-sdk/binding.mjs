@@ -33,38 +33,39 @@ export function createRealBinding({ CopilotClient, makeClientOptions } = {}) {
   if (typeof CopilotClient !== 'function') {
     throw new Error('createRealBinding requires the SDK CopilotClient class');
   }
-  const optionsFor = typeof makeClientOptions === 'function' ? makeClientOptions : (ws) => (ws ? { workingDirectory: ws } : {});
-  let statusClient;
-  const ensureStatusClient = async () => {
-    if (!statusClient) {
-      statusClient = new CopilotClient(optionsFor(undefined));
-      await statusClient.start();
+  const optionsFor = typeof makeClientOptions === 'function' ? makeClientOptions : () => ({});
+  // ONE client answers provenance (getStatus/getAuthStatus) AND runs every scenario session, so the
+  // measured runtime/protocol is exactly the runtime that executes the scenarios (#611). Per-scenario
+  // isolation comes from the SDK's per-session `workingDirectory`, not a fresh client per session.
+  let client;
+  const ensureClient = async () => {
+    if (!client) {
+      client = new CopilotClient(optionsFor(undefined));
+      await client.start();
     }
-    return statusClient;
+    return client;
   };
   return {
     async start() {
-      await ensureStatusClient();
+      await ensureClient();
     },
     async getStatus() {
-      return (await ensureStatusClient()).getStatus();
+      return (await ensureClient()).getStatus();
     },
     async getAuthStatus() {
-      return (await ensureStatusClient()).getAuthStatus();
+      return (await ensureClient()).getAuthStatus();
     },
     async listModels() {
-      const c = await ensureStatusClient();
+      const c = await ensureClient();
       return typeof c.listModels === 'function' ? c.listModels() : [];
     },
     async createSession({ workspace, model, availableTools, onPermissionRequest, onAgentStop, onEvent } = {}) {
-      // Root this scenario's runtime in its disposable repo via the SDK's `workingDirectory` option
-      // (supported on both client options and session config), so each scenario's tools operate only
-      // inside its own repo — no process-global chdir. This is the one live-only integration point to
-      // confirm against a pinned runtime; a defect here would surface as tools executing outside the
-      // scenario repo, which the fixtures' before/after would catch.
-      const client = new CopilotClient(optionsFor(workspace));
-      await client.start();
-      const session = await client.createSession({
+      const c = await ensureClient();
+      // Root this scenario in its disposable repo via the SDK's per-session `workingDirectory` option,
+      // so each scenario's tools operate only inside its own repo. This is the one live-only
+      // integration point to confirm against a pinned runtime; a defect would surface as tools
+      // executing outside the scenario repo, which the fixtures' before/after would catch.
+      const session = await c.createSession({
         ...(workspace ? { workingDirectory: workspace } : {}),
         ...(availableTools && availableTools.length ? { availableTools } : {}),
         model,
@@ -83,16 +84,20 @@ export function createRealBinding({ CopilotClient, makeClientOptions } = {}) {
           } catch {
             /* best-effort */
           }
+          // A `sendAndWait` timeout does NOT abort in-flight agent work (per the SDK docs), so
+          // deterministically quiesce the session — abort any running turn, then release it — before
+          // the caller reads final state. The shared client stays up for the remaining scenarios.
           try {
-            await session.disconnect();
-          } finally {
-            await client.stop();
+            if (typeof session.abort === 'function') await session.abort();
+          } catch {
+            /* best-effort quiesce */
           }
+          await session.disconnect();
         },
       };
     },
     async stop() {
-      if (statusClient) await statusClient.stop();
+      if (client) await client.stop();
     },
   };
 }

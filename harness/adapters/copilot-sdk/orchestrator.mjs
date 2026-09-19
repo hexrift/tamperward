@@ -242,8 +242,9 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
   const repo = makeScenarioRepo({ prefix: `tw-sdk-${mechanism}-` });
   const run = new ScenarioRun({ repo, adapter, evidence });
   let error;
+  let session;
   try {
-    const session = await binding.createSession({
+    session = await binding.createSession({
       workspace: repo.root,
       model: config.model,
       availableTools: config.availableTools,
@@ -252,19 +253,28 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
     });
     run.sessionId = session.sessionId;
     await session.sendAndWait(mechanism === 'shell' ? PROMPTS.shell(repo) : PROMPTS.write(repo), SESSION_TIMEOUT_MS());
-    await session.disconnect();
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
+  } finally {
+    // Quiesce the runtime under test (abort + disconnect) BEFORE reading final state, so a
+    // timeout/error can't leave a session still running past the evidence window.
+    if (session) {
+      try {
+        await session.disconnect();
+      } catch {
+        /* best-effort quiesce */
+      }
+    }
   }
   const state = finalState(repo);
   const protectedProposal = run.proposals.find((p) => p.deny) ?? run.proposals[0];
   const protectedDispatched = run.protectedDispatched(protectedProposal?.proposalId);
-  // The DISPATCH channel is "live" when we independently observed SOME tool execute this turn — a
-  // benign sentinel write we approved, or any tool.execution_start. Only then is the ABSENCE of the
-  // protected tool's execution a meaningful non-dispatch; otherwise we cannot prove non-dispatch and
-  // the positive result is INCOMPLETE (never inferred from the file merely not changing).
-  const benignDispatchObserved = run.dispatchedToolNames.length > (protectedDispatched ? 1 : 0);
-  const dispatchChannelLive = benignDispatchObserved || state.sentinelWritten;
+  // Dispatch-channel liveness must be HOST-OWNED execution evidence: a benign proposal whose toolCallId
+  // was observed in `tool.execution_start`. Only then is the ABSENCE of the protected tool's execution
+  // a meaningful non-dispatch. Candidate-visible repo state (the sentinel file) can CORROBORATE but
+  // never substitutes — if execution events are broken, the file can land while we observed no
+  // dispatch, and that must stay INCOMPLETE, not be read as explicit non-dispatch.
+  const dispatchChannelLive = [...run.dispatchedToolCallIds].some((id) => id !== protectedProposal?.proposalId);
   let handlerDispatched;
   if (protectedDispatched) handlerDispatched = true;
   else if (dispatchChannelLive) handlerDispatched = false; // explicit non-dispatch (channel proven live)
@@ -308,7 +318,7 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
     pass: semantic === 'PROVEN',
     reasons,
     error,
-    evidence: { ...ev, reasonDeliveryObservable: false, observedKind, observedTool, mechanismConfirmed, observedToolNames: run.dispatchedToolNames, repoRoot: repo.root, finalState: state },
+    evidence: { ...ev, reasonDeliveryObservable: false, dispatchChannelLive, observedKind, observedTool, mechanismConfirmed, observedToolNames: run.dispatchedToolNames, repoRoot: repo.root, finalState: state },
     evidenceRows: evidence.entries,
   };
 }
@@ -342,26 +352,34 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
   // Benign ops decide with the LEGITIMATE identity (repo.root), so an approved sentinel write proves
   // the dispatch channel is live; the break is bound ONLY to the protected proposal.
   const run = new ScenarioRun({ repo, adapter, evidence });
-  const isProtected = (request) => {
-    if (request?.kind === 'shell') return typeof request.fullCommandText === 'string' && request.fullCommandText.includes(repo.protectedRel);
-    if (request?.kind === 'write') return request?.fileName === repo.protectedRel;
-    return false;
+  // Bind the break to the protected MUTATION, not any command that merely names the path: a proposal
+  // is the protected op iff the canonical adapter/engine would DENY it under the legitimate identity
+  // (so a read like `cat`/`sed -n`/`grep` on the target is benign and passes through). This uses the
+  // real classification rather than a fragile string match.
+  const mutatesProtected = (request) => {
+    try {
+      const json = serializeRequest(request, { cwd: repo.root, sessionId: run.sessionId });
+      return adapter.decide(json, 'pre-action', repo.root)?.decision?.verdict === 'deny';
+    } catch {
+      return false;
+    }
   };
   let protectedReached = false;
   let protectedProposalId;
   let handlerError;
+  let session;
   try {
-    const session = await binding.createSession({
+    session = await binding.createSession({
       workspace: repo.root,
       model: config.model,
       availableTools: config.availableTools,
       onPermissionRequest: (request, invocation) => {
-        if (!isProtected(request)) {
+        if (!mutatesProtected(request)) {
           // A benign op (the sentinel write, or a read the model issues first): decide normally with
           // the legitimate identity so it dispatches — this is the dispatch-channel liveness probe.
           return run.decide(request, invocation);
         }
-        // The break is BOUND to the actual protected proposal, so a read/list arriving first cannot
+        // The break is BOUND to the actual protected MUTATION, so a read/inspect arriving first cannot
         // be mistaken for the protected decision path.
         protectedReached = true;
         protectedProposalId = request?.toolCallId;
@@ -382,15 +400,24 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
     });
     run.sessionId = session.sessionId;
     await session.sendAndWait(PROMPTS.shell(repo), SESSION_TIMEOUT_MS());
-    await session.disconnect();
   } catch (e) {
     handlerError = e instanceof Error ? e.message : String(e);
+  } finally {
+    if (session) {
+      try {
+        await session.disconnect();
+      } catch {
+        /* best-effort quiesce before reading final state */
+      }
+    }
   }
   const state = finalState(repo);
   const protectedDispatched = protectedProposalId ? run.dispatchedToolCallIds.has(protectedProposalId) : false;
-  // Dispatch-channel liveness: a benign op dispatched (a toolCallId other than the protected one) or
-  // the sentinel landed. Without it, "no protected dispatch" is NOT explicit non-dispatch → INCOMPLETE.
-  const dispatchChannelLive = [...run.dispatchedToolCallIds].some((id) => id !== protectedProposalId) || state.sentinelWritten;
+  // Dispatch-channel liveness must be HOST-OWNED execution evidence — a benign proposal's toolCallId
+  // observed in `tool.execution_start`. Candidate-visible repo state (the sentinel file) is NOT
+  // liveness: if execution events are broken it can land while we observed no dispatch, and that must
+  // stay INCONCLUSIVE rather than becoming explicit non-dispatch.
+  const dispatchChannelLive = [...run.dispatchedToolCallIds].some((id) => id !== protectedProposalId);
   let handlerDispatched;
   if (protectedDispatched) handlerDispatched = true;
   else if (dispatchChannelLive) handlerDispatched = false;
@@ -426,10 +453,12 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
   let identity;
   if (identityBreak) {
     const protectedProposal = run.proposals.find((p) => p.deny);
+    // Pass the DERIVED handlerDispatched (which is `undefined` when dispatch-channel liveness is
+    // absent) so the identity result cannot pass from absence of evidence — undefined stays non-passing.
     identity = classifyIdentityBinding({
       claimKind: breakage,
       denied: !!protectedProposal?.deny,
-      handlerDispatched: protectedDispatched ? true : false,
+      handlerDispatched,
     });
   }
   cleanupRepo(repo, config.keepArtifacts);
@@ -457,8 +486,9 @@ export async function runEndOfTurnScenario({ binding, adapter, config }) {
   const repo = makeScenarioRepo({ prefix: 'tw-sdk-eot-' });
   const run = new ScenarioRun({ repo, adapter, evidence });
   let error;
+  let session;
   try {
-    const session = await binding.createSession({
+    session = await binding.createSession({
       workspace: repo.root,
       model: config.model,
       availableTools: config.availableTools,
@@ -469,9 +499,16 @@ export async function runEndOfTurnScenario({ binding, adapter, config }) {
     });
     run.sessionId = session.sessionId;
     await session.sendAndWait(PROMPTS.endOfTurn(repo), SESSION_TIMEOUT_MS());
-    await session.disconnect();
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
+  } finally {
+    if (session) {
+      try {
+        await session.disconnect();
+      } catch {
+        /* best-effort quiesce before reading final state */
+      }
+    }
   }
   const state = finalState(repo);
   // Continuation matches the real SDK lifecycle: after our block, the runtime runs the agent again

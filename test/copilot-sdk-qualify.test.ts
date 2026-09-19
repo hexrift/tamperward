@@ -130,6 +130,15 @@ describe('runPreDenyScenario — shell & native-write pre-dispatch deny (real ad
     expect(r.evidence.handlerDispatched).toBeUndefined();
   });
 
+  it('effects land but execution EVENTS are suppressed → INCOMPLETE (sentinel state is not dispatch-channel liveness)', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ suppressExecEvents: true }), adapter, config: CFG(), mechanism: 'shell' });
+    // The sentinel file was written (repo effect landed) but no tool.execution_start was observed…
+    expect(r.evidence.finalState.sentinelWritten).toBe(true);
+    expect(r.evidence.dispatchChannelLive).toBe(false);
+    expect(r.evidence.handlerDispatched).toBeUndefined();
+    expect(r.semantic).toBe('INCOMPLETE');
+  });
+
   it('records the proposal AND the deny decision as immutable host evidence', async () => {
     const r = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG(), mechanism: 'shell' });
     const stages = r.evidenceRows.map((e: { stage?: string }) => e.stage);
@@ -174,6 +183,15 @@ describe('runBrokenPathScenario — a broken decision path must fail CLOSED', ()
     const r = await runBrokenPathScenario({ binding: createFakeBinding({ benignFirst: true }), adapter, config: CFG(), breakage: 'sync-throw' });
     expect(r.evidence.protectedReached).toBe(true); // the protected op was reached and broken, not the read
     expect(r.evidence.dispatchChannelLive).toBe(true); // the benign read/sentinel dispatched → channel live
+    expect(r.semantic).toBe('FAIL-CLOSED');
+  });
+
+  it('the break binds to the MUTATION, not a non-mutating inspection of the same path (cat first)', async () => {
+    const r = await runBrokenPathScenario({ binding: createFakeBinding({ inspectFirst: true }), adapter, config: CFG(), breakage: 'sync-throw' });
+    // `cat <protected>` is not the protected mutation, so the break does not fire on it; the real
+    // `rm` is still reached and broken, and the inspection's dispatch established liveness.
+    expect(r.evidence.protectedReached).toBe(true);
+    expect(r.evidence.dispatchChannelLive).toBe(true);
     expect(r.semantic).toBe('FAIL-CLOSED');
   });
 

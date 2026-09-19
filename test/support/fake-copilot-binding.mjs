@@ -79,9 +79,12 @@ function makeFakeSession(cfg, opts) {
     else if (rejected) dispatch = !!opts.ignoreDeny;
     else dispatch = approved;
     if (dispatch) {
-      emit('tool.execution_start', { toolCallId: req.toolCallId, toolName: req.toolName, turnId: 't1' });
+      // `suppressExecEvents` models a runtime whose repository EFFECT lands but whose host-owned
+      // execution-event channel is broken/absent — the effect is applied, but no tool.execution_start
+      // is emitted, so the host cannot observe dispatch. Liveness must then stay unproven.
+      if (!opts.suppressExecEvents) emit('tool.execution_start', { toolCallId: req.toolCallId, toolName: req.toolName, turnId: 't1' });
       applyEffect(cfg.workspace, req);
-      emit('tool.execution_complete', { toolCallId: req.toolCallId });
+      if (!opts.suppressExecEvents) emit('tool.execution_complete', { toolCallId: req.toolCallId });
     }
     return { dispatched: dispatch, rejected, approved, broke };
   }
@@ -91,10 +94,14 @@ function makeFakeSession(cfg, opts) {
     async sendAndWait(prompt) {
       const spec = parsePrompt(prompt);
       emit('assistant.turn_start', { turnId: 't1' });
-      // Optionally issue a BENIGN op first (a read) to simulate a model that proposes something before
-      // the protected mutation — the break must bind to the protected proposal, not this one.
+      // Optionally issue a BENIGN op first — a read of an unrelated file, or a non-mutating shell
+      // inspection of the protected file itself (`cat`) — to simulate a model that acts before the
+      // protected mutation. The break must bind to the protected MUTATION, not to either of these.
       if (opts.benignFirst) {
         await propose({ kind: 'read', toolName: 'read', toolCallId: nextTc(), fileName: 'README.md' });
+      }
+      if (opts.inspectFirst) {
+        await propose({ kind: 'shell', toolName: 'shell', toolCallId: nextTc(), fullCommandText: `cat ${spec.protectedRel}` });
       }
       // The protected proposal the prompt asks for. `mechanismOverride` simulates a model that
       // satisfies a "write" prompt with shell (or vice-versa); `neverProposeProtected` simulates a
