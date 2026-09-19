@@ -34,9 +34,9 @@
 // read (directory, symlink-to-nonfile, oversize, irregular, read error) fails closed.
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isAbsolute, relative, resolve, join } from 'node:path';
+import { basename, dirname, isAbsolute, relative, resolve, join } from 'node:path';
 import { Change } from '../../types';
 import { synthFileChange } from '../claude/changes';
 import { inspectResolved, textOf } from '../../disk';
@@ -71,6 +71,43 @@ function relForDisplay(path: string, cwd: string): string {
 }
 
 /**
+ * The canonical, symlink-resolved location of `abs`, proven to lie under the trusted repository
+ * `root`, or a throw (fail closed). The deepest EXISTING ancestor is resolved with `realpathSync`
+ * (following any symlink to where it points now) and the not-yet-existing tail re-attached, so an
+ * existing target, and the parent that would hold a create, are both checked against the root's real
+ * path. A target at, above, or outside the root — lexically (`../`, absolute) or via a symlink whose
+ * real target escapes — is refused.
+ */
+function canonicalContainedTarget(abs: string, root: string): string {
+  let realRoot: string;
+  try {
+    realRoot = realpathSync(root);
+  } catch (e) {
+    throw new Error(`trusted repository root ${root} cannot be resolved: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  let dir = abs;
+  const tail: string[] = [];
+  while (!existsSync(dir)) {
+    const parent = dirname(dir);
+    if (parent === dir) break; // filesystem root reached with nothing existing
+    tail.unshift(basename(dir));
+    dir = parent;
+  }
+  let realDir: string;
+  try {
+    realDir = realpathSync(dir);
+  } catch (e) {
+    throw new Error(`write target ${abs} cannot be resolved: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const canonical = tail.length ? join(realDir, ...tail) : realDir;
+  const rel = relative(realRoot, canonical);
+  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error(`write target ${abs} resolves outside the trusted repository root ${realRoot} — refusing to judge a write beyond the repository`);
+  }
+  return canonical;
+}
+
+/**
  * Reconstruct the Change[] a Copilot SDK write would land, or `null` when the runtime surfaced no
  * usable content (measured-unsupported). `cwd` is the repository root paths display relative to;
  * `base` is where a RELATIVE tool path resolves from (the session cwd).
@@ -79,6 +116,17 @@ export function sdkFileEditChanges(args: Record<string, unknown>, cwd: string, b
   const path = asStr(args.path) || asStr(args.fileName) || asStr(args.file_path);
   if (!path) throw new Error('write event carries no fileName/path to reconstruct');
   const abs = resolve(base, path);
+
+  // Bind the target to the trusted repository root BEFORE any disk read (#611 identity matrix): a
+  // `../` escape, an absolute path outside the root, or an in-repo symlink whose real target leaves
+  // the root fails CLOSED — `relForDisplay` only changes presentation, it does not contain. The SDK's
+  // `resolvedPath`, when present, is an UNTRUSTED claim compared against the host-derived canonical
+  // target (mismatch → deny), never used as the authority.
+  const canonical = canonicalContainedTarget(abs, cwd);
+  const claimedResolved = asStr(args.resolvedPath);
+  if (claimedResolved && canonicalContainedTarget(resolve(base, claimedResolved), cwd) !== canonical) {
+    throw new Error(`the runtime-claimed resolvedPath (${claimedResolved}) does not match the host-derived target for ${path} — refusing to judge a different path`);
+  }
   const display = relForDisplay(abs, cwd);
 
   // Preserve DiskEntry.kind: only an ABSENT target is a create. An existing target the gate cannot
@@ -194,11 +242,13 @@ function canonicalPatch(raw: string, display: string, isCreate: boolean): { op: 
 
   let src: string | undefined; // stripped `--- ` endpoint
   let dst: string | undefined; // stripped `+++ ` endpoint
+  let hasGitHeader = false; // a `diff --git`/extended header requires a full endpoint pair
   for (const line of header) {
     if (/^(rename (from|to)|copy (from|to)|old mode|new mode|GIT binary patch)\b/.test(line) || line.startsWith('Binary files ')) {
       throw new Error(`write diff for ${display} is a rename/copy/binary/mode-only change, which is not reconstructed`);
     }
     if (line.startsWith('diff --git ')) {
+      hasGitHeader = true;
       for (const p of line.slice('diff --git '.length).trim().split(/\s+/)) assertBound(stripPrefix(p), display);
     } else if (line.startsWith('--- ')) {
       src = line.slice(4).split('\t')[0].trim();
@@ -208,18 +258,25 @@ function canonicalPatch(raw: string, display: string, isCreate: boolean): { op: 
   }
 
   // Derive the EXACT proposed operation from the `/dev/null` endpoints, never re-inferred from local
-  // state. A bare hunk (no header endpoints) carries no operation claim, so the observed target state
-  // is used — but it can never be a delete (a delete requires a `+++ /dev/null` header).
+  // state or repaired from a malformed event. The contract is explicit:
+  //   - BOTH endpoints absent → bare-hunk mode: infer create/modify from the observed target state
+  //     (never a delete, which requires a `+++ /dev/null` header). A `diff --git` header, however,
+  //     promises a full endpoint pair, so its absence is malformed.
+  //   - BOTH present → validate exact create/delete/modify semantics.
+  //   - EXACTLY ONE present → malformed one-sided pair → fail closed (not normalized into a valid op).
   let op: DiffOp;
   if (src === undefined && dst === undefined) {
+    if (hasGitHeader) throw new Error(`write diff for ${display} has a diff --git header but no --- / +++ endpoints (malformed)`);
     op = isCreate ? 'create' : 'modify';
-  } else {
+  } else if (src !== undefined && dst !== undefined) {
     const srcNull = src === '/dev/null';
     const dstNull = dst === '/dev/null';
     if (srcNull && dstNull) throw new Error(`write diff for ${display} has /dev/null on both sides`);
-    if (!srcNull && src !== undefined) assertBound(stripPrefix(src), display);
-    if (!dstNull && dst !== undefined) assertBound(stripPrefix(dst), display);
+    if (!srcNull) assertBound(stripPrefix(src), display);
+    if (!dstNull) assertBound(stripPrefix(dst), display);
     op = srcNull ? 'create' : dstNull ? 'delete' : 'modify';
+  } else {
+    throw new Error(`write diff for ${display} has a one-sided --- / +++ endpoint pair (malformed) — refusing to repair it into a valid operation`);
   }
 
   // The proposed operation must agree with the observed disk state, or the event is inconsistent and

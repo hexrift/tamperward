@@ -49,6 +49,7 @@ interface SdkRequest {
   kind?: string;
   toolName?: string;
   fileName?: string;
+  resolvedPath?: string;
   fullCommandText?: string;
   diff?: string;
   newFileContents?: string;
@@ -70,6 +71,7 @@ function requestFrom(parsed: Record<string, unknown>): SdkRequest {
     ...(s('kind') !== undefined ? { kind: s('kind') } : {}),
     ...(s('toolName') !== undefined ? { toolName: s('toolName') } : {}),
     ...(s('fileName') !== undefined ? { fileName: s('fileName') } : {}),
+    ...(s('resolvedPath') !== undefined ? { resolvedPath: s('resolvedPath') } : {}),
     ...(s('fullCommandText') !== undefined ? { fullCommandText: s('fullCommandText') } : {}),
     ...(s('diff') !== undefined ? { diff: s('diff') } : {}),
     ...(s('newFileContents') !== undefined ? { newFileContents: s('newFileContents') } : {}),
@@ -90,6 +92,9 @@ function argsFor(req: SdkRequest): Record<string, unknown> {
   if (kind === 'file-edit') {
     return {
       ...(req.fileName !== undefined ? { path: req.fileName } : {}),
+      // The SDK's experimental runtime-resolved canonical path. Retained as an UNTRUSTED claim: the
+      // host derives its own canonical target and denies on mismatch — resolvedPath is never authority.
+      ...(req.resolvedPath !== undefined ? { resolvedPath: req.resolvedPath } : {}),
       ...(req.diff !== undefined ? { diff: req.diff } : {}),
       ...(req.newFileContents !== undefined ? { newFileContents: req.newFileContents } : {}),
       ...(req.intention !== undefined ? { intention: req.intention } : {}),

@@ -12,7 +12,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, realpathSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { copilotSdkAdapter, CopilotSdkHostedAdapter } from '../src/adapters/copilot-sdk/adapter';
@@ -399,6 +399,19 @@ describe('CopilotSdkHostedAdapter.decide — file-edit content-aware pre-deny is
     }
   });
 
+  it('a write diff with a one-sided --- / +++ endpoint pair fails CLOSED — a malformed event is not repaired into a valid op', () => {
+    const cwd = repoFixture();
+    try {
+      // Only a `+++` endpoint, no `---`. This must not be normalized into a modify; the malformed
+      // event fails closed.
+      const diff = ['+++ b/src/a.spec.ts', '@@ -1 +1 @@', "-it('one', () => {}); it('two', () => {});", "+it('one', () => {});"].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('a write whose EXISTING target cannot be read (a directory) fails CLOSED — not treated as a create', () => {
     const cwd = repoFixture();
     try {
@@ -420,6 +433,82 @@ describe('CopilotSdkHostedAdapter.decide — file-edit content-aware pre-deny is
       const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { newFileContents: `it('one', () => {}); it('two', () => {}); it('three', () => {});\n` }), 'pre-action', cwd);
       expect(r.decision?.verdict).toBe('allow');
       expect(r.wire).toBe('');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('CopilotSdkHostedAdapter.decide — the write target is bound to the trusted repository root (#611)', () => {
+  const writeDiff = (target: string) => ['--- a/' + target, '+++ b/' + target, '@@ -1 +1 @@', '-a', '+b'].join('\n');
+
+  it('an absolute target OUTSIDE the trusted root fails CLOSED before reconstruction', () => {
+    const A = repoFixture();
+    const B = repoFixture();
+    try {
+      const outside = join(B, 'src', 'a.spec.ts');
+      const r = copilotSdkAdapter.decide(writeReq(A, outside, { diff: writeDiff(outside) }), 'pre-action', A);
+      expect(r.decision?.verdict).toBe('deny');
+      expect(r.detail).toMatch(/outside the trusted repository root/);
+    } finally {
+      rmSync(A, { recursive: true, force: true });
+      rmSync(B, { recursive: true, force: true });
+    }
+  });
+
+  it('a "../" path escape fails CLOSED', () => {
+    const cwd = repoFixture();
+    try {
+      const r = copilotSdkAdapter.decide(writeReq(cwd, '../outside.spec.ts', { diff: writeDiff('../outside.spec.ts') }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+      expect(r.detail).toMatch(/outside the trusted repository root/);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('an in-repo symlink whose real target escapes the root fails CLOSED', () => {
+    const cwd = repoFixture();
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), 'hf-outside-')));
+    try {
+      writeFileSync(join(outside, 'secret.spec.ts'), `it('one', () => {});\n`);
+      symlinkSync(join(outside, 'secret.spec.ts'), join(cwd, 'src', 'link.spec.ts'));
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/link.spec.ts', { newFileContents: `it('x', () => {});\n` }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+      expect(r.detail).toMatch(/outside the trusted repository root/);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('a resolvedPath claim that disagrees with the host-derived target fails CLOSED (untrusted claim)', () => {
+    const cwd = repoFixture();
+    try {
+      // fileName targets the protected spec; the runtime-claimed resolvedPath names a different file.
+      const r = copilotSdkAdapter.decide(
+        writeReq(cwd, 'src/a.spec.ts', { newFileContents: `it('one', () => {});\n`, resolvedPath: join(cwd, 'src', 'other.ts') }),
+        'pre-action',
+        cwd,
+      );
+      expect(r.decision?.verdict).toBe('deny');
+      expect(r.detail).toMatch(/resolvedPath/);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('a resolvedPath claim that AGREES with the host-derived target is judged normally (weakening → deny)', () => {
+    const cwd = repoFixture();
+    try {
+      const r = copilotSdkAdapter.decide(
+        writeReq(cwd, 'src/a.spec.ts', { newFileContents: `it('one', () => {});\n`, resolvedPath: join(cwd, 'src', 'a.spec.ts') }),
+        'pre-action',
+        cwd,
+      );
+      expect(r.outcome).toBe('ok');
+      expect(r.decision?.verdict).toBe('deny'); // denied for WEAKENING, not for a path mismatch
+      expect(r.detail ?? '').not.toMatch(/resolvedPath|outside the trusted/);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
