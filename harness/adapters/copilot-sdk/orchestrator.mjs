@@ -26,7 +26,7 @@ import {
   provenanceGate,
   EVIDENCE_SCHEMA_VERSION,
 } from '../copilot-sdk-spike.mjs';
-import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE } from './fixtures.mjs';
+import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE } from './fixtures.mjs';
 
 const RESULT_SCHEMA_VERSION = 'copilot-sdk-qualification/v1';
 const RUNTIME_ID = 'github-copilot-sdk-hosted';
@@ -451,6 +451,13 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
     outside = other;
   } else if (breakage === 'path-escape') {
     adversarialCwd = `${repo.root}/../${'escape'}`;
+  } else if (breakage === 'symlink-escape') {
+    // An IN-REPO symlink whose real target escapes the trusted root — distinct from the lexical `../`
+    // path escape: a naive prefix check accepts it, but the adapter's realpath canonicalization must
+    // resolve it to the outside repo and reject it. (#611's `symlink escape` failure case.)
+    const { linkPath, target } = makeEscapingSymlink(repo.root);
+    adversarialCwd = linkPath;
+    outside = target;
   } else if (breakage === 'malformed-identity') {
     adversarialCwd = '   ';
   }
@@ -756,7 +763,7 @@ export function assembleResult({ scenarios, provenanceExpected, provenanceMeasur
 /** The scenario groups a full run exercises. `--scenario <group>` narrows to one for debugging. */
 export const SCENARIO_GROUPS = ['shell', 'write', 'failure', 'stop'];
 // The required broken-decision-path breaks a qualifying run must exercise.
-const REQUIRED_BREAKS = ['sync-throw', 'reject', 'adapter-throw', 'timeout', 'cross-repo', 'path-escape', 'malformed-identity'];
+const REQUIRED_BREAKS = ['sync-throw', 'reject', 'adapter-throw', 'timeout', 'cross-repo', 'path-escape', 'symlink-escape', 'malformed-identity'];
 
 /** Build the run config from an argv-derived options object and the environment. Model is REQUIRED
  *  and must not be `auto`; missing/`auto` is surfaced as a fatal config error (never silently run). */

@@ -11,7 +11,7 @@
 // by anything the model controls.
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
@@ -120,6 +120,20 @@ export function cleanupRepo(repo, keep = false) {
 export function makeOutsideDir() {
   const d = mkdtempSync(join(tmpdir(), 'tw-sdk-outside-'));
   return d;
+}
+
+/**
+ * An IN-REPO symlink whose real target escapes the trusted root — the canonicalization boundary #611
+ * calls out separately from a lexical `../` path escape. The link lives inside `repoRoot` (so a naive
+ * prefix check would accept it), but `realpathSync` resolves it to `target` (a separate scenario repo
+ * outside the root), which the adapter's identity validation must reject. Returns the link path (the
+ * adversarial claimed cwd) and the target repo (for cleanup). The link itself is removed with the repo.
+ */
+export function makeEscapingSymlink(repoRoot, name = 'escape-link') {
+  const target = makeScenarioRepo({ prefix: 'tw-sdk-symlink-target-' });
+  const linkPath = join(repoRoot, name);
+  symlinkSync(target.root, linkPath, 'dir');
+  return { linkPath, target };
 }
 
 export { PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, dirname };

@@ -173,7 +173,7 @@ describe('runBrokenPathScenario — a broken decision path must fail CLOSED', ()
     expect(t.semantic).toBe('FAIL-OPEN');
   });
 
-  for (const breakage of ['cross-repo', 'path-escape', 'malformed-identity'] as const) {
+  for (const breakage of ['cross-repo', 'path-escape', 'symlink-escape', 'malformed-identity'] as const) {
     it(`${breakage}: the real adapter fails the identity claim closed → FAIL-CLOSED + identity pass`, async () => {
       const r = await runBrokenPathScenario({ binding: createFakeBinding({}), adapter, config: CFG(), breakage });
       expect(r.semantic).toBe('FAIL-CLOSED');
