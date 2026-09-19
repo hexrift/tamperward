@@ -56,7 +56,7 @@ export function createRealBinding({ CopilotClient, makeClientOptions } = {}) {
       const c = await ensureStatusClient();
       return typeof c.listModels === 'function' ? c.listModels() : [];
     },
-    async createSession({ workspace, model, onPermissionRequest, onAgentStop, onEvent } = {}) {
+    async createSession({ workspace, model, availableTools, onPermissionRequest, onAgentStop, onEvent } = {}) {
       // Root this scenario's runtime in its disposable repo via the SDK's `workingDirectory` option
       // (supported on both client options and session config), so each scenario's tools operate only
       // inside its own repo — no process-global chdir. This is the one live-only integration point to
@@ -66,6 +66,7 @@ export function createRealBinding({ CopilotClient, makeClientOptions } = {}) {
       await client.start();
       const session = await client.createSession({
         ...(workspace ? { workingDirectory: workspace } : {}),
+        ...(availableTools && availableTools.length ? { availableTools } : {}),
         model,
         onPermissionRequest,
         hooks: onAgentStop ? { onAgentStop } : undefined,

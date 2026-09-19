@@ -91,34 +91,46 @@ function makeFakeSession(cfg, opts) {
     async sendAndWait(prompt) {
       const spec = parsePrompt(prompt);
       emit('assistant.turn_start', { turnId: 't1' });
-      // The protected proposal the prompt asks for. `mechanismOverride` lets a test simulate a model
-      // that satisfies a "write" prompt with shell (or vice-versa), to exercise mechanism binding.
+      // Optionally issue a BENIGN op first (a read) to simulate a model that proposes something before
+      // the protected mutation — the break must bind to the protected proposal, not this one.
+      if (opts.benignFirst) {
+        await propose({ kind: 'read', toolName: 'read', toolCallId: nextTc(), fileName: 'README.md' });
+      }
+      // The protected proposal the prompt asks for. `mechanismOverride` simulates a model that
+      // satisfies a "write" prompt with shell (or vice-versa); `neverProposeProtected` simulates a
+      // model that never reaches the protected mutation at all.
       const useShell = opts.mechanismOverride === 'shell' ? true : opts.mechanismOverride === 'write' ? false : spec.isShell;
-      const protectedReq = useShell
-        ? { kind: 'shell', toolName: 'shell', toolCallId: nextTc(), fullCommandText: `rm ${spec.protectedRel}` }
-        : {
-            kind: 'write',
-            toolName: 'apply_patch',
-            toolCallId: nextTc(),
-            fileName: spec.protectedRel,
-            diff: [`--- a/${spec.protectedRel}`, `+++ b/${spec.protectedRel}`, '@@ -1,2 +1,1 @@', ` it('keeps one', () => { expect(1).toBe(1); });`, `-it('keeps two', () => { expect(2).toBe(2); });`].join('\n'),
-          };
-      await propose(protectedReq);
+      if (!opts.neverProposeProtected) {
+        const protectedReq = useShell
+          ? { kind: 'shell', toolName: 'shell', toolCallId: nextTc(), fullCommandText: `rm ${spec.protectedRel}` }
+          : {
+              kind: 'write',
+              toolName: 'apply_patch',
+              toolCallId: nextTc(),
+              fileName: spec.protectedRel,
+              diff: [`--- a/${spec.protectedRel}`, `+++ b/${spec.protectedRel}`, '@@ -1,2 +1,1 @@', ` it('keeps one', () => { expect(1).toBe(1); });`, `-it('keeps two', () => { expect(2).toBe(2); });`].join('\n'),
+            };
+        await propose(protectedReq);
+      }
       // The benign sentinel op — a dispatch-liveness probe that is NOT protected, so the host approves
       // it; observing it dispatch proves the event channel works this turn.
       if (spec.sentinelRel && !opts.suppressBenign) {
         await propose({ kind: 'write', toolName: 'write', toolCallId: nextTc(), fileName: spec.sentinelRel, newFileContents: spec.sentinelValue ?? '' });
       }
-      if (!opts.suppressIdle) emit('agent_idle', { turnId: 't1' });
 
-      // End-of-turn: run the agent-stop hook; on a block, optionally run a continuation turn.
+      // End-of-turn lifecycle, matching the real SDK: the agent goes idle, `onAgentStop` fires with
+      // stopHookActive=false; if it returns a block the runtime continues internally and reaches
+      // another natural stop, invoking `onAgentStop` a SECOND time with stopHookActive=true (which is
+      // the observed continuation); the final assistant response then reflects the block reason. Only
+      // after that does `sendAndWait` resolve on the final session.idle.
       if (cfg.onAgentStop) {
         const out = await cfg.onAgentStop({ stopReason: 'end_turn', stopHookActive: false }, { sessionId });
         if (out && out.decision === 'block' && opts.continueOnBlock !== false) {
-          emit('assistant.turn_start', { turnId: 't2' });
-          if (!opts.suppressIdle) emit('agent_idle', { turnId: 't2' });
+          await cfg.onAgentStop({ stopReason: 'end_turn', stopHookActive: true }, { sessionId });
+          emit('assistant.message', { content: `Continued after block: ${out.reason}` });
         }
       }
+      if (!opts.suppressIdle) emit('session.idle', { turnId: 't1' });
       return { type: 'assistant.message', data: { content: 'done' } };
     },
     async disconnect() {},

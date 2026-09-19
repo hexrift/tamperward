@@ -58,6 +58,15 @@ describe('runQualification — startup / auth / preflight', () => {
     expect(r.measured?.model).toBe('gpt-5.4');
     expect(r.measured?.runtime_version).toBe('copilot-runtime@1.0.14');
     expect(r.measured?.protocol_version).toBe(3);
+    // tool surface is honestly recorded as the runtime default (unmeasured) when not configured…
+    expect(String(r.measured?.tool_surface)).toContain('unmeasured');
+  });
+
+  it('--preflight with COPILOT_SDK_AVAILABLE_TOOLS freezes the exact tool surface (not a fabricated list)', async () => {
+    const binding = createFakeBinding({ status: { version: '1.0.14', protocolVersion: 3 } });
+    const cfg = buildConfig({ model: 'gpt-5.4', preflight: true }, { COPILOT_SDK_AVAILABLE_TOOLS: 'write,shell,read' });
+    const r = await runQualification({ binding, adapter, config: cfg });
+    expect(r.measured?.tool_surface).toBe('read,shell,write'); // sorted, frozen from the configured set
   });
 });
 
@@ -160,21 +169,43 @@ describe('runBrokenPathScenario — a broken decision path must fail CLOSED', ()
       expect(r.identity?.pass).toBe(true);
     });
   }
+
+  it('the break is BOUND to the protected proposal — a benign read arriving first does not stand in for it', async () => {
+    const r = await runBrokenPathScenario({ binding: createFakeBinding({ benignFirst: true }), adapter, config: CFG(), breakage: 'sync-throw' });
+    expect(r.evidence.protectedReached).toBe(true); // the protected op was reached and broken, not the read
+    expect(r.evidence.dispatchChannelLive).toBe(true); // the benign read/sentinel dispatched → channel live
+    expect(r.semantic).toBe('FAIL-CLOSED');
+  });
+
+  it('if the protected proposal is never reached, the broken path is INCONCLUSIVE (not FAIL-CLOSED from absence)', async () => {
+    const r = await runBrokenPathScenario({ binding: createFakeBinding({ neverProposeProtected: true }), adapter, config: CFG(), breakage: 'sync-throw' });
+    expect(r.evidence.protectedReached).toBe(false);
+    expect(r.semantic).toBe('INCONCLUSIVE');
+  });
+
+  it('no dispatch-channel liveness → the broken path cannot claim explicit non-dispatch (INCONCLUSIVE)', async () => {
+    const r = await runBrokenPathScenario({ binding: createFakeBinding({ suppressBenign: true }), adapter, config: CFG(), breakage: 'sync-throw' });
+    expect(r.evidence.dispatchChannelLive).toBe(false);
+    expect(r.evidence.handlerDispatched).toBeUndefined();
+    expect(r.semantic).toBe('INCONCLUSIVE');
+  });
 });
 
 describe('runEndOfTurnScenario — block + observed continuation', () => {
-  it('the weakening lands, the sweep blocks, and the agent continues → PROVEN', async () => {
+  it('the weakening lands, the sweep blocks, and onAgentStop RE-ENTERS (stopHookActive) → PROVEN', async () => {
     const r = await runEndOfTurnScenario({ binding: createFakeBinding({ continueOnBlock: true }), adapter, config: CFG() });
     expect(r.evidence.endOfTurnFired).toBe(true);
     expect(r.evidence.sweepDetected).toBe(true);
     expect(r.evidence.blockReturned).toBe(true);
-    expect(r.evidence.continuationObserved).toBe(true);
+    expect(r.evidence.continuationObserved).toBe(true); // proven by the second onAgentStop invocation
+    expect(r.evidence.agentStopInvocations).toBeGreaterThanOrEqual(2);
     expect(r.semantic).toBe('PROVEN');
   });
 
-  it('a block with NO continuation does not pass (agent merely stopped)', async () => {
+  it('a block with NO re-entry does not pass (agent merely stopped; a single onAgentStop is not continuation)', async () => {
     const r = await runEndOfTurnScenario({ binding: createFakeBinding({ continueOnBlock: false }), adapter, config: CFG() });
     expect(r.evidence.continuationObserved).toBe(false);
+    expect(r.evidence.agentStopInvocations).toBe(1);
     expect(r.pass).toBe(false);
   });
 });

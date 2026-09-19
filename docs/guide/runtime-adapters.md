@@ -617,6 +617,7 @@ measured value into a pin in the same qualifying run):
 
 ```
 COPILOT_SDK_MODEL=<exact-model> \
+COPILOT_SDK_AVAILABLE_TOOLS=<comma-list> \
 COPILOT_SDK_VERSION_EXPECTED=<pin> \
 COPILOT_RUNTIME_VERSION_EXPECTED=<pin> \
 TAMPERWARD_VERSION_EXPECTED=<pin> \
@@ -624,6 +625,13 @@ COPILOT_SDK_HOST_CONFIG_SHA256_EXPECTED=<pin> \
 COPILOT_SDK_NETWORK_MODE=<mode> \
 npm run spike:copilot-sdk
 ```
+
+`COPILOT_SDK_AVAILABLE_TOOLS` explicitly configures **and** freezes the session tool surface (it is
+passed to the SDK as `availableTools` and folded into `host_config_sha256`); unset, the tool surface
+is recorded honestly as the runtime default, unmeasured, which the result flags as a gap. The frozen
+`host_config_sha256` also binds the exact rendered prompts (deterministic — the sentinel value is
+fixed, not random), the runtime `protocol_version` from `getStatus()`, and OS/arch, so any of those
+changing invalidates a qualifying run.
 
 **Flags / modes** (plain argv): `--preflight` (measure only), `--scenario shell|write|failure|stop`
 (run one group), `--json <path>` (persist the machine-readable result), `--keep` (retain the
@@ -655,9 +663,14 @@ post-denial proposal/dispatch, but reason receipt is not manufactured `true`); t
 path is `INCONCLUSIVE` unless a real runtime-exposed permission-callback timeout is exercised (a hung
 callback plus the harness's own wait is not fail-closed); and the **write** row counts only when the
 observed protected proposal is actually a `write`/`apply_patch` surface (a shell proposal satisfying a
-write prompt is `UNSUPPORTED` for that row). If the pinned SDK cannot independently prove
-`deny → no dispatch` for a mechanism, or `onAgentStop` cannot genuinely force and observe a
-continuation, the harness reports `INCOMPLETE` / `PARTIAL` rather than weakening the bar.
+write prompt is `UNSUPPORTED` for that row). The **broken-decision-path** injection is bound to the
+actual protected proposal (a benign op arriving first cannot stand in for it) and only converts
+absence into explicit non-dispatch once same-session dispatch-channel liveness is established;
+otherwise it is `INCOMPLETE` / `INCONCLUSIVE`. **End-of-turn continuation** is proven by a second
+`onAgentStop` invocation carrying `stopHookActive === true` (the runtime re-entered the hook after the
+block), matching the real SDK lifecycle — not by counting idle events. If the pinned SDK cannot
+independently prove `deny → no dispatch` for a mechanism, or `onAgentStop` cannot genuinely force and
+observe a continuation, the harness reports `INCOMPLETE` / `PARTIAL` rather than weakening the bar.
 
 ## Runtime detection in onboarding
 
