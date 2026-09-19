@@ -677,6 +677,22 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     expect(cfg.confirmedDenialCodes).toEqual([]);
   });
 
+  it('runQualification enforces the committed confirmed-code authority — a caller cannot inject it (#615 boundary)', async () => {
+    // Bypass buildConfig and hand the exported driver its own classification authority. It must be
+    // ignored: the committed CONFIRMED_PERMISSION_GATE_CODES (empty) governs, so an injected `rejected`
+    // cannot turn a broken-path completion into authoritative non-dispatch, and the run cannot be FULL.
+    const injected = { ...buildConfig({ model: 'gpt-5.4' }, {}), confirmedDenialCodes: ['rejected'] };
+    const r = await runQualification({ binding: createFakeBinding({}), adapter, config: injected });
+    expect(r.provenance.measured.confirmed_denial_codes).toEqual([]); // active authority is the committed (empty) set
+    expect(r.provenance.measured.confirmed_denial_codes_source).toBe('committed:CONFIRMED_PERMISSION_GATE_CODES');
+    const broken = r.scenarios.filter((s: { id: string }) => s.id.startsWith('broken-path:'));
+    expect(broken.length).toBeGreaterThan(0);
+    expect(broken.every((s: { semantic: string }) => s.semantic !== 'FAIL-CLOSED')).toBe(true); // injected code inert
+    expect(r.provenance.gate.full).toBe(false);
+    expect(r.provenance.gate.reasons.some((x: string) => /caller-supplied confirmedDenialCodes/.test(x))).toBe(true);
+    expect(r.overall).not.toBe('FULL');
+  });
+
   it('the fake emits the pinned SDK completion shape and the orchestrator normalizes error.code (#615 blocker 1)', async () => {
     // (a) the shared builder is the pinned PUBLIC shape: a boolean `success`, and on failure a
     //     structured `error` with a machine-readable `code` + human `message` — never the old invented

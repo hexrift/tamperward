@@ -693,8 +693,11 @@ effect — an unconfirmed code, or the absence of any authoritative completion a
 `INCOMPLETE` / `INCONCLUSIVE`, never fail-closed. (`success` is the outcome discriminator and
 `error.code` the category; an unconfirmed or unrecognized code is fail-safe — it degrades to
 insufficient-evidence, never a false fail-closed.) The confirmed set is sourced **only** from the
-committed, reviewed constant — there is no environment / operator override, so a qualification's
-classification authority cannot change without changing the frozen harness bytes and re-preflighting.
+committed, reviewed constant — there is no environment / operator override, and the qualification
+driver (`runQualification`) forces the committed set even if a caller hands it a different
+`confirmedDenialCodes` (the caller value is ignored, recorded in the artifact, and caps the run below
+FULL), so a qualification's classification authority cannot change without changing the frozen harness
+bytes and re-preflighting.
 The eventual freeze should be a permission-path **signature** (decision kind + `error.code` + a
 sanitized message discriminator), not a bare string: a literal such as `rejected` is ambiguous only
 because the SDK reuses it for ordinary tool-result rejection, so it must be authoritative only in the

@@ -987,6 +987,19 @@ export async function runQualification({ binding, adapter, config }) {
 
   if (config.errors && config.errors.length) return insufficient(config.errors.join('; '));
 
+  // Enforce committed classification authority at the qualification BOUNDARY (#615 review). This is an
+  // exported entrypoint, so a caller could bypass buildConfig() and pass its own
+  // config.confirmedDenialCodes — changing what a `success:false` completion means without touching the
+  // reviewed/frozen harness bytes. A qualifying run therefore uses ONLY the committed
+  // CONFIRMED_PERMISSION_GATE_CODES; any differing caller-supplied set is ignored (and, on a qualifying
+  // run, caps the result below FULL and is recorded for audit). The pure scenario runners remain
+  // injectable so unit tests can still exercise the classification logic directly.
+  const activeConfirmedDenialCodes = [...CONFIRMED_PERMISSION_GATE_CODES];
+  const norm = (v) => (Array.isArray(v) ? [...v].map(String).sort() : []);
+  const confirmedCodesOverrideIgnored =
+    config.confirmedDenialCodes != null && norm(config.confirmedDenialCodes).join(',') !== norm(activeConfirmedDenialCodes).join(',');
+  config = { ...config, confirmedDenialCodes: activeConfirmedDenialCodes };
+
   let status;
   let auth;
   try {
@@ -1027,6 +1040,11 @@ export async function runQualification({ binding, adapter, config }) {
     arch: process.arch,
     ...(config.adapterBundleSha ? { adapter_bundle_sha256: config.adapterBundleSha } : {}),
     ...(auth && auth.authType ? { credential_mode: auth.authType } : {}),
+    // Retain the ACTIVE classification authority in the artifact for auditability: it is always the
+    // committed source set (empty until the credentialed capture freezes the real permission-path
+    // signature), never a caller/operator value.
+    confirmed_denial_codes: activeConfirmedDenialCodes,
+    confirmed_denial_codes_source: 'committed:CONFIRMED_PERMISSION_GATE_CODES',
   };
   const gate = provenanceGate({ expected: config.expected, measured });
   // #611: the code that actually RUNS must be provenance-pinned. Measured TamperWard provenance is only
@@ -1040,6 +1058,13 @@ export async function runQualification({ binding, adapter, config }) {
     // observation mechanism being qualified.
     gate.full = false;
     gate.reasons = [...(gate.reasons || []), 'the Copilot SDK package integrity could not be measured (loaded bytes unhashable) — version-only provenance is insufficient for a qualifying run'];
+  }
+  if (!config.preflight && confirmedCodesOverrideIgnored) {
+    // A caller tried to supply its own confirmed-denial-code authority. It was ignored (the committed
+    // set is used), but a run that attempted to inject classification authority from outside the frozen
+    // source must not be able to claim FULL.
+    gate.full = false;
+    gate.reasons = [...(gate.reasons || []), 'a caller-supplied confirmedDenialCodes set was ignored (qualification authority is the committed CONFIRMED_PERMISSION_GATE_CODES only) — this run cannot be FULL'];
   }
   if (!config.preflight) {
     if (config.sourceTreeDirty === null) {
