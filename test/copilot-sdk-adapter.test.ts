@@ -4,8 +4,10 @@
 // toolName / toolCallId / fileName / fullCommandText) and hands it to `decide`, which reuses
 // the SAME engine as every other surface for its shell content decision and DELEGATES the
 // end-of-turn sweep to the canonical git sweep. It is conservative and honest about what it
-// does NOT prove on a pinned SDK: `preDeny` is empty, and file-edit pre-deny is UNSUPPORTED
-// because the SDK permission callback surfaces the write's `fileName` but not its content.
+// does NOT prove on a pinned SDK: `preDeny` is empty (enforcement unmeasured). A `write` request
+// surfaces the proposed change (diff / newFileContents), so content-aware file-edit pre-deny is
+// CONDITIONAL — reconstructed (bound to the request's fileName, conservatively) and content-judged,
+// or `unsupported` only for a config that surfaces no usable content.
 // Payloads are synthetic and inline; there are no fixture files.
 
 import { describe, it, expect } from 'vitest';
@@ -264,6 +266,34 @@ describe('CopilotSdkHostedAdapter.decide — file-edit content-aware pre-deny is
       const newFileContents = `it('one', () => {}); it('two', () => {}); it('three', () => {});\n`;
       const diff = ['--- a/src/a.spec.ts', '+++ b/src/a.spec.ts', '@@ -1 +1 @@', "-it('one', () => {}); it('two', () => {});", "+it('one', () => {});"].join('\n');
       const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { newFileContents, diff }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('a diff-only INSERTION into an EXISTING file is reconstructed and judged, not misclassified as a create', () => {
+    const cwd = repoFixture();
+    try {
+      // A pure insertion uses a zero-old-line hunk (@@ -1,0 +2,1 @@) — that is NOT a create when the
+      // file exists. It must be reconstructed + judged (a benign insertion → allow), not `unsupported`.
+      const diff = ['@@ -1,0 +2,1 @@', "+it('inserted', () => {});"].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff }), 'pre-action', cwd);
+      expect(r.outcome).toBe('ok');
+      expect(r.decision?.verdict).toBe('allow');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('an existing-file insertion where diff and newFileContents DISAGREE fails CLOSED (agreement check not bypassed)', () => {
+    const cwd = repoFixture();
+    try {
+      // Insertion-only diff (zero-old-line) adds a line that the benign newFileContents lacks → they
+      // disagree. The agreement check must NOT be bypassed for this hunk shape.
+      const diff = ['@@ -1,0 +2,1 @@', "+it('inserted', () => {});"].join('\n');
+      const newFileContents = `it('one', () => {}); it('two', () => {});\n`; // no inserted line → disagrees with the diff
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff, newFileContents }), 'pre-action', cwd);
       expect(r.decision?.verdict).toBe('deny');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
