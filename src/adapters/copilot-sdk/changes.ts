@@ -79,26 +79,46 @@ export function sdkFileEditChanges(args: Record<string, unknown>, cwd: string, b
   return null; // no usable content surfaced → the caller reports unsupported
 }
 
-/** Apply parsed unified-diff hunks to `before`, yielding the proposed `after` content. Context/added
- *  lines are emitted; deleted lines are dropped; unchanged regions between hunks are copied through.
- *  A null `before` (new file) starts from empty. Line numbers come from the (validated) hunk headers. */
-function applyUnifiedHunks(before: string | null, hunks: { oldStart: number; lines: { type: string; content: string }[] }[]): string {
+/**
+ * Apply parsed unified-diff hunks to `before`, yielding the proposed `after` — CONSERVATIVELY. The
+ * reconstructed `after` is what the engine is asked to approve, so a hunk that cannot be located and
+ * verified EXACTLY is never guessed (the same principle as src/adapters/apply-patch.ts): every
+ * context and deleted line must match the corresponding on-disk `before` line, each hunk's declared
+ * old/new line counts must match its body, and hunks must be in-bounds and strictly forward (no
+ * overlap/backtracking). Any mismatch THROWS, and the caller turns that into a fail-closed deny.
+ */
+function applyUnifiedHunks(
+  before: string | null,
+  hunks: { oldStart: number; oldLines: number; newLines: number; lines: { type: string; content: string }[] }[],
+): string {
   const beforeLines = before === null ? [] : before.split('\n');
   const out: string[] = [];
-  let cursor = 0; // 0-based index into beforeLines
+  let cursor = 0; // 0-based index into beforeLines; strictly non-decreasing across hunks
   for (const h of hunks) {
-    const start = Math.max(0, h.oldStart - 1);
-    while (cursor < start && cursor < beforeLines.length) out.push(beforeLines[cursor++]);
+    const start = h.oldStart - 1;
+    if (start < cursor) throw new Error('unified diff has overlapping or out-of-order hunks; refusing to reconstruct');
+    if (start > beforeLines.length) throw new Error('unified diff hunk starts beyond the end of the file; refusing to reconstruct');
+    while (cursor < start) out.push(beforeLines[cursor++]);
+    let oldCount = 0;
+    let newCount = 0;
     for (const ln of h.lines) {
       if (ln.type === 'context') {
+        if (beforeLines[cursor] !== ln.content) throw new Error('unified diff context line does not match the file on disk; refusing to reconstruct');
         out.push(ln.content);
         cursor++;
+        oldCount++;
+        newCount++;
       } else if (ln.type === 'del') {
-        cursor++; // drop the before line
+        if (beforeLines[cursor] !== ln.content) throw new Error('unified diff deletion line does not match the file on disk; refusing to reconstruct');
+        cursor++;
+        oldCount++;
       } else if (ln.type === 'add') {
         out.push(ln.content);
+        newCount++;
       }
     }
+    if (oldCount !== h.oldLines) throw new Error(`unified diff hunk old-line count (${oldCount}) disagrees with its header (${h.oldLines})`);
+    if (newCount !== h.newLines) throw new Error(`unified diff hunk new-line count (${newCount}) disagrees with its header (${h.newLines})`);
   }
   while (cursor < beforeLines.length) out.push(beforeLines[cursor++]);
   return out.join('\n');

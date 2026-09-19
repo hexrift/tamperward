@@ -21,10 +21,13 @@
 // actually blocks tool dispatch is UNDOCUMENTED and can only be measured on a pinned SDK. A single
 // observed fail-open on a required path makes the hosted route ineligible for #482 / Round 4.1.
 //
-// CAPABILITY VOCABULARY (fixed in #611 review): content-aware file-edit pre-deny is UNSUPPORTED
-// (the callback surfaces fileName, not content); native write interception is PATH-level only and
-// is never promoted to a generic pre-deny; shell and end-of-turn content are CANDIDATES until the
-// pinned spike proves them. FULL is structurally unreachable while content pre-deny is unsupported.
+// CAPABILITY VOCABULARY (#611): shell, end-of-turn, and content-aware file-edit pre-deny are all
+// CANDIDATES until the pinned spike proves enforcement. A `write` request surfaces the proposed
+// change (diff / newFileContents), so content-aware file-edit pre-deny is CONDITIONAL — reconstructed
+// (bound to the request's fileName) and content-judged, or UNSUPPORTED only for a measured config
+// that surfaces no usable content — never a blanket path deny. FULL is NOT hard-capped: it is
+// reachable only once a pinned run proves shell + content-aware file-edit + end-of-turn AND the
+// broken decision path fails closed; a single fail-open is INELIGIBLE.
 //
 // With no pinned SDK this harness reports INSUFFICIENT and exits non-zero — "could not test" is
 // never "passed", and no Round 4.1 eligibility is claimed.
@@ -318,10 +321,12 @@ export function measuredProvenance(sessionModel, hostConfig = {}, runtimeStatus 
     twVersion = undefined;
   }
   const runtimeVersion = runtimeStatus && typeof runtimeStatus.version === 'string' ? `copilot-runtime@${runtimeStatus.version}` : undefined;
+  // GetStatusResponse.protocolVersion is a NUMBER in the current SDK — capture it as-is.
+  const protocolVersion = runtimeStatus && (typeof runtimeStatus.protocolVersion === 'number' || typeof runtimeStatus.protocolVersion === 'string') ? runtimeStatus.protocolVersion : undefined;
   return {
     sdk_version: sdkVersion ? `${spec}@${sdkVersion}` : undefined,
     runtime_version: runtimeVersion,
-    ...(runtimeStatus && typeof runtimeStatus.protocolVersion === 'string' ? { protocol_version: runtimeStatus.protocolVersion } : {}),
+    ...(protocolVersion !== undefined ? { protocol_version: protocolVersion } : {}),
     tamperward_version: twVersion,
     host_config_sha256: sha16(JSON.stringify({ model: sessionModel, ...hostConfig })),
     network_mode: process.env.COPILOT_SDK_NETWORK_MODE,
@@ -336,8 +341,10 @@ async function main() {
     'Layer (a) adapter conformance and layer (b) this spike self-test run in CI;',
     'layer (c) — this real SDK spike — needs a pinned, authenticated @github/copilot-sdk + an EXACT model.',
     '',
-    'Capability model (fixed): pre-deny:shell CANDIDATE, pre-deny:file-edit-content UNSUPPORTED,',
-    'pre-deny:file-edit-path AVAILABLE-LIMITED (never a generic pre-deny), end-of-turn:file-edit-content CANDIDATE.',
+    'Capability model: pre-deny:shell CANDIDATE, pre-deny:file-edit-content CANDIDATE (conditional on',
+    'surfaced write content; UNSUPPORTED only for a config lacking it), pre-deny:file-edit-path',
+    'AVAILABLE-LIMITED (never a generic pre-deny), end-of-turn:file-edit-content CANDIDATE. FULL is',
+    'reachable only after a pinned run proves those AND the broken decision path fails closed.',
   ];
 
   const sdk = await resolveSdk();
