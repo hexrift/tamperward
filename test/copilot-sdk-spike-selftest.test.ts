@@ -11,7 +11,7 @@
 
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error - the spike is a plain .mjs harness module, no d.ts
-import { classifyPreDispatchDeny, classifyDecisionPathFailure, classifyEndOfTurn, classifyIdentityBinding, buildSpikeMatrix, provenanceGate, evidenceEntry, HostEvidence, EVIDENCE_SCHEMA_VERSION } from '../harness/adapters/copilot-sdk-spike.mjs';
+import { classifyPreDispatchDeny, classifyDecisionPathFailure, classifyEndOfTurn, classifyIdentityBinding, buildSpikeMatrix, provenanceGate, measuredProvenance, evidenceEntry, HostEvidence, EVIDENCE_SCHEMA_VERSION } from '../harness/adapters/copilot-sdk-spike.mjs';
 
 describe('classifyPreDispatchDeny — the 7-point Phase-0 #1/#2 proof (host-observed)', () => {
   const full = {
@@ -194,6 +194,15 @@ describe('provenanceGate — MEASURED provenance must MATCH the expected pins (n
       delete m[k];
       expect(provenanceGate({ expected, measured: m }).full).toBe(false);
     }
+  });
+});
+
+describe('measuredProvenance — binds the hosted runtime version, and a NUMERIC protocolVersion', () => {
+  it('records runtime_version and a numeric protocol_version from getStatus()', () => {
+    const p = measuredProvenance('gpt-5', {}, { version: '0.9.0', protocolVersion: 7 });
+    expect(p.runtime_version).toBe('copilot-runtime@0.9.0');
+    expect(p.protocol_version).toBe(7); // GetStatusResponse.protocolVersion is a number
+    expect(p.model).toBe('gpt-5');
   });
 });
 

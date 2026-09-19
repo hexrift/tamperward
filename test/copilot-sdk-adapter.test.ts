@@ -208,6 +208,37 @@ describe('CopilotSdkHostedAdapter.decide — file-edit content-aware pre-deny is
     }
   });
 
+  it('a write diff whose deletion line does not match the on-disk file fails CLOSED (no synthetic guess)', () => {
+    const cwd = repoFixture();
+    try {
+      const diff = ['--- a/src/a.spec.ts', '+++ b/src/a.spec.ts', '@@ -1 +1 @@', "-it('MISMATCH does not match disk', () => {});", "+it('x', () => {});"].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny'); // reconstruction cannot verify against before → fail closed
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('a write diff with overlapping / backwards hunks fails CLOSED', () => {
+    const cwd = repoFixture();
+    try {
+      const diff = [
+        '--- a/src/a.spec.ts',
+        '+++ b/src/a.spec.ts',
+        '@@ -1 +1 @@',
+        "-it('one', () => {}); it('two', () => {});",
+        "+it('one', () => {});",
+        '@@ -1 +1 @@', // second hunk goes backwards over the first → must fail closed
+        '-anything',
+        '+else',
+      ].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('a write that surfaces NO usable content (no diff, no newFileContents) is UNSUPPORTED for this measured config, allow-through', () => {
     const cwd = repoFixture();
     try {
