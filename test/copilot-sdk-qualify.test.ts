@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
 // @ts-expect-error - the orchestrator is a plain .mjs harness module, no d.ts
-import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory, AMBIGUOUS_COMPLETION_CODES } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
+import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
 // @ts-expect-error - the fixtures are a plain .mjs harness module, no d.ts
 import { makeScenarioRepo, cleanupRepo, sdkCompletionEventData, PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE, CANDIDATE_PERMISSION_GATE_CODES, CONFIRMED_PERMISSION_GATE_CODES } from '../harness/adapters/copilot-sdk/fixtures.mjs';
 // @ts-expect-error - the spike is a plain .mjs harness module, no d.ts
@@ -656,9 +656,10 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     }
   });
 
-  it('classifyHandlerDispatch: generic/ambiguous failure codes never promote to FAIL-CLOSED even when confirmed set is present (#615 blocker 2)', () => {
-    // `aborted` may have already produced a side effect; generic `denied`/`rejected` are tool-result
-    // semantics, not proof the permission GATE prevented execution — all must stay INCONCLUSIVE.
+  it('classifyHandlerDispatch: a failure code OUTSIDE the confirmed set never promotes to FAIL-CLOSED (#615 blocker 2)', () => {
+    // With the confirmed set holding only the candidate permission codes, any other failure code —
+    // `aborted` (may already have mutated), generic `denied`/`rejected` (tool-result semantics), a plain
+    // tool error, or an absent code — is not in the set and must stay INCONCLUSIVE.
     const confirmedDenialCodes = [...CANDIDATE_PERMISSION_GATE_CODES];
     for (const code of ['aborted', 'denied', 'rejected', 'tool-error', 'timeout', undefined]) {
       const r = classifyHandlerDispatch({ mutated: false, completion: { completeSeq: 6, outcome: 'error', errorCategory: code }, boundarySeq: 5, confirmedDenialCodes });
@@ -667,18 +668,6 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     }
     // The candidate set is exactly the two codes — nothing wider — and stays UNCONFIRMED (not shipped).
     expect([...CANDIDATE_PERMISSION_GATE_CODES].sort()).toEqual([PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE].sort());
-  });
-
-  it('classifyHandlerDispatch: ambiguous codes cannot be laundered into fail-closed even IF confirmed (#615 authority floor)', () => {
-    // The hard floor: `aborted` / `denied` / `rejected` / `timeout` can never be authoritative
-    // non-execution, regardless of what a confirmed set contains — so an override (or a bad source
-    // freeze) that lists them cannot manufacture a false FAIL-CLOSED.
-    for (const code of ['aborted', 'denied', 'rejected', 'timeout']) {
-      expect(AMBIGUOUS_COMPLETION_CODES.has(code)).toBe(true);
-      const r = classifyHandlerDispatch({ mutated: false, completion: { completeSeq: 6, outcome: 'error', errorCategory: code }, boundarySeq: 5, confirmedDenialCodes: [code] });
-      expect(r.handlerDispatched).toBeUndefined();
-      expect(r.basis).toBe('insufficient-post-decision-evidence');
-    }
   });
 
   it('buildConfig: there is NO operator override for the confirmed denial codes (#615 authority hole)', () => {

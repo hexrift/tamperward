@@ -85,17 +85,14 @@ function toPermissionResult(res) {
 // constant — there is no env / operator override (a run cannot supply a verdict knob unbound from the
 // frozen pins, #615 review); the CI logic tests pass `confirmedDenialCodes` directly to exercise the
 // classifier. Until a code is in the ACTIVE set, a `success:false` completion never produces
-// `handlerDispatched=false` (it stays INCONCLUSIVE). A generic tool failure (`denied`/`rejected`) or an
-// `aborted` op stays inconclusive regardless — see AMBIGUOUS_COMPLETION_CODES, a floor no set overrides.
+// `handlerDispatched=false` (it stays INCONCLUSIVE). There is deliberately no permanent code blacklist:
+// a bare literal like `rejected` is ambiguous today only because the SDK also uses it for tool-RESULT
+// rejection, NOT because it can never be valid on the permission path — so vetoing it forever would make
+// a legitimately-observed permission-gate result impossible to freeze. The safe boundary is instead that
+// NOTHING is authoritative until frozen in committed source from the credentialed artifact, and that
+// freeze should be a permission-path SIGNATURE (decision kind + error.code + a sanitized message
+// discriminator), so a code is authoritative only in the exact permission-gate context (#615 review).
 const DEFAULT_DENIAL_COMPLETION_CODES = CONFIRMED_PERMISSION_GATE_CODES;
-
-// Codes that can NEVER be authoritative non-execution evidence, regardless of what a confirmed set
-// contains (#615 review): `aborted` may have begun and produced a side effect before being aborted, and
-// generic `denied` / `rejected` are tool-RESULT semantics (the SDK uses `error.code === "rejected"` for
-// tool-result rejection), not proof the permission GATE prevented execution. This is a hard floor: even
-// if one of these were frozen into CONFIRMED_PERMISSION_GATE_CODES, the classifier still refuses to read
-// it as fail-closed — the "generic codes stay inconclusive" guarantee cannot be overridden by config.
-export const AMBIGUOUS_COMPLETION_CODES = new Set(['aborted', 'denied', 'rejected', 'timeout']);
 
 /**
  * Classify whether the protected handler crossed the permission gate, from POST-DECISION evidence only
@@ -119,13 +116,9 @@ export function classifyHandlerDispatch({ mutated, completion, boundarySeq, conf
   const denialCodes = confirmedDenialCodes instanceof Set ? confirmedDenialCodes : new Set(confirmedDenialCodes ?? []);
   const afterBoundary = completion?.completeSeq != null && boundarySeq != null && completion.completeSeq > boundarySeq;
   const authoritativeSuccess = afterBoundary && completion.outcome === 'success';
-  // A code counts as non-execution only when it is BOTH in the confirmed set AND not a hard-floor
-  // ambiguous code — so a confirmed-set entry can never launder `aborted` / `rejected` into fail-closed.
-  const authoritativeDenied =
-    afterBoundary &&
-    completion.outcome === 'error' &&
-    denialCodes.has(completion.errorCategory) &&
-    !AMBIGUOUS_COMPLETION_CODES.has(completion.errorCategory);
+  // A code counts as non-execution only when it is in the CONFIRMED set — which is empty until the real
+  // codes are frozen in committed source from the credentialed artifact (never an operator-supplied value).
+  const authoritativeDenied = afterBoundary && completion.outcome === 'error' && denialCodes.has(completion.errorCategory);
   if (mutated) return { handlerDispatched: true, basis: 'protected-mutation' };
   if (authoritativeSuccess) return { handlerDispatched: true, basis: 'post-decision-success-completion' };
   if (authoritativeDenied) return { handlerDispatched: false, basis: 'post-decision-denied-completion' };

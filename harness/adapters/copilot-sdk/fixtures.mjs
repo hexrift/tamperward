@@ -166,6 +166,11 @@ export function sdkCompletionEventData({ toolCallId, toolName, success, code, me
 // ever this committed, reviewed constant — there is no env / operator override that could change a
 // verdict without changing the frozen pins (#615 review). Capture needs no override: the raw
 // `error.code` is recorded in the completion evidence regardless of this set.
+//
+// The eventual freeze should be a permission-path SIGNATURE, not a bare code: decision kind +
+// `error.code` (+ a sanitized message discriminator/hash if needed). A literal such as `rejected` is
+// ambiguous only because the SDK reuses it for ordinary tool-result rejection — so it must be
+// authoritative only when observed in the exact permission-gate context, never as a bare string.
 export const CONFIRMED_PERMISSION_GATE_CODES = Object.freeze([]);
 
 // UNCONFIRMED candidate codes — a plausible `error.code` the fake emits so its completion still carries
