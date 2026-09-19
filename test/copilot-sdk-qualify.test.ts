@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
 // @ts-expect-error - the orchestrator is a plain .mjs harness module, no d.ts
-import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
+import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory, normalizeCompletionEvent } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
 // @ts-expect-error - the fixtures are a plain .mjs harness module, no d.ts
 import { makeScenarioRepo, cleanupRepo, sdkCompletionEventData, PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE, CANDIDATE_PERMISSION_GATE_CODES, CONFIRMED_PERMISSION_GATE_CODES } from '../harness/adapters/copilot-sdk/fixtures.mjs';
 // @ts-expect-error - the spike is a plain .mjs harness module, no d.ts
@@ -675,6 +675,41 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     // provenance/host-config hash, so it must not exist. The confirmed set comes only from committed source.
     const cfg = buildConfig({ model: 'gpt-5.4' }, { COPILOT_SDK_CONFIRMED_DENIAL_CODES: 'aborted,rejected,permission_denied' });
     expect(cfg.confirmedDenialCodes).toEqual([]);
+  });
+
+  it('normalizeCompletionEvent: authoritative ONLY from the pinned v1.0.14 { success, error.code } shape (#615)', () => {
+    // Pinned shape → authoritative.
+    expect(normalizeCompletionEvent({ success: true })).toMatchObject({ outcome: 'success', schemaVariant: 'v1.0.14' });
+    expect(normalizeCompletionEvent({ success: false, error: { code: PERMISSION_DENIED_CODE } })).toMatchObject({ outcome: 'error', errorCode: PERMISSION_DENIED_CODE, schemaVariant: 'v1.0.14' });
+    // A `success:false` with only a legacy `error.kind` (no `code`) has no machine-readable category.
+    expect(normalizeCompletionEvent({ success: false, error: { kind: 'x' } })).toMatchObject({ outcome: 'error', errorCode: undefined, schemaVariant: 'v1.0.14' });
+    // Legacy / unexpected shapes lack the `success` discriminator → NON-authoritative (outcome undefined),
+    // retained only as a diagnostic schema variant — never reinterpreted as success/error.
+    for (const legacy of [{ outcome: 'success' }, { outcome: 'error', errorCategory: PERMISSION_DENIED_CODE }, { error: { kind: 'x' } }, {}]) {
+      const n = normalizeCompletionEvent(legacy);
+      expect(n.outcome).toBeUndefined();
+      expect(n.schemaVariant).toBe('legacy/unexpected');
+    }
+  });
+
+  it('classifyHandlerDispatch: a schema-drift completion (undefined outcome) is neither FAIL-OPEN nor FAIL-CLOSED (#615)', () => {
+    // `{ outcome:'success' }` normalizes to outcome undefined, so even after the boundary it cannot be
+    // read as a success completion (no dispatch); and it cannot be a denial either.
+    const { outcome } = normalizeCompletionEvent({ outcome: 'success' });
+    expect(classifyHandlerDispatch({ mutated: false, completion: { completeSeq: 6, outcome }, boundarySeq: 5, confirmedDenialCodes: [...CANDIDATE_PERMISSION_GATE_CODES] }).handlerDispatched).toBeUndefined();
+  });
+
+  it('an unexpected completion shape degrades to INCOMPLETE and is retained diagnostically (#615)', async () => {
+    // The protected op is denied and the runtime emits a pre-1.0.14 / unexpected completion (no
+    // `success`). It must not become authoritative non-dispatch: the scenario stays INCOMPLETE, and the
+    // completion row is retained as schema_variant 'legacy/unexpected'.
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ legacyCompletionShape: true }), adapter, config: CFG(), mechanism: 'shell' });
+    expect(r.evidence.finalStateMutated).toBe(false);
+    expect(r.evidence.handlerDispatched).toBeUndefined();
+    expect(r.semantic).toBe('INCOMPLETE');
+    const compRow = r.evidenceRows.find((e: { stage?: string }) => e.stage === 'completion');
+    expect(compRow?.completion_schema_variant).toBe('legacy/unexpected');
+    expect(compRow?.completion_outcome).toBeUndefined();
   });
 
   it('runQualification enforces the committed confirmed-code authority — a caller cannot inject it (#615 boundary)', async () => {

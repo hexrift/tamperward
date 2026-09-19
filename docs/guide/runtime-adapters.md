@@ -679,7 +679,12 @@ non-mutating inspection like `cat` of the same path cannot stand in).
 permission gate** (#614): the measured hosted runtime emits it *before* the permission callback
 resolves, so it can never by itself set `handlerDispatched=true` or `FAIL-OPEN`. FAIL-OPEN is decided
 only from **post-decision** evidence — an actual protected mutation on disk, or an authoritative
-post-decision **success** `tool.execution_complete` bound to the protected `toolCallId`. Conversely a
+post-decision **success** `tool.execution_complete` bound to the protected `toolCallId`. Completions
+are normalized **strictly** to the pinned `v1.0.14` public contract: only a boolean `success` (plus
+`error.code` on failure) is authoritative. An event lacking the `success` discriminator is treated as
+schema drift — recorded diagnostically as `schema_variant: "legacy/unexpected"` but with an undefined
+outcome, so it can never be reinterpreted through a pre-1.0.14 shape (`outcome` / `errorCategory` /
+`error.kind`) into a FAIL-OPEN or FAIL-CLOSED verdict. Conversely a
 proven non-dispatch (fail-closed) requires an authoritative post-decision completion in the pinned
 runtime's public shape — `{ success: false, error: { code, message } }` — whose machine-readable
 `error.code` is in the **confirmed permission-gate non-execution** set. That set is **empty** until the

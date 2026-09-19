@@ -139,6 +139,28 @@ export function decisionCategory(res, { adversarialIdentity = false } = {}) {
   return 'policy-block';
 }
 
+/**
+ * Normalize a `tool.execution_complete` payload to the pinned `@github/copilot-sdk@1.0.14` PUBLIC
+ * contract ONLY: `{ success: boolean, error?: { code: string, message: string, remediation?: ... } }`.
+ * An AUTHORITATIVE outcome comes only from a boolean `success`; on failure the machine-readable category
+ * is `error.code`. If the event lacks the `success` discriminator, that is schema drift for the pinned
+ * runtime — the outcome is `undefined` (non-authoritative → INCOMPLETE / INCONCLUSIVE), recorded with
+ * `schemaVariant: 'legacy/unexpected'` for diagnostics but NEVER reinterpreted through a pre-1.0.14
+ * shape (`data.outcome` / `errorCategory` / `error.kind` must not drive a verdict) (#615 review). This
+ * keeps a qualifying run from laundering an unexpected event into FAIL-OPEN or FAIL-CLOSED. (The upstream
+ * v1.0.14 permission E2E asserts `success === false` and inspects the error MESSAGE — "user rejected" /
+ * "Permission denied" — not a specific `error.code`; the exact denial code is what the credentialed
+ * capture establishes.)
+ */
+export function normalizeCompletionEvent(data = {}) {
+  if (data.success === true) return { outcome: 'success', errorCode: undefined, schemaVariant: 'v1.0.14' };
+  if (data.success === false) {
+    const errorCode = data.error && typeof data.error.code === 'string' ? data.error.code : undefined;
+    return { outcome: 'error', errorCode, schemaVariant: 'v1.0.14' };
+  }
+  return { outcome: undefined, errorCode: undefined, schemaVariant: 'legacy/unexpected' };
+}
+
 /** The repo-relative finding path/rule from a deny result, retained (sanitized) for audit — never the
  *  human-readable reason text. */
 function findingSummaryOf(res) {
@@ -248,25 +270,15 @@ class ScenarioRun {
         this.lifecycle.set(data.toolCallId, { ...lc, startSeq: row.host_seq });
       }
     } else if (type === 'tool.execution_complete') {
-      // Sanitized completion outcome, normalized to the pinned @github/copilot-sdk@1.0.14 PUBLIC shape:
-      //   { success: boolean, error?: { code: string, message: string, remediation?: ... } }
-      // `success` is the authoritative outcome discriminator and `error.code` the machine-readable
-      // failure category the classifier keys on (the field GitHub's own permission E2E asserts). The
-      // legacy `outcome` / `errorCategory` / `error.kind` fields are accepted ONLY as a fallback so a
-      // pre-1.0.14 capture still parses — they are never the primary contract (#615 review, blocker 1).
-      const outcome =
-        data.success === true ? 'success'
-          : data.success === false ? 'error'
-          : data.outcome === 'success' ? 'success'
-          : data.outcome === 'error' || data.error || data.errorCategory ? 'error'
-          : data.outcome;
-      // `errorCategory` retains the SDK's machine-readable `error.code` (the classifier's discriminator).
-      const errorCode =
-        (data.error && typeof data.error.code === 'string' ? data.error.code : undefined) ??
-        data.errorCategory ??
-        (data.error && (data.error.kind || data.error.category)) ??
-        undefined;
-      const rawMsg = typeof data.errorMessage === 'string' ? data.errorMessage : data.error && typeof data.error.message === 'string' ? data.error.message : undefined;
+      // Normalize STRICTLY to the pinned @github/copilot-sdk@1.0.14 PUBLIC contract — only a boolean
+      // `success` (+ `error.code` on failure) is authoritative. An event that lacks `success` is schema
+      // drift for the pinned runtime: `outcome` is undefined (non-authoritative → INCOMPLETE/INCONCLUSIVE)
+      // and it is retained diagnostically as `schema_variant: 'legacy/unexpected'`, never reinterpreted
+      // through a pre-1.0.14 shape, so it cannot launder into FAIL-OPEN or FAIL-CLOSED (#615 review).
+      const { outcome, errorCode, schemaVariant } = normalizeCompletionEvent(data);
+      // The error MESSAGE is retained (hashed) for diagnostics regardless of schema variant; it never
+      // drives classification.
+      const rawMsg = data.error && typeof data.error.message === 'string' ? data.error.message : typeof data.errorMessage === 'string' ? data.errorMessage : undefined;
       const row = this.evidence.append({
         stage: 'completion',
         session_id: this.sessionId,
@@ -275,6 +287,7 @@ class ScenarioRun {
         completion_outcome: outcome,
         completion_error_category: errorCode,
         completion_error_hash: rawMsg ? sha16(rawMsg) : undefined,
+        completion_schema_variant: schemaVariant,
         handler_completed: outcome === 'success',
       });
       if (data.toolCallId) {

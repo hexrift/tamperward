@@ -84,6 +84,10 @@ export function evidenceEntry(fields = {}) {
     completion_outcome: undefined,
     completion_error_category: undefined,
     completion_error_hash: undefined,
+    // Which completion contract the row parsed as: 'v1.0.14' (the pinned PUBLIC { success, error.code }
+    // shape, authoritative) or 'legacy/unexpected' (no `success` discriminator — diagnostic only, never
+    // drives a verdict). #615 review.
+    completion_schema_variant: undefined,
     handler_dispatched: undefined,
     handler_completed: undefined,
     end_of_turn_event: undefined,

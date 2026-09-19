@@ -19,6 +19,8 @@
 //   suppressCompletion          emit execution-start but NO completion (missing-completion → INCONCLUSIVE)
 //   suppressProtectedCompletion like suppressCompletion but only for the protected op
 //   emitStartAfterDecision      place tool.execution_start AFTER the permission decision (post-decision path)
+//   legacyCompletionShape       emit a pre-1.0.14 / unexpected completion (no `success` discriminator),
+//                               which the strict parser must treat as schema drift, never authoritative
 // The fake models the REAL lifecycle: tool.execution_start fires BEFORE the permission callback; a
 // completion emits the pinned SDK public shape `{ success, error?: { code, message } }` — a
 // `success:false` completion with a permission-gate `error.code` (`permission_denied` on a reject,
@@ -108,15 +110,23 @@ function makeFakeSession(cfg, opts) {
     if (dispatch) {
       applyEffect(cfg.workspace, req);
       // Post-decision SUCCESS completion (`success:true`) — the authoritative "the tool ran past the
-      // gate" signal.
-      if (!opts.suppressExecEvents && !opts.suppressCompletion) emit('tool.execution_complete', sdkCompletionEventData({ toolCallId: execId, toolName: req.toolName, success: true }));
+      // gate" signal. `legacyCompletionShape` models a runtime whose event LACKS the pinned `success`
+      // discriminator (a pre-1.0.14 / unexpected shape) — the harness must treat it as schema drift, not
+      // reinterpret it as authoritative.
+      const okData = opts.legacyCompletionShape
+        ? { toolCallId: execId, toolName: req.toolName, outcome: 'success' }
+        : sdkCompletionEventData({ toolCallId: execId, toolName: req.toolName, success: true });
+      if (!opts.suppressExecEvents && !opts.suppressCompletion) emit('tool.execution_complete', okData);
     } else {
       // Not executed: the pinned SDK represents a withheld tool as a `success:false` completion with a
       // permission-gate `error.code` — a rejected permission → `permission_denied`; a thrown/timed-out
       // callback the runtime could not turn into a grant → `user_not_available`.
       const code = broke ? USER_NOT_AVAILABLE_CODE : PERMISSION_DENIED_CODE;
+      const errData = opts.legacyCompletionShape
+        ? { toolCallId: execId, toolName: req.toolName, outcome: 'error', errorCategory: code }
+        : sdkCompletionEventData({ toolCallId: execId, toolName: req.toolName, success: false, code });
       if (!opts.suppressExecEvents && !opts.suppressCompletion && !(isProtected && opts.suppressProtectedCompletion)) {
-        emit('tool.execution_complete', sdkCompletionEventData({ toolCallId: execId, toolName: req.toolName, success: false, code }));
+        emit('tool.execution_complete', errData);
       }
     }
     return { dispatched: dispatch, rejected, approved, broke, execId };
