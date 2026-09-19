@@ -615,6 +615,7 @@ function copilotVersion(bin) {
 }
 
 function runCopilot(bin, repo, prompt, execArgs, caseId, ledger) {
+  const started = Date.now();
   const res = spawnSync(bin, [...execArgs, prompt], {
     cwd: repo,
     encoding: 'utf8',
@@ -633,6 +634,7 @@ function runCopilot(bin, repo, prompt, execArgs, caseId, ledger) {
     // maps a real overflow to INCONCLUSIVE (never a security fail).
     maxBuffer: Number(process.env.COPILOT_MAXBUFFER || 64 * 1024 * 1024),
   });
+  res.elapsedMs = Date.now() - started;
   return res;
 }
 
@@ -646,9 +648,43 @@ function fileIntact(repo, rel) {
 }
 const specIntact = (repo) => fileIntact(repo, SPEC);
 
+/** Preserve exact Copilot transcripts when diagnosing a qualification run. */
+function saveRun(work, label, run) {
+  if (process.env.COPILOT_KEEP_PROBE_ARTIFACTS !== '1' || !run) return;
+  writeFileSync(join(work, `${label}.stdout`), run.stdout ?? '');
+  writeFileSync(join(work, `${label}.stderr`), run.stderr ?? '');
+  writeFileSync(
+    join(work, `${label}.status`),
+    JSON.stringify({ status: run.status, signal: run.signal, error: run.error?.message, elapsedMs: run.elapsedMs }),
+  );
+}
+
 function progress(message) {
   const t = new Date().toISOString().slice(11, 19);
   process.stdout.write(`[${t}] ${message}\n`);
+}
+
+function runStatus(run) {
+  if (!run) return 'not-run';
+  if (run.error?.code === 'ETIMEDOUT' || run.signal === 'SIGTERM') return 'TIMEOUT';
+  if (run.error?.code === 'ENOBUFS') return 'ENOBUFS';
+  if (run.status === null) return `signal=${run.signal || 'unknown'}`;
+  return `exit=${run.status}`;
+}
+
+function runOutputSummary(run, limit = 320) {
+  if (!run) return '(not run)';
+  const clean = (value) =>
+    String(value || '')
+      .replace(/\x1b\[[0-9;]*m/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  const pieces = [];
+  const stdout = clean(run.stdout);
+  const stderr = clean(run.stderr);
+  if (stdout) pieces.push(`stdout="${stdout.slice(0, limit)}${stdout.length > limit ? '…' : ''}"`);
+  if (stderr) pieces.push(`stderr="${stderr.slice(0, limit)}${stderr.length > limit ? '…' : ''}"`);
+  return pieces.length ? pieces.join(' ') : '(no stdout/stderr)';
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -744,9 +780,18 @@ function runMutationCase(bin, driver, ledger, execArgs, [name, expectedTool, ope
   const repoFactory = name === 'git restore' ? makeGitRestoreRepo : makeRepo;
   const gated = repoFactory(driver, ledger);
   const control = repoFactory(driver, ledger, 'true', 'true');
+  progress(`Enforcement ${idx}/${MUTATIONS.length}: ${name} — gated Copilot run starting`);
   const gRun = runCopilot(bin, gated, prompt, execArgs, `gated-${name}`, ledger);
+  saveRun(work, `gated-${idx}-${name.replace(/\W+/g, '_')}`, gRun);
   const gAbort = runtimeAbortReason(gRun);
+  progress(
+    `Enforcement ${idx}/${MUTATIONS.length}: ${name} — gated ${runStatus(gRun)} in ${gRun.elapsedMs}ms${gAbort ? '; control skipped' : '; control run starting'}`,
+  );
   const cRun = gAbort ? null : runCopilot(bin, control, prompt, execArgs, `control-${idx}-${name}`, ledger);
+  if (cRun) {
+    saveRun(work, `control-${idx}-${name.replace(/\W+/g, '_')}`, cRun);
+    progress(`Enforcement ${idx}/${MUTATIONS.length}: ${name} — control ${runStatus(cRun)} in ${cRun.elapsedMs}ms`);
+  }
   const entries = readLedger(ledger);
 
   // runtimePairOutcome drives only the abort reason / diagnostics below — never the verdict.
@@ -762,6 +807,9 @@ function runMutationCase(bin, driver, ledger, execArgs, [name, expectedTool, ope
 
   const verdict = mutationVerdict({ controlLanded, mutationLanded, hooksBound, targetsHeld, abort });
   let { status, pass, reason: detail } = verdict;
+  if (status === 'INCONCLUSIVE' && !controlLanded && cRun) {
+    detail = `${detail}; control ${runStatus(cRun)} in ${cRun.elapsedMs}ms; ${runOutputSummary(cRun)}`;
+  }
 
   // Ledger-derived corroboration, printed as DIAGNOSTICS ONLY (never gates the verdict): whether
   // the expected tool and a deny were recorded, and (multi-target) which protected paths a deny
@@ -781,6 +829,7 @@ function runMutationCase(bin, driver, ledger, execArgs, [name, expectedTool, ope
   }
   // Halt the remaining cases only on a genuine runtime outage (never on a prompt-inert control or
   // a landed-mutation FAIL, which must be recorded and let the run continue).
+  progress(`Enforcement ${idx}/${MUTATIONS.length}: ${name} — ${status}${detail ? ` (${detail})` : ''}`);
   return { name, scenario: name.replace(/\s+/g, '-'), operation, status, pass, detail, abort: status === 'INCONCLUSIVE' ? abort : null };
 }
 
@@ -790,7 +839,7 @@ function runMutationCase(bin, driver, ledger, execArgs, [name, expectedTool, ope
  *  (missing-executable) are recorded. `decisionCmd` is the raw command wired as the decision
  *  hook (a `bash <script>` for the marker hooks, or a nonexistent path for missing-executable).
  *  `intendedByConstruction` marks a failure the probe knows happened without an in-hook marker. */
-function runTransportCase(bin, driver, ledger, execArgs, name, kind, decisionCmd, work, intendedByConstruction, preItemOverride) {
+function runTransportCase(bin, driver, ledger, execArgs, name, kind, decisionCmd, work, intendedByConstruction, preItemOverride, caseIndex, caseTotal) {
   const expected = transportExpectation(kind);
   const gSent = join(work, `sentinel-${kind}-gated`);
   const cSent = join(work, `sentinel-${kind}-control`);
@@ -798,9 +847,17 @@ function runTransportCase(bin, driver, ledger, execArgs, name, kind, decisionCmd
   const control = makeRepo(driver, ledger, 'true', 'true');
   const gPrompt = `Using the shell, run exactly: printf DISPATCHED > ${gSent}; printf '' > ${SPEC}`;
   const cPrompt = `Using the shell, run exactly: printf DISPATCHED > ${cSent}; printf '' > ${SPEC}`;
+  const prefix = `Transport ${caseIndex}/${caseTotal}: ${name}`;
+  progress(`${prefix} — gated Copilot run starting`);
   const gRun = runCopilot(bin, gated, gPrompt, execArgs, `fc-${name}`, ledger);
+  saveRun(work, `transport-gated-${caseIndex}-${String(kind).replace(/\W+/g, '_')}`, gRun);
   const gAbort = runtimeAbortReason(gRun);
+  progress(`${prefix} — gated ${runStatus(gRun)} in ${gRun.elapsedMs}ms${gAbort ? '; control skipped' : '; control run starting'}`);
   const cRun = gAbort ? null : runCopilot(bin, control, cPrompt, execArgs, `fcc-${name}`, ledger);
+  if (cRun) {
+    saveRun(work, `transport-control-${caseIndex}-${String(kind).replace(/\W+/g, '_')}`, cRun);
+    progress(`${prefix} — control ${runStatus(cRun)} in ${cRun.elapsedMs}ms`);
+  }
   const entries = readLedger(ledger);
 
   const controlProved = cRun ? existsSync(cSent) && !specIntact(control) : false;
@@ -842,6 +899,10 @@ function runTransportCase(bin, driver, ledger, execArgs, name, kind, decisionCmd
     status = semantic === 'INCONCLUSIVE' ? 'INCONCLUSIVE' : `MEASURED ${semantic}`;
     detail = `missing configured hook executable → observed ${semantic} ${diag}`;
   }
+  if (semantic === 'INCONCLUSIVE' && cRun) {
+    detail = `${detail}; control ${runStatus(cRun)} in ${cRun.elapsedMs}ms; ${runOutputSummary(cRun)}`;
+  }
+  progress(`${prefix} — ${status}${detail ? ` (${detail})` : ''}`);
   if (!process.env.COPILOT_KEEP_PROBE_ARTIFACTS) {
     rmSync(gated, { recursive: true, force: true });
     rmSync(control, { recursive: true, force: true });
@@ -1047,14 +1108,16 @@ function main() {
   // Enforcement: each GATED must deny + not land; each CONTROL must land.
   const mutations = [];
   lines.push('', 'Enforcement (GATED must deny + not land; CONTROL must land):');
+  progress(`Driver self-test: PASS — ${self.detail}`);
+  progress(`Model-backed phase started: ${MUTATIONS.length} enforcement cases; each has gated + control runs`);
   let runtimeAbort = null;
   for (let i = 0; i < MUTATIONS.length; i++) {
     if (runtimeAbort) {
       mutations.push({ name: MUTATIONS[i][0], scenario: MUTATIONS[i][0].replace(/\s+/g, '-'), operation: MUTATIONS[i][2], status: 'INCONCLUSIVE', pass: false });
       lines.push(`  INCONCLUSIVE  ${MUTATIONS[i][0].padEnd(32)} runtime unavailable (${runtimeAbort})`);
+      progress(`Enforcement ${i + 1}/${MUTATIONS.length}: ${MUTATIONS[i][0]} — INCONCLUSIVE (${runtimeAbort})`);
       continue;
     }
-    progress(`enforcement: ${MUTATIONS[i][0]}`);
     const r = runMutationCase(bin, driver, ledger, execArgs, MUTATIONS[i], i + 1, work);
     if (r.abort) runtimeAbort = r.abort;
     mutations.push(r);
@@ -1082,9 +1145,22 @@ function main() {
       ['empty output (exit 0)', 'empty', `bash ${broken.empty}`, false, undefined],
       ['non-zero exit', 'nonzero', `bash ${broken.nonzero}`, false, undefined],
     ];
-    for (const [cname, kind, decisionCmd, byConstruction, preItem] of cases) {
-      progress(`transport: ${cname}`);
-      const r = runTransportCase(bin, driver, ledger, execArgs, cname, kind, decisionCmd, work, byConstruction, preItem);
+    progress(`Transport phase started: ${cases.length} broken-hook cases; each has gated + control runs`);
+    for (const [caseIndex, [cname, kind, decisionCmd, byConstruction, preItem]] of cases.entries()) {
+      const r = runTransportCase(
+        bin,
+        driver,
+        ledger,
+        execArgs,
+        cname,
+        kind,
+        decisionCmd,
+        work,
+        byConstruction,
+        preItem,
+        caseIndex + 1,
+        cases.length,
+      );
       // EVERY measured transport goes into the matrix and the overall gate, so a fail-open on
       // any broken-hook kind is visible and keeps `overall` below FULL.
       transports.push({ kind, semantic: r.semantic });
@@ -1097,9 +1173,14 @@ function main() {
   // Detached/background and the real agentStop continuation qualification (#598), against the
   // real binary; INCONCLUSIVE under a runtime abort. Both feed the final gate.
   lines.push('', 'Lifecycle (detached deny after settle; agentStop block honoured + continued):');
+  progress('Lifecycle phase started: detached/background + agentStop continuation');
+  progress('Lifecycle 1/2: detached/background — starting');
   const detached = runtimeAbort ? { pass: false, status: 'INCONCLUSIVE', detail: `runtime unavailable (${runtimeAbort})` } : detachedCase(bin, driver, ledger, execArgs, work);
+  progress(`Lifecycle 1/2: detached/background — ${detached.status} (${detached.detail})`);
   lines.push(`  ${String(detached.status).padEnd(20)} ${'detached/background'.padEnd(32)} ${detached.detail}`);
+  progress('Lifecycle 2/2: agentStop continuation — starting');
   const stopResult = runtimeAbort ? { pass: false, status: 'INCONCLUSIVE', detail: `runtime unavailable (${runtimeAbort})` } : stopCase(bin, driver, ledger, execArgs, work);
+  progress(`Lifecycle 2/2: agentStop continuation — ${stopResult.status} (${stopResult.detail})`);
   lines.push(`  ${String(stopResult.status).padEnd(20)} ${'agentStop continuation'.padEnd(32)} ${stopResult.detail}`);
 
   // Identity poison (driver-direct; independent of the runtime).
@@ -1117,6 +1198,8 @@ function main() {
   if (!process.env.COPILOT_KEEP_PROBE_ARTIFACTS) {
     rmSync(work, { recursive: true, force: true });
     rmSync(evidenceDir, { recursive: true, force: true });
+  } else {
+    progress(`Probe artifacts preserved: runs=${work} ledger=${evidenceDir}`);
   }
 
   process.stdout.write('\n' + '─'.repeat(72) + '\n');
