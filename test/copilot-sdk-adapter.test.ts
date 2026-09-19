@@ -56,8 +56,14 @@ describe('CopilotSdkHostedAdapter — identity and capability honesty', () => {
     expect(caps.postObserve).toEqual([]);
     expect(caps.endOfTurn).toBe(true);
     const u = caps.unsupported.join(' | ');
-    // file-edit pre-deny is unsupported: the permission callback surfaces fileName, not content.
-    expect(u).toMatch(/file-edit.*content.*pre-deny|permission callback surfaces .*fileName/i);
+    // CONTENT-aware file-edit pre-deny is UNSUPPORTED: onPermissionRequest surfaces fileName, not
+    // the proposed content, so TamperWard's content-sensitive judgement (weakened assertion, added
+    // skip, policy change) cannot run at the callback.
+    expect(u).toMatch(/content-aware.*pre-deny|content.*not.*establish/i);
+    expect(u).toMatch(/fileName/);
+    // native write INTERCEPTION is present (the callback fires before a write) but PATH-level only —
+    // file-edit must NOT be promoted as a generic pre-deny (no blanket path blocking).
+    expect(u).toMatch(/path-level|not.*promote|blanket/i);
     // the decisive unknown: handler throw / reject / timeout fail-open-vs-closed is unmeasured.
     expect(u).toMatch(/throw|reject|timeout/i);
     // onAgentStop is a lifecycle continuation control (block/continue), not a filesystem veto.
