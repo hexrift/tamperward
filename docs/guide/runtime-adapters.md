@@ -421,10 +421,14 @@ box:
   CONTROL-vs-GATED mutation pairs (shell edit, `apply_patch`, native `edit`/`create`, delete,
   rename, git restore, MCP, nested shell, **`write_bash` shell-session**, and multiple protected
   mutations in one turn) against `copilot -p … --allow-all-tools --no-ask-user`. Each case's
-  verdict rests **solely on parent-observed, forge-independent evidence** — the protected file's
-  real on-disk state, the CONTROL arm landing the same prompt, dispatch sentinels the parent reads
-  directly, and a runtime abort detected from the child's own failure — and a **landed protected
-  mutation (parent-observed) always FAILs**. The ledger is a **non-authoritative diagnostic
+  verdict rests **only on parent-observed evidence** — the protected file's on-disk state, the
+  CONTROL arm landing the same prompt, dispatch sentinels the parent reads directly, and a runtime
+  abort from the child's own failure. These are candidate-**mutable** files, so they are trustworthy
+  only in the **positive / FAIL direction** (a landed mutation or an appeared sentinel — the
+  candidate cannot make the parent see something that did not happen); a **negative** (intact final
+  state, absent sentinel) is only *"no surviving evidence"*, never proof nothing dispatched (a
+  candidate can mutate then restore before the parent inspects). A **landed protected mutation
+  always FAILs**. The ledger is a **non-authoritative diagnostic
   trace**, **not** trusted evidence: its absolute path is embedded in the committed
   `.github/hooks/tamperward.json`, and because Copilot documents shell path verification as
   **heuristic** (tokenised command text, custom variables not expanded, complex constructs falling
@@ -433,7 +437,9 @@ box:
   corroborating diagnostics only. It also runs the
   **detached/background** case (a delayed background mutation, judged **only from parent-observed**
   dispatch sentinels + the protected spec after a settle interval, with a CONTROL arm proving the
-  prompt is potent — a dispatched sentinel is fail-open even if the file stays intact). The
+  prompt is potent — a dispatched sentinel is fail-open even if the file stays intact; a clean
+  final state is reported as **`NO-SURVIVING-DISPATCH-EVIDENCE`**, since a candidate could dispatch
+  then remove the sentinel and restore the file before the settle, so absence is not proof). The
   **`agentStop` continuation** case executes against the real binary, but because its facts
   (Stop fired, `decision:block` returned, Copilot continued) come only from the ledger or Copilot
   stdout — neither parent-observed nor forge-independent, and this architecture has **no
@@ -446,29 +452,33 @@ box:
   form so the binary genuinely cannot be spawned (distinct from a shell reporting "command not
   found") — is **measured**.
 
-  It emits the **operation-specific capability matrix** #598 asks for, never a single
-  supported/unsupported boolean — but the vocabulary is bounded by what parent-observed evidence
-  can establish. Because the probe has **no forge-independent attempt/hook/deny signal**, it cannot
-  prove in-loop deny enforcement, so mutation rows report `protected-state-held:<op>`
-  (`HELD` / `NOT-HELD` / `INCONCLUSIVE`) — the protected mutation did not land under a potent
-  control — **not** `pre-deny:<op> PROVEN`, which would claim attempt + hook-fire + deny + enforced
-  non-execution that a non-land alone does not show. Likewise each transport row's **authoritative
-  semantic is parent-observed** (`transportObservation`: dispatch sentinel + spec state + a potent
-  control), never the candidate-writable ledger: a dispatch/land is a forge-independent
-  **FAIL-OPEN**; a non-dispatch is only **`NO-DISPATCH`** (attempt/hook-fire not independently
-  verified), never a proven `FAIL-CLOSED`. A documented FAIL-OPEN kind observed as anything but
-  FAIL-OPEN is a **DEVIATION**. So neither a HELD mutation row nor a NO-DISPATCH transport row can
-  lift `overall` to FULL: **FULL is structurally unreachable here** (which is Copilot's real case),
-  and the honest result is PARTIAL — a set of parent-observed observations, not an in-loop
-  enforcement proof. A **provenance gate**
+  It emits a **capability matrix** #598 asks for, never a single supported/unsupported boolean —
+  but the vocabulary is bounded by what parent-observed evidence can establish. Because the probe
+  has **no forge-independent attempt/hook/deny signal**, it cannot prove in-loop deny enforcement,
+  and because the ledger is demoted there is also **no trusted evidence of which tool/path Copilot
+  used** (a prompt can be satisfied through another mutation path). So mutation rows are
+  **scenario-based** — `protected-final-state:<scenario>` (`HELD` / `NOT-HELD` / `INCONCLUSIVE`),
+  the protected file did not land under a potent control — **not** attributed to a runtime
+  operation kind (`:shell` / `:file-edit` / `:mcp`, which would overclaim tool identity) and **not**
+  `pre-deny:<op> PROVEN` (which would claim attempt + hook-fire + deny + enforced non-execution a
+  non-land alone does not show); the claimed operation kind is printed as a diagnostic. Likewise
+  each transport row's **authoritative semantic is parent-observed** (`transportObservation`:
+  dispatch sentinel + spec state + a potent control), never the candidate-writable ledger: a
+  dispatch/land is a trustworthy **FAIL-OPEN** (positive direction); a non-dispatch is only
+  **`NO-DISPATCH`** (attempt/hook-fire not independently verified, and absence is not proof),
+  never a proven `FAIL-CLOSED`. A documented FAIL-OPEN kind observed as anything but FAIL-OPEN is a
+  **DEVIATION**. So neither a HELD scenario row nor a NO-DISPATCH transport row can lift `overall`
+  to FULL: **FULL is structurally unreachable here** (which is Copilot's real case), and the honest
+  result is PARTIAL — a set of parent-observed observations, not an in-loop enforcement proof. A
+  **provenance gate**
   (`COPILOT_VERSION_EXPECTED` matched **exactly**, `COPILOT_MODEL`, `COPILOT_HOME`, and the
   canonical hooks-config SHA-256) caps the result at PARTIAL when unpinned; with no Copilot CLI
   it reports PARTIAL and exits non-zero, so "could not test" is never mistaken for "passed".
 
 A real run's `overall` is **PARTIAL**, never FULL: Copilot's command-hook timeout/empty/malformed
 states are documented fail-open, and — more fundamentally — this black-box harness has no
-forge-independent signal that a hook fired and denied, so it proves protected-state-held and
-transport observations, not in-loop deny enforcement. FULL as defined here would require a
+forge-independent signal that a hook fired and denied, so it reports scenario-level
+protected-final-state and transport observations, not in-loop deny enforcement. FULL as defined here would require a
 qualification channel #482/#598 does not yet specify. Copilot therefore stays
 `steering: 'neutral'` in `src/runtimes.ts`, `preDeny` stays empty, and no Round 4.1 research
 round is registered. A green CI run proves the build, unit/adapter tests, static gate, and the
