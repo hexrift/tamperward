@@ -513,7 +513,12 @@ the shared `parseDiff`, whose hunks are applied to the on-disk `before` to recov
 and runs the same `evaluate` engine, so a weakened assertion / added skip / policy change is denied.
 The reconstructed change is **bound to the request's `fileName`**: the diff's own header paths are
 not trusted, so a diff naming a different or multiple files fails **closed** rather than letting a
-benign-looking header dodge the protected target. This is conditional on what the pinned runtime
+benign-looking header dodge the protected target. The hunks are applied to `before`
+**conservatively** — every context/deletion line must match the disk, counts/ordering are validated,
+and a malformed non-empty diff that parses to zero hunks fails **closed** (never a no-op allow).
+When both `newFileContents` and a `diff` are supplied they must **agree**, or the request is
+ambiguous and fails closed. A diff-only file *create* is not reconstructed this milestone — it is
+`unsupported` (not counted as content-aware proof). This is conditional on what the pinned runtime
 actually provides — a write that surfaces **no usable content** is `unsupported` for that measured
 configuration (allow-through;
 the end-of-turn sweep is the authority), never a **blanket path deny**, which would replace

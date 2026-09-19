@@ -48,20 +48,18 @@ export function sdkFileEditChanges(args: Record<string, unknown>, cwd: string, b
   const before = readDisk(abs);
   const display = relForDisplay(abs, cwd);
 
-  // Exact content wins: the full proposed file content reconstructs the change precisely.
-  if (typeof args.newFileContents === 'string') {
-    return synthFileChange(display, before, args.newFileContents);
-  }
+  const newFileContents = typeof args.newFileContents === 'string' ? args.newFileContents : undefined;
+  const rawDiff = asStr(args.diff);
 
-  // Otherwise a unified diff, parsed by the SHARED producer (`parseDiff`, which requires a
-  // `diff --git` envelope). CRUCIAL (#611 proposal binding): the parsed change is bound to the
-  // permission request's `fileName` target — the diff's own header paths are NOT trusted, because a
-  // payload could name a benign file in the diff while authorizing a write to a protected one. Any
-  // change whose path (or rename oldPath) is not exactly the target, or a multi-file diff, FAILS
-  // CLOSED. `newFileContents` above is the exact path; this is the diff fallback.
-  const diff = asStr(args.diff);
-  if (diff.trim()) {
-    const parsed = parseDiff(toGitDiff(diff, display));
+  // Reconstruct the proposed `after` from the unified `diff`, bound to the permission request's
+  // `fileName`. The diff is parsed by the SHARED producer (`parseDiff`, which needs a `diff --git`
+  // envelope) and CRUCIALLY bound to the target — the diff's own header paths are NOT trusted (a
+  // payload could name a benign file while authorizing a protected write). Returns the reconstructed
+  // `after`, `null` for a shape not reconstructed here (diff-only create → measured-unsupported), or
+  // throws (multi-file / mismatched path / malformed zero-hunk / unverifiable hunk) → fail closed.
+  let afterFromDiff; // string | undefined; undefined = no diff reconstruction available
+  if (rawDiff.trim()) {
+    const parsed = parseDiff(toGitDiff(rawDiff, display));
     if (!parsed.length) throw new Error(`write diff for ${path} could not be reconstructed into a change`);
     if (parsed.length > 1) throw new Error(`write diff spans ${parsed.length} files; a single permission target (${display}) was expected`);
     const c = parsed[0];
@@ -69,12 +67,30 @@ export function sdkFileEditChanges(args: Record<string, unknown>, cwd: string, b
     if (c.path !== display || (c.oldPath != null && c.oldPath !== display)) {
       throw new Error(`write diff path (${c.path}${c.oldPath ? ` from ${c.oldPath}` : ''}) does not match the permission request target (${display}) — refusing to judge a different file`);
     }
-    // parseDiff carries hunks but not before/after content, so apply the hunks to the on-disk
-    // `before` to get the full proposed `after`, then hand the shared `synthFileChange` real
-    // before/after so the content detectors judge it (the same shape the newFileContents path uses).
-    const after = applyUnifiedHunks(before, c.hunks);
-    return synthFileChange(display, before, after);
+    // A diff-only CREATE (`@@ -0,0 +1,N @@`) is a valid shape this milestone does not reconstruct;
+    // classify it UNSUPPORTED (measured-incomplete; the end-of-turn sweep is authority) so it can
+    // never be counted as content-aware proof — unless the full newFileContents is also supplied.
+    const isCreateForm = c.hunks.some((h) => h.oldStart === 0 || h.oldLines === 0);
+    if (isCreateForm && newFileContents === undefined) return null;
+    if (!isCreateForm) {
+      // A non-empty modify diff MUST carry at least one successfully parsed hunk — parseDiff skips a
+      // malformed `@@` header, which would otherwise collapse to a no-op "nothing changed" allow.
+      if (c.hunks.length === 0) throw new Error(`write diff for ${path} carries no valid hunk (malformed) — refusing a no-op reconstruction`);
+      // parseDiff carries hunks but not before/after; apply them (conservatively — see
+      // applyUnifiedHunks) to recover the full proposed `after`.
+      afterFromDiff = applyUnifiedHunks(before, c.hunks);
+    }
   }
+
+  if (newFileContents !== undefined) {
+    // If both representations are supplied they must AGREE — an inconsistent event (e.g. benign full
+    // content beside a weakening diff) is ambiguous and fails closed rather than judging only one.
+    if (afterFromDiff !== undefined && afterFromDiff !== newFileContents) {
+      throw new Error(`write supplies both newFileContents and a diff that DISAGREE for ${path}; ambiguous request — refusing to judge only one representation`);
+    }
+    return synthFileChange(display, before, newFileContents);
+  }
+  if (afterFromDiff !== undefined) return synthFileChange(display, before, afterFromDiff);
 
   return null; // no usable content surfaced → the caller reports unsupported
 }
