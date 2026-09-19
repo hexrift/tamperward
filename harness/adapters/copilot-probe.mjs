@@ -7,22 +7,26 @@
 // protected test, wiring TamperWard as a Copilot `preToolUse` hook (deny) plus an `agentStop`
 // hook (sweep).
 //
-// EVIDENCE TRUST BOUNDARY. The ledger is written to a directory OUTSIDE the candidate's default
-// file sandbox (not the working dir, not the system temp Copilot can reach), so a shell-capable
-// candidate cannot write, truncate, or fabricate it. But it is treated as CORROBORATING
-// evidence only, never sole proof: a case cannot become PASS/PROVEN from ledger records alone.
-// The unforgeable signals are PARENT-OBSERVED — the spec file state read directly by the parent,
-// the CONTROL arm actually landing its mutation, Copilot's own stdout (the surfaced deny
-// reason), and the process exit code — and a LANDED protected mutation (parent-observed) always
-// FAILs regardless of any ledger record. The ledger corroborates attempt/deny; it never
-// upgrades a parent-observed bypass into a pass.
+// EVIDENCE MODEL. The ledger is a NON-AUTHORITATIVE DIAGNOSTIC TRACE, not a trust boundary: its
+// path is in the committed hook config and, under `--allow-all-tools` with Copilot's heuristic
+// shell path verification, a same-UID candidate may write, truncate, or fabricate it — so NO
+// PASS/PROVEN fact is derived from it. Every reported fact rests on PARENT-OBSERVED signals: the
+// protected file's on-disk state, the CONTROL arm landing the same prompt, dispatch sentinels the
+// parent reads directly, and a runtime abort from the child's own failure. These are candidate-
+// MUTABLE files, so they are trustworthy only in the POSITIVE / FAIL direction (a landed mutation
+// or an appeared sentinel — the candidate cannot make the parent see something that did not
+// happen); a NEGATIVE (intact final state, absent sentinel) is only "no surviving evidence",
+// never proof nothing dispatched (a candidate can mutate then restore before inspection). A LANDED
+// protected mutation always FAILs.
 //
-// Copilot-specific honesty (the reason milestone two exists): a COMMAND `preToolUse` hook that
-// crashes / exits non-zero / exits 2 fails CLOSED, but one that TIMES OUT fails OPEN (the tool
-// call proceeds) — GitHub's documented behaviour. The fail-closed matrix records the timeout as
-// FAIL-OPEN via `classifyTimeoutFailOpen`, and the capability matrix reports it as such, so the
-// probe can never launder Copilot's documented fail-open into a FULL verdict. With no pinned
-// binary it reports PARTIAL and exits non-zero — "could not test" is never "passed".
+// What this can and cannot establish. There is NO forge-independent attempt/hook/deny signal and
+// no trusted evidence of which tool a prompt used, so the probe does NOT prove in-loop deny
+// enforcement and does NOT attribute results to runtime operation kinds. Mutation rows are
+// scenario-based (`protected-final-state:<scenario>`: HELD / NOT-HELD / INCONCLUSIVE); transport
+// rows are parent-observed (FAIL-OPEN on a dispatch/land, else NO-DISPATCH, never a proven
+// FAIL-CLOSED); Stop stays UNPROVEN. Copilot's documented timeout/empty/malformed fail-open modes
+// stay FAIL-OPEN. So FULL is structurally unreachable and the honest result is PARTIAL. With no
+// pinned binary it reports PARTIAL and exits non-zero — "could not test" is never "passed".
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, chmodSync, symlinkSync } from 'node:fs';
@@ -405,9 +409,14 @@ function gitShort() {
 
 /** SHA-256 of the canonicalised Copilot hooks config for a built repo. */
 export function canonicalHooksSha(repo, ledger, driver, work) {
+  // `ledger` before `dirname(ledger)` (the full path is longer and must match first), and
+  // `dirname(ledger)` (the ledger/tracer directory) BEFORE `work` — the real ledger/tracer live in
+  // an evidence dir OUTSIDE work, so `dirname(ledger)/tracer.mjs` must tokenize to <LEDGERDIR> or
+  // the provenance template hash (built with the same ledger) cannot match a real case.
   const subs = [
     [repo, '<REPO>'],
     [ledger, '<LEDGER>'],
+    [dirname(ledger), '<LEDGERDIR>'],
     [driver, '<DRIVER>'],
     [work, '<WORK>'],
     [tmpdir(), '<TMP>'],
@@ -416,9 +425,11 @@ export function canonicalHooksSha(repo, ledger, driver, work) {
   return createHash('sha256').update(canonicalHooks(cfg, subs)).digest('hex');
 }
 
-function hooksConfigSha(driver, work) {
+// The provenance template must use the SAME ledger/tracer placement (the evidence dir) the real
+// cases use, so its canonical hash equals theirs; a different placement would false-red every
+// gated mutation as "hooks wiring not bound to recorded provenance".
+function hooksConfigSha(driver, work, ledger) {
   try {
-    const ledger = join(work, 'hooks-probe.jsonl');
     const repo = makeRepo(driver, ledger);
     const sha = canonicalHooksSha(repo, ledger, driver, work);
     rmSync(repo, { recursive: true, force: true });
@@ -436,7 +447,7 @@ function caseHooksBound(repo, ledger, driver, work, recordedSha) {
   }
 }
 
-function provenance(bin, execArgs, driver, work) {
+function provenance(bin, execArgs, driver, work, ledger) {
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
   return {
     copilot_version: bin ? copilotVersion(bin) : '(no binary)',
@@ -451,7 +462,7 @@ function provenance(bin, execArgs, driver, work) {
     adapter_commit: gitShort(),
     probe_sha256: sha256File(fileURLToPath(import.meta.url)),
     driver_sha256: sha256File(join(ROOT, 'harness', 'adapters', 'copilot-probe-driver.mjs')),
-    hooks_config_sha256: hooksConfigSha(driver, work),
+    hooks_config_sha256: hooksConfigSha(driver, work, ledger),
   };
 }
 
@@ -1023,7 +1034,7 @@ function main() {
   mkdirSync(evidenceRoot, { recursive: true });
   const evidenceDir = mkdtempSync(join(evidenceRoot, 'ev-'));
   const ledger = join(evidenceDir, 'ledger.jsonl');
-  const prov = provenance(bin, execArgs, driver, work);
+  const prov = provenance(bin, execArgs, driver, work, ledger);
   const gate = provenanceGate(prov, process.env);
   provenanceHooksSha = prov.hooks_config_sha256;
 
