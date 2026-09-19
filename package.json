@@ -48,7 +48,8 @@
     "test:watch": "vitest",
     "test:perf-smoke": "vitest run --config vitest.perf-smoke.config.ts --no-file-parallelism",
     "check": "node dist/cli/index.js check",
-    "probe:codex-runtime": "node harness/adapters/codex-probe.mjs"
+    "probe:codex-runtime": "node harness/adapters/codex-probe.mjs",
+    "probe:copilot-runtime": "node harness/adapters/copilot-probe.mjs"
   },
   "dependencies": {
     "picomatch": "^4.0.2",
