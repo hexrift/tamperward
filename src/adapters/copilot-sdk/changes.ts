@@ -67,14 +67,19 @@ export function sdkFileEditChanges(args: Record<string, unknown>, cwd: string, b
     if (c.path !== display || (c.oldPath != null && c.oldPath !== display)) {
       throw new Error(`write diff path (${c.path}${c.oldPath ? ` from ${c.oldPath}` : ''}) does not match the permission request target (${display}) — refusing to judge a different file`);
     }
-    // A diff-only CREATE (`@@ -0,0 +1,N @@`) is a valid shape this milestone does not reconstruct;
-    // classify it UNSUPPORTED (measured-incomplete; the end-of-turn sweep is authority) so it can
-    // never be counted as content-aware proof — unless the full newFileContents is also supplied.
-    const isCreateForm = c.hunks.some((h) => h.oldStart === 0 || h.oldLines === 0);
-    if (isCreateForm && newFileContents === undefined) return null;
-    if (!isCreateForm) {
-      // A non-empty modify diff MUST carry at least one successfully parsed hunk — parseDiff skips a
-      // malformed `@@` header, which would otherwise collapse to a no-op "nothing changed" allow.
+    // A true file CREATE is one whose target was ABSENT on disk (`before === null`) — NOT a hunk
+    // whose `oldLines === 0`, which is also the shape of a pure INSERTION into an existing file
+    // (`@@ -1,0 +2,1 @@`). A diff-only create is a valid shape this milestone does not reconstruct,
+    // so it is UNSUPPORTED (measured-incomplete; the end-of-turn sweep is authority) and can never be
+    // counted as content-aware proof — unless the full newFileContents is also supplied. An existing
+    // file (including an insertion into it) is always reconstructed + validated normally below.
+    const isCreate = before === null;
+    if (isCreate) {
+      if (newFileContents === undefined) return null; // diff-only create → unsupported this milestone
+      // create + full content: judge the authoritative newFileContents (no diff cross-check for a create).
+    } else {
+      // A non-empty modify/insert diff MUST carry at least one successfully parsed hunk — parseDiff
+      // skips a malformed `@@` header, which would otherwise collapse to a no-op "nothing changed" allow.
       if (c.hunks.length === 0) throw new Error(`write diff for ${path} carries no valid hunk (malformed) — refusing a no-op reconstruction`);
       // parseDiff carries hunks but not before/after; apply them (conservatively — see
       // applyUnifiedHunks) to recover the full proposed `after`.
