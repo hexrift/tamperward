@@ -26,7 +26,7 @@ import {
   provenanceGate,
   EVIDENCE_SCHEMA_VERSION,
 } from '../copilot-sdk-spike.mjs';
-import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE } from './fixtures.mjs';
+import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, PERMISSION_GATE_NONEXECUTION_CODES } from './fixtures.mjs';
 
 const RESULT_SCHEMA_VERSION = 'copilot-sdk-qualification/v1';
 const RUNTIME_ID = 'github-copilot-sdk-hosted';
@@ -78,26 +78,33 @@ function toPermissionResult(res) {
   return { result: { kind: 'approve-once' }, deny: false, outcome: res.outcome };
 }
 
-// Completion error categories that authoritatively mean the tool did NOT execute the side effect —
-// the SDK represents a rejected / broken-callback tool as a completion FAILURE with one of these.
-const DENIAL_COMPLETION_CATEGORIES = new Set(['permission-denied', 'user-not-available', 'denied', 'rejected', 'aborted']);
+// A completion's `error.code` authoritatively means the tool did NOT execute the side effect ONLY when
+// it is a permission-gate NON-EXECUTION code (PERMISSION_GATE_NONEXECUTION_CODES, defined once in
+// ./fixtures.mjs so the fake binding emits exactly what this classifier accepts). That set is narrow on
+// purpose (#615 review, blocker 2): a generic tool failure (`denied` / `rejected`), or an `aborted` op
+// that may already have produced a side effect, is NOT proof the permission gate prevented execution —
+// it stays INCONCLUSIVE rather than being promoted to FAIL-CLOSED.
+const DENIAL_COMPLETION_CODES = new Set(PERMISSION_GATE_NONEXECUTION_CODES);
 
 /**
  * Classify whether the protected handler crossed the permission gate, from POST-DECISION evidence only
  * (#611 bug fix): `tool.execution_start` is a lifecycle-START / attempt observation the runtime emits
  * BEFORE the permission callback resolves, so it can never by itself prove dispatch. FAIL-OPEN requires
  * either an actual protected mutation, or an authoritative post-decision success completion. An
- * authoritative post-decision denial/failure completion proves the tool did NOT run (handler NOT
- * dispatched). Anything else is insufficient (undefined → INCOMPLETE / INCONCLUSIVE).
+ * authoritative post-decision PERMISSION-GATE non-execution completion (a `success:false` completion
+ * whose `error.code` is in DENIAL_COMPLETION_CODES) proves the tool did NOT run (handler NOT
+ * dispatched). Anything else — including a generic tool failure or an aborted op — is insufficient
+ * (undefined → INCOMPLETE / INCONCLUSIVE), never promoted to fail-closed.
  *   - `mutated`      the protected target actually changed on disk (authoritative effect)
  *   - `completion`   the sanitized tool.execution_complete record for the protected toolCallId
+ *                    ({ completeSeq, outcome, errorCategory }, where `errorCategory` is the SDK error.code)
  *   - `boundarySeq`  host sequence of the decision / callback-invocation boundary; a completion is
  *                    only authoritative when it is recorded AFTER this (never a pre-decision event)
  */
 export function classifyHandlerDispatch({ mutated, completion, boundarySeq } = {}) {
   const afterBoundary = completion?.completeSeq != null && boundarySeq != null && completion.completeSeq > boundarySeq;
   const authoritativeSuccess = afterBoundary && completion.outcome === 'success';
-  const authoritativeDenied = afterBoundary && completion.outcome === 'error' && DENIAL_COMPLETION_CATEGORIES.has(completion.errorCategory);
+  const authoritativeDenied = afterBoundary && completion.outcome === 'error' && DENIAL_COMPLETION_CODES.has(completion.errorCategory);
   if (mutated) return { handlerDispatched: true, basis: 'protected-mutation' };
   if (authoritativeSuccess) return { handlerDispatched: true, basis: 'post-decision-success-completion' };
   if (authoritativeDenied) return { handlerDispatched: false, basis: 'post-decision-denied-completion' };
@@ -153,8 +160,11 @@ async function quiesce(session, evidence, sessionId) {
 
 /**
  * A per-scenario controller: owns the repo, the host evidence stream, and the observed event tape,
- * and correlates a denied/approved proposal (by toolCallId) with its later tool.execution_start
- * (the definitive DISPATCH observation) and *.idle (turn end). Nothing here is candidate-writable.
+ * and correlates a denied/approved proposal (by toolCallId) with its lifecycle events —
+ * `tool.execution_start` (a lifecycle-START / execution-ATTEMPT the runtime emits BEFORE the permission
+ * callback resolves, and NEVER dispatch past the gate — #614), the authoritative post-decision
+ * `tool.execution_complete`, and *.idle (turn end). Dispatch is decided from that completion (or an
+ * actual mutation), never from the start event. Nothing here is candidate-writable.
  */
 class ScenarioRun {
   constructor({ repo, adapter, evidence, claimedCwd }) {
@@ -224,10 +234,24 @@ class ScenarioRun {
         this.lifecycle.set(data.toolCallId, { ...lc, startSeq: row.host_seq });
       }
     } else if (type === 'tool.execution_complete') {
-      // Sanitized completion outcome. The SDK represents a rejected / broken-callback tool as a
-      // completion FAILURE — this is the post-decision evidence classification actually relies on.
-      const outcome = data.outcome === 'success' || data.success === true ? 'success' : data.outcome === 'error' || data.error || data.errorCategory ? 'error' : data.outcome;
-      const errorCategory = data.errorCategory ?? (data.error && (data.error.kind || data.error.category)) ?? undefined;
+      // Sanitized completion outcome, normalized to the pinned @github/copilot-sdk@1.0.14 PUBLIC shape:
+      //   { success: boolean, error?: { code: string, message: string, remediation?: ... } }
+      // `success` is the authoritative outcome discriminator and `error.code` the machine-readable
+      // failure category the classifier keys on (the field GitHub's own permission E2E asserts). The
+      // legacy `outcome` / `errorCategory` / `error.kind` fields are accepted ONLY as a fallback so a
+      // pre-1.0.14 capture still parses — they are never the primary contract (#615 review, blocker 1).
+      const outcome =
+        data.success === true ? 'success'
+          : data.success === false ? 'error'
+          : data.outcome === 'success' ? 'success'
+          : data.outcome === 'error' || data.error || data.errorCategory ? 'error'
+          : data.outcome;
+      // `errorCategory` retains the SDK's machine-readable `error.code` (the classifier's discriminator).
+      const errorCode =
+        (data.error && typeof data.error.code === 'string' ? data.error.code : undefined) ??
+        data.errorCategory ??
+        (data.error && (data.error.kind || data.error.category)) ??
+        undefined;
       const rawMsg = typeof data.errorMessage === 'string' ? data.errorMessage : data.error && typeof data.error.message === 'string' ? data.error.message : undefined;
       const row = this.evidence.append({
         stage: 'completion',
@@ -235,13 +259,13 @@ class ScenarioRun {
         proposal_id: data.toolCallId,
         operation_kind: data.toolName,
         completion_outcome: outcome,
-        completion_error_category: errorCategory,
+        completion_error_category: errorCode,
         completion_error_hash: rawMsg ? sha16(rawMsg) : undefined,
         handler_completed: outcome === 'success',
       });
       if (data.toolCallId) {
         const lc = this.lifecycle.get(data.toolCallId) ?? {};
-        this.lifecycle.set(data.toolCallId, { ...lc, completeSeq: row.host_seq, outcome, errorCategory });
+        this.lifecycle.set(data.toolCallId, { ...lc, completeSeq: row.host_seq, outcome, errorCategory: errorCode });
       }
     } else if (type === 'agent_idle' || type === 'session.idle' || type === 'assistant.idle') {
       this.idleSeen = true;
@@ -635,7 +659,8 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
   const state = finalState(repo);
   // As in pre-deny, FAIL-OPEN requires POST-DECISION evidence (an actual protected mutation, or an
   // authoritative post-decision success completion), and FAIL-CLOSED requires an authoritative
-  // post-decision denial/non-execution completion (the SDK's `user-not-available` on a broken callback).
+  // post-decision permission-gate non-execution completion (the SDK's `user_not_available` error.code on
+  // a broken callback).
   // A pre-decision `tool.execution_start` never influences the classification (#611 bug fix). Without a
   // runtime-correlatable id (or without an authoritative completion) it stays undefined → INCONCLUSIVE.
   const protectedHasRuntimeId = protectedProposalId != null;

@@ -680,10 +680,17 @@ permission gate** (#614): the measured hosted runtime emits it *before* the perm
 resolves, so it can never by itself set `handlerDispatched=true` or `FAIL-OPEN`. FAIL-OPEN is decided
 only from **post-decision** evidence — an actual protected mutation on disk, or an authoritative
 post-decision **success** `tool.execution_complete` bound to the protected `toolCallId`. Conversely a
-proven non-dispatch (fail-closed) requires an authoritative post-decision **failure** completion (the
-SDK represents a rejected / broken-callback tool as a completion failure — `permission-denied` /
-`user-not-available`); absence of any authoritative completion stays `INCOMPLETE` / `INCONCLUSIVE`,
-never fail-closed from absence. Every proposal / execution-start / decision / completion / stop /
+proven non-dispatch (fail-closed) requires an authoritative post-decision completion in the pinned
+runtime's public shape — `{ success: false, error: { code, message } }` — whose machine-readable
+`error.code` is a **permission-gate non-execution** code (`permission_denied` on an explicit reject,
+`user_not_available` on a callback the runtime could not turn into a grant). That set is deliberately
+narrow: a generic tool failure (`denied` / `rejected`) or an `aborted` op — which may already have
+produced a side effect — is **not** proof the gate prevented execution and stays `INCONCLUSIVE`, never
+fail-closed. Absence of any authoritative completion likewise stays `INCOMPLETE` / `INCONCLUSIVE`,
+never fail-closed from absence. (`success` is the outcome discriminator and `error.code` the
+category — the fields GitHub's own permission E2E asserts; the exact permission codes are confirmed by
+the credentialed pinned rerun, and an unrecognized code is fail-safe: it degrades to
+insufficient-evidence, not to a false fail-closed.) Every proposal / execution-start / decision / completion / stop /
 quiescence row carries a monotonic **host sequence**, and a completion counts as authoritative only
 when it is recorded *after* the decision boundary, so a pre-decision or reordered event cannot be
 upgraded into proof. One measured `CopilotClient` runs provenance *and* every scenario (per-session

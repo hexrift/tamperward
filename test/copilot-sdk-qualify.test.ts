@@ -12,7 +12,7 @@ import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
 // @ts-expect-error - the orchestrator is a plain .mjs harness module, no d.ts
 import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
 // @ts-expect-error - the fixtures are a plain .mjs harness module, no d.ts
-import { makeScenarioRepo, cleanupRepo } from '../harness/adapters/copilot-sdk/fixtures.mjs';
+import { makeScenarioRepo, cleanupRepo, sdkCompletionEventData, PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE, PERMISSION_GATE_NONEXECUTION_CODES } from '../harness/adapters/copilot-sdk/fixtures.mjs';
 // @ts-expect-error - the spike is a plain .mjs harness module, no d.ts
 import { provenanceGate, sha16, resolvedPackageIntegrity, packageIntegrityHash, finalizeQualification, renderResult } from '../harness/adapters/copilot-sdk-spike.mjs';
 // @ts-expect-error - the fake binding is a plain .mjs test-support module, no d.ts
@@ -101,7 +101,7 @@ describe('runPreDenyScenario — shell & native-write pre-dispatch deny (real ad
     const r = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG(), mechanism: 'shell' });
     expect(r.semantic).toBe('INCOMPLETE');
     expect(r.evidence.denyReturned).toBe(true);
-    expect(r.evidence.handlerDispatched).toBe(false); // non-dispatch, proven by the post-decision permission-denied completion
+    expect(r.evidence.handlerDispatched).toBe(false); // non-dispatch, proven by the post-decision permission_denied completion
     expect(r.evidence.dispatchBasis).toBe('post-decision-denied-completion');
     expect(r.evidence.finalStateMutated).toBe(false);
     expect(r.evidence.reasonReached).toBeUndefined(); // not independently observable on the current SDK surface
@@ -198,13 +198,13 @@ describe('runBrokenPathScenario — a broken decision path must fail CLOSED', ()
   it('the break is BOUND to the protected proposal — a benign read arriving first does not stand in for it', async () => {
     const r = await runBrokenPathScenario({ binding: createFakeBinding({ benignFirst: true }), adapter, config: CFG(), breakage: 'sync-throw' });
     expect(r.evidence.protectedReached).toBe(true); // the protected op was reached and broken, not the read
-    expect(r.semantic).toBe('FAIL-CLOSED'); // the broken callback's user-not-available completion proves non-dispatch
+    expect(r.semantic).toBe('FAIL-CLOSED'); // the broken callback's user_not_available completion proves non-dispatch
   });
 
   it('the break binds to the MUTATION, not a non-mutating inspection of the same path (cat first)', async () => {
     const r = await runBrokenPathScenario({ binding: createFakeBinding({ inspectFirst: true }), adapter, config: CFG(), breakage: 'sync-throw' });
     // `cat <protected>` is not the protected mutation, so the break does not fire on it; the real
-    // `rm` is still reached and broken, and its user-not-available completion proves non-dispatch.
+    // `rm` is still reached and broken, and its user_not_available completion proves non-dispatch.
     expect(r.evidence.protectedReached).toBe(true);
     expect(r.semantic).toBe('FAIL-CLOSED');
   });
@@ -631,10 +631,66 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     expect(s.basis).toBe('post-decision-success-completion');
   });
 
-  it('classifyHandlerDispatch: non-dispatch only from a post-decision denial completion', () => {
-    const d = classifyHandlerDispatch({ mutated: false, completion: { completeSeq: 6, outcome: 'error', errorCategory: 'user-not-available' }, boundarySeq: 5 });
+  it('classifyHandlerDispatch: non-dispatch only from a post-decision permission-gate completion', () => {
+    const d = classifyHandlerDispatch({ mutated: false, completion: { completeSeq: 6, outcome: 'error', errorCategory: USER_NOT_AVAILABLE_CODE }, boundarySeq: 5 });
     expect(d.handlerDispatched).toBe(false);
     expect(d.basis).toBe('post-decision-denied-completion');
+    // The explicit-reject code is equally authoritative.
+    expect(classifyHandlerDispatch({ mutated: false, completion: { completeSeq: 6, outcome: 'error', errorCategory: PERMISSION_DENIED_CODE }, boundarySeq: 5 }).handlerDispatched).toBe(false);
+  });
+
+  it('classifyHandlerDispatch: generic/ambiguous failure codes never promote to FAIL-CLOSED (#615 blocker 2)', () => {
+    // `aborted` may have already produced a side effect; generic `denied`/`rejected` are tool-result
+    // semantics, not proof the permission GATE prevented execution — all must stay INCONCLUSIVE.
+    for (const code of ['aborted', 'denied', 'rejected', 'tool-error', 'timeout', undefined]) {
+      const r = classifyHandlerDispatch({ mutated: false, completion: { completeSeq: 6, outcome: 'error', errorCategory: code }, boundarySeq: 5 });
+      expect(r.handlerDispatched).toBeUndefined();
+      expect(r.basis).toBe('insufficient-post-decision-evidence');
+    }
+    // The permission-gate set is exactly the two established codes — nothing wider.
+    expect([...PERMISSION_GATE_NONEXECUTION_CODES].sort()).toEqual([PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE].sort());
+  });
+
+  it('the fake emits the pinned SDK completion shape and the orchestrator normalizes error.code (#615 blocker 1)', async () => {
+    // (a) the shared builder is the pinned PUBLIC shape: a boolean `success`, and on failure a
+    //     structured `error` with a machine-readable `code` + human `message` — never the old invented
+    //     `{ outcome, errorCategory }`.
+    const ok = sdkCompletionEventData({ toolCallId: 't1', toolName: 'shell', success: true });
+    expect(ok).toEqual({ toolCallId: 't1', toolName: 'shell', success: true });
+    expect('error' in ok).toBe(false);
+    const bad = sdkCompletionEventData({ toolCallId: 't1', toolName: 'shell', success: false, code: PERMISSION_DENIED_CODE });
+    expect(bad.success).toBe(false);
+    expect(bad.error.code).toBe(PERMISSION_DENIED_CODE);
+    expect(typeof bad.error.message).toBe('string');
+    expect('outcome' in bad || 'errorCategory' in bad).toBe(false);
+
+    // (b) the fake actually EMITS that shape (anti-drift): a rejected permission → success:false with
+    //     the permission-gate error.code, and no legacy fields.
+    const repo = makeScenarioRepo({ prefix: 'tw-sdk-shape-' });
+    try {
+      const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+      const binding = createFakeBinding({});
+      const session = await binding.createSession({
+        workspace: repo.root,
+        onPermissionRequest: async () => ({ kind: 'reject', feedback: 'no' }),
+        onAgentStop: async () => undefined,
+        onEvent: (e: { type: string; data: Record<string, unknown> }) => events.push(e),
+      });
+      await session.sendAndWait('delete the file src/keep.spec.ts using a shell command');
+      const completion = events.find((e) => e.type === 'tool.execution_complete' && e.data.success === false);
+      expect(completion).toBeTruthy();
+      const err = completion!.data.error as { code?: string } | undefined;
+      expect(err?.code).toBe(PERMISSION_DENIED_CODE);
+      expect('outcome' in completion!.data || 'errorCategory' in completion!.data).toBe(false);
+    } finally {
+      cleanupRepo(repo, false);
+    }
+
+    // (c) end-to-end: the orchestrator reads `error.code` off that real shape into the sanitized
+    //     completion evidence category — proving normalization, not just the fake.
+    const r = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG(), mechanism: 'shell' });
+    const compRow = r.evidenceRows.find((e: { stage?: string }) => e.stage === 'completion');
+    expect(compRow?.completion_error_category).toBe(PERMISSION_DENIED_CODE);
   });
 
   it('decisionCategory maps adapter results to sanitized structured categories (never reason text)', () => {

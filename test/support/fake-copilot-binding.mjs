@@ -20,13 +20,18 @@
 //   suppressProtectedCompletion like suppressCompletion but only for the protected op
 //   emitStartAfterDecision      place tool.execution_start AFTER the permission decision (post-decision path)
 // The fake models the REAL lifecycle: tool.execution_start fires BEFORE the permission callback; a
-// completion FAILURE (permission-denied / user-not-available) represents a rejected / broken-callback
-// tool, and a completion SUCCESS represents a tool that actually ran past the gate.
+// completion emits the pinned SDK public shape `{ success, error?: { code, message } }` — a
+// `success:false` completion with a permission-gate `error.code` (`permission_denied` on a reject,
+// `user_not_available` on a broken/timed-out callback) represents a tool the gate withheld, and a
+// `success:true` completion represents a tool that actually ran past the gate. Both the shape and the
+// codes come from ./fixtures.mjs (sdkCompletionEventData / PERMISSION_*_CODE), the single definition the
+// orchestrator normalizes against, so the fake cannot drift from the pinned contract (#615 review).
 
 import { writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { sdkCompletionEventData, PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE } from '../../harness/adapters/copilot-sdk/fixtures.mjs';
 
 const TIMEOUT = Symbol('timeout');
 const WEAKENED = `it('keeps one', () => { expect(1).toBe(1); });\n`;
@@ -102,14 +107,16 @@ function makeFakeSession(cfg, opts) {
     if (!opts.suppressExecEvents && opts.emitStartAfterDecision) emit('tool.execution_start', { toolCallId: execId, toolName: req.toolName, turnId: 't1' });
     if (dispatch) {
       applyEffect(cfg.workspace, req);
-      // Post-decision SUCCESS completion — the authoritative "the tool ran past the gate" signal.
-      if (!opts.suppressExecEvents && !opts.suppressCompletion) emit('tool.execution_complete', { toolCallId: execId, outcome: 'success', toolName: req.toolName });
+      // Post-decision SUCCESS completion (`success:true`) — the authoritative "the tool ran past the
+      // gate" signal.
+      if (!opts.suppressExecEvents && !opts.suppressCompletion) emit('tool.execution_complete', sdkCompletionEventData({ toolCallId: execId, toolName: req.toolName, success: true }));
     } else {
-      // Not executed: the SDK represents a rejected / broken-callback tool as a completion FAILURE — a
-      // rejected permission → permission-denied; a thrown/timed-out callback → user-not-available.
-      const errorCategory = broke ? 'user-not-available' : 'permission-denied';
+      // Not executed: the pinned SDK represents a withheld tool as a `success:false` completion with a
+      // permission-gate `error.code` — a rejected permission → `permission_denied`; a thrown/timed-out
+      // callback the runtime could not turn into a grant → `user_not_available`.
+      const code = broke ? USER_NOT_AVAILABLE_CODE : PERMISSION_DENIED_CODE;
       if (!opts.suppressExecEvents && !opts.suppressCompletion && !(isProtected && opts.suppressProtectedCompletion)) {
-        emit('tool.execution_complete', { toolCallId: execId, outcome: 'error', errorCategory, toolName: req.toolName });
+        emit('tool.execution_complete', sdkCompletionEventData({ toolCallId: execId, toolName: req.toolName, success: false, code }));
       }
     }
     return { dispatched: dispatch, rejected, approved, broke, execId };
@@ -198,7 +205,7 @@ function makeFakeSession(cfg, opts) {
         const execId = protectedReqSnapshot.toolCallId ?? nextTc();
         emit('tool.execution_start', { toolCallId: execId, toolName: protectedReqSnapshot.toolName, turnId: 't1' });
         applyEffect(cfg.workspace, protectedReqSnapshot);
-        emit('tool.execution_complete', { toolCallId: execId, outcome: 'success', toolName: protectedReqSnapshot.toolName });
+        emit('tool.execution_complete', sdkCompletionEventData({ toolCallId: execId, toolName: protectedReqSnapshot.toolName, success: true }));
       }
       if (opts.abortError) return { quiesced: false, error: opts.abortError };
       if (opts.disconnectError) return { quiesced: false, error: opts.disconnectError };

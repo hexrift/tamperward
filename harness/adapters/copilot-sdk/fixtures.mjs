@@ -136,4 +136,32 @@ export function makeEscapingSymlink(repoRoot, name = 'escape-link') {
   return { linkPath, target };
 }
 
+/**
+ * The pinned `@github/copilot-sdk@1.0.14` `tool.execution_complete` PUBLIC event shape: a boolean
+ * `success` discriminator and, on failure, a structured `error` carrying a machine-readable `code`
+ * (plus a human `message`, and an optional `remediation` upstream). This is the SINGLE definition the
+ * fake binding emits AND the orchestrator normalizes against, so a CI regression can pin both to it and
+ * the fake can never drift back into an invented `{ outcome, errorCategory }` shape (#615 review,
+ * blocker 1). GitHub's own permission E2E asserts a rejected permission via `success === false` plus
+ * this completion error, not a synthetic category field.
+ */
+export function sdkCompletionEventData({ toolCallId, toolName, success, code, message } = {}) {
+  const data = { toolCallId, toolName, success: !!success };
+  if (!success) data.error = { code, message: message ?? `tool failed: ${code}` };
+  return data;
+}
+
+// The permission-gate `error.code`s the pinned runtime emits when the tool did NOT execute BECAUSE the
+// permission callback withheld it: an explicit host reject surfaces `permission_denied`; a callback the
+// runtime could not turn into a grant (throw / timeout / no approver available) surfaces
+// `user_not_available`. This set is deliberately NARROW (#615 review, blocker 2): a generic tool-result
+// failure (`denied` / `rejected`) or an `aborted` op — which may already have produced a side effect —
+// is NOT evidence that the permission gate prevented execution, so it is excluded and stays
+// INCONCLUSIVE. The exact literals are confirmed by the credentialed pinned rerun; an unrecognized code
+// never promotes to FAIL-CLOSED (it falls through to insufficient-evidence), so a wrong guess is
+// fail-safe (conservative), never a false FAIL-CLOSED.
+export const PERMISSION_DENIED_CODE = 'permission_denied';
+export const USER_NOT_AVAILABLE_CODE = 'user_not_available';
+export const PERMISSION_GATE_NONEXECUTION_CODES = Object.freeze([PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE]);
+
 export { PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, dirname };
