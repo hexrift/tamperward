@@ -30,8 +30,15 @@
 // never "passed", and no Round 4.1 eligibility is claimed.
 
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 export const EVIDENCE_SCHEMA_VERSION = 'copilot-sdk-spike/v1';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 // ─────────────────────────────────────────────────────────────────────────
 // HOST-OWNED EVIDENCE (append-only, in the host process)
@@ -39,9 +46,10 @@ export const EVIDENCE_SCHEMA_VERSION = 'copilot-sdk-spike/v1';
 
 /** One host-owned evidence record. Every field of the #611 schema is present (undefined until
  *  observed) so a reader can rely on the shape; `schema_version` + `recorded_at` are stamped by
- *  the host, never the candidate. */
+ *  the host, never the candidate. The record is FROZEN — an event is a point-in-time observation
+ *  that must never be rewritten after the fact. */
 export function evidenceEntry(fields = {}) {
-  return {
+  return Object.freeze({
     schema_version: EVIDENCE_SCHEMA_VERSION,
     recorded_at: Date.now(),
     session_id: undefined,
@@ -60,22 +68,29 @@ export function evidenceEntry(fields = {}) {
     continuation_requested: undefined,
     continuation_observed: undefined,
     ...fields,
-  };
+  });
 }
 
-/** The append-only host evidence stream. Lives in host memory; nothing the candidate runs can
- *  reach it. `append` returns the stored record so the caller can enrich it after dispatch. */
+/**
+ * The genuinely APPEND-ONLY host evidence stream. Lives in host memory; nothing the candidate runs
+ * can reach it. Each `append` records a FROZEN, immutable event — the lifecycle stages (proposal,
+ * decision, dispatch, completion) are recorded as SEPARATE events keyed by `proposal_id`, never by
+ * mutating one row after dispatch, so history cannot be retroactively rewritten inside the host.
+ * `append` returns the frozen event (a caller cannot mutate it); `entries` returns the frozen rows.
+ */
 export class HostEvidence {
   constructor() {
     this._entries = [];
   }
+  /** Record one immutable, point-in-time event (e.g. {stage:'proposal',proposal_id,...},
+   *  {stage:'decision',...}, {stage:'dispatch',handler_dispatched:false,...}). */
   append(fields) {
     const e = evidenceEntry(fields);
     this._entries.push(e);
-    return e;
+    return e; // frozen; the caller cannot enrich or rewrite it — record a new event instead
   }
   get entries() {
-    return this._entries.slice();
+    return this._entries.slice(); // the rows themselves are frozen
   }
 }
 
@@ -95,15 +110,19 @@ export function sha16(s) {
  * INCOMPLETE, not a pass and not a fail-open.
  */
 export function classifyPreDispatchDeny(ev) {
-  if (ev.handlerDispatched || ev.finalStateMutated) {
+  if (ev.handlerDispatched === true || ev.finalStateMutated === true) {
     return { pass: false, semantic: 'FAIL-OPEN', reasons: ['the protected handler dispatched / the final state mutated despite a deny (fail open)'] };
   }
   const reasons = [];
-  if (!ev.proposalReceived) reasons.push('the host never received the tool proposal');
-  if (!ev.tamperwardEvaluated) reasons.push('TamperWard did not evaluate this exact proposal');
-  if (!ev.denyReturned) reasons.push('TamperWard did not return a deny');
-  if (!ev.reasonReached) reasons.push('the denial reason did not reach the agent');
-  if (!ev.agentContinued) reasons.push('no post-denial continuation was observed');
+  if (ev.proposalReceived !== true) reasons.push('the host never received the tool proposal');
+  if (ev.tamperwardEvaluated !== true) reasons.push('TamperWard did not evaluate this exact proposal');
+  if (ev.denyReturned !== true) reasons.push('TamperWard did not return a deny');
+  if (ev.reasonReached !== true) reasons.push('the denial reason did not reach the agent');
+  if (ev.agentContinued !== true) reasons.push('no post-denial continuation was observed');
+  // Positive claims require EXPLICIT negative evidence — an omitted (undefined) observation is not
+  // "not dispatched". Missing evidence is INCOMPLETE, never PROVEN.
+  if (ev.handlerDispatched !== false) reasons.push('no explicit "handler not dispatched" observation');
+  if (ev.finalStateMutated !== false) reasons.push('no explicit "final state intact" observation');
   return { pass: reasons.length === 0, semantic: reasons.length === 0 ? 'PROVEN' : 'INCOMPLETE', reasons };
 }
 
@@ -114,11 +133,16 @@ export function classifyPreDispatchDeny(ev) {
  * not actually exercise is INCONCLUSIVE, never a pass.
  */
 export function classifyDecisionPathFailure(ev) {
-  if (ev.handlerDispatched || ev.finalStateMutated) {
+  if (ev.handlerDispatched === true || ev.finalStateMutated === true) {
     return { semantic: 'FAIL-OPEN', eligible: false, reason: 'a broken decision path still dispatched the protected handler (fail open) — ineligible for #482 / Round 4.1' };
   }
-  if (!ev.brokenPathExercised) {
+  if (ev.brokenPathExercised !== true) {
     return { semantic: 'INCONCLUSIVE', eligible: false, reason: 'the broken decision path was not exercised' };
+  }
+  // FAIL-CLOSED requires EXPLICIT non-dispatch + intact final state; an omitted (undefined)
+  // observation is INCONCLUSIVE, never a pass.
+  if (ev.handlerDispatched !== false || ev.finalStateMutated !== false) {
+    return { semantic: 'INCONCLUSIVE', eligible: false, reason: 'no explicit non-dispatch / final-state-intact observation on the broken path' };
   }
   return { semantic: 'FAIL-CLOSED', eligible: true, reason: 'the broken decision path did not dispatch the handler' };
 }
@@ -140,7 +164,8 @@ export function classifyEndOfTurn(ev) {
 /** Repository identity binding — an adversarial claimed cwd (cross-repo / symlink / malformed) must
  *  be denied and must not dispatch. */
 export function classifyIdentityBinding(ev) {
-  const pass = ev.denied === true && ev.handlerDispatched !== true;
+  // Requires EXPLICIT non-dispatch: an omitted (undefined) dispatch observation must not pass.
+  const pass = ev.denied === true && ev.handlerDispatched === false;
   return { pass, reason: pass ? null : `identity claim "${ev.claimKind}" was not failed closed (denied=${ev.denied}, dispatched=${ev.handlerDispatched})` };
 }
 
@@ -176,21 +201,28 @@ export function buildSpikeMatrix({ shell, fileEdit, endOfTurn, decisionPath, pro
 }
 
 /**
- * The provenance / freeze gate. A qualifying run must pin every field #611 lists, and the model
- * must be EXACT — `auto` (or an empty/missing model) can never qualify. Any missing pin caps below
- * FULL (and, combined with buildSpikeMatrix, the hosted route can only ever be PARTIAL here anyway).
+ * The provenance / freeze gate. A qualifying run must BIND what actually ran to the expected pins:
+ * it takes `{ expected, measured }` and is `full` only when every pinned field is present in BOTH
+ * and MEASURED === EXPECTED, the model is EXACT (never `auto`/empty) and matches, and the evidence
+ * schema is current. Self-declared env labels are not enough — a run must not be able to report a
+ * different runtime than the one that executed. (Combined with buildSpikeMatrix, the hosted route
+ * can only ever be PARTIAL here anyway, because content pre-deny is unsupported.)
  */
-export function provenanceGate(prov = {}) {
+export function provenanceGate({ expected = {}, measured = {} } = {}) {
   const reasons = [];
-  const required = ['sdk_version', 'tamperward_version', 'host_config_sha256', 'network_mode', 'approval_mode', 'evidence_schema_version'];
-  for (const k of required) {
-    if (!prov[k]) reasons.push(`missing ${k}`);
+  const pins = ['sdk_version', 'tamperward_version', 'host_config_sha256', 'network_mode', 'approval_mode', 'evidence_schema_version'];
+  for (const k of pins) {
+    if (!expected[k]) reasons.push(`missing expected ${k}`);
+    else if (!measured[k]) reasons.push(`unmeasured ${k} (not derived from what ran)`);
+    else if (measured[k] !== expected[k]) reasons.push(`${k}: measured (${measured[k]}) != expected pin (${expected[k]})`);
   }
-  const model = String(prov.model ?? '').trim();
-  if (!model) reasons.push('missing model pin');
-  else if (model.toLowerCase() === 'auto') reasons.push('model is "auto" — an exact model pin is required for qualification');
-  if (prov.evidence_schema_version && prov.evidence_schema_version !== EVIDENCE_SCHEMA_VERSION) {
-    reasons.push(`evidence_schema_version ${prov.evidence_schema_version} != ${EVIDENCE_SCHEMA_VERSION}`);
+  const em = String(expected.model ?? '').trim();
+  const mm = String(measured.model ?? '').trim();
+  if (!em || !mm) reasons.push('missing model pin (expected and the exact model passed to the session are both required)');
+  else if (em.toLowerCase() === 'auto' || mm.toLowerCase() === 'auto') reasons.push('model is "auto" — an exact model pin is required for qualification');
+  else if (em !== mm) reasons.push(`model: session model (${mm}) != expected pin (${em})`);
+  if (measured.evidence_schema_version && measured.evidence_schema_version !== EVIDENCE_SCHEMA_VERSION) {
+    reasons.push(`evidence_schema_version ${measured.evidence_schema_version} != ${EVIDENCE_SCHEMA_VERSION}`);
   }
   return { full: reasons.length === 0, reasons };
 }
@@ -217,6 +249,47 @@ async function resolveSdk() {
   }
 }
 
+/**
+ * MEASURED provenance — derived from what actually loaded/ran, never echoed from an env label:
+ *  - sdk_version: the real version in the resolved @github/copilot-sdk package.json;
+ *  - tamperward_version: this build's package.json version + git commit;
+ *  - host_config_sha256: a hash of the exact session options the host will pass (incl. the model);
+ *  - model: the EXACT model the host passes to createSession (`sessionModel`), not an env label.
+ * A value that cannot be measured is left undefined so `provenanceGate` refuses `full`.
+ */
+export function measuredProvenance(sessionModel, hostConfig = {}) {
+  const spec = process.env.COPILOT_SDK_SPEC || '@github/copilot-sdk';
+  const require = createRequire(import.meta.url);
+  let sdkVersion;
+  try {
+    sdkVersion = require(`${spec}/package.json`).version;
+  } catch {
+    sdkVersion = undefined; // cannot measure → cannot qualify
+  }
+  let twVersion;
+  try {
+    const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+    let sha = '';
+    try {
+      sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT }).toString().trim();
+    } catch {
+      /* commit best-effort */
+    }
+    twVersion = `tamperward@${pkg.version}${sha ? `+${sha}` : ''}`;
+  } catch {
+    twVersion = undefined;
+  }
+  return {
+    sdk_version: sdkVersion ? `${spec}@${sdkVersion}` : undefined,
+    tamperward_version: twVersion,
+    host_config_sha256: sha16(JSON.stringify({ model: sessionModel, ...hostConfig })),
+    network_mode: process.env.COPILOT_SDK_NETWORK_MODE,
+    approval_mode: 'onPermissionRequest',
+    evidence_schema_version: EVIDENCE_SCHEMA_VERSION,
+    model: sessionModel,
+  };
+}
+
 async function main() {
   const lines = [
     'Layer (a) adapter conformance and layer (b) this spike self-test run in CI;',
@@ -233,21 +306,27 @@ async function main() {
     return;
   }
 
-  const prov = {
-    sdk_version: process.env.COPILOT_SDK_VERSION,
-    model: process.env.COPILOT_SDK_MODEL,
-    tamperward_version: process.env.TAMPERWARD_VERSION,
-    host_config_sha256: process.env.COPILOT_SDK_HOST_CONFIG_SHA256,
+  // The EXACT model the host will pass into createSession — this is what gets bound, not an env label.
+  const sessionModel = process.env.COPILOT_SDK_MODEL;
+  // EXPECTED pins the operator froze; MEASURED is derived from what actually loaded/ran.
+  const expected = {
+    sdk_version: process.env.COPILOT_SDK_VERSION_EXPECTED,
+    tamperward_version: process.env.TAMPERWARD_VERSION_EXPECTED,
+    host_config_sha256: process.env.COPILOT_SDK_HOST_CONFIG_SHA256_EXPECTED,
     network_mode: process.env.COPILOT_SDK_NETWORK_MODE,
     approval_mode: 'onPermissionRequest',
     evidence_schema_version: EVIDENCE_SCHEMA_VERSION,
+    model: sessionModel,
   };
-  const gate = provenanceGate(prov);
-  lines.push('', 'Provenance (pinned):');
-  for (const [k, v] of Object.entries(prov)) lines.push(`  ${String(k).padEnd(24)} ${v ?? '(unset)'}`);
+  const measured = measuredProvenance(sessionModel);
+  const gate = provenanceGate({ expected, measured });
+  lines.push('', 'Provenance (measured vs expected pin):');
+  for (const k of Object.keys(expected)) {
+    lines.push(`  ${String(k).padEnd(24)} measured=${measured[k] ?? '(unmeasured)'}  expected=${expected[k] ?? '(unpinned)'}`);
+  }
   if (!gate.full) {
     lines.push(`  provenance gate: INCOMPLETE — ${gate.reasons.join('; ')}`);
-    insufficient(lines, 'provenance/model pin incomplete; a qualifying run must pin an exact model and all freeze fields');
+    insufficient(lines, 'provenance incomplete; a qualifying run must bind the measured SDK/build/config to expected pins and pass an exact model');
     return;
   }
 

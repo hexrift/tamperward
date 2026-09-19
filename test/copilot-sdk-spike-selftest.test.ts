@@ -46,11 +46,11 @@ describe('classifyPreDispatchDeny — the 7-point Phase-0 #1/#2 proof (host-obse
 
   it('OMITTED negative evidence is INCOMPLETE, never PROVEN — undefined must not read as "not dispatched"', () => {
     // The decisive review point: undefined dispatch/mutation must not false-green PROVEN.
-    const noDispatch = { ...full };
+    const noDispatch: Record<string, unknown> = { ...full };
     delete noDispatch.handlerDispatched;
     expect(classifyPreDispatchDeny(noDispatch).semantic).toBe('INCOMPLETE');
     expect(classifyPreDispatchDeny(noDispatch).pass).toBe(false);
-    const noFinal = { ...full };
+    const noFinal: Record<string, unknown> = { ...full };
     delete noFinal.finalStateMutated;
     expect(classifyPreDispatchDeny(noFinal).semantic).toBe('INCOMPLETE');
   });
@@ -177,7 +177,7 @@ describe('provenanceGate — MEASURED provenance must MATCH the expected pins (n
 
   it('a missing measured pin (unmeasured) caps below full', () => {
     for (const k of ['sdk_version', 'tamperward_version', 'host_config_sha256', 'model']) {
-      const m = { ...measured };
+      const m: Record<string, unknown> = { ...measured };
       delete m[k];
       expect(provenanceGate({ expected, measured: m }).full).toBe(false);
     }
