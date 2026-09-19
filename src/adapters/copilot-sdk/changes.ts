@@ -34,7 +34,7 @@
 // read (directory, symlink-to-nonfile, oversize, irregular, read error) fails closed.
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, relative, resolve, join } from 'node:path';
 import { Change } from '../../types';
@@ -162,8 +162,9 @@ function reconstructAfterViaGit(rawDiff: string, display: string, before: string
     git(['--check']);
     git([]);
     // A delete removes the file → `after` is null (a real deletion the engine judges), never an
-    // empty-file modify. A create/modify reads back the reconstructed bytes.
-    return op === 'delete' || !existsSync(targetPath) ? null : readFileSync(targetPath, 'utf8');
+    // empty-file modify. A create/modify reads back the reconstructed bytes (a missing file here
+    // would be an anomaly → readFileSync throws → the caller fails closed).
+    return op === 'delete' ? null : readFileSync(targetPath, 'utf8');
   } catch (e) {
     throw new Error(`could not reconstruct the write to ${display} from its diff via git apply: ${e instanceof Error ? e.message : String(e)}`);
   } finally {
