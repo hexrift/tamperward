@@ -91,8 +91,10 @@ function makeFakeSession(cfg, opts) {
     async sendAndWait(prompt) {
       const spec = parsePrompt(prompt);
       emit('assistant.turn_start', { turnId: 't1' });
-      // The protected proposal the prompt asks for.
-      const protectedReq = spec.isShell
+      // The protected proposal the prompt asks for. `mechanismOverride` lets a test simulate a model
+      // that satisfies a "write" prompt with shell (or vice-versa), to exercise mechanism binding.
+      const useShell = opts.mechanismOverride === 'shell' ? true : opts.mechanismOverride === 'write' ? false : spec.isShell;
+      const protectedReq = useShell
         ? { kind: 'shell', toolName: 'shell', toolCallId: nextTc(), fullCommandText: `rm ${spec.protectedRel}` }
         : {
             kind: 'write',

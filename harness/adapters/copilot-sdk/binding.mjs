@@ -33,7 +33,7 @@ export function createRealBinding({ CopilotClient, makeClientOptions } = {}) {
   if (typeof CopilotClient !== 'function') {
     throw new Error('createRealBinding requires the SDK CopilotClient class');
   }
-  const optionsFor = typeof makeClientOptions === 'function' ? makeClientOptions : () => ({});
+  const optionsFor = typeof makeClientOptions === 'function' ? makeClientOptions : (ws) => (ws ? { workingDirectory: ws } : {});
   let statusClient;
   const ensureStatusClient = async () => {
     if (!statusClient) {
@@ -57,33 +57,15 @@ export function createRealBinding({ CopilotClient, makeClientOptions } = {}) {
       return typeof c.listModels === 'function' ? c.listModels() : [];
     },
     async createSession({ workspace, model, onPermissionRequest, onAgentStop, onEvent } = {}) {
-      // Root this scenario's runtime in its disposable repo. Absent a confirmed per-session workspace
-      // option on the SDK, the spawned runtime inherits the process cwd, so we chdir for the spawn and
-      // restore immediately (scenarios run sequentially). This is the one live-only integration point
-      // to confirm against a pinned runtime — a real defect here would surface as tools executing
-      // outside the scenario repo, which the fixtures' before/after would catch.
-      const priorCwd = workspace ? process.cwd() : undefined;
-      if (workspace) {
-        try {
-          process.chdir(workspace);
-        } catch {
-          /* fall back to the current cwd */
-        }
-      }
-      let client;
-      try {
-        client = new CopilotClient(optionsFor(workspace));
-        await client.start();
-      } finally {
-        if (priorCwd) {
-          try {
-            process.chdir(priorCwd);
-          } catch {
-            /* best-effort */
-          }
-        }
-      }
+      // Root this scenario's runtime in its disposable repo via the SDK's `workingDirectory` option
+      // (supported on both client options and session config), so each scenario's tools operate only
+      // inside its own repo — no process-global chdir. This is the one live-only integration point to
+      // confirm against a pinned runtime; a defect here would surface as tools executing outside the
+      // scenario repo, which the fixtures' before/after would catch.
+      const client = new CopilotClient(optionsFor(workspace));
+      await client.start();
       const session = await client.createSession({
+        ...(workspace ? { workingDirectory: workspace } : {}),
         model,
         onPermissionRequest,
         hooks: onAgentStop ? { onAgentStop } : undefined,

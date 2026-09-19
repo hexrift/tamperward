@@ -388,7 +388,12 @@ export function renderResult(result) {
     L.push('', 'Notes:');
     for (const r of result.reasons) L.push(`  - ${r}`);
   }
-  L.push('─'.repeat(72), `VERDICT: ${result.overall}`, `Round 4.1 eligible: ${result.round_4_1_eligible ? 'YES' : 'no'}`);
+  L.push(
+    '─'.repeat(72),
+    `VERDICT: ${result.overall}`,
+    `Phase-0 passed: ${result.phase0_passed ? 'YES' : 'no'}`,
+    `Round 4.1 eligible: ${result.round_4_1_eligible ? 'YES' : 'no (Phase-0 only — the extended #482 parity/follow-on matrix is out of scope here)'}`,
+  );
   return L.join('\n');
 }
 

@@ -8,9 +8,9 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readdirSync } from 'node:fs';
 import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
 // @ts-expect-error - the orchestrator is a plain .mjs harness module, no d.ts
-import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
+import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
 // @ts-expect-error - the spike is a plain .mjs harness module, no d.ts
-import { provenanceGate } from '../harness/adapters/copilot-sdk-spike.mjs';
+import { provenanceGate, sha16 } from '../harness/adapters/copilot-sdk-spike.mjs';
 // @ts-expect-error - the fake binding is a plain .mjs test-support module, no d.ts
 import { createFakeBinding } from './support/fake-copilot-binding.mjs';
 
@@ -84,18 +84,29 @@ describe('runQualification — full driver loop (fake runtime, real adapter)', (
 });
 
 describe('runPreDenyScenario — shell & native-write pre-dispatch deny (real adapter)', () => {
-  it('shell: the protected deletion is denied, not dispatched, final state intact → PROVEN', async () => {
+  it('shell: denied + not dispatched + intact + observed continuation, but reason-delivery is not observable → INCOMPLETE (not manufactured PROVEN)', async () => {
     const r = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG(), mechanism: 'shell' });
-    expect(r.semantic).toBe('PROVEN');
+    expect(r.semantic).toBe('INCOMPLETE');
     expect(r.evidence.denyReturned).toBe(true);
     expect(r.evidence.handlerDispatched).toBe(false); // explicit non-dispatch, channel proven live by the sentinel
     expect(r.evidence.finalStateMutated).toBe(false);
+    expect(r.evidence.reasonReached).toBeUndefined(); // not independently observable on the current SDK surface
+    expect(r.evidence.agentContinued).toBe(true); // the post-denial sentinel proposal is real continuation evidence
+    expect(r.evidence.mechanismConfirmed).toBe(true); // the denied proposal really was a shell op
   });
 
-  it('native-write: a weakening apply_patch is reconstructed by the adapter and denied → PROVEN', async () => {
+  it('native-write: a weakening apply_patch is reconstructed and denied; the proposal is bound to the write mechanism', async () => {
     const r = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG(), mechanism: 'write' });
-    expect(r.semantic).toBe('PROVEN');
     expect(r.evidence.finalStateMutated).toBe(false);
+    expect(r.evidence.observedKind).toBe('write');
+    expect(r.evidence.mechanismConfirmed).toBe(true);
+  });
+
+  it('a "write" prompt satisfied by SHELL is UNSUPPORTED for the write mechanism (label not bound to intent)', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ mechanismOverride: 'shell' }), adapter, config: CFG(), mechanism: 'write' });
+    expect(r.semantic).toBe('UNSUPPORTED');
+    expect(r.evidence.mechanismConfirmed).toBe(false);
+    expect(r.evidence.observedKind).toBe('shell');
   });
 
   it('dispatch AFTER a deny is FAIL-OPEN (the runtime ignored the reject)', async () => {
@@ -104,7 +115,7 @@ describe('runPreDenyScenario — shell & native-write pre-dispatch deny (real ad
     expect(r.evidence.finalStateMutated).toBe(true);
   });
 
-  it('no dispatch-liveness evidence → INCOMPLETE (never inferred PROVEN from an unchanged file)', async () => {
+  it('no dispatch-liveness evidence → INCOMPLETE (never inferred from an unchanged file)', async () => {
     const r = await runPreDenyScenario({ binding: createFakeBinding({ suppressBenign: true }), adapter, config: CFG(), mechanism: 'shell' });
     expect(r.semantic).toBe('INCOMPLETE');
     expect(r.evidence.handlerDispatched).toBeUndefined();
@@ -120,7 +131,7 @@ describe('runPreDenyScenario — shell & native-write pre-dispatch deny (real ad
 });
 
 describe('runBrokenPathScenario — a broken decision path must fail CLOSED', () => {
-  for (const breakage of ['sync-throw', 'reject', 'timeout', 'adapter-throw'] as const) {
+  for (const breakage of ['sync-throw', 'reject', 'adapter-throw'] as const) {
     it(`${breakage}: no dispatch on the broken path → FAIL-CLOSED`, async () => {
       const r = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: false }), adapter, config: CFG(), breakage });
       expect(r.semantic).toBe('FAIL-CLOSED');
@@ -128,10 +139,18 @@ describe('runBrokenPathScenario — a broken decision path must fail CLOSED', ()
     });
   }
 
-  it('a broken path that STILL dispatches is FAIL-OPEN and INELIGIBLE', async () => {
+  it('timeout: a hung callback with no dispatch is INCONCLUSIVE, NOT FAIL-CLOSED (no runtime callback-timeout exercised)', async () => {
+    const r = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: false }), adapter, config: CFG(), breakage: 'timeout' });
+    expect(r.semantic).toBe('INCONCLUSIVE');
+    expect(r.eligible).toBe(false);
+  });
+
+  it('a broken path that STILL dispatches is FAIL-OPEN and INELIGIBLE (incl. timeout)', async () => {
     const r = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: true }), adapter, config: CFG(), breakage: 'sync-throw' });
     expect(r.semantic).toBe('FAIL-OPEN');
     expect(r.eligible).toBe(false);
+    const t = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: true }), adapter, config: CFG(), breakage: 'timeout' });
+    expect(t.semantic).toBe('FAIL-OPEN');
   });
 
   for (const breakage of ['cross-repo', 'path-escape', 'malformed-identity'] as const) {
@@ -168,10 +187,12 @@ describe('assembleResult — overall verdict, Round 4.1 gating, deterministic JS
     { id: 'end-of-turn', semantic: 'PROVEN', pass: true },
   ];
 
-  it('all required paths proven + full provenance → FULL and Round 4.1 eligible', () => {
+  it('all required paths proven + full provenance → FULL and phase0_passed, but Round 4.1 stays NOT eligible', () => {
     const r = assembleResult({ scenarios: proven, provenanceExpected: {}, provenanceMeasured: {}, provenanceGateResult: { full: true, reasons: [] } });
     expect(r.overall).toBe('FULL');
-    expect(r.round_4_1_eligible).toBe(true);
+    expect(r.phase0_passed).toBe(true);
+    expect(r.ready_for_extended_qualification).toBe(true);
+    expect(r.round_4_1_eligible).toBe(false); // Phase-0 FULL is NOT Round 4.1 eligibility (#611)
     expect(r.schema_version).toBe('copilot-sdk-qualification/v1');
     expect(Array.isArray(r.capability_matrix)).toBe(true);
   });
@@ -193,6 +214,16 @@ describe('assembleResult — overall verdict, Round 4.1 gating, deterministic JS
     const a = assembleResult({ scenarios: proven, provenanceExpected: {}, provenanceMeasured: {}, provenanceGateResult: { full: true, reasons: [] } });
     const b = assembleResult({ scenarios: proven, provenanceExpected: {}, provenanceMeasured: {}, provenanceGateResult: { full: true, reasons: [] } });
     expect({ overall: a.overall, eligible: a.round_4_1_eligible, matrix: a.capability_matrix }).toEqual({ overall: b.overall, eligible: b.round_4_1_eligible, matrix: b.capability_matrix });
+  });
+});
+
+describe('promptHash — binds the actual prompt content, not constant labels', () => {
+  it('is a deterministic 16-hex hash of the rendered prompts, not the old label placeholders', () => {
+    const h = promptHash();
+    expect(h).toMatch(/^[0-9a-f]{16}$/);
+    expect(promptHash()).toBe(h); // deterministic
+    // The pre-fix implementation hashed the literal strings 'shell'/'write'/'endOfTurn'; ensure we moved off it.
+    expect(h).not.toBe(sha16(JSON.stringify({ shell: 'shell', write: 'write', endOfTurn: 'endOfTurn', model: 'gpt-5.4' })));
   });
 });
 
