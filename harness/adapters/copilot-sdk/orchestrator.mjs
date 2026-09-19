@@ -739,7 +739,11 @@ export function assembleResult({ scenarios, provenanceExpected, provenanceMeasur
     runtime_id: RUNTIME_ID,
     evidence_schema_version: EVIDENCE_SCHEMA_VERSION,
     provenance: { expected: provenanceExpected, measured: provenanceMeasured, gate: provenanceGateResult },
-    scenarios: scenarios.map((s) => ({ id: s.id, semantic: s.semantic, pass: s.pass, eligible: s.eligible, reasons: s.reasons, identity: s.identity, error: s.error, evidence: s.evidence })),
+    // Persist the IMMUTABLE host-owned evidence stream, not just the derived summary: #611 requires
+    // capability claims be backed by RETAINED evidence, so the `attempted → callback received → deny →
+    // dispatch/no-dispatch → stop/continuation → quiescence` chain (with proposal ids/hashes and
+    // decision timings) must survive into the artifact for independent audit / classifier recomputation.
+    scenarios: scenarios.map((s) => ({ id: s.id, semantic: s.semantic, pass: s.pass, eligible: s.eligible, reasons: s.reasons, identity: s.identity, error: s.error, evidence: s.evidence, evidenceRows: s.evidenceRows })),
     capability_matrix: matrix.rows,
     overall,
     phase0_passed: phase0Passed,

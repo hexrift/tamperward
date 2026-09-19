@@ -381,7 +381,7 @@ describe('observation boundary — shutdown-window dispatch, runtime-correlatabl
       writeFileSync(join(root, 'dist', 'cjs', 'index.js'), 'module.exports = require("../client.js");'); // CJS entry
       writeFileSync(join(root, 'dist', 'client.js'), 'export const a = 1;'); // transitive implementation
       const h1 = packageIntegrityHash(root);
-      expect(h1).toMatch(/^[0-9a-f]{16}$/);
+      expect(h1).toMatch(/^[0-9a-f]{64}$/); // full SHA-256, not the 16-hex short form
       // A transitive file change (entry + package.json unchanged) MUST change the hash.
       writeFileSync(join(root, 'dist', 'client.js'), 'export const a = 2;');
       const h2 = packageIntegrityHash(root);
@@ -448,6 +448,26 @@ describe('quiescence is part of the observation boundary — a runtime that did 
     const r = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: true, abortError: 'abort hung' }), adapter, config: CFG(), breakage: 'sync-throw' });
     expect(r.quiescence.quiesced).toBe(false);
     expect(r.semantic).toBe('FAIL-OPEN'); // not downgraded — a dispatch is authoritative regardless
+  });
+});
+
+describe('retained host-owned evidence — the persisted result carries the immutable event chain', () => {
+  it('a serialized qualification result still contains the proposal→decision→dispatch→quiescence rows (auditable, not just summary)', async () => {
+    const s = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG(), mechanism: 'shell' });
+    const result = assembleResult({ scenarios: [s], provenanceExpected: {}, provenanceMeasured: {}, provenanceGateResult: { full: false, reasons: [] } });
+    // Round-trip through JSON exactly as `--json` / the mandatory artifact would persist it.
+    const persisted = JSON.parse(JSON.stringify(result));
+    const rows = persisted.scenarios[0].evidenceRows;
+    expect(Array.isArray(rows)).toBe(true);
+    const stages = rows.map((r: { stage?: string }) => r.stage);
+    // The chain #611 requires to reconstruct/audit the classification must survive serialization.
+    expect(stages).toContain('proposal');
+    expect(stages).toContain('decision');
+    expect(stages).toContain('dispatch');
+    expect(stages).toContain('quiescence');
+    // A proposal row carries a correlatable id + input hash, not just a boolean.
+    const proposal = rows.find((r: { stage?: string }) => r.stage === 'proposal');
+    expect(proposal.proposal_input_hash).toBeTruthy();
   });
 });
 

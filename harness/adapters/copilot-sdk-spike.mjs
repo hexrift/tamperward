@@ -367,7 +367,9 @@ export function packageIntegrityHash(root) {
     h.update(readFileSync(abs));
     h.update('\0');
   }
-  return h.digest('hex').slice(0, 16);
+  // Retain the FULL SHA-256 for the integrity identifier (not the 16-hex short form used elsewhere) —
+  // a provenance/integrity pin should carry the full digest.
+  return h.digest('hex');
 }
 
 /**
@@ -571,7 +573,20 @@ async function main() {
   const binding = createRealBinding({ CopilotClient: sdk.CopilotClient });
   const result = await runQualification({ binding, adapter, config });
   process.stdout.write(renderResult(result) + '\n');
-  if (config.jsonPath) {
+  // Evidence persistence is MANDATORY for a qualifying (non-preflight) run: a qualification claim must
+  // leave a retained, host-owned artifact containing the immutable evidence rows (#611), not just
+  // stdout. The host writes it AFTER the run (all sessions already quiesced) to a path OUTSIDE the
+  // candidate scenario repos — the operator-chosen --json path, or an auto-named file in cwd.
+  if (result.mode !== 'preflight') {
+    const artifactPath = config.jsonPath || join(process.cwd(), `tamperward-${result.runtime_id}-qualification-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+    try {
+      writeFileSync(artifactPath, JSON.stringify(result, null, 2));
+      process.stdout.write(`\nQualification evidence artifact written to ${artifactPath}\n`);
+    } catch (e) {
+      insufficient([`could not persist the qualification evidence artifact to ${artifactPath}: ${e && e.message ? e.message : String(e)}`], 'evidence could not be retained; a qualification claim requires a persisted host-owned artifact');
+      return;
+    }
+  } else if (config.jsonPath) {
     writeFileSync(config.jsonPath, JSON.stringify(result, null, 2));
     process.stdout.write(`\nJSON result written to ${config.jsonPath}\n`);
   }
