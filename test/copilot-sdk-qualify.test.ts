@@ -267,6 +267,17 @@ describe('runEndOfTurnScenario — block + observed continuation', () => {
     expect(r.evidence.landedWeakeningAtStop).toBe(false);
     expect(r.semantic).not.toBe('PROVEN');
   });
+
+  it('detects a weakening the agent COMMITTED mid-turn — the baseline is pinned at the routed pre-action call, not first at Stop', async () => {
+    // The fake commits the weakening during the turn (HEAD moves). Because the end-of-turn scenario
+    // now routes the proposal through the adapter (pinning turnBaseline at turn start) before approving
+    // it, the Stop sweep compares against the turn-start commit and still detects the committed tamper.
+    const r = await runEndOfTurnScenario({ binding: createFakeBinding({ commitProtectedEdit: true, continueOnBlock: true }), adapter, config: CFG() });
+    expect(r.evidence.sweepDetected).toBe(true);
+    expect(r.evidence.landedWeakeningAtStop).toBe(true);
+    expect(r.evidence.findingBindsTarget).toBe(true);
+    expect(r.semantic).toBe('PROVEN');
+  });
 });
 
 describe('observation boundary — shutdown-window dispatch, runtime-correlatable identity, source provenance', () => {
@@ -313,6 +324,26 @@ describe('observation boundary — shutdown-window dispatch, runtime-correlatabl
     expect(r.overall).not.toBe('FULL');
     expect(r.reasons.some((x: string) => /uncommitted change/.test(x))).toBe(true);
     expect(r.provenance.measured.adapter_bundle_sha256).toBe('deadbeefdeadbeef');
+  });
+
+  it('UNKNOWN source-tree cleanliness (git failed / non-git tree) caps below FULL — unknown != clean', async () => {
+    const cfg = { ...buildConfig({ model: 'gpt-5.4' }, {}), sourceTreeDirty: null, adapterBundleSha: 'abc123' };
+    const r = await runQualification({ binding: createFakeBinding({}), adapter, config: cfg });
+    expect(r.overall).not.toBe('FULL');
+    expect(r.reasons.some((x: string) => /could not be determined|source provenance is unknown/.test(x))).toBe(true);
+  });
+
+  it('an operator-declared, UNVERIFIED network mode caps provenance below FULL (not a self-agreeing label)', () => {
+    const base = {
+      sdk_version: '@github/copilot-sdk@1.2.3', runtime_version: 'copilot-runtime@0.9.0', model: 'gpt-5',
+      tamperward_version: 'tamperward@2.31.0', host_config_sha256: 'abc', approval_mode: 'onPermissionRequest',
+      evidence_schema_version: 'copilot-sdk-spike/v1', network_mode: 'isolated',
+    };
+    // The measured side carries the honest "unverified" marker (as measuredProvenance now emits) →
+    // capped, even though the operator's expected label is present.
+    expect(provenanceGate({ expected: base, measured: { ...base, network_mode: 'isolated (operator-declared, unverified)' } }).full).toBe(false);
+    // A genuinely verified value equal to the pin still passes.
+    expect(provenanceGate({ expected: base, measured: { ...base } }).full).toBe(true);
   });
 });
 

@@ -227,12 +227,20 @@ export function provenanceGate({ expected = {}, measured = {} } = {}) {
   const reasons = [];
   // #611 freeze: pin the actual SDK package AND the hosted runtime the SDK delegates to (getStatus),
   // plus TamperWard build, host config, network/approval mode, and the evidence schema.
-  const pins = ['sdk_version', 'runtime_version', 'tamperward_version', 'host_config_sha256', 'network_mode', 'approval_mode', 'evidence_schema_version'];
+  const pins = ['sdk_version', 'runtime_version', 'tamperward_version', 'host_config_sha256', 'approval_mode', 'evidence_schema_version'];
   for (const k of pins) {
     if (!expected[k]) reasons.push(`missing expected ${k}`);
     else if (!measured[k]) reasons.push(`unmeasured ${k} (not derived from what ran)`);
     else if (measured[k] !== expected[k]) reasons.push(`${k}: measured (${measured[k]}) != expected pin (${expected[k]})`);
   }
+  // network_mode is handled separately: the runtime binding neither applies nor measures it, so an
+  // operator-declared value is UNVERIFIED and must not satisfy a FULL claim (mirrors the tool-surface
+  // cap). A genuinely verified value (equal to the expected pin, no "unverified" marker) still passes.
+  if (typeof measured.network_mode === 'string' && /unverified|unmeasured/.test(measured.network_mode)) {
+    reasons.push('network mode is operator-declared and unverified against the runtime (the SDK binding does not apply/measure it) — recorded, but cannot reach FULL');
+  } else if (!expected.network_mode) reasons.push('missing expected network_mode');
+  else if (!measured.network_mode) reasons.push('unmeasured network_mode (not derived from what ran)');
+  else if (measured.network_mode !== expected.network_mode) reasons.push(`network_mode: measured (${measured.network_mode}) != expected pin (${expected.network_mode})`);
   const em = String(expected.model ?? '').trim();
   const mm = String(measured.model ?? '').trim();
   if (!em || !mm) reasons.push('missing model pin (expected and the exact model passed to the session are both required)');
@@ -336,7 +344,10 @@ export function measuredProvenance(sessionModel, hostConfig = {}, runtimeStatus 
     ...(protocolVersion !== undefined ? { protocol_version: protocolVersion } : {}),
     tamperward_version: twVersion,
     host_config_sha256: sha16(JSON.stringify({ model: sessionModel, ...hostConfig })),
-    network_mode: process.env.COPILOT_SDK_NETWORK_MODE,
+    // The runtime binding does NOT apply or measure a network mode, so an operator-supplied
+    // COPILOT_SDK_NETWORK_MODE is recorded honestly as UNVERIFIED (never echoed as if measured) — the
+    // gate caps it below FULL just like an unmeasured tool surface, rather than agreeing with itself.
+    network_mode: process.env.COPILOT_SDK_NETWORK_MODE ? `${process.env.COPILOT_SDK_NETWORK_MODE} (operator-declared, unverified)` : undefined,
     approval_mode: 'onPermissionRequest',
     evidence_schema_version: EVIDENCE_SCHEMA_VERSION,
     model: sessionModel,
@@ -426,14 +437,17 @@ async function loadAdapter() {
   return { adapter: mod.copilotSdkAdapter, bundleSha };
 }
 
-/** Count uncommitted changes in the TamperWard code whose bytes decide a qualification (adapter,
- *  engine, and this harness). A qualifying run over a dirty relevant tree is not provenance-pinned. */
+/** Uncommitted-change count in the TamperWard code whose bytes decide a qualification (adapter,
+ *  engine, and this harness — orchestrator/binding/spike). A qualifying run over a dirty relevant tree
+ *  is not provenance-pinned. Returns the count, or `null` when cleanliness CANNOT be established (not
+ *  a git tree / git failed): unknown provenance must NOT collapse to "clean" (0), so the caller caps
+ *  a qualifying run below FULL on `null` just as it does on a positive count. */
 export function relevantTreeDirtyCount() {
   try {
     const out = execFileSync('git', ['status', '--porcelain', '--', 'src', 'harness/adapters/copilot-sdk', 'harness/adapters/copilot-sdk-spike.mjs'], { cwd: ROOT, encoding: 'utf8' });
     return out.split('\n').filter((l) => l.trim().length > 0).length;
   } catch {
-    return 0; // not a git tree (e.g. a packaged install) → cannot assess; do not fabricate dirtiness
+    return null; // cannot assess → unknown, NOT clean
   }
 }
 

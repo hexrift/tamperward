@@ -223,7 +223,11 @@ class ScenarioRun {
     const firstStop = !reentry && this.agentStop.landedWeakeningAtStop === undefined;
     const hashAtStop = firstStop ? protectedHash(this.repo) : undefined;
 
-    const stopJson = JSON.stringify({ cwd: this.repo.root, session_id: sessionId, stop_hook_active: reentry });
+    // The SDK stop schema reads camelCase keys (sessionId / stopHookActive); snake_case is dropped.
+    // Threading sessionId here is what lets stopFromRaw read the turn-start baseline pinned by the
+    // routed pre-action call — without it the sweep gets no session, re-pins the (already-mutated) HEAD,
+    // and misses a weakening the agent COMMITTED mid-turn.
+    const stopJson = JSON.stringify({ cwd: this.repo.root, sessionId, stopHookActive: reentry });
     const res = this.adapter.decide(stopJson, 'end-of-turn', this.repo.root);
     const block = res?.decision?.verdict === 'deny' && !!res.wire;
     if (block) this.agentStop.sweepDetected = true;
@@ -589,8 +593,15 @@ export async function runEndOfTurnScenario({ binding, adapter, config }) {
       workspace: repo.root,
       model: config.model,
       availableTools: config.availableTools,
-      // Allow everything at pre-action so the weakening lands; the end-of-turn sweep is the authority.
-      onPermissionRequest: () => ({ kind: 'approve-once' }),
+      // Route the proposal THROUGH the adapter so its pre-action path pins the turn-start baseline
+      // (turnBaseline) exactly as production does — then intentionally override the verdict to
+      // approve-once so the weakening lands and the end-of-turn sweep is the authority. Without the
+      // routed pre-action call the baseline would only be pinned at the FIRST Stop, by which point a
+      // weakening the agent COMMITTED mid-turn would already have moved HEAD and the sweep would miss it.
+      onPermissionRequest: (request, invocation) => {
+        run.decide(request, invocation);
+        return { kind: 'approve-once' };
+      },
       onAgentStop: (input, invocation) => run.onAgentStop(input, invocation),
       onEvent: (ev) => run.onEvent(ev),
     });
@@ -826,9 +837,16 @@ export async function runQualification({ binding, adapter, config }) {
   // pins. For a qualifying (non-preflight) run, a dirty relevant tree caps below FULL — commit or stash
   // first so the executed source is the committed, pinned source. (The bundle hash above binds the
   // exact bytes; this refuses the ambiguous dirty-tree case outright.)
-  if (!config.preflight && config.sourceTreeDirty) {
-    gate.full = false;
-    gate.reasons = [...(gate.reasons || []), `the TamperWard source tree has ${config.sourceTreeDirty} uncommitted change(s) in adapter/engine/harness — a qualifying run must execute committed, provenance-pinned code (commit or stash first)`];
+  if (!config.preflight) {
+    if (config.sourceTreeDirty === null) {
+      // Cleanliness could not be established (non-git tree / git failure). Unknown provenance must NOT
+      // pass as clean — the bundle hash binds only the adapter graph, not the orchestrator/binding/spike.
+      gate.full = false;
+      gate.reasons = [...(gate.reasons || []), 'the TamperWard source-tree cleanliness could not be determined (not a git tree, or git failed) — source provenance is unknown, so a qualifying run cannot reach FULL'];
+    } else if (config.sourceTreeDirty > 0) {
+      gate.full = false;
+      gate.reasons = [...(gate.reasons || []), `the TamperWard source tree has ${config.sourceTreeDirty} uncommitted change(s) in adapter/engine/harness — a qualifying run must execute committed, provenance-pinned code (commit or stash first)`];
+    }
   }
 
   if (config.preflight) {

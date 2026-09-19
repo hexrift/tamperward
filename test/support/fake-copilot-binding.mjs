@@ -16,6 +16,7 @@
 //   status/auth/models/startError  provenance + startup shaping
 
 import { writeFileSync, rmSync, mkdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -132,6 +133,17 @@ function makeFakeSession(cfg, opts) {
             };
         protectedReqSnapshot = protectedReq;
         await propose(protectedReq);
+        // `commitProtectedEdit` models an agent that COMMITS the weakening mid-turn, moving HEAD. The
+        // baseline must already have been pinned at the pre-action call (turn start), so the end-of-turn
+        // sweep still detects it against the turn-start commit rather than the already-mutated HEAD.
+        if (opts.commitProtectedEdit) {
+          try {
+            execFileSync('git', ['add', '-A'], { cwd: cfg.workspace });
+            execFileSync('git', ['commit', '-qm', 'agent: weaken protected test'], { cwd: cfg.workspace });
+          } catch {
+            /* best-effort */
+          }
+        }
       }
       // The benign sentinel op — a dispatch-liveness probe that is NOT protected, so the host approves
       // it; observing it dispatch proves the event channel works this turn.

@@ -583,10 +583,16 @@ through an injected fake binding + the real adapter (`test/copilot-sdk-qualify.t
 pinned SDK, no credentials, or a missing/`auto` model the harness reports **INSUFFICIENT** and exits
 non-zero — "could not test" is never "passed".
 
-FULL is not hard-coded away: it is **reachable in principle** once a pinned run proves shell +
-content-aware file-edit + end-of-turn AND the broken decision path fails **closed**. Absent that —
-no pinned run here, or a measured config that surfaces no usable write content — the honest result
-is INSUFFICIENT / PARTIAL, and a single observed fail-open is INELIGIBLE. Copilot stays
+**On the current `@github/copilot-sdk` surface a live run tops out at PARTIAL, not FULL** — and this
+is a deliberate honesty floor, not a bug. Three evidence surfaces the SDK does not expose keep a
+required Phase-0 path from being *proven*: reason-delivery to the agent is not independently
+observable (recorded `INCOMPLETE`), there is no runtime-exposed permission-callback timeout (the
+timeout path stays `INCONCLUSIVE`), and the runtime neither applies nor measures a network mode (it
+is recorded operator-declared/unverified and capped). FULL is therefore reachable only *in
+definition*: it would require a future SDK surface that makes those observable AND a pinned run that
+proves shell + content-aware file-edit + end-of-turn with the broken decision path failing
+**closed**. Absent that — as today — the honest result is INSUFFICIENT / PARTIAL, and a single
+observed fail-open is INELIGIBLE. Copilot stays
 `steering: 'neutral'`, the adapter is not registered as a detected runtime, and **no** Round 4.1
 eligibility is claimed until the exact pinned hosted configuration passes the full #482 parity suite.
 
