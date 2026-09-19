@@ -82,11 +82,6 @@ export function createRealBinding({ CopilotClient, makeClientOptions } = {}) {
           return session.sendAndWait(prompt, timeoutMs);
         },
         async disconnect() {
-          try {
-            unsubscribe();
-          } catch {
-            /* best-effort — event unsubscription is not part of runtime quiescence */
-          }
           // A `sendAndWait` timeout does NOT abort in-flight agent work (per the SDK docs), so
           // deterministically quiesce the session — abort any running turn, then release it — before
           // the caller reads final state. The shared client stays up for the remaining scenarios.
@@ -96,13 +91,26 @@ export function createRealBinding({ CopilotClient, makeClientOptions } = {}) {
           // we must NOT swallow the failure. Return a structured quiescence result the orchestrator
           // records as host evidence and uses to cap the scenario (never PROVEN/FAIL-CLOSED on a
           // runtime we could not prove had stopped).
+          //
+          // The all-events subscription stays LIVE across abort + disconnect and is torn down only in
+          // `finally`, AFTER the runtime has quiesced (or we have recorded that it did not). A protected
+          // tool that races into `tool.execution_start` while abort is in flight must still reach the
+          // host — unsubscribing first would open a blind window exactly where a fail-open would hide.
+          let result;
           try {
             if (typeof session.abort === 'function') await session.abort();
             await session.disconnect();
+            result = { quiesced: true };
           } catch (e) {
-            return { quiesced: false, error: e instanceof Error ? e.message : String(e) };
+            result = { quiesced: false, error: e instanceof Error ? e.message : String(e) };
+          } finally {
+            try {
+              unsubscribe();
+            } catch {
+              /* best-effort — event unsubscription is not part of runtime quiescence */
+            }
           }
-          return { quiesced: true };
+          return result;
         },
       };
     },

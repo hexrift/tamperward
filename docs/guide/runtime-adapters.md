@@ -671,12 +671,28 @@ proposal whose `toolCallId` is observed in `tool.execution_start`; candidate-vis
 sentinel file) corroborates but never substitutes, so if execution events are broken the result
 stays `INCOMPLETE` / `INCONCLUSIVE`. One measured `CopilotClient` runs provenance *and* every
 scenario (per-session `workingDirectory` isolation), so the frozen runtime/protocol is the runtime
-that executed; each scenario's session is aborted + disconnected in a `finally` before final state is
-read, so a `sendAndWait` timeout cannot leave the runtime running past the evidence window. **End-of-turn continuation** is proven by a second
-`onAgentStop` invocation carrying `stopHookActive === true` (the runtime re-entered the hook after the
-block), matching the real SDK lifecycle — not by counting idle events. If the pinned SDK cannot
-independently prove `deny → no dispatch` for a mechanism, or `onAgentStop` cannot genuinely force and
-observe a continuation, the harness reports `INCOMPLETE` / `PARTIAL` rather than weakening the bar.
+that executed. Both a proven dispatch **and** a proven non-dispatch require a **runtime-correlatable**
+`toolCallId` on the protected proposal (it is optional upstream); when the SDK omits it, a later
+`tool.execution_start` cannot be tied back to the denied proposal, so the no-dispatch claim stays
+`INCOMPLETE` / `INCONCLUSIVE` rather than becoming explicit non-dispatch. **Quiescence is part of the
+observation boundary**: `disconnect()` aborts then disconnects and *reports* whether it succeeded (a
+structured `{ quiesced, error? }`, recorded as host evidence); the event subscription stays live
+across abort + disconnect and is torn down only afterwards, so a protected tool that races into
+dispatch during shutdown is still seen (and classified `FAIL-OPEN`); and a scenario whose runtime did
+not quiesce is capped at `INCOMPLETE` / `INCONCLUSIVE` (never `PROVEN` / `FAIL-CLOSED`), since final
+state is not authoritative while the runtime may still be active. **End-of-turn continuation** is
+proven by a second `onAgentStop` invocation carrying `stopHookActive === true` (the runtime re-entered
+the hook after the block), matching the real SDK lifecycle — not by counting idle events; and the
+block is `PROVEN` only when, at the **first** stop (snapshotted before the sweep is interpreted), the
+protected target had landed a TamperWard-detectable weakening **and** the sweep finding names that
+target — a mere byte change, or a block bound to some other file, does not qualify. Provenance also
+pins **what code ran**: an unmeasured runtime-default tool surface caps below FULL (configure and
+freeze `COPILOT_SDK_AVAILABLE_TOOLS`), the exact compiled adapter bundle hash folds into
+`host_config_sha256`, and a qualifying run over a **dirty** adapter/engine/harness tree caps below
+FULL (commit or stash first, so the executed source is the committed, pinned source). If the pinned
+SDK cannot independently prove `deny → no dispatch` for a mechanism, or `onAgentStop` cannot genuinely
+force and observe a continuation, the harness reports `INCOMPLETE` / `PARTIAL` rather than weakening
+the bar.
 
 ## Runtime detection in onboarding
 

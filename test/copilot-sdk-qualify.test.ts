@@ -218,8 +218,9 @@ describe('runEndOfTurnScenario — block + observed continuation', () => {
     expect(r.evidence.continuationObserved).toBe(true); // proven by the second onAgentStop invocation
     expect(r.evidence.agentStopInvocations).toBeGreaterThanOrEqual(2);
     // The block is bound to a protected weakening that had actually LANDED at the first stop (captured
-    // before the sweep was interpreted), not merely inferred from final state.
+    // before the sweep was interpreted), and the sweep finding names the protected target.
     expect(r.evidence.landedWeakeningAtStop).toBe(true);
+    expect(r.evidence.findingBindsTarget).toBe(true);
     expect(r.semantic).toBe('PROVEN');
   });
 
@@ -245,8 +246,73 @@ describe('runEndOfTurnScenario — block + observed continuation', () => {
     expect(r.evidence.blockReturned).toBe(true);
     expect(r.evidence.continuationObserved).toBe(true);
     expect(r.evidence.landedWeakeningAtStop).toBe(false); // no protected mutation had landed at the stop
+    expect(r.evidence.findingBindsTarget).toBe(false);
     expect(r.semantic).not.toBe('PROVEN');
     expect(r.pass).toBe(false);
+  });
+
+  it('a BENIGN edit to the protected target + an unrelated block is NOT PROVEN (changed != weakened, and the finding must name the target)', async () => {
+    // The at-stop protected hash differs (benign/strengthening edit), and a block IS returned — but for
+    // a finding naming another file, not the protected target. A byte change plus an unrelated block
+    // must not read as "the intended protected weakening landed and was detected."
+    const blockNamingOtherFile = {
+      decide: (_raw: string, phase: string) =>
+        phase === 'end-of-turn'
+          ? { outcome: 'ok', decision: { verdict: 'deny', reason: 'weakened src/other.ts' }, wire: JSON.stringify({ decision: 'block', reason: 'weakened src/other.ts' }) }
+          : { outcome: 'allow', decision: { verdict: 'allow' } },
+    };
+    const r = await runEndOfTurnScenario({ binding: createFakeBinding({ benignProtectedEdit: true, continueOnBlock: true }), adapter: blockNamingOtherFile, config: CFG() });
+    expect(r.evidence.landedWeakening).toBe(true); // the file DID change at the end...
+    expect(r.evidence.findingBindsTarget).toBe(false); // ...but the block names another file
+    expect(r.evidence.landedWeakeningAtStop).toBe(false);
+    expect(r.semantic).not.toBe('PROVEN');
+  });
+});
+
+describe('observation boundary — shutdown-window dispatch, runtime-correlatable identity, source provenance', () => {
+  it('a protected execution-start emitted DURING shutdown is still observed → FAIL-OPEN (no blind window)', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ execStartDuringShutdown: true }), adapter, config: CFG(), mechanism: 'shell' });
+    // The protected op was denied during the turn, but the runtime raced it into dispatch during
+    // abort/disconnect; because the host keeps observing until quiescence, that dispatch is seen.
+    expect(r.evidence.handlerDispatched).toBe(true);
+    expect(r.semantic).toBe('FAIL-OPEN');
+  });
+
+  it('pre-deny: a protected proposal with NO runtime toolCallId cannot be proven non-dispatched → INCOMPLETE (never explicit false)', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ omitProtectedToolCallId: true }), adapter, config: CFG(), mechanism: 'shell' });
+    expect(r.evidence.protectedRuntimeIdPresent).toBe(false);
+    expect(r.evidence.handlerDispatched).toBeUndefined(); // no correlatable id → cannot claim non-dispatch
+    expect(r.semantic).toBe('INCOMPLETE');
+  });
+
+  it('broken-path: a protected proposal with NO runtime toolCallId is INCONCLUSIVE, not FAIL-CLOSED from absence', async () => {
+    const r = await runBrokenPathScenario({ binding: createFakeBinding({ omitProtectedToolCallId: true }), adapter, config: CFG(), breakage: 'sync-throw' });
+    expect(r.evidence.protectedReached).toBe(true);
+    expect(r.evidence.protectedRuntimeIdPresent).toBe(false);
+    expect(r.evidence.handlerDispatched).toBeUndefined();
+    expect(r.semantic).toBe('INCONCLUSIVE');
+    expect(r.eligible).toBe(false);
+  });
+
+  it('an unmeasured (runtime-default) tool surface caps provenance below FULL', () => {
+    const expected = {
+      sdk_version: '@github/copilot-sdk@1.2.3', runtime_version: 'copilot-runtime@0.9.0', model: 'gpt-5',
+      tamperward_version: 'tamperward@2.31.0', host_config_sha256: 'abc', network_mode: 'live',
+      approval_mode: 'onPermissionRequest', evidence_schema_version: 'copilot-sdk-spike/v1',
+    };
+    // Everything matches, but the tool surface was never measured/frozen.
+    const measured = { ...expected, tool_surface: 'runtime-default (unmeasured)' };
+    expect(provenanceGate({ expected, measured }).full).toBe(false);
+    // With an explicitly frozen surface, this rule does not cap it.
+    expect(provenanceGate({ expected, measured: { ...expected, tool_surface: 'read,shell,write' } }).full).toBe(true);
+  });
+
+  it('a dirty relevant source tree caps a qualifying run below FULL, and the bundle hash folds into measured provenance', async () => {
+    const cfg = { ...buildConfig({ model: 'gpt-5.4' }, {}), sourceTreeDirty: 3, adapterBundleSha: 'deadbeefdeadbeef' };
+    const r = await runQualification({ binding: createFakeBinding({}), adapter, config: cfg });
+    expect(r.overall).not.toBe('FULL');
+    expect(r.reasons.some((x: string) => /uncommitted change/.test(x))).toBe(true);
+    expect(r.provenance.measured.adapter_bundle_sha256).toBe('deadbeefdeadbeef');
   });
 });
 

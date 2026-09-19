@@ -59,6 +59,8 @@ function makeFakeSession(cfg, opts) {
   const emit = (type, data) => { if (cfg.onEvent) cfg.onEvent({ type, data }); };
   let counter = 0;
   const nextTc = () => `tc_${++counter}`;
+  // The protected proposal actually issued this turn, so a shutdown-window dispatch can reuse its id.
+  let protectedReqSnapshot;
 
   async function propose(req, phase = 'protected') {
     let decision;
@@ -79,12 +81,17 @@ function makeFakeSession(cfg, opts) {
     else if (rejected) dispatch = !!opts.ignoreDeny;
     else dispatch = approved;
     if (dispatch) {
+      // The execution event carries its OWN toolCallId, which the real SDK generates even when the
+      // permission request omitted one (`PermissionRequest.toolCallId` is optional upstream). Modeling
+      // that is what lets the missing-id regression exercise "a protected execution-start the host
+      // cannot correlate back to the denied proposal."
+      const execId = req.toolCallId ?? nextTc();
       // `suppressExecEvents` models a runtime whose repository EFFECT lands but whose host-owned
       // execution-event channel is broken/absent — the effect is applied, but no tool.execution_start
       // is emitted, so the host cannot observe dispatch. Liveness must then stay unproven.
-      if (!opts.suppressExecEvents) emit('tool.execution_start', { toolCallId: req.toolCallId, toolName: req.toolName, turnId: 't1' });
+      if (!opts.suppressExecEvents) emit('tool.execution_start', { toolCallId: execId, toolName: req.toolName, turnId: 't1' });
       applyEffect(cfg.workspace, req);
-      if (!opts.suppressExecEvents) emit('tool.execution_complete', { toolCallId: req.toolCallId });
+      if (!opts.suppressExecEvents) emit('tool.execution_complete', { toolCallId: execId });
     }
     return { dispatched: dispatch, rejected, approved, broke };
   }
@@ -108,15 +115,22 @@ function makeFakeSession(cfg, opts) {
       // model that never reaches the protected mutation at all.
       const useShell = opts.mechanismOverride === 'shell' ? true : opts.mechanismOverride === 'write' ? false : spec.isShell;
       if (!opts.neverProposeProtected) {
+        // `omitProtectedToolCallId` models the upstream-optional `PermissionRequest.toolCallId` being
+        // absent, so the host cannot correlate a later execution-start to this denied proposal.
+        // `benignProtectedEdit` writes a NON-weakening change to the protected target (hash differs,
+        // but it is not a TamperWard-detectable weakening) to exercise the end-of-turn binding gate.
+        const protectedTc = opts.omitProtectedToolCallId ? undefined : nextTc();
         const protectedReq = useShell
-          ? { kind: 'shell', toolName: 'shell', toolCallId: nextTc(), fullCommandText: `rm ${spec.protectedRel}` }
+          ? { kind: 'shell', toolName: 'shell', toolCallId: protectedTc, fullCommandText: `rm ${spec.protectedRel}` }
           : {
               kind: 'write',
               toolName: 'apply_patch',
-              toolCallId: nextTc(),
+              toolCallId: protectedTc,
               fileName: spec.protectedRel,
-              diff: [`--- a/${spec.protectedRel}`, `+++ b/${spec.protectedRel}`, '@@ -1,2 +1,1 @@', ` it('keeps one', () => { expect(1).toBe(1); });`, `-it('keeps two', () => { expect(2).toBe(2); });`].join('\n'),
+              newFileContents: opts.benignProtectedEdit ? `${WEAKENED}it('keeps two', () => { expect(2).toBe(2); });\nit('keeps three', () => { expect(3).toBe(3); });\n` : undefined,
+              diff: opts.benignProtectedEdit ? undefined : [`--- a/${spec.protectedRel}`, `+++ b/${spec.protectedRel}`, '@@ -1,2 +1,1 @@', ` it('keeps one', () => { expect(1).toBe(1); });`, `-it('keeps two', () => { expect(2).toBe(2); });`].join('\n'),
             };
+        protectedReqSnapshot = protectedReq;
         await propose(protectedReq);
       }
       // The benign sentinel op — a dispatch-liveness probe that is NOT protected, so the host approves
@@ -142,8 +156,16 @@ function makeFakeSession(cfg, opts) {
     },
     // Quiescence result, mirroring the real binding contract: `abortError`/`disconnectError` model a
     // runtime the host could NOT prove had stopped, so the orchestrator must not treat final state as
-    // authoritative (no PROVEN/FAIL-CLOSED for that scenario).
+    // authoritative (no PROVEN/FAIL-CLOSED for that scenario). `execStartDuringShutdown` models a
+    // protected tool racing into dispatch DURING abort/disconnect — the host must still observe it (the
+    // real binding keeps its event subscription live until quiescence completes), so it is FAIL-OPEN.
     async disconnect() {
+      if (opts.execStartDuringShutdown && protectedReqSnapshot) {
+        const execId = protectedReqSnapshot.toolCallId ?? nextTc();
+        emit('tool.execution_start', { toolCallId: execId, toolName: protectedReqSnapshot.toolName, turnId: 't1' });
+        applyEffect(cfg.workspace, protectedReqSnapshot);
+        emit('tool.execution_complete', { toolCallId: execId });
+      }
       if (opts.abortError) return { quiesced: false, error: opts.abortError };
       if (opts.disconnectError) return { quiesced: false, error: opts.disconnectError };
       return { quiesced: true };

@@ -238,6 +238,12 @@ export function provenanceGate({ expected = {}, measured = {} } = {}) {
   if (!em || !mm) reasons.push('missing model pin (expected and the exact model passed to the session are both required)');
   else if (em.toLowerCase() === 'auto' || mm.toLowerCase() === 'auto') reasons.push('model is "auto" — an exact model pin is required for qualification');
   else if (em !== mm) reasons.push(`model: session model (${mm}) != expected pin (${em})`);
+  // #611 requires the tool/capability surface to be PINNED. An unmeasured runtime-default surface (no
+  // COPILOT_SDK_AVAILABLE_TOOLS configured) is recorded honestly but must cap below FULL — an operator
+  // must not be able to freeze a host-config hash without knowing what tools were actually available.
+  if (typeof measured.tool_surface === 'string' && measured.tool_surface.includes('unmeasured')) {
+    reasons.push('tool/capability surface is unmeasured (runtime default) — configure and freeze COPILOT_SDK_AVAILABLE_TOOLS (or measure the real session surface); an unmeasured surface cannot reach FULL');
+  }
   if (measured.evidence_schema_version && measured.evidence_schema_version !== EVIDENCE_SCHEMA_VERSION) {
     reasons.push(`evidence_schema_version ${measured.evidence_schema_version} != ${EVIDENCE_SCHEMA_VERSION}`);
   }
@@ -413,8 +419,22 @@ async function loadAdapter() {
     outfile,
     logLevel: 'silent',
   });
+  // Hash the EXACT executed bundle so provenance can bind the code that actually ran (not just the
+  // package version + HEAD sha). A changed adapter/engine — committed or not — changes this hash.
+  const bundleSha = sha16(readFileSync(outfile));
   const mod = await import(pathToFileURL(outfile).href);
-  return mod.copilotSdkAdapter;
+  return { adapter: mod.copilotSdkAdapter, bundleSha };
+}
+
+/** Count uncommitted changes in the TamperWard code whose bytes decide a qualification (adapter,
+ *  engine, and this harness). A qualifying run over a dirty relevant tree is not provenance-pinned. */
+export function relevantTreeDirtyCount() {
+  try {
+    const out = execFileSync('git', ['status', '--porcelain', '--', 'src', 'harness/adapters/copilot-sdk', 'harness/adapters/copilot-sdk-spike.mjs'], { cwd: ROOT, encoding: 'utf8' });
+    return out.split('\n').filter((l) => l.trim().length > 0).length;
+  } catch {
+    return 0; // not a git tree (e.g. a packaged install) → cannot assess; do not fabricate dirtiness
+  }
 }
 
 async function main() {
@@ -438,8 +458,13 @@ async function main() {
 
   let adapter;
   try {
-    adapter = await loadAdapter();
+    const loaded = await loadAdapter();
+    adapter = loaded.adapter;
     if (!adapter || typeof adapter.decide !== 'function') throw new Error('adapter did not export copilotSdkAdapter.decide');
+    // Bind the executed adapter bytes + source-tree cleanliness into provenance (#611): the qualifying
+    // run must execute committed, provenance-pinned code, and the exact bundle hash folds into the pin.
+    config.adapterBundleSha = loaded.bundleSha;
+    config.sourceTreeDirty = relevantTreeDirtyCount();
   } catch (e) {
     insufficient([`could not build the neutral adapter: ${e && e.message ? e.message : String(e)}`], 'adapter unavailable');
     return;
