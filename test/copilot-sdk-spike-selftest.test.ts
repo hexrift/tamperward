@@ -104,43 +104,53 @@ describe('classifyIdentityBinding — adversarial cwd claims fail closed', () =>
   });
 });
 
-describe('buildSpikeMatrix — granular, honest vocabulary (#611 review)', () => {
-  // The review fixed this vocabulary: shell is a CANDIDATE, file-edit CONTENT pre-deny is
-  // UNSUPPORTED, file-edit PATH interception is AVAILABLE/LIMITED (never a generic pre-deny),
-  // end-of-turn content is a CANDIDATE. FULL is structurally unreachable while content pre-deny
-  // is unsupported — the honest ceiling is PARTIAL.
-  it('emits the granular rows and never promotes file-edit as a generic pre-deny', () => {
+describe('buildSpikeMatrix — granular vocabulary, capabilities CONDITIONAL on measured surface (#611)', () => {
+  // Corrected per the SDK contract: write requests carry diff + optional newFileContents, so
+  // file-edit CONTENT pre-deny is a CANDIDATE (conditional on what the pinned runtime surfaces),
+  // NOT hard-coded UNSUPPORTED. file-edit PATH interception stays AVAILABLE/LIMITED evidence, never
+  // a generic pre-deny. FULL is not hard-blocked — it is reachable only once every required proof
+  // (incl. content-aware pre-deny) lands on a pinned run; unmeasured here → INSUFFICIENT.
+  it('emits the granular rows; file-edit-content is a CANDIDATE, not hard UNSUPPORTED', () => {
     const m = buildSpikeMatrix({});
     const rows = Object.fromEntries(m.rows.map((r: { label: string; value: string }) => [r.label, r.value]));
     expect(rows['pre-deny:shell']).toBe('CANDIDATE');
-    expect(rows['pre-deny:file-edit-content']).toBe('UNSUPPORTED');
+    expect(rows['pre-deny:file-edit-content']).toBe('CANDIDATE');
     expect(rows['pre-deny:file-edit-path']).toMatch(/AVAILABLE|LIMITED|INCONCLUSIVE/);
     expect(rows['end-of-turn:file-edit-content']).toBe('CANDIDATE');
     expect(rows['pre-deny:file-edit']).toBeUndefined(); // never a generic file-edit pre-deny row
   });
 
-  it('a single observed FAIL-OPEN (shell or decision-path) makes overall INELIGIBLE', () => {
-    const m = buildSpikeMatrix({ shell: { semantic: 'FAIL-OPEN' }, provenanceFull: true });
-    expect(m.overall).toBe('INELIGIBLE');
-    const m2 = buildSpikeMatrix({ decisionPath: { semantic: 'FAIL-OPEN', eligible: false }, provenanceFull: true });
-    expect(m2.overall).toBe('INELIGIBLE');
+  it('a single observed FAIL-OPEN (shell / file-edit-content / decision-path) makes overall INELIGIBLE', () => {
+    expect(buildSpikeMatrix({ shell: { semantic: 'FAIL-OPEN' }, provenanceFull: true }).overall).toBe('INELIGIBLE');
+    expect(buildSpikeMatrix({ fileEditContent: { semantic: 'FAIL-OPEN' }, provenanceFull: true }).overall).toBe('INELIGIBLE');
+    expect(buildSpikeMatrix({ decisionPath: { semantic: 'FAIL-OPEN', eligible: false }, provenanceFull: true }).overall).toBe('INELIGIBLE');
   });
 
-  it('without a pinned provenance the overall is INSUFFICIENT, never FULL/PARTIAL', () => {
-    const m = buildSpikeMatrix({ shell: { semantic: 'PROVEN', pass: true }, endOfTurn: { pass: true }, decisionPath: { semantic: 'FAIL-CLOSED', eligible: true }, provenanceFull: false });
+  it('without a pinned provenance the overall is INSUFFICIENT', () => {
+    const m = buildSpikeMatrix({ shell: { semantic: 'PROVEN', pass: true }, fileEditContent: { semantic: 'PROVEN', pass: true }, endOfTurn: { pass: true }, decisionPath: { semantic: 'FAIL-CLOSED', eligible: true }, provenanceFull: false });
     expect(m.overall).toBe('INSUFFICIENT');
   });
 
-  it('even fully proven candidates + pinned provenance cap at PARTIAL — FULL is unreachable while content pre-deny is unsupported', () => {
+  it('a measured config that PROVES shell + content-aware file-edit + stop + fail-closed decision path, pinned → FULL is reachable', () => {
     const m = buildSpikeMatrix({
       shell: { semantic: 'PROVEN', pass: true },
+      fileEditContent: { semantic: 'PROVEN', pass: true },
       endOfTurn: { pass: true },
       decisionPath: { semantic: 'FAIL-CLOSED', eligible: true },
-      fileEdit: { interceptionObserved: true },
+      provenanceFull: true,
+    });
+    expect(m.overall).toBe('FULL');
+  });
+
+  it('a config where content-aware pre-deny is UNSUPPORTED (no usable content) caps at PARTIAL, not FULL', () => {
+    const m = buildSpikeMatrix({
+      shell: { semantic: 'PROVEN', pass: true },
+      fileEditContent: { semantic: 'UNSUPPORTED', pass: false },
+      endOfTurn: { pass: true },
+      decisionPath: { semantic: 'FAIL-CLOSED', eligible: true },
       provenanceFull: true,
     });
     expect(m.overall).toBe('PARTIAL');
-    expect(['FULL']).not.toContain(m.overall);
   });
 });
 

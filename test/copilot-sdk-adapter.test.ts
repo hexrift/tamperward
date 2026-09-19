@@ -38,7 +38,8 @@ function req(cwd: string, fields: Record<string, unknown>): string {
   return JSON.stringify({ toolCallId: 't1', sessionId: 's1', cwd, ...fields });
 }
 const shellReq = (cwd: string, fullCommandText: string) => req(cwd, { kind: 'shell', toolName: 'shell', fullCommandText });
-const writeReq = (cwd: string, fileName: string) => req(cwd, { kind: 'write', toolName: 'write', fileName });
+// A write request as the current SDK surfaces it: fileName + diff + intention + optional newFileContents.
+const writeReq = (cwd: string, fileName: string, extra: Record<string, unknown> = {}) => req(cwd, { kind: 'write', toolName: 'write', fileName, ...extra });
 
 const findings: Finding[] = [
   { rule: 'test-deletion', severity: 'block', file: 'src/a.spec.ts', message: 'A protected test file was removed.', evidence: 'rm src/a.spec.ts', remediation: 'Fix the failing test.', signoff: { required: true, command: 'tamperward allow --reason "..."' } },
@@ -56,14 +57,9 @@ describe('CopilotSdkHostedAdapter — identity and capability honesty', () => {
     expect(caps.postObserve).toEqual([]);
     expect(caps.endOfTurn).toBe(true);
     const u = caps.unsupported.join(' | ');
-    // CONTENT-aware file-edit pre-deny is UNSUPPORTED: onPermissionRequest surfaces fileName, not
-    // the proposed content, so TamperWard's content-sensitive judgement (weakened assertion, added
-    // skip, policy change) cannot run at the callback.
-    expect(u).toMatch(/content-aware.*pre-deny|content.*not.*establish/i);
-    expect(u).toMatch(/fileName/);
-    // native write INTERCEPTION is present (the callback fires before a write) but PATH-level only —
-    // file-edit must NOT be promoted as a generic pre-deny (no blanket path blocking).
-    expect(u).toMatch(/path-level|not.*promote|blanket/i);
+    // file-edit content-aware pre-deny is CONDITIONAL on what the pinned SDK surfaces (write
+    // requests carry diff + optional newFileContents); it is not hard-coded unsupported.
+    expect(u).toMatch(/conditional|diff|newFileContents/i);
     // the decisive unknown: handler throw / reject / timeout fail-open-vs-closed is unmeasured.
     expect(u).toMatch(/throw|reject|timeout/i);
     // onAgentStop is a lifecycle continuation control (block/continue), not a filesystem veto.
@@ -95,12 +91,12 @@ describe('normalizeCopilotSdkEvent — permission request → neutral event', ()
     expect(ev.identity).toEqual({ claimedCwd: '/repo', sessionId: 's1' });
   });
 
-  it('a write request carries fileName as the path arg (no content is surfaced)', () => {
-    const ev = normalizeCopilotSdkEvent(writeReq('/repo', 'src/a.spec.ts'), 'pre-action');
+  it('a write request retains path + content fields (diff / newFileContents / intention)', () => {
+    const ev = normalizeCopilotSdkEvent(writeReq('/repo', 'src/a.spec.ts', { diff: '@@ -1 +1 @@', newFileContents: 'x', intention: 'weaken' }), 'pre-action');
     expect('failure' in ev).toBe(false);
     if ('failure' in ev) return;
     expect(ev.operation.kind).toBe('file-edit');
-    expect(ev.operation.args).toEqual({ path: 'src/a.spec.ts' });
+    expect(ev.operation.args).toEqual({ path: 'src/a.spec.ts', diff: '@@ -1 +1 @@', newFileContents: 'x', intention: 'weaken' });
   });
 
   it('end-of-turn is a synthetic stop op regardless of request fields', () => {
@@ -124,19 +120,21 @@ describe('normalizeCopilotSdkEvent — permission request → neutral event', ()
   });
 });
 
-describe('copilotSdkDenyWire — the SDK PermissionDecision / agentStop shapes', () => {
-  it('pre-action deny is the SDK reject decision with a feedback reason', () => {
+describe('copilotSdkDenyWire — the SDK PermissionRequestResult / agentStop shapes', () => {
+  it('pre-action deny is the SDK reject RESULT discriminated on kind, with feedback', () => {
     const wire = copilotSdkDenyWire(findings, 'pre-action');
     const j = JSON.parse(wire);
-    expect(j.decision).toBe('reject');
+    expect(j.kind).toBe('reject'); // PermissionRequestResult is discriminated on `kind`
     expect(j.feedback).toBe(formatDenial(findings));
+    expect(j.decision).toBeUndefined(); // NOT the agentStop shape
     expect(j.permissionDecision).toBeUndefined(); // NOT the CLI hook shape
   });
 
-  it('end-of-turn deny is the agentStop block/continue shape', () => {
+  it('end-of-turn deny is the agentStop block/continue shape (decision, not kind)', () => {
     const j = JSON.parse(copilotSdkWire('because', 'end-of-turn'));
     expect(j.decision).toBe('block');
     expect(j.reason).toBe('because');
+    expect(j.kind).toBeUndefined();
   });
 
   it('no findings is an allow (empty wire)', () => {
@@ -152,7 +150,7 @@ describe('CopilotSdkHostedAdapter.decide — shell content deny via the shared e
       expect(r.outcome).toBe('ok');
       expect(r.decision?.verdict).toBe('deny');
       const j = JSON.parse(r.wire as string);
-      expect(j.decision).toBe('reject');
+      expect(j.kind).toBe('reject');
       expect(j.feedback).toContain('test-deletion');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -171,15 +169,50 @@ describe('CopilotSdkHostedAdapter.decide — shell content deny via the shared e
   });
 });
 
-describe('CopilotSdkHostedAdapter.decide — file-edit is UNSUPPORTED at pre-action (content not surfaced)', () => {
-  it('a write returns unsupported (allow-through; the end-of-turn sweep is authority), no deny wire', () => {
+describe('CopilotSdkHostedAdapter.decide — file-edit content-aware pre-deny is CONDITIONAL on surfaced content', () => {
+  it('a write whose newFileContents WEAKENS a protected test is denied (content-aware, via the shared engine)', () => {
+    const cwd = repoFixture();
+    try {
+      // Full new content that drops an assertion → the engine's content detectors block it.
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { newFileContents: `it('one', () => {});\n` }), 'pre-action', cwd);
+      expect(r.outcome).toBe('ok');
+      expect(r.decision?.verdict).toBe('deny');
+      expect(JSON.parse(r.wire as string).kind).toBe('reject');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('a write whose diff removes a protected test is denied (reconstructed from the unified diff)', () => {
+    const cwd = repoFixture();
+    try {
+      const diff = ['--- a/src/a.spec.ts', '+++ b/src/a.spec.ts', '@@ -1 +1 @@', "-it('one', () => {}); it('two', () => {});", "+it('one', () => {});"].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff }), 'pre-action', cwd);
+      expect(r.outcome).toBe('ok');
+      expect(r.decision?.verdict).toBe('deny');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('a write that surfaces NO usable content (no diff, no newFileContents) is UNSUPPORTED for this measured config, allow-through', () => {
     const cwd = repoFixture();
     try {
       const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts'), 'pre-action', cwd);
       expect(r.outcome).toBe('unsupported');
       expect(r.decision).toBeUndefined();
-      expect(r.wire).toBeUndefined();
       expect(r.detail).toMatch(/content|sweep/i);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('a benign write (newFileContents keeps the tests) is allowed', () => {
+    const cwd = repoFixture();
+    try {
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { newFileContents: `it('one', () => {}); it('two', () => {}); it('three', () => {});\n` }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('allow');
+      expect(r.wire).toBe('');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
