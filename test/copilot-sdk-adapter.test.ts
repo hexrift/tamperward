@@ -461,6 +461,31 @@ describe('CopilotSdkHostedAdapter.decide — file-edit content-aware pre-deny is
     }
   });
 
+  it('metadata that CONTRADICTS the derived op fails CLOSED (new file mode + modify endpoints)', () => {
+    const cwd = repoFixture();
+    try {
+      // `new file mode` claims a create, but the endpoints are a path→path modify of an existing
+      // file. Contradictory — must fail closed, not be normalized into a modify with the metadata
+      // stripped.
+      const diff = ['new file mode 100644', '--- a/src/a.spec.ts', '+++ b/src/a.spec.ts', '@@ -1 +1 @@', "-it('one', () => {}); it('two', () => {});", "+it('one', () => {});"].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('an unknown non-blank pre-hunk header line fails CLOSED (grammar is total, not discard-what-you-do-not-know)', () => {
+    const cwd = repoFixture();
+    try {
+      const diff = ['this is not a header line git understands', '--- a/src/a.spec.ts', '+++ b/src/a.spec.ts', '@@ -1 +1 @@', "-it('one', () => {}); it('two', () => {});", "+it('one', () => {});"].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('a write whose EXISTING target cannot be read (a directory) fails CLOSED — not treated as a create', () => {
     const cwd = repoFixture();
     try {

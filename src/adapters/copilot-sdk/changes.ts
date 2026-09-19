@@ -256,27 +256,22 @@ function canonicalPatch(raw: string, display: string, isCreate: boolean): { op: 
   const header = lines.slice(0, at);
   const body = lines.slice(at);
 
+  // The pre-hunk grammar is TOTAL: every non-blank line before the first hunk must be one this code
+  // explicitly understands, and each carries its meaning through — nothing is recognized-then-
+  // discarded. An unknown line, a duplicate, or metadata that contradicts the derived operation fails
+  // CLOSED, so a malformed / internally contradictory event is never repaired into a valid proposal.
   let src: string | undefined; // stripped `--- ` endpoint
   let dst: string | undefined; // stripped `+++ ` endpoint
-  let hasExtendedHeader = false; // any Git file metadata → a full endpoint pair is required
   let hasGitLine = false; // a `diff --git` header — at most one for a single file
+  let sawCreateMode = false; // `new file mode` — only valid with a create endpoint pair
+  let sawDeleteMode = false; // `deleted file mode` — only valid with a delete endpoint pair
+  let sawSemanticHeader = false; // any operation-bearing metadata → a full endpoint pair is required
   for (const line of header) {
-    if (/^(rename (from|to)|copy (from|to)|old mode|new mode|GIT binary patch)\b/.test(line) || line.startsWith('Binary files ')) {
-      throw new Error(`write diff for ${display} is a rename/copy/binary/mode-only change, which is not reconstructed`);
-    }
-    // Any Git file metadata (diff --git, index, new/deleted file mode, similarity/dissimilarity)
-    // promises a normal endpoint pair; it is NOT a bare hunk, so its presence without `--- `/`+++ `
-    // is malformed (handled after the loop).
-    if (/^(index |new file mode|deleted file mode|similarity index|dissimilarity index)\b/.test(line)) {
-      hasExtendedHeader = true;
-    }
-    // A single file's pre-hunk header carries at most one of each. A DUPLICATE endpoint (or a second
-    // `diff --git`) is a contradictory / multi-file event — fail closed rather than let last-one-wins
-    // silently repair it into a valid pair.
+    if (line.trim() === '') continue; // tolerate blank lines
     if (line.startsWith('diff --git ')) {
       if (hasGitLine) throw new Error(`write diff for ${display} carries more than one diff --git header (contradictory / multi-file) — refusing to reconstruct`);
       hasGitLine = true;
-      hasExtendedHeader = true;
+      sawSemanticHeader = true;
       for (const p of line.slice('diff --git '.length).trim().split(/\s+/)) assertBound(stripPrefix(p), display);
     } else if (line.startsWith('--- ')) {
       if (src !== undefined) throw new Error(`write diff for ${display} carries more than one --- endpoint (contradictory header) — refusing to reconstruct`);
@@ -284,19 +279,33 @@ function canonicalPatch(raw: string, display: string, isCreate: boolean): { op: 
     } else if (line.startsWith('+++ ')) {
       if (dst !== undefined) throw new Error(`write diff for ${display} carries more than one +++ endpoint (contradictory header) — refusing to reconstruct`);
       dst = line.slice(4).split('\t')[0].trim();
+    } else if (line.startsWith('index ')) {
+      sawSemanticHeader = true; // accompanies any op; validated only by the endpoints below
+    } else if (/^new file mode\b/.test(line)) {
+      if (sawCreateMode) throw new Error(`write diff for ${display} carries duplicate new file mode metadata — refusing to reconstruct`);
+      sawCreateMode = true;
+      sawSemanticHeader = true;
+    } else if (/^deleted file mode\b/.test(line)) {
+      if (sawDeleteMode) throw new Error(`write diff for ${display} carries duplicate deleted file mode metadata — refusing to reconstruct`);
+      sawDeleteMode = true;
+      sawSemanticHeader = true;
+    } else {
+      // rename/copy/mode-change/binary/similarity metadata, or anything else this code does not
+      // model, is not reconstructed — fail closed rather than silently strip it.
+      throw new Error(`write diff for ${display} carries an unsupported or unrecognized pre-hunk header line ("${line.trim().slice(0, 60)}") — refusing to reconstruct`);
     }
   }
 
   // Derive the EXACT proposed operation from the `/dev/null` endpoints, never re-inferred from local
   // state or repaired from a malformed event. The contract is explicit:
   //   - BOTH endpoints absent → bare-hunk mode: infer create/modify from the observed target state
-  //     (never a delete, which requires a `+++ /dev/null` header). ANY Git file metadata, however,
-  //     promises a full endpoint pair, so its presence without one is malformed.
+  //     (never a delete, which requires a `+++ /dev/null` header). Any operation-bearing metadata,
+  //     however, promises a full endpoint pair, so its presence without one is malformed.
   //   - BOTH present → validate exact create/delete/modify semantics.
   //   - EXACTLY ONE present → malformed one-sided pair → fail closed (not normalized into a valid op).
   let op: DiffOp;
   if (src === undefined && dst === undefined) {
-    if (hasExtendedHeader) throw new Error(`write diff for ${display} carries Git file metadata but no --- / +++ endpoints (malformed)`);
+    if (sawSemanticHeader) throw new Error(`write diff for ${display} carries Git file metadata but no --- / +++ endpoints (malformed)`);
     op = isCreate ? 'create' : 'modify';
   } else if (src !== undefined && dst !== undefined) {
     const srcNull = src === '/dev/null';
@@ -308,6 +317,11 @@ function canonicalPatch(raw: string, display: string, isCreate: boolean): { op: 
   } else {
     throw new Error(`write diff for ${display} has a one-sided --- / +++ endpoint pair (malformed) — refusing to repair it into a valid operation`);
   }
+
+  // Operation-bearing metadata must AGREE with the derived operation — `new file mode` only on a
+  // create, `deleted file mode` only on a delete — or the event is internally contradictory.
+  if (sawCreateMode && op !== 'create') throw new Error(`write diff for ${display} carries new file mode metadata but its endpoints describe a ${op} — contradictory, refusing to reconstruct`);
+  if (sawDeleteMode && op !== 'delete') throw new Error(`write diff for ${display} carries deleted file mode metadata but its endpoints describe a ${op} — contradictory, refusing to reconstruct`);
 
   // The proposed operation must agree with the observed disk state, or the event is inconsistent and
   // fails closed rather than being normalized into whatever the local state would suggest.
