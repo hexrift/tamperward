@@ -12,7 +12,7 @@ import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
 // @ts-expect-error - the orchestrator is a plain .mjs harness module, no d.ts
 import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
 // @ts-expect-error - the spike is a plain .mjs harness module, no d.ts
-import { provenanceGate, sha16, resolvedPackageIntegrity, packageIntegrityHash } from '../harness/adapters/copilot-sdk-spike.mjs';
+import { provenanceGate, sha16, resolvedPackageIntegrity, packageIntegrityHash, finalizeQualification, renderResult } from '../harness/adapters/copilot-sdk-spike.mjs';
 // @ts-expect-error - the fake binding is a plain .mjs test-support module, no d.ts
 import { createFakeBinding } from './support/fake-copilot-binding.mjs';
 
@@ -468,6 +468,47 @@ describe('retained host-owned evidence — the persisted result carries the immu
     // A proposal row carries a correlatable id + input hash, not just a boolean.
     const proposal = rows.find((r: { stage?: string }) => r.stage === 'proposal');
     expect(proposal.proposal_input_hash).toBeTruthy();
+  });
+});
+
+describe('finalizeQualification — persistence is the verdict commit boundary', () => {
+  const fullResult = { schema_version: 'copilot-sdk-qualification/v1', runtime_id: 'github-copilot-sdk-hosted', overall: 'FULL', phase0_passed: true, round_4_1_eligible: false, reasons: [], scenarios: [] };
+
+  it('persists BEFORE the verdict; a write failure downgrades to INSUFFICIENT and never surfaces FULL', () => {
+    const fin = finalizeQualification(fullResult, {
+      artifactPath: '/nonexistent/dir/artifact.json',
+      writeFile: () => {
+        throw new Error('disk full');
+      },
+    });
+    expect(fin.persisted).toBe(false);
+    expect(fin.result.overall).toBe('INSUFFICIENT'); // NOT FULL
+    expect(fin.result.reasons.join(' ')).toMatch(/could not persist|not be retained/);
+    // The rendered output an operator/CI would capture must NOT contain a FULL verdict.
+    const rendered = renderResult(fin.result);
+    expect(rendered).toContain('VERDICT: INSUFFICIENT');
+    expect(rendered).not.toContain('VERDICT: FULL');
+  });
+
+  it('on a successful write, keeps the original verdict and writes the full result JSON', () => {
+    let written: { path?: string; data?: string } = {};
+    const fin = finalizeQualification(fullResult, {
+      artifactPath: '/tmp/ok.json',
+      writeFile: (p: string, data: string) => {
+        written = { path: p, data };
+      },
+    });
+    expect(fin.persisted).toBe(true);
+    expect(fin.result.overall).toBe('FULL');
+    expect(written.path).toBe('/tmp/ok.json');
+    expect(JSON.parse(written.data as string).overall).toBe('FULL');
+  });
+
+  it('a preflight result is passed through unchanged (no qualification claim to back)', () => {
+    const pre = { schema_version: 'copilot-sdk-qualification/v1', runtime_id: 'github-copilot-sdk-hosted', mode: 'preflight', overall: 'PREFLIGHT' };
+    const fin = finalizeQualification(pre, { artifactPath: '/x', writeFile: () => { throw new Error('should not be called'); } });
+    expect(fin.result.overall).toBe('PREFLIGHT');
+    expect(fin.persisted).toBe(false);
   });
 });
 

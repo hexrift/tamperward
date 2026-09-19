@@ -500,6 +500,36 @@ export function renderResult(result) {
   return L.join('\n');
 }
 
+/**
+ * The VERDICT COMMIT BOUNDARY for a qualifying (non-preflight) run: persistence must succeed BEFORE any
+ * verdict is emitted, so a failed artifact write can never leave a stale FULL/PARTIAL claim on stdout.
+ * Persists the evidence artifact first; on success returns the original result to render, on failure
+ * returns an INSUFFICIENT result (the original verdict is never surfaced). Preflight results are passed
+ * through unchanged (no qualification claim to back). `writeFile` is injectable for tests.
+ */
+export function finalizeQualification(result, { artifactPath, writeFile } = {}) {
+  if (result.mode === 'preflight') return { result, artifactPath: null, persisted: false };
+  const w = writeFile || ((p, data) => writeFileSync(p, data));
+  try {
+    w(artifactPath, JSON.stringify(result, null, 2));
+    return { result, artifactPath, persisted: true };
+  } catch (e) {
+    const detail = `could not persist the qualification evidence artifact to ${artifactPath}: ${e && e.message ? e.message : String(e)}`;
+    return {
+      result: {
+        schema_version: result.schema_version,
+        runtime_id: result.runtime_id,
+        overall: 'INSUFFICIENT',
+        round_4_1_eligible: false,
+        reasons: [detail, 'evidence could not be retained; a qualification claim requires a persisted host-owned artifact'],
+      },
+      artifactPath: null,
+      persisted: false,
+      persistError: detail,
+    };
+  }
+}
+
 /** Compile the neutral adapter (TypeScript) to a temporary ESM module and import it. Live-only: the
  *  adapter is intentionally unshipped (absent from dist/cli/index.js), so the harness self-compiles it
  *  with esbuild (a devDependency present in a dev/qualification environment) rather than shipping a
@@ -517,8 +547,9 @@ async function loadAdapter() {
     logLevel: 'silent',
   });
   // Hash the EXACT executed bundle so provenance can bind the code that actually ran (not just the
-  // package version + HEAD sha). A changed adapter/engine — committed or not — changes this hash.
-  const bundleSha = sha16(readFileSync(outfile));
+  // package version + HEAD sha). A changed adapter/engine — committed or not — changes this hash. Full
+  // SHA-256 (not the 16-hex short form), consistent with the SDK package-integrity pin.
+  const bundleSha = createHash('sha256').update(readFileSync(outfile)).digest('hex');
   const mod = await import(pathToFileURL(outfile).href);
   return { adapter: mod.copilotSdkAdapter, bundleSha };
 }
@@ -572,26 +603,24 @@ async function main() {
 
   const binding = createRealBinding({ CopilotClient: sdk.CopilotClient });
   const result = await runQualification({ binding, adapter, config });
-  process.stdout.write(renderResult(result) + '\n');
-  // Evidence persistence is MANDATORY for a qualifying (non-preflight) run: a qualification claim must
-  // leave a retained, host-owned artifact containing the immutable evidence rows (#611), not just
-  // stdout. The host writes it AFTER the run (all sessions already quiesced) to a path OUTSIDE the
-  // candidate scenario repos — the operator-chosen --json path, or an auto-named file in cwd.
-  if (result.mode !== 'preflight') {
-    const artifactPath = config.jsonPath || join(process.cwd(), `tamperward-${result.runtime_id}-qualification-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
-    try {
-      writeFileSync(artifactPath, JSON.stringify(result, null, 2));
-      process.stdout.write(`\nQualification evidence artifact written to ${artifactPath}\n`);
-    } catch (e) {
-      insufficient([`could not persist the qualification evidence artifact to ${artifactPath}: ${e && e.message ? e.message : String(e)}`], 'evidence could not be retained; a qualification claim requires a persisted host-owned artifact');
-      return;
-    }
-  } else if (config.jsonPath) {
+  // Evidence persistence is MANDATORY for a qualifying (non-preflight) run and is the VERDICT COMMIT
+  // BOUNDARY: the artifact (containing the immutable evidence rows, #611) is written to a path OUTSIDE
+  // the candidate scenario repos — the operator-chosen --json path, or an auto-named file in cwd —
+  // BEFORE any verdict is emitted. If the write fails, finalizeQualification downgrades to INSUFFICIENT
+  // so a stale FULL/PARTIAL claim can never reach stdout.
+  const artifactPath = config.jsonPath || join(process.cwd(), `tamperward-${result.runtime_id}-qualification-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+  const finalized = finalizeQualification(result, { artifactPath });
+  process.stdout.write(renderResult(finalized.result) + '\n');
+  if (finalized.persisted) {
+    process.stdout.write(`\nQualification evidence artifact written to ${finalized.artifactPath}\n`);
+  } else if (result.mode === 'preflight' && config.jsonPath) {
     writeFileSync(config.jsonPath, JSON.stringify(result, null, 2));
     process.stdout.write(`\nJSON result written to ${config.jsonPath}\n`);
+  } else if (finalized.persistError) {
+    process.stdout.write(`\n(evidence artifact NOT retained — qualification downgraded to INSUFFICIENT: ${finalized.persistError})\n`);
   }
   if (config.keepArtifacts) process.stdout.write('\n(TAMPERWARD_KEEP_SPIKE_ARTIFACTS/--keep set — scenario repos were retained; see evidence paths above)\n');
-  const ok = result.overall === 'FULL' || result.overall === 'PREFLIGHT';
+  const ok = finalized.result.overall === 'FULL' || finalized.result.overall === 'PREFLIGHT';
   process.exit(ok ? 0 : 1);
 }
 
