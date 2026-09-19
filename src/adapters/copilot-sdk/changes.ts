@@ -7,32 +7,59 @@
 //
 // TamperWard does NOT re-implement unified-diff semantics. Reconstruction is delegated to canonical
 // Git: for a write carrying a `diff` we seed an isolated, host-owned temp tree with the EXACT current
-// target bytes, bind the patch to a fixed in-tree name (the diff's own header paths are validated
-// against the permission request's `fileName` but never trusted for application), and run
-// `git apply --check` then `git apply`. The reconstructed file is read back and passed as the exact
-// `after`. Any parse/apply failure — stale context, an overlapping hunk, a malformed header, a patch
-// naming a different file — makes Git refuse, and we FAIL CLOSED (the caller turns the throw into a
-// deny), the conservative stance for an unproven runtime.
+// target bytes, bind the patch to a fixed in-tree name, and run `git apply --numstat` (single-file
+// binding), `git apply --check`, then `git apply`. The reconstructed file is read back and passed as
+// the exact `after`. Any parse/apply failure — stale context, an overlapping hunk, a malformed
+// header, a patch naming a different or multiple files — makes Git refuse, and we FAIL CLOSED (the
+// caller turns the throw into a deny), the conservative stance for an unproven runtime.
 //
-// Reconstruction is CONDITIONAL on what the runtime actually provides:
+// The EXACT proposed operation is preserved, never normalized: the raw diff's `/dev/null` endpoints
+// decide create vs delete vs modify, that operation is validated against the observed disk state
+// (a create whose target already exists, or a modify/delete whose target is absent, fails closed),
+// and it is that operation — not one re-inferred locally — that Git reconstructs. Rename / copy /
+// binary / mode-only shapes are rejected explicitly.
+//
+// The reconstruction work is BOUNDED before Git is ever spawned: a candidate-controlled diff past the
+// operator-owned byte/line budget fails closed, and both Git invocations run under a strict timeout
+// and output cap — TamperWard must not manufacture the very decision-path delay #611 is measuring.
+//
+// Reconstruction is CONDITIONAL on what the runtime provides:
 //   - a usable `diff` → reconstructed by Git as above;
-//   - `newFileContents` present → the authoritative `after`; if a `diff` is ALSO present the two
-//     must byte-match (an inconsistent event is ambiguous and fails closed);
-//   - neither → `null`, signalling this measured configuration surfaces no usable content, so the
-//     adapter reports `unsupported` (allow-through; the end-of-turn sweep is the authority) rather
-//     than blanket-denying the write.
+//   - `newFileContents` present → the authoritative `after`; if a `diff` is ALSO present the
+//     Git-reconstructed result must byte-match it (an inconsistent event is ambiguous → fail closed);
+//   - neither → `null`, so the adapter reports `unsupported` (allow-through; the end-of-turn sweep is
+//     the authority) rather than blanket-denying the write.
 //
-// `DiskEntry.kind` is preserved: only an ABSENT target is a create; an existing target that cannot
-// be read (directory, symlink-to-nonfile, oversize, irregular, read error) fails closed rather than
-// being treated as a create.
+// `DiskEntry.kind` is preserved: only an ABSENT target is a create; an existing target that cannot be
+// read (directory, symlink-to-nonfile, oversize, irregular, read error) fails closed.
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isAbsolute, relative, resolve, join, dirname } from 'node:path';
+import { isAbsolute, relative, resolve, join } from 'node:path';
 import { Change } from '../../types';
 import { synthFileChange } from '../claude/changes';
 import { inspectResolved, textOf } from '../../disk';
+
+// ── Operator-owned budget for reconstructing an incoming SDK write (same principle as
+// src/adapters/claude/changes.ts) ──
+//
+// `git apply` runs synchronously INSIDE the permission callback, before the host can answer, so an
+// unbounded or pathological candidate-proposed diff could stall the pre-action decision — and #611's
+// decisive unknown is exactly what the runtime does when that decision is delayed. So the raw diff is
+// bounded BEFORE Git is spawned (a `synthFileChange` ceiling afterwards is too late — the expensive
+// work has already happened), and both Git invocations run under a strict timeout and output cap.
+// Anything past the budget, or a Git call that times out / overflows, FAILS CLOSED. All operator-
+// tunable by the same env knobs the Claude path uses.
+const num = (name: string, fallback: number): number => {
+  const raw = process.env[name];
+  const n = raw === undefined ? NaN : Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+const APPLY_TIMEOUT_MS = (): number => num('TAMPERWARD_RECONSTRUCT_TIMEOUT_MS', 5000);
+const APPLY_MAXBUFFER = (): number => num('TAMPERWARD_RECONSTRUCT_MAXBUFFER', 32 * 1024 * 1024);
+const DIFF_MAX_BYTES = (): number => num('TAMPERWARD_RECONSTRUCT_MAX_BYTES', 384 * 1024);
+const DIFF_MAX_LINES = (): number => num('TAMPERWARD_RECONSTRUCT_MAX_LINES', 4000);
 
 function asStr(v: unknown): string {
   return typeof v === 'string' ? v : '';
@@ -68,13 +95,14 @@ export function sdkFileEditChanges(args: Record<string, unknown>, cwd: string, b
   const rawDiff = asStr(args.diff);
 
   // Reconstruct the proposed `after` from the unified `diff` via canonical Git, bound to the
-  // permission request's target. Returns the reconstructed `after`, or throws (multi-file /
-  // mismatched path / malformed / stale context / overlap) → the caller fails closed.
-  const afterFromDiff = rawDiff.trim() ? reconstructAfterViaGit(rawDiff, display, before, isCreate) : undefined;
+  // permission request's target and its exact operation. `undefined` = no diff supplied; a `string`
+  // is the reconstructed content; `null` is a real deletion; a throw → the caller fails closed.
+  const afterFromDiff: string | null | undefined = rawDiff.trim() ? reconstructAfterViaGit(rawDiff, display, before, isCreate) : undefined;
 
   if (newFileContents !== undefined) {
     // If both representations are supplied they must AGREE — an inconsistent event (e.g. benign full
-    // content beside a weakening diff) is ambiguous and fails closed rather than judging only one.
+    // content beside a weakening diff, or a delete diff beside full content) is ambiguous and fails
+    // closed rather than judging only one.
     if (afterFromDiff !== undefined && afterFromDiff !== newFileContents) {
       throw new Error(`write supplies both newFileContents and a diff that DISAGREE for ${display}; ambiguous request — refusing to judge only one representation`);
     }
@@ -87,34 +115,55 @@ export function sdkFileEditChanges(args: Record<string, unknown>, cwd: string, b
 
 const TARGET = 'target'; // fixed, escape-free in-tree name the patch is bound to for application
 
+type DiffOp = 'create' | 'delete' | 'modify';
+
 /** Strip a leading `a/` or `b/` path prefix; leave `/dev/null` untouched. */
 function stripPrefix(p: string): string {
   return /^[ab]\//.test(p) ? p.slice(2) : p;
 }
 
 /**
- * Reconstruct the proposed `after` bytes by applying `rawDiff` with canonical Git, in an isolated
- * host-owned temp tree. The diff's own header paths are VALIDATED against `display` (a diff naming a
- * different file, or spanning multiple files, is refused) but never used to place the write — the
- * patch is rebound to a fixed in-tree name, so a path-escaping or mismatched header cannot steer the
- * reconstruction at a real path. `git apply --check` then `git apply` own every unified-diff rule
- * (context match, hunk order, counts); any refusal throws and the caller fails closed.
+ * Reconstruct the proposed `after` (a `string`, or `''` for a full delete which the caller reads as
+ * a deletion) by applying `rawDiff` with canonical Git, in an isolated host-owned temp tree. The
+ * diff is bound to a fixed in-tree name and its exact operation; `git apply --numstat` proves it
+ * touches exactly that one file, and `--check` then `apply` own every unified-diff rule. Any refusal
+ * — or a Git call that exceeds the time/output budget — throws and the caller fails closed.
+ *
+ * For a delete, Git removes the file; the returned `after` is `null`, so the shared engine judges a
+ * real deletion of the target rather than an empty-file modify.
  */
-function reconstructAfterViaGit(rawDiff: string, display: string, before: string | null, isCreate: boolean): string {
-  const patch = canonicalPatch(rawDiff, display, isCreate);
+function reconstructAfterViaGit(rawDiff: string, display: string, before: string | null, isCreate: boolean): string | null {
+  const bytes = Buffer.byteLength(rawDiff);
+  if (bytes > DIFF_MAX_BYTES()) throw new Error(`write diff for ${display} is ${bytes} bytes (over the ${DIFF_MAX_BYTES()}-byte reconstruction budget)`);
+  const { op, patch } = canonicalPatch(rawDiff, display, isCreate);
+
   const dir = mkdtempSync(join(tmpdir(), 'hf-sdk-apply-'));
   try {
     const targetPath = join(dir, TARGET);
-    if (!isCreate) writeFileSync(targetPath, before ?? '');
+    if (op !== 'create') writeFileSync(targetPath, before ?? '');
     const patchPath = join(dir, 'change.patch');
-    mkdirSync(dirname(patchPath), { recursive: true });
     writeFileSync(patchPath, patch);
-    // --check first so a non-applying patch (stale context, overlap, bad counts) is refused before
-    // any write; then apply. Both run with cwd = the temp tree, so `-p1` (git's default) maps the
-    // bound `a/target` / `b/target` headers onto TARGET and nowhere else.
-    execFileSync('git', ['apply', '--check', patchPath], { cwd: dir });
-    execFileSync('git', ['apply', patchPath], { cwd: dir });
-    return readFileSync(targetPath, 'utf8');
+    const git = (extra: string[]): string =>
+      execFileSync('git', ['apply', ...extra, patchPath], {
+        cwd: dir,
+        encoding: 'utf8',
+        timeout: APPLY_TIMEOUT_MS(),
+        maxBuffer: APPLY_MAXBUFFER(),
+        killSignal: 'SIGKILL',
+      });
+    // --numstat proves single-file binding before any write: an interleaved second file (git can tell
+    // a real header from a hunk-body line that merely starts with `---`, this code cannot) is refused.
+    const stat = git(['--numstat']).trim();
+    const rows = stat ? stat.split('\n') : [];
+    if (rows.length !== 1) throw new Error(`write diff spans ${rows.length} files; a single permission target (${display}) was expected`);
+    const statPath = rows[0].split('\t')[2];
+    if (statPath !== TARGET) throw new Error(`write diff reconstructs a different file (${statPath}) than the bound target`);
+    // --check validates the patch actually applies (context, hunk order/counts, bounds); then apply.
+    git(['--check']);
+    git([]);
+    // A delete removes the file → `after` is null (a real deletion the engine judges), never an
+    // empty-file modify. A create/modify reads back the reconstructed bytes.
+    return op === 'delete' || !existsSync(targetPath) ? null : readFileSync(targetPath, 'utf8');
   } catch (e) {
     throw new Error(`could not reconstruct the write to ${display} from its diff via git apply: ${e instanceof Error ? e.message : String(e)}`);
   } finally {
@@ -123,45 +172,65 @@ function reconstructAfterViaGit(rawDiff: string, display: string, before: string
 }
 
 /**
- * Turn a raw unified diff into a single-file patch bound to a fixed in-tree name, ready for
- * `git apply`. Validates the trust boundary FIRST: every file path the diff declares (via
- * `diff --git`, `---`, `+++`) must, after stripping the `a/`/`b/` prefix, equal `display`, and the
- * diff must name exactly one file. A create is anchored to `/dev/null`; a modify to `a/target`. The
- * hunk body is taken verbatim from the first `@@` so Git — not this code — interprets it. Any
- * multi-file, mismatched-path, or hunkless input throws → the caller fails closed.
+ * Turn a raw unified diff into a single-file patch bound to a fixed in-tree name AND its exact
+ * operation, ready for `git apply`. Only the header block BEFORE the first hunk is parsed for file
+ * identity (a hunk-body line can legitimately begin `---`/`+++`, so scanning the whole diff would
+ * false-deny valid patches — Git owns the hunk body). Validates the trust boundary: every declared
+ * path must equal `display`; the `/dev/null` endpoints decide create/delete/modify; that operation
+ * must match the observed disk state; rename/copy/binary/mode-only shapes are rejected. Any
+ * multi-file, mismatched-path, contradictory, or hunkless input throws → the caller fails closed.
  */
-function canonicalPatch(raw: string, display: string, isCreate: boolean): string {
+function canonicalPatch(raw: string, display: string, isCreate: boolean): { op: DiffOp; patch: string } {
   const lines = raw.replace(/\r\n/g, '\n').split('\n');
-
-  let fileHeaders = 0;
-  for (const line of lines) {
-    if (line.startsWith('diff --git ')) {
-      const parts = line.slice('diff --git '.length).trim().split(/\s+/);
-      for (const p of parts) assertBound(stripPrefix(p), display);
-    } else if (line.startsWith('--- ') || line.startsWith('+++ ')) {
-      if (line.startsWith('+++ ')) fileHeaders++;
-      const p = line.slice(4).split('\t')[0].trim();
-      if (p !== '/dev/null') assertBound(stripPrefix(p), display);
-    }
-  }
-  if (fileHeaders > 1) {
-    throw new Error(`write diff spans ${fileHeaders} files; a single permission target (${display}) was expected`);
+  if (lines.length > DIFF_MAX_LINES()) {
+    throw new Error(`write diff for ${display} is ${lines.length} lines (over the ${DIFF_MAX_LINES()}-line reconstruction budget)`);
   }
 
   const at = lines.findIndex((l) => l.startsWith('@@ '));
   if (at < 0) throw new Error(`write diff for ${display} has no hunk to reconstruct`);
+  const header = lines.slice(0, at);
   const body = lines.slice(at);
-  // A second file's headers appearing inside the hunk body is multi-file input we did not bind above.
-  for (const l of body) {
-    if (l.startsWith('diff --git ') || l.startsWith('--- ') || l.startsWith('+++ ')) {
-      throw new Error(`write diff for ${display} carries interleaved file headers; only a single-file patch is reconstructed`);
+
+  let src: string | undefined; // stripped `--- ` endpoint
+  let dst: string | undefined; // stripped `+++ ` endpoint
+  for (const line of header) {
+    if (/^(rename (from|to)|copy (from|to)|old mode|new mode|GIT binary patch)\b/.test(line) || line.startsWith('Binary files ')) {
+      throw new Error(`write diff for ${display} is a rename/copy/binary/mode-only change, which is not reconstructed`);
+    }
+    if (line.startsWith('diff --git ')) {
+      for (const p of line.slice('diff --git '.length).trim().split(/\s+/)) assertBound(stripPrefix(p), display);
+    } else if (line.startsWith('--- ')) {
+      src = line.slice(4).split('\t')[0].trim();
+    } else if (line.startsWith('+++ ')) {
+      dst = line.slice(4).split('\t')[0].trim();
     }
   }
 
-  const source = isCreate ? '/dev/null' : `a/${TARGET}`;
-  const header = `--- ${source}\n+++ b/${TARGET}\n`;
+  // Derive the EXACT proposed operation from the `/dev/null` endpoints, never re-inferred from local
+  // state. A bare hunk (no header endpoints) carries no operation claim, so the observed target state
+  // is used — but it can never be a delete (a delete requires a `+++ /dev/null` header).
+  let op: DiffOp;
+  if (src === undefined && dst === undefined) {
+    op = isCreate ? 'create' : 'modify';
+  } else {
+    const srcNull = src === '/dev/null';
+    const dstNull = dst === '/dev/null';
+    if (srcNull && dstNull) throw new Error(`write diff for ${display} has /dev/null on both sides`);
+    if (!srcNull && src !== undefined) assertBound(stripPrefix(src), display);
+    if (!dstNull && dst !== undefined) assertBound(stripPrefix(dst), display);
+    op = srcNull ? 'create' : dstNull ? 'delete' : 'modify';
+  }
+
+  // The proposed operation must agree with the observed disk state, or the event is inconsistent and
+  // fails closed rather than being normalized into whatever the local state would suggest.
+  if (op === 'create' && !isCreate) throw new Error(`write diff for ${display} proposes a create but the target already exists`);
+  if (op !== 'create' && isCreate) throw new Error(`write diff for ${display} proposes a ${op} but the target is absent`);
+
+  const source = op === 'create' ? '/dev/null' : `a/${TARGET}`;
+  const dest = op === 'delete' ? '/dev/null' : `b/${TARGET}`;
   const joined = body.join('\n');
-  return header + (joined.endsWith('\n') ? joined : joined + '\n');
+  const patch = `--- ${source}\n+++ ${dest}\n` + (joined.endsWith('\n') ? joined : joined + '\n');
+  return { op, patch };
 }
 
 function assertBound(declared: string, display: string): void {

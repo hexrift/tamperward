@@ -326,6 +326,79 @@ describe('CopilotSdkHostedAdapter.decide — file-edit content-aware pre-deny is
     }
   });
 
+  it('a write diff that DELETES a protected test (+++ /dev/null) is reconstructed as a real deletion and denied — not an empty-file modify', () => {
+    const cwd = repoFixture();
+    try {
+      // The exact proposed operation is a DELETE. It must be judged as a deletion of the protected
+      // file (test-deletion → deny), not normalized into "modify to empty".
+      const diff = ['--- a/src/a.spec.ts', '+++ /dev/null', '@@ -1 +0,0 @@', "-it('one', () => {}); it('two', () => {});"].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff }), 'pre-action', cwd);
+      expect(r.outcome).toBe('ok');
+      expect(r.decision?.verdict).toBe('deny');
+      expect(JSON.parse(r.wire as string).feedback).toContain('test-deletion');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('a write diff whose operation header DISAGREES with disk state fails CLOSED (create header on an existing target)', () => {
+    const cwd = repoFixture();
+    try {
+      // The header claims a create (--- /dev/null) but the target already exists on disk. The
+      // operation must not be normalized into a modify; the inconsistent event fails closed.
+      const diff = ['--- /dev/null', '+++ b/src/a.spec.ts', '@@ -0,0 +1 @@', "+it('x', () => {});"].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('a write diff whose operation header DISAGREES with disk state fails CLOSED (modify header on an absent target)', () => {
+    const cwd = repoFixture();
+    try {
+      // The header claims a modify (path -> path) but the target is absent. Fails closed rather than
+      // being reconstructed against a phantom empty before.
+      const diff = ['--- a/src/gone.spec.ts', '+++ b/src/gone.spec.ts', '@@ -1 +1 @@', '-a', '+b'].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/gone.spec.ts', { diff }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('a hunk-body line beginning "--- " / "+++ " (deleted/added CONTENT) is NOT mis-read as a file header (no false-deny)', () => {
+    const cwd = repoFixture();
+    try {
+      // A non-protected file whose diff body contains lines starting `--- ` / `+++ ` as real content
+      // (a deletion/addition of text that begins with dashes/pluses). Only the pre-hunk header names
+      // the file; git owns the body. It must reconstruct and be allowed, not fail closed on a phantom
+      // "path mismatch".
+      writeFileSync(join(cwd, 'src', 'notes.md'), `-- divider\nkeep\n`);
+      const diff = ['--- a/src/notes.md', '+++ b/src/notes.md', '@@ -1,2 +1,2 @@', '--- divider', '+++ divider', ' keep'].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/notes.md', { diff }), 'pre-action', cwd);
+      expect(r.outcome).toBe('ok');
+      expect(r.decision?.verdict).toBe('allow');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('a diff past the operator-owned reconstruction budget fails CLOSED before git is spawned', () => {
+    const cwd = repoFixture();
+    const prev = process.env.TAMPERWARD_RECONSTRUCT_MAX_BYTES;
+    try {
+      process.env.TAMPERWARD_RECONSTRUCT_MAX_BYTES = '16'; // tiny ceiling → any real diff is over budget
+      const diff = ['--- a/src/a.spec.ts', '+++ b/src/a.spec.ts', '@@ -1 +1 @@', "-it('one', () => {}); it('two', () => {});", "+it('one', () => {});"].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+    } finally {
+      if (prev === undefined) delete process.env.TAMPERWARD_RECONSTRUCT_MAX_BYTES;
+      else process.env.TAMPERWARD_RECONSTRUCT_MAX_BYTES = prev;
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('a write whose EXISTING target cannot be read (a directory) fails CLOSED — not treated as a create', () => {
     const cwd = repoFixture();
     try {

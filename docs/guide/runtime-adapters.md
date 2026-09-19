@@ -512,16 +512,25 @@ proposed change — `fileName`, a unified `diff`, an `intention`, and optionally
 applied by **canonical Git**) and runs the same `evaluate` engine, so a weakened assertion / added
 skip / policy change is denied. TamperWard does **not** re-implement unified-diff semantics: for a
 `diff` it seeds an isolated, host-owned temp tree with the exact current target bytes, binds the
-patch to a fixed in-tree name, and runs `git apply --check` then `git apply`, reading the result back
-as the exact `after`. The reconstruction is **bound to the request's `fileName`**: the diff's own
-header paths are validated against it — a diff naming a different or multiple files fails **closed**
-— but never used to place the write, so a path-escaping or mismatched header cannot steer the
+patch to a fixed in-tree name, and runs `git apply --numstat` (single-file binding), `git apply
+--check`, then `git apply`, reading the result back as the exact `after`. The reconstruction is
+**bound to the request's `fileName`**: the diff's own header paths are validated against it and
+`--numstat` proves it touches exactly one file — a diff naming a different or multiple files fails
+**closed** — but they never place the write, so a path-escaping or mismatched header cannot steer the
 rebuild at a real path. Git owns every diff rule, so stale context, an overlapping/backwards hunk, a
 bad count, or a malformed header makes `git apply` refuse and the request fails **closed** (never a
-no-op allow). When both `newFileContents` and a `diff` are supplied the Git-reconstructed result must
-**byte-match** `newFileContents`, or the request is ambiguous and fails closed. `DiskEntry.kind` is
-preserved: only an **absent** target is a create (reconstructed from `/dev/null`); an existing target
-that cannot be read (directory, oversize, irregular) fails **closed**, never treated as a create.
+no-op allow). The **exact proposed operation** is preserved, never normalized: the diff's `/dev/null`
+endpoints decide create vs delete vs modify, that operation is validated against the observed disk
+state (a create whose target exists, or a modify/delete whose target is absent, fails closed), and it
+is that operation Git reconstructs — a `+++ /dev/null` delete is judged as a real deletion, not an
+empty-file modify; rename/copy/binary/mode-only shapes are rejected. The reconstruction is also
+**bounded before Git is spawned** — a diff past the operator-owned byte/line budget, or a `git apply`
+that exceeds its timeout/output cap, fails **closed**, so a candidate cannot manufacture the very
+decision-path delay #611 is measuring. When both `newFileContents` and a `diff` are supplied the
+Git-reconstructed result must **byte-match** `newFileContents`, or the request is ambiguous and fails
+closed. `DiskEntry.kind` is preserved: only an **absent** target is a create (reconstructed from
+`/dev/null`); an existing target that cannot be read (directory, oversize, irregular) fails
+**closed**, never treated as a create.
 This is conditional on what the pinned runtime
 actually provides — a write that surfaces **no usable content** is `unsupported` for that measured
 configuration (allow-through;
