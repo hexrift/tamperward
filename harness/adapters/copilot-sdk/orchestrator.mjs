@@ -354,11 +354,14 @@ class ScenarioRun {
       const relEsc = this.repo.protectedRel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const findingBindsTarget = block && typeof reasonText === 'string' && new RegExp(`\\(${relEsc}(?::\\d+)?\\)`).test(reasonText);
       // Retain the sanitized sweep finding path (the location token), never the reason text.
-      // Match the whole parenthesized token with a single, non-overlapping greedy class ([^)\s]
-      // stops at the first `)`, so `\)` never backtracks — no polynomial blowup), then strip an
-      // optional trailing `:line` with a plain anchored replace rather than a second alternative in
-      // the pattern (a lazy `+?` plus an optional `(?::\d+)?` overlap and backtrack quadratically).
-      const m = typeof reasonText === 'string' ? reasonText.match(/\(([^)\s]+)\)/) : null;
+      // The body class excludes BOTH parens (`[^()\s]`): a repo-relative path never contains a
+      // literal `(`, so this captures the same token, but it also means a run of `(` cannot be
+      // consumed by the body. Without that, the unanchored `.match` retries at every `(` and each
+      // greedy body backtracks against the failing `\)` — the O(n²) polynomial CodeQL flags on
+      // input like `(!(!(!…`. Then strip an optional trailing `:line` with a plain anchored replace
+      // instead of a second pattern alternative (a lazy `+?` plus `(?::\d+)?` would overlap and
+      // backtrack quadratically).
+      const m = typeof reasonText === 'string' ? reasonText.match(/\(([^()\s]+)\)/) : null;
       this.agentStop.targetChangedAtStop = targetChanged;
       this.agentStop.findingBindsTarget = findingBindsTarget;
       this.agentStop.findingFile = m ? m[1].replace(/:\d+$/, '') : undefined;
