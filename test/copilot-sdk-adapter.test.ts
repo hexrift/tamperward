@@ -272,12 +272,12 @@ describe('CopilotSdkHostedAdapter.decide — file-edit content-aware pre-deny is
     }
   });
 
-  it('a diff-only INSERTION into an EXISTING file is reconstructed and judged, not misclassified as a create', () => {
+  it('a diff-only INSERTION into an EXISTING file is reconstructed by git and judged, not misclassified as a create', () => {
     const cwd = repoFixture();
     try {
-      // A pure insertion uses a zero-old-line hunk (@@ -1,0 +2,1 @@) — that is NOT a create when the
-      // file exists. It must be reconstructed + judged (a benign insertion → allow), not `unsupported`.
-      const diff = ['@@ -1,0 +2,1 @@', "+it('inserted', () => {});"].join('\n');
+      // A well-formed insertion hunk (one context line + an added line). git apply anchors it to the
+      // existing file — before !== null so it is NOT a create — and the benign insertion → allow.
+      const diff = ['@@ -1,1 +1,2 @@', ' it(\'one\', () => {}); it(\'two\', () => {});', "+it('inserted', () => {});"].join('\n');
       const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff }), 'pre-action', cwd);
       expect(r.outcome).toBe('ok');
       expect(r.decision?.verdict).toBe('allow');
@@ -289,9 +289,9 @@ describe('CopilotSdkHostedAdapter.decide — file-edit content-aware pre-deny is
   it('an existing-file insertion where diff and newFileContents DISAGREE fails CLOSED (agreement check not bypassed)', () => {
     const cwd = repoFixture();
     try {
-      // Insertion-only diff (zero-old-line) adds a line that the benign newFileContents lacks → they
-      // disagree. The agreement check must NOT be bypassed for this hunk shape.
-      const diff = ['@@ -1,0 +2,1 @@', "+it('inserted', () => {});"].join('\n');
+      // The insertion diff adds a line that the benign newFileContents lacks → git reconstructs an
+      // `after` that does not byte-match newFileContents. The agreement check must fail closed.
+      const diff = ['@@ -1,1 +1,2 @@', ' it(\'one\', () => {}); it(\'two\', () => {});', "+it('inserted', () => {});"].join('\n');
       const newFileContents = `it('one', () => {}); it('two', () => {});\n`; // no inserted line → disagrees with the diff
       const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff, newFileContents }), 'pre-action', cwd);
       expect(r.decision?.verdict).toBe('deny');
@@ -300,13 +300,15 @@ describe('CopilotSdkHostedAdapter.decide — file-edit content-aware pre-deny is
     }
   });
 
-  it('a diff-only file CREATE (@@ -0,0 +1,N @@) is UNSUPPORTED for this measured config (not counted as content-aware proof)', () => {
+  it('a diff-only file CREATE (target ABSENT on disk) is reconstructed by git from /dev/null and judged', () => {
     const cwd = repoFixture();
     try {
+      // The target does not exist (DiskEntry.kind === absent), so this is a genuine create. git apply
+      // anchors the hunk to /dev/null and reconstructs the new file; adding a fresh test → allow.
       const diff = ['@@ -0,0 +1,1 @@', "+it('new', () => {});"].join('\n');
       const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/new.spec.ts', { diff }), 'pre-action', cwd);
-      expect(r.outcome).toBe('unsupported');
-      expect(r.decision).toBeUndefined();
+      expect(r.outcome).toBe('ok');
+      expect(r.decision?.verdict).toBe('allow');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -319,6 +321,21 @@ describe('CopilotSdkHostedAdapter.decide — file-edit content-aware pre-deny is
       expect(r.outcome).toBe('unsupported');
       expect(r.decision).toBeUndefined();
       expect(r.detail).toMatch(/content|sweep/i);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('a write whose EXISTING target cannot be read (a directory) fails CLOSED — not treated as a create', () => {
+    const cwd = repoFixture();
+    try {
+      // A directory stands where the write names a file: DiskEntry.kind is `directory`, not `absent`,
+      // so there is no readable `before`. It must fail closed rather than reconstruct against an empty
+      // phantom before (which would model a create and could let a weakening through).
+      mkdirSync(join(cwd, 'src', 'dir.spec.ts'));
+      const diff = ['@@ -0,0 +1,1 @@', "+it('x', () => {});"].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/dir.spec.ts', { diff }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

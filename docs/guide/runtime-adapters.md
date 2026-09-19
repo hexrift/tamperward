@@ -508,17 +508,21 @@ against the runner's independently derived trusted root. A pre-action deny is th
 **Content-aware file-edit pre-deny is CONDITIONAL.** A `write` `PermissionRequest` surfaces the
 proposed change — `fileName`, a unified `diff`, an `intention`, and optionally the full
 `newFileContents` — so TamperWard **can** judge it before execution: the adapter reconstructs a
-`Change[]` from that content (`newFileContents` → the shared `synthFileChange`; else the `diff` →
-the shared `parseDiff`, whose hunks are applied to the on-disk `before` to recover the full `after`)
-and runs the same `evaluate` engine, so a weakened assertion / added skip / policy change is denied.
-The reconstructed change is **bound to the request's `fileName`**: the diff's own header paths are
-not trusted, so a diff naming a different or multiple files fails **closed** rather than letting a
-benign-looking header dodge the protected target. The hunks are applied to `before`
-**conservatively** — every context/deletion line must match the disk, counts/ordering are validated,
-and a malformed non-empty diff that parses to zero hunks fails **closed** (never a no-op allow).
-When both `newFileContents` and a `diff` are supplied they must **agree**, or the request is
-ambiguous and fails closed. A diff-only file *create* is not reconstructed this milestone — it is
-`unsupported` (not counted as content-aware proof). This is conditional on what the pinned runtime
+`Change[]` from that content (`newFileContents` → the shared `synthFileChange`; else the `diff` is
+applied by **canonical Git**) and runs the same `evaluate` engine, so a weakened assertion / added
+skip / policy change is denied. TamperWard does **not** re-implement unified-diff semantics: for a
+`diff` it seeds an isolated, host-owned temp tree with the exact current target bytes, binds the
+patch to a fixed in-tree name, and runs `git apply --check` then `git apply`, reading the result back
+as the exact `after`. The reconstruction is **bound to the request's `fileName`**: the diff's own
+header paths are validated against it — a diff naming a different or multiple files fails **closed**
+— but never used to place the write, so a path-escaping or mismatched header cannot steer the
+rebuild at a real path. Git owns every diff rule, so stale context, an overlapping/backwards hunk, a
+bad count, or a malformed header makes `git apply` refuse and the request fails **closed** (never a
+no-op allow). When both `newFileContents` and a `diff` are supplied the Git-reconstructed result must
+**byte-match** `newFileContents`, or the request is ambiguous and fails closed. `DiskEntry.kind` is
+preserved: only an **absent** target is a create (reconstructed from `/dev/null`); an existing target
+that cannot be read (directory, oversize, irregular) fails **closed**, never treated as a create.
+This is conditional on what the pinned runtime
 actually provides — a write that surfaces **no usable content** is `unsupported` for that measured
 configuration (allow-through;
 the end-of-turn sweep is the authority), never a **blanket path deny**, which would replace

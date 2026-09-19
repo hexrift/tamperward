@@ -3,32 +3,39 @@
 // A hosted-SDK `write` permission request surfaces the proposed change (a unified `diff`, and
 // optionally the full `newFileContents`) alongside the target `fileName`. This reconstructs that
 // into the shared `Change[]` shape the engine already judges — so content-aware pre-deny reuses
-// the SAME detectors as every other surface, no new verdict path. Reconstruction is CONDITIONAL on
-// what the runtime actually provides:
+// the SAME detectors as every other surface, no new verdict path.
 //
-//   - `newFileContents` present → exact before→after reconstruction via the shared `synthFileChange`;
-//   - else a usable `diff` → parsed by the shared `parseDiff` (the same producer the CI / pre-commit
-//     path judges), with a synthetic file header added from `fileName` when the raw diff omits one;
+// TamperWard does NOT re-implement unified-diff semantics. Reconstruction is delegated to canonical
+// Git: for a write carrying a `diff` we seed an isolated, host-owned temp tree with the EXACT current
+// target bytes, bind the patch to a fixed in-tree name (the diff's own header paths are validated
+// against the permission request's `fileName` but never trusted for application), and run
+// `git apply --check` then `git apply`. The reconstructed file is read back and passed as the exact
+// `after`. Any parse/apply failure — stale context, an overlapping hunk, a malformed header, a patch
+// naming a different file — makes Git refuse, and we FAIL CLOSED (the caller turns the throw into a
+// deny), the conservative stance for an unproven runtime.
+//
+// Reconstruction is CONDITIONAL on what the runtime actually provides:
+//   - a usable `diff` → reconstructed by Git as above;
+//   - `newFileContents` present → the authoritative `after`; if a `diff` is ALSO present the two
+//     must byte-match (an inconsistent event is ambiguous and fails closed);
 //   - neither → `null`, signalling this measured configuration surfaces no usable content, so the
 //     adapter reports `unsupported` (allow-through; the end-of-turn sweep is the authority) rather
 //     than blanket-denying the write.
 //
-// A write that carries a path but a diff that cannot be reconstructed THROWS, and the caller turns
-// that into a fail-closed deny — the conservative stance for an unproven runtime (never allow an
-// edit the gate could not model), matching src/adapters/copilot/changes.ts.
+// `DiskEntry.kind` is preserved: only an ABSENT target is a create; an existing target that cannot
+// be read (directory, symlink-to-nonfile, oversize, irregular, read error) fails closed rather than
+// being treated as a create.
 
-import { isAbsolute, relative, resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { isAbsolute, relative, resolve, join, dirname } from 'node:path';
 import { Change } from '../../types';
 import { synthFileChange } from '../claude/changes';
-import { parseDiff } from '../../diff/parse';
 import { inspectResolved, textOf } from '../../disk';
 
 function asStr(v: unknown): string {
   return typeof v === 'string' ? v : '';
-}
-
-function readDisk(path: string): string | null {
-  return textOf(inspectResolved(path));
 }
 
 function relForDisplay(path: string, cwd: string): string {
@@ -45,53 +52,31 @@ export function sdkFileEditChanges(args: Record<string, unknown>, cwd: string, b
   const path = asStr(args.path) || asStr(args.fileName) || asStr(args.file_path);
   if (!path) throw new Error('write event carries no fileName/path to reconstruct');
   const abs = resolve(base, path);
-  const before = readDisk(abs);
   const display = relForDisplay(abs, cwd);
+
+  // Preserve DiskEntry.kind: only an ABSENT target is a create. An existing target the gate cannot
+  // read (directory/symlink-to-nonfile/oversize/irregular/read error → content null) fails closed
+  // rather than being reconstructed against a phantom empty "before".
+  const entry = inspectResolved(abs);
+  const isCreate = entry.kind === 'absent';
+  const before = textOf(entry);
+  if (!isCreate && before === null) {
+    throw new Error(`write target ${display} exists but cannot be read to judge it (${entry.kind})`);
+  }
 
   const newFileContents = typeof args.newFileContents === 'string' ? args.newFileContents : undefined;
   const rawDiff = asStr(args.diff);
 
-  // Reconstruct the proposed `after` from the unified `diff`, bound to the permission request's
-  // `fileName`. The diff is parsed by the SHARED producer (`parseDiff`, which needs a `diff --git`
-  // envelope) and CRUCIALLY bound to the target — the diff's own header paths are NOT trusted (a
-  // payload could name a benign file while authorizing a protected write). Returns the reconstructed
-  // `after`, `null` for a shape not reconstructed here (diff-only create → measured-unsupported), or
-  // throws (multi-file / mismatched path / malformed zero-hunk / unverifiable hunk) → fail closed.
-  let afterFromDiff; // string | undefined; undefined = no diff reconstruction available
-  if (rawDiff.trim()) {
-    const parsed = parseDiff(toGitDiff(rawDiff, display));
-    if (!parsed.length) throw new Error(`write diff for ${path} could not be reconstructed into a change`);
-    if (parsed.length > 1) throw new Error(`write diff spans ${parsed.length} files; a single permission target (${display}) was expected`);
-    const c = parsed[0];
-    if (c.kind !== 'file') throw new Error('write diff did not reconstruct into a file change');
-    if (c.path !== display || (c.oldPath != null && c.oldPath !== display)) {
-      throw new Error(`write diff path (${c.path}${c.oldPath ? ` from ${c.oldPath}` : ''}) does not match the permission request target (${display}) — refusing to judge a different file`);
-    }
-    // A true file CREATE is one whose target was ABSENT on disk (`before === null`) — NOT a hunk
-    // whose `oldLines === 0`, which is also the shape of a pure INSERTION into an existing file
-    // (`@@ -1,0 +2,1 @@`). A diff-only create is a valid shape this milestone does not reconstruct,
-    // so it is UNSUPPORTED (measured-incomplete; the end-of-turn sweep is authority) and can never be
-    // counted as content-aware proof — unless the full newFileContents is also supplied. An existing
-    // file (including an insertion into it) is always reconstructed + validated normally below.
-    const isCreate = before === null;
-    if (isCreate) {
-      if (newFileContents === undefined) return null; // diff-only create → unsupported this milestone
-      // create + full content: judge the authoritative newFileContents (no diff cross-check for a create).
-    } else {
-      // A non-empty modify/insert diff MUST carry at least one successfully parsed hunk — parseDiff
-      // skips a malformed `@@` header, which would otherwise collapse to a no-op "nothing changed" allow.
-      if (c.hunks.length === 0) throw new Error(`write diff for ${path} carries no valid hunk (malformed) — refusing a no-op reconstruction`);
-      // parseDiff carries hunks but not before/after; apply them (conservatively — see
-      // applyUnifiedHunks) to recover the full proposed `after`.
-      afterFromDiff = applyUnifiedHunks(before, c.hunks);
-    }
-  }
+  // Reconstruct the proposed `after` from the unified `diff` via canonical Git, bound to the
+  // permission request's target. Returns the reconstructed `after`, or throws (multi-file /
+  // mismatched path / malformed / stale context / overlap) → the caller fails closed.
+  const afterFromDiff = rawDiff.trim() ? reconstructAfterViaGit(rawDiff, display, before, isCreate) : undefined;
 
   if (newFileContents !== undefined) {
     // If both representations are supplied they must AGREE — an inconsistent event (e.g. benign full
     // content beside a weakening diff) is ambiguous and fails closed rather than judging only one.
     if (afterFromDiff !== undefined && afterFromDiff !== newFileContents) {
-      throw new Error(`write supplies both newFileContents and a diff that DISAGREE for ${path}; ambiguous request — refusing to judge only one representation`);
+      throw new Error(`write supplies both newFileContents and a diff that DISAGREE for ${display}; ambiguous request — refusing to judge only one representation`);
     }
     return synthFileChange(display, before, newFileContents);
   }
@@ -100,62 +85,87 @@ export function sdkFileEditChanges(args: Record<string, unknown>, cwd: string, b
   return null; // no usable content surfaced → the caller reports unsupported
 }
 
-/**
- * Apply parsed unified-diff hunks to `before`, yielding the proposed `after` — CONSERVATIVELY. The
- * reconstructed `after` is what the engine is asked to approve, so a hunk that cannot be located and
- * verified EXACTLY is never guessed (the same principle as src/adapters/apply-patch.ts): every
- * context and deleted line must match the corresponding on-disk `before` line, each hunk's declared
- * old/new line counts must match its body, and hunks must be in-bounds and strictly forward (no
- * overlap/backtracking). Any mismatch THROWS, and the caller turns that into a fail-closed deny.
- */
-function applyUnifiedHunks(
-  before: string | null,
-  hunks: { oldStart: number; oldLines: number; newLines: number; lines: { type: string; content: string }[] }[],
-): string {
-  const beforeLines = before === null ? [] : before.split('\n');
-  const out: string[] = [];
-  let cursor = 0; // 0-based index into beforeLines; strictly non-decreasing across hunks
-  for (const h of hunks) {
-    const start = h.oldStart - 1;
-    if (start < cursor) throw new Error('unified diff has overlapping or out-of-order hunks; refusing to reconstruct');
-    if (start > beforeLines.length) throw new Error('unified diff hunk starts beyond the end of the file; refusing to reconstruct');
-    while (cursor < start) out.push(beforeLines[cursor++]);
-    let oldCount = 0;
-    let newCount = 0;
-    for (const ln of h.lines) {
-      if (ln.type === 'context') {
-        if (beforeLines[cursor] !== ln.content) throw new Error('unified diff context line does not match the file on disk; refusing to reconstruct');
-        out.push(ln.content);
-        cursor++;
-        oldCount++;
-        newCount++;
-      } else if (ln.type === 'del') {
-        if (beforeLines[cursor] !== ln.content) throw new Error('unified diff deletion line does not match the file on disk; refusing to reconstruct');
-        cursor++;
-        oldCount++;
-      } else if (ln.type === 'add') {
-        out.push(ln.content);
-        newCount++;
-      }
-    }
-    if (oldCount !== h.oldLines) throw new Error(`unified diff hunk old-line count (${oldCount}) disagrees with its header (${h.oldLines})`);
-    if (newCount !== h.newLines) throw new Error(`unified diff hunk new-line count (${newCount}) disagrees with its header (${h.newLines})`);
-  }
-  while (cursor < beforeLines.length) out.push(beforeLines[cursor++]);
-  return out.join('\n');
+const TARGET = 'target'; // fixed, escape-free in-tree name the patch is bound to for application
+
+/** Strip a leading `a/` or `b/` path prefix; leave `/dev/null` untouched. */
+function stripPrefix(p: string): string {
+  return /^[ab]\//.test(p) ? p.slice(2) : p;
 }
 
 /**
- * Turn a unified diff into a `diff --git`-enveloped diff `parseDiff` accepts, ALWAYS anchored to
- * `target`. When the raw diff already carries a `diff --git` envelope it is used verbatim (its paths
- * are then verified against `target` by the caller, so a mismatching header fails closed rather than
- * being silently rebound). A bare hunk body is wrapped with a header derived from `target`.
+ * Reconstruct the proposed `after` bytes by applying `rawDiff` with canonical Git, in an isolated
+ * host-owned temp tree. The diff's own header paths are VALIDATED against `display` (a diff naming a
+ * different file, or spanning multiple files, is refused) but never used to place the write — the
+ * patch is rebound to a fixed in-tree name, so a path-escaping or mismatched header cannot steer the
+ * reconstruction at a real path. `git apply --check` then `git apply` own every unified-diff rule
+ * (context match, hunk order, counts); any refusal throws and the caller fails closed.
  */
-function toGitDiff(raw: string, target: string): string {
-  if (raw.includes('diff --git ')) return raw;
-  const at = raw.indexOf('\n@@');
-  const firstAt = raw.startsWith('@@') ? 0 : at >= 0 ? at + 1 : -1;
-  if (firstAt < 0) throw new Error('unified diff has no hunk to reconstruct');
-  const body = raw.slice(firstAt);
-  return `diff --git a/${target} b/${target}\n--- a/${target}\n+++ b/${target}\n${body}`;
+function reconstructAfterViaGit(rawDiff: string, display: string, before: string | null, isCreate: boolean): string {
+  const patch = canonicalPatch(rawDiff, display, isCreate);
+  const dir = mkdtempSync(join(tmpdir(), 'hf-sdk-apply-'));
+  try {
+    const targetPath = join(dir, TARGET);
+    if (!isCreate) writeFileSync(targetPath, before ?? '');
+    const patchPath = join(dir, 'change.patch');
+    mkdirSync(dirname(patchPath), { recursive: true });
+    writeFileSync(patchPath, patch);
+    // --check first so a non-applying patch (stale context, overlap, bad counts) is refused before
+    // any write; then apply. Both run with cwd = the temp tree, so `-p1` (git's default) maps the
+    // bound `a/target` / `b/target` headers onto TARGET and nowhere else.
+    execFileSync('git', ['apply', '--check', patchPath], { cwd: dir });
+    execFileSync('git', ['apply', patchPath], { cwd: dir });
+    return readFileSync(targetPath, 'utf8');
+  } catch (e) {
+    throw new Error(`could not reconstruct the write to ${display} from its diff via git apply: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Turn a raw unified diff into a single-file patch bound to a fixed in-tree name, ready for
+ * `git apply`. Validates the trust boundary FIRST: every file path the diff declares (via
+ * `diff --git`, `---`, `+++`) must, after stripping the `a/`/`b/` prefix, equal `display`, and the
+ * diff must name exactly one file. A create is anchored to `/dev/null`; a modify to `a/target`. The
+ * hunk body is taken verbatim from the first `@@` so Git — not this code — interprets it. Any
+ * multi-file, mismatched-path, or hunkless input throws → the caller fails closed.
+ */
+function canonicalPatch(raw: string, display: string, isCreate: boolean): string {
+  const lines = raw.replace(/\r\n/g, '\n').split('\n');
+
+  let fileHeaders = 0;
+  for (const line of lines) {
+    if (line.startsWith('diff --git ')) {
+      const parts = line.slice('diff --git '.length).trim().split(/\s+/);
+      for (const p of parts) assertBound(stripPrefix(p), display);
+    } else if (line.startsWith('--- ') || line.startsWith('+++ ')) {
+      if (line.startsWith('+++ ')) fileHeaders++;
+      const p = line.slice(4).split('\t')[0].trim();
+      if (p !== '/dev/null') assertBound(stripPrefix(p), display);
+    }
+  }
+  if (fileHeaders > 1) {
+    throw new Error(`write diff spans ${fileHeaders} files; a single permission target (${display}) was expected`);
+  }
+
+  const at = lines.findIndex((l) => l.startsWith('@@ '));
+  if (at < 0) throw new Error(`write diff for ${display} has no hunk to reconstruct`);
+  const body = lines.slice(at);
+  // A second file's headers appearing inside the hunk body is multi-file input we did not bind above.
+  for (const l of body) {
+    if (l.startsWith('diff --git ') || l.startsWith('--- ') || l.startsWith('+++ ')) {
+      throw new Error(`write diff for ${display} carries interleaved file headers; only a single-file patch is reconstructed`);
+    }
+  }
+
+  const source = isCreate ? '/dev/null' : `a/${TARGET}`;
+  const header = `--- ${source}\n+++ b/${TARGET}\n`;
+  const joined = body.join('\n');
+  return header + (joined.endsWith('\n') ? joined : joined + '\n');
+}
+
+function assertBound(declared: string, display: string): void {
+  if (declared !== display) {
+    throw new Error(`write diff path (${declared}) does not match the permission request target (${display}) — refusing to judge a different file`);
+  }
 }
