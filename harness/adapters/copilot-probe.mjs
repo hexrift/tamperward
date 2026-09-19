@@ -206,6 +206,9 @@ export function runtimeAbortReason(run) {
   if (run.error && run.error.code === 'ENOBUFS') return 'Copilot output exceeded the probe buffer';
   const text = `${run.stdout || ''}\n${run.stderr || ''}`;
   if (/usage limit|rate limit/i.test(text)) return 'usage limit reached';
+  if (/access denied by policy settings|copilot cli policy setting may be preventing access/i.test(text)) {
+    return 'Copilot CLI blocked by policy';
+  }
   if (/authentication|not authenticated|unauthorized|please log ?in/i.test(text)) return 'authentication failed';
   if (/model (unavailable|not (found|available))/i.test(text)) return 'model unavailable';
   if (/network (error|failure)|econnrefused|etimedout|dns/i.test(text)) return 'network failure';
