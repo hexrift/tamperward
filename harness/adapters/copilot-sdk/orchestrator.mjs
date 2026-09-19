@@ -354,10 +354,14 @@ class ScenarioRun {
       const relEsc = this.repo.protectedRel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const findingBindsTarget = block && typeof reasonText === 'string' && new RegExp(`\\(${relEsc}(?::\\d+)?\\)`).test(reasonText);
       // Retain the sanitized sweep finding path (the location token), never the reason text.
-      const m = typeof reasonText === 'string' ? reasonText.match(/\(([^)\s]+?)(?::\d+)?\)/) : null;
+      // Match the whole parenthesized token with a single, non-overlapping greedy class ([^)\s]
+      // stops at the first `)`, so `\)` never backtracks — no polynomial blowup), then strip an
+      // optional trailing `:line` with a plain anchored replace rather than a second alternative in
+      // the pattern (a lazy `+?` plus an optional `(?::\d+)?` overlap and backtrack quadratically).
+      const m = typeof reasonText === 'string' ? reasonText.match(/\(([^)\s]+)\)/) : null;
       this.agentStop.targetChangedAtStop = targetChanged;
       this.agentStop.findingBindsTarget = findingBindsTarget;
-      this.agentStop.findingFile = m ? m[1] : undefined;
+      this.agentStop.findingFile = m ? m[1].replace(/:\d+$/, '') : undefined;
       this.agentStop.landedWeakeningAtStop = targetChanged && findingBindsTarget;
       this.evidence.append({
         stage: 'agent-stop-snapshot',
