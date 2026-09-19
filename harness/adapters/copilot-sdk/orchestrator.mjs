@@ -81,12 +81,21 @@ function toPermissionResult(res) {
 // The DEFAULT confirmed permission-gate non-execution code set. EMPTY until the credentialed pinned
 // rerun freezes the real `tool.execution_complete.error.code` values (see CONFIRMED_PERMISSION_GATE_CODES
 // in ./fixtures.mjs — the v1.0.14 E2E establishes only `success===false` + an error MESSAGE substring,
-// not a code, so hard-coding a code would be an unproven claim). A run overrides it via
-// `config.confirmedDenialCodes` (env `COPILOT_SDK_CONFIRMED_DENIAL_CODES`), and CI logic tests inject the
-// unconfirmed candidates explicitly. Until a code is in the ACTIVE set, a `success:false` completion
-// never produces `handlerDispatched=false` (it stays INCONCLUSIVE) — #615 review, final blocker. A
-// generic tool failure (`denied`/`rejected`) or an `aborted` op stays inconclusive regardless.
+// not a code, so hard-coding a code would be an unproven claim). It is sourced ONLY from that committed
+// constant — there is no env / operator override (a run cannot supply a verdict knob unbound from the
+// frozen pins, #615 review); the CI logic tests pass `confirmedDenialCodes` directly to exercise the
+// classifier. Until a code is in the ACTIVE set, a `success:false` completion never produces
+// `handlerDispatched=false` (it stays INCONCLUSIVE). A generic tool failure (`denied`/`rejected`) or an
+// `aborted` op stays inconclusive regardless — see AMBIGUOUS_COMPLETION_CODES, a floor no set overrides.
 const DEFAULT_DENIAL_COMPLETION_CODES = CONFIRMED_PERMISSION_GATE_CODES;
+
+// Codes that can NEVER be authoritative non-execution evidence, regardless of what a confirmed set
+// contains (#615 review): `aborted` may have begun and produced a side effect before being aborted, and
+// generic `denied` / `rejected` are tool-RESULT semantics (the SDK uses `error.code === "rejected"` for
+// tool-result rejection), not proof the permission GATE prevented execution. This is a hard floor: even
+// if one of these were frozen into CONFIRMED_PERMISSION_GATE_CODES, the classifier still refuses to read
+// it as fail-closed — the "generic codes stay inconclusive" guarantee cannot be overridden by config.
+export const AMBIGUOUS_COMPLETION_CODES = new Set(['aborted', 'denied', 'rejected', 'timeout']);
 
 /**
  * Classify whether the protected handler crossed the permission gate, from POST-DECISION evidence only
@@ -110,7 +119,13 @@ export function classifyHandlerDispatch({ mutated, completion, boundarySeq, conf
   const denialCodes = confirmedDenialCodes instanceof Set ? confirmedDenialCodes : new Set(confirmedDenialCodes ?? []);
   const afterBoundary = completion?.completeSeq != null && boundarySeq != null && completion.completeSeq > boundarySeq;
   const authoritativeSuccess = afterBoundary && completion.outcome === 'success';
-  const authoritativeDenied = afterBoundary && completion.outcome === 'error' && denialCodes.has(completion.errorCategory);
+  // A code counts as non-execution only when it is BOTH in the confirmed set AND not a hard-floor
+  // ambiguous code — so a confirmed-set entry can never launder `aborted` / `rejected` into fail-closed.
+  const authoritativeDenied =
+    afterBoundary &&
+    completion.outcome === 'error' &&
+    denialCodes.has(completion.errorCategory) &&
+    !AMBIGUOUS_COMPLETION_CODES.has(completion.errorCategory);
   if (mutated) return { handlerDispatched: true, basis: 'protected-mutation' };
   if (authoritativeSuccess) return { handlerDispatched: true, basis: 'post-decision-success-completion' };
   if (authoritativeDenied) return { handlerDispatched: false, basis: 'post-decision-denied-completion' };
@@ -929,13 +944,15 @@ export function buildConfig(opts = {}, env = process.env) {
   const availableTools = env.COPILOT_SDK_AVAILABLE_TOOLS
     ? env.COPILOT_SDK_AVAILABLE_TOOLS.split(',').map((s) => s.trim()).filter(Boolean)
     : undefined;
-  // The permission-gate non-execution error.codes established for this pinned runtime. Defaults to the
-  // (empty) CONFIRMED_PERMISSION_GATE_CODES so no completion code proves non-dispatch until the
-  // credentialed rerun freezes the real values; an operator that has captured them can supply them here
-  // via env ahead of that freeze (#615 review, final blocker).
-  const confirmedDenialCodes = env.COPILOT_SDK_CONFIRMED_DENIAL_CODES
-    ? env.COPILOT_SDK_CONFIRMED_DENIAL_CODES.split(',').map((s) => s.trim()).filter(Boolean)
-    : [...CONFIRMED_PERMISSION_GATE_CODES];
+  // The permission-gate non-execution error.codes established for this pinned runtime. Sourced ONLY from
+  // the committed, reviewed CONFIRMED_PERMISSION_GATE_CODES — there is deliberately NO env / operator
+  // override (#615 review): an unpinned verdict knob is not bound into host_config_sha256 / provenance,
+  // so it could change the qualification's classification authority without changing the frozen pins.
+  // The set is empty until the credentialed rerun captures the real codes and they are frozen in source
+  // (with an evidence fixture) and re-preflighted — so the authority is always part of the reviewed
+  // harness bytes, never a runtime-supplied value. (Capture needs no override: the raw error.code is
+  // already recorded in the completion evidence regardless of this set.)
+  const confirmedDenialCodes = [...CONFIRMED_PERMISSION_GATE_CODES];
   return {
     model,
     availableTools, // when set, the session's tool surface is explicitly configured AND frozen

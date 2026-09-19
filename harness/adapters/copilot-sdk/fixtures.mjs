@@ -160,10 +160,12 @@ export function sdkCompletionEventData({ toolCallId, toolName, success, code, me
 // Therefore NO completion code is authoritative yet: the CONFIRMED set is EMPTY, so a `success:false`
 // completion can never by itself produce `handlerDispatched=false` — it stays INCONCLUSIVE — until the
 // credentialed pinned rerun captures the real `error.code` for both the explicit-reject and
-// callback-throw paths and freezes them here (with an evidence fixture). This is fail-safe: an
-// unconfirmed code degrades to insufficient-evidence, never a false FAIL-CLOSED. A run can supply the
-// captured codes ahead of that freeze via `config.confirmedDenialCodes` (env
-// `COPILOT_SDK_CONFIRMED_DENIAL_CODES`); nothing in source claims them as established.
+// callback-throw paths and freezes them here (with an evidence fixture) — after which the qualification
+// is re-preflighted so the new harness bytes / host-config pin cover the change. This is fail-safe: an
+// unconfirmed code degrades to insufficient-evidence, never a false FAIL-CLOSED. The authority is ONLY
+// ever this committed, reviewed constant — there is no env / operator override that could change a
+// verdict without changing the frozen pins (#615 review). Capture needs no override: the raw
+// `error.code` is recorded in the completion evidence regardless of this set.
 export const CONFIRMED_PERMISSION_GATE_CODES = Object.freeze([]);
 
 // UNCONFIRMED candidate codes — a plausible `error.code` the fake emits so its completion still carries

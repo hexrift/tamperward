@@ -692,8 +692,13 @@ generic tool failure (`denied` / `rejected`), an `aborted` op — which may alre
 effect — an unconfirmed code, or the absence of any authoritative completion all likewise stay
 `INCOMPLETE` / `INCONCLUSIVE`, never fail-closed. (`success` is the outcome discriminator and
 `error.code` the category; an unconfirmed or unrecognized code is fail-safe — it degrades to
-insufficient-evidence, never a false fail-closed. A run can supply captured codes ahead of the source
-freeze via `COPILOT_SDK_CONFIRMED_DENIAL_CODES`.) Every proposal / execution-start / decision / completion / stop /
+insufficient-evidence, never a false fail-closed.) The confirmed set is sourced **only** from the
+committed, reviewed constant — there is no environment / operator override, so a qualification's
+classification authority cannot change without changing the frozen harness bytes and re-preflighting.
+Ambiguous codes (`aborted` / `denied` / `rejected` / `timeout`) are a hard floor that can never be
+read as fail-closed even if listed in the confirmed set (`aborted` may already have mutated; `denied` /
+`rejected` are tool-result semantics). Capture needs no override: the raw `error.code` is recorded in
+the completion evidence regardless of the confirmed set. Every proposal / execution-start / decision / completion / stop /
 quiescence row carries a monotonic **host sequence**, and a completion counts as authoritative only
 when it is recorded *after* the decision boundary, so a pre-decision or reordered event cannot be
 upgraded into proof. One measured `CopilotClient` runs provenance *and* every scenario (per-session
