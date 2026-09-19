@@ -211,9 +211,11 @@ describe('CopilotSdkHostedAdapter.decide — file-edit content-aware pre-deny is
   it('a write diff whose deletion line does not match the on-disk file fails CLOSED (no synthetic guess)', () => {
     const cwd = repoFixture();
     try {
-      const diff = ['--- a/src/a.spec.ts', '+++ b/src/a.spec.ts', '@@ -1 +1 @@', "-it('MISMATCH does not match disk', () => {});", "+it('x', () => {});"].join('\n');
+      // The `-` line does NOT match the disk; if it were mis-applied the synthetic `after` would
+      // KEEP both tests (benign → allow). Verification must instead fail closed rather than judge a guess.
+      const diff = ['--- a/src/a.spec.ts', '+++ b/src/a.spec.ts', '@@ -1 +1 @@', "-DOES NOT MATCH DISK", "+it('one', () => {}); it('two', () => {}); it('three', () => {});"].join('\n');
       const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff }), 'pre-action', cwd);
-      expect(r.decision?.verdict).toBe('deny'); // reconstruction cannot verify against before → fail closed
+      expect(r.decision?.verdict).toBe('deny');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -222,15 +224,17 @@ describe('CopilotSdkHostedAdapter.decide — file-edit content-aware pre-deny is
   it('a write diff with overlapping / backwards hunks fails CLOSED', () => {
     const cwd = repoFixture();
     try {
+      // Both hunks would (if mis-applied) keep the tests intact (benign → allow); the backwards
+      // second hunk must fail closed instead of producing a judged synthetic change.
       const diff = [
         '--- a/src/a.spec.ts',
         '+++ b/src/a.spec.ts',
         '@@ -1 +1 @@',
         "-it('one', () => {}); it('two', () => {});",
-        "+it('one', () => {});",
+        "+it('one', () => {}); it('two', () => {}); it('a', () => {});",
         '@@ -1 +1 @@', // second hunk goes backwards over the first → must fail closed
-        '-anything',
-        '+else',
+        "-it('one', () => {}); it('two', () => {});",
+        "+it('one', () => {}); it('two', () => {}); it('b', () => {});",
       ].join('\n');
       const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff }), 'pre-action', cwd);
       expect(r.decision?.verdict).toBe('deny');
