@@ -673,16 +673,27 @@ callback plus the harness's own wait is not fail-closed); and the **write** row 
 observed protected proposal is actually a `write`/`apply_patch` surface (a shell proposal satisfying a
 write prompt is `UNSUPPORTED` for that row). The **broken-decision-path** injection is bound to the
 actual protected *mutation* (identified by the canonical adapter/engine denying it, so a
-non-mutating inspection like `cat` of the same path cannot stand in) and only converts absence into
-explicit non-dispatch once **host-owned dispatch-channel liveness** is established — a benign
-proposal whose `toolCallId` is observed in `tool.execution_start`; candidate-visible repo state (the
-sentinel file) corroborates but never substitutes, so if execution events are broken the result
-stays `INCOMPLETE` / `INCONCLUSIVE`. One measured `CopilotClient` runs provenance *and* every
-scenario (per-session `workingDirectory` isolation), so the frozen runtime/protocol is the runtime
-that executed. Both a proven dispatch **and** a proven non-dispatch require a **runtime-correlatable**
-`toolCallId` on the protected proposal (it is optional upstream); when the SDK omits it, a later
-`tool.execution_start` cannot be tied back to the denied proposal, so the no-dispatch claim stays
-`INCOMPLETE` / `INCONCLUSIVE` rather than becoming explicit non-dispatch. **Quiescence is part of the
+non-mutating inspection like `cat` of the same path cannot stand in).
+
+**`tool.execution_start` is a lifecycle-START / execution-ATTEMPT observation, never dispatch past the
+permission gate** (#614): the measured hosted runtime emits it *before* the permission callback
+resolves, so it can never by itself set `handlerDispatched=true` or `FAIL-OPEN`. FAIL-OPEN is decided
+only from **post-decision** evidence — an actual protected mutation on disk, or an authoritative
+post-decision **success** `tool.execution_complete` bound to the protected `toolCallId`. Conversely a
+proven non-dispatch (fail-closed) requires an authoritative post-decision **failure** completion (the
+SDK represents a rejected / broken-callback tool as a completion failure — `permission-denied` /
+`user-not-available`); absence of any authoritative completion stays `INCOMPLETE` / `INCONCLUSIVE`,
+never fail-closed from absence. Every proposal / execution-start / decision / completion / stop /
+quiescence row carries a monotonic **host sequence**, and a completion counts as authoritative only
+when it is recorded *after* the decision boundary, so a pre-decision or reordered event cannot be
+upgraded into proof. One measured `CopilotClient` runs provenance *and* every scenario (per-session
+`workingDirectory` isolation), so the frozen runtime/protocol is the runtime that executed. Both a
+proven dispatch **and** a proven non-dispatch require a **runtime-correlatable** `toolCallId` on the
+protected proposal (it is optional upstream); when the SDK omits it, the completion (which carries its
+own id) cannot be tied back to the denied proposal, so the claim stays `INCOMPLETE` / `INCONCLUSIVE`.
+Each decision also records a sanitized structured **category** (`allow` / `unsupported` /
+`parse-failure` / `policy-block` / `identity-rejected` / `fail-closed-unavailable`) plus the finding
+rule/path, so a denied read is diagnosable from structured evidence rather than an opaque reason hash. **Quiescence is part of the
 observation boundary**: `disconnect()` aborts then disconnects and *reports* whether it succeeded (a
 structured `{ quiesced, error? }`, recorded as host evidence); the event subscription stays live
 across abort + disconnect and is torn down only afterwards, so a protected tool that races into

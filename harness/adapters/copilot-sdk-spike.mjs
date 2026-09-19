@@ -56,6 +56,10 @@ export function evidenceEntry(fields = {}) {
   return Object.freeze({
     schema_version: EVIDENCE_SCHEMA_VERSION,
     recorded_at: Date.now(),
+    // Monotonic host sequence (assigned by HostEvidence.append) — classification orders the
+    // attempt → callback → decision → completion/effect → stop → quiescence chain by this, never by
+    // wall-clock precision (#611 item H).
+    host_seq: undefined,
     session_id: undefined,
     turn_id: undefined,
     proposal_id: undefined,
@@ -63,12 +67,28 @@ export function evidenceEntry(fields = {}) {
     proposal_input_hash: undefined,
     trusted_repo_root: undefined,
     tamperward_decision: undefined,
+    // Structured, sanitized decision category (never classify on human-readable reason text):
+    // allow | unsupported | parse-failure | policy-block | identity-rejected | fail-closed-unavailable.
+    decision_category: undefined,
+    finding_rule: undefined,
+    finding_file: undefined,
     decision_reason_hash: undefined,
     decision_started_at: undefined,
     decision_finished_at: undefined,
+    // `tool.execution_start` is a LIFECYCLE-START / execution-ATTEMPT observation, NOT proof the tool
+    // ran past the permission gate — the runtime emits it before the permission callback resolves.
+    execution_started: undefined,
+    // Sanitized `tool.execution_complete` outcome, the post-decision evidence that actually says
+    // whether the tool ran: 'success' | 'error' with a bounded error category (+ message hash), never
+    // arbitrary output/secrets.
+    completion_outcome: undefined,
+    completion_error_category: undefined,
+    completion_error_hash: undefined,
     handler_dispatched: undefined,
     handler_completed: undefined,
     end_of_turn_event: undefined,
+    target_changed_at_stop: undefined,
+    finding_binds_target: undefined,
     continuation_requested: undefined,
     continuation_observed: undefined,
     ...fields,
@@ -85,11 +105,14 @@ export function evidenceEntry(fields = {}) {
 export class HostEvidence {
   constructor() {
     this._entries = [];
+    this._seq = 0;
   }
   /** Record one immutable, point-in-time event (e.g. {stage:'proposal',proposal_id,...},
-   *  {stage:'decision',...}, {stage:'dispatch',handler_dispatched:false,...}). */
+   *  {stage:'decision',...}, {stage:'execution-start',execution_started:true,...},
+   *  {stage:'completion',completion_outcome:'error',...}). Each row is stamped with a monotonic
+   *  `host_seq` so classification can reconstruct ordering without trusting wall-clock timestamps. */
   append(fields) {
-    const e = evidenceEntry(fields);
+    const e = evidenceEntry({ ...fields, host_seq: this._seq++ });
     this._entries.push(e);
     return e; // frozen; the caller cannot enrich or rewrite it — record a new event instead
   }

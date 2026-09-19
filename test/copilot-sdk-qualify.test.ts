@@ -10,7 +10,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
 // @ts-expect-error - the orchestrator is a plain .mjs harness module, no d.ts
-import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
+import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
+// @ts-expect-error - the fixtures are a plain .mjs harness module, no d.ts
+import { makeScenarioRepo, cleanupRepo } from '../harness/adapters/copilot-sdk/fixtures.mjs';
 // @ts-expect-error - the spike is a plain .mjs harness module, no d.ts
 import { provenanceGate, sha16, resolvedPackageIntegrity, packageIntegrityHash, finalizeQualification, renderResult } from '../harness/adapters/copilot-sdk-spike.mjs';
 // @ts-expect-error - the fake binding is a plain .mjs test-support module, no d.ts
@@ -99,7 +101,8 @@ describe('runPreDenyScenario — shell & native-write pre-dispatch deny (real ad
     const r = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG(), mechanism: 'shell' });
     expect(r.semantic).toBe('INCOMPLETE');
     expect(r.evidence.denyReturned).toBe(true);
-    expect(r.evidence.handlerDispatched).toBe(false); // explicit non-dispatch, channel proven live by the sentinel
+    expect(r.evidence.handlerDispatched).toBe(false); // non-dispatch, proven by the post-decision permission-denied completion
+    expect(r.evidence.dispatchBasis).toBe('post-decision-denied-completion');
     expect(r.evidence.finalStateMutated).toBe(false);
     expect(r.evidence.reasonReached).toBeUndefined(); // not independently observable on the current SDK surface
     expect(r.evidence.agentContinued).toBe(true); // the post-denial sentinel proposal is real continuation evidence
@@ -126,27 +129,38 @@ describe('runPreDenyScenario — shell & native-write pre-dispatch deny (real ad
     expect(r.evidence.finalStateMutated).toBe(true);
   });
 
-  it('no dispatch-liveness evidence → INCOMPLETE (never inferred from an unchanged file)', async () => {
-    const r = await runPreDenyScenario({ binding: createFakeBinding({ suppressBenign: true }), adapter, config: CFG(), mechanism: 'shell' });
+  it('no post-decision completion for the protected op → INCOMPLETE (never inferred from a pre-decision execution-start)', async () => {
+    // The protected op emits an execution-start but NO completion. Non-dispatch cannot be asserted from
+    // absence, and the pre-decision execution-start proves nothing → INCOMPLETE (not PROVEN, not FAIL-OPEN).
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ suppressProtectedCompletion: true }), adapter, config: CFG(), mechanism: 'shell' });
     expect(r.semantic).toBe('INCOMPLETE');
     expect(r.evidence.handlerDispatched).toBeUndefined();
+    expect(r.evidence.dispatchBasis).toBe('insufficient-post-decision-evidence');
+    expect(r.evidence.finalStateMutated).toBe(false);
   });
 
-  it('effects land but execution EVENTS are suppressed → INCOMPLETE (sentinel state is not dispatch-channel liveness)', async () => {
+  it('execution EVENTS suppressed (broken event channel), protected denied → INCOMPLETE, never FAIL-OPEN from a start event', async () => {
     const r = await runPreDenyScenario({ binding: createFakeBinding({ suppressExecEvents: true }), adapter, config: CFG(), mechanism: 'shell' });
-    // The sentinel file was written (repo effect landed) but no tool.execution_start was observed…
+    // The sentinel effect still landed, but there is no protected completion and the protected op did
+    // not mutate — so the result is INCOMPLETE, and never FAIL-OPEN from a mere (absent) start event.
     expect(r.evidence.finalState.sentinelWritten).toBe(true);
-    expect(r.evidence.dispatchChannelLive).toBe(false);
     expect(r.evidence.handlerDispatched).toBeUndefined();
     expect(r.semantic).toBe('INCOMPLETE');
   });
 
-  it('records the proposal AND the deny decision as immutable host evidence', async () => {
+  it('records proposal, decision, execution-start (lifecycle) and completion as separate immutable host evidence', async () => {
     const r = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG(), mechanism: 'shell' });
     const stages = r.evidenceRows.map((e: { stage?: string }) => e.stage);
     expect(stages).toContain('proposal');
     expect(stages).toContain('decision');
+    expect(stages).toContain('execution-start'); // lifecycle-start, NOT "dispatch"
+    expect(stages).toContain('completion');
+    expect(stages).not.toContain('dispatch'); // the old "execution-start == dispatch" stage is gone
     expect(r.evidenceRows.every((e: object) => Object.isFrozen(e))).toBe(true);
+    // Every row carries a monotonic host sequence, strictly increasing in append order (#611 item H).
+    const seqs = r.evidenceRows.map((e: { host_seq?: number }) => e.host_seq);
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+    expect(new Set(seqs).size).toBe(seqs.length);
   });
 });
 
@@ -184,16 +198,14 @@ describe('runBrokenPathScenario — a broken decision path must fail CLOSED', ()
   it('the break is BOUND to the protected proposal — a benign read arriving first does not stand in for it', async () => {
     const r = await runBrokenPathScenario({ binding: createFakeBinding({ benignFirst: true }), adapter, config: CFG(), breakage: 'sync-throw' });
     expect(r.evidence.protectedReached).toBe(true); // the protected op was reached and broken, not the read
-    expect(r.evidence.dispatchChannelLive).toBe(true); // the benign read/sentinel dispatched → channel live
-    expect(r.semantic).toBe('FAIL-CLOSED');
+    expect(r.semantic).toBe('FAIL-CLOSED'); // the broken callback's user-not-available completion proves non-dispatch
   });
 
   it('the break binds to the MUTATION, not a non-mutating inspection of the same path (cat first)', async () => {
     const r = await runBrokenPathScenario({ binding: createFakeBinding({ inspectFirst: true }), adapter, config: CFG(), breakage: 'sync-throw' });
     // `cat <protected>` is not the protected mutation, so the break does not fire on it; the real
-    // `rm` is still reached and broken, and the inspection's dispatch established liveness.
+    // `rm` is still reached and broken, and its user-not-available completion proves non-dispatch.
     expect(r.evidence.protectedReached).toBe(true);
-    expect(r.evidence.dispatchChannelLive).toBe(true);
     expect(r.semantic).toBe('FAIL-CLOSED');
   });
 
@@ -203,9 +215,10 @@ describe('runBrokenPathScenario — a broken decision path must fail CLOSED', ()
     expect(r.semantic).toBe('INCONCLUSIVE');
   });
 
-  it('no dispatch-channel liveness → the broken path cannot claim explicit non-dispatch (INCONCLUSIVE)', async () => {
-    const r = await runBrokenPathScenario({ binding: createFakeBinding({ suppressBenign: true }), adapter, config: CFG(), breakage: 'sync-throw' });
-    expect(r.evidence.dispatchChannelLive).toBe(false);
+  it('a broken path with NO authoritative completion is INCONCLUSIVE, never FAIL-CLOSED from absence', async () => {
+    // The protected op breaks but the runtime emits no completion — absence of a denial/non-execution
+    // outcome cannot be read as fail-closed.
+    const r = await runBrokenPathScenario({ binding: createFakeBinding({ suppressProtectedCompletion: true }), adapter, config: CFG(), breakage: 'sync-throw' });
     expect(r.evidence.handlerDispatched).toBeUndefined();
     expect(r.semantic).toBe('INCONCLUSIVE');
   });
@@ -265,8 +278,12 @@ describe('runEndOfTurnScenario — block + observed continuation', () => {
     };
     const r = await runEndOfTurnScenario({ binding: createFakeBinding({ benignProtectedEdit: true, continueOnBlock: true }), adapter: blockNamingOtherFile, config: CFG() });
     expect(r.evidence.landedWeakening).toBe(true); // the file DID change at the end...
+    // #611 item G: the two conditions are reported INDEPENDENTLY — the target changed, but the finding
+    // did not bind to it, so this is not conflated with "the target had not weakened".
+    expect(r.evidence.targetChangedAtStop).toBe(true);
     expect(r.evidence.findingBindsTarget).toBe(false); // ...but the block names another file
     expect(r.evidence.landedWeakeningAtStop).toBe(false);
+    expect(r.reasons.join(' ')).toMatch(/changed before the first agent-stop, but the blocking sweep finding did not bind/);
     expect(r.semantic).not.toBe('PROVEN');
   });
 
@@ -363,13 +380,13 @@ describe('observation boundary — shutdown-window dispatch, runtime-correlatabl
     expect(r.reasons.some((x: string) => /could not be determined|source provenance is unknown/.test(x))).toBe(true);
   });
 
-  it('an uncorrelated execution-start does NOT manufacture dispatch-channel liveness (liveness needs a known approved benign proposal)', async () => {
-    const r = await runPreDenyScenario({ binding: createFakeBinding({ suppressBenign: true, emitUncorrelatedExecStart: true }), adapter, config: CFG(), mechanism: 'shell' });
-    // The only observed execution-start belongs to no approved benign proposal, so the channel is not
-    // proven live and the protected op's non-dispatch stays unproven (INCOMPLETE), never explicit false.
-    expect(r.evidence.dispatchChannelLive).toBe(false);
-    expect(r.evidence.handlerDispatched).toBeUndefined();
+  it('an uncorrelated execution-start never manufactures FAIL-OPEN or dispatch (execution-start is not dispatch)', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ emitUncorrelatedExecStart: true }), adapter, config: CFG(), mechanism: 'shell' });
+    // An unsolicited execution-start belonging to no proposal cannot be dispatch evidence. The protected
+    // op was denied and did not run, so the result is INCOMPLETE — never FAIL-OPEN from a start event.
     expect(r.semantic).toBe('INCOMPLETE');
+    expect(r.evidence.handlerDispatched).not.toBe(true);
+    expect(r.evidence.finalStateMutated).toBe(false);
   });
 
   it('SDK integrity covers TRANSITIVE files, not just the entry (a changed client.js changes the hash; node_modules excluded)', () => {
@@ -452,7 +469,7 @@ describe('quiescence is part of the observation boundary — a runtime that did 
 });
 
 describe('retained host-owned evidence — the persisted result carries the immutable event chain', () => {
-  it('a serialized qualification result still contains the proposal→decision→dispatch→quiescence rows (auditable, not just summary)', async () => {
+  it('a serialized qualification result retains the full audit chain (proposal→decision→execution-start→completion→quiescence) with monotonic sequence', async () => {
     const s = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG(), mechanism: 'shell' });
     const result = assembleResult({ scenarios: [s], provenanceExpected: {}, provenanceMeasured: {}, provenanceGateResult: { full: false, reasons: [] } });
     // Round-trip through JSON exactly as `--json` / the mandatory artifact would persist it.
@@ -463,11 +480,20 @@ describe('retained host-owned evidence — the persisted result carries the immu
     // The chain #611 requires to reconstruct/audit the classification must survive serialization.
     expect(stages).toContain('proposal');
     expect(stages).toContain('decision');
-    expect(stages).toContain('dispatch');
+    expect(stages).toContain('execution-start');
+    expect(stages).toContain('completion');
     expect(stages).toContain('quiescence');
     // A proposal row carries a correlatable id + input hash, not just a boolean.
     const proposal = rows.find((r: { stage?: string }) => r.stage === 'proposal');
     expect(proposal.proposal_input_hash).toBeTruthy();
+    // A completion row carries the sanitized outcome; a decision row carries the structured category.
+    const completion = rows.find((r: { stage?: string }) => r.stage === 'completion');
+    expect(completion.completion_outcome).toBeTruthy();
+    const decision = rows.find((r: { stage?: string }) => r.stage === 'decision');
+    expect(decision.decision_category).toBeTruthy();
+    // Monotonic host sequence survives serialization and is strictly increasing.
+    const seqs = rows.map((r: { host_seq?: number }) => r.host_seq);
+    expect(seqs).toEqual([...seqs].sort((a: number, b: number) => a - b));
   });
 });
 
@@ -586,5 +612,66 @@ describe('serializeRequest — only adapter-relevant fields, claimed cwd carried
     const o = JSON.parse(json);
     expect(o).toMatchObject({ kind: 'write', fileName: 'a.spec.ts', diff: 'd', cwd: '/repo', sessionId: 's' });
     expect('fullCommandText' in o).toBe(false);
+  });
+});
+
+describe('#614 — execution_start is lifecycle-start, not dispatch; completion drives FAIL-OPEN', () => {
+  it('classifyHandlerDispatch: a pre-decision start / missing completion is never dispatch', () => {
+    expect(classifyHandlerDispatch({ mutated: false, completion: undefined, boundarySeq: 5 }).handlerDispatched).toBeUndefined();
+    // A completion recorded BEFORE the decision boundary (reordered / pre-decision) is not authoritative.
+    expect(classifyHandlerDispatch({ mutated: false, completion: { completeSeq: 4, outcome: 'success' }, boundarySeq: 5 }).handlerDispatched).toBeUndefined();
+    // A non-denial tool error after the boundary is neither fail-open nor fail-closed.
+    expect(classifyHandlerDispatch({ mutated: false, completion: { completeSeq: 6, outcome: 'error', errorCategory: 'tool-error' }, boundarySeq: 5 }).handlerDispatched).toBeUndefined();
+  });
+
+  it('classifyHandlerDispatch: FAIL-OPEN only from mutation or a post-decision success completion', () => {
+    expect(classifyHandlerDispatch({ mutated: true }).handlerDispatched).toBe(true);
+    const s = classifyHandlerDispatch({ mutated: false, completion: { completeSeq: 6, outcome: 'success' }, boundarySeq: 5 });
+    expect(s.handlerDispatched).toBe(true);
+    expect(s.basis).toBe('post-decision-success-completion');
+  });
+
+  it('classifyHandlerDispatch: non-dispatch only from a post-decision denial completion', () => {
+    const d = classifyHandlerDispatch({ mutated: false, completion: { completeSeq: 6, outcome: 'error', errorCategory: 'user-not-available' }, boundarySeq: 5 });
+    expect(d.handlerDispatched).toBe(false);
+    expect(d.basis).toBe('post-decision-denied-completion');
+  });
+
+  it('decisionCategory maps adapter results to sanitized structured categories (never reason text)', () => {
+    expect(decisionCategory({ decision: { verdict: 'allow' } })).toBe('allow');
+    expect(decisionCategory({ outcome: 'unsupported', decision: { verdict: 'allow' } })).toBe('unsupported');
+    expect(decisionCategory({ outcome: 'parse-failure' })).toBe('parse-failure');
+    expect(decisionCategory({ decision: { verdict: 'deny', findings: [{ rule: 'test-deletion' }] } })).toBe('policy-block');
+    expect(decisionCategory({ decision: { verdict: 'deny', findings: [{ rule: 'tamperward-unavailable' }] } })).toBe('fail-closed-unavailable');
+    // The host's OWN knowledge that it injected an adversarial identity distinguishes an identity
+    // rejection from a baseline/reconstruction fail-closed that also surfaces as tamperward-unavailable.
+    expect(decisionCategory({ decision: { verdict: 'deny', findings: [{ rule: 'tamperward-unavailable' }] } }, { adversarialIdentity: true })).toBe('identity-rejected');
+  });
+
+  it('the fake models real ordering: the protected execution-start precedes its decision (host_seq)', async () => {
+    const s = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG(), mechanism: 'shell' });
+    const firstStart = s.evidenceRows.find((e: { stage?: string }) => e.stage === 'execution-start');
+    const firstDecision = s.evidenceRows.find((e: { stage?: string }) => e.stage === 'decision');
+    expect(firstStart).toBeTruthy();
+    expect(firstDecision).toBeTruthy();
+    expect(firstStart.host_seq).toBeLessThan(firstDecision.host_seq); // start BEFORE the permission decision
+  });
+
+  it('an ordinary in-repo read is ALLOWED, not denied (item F): decision category is "allow"', () => {
+    const repo = makeScenarioRepo({ prefix: 'tw-sdk-read-' });
+    try {
+      const json = serializeRequest({ kind: 'read', toolName: 'view', toolCallId: 'r1', fileName: 'src/keep.spec.ts' }, { cwd: repo.root, sessionId: 'sess-read' });
+      const res = adapter.decide(json, 'pre-action', repo.root) as { decision?: { verdict?: string } };
+      expect(res.decision?.verdict).toBe('allow');
+      expect(decisionCategory(res)).toBe('allow');
+    } finally {
+      cleanupRepo(repo, false);
+    }
+  });
+
+  it('a reject the runtime IGNORES (mutation lands) is FAIL-OPEN with a mutation basis', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ ignoreDeny: true }), adapter, config: CFG(), mechanism: 'shell' });
+    expect(r.semantic).toBe('FAIL-OPEN');
+    expect(r.evidence.dispatchBasis).toBe('protected-mutation');
   });
 });

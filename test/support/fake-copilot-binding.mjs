@@ -9,11 +9,19 @@
 // Scripted policy (all optional):
 //   ignoreDeny        the runtime dispatches a tool even after the host returns { kind:"reject" } (fail open)
 //   brokenFailOpen    the runtime dispatches when the host decision path throws/rejects/times out (fail open)
-//   suppressBenign    do NOT dispatch the benign sentinel op (removes the dispatch-liveness probe → INCOMPLETE)
+//   suppressBenign    do NOT propose the benign sentinel op
 //   suppressIdle      do NOT emit an idle event (no observed continuation)
 //   continueOnBlock   after an agent-stop block, run another turn (observed continuation) — default true
 //   callbackBudgetMs  how long the fake waits for the host decision before treating it as a timeout
 //   status/auth/models/startError  provenance + startup shaping
+//   ── #611 lifecycle-ordering knobs ──
+//   suppressExecEvents          emit no execution-start/complete (broken event channel); effect may still land
+//   suppressCompletion          emit execution-start but NO completion (missing-completion → INCONCLUSIVE)
+//   suppressProtectedCompletion like suppressCompletion but only for the protected op
+//   emitStartAfterDecision      place tool.execution_start AFTER the permission decision (post-decision path)
+// The fake models the REAL lifecycle: tool.execution_start fires BEFORE the permission callback; a
+// completion FAILURE (permission-denied / user-not-available) represents a rejected / broken-callback
+// tool, and a completion SUCCESS represents a tool that actually ran past the gate.
 
 import { writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -63,7 +71,17 @@ function makeFakeSession(cfg, opts) {
   // The protected proposal actually issued this turn, so a shutdown-window dispatch can reuse its id.
   let protectedReqSnapshot;
 
-  async function propose(req, phase = 'protected') {
+  async function propose(req, { protected: isProtected = false } = {}) {
+    // The execution event carries its OWN toolCallId, which the real SDK generates even when the
+    // permission request omitted one (`PermissionRequest.toolCallId` is optional upstream). Modeling
+    // that is what lets the missing-id regression exercise "a protected execution-start the host cannot
+    // correlate back to the denied proposal."
+    const execId = req.toolCallId ?? nextTc();
+    // REAL lifecycle ordering (#611 bug fix): the execution lifecycle STARTS before the permission
+    // callback resolves. `suppressExecEvents` models a runtime whose host-owned execution-event channel
+    // is broken/absent (the effect may still land). `emitStartAfterDecision` lets a test place the start
+    // AFTER the decision, for the post-decision-success path.
+    if (!opts.suppressExecEvents && !opts.emitStartAfterDecision) emit('tool.execution_start', { toolCallId: execId, toolName: req.toolName, turnId: 't1' });
     let decision;
     let broke = false;
     try {
@@ -81,20 +99,20 @@ function makeFakeSession(cfg, opts) {
     if (broke) dispatch = !!opts.brokenFailOpen;
     else if (rejected) dispatch = !!opts.ignoreDeny;
     else dispatch = approved;
+    if (!opts.suppressExecEvents && opts.emitStartAfterDecision) emit('tool.execution_start', { toolCallId: execId, toolName: req.toolName, turnId: 't1' });
     if (dispatch) {
-      // The execution event carries its OWN toolCallId, which the real SDK generates even when the
-      // permission request omitted one (`PermissionRequest.toolCallId` is optional upstream). Modeling
-      // that is what lets the missing-id regression exercise "a protected execution-start the host
-      // cannot correlate back to the denied proposal."
-      const execId = req.toolCallId ?? nextTc();
-      // `suppressExecEvents` models a runtime whose repository EFFECT lands but whose host-owned
-      // execution-event channel is broken/absent — the effect is applied, but no tool.execution_start
-      // is emitted, so the host cannot observe dispatch. Liveness must then stay unproven.
-      if (!opts.suppressExecEvents) emit('tool.execution_start', { toolCallId: execId, toolName: req.toolName, turnId: 't1' });
       applyEffect(cfg.workspace, req);
-      if (!opts.suppressExecEvents) emit('tool.execution_complete', { toolCallId: execId });
+      // Post-decision SUCCESS completion — the authoritative "the tool ran past the gate" signal.
+      if (!opts.suppressExecEvents && !opts.suppressCompletion) emit('tool.execution_complete', { toolCallId: execId, outcome: 'success', toolName: req.toolName });
+    } else {
+      // Not executed: the SDK represents a rejected / broken-callback tool as a completion FAILURE — a
+      // rejected permission → permission-denied; a thrown/timed-out callback → user-not-available.
+      const errorCategory = broke ? 'user-not-available' : 'permission-denied';
+      if (!opts.suppressExecEvents && !opts.suppressCompletion && !(isProtected && opts.suppressProtectedCompletion)) {
+        emit('tool.execution_complete', { toolCallId: execId, outcome: 'error', errorCategory, toolName: req.toolName });
+      }
     }
-    return { dispatched: dispatch, rejected, approved, broke };
+    return { dispatched: dispatch, rejected, approved, broke, execId };
   }
 
   return {
@@ -136,7 +154,7 @@ function makeFakeSession(cfg, opts) {
               diff: opts.benignProtectedEdit ? undefined : [`--- a/${spec.protectedRel}`, `+++ b/${spec.protectedRel}`, '@@ -1,2 +1,1 @@', ` it('keeps one', () => { expect(1).toBe(1); });`, `-it('keeps two', () => { expect(2).toBe(2); });`].join('\n'),
             };
         protectedReqSnapshot = protectedReq;
-        await propose(protectedReq);
+        await propose(protectedReq, { protected: true });
         // `commitProtectedEdit` models an agent that COMMITS the weakening mid-turn, moving HEAD. The
         // baseline must already have been pinned at the pre-action call (turn start), so the end-of-turn
         // sweep still detects it against the turn-start commit rather than the already-mutated HEAD.
@@ -180,7 +198,7 @@ function makeFakeSession(cfg, opts) {
         const execId = protectedReqSnapshot.toolCallId ?? nextTc();
         emit('tool.execution_start', { toolCallId: execId, toolName: protectedReqSnapshot.toolName, turnId: 't1' });
         applyEffect(cfg.workspace, protectedReqSnapshot);
-        emit('tool.execution_complete', { toolCallId: execId });
+        emit('tool.execution_complete', { toolCallId: execId, outcome: 'success', toolName: protectedReqSnapshot.toolName });
       }
       if (opts.abortError) return { quiesced: false, error: opts.abortError };
       if (opts.disconnectError) return { quiesced: false, error: opts.disconnectError };
