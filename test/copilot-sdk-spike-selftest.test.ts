@@ -11,7 +11,7 @@
 
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error - the spike is a plain .mjs harness module, no d.ts
-import { classifyPreDispatchDeny, classifyDecisionPathFailure, classifyEndOfTurn, classifyIdentityBinding, buildSpikeMatrix, provenanceGate, evidenceEntry, EVIDENCE_SCHEMA_VERSION } from '../harness/adapters/copilot-sdk-spike.mjs';
+import { classifyPreDispatchDeny, classifyDecisionPathFailure, classifyEndOfTurn, classifyIdentityBinding, buildSpikeMatrix, provenanceGate, evidenceEntry, HostEvidence, EVIDENCE_SCHEMA_VERSION } from '../harness/adapters/copilot-sdk-spike.mjs';
 
 describe('classifyPreDispatchDeny — the 7-point Phase-0 #1/#2 proof (host-observed)', () => {
   const full = {
@@ -43,6 +43,17 @@ describe('classifyPreDispatchDeny — the 7-point Phase-0 #1/#2 proof (host-obse
       expect(r.semantic).not.toBe('FAIL-OPEN'); // missing evidence is INCOMPLETE, not a fail-open
     }
   });
+
+  it('OMITTED negative evidence is INCOMPLETE, never PROVEN — undefined must not read as "not dispatched"', () => {
+    // The decisive review point: undefined dispatch/mutation must not false-green PROVEN.
+    const noDispatch = { ...full };
+    delete noDispatch.handlerDispatched;
+    expect(classifyPreDispatchDeny(noDispatch).semantic).toBe('INCOMPLETE');
+    expect(classifyPreDispatchDeny(noDispatch).pass).toBe(false);
+    const noFinal = { ...full };
+    delete noFinal.finalStateMutated;
+    expect(classifyPreDispatchDeny(noFinal).semantic).toBe('INCOMPLETE');
+  });
 });
 
 describe('classifyDecisionPathFailure — Phase-0 #3, a broken decision path must fail CLOSED', () => {
@@ -63,6 +74,11 @@ describe('classifyDecisionPathFailure — Phase-0 #3, a broken decision path mus
     expect(r.semantic).toBe('INCONCLUSIVE');
     expect(r.eligible).toBe(false);
   });
+
+  it('OMITTED non-dispatch evidence is INCONCLUSIVE, never FAIL-CLOSED (explicit === false required)', () => {
+    expect(classifyDecisionPathFailure({ brokenPathExercised: true }).semantic).toBe('INCONCLUSIVE');
+    expect(classifyDecisionPathFailure({ brokenPathExercised: true, handlerDispatched: false }).semantic).toBe('INCONCLUSIVE'); // finalStateMutated still unknown
+  });
 });
 
 describe('classifyEndOfTurn — Phase-0 #4, block + observed continuation', () => {
@@ -82,6 +98,8 @@ describe('classifyIdentityBinding — adversarial cwd claims fail closed', () =>
       expect(classifyIdentityBinding({ claimKind, denied: true, handlerDispatched: false }).pass).toBe(true);
       expect(classifyIdentityBinding({ claimKind, denied: false, handlerDispatched: false }).pass).toBe(false);
       expect(classifyIdentityBinding({ claimKind, denied: true, handlerDispatched: true }).pass).toBe(false);
+      // OMITTED dispatch evidence (undefined) must NOT pass — explicit non-dispatch is required.
+      expect(classifyIdentityBinding({ claimKind, denied: true }).pass).toBe(false);
     }
   });
 });
@@ -126,8 +144,12 @@ describe('buildSpikeMatrix — granular, honest vocabulary (#611 review)', () =>
   });
 });
 
-describe('provenanceGate — a pinned, exact-model run is required', () => {
-  const complete = {
+describe('provenanceGate — MEASURED provenance must MATCH the expected pins (not self-declared)', () => {
+  // The review point: a run must bind the actual loaded SDK / build / config to expected pins, so a
+  // caller cannot label a different runtime as `full`. The gate takes {expected, measured} and only
+  // passes when every pin is present AND measured === expected, the model is exact (never `auto`),
+  // and the evidence schema matches.
+  const expected = {
     sdk_version: '@github/copilot-sdk@1.2.3',
     model: 'gpt-5',
     tamperward_version: 'tamperward@2.31.0',
@@ -136,20 +158,43 @@ describe('provenanceGate — a pinned, exact-model run is required', () => {
     approval_mode: 'onPermissionRequest',
     evidence_schema_version: EVIDENCE_SCHEMA_VERSION,
   };
+  const measured = { ...expected };
 
-  it('all pins present, exact model → full', () => {
-    expect(provenanceGate(complete).full).toBe(true);
+  it('measured matches expected, exact model → full', () => {
+    expect(provenanceGate({ expected, measured }).full).toBe(true);
+  });
+
+  it('a MEASURED value that differs from the expected pin caps below full (different runtime ran)', () => {
+    expect(provenanceGate({ expected, measured: { ...measured, sdk_version: '@github/copilot-sdk@9.9.9' } }).full).toBe(false);
+    expect(provenanceGate({ expected, measured: { ...measured, tamperward_version: 'tamperward@0.0.0' } }).full).toBe(false);
+    expect(provenanceGate({ expected, measured: { ...measured, host_config_sha256: 'zzz' } }).full).toBe(false);
   });
 
   it('an `auto` (or missing) model caps below full', () => {
-    expect(provenanceGate({ ...complete, model: 'auto' }).full).toBe(false);
-    expect(provenanceGate({ ...complete, model: '' }).full).toBe(false);
+    expect(provenanceGate({ expected: { ...expected, model: 'auto' }, measured: { ...measured, model: 'auto' } }).full).toBe(false);
+    expect(provenanceGate({ expected: { ...expected, model: '' }, measured: { ...measured, model: '' } }).full).toBe(false);
   });
 
-  it('a missing pin caps below full', () => {
-    for (const k of ['sdk_version', 'tamperward_version', 'host_config_sha256', 'evidence_schema_version']) {
-      expect(provenanceGate({ ...complete, [k]: undefined }).full).toBe(false);
+  it('a missing measured pin (unmeasured) caps below full', () => {
+    for (const k of ['sdk_version', 'tamperward_version', 'host_config_sha256', 'model']) {
+      const m = { ...measured };
+      delete m[k];
+      expect(provenanceGate({ expected, measured: m }).full).toBe(false);
     }
+  });
+});
+
+describe('HostEvidence — genuinely append-only (immutable rows)', () => {
+  it('a recorded entry is frozen and cannot be retroactively rewritten', () => {
+    const ev = new HostEvidence();
+    const e = ev.append({ proposal_id: 'p1', operation_kind: 'shell', tamperward_decision: 'deny', handler_dispatched: false });
+    expect(Object.isFrozen(e)).toBe(true);
+    expect(() => {
+      e.handler_dispatched = true;
+    }).toThrow();
+    // the stored row reflects the original, unmutated observation
+    expect(ev.entries[0].handler_dispatched).toBe(false);
+    expect(ev.entries[0].proposal_id).toBe('p1');
   });
 });
 
