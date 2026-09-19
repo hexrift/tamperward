@@ -70,15 +70,26 @@ function relForDisplay(path: string, cwd: string): string {
   return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : path;
 }
 
+/** The canonical location of a write target: its absolute symlink-resolved path and the root-relative
+ *  spelling policy and `Change.path` must use (never the alias the request named). */
+interface ContainedTarget {
+  /** Absolute, symlink-resolved path of the target (or, for a create, its resolved parent + tail). */
+  real: string;
+  /** `real` relative to the trusted root — the spelling disk inspection and policy judge. */
+  rel: string;
+}
+
 /**
  * The canonical, symlink-resolved location of `abs`, proven to lie under the trusted repository
  * `root`, or a throw (fail closed). The deepest EXISTING ancestor is resolved with `realpathSync`
  * (following any symlink to where it points now) and the not-yet-existing tail re-attached, so an
  * existing target, and the parent that would hold a create, are both checked against the root's real
  * path. A target at, above, or outside the root — lexically (`../`, absolute) or via a symlink whose
- * real target escapes — is refused.
+ * real target escapes — is refused. The returned root-relative `rel` is the spelling to inspect and
+ * judge: an in-repo `alias.yml → .tamperward.yml` resolves to `.tamperward.yml`, so a protected
+ * target cannot be reached under a benign alias.
  */
-function canonicalContainedTarget(abs: string, root: string): string {
+function canonicalContainedTarget(abs: string, root: string): ContainedTarget {
   let realRoot: string;
   try {
     realRoot = realpathSync(root);
@@ -99,12 +110,12 @@ function canonicalContainedTarget(abs: string, root: string): string {
   } catch (e) {
     throw new Error(`write target ${abs} cannot be resolved: ${e instanceof Error ? e.message : String(e)}`);
   }
-  const canonical = tail.length ? join(realDir, ...tail) : realDir;
-  const rel = relative(realRoot, canonical);
+  const real = tail.length ? join(realDir, ...tail) : realDir;
+  const rel = relative(realRoot, real);
   if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
     throw new Error(`write target ${abs} resolves outside the trusted repository root ${realRoot} — refusing to judge a write beyond the repository`);
   }
-  return canonical;
+  return { real, rel };
 }
 
 /**
@@ -124,15 +135,19 @@ export function sdkFileEditChanges(args: Record<string, unknown>, cwd: string, b
   // target (mismatch → deny), never used as the authority.
   const canonical = canonicalContainedTarget(abs, cwd);
   const claimedResolved = asStr(args.resolvedPath);
-  if (claimedResolved && canonicalContainedTarget(resolve(base, claimedResolved), cwd) !== canonical) {
+  if (claimedResolved && canonicalContainedTarget(resolve(base, claimedResolved), cwd).real !== canonical.real) {
     throw new Error(`the runtime-claimed resolvedPath (${claimedResolved}) does not match the host-derived target for ${path} — refusing to judge a different path`);
   }
-  const display = relForDisplay(abs, cwd);
+  // Disk inspection, `Change.path` and policy use the CANONICAL root-relative spelling (so an in-repo
+  // alias to a protected file is judged as that protected file); the request's own spelling is kept
+  // ONLY to bind the raw diff's headers, which name the file as the request did.
+  const display = canonical.rel;
+  const requestRel = relForDisplay(abs, cwd);
 
   // Preserve DiskEntry.kind: only an ABSENT target is a create. An existing target the gate cannot
   // read (directory/symlink-to-nonfile/oversize/irregular/read error → content null) fails closed
   // rather than being reconstructed against a phantom empty "before".
-  const entry = inspectResolved(abs);
+  const entry = inspectResolved(canonical.real);
   const isCreate = entry.kind === 'absent';
   const before = textOf(entry);
   if (!isCreate && before === null) {
@@ -143,9 +158,10 @@ export function sdkFileEditChanges(args: Record<string, unknown>, cwd: string, b
   const rawDiff = asStr(args.diff);
 
   // Reconstruct the proposed `after` from the unified `diff` via canonical Git, bound to the
-  // permission request's target and its exact operation. `undefined` = no diff supplied; a `string`
-  // is the reconstructed content; `null` is a real deletion; a throw → the caller fails closed.
-  const afterFromDiff: string | null | undefined = rawDiff.trim() ? reconstructAfterViaGit(rawDiff, display, before, isCreate) : undefined;
+  // permission request's target (its own path spelling) and its exact operation. `undefined` = no
+  // diff supplied; a `string` is the reconstructed content; `null` is a real deletion; a throw → the
+  // caller fails closed.
+  const afterFromDiff: string | null | undefined = rawDiff.trim() ? reconstructAfterViaGit(rawDiff, requestRel, before, isCreate) : undefined;
 
   if (newFileContents !== undefined) {
     // If both representations are supplied they must AGREE — an inconsistent event (e.g. benign full
@@ -242,17 +258,25 @@ function canonicalPatch(raw: string, display: string, isCreate: boolean): { op: 
 
   let src: string | undefined; // stripped `--- ` endpoint
   let dst: string | undefined; // stripped `+++ ` endpoint
-  let hasGitHeader = false; // a `diff --git`/extended header requires a full endpoint pair
+  let hasExtendedHeader = false; // any Git file metadata → a full endpoint pair is required
+  let hasGitLine = false; // a `diff --git` header — at most one for a single file
   for (const line of header) {
     if (/^(rename (from|to)|copy (from|to)|old mode|new mode|GIT binary patch)\b/.test(line) || line.startsWith('Binary files ')) {
       throw new Error(`write diff for ${display} is a rename/copy/binary/mode-only change, which is not reconstructed`);
+    }
+    // Any Git file metadata (diff --git, index, new/deleted file mode, similarity/dissimilarity)
+    // promises a normal endpoint pair; it is NOT a bare hunk, so its presence without `--- `/`+++ `
+    // is malformed (handled after the loop).
+    if (/^(index |new file mode|deleted file mode|similarity index|dissimilarity index)\b/.test(line)) {
+      hasExtendedHeader = true;
     }
     // A single file's pre-hunk header carries at most one of each. A DUPLICATE endpoint (or a second
     // `diff --git`) is a contradictory / multi-file event — fail closed rather than let last-one-wins
     // silently repair it into a valid pair.
     if (line.startsWith('diff --git ')) {
-      if (hasGitHeader) throw new Error(`write diff for ${display} carries more than one diff --git header (contradictory / multi-file) — refusing to reconstruct`);
-      hasGitHeader = true;
+      if (hasGitLine) throw new Error(`write diff for ${display} carries more than one diff --git header (contradictory / multi-file) — refusing to reconstruct`);
+      hasGitLine = true;
+      hasExtendedHeader = true;
       for (const p of line.slice('diff --git '.length).trim().split(/\s+/)) assertBound(stripPrefix(p), display);
     } else if (line.startsWith('--- ')) {
       if (src !== undefined) throw new Error(`write diff for ${display} carries more than one --- endpoint (contradictory header) — refusing to reconstruct`);
@@ -266,13 +290,13 @@ function canonicalPatch(raw: string, display: string, isCreate: boolean): { op: 
   // Derive the EXACT proposed operation from the `/dev/null` endpoints, never re-inferred from local
   // state or repaired from a malformed event. The contract is explicit:
   //   - BOTH endpoints absent → bare-hunk mode: infer create/modify from the observed target state
-  //     (never a delete, which requires a `+++ /dev/null` header). A `diff --git` header, however,
-  //     promises a full endpoint pair, so its absence is malformed.
+  //     (never a delete, which requires a `+++ /dev/null` header). ANY Git file metadata, however,
+  //     promises a full endpoint pair, so its presence without one is malformed.
   //   - BOTH present → validate exact create/delete/modify semantics.
   //   - EXACTLY ONE present → malformed one-sided pair → fail closed (not normalized into a valid op).
   let op: DiffOp;
   if (src === undefined && dst === undefined) {
-    if (hasGitHeader) throw new Error(`write diff for ${display} has a diff --git header but no --- / +++ endpoints (malformed)`);
+    if (hasExtendedHeader) throw new Error(`write diff for ${display} carries Git file metadata but no --- / +++ endpoints (malformed)`);
     op = isCreate ? 'create' : 'modify';
   } else if (src !== undefined && dst !== undefined) {
     const srcNull = src === '/dev/null';

@@ -433,6 +433,34 @@ describe('CopilotSdkHostedAdapter.decide — file-edit content-aware pre-deny is
     }
   });
 
+  it('a write diff carrying Git file metadata but NO --- / +++ endpoints fails CLOSED (not bare-hunk)', () => {
+    const cwd = repoFixture();
+    try {
+      // An `index` line is Git file metadata; it promises a normal endpoint pair. Without one this is
+      // malformed and must fail closed, not be inferred as a modify from disk state.
+      const diff = ['index 1234567..89abcde 100644', '@@ -1 +1 @@', "-it('one', () => {}); it('two', () => {});", "+it('one', () => {});"].join('\n');
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'src/a.spec.ts', { diff }), 'pre-action', cwd);
+      expect(r.decision?.verdict).toBe('deny');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('an in-repo symlink ALIAS to a protected file is judged as that protected file (canonical path, not the alias)', () => {
+    const cwd = repoFixture();
+    try {
+      // `alias.md` (not itself protected) is an in-repo symlink to the protected spec. A weakening
+      // write through the alias must be judged against `.spec.ts` protection via the canonical path —
+      // not allowed through because the alias spelling dodges the protected glob.
+      symlinkSync(join(cwd, 'src', 'a.spec.ts'), join(cwd, 'alias.md'));
+      const r = copilotSdkAdapter.decide(writeReq(cwd, 'alias.md', { newFileContents: `it('one', () => {});\n` }), 'pre-action', cwd);
+      expect(r.outcome).toBe('ok');
+      expect(r.decision?.verdict).toBe('deny');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('a write whose EXISTING target cannot be read (a directory) fails CLOSED — not treated as a create', () => {
     const cwd = repoFixture();
     try {

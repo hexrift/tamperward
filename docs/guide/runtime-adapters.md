@@ -533,8 +533,11 @@ closed. `DiskEntry.kind` is preserved: only an **absent** target is a create (re
 **closed**, never treated as a create. The **target itself is bound to the trusted repository root**
 before any disk read: a `../` escape, an absolute path outside the root, or an in-repo symlink whose
 real target leaves the root fails **closed** (the SDK's `resolvedPath` is retained only as an
-untrusted claim, compared against the host-derived canonical target — a mismatch denies), and a
-one-sided `---`/`+++` endpoint pair is refused rather than repaired into a valid operation.
+untrusted claim, compared against the host-derived canonical target — a mismatch denies). Disk
+inspection, `Change.path` and policy use that **canonical root-relative** spelling, so an in-repo
+alias to a protected file is judged as the protected file, not waved through under the alias name. A
+one-sided `---`/`+++` pair, a duplicate `---`/`+++`/`diff --git` header, or any Git file metadata
+without a full endpoint pair is refused rather than repaired into a valid operation.
 This is conditional on what the pinned runtime
 actually provides — a write that surfaces **no usable content** is `unsupported` for that measured
 configuration (allow-through;
