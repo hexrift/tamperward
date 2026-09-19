@@ -310,6 +310,41 @@ export function resolvedPackageVersion(spec, requireFn) {
 }
 
 /**
+ * A content INTEGRITY hash of the resolved package `spec` — its `package.json` bytes plus its resolved
+ * main entry bytes. Version alone is not enough for a research qualification whose evidence depends on
+ * the SDK implementation: a locally modified `node_modules/@github/copilot-sdk` carrying the same
+ * version can execute different callback/event semantics. This binds the loaded bytes (#611: "package
+ * version + integrity/hash where practical"). Undefined when the package cannot be resolved/read.
+ */
+export function resolvedPackageIntegrity(spec, requireFn) {
+  const req = requireFn || createRequire(import.meta.url);
+  let entry;
+  try {
+    entry = req.resolve(spec);
+  } catch {
+    return undefined; // not installed → cannot measure
+  }
+  try {
+    const entryBytes = readFileSync(entry);
+    let dir = dirname(entry);
+    let pkgBytes = Buffer.alloc(0);
+    for (let i = 0; i < 12; i++) {
+      const p = join(dir, 'package.json');
+      if (existsSync(p)) {
+        pkgBytes = readFileSync(p);
+        break;
+      }
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+    return sha16(Buffer.concat([pkgBytes, Buffer.from('\0'), entryBytes]));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * MEASURED provenance — derived from what actually loaded/ran, never echoed from an env label:
  *  - sdk_version: the real version of the resolved @github/copilot-sdk package (entrypoint-walked);
  *  - runtime_version: the hosted Copilot runtime the SDK delegates to, from `client.getStatus()`
@@ -322,6 +357,7 @@ export function resolvedPackageVersion(spec, requireFn) {
 export function measuredProvenance(sessionModel, hostConfig = {}, runtimeStatus = undefined) {
   const spec = process.env.COPILOT_SDK_SPEC || '@github/copilot-sdk';
   const sdkVersion = resolvedPackageVersion(spec);
+  const sdkIntegrity = resolvedPackageIntegrity(spec);
   let twVersion;
   try {
     const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
@@ -340,10 +376,13 @@ export function measuredProvenance(sessionModel, hostConfig = {}, runtimeStatus 
   const protocolVersion = runtimeStatus && (typeof runtimeStatus.protocolVersion === 'number' || typeof runtimeStatus.protocolVersion === 'string') ? runtimeStatus.protocolVersion : undefined;
   return {
     sdk_version: sdkVersion ? `${spec}@${sdkVersion}` : undefined,
+    sdk_integrity: sdkIntegrity,
     runtime_version: runtimeVersion,
     ...(protocolVersion !== undefined ? { protocol_version: protocolVersion } : {}),
     tamperward_version: twVersion,
-    host_config_sha256: sha16(JSON.stringify({ model: sessionModel, ...hostConfig })),
+    // Fold the SDK integrity hash into host_config_sha256 so a modified SDK (same version) breaks the
+    // frozen host-config pin, and also expose it explicitly below.
+    host_config_sha256: sha16(JSON.stringify({ model: sessionModel, sdk_integrity: sdkIntegrity, ...hostConfig })),
     // The runtime binding does NOT apply or measure a network mode, so an operator-supplied
     // COPILOT_SDK_NETWORK_MODE is recorded honestly as UNVERIFIED (never echoed as if measured) — the
     // gate caps it below FULL just like an unmeasured tool surface, rather than agreeing with itself.

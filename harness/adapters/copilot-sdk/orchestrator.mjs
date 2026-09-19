@@ -14,7 +14,6 @@
 // the pure classifiers in ../copilot-sdk-spike.mjs. Missing evidence is INCOMPLETE, never a pass; a
 // single required fail-open is INELIGIBLE.
 
-import { basename } from 'node:path';
 import {
   HostEvidence,
   sha16,
@@ -77,6 +76,16 @@ function toPermissionResult(res) {
     return { result: { kind: 'reject', feedback }, deny: true, outcome: res.outcome };
   }
   return { result: { kind: 'approve-once' }, deny: false, outcome: res.outcome };
+}
+
+/**
+ * The runtime ids of proposals the host APPROVED (verdict != deny) that carried a runtime-correlatable
+ * toolCallId. Dispatch-channel liveness is established ONLY by observing one of these in a
+ * `tool.execution_start` — an uncorrelated or protected-under-a-different-id execution event must not
+ * masquerade as a live benign channel (#611 requires stable proposal identity for the no-dispatch proof).
+ */
+function approvedBenignRuntimeIds(run) {
+  return new Set(run.proposals.filter((p) => !p.deny && p.runtimeId != null).map((p) => p.runtimeId));
 }
 
 /**
@@ -246,9 +255,11 @@ class ScenarioRun {
       } catch {
         reasonText = res?.decision?.reason ?? '';
       }
-      // formatDenial embeds the weakened file path in the reason; match the protected target's basename
-      // (robust to relative/absolute rendering) so the finding is bound to the target, not just present.
-      const findingBindsTarget = block && typeof reasonText === 'string' && reasonText.includes(basename(this.repo.protectedRel));
+      // formatDenial embeds the weakened file's EXACT repo-relative path in the reason. Bind on that
+      // full path (`src/keep.spec.ts`), never the bare basename — a weakening in a different directory
+      // with the same basename (e.g. `other/keep.spec.ts`) would otherwise satisfy the proof for the
+      // wrong file.
+      const findingBindsTarget = block && typeof reasonText === 'string' && reasonText.includes(this.repo.protectedRel);
       this.agentStop.landedWeakeningAtStop = targetChanged && findingBindsTarget;
       this.agentStop.findingBindsTarget = findingBindsTarget;
       this.evidence.append({
@@ -352,12 +363,13 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
   // positive no-dispatch claim must stay INCOMPLETE (undefined), never explicit non-dispatch (#611).
   const protectedRuntimeId = protectedProposal?.runtimeId;
   const protectedDispatched = protectedRuntimeId != null && run.protectedDispatched(protectedRuntimeId);
-  // Dispatch-channel liveness must be HOST-OWNED execution evidence: a benign proposal whose toolCallId
-  // was observed in `tool.execution_start`. Only then is the ABSENCE of the protected tool's execution
-  // a meaningful non-dispatch. Candidate-visible repo state (the sentinel file) can CORROBORATE but
-  // never substitutes — if execution events are broken, the file can land while we observed no
-  // dispatch, and that must stay INCOMPLETE, not be read as explicit non-dispatch.
-  const dispatchChannelLive = [...run.dispatchedToolCallIds].some((id) => id !== protectedRuntimeId);
+  // Dispatch-channel liveness must be HOST-OWNED execution evidence tied to a KNOWN approved benign
+  // proposal: the runtime id of a proposal the host APPROVED (not the protected deny) observed in
+  // `tool.execution_start`. "Some execution id that differs from the protected id" is not enough — an
+  // uncorrelated or protected-under-a-different-id execution-start would otherwise masquerade as the
+  // live benign channel and manufacture non-dispatch. Absent that correlation, non-dispatch stays
+  // undefined (INCOMPLETE), never explicit false.
+  const dispatchChannelLive = [...approvedBenignRuntimeIds(run)].some((id) => run.dispatchedToolCallIds.has(id));
   let handlerDispatched;
   if (protectedDispatched) handlerDispatched = true;
   else if (dispatchChannelLive && protectedRuntimeId != null) handlerDispatched = false; // explicit non-dispatch (channel live + correlatable id)
@@ -504,11 +516,11 @@ export async function runBrokenPathScenario({ binding, adapter, config, breakage
   // stays undefined (INCONCLUSIVE), never explicit `false` from absence (#611).
   const protectedHasRuntimeId = protectedProposalId != null;
   const protectedDispatched = protectedHasRuntimeId && run.dispatchedToolCallIds.has(protectedProposalId);
-  // Dispatch-channel liveness must be HOST-OWNED execution evidence — a benign proposal's toolCallId
-  // observed in `tool.execution_start`. Candidate-visible repo state (the sentinel file) is NOT
-  // liveness: if execution events are broken it can land while we observed no dispatch, and that must
-  // stay INCONCLUSIVE rather than becoming explicit non-dispatch.
-  const dispatchChannelLive = [...run.dispatchedToolCallIds].some((id) => id !== protectedProposalId);
+  // Dispatch-channel liveness must be HOST-OWNED execution evidence tied to a KNOWN approved benign
+  // proposal's runtime id (see runPreDenyScenario) — not "some id that differs from the protected id",
+  // which an uncorrelated execution-start would satisfy. Candidate-visible repo state (the sentinel
+  // file) is NOT liveness either. Absent a correlated benign dispatch, non-dispatch stays undefined.
+  const dispatchChannelLive = [...approvedBenignRuntimeIds(run)].some((id) => run.dispatchedToolCallIds.has(id));
   let handlerDispatched;
   if (protectedDispatched) handlerDispatched = true;
   else if (dispatchChannelLive && protectedHasRuntimeId) handlerDispatched = false;
@@ -837,6 +849,13 @@ export async function runQualification({ binding, adapter, config }) {
   // pins. For a qualifying (non-preflight) run, a dirty relevant tree caps below FULL — commit or stash
   // first so the executed source is the committed, pinned source. (The bundle hash above binds the
   // exact bytes; this refuses the ambiguous dirty-tree case outright.)
+  if (!config.preflight && !measured.sdk_integrity) {
+    // #611 requires the SDK to be pinned by integrity, not just self-reported version. If the loaded
+    // package bytes cannot be hashed, a qualifying run cannot be FULL — the SDK is itself part of the
+    // observation mechanism being qualified.
+    gate.full = false;
+    gate.reasons = [...(gate.reasons || []), 'the Copilot SDK package integrity could not be measured (loaded bytes unhashable) — version-only provenance is insufficient for a qualifying run'];
+  }
   if (!config.preflight) {
     if (config.sourceTreeDirty === null) {
       // Cleanliness could not be established (non-git tree / git failure). Unknown provenance must NOT

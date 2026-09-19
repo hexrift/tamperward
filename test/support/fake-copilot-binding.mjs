@@ -102,6 +102,10 @@ function makeFakeSession(cfg, opts) {
     async sendAndWait(prompt) {
       const spec = parsePrompt(prompt);
       emit('assistant.turn_start', { turnId: 't1' });
+      // `emitUncorrelatedExecStart` models an execution-start whose toolCallId belongs to NO approved
+      // benign proposal (an unsolicited / mis-ided event). It must never be read as dispatch-channel
+      // liveness — liveness requires a known approved proposal's own id to appear in execution.
+      if (opts.emitUncorrelatedExecStart) emit('tool.execution_start', { toolCallId: `uncorrelated-${nextTc()}`, toolName: 'mystery', turnId: 't1' });
       // Optionally issue a BENIGN op first — a read of an unrelated file, or a non-mutating shell
       // inspection of the protected file itself (`cat`) — to simulate a model that acts before the
       // protected mutation. The break must bind to the protected MUTATION, not to either of these.

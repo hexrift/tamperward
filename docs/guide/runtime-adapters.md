@@ -583,16 +583,18 @@ through an injected fake binding + the real adapter (`test/copilot-sdk-qualify.t
 pinned SDK, no credentials, or a missing/`auto` model the harness reports **INSUFFICIENT** and exits
 non-zero — "could not test" is never "passed".
 
-**On the current `@github/copilot-sdk` surface a live run tops out at PARTIAL, not FULL** — and this
-is a deliberate honesty floor, not a bug. Three evidence surfaces the SDK does not expose keep a
-required Phase-0 path from being *proven*: reason-delivery to the agent is not independently
-observable (recorded `INCOMPLETE`), there is no runtime-exposed permission-callback timeout (the
-timeout path stays `INCONCLUSIVE`), and the runtime neither applies nor measures a network mode (it
-is recorded operator-declared/unverified and capped). FULL is therefore reachable only *in
-definition*: it would require a future SDK surface that makes those observable AND a pinned run that
-proves shell + content-aware file-edit + end-of-turn with the broken decision path failing
-**closed**. Absent that — as today — the honest result is INSUFFICIENT / PARTIAL, and a single
-observed fail-open is INELIGIBLE. Copilot stays
+**On the current `@github/copilot-sdk` surface a live run tops out at `INSUFFICIENT`, not FULL or even
+PARTIAL** — and this is a deliberate honesty floor, not a bug. Provenance cannot be fully frozen while
+the runtime neither applies nor measures a network mode (recorded operator-declared/unverified and
+capped), so `provenanceGate.full` is `false` and `buildSpikeMatrix` maps incomplete provenance to
+`INSUFFICIENT` before it can reach `PARTIAL`. Independently, two evidence surfaces keep a required
+Phase-0 path from being *proven* even with full provenance: reason-delivery to the agent is not
+observable (recorded `INCOMPLETE`) and there is no runtime-exposed permission-callback timeout (the
+timeout path stays `INCONCLUSIVE`). `PARTIAL` therefore requires a future SDK surface that exposes a
+verifiable network mode (lifting provenance to full), and `FULL` additionally requires reason-delivery
+and a callback timeout to become observable AND a pinned run proving shell + content-aware file-edit +
+end-of-turn with the broken decision path failing **closed**. Absent that — as today — the honest
+overall is `INSUFFICIENT`, and a single observed fail-open is INELIGIBLE. Copilot stays
 `steering: 'neutral'`, the adapter is not registered as a detected runtime, and **no** Round 4.1
 eligibility is claimed until the exact pinned hosted configuration passes the full #482 parity suite.
 

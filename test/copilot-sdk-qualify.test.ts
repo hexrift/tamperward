@@ -10,7 +10,7 @@ import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
 // @ts-expect-error - the orchestrator is a plain .mjs harness module, no d.ts
 import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
 // @ts-expect-error - the spike is a plain .mjs harness module, no d.ts
-import { provenanceGate, sha16 } from '../harness/adapters/copilot-sdk-spike.mjs';
+import { provenanceGate, sha16, resolvedPackageIntegrity } from '../harness/adapters/copilot-sdk-spike.mjs';
 // @ts-expect-error - the fake binding is a plain .mjs test-support module, no d.ts
 import { createFakeBinding } from './support/fake-copilot-binding.mjs';
 
@@ -278,6 +278,20 @@ describe('runEndOfTurnScenario — block + observed continuation', () => {
     expect(r.evidence.findingBindsTarget).toBe(true);
     expect(r.semantic).toBe('PROVEN');
   });
+
+  it('a block naming a DIFFERENT file with the same BASENAME does not bind to the target (exact repo-relative path, not basename)', async () => {
+    // protectedRel is src/keep.spec.ts; the stub blocks naming other/keep.spec.ts. The bare basename
+    // "keep.spec.ts" appears in the reason, but the exact path does not, so the finding is NOT bound.
+    const blockOtherDir = {
+      decide: (_raw: string, phase: string) =>
+        phase === 'end-of-turn'
+          ? { outcome: 'ok', decision: { verdict: 'deny', reason: 'weakened (other/keep.spec.ts:2)' }, wire: JSON.stringify({ decision: 'block', reason: 'weakened (other/keep.spec.ts:2)' }) }
+          : { outcome: 'allow', decision: { verdict: 'allow' } },
+    };
+    const r = await runEndOfTurnScenario({ binding: createFakeBinding({ benignProtectedEdit: true, continueOnBlock: true }), adapter: blockOtherDir, config: CFG() });
+    expect(r.evidence.findingBindsTarget).toBe(false);
+    expect(r.semantic).not.toBe('PROVEN');
+  });
 });
 
 describe('observation boundary — shutdown-window dispatch, runtime-correlatable identity, source provenance', () => {
@@ -331,6 +345,26 @@ describe('observation boundary — shutdown-window dispatch, runtime-correlatabl
     const r = await runQualification({ binding: createFakeBinding({}), adapter, config: cfg });
     expect(r.overall).not.toBe('FULL');
     expect(r.reasons.some((x: string) => /could not be determined|source provenance is unknown/.test(x))).toBe(true);
+  });
+
+  it('an uncorrelated execution-start does NOT manufacture dispatch-channel liveness (liveness needs a known approved benign proposal)', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ suppressBenign: true, emitUncorrelatedExecStart: true }), adapter, config: CFG(), mechanism: 'shell' });
+    // The only observed execution-start belongs to no approved benign proposal, so the channel is not
+    // proven live and the protected op's non-dispatch stays unproven (INCOMPLETE), never explicit false.
+    expect(r.evidence.dispatchChannelLive).toBe(false);
+    expect(r.evidence.handlerDispatched).toBeUndefined();
+    expect(r.semantic).toBe('INCOMPLETE');
+  });
+
+  it('the SDK package integrity is measured, and an unmeasurable SDK caps a qualifying run below FULL', async () => {
+    // A genuinely installed package hashes to a stable 16-hex integrity; a missing one is undefined.
+    expect(resolvedPackageIntegrity('vitest')).toMatch(/^[0-9a-f]{16}$/);
+    expect(resolvedPackageIntegrity('@github/copilot-sdk-does-not-exist')).toBeUndefined();
+    // @github/copilot-sdk is not installed in the project, so a qualifying run cannot measure its
+    // integrity and must not be FULL; the reason is surfaced.
+    const r = await runQualification({ binding: createFakeBinding({}), adapter, config: buildConfig({ model: 'gpt-5.4' }, {}) });
+    expect(r.overall).not.toBe('FULL');
+    expect(r.reasons.some((x: string) => /SDK package integrity/.test(x))).toBe(true);
   });
 
   it('an operator-declared, UNVERIFIED network mode caps provenance below FULL (not a self-agreeing label)', () => {
