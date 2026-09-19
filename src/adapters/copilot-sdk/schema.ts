@@ -7,17 +7,22 @@
 // object and passes it here, so this module normalises the SDK's fields into the runtime-neutral
 // event the engine already understands — reading no disk and reaching no engine.
 //
-// The SDK `PermissionRequest` surface (from the @github/copilot-sdk Node README):
+// The SDK `PermissionRequest` surface (@github/copilot-sdk Node README + streaming-events ref):
 //   kind: 'shell' | 'write' | 'read' | 'mcp' | 'custom-tool' | 'url' | 'memory' | 'hook'
-//   toolCallId, toolName, fileName (write), fullCommandText (shell), managedApprovalRequired
+//   toolCallId, toolName, managedApprovalRequired
+//   shell: fullCommandText
+//   write: fileName, diff (unified diff), intention, newFileContents? (full proposed content)
+//   read:  fileName
+//   mcp:   toolName
 // plus the host-supplied session identity (sessionId) and the claimed working directory (cwd).
 //
-// IMPORTANT LIMITATION carried through the whole adapter: a `write` request surfaces the target
-// `fileName` but NOT the proposed content. So a shell request reconstructs to a real command
-// Change (content-sensitive), while a write reconstructs to a path-only operation the pre-action
-// path deliberately does NOT judge — see adapter.ts and docs/guide/runtime-adapters.md §Copilot
-// SDK. `end-of-turn` (the SDK `onAgentStop` hook) is a synthetic stop op, exactly as the CLI and
-// Codex adapters model it.
+// A `write` request DOES surface the proposed change — the unified `diff`, and optionally the full
+// `newFileContents` — so content-aware pre-deny is possible: the adapter reconstructs a Change[]
+// from that content and runs the shared engine. It is CONDITIONAL on what the pinned runtime
+// actually provides: a write that surfaces neither a usable diff nor newFileContents is UNSUPPORTED
+// for that measured configuration (allow-through; the end-of-turn sweep is the authority) — see
+// adapter.ts and docs/guide/runtime-adapters.md §Copilot SDK. `end-of-turn` (the SDK `onAgentStop`
+// hook) is a synthetic stop op, exactly as the CLI and Codex adapters model it.
 
 import { OperationKind, ProposedOperation, SteeringEvent, SteeringPhase, UntrustedIdentity } from '../contract';
 import { isRecord } from '../../narrow';
@@ -45,6 +50,9 @@ interface SdkRequest {
   toolName?: string;
   fileName?: string;
   fullCommandText?: string;
+  diff?: string;
+  newFileContents?: string;
+  intention?: string;
   cwd?: string;
   sessionId?: string;
   stopHookActive?: boolean;
@@ -57,24 +65,36 @@ function str(v: unknown): string | undefined {
 /** Field-by-field, wrong types dropped rather than believed. Never throws — the caller
  *  distinguishes an empty absence from a malformed shape first. */
 function requestFrom(parsed: Record<string, unknown>): SdkRequest {
+  const s = (k: string): string | undefined => str(parsed[k]);
   return {
-    ...(str(parsed.kind) !== undefined ? { kind: str(parsed.kind) } : {}),
-    ...(str(parsed.toolName) !== undefined ? { toolName: str(parsed.toolName) } : {}),
-    ...(str(parsed.fileName) !== undefined ? { fileName: str(parsed.fileName) } : {}),
-    ...(str(parsed.fullCommandText) !== undefined ? { fullCommandText: str(parsed.fullCommandText) } : {}),
-    ...(str(parsed.cwd) !== undefined ? { cwd: str(parsed.cwd) } : {}),
-    ...(str(parsed.sessionId) !== undefined ? { sessionId: str(parsed.sessionId) } : {}),
+    ...(s('kind') !== undefined ? { kind: s('kind') } : {}),
+    ...(s('toolName') !== undefined ? { toolName: s('toolName') } : {}),
+    ...(s('fileName') !== undefined ? { fileName: s('fileName') } : {}),
+    ...(s('fullCommandText') !== undefined ? { fullCommandText: s('fullCommandText') } : {}),
+    ...(s('diff') !== undefined ? { diff: s('diff') } : {}),
+    ...(s('newFileContents') !== undefined ? { newFileContents: s('newFileContents') } : {}),
+    ...(s('intention') !== undefined ? { intention: s('intention') } : {}),
+    ...(s('cwd') !== undefined ? { cwd: s('cwd') } : {}),
+    ...(s('sessionId') !== undefined ? { sessionId: s('sessionId') } : {}),
     ...(typeof parsed.stopHookActive === 'boolean' ? { stopHookActive: parsed.stopHookActive } : {}),
   };
 }
 
 /** The reconstruction args for a pre-action operation. A shell op carries its `fullCommandText`
- *  as `command` (judged content-sensitively by the command detectors); a write carries only its
- *  `fileName` as `path` (NO content — the pre-action path does not judge it). */
+ *  as `command` (judged content-sensitively by the command detectors); a write carries its
+ *  `fileName` as `path` PLUS the proposed content (`diff` / `newFileContents`) and `intention`,
+ *  so the adapter can reconstruct and content-judge the change when the runtime surfaces it. */
 function argsFor(req: SdkRequest): Record<string, unknown> {
   const kind = copilotSdkOperationKind(req.kind);
   if (kind === 'shell') return req.fullCommandText !== undefined ? { command: req.fullCommandText } : {};
-  if (kind === 'file-edit') return req.fileName !== undefined ? { path: req.fileName } : {};
+  if (kind === 'file-edit') {
+    return {
+      ...(req.fileName !== undefined ? { path: req.fileName } : {}),
+      ...(req.diff !== undefined ? { diff: req.diff } : {}),
+      ...(req.newFileContents !== undefined ? { newFileContents: req.newFileContents } : {}),
+      ...(req.intention !== undefined ? { intention: req.intention } : {}),
+    };
+  }
   return {};
 }
 

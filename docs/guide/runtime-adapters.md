@@ -496,38 +496,39 @@ bar **without moving the goalposts** — it does not silently upgrade the CLI de
 the explicit ids `github-copilot-cli` vs `github-copilot-sdk-hosted`.
 
 **Adapter** (`src/adapters/copilot-sdk/*`, `github-copilot-sdk-hosted`). The host JSON-serialises
-each SDK `PermissionRequest` (`kind` / `toolName` / `toolCallId` / `fileName` / `fullCommandText`)
-and hands it to `decide`, which opens no second verdict path: a **shell** proposal reconstructs its
-`fullCommandText` through the shared `changesFromCopilot` and runs the same `evaluate` engine; the
-`end-of-turn` sweep delegates to the canonical `stopFromRaw` (its `{decision:"block",reason}` wire
-is already the SDK `onAgentStop` shape); identity is validated against the runner's independently
-derived trusted root. A deny is the SDK `{decision:"reject",feedback}` decision.
+each SDK `PermissionRequest` and hands it to `decide`, which opens no second verdict path: a
+**shell** proposal reconstructs its `fullCommandText` through the shared `changesFromCopilot` and
+runs the same `evaluate` engine; the `end-of-turn` sweep delegates to the canonical `stopFromRaw`
+(its `{decision:"block",reason}` wire is already the SDK `onAgentStop` shape); identity is validated
+against the runner's independently derived trusted root. A pre-action deny is the SDK
+`PermissionRequestResult` reject variant — `{kind:"reject", feedback}`, discriminated on `kind`
+(approval is `{kind:"approve-once"}` and kin) — which is distinct from the agentStop
+`{decision:"block"}` shape and from the CLI hook's flat `{permissionDecision:"deny"}`.
 
-**The crux — content-aware file-edit pre-deny is UNSUPPORTED.** `onPermissionRequest` surfaces a
-write's target **`fileName` but not its proposed content**, so TamperWard's content-sensitive
-judgement (a weakened assertion, an added skip, a policy change) cannot run at the callback. Native
-write **interception is present** — the callback fires before the write — but only at **path**
-level. The adapter therefore treats a `file-edit` pre-action as **`unsupported` (allow-through)**
-and the end-of-turn git sweep is the authority for a landed write; it deliberately does **not**
-blanket-deny writes, because replacing content-aware enforcement with stricter path blocking would
-inflate denials and break the parity the transfer is meant to establish. The capability vocabulary
-is granular, not a single boolean:
+**Content-aware file-edit pre-deny is CONDITIONAL.** A `write` `PermissionRequest` surfaces the
+proposed change — `fileName`, a unified `diff`, an `intention`, and optionally the full
+`newFileContents` — so TamperWard **can** judge it before execution: the adapter reconstructs a
+`Change[]` from that content (`newFileContents` → the shared `synthFileChange`; else the `diff` →
+the shared `parseDiff`) and runs the same `evaluate` engine, so a weakened assertion / added skip /
+policy change is denied. This is conditional on what the pinned runtime actually provides — a write
+that surfaces **no usable content** is `unsupported` for that measured configuration (allow-through;
+the end-of-turn sweep is the authority), never a **blanket path deny**, which would replace
+content-aware enforcement with stricter path blocking and break the parity the transfer is meant to
+establish. The capability vocabulary is granular, not a single boolean:
 
 ```text
-pre-deny:shell                 CANDIDATE      (needs the pinned spike to prove a reject blocks dispatch)
-pre-deny:file-edit-content     UNSUPPORTED    (callback surfaces fileName, not content)
-pre-deny:file-edit-path        AVAILABLE-LIMITED (native write interception seen; never a generic pre-deny)
+pre-deny:shell                 CANDIDATE          (needs the pinned spike to prove a reject blocks dispatch)
+pre-deny:file-edit-content     CANDIDATE          (conditional: reconstructs from diff / newFileContents; UNSUPPORTED only if a measured config lacks usable content)
+pre-deny:file-edit-path        AVAILABLE-LIMITED  (native write interception seen; never a generic pre-deny)
 end-of-turn:file-edit-content  CANDIDATE
 ```
-
-Phase 0 investigates whether another SDK event / tool-invocation surface exposes the write payload;
-if it does the capability can be upgraded and tested, and if it does not, that is a reason the SDK
-route stays PARTIAL.
 
 **The decisive unknown (Phase-0 #3).** Whether a **rejected / thrown / timed-out** permission
 handler actually blocks tool dispatch is **undocumented** and can only be MEASURED on a pinned SDK.
 A single observed fail-open on a required path makes the hosted configuration ineligible for #482 /
-Round 4.1. That is why even `pre-deny:shell` is only a CANDIDATE and `capabilities.preDeny` is empty.
+Round 4.1. That is why every operation stays a CANDIDATE and `capabilities.preDeny` is empty until
+the pinned spike proves enforcement — including whether the content-aware file-edit deny above is
+actually honoured by the runtime.
 
 **Host-owned evidence.** The spike (`spike:copilot-sdk`, `harness/adapters/copilot-sdk-spike.mjs`)
 records an append-only event stream **in the host process** (the callback runs in-process, not a
@@ -541,10 +542,12 @@ false-green; the real four-test spike (layer c) needs a pinned `@github/copilot-
 and an **exact model** (`auto` never qualifies) and does **not** run in CI. With no pinned SDK the
 harness reports **INSUFFICIENT** and exits non-zero.
 
-FULL is **structurally unreachable** for the hosted route while content-aware file-edit pre-deny is
-unsupported; the honest ceiling here is PARTIAL. Copilot stays `steering: 'neutral'`, the adapter is
-not registered as a detected runtime, and **no** Round 4.1 eligibility is claimed until the exact
-pinned hosted configuration passes the full #482 parity suite.
+FULL is not hard-coded away: it is **reachable in principle** once a pinned run proves shell +
+content-aware file-edit + end-of-turn AND the broken decision path fails **closed**. Absent that —
+no pinned run here, or a measured config that surfaces no usable write content — the honest result
+is INSUFFICIENT / PARTIAL, and a single observed fail-open is INELIGIBLE. Copilot stays
+`steering: 'neutral'`, the adapter is not registered as a detected runtime, and **no** Round 4.1
+eligibility is claimed until the exact pinned hosted configuration passes the full #482 parity suite.
 
 ## Runtime detection in onboarding
 

@@ -170,32 +170,43 @@ export function classifyIdentityBinding(ev) {
 }
 
 /**
- * The operation-specific spike matrix, in the GRANULAR vocabulary #611's review fixed. Content-aware
- * file-edit pre-deny is UNSUPPORTED; native write interception is PATH-level only (AVAILABLE/LIMITED,
- * never a generic pre-deny); shell and end-of-turn content are CANDIDATES until the pinned spike
- * proves them. A single observed FAIL-OPEN → INELIGIBLE. Otherwise: INSUFFICIENT until a pinned
- * provenance and all required proofs land, and even then PARTIAL — FULL is structurally unreachable
- * while content pre-deny is unsupported.
+ * The operation-specific spike matrix, in the GRANULAR vocabulary #611 asks for. Capabilities are
+ * CONDITIONAL on what the pinned runtime surfaces, never a single boolean: shell and end-of-turn
+ * content are CANDIDATES; content-aware file-edit pre-deny is a CANDIDATE (write requests carry a
+ * diff / newFileContents, so it is not hard-coded unsupported — a measured config that lacks usable
+ * content reports UNSUPPORTED for that row); file-edit PATH interception stays AVAILABLE/LIMITED
+ * evidence, never a generic pre-deny. A single observed FAIL-OPEN → INELIGIBLE. FULL is reachable
+ * only once a pinned run PROVES shell + content-aware file-edit + end-of-turn AND the broken
+ * decision path fails CLOSED; anything less (or no pinned provenance, or a config lacking write
+ * content) is INSUFFICIENT / PARTIAL. Nothing here manufactures parity the evidence does not show.
  */
-export function buildSpikeMatrix({ shell, fileEdit, endOfTurn, decisionPath, provenanceFull = false } = {}) {
+export function buildSpikeMatrix({ shell, fileEditContent, fileEdit, endOfTurn, decisionPath, provenanceFull = false } = {}) {
   const rows = [
     { label: 'pre-deny:shell', value: shell?.semantic ?? 'CANDIDATE' },
-    { label: 'pre-deny:file-edit-content', value: 'UNSUPPORTED' },
+    { label: 'pre-deny:file-edit-content', value: fileEditContent?.semantic ?? 'CANDIDATE' },
     { label: 'pre-deny:file-edit-path', value: fileEdit?.interceptionObserved ? 'AVAILABLE-LIMITED' : 'INCONCLUSIVE' },
     { label: 'end-of-turn:file-edit-content', value: endOfTurn?.pass ? 'PROVEN' : 'CANDIDATE' },
     { label: 'decision-path:fail-closed', value: decisionPath?.semantic ?? 'CANDIDATE' },
   ];
 
-  const anyFailOpen = shell?.semantic === 'FAIL-OPEN' || decisionPath?.semantic === 'FAIL-OPEN';
+  const anyFailOpen = shell?.semantic === 'FAIL-OPEN' || fileEditContent?.semantic === 'FAIL-OPEN' || decisionPath?.semantic === 'FAIL-OPEN';
+  const allProven =
+    shell?.pass === true &&
+    fileEditContent?.pass === true &&
+    endOfTurn?.pass === true &&
+    decisionPath?.semantic === 'FAIL-CLOSED' &&
+    decisionPath?.eligible === true;
   let overall;
   if (anyFailOpen) {
     overall = 'INELIGIBLE';
-  } else if (provenanceFull && shell?.pass === true && endOfTurn?.pass === true && decisionPath?.semantic === 'FAIL-CLOSED' && decisionPath?.eligible === true) {
-    // FULL is deliberately NOT reachable: content-aware file-edit pre-deny is UNSUPPORTED, so the
-    // honest ceiling for the hosted route is PARTIAL parity.
-    overall = 'PARTIAL';
-  } else {
+  } else if (!provenanceFull) {
     overall = 'INSUFFICIENT';
+  } else if (allProven) {
+    overall = 'FULL';
+  } else {
+    // Pinned, no fail-open, but not every required path proven (e.g. a config that surfaces no
+    // usable write content, so content-aware file-edit stays unproven) → honest PARTIAL parity.
+    overall = 'PARTIAL';
   }
   return { runtime: 'github-copilot-sdk-hosted', rows, overall };
 }

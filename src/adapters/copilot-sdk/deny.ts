@@ -1,11 +1,13 @@
 // GitHub Copilot SDK (@github/copilot-sdk) deny envelopes (#482 / #611, EXPERIMENTAL).
 //
-// The hosted SDK's decision vocabulary differs from the CLI hook wire:
+// The hosted SDK's decision vocabulary differs from the CLI hook wire, and the two SDK surfaces
+// are themselves distinct (@github/copilot-sdk Node README):
 //
-//  - pre-action (onPermissionRequest) → the SDK `PermissionDecision` `{ decision: "reject",
-//    feedback }`. Returning `reject` denies the tool before it executes and the `feedback`
-//    reaches the agent. (The CLI hook's flat `{permissionDecision:"deny",...}` is a DIFFERENT
-//    surface — this adapter never emits it.)
+//  - pre-action (onPermissionRequest) → a `PermissionRequestResult`, a discriminated union on
+//    `kind`. Denial is `{ kind: "reject", feedback }`; approval is `{ kind: "approve-once" }` (and
+//    kin). Returning `reject` denies the tool before it executes and the `feedback` reaches the
+//    agent. (This is NOT the CLI hook's flat `{permissionDecision:"deny",...}`, nor the agentStop
+//    `{decision:...}` shape — this adapter never emits those here.)
 //  - end-of-turn (onAgentStop) → `{ decision: "block", reason }`, which forces the agent to
 //    continue for another turn. This is IDENTICAL to the canonical Stop sweep's wire
 //    (src/cli/hook.ts `stopFromRaw`), so the adapter passes that sweep wire through unchanged and
@@ -25,10 +27,12 @@ function assertPhase(phase: CopilotSdkWirePhase): void {
   if (!known.includes(phase)) throw new Error(`unsupported Copilot SDK wire phase: ${phase}`);
 }
 
-/** Serialise the SDK's decision envelope for an already-formatted reason, by phase. */
+/** Serialise the SDK's decision envelope for an already-formatted reason, by phase. Pre-action is
+ *  the `PermissionRequestResult` reject variant (discriminated on `kind`); end-of-turn is the
+ *  agentStop block/continue shape (discriminated on `decision`). */
 export function copilotSdkWire(reason: string, phase: CopilotSdkWirePhase): string {
   assertPhase(phase);
-  const payload = phase === 'end-of-turn' ? { decision: 'block', reason } : { decision: 'reject', feedback: reason };
+  const payload = phase === 'end-of-turn' ? { decision: 'block', reason } : { kind: 'reject', feedback: reason };
   return JSON.stringify(payload) + '\n';
 }
 

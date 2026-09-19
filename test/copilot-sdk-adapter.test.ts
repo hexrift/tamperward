@@ -262,7 +262,7 @@ describe('CopilotSdkHostedAdapter.decide — failure states fail CLOSED (deny)',
     const r = copilotSdkAdapter.decide('[1,2,3]', 'pre-action');
     expect(r.outcome).toBe('parse-failure');
     expect(r.decision?.verdict).toBe('deny');
-    expect(JSON.parse(r.wire as string).decision).toBe('reject');
+    expect(JSON.parse(r.wire as string).kind).toBe('reject');
   });
 
   it('a cross-repo identity claim fails closed BEFORE evaluation', () => {

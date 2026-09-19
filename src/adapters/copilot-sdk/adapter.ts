@@ -14,16 +14,16 @@
 // `{decision:"block",reason}` wire is already the SDK `onAgentStop` shape. Identity is validated
 // exactly as the Claude / Codex / Copilot-CLI adapters do.
 //
-// CONTENT-AWARE FILE-EDIT PRE-DENY IS UNSUPPORTED (the crux of #611). `onPermissionRequest`
-// surfaces a write's target `fileName` but NOT its proposed content, so TamperWard's
-// content-sensitive judgement (a weakened assertion, an added skip, a policy change) cannot run
-// at the callback. Native write INTERCEPTION is present — the callback fires before the write —
-// but only at PATH level, so this adapter deliberately does NOT blanket-deny writes (that would
-// replace content-aware enforcement with stricter path blocking and break the #482 / Round 4.1
-// parity the transfer is supposed to establish). A file-edit pre-action returns `unsupported`
-// (allow-through); the end-of-turn git sweep is the authority for a landed write. Phase 0
-// investigates whether another SDK surface exposes the write payload — if it does, the capability
-// can be upgraded and tested; if it does not, that is a reason the SDK route stays PARTIAL.
+// CONTENT-AWARE FILE-EDIT PRE-DENY IS CONDITIONAL (the crux of #611). A `write` permission request
+// surfaces the proposed change — a unified `diff`, and optionally the full `newFileContents` — so
+// TamperWard CAN judge it before execution: the adapter reconstructs a Change[] from that content
+// and runs the SAME engine (a weakened assertion, an added skip, a policy change all block). This
+// is CONDITIONAL on what the pinned runtime actually provides: a write that surfaces neither a
+// usable diff nor newFileContents is `unsupported` for that measured configuration (allow-through;
+// the end-of-turn git sweep is the authority) — never a blanket path deny, which would replace
+// content-aware enforcement with stricter path blocking and break the #482 / Round 4.1 parity. What
+// is UNPROVEN (and gates any capability claim) is whether the runtime enforces a rejected decision
+// at all — the fail-open-vs-closed unknown the spike must measure.
 
 import { Finding } from '../../types';
 import { evaluate } from '../../engine';
@@ -43,13 +43,14 @@ import {
   steeringUnavailableFinding,
 } from '../contract';
 import { changesFromCopilot } from '../copilot/changes';
+import { sdkFileEditChanges } from './changes';
 import { copilotSdkDenyWire } from './deny';
 import { copilotSdkStopInput, normalizeCopilotSdkEvent } from './schema';
 
-const FILE_EDIT_UNSUPPORTED_DETAIL =
-  'Copilot SDK onPermissionRequest surfaces the write fileName but not its content, so content-aware ' +
-  'pre-denial cannot be established here; the end-of-turn git sweep is the authority for a landed write. ' +
-  'Native write interception is present but path-level only — this adapter does not blanket-deny writes.';
+const FILE_EDIT_NO_CONTENT_DETAIL =
+  'this Copilot SDK write surfaced no usable content (no diff, no newFileContents), so content-aware ' +
+  'pre-denial cannot be established for this measured configuration; the end-of-turn git sweep is the ' +
+  'authority for the landed write. This adapter does not blanket-deny writes.';
 
 export class CopilotSdkHostedAdapter implements RuntimeAdapter {
   readonly name = 'github-copilot-sdk-hosted';
@@ -67,8 +68,7 @@ export class CopilotSdkHostedAdapter implements RuntimeAdapter {
     endOfTurn: true,
     unsupported: [
       'shell pre-deny enforcement is only a CANDIDATE until the spike proves on a pinned @github/copilot-sdk that a rejected permission decision actually blocks tool dispatch (see spike:copilot-sdk)',
-      'CONTENT-aware file-edit pre-deny is UNSUPPORTED: onPermissionRequest surfaces the write fileName but not the proposed content, so TamperWard cannot judge a weakened assertion / added skip / policy change at the callback; content is caught only by the end-of-turn git sweep',
-      'native write interception is present but PATH-level only — file-edit is NOT promoted as a generic pre-deny (no blanket path blocking); Phase 0 investigates whether another SDK event/tool-invocation surface exposes the write payload',
+      'content-aware file-edit pre-deny is CONDITIONAL on the pinned runtime surfacing usable write content: the adapter reconstructs and content-judges a write carrying a diff / newFileContents, but a write that surfaces neither is unsupported for that measured configuration (allow-through; the end-of-turn sweep is authority) — never a blanket path deny',
       'the SDK permission-handler failure semantics (synchronous throw / rejected Promise / timeout) are UNMEASURED: whether a broken decision path fails open (dispatches the tool) or closed is exactly what the spike must establish; a single observed fail-open makes the path ineligible for #482 / Round 4.1',
       'onAgentStop is a lifecycle continuation control ({decision:"block"} forces another turn, guarded by stopHookActive), not a filesystem veto',
       'network-egress control',
@@ -145,14 +145,21 @@ export class CopilotSdkHostedAdapter implements RuntimeAdapter {
       // turn-start baseline — including for a file-edit the pre-action path deliberately allows through.
       turnBaseline(root, parsed.identity.sessionId);
 
-      // file-edit: content is not surfaced by the callback, so this is UNSUPPORTED at pre-action
-      // (allow-through). NOT a blanket path deny — the end-of-turn sweep judges the landed content.
-      if (parsed.operation.kind === 'file-edit') {
-        return { outcome: 'unsupported', detail: FILE_EDIT_UNSUPPORTED_DETAIL };
-      }
-
       const sessionCwd = parsed.identity.claimedCwd ?? defaultCwd ?? process.cwd();
       const policy = loadPolicy(root);
+
+      // file-edit: reconstruct the proposed change from the write's surfaced content (diff /
+      // newFileContents) and content-judge it. A write with NO usable content is unsupported for
+      // this measured configuration (allow-through; the sweep is authority) — not a blanket deny.
+      // A diff that cannot be reconstructed throws → fail-closed deny below.
+      if (parsed.operation.kind === 'file-edit') {
+        const changes = sdkFileEditChanges(parsed.operation.args, root, sessionCwd);
+        if (changes === null) return { outcome: 'unsupported', detail: FILE_EDIT_NO_CONTENT_DETAIL };
+        const findings = evaluate(changes, policy, undefined, 'tool-call', { cwd: root }).filter((f) => f.severity === 'block');
+        const wire = this.denyPayload(findings, 'pre-action');
+        return { outcome: 'ok', wire, decision: { verdict: findings.length ? 'deny' : 'allow', findings, reason: wire || undefined } };
+      }
+
       const changes = changesFromCopilot(parsed.operation, root, sessionCwd);
       const findings = evaluate(changes, policy, undefined, 'tool-call', { cwd: root }).filter((f) => f.severity === 'block');
       const wire = this.denyPayload(findings, 'pre-action');
