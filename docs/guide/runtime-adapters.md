@@ -509,9 +509,13 @@ against the runner's independently derived trusted root. A pre-action deny is th
 proposed change — `fileName`, a unified `diff`, an `intention`, and optionally the full
 `newFileContents` — so TamperWard **can** judge it before execution: the adapter reconstructs a
 `Change[]` from that content (`newFileContents` → the shared `synthFileChange`; else the `diff` →
-the shared `parseDiff`) and runs the same `evaluate` engine, so a weakened assertion / added skip /
-policy change is denied. This is conditional on what the pinned runtime actually provides — a write
-that surfaces **no usable content** is `unsupported` for that measured configuration (allow-through;
+the shared `parseDiff`, whose hunks are applied to the on-disk `before` to recover the full `after`)
+and runs the same `evaluate` engine, so a weakened assertion / added skip / policy change is denied.
+The reconstructed change is **bound to the request's `fileName`**: the diff's own header paths are
+not trusted, so a diff naming a different or multiple files fails **closed** rather than letting a
+benign-looking header dodge the protected target. This is conditional on what the pinned runtime
+actually provides — a write that surfaces **no usable content** is `unsupported` for that measured
+configuration (allow-through;
 the end-of-turn sweep is the authority), never a **blanket path deny**, which would replace
 content-aware enforcement with stricter path blocking and break the parity the transfer is meant to
 establish. The capability vocabulary is granular, not a single boolean:
@@ -538,9 +542,14 @@ no dispatch` chain — a genuine improvement over a candidate-writable ledger. E
 absence of a dispatch is not, by itself, absolute proof nothing ran. The pure classifiers
 (`classifyPreDispatchDeny`, `classifyDecisionPathFailure`, `classifyEndOfTurn`,
 `classifyIdentityBinding`, `buildSpikeMatrix`, `provenanceGate`) run in CI (layer b) and cannot
-false-green; the real four-test spike (layer c) needs a pinned `@github/copilot-sdk`, credentials,
-and an **exact model** (`auto` never qualifies) and does **not** run in CI. With no pinned SDK the
-harness reports **INSUFFICIENT** and exits non-zero.
+false-green. `provenanceGate` compares **measured** provenance against expected pins and binds
+**both** the actual loaded SDK package version (resolved by walking the module entrypoint's package
+root — the package does not export `./package.json`) **and** the hosted Copilot **runtime** version
+from `client.getStatus()` (the SDK delegates to a runtime, which #611's freeze requires), plus the
+TamperWard build, host-config hash, and the exact model passed into the session; a mismatch or any
+unmeasured pin caps below `full`, and `auto` never qualifies. The real four-test spike (layer c)
+needs a pinned `@github/copilot-sdk`, credentials, and an exact model, and does **not** run in CI.
+With no pinned SDK the harness reports **INSUFFICIENT** and exits non-zero.
 
 FULL is not hard-coded away: it is **reachable in principle** once a pinned run proves shell +
 content-aware file-edit + end-of-turn AND the broken decision path fails **closed**. Absent that —

@@ -53,16 +53,68 @@ export function sdkFileEditChanges(args: Record<string, unknown>, cwd: string, b
     return synthFileChange(display, before, args.newFileContents);
   }
 
-  // Otherwise a unified diff, parsed by the shared producer. Add a header from the fileName when the
-  // raw diff omits one, so the change binds to the intended path.
+  // Otherwise a unified diff, parsed by the SHARED producer (`parseDiff`, which requires a
+  // `diff --git` envelope). CRUCIAL (#611 proposal binding): the parsed change is bound to the
+  // permission request's `fileName` target — the diff's own header paths are NOT trusted, because a
+  // payload could name a benign file in the diff while authorizing a write to a protected one. Any
+  // change whose path (or rename oldPath) is not exactly the target, or a multi-file diff, FAILS
+  // CLOSED. `newFileContents` above is the exact path; this is the diff fallback.
   const diff = asStr(args.diff);
   if (diff.trim()) {
-    const hasHeader = /^\+\+\+ /m.test(diff) || diff.startsWith('diff --git ');
-    const withHeader = hasHeader ? diff : `--- a/${display}\n+++ b/${display}\n${diff}`;
-    const changes = parseDiff(withHeader);
-    if (changes.length) return changes;
-    throw new Error(`write diff for ${path} could not be reconstructed into a change`);
+    const parsed = parseDiff(toGitDiff(diff, display));
+    if (!parsed.length) throw new Error(`write diff for ${path} could not be reconstructed into a change`);
+    if (parsed.length > 1) throw new Error(`write diff spans ${parsed.length} files; a single permission target (${display}) was expected`);
+    const c = parsed[0];
+    if (c.kind !== 'file') throw new Error('write diff did not reconstruct into a file change');
+    if (c.path !== display || (c.oldPath != null && c.oldPath !== display)) {
+      throw new Error(`write diff path (${c.path}${c.oldPath ? ` from ${c.oldPath}` : ''}) does not match the permission request target (${display}) — refusing to judge a different file`);
+    }
+    // parseDiff carries hunks but not before/after content, so apply the hunks to the on-disk
+    // `before` to get the full proposed `after`, then hand the shared `synthFileChange` real
+    // before/after so the content detectors judge it (the same shape the newFileContents path uses).
+    const after = applyUnifiedHunks(before, c.hunks);
+    return synthFileChange(display, before, after);
   }
 
   return null; // no usable content surfaced → the caller reports unsupported
+}
+
+/** Apply parsed unified-diff hunks to `before`, yielding the proposed `after` content. Context/added
+ *  lines are emitted; deleted lines are dropped; unchanged regions between hunks are copied through.
+ *  A null `before` (new file) starts from empty. Line numbers come from the (validated) hunk headers. */
+function applyUnifiedHunks(before: string | null, hunks: { oldStart: number; lines: { type: string; content: string }[] }[]): string {
+  const beforeLines = before === null ? [] : before.split('\n');
+  const out: string[] = [];
+  let cursor = 0; // 0-based index into beforeLines
+  for (const h of hunks) {
+    const start = Math.max(0, h.oldStart - 1);
+    while (cursor < start && cursor < beforeLines.length) out.push(beforeLines[cursor++]);
+    for (const ln of h.lines) {
+      if (ln.type === 'context') {
+        out.push(ln.content);
+        cursor++;
+      } else if (ln.type === 'del') {
+        cursor++; // drop the before line
+      } else if (ln.type === 'add') {
+        out.push(ln.content);
+      }
+    }
+  }
+  while (cursor < beforeLines.length) out.push(beforeLines[cursor++]);
+  return out.join('\n');
+}
+
+/**
+ * Turn a unified diff into a `diff --git`-enveloped diff `parseDiff` accepts, ALWAYS anchored to
+ * `target`. When the raw diff already carries a `diff --git` envelope it is used verbatim (its paths
+ * are then verified against `target` by the caller, so a mismatching header fails closed rather than
+ * being silently rebound). A bare hunk body is wrapped with a header derived from `target`.
+ */
+function toGitDiff(raw: string, target: string): string {
+  if (raw.includes('diff --git ')) return raw;
+  const at = raw.indexOf('\n@@');
+  const firstAt = raw.startsWith('@@') ? 0 : at >= 0 ? at + 1 : -1;
+  if (firstAt < 0) throw new Error('unified diff has no hunk to reconstruct');
+  const body = raw.slice(firstAt);
+  return `diff --git a/${target} b/${target}\n--- a/${target}\n+++ b/${target}\n${body}`;
 }

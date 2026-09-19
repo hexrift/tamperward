@@ -31,7 +31,7 @@
 
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -221,7 +221,9 @@ export function buildSpikeMatrix({ shell, fileEditContent, fileEdit, endOfTurn, 
  */
 export function provenanceGate({ expected = {}, measured = {} } = {}) {
   const reasons = [];
-  const pins = ['sdk_version', 'tamperward_version', 'host_config_sha256', 'network_mode', 'approval_mode', 'evidence_schema_version'];
+  // #611 freeze: pin the actual SDK package AND the hosted runtime the SDK delegates to (getStatus),
+  // plus TamperWard build, host config, network/approval mode, and the evidence schema.
+  const pins = ['sdk_version', 'runtime_version', 'tamperward_version', 'host_config_sha256', 'network_mode', 'approval_mode', 'evidence_schema_version'];
   for (const k of pins) {
     if (!expected[k]) reasons.push(`missing expected ${k}`);
     else if (!measured[k]) reasons.push(`unmeasured ${k} (not derived from what ran)`);
@@ -260,23 +262,48 @@ async function resolveSdk() {
   }
 }
 
+/** Resolve the ACTUAL version of the loaded package `spec` by resolving its module entrypoint and
+ *  walking up to its package root. The published @github/copilot-sdk exports only `.` / `./extension`
+ *  and does NOT expose `./package.json`, so a `require('${spec}/package.json')` is rejected by
+ *  package-exports resolution — this walks the real entry's directory tree instead. */
+export function resolvedPackageVersion(spec, requireFn) {
+  const req = requireFn || createRequire(import.meta.url);
+  let dir;
+  try {
+    dir = dirname(req.resolve(spec));
+  } catch {
+    return undefined; // not installed → cannot measure
+  }
+  for (let i = 0; i < 12; i++) {
+    const p = join(dir, 'package.json');
+    if (existsSync(p)) {
+      try {
+        const pkg = JSON.parse(readFileSync(p, 'utf8'));
+        if (pkg && pkg.version && (pkg.name === spec || i > 0)) return pkg.version;
+      } catch {
+        /* keep walking */
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+}
+
 /**
  * MEASURED provenance — derived from what actually loaded/ran, never echoed from an env label:
- *  - sdk_version: the real version in the resolved @github/copilot-sdk package.json;
+ *  - sdk_version: the real version of the resolved @github/copilot-sdk package (entrypoint-walked);
+ *  - runtime_version: the hosted Copilot runtime the SDK delegates to, from `client.getStatus()`
+ *    (passed in as `runtimeStatus`); #611's freeze requires it when the SDK delegates to a runtime;
  *  - tamperward_version: this build's package.json version + git commit;
  *  - host_config_sha256: a hash of the exact session options the host will pass (incl. the model);
  *  - model: the EXACT model the host passes to createSession (`sessionModel`), not an env label.
  * A value that cannot be measured is left undefined so `provenanceGate` refuses `full`.
  */
-export function measuredProvenance(sessionModel, hostConfig = {}) {
+export function measuredProvenance(sessionModel, hostConfig = {}, runtimeStatus = undefined) {
   const spec = process.env.COPILOT_SDK_SPEC || '@github/copilot-sdk';
-  const require = createRequire(import.meta.url);
-  let sdkVersion;
-  try {
-    sdkVersion = require(`${spec}/package.json`).version;
-  } catch {
-    sdkVersion = undefined; // cannot measure → cannot qualify
-  }
+  const sdkVersion = resolvedPackageVersion(spec);
   let twVersion;
   try {
     const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
@@ -290,8 +317,11 @@ export function measuredProvenance(sessionModel, hostConfig = {}) {
   } catch {
     twVersion = undefined;
   }
+  const runtimeVersion = runtimeStatus && typeof runtimeStatus.version === 'string' ? `copilot-runtime@${runtimeStatus.version}` : undefined;
   return {
     sdk_version: sdkVersion ? `${spec}@${sdkVersion}` : undefined,
+    runtime_version: runtimeVersion,
+    ...(runtimeStatus && typeof runtimeStatus.protocolVersion === 'string' ? { protocol_version: runtimeStatus.protocolVersion } : {}),
     tamperward_version: twVersion,
     host_config_sha256: sha16(JSON.stringify({ model: sessionModel, ...hostConfig })),
     network_mode: process.env.COPILOT_SDK_NETWORK_MODE,
@@ -322,6 +352,7 @@ async function main() {
   // EXPECTED pins the operator froze; MEASURED is derived from what actually loaded/ran.
   const expected = {
     sdk_version: process.env.COPILOT_SDK_VERSION_EXPECTED,
+    runtime_version: process.env.COPILOT_RUNTIME_VERSION_EXPECTED,
     tamperward_version: process.env.TAMPERWARD_VERSION_EXPECTED,
     host_config_sha256: process.env.COPILOT_SDK_HOST_CONFIG_SHA256_EXPECTED,
     network_mode: process.env.COPILOT_SDK_NETWORK_MODE,
@@ -329,7 +360,12 @@ async function main() {
     evidence_schema_version: EVIDENCE_SCHEMA_VERSION,
     model: sessionModel,
   };
-  const measured = measuredProvenance(sessionModel);
+  // The hosted runtime version is measured from `await client.getStatus()` after connection — the
+  // SDK normally spawns/hosts the Copilot runtime, and #611 requires that version when the SDK
+  // delegates to it. No client is created in this environment, so it is left unmeasured (which,
+  // like any unmeasured pin, keeps the gate below `full` → INSUFFICIENT).
+  const runtimeStatus = undefined; // = await client.getStatus() on a pinned run
+  const measured = measuredProvenance(sessionModel, {}, runtimeStatus);
   const gate = provenanceGate({ expected, measured });
   lines.push('', 'Provenance (measured vs expected pin):');
   for (const k of Object.keys(expected)) {
