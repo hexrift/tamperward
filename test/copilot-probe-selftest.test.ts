@@ -211,19 +211,18 @@ describe('probe classifiers — every deterministic mode is classified correctly
   });
 });
 
-describe('capability matrix — operation-specific, vocabulary matches parent-observed evidence (#598)', () => {
-  it('labels mutation rows protected-state-held (HELD/NOT-HELD/INCONCLUSIVE), never pre-deny PROVEN', () => {
-    // A potent control + intact gated tree proves only that the protected mutation did NOT land —
-    // NOT that Copilot attempted the tool, the hook fired, and TamperWard's deny was enforced. So
-    // the row is `protected-state-held`, never `pre-deny:* PROVEN` (that needs a forge-independent
-    // attempt/hook/deny signal this architecture does not have).
+describe('capability matrix — scenario-based, never attributed to an untrusted operation kind (#598)', () => {
+  it('labels mutation rows protected-final-state:<scenario>, not by operation kind', () => {
+    // With the ledger demoted there is NO trusted evidence Copilot used the named tool/path — a
+    // prompt can be satisfied through another mutation path — so a per-operation-kind label
+    // (`:shell` / `:file-edit` / `:mcp`) would overclaim tool identity. Rows are keyed by the
+    // SCENARIO (case id) instead; the claimed operation kind is diagnostic only.
     const matrix = buildCapabilityMatrix({
       runtime: 'github-copilot-cli',
       mutations: [
-        { operation: 'shell', pass: true, status: 'PASS' },
-        { operation: 'shell', pass: true, status: 'PASS' },
-        { operation: 'file-edit', pass: true, status: 'PASS' },
-        { operation: 'mcp', pass: false, status: 'INCONCLUSIVE' },
+        { scenario: 'shell-edit', operation: 'shell', pass: true, status: 'PASS' },
+        { scenario: 'native-edit', operation: 'file-edit', pass: true, status: 'PASS' },
+        { scenario: 'mcp-write', operation: 'mcp', pass: false, status: 'INCONCLUSIVE' },
       ],
       stop: { pass: false },
       transports: [
@@ -233,34 +232,34 @@ describe('capability matrix — operation-specific, vocabulary matches parent-ob
       provenanceFull: false,
     });
     const rows = Object.fromEntries(matrix.rows.map((r: { label: string; value: string }) => [r.label, r.value]));
-    expect(rows['protected-state-held:shell']).toBe('HELD');
-    expect(rows['protected-state-held:file-edit']).toBe('HELD');
-    expect(rows['protected-state-held:mcp']).toBe('INCONCLUSIVE');
-    expect(rows['pre-deny:shell']).toBeUndefined(); // the stronger vocabulary is gone
+    expect(rows['protected-final-state:shell-edit']).toBe('HELD');
+    expect(rows['protected-final-state:native-edit']).toBe('HELD');
+    expect(rows['protected-final-state:mcp-write']).toBe('INCONCLUSIVE');
+    // Operation-kind labels must NOT appear — tool identity is untrusted here.
+    expect(rows['protected-state-held:mcp']).toBeUndefined();
+    expect(rows['protected-final-state:mcp']).toBeUndefined();
+    expect(rows['pre-deny:shell']).toBeUndefined();
     expect(rows['end-of-turn']).toBe('UNPROVEN');
     expect(matrix.overall).toBe('PARTIAL');
   });
 
-  it('a landed mutation makes its operation NOT-HELD and the overall PARTIAL', () => {
+  it('a landed mutation makes its scenario NOT-HELD and the overall PARTIAL', () => {
     const matrix = buildCapabilityMatrix({
       runtime: 'github-copilot-cli',
-      mutations: [{ operation: 'shell', pass: false, status: 'FAIL' }],
+      mutations: [{ scenario: 'shell-edit', operation: 'shell', pass: false, status: 'FAIL' }],
       stop: { pass: false },
       transports: [{ kind: 'crash', semantic: 'NO-DISPATCH' }],
       provenanceFull: true,
     });
     const rows = Object.fromEntries(matrix.rows.map((r: { label: string; value: string }) => [r.label, r.value]));
-    expect(rows['protected-state-held:shell']).toBe('NOT-HELD');
+    expect(rows['protected-final-state:shell-edit']).toBe('NOT-HELD');
     expect(matrix.overall).toBe('PARTIAL');
   });
 
-  it('HELD rows and NO-DISPATCH transports can never reach FULL — the probe cannot prove in-loop enforcement', () => {
-    // Everything the real probe can produce: parent-observed HELD ops + NO-DISPATCH transports +
-    // an UNPROVEN Stop. None of it is forge-independent proof of in-loop enforcement, so overall
-    // must stay PARTIAL no matter how many rows are green.
+  it('HELD scenarios and NO-DISPATCH transports can never reach FULL — the probe cannot prove in-loop enforcement', () => {
     const m = buildCapabilityMatrix({
       runtime: 'github-copilot-cli',
-      mutations: [{ operation: 'shell', pass: true, status: 'PASS' }, { operation: 'file-edit', pass: true, status: 'PASS' }, { operation: 'mcp', pass: true, status: 'PASS' }],
+      mutations: [{ scenario: 'a', operation: 'shell', pass: true, status: 'PASS' }, { scenario: 'b', operation: 'file-edit', pass: true, status: 'PASS' }, { scenario: 'c', operation: 'mcp', pass: true, status: 'PASS' }],
       stop: { pass: false },
       transports: [{ kind: 'crash', semantic: 'NO-DISPATCH' }, { kind: 'nonzero', semantic: 'NO-DISPATCH' }],
       provenanceFull: true,
@@ -271,7 +270,7 @@ describe('capability matrix — operation-specific, vocabulary matches parent-ob
   it('a documented FAIL-OPEN transport kind observed NO-DISPATCH is a DEVIATION, still PARTIAL', () => {
     const m = buildCapabilityMatrix({
       runtime: 'github-copilot-cli',
-      mutations: [{ operation: 'shell', pass: true, status: 'PASS' }],
+      mutations: [{ scenario: 'a', operation: 'shell', pass: true, status: 'PASS' }],
       stop: { pass: false },
       transports: [{ kind: 'timeout', semantic: 'NO-DISPATCH' }],
       provenanceFull: true,
@@ -284,7 +283,7 @@ describe('capability matrix — operation-specific, vocabulary matches parent-ob
   it('a FAIL-OPEN transport observed FAIL-OPEN is recorded as-is, PARTIAL', () => {
     const m = buildCapabilityMatrix({
       runtime: 'github-copilot-cli',
-      mutations: [{ operation: 'shell', pass: true, status: 'PASS' }],
+      mutations: [{ scenario: 'a', operation: 'shell', pass: true, status: 'PASS' }],
       stop: { pass: false },
       transports: [{ kind: 'timeout', semantic: 'FAIL-OPEN' }],
       provenanceFull: true,
