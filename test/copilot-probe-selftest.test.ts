@@ -16,7 +16,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 // @ts-expect-error - the probe is a plain .mjs harness module, no d.ts
-import { classifyMutation, classifyDetached, classifyProbeAvailability, controlAvailabilityReason, classifyLifecycleAbort, detachedLifecycleOutcome, stopLifecycleOutcome, collectAfterSettle, classifyFailClosed, failClosedLifecycleOutcome, classifyStop, stopBlockSurfaced, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, detachedEvidence, parseVersion, execArgsFor, canonicalHooks, provenanceGate, classifyDocumentedFailOpen, transportExpectation, transportObservation, buildCapabilityMatrix, mutationVerdict, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/copilot-probe.mjs';
+import { classifyMutation, classifyDetached, classifyProbeAvailability, controlAvailabilityReason, classifyLifecycleAbort, detachedLifecycleOutcome, stopLifecycleOutcome, collectAfterSettle, classifyFailClosed, failClosedLifecycleOutcome, classifyStop, stopBlockSurfaced, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, detachedEvidence, parseVersion, execArgsFor, canonicalHooks, provenanceGate, classifyDocumentedFailOpen, transportExpectation, transportObservation, buildCapabilityMatrix, mutationVerdict, buildDriver, driverSelfTest, makeRepo, canonicalHooksSha, readLedger } from '../harness/adapters/copilot-probe.mjs';
 
 describe('probe classifiers — every deterministic mode is classified correctly', () => {
   it('marks an unavailable tool as inconclusive rather than enforcement failure', () => {
@@ -347,6 +347,35 @@ describe('model pin is operative and hooks wiring binds to provenance', () => {
     const b = canonicalHooks(wiring('/tmp/run-B'), [['/tmp/run-B', '<REPO>']]);
     expect(a).toBe(b);
     expect(canonicalHooks(`command: node /tmp/run-A/.github hook --extra; ledger /tmp/run-A/l.jsonl`, [['/tmp/run-A', '<REPO>']])).not.toBe(a);
+  });
+
+  it('canonicalHooksSha is invariant to the ledger/tracer directory, so the provenance template matches a real case whose ledger lives OUTSIDE work', () => {
+    // The real probe puts the ledger (and tracer) under an evidence cache outside `work`, while the
+    // provenance template historically used a ledger inside `work`. The tracer path
+    // `dirname(ledger)/tracer.mjs` must canonicalize identically in both, or every real gated
+    // mutation false-reds as "hooks wiring not bound to recorded provenance".
+    const work = mkdtempSync(join(tmpdir(), 'tw-cop-work-'));
+    const evid = mkdtempSync(join(tmpdir(), 'tw-cop-evid-')); // stands in for the evidence cache, OUTSIDE work
+    try {
+      const driver = buildDriver();
+      const tmplLedger = join(work, 'hooks-probe.jsonl'); // template placement (inside work)
+      const tmplRepo = makeRepo(driver, tmplLedger);
+      const caseLedger = join(evid, 'ledger.jsonl'); // real placement (outside work), different repo temp path
+      const caseRepo = makeRepo(driver, caseLedger);
+      const tmplSha = canonicalHooksSha(tmplRepo, tmplLedger, driver, work);
+      const caseSha = canonicalHooksSha(caseRepo, caseLedger, driver, work);
+      expect(caseSha).toBe(tmplSha);
+      // A genuine wiring change (different decision command) still changes the hash.
+      const changedRepo = makeRepo(driver, caseLedger, 'true');
+      expect(canonicalHooksSha(changedRepo, caseLedger, driver, work)).not.toBe(caseSha);
+      rmSync(tmplRepo, { recursive: true, force: true });
+      rmSync(caseRepo, { recursive: true, force: true });
+      rmSync(changedRepo, { recursive: true, force: true });
+      rmSync(dirname(driver), { recursive: true, force: true });
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+      rmSync(evid, { recursive: true, force: true });
+    }
   });
 });
 
