@@ -34,7 +34,7 @@
 
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { readFileSync, existsSync, writeFileSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -309,36 +309,81 @@ export function resolvedPackageVersion(spec, requireFn) {
   return undefined;
 }
 
+/** The installed package ROOT directory for `spec` (the dir whose package.json has name === spec),
+ *  found by resolving an entry and walking up. Undefined when the package is not installed. */
+export function resolvedPackageRoot(spec, requireFn) {
+  const req = requireFn || createRequire(import.meta.url);
+  let dir;
+  try {
+    dir = dirname(req.resolve(spec));
+  } catch {
+    return undefined; // not installed → cannot locate
+  }
+  for (let i = 0; i < 16; i++) {
+    const p = join(dir, 'package.json');
+    if (existsSync(p)) {
+      try {
+        const pkg = JSON.parse(readFileSync(p, 'utf8'));
+        if (pkg && pkg.name === spec) return dir;
+      } catch {
+        /* keep walking */
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+}
+
+/** A deterministic content hash of every shipped file under `root` (recursive, sorted by relative
+ *  path, path + bytes), EXCLUDING nested `node_modules`. This covers the whole implementation — both
+ *  conditional-export entries (ESM `dist/index.js` AND CJS `dist/cjs/index.js`) and every transitive
+ *  module (client.js, session.js, generated RPC/event files) — so a change to any executing byte
+ *  changes the hash, regardless of which entry the loader resolves. */
+export function packageIntegrityHash(root) {
+  const files = [];
+  const walk = (d, rel) => {
+    for (const name of readdirSync(d).sort()) {
+      if (name === 'node_modules') continue; // shipped nested deps are pinned separately, not here
+      const abs = join(d, name);
+      const r = rel ? `${rel}/${name}` : name;
+      let st;
+      try {
+        st = statSync(abs);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) walk(abs, r);
+      else if (st.isFile()) files.push([r, abs]);
+    }
+  };
+  walk(root, '');
+  files.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  const h = createHash('sha256');
+  for (const [r, abs] of files) {
+    h.update(r);
+    h.update('\0');
+    h.update(readFileSync(abs));
+    h.update('\0');
+  }
+  return h.digest('hex').slice(0, 16);
+}
+
 /**
- * A content INTEGRITY hash of the resolved package `spec` — its `package.json` bytes plus its resolved
- * main entry bytes. Version alone is not enough for a research qualification whose evidence depends on
- * the SDK implementation: a locally modified `node_modules/@github/copilot-sdk` carrying the same
- * version can execute different callback/event semantics. This binds the loaded bytes (#611: "package
- * version + integrity/hash where practical"). Undefined when the package cannot be resolved/read.
+ * A content INTEGRITY hash of the resolved package `spec`, covering ALL shipped bytes that can execute
+ * — every conditional-export entry and every transitive implementation file — not just the resolved
+ * entrypoint. Version alone is not enough for a research qualification whose evidence depends on the
+ * SDK implementation: a locally modified `node_modules/@github/copilot-sdk` (a changed `client.js` /
+ * `session.js`, or a different ESM-vs-CJS entry) carrying the same version can execute different
+ * callback/event semantics. This binds the loaded bytes (#611: "package version + integrity/hash where
+ * practical"). Undefined when the package cannot be located/read.
  */
 export function resolvedPackageIntegrity(spec, requireFn) {
-  const req = requireFn || createRequire(import.meta.url);
-  let entry;
+  const root = resolvedPackageRoot(spec, requireFn);
+  if (!root) return undefined;
   try {
-    entry = req.resolve(spec);
-  } catch {
-    return undefined; // not installed → cannot measure
-  }
-  try {
-    const entryBytes = readFileSync(entry);
-    let dir = dirname(entry);
-    let pkgBytes = Buffer.alloc(0);
-    for (let i = 0; i < 12; i++) {
-      const p = join(dir, 'package.json');
-      if (existsSync(p)) {
-        pkgBytes = readFileSync(p);
-        break;
-      }
-      const parent = dirname(dir);
-      if (parent === dir) break;
-      dir = parent;
-    }
-    return sha16(Buffer.concat([pkgBytes, Buffer.from('\0'), entryBytes]));
+    return packageIntegrityHash(root);
   } catch {
     return undefined;
   }

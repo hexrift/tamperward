@@ -5,12 +5,14 @@
 // decisive classifications run against real observations, and CI proves it cannot false-green.
 
 import { describe, it, expect } from 'vitest';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
 // @ts-expect-error - the orchestrator is a plain .mjs harness module, no d.ts
 import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
 // @ts-expect-error - the spike is a plain .mjs harness module, no d.ts
-import { provenanceGate, sha16, resolvedPackageIntegrity } from '../harness/adapters/copilot-sdk-spike.mjs';
+import { provenanceGate, sha16, resolvedPackageIntegrity, packageIntegrityHash } from '../harness/adapters/copilot-sdk-spike.mjs';
 // @ts-expect-error - the fake binding is a plain .mjs test-support module, no d.ts
 import { createFakeBinding } from './support/fake-copilot-binding.mjs';
 
@@ -292,6 +294,20 @@ describe('runEndOfTurnScenario — block + observed continuation', () => {
     expect(r.evidence.findingBindsTarget).toBe(false);
     expect(r.semantic).not.toBe('PROVEN');
   });
+
+  it('a block naming a path that CONTAINS the target as a suffix does not bind (exact location token, not substring)', async () => {
+    // protectedRel is src/keep.spec.ts; the stub blocks naming other/src/keep.spec.ts, which contains
+    // the target as a suffix. A bare `includes` would match; the anchored location token must not.
+    const blockSuffixPath = {
+      decide: (_raw: string, phase: string) =>
+        phase === 'end-of-turn'
+          ? { outcome: 'ok', decision: { verdict: 'deny', reason: 'weakened (other/src/keep.spec.ts:2)' }, wire: JSON.stringify({ decision: 'block', reason: 'weakened (other/src/keep.spec.ts:2)' }) }
+          : { outcome: 'allow', decision: { verdict: 'allow' } },
+    };
+    const r = await runEndOfTurnScenario({ binding: createFakeBinding({ benignProtectedEdit: true, continueOnBlock: true }), adapter: blockSuffixPath, config: CFG() });
+    expect(r.evidence.findingBindsTarget).toBe(false);
+    expect(r.semantic).not.toBe('PROVEN');
+  });
 });
 
 describe('observation boundary — shutdown-window dispatch, runtime-correlatable identity, source provenance', () => {
@@ -356,9 +372,30 @@ describe('observation boundary — shutdown-window dispatch, runtime-correlatabl
     expect(r.semantic).toBe('INCOMPLETE');
   });
 
-  it('the SDK package integrity is measured, and an unmeasurable SDK caps a qualifying run below FULL', async () => {
-    // A genuinely installed package hashes to a stable 16-hex integrity; a missing one is undefined.
-    expect(resolvedPackageIntegrity('vitest')).toMatch(/^[0-9a-f]{16}$/);
+  it('SDK integrity covers TRANSITIVE files, not just the entry (a changed client.js changes the hash; node_modules excluded)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'tw-sdkint-'));
+    try {
+      mkdirSync(join(root, 'dist', 'cjs'), { recursive: true });
+      writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'x', version: '1.0.0' }));
+      writeFileSync(join(root, 'dist', 'index.js'), 'export * from "./client.js";'); // ESM entry
+      writeFileSync(join(root, 'dist', 'cjs', 'index.js'), 'module.exports = require("../client.js");'); // CJS entry
+      writeFileSync(join(root, 'dist', 'client.js'), 'export const a = 1;'); // transitive implementation
+      const h1 = packageIntegrityHash(root);
+      expect(h1).toMatch(/^[0-9a-f]{16}$/);
+      // A transitive file change (entry + package.json unchanged) MUST change the hash.
+      writeFileSync(join(root, 'dist', 'client.js'), 'export const a = 2;');
+      const h2 = packageIntegrityHash(root);
+      expect(h2).not.toBe(h1);
+      // A nested node_modules file is excluded → no change.
+      mkdirSync(join(root, 'node_modules', 'dep'), { recursive: true });
+      writeFileSync(join(root, 'node_modules', 'dep', 'x.js'), 'whatever');
+      expect(packageIntegrityHash(root)).toBe(h2);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('an unmeasurable SDK caps a qualifying run below FULL', async () => {
     expect(resolvedPackageIntegrity('@github/copilot-sdk-does-not-exist')).toBeUndefined();
     // @github/copilot-sdk is not installed in the project, so a qualifying run cannot measure its
     // integrity and must not be FULL; the reason is surfaced.

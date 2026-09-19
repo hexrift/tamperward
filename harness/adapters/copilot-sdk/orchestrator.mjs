@@ -255,11 +255,13 @@ class ScenarioRun {
       } catch {
         reasonText = res?.decision?.reason ?? '';
       }
-      // formatDenial embeds the weakened file's EXACT repo-relative path in the reason. Bind on that
-      // full path (`src/keep.spec.ts`), never the bare basename — a weakening in a different directory
-      // with the same basename (e.g. `other/keep.spec.ts`) would otherwise satisfy the proof for the
-      // wrong file.
-      const findingBindsTarget = block && typeof reasonText === 'string' && reasonText.includes(this.repo.protectedRel);
+      // formatDenial renders each finding's location as `(<repo-relative-path>)` or
+      // `(<repo-relative-path>:<line>)`. Bind on that EXACT location token — a bare `includes` of the
+      // path would also match a different file whose path merely contains the target as a substring or
+      // suffix (e.g. `other/src/keep.spec.ts`). Anchoring on the enclosing parens + optional `:line`
+      // requires the finding to be for the target file itself.
+      const rel = this.repo.protectedRel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const findingBindsTarget = block && typeof reasonText === 'string' && new RegExp(`\\(${rel}(?::\\d+)?\\)`).test(reasonText);
       this.agentStop.landedWeakeningAtStop = targetChanged && findingBindsTarget;
       this.agentStop.findingBindsTarget = findingBindsTarget;
       this.evidence.append({
