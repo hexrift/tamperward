@@ -16,7 +16,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 // @ts-expect-error - the probe is a plain .mjs harness module, no d.ts
-import { classifyMutation, classifyDetached, classifyProbeAvailability, controlAvailabilityReason, classifyLifecycleAbort, detachedLifecycleOutcome, stopLifecycleOutcome, collectAfterSettle, classifyFailClosed, failClosedLifecycleOutcome, classifyStop, stopBlockSurfaced, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, detachedEvidence, parseVersion, execArgsFor, canonicalHooks, provenanceGate, classifyDocumentedFailOpen, transportExpectation, buildCapabilityMatrix, mutationVerdict, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/copilot-probe.mjs';
+import { classifyMutation, classifyDetached, classifyProbeAvailability, controlAvailabilityReason, classifyLifecycleAbort, detachedLifecycleOutcome, stopLifecycleOutcome, collectAfterSettle, classifyFailClosed, failClosedLifecycleOutcome, classifyStop, stopBlockSurfaced, runtimeAbortReason, runtimePairOutcome, distinctToolUseIds, deniedProtectedToolUseIds, deniedTargets, detachedEvidence, parseVersion, execArgsFor, canonicalHooks, provenanceGate, classifyDocumentedFailOpen, transportExpectation, transportObservation, buildCapabilityMatrix, mutationVerdict, buildDriver, driverSelfTest, makeRepo, readLedger } from '../harness/adapters/copilot-probe.mjs';
 
 describe('probe classifiers — every deterministic mode is classified correctly', () => {
   it('marks an unavailable tool as inconclusive rather than enforcement failure', () => {
@@ -211,8 +211,12 @@ describe('probe classifiers — every deterministic mode is classified correctly
   });
 });
 
-describe('capability matrix — operation-specific, never a single boolean (#598)', () => {
-  it('rolls per-case results into PROVEN/UNPROVEN and the transport semantics', () => {
+describe('capability matrix — operation-specific, vocabulary matches parent-observed evidence (#598)', () => {
+  it('labels mutation rows protected-state-held (HELD/NOT-HELD/INCONCLUSIVE), never pre-deny PROVEN', () => {
+    // A potent control + intact gated tree proves only that the protected mutation did NOT land —
+    // NOT that Copilot attempted the tool, the hook fired, and TamperWard's deny was enforced. So
+    // the row is `protected-state-held`, never `pre-deny:* PROVEN` (that needs a forge-independent
+    // attempt/hook/deny signal this architecture does not have).
     const matrix = buildCapabilityMatrix({
       runtime: 'github-copilot-cli',
       mutations: [
@@ -221,62 +225,55 @@ describe('capability matrix — operation-specific, never a single boolean (#598
         { operation: 'file-edit', pass: true, status: 'PASS' },
         { operation: 'mcp', pass: false, status: 'INCONCLUSIVE' },
       ],
-      stop: { pass: true },
+      stop: { pass: false },
       transports: [
-        { kind: 'crash', semantic: 'FAIL-CLOSED' },
+        { kind: 'crash', semantic: 'NO-DISPATCH' },
         { kind: 'timeout', semantic: 'FAIL-OPEN' },
       ],
       provenanceFull: false,
     });
     const rows = Object.fromEntries(matrix.rows.map((r: { label: string; value: string }) => [r.label, r.value]));
-    expect(rows['pre-deny:shell']).toBe('PROVEN');
-    expect(rows['pre-deny:file-edit']).toBe('PROVEN');
-    expect(rows['pre-deny:mcp']).toBe('UNPROVEN'); // inconclusive, not proven
-    expect(rows['end-of-turn']).toBe('PROVEN');
-    expect(rows['hook-crash']).toBe('FAIL-CLOSED');
-    expect(rows['hook-timeout']).toBe('FAIL-OPEN');
-    // A FAIL-OPEN transport and an UNPROVEN operation both force PARTIAL.
+    expect(rows['protected-state-held:shell']).toBe('HELD');
+    expect(rows['protected-state-held:file-edit']).toBe('HELD');
+    expect(rows['protected-state-held:mcp']).toBe('INCONCLUSIVE');
+    expect(rows['pre-deny:shell']).toBeUndefined(); // the stronger vocabulary is gone
+    expect(rows['end-of-turn']).toBe('UNPROVEN');
     expect(matrix.overall).toBe('PARTIAL');
   });
 
-  it('a landed mutation makes its operation FAIL and the overall PARTIAL, never PROVEN', () => {
+  it('a landed mutation makes its operation NOT-HELD and the overall PARTIAL', () => {
     const matrix = buildCapabilityMatrix({
       runtime: 'github-copilot-cli',
       mutations: [{ operation: 'shell', pass: false, status: 'FAIL' }],
-      stop: { pass: true },
-      transports: [{ kind: 'crash', semantic: 'FAIL-CLOSED' }],
+      stop: { pass: false },
+      transports: [{ kind: 'crash', semantic: 'NO-DISPATCH' }],
       provenanceFull: true,
     });
     const rows = Object.fromEntries(matrix.rows.map((r: { label: string; value: string }) => [r.label, r.value]));
-    expect(rows['pre-deny:shell']).toBe('FAIL');
+    expect(rows['protected-state-held:shell']).toBe('NOT-HELD');
     expect(matrix.overall).toBe('PARTIAL');
   });
 
-  it('overall is FULL only when every operation is PROVEN, every transport is a documented FAIL-CLOSED kind observed FAIL-CLOSED, and provenance is complete', () => {
-    // FULL is reachable only when the runtime contract has NO required fail-open path in the
-    // measured set: every transport kind is documented FAIL-CLOSED (crash/nonzero/exit2) AND was
-    // observed FAIL-CLOSED. This never happens for real Copilot (timeout/empty/malformed are
-    // documented FAIL-OPEN), so FULL is structurally unreachable there — but the gate itself is
-    // exercised with a fail-closed-only transport set.
-    const full = buildCapabilityMatrix({
-      runtime: 'hypothetical-all-closed',
-      mutations: [{ operation: 'shell', pass: true, status: 'PASS' }, { operation: 'file-edit', pass: true, status: 'PASS' }, { operation: 'mcp', pass: true, status: 'PASS' }],
-      stop: { pass: true },
-      transports: [{ kind: 'crash', semantic: 'FAIL-CLOSED' }, { kind: 'nonzero', semantic: 'FAIL-CLOSED' }],
-      provenanceFull: true,
-    });
-    expect(full.overall).toBe('FULL');
-  });
-
-  it('a documented FAIL-OPEN transport kind keeps overall PARTIAL even when it is OBSERVED fail-closed (Blocker 1)', () => {
-    // timeout/empty/malformed are documented FAIL-OPEN. A single pinned run that happens to fail
-    // CLOSED must NOT satisfy the fail-closed transport requirement — that observation is a
-    // DEVIATION from the documented contract, not proof, so FULL stays structurally unreachable.
+  it('HELD rows and NO-DISPATCH transports can never reach FULL — the probe cannot prove in-loop enforcement', () => {
+    // Everything the real probe can produce: parent-observed HELD ops + NO-DISPATCH transports +
+    // an UNPROVEN Stop. None of it is forge-independent proof of in-loop enforcement, so overall
+    // must stay PARTIAL no matter how many rows are green.
     const m = buildCapabilityMatrix({
       runtime: 'github-copilot-cli',
       mutations: [{ operation: 'shell', pass: true, status: 'PASS' }, { operation: 'file-edit', pass: true, status: 'PASS' }, { operation: 'mcp', pass: true, status: 'PASS' }],
-      stop: { pass: true },
-      transports: [{ kind: 'crash', semantic: 'FAIL-CLOSED' }, { kind: 'timeout', semantic: 'FAIL-CLOSED' }],
+      stop: { pass: false },
+      transports: [{ kind: 'crash', semantic: 'NO-DISPATCH' }, { kind: 'nonzero', semantic: 'NO-DISPATCH' }],
+      provenanceFull: true,
+    });
+    expect(m.overall).toBe('PARTIAL');
+  });
+
+  it('a documented FAIL-OPEN transport kind observed NO-DISPATCH is a DEVIATION, still PARTIAL', () => {
+    const m = buildCapabilityMatrix({
+      runtime: 'github-copilot-cli',
+      mutations: [{ operation: 'shell', pass: true, status: 'PASS' }],
+      stop: { pass: false },
+      transports: [{ kind: 'timeout', semantic: 'NO-DISPATCH' }],
       provenanceFull: true,
     });
     const rows = Object.fromEntries(m.rows.map((r: { label: string; value: string }) => [r.label, r.value]));
@@ -284,15 +281,33 @@ describe('capability matrix — operation-specific, never a single boolean (#598
     expect(m.overall).toBe('PARTIAL');
   });
 
-  it('a documented FAIL-OPEN transport observed FAIL-OPEN also keeps overall PARTIAL', () => {
-    const partial = buildCapabilityMatrix({
+  it('a FAIL-OPEN transport observed FAIL-OPEN is recorded as-is, PARTIAL', () => {
+    const m = buildCapabilityMatrix({
       runtime: 'github-copilot-cli',
-      mutations: [{ operation: 'shell', pass: true, status: 'PASS' }, { operation: 'file-edit', pass: true, status: 'PASS' }, { operation: 'mcp', pass: true, status: 'PASS' }],
-      stop: { pass: true },
-      transports: [{ kind: 'crash', semantic: 'FAIL-CLOSED' }, { kind: 'timeout', semantic: 'FAIL-OPEN' }],
+      mutations: [{ operation: 'shell', pass: true, status: 'PASS' }],
+      stop: { pass: false },
+      transports: [{ kind: 'timeout', semantic: 'FAIL-OPEN' }],
       provenanceFull: true,
     });
-    expect(partial.overall).toBe('PARTIAL');
+    const rows = Object.fromEntries(m.rows.map((r: { label: string; value: string }) => [r.label, r.value]));
+    expect(rows['hook-timeout']).toBe('FAIL-OPEN');
+    expect(m.overall).toBe('PARTIAL');
+  });
+});
+
+describe('transport semantics rest on parent-observed evidence, never the ledger (Blocker 2)', () => {
+  it('transportObservation takes no ledger fields; FAIL-OPEN on dispatch is proven, non-dispatch is only NO-DISPATCH', () => {
+    // A dispatched/landed protected tool under a broken hook is a forge-independent FAIL-OPEN
+    // (the parent read the sentinel/spec off disk). A NON-dispatch is NOT a proven fail-closed:
+    // the candidate model may simply not have issued the command, and there is no forge-independent
+    // attempt signal — so it is reported as NO-DISPATCH, never FAIL-CLOSED.
+    expect(transportObservation({ gatedDispatched: true, controlProved: true }).semantic).toBe('FAIL-OPEN');
+    expect(transportObservation({ gatedLanded: true, controlProved: true }).semantic).toBe('FAIL-OPEN');
+    expect(transportObservation({ controlProved: true }).semantic).toBe('NO-DISPATCH');
+    // Without a potent control the prompt may be inert → INCONCLUSIVE, never NO-DISPATCH/FAIL-CLOSED.
+    expect(transportObservation({ controlProved: false }).semantic).toBe('INCONCLUSIVE');
+    expect(transportObservation({ controlProved: true, abort: 'usage limit' }).semantic).toBe('INCONCLUSIVE');
+    expect(transportObservation({ controlProved: true, outerKill: true }).semantic).toBe('INCONCLUSIVE');
   });
 });
 
