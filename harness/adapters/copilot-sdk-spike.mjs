@@ -34,10 +34,11 @@
 
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 export const EVIDENCE_SCHEMA_VERSION = 'copilot-sdk-spike/v1';
 
@@ -336,60 +337,119 @@ export function measuredProvenance(sessionModel, hostConfig = {}, runtimeStatus 
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// LAYER (c) DRIVER — argv, real SDK/adapter wiring, rendering (see ./copilot-sdk/orchestrator.mjs)
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Plain argv parsing: --preflight, --scenario <shell|write|failure|stop>, --json <path>, --keep. */
+export function parseArgv(argv) {
+  const opts = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--preflight') opts.preflight = true;
+    else if (a === '--keep') opts.keep = true;
+    else if (a === '--scenario') opts.scenario = argv[++i];
+    else if (a.startsWith('--scenario=')) opts.scenario = a.slice('--scenario='.length);
+    else if (a === '--json') opts.json = argv[++i];
+    else if (a.startsWith('--json=')) opts.json = a.slice('--json='.length);
+    else if (a === '--model') opts.model = argv[++i];
+    else if (a.startsWith('--model=')) opts.model = a.slice('--model='.length);
+  }
+  return opts;
+}
+
+/** Human-readable summary that makes exactly the same claims as the JSON result. */
+export function renderResult(result) {
+  const L = ['', '─'.repeat(72), `Hosted Copilot SDK Phase-0 qualification — runtime ${result.runtime_id}`, '─'.repeat(72)];
+  if (result.mode === 'preflight') {
+    L.push('PREFLIGHT (measurement only — no qualification claim):');
+    for (const [k, v] of Object.entries(result.measured || {})) L.push(`  ${String(k).padEnd(24)} ${v ?? '(unmeasured)'}`);
+    if (result.auth) L.push(`  auth                     ${result.auth.isAuthenticated ? `yes (${result.auth.authType || 'unknown'}${result.auth.login ? `, ${result.auth.login}` : ''})` : 'NO'}`);
+    if (result.models?.length) L.push(`  models                   ${result.models.slice(0, 12).join(', ')}${result.models.length > 12 ? ' …' : ''}`);
+    L.push('', 'Freeze the MEASURED values above as expected pins, then run the qualification (without --preflight).');
+    L.push('─'.repeat(72), 'VERDICT: PREFLIGHT (no qualification asserted)');
+    return L.join('\n');
+  }
+  if (result.provenance) {
+    L.push('Provenance (measured vs expected pin):');
+    for (const k of Object.keys(result.provenance.expected || {})) {
+      L.push(`  ${String(k).padEnd(24)} measured=${result.provenance.measured?.[k] ?? '(unmeasured)'}  expected=${result.provenance.expected?.[k] ?? '(unpinned)'}`);
+    }
+  }
+  if (result.capability_matrix) {
+    L.push('', 'Capability matrix:');
+    for (const row of result.capability_matrix) L.push(`  ${String(row.label).padEnd(32)} ${row.value}`);
+  }
+  if (result.scenarios) {
+    L.push('', 'Scenarios:');
+    for (const s of result.scenarios) L.push(`  ${String(s.id).padEnd(28)} ${s.semantic}${s.reasons?.length ? `  (${s.reasons.join('; ')})` : ''}`);
+  }
+  if (result.reasons?.length) {
+    L.push('', 'Notes:');
+    for (const r of result.reasons) L.push(`  - ${r}`);
+  }
+  L.push('─'.repeat(72), `VERDICT: ${result.overall}`, `Round 4.1 eligible: ${result.round_4_1_eligible ? 'YES' : 'no'}`);
+  return L.join('\n');
+}
+
+/** Compile the neutral adapter (TypeScript) to a temporary ESM module and import it. Live-only: the
+ *  adapter is intentionally unshipped (absent from dist/cli/index.js), so the harness self-compiles it
+ *  with esbuild (a devDependency present in a dev/qualification environment) rather than shipping a
+ *  build artifact. Node builtins / node_modules stay external; the local `src` graph is bundled in. */
+async function loadAdapter() {
+  const esbuild = await import('esbuild');
+  const outfile = join(tmpdir(), `tw-sdk-adapter-${process.pid}-${Date.now()}.mjs`);
+  await esbuild.build({
+    entryPoints: [join(ROOT, 'src/adapters/copilot-sdk/adapter.ts')],
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    packages: 'external',
+    outfile,
+    logLevel: 'silent',
+  });
+  const mod = await import(pathToFileURL(outfile).href);
+  return mod.copilotSdkAdapter;
+}
+
 async function main() {
-  const lines = [
-    'Layer (a) adapter conformance and layer (b) this spike self-test run in CI;',
-    'layer (c) — this real SDK spike — needs a pinned, authenticated @github/copilot-sdk + an EXACT model.',
-    '',
-    'Capability model: pre-deny:shell CANDIDATE, pre-deny:file-edit-content CANDIDATE (conditional on',
-    'surfaced write content; UNSUPPORTED only for a config lacking it), pre-deny:file-edit-path',
-    'AVAILABLE-LIMITED (never a generic pre-deny), end-of-turn:file-edit-content CANDIDATE. FULL is',
-    'reachable only after a pinned run proves those AND the broken decision path fails closed.',
-  ];
+  const opts = parseArgv(process.argv.slice(2));
+  const { buildConfig, runQualification } = await import('./copilot-sdk/orchestrator.mjs');
+  const { createRealBinding } = await import('./copilot-sdk/binding.mjs');
+  const config = buildConfig(opts);
+  if (config.errors.length) {
+    insufficient(['Configuration error:', ...config.errors.map((e) => `  - ${e}`)], config.errors.join('; '));
+    return;
+  }
 
   const sdk = await resolveSdk();
-  if (!sdk) {
-    lines.push('', '@github/copilot-sdk: NOT INSTALLED (set COPILOT_SDK_SPEC or install a pinned build).');
-    insufficient(lines, 'no pinned Copilot SDK available; the Phase-0 spike cannot run');
+  if (!sdk || typeof sdk.CopilotClient !== 'function') {
+    insufficient(
+      ['@github/copilot-sdk: NOT AVAILABLE (install a pinned build, e.g. `npm install --no-save @github/copilot-sdk@<PIN>`, or set COPILOT_SDK_SPEC).'],
+      'no pinned Copilot SDK available; the Phase-0 qualification cannot run',
+    );
     return;
   }
 
-  // The EXACT model the host will pass into createSession — this is what gets bound, not an env label.
-  const sessionModel = process.env.COPILOT_SDK_MODEL;
-  // EXPECTED pins the operator froze; MEASURED is derived from what actually loaded/ran.
-  const expected = {
-    sdk_version: process.env.COPILOT_SDK_VERSION_EXPECTED,
-    runtime_version: process.env.COPILOT_RUNTIME_VERSION_EXPECTED,
-    tamperward_version: process.env.TAMPERWARD_VERSION_EXPECTED,
-    host_config_sha256: process.env.COPILOT_SDK_HOST_CONFIG_SHA256_EXPECTED,
-    network_mode: process.env.COPILOT_SDK_NETWORK_MODE,
-    approval_mode: 'onPermissionRequest',
-    evidence_schema_version: EVIDENCE_SCHEMA_VERSION,
-    model: sessionModel,
-  };
-  // The hosted runtime version is measured from `await client.getStatus()` after connection — the
-  // SDK normally spawns/hosts the Copilot runtime, and #611 requires that version when the SDK
-  // delegates to it. No client is created in this environment, so it is left unmeasured (which,
-  // like any unmeasured pin, keeps the gate below `full` → INSUFFICIENT).
-  const runtimeStatus = undefined; // = await client.getStatus() on a pinned run
-  const measured = measuredProvenance(sessionModel, {}, runtimeStatus);
-  const gate = provenanceGate({ expected, measured });
-  lines.push('', 'Provenance (measured vs expected pin):');
-  for (const k of Object.keys(expected)) {
-    lines.push(`  ${String(k).padEnd(24)} measured=${measured[k] ?? '(unmeasured)'}  expected=${expected[k] ?? '(unpinned)'}`);
-  }
-  if (!gate.full) {
-    lines.push(`  provenance gate: INCOMPLETE — ${gate.reasons.join('; ')}`);
-    insufficient(lines, 'provenance incomplete; a qualifying run must bind the measured SDK/build/config to expected pins and pass an exact model');
+  let adapter;
+  try {
+    adapter = await loadAdapter();
+    if (!adapter || typeof adapter.decide !== 'function') throw new Error('adapter did not export copilotSdkAdapter.decide');
+  } catch (e) {
+    insufficient([`could not build the neutral adapter: ${e && e.message ? e.message : String(e)}`], 'adapter unavailable');
     return;
   }
 
-  // A pinned SDK is present and provenance is complete. Running the four Phase-0 adversarial tests
-  // against the real runtime (wiring copilotSdkAdapter into onPermissionRequest / onAgentStop,
-  // recording host-owned evidence, and classifying) is the qualification work; it is intentionally
-  // gated to a real pinned environment and is not exercised here. Until it runs and every required
-  // path is proven, the hosted route is not eligible.
-  insufficient(lines, 'pinned SDK present but the Phase-0 adversarial suite has not been executed/qualified in this environment');
+  const binding = createRealBinding({ CopilotClient: sdk.CopilotClient });
+  const result = await runQualification({ binding, adapter, config });
+  process.stdout.write(renderResult(result) + '\n');
+  if (config.jsonPath) {
+    writeFileSync(config.jsonPath, JSON.stringify(result, null, 2));
+    process.stdout.write(`\nJSON result written to ${config.jsonPath}\n`);
+  }
+  if (config.keepArtifacts) process.stdout.write('\n(TAMPERWARD_KEEP_SPIKE_ARTIFACTS/--keep set — scenario repos were retained; see evidence paths above)\n');
+  const ok = result.overall === 'FULL' || result.overall === 'PREFLIGHT';
+  process.exit(ok ? 0 : 1);
 }
 
 const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;

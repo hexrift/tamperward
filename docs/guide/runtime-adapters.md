@@ -572,9 +572,16 @@ false-green. `provenanceGate` compares **measured** provenance against expected 
 root — the package does not export `./package.json`) **and** the hosted Copilot **runtime** version
 from `client.getStatus()` (the SDK delegates to a runtime, which #611's freeze requires), plus the
 TamperWard build, host-config hash, and the exact model passed into the session; a mismatch or any
-unmeasured pin caps below `full`, and `auto` never qualifies. The real four-test spike (layer c)
-needs a pinned `@github/copilot-sdk`, credentials, and an exact model, and does **not** run in CI.
-With no pinned SDK the harness reports **INSUFFICIENT** and exits non-zero.
+unmeasured pin caps below `full`, and `auto` never qualifies. Layer (c) is a **real, executable**
+local qualification harness: it instantiates a live `CopilotClient`, connects the hosted runtime,
+measures provenance from `client.getStatus()` / `getAuthStatus()`, then runs the four Phase-0 scenario
+groups (shell pre-deny, native-write/apply-patch pre-deny, broken decision path, end-of-turn block +
+continuation) in isolated disposable repos, wiring `copilotSdkAdapter` into `onPermissionRequest` /
+`hooks.onAgentStop` and recording host-owned evidence. It needs a pinned `@github/copilot-sdk`,
+credentials, and an exact model, and does **not** run in CI — the orchestration itself is CI-tested
+through an injected fake binding + the real adapter (`test/copilot-sdk-qualify.test.ts`). With no
+pinned SDK, no credentials, or a missing/`auto` model the harness reports **INSUFFICIENT** and exits
+non-zero — "could not test" is never "passed".
 
 FULL is not hard-coded away: it is **reachable in principle** once a pinned run proves shell +
 content-aware file-edit + end-of-turn AND the broken decision path fails **closed**. Absent that —
@@ -582,6 +589,63 @@ no pinned run here, or a measured config that surfaces no usable write content �
 is INSUFFICIENT / PARTIAL, and a single observed fail-open is INELIGIBLE. Copilot stays
 `steering: 'neutral'`, the adapter is not registered as a detected runtime, and **no** Round 4.1
 eligibility is claimed until the exact pinned hosted configuration passes the full #482 parity suite.
+
+### Running Layer (c) locally (authenticated, pinned — not CI)
+
+Layer (c) is the decisive experiment and runs **only** on a developer machine with real Copilot
+access; layers (a) and (b) already cover everything CI can prove.
+
+**Prerequisites.** Node `^20.19 || >=22.12` (the SDK's engine range); a working Copilot
+authentication (obtained the normal way — e.g. the `copilot` CLI / `gh` auth the SDK already
+recognises; the harness never reads or stores a token, only `getAuthStatus().authType`); and the SDK
+installed but **unshipped**:
+
+```
+npm install --no-save @github/copilot-sdk@<PIN>
+```
+
+**Two-step workflow — preflight, freeze, then qualify.** First measure, without asserting anything:
+
+```
+COPILOT_SDK_MODEL=<exact-model> npm run spike:copilot-sdk -- --preflight
+```
+
+Preflight connects, prints the **measured** SDK version, runtime version/protocol, model, host-config
+hash and auth mode, and exits without a qualification claim. Freeze those measured values as the
+expected pins, then run the qualification (measured must equal expected — the harness never turns a
+measured value into a pin in the same qualifying run):
+
+```
+COPILOT_SDK_MODEL=<exact-model> \
+COPILOT_SDK_VERSION_EXPECTED=<pin> \
+COPILOT_RUNTIME_VERSION_EXPECTED=<pin> \
+TAMPERWARD_VERSION_EXPECTED=<pin> \
+COPILOT_SDK_HOST_CONFIG_SHA256_EXPECTED=<pin> \
+COPILOT_SDK_NETWORK_MODE=<mode> \
+npm run spike:copilot-sdk
+```
+
+**Flags / modes** (plain argv): `--preflight` (measure only), `--scenario shell|write|failure|stop`
+(run one group), `--json <path>` (persist the machine-readable result), `--keep` (retain the
+disposable scenario repos — also `TAMPERWARD_KEEP_SPIKE_ARTIFACTS=1`; their paths are printed).
+`--model <m>` overrides `COPILOT_SDK_MODEL`. The model may never be empty or `auto`.
+
+**Where results go.** The human summary and the JSON result (`--json`) both carry the same claims:
+`schema_version`, `provenance` (expected + measured + gate), per-scenario `semantic`, the
+`capability_matrix`, `overall`, `round_4_1_eligible`, and `reasons`. Evidence is host-owned and lives
+in memory (never a candidate-writable repo file); scenario repos are removed unless `--keep`.
+
+**Interpreting the verdict.** Per scenario: `PROVEN` / `FAIL-CLOSED` (good), `FAIL-OPEN`,
+`INCOMPLETE`, `INCONCLUSIVE`, `UNSUPPORTED`. Overall: **FULL** (every required path proven + full
+provenance — the only state that sets `round_4_1_eligible: true`), **PARTIAL** (pinned, no fail-open,
+but a required path unproven), **INELIGIBLE** (a required broken path failed open — a single fail-open
+is disqualifying), **INSUFFICIENT** (could not test: no SDK, no creds, unmeasured/mismatched
+provenance, or no exact model). Passing the harness does **not** register a production runtime, flip
+Copilot to `in-loop`, or start Round 4.1 — those remain gated on a maintainer-reviewed pinned FULL run.
+
+If the pinned SDK cannot independently prove `deny → no dispatch` for a mechanism, or `onAgentStop`
+cannot genuinely force and observe a continuation, the harness reports `INCOMPLETE` / `PARTIAL` for
+that exact configuration rather than weakening the bar.
 
 ## Runtime detection in onboarding
 
