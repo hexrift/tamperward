@@ -485,6 +485,104 @@ round is registered. A green CI run proves the build, unit/adapter tests, static
 probe self-test only — **not** runtime qualification (layer c is not run in CI; there is no
 Copilot binary there).
 
+## GitHub Copilot SDK-hosted (EXPERIMENTAL — Phase-0 spike, #611)
+
+A **separate** runtime configuration from the CLI command-hook path above (`github-copilot-cli`,
+which remains PARTIAL and stays the evidence record for the command-hook path). Here TamperWard is
+the **host**: the `@github/copilot-sdk` `onPermissionRequest` callback runs **in-process before
+each tool executes**, and `onAgentStop` (`{decision:"block",reason}`, guarded by `stopHookActive`)
+is the end-of-turn lever. #611 asks whether this hosted path can meet the frozen #482 / Round-4.1
+bar **without moving the goalposts** — it does not silently upgrade the CLI descriptor, and suggests
+the explicit ids `github-copilot-cli` vs `github-copilot-sdk-hosted`.
+
+**Adapter** (`src/adapters/copilot-sdk/*`, `github-copilot-sdk-hosted`). The host JSON-serialises
+each SDK `PermissionRequest` and hands it to `decide`, which opens no second verdict path: a
+**shell** proposal reconstructs its `fullCommandText` through the shared `changesFromCopilot` and
+runs the same `evaluate` engine; the `end-of-turn` sweep delegates to the canonical `stopFromRaw`
+(its `{decision:"block",reason}` wire is already the SDK `onAgentStop` shape); identity is validated
+against the runner's independently derived trusted root. A pre-action deny is the SDK
+`PermissionRequestResult` reject variant — `{kind:"reject", feedback}`, discriminated on `kind`
+(approval is `{kind:"approve-once"}` and kin) — which is distinct from the agentStop
+`{decision:"block"}` shape and from the CLI hook's flat `{permissionDecision:"deny"}`.
+
+**Content-aware file-edit pre-deny is CONDITIONAL.** A `write` `PermissionRequest` surfaces the
+proposed change — `fileName`, a unified `diff`, an `intention`, and optionally the full
+`newFileContents` — so TamperWard **can** judge it before execution: the adapter reconstructs a
+`Change[]` from that content (`newFileContents` → the shared `synthFileChange`; else the `diff` is
+applied by **canonical Git**) and runs the same `evaluate` engine, so a weakened assertion / added
+skip / policy change is denied. TamperWard does **not** re-implement unified-diff semantics: for a
+`diff` it seeds an isolated, host-owned temp tree with the exact current target bytes, binds the
+patch to a fixed in-tree name, and runs `git apply --numstat` (single-file binding), `git apply
+--check`, then `git apply`, reading the result back as the exact `after`. The reconstruction is
+**bound to the request's `fileName`**: the diff's own header paths are validated against it and
+`--numstat` proves it touches exactly one file — a diff naming a different or multiple files fails
+**closed** — but they never place the write, so a path-escaping or mismatched header cannot steer the
+rebuild at a real path. Git owns every diff rule, so stale context, an overlapping/backwards hunk, a
+bad count, or a malformed header makes `git apply` refuse and the request fails **closed** (never a
+no-op allow). The **exact proposed operation** is preserved, never normalized: the diff's `/dev/null`
+endpoints decide create vs delete vs modify, that operation is validated against the observed disk
+state (a create whose target exists, or a modify/delete whose target is absent, fails closed), and it
+is that operation Git reconstructs — a `+++ /dev/null` delete is judged as a real deletion, not an
+empty-file modify; rename/copy/binary/mode-only shapes are rejected. The reconstruction is also
+**bounded before Git is spawned** — a diff past the operator-owned byte/line budget, or a `git apply`
+that exceeds its timeout/output cap, fails **closed**, so a candidate cannot manufacture the very
+decision-path delay #611 is measuring. When both `newFileContents` and a `diff` are supplied the
+Git-reconstructed result must **byte-match** `newFileContents`, or the request is ambiguous and fails
+closed. `DiskEntry.kind` is preserved: only an **absent** target is a create (reconstructed from
+`/dev/null`); an existing target that cannot be read (directory, oversize, irregular) fails
+**closed**, never treated as a create. The **target itself is bound to the trusted repository root**
+before any disk read: a `../` escape, an absolute path outside the root, or an in-repo symlink whose
+real target leaves the root fails **closed** (the SDK's `resolvedPath` is retained only as an
+untrusted claim, compared against the host-derived canonical target — a mismatch denies). Disk
+inspection, `Change.path` and policy use that **canonical root-relative** spelling, so an in-repo
+alias to a protected file is judged as the protected file, not waved through under the alias name. A
+one-sided `---`/`+++` pair, a duplicate `---`/`+++`/`diff --git` header, or any Git file metadata
+without a full endpoint pair is refused rather than repaired into a valid operation.
+This is conditional on what the pinned runtime
+actually provides — a write that surfaces **no usable content** is `unsupported` for that measured
+configuration (allow-through;
+the end-of-turn sweep is the authority), never a **blanket path deny**, which would replace
+content-aware enforcement with stricter path blocking and break the parity the transfer is meant to
+establish. The capability vocabulary is granular, not a single boolean:
+
+```text
+pre-deny:shell                 CANDIDATE          (needs the pinned spike to prove a reject blocks dispatch)
+pre-deny:file-edit-content     CANDIDATE          (conditional: reconstructs from diff / newFileContents; UNSUPPORTED only if a measured config lacks usable content)
+pre-deny:file-edit-path        AVAILABLE-LIMITED  (native write interception seen; never a generic pre-deny)
+end-of-turn:file-edit-content  CANDIDATE
+```
+
+**The decisive unknown (Phase-0 #3).** Whether a **rejected / thrown / timed-out** permission
+handler actually blocks tool dispatch is **undocumented** and can only be MEASURED on a pinned SDK.
+A single observed fail-open on a required path makes the hosted configuration ineligible for #482 /
+Round 4.1. That is why every operation stays a CANDIDATE and `capabilities.preDeny` is empty until
+the pinned spike proves enforcement — including whether the content-aware file-edit deny above is
+actually honoured by the runtime.
+
+**Host-owned evidence.** The spike (`spike:copilot-sdk`, `harness/adapters/copilot-sdk-spike.mjs`)
+records an append-only event stream **in the host process** (the callback runs in-process, not a
+candidate subprocess), so the candidate cannot fabricate the `proposal → callback received → deny →
+no dispatch` chain — a genuine improvement over a candidate-writable ledger. Even so, only the
+**positive** direction is trusted: a dispatched handler / a mutated final state proves fail-open;
+absence of a dispatch is not, by itself, absolute proof nothing ran. The pure classifiers
+(`classifyPreDispatchDeny`, `classifyDecisionPathFailure`, `classifyEndOfTurn`,
+`classifyIdentityBinding`, `buildSpikeMatrix`, `provenanceGate`) run in CI (layer b) and cannot
+false-green. `provenanceGate` compares **measured** provenance against expected pins and binds
+**both** the actual loaded SDK package version (resolved by walking the module entrypoint's package
+root — the package does not export `./package.json`) **and** the hosted Copilot **runtime** version
+from `client.getStatus()` (the SDK delegates to a runtime, which #611's freeze requires), plus the
+TamperWard build, host-config hash, and the exact model passed into the session; a mismatch or any
+unmeasured pin caps below `full`, and `auto` never qualifies. The real four-test spike (layer c)
+needs a pinned `@github/copilot-sdk`, credentials, and an exact model, and does **not** run in CI.
+With no pinned SDK the harness reports **INSUFFICIENT** and exits non-zero.
+
+FULL is not hard-coded away: it is **reachable in principle** once a pinned run proves shell +
+content-aware file-edit + end-of-turn AND the broken decision path fails **closed**. Absent that —
+no pinned run here, or a measured config that surfaces no usable write content — the honest result
+is INSUFFICIENT / PARTIAL, and a single observed fail-open is INELIGIBLE. Copilot stays
+`steering: 'neutral'`, the adapter is not registered as a detected runtime, and **no** Round 4.1
+eligibility is claimed until the exact pinned hosted configuration passes the full #482 parity suite.
+
 ## Runtime detection in onboarding
 
 `tamperward onboard` reports which agent runtime a repository actually hosts and what

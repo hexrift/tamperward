@@ -49,7 +49,8 @@
     "test:perf-smoke": "vitest run --config vitest.perf-smoke.config.ts --no-file-parallelism",
     "check": "node dist/cli/index.js check",
     "probe:codex-runtime": "node harness/adapters/codex-probe.mjs",
-    "probe:copilot-runtime": "node harness/adapters/copilot-probe.mjs"
+    "probe:copilot-runtime": "node harness/adapters/copilot-probe.mjs",
+    "spike:copilot-sdk": "node harness/adapters/copilot-sdk-spike.mjs"
   },
   "dependencies": {
     "picomatch": "^4.0.2",
