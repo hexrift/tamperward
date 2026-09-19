@@ -111,6 +111,8 @@ describe('probe classifiers — every deterministic mode is classified correctly
   it('recognises Copilot runtime exhaustion separately from security failures', () => {
     for (const [expected, output] of [
       ['usage limit reached', "You've hit your usage limit"],
+      ['Copilot CLI blocked by policy', 'Error: Access denied by policy settings'],
+      ['Copilot CLI blocked by policy', 'Your Copilot CLI policy setting may be preventing access'],
       ['authentication failed', 'authentication required'],
       ['model unavailable', 'model unavailable'],
       ['network failure', 'network error'],
