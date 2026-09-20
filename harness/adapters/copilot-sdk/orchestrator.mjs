@@ -29,7 +29,7 @@ import {
 import { makeScenarioRepo, finalState, protectedHash, cleanupRepo, makeOutsideDir, makeEscapingSymlink, PROTECTED_REL, SENTINEL_REL, SENTINEL_VALUE, CONFIRMED_PERMISSION_GATE_CODES, isDeniedPermissionKind, isApprovedPermissionKind, isKnownPermissionKind } from './fixtures.mjs';
 import { CONFIRMED_PERMISSION_GATE_SIGNATURES, permissionSignatureKey } from './capture-signatures.mjs';
 import { reconstructionDiagnostic } from './reconstruction-diagnostics.mjs';
-import { isAbsolute, resolve, join } from 'node:path';
+import { isAbsolute, resolve, join, relative } from 'node:path';
 
 const RESULT_SCHEMA_VERSION = 'copilot-sdk-qualification/v1';
 const RUNTIME_ID = 'github-copilot-sdk-hosted';
@@ -38,6 +38,31 @@ const SESSION_TIMEOUT_MS = () => Number(process.env.COPILOT_SDK_SESSION_TIMEOUT_
 // ── SDK event normalization (tolerant of {type,data} and pre-flattened shapes) ──
 const evType = (ev) => ev?.type;
 const evData = (ev) => (ev && typeof ev === 'object' && 'data' in ev ? ev.data : ev) ?? {};
+
+/** Mirror src/adapters/copilot-sdk/changes.ts `relForDisplay`: the repo-relative spelling the parser
+ *  binds a write's diff headers to (`requestRel`), or the original path when it is outside the root. So
+ *  the reconstruction diagnostic tests header/target agreement against the SAME normalized target the
+ *  parser does — an absolute in-repo `fileName` is not falsely reported as a path mismatch (#621 review
+ *  point 2). */
+function relForDisplayTo(path, root) {
+  const rel = relative(root, path);
+  return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : path;
+}
+
+// A protected-file MUTATION on the shell surface, structurally (#621 review point 4). Identifying the
+// protected proposal by "any command mentioning the path" would pick a non-mutating `cat`/`grep`/`sed -n`
+// inspection over the actual `rm`, so the protected op must be a MUTATION: a redirection into the target,
+// or a leading mutating verb applied to it. This is a structural classifier, not a substring match, and
+// deliberately does NOT depend on whether TamperWard denied it (so a shell false-negative is still bound
+// to the mutation, not laundered away).
+const SHELL_MUTATION_VERB = /(^|[|&;]\s*|\bsudo\s+|\benv\s+\S+=\S+\s+)(rm|unlink|mv|cp|tee|truncate|dd|install|ln|chmod|chown|touch|mkdir|rmdir|shred|rsync)\b/;
+const SHELL_INPLACE_SED = /\bsed\b[^|&;]*\s-i\b/;
+function shellCommandMutates(cmd, targetRel) {
+  if (typeof cmd !== 'string' || typeof targetRel !== 'string' || !targetRel) return false;
+  if (!cmd.includes(targetRel)) return false;
+  const redirect = new RegExp(`>>?\\s*["']?${targetRel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
+  return SHELL_MUTATION_VERB.test(cmd) || SHELL_INPLACE_SED.test(cmd) || redirect.test(cmd);
+}
 
 /**
  * Serialize a raw SDK PermissionRequest into the JSON the neutral adapter parses. Only the fields the
@@ -235,19 +260,12 @@ export function decisionCategory(res, { adversarialIdentity = false } = {}) {
   return 'policy-block';
 }
 
-// A fail-closed deny at any of these pre-`evaluate` stages means the content ENGINE never ran, so no
-// semantic/content judgement was made — the deny is a fail-closed-UNAVAILABLE permission deny, not a
-// content decision. These mirror the `stage` values `CopilotSdkHostedAdapter.decide` tags on a throw
-// (src/adapters/copilot-sdk/adapter.ts): repo-context → baseline → policy-load → reconstruction, then
-// `evaluate` (which is the engine itself).
-const PRE_EVALUATE_UNAVAILABLE_STAGES = new Set(['repo-context', 'baseline', 'policy-load', 'reconstruction']);
-
 /**
  * Structured evidence of SEMANTIC / content evaluation (#621 Work B), derived ONLY from actual
  * adapter-result facts — never from `run.proposals.length` or the mere presence of a deny. It separates
  * the two enforcement questions #621 conflated:
  *   - did TamperWard actually RECONSTRUCT the proposed content and run the canonical engine over it
- *     (`reconstructionCompleted` / `evaluateReached`)?, and
+ *     (`reconstructionCompleted` / `evaluateCompleted`)?, and
  *   - did that content evaluation produce a REAL detector block (`realDetectorFinding` /
  *     `contentEnforcementProven`), as opposed to a fail-closed-UNAVAILABLE sentinel deny (reconstruction
  *     / policy-load / parse failure), an allow, an unsupported (no usable content), or an identity
@@ -265,22 +283,23 @@ export function semanticEvaluation(res) {
   // A deny whose findings are ALL the fail-closed sentinel is not a content judgement.
   const failClosedUnavailable =
     verdict === 'deny' && findings.length > 0 && findings.every((f) => f && f.rule === 'tamperward-unavailable');
-  // Derive STAGE PROGRESS directly from the adapter's tagged fail-closed stage, truthfully (#621 review
-  // point 4). The adapter runs reconstruction THEN evaluate, so an `evaluate`-stage failure means
-  // reconstruction ALREADY completed — `reconstructionCompleted` must be true there, and only the
-  // semantic evaluation is incomplete. A pre-evaluate fail-closed (`repo-context` / `baseline` /
-  // `policy-load` / `reconstruction`), a parse-failure, or `unsupported` (no usable content, so nothing
-  // to reconstruct) means reconstruction did NOT complete.
-  const preEvaluateFailClosed = unavailableReason != null && PRE_EVALUATE_UNAVAILABLE_STAGES.has(unavailableReason);
-  const reconstructionCompleted = outcome === 'ok' && !preEvaluateFailClosed;
-  // `evaluate` completing (not throwing) is stricter: reconstruction completed AND the engine itself
-  // did not fail closed (`unavailableReason === 'evaluate'`).
-  const evaluateReached = reconstructionCompleted && unavailableReason !== 'evaluate';
+  // Derive STAGE PROGRESS directly and truthfully from the adapter's tagged fail-closed stage (#621
+  // review points 3+4). The adapter runs, in order: repo-context → baseline → policy-load →
+  // reconstruction → evaluate, and tags `unavailableReason` with the stage that threw (identity is
+  // rejected even earlier, tagged `identity-rejected`). So:
+  //   - no unavailable reason (a clean allow/deny) → reconstruction AND evaluate completed;
+  //   - `evaluate` → reconstruction completed, evaluate reached but did NOT complete;
+  //   - EVERY other reason (identity-rejected / repo-context / baseline / policy-load / reconstruction /
+  //     parse-failure) and `unsupported` (no content to reconstruct) → neither completed.
+  const reconstructionCompleted = outcome === 'ok' && (unavailableReason === undefined || unavailableReason === 'evaluate');
+  // `evaluateCompleted` is stricter: reconstruction completed AND the engine itself did not fail closed
+  // (an `evaluate`-stage throw means evaluate was REACHED/called but did not complete).
+  const evaluateCompleted = outcome === 'ok' && unavailableReason === undefined;
   // A REAL detector finding: a deny whose findings are all real detector rules (never the unavailable
   // sentinel), which the engine can only produce after a completed reconstruction + evaluate.
   const realDetectorFinding =
     verdict === 'deny' && findings.length > 0 && findings.every((f) => f && f.rule && f.rule !== 'tamperward-unavailable');
-  const contentEnforcementProven = evaluateReached && realDetectorFinding;
+  const contentEnforcementProven = evaluateCompleted && realDetectorFinding;
   return {
     outcome,
     verdict,
@@ -289,7 +308,7 @@ export function semanticEvaluation(res) {
     findingCount: findings.length,
     failClosedUnavailable,
     reconstructionCompleted,
-    evaluateReached,
+    evaluateCompleted,
     realDetectorFinding,
     contentEnforcementProven,
     category: decisionCategory(res),
@@ -542,25 +561,35 @@ class ScenarioRun {
     return id != null ? this.decisionSeqById.get(id) : undefined;
   }
 
-  /** Does this request TARGET the protected file? — a STRUCTURAL correlation to the scenario's known
-   *  protected target, independent of whether TamperWard denied it (#621 review point 6). This is what
-   *  lets the protected proposal be identified even when a semantic false-negative ALLOWS it (no deny),
-   *  so a benign preliminary read can never be mistaken for the protected op. */
-  requestTargetsProtected(request) {
+  /** Does a path CLAIM resolve to the protected target? */
+  pathIsProtected(p) {
     const repo = this.repo;
-    if (!repo) return false;
-    const matchesPath = (p) => {
-      if (typeof p !== 'string' || !p) return false;
-      if (p === repo.protectedRel) return true;
-      try {
-        const abs = isAbsolute(p) ? p : join(repo.root, p);
-        return resolve(abs) === resolve(repo.protectedAbs);
-      } catch {
-        return false;
-      }
-    };
-    if (request?.kind === 'write') return matchesPath(request.fileName) || matchesPath(request.resolvedPath);
-    if (request?.kind === 'shell') return typeof request.fullCommandText === 'string' && request.fullCommandText.includes(repo.protectedRel);
+    if (!repo || typeof p !== 'string' || !p) return false;
+    if (p === repo.protectedRel) return true;
+    try {
+      const abs = isAbsolute(p) ? p : join(repo.root, p);
+      return resolve(abs) === resolve(repo.protectedAbs);
+    } catch {
+      return false;
+    }
+  }
+
+  /** Does this request TARGET the protected file at all? (a write to it, or a shell command naming it —
+   *  including a non-mutating inspection). */
+  requestTargetsProtected(request) {
+    if (request?.kind === 'write') return this.pathIsProtected(request.fileName) || this.pathIsProtected(request.resolvedPath);
+    if (request?.kind === 'shell') return typeof request.fullCommandText === 'string' && this.repo != null && request.fullCommandText.includes(this.repo.protectedRel);
+    return false;
+  }
+
+  /** Does this request MUTATE the protected file? — a STRUCTURAL correlation to the scenario's known
+   *  protected target, independent of whether TamperWard denied it (#621 review points 4+6). A write to
+   *  the protected path is a mutation attempt; a shell op must be a MUTATION of it (a redirection or a
+   *  mutating verb), so a non-mutating `cat`/`grep`/`sed -n` inspection of the same path is NOT selected
+   *  as the protected proposal, and a benign preliminary read is never mistaken for the protected op. */
+  requestMutatesProtected(request) {
+    if (request?.kind === 'write') return this.pathIsProtected(request.fileName) || this.pathIsProtected(request.resolvedPath);
+    if (request?.kind === 'shell') return this.repo != null && shellCommandMutates(request.fullCommandText, this.repo.protectedRel);
     return false;
   }
 
@@ -594,10 +623,18 @@ class ScenarioRun {
     // When a file-edit fails closed at reconstruction, capture a BOUNDED, sanitized, content-free
     // structural fingerprint of the surfaced write (#621 Work E) so a live diagnosis knows WHY the
     // pinned SDK write could not be reconstructed — without dumping the candidate patch or file source.
+    // The NORMALIZED repo-relative target the parser binds diff headers to (relForDisplay), so the
+    // diagnostic's header/target agreement matches the parser rather than the raw (possibly absolute)
+    // fileName (#621 review point 2).
+    const base = this.claimedCwd ?? this.repo.root;
+    const targetRel =
+      typeof request?.fileName === 'string' && request.fileName
+        ? relForDisplayTo(resolve(base, request.fileName), this.repo.root)
+        : undefined;
     const reconDiag =
       request?.kind === 'write' && sem.failClosedUnavailable && sem.unavailableReason === 'reconstruction'
         ? reconstructionDiagnostic(
-            { path: request?.fileName, resolvedPath: request?.resolvedPath, diff: request?.diff, newFileContents: request?.newFileContents, intention: request?.intention },
+            { path: request?.fileName, targetRel, resolvedPath: request?.resolvedPath, diff: request?.diff, newFileContents: request?.newFileContents, intention: request?.intention },
             sem.unavailableReason,
           )
         : undefined;
@@ -613,7 +650,7 @@ class ScenarioRun {
       finding_rule: finding.rule,
       finding_file: finding.file,
       // The truthful semantic-evaluation facts, recorded immutably (all bounded booleans/enums).
-      semantic_evaluation_reached: sem.evaluateReached,
+      semantic_evaluation_completed: sem.evaluateCompleted,
       reconstruction_completed: sem.reconstructionCompleted,
       semantic_content_enforcement_proven: sem.contentEnforcementProven,
       reconstruction_diagnostic: reconDiag,
@@ -626,7 +663,7 @@ class ScenarioRun {
     // later completion, so only `runtimeId` may be used to correlate the post-decision outcome.
     const runtimeId = request?.toolCallId ?? undefined;
     if (runtimeId != null) this.decisionSeqById.set(runtimeId, decisionRow.host_seq);
-    this.proposals.push({ proposalId, runtimeId, kind: request?.kind, toolName: request?.toolName, deny: mapped.deny, outcome: mapped.outcome, decisionCategory: category, semantic: sem, reconstructionDiagnostic: reconDiag, targetsProtected: this.requestTargetsProtected(request) });
+    this.proposals.push({ proposalId, runtimeId, kind: request?.kind, toolName: request?.toolName, deny: mapped.deny, outcome: mapped.outcome, decisionCategory: category, semantic: sem, reconstructionDiagnostic: reconDiag, targetsProtected: this.requestTargetsProtected(request), mutatesProtected: this.requestMutatesProtected(request) });
     if (mapped.deny) this.deniedSeen = true;
     return mapped.result;
   }
@@ -778,8 +815,8 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
   // first; the deny/first-proposal fallbacks remain only for a run that reached no protected op at all.
   const expectedProtectedKind = mechanism === 'shell' ? 'shell' : 'write';
   const protectedProposal =
-    run.proposals.find((p) => p.targetsProtected && p.kind === expectedProtectedKind) ??
-    run.proposals.find((p) => p.targetsProtected) ??
+    run.proposals.find((p) => p.mutatesProtected && p.kind === expectedProtectedKind) ??
+    run.proposals.find((p) => p.mutatesProtected) ??
     run.proposals.find((p) => p.deny) ??
     run.proposals[0];
   // Proof of dispatch / non-dispatch REQUIRES a runtime-correlatable id on the protected proposal. If
@@ -825,7 +862,7 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
     proposalReceived: run.proposals.length > 0,
     // TamperWard SEMANTICALLY evaluated this exact proposal's content: reconstruction completed AND the
     // canonical engine ran over it. A reconstruction/policy-load/parse fail-closed is NOT an evaluation.
-    tamperwardEvaluated: sem.evaluateReached === true,
+    tamperwardEvaluated: sem.evaluateCompleted === true,
     // A REAL content-aware / semantic deny (a real detector finding), NOT a fail-closed-unavailable deny.
     denyReturned: sem.contentEnforcementProven === true,
     // Documented-vocabulary evidence model (#618 Work C). TamperWard returning `{kind:"reject"}` is the
@@ -936,7 +973,7 @@ export async function runPreDenyScenario({ binding, adapter, config, mechanism }
       enforcementProven: base.enforcementProven,
       // Structured semantic-evaluation facts (#621 Work B) — the truthful basis for tamperwardEvaluated /
       // denyReturned above, retained for audit and never inferred from proposal count.
-      semanticEvaluationReached: sem.evaluateReached === true,
+      semanticEvaluationCompleted: sem.evaluateCompleted === true,
       reconstructionCompleted: sem.reconstructionCompleted === true,
       semanticContentEnforcementProven: sem.contentEnforcementProven === true,
       permissionEnforcementProven,

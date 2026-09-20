@@ -15,20 +15,26 @@
 // parser change (#621 Work F) can be driven by captured evidence rather than a guess about the SDK
 // request shape.
 //
-// It is bounded BY CONSTRUCTION: every scan runs over a capped prefix of the candidate string, byte
-// counts are lower bounds flagged `*Truncated` when the cap is hit, and nothing raw (the diff text, the
-// file source, or the request path) is ever returned — only counts, booleans, enum categories, and a
-// salted-free structural hash of the target identity.
+// BOUNDED BY CONSTRUCTION: EVERY read of a candidate-controlled string — usability, byte/line counts,
+// header scan, and the target-identity hash — runs over at most a capped prefix. Counts are lower bounds
+// flagged `*Truncated` when the cap is hit; nothing raw (the diff text, the file source, or the request
+// path) is ever returned — only counts, booleans, enum categories, and a hash of a bounded target token.
 //
 // It models the PARSER'S grammar (canonicalPatch / sdkFileEditChanges), not a second acceptance policy:
 //   - file identity is read ONLY from the header block BEFORE the first `@@ ` hunk (a hunk-body line may
 //     itself begin `---`/`+++`, which the parser leaves to git);
-//   - `new file mode` / `deleted file mode` are SUPPORTED metadata (the parser accepts them when they
-//     agree with the create/delete endpoints); rename/copy/mode-change/binary/similarity are NOT;
+//   - the pre-hunk grammar is TOTAL: the parser throws on ANY unrecognized non-blank pre-hunk line, so
+//     one is reported as `unrecognized-header` rather than laundered into `full-unified-diff`;
+//   - `new file mode` / `deleted file mode` are SUPPORTED metadata when they agree with the create/delete
+//     endpoints, but a DUPLICATE of either is rejected (`duplicate-metadata`); rename/copy/mode-change/
+//     binary/similarity are NOT supported (`unsupported-metadata`);
 //   - a duplicate `---`/`+++` endpoint or more than one `diff --git` is a rejected shape, not a valid
 //     unified diff;
 //   - `newFileContents` is PRESENT when it is a string (including `""`, per the pinned v1.0.14 schema and
-//     `sdkFileEditChanges`); a `diff` is USABLE only when it is non-whitespace (`rawDiff.trim()`).
+//     `sdkFileEditChanges`); a `diff` is USABLE only when it has a non-whitespace char.
+//   - header/target agreement is tested against the NORMALIZED repo-relative target (as the parser's
+//     `requestRel = relForDisplay(abs, cwd)`), not the raw request path, so an absolute in-repo
+//     `fileName` is not falsely reported as a path mismatch.
 
 import { createHash } from 'node:crypto';
 
@@ -40,25 +46,41 @@ const SCAN_MAX_LINES = 20_000;
 
 const sha16 = (s) => createHash('sha256').update(typeof s === 'string' ? s : String(s)).digest('hex').slice(0, 16);
 
-/** A bounded byte count: the UTF-8 length of at most the first SCAN_MAX_CHARS characters. When the
- *  input is longer, `bytes` is a LOWER BOUND and `truncated` is true — the count is never computed over
- *  the whole candidate-controlled string. */
-function boundedBytes(s) {
-  if (typeof s !== 'string' || s.length === 0) return { bytes: 0, truncated: false };
+/** The capped prefix of a string (at most SCAN_MAX_CHARS chars) plus whether it was truncated. Every
+ *  candidate-string read in this module goes through this, so nothing scans the whole input. */
+function cappedPrefix(s) {
+  if (typeof s !== 'string') return { text: '', truncated: false };
   const truncated = s.length > SCAN_MAX_CHARS;
-  const capped = truncated ? s.slice(0, SCAN_MAX_CHARS) : s;
-  return { bytes: Buffer.byteLength(capped, 'utf8'), truncated };
+  return { text: truncated ? s.slice(0, SCAN_MAX_CHARS) : s, truncated };
 }
 
-/** The `\n`-delimited line count over a capped prefix, with the same lower-bound/`truncated` contract. */
+/** A bounded UTF-8 byte count over the capped prefix (a LOWER BOUND flagged `truncated` when capped). */
+function boundedBytes(s) {
+  if (typeof s !== 'string' || s.length === 0) return { bytes: 0, truncated: false };
+  const { text, truncated } = cappedPrefix(s);
+  return { bytes: Buffer.byteLength(text, 'utf8'), truncated };
+}
+
+/** Does the capped prefix contain a non-whitespace char? — a BOUNDED usability check that never calls
+ *  `trim()` over the whole candidate string. */
+function hasNonWhitespaceWithinCap(s) {
+  if (typeof s !== 'string' || s.length === 0) return false;
+  const { text } = cappedPrefix(s);
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c !== 32 && c !== 9 && c !== 10 && c !== 13 && c !== 12 && c !== 11) return true;
+  }
+  return false;
+}
+
+/** The `\n`-delimited line count over the capped prefix, with the same lower-bound/`truncated` contract. */
 function boundedLines(s) {
   if (typeof s !== 'string' || s.length === 0) return { lines: 0, truncated: false };
-  const cappedByChars = s.length > SCAN_MAX_CHARS;
-  const capped = cappedByChars ? s.slice(0, SCAN_MAX_CHARS) : s;
+  const { text, truncated: cappedByChars } = cappedPrefix(s);
   let lines = 1;
   let cappedByLines = false;
-  for (let i = 0; i < capped.length; i++) {
-    if (capped.charCodeAt(i) === 10 /* \n */) {
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) === 10 /* \n */) {
       lines++;
       if (lines >= SCAN_MAX_LINES) {
         cappedByLines = true;
@@ -82,17 +104,17 @@ function endpointToken(line) {
 
 /**
  * Analyze the STRUCTURAL shape of a unified diff, bounded and content-free, modelling the parser's
- * grammar. Returns counts, booleans, and a single `category` enum. `targetRel` is the write's declared
- * repo-relative file target, used ONLY to test header/target path AGREEMENT (a boolean) — it is not
- * surfaced.
+ * grammar. Returns counts, booleans, and a single `category` enum. `targetRel` is the write's NORMALIZED
+ * repo-relative target (as the parser's `requestRel`), used ONLY to test header/target path AGREEMENT (a
+ * boolean) — it is not surfaced.
  */
 function analyzeDiffShape(diff, targetRel) {
-  if (typeof diff !== 'string' || diff.trim() === '') {
+  if (typeof diff !== 'string' || !hasNonWhitespaceWithinCap(diff)) {
     return { category: 'absent', present: false };
   }
   const byteScan = boundedBytes(diff);
   const lineScan = boundedLines(diff);
-  const capped = diff.length > SCAN_MAX_CHARS ? diff.slice(0, SCAN_MAX_CHARS) : diff;
+  const { text: capped } = cappedPrefix(diff);
   const rows = capped.replace(/\r\n/g, '\n').split('\n', SCAN_MAX_LINES + 1).slice(0, SCAN_MAX_LINES);
 
   // Parser fact: file identity is read ONLY from the header block BEFORE the first `@@ ` hunk. Scanning
@@ -108,9 +130,10 @@ function analyzeDiffShape(diff, targetRel) {
   let gitDiffLines = 0;
   let oldDevNull = false;
   let newDevNull = false;
-  let createModeMeta = false; // `new file mode` — SUPPORTED with a create endpoint pair
-  let deleteModeMeta = false; // `deleted file mode` — SUPPORTED with a delete endpoint pair
+  let createModeCount = 0; // `new file mode` — SUPPORTED once, with a create endpoint pair
+  let deleteModeCount = 0; // `deleted file mode` — SUPPORTED once, with a delete endpoint pair
   let unsupportedMetadata = false; // rename/copy/mode-change/binary/similarity — the parser rejects these
+  let unrecognizedHeader = false; // any other non-blank pre-hunk line — the parser's TOTAL grammar throws
   const paths = new Set();
 
   for (const row of header) {
@@ -129,24 +152,33 @@ function analyzeDiffShape(diff, targetRel) {
       gitDiffLines++;
       for (const p of row.slice('diff --git '.length).trim().split(/\s+/)) paths.add(stripPrefix(p));
     } else if (/^new file mode\b/.test(row)) {
-      createModeMeta = true;
+      createModeCount++;
     } else if (/^deleted file mode\b/.test(row)) {
-      deleteModeMeta = true;
+      deleteModeCount++;
+    } else if (/^index /.test(row)) {
+      // recognized, accompanies any op — not shape-defining
     } else if (/^(rename (from|to)|copy (from|to)|old mode|new mode|mode |GIT binary patch|Binary files|similarity index|dissimilarity index)/.test(row)) {
       unsupportedMetadata = true;
+    } else {
+      // The parser's pre-hunk grammar is TOTAL: any other non-blank line fails closed. Model that here
+      // rather than laundering it into a "structurally complete" shape.
+      unrecognizedHeader = true;
     }
-    // `index ...` and unrecognized lines are not shape-defining here (the parser fails closed on the
-    // latter, but naming that reason is not this fingerprint's job — it reports the dominant shape).
   }
 
   const duplicateEndpoint = oldHeaders > 1 || newHeaders > 1;
+  const duplicateModeMetadata = createModeCount > 1 || deleteModeCount > 1;
   const targetNorm = typeof targetRel === 'string' ? stripPrefix(targetRel) : undefined;
   const headerMatchesTarget = targetNorm != null && paths.size > 0 ? [...paths].every((p) => p === targetNorm) : undefined;
   const impliedOperation = oldDevNull && !newDevNull ? 'create' : newDevNull && !oldDevNull ? 'delete' : oldDevNull && newDevNull ? 'ambiguous' : 'modify';
 
-  // One enum naming the dominant shape the parser faced. Order = most-specific-rejection first.
+  // One enum naming the dominant shape the parser faced. Order = most-specific-rejection first; the
+  // parser fails closed on the first grammar violation, so metadata / unrecognized / duplicate shapes
+  // outrank a would-be "structurally complete" reading.
   let category;
   if (unsupportedMetadata) category = 'unsupported-metadata';
+  else if (unrecognizedHeader) category = 'unrecognized-header';
+  else if (duplicateModeMetadata) category = 'duplicate-metadata';
   else if (gitDiffLines > 1 || paths.size > 1) category = 'multiple-file-diff';
   else if (duplicateEndpoint) category = 'duplicate-endpoint';
   else if (oldHeaders === 0 && newHeaders === 0 && hasHunk) category = 'headerless-hunk-only';
@@ -158,7 +190,7 @@ function analyzeDiffShape(diff, targetRel) {
 
   return {
     present: true,
-    usable: diff.trim().length > 0,
+    usable: true,
     byteCount: byteScan.bytes,
     byteCountTruncated: byteScan.truncated,
     lineCount: lineScan.lines,
@@ -170,48 +202,57 @@ function analyzeDiffShape(diff, targetRel) {
     gitDiffLineCount: gitDiffLines,
     distinctHeaderPathCount: paths.size,
     duplicateEndpoint,
+    createModeMetadataCount: createModeCount,
+    deleteModeMetadataCount: deleteModeCount,
+    duplicateModeMetadata,
     oldEndpointDevNull: oldDevNull,
     newEndpointDevNull: newDevNull,
     impliedOperation,
     headerMatchesTarget,
-    createModeMetadata: createModeMeta,
-    deleteModeMetadata: deleteModeMeta,
+    createModeMetadata: createModeCount > 0,
+    deleteModeMetadata: deleteModeCount > 0,
     unsupportedMetadata,
+    unrecognizedHeader,
     category,
   };
 }
 
-/** A bounded, sanitized structural identity for the write target: a hash + shape flags, never the raw
- *  path (which a runtime could surface as an absolute / sensitive / arbitrarily large string). */
+/** A bounded, sanitized structural identity for the write target: a hash of a bounded prefix + shape
+ *  flags, never the raw path (which a runtime could surface as an absolute / sensitive / arbitrarily
+ *  large string). */
 function targetIdentity(target) {
   if (typeof target !== 'string' || target === '') return { present: false };
-  const { bytes, truncated } = boundedBytes(target);
+  const { text, truncated } = cappedPrefix(target);
+  const { bytes } = boundedBytes(target);
   return {
     present: true,
-    hash: sha16(target),
+    hash: sha16(text), // hash of at most the capped prefix, never the whole runtime-supplied string
+    hashTruncated: truncated,
     byteCount: bytes,
     byteCountTruncated: truncated,
-    absolute: /^([/\\]|[A-Za-z]:[/\\])/.test(target.slice(0, 4)),
+    absolute: /^([/\\]|[A-Za-z]:[/\\])/.test(text.slice(0, 4)),
   };
 }
 
 /**
  * The bounded, sanitized reconstruction fingerprint for a Copilot SDK `write` whose content
  * reconstruction failed closed. `args` is the neutral file-edit operation's args
- * ({ path, resolvedPath, diff, newFileContents, intention }); `stage` is the adapter's tagged
- * unavailable_reason (e.g. 'reconstruction'). Nothing here contains the diff text, the file source, the
- * request path, or the exception message — only structural counts, booleans, enum categories, and a
- * hash of the target identity.
+ * ({ path, targetRel?, resolvedPath, diff, newFileContents, intention }); `targetRel` is the NORMALIZED
+ * repo-relative target the parser binds headers to (falls back to `path`). `stage` is the adapter's
+ * tagged unavailable_reason (e.g. 'reconstruction'). Nothing here contains the diff text, the file
+ * source, the request path, or the exception message — only structural counts, booleans, enum
+ * categories, and a hash of a bounded target token.
  */
 export function reconstructionDiagnostic(args = {}, stage) {
   const target = typeof args.path === 'string' ? args.path : undefined;
+  const targetRel = typeof args.targetRel === 'string' ? args.targetRel : target;
   const diff = typeof args.diff === 'string' ? args.diff : undefined;
   // Presence semantics mirror sdkFileEditChanges: `newFileContents` is present when it is a string
-  // (including `""`); a `diff` is USABLE only when non-whitespace (`rawDiff.trim()`).
+  // (including `""`); a `diff` is USABLE only when it has a non-whitespace char (bounded scan).
   const newFileContentsPresent = typeof args.newFileContents === 'string';
-  const diffUsable = typeof diff === 'string' && diff.trim().length > 0;
+  const diffUsable = hasNonWhitespaceWithinCap(diff);
   const newFileContentsBytes = boundedBytes(typeof args.newFileContents === 'string' ? args.newFileContents : undefined);
-  const shape = analyzeDiffShape(diff, target);
+  const shape = analyzeDiffShape(diff, targetRel);
   // The safe, enum-first failure category: what did the runtime surface that could not be reconstructed?
   let failureCategory;
   if (!diffUsable && !newFileContentsPresent) failureCategory = 'no-usable-content';

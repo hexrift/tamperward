@@ -333,7 +333,7 @@ describe('#621 — content-aware pre-deny requires SEMANTIC enforcement, not a r
     expect(r.evidence.decisionCategory).toBe('fail-closed-unavailable');
     expect(r.evidence.unavailableReason).toBe('reconstruction');
     expect(r.evidence.blockingFindingRule).toBe('tamperward-unavailable');
-    expect(r.evidence.semanticEvaluationReached).toBe(false);
+    expect(r.evidence.semanticEvaluationCompleted).toBe(false);
     expect(r.evidence.reconstructionCompleted).toBe(false);
     expect(r.evidence.semanticContentEnforcementProven).toBe(false);
     // PERMISSION enforcement (non-dispatch) IS separately establishable — a fail-closed-unavailable
@@ -346,7 +346,7 @@ describe('#621 — content-aware pre-deny requires SEMANTIC enforcement, not a r
   it('(A) a real reconstructed weakening write (reconstruction + evaluate + real detector block) → content-aware PROVEN', async () => {
     const r = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG(), mechanism: 'write' });
     expect(r.semantic).toBe('PROVEN');
-    expect(r.evidence.semanticEvaluationReached).toBe(true);
+    expect(r.evidence.semanticEvaluationCompleted).toBe(true);
     expect(r.evidence.reconstructionCompleted).toBe(true);
     expect(r.evidence.semanticContentEnforcementProven).toBe(true);
     expect(r.evidence.denyReturned).toBe(true);
@@ -360,7 +360,7 @@ describe('#621 — content-aware pre-deny requires SEMANTIC enforcement, not a r
     expect(r.semantic).toBe('UNSUPPORTED');
     expect(r.evidence.decisionCategory).toBe('unsupported');
     expect(r.evidence.semanticContentEnforcementProven).toBe(false);
-    expect(r.evidence.semanticEvaluationReached).toBe(false);
+    expect(r.evidence.semanticEvaluationCompleted).toBe(false);
   });
 
   it('Work E: a reconstruction fail-closed emits a BOUNDED, sanitized structural diagnostic — no diff text or file source', async () => {
@@ -410,6 +410,18 @@ describe('#621 — content-aware pre-deny requires SEMANTIC enforcement, not a r
     // A landed write (no honoured non-dispatch) is never permission-enforcement-proven.
     const open = await runPreDenyScenario({ binding: createFakeBinding({ benignProtectedEdit: true }), adapter, config: CFG(), mechanism: 'write' });
     expect(open.permissionEnforcementProven).toBe(false);
+  });
+
+  it('shell: a non-mutating inspection (cat) of the protected path before the rm is not the protected proposal (#621 re-review pt 4)', async () => {
+    // With inspectFirst, both `cat src/keep.spec.ts` (read) and `rm src/keep.spec.ts` (mutation) name the
+    // protected path. The protected proposal must be the MUTATING `rm` (correctly denied + not dispatched),
+    // not the `cat` whose successful completion would otherwise read as dispatch / FAIL-OPEN.
+    const r = await runPreDenyScenario({ binding: createFakeBinding({ inspectFirst: true }), adapter, config: CFG(), mechanism: 'shell' });
+    expect(r.evidence.observedTool).toBe('shell'); // the rm, whose toolName is 'shell'
+    expect(r.evidence.mechanismConfirmed).toBe(true);
+    expect(r.evidence.finalStateMutated).toBe(false); // the rm was denied and not dispatched
+    expect(r.evidence.handlerDispatched).toBe(false);
+    expect(r.semantic).toBe('PROVEN');
   });
 });
 
@@ -1224,7 +1236,7 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     // A real detector block from a completed reconstruction + evaluate — content enforcement PROVEN.
     const block = semanticEvaluation({ outcome: 'ok', decision: { verdict: 'deny', findings: [{ rule: 'test-deletion' }] } });
     expect(block.reconstructionCompleted).toBe(true);
-    expect(block.evaluateReached).toBe(true);
+    expect(block.evaluateCompleted).toBe(true);
     expect(block.realDetectorFinding).toBe(true);
     expect(block.contentEnforcementProven).toBe(true);
     expect(block.failClosedUnavailable).toBe(false);
@@ -1234,7 +1246,7 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
       const fc = semanticEvaluation({ outcome: 'ok', unavailableReason: stage, decision: { verdict: 'deny', findings: [{ rule: 'tamperward-unavailable' }] } });
       expect(fc.failClosedUnavailable).toBe(true);
       expect(fc.reconstructionCompleted).toBe(false);
-      expect(fc.evaluateReached).toBe(false);
+      expect(fc.evaluateCompleted).toBe(false);
       expect(fc.contentEnforcementProven).toBe(false);
       expect(fc.category).toBe('fail-closed-unavailable');
     }
@@ -1243,13 +1255,20 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     // evaluate) — only the semantic evaluation is incomplete (#621 review point 4).
     const evalFail = semanticEvaluation({ outcome: 'ok', unavailableReason: 'evaluate', decision: { verdict: 'deny', findings: [{ rule: 'tamperward-unavailable' }] } });
     expect(evalFail.reconstructionCompleted).toBe(true);
-    expect(evalFail.evaluateReached).toBe(false);
+    expect(evalFail.evaluateCompleted).toBe(false);
     expect(evalFail.contentEnforcementProven).toBe(false);
+
+    // An IDENTITY rejection happens BEFORE reconstruction/evaluate run, so neither completed (#621
+    // re-review point 3) — even though outcome is 'ok' with a sentinel deny.
+    const idReject = semanticEvaluation({ outcome: 'ok', unavailableReason: 'identity-rejected', decision: { verdict: 'deny', findings: [{ rule: 'tamperward-unavailable' }] } });
+    expect(idReject.reconstructionCompleted).toBe(false);
+    expect(idReject.evaluateCompleted).toBe(false);
+    expect(idReject.contentEnforcementProven).toBe(false);
 
     // An allow (evaluated, no finding), an unsupported (no usable content), and a parse-failure are all
     // NOT content enforcement.
     expect(semanticEvaluation({ outcome: 'ok', decision: { verdict: 'allow', findings: [] } }).contentEnforcementProven).toBe(false);
-    expect(semanticEvaluation({ outcome: 'ok', decision: { verdict: 'allow', findings: [] } }).evaluateReached).toBe(true);
+    expect(semanticEvaluation({ outcome: 'ok', decision: { verdict: 'allow', findings: [] } }).evaluateCompleted).toBe(true);
     const unsup = semanticEvaluation({ outcome: 'unsupported' });
     expect(unsup.reconstructionCompleted).toBe(false);
     expect(unsup.contentEnforcementProven).toBe(false);
@@ -1335,11 +1354,45 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     expect(s).not.toContain('keeps two');
     expect(s).not.toContain('/abs/secret/path'); // raw path never persisted
 
-    // BOUNDED BY CONSTRUCTION: a huge diff does not produce an unbounded byte count — it is a flagged
-    // lower bound.
+    // PARSER FIDELITY: the pre-hunk grammar is TOTAL — an unrecognized non-blank header line makes the
+    // parser fail closed BEFORE git apply, so it must not read as full-unified-diff (#621 re-review pt 2).
+    const unrecognized = reconstructionDiagnostic(
+      { path: target, diff: `--- a/${target}\n+++ b/${target}\nunexpected header\n@@ -1 +1 @@\n-a\n+b` },
+      'reconstruction',
+    );
+    expect(unrecognized.diffShape.unrecognizedHeader).toBe(true);
+    expect(unrecognized.diffShape.category).toBe('unrecognized-header');
+
+    // PARSER FIDELITY: DUPLICATE create/delete-mode metadata is rejected (not laundered).
+    const dupMode = reconstructionDiagnostic(
+      { path: target, diff: `diff --git a/${target} b/${target}\nnew file mode 100644\nnew file mode 100644\n--- /dev/null\n+++ b/${target}\n@@ -0,0 +1 @@\n+x` },
+      'reconstruction',
+    );
+    expect(dupMode.diffShape.createModeMetadataCount).toBe(2);
+    expect(dupMode.diffShape.duplicateModeMetadata).toBe(true);
+    expect(dupMode.diffShape.category).toBe('duplicate-metadata');
+
+    // TARGET NORMALIZATION: an ABSOLUTE in-repo fileName, normalized (targetRel) to the same repo-relative
+    // path the headers use, must NOT read as a path-header-mismatch (#621 re-review pt 2).
+    const absMatch = reconstructionDiagnostic(
+      { path: `/repo/${target}`, targetRel: target, diff: `--- a/${target}\n+++ b/${target}\n@@ -1 +1 @@\n-a\n+b` },
+      'reconstruction',
+    );
+    expect(absMatch.diffShape.headerMatchesTarget).toBe(true);
+    expect(absMatch.diffShape.category).toBe('full-unified-diff');
+
+    // BOUNDED BY CONSTRUCTION: neither a huge non-whitespace diff, a huge WHITESPACE-only diff (the
+    // `trim()` worst case), nor a huge target string produces an unbounded read — counts are flagged
+    // lower bounds and usability comes from a bounded scan (#621 re-review pt 1).
     const huge = reconstructionDiagnostic({ path: target, diff: 'x'.repeat(5_000_000) }, 'reconstruction');
     expect(huge.diffByteCountTruncated).toBe(true);
     expect(huge.diffByteCount).toBeLessThan(5_000_000);
+    const hugeWs = reconstructionDiagnostic({ path: target, diff: ' '.repeat(5_000_000) }, 'reconstruction');
+    expect(hugeWs.diffUsable).toBe(false);
+    expect(hugeWs.failureCategory).toBe('no-usable-content');
+    const hugeTarget = reconstructionDiagnostic({ path: 'a'.repeat(5_000_000), newFileContents: 'x' }, 'reconstruction');
+    expect(hugeTarget.target.hashTruncated).toBe(true);
+    expect(hugeTarget.target.byteCountTruncated).toBe(true);
   });
 
   it('the fake models the PREVIOUSLY OBSERVED hosted ordering (execution-start before its decision) — a regression guard, not an SDK-contract claim', async () => {
