@@ -42,6 +42,12 @@ import { recordAuditFindings, recordAuditSignal } from './audit';
 export interface HookResult {
   exitCode: number;
   stdout: string;
+  /** The structured blocking findings behind `stdout`, exposed so a programmatic caller can bind a
+   *  block to its target WITHOUT re-parsing the rendered denial text. The shipped hook path (emit)
+   *  reads only `stdout`/`exitCode`, so this is additive and does not change hook output; empty on an
+   *  allow. Consumed by the (unwired) Copilot SDK end-of-turn sweep for structural finding→target
+   *  binding (#616). */
+  findings?: readonly Finding[];
 }
 
 /** The persistent hook service's snapshot cache (src/ptree-cache.ts), or null —
@@ -180,7 +186,9 @@ function verdict(
     });
   }
   const reason = formatDenial(blocks);
-  return { exitCode: 0, stdout: denyWire(reason, kind) };
+  // `findings` mirrors `blocks` so a programmatic caller binds structurally; `stdout`/`exitCode` are
+  // byte-identical to before, so the shipped hook is unaffected (#616).
+  return { exitCode: 0, stdout: denyWire(reason, kind), findings: blocks };
 }
 
 /** PreToolUse: deny the shortcut before the tool runs. Pure — testable without stdin.

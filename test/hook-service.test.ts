@@ -442,17 +442,21 @@ describe('verdict parity: service vs in-process', () => {
       ['deny: payload is an array', '[]'],
       ['allow: empty stdin', ''],
     ];
+    // The IPC contract carries the ENFORCEMENT verdict (exitCode + stdout); the in-process HookResult
+    // also carries a structured `findings` extension for direct programmatic callers (#616), which the
+    // service/client deliberately do not forward. Parity is therefore over the enforcement fields.
+    const enforcement = (r: { exitCode: number; stdout: string } | null) => (r ? { exitCode: r.exitCode, stdout: r.stdout } : r);
     for (const [label, raw] of pre('sid-inproc')) {
       const direct = preToolUseFromRaw(raw, root);
       const remote = await requestVerdict('PreToolUse', raw.replace('sid-inproc', 'sid-service'), { paths: s.paths, cwd: root });
-      expect(remote, label).toEqual(direct);
+      expect(enforcement(remote), label).toEqual(enforcement(direct));
     }
     // Stop, over a tree the turn weakened from the shell.
     writeFileSync(spec, `it.skip('one', () => { expect(1).toBe(1); });\nit('two', () => { expect(2).toBe(2); });\n`);
     const stop = (sid: string) => JSON.stringify({ session_id: sid, cwd: root, stop_hook_active: false });
     const direct = stopFromRaw(stop('sid-inproc'), root);
     expect(direct.stdout).toMatch(/test-skip/);
-    expect(await requestVerdict('Stop', stop('sid-service'), { paths: s.paths, cwd: root })).toEqual(direct);
+    expect(enforcement(await requestVerdict('Stop', stop('sid-service'), { paths: s.paths, cwd: root }))).toEqual(enforcement(direct));
     expect(s.served).toBe(7);
   });
 
@@ -482,13 +486,14 @@ describe('verdict parity: service vs in-process', () => {
     expect(direct.stdout).toMatch(/hook-tampering/);
 
     // The service was started with the restored ambient environment; only the
-    // request carries this Claude config root. The verdict must still match.
+    // request carries this Claude config root. The verdict must still match. Parity is over the
+    // enforcement fields (exitCode + stdout); the in-process `findings` extension is not forwarded (#616).
     const remote = await requestVerdict('PreToolUse', raw, {
       paths: s.paths,
       cwd: root,
       env: { ...process.env, CLAUDE_CONFIG_DIR: config },
     });
-    expect(remote).toEqual(direct);
+    expect({ exitCode: remote?.exitCode, stdout: remote?.stdout }).toEqual({ exitCode: direct.exitCode, stdout: direct.stdout });
   });
 });
 

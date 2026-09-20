@@ -5,7 +5,7 @@
 // decisive classifications run against real observations, and CI proves it cannot false-green.
 
 import { describe, it, expect } from 'vitest';
-import { existsSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
@@ -13,8 +13,10 @@ import { copilotSdkAdapter } from '../src/adapters/copilot-sdk/adapter';
 import { buildConfig, runQualification, runPreDenyScenario, runBrokenPathScenario, runEndOfTurnScenario, assembleResult, serializeRequest, promptHash, classifyHandlerDispatch, decisionCategory, normalizeCompletionEvent } from '../harness/adapters/copilot-sdk/orchestrator.mjs';
 // @ts-expect-error - the fixtures are a plain .mjs harness module, no d.ts
 import { makeScenarioRepo, cleanupRepo, sdkCompletionEventData, PERMISSION_DENIED_CODE, USER_NOT_AVAILABLE_CODE, CANDIDATE_PERMISSION_GATE_CODES, CONFIRMED_PERMISSION_GATE_CODES } from '../harness/adapters/copilot-sdk/fixtures.mjs';
+// @ts-expect-error - capture signatures are a plain .mjs harness module, no d.ts
+import { CONFIRMED_PERMISSION_GATE_SIGNATURES } from '../harness/adapters/copilot-sdk/capture-signatures.mjs';
 // @ts-expect-error - the spike is a plain .mjs harness module, no d.ts
-import { provenanceGate, sha16, resolvedPackageIntegrity, packageIntegrityHash, finalizeQualification, renderResult } from '../harness/adapters/copilot-sdk-spike.mjs';
+import { provenanceGate, sha16, resolvedPackageIntegrity, packageIntegrityHash, finalizeQualification, renderResult, canonicalSdkVersionPin } from '../harness/adapters/copilot-sdk-spike.mjs';
 // @ts-expect-error - the fake binding is a plain .mjs test-support module, no d.ts
 import { createFakeBinding } from './support/fake-copilot-binding.mjs';
 
@@ -23,7 +25,135 @@ const adapter = copilotSdkAdapter as unknown as { decide: (raw: string, phase: s
 // `confirmedDenialCodes` so they can exercise the fail-closed / non-dispatch classification LOGIC. This
 // is explicit: the shipped default (CONFIRMED_PERMISSION_GATE_CODES) is empty, so these tests prove the
 // logic, not that the codes match the live runtime — that is the credentialed rerun's job (#615 review).
-const CFG = (over: Record<string, unknown> = {}) => ({ model: 'gpt-5.4', keepArtifacts: false, expected: {}, errors: [], confirmedDenialCodes: [...CANDIDATE_PERMISSION_GATE_CODES], ...over });
+const TEST_PERMISSION_SIGNATURES = [
+  { path: 'returned-reject', code: PERMISSION_DENIED_CODE, messageHash: sha16(`tool failed: ${PERMISSION_DENIED_CODE}`) },
+  { path: 'callback-failure', code: USER_NOT_AVAILABLE_CODE, messageHash: sha16(`tool failed: ${USER_NOT_AVAILABLE_CODE}`) },
+];
+const CFG = (over: Record<string, unknown> = {}) => ({
+  model: 'gpt-5.4',
+  keepArtifacts: false,
+  expected: {},
+  errors: [],
+  confirmedDenialCodes: [...CANDIDATE_PERMISSION_GATE_CODES],
+  confirmedPermissionSignatures: TEST_PERMISSION_SIGNATURES,
+  ...over,
+});
+
+describe('#616 — live permission signatures and canonical SDK provenance', () => {
+  it('freezes the two credentialed live signatures, never a bare denied code', () => {
+    expect(CONFIRMED_PERMISSION_GATE_SIGNATURES).toEqual([
+      { path: 'returned-reject', code: 'denied', messageHash: '96ed60fc6898cdfa' },
+      { path: 'callback-failure', code: 'denied', messageHash: 'ebf2100b9c49ae12' },
+    ]);
+  });
+
+  it('the frozen classification authority is mechanically bound to the committed capture fixture (#616 lineage)', () => {
+    // The classification constants must not be able to drift from the sanitized evidence record they
+    // claim to come from: derive the authority from the fixture and require an EXACT match. A future
+    // edit to CONFIRMED_PERMISSION_GATE_SIGNATURES must therefore change the committed evidence too.
+    const fixturePath = join(__dirname, '..', 'harness', 'adapters', 'copilot-sdk', 'evidence', 'capture-2026-09-20.json');
+    const capture = JSON.parse(readFileSync(fixturePath, 'utf8')) as {
+      signatures: Array<{ path: string; completion: { error_code: string; message_hash: string } }>;
+    };
+    const fromFixture = capture.signatures.map((s) => ({ path: s.path, code: s.completion.error_code, messageHash: s.completion.message_hash }));
+    expect(CONFIRMED_PERMISSION_GATE_SIGNATURES).toEqual(fromFixture);
+  });
+
+  it('every frozen signature is justified by post-boundary, same-target sanitized observations (#616 lineage)', () => {
+    const fixturePath = join(__dirname, '..', 'harness', 'adapters', 'copilot-sdk', 'evidence', 'capture-2026-09-20.json');
+    const capture = JSON.parse(readFileSync(fixturePath, 'utf8')) as {
+      source_artifact_sha256: string;
+      signatures: Array<{
+        path: string;
+        completion: { success: boolean; error_code: string; message_hash: string };
+        observations: Array<{ scenario: string; proposal_id_hash: string; boundary_host_seq: number; completion_host_seq: number; protected_state_mutated: boolean }>;
+      }>;
+    };
+    // The lineage is anchored to the ORIGINAL credentialed artifact's SHA-256 (its immutable identity);
+    // it must be a real 64-hex digest, never null/pending or a fabricated value.
+    expect(capture.source_artifact_sha256).toMatch(/^[0-9a-f]{64}$/);
+    // Each frozen signature is backed by ≥1 sanitized observation whose completion matches the signature,
+    // recorded strictly AFTER the decision/callback boundary, on an opaque (sha16) proposal id, with the
+    // protected state intact. This is the evidence-rows → signatures link of the lineage.
+    for (const sig of CONFIRMED_PERMISSION_GATE_SIGNATURES as ReadonlyArray<{ path: string; code: string; messageHash: string }>) {
+      const row = capture.signatures.find((s) => s.path === sig.path);
+      expect(row, sig.path).toBeTruthy();
+      if (!row) continue;
+      expect(row.completion.success).toBe(false);
+      expect(row.completion.error_code).toBe(sig.code);
+      expect(row.completion.message_hash).toBe(sig.messageHash);
+      expect(row.observations.length).toBeGreaterThanOrEqual(1);
+      for (const o of row.observations) {
+        expect(o.proposal_id_hash, o.scenario).toMatch(/^[0-9a-f]{16}$/); // sha16(proposal_id) convention
+        expect(o.completion_host_seq, o.scenario).toBeGreaterThan(o.boundary_host_seq); // post-boundary
+        expect(o.protected_state_mutated, o.scenario).toBe(false); // protected state intact
+        expect(typeof o.scenario).toBe('string');
+      }
+    }
+  });
+
+  it('requires path + code + message hash for live non-dispatch authority', () => {
+    const completion = {
+      completions: [{ completeSeq: 3, outcome: 'error', errorCategory: 'denied', errorHash: '96ed60fc6898cdfa' }],
+    };
+    expect(classifyHandlerDispatch({
+      mutated: false,
+      completion,
+      boundarySeq: 2,
+      permissionPath: 'returned-reject',
+      confirmedPermissionSignatures: CONFIRMED_PERMISSION_GATE_SIGNATURES,
+    })).toMatchObject({ handlerDispatched: false });
+
+    expect(classifyHandlerDispatch({
+      mutated: false,
+      completion,
+      boundarySeq: 2,
+      permissionPath: 'callback-failure',
+      confirmedPermissionSignatures: CONFIRMED_PERMISSION_GATE_SIGNATURES,
+    })).toMatchObject({ handlerDispatched: undefined });
+
+    expect(classifyHandlerDispatch({
+      mutated: false,
+      completion: { completions: [{ completeSeq: 3, outcome: 'error', errorCategory: 'denied', errorHash: 'wrong' }] },
+      boundarySeq: 2,
+      permissionPath: 'returned-reject',
+      confirmedPermissionSignatures: CONFIRMED_PERMISSION_GATE_SIGNATURES,
+    })).toMatchObject({ handlerDispatched: undefined });
+  });
+
+  it('canonicalizes the Copilot SDK package pin regardless of npm-spec casing', () => {
+    expect(canonicalSdkVersionPin('@GitHub/copilot-sdk@1.0.14')).toBe('@github/copilot-sdk@1.0.14');
+    expect(canonicalSdkVersionPin('@github/copilot-sdk@1.0.14')).toBe('@github/copilot-sdk@1.0.14');
+  });
+
+  it('provenance gate accepts equivalent canonical Copilot SDK package casing', () => {
+    const expected = {
+      sdk_version: '@GitHub/copilot-sdk@1.0.14',
+      runtime_version: 'copilot-runtime@1.0.85',
+      tamperward_version: 'tamperward@2.31.0',
+      host_config_sha256: 'abc',
+      network_mode: 'verified',
+      approval_mode: 'onPermissionRequest',
+      evidence_schema_version: 'copilot-sdk-spike/v1',
+      model: 'gpt-5.4',
+    };
+    const measured = { ...expected, sdk_version: '@github/copilot-sdk@1.0.14', tool_surface: 'bash' };
+    expect(provenanceGate({ expected, measured }).full).toBe(true);
+  });
+
+  it('records a sanitized unavailable_reason on a fail-closed decision, so a live diagnosis knows WHY (#616 item C)', async () => {
+    // A cross-repo identity claim fails closed at the real adapter; the decision evidence row must carry
+    // the bounded cause category (identity-rejected), not just an opaque tamperward-unavailable.
+    const r = await runBrokenPathScenario({ binding: createFakeBinding({}), adapter, config: CFG(), breakage: 'cross-repo' });
+    const denyRow = r.evidenceRows.find((e: { stage?: string; tamperward_decision?: string }) => e.stage === 'decision' && e.tamperward_decision === 'deny');
+    expect(denyRow).toBeTruthy();
+    expect(denyRow.decision_category).toBe('identity-rejected');
+    expect(denyRow.unavailable_reason).toBe('identity-rejected');
+    // A plain allow decision never carries a cause category.
+    const allowRow = r.evidenceRows.find((e: { stage?: string; tamperward_decision?: string }) => e.stage === 'decision' && e.tamperward_decision === 'allow');
+    if (allowRow) expect(allowRow.unavailable_reason).toBeUndefined();
+  });
+});
 
 describe('buildConfig — exact model is required, auto is forbidden', () => {
   it('errors when the model is missing', () => {
@@ -277,8 +407,8 @@ describe('runEndOfTurnScenario — block + observed continuation', () => {
     const blockNamingOtherFile = {
       decide: (_raw: string, phase: string) =>
         phase === 'end-of-turn'
-          ? { outcome: 'ok', decision: { verdict: 'deny', reason: 'weakened src/other.ts' }, wire: JSON.stringify({ decision: 'block', reason: 'weakened src/other.ts' }) }
-          : { outcome: 'allow', decision: { verdict: 'allow' } },
+          ? { outcome: 'ok', decision: { verdict: 'deny', findings: [{ rule: 'test-deletion', severity: 'block', file: 'src/other.ts' }], reason: 'weakened src/other.ts' }, wire: JSON.stringify({ decision: 'block', reason: 'weakened src/other.ts' }) }
+          : { outcome: 'allow', decision: { verdict: 'allow', findings: [] } },
     };
     const r = await runEndOfTurnScenario({ binding: createFakeBinding({ benignProtectedEdit: true, continueOnBlock: true }), adapter: blockNamingOtherFile, config: CFG() });
     expect(r.evidence.landedWeakening).toBe(true); // the file DID change at the end...
@@ -303,31 +433,50 @@ describe('runEndOfTurnScenario — block + observed continuation', () => {
   });
 
   it('a block naming a DIFFERENT file with the same BASENAME does not bind to the target (exact repo-relative path, not basename)', async () => {
-    // protectedRel is src/keep.spec.ts; the stub blocks naming other/keep.spec.ts. The bare basename
-    // "keep.spec.ts" appears in the reason, but the exact path does not, so the finding is NOT bound.
+    // protectedRel is src/keep.spec.ts; the stub blocks with a STRUCTURED finding for other/keep.spec.ts.
+    // The basename matches but the repo-relative path does not, so structural binding must NOT bind it.
     const blockOtherDir = {
       decide: (_raw: string, phase: string) =>
         phase === 'end-of-turn'
-          ? { outcome: 'ok', decision: { verdict: 'deny', reason: 'weakened (other/keep.spec.ts:2)' }, wire: JSON.stringify({ decision: 'block', reason: 'weakened (other/keep.spec.ts:2)' }) }
-          : { outcome: 'allow', decision: { verdict: 'allow' } },
+          ? { outcome: 'ok', decision: { verdict: 'deny', findings: [{ rule: 'test-deletion', severity: 'block', file: 'other/keep.spec.ts', line: 2 }], reason: 'weakened (other/keep.spec.ts:2)' }, wire: JSON.stringify({ decision: 'block', reason: 'weakened (other/keep.spec.ts:2)' }) }
+          : { outcome: 'allow', decision: { verdict: 'allow', findings: [] } },
     };
     const r = await runEndOfTurnScenario({ binding: createFakeBinding({ benignProtectedEdit: true, continueOnBlock: true }), adapter: blockOtherDir, config: CFG() });
     expect(r.evidence.findingBindsTarget).toBe(false);
     expect(r.semantic).not.toBe('PROVEN');
   });
 
-  it('a block naming a path that CONTAINS the target as a suffix does not bind (exact location token, not substring)', async () => {
-    // protectedRel is src/keep.spec.ts; the stub blocks naming other/src/keep.spec.ts, which contains
-    // the target as a suffix. A bare `includes` would match; the anchored location token must not.
+  it('a block naming a path that CONTAINS the target as a suffix does not bind (exact resolved path, not substring)', async () => {
+    // protectedRel is src/keep.spec.ts; the stub blocks with a STRUCTURED finding for
+    // other/src/keep.spec.ts, which contains the target as a suffix. A bare `includes`/suffix compare
+    // would match; the resolved-path structural compare must not.
     const blockSuffixPath = {
       decide: (_raw: string, phase: string) =>
         phase === 'end-of-turn'
-          ? { outcome: 'ok', decision: { verdict: 'deny', reason: 'weakened (other/src/keep.spec.ts:2)' }, wire: JSON.stringify({ decision: 'block', reason: 'weakened (other/src/keep.spec.ts:2)' }) }
-          : { outcome: 'allow', decision: { verdict: 'allow' } },
+          ? { outcome: 'ok', decision: { verdict: 'deny', findings: [{ rule: 'test-deletion', severity: 'block', file: 'other/src/keep.spec.ts', line: 2 }], reason: 'weakened (other/src/keep.spec.ts:2)' }, wire: JSON.stringify({ decision: 'block', reason: 'weakened (other/src/keep.spec.ts:2)' }) }
+          : { outcome: 'allow', decision: { verdict: 'allow', findings: [] } },
     };
     const r = await runEndOfTurnScenario({ binding: createFakeBinding({ benignProtectedEdit: true, continueOnBlock: true }), adapter: blockSuffixPath, config: CFG() });
     expect(r.evidence.findingBindsTarget).toBe(false);
     expect(r.semantic).not.toBe('PROVEN');
+  });
+
+  it('binds STRUCTURALLY to the protected target from the sweep finding, not the rendered reason text (#616 item D)', async () => {
+    // The rendered reason carries NO `(path)` location token — the old regex-over-reason binding would
+    // have failed here (exactly the live-capture symptom: findingBindsTarget=false despite a real block
+    // on the changed target). Structural binding reads the finding's `file` and binds regardless.
+    const blockStructuralTarget = {
+      decide: (_raw: string, phase: string) =>
+        phase === 'end-of-turn'
+          ? { outcome: 'ok', decision: { verdict: 'deny', findings: [{ rule: 'test-deletion', severity: 'block', file: 'src/keep.spec.ts', line: 2 }], reason: 'a protected test was weakened' }, wire: JSON.stringify({ decision: 'block', reason: 'a protected test was weakened' }) }
+          : { outcome: 'allow', decision: { verdict: 'allow', findings: [] } },
+    };
+    const r = await runEndOfTurnScenario({ binding: createFakeBinding({ continueOnBlock: true }), adapter: blockStructuralTarget, config: CFG() });
+    expect(r.evidence.targetChangedAtStop).toBe(true);
+    expect(r.evidence.findingBindsTarget).toBe(true); // bound from finding.file, no reason-text parse
+    expect(r.evidence.findingFile).toBe('src/keep.spec.ts');
+    expect(r.evidence.findingRule).toBe('test-deletion');
+    expect(r.semantic).toBe('PROVEN');
   });
 });
 
@@ -867,18 +1016,19 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     expect(r.evidence.dispatchBasis).toBe('protected-mutation');
   });
 
-  it('with the shipped default (no confirmed codes), a broken decision path is INCONCLUSIVE, not FAIL-CLOSED (#615 final blocker)', async () => {
-    // Same broken-callback scenario as the FAIL-CLOSED test above, but with the shipped empty confirmed
-    // set: the withheld tool's completion code is not yet established, so non-dispatch cannot be proven
-    // and the path stays INCONCLUSIVE. Mutation would still be authoritative FAIL-OPEN (see above).
-    const r = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: false }), adapter, config: CFG({ confirmedDenialCodes: [] }), breakage: 'sync-throw' });
+  it('with NO confirmed authority (no codes, no signatures), a broken decision path is INCONCLUSIVE, not FAIL-CLOSED (#615/#616)', async () => {
+    // Same broken-callback scenario as the FAIL-CLOSED test above, but with NO confirmed authority at
+    // all — neither codes nor permission-path signatures: the withheld tool's completion signature is
+    // not established, so non-dispatch cannot be proven and the path stays INCONCLUSIVE. Mutation would
+    // still be authoritative FAIL-OPEN (see above).
+    const r = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: false }), adapter, config: CFG({ confirmedDenialCodes: [], confirmedPermissionSignatures: [] }), breakage: 'sync-throw' });
     expect(r.evidence.finalStateMutated).toBe(false);
     expect(r.evidence.handlerDispatched).toBeUndefined();
     expect(r.semantic).toBe('INCONCLUSIVE');
   });
 
-  it('with the shipped default (no confirmed codes), a pre-deny is INCOMPLETE with no non-dispatch proof (#615 final blocker)', async () => {
-    const r = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG({ confirmedDenialCodes: [] }), mechanism: 'shell' });
+  it('with NO confirmed authority (no codes, no signatures), a pre-deny is INCOMPLETE with no non-dispatch proof (#615/#616)', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG({ confirmedDenialCodes: [], confirmedPermissionSignatures: [] }), mechanism: 'shell' });
     expect(r.evidence.finalStateMutated).toBe(false);
     expect(r.evidence.handlerDispatched).toBeUndefined();
     expect(r.evidence.dispatchBasis).toBe('insufficient-post-decision-evidence');
