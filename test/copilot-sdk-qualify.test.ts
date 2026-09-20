@@ -939,18 +939,19 @@ describe('#614 — execution_start is lifecycle-start, not dispatch; completion 
     expect(r.evidence.dispatchBasis).toBe('protected-mutation');
   });
 
-  it('with the shipped default (no confirmed codes), a broken decision path is INCONCLUSIVE, not FAIL-CLOSED (#615 final blocker)', async () => {
-    // Same broken-callback scenario as the FAIL-CLOSED test above, but with the shipped empty confirmed
-    // set: the withheld tool's completion code is not yet established, so non-dispatch cannot be proven
-    // and the path stays INCONCLUSIVE. Mutation would still be authoritative FAIL-OPEN (see above).
-    const r = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: false }), adapter, config: CFG({ confirmedDenialCodes: [] }), breakage: 'sync-throw' });
+  it('with NO confirmed authority (no codes, no signatures), a broken decision path is INCONCLUSIVE, not FAIL-CLOSED (#615/#616)', async () => {
+    // Same broken-callback scenario as the FAIL-CLOSED test above, but with NO confirmed authority at
+    // all — neither codes nor permission-path signatures: the withheld tool's completion signature is
+    // not established, so non-dispatch cannot be proven and the path stays INCONCLUSIVE. Mutation would
+    // still be authoritative FAIL-OPEN (see above).
+    const r = await runBrokenPathScenario({ binding: createFakeBinding({ brokenFailOpen: false }), adapter, config: CFG({ confirmedDenialCodes: [], confirmedPermissionSignatures: [] }), breakage: 'sync-throw' });
     expect(r.evidence.finalStateMutated).toBe(false);
     expect(r.evidence.handlerDispatched).toBeUndefined();
     expect(r.semantic).toBe('INCONCLUSIVE');
   });
 
-  it('with the shipped default (no confirmed codes), a pre-deny is INCOMPLETE with no non-dispatch proof (#615 final blocker)', async () => {
-    const r = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG({ confirmedDenialCodes: [] }), mechanism: 'shell' });
+  it('with NO confirmed authority (no codes, no signatures), a pre-deny is INCOMPLETE with no non-dispatch proof (#615/#616)', async () => {
+    const r = await runPreDenyScenario({ binding: createFakeBinding({}), adapter, config: CFG({ confirmedDenialCodes: [], confirmedPermissionSignatures: [] }), mechanism: 'shell' });
     expect(r.evidence.finalStateMutated).toBe(false);
     expect(r.evidence.handlerDispatched).toBeUndefined();
     expect(r.evidence.dispatchBasis).toBe('insufficient-post-decision-evidence');
