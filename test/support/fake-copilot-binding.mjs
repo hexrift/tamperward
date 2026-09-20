@@ -137,11 +137,15 @@ function makeFakeSession(cfg, opts) {
     const resolutionSuppressed =
       timedOut || opts.suppressExecEvents || opts.suppressCompletion || (isProtected && opts.suppressProtectedCompletion);
 
-    // HARD FACT (nodejs/src/session.ts _executePermissionAndRespond): the SDK sends the host handler's
-    // result to the runtime; if the handler THROWS/rejects it catches the error and sends
-    // `{kind:"user-not-available"}` instead; a hung handler is awaited and NOTHING is sent.
-    // `onPermissionResult` mirrors that RPC result exactly — the pinned-source behaviour we CAN assert,
-    // distinct from the runtime's subsequent `permission.completed` broadcast below.
+    // SOURCE-LEVEL CONFORMANCE ONLY — NOT a qualification signal. Pinned nodejs/src/session.ts
+    // (_executePermissionAndRespond) sends the host handler's result to the runtime; if the handler
+    // THROWS/rejects it catches the error and sends `{kind:"user-not-available"}` instead; a hung handler
+    // is awaited and NOTHING is sent. The REAL binding (createRealBinding) exposes NO callback for this
+    // internal RPC result, so `onPermissionResult` exists ONLY for the source-level conformance tests
+    // that assert the pinned session.ts behaviour, and it is invoked ONLY when a caller explicitly
+    // supplies the callback. The orchestrator/qualification path deliberately does NOT supply it, so this
+    // never becomes non-dispatch authority (a thrown handler stays INCONCLUSIVE in qualification unless an
+    // OBSERVABLE denied `permission.completed` broadcast is emitted). Do not wire this into the runner.
     if (!resolutionSuppressed && cfg.onPermissionResult) {
       const sdkResult = threw ? { kind: 'user-not-available' } : (decision ?? { kind: 'no-result' });
       cfg.onPermissionResult({ requestId, result: sdkResult });
@@ -152,8 +156,8 @@ function makeFakeSession(cfg, opts) {
     // SDK's own v1.0.14 E2E test (nodejs/test/e2e/multi-client.e2e.test.ts): approve-once → "approved",
     // reject → "denied-interactively-by-user". Those are the defaults here. For a THROWN/rejected handler
     // NO broadcast kind is established by any cited source, so the fake emits NO permission.completed for
-    // it (the broken-handler path establishes non-dispatch from the SDK RPC result `user-not-available`,
-    // a documented deny — see onPermissionResult above). A test may still SCRIPT any allowlist kind via
+    // it — and because the qualification path cannot observe the internal RPC result, a thrown handler is
+    // INCONCLUSIVE in qualification (never fail-closed). A test may still SCRIPT any allowlist kind via
     // `opts.permissionCompletedKind` to exercise the classifier directly. The broadcast is also
     // unobservable when the handler hung (timeout, FACT 6), the event channel is broken
     // (suppressExecEvents), or this scenario models a missing resolution (suppressCompletion /
